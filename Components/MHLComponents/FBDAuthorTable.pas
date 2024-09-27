@@ -177,16 +177,16 @@ type
   end;
 
 resourcestring
-   rstrLastName = 'Прізвище';
-   rstrFirstName = 'Ім''я';
-   rstrMiddleName = 'По батькові';
+   rstrLastName = 'Фамилия';
+   rstrFirstName = 'Имя';
+   rstrMiddleName = 'Отчество';
    rstrNickName = 'Nick';
    rstrEmail = 'Email';
    rstrHomepage = 'Homepage';
-   rstrAdd = 'Додати';
-   rstrChange = 'Змінити';
-   rstrDelete = 'Видалити';
-   rstrAddFromList = 'Зі списку';
+   rstrAdd = 'Добавить';
+   rstrChange = 'Изменить';
+   rstrDelete = 'Удалить';
+   rstrAddFromList = 'Из списка';
 
 implementation
 

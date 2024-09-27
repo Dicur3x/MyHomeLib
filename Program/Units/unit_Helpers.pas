@@ -232,58 +232,58 @@ type
 
 resourcestring
 //fnGenreList
-   rstrGenreListDlgTitle = 'Вибір списку жанрів';
-   rstrGenreListDlgFilter = 'Список жанрів MyHomeLib (*.glst)|*.glst|Всі типи|*.*';
+   rstrGenreListDlgTitle = 'Выбор списка жанров';
+   rstrGenreListDlgFilter = 'Список жанров MyHomeLib (*.glst)|*.glst|Все типы|*.*';
    rstrGenreListDlgDefaultExt = GENRELIST_EXTENSION_SHORT;
 
    // fnOpenCollection
-   rstrOpenCollectionDlgTitle = 'Відкрити файл колекції';
+   rstrOpenCollectionDlgTitle = 'Открыть файл коллекции';
    // fnSaveCollection
-   rstrSaveCollectionDlgTitle = 'Зберегти файл колекції';
-   rstrCollectionDlgFilter = 'Колекція MyHomeLib (*.hlc2)|*.hlc2|Всі типи|*.*';
+   rstrSaveCollectionDlgTitle = 'Сохранить файл коллекции';
+   rstrCollectionDlgFilter = 'Коллекция MyHomeLib (*.hlc2)|*.hlc2|Все типы|*.*';
    rstrCollectionDlgDefaultExt = COLLECTION_EXTENSION_SHORT;
 
    // fnSelectReader
-   rstrSelectReaderDlgTitle = 'Вибір програми для перегляду';
+   rstrSelectReaderDlgTitle = 'Выбор программы для просмотра';
    // fnSelectScript
-   rstrSelectScriptDlgTitle = 'Вибір скрипта';
-   rstrSelectProgrammDlgFilter = 'Скрипти, програми (*.exe;*.bat;*.cmd;*.vbs;*.js)|*.exe;*.bat;*.cmd;*.vbs;*.js|Всі типи |*.*';
+   rstrSelectScriptDlgTitle = 'Выбор скрипта';
+   rstrSelectProgrammDlgFilter = 'Скрипты, программы (*.exe;*.bat;*.cmd;*.vbs;*.js)|*.exe;*.bat;*.cmd;*.vbs;*.js|Все типы |*.*';
    rstrSelectProgrammDlgDefaultExt = 'exe';
 
    // fnOpenImportFile
-   rstrOpenImportFileDlgTitle = 'Відкрити xml';
+   rstrOpenImportFileDlgTitle = 'Открыть xml';
    // fnSaveImportFile
-   rstrSaveImportFileDlgTitle = 'Зберегти xml';
+   rstrSaveImportFileDlgTitle = 'Сохранить xml';
    rstrImportFileDlgFilter = 'xml (*.xml)|*.xml|Всі типи|*.*';
    rstrImportFileDlgDefaultExt = 'xml';
 
    // fnSaveLog
-   rstrSaveLogDlgTitle = 'Зберегти лог роботи';
-   rstrSaveLogDlgFilter = 'Файл протоколу (*.log)|*.log|Всі типи|*.*';
+   rstrSaveLogDlgTitle = 'Сохранить лог работы';
+   rstrSaveLogDlgFilter = 'Файл протокола (*.log)|*.log|Все типы|*.*';
    rstrSaveLogDlgDefaultExt = 'log';
    //fnOpenINPX
-   rstrOpenINPXDlgTitle = 'Вибір файлу списків';
-   rstrOpenINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Всі типи|*.*';
+   rstrOpenINPXDlgTitle = 'Выбор файла списков';
+   rstrOpenINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
    rstrOpenINPXDlgDefaultExt = 'inpx';
 
    //fnSaveINPX
-   rstrSaveINPXDlgTitle = 'Вибір файлу списків';
-   rstrSaveINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Всі типи|*.*';
+   rstrSaveINPXDlgTitle = 'Выбор файла списков';
+   rstrSaveINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
    rstrSaveINPXDlgDefaultExt = 'inpx';
 
    //fnOpenUserData
-   rstrOpenUDDlgTitle = 'Імпорт даних користувача';
-   rstrOpenUDDlgFilter = 'Додаткові дані MyHomeLib (mhlud, mhlud2)|*.mhlud2;*.mhlud|Всі типи|*.*';
+   rstrOpenUDDlgTitle = 'Импорт пользовательских данных';
+   rstrOpenUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud, mhlud2)|*.mhlud2;*.mhlud|Все типы|*.*';
    rstrOpenUDDlgDefaultExt = 'mhlud2';
 
    //fnSaveUserData
-   rstrSaveUDDlgTitle = 'Експорт даних користувача';
-   rstrSaveUDDlgFilter = 'Додаткові дані MyHomeLib (mhlud2)|*.mhlud2|Всі типи|*.*';
+   rstrSaveUDDlgTitle = 'Экспорт пользовательских данных';
+   rstrSaveUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud2)|*.mhlud2|Все типы|*.*';
    rstrSaveUDDlgDefaultExt = 'mhlud2';
 
    //fnOpenCoverImage
-   rstrOpenCIDlgTitle = 'Завантаження файлу обкладинки';
-   rstrOpenCIDlgFilter = 'Зображення (*.png;*.jpg;*.jpeg)|*.jpeg;*.jpg;*.png';
+   rstrOpenCIDlgTitle = 'Загрузка файла обложки';
+   rstrOpenCIDlgFilter = 'Изображение (*.png;*.jpg;*.jpeg)|*.jpeg;*.jpg;*.png';
    rstrOpenCIDlgDefaultExt = 'jpeg';
 
 

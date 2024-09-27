@@ -50,7 +50,7 @@ uses
   unit_Settings;
 
 resourcestring
-  rstrUpdateCollections = 'Оновлення колекцій';
+  rstrUpdateCollections = 'Обновление коллекций';
 
 procedure SyncOnLineFiles(const CollectionID: Integer);
 var

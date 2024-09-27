@@ -38,34 +38,34 @@ const
   dlmtr = ': ';
 
 resourcestring
-rstrFileInfo = 'Інформація про файл';
+rstrFileInfo = 'Информация о файле';
    rstrFolder = 'Папка';
    rstrFile = 'Файл';
-   rstrSize = 'Розмір';
-   rstrAdded = 'Доданий';
-   rstrGeneralInfo = 'Загальна інформація';
-   rstrSrclInfo = 'Інформація про джерело';
-   rstrTitle = 'Назва';
-   rstrAuthors = 'Автор(и)';
-   rstrSingleSeries = 'Серія';
+   rstrSize = 'Размер';
+   rstrAdded = 'Добавленный';
+   rstrGeneralInfo = 'Общая информация';
+   rstrSrclInfo = 'Информация об источнике';
+   rstrTitle = 'Название';
+   rstrAuthors = 'Автор(ы)';
+   rstrSingleSeries = 'Серия';
    rstrGenre = 'Жанр';
-   rstrKeywords = 'Ключові слова';
+   rstrKeywords = 'Ключевые слова';
    rstrDate = 'Дата';
-   rstrBookLanguage = 'Мова книги';
-   rstrSourceLanguage = 'Мова оригіналу';
-   rstrTranslators = 'Перекладач(и)';
-   rstrPublisherInfo = 'Видавнича інформація';
-   rstrPublisher = 'Видавництво';
-   rstrCity = 'Місто';
-   rstrYear = 'Рік';
+   rstrBookLanguage = 'Язык книги';
+   rstrSourceLanguage = 'Язык оригинала';
+   rstrTranslators = 'Переводчик(и)';
+   rstrPublisherInfo = 'Издательская информация';
+   rstrPublisher = 'Издательство';
+   rstrCity = 'Город';
+   rstrYear = 'Год';
    rstrISBN = 'ISBN';
-   rstrOCRInfo = 'Інформація про документ (OCR)';
-   rstrProgram = 'Програма';
+   rstrOCRInfo = 'Информация о документе (OCR)';
+   rstrProgram = 'Программа';
    rstrID = 'ID';
-   rstrVersion = 'Версія';
-   rstrSource = 'Джерело';
-   rstrSourceAuthor = 'Автор джерела';
-   rstrHistory = 'Історія';
+   rstrVersion = 'Версия';
+   rstrSource = 'Источник';
+   rstrSourceAuthor = 'Автор источника';
+   rstrHistory = 'История';
 
 implementation
 

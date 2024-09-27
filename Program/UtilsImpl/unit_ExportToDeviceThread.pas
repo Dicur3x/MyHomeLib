@@ -102,12 +102,12 @@ uses
   unit_WriteFb2Info;
 
 resourcestring
-rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
-   rstrArchiveNotFound = 'Архів' + CR + 'не знайдено!';
-   rstrFileNotFound = 'File "%s" not found';
-   rstrProcessRemainingFiles = 'Обробляти файли, що залишилися?';
-   rstrFilesProcessed = 'Записано файли: %u з %u';
-   rstrCompleted = 'Завершення операції...';
+rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+   rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
+   rstrFileNotFound = 'Файл "%s" не найден';
+   rstrProcessRemainingFiles = 'Обрабатывать оставшиеся файлы?';
+   rstrFilesProcessed = 'Записаны файлы: %u из %u';
+   rstrCompleted = 'Завершение операции...';
 
 const
   MaxPathLength = 240;

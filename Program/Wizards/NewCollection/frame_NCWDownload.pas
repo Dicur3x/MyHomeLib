@@ -74,9 +74,9 @@ uses
   unit_Globals;
 
 resourcestring
-  rstrConnecting = 'Підключення...';
-  rstrSpeed = 'Завантажено %d із %d кб (%n кб/с)';
-  rstrDownloadComplete = 'Завантаження завершено';
+  rstrConnecting = 'Подключение...';
+  rstrSpeed = 'Загружено %d из %d кб (%n кб/с)';
+  rstrDownloadComplete = 'Загрузка завершена';
 
 {$R *.dfm}
 

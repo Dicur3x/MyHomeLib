@@ -71,31 +71,31 @@ uses
   unit_Logger;
 
 resourcestring
-rstrDownloadProgress = 'Завантажено: %u%% із %u байт';
-   rstrCheckingUpdate = 'Перевіряємо наявність оновлень основної бази...';
-   rstrCheckingExtraUpdate = 'Перевіряємо наявність оновлень для on-line...';
-   rstrErrorCheckingUpdate = 'ПОМИЛКА. Не вдалося перевірити оновлення.';
-   rstrErrorDownloadUpdate = 'ПОМИЛКА. Не вдалося завантажити оновлення.';
+rstrDownloadProgress = 'Загружено: %u%% із %u байт';
+   rstrCheckingUpdate = 'Проверяем наличие обновлений основной базы...';
+   rstrCheckingExtraUpdate = 'Проверяем наличие обновлений для on-line...';
+   rstrErrorCheckingUpdate = 'Ошибка. Не удалось проверить обновление.';
+   rstrErrorDownloadUpdate = 'Ошибка. Не удалось загрузить обновление.';
    rstrReady = 'Готово';
-   rstrDownloadingUpdates = 'Завантаження оновлень...';
-   rstrYouHaveLatestListsVersion = 'У вас найсвіжіша версія списків.';
-   rstrUpdatingFromLocalArchive = 'Оновлення з локального архіву';
-   rstrListsUpdateIsAvailable = 'Доступно оновлення списків до версії %d';
-   rstrListsExtraUpdateIsAvailable = 'Доступне оновлення списків on-line до версії %d';
-   rstrNothingToUpdate = 'Нема чого оновлювати!';
-   rstrUpdateComplete = 'Оновлення завершено.';
-   rstrUpdateFailed = 'Оновлення не вдалося.';
-   rstrBackupUserData = 'Збереження резервної копії даних користувача';
-   rstrRestoreUserData = 'Відновлення даних користувача';
-   rstrRemovingOldCollection = 'Видалення всіх записів старої колекції "%s" ...';
-   rstrCreatingCollection = 'Створення нової колекції %s...';
-   rstrSpeed = 'Завантаження: %s Kb/s';
-   rstrConnectingToServer = 'Підключення до сервера...';
-   rstrOnlineCollectionUpdate = 'Оновлення колекції %s до версії %d:';
-   rstrLocalCollectionUpdate = 'Оновлення колекції %s:';
-   rstrUpdateFailedDownload = 'Завантаження оновлень не вдалося.';
-   rstrCancelledByUser = 'Операцію скасовано користувачем.';
-   rstrImportIntoCollection = 'Імпорт даних до колекції:';
+   rstrDownloadingUpdates = 'Загрузка обновлений...';
+   rstrYouHaveLatestListsVersion = 'У вас самая свежая версия списков.';
+   rstrUpdatingFromLocalArchive = 'Обновление из локального архива';
+   rstrListsUpdateIsAvailable = 'Доступно обновление списков до версии %d';
+   rstrListsExtraUpdateIsAvailable = 'Доступно обновление списков on-line до версии %d';
+   rstrNothingToUpdate = 'Нечего обновлять!';
+   rstrUpdateComplete = 'Обновление завершено.';
+   rstrUpdateFailed = 'Обновления не удалось.';
+   rstrBackupUserData = 'Сохранение резервной копии пользовательских данных';
+   rstrRestoreUserData = 'Восстановление пользовательских данных';
+   rstrRemovingOldCollection = 'Удаление всех записей старой коллекции "%s" ...';
+   rstrCreatingCollection = 'Создание новой коллекции %s...';
+   rstrSpeed = 'Загрузка: %s Kb/s';
+   rstrConnectingToServer = 'Подключение к серверу...';
+   rstrOnlineCollectionUpdate = 'Обновление коллекции %s до версии %d:';
+   rstrLocalCollectionUpdate = 'Обновление коллекции %s:';
+   rstrUpdateFailedDownload = 'Загрузка обновлений не удалось.';
+   rstrCancelledByUser = 'Операция отменена пользователем.';
+   rstrImportIntoCollection = 'Импорт данных в коллекцию:';
 
 { TLibUpdateThread }
 

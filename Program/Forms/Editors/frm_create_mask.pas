@@ -122,7 +122,7 @@ resourcestring
   rstrSampleTemplate = '[%s [(%n) ]- ]%t';
   rstrWrongTemplate = 'Шаблон неверен';
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-  rstrCheckBrackets = 'Проверьте соответствие открывающих и закрывающих скобок блоков элемнтов';
+  rstrCheckBrackets = 'Проверьте соответствие открывающих и закрывающих скобок блоков элементов';
   rstrWrongTemplateElements = 'Неверные элементы шаблона';
 
 const

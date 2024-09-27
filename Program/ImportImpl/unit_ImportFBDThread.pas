@@ -47,12 +47,12 @@ uses
   unit_MHLArchiveHelpers;
 
 resourcestring
-   rstrFoundNewArchives = 'Виявлено нових архівів: %u';
-   rstrErrorFB2Structure = 'Помилка структури fb2: %s -> %s.fbd';
-   rstrErrorFBD = 'Помилка FBD:';
-   rstrErrorUnpacking = 'Помилка розпакування архіву:';
-   rstrProcessedArchives = 'Оброблено архіви: %u з %u';
-   rstrBooksAdded = 'Додано книг: %u, пропущено книг: %u';
+   rstrFoundNewArchives = 'Найдены новые архивы: %u';
+   rstrErrorFB2Structure = 'Ошибка структуры fb2: %s -> %s.fbd';
+   rstrErrorFBD = 'Ошибка FBD:';
+   rstrErrorUnpacking = 'Ошибка распаковки архива:';
+   rstrProcessedArchives = 'Обработаны архивы: %u из %u';
+   rstrBooksAdded = 'Добавлено книг: %u, пропущено книг: %u';
 
 { TImportFB2Thread }
 

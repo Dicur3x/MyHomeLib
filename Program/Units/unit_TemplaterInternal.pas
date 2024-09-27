@@ -40,10 +40,10 @@ type
   end;
 
 resourcestring
-rstrEInvalidTemplate = 'Неправильний шаблон, позиція %d';
-   rstrEInvalidParam = 'Нерозпізнаний параметр %s';
-   rstrEUnopenedBracket = 'Невідкрита дужка, позиція %d';
-   rstrEUnclosedBracket = 'Незакрита дужка, позиція %d';
+rstrEInvalidTemplate = 'Неправильный шаблон, позиция %d';
+   rstrEInvalidParam = 'Нераспознанный параметр %s';
+   rstrEUnopenedBracket = 'Неоткрытая скобка, позиция %d';
+   rstrEUnclosedBracket = 'Незакрытая скобка, позиция %d';
 
 type
   // --------------------------------------------------------------------------

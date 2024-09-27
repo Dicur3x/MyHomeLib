@@ -48,8 +48,8 @@ implementation
 uses unit_Helpers;
 
 resourcestring
-rstrStandartGenres = 'Використовувати файл опису жанрів, що постачається з програмою.';
-   rstrUserGenres = 'Використовувати власний файл опису жанрів.';
+rstrStandartGenres = 'Использовать файл описания жанров, поставляемый с программой.';
+   rstrUserGenres = 'Использовать собственный файл описания жанров.';
 
 
 {$R *.dfm}

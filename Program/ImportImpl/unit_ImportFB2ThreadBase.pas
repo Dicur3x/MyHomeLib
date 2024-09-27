@@ -86,11 +86,11 @@ uses
   dm_user;
 
 resourcestring
-   rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
-   rstrScanningOne = 'Скануємо %s';
-   rstrScanningAll = 'Скануємо...';
-   rstrFoundFiles = 'Виявлено файли: %u';
-   rstrScanningFolders = 'Сканування папок...';
+   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+   rstrScanningOne = 'Сканируем %s';
+   rstrScanningAll = 'Сканируем...';
+   rstrFoundFiles = 'Обнаружены файлы: %u';
+   rstrScanningFolders = 'Сканирование папок...';
 
 { TImportFB2Thread }
 

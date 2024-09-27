@@ -51,18 +51,18 @@ uses
   unit_Templater;
 
 resourcestring
-rstrStructureError = 'Помилка структури fb2: %s.zip -> %s';
-   rstrProcessedFiles = 'Оброблено файли: %u з %u';
-   rstrAddedFiles = 'Додано файли: %u з %u';
-   rstrErrorUnpackingWithCode = 'Помилка розпакування архіву %s, Код: %d';
-   rstrFoundNewArchives = 'Виявлено нові архіви: %u';
-   rstrErrorFB2Structure = 'Помилка структури fb2: %s -> %s';
-   rstrErrorUnpacking = 'Помилка розпакування архіву:';
-   rstrProcessedArchives = 'Оброблено архіви: %u з %u';
-   rstrAddedBooks = 'Додано книг: %u,; пропущено книг: %u';
-   rstrAddedBooksTotal = 'Додано всього книг: %u; пропущено всього книг: %u';
-   rstrImportFB2 = 'Імпорт файлів fb2:';
-   rstrImportFB2Zip = 'Імпорт файлів fb2.zip:';
+rstrStructureError = 'Ошибка структуры fb2: %s.zip -> %s';
+   rstrProcessedFiles = 'Обработаны файлы: %u из %u';
+   rstrAddedFiles = 'Добавлены файлы: %u из %u';
+   rstrErrorUnpackingWithCode = 'Ошибка распаковки архива %s, Код: %d';
+   rstrFoundNewArchives = 'Обнаружены новые архивы: %u';
+   rstrErrorFB2Structure = 'Ошибка структуры fb2: %s -> %s';
+   rstrErrorUnpacking = 'Ошибка распаковки архива:';
+   rstrProcessedArchives = 'Обработаны архивы: %u из %u';
+   rstrAddedBooks = 'Добавлено книг: %u,; пропущено книг: %u';
+   rstrAddedBooksTotal = 'Добавлено всего книг: %u; пропущено всего книг: %u';
+   rstrImportFB2 = 'Импорт файлов fb2:';
+   rstrImportFB2Zip = 'Импорт файлов fb2.zip:';
 
 { TImportFB2Thread }
 

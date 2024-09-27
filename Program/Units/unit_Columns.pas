@@ -98,16 +98,16 @@ uses
 
 resourcestring
 rstrAuthor = 'Автор';
-   rstrTitle = 'Назва';
-   rstrSeries = 'Серія';
+   rstrTitle = 'Название';
+   rstrSeries = 'Серия';
    rstrNO = '№';
-   rstrSize = 'Розмір';
-   rstrRate = 'Моя оцінка';
-   rstrDate = 'Додано';
+   rstrSize = 'Размер';
+   rstrRate = 'Моя оценка';
+   rstrDate = 'Добавлено';
    rstrGenre = 'Жанр';
-   rstrCollection = 'Колекція';
+   rstrCollection = 'Коллекция';
    rstrType = 'Тип';
-   rstrLang = 'Мова';
+   rstrLang = 'Язык';
    rstrLibrate = 'Рейтинг';
    rstrLibID = 'BookID';
 

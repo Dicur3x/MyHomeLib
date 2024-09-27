@@ -68,7 +68,7 @@ begin
   Trim(Result);
 end;
 
-// проверяем запрос, если нативный - преобразовывам в SQL
+// проверяем запрос, если нативный - преобразовываем в SQL
 function PrepareQuery(S: string; UP: Boolean; ConverToFull: Boolean = True): string;
 begin
   if UP then

@@ -83,15 +83,15 @@ uses
   IniFiles;
 
 resourcestring
-  rstrServerDownload = 'Вибраний файл INPX буде завантажений із сервера.';
-  rstrLocal = 'Колекція на основі файлу *.inpx. Вкажіть шлях до файлу.';
+  rstrServerDownload = 'Выбранный файл INPX будет загружен с сервера.';
+  rstrLocal = 'Коллекция на основе файла *.inpx. Укажите путь к файлу.';
   //rstrGroupLibrusec = 'Библиотека Lib.rus.ec';
   //rstrGroupFlibusta = 'Библиотека Flibusta';
   //rstrGroupTraum = 'Библиотека Траума';
   //rstrLibrusecFB2 = 'Архивы FB2 (fb2-xxxxxx-xxxxxx.zip)';
   //rstrLibrusecUSR = 'Архивы USR (usr-xxxxxx-xxxxxx.zip)';
   //rstrLibrusecAll = 'Все архивы (fb2-xxxxxx-xxxxxx.zip и usr-xxxxxx-xxxxxx.zip)';
-  //rstrLibrusecOnline = 'Книги скачиваются по запросу с серввера lib.rus.ec (необходима регистрация)';
+  //rstrLibrusecOnline = 'Книги скачиваются по запросу с сервера lib.rus.ec (необходима регистрация)';
   //rstrFlibustaOnline = 'Книги скачиваются по запросу с сервера flibusta.net';
   //rstrTraum_2_11_FB2 = 'Библиотека Траума 2.11';
   //rstrTraum_2_12_FB2 = 'Библиотека Траума 2.12';

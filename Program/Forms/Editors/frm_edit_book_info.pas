@@ -112,8 +112,8 @@ uses
   unit_Consts;
 
 resourcestring
-   rstrProvideAtLeastOneAuthor = 'Вкажіть мінімум одного автора!';
-   rstrProvideBookTitle = 'Вкажіть назву книги!';
+   rstrProvideAtLeastOneAuthor = 'Укажите минимум одного автора!';
+   rstrProvideBookTitle = 'Укажите название книги!';
 
 {$R *.dfm}
 

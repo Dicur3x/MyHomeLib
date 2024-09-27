@@ -74,11 +74,11 @@ uses
   frm_main;
 
 resourcestring
-rstrDownloaded = 'Завантажено файли: %u з %u';
-  rstrConnecting = 'Підключення...';
-  rstrIgnoreDownloadErrors = 'Ігнорувати помилки завантаження?';
+rstrDownloaded = 'Загружены файлы: %u из %u';
+  rstrConnecting = 'Подключение...';
+  rstrIgnoreDownloadErrors = 'Игнорировать ошибки загрузки?';
   rstrDone = 'Готово';
-  rstrOperationCompleted = 'Завершення операції...';
+  rstrOperationCompleted = 'Завершение операции...';
 
 procedure TDownloadBooksThread.WorkFunction;
 var

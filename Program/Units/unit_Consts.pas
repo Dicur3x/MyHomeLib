@@ -20,8 +20,8 @@ unit unit_Consts;
 interface
 
 resourcestring
-  rstrNoTitle = 'Без назви';
-  rstrUnknownAuthor = 'Невідомий';
+  rstrNoTitle = 'Без названия';
+  rstrUnknownAuthor = 'Неизвестный';
 
 const
   CR = #13;
@@ -77,11 +77,11 @@ const
   // Алфавиты
   //
   LATIN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  CYRILLIC_ALPHABET = 'АБВГДЕЁЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЭЮЯ';
+  CYRILLIC_ALPHABET = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ';
 
   LATIN_ALPHABET_SEPARATORS = '"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"';
   // As UPPER() in SQL doesn't always convert correctly, need alphabet to include lower case letters as well
-  CYRILLIC_ALPHABET_SEPARATORS = '"А","Б","В","Г","Д","Е","Ё","Є","Ж","З","И","І","Й","Ї","К","Л","М","Н","О","П","Р","С","Т","У","Ф","Х","Ц","Ч","Ш","Щ","Э","Ю","Я"'; //,"а","б","в","г","д","е","ё","ж","з","и","й","к","л","м","н","о","п","р","с","т","у","ф","х","ц","ч","ш","щ","э","ю","я"';
+  CYRILLIC_ALPHABET_SEPARATORS = '"А","Б","В","Г","Д","Е","Ё","Ж","З","И","Й","К","Л","М","Н","О","П","Р","С","Т","У","Ф","Х","Ц","Ч","Ш","Щ","Ъ","Ы","Ь","Э","Ю","Я"'; //,"а","б","в","г","д","е","ё","ж","з","и","й","к","л","м","н","о","п","р","с","т","у","ф","х","ц","ч","ш","щ","ъ","ы","ь","э","ю","я"';
 
   //
   // Некоторые пути

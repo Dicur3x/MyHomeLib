@@ -124,19 +124,19 @@ uses
   unit_MHLArchiveHelpers;
 
 resourcestring
-rstrWrongCredentials = 'Неправильний логін/пароль';
-   rstrDownloadBlockedByServer = 'Завантаження файлу заблоковано сервером!' + CRLF
-     + 'Відповідь сервера можна переглянути у файлі "server_error.html"';
-   rstrBlockedByServer = 'Заблоковано сервером';
-   rstrSpeed = 'Завантаження: %s Kb/s';
-   rstrDownloadError = 'Помилка закачування';
-   rstrServerNotFound = 'Завантаження не вдалося! Сервер не знайдено.';
-   rstrError = 'Помилка';
-   rstrTimeout = 'Завантаження не вдалося! Перевищено час очікування.';
-   rstrConnectionError = 'Завантаження не вдалося! Помилка підключення.';
+rstrWrongCredentials = 'Неправильный логин/пароль';
+   rstrDownloadBlockedByServer = 'Загрузка файла заблокирована сервером!' + CRLF
+     + 'Ответ сервера можно просмотреть в файле "server_error.html"';
+   rstrBlockedByServer = 'Заблокирован сервером';
+   rstrSpeed = 'Загрузка: %s Kb/s';
+   rstrDownloadError = 'Ошибка закачки';
+   rstrServerNotFound = 'Загрузка не удалась! Сервер не найден.';
+   rstrError = 'Ошибка';
+   rstrTimeout = 'Загрузка не удалась! Превышено время ожидания.';
+   rstrConnectionError = 'Загрузка не удалась! Ошибка подключения.';
    rstrServerError =
-     'Завантаження  не вдалося! Сервер повідомляє про помилку "%s".' + CRLF;
-   rstrErrorCode = 'Код помилки';
+     'Загрузка не удалась! Сервер сообщает об ошибке "%s".' + CRLF;
+   rstrErrorCode = 'Код ошибки';
 
 const
   CommandList: array [0 .. 5] of string = ('CHECK', 'REDIR', 'PAUSE', 'GET', 'POST', 'ADD');

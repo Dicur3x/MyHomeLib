@@ -117,11 +117,11 @@ uses
   unit_MHLHelpers;
 
 resourcestring
-rstrSingleSeries = 'Серія: %s';
-   rstrDownloadStateWaiting = 'Чекання';
-   rstrDownloadStateDownloading = 'Завантаження';
+rstrSingleSeries = 'Серия: %s';
+   rstrDownloadStateWaiting = 'Ожидание';
+   rstrDownloadStateDownloading = 'Загрузка';
    rstrDownloadStateDone = 'Готово';
-   rstrDownloadStateError = 'Помилка';
+   rstrDownloadStateError = 'Ошибка';
 
 { TMainController }
 

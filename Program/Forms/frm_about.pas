@@ -62,8 +62,8 @@ uses
   unit_Consts;
 
 resourcestring
-  rstrAppVersionInfo   = 'Версія: %s';
-  rstrAppVersionInfo64 = 'Версія: %s x64';
+  rstrAppVersionInfo   = 'Версия: %s';
+  rstrAppVersionInfo64 = 'Версия: %s x64';
 
 {$R *.dfm}
 

@@ -60,7 +60,7 @@ uses
   unit_xmlUtils;
 
 resourcestring
-  rstrInvalidPresetName = 'Невірна назва пресета';
+  rstrInvalidPresetName = 'Неверное название пресета';
 
 const
   PRESETS_ELEMENT = 'Presets';

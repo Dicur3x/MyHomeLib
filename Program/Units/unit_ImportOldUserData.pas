@@ -57,7 +57,7 @@ var
   p, Progress: Integer;
   ID: string;
 begin
-  // Прочитаное
+  // Прочитанное
   inc(i);
   while (i < SL.Count) and (pos('#', SL[i]) = 0) do
   begin

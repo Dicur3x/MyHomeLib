@@ -39,7 +39,7 @@ uses
   Dialogs;
 
 resourcestring
-  rstrCheckTemplateValidity = 'Щось пішло не так. Перевірте правильність шаблону';
+  rstrCheckTemplateValidity = 'Что-то пошло не так. Проверьте правильность шаблона';
 
 function WriteFb2InfoToStream(const BookRecord: TBookRecord; Stream: TStream): Boolean;
 var
