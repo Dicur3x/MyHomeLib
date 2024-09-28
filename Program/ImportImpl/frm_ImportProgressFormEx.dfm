@@ -5,26 +5,28 @@ inherited ImportProgressFormEx: TImportProgressFormEx
   ClientWidth = 442
   Constraints.MinHeight = 200
   Constraints.MinWidth = 300
+  StyleElements = [seFont, seClient, seBorder]
   OnCreate = FormCreate
   OnDestroy = FormDestroy
-  ExplicitWidth = 454
-  ExplicitHeight = 409
+  ExplicitWidth = 458
+  ExplicitHeight = 410
   TextHeight = 13
   inherited txtComment: TLabel
     Width = 416
+    StyleElements = [seFont, seClient, seBorder]
     ExplicitWidth = 416
   end
   inherited ProgressBar: TProgressBar
     Width = 422
     TabOrder = 1
-    ExplicitWidth = 418
+    ExplicitWidth = 422
   end
   inherited btnCancel: TButton
     Left = 346
     Top = 333
     TabOrder = 0
-    ExplicitLeft = 342
-    ExplicitTop = 332
+    ExplicitLeft = 346
+    ExplicitTop = 333
   end
   object errorLog: TListView
     Left = 10
@@ -44,8 +46,6 @@ inherited ImportProgressFormEx: TImportProgressFormEx
     RowSelect = True
     TabOrder = 2
     ViewStyle = vsReport
-    ExplicitWidth = 410
-    ExplicitHeight = 274
   end
   object btnSaveLog: TButton
     Left = 10
@@ -53,11 +53,10 @@ inherited ImportProgressFormEx: TImportProgressFormEx
     Width = 75
     Height = 25
     Anchors = [akLeft, akBottom]
-    Caption = #1047#1073#1077#1088#1077#1075#1090#1080
+    Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
     TabOrder = 3
     Visible = False
     OnClick = btnSaveLogClick
-    ExplicitTop = 332
   end
   object Timer: TTimer
     Enabled = False

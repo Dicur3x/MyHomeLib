@@ -2,7 +2,7 @@ object frmAuthorList: TfrmAuthorList
   Left = 0
   Top = 0
   BorderStyle = bsDialog
-  Caption = #1057#1087#1080#1089#1086#1082' '#1072#1074#1090#1086#1088#1110#1074
+  Caption = #1057#1087#1080#1089#1086#1082' '#1072#1074#1090#1086#1088#1086#1074
   ClientHeight = 424
   ClientWidth = 327
   Color = clBtnFace
@@ -61,8 +61,6 @@ object frmAuthorList: TfrmAuthorList
     Caption = 'pnButtons'
     ShowCaption = False
     TabOrder = 1
-    ExplicitTop = 382
-    ExplicitWidth = 323
     DesignSize = (
       327
       41)
@@ -72,11 +70,10 @@ object frmAuthorList: TfrmAuthorList
       Width = 75
       Height = 25
       Anchors = [akTop, akRight]
-      Caption = '&'#1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       ModalResult = 1
       TabOrder = 0
-      ExplicitLeft = 155
     end
     object btnCancel: TButton
       Left = 240
@@ -85,10 +82,9 @@ object frmAuthorList: TfrmAuthorList
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1042#1110#1076#1084#1110#1085#1072
+      Caption = '&'#1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
-      ExplicitLeft = 236
     end
   end
 end

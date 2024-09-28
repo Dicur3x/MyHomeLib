@@ -3,7 +3,7 @@ object MHLWizardBase: TMHLWizardBase
   Top = 0
   HelpContext = 136
   BorderStyle = bsDialog
-  Caption = 'MyHomeLib - '#1052#1072#1081#1089#1090#1077#1088
+  Caption = 'MyHomeLib - '#1052#1072#1089#1090#1077#1088
   ClientHeight = 394
   ClientWidth = 520
   Color = clBtnFace
@@ -27,8 +27,6 @@ object MHLWizardBase: TMHLWizardBase
     BevelKind = bkTile
     BevelOuter = bvNone
     TabOrder = 0
-    ExplicitTop = 352
-    ExplicitWidth = 516
     DesignSize = (
       520
       39)
@@ -39,10 +37,9 @@ object MHLWizardBase: TMHLWizardBase
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = #1042#1110#1076#1084#1110#1085#1072
+      Caption = #1054#1090#1084#1077#1085#1072
       TabOrder = 0
       OnClick = OnCancel
-      ExplicitLeft = 424
     end
     object btnForward: TButton
       Left = 334
@@ -50,10 +47,9 @@ object MHLWizardBase: TMHLWizardBase
       Width = 75
       Height = 25
       Anchors = [akTop, akRight]
-      Caption = #1042#1087#1077#1088#1077#1076' >'
+      Caption = #1042#1087#1077#1088#1105#1076' >'
       TabOrder = 1
       OnClick = DoChangePage
-      ExplicitLeft = 330
     end
     object btnBackward: TButton
       Left = 253
@@ -64,7 +60,6 @@ object MHLWizardBase: TMHLWizardBase
       Caption = '< '#1053#1072#1079#1072#1076
       TabOrder = 2
       OnClick = DoChangePage
-      ExplicitLeft = 249
     end
   end
 end

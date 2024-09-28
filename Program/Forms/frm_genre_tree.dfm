@@ -2,7 +2,7 @@ object frmGenreTree: TfrmGenreTree
   Left = 0
   Top = 0
   BorderStyle = bsDialog
-  Caption = #1057#1087#1080#1089#1086#1082' '#1078#1072#1085#1088#1110#1074
+  Caption = #1057#1087#1080#1089#1086#1082' '#1078#1072#1085#1088#1086#1074
   ClientHeight = 482
   ClientWidth = 313
   Color = clBtnFace
@@ -23,8 +23,6 @@ object frmGenreTree: TfrmGenreTree
     Caption = 'pnButtons'
     ShowCaption = False
     TabOrder = 1
-    ExplicitTop = 440
-    ExplicitWidth = 309
     DesignSize = (
       313
       41)
@@ -34,11 +32,10 @@ object frmGenreTree: TfrmGenreTree
       Width = 75
       Height = 25
       Anchors = [akTop, akRight]
-      Caption = '&'#1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       ModalResult = 1
       TabOrder = 0
-      ExplicitLeft = 141
     end
     object btnCancel: TButton
       Left = 226
@@ -47,10 +44,9 @@ object frmGenreTree: TfrmGenreTree
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1042#1110#1076#1084#1110#1085#1072
+      Caption = '&'#1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
-      ExplicitLeft = 222
     end
   end
   object tvGenresTree: TVirtualStringTree

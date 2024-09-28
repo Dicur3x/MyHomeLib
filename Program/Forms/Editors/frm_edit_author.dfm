@@ -3,7 +3,7 @@ object frmEditAuthorData: TfrmEditAuthorData
   Top = 0
   HelpContext = 117
   BorderStyle = bsDialog
-  Caption = #1030#1085#1092#1086#1088#1084#1072#1094#1110#1103' '#1087#1088#1086' '#1072#1074#1090#1086#1088#1072
+  Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086#1073' '#1072#1074#1090#1086#1088#1077
   ClientHeight = 133
   ClientWidth = 358
   Color = clBtnFace
@@ -17,25 +17,25 @@ object frmEditAuthorData: TfrmEditAuthorData
   object Label1: TLabel
     Left = 8
     Top = 13
-    Width = 51
+    Width = 48
     Height = 13
-    Caption = '&'#1055#1088#1110#1079#1074#1080#1097#1077':'
+    Caption = '&'#1060#1072#1084#1080#1083#1080#1103':'
     FocusControl = edLastName
   end
   object Label2: TLabel
     Left = 8
     Top = 40
-    Width = 22
+    Width = 23
     Height = 13
-    Caption = '&'#1030#1084#39#1103':'
+    Caption = '&'#1048#1084#1103':'
     FocusControl = edFirstName
   end
   object Label3: TLabel
     Left = 8
     Top = 67
-    Width = 60
+    Width = 53
     Height = 13
-    Caption = #1055#1086' '#1073#1072#1090#1100#1082#1086#1074#1110
+    Caption = #1054#1090#1095#1077#1089#1090#1074#1086':'
     FocusControl = edMiddleName
   end
   object pnButtons: TPanel
@@ -48,8 +48,6 @@ object frmEditAuthorData: TfrmEditAuthorData
     Caption = 'pnButtons'
     ShowCaption = False
     TabOrder = 3
-    ExplicitTop = 91
-    ExplicitWidth = 354
     DesignSize = (
       358
       41)
@@ -59,11 +57,10 @@ object frmEditAuthorData: TfrmEditAuthorData
       Width = 75
       Height = 25
       Anchors = [akTop, akRight]
-      Caption = '&'#1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       ModalResult = 1
       TabOrder = 0
-      ExplicitLeft = 186
     end
     object btnCancel: TButton
       Left = 271
@@ -72,10 +69,9 @@ object frmEditAuthorData: TfrmEditAuthorData
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1042#1110#1076#1084#1110#1085#1072
+      Caption = '&'#1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
-      ExplicitLeft = 267
     end
   end
   object edFirstName: TEdit

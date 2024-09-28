@@ -3,7 +3,7 @@ object frmConvertToFBD: TfrmConvertToFBD
   Top = 0
   ActiveControl = edPublisher
   BorderStyle = bsDialog
-  Caption = #1055#1077#1088#1077#1090#1074#1086#1088#1077#1085#1085#1103' '#1085#1072' FBD'
+  Caption = #1055#1088#1077#1086#1073#1088#1072#1079#1086#1074#1072#1085#1080#1077' '#1074' FBD'
   ClientHeight = 460
   ClientWidth = 586
   Color = clBtnFace
@@ -23,22 +23,20 @@ object frmConvertToFBD: TfrmConvertToFBD
     Align = alClient
     BevelOuter = bvNone
     TabOrder = 0
-    ExplicitWidth = 582
-    ExplicitHeight = 418
     object RzLabel1: TLabel
       Left = 207
       Top = 283
-      Width = 45
+      Width = 55
       Height = 13
-      Caption = #1040#1085#1086#1090#1072#1094#1110#1103
+      Caption = #1040#1085#1085#1086#1090#1072#1094#1080#1103
     end
     object lblAuthor: TLabel
       AlignWithMargins = True
       Left = 12
       Top = 8
-      Width = 77
+      Width = 81
       Height = 13
-      Caption = #1040#1074#1090#1086#1088#1080' '#1082#1085#1080#1075#1080
+      Caption = #1040#1074#1090#1086#1088#1099' '#1082#1085#1080#1075#1080
       Font.Charset = DEFAULT_CHARSET
       Font.Color = clWindowText
       Font.Height = -11
@@ -49,9 +47,9 @@ object frmConvertToFBD: TfrmConvertToFBD
     object lblTitle: TLabel
       Left = 12
       Top = 27
-      Width = 62
+      Width = 80
       Height = 13
-      Caption = #1053#1072#1079#1074#1072' '#1082#1085#1080#1075#1080
+      Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1082#1085#1080#1075#1080
     end
     object mmAnnotation: TMemo
       Left = 207
@@ -63,11 +61,11 @@ object frmConvertToFBD: TfrmConvertToFBD
       WordWrap = False
     end
     object RzGroupBox2: TGroupBox
-      Left = 207
+      Left = 208
       Top = 48
       Width = 372
       Height = 73
-      Caption = #1042#1080#1076#1072#1074#1077#1094#1100
+      Caption = #1048#1079#1076#1072#1090#1077#1083#1100
       TabOrder = 2
       object RzLabel4: TLabel
         Left = 10
@@ -80,25 +78,25 @@ object frmConvertToFBD: TfrmConvertToFBD
       object RzLabel6: TLabel
         Left = 222
         Top = 18
-        Width = 31
+        Width = 35
         Height = 13
-        Caption = #1052#1110#1089#1090#1086':'
+        Caption = #1043#1086#1088#1086#1076':'
         FocusControl = edCity
       end
       object RzLabel7: TLabel
         Left = 306
         Top = 45
-        Width = 18
+        Width = 23
         Height = 13
-        Caption = #1056#1110#1082':'
+        Caption = #1043#1086#1076':'
         FocusControl = edYear
       end
       object RzLabel5: TLabel
         Left = 10
         Top = 18
-        Width = 34
+        Width = 52
         Height = 13
-        Caption = #1053#1072#1079#1074#1072':'
+        Caption = #1053#1072#1079#1074#1072#1085#1080#1077':'
         FocusControl = edPublisher
       end
       object edISBN: TEdit
@@ -136,7 +134,7 @@ object frmConvertToFBD: TfrmConvertToFBD
       Width = 90
       Height = 25
       Hint = #1054#1090#1082#1088#1099#1090#1100' '#1082#1085#1080#1075#1091
-      Caption = #1042#1110#1076#1082#1088#1080#1090#1080
+      Caption = #1054#1090#1082#1088#1099#1090#1100
       ImageIndex = 2
       Images = ilButtonImages
       ParentShowHint = False
@@ -149,7 +147,7 @@ object frmConvertToFBD: TfrmConvertToFBD
       Top = 48
       Width = 198
       Height = 369
-      Caption = #1054#1073#1082#1083#1072#1076#1080#1085#1082#1072
+      Caption = #1054#1073#1083#1086#1078#1082#1072
       TabOrder = 1
       object FCover: TImage
         AlignWithMargins = True
@@ -171,7 +169,7 @@ object frmConvertToFBD: TfrmConvertToFBD
         Width = 90
         Height = 25
         Hint = #1042#1089#1090#1072#1074#1080#1090#1100' '#1080#1079' '#1073#1091#1092#1077#1088#1072
-        Caption = #1047' '#1073#1091#1092#1077#1088#1072
+        Caption = #1048#1079' '#1073#1091#1092#1077#1088#1072
         ImageIndex = 0
         Images = ilButtonImages
         ParentShowHint = False
@@ -185,7 +183,7 @@ object frmConvertToFBD: TfrmConvertToFBD
         Width = 90
         Height = 25
         Hint = #1047#1072#1075#1088#1091#1079#1080#1090#1100' '#1080#1079' '#1092#1072#1081#1083#1072
-        Caption = #1047' '#1092#1072#1081#1083#1091
+        Caption = #1048#1079' '#1092#1072#1081#1083#1072
         ImageIndex = 1
         Images = ilButtonImages
         ParentShowHint = False
@@ -195,7 +193,7 @@ object frmConvertToFBD: TfrmConvertToFBD
       end
     end
     object alFBDAuthors: TFBDAuthorTable
-      Left = 207
+      Left = 208
       Top = 127
       Width = 372
       Height = 150
@@ -213,14 +211,12 @@ object frmConvertToFBD: TfrmConvertToFBD
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 1
-    ExplicitTop = 418
-    ExplicitWidth = 582
     object btnSave: TButton
       Left = 423
       Top = 10
       Width = 75
       Height = 25
-      Caption = #1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       TabOrder = 0
       OnClick = btnSaveClick
@@ -231,7 +227,7 @@ object frmConvertToFBD: TfrmConvertToFBD
       Width = 75
       Height = 25
       Cancel = True
-      Caption = #1042#1110#1076#1084#1110#1085#1072
+      Caption = #1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
       OnClick = btnCancelClick
@@ -256,7 +252,7 @@ object frmConvertToFBD: TfrmConvertToFBD
       Width = 75
       Height = 25
       Hint = #1057#1083#1077#1076#1091#1102#1097#1072#1103' '#13#1082#1085#1080#1075#1072
-      Caption = #1042#1087#1077#1088#1077#1076
+      Caption = #1042#1087#1077#1088#1105#1076
       DoubleBuffered = True
       ParentDoubleBuffered = False
       ParentShowHint = False
