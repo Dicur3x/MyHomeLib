@@ -1390,7 +1390,7 @@ begin
   InitHTTP(idHTTP);
 end;
 
-procedure CheckUpdates;
+procedure CheckUpdates(const Version: string; var AutoCheck: Boolean);
 var
   SL: TStringList;
   LF: TMemoryStream;
@@ -1399,8 +1399,14 @@ var
   HTTP: TidHTTP;
   IdSocksInfo: TIdSocksInfo;
   IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
-
 begin
+  // Проверяем, нужно ли обновлять
+  if not Settings.CheckUpdate then
+  begin
+    // Обновления отключены, выходим из функции
+    Exit;
+  end;
+
   LF := TMemoryStream.Create;
   try
     SL := TStringList.Create;
@@ -1408,43 +1414,51 @@ begin
       HTTP := TidHTTP.Create;
       IdSocksInfo := TIdSocksInfo.Create(nil);
       IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
-
-      SetProxySettingsGlobal(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
       try
-        HTTP.Get(IncludeUrlSlash(Settings.UpdateURL) + PROGRAM_VERINFO_FILENAME, LF);
-      except
-        on E: EIdSocketError do
-          if E.LastError = 11001 then
-            MHLShowError(rstrUpdateFailedServerNotFound, [E.LastError])
-          else
-            MHLShowError(rstrUpdateFailedConnectionError, [E.LastError]);
-        on E: Exception do
-          MHLShowError(rstrUpdateFailedServerError, [HTTP.ResponseCode]);
-      end;
-      { TODO -oNickR -cRefactoring : проверить использование файла last_version.info. Возможно он больше нигде не нужен и можно не сохранять его на диск }
-      LF.SaveToFile(Settings.SystemFileName[sfAppVerInfo]);
-      SL.LoadFromFile(Settings.SystemFileName[sfAppVerInfo]);
-      if SL.Count > 0 then
-        if CompareStr(Version, SL[0]) < 0 then
-        begin
-          S := CRLF;
-          for i := 1 to SL.Count - 1 do
-            S := S + '  ' + SL[i] + CRLF;
+        SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
 
-          MHLShowInfo(Format(rstrFoundNewAppVersion, [SL[0] + CRLF + S + CRLF]));
-        end
-        else if not AutoCheck then
-          MHLShowInfo(rstrLatestVersion);
-      AutoCheck := False;
+        try
+          HTTP.Get(IncludeUrlSlash(Settings.UpdateURL) + PROGRAM_VERINFO_FILENAME, LF);
+
+          LF.SaveToFile(Settings.SystemFileName[sfAppVerInfo]);
+          SL.LoadFromFile(Settings.SystemFileName[sfAppVerInfo]);
+          if SL.Count > 0 then
+          begin
+            if CompareStr(Version, SL[0]) < 0 then
+            begin
+              S := CRLF;
+              for i := 1 to SL.Count - 1 do
+                S := S + '  ' + SL[i] + CRLF;
+
+              MHLShowInfo(Format(rstrFoundNewAppVersion, [SL[0] + CRLF + S + CRLF]));
+            end
+            else if not AutoCheck then
+              MHLShowInfo(rstrLatestVersion);
+          end;
+        except
+          on E: EIdSocketError do
+          begin
+            if E.LastError = 11001 then
+              // Ничего не делаем, просто игнорируем ошибку
+            else
+              // Ничего не делаем, просто игнорируем ошибку
+          end;
+          on E: Exception do
+            // Ничего не делаем, просто игнорируем ошибку
+        end;
+      finally
+        IdSSLIOHandlerSocketOpenSSL.Free;
+        IdSocksInfo.Free;
+        HTTP.Free;
+      end;
     finally
-      IdSSLIOHandlerSocketOpenSSL.Free;
-      IdSocksInfo.Free;
-      HTTP.Free;
       SL.Free;
     end;
   finally
     LF.Free;
   end;
+
+  AutoCheck := False;
 end;
 
 

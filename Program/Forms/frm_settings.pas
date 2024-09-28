@@ -473,12 +473,12 @@ begin
   Settings.ProxyUsername := edProxyUsername.Text;
   Settings.ProxyPassword := edProxyPassword.Text;
   Settings.UpdateURL := edUpdates.Text;
-  Settings.CheckExternalLibUpdate := cbCheckColUpdate.Checked;
+  Settings.CheckExternalLibUpdate := False;
   Settings.CheckUpdate := False;
   Settings.TimeOut := udTimeOut.Position;
   Settings.ReadTimeOut := udReadTimeOut.Position;
   Settings.DwnldInterval := udDwnldInterval.Position;
-  Settings.AutoRunUpdate := cbAutoRunUpdate.Checked;
+  Settings.AutoRunUpdate := False;
   Settings.InpxURL := IncludeUrlSlash(edINPXUrl.Text);
   // Дополнительный прокси
   Settings.UseProxyForUpdate := rbUseProxyForUpdate.Checked;
