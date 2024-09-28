@@ -14,8 +14,8 @@ inherited frameNCWDownload: TframeNCWDownload
     Margins.Right = 14
     Margins.Bottom = 0
     Align = alTop
-    Caption = #1055#1110#1076#1082#1083#1102#1095#1077#1085#1085#1103' ...'
-    ExplicitWidth = 86
+    Caption = #1055#1086#1076#1082#1083#1102#1095#1077#1085#1080#1077'...'
+    ExplicitWidth = 87
   end
   object Bar: TProgressBar [1]
     AlignWithMargins = True
@@ -29,15 +29,23 @@ inherited frameNCWDownload: TframeNCWDownload
     Margins.Bottom = 0
     Align = alTop
     TabOrder = 1
+    ExplicitTop = 85
   end
   inherited pnTitle: TPanel
+    Height = 58
+    StyleElements = [seFont, seClient, seBorder]
+    ExplicitHeight = 58
     inherited lblTitle: TLabel
-      Caption = #1047#1072#1074#1072#1085#1090#1072#1078#1077#1085#1085#1103' '#1092#1072#1081#1083#1091' INPX'
-      ExplicitWidth = 156
+      Width = 292
+      Caption = #1047#1072#1075#1088#1091#1079#1082#1072' '#1092#1072#1081#1083#1072' INPX'
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 122
     end
     inherited lblSubTitle: TLabel
-      Caption = #1047#1072#1095#1077#1082#1072#1081#1090#1077', '#1087#1086#1082#1080' '#1092#1072#1081#1083' '#1073#1091#1076#1077' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1080#1081' '#1110#1079' '#1089#1077#1088#1074#1077#1088#1072
-      ExplicitWidth = 287
+      Width = 285
+      Caption = #1055#1086#1076#1086#1078#1076#1080#1090#1077', '#1087#1086#1082#1072' '#1092#1072#1081#1083' '#1073#1091#1076#1077#1090' '#1079#1072#1075#1088#1091#1078#1077#1085' '#1089' '#1089#1077#1088#1074#1077#1088#1072
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 269
     end
   end
   object HTTP: TIdHTTP

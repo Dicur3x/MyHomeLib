@@ -17,7 +17,7 @@ inherited frameNCWProgress: TframeNCWProgress
     Margins.Bottom = 0
     Align = alTop
     AutoSize = False
-    Caption = #1030#1084#1087#1086#1088#1090#1091#1108#1084#1086'...'
+    Caption = #1048#1084#1087#1086#1088#1090#1080#1088#1091#1077#1084'...'
     EllipsisPosition = epEndEllipsis
     ExplicitLeft = -25
     ExplicitTop = 13
@@ -35,19 +35,25 @@ inherited frameNCWProgress: TframeNCWProgress
     Margins.Bottom = 0
     Align = alTop
     TabOrder = 3
+    ExplicitTop = 83
   end
   inherited pnTitle: TPanel
     Width = 460
+    Height = 58
+    StyleElements = [seFont, seClient, seBorder]
     ExplicitWidth = 460
+    ExplicitHeight = 58
     inherited lblTitle: TLabel
       Width = 432
-      Caption = #1057#1090#1074#1086#1088#1077#1085#1085#1103' '#1082#1086#1083#1077#1082#1094#1110#1111
-      ExplicitWidth = 115
+      Caption = #1057#1086#1079#1076#1072#1085#1080#1077' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 121
     end
     inherited lblSubTitle: TLabel
       Width = 425
-      Caption = #1047#1072#1095#1077#1082#1072#1081#1090#1077', '#1087#1086#1082#1080' '#1084#1072#1081#1089#1090#1077#1088' '#1079#1072#1082#1110#1085#1095#1080#1090#1100' '#1089#1090#1074#1086#1088#1077#1085#1085#1103' '#1082#1086#1083#1077#1082#1094#1110#1111
-      ExplicitWidth = 301
+      Caption = #1055#1086#1076#1086#1078#1076#1080#1090#1077', '#1087#1086#1082#1072' '#1084#1072#1089#1090#1077#1088' '#1079#1072#1082#1086#1085#1095#1080#1090' '#1089#1086#1079#1076#1072#1085#1080#1077' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 305
     end
   end
   object errorLog: TListView
@@ -82,8 +88,6 @@ inherited frameNCWProgress: TframeNCWProgress
     SmallImages = DMUser.SeverityImages
     TabOrder = 1
     ViewStyle = vsReport
-    ExplicitTop = 107
-    ExplicitHeight = 150
   end
   object pnButtons: TPanel
     Left = 0
@@ -103,7 +107,7 @@ inherited frameNCWProgress: TframeNCWProgress
       Width = 75
       Height = 25
       Anchors = [akLeft, akBottom]
-      Caption = #1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
       TabOrder = 0
     end
   end

@@ -182,7 +182,7 @@ resourcestring
    rstrMiddleName = 'Отчество';
    rstrNickName = 'Nick';
    rstrEmail = 'Email';
-   rstrHomepage = 'Homepage';
+   rstrHomepage = 'Сайт';
    rstrAdd = 'Добавить';
    rstrChange = 'Изменить';
    rstrDelete = 'Удалить';

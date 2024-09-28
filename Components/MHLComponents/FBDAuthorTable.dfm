@@ -23,13 +23,12 @@ object frmEditAuthorFull: TfrmEditAuthorFull
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 1
-    ExplicitWidth = 288
     object btnSave: TButton
       Left = 126
       Top = 3
       Width = 75
       Height = 25
-      Caption = #1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       ModalResult = 1
       TabOrder = 0
@@ -40,7 +39,7 @@ object frmEditAuthorFull: TfrmEditAuthorFull
       Width = 75
       Height = 25
       Cancel = True
-      Caption = #1042#1110#1076#1084#1110#1085#1072
+      Caption = #1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
     end
@@ -55,29 +54,28 @@ object frmEditAuthorFull: TfrmEditAuthorFull
     BevelOuter = bvNone
     BorderWidth = 1
     TabOrder = 0
-    ExplicitWidth = 282
     object Label1: TLabel
       Left = 9
       Top = 1
-      Width = 47
+      Width = 44
       Height = 13
-      Caption = '&'#1055#1088#1110#1079#1074#1080#1097#1077
+      Caption = '&'#1060#1072#1084#1080#1083#1080#1103
       FocusControl = edFamily
     end
     object Label2: TLabel
       Left = 9
       Top = 43
-      Width = 18
+      Width = 19
       Height = 13
-      Caption = '&'#1030#1084#39#1103
+      Caption = '&'#1048#1084#1103
       FocusControl = edName
     end
     object Label3: TLabel
       Left = 151
       Top = 43
-      Width = 60
+      Width = 49
       Height = 13
-      Caption = #1055#1086' '#1073#1072#1090#1100#1082#1086#1074#1110
+      Caption = #1054#1090#1095#1077#1089#1090#1074#1086
       FocusControl = edMiddle
     end
     object Label4: TLabel
@@ -90,12 +88,12 @@ object frmEditAuthorFull: TfrmEditAuthorFull
       FocusControl = edEmail
     end
     object Label5: TLabel
-      Left = 23
+      Left = 49
       Top = 170
-      Width = 51
+      Width = 25
       Height = 13
       Alignment = taRightJustify
-      Caption = 'Home&page'
+      Caption = #1057#1072#1081#1090
       FocusControl = edHomepage
     end
     object Separator: TBevel
@@ -108,9 +106,9 @@ object frmEditAuthorFull: TfrmEditAuthorFull
     object Label6: TLabel
       Left = 12
       Top = 89
-      Width = 51
+      Width = 55
       Height = 13
-      Caption = #1055#1089#1077#1074#1076#1086#1085#1110#1084
+      Caption = #1055#1089#1077#1074#1076#1086#1085#1080#1084
       FocusControl = edNick
     end
     object edFamily: TEdit

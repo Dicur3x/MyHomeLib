@@ -5314,7 +5314,7 @@ begin
     Exit;
 
   //
-  // только на старанице "по авторам"
+  // только на странице "по авторам"
   //
   if ActiveView <> AuthorsView then
   begin
@@ -5337,7 +5337,7 @@ begin
     Exit;
 
   //
-  // только на старанице "по сериям"
+  // только на странице "по сериям"
   //
   if ActiveView <> SeriesView then
   begin
@@ -5360,7 +5360,7 @@ begin
     Exit;
 
   //
-  // только на старанице "по жанрам"
+  // только на странице "по жанрам"
   //
   if ActiveView <> GenresView then
   begin
@@ -5382,7 +5382,7 @@ end;
 procedure TfrmMain.AddGroupUpdate(Sender: TObject);
 begin
   //
-  // только на старанице "по группам"
+  // только на странице "по группам"
   //
   if InternalUpdateGroupAction(acGroupCreate) then
     Exit;
@@ -5395,7 +5395,7 @@ var
   Data: PGroupData;
 begin
   //
-  // только на старанице "по группам"
+  // только на странице "по группам"
   //
   if InternalUpdateGroupAction(Sender as TAction) then
     Exit;
@@ -5409,7 +5409,7 @@ var
   Data: PGroupData;
 begin
   //
-  // только на старанице "по группам"
+  // только на странице "по группам"
   //
   if InternalUpdateGroupAction(acGroupClear) then
     Exit;

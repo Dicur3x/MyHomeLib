@@ -474,7 +474,7 @@ begin
   Settings.ProxyPassword := edProxyPassword.Text;
   Settings.UpdateURL := edUpdates.Text;
   Settings.CheckExternalLibUpdate := cbCheckColUpdate.Checked;
-  Settings.CheckUpdate := cbUpdates.Checked;
+  Settings.CheckUpdate := False;
   Settings.TimeOut := udTimeOut.Position;
   Settings.ReadTimeOut := udReadTimeOut.Position;
   Settings.DwnldInterval := udDwnldInterval.Position;

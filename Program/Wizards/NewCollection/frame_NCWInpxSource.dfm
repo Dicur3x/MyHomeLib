@@ -21,16 +21,21 @@ inherited frameNCWInpxSource: TframeNCWInpxSource
   end
   inherited pnTitle: TPanel
     Width = 330
+    Height = 58
+    StyleElements = [seFont, seClient, seBorder]
     ExplicitWidth = 330
+    ExplicitHeight = 58
     inherited lblTitle: TLabel
       Width = 302
-      Caption = #1044#1078#1077#1088#1077#1083#1086' INPX'
-      ExplicitWidth = 85
+      Caption = #1048#1089#1090#1086#1095#1085#1080#1082' INPX'
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 84
     end
     inherited lblSubTitle: TLabel
       Width = 295
-      Caption = #1042#1080#1073#1077#1088#1110#1090#1100' '#1092#1072#1081#1083' inpx '#1076#1083#1103' '#1089#1090#1074#1086#1088#1077#1085#1085#1103' '#1082#1086#1083#1077#1082#1094#1110#1111
-      ExplicitWidth = 236
+      Caption = #1042#1099#1073#1077#1088#1080#1090#1077' '#1092#1072#1081#1083' inpx '#1076#1083#1103' '#1089#1086#1079#1076#1072#1085#1080#1103' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
+      StyleElements = [seFont, seClient, seBorder]
+      ExplicitWidth = 250
     end
   end
   object Panel1: TMHLSimplePanel
@@ -51,7 +56,7 @@ inherited frameNCWInpxSource: TframeNCWInpxSource
       Margins.Right = 14
       Margins.Bottom = 0
       Align = alTop
-      Caption = #1051#1086#1082#1072#1083#1100#1085#1080#1081' '#1092#1072#1081#1083' INPX'
+      Caption = #1051#1086#1082#1072#1083#1100#1085#1099#1081' '#1092#1072#1081#1083' INPX'
       TabOrder = 0
       OnClick = OnSetINPXSource
     end
@@ -66,7 +71,7 @@ inherited frameNCWInpxSource: TframeNCWInpxSource
       Margins.Right = 14
       Margins.Bottom = 0
       Align = alTop
-      Caption = #1047#1072#1074#1072#1085#1090#1072#1078#1080#1090#1080' '#1110#1079' '#1089#1072#1081#1090#1091
+      Caption = #1057#1082#1072#1095#1072#1090#1100' '#1089' '#1089#1072#1081#1090#1072
       TabOrder = 2
       OnClick = OnSetINPXSource
     end
@@ -117,7 +122,7 @@ inherited frameNCWInpxSource: TframeNCWInpxSource
         Width = 75
         Height = 25
         Anchors = [akTop, akRight]
-        Caption = #1042#1080#1073#1088#1072#1090#1080
+        Caption = #1042#1099#1073#1088#1072#1090#1100
         TabOrder = 1
         OnClick = edINPXPathButtonClick
       end
