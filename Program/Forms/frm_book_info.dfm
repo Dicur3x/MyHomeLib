@@ -21,7 +21,7 @@ object frmBookDetails: TfrmBookDetails
     Top = 53
     Width = 622
     Height = 388
-    ActivePage = tsAnnotation
+    ActivePage = tsReview
     Align = alClient
     DoubleBuffered = True
     ParentDoubleBuffered = False
@@ -142,7 +142,7 @@ object frmBookDetails: TfrmBookDetails
           Width = 115
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1047#1072#1074#1072#1085#1090#1072#1078#1080#1090#1080' '#1110#1079' '#1089#1072#1081#1090#1091
+          Caption = #1057#1082#1072#1095#1072#1090#1100' '#1089' '#1089#1072#1081#1090#1072
           TabOrder = 0
           OnClick = btnLoadReviewClick
         end
@@ -152,7 +152,7 @@ object frmBookDetails: TfrmBookDetails
           Width = 75
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1054#1095#1080#1089#1090#1080#1090#1080
+          Caption = #1054#1095#1080#1089#1090#1080#1090#1100
           TabOrder = 1
           OnClick = btnClearReviewClick
         end

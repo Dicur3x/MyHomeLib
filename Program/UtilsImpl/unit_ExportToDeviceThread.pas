@@ -1,16 +1,4 @@
-﻿(* *****************************************************************************
-  *
-  * MyHomeLib
-  *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
-  *
-  * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
-  *         Nick Rymanov     nrymanov@gmail.com
-  *         Matvienko Sergei matv84@mail.ru
-  *
-  ****************************************************************************** *)
-
-unit unit_ExportToDeviceThread;
+﻿unit unit_ExportToDeviceThread;
 
 interface
 
@@ -20,7 +8,8 @@ uses
   unit_globals,
   Dialogs,
   unit_Templater,
-  unit_Interfaces;
+  unit_Interfaces,
+  System.Generics.Collections;
 
 type
   TExportToDeviceThread = class(TWorker)
@@ -28,9 +17,9 @@ type
     TFileOprecord = record
       SourceFile: string;
       TargetFile: string;
-        TempFile: string;
-        FileName: string;
-          Stream: TStream;
+      TempFile: string;
+      FileName: string;
+      Stream: TStream;
     end;
 
   protected
@@ -58,6 +47,7 @@ type
     FDeviceDir: string;
 
     FMaxTempPathLength: Integer;
+    FFileCounter: TDictionary<string, Integer>;
 
     function fb2Lrf(const InpFile: string; const OutFile: string): Boolean;
     function fb2EPUB(const InpFile: string; const OutFile: string): Boolean;
@@ -72,6 +62,7 @@ type
   strict private
     function PrepareFile(const BookKey: TBookKey): Boolean;
     function SendFileToDevice: Boolean;
+    function GetUniqueFileName(const FileName: string): string;
 
   protected
     procedure Initialize; override;
@@ -80,6 +71,7 @@ type
 
   public
     constructor Create;
+    destructor Destroy; override;
 
     property BookIdList: TBookIdList read FBookIdList write FBookIdList;
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
@@ -102,12 +94,12 @@ uses
   unit_WriteFb2Info;
 
 resourcestring
-rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-   rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
-   rstrFileNotFound = 'Файл "%s" не найден';
-   rstrProcessRemainingFiles = 'Обрабатывать оставшиеся файлы?';
-   rstrFilesProcessed = 'Записаны файлы: %u из %u';
-   rstrCompleted = 'Завершение операции...';
+  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+  rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
+  rstrFileNotFound = 'Файл "%s" не найден';
+  rstrProcessRemainingFiles = 'Обрабатывать оставшиеся файлы?';
+  rstrFilesProcessed = 'Записаны файлы: %u из %u';
+  rstrCompleted = 'Завершение операции...';
 
 const
   MaxPathLength = 240;
@@ -128,6 +120,34 @@ begin
   FTXTEncoding := FSettings.TXTEncoding;
 
   FMaxTempPathLength := MaxPathLength - Length(FTempPath);
+  FFileCounter := TDictionary<string, Integer>.Create;
+end;
+
+destructor TExportToDeviceThread.Destroy;
+begin
+  FFileCounter.Free;
+  inherited;
+end;
+
+function TExportToDeviceThread.GetUniqueFileName(const FileName: string): string;
+var
+  BaseName, Ext: string;
+  Counter: Integer;
+begin
+  if not FFileCounter.TryGetValue(FileName, Counter) then
+  begin
+    Counter := 1;
+    FFileCounter.Add(FileName, Counter);
+    Result := FileName;
+  end
+  else
+  begin
+    Inc(Counter);
+    FFileCounter[FileName] := Counter;
+    BaseName := ChangeFileExt(FileName, '');
+    Ext := ExtractFileExt(FileName);
+    Result := Format('%s_%d%s', [BaseName, Counter, Ext]);
+  end;
 end;
 
 //
@@ -146,8 +166,6 @@ var
 begin
   Result := False;
   try
-
-
     Collection := FSystemData.GetCollection(BookKey.DatabaseID);
     Collection.GetBookRecord(BookKey, R, False);
 
@@ -156,7 +174,6 @@ begin
     // промежуточный файл остается во временной папке
     if not FExtractOnly Then
     begin
-
       //
       // Сформируем имя каталога в соответствии с заданным темплейтом
       //
@@ -191,11 +208,11 @@ begin
     if Length(FTargetFullFilePath) < MaxPathLength then
       FTargetFullFilePath := FTargetFullFilePath + R.FileExt
     else
-      FTargetFullFilePath  := Format('%s.%d%s',[copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
+      FTargetFullFilePath := Format('%s.%d%s', [copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
 
-    FFileOprecord.TargetFile := FTargetFullFilePath;
+    FFileOprecord.TargetFile := GetUniqueFileName(FTargetFullFilePath);
     FFileOprecord.SourceFile := R.GetBookFileName;
-    FFileOprecord.FileName:= FTargetFileName + R.FileExt;
+    FFileOprecord.FileName := FTargetFileName + R.FileExt;
 
     //
     // Если файл в архиве - распаковываем в $tmp
@@ -210,17 +227,16 @@ begin
       end;
 
       if Length(FTargetFileName) < FMaxTempPathLength then
-        FTempFileName := Format('%s%s',[FTargetFileName, R.FileExt])
+        FTempFileName := Format('%s%s', [FTargetFileName, R.FileExt])
       else
-        FTempFileName := Format('%s%s',[Copy(FTargetFileName, 1, FMaxTempPathLength), R.FileExt]);
+        FTempFileName := Format('%s%s', [Copy(FTargetFileName, 1, FMaxTempPathLength), R.FileExt]);
 
-      FFileOprecord.TempFile :=  TPath.Combine(FTempPath, FTempFileName);
+      FFileOprecord.TempFile := TPath.Combine(FTempPath, FTempFileName);
 
       FFileOprecord.Stream := R.GetBookStream;
 
       if (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info then
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
-
     end;
 
     Result := True;
@@ -288,33 +304,30 @@ begin
         Result := fb2Mobi(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
     end;
   except
-    // supress excerptions
+    // suppress exceptions
   end;
 end;
 
 function TExportToDeviceThread.ExportToFB2: boolean;
 begin
- if FFileOprecord.Stream <> nil then
-   Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream)
- else
-   Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+  if FFileOprecord.Stream <> nil then
+    Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream)
+  else
+    Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
 end;
 
 function TExportToDeviceThread.ProcessFileFromStream: boolean;
 begin
   Result := False;
   try
-
     case FExportMode of
-         emFB2: ExportToFB2;
-
+      emFB2: ExportToFB2;
       emFB2Zip: ExportToZip;
-
-         emTxt: unit_globals.ConvertToTxt(FFileOprecord.TargetFile, FTXTEncoding, FFileOprecord.Stream);
+      emTxt: unit_globals.ConvertToTxt(FFileOprecord.TargetFile, FTXTEncoding, FFileOprecord.Stream);
     end;
     Result := True;
   except
-    // suppress excerptions
+    // suppress exceptions
   end;
 end;
 
@@ -330,13 +343,13 @@ begin
   if FBookFormat in [bfFb2, bfFb2Archive] then
   begin
     case FExportMode of
-        emFB2, emFB2Zip, emTxt: Result := ProcessFileFromStream;
-      else
-        Result := CallExternalConverter;
+      emFB2, emFB2Zip, emTxt: Result := ProcessFileFromStream;
+    else
+      Result := CallExternalConverter;
     end;
   end
-    else
-      Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+  else
+    Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
 end;
 
 function TExportToDeviceThread.fb2Lrf(const InpFile: string; const OutFile: string): Boolean;
@@ -422,11 +435,9 @@ begin
 
       FProgressEngine.AddProgress;
     end;
-
   finally
     FProgressEngine.EndOperation;
   end;
 end;
 
 end.
-
