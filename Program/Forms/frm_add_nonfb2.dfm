@@ -2,7 +2,7 @@ object frmAddnonfb2: TfrmAddnonfb2
   Left = 0
   Top = 0
   HelpContext = 129
-  ActiveControl = Tree
+  ActiveControl = btnShowGenres
   BorderIcons = [biSystemMenu, biMaximize]
   Caption = #1044#1086#1073#1072#1074#1083#1077#1085#1080#1077' '#1082#1085#1080#1075' '#1074' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
   ClientHeight = 532
@@ -29,7 +29,7 @@ object frmAddnonfb2: TfrmAddnonfb2
     Width = 746
     Height = 490
     Margins.Bottom = 39
-    ActivePage = tsFiles
+    ActivePage = tsBookInfo
     Align = alClient
     TabOrder = 0
     object tsFiles: TTabSheet

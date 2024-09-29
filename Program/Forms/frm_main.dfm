@@ -76,6 +76,7 @@ object frmMain: TfrmMain
     object tbtnRead: TToolButton
       Left = 0
       Top = 0
+      Hint = #1063#1080#1090#1072#1090#1100
       Action = acBookRead
       Caption = #1063#1080#1090#1072#1090#1100
       ImageIndex = 0
@@ -2357,7 +2358,7 @@ object frmMain: TfrmMain
             Left = 1027
             Top = 3
             Width = 107
-            Height = 13
+            Height = 36
             Align = alRight
             Alignment = taRightJustify
             Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
@@ -2368,6 +2369,7 @@ object frmMain: TfrmMain
             Font.Style = [fsBold]
             ParentFont = False
             Layout = tlCenter
+            ExplicitHeight = 13
           end
           object pbDownloadProgress: TProgressBar
             Left = 0

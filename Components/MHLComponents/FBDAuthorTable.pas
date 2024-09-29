@@ -180,7 +180,7 @@ resourcestring
    rstrLastName = 'Фамилия';
    rstrFirstName = 'Имя';
    rstrMiddleName = 'Отчество';
-   rstrNickName = 'Nick';
+   rstrNickName = 'Ник';
    rstrEmail = 'Email';
    rstrHomepage = 'Сайт';
    rstrAdd = 'Добавить';
