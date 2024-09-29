@@ -62,7 +62,7 @@ type
   strict private
     function PrepareFile(const BookKey: TBookKey): Boolean;
     function SendFileToDevice: Boolean;
-    function GetUniqueFileName(const FileName: string): string;
+    function GetUniqueFileName(const FileName: string; const BookID: Integer): string;
 
   protected
     procedure Initialize; override;
@@ -129,31 +129,34 @@ begin
   inherited;
 end;
 
-function TExportToDeviceThread.GetUniqueFileName(const FileName: string): string;
+function TExportToDeviceThread.GetUniqueFileName(const FileName: string; const BookID: Integer): string;
 var
-  BaseName, Ext: string;
+  BaseName, Ext, UniqueSuffix: string;
   Counter: Integer;
 begin
-  if not FFileCounter.TryGetValue(FileName, Counter) then
-  begin
-    Counter := 1;
-    FFileCounter.Add(FileName, Counter);
-    Result := FileName;
-  end
+  BaseName := ChangeFileExt(FileName, '');
+  Ext := ExtractFileExt(FileName);
+
+  if BookID <> 0 then
+    UniqueSuffix := Format('_%d', [BookID])
   else
   begin
-    Inc(Counter);
-    FFileCounter[FileName] := Counter;
-    BaseName := ChangeFileExt(FileName, '');
-    Ext := ExtractFileExt(FileName);
-    Result := Format('%s_%d%s', [BaseName, Counter, Ext]);
+    if not FFileCounter.TryGetValue(FileName, Counter) then
+    begin
+      Counter := 1;
+      FFileCounter.Add(FileName, Counter);
+    end
+    else
+    begin
+      Inc(Counter);
+      FFileCounter[FileName] := Counter;
+    end;
+    UniqueSuffix := Format('_noid_%d', [Counter]);
   end;
+
+  Result := Format('%s%s%s', [BaseName, UniqueSuffix, Ext]);
 end;
 
-//
-// Определяем имя файла, если нужно - предварительно распаковываем
-// формируем названия папок и файла
-//
 function TExportToDeviceThread.PrepareFile(const BookKey: TBookKey): Boolean;
 var
   Collection: IBookCollection;
@@ -210,7 +213,7 @@ begin
     else
       FTargetFullFilePath := Format('%s.%d%s', [copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
 
-    FFileOprecord.TargetFile := GetUniqueFileName(FTargetFullFilePath);
+    FFileOprecord.TargetFile := GetUniqueFileName(FTargetFullFilePath, R.BookKey.BookID);
     FFileOprecord.SourceFile := R.GetBookFileName;
     FFileOprecord.FileName := FTargetFileName + R.FileExt;
 
