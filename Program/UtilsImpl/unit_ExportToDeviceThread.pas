@@ -100,6 +100,7 @@ resourcestring
   rstrProcessRemainingFiles = 'Обрабатывать оставшиеся файлы?';
   rstrFilesProcessed = 'Записаны файлы: %u из %u';
   rstrCompleted = 'Завершение операции...';
+  rstrRememberChoise = 'Запомнить выбор?';
 
 const
   MaxPathLength = 240;
@@ -407,7 +408,9 @@ var
   i: Integer;
   totalBooks: Integer;
   Res: Boolean;
+  IsShowDialog: BOOL;
 begin
+  IsShowDialog := True;
   FProgressEngine.BeginOperation(Length(FBookIdList), rstrFilesProcessed, rstrFilesProcessed);
   try
     totalBooks := Length(FBookIdList);
@@ -430,10 +433,14 @@ begin
 
       if not Res and (i < totalBooks - 1) then
       begin
-        //
-        // TODO -oNickR -cUsability : предусмотреть возможность сказать "да для всех"
-        //
-        Canceled := (ShowMessage(rstrProcessRemainingFiles, MB_ICONQUESTION or MB_YESNO) = IDNO);
+        if IsShowDialog then
+        begin
+            Canceled := (ShowMessage(rstrProcessRemainingFiles, MB_ICONQUESTION or MB_YESNO) = IDNO);
+            if ShowMessage(rstrRememberChoise, MB_ICONQUESTION or MB_YESNO) = IDYES then
+            begin
+                IsShowDialog := False;
+            end;
+        end;
       end;
 
       FProgressEngine.AddProgress;
