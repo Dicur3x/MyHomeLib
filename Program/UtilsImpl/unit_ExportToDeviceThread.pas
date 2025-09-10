@@ -105,7 +105,7 @@ resourcestring
 const
   MaxPathLength = 240;
 
-{ TExportToDeviceThread }
+  { TExportToDeviceThread }
 
 constructor TExportToDeviceThread.Create;
 var
