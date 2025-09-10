@@ -100,7 +100,8 @@ implementation
 
 uses
   unit_Globals,
-  IOUtils;
+  IOUtils,
+  unit_Errors;
 
 { TUpdateInfoList }
 
@@ -148,48 +149,61 @@ var
   SL: TStringList;
   i: Integer;
   URL: string;
+  SSLNotFound: Boolean;
 begin
   LF := TMemoryStream.Create;
+  SSLNotFound := False;
   try
     HTTP := TidHTTP.Create(nil);
     IdSocksInfo := TIdSocksInfo.Create(nil);
     try
+      IdSSLIOHandlerSocketOpenSSL := nil;
       try
-        IdSSLIOHandlerSocketOpenSSL := nil;
         try
           IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
           SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
-
-          for i := 0 to Count - 1 do
-          begin
-            if Items[i].FVersionFile = '' then
-              Continue;
-
-            URL := Items[i].URL + Items[i].FVersionFile;
-
-            try
-              LF.Clear;
-              HTTP.Get(URL, LF);
-              SL := TStringList.Create;
-              try
-                LF.Seek(0, soFromBeginning);
-                SL.LoadFromStream(LF);
-                if SL.Count > 0 then
-                  Items[i].FExternalVersion := StrToInt(SL[0]);
-
-                //SL.SaveToFile('E:\Temp\out.txt');
-              finally
-                SL.Free;
-              end;
-            except
-            end;
-          end; // for
-        finally
-          IdSSLIOHandlerSocketOpenSSL.Free;
+        except
+          on E: EIdOSSLCouldNotLoadSSLLibrary do
+            SSLNotFound := True;
         end;
-      except
-        on E: EIdOSSLCouldNotLoadSSLLibrary do
-          Exit;
+
+        for i := 0 to Count - 1 do
+        begin
+          if Items[i].FVersionFile = '' then
+            Continue;
+
+          if SSLNotFound then
+            Break;
+
+          URL := Items[i].URL;
+          if (URL = '') or (Pos('://', URL) = 0) then
+            Continue;
+          URL := URL + Items[i].FVersionFile;
+
+          try
+            LF.Clear;
+            HTTP.Get(URL, LF);
+            SL := TStringList.Create;
+            try
+              LF.Seek(0, soFromBeginning);
+              SL.LoadFromStream(LF);
+              if SL.Count > 0 then
+                Items[i].FExternalVersion := StrToInt(SL[0]);
+
+              //SL.SaveToFile('E:\Temp\out.txt');
+            finally
+              SL.Free;
+            end;
+          except
+            on E: EIdOSSLCouldNotLoadSSLLibrary do
+            begin
+              SSLNotFound := True;
+              Break;
+            end;
+          end;
+        end; // for
+      finally
+        IdSSLIOHandlerSocketOpenSSL.Free;
       end;
     finally
       IdSocksInfo.Free;
@@ -197,6 +211,8 @@ begin
     end;
   finally
     LF.Free;
+    if SSLNotFound then
+      MHLShowInfo('Не найдена SSL-библиотека, сетевые обновления пропущены');
   end;
 end;
 
@@ -214,9 +230,13 @@ begin
   Result := False;
 
   if Items[Index].URL = '' then
-    URL := FURL + Items[Index].FUpdateFile
+    URL := FURL
   else
-    URL := Items[Index].URL + Items[Index].FUpdateFile;
+    URL := Items[Index].URL;
+  // Skip download if update server URL is missing or invalid
+  if (URL = '') or (Pos('://', URL) = 0) then
+    Exit;
+  URL := URL + Items[Index].FUpdateFile;
   FileName := TPath.Combine(FPath, Items[Index].FUpdateFile);
 
   MS := TMemoryStream.Create;
@@ -259,10 +279,14 @@ end;
 function TUpdateInfo.CheckVersion(const Path: string; CurrentVersion: Integer): Boolean;
 begin
   FLocal := FileExists(TPath.Combine(Path, UpdateFile));
-  if FLocal then
-    Result := True
-  else
+
+  // Manual updates from local files should be applied regardless of the
+  // version specified in version.info. If a local update file exists we
+  // treat the update as available without comparing versions.
+  Result := FLocal;
+  if not Result then
     Result := (FExternalVersion > CurrentVersion);
+
   FAvailable := Result;
 end;
 
