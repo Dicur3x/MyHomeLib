@@ -353,7 +353,12 @@ begin
     end;
   end
   else
-    Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+  begin
+    if FFileOprecord.Stream <> nil then
+      Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream)
+    else
+      Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+  end;
 end;
 
 function TExportToDeviceThread.fb2Lrf(const InpFile: string; const OutFile: string): Boolean;
