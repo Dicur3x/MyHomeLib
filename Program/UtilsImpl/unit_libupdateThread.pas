@@ -174,16 +174,22 @@ var
   Collection: IBookCollection;
   UserDataBackup: TUserData;
   S: string;
+  CurrentUpdateFile: string;
 begin
   SetComment(rstrCheckingUpdate);
+
+  CurrentUpdateFile := '';
 
   try
     for i := 0 to Settings.Updates.Count - 1 do
     begin
+      CurrentUpdateFile := '';
       updateInfo := Settings.Updates[i];
 
       if not updateInfo.Available then
         Continue;
+
+      CurrentUpdateFile := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
 
       if updateInfo.ExternalVersion > 0 then
          Teletype(Format(rstrOnlineCollectionUpdate, [updateInfo.Name, updateInfo.ExternalVersion]), tsInfo)
@@ -205,7 +211,8 @@ begin
 
       if Canceled then
       begin
-        DeleteFile(TPath.Combine(Settings.WorkPath, Settings.Updates.Items[i].UpdateFile));
+        if CurrentUpdateFile <> '' then
+          DeleteFile(CurrentUpdateFile);
         Teletype(rstrCancelledByUser, tsInfo);
         Exit;
       end;
@@ -278,7 +285,8 @@ begin
       //
       // TODO -cBug: вообще говоря, значение i здесь неопределено
       //
-      DeleteFile(TPath.Combine(Settings.WorkPath, Settings.Updates.Items[i].UpdateFile));
+      if CurrentUpdateFile <> '' then
+        DeleteFile(CurrentUpdateFile);
     end;
   end;
 end;

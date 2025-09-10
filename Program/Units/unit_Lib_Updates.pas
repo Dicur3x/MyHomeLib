@@ -269,16 +269,20 @@ end;
 
 { TUpdateInfo }
 
-function TUpdateInfo.CheckCodes(const Name: string; t, id: Integer): Boolean;
-begin
-  Result := (t = FCode) and (Name = FName);
-  if Result then
-    FCollectionID := id;
-end;
-
 function TUpdateInfo.CheckVersion(const Path: string; CurrentVersion: Integer): Boolean;
+var
+  FileName: string;
 begin
   FLocal := FileExists(TPath.Combine(Path, UpdateFile));
+  if not FLocal then
+    for FileName in TDirectory.GetFiles(Path) do
+      if SameText(TPath.GetExtension(FileName), '.zip') or
+         SameText(TPath.GetExtension(FileName), '.inpx') then
+      begin
+        FUpdateFile := TPath.GetFileName(FileName);
+        FLocal := True;
+        Break;
+      end;
 
   // Manual updates from local files should be applied regardless of the
   // version specified in version.info. If a local update file exists we
