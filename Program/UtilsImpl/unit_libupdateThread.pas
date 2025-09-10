@@ -24,6 +24,7 @@ uses
   Classes,
   SysUtils,
   unit_ImportInpxThread,
+  unit_Globals,
   IdHTTP,
   IdSocks,
   IdSSLOpenSSL,
@@ -52,7 +53,7 @@ type
     procedure HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: int64);
 
   public
-    constructor Create;
+    constructor Create(const GenresType: TGenresType);
     property Updated: Boolean read FUpdated;
   end;
 
@@ -61,7 +62,6 @@ implementation
 uses
   IOUtils,
   DateUtils,
-  unit_Globals,
   unit_Consts,
   unit_Settings,
   dm_user,
@@ -99,13 +99,10 @@ rstrDownloadProgress = 'Загружено: %u%% із %u байт';
 
 { TLibUpdateThread }
 
-constructor TLibUpdateThread.Create;
+constructor TLibUpdateThread.Create(const GenresType: TGenresType);
 begin
   inherited Create(MHL_INVALID_ID);
-  //
-  // Сейчас считается, что обновления могут быть только для коллекций, содержащих fb2 жанры
-  //
-  FGenresType := gtFb2;
+  FGenresType := GenresType;
 end;
 
 procedure TLibUpdateThread.HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: Int64);
@@ -217,6 +214,12 @@ begin
 
       //Truncate won't work with TBookCollection.Create(DBFileName, False)
       Collection := FSystemData.GetCollection(updateInfo.CollectionID);
+
+      if isFB2Collection(Collection.CollectionCode) then
+        FGenresType := gtFb2
+      else
+        FGenresType := gtAny;
+
       Collection.BeginBulkOperation;
       try
         UserDataBackup := TUserData.Create;

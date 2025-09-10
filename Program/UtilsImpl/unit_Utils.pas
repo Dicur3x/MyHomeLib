@@ -47,6 +47,7 @@ uses
   frm_search,
   frm_main,
   unit_Interfaces,
+  unit_Globals,
   unit_Settings;
 
 resourcestring
@@ -95,7 +96,7 @@ var
   worker : TLibUpdateThread;
   ProgressForm : TImportProgressFormEx;
 begin
-  worker := TLibUpdateThread.Create;
+  worker := TLibUpdateThread.Create(gtFb2);
   try
     ProgressForm := TImportProgressFormEx.Create(Application);
     ProgressForm.Caption := rstrUpdateCollections;
