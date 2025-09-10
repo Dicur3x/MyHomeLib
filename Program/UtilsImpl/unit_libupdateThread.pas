@@ -260,8 +260,8 @@ begin
     for i := 0 to Settings.Updates.Count - 1 do
     begin
       updateInfo := Settings.Updates[i];
-      if FileExists(Settings.UpdatePath + updateInfo.UpdateFile) then
-         DeleteFile(Settings.UpdatePath + updateInfo.UpdateFile);
+      if FileExists(TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile)) then
+         DeleteFile(TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile));
     end;
 
     SetComment(rstrReady);
@@ -275,7 +275,7 @@ begin
       //
       // TODO -cBug: вообще говоря, значение i здесь неопределено
       //
-      DeleteFile(Settings.WorkPath + Settings.Updates.Items[i].UpdateFile);
+      DeleteFile(TPath.Combine(Settings.WorkPath, Settings.Updates.Items[i].UpdateFile));
     end;
   end;
 end;

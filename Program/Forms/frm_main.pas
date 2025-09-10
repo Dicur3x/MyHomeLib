@@ -1584,7 +1584,7 @@ begin
       if not ShowNCWizard then
         Application.Terminate;
 
-      DeleteFile(Settings.WorkPath + CHECK_FILE);
+      DeleteFile(TPath.Combine(Settings.WorkPath, CHECK_FILE));
       Exit;
     end;
 
@@ -2357,30 +2357,41 @@ end;
 
 function TfrmMain.CheckLibUpdates(Auto: Boolean): Boolean;
 var
-  i: Integer;
   UpdatesInfo: TUpdateInfoList;
-  CollectionInfoIterator: ICollectionInfoIterator;
-  CollectionInfo: TCollectionInfo;
+
+  function HasUpdates: Boolean;
+  var
+    i: Integer;
+    CollectionInfoIterator: ICollectionInfoIterator;
+    CollectionInfo: TCollectionInfo;
+  begin
+    Result := False;
+    CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
+    while CollectionInfoIterator.Next(CollectionInfo) do
+    begin
+      for i := 0 to UpdatesInfo.Count - 1 do
+        if UpdatesInfo[i].CheckCodes(CollectionInfo.DisplayName, CollectionInfo.CollectionType, CollectionInfo.ID) then
+          if UpdatesInfo[i].CheckVersion(Settings.UpdatePath, CollectionInfo.DataVersion) then
+            Exit(True);
+    end;
+  end;
+
 begin
   if not Auto then
     ShowPopup(rstrCheckingUpdates);
 
-  Result := False;
-
   UpdatesInfo := Settings.Updates;
 
-  UpdatesInfo.UpdateExternalVersions;
-
-  CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
-  while CollectionInfoIterator.Next(CollectionInfo) do
+  Result := HasUpdates;
+  if not Result then
   begin
-    for i := 0 to UpdatesInfo.Count - 1 do
-      if UpdatesInfo[i].CheckCodes(CollectionInfo.DisplayName, CollectionInfo.CollectionType, CollectionInfo.ID) then
-        if UpdatesInfo[i].CheckVersion(Settings.UpdatePath, CollectionInfo.DataVersion) then
-        begin
-          Result := True;
-          Break;
-        end;
+    try
+      UpdatesInfo.UpdateExternalVersions;
+    except
+      on EIdOSSLCouldNotLoadSSLLibrary do
+        ;
+    end;
+    Result := HasUpdates;
   end;
 
   if not Auto then

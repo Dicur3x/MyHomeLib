@@ -99,7 +99,8 @@ type
 implementation
 
 uses
-  unit_Globals;
+  unit_Globals,
+  IOUtils;
 
 { TUpdateInfoList }
 
@@ -152,36 +153,45 @@ begin
   try
     HTTP := TidHTTP.Create(nil);
     IdSocksInfo := TIdSocksInfo.Create(nil);
-    IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
     try
-      SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
-
-      for i := 0 to Count - 1 do
-      begin
-        if Items[i].FVersionFile = '' then
-          Continue;
-
-        URL := Items[i].URL + Items[i].FVersionFile;
-
+      try
+        IdSSLIOHandlerSocketOpenSSL := nil;
         try
-          LF.Clear;
-          HTTP.Get(URL, LF);
-          SL := TStringList.Create;
-          try
-            LF.Seek(0, soFromBeginning);
-            SL.LoadFromStream(LF);
-            if SL.Count > 0 then
-              Items[i].FExternalVersion := StrToInt(SL[0]);
+          IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
+          SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
 
-            //SL.SaveToFile('E:\Temp\out.txt');
-          finally
-            SL.Free;
-          end;
-        except
+          for i := 0 to Count - 1 do
+          begin
+            if Items[i].FVersionFile = '' then
+              Continue;
+
+            URL := Items[i].URL + Items[i].FVersionFile;
+
+            try
+              LF.Clear;
+              HTTP.Get(URL, LF);
+              SL := TStringList.Create;
+              try
+                LF.Seek(0, soFromBeginning);
+                SL.LoadFromStream(LF);
+                if SL.Count > 0 then
+                  Items[i].FExternalVersion := StrToInt(SL[0]);
+
+                //SL.SaveToFile('E:\Temp\out.txt');
+              finally
+                SL.Free;
+              end;
+            except
+            end;
+          end; // for
+        finally
+          IdSSLIOHandlerSocketOpenSSL.Free;
         end;
-      end; // for
+      except
+        on E: EIdOSSLCouldNotLoadSSLLibrary do
+          Exit;
+      end;
     finally
-      IdSSLIOHandlerSocketOpenSSL.Free;
       IdSocksInfo.Free;
       HTTP.Free;
     end;
@@ -207,7 +217,7 @@ begin
     URL := FURL + Items[Index].FUpdateFile
   else
     URL := Items[Index].URL + Items[Index].FUpdateFile;
-  FileName := FPath + Items[Index].FUpdateFile;
+  FileName := TPath.Combine(FPath, Items[Index].FUpdateFile);
 
   MS := TMemoryStream.Create;
   try
@@ -248,7 +258,7 @@ end;
 
 function TUpdateInfo.CheckVersion(const Path: string; CurrentVersion: Integer): Boolean;
 begin
-  FLocal := FileExists(Path + UpdateFile);
+  FLocal := FileExists(TPath.Combine(Path, UpdateFile));
   if FLocal then
     Result := True
   else
