@@ -295,7 +295,6 @@ begin
   rgDeviceFormat.ItemIndex := Ord(Settings.ExportMode);
   edFolderTemplate.Text := Settings.FolderTemplate;
   edFileNameTemplate.Text := Settings.FileNameTemplate;
-  // TODO : REMOVE cbTranslit.Checked := Settings.TransliterateFileName;
   cbSquareFilter.Checked := Settings.RemoveSquarebrackets;
   cbTXTEncoding.ItemIndex := Ord(Settings.TXTEncoding);
 
@@ -439,7 +438,6 @@ begin
 
   Settings.FolderTemplate := edFolderTemplate.Text;
   Settings.FileNameTemplate := edFileNameTemplate.Text;
-  // TODO : REMOVE Settings.TransliterateFileName := cbTranslit.Checked;
 
   case cbTXTEncoding.ItemIndex of
     0: Settings.TXTEncoding := enUTF8;

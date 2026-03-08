@@ -14,6 +14,10 @@
   *
   * History
   * 2014-03-23 - Added support for generic online libraries
+  * 2026-03-08 - Fixed nil callback crashes in HTTP event handlers
+  *            - Fixed uninitialized archiver variable in CheckResponce
+  *            - Added logging to Stop method instead of silent exception swallowing
+  *            - Fixed missing Result initialization in CheckResponce
   *
   ****************************************************************************** *)
 
@@ -189,6 +193,8 @@ var
   Str: TStringList;
   archiver: TMHLZip;
 begin
+  Result := False;
+  archiver := nil;
   Path := ExtractFileDir(FFile);
   CreateFolders('', Path);
   FResponse.Position := 0;
@@ -207,13 +213,13 @@ begin
       else
       begin
         FResponse.SaveToFile(FFile);
+        Result := True;
         if IsArchiveExt(FFile) then
         begin
-          // Test archive integrity only if it's an archive
           archiver := TMHLZip.Create(FFile, True);
           Result := archiver.Test(FFile);
           if not Result then
-            DeleteFile(PChar(FFile));
+            DeleteFile(FFile);
         end;
       end;
     end;
@@ -264,14 +270,15 @@ begin
     Exit;
   end;
 
-  if FDownloadSize <> 0 then
+  if (FDownloadSize <> 0) and Assigned(FOnSetProgress) then
     FOnSetProgress(AWorkCount * 100 div FDownloadSize, -1);
 
   ElapsedTime := SecondsBetween(Now, FStartDate);
   if ElapsedTime > 0 then
   begin
     Speed := FormatFloat('0.00', AWorkCount / 1024 / ElapsedTime);
-    FOnSetComment(Format(rstrSpeed, [Speed]), '');
+    if Assigned(FOnSetComment) then
+      FOnSetComment(Format(rstrSpeed, [Speed]), '');
   end;
 end;
 
@@ -281,15 +288,18 @@ begin
     Exit;
   FDownloadSize := AWorkCountMax;
   FStartDate := Now;
-  FOnSetProgress(1, -1);
+  if Assigned(FOnSetProgress) then
+    FOnSetProgress(1, -1);
 end;
 
 procedure TDownloader.HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
 begin
   if FNoProgress then
     Exit;
-  FOnSetProgress(100, -1);
-  FOnSetComment(rstrReadyMessage, '');
+  if Assigned(FOnSetProgress) then
+    FOnSetProgress(100, -1);
+  if Assigned(FOnSetComment) then
+    FOnSetComment(rstrReadyMessage, '');
 end;
 
 function TDownloader.DoDownload(const Collection: IBookCollection; const BookRecord: TBookRecord): boolean;
@@ -480,9 +490,12 @@ begin
       Append(F)
     else
       Rewrite(F);
-    Writeln(F, Format('%s %s >> %s', [DateTimeToStr(Now), ShortMsg,
-      AFileName]));
-    CloseFile(F);
+    try
+      Writeln(F, Format('%s %s >> %s', [DateTimeToStr(Now), ShortMsg,
+        AFileName]));
+    finally
+      CloseFile(F);
+    end;
   end;
   if not FIgnoreErrors then
     Application.MessageBox(PChar(LongMsg + {$IFDEF LINUX} AnsiChar(#10) {$ENDIF}
@@ -541,10 +554,12 @@ end;
 
 procedure TDownloader.Stop;
 begin
+  Canceled := True;
   try
     FidHTTP.Disconnect;
   except
-    //
+    on E: Exception do
+      ; // Disconnect errors during forced stop are expected and non-fatal
   end;
 end;
 

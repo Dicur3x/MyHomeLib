@@ -620,8 +620,10 @@ var
   i: Integer;
 begin
   Result := Input;
-  Result := StringReplace(Result,'..','',[rfReplaceAll]);
-  Result := StringReplace(Result,'...','',[rfReplaceAll]);
+  // Remove '...' first (longer pattern), then '..' — otherwise '..' eats
+  // two dots from '...' leaving a stray '.' behind.
+  Result := StringReplace(Result, '...', '', [rfReplaceAll]);
+  Result := StringReplace(Result, '..', '', [rfReplaceAll]);
   for i := 1 to Length(Result) do
     if not TPath.IsValidFileNameChar(Result[i]) then
       Result[i] := ' ';

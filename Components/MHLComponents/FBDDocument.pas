@@ -12,13 +12,14 @@
   * $Id: FBDDocument.pas 1119 2012-10-29 01:52:46Z koreec $
   *
   * History
+  * 2026-03-08 - Added nil guards for FImage in LoadCoverFromFile, LoadCoverFromClpbrd,
+  *              AutoLoadCover, DecodeCover, ResizeImage (fixes potential AV crashes)
   *
   ****************************************************************************** *)
 
 unit FBDDocument;
 
 //
-// TODO -oNickR: разобраться с использованием FImage. Не везде есть проверки на nil, картинка не перерисовывается...
 // TODO -oNickR: более аккуратная работа с архивами (расставить флаги у метода OpenArchive)
 // TODO -oNickR: расставить const у параметров
 //
@@ -302,6 +303,9 @@ var
   Input, Output: TMemoryStream;
   Lines: TStringList;
 begin
+  if not Assigned(FImage) then
+    Exit;
+
   try
     CreateImage(ExtractFileExt(Filename), IMG, FCoverData.ImgType);
     if Assigned(IMG) then
@@ -349,6 +353,9 @@ var
   IMG: TGraphic;
   Lines : TStringList;
 begin
+  if not Assigned(FImage) then
+    Exit;
+
   Output := TMemoryStream.Create;
   Input := TMemoryStream.Create;
   Lines := TStringList.Create;
@@ -635,7 +642,7 @@ begin
       end;
     end;
   end
-  else if FCoverData.Str = '' then // ERROR - эта проверка уже выполнена выше
+  else if (FCoverData.Str = '') and Assigned(FImage) then
     FImage.Picture := nil;
 end;
 
@@ -646,7 +653,8 @@ begin
   if Filename = '' then
     FileName := FFolder + FBookFileName;
 
-  FImage.Picture := nil;
+  if Assigned(FImage) then
+    FImage.Picture := nil;
   FCoverData.Str := '';
   Ext := AnsiLowerCase(ExtractFileExt(FileName));
   if (Ext = '.djvu') or (Ext = '.pdf') or (Ext = '.djv') then
@@ -745,6 +753,9 @@ var
   end;
 
 begin
+  if not Assigned(FImage) then
+    Exit;
+
   thumbnail := FImage.Picture.Bitmap;
   case FResizeMode of
      rmMax    : Max;

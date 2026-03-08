@@ -12,6 +12,7 @@
   *
   * History
   * NickR 15.02.2010    Код переформатирован
+  * 2026-03-08          Replaced empty except blocks with logging
   *
   ****************************************************************************** *)
 
@@ -99,7 +100,8 @@ type
 implementation
 
 uses
-  unit_Globals;
+  unit_Globals,
+  unit_Logger;
 
 { TUpdateInfoList }
 
@@ -178,6 +180,8 @@ begin
             SL.Free;
           end;
         except
+          on E: Exception do
+            Logger.W('CheckUpdates: failed to fetch version info — %s', [E.Message]);
         end;
       end; // for
     finally
@@ -216,6 +220,8 @@ begin
       MS.SaveToFile(FileName);
       Result := True;
     except
+      on E: Exception do
+        Logger.W('DownloadUpdate: failed to download "%s" — %s', [URL, E.Message]);
     end;
   finally
     MS.Free;

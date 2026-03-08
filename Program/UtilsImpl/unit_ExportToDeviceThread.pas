@@ -91,7 +91,8 @@ uses
   dm_user,
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
-  unit_WriteFb2Info;
+  unit_WriteFb2Info,
+  unit_Logger;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -308,7 +309,8 @@ begin
         Result := fb2Mobi(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
     end;
   except
-    // suppress exceptions
+    on E: Exception do
+      Logger.W('ConvertFile: conversion failed for "%s" — %s', [FFileOprecord.SourceFile, E.Message]);
   end;
 end;
 
@@ -331,7 +333,8 @@ begin
     end;
     Result := True;
   except
-    // suppress exceptions
+    on E: Exception do
+      Logger.W('ProcessFileFromStream: failed for "%s" — %s', [FFileOprecord.TargetFile, E.Message]);
   end;
 end;
 

@@ -496,9 +496,7 @@ begin
 
   if stayOnCurrentPage then
   begin
-    //
-    // TODO: пользователь отказался от продолжения, надо уничтожить _созданную_ коллекцию
-    //
+    // User cancelled or errors occurred — destroy the partially created collection
     SystemDB.DeleteCollection(FParams.CollectionID);
 
     if FProgressPage.HasErrors then

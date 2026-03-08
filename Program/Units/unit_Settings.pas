@@ -77,7 +77,6 @@ type
     FDeviceDir: string;
 
     // SYSTEM_SECTION
-    // TODO : REMOVE FTransliterate: Boolean;
     FActiveCollection: Integer;
     FDoCheckUpdate: Boolean;
     FCheckExternalLibUpdate: Boolean;
@@ -663,7 +662,6 @@ begin
     //
     // SYSTEM_SECTION
     //
-    // TODO : REMOVE FTransliterate := iniFile.ReadBool(SYSTEM_SECTION, 'TransliterateFileName', True);
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
     FCheckExternalLibUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', True);
@@ -853,7 +851,6 @@ begin
     //
     // SYSTEM_SECTION
     //
-    // TODO : REMOVE iniFile.WriteBool(SYSTEM_SECTION, 'TransliterateFileName', FTransliterate);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckUpdates', FDoCheckUpdate);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', FCheckExternalLibUpdate);

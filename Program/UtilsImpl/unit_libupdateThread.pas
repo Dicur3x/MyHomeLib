@@ -12,6 +12,8 @@
   * $Id: unit_libupdateThread.pas 1169 2014-06-17 07:31:08Z koreec $
   *
   * History
+  * 2026-03-08 - Fixed undefined loop variable `i` used in exception handler
+  *            - Saved last processed index for safe cleanup on error
   *
   ****************************************************************************** *)
 
@@ -172,6 +174,7 @@ end;
 procedure TLibUpdateThread.WorkFunction;
 var
   i: integer;
+  lastProcessedIndex: integer;
   InpxFileName: string;
   updateInfo: TUpdateInfo;
   Collection: IBookCollection;
@@ -179,10 +182,12 @@ var
   S: string;
 begin
   SetComment(rstrCheckingUpdate);
+  lastProcessedIndex := -1;
 
   try
     for i := 0 to Settings.Updates.Count - 1 do
     begin
+      lastProcessedIndex := i;
       updateInfo := Settings.Updates[i];
 
       if not updateInfo.Available then
@@ -272,10 +277,8 @@ begin
 {$IFDEF USELOGGER}
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
-      //
-      // TODO -cBug: вообще говоря, значение i здесь неопределено
-      //
-      DeleteFile(Settings.WorkPath + Settings.Updates.Items[i].UpdateFile);
+      if (lastProcessedIndex >= 0) and (lastProcessedIndex < Settings.Updates.Count) then
+        DeleteFile(Settings.WorkPath + Settings.Updates.Items[lastProcessedIndex].UpdateFile);
     end;
   end;
 end;

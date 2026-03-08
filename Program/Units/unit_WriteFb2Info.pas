@@ -13,6 +13,9 @@
   *
   * History
   * NickR 15.02.2010    Код переформатирован
+  * 2026-03-08          Fixed memory leak: XML document now freed via try/finally
+  *                     Fixed silent exception swallowing in both WriteFb2Info functions
+  *                     Fixed empty except block in Sequence writing
   *
   ****************************************************************************** *)
 
@@ -36,6 +39,7 @@ uses
   XMLDoc,
   SysUtils,
   unit_Templater,
+  unit_Logger,
   Dialogs;
 
 resourcestring
@@ -56,61 +60,66 @@ var
   Templater: TTemplater;
 begin
   Result := False;
+  XML := TXmlDocument.Create(nil);
   try
-    XML := TXmlDocument.Create(Nil);
-    Stream.Seek(0, soFromBeginning);
-    XML.LoadFromStream(Stream);
-
-
-    XML.Active := True;
-    book := GetFictionBook(XML);
-
-    Templater := TTemplater.Create;
     try
-      if Templater.SetTemplate(Settings.BookHeaderTemplate, TpText) = ErFine then
-        TitleBook := Templater.ParseString(BookRecord, TpText)
-      else
-      begin
-        ShowMessage(rstrCheckTemplateValidity);
-        Exit;
-      end;
-    finally
-      Templater.Free;
-    end;
+      Stream.Seek(0, soFromBeginning);
+      XML.LoadFromStream(Stream);
 
-    with book.Description.Titleinfo do
-    begin
-      Author.Clear;
-      for i := 0 to High(BookRecord.Authors) do
-      begin
-        A := Author.Add;
-        A.Lastname.Text := BookRecord.Authors[i].LastName;
-        A.Firstname.Text := BookRecord.Authors[i].FirstName;
-        A.Middlename.Text := BookRecord.Authors[i].MiddleName;
+      XML.Active := True;
+      book := GetFictionBook(XML);
+
+      Templater := TTemplater.Create;
+      try
+        if Templater.SetTemplate(Settings.BookHeaderTemplate, TpText) = ErFine then
+          TitleBook := Templater.ParseString(BookRecord, TpText)
+        else
+        begin
+          ShowMessage(rstrCheckTemplateValidity);
+          Exit;
+        end;
+      finally
+        Templater.Free;
       end;
 
-      Booktitle.Text := TitleBook;
-
-      Genre.Clear;
-      for i := 0 to High(BookRecord.Genres) do
-        Genre.Add(BookRecord.Genres[i].FB2GenreCode);
-
-      if BookRecord.Series <> NO_SERIES_TITLE then
+      with book.Description.Titleinfo do
       begin
-        try
-          Sequence.Clear;
-          S := Sequence.Add;
+        Author.Clear;
+        for i := 0 to High(BookRecord.Authors) do
+        begin
+          A := Author.Add;
+          A.Lastname.Text := BookRecord.Authors[i].LastName;
+          A.Firstname.Text := BookRecord.Authors[i].FirstName;
+          A.Middlename.Text := BookRecord.Authors[i].MiddleName;
+        end;
 
-          S.Name := BookRecord.Series;
-          S.Number := BookRecord.SeqNumber;
-        except
+        Booktitle.Text := TitleBook;
+
+        Genre.Clear;
+        for i := 0 to High(BookRecord.Genres) do
+          Genre.Add(BookRecord.Genres[i].FB2GenreCode);
+
+        if BookRecord.Series <> NO_SERIES_TITLE then
+        begin
+          try
+            Sequence.Clear;
+            S := Sequence.Add;
+            S.Name := BookRecord.Series;
+            S.Number := BookRecord.SeqNumber;
+          except
+            on E: Exception do
+              Logger.W('WriteFb2InfoToStream: failed to write sequence — %s', [E.Message]);
+          end;
         end;
       end;
+      XML.SaveToStream(Stream);
+      Result := True;
+    except
+      on E: Exception do
+        Logger.W('WriteFb2InfoToStream: %s', [E.Message]);
     end;
-    XML.SaveToStream(Stream);
-    Result := True;
-  except
-
+  finally
+    XML.Free;
   end;
 end;
 
@@ -130,59 +139,63 @@ var
   Templater: TTemplater;
 begin
   Result := False;
+  XML := TXmlDocument.Create(FileName);
   try
-    { TODO -oNickR -cBug : MEMLEAK проверить }
-    XML := TXmlDocument.Create(FileName);
-
-    XML.Active := True;
-    book := GetFictionBook(XML);
-
-    Templater := TTemplater.Create;
     try
-      if Templater.SetTemplate(Settings.BookHeaderTemplate, TpText) = ErFine then
-        TitleBook := Templater.ParseString(BookRecord, TpText)
-      else
-      begin
-        ShowMessage(rstrCheckTemplateValidity);
-        Exit;
-      end;
-    finally
-      Templater.Free;
-    end;
+      XML.Active := True;
+      book := GetFictionBook(XML);
 
-    with book.Description.Titleinfo do
-    begin
-      Author.Clear;
-      for i := 0 to High(BookRecord.Authors) do
-      begin
-        A := Author.Add;
-        A.Lastname.Text := BookRecord.Authors[i].LastName;
-        A.Firstname.Text := BookRecord.Authors[i].FirstName;
-        A.Middlename.Text := BookRecord.Authors[i].MiddleName;
+      Templater := TTemplater.Create;
+      try
+        if Templater.SetTemplate(Settings.BookHeaderTemplate, TpText) = ErFine then
+          TitleBook := Templater.ParseString(BookRecord, TpText)
+        else
+        begin
+          ShowMessage(rstrCheckTemplateValidity);
+          Exit;
+        end;
+      finally
+        Templater.Free;
       end;
 
-      Booktitle.Text := TitleBook;
-
-      Genre.Clear;
-      for i := 0 to High(BookRecord.Genres) do
-        Genre.Add(BookRecord.Genres[i].FB2GenreCode);
-
-      if BookRecord.Series <> NO_SERIES_TITLE then
+      with book.Description.Titleinfo do
       begin
-        try
-          Sequence.Clear;
-          S := Sequence.Add;
+        Author.Clear;
+        for i := 0 to High(BookRecord.Authors) do
+        begin
+          A := Author.Add;
+          A.Lastname.Text := BookRecord.Authors[i].LastName;
+          A.Firstname.Text := BookRecord.Authors[i].FirstName;
+          A.Middlename.Text := BookRecord.Authors[i].MiddleName;
+        end;
 
-          S.Name := BookRecord.Series;
-          S.Number := BookRecord.SeqNumber;
-        except
+        Booktitle.Text := TitleBook;
+
+        Genre.Clear;
+        for i := 0 to High(BookRecord.Genres) do
+          Genre.Add(BookRecord.Genres[i].FB2GenreCode);
+
+        if BookRecord.Series <> NO_SERIES_TITLE then
+        begin
+          try
+            Sequence.Clear;
+            S := Sequence.Add;
+            S.Name := BookRecord.Series;
+            S.Number := BookRecord.SeqNumber;
+          except
+            on E: Exception do
+              Logger.W('WriteFb2InfoToFile: failed to write sequence — %s', [E.Message]);
+          end;
         end;
       end;
+      XML.SaveToFile;
+      Result := True;
+    except
+      on E: Exception do
+        Logger.W('WriteFb2InfoToFile: %s — file: %s', [E.Message, FileName]);
     end;
-    XML.SaveToFile;
-    Result := True;
-  except
-
+  finally
+    XML.Free;
   end;
 end;
 

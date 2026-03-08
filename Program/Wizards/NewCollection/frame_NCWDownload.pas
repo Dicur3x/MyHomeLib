@@ -138,7 +138,6 @@ begin
   ElapsedTime := SecondsBetween(Now, FStartDate);
   if ElapsedTime > 0 then
   begin
-    { TODO -oNickR -cRefactoring : создать и использовать во всех подобных местах FormatSize функцию }
     lblStatus.Caption := Format(
       rstrSpeed,
       [KB, FDownloadSize div 1024, KB / ElapsedTime]
