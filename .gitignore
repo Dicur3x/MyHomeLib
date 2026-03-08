@@ -6,3 +6,6 @@ __history
 Common
 x64
 /Installer/x86
+
+# Auto Claude data directory
+.auto-claude/

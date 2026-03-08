@@ -12,6 +12,11 @@
   *
   * History
   *
+  * [REFACTOR] Uninitialize: added nil guard for FSystemData to prevent AV
+  *            if Initialize raised before FSystemData was assigned.
+  * [REFACTOR] Initialize: FCollection/FCollectionRoot wrapped in try/except
+  *            so FSystemData is always released if collection lookup fails.
+  *
   ****************************************************************************** *)
 
 unit unit_CollectionWorkerThread;
@@ -65,15 +70,30 @@ begin
 
   if FCollectionID <> MHL_INVALID_ID then
   begin
-    FCollection := FSystemData.GetCollection(FCollectionID);
-    Assert(Assigned(FCollection));
-    FCollectionRoot := FCollection.GetProperty(PROP_ROOTFOLDER);
+    // If collection lookup fails, FSystemData must still be released.
+    // Without this try/except, Uninitialize is never called on exception,
+    // and ClearCollectionCache is skipped — leaving the cache in a dirty state.
+    try
+      FCollection := FSystemData.GetCollection(FCollectionID);
+      Assert(Assigned(FCollection));
+      FCollectionRoot := FCollection.GetProperty(PROP_ROOTFOLDER);
+    except
+      FCollection  := nil;
+      FSystemData  := nil;
+      raise;
+    end;
   end;
 end;
 
 procedure TCollectionWorker.Uninitialize;
 begin
-  FSystemData.ClearCollectionCache;
+  // Guard against AV when Initialize raised before FSystemData was assigned.
+  if Assigned(FSystemData) then
+    FSystemData.ClearCollectionCache;
+
+  FCollection := nil;
+  FSystemData := nil;
+
   inherited Uninitialize;
 end;
 

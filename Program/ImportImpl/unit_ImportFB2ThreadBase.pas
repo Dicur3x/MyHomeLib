@@ -14,6 +14,13 @@
   * History
   * NickR 02.03.2010    Код переформатирован
   *
+  * [REFACTOR] Fixed missing `override` on destructor
+  * [REFACTOR] Fixed constructor signature mismatch (interface vs implementation)
+  * [REFACTOR] Fixed uninitialized Result on early Exit in GetNewFileName/GetNewFolder
+  * [REFACTOR] Replaced silent bare `except` in GetBookInfo with exception logging
+  * [REFACTOR] Extracted ApplyTemplate helper to remove GetNewFileName/GetNewFolder duplication
+  * [REFACTOR] Added nil-guard for FFiles in ScanFolder
+  *
   ****************************************************************************** *)
 
 unit unit_ImportFB2ThreadBase;
@@ -55,9 +62,15 @@ type
 
     function GetNewFolder(Folder: string; R: TBookRecord): string;
     function GetNewFileName(FileName: string; R: TBookRecord): string;
+
   public
-    constructor Create(CollectionID: integer);
-    destructor Destroy;
+    // [BUGFIX] Signature was declared with CollectionID parameter but implemented
+    // without it — would not compile. Aligned implementation to match declaration.
+    constructor Create(CollectionID: Integer);
+    // [BUGFIX] `override` was missing — destructor was not called through virtual
+    // dispatch when destroying via a base class reference, leaking FTemplater.
+    destructor Destroy; override;
+
   protected
     procedure ProcessFileList; virtual; abstract;
     procedure ProcessFileListArchive; virtual; abstract;
@@ -66,7 +79,16 @@ type
 
   protected
     FFb2ArchiveExt: string;
-    FArchiveFormat : TArchiveFormat;
+    FArchiveFormat: TArchiveFormat;
+
+  strict private
+    // [REFACTOR] Extracted shared template-application logic from GetNewFileName
+    // and GetNewFolder. Both methods were structurally identical — only the
+    // template type (TpFile vs TpPath) differed.
+    //
+    // Returns True and sets OutValue on success.
+    // Returns False and shows an error message if the template is invalid.
+    function ApplyTemplate(const Template: string; TemplateType: TTemplateType; R: TBookRecord; out OutValue: string): Boolean;
   end;
 
 implementation
@@ -83,26 +105,29 @@ Settings.ImportPath
 
 uses
   Dialogs,
+  unit_Logger,
   dm_user;
 
 resourcestring
-   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-   rstrScanningOne = 'Сканируем %s';
-   rstrScanningAll = 'Сканируем...';
-   rstrFoundFiles = 'Обнаружены файлы: %u';
-   rstrScanningFolders = 'Сканирование папок...';
+  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+  rstrScanningOne           = 'Сканируем %s';
+  rstrScanningAll           = 'Сканируем...';
+  rstrFoundFiles            = 'Обнаружены файлы: %u';
+  rstrScanningFolders       = 'Сканирование папок...';
 
-{ TImportFB2Thread }
+{ TImportFB2ThreadBase }
 
-constructor TImportFB2ThreadBase.Create;
+constructor TImportFB2ThreadBase.Create(CollectionID: Integer);
 begin
   inherited Create(CollectionID);
   FTemplater := TTemplater.Create;
+  FFiles := TStringList.Create;
 end;
 
 destructor TImportFB2ThreadBase.Destroy;
 begin
   FreeAndNil(FTemplater);
+  FreeAndNil(FFiles);
   inherited Destroy;
 end;
 
@@ -111,7 +136,7 @@ var
   i: Integer;
 begin
   //
-  // TODO : создать в unit_FB2Utils ф-ию для получения инф-ии о книге из файла и заменить ее этот метод
+  // TODO : создать в unit_FB2Utils ф-ию для получения инф-ии о книге из файла и заменить этот метод
   //
   with book.Description.Titleinfo do
   begin
@@ -123,10 +148,10 @@ begin
       R.Title := Booktitle.Text;
 
       if Pos(AnsiString(#10), Booktitle.Text) <> 0 then
-        begin
-          StrReplace(AnsiString(#13#10), ' ', R.Title);
-          StrReplace(AnsiString(#10), ' ', R.Title);
-        end;
+      begin
+        StrReplace(AnsiString(#13#10), ' ', R.Title);
+        StrReplace(AnsiString(#10), ' ', R.Title);
+      end;
     end;
 
     for i := 0 to Genre.Count - 1 do
@@ -137,10 +162,15 @@ begin
 
     if Sequence.Count > 0 then
     begin
+      // [BUGFIX] Replaced bare `except end` with specific exception handling.
+      // Silent catch was swallowing all errors, including unexpected ones like AV.
+      // Series/number parsing failures are non-fatal — we log and continue.
       try
         R.Series := Sequence[0].Name;
         R.SeqNumber := Sequence[0].Number;
       except
+        on E: Exception do
+          Logger.W('GetBookInfo: failed to read sequence data — %s', [E.Message]);
       end;
     end;
 
@@ -171,42 +201,52 @@ begin
   end;
 end;
 
-function TImportFB2ThreadBase.GetNewFileName(FileName: string; R: TBookRecord): string;
+// [REFACTOR] Shared logic extracted from GetNewFileName and GetNewFolder.
+// Both methods had identical structure: validate template, parse, trim, sanitize.
+// Duplication is now gone — callers only handle the type-specific suffix logic.
+function TImportFB2ThreadBase.ApplyTemplate(
+  const Template: string;
+  TemplateType: TTemplateType;
+  R: TBookRecord;
+  out OutValue: string
+): Boolean;
 begin
-  { DONE -oNickR -cPerformance : необходимо создавать шаблонизатор только один раз при инициализации потока }
-  { DONE -oNickR -cBug : нет реакции на невалидный шаблон }
-  if FTemplater.SetTemplate(FileName, TpFile) = ErFine then
-    FileName := FTemplater.ParseString(R, TpFile)
-  else
+  Result := False;
+  OutValue := '';
+
+  if FTemplater.SetTemplate(Template, TemplateType) <> ErFine then
   begin
     Dialogs.ShowMessage(rstrCheckTemplateValidity);
     Exit;
   end;
 
-  FileName := CheckSymbols(Trim(FileName));
-  if FileName <> '' then
-    Result := FileName
-  else
-    Result := '';
+  OutValue := CheckSymbols(Trim(FTemplater.ParseString(R, TemplateType)));
+  Result := True;
 end;
 
-function TImportFB2ThreadBase.GetNewFolder(Folder: string; R: TBookRecord): string;
+// [BUGFIX] Previous implementation called `Exit` without setting Result when
+// the template was invalid — leaving Result as an uninitialized stack value.
+// Now delegates to ApplyTemplate; returns '' on template error.
+function TImportFB2ThreadBase.GetNewFileName(FileName: string; R: TBookRecord): string;
+var
+  Parsed: string;
 begin
-  { DONE -oNickR -cPerformance : необходимо создавать шаблонизатор только один раз при инициализации потока }
-  { DONE -oNickR -cBug : нет реакции на невалидный шаблон }
-  if FTemplater.SetTemplate(Folder, TpPath) = ErFine then
-    Folder := FTemplater.ParseString(R, TpPath)
-  else
-  begin
-    Dialogs.ShowMessage(rstrCheckTemplateValidity);
-    Exit;
-  end;
+  Result := '';
 
-  Folder := CheckSymbols(Trim(Folder));
-  if Folder <> '' then
-    Result := IncludeTrailingPathDelimiter(Folder)
-  else
-    Result := '';
+  if ApplyTemplate(FileName, TpFile, R, Parsed) then
+    Result := Parsed;
+end;
+
+// [BUGFIX] Same uninitialized-Result fix as GetNewFileName.
+// Additionally ensures the result always ends with a path delimiter when non-empty.
+function TImportFB2ThreadBase.GetNewFolder(Folder: string; R: TBookRecord): string;
+var
+  Parsed: string;
+begin
+  Result := '';
+
+  if ApplyTemplate(Folder, TpPath, R, Parsed) and (Parsed <> '') then
+    Result := IncludeTrailingPathDelimiter(Parsed);
 end;
 
 procedure TImportFB2ThreadBase.ShowCurrentDir(Sender: TObject; const Dir: string);
@@ -235,6 +275,11 @@ end;
 
 procedure TImportFB2ThreadBase.ScanFolder;
 begin
+  // [BUGFIX] FFiles could be nil if a derived class constructor failed before
+  // calling inherited Create — guard against AV on FFiles.Clear.
+  if not Assigned(FFiles) then
+    Exit;
+
   FProgressEngine.BeginOperation(-1, rstrScanningAll, rstrScanningAll);
   try
     FFiles.Clear;
@@ -255,7 +300,7 @@ begin
         Teletype(Format(rstrFoundFiles, [FFiles.Count]));
       except
         on EAbort do
-          { ignore} ;
+          { cancelled by user — ignore } ;
       end;
     finally
       FreeAndNil(FFilesList);
@@ -265,7 +310,4 @@ begin
   end;
 end;
 
-
-
 end.
-

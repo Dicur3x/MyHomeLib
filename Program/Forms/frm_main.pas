@@ -1045,6 +1045,7 @@ rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверь�
    // rstrStartCollectionUpdate = 'Доступно обновление коллекций.' + CRLF + 'Начать обновление?';
    rstrStarting = 'Старт...';
    rstrUnfinishedDownloads = 'В списке есть незавершённые загрузки!' + CRLF + 'Вы всё ещё хотите выйти из приложения?';
+   rstrActiveDownloads = 'В списке есть незавершённые загрузки! Закройте их перед удалением коллекции.';
    rstrSingleSeries = 'Серия:';
    rstrDownloadStateWaiting = 'Ожидание';
    rstrDownloadStateDownloading = 'Загрузка';
@@ -4588,12 +4589,31 @@ begin
   if deleteAction in [dcaDelete, dcaUnregister] then
   begin
     CollectionID := FCollection.CollectionID;
+    try
+      CloseCollection;
+      if Assigned(FDMThread) then
+        FDMThread.TerminateNow;
+      tvDownloadList.Clear;
+      lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
+      if CheckActiveDownloads then
+        raise Exception.Create(rstrActiveDownloads);
+    except
+      on E: Exception do
+      begin
+        MHLShowError(E.Message);
+        Exit;
+      end;
+    end;
 
-    //
-    // TODO: необходимо закрыть коллекцию перед удалением и закрыть ее в менеджере закачек
-    //
-    CloseCollection;
-    FSystemData.DeleteCollection(CollectionID, dcaDelete = deleteAction);
+    try
+      FSystemData.DeleteCollection(CollectionID, dcaDelete = deleteAction);
+    except
+      on E: Exception do
+      begin
+        MHLShowError(E.Message);
+        Exit;
+      end;
+    end;
 
     CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
     if CollectionInfoIterator.Next(CollectionInfo) then
