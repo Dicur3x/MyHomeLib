@@ -6,8 +6,8 @@ MyHomeLib может использоваться не только для ка�
 
 Build:
 1. Delphi Free Community Edition (i used 12 first).
-2. FastMM5: https://github.com/pleriche/FastMM5
-3. VirtualTreeView (from GetIt Package Manager, it's in IDE tools)
+2. FastMM5: https://github.com/pleriche/FastMM5. Just add FastMM5.pas to project folder.
+3. VirtualTreeView. In Delphi IDE > Tools > GetIt Package Manager > VirtualTreeView > Install. It's in bottom
 
 Todo:
 1. Open Program/MHL.groupproj
