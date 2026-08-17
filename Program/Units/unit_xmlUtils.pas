@@ -116,9 +116,23 @@ begin
 end;
 
 class function TMSXMLHelper.newDocument: IXMLDOMDocument;
+var
+  Document2: IXMLDOMDocument2;
 begin
   Result := msxmldom.CreateDOMDocument;
   Result.async := False;
+  // Imported FB2/FBD documents are untrusted input. Prevent external entity
+  // resolution and DTD expansion (XXE / entity expansion attacks). Older
+  // MSXML implementations may not expose ProhibitDTD, hence the guarded call.
+  Result.resolveExternals := False;
+  Result.validateOnParse := False;
+  if Supports(Result, IXMLDOMDocument2, Document2) then
+    try
+      Document2.setProperty('ProhibitDTD', True);
+    except
+      on E: Exception do
+        ; // The two properties above remain enforced on older MSXML versions.
+    end;
 end;
 
 class function TMSXMLHelper.CreateEmptyDocument: IXMLDOMDocument;

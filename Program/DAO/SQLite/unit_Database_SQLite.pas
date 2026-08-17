@@ -1276,8 +1276,11 @@ procedure TBookCollection_SQLite.DeleteBook(const BookKey: TBookKey);
 const
   SQL_DELETE_ORPHAN_AUTHORS =
     'DELETE FROM Authors WHERE AuthorID IN (' +
-    '  SELECT al.AuthorID FROM Author_List al WHERE al.BookID = :BookID ' +
-    '  GROUP BY al.AuthorID HAVING COUNT(al.BookID) = 1)';
+    '  SELECT current.AuthorID FROM Author_List current ' +
+    '  WHERE current.BookID = :BookID AND NOT EXISTS (' +
+    '    SELECT 1 FROM Author_List other ' +
+    '    WHERE other.AuthorID = current.AuthorID ' +
+    '      AND other.BookID <> current.BookID))';
   SQL_DELETE_BOOK = 'DELETE FROM Books WHERE BookID = ?';
 begin
   if BookKey.DatabaseID <> CollectionID then
@@ -1326,8 +1329,28 @@ begin
 end;
 
 procedure TBookCollection_SQLite.SetAnnotation(const BookKey: TBookKey; const Annotation: string);
+const
+  SQL_UPDATE = 'UPDATE Books SET Annotation = ? WHERE BookID = ?';
+var
+  query: TSQLiteQuery;
 begin
-  // Annotation is written only via InsertBook/UpdateBook.
+  if BookKey.DatabaseID <> CollectionID then
+    FSystemData.GetCollection(BookKey.DatabaseID).SetAnnotation(BookKey, Annotation)
+  else
+  begin
+    query := FDatabase.NewQuery(SQL_UPDATE);
+    try
+      if Annotation = '' then
+        query.SetNullParam(0)
+      else
+        query.SetBlobParam(0, Annotation);
+      query.SetParam(1, BookKey.BookID);
+      query.ExecSQL;
+    finally
+      query.Free;
+    end;
+    FSystemData.SetAnnotation(BookKey, Annotation);
+  end;
 end;
 
 function TBookCollection_SQLite.GetAnnotation(const BookKey: TBookKey): string;
@@ -1572,9 +1595,9 @@ begin
           finally query.Free; end;
         end;
         if extra.Review <> '' then SetReview(BookKey, extra.Review);
+        FSystemData.SetExtra(BookKey, extra);
+        if Assigned(guiUpdateCallback) then guiUpdateCallback(BookKey, extra);
       end;
-      FSystemData.SetExtra(BookKey, extra);
-      if Assigned(guiUpdateCallback) then guiUpdateCallback(BookKey, extra);
     end;
     FSystemData.ImportUserData(data);
     for group in data.Groups do

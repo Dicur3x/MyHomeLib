@@ -1,17 +1,30 @@
 # MyHomeLib
-MyHomeLib-компьютерная программа для управления домашней библиотекой электронных книг.
-MyHomeLib может использоваться не только для каталогизации коллекции файлов
-с электронными книгами, но и как клиент для работы с библиотекой Либрусек
-и другими библиотеками на движке Либрусек (Флибуста и другими подобными).
 
-Build:
-1. Delphi Free Community Edition (i used 12 first).
-2. FastMM5: https://github.com/pleriche/FastMM5. Just add FastMM5.pas to project folder.
-3. VirtualTreeView. In Delphi IDE > Tools > GetIt Package Manager > VirtualTreeView > Install. It's in bottom
+MyHomeLib — программа для управления домашней библиотекой электронных книг.
+Она умеет каталогизировать локальные коллекции и работать с библиотеками на
+движке «Либрусек», включая Флибусту.
 
-Todo:
-1. Open Program/MHL.groupproj
-2. Build and install MHL components
-3. Project -> preferences -> Delphi Compiler -> Path ->
-      Add paths to FastMM5\ folder and %project%\Components\MHLComponents\
-4. Build Myhomelib.exe
+## Как получить `exe`
+
+Для самой простой сборки нужны Delphi 12 Community Edition (либо лицензированная
+Delphi 13) и компонент Virtual TreeView из GetIt Package Manager. Откройте именно
+`Program\MyhomeLib.dproj`, выберите `Release` и платформу `Win32` либо `Win64`,
+затем выполните **Project → Build MyhomeLib**.
+
+Готовый файл появится здесь:
+
+- `Program\Out\Bin\MyHomeLib.exe` — Win32;
+- `Program\Out\Bin64\MyHomeLib.exe` — Win64.
+
+Рядом с `exe` обязательно должна лежать `sqlite3.dll` той же архитектуры.
+Подробная пошаговая инструкция, проверка runtime-файлов, сведения о FastMM5,
+SSL и установщике находятся в [BUILDING.md](BUILDING.md).
+
+> В Community Edition командная сборка через `dcc32`, `dcc64` или MSBuild
+> отключена лицензией. Собирайте проект кнопкой **Build** в Delphi IDE.
+
+## Лицензия
+
+Исходный код MyHomeLib распространяется по лицензии MIT, см. [LICENSE](LICENSE).
+Сторонние библиотеки, DLL, ридеры и конвертеры имеют собственные лицензии и не
+включаются в репозиторий автоматически.

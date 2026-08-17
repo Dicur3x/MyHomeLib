@@ -61,12 +61,14 @@
     <PropertyGroup Condition="'$(Base)'!=''">
         <SanitizedProjectName>MHLComponents</SanitizedProjectName>
         <VerInfo_Keys>CompanyName=;FileDescription=;FileVersion=2.4.0.847;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=;ProductVersion=2.4.0;Comments=</VerInfo_Keys>
-        <DCC_UsePackage>rtl;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_UsePackage>rtl;vcl;vclx;vclimg;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1049</VerInfo_Locale>
-        <DCC_DcuOutput>.\Units</DCC_DcuOutput>
-        <DCC_DependencyCheckOutputName>C:\Documents and Settings\All Users\Documents\RAD Studio\7.0\Bpl\MHLComponents.bpl</DCC_DependencyCheckOutputName>
+        <DCC_DcuOutput>Out\Units\$(Platform)\$(Config)</DCC_DcuOutput>
+        <DCC_BplOutput>Out\Bpl\$(Platform)</DCC_BplOutput>
+        <DCC_DcpOutput>Out\Dcp\$(Platform)</DCC_DcpOutput>
+        <DCC_DependencyCheckOutputName>Out\Bpl\$(Platform)\MHLComponents.bpl</DCC_DependencyCheckOutputName>
         <GenDll>true</GenDll>
         <GenPackage>true</GenPackage>
         <DCC_ImageBase>00400000</DCC_ImageBase>
@@ -80,7 +82,7 @@
         <Debugger_RunParams>-p flibusta -extra -ftp -c</Debugger_RunParams>
         <DCC_Namespace>Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <DCC_UsePackage>vclx;vcl;vclimg;vclZipForged16;VirtualTreesD;vclZipForged17;vclZipForged18;vclZipForged19;dclZipForged19;vclZipForged22;vclZipForged23;vclZipForged24;vclZipForged25;vclZipForged26;vclZipForged28;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_UsePackage>vclx;vcl;vclimg;$(DCC_UsePackage)</DCC_UsePackage>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
         <DCC_Namespace>Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
@@ -95,7 +97,6 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
-        <DCC_DcuOutput>.\Units\Release</DCC_DcuOutput>
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
@@ -103,19 +104,16 @@
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
-        <DCC_DcuOutput>.\Units\Debug</DCC_DcuOutput>
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -130,7 +128,6 @@
         <DCCReference Include="IndySystem.dcp"/>
         <DCCReference Include="IndyProtocols.dcp"/>
         <DCCReference Include="soaprtl.dcp"/>
-        <DCCReference Include="VirtualTreesDD.dcp"/>
         <DCCReference Include="unit_StaticTip.pas"/>
         <DCCReference Include="files_list.pas"/>
         <DCCReference Include="MHLComponents_Register.pas"/>
@@ -213,7 +210,6 @@
                 <Platform value="Win64x">False</Platform>
             </Platforms>
             <Deployment Version="4">
-                <DeployFile LocalName="C:\Users\Public\Documents\Embarcadero\Studio\18.0\Bpl\MHLComponents.bpl" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="OSX32">
                         <Operation>1</Operation>

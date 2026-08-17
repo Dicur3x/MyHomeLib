@@ -514,7 +514,7 @@ end;
 
 procedure TImportCache.AddAuthor(const Key: string; const ID: Integer);
 begin
-  FAuthors.Add(Key, ID);
+  FAuthors.AddOrSetValue(Key, ID);
 end;
 
 function TImportCache.TryGetSeries(const NormalizedTitle: string; out ID: Integer): Boolean;
@@ -615,6 +615,65 @@ begin
   end;
 end;
 
+function IsReservedWindowsName(const Value: string): Boolean;
+var
+  BaseName: string;
+  DotPos: Integer;
+begin
+  BaseName := Trim(Value);
+  while (BaseName <> '') and CharInSet(BaseName[Length(BaseName)], [' ', '.']) do
+    Delete(BaseName, Length(BaseName), 1);
+
+  DotPos := Pos('.', BaseName);
+  if DotPos > 0 then
+    BaseName := Copy(BaseName, 1, DotPos - 1);
+  BaseName := UpperCase(BaseName);
+
+  Result := (BaseName = 'CON') or (BaseName = 'PRN') or
+    (BaseName = 'AUX') or (BaseName = 'NUL') or
+    ((Length(BaseName) = 4) and
+     ((Copy(BaseName, 1, 3) = 'COM') or (Copy(BaseName, 1, 3) = 'LPT')) and
+     CharInSet(BaseName[4], ['1'..'9']));
+end;
+
+function SanitizeWindowsComponent(const Value: string): string;
+begin
+  if (Trim(Value) = '.') or (Trim(Value) = '..') then
+    Exit('_');
+
+  Result := Value;
+  while (Result <> '') and CharInSet(Result[Length(Result)], [' ', '.']) do
+    Delete(Result, Length(Result), 1);
+
+  if IsReservedWindowsName(Result) then
+    Result := '_' + Result;
+end;
+
+function SanitizeWindowsPathComponents(const Value: string): string;
+var
+  Builder: TStringBuilder;
+  ComponentStart: Integer;
+  I: Integer;
+begin
+  Builder := TStringBuilder.Create(Length(Value));
+  try
+    ComponentStart := 1;
+    for I := 1 to Length(Value) do
+      if Value[I] = '\' then
+      begin
+        Builder.Append(SanitizeWindowsComponent(
+          Copy(Value, ComponentStart, I - ComponentStart)));
+        Builder.Append('\');
+        ComponentStart := I + 1;
+      end;
+    Builder.Append(SanitizeWindowsComponent(
+      Copy(Value, ComponentStart, MaxInt)));
+    Result := Builder.ToString;
+  finally
+    Builder.Free;
+  end;
+end;
+
 function CleanFileName(const Input: string): string;
 var
   i: Integer;
@@ -627,6 +686,7 @@ begin
   for i := 1 to Length(Result) do
     if not TPath.IsValidFileNameChar(Result[i]) then
       Result[i] := ' ';
+  Result := SanitizeWindowsComponent(Result);
 end;
 
 function CreateFolders(const Root: string; const Path: string): Boolean;
@@ -700,13 +760,15 @@ var
   SearchRec: TSearchRec;
   ACurrentDir: string;
 begin
+  Result := True;
   ACurrentDir := IncludeTrailingPathDelimiter(DirectoryName);
   try
     if FindFirst(ACurrentDir + '*.*', faAnyFile, SearchRec) = 0 then
       try
         repeat
           if (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
-            SysUtils.DeleteFile(ACurrentDir + SearchRec.Name);
+            if (SearchRec.Attr and faDirectory) = 0 then
+              Result := SysUtils.DeleteFile(ACurrentDir + SearchRec.Name) and Result;
         until FindNext(SearchRec) <> 0;
       finally
         SysUtils.FindClose(SearchRec);
@@ -719,44 +781,57 @@ end;
 
 function Transliterate(const Input: string): string;
 var
-  S, conv: string;
+  S: string;
+  Builder: TStringBuilder;
   f, o: Integer;
 begin
-  conv := '';
-  for f := 1 to Length(Input) do
-  begin
-    o := Ord(Input[f]);
-    if (o >= 1072) and (o <= 1104) then
-      S := TransL[o - 1072]
-    else if (o >= 1040) and (o <= 1071) then
-      S := TransU[o - 1040]
-    else if CharInSet(Input[f], lat) then
-      S := Input[f]
-    else
-      S := '_';
-    conv := conv + S;
+  Builder := TStringBuilder.Create(Length(Input) * 2);
+  try
+    for f := 1 to Length(Input) do
+    begin
+      o := Ord(Input[f]);
+      if (o >= 1072) and (o <= 1103) then
+        S := TransL[o - 1072]
+      else if Input[f] = 'ё' then
+        S := 'e'
+      else if (o >= 1040) and (o <= 1071) then
+        S := TransU[o - 1040]
+      else if Input[f] = 'Ё' then
+        S := 'E'
+      else if CharInSet(Input[f], lat) then
+        S := Input[f]
+      else
+        S := '_';
+      Builder.Append(S);
+    end;
+    Result := Builder.ToString;
+  finally
+    Builder.Free;
   end;
-  Result := conv;
 end;
 
 function CheckSymbols(const Input: string; const Full: boolean = False): string;
 var
-  S, conv: string;
   f: Integer;
 begin
-  conv := '';
+  Result := Input;
   for f := 1 to Length(Input) do
-  begin
     if Full then
-      if CharInSet(Input[f], denied_full) then S := ' ' else S := Input[f]
+    begin
+      if CharInSet(Input[f], denied_full) then
+        Result[f] := ' ';
+    end
     else
-      if CharInSet(Input[f], denied) then S := ' ' else S := Input[f];
-    conv := conv + S;
-  end;
-  if Length(conv) > 0 then
-    while conv[Length(conv)] = '.' do
-      Delete(conv, Length(conv), 1);
-  Result := conv;
+    begin
+      if CharInSet(Input[f], denied) then
+        Result[f] := ' ';
+    end;
+  while (Result <> '') and CharInSet(Result[Length(Result)], [' ', '.']) do
+    Delete(Result, Length(Result), 1);
+  if Full then
+    Result := SanitizeWindowsComponent(Result)
+  else
+    Result := SanitizeWindowsPathComponents(Result);
 end;
 
 function GenerateBookLocation(const FullName: string): string;
@@ -764,13 +839,16 @@ var
   Letter: Char;
   AuthorName: string;
 begin
-  AuthorName := CheckSymbols(FullName);
+  AuthorName := Trim(CheckSymbols(FullName));
+  if AuthorName = '' then
+  begin
+    Result := IncludeTrailingPathDelimiter('_') +
+      IncludeTrailingPathDelimiter(rstrUnknownAuthor);
+    Exit;
+  end;
   Letter := AuthorName[1];
   if not Letter.IsLetterOrDigit then
     Letter := '_';
-  AuthorName := Trim(AuthorName);
-  if AuthorName = '' then
-    AuthorName := rstrUnknownAuthor;
   Result := IncludeTrailingPathDelimiter(Letter) + IncludeTrailingPathDelimiter(AuthorName);
 end;
 
@@ -938,25 +1016,36 @@ end;
 
 procedure TBookRecord.Clear;
 begin
-  Title    := '';
+  // Importers deliberately reuse one record for hundreds of thousands of
+  // books.  Every field must therefore be reset here: leaving even one string
+  // or identifier behind makes an incomplete input row inherit metadata from
+  // the previous book.
+  nodeType := ntBookInfo;
+  BookKey.Clear;
   SeriesID := NO_SERIES_ID;
-  Series   := NO_SERIES_TITLE;
-  Folder   := '';
-  FileName := '';
-  FileExt  := '';
+  Title := '';
+  Series := NO_SERIES_TITLE;
   ClearAuthors;
   ClearGenres;
-  BookProps  := [];
-  Size       := 0;
-  InsideNo   := 0;
-  SeqNumber  := 0;
-  libID      := '';
-  Date       := 0;
-  Review     := '';
-  Annotation := '';
-  Rate       := 0;
-  Progress   := 0;
   CollectionName := '';
+  Lang := '';
+  Size := 0;
+  Rate := 0;
+  SeqNumber := 0;
+  Progress := 0;
+  LibRate := 0;
+  BookProps := [];
+  Date := 0;
+  FileExt := '';
+  FileName := '';
+  LibID := '';
+  Folder := '';
+  InsideNo := 0;
+  RootGenre.Clear;
+  KeyWords := '';
+  CollectionRoot := '';
+  Annotation := '';
+  Review := '';
 end;
 
 procedure TBookRecord.Normalize;
@@ -1062,17 +1151,23 @@ var
   archiver: TMHLZip;
 begin
   Result := nil;
+  archiver := nil;
   BookFileName := GetBookFileName;
   BookFormat   := GetBookFormat;
   if BookFormat in [bfFb2Archive, bfFbd, bfRawArchive] then
   begin
     try
-      archiver := TMHLZip.Create(TPath.Combine(Settings.ReadPath, BookFileName), True);
-      result   := archiver.ExtractToStream(InsideNo);
+      try
+        archiver := TMHLZip.Create(
+          TPath.Combine(Settings.ReadPath, BookFileName), True);
+        Result := archiver.ExtractToStream(InsideNo);
+      except
+        FreeAndNil(Result);
+        if not Settings.IgnoreAbsentArchives then
+          raise EBookNotFound.CreateFmt(rstrArchiveNotFound, [BookFileName]);
+      end;
+    finally
       FreeAndNil(archiver);
-    except
-      if not Settings.IgnoreAbsentArchives then
-        raise EBookNotFound.CreateFmt(rstrArchiveNotFound, [BookFileName]);
     end;
   end
   else
@@ -1084,7 +1179,7 @@ begin
         raise EBookNotFound.CreateFmt(rstrFileNotFound, [BookFileName]);
     end;
   end;
-  Assert(Assigned(Result));
+  Assert(Assigned(Result) or Settings.IgnoreAbsentArchives);
 end;
 
 function TBookRecord.GetBookDescriptorStream: TStream;
@@ -1094,19 +1189,28 @@ var
   archiver: TMHLZip;
 begin
   Result := nil;
+  archiver := nil;
   case GetBookFormat of
     bfFb2, bfFb2Archive:
       Result := GetBookStream;
     bfFbd:
       begin
+        bookFileName := GetBookFileName;
+        archiveFileName := TPath.Combine(Settings.ReadPath, bookFileName);
+        if not FileExists(archiveFileName) then
+          Exit;
         try
-          bookFileName := GetBookFileName;
-          if not FileExists(bookFileName) then Exit;
-          archiveFileName := TPath.Combine(Settings.ReadPath, bookFileName);
           archiver := TMHLZip.Create(archiveFileName, True);
+          if not archiver.Find('*' + FBD_EXTENSION) then
+            Exit;
+
           Result := TMemoryStream.Create;
-          archiver.Find('*' + FBD_EXTENSION);
-          archiver.ExtractToStream(archiver.LastName, Result);
+          try
+            archiver.ExtractToStream(archiver.LastName, Result);
+          except
+            FreeAndNil(Result);
+            raise;
+          end;
         finally
           FreeAndNil(archiver);
         end;
@@ -1187,7 +1291,11 @@ var
   S: string;
 begin
   SetLength(S, MAX_PATH);
-  if not SHGetSpecialFolderPath(0, PChar(S), CSIDL, True) then S := '';
+  if not SHGetSpecialFolderPath(0, PChar(S), CSIDL, True) then
+  begin
+    Result := '';
+    Exit;
+  end;
   Result := IncludeTrailingPathDelimiter(PChar(S));
 end;
 
@@ -1202,10 +1310,15 @@ end;
 
 procedure SetProxySettingsGlobal(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
 begin
-  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvSSLv2,sslvSSLv3,sslvTLSv1,sslvTLSv1_1,sslvTLSv1_2];
+  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvTLSv1_2];
   IdHTTP.IOHandler := IdSSLIOHandlerSocketOpenSSL;
+  IdSSLIOHandlerSocketOpenSSL.TransparentProxy := nil;
   with IdHTTP.ProxyParams do
   begin
+    ProxyServer := '';
+    ProxyPort := 0;
+    ProxyUsername := '';
+    ProxyPassword := '';
     if Settings.UseIESettings then
     begin
       ProxyServer := Settings.IEProxyServer;
@@ -1247,8 +1360,16 @@ end;
 
 procedure SetProxySettingsUpdate(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
 begin
-  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvSSLv2,sslvSSLv3,sslvTLSv1,sslvTLSv1_1,sslvTLSv1_2];
+  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvTLSv1_2];
   IdHTTP.IOHandler := IdSSLIOHandlerSocketOpenSSL;
+  IdSSLIOHandlerSocketOpenSSL.TransparentProxy := nil;
+  with IdHTTP.ProxyParams do
+  begin
+    ProxyServer := '';
+    ProxyPort := 0;
+    ProxyUsername := '';
+    ProxyPassword := '';
+  end;
   if Settings.UseProxyForUpdate then
   begin
     with IdHTTP.ProxyParams do
@@ -1264,7 +1385,7 @@ begin
              ProxyServer := ''; ProxyPort := 0;
              with IdSocksInfo do begin
                Version := svSocks4; Host := Settings.ProxyServerUpdate; Port := Settings.ProxyPortUpdate;
-               if Settings.ProxyUsername <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
+               if Settings.ProxyUsernameUpdate <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
                else Authentication := saNoAuthentication;
                IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
              end;
@@ -1273,12 +1394,13 @@ begin
              ProxyServer := ''; ProxyPort := 0;
              with IdSocksInfo do begin
                Version := svSocks5; Host := Settings.ProxyServerUpdate; Port := Settings.ProxyPortUpdate;
-               if Settings.ProxyUsername <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
+               if Settings.ProxyUsernameUpdate <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
                else Authentication := saNoAuthentication;
                IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
              end;
            end;
       end;
+      BasicAuthentication := True;
     end;
   end
   else

@@ -261,37 +261,46 @@ var
   s: string;
 begin
   inherited Create;
+  FDB := nil;
+  try
+    if SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB) <> SQLITE_OK then
+    begin
+      if Assigned(FDB) then
+        s := string(UTF8String(SQLite3_ErrMsg(FDB)))
+      else
+        s := c_unknown;
+      raise ESQLiteException.CreateFmt(c_failopen, [FileName, s]);
+    end;
 
-  if SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB) <> SQLITE_OK then
-  begin
+    // Do not fail immediately while another application thread is committing.
+    SetTimeout(10000);
+
+    // These two PRAGMAs return a result row. Running them through ExecSQL would
+    // incorrectly treat SQLITE_ROW as an execution failure.
+    QuerySingleString('PRAGMA journal_mode = WAL');
+    ExecSQL('PRAGMA synchronous = NORMAL');
+    ExecSQL('PRAGMA temp_store = MEMORY');
+{$IFDEF WIN64}
+    ExecSQL('PRAGMA cache_size = -65536');
+    QuerySingleInt('PRAGMA mmap_size = 268435456');
+{$ELSE}
+    // A process can keep several collection connections open.  Reserving
+    // 256 MiB of mmap plus a 64 MiB page cache for each one exhausts the
+    // 2-GiB Win32 address space quickly; these limits retain most locality
+    // gains without making multi-collection use unstable.
+    ExecSQL('PRAGMA cache_size = -32768');
+    QuerySingleInt('PRAGMA mmap_size = 67108864');
+{$ENDIF}
+
+    RegisterSystemCollateAndFunc;
+  except
     if Assigned(FDB) then
-      s := string(UTF8String(SQLite3_ErrMsg(FDB)))
-    else
-      s := c_unknown;
-    raise ESQLiteException.CreateFmt(c_failopen, [FileName, s]);
+    begin
+      SQLite3_Close(FDB);
+      FDB := nil;
+    end;
+    raise;
   end;
-
-  // Performance-tuned PRAGMA settings (2026-03-08):
-  //
-  // WAL mode allows concurrent reads during writes, benefits both HDD and SSD.
-  // On HDD sequential writes are batched; on SSD the reduced fsync count
-  // significantly improves import throughput.
-  ExecSQL('PRAGMA journal_mode = WAL');
-  // NORMAL synchronous is safe with WAL — data is protected against corruption
-  // on OS crash; only a power failure during WAL checkpoint could lose the
-  // most recent transaction (acceptable trade-off for a local book catalog).
-  ExecSQL('PRAGMA synchronous = NORMAL');
-  // 64 MB page cache (16384 pages * 4 KB) — keeps hot pages in memory,
-  // dramatically reduces disk reads for large collections.
-  // Negative value = size in KiB (SQLite 3.7.10+).
-  ExecSQL('PRAGMA cache_size = -65536');
-  // Store temporary tables and indices in memory instead of temp files.
-  ExecSQL('PRAGMA temp_store = MEMORY');
-  // Memory-mapped I/O: let the OS page cache handle reads for up to 256 MB.
-  // Benefits SSD users most; on HDD the OS still does sequential read-ahead.
-  ExecSQL('PRAGMA mmap_size = 268435456');
-
-  RegisterSystemCollateAndFunc;
 end;
 
 destructor TSQLiteDatabase.Destroy;

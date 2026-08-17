@@ -31,6 +31,7 @@ uses
   Windows,
   Classes,
   SysUtils,
+  IOUtils,
   fictionbook_21,
   files_list,
   unit_Globals,
@@ -44,9 +45,20 @@ uses
 type
   TImportFB2ThreadBase = class(TCollectionWorker)
   protected
-    FTemplater: TTemplater;
+    FFileTemplater: TTemplater;
+    FFolderTemplater: TTemplater;
+    FFileTemplate: string;
+    FFolderTemplate: string;
+    FFileTemplateValid: Boolean;
+    FFolderTemplateValid: Boolean;
+    FFileTemplateInitialized: Boolean;
+    FFolderTemplateInitialized: Boolean;
+    FFileTemplateErrorShown: Boolean;
+    FFolderTemplateErrorShown: Boolean;
     FFiles: TStringList;
     FFilesList: TFilesList;
+    FCreatedFiles: TStringList;
+    FImportCache: TImportCache;
 
     //
     // Эти поля должны быть установлены конструктором производного класса
@@ -60,8 +72,14 @@ type
     procedure ShowCurrentDir(Sender: TObject; const Dir: string);
     procedure AddFile2List(Sender: TObject; const F: TSearchRec);
 
-    function GetNewFolder(Folder: string; R: TBookRecord): string;
-    function GetNewFileName(FileName: string; R: TBookRecord): string;
+    function GetNewFolder(const Folder: string; const R: TBookRecord): string;
+    function GetNewFileName(const FileName: string; const R: TBookRecord): string;
+    function NormalizeImportFolder(const Folder: string): string;
+
+    function CopyForImport(const SourceFileName, DestFileName: string): Boolean;
+    procedure ForgetCreatedFile(const FileName: string; const DeleteFromDisk: Boolean);
+    procedure CommitFileOperations;
+    procedure RollbackFileOperations;
 
   public
     // [BUGFIX] Signature was declared with CollectionID parameter but implemented
@@ -75,7 +93,8 @@ type
     procedure ProcessFileList; virtual; abstract;
     procedure ProcessFileListArchive; virtual; abstract;
     procedure GetBookInfo(book: IXMLFictionBook; var R: TBookRecord);
-    procedure SortFiles(var R: TBookRecord); virtual;
+    procedure SortFiles(var R: TBookRecord; const SourceFileName: string;
+      out CreatedFileName: string); virtual;
 
   protected
     FFb2ArchiveExt: string;
@@ -88,7 +107,8 @@ type
     //
     // Returns True and sets OutValue on success.
     // Returns False and shows an error message if the template is invalid.
-    function ApplyTemplate(const Template: string; TemplateType: TTemplateType; R: TBookRecord; out OutValue: string): Boolean;
+    function ApplyTemplate(const Template: string; TemplateType: TTemplateType;
+      const R: TBookRecord; out OutValue: string): Boolean;
   end;
 
 implementation
@@ -104,7 +124,6 @@ Settings.ImportPath
 }
 
 uses
-  Dialogs,
   unit_Logger,
   dm_user;
 
@@ -120,14 +139,25 @@ resourcestring
 constructor TImportFB2ThreadBase.Create(CollectionID: Integer);
 begin
   inherited Create(CollectionID);
-  FTemplater := TTemplater.Create;
+  FFileTemplater := TTemplater.Create;
+  FFolderTemplater := TTemplater.Create;
   FFiles := TStringList.Create;
+  FCreatedFiles := TStringList.Create;
+  FCreatedFiles.CaseSensitive := False;
+  FCreatedFiles.Sorted := True;
+  FCreatedFiles.Duplicates := dupIgnore;
+  FImportCache := TImportCache.Create;
 end;
 
 destructor TImportFB2ThreadBase.Destroy;
 begin
-  FreeAndNil(FTemplater);
+  // A non-empty journal means the DB operation did not reach its commit path.
+  RollbackFileOperations;
+  FreeAndNil(FImportCache);
+  FreeAndNil(FCreatedFiles);
   FreeAndNil(FFiles);
+  FreeAndNil(FFolderTemplater);
+  FreeAndNil(FFileTemplater);
   inherited Destroy;
 end;
 
@@ -183,22 +213,96 @@ begin
   end;
 end;
 
-procedure TImportFB2ThreadBase.SortFiles(var R: TBookRecord);
+procedure TImportFB2ThreadBase.SortFiles(var R: TBookRecord;
+  const SourceFileName: string; out CreatedFileName: string);
 var
-  NewFilename, NewFolder: string;
+  NewFilename, NewFolder, TargetFileName: string;
 begin
+  CreatedFileName := '';
   NewFolder := GetNewFolder(Settings.FB2FolderTemplate, R);
-  CreateFolders(FCollectionRoot, NewFolder);
+  if not CreateFolders(FCollectionRoot, NewFolder) then
+    RaiseLastOSError;
 
-  CopyFile(Settings.ImportPath + R.FileName + R.FileExt, FCollectionRoot + NewFolder + R.FileName + R.FileExt);
+  // Preserve the original template order: the file template is evaluated
+  // after Folder already points at its final collection directory.
   R.Folder := NewFolder;
-
   NewFilename := GetNewFileName(Settings.FB2FileTemplate, R);
-  if NewFilename <> '' then
-  begin
-    RenameFile(FCollectionRoot + NewFolder + R.FileName + R.FileExt, FCollectionRoot + NewFolder + NewFilename + R.FileExt);
+  if NewFilename = '' then
+    NewFilename := R.FileName;
+
+  TargetFileName := TPath.Combine(
+    TPath.Combine(FCollectionRoot, NewFolder),
+    NewFilename + R.FileExt
+  );
+  if CopyForImport(SourceFileName, TargetFileName) then
+    CreatedFileName := TargetFileName;
+
+  if NewFilename <> R.FileName then
     R.FileName := NewFilename;
+end;
+
+function TImportFB2ThreadBase.CopyForImport(
+  const SourceFileName, DestFileName: string): Boolean;
+begin
+  if SameFileName(ExpandFileName(SourceFileName), ExpandFileName(DestFileName)) then
+    Exit(False);
+
+  // Fail on collision.  The old stream-based helper used fmCreate and silently
+  // truncated an existing book before the DB conflict check ran.
+  if not Windows.CopyFile(PChar(SourceFileName), PChar(DestFileName), True) then
+    RaiseLastOSError;
+
+  try
+    FCreatedFiles.Add(DestFileName);
+  except
+    // Do not leave an untracked file when the journal itself cannot grow.
+    SysUtils.DeleteFile(DestFileName);
+    raise;
   end;
+  Result := True;
+end;
+
+procedure TImportFB2ThreadBase.ForgetCreatedFile(const FileName: string;
+  const DeleteFromDisk: Boolean);
+var
+  Index: Integer;
+begin
+  if (FileName = '') or not Assigned(FCreatedFiles) then
+    Exit;
+
+  Index := FCreatedFiles.IndexOf(FileName);
+  if Index >= 0 then
+  begin
+    if DeleteFromDisk and FileExists(FileName) then
+      if not SysUtils.DeleteFile(FileName) then
+        RaiseLastOSError;
+    FCreatedFiles.Delete(Index);
+  end;
+end;
+
+procedure TImportFB2ThreadBase.CommitFileOperations;
+begin
+  if Assigned(FCreatedFiles) then
+    FCreatedFiles.Clear;
+end;
+
+procedure TImportFB2ThreadBase.RollbackFileOperations;
+var
+  I: Integer;
+begin
+  if not Assigned(FCreatedFiles) then
+    Exit;
+
+  for I := FCreatedFiles.Count - 1 downto 0 do
+    if FileExists(FCreatedFiles[I]) then
+    begin
+      if SysUtils.DeleteFile(FCreatedFiles[I]) then
+        FCreatedFiles.Delete(I)
+      else
+        Logger.W('RollbackFileOperations: failed to delete "%s"', [FCreatedFiles[I]]);
+    end
+    else
+      FCreatedFiles.Delete(I);
 end;
 
 // [REFACTOR] Shared logic extracted from GetNewFileName and GetNewFolder.
@@ -207,27 +311,91 @@ end;
 function TImportFB2ThreadBase.ApplyTemplate(
   const Template: string;
   TemplateType: TTemplateType;
-  R: TBookRecord;
+  const R: TBookRecord;
   out OutValue: string
 ): Boolean;
+var
+  Templater: TTemplater;
+  TemplateValid: Boolean;
+  ShowTemplateError: Boolean;
 begin
   Result := False;
   OutValue := '';
 
-  if FTemplater.SetTemplate(Template, TemplateType) <> ErFine then
+  case TemplateType of
+    TpFile:
+    begin
+      Templater := FFileTemplater;
+      if (not FFileTemplateInitialized) or (FFileTemplate <> Template) then
+      begin
+        FFileTemplate := Template;
+        FFileTemplateValid := Templater.SetTemplate(Template, TemplateType) = ErFine;
+        FFileTemplateInitialized := True;
+        FFileTemplateErrorShown := False;
+      end;
+      TemplateValid := FFileTemplateValid;
+      ShowTemplateError := not FFileTemplateErrorShown;
+      FFileTemplateErrorShown := FFileTemplateErrorShown or not TemplateValid;
+    end;
+
+    TpPath:
+    begin
+      Templater := FFolderTemplater;
+      if (not FFolderTemplateInitialized) or (FFolderTemplate <> Template) then
+      begin
+        FFolderTemplate := Template;
+        FFolderTemplateValid := Templater.SetTemplate(Template, TemplateType) = ErFine;
+        FFolderTemplateInitialized := True;
+        FFolderTemplateErrorShown := False;
+      end;
+      TemplateValid := FFolderTemplateValid;
+      ShowTemplateError := not FFolderTemplateErrorShown;
+      FFolderTemplateErrorShown := FFolderTemplateErrorShown or not TemplateValid;
+    end;
+
+  else
+    Templater := nil;
+    TemplateValid := False;
+    ShowTemplateError := True;
+  end;
+
+  if not TemplateValid then
   begin
-    Dialogs.ShowMessage(rstrCheckTemplateValidity);
+    if ShowTemplateError then
+      ShowMessage(rstrCheckTemplateValidity, MB_OK or MB_ICONERROR);
     Exit;
   end;
 
-  OutValue := CheckSymbols(Trim(FTemplater.ParseString(R, TemplateType)));
+  OutValue := CheckSymbols(Trim(Templater.ParseString(R, TemplateType)),
+    TemplateType = TpFile);
   Result := True;
+end;
+
+function TImportFB2ThreadBase.NormalizeImportFolder(
+  const Folder: string): string;
+var
+  RootPath: string;
+  TargetPath: string;
+begin
+  RootPath := IncludeTrailingPathDelimiter(ExpandFileName(FCollectionRoot));
+  if TPath.IsPathRooted(Folder) then
+    raise EArgumentException.CreateFmt(
+      'Import template produced an absolute folder: %s', [Folder]);
+
+  TargetPath := IncludeTrailingPathDelimiter(ExpandFileName(
+    TPath.Combine(RootPath, Folder)));
+  if not SameText(Copy(TargetPath, 1, Length(RootPath)), RootPath) then
+    raise EArgumentException.CreateFmt(
+      'Import template points outside the collection folder: %s', [Folder]);
+
+  Result := Copy(TargetPath, Length(RootPath) + 1, MaxInt);
 end;
 
 // [BUGFIX] Previous implementation called `Exit` without setting Result when
 // the template was invalid — leaving Result as an uninitialized stack value.
 // Now delegates to ApplyTemplate; returns '' on template error.
-function TImportFB2ThreadBase.GetNewFileName(FileName: string; R: TBookRecord): string;
+function TImportFB2ThreadBase.GetNewFileName(const FileName: string;
+  const R: TBookRecord): string;
 var
   Parsed: string;
 begin
@@ -239,14 +407,19 @@ end;
 
 // [BUGFIX] Same uninitialized-Result fix as GetNewFileName.
 // Additionally ensures the result always ends with a path delimiter when non-empty.
-function TImportFB2ThreadBase.GetNewFolder(Folder: string; R: TBookRecord): string;
+function TImportFB2ThreadBase.GetNewFolder(const Folder: string;
+  const R: TBookRecord): string;
 var
   Parsed: string;
 begin
   Result := '';
 
   if ApplyTemplate(Folder, TpPath, R, Parsed) and (Parsed <> '') then
-    Result := IncludeTrailingPathDelimiter(Parsed);
+  begin
+    Parsed := NormalizeImportFolder(Parsed);
+    if Parsed <> '' then
+      Result := IncludeTrailingPathDelimiter(Parsed);
+  end;
 end;
 
 procedure TImportFB2ThreadBase.ShowCurrentDir(Sender: TObject; const Dir: string);
@@ -258,6 +431,9 @@ procedure TImportFB2ThreadBase.AddFile2List(Sender: TObject; const F: TSearchRec
 var
   FileName: string;
 begin
+  if (F.Attr and faDirectory) <> 0 then
+    Exit;
+
   if LowerCase(ExtractFileExt(F.Name)) = FTargetExt then
   begin
     if Settings.EnableSort then

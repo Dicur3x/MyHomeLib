@@ -41,7 +41,9 @@ program MyHomeLib;
 {$R *.dres}
 
 uses
+{$IFDEF USE_FASTMM5}
   FastMM5,
+{$ENDIF}
   Forms,
   IMouse,
   frm_main in 'Forms\frm_main.pas' {frmMain},

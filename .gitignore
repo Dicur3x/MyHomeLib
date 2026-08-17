@@ -1,4 +1,8 @@
 *.dcu
+*.dcp
+*.bpl
+*.map
+*.rsm
 Out
 /Program/*.dsk
 __history
@@ -6,6 +10,8 @@ __history
 Common
 x64
 /Installer/x86
+/Installer/Out
+.idea/
 
 # Auto Claude data directory
 .auto-claude/

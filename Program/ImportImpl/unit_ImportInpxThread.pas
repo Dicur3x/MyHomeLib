@@ -42,6 +42,7 @@ interface
 
 uses
   Windows,
+  Classes,
   unit_WorkerThread,
   unit_CollectionWorkerThread,
   unit_Globals,
@@ -107,7 +108,6 @@ type
 implementation
 
 uses
-  Classes,
   SysUtils,
   IOUtils,
   unit_MHLArchiveHelpers,
@@ -221,41 +221,75 @@ begin
       flAuthor:
       begin
         AuthorList := slParams[i];
-        p := PosChr(INPX_ITEM_DELIMITER, AuthorList);
-        while p <> 0 do
+        while AuthorList <> '' do
         begin
-          s := Copy(AuthorList, 1, p - 1);
-          Delete(AuthorList, 1, p);
+          p := PosChr(INPX_ITEM_DELIMITER, AuthorList);
+          if p = 0 then
+          begin
+            s := AuthorList;
+            AuthorList := '';
+          end
+          else
+          begin
+            s := Copy(AuthorList, 1, p - 1);
+            Delete(AuthorList, 1, p);
+          end;
+
+          if s = '' then
+            Continue;
 
           p := PosChr(INPX_SUBITEM_DELIMITER, s);
-          strLastName := Copy(s, 1, p - 1);
-          Delete(s, 1, p);
+          if p = 0 then
+          begin
+            strLastName := s;
+            strFirstName := '';
+            strMidName := '';
+          end
+          else
+          begin
+            strLastName := Copy(s, 1, p - 1);
+            Delete(s, 1, p);
 
-          p := PosChr(INPX_SUBITEM_DELIMITER, s);
-          strFirstName := Copy(s, 1, p - 1);
-          Delete(s, 1, p);
-
-          strMidName := s;
+            p := PosChr(INPX_SUBITEM_DELIMITER, s);
+            if p = 0 then
+            begin
+              strFirstName := s;
+              strMidName := '';
+            end
+            else
+            begin
+              strFirstName := Copy(s, 1, p - 1);
+              Delete(s, 1, p);
+              strMidName := s;
+            end;
+          end;
 
           TAuthorsHelper.Add(R.Authors, strLastName, strFirstName, strMidName);
-
-          p := PosChr(INPX_ITEM_DELIMITER, AuthorList);
         end;
       end;
 
       flGenre:
       begin
         GenreList := slParams[i];
-        p := PosChr(INPX_ITEM_DELIMITER, GenreList);
-        while p <> 0 do
+        while GenreList <> '' do
         begin
-          if FGenresType = gtFb2 then
-            TGenresHelper.Add(R.Genres, '', '', Copy(GenreList, 1, p - 1))
-          else
-            TGenresHelper.Add(R.Genres, Copy(GenreList, 1, p - 1), '', '');
-
-          Delete(GenreList, 1, p);
           p := PosChr(INPX_ITEM_DELIMITER, GenreList);
+          if p = 0 then
+          begin
+            s := GenreList;
+            GenreList := '';
+          end
+          else
+          begin
+            s := Copy(GenreList, 1, p - 1);
+            Delete(GenreList, 1, p);
+          end;
+
+          if s <> '' then
+            if FGenresType = gtFb2 then
+              TGenresHelper.Add(R.Genres, '', '', s)
+            else
+              TGenresHelper.Add(R.Genres, s, '', '');
         end;
       end;
 
@@ -263,7 +297,13 @@ begin
       flSeries:   R.Series    := slParams[i];
       flSerNo:    R.SeqNumber := StrToIntDef(slParams[i], 0);
       flFile:     R.FileName  := CheckSymbols(Trim(slParams[i]));
-      flExt:      R.FileExt   := '.' + slParams[i];
+      flExt:
+      begin
+        s := Trim(slParams[i]);
+        if (s <> '') and (s[1] <> '.') then
+          Insert('.', s, 1);
+        R.FileExt := s;
+      end;
       flSize:     R.Size      := StrToIntDef(slParams[i], 0);
       flLibID:    R.LibID     := slParams[i];
       flFolder:   R.Folder    := slParams[i];
@@ -300,9 +340,6 @@ begin
         else
           R.Date := EncodeDate(1970, 1, 1);
       end;
-
-      flURI:
-        Logger.W(rstrWarnURIField, ['']);
     end;
   end;
 
@@ -321,7 +358,7 @@ var
     F: TFieldDescr;
   begin
     for F in FieldsDescr do
-      if F.Code = s then
+      if SameText(F.Code, Trim(s)) then
       begin
         Result := F.FType;
         Exit;
@@ -367,6 +404,7 @@ var
   i, j: Integer;
   R: TBookRecord;
   filesProcessed: Integer;
+  recordsProcessed: Integer;
   CurrentFile: string;
   IsOnline: Boolean;
   inpStream: TMemoryStream;
@@ -385,8 +423,15 @@ var
   //        Holds author and series ID lookups so InsertBook never issues
   //        a SELECT for a name it has already resolved in this session.
   Cache: TImportCache;
+  Field: TFields;
+
+  function EntryBaseName(const EntryName: string): string;
+  begin
+    Result := ExtractFileName(StringReplace(EntryName, '/', '\', [rfReplaceAll]));
+  end;
 begin
   filesProcessed := 0;
+  recordsProcessed := 0;
   i := 0;
   SetProgress(0);
   collectionCode := BookCollection.CollectionCode;
@@ -397,23 +442,18 @@ begin
   SetLength(FFields, 0);
   FUseStoredFolder := False;
 
-  BookCollection.StartBatchUpdate;
+  Zip := nil;
+  slParams := nil;
+  Cache := nil;
 
-  // [PERF] Both performance objects are created before the main try/finally
-  // so they are always freed in the corresponding finally block.
-  slParams := TStringList.Create;
-  Cache    := TImportCache.Create;
+  BookCollection.StartBatchUpdate;
   try
-    Zip := nil;
-    try
-      Zip := TMHLZip.Create(INPXFileName, True);
-    except
-      on E: Exception do
-      begin
-        Teletype(E.Message, tsError);
-        Exit;
-      end;
-    end;
+    // Reuse these objects throughout the whole import.  Keeping their creation
+    // inside the guarded batch also restores triggers when allocation or archive
+    // opening fails.
+    slParams := TStringList.Create;
+    Cache := TImportCache.Create;
+    Zip := TMHLZip.Create(INPXFileName, True);
 
     if Zip.Find(STRUCTUREINFO_FILENAME) then
       StructureInfo := Zip.ExtractToString(STRUCTUREINFO_FILENAME)
@@ -421,12 +461,28 @@ begin
       StructureInfo := DEFAULTSTRUCTURE;
 
     GetFields(StructureInfo);
-    numFiles := Zip.FileCount;
+    for Field in FFields do
+      if Field = flURI then
+      begin
+        Logger.W(rstrWarnURIField, [INPXFileName]);
+        Break;
+      end;
+
+    // ZIPs may also contain collection.info, version.info, covers, and other
+    // auxiliary entries.  Count only the .inp files that will actually run so
+    // progress remains accurate and never divides by an unrelated entry count.
+    numFiles := 0;
+    if Zip.Find('*.inp') then
+      repeat
+        CurrentFile := Zip.LastName;
+        if IsOnline or not SameText(EntryBaseName(CurrentFile), 'extra.inp') then
+          Inc(numFiles);
+      until not Zip.FindNext;
 
     if Zip.Find('*.inp') then
     repeat
       CurrentFile := Zip.LastName;
-      if not IsOnline and (CurrentFile = 'extra.inp') then
+      if not IsOnline and SameText(EntryBaseName(CurrentFile), 'extra.inp') then
         Continue;
 
       Teletype(Format(rstrProcessingFile, [CurrentFile]), tsInfo);
@@ -435,8 +491,7 @@ begin
       try
         inpStream := TMemoryStream.Create;
         try
-          Zip.ExtractToStream(Zip.LastName, inpStream);
-          inpStream.Seek(0, soBeginning);
+          Zip.ExtractToStream(Zip.LastIndex, inpStream);
           BookList.LoadFromStream(inpStream, TEncoding.UTF8);
         finally
           FreeAndNil(inpStream);
@@ -479,31 +534,40 @@ begin
                 raise EDBError.Create(E.Message);
             end;
 
-            if (filesProcessed mod ProcessedItemThreshold) = 0 then
-            begin
-              SetProgress(Round((i + j / BookList.Count) * 100 / numFiles));
-              SetComment(Format(rstrAddedBooks, [filesProcessed]));
-
-              if Canceled then
-                Break;
-            end;
-
           except
             on E: EConvertError do
-              Teletype(Format(rstrErrorInpStructure, [CurrentFile, j]), tsError);
+              Teletype(Format(rstrErrorInpStructure, [CurrentFile, j + 1]), tsError);
             on E: EDBError do
-              Teletype(Format(rstrDBErrorInp, [CurrentFile, j]), tsError);
+              Teletype(Format(rstrDBErrorInp, [CurrentFile, j + 1]), tsError);
             on E: Exception do
               Teletype(E.Message, tsError);
           end;
+
+          // Throttle UI synchronization by attempted records, not successful
+          // inserts.  Duplicate or malformed records previously left the
+          // counter at zero and synchronized the worker for every line.
+          Inc(recordsProcessed);
+          if (recordsProcessed mod ProcessedItemThreshold) = 0 then
+          begin
+            if numFiles > 0 then
+              SetProgress(Round((i + (j + 1) / BookList.Count) * 100 / numFiles));
+            SetComment(Format(rstrAddedBooks, [filesProcessed]));
+          end;
+
+          if Canceled then
+            Break;
         end;
       finally
         FreeAndNil(BookList);
       end;
 
-      Inc(i);
       if Canceled then
         Break;
+
+      Inc(i);
+      if numFiles > 0 then
+        SetProgress(Round(i * 100 / numFiles));
+      SetComment(Format(rstrAddedBooks, [filesProcessed]));
     until not Zip.FindNext;
 
     Teletype(Format(rstrAddedBooks, [filesProcessed]), tsInfo);

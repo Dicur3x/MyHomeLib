@@ -2783,6 +2783,13 @@ end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  if Assigned(FDMThread) then
+  begin
+    FDMThread.TerminateNow;
+    FDMThread.WaitFor;
+    FreeAndNil(FDMThread);
+  end;
+
   // SQ
   FreeAndNil(FPresets);
 
@@ -2796,7 +2803,6 @@ begin
   Settings.SaveSettings;
 
   FreeAndNil(FController);
-  FreeAndNil(FDMThread);
 end;
 
 procedure TfrmMain.UpdatePositions;
@@ -4259,6 +4265,7 @@ begin
 
           while BookIterator.Next(BookRecord) do
           begin
+            SeriesID := BookRecord.SeriesID;
             if LangSelector <> nil then
             begin
               // Добавление в ComboBox отсутствующего в нем языка.
@@ -4271,7 +4278,6 @@ begin
               // Соответственно добавление в дерево узла с выбранным языком (или любым
               // при выборе '-') и пропуск всех остальных
               if (BookRecord.Lang <> SelectedLang) AND (SelectedLang <> '-')then Continue;
-              SeriesID := BookRecord.SeriesID;
             end;
 
             AuthorNode := nil;
@@ -4499,6 +4505,8 @@ var
   Tree: TBookTree;
   Node, OldNode: PVirtualNode;
   Data: PBookRecord;
+  BookKey: TBookKey;
+  BookFormat: TBookFormat;
   BookFileName: string;
   SavedCursor: TCursor;
   Msg: string;
@@ -4530,41 +4538,49 @@ begin
 
       if (Data.nodeType = ntBookInfo) and (IsSelectedBookNode(Node, Data)) then
       begin
+        BookKey := Data^.BookKey;
+        BookFormat := Data^.GetBookFormat;
         BookFileName := Data^.GetBookFileName;
 
         if IsOnline then
         begin
-          if (bpIsLocal in Data^.BookProps) and DeleteFile(BookFileName) then
+          // A single archive may contain several books. Never remove that
+          // container while deleting just one catalogue entry.
+          if (bpIsLocal in Data^.BookProps) and
+             not (BookFormat in [bfFb2Archive, bfRawArchive]) and
+             DeleteFile(BookFileName) then
           begin
-            FCollection.SetLocal(Data^.BookKey, False);
-            SetBookLocalStatus(Data^.BookKey, False);
+            FCollection.SetLocal(BookKey, False);
+            SetBookLocalStatus(BookKey, False);
           end;
           Node := Tree.GetNext(Node);
         end
         else
         begin
+          FCollection.BeginBulkOperation;
+          try
+            FCollection.DeleteBook(BookKey);
+            FCollection.EndBulkOperation(True);
+          except
+            on E: Exception do
+            begin
+              FCollection.EndBulkOperation(False);
+              MHLShowError(E.Message);
+              Exit;
+            end;
+          end;
+
           OldNode := Node;
           Node := Tree.GetNext(Node);
           Tree.DeleteNode(OldNode);
           ClearLabels(Tree.Tag, False);
 
-          if Settings.DeleteFiles then
-          begin
-            if not IsFB2 then
-              DeleteFile(BookFileName)
-              //MoveToRecycle(BookFileName) - работает странно. пока отключим
-            else if IsFB2 and IsPrivate then
-              DeleteFile(BookFileName);
-              //MoveToRecycle(BookFileName);
-          end;
-
-          FCollection.BeginBulkOperation;
-          try
-            FCollection.DeleteBook(Data.BookKey);
-            FCollection.EndBulkOperation(True);
-          except
-            FCollection.EndBulkOperation(False);
-          end;
+          // Delete only a file owned by this book, and only after the database
+          // transaction has committed successfully.
+          if Settings.DeleteFiles and
+             not (BookFormat in [bfFb2Archive, bfRawArchive]) and
+             ((not IsFB2) or IsPrivate) then
+            DeleteFile(BookFileName);
         end;
       end
       else
@@ -4590,9 +4606,13 @@ begin
   begin
     CollectionID := FCollection.CollectionID;
     try
-      CloseCollection;
       if Assigned(FDMThread) then
+      begin
         FDMThread.TerminateNow;
+        FDMThread.WaitFor;
+        FreeAndNil(FDMThread);
+      end;
+      CloseCollection;
       tvDownloadList.Clear;
       lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
       if CheckActiveDownloads then
@@ -6830,12 +6850,17 @@ begin
   if tvDownloadList.GetFirst = nil then
     Exit;
 
+  if Assigned(FDMThread) then
+  begin
+    FDMThread.TerminateNow;
+    FDMThread.WaitFor;
+    FreeAndNil(FDMThread);
+  end;
+
   btnPauseDownload.Enabled := True;
   btnStartDownload.Enabled := False;
 
-  // There is a memory leak caused by overwriting the variable without freeing the previous instance
-  // Need to redesign the manager before resolving the leak
-  FDMThread := TDownloadManagerThread.Create(False)
+  FDMThread := TDownloadManagerThread.Create(False);
 end;
 
 procedure TfrmMain.btnPauseDownloadClick(Sender: TObject);
@@ -6843,7 +6868,11 @@ begin
   btnPauseDownload.Enabled := False;
   btnStartDownload.Enabled := True;
   if Assigned(FDMThread) then
+  begin
     FDMThread.Stop;
+    FDMThread.WaitFor;
+    FreeAndNil(FDMThread);
+  end;
 end;
 
 procedure TfrmMain.BtnSaveClick(Sender: TObject);

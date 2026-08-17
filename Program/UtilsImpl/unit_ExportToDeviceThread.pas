@@ -6,7 +6,6 @@ uses
   Classes,
   unit_WorkerThread,
   unit_globals,
-  Dialogs,
   unit_Templater,
   unit_Interfaces,
   System.Generics.Collections;
@@ -186,7 +185,7 @@ begin
         FTargetFolder := FTemplater.ParseString(R, TpPath)
       else
       begin
-        Dialogs.ShowMessage(rstrCheckTemplateValidity);
+        ShowMessage(rstrCheckTemplateValidity, MB_OK);
         Exit;
       end;
 
@@ -203,7 +202,7 @@ begin
       FTargetFileName := FTemplater.ParseString(R, TpFile)
     else
     begin
-      Dialogs.ShowMessage(rstrCheckTemplateValidity);
+      ShowMessage(rstrCheckTemplateValidity, MB_OK);
       Exit;
     end;
 

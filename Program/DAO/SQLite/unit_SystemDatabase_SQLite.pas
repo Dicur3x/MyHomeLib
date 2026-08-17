@@ -940,16 +940,15 @@ procedure TSystemData_SQLite.DeleteBook(const BookKey: TBookKey);
 const
   SQL_DELETE_FROM_BOOK_GROUPS: string = 'DELETE FROM BookGroups WHERE BookID = ? AND DatabaseID = ? ';
   SQL_DELETE_FROM_BOOKS: string = 'DELETE FROM Books WHERE BookID = ? AND DatabaseID = ? ';
-var
-  query: TSQLiteQuery;
 begin
-  query := FDatabase.NewQuery(SQL_DELETE_FROM_BOOK_GROUPS);
+  FDatabase.Start;
   try
-    query.SetParam(0, BookKey.BookID);
-    query.SetParam(1, BookKey.DatabaseID);
-    query.ExecSQL;
-  finally
-    FreeAndNil(query);
+    FDatabase.ExecSQL(SQL_DELETE_FROM_BOOK_GROUPS, [BookKey.BookID, BookKey.DatabaseID]);
+    FDatabase.ExecSQL(SQL_DELETE_FROM_BOOKS, [BookKey.BookID, BookKey.DatabaseID]);
+    FDatabase.Commit;
+  except
+    FDatabase.Rollback;
+    raise;
   end;
 end;
 
@@ -1037,7 +1036,7 @@ end;
 
 procedure TSystemData_SQLite.SetExtra(const BookKey: TBookKey; extra: TBookExtra);
 const
-  SQL_UPDATE = 'UPDATE Books Set LibRate = ?, Progress = ?, Review = ? WHERE BookID = ? AND DatabaseID = ? ';
+  SQL_UPDATE = 'UPDATE Books Set Rate = ?, Progress = ?, Review = ? WHERE BookID = ? AND DatabaseID = ? ';
 var
   query: TSQLiteQuery;
 begin
@@ -1291,16 +1290,22 @@ const
   SQL = 'SELECT g.GroupName, g.AllowDelete FROM Groups g WHERE g.GroupID = ? ';
 var
   query: TSQLiteQuery;
-  groupData: TGroupData;
 begin
+  Result.GroupID := MHL_INVALID_ID;
+  Result.Text := '';
+  Result.CanDelete := False;
+
   query := FDatabase.NewQuery(SQL);
   try
     query.SetParam(0, GroupID);
     query.Open;
 
-    groupData.GroupID := GroupID;
-    groupData.Text := query.FieldAsString(0);
-    groupData.CanDelete := query.FieldAsBoolean(1);
+    if not query.Eof then
+    begin
+      Result.GroupID := GroupID;
+      Result.Text := query.FieldAsString(0);
+      Result.CanDelete := query.FieldAsBoolean(1);
+    end;
   finally
     FreeAndNil(Query);
   end;
@@ -1425,7 +1430,7 @@ end;
 //
 procedure TSystemData_SQLite.DeleteFromGroup(const BookKey: TBookKey; GroupID: Integer);
 const
-  SQL_DELETE_BOOKGROUPS = 'DELETE FROM BookGroups WHERE BookID = ? AND GroupID = ? ';
+  SQL_DELETE_BOOKGROUPS = 'DELETE FROM BookGroups WHERE BookID = ? AND GroupID = ? AND DatabaseID = ? ';
 var
   query: TSQLiteQuery;
 begin
@@ -1436,6 +1441,7 @@ begin
   try
     query.SetParam(0, BookKey.BookID);
     query.SetParam(1, GroupID);
+    query.SetParam(2, BookKey.DatabaseID);
     query.ExecSQL;
   finally
     FreeAndNil(query);
@@ -1604,8 +1610,22 @@ begin
 end;
 
 function TSystemData_SQLite.GetAnnotation(const BookKey: TBookKey): string;
+const
+  SQL_SELECT = 'SELECT Annotation FROM Books WHERE BookID = ? AND DatabaseID = ? ';
+var
+  query: TSQLiteQuery;
 begin
-
+  Result := '';
+  query := FDatabase.NewQuery(SQL_SELECT);
+  try
+    query.SetParam(0, BookKey.BookID);
+    query.SetParam(1, BookKey.DatabaseID);
+    query.Open;
+    if not query.Eof then
+      Result := query.FieldAsBlobString(0);
+  finally
+    query.Free;
+  end;
 end;
 
 function TSystemData_SQLite.GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator;

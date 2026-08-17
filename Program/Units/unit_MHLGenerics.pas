@@ -95,6 +95,7 @@ type
 implementation
 
 uses
+  SysUtils,
   StrUtils;
 
 { TInterfaceCache<TKey, TValue>.TInterfaceAdapter }
@@ -203,7 +204,10 @@ var
   L, R: Integer;
 begin
   if Length(Values) = 0 then
+  begin
+    Result := '';
     Exit;
+  end;
 
   L := Low(Values);
   R := High(Values);
@@ -223,7 +227,10 @@ var
   i, L, R: Integer;
 begin
   if Length(Values) = 0 then
+  begin
+    Result := '';
     Exit;
+  end;
 
   L := Low(Values);
   R := High(Values);
@@ -246,6 +253,7 @@ class function TArrayUtils.Join<T>(
 var
   Enum: TEnumerator<T>;
 begin
+  Result := '';
   Enum := Values.GetEnumerator();
   try
     if Enum.MoveNext then
@@ -274,6 +282,9 @@ var
 
   s: string;
 begin
+  if itemDelimeter = '' then
+    raise EArgumentException.Create('Delimiter must not be empty');
+
   ValueLen := Length(Value);
   SeparatorLen := Length(itemDelimeter);
   StartPos := 1;
@@ -291,7 +302,7 @@ begin
     Inc(ItemsLen);
   end;
 
-  if StartPos < ValueLen then
+  if StartPos <= ValueLen then
   begin
     s := Copy(Value, StartPos, ValueLen);
     SetLength(Items, ItemsLen + 1);
@@ -315,6 +326,9 @@ var
 
   s: string;
 begin
+  if itemDelimeter = '' then
+    raise EArgumentException.Create('Delimiter must not be empty');
+
   ValueLen := Length(Value);
   SeparatorLen := Length(itemDelimeter);
   StartPos := 1;
@@ -331,7 +345,7 @@ begin
     Inc(ItemsLen);
   end;
 
-  if StartPos < ValueLen then
+  if StartPos <= ValueLen then
   begin
     s := Copy(Value, StartPos, ValueLen);
     SetLength(Items, ItemsLen + 1);

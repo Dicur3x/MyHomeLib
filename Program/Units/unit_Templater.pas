@@ -39,7 +39,7 @@ type
   private
     FTemplate: string;
     FBlocksMap: array[0..255] of TElement;
-    ColElements: byte;
+    ColElements: Integer;
   public
     constructor Create;
 
@@ -95,15 +95,29 @@ begin
     if Template[i] = '%' then
       Inc(ColElements);
 
-  // Установка необходимой размерности и инициализация массивов
-//  SetLength(stack, ColElements);
-  //SetLength(FBlocksMap, ColElements);
-  for i := 0 to ColElements - 1 do
+  if ColElements > Length(FBlocksMap) then
   begin
-    stack[i].name := '';
-    FBlocksMap[i].name := '';
+    Result := ErTemplate;
+    Exit;
   end;
 
+  // ValidateTemplate is called repeatedly by ParseString. Clear the complete
+  // fixed-size buffers so stale block coordinates from an older template can
+  // never be reused when the new template contains fewer elements.
+  for i := Low(stack) to High(stack) do
+  begin
+    stack[i].name := '';
+    stack[i].BegBlock := 0;
+    stack[i].EndBlock := 0;
+  end;
+  for i := Low(FBlocksMap) to High(FBlocksMap) do
+  begin
+    FBlocksMap[i].name := '';
+    FBlocksMap[i].BegBlock := 0;
+    FBlocksMap[i].EndBlock := 0;
+  end;
+
+  bol := True;
   TemplEnd := false;
   k := 1;
   while not(TemplEnd) do
@@ -112,7 +126,7 @@ begin
     TemplatePart := '';
 
     // Разбор пути к файлу на составляющие
-    while (not(Template[k] = '\')) and (k <= Length(Template)) do
+    while (k <= Length(Template)) and (Template[k] <> '\') do
     begin
       TemplatePart := TemplatePart + Template[k];
       Inc(k);
@@ -131,7 +145,7 @@ begin
       if TemplatePart[i] = '[' then
       begin
         Inc(StackPos);
-        if (StackPos >= ColElements) then
+        if StackPos > High(stack) then
         begin
           Result := ErTemplate; // prevent an access violation (exceeding "stack" var size)
           Exit;
@@ -154,7 +168,8 @@ begin
         // Выделяем название элемента
         Inc(i);
         stack[StackPos].name := '';
-        while CharInSet(TemplatePart[i], ['a' .. 'z', 'A' .. 'Z']) do
+        while (i <= Length(TemplatePart)) and
+          CharInSet(TemplatePart[i], ['a' .. 'z', 'A' .. 'Z']) do
         begin
           stack[StackPos].name := stack[StackPos].name + TemplatePart[i];
           Inc(i);
@@ -169,6 +184,11 @@ begin
         // Добавляем элемент в общий список элементов
         if StackPos = 0 then
         begin
+          if ElementPos + last_col_elements > High(FBlocksMap) then
+          begin
+            Result := ErTemplate;
+            Exit;
+          end;
           FBlocksMap[ElementPos + last_col_elements].name :=
             stack[StackPos].name;
           FBlocksMap[ElementPos + last_col_elements].BegBlock := 0;
@@ -191,6 +211,11 @@ begin
         stack[StackPos].EndBlock := i;
 
         // Добавляем элемент в общий список элементов
+        if ElementPos + last_col_elements > High(FBlocksMap) then
+        begin
+          Result := ErTemplate;
+          Exit;
+        end;
         FBlocksMap[ElementPos + last_col_elements].name := stack[StackPos].name;
         FBlocksMap[ElementPos + last_col_elements].BegBlock :=
           stack[StackPos].BegBlock + last_char;
@@ -240,7 +265,10 @@ begin
 
     // Поправка на количество символов с начала строки шаблона в
     // карту элементов и блоков (используется при разборе путей)
-    last_char := last_char + k - 1;
+    // k is an absolute position in Template, not a segment-relative offset.
+    // Adding it repeatedly shifted block coordinates from the third path
+    // component onward.
+    last_char := k - 1;
 
     // Переход к очередному символу в шаблоне с целью обработки следующей части пути к файлу
     Inc(i);
@@ -261,14 +289,18 @@ end;
 function TTemplater.SetTemplate(Template: String; TemplType: TTemplateType)
   : TErrorType;
 begin
-  Result := ValidateTemplate(Template, TemplType);
-
   // Спецсимволы чистим только для имени файла или пути к файлу
   if TemplType in [TpFile, TpPath] then
     Template := CheckSymbols(Template, False);
+  Template := Trim(Template);
+
+  // Validate exactly the text that ParseString will use. Validating before
+  // Trim made optional-block coordinates wrong for templates with surrounding
+  // whitespace.
+  Result := ValidateTemplate(Template, TemplType);
 
   if Result = ErFine then
-    FTemplate := Trim(Template);
+    FTemplate := Template;
 end;
 
 function TTemplater.ParseString(R: TBookRecord;
@@ -279,10 +311,17 @@ type
   end;
 
   TMaskElements = array [1 .. COL_MASK_ELEMENTS] of TMaskElement;
+
+  TBlockRange = record
+    BegPos: Integer;
+    EndPos: Integer;
+  end;
 var
-  AuthorName, s: string;
-  i, j: Integer;
+  AuthorName, s, Token: string;
+  i, j, RangeCount: Integer;
   MaskElements: TMaskElements;
+  BlockRanges: array of TBlockRange;
+  TempRange: TBlockRange;
   p1, p2: Integer;
 begin
   Result := FTemplate;
@@ -310,7 +349,10 @@ begin
   if R.AuthorCount > 0 then
   begin
     s := Trim(CheckSymbols(R.Authors[ Low(R.Authors)].FLastName, True));
-    MaskElements[4].value := s[1];
+    if s <> '' then
+      MaskElements[4].value := s[1]
+    else
+      MaskElements[4].value := '';
   end
   else
     MaskElements[4].value := '';
@@ -370,18 +412,56 @@ begin
   MaskElements[13].templ := 'id';
   MaskElements[13].value := R.LibID;
 
-  // Цикл удаления "пустых" блоков
-  for i := Low(MaskElements) to High(MaskElements) do
-    for j := 0 to ColElements - 1 do
-      if (UpperCase(MaskElements[i].templ) = UpperCase(FBlocksMap[j].name)) and
-        (MaskElements[i].value = '') then
-        if (FBlocksMap[j].BegBlock <> 0) and (FBlocksMap[j].EndBlock <> 0) then
+  // Collect empty optional blocks once. The former implementation reparsed the
+  // complete template after every deletion and left FBlocksMap describing the
+  // previous book instead of FTemplate. Besides being quadratic, that produced
+  // incorrect names when one templater instance was reused for multiple books.
+  RangeCount := 0;
+  SetLength(BlockRanges, 0);
+  for j := 0 to ColElements - 1 do
+    if (FBlocksMap[j].BegBlock <> 0) and (FBlocksMap[j].EndBlock <> 0) then
+      for i := Low(MaskElements) to High(MaskElements) do
+        if SameText(MaskElements[i].templ, FBlocksMap[j].name) and
+          (MaskElements[i].value = '') then
         begin
-          Delete(Result, FBlocksMap[j].BegBlock, FBlocksMap[j].EndBlock -
-            FBlocksMap[j].BegBlock + 1);
-          // Здесь ещё продумаю вариант удаления записей о вложенных элементах без валидации
-          ValidateTemplate(Result, TemplType);
+          SetLength(BlockRanges, RangeCount + 1);
+          BlockRanges[RangeCount].BegPos := FBlocksMap[j].BegBlock;
+          BlockRanges[RangeCount].EndPos := FBlocksMap[j].EndBlock;
+          Inc(RangeCount);
+          Break;
         end;
+
+  // If both an outer and an inner optional block are empty, deleting the outer
+  // block is sufficient. Mark contained ranges so original coordinates remain
+  // valid for every deletion that follows.
+  for i := 0 to RangeCount - 1 do
+    for j := 0 to RangeCount - 1 do
+      if (i <> j) and
+        (BlockRanges[j].BegPos <= BlockRanges[i].BegPos) and
+        (BlockRanges[j].EndPos >= BlockRanges[i].EndPos) and
+        ((BlockRanges[j].BegPos < BlockRanges[i].BegPos) or
+         (BlockRanges[j].EndPos > BlockRanges[i].EndPos)) then
+      begin
+        BlockRanges[i].BegPos := 0;
+        BlockRanges[i].EndPos := 0;
+        Break;
+      end;
+
+  // Delete from right to left so positions calculated for FTemplate never
+  // shift underneath the remaining ranges.
+  for i := 0 to RangeCount - 2 do
+    for j := i + 1 to RangeCount - 1 do
+      if BlockRanges[j].BegPos > BlockRanges[i].BegPos then
+      begin
+        TempRange := BlockRanges[i];
+        BlockRanges[i] := BlockRanges[j];
+        BlockRanges[j] := TempRange;
+      end;
+
+  for i := 0 to RangeCount - 1 do
+    if BlockRanges[i].BegPos > 0 then
+      Delete(Result, BlockRanges[i].BegPos,
+        BlockRanges[i].EndPos - BlockRanges[i].BegPos + 1);
 
   StrReplace('[', '', Result);
   StrReplace(']', '', Result);
@@ -389,9 +469,16 @@ begin
   // Цикл замены элементов шаблона их значениями
   for i := 1 to COL_MASK_ELEMENTS do
   begin
-    S := Transliterate(MaskElements[i].value);
-    StrReplace('%' + UpperCase(MaskElements[i].templ), S, Result);
-    StrReplace('%' + MaskElements[i].templ, MaskElements[i].value, Result);
+    Token := '%' + UpperCase(MaskElements[i].templ);
+    if Pos(Token, Result) > 0 then
+    begin
+      S := Transliterate(MaskElements[i].value);
+      StrReplace(Token, S, Result);
+    end;
+
+    Token := '%' + MaskElements[i].templ;
+    if Pos(Token, Result) > 0 then
+      StrReplace(Token, MaskElements[i].value, Result);
   end;
 
   // Удаление содержимого квадратных скобок из названий (для либрусека)
@@ -402,7 +489,7 @@ begin
     if (p1 > 0) and (p2 > 0) and (p1 < p2) then
     begin
       Delete(Result, p1, p2 - p1 + 1);
-      Trim(Result);
+      Result := Trim(Result);
     end;
   end;
 end;

@@ -22,6 +22,7 @@ uses
   Types,
   Classes,
   Graphics,
+  Generics.Collections,
   VirtualTrees,
   BookTreeView,
   pngimage,
@@ -32,6 +33,7 @@ type
   TTreeController = class
   private
     FSystemData: ISystemData;
+    FCollectionTypes: TDictionary<Integer, COLLECTION_TYPE>;
 
     FStarImage: TPngImage;
     FEmptyStarImage: TPngImage;
@@ -142,6 +144,7 @@ begin
   inherited Create;
 
   FSystemData := SystemData;
+  FCollectionTypes := TDictionary<Integer, COLLECTION_TYPE>.Create;
 
   FStarImage := CreateImageFromResource(TPngImage, 'smallStar') as TPngImage;
   FEmptyStarImage := CreateImageFromResource(TPngImage, 'smallStarEmpty') as TPngImage;
@@ -168,6 +171,8 @@ end;
 
 destructor TTreeController.Destroy;
 begin
+  FreeAndNil(FCollectionTypes);
+
   FreeAndNil(FRemoteReviewImage);
   FreeAndNil(FRemoteReadImage);
   FreeAndNil(FRemoteReadReviewImage);
@@ -495,8 +500,12 @@ var
     X, Y: Integer;
     w, h: Integer;
   begin
-    CollectionInfo := FSystemData.GetCollectionInfo(Data^.BookKey.DatabaseID);
-    CollectionType := CollectionInfo.CollectionType;
+    if not FCollectionTypes.TryGetValue(Data^.BookKey.DatabaseID, CollectionType) then
+    begin
+      CollectionInfo := FSystemData.GetCollectionInfo(Data^.BookKey.DatabaseID);
+      CollectionType := CollectionInfo.CollectionType;
+      FCollectionTypes.Add(Data^.BookKey.DatabaseID, CollectionType);
+    end;
 
     BookState := STATE_REMOTE or STATE_UNREAD or STATE_NOREVIEW;
 

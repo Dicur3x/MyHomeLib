@@ -39,10 +39,15 @@ uses
 type
   TImportFBDThread = class(TImportFB2ThreadBase)
   protected
+    FAddCount: Integer;
+    FDefectCount: Integer;
+    FDescriptionEntryName: string;
+
     procedure WorkFunction; override;
     procedure ProcessFileList; override;
     procedure ProcessFileListArchive; override;
-    procedure SortFiles(var R: TBookRecord); override;
+    procedure SortFiles(var R: TBookRecord; const SourceFileName: string;
+      out CreatedFileName: string); override;
 
   public
     constructor Create(const CollectionID: Integer);
@@ -82,66 +87,75 @@ begin
   FFullNameSearch := True;
 end;
 
-procedure TImportFBDThread.SortFiles(var R: TBookRecord);
+procedure TImportFBDThread.SortFiles(var R: TBookRecord;
+  const SourceFileName: string; out CreatedFileName: string);
 var
   NewFileName, NewFolder: string;
+  NewArchiveName: string;
+  OldBookEntryName: string;
+  OldDescriptionEntryName: string;
   archiver: TMHLZip;
   archivePath: string;
 begin
+  CreatedFileName := '';
   NewFolder := GetNewFolder(Settings.FBDFolderTemplate, R);
-  CreateFolders(FCollectionRoot, NewFolder);
-  CopyFile(Settings.ImportPath + R.FileName, FCollectionRoot + NewFolder + R.FileName);
-  R.Folder := NewFolder;
+  if not CreateFolders(FCollectionRoot, NewFolder) then
+    RaiseLastOSError;
 
+  R.Folder := NewFolder;
   NewFileName := GetNewFileName(Settings.FBDFileTemplate, R);
+  if NewFileName <> '' then
+    NewArchiveName := NewFileName + ZIP_EXTENSION
+  else
+    NewArchiveName := ExtractFileName(SourceFileName);
+
+  archivePath := TPath.Combine(
+    TPath.Combine(FCollectionRoot, NewFolder), NewArchiveName
+  );
+  if CopyForImport(SourceFileName, archivePath) then
+    CreatedFileName := archivePath;
+
+  // FileName is the outer FBD zip name.  It may only change after the new
+  // container was successfully created; inner-entry renames are independent.
+  R.FileName := NewArchiveName;
+
   if NewFileName = '' then
     Exit;
 
-  // [BUGFIX] Removed `NewFileName := NewFileName` — self-assignment, dead code.
-
-  RenameFile(
-    FCollectionRoot + NewFolder + R.FileName,
-    FCollectionRoot + NewFolder + NewFileName + ZIP_EXTENSION
-  );
-  R.FileName := NewFileName + ZIP_EXTENSION;
-
-  archivePath := FCollectionRoot + NewFolder + NewFileName + ZIP_EXTENSION;
   archiver := nil;
   try
-    // [BUGFIX] archiver is now nil-initialised before the try block so that
-    // FreeAndNil in finally is safe even if the constructor throws.
-    archiver := TMHLZip.Create(archivePath, False);
+    archiver := TMHLZip.Create(archivePath, False, True);
+    OldBookEntryName := archiver.FileNameAt(R.InsideNo);
+    OldDescriptionEntryName := FDescriptionEntryName;
 
-    // [BUGFIX] Was passing the full absolute path as the source name inside the
-    // archive. Files inside a zip are stored by relative name only, so we pass
-    // just R.FileName (the name as it exists inside the zip before renaming).
-    archiver.RenameFile(R.FileName, NewFileName);
-  except
-    // [BUGFIX] Replaced silent `except // ничего не делаем` with logging.
-    // Renaming inside the archive is non-fatal, but swallowing all errors
-    // made diagnosing corrupt archives impossible.
-    on E: Exception do
-      Logger.W('SortFiles (FBD): failed to rename file inside archive "%s" — %s', [archivePath, E.Message]);
+    try
+      archiver.RenameFile(OldBookEntryName, NewFileName + R.FileExt);
+      R.InsideNo := archiver.LastIndex;
+      if OldDescriptionEntryName <> '' then
+        archiver.RenameFile(OldDescriptionEntryName, NewFileName + FBD_EXTENSION);
+    except
+      on E: Exception do
+        Logger.W('SortFiles (FBD): failed to rename entries inside archive "%s" — %s',
+          [archivePath, E.Message]);
+    end;
+  finally
+    FreeAndNil(archiver);
   end;
-  FreeAndNil(archiver);
 end;
-
 procedure TImportFBDThread.WorkFunction;
-var
-  AddCount, DefectCount: Integer;
 begin
   // [BUGFIX] Removed `FFiles := TStringList.Create` — FFiles is created and
   // owned by the base class constructor (TImportFB2ThreadBase.Create).
   // Creating it here again leaked the instance allocated by the base class.
   // The matching `FreeAndNil(FFiles)` in the finally block is also removed.
 
-  AddCount   := 0;
-  DefectCount := 0;
+  FAddCount := 0;
+  FDefectCount := 0;
 
   ScanFolder;
   if Canceled then
   begin
-    Teletype(Format(rstrBooksAdded, [AddCount, DefectCount]));
+    Teletype(Format(rstrBooksAdded, [FAddCount, FDefectCount]));
     Exit;
   end;
 
@@ -149,31 +163,58 @@ begin
   try
     ProcessFileList;
     FCollection.EndBulkOperation(True);
+    CommitFileOperations;
   except
-    FCollection.EndBulkOperation(False);
+    try
+      FCollection.EndBulkOperation(False);
+    finally
+      RollbackFileOperations;
+    end;
     raise;
   end;
 
   // [REFACTOR] Added summary output consistent with TImportFB2Thread.WorkFunction.
-  Teletype(Format(rstrBooksAdded, [AddCount, DefectCount]));
+  Teletype(Format(rstrBooksAdded, [FAddCount, FDefectCount]));
 end;
-
 procedure TImportFBDThread.ProcessFileList;
+type
+  TArchiveEntryInfo = record
+    Name: string;
+    Index: Integer;
+    Size: Integer;
+  end;
+  TArchiveEntryArray = array of TArchiveEntryInfo;
 var
-  i, j: Integer;
+  i, j, k: Integer;
   R: TBookRecord;
-  archiveFileName, Ext: string;
+  archiveFileName: string;
   archiver: TMHLZip;
-  BookFileName, FBDFileName: string;
   book: IXMLFictionBook;
   FS: TMemoryStream;
-  AddCount, DefectCount: Integer;
-  IsValid: Boolean;
-  fileName: string;
-begin
-  AddCount   := 0;
-  DefectCount := 0;
+  Entries: TArchiveEntryArray;
+  DescriptionIndex: Integer;
+  BookIndex: Integer;
+  CandidateBookIndex: Integer;
+  MatchingBooks: Integer;
+  PairCount: Integer;
+  CreatedFileName: string;
+  BookID: Integer;
 
+  function EntryBaseName(const EntryName: string): string;
+  begin
+    Result := ChangeFileExt(
+      StringReplace(EntryName, '/', '\', [rfReplaceAll]), ''
+    );
+  end;
+
+  function IsDirectoryEntry(const EntryName: string): Boolean;
+  var
+    L: Integer;
+  begin
+    L := Length(EntryName);
+    Result := (L > 0) and CharInSet(EntryName[L], ['/', '\']);
+  end;
+begin
   FProgressEngine.BeginOperation(FFiles.Count, rstrProcessedArchives, rstrProcessedArchives);
   try
     for i := 0 to FFiles.Count - 1 do
@@ -181,104 +222,121 @@ begin
       if Canceled then
         Break;
 
-      IsValid         := False;
-      BookFileName    := '';
-      FBDFileName     := '';
       archiveFileName := FFiles[i];
-
-      Assert(ExtractFileExt(archiveFileName) = ZIP_EXTENSION);
-
-      // [BUGFIX] archiver initialised to nil so FreeAndNil in finally is always
-      // safe, even when TMHLZip.Create raises before the variable is assigned.
+      CreatedFileName := '';
+      FDescriptionEntryName := '';
       archiver := nil;
       try
         try
           archiver := TMHLZip.Create(archiveFileName, True);
-        except
-          on E: Exception do
-          begin
-            Teletype(rstrErrorUnpacking + archiveFileName, tsError);
-            FProgressEngine.AddProgress;
-            Continue;
-          end;
-        end;
 
-        j := 0;
-        R.Clear;
-
-        if archiver.Find('*.*') then
-        repeat
-          fileName := archiver.LastName;
-          Ext      := ExtractFileExt(fileName);
-
-          if Ext = FBD_EXTENSION then
-          begin
-            // [BUGFIX] FS is created before the outer try/finally so the finally
-            // block can always free it. Previously, if ExtractToStream threw, FS
-            // was never released.
-            FS := TMemoryStream.Create;
-            try
-              try
-                archiver.ExtractToStream(archiver.LastName, FS);
-              except
-                // [BUGFIX] Replaced silent bare `except` (no `on E:`, no body)
-                // with explicit logging. Extraction failures are non-fatal here
-                // but must be visible for diagnostics.
-                on E: Exception do
-                begin
-                  Teletype(Format(rstrErrorExtractFBD, [archiveFileName, E.Message]), tsError);
-                  Continue;
-                end;
-              end;
-
-              R.Folder   := ExtractRelativePath(FCollectionRoot, ExtractFilePath(FFiles[i]));
-              R.FileName := ExtractFilename(FFiles[i]);
-              R.Date     := Now;
-              Include(R.BookProps, bpIsLocal);
-
-              try
-                book := LoadFictionBook(FS);
-                GetBookInfo(book, R);
-                IsValid     := True;
-                FBDFileName := TPath.GetFileNameWithoutExtension(fileName);
-              except
-                on E: Exception do
-                  Teletype(Format(rstrErrorFB2Structure, [archiveFileName, R.FileName]), tsError);
-              end;
-            finally
-              FreeAndNil(FS);
+          SetLength(Entries, 0);
+          if archiver.Find('*.*') then
+          repeat
+            if not IsDirectoryEntry(archiver.LastName) then
+            begin
+              j := Length(Entries);
+              SetLength(Entries, j + 1);
+              Entries[j].Name := archiver.LastName;
+              Entries[j].Index := archiver.LastIndex;
+              Entries[j].Size := archiver.LastSize;
             end;
-          end
-          else
-          begin
-            // Non-FBD entry — treat as the actual book file
-            R.InsideNo := j;
-            R.FileExt  := Ext;
-            BookFileName := TPath.GetFileNameWithoutExtension(fileName);
-            R.Size := archiver.LastSize;
-          end;
+          until not archiver.FindNext;
 
-          Inc(j);
-        until not archiver.FindNext;
+          DescriptionIndex := -1;
+          BookIndex := -1;
+          PairCount := 0;
+          for j := 0 to High(Entries) do
+            if SameText(ExtractFileExt(Entries[j].Name), FBD_EXTENSION) then
+            begin
+              MatchingBooks := 0;
+              CandidateBookIndex := -1;
+              for k := 0 to High(Entries) do
+                if (k <> j) and
+                   not SameText(ExtractFileExt(Entries[k].Name), FBD_EXTENSION) and
+                   SameText(EntryBaseName(Entries[k].Name),
+                     EntryBaseName(Entries[j].Name)) then
+                begin
+                  Inc(MatchingBooks);
+                  CandidateBookIndex := k;
+                end;
+
+              if MatchingBooks = 1 then
+              begin
+                Inc(PairCount);
+                DescriptionIndex := j;
+                BookIndex := CandidateBookIndex;
+              end;
+            end;
+
+          if (PairCount <> 1) or (DescriptionIndex < 0) or (BookIndex < 0) then
+            raise EInvalidOpException.Create('FBD archive must contain one matching description/book pair');
+
+          // Preserve the exact descriptor selected by the pairing algorithm.
+          // Looking it up again by '*.fbd' after copying could rename an
+          // unrelated auxiliary descriptor that happened to occur first.
+          FDescriptionEntryName := Entries[DescriptionIndex].Name;
+
+          R.Clear;
+          R.Folder   := ExtractRelativePath(FCollectionRoot,
+            ExtractFilePath(archiveFileName));
+          R.FileName := ExtractFileName(archiveFileName);
+          R.FileExt  := LowerCase(ExtractFileExt(Entries[BookIndex].Name));
+          R.InsideNo := Entries[BookIndex].Index;
+          R.Size     := Entries[BookIndex].Size;
+          R.Date     := Now;
+          Include(R.BookProps, bpIsLocal);
+
+          FS := TMemoryStream.Create;
+          try
+            try
+              archiver.ExtractToStream(Entries[DescriptionIndex].Index, FS);
+              book := LoadFictionBook(FS);
+              GetBookInfo(book, R);
+            except
+              on E: Exception do
+              begin
+                Teletype(Format(rstrErrorFB2Structure,
+                  [archiveFileName, R.FileName]), tsError);
+                Logger.W('FBD metadata parse failed for "%s" — %s',
+                  [archiveFileName, E.Message]);
+                raise;
+              end;
+            end;
+          finally
+            FreeAndNil(FS);
+          end;
+        finally
+          FreeAndNil(archiver);
+        end;
 
         if Settings.EnableSort then
-          SortFiles(R);
+          SortFiles(R, archiveFileName, CreatedFileName);
 
-        if IsValid and (BookFileName = FBDFileName) and (FCollection.InsertBook(R, True, True) <> 0) then
-          Inc(AddCount)
+        BookID := FCollection.InsertBook(R, True, True, FImportCache);
+        if BookID <> 0 then
+          Inc(FAddCount)
         else
         begin
+          ForgetCreatedFile(CreatedFileName, True);
+          Inc(FDefectCount);
           Teletype(rstrErrorFBD + archiveFileName, tsError);
-          Inc(DefectCount);
         end;
-
-      finally
-        FreeAndNil(archiver);
-        FProgressEngine.AddProgress;
+      except
+        on E: Exception do
+        begin
+          ForgetCreatedFile(CreatedFileName, True);
+          Teletype(rstrErrorUnpacking + archiveFileName, tsError);
+          Logger.W('FBD import failed for "%s" — %s',
+            [archiveFileName, E.Message]);
+          Inc(FDefectCount);
+        end;
       end;
+
+      FProgressEngine.AddProgress;
     end;
 
-    Teletype(Format(rstrBooksAdded, [AddCount, DefectCount]));
+    Teletype(Format(rstrBooksAdded, [FAddCount, FDefectCount]));
   finally
     FProgressEngine.EndOperation;
   end;

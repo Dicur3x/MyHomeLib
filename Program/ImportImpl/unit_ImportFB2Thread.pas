@@ -40,7 +40,8 @@ type
     procedure WorkFunction; override;
     procedure ProcessFileList; override;
     procedure ProcessFileListArchive; override;
-    procedure SortFilesZip(var R: TBookRecord);
+    procedure SortFilesZip(var R: TBookRecord; const SourceArchive,
+      SourceEntryName: string; out CreatedFileName: string);
 
   public
     // [BUGFIX] Signature now matches the interface declaration exactly.
@@ -95,6 +96,8 @@ var
   R: TBookRecord;
   book: IXMLFictionBook;
   FileName: string;
+  CreatedFileName: string;
+  BookID: Integer;
   Added, Defective: Integer;
 begin
   Added := 0;
@@ -114,6 +117,7 @@ begin
       R.Size := unit_Helpers.GetFileSize(FFiles[i]);
       R.Date := Now;
       Include(R.BookProps, bpIsLocal);
+      CreatedFileName := '';
 
       try
         if Settings.EnableSort then
@@ -121,7 +125,7 @@ begin
           R.Folder := ExtractFilePath(FFiles[i]);
           book := LoadFictionBook(FFiles[i]);
           GetBookInfo(book, R);
-          SortFiles(R);
+          SortFiles(R, FFiles[i], CreatedFileName);
         end
         else
         begin
@@ -129,12 +133,20 @@ begin
           book := LoadFictionBook(FFiles[i]);
           GetBookInfo(book, R);
         end;
-        FCollection.InsertBook(R, True, True);
-        Inc(Added);
+        BookID := FCollection.InsertBook(R, True, True, FImportCache);
+        if BookID <> 0 then
+          Inc(Added)
+        else
+        begin
+          ForgetCreatedFile(CreatedFileName, True);
+          Inc(Defective);
+        end;
       except
         on E: Exception do
         begin
+          ForgetCreatedFile(CreatedFileName, True);
           Teletype(Format(rstrStructureError, [R.Folder, R.FileName + FB2_EXTENSION]), tsError);
+          Logger.W('ProcessFileList: failed to import "%s" — %s', [FFiles[i], E.Message]);
           Inc(Defective);
         end;
       end;
@@ -154,15 +166,27 @@ begin
 end;
 
 procedure TImportFB2Thread.ProcessFileListArchive;
+type
+  TBookRecordArray = array of TBookRecord;
+  TStringArray = array of string;
 var
-  i, j: Integer;
+  i, j, k: Integer;
   R: TBookRecord;
   AFileName: string;
   book: IXMLFictionBook;
   FS: TMemoryStream;
   NoErrors: Boolean;
-  numFb2FilesInZip: Integer;
+  MatchedEntryCount: Integer;
   Zip: TMHLZip;
+  Records: TBookRecordArray;
+  EntryNames: TStringArray;
+  NewFolder: string;
+  ArchiveName: string;
+  StoredArchiveName: string;
+  TargetArchiveName: string;
+  CreatedArchiveName: string;
+  AddedBeforeArchive: Integer;
+  BookID: Integer;
   Added, Defective: Integer;
 begin
   Added := 0;
@@ -177,6 +201,9 @@ begin
 
       NoErrors := True;
       Zip := nil;
+      SetLength(Records, 0);
+      SetLength(EntryNames, 0);
+      CreatedArchiveName := '';
 
       // [BUGFIX] Zip is initialised to nil before the try so that FreeAndNil in
       // the finally block is always safe, even when the constructor throws.
@@ -187,67 +214,137 @@ begin
           on E: Exception do
           begin
             Teletype(rstrErrorUnpacking + FFiles[i], tsError);
+            Logger.W('ProcessFileListArchive: cannot open "%s" — %s',
+              [FFiles[i], E.Message]);
+            Inc(Defective);
             FProgressEngine.AddProgress;
             Continue;
           end;
         end;
 
-        j := 0;
-        numFb2FilesInZip := 0;
+        MatchedEntryCount := 0;
 
         if Zip.Find('*.fb2') then
         repeat
           R.Clear;
           AFileName := Zip.LastName;
-          R.FileExt := ExtractFileExt(AFileName);
+          Inc(MatchedEntryCount);
 
-          if R.FileExt = FB2_EXTENSION then
-          begin
-            Inc(numFb2FilesInZip);
+          R.FileExt := LowerCase(ExtractFileExt(AFileName));
+          R.FileName := TPath.GetFileNameWithoutExtension(
+            CleanFileName(ExtractFileName(AFileName))
+          );
+          R.Size     := Zip.LastSize;
+          R.InsideNo := Zip.LastIndex;
+          R.Date     := Now;
+          Include(R.BookProps, bpIsLocal);
 
-            R.FileName := TPath.GetFileNameWithoutExtension(CleanFileName(AFileName));
-            R.Size     := Zip.LastSize;
-            R.InsideNo := j;
-            R.Date     := Now;
-            Include(R.BookProps, bpIsLocal);
-
-            // [BUGFIX] FS is now created before the try/finally so that the
-            // finally block can always free it — previously if ExtractToStream
-            // threw, FS was never freed.
-            FS := TMemoryStream.Create;
+          FS := TMemoryStream.Create;
+          try
             try
-              Zip.ExtractToStream(AFileName, FS);
+              Zip.ExtractToStream(Zip.LastIndex, FS);
+              book := LoadFictionBook(FS);
+              GetBookInfo(book, R);
+
+              j := Length(Records);
+              SetLength(Records, j + 1);
+              SetLength(EntryNames, j + 1);
+              Records[j] := R;
+              EntryNames[j] := AFileName;
+            except
+              on E: Exception do
+              begin
+                NoErrors := False;
+                Teletype(Format(rstrErrorFB2Structure,
+                  [FFiles[i], R.FileName + FB2_EXTENSION]), tsError);
+                Logger.W('ProcessFileListArchive: failed to parse "%s" in "%s" — %s',
+                  [AFileName, FFiles[i], E.Message]);
+                Inc(Defective);
+              end;
+            end;
+          finally
+            FreeAndNil(FS);
+          end;
+        until not Zip.FindNext;
+
+        if MatchedEntryCount = 0 then
+        begin
+          Teletype(rstrErrorUnpacking + FFiles[i], tsError);
+          Logger.W('ProcessFileListArchive: no FB2 entries in "%s"', [FFiles[i]]);
+          Inc(Defective);
+        end;
+
+        if Length(Records) > 0 then
+        begin
+          AddedBeforeArchive := Added;
+          try
+            if Settings.EnableSort and NoErrors and
+               (MatchedEntryCount = 1) and (Length(Records) = 1) then
+            begin
+              SortFilesZip(Records[0], FFiles[i], EntryNames[0],
+                CreatedArchiveName);
+            end
+            else
+            begin
+              if Settings.EnableSort then
+              begin
+                // A multi-book container cannot have one unambiguous template
+                // name.  Preserve the archive and every entry, but still place
+                // the container in the templated folder of its first book.
+                Records[0].Folder := FFiles[i];
+                NewFolder := GetNewFolder(Settings.FB2FolderTemplate, Records[0]);
+                if not CreateFolders(FCollectionRoot, NewFolder) then
+                  RaiseLastOSError;
+
+                ArchiveName := ExtractFileName(FFiles[i]);
+                TargetArchiveName := TPath.Combine(
+                  TPath.Combine(FCollectionRoot, NewFolder), ArchiveName
+                );
+                if CopyForImport(FFiles[i], TargetArchiveName) then
+                  CreatedArchiveName := TargetArchiveName;
+                StoredArchiveName := TPath.Combine(NewFolder, ArchiveName);
+              end
+              else
+                StoredArchiveName := ExtractRelativePath(FCollectionRoot, FFiles[i]);
+
+              for k := 0 to High(Records) do
+                Records[k].Folder := StoredArchiveName;
+            end;
+
+            for k := 0 to High(Records) do
+            begin
               try
-                book := LoadFictionBook(FS);
-                GetBookInfo(book, R);
-                if not Settings.EnableSort then
-                begin
-                  R.Folder := ExtractRelativePath(FCollectionRoot, FFiles[i]);
-                  if FCollection.InsertBook(R, True, True) <> 0 then
-                    Inc(Added);
-                end;
+                BookID := FCollection.InsertBook(
+                  Records[k], True, True, FImportCache
+                );
+                if BookID <> 0 then
+                  Inc(Added)
+                else
+                  Inc(Defective);
               except
                 on E: Exception do
                 begin
-                  NoErrors := False;
-                  Teletype(Format(rstrErrorFB2Structure, [FFiles[i], R.FileName + FB2_EXTENSION]), tsError);
+                  Teletype(Format(rstrErrorFB2Structure,
+                    [FFiles[i], Records[k].FileName + FB2_EXTENSION]), tsError);
+                  Logger.W('ProcessFileListArchive: failed to insert "%s" from "%s" — %s',
+                    [Records[k].FileName, FFiles[i], E.Message]);
                   Inc(Defective);
                 end;
               end;
-            finally
-              FreeAndNil(FS);
+            end;
+
+            if Added = AddedBeforeArchive then
+              ForgetCreatedFile(CreatedArchiveName, True);
+          except
+            on E: Exception do
+            begin
+              ForgetCreatedFile(CreatedArchiveName, True);
+              Teletype(rstrErrorUnpacking + FFiles[i], tsError);
+              Logger.W('ProcessFileListArchive: failed to sort "%s" — %s',
+                [FFiles[i], E.Message]);
+              Inc(Defective, Length(Records));
             end;
           end;
-
-          Inc(j);
-        until not Zip.FindNext;
-
-        if Settings.EnableSort and NoErrors and (numFb2FilesInZip = 1) then
-        begin
-          R.Folder := FFiles[i];
-          SortFilesZip(R);
-          if FCollection.InsertBook(R, True, True) <> 0 then
-            Inc(Added);
         end;
 
         FProgressEngine.AddProgress;
@@ -265,46 +362,57 @@ begin
   end;
 end;
 
-procedure TImportFB2Thread.SortFilesZip(var R: TBookRecord);
+procedure TImportFB2Thread.SortFilesZip(var R: TBookRecord;
+  const SourceArchive, SourceEntryName: string; out CreatedFileName: string);
 var
-  FileName, NewFileName, NewFolder: string;
-  archiveFileName: string;
+  NewFileName, NewFolder: string;
+  ArchiveName: string;
+  NewArchiveName: string;
+  ArchiveFileName: string;
   archiver: TMHLZip;
 begin
-  FileName := ExtractFileName(R.Folder);
-
+  CreatedFileName := '';
+  ArchiveName := ExtractFileName(SourceArchive);
+  R.Folder := SourceArchive;
   NewFolder := GetNewFolder(Settings.FB2FolderTemplate, R);
-  CreateFolders(FCollectionRoot, NewFolder);
-  CopyFile(R.Folder, FCollectionRoot + NewFolder + FileName);
+  if not CreateFolders(FCollectionRoot, NewFolder) then
+    RaiseLastOSError;
 
-  R.Folder := NewFolder + FileName;
-
+  // The historical template contract evaluates the file name after the book
+  // already points at the copied (but not yet renamed) archive.
+  R.Folder := TPath.Combine(NewFolder, ArchiveName);
   NewFileName := GetNewFileName(Settings.FB2FileTemplate, R);
+  if NewFileName <> '' then
+    NewArchiveName := NewFileName + FFb2ArchiveExt
+  else
+    NewArchiveName := ExtractFileName(SourceArchive);
+
+  ArchiveFileName := TPath.Combine(
+    TPath.Combine(FCollectionRoot, NewFolder), NewArchiveName
+  );
+  if CopyForImport(SourceArchive, ArchiveFileName) then
+    CreatedFileName := ArchiveFileName;
+  R.Folder := TPath.Combine(NewFolder, NewArchiveName);
+
   if NewFileName = '' then
     Exit;
 
-  NewFolder := R.Folder;
-  if FileName = NewFileName + FFb2ArchiveExt then
-    Exit;
-
-  StrReplace(FileName, NewFileName + FFb2ArchiveExt, NewFolder);
-  RenameFile(FCollectionRoot + R.Folder, FCollectionRoot + NewFolder);
-  R.Folder := NewFolder;
-
-  // [BUGFIX] Replaced silent bare `except // ничего не делаем` with logging.
-  // Renaming a file inside the archive is non-fatal, but silently swallowing
-  // the error made debugging impossible.
   archiver := nil;
   try
-    archiveFileName := TPath.Combine(FCollectionRoot, NewFolder);
-    archiver := TMHLZip.Create(archiveFileName, False);
-    archiver.RenameFile(R.FileName + R.FileExt, NewFileName + R.FileExt);
-    R.FileName := NewFileName;
-  except
-    on E: Exception do
-      Logger.W('SortFilesZip: failed to rename file inside archive "%s" — %s', [archiveFileName, E.Message]);
+    archiver := TMHLZip.Create(ArchiveFileName, False, True);
+    try
+      archiver.RenameFile(SourceEntryName, NewFileName + R.FileExt);
+      // Only publish the new inner name after System.Zip confirmed the rename.
+      R.InsideNo := archiver.LastIndex;
+      R.FileName := NewFileName;
+    except
+      on E: Exception do
+        Logger.W('SortFilesZip: failed to rename file inside archive "%s" — %s',
+          [ArchiveFileName, E.Message]);
+    end;
+  finally
+    FreeAndNil(archiver);
   end;
-  FreeAndNil(archiver);
 end;
 
 procedure TImportFB2Thread.WorkFunction;
@@ -333,8 +441,13 @@ begin
   try
     ProcessFileList;
     FCollection.EndBulkOperation(True);
+    CommitFileOperations;
   except
-    FCollection.EndBulkOperation(False);
+    try
+      FCollection.EndBulkOperation(False);
+    finally
+      RollbackFileOperations;
+    end;
     raise;
   end;
 
@@ -363,8 +476,13 @@ begin
   try
     ProcessFileListArchive;
     FCollection.EndBulkOperation(True);
+    CommitFileOperations;
   except
-    FCollection.EndBulkOperation(False);
+    try
+      FCollection.EndBulkOperation(False);
+    finally
+      RollbackFileOperations;
+    end;
     raise;
   end;
 

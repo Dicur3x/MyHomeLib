@@ -22,6 +22,7 @@ uses
   Classes,
   Windows,
   SysUtils,
+  SyncObjs,
   ComCtrls,
   unit_Globals,
   unit_Events,
@@ -30,8 +31,9 @@ uses
 type
   TWorker = class(TThread)
   strict private
-    FFinished: Boolean;
-    FCancel: Boolean;
+    FFinished: Integer;
+    FCancel: Integer;
+    FComInitialized: Boolean;
 
     FProgressStyle: TProgressBarStyle;
     FProgressState: TProgressBarState;
@@ -60,6 +62,9 @@ type
     procedure DoTeletype;
     procedure DoSetComment;
     procedure DoShowMessage;
+    function GetCanceled: Boolean;
+    procedure SetCanceled(const Value: Boolean);
+    function GetFinished: Boolean;
 
   strict protected
     FProgressEngine: TProgressEngine;
@@ -95,22 +100,24 @@ type
     property OnSetComment: TProgressSetCommentEvent read FOnSetComment write FOnSetComment;
     property OnShowMessage: TProgressShowMessageEvent read FOnShowMessage write FOnShowMessage;
 
-    property Canceled: Boolean read FCancel write FCancel;
-    property Finished: Boolean read FFinished;
+    property Canceled: Boolean read GetCanceled write SetCanceled;
+    property Finished: Boolean read GetFinished;
   end;
 
 implementation
 
 uses
-  ActiveX;
+  ActiveX,
+  ComObj;
 
 // ============================================================================
 constructor TWorker.Create;
 begin
   inherited Create(True);
 
-  FFinished := False;
-  FCancel := False;
+  TInterlocked.Exchange(FFinished, 0);
+  TInterlocked.Exchange(FCancel, 0);
+  FComInitialized := False;
   FPercent := 0;
 
   FMessageFlags := 0;
@@ -126,7 +133,7 @@ end;
 
 procedure TWorker.OpenProgress;
 begin
-  FFinished := False;
+  TInterlocked.Exchange(FFinished, 0);
   FPercent := 0;
 
   FProgressEngine.BeginOperation(0, '', '');
@@ -188,9 +195,16 @@ end;
 
 procedure TWorker.CloseProgress;
 begin
-  FProgressEngine.EndOperation;
-  FFinished := True;
-  Synchronize(DoCloseProgress);
+  try
+    if Assigned(FProgressEngine) then
+      FProgressEngine.EndOperation;
+  finally
+    // Publish completion even when progress finalisation raises.  Forms use
+    // this flag to decide whether they may close, so leaving it False traps a
+    // modal import window forever.
+    TInterlocked.Exchange(FFinished, 1);
+    Synchronize(DoCloseProgress);
+  end;
 end;
 
 // ============================================================================
@@ -227,34 +241,62 @@ end;
 // ============================================================================
 procedure TWorker.Cancel;
 begin
-  FCancel := True;
+  SetCanceled(True);
+  Terminate;
+end;
+
+function TWorker.GetCanceled: Boolean;
+begin
+  Result := TInterlocked.CompareExchange(FCancel, 0, 0) <> 0;
+end;
+
+procedure TWorker.SetCanceled(const Value: Boolean);
+begin
+  TInterlocked.Exchange(FCancel, Ord(Value));
+end;
+
+function TWorker.GetFinished: Boolean;
+begin
+  Result := TInterlocked.CompareExchange(FFinished, 0, 0) <> 0;
 end;
 
 // ============================================================================
 procedure TWorker.Initialize;
+var
+  HR: HRESULT;
 begin
-  CoInitializeEx(nil, COINIT_MULTITHREADED or COINIT_APARTMENTTHREADED);
+  FComInitialized := False;
+  HR := CoInitializeEx(nil, COINIT_APARTMENTTHREADED);
+  if Succeeded(HR) then
+    FComInitialized := True
+  else if HR <> RPC_E_CHANGED_MODE then
+    OleCheck(HR);
 end;
 
 // ============================================================================
 procedure TWorker.Uninitialize;
 begin
-  CoUninitialize;
+  if FComInitialized then
+  begin
+    CoUninitialize;
+    FComInitialized := False;
+  end;
 end;
 
 // ============================================================================
 procedure TWorker.Execute;
 begin
-  Initialize;
+  FProgressEngine := nil;
   try
-    FProgressEngine := TProgressEngine.Create;
+    Initialize;
     try
+      FProgressEngine := TProgressEngine.Create;
       FProgressEngine.OnSetProgress := SetProgress;
       FProgressEngine.OnSetComment := SetComment;
       FProgressEngine.OnProgressHint := SetProgressHint;
 
-      OpenProgress;
       try
+        OpenProgress;
         WorkFunction;
       finally
         CloseProgress;
@@ -263,7 +305,18 @@ begin
       FreeAndNil(FProgressEngine);
     end;
   finally
-    Uninitialize;
+    try
+      Uninitialize;
+    finally
+      // Initialize (or even allocation of the progress engine) can fail before
+      // CloseProgress is reached.  The UI must still receive its completion
+      // notification so the modal form/wizard cannot become uncloseable.
+      if not Finished then
+      begin
+        TInterlocked.Exchange(FFinished, 1);
+        Synchronize(DoCloseProgress);
+      end;
+    end;
   end;
 end;
 

@@ -57,6 +57,7 @@ type
     FFBDFilename: string;
     FBookFilename: string;
     FArchiveFilename: string;
+    FArchiveDescriptionName: string;
     FFolder: string;
     FProgramUsed: string;
 
@@ -160,7 +161,8 @@ begin
   FFBDFilename := FileName + FBD_EXTENSION;
   FBookFileName := FileName + Ext;
   FFolder := Folder;
-  FArchiveFilename := Folder + FileName + ZIP_EXTENSION;
+  FArchiveFilename := TPath.Combine(Folder, FileName + ZIP_EXTENSION);
+  FArchiveDescriptionName := '';
 end;
 
 procedure TFBDDocument.SetMemo(Value: TMemo);
@@ -216,12 +218,19 @@ begin
   Result := False;
   SetFileNames(Folder, Filename, Ext);
   FCoverData.Str := '';
+  Input := nil;
+  Output := nil;
+  archiver := nil;
+  IMG := nil;
   Lines := TstringList.Create;
   try
     archiver := TMHLZip.Create(FArchiveFilename, True);
     Input := TMemoryStream.Create;
     if archiver.Find('*.fbd') then
+    begin
+      FArchiveDescriptionName := archiver.LastName;
       archiver.ExtractToStream(archiver.LastName, Input);
+    end;
 
     if Assigned(Input) and (Input.Size > 0) then
     begin
@@ -237,30 +246,34 @@ begin
           for i := 0 to FFBD.Binary.Count - 1 do
           begin
             if FFBD.Binary.Items[i].Id = CoverID then
-            try
-              Output := TMemoryStream.Create;
-              Lines.Clear;
-              Input.Clear;
-              Lines.Text := FFBD.Binary.Items[i].Text;
-              FCoverData.Str := FFBD.Binary.Items[i].Text;
+            begin
+              Output := nil;
+              IMG := nil;
+              try
+                Output := TMemoryStream.Create;
+                Lines.Clear;
+                Input.Clear;
+                Lines.Text := FFBD.Binary.Items[i].Text;
+                FCoverData.Str := FFBD.Binary.Items[i].Text;
 
-              Lines.SaveToStream(Output);
+                Lines.SaveToStream(Output);
 
-              Output.Seek(0,soFromBeginning);
-              DecodeStream(Output, Input);
+                Output.Seek(0,soFromBeginning);
+                DecodeStream(Output, Input);
 
-              CreateImage(ExtractFileExt(CoverID), IMG, FCoverData.ImgType);
-              if Assigned(IMG) then
-              begin
-                Input.Seek(0,soFromBeginning);
-                IMG.LoadFromStream(Input);
-                FImage.Picture.Assign(IMG);
-                FImage.Invalidate;
+                CreateImage(ExtractFileExt(CoverID), IMG, FCoverData.ImgType);
+                if Assigned(IMG) then
+                begin
+                  Input.Seek(0,soFromBeginning);
+                  IMG.LoadFromStream(Input);
+                  FImage.Picture.Assign(IMG);
+                  FImage.Invalidate;
+                end;
+              finally
+                FreeAndNil(IMG);
+                FreeAndNil(Output);
               end;
-            finally
-              IMG.Free;
-              Output.Free;
-            end; // for
+            end;
           end;
         end;
       end;
@@ -306,6 +319,7 @@ begin
   if not Assigned(FImage) then
     Exit;
 
+  IMG := nil;
   try
     CreateImage(ExtractFileExt(Filename), IMG, FCoverData.ImgType);
     if Assigned(IMG) then
@@ -389,7 +403,7 @@ end;
 procedure TFBDDocument.LoadFBDFromFile(Folder, Filename, Ext: string);
 begin
   SetFileNames(Folder, Filename, Ext);
-  FFBD := LoadFictionBook(Folder + FFBDFileName);
+  FFBD := LoadFictionBook(TPath.Combine(Folder, FFBDFileName));
 end;
 
 procedure TFBDDocument.New;
@@ -415,10 +429,10 @@ var
   MS: TMemoryStream;
   No: integer;
 begin
-
+  MS := nil;
+  archiver := nil;
   try
-    MS := TMemoryStream.Create;
-    archiver := TMHLZip.Create(TPath.Combine(FFolder, FArchiveFilename), True);
+    archiver := TMHLZip.Create(FArchiveFilename, True);
     No := archiver.GetIdxByExt('.fbd');
     if No = 0 then No := 1 else No := 0;
     MS := archiver.ExtractToStream(No);
@@ -453,16 +467,12 @@ var
   Bin : IXMLBinary;
   C: IXMLImageType;
   P: IXMLPType;
-  MS: TMemoryStream;
-  SL: TstringList;
   Str: string;
   i: integer;
   XML : TXMLDocument;
-
 begin
   Result := False;
-  MS := TMemoryStream.Create;
-  SL := TStringList.Create;
+  XML := nil;
   try
     if Cover.Str <> '' then
     begin
@@ -516,55 +526,133 @@ begin
     XML := TXMLDocument.Create(nil);
     XML.Options := XML.Options + [doNodeAutoIndent];
     XML.LoadFromXML(FFBD.XML);
-    XML.SaveToFile(FFolder + FFBDFileName);
+    XML.SaveToFile(TPath.Combine(FFolder, FFBDFileName));
     XML.Active := False;
 
     Result := True;
   finally
     XML.Free;
-    SL.Free;
-    MS.Free;
   end;
 end;
-
 function TFBDDocument.CreateArchive(EditorMode: boolean):boolean;
 var
   archiveFileName: string;
   bookFileName: string;
   fbdFileName: string;
+  tempArchiveFileName: string;
+  tempEntryFileName: string;
+  entryName: string;
+  i: Integer;
+  descriptionReplaced: Boolean;
   archiver: TMHLZip;
+  sourceArchiver: TMHLZip;
+  validator: TMHLZip;
+  entryStream: TFileStream;
 begin
   Result := False;
+  archiver := nil;
+  sourceArchiver := nil;
+  validator := nil;
+  entryStream := nil;
+  tempArchiveFileName := '';
+  tempEntryFileName := '';
 
-  archiveFileName := TPath.Combine(FFolder, FArchiveFilename);
+  archiveFileName := FArchiveFilename;
   bookFileName := TPath.Combine(FFolder, FBookFileName);
   fbdFileName := TPath.Combine(FFolder, FFBDFileName);
 
   try
-    archiver := TMHLZip.Create(archiveFileName, False);
+    repeat
+      tempArchiveFileName := TPath.Combine(ExtractFilePath(archiveFileName),
+        TPath.GetRandomFileName + '.tmp');
+    until not FileExists(tempArchiveFileName);
 
     if EditorMode then
     begin
-      archiver.AddFiles(fbdFileName);
-      Result := archiver.Test(archiveFileName);
+      if not FileExists(archiveFileName) then
+        raise EFileNotFoundException.CreateFmt('Archive "%s" was not found',
+          [archiveFileName]);
 
-      if Result then
-        SysUtils.DeleteFile(fbdFileName);
+      // Rebuild in the original entry order and replace the exact descriptor
+      // that Load selected.  Deleting and appending it would shift the book's
+      // InsideNo and make existing database records read the descriptor as the
+      // book.  Each old entry is streamed through a temporary disk file, so a
+      // large book does not have to fit in process memory.
+      sourceArchiver := TMHLZip.Create(archiveFileName, True);
+      archiver := TMHLZip.Create(tempArchiveFileName, False);
+      tempEntryFileName := tempArchiveFileName + '.entry';
+      descriptionReplaced := False;
+      for i := 0 to sourceArchiver.FileCount - 1 do
+      begin
+        entryName := sourceArchiver.FileNameAt(i);
+        if (not descriptionReplaced) and
+           (((FArchiveDescriptionName <> '') and
+             SameText(entryName, FArchiveDescriptionName)) or
+            ((FArchiveDescriptionName = '') and
+             SameText(ExtractFileExt(entryName), FBD_EXTENSION))) then
+        begin
+          entryStream := TFileStream.Create(fbdFileName,
+            fmOpenRead or fmShareDenyWrite);
+          try
+            archiver.AddFromStream(entryName, entryStream);
+          finally
+            FreeAndNil(entryStream);
+          end;
+          descriptionReplaced := True;
+        end
+        else
+        begin
+          entryStream := TFileStream.Create(tempEntryFileName, fmCreate);
+          try
+            sourceArchiver.ExtractToStream(i, entryStream);
+            archiver.AddFromStream(entryName, entryStream);
+          finally
+            FreeAndNil(entryStream);
+          end;
+        end;
+      end;
+
+      if not descriptionReplaced then
+        raise EInvalidOpException.Create('FBD descriptor was not found in archive');
     end
     else
     begin
-      archiver.AddFiles(fbdFileName);
+      archiver := TMHLZip.Create(tempArchiveFileName, False);
+      // Keep the raw book at index zero.  Existing raw records already use
+      // InsideNo=0, so conversion does not require a second database mutation.
       archiver.AddFiles(bookFileName);
-      Result := archiver.Test(archiveFileName);
-//
-      if Result then
-      begin
-        SysUtils.DeleteFile(fbdFileName);
+      archiver.AddFiles(fbdFileName);
+    end;
+
+    // Closing writes the central directory.  Re-open the completed temporary
+    // archive before atomically replacing the destination.
+    FreeAndNil(archiver);
+    FreeAndNil(sourceArchiver);
+    validator := TMHLZip.Create(tempArchiveFileName, True);
+    Result := validator.FileCount > 0;
+    FreeAndNil(validator);
+
+    if Result then
+    begin
+      if not Windows.MoveFileEx(PChar(tempArchiveFileName),
+        PChar(archiveFileName), MOVEFILE_REPLACE_EXISTING or
+        MOVEFILE_WRITE_THROUGH) then
+        RaiseLastOSError;
+      tempArchiveFileName := '';
+
+      SysUtils.DeleteFile(fbdFileName);
+      if not EditorMode then
         SysUtils.DeleteFile(bookFileName);
-      end;
     end;
   finally
+    FreeAndNil(entryStream);
     FreeAndNil(archiver);
+    FreeAndNil(sourceArchiver);
+    FreeAndNil(validator);
+    if (tempEntryFileName <> '') and FileExists(tempEntryFileName) then
+      SysUtils.DeleteFile(tempEntryFileName);
+    if (tempArchiveFileName <> '') and FileExists(tempArchiveFileName) then
+      SysUtils.DeleteFile(tempArchiveFileName);
   end;
 
   if not Result then
@@ -769,6 +857,7 @@ var
   idxFile: Integer;
   archiver: TMHLZip;
 begin
+  archiver := nil;
   try
     archiver := TMHLZip.Create(FArchiveFilename, True);
     idxFile := archiver.GetIdxByExt('.fbd');

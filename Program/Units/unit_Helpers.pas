@@ -131,14 +131,21 @@ end;
 // ============================================================================
 function GetFileSize(const FileName: string): Integer;
 var
-  hFile: Integer;
+  hFile: THandle;
+  FileSize: Int64;
 begin
   hFile := SysUtils.FileOpen(FileName, fmOpenRead or fmShareDenyWrite);
-  if hFile = -1 then
+  if hFile = INVALID_HANDLE_VALUE then
     RaiseLastOSError;
-
-  Result := Windows.GetFileSize(hFile, nil);
-  SysUtils.FileClose(hFile);
+  try
+    if not Windows.GetFileSizeEx(hFile, FileSize) then
+      RaiseLastOSError;
+    if FileSize > MaxInt then
+      raise ERangeError.CreateFmt('File is too large: %s', [FileName]);
+    Result := Integer(FileSize);
+  finally
+    SysUtils.FileClose(hFile);
+  end;
 end;
 
 function ExpandFileNameEx(const basePath: string; const path: string): string;
@@ -442,19 +449,13 @@ function SimpleShellExecute(
   const Directory: string = ''
   ): Cardinal;
 var
-  AFileName: string;
   AParameters: string;
   ADirectory: string;
 begin
-  AFileName := SimpleQuoteString(FileName);
-
   if pos('"', Parameters) = 0 then
       AParameters := SimpleQuoteString(Parameters)
     else
       AParameters := Parameters;
-
-    //  AFileName := FileName;
-//  AParameters := Parameters;
 
   ADirectory := Directory;
   if ADirectory = '' then
@@ -463,9 +464,9 @@ begin
   Result := ShellAPI.ShellExecute(
     hWnd,
     PChar(Operation),
-    PChar(AFileName),
+    PChar(FileName),
     PChar(AParameters),
-    PChar(Directory),
+    PChar(ADirectory),
     ShowCmd
   );
 end;
@@ -474,6 +475,8 @@ function MoveToRecycle(sFileName: string): Boolean;
 var
   fos: TSHFileOpStruct;
 begin
+  // SHFileOperation expects a double-null-terminated list, even for one file.
+  sFileName := sFileName + #0;
   FillChar(fos, SizeOf(fos), 0);
   with fos do
   begin

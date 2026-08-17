@@ -65,7 +65,7 @@ function Clear(const S: string): string; inline;
 begin
   Result := S;
   StrReplace(CRLF, ' ', Result);
-  Trim(Result);
+  Result := Trim(Result);
 end;
 
 // проверяем запрос, если нативный - преобразовываем в SQL

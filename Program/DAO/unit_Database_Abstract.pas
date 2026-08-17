@@ -284,7 +284,7 @@ var
   BookRecord: TBookRecord;
 begin
   if (BookKey.DatabaseID <> CollectionID) then
-    FSystemData.GetCollection(CollectionID).AddBookToGroup(BookKey, GroupID)
+    FSystemData.GetCollection(BookKey.DatabaseID).GetBookRecord(BookKey, BookRecord, True)
   else
     GetBookRecord(BookKey, BookRecord, True);
 
