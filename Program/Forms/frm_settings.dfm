@@ -3,7 +3,7 @@ object frmSettings: TfrmSettings
   Top = 0
   HelpContext = 144
   BorderStyle = bsDialog
-  Caption = #1053#1072#1089#1090#1088#1086#1081#1082#1072
+  Caption = #1053#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103
   ClientHeight = 444
   ClientWidth = 617
   Color = clBtnFace
@@ -21,7 +21,7 @@ object frmSettings: TfrmSettings
     Top = 3
     Width = 455
     Height = 397
-    ActivePage = tsFileSort
+    ActivePage = tsDevices
     Align = alClient
     TabOrder = 1
     object tsDevices: TTabSheet
@@ -45,14 +45,14 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1059#1089#1090#1088#1086#1081#1089#1090#1074#1086
+          Caption = #1055#1088#1080#1089#1090#1088#1110#1081
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 68
+          ExplicitWidth = 50
         end
         object pnDeviceDir: TPanel
           Left = 0
@@ -75,14 +75,14 @@ object frmSettings: TfrmSettings
             Height = 13
             Margins.Left = 9
             Align = alTop
-            Caption = #1055#1072#1087#1082#1072' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1077
+            Caption = #1055#1072#1087#1082#1072' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1086#1111' '
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
             Font.Name = 'Tahoma'
             Font.Style = [fsBold]
             ParentFont = False
-            ExplicitWidth = 123
+            ExplicitWidth = 109
           end
           object btnDeviceDir: TButton
             Left = 351
@@ -90,7 +90,7 @@ object frmSettings: TfrmSettings
             Width = 75
             Height = 25
             Anchors = [akTop, akRight]
-            Caption = #1042#1099#1073#1088#1072#1090#1100
+            Caption = #1042#1080#1073#1088#1072#1090#1080
             TabOrder = 2
             OnClick = SelectFolder
           end
@@ -102,7 +102,7 @@ object frmSettings: TfrmSettings
             Height = 20
             Margins.Left = 15
             Align = alTop
-            Caption = #1057#1087#1088#1072#1096#1080#1074#1072#1090#1100' '#1087#1091#1090#1100' '#1082#1072#1078#1076#1099#1081' '#1088#1072#1079
+            Caption = #1047#1072#1087#1080#1090#1091#1074#1072#1090#1080' '#1096#1083#1103#1093' '#1097#1086#1088#1072#1079#1091
             TabOrder = 0
             WordWrap = True
             OnClick = cbPromptPathClick
@@ -135,14 +135,14 @@ object frmSettings: TfrmSettings
             Margins.Left = 9
             Margins.Top = 9
             Align = alTop
-            Caption = #1060#1086#1088#1084#1072#1090' '#1079#1072#1087#1080#1089#1080' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
+            Caption = #1060#1086#1088#1084#1072#1090' '#1079#1072#1087#1080#1089#1091' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1110#1081
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
             Font.Name = 'Tahoma'
             Font.Style = [fsBold]
             ParentFont = False
-            ExplicitWidth = 173
+            ExplicitWidth = 156
           end
           object rgDeviceFormat: TComboBox
             AlignWithMargins = True
@@ -187,14 +187,14 @@ object frmSettings: TfrmSettings
             Margins.Left = 9
             Margins.Top = 9
             Align = alTop
-            Caption = #1060#1086#1088#1084#1072#1090' '#1080#1084#1077#1085#1080
+            Caption = #1060#1086#1088#1084#1072#1090' '#1110#1084#1077#1085#1110
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
             Font.Name = 'Tahoma'
             Font.Style = [fsBold]
             ParentFont = False
-            ExplicitWidth = 82
+            ExplicitWidth = 76
           end
           object Label19: TLabel
             Left = 15
@@ -218,7 +218,7 @@ object frmSettings: TfrmSettings
             Width = 75
             Height = 25
             Anchors = [akTop, akRight]
-            Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+            Caption = #1047#1084#1110#1085#1080#1090#1080
             TabOrder = 1
             OnClick = EditFolderTemplate
           end
@@ -228,7 +228,7 @@ object frmSettings: TfrmSettings
             Width = 75
             Height = 25
             Anchors = [akTop, akRight]
-            Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+            Caption = #1047#1084#1110#1085#1080#1090#1080
             TabOrder = 3
             OnClick = EditFileNameTemplate
           end
@@ -274,14 +274,14 @@ object frmSettings: TfrmSettings
             Margins.Left = 9
             Margins.Top = 9
             Align = alTop
-            Caption = #1055#1088#1086#1095#1080#1077
+            Caption = #1030#1085#1096#1110
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
             Font.Name = 'Tahoma'
             Font.Style = [fsBold]
             ParentFont = False
-            ExplicitWidth = 42
+            ExplicitWidth = 24
           end
           object Label1: TLabel
             Left = 15
@@ -289,7 +289,7 @@ object frmSettings: TfrmSettings
             Width = 81
             Height = 13
             Alignment = taRightJustify
-            Caption = #1050#1086#1076#1080#1088#1086#1074#1082#1072' TXT:'
+            Caption = #1050#1086#1076#1091#1074#1072#1085#1085#1103' TXT:'
           end
           object cbSquareFilter: TCheckBox
             AlignWithMargins = True
@@ -299,7 +299,7 @@ object frmSettings: TfrmSettings
             Height = 27
             Margins.Left = 15
             Align = alTop
-            Caption = #1042#1082#1083#1102#1095#1080#1090#1100' '#1092#1080#1083#1100#1090#1088' "[...]"'
+            Caption = #1042#1082#1083#1102#1095#1080#1090#1080' '#1092#1110#1083#1100#1090#1088' "[...]"'
             TabOrder = 0
             WordWrap = True
           end
@@ -341,14 +341,14 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1055#1072#1087#1082#1072' "'#1076#1083#1103' '#1095#1090#1077#1085#1080#1103'"'
+          Caption = #1055#1072#1087#1082#1072' "'#1076#1083#1103' '#1095#1080#1090#1072#1085#1085#1103'"'
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 118
+          ExplicitWidth = 125
         end
         object edReadDir: TMHLAutoCompleteEdit
           Left = 9
@@ -357,7 +357,7 @@ object frmSettings: TfrmSettings
           Height = 21
           Anchors = [akLeft, akTop, akRight]
           TabOrder = 0
-          TextHint = #1048#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1087#1072#1087#1082#1091' '#1087#1086' '#1091#1084#1086#1083#1095#1072#1085#1080#1102
+          TextHint = #1042#1080#1082#1086#1088#1080#1089#1090#1086#1074#1091#1074#1072#1090#1080' '#1089#1090#1072#1085#1076#1072#1088#1090#1085#1091' '#1087#1072#1087#1082#1091
         end
         object btnSelectReadDir: TButton
           Left = 351
@@ -365,7 +365,7 @@ object frmSettings: TfrmSettings
           Width = 75
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1042#1099#1073#1088#1072#1090#1100
+          Caption = #1042#1080#1073#1088#1072#1090#1080
           TabOrder = 1
           OnClick = SelectFolder
         end
@@ -383,14 +383,14 @@ object frmSettings: TfrmSettings
         Width = 441
         Height = 13
         Align = alTop
-        Caption = #1058#1080#1087#1099' '#1092#1072#1081#1083#1086#1074' '#1080' '#1089#1088#1077#1076#1089#1090#1074#1072' '#1087#1088#1086#1089#1084#1086#1090#1088#1072
+        Caption = #1058#1080#1087#1080' '#1092#1072#1081#1083#1110#1074' '#1090#1072' '#1087#1077#1088#1077#1075#1083#1103#1076#1072#1095#1110
         Font.Charset = DEFAULT_CHARSET
         Font.Color = clWindowText
         Font.Height = -11
         Font.Name = 'Tahoma'
         Font.Style = [fsBold]
         ParentFont = False
-        ExplicitWidth = 210
+        ExplicitWidth = 162
       end
       object Panel1: TPanel
         Left = 0
@@ -406,7 +406,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1044#1086#1073#1072#1074#1080#1090#1100
+          Caption = #1044#1086#1076#1072#1090#1080
           TabOrder = 0
           OnClick = btnAddExtClick
         end
@@ -415,7 +415,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 1
           OnClick = btnChangeExtClick
         end
@@ -424,7 +424,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1059#1076#1072#1083#1080#1090#1100
+          Caption = #1042#1080#1076#1072#1083#1080#1090#1080
           TabOrder = 2
           OnClick = btnDeleteExtClick
         end
@@ -438,12 +438,12 @@ object frmSettings: TfrmSettings
         Align = alClient
         Columns = <
           item
-            Caption = #1056#1072#1089#1096#1080#1088#1077#1085#1080#1077
+            Caption = #1056#1086#1079#1096#1080#1088#1077#1085#1085#1103
             Width = 80
           end
           item
             AutoSize = True
-            Caption = #1055#1091#1090#1100
+            Caption = #1064#1083#1103#1093
           end>
         ColumnClick = False
         GridLines = True
@@ -490,25 +490,25 @@ object frmSettings: TfrmSettings
         object Label7: TLabel
           Left = 9
           Top = 25
-          Width = 134
+          Width = 130
           Height = 13
-          Caption = #1056#1072#1079#1084#1077#1088' '#1096#1088#1080#1092#1090#1072' '#1074' '#1089#1087#1080#1089#1082#1072#1093':'
+          Caption = #1056#1086#1079#1084#1110#1088' '#1096#1088#1080#1092#1090#1091' '#1091' '#1089#1087#1080#1089#1082#1072#1093':'
           FocusControl = edFontSize
         end
         object Label9: TLabel
           Left = 9
           Top = 52
-          Width = 144
+          Width = 128
           Height = 13
-          Caption = #1056#1072#1079#1084#1077#1088' '#1096#1088#1080#1092#1090#1072' '#1080#1085#1089#1090#1088#1091#1082#1094#1080#1080':'
+          Caption = #1056#1086#1079#1084#1110#1088' '#1096#1088#1080#1092#1090#1091' '#1110#1085#1089#1090#1088#1091#1082#1094#1110#1111':'
           FocusControl = edShortFontSize
         end
         object Label25: TLabel
           Left = 223
           Top = 25
-          Width = 188
+          Width = 165
           Height = 13
-          Caption = '* '#1058#1088#1077#1073#1091#1077#1090#1089#1103' '#1087#1077#1088#1077#1079#1072#1087#1091#1089#1082' '#1087#1088#1080#1083#1086#1078#1077#1085#1080#1103
+          Caption = '* '#1055#1086#1090#1088#1110#1073#1077#1085' '#1087#1077#1088#1077#1079#1072#1087#1091#1089#1082' '#1087#1088#1086#1075#1088#1072#1084#1080
           FocusControl = edFontSize
         end
         object Button1: TButton
@@ -516,7 +516,7 @@ object frmSettings: TfrmSettings
           Top = 76
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 5
           OnClick = SetDefaultFontColor
         end
@@ -527,7 +527,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1059#1076#1072#1083#1105#1085#1085#1099#1077' '#1074' '#1086#1085#1083#1072#1081#1085' '#1073#1080#1073#1083#1080#1086#1090#1077#1082#1077
+          Caption = #1042#1080#1076#1072#1083#1077#1085#1110' '#1074' '#1086#1085#1083#1072#1081#1085' '#1073#1110#1073#1083#1110#1086#1090#1077#1094#1110
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -544,7 +544,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1047#1072#1075#1088#1091#1078#1077#1085#1085#1099#1077' '#1082#1085#1080#1075#1080
+          Caption = #1047#1072#1074#1072#1085#1090#1072#1078#1077#1085#1110' '#1082#1085#1080#1075#1080
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -605,7 +605,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1062#1074#1077#1090' '#1096#1088#1080#1092#1090#1072' '#1089#1087#1080#1089#1082#1086#1074
+          Caption = #1050#1086#1083#1110#1088' '#1096#1088#1080#1092#1090#1091' '#1089#1087#1080#1089#1082#1110#1074
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -620,7 +620,7 @@ object frmSettings: TfrmSettings
           Top = 107
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 7
           OnClick = SetCustomFontColor
         end
@@ -629,7 +629,7 @@ object frmSettings: TfrmSettings
           Top = 138
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 9
           OnClick = SetCustomFontColor
         end
@@ -640,7 +640,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1054#1073#1097#1080#1081' '#1092#1086#1085
+          Caption = #1047#1072#1075#1072#1083#1100#1085#1080#1081' '#1092#1086#1085
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -656,7 +656,7 @@ object frmSettings: TfrmSettings
           Top = 169
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 11
           OnClick = SetBackgroundColor
         end
@@ -679,21 +679,21 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1044#1080#1092#1092#1077#1088#1077#1085#1094#1080#1072#1083#1100#1085#1099#1081' '#1092#1086#1085' '#1074' '#1089#1087#1080#1089#1082#1072#1093' '#1082#1085#1080#1075
+          Caption = #1044#1080#1092#1077#1088#1077#1085#1094#1110#1072#1083#1100#1085#1080#1081' '#1092#1086#1085' '#1091' '#1089#1087#1080#1089#1082#1072#1093' '#1082#1085#1080#1075
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 234
+          ExplicitWidth = 218
         end
         object btnCA: TButton
           Left = 223
           Top = 21
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 1
           OnClick = SetBackgroundColor
         end
@@ -702,7 +702,7 @@ object frmSettings: TfrmSettings
           Top = 52
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 3
           OnClick = SetBackgroundColor
         end
@@ -713,7 +713,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1050#1085#1080#1075#1072' '#1074#1085#1091#1090#1088#1080' '#1089#1077#1088#1080#1080
+          Caption = #1050#1085#1080#1075#1072' '#1074#1089#1077#1088#1077#1076#1080#1085#1110' '#1089#1077#1088#1110#1111
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -743,7 +743,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1057#1077#1088#1080#1103
+          Caption = #1057#1077#1088#1110#1103
           Color = clWhite
           ParentBackground = False
           TabOrder = 2
@@ -755,7 +755,7 @@ object frmSettings: TfrmSettings
           Height = 25
           BevelKind = bkFlat
           BevelOuter = bvNone
-          Caption = #1050#1085#1080#1075#1072' '#1073#1077#1079' '#1089#1077#1088#1080#1080
+          Caption = #1050#1085#1080#1075#1072' '#1073#1077#1079' '#1089#1077#1088#1110#1111
           Color = clWhite
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
@@ -771,7 +771,7 @@ object frmSettings: TfrmSettings
           Top = 83
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 5
           OnClick = SetBackgroundColor
         end
@@ -780,7 +780,7 @@ object frmSettings: TfrmSettings
           Top = 114
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 7
           OnClick = SetBackgroundColor
         end
@@ -812,21 +812,21 @@ object frmSettings: TfrmSettings
           Height = 13
           Margins.Top = 9
           Align = alTop
-          Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1099' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103
+          Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1080' '#1086#1085#1086#1074#1083#1077#1085#1085#1103
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 140
+          ExplicitWidth = 130
         end
         object Label26: TLabel
           Left = 12
           Top = 31
-          Width = 118
+          Width = 112
           Height = 13
-          Caption = #1055#1072#1087#1082#1072' '#1089' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103#1084#1080':'
+          Caption = #1055#1072#1087#1082#1072' '#1079' '#1086#1085#1086#1074#1083#1077#1085#1085#1103#1084#1080':'
           FocusControl = edUpdateDir
         end
         object Label28: TLabel
@@ -840,9 +840,9 @@ object frmSettings: TfrmSettings
         object Label29: TLabel
           Left = 12
           Top = 86
-          Width = 104
+          Width = 92
           Height = 13
-          Caption = #1057#1077#1088#1074#1077#1088' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081':'
+          Caption = #1057#1077#1088#1074#1077#1088' '#1086#1085#1086#1074#1083#1077#1085#1100':'
           FocusControl = edUpdates
         end
         object edUpdateDir: TMHLAutoCompleteEdit
@@ -853,7 +853,7 @@ object frmSettings: TfrmSettings
           HelpContext = 5001
           Anchors = [akLeft, akTop, akRight]
           TabOrder = 0
-          TextHint = #1048#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1087#1072#1087#1082#1091' '#1087#1086' '#1091#1084#1086#1083#1095#1072#1085#1080#1102
+          TextHint = #1042#1080#1082#1086#1088#1080#1089#1090#1086#1074#1091#1074#1072#1090#1080' '#1089#1090#1072#1085#1076#1072#1088#1090#1085#1091' '#1087#1072#1087#1082#1091
         end
         object btnUpdateDir: TButton
           Left = 360
@@ -861,7 +861,7 @@ object frmSettings: TfrmSettings
           Width = 75
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1042#1099#1073#1088#1072#1090#1100
+          Caption = #1042#1080#1073#1088#1072#1090#1080
           TabOrder = 1
           OnClick = SelectFolder
         end
@@ -892,7 +892,7 @@ object frmSettings: TfrmSettings
           Width = 424
           Height = 17
           Anchors = [akLeft, akTop, akRight]
-          Caption = #1047#1072#1087#1091#1089#1082#1072#1090#1100' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103' '#1073#1080#1073#1083#1080#1086#1090#1077#1082' '#1072#1074#1090#1086#1084#1072#1090#1080#1095#1077#1089#1082#1080
+          Caption = #1047#1072#1087#1091#1089#1082#1072#1090#1080' '#1086#1085#1086#1074#1083#1077#1085#1085#1103' '#1073#1110#1073#1083#1110#1086#1090#1077#1082' '#1072#1074#1090#1086#1084#1072#1090#1080#1095#1085#1086
           TabOrder = 5
         end
         object cbCheckColUpdate: TCheckBox
@@ -902,7 +902,7 @@ object frmSettings: TfrmSettings
           Width = 424
           Height = 17
           Anchors = [akLeft, akTop, akRight]
-          Caption = #1055#1088#1086#1074#1077#1088#1103#1090#1100' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103' '#1073#1080#1073#1083#1080#1086#1090#1077#1082
+          Caption = #1055#1077#1088#1077#1074#1110#1088#1103#1090#1080' '#1086#1085#1086#1074#1083#1077#1085#1085#1103' '#1073#1110#1073#1083#1110#1086#1090#1077#1082
           TabOrder = 4
         end
         object cbUpdates: TCheckBox
@@ -912,7 +912,7 @@ object frmSettings: TfrmSettings
           Width = 424
           Height = 17
           Anchors = [akLeft, akTop, akRight]
-          Caption = #1055#1088#1086#1074#1077#1088#1080#1090#1100' '#1085#1072#1083#1080#1095#1080#1077' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103' '#1087#1088#1080#1083#1086#1078#1077#1085#1080#1103
+          Caption = #1055#1077#1088#1077#1074#1110#1088#1103#1090#1080' '#1085#1072#1103#1074#1085#1110#1089#1090#1100' '#1086#1085#1086#1074#1083#1077#1085#1100' '#1087#1088#1086#1075#1088#1072#1084#1080
           TabOrder = 6
         end
       end
@@ -933,46 +933,46 @@ object frmSettings: TfrmSettings
           Height = 13
           Margins.Top = 9
           Align = alTop
-          Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1099' '#1089#1086#1077#1076#1080#1085#1077#1085#1080#1103
+          Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1080' '#1079#39#1108#1076#1085#1072#1085#1085#1103
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 140
+          ExplicitWidth = 126
         end
         object RzLabel7: TLabel
-          Left = 8
+          Left = 19
           Top = 31
-          Width = 135
+          Width = 124
           Height = 13
           Alignment = taRightJustify
-          Caption = #1058#1072#1081#1084'-'#1072#1091#1090' '#1089#1086#1077#1076#1080#1085#1077#1085#1080#1103' ('#1084#1089'):'
+          Caption = #1058#1072#1081#1084'-'#1072#1091#1090' '#1079#39#1108#1076#1085#1072#1085#1085#1103' ('#1084#1089'):'
           Color = clMenuBar
           FocusControl = edTimeOut
           ParentColor = False
           Transparent = True
         end
         object RzLabel8: TLabel
-          Left = 32
+          Left = 26
           Top = 58
-          Width = 111
+          Width = 117
           Height = 13
           Alignment = taRightJustify
-          Caption = #1058#1072#1081#1084'-'#1072#1091#1090' '#1095#1090#1077#1085#1080#1103' ('#1084#1089'):'
+          Caption = #1058#1072#1081#1084'-'#1072#1091#1090' '#1095#1080#1090#1072#1085#1085#1103' ('#1084#1089'):'
           Color = clMenuBar
           FocusControl = edReadTimeOut
           ParentColor = False
           Transparent = True
         end
         object RzLabel9: TLabel
-          Left = 248
-          Top = 28
-          Width = 75
+          Left = 251
+          Top = 31
+          Width = 72
           Height = 13
           Alignment = taRightJustify
-          Caption = #1048#1085#1090#1077#1088#1074#1072#1083' ('#1084#1089'):'
+          Caption = #1030#1085#1090#1077#1088#1074#1072#1083' ('#1084#1089'):'
           Color = clMenuBar
           FocusControl = edDwnldInterval
           ParentColor = False
@@ -997,7 +997,7 @@ object frmSettings: TfrmSettings
           Alignment = taRightJustify
           NumbersOnly = True
           TabOrder = 4
-          Text = '1'#160'000'
+          Text = '1000'
           OnExit = CheckNumValue
         end
         object edTimeOut: TEdit
@@ -1008,7 +1008,7 @@ object frmSettings: TfrmSettings
           Alignment = taRightJustify
           NumbersOnly = True
           TabOrder = 0
-          Text = '1'#160'000'
+          Text = '1000'
           OnChange = edTimeOutChange
           OnExit = CheckNumValue
         end
@@ -1061,8 +1061,9 @@ object frmSettings: TfrmSettings
       end
     end
     object tsProxy: TTabSheet
-      Caption = #1053#1072#1089#1090#1088#1086#1081#1082#1080' '#1087#1088#1086#1082#1089#1080
+      Caption = #1053#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103' '#1087#1088#1086#1082#1089#1110
       ImageIndex = 7
+      HelpContext = 145
       TabVisible = False
       DesignSize = (
         447
@@ -1092,23 +1093,24 @@ object frmSettings: TfrmSettings
         ExplicitLeft = 330
       end
       object lblProxyPassword: TLabel
-        Left = 273
+        Left = 272
         Top = 60
         Width = 41
-        Height = 21
+        Height = 13
         Anchors = [akTop, akRight]
         Caption = #1055#1072#1088#1086#1083#1100':'
         Color = clMenuBar
         FocusControl = edProxyPassword
         ParentColor = False
         Transparent = True
+        ExplicitLeft = 280
       end
       object lblProxyUser: TLabel
         Left = 15
         Top = 60
-        Width = 41
-        Height = 21
-        Caption = #1051#1086#1075#1080#1085':'
+        Width = 64
+        Height = 13
+        Caption = #1050#1086#1088#1080#1089#1090#1091#1074#1072#1095':'
         Color = clMenuBar
         FocusControl = edProxyUsername
         ParentColor = False
@@ -1120,7 +1122,7 @@ object frmSettings: TfrmSettings
         Top = 122
         Width = 267
         Height = 13
-        Caption = #1053#1072#1089#1090#1088#1086#1081#1082#1080' '#1087#1088#1086#1082#1089#1080' '#1076#1083#1103' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1103' '#1082#1086#1083#1083#1077#1082#1094#1080#1081
+        Caption = #1053#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103' '#1087#1088#1086#1082#1089#1110' '#1076#1083#1103' '#1086#1085#1086#1074#1083#1077#1085#1085#1103' '#1082#1086#1083#1077#1082#1094#1110#1081
         Font.Charset = DEFAULT_CHARSET
         Font.Color = clWindowText
         Font.Height = -11
@@ -1129,10 +1131,10 @@ object frmSettings: TfrmSettings
         ParentFont = False
       end
       object lblProxyServerUpdate: TLabel
-        Left = 15
+        Left = 7
         Top = 190
         Width = 41
-        Height = 22
+        Height = 13
         Caption = #1057#1077#1088#1074#1077#1088':'
         Color = clMenuBar
         FocusControl = edProxyServerUpdate
@@ -1166,11 +1168,11 @@ object frmSettings: TfrmSettings
         ExplicitLeft = 269
       end
       object lblProxyUserUpdate: TLabel
-        Left = 14
-        Top = 218
-        Width = 34
-        Height = 15
-        Caption = #1051#1086#1075#1080#1085':'
+        Left = 7
+        Top = 220
+        Width = 64
+        Height = 13
+        Caption = #1050#1086#1088#1080#1089#1090#1091#1074#1072#1095':'
         Color = clMenuBar
         FocusControl = edProxyUsernameUpdate
         ParentColor = False
@@ -1180,9 +1182,9 @@ object frmSettings: TfrmSettings
         AlignWithMargins = True
         Left = 15
         Top = 87
-        Width = 56
+        Width = 52
         Height = 13
-        Caption = #1058#1080#1087' '#1087#1088#1086#1082#1089#1080
+        Caption = #1058#1080#1087' '#1087#1088#1086#1082#1089#1110
       end
       object cbUseIESettings: TCheckBox
         AlignWithMargins = True
@@ -1192,7 +1194,7 @@ object frmSettings: TfrmSettings
         Height = 17
         Margins.Left = 9
         Align = alTop
-        Caption = #1048#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1085#1072#1089#1090#1088#1086#1081#1082#1080' Internet Explorer'
+        Caption = #1042#1080#1082#1086#1088#1080#1089#1090#1086#1074#1091#1074#1072#1090#1080' '#1085#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103' Internet Explorer'
         TabOrder = 0
         OnClick = cbUseIESettingsClick
       end
@@ -1226,9 +1228,9 @@ object frmSettings: TfrmSettings
         TabOrder = 3
       end
       object edProxyUsername: TEdit
-        Left = 62
+        Left = 97
         Top = 57
-        Width = 199
+        Width = 164
         Height = 21
         Anchors = [akLeft, akTop, akRight]
         TabOrder = 4
@@ -1240,7 +1242,7 @@ object frmSettings: TfrmSettings
         Width = 435
         Height = 17
         Margins.Left = 9
-        Caption = #1053#1077' '#1080#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1087#1088#1086#1082#1089#1080' '#1076#1083#1103' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081
+        Caption = #1053#1077' '#1074#1080#1082#1086#1088#1080#1089#1090#1086#1074#1091#1074#1072#1090#1080' '#1087#1088#1086#1082#1089#1110' '#1076#1083#1103' '#1086#1085#1086#1074#1083#1077#1085#1100
         Checked = True
         TabOrder = 5
         TabStop = True
@@ -1253,14 +1255,14 @@ object frmSettings: TfrmSettings
         Width = 435
         Height = 17
         Margins.Left = 9
-        Caption = #1048#1089#1087#1086#1083#1100#1079#1086#1074#1072#1090#1100' '#1087#1088#1086#1082#1089#1080' '#1076#1083#1103' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081
+        Caption = #1042#1080#1082#1086#1088#1080#1089#1090#1086#1074#1091#1074#1072#1090#1080' '#1087#1088#1086#1082#1089#1110' '#1076#1083#1103' '#1086#1085#1086#1074#1083#1077#1085#1100
         TabOrder = 6
         OnClick = rbUseProxyForUpdateClick
       end
       object edProxyServerUpdate: TEdit
-        Left = 62
+        Left = 54
         Top = 188
-        Width = 240
+        Width = 248
         Height = 21
         Anchors = [akLeft, akTop, akRight]
         TabOrder = 7
@@ -1287,9 +1289,9 @@ object frmSettings: TfrmSettings
         TabOrder = 9
       end
       object edProxyUsernameUpdate: TEdit
-        Left = 62
+        Left = 86
         Top = 215
-        Width = 188
+        Width = 164
         Height = 21
         Anchors = [akLeft, akTop, akRight]
         TabOrder = 10
@@ -1324,14 +1326,14 @@ object frmSettings: TfrmSettings
         Width = 441
         Height = 13
         Align = alTop
-        Caption = #1057#1082#1088#1080#1087#1090#1099
+        Caption = #1057#1082#1088#1080#1087#1090#1080
         Font.Charset = DEFAULT_CHARSET
         Font.Color = clWindowText
         Font.Height = -11
         Font.Name = 'Tahoma'
         Font.Style = [fsBold]
         ParentFont = False
-        ExplicitWidth = 51
+        ExplicitWidth = 47
       end
       object Panel2: TPanel
         Left = 0
@@ -1348,9 +1350,9 @@ object frmSettings: TfrmSettings
         object Label13: TLabel
           Left = 3
           Top = 44
-          Width = 77
+          Width = 96
           Height = 13
-          Caption = #1055#1086' '#1091#1084#1086#1083#1095#1072#1085#1080#1102':'
+          Caption = #1047#1072' '#1079#1072#1084#1086#1074#1095#1091#1074#1072#1085#1085#1103#1084':'
           FocusControl = cbDefaultAction
         end
         object btnAddScript: TButton
@@ -1358,7 +1360,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1044#1086#1073#1072#1074#1080#1090#1100
+          Caption = #1044#1086#1076#1072#1090#1080
           TabOrder = 0
           OnClick = btnAddScriptClick
         end
@@ -1367,7 +1369,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 1
           OnClick = btnEditScriptClick
         end
@@ -1376,7 +1378,7 @@ object frmSettings: TfrmSettings
           Top = 3
           Width = 75
           Height = 25
-          Caption = #1059#1076#1072#1083#1080#1090#1100
+          Caption = #1042#1080#1076#1072#1083#1080#1090#1080
           TabOrder = 2
           OnClick = btnDeleteScriptClick
         end
@@ -1399,15 +1401,15 @@ object frmSettings: TfrmSettings
         Align = alClient
         Columns = <
           item
-            Caption = #1053#1072#1079#1074#1072#1085#1080#1077
+            Caption = #1053#1072#1079#1074#1072
             Width = 80
           end
           item
             AutoSize = True
-            Caption = #1055#1091#1090#1100
+            Caption = #1064#1083#1103#1093
           end
           item
-            Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1099
+            Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1080
             Width = 135
           end>
         ColumnClick = False
@@ -1423,6 +1425,7 @@ object frmSettings: TfrmSettings
     object tsBehavour: TTabSheet
       Caption = 'tsBehavior'
       ImageIndex = 5
+      HelpContext = 147
       TabVisible = False
       object Panel3: TPanel
         AlignWithMargins = True
@@ -1445,7 +1448,7 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1055#1086#1074#1077#1076#1077#1085#1080#1077
+          Caption = #1055#1086#1074#1077#1076#1110#1085#1082#1072
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
@@ -1453,7 +1456,7 @@ object frmSettings: TfrmSettings
           Font.Style = [fsBold]
           ParentFont = False
           Transparent = True
-          ExplicitWidth = 65
+          ExplicitWidth = 62
         end
         object Label10: TLabel
           Left = 15
@@ -1472,7 +1475,7 @@ object frmSettings: TfrmSettings
           Height = 17
           Margins.Left = 9
           Align = alTop
-          Caption = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1082#1085#1080#1075#1080' '#1080#1079' '#1074#1083#1086#1078#1077#1085#1085#1099#1093' '#1078#1072#1085#1088#1086#1074' ('#1085#1077' fb2)'
+          Caption = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1082#1085#1080#1075#1080' '#1110#1079' '#1074#1082#1083#1072#1076#1077#1085#1080#1093' '#1078#1072#1085#1088#1110#1074' ('#1085#1077'-fb2)'
           Color = clBtnFace
           ParentColor = False
           TabOrder = 0
@@ -1485,7 +1488,7 @@ object frmSettings: TfrmSettings
           Height = 17
           Margins.Left = 9
           Align = alTop
-          Caption = #1057#1074#1086#1088#1072#1095#1080#1074#1072#1090#1100' '#1074' '#1090#1088#1077#1081
+          Caption = #1047#1075#1086#1088#1090#1072#1090#1080' '#1091' '#1090#1088#1077#1081
           Color = clBtnFace
           ParentColor = False
           TabOrder = 1
@@ -1498,7 +1501,7 @@ object frmSettings: TfrmSettings
           Height = 17
           Margins.Left = 9
           Align = alTop
-          Caption = #1057#1090#1072#1088#1090#1086#1074#1072#1090#1100' '#1079#1072#1075#1088#1091#1079#1082#1091' '#1072#1074#1090#1086#1084#1072#1090#1080#1095#1077#1089#1082#1080
+          Caption = #1057#1090#1072#1088#1090#1091#1074#1072#1090#1080' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1085#1103' '#1072#1074#1090#1086#1084#1072#1090#1080#1095#1085#1086
           TabOrder = 2
         end
         object cbAllowMixedCollections: TCheckBox
@@ -1509,7 +1512,7 @@ object frmSettings: TfrmSettings
           Height = 17
           Margins.Left = 9
           Align = alTop
-          Caption = #1056#1072#1079#1088#1077#1096#1080#1090#1100' '#1089#1084#1077#1096#1072#1085#1085#1099#1077' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
+          Caption = #1044#1086#1079#1074#1086#1083#1080#1090#1080' '#1079#1084#1110#1096#1072#1085#1110' '#1082#1086#1083#1077#1082#1094#1110#1111
           Color = clBtnFace
           ParentColor = False
           TabOrder = 3
@@ -1522,7 +1525,7 @@ object frmSettings: TfrmSettings
           Height = 17
           Margins.Left = 9
           Align = alTop
-          Caption = #1059#1076#1072#1083#1103#1090#1100' "'#1091#1076#1072#1083#1105#1085#1085#1099#1077' '#1074' '#1073#1080#1073#1083#1080#1086#1090#1077#1082#1077'"'
+          Caption = #1042#1080#1076#1072#1083#1103#1090#1080' "'#1074#1110#1076#1076#1072#1083#1077#1085#1110' '#1074' '#1073#1110#1073#1083#1110#1086#1090#1077#1094#1110'"'
           Color = clBtnFace
           ParentColor = False
           TabOrder = 4
@@ -1535,7 +1538,7 @@ object frmSettings: TfrmSettings
           Height = 16
           Margins.Left = 9
           Align = alTop
-          Caption = #1040#1074#1090#1086#1084#1072#1090#1080#1095#1077#1089#1082#1080' '#1079#1072#1075#1088#1091#1078#1072#1090#1100' '#1088#1077#1094#1077#1085#1079#1080#1080
+          Caption = #1040#1074#1090#1086#1084#1072#1090#1080#1095#1085#1086' '#1079#1072#1074#1072#1085#1090#1072#1078#1091#1074#1072#1090#1080' '#1088#1077#1094#1077#1085#1079#1110#1111
           Color = clBtnFace
           ParentColor = False
           TabOrder = 5
@@ -1548,7 +1551,7 @@ object frmSettings: TfrmSettings
           Height = 16
           Margins.Left = 9
           Align = alTop
-          Caption = #1059#1076#1072#1083#1103#1090#1100' '#1092#1072#1081#1083#1099' '#1087#1088#1080' '#1091#1076#1072#1083#1077#1085#1080#1080' '#1082#1085#1080#1075
+          Caption = #1042#1080#1076#1072#1083#1103#1090#1080' '#1092#1072#1081#1083#1080' '#1087#1110#1076' '#1095#1072#1089' '#1074#1080#1076#1072#1083#1077#1085#1085#1103' '#1082#1085#1080#1075
           Color = clBtnFace
           ParentColor = False
           TabOrder = 6
@@ -1562,7 +1565,7 @@ object frmSettings: TfrmSettings
           Margins.Left = 9
           Margins.Top = 9
           Align = alTop
-          Caption = #1055#1077#1088#1077#1079#1072#1087#1080#1089#1099#1074#1072#1090#1100' '#1079#1072#1075#1086#1083#1086#1074#1086#1082' fb2'
+          Caption = #1055#1077#1088#1077#1079#1072#1087#1080#1089#1091#1074#1072#1090#1080' '#1079#1072#1075#1086#1083#1086#1074#1086#1082' fb2'
           TabOrder = 7
           OnClick = cbOverwriteFB2InfoClick
         end
@@ -1582,7 +1585,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 9
           OnClick = EditTextTemplate
         end
@@ -1595,7 +1598,7 @@ object frmSettings: TfrmSettings
           Margins.Left = 9
           Margins.Top = 9
           Align = alTop
-          Caption = #1054#1073#1088#1072#1073#1072#1090#1099#1074#1072#1090#1100' '#1074#1099#1076#1077#1083#1077#1085#1085#1099#1077' '#1082#1072#1082' '#1086#1090#1084#1077#1095#1077#1085#1085#1099#1077
+          Caption = #1054#1073#1088#1086#1073#1083#1103#1090#1080' '#1074#1080#1076#1110#1083#1077#1085#1110' '#1103#1082' '#1079#1072#1079#1085#1072#1095#1077#1085#1110' '
           TabOrder = 10
           OnClick = cbOverwriteFB2InfoClick
         end
@@ -1608,7 +1611,7 @@ object frmSettings: TfrmSettings
           Margins.Left = 9
           Margins.Top = 9
           Align = alTop
-          Caption = #1048#1075#1085#1086#1088#1080#1088#1086#1074#1072#1090#1100' '#1085#1077#1076#1086#1089#1090#1072#1102#1097#1080#1077' '#1072#1088#1093#1080#1074#1099
+          Caption = #1030#1075#1085#1086#1088#1091#1074#1072#1090#1080' '#1074#1110#1076#1089#1091#1090#1085#1110' '#1072#1088#1093#1110#1074#1080
           TabOrder = 11
           OnClick = cbIgnoreArchivesClick
         end
@@ -1617,6 +1620,7 @@ object frmSettings: TfrmSettings
     object tsFileSort: TTabSheet
       Caption = 'tsFileSort'
       ImageIndex = 6
+      HelpContext = 148
       TabVisible = False
       object Panel4: TPanel
         AlignWithMargins = True
@@ -1639,14 +1643,14 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1048#1084#1087#1086#1088#1090' '#1092#1072#1081#1083#1086#1074
+          Caption = #1030#1084#1087#1086#1088#1090' '#1092#1072#1081#1083#1110#1074
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
           Font.Name = 'Tahoma'
           Font.Style = [fsBold]
           ParentFont = False
-          ExplicitWidth = 90
+          ExplicitWidth = 83
         end
         object Label22: TLabel
           Left = 15
@@ -1663,7 +1667,7 @@ object frmSettings: TfrmSettings
           Height = 13
           Anchors = [akLeft, akTop, akRight]
           AutoSize = False
-          Caption = #1057#1086#1088#1090#1080#1088#1086#1074#1082#1072' FB2'
+          Caption = #1057#1086#1088#1090#1091#1074#1072#1085#1085#1103' FB2'
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
@@ -1697,7 +1701,7 @@ object frmSettings: TfrmSettings
           Height = 13
           Anchors = [akLeft, akTop, akRight]
           AutoSize = False
-          Caption = #1057#1086#1088#1090#1080#1088#1086#1074#1082#1072' FBD'
+          Caption = #1057#1086#1088#1090#1091#1074#1072#1085#1085#1103' FBD'
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
@@ -1730,7 +1734,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1042#1099#1073#1088#1072#1090#1100
+          Caption = #1042#1080#1073#1088#1072#1090#1080
           TabOrder = 2
           OnClick = SelectFolder
         end
@@ -1742,7 +1746,7 @@ object frmSettings: TfrmSettings
           Height = 27
           Margins.Left = 9
           Align = alTop
-          Caption = #1042#1082#1083#1102#1095#1080#1090#1100' '#1089#1086#1088#1090#1080#1088#1086#1074#1082#1091' '#1087#1088#1080' '#1080#1084#1087#1086#1088#1090#1077
+          Caption = #1042#1082#1083#1102#1095#1080#1090#1080' '#1089#1086#1088#1090#1091#1074#1072#1085#1085#1103' '#1087#1110#1076' '#1095#1072#1089' '#1110#1084#1087#1086#1088#1090#1091
           TabOrder = 0
           WordWrap = True
           OnClick = cbEnableFileSortClick
@@ -1803,7 +1807,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 4
           OnClick = EditFolderTemplate
         end
@@ -1813,7 +1817,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 6
           OnClick = EditFileNameTemplate
         end
@@ -1823,7 +1827,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 10
           OnClick = EditFileNameTemplate
         end
@@ -1833,7 +1837,7 @@ object frmSettings: TfrmSettings
           Width = 76
           Height = 25
           Anchors = [akTop, akRight]
-          Caption = #1048#1079#1084#1077#1085#1080#1090#1100
+          Caption = #1047#1084#1110#1085#1080#1090#1080
           TabOrder = 8
           OnClick = EditFolderTemplate
         end
@@ -1859,7 +1863,7 @@ object frmSettings: TfrmSettings
       Width = 75
       Height = 25
       Anchors = [akTop, akRight]
-      Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
+      Caption = '&'#1047#1073#1077#1088#1077#1075#1090#1080
       Default = True
       ModalResult = 1
       TabOrder = 0
@@ -1872,7 +1876,7 @@ object frmSettings: TfrmSettings
       Height = 25
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1054#1090#1084#1077#1085#1072
+      Caption = '&'#1042#1110#1076#1084#1110#1085#1072
       ModalResult = 2
       TabOrder = 1
     end
@@ -1881,9 +1885,18 @@ object frmSettings: TfrmSettings
       Top = 10
       Width = 75
       Height = 25
-      Caption = #1057#1087#1088#1072#1074#1082#1072
+      Caption = #1044#1086#1074#1110#1076#1082#1072
       TabOrder = 2
       OnClick = ShowHelpClick
+    end
+    object btnReset: TButton
+      Left = 93
+      Top = 10
+      Width = 75
+      Height = 25
+      Caption = #1057#1082#1080#1085#1091#1090#1080
+      TabOrder = 3
+      OnClick = btnResetClick
     end
   end
   object tvSections: TTreeView
@@ -1901,22 +1914,21 @@ object frmSettings: TfrmSettings
     TabOrder = 0
     OnChange = tvSectionsChange
     Items.NodeData = {
-      070800000009540054007200650065004E006F00640065004300000000000000
-      00000000FFFFFFFFFFFFFFFFFFFFFFFF00000000000000000001121F0430043F
-      043A04380420002F00200023044104420440043E043904410442043204300400
-      00350000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF00000000000000
-      0000010B220438043F044B0420004404300439043B043E043204000031000000
-      0000000000000000FFFFFFFFFFFFFFFFFFFFFFFF000000000000000000010918
-      043D04420435044004440435043904410400002F0000000000000000000000FF
-      FFFFFFFFFFFFFFFFFFFFFF000000000000000000010818043D04420435044004
-      3D043504420400002B0000000000000000000000FFFFFFFFFFFFFFFF00000000
-      00000000000000000001061F0440043E043A044104380400002D000000000000
-      0000000000FFFFFFFFFFFFFFFFFFFFFFFF000000000000000000010721043A04
-      400438043F0442044B0400002B0000000000000000000000FFFFFFFFFFFFFFFF
-      0000000000000000000000000001062004300437043D043E0435040000410000
-      000000000000000000FFFFFFFFFFFFFFFF000000000000000000000000000111
-      21043E0440044204380440043E0432043A04300420004404300439043B043E04
-      3204}
+      070800000009540054007200650065004E006F00640065003B00000000000000
+      00000000FFFFFFFFFFFFFFFFFFFFFFFF000000000000000000010E1F0430043F
+      043A0438042F001F04400438044104420440043E045704000035000000000000
+      0000000000FFFFFFFFFFFFFFFFFFFFFFFF000000000000000000010B22043804
+      3F04380420004404300439043B04560432040000310000000000000000000000
+      FFFFFFFFFFFFFFFFFFFFFFFF000000000000000000010906043D044204350440
+      04440435043904410400002F0000000000000000000000FFFFFFFFFFFFFFFFFF
+      FFFFFF000000000000000000010806043D044204350440043D04350442040000
+      2B0000000000000000000000FFFFFFFFFFFFFFFF000000000000000000000000
+      0001061F0440043E043A044104560400002D0000000000000000000000FFFFFF
+      FFFFFFFFFFFFFFFFFF000000000000000000010721043A04400438043F044204
+      38040000290000000000000000000000FFFFFFFFFFFFFFFF0000000000000000
+      000000000001052004560437043D0435040000410000000000000000000000FF
+      FFFFFFFFFFFFFF00000000000000000000000000011121043E04400442044304
+      320430043D043D044F0420004404300439043B0456043204}
   end
   object dlgColors: TColorDialog
     Left = 32

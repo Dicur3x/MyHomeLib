@@ -5,208 +5,14 @@
         <DCC_DCCCompiler>DCC32</DCC_DCCCompiler>
         <DCC_DependencyCheckOutputName>Release\Bin\MyhomeLib.exe</DCC_DependencyCheckOutputName>
         <MainSource>MyHomeLib.dpr</MainSource>
-        <ProjectVersion>20.1</ProjectVersion>
+        <ProjectVersion>20.3</ProjectVersion>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Base>True</Base>
         <AppType>Application</AppType>
         <FrameworkType>VCL</FrameworkType>
-        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+        <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <ProjectName Condition="'$(ProjectName)'==''">MyhomeLib</ProjectName>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
-        <Base_Win32>true</Base_Win32>
-        <CfgParent>Base</CfgParent>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
-        <Base_Win64>true</Base_Win64>
-        <CfgParent>Base</CfgParent>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
-        <Cfg_1>true</Cfg_1>
-        <CfgParent>Base</CfgParent>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
-        <Cfg_1_Win32>true</Cfg_1_Win32>
-        <CfgParent>Cfg_1</CfgParent>
-        <Cfg_1>true</Cfg_1>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win64)'!=''">
-        <Cfg_1_Win64>true</Cfg_1_Win64>
-        <CfgParent>Cfg_1</CfgParent>
-        <Cfg_1>true</Cfg_1>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
-        <Cfg_2>true</Cfg_2>
-        <CfgParent>Base</CfgParent>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
-        <Cfg_2_Win32>true</Cfg_2_Win32>
-        <CfgParent>Cfg_2</CfgParent>
-        <Cfg_2>true</Cfg_2>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
-        <Cfg_2_Win64>true</Cfg_2_Win64>
-        <CfgParent>Cfg_2</CfgParent>
-        <Cfg_2>true</Cfg_2>
-        <Base>true</Base>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Base)'!=''">
-        <SanitizedProjectName>MyhomeLib</SanitizedProjectName>
-        <Manifest_File>None</Manifest_File>
-        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
-        <VerInfo_PreRelease>true</VerInfo_PreRelease>
-        <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;Bde;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <VerInfo_Build>832</VerInfo_Build>
-        <VerInfo_MajorVer>2</VerInfo_MajorVer>
-        <VerInfo_MinorVer>3</VerInfo_MinorVer>
-        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Release>4</VerInfo_Release>
-        <VerInfo_Locale>1049</VerInfo_Locale>
-        <VerInfo_Private>true</VerInfo_Private>
-        <VerInfo_Special>true</VerInfo_Special>
-        <VerInfo_Keys>CompanyName=MyHomeLib;FileDescription=MyHomeLib;FileVersion=2.3.4.832;InternalName=MyHomeLib;LegalCopyright=Алексей Пеньков;LegalTrademarks=MyHomeLib;OriginalFilename=MyHomeLib.exe;ProductName=MyHomeLib;ProductVersion=2.1;Comments=;SpecialBuild=;PrivateBuild=</VerInfo_Keys>
-        <DCC_Optimize>false</DCC_Optimize>
-        <DCC_Inlining>off</DCC_Inlining>
-        <DCC_DebugDCUs>true</DCC_DebugDCUs>
-        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
-        <DCC_UnitSearchPath>$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <UsePackages>false</UsePackages>
-        <DCC_UsePackage>rtl;vcl;vclx;vclimg;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;$(DCC_UsePackage)</DCC_UsePackage>
-        <DCC_DependencyCheckOutputName>MyhomeLib.exe</DCC_DependencyCheckOutputName>
-        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
-        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Base_Win32)'!=''">
-        <VerInfo_Build>837</VerInfo_Build>
-        <DCC_ExeOutput>Out\Bin\</DCC_ExeOutput>
-        <DCC_DcuOutput>Out\Units\</DCC_DcuOutput>
-        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
-        <VerInfo_Keys>CompanyName=;FileVersion=2.3.4.837;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName);FileDescription=$(MSBuildProjectName);ProductName=$(MSBuildProjectName)</VerInfo_Keys>
-        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
-        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Base_Win64)'!=''">
-        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
-        <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <VerInfo_MajorVer>1</VerInfo_MajorVer>
-        <VerInfo_MinorVer>0</VerInfo_MinorVer>
-        <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>0</VerInfo_Build>
-        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_1)'!=''">
-        <BT_BuildType>Release</BT_BuildType>
-        <DCC_Warnings>false</DCC_Warnings>
-        <DCC_Hints>false</DCC_Hints>
-        <DCC_USE_BEFORE_DEF>false</DCC_USE_BEFORE_DEF>
-        <DCC_ImportedDataReferences>false</DCC_ImportedDataReferences>
-        <DCC_DependencyCheckOutputName>Release\Bin\MyhomeLib.exe</DCC_DependencyCheckOutputName>
-        <Version>7.0</Version>
-        <DCC_LocalDebugSymbols>False</DCC_LocalDebugSymbols>
-        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
-        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
-        <DCC_ExeOutput>Release\Bin</DCC_ExeOutput>
-        <DCC_DcuOutput>Release\Units</DCC_DcuOutput>
-        <DCC_ObjOutput>Release\Units</DCC_ObjOutput>
-        <DCC_HppOutput>Release\Units</DCC_HppOutput>
-        <DCC_AssertionsAtRuntime>False</DCC_AssertionsAtRuntime>
-        <DCC_DebugInformation>0</DCC_DebugInformation>
-        <DCC_Optimize>true</DCC_Optimize>
-        <DCC_Inlining>on</DCC_Inlining>
-        <DCC_DebugDCUs>false</DCC_DebugDCUs>
-        <DCC_GenerateStackFrames>false</DCC_GenerateStackFrames>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
-        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
-        <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <VerInfo_Build>865</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=;FileVersion=2.4.1.865;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=2.4.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName);FileDescription=$(MSBuildProjectName);ProductName=$(MSBuildProjectName)</VerInfo_Keys>
-        <BT_BuildType>Release</BT_BuildType>
-        <VerInfo_Private>false</VerInfo_Private>
-        <VerInfo_Special>false</VerInfo_Special>
-        <Icon_MainIcon>Resources\home-lib.ico</Icon_MainIcon>
-        <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
-        <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
-        <VerInfo_Release>1</VerInfo_Release>
-        <VerInfo_MinorVer>4</VerInfo_MinorVer>
-        <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_PreRelease>false</VerInfo_PreRelease>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=2.4.1.866;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=2.4.0;Comments=</VerInfo_Keys>
-        <VerInfo_Release>1</VerInfo_Release>
-        <VerInfo_Build>866</VerInfo_Build>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
-        <Icon_MainIcon>Resources\home-lib.ico</Icon_MainIcon>
-        <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
-        <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
-        <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
-        <VerInfo_MinorVer>4</VerInfo_MinorVer>
-        <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
-        <VerInfo_PreRelease>false</VerInfo_PreRelease>
-        <VerInfo_Special>false</VerInfo_Special>
-        <VerInfo_Private>false</VerInfo_Private>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_2)'!=''">
-        <DCC_RemoteDebug>true</DCC_RemoteDebug>
-        <DCC_RunTimeTypeInfo>true</DCC_RunTimeTypeInfo>
-        <DCC_DebugDCUs>true</DCC_DebugDCUs>
-        <DCC_DependencyCheckOutputName>Debug\Bin\MyhomeLib.exe</DCC_DependencyCheckOutputName>
-        <Version>7.0</Version>
-        <DCC_Define>DEBUG;USELOGGER;$(DCC_Define)</DCC_Define>
-        <DCC_MapFile>3</DCC_MapFile>
-        <DCC_Optimize>False</DCC_Optimize>
-        <DCC_DebugInfoInExe>True</DCC_DebugInfoInExe>
-        <DCC_DebugVN>True</DCC_DebugVN>
-        <DCC_DcuOutput>Debug\Units</DCC_DcuOutput>
-        <DCC_ObjOutput>Debug\Units</DCC_ObjOutput>
-        <DCC_HppOutput>Debug\Units</DCC_HppOutput>
-        <DCC_ExeOutput>Debug\Bin</DCC_ExeOutput>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
-        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
-        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
-        <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <VerInfo_Build>768</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=;FileVersion=2.1.4.768;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName);FileDescription=$(MSBuildProjectName);ProductName=$(MSBuildProjectName)</VerInfo_Keys>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <BT_BuildType>Debug</BT_BuildType>
-        <BRCC_EnableMultiByte>true</BRCC_EnableMultiByte>
-        <BRCC_Language>russian</BRCC_Language>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
-        <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
-        <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
-        <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
-        <VerInfo_MajorVer>1</VerInfo_MajorVer>
-        <VerInfo_MinorVer>0</VerInfo_MinorVer>
-        <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>0</VerInfo_Build>
-        <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -271,6 +77,7 @@
         </DCCReference>
         <DCCReference Include="ImportImpl\unit_ImportFBDThread.pas"/>
         <DCCReference Include="Units\unit_Helpers.pas"/>
+        <DCCReference Include="Units\unit_HelpTopics.pas"/>
         <DCCReference Include="ImportImpl\frm_ImportProgressFormEx.pas">
             <Form>ImportProgressFormEx</Form>
         </DCCReference>
@@ -381,9 +188,6 @@
             <DesignClass>TFrame</DesignClass>
         </DCCReference>
         <DCCReference Include="Units\unit_Templater.pas"/>
-        <DCCReference Include="Forms\Editors\frm_EditAuthorEx.pas">
-            <Form>frmEditAuthorDataEx</Form>
-        </DCCReference>
         <DCCReference Include="Units\unit_TemplaterInternal.pas"/>
         <DCCReference Include="Units\unit_SearchPresets.pas"/>
         <DCCReference Include="Units\unit_UserData.pas"/>
@@ -399,6 +203,7 @@
         <DCCReference Include="DAO\SQLite\unit_Database_SQLite.pas"/>
         <DCCReference Include="DAO\SQLite\unit_SQLiteUtils.pas"/>
         <DCCReference Include="Units\unit_ProgressEngine.pas"/>
+        <DCCReference Include="Units\unit_ProgressBarEx.pas"/>
         <DCCReference Include="Units\unit_MHLGenerics.pas"/>
         <DCCReference Include="Wizards\NewCollection\frm_NewCollectionWizard.pas">
             <Form>NewCollectionWizard</Form>
@@ -408,12 +213,22 @@
         <DCCReference Include="Forms\frm_DeleteCollection.pas">
             <Form>dlgDeleteCollection</Form>
         </DCCReference>
+        <DCCReference Include="Forms\frm_UpdateFromFile.pas">
+            <Form>dlgUpdateFromFile</Form>
+        </DCCReference>
         <DCCReference Include="Units\unit_ImportOldUserData.pas"/>
         <DCCReference Include="DAO\SQLite\unit_SystemDatabase_SQLite.pas"/>
         <DCCReference Include="Units\unit_ColorTabs.pas"/>
         <DCCReference Include="DAO\unit_Database_Abstract.pas"/>
         <DCCReference Include="DAO\unit_SystemDatabase_Abstract.pas"/>
         <DCCReference Include="Units\unit_treeController.pas"/>
+        <DCCReference Include="Units\unit_MHLHttpClient.pas"/>
+        <DCCReference Include="Units\unit_FileMutex.pas"/>
+        <DCCReference Include="DwnldImpl\unit_DownloadView.pas"/>
+        <DCCReference Include="DataModules\dm_Images.pas">
+            <Form>dmImages</Form>
+            <DesignClass>TDataModule</DesignClass>
+        </DCCReference>
         <RcItem Include="Resources\Images\16x16\star_small.png">
             <ResourceType>RCData</ResourceType>
             <ResourceId>smallStar</ResourceId>
@@ -477,8 +292,209 @@
             <CfgParent>Base</CfgParent>
         </BuildConfiguration>
     </ItemGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
+        <Cfg_1_Win32>true</Cfg_1_Win32>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win64)'!=''">
+        <Cfg_1_Win64>true</Cfg_1_Win64>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
+        <Cfg_2_Win32>true</Cfg_2_Win32>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
+        <Cfg_2_Win64>true</Cfg_2_Win64>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <SanitizedProjectName>MyhomeLib</SanitizedProjectName>
+        <Manifest_File>None</Manifest_File>
+        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
+        <VerInfo_PreRelease>true</VerInfo_PreRelease>
+        <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;Bde;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
+        <VerInfo_Build>832</VerInfo_Build>
+        <VerInfo_MajorVer>2</VerInfo_MajorVer>
+        <VerInfo_MinorVer>3</VerInfo_MinorVer>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Release>4</VerInfo_Release>
+        <VerInfo_Locale>1049</VerInfo_Locale>
+        <VerInfo_Private>true</VerInfo_Private>
+        <VerInfo_Special>true</VerInfo_Special>
+        <VerInfo_Keys>CompanyName=MyHomeLib;FileDescription=MyHomeLib;FileVersion=2.3.4.832;InternalName=MyHomeLib;LegalCopyright=Олексій Пеньков;LegalTrademarks=MyHomeLib;OriginalFilename=MyHomeLib.exe;ProductName=MyHomeLib;ProductVersion=2.1;Comments=;SpecialBuild=;PrivateBuild=</VerInfo_Keys>
+        <DCC_Optimize>false</DCC_Optimize>
+        <DCC_Inlining>off</DCC_Inlining>
+        <DCC_DebugDCUs>true</DCC_DebugDCUs>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <DCC_UsePackage>rtl;vcl;vclx;vclimg;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;RaizeComponentsVcl;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_DependencyCheckOutputName>MyhomeLib.exe</DCC_DependencyCheckOutputName>
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
+        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win32)'!=''">
+        <VerInfo_Build>837</VerInfo_Build>
+        <DCC_ExeOutput>Out\Bin\</DCC_ExeOutput>
+        <DCC_DcuOutput>Out\Units\</DCC_DcuOutput>
+        <DCC_UnitSearchPath>..\Components\MHLComponents\Out\Units;..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_ResourcePath>..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
+        <VerInfo_Keys>CompanyName=;FileVersion=2.3.4.837;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName);FileDescription=$(MSBuildProjectName);ProductName=$(MSBuildProjectName)</VerInfo_Keys>
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_UnitSearchPath>..\Components\MHLComponents\Out\Units;..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_ResourcePath>..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <VerInfo_MajorVer>1</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>0</VerInfo_Build>
+        <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_Warnings>true</DCC_Warnings>
+        <DCC_Hints>true</DCC_Hints>
+        <DCC_USE_BEFORE_DEF>true</DCC_USE_BEFORE_DEF>
+        <DCC_ImportedDataReferences>false</DCC_ImportedDataReferences>
+        <DCC_DependencyCheckOutputName>Release\Bin\MyhomeLib.exe</DCC_DependencyCheckOutputName>
+        <Version>7.0</Version>
+        <DCC_LocalDebugSymbols>False</DCC_LocalDebugSymbols>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_ExeOutput>Release\Bin</DCC_ExeOutput>
+        <DCC_DcuOutput>Release\Units</DCC_DcuOutput>
+        <DCC_ObjOutput>Release\Units</DCC_ObjOutput>
+        <DCC_HppOutput>Release\Units</DCC_HppOutput>
+        <DCC_AssertionsAtRuntime>False</DCC_AssertionsAtRuntime>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
+        <DCC_Optimize>true</DCC_Optimize>
+        <DCC_Inlining>on</DCC_Inlining>
+        <DCC_DebugDCUs>false</DCC_DebugDCUs>
+        <DCC_GenerateStackFrames>false</DCC_GenerateStackFrames>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
+        <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <VerInfo_Build>1062</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileVersion=2.7.0.1062;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=2.7.0;Comments=;ProgramID=com.embarcadero.MyhomeLib;FileDescription=MyhomeLib;ProductName=MyhomeLib</VerInfo_Keys>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_Private>false</VerInfo_Private>
+        <VerInfo_Special>false</VerInfo_Special>
+        <Icon_MainIcon>Resources\home-lib.ico</Icon_MainIcon>
+        <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_AutoIncVersion>false</VerInfo_AutoIncVersion>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
+        <VerInfo_Keys>CompanyName=;FileDescription=MyhomeLib;FileVersion=2.7.0.1062;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.MyhomeLib;ProductName=MyhomeLib;ProductVersion=2.7.0;Comments=</VerInfo_Keys>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>1062</VerInfo_Build>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
+        <Icon_MainIcon>Resources\home-lib.ico</Icon_MainIcon>
+        <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
+        <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
+        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_AutoIncVersion>false</VerInfo_AutoIncVersion>
+        <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_RemoteDebug>true</DCC_RemoteDebug>
+        <DCC_RunTimeTypeInfo>true</DCC_RunTimeTypeInfo>
+        <DCC_DebugDCUs>true</DCC_DebugDCUs>
+        <DCC_DependencyCheckOutputName>Debug\Bin\MyhomeLib.exe</DCC_DependencyCheckOutputName>
+        <Version>7.0</Version>
+        <DCC_Define>DEBUG;USELOGGER;$(DCC_Define)</DCC_Define>
+        <DCC_MapFile>3</DCC_MapFile>
+        <DCC_Optimize>False</DCC_Optimize>
+        <DCC_DebugInfoInExe>True</DCC_DebugInfoInExe>
+        <DCC_DebugVN>True</DCC_DebugVN>
+        <DCC_DcuOutput>Debug\Units</DCC_DcuOutput>
+        <DCC_ObjOutput>Debug\Units</DCC_ObjOutput>
+        <DCC_HppOutput>Debug\Units</DCC_HppOutput>
+        <DCC_ExeOutput>Debug\Bin</DCC_ExeOutput>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
+        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
+        <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
+        <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <VerInfo_Build>768</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileVersion=2.1.4.768;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName);FileDescription=$(MSBuildProjectName);ProductName=$(MSBuildProjectName)</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <BT_BuildType>Debug</BT_BuildType>
+        <BRCC_EnableMultiByte>true</BRCC_EnableMultiByte>
+        <BRCC_Language>russian</BRCC_Language>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
+        <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
+        <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
+        <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
+        <VerInfo_MajorVer>1</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>0</VerInfo_Build>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+    </PropertyGroup>
     <Import Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')" Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
     <Import Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')" Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj"/>
+    <!-- Keep this PropertyGroup AFTER the CodeGear.Delphi.Targets import above:
+         $(OUTPUTDIR) and $(PROJECTDIR) are undefined until that import runs, so
+         a PostBuildEvent placed earlier expands them to empty strings. -->
+    <PropertyGroup>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\embed_lang.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
+        <PostBuildEvent>call &quot;$(PROJECTDIR)\copy_help.cmd&quot; &quot;$(OUTPUTDIR).&quot;
+call &quot;$(PROJECTDIR)\copy_icons.cmd&quot; &quot;$(OUTPUTDIR).&quot; &quot;$(Platform)&quot;</PostBuildEvent>
+    </PropertyGroup>
     <ProjectExtensions>
         <Borland.Personality>Delphi.Personality.12</Borland.Personality>
         <Borland.ProjectType/>
@@ -505,7 +521,7 @@
                     <VersionInfoKeys Name="FileDescription">MyHomeLib</VersionInfoKeys>
                     <VersionInfoKeys Name="FileVersion">2.1.4.760</VersionInfoKeys>
                     <VersionInfoKeys Name="InternalName">MyHomeLib</VersionInfoKeys>
-                    <VersionInfoKeys Name="LegalCopyright">Алексей Пеньков</VersionInfoKeys>
+                    <VersionInfoKeys Name="LegalCopyright">Олексій Пеньков</VersionInfoKeys>
                     <VersionInfoKeys Name="LegalTrademarks">MyHomeLib</VersionInfoKeys>
                     <VersionInfoKeys Name="OriginalFilename">MyHomeLib.exe</VersionInfoKeys>
                     <VersionInfoKeys Name="ProductName">MyHomeLib</VersionInfoKeys>
@@ -518,8 +534,8 @@
                     <Source Name="MainSource">MyHomeLib.dpr</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k290.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp290.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k280.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp280.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
                 </Excluded_Packages>
             </Delphi.Personality>
             <ModelSupport>False</ModelSupport>
@@ -527,100 +543,10 @@
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">True</Platform>
             </Platforms>
-            <Deployment Version="4">
-                <DeployFile LocalName="DAO\SQLite\Resources\CreateCollectionDB_SQLite.sql" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="DAO\SQLite\Resources\CreateSystemDB_SQLite.sql" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="DAO\SQLite\Resources\RecreateCollectionTables_SQLite.sql" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Out\Bin\MyHomeLib.exe" Configuration="Release" Class="ProjectOutput">
-                    <Platform Name="Win32">
-                        <RemoteName>MyhomeLib.exe</RemoteName>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
+            <Deployment Version="5">
                 <DeployFile LocalName="Release\Bin\MyHomeLib.exe" Configuration="Release" Class="ProjectOutput"/>
-                <DeployFile LocalName="Resources\Images\16x16\local-read-review.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\local-read.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\local-review.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\local-unread.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\remote-read-review.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\remote-read.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\remote-review.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\star_small.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\16x16\star_small_empty.png" Configuration="Release" Class="ProjectFile">
-                    <Platform Name="Win32">
-                        <RemoteDir>.\</RemoteDir>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\splashScreen9.png" Configuration="Release" Class="UWP_DelphiLogo44">
-                    <Platform Name="Win32">
-                        <RemoteDir>Assets\</RemoteDir>
-                        <RemoteName>Logo44x44.png</RemoteName>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
-                <DeployFile LocalName="Resources\Images\splashScreen9.png" Configuration="Release" Class="UWP_DelphiLogo44">
-                    <Platform Name="Win64">
-                        <RemoteDir>Assets\</RemoteDir>
-                        <RemoteName>Logo44x44.png</RemoteName>
-                        <Overwrite>true</Overwrite>
-                    </Platform>
-                </DeployFile>
+                <DeployFile LocalName="Resources\Images\splashScreen9.png" Configuration="Release" Class="UWP_DelphiLogo44"/>
+                <DeployFile LocalName="Resources\Images\splashScreen9.png" Configuration="Release" Class="UWP_DelphiLogo44"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">
                         <Operation>1</Operation>
@@ -633,16 +559,6 @@
                         <Operation>0</Operation>
                     </Platform>
                 </DeployClass>
-                <DeployClass Name="AndroidClasses">
-                    <Platform Name="Android">
-                        <RemoteDir>classes</RemoteDir>
-                        <Operation>64</Operation>
-                    </Platform>
-                    <Platform Name="Android64">
-                        <RemoteDir>classes</RemoteDir>
-                        <Operation>64</Operation>
-                    </Platform>
-                </DeployClass>
                 <DeployClass Name="AndroidFileProvider">
                     <Platform Name="Android">
                         <RemoteDir>res\xml</RemoteDir>
@@ -650,12 +566,6 @@
                     </Platform>
                     <Platform Name="Android64">
                         <RemoteDir>res\xml</RemoteDir>
-                        <Operation>1</Operation>
-                    </Platform>
-                </DeployClass>
-                <DeployClass Name="AndroidGDBServer">
-                    <Platform Name="Android">
-                        <RemoteDir>library\lib\armeabi-v7a</RemoteDir>
                         <Operation>1</Operation>
                     </Platform>
                 </DeployClass>
@@ -748,6 +658,16 @@
                     </Platform>
                     <Platform Name="Android64">
                         <RemoteDir>res\values-v31</RemoteDir>
+                        <Operation>1</Operation>
+                    </Platform>
+                </DeployClass>
+                <DeployClass Name="AndroidSplashStylesV35">
+                    <Platform Name="Android">
+                        <RemoteDir>res\values-v35</RemoteDir>
+                        <Operation>1</Operation>
+                    </Platform>
+                    <Platform Name="Android64">
+                        <RemoteDir>res\values-v35</RemoteDir>
                         <Operation>1</Operation>
                     </Platform>
                 </DeployClass>

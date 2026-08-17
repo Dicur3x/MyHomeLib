@@ -2,12 +2,12 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
-  * Created             
-  * Description         
+  * Created
+  * Description
   *
   * $Id: unit_DownloadManagerThread.pas 953 2011-02-18 02:12:22Z koreec $
   *
@@ -21,16 +21,22 @@ interface
 
 uses
   Classes,
-  Forms,
   SyncObjs,
-  VirtualTrees,
   unit_Globals,
   unit_Downloader,
+  unit_DownloadView,
   unit_Interfaces;
 
 type
+  //
+  // Менеджер черги завантажень.
+  //
+  // Потік не знає ані про головну форму, ані про дерево черги: усе спілкування
+  // з інтерфейсом іде через IDownloadView і тільки в межах Synchronize.
+  //
   TDownloadManagerThread = class(TThread)
   private
+    FView: IDownloadView;
     FDownloader : TDownloader;
     FDownloaderLock: TCriticalSection;
 
@@ -39,42 +45,46 @@ type
     FIgnoreErrors : boolean;
 
     FProcessed: integer;
-    FTotal: integer;
 
-    FBookKey: TBookKey;
-
-    FCurrentNode : PVirtualNode;
-    FCurrentData : PDownloadData;
+    FCurrentItem: TDownloadItem;
+    FHasCurrentItem: Boolean;
 
     FError : boolean;
-    FControlState: boolean;
-    FCurrentComment: string;
-    FCurrentProgress: Integer;
-    FDialogResult: Integer;
-    FThreadError: string;
 
-    procedure DoSetComment;
-    procedure DoSetProgress;
-    procedure DoShowThreadError;
-    procedure AskIgnoreErrors;
+    //
+    // Обгортки над IDownloadView: кожна виконується у головному потоці.
+    //
+    procedure ShowState(const State: string);
+    procedure ShowProgress(Position: Integer);
+    procedure ShowCurrentItem;
+    procedure SetQueueControlsEnabled(Enabled: Boolean);
+    function AskIgnoreErrors: Integer;
+
+    //
+    // Кроки черги
+    //
+    procedure SelectNextFile;
+    procedure FinishCurrentFile;
+    procedure CancelCurrentFile;
+
+    procedure InterruptibleSleep(Milliseconds: Integer);
     procedure SetDownloader(const Downloader: TDownloader);
     procedure ClearDownloader(const Downloader: TDownloader);
     procedure StopDownloader;
-    function WaitCancelable(Milliseconds: Integer): Boolean;
 
-  protected
+    //
+    // Зворотні виклики завантажувача. Приходять з фонового потоку, тому
+    // всередині лише Synchronize.
+    //
     procedure SetComment(const Current, Total: string);
     procedure SetProgress(Current, Total: Integer);
-    procedure GetCurrentFile;
-    procedure Finished;
-    procedure Canceled;
+
+  protected
     procedure Execute; override;
     procedure WorkFunction;
 
-    procedure SetControlsState;
-
   public
-    constructor Create(CreateSuspended: Boolean); reintroduce;
+    constructor Create(const View: IDownloadView);
     destructor Destroy; override;
 
     procedure Stop;
@@ -84,43 +94,42 @@ type
 implementation
 
 uses
-  frm_main,
   SysUtils,
   DateUtils,
-  IdStack,
-  IdStackConsts,
-  IdException,
+  Math,
   Windows,
   dm_user,
-  IdMultipartFormData;
+  unit_Consts;
 
 resourcestring
-rstrDone = 'Готово';
-  rstrConnecting = 'Подключение...';
-  rstrConnectingWithInfo = '%s %s %s Подключение...';
-  rstrDownloading = '%s. %s %s Загрузка: %s Kb/s %d %%';
-  rstrIgnoreDownloadErrors = 'Игнорировать ошибки загрузки?';
-  rstrDownloadError = 'Ошибка закачки';
+rstrConnecting = 'Підключення...';
+  rstrConnectingWithInfo = '%s %s %s Підключення...';
+  rstrDownloading = '%s. %s %s Завантаження: %s Kb/s %d %%';
 
-constructor TDownloadManagerThread.Create(CreateSuspended: Boolean);
+constructor TDownloadManagerThread.Create(const View: IDownloadView);
 begin
-  // Create the lifecycle lock before TThread can start Execute.
+  //
+  // Створюємо призупиненим: потік не має стартувати, доки не отримає View.
+  //
+  inherited Create(True);
   FDownloaderLock := TCriticalSection.Create;
   try
-    inherited Create(CreateSuspended);
+    Assert(Assigned(View));
+    FView := View;
+    FCanceled := False;
+    Start;
   except
     FreeAndNil(FDownloaderLock);
     raise;
   end;
-  FreeOnTerminate := False;
 end;
 
 destructor TDownloadManagerThread.Destroy;
 begin
   TerminateNow;
   try
-    // TThread.Destroy waits for Execute to finish. The lifecycle lock must stay
-    // alive because the worker detaches FDownloader from its finally block.
+    // TThread.Destroy waits for Execute. Keep the lock alive until the worker
+    // has detached its downloader in WorkFunction's finally block.
     inherited Destroy;
   finally
     FreeAndNil(FDownloaderLock);
@@ -131,7 +140,6 @@ procedure TDownloadManagerThread.SetDownloader(const Downloader: TDownloader);
 begin
   FDownloaderLock.Acquire;
   try
-    Assert(not Assigned(FDownloader));
     FDownloader := Downloader;
   finally
     FDownloaderLock.Release;
@@ -153,7 +161,6 @@ procedure TDownloadManagerThread.StopDownloader;
 begin
   if not Assigned(FDownloaderLock) then
     Exit;
-
   FDownloaderLock.Acquire;
   try
     if Assigned(FDownloader) then
@@ -165,228 +172,209 @@ end;
 
 procedure TDownloadManagerThread.TerminateNow;
 begin
-  FCanceled := True;
-  Terminate;
-  StopDownloader;
-end;
-procedure TDownloadManagerThread.Canceled;
-begin
-  if Assigned(FCurrentData) then
-    FCurrentData.State := dsError;
-  if Assigned(FCurrentNode) then
-    frmMain.tvDownloadList.RepaintNode(FCurrentNode);
-
-  frmMain.pbDownloadProgress.Position := 0;
-  frmMain.lblDownloadState.Caption := rstrDone;
-  frmMain.lblDnldAuthor.Caption := '';
-  frmMain.lblDnldTitle.Caption :=  '';
-
-  frmMain.btnPauseDownload.Enabled := False;
-  frmMain.btnStartDownload.Enabled := True;
-end;
-
-procedure TDownloadManagerThread.AskIgnoreErrors;
-begin
-  FDialogResult := Application.MessageBox(PWideChar(rstrIgnoreDownloadErrors),
-    '', MB_YESNOCANCEL);
-end;
-
-procedure TDownloadManagerThread.DoSetComment;
-begin
-  frmMain.lblDownloadState.Caption := FCurrentComment;
-end;
-
-procedure TDownloadManagerThread.DoSetProgress;
-begin
-  if frmMain.Visible then
-    frmMain.pbDownloadProgress.Position := FCurrentProgress
-  else if Assigned(FCurrentData) then
-    frmMain.TrayIcon.Hint := Format(rstrDownloading,
-      [FCurrentData.Author, FCurrentData.Title, CRLF, '', FCurrentProgress]);
-end;
-
-procedure TDownloadManagerThread.DoShowThreadError;
-begin
-  Application.MessageBox(PChar(FThreadError), PChar(rstrDownloadError),
-    MB_OK or MB_ICONERROR);
-end;
-
-procedure TDownloadManagerThread.Execute;
-begin
   try
-    WorkFunction;
+    //
+    // Завантажувача може вже не бути: потік міг завершити роботу сам.
+    //
+    FCanceled := True;
+    StopDownloader;
+    Terminate;
   except
-    on E: Exception do
-    begin
-      FThreadError := E.Message;
-      FCanceled := True;
-      FControlState := True;
-      if not Terminated then
-        Synchronize(DoShowThreadError);
-      Synchronize(Canceled);
-      Synchronize(SetControlsState);
-    end;
+    on EAbort do ; // swallow thread-termination abort; rethrow everything else
   end;
 end;
 
-procedure TDownloadManagerThread.Finished;
+//
+// Пауза, яку можна перервати.
+//
+// Звичайний Sleep змусив би і закриття програми, і перезапуск черги чекати до
+// 30 секунд - саме стільки триває пауза після помилки завантаження.
+//
+procedure TDownloadManagerThread.InterruptibleSleep(Milliseconds: Integer);
+const
+  SLICE = 100;
 var
-  node: PVirtualNode;
+  Elapsed: Integer;
 begin
-  if FCurrentData <> nil then
-    if Not FError then
+  Elapsed := 0;
+  while (Elapsed < Milliseconds) and not Terminated and not FCanceled do
+  begin
+    Sleep(Min(SLICE, Milliseconds - Elapsed));
+    Inc(Elapsed, SLICE);
+  end;
+end;
+
+//
+// - - - - - - - - - - - Обгортки над представленням - - - - - - - - - - - - - -
+//
+
+procedure TDownloadManagerThread.ShowState(const State: string);
+begin
+  Synchronize(
+    procedure
     begin
-      FCurrentData.State := dsOk ;
-
-      // Need to search before delete, to prevent Access Violation
-      node := frmMain.tvDownloadList.GetFirst;
-      while Assigned(node) do
-      begin
-        if node = FCurrentNode then
-        begin
-          frmMain.tvDownloadList.DeleteNode(FCurrentNode);
-          break;
-        end;
-        node := frmMain.tvDownloadList.GetNext(node);
-      end;
-
-      FCurrentNode := nil;
-      FCurrentData := nil;
-      inc(FProcessed);
+      FView.ShowDownloadState(State);
     end
-    else
-    begin
-      FCurrentData.State := dsError;
-      frmMain.tvDownloadList.RepaintNode(FCurrentNode);
-    end;
-
-  frmMain.pbDownloadProgress.Position := 0;
-  frmMain.lblDownloadState.Caption := rstrDone;
-  frmMain.lblDnldAuthor.Caption := '';
-  frmMain.lblDnldTitle.Caption :=  '';
-
-  frmMain.lblDownloadCount.Caption := Format('(%d)',[frmMain.tvDownloadList.ChildCount[Nil]]);
-
-  if FFinished then
-  begin
-    frmMain.pbDownloadProgress.Visible := False;
-    frmMain.btnPauseDownload.Enabled := False;
-    frmMain.btnStartDownload.Enabled := True;
-  end;
+  );
 end;
 
-procedure TDownloadManagerThread.GetCurrentFile;
-var
-  ErrorCount : integer;
-
+procedure TDownloadManagerThread.ShowProgress(Position: Integer);
 begin
-  FFinished := True;
-  if FCanceled then Exit;
-
-  if FCurrentNode <> nil then
-    FCurrentNode := frmMain.tvDownloadList.GetNext(FCurrentNode);
-  if FCurrentNode = nil then
-  begin
-    ErrorCount := 0;
-    FCurrentNode := frmMain.tvDownloadList.GetFirst;
-    FCurrentData := frmMain.tvDownloadList.GetNodeData(FCurrentNode);
-    while (FCurrentData <> nil) and
-          ((FCurrentData.State = dsError) and (FCurrentNode <> nil)) do
+  Synchronize(
+    procedure
     begin
-      FCurrentNode := frmMain.tvDownloadList.GetNext(FCurrentNode);
-      FCurrentData := frmMain.tvDownloadList.GetNodeData(FCurrentNode);
-      Inc(ErrorCount);
-    end;
+      if FView.IsMainFormVisible then
+        FView.ShowDownloadProgress(Position)
+      else
+        FView.SetTrayHint(Format(rstrDownloading,
+                                 [FCurrentItem.Author,
+                                  FCurrentItem.Title,
+                                  CRLF,
+                                  '',
+                                  Position]));
+    end
+  );
+end;
 
-    if (ErrorCount > 0) and (FCurrentNode = Nil) then
-        FCurrentNode := frmMain.tvDownloadList.GetFirst;
-
-  end;
-
-  while FCurrentNode <> nil do
-  begin
-    FCurrentData := frmMain.tvDownloadList.GetNodeData(FCurrentNode);
-    if FCurrentData.State <> dsOk then
+procedure TDownloadManagerThread.ShowCurrentItem;
+begin
+  Synchronize(
+    procedure
     begin
-      FBookKey := FCurrentData^.BookKey;
-
-      FCurrentData.State := dsRun;
-      frmMain.tvDownloadList.RepaintNode(FCurrentNode);
-
-      if frmMain.Visible then
+      if FView.IsMainFormVisible then
       begin
-        frmMain.lblDownloadState.Caption := rstrConnecting;
-        frmMain.lblDnldAuthor.Caption := FCurrentData.Author;
-        frmMain.lblDnldTitle.Caption := FCurrentData.Title;
-        frmMain.pbDownloadProgress.Visible := True;
+        FView.ShowDownloadState(rstrConnecting);
+        FView.ShowDownloadInfo(FCurrentItem.Author, FCurrentItem.Title);
       end
       else
-        frmMain.TrayIcon.Hint := Format(rstrConnectingWithInfo,
-                                            [FCurrentData.Author,
-                                             FCurrentData.Title,
-                                             CRLF]);
-      frmMain.btnPauseDownload.Enabled := True;
-      frmMain.btnStartDownload.Enabled := False;
+        FView.SetTrayHint(Format(rstrConnectingWithInfo,
+                                 [FCurrentItem.Author,
+                                  FCurrentItem.Title,
+                                  CRLF]));
 
-      frmMain.TrayIcon.Hint := 'MyHomeLib';
-
-      FFinished := False;
-      Break;
-    end;
-    FCurrentNode := frmMain.tvDownloadList.GetNext(FCurrentNode);
-  end;
+      FView.SetDownloadRunning(True);
+    end
+  );
 end;
 
+procedure TDownloadManagerThread.SetQueueControlsEnabled(Enabled: Boolean);
+begin
+  Synchronize(
+    procedure
+    begin
+      FView.SetQueueControlsEnabled(Enabled);
+    end
+  );
+end;
+
+function TDownloadManagerThread.AskIgnoreErrors: Integer;
+var
+  Res: Integer;
+begin
+  Synchronize(
+    procedure
+    begin
+      Res := FView.AskIgnoreDownloadErrors;
+    end
+  );
+  Result := Res;
+end;
+
+//
+// - - - - - - - - - - - - - - - Кроки черги - - - - - - - - - - - - - - - - - -
+//
+
+procedure TDownloadManagerThread.SelectNextFile;
+var
+  HasItem: Boolean;
+  Item: TDownloadItem;
+begin
+  FFinished := True;
+  if FCanceled then
+    Exit;
+
+  Synchronize(
+    procedure
+    begin
+      HasItem := FView.SelectNextDownload(Item);
+    end
+  );
+
+  FHasCurrentItem := HasItem;
+  if not HasItem then
+    Exit;
+
+  FCurrentItem := Item;
+  FFinished := False;
+  ShowCurrentItem;
+end;
+
+procedure TDownloadManagerThread.FinishCurrentFile;
+var
+  Success: Boolean;
+  HadItem: Boolean;
+begin
+  HadItem := FHasCurrentItem;
+  Success := not FError;
+  if HadItem and Success then
+    Inc(FProcessed);
+
+  Synchronize(
+    procedure
+    begin
+      if HadItem then
+        FView.CompleteCurrentDownload(Success);
+      FView.ResetDownloadState;
+      FView.SetDownloadRunning(False);
+    end
+  );
+
+  if Success then
+    FHasCurrentItem := False;
+end;
+
+procedure TDownloadManagerThread.CancelCurrentFile;
+begin
+  Synchronize(
+    procedure
+    begin
+      FView.CancelCurrentDownload;
+      FView.ResetDownloadState;
+      FView.SetDownloadRunning(False);
+    end
+  );
+end;
+
+//
+// - - - - - - - - - - - Зворотні виклики завантажувача - - - - - - - - - - - - -
+//
 
 procedure TDownloadManagerThread.SetComment(const Current, Total: string);
 begin
-  FCurrentComment := Current;
-  Synchronize(DoSetComment);
-end;
-
-procedure TDownloadManagerThread.SetControlsState;
-begin
-  frmMain.BtnFirstRecord.Enabled := FControlState;
-  frmMain.BtnDwnldUp.Enabled := FControlState;
-  frmMain.BtnDwnldDown.Enabled := FControlState;
-  frmMain.BtnLastRecord.Enabled := FControlState;
-
-//  frmMain.BtnDelete.Enabled := FControlState;
-  frmMain.BtnSave.Enabled := FControlState;
-
-  frmMain.mi_dwnl_Delete.Enabled := FControlState;
+  ShowState(Current);
 end;
 
 procedure TDownloadManagerThread.SetProgress(Current, Total: Integer);
 begin
-  FCurrentProgress := Current;
-  Synchronize(DoSetProgress);
+  ShowProgress(Current);
 end;
+
+//
+// - - - - - - - - - - - - - - - - Робота - - - - - - - - - - - - - - - - - - - -
+//
+
+procedure TDownloadManagerThread.Execute;
+begin
+  WorkFunction;
+end;
+
 procedure TDownloadManagerThread.Stop;
 begin
   FCanceled := True;
-  Terminate;
   StopDownloader;
-  Synchronize(Canceled);
-  FControlState := True;
-  Synchronize(SetControlsState);
-end;
-
-function TDownloadManagerThread.WaitCancelable(Milliseconds: Integer): Boolean;
-const
-  WAIT_SLICE_MS = 100;
-var
-  Delay: Integer;
-begin
-  while (Milliseconds > 0) and not FCanceled and not Terminated do
-  begin
-    Delay := Milliseconds;
-    if Delay > WAIT_SLICE_MS then
-      Delay := WAIT_SLICE_MS;
-    Sleep(Delay);
-    Dec(Milliseconds, Delay);
-  end;
-  Result := not FCanceled and not Terminated;
+  CancelCurrentFile;
+  SetQueueControlsEnabled(True);
+  Terminate;
 end;
 
 procedure TDownloadManagerThread.WorkFunction;
@@ -397,8 +385,7 @@ var
 begin
   FSystemDB := DMUser.GetSystemDBConnection;
   try
-    FControlState := False;
-    Synchronize(SetControlsState);
+    SetQueueControlsEnabled(False);
 
     FIgnoreErrors := False;
     FError := False;
@@ -406,49 +393,41 @@ begin
     FProcessed := 0;
 
     Downloader := TDownloader.Create;
+    SetDownloader(Downloader);
     try
-      SetDownloader(Downloader);
       Downloader.OnSetComment := SetComment;
       Downloader.OnProgress := SetProgress;
       try
-        Synchronize(GetCurrentFile);
-        while not FFinished and not FCanceled and not Terminated do
+        SelectNextFile;
+        //
+        // Нічого не качаємо, поки черга не дала книгу: інакше перший прохід
+        // пішов би завантажувати порожній ключ.
+        //
+        while not (FFinished or FCanceled) do
         begin
           if FError then
-            if not WaitCancelable(30000) then
-              Break;
-          if not WaitCancelable(Settings.DwnldInterval) then
-            Break;
+            InterruptibleSleep(30000);
+          InterruptibleSleep(Settings.DwnldInterval);
           Downloader.IgnoreErrors := FIgnoreErrors;
-          FError := not Downloader.Download(FSystemDB, FBookKey);
-          if FCanceled or Terminated then
-            Break;
-          Synchronize(Finished);
+          FError := not Downloader.Download(FSystemDB, FCurrentItem.BookKey);
+          FinishCurrentFile;
 
-          Synchronize(GetCurrentFile);
+          SelectNextFile;
           if FError and not FIgnoreErrors and not FCanceled then
           begin
-            Synchronize(AskIgnoreErrors);
-            Res := FDialogResult;
+            Res := AskIgnoreErrors;
             FCanceled := (Res = IDCANCEL);
             FIgnoreErrors := (Res = IDYES);
-            if FCanceled then
-            begin
-              Terminate;
-              Synchronize(Canceled);
-            end;
           end;
         end;
+        FinishCurrentFile;
       finally
-        FControlState := True;
-        Synchronize(SetControlsState);
+        SetQueueControlsEnabled(True);
       end;
     finally
       ClearDownloader(Downloader);
-      FreeAndNil(Downloader);
+      Downloader.Free;
     end;
-    if not FCanceled and not Terminated then
-      Synchronize(Finished);
   finally
     FSystemDB.ClearCollectionCache;
     FSystemDB := nil;

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -38,8 +38,6 @@ type
     RzLabel2: TLabel;
     RzLabel3: TLabel;
     RzLabel6: TLabel;
-    RzLabel7: TLabel;
-    RzLabel8: TLabel;
     Label1: TLabel;
     RzLabel4: TLabel;
     Label2: TLabel;
@@ -49,6 +47,8 @@ type
     procedure FormShow(Sender: TObject);
   private
     { Private declarations }
+  protected
+    procedure DoCreate; override;
   public
     { Public declarations }
   end;
@@ -61,13 +61,20 @@ implementation
 uses
   SysUtils,
   unit_Helpers,
-  unit_Consts;
+  unit_Consts,
+  unit_Localization;
 
 resourcestring
   rstrAppVersionInfo   = 'Версия: %s';
   rstrAppVersionInfo64 = 'Версия: %s x64';
 
 {$R *.dfm}
+
+procedure TfrmAbout.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmAbout.FormCreate(Sender: TObject);
 begin

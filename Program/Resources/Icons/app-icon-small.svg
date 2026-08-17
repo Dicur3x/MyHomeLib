@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- MyHomeLib application icon - small cut, used for 24px and below.
+       Three spines, and the bezel band widened from 18 to 30 units: at 16px an
+       18-unit band renders as a faint halo, 30 renders as a solid ring.
+       Thickening the navy outline instead only makes the frame darker, not more
+       separable from whatever is behind it. The footprint matches the other two
+       cuts so the silhouette does not shift. -->
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#DDEAF5"/>
+      <stop offset="100%" stop-color="#BACEE0"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#19375F" stroke-width="12" stroke-linejoin="round">
+    <path d="M104 144 L100 190 L156 190 L152 144 Z" fill="url(#bezel)"/>
+    <rect x="74" y="184" width="108" height="26" rx="13" fill="url(#bezel)"/>
+
+    <rect x="20" y="36" width="216" height="140" rx="18" fill="url(#bezel)"/>
+    <rect x="50" y="66" width="156" height="80" rx="4" fill="#2B2B2B" stroke="none"/>
+
+    <g stroke-width="8">
+      <rect x="50" y="78" width="52" height="68" rx="4" fill="#E8622E"/>
+      <rect x="102" y="70" width="52" height="76" rx="4" fill="#3A72B8"/>
+      <rect x="154" y="78" width="52" height="68" rx="4" fill="#4AA85A"/>
+    </g>
+  </g>
+</svg>

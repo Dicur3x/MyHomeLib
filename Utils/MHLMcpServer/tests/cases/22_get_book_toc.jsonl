@@ -1,0 +1,2 @@
+> {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_book_toc","arguments":{"collection_id":1,"book_id":2}}}
+< {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"sections\":[{\"title\":\"\\u0412\\u0441\\u0442\\u0443\\u043F\",\"level\":0,\"offset\":0,\"length\":27},{\"title\":\"\\u0421\\u0435\\u0440\\u0435\\u0434\\u0438\\u043D\\u0430\",\"level\":0,\"offset\":27,\"length\":30},{\"title\":\"\\u041A\\u0456\\u043D\\u0435\\u0446\\u044C\",\"level\":0,\"offset\":57,\"length\":28}],\"structured\":true,\"total_length\":85}"}]}}

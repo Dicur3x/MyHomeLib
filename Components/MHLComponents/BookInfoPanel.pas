@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             14.04.2010
@@ -19,7 +19,9 @@ unit BookInfoPanel;
 interface
 
 uses
+  Winapi.Windows,
   Controls,
+  Forms,
   Graphics,
   Classes,
   StdCtrls,
@@ -28,6 +30,7 @@ uses
   SysUtils,
   Clipbrd,
   Menus,
+  RzCommon, RzPanel,
   FictionBook_21,
   StrUtils,
   unit_MHLHelpers,
@@ -35,10 +38,10 @@ uses
   MHLLinkLabel;
 
 type
-  TInfoPanel = class(TCustomPanel)
+  TInfoPanel = class(TRzPanel)
   private
     FCover: TImage;
-    FInfoPanel: TPanel;
+    FInfoPanel: TRzPanel;
     FTitle: TLabel;
     FAuthors: TMHLLinkLabel;
     FSerieLabel: TLabel;
@@ -47,22 +50,16 @@ type
     FGenres: TMHLLinkLabel;
     FAnnotation: TMemo;
     FFb2Info: TListView;
-    FInfoButton: TButton;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
     FOnSeriesLinkClicked: TSysLinkEvent;
-    FOnAnnotationClicked: TNotifyEvent;
     FMenu: TPopupMenu;
-
-    FColor: TColor;
-
 
     FInfoPriority: Boolean;
 
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
-    procedure SetColor(Value: TColor);
 
     function GetShowAnnotation: Boolean;
     procedure SetShowAnnotation(const Value: Boolean);
@@ -73,9 +70,11 @@ type
     procedure OnAnnotationClicked(Sender: TObject);
     procedure SetInfoPriority(const Value: Boolean);
     procedure CopyToClipboard(Sender: TObject);
+    procedure LayoutControls;
 
   protected
     procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
 
   public
     constructor Create(AOwner: TComponent); override;
@@ -105,66 +104,6 @@ type
     procedure Clear;
 
   published
-    property Align;
-    property Anchors;
-    property BiDiMode;
-    property Color read FColor write SetColor default clWindow;
-    //property Constraints;
-    property Ctl3D;
-    property UseDockManager default True;
-    property DockSite;
-    property DoubleBuffered;
-    property DragCursor;
-    property DragKind;
-    property DragMode;
-    property Enabled;
-    property FullRepaint;
-    property Font;
-    //property Locked;
-    property Padding;
-    property ParentBiDiMode;
-    property ParentBackground;
-    property ParentColor;
-    property ParentCtl3D;
-    property ParentDoubleBuffered;
-    property ParentFont;
-    property ParentShowHint;
-    property PopupMenu;
-    property ShowHint;
-    property TabOrder;
-    property TabStop;
-    property Touch;
-    property VerticalAlignment;
-    property Visible;
-
-    property OnAlignInsertBefore;
-    property OnAlignPosition;
-    property OnCanResize;
-    property OnClick;
-    property OnConstrainedResize;
-    property OnContextPopup;
-    property OnDockDrop;
-    property OnDockOver;
-    property OnDblClick;
-    property OnDragDrop;
-    property OnDragOver;
-    property OnEndDock;
-    property OnEndDrag;
-    property OnEnter;
-    property OnExit;
-    property OnGesture;
-    property OnGetSiteInfo;
-    property OnMouseActivate;
-    property OnMouseDown;
-    property OnMouseEnter;
-    property OnMouseLeave;
-    property OnMouseMove;
-    property OnMouseUp;
-    property OnResize;
-    property OnStartDock;
-    property OnStartDrag;
-    property OnUnDock;
-
     property ShowCover: Boolean read GetShowCover write SetShowCover default True;
     property ShowAnnotation: Boolean read GetShowAnnotation write SetShowAnnotation default True;
     property InfoPriority: Boolean read FInfoPriority write SetInfoPriority default False;
@@ -183,6 +122,13 @@ resourcestring
   rsrtCopyLabel = 'Копировать';
   rsrtFiledLabel = 'Поле';
   rsrtValueLabel = 'Значение';
+
+const
+  PanelPadding = 10;  // inset of the content from the panel's rounded border
+  CoverGap = 12;      // gap between the cover and the info column
+  RowSpacing = 5;     // leading added to the text height of an info row
+  AnnotationGap = 8;  // gap between the last info row and the annotation
+  LabelColumn = 70;   // width of the "Серія:"/"Жанр(и):" caption column
 
 function GetCoverWidth(Height: Integer): Integer;
 begin
@@ -209,24 +155,30 @@ begin
 
   SetBounds(0, 0, 500, 200);
 
-  BevelOuter := bvNone;
-  ShowCaption := False;
+  BorderOuter := fsFlatRounded;
+  BorderInner := fsNone;
 
+  // Keep the aligned children off the rounded border. TRzPanel ignores Padding
+  // (it adjusts the client rect for its own border), so the inset has to come
+  // from the children's Margins, which TWinControl.AlignControls always honours.
   FCover := TImage.Create(Self);
   FCover.Parent := Self;
   FCover.SetBounds(0, 0, GetCoverWidth(200), 200);
   FCover.Align := alLeft;
   FCover.AlignWithMargins := True;
+  FCover.Margins.SetBounds(PanelPadding, PanelPadding, 0, PanelPadding);
   FCover.Center := True;
   FCover.Proportional := True;
   FCover.Stretch := True;
 
-  FInfoPanel := TPanel.Create(Self);
+  FInfoPanel := TRzPanel.Create(Self);
   FInfoPanel.Parent := Self;
   FInfoPanel.SetBounds(200, 0, 300, 200);
   FInfoPanel.Align := alClient;
-  FInfoPanel.BevelOuter := bvNone;
-  FInfoPanel.ShowCaption := False;
+  FInfoPanel.AlignWithMargins := True;
+  FInfoPanel.Margins.SetBounds(CoverGap, PanelPadding, PanelPadding, PanelPadding);
+  FInfoPanel.BorderOuter := fsNone;
+  FInfoPanel.ParentColor := True;
 
   FTitle := TLabel.Create(FInfoPanel);
   FTitle.Parent := FInfoPanel;
@@ -264,6 +216,10 @@ begin
   FAnnotation := TMemo.Create(FInfoPanel);
   FAnnotation.Parent := FInfoPanel;
   FAnnotation.Anchors := [akLeft, akTop, akRight, akBottom];
+  // No sunken frame inside the panel's own rounded border, and follow the
+  // panel's background so the annotation reads as part of the panel.
+  FAnnotation.BorderStyle := bsNone;
+  FAnnotation.ParentColor := True;
   FAnnotation.ReadOnly := True;
   FAnnotation.TextHint := rstrNoAnnotationHint;
   FAnnotation.ScrollBars := ssVertical;
@@ -275,7 +231,8 @@ begin
   with FFb2Info do
   begin
     Parent := FInfoPanel;
-    AlignWithMargins := True;
+    BorderStyle := bsNone;
+    ParentColor := True;
     with Columns.Add do begin
       Caption := rsrtFiledLabel;
       Width := 175;
@@ -318,9 +275,7 @@ begin
   FGenreLabel.SetBounds(0, 60, 70, 20);  FGenres.SetBounds(70, 60, 140, 20);
   FAnnotation.SetBounds(0, 80, 300, 120);
   FFb2Info.SetBounds(0, 80, 300, 120);
-  //
-  //
-  //
+
   Constraints.MinHeight := 150;
 end;
 
@@ -351,7 +306,61 @@ end;
 procedure TInfoPanel.Resize;
 begin
   FCover.Width := GetCoverWidth(FCover.Height);
+  LayoutControls;
   inherited;
+end;
+
+procedure TInfoPanel.LayoutControls;
+var
+  RowH, Gap, LblW, W, H, Y: Integer;
+begin
+  if not Assigned(FInfoPanel) then
+    Exit;
+
+  W := FInfoPanel.ClientWidth;
+  H := FInfoPanel.ClientHeight;
+  if (W <= 0) or (H <= 0) then
+    Exit;
+
+  // Sync bold label fonts with parent (ParentFont=False due to Font.Style)
+  FTitle.Font.Height := FInfoPanel.Font.Height;
+  FTitle.Font.Name := FInfoPanel.Font.Name;
+  FSerieLabel.Font.Height := FInfoPanel.Font.Height;
+  FSerieLabel.Font.Name := FInfoPanel.Font.Name;
+  FGenreLabel.Font.Height := FInfoPanel.Font.Height;
+  FGenreLabel.Font.Name := FInfoPanel.Font.Name;
+
+  // Row height follows the current font: ShortFontSize is user-configurable, so
+  // a fixed 20px row makes the text collide once the font grows. Bold is the
+  // tallest face used in a row, so measure with it.
+  Canvas.Font := FInfoPanel.Font;
+  Canvas.Font.Style := [fsBold];
+  RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
+  Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
+  LblW := MulDiv(LabelColumn, CurrentPPI, 96);
+
+  Y := 0;
+  FTitle.SetBounds(0, Y, W, RowH);
+  Inc(Y, RowH);
+  FAuthors.SetBounds(0, Y, W, RowH);
+  Inc(Y, RowH);
+  FSerieLabel.SetBounds(0, Y, LblW, RowH);
+  FSeries.SetBounds(LblW, Y, W - LblW, RowH);
+  Inc(Y, RowH);
+  FGenreLabel.SetBounds(0, Y, LblW, RowH);
+  FGenres.SetBounds(LblW, Y, W - LblW, RowH);
+  Inc(Y, RowH + Gap);
+  if H > Y then
+  begin
+    FAnnotation.SetBounds(0, Y, W, H - Y);
+    FFb2Info.SetBounds(0, Y, W, H - Y);
+  end;
+end;
+
+procedure TInfoPanel.ChangeScale(M, D: Integer; isDpiChange: Boolean);
+begin
+  inherited;
+  LayoutControls;
 end;
 
 procedure TInfoPanel.OnAnnotationClicked(Sender: TObject);
@@ -394,14 +403,6 @@ begin
   FGenres.Caption := Genres;
 end;
 
-procedure TInfoPanel.SetColor(Value: TColor);
-begin
-  if FColor <> Value then
-  begin
-    FColor := Value;
-    FAnnotation.Color := Value;
-  end;
-end;
 
 procedure TInfoPanel.SetFb2Info(book: IXMLFictionBook; const Folder, FileName: string);
 var

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Oleksiy Penkov  oleksiy.penkov@gmail.com
   * Created             12.02.2010
@@ -12,7 +12,6 @@
   *
   * History
   * NickR 15.02.2010    Код переформатирован
-  * 2026-03-08          Replaced empty except blocks with logging
   *
   ****************************************************************************** *)
 
@@ -24,9 +23,7 @@ uses
   Windows,
   Classes,
   SysUtils,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL;
+  System.Net.HttpClient;
 
 type
   TUpdateInfo = class(TCollectionItem)
@@ -68,6 +65,7 @@ type
   private
     FURL: string;
     FPath: string;
+    FConnectionError: Boolean;
 
     function GetUpdate(Index: Integer): TUpdateInfo;
     procedure SetUpdate(Index: Integer; const Value: TUpdateInfo);
@@ -90,18 +88,19 @@ type
 
     procedure UpdateExternalVersions;
 
-    function DownloadUpdate(Index: Integer; HTTP: TidHTTP): Boolean;
+    function DownloadUpdate(Index: Integer; HTTP: THTTPClient): Boolean;
 
     property Items[Index: Integer]: TUpdateInfo read GetUpdate write SetUpdate; default;
     property URL: string read FURL write SetURL;
     property Path: string read FPath write FPath;
+    property ConnectionError: Boolean read FConnectionError;
   end;
 
 implementation
 
 uses
   unit_Globals,
-  unit_Logger;
+  unit_MHLHttpClient;
 
 { TUpdateInfoList }
 
@@ -142,27 +141,28 @@ end;
 
 procedure TUpdateInfoList.UpdateExternalVersions;
 var
-  HTTP: TidHTTP;
-  IdSocksInfo: TIdSocksInfo;
-  IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
+  HTTP: THTTPClient;
   LF: TMemoryStream;
   SL: TStringList;
   i: Integer;
   URL: string;
+  HasVersionFiles: Boolean;
+  GotAny: Boolean;
 begin
+  FConnectionError := False;
+  HasVersionFiles := False;
+  GotAny := False;
+
   LF := TMemoryStream.Create;
   try
-    HTTP := TidHTTP.Create(nil);
-    IdSocksInfo := TIdSocksInfo.Create(nil);
-    IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
+    HTTP := CreateHTTPClientUpdate;
     try
-      SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
-
       for i := 0 to Count - 1 do
       begin
         if Items[i].FVersionFile = '' then
           Continue;
 
+        HasVersionFiles := True;
         URL := Items[i].URL + Items[i].FVersionFile;
 
         try
@@ -173,25 +173,25 @@ begin
             LF.Seek(0, soFromBeginning);
             SL.LoadFromStream(LF);
             if SL.Count > 0 then
+            begin
               Items[i].FExternalVersion := StrToInt(SL[0]);
-
-            //SL.SaveToFile('E:\Temp\out.txt');
+              GotAny := True;
+            end;
           finally
             SL.Free;
           end;
         except
-          on E: Exception do
-            Logger.W('CheckUpdates: failed to fetch version info — %s', [E.Message]);
         end;
-      end; // for
+      end;
     finally
-      IdSSLIOHandlerSocketOpenSSL.Free;
-      IdSocksInfo.Free;
       HTTP.Free;
     end;
   finally
     LF.Free;
   end;
+
+  if HasVersionFiles and not GotAny then
+    FConnectionError := True;
 end;
 
 constructor TUpdateInfoList.Create;
@@ -199,7 +199,7 @@ begin
   inherited Create(TUpdateInfo);
 end;
 
-function TUpdateInfoList.DownloadUpdate(Index: Integer; HTTP: TidHTTP): Boolean;
+function TUpdateInfoList.DownloadUpdate(Index: Integer; HTTP: THTTPClient): Boolean;
 var
   MS: TMemoryStream;
   URL: string;
@@ -220,8 +220,6 @@ begin
       MS.SaveToFile(FileName);
       Result := True;
     except
-      on E: Exception do
-        Logger.W('DownloadUpdate: failed to download "%s" — %s', [URL, E.Message]);
     end;
   finally
     MS.Free;

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             12.02.2010
@@ -27,10 +27,8 @@ uses
   ComCtrls,
   Graphics,
   Generics.Collections,
-  unit_Consts,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL;
+  ShlObj,
+  unit_Consts;
 
 type
   TIniStringList = class(TStringList)
@@ -59,7 +57,8 @@ type
     fnSaveINPX,
     fnOpenUserData,
     fnSaveUserData,
-    fnOpenCoverImage
+    fnOpenCoverImage,
+    fnOpenUpdate
   );
 
   TListViewHelper = class helper for TListView
@@ -69,6 +68,10 @@ type
 function GetFileName(key: TMHLFileName; out FileName: string): Boolean;
 
 function GetFolderName(Handle: Integer; const Caption: string; var strFolder: string): Boolean;
+function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem): Boolean;
+function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string): Boolean;
+function ResolveOrCreateShellSubfolder(const Root: IShellItem; const RelPath: string): IShellItem;
+function IsShellPath(const Path: string): Boolean;
 
 function CreateImageFromResource(GraphicClass: TGraphicClass; const ResName: string; ResType: PChar = RT_RCDATA): TGraphic;
 
@@ -92,10 +95,10 @@ uses
   Forms,
   dm_user,
   CommCtrl,
-  ShlObj,
   ShellAPI,
   ShLwApi,
-  ActiveX;
+  ActiveX,
+  ComObj;
 
 // ============================================================================
 // TIniStringList
@@ -239,59 +242,64 @@ type
 
 resourcestring
 //fnGenreList
-   rstrGenreListDlgTitle = 'Выбор списка жанров';
-   rstrGenreListDlgFilter = 'Список жанров MyHomeLib (*.glst)|*.glst|Все типы|*.*';
+   rstrGenreListDlgTitle = 'Вибір списку жанрів';
+   rstrGenreListDlgFilter = 'Список жанрів MyHomeLib (*.glst)|*.glst|Всі типи|*.*';
    rstrGenreListDlgDefaultExt = GENRELIST_EXTENSION_SHORT;
 
    // fnOpenCollection
-   rstrOpenCollectionDlgTitle = 'Открыть файл коллекции';
+   rstrOpenCollectionDlgTitle = 'Відкрити файл колекції';
    // fnSaveCollection
-   rstrSaveCollectionDlgTitle = 'Сохранить файл коллекции';
-   rstrCollectionDlgFilter = 'Коллекция MyHomeLib (*.hlc2)|*.hlc2|Все типы|*.*';
+   rstrSaveCollectionDlgTitle = 'Зберегти файл колекції';
+   rstrCollectionDlgFilter = 'Колекція MyHomeLib (*.hlc2)|*.hlc2|Всі типи|*.*';
    rstrCollectionDlgDefaultExt = COLLECTION_EXTENSION_SHORT;
 
    // fnSelectReader
-   rstrSelectReaderDlgTitle = 'Выбор программы для просмотра';
+   rstrSelectReaderDlgTitle = 'Вибір програми для перегляду';
    // fnSelectScript
-   rstrSelectScriptDlgTitle = 'Выбор скрипта';
-   rstrSelectProgrammDlgFilter = 'Скрипты, программы (*.exe;*.bat;*.cmd;*.vbs;*.js)|*.exe;*.bat;*.cmd;*.vbs;*.js|Все типы |*.*';
+   rstrSelectScriptDlgTitle = 'Вибір скрипта';
+   rstrSelectProgrammDlgFilter = 'Скрипти, програми (*.exe;*.bat;*.cmd;*.vbs;*.js)|*.exe;*.bat;*.cmd;*.vbs;*.js|Всі типи |*.*';
    rstrSelectProgrammDlgDefaultExt = 'exe';
 
    // fnOpenImportFile
-   rstrOpenImportFileDlgTitle = 'Открыть xml';
+   rstrOpenImportFileDlgTitle = 'Відкрити xml';
    // fnSaveImportFile
-   rstrSaveImportFileDlgTitle = 'Сохранить xml';
+   rstrSaveImportFileDlgTitle = 'Зберегти xml';
    rstrImportFileDlgFilter = 'xml (*.xml)|*.xml|Всі типи|*.*';
    rstrImportFileDlgDefaultExt = 'xml';
 
    // fnSaveLog
-   rstrSaveLogDlgTitle = 'Сохранить лог работы';
-   rstrSaveLogDlgFilter = 'Файл протокола (*.log)|*.log|Все типы|*.*';
+   rstrSaveLogDlgTitle = 'Зберегти лог роботи';
+   rstrSaveLogDlgFilter = 'Файл протоколу (*.log)|*.log|Всі типи|*.*';
    rstrSaveLogDlgDefaultExt = 'log';
    //fnOpenINPX
-   rstrOpenINPXDlgTitle = 'Выбор файла списков';
-   rstrOpenINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
+   rstrOpenINPXDlgTitle = 'Вибір файлу списків';
+   rstrOpenINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Всі типи|*.*';
    rstrOpenINPXDlgDefaultExt = 'inpx';
 
    //fnSaveINPX
-   rstrSaveINPXDlgTitle = 'Выбор файла списков';
-   rstrSaveINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
+   rstrSaveINPXDlgTitle = 'Вибір файлу списків';
+   rstrSaveINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Всі типи|*.*';
    rstrSaveINPXDlgDefaultExt = 'inpx';
 
    //fnOpenUserData
-   rstrOpenUDDlgTitle = 'Импорт пользовательских данных';
-   rstrOpenUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud, mhlud2)|*.mhlud2;*.mhlud|Все типы|*.*';
+   rstrOpenUDDlgTitle = 'Імпорт даних користувача';
+   rstrOpenUDDlgFilter = 'Додаткові дані MyHomeLib (mhlud, mhlud2)|*.mhlud2;*.mhlud|Всі типи|*.*';
    rstrOpenUDDlgDefaultExt = 'mhlud2';
 
    //fnSaveUserData
-   rstrSaveUDDlgTitle = 'Экспорт пользовательских данных';
-   rstrSaveUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud2)|*.mhlud2|Все типы|*.*';
+   rstrSaveUDDlgTitle = 'Експорт даних користувача';
+   rstrSaveUDDlgFilter = 'Додаткові дані MyHomeLib (mhlud2)|*.mhlud2|Всі типи|*.*';
    rstrSaveUDDlgDefaultExt = 'mhlud2';
 
    //fnOpenCoverImage
-   rstrOpenCIDlgTitle = 'Загрузка файла обложки';
-   rstrOpenCIDlgFilter = 'Изображение (*.png;*.jpg;*.jpeg)|*.jpeg;*.jpg;*.png';
+   rstrOpenCIDlgTitle = 'Завантаження файлу обкладинки';
+   rstrOpenCIDlgFilter = 'Зображення (*.png;*.jpg;*.jpeg)|*.jpeg;*.jpg;*.png';
    rstrOpenCIDlgDefaultExt = 'jpeg';
+
+   //fnOpenUpdate
+   rstrOpenUpdateDlgTitle = 'Вибір файлу оновлення';
+   rstrOpenUpdateDlgFilter = 'Файл оновлення (*.inpx, *.zip)|*.inpx;*.zip|Всі типи|*.*';
+   rstrOpenUpdateDlgDefaultExt = 'inpx';
 
 
 function GetFileName(key: TMHLFileName; out FileName: string): Boolean;
@@ -361,8 +369,12 @@ const
       Title:      rstrOpenCIDlgTitle;
       Filter:     rstrOpenCIDlgFilter;     DefaultExt: rstrOpenCIDlgDefaultExt;
       DialogKey:  'OpenCoverImage';        OpenFile: True
+    ),
+    ( // fnOpenUpdate
+      Title:      rstrOpenUpdateDlgTitle;
+      Filter:     rstrOpenUpdateDlgFilter; DefaultExt: rstrOpenUpdateDlgDefaultExt;
+      DialogKey:  'OpenUpdateFile';        OpenFile: True
     )
-
 
 
     //(Title: ''; Filter: ''; DefaultExt: ''; ExtraOptions: ; DialogKey: ''; GetFileNameFunction:)
@@ -378,43 +390,156 @@ begin
       );
 end;
 
-function BrowseCallbackProc(hwnd: HWND; uMsg: UINT; lParam: LPARAM; lpData: LPARAM): Integer; stdcall;
-begin
-  if (uMsg = BFFM_INITIALIZED) then
-    SendMessage(hwnd, BFFM_SETSELECTION, 1, lpData);
-  BrowseCallbackProc := 0;
-end;
-
 function GetFolderName(Handle: Integer; const Caption: string; var strFolder: string): Boolean;
 var
-  BrowseInfo: TBrowseInfo;
-  lpItemID: PItemIDList;
-
-  DisplayName: array [0 .. MAX_PATH] of Char;
-  TempPath : array[0..MAX_PATH] of Char;
+  Dialog: IFileOpenDialog;
+  Options: Cardinal;
+  InitFolder, ResultItem: IShellItem;
+  DisplayName: PWideChar;
+  OwnerWnd: HWND;
 begin
   Result := False;
 
-  FillChar(BrowseInfo, SizeOf(TBrowseInfo), #0);
-
-  if 0 <> Handle then
-    BrowseInfo.hwndOwner := Handle
+  if Handle <> 0 then
+    OwnerWnd := Handle
   else
-    BrowseInfo.hwndOwner := Application.Handle;
+    OwnerWnd := Application.Handle;
 
-  BrowseInfo.pszDisplayName := @DisplayName;
-  BrowseInfo.lpszTitle := PChar(Caption);
-  BrowseInfo.ulFlags := BIF_RETURNONLYFSDIRS or BIF_USENEWUI;
-  BrowseInfo.lpfn := @BrowseCallbackProc;
-  BrowseInfo.lParam := LPARAM(PChar(strFolder));
+  if not Succeeded(CoCreateInstance(CLSID_FileOpenDialog, nil, CLSCTX_INPROC_SERVER, IFileOpenDialog, Dialog)) then
+    Exit;
 
-  lpItemID := SHBrowseForFolder(BrowseInfo);
-  if Assigned(lpItemID) then
+  Dialog.SetTitle(PChar(Caption));
+  Dialog.GetOptions(Options);
+  Dialog.SetOptions(Options or FOS_PICKFOLDERS or FOS_FORCEFILESYSTEM);
+
+  if (strFolder <> '') and Succeeded(SHCreateItemFromParsingName(PChar(strFolder), nil, IShellItem, InitFolder)) then
+    Dialog.SetFolder(InitFolder);
+
+  if Succeeded(Dialog.Show(OwnerWnd)) then
   begin
-    Result := SHGetPathFromIDList(lpItemID, TempPath);
-    if Result then strFolder := StrPas(TempPath);
-    CoTaskMemFree(lpItemID);
+    if Succeeded(Dialog.GetResult(ResultItem)) then
+    begin
+      if Succeeded(ResultItem.GetDisplayName(SIGDN_FILESYSPATH, DisplayName)) then
+      begin
+        strFolder := DisplayName;
+        CoTaskMemFree(DisplayName);
+        Result := True;
+      end;
+    end;
   end;
+end;
+
+function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem): Boolean;
+var
+  Dialog: IFileOpenDialog;
+  Options: Cardinal;
+  InitFolder: IShellItem;
+  DisplayName: PWideChar;
+begin
+  Result := False;
+  ShellItem := nil;
+
+  if Succeeded(CoCreateInstance(CLSID_FileOpenDialog, nil, CLSCTX_INPROC_SERVER, IFileOpenDialog, Dialog)) then
+  begin
+    Dialog.SetTitle(PChar(Caption));
+    Dialog.GetOptions(Options);
+    Dialog.SetOptions((Options or FOS_PICKFOLDERS) and not FOS_FORCEFILESYSTEM); // allow non-filesystem (MTP)
+
+    // Set initial folder if available
+    if (strFolder <> '') and Succeeded(SHCreateItemFromParsingName(PChar(strFolder), nil, IShellItem, InitFolder)) then
+      Dialog.SetFolder(InitFolder);
+
+    if Succeeded(Dialog.Show(Handle)) then
+    begin
+      if Succeeded(Dialog.GetResult(ShellItem)) then
+      begin
+        Result := True;
+        if Succeeded(ShellItem.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, DisplayName)) then
+        begin
+          strFolder := DisplayName;
+          CoTaskMemFree(DisplayName);
+        end;
+      end;
+    end;
+  end;
+end;
+
+function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string): Boolean;
+var
+  FileOp: IFileOperation;
+  SrcItem: IShellItem;
+begin
+  Result := False;
+  if not Assigned(DestFolder) then
+    Exit;
+
+  if Succeeded(CoCreateInstance(CLSID_FileOperation, nil, CLSCTX_INPROC_SERVER, IFileOperation, FileOp)) then
+  begin
+    // FOF_RENAMEONCOLLISION avoids silent overwrite-failures on MTP when a file
+    // with the same name already exists in the target folder (#65).
+    FileOp.SetOperationFlags(FOF_NOCONFIRMATION or FOF_NOERRORUI or FOF_SILENT or FOF_RENAMEONCOLLISION);
+    if Succeeded(SHCreateItemFromParsingName(PChar(SourceFile), nil, IShellItem, SrcItem)) then
+    begin
+      if Succeeded(FileOp.CopyItem(SrcItem, DestFolder, PChar(DestName), nil)) then
+        Result := Succeeded(FileOp.PerformOperations);
+    end;
+  end;
+end;
+
+// Walk RelPath ('Author\Series\') under Root, creating missing subfolders.
+// Works for both filesystem and MTP shell items. Returns nil on failure.
+function ResolveOrCreateShellSubfolder(const Root: IShellItem; const RelPath: string): IShellItem;
+var
+  Segments: TArray<string>;
+  Segment, Trimmed: string;
+  Current, Child: IShellItem;
+  FileOp: IFileOperation;
+begin
+  Result := nil;
+  if not Assigned(Root) then Exit;
+
+  Trimmed := Trim(RelPath);
+  if Trimmed <> '' then
+    Trimmed := ExcludeTrailingPathDelimiter(Trimmed);
+  if Trimmed = '' then
+  begin
+    Result := Root;
+    Exit;
+  end;
+
+  Segments := Trimmed.Split([PathDelim, '/']);
+  Current := Root;
+  for Segment in Segments do
+  begin
+    if Segment = '' then Continue;
+
+    if Succeeded(SHCreateItemFromRelativeName(Current, PChar(Segment), nil, IShellItem, Child)) then
+    begin
+      Current := Child;
+      Child := nil;
+      Continue;
+    end;
+
+    // Not found - create it
+    if Failed(CoCreateInstance(CLSID_FileOperation, nil, CLSCTX_INPROC_SERVER, IFileOperation, FileOp)) then Exit;
+    FileOp.SetOperationFlags(FOF_NOCONFIRMATION or FOF_NOERRORUI or FOF_SILENT);
+    if Failed(FileOp.NewItem(Current, FILE_ATTRIBUTE_DIRECTORY, PChar(Segment), nil, nil)) then Exit;
+    if Failed(FileOp.PerformOperations) then Exit;
+    FileOp := nil;
+
+    if Failed(SHCreateItemFromRelativeName(Current, PChar(Segment), nil, IShellItem, Child)) then Exit;
+    Current := Child;
+    Child := nil;
+  end;
+  Result := Current;
+end;
+
+function IsShellPath(const Path: string): Boolean;
+begin
+  // MTP/shell paths start with \\?\ or ::{  or don't have a drive letter
+  Result := (Path <> '') and not TPath.DriveExists(Path) and
+    ((Pos('\\?\', Path) = 1) or (Pos('::{', Path) = 1) or
+     ((Length(Path) >= 2) and (Path[2] <> ':')));
 end;
 
 function CreateImageFromResource(GraphicClass: TGraphicClass; const ResName: string; ResType: PChar): TGraphic;
@@ -457,6 +582,9 @@ begin
     else
       AParameters := Parameters;
 
+    //  AFileName := FileName;
+//  AParameters := Parameters;
+
   ADirectory := Directory;
   if ADirectory = '' then
     ADirectory := TPath.GetDirectoryName(Application.ExeName);
@@ -475,7 +603,7 @@ function MoveToRecycle(sFileName: string): Boolean;
 var
   fos: TSHFileOpStruct;
 begin
-  // SHFileOperation expects a double-null-terminated list, even for one file.
+  // SHFileOperation consumes a double-null-terminated list of paths.
   sFileName := sFileName + #0;
   FillChar(fos, SizeOf(fos), 0);
   with fos do

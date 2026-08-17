@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -32,6 +32,7 @@ uses
   Dialogs,
   ExtCtrls,
   VirtualTrees,
+  VirtualTrees.Types,
   StdCtrls,
   ShellApi,
   Mask,
@@ -163,6 +164,9 @@ type
 
     function CheckEmptyFields(Data: PFileData): Boolean;
 
+  protected
+    procedure DoCreate; override;
+
   public
     property Collection: IBookCollection read FCollection write FCollection;
   end;
@@ -181,7 +185,8 @@ uses
   unit_MHLHelpers,
   unit_Helpers,
   frm_author_list,
-  unit_MHLArchiveHelpers;
+  unit_MHLArchiveHelpers,
+  unit_Localization;
 
 resourcestring
 rstrFileNotSelected = 'Файл не выбран!';
@@ -190,6 +195,12 @@ rstrFileNotSelected = 'Файл не выбран!';
    rstrFailedToRename = 'Переименование не удалось!' + CRLF + 'Возможно, файл заблокирован другой программой.';
 
 {$R *.dfm}
+
+procedure TfrmAddnonfb2.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmAddnonfb2.FillLists;
 var
@@ -352,7 +363,6 @@ end;
 
 function TfrmAddnonfb2.CheckEmptyFields(Data: PFileData): Boolean;
 begin
-  Result := False;
   try
     if not Assigned(Data) then
       raise EInvalidOp.Create(rstrFileNotSelected);
@@ -661,7 +671,7 @@ begin
   Data^.FullPath := flFiles.LastDir;
   Data^.Folder := Path;
   Data^.Ext := Ext;
-  Data^.Date := F.Time;
+  Data^.Date := F.TimeStamp;
   Include(CurrentNode.States, vsInitialized);
 end;
 
@@ -702,7 +712,6 @@ begin
         end
         else
           A := B;
-        B := Tree.GetNext(B);
       end;
     end;
 

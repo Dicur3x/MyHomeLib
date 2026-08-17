@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             20.08.2008
@@ -29,6 +29,8 @@ procedure SyncFolders(const CollectionID: Integer);
 
 function LibrusecUpdate(const LogFileName: string): Boolean;
 
+function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean;
+
 procedure ShowPopup(const Msg: string);
 procedure HidePopup;
 
@@ -46,11 +48,16 @@ uses
   frm_info_popup,
   frm_search,
   frm_main,
+  frm_UpdateFromFile,
+  unit_Globals,
   unit_Interfaces,
-  unit_Settings;
+  unit_Settings,
+  unit_Consts,
+  dm_user;
 
 resourcestring
-  rstrUpdateCollections = 'Обновление коллекций';
+  rstrUpdateCollections = 'Оновлення колекцій';
+  rstrUpdateFromFile = 'Оновлення колекції з файлу';
 
 procedure SyncOnLineFiles(const CollectionID: Integer);
 var
@@ -111,6 +118,54 @@ begin
   finally
     worker.Free;
   end;
+end;
+
+function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean;
+var
+  FileName: string;
+  Full: Boolean;
+  GenresType: TGenresType;
+  CollectionInfo: TCollectionInfo;
+  worker: TManualUpdateThread;
+  ProgressForm: TImportProgressFormEx;
+begin
+  Result := False;
+
+  if not AskUpdateFile(FileName, Full) then
+    Exit;
+
+  CollectionInfo := DMUser.GetSystemDBConnection.GetCollectionInfo(CollectionID);
+
+  //
+  // Той самий розподіл, що й у майстрі створення колекції: локальна не-FB2
+  // колекція (CT_EXTERNAL_LOCAL_NONFB) все одно користується жанрами fb2.
+  //
+  case CollectionInfo.CollectionType of
+    CT_PRIVATE_NONFB, CT_EXTERNAL_ONLINE_NONFB:
+      GenresType := gtAny;
+  else
+    GenresType := gtFb2;
+  end;
+
+  worker := TManualUpdateThread.Create(CollectionID, FileName, Full, GenresType);
+  try
+    worker.DisplayName := CollectionInfo.DisplayName;
+
+    ProgressForm := TImportProgressFormEx.Create(Application);
+    ProgressForm.Caption := rstrUpdateFromFile;
+    try
+      ProgressForm.btnSaveLog.Visible := True;
+      ProgressForm.WorkerThread := worker;
+      ProgressForm.ShowModal;
+      ProgressForm.SaveErrorLog(LogFileName);
+    finally
+      ProgressForm.Free;
+    end;
+  finally
+    worker.Free;
+  end;
+
+  Result := True;
 end;
 
 procedure LocateBook;

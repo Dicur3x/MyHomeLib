@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           eg_
   *                     Nick Rymanov (nrymanov@gmail.com)
@@ -137,6 +137,14 @@ type
     procedure AddBookToGroup(const BookKey: TBookKey; GroupID: Integer; const BookRecord: TBookRecord);
     procedure CopyBookToGroup(const BookKey: TBookKey; SourceGroupID: Integer; TargetGroupID: Integer; MoveBook: Boolean);
     procedure DeleteFromGroup(const BookKey: TBookKey; GroupID: Integer);
+    procedure CleanCollectionBooks(const DatabaseID: Integer);
+    //
+    // Привести BookID книг в группах к текущей нумерации коллекции (сверка по LibID).
+    // Вызывается после переимпорта коллекции и при построении списка группы.
+    // Если RemoveMissing = True, записи, которых больше нет в коллекции, удаляются.
+    // Возвращает количество исправленных записей.
+    //
+    function RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean = False): Integer;
 
     //
     // Пользовательские данные
@@ -182,9 +190,18 @@ type
     //
     //
     //
-    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean; const FullCheck: Boolean): Integer; // превратить в процедуру
-    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean; const FullCheck: Boolean; Cache: TImportCache): Integer;
+    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
+      const FullCheck: Boolean): Integer; overload; // превратить в процедуру
+    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
+      const FullCheck: Boolean; Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean);
+    //
+    // Проверить/восстановить BookID книги по стабильному LibID:
+    // BookID переприсваивается при полном переимпорте коллекции, LibID - нет.
+    // Возвращает CurrentBookID, если он всё ещё указывает на книгу с этим LibID,
+    // иначе - актуальный BookID (0, если книги в коллекции нет).
+    //
+    function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer;
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
     procedure AddBookToGroup(const BookKey: TBookKey; const GroupID: Integer);
@@ -223,6 +240,13 @@ type
     function CollectionDisplayName: string;
     function CollectionURL: string;
 
+    //
+    // Посилання на книгу на сайті бібліотеки. Формат залежить від обв'язки
+    // конкретної бібліотеки, тому його формує сама колекція, а не UI.
+    //
+    function GetViewURL(const LibID: string): string;
+    function GetEditURL(const LibID: string): string;
+
     procedure SetProperty(const PropID: TPropertyID; const Value: Variant);
     function GetProperty(const PropID: TPropertyID): Variant;
     procedure UpdateProperies;
@@ -236,7 +260,7 @@ type
     procedure EndBulkOperation(Commit: Boolean = True);
 
     procedure CompactDatabase;
-    procedure RepairDatabase;
+    function CheckDatabase: string;
 
     function GetTopGenreAlias(const FB2Code: string): string;
     procedure ReloadGenres(const FileName: string);

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Списки жанрів — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html" class="cur" aria-current="page">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Списки жанрів</h1>
+<!-- BODY:BEGIN -->
+<p>Дерево жанрів, за яким книги розкладено на вкладці перегляду (див. <a href="browsing.html">Перегляд колекції: автори, серії, жанри</a>) і яке пропонується при редагуванні опису книги, береться не з самої колекції, а з окремого файлу списку жанрів.</p>
+
+<h2>Два списки: FB2 і не-FB2</h2>
+<p>Програма постачається з двома готовими списками жанрів, які встановлюються поруч із виконуваним файлом (див. <a href="install.html">Встановлення</a>):</p>
+<ul>
+<li><code>genres_fb2.glst</code> — стандартне дерево жанрів FictionBook, для FB2-колекцій;</li>
+<li><code>genres_nonfb2.glst</code> — окреме дерево для колекцій довільних форматів (не-FB2).</li>
+</ul>
+<p>Який із них дістає нова колекція — і чи можна замінити його на свій — вирішується під час створення колекції в майстрі, на кроці <span class="ui">«Файл опису жанрів»</span> (див. <a href="new_collection.html">Створення колекції</a>): для FB2-колекцій завжди береться стандартний файл жанрів FB2, а для колекцій довільного формату можна або лишити стандартний файл не-FB2, або вказати свій файл із розширенням <code>.glst</code>. Поруч зі стандартними списками встановлюються їхні перекладені копії — з кодом мови в імені файлу, — і програма бере ту з них, що відповідає мові інтерфейсу, якщо така копія є.</p>
+
+<h2>Оновлення списку жанрів колекції</h2>
+<p>Команда <span class="ui">«Колекція» → «Обслуговування» → «Оновити список жанрів»</span> перечитує файл жанрів наново для активної колекції. Для FB2-колекції це завжди стандартний файл <code>genres_fb2.glst</code>, без запитань. Для колекції довільного формату команда щоразу відкриває діалог вибору файлу — можна вказати той самий файл повторно або інший.</p>
+<p class="note">Оновлення повністю замінює список доступних жанрів колекції новим переліком із файлу. Якщо в новому файлі якогось коду жанру, що раніше вже був присвоєний книгам, більше немає, ця позначка жанру в них губиться — сама книга з колекції не зникає, але жанр, якого не стало у файлі, з неї знімається.</p>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

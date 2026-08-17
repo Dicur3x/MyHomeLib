@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   *                     Oleksiy Penkov  oleksiy.penkov@gmail.com
@@ -13,26 +13,7 @@
   *
   * History
   * NickR 02.03.2010    Код переформатирован
-  * NickR 02.09.2010    INPX больше не распаковывается на диск для обработки.
-  *                     Вся работа происходит в памяти.
-  *
-  * [REFACTOR] Fixed TMHLZip leak when constructor throws in Import
-  * [REFACTOR] Fixed FProgressEngine.BeginOperation without paired EndOperation
-  * [REFACTOR] Fixed AfterBatchUpdate skipped on exception
-  * [REFACTOR] Fixed WorkFunction swallowing exception after Teletype
-  * [REFACTOR] Fixed GetFields silently dropping last field (no trailing ';')
-  * [REFACTOR] Fixed flDeleted using lexicographic >= '1' instead of exact '1'
-  * [REFACTOR] Replaced Assert(False) for flURI with a logged warning
-  * [REFACTOR] Hardened date parsing with try/except + EConvertError
-  * [REFACTOR] Removed dangling FreeAndNil(inpStream) in outer finally
-  *
-  * [PERF] ParseData now accepts a caller-supplied TStringList (slParams) so
-  *        the same instance is reused for every book — eliminates ~500k
-  *        Create/Free pairs per INPX import on large collections.
-  * [PERF] Import creates a TImportCache and passes it to InsertBook, so
-  *        author and series lookups hit the in-memory dictionary first.
-  *        On a 500k-book collection over a spinning HDD this typically
-  *        eliminates ~1.5M SELECT queries for authors and ~500k for series.
+  * NickR 02.09.2010    INPX больше не распаковывается на диск для обработки. Вся работа происходит в памяти.
   *
   ****************************************************************************** *)
 
@@ -83,14 +64,17 @@ type
 
     FFields: array of TFields;
     FUseStoredFolder: Boolean;
+    //
+    // False (типово) - collection.info з архіву застосовується до колекції.
+    // True - властивості колекції не чіпаються: файл може бути чужий, і його
+    // URL зі скриптом підключення затерли б налаштування користувача.
+    //
+    FKeepCollectionProps: Boolean;
 
   protected
     procedure GetFields(const StructureInfo: string);
-
-    // [PERF] slParams is supplied by the caller and reused across all records
-    // in a single .inp file — no Create/Free per book.
-    procedure ParseData(const input: string; const OnlineCollection: Boolean; var R: TBookRecord; slParams: TStringList);
-
+    procedure ParseData(const input: string; const OnlineCollection: Boolean;
+      var R: TBookRecord; Params: TStringList);
     procedure Import(const INPXFileName: string; CheckFiles: Boolean; BookCollection: IBookCollection);
   end;
 
@@ -110,25 +94,23 @@ implementation
 uses
   SysUtils,
   IOUtils,
+  ComCtrls,
   unit_MHLArchiveHelpers,
   unit_Consts,
   unit_Helpers,
   unit_Errors,
-  unit_Logger,
   dm_user;
 
 resourcestring
-  rstrProcessingFile    = 'Обрабатываем файл %s';
-  rstrAddedBooks        = 'Добавлено %u книг';
-  rstrErrorInpStructure = 'Ошибка структуры inp. Файл %s, Строка %u';
-  rstrDBErrorInp        = 'Ошибка базы данных при импорте книги. Файл %s, Строка %u';
-  rstrUpdatingDB        = 'Обновление базы данных. Пожалуйста, подождите... ';
-  rstrInvalidFormat     = 'Неправильный формат файла INPX!';
-  rstrWarnURIField      = 'INPX field URI is not supported and will be skipped (file: %s)';
-  rstrErrorDateFormat   = 'Ошибка формата даты в поле: "%s", файл %s строка %u';
+   rstrProcessingFile = 'Обробляємо файл %s';
+   rstrAddedBooks = 'Додано %u книг';
+   rstrErrorInpStructure = 'Помилка структури inp. Файл %s, Рядок %u';
+   rstrDBErrorInp = 'Помилка бази даних під час імпорту книги. Файл %s, Рядок %u';
+   rstrUpdatingDB = 'Оновлення бази даних. Будь ласка зачекайте ... ';
+   rstrInvalidFormat = 'Неправильний формат файлу INPX!';
 
 const
-  FieldsDescr: array [1..20] of TFieldDescr = (
+  FieldsDescr: array [1 .. 20] of TFieldDescr = (
     (Code: 'AUTHOR';   FType: flAuthor),
     (Code: 'TITLE';    FType: flTitle),
     (Code: 'SERIES';   FType: flSeries),
@@ -174,10 +156,11 @@ begin
         Tail := StrNextChar(Tail);
 
       EOS := Tail^ = #0;
-      if Head^ <> #0 then
+      if {(Head <> Tail) and} (Head^ <> #0) then
       begin
         SetString(Item, Head, Tail - Head);
         Strings.Add(Item);
+
         Inc(Result);
       end;
       Tail := StrNextChar(Tail);
@@ -187,171 +170,179 @@ begin
   end;
 end;
 
-// [PERF] slParams is created once per .inp file in Import and reused here.
-//        slParams.Clear is called at the top — behaviour is identical to the
-//        old Create/Free pattern but avoids ~500k heap allocations per import.
-procedure TImportInpxThreadBase.ParseData(
-  const input: string;
-  const OnlineCollection: Boolean;
-  var R: TBookRecord;
-  slParams: TStringList);
+procedure TImportInpxThreadBase.ParseData(const input: string;
+  const OnlineCollection: Boolean; var R: TBookRecord; Params: TStringList);
 var
-  p, i: Integer;
+  i: Integer;
   AuthorList: string;
-  strLastName, strFirstName, strMidName: string;
+  strLastName: string;
+  strFirstName: string;
+  strMidName: string;
   GenreList: string;
   s: string;
-  mm, dd, yy: Word;
+  mm, dd, yy: word;
+  pStart, pCur, pItemStart, pSub, pSubStart: PChar;
+
   Max: Integer;
 begin
   R.Clear;
+  Params.Clear;
+  ExtractStrings(PChar(input), INPX_FIELD_DELIMITER, Params);
 
-  // Reuse the supplied list — no allocation on the hot path.
-  slParams.Clear;
-  ExtractStrings(PChar(input), INPX_FIELD_DELIMITER, slParams);
+    // -- костыль
+    if Params.Count <= High(FFields) then
+      Max := Params.Count - 1
+    else
+      Max := High(FFields);
+    // --
 
-  if slParams.Count <= High(FFields) then
-    Max := slParams.Count - 1
-  else
-    Max := High(FFields);
+    for i := 0 to Max do
+    begin
+      case FFields[i] of
+        flAuthor:
+          begin // Список авторов
+            AuthorList := Params[i];
+            pStart := PChar(AuthorList);
+            pCur := pStart;
+            while pCur^ <> #0 do
+            begin
+              // Find the end of this author entry (delimited by INPX_ITEM_DELIMITER)
+              pItemStart := pCur;
+              while (pCur^ <> #0) and (pCur^ <> INPX_ITEM_DELIMITER) do
+                Inc(pCur);
 
-  for i := 0 to Max do
-  begin
-    case FFields[i] of
-      flAuthor:
-      begin
-        AuthorList := slParams[i];
-        while AuthorList <> '' do
-        begin
-          p := PosChr(INPX_ITEM_DELIMITER, AuthorList);
-          if p = 0 then
-          begin
-            s := AuthorList;
-            AuthorList := '';
-          end
-          else
-          begin
-            s := Copy(AuthorList, 1, p - 1);
-            Delete(AuthorList, 1, p);
+              if pCur > pItemStart then
+              begin
+                // Parse author sub-fields (LastName,FirstName,MiddleName)
+                pSub := pItemStart;
+
+                // LastName
+                pSubStart := pSub;
+                while (pSub < pCur) and (pSub^ <> INPX_SUBITEM_DELIMITER) do
+                  Inc(pSub);
+                SetString(strLastName, pSubStart, pSub - pSubStart);
+                if (pSub < pCur) then Inc(pSub);
+
+                // FirstName
+                pSubStart := pSub;
+                while (pSub < pCur) and (pSub^ <> INPX_SUBITEM_DELIMITER) do
+                  Inc(pSub);
+                SetString(strFirstName, pSubStart, pSub - pSubStart);
+                if (pSub < pCur) then Inc(pSub);
+
+                // MiddleName (rest until item delimiter)
+                SetString(strMidName, pSub, pCur - pSub);
+
+                TAuthorsHelper.Add(R.Authors, strLastName, strFirstName, strMidName);
+              end;
+
+              if pCur^ <> #0 then
+                Inc(pCur); // skip delimiter
+            end;
           end;
 
-          if s = '' then
-            Continue;
-
-          p := PosChr(INPX_SUBITEM_DELIMITER, s);
-          if p = 0 then
-          begin
-            strLastName := s;
-            strFirstName := '';
-            strMidName := '';
-          end
-          else
-          begin
-            strLastName := Copy(s, 1, p - 1);
-            Delete(s, 1, p);
-
-            p := PosChr(INPX_SUBITEM_DELIMITER, s);
-            if p = 0 then
+        flGenre:
+          begin // Список жанров
+            GenreList := Params[i];
+            pStart := PChar(GenreList);
+            pCur := pStart;
+            while pCur^ <> #0 do
             begin
-              strFirstName := s;
-              strMidName := '';
+              pItemStart := pCur;
+              while (pCur^ <> #0) and (pCur^ <> INPX_ITEM_DELIMITER) do
+                Inc(pCur);
+
+              if pCur > pItemStart then
+              begin
+                SetString(s, pItemStart, pCur - pItemStart);
+                if FGenresType = gtFb2 then
+                  TGenresHelper.Add(R.Genres, '', '', s)
+                else
+                  TGenresHelper.Add(R.Genres, s, '', '');
+              end;
+
+              if pCur^ <> #0 then
+                Inc(pCur);
+            end;
+          end;
+
+        flTitle:
+          R.Title := Params[i]; // Название
+
+        flSeries:
+          R.Series := Params[i]; // Серия
+
+        flSerNo:
+          R.SeqNumber := StrToIntDef(Params[i], 0); // Номер внутри серии
+
+        flFile:
+          R.FileName := CheckSymbols(Trim(Params[i])); // Имя файла
+
+        flExt:
+          begin
+            s := Trim(Params[i]);
+            if (s <> '') and (s[1] <> '.') then
+              Insert('.', s, 1);
+            R.FileExt := s;
+          end;
+
+        flSize:
+          R.Size := StrToIntDef(Params[i], 0); // Размер
+
+        flLibID: R.LibID := Params[i]; // внутр. номер   ИСПОЛЬЗУЕТСЯ ВО ВСЕХ КОЛЛЕКЦИЯХ!
+
+        flDeleted:
+          begin
+            if Params[i] = '1' then // удалена
+              Include(R.BookProps, bpIsDeleted)
+            else
+              Exclude(R.BookProps, bpIsDeleted);
+          end;
+
+        flDate:
+          begin // дата
+            if Params[i] <> '' then
+            begin
+              yy := StrToInt(Copy(Params[i], 1, 4));
+              mm := StrToInt(Copy(Params[i], 6, 2));
+              dd := StrToInt(Copy(Params[i], 9, 2));
+              R.Date := EncodeDate(yy, mm, dd);
             end
             else
-            begin
-              strFirstName := Copy(s, 1, p - 1);
-              Delete(s, 1, p);
-              strMidName := s;
-            end;
-          end;
-
-          TAuthorsHelper.Add(R.Authors, strLastName, strFirstName, strMidName);
-        end;
-      end;
-
-      flGenre:
-      begin
-        GenreList := slParams[i];
-        while GenreList <> '' do
-        begin
-          p := PosChr(INPX_ITEM_DELIMITER, GenreList);
-          if p = 0 then
-          begin
-            s := GenreList;
-            GenreList := '';
-          end
-          else
-          begin
-            s := Copy(GenreList, 1, p - 1);
-            Delete(GenreList, 1, p);
-          end;
-
-          if s <> '' then
-            if FGenresType = gtFb2 then
-              TGenresHelper.Add(R.Genres, '', '', s)
-            else
-              TGenresHelper.Add(R.Genres, s, '', '');
-        end;
-      end;
-
-      flTitle:    R.Title     := slParams[i];
-      flSeries:   R.Series    := slParams[i];
-      flSerNo:    R.SeqNumber := StrToIntDef(slParams[i], 0);
-      flFile:     R.FileName  := CheckSymbols(Trim(slParams[i]));
-      flExt:
-      begin
-        s := Trim(slParams[i]);
-        if (s <> '') and (s[1] <> '.') then
-          Insert('.', s, 1);
-        R.FileExt := s;
-      end;
-      flSize:     R.Size      := StrToIntDef(slParams[i], 0);
-      flLibID:    R.LibID     := slParams[i];
-      flFolder:   R.Folder    := slParams[i];
-      flLibRate:  R.LibRate   := StrToIntDef(slParams[i], 0);
-      flLang:     R.Lang      := slParams[i];
-      flKeyWords: R.KeyWords  := slParams[i];
-      flInsideNo: R.InsideNo  := StrToIntDef(slParams[i], 0);
-
-      flDeleted:
-      begin
-        if slParams[i] = '1' then
-          Include(R.BookProps, bpIsDeleted)
-        else
-          Exclude(R.BookProps, bpIsDeleted);
-      end;
-
-      flDate:
-      begin
-        if slParams[i] <> '' then
-        begin
-          try
-            yy := StrToInt(Copy(slParams[i], 1, 4));
-            mm := StrToInt(Copy(slParams[i], 6, 2));
-            dd := StrToInt(Copy(slParams[i], 9, 2));
-            R.Date := EncodeDate(yy, mm, dd);
-          except
-            on E: EConvertError do
-            begin
               R.Date := EncodeDate(1970, 1, 1);
-              raise;
-            end;
           end;
-        end
-        else
-          R.Date := EncodeDate(1970, 1, 1);
-      end;
+
+        flInsideNo:
+          R.InsideNo := StrToIntDef(Params[i], 0); // номер в архиве
+
+        flFolder:
+          R.Folder := Params[i]; // папка
+
+        flLibRate:
+          R.LibRate := StrToIntDef(Params[i], 0); // внешний рейтинг
+
+        flRate:
+          R.Rate := StrToIntDef(Params[i], 0);
+
+        flLang:
+          R.Lang := Params[i]; // язык
+
+        flKeyWords:
+          R.KeyWords := Params[i]; // ключевые слова
+
+        flURI:
+          Assert(False, 'Not supported anymore');
+          ///R.URI := slParams[i]; // ключевые слова
+      end; // case, for
     end;
-  end;
 
   R.Normalize;
 end;
 
 procedure TImportInpxThreadBase.GetFields(const StructureInfo: string);
-const
-  del = ';';
 var
-  s: string;
-  p, i: Integer;
+  sl: TStringList;
+  i: Integer;
 
   function FindType(const s: string): TFields;
   var
@@ -367,44 +358,36 @@ var
   end;
 
 begin
-  s := StructureInfo;
+  sl := TStringList.Create;
+  try
+    sl.Delimiter := ';';
+    sl.StrictDelimiter := True;
+    sl.DelimitedText := StructureInfo;
 
-  SetLength(FFields, 0);
-  FUseStoredFolder := False;
-  i := 0;
-  p := Pos(del, s);
-
-  while p <> 0 do
-  begin
-    SetLength(FFields, i + 1);
-    FFields[i] := FindType(Copy(s, 1, p - 1));
-    FUseStoredFolder := FUseStoredFolder or (FFields[i] = flFolder);
-    Delete(s, 1, p);
-    Inc(i);
-    p := Pos(del, s);
-  end;
-
-  // Last token when structure string has no trailing semicolon.
-  s := Trim(s);
-  if s <> '' then
-  begin
-    SetLength(FFields, i + 1);
-    FFields[i] := FindType(s);
-    FUseStoredFolder := FUseStoredFolder or (FFields[i] = flFolder);
+    SetLength(FFields, sl.Count);
+    for i := 0 to sl.Count - 1 do
+    begin
+      FFields[i] := FindType(sl[i]);
+      FUseStoredFolder := FUseStoredFolder or (FFields[i] = flFolder);
+    end;
+  finally
+    sl.Free;
   end;
 end;
 
-procedure TImportInpxThreadBase.Import(
-  const INPXFileName: string;
-  CheckFiles: Boolean;
-  BookCollection: IBookCollection);
+procedure TImportInpxThreadBase.Import(const INPXFileName: string; CheckFiles: Boolean; BookCollection: IBookCollection);
+type
+  TInpEntry = record
+    Name: string;
+    Size: Integer;
+  end;
 var
   CollectionRoot: string;
   BookList: TStringList;
-  i, j: Integer;
+  i: Integer;
+  j: Integer;
   R: TBookRecord;
   filesProcessed: Integer;
-  recordsProcessed: Integer;
   CurrentFile: string;
   IsOnline: Boolean;
   inpStream: TMemoryStream;
@@ -412,86 +395,97 @@ var
   header: TINPXHeader;
   strVersion: string;
   strCollection: string;
-  numFiles: Integer;
   Zip: TMHLZip;
   collectionCode: Integer;
-  // [PERF] One TStringList for all ParseData calls in this import run.
-  //        Declared here, created once, reused across all .inp files and
-  //        all book records within each file.
-  slParams: TStringList;
-  // [PERF] One TImportCache for the entire import run.
-  //        Holds author and series ID lookups so InsertBook never issues
-  //        a SELECT for a name it has already resolved in this session.
+  InpEntries: TArray<TInpEntry>;
+  EntryCount: Integer;
+  TotalBytes: Int64;
+  BytesDone: Int64;
+  Params: TStringList;
   Cache: TImportCache;
-  Field: TFields;
 
   function EntryBaseName(const EntryName: string): string;
   begin
     Result := ExtractFileName(StringReplace(EntryName, '/', '\', [rfReplaceAll]));
   end;
+
 begin
   filesProcessed := 0;
-  recordsProcessed := 0;
-  i := 0;
   SetProgress(0);
   collectionCode := BookCollection.CollectionCode;
 
-  IsOnline      := isOnlineCollection(collectionCode);
+  IsOnline := isOnlineCollection(collectionCode);
   CollectionRoot := BookCollection.GetProperty(PROP_ROOTFOLDER);
 
   SetLength(FFields, 0);
   FUseStoredFolder := False;
-
   Zip := nil;
-  slParams := nil;
+  inpStream := nil;
+  Params := nil;
   Cache := nil;
 
   BookCollection.StartBatchUpdate;
   try
-    // Reuse these objects throughout the whole import.  Keeping their creation
-    // inside the guarded batch also restores triggers when allocation or archive
-    // opening fails.
-    slParams := TStringList.Create;
+    Params := TStringList.Create;
     Cache := TImportCache.Create;
     Zip := TMHLZip.Create(INPXFileName, True);
-
     if Zip.Find(STRUCTUREINFO_FILENAME) then
       StructureInfo := Zip.ExtractToString(STRUCTUREINFO_FILENAME)
     else
       StructureInfo := DEFAULTSTRUCTURE;
 
     GetFields(StructureInfo);
-    for Field in FFields do
-      if Field = flURI then
-      begin
-        Logger.W(rstrWarnURIField, [INPXFileName]);
-        Break;
-      end;
 
-    // ZIPs may also contain collection.info, version.info, covers, and other
-    // auxiliary entries.  Count only the .inp files that will actually run so
-    // progress remains accurate and never divides by an unrelated entry count.
-    numFiles := 0;
-    if Zip.Find('*.inp') then
-      repeat
-        CurrentFile := Zip.LastName;
-        if IsOnline or not SameText(EntryBaseName(CurrentFile), 'extra.inp') then
-          Inc(numFiles);
-      until not Zip.FindNext;
-
-    if Zip.Find('*.inp') then
-    repeat
-      CurrentFile := Zip.LastName;
-      if not IsOnline and SameText(EntryBaseName(CurrentFile), 'extra.inp') then
+    //
+    // Попередній прохід: збираємо .inp-члени архіву та їхні розпаковані
+    // розміри. Розмір лежить у центральному каталозі zip, читання нічого не
+    // коштує, а важити прогрес байтами точніше, ніж кількістю членів: рядки
+    // .inp майже однакової довжини, а самі члени дуже різні за обсягом.
+    //
+    // Заразом це прибирає давню ваду обходу: TMHLZip.FindNext не перевіряє
+    // розширення, тож старий цикл, проминувши останній .inp, згодовував
+    // ParseData version.info і collection.info та засмічував журнал помилок.
+    //
+    SetLength(InpEntries, Zip.FileCount);
+    EntryCount := 0;
+    TotalBytes := 0;
+    for i := 0 to Zip.FileCount - 1 do
+    begin
+      CurrentFile := Zip.FileNames[i];
+      if not SameText(ExtractFileExt(CurrentFile), INP_EXTENSION) then
         Continue;
+      if not IsOnline and SameText(EntryBaseName(CurrentFile), EXTRA_INP_FILENAME) then
+        Continue;
+
+      InpEntries[EntryCount].Name := CurrentFile;
+      InpEntries[EntryCount].Size := Zip.FileSizes[i];
+      Inc(TotalBytes, InpEntries[EntryCount].Size);
+      Inc(EntryCount);
+    end;
+    SetLength(InpEntries, EntryCount);
+
+    //
+    // TWorker.OpenProgress відкриває операцію з Total = 0, і TProgressEngine
+    // виставляє смузі pbstMarquee. Поки стиль marquee, Position не видно -
+    // саме через це діалог оновлення показував нескінченну «біжучу доріжку»
+    // замість прогресу.
+    //
+    if TotalBytes > 0 then
+      SetProgressHint(pbstNormal, pbsNormal);
+
+    BytesDone := 0;
+    for i := 0 to High(InpEntries) do
+    begin
+      CurrentFile := InpEntries[i].Name;
 
       Teletype(Format(rstrProcessingFile, [CurrentFile]), tsInfo);
 
       BookList := TStringList.Create;
       try
-        inpStream := TMemoryStream.Create;
         try
-          Zip.ExtractToStream(Zip.LastIndex, inpStream);
+          inpStream := TMemoryStream.Create;
+          Zip.ExtractToStream(CurrentFile, inpStream);
+          inpStream.Seek(0, soBeginning);
           BookList.LoadFromStream(inpStream, TEncoding.UTF8);
         finally
           FreeAndNil(inpStream);
@@ -500,15 +494,13 @@ begin
         for j := 0 to BookList.Count - 1 do
         begin
           try
-            // [PERF] Pass the shared slParams — ParseData clears it internally
-            //        instead of creating a new TStringList each time.
-            ParseData(BookList[j], IsOnline, R, slParams);
-
+            ParseData(BookList[j], IsOnline, R, Params);
             if IsOnline then
             begin
-              if 0 = (CONTENT_NONFB and collectionCode) then
-                R.Folder := R.GenerateLocation + FB2ZIP_EXTENSION;
 
+              if 0 = (CONTENT_NONFB and collectionCode) then
+                R.Folder := R.GenerateLocation + FB2ZIP_EXTENSION;  // И\Иванов Иван\1234 Просто книга.fb2.zip
+              // Сохраним отметку о существовании файла
               if FileExists(TPath.Combine(CollectionRoot, R.Folder)) then
                 Include(R.BookProps, bpIsLocal)
               else
@@ -519,14 +511,14 @@ begin
               Include(R.BookProps, bpIsLocal);
               if not FUseStoredFolder then
               begin
-                R.Folder   := ChangeFileExt(CurrentFile, ZIP_EXTENSION);
+                // 98058-98693.inp -> 98058-98693.zip
+                R.Folder := ChangeFileExt(CurrentFile, ZIP_EXTENSION);
+                //
                 R.InsideNo := j;
-              end;
+              end
             end;
 
             try
-              // [PERF] Cache overload — author/series resolved from dictionary,
-              //        DB path only on the very first occurrence of each name.
               if BookCollection.InsertBook(R, CheckFiles, False, Cache) <> 0 then
                 Inc(filesProcessed);
             except
@@ -538,43 +530,55 @@ begin
             on E: EConvertError do
               Teletype(Format(rstrErrorInpStructure, [CurrentFile, j + 1]), tsError);
             on E: EDBError do
+            begin
               Teletype(Format(rstrDBErrorInp, [CurrentFile, j + 1]), tsError);
+              // A malformed source row can be skipped, but a database failure
+              // means the transaction itself is no longer trustworthy.
+              raise;
+            end;
             on E: Exception do
+            begin
               Teletype(E.Message, tsError);
+              raise;
+            end;
           end;
 
-          // Throttle UI synchronization by attempted records, not successful
-          // inserts.  Duplicate or malformed records previously left the
-          // counter at zero and synchronized the worker for every line.
-          Inc(recordsProcessed);
-          if (recordsProcessed mod ProcessedItemThreshold) = 0 then
+          //
+          // Крутимо смугу на кожному розібраному рядку, а не на кожній сотій
+          // *вставленій* книзі: інкрементальне оновлення, де майже все вже є
+          // в колекції, інакше стоїть на місці. SetProgress сам гасить
+          // Synchronize, доки ціле число відсотків не змінилось.
+          //
+          if TotalBytes > 0 then
+            SetProgress(Integer(
+              (BytesDone + Round(InpEntries[i].Size * ((j + 1) / BookList.Count))) * 100 div TotalBytes));
+
+          if (j mod ProcessedItemThreshold) = 0 then
           begin
-            if numFiles > 0 then
-              SetProgress(Round((i + (j + 1) / BookList.Count) * 100 / numFiles));
             SetComment(Format(rstrAddedBooks, [filesProcessed]));
-          end;
 
-          if Canceled then
-            Break;
+            if Canceled then
+              Break;
+          end;
         end;
       finally
         FreeAndNil(BookList);
       end;
 
+      Inc(BytesDone, InpEntries[i].Size);
       if Canceled then
         Break;
+    end;
 
-      Inc(i);
-      if numFiles > 0 then
-        SetProgress(Round(i * 100 / numFiles));
-      SetComment(Format(rstrAddedBooks, [filesProcessed]));
-    until not Zip.FindNext;
+    if Canceled then
+      Exit;
 
     Teletype(Format(rstrAddedBooks, [filesProcessed]), tsInfo);
-
     FProgressEngine.BeginOperation(-1, rstrUpdatingDB, '');
     try
-      if Zip.Find(COLLECTIONINFO_FILENAME) then
+      // Read archive metadata only when this import is allowed to replace the
+      // current collection connection settings.
+      if not FKeepCollectionProps and Zip.Find(COLLECTIONINFO_FILENAME) then
       begin
         strCollection := Zip.ExtractToString(Zip.LastName);
         header.ParseString(strCollection);
@@ -586,31 +590,28 @@ begin
       if Zip.Find(VERINFO_FILENAME) then
       begin
         strVersion := Trim(Zip.ExtractToString(Zip.LastName));
-        BookCollection.SetProperty(PROP_DATAVERSION, StrToIntDef(strVersion, UNVERSIONED_COLLECTION));
+        BookCollection.SetProperty(PROP_DATAVERSION,
+          StrToIntDef(strVersion, UNVERSIONED_COLLECTION));
       end;
 
       BookCollection.AfterBatchUpdate;
     finally
       FProgressEngine.EndOperation;
     end;
-
   finally
-    // Release in reverse order of creation; Zip may be nil if constructor threw.
     FreeAndNil(Zip);
+    FreeAndNil(inpStream);
     FreeAndNil(Cache);
-    FreeAndNil(slParams);
+    FreeAndNil(Params);
     BookCollection.FinishBatchUpdate;
   end;
 end;
 
-constructor TImportInpxThread.Create(
-  const CollectionID: Integer;
-  const INPXFileName: string;
-  GenresType: TGenresType);
+constructor TImportInpxThread.Create(const CollectionID: Integer; const INPXFileName: string; GenresType: TGenresType);
 begin
   inherited Create(CollectionID);
   FInpxFileName := INPXFileName;
-  FGenresType   := GenresType;
+  FGenresType := GenresType;
 end;
 
 procedure TImportInpxThread.WorkFunction;
@@ -620,7 +621,10 @@ begin
   FCollection.BeginBulkOperation;
   try
     Import(FInpxFileName, False, FCollection);
-    FCollection.EndBulkOperation(True);
+    if Canceled then
+      FCollection.EndBulkOperation(False)
+    else
+      FCollection.EndBulkOperation(True);
   except
     on E: Exception do
     begin

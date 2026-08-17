@@ -416,6 +416,8 @@ begin
 end;
 
 procedure TImportFB2Thread.WorkFunction;
+var
+  BulkOperationActive: Boolean;
 begin
   FAddCount := 0;
   FDefectCount := 0;
@@ -437,14 +439,24 @@ begin
     Exit;
   end;
 
+  BulkOperationActive := True;
   FCollection.BeginBulkOperation;
   try
     ProcessFileList;
+    if Canceled then
+    begin
+      FCollection.EndBulkOperation(False);
+      BulkOperationActive := False;
+      RollbackFileOperations;
+      Exit;
+    end;
     FCollection.EndBulkOperation(True);
+    BulkOperationActive := False;
     CommitFileOperations;
   except
     try
-      FCollection.EndBulkOperation(False);
+      if BulkOperationActive then
+        FCollection.EndBulkOperation(False);
     finally
       RollbackFileOperations;
     end;
@@ -472,14 +484,24 @@ begin
     Exit;
   end;
 
+  BulkOperationActive := True;
   FCollection.BeginBulkOperation;
   try
     ProcessFileListArchive;
+    if Canceled then
+    begin
+      FCollection.EndBulkOperation(False);
+      BulkOperationActive := False;
+      RollbackFileOperations;
+      Exit;
+    end;
     FCollection.EndBulkOperation(True);
+    BulkOperationActive := False;
     CommitFileOperations;
   except
     try
-      FCollection.EndBulkOperation(False);
+      if BulkOperationActive then
+        FCollection.EndBulkOperation(False);
     finally
       RollbackFileOperations;
     end;

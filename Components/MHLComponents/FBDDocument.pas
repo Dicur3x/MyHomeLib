@@ -2,9 +2,9 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
-  * Author(s)           Aleksey Penkov
+  * Author(s)           Oleksiy Penkov
   *                     Nick Rymanov (nrymanov@gmail.com)
   * Created             15.04.2010
   * Description
@@ -12,14 +12,13 @@
   * $Id: FBDDocument.pas 1119 2012-10-29 01:52:46Z koreec $
   *
   * History
-  * 2026-03-08 - Added nil guards for FImage in LoadCoverFromFile, LoadCoverFromClpbrd,
-  *              AutoLoadCover, DecodeCover, ResizeImage (fixes potential AV crashes)
   *
   ****************************************************************************** *)
 
 unit FBDDocument;
 
 //
+// TODO -oNickR: разобраться с использованием FImage. Не везде есть проверки на nil, картинка не перерисовывается...
 // TODO -oNickR: более аккуратная работа с архивами (расставить флаги у метода OpenArchive)
 // TODO -oNickR: расставить const у параметров
 //
@@ -34,7 +33,8 @@ uses
   fbd_xml,
   ExtCtrls,
   StdCtrls,
-  FBDAuthorTable;
+  FBDAuthorTable,
+  unit_MHLArchiveHelpers;
 
 type
   TCoverImageType = (itPng, itJPG);
@@ -71,6 +71,7 @@ type
     FCoverHeight: integer;
 
     FResizeMode: TResizeMode;
+    FReportErrors: Boolean;
 
     function GetCustomInfo: IXMLCustominfoList;
     function GetDocumentInfo: IXMLDocumentinfo;
@@ -87,7 +88,6 @@ type
     procedure SetTImage(Value: TImage);
     function SaveFBD: Boolean;
     function CreateArchive(EditorMode: Boolean): boolean;
-    procedure GetFBDFileNames(out Description: string);
     procedure ResizeImage;
     function ExecAndWait(const FileName, Params: string; const WinState: Word): Boolean;
     procedure SetCoverSize(const Value: Integer);
@@ -101,7 +101,12 @@ type
 
     procedure New(Folder, Filename, Ext: string);
     function Load(Folder, Filename, Ext: string; NoCover: Boolean = False): Boolean;
-    procedure Save(EditorMode: Boolean);
+    function Save(EditorMode: Boolean): Boolean;
+
+    //
+    // Пакетний режим сам звітує про помилки, тому діалог можна вимкнути.
+    //
+    property ReportErrors: Boolean read FReportErrors write FReportErrors;
 
     property Title: IXMLTitleInfoType read GetTitleInfo write SetTitleInfo;
     property Document: IXMLDocumentinfo read GetDocumentInfo write SetDocumentInfo;
@@ -109,6 +114,11 @@ type
     property Custom: IXMLCustominfoList read GetCustomInfo write SetCustomInfo;
     property Cover: TCover read FCoverData write FCoverData;
     property ProgramUsed: string read FProgramUsed write FProgramUsed;
+
+    //
+    // Повне ім'я цільового архіву. Визначене після New/Load.
+    //
+    property ArchiveFileName: string read FArchiveFilename;
 
     procedure SetCustom(const Field: string; const Value: string);
     function GetCustom(const Field: string): string;
@@ -131,8 +141,8 @@ type
   end;
 
 resourcestring
-rstrErrorCreatingFBD = 'Ошибка создания FBD!';
-   rstrErrorLaunching = 'Не удалось запустить %s!';
+rstrErrorCreatingFBD = 'Помилка створення FBD!';
+   rstrErrorLaunching = 'Не вдалося запустити %s!';
 
 implementation
 
@@ -147,11 +157,12 @@ uses
   pngimage,
   jpeg,
   IOUtils,
-  unit_MHLArchiveHelpers;
+  System.Zip;
 
 const
   FBD_EXTENSION = '.fbd';
   ZIP_EXTENSION = '.zip';
+  TEMP_EXTENSION = '.mhltmp';
   DEFAULT_PROGRAM_USED = 'MyHomeLib';
 
 { TFBDDocument }
@@ -203,6 +214,7 @@ begin
   inherited;
   FResizeMode := rmMax;
   FProgramUsed := DEFAULT_PROGRAM_USED;
+  FReportErrors := True;
 end;
 
 function TFBDDocument.Load(Folder, Filename, Ext: string; NoCover: boolean = False):boolean;
@@ -270,8 +282,8 @@ begin
                   FImage.Invalidate;
                 end;
               finally
-                FreeAndNil(IMG);
-                FreeAndNil(Output);
+                IMG.Free;
+                Output.Free;
               end;
             end;
           end;
@@ -427,16 +439,30 @@ function TFBDDocument.ExtractBook(TempFolder: string):string;
 var
   archiver: TMHLZip;
   MS: TMemoryStream;
-  No: integer;
+  No, I: integer;
+  EntryName: string;
 begin
+  Result := '';
   MS := nil;
   archiver := nil;
   try
     archiver := TMHLZip.Create(FArchiveFilename, True);
-    No := archiver.GetIdxByExt('.fbd');
-    if No = 0 then No := 1 else No := 0;
+    No := -1;
+    if archiver.Find(FBookFilename) then
+      No := archiver.LastIndex
+    else
+      for I := 0 to archiver.FileCount - 1 do
+        if not SameText(ExtractFileExt(archiver.FileNameAt(I)), FBD_EXTENSION) then
+        begin
+          No := I;
+          Break;
+        end;
+
+    if No < 0 then
+      raise EInvalidOpException.Create('Book payload was not found in FBD archive');
     MS := archiver.ExtractToStream(No);
-    Result := TPath.Combine(TempFolder, archiver.LastName);
+    EntryName := StringReplace(archiver.FileNameAt(No), '/', '\', [rfReplaceAll]);
+    Result := TPath.Combine(TempFolder, ExtractFileName(EntryName));
     MS.SaveToFile(Result);
   finally
     FreeAndNil(archiver);
@@ -456,10 +482,9 @@ begin
   end;
 end;
 
-procedure TFBDDocument.Save(EditorMode: boolean);
+function TFBDDocument.Save(EditorMode: boolean): Boolean;
 begin
-  if SaveFBD then
-    CreateArchive(EditorMode);
+  Result := SaveFBD and CreateArchive(EditorMode);
 end;
 
 function TFBDDocument.SaveFBD : boolean;
@@ -470,8 +495,8 @@ var
   Str: string;
   i: integer;
   XML : TXMLDocument;
+
 begin
-  Result := False;
   XML := nil;
   try
     if Cover.Str <> '' then
@@ -534,6 +559,7 @@ begin
     XML.Free;
   end;
 end;
+
 function TFBDDocument.CreateArchive(EditorMode: boolean):boolean;
 var
   archiveFileName: string;
@@ -564,7 +590,7 @@ begin
   try
     repeat
       tempArchiveFileName := TPath.Combine(ExtractFilePath(archiveFileName),
-        TPath.GetRandomFileName + '.tmp');
+        TPath.GetRandomFileName + TEMP_EXTENSION);
     until not FileExists(tempArchiveFileName);
 
     if EditorMode then
@@ -573,11 +599,8 @@ begin
         raise EFileNotFoundException.CreateFmt('Archive "%s" was not found',
           [archiveFileName]);
 
-      // Rebuild in the original entry order and replace the exact descriptor
-      // that Load selected.  Deleting and appending it would shift the book's
-      // InsideNo and make existing database records read the descriptor as the
-      // book.  Each old entry is streamed through a temporary disk file, so a
-      // large book does not have to fit in process memory.
+      // Preserve the original ZIP order. Removing the descriptor and appending
+      // it would shift the book index stored in the collection database.
       sourceArchiver := TMHLZip.Create(archiveFileName, True);
       archiver := TMHLZip.Create(tempArchiveFileName, False);
       tempEntryFileName := tempArchiveFileName + '.entry';
@@ -604,6 +627,7 @@ begin
         begin
           entryStream := TFileStream.Create(tempEntryFileName, fmCreate);
           try
+            // Extraction validates CRC before the payload is repacked.
             sourceArchiver.ExtractToStream(i, entryStream);
             archiver.AddFromStream(entryName, entryStream);
           finally
@@ -618,14 +642,14 @@ begin
     else
     begin
       archiver := TMHLZip.Create(tempArchiveFileName, False);
-      // Keep the raw book at index zero.  Existing raw records already use
-      // InsideNo=0, so conversion does not require a second database mutation.
+      // Raw books already have InsideNo=0. Keep the payload at index zero so
+      // conversion does not invalidate the database record.
       archiver.AddFiles(bookFileName);
       archiver.AddFiles(fbdFileName);
     end;
 
-    // Closing writes the central directory.  Re-open the completed temporary
-    // archive before atomically replacing the destination.
+    // TZipFile writes the central directory on close. Validate the completed
+    // temporary archive, then replace the destination atomically.
     FreeAndNil(archiver);
     FreeAndNil(sourceArchiver);
     validator := TMHLZip.Create(tempArchiveFileName, True);
@@ -644,19 +668,22 @@ begin
       if not EditorMode then
         SysUtils.DeleteFile(bookFileName);
     end;
-  finally
-    FreeAndNil(entryStream);
-    FreeAndNil(archiver);
-    FreeAndNil(sourceArchiver);
-    FreeAndNil(validator);
-    if (tempEntryFileName <> '') and FileExists(tempEntryFileName) then
-      SysUtils.DeleteFile(tempEntryFileName);
-    if (tempArchiveFileName <> '') and FileExists(tempArchiveFileName) then
-      SysUtils.DeleteFile(tempArchiveFileName);
+  except
+    Result := False;
   end;
 
+  FreeAndNil(entryStream);
+  FreeAndNil(archiver);
+  FreeAndNil(sourceArchiver);
+  FreeAndNil(validator);
+  if (tempEntryFileName <> '') and FileExists(tempEntryFileName) then
+    SysUtils.DeleteFile(tempEntryFileName);
+  if (tempArchiveFileName <> '') and FileExists(tempArchiveFileName) then
+    SysUtils.DeleteFile(tempArchiveFileName);
+
   if not Result then
-    MessageDlg(rstrErrorCreatingFBD, mtError, [mbOK], 0);
+    if FReportErrors then
+      MessageDlg(rstrErrorCreatingFBD, mtError, [mbOK], 0);
 end;
 
 {--------------------  Списки авторов ----------------------------------------}
@@ -716,22 +743,22 @@ var
 begin
   if (FCoverData.Str = '') then
   begin
-    CoverFile := FFolder + ChangeFileExt(FBookFilename, '.jpg');
+    CoverFile := TPath.Combine(FFolder, ChangeFileExt(FBookFilename, '.jpg'));
     if FileExists(CoverFile) then
     begin
       LoadCoverFromFile(CoverFile);
     end
     else
     begin
-      CoverFile := FFolder + ChangeFileExt(FBookFilename, '.png');
+      CoverFile := TPath.Combine(FFolder, ChangeFileExt(FBookFilename, '.png'));
       if FileExists(CoverFile) then
       begin
         LoadCoverFromFile(CoverFile);
       end;
     end;
-  end
-  else if (FCoverData.Str = '') and Assigned(FImage) then
-    FImage.Picture := nil;
+    if (FCoverData.Str = '') and Assigned(FImage) then
+      FImage.Picture := nil;
+  end;
 end;
 
 procedure TFBDDocument.DecodeCover(Path: string; FileName: string; Delete: boolean);
@@ -739,7 +766,7 @@ var
   S, Params, Ext: string;
 begin
   if Filename = '' then
-    FileName := FFolder + FBookFileName;
+    FileName := TPath.Combine(FFolder, FBookFileName);
 
   if Assigned(FImage) then
     FImage.Picture := nil;
@@ -852,26 +879,9 @@ begin
   end;
 end;
 
-procedure TFBDDocument.GetFBDFileNames(out Description: string);
-var
-  idxFile: Integer;
-  archiver: TMHLZip;
-begin
-  archiver := nil;
-  try
-    archiver := TMHLZip.Create(FArchiveFilename, True);
-    idxFile := archiver.GetIdxByExt('.fbd');
-    if idxFile >= 0 then
-      Description := archiver.LastName
-    else
-      Description := '';
-  finally
-    FreeAndNil(archiver);
-  end;
-end;
-
 procedure TFBDDocument.CreateImage(ext: string; var IMG: TGraphic; var ImageType: TCoverImageType);
 begin
+  IMG := nil;
   Ext := LowerCase(Ext);
   if Ext = '.png' then
   begin
@@ -927,7 +937,9 @@ var
   ProcInfo: TProcessInformation;
   CmdLine: String;
 begin
-  CmdLine := '' + Filename + ' ' + Params;
+  CmdLine := '"' + FileName + '"';
+  if Params <> '' then
+    CmdLine := CmdLine + ' ' + Params;
   FillChar(StartInfo, SizeOf(StartInfo), #0);
   with StartInfo do
   begin
@@ -936,7 +948,7 @@ begin
     wShowWindow := WinState;
   end;
   Result := CreateProcess(
-    nil,
+    PChar(FileName),
     PChar(CmdLine),
     nil,
     nil,

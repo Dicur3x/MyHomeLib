@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov (oleksiy.penkov@gmail.com)
   *                     Nick Rymanov   (nrymanov@gmail.com)
@@ -32,6 +32,7 @@ uses
   Forms,
   Dialogs,
   VirtualTrees,
+  VirtualTrees.Types,
   StdCtrls,
   ComCtrls,
   Mask,
@@ -49,17 +50,10 @@ uses
   jpeg,
   DB,
   unit_DownloadManagerThread,
+  unit_DownloadView,
   unit_Messages,
   files_list,
   ActiveX,
-  idStack,
-  idComponent,
-  IdBaseComponent,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL,
-  IdAntiFreezeBase,
-  IdAntiFreeze,
   Buttons,
   MHLSplitter,
   ActnList,
@@ -73,10 +67,15 @@ uses
   unit_treeController,
   unit_ColorTabs,
   System.Actions,
-  System.ImageList;
+  System.ImageList,
+  Vcl.Themes,
+  RzPanel, RzButton, RzStatus, RzTabs,
+  dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
+  VirtualTrees.AncestorVCL,
+  unit_Localization;
 
 type
-  TfrmMain = class(TForm)
+  TfrmMain = class(TForm, IDownloadView)
     MainMenu: TMainMenu;
     miBook: TMenuItem;
     miQuitApp: TMenuItem;
@@ -118,7 +117,6 @@ type
     miCheckUpdates: TMenuItem;
     N30: TMenuItem;
     miShowHelp: TMenuItem;
-    IdAntiFreeze1: TIdAntiFreeze;
     N17: TMenuItem;
     pmAuthor: TPopupMenu;
     miCopyAuthor: TMenuItem;
@@ -127,26 +125,27 @@ type
     miRefreshGenres: TMenuItem;
     miDownloadBooks: TMenuItem;
     pmiDownloadBooks: TMenuItem;
-    ilToolBar: TImageList;
-    ilMainMenu: TImageList;
     pmCollection: TPopupMenu;
     miUpdate: TMenuItem;
+    miUpdateFromFile: TMenuItem;
     miGoToAuthor: TMenuItem;
-    tlbrMain: TToolBar;
-    tbtnRead: TToolButton;
-    tbSendToDevice: TToolButton;
-    tbtnRus: TToolButton;
-    tbtnEng: TToolButton;
-    tbSelectAll: TToolButton;
-    tbCollapse: TToolButton;
-    tbtnShowCover: TToolButton;
-    tbtnShowDeleted: TToolButton;
-    ToolButton12: TToolButton;
-    ToolButton13: TToolButton;
-    ToolButton1: TToolButton;
-    ToolButton3: TToolButton;
-    BtnFav_add: TToolButton;
-    tbtnSettings: TToolButton;
+    tlbrMain: TRzToolbar;
+    tbtnRead: TRzToolButton;
+    tbSendToDevice: TRzToolButton;
+    tbtnRus: TRzToolButton;
+    tbtnEng: TRzToolButton;
+    tbSelectAll: TRzToolButton;
+    tbCollapse: TRzToolButton;
+    tbtnShowCover: TRzToolButton;
+    tbtnShowDeleted: TRzToolButton;
+    RzSep1: TRzSpacer;
+    RzSep2: TRzSpacer;
+    RzSep3: TRzSpacer;
+    RzSep4: TRzSpacer;
+    RzSep5: TRzSpacer;
+    RzSep6: TRzSpacer;
+    BtnFav_add: TRzToolButton;
+    tbtnSettings: TRzToolButton;
     pmScripts: TPopupMenu;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
@@ -154,17 +153,17 @@ type
     pmiScripts: TMenuItem;
     mmiScripts: TMenuItem;
     miSyncOnline: TMenuItem;
-    btnSwitchTreeMode: TToolButton;
-    tbtnWizard: TToolButton;
-    tbtnShowLocalOnly: TToolButton;
-    tbtnDownloadList_Add: TToolButton;
+    btnSwitchTreeMode: TRzToolButton;
+    tbtnWizard: TRzToolButton;
+    tbtnShowLocalOnly: TRzToolButton;
+    tbtnDownloadList_Add: TRzToolButton;
     N1: TMenuItem;
     miGoSite: TMenuItem;
-    pgControl: TPageControl;
-    tsSearch: TTabSheet;
-    tsByGroup: TTabSheet;
+    pgControl: TRzPageControl;
+    tsSearch: TRzTabSheet;
+    tsByGroup: TRzTabSheet;
     ilFileTypes: TImageList;
-    tsByAuthor: TTabSheet;
+    tsByAuthor: TRzTabSheet;
     tvAuthors: TVirtualStringTree;
     pnAuthorSearch: TMHLSimplePanel;
     lblAuthorsSearch: TLabel;
@@ -185,7 +184,7 @@ type
     N22: TMenuItem;
     N25: TMenuItem;
     N27: TMenuItem;
-    tsBySerie: TTabSheet;
+    tsBySerie: TRzTabSheet;
     pnSeriesView: TMHLSimplePanel;
     tvSeries: TVirtualStringTree;
     pnSerieSearch: TMHLSimplePanel;
@@ -196,7 +195,7 @@ type
     pnSerieBooksTitle: TMHLSimplePanel;
     lblBooksTotalS: TLabel;
     ipnlSeries: TInfoPanel;
-    tsByGenre: TTabSheet;
+    tsByGenre: TRzTabSheet;
     pnGenresView: TMHLSimplePanel;
     tvGenres: TVirtualStringTree;
     pnGenreBooksView: TMHLSimplePanel;
@@ -209,32 +208,31 @@ type
     N29: TMenuItem;
     N32: TMenuItem;
     N33: TMenuItem;
-    tsDownload: TTabSheet;
+    tsDownload: TRzTabSheet;
     pmDownloadList: TPopupMenu;
     mi_dwnl_LocateAuthor: TMenuItem;
     N35: TMenuItem;
     mi_dwnl_Delete: TMenuItem;
-    ilToolBar_Disabled: TImageList;
     N34: TMenuItem;
-    tlbrDownloadList: TToolBar;
-    BtnDwnldUp: TToolButton;
-    BtnDwnldDown: TToolButton;
-    BtnDelete: TToolButton;
-    BtnFirstRecord: TToolButton;
-    BtnLastRecord: TToolButton;
-    RzSpacer2: TToolButton;
-    ToolButton7: TToolButton;
+    tlbrDownloadList: TRzToolbar;
+    BtnDwnldUp: TRzToolButton;
+    BtnDwnldDown: TRzToolButton;
+    BtnDelete: TRzToolButton;
+    BtnFirstRecord: TRzToolButton;
+    BtnLastRecord: TRzToolButton;
+    DlSep1: TRzSpacer;
+    DlSep2: TRzSpacer;
     lblAuthor: TLabel;
     lblSeries: TLabel;
-    btnStartDownload: TToolButton;
-    btnPauseDownload: TToolButton;
+    btnStartDownload: TRzToolButton;
+    btnPauseDownload: TRzToolButton;
     Panel1: TMHLSimplePanel;
     RzPanel2: TMHLSimplePanel;
     lblDownloadState: TLabel;
     lblDnldAuthor: TLabel;
     lblDnldTitle: TLabel;
     lblDownloadCount: TLabel;
-    BtnSave: TToolButton;
+    BtnSave: TRzToolButton;
     N28: TMenuItem;
     N37: TMenuItem;
     miAddToSearch: TMenuItem;
@@ -320,12 +318,11 @@ type
     tbtnSplitter2: TToolButton;
     tbtnDeleteBook: TToolButton;
     tbtnAutoFBD: TToolButton;
-    tbtnHelp: TToolButton;
+    tbtnHelp: TRzToolButton;
     N46: TMenuItem;
     miExportToHTML: TMenuItem;
     txt1: TMenuItem;
     RTF1: TMenuItem;
-    ToolButton5: TToolButton;
     edFAnnotation: TMHLButtonedEdit;
     Label7: TLabel;
     pnAuthorsView: TMHLSimplePanel;
@@ -358,8 +355,7 @@ type
     pnSearchControl: TMHLSimplePanel;
     GroupsViewSplitter: TMHLSplitter;
     GroupBookInfoSplitter: TMHLSplitter;
-    ToolButton2: TToolButton;
-    tbtnClear: TToolButton;
+    tbtnClear: TRzToolButton;
     tvBooksA: TBookTree;
     tvBooksS: TBookTree;
     tvBooksG: TBookTree;
@@ -380,8 +376,10 @@ type
     acGroupCreate: TAction;
     acGroupDelete: TAction;
     acGroupClear: TAction;
-    StatusBar: TStatusBar;
-    ilToolImages: TImageList;
+    StatusBar: TRzStatusBar;
+    spStatus: TRzStatusPane;
+    spHint: TRzStatusPane;
+    spInfo: TRzStatusPane;
     acSavePreset: TAction;
     acDeletePreset: TAction;
     acApplyPreset: TAction;
@@ -432,13 +430,14 @@ type
     acViewShowLocalOnly: TAction;
     acToolsQuickSearch: TAction;
     acToolsUpdateOnlineCollections: TAction;
+    acCollectionUpdateFromFile: TAction;
+    N83: TMenuItem;
     acToolsClearReadFolder: TAction;
     acToolsRunScript: TAction;
     acToolsSettings: TAction;
     acHelpHelp: TAction;
     acHelpCheckUpdates: TAction;
     acHelpProgramSite: TAction;
-    acHelpSupportForum: TAction;
     acHelpAbout: TAction;
     N60: TMenuItem;
     N61: TMenuItem;
@@ -512,6 +511,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormDestroy(Sender: TObject);
+    procedure FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
 
     //
     // Список авторов
@@ -627,6 +627,8 @@ type
     //
     procedure QuickSearchExecute(Sender: TObject);
     procedure UpdateOnlineCollectionExecute(Sender: TObject);
+    procedure UpdateCollectionFromFileExecute(Sender: TObject);
+    procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
     procedure ChangeSettingsExecute(Sender: TObject);
 
@@ -635,7 +637,6 @@ type
     //
     procedure ShowHelpExecute(Sender: TObject);
     procedure CheckUpdatesExecute(Sender: TObject);
-    procedure GoForumExecute(Sender: TObject);
     procedure GoSiteExecute(Sender: TObject);
     procedure ShowAboutExecute(Sender: TObject);
 
@@ -684,7 +685,6 @@ type
     //
     //
     //
-    procedure HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
     procedure tbClearEdAuthorClick(Sender: TObject);
     procedure btnClearEdSeriesClick(Sender: TObject);
     procedure HeaderPopupItemClick(Sender: TObject);
@@ -710,14 +710,10 @@ type
     procedure GenreLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure SeriesLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure UpdateBookAction(Sender: TObject);
-    procedure StatusBarDrawPanel(StatusBar: TStatusBar; Panel: TStatusPanel; const Rect: TRect);
-    procedure StatusBarResize(Sender: TObject);
     procedure tmrCheckUpdatesTimer(Sender: TObject);
     procedure acBookAdd2FavoritesExecute(Sender: TObject);
     procedure acBookAdd2GroupExecute(Sender: TObject);
     procedure acBookRemoveFromGroupExecute(Sender: TObject);
-    procedure pgControlDrawTab(Control: TCustomTabControl; TabIndex: Integer;
-      const Rect: TRect; Active: Boolean);
     procedure tbtnWizardClick(Sender: TObject);
     procedure acViewSetInfoPriorityExecute(Sender: TObject);
     procedure tmrSearchSTimer(Sender: TObject);
@@ -731,6 +727,7 @@ type
       const Text: string; var Extent: Integer);  // Выбор языка в списке
 
   protected
+    procedure DoCreate; override;
     procedure WMGetSysCommand(var Message: TMessage); message WM_SYSCOMMAND;
     procedure OnChangeLocalStatus(var Message: TLocalStatusChangedMessage); message WM_MHL_CHANGELOCALSTATUS;
 
@@ -744,11 +741,19 @@ type
 
   private
     FDMThread: TDownloadManagerThread;
+
+    //
+    // Вузол черги, який зараз завантажується. Курсор належить формі, а не
+    // потоку: тільки форма знає, коли вузол зникає з дерева.
+    //
+    FDownloadNode: PVirtualNode;
+
     FCurrentBookOnly: Boolean;
     FInvisible: Boolean;
     FTimerDone: Boolean;
     FIgnoreAuthorChange: Boolean;
     FLangSelected: Boolean;
+    FLocales: TArray<TLocaleInfo>;
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
 
@@ -777,11 +782,23 @@ type
 
     procedure CloseCollection;
     procedure InitCollection;
+    procedure SyncGenreLanguage;
+    procedure SyncSystemGroupNames;
 
     procedure CreateCollectionMenu;
     procedure CreateScriptMenu;
     procedure SetColors;
     procedure CreateAlphabetToolbar;
+
+    procedure CreateLanguageMenu;
+    procedure LanguageItemClick(Sender: TObject);
+
+    procedure RefreshBookInfo(const Tree: TBookTree);
+    procedure RefreshActiveBookInfo;
+    function FrameControl(AControl: TWinControl): Boolean;
+    procedure FrameTree(ATree: TVirtualStringTree); overload;
+    procedure FrameTree(ATree: TBookTree); overload;
+    procedure FrameTrees;
 
     // Handlers:
     procedure OnReadBookHandler(const BookRecord: TBookRecord);
@@ -823,7 +840,7 @@ type
     //
     // Восстанавить тулбар в правильной позиции
     //
-    procedure ChangeToolbarVisability(ToolBars: array of TToolBar; ToolBar: TToolBar; ShowToolbar: Boolean);
+    procedure ChangeToolbarVisability(ToolBars: array of TWinControl; ToolBar: TWinControl; ShowToolbar: Boolean);
 
     //
     // Проверяет, не является ли текущая коллекция онлайн-коллекцией.
@@ -840,7 +857,7 @@ type
     //
     // Возвращает кнопку, соответствующую заданному фильтру.
     //
-    function GetFilterButton(ToolBars: array of TToolBar; const Filter: string): TToolButton;
+    function GetFilterButton(ToolBars: array of TWinControl; const Filter: string): TToolButton;
 
     //
     // Обработчик события для кнопок алфавитного тулбара на странице "Авторы"
@@ -873,9 +890,9 @@ type
 
     FFileOpMode: (fmFb2Zip, fmFb2);
 
-    FMainBars: array [0 .. 1] of TToolBar;
-    FAuthorBars: array [0 .. 1] of TToolBar;
-    FSerieBars: array [0 .. 1] of TToolBar;
+    FMainBars: array [0 .. 1] of TWinControl;
+    FAuthorBars: array [0 .. 1] of TWinControl;
+    FSerieBars: array [0 .. 1] of TWinControl;
 
     FLastLetterA: TToolButton;
     FLastLetterS: TToolButton;
@@ -912,6 +929,7 @@ type
     FSearchCriteria: TBookSearchCriteria;
 
     FSystemData: ISystemData;
+    FInSetInfoPanelHeight: Boolean;
 
     function AuthorBookFilter: TFilterValue;
     function SeriesBookFilter: TFilterValue;
@@ -933,6 +951,25 @@ type
     procedure SetHeaderPopUp;
     procedure DownloadBooks(CurrentBookOnly: boolean = False);
     function CheckActiveDownloads: Boolean;
+    procedure PurgeDownloadsForCollection(const DatabaseID: Integer);
+    procedure UpdateDownloadCount;
+
+    //
+    // IDownloadView - єдиний шлях, яким потік завантаження торкається інтерфейсу.
+    // Усі методи виконуються в головному потоці (потік викликає їх через Synchronize).
+    //
+    function SelectNextDownload(out Item: TDownloadItem): Boolean;
+    procedure CompleteCurrentDownload(Success: Boolean);
+    procedure CancelCurrentDownload;
+    function IsMainFormVisible: Boolean;
+    procedure ShowDownloadInfo(const Author, Title: string);
+    procedure ShowDownloadState(const State: string);
+    procedure ShowDownloadProgress(Position: Integer);
+    procedure ResetDownloadState;
+    procedure SetTrayHint(const Hint: string);
+    procedure SetDownloadRunning(Running: Boolean);
+    procedure SetQueueControlsEnabled(Enabled: Boolean);
+    function AskIgnoreDownloadErrors: Integer;
 
     function GetActiveView: TView;
     procedure StartLibUpdate;
@@ -981,6 +1018,7 @@ uses
   IOUtils,
   Character,
   Generics.Collections,
+  unit_HelpTopics,
   Math,
   fictionbook_21,
   unit_FB2Utils,
@@ -1005,6 +1043,7 @@ uses
   unit_Consts,
   unit_Export,
   unit_Utils,
+  ShlObj,
   unit_ExportToDevice,
   unit_Helpers,
   unit_Errors,
@@ -1014,7 +1053,6 @@ uses
   unit_SearchUtils,
   unit_WriteFb2Info,
   frm_ConverToFBD,
-  frm_EditAuthorEx,
   unit_Lib_Updates,
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
@@ -1022,61 +1060,73 @@ uses
   frm_DeleteCollection, unit_ImportOldUserData;
 
 resourcestring
-rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
-   rstrCreatingFilter = 'Подготовка фильтра...';
-   rstrApplyingFilter = 'Применяем фильтр...';
-   rstrNoUpdatesAvailable = 'Нет обновлений';
-   rstrNotFromDownloadsError = 'Операция недоступна из списка загрузок.';
-   rstrNotForExtension = 'Операция недоступна для файлов с расширением %s';
-   rstrUnableDeleteBuiltinGroupError = 'Нельзя удалить встроенную группу!';
-   rstrCheckingUpdates = 'Проверка обновлений...';
-   rstrGroupAlreadyExists = 'Группа с таким именем уже существует!';
-   rstrAdding2GroupMessage = 'Добавляем книги в группу...';
-   rstrRemovingFromGroupMessage = 'Удаляем книги из группы...';
-   rstrBuildingListMessage = 'Построение списка...';
+rstrFileNotFoundMsg = 'Файл %s не знайдено!' + CRLF + 'Перевірте налаштування колекції!';
+   rstrCreatingFilter = 'Підготовка фільтра...';
+   rstrApplyingFilter = 'Застосовуємо фільтр...';
+   rstrNoUpdatesAvailable = 'Немає оновлень';
+   rstrUpdateConnectionError = 'Не вдалося з''єднатися із сервером оновлень:' + CRLF + '%s';
+   rstrVersionInfo = '%s' + CRLF + 'На сервері: %d, локальна: %d';
+   rstrNotFromDownloadsError = 'Операція недоступна зі списку завантажень.';
+   rstrAutoFBDConfirmation = 'Створити FBD для всіх книг у списку?' + CRLF +
+                             'Книги, файли яких зайняті, буде пропущено.';
+   rstrDownloadDone = 'Готово';
+   rstrIgnoreDownloadErrors = 'Ігнорувати помилки завантаження?';
+   rstrNotForExtension = 'Операція недоступна для файлів із розширенням %s';
+   rstrUnableDeleteBuiltinGroupError = 'Не можна видалити вбудовану групу!';
+   rstrCheckingUpdates = 'Перевірка оновлень...';
+   rstrGroupAlreadyExists = 'Група з таким ім''ям вже існує!';
+   rstrAdding2GroupMessage = 'Додаємо книги до групи...';
+   rstrRemovingFromGroupMessage = 'Видаляємо книги з групи...';
+   rstrBuildingListMessage = 'Побудова списку...';
 
-   rstrHintTable = 'Переключиться в режим "Таблица"';
-   rstrHintTree = 'Переключиться в режим "Дерево"';
-   rstrShuttingDown = 'отключаемся';
-   rstrNeedDBUpgrade = 'Вы успешно обновили приложение. Для нормальной работы необходимо обновить структур таблиц БД. Сделать это прямо сейчас?';
-   rstrFirstRun = 'MyHomeLib - первый запуск';
-// rstrToConvertChangeTab = 'Для конвертации книги перейдите на другую страницу.';
-   rstrCollectionFileNotFound = 'Файл коллекции не найден.' + CRLF + 'Невозможно запустить программу.';
-   // rstrStartCollectionUpdate = 'Доступно обновление коллекций.' + CRLF + 'Начать обновление?';
+   rstrHintTable = 'Переключитися в режим "Таблиця"';
+   rstrHintTree = 'Переключитися в режим "Дерево"';
+   rstrShuttingDown = 'відключаємось';
+   rstrNeedDBUpgrade = 'Ви успішно оновили програму. Для нормальної роботи необхідно оновити струткур таблиць БД. Зробити це прямо зараз?';
+   rstrFirstRun = 'MyHomeLib - перший запуск';
+// rstrToConvertChangeTab = 'Для конвертування книги перейдіть на іншу сторінку.';
+   rstrCollectionFileNotFound = 'Файл колекції не знайдено.' + CRLF + 'Неможливо запустити програму.';
+   // rstrStartCollectionUpdate = 'Доступно оновлення колекцій.' + CRLF + 'Почати оновлення?';
    rstrStarting = 'Старт...';
-   rstrUnfinishedDownloads = 'В списке есть незавершённые загрузки!' + CRLF + 'Вы всё ещё хотите выйти из приложения?';
-   rstrActiveDownloads = 'В списке есть незавершённые загрузки! Закройте их перед удалением коллекции.';
-   rstrSingleSeries = 'Серия:';
-   rstrDownloadStateWaiting = 'Ожидание';
-   rstrDownloadStateDownloading = 'Загрузка';
+   rstrUnfinishedDownloads = 'У списку є незавершені завантаження!' + CRLF + 'Ви все ще хочете вийти з програми?';
+   rstrSingleSeries = 'Серія:';
+   rstrDownloadStateWaiting = 'Чекання';
+   rstrDownloadStateDownloading = 'Завантаження';
    rstrDownloadStateDone = 'Готово';
-   rstrDownloadStateError = 'Ошибка';
-   rstrNoBookSelected = 'Ни одна книга не выбрана!';
-   rstrProvideThePath = 'Укажите путь';
-   rstrCheckUsage = 'Проверить использование, возможна ошибка';
-   rstrBuildingTheList = 'Построение списка...';
-   rstrChangeCollectionToRemoveABook = 'Для удаления книги перейдите в соответствующую коллекцию';
-   rstrRemoveSelectedBooks = 'Удалить выбранные книги из базы?';
-   rstrRemoveSelectedBooksFiles = 'Удалить выбранные книги из базы вместе с файлами?';
-   rstrRemoveSelectedBooksOnLine = 'Удалить загруженные файлы?';
-   rstrRemoveCollection = 'Удалить коллекцию';
-   rstrGoToLibrarySite = 'Изменение информации о книгах в онлайн-коллекциях возможно только на сайте.' + CRLF + 'Перейти на сайт электронной библиотеки "%s"?"';
-   rstrUnableToEditBooksFromFavourites = 'Редактировать книги из избранного невозможно.';
-   rstrCreateMoveSeries = 'Создание серии / Перенос в серию';
-   rstrTitle = 'Название:';
-   rstrEditSeries = 'Редактирование серии';
-   rstrAddingBookToGroup = 'Добавляем книги в группу...';
-   rstrRemovingBookFromGroup = 'Удаляем книги из группы...';
-   rstrNeedSpecialDataTypeForSeries = 'Необходимо использовать отдельный тип данных для серии';
-   rstrBookNotFoundInArchive = 'В архиве %s не найдено описания книги!';
-   rstrCollectionNotRegistered = 'Коллекция не зарегистрирована!';
-   rstrRemoveFromGroup = 'Удалить из группы';
-   rstrRemoveFromDownloadList = 'Удалить из списка загрузок';
-   rstrAddToFavorites = 'Добавить в избранное';
-   rstrAddToDownloads = 'Добавить в список загрузок';
-   rstrCollectionUpdateAvailable = 'Доступно обновление для коллекций.' + CRLF + 'Начать обновление?';
-   rsrtNewCollectin = 'Новая коллекция...';
-   rstrSelectFolder = 'Выбор папки...';
+   rstrDownloadStateError = 'Помилка';
+   rstrNoBookSelected = 'Жодної книги не вибрано!';
+   rstrProvideThePath = 'Вкажіть шлях';
+   rstrCheckUsage = 'Перевірити використання, можлива помилка';
+   rstrBuildingTheList = 'Побудова списку...';
+   rstrChangeCollectionToRemoveABook = 'Для видалення книги перейдіть до відповідної колекції';
+   rstrRemoveSelectedBooks = 'Видалити вибрані книги з бази?';
+   rstrRemoveSelectedBooksFiles = 'Видалити вибрані книги з бази разом із файлами?';
+   rstrRemoveSelectedBooksOnLine = 'Видалити завантажені файли?';
+   rstrRemoveCollection = 'Видалити колекцію';
+   rstrGoToLibrarySite = 'Зміна інформації про книги в онлайн-колекціях можлива лише на сайті.' + CRLF + 'Перейти на сайт електронної бібліотеки "%s"?"';
+   rstrUnableToEditBooksFromFavourites = 'Редагувати книги з обраного неможливо.';
+   rstrCreateMoveSeries = 'Створення серії / Перенесення до серії';
+   rstrTitle = 'Назва:';
+   rstrEditSeries = 'Редагування серії';
+   rstrAddingBookToGroup = 'Додаємо книги до групи...';
+   rstrRemovingBookFromGroup = 'Видаляємо книги з групи...';
+   rstrNeedSpecialDataTypeForSeries = 'Необхідно використовувати окремий тип даних для серії';
+   rstrBookNotFoundInArchive = 'В архіві %s не знайдено опису книги!';
+   rstrCollectionNotRegistered = 'Колекція не зареєстрована!';
+   rstrRemoveFromGroup = 'Видалити з групи';
+   rstrRemoveFromDownloadList = 'Видалити зі списку завантажень';
+   rstrAddToFavorites = 'Додати до вибраного';
+   rstrAddToDownloads = 'Додати до списку завантажень';
+   rstrCollectionUpdateAvailable = 'Доступне оновлення для колекцій.' + CRLF + 'Почати оновлення?';
+   rsrtNewCollectin = 'Нова колекція...';
+   rstrSelectFolder = 'Вибір папки...';
+   rstrSpecifyPath = 'Вкажіть шлях';
+   // Deliberately NOT 'Мова': that is already a catalog source whose English
+   // target was shortened to "Lang" so it would fit the search panel, and the
+   // runtime looks translations up by source text. Reusing it would put
+   // "Lang" in the menu bar.
+   rstrInterfaceLanguage = 'Мова інтерфейсу';
+   rstrLanguageChangeOnRestart = 'Мова зміниться при наступному запуску програми.';
 {$R *.dfm}
 
 //
@@ -1111,6 +1161,55 @@ begin
     end;
     Node := tvDownloadList.GetNext(Node);
   end;
+end;
+
+procedure TfrmMain.PurgeDownloadsForCollection(const DatabaseID: Integer);
+var
+  Node, Next: PVirtualNode;
+  Data: PDownloadData;
+  HasActive: Boolean;
+begin
+  HasActive := False;
+  Node := tvDownloadList.GetFirst;
+  while Assigned(Node) do
+  begin
+    Data := tvDownloadList.GetNodeData(Node);
+    if Assigned(Data) and (Data^.BookKey.DatabaseID = DatabaseID) and (Data^.State = dsRun) then
+    begin
+      HasActive := True;
+      Break;
+    end;
+    Node := tvDownloadList.GetNext(Node);
+  end;
+
+  if HasActive then
+    btnPauseDownloadClick(Self);
+
+  Node := tvDownloadList.GetFirst;
+  while Assigned(Node) do
+  begin
+    Next := tvDownloadList.GetNext(Node);
+    Data := tvDownloadList.GetNodeData(Node);
+    if Assigned(Data) and (Data^.BookKey.DatabaseID = DatabaseID) then
+    begin
+      if Node = FDownloadNode then
+        FDownloadNode := nil;
+      tvDownloadList.DeleteNode(Node);
+    end;
+    Node := Next;
+  end;
+
+  UpdateDownloadCount;
+end;
+
+procedure TfrmMain.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+  // After Localize: the container's caption comes from a resourcestring, which
+  // the LoadResStringFunc hook translates when it is read, so the menu needs
+  // no second pass and Localize has nothing to do to it.
+  CreateLanguageMenu;
 end;
 
 procedure TfrmMain.WMGetSysCommand(var Message: TMessage);
@@ -1233,6 +1332,47 @@ begin
   end;
 end;
 
+//
+// The trees only know how to draw a square border, so the border is turned off
+// and the hosting panel paints a rounded frame in the gap left by the tree's
+// margins. Nothing is reparented: the control tree in frm_main.dfm, splitters
+// included, stays exactly as designed.
+//
+function TfrmMain.FrameControl(AControl: TWinControl): Boolean;
+begin
+  Result := AControl.Parent is TMHLSimplePanel;
+  if Result then
+    TMHLSimplePanel(AControl.Parent).FramedControl := AControl;
+end;
+
+procedure TfrmMain.FrameTree(ATree: TVirtualStringTree);
+begin
+  // Only drop the tree's own border if the panel takes over the drawing.
+  if FrameControl(ATree) then
+    ATree.BorderStyle := bsNone;
+end;
+
+procedure TfrmMain.FrameTree(ATree: TBookTree);
+begin
+  if FrameControl(ATree) then
+    ATree.BorderStyle := bsNone;
+end;
+
+procedure TfrmMain.FrameTrees;
+begin
+  FrameTree(tvAuthors);
+  FrameTree(tvSeries);
+  FrameTree(tvGenres);
+  FrameTree(tvGroups);
+
+  FrameTree(tvBooksA);
+  FrameTree(tvBooksS);
+  FrameTree(tvBooksG);
+  FrameTree(tvBooksSR);
+  FrameTree(tvBooksF);
+  FrameTree(tvDownloadList);
+end;
+
 procedure TfrmMain.SetColors;
 var
   BGColor: TColor;
@@ -1249,8 +1389,8 @@ var
     AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
     Height := AControl.Canvas.TextHeight('Щ');
-    AControl.DefaultNodeHeight := round(Height  + TreeFontSize / 4);
-    AControl.Header.Height := TreeFontSize * 2;
+    AControl.DefaultNodeHeight := round(Height + Height div 4);
+    AControl.Header.Height := round(Height * 1.5);
     AControl.Font.Color := FontColor;
   end;
 
@@ -1262,7 +1402,7 @@ var
     AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
     Height := AControl.Canvas.TextHeight('Щ');
-    AControl.DefaultNodeHeight := round(Height  + TreeFontSize / 4);
+    AControl.DefaultNodeHeight := round(Height + Height div 4);
     AControl.Font.Color := FontColor;
   end;
 
@@ -1527,6 +1667,113 @@ begin
   end;
 end;
 
+// Keeps the two seeded group names in step with the interface language.
+//
+// AddGroup writes rstrFavoritesGroupName and rstrToReadGroupName into
+// user.dbs2 when the system database is created, so like genre names they
+// keep the language that created them.
+//
+// Renames only a group still carrying a name this build shipped, in any of
+// its languages. CanDelete = False marks the two seeded groups, but it does
+// not stop the user renaming them -- so a group whose name matches none of
+// the shipped spellings was named by the user and is left alone permanently.
+// That test also identifies which of the two a group is, without depending on
+// GroupID ordering.
+procedure TfrmMain.SyncSystemGroupNames;
+
+  procedure SyncOne(const AKey, AWanted: string; const ALegacy: array of string);
+  var
+    Renderings: TArray<string>;
+    Iterator: IGroupIterator;
+    GroupData: TGroupData;
+    Legacy: string;
+  begin
+    if AWanted = '' then
+      Exit;
+
+    // Shipped spellings alone are not enough. A profile created before the
+    // interface was translated holds a name no current catalog contains --
+    // Russian is no longer shipped -- and would be mistaken for the user's
+    // own choice and left in Russian for good.
+    Renderings := ShippedRenderings(AKey);
+    for Legacy in ALegacy do
+      if not MatchStr(Legacy, Renderings) then
+      begin
+        SetLength(Renderings, Length(Renderings) + 1);
+        Renderings[High(Renderings)] := Legacy;
+      end;
+
+    if Length(Renderings) = 0 then
+      Exit;
+
+    Iterator := FSystemData.GetGroupIterator;
+    while Iterator.Next(GroupData) do
+    begin
+      if GroupData.CanDelete then
+        Continue;
+      if GroupData.Text = AWanted then
+        Continue;
+      if MatchStr(GroupData.Text, Renderings) then
+      begin
+        FSystemData.RenameGroup(GroupData.GroupID, AWanted);
+        Break;
+      end;
+    end;
+  end;
+
+begin
+  Assert(Assigned(FSystemData));
+
+  SyncOne('unit_SystemDatabase_Abstract_rstrFavoritesGroupName',
+    rstrFavoritesGroupName, LegacyFavoritesGroupNames);
+  SyncOne('unit_SystemDatabase_Abstract_rstrToReadGroupName',
+    rstrToReadGroupName, LegacyToReadGroupNames);
+end;
+
+// Keeps a collection's genre names in step with the interface language.
+//
+// Genre names are collection data: they are written into the Genres table
+// when the collection is created and never revisited, so switching the
+// interface language used to leave the genre tree in the old language until
+// the user found the Update genres command.
+//
+// Safe to run unconditionally for the lists we ship. tools/lang/glst_translate.js
+// rebuilds every translated list from the original and substitutes only the
+// name, so GenreCode and FB2Code are identical across locales -- which matters
+// because ReloadGenres drops Genre_List rows whose GenreCode disappeared. A
+// locale swap therefore cannot orphan a book's genre links.
+procedure TfrmMain.SyncGenreLanguage;
+var
+  Wanted: string;
+  Current: string;
+begin
+  Assert(Assigned(FCollection));
+
+  // Only FB2 collections get a list chosen for them. A non-FB2 collection's
+  // list is picked by hand, so second-guessing it would discard the user's
+  // own choice.
+  if not isFB2Collection(FCollection.CollectionCode) then
+    Exit;
+
+  Wanted := ExtractFileName(Settings.SystemFileName[sfGenresFB2]);
+  Current := VarToStr(FCollection.GetProperty(PROP_GENRE_FILE));
+
+  if SameText(Current, Wanted) then
+    Exit;
+
+  // Collections predating PROP_GENRE_FILE record nothing. When the wanted
+  // list is the untranslated original there is nothing to gain from rewriting
+  // Russian names with the same Russian names, so only record where they came
+  // from and leave the data alone.
+  if (Current = '') and SameText(Wanted, GENRES_FB2_FILENAME) then
+  begin
+    FCollection.SetProperty(PROP_GENRE_FILE, Wanted);
+    Exit;
+  end;
+
+  FCollection.ReloadGenres(Settings.SystemFileName[sfGenresFB2]);
+end;
+
 procedure TfrmMain.InitCollection;
 var
   SavedCursor: TCursor;
@@ -1551,6 +1798,7 @@ var
         Tree.ClearSelection;
         Tree.Selected[Node] := True;
         Tree.FocusedNode := Node;
+        Tree.ScrollIntoView(Node, True);
         Break;
       end;
       Node := Tree.GetNext(Node);
@@ -1592,6 +1840,13 @@ begin
     FCollection := FSystemData.GetCollection(Settings.ActiveCollection);
 
     Assert(Assigned(FCollection));
+
+    // Genre and seeded group names live in the databases, so they do not
+    // follow a change of interface language on their own. Bring them into
+    // line here, before the trees are built from them below.
+    SyncGenreLanguage;
+    SyncSystemGroupNames;
+
     frmMain.Caption := 'MyHomeLib - ' + FCollection.CollectionDisplayName;
 
     // определяем типы коллекции
@@ -1677,6 +1932,9 @@ begin
     FInvisible := False;
     FindLastBook(FCollection.GetProperty(PROP_LAST_AUTHOR_BOOK), tvBooksA);
     FindLastBook(FCollection.GetProperty(PROP_LAST_SERIES_BOOK), tvBooksS);
+
+    // Every tree above was filled while FInvisible suppressed the handler.
+    RefreshActiveBookInfo;
 
   finally
     Screen.Cursor := SavedCursor;
@@ -1853,7 +2111,7 @@ var
   ButtonPosA: Integer;
   ButtonPosS: Integer;
   Button: TToolButton;
-  //s0, s1, s2: TSize;
+  CellW, CellH, PadX, PadY: Integer;
 
   function CreateTextImage(ImageText: string): Integer;
   begin
@@ -1894,19 +2152,22 @@ begin
     ImageCanvas.Font := tbarAuthorsRus.Font;
     ImageCanvas.Font.Style := [fsBold];
 
-    (** )
-    s0.cx := ilAlphabetNormal.Width;
-    s0.cy := ilAlphabetNormal.Height;
-    s1 := ImageCanvas.TextExtent('AZ');
-    s2 := ImageCanvas.TextExtent('АЯ');
-    ilAlphabetNormal.Width := Max(s0.cx, Max(s1.cx, s2.cx));
-    ilAlphabetNormal.Height := Max(s0.cy, Max(s1.cy, s2.cy));
-    ( **)
+    CellW := Max(ImageCanvas.TextWidth('W'), ImageCanvas.TextWidth('Ш'));
+    CellH := ImageCanvas.TextHeight('Ш');
+    PadX := MulDiv(4, Self.CurrentPPI, 96);
+    PadY := MulDiv(2, Self.CurrentPPI, 96);
+    CellW := Max(CellW, CellH) + PadX;
+    CellH := CellH + PadY;
 
-    Image.Width := ilAlphabetNormal.Width;
-    Image.Height := ilAlphabetNormal.Height;
+    ilAlphabetNormal.Width  := CellW;
+    ilAlphabetNormal.Height := CellH;
+    ilAlphabetActive.Width  := CellW;
+    ilAlphabetActive.Height := CellH;
 
-    ImageRect := Bounds(0, 0, ilAlphabetNormal.Width, ilAlphabetNormal.Height);
+    Image.Width  := CellW;
+    Image.Height := CellH;
+
+    ImageRect := Bounds(0, 0, CellW, CellH);
 
     //
     //
@@ -1950,8 +2211,7 @@ var
       CT_EXTERNAL_ONLINE_FB: Result := 4;
       CT_EXTERNAL_ONLINE_NONFB: Result := 8;
     else
-      // Assert(False);
-      Result := 8; { TODO -oNickR -cUsability : нарисовать иконку }
+      Result := 8;
     end;
   end;
 
@@ -2020,6 +2280,73 @@ begin
   miCollSelect.Enabled := (miCollSelect.Count > 0);
 end;
 
+// Builds the View -> Interface language submenu from whatever catalogs are
+// installed. Follows CreateCollectionMenu's idiom: create the item, set
+// Caption/Tag/OnClick, add it to its parent.
+//
+// Any value would do: TurnSiblingsOff and VerifyGroupIndex (Vcl.Menus) scope
+// radio grouping to siblings under the same parent, and these items' only
+// siblings are each other. It just has to be the same for all of them.
+procedure TfrmMain.CreateLanguageMenu;
+const
+  LANGUAGE_GROUP_INDEX = 9;
+var
+  Separator, Container, Item: TMenuItem;
+  I: Integer;
+begin
+  FLocales := AvailableLocales;
+
+  // One locale is not a choice: with only Ukrainian available the submenu
+  // would offer nothing but the language already in use, so build nothing at
+  // all -- no separator, no container, no trace in the View menu.
+  if Length(FLocales) < 2 then
+    Exit;
+
+  Separator := TMenuItem.Create(miView);
+  Separator.Caption := '-';
+  miView.Add(Separator);
+
+  Container := TMenuItem.Create(miView);
+  Container.Caption := rstrInterfaceLanguage;
+  miView.Add(Container);
+
+  for I := 0 to High(FLocales) do
+  begin
+    Item := TMenuItem.Create(Container);
+    // The language's own name, never translated: these are not catalog
+    // sources, so the walker misses them and each stays in its own script.
+    Item.Caption := FLocales[I].Name;
+    Item.RadioItem := True;
+    Item.GroupIndex := LANGUAGE_GROUP_INDEX;
+    Item.Tag := I;
+    Item.OnClick := LanguageItemClick;
+    Item.Checked := SameText(FLocales[I].Code, Settings.Locale);
+    Container.Add(Item);
+  end;
+end;
+
+procedure TfrmMain.LanguageItemClick(Sender: TObject);
+var
+  Index: Integer;
+  Code: string;
+begin
+  Index := TMenuItem(Sender).Tag;
+  if (Index < 0) or (Index > High(FLocales)) then
+    Exit;
+
+  Code := FLocales[Index].Code;
+  if SameText(Code, Settings.Locale) then
+    Exit; // clicking the ticked item is not a change
+
+  Settings.Locale := Code;
+  // Written now rather than at shutdown: the property is a plain field, and
+  // the choice should survive even if the process never exits cleanly.
+  Settings.SaveSettings;
+
+  TMenuItem(Sender).Checked := True;
+  MHLShowInfo(rstrLanguageChangeOnRestart);
+end;
+
 procedure TfrmMain.CreateGroupsMenu;
 var
   Item, ItemP: TMenuItem;
@@ -2066,8 +2393,7 @@ procedure TfrmMain.CreateScriptMenu;
 const
   ExpCount = 6;
   ExpTypes: array [0 .. ExpCount] of string = ('  fb2', '  fb2.zip', '  LRF', '  txt', ' epub', '  pdf', ' .mobi');
-  Icons: array [0 .. ExpCount] of Integer = (18, 19, 20, 21, 24, 25, 20);
-  IconsSmall: array [0 .. ExpCount] of Integer = (0, 1, 2, 3, 4, 5, 11);
+  IconsSmall: array [0 .. ExpCount] of Integer = (0, 1, 2, 3, 4, 5, 6);
 var
   Item, ItemP, ItemM: TMenuItem;
   F: Integer;
@@ -2101,14 +2427,11 @@ begin
       pmScripts.Items.Insert(ExpCount + 1, Item);
     end;
 
-    tbSendToDevice.ImageIndex := Icons[ord(Settings.ExportMode)];
-    // pmScripts.Items[i].Caption := '>> ' + ExpTypes[i] + ' <<';
     F := ExpCount + 2;
   end
   else
   begin
     F := 0;
-    tbSendToDevice.ImageIndex := 1;
   end;
 
   { TODO 1 -oNickR -cRefactoring :заменить этот код на создание TFileRun }
@@ -2119,7 +2442,7 @@ begin
     Item.Caption := Settings.Scripts[i].Title;
     Item.Tag := 901 + i;
     Item.OnClick := SendToDeviceExecute;
-    Item.ImageIndex := 6;
+    Item.ImageIndex := 7;  // 'script' in CFileTypeOrder
     pmScripts.Items.Insert(i + F, Item);
 
     // ------ context -----------------
@@ -2362,13 +2685,16 @@ var
   UpdatesInfo: TUpdateInfoList;
   CollectionInfoIterator: ICollectionInfoIterator;
   CollectionInfo: TCollectionInfo;
+  VersionDetails: string;
 begin
   if not Auto then
     ShowPopup(rstrCheckingUpdates);
 
   Result := False;
+  VersionDetails := '';
 
   UpdatesInfo := Settings.Updates;
+  UpdatesInfo.URL := Settings.UpdateURL;
 
   UpdatesInfo.UpdateExternalVersions;
 
@@ -2377,18 +2703,32 @@ begin
   begin
     for i := 0 to UpdatesInfo.Count - 1 do
       if UpdatesInfo[i].CheckCodes(CollectionInfo.DisplayName, CollectionInfo.CollectionType, CollectionInfo.ID) then
+      begin
+        if UpdatesInfo[i].ExternalVersion > 0 then
+          VersionDetails := VersionDetails +
+            Format(rstrVersionInfo, [CollectionInfo.DisplayName,
+              UpdatesInfo[i].ExternalVersion, CollectionInfo.DataVersion]) + CRLF;
+
         if UpdatesInfo[i].CheckVersion(Settings.UpdatePath, CollectionInfo.DataVersion) then
         begin
           Result := True;
           Break;
         end;
+      end;
   end;
 
   if not Auto then
   begin
     HidePopup;
     if not Result then
-      MHLShowInfo(rstrNoUpdatesAvailable);
+    begin
+      if UpdatesInfo.ConnectionError then
+        MHLShowWarning(Format(rstrUpdateConnectionError, [UpdatesInfo.URL]))
+      else if VersionDetails <> '' then
+        MHLShowInfo(rstrNoUpdatesAvailable + CRLF + CRLF + VersionDetails)
+      else
+        MHLShowInfo(rstrNoUpdatesAvailable);
+    end;
   end;
 end;
 
@@ -2485,39 +2825,46 @@ end;
 
 
 procedure TfrmMain.tbtnAutoFBDClick(Sender: TObject);
-//var
-//  Tree: TBookTree;
-//  Node: PVirtualNode;
-//  Data: PBookRecord;
+var
+  Tree: TBookTree;
+  Node: PVirtualNode;
+  Data: PBookRecord;
+  frmConvert: TfrmConvertToFBD;
 begin
-  //
-  // Очень стремный метод. Режим редактирования\создания FBD для формы не ставиться, форма ничего не проверяет...
-  //
   if (ActiveView = DownloadView) then
   begin
     MHLShowWarning(rstrNotFromDownloadsError);
     Exit;
   end;
 
-  Assert(False, 'Not implemented yet');
+  //
+  // Пакетний режим стартує з поточної книги і обходить усе дерево по колу.
+  //
+  GetActiveTree(Tree);
+  Node := Tree.GetFirstSelected;
+  Data := Tree.GetNodeData(Node);
+  if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
+    Exit;
 
-  (*
-
-  TODO : RESTORE
+  if MHLShowWarning(rstrAutoFBDConfirmation, mbYesNo) <> mrYes then
+    Exit;
 
   OnSetControlsStateHandler(False);
   try
-    GetActiveTree(Tree);
-    Node := Tree.GetFirstSelected;
-    Data := Tree.GetNodeData(Node);
-    if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
-      Exit;
+    frmConvert := TfrmConvertToFBD.Create(Application);
+    try
+      frmConvert.OnGetBook := OnGetBookHandler;
+      frmConvert.OnReadBook := OnReadBookHandler;
+      frmConvert.OnSelectBook := OnSelectBookHandler;
+      frmConvert.OnChangeBook2Zip := OnChangeBook2ZipHandler;
 
-    frmConvertToFBD.AutoMode;
+      frmConvert.AutoMode;
+    finally
+      frmConvert.Free;
+    end;
   finally
     OnSetControlsStateHandler(True);
   end;
-  *)
 end;
 
 procedure TfrmMain.tbtnWizardClick(Sender: TObject);
@@ -2536,25 +2883,22 @@ end;
 
 function TfrmMain.GetShowStatusProgress: Boolean;
 begin
-  Result := (psOwnerDraw = StatusBar.Panels[1].Style);
+  Result := FStatusProgressBar.Visible;
 end;
 
 procedure TfrmMain.SetShowStatusProgress(const Value: Boolean);
 begin
-  if Value then
-    StatusBar.Panels[1].Style := psOwnerDraw
-  else
-    StatusBar.Panels[1].Style := psText;
+  FStatusProgressBar.Visible := Value;
 end;
 
 function TfrmMain.GetStatusMessage: string;
 begin
-  Result := StatusBar.Panels[0].Text;
+  Result := spStatus.Caption;
 end;
 
 procedure TfrmMain.SetStatusMessage(const Value: string);
 begin
-  StatusBar.Panels[0].Text := Value;
+  spStatus.Caption := Value;
   if StatusBar.Visible then
     StatusBar.Repaint;
 end;
@@ -2574,20 +2918,6 @@ begin
   end;
 end;
 
-procedure TfrmMain.StatusBarDrawPanel(StatusBar: TStatusBar; Panel: TStatusPanel; const Rect: TRect);
-begin
-  if Panel = StatusBar.Panels[1] then
-  begin
-    FStatusProgressBar.BoundsRect := Rect;
-    FStatusProgressBar.PaintTo(StatusBar.Canvas.Handle, Rect.Left, Rect.Top);
-  end;
-end;
-
-procedure TfrmMain.StatusBarResize(Sender: TObject);
-begin
-  StatusBar.Panels[0].Width :=
-    StatusBar.Width - (StatusBar.Panels[1].Width + StatusBar.Panels[2].Width);
-end;
 
 function TfrmMain.LoadLastCollection: boolean;
 var
@@ -2709,14 +3039,13 @@ begin
   ShowStatusProgress := False;
   StatusProgress := 0;
 
-  StatusBar.Panels[2].Text := unit_MHLHelpers.GetFileVersion(Application.ExeName);
+  spInfo.Caption := unit_MHLHelpers.GetFileVersion(Application.ExeName);
   // SB
 end;
 
 procedure TfrmMain.UpdateSplashScreen(const AStatus: string);
 begin
-  frmSplash.lblState.Caption := AStatus;
-  frmSplash.lblState.Update;
+  frmSplash.SetStatus(AStatus);
 end;
 
 procedure TfrmMain.LoadDownloadsList;
@@ -2725,7 +3054,7 @@ begin
   if FileExists(Settings.SystemFileName[sfDownloadsStore]) then
   begin
     tvDownloadList.LoadFromFile(Settings.SystemFileName[sfDownloadsStore]);
-    lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
+    UpdateDownloadCount;
   end;
 
   if Settings.AutoStartDwnld then
@@ -2742,6 +3071,10 @@ end;
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
   FSystemData := SystemDB;
+
+  FrameTrees;
+
+  dmImages.ScaleForDPI(Self.CurrentPPI);
 
   ConnectTreeControllers;
 
@@ -2781,15 +3114,13 @@ begin
       CanClose := False;
 end;
 
+procedure TfrmMain.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+begin
+  dmImages.ScaleForDPI(NewDPI);
+end;
+
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
-  if Assigned(FDMThread) then
-  begin
-    FDMThread.TerminateNow;
-    FDMThread.WaitFor;
-    FreeAndNil(FDMThread);
-  end;
-
   // SQ
   FreeAndNil(FPresets);
 
@@ -2803,6 +3134,7 @@ begin
   Settings.SaveSettings;
 
   FreeAndNil(FController);
+  FreeAndNil(FDMThread);
 end;
 
 procedure TfrmMain.UpdatePositions;
@@ -2955,6 +3287,8 @@ begin
   if tvAuthors.RootNodeCount = 0 then ClearScreen;
   if (FIgnoreAuthorChange) or (Node = nil) then Exit;
 
+  // finally відновлює курсор навіть на шляху Exit нижче, тож зберігаємо до try
+  SavedCursor := Screen.Cursor;
   try
     Data := tvAuthors.GetNodeData(Node);
     if not Assigned(Data) then
@@ -2963,7 +3297,6 @@ begin
       Exit;
     end;
 
-    SavedCursor := Screen.Cursor;
     Screen.Cursor := crHourGlass;
 
     if FLastAuthorID <> Data^.AuthorID then
@@ -3295,9 +3628,6 @@ begin
 
   if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
   begin
-    //
-    // TODO : Может стоит показывать какую-нибудь информацию и в этом случае?
-    //
     if Assigned(StoredBookKey) then
       StoredBookKey^.Clear;
     Exit;
@@ -3328,8 +3658,8 @@ begin
               //
               // Загрузим обложку
               //
+              imgBookCover := GetBookCover(book);
               try
-                imgBookCover := GetBookCover(book);
                 InfoPanel.SetBookCover(imgBookCover);
               finally
                 imgBookCover.Free;
@@ -3410,8 +3740,9 @@ begin
         Left := tvGenres;
       FavoritesView:
         Left := tvGroups;
-      SearchView:
-        Exit;
+    else
+      // SearchView і DownloadView не мають лівого дерева
+      Exit;
     end;
 
     Node := Left.FocusedNode;
@@ -3444,8 +3775,9 @@ var
 begin
   if (Button = mbLeft) and (ssShift in Shift) then
   begin
+    Tree := Sender as TBookTree;
+    Selected := nil;
     try
-      Tree := Sender as TBookTree;
       ClearLabels(Tree.Tag, True);
       Node := Tree.GetFirstSelected;
       Selected := Node;
@@ -3463,7 +3795,8 @@ begin
         Node := Tree.GetNextSelected(Node);
       end; // while
     finally
-      Tree.Selected[Selected] := True;
+      if Assigned(Selected) then
+        Tree.Selected[Selected] := True;
     end;
   end; // if
 end;
@@ -3474,8 +3807,9 @@ end;
 procedure TfrmMain.btnClearDownloadClick(Sender: TObject);
 begin
   btnPauseDownloadClick(Sender);
+  FDownloadNode := nil;
   tvDownloadList.Clear;
-  lblDownloadCount.Caption := '(0)';
+  UpdateDownloadCount;
 end;
 
 procedure TfrmMain.btnClearEdSeriesClick(Sender: TObject);
@@ -3608,15 +3942,31 @@ var
   S: string;
   Tree: TBookTree;
   ExportMode: TExportMode;
+  UseMTP: Boolean;
+  DeviceShellItem: IShellItem;
+  GroupData: PGroupData;
 begin
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
   FillBookIdList(Tree, BookIDList);
 
+  UseMTP := False;
+
   if pgControl.ActivePage = tsByAuthor then
     CurrentSelectedAuthor := lblAuthor.Caption
   else
     CurrentSelectedAuthor := '';
+
+  if pgControl.ActivePageIndex = PAGE_FAVORITES then
+  begin
+    GroupData := tvGroups.GetNodeData(tvGroups.GetFirstSelected);
+    if Assigned(GroupData) then
+      CurrentSelectedGroup := GroupData^.Text
+    else
+      CurrentSelectedGroup := '';
+  end
+  else
+    CurrentSelectedGroup := '';
 
   if Length(BookIDList) = 0 then
   begin
@@ -3647,9 +3997,12 @@ begin
 
   if ScriptID = 799 then // выбор папки; не зависит от формата
   begin
-    if not GetFolderName(Handle, 'Укажите путь', FLastDeviceDir) then
+    if FLastDeviceDir = '' then
+      FLastDeviceDir := Settings.DeviceDir;
+    if not GetFolderShellItem(Handle, rstrSpecifyPath, FLastDeviceDir, DeviceShellItem) then
       Exit;
     AFolder := FLastDeviceDir;
+    UseMTP := IsShellPath(AFolder);
     Dec(ScriptID, 901);
   end
   else
@@ -3658,10 +4011,15 @@ begin
 
     if (ScriptID < 1) and (Settings.PromptDevicePath) then
     begin
-      if not GetFolderName(Handle, rstrProvideThePath, FLastDeviceDir) then
+      if FLastDeviceDir = '' then
+        FLastDeviceDir := Settings.DeviceDir;
+      if not GetFolderShellItem(Handle, rstrProvideThePath, FLastDeviceDir, DeviceShellItem) then
         Exit
       else
+      begin
         AFolder := FLastDeviceDir;
+        UseMTP := IsShellPath(AFolder);
+      end;
     end;
   end;
 
@@ -3700,7 +4058,7 @@ begin
 
   if (ScriptID >= 0) and (Settings.Scripts[ScriptID].Path <> '%COPY%') then
   begin
-    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True, Files);
+    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True, Files, DeviceShellItem, UseMTP);
     if Pos('%FILENAME%', Settings.Scripts[ScriptID].Params) <> 0 then
     begin
       StrReplace('%FILENAME%', Files, TMPParams);
@@ -3709,15 +4067,9 @@ begin
     Settings.Scripts[ScriptID].Run;
   end
   else
-    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files);
+    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP);
 
   Settings.FolderTemplate := SaveFolderTemplate;
-end;
-
-procedure TfrmMain.HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
-begin
-  StatusMessage := rstrReadyMessage;
-  ShowStatusProgress := False;
 end;
 
 procedure TfrmMain.DownloadBooks;
@@ -3843,11 +4195,11 @@ begin
   acViewHideDeletedBooks.Checked := Settings.HideDeletedBooks;
 end;
 
-function TfrmMain.GetFilterButton(ToolBars: array of TToolBar; const Filter: string): TToolButton;
+function TfrmMain.GetFilterButton(ToolBars: array of TWinControl; const Filter: string): TToolButton;
 var
   RealFilter: string;
   barIndex: Integer;
-  bar: TToolBar;
+  bar: TWinControl;
   i: Integer;
 begin
   Result := nil;
@@ -3855,9 +4207,10 @@ begin
   if Filter = '' then
     Exit;
 
-  RealFilter := Character.ToUpper(Copy(Filter, 1, 1));
+  RealFilter := Char.ToUpper(Copy(Filter, 1, 1));
 
-  if not Character.IsLetter(RealFilter, 1) then
+  // Увага: індекс у TCharHelper відлічується від нуля, на відміну від рядків Delphi
+  if not Char.IsLetter(RealFilter, 0) then
     RealFilter := ALPHA_FILTER_ALL; //ALPHA_FILTER_NON_ALPHA;
 
   for barIndex := 0 to High(ToolBars) do
@@ -3885,7 +4238,7 @@ begin
   FLastLetterA := Button;
   FLastLetterA.Down := True;
 
-  Result := Character.ToUpper(Button.Caption);
+  Result := Char.ToUpper(Button.Caption);
 
   FCollection.SetAuthorFilterType(Result);
 
@@ -3937,7 +4290,7 @@ begin
   FLastLetterS := Button;
   FLastLetterS.Down := True;
 
-  Result := Character.ToUpper(Button.Caption);
+  Result := Char.ToUpper(Button.Caption);
 
   FCollection.SetSeriesFilterType(Result);
 
@@ -4026,11 +4379,26 @@ end;
 
 procedure TfrmMain.SetInfoPanelHeight(Height: Integer);
 begin
-  ipnlAuthors.Height := Height;
-  ipnlSeries.Height := Height;
-  ipnlGenres.Height := Height;
-  ipnlSearch.Height := Height;
-  ipnlFavorites.Height := Height;
+  //
+  // Every panel's OnResize calls back in here, so without the guard each
+  // assignment below re-enters and changes the panels' bounds while their
+  // parent is still inside AlignControls. That leaves the splitter's bottom
+  // edge below the info panel's, and since the VCL orders alBottom siblings by
+  // that edge, the splitter gets parked at the bottom of the view for good.
+  //
+  if FInSetInfoPanelHeight then
+    Exit;
+
+  FInSetInfoPanelHeight := True;
+  try
+    ipnlAuthors.Height := Height;
+    ipnlSeries.Height := Height;
+    ipnlGenres.Height := Height;
+    ipnlSearch.Height := Height;
+    ipnlFavorites.Height := Height;
+  finally
+    FInSetInfoPanelHeight := False;
+  end;
 end;
 
 procedure TfrmMain.SetInfoPanelVisible(State: Boolean);
@@ -4093,6 +4461,26 @@ begin
     Tree.FullCollapse(nil)
   else
     Tree.FullExpand(nil);
+end;
+
+//
+// Fills the info panel from whatever book the tree has focused. Only for the
+// view on screen: the handler parses the book's FB2 for the cover and the
+// annotation, which is not worth doing for four hidden tabs on startup.
+//
+procedure TfrmMain.RefreshBookInfo(const Tree: TBookTree);
+begin
+  if FInvisible or not Assigned(Tree) or not Assigned(Tree.FocusedNode) then
+    Exit;
+
+  if (ActiveView <> DownloadView) and (Tree = GetViewTree(ActiveView)) then
+    tvBooksTreeChange(Tree, Tree.FocusedNode);
+end;
+
+procedure TfrmMain.RefreshActiveBookInfo;
+begin
+  if ActiveView <> DownloadView then
+    RefreshBookInfo(GetViewTree(ActiveView));
 end;
 
 function TfrmMain.GetViewTree(view: TView): TBookTree;
@@ -4265,7 +4653,6 @@ begin
 
           while BookIterator.Next(BookRecord) do
           begin
-            SeriesID := BookRecord.SeriesID;
             if LangSelector <> nil then
             begin
               // Добавление в ComboBox отсутствующего в нем языка.
@@ -4279,6 +4666,9 @@ begin
               // при выборе '-') и пропуск всех остальных
               if (BookRecord.Lang <> SelectedLang) AND (SelectedLang <> '-')then Continue;
             end;
+
+            // Серія береться з поточної книги і не залежить від LangSelector
+            SeriesID := BookRecord.SeriesID;
 
             AuthorNode := nil;
             if ShowAuth then
@@ -4398,6 +4788,11 @@ begin
       3: lblTotalBooksFL.Caption := Format('(%d)', [i]);
       4: lblBooksTotalF.Caption := Format('(%d)', [i]);
     end;
+
+    // The book above was focused inside BeginUpdate/EndUpdate, where the tree
+    // swallows OnChange - so the info panel would keep showing nothing until
+    // the user clicked a book.
+    RefreshBookInfo(Tree);
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -4505,8 +4900,6 @@ var
   Tree: TBookTree;
   Node, OldNode: PVirtualNode;
   Data: PBookRecord;
-  BookKey: TBookKey;
-  BookFormat: TBookFormat;
   BookFileName: string;
   SavedCursor: TCursor;
   Msg: string;
@@ -4538,49 +4931,41 @@ begin
 
       if (Data.nodeType = ntBookInfo) and (IsSelectedBookNode(Node, Data)) then
       begin
-        BookKey := Data^.BookKey;
-        BookFormat := Data^.GetBookFormat;
         BookFileName := Data^.GetBookFileName;
 
         if IsOnline then
         begin
-          // A single archive may contain several books. Never remove that
-          // container while deleting just one catalogue entry.
-          if (bpIsLocal in Data^.BookProps) and
-             not (BookFormat in [bfFb2Archive, bfRawArchive]) and
-             DeleteFile(BookFileName) then
+          if (bpIsLocal in Data^.BookProps) and DeleteFile(BookFileName) then
           begin
-            FCollection.SetLocal(BookKey, False);
-            SetBookLocalStatus(BookKey, False);
+            FCollection.SetLocal(Data^.BookKey, False);
+            SetBookLocalStatus(Data^.BookKey, False);
           end;
           Node := Tree.GetNext(Node);
         end
         else
         begin
-          FCollection.BeginBulkOperation;
-          try
-            FCollection.DeleteBook(BookKey);
-            FCollection.EndBulkOperation(True);
-          except
-            on E: Exception do
-            begin
-              FCollection.EndBulkOperation(False);
-              MHLShowError(E.Message);
-              Exit;
-            end;
-          end;
-
           OldNode := Node;
           Node := Tree.GetNext(Node);
           Tree.DeleteNode(OldNode);
           ClearLabels(Tree.Tag, False);
 
-          // Delete only a file owned by this book, and only after the database
-          // transaction has committed successfully.
-          if Settings.DeleteFiles and
-             not (BookFormat in [bfFb2Archive, bfRawArchive]) and
-             ((not IsFB2) or IsPrivate) then
-            DeleteFile(BookFileName);
+          if Settings.DeleteFiles then
+          begin
+            if not IsFB2 then
+              DeleteFile(BookFileName)
+              //MoveToRecycle(BookFileName) - работает странно. пока отключим
+            else if IsFB2 and IsPrivate then
+              DeleteFile(BookFileName);
+              //MoveToRecycle(BookFileName);
+          end;
+
+          FCollection.BeginBulkOperation;
+          try
+            FCollection.DeleteBook(Data.BookKey);
+            FCollection.EndBulkOperation(True);
+          except
+            FCollection.EndBulkOperation(False);
+          end;
         end;
       end
       else
@@ -4605,35 +4990,10 @@ begin
   if deleteAction in [dcaDelete, dcaUnregister] then
   begin
     CollectionID := FCollection.CollectionID;
-    try
-      if Assigned(FDMThread) then
-      begin
-        FDMThread.TerminateNow;
-        FDMThread.WaitFor;
-        FreeAndNil(FDMThread);
-      end;
-      CloseCollection;
-      tvDownloadList.Clear;
-      lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
-      if CheckActiveDownloads then
-        raise Exception.Create(rstrActiveDownloads);
-    except
-      on E: Exception do
-      begin
-        MHLShowError(E.Message);
-        Exit;
-      end;
-    end;
 
-    try
-      FSystemData.DeleteCollection(CollectionID, dcaDelete = deleteAction);
-    except
-      on E: Exception do
-      begin
-        MHLShowError(E.Message);
-        Exit;
-      end;
-    end;
+    PurgeDownloadsForCollection(CollectionID);
+    CloseCollection;
+    FSystemData.DeleteCollection(CollectionID, dcaDelete = deleteAction);
 
     CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
     if CollectionInfoIterator.Next(CollectionInfo) then
@@ -4786,7 +5146,7 @@ begin
     BookNode := Tree.GetNext(BookNode);
   end;
 
-  lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
+  UpdateDownloadCount;
 
   if Settings.AutoStartDwnld then
     btnStartDownloadClick(Sender);
@@ -4839,8 +5199,7 @@ begin
     if MHLShowWarning(Format(rstrGoToLibrarySite, [BookCollection.CollectionURL]), mbYesNo) = mrYes then
     begin
       BookCollection.GetBookRecord(BookKey, BookRecord, False);
-      { TODO -oNickR -cLibDesc : этот URL должен формироваться обвязкой библиотеки, т к его формат может меняться }
-      URL := Format('%sb/%s/edit', [BookCollection.CollectionURL, BookRecord.LibID]);
+      URL := BookCollection.GetEditURL(BookRecord.LibID);
       SimpleShellExecute(Handle, URL);
     end;
     Result := True;
@@ -5096,7 +5455,7 @@ begin
   end;
 end;
 
-procedure TfrmMain.ChangeToolbarVisability(ToolBars: array of TToolBar; ToolBar: TToolBar; ShowToolbar: Boolean);
+procedure TfrmMain.ChangeToolbarVisability(ToolBars: array of TWinControl; ToolBar: TWinControl; ShowToolbar: Boolean);
 var
   BarTop: Integer;
   i: Integer;
@@ -5198,29 +5557,33 @@ begin
 end;
 
 procedure TfrmMain.ShowBookInfoPanelExecute(Sender: TObject);
+var
+  Tree: TBookTree;
 begin
   Settings.ShowInfoPanel := not Settings.ShowInfoPanel;
-
-  //
-  // TODO: Принудительно обновим информацию о книге, т к если она не показывалась, то и не обновлялась
-  //
-  //if Settings.ShowInfoPanel then
-  //  tvBooksTreeChange(nil, nil);
-
   SetInfoPanelVisible(Settings.ShowInfoPanel);
+
+  if Settings.ShowInfoPanel and (ActiveView <> DownloadView) then
+  begin
+    GetActiveTree(Tree);
+    if Assigned(Tree) and Assigned(Tree.FocusedNode) then
+      tvBooksTreeChange(Tree, Tree.FocusedNode);
+  end;
 end;
 
 procedure TfrmMain.ShowBookCoverExecute(Sender: TObject);
+var
+  Tree: TBookTree;
 begin
   Settings.ShowBookCover := not Settings.ShowBookCover;
-
-  //
-  // TODO: Принудительно обновим информацию о книге, т к если она не показывалась, то и не обновлялась
-  //
-  //if Settings.ShowInfoPanel and Settings.ShowBookCover then
-  //  tvBooksTreeChange(nil, nil);
-
   SetShowBookCover(Settings.ShowBookCover);
+
+  if Settings.ShowInfoPanel and Settings.ShowBookCover and (ActiveView <> DownloadView) then
+  begin
+    GetActiveTree(Tree);
+    if Assigned(Tree) and Assigned(Tree.FocusedNode) then
+      tvBooksTreeChange(Tree, Tree.FocusedNode);
+  end;
 end;
 
 procedure TfrmMain.ShowBookCoverUpdate(Sender: TObject);
@@ -5230,16 +5593,18 @@ begin
 end;
 
 procedure TfrmMain.ShowBookAnnotationExecute(Sender: TObject);
+var
+  Tree: TBookTree;
 begin
   Settings.ShowBookAnnotation := not Settings.ShowBookAnnotation;
-
-  //
-  // TODO: Принудительно обновим информацию о книге, т к если она не показывалась, то и не обновлялась
-  //
-  //if Settings.ShowInfoPanel and Settings.ShowBookAnnotation then
-  //  tvBooksTreeChange(nil, nil);
-
   SetShowBookAnnotation(Settings.ShowBookAnnotation);
+
+  if Settings.ShowInfoPanel and Settings.ShowBookAnnotation and (ActiveView <> DownloadView) then
+  begin
+    GetActiveTree(Tree);
+    if Assigned(Tree) and Assigned(Tree.FocusedNode) then
+      tvBooksTreeChange(Tree, Tree.FocusedNode);
+  end;
 end;
 
 procedure TfrmMain.ShowBookAnnotationUpdate(Sender: TObject);
@@ -5354,7 +5719,7 @@ begin
     Exit;
 
   //
-  // только на странице "по авторам"
+  // только на старанице "по авторам"
   //
   if ActiveView <> AuthorsView then
   begin
@@ -5377,7 +5742,7 @@ begin
     Exit;
 
   //
-  // только на странице "по сериям"
+  // только на старанице "по сериям"
   //
   if ActiveView <> SeriesView then
   begin
@@ -5400,7 +5765,7 @@ begin
     Exit;
 
   //
-  // только на странице "по жанрам"
+  // только на старанице "по жанрам"
   //
   if ActiveView <> GenresView then
   begin
@@ -5422,7 +5787,7 @@ end;
 procedure TfrmMain.AddGroupUpdate(Sender: TObject);
 begin
   //
-  // только на странице "по группам"
+  // только на старанице "по группам"
   //
   if InternalUpdateGroupAction(acGroupCreate) then
     Exit;
@@ -5435,7 +5800,7 @@ var
   Data: PGroupData;
 begin
   //
-  // только на странице "по группам"
+  // только на старанице "по группам"
   //
   if InternalUpdateGroupAction(Sender as TAction) then
     Exit;
@@ -5449,7 +5814,7 @@ var
   Data: PGroupData;
 begin
   //
-  // только на странице "по группам"
+  // только на старанице "по группам"
   //
   if InternalUpdateGroupAction(acGroupClear) then
     Exit;
@@ -5597,11 +5962,12 @@ begin
       begin
         Assert(False, rstrNeedSpecialDataTypeForSeries);
         Exit;
-        treeView := tvSeries;
-        Edit := edFSeries;
       end
     else
+      // Assert прибирається в Release, тож виходимо явно: для інших виглядів
+      // treeView та Edit лишилися б неініціалізованими
       Assert(False);
+      Exit;
   end;
 
   Node := treeView.GetFirstSelected;
@@ -6039,11 +6405,7 @@ begin
       //if IsOnline and ReviewEditable then         - логика нарушена
       if not IsPrivate then
       begin
-        { TODO -oNickR -cLibDesc : этот URL должен формироваться обвязкой библиотеки, т к его формат может меняться }
-        if FCollection.CollectionURL = '' then
-          URL := Format('%sb/%s/', [Settings.InpxURL, Data^.LibID])
-        else
-          URL := Format('%sb/%s/', [FCollection.CollectionURL, Data^.LibID]);
+        URL := FCollection.GetViewURL(Data^.LibID);
 
         frmBookDetails.AllowOnlineReview(URL);
       end;
@@ -6134,11 +6496,6 @@ begin
   end;
 end;
 
-procedure TfrmMain.GoForumExecute(Sender: TObject);
-begin
-  SimpleShellExecute(Handle, PROGRAM_HOMEPAGE);
-end;
-
 procedure TfrmMain.GoSiteExecute(Sender: TObject);
 begin
   SimpleShellExecute(Handle, PROGRAM_HOMEPAGE);
@@ -6225,6 +6582,31 @@ begin
     Settings.ActiveCollection := ActiveCollectionID;
     InitCollection;
   end;
+end;
+
+procedure TfrmMain.UpdateCollectionFromFileExecute(Sender: TObject);
+var
+  ActiveCollectionID: Integer;
+begin
+  Assert(Assigned(FCollection));
+  UpdatePositions;
+
+  ActiveCollectionID := FCollection.CollectionID;
+  if unit_Utils.ManualCollectionUpdate(ActiveCollectionID, Settings.SystemFileName[sfUpdateLog]) then
+  begin
+    Settings.ActiveCollection := ActiveCollectionID;
+    InitCollection;
+  end;
+end;
+
+procedure TfrmMain.UpdateCollectionFromFileUpdate(Sender: TObject);
+var
+  Action: TAction;
+begin
+  Assert(Sender is TAction);
+
+  Action := Sender as TAction;
+  Action.Enabled := Assigned(FCollection);
 end;
 
 procedure TfrmMain.mi_dwnl_LocateAuthorClick(Sender: TObject);
@@ -6378,12 +6760,10 @@ end;
 
 function TfrmMain.OnHelpHandler(Command: Word; Data: NativeInt; var CallHelp: Boolean): Boolean;
 begin
-  if Data = 1 then
-    HtmlHelp(Application.Handle, PChar(Settings.SystemFileName[sfAppHelp]), HH_DISPLAY_TOC, 0)
-  else
-    HtmlHelp(Application.Handle, PChar(Settings.SystemFileName[sfAppHelp]), HH_HELP_CONTEXT, Data);
+  ShowHelpTopic(Integer(Data));
 
   CallHelp := False;
+  Result := True;
 end;
 
 procedure TfrmMain.ShowCollectionSettingsExecute(Sender: TObject);
@@ -6421,8 +6801,12 @@ begin
       Data := Tree.GetNodeData(Node);
       if Assigned(Data) and (Data^.nodeType = ntBookInfo) then
       begin
-        // заглушка
-        NewProgress := IfThen(Data^.Progress = 0, 100, 0);
+        //
+        // Перемикач за ознакою "прочитано повністю": книга з будь-яким
+        // проміжним прогресом стає прочитаною (100%), уже прочитана —
+        // непрочитаною (0%). Так поточний прогрес читання не втрачається.
+        //
+        NewProgress := IfThen(Data^.Progress = 100, 0, 100);
 
         FCollection.SetProgress(Data^.BookKey, NewProgress);
         UpdateNodes(
@@ -6451,9 +6835,15 @@ begin
 end;
 
 procedure TfrmMain.RepairDataBaseExecute(Sender: TObject);
+var
+  CheckResult: string;
 begin
   Assert(Assigned(FCollection));
-  FCollection.RepairDatabase;
+  CheckResult := FCollection.CheckDatabase;
+  if SameText(CheckResult, 'ok') then
+    MHLShowInfo(rstrDatabaseCheckOk)
+  else
+    MHLShowError(Format(rstrDatabaseCheckFailed, [CheckResult]));
 end;
 
 procedure TfrmMain.ChangeSettingsExecute(Sender: TObject);
@@ -6601,7 +6991,9 @@ begin
 
   SetHeaderPopUp;
 
-  /// tvBooksTreeChange(nil, nil);
+  // The tab being shown was filled while another one was active, so its panel
+  // has never been filled for the book it has focused.
+  RefreshActiveBookInfo;
 
   ///btnSwitchTreeMode.ImageIndex := TreeIcons[ord(Settings.TreeModes[pgControl.ActivePageIndex])];
   ///btnSwitchTreeMode.Hint := TreeHints[ord(Settings.TreeModes[pgControl.ActivePageIndex])];
@@ -6609,36 +7001,10 @@ begin
   Settings.ActivePage := pgControl.ActivePageIndex;
 end;
 
-procedure TfrmMain.pgControlDrawTab(Control: TCustomTabControl;
-  TabIndex: Integer; const Rect: TRect; Active: Boolean);
-var
-  AText: string;
-  APoint: TPoint;
-begin
-  with (Control as TPageControl).Canvas do
-  begin
-    Brush.Color := clMenuBar;
-    FillRect(Rect);
-    AText := TPageControl(Control).Pages[TabIndex].Caption;
-    with Control.Canvas do
-    begin
-      APoint.x := (Rect.Right - Rect.Left) div 2 - TextWidth(AText) div 2;
-      APoint.y := (Rect.Bottom - Rect.Top) div 2 - TextHeight(AText) div 2;
-      TextRect(Rect, Rect.Left + APoint.x, Rect.Top + APoint.y, AText);
-
-      if Active then
-      begin
-        Pen.Color := $00EFD3C6;
-        Pen.Width := 3;
-        MoveTo(Rect.Left + 3, Rect.Top + 4); LineTo(Rect.Right - 4, 4);
-      end;
-    end;
-   end;
-end;
 
 procedure TfrmMain.ShowHelpExecute(Sender: TObject);
 begin
-  HtmlHelp(Application.Handle, PChar(Settings.SystemFileName[sfAppHelp]), HH_DISPLAY_TOC, 0);
+  ShowHelpTopic(1);
 end;
 
 procedure TfrmMain.ImportNonFB2Execute(Sender: TObject);
@@ -6850,6 +7216,13 @@ begin
   if tvDownloadList.GetFirst = nil then
     Exit;
 
+  btnPauseDownload.Enabled := True;
+  btnStartDownload.Enabled := False;
+
+  //
+  // Попередній менеджер уже зупинений (кнопка "Пауза" або порожня черга),
+  // але сам об'єкт лишався жити. Звільняємо його перед запуском нового.
+  //
   if Assigned(FDMThread) then
   begin
     FDMThread.TerminateNow;
@@ -6857,10 +7230,7 @@ begin
     FreeAndNil(FDMThread);
   end;
 
-  btnPauseDownload.Enabled := True;
-  btnStartDownload.Enabled := False;
-
-  FDMThread := TDownloadManagerThread.Create(False);
+  FDMThread := TDownloadManagerThread.Create(Self);
 end;
 
 procedure TfrmMain.btnPauseDownloadClick(Sender: TObject);
@@ -6868,11 +7238,7 @@ begin
   btnPauseDownload.Enabled := False;
   btnStartDownload.Enabled := True;
   if Assigned(FDMThread) then
-  begin
     FDMThread.Stop;
-    FDMThread.WaitFor;
-    FreeAndNil(FDMThread);
-  end;
 end;
 
 procedure TfrmMain.BtnSaveClick(Sender: TObject);
@@ -6891,8 +7257,190 @@ begin
   begin
     Data := tvDownloadList.GetNodeData(List[i]);
     if Data.State <> dsRun then
+    begin
+      if List[i] = FDownloadNode then
+        FDownloadNode := nil;
       tvDownloadList.DeleteNode(List[i]);
+    end;
   end;
+  UpdateDownloadCount;
+end;
+
+// - - - - - - - - - - - - - - IDownloadView - - - - - - - - - - - - - - - - - -
+//
+// Реалізація для потоку завантажень. Викликається виключно з головного потоку.
+//
+
+procedure TfrmMain.UpdateDownloadCount;
+begin
+  lblDownloadCount.Caption := Format('(%d)', [tvDownloadList.ChildCount[nil]]);
+end;
+
+//
+// Наступна книга черги: рухаємось від поточного вузла, а дійшовши до кінця -
+// повертаємось на початок і пропускаємо помилкові. Якщо помилковими виявились
+// усі, черга починається спочатку - помилки завантажуються повторно.
+//
+function TfrmMain.SelectNextDownload(out Item: TDownloadItem): Boolean;
+var
+  Data: PDownloadData;
+  ErrorCount: Integer;
+begin
+  Result := False;
+  Item := Default(TDownloadItem);
+
+  if Assigned(FDownloadNode) then
+    FDownloadNode := tvDownloadList.GetNext(FDownloadNode);
+
+  if not Assigned(FDownloadNode) then
+  begin
+    ErrorCount := 0;
+    FDownloadNode := tvDownloadList.GetFirst;
+    Data := tvDownloadList.GetNodeData(FDownloadNode);
+    while Assigned(Data) and Assigned(FDownloadNode) and (Data^.State = dsError) do
+    begin
+      FDownloadNode := tvDownloadList.GetNext(FDownloadNode);
+      Data := tvDownloadList.GetNodeData(FDownloadNode);
+      Inc(ErrorCount);
+    end;
+
+    if (ErrorCount > 0) and not Assigned(FDownloadNode) then
+      FDownloadNode := tvDownloadList.GetFirst;
+  end;
+
+  while Assigned(FDownloadNode) do
+  begin
+    Data := tvDownloadList.GetNodeData(FDownloadNode);
+    if not Assigned(Data) then
+      Break;
+
+    if Data^.State <> dsOk then
+    begin
+      Data^.State := dsRun;
+      tvDownloadList.RepaintNode(FDownloadNode);
+
+      Item.BookKey := Data^.BookKey;
+      Item.Author := Data^.Author;
+      Item.Title := Data^.Title;
+      Exit(True);
+    end;
+
+    FDownloadNode := tvDownloadList.GetNext(FDownloadNode);
+  end;
+end;
+
+procedure TfrmMain.CompleteCurrentDownload(Success: Boolean);
+var
+  Data: PDownloadData;
+  Node: PVirtualNode;
+begin
+  if not Assigned(FDownloadNode) then
+    Exit;
+
+  Data := tvDownloadList.GetNodeData(FDownloadNode);
+  if not Assigned(Data) then
+    Exit;
+
+  if Success then
+  begin
+    Data^.State := dsOk;
+
+    //
+    // Вузол міг зникнути з дерева, поки книга качалась (наприклад, разом з
+    // видаленою колекцією), тому спершу переконуємось, що він ще на місці.
+    //
+    Node := tvDownloadList.GetFirst;
+    while Assigned(Node) do
+    begin
+      if Node = FDownloadNode then
+      begin
+        tvDownloadList.DeleteNode(FDownloadNode);
+        Break;
+      end;
+      Node := tvDownloadList.GetNext(Node);
+    end;
+
+    FDownloadNode := nil;
+  end
+  else
+  begin
+    Data^.State := dsError;
+    tvDownloadList.RepaintNode(FDownloadNode);
+  end;
+
+  UpdateDownloadCount;
+end;
+
+procedure TfrmMain.CancelCurrentDownload;
+var
+  Data: PDownloadData;
+begin
+  if not Assigned(FDownloadNode) then
+    Exit;
+
+  Data := tvDownloadList.GetNodeData(FDownloadNode);
+  if not Assigned(Data) then
+    Exit;
+
+  Data^.State := dsError;
+  tvDownloadList.RepaintNode(FDownloadNode);
+end;
+
+function TfrmMain.IsMainFormVisible: Boolean;
+begin
+  Result := Visible;
+end;
+
+procedure TfrmMain.ShowDownloadInfo(const Author, Title: string);
+begin
+  lblDnldAuthor.Caption := Author;
+  lblDnldTitle.Caption := Title;
+  pbDownloadProgress.Visible := True;
+end;
+
+procedure TfrmMain.ShowDownloadState(const State: string);
+begin
+  lblDownloadState.Caption := State;
+end;
+
+procedure TfrmMain.ShowDownloadProgress(Position: Integer);
+begin
+  pbDownloadProgress.Position := Position;
+end;
+
+procedure TfrmMain.ResetDownloadState;
+begin
+  pbDownloadProgress.Position := 0;
+  pbDownloadProgress.Visible := False;
+  lblDownloadState.Caption := rstrDownloadDone;
+  lblDnldAuthor.Caption := '';
+  lblDnldTitle.Caption := '';
+end;
+
+procedure TfrmMain.SetTrayHint(const Hint: string);
+begin
+  TrayIcon.Hint := Hint;
+end;
+
+procedure TfrmMain.SetDownloadRunning(Running: Boolean);
+begin
+  btnPauseDownload.Enabled := Running;
+  btnStartDownload.Enabled := not Running;
+end;
+
+procedure TfrmMain.SetQueueControlsEnabled(Enabled: Boolean);
+begin
+  BtnFirstRecord.Enabled := Enabled;
+  BtnDwnldUp.Enabled := Enabled;
+  BtnDwnldDown.Enabled := Enabled;
+  BtnLastRecord.Enabled := Enabled;
+  BtnSave.Enabled := Enabled;
+  mi_dwnl_Delete.Enabled := Enabled;
+end;
+
+function TfrmMain.AskIgnoreDownloadErrors: Integer;
+begin
+  Result := Application.MessageBox(PWideChar(rstrIgnoreDownloadErrors), '', MB_YESNOCANCEL);
 end;
 
 procedure TfrmMain.DeleteSearchPreset(Sender: TObject);

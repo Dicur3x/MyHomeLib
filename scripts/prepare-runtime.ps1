@@ -6,8 +6,6 @@ param(
 
     [string]$SqliteDll,
 
-    [string]$OpenSslDirectory,
-
     [switch]$Copy
 )
 
@@ -136,7 +134,6 @@ $outputSubdirectory = if ($Platform -eq 'Win32') { 'Out\Bin' } else { 'Out\Bin64
 $outputDirectory = Join-Path $programDirectory $outputSubdirectory
 $exePath = Join-Path $outputDirectory 'MyHomeLib.exe'
 $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
-$sslFileNames = @('libeay32.dll', 'ssleay32.dll')
 
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Сначала соберите $Platform Release: не найден '$exePath'."
@@ -165,46 +162,28 @@ else {
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($OpenSslDirectory)) {
-    $existingSslFiles = @($sslFileNames | Where-Object {
-        Test-Path -LiteralPath (Join-Path $outputDirectory $_) -PathType Leaf
-    })
-
-    if ($existingSslFiles.Count -eq 0) {
-        Write-Warning 'OpenSSL DLL не найдены. Программа запустится, но HTTPS-функции Indy могут не работать.'
-    }
-    elseif ($existingSslFiles.Count -ne $sslFileNames.Count) {
-        throw 'В папке запуска найдена только часть пары OpenSSL. Нужны одновременно libeay32.dll и ssleay32.dll.'
-    }
-    else {
-        foreach ($name in $sslFileNames) {
-            Assert-Architecture -Path (Join-Path $outputDirectory $name) -Expected $Platform
-        }
-    }
-}
-else {
-    $resolvedSslDirectory = (Resolve-Path -LiteralPath $OpenSslDirectory).Path
-    foreach ($name in $sslFileNames) {
-        $sourcePath = Join-Path $resolvedSslDirectory $name
-        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-            throw "В каталоге OpenSSL отсутствует '$name': $resolvedSslDirectory"
-        }
-
-        Assert-Architecture -Path $sourcePath -Expected $Platform
-        Copy-CheckedFile -Source $sourcePath -Destination (Join-Path $outputDirectory $name)
+$requiredRuntimeFiles = @(
+    (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
+    (Join-Path $outputDirectory 'Help\index.html'),
+    (Join-Path $outputDirectory 'MHLMcpServer.exe')
+)
+foreach ($requiredFile in $requiredRuntimeFiles) {
+    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+        throw "Неполная групповая сборка: отсутствует '$requiredFile'. Соберите Program\MHL.groupproj."
     }
 }
 
-foreach ($recommendedFile in @('genres_fb2.glst', 'genres_nonfb2.glst')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $outputDirectory $recommendedFile) -PathType Leaf)) {
-        Write-Warning "Не найден '$recommendedFile': для создания коллекции этого типа положите штатный файл рядом с EXE либо явно выберите совместимый .glst в мастере."
-    }
+Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
+Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
+
+$genreSourceDirectory = Join-Path $repositoryRoot 'Installer\GenreLists'
+foreach ($genreFile in Get-ChildItem -LiteralPath $genreSourceDirectory -Filter '*.glst' -File) {
+    Copy-CheckedFile -Source $genreFile.FullName -Destination (Join-Path $outputDirectory $genreFile.Name)
 }
 
 Write-Host ''
 Write-Host 'Проверенные файлы:'
 Write-FileHash -Path $exePath
 Write-FileHash -Path $sqliteDestination
-foreach ($name in $sslFileNames) {
-    Write-FileHash -Path (Join-Path $outputDirectory $name)
-}
+Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
+Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')

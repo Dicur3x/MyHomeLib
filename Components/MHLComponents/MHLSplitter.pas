@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Created             16.04.2010
   * Description         Сплиттер с улучшенной поддержкой тем и устранением некоторых проблем
@@ -107,7 +107,7 @@ begin
   FMinSize := 30;
   FResizeStyle := rsPattern;
   FOldSize := -1;
-  if StyleServices.ThemesEnabled then
+  if StyleServices.Enabled then
     ControlStyle := ControlStyle - [csOpaque]
   else
     ControlStyle := ControlStyle + [csOpaque];

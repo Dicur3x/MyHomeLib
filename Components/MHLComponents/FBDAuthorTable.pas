@@ -2,9 +2,9 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
-  * Author(s)           Aleksey Penkov
+  * Author(s)           Oleksiy Penkov
   *                     Nick Rymanov (nrymanov@gmail.com)
   * Created             15.04.2010
   * Description

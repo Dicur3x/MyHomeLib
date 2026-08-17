@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -10,9 +10,6 @@
   * Description              
   *
   * $Id: frm_edit_author.pas 543 2010-07-29 06:34:09Z nrymanov@gmail.com $
-  *
-  * ¬Ќ»ћјЌ»≈!!! Ёта форма ¤вл¤етс¤ базовой дл¤ TfrmEditAuthorDataEx.
-  *             Ћюбые изменени¤, сделанные в этой форме, будут вли¤ть и на производную.
   *
   * History
   *
@@ -46,6 +43,9 @@ type
     procedure SetLastName(const Value: string);
     procedure SetMidName(const Value: string);
 
+  protected
+    procedure DoCreate; override;
+
   public
     property LastName: string read GetLastName write SetLastName;
     property FirstName: string read GetFirstName write SetFirstName;
@@ -57,9 +57,18 @@ var
 
 implementation
 
+uses
+  unit_Localization;
+
 {$R *.dfm}
 
 { TfrmEditAuthorData }
+
+procedure TfrmEditAuthorData.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 function TfrmEditAuthorData.GetFirstName: string;
 begin

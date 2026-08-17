@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -32,7 +32,8 @@ uses
   unit_Globals,
   frm_BaseProgressForm,
   unit_WorkerThread,
-  unit_DownloadBooksThread;
+  unit_DownloadBooksThread,
+  unit_ProgressBarEx;
 
 type
   TDownloadProgressForm = class(TProgressFormBase)

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   *                     Oleksiy Penkov oleksiy.penkov@gmail.com
@@ -412,6 +412,10 @@ begin
   Assert(not Assigned(FWorker));
   FWorker := nil;
 
+  // Assert прибирається в Release, тож без значення за замовчуванням
+  // несподіваний тип колекції передав би у потік неініціалізовану змінну
+  GenresType := gtFb2;
+
   case FParams.CollectionType of
     ltUserFB, ltExternalLocalFB, ltExternalOnlineFB, ltExternalLocalAny:
       GenresType := gtFb2;
@@ -431,6 +435,7 @@ begin
   // подключить и запустить импортер
   //
   FWorker.OnOpenProgress := FProgressPage.OpenProgress;
+  FWorker.OnProgressHint := FProgressPage.SetProgressHint;
   FWorker.OnProgress := FProgressPage.ShowProgress;
   FWorker.OnCloseProgress := FProgressPage.CloseProgress;
   FWorker.OnTeletype := FProgressPage.ShowTeletype;

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Oleksiy Penkov  oleksiy.penkov@gmail.com
   *                     Nick Rymanov (nrymanov@gmail.com)
@@ -13,11 +13,6 @@
   *
   * History
   * NickR 15.02.2010    Код переформатирован
-  *
-  * [PERF] Added TImportCache — in-memory author/series lookup tables for
-  *        batch import. Moved here from unit_Database_SQLite so that
-  *        IBookCollection (unit_Interfaces) can reference it without
-  *        creating a circular dependency.
   *
   ****************************************************************************** *)
 
@@ -30,9 +25,7 @@ uses
   SysUtils,
   Generics.Collections,
   VirtualTrees,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL,
+  VirtualTrees.Types,
   unit_Consts,
   Dialogs;
 
@@ -96,7 +89,6 @@ type
 
   TBookIdList = array of TBookIdStruct;
 
-  TAppLanguage = (alEng, alRus);
   TExportMode = (emFB2, emFB2Zip, emLrf, emTxt, emEpub, emPDF, emMobi);
 
   //
@@ -307,6 +299,14 @@ type
   //
   // Вспомогательная структура для обработки заголовков INPX
   //
+  // Структура заголовка
+  // 1. Название коллекции
+  // 2. Название файла коллекции
+  // 3. Тип коллекции
+  // 4. Notes
+  // 5. URL
+  // 6. Все оставшиеся строки содержат скрипт подключения
+  //
   TINPXHeader = record
     Name: string;
     FileName: string;
@@ -337,43 +337,21 @@ type
     function GetRootPath: string;
   end;
 
-  // ==========================================================================
-  //  TImportCache
-  //
-  //  In-memory lookup tables built incrementally during a batch import.
-  //  Avoids a SELECT round-trip to SQLite for every book's authors and series.
-  //
-  //  Typical savings on a 500k-book INPX collection over a spinning HDD:
-  //    Authors cache  ->  ~1 500 000 SELECT queries eliminated  (50-70% faster)
-  //    Series  cache  ->  ~  500 000 SELECT queries eliminated  (10-20% faster)
-  //
-  //  Lifecycle: create before BeginBulkOperation, free after EndBulkOperation.
-  //  NOT thread-safe — one instance per import thread.
-  // ==========================================================================
+  // Per-import dictionaries eliminate repeated author and series SELECTs on
+  // the hot path. One cache belongs to one worker thread.
   TImportCache = class
   private
-    // Key  : LastName + #0 + FirstName + #0 + MiddleName
-    // Value: AuthorID as stored in the Authors table
     FAuthors: TDictionary<string, Integer>;
-
-    // Key  : ToUpper(Trim(SeriesTitle))  — same normalisation as SearchSeriesTitle
-    // Value: SeriesID as stored in the Series table
     FSeries: TDictionary<string, Integer>;
   public
     constructor Create;
     destructor Destroy; override;
 
-    // Builds the canonical author lookup key.
-    // #0 is used as separator because it cannot appear in a person's name.
     function AuthorKey(const LastName, FirstName, MiddleName: string): string; inline;
-
     function TryGetAuthor(const Key: string; out ID: Integer): Boolean; inline;
     procedure AddAuthor(const Key: string; const ID: Integer); inline;
-
     function TryGetSeries(const NormalizedTitle: string; out ID: Integer): Boolean; inline;
     procedure AddSeries(const NormalizedTitle: string; const ID: Integer); inline;
-
-    // Resets both dictionaries without deallocating bucket arrays.
     procedure Clear;
   end;
 
@@ -407,6 +385,7 @@ type
   function CleanFileName(const Input: string): string;
 
   function ClearDir(const DirectoryName: string): Boolean;
+  //function IsRelativePath(const FileName: string): Boolean;
   function CreateFolders(const Root: string; const Path: string): Boolean;
   function CopyFile(const SourceFileName: string; const DestFileName: string): boolean;
   procedure ConvertToTxt(DestFileName: string; Enc: TTXTEncoding; Stream: TStream);
@@ -424,11 +403,12 @@ type
   procedure DebugOut(const DebugMessage: string); overload;
   procedure DebugOut(const DebugMessage: string; const Args: array of const ); overload;
 
-  procedure SetProxySettingsGlobal(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
-  procedure SetProxySettingsUpdate(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
-
   function GetSpecialPath(CSIDL: word): string;
-  function ExecAndWait(const FileName, Params: string; const WinState: word): Boolean;
+  function ExecAndWait(const FileName, Params: string; const WinState: word): Boolean; overload;
+  // Той самий запуск, але повертає й код завершення процесу: зовнішні конвертери
+  // сигналізують про помилку саме ним (напр. fb2pdf.cmd -> 1, якщо немає Java)
+  function ExecAndWait(const FileName, Params: string; const WinState: word;
+    out ExitCode: Cardinal): Boolean; overload;
 
   function CleanExtension(const Ext: string): string;
   function c_GetTempPath: String;
@@ -436,7 +416,8 @@ type
   procedure CheckUpdates(const Version: string; var AutoCheck: Boolean);
 
 var
-  CurrentSelectedAuthor: string;
+  CurrentSelectedAuthor: string; //Текущий выбранный автор для передачи в парсер экспорта
+  CurrentSelectedGroup: string;  //Текущая выбранная группа для передачи в парсер экспорта
 
 implementation
 
@@ -449,11 +430,9 @@ uses
   Character,
   dm_user,
   ShlObj,
-  idStack,
-  idComponent,
-  IdBaseComponent,
-  IdAntiFreezeBase,
-  IdAntiFreeze,
+  System.Net.HttpClient,
+  System.Net.URLClient,
+  unit_MHLHttpClient,
   unit_fb2ToText,
   unit_Fb2Utils,
   unit_MHLGenerics,
@@ -462,13 +441,13 @@ uses
   unit_Settings;
 
 resourcestring
-rstrUnableToLaunch = 'Не удалось запустить %s! ';
-   rstrBookNotFoundInArchive = 'В архиве "%s" не найдено описания книги!';
-   rstrUpdateFailedServerNotFound = 'Проверка обновления не удалась! Сервер не найден.' + CRLF + 'Код ошибки: %d';
-   rstrUpdateFailedConnectionError = 'Проверить обновление не удалось! Ошибка подключения.' + CRLF + 'Код ошибки: %d';
-   rstrUpdateFailedServerError = 'Проверить обновление не удалось! Сервер сообщает об ошибке '+CRLF+'Код ошибки: %d';
-   rstrFoundNewAppVersion = 'Доступна новая версия - "%s" Посетите сайт приложения для загрузки обновлений.';
-   rstrLatestVersion = 'У вас самая свежая версия.';
+rstrUnableToLaunch = 'Не вдалося запустити %s! ';
+   rstrBookNotFoundInArchive = 'В архіві "%s" не знайдено опису книги!';
+   rstrUpdateFailedServerNotFound = 'Перевірка оновлення не вдалося! Сервер не знайдено.' + CRLF + 'Код помилки: %d';
+   rstrUpdateFailedConnectionError = 'Перевірити оновлення не вдалося! Помилка підключення.' + CRLF + 'Код помилки: %d';
+   rstrUpdateFailedServerError = 'Перевірити оновлення не вдалося! Сервер повідомляє про помилку '+CRLF+'Код помилки: %d';
+   rstrFoundNewAppVersion = 'Доступна нова версія - "%s" Відвідайте сайт програми для завантаження оновлень.';
+   rstrLatestVersion = 'У вас найсвіжіша версія.';
 
 const
   lat: set of AnsiChar = ['A' .. 'Z', 'a' .. 'z', '\', '-', ':', '`', ',', '.', '0' .. '9', '_', ' ', '(', ')', '[', ']', '{', '}'];
@@ -483,16 +462,11 @@ const
 const
   TransU: array [0 .. 31] of string = ('A', 'B', 'V', 'G', 'D', 'E', 'Zh', 'Z', 'I', 'Y', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'F', 'H', 'C', 'Ch', 'Sh', 'Sch', '''', 'I', '''', 'E', 'Yu', 'Ya');
 
-// =============================================================================
-//  TImportCache
-// =============================================================================
-
 constructor TImportCache.Create;
 begin
   inherited;
-  // Pre-sized to avoid repeated rehashing on large INPX collections.
   FAuthors := TDictionary<string, Integer>.Create(32768);
-  FSeries  := TDictionary<string, Integer>.Create(8192);
+  FSeries := TDictionary<string, Integer>.Create(8192);
 end;
 
 destructor TImportCache.Destroy;
@@ -502,7 +476,8 @@ begin
   inherited;
 end;
 
-function TImportCache.AuthorKey(const LastName, FirstName, MiddleName: string): string;
+function TImportCache.AuthorKey(const LastName, FirstName,
+  MiddleName: string): string;
 begin
   Result := LastName + #0 + FirstName + #0 + MiddleName;
 end;
@@ -517,12 +492,14 @@ begin
   FAuthors.AddOrSetValue(Key, ID);
 end;
 
-function TImportCache.TryGetSeries(const NormalizedTitle: string; out ID: Integer): Boolean;
+function TImportCache.TryGetSeries(const NormalizedTitle: string;
+  out ID: Integer): Boolean;
 begin
   Result := FSeries.TryGetValue(NormalizedTitle, ID);
 end;
 
-procedure TImportCache.AddSeries(const NormalizedTitle: string; const ID: Integer);
+procedure TImportCache.AddSeries(const NormalizedTitle: string;
+  const ID: Integer);
 begin
   FSeries.AddOrSetValue(NormalizedTitle, ID);
 end;
@@ -533,10 +510,9 @@ begin
   FSeries.Clear;
 end;
 
-// =============================================================================
-//  Collection type helpers
-// =============================================================================
-
+  // -----------------------------------------------------------------------------
+  // различная информация о коллекции
+  // -----------------------------------------------------------------------------
 function isPrivateCollection(t: COLLECTION_TYPE): Boolean;
 begin
   Result := (t and CT_TYPE_MASK) = LIBRARY_PRIVATE;
@@ -567,6 +543,7 @@ begin
   Result := (t and CT_CONTENT_MASK) = CONTENT_NONFB;
 end;
 
+// -----------------------------------------------------------------------------
 function isSystemProp(propID: TPropertyID): Boolean; inline;
 begin
   Result := (propID and PROP_CLASS_SYSTEM) = PROP_CLASS_SYSTEM;
@@ -582,11 +559,15 @@ begin
   Result := (propID and PROP_TYPE_MASK);
 end;
 
+// -----------------------------------------------------------------------------
+//
+// -----------------------------------------------------------------------------
+
 function c_GetTempPath: String;
 var
-  Buffer: array[0..65536] of Char;
+  Buffer: array[0..65535] of Char;
 begin
-  SetString(Result, Buffer, GetTempPath(Sizeof(Buffer)-1,Buffer));
+  SetString(Result, Buffer, GetTempPath(Length(Buffer), Buffer));
 end;
 
 function PosChr(aCh: Char; const S: string): Integer;
@@ -604,15 +585,8 @@ begin
 end;
 
 procedure StrReplace(const s1: string; const s2: string; var s3: string);
-var
-  p: Integer;
 begin
-  p := Pos(s1, s3);
-  while p > 0 do
-  begin
-    s3 := Copy(s3, 1, p - 1) + s2 + Copy(s3, p + Length(s1));
-    p := Pos(s1, s3);
-  end;
+  s3 := StringReplace(s3, s1, s2, [rfReplaceAll]);
 end;
 
 function IsReservedWindowsName(const Value: string): Boolean;
@@ -674,39 +648,75 @@ begin
   end;
 end;
 
+// Replace non-valid file name characters with spaces
 function CleanFileName(const Input: string): string;
 var
   i: Integer;
 begin
   Result := Input;
-  // Remove '...' first (longer pattern), then '..' — otherwise '..' eats
-  // two dots from '...' leaving a stray '.' behind.
-  Result := StringReplace(Result, '...', '', [rfReplaceAll]);
-  Result := StringReplace(Result, '..', '', [rfReplaceAll]);
+
+  Result := StringReplace(Result,'...','',[rfReplaceAll]);
+  Result := StringReplace(Result,'..','',[rfReplaceAll]);
+
   for i := 1 to Length(Result) do
+  begin
     if not TPath.IsValidFileNameChar(Result[i]) then
       Result[i] := ' ';
+  end;
   Result := SanitizeWindowsComponent(Result);
 end;
 
+(*
+function IsRelativePath(const FileName: string): Boolean;
+//var
+//  L: Integer;
+begin
+  Result := TPath.IsPathRooted(FileName);
+  {
+  Result := True;
+  L := Length(FileName);
+  if ((L >= 1) and IsPathDelimiter(FileName, 1)) or // \dir\subdir or /dir/subdir
+    ((L >= 2) and CharInSet(FileName[1], ['A' .. 'Z', 'a' .. 'z']) and (FileName[2] = ':')) // C:, D:, etc.
+  then
+    Result := False;
+  }
+end;
+*)
+
 function CreateFolders(const Root: string; const Path: string): Boolean;
 var
+  RootPath: string;
   FullPath: string;
 begin
-  if Path = '\' then
-    FullPath := Root + Path
+  // Some established callers already pass an absolute destination and leave
+  // Root empty (notably the downloader). In that mode there is no relative
+  // template to confine; normalise the explicit path and create it directly.
+  if Root = '' then
+  begin
+    if Path = '' then
+      Exit(False);
+    FullPath := TPath.GetFullPath(Path);
+    Exit(SysUtils.ForceDirectories(FullPath));
+  end;
+
+  RootPath := ExcludeTrailingPathDelimiter(TPath.GetFullPath(Root));
+  if (Path = '') or (Path = '\') then
+    FullPath := RootPath
   else
-    FullPath := TPath.Combine(Root, Path);
+    FullPath := TPath.GetFullPath(TPath.Combine(RootPath, Path));
+  if not SameText(FullPath, RootPath) and
+     not StartsText(IncludeTrailingPathDelimiter(RootPath), FullPath) then
+    Exit(False);
+
   Result := SysUtils.ForceDirectories(FullPath);
 end;
-
 {$WARNINGS OFF}
+
 function CopyFile(const SourceFileName: string; const DestFileName: string): boolean;
 var
   SourceFile: TFileStream;
   DestFile: TFileStream;
 begin
-  Result := False;
   SourceFile := TFileStream.Create(SourceFileName, fmOpenRead or fmShareDenyNone);
   try
     DestFile := TFileStream.Create(DestFileName, fmCreate or fmShareDenyRead);
@@ -762,6 +772,7 @@ var
 begin
   Result := True;
   ACurrentDir := IncludeTrailingPathDelimiter(DirectoryName);
+
   try
     if FindFirst(ACurrentDir + '*.*', faAnyFile, SearchRec) = 0 then
       try
@@ -782,10 +793,10 @@ end;
 function Transliterate(const Input: string): string;
 var
   S: string;
-  Builder: TStringBuilder;
+  SB: TStringBuilder;
   f, o: Integer;
 begin
-  Builder := TStringBuilder.Create(Length(Input) * 2);
+  SB := TStringBuilder.Create(Length(Input));
   try
     for f := 1 to Length(Input) do
     begin
@@ -802,36 +813,48 @@ begin
         S := Input[f]
       else
         S := '_';
-      Builder.Append(S);
+      SB.Append(S);
     end;
-    Result := Builder.ToString;
+    Result := SB.ToString;
   finally
-    Builder.Free;
+    SB.Free;
   end;
 end;
 
 function CheckSymbols(const Input: string; const Full: boolean = False): string;
 var
+  SB: TStringBuilder;
   f: Integer;
+  ch: Char;
+  IsDenied: Boolean;
 begin
-  Result := Input;
-  for f := 1 to Length(Input) do
-    if Full then
+  SB := TStringBuilder.Create(Length(Input));
+  try
+    for f := 1 to Length(Input) do
     begin
-      if CharInSet(Input[f], denied_full) then
-        Result[f] := ' ';
-    end
-    else
-    begin
-      if CharInSet(Input[f], denied) then
-        Result[f] := ' ';
+      ch := Input[f];
+      if Full then
+        IsDenied := CharInSet(ch, denied_full)
+      else
+        IsDenied := CharInSet(ch, denied);
+
+      if IsDenied then
+        SB.Append(' ')
+      else
+        SB.Append(ch);
     end;
-  while (Result <> '') and CharInSet(Result[Length(Result)], [' ', '.']) do
-    Delete(Result, Length(Result), 1);
-  if Full then
-    Result := SanitizeWindowsComponent(Result)
-  else
-    Result := SanitizeWindowsPathComponents(Result);
+
+    // Windows ignores trailing spaces/dots and reserves several device names.
+    while (SB.Length > 0) and CharInSet(SB.Chars[SB.Length - 1], [' ', '.']) do
+      SB.Length := SB.Length - 1;
+
+    if Full then
+      Result := SanitizeWindowsComponent(SB.ToString)
+    else
+      Result := SanitizeWindowsPathComponents(SB.ToString);
+  finally
+    SB.Free;
+  end;
 end;
 
 function GenerateBookLocation(const FullName: string): string;
@@ -839,16 +862,18 @@ var
   Letter: Char;
   AuthorName: string;
 begin
-  AuthorName := Trim(CheckSymbols(FullName));
+  //
+  // Не обрезаем пробелы здесь!!! От их наличия зависит расположение файла - на букве или в каталоге '_'
+  //
+  AuthorName := Trim(CheckSymbols(FullName)); // Ф.И.О. - полностью!
+
   if AuthorName = '' then
-  begin
-    Result := IncludeTrailingPathDelimiter('_') +
-      IncludeTrailingPathDelimiter(rstrUnknownAuthor);
-    Exit;
-  end;
+    AuthorName := rstrUnknownAuthor;
+
   Letter := AuthorName[1];
   if not Letter.IsLetterOrDigit then
     Letter := '_';
+
   Result := IncludeTrailingPathDelimiter(Letter) + IncludeTrailingPathDelimiter(AuthorName);
 end;
 
@@ -880,6 +905,7 @@ end;
 function TAuthorData.GetFullName(onlyInitials: Boolean = False): string;
 begin
   Assert(LastName <> '');
+
   Result := FormatName(LastName, FirstName, MiddleName, '', onlyInitials);
 end;
 
@@ -912,10 +938,11 @@ var
 begin
   i := Length(Authors);
   SetLength(Authors, i + 1);
-  Authors[i].LastName   := LastName;
-  Authors[i].FirstName  := FirstName;
+
+  Authors[i].LastName := LastName;
+  Authors[i].FirstName := FirstName;
   Authors[i].MiddleName := MiddleName;
-  Authors[i].AuthorID   := AuthorID;
+  Authors[i].AuthorID := AuthorID;
 end;
 
 class function TAuthorsHelper.GetList(const Authors: TBookAuthors): string;
@@ -953,10 +980,10 @@ end;
 
 procedure TGenreData.Clear;
 begin
-  GenreCode    := UNKNOWN_GENRE_CODE;
-  ParentCode   := '';
+  GenreCode := UNKNOWN_GENRE_CODE;
+  ParentCode := '';
   FB2GenreCode := '';
-  GenreAlias   := '';
+  GenreAlias := '';
 end;
 
 { TGenresHelper }
@@ -967,10 +994,11 @@ var
 begin
   i := Length(Genres);
   SetLength(Genres, i + 1);
-  Genres[i].GenreCode    := GenreCode;
-  Genres[i].ParentCode   := '';
+
+  Genres[i].GenreCode := GenreCode;
+  Genres[i].ParentCode := '';
   Genres[i].FB2GenreCode := GenreFb2Code;
-  Genres[i].GenreAlias   := Alias;
+  Genres[i].GenreAlias := Alias;
 end;
 
 class function TGenresHelper.GetList(const Genres: TBookGenres): string;
@@ -999,16 +1027,17 @@ end;
 
 function CreateBookKey(BookID: Integer; DatabaseID: Integer): TBookKey;
 begin
-  Result.BookID     := BookID;
+  Result.BookID := BookID;
   Result.DatabaseID := DatabaseID;
 end;
 
 procedure TBookKey.Clear;
 begin
-  BookID     := MHL_INVALID_ID;
+  BookID := MHL_INVALID_ID;
   DatabaseID := MHL_INVALID_ID;
 end;
 
+// Is the other key equal to this one?
 function TBookKey.IsSameAs(const other: TBookKey): Boolean;
 begin
   Result := (BookID = other.BookID) and (DatabaseID = other.DatabaseID);
@@ -1016,10 +1045,6 @@ end;
 
 procedure TBookRecord.Clear;
 begin
-  // Importers deliberately reuse one record for hundreds of thousands of
-  // books.  Every field must therefore be reset here: leaving even one string
-  // or identifier behind makes an incomplete input row inherit metadata from
-  // the previous book.
   nodeType := ntBookInfo;
   BookKey.Clear;
   SeriesID := NO_SERIES_ID;
@@ -1048,17 +1073,25 @@ begin
   Review := '';
 end;
 
+//
+// Добавляет отсутствующую информацию о книге, заполняя поля значения по умолчанию
+//
 procedure TBookRecord.Normalize;
 var
   i: Integer;
 begin
-  if Title = '' then Title := rstrNoTitle;
+  if Title = '' then
+    Title := rstrNoTitle;
+
   for i := 0 to AuthorCount - 1 do
-    if Authors[i].LastName = '' then Authors[i].LastName := rstrUnknownAuthor;
+    if Authors[i].LastName = '' then
+      Authors[i].LastName := rstrUnknownAuthor;
   if AuthorCount = 0 then
     TAuthorsHelper.Add(Authors, rstrUnknownAuthor, '', '');
+
   for i := 0 to GenreCount - 1 do
-    if Genres[i].GenreCode = '' then Genres[i].GenreCode := UNKNOWN_GENRE_CODE;
+    if Genres[i].GenreCode = '' then
+      Genres[i].GenreCode := UNKNOWN_GENRE_CODE;
   if GenreCount = 0 then
     TGenresHelper.Add(Genres, UNKNOWN_GENRE_CODE, '', '');
 end;
@@ -1068,6 +1101,9 @@ begin
   Result := CleanExtension(FileExt);
 end;
 
+//
+// Формирует И\Иванов Иван Иванович\Просто книга
+//
 function TBookRecord.GenerateLocation: string;
 begin
   Assert(AuthorCount > 0);
@@ -1094,20 +1130,25 @@ begin
   Result := Length(Genres);
 end;
 
+// Get the book format enum value
 function TBookRecord.GetBookFormat: TBookFormat;
 var
   BookContainer: string;
   PathLen: Integer;
   LongFileName: string;
 begin
-  Result := bfRaw;
+  Result := bfRaw; // default
   BookContainer := TPath.Combine(CollectionRoot, Folder);
   PathLen := Length(BookContainer);
-  if (PathLen = 0) or
-     (BookContainer[PathLen] = TPath.DirectorySeparatorChar) or
-     (BookContainer[PathLen] = TPath.AltDirectorySeparatorChar) then
+
+  if
+    (PathLen = 0) or
+    (BookContainer[PathLen] = TPath.DirectorySeparatorChar) or
+    (BookContainer[PathLen] = TPath.AltDirectorySeparatorChar) then
   begin
+    //BookContainer is either empty or a path
     LongFileName := TPath.Combine(BookContainer, FileName);
+
     if AnsiLowercase(ExtractFileExt(LongFileName)) = ZIP_EXTENSION then
       Result := bfFbd
     else if FileExt = FB2_EXTENSION then
@@ -1115,35 +1156,47 @@ begin
   end
   else
   begin
+
     if IsArchiveExt(BookContainer) then
     begin
-      if FileExt = FB2_EXTENSION then Result := bfFb2Archive
-      else                            Result := bfRawArchive;
+      if (FileExt = FB2_EXTENSION) then
+        Result := bfFb2Archive
+      else
+        Result := bfRawArchive;
     end;
   end;
-  if (Result = bfRaw) and (FileExt = FB2_EXTENSION) then Result := bfFb2;
+
+  if (Result = bfRaw) and (FileExt = FB2_EXTENSION) then
+    Result := bfFb2
 end;
 
+// Get the fully expanded book file name
 function TBookRecord.GetBookFileName: string;
 var
   BookFormat: TBookFormat;
   BookContainer: string;
 begin
   BookContainer := GetBookContainer;
-  BookFormat    := GetBookFormat;
+  BookFormat := GetBookFormat;
   if BookFormat = bfFBD then
     Result := TPath.Combine(BookContainer, FileName)
-  else if (BookFormat = bfFb2Archive) or (BookFormat = bfRawArchive) then
+  else if (BookFormat = bfFb2Archive) or (BookFormat = bfRawArchive)  then
     Result := BookContainer
-  else
+  else // bfFb2 or bfRaw
     Result := TPath.Combine(BookContainer, FileName) + FileExt;
 end;
 
+// Get the container holding the book (folder or zip file)
+//  For bfFb2, bfFBD and bfRaw - brings the folder containing the file
+//  For bfFb2Zip - brings the name of the Zip file
 function TBookRecord.GetBookContainer: string;
 begin
   Result := TPath.Combine(CollectionRoot, Folder);
 end;
 
+// Get the book file as a stream.
+// The caller code must free the stream when done!
+// For FBD archives brings the raw book (and NOT the FBD descriptor)
 function TBookRecord.GetBookStream: TStream;
 var
   BookFormat: TBookFormat;
@@ -1153,7 +1206,8 @@ begin
   Result := nil;
   archiver := nil;
   BookFileName := GetBookFileName;
-  BookFormat   := GetBookFormat;
+
+  BookFormat := GetBookFormat;
   if BookFormat in [bfFb2Archive, bfFbd, bfRawArchive] then
   begin
     try
@@ -1170,18 +1224,29 @@ begin
       FreeAndNil(archiver);
     end;
   end
-  else
+  else // bfFb2, bfRaw
   begin
     try
       Result := TFileStream.Create(BookFileName, fmOpenRead);
     except
       on e: EFOpenError do
+      begin
+        //
+        // TODO: на самом деле, файл может существовать, но буть заблокирован другим приложением
+        //
         raise EBookNotFound.CreateFmt(rstrFileNotFound, [BookFileName]);
+      end;
     end;
   end;
+
   Assert(Assigned(Result) or Settings.IgnoreAbsentArchives);
 end;
 
+// Get the descriptor file as a stream.
+// The caller code must free the stream when done!
+//  For bfFbd - brings the FBD descriptor file
+//  For bfFb2Zip and bfFb2 - brings the FB2 file
+//  For bfRaw - raise ENotSupportedException exception
 function TBookRecord.GetBookDescriptorStream: TStream;
 var
   bookFileName: string;
@@ -1190,19 +1255,25 @@ var
 begin
   Result := nil;
   archiver := nil;
+
   case GetBookFormat of
     bfFb2, bfFb2Archive:
-      Result := GetBookStream;
+      begin
+        Result := GetBookStream;
+      end;
+
     bfFbd:
       begin
         bookFileName := GetBookFileName;
         archiveFileName := TPath.Combine(Settings.ReadPath, bookFileName);
         if not FileExists(archiveFileName) then
-          Exit;
+          raise EBookNotFound.CreateFmt(rstrFileNotFound, [archiveFileName]);
+
         try
           archiver := TMHLZip.Create(archiveFileName, True);
           if not archiver.Find('*' + FBD_EXTENSION) then
-            Exit;
+            raise EBookNotFound.CreateFmt(rstrBookNotFoundInArchive,
+              [archiveFileName]);
 
           Result := TMemoryStream.Create;
           try
@@ -1215,11 +1286,16 @@ begin
           FreeAndNil(archiver);
         end;
       end;
+
     bfRaw:
-      raise ENotSupportedException.Create(rstrErrorNotSupported);
+      begin
+        raise ENotSupportedException.Create(rstrErrorNotSupported);
+      end;
   end;
+
 end;
 
+// Save the book to a destination file
 procedure TBookRecord.SaveBookToFile(const DestFileName: String);
 var
   SourceStream: TStream;
@@ -1246,30 +1322,47 @@ begin
   Result := GetBookStream;
 end;
 
+// ============================================================================
+
 function IncludeUrlSlash(const S: string): string;
 begin
   Result := S;
-  if (Result <> '') and (Result[Length(Result)] <> '/') then
-    Result := Result + '/';
+  if Result <> '' then
+  begin
+    // relevant only for non-empty URL strings
+    if Result[Length(Result)] <> '/' then
+      Result := Result + '/';
+  end;
 end;
 
 function CompareDate(d1, d2: TDateTime): Integer;
 begin
-  if d1 > d2 then Result := 1
-  else if d1 < d2 then Result := -1
-  else Result := 0;
+  if d1 > d2 then
+    Result := 1
+  else if d1 < d2 then
+    Result := -1
+  else // if d1 = d2 then
+    Result := 0;
 end;
 
 function CompareInt(i1, i2: Integer): Integer;
 begin
-  Result := Sign(i1 - i2);
+  if i1 > i2 then
+    Result := 1
+  else if i1 < i2 then
+    Result := -1
+  else
+    Result := 0;
 end;
 
 function CompareSeqNumber(i1, i2: Integer): Integer;
 begin
-  if (i1 > 0) and (i2 = 0) then Result := -1
-  else if (i1 = 0) and (i2 > 0) then Result := 1
-  else Result := Sign(i1 - i2);
+  if (i1 > 0) and (i2 = 0) then
+    Result := -1
+  else if (i1 = 0) and (i2 > 0) then
+    Result := 1
+  else
+    Result := Sign(i1 - i2);
 end;
 
 procedure DebugOut(const DebugMessage: string);
@@ -1279,7 +1372,7 @@ begin
 {$ENDIF}
 end;
 
-procedure DebugOut(const DebugMessage: string; const Args: array of const);
+procedure DebugOut(const DebugMessage: string; const Args: array of const );
 begin
 {$IFOPT D+}
   OutputDebugString(PChar(Format(DebugMessage, Args)));
@@ -1299,207 +1392,160 @@ begin
   Result := IncludeTrailingPathDelimiter(PChar(S));
 end;
 
-procedure InitHTTP(var IdHTTP: TidHTTP);
-begin
-  IdHTTP.Request.UserAgent := 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0; MAAU)';
-  IdHTTP.ConnectTimeout    := Settings.TimeOut;
-  IdHTTP.ReadTimeout       := Settings.ReadTimeOut;
-  IdHTTP.AllowCookies      := True;
-  IdHTTP.HandleRedirects   := True;
-end;
-
-procedure SetProxySettingsGlobal(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
-begin
-  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvTLSv1_2];
-  IdHTTP.IOHandler := IdSSLIOHandlerSocketOpenSSL;
-  IdSSLIOHandlerSocketOpenSSL.TransparentProxy := nil;
-  with IdHTTP.ProxyParams do
-  begin
-    ProxyServer := '';
-    ProxyPort := 0;
-    ProxyUsername := '';
-    ProxyPassword := '';
-    if Settings.UseIESettings then
-    begin
-      ProxyServer := Settings.IEProxyServer;
-      ProxyPort   := Settings.IEProxyPort;
-    end
-    else
-    begin
-      case Settings.ProxyType of
-        0: begin
-             ProxyServer   := Settings.ProxyServer;
-             ProxyPort     := Settings.ProxyPort;
-             ProxyUsername := Settings.ProxyUsername;
-             ProxyPassword := Settings.ProxyPassword;
-           end;
-        1: begin
-             ProxyServer := ''; ProxyPort := 0;
-             with IdSocksInfo do begin
-               Version := svSocks4; Host := Settings.ProxyServer; Port := Settings.ProxyPort;
-               if Settings.ProxyUsername <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsername; Password := Settings.ProxyPassword; end
-               else Authentication := saNoAuthentication;
-               IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
-             end;
-           end;
-        2: begin
-             ProxyServer := ''; ProxyPort := 0;
-             with IdSocksInfo do begin
-               Version := svSocks5; Host := Settings.ProxyServer; Port := Settings.ProxyPort;
-               if Settings.ProxyUsername <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsername; Password := Settings.ProxyPassword; end
-               else Authentication := saNoAuthentication;
-               IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
-             end;
-           end;
-      end;
-    end;
-    BasicAuthentication := True;
-  end;
-  InitHTTP(IdHTTP);
-end;
-
-procedure SetProxySettingsUpdate(var IdHTTP: TidHTTP; IdSocksInfo: TIdSocksInfo; IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL);
-begin
-  IdSSLIOHandlerSocketOpenSSL.SSLOptions.SSLVersions := [sslvTLSv1_2];
-  IdHTTP.IOHandler := IdSSLIOHandlerSocketOpenSSL;
-  IdSSLIOHandlerSocketOpenSSL.TransparentProxy := nil;
-  with IdHTTP.ProxyParams do
-  begin
-    ProxyServer := '';
-    ProxyPort := 0;
-    ProxyUsername := '';
-    ProxyPassword := '';
-  end;
-  if Settings.UseProxyForUpdate then
-  begin
-    with IdHTTP.ProxyParams do
-    begin
-      case Settings.ProxyType of
-        0: begin
-             ProxyServer   := Settings.ProxyServerUpdate;
-             ProxyPort     := Settings.ProxyPortUpdate;
-             ProxyUsername := Settings.ProxyUsernameUpdate;
-             ProxyPassword := Settings.ProxyPasswordUpdate;
-           end;
-        1: begin
-             ProxyServer := ''; ProxyPort := 0;
-             with IdSocksInfo do begin
-               Version := svSocks4; Host := Settings.ProxyServerUpdate; Port := Settings.ProxyPortUpdate;
-               if Settings.ProxyUsernameUpdate <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
-               else Authentication := saNoAuthentication;
-               IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
-             end;
-           end;
-        2: begin
-             ProxyServer := ''; ProxyPort := 0;
-             with IdSocksInfo do begin
-               Version := svSocks5; Host := Settings.ProxyServerUpdate; Port := Settings.ProxyPortUpdate;
-               if Settings.ProxyUsernameUpdate <> '' then begin Authentication := saUsernamePassword; Username := Settings.ProxyUsernameUpdate; Password := Settings.ProxyPasswordUpdate; end
-               else Authentication := saNoAuthentication;
-               IdSSLIOHandlerSocketOpenSSL.TransparentProxy := IdSocksInfo;
-             end;
-           end;
-      end;
-      BasicAuthentication := True;
-    end;
-  end
-  else
-  begin
-    with IdHTTP.ProxyParams do
-    begin
-      ProxyServer := ''; ProxyPort := 0; ProxyUsername := ''; ProxyPassword := '';
-      BasicAuthentication := True;
-    end;
-  end;
-  InitHTTP(IdHTTP);
-end;
-
 procedure CheckUpdates(const Version: string; var AutoCheck: Boolean);
 var
   SL: TStringList;
   LF: TMemoryStream;
   i: Integer;
   S: string;
-  HTTP: TidHTTP;
-  IdSocksInfo: TIdSocksInfo;
-  IdSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
+  HTTP: THTTPClient;
 begin
-  if not Settings.CheckUpdate then Exit;
   LF := TMemoryStream.Create;
   try
     SL := TStringList.Create;
     try
-      HTTP := TidHTTP.Create;
-      IdSocksInfo := TIdSocksInfo.Create(nil);
-      IdSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create(nil);
+      HTTP := CreateHTTPClientGlobal;
       try
-        SetProxySettingsUpdate(HTTP, IdSocksInfo, IdSSLIOHandlerSocketOpenSSL);
         try
           HTTP.Get(IncludeUrlSlash(Settings.UpdateURL) + PROGRAM_VERINFO_FILENAME, LF);
-          LF.SaveToFile(Settings.SystemFileName[sfAppVerInfo]);
-          SL.LoadFromFile(Settings.SystemFileName[sfAppVerInfo]);
-          if SL.Count > 0 then
-          begin
-            if CompareStr(Version, SL[0]) < 0 then
-            begin
-              S := CRLF;
-              for i := 1 to SL.Count - 1 do S := S + '  ' + SL[i] + CRLF;
-              MHLShowInfo(Format(rstrFoundNewAppVersion, [SL[0] + CRLF + S + CRLF]));
-            end
-            else if not AutoCheck then
-              MHLShowInfo(rstrLatestVersion);
-          end;
         except
-          on E: EIdSocketError do begin end;
-          on E: Exception do begin end;
+          on E: ENetHTTPClientException do
+          begin
+            MHLShowError(rstrUpdateFailedConnectionError, [0]);
+            AutoCheck := False;
+            Exit;
+          end;
+          on E: Exception do
+          begin
+            MHLShowError(rstrUpdateFailedServerError, [0]);
+            AutoCheck := False;
+            Exit;
+          end;
         end;
+        LF.SaveToFile(Settings.SystemFileName[sfAppVerInfo]);
+        SL.LoadFromFile(Settings.SystemFileName[sfAppVerInfo]);
+        if SL.Count > 0 then
+          if CompareStr(Version, SL[0]) < 0 then
+          begin
+            S := CRLF;
+            for i := 1 to SL.Count - 1 do
+              S := S + '  ' + SL[i] + CRLF;
+            MHLShowInfo(Format(rstrFoundNewAppVersion, [SL[0] + CRLF + S + CRLF]));
+          end
+          else if not AutoCheck then
+            MHLShowInfo(rstrLatestVersion);
+        AutoCheck := False;
       finally
-        IdSSLIOHandlerSocketOpenSSL.Free;
-        IdSocksInfo.Free;
         HTTP.Free;
       end;
-    finally SL.Free; end;
-  finally LF.Free; end;
-  AutoCheck := False;
+    finally
+      SL.Free;
+    end;
+  finally
+    LF.Free;
+  end;
 end;
+
 
 function ExecAndWait(const FileName, Params: string; const WinState: word): Boolean;
 var
+  ExitCode: Cardinal;
+begin
+  Result := ExecAndWait(FileName, Params, WinState, ExitCode);
+end;
+
+function ExecAndWait(const FileName, Params: string; const WinState: word;
+  out ExitCode: Cardinal): Boolean;
+var
   StartInfo: TStartupInfo;
   ProcInfo: TProcessInformation;
+  ApplicationName: string;
   CmdLine: string;
 begin
-  CmdLine := '' + FileName + ' ' + Params;
+  ExitCode := 0;
+  if SameText(ExtractFileExt(FileName), '.cmd') or
+     SameText(ExtractFileExt(FileName), '.bat') then
+  begin
+    ApplicationName := GetEnvironmentVariable('ComSpec');
+    if ApplicationName = '' then
+      ApplicationName := TPath.Combine(
+        GetEnvironmentVariable('SystemRoot'), 'System32\cmd.exe');
+    CmdLine := '"' + ApplicationName + '" /D /S /C ""' + FileName +
+      '" ' + Params + '"';
+  end
+  else
+  begin
+    ApplicationName := FileName;
+    CmdLine := '"' + FileName + '"';
+    if Params <> '' then
+      CmdLine := CmdLine + ' ' + Params;
+  end;
   FillChar(StartInfo, Sizeof(StartInfo), #0);
-  with StartInfo do begin cb := Sizeof(StartInfo); dwFlags := STARTF_USESHOWWINDOW; wShowWindow := WinState; end;
-  Result := CreateProcess(nil, PChar(CmdLine), nil, nil, False, CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS, nil, PChar(ExtractFilePath(FileName)), StartInfo, ProcInfo);
+  with StartInfo do
+  begin
+    cb := Sizeof(StartInfo);
+    dwFlags := STARTF_USESHOWWINDOW;
+    wShowWindow := WinState;
+  end;
+
+  Result := CreateProcess(
+    PChar(ApplicationName),
+    PChar(CmdLine),
+    nil,
+    nil,
+    False,
+    CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS,
+    nil,
+    PChar(ExtractFilePath(FileName)),
+    StartInfo,
+    ProcInfo
+  );
+
   if Result then
   begin
     WaitForSingleObject(ProcInfo.hProcess, INFINITE);
+    // Запуск вдався - це ще не успіх: конвертер міг завершитись з помилкою
+    if not GetExitCodeProcess(ProcInfo.hProcess, ExitCode) then
+    begin
+      ExitCode := Cardinal(-1);
+      Result := False;
+    end
+    else
+      Result := ExitCode = 0;
+    { Free the Handles }
     CloseHandle(ProcInfo.hProcess);
     CloseHandle(ProcInfo.hThread);
-  end
-  else
-    Application.MessageBox(PChar(Format(rstrUnableToLaunch, [FileName])), '', mb_IconExclamation);
+  end;
 end;
 
 function CleanExtension(const Ext: string): string;
 begin
   Result := Trim(Ext);
-  if (Result <> '') and (Result[1] = '.') then Delete(Result, 1, 1);
+  if (Result <> '') and (Result[1] = '.') then
+    Delete(Result, 1, 1);
 end;
 
 { TINPXHeader }
 
 procedure TINPXHeader.Clear;
 begin
-  Name := ''; FileName := ''; ContentType := CT_PRIVATE_FB;
-  Notes := ''; URL := ''; Script := '';
+  Name := '';
+  FileName := '';
+  ContentType := CT_PRIVATE_FB;
+  Notes := '';
+  URL := '';
+  Script := '';
 end;
 
 function TINPXHeader.AsString: string;
 begin
-  Result := Name + CRLF + ExtractFileName(FileName) + CRLF + IntToStr(ContentType) + CRLF + Notes + CRLF + URL + CRLF + Script;
+  Result :=
+    Name + CRLF +
+    ExtractFileName(FileName) + CRLF +
+    IntToStr(ContentType) + CRLF +
+    Notes + CRLF +
+    URL + CRLF +
+    Script;
 end;
 
 procedure TINPXHeader.ParseString(const Value: string);
@@ -1508,15 +1554,28 @@ var
   i: Integer;
 begin
   Clear;
+
   slHelper := TStringList.Create;
   try
     slHelper.Text := Value;
-    if slHelper.Count > 0 then Name        := slHelper[0];
-    if slHelper.Count > 1 then FileName    := slHelper[1];
-    if slHelper.Count > 2 then ContentType := StrToIntDef(slHelper[2], CT_PRIVATE_FB);
-    if slHelper.Count > 3 then Notes       := slHelper[3];
-    if slHelper.Count > 4 then URL         := slHelper[4];
-    for i := 5 to slHelper.Count - 1 do Script := Script + slHelper[i] + CRLF;
+
+    if slHelper.Count > 0 then
+      Name := slHelper[0];
+
+    if slHelper.Count > 1 then
+      FileName := slHelper[1];
+
+    if slHelper.Count > 2 then
+      ContentType := StrToIntDef(slHelper[2], CT_PRIVATE_FB);
+
+    if slHelper.Count > 3 then
+      Notes := slHelper[3];
+
+    if slHelper.Count > 4 then
+      URL := slHelper[4];
+
+    for i := 5 to slHelper.Count - 1 do
+      Script := Script + slHelper[i] + CRLF;
   finally
     slHelper.Free;
   end;
@@ -1526,17 +1585,17 @@ end;
 
 procedure TCollectionInfo.Clear;
 begin
-  ID             := INVALID_COLLECTION_ID;
-  DisplayName    := '';
-  RootFolder     := '';
-  DBFileName     := '';
-  Notes          := '';
-  DataVersion    := UNVERSIONED_COLLECTION;
+  ID := INVALID_COLLECTION_ID;
+  DisplayName := '';
+  RootFolder := '';
+  DBFileName := '';
+  Notes := '';
+  DataVersion := UNVERSIONED_COLLECTION;
   CollectionType := CT_PRIVATE_FB;
-  User           := '';
-  Password       := '';
-  URL            := '';
-  Script         := '';
+  User := '';
+  Password := '';
+  URL := '';
+  Script := '';
 end;
 
 function TCollectionInfo.GetRootPath: string;

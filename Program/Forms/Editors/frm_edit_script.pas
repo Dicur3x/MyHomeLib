@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -44,6 +44,8 @@ type
     function GetParams: string;
     function GetPath: string;
     function GetTitle: string;
+  protected
+    procedure DoCreate; override;
   public
     property Title: string read GetTitle write SetTitle;
     property Path: string read GetPath write SetPath;
@@ -56,12 +58,19 @@ var
 implementation
 
 uses
-  unit_Helpers;
+  unit_Helpers,
+  unit_Localization;
 
 resourcestring
-  rstrProvideNameAndPath = '”кажите название и путь!';
+  rstrProvideNameAndPath = 'Вкажіть назву та шлях!';
 
 {$R *.dfm}
+
+procedure TfrmEditScript.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmEditScript.edPathButtonClick(Sender: TObject);
 var

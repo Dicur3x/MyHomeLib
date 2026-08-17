@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov    nrymanov@gmail.com
   *                     eg
@@ -15,11 +15,6 @@
   * $Id: SQLiteWrap.pas 1126 2013-03-29 03:42:19Z koreec $
   *
   * History
-  * 2026-03-08 - Optimized SQLite PRAGMA settings for production use
-  *            - Added journal_mode=WAL for concurrent reads during writes
-  *            - Added temp_store=MEMORY to avoid temp file I/O
-  *            - Added mmap_size for memory-mapped I/O on SSD systems
-  *            - Increased page_size to 4096 for modern disk alignment
   *
   ****************************************************************************** *)
 
@@ -272,11 +267,9 @@ begin
       raise ESQLiteException.CreateFmt(c_failopen, [FileName, s]);
     end;
 
-    // Do not fail immediately while another application thread is committing.
+    // Imports and background updates can briefly overlap on different cached
+    // connections. Wait for the writer instead of failing immediately.
     SetTimeout(10000);
-
-    // These two PRAGMAs return a result row. Running them through ExecSQL would
-    // incorrectly treat SQLITE_ROW as an execution failure.
     QuerySingleString('PRAGMA journal_mode = WAL');
     ExecSQL('PRAGMA synchronous = NORMAL');
     ExecSQL('PRAGMA temp_store = MEMORY');
@@ -284,10 +277,8 @@ begin
     ExecSQL('PRAGMA cache_size = -65536');
     QuerySingleInt('PRAGMA mmap_size = 268435456');
 {$ELSE}
-    // A process can keep several collection connections open.  Reserving
-    // 256 MiB of mmap plus a 64 MiB page cache for each one exhausts the
-    // 2-GiB Win32 address space quickly; these limits retain most locality
-    // gains without making multi-collection use unstable.
+    // Several open collections otherwise reserve too much of the 2-GiB Win32
+    // address space. This keeps the locality win without destabilising imports.
     ExecSQL('PRAGMA cache_size = -32768');
     QuerySingleInt('PRAGMA mmap_size = 67108864');
 {$ENDIF}
@@ -577,6 +568,7 @@ function TSQLiteQuery.GetParamIndex(const ParamName: string): Integer;
 var
   i: Integer;
 begin
+  Result := -1;
   i := SQLite3_bind_parameter_index(FStmt, PUTF8Char(UTF8String(ParamName)));
   if i > 0 then
     Result := i - 1
@@ -860,11 +852,10 @@ end;
 
 initialization
   SQLite3_Initialize;
-  {$IFDEF  WIN32}
-    GetLocaleFormatSettings(LOCALE_SYSTEM_DEFAULT, SQLite_FormatSettings);
-  {$ELSE}
-    GetLocaleFormatSettings($0800, SQLite_FormatSettings);
-  {$ENDIF}
+  // $0800 = LOCALE_SYSTEM_DEFAULT; Winapi.Windows не підключений у Win64-гілці uses
+  {$WARN SYMBOL_PLATFORM OFF}
+  SQLite_FormatSettings := TFormatSettings.Create($0800);
+  {$WARN SYMBOL_PLATFORM DEFAULT}
 
   SQLite_FormatSettings.ShortDateFormat := DATE_FORMAT;
   SQLite_FormatSettings.LongDateFormat := DATE_FORMAT;

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             12.02.2010
@@ -97,7 +97,13 @@ const
   GENRES_NONFB2_FILENAME = 'genres_nonfb2'  + GENRELIST_EXTENSION;
   SERVER_ERRORLOG_FILENAME = 'server_error.html';
   IMPORT_ERRORLOG_FILENAME = 'import_errors.log';
-  APP_HELP_FILENAME = 'MyHomeLib.chm';
+  // Ukrainian help sits directly in Help\; a translation goes in Help\<locale>\.
+  // A subdirectory rather than a filename suffix because the 55 pages link to
+  // each other by bare relative name and share one stylesheet -- a suffix
+  // scheme would mean rewriting every link in every page.
+  APP_HELP_DIR_NAME = 'Help';
+  APP_HELP_INDEX = 'index.html';
+  APP_HELP_FILENAME = APP_HELP_DIR_NAME + '\' + APP_HELP_INDEX;
   VERINFO_FILENAME = 'version.info';
   STRUCTUREINFO_FILENAME = 'structure.info';
   PROGRAM_VERINFO_FILENAME = 'last_version.info';
@@ -105,9 +111,12 @@ const
   COLUMNS_STORE_FILENAME = 'columns2.ini';
   DOWNLOADS_STORE_FILENAME = 'downloads.sav';
   DOWNLOAD_ERRORLOG_FILENAME = 'download_errors.log';
+  EXPORT_ERRORLOG_FILENAME = 'export_errors.log';
   COLLECTIONS_FILENAME = 'collections.ini';
   PRESETS_FILENAME = 'presets.cxml2';
   COLLECTIONINFO_FILENAME = 'collection.info'; // file holding URL, Script, etc
+  INP_EXTENSION = '.inp';
+  EXTRA_INP_FILENAME = 'extra.inp'; // on-line only: список книг, яких нема в основній базі
   TEMP_FOLDER_NAME = '_myhomelib';
   UPDATE_LOGFILE = 'update.log';
   PROGRAM_HOMEPAGE = 'https://github.com/OleksiyPenkov/myhomelib/';
@@ -305,6 +314,14 @@ const
   PROP_SERIES_LANG_FILTER = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER  or $0013;
   PROP_GENRES_LANG_FILTER = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER  or $0014;
   PROP_GROUPS_LANG_FILTER = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER  or $0015;
+
+  // Base name of the genre list a collection's Genres table was built from,
+  // e.g. genres_fb2_uk.glst. Stores the FILE NAME rather than a locale code
+  // so that the "no list for this locale, fall back to the Russian original"
+  // case needs no special handling: two collections agree exactly when they
+  // were filled from the same file. Empty on collections created before this
+  // property existed.
+  PROP_GENRE_FILE         = PROP_CLASS_COLLECTION or PROP_TYPE_STRING   or $0016;
 type
   TColumnSet = set of 0 .. 255;
 

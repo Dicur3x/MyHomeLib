@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   *                     Oleksiy Penkov oleksiy.penkov@gmail.com
@@ -59,6 +59,8 @@ type
     procedure CancelWizard; virtual;
 
   protected
+    procedure DoCreate; override;
+
     procedure AdjustButtons(VisibleButtons: TWizardButtons; EnabledButtons: TWizardButtons);
     function AddPage(pageClass: TWizardPageClass): TWizardPageBase;
     procedure ShowPage(PageIndex: Integer);
@@ -73,11 +75,20 @@ var
 
 implementation
 
+uses
+  unit_Localization;
+
 resourcestring
   rstrCaptionCancel = 'Отмена';
   rstrCaptionClose = 'Закрыть';
 
 {$R *.dfm}
+
+procedure TMHLWizardBase.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 function TMHLWizardBase.AddPage(pageClass: TWizardPageClass): TWizardPageBase;
 var

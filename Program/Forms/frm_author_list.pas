@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -33,6 +33,9 @@ type
     procedure tvAuthorListFreeNode(Sender: TBaseVirtualTree; Node: PVirtualNode);
   private
 
+  protected
+    procedure DoCreate; override;
+
   public
 
   end;
@@ -43,9 +46,16 @@ var
 implementation
 
 uses
-  unit_Globals;
+  unit_Globals,
+  unit_Localization;
 
   {$R *.dfm}
+
+procedure TfrmAuthorList.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmAuthorList.tvAuthorListFreeNode(Sender: TBaseVirtualTree; Node: PVirtualNode);
 var

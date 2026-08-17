@@ -1,0 +1,4 @@
+> {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_in_book","arguments":{"collection_id":1,"book_id":2,"query":"Абзац розділу 2.","context_chars":10}}}
+< {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"hits\":[{\"offset\":39,\"passage\":\"\\u0440\\u0435\\u0434\\u0438\\u043D\\u0430\\r\\n\\r\\n\\u0410\\u0431\\u0437\\u0430\\u0446 \\u0440\\u043E\\u0437\\u0434\\u0456\\u043B\\u0443 2.\\r\\n\\u041A\\u0456\\u043D\\u0435\\u0446\\u044C\\r\\n\"}],\"total_hits\":1}"}]}}
+> {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_book_text","arguments":{"collection_id":1,"book_id":2,"offset":39,"length":16}}}
+< {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"text\":\"\\u0410\\u0431\\u0437\\u0430\\u0446 \\u0440\\u043E\\u0437\\u0434\\u0456\\u043B\\u0443 2.\",\"offset\":39,\"length\":16,\"total_length\":85,\"has_more\":true}"}]}}

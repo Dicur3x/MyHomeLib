@@ -1,0 +1,2 @@
+> {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_book_text","arguments":{"collection_id":1,"book_id":2,"offset":27,"length":30}}}
+< {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"text\":\"\\u0421\\u0435\\u0440\\u0435\\u0434\\u0438\\u043D\\u0430\\r\\n\\r\\n\\u0410\\u0431\\u0437\\u0430\\u0446 \\u0440\\u043E\\u0437\\u0434\\u0456\\u043B\\u0443 2.\\r\\n\",\"offset\":27,\"length\":30,\"total_length\":85,\"has_more\":true}"}]}}

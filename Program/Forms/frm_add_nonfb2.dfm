@@ -2,9 +2,9 @@ object frmAddnonfb2: TfrmAddnonfb2
   Left = 0
   Top = 0
   HelpContext = 129
-  ActiveControl = btnShowGenres
+  ActiveControl = pcPages
   BorderIcons = [biSystemMenu, biMaximize]
-  Caption = #1044#1086#1073#1072#1074#1083#1077#1085#1080#1077' '#1082#1085#1080#1075' '#1074' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
+  Caption = #1044#1086#1076#1072#1074#1072#1085#1085#1103' '#1082#1085#1080#1075' '#1076#1086' '#1082#1086#1083#1077#1082#1094#1110#1111
   ClientHeight = 532
   ClientWidth = 752
   Color = clBtnFace
@@ -29,11 +29,13 @@ object frmAddnonfb2: TfrmAddnonfb2
     Width = 746
     Height = 490
     Margins.Bottom = 39
-    ActivePage = tsBookInfo
+    ActivePage = tsFiles
     Align = alClient
     TabOrder = 0
+    ExplicitWidth = 742
+    ExplicitHeight = 489
     object tsFiles: TTabSheet
-      Caption = #1060#1072#1081#1083#1099
+      Caption = #1060#1072#1081#1083#1080
       object Tree: TVirtualStringTree
         AlignWithMargins = True
         Left = 3
@@ -86,7 +88,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           item
             Options = [coAllowClick, coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAutoSpring, coAllowFocus]
             Position = 2
-            Text = #1056#1072#1079#1084#1077#1088
+            Text = #1056#1086#1079#1084#1110#1088
             Width = 100
           end>
       end
@@ -97,21 +99,21 @@ object frmAddnonfb2: TfrmAddnonfb2
         Width = 732
         Height = 85
         Align = alBottom
-        Caption = #1054#1087#1094#1080#1080
+        Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1080
         TabOrder = 1
         object Label1: TLabel
           Left = 219
           Top = 43
-          Width = 126
+          Width = 117
           Height = 13
-          Caption = #1055#1086#1089#1083#1077' '#1076#1086#1073#1072#1074#1083#1077#1085#1080#1103' '#1082#1085#1080#1075#1080
+          Caption = #1055#1110#1089#1083#1103' '#1076#1086#1076#1072#1074#1072#1085#1085#1103' '#1082#1085#1080#1075#1080
         end
         object cbAutoSeries: TCheckBox
           Left = 8
           Top = 62
           Width = 169
           Height = 17
-          Caption = #1059#1074#1077#1083#1080#1095#1080#1074#1072#1090#1100' '#1085#1086#1084#1077#1088#1072' '#1089#1077#1088#1080#1080
+          Caption = #1047#1073#1110#1083#1100#1096#1091#1074#1072#1090#1080' '#1085#1086#1084#1077#1088' '#1091' '#1089#1077#1088#1110#1111
           TabOrder = 2
         end
         object cbSelectFileName: TCheckBox
@@ -119,7 +121,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 16
           Width = 145
           Height = 17
-          Caption = #1042#1099#1076#1077#1083#1103#1090#1100' '#1085#1072#1079#1074#1072#1085#1080#1077
+          Caption = #1042#1080#1076#1110#1083#1103#1090#1080' '#1085#1072#1079#1074#1091
           TabOrder = 0
         end
         object cbNoAuthorAllowed: TCheckBox
@@ -127,7 +129,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 39
           Width = 145
           Height = 17
-          Caption = #1044#1086#1073#1072#1074#1083#1103#1090#1100' '#1073#1077#1079' '#1072#1074#1090#1086#1088#1072
+          Caption = #1044#1086#1076#1072#1074#1072#1090#1080' '#1073#1077#1079' '#1072#1074#1090#1086#1088#1072
           TabOrder = 1
         end
         object cbClearOptions: TComboBox
@@ -138,17 +140,17 @@ object frmAddnonfb2: TfrmAddnonfb2
           Style = csDropDownList
           TabOrder = 3
           Items.Strings = (
-            #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1089#1077' '#1087#1086#1083#1103
-            #1054#1095#1080#1089#1090#1080#1090#1100' '#1090#1086#1083#1100#1082#1086' '#1072#1074#1090#1086#1088#1086#1074
-            #1054#1095#1080#1089#1090#1080#1090#1100' '#1090#1086#1083#1100#1082#1086' '#1080#1084#1077#1085#1072
-            #1053#1077' '#1086#1095#1080#1097#1072#1090#1100' '#1087#1086#1083#1103)
+            #1054#1095#1080#1097#1072#1090#1080' '#1091#1089#1110' '#1087#1086#1083#1103
+            #1054#1095#1080#1097#1072#1090#1080' '#1083#1080#1096#1077' '#1072#1074#1090#1086#1088#1110#1074
+            #1054#1095#1080#1097#1072#1090#1080' '#1083#1080#1096#1077' '#1087#1086#1083#1077' '#1085#1072#1079#1074#1080
+            #1063#1080' '#1085#1077' '#1086#1095#1080#1097#1072#1090#1080' '#1087#1086#1083#1103)
         end
         object cbForceConvertToFBD: TCheckBox
           Left = 219
           Top = 16
           Width = 135
           Height = 18
-          Caption = #1050#1086#1085#1074#1077#1088#1090#1080#1088#1086#1074#1072#1090#1100' '#1074' FB'
+          Caption = #1050#1086#1085#1074#1077#1088#1090#1091#1074#1072#1090#1080' '#1091' FBD'
           Checked = True
           State = cbChecked
           TabOrder = 4
@@ -167,16 +169,16 @@ object frmAddnonfb2: TfrmAddnonfb2
       object Label3: TLabel
         Left = 8
         Top = 75
-        Width = 52
+        Width = 34
         Height = 13
-        Caption = #1053#1072#1079#1074#1072#1085#1080#1077':'
+        Caption = #1053#1072#1079#1074#1072':'
       end
       object gbExtraInfo: TGroupBox
         Left = 3
         Top = 350
         Width = 578
         Height = 108
-        Caption = #1044#1086#1087#1086#1083#1085#1080#1090#1077#1083#1100#1085#1072#1103' '#1080#1085#1092#1086#1088#1084#1072#1094#1080#1103
+        Caption = #1044#1086#1076#1072#1090#1082#1086#1074#1072' '#1110#1085#1092#1086#1088#1084#1072#1094#1110#1103
         TabOrder = 0
         object lblGenre: TLabel
           Left = 103
@@ -195,33 +197,33 @@ object frmAddnonfb2: TfrmAddnonfb2
         object Label6: TLabel
           Left = 7
           Top = 24
-          Width = 40
+          Width = 38
           Height = 13
-          Caption = '&'#1046#1072#1085#1088#1099':'
+          Caption = '&'#1046#1072#1085#1088#1080':'
           FocusControl = lblGenre
         end
         object Label4: TLabel
           Left = 7
           Top = 53
-          Width = 35
+          Width = 31
           Height = 13
-          Caption = #1057#1077#1088#1080#1103':'
+          Caption = #1057#1077#1088#1110#1103':'
           FocusControl = lblGenre
         end
         object Label5: TLabel
           Left = 440
           Top = 53
-          Width = 76
+          Width = 68
           Height = 13
-          Caption = #1053#1086'&'#1084#1077#1088' '#1074' '#1089#1077#1088#1080#1080':'
+          Caption = #1053#1086'&'#1084#1077#1088' '#1091' '#1089#1077#1088#1110#1111':'
           FocusControl = edSN
         end
         object Label7: TLabel
           Left = 7
           Top = 80
-          Width = 90
+          Width = 78
           Height = 13
-          Caption = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072':'
+          Caption = #1050#1083#1102#1095#1086#1074#1110' '#1089#1083#1086#1074#1072':'
           FocusControl = edKeyWords
         end
         object Label8: TLabel
@@ -229,7 +231,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 80
           Width = 30
           Height = 13
-          Caption = '&'#1071#1079#1099#1082':'
+          Caption = '&'#1052#1086#1074#1072':'
           FocusControl = cbLang
         end
         object btnShowGenres: TButton
@@ -237,7 +239,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 19
           Width = 75
           Height = 25
-          Caption = '&'#1042#1099#1073#1088#1072#1090#1100
+          Caption = '&'#1042#1080#1073#1088#1072#1090#1080
           TabOrder = 0
           OnClick = btnShowGenresClick
         end
@@ -313,7 +315,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 419
         Width = 144
         Height = 39
-        Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
+        Caption = #1047#1073#1077#1088#1077#1075#1090#1080
         Glyph.Data = {
           36050000424D3605000000000000360400002800000010000000100000000100
           0800000000000001000000000000000000000001000000000000FF00FF000875
@@ -365,7 +367,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 99
         Width = 174
         Height = 245
-        Caption = #1054#1073#1083#1086#1078#1082#1072
+        Caption = #1054#1073#1082#1083#1072#1076#1080#1085#1082#1072
         TabOrder = 2
         DesignSize = (
           174
@@ -376,7 +378,7 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 18
           Width = 164
           Height = 187
-          Hint = #1054#1073#1083#1086#1078#1082#1072
+          Hint = #1054#1073#1082#1083#1072#1076#1080#1085#1082#1072
           Align = alTop
           Center = True
           ParentShowHint = False
@@ -389,9 +391,9 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 214
           Width = 79
           Height = 26
-          Hint = #1042#1089#1090#1072#1074#1080#1090#1100' '#1080#1079' '#1073#1091#1092#1077#1088#1072
+          Hint = #1042#1089#1090#1072#1074#1080#1090#1080' '#1079' '#1073#1091#1092#1077#1088#1072
           Anchors = [akLeft, akBottom]
-          Caption = #1048#1079' '#1073#1091#1092#1077#1088#1072
+          Caption = #1047' '#1073#1091#1092#1077#1088#1072
           ImageIndex = 0
           ParentShowHint = False
           ShowHint = True
@@ -403,9 +405,9 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 214
           Width = 80
           Height = 26
-          Hint = #1047#1072#1075#1088#1091#1079#1080#1090#1100' '#1080#1079' '#1092#1072#1081#1083#1072
+          Hint = #1047#1072#1074#1072#1085#1090#1072#1078#1080#1090#1080' '#1079' '#1092#1072#1081#1083#1091
           Anchors = [akLeft, akBottom]
-          Caption = #1048#1079' '#1092#1072#1081#1083#1072
+          Caption = #1047' '#1092#1072#1081#1083#1091
           ImageIndex = 1
           ParentShowHint = False
           ShowHint = True
@@ -419,7 +421,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 41
         Width = 65
         Height = 25
-        Caption = #1060#1072#1084#1080#1083#1080#1103
+        Caption = #1055#1088#1110#1079#1074#1080#1097#1077
         TabOrder = 3
         TabStop = False
         OnClick = btnCopyToFamilyClick
@@ -430,7 +432,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 41
         Width = 65
         Height = 25
-        Caption = #1048#1084#1103
+        Caption = #1030#1084#39#1103
         TabOrder = 4
         TabStop = False
         OnClick = btnCopyToNameClick
@@ -440,7 +442,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 41
         Width = 65
         Height = 25
-        Caption = #1057#1077#1088#1080#1103
+        Caption = #1057#1077#1088#1110#1103
         TabOrder = 5
         TabStop = False
         OnClick = btnCopyToSeriesClick
@@ -450,7 +452,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Top = 41
         Width = 65
         Height = 25
-        Caption = #1053#1072#1079#1074#1072#1085#1080#1077
+        Caption = #1053#1072#1079#1074#1072
         TabOrder = 6
         TabStop = False
         OnClick = btnCopyToTitleClick
@@ -461,7 +463,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Width = 75
         Height = 25
         Hint = #1042#1110#1076#1082#1088#1080#1090#1080' '#1082#1085#1080#1075#1091
-        Caption = #1054#1090#1082#1088#1099#1090#1100
+        Caption = #1042#1110#1076#1082#1088#1080#1090#1080
         ParentShowHint = False
         ShowHint = True
         TabOrder = 7
@@ -473,7 +475,7 @@ object frmAddnonfb2: TfrmAddnonfb2
         Width = 90
         Height = 25
         Hint = #1055#1077#1088#1077#1081#1084#1077#1085#1091#1074#1072#1090#1080' '#1092#1072#1081#1083
-        Caption = #1055#1077#1088#1077#1080#1084#1077#1085#1086#1074#1072#1090#1100
+        Caption = #1055#1077#1088#1077#1081#1084#1077#1085#1091#1074#1072#1090#1080
         ParentShowHint = False
         ShowHint = True
         TabOrder = 8
@@ -507,11 +509,11 @@ object frmAddnonfb2: TfrmAddnonfb2
           Top = 0
           Width = 552
           Height = 245
-          ActivePage = TabSheet2
+          ActivePage = TabSheet1
           Align = alClient
           TabOrder = 0
           object TabSheet1: TTabSheet
-            Caption = #1040#1074#1090#1086#1088#1099' '#1082#1085#1080#1075#1080
+            Caption = #1040#1074#1090#1086#1088#1080' '#1082#1085#1080#1075#1080
             object alBookAuthors: TFBDAuthorTable
               AlignWithMargins = True
               Left = 3
@@ -526,7 +528,7 @@ object frmAddnonfb2: TfrmAddnonfb2
             end
           end
           object TabSheet2: TTabSheet
-            Caption = #1040#1074#1090#1086#1088#1099' '#1076#1086#1082#1091#1084#1077#1085#1090#1072
+            Caption = #1040#1074#1090#1086#1088#1080' '#1076#1086#1082#1091#1084#1077#1085#1090#1072
             ImageIndex = 1
             object alFBDAuthors: TFBDAuthorTable
               AlignWithMargins = True
@@ -542,7 +544,7 @@ object frmAddnonfb2: TfrmAddnonfb2
             end
           end
           object TabSheet3: TTabSheet
-            Caption = #1040#1085#1085#1086#1090#1072#1094#1080#1103
+            Caption = #1040#1085#1086#1090#1072#1094#1110#1103
             ImageIndex = 2
             object mmAnnotation: TMemo
               AlignWithMargins = True
@@ -557,7 +559,7 @@ object frmAddnonfb2: TfrmAddnonfb2
             end
           end
           object TabSheet4: TTabSheet
-            Caption = #1048#1079#1076#1072#1090#1077#1083#1100
+            Caption = #1042#1080#1076#1072#1074#1077#1094#1100
             ImageIndex = 3
             DesignSize = (
               544
@@ -573,27 +575,27 @@ object frmAddnonfb2: TfrmAddnonfb2
             object RzLabel6: TLabel
               Left = 308
               Top = 19
-              Width = 35
+              Width = 31
               Height = 13
               Anchors = [akTop, akRight]
-              Caption = #1043#1086#1088#1086#1076':'
+              Caption = #1052#1110#1089#1090#1086':'
               FocusControl = edCity
             end
             object RzLabel7: TLabel
               Left = 392
               Top = 46
-              Width = 23
+              Width = 18
               Height = 13
               Anchors = [akTop, akRight]
-              Caption = #1043#1086#1076':'
+              Caption = #1056#1110#1082':'
               FocusControl = edYear
             end
             object RzLabel5: TLabel
               Left = 8
               Top = 19
-              Width = 52
+              Width = 34
               Height = 13
-              Caption = #1053#1072#1079#1074#1072#1085#1080#1077':'
+              Caption = #1053#1072#1079#1074#1072':'
               FocusControl = edPublisher
             end
             object edISBN: TEdit
@@ -639,31 +641,33 @@ object frmAddnonfb2: TfrmAddnonfb2
     Width = 80
     Height = 26
     Anchors = [akRight, akBottom]
-    Caption = #1047#1072#1082#1088#1099#1090#1100
+    Caption = #1047#1072#1082#1088#1080#1090#1080
     ModalResult = 1
     NumGlyphs = 2
     TabOrder = 1
+    ExplicitLeft = 652
+    ExplicitTop = 497
   end
   object pmEdit: TPopupMenu
     Left = 640
     Top = 216
     object N1: TMenuItem
-      Caption = #1060#1072#1084#1080#1083#1080#1103
+      Caption = #1055#1088#1110#1079#1074#1080#1097#1077
       ShortCut = 16465
       OnClick = btnCopyToFamilyClick
     end
     object N2: TMenuItem
-      Caption = #1048#1084#1103
+      Caption = #1030#1084#39#1103
       ShortCut = 16449
       OnClick = btnCopyToNameClick
     end
     object N3: TMenuItem
-      Caption = #1053#1072#1079#1074#1072#1085#1080#1077
+      Caption = #1053#1072#1079#1074#1072
       ShortCut = 16474
       OnClick = btnCopyToTitleClick
     end
     object N4: TMenuItem
-      Caption = #1057#1077#1088#1080#1103
+      Caption = #1057#1077#1088#1110#1103
       ShortCut = 16472
       OnClick = btnCopyToSeriesClick
     end
@@ -671,7 +675,7 @@ object frmAddnonfb2: TfrmAddnonfb2
       Caption = '-'
     end
     object miClearAll: TMenuItem
-      Caption = #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1089#1105
+      Caption = #1054#1095#1080#1089#1090#1080#1090#1080' '#1074#1089#1077
       ShortCut = 16474
       OnClick = miClearAllClick
     end
@@ -686,7 +690,7 @@ object frmAddnonfb2: TfrmAddnonfb2
     Left = 640
     Top = 120
     object miOpenFile: TMenuItem
-      Caption = #1054#1090#1082#1088#1099#1090#1100
+      Caption = #1042#1110#1076#1082#1088#1080#1090#1080
       ShortCut = 16397
       OnClick = btnFileOpenClick
     end
@@ -694,7 +698,7 @@ object frmAddnonfb2: TfrmAddnonfb2
       Caption = '-'
     end
     object miOpenExplorer: TMenuItem
-      Caption = #1054#1090#1082#1088#1099#1090#1100' '#1087#1072#1087#1082#1091' '#1074' '#1087#1088#1086#1074#1086#1076#1085#1080#1082#1077
+      Caption = #1042#1110#1076#1082#1088#1080#1090#1080' '#1087#1072#1087#1082#1091' '#1091' '#1087#1088#1086#1074#1110#1076#1085#1080#1082#1091
       ShortCut = 16453
       OnClick = miOpenExplorerClick
     end

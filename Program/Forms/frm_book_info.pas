@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -83,6 +83,9 @@ type
     function GetAnnotation: string;
     procedure SetAnnotation(const Value: string);
 
+  protected
+    procedure DoCreate; override;
+
   public
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
@@ -127,10 +130,17 @@ uses
   unit_ReviewParser,
   StrUtils,
   unit_MHLHelpers,
-  unit_FB2Utils;
+  unit_FB2Utils,
+  unit_Localization;
 
 
 {$R *.dfm}
+
+procedure TfrmBookDetails.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmBookDetails.FormCreate(Sender: TObject);
 begin

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -91,7 +91,7 @@ begin
       if FTerminate then Break;
 
       FLastDir := S;
-      if Assigned(FOnFile) then
+      if (F.Attr and faDirectory = 0) and Assigned(FOnFile) then
         FOnFile(Self, F);
 
       if (F.Attr and faDirectory = faDirectory) and (F.Name <> '.') and (F.Name <> '..') then

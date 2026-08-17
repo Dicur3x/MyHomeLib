@@ -1,9 +1,0 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<BorlandProject>
-	<BT_BuildType>Debug</BT_BuildType>
-	<Transactions>
-    <Transaction>1899.12.30 00:00:00.000.701,C:\Users\cloud\IdeaProjects\MyHomeLib\Program\DwnldImpl\unit_DownloadManagerThread.pas=</Transaction>
-    <Transaction>1899.12.30 00:00:00.000.753,C:\Users\cloud\IdeaProjects\MyHomeLib\Program\UtilsImpl\unit_libupdateThread.pas=</Transaction>
-    <Transaction>1899.12.30 00:00:00.000.459,C:\Users\cloud\IdeaProjects\MyHomeLib\Program\DwnldImpl\unit_Downloader.pas=</Transaction>
-  </Transactions>
-</BorlandProject>

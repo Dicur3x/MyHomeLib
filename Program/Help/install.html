@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Встановлення — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html" class="cur" aria-current="page">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Встановлення</h1>
+<!-- BODY:BEGIN -->
+<h2>Системні вимоги</h2>
+<p>MyHomeLib — застосунок для Windows, доступний у 32-бітній (x86) і 64-бітній (x64) збірках; для встановлення потрібно вибрати інсталятор під розрядність вашої Windows. Сам інсталятор запускається з правами адміністратора. Усе необхідне для роботи — бібліотека SQLite (<code>sqlite3.dll</code>), вбудована читалка AlReader і списки жанрів — інсталятор кладе поруч із програмою, окремо нічого встановлювати не потрібно.</p>
+
+<h2>x86 чи x64</h2>
+<p>Існує два дистрибутиви: <code>Setup_MyHomeLib_&lt;версія&gt;.exe</code> (32-розрядний) і <code>Setup_MyHomeLib_&lt;версія&gt;_x64.exe</code> (64-розрядний). x64-версія встановлюється лише на 64-бітну Windows; x86-версія працює і на 32-, і на 64-бітній. В усьому іншому обидва інсталятори однакові — та сама тека встановлення за замовчуванням, ті самі ярлики, той самий вибір мови майстра встановлення (English, Українська або Български).</p>
+
+<h2>Що інсталятор записує в теку програми, а що — в %APPDATA%\MyHomeLib</h2>
+<p>За замовчуванням програма встановлюється у стандартну теку Program Files — <code>Program Files\MyHomeLib</code> для x64-версії або <code>Program Files (x86)\MyHomeLib</code> для x86-версії на 64-бітній Windows. Туди інсталятор кладе виконуваний файл <code>MyHomeLib.exe</code>, бібліотеку <code>sqlite3.dll</code>, вбудовану читалку AlReader, конвертери форматів (якщо їх включено в конкретну збірку), списки жанрів, файл довідки, текст ліцензії та ярлик на сайт проєкту.</p>
+<p>Окремо інсталятор створює теку <code>%APPDATA%\MyHomeLib</code> (з правом запису для будь-якого користувача Windows) і кладе туди єдиний файл — <code>collections.ini</code> зі списком джерел для оновлення мережевих бібліотек, і лише тоді, коли такого файлу там ще немає. Усе інше в цій теці — налаштування, системна база (<code>Data\user.dbs2</code>, див. <a href="terms.html">Основні терміни</a>) і робочі журнали — створює вже сама програма під час першого й наступних запусків, а не інсталятор; докладніше — у розділі <a href="faq.html">Часті запитання</a>.</p>
+
+<h2>Ярлики в меню «Пуск»</h2>
+<p>Інсталятор створює групу програм із ярликами запуску <span class="ui">MyHomeLib</span>, <span class="ui">«Довідка MyHomeLib»</span> (відкриває файл довідки; цей напис інсталятор пише українською, хоч би яку мову майстра ви вибрали), <span class="ui">«MyHomeLib website»</span> (посилання на домашню сторінку проєкту) і пункт видалення програми. Якщо під час встановлення позначити відповідний прапорець, додатково з'явиться ярлик на робочому столі. Майстер встановлення також дозволяє взагалі не створювати теку в меню «Пуск».</p>
+
+<h2>Видалення програми</h2>
+<p>Видалити MyHomeLib можна ярликом видалення з групи програм у меню «Пуск» або через стандартний список програм Windows — обидва способи запускають той самий деінсталятор.</p>
+<p class="note">Деінсталятор прибирає не лише файли з теки програми, а й усю теку <code>%APPDATA%\MyHomeLib</code>, включно з підтекою <code>Data</code>, де лежить системна база <code>user.dbs2</code>. Тобто видалення програми знищує перелік підключених колекцій, групи (зокрема «Обране»), рейтинги й нотатки до книг. Якщо ці дані потрібно зберегти, скопіюйте теку <code>%APPDATA%\MyHomeLib</code> в інше місце ще до видалення.</p>
+<p>Самі колекції — файли книг і файл бази <code>.hlc2</code> — інсталятор і деінсталятор не чіпають: вони лежать там, куди їх поклав користувач під час створення чи підключення колекції (див. <a href="coll_params.html">Властивості колекції</a>), тому видалення програми на них не впливає.</p>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

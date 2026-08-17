@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- MyHomeLib application icon - full artwork, used for 48px and above. -->
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D8E6F2"/>
+      <stop offset="100%" stop-color="#B4C8DC"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F07641"/><stop offset="100%" stop-color="#E8622E"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4A82C8"/><stop offset="100%" stop-color="#3A72B8"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#E45B57"/><stop offset="100%" stop-color="#D94A46"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5CB86A"/><stop offset="100%" stop-color="#4AA85A"/>
+    </linearGradient>
+    <linearGradient id="yellow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F0C74E"/><stop offset="100%" stop-color="#E8B93C"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="155%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0a1a2e" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)" stroke="#19375F" stroke-width="9" stroke-linejoin="round">
+    <!-- Stand, drawn first so the panel overlaps the neck -->
+    <path d="M108 160 L102 202 L154 202 L148 160 Z" fill="url(#bezel)"/>
+    <rect x="72" y="196" width="112" height="22" rx="11" fill="url(#bezel)"/>
+
+    <!-- Panel -->
+    <rect x="20" y="36" width="216" height="140" rx="14" fill="url(#bezel)"/>
+    <rect x="32" y="48" width="192" height="112" rx="5" fill="#2B2B2B" stroke="none"/>
+
+    <!-- Spines, left to right, standing on the screen floor at y=160 -->
+    <g stroke-width="6">
+      <rect x="40" y="62" width="32" height="98" rx="5" fill="url(#orange)"/>
+      <rect x="76" y="56" width="32" height="104" rx="5" fill="url(#blue)"/>
+      <rect x="112" y="66" width="32" height="94" rx="5" fill="url(#red)"/>
+      <rect x="148" y="58" width="32" height="102" rx="5" fill="url(#green)"/>
+      <rect x="184" y="64" width="32" height="96" rx="5" fill="url(#yellow)"/>
+    </g>
+
+    <!-- Title bands, large sizes only - they blur away below 48px -->
+    <g stroke="#fff" stroke-width="5" stroke-linecap="round" opacity="0.55">
+      <line x1="47" y1="82" x2="65" y2="82"/>
+      <line x1="47" y1="95" x2="65" y2="95"/>
+      <line x1="83" y1="76" x2="101" y2="76"/>
+      <line x1="83" y1="89" x2="101" y2="89"/>
+      <line x1="119" y1="86" x2="137" y2="86"/>
+      <line x1="119" y1="99" x2="137" y2="99"/>
+      <line x1="155" y1="78" x2="173" y2="78"/>
+      <line x1="155" y1="91" x2="173" y2="91"/>
+      <line x1="191" y1="84" x2="209" y2="84"/>
+      <line x1="191" y1="97" x2="209" y2="97"/>
+    </g>
+  </g>
+</svg>

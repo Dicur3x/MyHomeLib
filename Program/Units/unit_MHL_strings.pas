@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             12.02.2010
@@ -20,21 +20,27 @@ unit unit_MHL_strings;
 interface
 
 resourcestring
-  rstrMainUnableToCopy = 'Копирование книг из избранного невозможно.';
+  rstrMainUnableToCopy = 'Копіювання книг із обраного неможливе.';
   rstrMainConnectToDb = 'Подключение БД...';
-  rstrMainLoadingCollection = 'Загрузка коллекции...';
-  rstrMainCheckUpdates = 'Проверка обновлений...';
+  rstrMainLoadingCollection = 'Завантаження колекції...';
+  rstrMainCheckUpdates = 'Перевірка оновлень...';
 
-  rstrCancelOperationWarningMsg = 'Вы действительно хотите прервать операцию?';
+  rstrCancelOperationWarningMsg = 'Ви дійсно хочете перервати операцію?';
 
   rstrReadyMessage = 'Готово';
+
+  rstrDatabaseCheckOk = 'Перевірка не виявила помилок у базі даних колекції.';
+  rstrDatabaseCheckFailed = 'Перевірка цілісності бази виявила проблеми:'#13#10#13#10'%s'#13#10#13#10 +
+    'SQLite не відновлює пошкоджені файли автоматично. Скористайтеся резервною копією бази або повторним імпортом колекції.';
+
+  rstrHelpFileNotFound = 'Файл довідки не знайдено:'#13#10'%s';
 
   //
   // Названия коллекций по-умолчанию
   //
-  rstrLocalLibRusEcDefName = 'Локальная коллекция Либрусек';
-  rstrOnlineLibRusEcDefName = 'Онлайн коллекция Либрусек';
-  rstrOnlineGenesisDefName = 'Онлайн коллекция Genesis';
+  rstrLocalLibRusEcDefName = 'Локальна колекція Лібрусек';
+  rstrOnlineLibRusEcDefName = 'Онлайн колекція Лібрусек';
+  rstrOnlineGenesisDefName = 'Онлайн колекція Genesis';
 
   rstrLocalLibRusEcDefLocation = 'librusec_local';
   rstrOnlineLibRusEcDefLocation = 'librusec_online';
@@ -43,14 +49,14 @@ resourcestring
   //
   //
   //
-  rstrBookProcessedMsg1 = 'Обработано книг: %u';
-  rstrBookProcessedMsg2 = 'Обработано книг: %u из %u';
+  rstrBookProcessedMsg1 = 'Оброблено книг: %u';
+  rstrBookProcessedMsg2 = 'Оброблено книг: %u з %u';
 
   //
   // Форма редактирования/создания FBD и пунк меню в главной форме
   //
-  rstrEditFBD = 'Редактировать FBD';
-  rstrConvert2FBD = 'Преобразовать FBD';
+  rstrEditFBD = 'Редагувати FBD';
+  rstrConvert2FBD = 'Перетворити FBD';
 
 implementation
 

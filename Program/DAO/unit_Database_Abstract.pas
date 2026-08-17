@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Oleksiy Penkov  oleksiy.penkov@gmail.com
   *                     Nick Rymanov (nrymanov@gmail.com)
@@ -34,6 +34,7 @@ type
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator; virtual; abstract;
 
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean); virtual; abstract;
+    function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; virtual; abstract;
     procedure AddBookToGroup(const BookKey: TBookKey; const GroupID: Integer);
 
     //
@@ -44,6 +45,19 @@ type
     function CollectionRoot: string;
     function CollectionDisplayName: string;
     function CollectionURL: string;
+
+    //
+    // Базова адреса бібліотеки: власний URL колекції, а якщо його немає -
+    // загальний URL з налаштувань.
+    //
+    function CollectionBaseURL: string;
+
+    //
+    // Формат посилань Librusec/Flibusta. Обв'язка бібліотеки з іншою схемою
+    // адрес має перекрити ці методи.
+    //
+    function GetViewURL(const LibID: string): string; virtual;
+    function GetEditURL(const LibID: string): string; virtual;
 
     function GetProperty(const PropID: TPropertyID): Variant; virtual; abstract;
 
@@ -110,6 +124,7 @@ implementation
 
 uses
   SysUtils,
+  dm_user,
   unit_Errors,
   unit_Consts;
 
@@ -217,22 +232,31 @@ end;
 
 procedure TBookCollection.GetBookGenres(BookID: Integer; var BookGenres: TBookGenres; RootGenre: PGenreData = nil);
 var
-  i: Integer;
+  Count, Capacity: Integer;
   GenreIterator: IGenreIterator;
   Genre: TGenreData;
   FilterValue: TFilterValue;
 begin
   FilterValue.ValueInt := BookID;
-  GenreIterator := GetGenreIterator(gmByBook, @FilterValue); //Format('gl.%s = %d', [BOOK_ID_FIELD, BookID])
-  i := Length(BookGenres);
+  GenreIterator := GetGenreIterator(gmByBook, @FilterValue);
+  Count := Length(BookGenres);
+  Capacity := Count;
   while GenreIterator.Next(Genre) do
   begin
-    SetLength(BookGenres, i + 1);
-    BookGenres[i] := Genre;
-    Inc(i);
+    if Count >= Capacity then
+    begin
+      if Capacity = 0 then
+        Capacity := 4
+      else
+        Capacity := Capacity * 2;
+      SetLength(BookGenres, Capacity);
+    end;
+    BookGenres[Count] := Genre;
+    Inc(Count);
   end;
+  SetLength(BookGenres, Count);
 
-  if Assigned(RootGenre) then
+  if Assigned(RootGenre) and (Count > 0) then
     RootGenre^ := FGenreCache.GetRootGenre(BookGenres[0].GenreCode);
 end;
 
@@ -249,19 +273,28 @@ end;
 procedure TBookCollection.GetBookAuthors(BookID: Integer; var BookAuthors: TBookAuthors);
 var
   AuthorIterator: IAuthorIterator;
-  i: Integer;
+  Count, Capacity: Integer;
   FilterValue: TFilterValue;
   Author: TAuthorData;
 begin
   FilterValue.ValueInt := BookID;
   AuthorIterator := GetAuthorIterator(amByBook, @FilterValue);
-  i := Length(BookAuthors);
+  Count := Length(BookAuthors);
+  Capacity := Count;
   while AuthorIterator.Next(Author) do
   begin
-    SetLength(BookAuthors, i + 1);
-    BookAuthors[i] := Author;
-    Inc(i);
+    if Count >= Capacity then
+    begin
+      if Capacity = 0 then
+        Capacity := 4
+      else
+        Capacity := Capacity * 2;
+      SetLength(BookAuthors, Capacity);
+    end;
+    BookAuthors[Count] := Author;
+    Inc(Count);
   end;
+  SetLength(BookAuthors, Count);
 end;
 
 procedure TBookCollection.VerifyCurrentCollection(const DatabaseID: Integer);
@@ -414,6 +447,23 @@ function TBookCollection.CollectionURL: string;
 begin
   Assert(INVALID_COLLECTION_ID <> FCollectionInfo.ID);
   Result := FCollectionInfo.URL;
+end;
+
+function TBookCollection.CollectionBaseURL: string;
+begin
+  Result := CollectionURL;
+  if Result = '' then
+    Result := Settings.InpxURL;
+end;
+
+function TBookCollection.GetViewURL(const LibID: string): string;
+begin
+  Result := Format('%sb/%s/', [CollectionBaseURL, LibID]);
+end;
+
+function TBookCollection.GetEditURL(const LibID: string): string;
+begin
+  Result := Format('%sb/%s/edit', [CollectionBaseURL, LibID]);
 end;
 
 end.

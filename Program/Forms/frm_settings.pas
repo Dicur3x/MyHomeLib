@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -99,6 +99,7 @@ type
     btnOk: TButton;
     btnCancel: TButton;
     btnHelp: TButton;
+    btnReset: TButton;
     Panel1: TPanel;
     Label11: TLabel;
     Panel2: TPanel;
@@ -234,9 +235,13 @@ type
     procedure CheckNumValue(Sender: TObject);
     procedure rbUseProxyForUpdateClick(Sender: TObject);
     procedure cbIgnoreArchivesClick(Sender: TObject);
+    procedure btnResetClick(Sender: TObject);
 
   private
     procedure SetPanelFontColor(Value: Graphics.TColor);
+
+    procedure ResetDevicesTab;
+    procedure ResetInterfaceTab;
 
     procedure EditReader(AItem: TListItem);
     procedure EditScript(AItem: TListItem);
@@ -244,19 +249,20 @@ type
     procedure SaveReaders;
     procedure SaveScripts;
 
+  protected
+    procedure DoCreate; override;
+
   public
     procedure LoadSetting;
     procedure SaveSettings;
   end;
-
-var
-  frmSettings: TfrmSettings;
 
 implementation
 
 uses
   StrUtils,
   Character,
+  unit_HelpTopics,
   unit_Globals,
   unit_Readers,
   unit_Scripts,
@@ -266,19 +272,44 @@ uses
   dm_user,
   unit_Helpers,
   frm_create_mask,
-  unit_Templater;
+  unit_Templater,
+  unit_Localization;
 
 resourcestring
-rstrStandart = 'Стандартное';
-  rstrNeedTemplate = 'Необходимо установить шаблон для заголовка книги в разделе "Разное"';
-  rstrChangeFileType = 'Изменение типа файлов';
-  rstrAddFileType = 'Добавление типа файлов';
-  rstrTypeAlreadyInTheList = 'Тип "%s" уже есть в списке!';
-  rstrChangeScriptParams = 'Изменение параметров скрипта';
-  rstrAddScript = 'Добавление скрипта';
-  rstrProvideFolder = 'Укажите папку';
+rstrStandart = 'Стандартне';
+  rstrNeedTemplate = 'Необхідно встановити шаблон для заголовка книги в розділі "Різне"';
+  rstrChangeFileType = 'Зміна типу файлів';
+  rstrAddFileType = 'Додавання типу файлів';
+  rstrTypeAlreadyInTheList = 'Тип "%s" вже є у списку!';
+  rstrChangeScriptParams = 'Зміна параметрів скрипта';
+  rstrAddScript = 'Додавання скрипта';
+  rstrProvideFolder = 'Вкажіть папку';
+  rstrConfirmReset = 'Скинути налаштування цього розділу до типових значень?';
 
 {$R *.dfm}
+
+procedure TfrmSettings.DoCreate;
+var
+  I: Integer;
+begin
+  inherited;
+  Localize(Self);
+
+  // The section tree's captions come from the DFM's binary Items.NodeData.
+  // TTreeNode is not a component and TTreeNodes exposes its nodes only through
+  // a default array property, so the walker cannot reach them through RTTI --
+  // they are rewritten here instead of teaching unit_Localization about
+  // Vcl.ComCtrls, which would give the generic walker a control dependency it
+  // has so far avoided entirely. tools/lang/extract.js decodes the same blob,
+  // so the sources below are already in every catalog.
+  //
+  // Node order is load-bearing: tvSectionsChange maps Selected.Index straight
+  // onto pcSetPages.ActivePageIndex. Rewriting Text in place cannot disturb
+  // it -- which is exactly why the captions are translated here rather than by
+  // rebuilding the tree.
+  for I := 0 to tvSections.Items.Count - 1 do
+    tvSections.Items[I].Text := TranslateText(tvSections.Items[I].Text);
+end;
 
 procedure TfrmSettings.LoadSetting;
 var
@@ -295,6 +326,7 @@ begin
   rgDeviceFormat.ItemIndex := Ord(Settings.ExportMode);
   edFolderTemplate.Text := Settings.FolderTemplate;
   edFileNameTemplate.Text := Settings.FileNameTemplate;
+  // TODO : REMOVE cbTranslit.Checked := Settings.TransliterateFileName;
   cbSquareFilter.Checked := Settings.RemoveSquarebrackets;
   cbTXTEncoding.ItemIndex := Ord(Settings.TXTEncoding);
 
@@ -438,6 +470,7 @@ begin
 
   Settings.FolderTemplate := edFolderTemplate.Text;
   Settings.FileNameTemplate := edFileNameTemplate.Text;
+  // TODO : REMOVE Settings.TransliterateFileName := cbTranslit.Checked;
 
   case cbTXTEncoding.ItemIndex of
     0: Settings.TXTEncoding := enUTF8;
@@ -471,12 +504,12 @@ begin
   Settings.ProxyUsername := edProxyUsername.Text;
   Settings.ProxyPassword := edProxyPassword.Text;
   Settings.UpdateURL := edUpdates.Text;
-  Settings.CheckExternalLibUpdate := False;
-  Settings.CheckUpdate := False;
+  Settings.CheckExternalLibUpdate := cbCheckColUpdate.Checked;
+  Settings.CheckUpdate := cbUpdates.Checked;
   Settings.TimeOut := udTimeOut.Position;
   Settings.ReadTimeOut := udReadTimeOut.Position;
   Settings.DwnldInterval := udDwnldInterval.Position;
-  Settings.AutoRunUpdate := False;
+  Settings.AutoRunUpdate := cbAutoRunUpdate.Checked;
   Settings.InpxURL := IncludeUrlSlash(edINPXUrl.Text);
   // Дополнительный прокси
   Settings.UseProxyForUpdate := rbUseProxyForUpdate.Checked;
@@ -546,8 +579,8 @@ end;
 
 procedure TfrmSettings.ShowHelpClick(Sender: TObject);
 begin
-  HtmlHelp(Application.Handle, PChar(Settings.SystemFileName[sfAppHelp]), HH_HELP_CONTEXT, pcSetPages.ActivePage.HelpContext);
-  frmSettings.FocusControl(btnOk);
+  ShowHelpTopic(pcSetPages.ActivePage.HelpContext);
+  FocusControl(btnOk);
 end;
 
 procedure TfrmSettings.SaveSettingsClick(Sender: TObject);
@@ -555,7 +588,9 @@ begin
   if cbOverwriteFB2Info.Checked and (edTitleTemplate.Text = '') then
   begin
     ShowMessage(rstrNeedTemplate);
-    tvSections.Select(tvSections.Items[5]);
+    // вузли дерева йдуть у тому ж порядку, що й вкладки, тому беремо індекс
+    // від самої вкладки - інакше при зміні порядку знову з'їде на сусідню
+    tvSections.Select(tvSections.Items[tsBehavour.PageIndex]);
     Exit;
   end;
 
@@ -788,6 +823,61 @@ end;
 procedure TfrmSettings.tvSectionsChange(Sender: TObject; Node: TTreeNode);
 begin
   pcSetPages.ActivePageIndex := tvSections.Selected.Index;
+
+  //
+  // Скидання реалізоване лише для цих двох розділів
+  //
+  btnReset.Enabled := (pcSetPages.ActivePage = tsDevices) or
+                      (pcSetPages.ActivePage = tsInterface);
+end;
+
+//
+// Скидання розділу налаштувань до типових значень.
+//
+// Змінюємо лише контроли форми, а не Settings - інакше "Відміна" перестане
+// скасовувати скидання. Збереження й далі йде через звичайний SaveSettings.
+//
+procedure TfrmSettings.ResetDevicesTab;
+begin
+  cbPromptPath.Checked := DEF_PROMPT_DEVICE_PATH;
+  edDeviceDir.Text := DEF_DEVICE_DIR;
+  edReadDir.Text := DEF_READ_DIR;
+
+  rgDeviceFormat.ItemIndex := DEF_EXPORT_FORMAT;
+  edFolderTemplate.Text := DEF_FOLDER_TEMPLATE;
+  edFileNameTemplate.Text := DEF_FILE_NAME_TEMPLATE;
+  cbSquareFilter.Checked := DEF_REMOVE_SQUARE_BRACKETS;
+  cbTXTEncoding.ItemIndex := DEF_TXT_ENCODING;
+
+  // перечитаємо стан доступності полів шляху до пристрою
+  cbPromptPathClick(nil);
+end;
+
+procedure TfrmSettings.ResetInterfaceTab;
+begin
+  udFontSize.Position := DEF_TREE_FONT_SIZE;
+  udShortFontSize.Position := DEF_SHORT_FONT_SIZE;
+
+  SetPanelFontColor(DEF_FONT_COLOR);
+  pnDownloadedFontColor.Font.Color := DEF_LOCAL_COLOR;
+  pnDeletedFontColor.Font.Color := DEF_DELETED_COLOR;
+
+  pnCA.Color := DEF_AUTHOR_COLOR;
+  pnCS.Color := DEF_SERIES_COLOR;
+  pnASG.Color := DEF_BG_COLOR;
+  pnCT.Color := DEF_BOOK_COLOR;
+  pnBS.Color := DEF_SERIES_BOOK_COLOR;
+end;
+
+procedure TfrmSettings.btnResetClick(Sender: TObject);
+begin
+  if MessageDlg(rstrConfirmReset, mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+
+  if pcSetPages.ActivePage = tsDevices then
+    ResetDevicesTab
+  else if pcSetPages.ActivePage = tsInterface then
+    ResetInterfaceTab;
 end;
 
 procedure TfrmSettings.cbEnableFileSortClick(Sender: TObject);
@@ -867,7 +957,7 @@ begin
 
   for ch in EditControl.Text do
   begin
-    if IsNumber(ch) then
+    if ch.IsNumber then
       strValue := strValue + ch;
   end;
   nValue := StrToIntDef(strValue, 0);

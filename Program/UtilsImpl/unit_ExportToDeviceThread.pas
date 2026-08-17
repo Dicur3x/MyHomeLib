@@ -1,14 +1,28 @@
-﻿unit unit_ExportToDeviceThread;
+﻿(* *****************************************************************************
+  *
+  * MyHomeLib
+  *
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
+  *
+  * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
+  *         Nick Rymanov     nrymanov@gmail.com
+  *         Matvienko Sergei matv84@mail.ru
+  *
+  ****************************************************************************** *)
+
+unit unit_ExportToDeviceThread;
 
 interface
 
 uses
   Classes,
+  ShlObj,
+  ActiveX,
   unit_WorkerThread,
   unit_globals,
+  Dialogs,
   unit_Templater,
-  unit_Interfaces,
-  System.Generics.Collections;
+  unit_Interfaces;
 
 type
   TExportToDeviceThread = class(TWorker)
@@ -16,6 +30,7 @@ type
     TFileOprecord = record
       SourceFile: string;
       TargetFile: string;
+      TargetFolder: string; // relative folder (from folder template) under DeviceDir
       TempFile: string;
       FileName: string;
       Stream: TStream;
@@ -44,9 +59,13 @@ type
     FExtractOnly: boolean;
     FProcessedFiles: string;
     FDeviceDir: string;
+    FUseMTP: Boolean;
+    FMarshalStream: IStream;
+    FDeviceShellItem: IShellItem;
+    FLastError: string;
+    FConverterExitCode: Cardinal;
 
     FMaxTempPathLength: Integer;
-    FFileCounter: TDictionary<string, Integer>;
 
     function fb2Lrf(const InpFile: string; const OutFile: string): Boolean;
     function fb2EPUB(const InpFile: string; const OutFile: string): Boolean;
@@ -61,7 +80,7 @@ type
   strict private
     function PrepareFile(const BookKey: TBookKey): Boolean;
     function SendFileToDevice: Boolean;
-    function GetUniqueFileName(const FileName: string; const BookID: Integer): string;
+    procedure RemoveEmptyTargetFolders;
 
   protected
     procedure Initialize; override;
@@ -70,14 +89,21 @@ type
 
   public
     constructor Create;
-    destructor Destroy; override;
 
     property BookIdList: TBookIdList read FBookIdList write FBookIdList;
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
+    property UseMTP: Boolean read FUseMTP write FUseMTP;
+    property MarshalStream: IStream write FMarshalStream;
     property ProcessedFiles: string read FProcessedFiles;
     property ExportMode: TExportMode read FExportMode write FExportMode;
     property ExtractOnly: boolean write FExtractOnly;
   end;
+
+//
+// Повний шлях до зовнішнього конвертера, потрібного для режиму Mode.
+// Повертає '', якщо режим обробляється власними засобами (fb2/fb2.zip/txt).
+//
+function GetConverterPath(const AppPath: string; Mode: TExportMode): string;
 
 implementation
 
@@ -87,23 +113,36 @@ uses
   IOUtils,
   unit_Consts,
   unit_Settings,
+  unit_Helpers,
   dm_user,
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
-  unit_WriteFb2Info,
-  unit_Logger;
+  unit_WriteFb2Info;
 
 resourcestring
-  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-  rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
-  rstrFileNotFound = 'Файл "%s" не найден';
-  rstrProcessRemainingFiles = 'Обрабатывать оставшиеся файлы?';
-  rstrFilesProcessed = 'Записаны файлы: %u из %u';
-  rstrCompleted = 'Завершение операции...';
-  rstrRememberChoise = 'Запомнить выбор?';
+  rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
+  rstrArchiveNotFound = 'Архів' + CR + 'не знайдено!';
+  rstrFileNotFound = 'File "%s" not found';
+  rstrExportFileFailed = 'Не вдалось експортувати файл "%s".' + CR + CR + 'Обробляти файли, що залишилися?';
+  rstrFilesProcessed = 'Записано файли: %u з %u';
+  rstrCompleted = 'Завершення операції...';
+  rstrRememberChoise = 'Запам''ятати вибір?';
+  rstrExportErrors = 'Під час експорту виникли помилки: %d з %d файлів не вдалось експортувати.' + CR + 'Деталі у файлі: %s';
 
 const
   MaxPathLength = 240;
+
+function GetConverterPath(const AppPath: string; Mode: TExportMode): string;
+begin
+  case Mode of
+    emLrf:  Result := AppPath + 'converters\fb2lrf\fb2lrf_c.exe';
+    emEpub: Result := AppPath + 'converters\fb2epub\fb2epub.exe';
+    emPDF:  Result := AppPath + 'converters\fb2pdf\fb2pdf.cmd';
+    emMobi: Result := AppPath + 'converters\fb2mobi\fb2mobi.exe';
+  else
+    Result := '';
+  end;
+end;
 
   { TExportToDeviceThread }
 
@@ -121,43 +160,12 @@ begin
   FTXTEncoding := FSettings.TXTEncoding;
 
   FMaxTempPathLength := MaxPathLength - Length(FTempPath);
-  FFileCounter := TDictionary<string, Integer>.Create;
 end;
 
-destructor TExportToDeviceThread.Destroy;
-begin
-  FFileCounter.Free;
-  inherited;
-end;
-
-function TExportToDeviceThread.GetUniqueFileName(const FileName: string; const BookID: Integer): string;
-var
-  BaseName, Ext, UniqueSuffix: string;
-  Counter: Integer;
-begin
-  BaseName := ChangeFileExt(FileName, '');
-  Ext := ExtractFileExt(FileName);
-
-  if BookID <> 0 then
-    UniqueSuffix := Format('_%d', [BookID])
-  else
-  begin
-    if not FFileCounter.TryGetValue(FileName, Counter) then
-    begin
-      Counter := 1;
-      FFileCounter.Add(FileName, Counter);
-    end
-    else
-    begin
-      Inc(Counter);
-      FFileCounter[FileName] := Counter;
-    end;
-    UniqueSuffix := Format('_noid_%d', [Counter]);
-  end;
-
-  Result := Format('%s%s%s', [BaseName, UniqueSuffix, Ext]);
-end;
-
+//
+// Определяем имя файла, если нужно - предварительно распаковываем
+// формируем названия папок и файла
+//
 function TExportToDeviceThread.PrepareFile(const BookKey: TBookKey): Boolean;
 var
   Collection: IBookCollection;
@@ -166,18 +174,21 @@ var
   FTargetFileName: string;
   FTargetFullFilePath: string;
   FTempFileName: string;
-  Stream: TStream;
 begin
   Result := False;
   try
+
+
     Collection := FSystemData.GetCollection(BookKey.DatabaseID);
     Collection.GetBookRecord(BookKey, R, False);
 
     // если не задействован скрипт, создаем папки
     // если будет вызываться скрипт, то папки не нужны, все равно они не обрабатываются
     // промежуточный файл остается во временной папке
+    FTargetFolder := '';
     if not FExtractOnly Then
     begin
+
       //
       // Сформируем имя каталога в соответствии с заданным темплейтом
       //
@@ -185,15 +196,18 @@ begin
         FTargetFolder := FTemplater.ParseString(R, TpPath)
       else
       begin
-        ShowMessage(rstrCheckTemplateValidity, MB_OK);
+        Dialogs.ShowMessage(rstrCheckTemplateValidity);
         Exit;
       end;
 
       if FTargetFolder <> '' then
         FTargetFolder := IncludeTrailingPathDelimiter(Trim(FTargetFolder));
 
-      CreateFolders(DeviceDir, FTargetFolder);
+      if not FUseMTP then
+        CreateFolders(DeviceDir, FTargetFolder);
     end;
+
+    FFileOprecord.TargetFolder := FTargetFolder;
 
     //
     // Сформируем имя файла в соответствии с заданным темплейтом
@@ -202,7 +216,7 @@ begin
       FTargetFileName := FTemplater.ParseString(R, TpFile)
     else
     begin
-      ShowMessage(rstrCheckTemplateValidity, MB_OK);
+      Dialogs.ShowMessage(rstrCheckTemplateValidity);
       Exit;
     end;
 
@@ -212,11 +226,55 @@ begin
     if Length(FTargetFullFilePath) < MaxPathLength then
       FTargetFullFilePath := FTargetFullFilePath + R.FileExt
     else
-      FTargetFullFilePath := Format('%s.%d%s', [copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
+      FTargetFullFilePath  := Format('%s.%d%s',[copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
 
-    FFileOprecord.TargetFile := GetUniqueFileName(FTargetFullFilePath, R.BookKey.BookID);
+    // Ensure unique filename to avoid overwriting books with identical names (#63)
+    // FileExists does not work for MTP shell paths; IFileOperation handles conflicts
+    if not FUseMTP then
+    begin
+      // Compute actual output path based on export mode
+      var ActualOutputPath: string;
+      case FExportMode of
+        emFB2Zip: ActualOutputPath := FTargetFullFilePath + ZIP_EXTENSION;
+        emLrf:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.lrf');
+        emEpub:   ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.epub');
+        emPDF:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.pdf');
+        emMobi:   ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.mobi');
+        emTxt:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.txt');
+      else
+        ActualOutputPath := FTargetFullFilePath;
+      end;
+
+      if FileExists(ActualOutputPath) then
+      begin
+        var BaseName := ChangeFileExt(FTargetFullFilePath, '');
+        var Ext := ExtractFileExt(FTargetFullFilePath);
+        var Counter := 1;
+        repeat
+          FTargetFullFilePath := Format('%s (%d)%s', [BaseName, Counter, Ext]);
+          case FExportMode of
+            emFB2Zip: ActualOutputPath := FTargetFullFilePath + ZIP_EXTENSION;
+            emLrf:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.lrf');
+            emEpub:   ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.epub');
+            emPDF:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.pdf');
+            emMobi:   ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.mobi');
+            emTxt:    ActualOutputPath := ChangeFileExt(FTargetFullFilePath, '.txt');
+          else
+            ActualOutputPath := FTargetFullFilePath;
+          end;
+          Inc(Counter);
+        until not FileExists(ActualOutputPath);
+      end;
+    end;
+
     FFileOprecord.SourceFile := R.GetBookFileName;
     FFileOprecord.FileName := FTargetFileName + R.FileExt;
+
+    // For MTP: write to temp, then shell-copy to device
+    if FUseMTP then
+      FFileOprecord.TargetFile := TPath.Combine(FTempPath, FFileOprecord.FileName)
+    else
+      FFileOprecord.TargetFile := FTargetFullFilePath;
 
     //
     // Если файл в архиве - распаковываем в $tmp
@@ -233,7 +291,7 @@ begin
       if Length(FTargetFileName) < FMaxTempPathLength then
         FTempFileName := Format('%s%s', [FTargetFileName, R.FileExt])
       else
-        FTempFileName := Format('%s%s', [Copy(FTargetFileName, 1, FMaxTempPathLength), R.FileExt]);
+        FTempFileName := Format('%s%s',[Copy(FTargetFileName, 1, FMaxTempPathLength), R.FileExt]);
 
       FFileOprecord.TempFile := TPath.Combine(FTempPath, FTempFileName);
 
@@ -241,21 +299,34 @@ begin
 
       if (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info then
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
+
     end;
 
     Result := True;
   except
-    // подавляем исключения дабы не прерывать процесс
-    // on Exception do ShowMessage(R.GetBookFileName, 1);
+    on E: Exception do
+      FLastError := Format('PrepareFile exception: %s', [E.Message]);
   end;
 end;
 
 procedure TExportToDeviceThread.ExportToZip;
 var
   archiver: TMHLZip;
+  ZipFile: string;
 begin
   try
-    archiver := TMHLZip.Create(FFileOprecord.TargetFile + ZIP_EXTENSION, False);
+    ZipFile := FFileOprecord.TargetFile + ZIP_EXTENSION;
+    if FileExists(ZipFile) then
+    begin
+      var BaseName := ChangeFileExt(FFileOprecord.TargetFile, '');
+      var Ext := ExtractFileExt(FFileOprecord.TargetFile);
+      var Counter := 1;
+      repeat
+        ZipFile := Format('%s (%d)%s', [BaseName, Counter, Ext]) + ZIP_EXTENSION;
+        Inc(Counter);
+      until not FileExists(ZipFile);
+    end;
+    archiver := TMHLZip.Create(ZipFile, False);
     FFileOprecord.Stream.Seek(0, soFromBeginning);
     archiver.AddFromStream(FFileOprecord.FileName, FFileOprecord.Stream);
   finally
@@ -270,29 +341,49 @@ end;
 
 function StreamToFile(const AFileName: string; AStream: TStream): boolean;
 var
-  Stream: TMemoryStream;
+  FileStream: TFileStream;
 begin
-  Result := False;
+  FileStream := TFileStream.Create(AFileName, fmCreate);
   try
-    Stream := TMemoryStream.Create;
     AStream.Seek(0, soFromBeginning);
-    Stream.CopyFrom(AStream, AStream.Size);
-    Stream.SaveToFile(AFileName);
+    FileStream.CopyFrom(AStream, AStream.Size);
     Result := True;
   finally
-    FreeAndNil(Stream);
+    FileStream.Free;
   end;
 end;
 
 function TExportToDeviceThread.CallExternalConverter: boolean;
+var
+  OutputPath: string;
+  ConverterExe: string;
+  TempFileCreated: Boolean;
 begin
   Result := False;
+  TempFileCreated := False;
+  FConverterExitCode := 0;
   try
     if FFileOprecord.Stream <> nil then
     begin
       StreamToFile(FFileOprecord.TempFile, FFileOprecord.Stream);
       FFileOprecord.SourceFile := FFileOprecord.TempFile;
+      TempFileCreated := True;
     end;
+
+    // Compute the path the converter will actually produce.
+    case FExportMode of
+      emLrf:  OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.lrf');
+      emEpub: OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.epub');
+      emPDF:  OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.pdf');
+      emMobi: OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.mobi');
+    else
+      OutputPath := FFileOprecord.TargetFile;
+    end;
+
+    // Remove any stale output from a previous run so we don't mistake it for
+    // fresh converter output if the exe silently fails (#65).
+    if FileExists(OutputPath) then
+      DeleteFile(OutputPath);
 
     case FExportMode of
       emLrf:
@@ -307,10 +398,37 @@ begin
       emMobi:
         Result := fb2Mobi(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
     end;
+
+    ConverterExe := GetConverterPath(FAppPath, FExportMode);
+    if not Result then
+    begin
+      if FConverterExitCode <> 0 then
+        FLastError := Format('Converter "%s" failed with exit code %d: %s',
+          [ConverterExe, FConverterExitCode, OutputPath])
+      else
+        FLastError := Format('Converter "%s" could not be started: %s',
+          [ConverterExe, OutputPath]);
+    end
+    // A process may exit successfully without producing output (for example,
+    // with a locked target or invalid CLI arguments). Verify the artifact too.
+    else if not FileExists(OutputPath) then
+    begin
+      Result := False;
+      FLastError := Format('Converter "%s" exited OK but produced no output: %s',
+        [ConverterExe, OutputPath]);
+
+      // fb2pdf.cmd - обгортка над Java; без встановленої JRE вона одразу виходить з кодом 1
+    end;
+    if (not Result) and (FExportMode = emPDF) then
+      FLastError := FLastError + ' (fb2pdf requires an installed Java runtime)';
   except
     on E: Exception do
-      Logger.W('ConvertFile: conversion failed for "%s" — %s', [FFileOprecord.SourceFile, E.Message]);
+      FLastError := Format('CallExternalConverter exception: %s', [E.Message]);
   end;
+
+  // Проміжний файл потрібен лише конвертеру - не залишаємо його у $tmp (#59)
+  if TempFileCreated and FileExists(FFileOprecord.TempFile) then
+    DeleteFile(FFileOprecord.TempFile);
 end;
 
 function TExportToDeviceThread.ExportToFB2: boolean;
@@ -318,48 +436,200 @@ begin
   if FFileOprecord.Stream <> nil then
     Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream)
   else
-    Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+   Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
 end;
 
 function TExportToDeviceThread.ProcessFileFromStream: boolean;
 begin
   Result := False;
   try
+
     case FExportMode of
-      emFB2: ExportToFB2;
+         emFB2: if not ExportToFB2 then Exit;
+
       emFB2Zip: ExportToZip;
-      emTxt: unit_globals.ConvertToTxt(FFileOprecord.TargetFile, FTXTEncoding, FFileOprecord.Stream);
+
+         emTxt: unit_globals.ConvertToTxt(FFileOprecord.TargetFile, FTXTEncoding, FFileOprecord.Stream);
     end;
     Result := True;
   except
     on E: Exception do
-      Logger.W('ProcessFileFromStream: failed for "%s" — %s', [FFileOprecord.TargetFile, E.Message]);
+      FLastError := Format('ProcessFileFromStream exception: %s', [E.Message]);
+  end;
+end;
+
+//
+// Папки за шаблоном створюються ще до конвертації, тож після невдалого
+// експорту на пристрої залишаються порожні каталоги (#59). Прибираємо їх,
+// піднімаючись до DeviceDir; RemoveDir не чіпає непорожні папки, тому
+// каталоги з уже записаними книгами вціліють.
+//
+procedure TExportToDeviceThread.RemoveEmptyTargetFolders;
+var
+  Root: string;
+  Current: string;
+begin
+  if FUseMTP or FExtractOnly or (FFileOprecord.TargetFolder = '') then
+    Exit;
+
+  try
+    Root := ExcludeTrailingPathDelimiter(FDeviceDir);
+    Current := ExcludeTrailingPathDelimiter(TPath.Combine(FDeviceDir, FFileOprecord.TargetFolder));
+
+    while (Length(Current) > Length(Root)) and
+          SameText(Copy(Current, 1, Length(Root)), Root) and
+          DirectoryExists(Current) do
+    begin
+      if not RemoveDir(Current) then
+        Break;
+      Current := ExcludeTrailingPathDelimiter(ExtractFilePath(Current));
+    end;
+  except
+    // прибирання не має зривати експорт
   end;
 end;
 
 function TExportToDeviceThread.SendFileToDevice: Boolean;
+var
+  TempFile: string;
+  MTPTargetFolder: IShellItem;
+  FreshRoot: IShellItem;
 begin
   Result := False;
+  FLastError := '';
+
   if not FileExists(FFileOprecord.SourceFile) then
   begin
+    FLastError := Format('Source not found: %s', [FFileOprecord.SourceFile]);
     ShowMessage(Format(rstrFileNotFound, [FFileOprecord.SourceFile]), MB_ICONERROR or MB_OK);
     Exit;
+  end;
+
+  // Resolve (and create) the author/series subfolder on MTP before copying (#65).
+  if FUseMTP then
+  begin
+    if not Assigned(FDeviceShellItem) then
+    begin
+      FLastError := Format('DeviceShellItem is nil, DeviceDir=%s', [FDeviceDir]);
+      Exit;
+    end;
+    MTPTargetFolder := ResolveOrCreateShellSubfolder(FDeviceShellItem, FFileOprecord.TargetFolder);
+
+    if not Assigned(MTPTargetFolder) then
+    begin
+      //
+      // Оболонка Windows перелічує теки MTP асинхронно: доки в Провіднику
+      // видно "Working on it...", тека ще не готова - нащадки виглядають
+      // порожніми, а будь-яка операція під нею повертає E_UNEXPECTED.
+      // Вручну це лікується повторним вибором теки в діалозі, тож робимо те
+      // саме програмно: перечитуємо корінь зі збереженого шляху й пробуємо ще
+      // раз. Одна спроба, без очікування - це пом'якшення чужої асинхронності.
+      //
+      if Succeeded(SHCreateItemFromParsingName(PChar(FDeviceDir), nil, IShellItem, FreshRoot)) then
+      begin
+        MTPTargetFolder := ResolveOrCreateShellSubfolder(FreshRoot, FFileOprecord.TargetFolder);
+        // Свіжий корінь працює - далі користуємось ним, щоб не повторювати
+        // це для кожної наступної книги.
+        if Assigned(MTPTargetFolder) then
+          FDeviceShellItem := FreshRoot;
+      end;
+    end;
+
+    if not Assigned(MTPTargetFolder) then
+    begin
+      FLastError := Format('Failed to resolve/create MTP subfolder: %s', [FFileOprecord.TargetFolder]);
+      Exit;
+    end;
   end;
 
   if FBookFormat in [bfFb2, bfFb2Archive] then
   begin
     case FExportMode of
-      emFB2, emFB2Zip, emTxt: Result := ProcessFileFromStream;
+        emFB2, emFB2Zip, emTxt: Result := ProcessFileFromStream;
     else
       Result := CallExternalConverter;
+    end;
+
+    if not Result then
+    begin
+      if FLastError = '' then
+        FLastError := Format('ProcessFile failed, Mode=%d, Target=%s', [Ord(FExportMode), FFileOprecord.TargetFile]);
+      Exit;
+    end;
+
+    // For MTP: shell-copy the temp output file to the device, then clean up
+    if FUseMTP then
+    begin
+      // Determine the actual output file path
+      case FExportMode of
+        emFB2Zip: TempFile := FFileOprecord.TargetFile + ZIP_EXTENSION;
+        emLrf:    TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.lrf');
+        emEpub:   TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.epub');
+        emPDF:    TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.pdf');
+        emMobi:   TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.mobi');
+      else
+        TempFile := FFileOprecord.TargetFile;
+      end;
+
+      if not FileExists(TempFile) then
+      begin
+        FLastError := Format('Temp file not found: %s', [TempFile]);
+        Result := False;
+        Exit;
+      end;
+
+      Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile));
+      if not Result then
+        FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+          [TempFile, FFileOprecord.TargetFolder, ExtractFileName(TempFile)]);
+      DeleteFile(TempFile);
     end;
   end
   else
   begin
-    if FFileOprecord.Stream <> nil then
-      Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream)
+    // Книга з архіву вже розпакована у потік, а SourceFile вказує на сам архів -
+    // копіювання за SourceFile віддало б архів замість книги.
+    if FUseMTP then
+    begin
+      if FFileOprecord.Stream <> nil then
+      begin
+        if not StreamToFile(FFileOprecord.TempFile, FFileOprecord.Stream) then
+        begin
+          FLastError := Format('StreamToFile failed: %s', [FFileOprecord.TempFile]);
+          Exit;
+        end;
+
+        Result := ShellCopyFile(FFileOprecord.TempFile, MTPTargetFolder, FFileOprecord.FileName);
+        if not Result then
+          FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+            [FFileOprecord.TempFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
+
+        if FileExists(FFileOprecord.TempFile) then
+          DeleteFile(FFileOprecord.TempFile);
+      end
+      else
+      begin
+        Result := ShellCopyFile(FFileOprecord.SourceFile, MTPTargetFolder, FFileOprecord.FileName);
+        if not Result then
+          FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
+            [FFileOprecord.SourceFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
+      end;
+    end
     else
-      Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+    begin
+      if FFileOprecord.Stream <> nil then
+      begin
+        Result := StreamToFile(FFileOprecord.TargetFile, FFileOprecord.Stream);
+        if not Result then
+          FLastError := Format('StreamToFile failed: %s', [FFileOprecord.TargetFile]);
+      end
+      else
+      begin
+        Result := unit_globals.CopyFile(FFileOprecord.SourceFile, FFileOprecord.TargetFile);
+        if not Result then
+          FLastError := Format('CopyFile failed: %s -> %s', [FFileOprecord.SourceFile, FFileOprecord.TargetFile]);
+      end;
+    end;
   end;
 end;
 
@@ -368,7 +638,7 @@ var
   params: string;
 begin
   params := Format('-i "%s" -o "%s"', [InpFile, ChangeFileExt(OutFile, '.lrf')]);
-  Result := ExecAndWait(FAppPath + 'converters\fb2lrf\fb2lrf_c.exe', params, SW_HIDE);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emLrf), params, SW_HIDE, FConverterExitCode);
 end;
 
 function TExportToDeviceThread.fb2EPUB(const InpFile: string; const OutFile: string): Boolean;
@@ -376,7 +646,7 @@ var
   params: string;
 begin
   params := Format('"%s" "%s"', [InpFile, ChangeFileExt(OutFile, '.epub')]);
-  Result := ExecAndWait(FAppPath + 'converters\fb2epub\fb2epub.exe', params, SW_HIDE);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emEpub), params, SW_HIDE, FConverterExitCode);
 end;
 
 function TExportToDeviceThread.fb2PDF(const InpFile: string; const OutFile: string): Boolean;
@@ -384,7 +654,7 @@ var
   params: string;
 begin
   params := Format('"%s" "%s"', [InpFile, ChangeFileExt(OutFile, '.pdf')]);
-  Result := ExecAndWait(FAppPath + 'converters\fb2pdf\fb2pdf.cmd', params, SW_HIDE);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emPDF), params, SW_HIDE, FConverterExitCode);
 end;
 
 function TExportToDeviceThread.fb2Mobi(const InpFile: string; const OutFile: string): Boolean;
@@ -392,7 +662,7 @@ var
   params: string;
 begin
   params := Format('"%s" "%s" -nc -cl -us -nt', [InpFile, ChangeFileExt(OutFile, '.mobi')]);
-  Result := ExecAndWait(FAppPath + 'converters\fb2mobi\fb2mobi.exe', params, SW_HIDE);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emMobi), params, SW_HIDE, FConverterExitCode);
 end;
 
 procedure TExportToDeviceThread.Initialize;
@@ -401,10 +671,26 @@ begin
   FSystemData := DMUser.GetSystemDBConnection;
   Assert(Assigned(FSystemData));
   FTemplater := TTemplater.Create;
+
+  // Unmarshal IShellItem from the main thread's COM apartment
+  if FUseMTP and Assigned(FMarshalStream) then
+  begin
+    CoGetInterfaceAndReleaseStream(FMarshalStream, IShellItem, FDeviceShellItem);
+    //
+    // CoGetInterfaceAndReleaseStream перебирає на себе посилання, яке тримає
+    // FMarshalStream, і звільняє потік навіть у разі помилки. Звичайне
+    // присвоєння nil викликало б Release ще раз, на вже звільненому потоці:
+    // на посилання припадало два AddRef і три Release, тож експорт падав з AV
+    // наприкінці, коли ExportToDevice звільняв свою локальну змінну.
+    // Обнуляємо поле через Pointer, не звільняючи його повторно.
+    //
+    Pointer(FMarshalStream) := nil;
+  end;
 end;
 
 procedure TExportToDeviceThread.Uninitialize;
 begin
+  FDeviceShellItem := nil;
   FTemplater.Free;
   FSystemData.ClearCollectionCache;
   inherited Uninitialize;
@@ -416,44 +702,69 @@ var
   totalBooks: Integer;
   Res: Boolean;
   IsShowDialog: BOOL;
+  ErrorLog: TStringList;
+  LogFileName: string;
+  FailedCount: Integer;
 begin
   IsShowDialog := True;
-  FProgressEngine.BeginOperation(Length(FBookIdList), rstrFilesProcessed, rstrFilesProcessed);
+  FailedCount := 0;
+  ErrorLog := TStringList.Create;
   try
-    totalBooks := Length(FBookIdList);
-    for i := 0 to totalBooks - 1 do
-    begin
-      if Canceled then
-        Break;
-
-      Res := PrepareFile(FBookIdList[i].BookKey);
-      if Res then
+    FProgressEngine.BeginOperation(Length(FBookIdList), rstrFilesProcessed, rstrFilesProcessed);
+    try
+      totalBooks := Length(FBookIdList);
+      for i := 0 to totalBooks - 1 do
       begin
-        if i = 0 then
-          FProcessedFiles := FFileOprecord.SourceFile;
+        if Canceled then
+          Break;
 
-        if not FExtractOnly Then Res := SendFileToDevice;
+        Res := PrepareFile(FBookIdList[i].BookKey);
+        if Res then
+        begin
+          if i = 0 then
+            FProcessedFiles := FFileOprecord.SourceFile;
+
+          if not FExtractOnly Then Res := SendFileToDevice;
+        end;
 
         if FFileOprecord.Stream <> nil then
           FreeAndNil(FFileOprecord.Stream);
-      end;
 
-      if not Res and (i < totalBooks - 1) then
-      begin
-        if IsShowDialog then
+        if not Res then
         begin
-            Canceled := (ShowMessage(rstrProcessRemainingFiles, MB_ICONQUESTION or MB_YESNO) = IDNO);
-            if ShowMessage(rstrRememberChoise, MB_ICONQUESTION or MB_YESNO) = IDYES then
+          Inc(FailedCount);
+          ErrorLog.Add(Format('%s  >>  %s  |  %s', [DateTimeToStr(Now), FFileOprecord.FileName, FLastError]));
+          RemoveEmptyTargetFolders;
+
+          if i < totalBooks - 1 then
+          begin
+            if IsShowDialog then
             begin
+              Canceled := (ShowMessage(Format(rstrExportFileFailed, [FFileOprecord.FileName]), MB_ICONQUESTION or MB_YESNO) = IDNO);
+              if ShowMessage(rstrRememberChoise, MB_ICONQUESTION or MB_YESNO) = IDYES then
                 IsShowDialog := False;
             end;
+          end;
         end;
+
+        FProgressEngine.AddProgress;
       end;
 
-      FProgressEngine.AddProgress;
+    finally
+      FProgressEngine.EndOperation;
+    end;
+
+    if FailedCount > 0 then
+    begin
+      LogFileName := Settings.SystemFileName[sfExportErrorLog];
+      if TFile.Exists(LogFileName) then
+        TFile.AppendAllText(LogFileName, ErrorLog.Text, TEncoding.UTF8)
+      else
+        ErrorLog.SaveToFile(LogFileName, TEncoding.UTF8);
+      ShowMessage(Format(rstrExportErrors, [FailedCount, totalBooks, LogFileName]), MB_ICONWARNING or MB_OK);
     end;
   finally
-    FProgressEngine.EndOperation;
+    ErrorLog.Free;
   end;
 end;
 

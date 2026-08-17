@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -12,8 +12,6 @@
   * $Id: unit_libupdateThread.pas 1169 2014-06-17 07:31:08Z koreec $
   *
   * History
-  * 2026-03-08 - Fixed undefined loop variable `i` used in exception handler
-  *            - Saved last processed index for safe cleanup on error
   *
   ****************************************************************************** *)
 
@@ -26,36 +24,54 @@ uses
   Classes,
   SysUtils,
   unit_ImportInpxThread,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL,
-  IdComponent,
-  unit_UserData;
+  System.Net.HttpClient,
+  unit_Globals;
 
 type
   TDownloadProgressEvent = procedure (Current, Total: Integer) of object;
   TDownloadSetCommentEvent = procedure (const Current, Total: string) of object;
 
-  TLibUpdateThread = class(TImportInpxThreadBase)
+  TCollectionUpdateThreadBase = class(TImportInpxThreadBase)
+  protected
+    //
+    // Повертає False, якщо користувач скасував операцію: зміни відкочено,
+    // колекція лишилась такою, якою була.
+    //
+    function UpdateCollection(const AFileName: string; ACollectionID: Integer;
+      AFull: Boolean; const ADisplayName: string): Boolean;
+  end;
+
+  TLibUpdateThread = class(TCollectionUpdateThreadBase)
   private
-    FidHTTP: TidHTTP;
-    FidSocksInfo: TIdSocksInfo;
-    FidSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
-    FDownloadSize: Integer;
-    FStartDate : TDateTime;
+    FHTTPClient: THTTPClient;
+    FStartDate: TDateTime;
     FUpdated: Boolean;
 
   protected
     procedure Initialize; override;
     procedure Uninitialize; override;
     procedure WorkFunction; override;
-    procedure HTTPWorkBegin(ASender: TObject; AWorkMode: TWorkMode; AWorkCountMax: int64);
-    procedure HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
-    procedure HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: int64);
+    procedure HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
 
   public
     constructor Create;
     property Updated: Boolean read FUpdated;
+  end;
+
+  TManualUpdateThread = class(TCollectionUpdateThreadBase)
+  private
+    FFileName: string;
+    FFull: Boolean;
+    FDisplayName: string;
+    function IsValidUpdateArchive: Boolean;
+
+  protected
+    procedure WorkFunction; override;
+
+  public
+    constructor Create(const ACollectionID: Integer; const AFileName: string;
+      AFull: Boolean; AGenresType: TGenresType);
+    property DisplayName: string read FDisplayName write FDisplayName;
   end;
 
 implementation
@@ -63,41 +79,120 @@ implementation
 uses
   IOUtils,
   DateUtils,
-  unit_Globals,
   unit_Consts,
   unit_Settings,
   dm_user,
   unit_WorkerThread,
   unit_Lib_Updates,
   unit_Interfaces,
-  unit_Logger;
+  unit_Logger,
+  unit_MHLHttpClient,
+  unit_MHLArchiveHelpers,
+  unit_UserData;
 
 resourcestring
-rstrDownloadProgress = 'Загружено: %u%% із %u байт';
-   rstrCheckingUpdate = 'Проверяем наличие обновлений основной базы...';
-   rstrCheckingExtraUpdate = 'Проверяем наличие обновлений для on-line...';
-   rstrErrorCheckingUpdate = 'Ошибка. Не удалось проверить обновление.';
-   rstrErrorDownloadUpdate = 'Ошибка. Не удалось загрузить обновление.';
+rstrDownloadProgress = 'Завантажено: %u%% із %u байт';
+   rstrCheckingUpdate = 'Перевіряємо наявність оновлень основної бази...';
+   rstrCheckingExtraUpdate = 'Перевіряємо наявність оновлень для on-line...';
+   rstrErrorCheckingUpdate = 'ПОМИЛКА. Не вдалося перевірити оновлення.';
+   rstrErrorDownloadUpdate = 'ПОМИЛКА. Не вдалося завантажити оновлення.';
    rstrReady = 'Готово';
-   rstrDownloadingUpdates = 'Загрузка обновлений...';
-   rstrYouHaveLatestListsVersion = 'У вас самая свежая версия списков.';
-   rstrUpdatingFromLocalArchive = 'Обновление из локального архива';
-   rstrListsUpdateIsAvailable = 'Доступно обновление списков до версии %d';
-   rstrListsExtraUpdateIsAvailable = 'Доступно обновление списков on-line до версии %d';
-   rstrNothingToUpdate = 'Нечего обновлять!';
-   rstrUpdateComplete = 'Обновление завершено.';
-   rstrUpdateFailed = 'Обновления не удалось.';
-   rstrBackupUserData = 'Сохранение резервной копии пользовательских данных';
-   rstrRestoreUserData = 'Восстановление пользовательских данных';
-   rstrRemovingOldCollection = 'Удаление всех записей старой коллекции "%s" ...';
-   rstrCreatingCollection = 'Создание новой коллекции %s...';
-   rstrSpeed = 'Загрузка: %s Kb/s';
-   rstrConnectingToServer = 'Подключение к серверу...';
-   rstrOnlineCollectionUpdate = 'Обновление коллекции %s до версии %d:';
-   rstrLocalCollectionUpdate = 'Обновление коллекции %s:';
-   rstrUpdateFailedDownload = 'Загрузка обновлений не удалось.';
-   rstrCancelledByUser = 'Операция отменена пользователем.';
-   rstrImportIntoCollection = 'Импорт данных в коллекцию:';
+   rstrDownloadingUpdates = 'Завантаження оновлень...';
+   rstrYouHaveLatestListsVersion = 'У вас найсвіжіша версія списків.';
+   rstrUpdatingFromLocalArchive = 'Оновлення з локального архіву';
+   rstrListsUpdateIsAvailable = 'Доступно оновлення списків до версії %d';
+   rstrListsExtraUpdateIsAvailable = 'Доступне оновлення списків on-line до версії %d';
+   rstrNothingToUpdate = 'Нема чого оновлювати!';
+   rstrUpdateComplete = 'Оновлення завершено.';
+   rstrUpdateFailed = 'Оновлення не вдалося.';
+   rstrBackupUserData = 'Збереження резервної копії даних користувача';
+   rstrRestoreUserData = 'Відновлення даних користувача';
+   rstrRemovingOldCollection = 'Видалення всіх записів старої колекції "%s" ...';
+   rstrCreatingCollection = 'Створення нової колекції %s...';
+   rstrSpeed = 'Завантаження: %s Kb/s';
+   rstrConnectingToServer = 'Підключення до сервера...';
+   rstrOnlineCollectionUpdate = 'Оновлення колекції %s до версії %d:';
+   rstrLocalCollectionUpdate = 'Оновлення колекції %s:';
+   rstrUpdateFailedDownload = 'Завантаження оновлень не вдалося.';
+   rstrCancelledByUser = 'Операцію скасовано користувачем.';
+   rstrImportIntoCollection = 'Імпорт даних до колекції:';
+   rstrManualCollectionUpdate = 'Оновлення колекції %s з файлу %s:';
+   rstrUpdateFileNotFound = 'Файл оновлення не знайдено: %s';
+   rstrInvalidUpdateFile = 'Неправильний формат файлу INPX: %s';
+
+{ TCollectionUpdateThreadBase }
+
+//
+// Оновлення однієї колекції з одного файлу списків.
+// Файл AFileName не видаляється — про нього дбає викликач.
+//
+function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
+  ACollectionID: Integer; AFull: Boolean; const ADisplayName: string): Boolean;
+var
+  Collection: IBookCollection;
+  UserDataBackup: TUserData;
+begin
+  Result := False;
+
+  //Truncate won't work with TBookCollection.Create(DBFileName, False)
+  Collection := FSystemData.GetCollection(ACollectionID);
+  Collection.BeginBulkOperation;
+  try
+    UserDataBackup := TUserData.Create;
+    try
+      if AFull then
+      begin
+        // Backup user data:
+        Teletype(Format(rstrBackupUserData, [ADisplayName]), tsInfo);
+        Collection.ExportUserData(UserDataBackup);
+
+        // clear most tables in a collection
+        Teletype(Format(rstrRemovingOldCollection, [ADisplayName]), tsInfo);
+        Collection.TruncateTablesBeforeImport;
+      end;
+
+      Teletype(rstrImportIntoCollection, tsInfo);
+      Import(AFileName, not AFull, Collection);
+
+      //
+      // Import лише перериває свої цикли за Canceled і повертає керування
+      // штатно. Без цієї перевірки скасований повний переімпорт закомітив би
+      // обрізану колекцію, а RemapCollectionBookIDs ще й вичистив би групи.
+      //
+      if Canceled then
+      begin
+        Collection.EndBulkOperation(False);
+        Teletype(rstrCancelledByUser, tsInfo);
+        Exit;
+      end;
+
+      if AFull then
+      begin
+        // Restore user data:
+        Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
+        Collection.ImportUserData(UserDataBackup, nil);
+      end;
+    finally
+      FreeAndNil(UserDataBackup);
+    end;
+
+    Collection.EndBulkOperation(True);
+  except
+    Collection.EndBulkOperation(False);
+    raise;
+  end;
+
+  //
+  // При полном переимпорте BookID в коллекции переприсваиваются, и сохранённые
+  // в группах BookID начинают указывать на чужие книги. Приводим их к новой
+  // нумерации по LibID (при полном переимпорте заодно убираем книги, которых
+  // в коллекции больше нет).
+  // Делается только после коммита коллекции: системная БД - отдельный файл,
+  // её изменения не откатятся вместе с импортом.
+  //
+  FSystemData.RemapCollectionBookIDs(ACollectionID, AFull);
+  Result := True;
+end;
 
 { TLibUpdateThread }
 
@@ -110,84 +205,52 @@ begin
   FGenresType := gtFb2;
 end;
 
-procedure TLibUpdateThread.HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: Int64);
+procedure TLibUpdateThread.HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
 var
-  ElapsedTime : Cardinal;
+  ElapsedTime: Cardinal;
   Speed: string;
 begin
-
   if Canceled then
   begin
-    FidHTTP.Disconnect;
+    AAbort := True;
     Exit;
   end;
 
-  if FDownloadSize <> 0 then
-    SetProgress(AWorkCount * 100 div FDownloadSize);
+  if AContentLength > 0 then
+    SetProgress(AReadCount * 100 div AContentLength);
 
-  ElapsedTime := SecondsBetween(Now,FStartDate);
-  if ElapsedTime>0 then
+  ElapsedTime := SecondsBetween(Now, FStartDate);
+  if ElapsedTime > 0 then
   begin
-    Speed := FormatFloat('0.00',AWorkCount/1024/ElapsedTime);
-    SetComment(Format(rstrSpeed,[Speed]));
+    Speed := FormatFloat('0.00', AReadCount / 1024 / ElapsedTime);
+    SetComment(Format(rstrSpeed, [Speed]));
   end;
-end;
-
-procedure TLibUpdateThread.HTTPWorkBegin(ASender: TObject; AWorkMode: TWorkMode; AWorkCountMax: Int64);
-begin
-  SetComment(rstrConnectingToServer);
-  FDownloadSize := AWorkCountMax;
-  FStartDate := Now;
-  SetProgress(0);
-end;
-
-procedure TLibUpdateThread.HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
-begin
-  SetProgress(100);
-  SetComment(rstrReady);
 end;
 
 procedure TLibUpdateThread.Initialize;
 begin
   inherited Initialize;
-
-  FidHTTP := TidHTTP.Create(nil);
-  FidSocksInfo := TIdSocksInfo.Create;
-  FidSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create;
-
-  FidHTTP.OnWork := HTTPWork;
-  FidHTTP.OnWorkBegin := HTTPWorkBegin;
-  FidHTTP.OnWorkEnd := HTTPWorkEnd;
-  FidHTTP.HandleRedirects := True;
-  SetProxySettingsUpdate(FidHTTP, FidSocksInfo, FidSSLIOHandlerSocketOpenSSL);
+  FHTTPClient := CreateHTTPClientUpdate;
+  FHTTPClient.OnReceiveData := HTTPReceiveData;
 end;
 
 procedure TLibUpdateThread.Uninitialize;
 begin
-  FreeAndNil(FidSSLIOHandlerSocketOpenSSL);
-  FreeAndNil(FidSocksInfo);
-  FreeAndNil(FidHTTP);
-
+  FreeAndNil(FHTTPClient);
   inherited Uninitialize;
 end;
 
 procedure TLibUpdateThread.WorkFunction;
 var
   i: integer;
-  lastProcessedIndex: integer;
   InpxFileName: string;
   updateInfo: TUpdateInfo;
-  Collection: IBookCollection;
-  UserDataBackup: TUserData;
-  S: string;
 begin
   SetComment(rstrCheckingUpdate);
-  lastProcessedIndex := -1;
 
   try
     for i := 0 to Settings.Updates.Count - 1 do
     begin
-      lastProcessedIndex := i;
       updateInfo := Settings.Updates[i];
 
       if not updateInfo.Available then
@@ -204,59 +267,31 @@ begin
       else
       begin
         Teletype(rstrDownloadingUpdates, tsInfo);
-        if not Settings.Updates.DownloadUpdate(i, FidHTTP) then
+        SetComment(rstrConnectingToServer);
+        FStartDate := Now;
+        SetProgress(0);
+        if not Settings.Updates.DownloadUpdate(i, FHTTPClient) then
         begin
           Teletype(rstrUpdateFailedDownload, tsInfo);
           Continue;
         end;
       end;
 
+      InpxFileName := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
+
       if Canceled then
       begin
-        DeleteFile(TPath.Combine(Settings.WorkPath, Settings.Updates.Items[i].UpdateFile));
+        DeleteFile(InpxFileName);
         Teletype(rstrCancelledByUser, tsInfo);
         Exit;
       end;
 
-      InpxFileName := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
-
-      //Truncate won't work with TBookCollection.Create(DBFileName, False)
-      Collection := FSystemData.GetCollection(updateInfo.CollectionID);
-      Collection.BeginBulkOperation;
-      try
-        UserDataBackup := TUserData.Create;
-        try
-          if updateInfo.Full then
-          begin
-            // Backup user data:
-            Teletype(Format(rstrBackupUserData, [updateInfo.Name]), tsInfo);
-            Collection.ExportUserData(UserDataBackup);
-
-            // clear most tables in a collection
-            Teletype(Format(rstrRemovingOldCollection, [updateInfo.Name]), tsInfo);
-            Collection.TruncateTablesBeforeImport;
-          end; //if FULL
-
-          //  импортирум данные
-          Teletype(rstrImportIntoCollection, tsInfo);
-          Import(InpxFileName, not updateInfo.Full, Collection);
-
-          if updateInfo.Full then // a full import mode, had a backup before the process
-          begin
-            Assert(Assigned(UserDataBackup));
-            // Restore user data:
-            Teletype(Format(rstrRestoreUserData, [updateInfo.Name]),tsInfo);
-            Collection.ImportUserData(UserDataBackup, nil);
-          end;
-        finally
-          FreeAndNil(UserDataBackup);
-        end;
-
-        Collection.EndBulkOperation(True);
-      except
-        Collection.EndBulkOperation(False);
-        raise;
-      end;
+      //
+      // Скасування під час імпорту: зміни вже відкочено, файли оновлень
+      // лишаємо на місці, щоб можна було повторити спробу.
+      //
+      if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
+        Exit;
 
       Teletype(rstrReady, tsInfo);
     end; //for .. with
@@ -265,8 +300,9 @@ begin
     for i := 0 to Settings.Updates.Count - 1 do
     begin
       updateInfo := Settings.Updates[i];
-      if FileExists(Settings.UpdatePath + updateInfo.UpdateFile) then
-         DeleteFile(Settings.UpdatePath + updateInfo.UpdateFile);
+      InpxFileName := TPath.Combine(Settings.UpdatePath, updateInfo.UpdateFile);
+      if FileExists(InpxFileName) then
+         DeleteFile(InpxFileName);
     end;
 
     SetComment(rstrReady);
@@ -277,8 +313,77 @@ begin
 {$IFDEF USELOGGER}
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
-      if (lastProcessedIndex >= 0) and (lastProcessedIndex < Settings.Updates.Count) then
-        DeleteFile(Settings.WorkPath + Settings.Updates.Items[lastProcessedIndex].UpdateFile);
+      //
+      // InpxFileName - файл, на якому впала обробка; до першої ітерації циклу
+      // він порожній. Раніше тут використовувався лічильник i, невизначений
+      // за межами циклу, та ще й з іншою текою.
+      //
+      if (InpxFileName <> '') and FileExists(InpxFileName) then
+        DeleteFile(InpxFileName);
+    end;
+  end;
+end;
+
+{ TManualUpdateThread }
+
+constructor TManualUpdateThread.Create(const ACollectionID: Integer;
+  const AFileName: string; AFull: Boolean; AGenresType: TGenresType);
+begin
+  inherited Create(ACollectionID);
+  FFileName := AFileName;
+  FFull := AFull;
+  FGenresType := AGenresType;
+  //
+  // Файл вибрав користувач, він може бути з будь-якого джерела: не дозволяємо
+  // його collection.info перезаписати URL і скрипт підключення колекції.
+  //
+  FKeepCollectionProps := True;
+end;
+
+//
+// Import не переживає файл, який не є архівом, або архів без .inp:
+// його finally звільняє неініціалізовані вказівники. Перевіряємо заздалегідь.
+//
+function TManualUpdateThread.IsValidUpdateArchive: Boolean;
+var
+  Zip: TMHLZip;
+begin
+  try
+    Zip := TMHLZip.Create(FFileName, True);
+    try
+      Result := Zip.Find('*.inp');
+    finally
+      FreeAndNil(Zip);
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+procedure TManualUpdateThread.WorkFunction;
+begin
+  if not FileExists(FFileName) then
+  begin
+    Teletype(Format(rstrUpdateFileNotFound, [FFileName]), tsError);
+    Exit;
+  end;
+
+  if not IsValidUpdateArchive then
+  begin
+    Teletype(Format(rstrInvalidUpdateFile, [FFileName]), tsError);
+    Exit;
+  end;
+
+  try
+    Teletype(Format(rstrManualCollectionUpdate, [FDisplayName, FFileName]), tsInfo);
+    if UpdateCollection(FFileName, FCollectionID, FFull, FDisplayName) then
+      Teletype(rstrUpdateComplete, tsInfo);
+    SetComment(rstrReady);
+  except
+    on E: Exception do
+    begin
+      Teletype(rstrUpdateFailed, tsError);
+      Teletype(E.Message, tsError);
     end;
   end;
 end;

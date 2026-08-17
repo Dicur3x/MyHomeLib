@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -94,6 +94,8 @@ type
     procedure SetTemplate(const Value: string);
 
     function GetTestData: TBookRecord;
+  protected
+    procedure DoCreate; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -111,19 +113,20 @@ var
 implementation
 
 uses
-  unit_Errors;
+  unit_Errors,
+  unit_Localization;
 
 {$R *.dfm}
 
 resourcestring
-  rstrFileTemplateCaption = 'Редактирование шаблона: Имя файла';
-  rstrPathTemplateCaption = 'Редактирование шаблона: Путь к файлу';
-  rstrTextTemplateCaption = 'Редактирование шаблона: Текст';
+  rstrFileTemplateCaption = 'Редагування шаблону: Ім''я файлу';
+  rstrPathTemplateCaption = 'Редагування шаблону: Шлях до файлу';
+  rstrTextTemplateCaption = 'Редагування шаблону: Текст';
   rstrSampleTemplate = '[%s [(%n) ]- ]%t';
-  rstrWrongTemplate = 'Шаблон неверен';
-  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
-  rstrCheckBrackets = 'Проверьте соответствие открывающих и закрывающих скобок блоков элементов';
-  rstrWrongTemplateElements = 'Неверные элементы шаблона';
+  rstrWrongTemplate = 'Шаблон невірний';
+  rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
+  rstrCheckBrackets = 'Перевірте відповідність відкриваючих та закриваючих дужок блоків елементів';
+  rstrWrongTemplateElements = 'Невірні елементи шаблону';
 
 const
   DlgCaptions: array [TTemplateType] of string = (rstrFileTemplateCaption, rstrPathTemplateCaption, rstrTextTemplateCaption);
@@ -131,7 +134,6 @@ const
 function TfrmCreateMask.GetTestData: TBookRecord;
 var
   R: TBookRecord;
-  code: Integer;
 begin
   CurrentSelectedAuthor := '';
   if CheckBox2.Checked then
@@ -189,6 +191,12 @@ begin
   inherited Create(AOwner);
   FTemplater := TTemplater.Create;
   Templater := TTemplater.Create;
+end;
+
+procedure TfrmCreateMask.DoCreate;
+begin
+  inherited;
+  Localize(Self);
 end;
 
 destructor TfrmCreateMask.Destroy;

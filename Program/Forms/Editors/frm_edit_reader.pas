@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -40,6 +40,8 @@ type
     function GetPath: string;
     procedure SetExtension(const Value: string);
     procedure SetPath(const Value: string);
+  protected
+    procedure DoCreate; override;
   public
     property Extension: string read GetExtension write SetExtension;
     property Path: string read GetPath write SetPath;
@@ -51,12 +53,19 @@ var
 implementation
 
 uses
-  unit_Helpers;
+  unit_Helpers,
+  unit_Localization;
 
 resourcestring
   rstrMissingFileType = 'Тип файла не указан!';
 
 {$R *.dfm}
+
+procedure TfrmEditReader.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmEditReader.edPathButtonClick(Sender: TObject);
 var

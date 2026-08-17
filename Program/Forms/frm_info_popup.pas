@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -28,6 +28,9 @@ type
     lblText: TLabel;
   private
 
+  protected
+    procedure DoCreate; override;
+
   public
 
   end;
@@ -37,6 +40,15 @@ var
 
 implementation
 
+uses
+  unit_Localization;
+
 {$R *.dfm}
+
+procedure TfrmInfoPopup.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 end.

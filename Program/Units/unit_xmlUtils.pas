@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             13.07.2010
@@ -119,11 +119,10 @@ class function TMSXMLHelper.newDocument: IXMLDOMDocument;
 var
   Document2: IXMLDOMDocument2;
 begin
-  Result := msxmldom.CreateDOMDocument;
+  Result := msxmldom.MSXMLDOMDocumentFactory.CreateDOMDocument;
   Result.async := False;
-  // Imported FB2/FBD documents are untrusted input. Prevent external entity
-  // resolution and DTD expansion (XXE / entity expansion attacks). Older
-  // MSXML implementations may not expose ProhibitDTD, hence the guarded call.
+  // Imported books are untrusted input: never resolve external entities and
+  // reject DTDs where the installed MSXML version exposes that switch.
   Result.resolveExternals := False;
   Result.validateOnParse := False;
   if Supports(Result, IXMLDOMDocument2, Document2) then
@@ -131,7 +130,7 @@ begin
       Document2.setProperty('ProhibitDTD', True);
     except
       on E: Exception do
-        ; // The two properties above remain enforced on older MSXML versions.
+        ;
     end;
 end;
 

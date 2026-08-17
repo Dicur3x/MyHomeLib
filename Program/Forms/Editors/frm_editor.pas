@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -46,6 +46,9 @@ type
     procedure SetText(const Value: string);
     function GetText: string;
 
+  protected
+    procedure DoCreate; override;
+
   public
     property Text: string read GetText write SetText;
   end;
@@ -55,7 +58,16 @@ var
 
 implementation
 
+uses
+  unit_Localization;
+
 {$R *.dfm}
+
+procedure TfrmEditor.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmEditor.btnLikeClick(Sender: TObject);
 var
@@ -74,6 +86,9 @@ begin
   end
   else
     InsText := '';
+
+  // Кнопка з несподіваним Tag не потрапить у жодну гілку — лишаємо курсор на місці
+  OffSet := P;
 
   case (Sender as TButton).Tag of
       50: begin

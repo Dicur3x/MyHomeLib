@@ -47,6 +47,8 @@ type
       function GetLastSize: Integer;
       function GetLastName: string;
       function GetLastIndex: Integer;
+      function GetFileName(const Index: Integer): string;
+      function GetFileSize(const Index: Integer): Integer;
       function GetFileCount: Integer;
 
 
@@ -75,6 +77,8 @@ type
 
       property LastName: string read GetLastName;
       property LastIndex: Integer read GetLastIndex;
+      property FileNames[const Index: Integer]: string read GetFileName;
+      property FileSizes[const Index: Integer]: Integer read GetFileSize;
       property FileCount: Integer read GetFileCount;
       property LastSize: Integer read GetLastSize;
   end;
@@ -290,13 +294,23 @@ var
   Encoding: TEncoding;
   Index: Integer;
   Offset: Integer;
+  Stream: TMemoryStream;
 begin
   Index := FindEntryIndex(AFileName);
   if Index < 0 then
     raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
 
-  FZip.Read(Index, Bytes);
-  FLastID := Index;
+  Stream := TMemoryStream.Create;
+  try
+    CopyEntryToStream(Index, Stream);
+    if Stream.Size > MaxInt then
+      raise ERangeError.CreateFmt('Archive entry "%s" is too large', [AFileName]);
+    SetLength(Bytes, Integer(Stream.Size));
+    if Length(Bytes) > 0 then
+      Stream.ReadBuffer(Bytes[0], Length(Bytes));
+  finally
+    Stream.Free;
+  end;
 
   Offset := 0;
   if Length(Bytes) >= 3 then
@@ -381,6 +395,20 @@ begin
   if (Index < 0) or (Index >= FZip.FileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
   Result := FFileNames[Index];
+end;
+
+function TMHLZip.GetFileName(const Index: Integer): string;
+begin
+  Result := FileNameAt(Index);
+end;
+
+function TMHLZip.GetFileSize(const Index: Integer): Integer;
+begin
+  if (Index < 0) or (Index >= FZip.FileCount) then
+    raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+  if FZip.FileInfos[Index].UncompressedSize > High(Integer) then
+    raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[Index]]);
+  Result := Integer(FZip.FileInfos[Index].UncompressedSize);
 end;
 
 function TMHLZip.GetLastName: string;

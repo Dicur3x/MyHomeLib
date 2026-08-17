@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -53,7 +53,6 @@ type
 
     procedure DoSetProgress2;
     procedure SetProgress2(Current, Total: integer);
-    //procedure SetCancelledOperation;
 
   protected
     procedure WorkFunction; override;
@@ -70,8 +69,7 @@ implementation
 uses
   Windows,
   SysUtils,
-  dm_user,
-  frm_main;
+  dm_user;
 
 resourcestring
 rstrDownloaded = 'Загружены файлы: %u из %u';
@@ -145,13 +143,6 @@ begin
   if Assigned(FOnSetComment2) then
     FOnSetComment2(FCurrentComment, FTotalComment);
 end;
-
-{
-procedure TDownloadBooksThread.SetCancelledOperation;
-begin
-  frmMain.FCancelled := True;
-end;
-}
 
 procedure TDownloadBooksThread.SetComment2(const Current, Total: string);
 begin

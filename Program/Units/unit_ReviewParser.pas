@@ -1,8 +1,8 @@
-(* *****************************************************************************
+﻿(* *****************************************************************************
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           eg (http://forum.home-lib.net)
   * Created             12.02.2010
@@ -22,16 +22,12 @@ interface
 uses
   Classes,
   StrUtils,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL;
+  System.Net.HttpClient;
 
 type
   TReviewParser = class
   strict private
-    FidHTTP: TIdHTTP;
-    FidSocksInfo: TIdSocksInfo;
-    FidSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
+    FHTTPClient: THTTPClient;
 
     function GetPage(const url: string): string;
     function Extract(const page: string; const idxReviewBlockStart: Integer; const before: string; const after: string): string;
@@ -47,25 +43,18 @@ implementation
 
 uses
   SysUtils,
-  unit_Globals;
+  unit_Globals,
+  unit_MHLHttpClient;
 
 constructor TReviewParser.Create;
 begin
   inherited Create;
-
-  FidHTTP := TIdHTTP.Create;
-  FidSocksInfo := TIdSocksInfo.Create;
-  FidSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create;
-
-  SetProxySettingsGlobal(FidHTTP, FidSocksInfo, FidSSLIOHandlerSocketOpenSSL);
+  FHTTPClient := CreateHTTPClientGlobal;
 end;
 
 destructor TReviewParser.Destroy;
 begin
-  // do not close the idHTTP, as it was not created by the ctor
-  FreeAndNil(FidSSLIOHandlerSocketOpenSSL);
-  FreeAndNil(FidSocksInfo);
-  FreeAndNil(FidHTTP);
+  FreeAndNil(FHTTPClient);
   inherited Destroy;
 end;
 
@@ -82,7 +71,7 @@ var
   idxEndAllBookReviews: Integer;
   name: string;
   review: string;
-  BEG_PREFIX, BLOCK_PREFIX, BLOCK_END, END_ALL, ANNOTATION_START, ANNOTATION_END: string;
+  BLOCK_PREFIX, BLOCK_END, END_ALL, ANNOTATION_START, ANNOTATION_END: string;
 
 //  SL: TStringList;
 begin
@@ -102,11 +91,9 @@ begin
     ANNOTATION_START := '<h2>Аннотация</h2>';
     ANNOTATION_END := '<h3>';
 
-    BEG_PREFIX := 'Впечатления';
     BLOCK_PREFIX := '/polka/show/';
     BLOCK_END := '<hr>';
     END_ALL := '/stat/r/';
-    idxReviewBlockStart := Pos(BEG_PREFIX, page);
   end
   else begin
     ANNOTATION_START := '<h2>Аннотация</h2>';
@@ -123,6 +110,9 @@ begin
   Delete(page, 1 , idxReviewBlockStart);
   idxReviewBlockStart := 1;
   idxEndAllBookReviews := Pos(ANNOTATION_END, page);
+
+  // Порівнюється в умові циклу ще до першого присвоєння всередині нього
+  idxReviewBlockEnd := 0;
 
   while ((idxReviewBlockStart <> idxReviewBlockEnd) and (idxReviewBlockStart < idxEndAllBookReviews)) do
   begin
@@ -176,7 +166,7 @@ begin
   try
     outputStream := TMemoryStream.Create;
     try
-      FidHTTP.Get(url, outputStream);
+      FHTTPClient.Get(url, outputStream);
 
 //      outputStream.Position := 0;
 //      outputStream.SaveToFile('e:\temp\test.out');
@@ -186,7 +176,9 @@ begin
       responseList.LoadFromStream(outputStream);
 
       if responseList.Count > 0 then
-        Result := UTF8Decode(responseList.Text);
+        // Сторінка приходить у UTF-8, але завантажується у список як ANSI,
+        // тож повертаємо байти назад і декодуємо їх явно.
+        Result := UTF8ToString(RawByteString(AnsiString(responseList.Text)));
     finally
       outputStream.Free;
     end;

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -73,6 +73,9 @@ type
     FSystemData: ISystemData;
     FCollection: IBookCollection;
 
+  protected
+    procedure DoCreate; override;
+
   public
     procedure SetCollection(const SystemData: ISystemData; const Collection: IBookCollection);
   end;
@@ -88,12 +91,19 @@ uses
   unit_Consts,
   unit_Errors,
   unit_Globals,
-  dm_user;
+  dm_user,
+  unit_Localization;
 
 resourcestring
   rstrChooseDataFolder = 'Выберите папку для сохранения данных';
 
 {$R *.dfm}
+
+procedure TfrmBases.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmBases.SetCollection(const SystemData: ISystemData; const Collection: IBookCollection);
 begin

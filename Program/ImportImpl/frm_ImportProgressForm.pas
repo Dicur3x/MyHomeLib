@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)             Nick Rymanov     nrymanov@gmail.com
   * Created               20.08.2008
@@ -20,7 +20,8 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, unit_WorkerThread, frm_BaseProgressForm, StdCtrls, ComCtrls, unit_Globals;
+  Dialogs, unit_WorkerThread, frm_BaseProgressForm, StdCtrls, ComCtrls, unit_Globals,
+  unit_ProgressBarEx;
 
 type
   TImportProgressForm = class(TProgressFormBase)

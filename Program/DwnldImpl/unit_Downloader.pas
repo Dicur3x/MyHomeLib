@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -14,10 +14,6 @@
   *
   * History
   * 2014-03-23 - Added support for generic online libraries
-  * 2026-03-08 - Fixed nil callback crashes in HTTP event handlers
-  *            - Fixed uninitialized archiver variable in CheckResponce
-  *            - Added logging to Stop method instead of silent exception swallowing
-  *            - Fixed missing Result initialization in CheckResponce
   *
   ****************************************************************************** *)
 
@@ -30,15 +26,9 @@ uses
   Classes,
   SysUtils,
   Dialogs,
-  IdHTTP,
-  IdSocks,
-  IdSSLOpenSSL,
-  IdURI,
-  IdComponent,
-  IdStack,
-  IdStackConsts,
-  IdWinsock2,
-  IdMultipartFormData,
+  System.Net.HttpClient,
+  System.Net.URLClient,
+  System.Net.Mime,
   unit_Globals,
   unit_Interfaces;
 
@@ -60,11 +50,9 @@ type
   TDownloader = class
   private
     URL: string;
-    FidHTTP: TidHttp;
-    FidSocksInfo: TIdSocksInfo;
-    FidSSLIOHandlerSocketOpenSSL: TIdSSLIOHandlerSocketOpenSSL;
+    FHTTPClient: THTTPClient;
 
-    FParams: TIdMultiPartFormDataStream;
+    FParams: TMultipartFormData;
     FResponse: TMemoryStream;
 
     FOnSetProgress: TProgressEvent;
@@ -73,7 +61,6 @@ type
     FNewURL: string;
     FNoProgress: boolean;
     Canceled: boolean;
-    FDownloadSize: Integer;
 
     FStartDate: TDateTime;
     FIgnoreErrors: boolean;
@@ -90,10 +77,8 @@ type
 
     function DoDownload(const Collection: IBookCollection; const BookRecord: TBookRecord): boolean;
 
-    procedure HTTPWorkBegin(ASender: TObject; AWorkMode: TWorkMode; AWorkCountMax: Int64);
-    procedure HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
-    procedure HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: Int64);
-    procedure HTTPRedirect(Sender: TObject; var dest: string; var NumRedirect: Integer; var Handled: boolean; var VMethod: string);
+    procedure HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
+    procedure HTTPRedirect(const Sender: TObject; const ARequest: IHTTPRequest; const AResponse: IHTTPResponse; ARedirections: Integer; var AAllow: Boolean);
 
     procedure ProcessError(const LongMsg, ShortMsg, AFileName: string);
     procedure ShowError;
@@ -121,6 +106,7 @@ uses
   HTTPApp,
   StrUtils,
   DateUtils,
+  System.NetEncoding,
   unit_Settings,
   dm_user,
   unit_Consts,
@@ -128,22 +114,23 @@ uses
   unit_Messages,
   unit_Helpers,
   unit_ImportInpxThread,
-  unit_MHLArchiveHelpers;
+  unit_MHLArchiveHelpers,
+  unit_MHLHttpClient;
 
 resourcestring
-rstrWrongCredentials = 'Неправильный логин/пароль';
-   rstrDownloadBlockedByServer = 'Загрузка файла заблокирована сервером!' + CRLF
-     + 'Ответ сервера можно просмотреть в файле "server_error.html"';
-   rstrBlockedByServer = 'Заблокирован сервером';
-   rstrSpeed = 'Загрузка: %s Kb/s';
-   rstrDownloadError = 'Ошибка закачки';
-   rstrServerNotFound = 'Загрузка не удалась! Сервер не найден.';
-   rstrError = 'Ошибка';
-   rstrTimeout = 'Загрузка не удалась! Превышено время ожидания.';
-   rstrConnectionError = 'Загрузка не удалась! Ошибка подключения.';
+rstrWrongCredentials = 'Неправильний логін/пароль';
+   rstrDownloadBlockedByServer = 'Завантаження файлу заблоковано сервером!' + CRLF
+     + 'Відповідь сервера можна переглянути у файлі "server_error.html"';
+   rstrBlockedByServer = 'Заблоковано сервером';
+   rstrSpeed = 'Завантаження: %s Kb/s';
+   rstrDownloadError = 'Помилка закачування';
+   rstrServerNotFound = 'Завантаження не вдалося! Сервер не знайдено.';
+   rstrError = 'Помилка';
+   rstrTimeout = 'Завантаження не вдалося! Перевищено час очікування.';
+   rstrConnectionError = 'Завантаження не вдалося! Помилка підключення.';
    rstrServerError =
-     'Загрузка не удалась! Сервер сообщает об ошибке "%s".' + CRLF;
-   rstrErrorCode = 'Код ошибки';
+     'Завантаження  не вдалося! Сервер повідомляє про помилку "%s".' + CRLF;
+   rstrErrorCode = 'Код помилки';
 
 const
   CommandList: array [0 .. 5] of string = ('CHECK', 'REDIR', 'PAUSE', 'GET', 'POST', 'ADD');
@@ -154,32 +141,22 @@ constructor TDownloader.Create;
 begin
   inherited Create;
 
-  FidHTTP := TidHttp.Create;
-  FidSocksInfo := TIdSocksInfo.Create;
-  FidSSLIOHandlerSocketOpenSSL := TIdSSLIOHandlerSocketOpenSSL.Create;
-  FidHTTP.OnWork := HTTPWork;
-  FidHTTP.OnWorkBegin := HTTPWorkBegin;
-  FidHTTP.OnWorkEnd := HTTPWorkEnd;
-  FidHTTP.OnRedirect := HTTPRedirect;
-  FidHTTP.HandleRedirects := True;
-
-  SetProxySettingsGlobal(FidHTTP, FidSocksInfo, FidSSLIOHandlerSocketOpenSSL);
+  FHTTPClient := CreateHTTPClientGlobal;
+  FHTTPClient.OnReceiveData := HTTPReceiveData;
+  FHTTPClient.OnRedirect := HTTPRedirect;
 
   FIgnoreErrors := False;
 end;
 
 destructor TDownloader.Destroy;
 begin
-  FreeAndNil(FidSSLIOHandlerSocketOpenSSL);
-  FreeAndNil(FidSocksInfo);
-  FreeAndNil(FidHTTP);
-
+  FreeAndNil(FHTTPClient);
   inherited Destroy;
 end;
 
 function TDownloader.AddParam(const Name: string; const Value: string): boolean;
 begin
-  FParams.AddFormField(Name, Value);
+  FParams.AddField(Name, Value);
   Result := True;
 end;
 
@@ -202,14 +179,14 @@ var
 begin
   Result := False;
   Path := ExtractFileDir(FFile);
-  CreateFolders('', Path);
+  if not CreateFolders('', Path) then
+    Exit;
   FResponse.Position := 0;
 
-  // Only the beginning is needed to recognize an HTML/text error. Loading a
-  // complete FB2/ZIP into TStringList duplicated every download in memory and
-  // decoded binary data as text before it could be saved.
+  // Inspect only a small prefix. Loading a complete ZIP into TStringList both
+  // doubled peak memory and attempted to decode arbitrary binary as text.
   if FResponse.Size > RESPONSE_SNIFF_SIZE then
-    BytesToRead := RESPONSE_SNIFF_SIZE;
+    BytesToRead := RESPONSE_SNIFF_SIZE
   else
     BytesToRead := Integer(FResponse.Size);
   if BytesToRead <= 0 then
@@ -226,33 +203,32 @@ begin
     ProcessError(rstrDownloadBlockedByServer, rstrBlockedByServer, FFile);
     FResponse.Position := 0;
     FResponse.SaveToFile(Settings.SystemFileName[sfServerErrorLog]);
-  end
-  else
-  begin
-    // Keep an interrupted or invalid response away from the final file.
-    // Retaining the real extension allows archive validation before rename.
-    PartFile := ChangeFileExt(FFile, '.part' + ExtractFileExt(FFile));
-    if FileExists(PartFile) then
-      DeleteFile(PartFile);
-    try
-      FResponse.Position := 0;
-      FResponse.SaveToFile(PartFile);
-      Result := IsDownloadedFileValid(PartFile);
-      if Result then
+    Exit;
+  end;
+
+  // Never expose a partial or corrupt response under the final book name.
+  // Retaining the real extension lets archive validation run before rename.
+  PartFile := ChangeFileExt(FFile, '.part' + ExtractFileExt(FFile));
+  if FileExists(PartFile) then
+    SysUtils.DeleteFile(PartFile);
+  try
+    FResponse.Position := 0;
+    FResponse.SaveToFile(PartFile);
+    Result := IsDownloadedFileValid(PartFile);
+    if Result then
+    begin
+      if FileExists(FFile) then
       begin
-        if FileExists(FFile) then
-        begin
-          Result := IsDownloadedFileValid(FFile);
-          if not Result and DeleteFile(FFile) then
-            Result := RenameFile(PartFile, FFile);
-        end
-        else
+        Result := IsDownloadedFileValid(FFile);
+        if not Result and SysUtils.DeleteFile(FFile) then
           Result := RenameFile(PartFile, FFile);
-      end;
-    finally
-      if FileExists(PartFile) then
-        DeleteFile(PartFile);
+      end
+      else
+        Result := RenameFile(PartFile, FFile);
     end;
+  finally
+    if FileExists(PartFile) then
+      SysUtils.DeleteFile(PartFile);
   end;
 end;
 
@@ -311,15 +287,19 @@ begin
   end;
 end;
 
-procedure TDownloader.HTTPRedirect(Sender: TObject; var dest: string; var NumRedirect: Integer; var Handled: boolean; var VMethod: string);
+procedure TDownloader.HTTPRedirect(const Sender: TObject; const ARequest: IHTTPRequest; const AResponse: IHTTPResponse; ARedirections: Integer; var AAllow: Boolean);
+var
+  RedirectURL: string;
 begin
-  if EndsText(FB2ZIP_EXTENSION, dest) then
-    FNewURL := dest
+  RedirectURL := AResponse.HeaderValue['Location'];
+  if EndsText(FB2ZIP_EXTENSION, RedirectURL) then
+    FNewURL := RedirectURL
   else
     FNewURL := '';
+  AAllow := True;
 end;
 
-procedure TDownloader.HTTPWork(ASender: TObject; AWorkMode: TWorkMode; AWorkCount: Int64);
+procedure TDownloader.HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
 var
   ElapsedTime: Cardinal;
   Speed: string;
@@ -329,40 +309,20 @@ begin
 
   if Canceled then
   begin
-    FidHTTP.Disconnect;
+    AAbort := True;
     Exit;
   end;
 
-  if (FDownloadSize <> 0) and Assigned(FOnSetProgress) then
-    FOnSetProgress(AWorkCount * 100 div FDownloadSize, -1);
+  if (AContentLength > 0) and Assigned(FOnSetProgress) then
+    FOnSetProgress(AReadCount * 100 div AContentLength, -1);
 
   ElapsedTime := SecondsBetween(Now, FStartDate);
   if ElapsedTime > 0 then
   begin
-    Speed := FormatFloat('0.00', AWorkCount / 1024 / ElapsedTime);
+    Speed := FormatFloat('0.00', AReadCount / 1024 / ElapsedTime);
     if Assigned(FOnSetComment) then
       FOnSetComment(Format(rstrSpeed, [Speed]), '');
   end;
-end;
-
-procedure TDownloader.HTTPWorkBegin(ASender: TObject; AWorkMode: TWorkMode; AWorkCountMax: Int64);
-begin
-  if FNoProgress then
-    Exit;
-  FDownloadSize := AWorkCountMax;
-  FStartDate := Now;
-  if Assigned(FOnSetProgress) then
-    FOnSetProgress(1, -1);
-end;
-
-procedure TDownloader.HTTPWorkEnd(ASender: TObject; AWorkMode: TWorkMode);
-begin
-  if FNoProgress then
-    Exit;
-  if Assigned(FOnSetProgress) then
-    FOnSetProgress(100, -1);
-  if Assigned(FOnSetComment) then
-    FOnSetComment(rstrReadyMessage, '');
 end;
 
 function TDownloader.DoDownload(const Collection: IBookCollection; const BookRecord: TBookRecord): boolean;
@@ -385,8 +345,6 @@ begin
   try
     ctx := TRttiContext.Create;
     ConstParams := TStringList.Create;
-    FParams := TIdMultiPartFormDataStream.Create;
-
     // Add macro from collection info
     ConstParams.Values['%USER%'] := Collection.GetProperty(PROP_LIBUSER);
     ConstParams.Values['%PASS%'] := Collection.GetProperty(PROP_LIBPASSWORD);
@@ -413,32 +371,39 @@ begin
 
     // Execute scenario
     Commands := ParseCommands(Collection.GetProperty(PROP_CONNECTIONSCRIPT), ConstParams);
-    FResponse := TMemoryStream.Create;
-    for i := 0 to Length(Commands) - 1 do
-    begin
-      if Canceled then
-      begin
-        Result := False;
-        Break;
-      end;
 
-      case Commands[i].Code of
-        0: Result := CheckResponce;
-        1: Result := CheckRedirect;
-        2: Result := Pause(StrToInt(Commands[i].Params[0]));
-        3: Result := Query(qkGet, Commands[i].Params[0]);
-        4: Result := Query(qkPost, Commands[i].Params[0]);
-        5: Result := AddParam(Commands[i].Params[0], Commands[i].Params[1]);
-      end;
+    // Створюємо безпосередньо перед try, який його звільняє
+    FParams := TMultipartFormData.Create;
+    try
+      FResponse := TMemoryStream.Create;
+      try
+        for i := 0 to Length(Commands) - 1 do
+        begin
+          if Canceled then
+            Break;
 
-      if not Result then
-        Break;
+          case Commands[i].Code of
+            0: Result := CheckResponce;
+            1: Result := CheckRedirect;
+            2: Result := Pause(StrToInt(Commands[i].Params[0]));
+            3: Result := Query(qkGet, Commands[i].Params[0]);
+            4: Result := Query(qkPost, Commands[i].Params[0]);
+            5: Result := AddParam(Commands[i].Params[0], Commands[i].Params[1]);
+          end;
+
+          if not Result then
+            Break;
+        end;
+        Result := Result and (not Canceled) and
+          IsDownloadedFileValid(FFile);
+      finally
+        FreeAndNil(FResponse);
+      end;
+    finally
+      FreeAndNil(FParams);
     end;
-    Result := Result and (not Canceled) and IsDownloadedFileValid(FFile);
 
   finally
-    FreeAndNil(FResponse);
-    FreeAndNil(FParams);
     ctx.Free;
     ConstParams.Free;
   end;
@@ -460,7 +425,6 @@ begin
   try
     parameters := TStringList.Create;
     commandStr := TStringList.Create;
-
     // Parse each command in scenario
     commandStr.Text := scenario;
     SetLength(Commands, commandStr.Count);
@@ -589,73 +553,66 @@ begin
 end;
 
 function TDownloader.Query(Kind: TQueryKind; const Uri: string): boolean;
+var
+  Response: IHTTPResponse;
 begin
   Result := False;
+  Response := nil;
 
   URL := Uri;
   // Add result of last operation
   StrReplace('%RESURL%', FNewURL, URL);
 
-  // A scenario can issue multiple HTTP commands. Indy writes at the current
-  // stream position, so an old response must never be left in the buffer.
+  // Connection scenarios may issue several HTTP commands. Each response must
+  // replace the previous one instead of being appended to the same stream.
   FResponse.Size := 0;
   FResponse.Position := 0;
 
   try
+    FStartDate := Now;
     case Kind of
       qkGet:
         begin
           FNoProgress := False;
-          FidHTTP.Get(TIdURI.URLEncode(URL), FResponse);
+          Response := FHTTPClient.Get(TNetEncoding.URL.Encode(URL), FResponse);
         end;
 
       qkPost:
         begin
           FNoProgress := True;
-          FidHTTP.Post(TIdURI.URLEncode(URL), FParams, FResponse);
+          Response := FHTTPClient.Post(TNetEncoding.URL.Encode(URL), FParams, FResponse);
         end;
     end;
     Result := True;
   except
-    on E: EIdSocketError do
+    on E: ENetHTTPClientException do
       if Canceled then
         Result := False
       else if not FIgnoreErrors then
-      begin
-        case E.LastError of
-          WSAHOST_NOT_FOUND:
-            ProcessError(rstrServerNotFound,
-              rstrError + IntToStr(E.LastError), FFile);
-
-          Id_WSAETIMEDOUT:
-            ProcessError(rstrTimeout, rstrError + IntToStr(E.LastError), FFile);
-        else
-          ProcessError(rstrConnectionError,
-            rstrError + IntToStr(E.LastError), FFile);
-        end; // case
-      end;
+        ProcessError(rstrConnectionError, rstrError, FFile);
 
     on E: Exception do
+    begin
       if Canceled then
         Result := False
-      else if (FidHTTP.ResponseCode <> 405) and
-        not((FidHTTP.ResponseCode = 404) and (FNewURL <> '')) then
-        ProcessError(Format(rstrServerError, [E.Message]),
-          rstrErrorCode + IntToStr(FidHTTP.ResponseCode), FFile)
-      else
-        Result := True;
+      else if Assigned(Response) then
+      begin
+        if (Response.StatusCode <> 405) and
+          not((Response.StatusCode = 404) and (FNewURL <> '')) then
+          ProcessError(Format(rstrServerError, [E.Message]),
+            rstrErrorCode + IntToStr(Response.StatusCode), FFile)
+        else
+          Result := True;
+      end
+      else if not FIgnoreErrors then
+        ProcessError(Format(rstrServerError, [E.Message]), rstrError, FFile);
+    end;
   end; // try ... except
 end;
 
 procedure TDownloader.Stop;
 begin
   Canceled := True;
-  try
-    FidHTTP.Disconnect;
-  except
-    on E: Exception do
-      ; // Disconnect errors during forced stop are expected and non-fatal
-  end;
 end;
 
 end.

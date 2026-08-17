@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             15.04.2010
@@ -211,7 +211,7 @@ end;
 
 procedure TMHLLinkLabel.CNCtlColorStatic(var Message: TWMCtlColorStatic);
 begin
-  if StyleServices.ThemesEnabled and Transparent then
+  if StyleServices.Enabled and Transparent then
   begin
     SetBkMode(Message.ChildDC, Windows.TRANSPARENT);
     StyleServices.DrawParentBackground(Handle, Message.ChildDC, nil, False);

@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
@@ -41,6 +41,8 @@ type
     FWorker: TWorker;
 
   protected
+    procedure DoCreate; override;
+
     procedure StartWorker; virtual;
 
     procedure OpenProgress; virtual; abstract;
@@ -66,9 +68,16 @@ var
 implementation
 
 uses
-  unit_mhl_strings;
+  unit_mhl_strings,
+  unit_Localization;
 
 {$R *.dfm}
+
+procedure TProgressFormBase.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 destructor TProgressFormBase.Destroy;
 begin

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- MyHomeLib application icon - middle cut, used for 40 and 32px.
+       Same footprint as the full artwork, four spines packed edge to edge so
+       neighbouring outlines merge into one divider instead of two. -->
+  <defs>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D8E6F2"/>
+      <stop offset="100%" stop-color="#B4C8DC"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F07641"/><stop offset="100%" stop-color="#E8622E"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4A82C8"/><stop offset="100%" stop-color="#3A72B8"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5CB86A"/><stop offset="100%" stop-color="#4AA85A"/>
+    </linearGradient>
+    <linearGradient id="yellow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F0C74E"/><stop offset="100%" stop-color="#E8B93C"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#19375F" stroke-width="9" stroke-linejoin="round">
+    <path d="M108 160 L102 202 L154 202 L148 160 Z" fill="url(#bezel)"/>
+    <rect x="72" y="196" width="112" height="22" rx="11" fill="url(#bezel)"/>
+
+    <rect x="20" y="36" width="216" height="140" rx="14" fill="url(#bezel)"/>
+    <rect x="32" y="48" width="192" height="112" rx="5" fill="#2B2B2B" stroke="none"/>
+
+    <g stroke-width="6">
+      <rect x="40" y="64" width="44" height="96" rx="5" fill="url(#orange)"/>
+      <rect x="84" y="56" width="44" height="104" rx="5" fill="url(#blue)"/>
+      <rect x="128" y="64" width="44" height="96" rx="5" fill="url(#green)"/>
+      <rect x="172" y="58" width="44" height="102" rx="5" fill="url(#yellow)"/>
+    </g>
+  </g>
+</svg>

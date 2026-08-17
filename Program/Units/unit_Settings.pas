@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   *                     Oleksiy Penkov  oleksiy.penkov@gmail.com
@@ -36,6 +36,35 @@ uses
   unit_Globals,
   unit_Lib_Updates;
 
+const
+  //
+  // Типові значення налаштувань. Використовуються і як запасні значення при
+  // читанні ini-файлу, і кнопкою "Скинути" у вікні налаштувань, тому тримаємо
+  // їх в одному місці - інакше свіжа інсталяція та скидання розійдуться.
+  //
+
+  // Папки/Пристрої
+  DEF_DEVICE_DIR = '';
+  DEF_READ_DIR = '';
+  DEF_PROMPT_DEVICE_PATH = True;
+  DEF_EXPORT_FORMAT = 0;                // emFB2
+  DEF_FOLDER_TEMPLATE = '%fc\%s';
+  DEF_FILE_NAME_TEMPLATE = '[%n - ]%t';
+  DEF_REMOVE_SQUARE_BRACKETS = True;
+  DEF_TXT_ENCODING = 0;                 // enUTF8
+
+  // Інтерфейс
+  DEF_TREE_FONT_SIZE = 8;
+  DEF_SHORT_FONT_SIZE = 8;
+  DEF_FONT_COLOR = clBlack;
+  DEF_LOCAL_COLOR = clBlack;
+  DEF_DELETED_COLOR = clGray;
+  DEF_BOOK_COLOR = clWhite;
+  DEF_SERIES_COLOR = clWhite;
+  DEF_AUTHOR_COLOR = clWhite;
+  DEF_SERIES_BOOK_COLOR = clWhite;
+  DEF_BG_COLOR = clWhite;
+
 type
   TMHLSystemFile = (
     sfSystemDB,
@@ -49,6 +78,7 @@ type
     sfColumnsStore,
     sfDownloadsStore,
     sfDownloadErrorLog,
+    sfExportErrorLog,
     sfCollectionsStore,
     sfPresets,
     sfUpdateLog
@@ -57,6 +87,24 @@ type
   TSplitters = array of Integer;
   TTreeModes = array of TTreeMode;
 
+  TMHLPathInfo = record
+    AppPath: string;      // exe directory, WITH trailing path delimiter
+    WorkDir: string;      // work directory, WITHOUT trailing path delimiter
+    IniFileName: string;  // file name only, no path
+    DbsFileName: string;  // file name only, no path
+    UseLocalTemp: Boolean;
+  end;
+
+function ResolveMHLPaths: TMHLPathInfo;
+
+const
+  DEFAULT_LOCALE = 'uk';
+  // The base locale's own name, for the language menu. A plain constant and
+  // NOT a resourcestring: a language is always written in its own language, so
+  // this must not change when the UI language does.
+  BASE_LOCALE_NAME = 'Українська';
+
+type
   TMHLSettings = class
   private
     //
@@ -90,7 +138,7 @@ type
     // INTERFACE_SECTION
     FTreeFontSize: Integer;
     FShortFontSize: Integer;
-    FAppLanguage: TAppLanguage;
+    FLocale: string;
     FActivePage: Integer;
     FSplitters: TSplitters;
     FTreeModes: TTreeModes;
@@ -212,6 +260,8 @@ type
     function GetSettingsFileName: string;
 
     function GetSystemFileName(fileType: TMHLSystemFile): string;
+    function LocalisedSystemFile(const BaseName: string): string;
+    function LocalisedHelpIndex: string;
 
     function GetDataPath: string;
     function MHLGetTempPath: string;
@@ -275,6 +325,9 @@ type
     //
     property SystemFileName[fileType: TMHLSystemFile]: string read GetSystemFileName;
 
+    // Полный путь к ini-файлу настроек (myhomelib2.ini или <user>.ini).
+    property SettingsFileName: string read GetSettingsFileName;
+
     //
     // Собственно настройки программы
     //
@@ -309,7 +362,7 @@ type
     property ShowBookAnnotation: Boolean read FShowBookAnnotation write FShowBookAnnotation;
     property Fb2InfoPriority: Boolean read FFb2InfoPriority write FFb2InfoPriority;
 
-    property AppLanguage: TAppLanguage read FAppLanguage write FAppLanguage;
+    property Locale: string read FLocale write FLocale;
     property HideDeletedBooks: Boolean read FDoNotShowDeleted write FDoNotShowDeleted;
     property ShowLocalOnly: Boolean read FShowLocalOnly write FShowLocalOnly;
     property ShowSubGenreBooks: Boolean read FShowSubGenreBooks write FShowSubGenreBooks;
@@ -451,41 +504,35 @@ const
 
 { TMHLSettings }
 
-constructor TMHLSettings.Create;
+function ResolveMHLPaths: TMHLPathInfo;
 const
   STR_USELOCALDATA = 'uselocaldata';
   STR_USELOCALTEMP = 'uselocaltemp';
   STR_USERDBS = 'user';
-
 var
   GlobalAppDataDir: string;
-
-  UseLocalData, UseLocalTemp, UserDatabase: Boolean;
+  UseLocalData, UserDatabase: Boolean;
   I: Integer;
-
   DBFileName: string;
 begin
-  inherited Create;
-
-  FAppPath := ExtractFilePath(Application.ExeName);
+  Result.AppPath := ExtractFilePath(Application.ExeName);
   GlobalAppDataDir := GetSpecialPath(CSIDL_APPDATA) + APPDATA_DIR_NAME;
 
-  // определяем рабочую и временную папку в зависимости от параметров
-  // командной строки или ключевых файлов
-  FDbsFileName := SYSTEM_DATABASE_FILENAME;
-  FIniFileName := SETTINGS_FILE_NAME;
+  Result.DbsFileName := SYSTEM_DATABASE_FILENAME;
+  Result.IniFileName := SETTINGS_FILE_NAME;
+  Result.UseLocalTemp := False;
 
   UseLocalData := False;
-  UseLocalTemp := False;
   UserDatabase := False;
+  DBFileName := '';
 
   for I := 1 to ParamCount do
   begin
     if not UseLocalData then
       UseLocalData := (LowerCase(ParamStr(I)) = STR_USELOCALDATA);
 
-    if not UseLocalTemp then
-      UseLocalTemp := (LowerCase(ParamStr(I)) = STR_USELOCALTEMP);
+    if not Result.UseLocalTemp then
+      Result.UseLocalTemp := (LowerCase(ParamStr(I)) = STR_USELOCALTEMP);
 
     if (LowerCase(ParamStr(I)) = STR_USERDBS) and (ParamStr(I + 1) <> '') then
     begin
@@ -494,35 +541,46 @@ begin
     end;
   end;
 
-  UseLocalData := UseLocalData or FileExists(FAppPath + STR_USELOCALDATA) or not DirectoryExists(GlobalAppDataDir);
-  UseLocalTemp := UseLocalTemp or FileExists(FAppPath + STR_USELOCALTEMP);
+  UseLocalData := UseLocalData or FileExists(Result.AppPath + STR_USELOCALDATA)
+    or not DirectoryExists(GlobalAppDataDir);
+  Result.UseLocalTemp := Result.UseLocalTemp
+    or FileExists(Result.AppPath + STR_USELOCALTEMP);
 
-  //
-  // Устанавливаем рабочую папку и папку с данными
-  //
-  FWorkDir := IfThen(UseLocalData, ExcludeTrailingPathDelimiter(FAppPath), GlobalAppDataDir);
+  Result.WorkDir := IfThen(UseLocalData,
+    ExcludeTrailingPathDelimiter(Result.AppPath), GlobalAppDataDir);
+
+  if UserDatabase then
+  begin
+    Result.DbsFileName := DBFileName + '.dbs';
+    Result.IniFileName := DBFileName + '.ini';
+  end;
+end;
+
+constructor TMHLSettings.Create;
+var
+  Paths: TMHLPathInfo;
+begin
+  inherited Create;
+
+  Paths := ResolveMHLPaths;
+
+  FAppPath := Paths.AppPath;
+  FWorkDir := Paths.WorkDir;
+  FDbsFileName := Paths.DbsFileName;
+  FIniFileName := Paths.IniFileName;
   FDataDir := WorkPath + DATA_DIR_NAME;
 
-  if UserDatabase then // пользовательский файл БД и настроек
+  if Paths.IniFileName <> SETTINGS_FILE_NAME then
   begin
-    FDbsFileName := DBFileName + '.dbs';
-    FIniFileName := DBFileName + '.ini';
+    // пользовательский файл настроек: если такого файла еще нет, копируем стандартный
     if FileExists(WorkPath + SETTINGS_FILE_NAME) and not FileExists(WorkPath + FIniFileName) then
-    begin
-      // если такого файла еще нет, копируем стандартный
       unit_globals.CopyFile(WorkPath + SETTINGS_FILE_NAME, WorkPath + FIniFileName);
-      // может лучше использовать Windows.CopyFile(PChar(WorkPath + SETTINGS_FILE_NAME), PChar(WorkPath + FIniFileName), False);
-    end;
   end;
 
-  //
-  // устанавливаем временную папку
-  //
-  if UseLocalTemp then
+  if Paths.UseLocalTemp then
     FTempDir := FAppPath + TEMP_DIR_NAME
   else
     FTempDir := c_GetTempPath + TEMP_FOLDER_NAME;
-
 
   // -----------------------------------------------------
   FReaders := TReaders.Create;
@@ -655,8 +713,8 @@ begin
     //
     // PATH_SECTION
     //
-    DeviceDir := iniFile.ReadString(PATH_SECTION, 'Device', '');
-    ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', '');
+    DeviceDir := iniFile.ReadString(PATH_SECTION, 'Device', DEF_DEVICE_DIR);
+    ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
 
     //
@@ -665,12 +723,14 @@ begin
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
     FCheckExternalLibUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', True);
-    FPromptDevicePath := iniFile.ReadBool(SYSTEM_SECTION, 'PromptDevicePath', True);
-    FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', '%f\%s');
-    FFileNameTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FileNameTemplate', '[%n - ]%t');
-    FRemoveSquareBrackets := iniFile.ReadBool(SYSTEM_SECTION, 'RemoveSquareBrackets', True);
+    FPromptDevicePath := iniFile.ReadBool(SYSTEM_SECTION, 'PromptDevicePath', DEF_PROMPT_DEVICE_PATH);
+    // %fc (обраний автор), а не %f (перший автор книги) - інакше книги
+    // у співавторстві розкладаються по чужих папках (#59)
+    FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
+    FFileNameTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FileNameTemplate', DEF_FILE_NAME_TEMPLATE);
+    FRemoveSquareBrackets := iniFile.ReadBool(SYSTEM_SECTION, 'RemoveSquareBrackets', DEF_REMOVE_SQUARE_BRACKETS);
 
-    case iniFile.ReadInteger(SYSTEM_SECTION, 'ExpFormat', 0) of
+    case iniFile.ReadInteger(SYSTEM_SECTION, 'ExpFormat', DEF_EXPORT_FORMAT) of
       0: FExportMode := emFB2;
       1: FExportMode := emFB2Zip;
       2: FExportMode := emLrf;
@@ -680,7 +740,7 @@ begin
       6: FExportMode := emMobi;
     end;
 
-    case iniFile.ReadInteger(SYSTEM_SECTION, 'TXTEncoding', 0) of
+    case iniFile.ReadInteger(SYSTEM_SECTION, 'TXTEncoding', DEF_TXT_ENCODING) of
       0: FTXTEncoding := enUTF8;
       1: FTXTEncoding := en1251;
       2: FTXTEncoding := enUnicode;
@@ -689,8 +749,8 @@ begin
     //
     // INTERFACE_SECTION
     //
-    FTreeFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'FontSize', 8);
-    FShortFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'ShortFontSize', 8);
+    FTreeFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'FontSize', DEF_TREE_FONT_SIZE);
+    FShortFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'ShortFontSize', DEF_SHORT_FONT_SIZE);
     FActivePage := iniFile.ReadInteger(INTERFACE_SECTION, 'ActivePage', 0);
 
     FFormHeight := iniFile.ReadInteger(INTERFACE_SECTION, 'FormHeight', 850);
@@ -705,10 +765,13 @@ begin
     FOtherSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'OtherSR', False);
     FEditToolBarVisible := iniFile.ReadBool(INTERFACE_SECTION, 'ShowEditToolBar', False);
 
-    if iniFile.ReadInteger(INTERFACE_SECTION, 'Lang', 0) = 0 then
-      FAppLanguage := alEng
-    else
-      FAppLanguage := alRus;
+    // The legacy integer 'Lang' key is deliberately ignored, not migrated:
+    // it was written but never read, so it encodes no real user preference.
+    // Deliberately NOT detected from the OS UI language. An existing install
+    // must never change language because of an update; the user picks it.
+    FLocale := LowerCase(Trim(iniFile.ReadString(INTERFACE_SECTION, 'Locale', '')));
+    if FLocale = '' then
+      FLocale := DEFAULT_LOCALE;
 
     LoadSplitters(iniFile);
 
@@ -745,15 +808,15 @@ begin
     //
     // COLORS_SECTION
     //
-    FBookColor := iniFile.ReadInteger(COLORS_SECTION, 'Book', clWhite);
-    FSeriesColor := iniFile.ReadInteger(COLORS_SECTION, 'Series', clWhite);
-    FAuthorColor := iniFile.ReadInteger(COLORS_SECTION, 'Author', clWhite);
-    FSeriesBookColor := iniFile.ReadInteger(COLORS_SECTION, 'SeriesBook', clWhite);
-    FBGColor := iniFile.ReadInteger(COLORS_SECTION, 'ASG Tree', clWhite);
-    FFontColor := iniFile.ReadInteger(COLORS_SECTION, 'Font', clBlack);
+    FBookColor := iniFile.ReadInteger(COLORS_SECTION, 'Book', DEF_BOOK_COLOR);
+    FSeriesColor := iniFile.ReadInteger(COLORS_SECTION, 'Series', DEF_SERIES_COLOR);
+    FAuthorColor := iniFile.ReadInteger(COLORS_SECTION, 'Author', DEF_AUTHOR_COLOR);
+    FSeriesBookColor := iniFile.ReadInteger(COLORS_SECTION, 'SeriesBook', DEF_SERIES_BOOK_COLOR);
+    FBGColor := iniFile.ReadInteger(COLORS_SECTION, 'ASG Tree', DEF_BG_COLOR);
+    FFontColor := iniFile.ReadInteger(COLORS_SECTION, 'Font', DEF_FONT_COLOR);
 
-    FLocalColor := iniFile.ReadInteger(COLORS_SECTION, 'Downloaded', clBlack);
-    FDeletedColor := iniFile.ReadInteger(COLORS_SECTION, 'Deleted', clGray);
+    FLocalColor := iniFile.ReadInteger(COLORS_SECTION, 'Downloaded', DEF_LOCAL_COLOR);
+    FDeletedColor := iniFile.ReadInteger(COLORS_SECTION, 'Deleted', DEF_DELETED_COLOR);
 
     //
     // SEARCH_SECTION
@@ -865,7 +928,7 @@ begin
     //
     iniFile.WriteInteger(INTERFACE_SECTION, 'FontSize', FTreeFontSize);
     iniFile.WriteInteger(INTERFACE_SECTION, 'ShortFontSize', FShortFontSize);
-    iniFile.WriteInteger(INTERFACE_SECTION, 'Lang', Ord(FAppLanguage));
+    iniFile.WriteString(INTERFACE_SECTION, 'Locale', FLocale);
     iniFile.WriteInteger(INTERFACE_SECTION, 'ActivePage', FActivePage);
 
     iniFile.WriteInteger(INTERFACE_SECTION, 'WindowState', WindowState);
@@ -1304,20 +1367,65 @@ begin
   FDeviceDir := SafeGetDirName(Value);
 end;
 
+// Prefers a locale-specific copy of a system file, e.g. genres_fb2_bg.glst
+// over genres_fb2.glst. Purely additive: with no locale copy on disk the
+// result is byte-identical to what this replaced, which is why shipping no
+// list for a locale is a supported state rather than a gap.
+function TMHLSettings.LocalisedSystemFile(const BaseName: string): string;
+var
+  Candidate: string;
+begin
+  Result := AppPath + BaseName;
+
+  if FLocale = '' then
+    Exit;
+
+  Candidate := AppPath
+    + ChangeFileExt(BaseName, '')
+    + '_' + FLocale
+    + ExtractFileExt(BaseName);
+
+  if FileExists(Candidate) then
+    Result := Candidate;
+end;
+
+// Help\<locale>\index.html when a translated tree is installed, otherwise the
+// Ukrainian Help\index.html. Callers derive the whole help directory from this
+// one path, so redirecting it moves every topic at once.
+//
+// Keyed on the index page existing rather than on the directory: a stray empty
+// Help\en\ would otherwise send every topic somewhere with nothing in it.
+function TMHLSettings.LocalisedHelpIndex: string;
+var
+  Candidate: string;
+begin
+  Result := AppPath + APP_HELP_FILENAME;
+
+  if FLocale = '' then
+    Exit;
+
+  Candidate := AppPath + APP_HELP_DIR_NAME + PathDelim + FLocale + PathDelim
+    + APP_HELP_INDEX;
+
+  if FileExists(Candidate) then
+    Result := Candidate;
+end;
+
 function TMHLSettings.GetSystemFileName(fileType: TMHLSystemFile): string;
 begin
   case fileType of
     sfSystemDB: Result := DataPath + FDbsFileName;
-    sfGenresFB2: Result := AppPath + GENRES_FB2_FILENAME;
-    sfGenresNonFB2: Result := AppPath + GENRES_NONFB2_FILENAME;
+    sfGenresFB2: Result := LocalisedSystemFile(GENRES_FB2_FILENAME);
+    sfGenresNonFB2: Result := LocalisedSystemFile(GENRES_NONFB2_FILENAME);
     sfServerErrorLog: Result := WorkPath + SERVER_ERRORLOG_FILENAME;
     // sfImportErrorLog: Result := WorkPath + IMPORT_ERRORLOG_FILENAME;         // UNUSED
-    sfAppHelp: Result := AppPath + APP_HELP_FILENAME;
+    sfAppHelp: Result := LocalisedHelpIndex;
     sfAppVerInfo: Result := WorkPath + PROGRAM_VERINFO_FILENAME;
     // sfCollectionVerInfo: Result := TempPath + COLLECTION_VERINFO_FILENAME;   // UNUSED
     sfColumnsStore: Result := WorkPath + COLUMNS_STORE_FILENAME;
     sfDownloadsStore: Result := WorkPath + DOWNLOADS_STORE_FILENAME;
     sfDownloadErrorLog: Result := WorkPath + DOWNLOAD_ERRORLOG_FILENAME;
+    sfExportErrorLog: Result := WorkPath + EXPORT_ERRORLOG_FILENAME;
     sfCollectionsStore: Result := WorkPath + COLLECTIONS_FILENAME;
     sfPresets: Result := WorkPath + PRESETS_FILENAME;
     sfUpdateLog: Result := WorkPath + UPDATE_LOGFILE;

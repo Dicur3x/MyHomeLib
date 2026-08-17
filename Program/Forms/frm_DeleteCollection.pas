@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors             Nick Rymanov     nrymanov@gmail.com
   * Created             08.11.2010
@@ -51,6 +51,8 @@ type
     btnCancel: TButton;
   private
     { Private declarations }
+  protected
+    procedure DoCreate; override;
   public
     { Public declarations }
   end;
@@ -62,7 +64,16 @@ function AskDeleteCollectionAction: TDeleteCollectionAction;
 
 implementation
 
+uses
+  unit_Localization;
+
 {$R *.dfm}
+
+procedure TdlgDeleteCollection.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 resourcestring
 rstrDlgCaption = 'Удаление коллекции';
@@ -82,7 +93,7 @@ var
 begin
   Result := dcaCancel;
 
-  if (Win32MajorVersion >= 6) and UseLatestCommonDialogs and ThemeServices.ThemesEnabled then
+  if (Win32MajorVersion >= 6) and UseLatestCommonDialogs and StyleServices.Enabled then
   begin
     vistaDlg := TTaskDialog.Create(Application);
     try

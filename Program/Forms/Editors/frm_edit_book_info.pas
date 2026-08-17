@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
@@ -88,6 +88,9 @@ type
     function SaveData: Boolean;
     procedure DoNextBook(const MoveForward: Boolean);
 
+  protected
+    procedure DoCreate; override;
+
   public
     property Collection: IBookCollection read FCollection write FCollection;
 
@@ -109,13 +112,20 @@ uses
   frm_edit_author,
   unit_TreeUtils,
   VirtualTrees,
-  unit_Consts;
+  unit_Consts,
+  unit_Localization;
 
 resourcestring
    rstrProvideAtLeastOneAuthor = 'Укажите минимум одного автора!';
    rstrProvideBookTitle = 'Укажите название книги!';
 
 {$R *.dfm}
+
+procedure TfrmEditBookInfo.DoCreate;
+begin
+  inherited;
+  Localize(Self);
+end;
 
 procedure TfrmEditBookInfo.FormShow(Sender: TObject);
 var

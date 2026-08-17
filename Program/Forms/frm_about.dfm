@@ -2,8 +2,8 @@ object frmAbout: TfrmAbout
   Left = 0
   Top = 0
   BorderStyle = bsDialog
-  Caption = #1054' '#1087#1088#1086#1075#1088#1072#1084#1084#1077
-  ClientHeight = 336
+  Caption = #1055#1088#1086' '#1087#1088#1086#1075#1088#1072#1084#1091
+  ClientHeight = 295
   ClientWidth = 255
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -20,10 +20,9 @@ object frmAbout: TfrmAbout
     Left = 3
     Top = 3
     Width = 249
-    Height = 330
+    Height = 289
     Align = alClient
     TabOrder = 0
-    ExplicitHeight = 340
     object versionInfoLabel: TLabel
       AlignWithMargins = True
       Left = 3
@@ -32,8 +31,8 @@ object frmAbout: TfrmAbout
       Height = 13
       Align = alTop
       Alignment = taCenter
-      Caption = #1042#1077#1088#1089#1080#1103':'
-      ExplicitWidth = 39
+      Caption = #1042#1077#1088#1089#1110#1103':'
+      ExplicitWidth = 35
     end
     object RzLabel1: TLabel
       AlignWithMargins = True
@@ -60,7 +59,7 @@ object frmAbout: TfrmAbout
       Height = 13
       Align = alTop
       Alignment = taCenter
-      Caption = '(c) 2008-2024 Oleksiy Penkov'
+      Caption = '(c) 2008-2026 Oleksiy Penkov'
       ExplicitWidth = 143
     end
     object RzLabel3: TLabel
@@ -71,14 +70,31 @@ object frmAbout: TfrmAbout
       Height = 13
       Align = alTop
       Alignment = taCenter
-      Caption = #1055#1088#1086#1075#1088#1072#1084#1084#1080#1088#1086#1074#1072#1085#1080#1077':'
+      Caption = #1055#1088#1086#1075#1088#1072#1084#1091#1074#1072#1085#1085#1103':'
       Font.Charset = DEFAULT_CHARSET
       Font.Color = clWindowText
       Font.Height = -11
       Font.Name = 'Tahoma'
       Font.Style = [fsBold]
       ParentFont = False
-      ExplicitWidth = 115
+      ExplicitWidth = 95
+    end
+    object RzLabel4: TLabel
+      AlignWithMargins = True
+      Left = 3
+      Top = 178
+      Width = 243
+      Height = 13
+      Align = alTop
+      Alignment = taCenter
+      Caption = #1058#1077#1089#1090#1091#1074#1072#1085#1085#1103':'
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Tahoma'
+      Font.Style = [fsBold]
+      ParentFont = False
+      ExplicitWidth = 72
     end
     object RzLabel6: TLabel
       AlignWithMargins = True
@@ -91,34 +107,6 @@ object frmAbout: TfrmAbout
       Caption = 'eg, Evgeniy_V, albert'#13' AlbanSpy, kaznelson, Olega'
       ExplicitWidth = 137
     end
-    object RzLabel7: TLabel
-      AlignWithMargins = True
-      Left = 3
-      Top = 140
-      Width = 243
-      Height = 13
-      Align = alTop
-      Alignment = taCenter
-      Caption = #1048#1082#1086#1085#1082#1080':'
-      Font.Charset = DEFAULT_CHARSET
-      Font.Color = clWindowText
-      Font.Height = -11
-      Font.Name = 'Tahoma'
-      Font.Style = [fsBold]
-      ParentFont = False
-      ExplicitWidth = 45
-    end
-    object RzLabel8: TLabel
-      AlignWithMargins = True
-      Left = 3
-      Top = 159
-      Width = 243
-      Height = 13
-      Align = alTop
-      Alignment = taCenter
-      Caption = #1040#1083#1077#1082#1089#1077#1081' '#1053#1077#1093#1072#1081
-      ExplicitWidth = 76
-    end
     object Label1: TLabel
       AlignWithMargins = True
       Left = 3
@@ -127,49 +115,8 @@ object frmAbout: TfrmAbout
       Height = 39
       Align = alTop
       Alignment = taCenter
-      Caption = #1040#1083#1077#1082#1089#1077#1081' '#1055#1077#1085#1100#1082#1086#1074#13#1053#1080#1082#1086#1083#1072#1081' '#1056#1099#1084#1072#1085#1086#1074#13#10'eg'
+      Caption = #1054#1083#1077#1082#1089#1110#1081' '#1055#1077#1085#1100#1082#1086#1074#13#1053#1080#1082#1086#1083#1072#1081' '#1056#1099#1084#1072#1085#1086#1074#13#10'eg'
       ExplicitWidth = 90
-    end
-    object RzLabel4: TLabel
-      AlignWithMargins = True
-      Left = 3
-      Top = 178
-      Width = 243
-      Height = 13
-      Align = alTop
-      Alignment = taCenter
-      Caption = #1058#1077#1089#1090#1080#1088#1086#1074#1072#1085#1080#1077':'
-      Font.Charset = DEFAULT_CHARSET
-      Font.Color = clWindowText
-      Font.Height = -11
-      Font.Name = 'Tahoma'
-      Font.Style = [fsBold]
-      ParentFont = False
-      ExplicitWidth = 84
-    end
-    object Label2: TLabel
-      AlignWithMargins = True
-      Left = 67
-      Top = 255
-      Width = 120
-      Height = 13
-      Alignment = taCenter
-      Caption = #1055#1077#1088#1077#1074#1086#1076' '#1085#1072' '#1088#1091#1089#1089#1082#1080#1081':'
-      Font.Charset = DEFAULT_CHARSET
-      Font.Color = clWindowText
-      Font.Height = -11
-      Font.Name = 'Tahoma'
-      Font.Style = [fsBold]
-      ParentFont = False
-    end
-    object Label3: TLabel
-      AlignWithMargins = True
-      Left = 53
-      Top = 274
-      Width = 147
-      Height = 13
-      Alignment = taCenter
-      Caption = #1044#1084#1080#1090#1088#1080#1081' '#1043#1091#1089#1080#1082#1086#1074' aka Dicur3x'
     end
     object RzURLLabel: TMHLLinkLabel
       Left = 13
@@ -182,11 +129,11 @@ object frmAbout: TfrmAbout
     end
     object RzBitBtn1: TButton
       Left = 91
-      Top = 293
+      Top = 258
       Width = 75
       Height = 25
       Cancel = True
-      Caption = #1047#1072#1082#1088#1099#1090#1100
+      Caption = #1047#1072#1082#1088#1080#1090#1080
       Default = True
       ModalResult = 1
       TabOrder = 0

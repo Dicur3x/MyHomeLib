@@ -2,7 +2,7 @@
   *
   * MyHomeLib
   *
-  * Copyright (C) 2008-2023 Oleksiy Penkov (aka Koreec)
+  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   *                     Oleksiy Penkov  oleksiy.penkov@gmail.com
@@ -143,6 +143,8 @@ begin
   end;
 end;
 procedure TImportFBDThread.WorkFunction;
+var
+  BulkOperationActive: Boolean;
 begin
   // [BUGFIX] Removed `FFiles := TStringList.Create` — FFiles is created and
   // owned by the base class constructor (TImportFB2ThreadBase.Create).
@@ -159,14 +161,24 @@ begin
     Exit;
   end;
 
+  BulkOperationActive := True;
   FCollection.BeginBulkOperation;
   try
     ProcessFileList;
+    if Canceled then
+    begin
+      FCollection.EndBulkOperation(False);
+      BulkOperationActive := False;
+      RollbackFileOperations;
+      Exit;
+    end;
     FCollection.EndBulkOperation(True);
+    BulkOperationActive := False;
     CommitFileOperations;
   except
     try
-      FCollection.EndBulkOperation(False);
+      if BulkOperationActive then
+        FCollection.EndBulkOperation(False);
     finally
       RollbackFileOperations;
     end;
