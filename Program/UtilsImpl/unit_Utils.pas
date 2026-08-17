@@ -56,8 +56,8 @@ uses
   dm_user;
 
 resourcestring
-  rstrUpdateCollections = 'Оновлення колекцій';
-  rstrUpdateFromFile = 'Оновлення колекції з файлу';
+  rstrUpdateCollections = 'Обновление коллекций';
+  rstrUpdateFromFile = 'Обновление коллекции из файла';
 
 procedure SyncOnLineFiles(const CollectionID: Integer);
 var
@@ -137,8 +137,8 @@ begin
   CollectionInfo := DMUser.GetSystemDBConnection.GetCollectionInfo(CollectionID);
 
   //
-  // Той самий розподіл, що й у майстрі створення колекції: локальна не-FB2
-  // колекція (CT_EXTERNAL_LOCAL_NONFB) все одно користується жанрами fb2.
+  // То же распределение, что и у мастера создания коллекции: локальная не-FB2
+  // коллекция (CT_EXTERNAL_LOCAL_NONFB) всё равно использует жанры fb2.
   //
   case CollectionInfo.CollectionType of
     CT_PRIVATE_NONFB, CT_EXTERNAL_ONLINE_NONFB:

@@ -1,8 +1,9 @@
 # Language catalog tooling
 
-Ukrainian is the source language and is compiled into the exe as the
-resourcestrings and DFM literals themselves. English ships as an embedded
-catalog. Any other language is a community catalog and must be signed.
+Russian is the source language and is compiled into the exe as the
+resourcestrings and DFM literals themselves. Ukrainian, English and Bulgarian
+ship as embedded catalogs. Any other language is a community catalog and must
+be signed.
 
 ## Where the catalogs live
 
@@ -18,18 +19,18 @@ Git does not descend into an ignored directory, so the nested clone is
 invisible to this repository: no submodule, no `.gitmodules`, nothing to keep
 in sync. The tooling all resolves `Program/Lang` and needs no configuration.
 
-Without it the build still succeeds and produces a **Ukrainian-only** exe —
+Without it the build still succeeds and produces a **Russian-only** exe —
 `embed.js` reports `no catalogs` and links nothing. That is by design, so a
 contributor's first build never fails, but it does mean a build without the
 clone silently ships one language. Check `embed.js`'s line in the build output
-if English is missing from a build you expected it in.
+if a translated language is missing from a build you expected it in.
 
 Two consequences worth knowing before they bite:
 
 - **`git clean -xdf` in this repository deletes the entire clone**, unpushed
   commits included. Ignored files are exactly what that command removes.
 - **A git worktree will not have it.** Ignored files are not copied into a
-  worktree, so a worktree build is Ukrainian-only until you clone there too.
+  worktree, so a worktree build is Russian-only until you clone there too.
 
 ## Regenerating the catalogs
 
@@ -39,9 +40,9 @@ node tools/lang/extract.js
 node tools/lang/check_lang.js
 ```
 
-`extract.js` only ever emits the locales in its `LOCALES` list. Russian is not
-in it, by decision — see
-`docs/superpowers/specs/2026-08-11-signed-lang-catalogs-design.md`.
+`extract.js` only ever emits the locales in its `LOCALES` list: Russian,
+Ukrainian, English and Bulgarian. The Russian catalog is an identity catalog
+for completeness; the executable can always use the source strings directly.
 
 Catalog changes are commits in the `mhl-language` repository, not this one.
 Push them there — `git status` here will never remind you, because it cannot
@@ -51,10 +52,10 @@ see them.
 
 | Locale | How it travels | Verified |
 | --- | --- | --- |
-| `uk`, `en` | RCDATA resources in the exe, linked by `Program\embed_lang.cmd` before every build | Not needed — nothing outside the binary to trust |
+| `ru`, `uk`, `en`, `bg` | RCDATA resources in the exe, linked by `Program\embed_lang.cmd` before every build | Not needed — nothing outside the binary to trust |
 | anything else | `Lang\<code>.json` + `Lang\<code>.json.sig` next to the exe | ECDSA P-256 against the key in `unit_LangSignature.pas` |
 
-Embedded always wins. A `Lang\en.json` is ignored whether or not it is signed,
+Embedded always wins. A catalog for a shipped locale is ignored whether or not it is signed,
 so there is no file a user can place that alters a language we ship. A
 catalog's locale is what it **declares**, not what it is named, so renaming a
 signed catalog into another slot does not work either.

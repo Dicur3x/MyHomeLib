@@ -100,8 +100,8 @@ type
   end;
 
 //
-// Повний шлях до зовнішнього конвертера, потрібного для режиму Mode.
-// Повертає '', якщо режим обробляється власними засобами (fb2/fb2.zip/txt).
+// Полный путь к внешнему конвертеру, необходимому для режима Mode.
+// Возвращает '', если режим обрабатывается собственными средствами (fb2/fb2.zip/txt).
 //
 function GetConverterPath(const AppPath: string; Mode: TExportMode): string;
 
@@ -120,14 +120,15 @@ uses
   unit_WriteFb2Info;
 
 resourcestring
-  rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
-  rstrArchiveNotFound = 'Архів' + CR + 'не знайдено!';
+  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+  rstrArchiveNotFound = 'Архив' + CR + 'не найден!';
   rstrFileNotFound = 'File "%s" not found';
-  rstrExportFileFailed = 'Не вдалось експортувати файл "%s".' + CR + CR + 'Обробляти файли, що залишилися?';
-  rstrFilesProcessed = 'Записано файли: %u з %u';
-  rstrCompleted = 'Завершення операції...';
-  rstrRememberChoise = 'Запам''ятати вибір?';
-  rstrExportErrors = 'Під час експорту виникли помилки: %d з %d файлів не вдалось експортувати.' + CR + 'Деталі у файлі: %s';
+  rstrExportFileFailed = 'Невозможно экспортировать файл «%s»' + CR + CR + 'Обрабатывать оставшиеся файлы?';
+  rstrFilesProcessed = 'Записаны файлы: %u из %u';
+  rstrCompleted = 'Завершение операции...';
+  rstrRememberChoise = 'Запомнить выбор?';
+  rstrExportErrors = 'Во время экспорта возникли ошибки: не удалось экспортировать файлов — %d из %d.' + CR +
+    'Подробности записаны в файл: %s';
 
 const
   MaxPathLength = 240;
@@ -417,7 +418,7 @@ begin
       FLastError := Format('Converter "%s" exited OK but produced no output: %s',
         [ConverterExe, OutputPath]);
 
-      // fb2pdf.cmd - обгортка над Java; без встановленої JRE вона одразу виходить з кодом 1
+      // fb2pdf.cmd - оболочка над Java; без установленной JRE она сразу выходит с кодом 1
     end;
     if (not Result) and (FExportMode = emPDF) then
       FLastError := FLastError + ' (fb2pdf requires an installed Java runtime)';
@@ -426,7 +427,7 @@ begin
       FLastError := Format('CallExternalConverter exception: %s', [E.Message]);
   end;
 
-  // Проміжний файл потрібен лише конвертеру - не залишаємо його у $tmp (#59)
+  // Промежуточный файл нужен только конвертеру - не оставляем его в $tmp (#59)
   if TempFileCreated and FileExists(FFileOprecord.TempFile) then
     DeleteFile(FFileOprecord.TempFile);
 end;
@@ -459,10 +460,10 @@ begin
 end;
 
 //
-// Папки за шаблоном створюються ще до конвертації, тож після невдалого
-// експорту на пристрої залишаються порожні каталоги (#59). Прибираємо їх,
-// піднімаючись до DeviceDir; RemoveDir не чіпає непорожні папки, тому
-// каталоги з уже записаними книгами вціліють.
+// Папки по шаблону создаются еще до конвертации, так что после неудачного
+// при экспорте на устройства остаются пустые каталоги (#59). Убираем их,
+// поднимаясь до DeviceDir; RemoveDir не трогает непустые папки, поэтому
+// каталоги с уже записанными книгами уцелят.
 //
 procedure TExportToDeviceThread.RemoveEmptyTargetFolders;
 var
@@ -485,7 +486,7 @@ begin
       Current := ExcludeTrailingPathDelimiter(ExtractFilePath(Current));
     end;
   except
-    // прибирання не має зривати експорт
+    // уборка не должна срывать экспорт
   end;
 end;
 
@@ -518,18 +519,18 @@ begin
     if not Assigned(MTPTargetFolder) then
     begin
       //
-      // Оболонка Windows перелічує теки MTP асинхронно: доки в Провіднику
-      // видно "Working on it...", тека ще не готова - нащадки виглядають
-      // порожніми, а будь-яка операція під нею повертає E_UNEXPECTED.
-      // Вручну це лікується повторним вибором теки в діалозі, тож робимо те
-      // саме програмно: перечитуємо корінь зі збереженого шляху й пробуємо ще
-      // раз. Одна спроба, без очікування - це пом'якшення чужої асинхронності.
+      // Оболочка Windows перечисляет папки MTP асинхронно: пока в Проводнике
+      // видно "Working on it...", папка еще не готова - потомки кажутся
+      // пустыми, а любая операция под ней возвращает E_UNEXPECTED.
+      // Вручную это лечится повторным выбором папки в диалоге, так что делаем то
+      // же программно: перечитываем корень по сохраненному пути и пробуем еще
+      // раз. Делаем одну попытку без ожидания — этого достаточно для обхода чужой асинхронности.
       //
       if Succeeded(SHCreateItemFromParsingName(PChar(FDeviceDir), nil, IShellItem, FreshRoot)) then
       begin
         MTPTargetFolder := ResolveOrCreateShellSubfolder(FreshRoot, FFileOprecord.TargetFolder);
-        // Свіжий корінь працює - далі користуємось ним, щоб не повторювати
-        // це для кожної наступної книги.
+        // Свежий корень работает - дальше пользуемся им, чтобы не повторять
+        // это для каждой следующей книги.
         if Assigned(MTPTargetFolder) then
           FDeviceShellItem := FreshRoot;
       end;
@@ -587,8 +588,8 @@ begin
   end
   else
   begin
-    // Книга з архіву вже розпакована у потік, а SourceFile вказує на сам архів -
-    // копіювання за SourceFile віддало б архів замість книги.
+    // Книга из архива уже распакована в поток, а SourceFile указывает на сам архив -
+    // копирование по SourceFile дало бы архив вместо книги.
     if FUseMTP then
     begin
       if FFileOprecord.Stream <> nil then
@@ -677,12 +678,12 @@ begin
   begin
     CoGetInterfaceAndReleaseStream(FMarshalStream, IShellItem, FDeviceShellItem);
     //
-    // CoGetInterfaceAndReleaseStream перебирає на себе посилання, яке тримає
-    // FMarshalStream, і звільняє потік навіть у разі помилки. Звичайне
-    // присвоєння nil викликало б Release ще раз, на вже звільненому потоці:
-    // на посилання припадало два AddRef і три Release, тож експорт падав з AV
-    // наприкінці, коли ExportToDevice звільняв свою локальну змінну.
-    // Обнуляємо поле через Pointer, не звільняючи його повторно.
+    // CoGetInterfaceAndReleaseStream принимает владение ссылкой, которую держит
+    // FMarshalStream, и освобождает поток даже в случае ошибки. Обычное
+    // присвоение nil вызвало бы Release ещё раз, на уже освобожденном потоке:
+    // на ссылку приходилось два AddRef и три Release, так что экспорт падал с AV
+    // в конце, когда ExportToDevice освобождал свою локальную переменную.
+    // Обнуляем поле через Pointer, не освобождая его повторно.
     //
     Pointer(FMarshalStream) := nil;
   end;

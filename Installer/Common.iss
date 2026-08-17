@@ -105,6 +105,7 @@ Name: desktopicon; Description: {cm:CreateDesktopIcon}
 ; LicenseFile here overrides the [Setup] default, so each language shows the
 ; licence in its own language. Both files are UTF-8 with a BOM -- Inno 6 reads
 ; a BOM-less text file as the system ANSI codepage and mangles non-ASCII.
+Name: Russian; MessagesFile: compiler:Languages\Russian.isl; LicenseFile: Common\License.txt
 Name: English; MessagesFile: compiler:Default.isl; LicenseFile: Common\License.txt
 Name: Ukrainian; MessagesFile: compiler:Languages\Ukrainian.isl; LicenseFile: Common\License_uk.txt
 ; Bulgarian points at the English licence deliberately. Only the English MIT
@@ -119,20 +120,23 @@ Name: Bulgarian; MessagesFile: compiler:Languages\Bulgarian.isl; LicenseFile: Co
 ; derived from {language} because the wizard language name is a display string
 ; and the locale code is an identifier -- mapping one to the other in Pascal
 ; code would be a second place to forget when a language is added.
+Russian.LocaleCode=ru
 English.LocaleCode=en
 Ukrainian.LocaleCode=uk
 Bulgarian.LocaleCode=bg
 
 ; The Start menu help shortcut, in the wizard's language. Its caption used to
 ; be hardcoded Ukrainian and it always opened the Ukrainian index, even for a
-; user who chose another language. Ukrainian help lives at the root of Help\
+; user who chose another language. Russian help lives at the root of Help\
 ; and translations in Help\<locale>\, which is why the path is spelled out per
 ; language rather than composed from LocaleCode.
+Russian.HelpShortcut=Справка MyHomeLib
 English.HelpShortcut=MyHomeLib Help
 Ukrainian.HelpShortcut=Довідка MyHomeLib
 Bulgarian.HelpShortcut=Помощ за MyHomeLib
+Russian.HelpIndex=Help\index.html
 English.HelpIndex=Help\en\index.html
-Ukrainian.HelpIndex=Help\index.html
+Ukrainian.HelpIndex=Help\uk\index.html
 Bulgarian.HelpIndex=Help\bg\index.html
 
 [INI]

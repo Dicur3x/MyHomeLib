@@ -104,7 +104,7 @@ type
     function Save(EditorMode: Boolean): Boolean;
 
     //
-    // Пакетний режим сам звітує про помилки, тому діалог можна вимкнути.
+    // Пакетный режим сам сообщает об ошибках, поэтому диалог можно отключить.
     //
     property ReportErrors: Boolean read FReportErrors write FReportErrors;
 
@@ -116,7 +116,7 @@ type
     property ProgramUsed: string read FProgramUsed write FProgramUsed;
 
     //
-    // Повне ім'я цільового архіву. Визначене після New/Load.
+    // Полное имя целевого архива. Определено после New/Load.
     //
     property ArchiveFileName: string read FArchiveFilename;
 
@@ -141,8 +141,8 @@ type
   end;
 
 resourcestring
-rstrErrorCreatingFBD = 'Помилка створення FBD!';
-   rstrErrorLaunching = 'Не вдалося запустити %s!';
+rstrErrorCreatingFBD = 'Ошибка создания FBD!';
+   rstrErrorLaunching = 'Не удалось запустить %s!';
 
 implementation
 

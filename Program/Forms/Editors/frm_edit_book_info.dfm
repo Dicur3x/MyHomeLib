@@ -2,7 +2,7 @@ object frmEditBookInfo: TfrmEditBookInfo
   Left = 0
   Top = 0
   BorderStyle = bsDialog
-  Caption = #1056#1077#1076#1072#1075#1091#1074#1072#1085#1085#1103' '#1110#1085#1092#1086#1088#1084#1072#1094#1110#1111' '#1087#1088#1086' '#1082#1085#1080#1075#1091
+  Caption = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077' '#1080#1085#1092#1086#1088#1084#1072#1094#1080#1080' '#1086' '#1082#1085#1080#1075#1077
   ClientHeight = 402
   ClientWidth = 639
   Color = clBtnFace
@@ -21,7 +21,7 @@ object frmEditBookInfo: TfrmEditBookInfo
     Top = 20
     Width = 34
     Height = 13
-    Caption = '&'#1053#1072#1079#1074#1072':'
+    Caption = '&'#1053#1072#1079#1074#1072#1085#1080#1077':'
     FocusControl = edT
   end
   object pnButtons: TPanel
@@ -45,7 +45,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Width = 78
       Height = 27
       Anchors = [akTop, akRight]
-      Caption = '&'#1047#1073#1077#1088#1077#1075#1090#1080
+      Caption = '&'#1057#1086#1093#1088#1072#1085#1080#1090#1100
       Default = True
       ModalResult = 1
       TabOrder = 0
@@ -59,7 +59,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Height = 27
       Anchors = [akTop, akRight]
       Cancel = True
-      Caption = '&'#1042#1110#1076#1084#1110#1085#1072
+      Caption = '&'#1054#1090#1084#1077#1085#1072
       ModalResult = 2
       TabOrder = 1
       ExplicitLeft = 546
@@ -69,7 +69,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 10
       Width = 78
       Height = 27
-      Hint = #1047#1073#1077#1088#1077#1075#1090#1080' '#1090#1072' '#1087#1077#1088#1077#1081#1090#1080' '#1076#1086' '#1085#1072#1089#1090#1091#1087#1085#1086#1111' '#1082#1085#1080#1075#1080
+      Hint = #1057#1086#1093#1088#1072#1085#1080#1090#1100' '#1080' '#1087#1077#1088#1077#1081#1090#1080' '#1082' '#1089#1083#1077#1076#1091#1102#1097#1077#1081' '#1082#1085#1080#1075#1077
       Caption = '&>>>'
       ParentShowHint = False
       ShowHint = True
@@ -81,7 +81,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 10
       Width = 79
       Height = 27
-      Hint = #1047#1073#1077#1088#1077#1075#1090#1080' '#1090#1072' '#1087#1077#1088#1077#1081#1090#1080' '#1076#1086' '#1087#1086#1087#1077#1088#1077#1076#1085#1100#1086#1111' '#1082#1085#1080#1075#1080
+      Hint = #1057#1086#1093#1088#1072#1085#1080#1090#1100' '#1080' '#1087#1077#1088#1077#1081#1090#1080' '#1082' '#1087#1088#1077#1076#1099#1076#1091#1097#1077#1081' '#1082#1085#1080#1075#1077
       Caption = '&<<<'
       ParentShowHint = False
       ShowHint = True
@@ -103,14 +103,14 @@ object frmEditBookInfo: TfrmEditBookInfo
     Top = 45
     Width = 621
     Height = 160
-    Caption = '&'#1040#1074#1090#1086#1088#1080
+    Caption = '&'#1040#1074#1090#1086#1088#1099
     TabOrder = 1
     object btnAddAuthor: TButton
       Left = 530
       Top = 23
       Width = 78
       Height = 26
-      Caption = '&'#1044#1086#1076#1072#1090#1080
+      Caption = '&'#1044#1086#1073#1072#1074#1080#1090#1100
       TabOrder = 0
       OnClick = btnAddAuthorClick
     end
@@ -119,7 +119,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 55
       Width = 78
       Height = 27
-      Caption = #1047#1084#1110#1085#1080#1090#1080
+      Caption = #1048#1079#1084#1077#1085#1080#1090#1100
       TabOrder = 1
       OnClick = btnAChangeClick
     end
@@ -128,7 +128,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 88
       Width = 78
       Height = 26
-      Caption = '&'#1042#1080#1076#1072#1083#1080#1090#1080
+      Caption = '&'#1059#1076#1072#1083#1080#1090#1100
       TabOrder = 2
       OnClick = btnADeleteClick
     end
@@ -155,14 +155,14 @@ object frmEditBookInfo: TfrmEditBookInfo
     Top = 211
     Width = 621
     Height = 142
-    Caption = #1044#1086#1076#1072#1090#1082#1086#1074#1072' '#1110#1085#1092#1086#1088#1084#1072#1094#1110#1103
+    Caption = #1044#1086#1087#1086#1083#1085#1080#1090#1077#1083#1100#1085#1072#1103' '#1080#1085#1092#1086#1088#1084#1072#1094#1080#1103
     TabOrder = 2
     object Label6: TLabel
       Left = 17
       Top = 25
       Width = 38
       Height = 13
-      Caption = '&'#1046#1072#1085#1088#1080':'
+      Caption = '&'#1046#1072#1085#1088#1099':'
       FocusControl = lblGenre
     end
     object Label3: TLabel
@@ -170,7 +170,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 52
       Width = 31
       Height = 13
-      Caption = #1057#1077#1088#1110#1103':'
+      Caption = #1057#1077#1088#1080#1103':'
       FocusControl = cbSeries
     end
     object Label4: TLabel
@@ -178,7 +178,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 52
       Width = 68
       Height = 13
-      Caption = #1053#1086'&'#1084#1077#1088' '#1091' '#1089#1077#1088#1110#1111':'
+      Caption = #1053#1086'&'#1084#1077#1088' '#1074' '#1089#1077#1088#1080#1080':'
       FocusControl = edSN
     end
     object Label5: TLabel
@@ -186,7 +186,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 81
       Width = 78
       Height = 13
-      Caption = #1050#1083#1102#1095#1086#1074#1110' '#1089#1083#1086#1074#1072':'
+      Caption = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072':'
       FocusControl = edKeyWords
     end
     object Label7: TLabel
@@ -194,7 +194,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 109
       Width = 30
       Height = 13
-      Caption = '&'#1052#1086#1074#1072':'
+      Caption = '&'#1071#1079#1099#1082':'
       FocusControl = cbLang
     end
     object lblGenre: TEdit
@@ -214,7 +214,7 @@ object frmEditBookInfo: TfrmEditBookInfo
       Top = 20
       Width = 78
       Height = 26
-      Caption = '&'#1042#1080#1073#1088#1072#1090#1080
+      Caption = '&'#1042#1099#1073#1088#1072#1090#1100
       TabOrder = 1
       OnClick = btnGenresClick
     end
@@ -293,8 +293,8 @@ object frmEditBookInfo: TfrmEditBookInfo
     Top = 14
     Width = 78
     Height = 27
-    Hint = #1042#1110#1076#1082#1088#1080#1090#1080' '#1082#1085#1080#1075#1091
-    Caption = #1042#1110#1076#1082#1088#1080#1090#1080
+    Hint = #1054#1090#1082#1088#1099#1090#1100' '#1082#1085#1080#1075#1091
+    Caption = #1054#1090#1082#1088#1099#1090#1100
     ImageIndex = 2
     ParentShowHint = False
     ShowHint = True

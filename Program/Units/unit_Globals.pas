@@ -405,8 +405,8 @@ type
 
   function GetSpecialPath(CSIDL: word): string;
   function ExecAndWait(const FileName, Params: string; const WinState: word): Boolean; overload;
-  // Той самий запуск, але повертає й код завершення процесу: зовнішні конвертери
-  // сигналізують про помилку саме ним (напр. fb2pdf.cmd -> 1, якщо немає Java)
+  // Тот же запуск, но возвращает и код завершения процесса: внешние конвертеры
+  // сигнализируют об ошибке именно им (например, fb2pdf.cmd -> 1, если нет Java)
   function ExecAndWait(const FileName, Params: string; const WinState: word;
     out ExitCode: Cardinal): Boolean; overload;
 
@@ -441,13 +441,13 @@ uses
   unit_Settings;
 
 resourcestring
-rstrUnableToLaunch = 'Не вдалося запустити %s! ';
-   rstrBookNotFoundInArchive = 'В архіві "%s" не знайдено опису книги!';
-   rstrUpdateFailedServerNotFound = 'Перевірка оновлення не вдалося! Сервер не знайдено.' + CRLF + 'Код помилки: %d';
-   rstrUpdateFailedConnectionError = 'Перевірити оновлення не вдалося! Помилка підключення.' + CRLF + 'Код помилки: %d';
-   rstrUpdateFailedServerError = 'Перевірити оновлення не вдалося! Сервер повідомляє про помилку '+CRLF+'Код помилки: %d';
-   rstrFoundNewAppVersion = 'Доступна нова версія - "%s" Відвідайте сайт програми для завантаження оновлень.';
-   rstrLatestVersion = 'У вас найсвіжіша версія.';
+rstrUnableToLaunch = 'Не удалось запустить %s! ';
+   rstrBookNotFoundInArchive = 'В архиве "%s" не найдено описания книги!';
+   rstrUpdateFailedServerNotFound = 'Проверка обновления не удалась! Сервер не найден.' + CRLF + 'Код ошибки: %d';
+   rstrUpdateFailedConnectionError = 'Проверка обновления не удалась! Ошибка подключения.' + CRLF + 'Код ошибки: %d';
+   rstrUpdateFailedServerError = 'Проверка обновления не удалась! Сервер сообщает об ошибке.' + CRLF + 'Код ошибки: %d';
+   rstrFoundNewAppVersion = 'Доступна новая версия: "%s". Посетите сайт приложения, чтобы загрузить обновление.';
+   rstrLatestVersion = 'У вас самая свежая версия.';
 
 const
   lat: set of AnsiChar = ['A' .. 'Z', 'a' .. 'z', '\', '-', ':', '`', ',', '.', '0' .. '9', '_', ' ', '(', ')', '[', ']', '{', '}'];
@@ -1504,7 +1504,7 @@ begin
   if Result then
   begin
     WaitForSingleObject(ProcInfo.hProcess, INFINITE);
-    // Запуск вдався - це ще не успіх: конвертер міг завершитись з помилкою
+    // Запуск удался - это еще не успех: конвертер мог завершиться с ошибкой
     if not GetExitCodeProcess(ProcInfo.hProcess, ExitCode) then
     begin
       ExitCode := Cardinal(-1);

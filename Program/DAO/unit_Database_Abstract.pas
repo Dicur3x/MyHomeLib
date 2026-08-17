@@ -47,14 +47,14 @@ type
     function CollectionURL: string;
 
     //
-    // Базова адреса бібліотеки: власний URL колекції, а якщо його немає -
-    // загальний URL з налаштувань.
+    // Базовый адрес библиотеки: собственный URL коллекции, а если его нет -
+    // общий URL из настроек.
     //
     function CollectionBaseURL: string;
 
     //
-    // Формат посилань Librusec/Flibusta. Обв'язка бібліотеки з іншою схемою
-    // адрес має перекрити ці методи.
+    // Формат ссылок Librusec/Flibusta. Обвязка библиотеки с другой схемой
+    // адресов должна переопределить эти методы.
     //
     function GetViewURL(const LibID: string): string; virtual;
     function GetEditURL(const LibID: string): string; virtual;

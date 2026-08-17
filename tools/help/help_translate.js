@@ -4,7 +4,7 @@
 // from the pieces.
 //
 // Same principle as tools/lang/translate.js and tools/lang/glst_translate.js:
-// a translator supplies text, never structure. `build` takes each Ukrainian
+// a translator supplies text, never structure. `build` takes each Russian
 // page as the template and replaces exactly four things -- the lang attribute,
 // the <title>, the <h1> and the BODY block -- then regenerates the navigation
 // from topics.json. Everything else is copied byte for byte.
@@ -33,6 +33,7 @@ const TOPICS = path.join(__dirname, 'topics.json');
 // The suffix appended to every page title except the index, whose own title is
 // already the help's name. Must agree with TITLE_SUFFIX in check_help.js.
 const TITLE_SUFFIX = {
+  ru: 'Справка MyHomeLib',
   uk: 'Довідка MyHomeLib',
   en: 'MyHomeLib Help',
   bg: 'Помощ за MyHomeLib',
@@ -158,7 +159,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
       .trim()
       .replace(/\r?\n/g, bodyEol);
 
-    html = html.replace('<html lang="uk">', `<html lang="${locale}">`);
+    html = html.replace('<html lang="ru">', `<html lang="${locale}">`);
 
     const fullTitle = t.file === 'index.html' ? title : `${title} — ${suffix}`;
     html = html.replace(/<title>[^<]*<\/title>/, `<title>${fullTitle}</title>`);
@@ -180,7 +181,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
   process.exit(0);
 }
 
-// Rewrites the BODY block of the Ukrainian source pages in place.
+// Rewrites the BODY block of the Russian source pages in place.
 //
 // The counterpart of `build`, for correcting the original rather than
 // producing a translation. Only files present in <bodydir> are touched, so a

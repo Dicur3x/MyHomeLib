@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Читання книг — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html" class="cur" aria-current="page">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Читання книг</h1>
+<!-- BODY:BEGIN -->
+<p>MyHomeLib сама не показує вміст жодної книги — вона лише каталогізує файли й, за командою <span class="ui">«Читати»</span>, передає файл зовнішній програмі. Вбудованої читалки в MyHomeLib немає.</p>
+
+<h2>Як обирається програма</h2>
+<p>За розширенням файлу програма шукає у списку <a href="set_readers.html">Типи файлів і програми для читання</a> призначену читалку. Якщо для розширення читалку налаштовано — запускається саме вона; якщо ні — файл відкривається програмою, яку для цього розширення визначила сама Windows (звичайна файлова асоціація).</p>
+<p>Інсталятор кладе поруч із програмою читалку AlReader і під час першого запуску, коли список читалок ще порожній, сам додає її як типову для розширень <code>fb2</code>, <code>doc</code>, <code>txt</code>, <code>htm</code> і <code>html</code> — для PDF, DjVu та деяких інших типова читалка не призначається, і для них одразу використовується асоціація Windows. Але й для AlReader MyHomeLib нічим не відрізняється від будь-якої іншої читалки: вона так само лише запускає її як окрему програму й передає їй шлях до файлу.</p>
+
+<h2>Що відбувається під час відкриття</h2>
+<p>Якщо книга зберігається в архіві (fb2.zip, FBD, запакований не-FB2), MyHomeLib спершу розпаковує потрібний файл у робочу теку <span class="ui">«Для читання»</span> під іменем «Автор - Назва» (за потреби скорочуючи його), і відкриває читалкою вже цю копію; якщо файл із таким іменем там уже є з минулого разу, повторно не розпаковує. Незапаковані FB2- і raw-файли відкриваються напряму з теки колекції, без копіювання. Уміст цієї робочої теки можна одним разом прибрати командою <span class="ui">«Інструменти» → «Очистити папку "Для читання"»</span>.</p>
+<p>Якщо книга належить мережевій колекції і ще не завантажена, перед відкриттям MyHomeLib спершу довантажує саме її (короткий проміжний прогрес); якщо довантажити не вдалося, книга не відкривається.</p>
+
+<p class="note">Якщо у налаштуваннях увімкнено параметр <span class="ui">«Перезаписувати заголовок fb2»</span>, відкриття на читання незапакованого FB2-файлу з власної колекції одразу переписує в самому цьому файлі автора, назву, жанр і серію значеннями з каталогу — це стається з файлом, що лежить у теці колекції, а не з тимчасовою копією. Той самий параметр і той самий запис керують перезаписом заголовка і під час надсилання на пристрій; див. <a href="editing.html">Редагування описів книг</a> і <a href="export_device.html">Надсилання книг на пристрій</a>.</p>
+
+<h2>Якщо нічого не відкривається</h2>
+<ul>
+<li>Перевірте в розділі <a href="set_readers.html">Типи файлів і програми для читання</a>, чи вказаний для цього розширення шлях досі існує на диску (переставили чи оновили читалку — шлях міг застаріти).</li>
+<li>Для книги мережевої колекції переконайтеся, що файл справді завантажено (позначку локальності видно в списку книг) — якщо довантаження щойно не вдалося, спробуйте ще раз через <a href="download.html">чергу завантажень</a>.</li>
+<li>Якщо для розширення читалку не призначено, спрацьовує звичайна асоціація Windows — переконайтеся, що для цього типу файлів у системі взагалі є з чим його відкрити.</li>
+</ul>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

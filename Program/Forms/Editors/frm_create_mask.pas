@@ -119,14 +119,14 @@ uses
 {$R *.dfm}
 
 resourcestring
-  rstrFileTemplateCaption = 'Редагування шаблону: Ім''я файлу';
-  rstrPathTemplateCaption = 'Редагування шаблону: Шлях до файлу';
-  rstrTextTemplateCaption = 'Редагування шаблону: Текст';
+  rstrFileTemplateCaption = 'Редактирование шаблона: Имя файла';
+  rstrPathTemplateCaption = 'Редактирование шаблона: Путь к файлу';
+  rstrTextTemplateCaption = 'Редактирование шаблона: Текст';
   rstrSampleTemplate = '[%s [(%n) ]- ]%t';
-  rstrWrongTemplate = 'Шаблон невірний';
-  rstrCheckTemplateValidity = 'Перевірте правильність шаблону';
-  rstrCheckBrackets = 'Перевірте відповідність відкриваючих та закриваючих дужок блоків елементів';
-  rstrWrongTemplateElements = 'Невірні елементи шаблону';
+  rstrWrongTemplate = 'Шаблон неверен';
+  rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
+  rstrCheckBrackets = 'Проверьте соответствие открывающих и закрывающих скобок блоков элементов';
+  rstrWrongTemplateElements = 'Неверные элементы шаблона';
 
 const
   DlgCaptions: array [TTemplateType] of string = (rstrFileTemplateCaption, rstrPathTemplateCaption, rstrTextTemplateCaption);

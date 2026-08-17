@@ -61,9 +61,9 @@ uses
   unit_MHLHttpClient;
 
 resourcestring
-  rstrConnecting = 'Підключення...';
-  rstrSpeed = 'Завантажено %d із %d кб (%n кб/с)';
-  rstrDownloadComplete = 'Завантаження завершено';
+  rstrConnecting = 'Подключение...';
+  rstrSpeed = 'Загружено %d из %d КБ (%n КБ/с)';
+  rstrDownloadComplete = 'Загрузка завершена';
 
 {$R *.dfm}
 

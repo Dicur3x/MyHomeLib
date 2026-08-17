@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Імпорт книг у форматі FB2 — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html" class="cur" aria-current="page">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Імпорт книг у форматі FB2</h1>
+<!-- BODY:BEGIN -->
+<p>Команда <span class="ui">«Колекція» → «Імпорт» → «Файли fb2 та fb2.zip»</span> сканує файли на диску й заводить на них записи у поточній (активній) власній FB2-колекції. Команда доступна лише для власних FB2-колекцій.</p>
+
+<h2>Звідки беруться файли</h2>
+<p>Джерело залежить від параметра <span class="ui">«Включити сортування під час імпорту»</span> (див. <a href="set_filesort.html">Сортування файлів</a>):</p>
+<ul>
+<li>якщо сортування увімкнено — програма сканує окрему теку імпорту, задану в налаштуваннях, а знайдені файли копіює до теки колекції, розкладаючи по підпапках і перейменовуючи за шаблонами імені файлу й папки;</li>
+<li>якщо сортування вимкнено — програма сканує саму теку колекції: файли мають бути покладені туди заздалегідь (наприклад, вручну чи іншою програмою), і під час імпорту вони нікуди не копіюються й не перейменовуються — лише заносяться до каталогу на своєму місці.</li>
+</ul>
+<p>Імпорт виконується у два проходи: спочатку окремі файли <code>.fb2</code>, потім архіви <code>.fb2.zip</code> (кожен fb2-файл усередині архіву читається так само, як окремий файл; якщо сортування увімкнене й архів містить рівно один fb2-файл, перейменовується сам архів).</p>
+
+<h2>Що зчитується з файлу</h2>
+<p>З XML-структури FB2 (розділ <code>description/title-info</code>) програма бере автора чи авторів, назву, список жанрів, мову, ключові слова, серію з номером у ній і анотацію. Ці самі дані згодом можна відредагувати вручну — див. <a href="editing.html">Редагування описів книг</a>.</p>
+
+<h2>Дублікати</h2>
+<p>Перед додаванням книги програма перевіряє, чи вже є в колекції запис із таким самим іменем файлу в тій самій папці. Якщо так — файл вважається вже імпортованим і пропускається: новий запис не створюється, наявний запис не змінюється.</p>
+
+<h2>Хід імпорту та помилки</h2>
+<p>Під час сканування й імпорту показується вікно з індикатором прогресу. Файли, які не вдалося розібрати як коректний FB2 (пошкоджена чи невідповідна структура), не додаються до каталогу, а рядком потрапляють до списку помилок у цьому ж вікні. Окремого файла журналу з помилками імпорту програма не веде — після завершення операції кнопка <span class="ui">«Зберегти»</span> дає зберегти цей список у файл на власний вибір.</p>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

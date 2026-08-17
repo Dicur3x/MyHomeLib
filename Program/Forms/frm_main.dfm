@@ -119,7 +119,7 @@ object frmMain: TfrmMain
       Tag = 900
       Left = 60
       Top = 2
-      Hint = #1053#1072#1076#1110#1089#1083#1072#1090#1080' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1110#1081
+      Hint = #1054#1090#1087#1088#1072#1074#1080#1090#1100' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
       DropDownMenu = pmScripts
       ImageIndex = 1
       ToolStyle = tsDropDown
@@ -150,7 +150,7 @@ object frmMain: TfrmMain
     object tbtnWizard: TRzToolButton
       Left = 170
       Top = 2
-      Hint = #1042#1080#1073#1088#1072#1090#1080' '#1082#1086#1083#1077#1082#1094#1110#1102
+      Hint = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
       DropDownMenu = pmCollection
       ImageIndex = 6
       ParentShowHint = False
@@ -176,7 +176,7 @@ object frmMain: TfrmMain
     object tbSelectAll: TRzToolButton
       Left = 253
       Top = 2
-      Hint = #1042#1110#1076#1079#1085#1072#1095#1080#1090#1080' '#1074#1089#1077
+      Hint = #1054#1090#1084#1077#1090#1080#1090#1100' '#1074#1089#1077
       ImageIndex = 7
       ParentShowHint = False
       ShowHint = True
@@ -185,7 +185,7 @@ object frmMain: TfrmMain
     object tbCollapse: TRzToolButton
       Left = 280
       Top = 2
-      Hint = #1056#1086#1079#1075#1086#1088#1085#1091#1090#1080'/'#1047#1075#1086#1088#1085#1091#1090#1080' '#1089#1087#1080#1089#1086#1082
+      Hint = #1056#1072#1079#1074#1077#1088#1085#1091#1090#1100'/'#1057#1074#1077#1088#1085#1091#1090#1100' '#1089#1087#1080#1089#1086#1082
       ImageIndex = 8
       ParentShowHint = False
       ShowHint = True
@@ -198,7 +198,7 @@ object frmMain: TfrmMain
     object btnSwitchTreeMode: TRzToolButton
       Left = 315
       Top = 2
-      Hint = #1055#1077#1088#1077#1082#1083#1102#1095#1080#1090#1080' '#1074' '#1088#1077#1078#1080#1084' "'#1058#1072#1073#1083#1080#1094#1103'"'
+      Hint = #1055#1077#1088#1077#1082#1083#1102#1095#1080#1090#1100' '#1074' '#1088#1077#1078#1080#1084' '#171#1058#1072#1073#1083#1080#1094#1072#187
       ImageIndex = 10
       ParentShowHint = False
       ShowHint = True
@@ -256,7 +256,7 @@ object frmMain: TfrmMain
     object tbtnHelp: TRzToolButton
       Left = 458
       Top = 2
-      Hint = #1044#1086#1074#1110#1076#1082#1072
+      Hint = #1057#1087#1088#1072#1074#1082#1072
       Action = acHelpHelp
       ImageIndex = 26
     end
@@ -276,7 +276,7 @@ object frmMain: TfrmMain
     ExplicitHeight = 652
     object tsByAuthor: TRzTabSheet
       HelpContext = 135
-      Caption = #1040#1074#1090#1086#1088#1080
+      Caption = #1040#1074#1090#1086#1088#1099
       object AuthorsViewSplitter: TMHLSplitter
         Left = 230
         Top = 70
@@ -311,14 +311,14 @@ object frmMain: TfrmMain
             Top = 7
             Width = 33
             Height = 13
-            Caption = #1055#1086#1096#1091#1082
+            Caption = #1055#1086#1080#1089#1082
           end
           object tbClearEdAuthor: TSpeedButton
             Left = 201
             Top = 3
             Width = 23
             Height = 25
-            Hint = #1054#1095#1080#1089#1090#1080#1090#1080
+            Hint = #1054#1095#1080#1089#1090#1080#1090#1100
             Anchors = [akTop, akRight]
             Flat = True
             Glyph.Data = {
@@ -473,7 +473,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Layout = tlCenter
             ExplicitLeft = 452
             ExplicitHeight = 13
@@ -484,7 +484,7 @@ object frmMain: TfrmMain
             Width = 105
             Height = 26
             Align = alLeft
-            Caption = #1055#1086#1074#1085#1077' '#1110#1084#39#1103' '#1072#1074#1090#1086#1088#1072
+            Caption = #1055#1086#1083#1085#1086#1077' '#1080#1084#1103' '#1072#1074#1090#1086#1088#1072
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -495,7 +495,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = #1052#1086#1074#1072
+            Caption = #1071#1079#1099#1082
             Layout = tlCenter
             ExplicitLeft = 358
             ExplicitHeight = 13
@@ -571,7 +571,7 @@ object frmMain: TfrmMain
               Options = [coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
               Position = 0
               Spacing = 10
-              Text = #1053#1072#1079#1074#1072
+              Text = #1053#1072#1079#1074#1072#1085#1080#1077
               Width = 267
             end
             item
@@ -599,7 +599,7 @@ object frmMain: TfrmMain
               Options = [coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
               Position = 2
               Spacing = 10
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 65
             end
             item
@@ -659,7 +659,7 @@ object frmMain: TfrmMain
     end
     object tsBySerie: TRzTabSheet
       HelpContext = 135
-      Caption = #1057#1077#1088#1110#1111
+      Caption = #1057#1077#1088#1080#1080
       object SeriesViewSplitter: TMHLSplitter
         Left = 230
         Top = 70
@@ -739,14 +739,14 @@ object frmMain: TfrmMain
             Top = 7
             Width = 33
             Height = 13
-            Caption = #1055#1086#1096#1091#1082
+            Caption = #1055#1086#1080#1089#1082
           end
           object btnClearEdSeries: TSpeedButton
             Left = 201
             Top = 3
             Width = 23
             Height = 25
-            Hint = #1054#1095#1080#1089#1090#1080#1090#1080
+            Hint = #1054#1095#1080#1089#1090#1080#1090#1100
             Anchors = [akTop, akRight]
             Flat = True
             Glyph.Data = {
@@ -858,7 +858,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -868,7 +868,7 @@ object frmMain: TfrmMain
             Width = 90
             Height = 26
             Align = alLeft
-            Caption = #1053#1072#1079#1074#1072' '#1089#1077#1088#1110#1111
+            Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1089#1077#1088#1080#1080
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -879,7 +879,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = #1052#1086#1074#1072
+            Caption = #1071#1079#1099#1082
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -959,7 +959,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAutoSpring]
               Position = 1
               Spacing = 10
-              Text = #1053#1072#1079#1074#1072
+              Text = #1053#1072#1079#1074#1072#1085#1080#1077
               Width = 181
             end
             item
@@ -985,7 +985,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAutoSpring]
               Position = 3
               Spacing = 10
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 65
             end
             item
@@ -1047,7 +1047,7 @@ object frmMain: TfrmMain
     end
     object tsByGenre: TRzTabSheet
       HelpContext = 135
-      Caption = #1046#1072#1085#1088#1080
+      Caption = #1046#1072#1085#1088#1099
       object GenresViewSplitter: TMHLSplitter
         Left = 230
         Top = 0
@@ -1147,7 +1147,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -1157,7 +1157,7 @@ object frmMain: TfrmMain
             Width = 97
             Height = 26
             Align = alLeft
-            Caption = #1053#1072#1079#1074#1072' '#1078#1072#1085#1088#1091
+            Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1078#1072#1085#1088#1072
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -1168,7 +1168,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = #1052#1086#1074#1072
+            Caption = #1071#1079#1099#1082
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -1258,7 +1258,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible, coAutoSpring]
               Position = 0
               Spacing = 10
-              Text = #1040#1074#1090#1086#1088'/'#1057#1077#1088#1110#1103'/'#1053#1072#1079#1074#1072
+              Text = #1040#1074#1090#1086#1088'/'#1057#1077#1088#1080#1103'/'#1053#1072#1079#1074#1072#1085#1080#1077
               Width = 244
             end
             item
@@ -1286,7 +1286,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible, coAutoSpring]
               Position = 2
               Spacing = 10
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 65
             end
             item
@@ -1310,7 +1310,7 @@ object frmMain: TfrmMain
     end
     object tsSearch: TRzTabSheet
       HelpContext = 126
-      Caption = #1055#1086#1096#1091#1082
+      Caption = #1055#1086#1080#1089#1082
       object SearchViewSplitter: TMHLSplitter
         Left = 230
         Top = 0
@@ -1378,7 +1378,7 @@ object frmMain: TfrmMain
             Height = 13
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
@@ -1471,14 +1471,14 @@ object frmMain: TfrmMain
               MinWidth = 30
               Position = 1
               Spacing = 10
-              Text = #1053#1072#1079#1074#1072
+              Text = #1053#1072#1079#1074#1072#1085#1080#1077
               Width = 200
             end
             item
               MaxWidth = 1000
               MinWidth = 30
               Position = 2
-              Text = #1057#1077#1088#1110#1103
+              Text = #1057#1077#1088#1080#1103
               Width = 200
             end
             item
@@ -1502,7 +1502,7 @@ object frmMain: TfrmMain
               MinWidth = 65
               Position = 4
               Spacing = 10
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 65
             end
             item
@@ -1550,7 +1550,7 @@ object frmMain: TfrmMain
           TabOrder = 0
           object ctpOther: TCategoryPanel
             Top = 491
-            Caption = #1056#1110#1079#1085#1077
+            Caption = #1056#1072#1079#1085#1086#1077
             TabOrder = 0
             ExplicitWidth = 185
             object Label30: TLabel
@@ -1567,7 +1567,7 @@ object frmMain: TfrmMain
               Width = 26
               Height = 13
               Alignment = taRightJustify
-              Caption = #1052#1086#1074#1072
+              Caption = #1071#1079#1099#1082
             end
             object Label4: TLabel
               AlignWithMargins = True
@@ -1576,7 +1576,7 @@ object frmMain: TfrmMain
               Width = 178
               Height = 13
               Align = alTop
-              Caption = #1056#1086#1079#1084#1110#1097#1077#1085#1085#1103
+              Caption = #1056#1072#1089#1087#1086#1083#1086#1078#1077#1085#1080#1077
               ExplicitWidth = 62
             end
             object Label8: TLabel
@@ -1585,7 +1585,7 @@ object frmMain: TfrmMain
               Width = 38
               Height = 13
               Alignment = taRightJustify
-              Caption = #1054#1094#1110#1085#1082#1072
+              Caption = #1054#1094#1077#1085#1082#1072
             end
             object cbDate: TComboBox
               Left = 55
@@ -1595,12 +1595,12 @@ object frmMain: TfrmMain
               TabOrder = 0
               OnKeyDown = PresetFieldKeyDown
               Items.Strings = (
-                #1089#1100#1086#1075#1086#1076#1085#1110
-                #1079#1072' 3 '#1076#1085#1110
-                #1079#1072' '#1090#1080#1078#1076#1077#1085#1100
-                #1079#1072' 2 '#1090#1080#1078#1085#1110
-                #1079#1072' '#1084#1110#1089#1103#1094#1100
-                #1079#1072' 3 '#1084#1110#1089#1103#1094#1110)
+                #1089#1077#1075#1086#1076#1085#1103
+                #1079#1072' 3 '#1076#1085#1103
+                #1079#1072' '#1085#1077#1076#1077#1083#1102
+                #1079#1072' 2 '#1085#1077#1076#1077#1083#1080
+                #1079#1072' '#1084#1077#1089#1103#1094
+                #1079#1072' 3 '#1084#1077#1089#1103#1094#1072)
             end
             object cbLang: TComboBox
               Left = 55
@@ -1653,11 +1653,11 @@ object frmMain: TfrmMain
               Style = csDropDownList
               ItemIndex = 0
               TabOrder = 2
-              Text = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1074#1089#1077
+              Text = #1055#1086#1082#1072#1079#1072#1090#1100' '#1074#1089#1077
               Items.Strings = (
-                #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1074#1089#1077
-                #1058#1110#1083#1100#1082#1080' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1110
-                #1058#1110#1083#1100#1082#1080' '#1053#1045' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1110)
+                #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1074#1089#1077
+                #1058#1086#1083#1100#1082#1086' '#1079#1072#1075#1088#1091#1078#1077#1085#1085#1099#1077
+                #1058#1086#1083#1100#1082#1086' '#1085#1077' '#1079#1072#1075#1088#1091#1078#1077#1085#1085#1099#1077)
             end
             object cbDeleted: TCheckBox
               AlignWithMargins = True
@@ -1667,7 +1667,7 @@ object frmMain: TfrmMain
               Height = 17
               Margins.Left = 5
               Align = alTop
-              Caption = #1055#1088#1080#1093#1086#1074#1091#1074#1072#1090#1080' '#1074#1080#1076#1072#1083#1077#1085#1110
+              Caption = #1057#1082#1088#1099#1074#1072#1090#1100' '#1091#1076#1072#1083#1105#1085#1085#1099#1077
               TabOrder = 3
               ExplicitWidth = 193
             end
@@ -1693,7 +1693,7 @@ object frmMain: TfrmMain
               Height = 17
               Margins.Left = 5
               Align = alTop
-              Caption = #1058#1110#1083#1100#1082#1080' '#1087#1088#1086#1095#1080#1090#1072#1085#1110
+              Caption = #1058#1086#1083#1100#1082#1086' '#1087#1088#1086#1095#1080#1090#1072#1085#1085#1099#1077
               TabOrder = 5
               ExplicitWidth = 193
             end
@@ -1711,7 +1711,7 @@ object frmMain: TfrmMain
               Width = 19
               Height = 13
               Align = alTop
-              Caption = #1030#1084#39#1103
+              Caption = #1048#1084#1103
             end
             object Label29: TLabel
               AlignWithMargins = True
@@ -1729,7 +1729,7 @@ object frmMain: TfrmMain
               Width = 72
               Height = 13
               Align = alTop
-              Caption = #1055#1072#1087#1082#1072' ('#1072#1088#1093#1110#1074')'
+              Caption = #1055#1072#1087#1082#1072' ('#1072#1088#1093#1080#1074')'
             end
             object edFFile: TMHLButtonedEdit
               AlignWithMargins = True
@@ -1787,7 +1787,7 @@ object frmMain: TfrmMain
               Width = 48
               Height = 13
               Align = alTop
-              Caption = #1053#1072#1079#1074#1072
+              Caption = #1053#1072#1079#1074#1072#1085#1080#1077
             end
             object Label26: TLabel
               AlignWithMargins = True
@@ -1805,7 +1805,7 @@ object frmMain: TfrmMain
               Width = 31
               Height = 13
               Align = alTop
-              Caption = #1057#1077#1088#1110#1103
+              Caption = #1057#1077#1088#1080#1103
             end
             object Label7: TLabel
               AlignWithMargins = True
@@ -1814,7 +1814,7 @@ object frmMain: TfrmMain
               Width = 55
               Height = 13
               Align = alBottom
-              Caption = #1040#1085#1086#1090#1072#1094#1110#1103
+              Caption = #1040#1085#1085#1086#1090#1072#1094#1080#1103
             end
             object Label3: TLabel
               AlignWithMargins = True
@@ -1824,7 +1824,7 @@ object frmMain: TfrmMain
               Height = 13
               Margins.Top = 0
               Align = alTop
-              Caption = #1050#1083#1102#1095#1086#1074#1110' '#1089#1083#1086#1074#1072
+              Caption = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072
             end
             object edFFullName: TMHLButtonedEdit
               AlignWithMargins = True
@@ -1890,7 +1890,7 @@ object frmMain: TfrmMain
               Top = 210
               Width = 195
               Height = 21
-              Hint = #1050#1083#1102#1095#1086#1074#1110' '#1089#1083#1086#1074#1072
+              Hint = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072
               Align = alTop
               ParentShowHint = False
               ShowHint = True
@@ -1922,8 +1922,8 @@ object frmMain: TfrmMain
             Top = 2
             Width = 75
             Height = 25
-            Hint = #1054#1095#1080#1089#1090#1080#1090#1080' '#1074#1089#1110' '#1087#1086#1083#1103
-            Caption = #1054#1095#1080#1089#1090#1080#1090#1080
+            Hint = #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1089#1077' '#1087#1086#1083#1103
+            Caption = #1054#1095#1080#1089#1090#1080#1090#1100
             TabOrder = 1
             OnClick = btnClearFilterEditsClick
           end
@@ -1932,7 +1932,7 @@ object frmMain: TfrmMain
     end
     object tsByGroup: TRzTabSheet
       HelpContext = 125
-      Caption = #1043#1088#1091#1087#1080
+      Caption = #1043#1088#1091#1087#1087#1099
       object GroupsViewSplitter: TMHLSplitter
         Left = 230
         Top = 0
@@ -2005,7 +2005,7 @@ object frmMain: TfrmMain
             Width = 70
             Height = 25
             Action = acGroupCreate
-            Caption = #1057#1090#1074#1086#1088#1080#1090#1080
+            Caption = #1057#1086#1079#1076#1072#1090#1100
             TabOrder = 0
           end
           object btnDeleteGroup: TButton
@@ -2014,7 +2014,7 @@ object frmMain: TfrmMain
             Width = 70
             Height = 25
             Action = acGroupDelete
-            Caption = #1042#1080#1076#1072#1083#1080#1090#1080
+            Caption = #1059#1076#1072#1083#1080#1090#1100
             TabOrder = 1
           end
           object btnClearGroup: TButton
@@ -2023,7 +2023,7 @@ object frmMain: TfrmMain
             Width = 70
             Height = 25
             Action = acGroupClear
-            Caption = #1054#1095#1080#1089#1090#1080#1090#1080
+            Caption = #1054#1095#1080#1089#1090#1080#1090#1100
             TabOrder = 2
           end
         end
@@ -2107,7 +2107,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -2117,7 +2117,7 @@ object frmMain: TfrmMain
             Width = 102
             Height = 26
             Align = alLeft
-            Caption = #1053#1072#1079#1074#1072' '#1075#1088#1091#1087#1080
+            Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1075#1088#1091#1087#1087#1099
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -2128,7 +2128,7 @@ object frmMain: TfrmMain
             Height = 26
             Align = alRight
             Alignment = taRightJustify
-            Caption = #1052#1086#1074#1072
+            Caption = #1071#1079#1099#1082
             Layout = tlCenter
             ExplicitHeight = 13
           end
@@ -2202,7 +2202,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
               Position = 0
               Spacing = 10
-              Text = #1053#1072#1079#1074#1072
+              Text = #1053#1072#1079#1074#1072#1085#1080#1077
               Width = 305
             end
             item
@@ -2229,7 +2229,7 @@ object frmMain: TfrmMain
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
               Position = 2
               Spacing = 10
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 65
             end
             item
@@ -2246,7 +2246,7 @@ object frmMain: TfrmMain
               BiDiMode = bdLeftToRight
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
               Position = 4
-              Text = #1050#1086#1083#1077#1082#1094#1110#1103
+              Text = #1050#1086#1083#1083#1077#1082#1094#1080#1103
               Width = 200
             end>
         end
@@ -2254,7 +2254,7 @@ object frmMain: TfrmMain
     end
     object tsDownload: TRzTabSheet
       HelpContext = 108
-      Caption = #1057#1087#1080#1089#1086#1082' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1100
+      Caption = #1057#1087#1080#1089#1086#1082' '#1079#1072#1075#1088#1091#1079#1086#1082
       object tlbrDownloadList: TRzToolbar
         AlignWithMargins = True
         Left = 3
@@ -2308,7 +2308,7 @@ object frmMain: TfrmMain
           Tag = 20
           Left = 68
           Top = 0
-          Hint = #1053#1072' '#1087#1086#1095#1072#1090#1086#1082
+          Hint = #1042' '#1085#1072#1095#1072#1083#1086
           Caption = 'First Record'
           ImageIndex = 3
           OnClick = MoveDwnldListNodes
@@ -2317,7 +2317,7 @@ object frmMain: TfrmMain
           Tag = 21
           Left = 98
           Top = 0
-          Hint = #1042#1075#1086#1088#1091
+          Hint = #1042#1074#1077#1088#1093
           Caption = 'Up'
           ImageIndex = 4
           OnClick = MoveDwnldListNodes
@@ -2335,7 +2335,7 @@ object frmMain: TfrmMain
           Tag = 23
           Left = 158
           Top = 0
-          Hint = #1059' '#1082#1110#1085#1077#1094#1100
+          Hint = #1042' '#1082#1086#1085#1077#1094
           Caption = 'Last Record'
           ImageIndex = 6
           OnClick = MoveDwnldListNodes
@@ -2347,7 +2347,7 @@ object frmMain: TfrmMain
         object BtnDelete: TRzToolButton
           Left = 196
           Top = 0
-          Hint = #1042#1080#1076#1072#1083#1080#1090#1080
+          Hint = #1059#1076#1072#1083#1080#1090#1100
           Caption = 'Delete'
           ImageIndex = 7
           OnClick = btnDeleteDownloadClick
@@ -2355,15 +2355,15 @@ object frmMain: TfrmMain
         object BtnSave: TRzToolButton
           Left = 226
           Top = 0
-          Hint = 'Save'
-          Caption = #1047#1073#1077#1088#1077#1075#1090#1080
+          Hint = #1057#1086#1093#1088#1072#1085#1080#1090#1100
+          Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
           ImageIndex = 8
           OnClick = BtnSaveClick
         end
         object tbtnClear: TRzToolButton
           Left = 256
           Top = 0
-          Caption = #1054#1095#1080#1089#1090#1080#1090#1080
+          Caption = #1054#1095#1080#1089#1090#1080#1090#1100
           ImageIndex = 9
           OnClick = btnClearDownloadClick
         end
@@ -2389,7 +2389,7 @@ object frmMain: TfrmMain
             Width = 265
             Height = 13
             AutoSize = False
-            Caption = #1054#1095#1110#1082#1091#1074#1072#1085#1085#1103
+            Caption = #1054#1078#1080#1076#1072#1085#1080#1077
           end
           object lblDnldAuthor: TLabel
             Left = 0
@@ -2397,7 +2397,7 @@ object frmMain: TfrmMain
             Width = 282
             Height = 13
             AutoSize = False
-            Caption = 'Author'
+            Caption = #1040#1074#1090#1086#1088
           end
           object lblDnldTitle: TLabel
             Left = 288
@@ -2405,7 +2405,7 @@ object frmMain: TfrmMain
             Width = 265
             Height = 13
             AutoSize = False
-            Caption = 'Title'
+            Caption = #1053#1072#1079#1074#1072#1085#1080#1077
           end
           object lblDownloadCount: TLabel
             AlignWithMargins = True
@@ -2415,7 +2415,7 @@ object frmMain: TfrmMain
             Height = 13
             Align = alRight
             Alignment = taRightJustify
-            Caption = '('#1082#1110#1083#1100#1082#1110#1089#1090#1100' '#1082#1085#1080#1075')'
+            Caption = '('#1082#1086#1083#1080#1095#1077#1089#1090#1074#1086' '#1082#1085#1080#1075')'
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
@@ -2470,13 +2470,13 @@ object frmMain: TfrmMain
             end
             item
               Position = 1
-              Text = #1053#1072#1079#1074#1072
+              Text = #1053#1072#1079#1074#1072#1085#1080#1077
               Width = 200
             end
             item
               Alignment = taRightJustify
               Position = 2
-              Text = #1056#1086#1079#1084#1110#1088
+              Text = #1056#1072#1079#1084#1077#1088
               Width = 100
             end
             item
@@ -2651,7 +2651,7 @@ object frmMain: TfrmMain
         Action = acBookAdd2Favorites
       end
       object miAddToGroup: TMenuItem
-        Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1075#1088#1091#1087#1080
+        Caption = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
         OnClick = acBookAdd2GroupExecute
         object TMenuItem
         end
@@ -2663,7 +2663,7 @@ object frmMain: TfrmMain
         Caption = '-'
       end
       object miCopyToCollection: TMenuItem
-        Caption = #1050#1086#1087#1110#1102#1074#1072#1090#1080' '#1076#1086' '#1082#1086#1083#1077#1082#1094#1110#1111
+        Caption = #1057#1082#1086#1087#1080#1088#1086#1074#1072#1090#1100' '#1074' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
         ImageIndex = 23
       end
       object N74: TMenuItem
@@ -2677,13 +2677,13 @@ object frmMain: TfrmMain
       end
     end
     object N2: TMenuItem
-      Caption = #1050#1086#1083#1077#1082#1094#1110#1103
+      Caption = #1050#1086#1083#1083#1077#1082#1094#1080#1103
       HelpContext = 112
       object miNewCollection: TMenuItem
         Action = acCollectionNew
       end
       object miCollSelect: TMenuItem
-        Caption = #1042#1080#1073#1088#1072#1090#1080' '#1082#1086#1083#1077#1082#1094#1110#1102
+        Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1075#1088#1091#1087#1087#1091
         ImageIndex = 27
       end
       object miCollsettings: TMenuItem
@@ -2702,20 +2702,20 @@ object frmMain: TfrmMain
         Caption = '-'
       end
       object N39: TMenuItem
-        Caption = #1030#1084#1087#1086#1088#1090
+        Caption = #1048#1084#1087#1086#1088#1090
         object miFb2Import: TMenuItem
           Action = acImportFb2
-          Caption = #1060#1072#1081#1083#1080' fb2 '#1090#1072' fb2.zip'
+          Caption = 'fb2 '#1080' fb2.zip'
           ImageIndex = 18
         end
         object miPdfdjvu: TMenuItem
           Action = acImportNonFB2
-          Caption = #1060#1072#1081#1083#1080' '#1085#1077'-fb2'
+          Caption = #1060#1072#1081#1083#1099' '#1085#1077'-fb2'
           ImageIndex = 8
         end
         object miFBDImport: TMenuItem
           Action = acImportFBD
-          Caption = #1060#1072#1081#1083#1080' FBD (pdf.zip djvu.zip)'
+          Caption = #1060#1072#1081#1083#1099' FBD (pdf.zip djvu.zip)'
           ImageIndex = 20
         end
         object N14: TMenuItem
@@ -2726,9 +2726,9 @@ object frmMain: TfrmMain
         end
       end
       object N40: TMenuItem
-        Caption = #1045#1082#1089#1087#1086#1088#1090
+        Caption = #1069#1082#1089#1087#1086#1088#1090
         object N46: TMenuItem
-          Caption = #1045#1082#1089#1087#1086#1088#1090' '#1072#1082#1090#1080#1074#1085#1086#1075#1086' '#1089#1087#1080#1089#1082#1091
+          Caption = #1069#1082#1089#1087#1086#1088#1090' '#1090#1077#1082#1091#1097#1077#1075#1086' '#1089#1087#1080#1089#1082#1072
           object miExportToHTML: TMenuItem
             Tag = 351
             Action = acExport2HTML
@@ -2753,7 +2753,7 @@ object frmMain: TfrmMain
         end
       end
       object N6: TMenuItem
-        Caption = #1054#1073#1089#1083#1091#1075#1086#1074#1091#1074#1072#1085#1085#1103
+        Caption = #1054#1073#1089#1083#1091#1078#1080#1074#1072#1085#1080#1077
         object miRefreshGenres: TMenuItem
           Action = acCollectionUpdateGenres
         end
@@ -2775,7 +2775,7 @@ object frmMain: TfrmMain
       end
     end
     object N24: TMenuItem
-      Caption = #1043#1088#1091#1087#1072
+      Caption = #1043#1088#1091#1087#1087#1072
       object N43: TMenuItem
         Action = acGroupCreate
       end
@@ -2790,7 +2790,7 @@ object frmMain: TfrmMain
       end
     end
     object N36: TMenuItem
-      Caption = #1056#1077#1076#1072#1075#1091#1074#1072#1085#1085#1103
+      Caption = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
       object N51: TMenuItem
         Action = acEditBook
       end
@@ -2814,9 +2814,9 @@ object frmMain: TfrmMain
       end
     end
     object miView: TMenuItem
-      Caption = #1042#1080#1075#1083#1103#1076
+      Caption = #1042#1080#1076
       object N75: TMenuItem
-        Caption = #1055#1072#1085#1077#1083#1110
+        Caption = #1055#1072#1085#1077#1083#1080
         object miShowMainToolbar: TMenuItem
           Action = acShowMainToolbar
         end
@@ -2837,7 +2837,7 @@ object frmMain: TfrmMain
         Action = acShowBookInfoPanel
       end
       object miViewExtra: TMenuItem
-        Caption = #1044#1086#1076#1072#1090#1082#1086#1074#1086
+        Caption = #1044#1086#1087#1086#1083#1085#1080#1090#1077#1083#1100#1085#1086
         object miShowBookCover: TMenuItem
           Action = acShowBookCover
         end
@@ -2848,11 +2848,11 @@ object frmMain: TfrmMain
         object miBookInfoPriority: TMenuItem
           Action = acViewSetInfoPriority
           AutoCheck = True
-          Caption = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' BookInfo'
+          Caption = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' BookInfo'
         end
       end
       object N76: TMenuItem
-        Caption = #1056#1077#1078#1080#1084' '#1087#1077#1088#1077#1075#1083#1103#1076#1091
+        Caption = #1056#1077#1078#1080#1084' '#1087#1088#1086#1089#1084#1086#1090#1088#1072
         object acViewTreeView1: TMenuItem
           Action = acViewTreeView
         end
@@ -2874,7 +2874,7 @@ object frmMain: TfrmMain
       end
     end
     object miTools: TMenuItem
-      Caption = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
+      Caption = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
       object miFastBookSearch: TMenuItem
         Action = acToolsQuickSearch
         ShortCut = 114
@@ -2886,7 +2886,7 @@ object frmMain: TfrmMain
         Action = acToolsClearReadFolder
       end
       object mmiScripts: TMenuItem
-        Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1080' '#1089#1082#1088#1080#1087#1090
+        Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1100' '#1089#1082#1088#1080#1087#1090
         ImageIndex = 29
       end
       object N49: TMenuItem
@@ -2897,7 +2897,7 @@ object frmMain: TfrmMain
       end
     end
     object N5: TMenuItem
-      Caption = #1044#1086#1087#1086#1084#1086#1075#1072
+      Caption = #1055#1086#1084#1086#1097#1100
       object miShowHelp: TMenuItem
         Action = acHelpHelp
       end
@@ -2924,13 +2924,13 @@ object frmMain: TfrmMain
     Left = 128
     Top = 280
     object pmiReadBook: TMenuItem
-      Caption = #1063#1080#1090#1072#1090#1080
+      Caption = #1063#1090#1077#1085#1080#1077
       ImageIndex = 12
       ShortCut = 13
       OnClick = ReadBookExecute
     end
     object pmiSendToDevice: TMenuItem
-      Caption = #1053#1072#1076#1110#1089#1083#1072#1090#1080' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1110#1081
+      Caption = #1054#1090#1087#1088#1072#1074#1080#1090#1100' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
       ImageIndex = 7
       ShortCut = 16452
       OnClick = SendToDeviceExecute
@@ -2939,7 +2939,7 @@ object frmMain: TfrmMain
       Action = acBookAdd2DownloadList
     end
     object pmiScripts: TMenuItem
-      Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1080' '#1089#1082#1088#1080#1087#1090
+      Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1100' '#1089#1082#1088#1080#1087#1090
       ImageIndex = 29
     end
     object N44: TMenuItem
@@ -2954,18 +2954,18 @@ object frmMain: TfrmMain
       Caption = '-'
     end
     object miGoToAuthor: TMenuItem
-      Caption = #1055#1077#1088#1077#1081#1090#1080' '#1076#1086' '#1072#1074#1090#1086#1088#1072
+      Caption = #1055#1077#1088#1077#1081#1090#1080' '#1082' '#1072#1074#1090#1086#1088#1091
       ImageIndex = 35
       ShortCut = 49217
       OnClick = miGoToAuthorClick
     end
     object pmiBookInfo: TMenuItem
-      Caption = #1030#1085#1092#1086#1088#1084#1072#1094#1110#1103' '#1087#1088#1086' '#1082#1085#1080#1075#1091
+      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
       ShortCut = 16457
       OnClick = ShowBookInfo
     end
     object miBookEdit: TMenuItem
-      Caption = #1047#1084#1110#1085#1080#1090#1080' '#1086#1087#1080#1089
+      Caption = #1048#1079#1084#1077#1085#1080#1090#1100' '#1086#1087#1080#1089#1072#1085#1080#1077
       ImageIndex = 3
       ShortCut = 16453
       OnClick = EditBookExecute
@@ -2975,16 +2975,16 @@ object frmMain: TfrmMain
     end
     object miAddFavorites: TMenuItem
       Tag = 1
-      Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1086#1073#1088#1072#1085#1086#1075#1086
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1080#1079#1073#1088#1072#1085#1085#1086#1077
       ImageIndex = 13
       ShortCut = 16454
       OnClick = AddBookToGroup
     end
     object pmiGroups: TMenuItem
-      Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1075#1088#1091#1087#1080
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1075#1088#1091#1087#1087#1091
     end
     object miDelFavorites: TMenuItem
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080' '#1110#1079' '#1075#1088#1091#1087#1080
+      Caption = #1059#1076#1072#1083#1080#1090#1100' '#1080#1079' '#1075#1088#1091#1087#1087#1099
       ImageIndex = 21
       Visible = False
       OnClick = DeleteBookFromGroup
@@ -3024,24 +3024,24 @@ object frmMain: TfrmMain
     end
     object pmiCheckAll: TMenuItem
       Tag = 2
-      Caption = #1042#1110#1076#1079#1085#1072#1095#1080#1090#1080' '#1074#1089#1077
+      Caption = '&'#1054#1090#1084#1077#1090#1080#1090#1100' '#1074#1089#1077
       ImageIndex = 24
       ShortCut = 16449
       OnClick = pmiCheckAllClick
     end
     object pmiSelectAll: TMenuItem
-      Caption = #1042#1080#1076#1110#1083#1080#1090#1080' '#1074#1089#1077
+      Caption = #1042#1099#1076#1077#1083#1080#1090#1100' '#1074#1089#1105
       ShortCut = 16467
       OnClick = pmiSelectAllClick
     end
     object pmMarkSelected: TMenuItem
-      Caption = #1042#1110#1076#1079#1085#1072#1095#1080#1090#1080' '#1074#1080#1076#1110#1083#1077#1085#1110
+      Caption = #1054#1090#1084#1077#1090#1080#1090#1100' '#1074#1099#1076#1077#1083#1077#1085#1085#1099#1077
       ShortCut = 16461
       OnClick = pmMarkSelectedClick
     end
     object pmiDeselectAll: TMenuItem
       Tag = 1
-      Caption = #1047#1085#1103#1090#1080' '#1087#1086#1079#1085#1072#1095#1082#1080
+      Caption = #1057#1085#1103#1090#1100' '#1086#1090#1084#1077#1090#1082#1080
       ImageIndex = 32
       ShortCut = 16469
       OnClick = pmiDeselectAllClick
@@ -3051,7 +3051,7 @@ object frmMain: TfrmMain
       Hint = '-'
     end
     object miCopyClBrd: TMenuItem
-      Caption = #1050#1086#1087#1110#1102#1074#1072#1090#1080' '#1074' '#1073#1091#1092#1077#1088
+      Caption = #1050#1086#1087#1080#1088#1086#1074#1072#1090#1100' '#1074' '#1073#1091#1092#1077#1088' '#1086#1073#1084#1077#1085#1072
       ImageIndex = 31
       ShortCut = 16451
       OnClick = miCopyClBrdClick
@@ -3063,7 +3063,7 @@ object frmMain: TfrmMain
     Left = 40
     Top = 288
     object miCopyAuthor: TMenuItem
-      Caption = #1050#1086#1087#1110#1102#1074#1072#1090#1080' '#1074' '#1073#1091#1092#1077#1088
+      Caption = #1050#1086#1087#1080#1088#1086#1074#1072#1090#1100' '#1074' '#1073#1091#1092#1077#1088' '#1086#1073#1084#1077#1085#1072
       ShortCut = 16451
       OnClick = miCopyAuthorClick
     end
@@ -3071,7 +3071,7 @@ object frmMain: TfrmMain
       Caption = '-'
     end
     object miAddToSearch: TMenuItem
-      Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' "'#1055#1086#1096#1091#1082#1091'"'
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#171#1055#1086#1080#1089#1082#187
       OnClick = miAddToSearchClick
     end
   end
@@ -3650,12 +3650,12 @@ object frmMain: TfrmMain
     end
     object N4: TMenuItem
       Tag = 11
-      Caption = #1053#1072#1079#1074#1072
+      Caption = #1053#1072#1079#1074#1072#1085#1080#1077
       OnClick = HeaderPopupItemClick
     end
     object N8: TMenuItem
       Tag = 12
-      Caption = #1057#1077#1088#1110#1103
+      Caption = #1057#1077#1088#1080#1103
       OnClick = HeaderPopupItemClick
     end
     object N10: TMenuItem
@@ -3670,17 +3670,17 @@ object frmMain: TfrmMain
     end
     object N21: TMenuItem
       Tag = 15
-      Caption = #1056#1086#1079#1084#1110#1088
+      Caption = #1056#1072#1079#1084#1077#1088
       OnClick = HeaderPopupItemClick
     end
     object N13: TMenuItem
       Tag = 16
-      Caption = #1052#1086#1103' '#1086#1094#1110#1085#1082#1072
+      Caption = #1052#1086#1103' '#1086#1094#1077#1085#1082#1072
       OnClick = HeaderPopupItemClick
     end
     object N15: TMenuItem
       Tag = 17
-      Caption = #1044#1086#1076#1072#1085#1086
+      Caption = #1044#1086#1073#1072#1074#1083#1077#1085#1086
       OnClick = HeaderPopupItemClick
     end
     object N28: TMenuItem
@@ -3690,12 +3690,12 @@ object frmMain: TfrmMain
     end
     object N22: TMenuItem
       Tag = 19
-      Caption = #1050#1086#1083#1077#1082#1094#1110#1103
+      Caption = #1050#1086#1083#1083#1077#1082#1094#1080#1103
       OnClick = HeaderPopupItemClick
     end
     object N42: TMenuItem
       Tag = 21
-      Caption = #1052#1086#1074#1072
+      Caption = #1071#1079#1099#1082
       OnClick = HeaderPopupItemClick
     end
     object N45: TMenuItem
@@ -3712,7 +3712,7 @@ object frmMain: TfrmMain
       Caption = '-'
     end
     object N27: TMenuItem
-      Caption = #1057#1090#1072#1085#1076#1072#1088#1090#1085#1110
+      Caption = #1057#1090#1072#1085#1076#1072#1088#1090#1085#1099#1081
       OnClick = N27Click
     end
   end
@@ -3729,14 +3729,14 @@ object frmMain: TfrmMain
     Left = 128
     Top = 424
     object N29: TMenuItem
-      Caption = #1042#1110#1076#1082#1088#1080#1090#1080'/'#1047#1075#1086#1088#1085#1091#1090#1080
+      Caption = #1056#1072#1079#1074#1077#1088#1085#1091#1090#1100'/'#1057#1074#1077#1088#1085#1091#1090#1100' '#1089#1087#1080#1089#1086#1082
       OnClick = TrayIconDblClick
     end
     object N32: TMenuItem
       Caption = '-'
     end
     object N33: TMenuItem
-      Caption = #1042#1080#1093#1110#1076
+      Caption = #1042#1099#1093#1086#1076
       OnClick = N33Click
     end
   end
@@ -3746,7 +3746,7 @@ object frmMain: TfrmMain
     Left = 128
     Top = 376
     object mi_dwnl_LocateAuthor: TMenuItem
-      Caption = #1055#1077#1088#1077#1081#1090#1080' '#1076#1086' '#1072#1074#1090#1086#1088#1072
+      Caption = #1055#1077#1088#1077#1081#1090#1080' '#1082' '#1072#1074#1090#1086#1088#1091
       ImageIndex = 35
       OnClick = mi_dwnl_LocateAuthorClick
     end
@@ -3754,7 +3754,7 @@ object frmMain: TfrmMain
       Caption = '-'
     end
     object mi_dwnl_Delete: TMenuItem
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080
+      Caption = #1059#1076#1072#1083#1080#1090#1100
       ImageIndex = 2
       OnClick = btnDeleteDownloadClick
     end
@@ -3788,82 +3788,82 @@ object frmMain: TfrmMain
     Top = 208
     object acShowMainToolbar: TAction
       Category = #1042#1080#1076
-      Caption = #1054#1089#1085#1086#1074#1085#1072' '#1087#1072#1085#1077#1083#1100' '#1110#1085#1089#1090#1088#1091#1084#1077#1085#1090#1110#1074
+      Caption = #1054#1089#1085#1086#1074#1085#1072#1103' '#1087#1072#1085#1077#1083#1100' '#1080#1085#1089#1090#1088#1091#1084#1077#1085#1090#1086#1074
       OnExecute = ShowMainToolbarExecute
       OnUpdate = ShowMainToolbarUpdate
     end
     object acImportNonFB2: TAction
       Category = #1048#1084#1087#1086#1088#1090
       Caption = #1085#1077'-fb2'
-      Hint = #1030#1084#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1082#1085#1080#1075#1080
+      Hint = #1048#1084#1087#1086#1088#1090' '#1082#1085#1080#1075
       OnExecute = ImportNonFB2Execute
       OnUpdate = ImportNonFB2Update
     end
     object acShowEditToolbar: TAction
       Category = #1042#1080#1076
-      Caption = #1055#1072#1085#1077#1083#1100' '#1088#1077#1076#1072#1075#1091#1074#1072#1085#1085#1103
-      Hint = #1055#1072#1085#1077#1083#1100' '#1088#1077#1076#1072#1075#1091#1074#1072#1085#1085#1103
+      Caption = #1055#1072#1085#1077#1083#1100' '#1088#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1103
+      Hint = #1055#1072#1085#1077#1083#1100' '#1088#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1103
       OnExecute = ShowEditToolbarExecute
       OnUpdate = ShowEditToolbarUpdate
     end
     object acShowRusAlphabet: TAction
       Category = #1042#1080#1076
-      Caption = #1050#1080#1088#1080#1083#1080#1095#1085#1072' '#1072#1073#1077#1090#1082#1072
-      Hint = #1050#1080#1088#1080#1083#1080#1095#1085#1072' '#1072#1073#1077#1090#1082#1072
+      Caption = #1050#1080#1088#1080#1083#1083#1080#1095#1077#1089#1082#1080#1081' '#1072#1083#1092#1072#1074#1080#1090
+      Hint = #1050#1080#1088#1080#1083#1083#1080#1095#1077#1089#1082#1080#1081' '#1072#1083#1092#1072#1074#1080#1090
       OnExecute = ShowRusAlphabetExecute
       OnUpdate = ShowRusAlphabetUpdate
     end
     object acShowEngAlphabet: TAction
       Category = #1042#1080#1076
-      Caption = #1051#1072#1090#1080#1085#1089#1100#1082#1072' '#1072#1073#1077#1090#1082#1072
-      Hint = #1051#1072#1090#1080#1085#1089#1100#1082#1072' '#1072#1073#1077#1090#1082#1072
+      Caption = #1051#1072#1090#1080#1085#1089#1082#1080#1081' '#1072#1083#1092#1072#1074#1080#1090
+      Hint = #1051#1072#1090#1080#1085#1089#1082#1080#1081' '#1072#1083#1092#1072#1074#1080#1090
       OnExecute = ShowEngAlphabetExecute
       OnUpdate = ShowEngAlphabetUpdate
     end
     object acShowStatusbar: TAction
       Category = #1042#1080#1076
-      Caption = #1056#1103#1076#1086#1082' '#1089#1090#1072#1085#1091
-      Hint = #1042#1110#1076#1086#1073#1088#1072#1078#1077#1085#1085#1103' '#1072#1073#1086' '#1087#1088#1080#1093#1086#1074#1091#1074#1072#1085#1085#1103' '#1088#1103#1076#1082#1072' '#1089#1090#1072#1085#1091'.'
+      Caption = #1057#1090#1088#1086#1082#1072' '#1089#1086#1089#1090#1086#1103#1085#1080#1103
+      Hint = #1055#1086#1082#1072#1079#1072#1090#1100'/'#1089#1082#1088#1099#1090#1100' '#1089#1090#1088#1086#1082#1091' '#1089#1086#1089#1090#1086#1103#1085#1080#1103
       OnExecute = ShowStatusbarExecute
       OnUpdate = ShowStatusbarUpdate
     end
     object acShowBookInfoPanel: TAction
       Category = #1042#1080#1076
-      Caption = #1055#1072#1085#1077#1083#1100' '#1110#1085#1092#1086#1088#1084#1072#1094#1110#1111' '#1087#1088#1086' '#1082#1085#1080#1075#1091
-      Hint = #1055#1086#1082#1072#1079#1072#1090#1080'/'#1057#1093#1086#1074#1072#1090#1080' '#1087#1072#1085#1077#1083#1100' '#1110#1085#1092#1086#1088#1084#1072#1094#1110#1111' '#1087#1088#1086' '#1082#1085#1080#1075#1091
+      Caption = #1057#1074#1077#1076#1077#1085#1080#1103' '#1086' '#1082#1085#1080#1075#1077
+      Hint = #1055#1086#1082#1072#1079#1072#1090#1100'/'#1089#1082#1088#1099#1090#1100' '#1087#1072#1085#1077#1083#1100' '#1080#1085#1092#1086#1088#1084#1072#1094#1080#1080' '#1086' '#1082#1085#1080#1075#1077
       OnExecute = ShowBookInfoPanelExecute
       OnUpdate = ShowBookInfoPanelUpdate
     end
     object acShowBookCover: TAction
       Category = #1042#1080#1076
-      Caption = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1086#1073#1082#1083#1072#1076#1080#1085#1082#1091
+      Caption = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1086#1073#1083#1086#1078#1082#1091
       OnExecute = ShowBookCoverExecute
       OnUpdate = ShowBookCoverUpdate
     end
     object acShowBookAnnotation: TAction
       Category = #1042#1080#1076
-      Caption = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1072#1085#1086#1090#1072#1094#1110#1102
+      Caption = #1055#1086#1082#1072#1079#1072#1090#1100' '#1072#1085#1085#1086#1090#1072#1094#1080#1102
       OnExecute = ShowBookAnnotationExecute
       OnUpdate = ShowBookAnnotationUpdate
     end
     object acBookRead: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1063#1080#1090#1072#1090#1080
-      Hint = #1063#1080#1090#1072#1090#1080
+      Caption = #1063#1090#1077#1085#1080#1077
+      Hint = #1063#1090#1077#1085#1080#1077
       ImageIndex = 12
       OnExecute = ReadBookExecute
     end
     object acBookSend2Device: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1053#1072#1076#1110#1089#1083#1072#1090#1080' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1110#1081
-      Hint = #1053#1072#1076#1110#1089#1083#1072#1090#1080' '#1085#1072' '#1087#1088#1080#1089#1090#1088#1110#1081
+      Caption = #1054#1090#1087#1088#1072#1074#1080#1090#1100' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
+      Hint = #1054#1090#1087#1088#1072#1074#1080#1090#1100' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
       ImageIndex = 7
       OnExecute = SendToDeviceExecute
     end
     object acBookAdd2DownloadList: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1089#1087#1080#1089#1082#1091' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1100
-      Hint = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1089#1087#1080#1089#1082#1091' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1100
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1089#1087#1080#1089#1086#1082' '#1079#1072#1075#1088#1091#1079#1086#1082
+      Hint = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1089#1087#1080#1089#1086#1082' '#1079#1072#1075#1088#1091#1079#1086#1082
       ImageIndex = 20
       ShortCut = 16460
       OnExecute = Add2DownloadListExecute
@@ -3875,19 +3875,19 @@ object frmMain: TfrmMain
     end
     object acBookAdd2Favorites: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1044#1086#1076#1072#1090#1080' '#1074' '#1086#1073#1088#1072#1085#1077
-      Hint = #1044#1086#1076#1072#1090#1080' '#1074' '#1086#1073#1088#1072#1085#1077
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1080#1079#1073#1088#1072#1085#1085#1086#1077
+      Hint = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1080#1079#1073#1088#1072#1085#1085#1086#1077
       ImageIndex = 13
       OnExecute = acBookAdd2FavoritesExecute
     end
     object acBookAdd2Group: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1044#1086#1076#1072#1090#1080' '#1076#1086' '#1075#1088#1091#1087#1080
+      Caption = #1044#1086#1073#1072#1074#1080#1090#1100' '#1074' '#1075#1088#1091#1087#1087#1091
       OnExecute = acBookAdd2GroupExecute
     end
     object acBookRemoveFromGroup: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080' '#1110#1079' '#1075#1088#1091#1087#1080
+      Caption = #1059#1076#1072#1083#1080#1090#1100' '#1080#1079' '#1075#1088#1091#1087#1087#1099
       OnExecute = acBookRemoveFromGroupExecute
     end
     object acBookSetRate1: TAction
@@ -3922,76 +3922,76 @@ object frmMain: TfrmMain
     end
     object acBookSetRateClear: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1054#1095#1080#1089#1090#1080#1090#1080
+      Caption = #1054#1095#1080#1089#1090#1080#1090#1100
       OnExecute = BookSetRateExecute
       OnUpdate = UpdateBookAction
     end
     object acGroupCreate: TAction
-      Category = #1043#1088#1091#1087#1080
-      Caption = #1057#1090#1074#1086#1088#1080#1090#1080' '#1075#1088#1091#1087#1091
-      Hint = #1057#1090#1074#1086#1088#1080#1090#1080' '#1085#1086#1074#1091' '#1075#1088#1091#1087#1091
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1053#1086#1074#1072#1103' '#1075#1088#1091#1087#1087#1072
+      Hint = #1057#1086#1079#1076#1072#1090#1100' '#1075#1088#1091#1087#1087#1091
       OnExecute = AddGroupExecute
       OnUpdate = AddGroupUpdate
     end
     object acGroupEdit: TAction
-      Category = #1043#1088#1091#1087#1080
-      Caption = #1055#1077#1088#1077#1081#1084#1077#1085#1091#1074#1072#1090#1080' '#1075#1088#1091#1087#1091
-      Hint = #1055#1077#1088#1077#1081#1084#1077#1085#1091#1074#1072#1090#1080' '#1074#1080#1073#1088#1072#1085#1091' '#1075#1088#1091#1087#1091
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1055#1077#1088#1077#1080#1084#1077#1085#1086#1074#1072#1090#1100' '#1075#1088#1091#1087#1087#1091
+      Hint = #1055#1077#1088#1077#1080#1084#1077#1085#1086#1074#1072#1090#1100' '#1074#1099#1073#1088#1072#1085#1085#1091#1102' '#1075#1088#1091#1087#1087#1091
       OnExecute = RenameGroupExecute
       OnUpdate = EditGroupUpdate
     end
     object acGroupClear: TAction
-      Category = #1043#1088#1091#1087#1080
-      Caption = #1054#1095#1080#1089#1090#1080#1090#1080' '#1075#1088#1091#1087#1091
-      Hint = #1054#1095#1080#1089#1090#1080#1090#1080' '#1074#1080#1073#1088#1072#1085#1091' '#1075#1088#1091#1087#1091
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1054#1095#1080#1089#1090#1080#1090#1100' '#1075#1088#1091#1087#1087#1091
+      Hint = #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1099#1073#1088#1072#1085#1085#1091#1102' '#1075#1088#1091#1087#1087#1091
       OnExecute = ClearGroupExecute
       OnUpdate = ClearGroupUpdate
     end
     object acGroupDelete: TAction
-      Category = #1043#1088#1091#1087#1080
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080' '#1075#1088#1091#1087#1091
-      Hint = #1042#1080#1076#1072#1083#1080#1090#1080' '#1074#1080#1073#1088#1072#1085#1091' '#1075#1088#1091#1087#1091
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1059#1076#1072#1083#1080#1090#1100' '#1075#1088#1091#1087#1087#1091
+      Hint = #1059#1076#1072#1083#1080#1090#1100' '#1074#1099#1073#1088#1072#1085#1085#1091#1102' '#1075#1088#1091#1087#1087#1091
       OnExecute = DeleteGroupExecute
       OnUpdate = EditGroupUpdate
     end
     object acSavePreset: TAction
       Category = #1055#1086#1080#1089#1082
-      Caption = #1047#1073#1077#1088#1077#1075#1090#1080
-      Hint = #1047#1073#1077#1088#1077#1075#1090#1080' '#1087#1088#1077#1089#1077#1090
+      Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
+      Hint = #1057#1086#1093#1088#1072#1085#1080#1090#1100' '#1087#1088#1077#1089#1077#1090
       OnExecute = SaveSearchPreset
       OnUpdate = SavePresetUpdate
     end
     object acDeletePreset: TAction
       Category = #1055#1086#1080#1089#1082
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080
-      Hint = #1042#1080#1076#1072#1083#1080#1090#1080' '#1087#1088#1077#1089#1077#1090
+      Caption = #1059#1076#1072#1083#1080#1090#1100
+      Hint = #1059#1076#1072#1083#1080#1090#1100' '#1087#1088#1077#1089#1077#1090
       OnExecute = DeleteSearchPreset
       OnUpdate = DeletePresetUpdate
     end
     object acApplyPreset: TAction
       Category = #1055#1086#1080#1089#1082
-      Caption = #1047#1072#1089#1090#1086#1089#1091#1074#1072#1090#1080
-      Hint = #1056#1086#1079#1087#1086#1095#1072#1090#1080' '#1087#1086#1096#1091#1082
+      Caption = #1055#1088#1080#1084#1077#1085#1080#1090#1100
+      Hint = #1053#1072#1095#1072#1090#1100' '#1087#1086#1080#1089#1082
       OnExecute = DoApplyFilter
     end
     object acClearPreset: TAction
       Category = #1055#1086#1080#1089#1082
-      Caption = #1054#1095#1080#1089#1090#1080#1090#1080
-      Hint = #1054#1095#1080#1089#1090#1080#1090#1080' '#1074#1089#1110' '#1087#1086#1083#1103
+      Caption = #1054#1095#1080#1089#1090#1080#1090#1100
+      Hint = #1054#1095#1080#1089#1090#1080#1090#1100' '#1074#1089#1077' '#1087#1086#1083#1103
     end
     object acEditBook: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1030#1085#1092#1086#1088#1084#1072#1094#1110#1103' '#1087#1088#1086' '#1082#1085#1080#1075#1091
+      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
       OnExecute = EditBookExecute
     end
     object acEditConvert2FBD: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1055#1077#1088#1077#1090#1074#1086#1088#1080#1090#1080' '#1085#1072' FBD'
+      Caption = #1055#1088#1077#1086#1073#1088#1072#1079#1086#1074#1072#1090#1100' '#1074' FBD'
       OnExecute = Conver2FBDExecute
     end
     object acEditAutoConvert2FBD: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1040#1074#1090#1086#1084#1072#1090#1080#1095#1085#1086' '#1087#1077#1088#1077#1090#1074#1086#1088#1080#1090#1080' '#1085#1072' FBD'
+      Caption = #1040#1074#1090#1086#1084#1072#1090#1080#1095#1077#1089#1082#1080' '#1087#1088#1077#1086#1073#1088#1072#1079#1086#1074#1072#1090#1100' '#1074' FBD'
     end
     object acEditAuthor: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
@@ -4001,52 +4001,52 @@ object frmMain: TfrmMain
     end
     object acEditSerie: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1053#1072#1079#1074#1072' '#1089#1077#1088#1110#1111
+      Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1089#1077#1088#1080#1080
       OnExecute = EditSeriesExecute
       OnUpdate = EditSerieUpdate
     end
     object acEditGenre: TAction
       Category = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
-      Caption = #1053#1072#1079#1074#1072' '#1078#1072#1085#1088#1091
+      Caption = #1053#1072#1079#1074#1072#1085#1080#1077' '#1078#1072#1085#1088#1072
       OnExecute = EditGenresExecute
       OnUpdate = EditGenreUpdate
     end
     object acBookShowInfo: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1030#1085#1092#1086#1088#1084#1072#1094#1110#1103' '#1087#1088#1086' '#1082#1085#1080#1075#1091
+      Caption = #1048#1085#1092#1086#1088#1084#1072#1094#1080#1103' '#1086' '#1082#1085#1080#1075#1077
       OnExecute = ShowBookInfoPanelExecute
     end
     object acBookCopy2Collection: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1050#1086#1087#1110#1102#1074#1072#1090#1080' '#1076#1086' '#1082#1086#1083#1077#1082#1094#1110#1111
+      Caption = #1057#1082#1086#1087#1080#1088#1086#1074#1072#1090#1100' '#1074' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
     end
     object acBookDelete: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080
+      Caption = #1059#1076#1072#1083#1080#1090#1100
       ImageIndex = 0
       OnExecute = DeleteBookExecute
     end
     object acApplicationExit: TAction
       Category = #1050#1085#1080#1075#1072
-      Caption = #1042#1080#1093#1110#1076
+      Caption = #1042#1099#1093#1086#1076
       ImageIndex = 33
       OnExecute = QuitAppExecute
     end
     object acCollectionNew: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1057#1090#1074#1086#1088#1080#1090#1080' '#1085#1086#1074#1091' '#1082#1086#1083#1077#1082#1094#1110#1102
-      Hint = #1052#1072#1081#1089#1090#1077#1088' '#1076#1086#1076#1072#1074#1072#1085#1085#1103' '#1082#1086#1083#1077#1082#1094#1110#1081
+      Caption = #1057#1086#1079#1076#1072#1090#1100' '#1085#1086#1074#1091#1102' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
+      Hint = #1052#1072#1089#1090#1077#1088' '#1076#1086#1073#1072#1074#1083#1077#1085#1080#1103' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
       ImageIndex = 1
       ShortCut = 16462
       OnExecute = ShowNewCollectionWizard
     end
     object acCollectionSelect: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1042#1080#1073#1088#1072#1090#1080' '#1082#1086#1083#1077#1082#1094#1110#1102
+      Caption = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
     end
     object acCollectionProperties: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1042#1083#1072#1089#1090#1080#1074#1086#1089#1090#1110' '#1082#1086#1083#1077#1082#1094#1110#1111
+      Caption = #1057#1074#1086#1081#1089#1090#1074#1072' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
       ImageIndex = 3
       OnExecute = ShowCollectionSettingsExecute
     end
@@ -4057,165 +4057,165 @@ object frmMain: TfrmMain
     end
     object acCollectionUpdateFromFile: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1054#1085#1086#1074#1080#1090#1080' '#1082#1086#1083#1077#1082#1094#1110#1102' '#1079' '#1092#1072#1081#1083#1091'...'
+      Caption = #1054#1073#1085#1086#1074#1080#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102' '#1080#1079' '#1092#1072#1081#1083#1072'...'
       OnExecute = UpdateCollectionFromFileExecute
       OnUpdate = UpdateCollectionFromFileUpdate
     end
     object acCollectionDelete: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1042#1080#1076#1072#1083#1080#1090#1080
+      Caption = #1059#1076#1072#1083#1080#1090#1100
       ImageIndex = 2
       OnExecute = DeleteCollectionExecute
     end
     object acViewTreeView: TAction
       Category = #1042#1080#1076
-      Caption = #1059' '#1074#1080#1075#1083#1103#1076#1110' '#1076#1077#1088#1077#1074#1072
-      Hint = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1089#1087#1080#1089#1086#1082' '#1082#1085#1080#1075' '#1091' '#1074#1080#1075#1083#1103#1076#1110' '#1076#1077#1088#1077#1074#1072
+      Caption = #1042' '#1074#1080#1076#1077' '#1076#1077#1088#1077#1074#1072
+      Hint = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1089#1087#1080#1089#1086#1082' '#1082#1085#1080#1075' '#1074' '#1074#1080#1076#1077' '#1076#1077#1088#1077#1074#1072
     end
     object acViewTableView: TAction
       Category = #1042#1080#1076
-      Caption = #1059' '#1074#1080#1075#1083#1103#1076#1110' '#1090#1072#1073#1083#1080#1094#1110
-      Hint = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1089#1087#1080#1089#1086#1082' '#1082#1085#1080#1075' '#1091' '#1074#1080#1075#1083#1103#1076#1110' '#1090#1072#1073#1083#1080#1094#1110
+      Caption = #1058#1072#1073#1083#1080#1094#1072
+      Hint = #1055#1086#1082#1072#1079#1072#1090#1100' '#1089#1087#1080#1089#1086#1082' '#1082#1085#1080#1075' '#1074' '#1074#1080#1076#1077' '#1090#1072#1073#1083#1080#1094#1099
     end
     object acViewSelectColumns: TAction
       Category = #1042#1080#1076
-      Caption = #1042#1080#1073#1110#1088' '#1089#1090#1086#1074#1087#1094#1110#1074' '#1091' '#1090#1072#1073#1083#1080#1094#1110'...'
+      Caption = #1042#1099#1073#1086#1088' '#1089#1090#1086#1083#1073#1094#1086#1074' '#1074' '#1090#1072#1073#1083#1080#1094#1077'...'
     end
     object acViewHideDeletedBooks: TAction
       Category = #1042#1080#1076
-      Caption = #1057#1093#1086#1074#1072#1090#1080' '#1074#1080#1076#1072#1083#1077#1085#1110' '#1082#1085#1080#1075#1080
-      Hint = #1057#1093#1086#1074#1072#1090#1080' '#1074#1080#1076#1072#1083#1077#1085#1110' '#1082#1085#1080#1075#1080
+      Caption = #1057#1082#1088#1099#1090#1100' '#1091#1076#1072#1083#1105#1085#1085#1099#1077' '#1082#1085#1080#1075#1080
+      Hint = #1057#1082#1088#1099#1090#1100' '#1091#1076#1072#1083#1105#1085#1085#1099#1077' '#1082#1085#1080#1075#1080
       OnExecute = HideDeletedBooksExecute
       OnUpdate = HideDeletedBooksUpdate
     end
     object acViewShowLocalOnly: TAction
       Category = #1042#1080#1076
-      Caption = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1090#1110#1083#1100#1082#1080' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1110' '#1082#1085#1080#1075#1080
-      Hint = #1055#1086#1082#1072#1079#1091#1074#1072#1090#1080' '#1090#1110#1083#1100#1082#1080' '#1079#1072#1074#1072#1085#1090#1072#1078#1077#1085#1110' '#1082#1085#1080#1075#1080
+      Caption = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1090#1086#1083#1100#1082#1086' '#1079#1072#1075#1088#1091#1078#1077#1085#1085#1099#1077' '#1082#1085#1080#1075#1080
+      Hint = #1055#1086#1082#1072#1079#1099#1074#1072#1090#1100' '#1090#1086#1083#1100#1082#1086' '#1079#1072#1075#1088#1091#1078#1077#1085#1085#1099#1077' '#1082#1085#1080#1075#1080
       OnExecute = ShowLocalOnlyExecute
       OnUpdate = ShowLocalOnlyUpdate
     end
     object acToolsQuickSearch: TAction
-      Category = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
-      Caption = #1064#1074#1080#1076#1082#1080#1081' '#1087#1086#1096#1091#1082
+      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
+      Caption = #1041#1099#1089#1090#1088#1099#1081' '#1087#1086#1080#1089#1082
       OnExecute = QuickSearchExecute
     end
     object acToolsUpdateOnlineCollections: TAction
-      Category = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
-      Caption = #1054#1085#1086#1074#1080#1090#1080' '#1082#1086#1083#1077#1082#1094#1110#1111
+      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
+      Caption = #1054#1073#1085#1086#1074#1080#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1080
       OnExecute = UpdateOnlineCollectionExecute
     end
     object acToolsClearReadFolder: TAction
-      Category = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
-      Caption = #1054#1095#1080#1089#1090#1080#1090#1080' '#1087#1072#1087#1082#1091' '#8220#1044#1083#1103' '#1095#1080#1090#1072#1085#1085#1103#8221
+      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
+      Caption = #1054#1095#1080#1089#1090#1080#1090#1100' '#1087#1072#1087#1082#1091' '#171#1044#1083#1103' '#1095#1090#1077#1085#1080#1103#187
       OnExecute = ClearReadFolderExecute
     end
     object acToolsRunScript: TAction
-      Category = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
-      Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1080' '#1089#1082#1088#1080#1087#1090
+      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
+      Caption = #1047#1072#1087#1091#1089#1090#1080#1090#1100' '#1089#1082#1088#1080#1087#1090
     end
     object acToolsSettings: TAction
-      Category = #1030#1085#1089#1090#1088#1091#1084#1077#1085#1090#1080
-      Caption = #1053#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103
-      Hint = #1053#1072#1083#1072#1096#1090#1091#1074#1072#1085#1085#1103' '#1087#1088#1086#1075#1088#1072#1084#1080
+      Category = #1048#1085#1089#1090#1088#1091#1084#1077#1085#1090#1099
+      Caption = #1053#1072#1089#1090#1088#1086#1081#1082#1080
+      Hint = #1053#1072#1089#1090#1088#1086#1081#1082#1072' '#1087#1088#1086#1075#1088#1072#1084#1084#1099
       ImageIndex = 11
       OnExecute = ChangeSettingsExecute
     end
     object acHelpHelp: TAction
       Category = #1055#1086#1084#1086#1097#1100
-      Caption = #1044#1086#1074#1110#1076#1082#1072
-      Hint = #1044#1086#1074#1110#1076#1082#1072
+      Caption = #1057#1087#1088#1072#1074#1082#1072
+      Hint = #1057#1087#1088#1072#1074#1082#1072
       ImageIndex = 17
       OnExecute = ShowHelpExecute
     end
     object acHelpCheckUpdates: TAction
       Category = #1055#1086#1084#1086#1097#1100
-      Caption = #1055#1077#1088#1077#1074#1110#1088#1080#1090#1080' '#1085#1072#1103#1074#1085#1110#1089#1090#1100' '#1086#1085#1086#1074#1083#1077#1085#1100
+      Caption = #1055#1088#1086#1074#1077#1088#1080#1090#1100' '#1085#1072#1083#1080#1095#1080#1077' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081
       OnExecute = CheckUpdatesExecute
     end
     object acHelpProgramSite: TAction
       Category = #1055#1086#1084#1086#1097#1100
-      Caption = #1057#1072#1081#1090' '#1087#1088#1086#1075#1088#1072#1084#1080
+      Caption = #1057#1072#1081#1090' '#1087#1088#1086#1075#1088#1072#1084#1084#1099
       OnExecute = GoSiteExecute
     end
     object acHelpAbout: TAction
       Category = #1055#1086#1084#1086#1097#1100
-      Caption = #1055#1088#1086' '#1087#1088#1086#1075#1088#1072#1084#1091
+      Caption = #1054' '#1087#1088#1086#1075#1088#1072#1084#1084#1077
       OnExecute = ShowAboutExecute
     end
     object acImportFb2Zip: TAction
       Category = #1048#1084#1087#1086#1088#1090
-      Caption = 'fb2  ('#1080#1079' .zip)'
-      Hint = #1030#1084#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1082#1085#1080#1075#1080' '#1091' '#1092#1086#1088#1084#1072#1090#1110' FB2 ('#1079' .zip)'
+      Caption = 'fb2 ('#1080#1079' ZIP)'
+      Hint = #1048#1084#1087#1086#1088#1090' '#1082#1085#1080#1075' '#1074' '#1092#1086#1088#1084#1072#1090#1077' FB2 ('#1080#1079' ZIP-'#1072#1088#1093#1080#1074#1072')'
       OnUpdate = ImportFb2Update
     end
     object acImportFb2: TAction
       Category = #1048#1084#1087#1086#1088#1090
       Caption = 'fb2'
-      Hint = #1030#1084#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1082#1085#1080#1075#1080' '#1091' '#1092#1086#1088#1084#1072#1090#1110' FB2 ('#1079' .zip)'
+      Hint = #1048#1084#1087#1086#1088#1090#1080#1088#1086#1074#1072#1090#1100' '#1082#1085#1080#1075#1080' '#1074' '#1092#1086#1088#1084#1072#1090#1077' FB2 ('#1080#1079' .zip)'
       OnExecute = ImportFb2Execute
       OnUpdate = ImportFb2Update
     end
     object acImportFBD: TAction
       Category = #1048#1084#1087#1086#1088#1090
       Caption = 'FBD (pdf.zip djvu.zip)'
-      Hint = #1030#1084#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1082#1085#1080#1075#1080' '#1091' '#1092#1086#1088#1084#1072#1090#1110' FBD'
+      Hint = #1048#1084#1087#1086#1088#1090' '#1082#1085#1080#1075' '#1074' '#1092#1086#1088#1084#1072#1090#1077' FBD'
       OnExecute = ImportFBDExecute
       OnUpdate = ImportNonFB2Update
     end
     object acImportUserData: TAction
       Category = #1048#1084#1087#1086#1088#1090
-      Caption = #1044#1072#1085#1110' '#1082#1086#1088#1080#1089#1090#1091#1074#1072#1095#1072
-      Hint = #1030#1084#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1076#1072#1085#1110' '#1082#1086#1088#1080#1089#1090#1091#1074#1072#1095#1072
+      Caption = #1044#1072#1085#1085#1099#1077' '#1087#1086#1083#1100#1079#1086#1074#1072#1090#1077#1083#1103
+      Hint = #1048#1084#1087#1086#1088#1090#1080#1088#1086#1074#1072#1090#1100' '#1076#1072#1085#1085#1099#1077' '#1087#1086#1083#1100#1079#1086#1074#1072#1090#1077#1083#1103
       OnExecute = ImportUserDataExecute
     end
     object acExport2HTML: TAction
       Tag = 351
-      Category = #1045#1082#1089#1087#1086#1088#1090
+      Category = #1069#1082#1089#1087#1086#1088#1090
       Caption = 'html'
       OnExecute = Export2HTMLExecute
     end
     object acExport2Txt: TAction
       Tag = 352
-      Category = #1045#1082#1089#1087#1086#1088#1090
+      Category = #1069#1082#1089#1087#1086#1088#1090
       Caption = 'txt'
       OnExecute = Export2HTMLExecute
     end
     object acExport2RTF: TAction
       Tag = 353
-      Category = #1045#1082#1089#1087#1086#1088#1090
+      Category = #1069#1082#1089#1087#1086#1088#1090
       Caption = 'RTF'
       OnExecute = Export2HTMLExecute
     end
     object acExport2INPX: TAction
-      Category = #1045#1082#1089#1087#1086#1088#1090
-      Caption = #1045#1082#1089#1087#1086#1088#1090#1091#1074#1072#1090#1080' '#1074' inpx'
+      Category = #1069#1082#1089#1087#1086#1088#1090
+      Caption = #1069#1082#1089#1087#1086#1088#1090#1080#1088#1086#1074#1072#1090#1100' '#1074' inpx'
       OnExecute = Export2INPXExecute
     end
     object acExportUserData: TAction
-      Category = #1045#1082#1089#1087#1086#1088#1090
-      Caption = #1044#1072#1085#1110' '#1082#1086#1088#1080#1089#1090#1091#1074#1072#1095#1072
+      Category = #1069#1082#1089#1087#1086#1088#1090
+      Caption = #1044#1072#1085#1085#1099#1077' '#1087#1086#1083#1100#1079#1086#1074#1072#1090#1077#1083#1103
       OnExecute = ExportUserDataExecute
     end
     object acCollectionUpdateGenres: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1054#1085#1086#1074#1080#1090#1080' '#1089#1087#1080#1089#1086#1082' '#1078#1072#1085#1088#1110#1074
+      Caption = #1054#1073#1085#1086#1074#1080#1090#1100' '#1089#1087#1080#1089#1086#1082' '#1078#1072#1085#1088#1086#1074
       OnExecute = UpdateGenresExecute
     end
     object acCollectionSyncFiles: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1057#1080#1085#1093#1088#1086#1085#1110#1079#1091#1074#1072#1090#1080' '#1092#1072#1081#1083#1080
+      Caption = #1057#1080#1085#1093#1088#1086#1085#1080#1079#1080#1088#1086#1074#1072#1090#1100' '#1092#1072#1081#1083#1099
       ImageIndex = 9
       OnExecute = SyncFilesExecute
     end
     object acCollectionRepair: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1055#1077#1088#1077#1074#1110#1088#1080#1090#1080' '#1073#1072#1079#1091
+      Caption = #1055#1088#1086#1074#1077#1088#1080#1090#1100' '#1073#1072#1079#1091
       OnExecute = RepairDataBaseExecute
     end
     object acCollectionCompact: TAction
       Category = #1050#1086#1083#1083#1077#1082#1094#1080#1103
-      Caption = #1057#1090#1080#1089#1085#1091#1090#1080
+      Caption = #1057#1078#1072#1090#1100
       OnExecute = CompactDataBaseExecute
     end
     object acViewSetInfoPriority: TAction

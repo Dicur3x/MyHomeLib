@@ -69,10 +69,10 @@ type
   end;
 
 resourcestring
-  rstrNamelessColection = 'безіменна колекція';
-  rstrUnknownCollection = 'невідома колекція';
-  rstrFavoritesGroupName = 'Обране';
-  rstrToReadGroupName = 'До прочитання';
+  rstrNamelessColection = 'безымянная коллекция';
+  rstrUnknownCollection = 'неизвестная коллекция';
+  rstrFavoritesGroupName = 'Избранное';
+  rstrToReadGroupName = 'К прочтению';
 
 const
   // Names earlier releases seeded the two default groups with, before the
@@ -87,8 +87,8 @@ const
   //
   // Append here if a future release renames the seeded groups again; never
   // remove an entry, because some profile out there still holds it.
-  LegacyFavoritesGroupNames: array[0..0] of string = ('Избранное');
-  LegacyToReadGroupNames: array[0..0] of string = ('К прочтению');
+  LegacyFavoritesGroupNames: array[0..0] of string = ('Обране');
+  LegacyToReadGroupNames: array[0..0] of string = ('До прочитання');
 
 implementation
 

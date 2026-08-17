@@ -781,7 +781,7 @@ begin
         else if (FCollection.GetAuthorFilterType <> '') and (FCollection.GetAuthorFilterType <> ALPHA_FILTER_ALL) then
         begin
           Assert(Length(FCollection.GetAuthorFilterType) = 1);
-          // Увага: індекс у TCharHelper відлічується від нуля
+          // Внимание: индекс в TCharHelper отсчитывается с нуля
           Assert(Char.IsUpper(FCollection.GetAuthorFilterType, 0));
           AddToWhere(Where,
             'a.SearchName LIKE :FilterType'
@@ -1018,7 +1018,7 @@ begin
         else if FCollection.GetSeriesFilterType <> ALPHA_FILTER_ALL then
         begin
           Assert(Length(FCollection.GetSeriesFilterType) = 1);
-          // Увага: індекс у TCharHelper відлічується від нуля
+          // Внимание: индекс в TCharHelper отсчитывается с нуля
           Assert(Char.IsUpper(FCollection.GetSeriesFilterType, 0));
           // TODO -cSQL performance: не оптимизируется при использовании выражения
           AddToWhere(Where,
@@ -2394,8 +2394,8 @@ var
   Lines: TStringList;
 begin
   //
-  // SQLite не має автоматичного відновлення. PRAGMA integrity_check повертає
-  // рядок 'ok' для справної бази або список знайдених проблем.
+  // SQLite не имеет автоматического восстановления. PRAGMA integrity_check возвращает
+  // строку 'ok' для исправной базы или список найденных проблем.
   //
   Lines := TStringList.Create;
   try

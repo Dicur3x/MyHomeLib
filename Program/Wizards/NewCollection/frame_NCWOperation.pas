@@ -52,7 +52,7 @@ implementation
 
 resourcestring
    rstrCreateNew = 'Выберите этот пункт для создания пустых коллекций';
-   rstrAddExists = 'Подключить ранее созданную коллекцию. Требуется файл коллекции *.hlc';
+   rstrAddExists = 'Подключить ранее созданную коллекцию. Требуется файл коллекции *.hlc2';
    rstrInpxBased = 'Создать коллекцию из имеющегося файла inpx (коллекции lib.rus.ec, Flibusta, Traum)';
 
 {$R *.dfm}

@@ -9,7 +9,7 @@ const spec = JSON.parse(fs.readFileSync(path.join(__dirname, 'topics.json'), 'ut
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function navFor(current) {
-  const out = ['<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>'];
+  const out = ['<p class="nav-title"><a href="index.html">Справка MyHomeLib</a></p>'];
   for (const section of spec.sections) {
     out.push(`<p class="nav-section">${esc(section.title)}</p>`);
     out.push('<ul>');
@@ -24,14 +24,14 @@ function navFor(current) {
 }
 
 function pageTitle(title, file) {
-  // The index page's own title *is* "Довідка MyHomeLib" — appending the
-  // suffix would double it up ("Довідка MyHomeLib — Довідка MyHomeLib").
-  return file === 'index.html' ? title : `${title} — Довідка MyHomeLib`;
+  // The index page's own title *is* "Справка MyHomeLib" — appending the
+  // suffix would double it up ("Справка MyHomeLib — Справка MyHomeLib").
+  return file === 'index.html' ? title : `${title} — Справка MyHomeLib`;
 }
 
 function template(title, file) {
   return `<!DOCTYPE html>
-<html lang="uk">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -46,7 +46,7 @@ function template(title, file) {
 <main id="content">
 <h1>${esc(title)}</h1>
 <!-- BODY:BEGIN -->
-<p>Розділ у роботі.</p>
+<p>Раздел в работе.</p>
 <!-- BODY:END -->
 </main>
 </body>

@@ -62,7 +62,7 @@ uses
   unit_Localization;
 
 resourcestring
-  rstrProvideNameAndPath = 'Вкажіть назву та шлях!';
+  rstrProvideNameAndPath = 'Укажите название и путь!';
 
 {$R *.dfm}
 

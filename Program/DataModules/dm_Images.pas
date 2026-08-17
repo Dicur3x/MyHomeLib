@@ -57,10 +57,10 @@ implementation
 
 resourcestring
   rstrIconResourceMissing =
-    'Не вдалося завантажити ресурс піктограм:'#13#10'%s'#13#10#13#10 +
-    'Помилка Windows %d: %s'#13#10#13#10 +
-    'Програма працюватиме без піктограм. Перевстановіть MyHomeLib або ' +
-    'скопіюйте теку Icons поруч із MyHomeLib.exe.';
+    'Невозможно загрузить источник значков:'#13#10'%s'#13#10#13#10 +
+    'Ошибка Windows %d: %s'#13#10#13#10 +
+    'Программа будет работать без значков. Переустановите MyHomeLib или ' +
+    'скопируйте папку Icons рядом с MyHomeLib.exe.';
 
 const
   CIconResFile = 'Icons\MHLIcons.dll';

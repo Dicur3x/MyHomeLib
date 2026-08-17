@@ -34,7 +34,7 @@ uses
   Winapi.GDIPAPI, Winapi.GDIPOBJ, unit_Localization;
 
 resourcestring
-  rstrTagline = 'Менеджер домашньої електронної бібліотеки';
+  rstrTagline = 'Менеджер домашней электронной библиотеки';
 
 const
   CCardMarginTop    = 16;

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пошук книг і фільтри — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html" class="cur" aria-current="page">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Пошук книг і фільтри</h1>
+<!-- BODY:BEGIN -->
+<p>Вкладка <span class="ui">«Пошук»</span> — окремий список книг, який наповнюється не переглядом дерева авторів/серій/жанрів, а довільним набором умов. На відміну від дерев перегляду, тут можна одночасно шукати за кількома полями та зберігати набір умов для повторного використання.</p>
+
+<h2>Поля пошуку</h2>
+<p>Панель ліворуч зібрана з трьох згортних груп.</p>
+<dl>
+<dt>Книга</dt>
+<dd>Автор, Назва, Серія, Жанр (з кнопкою, що відкриває дерево жанрів для вибору мишею), Ключові слова, Анотація.</dd>
+<dt>Файл</dt>
+<dd>Ім'я, Папка (архів), Тип — тобто розширення файлу.</dd>
+<dt>Різне</dt>
+<dd>Дата додавання (готові інтервали у випадному списку — <em>«сьогодні», «за 3 дні», «за тиждень», «за 2 тижні», «за місяць», «за 3 місяці»</em>), Мова (дволітерний код), зовнішня Оцінка бібліотеки (1–5), прапорці «Приховувати видалені» та «Тільки прочитані».</dd>
+</dl>
+
+<h2>Простий і розширений пошук</h2>
+<p>Найпростіший варіант — просто вписати текст у потрібне поле: MyHomeLib шукає його як підрядок без урахування регістру в будь-якому місці значення. Для точнішого запиту те саме поле розуміє й пряму мову умов SQL-подібного вигляду:</p>
+<ul>
+<li><code>%текст%</code> — підрядок явно, з можливістю поставити <code>%</code> лише з одного боку;</li>
+<li><code>="точне значення"</code> — точна відповідність;</li>
+<li><code>&lt;</code>, <code>&gt;</code>, <code>&lt;&gt;</code> — порівняння (зручно для дати чи розміру);</li>
+<li><code>="ім'я1" OR ="ім'я2"</code> — кілька варіантів в одному полі; саме в такому вигляді в поле «Автор» підставляються кілька авторів, вибраних одразу через пункт «Додати до "Пошуку"» дерева авторів (див. <a href="context_menus.html">Контекстні меню</a>).</li>
+</ul>
+<p>Кнопка праворуч від кожного поля відкриває для нього окреме віконце редагування — зручніше для довгого чи багаторядкового запиту, ніж однорядкове поле. У полі «Жанр» ця сама кнопка замість текстового редактора відкриває дерево жанрів: вибір там підставляє в поле список псевдонімів жанрів замість довільного тексту.</p>
+<p>Клавіша <kbd>Enter</kbd> у будь-якому полі одразу запускає пошук — так само, як кнопка <span class="ui">«Застосувати»</span>.</p>
+
+<h2>Область пошуку</h2>
+<p>Пошук виконується лише в межах активної на цей момент колекції. Щоб знайти книгу в іншій підключеній колекції, спершу перемкніться на неї (див. <a href="collections.html">Робота з колекціями</a>), а тоді повторіть пошук.</p>
+
+<h2>Пресети</h2>
+<p>Заповнений набір умов можна зберегти під довільною назвою кнопкою <span class="ui">«Зберегти»</span> й потім викликати знову вибором цієї назви зі списку над панеллю пошуку. Кнопка <span class="ui">«Видалити»</span> прибирає вибраний пресет зі списку (її підказка — «Видалити пресет»). Кнопка <span class="ui">«Очистити»</span> порожнить усі поля, не чіпаючи вибір пресета. Пресети зберігаються в окремому файлі в робочій теці програми й спільні для всіх колекцій.</p>
+
+<p class="note">Ця сторінка замінює довідку про пошук із версії 2011 року і закриває її мертве посилання на неіснуючу тему.</p>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

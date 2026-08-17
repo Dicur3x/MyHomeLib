@@ -159,7 +159,7 @@ begin
       Sections1[0].Level := 0;
       Sections1[0].Offset := 0;
       Sections1[0].Length := Length(Text1);
-      Sections1[1].Title := 'Розділ перший'; // Ukrainian: "Chapter One"
+      Sections1[1].Title := 'Раздел первый'; // Russian: "Chapter One"
       Sections1[1].Level := 1;
       Sections1[1].Offset := 30;
       Sections1[1].Length := Length(Text1) - 30;
@@ -192,8 +192,8 @@ begin
       AddCheck('hit reconstructs sections from the sidecar, nested Level values included',
         SectionsEqual(Cached.Sections, Sections1));
       AddCheck('hit reconstructs structured=True from the sidecar', Cached.Structured);
-      AddCheck('a non-ASCII (Ukrainian) section title survives the sidecar round trip',
-        (Length(Cached.Sections) = 2) and (Cached.Sections[1].Title = 'Розділ перший'));
+      AddCheck('a non-ASCII (Russian) section title survives the sidecar round trip',
+        (Length(Cached.Sections) = 2) and (Cached.Sections[1].Title = 'Раздел первый'));
 
       // ---- Scenario 2: a changed SourceSize or SourceStamp misses and
       // re-extracts, even though CollectionID/BookID stay the same. Also
@@ -301,7 +301,7 @@ begin
         end);
 
       // ---- Scenario 4: non-ASCII (Cyrillic) round-trips identically. ----
-      Text4 := 'Привіт, світ! Це тестовий рядок.';
+      Text4 := 'Привет, мир, это тестовая строка.';
       Stamp4 := EncodeDateTime(2026, 4, 4, 0, 0, 0, 0);
       EnsureCached(4, 400, 999, Stamp4,
         function: TFb2Extraction

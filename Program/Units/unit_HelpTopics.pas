@@ -43,8 +43,8 @@ type
 
 const
   //
-  // Кожен ID узятий з властивості HelpContext відповідної форми, вкладки
-  // або пункту меню. 5001 та будь-який невідомий ID відкривають зміст.
+  // Каждый ID взят из свойства HelpContext соответствующей формы, вкладки
+  // или пункта меню. 5001 и любой неизвестный ID открывают содержание.
   //
   HelpTopics: array [0 .. 21] of THelpTopic = (
     (ContextID: 1;   FileName: 'index.html'),              // pgControl
@@ -52,7 +52,7 @@ const
     (ContextID: 105; FileName: 'menu_book.html'),          // меню "Книга"
     (ContextID: 108; FileName: 'download.html'),           // tsDownload
     (ContextID: 110; FileName: 'collections.html'),        // frmBases
-    (ContextID: 112; FileName: 'menu_collection.html'),    // меню "Колекція"
+    (ContextID: 112; FileName: 'menu_collection.html'),    // меню "Коллекция"
     (ContextID: 113; FileName: 'update.html'),             // dlgUpdateFromFile
     (ContextID: 117; FileName: 'editing.html'),            // frmEditAuthor
     (ContextID: 125; FileName: 'groups.html'),             // tsByGroup

@@ -35,7 +35,7 @@ if (!EXE || !fs.existsSync(EXE)) {
   process.exit(1);
 }
 
-const PROBES = ['Автор', 'Назва', 'Серія'];
+const PROBES = ['Автор', 'Название', 'Серия'];
 
 let caseNo = 0;
 
@@ -85,12 +85,24 @@ function run(opts) {
 }
 
 const checks = [
-  ['uk: embedded identity catalog installs nothing', () => {
-    const r = run({ locale: 'uk', noLangDir: true });
+  ['ru: embedded identity catalog installs nothing', () => {
+    const r = run({ locale: 'ru', noLangDir: true });
     return r.active === false && r.translations['Автор'] === 'Автор';
   }],
 
-  ['uk is always offered even with no Lang directory at all', () => {
+  ['ru is always offered even with no Lang directory at all', () => {
+    const r = run({ locale: 'ru', noLangDir: true });
+    return r.locales.some(l => l.code === 'ru' && l.name === 'Русский');
+  }],
+
+  ['uk works with no Lang directory at all -- it is in the exe', () => {
+    const r = run({ locale: 'uk', noLangDir: true });
+    return r.active === true
+      && r.translations['Название'] === 'Назва'
+      && r.translations['Серия'] === 'Серія';
+  }],
+
+  ['uk is offered with no Lang directory at all', () => {
     const r = run({ locale: 'uk', noLangDir: true });
     return r.locales.some(l => l.code === 'uk' && l.name === 'Українська');
   }],
@@ -99,7 +111,7 @@ const checks = [
     const r = run({ locale: 'en', noLangDir: true });
     return r.active === true
       && r.translations['Автор'] === 'Author'
-      && r.translations['Назва'] === 'Title';
+      && r.translations['Название'] === 'Title';
   }],
 
   ['en is offered with no Lang directory at all', () => {
@@ -132,7 +144,7 @@ const checks = [
   }],
 
   ['an unsigned catalog is not offered in the language menu', () => {
-    const r = run({ locale: 'uk', catalogs: { 'pl.json': {
+    const r = run({ locale: 'ru', catalogs: { 'pl.json': {
       locale: 'pl', name: 'Polski',
       strings: { k1: { source: 'Автор', target: 'Autor' } }, dfm: {},
     } } });
@@ -175,7 +187,7 @@ const checks = [
     const body = JSON.stringify({ locale: 'pl', name: 'Polski',
       strings: {
         k1: { source: 'Автор', target: '   ' },
-        k2: { source: 'Назва', target: 'Tytuł' },
+        k2: { source: 'Название', target: 'Tytuł' },
       },
       dfm: {} });
     const r = run({ locale: 'pl',
@@ -183,10 +195,10 @@ const checks = [
       sigs: { 'pl.json.sig': signBytes(Buffer.from(body, 'utf8')) } });
     return r.active === true
       && r.translations['Автор'] === 'Автор'
-      && r.translations['Назва'] === 'Tytuł';
+      && r.translations['Название'] === 'Tytuł';
   }],
 
-  ['missing Locale key defaults to uk', () => {
+  ['missing Locale key defaults to ru', () => {
     const r = run({ noLangDir: true });
     return r.active === false && r.translations['Автор'] === 'Автор';
   }],
@@ -194,7 +206,7 @@ const checks = [
   ['verifier accepts a correctly signed catalog', () => {
     const body = JSON.stringify({ locale: 'verify', name: 'V',
       strings: { k1: { source: 'Автор', target: 'A' } }, dfm: {} });
-    const r = run({ locale: 'uk',
+    const r = run({ locale: 'ru',
       catalogs: { 'verify.json': body },
       sigs: { 'verify.json.sig': signBytes(Buffer.from(body, 'utf8')) } });
     return r.verify === true;
@@ -203,7 +215,7 @@ const checks = [
   ['verifier rejects a catalog with no signature at all', () => {
     const body = JSON.stringify({ locale: 'verify', name: 'V',
       strings: {}, dfm: {} });
-    const r = run({ locale: 'uk', catalogs: { 'verify.json': body } });
+    const r = run({ locale: 'ru', catalogs: { 'verify.json': body } });
     return r.verify === false;
   }],
 
@@ -211,7 +223,7 @@ const checks = [
     const body = JSON.stringify({ locale: 'verify', name: 'V',
       strings: { k1: { source: 'Автор', target: 'A' } }, dfm: {} });
     const sig = signBytes(Buffer.from(body, 'utf8'));
-    const r = run({ locale: 'uk',
+    const r = run({ locale: 'ru',
       catalogs: { 'verify.json': body.replace('"A"', '"B"') },
       sigs: { 'verify.json.sig': sig } });
     return r.verify === false;
@@ -221,7 +233,7 @@ const checks = [
     const body = JSON.stringify({ locale: 'verify', name: 'V',
       strings: {}, dfm: {} });
     const sig = signBytes(Buffer.from(body, 'utf8')).subarray(0, 32);
-    const r = run({ locale: 'uk',
+    const r = run({ locale: 'ru',
       catalogs: { 'verify.json': body }, sigs: { 'verify.json.sig': sig } });
     return r.verify === false;
   }],
@@ -232,19 +244,19 @@ const checks = [
     const other = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     const sig = crypto.sign('sha256', Buffer.from(body, 'utf8'),
       { key: other.privateKey, dsaEncoding: 'ieee-p1363' });
-    const r = run({ locale: 'uk',
+    const r = run({ locale: 'ru',
       catalogs: { 'verify.json': body }, sigs: { 'verify.json.sig': sig } });
     return r.verify === false;
   }],
 
   ['bg works with no Lang directory at all -- it is in the exe', () => {
-    // Probes Назва/Серія, not Автор: "Автор" is spelled identically in
-    // Bulgarian and Ukrainian, so an unchanged value there proves nothing.
+    // Probes Название/Серия, not Автор: "Автор" is spelled identically in
+    // Bulgarian and Russian, so an unchanged value there proves nothing.
     // The en case above can use Автор because Author differs.
     const r = run({ locale: 'bg', noLangDir: true });
     return r.active === true
-      && r.translations['Назва'] === 'Заглавие'
-      && r.translations['Серія'] === 'Поредица';
+      && r.translations['Название'] === 'Заглавие'
+      && r.translations['Серия'] === 'Поредица';
   }],
 
   ['bg is offered with no Lang directory at all', () => {
@@ -256,7 +268,7 @@ const checks = [
     // The disclosure reaches users only through this string. If the name in
     // extract.js LOCALES is ever shortened to a plain "Български", the caveat
     // silently disappears from the UI -- nothing else would notice.
-    const r = run({ locale: 'uk', noLangDir: true });
+    const r = run({ locale: 'ru', noLangDir: true });
     const bg = r.locales.find(l => l.code === 'bg');
     return !!bg && /машинен превод/.test(bg.name);
   }],

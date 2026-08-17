@@ -72,7 +72,7 @@ uses
   dm_user;
 
 resourcestring
-rstrDownloaded = 'Загружены файлы: %u из %u';
+rstrDownloaded = 'Загружено файлов: %u из %u';
   rstrConnecting = 'Подключение...';
   rstrIgnoreDownloadErrors = 'Игнорировать ошибки загрузки?';
   rstrDone = 'Готово';

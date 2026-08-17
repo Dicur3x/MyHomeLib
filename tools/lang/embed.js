@@ -2,7 +2,7 @@
 
 // Generates Program/lang.rc, which links the catalogs we ship into the exe.
 //
-// Only uk, en and bg are ever embedded: they are the languages the project
+// Only ru, uk, en and bg are ever embedded: they are the languages the project
 // ships, and being inside the binary is what makes them unreplaceable by a
 // file in Lang\. Any other locale is a community catalog and must be signed.
 //
@@ -15,7 +15,7 @@
 //
 // A missing catalog is NOT an error. A clean clone has no Program/Lang at all
 // (it is gitignored, and lives in a separate private repository), and it must
-// still build -- producing a Ukrainian-only exe rather than a build failure.
+// still build -- producing a Russian-only exe rather than a build failure.
 //
 // Usage: node tools/lang/embed.js
 // Exit code: 0 normally, 1 if a catalog exists but is unusable.
@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const EMBEDDED = ['uk', 'en', 'bg'];
+const EMBEDDED = ['ru', 'uk', 'en', 'bg'];
 const ROOT = path.join(__dirname, '..', '..');
 const LANG_DIR = path.join(ROOT, 'Program', 'Lang');
 const RC_PATH = path.join(ROOT, 'Program', 'lang.rc');
@@ -59,7 +59,7 @@ for (const code of EMBEDDED) {
 }
 
 if (embedded.length === 0) {
-  lines.push('// No catalogs present -- Ukrainian-only build.');
+  lines.push('// No catalogs present -- Russian-only build.');
 }
 
 fs.writeFileSync(RC_PATH, lines.join('\r\n') + '\r\n', 'utf8');

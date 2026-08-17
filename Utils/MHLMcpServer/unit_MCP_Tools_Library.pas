@@ -65,8 +65,8 @@ begin
   SysDBFileName := DMUser.Settings.SystemFileName[sfSystemDB];
   if not FileExists(SysDBFileName) then
     raise EMcpToolError.Create('system_db_missing',
-      Format('Системну базу даних MyHomeLib не знайдено за шляхом: %s. ' +
-        'Запустіть MyHomeLib хоча б один раз, щоб її створити.',
+      Format('Системная база данных MyHomeLib не найдена по адресу: %s. ' +
+        'Запустите MyHomeLib хотя бы один раз, чтобы её создать.',
         [SysDBFileName]));
 
   DMUser.Init;
@@ -99,7 +99,7 @@ begin
           if E.Message.ToLower.Contains('locked') or
              E.Message.ToLower.Contains('busy') then
             raise EMcpToolError.Create('collection_busy',
-              'Колекція зайнята — можливо, MyHomeLib саме імпортує книги.');
+              'Коллекция занята — возможно, MyHomeLib импортирует книги.');
           raise;
         end;
       end;
@@ -364,11 +364,11 @@ const
 begin
   if Pos(#0, Value) > 0 then
     raise EMcpToolError.Create('invalid_params',
-      Format('Аргумент "%s" не може містити символ NUL (U+0000)', [ArgName]));
+      Format('Аргумент «%s» не может содержать символ NUL (U+0000)', [ArgName]));
 
   if Length(Value) > MaxLength then
     raise EMcpToolError.Create('invalid_params',
-      Format('Аргумент "%s" задовгий (%d символів, максимум %d)',
+      Format('Аргумент «%s» слишком длинный (%d символов, максимум %d)',
         [ArgName, Length(Value), MaxLength]));
 end;
 
@@ -651,24 +651,21 @@ begin
   if MinRate > 0 then
     Criteria.LibRate := Format('>= %d', [MinRate]);
 
-  // PrepareSearchData raises a plain Exception (message
-  // rstrCheckFilterParams, "Перевірте параметри фільтра") whenever it built
-  // no WHERE clause at all, and that exception is not an EMcpToolError, so
-  // it would otherwise fall through Guarded/HandleToolsCall uncaught and
-  // surface to the client as a raw JSON-RPC -32603 carrying the DAO's own
-  // message text. That happens whenever every one of the fields above is
-  // blank AND include_deleted=true (Criteria.Deleted=False skips the one
-  // filter -- b.IsDeleted = 0 -- that a call with every other field left at
-  // its default would otherwise always pick up). Detect the same condition
-  // here first and fail with a stable, machine-readable domain error
-  // instead of letting that raw text leak through.
+  // PrepareSearchData создаёт обычное исключение с сообщением
+  // rstrCheckFilterParams («Проверьте параметры фильтра»), если не удалось
+  // построить ни одного условия WHERE. Это не EMcpToolError, поэтому без этой
+  // проверки исключение дошло бы до клиента как JSON-RPC -32603 с внутренним
+  // текстом DAO. Ситуация возникает, когда все поля выше пусты и одновременно
+  // include_deleted=true: Criteria.Deleted=False не добавляет стандартный фильтр
+  // b.IsDeleted = 0. Перехватываем условие заранее и возвращаем стабильную,
+  // машиночитаемую ошибку предметной области.
   if (Criteria.Title = '') and (Criteria.FullName = '') and (Criteria.Series = '') and
      (Criteria.Genre = '') and (Criteria.Lang = '') and (Criteria.KeyWord = '') and
      (Criteria.Annotation = '') and (Criteria.LibRate = '') and (not Criteria.Deleted) then
     raise EMcpToolError.Create('empty_filter',
-      'Вкажіть хоча б один критерій пошуку (title, author, series, genre, ' +
-      'lang, keyword, annotation, min_lib_rate) або залиште include_deleted ' +
-      'без змін (false).');
+      'Укажите хотя бы один критерий поиска (title, author, series, genre, ' +
+      'lang, keyword, annotation, min_lib_rate) или оставьте include_deleted ' +
+      'без изменений (false).');
 
   Limit := ArgIntClamped(Args, 'limit', 25, 1, 200, ClampedAny);
   Offset := ArgIntClamped(Args, 'offset', 0, 0, MaxInt, Clamped);
@@ -878,50 +875,50 @@ procedure RegisterLibraryTools(Server: TMcpServer);
 begin
   Server.RegisterTool(
     'list_collections',
-    'Список усіх зареєстрованих колекцій MyHomeLib.',
+    'Список всех зарегистрированных коллекций MyHomeLib.',
     TJSONObject.ParseJSONValue('{"type":"object","properties":{}}') as TJSONObject,
     Guarded(ListCollections));
 
   Server.RegisterTool(
     'get_book',
-    'Повні відомості про книгу за її ідентифікатором.',
+    'Полные сведения о книге по её идентификатору.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
-      '"collection_id":{"type":"integer","description":"ID колекції"},' +
+      '"collection_id":{"type":"integer","description":"ID коллекции"},' +
       '"book_id":{"type":"integer","description":"ID книги"}},' +
       '"required":["collection_id","book_id"]}') as TJSONObject,
     Guarded(GetBook));
 
   Server.RegisterTool(
     'search_books',
-    'Пошук книг у колекції за назвою, автором, серією, жанром чи мовою. ' +
-    'Текстові поля (title, author, series, lang, keyword, annotation) ' +
-    'шукають буквальний підрядок без урахування регістру; значення з ' +
-    'NUL-символом або довші за 4000 символів відхиляються помилкою ' +
-    'invalid_params, а символи поза базовою багатомовною площиною Unicode ' +
-    '(наприклад, емодзі) ніколи не збігаються.',
+    'Поиск книг в коллекции по названию, автору, серии, жанру или языку. ' +
+    'Текстовые поля (title, author, series, lang, keyword, annotation) ' +
+    'ищут буквальную подстроку без учёта регистра; значения с NUL-символом ' +
+    'или длиннее 4000 символов отклоняются с ошибкой invalid_params, а ' +
+    'символы вне базовой многоязычной плоскости Unicode ' +
+    '(например, эмодзи) никогда не совпадают.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
-      '"collection_id":{"type":"integer","description":"ID колекції"},' +
-      '"title":{"type":"string","description":"Підрядок назви (без урахування регістру; лапки, % та _ шукаються буквально, не як спецсимволи)"},' +
-      '"author":{"type":"string","description":"Повне або часткове ім''я автора (без урахування регістру, буквально)"},' +
-      '"series":{"type":"string","description":"Підрядок назви серії (без урахування регістру, буквально)"},' +
-      '"genre":{"type":"string","description":"Код жанру зі списку list_genres"},' +
-      '"lang":{"type":"string","description":"Підрядок коду мови (без урахування регістру, буквально)"},' +
-      '"keyword":{"type":"string","description":"Підрядок ключових слів (без урахування регістру, буквально)"},' +
-      '"annotation":{"type":"string","description":"Підрядок анотації (без урахування регістру, буквально)"},' +
-      '"min_lib_rate":{"type":"integer","description":"Мінімальний рейтинг книги (LibRate) -- повертає книги з таким рейтингом і вище"},' +
+      '"collection_id":{"type":"integer","description":"ID коллекции"},' +
+      '"title":{"type":"string","description":"Подстрока названия (без учёта регистра; кавычки, % и _ ищутся буквально, не как спецсимволы)"},' +
+      '"author":{"type":"string","description":"Полное или частичное имя автора (без учёта регистра, буквально)"},' +
+      '"series":{"type":"string","description":"Подстрока названия серии (без учёта регистра, буквально)"},' +
+      '"genre":{"type":"string","description":"Код жанра из списка list_genres"},' +
+      '"lang":{"type":"string","description":"Подстрока кода языка (без учёта регистра, буквально)"},' +
+      '"keyword":{"type":"string","description":"Подстрока ключевых слов (без учёта регистра, буквально)"},' +
+      '"annotation":{"type":"string","description":"Подстрока аннотации (без учёта регистра, буквально)"},' +
+      '"min_lib_rate":{"type":"integer","description":"Минимальный рейтинг книги (LibRate) — возвращает книги с таким рейтингом и выше"},' +
       '"include_deleted":{"type":"boolean"},' +
-      '"limit":{"type":"integer","description":"Типово 25, максимум 200"},' +
-      '"offset":{"type":"integer","description":"Зсув для пагінації; рядки ' +
-      'пропускаються по одному в Delphi, тож великий offset повільний ' +
-      '(наприклад, offset: 400000 займає близько 18 секунд)"}},' +
+      '"limit":{"type":"integer","description":"По умолчанию 25, максимум 200"},' +
+      '"offset":{"type":"integer","description":"Смещение для постраничного вывода; строки ' +
+      'пропускаются по одной в Delphi, поэтому большой offset работает медленно ' +
+      '(например, offset: 400000 занимает около 18 секунд)"}},' +
       '"required":["collection_id"]}') as TJSONObject,
     Guarded(SearchBooks));
 
   Server.RegisterTool(
     'list_genres',
-    'Дерево жанрів колекції. Коди жанрів потрібні для search_books.',
+    'Дерево жанров коллекции. Коды жанров нужны для search_books.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"}},' +
@@ -930,23 +927,23 @@ begin
 
   Server.RegisterTool(
     'list_series',
-    'Перелік серій у колекції.',
+    'Список серий в коллекции.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"},' +
-      '"filter":{"type":"string","description":"Підрядок назви серії"},' +
-      '"limit":{"type":"integer","description":"Типово 100, максимум 500"}},' +
+      '"filter":{"type":"string","description":"Подстрока названия серии"},' +
+      '"limit":{"type":"integer","description":"По умолчанию 100, максимум 500"}},' +
       '"required":["collection_id"]}') as TJSONObject,
     Guarded(ListSeries));
 
   Server.RegisterTool(
     'list_authors',
-    'Перелік авторів у колекції.',
+    'Список авторов в коллекции.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"},' +
-      '"filter":{"type":"string","description":"Підрядок імені автора"},' +
-      '"limit":{"type":"integer","description":"Типово 100, максимум 500"}},' +
+      '"filter":{"type":"string","description":"Подстрока имени автора"},' +
+      '"limit":{"type":"integer","description":"По умолчанию 100, максимум 500"}},' +
       '"required":["collection_id"]}') as TJSONObject,
     Guarded(ListAuthors));
 end;

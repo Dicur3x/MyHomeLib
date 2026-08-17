@@ -1,6 +1,6 @@
 # MyHomeLib
 
-[Українська](README.md) · **English** · [Български](README.bg.md)
+[Русский](README.md) · [Українська](README.uk.md) · **English** · [Български](README.bg.md)
 
 Manage your home e-book library: catalogue your own collection of book files, and work as a client for Librusec-engine online libraries.
 
@@ -17,7 +17,7 @@ Beyond your own collections, MyHomeLib works as a client for libraries running t
 
 Books are stored as FB2 (loose files or zip archives), FBD, or any other format; collection metadata lives in a SQLite database.
 
-> **Note on interface language:** the UI is available in Ukrainian, English and Bulgarian (machine-translated). The bundled help is translated into all three languages too, and follows the interface language.
+> **Note on interface language:** Russian is the source language. Ukrainian, English and Bulgarian (machine-translated) use embedded catalogues. The bundled help is available in all four languages and follows the interface language.
 
 ## Features
 
@@ -42,19 +42,17 @@ Books are stored as FB2 (loose files or zip archives), FBD, or any other format;
 
 **AI assistants**
 
-- An MCP server (`MHLMcpServer.exe`) installs alongside the application and exposes the collection to assistants such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. Read-only, and it does not need MyHomeLib to be running. Setup is covered in the help, under «MCP-сервер для AI-асистентів».
+- An MCP server (`MHLMcpServer.exe`) installs alongside the application and exposes the collection to assistants such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. Read-only, and it does not need MyHomeLib to be running. Setup is covered in the help under “MCP server for AI assistants”.
 
 ## Interface language
 
-The UI is available in Ukrainian, English and Bulgarian. Switch it under **View → Interface language**; the change applies after a restart. All three languages are compiled into the executable, so no external file can replace or remove them. The bundled help is translated into all three languages too, and follows the interface language.
+Russian is the source UI language. Ukrainian, English and Bulgarian are provided through embedded catalogues. Switch the language under **View → Interface language**; the change applies after a restart. The bundled help is available in all four languages and follows the interface language.
 
 The genre tree follows the interface language too. Existing collections update themselves — genre names are stored inside the collection database, so they used to stay in whatever language the collection was created in.
 
 **The Bulgarian translation is machine-made** and has not been reviewed by a native speaker; the language menu says so. If a string reads wrong, please open an [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues) quoting it with a suggested replacement.
 
 Additional languages load from translation catalogues placed next to the application (`Lang\<code>.json`). Only catalogues signed with the project key are loaded — an unsigned file is ignored and never appears in the menu. If you would like to translate the interface into your language, open an [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues): a finished translation is signed and returned to you together with its signature file.
-
-The project does not ship a Russian interface and does not sign Russian catalogues. This is a deliberate decision.
 
 ## Installation
 
@@ -75,7 +73,7 @@ The bundled help covers all of this in detail.
 
 ## Help
 
-The full help (55 pages, in Ukrainian, English and Bulgarian) ships with the application. **F1** is context-sensitive — it opens the page matching the active window or tab in your browser. The help sources live in [`Program/Help/`](Program/Help/); [`index.html`](Program/Help/index.html) is the table of contents and entry point.
+The full help (55 pages, in Russian, Ukrainian, English and Bulgarian) ships with the application. **F1** is context-sensitive — it opens the page matching the active window or tab in your browser. The Russian source lives in [`Program/Help/`](Program/Help/); [`index.html`](Program/Help/index.html) is the table of contents and entry point.
 
 ## Building from source
 
@@ -85,9 +83,9 @@ The full help (55 pages, in Ukrainian, English and Bulgarian) ships with the app
 - [VirtualTreeView](https://github.com/JAM-Software/Virtual-TreeView) (install via GetIt);
 - Konopka Signature VCL Controls (`BonusKSVC` 8.0.2, also via GetIt);
 - `C:\Windows\System32` on `PATH` — the post-build event calls `robocopy`, and without it the build fails at `copy_help.cmd`;
-- [Node.js](https://nodejs.org/) — optional. The pre-build event runs `Program\embed_lang.cmd`, which embeds the translation catalogues into the executable. Without Node.js the build still succeeds, but you get a Ukrainian-only application.
+- [Node.js](https://nodejs.org/) — optional. The pre-build event runs `Program\embed_lang.cmd`, which embeds the translation catalogues into the executable. Without Node.js the build still succeeds, but you get a Russian-only application.
 
-The translation catalogues (`Program/Lang/`) are not part of this repository. Without them the build succeeds and produces a Ukrainian-only application; see [`tools/lang/README.md`](tools/lang/README.md) for how to obtain them.
+The translation catalogues (`Program/Lang/`) are not part of this repository. Without them the build succeeds and produces a Russian-only application; see [`tools/lang/README.md`](tools/lang/README.md) for how to obtain them.
 
 **Build through the group project only** — `Program\MHL.groupproj` builds the component package, the icon DLL, the main application and the MCP server in the right order:
 
@@ -115,7 +113,7 @@ Program/
   DwnldImpl/           book download threads
   UtilsImpl/           sync, export-to-device, collection update threads
   Wizards/             New Collection wizard
-  Help/                bundled help (HTML, Ukrainian)
+  Help/                Russian help; Help/uk, Help/en and Help/bg contain translations
   Resources/           icons, images
 Components/
   MHLComponents/       design-time component package (BookTreeView, FB2 parsing, archives)

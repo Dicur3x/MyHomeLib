@@ -336,7 +336,7 @@ only the 11293 rated exactly 4.
 
 **A fully blank filter is now a domain error, not a raw internal one.**
 `PrepareSearchData` raises a plain `Exception` (message
-`rstrCheckFilterParams`, "Перевірте параметри фільтра") whenever every field
+`rstrCheckFilterParams`, "Проверьте параметры фильтра") whenever every field
 above is blank *and* `include_deleted: true` (only that combination skips
 every filter `PrepareSearchData` can add, including the `b.IsDeleted = 0`
 filter that `include_deleted: false`, the default, always contributes). That
@@ -1021,7 +1021,7 @@ first version of that scan used `search_books` with no filter field at all
 besides
 `limit`/`offset`/`include_deleted` — which, it turns out,
 `TBookCollection_SQLite.PrepareSearchData` (`unit_Database_SQLite.pas`)
-rejects outright with `"Перевірте параметри фільтра"` when *every* criteria
+rejects outright with `"Проверьте параметры фильтра"` when *every* criteria
 field is blank (its `FilterString`/`SQLRows` end up empty, and it explicitly
 raises rather than run an unconstrained `SELECT *`). Every one of those
 original scan calls was silently failing with that JSON-RPC error, and the

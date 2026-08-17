@@ -34,8 +34,8 @@ type
   TCollectionUpdateThreadBase = class(TImportInpxThreadBase)
   protected
     //
-    // Повертає False, якщо користувач скасував операцію: зміни відкочено,
-    // колекція лишилась такою, якою була.
+    // Возвращает False, если пользователь отменил операцию: изменения откатились,
+    // коллекция осталась такой, какой была.
     //
     function UpdateCollection(const AFileName: string; ACollectionID: Integer;
       AFull: Boolean; const ADisplayName: string): Boolean;
@@ -91,40 +91,40 @@ uses
   unit_UserData;
 
 resourcestring
-rstrDownloadProgress = 'Завантажено: %u%% із %u байт';
-   rstrCheckingUpdate = 'Перевіряємо наявність оновлень основної бази...';
-   rstrCheckingExtraUpdate = 'Перевіряємо наявність оновлень для on-line...';
-   rstrErrorCheckingUpdate = 'ПОМИЛКА. Не вдалося перевірити оновлення.';
-   rstrErrorDownloadUpdate = 'ПОМИЛКА. Не вдалося завантажити оновлення.';
+rstrDownloadProgress = 'Загружено: %u%% из %u байт';
+   rstrCheckingUpdate = 'Проверяем наличие обновлений основной базы...';
+   rstrCheckingExtraUpdate = 'Проверяем наличие обновлений для on-line...';
+   rstrErrorCheckingUpdate = 'Ошибка. Не удалось проверить обновление.';
+   rstrErrorDownloadUpdate = 'Ошибка. Не удалось загрузить обновление.';
    rstrReady = 'Готово';
-   rstrDownloadingUpdates = 'Завантаження оновлень...';
-   rstrYouHaveLatestListsVersion = 'У вас найсвіжіша версія списків.';
-   rstrUpdatingFromLocalArchive = 'Оновлення з локального архіву';
-   rstrListsUpdateIsAvailable = 'Доступно оновлення списків до версії %d';
-   rstrListsExtraUpdateIsAvailable = 'Доступне оновлення списків on-line до версії %d';
-   rstrNothingToUpdate = 'Нема чого оновлювати!';
-   rstrUpdateComplete = 'Оновлення завершено.';
-   rstrUpdateFailed = 'Оновлення не вдалося.';
-   rstrBackupUserData = 'Збереження резервної копії даних користувача';
-   rstrRestoreUserData = 'Відновлення даних користувача';
-   rstrRemovingOldCollection = 'Видалення всіх записів старої колекції "%s" ...';
-   rstrCreatingCollection = 'Створення нової колекції %s...';
-   rstrSpeed = 'Завантаження: %s Kb/s';
-   rstrConnectingToServer = 'Підключення до сервера...';
-   rstrOnlineCollectionUpdate = 'Оновлення колекції %s до версії %d:';
-   rstrLocalCollectionUpdate = 'Оновлення колекції %s:';
-   rstrUpdateFailedDownload = 'Завантаження оновлень не вдалося.';
-   rstrCancelledByUser = 'Операцію скасовано користувачем.';
-   rstrImportIntoCollection = 'Імпорт даних до колекції:';
-   rstrManualCollectionUpdate = 'Оновлення колекції %s з файлу %s:';
-   rstrUpdateFileNotFound = 'Файл оновлення не знайдено: %s';
-   rstrInvalidUpdateFile = 'Неправильний формат файлу INPX: %s';
+   rstrDownloadingUpdates = 'Загрузка обновлений...';
+   rstrYouHaveLatestListsVersion = 'У вас самая свежая версия списков.';
+   rstrUpdatingFromLocalArchive = 'Обновление из локального архива';
+   rstrListsUpdateIsAvailable = 'Доступно обновление списков до версии %d';
+   rstrListsExtraUpdateIsAvailable = 'Доступно обновление списков on-line до версии %d';
+   rstrNothingToUpdate = 'Нечего обновлять!';
+   rstrUpdateComplete = 'Обновление завершено.';
+   rstrUpdateFailed = 'Обновление не удалось.';
+   rstrBackupUserData = 'Сохранение резервной копии пользовательских данных';
+   rstrRestoreUserData = 'Восстановление пользовательских данных';
+   rstrRemovingOldCollection = 'Удаление всех записей старой коллекции "%s" ...';
+   rstrCreatingCollection = 'Создание новой коллекции %s...';
+   rstrSpeed = 'Загрузка: %s КБ/с';
+   rstrConnectingToServer = 'Подключение к серверу...';
+   rstrOnlineCollectionUpdate = 'Обновление коллекции %s до версии %d:';
+   rstrLocalCollectionUpdate = 'Обновление коллекции %s:';
+   rstrUpdateFailedDownload = 'Загрузка обновлений не удалась.';
+   rstrCancelledByUser = 'Операция отменена пользователем.';
+   rstrImportIntoCollection = 'Импорт данных в коллекцию:';
+   rstrManualCollectionUpdate = 'Обновление коллекции %s из файла %s:';
+   rstrUpdateFileNotFound = 'Файл обновления не найден: %s';
+   rstrInvalidUpdateFile = 'Неверный формат файла INPX: %s';
 
 { TCollectionUpdateThreadBase }
 
 //
-// Оновлення однієї колекції з одного файлу списків.
-// Файл AFileName не видаляється — про нього дбає викликач.
+// Обновление одной коллекции из одного файла списков.
+// Файл AFileName не удаляется — о нем заботится вызывающий.
 //
 function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
   ACollectionID: Integer; AFull: Boolean; const ADisplayName: string): Boolean;
@@ -155,9 +155,9 @@ begin
       Import(AFileName, not AFull, Collection);
 
       //
-      // Import лише перериває свої цикли за Canceled і повертає керування
-      // штатно. Без цієї перевірки скасований повний переімпорт закомітив би
-      // обрізану колекцію, а RemapCollectionBookIDs ще й вичистив би групи.
+      // Импорт лишь прерывает свои циклы по Canceled и возвращает управление
+      // штатно. Без этой проверки отменённый полный переимпорт закоммитил бы
+      // обрезанную коллекцию, а RemapCollectionBookIDs ещё и почистил бы группы.
       //
       if Canceled then
       begin
@@ -287,8 +287,8 @@ begin
       end;
 
       //
-      // Скасування під час імпорту: зміни вже відкочено, файли оновлень
-      // лишаємо на місці, щоб можна було повторити спробу.
+      // Отмена во время импорта: изменения уже отменены, файлы обновлений
+      // оставляем на месте, чтобы можно было повторить попытку.
       //
       if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
         Exit;
@@ -314,9 +314,9 @@ begin
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
       //
-      // InpxFileName - файл, на якому впала обробка; до першої ітерації циклу
-      // він порожній. Раніше тут використовувався лічильник i, невизначений
-      // за межами циклу, та ще й з іншою текою.
+      // InpxFileName - файл, на котором произошла ошибка обработки; до первой итерации цикла
+      // он пуст. Ранее здесь использовался счетчик i, неопределенный
+      // за пределами цикла, да еще и с другой папкой.
       //
       if (InpxFileName <> '') and FileExists(InpxFileName) then
         DeleteFile(InpxFileName);
@@ -334,15 +334,15 @@ begin
   FFull := AFull;
   FGenresType := AGenresType;
   //
-  // Файл вибрав користувач, він може бути з будь-якого джерела: не дозволяємо
-  // його collection.info перезаписати URL і скрипт підключення колекції.
+  // Файл выбрал пользователь, он может быть из любого источника: не разрешаем
+  // ему collection.info перезаписать URL и скрипт подключения коллекции.
   //
   FKeepCollectionProps := True;
 end;
 
 //
-// Import не переживає файл, який не є архівом, або архів без .inp:
-// його finally звільняє неініціалізовані вказівники. Перевіряємо заздалегідь.
+// Import некорректно обрабатывает файл, который не является архивом, или архив без .inp:
+// его finally освобождает неинициализированные указатели. Проверяем заранее.
 //
 function TManualUpdateThread.IsValidUpdateArchive: Boolean;
 var

@@ -743,8 +743,8 @@ type
     FDMThread: TDownloadManagerThread;
 
     //
-    // Вузол черги, який зараз завантажується. Курсор належить формі, а не
-    // потоку: тільки форма знає, коли вузол зникає з дерева.
+    // Узел очереди, который сейчас загружается. Курсор принадлежит форме, а не
+    // потоку: только форма знает, когда узел исчезает из дерева.
     //
     FDownloadNode: PVirtualNode;
 
@@ -955,8 +955,8 @@ type
     procedure UpdateDownloadCount;
 
     //
-    // IDownloadView - єдиний шлях, яким потік завантаження торкається інтерфейсу.
-    // Усі методи виконуються в головному потоці (потік викликає їх через Synchronize).
+    // IDownloadView - единственный путь, которым поток загрузки касается интерфейса.
+    // Все методы выполняются в главном потоке (поток вызывает их через Synchronize).
     //
     function SelectNextDownload(out Item: TDownloadItem): Boolean;
     procedure CompleteCurrentDownload(Success: Boolean);
@@ -1060,73 +1060,73 @@ uses
   frm_DeleteCollection, unit_ImportOldUserData;
 
 resourcestring
-rstrFileNotFoundMsg = 'Файл %s не знайдено!' + CRLF + 'Перевірте налаштування колекції!';
-   rstrCreatingFilter = 'Підготовка фільтра...';
-   rstrApplyingFilter = 'Застосовуємо фільтр...';
-   rstrNoUpdatesAvailable = 'Немає оновлень';
-   rstrUpdateConnectionError = 'Не вдалося з''єднатися із сервером оновлень:' + CRLF + '%s';
-   rstrVersionInfo = '%s' + CRLF + 'На сервері: %d, локальна: %d';
-   rstrNotFromDownloadsError = 'Операція недоступна зі списку завантажень.';
-   rstrAutoFBDConfirmation = 'Створити FBD для всіх книг у списку?' + CRLF +
-                             'Книги, файли яких зайняті, буде пропущено.';
+rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
+   rstrCreatingFilter = 'Подготовка фильтра...';
+   rstrApplyingFilter = 'Применяем фильтр...';
+   rstrNoUpdatesAvailable = 'Нет обновлений';
+   rstrUpdateConnectionError = 'Невозможно подключиться к серверу обновлений:' + CRLF + '%s';
+   rstrVersionInfo = '%s' + CRLF + 'Сервер: %d, локальный: %d';
+   rstrNotFromDownloadsError = 'Операция недоступна из списка загрузок.';
+   rstrAutoFBDConfirmation = 'Создать FBD для всех книг в списке?' + CRLF +
+                             'Книги, файлы которых заняты, будут пропущены.';
    rstrDownloadDone = 'Готово';
-   rstrIgnoreDownloadErrors = 'Ігнорувати помилки завантаження?';
-   rstrNotForExtension = 'Операція недоступна для файлів із розширенням %s';
-   rstrUnableDeleteBuiltinGroupError = 'Не можна видалити вбудовану групу!';
-   rstrCheckingUpdates = 'Перевірка оновлень...';
-   rstrGroupAlreadyExists = 'Група з таким ім''ям вже існує!';
-   rstrAdding2GroupMessage = 'Додаємо книги до групи...';
-   rstrRemovingFromGroupMessage = 'Видаляємо книги з групи...';
-   rstrBuildingListMessage = 'Побудова списку...';
+   rstrIgnoreDownloadErrors = 'Игнорировать ошибки загрузки?';
+   rstrNotForExtension = 'Операция недоступна для файлов с расширением %s';
+   rstrUnableDeleteBuiltinGroupError = 'Нельзя удалить встроенную группу!';
+   rstrCheckingUpdates = 'Проверка обновлений...';
+   rstrGroupAlreadyExists = 'Группа с таким именем уже существует!';
+   rstrAdding2GroupMessage = 'Добавляем книги в группу...';
+   rstrRemovingFromGroupMessage = 'Удаляем книги из группы...';
+   rstrBuildingListMessage = 'Построение списка...';
 
-   rstrHintTable = 'Переключитися в режим "Таблиця"';
-   rstrHintTree = 'Переключитися в режим "Дерево"';
-   rstrShuttingDown = 'відключаємось';
-   rstrNeedDBUpgrade = 'Ви успішно оновили програму. Для нормальної роботи необхідно оновити струткур таблиць БД. Зробити це прямо зараз?';
-   rstrFirstRun = 'MyHomeLib - перший запуск';
-// rstrToConvertChangeTab = 'Для конвертування книги перейдіть на іншу сторінку.';
-   rstrCollectionFileNotFound = 'Файл колекції не знайдено.' + CRLF + 'Неможливо запустити програму.';
-   // rstrStartCollectionUpdate = 'Доступно оновлення колекцій.' + CRLF + 'Почати оновлення?';
+   rstrHintTable = 'Переключиться в режим "Таблица"';
+   rstrHintTree = 'Переключиться в режим "Дерево"';
+   rstrShuttingDown = 'отключаемся';
+   rstrNeedDBUpgrade = 'Вы успешно обновили приложение. Для нормальной работы необходимо обновить структуру таблиц БД. Сделать это прямо сейчас?';
+   rstrFirstRun = 'MyHomeLib - первый запуск';
+// rstrToConvertChangeTab = 'Для конвертации книги перейдите на другую страницу.';
+   rstrCollectionFileNotFound = 'Файл коллекции не найден.' + CRLF + 'Невозможно запустить программу.';
+   // rstrStartCollectionUpdate = 'Доступно обновление коллекций.' + CRLF + 'Начать обновление?';
    rstrStarting = 'Старт...';
-   rstrUnfinishedDownloads = 'У списку є незавершені завантаження!' + CRLF + 'Ви все ще хочете вийти з програми?';
-   rstrSingleSeries = 'Серія:';
-   rstrDownloadStateWaiting = 'Чекання';
-   rstrDownloadStateDownloading = 'Завантаження';
+   rstrUnfinishedDownloads = 'В списке есть незавершённые загрузки!' + CRLF + 'Вы всё ещё хотите выйти из приложения?';
+   rstrSingleSeries = 'Серия:';
+   rstrDownloadStateWaiting = 'Ожидание';
+   rstrDownloadStateDownloading = 'Загрузка';
    rstrDownloadStateDone = 'Готово';
-   rstrDownloadStateError = 'Помилка';
-   rstrNoBookSelected = 'Жодної книги не вибрано!';
-   rstrProvideThePath = 'Вкажіть шлях';
-   rstrCheckUsage = 'Перевірити використання, можлива помилка';
-   rstrBuildingTheList = 'Побудова списку...';
-   rstrChangeCollectionToRemoveABook = 'Для видалення книги перейдіть до відповідної колекції';
-   rstrRemoveSelectedBooks = 'Видалити вибрані книги з бази?';
-   rstrRemoveSelectedBooksFiles = 'Видалити вибрані книги з бази разом із файлами?';
-   rstrRemoveSelectedBooksOnLine = 'Видалити завантажені файли?';
-   rstrRemoveCollection = 'Видалити колекцію';
-   rstrGoToLibrarySite = 'Зміна інформації про книги в онлайн-колекціях можлива лише на сайті.' + CRLF + 'Перейти на сайт електронної бібліотеки "%s"?"';
-   rstrUnableToEditBooksFromFavourites = 'Редагувати книги з обраного неможливо.';
-   rstrCreateMoveSeries = 'Створення серії / Перенесення до серії';
-   rstrTitle = 'Назва:';
-   rstrEditSeries = 'Редагування серії';
-   rstrAddingBookToGroup = 'Додаємо книги до групи...';
-   rstrRemovingBookFromGroup = 'Видаляємо книги з групи...';
-   rstrNeedSpecialDataTypeForSeries = 'Необхідно використовувати окремий тип даних для серії';
-   rstrBookNotFoundInArchive = 'В архіві %s не знайдено опису книги!';
-   rstrCollectionNotRegistered = 'Колекція не зареєстрована!';
-   rstrRemoveFromGroup = 'Видалити з групи';
-   rstrRemoveFromDownloadList = 'Видалити зі списку завантажень';
-   rstrAddToFavorites = 'Додати до вибраного';
-   rstrAddToDownloads = 'Додати до списку завантажень';
-   rstrCollectionUpdateAvailable = 'Доступне оновлення для колекцій.' + CRLF + 'Почати оновлення?';
-   rsrtNewCollectin = 'Нова колекція...';
-   rstrSelectFolder = 'Вибір папки...';
-   rstrSpecifyPath = 'Вкажіть шлях';
-   // Deliberately NOT 'Мова': that is already a catalog source whose English
+   rstrDownloadStateError = 'Ошибка';
+   rstrNoBookSelected = 'Ни одна книга не выбрана!';
+   rstrProvideThePath = 'Укажите путь';
+   rstrCheckUsage = 'Проверить использование, возможна ошибка';
+   rstrBuildingTheList = 'Построение списка...';
+   rstrChangeCollectionToRemoveABook = 'Для удаления книги перейдите в соответствующую коллекцию';
+   rstrRemoveSelectedBooks = 'Удалить выбранные книги из базы?';
+   rstrRemoveSelectedBooksFiles = 'Удалить выбранные книги из базы вместе с файлами?';
+   rstrRemoveSelectedBooksOnLine = 'Удалить загруженные файлы?';
+   rstrRemoveCollection = 'Удалить коллекцию';
+   rstrGoToLibrarySite = 'Изменение информации о книгах в онлайн-коллекциях возможно только на сайте.' + CRLF + 'Перейти на сайт электронной библиотеки "%s"?';
+   rstrUnableToEditBooksFromFavourites = 'Редактировать книги из избранного невозможно.';
+   rstrCreateMoveSeries = 'Создание серии / Перенос в серию';
+   rstrTitle = 'Название:';
+   rstrEditSeries = 'Редактирование серии';
+   rstrAddingBookToGroup = 'Добавляем книги в группу...';
+   rstrRemovingBookFromGroup = 'Удаляем книги из группы...';
+   rstrNeedSpecialDataTypeForSeries = 'Необходимо использовать отдельный тип данных для серии';
+   rstrBookNotFoundInArchive = 'В архиве %s не найдено описания книги!';
+   rstrCollectionNotRegistered = 'Коллекция не зарегистрирована!';
+   rstrRemoveFromGroup = 'Удалить из группы';
+   rstrRemoveFromDownloadList = 'Удалить из списка загрузок';
+   rstrAddToFavorites = 'Добавить в избранное';
+   rstrAddToDownloads = 'Добавить в список загрузок';
+   rstrCollectionUpdateAvailable = 'Доступно обновление для коллекций.' + CRLF + 'Начать обновление?';
+   rsrtNewCollectin = 'Новая коллекция...';
+   rstrSelectFolder = 'Выбор папки...';
+   rstrSpecifyPath = 'Укажите путь';
+   // Deliberately NOT 'Язык': that is already a catalog source whose English
    // target was shortened to "Lang" so it would fit the search panel, and the
    // runtime looks translations up by source text. Reusing it would put
    // "Lang" in the menu bar.
-   rstrInterfaceLanguage = 'Мова інтерфейсу';
-   rstrLanguageChangeOnRestart = 'Мова зміниться при наступному запуску програми.';
+   rstrInterfaceLanguage = 'Язык интерфейса';
+   rstrLanguageChangeOnRestart = 'Язык изменится при следующем запуске программы.';
 {$R *.dfm}
 
 //
@@ -2152,8 +2152,8 @@ begin
     ImageCanvas.Font := tbarAuthorsRus.Font;
     ImageCanvas.Font.Style := [fsBold];
 
-    CellW := Max(ImageCanvas.TextWidth('W'), ImageCanvas.TextWidth('Ш'));
-    CellH := ImageCanvas.TextHeight('Ш');
+    CellW := Max(ImageCanvas.TextWidth('W'), ImageCanvas.TextWidth('С'));
+    CellH := ImageCanvas.TextHeight('С');
     PadX := MulDiv(4, Self.CurrentPPI, 96);
     PadY := MulDiv(2, Self.CurrentPPI, 96);
     CellW := Max(CellW, CellH) + PadX;
@@ -2838,7 +2838,7 @@ begin
   end;
 
   //
-  // Пакетний режим стартує з поточної книги і обходить усе дерево по колу.
+  // Пакетный режим запускается с текущей книги и обходит всё дерево по кругу.
   //
   GetActiveTree(Tree);
   Node := Tree.GetFirstSelected;
@@ -3287,7 +3287,7 @@ begin
   if tvAuthors.RootNodeCount = 0 then ClearScreen;
   if (FIgnoreAuthorChange) or (Node = nil) then Exit;
 
-  // finally відновлює курсор навіть на шляху Exit нижче, тож зберігаємо до try
+  // finally восстанавливает курсор даже на пути Exit ниже, так что сохраняем до try
   SavedCursor := Screen.Cursor;
   try
     Data := tvAuthors.GetNodeData(Node);
@@ -3741,7 +3741,7 @@ begin
       FavoritesView:
         Left := tvGroups;
     else
-      // SearchView і DownloadView не мають лівого дерева
+      // SearchView и DownloadView не имеют левого дерева
       Exit;
     end;
 
@@ -4209,7 +4209,7 @@ begin
 
   RealFilter := Char.ToUpper(Copy(Filter, 1, 1));
 
-  // Увага: індекс у TCharHelper відлічується від нуля, на відміну від рядків Delphi
+  // Внимание: индекс в TCharHelper отсчитывается с нуля, в отличие от строк Delphi
   if not Char.IsLetter(RealFilter, 0) then
     RealFilter := ALPHA_FILTER_ALL; //ALPHA_FILTER_NON_ALPHA;
 
@@ -4667,7 +4667,7 @@ begin
               if (BookRecord.Lang <> SelectedLang) AND (SelectedLang <> '-')then Continue;
             end;
 
-            // Серія береться з поточної книги і не залежить від LangSelector
+            // Серия берется из текущей книги и не зависит от LangSelector
             SeriesID := BookRecord.SeriesID;
 
             AuthorNode := nil;
@@ -5964,8 +5964,8 @@ begin
         Exit;
       end
     else
-      // Assert прибирається в Release, тож виходимо явно: для інших виглядів
-      // treeView та Edit лишилися б неініціалізованими
+      // Assert убирается в Release, так что выходим явно: для других видов
+      // treeView и Edit остались бы неинициализированными
       Assert(False);
       Exit;
   end;
@@ -6802,9 +6802,9 @@ begin
       if Assigned(Data) and (Data^.nodeType = ntBookInfo) then
       begin
         //
-        // Перемикач за ознакою "прочитано повністю": книга з будь-яким
-        // проміжним прогресом стає прочитаною (100%), уже прочитана —
-        // непрочитаною (0%). Так поточний прогрес читання не втрачається.
+        // Переключатель по признаку «прочитано полностью»: книга с любым
+        // промежуточным прогрессом становится прочитанной (100%), уже прочитанная —
+        // непрочитанной (0%). Таким образом, текущий прогресс чтения не теряется.
         //
         NewProgress := IfThen(Data^.Progress = 100, 0, 100);
 
@@ -7220,8 +7220,8 @@ begin
   btnStartDownload.Enabled := False;
 
   //
-  // Попередній менеджер уже зупинений (кнопка "Пауза" або порожня черга),
-  // але сам об'єкт лишався жити. Звільняємо його перед запуском нового.
+  // Предыдущий менеджер уже остановлен (кнопка "Пауза" или пустая очередь),
+  // но сам объект оставался живым. Освобождаем его перед запуском нового.
   //
   if Assigned(FDMThread) then
   begin
@@ -7268,7 +7268,7 @@ end;
 
 // - - - - - - - - - - - - - - IDownloadView - - - - - - - - - - - - - - - - - -
 //
-// Реалізація для потоку завантажень. Викликається виключно з головного потоку.
+// Реализация для потока загрузок. Вызывается исключительно из главного потока.
 //
 
 procedure TfrmMain.UpdateDownloadCount;
@@ -7277,9 +7277,9 @@ begin
 end;
 
 //
-// Наступна книга черги: рухаємось від поточного вузла, а дійшовши до кінця -
-// повертаємось на початок і пропускаємо помилкові. Якщо помилковими виявились
-// усі, черга починається спочатку - помилки завантажуються повторно.
+// Следующая книга очереди: двигаемся от текущего узла, а достигнув конца -
+// возвращаемся к началу и пропускаем ошибочные. Если ошибочными оказались
+// все, очередь начинается заново - ошибки загружаются повторно.
 //
 function TfrmMain.SelectNextDownload(out Item: TDownloadItem): Boolean;
 var
@@ -7346,8 +7346,8 @@ begin
     Data^.State := dsOk;
 
     //
-    // Вузол міг зникнути з дерева, поки книга качалась (наприклад, разом з
-    // видаленою колекцією), тому спершу переконуємось, що він ще на місці.
+    // Узел мог исчезнуть из дерева, пока книга загружалась (например, вместе с
+    // удаленной коллекцией), поэтому сначала убеждаемся, что он еще на месте.
     //
     Node := tvDownloadList.GetFirst;
     while Assigned(Node) do

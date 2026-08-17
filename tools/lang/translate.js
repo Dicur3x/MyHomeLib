@@ -4,7 +4,7 @@
 //
 // Translation is authored PER UNIQUE SOURCE, never per key, because the
 // runtime looks a translation up by source text: several keys legitimately
-// share one Ukrainian string, and unit_Localization.pas LoadSection keeps the
+// share one Russian string, and unit_Localization.pas LoadSection keeps the
 // first target it sees for a source and silently discards the rest (with only
 // a status line to show for it). check_lang.js Check 1 detects that after the
 // fact; authoring a flat source -> target map means it cannot be written in
@@ -271,7 +271,7 @@ function cmdTable(locale, outFile) {
   for (const group of [...byGroup.keys()].sort()) {
     const rows = byGroup.get(group);
     lines.push(`## ${group} (${rows.length})`, '');
-    lines.push('| Ukrainian | English | Used by |', '| --- | --- | --- |');
+    lines.push('| Russian | Translation | Used by |', '| --- | --- | --- |');
     for (const r of rows) {
       const used = r.keys.length === 1 ? r.keys[0] : `${r.keys[0]} +${r.keys.length - 1}`;
       lines.push(`| ${cell(r.source)} | ${cell(r.target)} | \`${cell(used)}\` |`);

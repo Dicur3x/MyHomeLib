@@ -140,7 +140,7 @@ begin
   else if Pos('unicode', AnsiLowerCase(S)) <> 0 then
     Result := TEncoding.Unicode
   else
-    // utf-8 або невідоме кодування: за замовчуванням XML вважається UTF-8
+    // utf-8 или неизвестная кодировка: по умолчанию XML считается UTF-8
     Result := TEncoding.UTF8;
 end;
 

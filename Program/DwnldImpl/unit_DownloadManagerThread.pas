@@ -29,10 +29,10 @@ uses
 
 type
   //
-  // Менеджер черги завантажень.
+  // Менеджер очереди загрузок.
   //
-  // Потік не знає ані про головну форму, ані про дерево черги: усе спілкування
-  // з інтерфейсом іде через IDownloadView і тільки в межах Synchronize.
+  // Поток не знает ни о главной форме, ни о дереве очереди: все общение
+  // с интерфейсом идет через IDownloadView и только в пределах Synchronize.
   //
   TDownloadManagerThread = class(TThread)
   private
@@ -52,7 +52,7 @@ type
     FError : boolean;
 
     //
-    // Обгортки над IDownloadView: кожна виконується у головному потоці.
+    // Обертки над IDownloadView: каждая выполняется в главном потоке.
     //
     procedure ShowState(const State: string);
     procedure ShowProgress(Position: Integer);
@@ -61,7 +61,7 @@ type
     function AskIgnoreErrors: Integer;
 
     //
-    // Кроки черги
+    // Шаги очереди
     //
     procedure SelectNextFile;
     procedure FinishCurrentFile;
@@ -73,8 +73,8 @@ type
     procedure StopDownloader;
 
     //
-    // Зворотні виклики завантажувача. Приходять з фонового потоку, тому
-    // всередині лише Synchronize.
+    // Обратные вызовы загрузчика. Приходят из фонового потока, поэтому
+    // внутри только Synchronize.
     //
     procedure SetComment(const Current, Total: string);
     procedure SetProgress(Current, Total: Integer);
@@ -102,14 +102,14 @@ uses
   unit_Consts;
 
 resourcestring
-rstrConnecting = 'Підключення...';
-  rstrConnectingWithInfo = '%s %s %s Підключення...';
-  rstrDownloading = '%s. %s %s Завантаження: %s Kb/s %d %%';
+rstrConnecting = 'Подключение...';
+  rstrConnectingWithInfo = '%s %s %s Подключение...';
+  rstrDownloading = '%s. %s %s Загрузка: %s КБ/с %d %%';
 
 constructor TDownloadManagerThread.Create(const View: IDownloadView);
 begin
   //
-  // Створюємо призупиненим: потік не має стартувати, доки не отримає View.
+  // Создаем приостановленным: поток не должен стартовать, пока не получит View.
   //
   inherited Create(True);
   FDownloaderLock := TCriticalSection.Create;
@@ -174,7 +174,7 @@ procedure TDownloadManagerThread.TerminateNow;
 begin
   try
     //
-    // Завантажувача може вже не бути: потік міг завершити роботу сам.
+    // Загрузчика может уже не быть: поток мог завершить работу сам.
     //
     FCanceled := True;
     StopDownloader;
@@ -185,10 +185,10 @@ begin
 end;
 
 //
-// Пауза, яку можна перервати.
+// Пауза, которую можно прервать.
 //
-// Звичайний Sleep змусив би і закриття програми, і перезапуск черги чекати до
-// 30 секунд - саме стільки триває пауза після помилки завантаження.
+// Обычный Sleep заставил бы и закрытие программы, и перезапуск очереди ожидать до
+// 30 секунд - именно столько длится пауза после ошибки загрузки.
 //
 procedure TDownloadManagerThread.InterruptibleSleep(Milliseconds: Integer);
 const
@@ -205,7 +205,7 @@ begin
 end;
 
 //
-// - - - - - - - - - - - Обгортки над представленням - - - - - - - - - - - - - -
+// - - - - - - - - - - - Обёртки над представлением - - - - - - - - - - - - - -
 //
 
 procedure TDownloadManagerThread.ShowState(const State: string);
@@ -281,7 +281,7 @@ begin
 end;
 
 //
-// - - - - - - - - - - - - - - - Кроки черги - - - - - - - - - - - - - - - - - -
+// - - - - - - - - - - - - - - - Шаги очереди - - - - - - - - - - - - - - - - - -
 //
 
 procedure TDownloadManagerThread.SelectNextFile;
@@ -346,7 +346,7 @@ begin
 end;
 
 //
-// - - - - - - - - - - - Зворотні виклики завантажувача - - - - - - - - - - - - -
+// - - - - - - - - - - - Обратные вызовы загрузчика - - - - - - - - - - - - -
 //
 
 procedure TDownloadManagerThread.SetComment(const Current, Total: string);
@@ -400,8 +400,8 @@ begin
       try
         SelectNextFile;
         //
-        // Нічого не качаємо, поки черга не дала книгу: інакше перший прохід
-        // пішов би завантажувати порожній ключ.
+        // Ничего не качаем, пока очередь не выдала книгу: иначе первый проход
+        // пошел бы загружать пустой ключ.
         //
         while not (FFinished or FCanceled) do
         begin

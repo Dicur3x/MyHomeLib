@@ -852,7 +852,7 @@ end;
 
 initialization
   SQLite3_Initialize;
-  // $0800 = LOCALE_SYSTEM_DEFAULT; Winapi.Windows не підключений у Win64-гілці uses
+  // $0800 = LOCALE_SYSTEM_DEFAULT; Winapi.Windows не включён в секцию uses для Win64
   {$WARN SYMBOL_PLATFORM OFF}
   SQLite_FormatSettings := TFormatSettings.Create($0800);
   {$WARN SYMBOL_PLATFORM DEFAULT}

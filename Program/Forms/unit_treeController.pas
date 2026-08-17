@@ -123,11 +123,11 @@ begin
 end;
 
 resourcestring
-  rstrSingleSeries = 'Серія: %s';
-  rstrDownloadStateWaiting = 'Очікування';
-  rstrDownloadStateDownloading = 'Завантаження';
+  rstrSingleSeries = 'Серия: %s';
+  rstrDownloadStateWaiting = 'Ожидание';
+  rstrDownloadStateDownloading = 'Закачка';
   rstrDownloadStateDone = 'Готово';
-  rstrDownloadStateError = 'Помилка';
+  rstrDownloadStateError = 'Ошибка';
 
 { TMainController }
 

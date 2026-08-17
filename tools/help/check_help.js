@@ -61,7 +61,7 @@ for (const t of topics) {
   if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) fail(`${t.file}: has UTF-8 BOM`);
   if (Buffer.compare(Buffer.from(html, 'utf8'), buf) !== 0) fail(`${t.file}: not valid UTF-8`);
   if (!/<meta charset="utf-8">/i.test(html)) fail(`${t.file}: missing <meta charset="utf-8">`);
-  if (!/<html lang="uk">/i.test(html)) fail(`${t.file}: missing <html lang="uk">`);
+  if (!/<html lang="ru">/i.test(html)) fail(`${t.file}: missing <html lang="ru">`);
   if (/<img\b/i.test(html)) fail(`${t.file}: contains an <img> tag (help ships without images)`);
   if (/<script\b/i.test(html)) fail(`${t.file}: contains a <script> tag`);
   if (/https?:\/\/[^"']*\.(css|js|woff2?|ttf)/i.test(html)) fail(`${t.file}: references an external asset`);
@@ -70,14 +70,14 @@ for (const t of topics) {
   if (!html.includes('<!-- BODY:BEGIN -->') || !html.includes('<!-- BODY:END -->'))
     fail(`${t.file}: missing BODY markers`);
 
-  // The index page's own title *is* "Довідка MyHomeLib" — appending the
-  // suffix would double it up ("Довідка MyHomeLib — Довідка MyHomeLib").
-  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Довідка MyHomeLib`;
+  // The index page's own title *is* "Справка MyHomeLib" — appending the
+  // suffix would double it up ("Справка MyHomeLib — Справка MyHomeLib").
+  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Справка MyHomeLib`;
   const expectedTitle = `<title>${expectedTitleText}</title>`;
   if (!html.includes(expectedTitle)) fail(`${t.file}: <title> should be ${expectedTitle}`);
 
   const body = html.split('<!-- BODY:BEGIN -->')[1]?.split('<!-- BODY:END -->')[0] ?? '';
-  if (body.trim() === '' || body.includes('Розділ у роботі'))
+  if (body.trim() === '' || body.includes('Раздел в работе'))
     fail(`${t.file}: body not written yet`);
 
   // internal links resolve (external URLs and mailto: links are skipped below)
@@ -91,13 +91,13 @@ for (const t of topics) {
 
 // --- 3b. translated help trees -------------------------------------------
 // A translation lives in Help/<locale>/. Structure is enforced exactly as for
-// the Ukrainian original; wording is not, because topics.json holds Ukrainian
+// the Russian original; wording is not, because topics.json holds Russian
 // titles and a translated <title> cannot be matched against it. The suffix
 // convention still can be, which is what catches a page translated without
 // its title.
 //
 // Missing pages fail even though ShowHelpTopic falls back per page to the
-// Ukrainian original. That fallback exists so an incomplete tree degrades
+// Russian original. That fallback exists so an incomplete tree degrades
 // instead of erroring -- not as licence to ship one.
 const LOCALE_DIRS = fs.existsSync(HELP)
   ? fs.readdirSync(HELP, { withFileTypes: true })
@@ -106,7 +106,7 @@ const LOCALE_DIRS = fs.existsSync(HELP)
       .sort()
   : [];
 
-const TITLE_SUFFIX = { en: 'MyHomeLib Help', bg: 'Помощ за MyHomeLib' };
+const TITLE_SUFFIX = { uk: 'Довідка MyHomeLib', en: 'MyHomeLib Help', bg: 'Помощ за MyHomeLib' };
 
 for (const loc of LOCALE_DIRS) {
   const dir = path.join(HELP, loc);

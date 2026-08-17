@@ -1,93 +1,258 @@
 {
   "sections": [
     {
-      "title": "Вступ",
+      "title": "Введение",
       "topics": [
-        { "file": "index.html", "title": "Довідка MyHomeLib" },
-        { "file": "about.html", "title": "Про програму" },
-        { "file": "terms.html", "title": "Основні терміни" },
-        { "file": "faq.html", "title": "Часті запитання" },
-        { "file": "donate.html", "title": "Підтримати розробку" }
+        {
+          "file": "index.html",
+          "title": "Справка MyHomeLib"
+        },
+        {
+          "file": "about.html",
+          "title": "О программе"
+        },
+        {
+          "file": "terms.html",
+          "title": "Основные термины"
+        },
+        {
+          "file": "faq.html",
+          "title": "Часто задаваемые вопросы"
+        },
+        {
+          "file": "donate.html",
+          "title": "Поддержать разработку"
+        }
       ]
     },
     {
-      "title": "Встановлення",
+      "title": "Установка",
       "topics": [
-        { "file": "install.html", "title": "Встановлення" },
-        { "file": "upgrade.html", "title": "Оновлення попередньої версії" },
-        { "file": "portable.html", "title": "Portable-версія" }
+        {
+          "file": "install.html",
+          "title": "Установка"
+        },
+        {
+          "file": "upgrade.html",
+          "title": "Обновление предыдущей версии"
+        },
+        {
+          "file": "portable.html",
+          "title": "Portable-версия"
+        }
       ]
     },
     {
-      "title": "Інтерфейс",
+      "title": "Интерфейс",
       "topics": [
-        { "file": "interface.html", "title": "Інтерфейс програми" },
-        { "file": "main_window.html", "title": "Головне вікно" },
-        { "file": "browsing.html", "title": "Перегляд колекції: автори, серії, жанри" },
-        { "file": "toolbar.html", "title": "Панель інструментів" },
-        { "file": "hotkeys.html", "title": "Гарячі клавіші" },
-        { "file": "main_menu.html", "title": "Головне меню" },
-        { "file": "menu_book.html", "title": "Меню «Книга»" },
-        { "file": "menu_collection.html", "title": "Меню «Колекція»" },
-        { "file": "menu_tools.html", "title": "Меню «Інструменти»" },
-        { "file": "menu_view.html", "title": "Меню «Вигляд»" },
-        { "file": "context_menus.html", "title": "Контекстні меню" }
+        {
+          "file": "interface.html",
+          "title": "Интерфейс программы"
+        },
+        {
+          "file": "main_window.html",
+          "title": "Главное окно"
+        },
+        {
+          "file": "browsing.html",
+          "title": "Просмотр коллекции: авторы, серии, жанры"
+        },
+        {
+          "file": "toolbar.html",
+          "title": "Панель инструментов"
+        },
+        {
+          "file": "hotkeys.html",
+          "title": "Горячие клавиши"
+        },
+        {
+          "file": "main_menu.html",
+          "title": "Главное меню"
+        },
+        {
+          "file": "menu_book.html",
+          "title": "Меню «Книга»"
+        },
+        {
+          "file": "menu_collection.html",
+          "title": "Меню «Коллекция»"
+        },
+        {
+          "file": "menu_tools.html",
+          "title": "Меню «Инструменты»"
+        },
+        {
+          "file": "menu_view.html",
+          "title": "Меню «Вид»"
+        },
+        {
+          "file": "context_menus.html",
+          "title": "Контекстное меню"
+        }
       ]
     },
     {
-      "title": "Робота з колекціями",
+      "title": "Работа с коллекциями",
       "topics": [
-        { "file": "collections.html", "title": "Робота з колекціями" },
-        { "file": "coll_types.html", "title": "Типи колекцій" },
-        { "file": "new_collection.html", "title": "Створення колекції" },
-        { "file": "coll_params.html", "title": "Властивості колекції" },
-        { "file": "copy_books.html", "title": "Копіювання книг між колекціями" },
-        { "file": "delete_collection.html", "title": "Видалення колекції" },
-        { "file": "export_inpx.html", "title": "Експорт колекції у формат INPX" },
-        { "file": "update.html", "title": "Оновлення колекції" },
-        { "file": "sync_folders.html", "title": "Синхронізація тек і файлів" },
-        { "file": "genres.html", "title": "Списки жанрів" },
-        { "file": "maintenance.html", "title": "Обслуговування бази даних" }
+        {
+          "file": "collections.html",
+          "title": "Работа с коллекциями"
+        },
+        {
+          "file": "coll_types.html",
+          "title": "Типы коллекций"
+        },
+        {
+          "file": "new_collection.html",
+          "title": "Создание коллекции"
+        },
+        {
+          "file": "coll_params.html",
+          "title": "Свойства коллекции"
+        },
+        {
+          "file": "copy_books.html",
+          "title": "Копирование книг между коллекциями"
+        },
+        {
+          "file": "delete_collection.html",
+          "title": "Удаление коллекции"
+        },
+        {
+          "file": "export_inpx.html",
+          "title": "Экспорт коллекции в формат INPX"
+        },
+        {
+          "file": "update.html",
+          "title": "Обновление коллекции"
+        },
+        {
+          "file": "sync_folders.html",
+          "title": "Синхронизация папок и файлов"
+        },
+        {
+          "file": "genres.html",
+          "title": "Списки жанров"
+        },
+        {
+          "file": "maintenance.html",
+          "title": "Обслуживание базы данных"
+        }
       ]
     },
     {
-      "title": "Робота з книгами",
+      "title": "Работа с книгами",
       "topics": [
-        { "file": "books.html", "title": "Робота з книгами" },
-        { "file": "add_books.html", "title": "Додавання книг до колекції" },
-        { "file": "import_fb2.html", "title": "Імпорт книг у форматі FB2" },
-        { "file": "import_nonfb2.html", "title": "Імпорт книг не-FB2 та FBD" },
-        { "file": "download.html", "title": "Завантаження книг" },
-        { "file": "reading.html", "title": "Читання книг" },
-        { "file": "selection.html", "title": "Виділення та позначення книг" },
-        { "file": "search.html", "title": "Пошук книг і фільтри" },
-        { "file": "groups.html", "title": "Групи та обране" },
-        { "file": "rating.html", "title": "Рейтинг і статус «Прочитано»" },
-        { "file": "export_device.html", "title": "Надсилання книг на пристрій" },
-        { "file": "export_html.html", "title": "Експорт списку книг" },
-        { "file": "delete.html", "title": "Видалення книг" },
-        { "file": "editing.html", "title": "Редагування описів книг" }
+        {
+          "file": "books.html",
+          "title": "Работа с книгами"
+        },
+        {
+          "file": "add_books.html",
+          "title": "Добавление книг в коллекцию"
+        },
+        {
+          "file": "import_fb2.html",
+          "title": "Импорт книг в формате FB2"
+        },
+        {
+          "file": "import_nonfb2.html",
+          "title": "Импорт книг не-FB2 и FBD"
+        },
+        {
+          "file": "download.html",
+          "title": "Загрузка книг"
+        },
+        {
+          "file": "reading.html",
+          "title": "Чтение книг"
+        },
+        {
+          "file": "selection.html",
+          "title": "Выделение и отметка книг"
+        },
+        {
+          "file": "search.html",
+          "title": "Поиск книг и фильтры"
+        },
+        {
+          "file": "groups.html",
+          "title": "Группы и избранное"
+        },
+        {
+          "file": "rating.html",
+          "title": "Рейтинг и статус «Прочитано»"
+        },
+        {
+          "file": "export_device.html",
+          "title": "Отправка книг на устройство"
+        },
+        {
+          "file": "export_html.html",
+          "title": "Экспорт списка книг"
+        },
+        {
+          "file": "delete.html",
+          "title": "Удаление книг"
+        },
+        {
+          "file": "editing.html",
+          "title": "Редактирование описаний книг"
+        }
       ]
     },
     {
-      "title": "Налаштування",
+      "title": "Настройки",
       "topics": [
-        { "file": "settings.html", "title": "Налаштування програми" },
-        { "file": "set_interface.html", "title": "Інтерфейс" },
-        { "file": "set_readers.html", "title": "Типи файлів і програми для читання" },
-        { "file": "set_device.html", "title": "Пристрої та експорт" },
-        { "file": "set_internet.html", "title": "Інтернет і проксі" },
-        { "file": "set_scripts.html", "title": "Скрипти" },
-        { "file": "set_filesort.html", "title": "Сортування файлів" },
-        { "file": "set_other.html", "title": "Поведінка" }
+        {
+          "file": "settings.html",
+          "title": "Настройка программы"
+        },
+        {
+          "file": "set_interface.html",
+          "title": "Интерфейс"
+        },
+        {
+          "file": "set_readers.html",
+          "title": "Типы файлов и приложения для чтения"
+        },
+        {
+          "file": "set_device.html",
+          "title": "Устройства и экспорт"
+        },
+        {
+          "file": "set_internet.html",
+          "title": "Интернет и прокси"
+        },
+        {
+          "file": "set_scripts.html",
+          "title": "Скрипты"
+        },
+        {
+          "file": "set_filesort.html",
+          "title": "Сортировка файлов"
+        },
+        {
+          "file": "set_other.html",
+          "title": "Поведение"
+        }
       ]
     },
     {
-      "title": "Додаток",
+      "title": "Приложение",
       "topics": [
-        { "file": "scripts_examples.html", "title": "Приклади скриптів" },
-        { "file": "user_data.html", "title": "Експорт та імпорт даних користувача" },
-        { "file": "mcp_server.html", "title": "MCP-сервер для AI-асистентів" }
+        {
+          "file": "scripts_examples.html",
+          "title": "Примеры скриптов"
+        },
+        {
+          "file": "user_data.html",
+          "title": "Экспорт и импорт пользовательских данных"
+        },
+        {
+          "file": "mcp_server.html",
+          "title": "MCP-сервер для AI-ассистентов"
+        }
       ]
     }
   ]

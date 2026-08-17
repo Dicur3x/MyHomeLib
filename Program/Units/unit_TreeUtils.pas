@@ -79,9 +79,9 @@ begin
       351:
         begin
           //
-          // І наш заголовок, і <META> від VirtualTrees оголошують charset=utf-8,
-          // тож і байти файлу мають бути UTF-8, а не ANSI. BOM тут зайвий:
-          // кодування вже вказане у самій розмітці.
+          // И наш заголовок, и <META> от VirtualTrees объявляют charset=utf-8,
+          // поэтому и байты файла должны быть UTF-8, а не ANSI. BOM здесь лишний:
+          // кодировка уже указана в самой разметке.
           //
           Bytes := TEncoding.UTF8.GetBytes(HTMLHead + Tree.ContentToHTML(tstAll) + HTMLFoot);
           if Length(Bytes) > 0 then
@@ -91,8 +91,8 @@ begin
       352:
         begin
           //
-          // У .txt немає де оголосити кодування, тому пишемо UTF-8 з BOM —
-          // саме за ним Notepad, Excel та інші розпізнають файл правильно.
+          // В .txt нет места для указания кодировки, поэтому пишем UTF-8 с BOM —
+          // именно по нему Notepad, Excel и другие правильно распознают файл.
           //
           BOM := TEncoding.UTF8.GetPreamble;
           FS.WriteBuffer(BOM[0], Length(BOM));
@@ -105,8 +105,8 @@ begin
       353:
         begin
           //
-          // RTF від VirtualTrees уже несе власний \ansicpg та \'xx-послідовності,
-          // тож віддаємо його байт-у-байт.
+          // RTF от VirtualTrees уже содержит собственный \ansicpg и \'xx-последовательности,
+          // поэтому отдаём его байт за байтом.
           //
           Str := Tree.ContentToRTF(tstAll);
           if Length(Str) > 0 then

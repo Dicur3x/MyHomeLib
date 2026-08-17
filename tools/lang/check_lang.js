@@ -3,8 +3,8 @@
 // Validates the localization catalogs in Program/Lang/*.json.
 //
 // The runtime looks up a translation by SOURCE TEXT, not by key. Several
-// different keys legitimately share the same Ukrainian source string (e.g.
-// eighteen different keys all have the source "Змінити"). That is fine as
+// different keys legitimately share the same Russian source string (e.g.
+// eighteen different keys all have the source "Изменить"). That is fine as
 // long as, within one catalog, every key sharing a source also shares the
 // same target -- otherwise the loader silently keeps whichever translation
 // it happened to index first and discards the rest with no error.
@@ -296,7 +296,7 @@ function analyzeSharedSources(catalog) {
 // every one of its entries has target === source by construction (it is
 // never even loaded -- InitLocalization short-circuits before reading a file
 // when the configured locale is the base locale), and many keys legitimately
-// share one Ukrainian source string. Without this filter, that identity
+// share one Russian source string. Without this filter, that identity
 // catalog would report hundreds of "chains" that can never happen at
 // runtime.
 function findChains(catalog) {

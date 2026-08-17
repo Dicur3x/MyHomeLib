@@ -38,12 +38,12 @@ uses
 
 const
   //
-  // Типові значення налаштувань. Використовуються і як запасні значення при
-  // читанні ini-файлу, і кнопкою "Скинути" у вікні налаштувань, тому тримаємо
-  // їх в одному місці - інакше свіжа інсталяція та скидання розійдуться.
+  // Стандартные значения настроек. Используются также в качестве запасных значений при
+  // чтении ini-файла и кнопкой «Сбросить» в окне настроек, так что держим
+  // их в одном месте - иначе свежая установка и сброс разойдутся.
   //
 
-  // Папки/Пристрої
+  // Папки/Устройства
   DEF_DEVICE_DIR = '';
   DEF_READ_DIR = '';
   DEF_PROMPT_DEVICE_PATH = True;
@@ -53,7 +53,7 @@ const
   DEF_REMOVE_SQUARE_BRACKETS = True;
   DEF_TXT_ENCODING = 0;                 // enUTF8
 
-  // Інтерфейс
+  // Интерфейс
   DEF_TREE_FONT_SIZE = 8;
   DEF_SHORT_FONT_SIZE = 8;
   DEF_FONT_COLOR = clBlack;
@@ -98,11 +98,11 @@ type
 function ResolveMHLPaths: TMHLPathInfo;
 
 const
-  DEFAULT_LOCALE = 'uk';
+  DEFAULT_LOCALE = 'ru';
   // The base locale's own name, for the language menu. A plain constant and
   // NOT a resourcestring: a language is always written in its own language, so
   // this must not change when the UI language does.
-  BASE_LOCALE_NAME = 'Українська';
+  BASE_LOCALE_NAME = 'Русский';
 
 type
   TMHLSettings = class
@@ -724,8 +724,8 @@ begin
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
     FCheckExternalLibUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', True);
     FPromptDevicePath := iniFile.ReadBool(SYSTEM_SECTION, 'PromptDevicePath', DEF_PROMPT_DEVICE_PATH);
-    // %fc (обраний автор), а не %f (перший автор книги) - інакше книги
-    // у співавторстві розкладаються по чужих папках (#59)
+    // %fc (выбранный автор), а не %f (первый автор книги) - иначе книги
+    // в соавторстве раскладываются по чужим папкам (#59)
     FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
     FFileNameTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FileNameTemplate', DEF_FILE_NAME_TEMPLATE);
     FRemoveSquareBrackets := iniFile.ReadBool(SYSTEM_SECTION, 'RemoveSquareBrackets', DEF_REMOVE_SQUARE_BRACKETS);
@@ -1390,7 +1390,7 @@ begin
 end;
 
 // Help\<locale>\index.html when a translated tree is installed, otherwise the
-// Ukrainian Help\index.html. Callers derive the whole help directory from this
+// Russian Help\index.html. Callers derive the whole help directory from this
 // one path, so redirecting it moves every topic at once.
 //
 // Keyed on the index page existing rather than on the directory: a stray empty

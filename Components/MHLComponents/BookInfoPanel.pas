@@ -128,7 +128,7 @@ const
   CoverGap = 12;      // gap between the cover and the info column
   RowSpacing = 5;     // leading added to the text height of an info row
   AnnotationGap = 8;  // gap between the last info row and the annotation
-  LabelColumn = 70;   // width of the "Серія:"/"Жанр(и):" caption column
+  LabelColumn = 70;   // width of the "Серия:"/"Жанр(ы):" caption column
 
 function GetCoverWidth(Height: Integer): Integer;
 begin

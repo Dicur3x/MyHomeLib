@@ -6,7 +6,7 @@
   *
   * Author(s)           Oleksiy Penkov  oleksiy.penkov@gmail.com
   * Created             25.07.2026
-  * Description         Вибір файлу для ручного оновлення колекції
+  * Description         Выбор файла для ручного обновления коллекции
   *
   ****************************************************************************** *)
 
@@ -56,15 +56,15 @@ uses
 {$R *.dfm}
 
 resourcestring
-   rstrUpdateFromFileCaption = 'Оновлення колекції з файлу';
-   rstrUpdateFileLabel = 'Файл оновлення (*.inpx, *.zip):';
-   rstrBrowseCaption = 'Огляд...';
-   rstrFullReimportCaption = 'Повний переімпорт (очистити колекцію)';
-   rstrFullReimportWarning = 'Колекцію буде очищено й наповнено заново з вибраного ' +
-     'файлу. Дані користувача (прочитане, оцінки, групи) буде збережено та ' +
-     'відновлено. Без цієї опції записи з файлу лише додаються до колекції.';
+   rstrUpdateFromFileCaption = 'Обновление коллекции из файла';
+   rstrUpdateFileLabel = 'Файл обновления (*.inpx, *.zip):';
+   rstrBrowseCaption = 'Обзор...';
+   rstrFullReimportCaption = 'Полный переимпорт (очистить коллекцию)';
+   rstrFullReimportWarning = 'Коллекция будет очищена и заново заполнена данными из выбранного ' +
+     'файла. Данные пользователя (статус прочтения, оценки и группы) будут сохранены и ' +
+     'восстановлены. Без этой опции записи из файла только добавляются в коллекцию.';
    rstrOkCaption = 'OK';
-   rstrCancelCaption = 'Скасувати';
+   rstrCancelCaption = 'Отмена';
 
 procedure TdlgUpdateFromFile.DoCreate;
 begin

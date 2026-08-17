@@ -111,7 +111,7 @@ begin
   idxReviewBlockStart := 1;
   idxEndAllBookReviews := Pos(ANNOTATION_END, page);
 
-  // Порівнюється в умові циклу ще до першого присвоєння всередині нього
+  // Сравнивается в условии цикла еще до первого присвоения внутри него
   idxReviewBlockEnd := 0;
 
   while ((idxReviewBlockStart <> idxReviewBlockEnd) and (idxReviewBlockStart < idxEndAllBookReviews)) do
@@ -176,8 +176,8 @@ begin
       responseList.LoadFromStream(outputStream);
 
       if responseList.Count > 0 then
-        // Сторінка приходить у UTF-8, але завантажується у список як ANSI,
-        // тож повертаємо байти назад і декодуємо їх явно.
+        // Страница приходит в UTF-8, но загружается в список как ANSI,
+        // поэтому возвращаем байты обратно и декодируем их явно.
         Result := UTF8ToString(RawByteString(AnsiString(responseList.Text)));
     finally
       outputStream.Free;

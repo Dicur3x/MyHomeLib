@@ -368,7 +368,7 @@ procedure RegisterTextTools(Server: TMcpServer);
 begin
   Server.RegisterTool(
     'get_book_toc',
-    'Зміст книги FB2: розділи з їхніми зміщеннями для get_book_text.',
+    'Содержание книги FB2: разделы с их смещениями для get_book_text.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"},' +
@@ -378,26 +378,26 @@ begin
 
   Server.RegisterTool(
     'get_book_text',
-    'Фрагмент тексту книги FB2 від заданого зміщення.',
+    'Фрагмент текста книги FB2 от заданного смещения.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"},' +
       '"book_id":{"type":"integer"},' +
-      '"offset":{"type":"integer","description":"Типово 0"},' +
-      '"length":{"type":"integer","description":"Типово 8000, максимум 50000"}},' +
+      '"offset":{"type":"integer","description":"По умолчанию 0"},' +
+      '"length":{"type":"integer","description":"По умолчанию 8000, максимум 50000"}},' +
       '"required":["collection_id","book_id"]}') as TJSONObject,
     Guarded(GetBookText));
 
   Server.RegisterTool(
     'search_in_book',
-    'Пошук фрагментів у тексті книги FB2 із зазначенням їхніх зміщень.',
+    'Поиск фрагментов в тексте книги FB2 с определением их смещений.',
     TJSONObject.ParseJSONValue(
       '{"type":"object","properties":{' +
       '"collection_id":{"type":"integer"},' +
       '"book_id":{"type":"integer"},' +
       '"query":{"type":"string"},' +
-      '"max_hits":{"type":"integer","description":"Типово 10, максимум 50"},' +
-      '"context_chars":{"type":"integer","description":"Типово 200, максимум 2000"}},' +
+      '"max_hits":{"type":"integer","description":"По умолчанию 10, максимум 50"},' +
+      '"context_chars":{"type":"integer","description":"По умолчанию 200, максимум 2000"}},' +
       '"required":["collection_id","book_id","query"]}') as TJSONObject,
     Guarded(SearchInBook));
 end;

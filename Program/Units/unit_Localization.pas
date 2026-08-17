@@ -284,7 +284,7 @@ var
   I: Integer;
 begin
   // Rule 3 from step 1: with an empty index nothing can change, so do not pay
-  // for an RTTI walk of 24 forms on a Ukrainian startup.
+  // for an RTTI walk of 24 forms on a Russian startup.
   if not FActive or (AComponent = nil) then
     Exit;
 
@@ -667,7 +667,7 @@ end;
 
 // The language menu's source of truth: which locales can actually be offered.
 //
-// Ukrainian is pinned first from a constant, never from a catalog. It is
+// Russian is pinned first from a constant, never from a catalog. It is
 // embedded in the exe like English, but the pin is what guarantees a user can
 // always get back to it even if the resource is somehow absent -- listing it
 // conditionally would let a partial install strand someone in a language they
@@ -678,7 +678,7 @@ end;
 //
 // This must never raise: it runs while the main form is being built, and a
 // malformed file dropped into Lang\ has to degrade to "that language is not
-// offered", the same way a malformed catalog already degrades to Ukrainian.
+// offered", the same way a malformed catalog already degrades to Russian.
 function AvailableLocales: TArray<TLocaleInfo>;
 var
   Paths: TMHLPathInfo;
@@ -729,7 +729,7 @@ begin
     for FileName in Files do
     begin
       // The menu must offer only what InitLocalization would actually load,
-      // or a user picks a language and gets Ukrainian with a tick left on the
+      // or a user picks a language and gets Russian with a tick left on the
       // wrong entry. Checked before the file is even parsed.
       if not VerifyCatalogSignature(FileName) then
         Continue;
@@ -812,7 +812,7 @@ begin
   // we ship is ignored -- there is no file a user can place that alters one
   // of our languages.
   //
-  // Ukrainian takes this path too, now that it has no short-circuit. Its
+  // Russian takes this path too when an identity catalog is embedded. Its
   // catalog is pure identity, so rule 2 drops every entry, the index comes
   // out empty, and rule 3 below declines to install the hook -- the same
   // outcome the short-circuit produced, reached by a general rule.
@@ -829,7 +829,7 @@ begin
     end
     // A catalog for a locale we do not ship is somebody else's file. It loads
     // only if it carries a signature made with the project's key -- see
-    // unit_LangSignature. The project does not sign Russian catalogs.
+    // unit_LangSignature.
     else if not VerifyCatalogSignature(FileName) then
     begin
       SetStatus('Localization: catalog is not signed, falling back to '

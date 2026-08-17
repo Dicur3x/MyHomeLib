@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Контекстні меню — Довідка MyHomeLib</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav id="toc">
+<!-- TOC:BEGIN -->
+<p class="nav-title"><a href="index.html">Довідка MyHomeLib</a></p>
+<p class="nav-section">Вступ</p>
+<ul>
+<li><a href="about.html">Про програму</a></li>
+<li><a href="terms.html">Основні терміни</a></li>
+<li><a href="faq.html">Часті запитання</a></li>
+<li><a href="donate.html">Підтримати розробку</a></li>
+</ul>
+<p class="nav-section">Встановлення</p>
+<ul>
+<li><a href="install.html">Встановлення</a></li>
+<li><a href="upgrade.html">Оновлення попередньої версії</a></li>
+<li><a href="portable.html">Portable-версія</a></li>
+</ul>
+<p class="nav-section">Інтерфейс</p>
+<ul>
+<li><a href="interface.html">Інтерфейс програми</a></li>
+<li><a href="main_window.html">Головне вікно</a></li>
+<li><a href="browsing.html">Перегляд колекції: автори, серії, жанри</a></li>
+<li><a href="toolbar.html">Панель інструментів</a></li>
+<li><a href="hotkeys.html">Гарячі клавіші</a></li>
+<li><a href="main_menu.html">Головне меню</a></li>
+<li><a href="menu_book.html">Меню «Книга»</a></li>
+<li><a href="menu_collection.html">Меню «Колекція»</a></li>
+<li><a href="menu_tools.html">Меню «Інструменти»</a></li>
+<li><a href="menu_view.html">Меню «Вигляд»</a></li>
+<li><a href="context_menus.html" class="cur" aria-current="page">Контекстні меню</a></li>
+</ul>
+<p class="nav-section">Робота з колекціями</p>
+<ul>
+<li><a href="collections.html">Робота з колекціями</a></li>
+<li><a href="coll_types.html">Типи колекцій</a></li>
+<li><a href="new_collection.html">Створення колекції</a></li>
+<li><a href="coll_params.html">Властивості колекції</a></li>
+<li><a href="copy_books.html">Копіювання книг між колекціями</a></li>
+<li><a href="delete_collection.html">Видалення колекції</a></li>
+<li><a href="export_inpx.html">Експорт колекції у формат INPX</a></li>
+<li><a href="update.html">Оновлення колекції</a></li>
+<li><a href="sync_folders.html">Синхронізація тек і файлів</a></li>
+<li><a href="genres.html">Списки жанрів</a></li>
+<li><a href="maintenance.html">Обслуговування бази даних</a></li>
+</ul>
+<p class="nav-section">Робота з книгами</p>
+<ul>
+<li><a href="books.html">Робота з книгами</a></li>
+<li><a href="add_books.html">Додавання книг до колекції</a></li>
+<li><a href="import_fb2.html">Імпорт книг у форматі FB2</a></li>
+<li><a href="import_nonfb2.html">Імпорт книг не-FB2 та FBD</a></li>
+<li><a href="download.html">Завантаження книг</a></li>
+<li><a href="reading.html">Читання книг</a></li>
+<li><a href="selection.html">Виділення та позначення книг</a></li>
+<li><a href="search.html">Пошук книг і фільтри</a></li>
+<li><a href="groups.html">Групи та обране</a></li>
+<li><a href="rating.html">Рейтинг і статус «Прочитано»</a></li>
+<li><a href="export_device.html">Надсилання книг на пристрій</a></li>
+<li><a href="export_html.html">Експорт списку книг</a></li>
+<li><a href="delete.html">Видалення книг</a></li>
+<li><a href="editing.html">Редагування описів книг</a></li>
+</ul>
+<p class="nav-section">Налаштування</p>
+<ul>
+<li><a href="settings.html">Налаштування програми</a></li>
+<li><a href="set_interface.html">Інтерфейс</a></li>
+<li><a href="set_readers.html">Типи файлів і програми для читання</a></li>
+<li><a href="set_device.html">Пристрої та експорт</a></li>
+<li><a href="set_internet.html">Інтернет і проксі</a></li>
+<li><a href="set_scripts.html">Скрипти</a></li>
+<li><a href="set_filesort.html">Сортування файлів</a></li>
+<li><a href="set_other.html">Поведінка</a></li>
+</ul>
+<p class="nav-section">Додаток</p>
+<ul>
+<li><a href="scripts_examples.html">Приклади скриптів</a></li>
+<li><a href="user_data.html">Експорт та імпорт даних користувача</a></li>
+<li><a href="mcp_server.html">MCP-сервер для AI-асистентів</a></li>
+</ul>
+<!-- TOC:END -->
+</nav>
+<main id="content">
+<h1>Контекстні меню</h1>
+<!-- BODY:BEGIN -->
+<p>Праве клацання мишею на дереві перегляду, на списку книг чи на списку завантажень відкриває контекстне меню з діями, доречними саме там.</p>
+
+<h2>Список книг</h2>
+<p>Це меню однакове на всіх вкладках зі списком книг (Автори, Серії, Жанри, Пошук, Групи).</p>
+<table>
+<tr><th>Команда</th><th>Що робить</th></tr>
+<tr><td><span class="ui">Читати</span> <kbd>Enter</kbd></td><td>Відкриває виділену книгу для читання.</td></tr>
+<tr><td><span class="ui">Надіслати на пристрій</span> <kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Надсилає книгу на пристрій чи в читалку.</td></tr>
+<tr><td><span class="ui">Додати до списку завантажень</span></td><td>Ставить книгу в чергу на завантаження.</td></tr>
+<tr><td><span class="ui">Запустити скрипт</span></td><td>Підменю зі скриптами, налаштованими в програмі — виконує ту саму дію, що пункт <span class="ui">«Запустити скрипт»</span> меню «Інструменти».</td></tr>
+<tr><td><span class="ui">Прочитано</span> <kbd>Ctrl</kbd>+<kbd>R</kbd></td><td>Перемикає прогрес читання: якщо він дорівнює 0%, встановлює 100%; в будь-якому іншому випадку (зокрема коли книга вже прочитана повністю) — обнуляє прогрес до 0%.</td></tr>
+<tr><td><span class="ui">Перейти до автора</span> <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></td><td>Перемикає на вкладку «Автори» й виділяє автора цієї книги (за потреби спершу перемикаючи активну колекцію).</td></tr>
+<tr><td><span class="ui">Інформація про книгу</span> <kbd>Ctrl</kbd>+<kbd>I</kbd></td><td>Показує докладну інформацію про книгу.</td></tr>
+<tr><td><span class="ui">Змінити опис</span> <kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Відкриває редагування опису книги.</td></tr>
+<tr><td><span class="ui">Додати до обраного</span> <kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Додає книгу до групи «Обране».</td></tr>
+<tr><td><span class="ui">Додати до групи</span></td><td>Підменю зі списком наявних груп (крім «Обране») для додавання книги.</td></tr>
+<tr><td><span class="ui">Видалити із групи</span></td><td>Прибирає книгу з поточної групи (пункт видно лише під час перегляду групи чи «Обраного»).</td></tr>
+<tr><td><span class="ui">Рейтинг</span> (підменю: <span class="ui">*</span> … <span class="ui">* * * * *</span>, <span class="ui">Очистити</span>)</td><td>Ставить чи знімає особисту оцінку книги.</td></tr>
+<tr><td><span class="ui">Відзначити все</span> <kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Вмикає прапорець позначки в усіх рядках списку.</td></tr>
+<tr><td><span class="ui">Виділити все</span> <kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Виділяє (підсвічує) всі рядки списку, не чіпаючи прапорців позначки.</td></tr>
+<tr><td><span class="ui">Відзначити виділені</span> <kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Вмикає прапорець позначки лише в рядках, виділених на цей момент.</td></tr>
+<tr><td><span class="ui">Зняти позначки</span> <kbd>Ctrl</kbd>+<kbd>U</kbd></td><td>Вимикає прапорці позначки в усіх рядках списку.</td></tr>
+<tr><td><span class="ui">Копіювати в буфер</span> <kbd>Ctrl</kbd>+<kbd>C</kbd></td><td>Копіює текстовий опис виділених книг у буфер обміну.</td></tr>
+</table>
+
+<p class="note"><strong>Увага:</strong> команда «Прочитано» не лише позначає непочату книгу прочитаною — для книги з будь-яким ненульовим прогресом (зокрема вже прочитаної на 100%) вона обнуляє прогрес до 0%. На частково прочитаній книзі повторне застосування цієї команди призводить до втрати позначки прогресу читання.</p>
+
+<h3>Контекстне меню заголовка таблиці</h3>
+<p>Праве клацання на заголовку колонок списку книг (а не на самому рядку) відкриває окреме меню із прапорцями всіх доступних колонок (Автор, Назва, Серія, №, Жанр, Розмір, Моя оцінка, Додано, Тип, Колекція, Мова, Рейтинг, BookID) — клацання по назві вмикає чи вимикає відповідну колонку. Пункт <span class="ui">«Стандартні»</span> внизу цього меню скидає набір і ширину колонок до початкових значень програми.</p>
+
+<h2>Дерево авторів, серій і жанрів</h2>
+<p>Це меню відкривається на деревах вкладок «Автори», «Серії» й «Жанри» (на вкладці «Жанри» — без останнього пункту).</p>
+<table>
+<tr><th>Команда</th><th>Що робить</th></tr>
+<tr><td><span class="ui">Копіювати в буфер</span> <kbd>Ctrl</kbd>+<kbd>C</kbd></td><td>Копіює назву вибраного вузла (ім'я автора чи назву серії) у буфер обміну.</td></tr>
+<tr><td><span class="ui">Додати до "Пошуку"</span></td><td>Підставляє ім'я автора чи назву серії в поле фільтра на вкладці «Пошук» (пункт не показується в дереві жанрів).</td></tr>
+</table>
+
+<h2>Список завантажень</h2>
+<table>
+<tr><th>Команда</th><th>Що робить</th></tr>
+<tr><td><span class="ui">Перейти до автора</span></td><td>Перемикає на вкладку «Автори» й виділяє автора вибраної в черзі книги (за потреби спершу перемикаючи активну колекцію).</td></tr>
+<tr><td><span class="ui">Видалити</span></td><td>Прибирає вибрані записи з черги завантаження; записи, які саме завантажуються, пропускаються.</td></tr>
+</table>
+<!-- BODY:END -->
+</main>
+</body>
+</html>

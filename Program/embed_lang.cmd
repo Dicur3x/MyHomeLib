@@ -8,7 +8,7 @@ setlocal
 ::
 :: lang.res MUST exist when the compiler runs, so every path through this
 :: script ends with a valid one. A clone with no catalogs, or a machine with
-:: no Node, produces an empty resource and a Ukrainian-only exe -- never a
+:: no Node, produces an empty resource and a Russian-only exe -- never a
 :: build failure.
 :: ============================================================================
 

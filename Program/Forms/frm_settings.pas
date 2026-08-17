@@ -276,15 +276,15 @@ uses
   unit_Localization;
 
 resourcestring
-rstrStandart = 'Стандартне';
-  rstrNeedTemplate = 'Необхідно встановити шаблон для заголовка книги в розділі "Різне"';
-  rstrChangeFileType = 'Зміна типу файлів';
-  rstrAddFileType = 'Додавання типу файлів';
-  rstrTypeAlreadyInTheList = 'Тип "%s" вже є у списку!';
-  rstrChangeScriptParams = 'Зміна параметрів скрипта';
-  rstrAddScript = 'Додавання скрипта';
-  rstrProvideFolder = 'Вкажіть папку';
-  rstrConfirmReset = 'Скинути налаштування цього розділу до типових значень?';
+rstrStandart = 'Стандартное';
+  rstrNeedTemplate = 'Необходимо установить шаблон для заголовка книги в разделе "Разное"';
+  rstrChangeFileType = 'Изменение типа файлов';
+  rstrAddFileType = 'Добавление типа файлов';
+  rstrTypeAlreadyInTheList = 'Тип "%s" уже есть в списке!';
+  rstrChangeScriptParams = 'Изменение параметров скрипта';
+  rstrAddScript = 'Добавление скрипта';
+  rstrProvideFolder = 'Укажите папку';
+  rstrConfirmReset = 'Сбросить конфигурацию раздела в значения по умолчанию?';
 
 {$R *.dfm}
 
@@ -588,8 +588,8 @@ begin
   if cbOverwriteFB2Info.Checked and (edTitleTemplate.Text = '') then
   begin
     ShowMessage(rstrNeedTemplate);
-    // вузли дерева йдуть у тому ж порядку, що й вкладки, тому беремо індекс
-    // від самої вкладки - інакше при зміні порядку знову з'їде на сусідню
+    // узлы дерева идут в том же порядке, что и вкладки, поэтому берём индекс
+    // от самой вкладки — иначе при изменении порядка снова сдвинется на соседнюю
     tvSections.Select(tvSections.Items[tsBehavour.PageIndex]);
     Exit;
   end;
@@ -825,17 +825,17 @@ begin
   pcSetPages.ActivePageIndex := tvSections.Selected.Index;
 
   //
-  // Скидання реалізоване лише для цих двох розділів
+  // Сброс реализован только для этих двух разделов
   //
   btnReset.Enabled := (pcSetPages.ActivePage = tsDevices) or
                       (pcSetPages.ActivePage = tsInterface);
 end;
 
 //
-// Скидання розділу налаштувань до типових значень.
+// Сброс раздела настроек к типовым значениям.
 //
-// Змінюємо лише контроли форми, а не Settings - інакше "Відміна" перестане
-// скасовувати скидання. Збереження й далі йде через звичайний SaveSettings.
+// Изменяем только элементы управления формы, а не Settings - иначе «Отмена» перестанет
+// отменять сброс. Сохранение далее происходит через обычный SaveSettings.
 //
 procedure TfrmSettings.ResetDevicesTab;
 begin
@@ -849,7 +849,7 @@ begin
   cbSquareFilter.Checked := DEF_REMOVE_SQUARE_BRACKETS;
   cbTXTEncoding.ItemIndex := DEF_TXT_ENCODING;
 
-  // перечитаємо стан доступності полів шляху до пристрою
+  // перечитаем состояние доступности полей пути к устройству
   cbPromptPathClick(nil);
 end;
 
