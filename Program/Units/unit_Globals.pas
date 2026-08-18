@@ -434,7 +434,7 @@ uses
   System.Net.URLClient,
   unit_MHLHttpClient,
   unit_fb2ToText,
-  unit_Fb2Utils,
+  unit_FB2Utils,
   unit_MHLGenerics,
   unit_MHLArchiveHelpers,
   unit_Errors,
@@ -899,7 +899,7 @@ end;
 
 class function TAuthorData.FormatName(const LastName: string; const FirstName: string; const MiddleName: string; const nickName: string = ''; onlyInitials: Boolean = False): string;
 begin
-  Result := unit_Fb2Utils.FormatName(Lastname, Firstname, Middlename, NickName, onlyInitials)
+  Result := unit_FB2Utils.FormatName(Lastname, Firstname, Middlename, NickName, onlyInitials)
 end;
 
 function TAuthorData.GetFullName(onlyInitials: Boolean = False): string;

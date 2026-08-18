@@ -38,6 +38,8 @@ type
 
 procedure SetTextNoChange(editControl: TCustomEdit; const newText: string);
 
+procedure LogWarning(const FormatString: string; const Args: array of const);
+
 function GetFileSize(const FileName: string): Integer;
 
 function ExpandFileNameEx(const basePath: string; const path: string): string;
@@ -99,6 +101,11 @@ uses
   ShLwApi,
   ActiveX,
   ComObj;
+
+procedure LogWarning(const FormatString: string; const Args: array of const);
+begin
+  Windows.OutputDebugString(PChar(Format(FormatString, Args)));
+end;
 
 // ============================================================================
 // TIniStringList

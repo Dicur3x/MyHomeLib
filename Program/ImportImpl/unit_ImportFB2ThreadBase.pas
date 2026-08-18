@@ -124,7 +124,7 @@ Settings.ImportPath
 }
 
 uses
-  unit_Logger,
+  unit_Helpers,
   dm_user;
 
 resourcestring
@@ -200,7 +200,7 @@ begin
         R.SeqNumber := Sequence[0].Number;
       except
         on E: Exception do
-          Logger.W('GetBookInfo: failed to read sequence data — %s', [E.Message]);
+          LogWarning('GetBookInfo: failed to read sequence data — %s', [E.Message]);
       end;
     end;
 
@@ -299,7 +299,7 @@ begin
       if SysUtils.DeleteFile(FCreatedFiles[I]) then
         FCreatedFiles.Delete(I)
       else
-        Logger.W('RollbackFileOperations: failed to delete "%s"', [FCreatedFiles[I]]);
+        LogWarning('RollbackFileOperations: failed to delete "%s"', [FCreatedFiles[I]]);
     end
     else
       FCreatedFiles.Delete(I);

@@ -30,7 +30,6 @@ uses
   SysUtils,
   Clipbrd,
   Menus,
-  RzCommon, RzPanel,
   FictionBook_21,
   StrUtils,
   unit_MHLHelpers,
@@ -38,10 +37,10 @@ uses
   MHLLinkLabel;
 
 type
-  TInfoPanel = class(TRzPanel)
+  TInfoPanel = class(TPanel)
   private
     FCover: TImage;
-    FInfoPanel: TRzPanel;
+    FInfoPanel: TPanel;
     FTitle: TLabel;
     FAuthors: TMHLLinkLabel;
     FSerieLabel: TLabel;
@@ -155,12 +154,10 @@ begin
 
   SetBounds(0, 0, 500, 200);
 
-  BorderOuter := fsFlatRounded;
-  BorderInner := fsNone;
+  BevelOuter := bvNone;
 
-  // Keep the aligned children off the rounded border. TRzPanel ignores Padding
-  // (it adjusts the client rect for its own border), so the inset has to come
-  // from the children's Margins, which TWinControl.AlignControls always honours.
+  // Keep the aligned children away from the panel edge. Margins are honoured
+  // by TWinControl.AlignControls and do not require a third-party panel.
   FCover := TImage.Create(Self);
   FCover.Parent := Self;
   FCover.SetBounds(0, 0, GetCoverWidth(200), 200);
@@ -171,13 +168,13 @@ begin
   FCover.Proportional := True;
   FCover.Stretch := True;
 
-  FInfoPanel := TRzPanel.Create(Self);
+  FInfoPanel := TPanel.Create(Self);
   FInfoPanel.Parent := Self;
   FInfoPanel.SetBounds(200, 0, 300, 200);
   FInfoPanel.Align := alClient;
   FInfoPanel.AlignWithMargins := True;
   FInfoPanel.Margins.SetBounds(CoverGap, PanelPadding, PanelPadding, PanelPadding);
-  FInfoPanel.BorderOuter := fsNone;
+  FInfoPanel.BevelOuter := bvNone;
   FInfoPanel.ParentColor := True;
 
   FTitle := TLabel.Create(FInfoPanel);

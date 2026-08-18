@@ -169,7 +169,7 @@ $requiredRuntimeFiles = @(
 )
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-        throw "Неполная групповая сборка: отсутствует '$requiredFile'. Соберите Program\MHL.groupproj."
+        throw "Неполная сборка: отсутствует '$requiredFile'. Соберите три проекта по порядку из BUILDING.md."
     }
 }
 

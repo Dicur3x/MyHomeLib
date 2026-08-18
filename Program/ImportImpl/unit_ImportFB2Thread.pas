@@ -58,7 +58,6 @@ uses
   FictionBook_21,
   unit_Helpers,
   unit_Consts,
-  unit_Logger,
   dm_user,
   unit_Templater;
 
@@ -146,7 +145,7 @@ begin
         begin
           ForgetCreatedFile(CreatedFileName, True);
           Teletype(Format(rstrStructureError, [R.Folder, R.FileName + FB2_EXTENSION]), tsError);
-          Logger.W('ProcessFileList: failed to import "%s" — %s', [FFiles[i], E.Message]);
+          LogWarning('ProcessFileList: failed to import "%s" — %s', [FFiles[i], E.Message]);
           Inc(Defective);
         end;
       end;
@@ -214,7 +213,7 @@ begin
           on E: Exception do
           begin
             Teletype(rstrErrorUnpacking + FFiles[i], tsError);
-            Logger.W('ProcessFileListArchive: cannot open "%s" — %s',
+            LogWarning('ProcessFileListArchive: cannot open "%s" — %s',
               [FFiles[i], E.Message]);
             Inc(Defective);
             FProgressEngine.AddProgress;
@@ -257,7 +256,7 @@ begin
                 NoErrors := False;
                 Teletype(Format(rstrErrorFB2Structure,
                   [FFiles[i], R.FileName + FB2_EXTENSION]), tsError);
-                Logger.W('ProcessFileListArchive: failed to parse "%s" in "%s" — %s',
+                LogWarning('ProcessFileListArchive: failed to parse "%s" in "%s" — %s',
                   [AFileName, FFiles[i], E.Message]);
                 Inc(Defective);
               end;
@@ -270,7 +269,7 @@ begin
         if MatchedEntryCount = 0 then
         begin
           Teletype(rstrErrorUnpacking + FFiles[i], tsError);
-          Logger.W('ProcessFileListArchive: no FB2 entries in "%s"', [FFiles[i]]);
+          LogWarning('ProcessFileListArchive: no FB2 entries in "%s"', [FFiles[i]]);
           Inc(Defective);
         end;
 
@@ -326,7 +325,7 @@ begin
                 begin
                   Teletype(Format(rstrErrorFB2Structure,
                     [FFiles[i], Records[k].FileName + FB2_EXTENSION]), tsError);
-                  Logger.W('ProcessFileListArchive: failed to insert "%s" from "%s" — %s',
+                  LogWarning('ProcessFileListArchive: failed to insert "%s" from "%s" — %s',
                     [Records[k].FileName, FFiles[i], E.Message]);
                   Inc(Defective);
                 end;
@@ -340,7 +339,7 @@ begin
             begin
               ForgetCreatedFile(CreatedArchiveName, True);
               Teletype(rstrErrorUnpacking + FFiles[i], tsError);
-              Logger.W('ProcessFileListArchive: failed to sort "%s" — %s',
+              LogWarning('ProcessFileListArchive: failed to sort "%s" — %s',
                 [FFiles[i], E.Message]);
               Inc(Defective, Length(Records));
             end;
@@ -407,7 +406,7 @@ begin
       R.FileName := NewFileName;
     except
       on E: Exception do
-        Logger.W('SortFilesZip: failed to rename file inside archive "%s" — %s',
+        LogWarning('SortFilesZip: failed to rename file inside archive "%s" — %s',
           [ArchiveFileName, E.Message]);
     end;
   finally

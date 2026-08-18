@@ -18,6 +18,27 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <!-- Compile the in-repository runtime components as part of the app.
+             This keeps an EXE build independent from a previously built or
+             IDE-installed MHLComponents package. -->
+        <DCCReference Include="..\Components\MHLComponents\unit_StaticTip.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\files_list.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\unit_AutoCompleteEdit.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\unit_MHLHelpers.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\fictionbook_21.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\unit_FB2Utils.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\BookInfoPanel.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\MHLLinkLabel.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\MHLSplitter.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\BookTreeView.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\MHLSimplePanel.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\MHLButtonedEdit.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\FBDDocument.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\fbd_xml.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\FBDAuthorTable.pas">
+            <Form>frmEditAuthorFull</Form>
+        </DCCReference>
+        <DCCReference Include="..\Components\MHLComponents\unit_MHLArchiveHelpers.pas"/>
         <DCCReference Include="Forms\frm_main.pas">
             <Form>frmMain</Form>
         </DCCReference>
@@ -358,7 +379,7 @@
         <DCC_Inlining>off</DCC_Inlining>
         <DCC_DebugDCUs>true</DCC_DebugDCUs>
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
-        <DCC_UsePackage>rtl;vcl;vclx;vclimg;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;RaizeComponentsVcl;$(DCC_UsePackage)</DCC_UsePackage>
+        <DCC_UsePackage>rtl;vcl;vclx;vclimg;xmlrtl;soaprtl;IndyCore;IndySystem;IndyProtocols;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_DependencyCheckOutputName>MyhomeLib.exe</DCC_DependencyCheckOutputName>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
@@ -368,9 +389,9 @@
         <VerInfo_Build>837</VerInfo_Build>
         <DCC_ExeOutput>Out\Bin\</DCC_ExeOutput>
         <DCC_DcuOutput>Out\Units\</DCC_DcuOutput>
-        <DCC_UnitSearchPath>..\Components\MHLComponents\Out\Units;..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <DCC_ResourcePath>..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
-        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_UnitSearchPath>$(MSBuildProjectDirectory)\..\Components\MHLComponents\Out\Units\$(Platform)\$(Config);$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_ResourcePath>$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</DCC_Namespace>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
@@ -379,9 +400,9 @@
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
-        <DCC_UnitSearchPath>..\Components\MHLComponents\Out\Units;..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <DCC_ResourcePath>..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
-        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_UnitSearchPath>$(MSBuildProjectDirectory)\..\Components\MHLComponents\Out\Units\$(Platform)\$(Config);$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_ResourcePath>$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
@@ -491,9 +512,13 @@
          $(OUTPUTDIR) and $(PROJECTDIR) are undefined until that import runs, so
          a PostBuildEvent placed earlier expands them to empty strings. -->
     <PropertyGroup>
+        <!-- The Delphi 13 IDE can pass an empty DCC_Namespace as a global
+             property. CodeGear.Common.Targets then overwrites NameSpace with
+             that empty value. Reassert the legacy namespace prefixes here,
+             after the targets import, so Forms/Controls/etc. resolve. -->
+        <NameSpace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</NameSpace>
         <PreBuildEvent>call &quot;$(PROJECTDIR)\embed_lang.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
-        <PostBuildEvent>call &quot;$(PROJECTDIR)\copy_help.cmd&quot; &quot;$(OUTPUTDIR).&quot;
-call &quot;$(PROJECTDIR)\copy_icons.cmd&quot; &quot;$(OUTPUTDIR).&quot; &quot;$(Platform)&quot;</PostBuildEvent>
+        <PostBuildEvent>call &quot;$(PROJECTDIR)\post_build.cmd&quot; &quot;$(OUTPUTDIR).&quot; &quot;$(Platform)&quot;</PostBuildEvent>
     </PropertyGroup>
     <ProjectExtensions>
         <Borland.Personality>Delphi.Personality.12</Borland.Personality>

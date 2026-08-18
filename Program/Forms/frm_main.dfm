@@ -58,7 +58,7 @@ object frmMain: TfrmMain
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   TextHeight = 13
-  object tlbrMain: TRzToolbar
+  object tlbrMain: TToolBar
     AlignWithMargins = True
     Left = 3
     Top = 3
@@ -69,111 +69,95 @@ object frmMain: TfrmMain
     Margins.Right = 3
     Margins.Bottom = 0
     Align = alTop
-    AutoStyle = False
     Images = dmImages.vilToolbar
-    RowHeight = 40
+    ButtonHeight = 40
     AutoSize = True
-    BorderInner = fsNone
-    BorderOuter = fsFlatRounded
-    BorderWidth = 0
-    FullRepaint = True
+    Flat = True
     ParentShowHint = False
     ShowHint = True
     TabOrder = 0
     Transparent = True
-    ToolbarControls = (
-      tbtnRead
-      tbtnDownloadList_Add
-      tbSendToDevice
-      RzSep1
-      tbtnRus
-      tbtnEng
-      RzSep2
-      tbtnWizard
-      RzSep3
-      BtnFav_add
-      RzSep4
-      tbSelectAll
-      tbCollapse
-      RzSep5
-      btnSwitchTreeMode
-      tbtnShowDeleted
-      tbtnShowLocalOnly
-      tbtnShowCover
-      RzSep6
-      tbtnSettings
-      tbtnHelp)
-    object tbtnRead: TRzToolButton
+    Wrapable = False
+    object tbtnRead: TToolButton
       Left = 6
       Top = 2
       Action = acBookRead
       ImageIndex = 0
     end
-    object tbtnDownloadList_Add: TRzToolButton
+    object tbtnDownloadList_Add: TToolButton
       Left = 33
       Top = 2
       Action = acBookAdd2DownloadList
       ImageIndex = 2
     end
-    object tbSendToDevice: TRzToolButton
+    object tbSendToDevice: TToolButton
       Tag = 900
       Left = 60
       Top = 2
       Hint = #1054#1090#1087#1088#1072#1074#1080#1090#1100' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
       DropDownMenu = pmScripts
       ImageIndex = 1
-      ToolStyle = tsDropDown
+      Style = tbsDropDown
       ParentShowHint = False
       ShowHint = True
       OnClick = SendToDeviceExecute
     end
-    object RzSep1: TRzSpacer
+    object RzSep1: TToolButton
       Left = 100
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object tbtnRus: TRzToolButton
+    object tbtnRus: TToolButton
       Left = 108
       Top = 2
       Action = acShowRusAlphabet
       ImageIndex = 3
     end
-    object tbtnEng: TRzToolButton
+    object tbtnEng: TToolButton
       Left = 135
       Top = 2
       Action = acShowEngAlphabet
       ImageIndex = 4
     end
-    object RzSep2: TRzSpacer
+    object RzSep2: TToolButton
       Left = 162
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object tbtnWizard: TRzToolButton
+    object tbtnWizard: TToolButton
       Left = 170
       Top = 2
       Hint = #1042#1099#1073#1088#1072#1090#1100' '#1082#1086#1083#1083#1077#1082#1094#1080#1102
       DropDownMenu = pmCollection
       ImageIndex = 6
+      Style = tbsDropDown
       ParentShowHint = False
       ShowHint = True
       OnClick = tbtnWizardClick
     end
-    object RzSep3: TRzSpacer
+    object RzSep3: TToolButton
       Left = 197
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object BtnFav_add: TRzToolButton
+    object BtnFav_add: TToolButton
       Left = 205
       Top = 2
       Action = acBookAdd2Favorites
       DropDownMenu = pmGroups
       ImageIndex = 15
-      ToolStyle = tsDropDown
+      Style = tbsDropDown
     end
-    object RzSep4: TRzSpacer
+    object RzSep4: TToolButton
       Left = 245
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object tbSelectAll: TRzToolButton
+    object tbSelectAll: TToolButton
       Left = 253
       Top = 2
       Hint = #1054#1090#1084#1077#1090#1080#1090#1100' '#1074#1089#1077
@@ -182,7 +166,7 @@ object frmMain: TfrmMain
       ShowHint = True
       OnClick = tbSelectAllClick
     end
-    object tbCollapse: TRzToolButton
+    object tbCollapse: TToolButton
       Left = 280
       Top = 2
       Hint = #1056#1072#1079#1074#1077#1088#1085#1091#1090#1100'/'#1057#1074#1077#1088#1085#1091#1090#1100' '#1089#1087#1080#1089#1086#1082
@@ -191,11 +175,13 @@ object frmMain: TfrmMain
       ShowHint = True
       OnClick = tbCollapseClick
     end
-    object RzSep5: TRzSpacer
+    object RzSep5: TToolButton
       Left = 307
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object btnSwitchTreeMode: TRzToolButton
+    object btnSwitchTreeMode: TToolButton
       Left = 315
       Top = 2
       Hint = #1055#1077#1088#1077#1082#1083#1102#1095#1080#1090#1100' '#1074' '#1088#1077#1078#1080#1084' '#171#1058#1072#1073#1083#1080#1094#1072#187
@@ -204,56 +190,43 @@ object frmMain: TfrmMain
       ShowHint = True
       OnClick = btnSwitchTreeModeClick
     end
-    object tbtnShowDeleted: TRzToolButton
+    object tbtnShowDeleted: TToolButton
       Left = 342
       Top = 2
       Action = acViewHideDeletedBooks
       AllowAllUp = True
-      GroupIndex = 1
       ImageIndex = 12
-      SelectionColorStart = clHighlight
-      SelectionColorStop = clHighlight
-      SelectionFrameColor = clHighlight
-      UseToolbarVisualStyle = False
-      VisualStyle = vsGradient
+      Style = tbsCheck
     end
-    object tbtnShowLocalOnly: TRzToolButton
+    object tbtnShowLocalOnly: TToolButton
       Left = 369
       Top = 2
       Action = acViewShowLocalOnly
       AllowAllUp = True
-      GroupIndex = 2
       ImageIndex = 13
-      SelectionColorStart = clHighlight
-      SelectionColorStop = clHighlight
-      SelectionFrameColor = clHighlight
-      UseToolbarVisualStyle = False
-      VisualStyle = vsGradient
+      Style = tbsCheck
     end
-    object tbtnShowCover: TRzToolButton
+    object tbtnShowCover: TToolButton
       Left = 396
       Top = 2
       Action = acShowBookInfoPanel
       AllowAllUp = True
-      GroupIndex = 3
       ImageIndex = 14
-      SelectionColorStart = clHighlight
-      SelectionColorStop = clHighlight
-      SelectionFrameColor = clHighlight
-      UseToolbarVisualStyle = False
-      VisualStyle = vsGradient
+      Style = tbsCheck
     end
-    object RzSep6: TRzSpacer
+    object RzSep6: TToolButton
       Left = 423
       Top = 2
+      Width = 8
+      Style = tbsSeparator
     end
-    object tbtnSettings: TRzToolButton
+    object tbtnSettings: TToolButton
       Left = 431
       Top = 2
       Action = acToolsSettings
       ImageIndex = 17
     end
-    object tbtnHelp: TRzToolButton
+    object tbtnHelp: TToolButton
       Left = 458
       Top = 2
       Hint = #1057#1087#1088#1072#1074#1082#1072
@@ -261,7 +234,7 @@ object frmMain: TfrmMain
       ImageIndex = 26
     end
   end
-  object pgControl: TRzPageControl
+  object pgControl: TPageControl
     AlignWithMargins = True
     Left = 3
     Top = 65
@@ -274,7 +247,7 @@ object frmMain: TfrmMain
     OnChange = pgControlChange
     ExplicitWidth = 772
     ExplicitHeight = 652
-    object tsByAuthor: TRzTabSheet
+    object tsByAuthor: TTabSheet
       HelpContext = 135
       Caption = #1040#1074#1090#1086#1088#1099
       object AuthorsViewSplitter: TMHLSplitter
@@ -440,7 +413,6 @@ object frmMain: TfrmMain
           Width = 531
           Height = 152
           Align = alBottom
-          BorderOuter = fsFlatRounded
           TabOrder = 2
           OnResize = InfoPanelResize
           ShowAnnotation = False
@@ -563,7 +535,6 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MaxWidth = 1000
@@ -577,7 +548,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 80
@@ -591,7 +561,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
-              Hint = 
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 200
@@ -657,7 +626,7 @@ object frmMain: TfrmMain
         ExplicitWidth = 750
       end
     end
-    object tsBySerie: TRzTabSheet
+    object tsBySerie: TTabSheet
       HelpContext = 135
       Caption = #1057#1077#1088#1080#1080
       object SeriesViewSplitter: TMHLSplitter
@@ -827,7 +796,6 @@ object frmMain: TfrmMain
           Width = 545
           Height = 150
           Align = alBottom
-          BorderOuter = fsFlatRounded
           TabOrder = 2
           OnResize = InfoPanelResize
           OnAuthorLinkClicked = AuthorLinkClicked
@@ -952,7 +920,6 @@ object frmMain: TfrmMain
               Width = 131
             end
             item
-              Hint = 
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MinWidth = 30
@@ -964,7 +931,6 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
-              Hint = 
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -977,7 +943,6 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
-              Hint = 
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -1045,7 +1010,7 @@ object frmMain: TfrmMain
         ExplicitWidth = 772
       end
     end
-    object tsByGenre: TRzTabSheet
+    object tsByGenre: TTabSheet
       HelpContext = 135
       Caption = #1046#1072#1085#1088#1099
       object GenresViewSplitter: TMHLSplitter
@@ -1197,7 +1162,6 @@ object frmMain: TfrmMain
           Width = 531
           Height = 100
           Align = alBottom
-          BorderOuter = fsFlatRounded
           TabOrder = 2
           OnResize = InfoPanelResize
           OnAuthorLinkClicked = AuthorLinkClicked
@@ -1251,7 +1215,6 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MinWidth = 30
@@ -1264,7 +1227,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -1278,7 +1240,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
-              Hint = 
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -1308,7 +1269,7 @@ object frmMain: TfrmMain
         end
       end
     end
-    object tsSearch: TRzTabSheet
+    object tsSearch: TTabSheet
       HelpContext = 126
       Caption = #1055#1086#1080#1089#1082
       object SearchViewSplitter: TMHLSplitter
@@ -1349,7 +1310,6 @@ object frmMain: TfrmMain
           Width = 539
           Height = 150
           Align = alBottom
-          BorderOuter = fsFlatRounded
           TabOrder = 2
           OnResize = InfoPanelResize
           OnAuthorLinkClicked = AuthorLinkClicked
@@ -1464,7 +1424,6 @@ object frmMain: TfrmMain
               Width = 200
             end
             item
-              Hint = 
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MaxWidth = 1000
@@ -1483,7 +1442,6 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
-              Hint = 
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 60
@@ -1495,7 +1453,6 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
-              Hint = 
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -1930,7 +1887,7 @@ object frmMain: TfrmMain
         end
       end
     end
-    object tsByGroup: TRzTabSheet
+    object tsByGroup: TTabSheet
       HelpContext = 125
       Caption = #1043#1088#1091#1087#1087#1099
       object GroupsViewSplitter: TMHLSplitter
@@ -2055,7 +2012,6 @@ object frmMain: TfrmMain
           Width = 545
           Height = 150
           Align = alBottom
-          BorderOuter = fsFlatRounded
           TabOrder = 2
           OnResize = InfoPanelResize
           OnAuthorLinkClicked = AuthorLinkClicked
@@ -2196,7 +2152,6 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
@@ -2208,7 +2163,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
-              Hint = 
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -2222,7 +2176,6 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
-              Hint = 
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MinWidth = 65
@@ -2252,39 +2205,25 @@ object frmMain: TfrmMain
         end
       end
     end
-    object tsDownload: TRzTabSheet
+    object tsDownload: TTabSheet
       HelpContext = 108
       Caption = #1057#1087#1080#1089#1086#1082' '#1079#1072#1075#1088#1091#1079#1086#1082
-      object tlbrDownloadList: TRzToolbar
+      object tlbrDownloadList: TToolBar
         AlignWithMargins = True
         Left = 3
         Top = 3
         Width = 772
         Height = 24
         Align = alTop
-        AutoStyle = False
         Images = dmImages.vilDownload
-        RowHeight = 20
+        ButtonHeight = 20
         AutoSize = True
-        BorderInner = fsNone
-        BorderOuter = fsFlatRounded
-        FullRepaint = True
+        Flat = True
         ParentShowHint = False
         ShowHint = True
         TabOrder = 0
-        ToolbarControls = (
-          btnStartDownload
-          btnPauseDownload
-          DlSep1
-          BtnFirstRecord
-          BtnDwnldUp
-          BtnDwnldDown
-          BtnLastRecord
-          DlSep2
-          BtnDelete
-          BtnSave
-          tbtnClear)
-        object btnStartDownload: TRzToolButton
+        Wrapable = False
+        object btnStartDownload: TToolButton
           Left = 0
           Top = 0
           Hint = #1057#1090#1072#1088#1090
@@ -2292,7 +2231,7 @@ object frmMain: TfrmMain
           ImageIndex = 1
           OnClick = btnStartDownloadClick
         end
-        object btnPauseDownload: TRzToolButton
+        object btnPauseDownload: TToolButton
           Left = 30
           Top = 0
           Hint = #1057#1090#1086#1087
@@ -2300,11 +2239,13 @@ object frmMain: TfrmMain
           ImageIndex = 2
           OnClick = btnPauseDownloadClick
         end
-        object DlSep1: TRzSpacer
+        object DlSep1: TToolButton
           Left = 60
           Top = 2
+          Width = 8
+          Style = tbsSeparator
         end
-        object BtnFirstRecord: TRzToolButton
+        object BtnFirstRecord: TToolButton
           Tag = 20
           Left = 68
           Top = 0
@@ -2313,7 +2254,7 @@ object frmMain: TfrmMain
           ImageIndex = 3
           OnClick = MoveDwnldListNodes
         end
-        object BtnDwnldUp: TRzToolButton
+        object BtnDwnldUp: TToolButton
           Tag = 21
           Left = 98
           Top = 0
@@ -2322,7 +2263,7 @@ object frmMain: TfrmMain
           ImageIndex = 4
           OnClick = MoveDwnldListNodes
         end
-        object BtnDwnldDown: TRzToolButton
+        object BtnDwnldDown: TToolButton
           Tag = 22
           Left = 128
           Top = 0
@@ -2331,7 +2272,7 @@ object frmMain: TfrmMain
           ImageIndex = 5
           OnClick = MoveDwnldListNodes
         end
-        object BtnLastRecord: TRzToolButton
+        object BtnLastRecord: TToolButton
           Tag = 23
           Left = 158
           Top = 0
@@ -2340,11 +2281,13 @@ object frmMain: TfrmMain
           ImageIndex = 6
           OnClick = MoveDwnldListNodes
         end
-        object DlSep2: TRzSpacer
+        object DlSep2: TToolButton
           Left = 188
           Top = 2
+          Width = 8
+          Style = tbsSeparator
         end
-        object BtnDelete: TRzToolButton
+        object BtnDelete: TToolButton
           Left = 196
           Top = 0
           Hint = #1059#1076#1072#1083#1080#1090#1100
@@ -2352,7 +2295,7 @@ object frmMain: TfrmMain
           ImageIndex = 7
           OnClick = btnDeleteDownloadClick
         end
-        object BtnSave: TRzToolButton
+        object BtnSave: TToolButton
           Left = 226
           Top = 0
           Hint = #1057#1086#1093#1088#1072#1085#1080#1090#1100
@@ -2360,7 +2303,7 @@ object frmMain: TfrmMain
           ImageIndex = 8
           OnClick = BtnSaveClick
         end
-        object tbtnClear: TRzToolButton
+        object tbtnClear: TToolButton
           Left = 256
           Top = 0
           Caption = #1054#1095#1080#1089#1090#1080#1090#1100
@@ -2563,38 +2506,43 @@ object frmMain: TfrmMain
       Style = tbsTextButton
     end
   end
-  object StatusBar: TRzStatusBar
+  object StatusBar: TPanel
     Left = 0
     Top = 753
     Width = 792
     Height = 22
-    BorderInner = fsNone
-    BorderOuter = fsNone
-    BorderWidth = 0
+    Align = alBottom
+    BevelOuter = bvNone
     TabOrder = 3
     ExplicitTop = 720
     ExplicitWidth = 778
-    object spStatus: TRzStatusPane
+    object spStatus: TLabel
       Left = 0
       Top = 0
       Width = 200
       Height = 22
       Align = alLeft
+      AutoSize = False
+      Layout = tlCenter
     end
-    object spHint: TRzStatusPane
+    object spHint: TLabel
       Left = 200
       Top = 0
       Width = 100
       Height = 22
       Align = alLeft
+      AutoSize = False
+      Layout = tlCenter
     end
-    object spInfo: TRzStatusPane
+    object spInfo: TLabel
       Left = 300
       Top = 0
       Width = 100
       Height = 22
       Align = alLeft
       Alignment = taCenter
+      AutoSize = False
+      Layout = tlCenter
     end
   end
   object MainMenu: TMainMenu

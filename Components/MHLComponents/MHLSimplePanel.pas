@@ -41,8 +41,8 @@ type
     //
     // Draws a flat rounded frame around the given child, in the gap its
     // Margins leave free. Lets a borderless child (a tree, say) get the same
-    // frame TRzPanel paints with BorderOuter = fsFlatRounded, without wrapping
-    // it in another window.
+    // rounded frame used by the application without wrapping the child in
+    // another window or depending on a third-party panel package.
     //
     property FramedControl: TControl read FFramedControl write SetFramedControl;
 

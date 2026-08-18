@@ -62,7 +62,7 @@ uses
   unit_WorkerThread,
   FictionBook_21,
   unit_Consts,
-  unit_Logger,
+  unit_Helpers,
   dm_user,
   unit_MHLArchiveHelpers;
 
@@ -135,7 +135,7 @@ begin
         archiver.RenameFile(OldDescriptionEntryName, NewFileName + FBD_EXTENSION);
     except
       on E: Exception do
-        Logger.W('SortFiles (FBD): failed to rename entries inside archive "%s" — %s',
+        LogWarning('SortFiles (FBD): failed to rename entries inside archive "%s" — %s',
           [archivePath, E.Message]);
     end;
   finally
@@ -310,7 +310,7 @@ begin
               begin
                 Teletype(Format(rstrErrorFB2Structure,
                   [archiveFileName, R.FileName]), tsError);
-                Logger.W('FBD metadata parse failed for "%s" — %s',
+                LogWarning('FBD metadata parse failed for "%s" — %s',
                   [archiveFileName, E.Message]);
                 raise;
               end;
@@ -339,7 +339,7 @@ begin
         begin
           ForgetCreatedFile(CreatedFileName, True);
           Teletype(rstrErrorUnpacking + archiveFileName, tsError);
-          Logger.W('FBD import failed for "%s" — %s',
+          LogWarning('FBD import failed for "%s" — %s',
             [archiveFileName, E.Message]);
           Inc(FDefectCount);
         end;
