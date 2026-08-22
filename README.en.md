@@ -5,7 +5,7 @@
 Manage your home e-book library: catalogue your own collection of book files, and work as a client for Librusec-engine online libraries.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/OleksiyPenkov/MyHomeLib/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/Dicur3x/MyHomeLib/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-lightgrey.svg)](#installation)
 [![Built with Delphi](https://img.shields.io/badge/built%20with-Delphi%2013-red.svg)](#building-from-source)
 
@@ -50,13 +50,13 @@ Russian is the source UI language. Ukrainian, English and Bulgarian are provided
 
 The genre tree follows the interface language too. Existing collections update themselves — genre names are stored inside the collection database, so they used to stay in whatever language the collection was created in.
 
-**The Bulgarian translation is machine-made** and has not been reviewed by a native speaker; the language menu says so. If a string reads wrong, please open an [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues) quoting it with a suggested replacement.
+**The Bulgarian translation is machine-made** and has not been reviewed by a native speaker; the language menu says so. If a string reads wrong, please open an [issue](https://github.com/Dicur3x/MyHomeLib/issues) quoting it with a suggested replacement.
 
-Additional languages load from translation catalogues placed next to the application (`Lang\<code>.json`). Only catalogues signed with the project key are loaded — an unsigned file is ignored and never appears in the menu. If you would like to translate the interface into your language, open an [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues): a finished translation is signed and returned to you together with its signature file.
+Additional languages load from translation catalogues placed next to the application (`Lang\<code>.json`). Only catalogues signed with the project key are loaded — an unsigned file is ignored and never appears in the menu. If you would like to translate the interface into your language, open an [issue](https://github.com/Dicur3x/MyHomeLib/issues): a finished translation is signed and returned to you together with its signature file.
 
 ## Installation
 
-Prebuilt installers for 64- and 32-bit Windows are published on the [Releases](https://github.com/OleksiyPenkov/MyHomeLib/releases) page. If the file you need is not there, you can build the installer yourself — see `Installer/build_installer.cmd` (requires [Inno Setup](https://jrsoftware.org/isinfo.php)).
+Prebuilt installers for 64- and 32-bit Windows are published on the [Releases](https://github.com/Dicur3x/MyHomeLib/releases) page. If the file you need is not there, you can build the installer yourself — see `Installer/build_installer.cmd` (requires [Inno Setup](https://jrsoftware.org/isinfo.php)).
 
 Requirements: Windows 10 or newer. Disk space is driven mostly by the size of your book collections rather than by the application itself.
 
@@ -140,4 +140,4 @@ Testing: eg, Evgeniy_V, albert, AlbanSpy, kaznelson, Olega.
 
 ## Feedback
 
-Report bugs and suggest features on the [Issues](https://github.com/OleksiyPenkov/MyHomeLib/issues) page.
+Report bugs and suggest features on the [Issues](https://github.com/Dicur3x/MyHomeLib/issues) page.
