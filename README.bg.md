@@ -5,7 +5,7 @@
 Управление на домашната библиотека от електронни книги: каталогизиране на собствената колекция от файлове с книги и работа като клиент на онлайн библиотеки на базата на Librusec.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/OleksiyPenkov/MyHomeLib/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/Dicur3x/MyHomeLib/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-lightgrey.svg)](#инсталиране)
 [![Built with Delphi](https://img.shields.io/badge/built%20with-Delphi%2013-red.svg)](#компилиране-от-изходния-код)
 
@@ -52,11 +52,11 @@ MyHomeLib е настолна програма за Windows за каталог�
 
 **Българският превод е машинен** и не е преглеждан от носител на езика; менюто за избор на език го отбелязва. Ако някой низ звучи неправилно, отворете [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues), като цитирате низа и предложите замяна.
 
-Допълнителни езици се зареждат от каталози с преводи, поставени до програмата (`Lang\<code>.json`). Зареждат се само каталозите, подписани с ключа на проекта — неподписан файл се пренебрегва и никога не се появява в менюто. Ако искате да преведете интерфейса на своя език, отворете [issue](https://github.com/OleksiyPenkov/MyHomeLib/issues): готовият превод се подписва и ви се връща заедно с файла с подписа.
+Допълнителни езици се зареждат от каталози с преводи, поставени до програмата (`Lang\<code>.json`). Зареждат се само каталозите, подписани с ключа на проекта — неподписан файл се пренебрегва и никога не се появява в менюто. Ако искате да преведете интерфейса на своя език, отворете [issue](https://github.com/Dicur3x/MyHomeLib/issues): готовият превод се подписва и ви се връща заедно с файла с подписа.
 
 ## Инсталиране
 
-Готови инсталатори за 64- и 32-битова Windows се публикуват на страницата [Releases](https://github.com/OleksiyPenkov/MyHomeLib/releases). Ако нужният ви файл го няма там, можете да сглобите инсталатора сами — вижте `Installer/build_installer.cmd` (изисква [Inno Setup](https://jrsoftware.org/isinfo.php)).
+Готови инсталатори за 64- и 32-битова Windows се публикуват на страницата [Releases](https://github.com/Dicur3x/MyHomeLib/releases). Ако нужният ви файл го няма там, можете да сглобите инсталатора сами — вижте `Installer/build_installer.cmd` (изисква [Inno Setup](https://jrsoftware.org/isinfo.php)).
 
 Изисквания: Windows 10 или по-нова. Мястото на диска се определя главно от размера на колекциите с книги, а не от самата програма.
 
@@ -140,4 +140,4 @@ MIT — вижте [LICENSE](LICENSE). © 2008–2026 Oleksiy Penkov.
 
 ## Обратна връзка
 
-За грешки и предложения пишете на страницата [Issues](https://github.com/OleksiyPenkov/MyHomeLib/issues).
+За грешки и предложения пишете на страницата [Issues](https://github.com/Dicur3x/MyHomeLib/issues).
