@@ -52,6 +52,17 @@ const MENU_ICONS = {
   35: 'go-to-author'
 };
 
+const FILETYPE_ICONS = {
+  0: 'filetype-fb2',
+  1: 'filetype-fb2zip',
+  2: 'filetype-lrf',
+  3: 'filetype-txt',
+  4: 'filetype-epub',
+  5: 'filetype-pdf',
+  6: 'filetype-mobi',
+  7: 'script'
+};
+
 const DOWNLOAD_ICONS = {
   1: 'play',
   2: 'stop',
@@ -95,10 +106,14 @@ for (const theme of ['LIGHT', 'DARK']) {
   rc.push(`// Menu (24px)`);
   rc.push(...generateSection(theme, 'MENU', MENU_ICONS, 24));
   rc.push('');
+  rc.push(`// File type (24px)`);
+  rc.push(...generateSection(theme, 'FILETYPE', FILETYPE_ICONS, 24));
+  rc.push('');
   rc.push(`// Download (24px)`);
   rc.push(...generateSection(theme, 'DOWNLOAD', DOWNLOAD_ICONS, 24));
   rc.push('');
 }
 
-fs.writeFileSync(path.join(__dirname, 'MHLIcons.rc'), rc.join('\n') + '\n');
+fs.writeFileSync(path.join(__dirname, 'MHLIcons.rc'),
+  rc.join('\n').replace(/\n+$/, '\n'));
 console.log('Generated MHLIcons.rc');

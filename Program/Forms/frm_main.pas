@@ -511,6 +511,7 @@ type
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormDestroy(Sender: TObject);
     procedure FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
+    procedure FormShortCut(var Msg: TWMKey; var Handled: Boolean);
 
     //
     // Список авторов
@@ -3069,6 +3070,7 @@ end;
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
+  OnShortCut := FormShortCut;
   FSystemData := SystemDB;
 
   FrameTrees;
@@ -3098,6 +3100,21 @@ begin
   SetFormState;
 
   UpdateSplashScreen(rstrStarting);
+end;
+
+procedure TfrmMain.FormShortCut(var Msg: TWMKey; var Handled: Boolean);
+begin
+  // Ctrl+A is also the global "mark all books" shortcut. Text editing takes
+  // precedence while an edit control has focus, matching standard Windows
+  // behaviour without removing the existing shortcut from the book list.
+  if (Msg.CharCode = Ord('A'))
+    and (GetKeyState(VK_CONTROL) < 0)
+    and (GetKeyState(VK_MENU) >= 0)
+    and (ActiveControl is TCustomEdit) then
+  begin
+    TCustomEdit(ActiveControl).SelectAll;
+    Handled := True;
+  end;
 end;
 
 procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);

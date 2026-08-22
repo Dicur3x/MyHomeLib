@@ -214,35 +214,6 @@ begin
           Path.Free;
         end;
 
-        // Ukrainian flag bottom strip (blue over yellow)
-        Path := TGPGraphicsPath.Create;
-        try
-          AddRoundedRect(Path, CardRect.X, CardRect.Y, CardRect.Width, CardRect.Height, CornerRadius);
-          Graphics.SetClip(Path);
-          try
-            SolidBrush := TGPSolidBrush.Create(MakeColor(255, $00, $57, $B7));
-            try
-              Graphics.FillRectangle(SolidBrush,
-                MakeRect(CardRect.X, CardRect.Y + CardRect.Height - S(24),
-                         CardRect.Width, Single(S(12))));
-            finally
-              SolidBrush.Free;
-            end;
-            SolidBrush := TGPSolidBrush.Create(MakeColor(255, $FF, $D5, $00));
-            try
-              Graphics.FillRectangle(SolidBrush,
-                MakeRect(CardRect.X, CardRect.Y + CardRect.Height - S(12),
-                         CardRect.Width, Single(S(12))));
-            finally
-              SolidBrush.Free;
-            end;
-          finally
-            Graphics.ResetClip;
-          end;
-        finally
-          Path.Free;
-        end;
-
         FontLight := TGPFontFamily.Create('Segoe UI Light');
         FontRegular := TGPFontFamily.Create('Segoe UI');
         try

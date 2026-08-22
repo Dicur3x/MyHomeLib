@@ -10,7 +10,6 @@ object frmSplash: TfrmSplash
   Font.Height = -11
   Font.Name = 'Segoe UI'
   Font.Style = []
-  FormStyle = fsStayOnTop
   Position = poScreenCenter
   PrintScale = poNone
   OnCreate = FormCreate

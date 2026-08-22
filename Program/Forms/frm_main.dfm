@@ -535,6 +535,7 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MaxWidth = 1000
@@ -548,6 +549,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 80
@@ -561,6 +563,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
+              Hint =
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 200
@@ -920,6 +923,7 @@ object frmMain: TfrmMain
               Width = 131
             end
             item
+              Hint =
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MinWidth = 30
@@ -931,6 +935,7 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
+              Hint =
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -943,6 +948,7 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
+              Hint =
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -1215,6 +1221,7 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MinWidth = 30
@@ -1227,6 +1234,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -1240,6 +1248,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
+              Hint =
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -1424,6 +1433,7 @@ object frmMain: TfrmMain
               Width = 200
             end
             item
+              Hint =
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               MaxWidth = 1000
@@ -1442,6 +1452,7 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
+              Hint =
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 60
@@ -1453,6 +1464,7 @@ object frmMain: TfrmMain
             end
             item
               Alignment = taCenter
+              Hint =
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MaxWidth = 100
@@ -2152,6 +2164,7 @@ object frmMain: TfrmMain
           Columns = <
             item
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially centered and has a left-to-right directionalit' +
                 'y.'
               Options = [coAllowClick, coDraggable, coEnabled, coParentColor, coResizable, coShowDropMark, coVisible]
@@ -2163,6 +2176,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdLeftToRight
+              Hint =
                 'Text is initially left aligned and has a left-to-right direction' +
                 'ality.'
               MaxWidth = 90
@@ -2176,6 +2190,7 @@ object frmMain: TfrmMain
             item
               Alignment = taCenter
               BiDiMode = bdRightToLeft
+              Hint =
                 'Text is initially left aligned and has a right-to-left direction' +
                 'ality.'
               MinWidth = 65

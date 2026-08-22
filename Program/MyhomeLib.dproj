@@ -508,9 +508,10 @@
     </PropertyGroup>
     <Import Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')" Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
     <Import Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')" Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj"/>
-    <!-- Keep this PropertyGroup AFTER the CodeGear.Delphi.Targets import above:
-         $(OUTPUTDIR) and $(PROJECTDIR) are undefined until that import runs, so
-         a PostBuildEvent placed earlier expands them to empty strings. -->
+    <!-- Keep this PropertyGroup AFTER the CodeGear.Delphi.Targets import above.
+         Build events need PROJECTDIR.  The post-build script derives the fixed
+         output directory from Platform because Delphi 13 leaves OUTPUTDIR and
+         DCC_ExeOutput empty while expanding an IDE build event. -->
     <PropertyGroup>
         <!-- The Delphi 13 IDE can pass an empty DCC_Namespace as a global
              property. CodeGear.Common.Targets then overwrites NameSpace with
@@ -518,7 +519,7 @@
              after the targets import, so Forms/Controls/etc. resolve. -->
         <NameSpace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</NameSpace>
         <PreBuildEvent>call &quot;$(PROJECTDIR)\embed_lang.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent>
-        <PostBuildEvent>call &quot;$(PROJECTDIR)\post_build.cmd&quot; &quot;$(OUTPUTDIR).&quot; &quot;$(Platform)&quot;</PostBuildEvent>
+        <PostBuildEvent>call &quot;$(PROJECTDIR)\post_build.cmd&quot; &quot;$(Platform)&quot;</PostBuildEvent>
     </PropertyGroup>
     <ProjectExtensions>
         <Borland.Personality>Delphi.Personality.12</Borland.Personality>

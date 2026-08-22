@@ -118,6 +118,18 @@ object frmAbout: TfrmAbout
       Caption = #1040#1083#1077#1082#1089#1077#1081' '#1055#1077#1085#1100#1082#1086#1074#13#1053#1080#1082#1086#1083#1072#1081' '#1056#1099#1084#1072#1085#1086#1074#13#10'eg'
       ExplicitWidth = 90
     end
+    object Label2: TLabel
+      AlignWithMargins = True
+      Left = 3
+      Top = 140
+      Width = 243
+      Height = 26
+      Align = alTop
+      Alignment = taCenter
+      Caption = #1056#1091#1089#1089#1082#1080#1081' '#1087#1077#1088#1077#1074#1086#1076' '#1080' '#1086#1087#1090#1080#1084#1080#1079#1072#1094#1080#1103': Dicur3x'
+      WordWrap = True
+      ExplicitWidth = 215
+    end
     object RzURLLabel: TMHLLinkLabel
       Left = 13
       Top = 227
