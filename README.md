@@ -140,4 +140,4 @@ MIT — см. [LICENSE](LICENSE). © 2008–2026 Алексей Пеньков.
 
 ## Обратная связь
 
-Сообщения об ошибках и предложения принимаются на странице [Issues](https://github.com/OleksiyPenkov/MyHomeLib/issues).
+Сообщения об ошибках и предложения принимаются на странице [Issues](https://github.com/Dicur3x/MyHomeLib/issues).
