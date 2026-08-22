@@ -276,7 +276,7 @@ uses
   unit_Localization;
 
 resourcestring
-rstrStandart = 'Стандартное';
+  rstrStandart = 'Стандартное';
   rstrNeedTemplate = 'Необходимо установить шаблон для заголовка книги в разделе "Разное"';
   rstrChangeFileType = 'Изменение типа файлов';
   rstrAddFileType = 'Добавление типа файлов';
@@ -285,30 +285,41 @@ rstrStandart = 'Стандартное';
   rstrAddScript = 'Добавление скрипта';
   rstrProvideFolder = 'Укажите папку';
   rstrConfirmReset = 'Сбросить конфигурацию раздела в значения по умолчанию?';
+  rstrSectionDevices = 'Папки/Устройства';
+  rstrSectionFileTypes = 'Типы файлов';
+  rstrSectionInterface = 'Интерфейс';
+  rstrSectionInternet = 'Интернет';
+  rstrSectionProxy = 'Прокси';
+  rstrSectionScripts = 'Скрипты';
+  rstrSectionOther = 'Разное';
+  rstrSectionFileSorting = 'Сортировка файлов';
 
 {$R *.dfm}
 
 procedure TfrmSettings.DoCreate;
-var
-  I: Integer;
 begin
   inherited;
-  Localize(Self);
 
-  // The section tree's captions come from the DFM's binary Items.NodeData.
-  // TTreeNode is not a component and TTreeNodes exposes its nodes only through
-  // a default array property, so the walker cannot reach them through RTTI --
-  // they are rewritten here instead of teaching unit_Localization about
-  // Vcl.ComCtrls, which would give the generic walker a control dependency it
-  // has so far avoided entirely. tools/lang/extract.js decodes the same blob,
-  // so the sources below are already in every catalog.
-  //
-  // Node order is load-bearing: tvSectionsChange maps Selected.Index straight
-  // onto pcSetPages.ActivePageIndex. Rewriting Text in place cannot disturb
-  // it -- which is exactly why the captions are translated here rather than by
-  // rebuilding the tree.
-  for I := 0 to tvSections.Items.Count - 1 do
-    tvSections.Items[I].Text := TranslateText(tvSections.Items[I].Text);
+  // Do not persist this list as TTreeView.Items.NodeData in the DFM. That
+  // opaque binary format is VCL-version-dependent and Delphi 13 cannot read
+  // the stream written by the older IDE. The order is load-bearing:
+  // tvSectionsChange maps a node index directly to a settings page index.
+  tvSections.Items.BeginUpdate;
+  try
+    tvSections.Items.Clear;
+    tvSections.Items.Add(nil, rstrSectionDevices);
+    tvSections.Items.Add(nil, rstrSectionFileTypes);
+    tvSections.Items.Add(nil, rstrSectionInterface);
+    tvSections.Items.Add(nil, rstrSectionInternet);
+    tvSections.Items.Add(nil, rstrSectionProxy);
+    tvSections.Items.Add(nil, rstrSectionScripts);
+    tvSections.Items.Add(nil, rstrSectionOther);
+    tvSections.Items.Add(nil, rstrSectionFileSorting);
+  finally
+    tvSections.Items.EndUpdate;
+  end;
+
+  Localize(Self);
 end;
 
 procedure TfrmSettings.LoadSetting;
