@@ -96,9 +96,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-runtime.ps1 `
   -Copy
 ```
 
+При повторной сборке в папке `Bin`/`Bin64` могут остаться старые копии SQLite
+или списков жанров. Чтобы явно заменить только проверяемые сценарием файлы их
+актуальными версиями, добавьте `-Force`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-runtime.ps1 `
+  -Platform Win64 `
+  -SqliteDll "C:\Downloads\sqlite3.dll" `
+  -Copy `
+  -Force
+```
+
 Сценарий проверяет разрядность EXE, SQLite, MCP-сервера и DLL значков, проверяет
 справку, копирует списки жанров и выводит SHA-256 основных файлов. Он не
-перезаписывает уже существующий отличающийся файл без предупреждения.
+перезаписывает уже существующий отличающийся файл без явных `-Copy -Force`.
 
 Теперь запустите:
 

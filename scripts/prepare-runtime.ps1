@@ -6,7 +6,9 @@ param(
 
     [string]$SqliteDll,
 
-    [switch]$Copy
+    [switch]$Copy,
+
+    [switch]$Force
 )
 
 Set-StrictMode -Version Latest
@@ -104,7 +106,13 @@ function Copy-CheckedFile {
             return
         }
 
-        throw "Файл назначения уже существует и отличается. Скрипт не будет его перезаписывать: $destinationPath"
+        if (-not ($Copy -and $Force)) {
+            throw "Файл назначения уже существует и отличается. Для явного обновления используйте -Copy -Force: $destinationPath"
+        }
+
+        [System.IO.File]::Copy($sourcePath, $destinationPath, $true)
+        Write-Host "[REPLACED] $destinationPath"
+        return
     }
 
     if (-not $Copy) {
@@ -129,6 +137,11 @@ function Write-FileHash {
 }
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+
+if ($Force -and (-not $Copy)) {
+    throw "Параметр -Force разрешён только вместе с -Copy."
+}
+
 $programDirectory = Join-Path $repositoryRoot 'Program'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Out\Bin' } else { 'Out\Bin64' }
 $outputDirectory = Join-Path $programDirectory $outputSubdirectory
