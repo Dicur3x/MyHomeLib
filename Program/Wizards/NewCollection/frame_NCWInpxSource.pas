@@ -85,6 +85,11 @@ uses
 resourcestring
   rstrServerDownload = 'Выбранный файл INPX будет загружен с сервера.';
   rstrLocal = 'Коллекция на основе файла *.inpx. Укажите путь к файлу.';
+  rstrMetabibLocal = 'Укажите файл каталога metabib (*.jsonl, *.jsonl.zst, *.jsonl.gz или zip с jsonl внутри)';
+  rstrInpxSourceTitle = 'Источник INPX';
+  rstrInpxSourceSubTitle = 'Выберите файл INPX для создания коллекции';
+  rstrMetabibSourceTitle = 'Источник metabib';
+  rstrMetabibSourceSubTitle = 'Выберите файл каталога metabib для создания коллекции';
   //rstrGroupLibrusec = 'Библиотека Lib.rus.ec';
   //rstrGroupFlibusta = 'Библиотека Flibusta';
   //rstrGroupTraum = 'Библиотека Траума';
@@ -228,20 +233,49 @@ end;
 
 function TframeNCWInpxSource.Activate(LoadData: Boolean): Boolean;
 begin
-  Assert(FPParams^.Operation in [otInpx, otInpxDownload]);
+  Assert(FPParams^.Operation in [otInpx, otInpxDownload, otMetabib]);
   if LoadData then
   begin
-    FillList;
-    rbLocal.Checked := True;
-    rbDownload.Enabled := (lvCollections.Items.Count > 0);
+    if FPParams^.Operation = otMetabib then
+    begin
+      rbLocal.Visible := False;
+      rbDownload.Visible := False;
+      lvCollections.Visible := False;
 
-    OnSetINPXSource(rbLocal);
+      edINPXPath.Enabled := True;
+      btnSelectINPX.Enabled := True;
+
+      pageHint.Caption := rstrMetabibLocal;
+      Title := rstrMetabibSourceTitle;
+      SubTitle := rstrMetabibSourceSubTitle;
+    end
+    else
+    begin
+      rbLocal.Visible := True;
+      rbDownload.Visible := True;
+      lvCollections.Visible := True;
+
+      Title := rstrInpxSourceTitle;
+      SubTitle := rstrInpxSourceSubTitle;
+
+      FillList;
+      rbLocal.Checked := True;
+      rbDownload.Enabled := (lvCollections.Items.Count > 0);
+
+      OnSetINPXSource(rbLocal);
+    end;
   end;
   Result := True;
 end;
 
 function TframeNCWInpxSource.Deactivate(CheckData: Boolean): Boolean;
 begin
+  if FPParams^.Operation = otMetabib then
+  begin
+    FPParams^.INPXFile := edINPXPath.Text;
+    Exit(True);
+  end;
+
   Assert(Assigned(lvCollections.Selected));
 
   if rbLocal.Checked then
@@ -264,8 +298,14 @@ end;
 procedure TframeNCWInpxSource.edINPXPathButtonClick(Sender: TObject);
 var
   AFileName: string;
+  key: TMHLFileName;
 begin
-  if GetFileName(fnOpenINPX, AFileName) then
+  if FPParams^.Operation = otMetabib then
+    key := fnOpenMetabib
+  else
+    key := fnOpenINPX;
+
+  if GetFileName(key, AFileName) then
   begin
     edINPXPath.Text := AFileName;
   end;

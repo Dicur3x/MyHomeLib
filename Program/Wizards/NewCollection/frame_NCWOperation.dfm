@@ -1,7 +1,7 @@
 inherited frameNCWOperation: TframeNCWOperation
   Width = 330
-  Height = 210
-  Constraints.MinHeight = 210
+  Height = 234
+  Constraints.MinHeight = 234
   Constraints.MinWidth = 330
   ExplicitWidth = 330
   ExplicitHeight = 210
@@ -41,7 +41,7 @@ inherited frameNCWOperation: TframeNCWOperation
     Left = 0
     Top = 58
     Width = 330
-    Height = 81
+    Height = 105
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 1
@@ -87,6 +87,20 @@ inherited frameNCWOperation: TframeNCWOperation
       Margins.Bottom = 0
       Caption = #1050#1086#1083#1083#1077#1082#1094#1080#1103' '#1080#1079' '#1092#1072#1081#1083#1072' inpx'
       TabOrder = 2
+      OnClick = OnSetCollectionType
+    end
+    object rbMetabib: TRadioButton
+      AlignWithMargins = True
+      Left = 14
+      Top = 86
+      Width = 306
+      Height = 17
+      Margins.Left = 7
+      Margins.Top = 7
+      Margins.Right = 7
+      Margins.Bottom = 0
+      Caption = #1050#1086#1083#1083#1077#1082#1094#1080#1103' '#1080#1079' '#1082#1072#1090#1072#1083#1086#1075#1072' metabib'
+      TabOrder = 3
       OnClick = OnSetCollectionType
     end
   end

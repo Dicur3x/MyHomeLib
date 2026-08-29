@@ -24,6 +24,8 @@ uses
   Classes,
   SysUtils,
   unit_ImportInpxThread,
+  unit_ImportMetabibThread,
+  unit_MetabibReader,
   System.Net.HttpClient,
   unit_Globals;
 
@@ -74,6 +76,25 @@ type
     property DisplayName: string read FDisplayName write FDisplayName;
   end;
 
+  //
+  // Ручное обновление из каталога metabib. Каталог всегда содержит полный срез,
+  // поэтому инкрементальной ветки нет: только полный переимпорт с сохранением
+  // пользовательских данных (аналогично TCollectionUpdateThreadBase для INPX).
+  //
+  TMetabibManualUpdateThread = class(TImportMetabibThreadBase)
+  private
+    FFileName: string;
+    FDisplayName: string;
+
+  protected
+    procedure WorkFunction; override;
+
+  public
+    constructor Create(const ACollectionID: Integer; const AFileName: string;
+      AGenresType: TGenresType);
+    property DisplayName: string read FDisplayName write FDisplayName;
+  end;
+
 implementation
 
 uses
@@ -119,6 +140,7 @@ rstrDownloadProgress = 'Загружено: %u%% из %u байт';
    rstrManualCollectionUpdate = 'Обновление коллекции %s из файла %s:';
    rstrUpdateFileNotFound = 'Файл обновления не найден: %s';
    rstrInvalidUpdateFile = 'Неверный формат файла INPX: %s';
+   rstrMbDatasetAlwaysFull = 'Каталог metabib всегда импортируется полностью.';
 
 { TCollectionUpdateThreadBase }
 
@@ -378,6 +400,91 @@ begin
     Teletype(Format(rstrManualCollectionUpdate, [FDisplayName, FFileName]), tsInfo);
     if UpdateCollection(FFileName, FCollectionID, FFull, FDisplayName) then
       Teletype(rstrUpdateComplete, tsInfo);
+    SetComment(rstrReady);
+  except
+    on E: Exception do
+    begin
+      Teletype(rstrUpdateFailed, tsError);
+      Teletype(E.Message, tsError);
+    end;
+  end;
+end;
+
+{ TMetabibManualUpdateThread }
+
+constructor TMetabibManualUpdateThread.Create(const ACollectionID: Integer;
+  const AFileName: string; AGenresType: TGenresType);
+begin
+  inherited Create(ACollectionID);
+  FFileName := AFileName;
+  FGenresType := AGenresType;
+end;
+
+procedure TMetabibManualUpdateThread.WorkFunction;
+var
+  Collection: IBookCollection;
+  UserDataBackup: TUserData;
+begin
+  if not FileExists(FFileName) then
+  begin
+    Teletype(Format(rstrUpdateFileNotFound, [FFileName]), tsError);
+    Exit;
+  end;
+
+  if not TMetabibReader.IsDatasetFile(FFileName) then
+  begin
+    Teletype(Format(rstrInvalidUpdateFile, [FFileName]), tsError);
+    Exit;
+  end;
+
+  try
+    Teletype(Format(rstrManualCollectionUpdate, [FDisplayName, FFileName]), tsInfo);
+    Teletype(rstrMbDatasetAlwaysFull, tsInfo);
+
+    Collection := FSystemData.GetCollection(FCollectionID);
+    Collection.BeginBulkOperation;
+    try
+      UserDataBackup := TUserData.Create;
+      try
+        Teletype(Format(rstrBackupUserData, [FDisplayName]), tsInfo);
+        Collection.ExportUserData(UserDataBackup);
+
+        Teletype(Format(rstrRemovingOldCollection, [FDisplayName]), tsInfo);
+        Collection.TruncateTablesBeforeImport;
+
+        Teletype(rstrImportIntoCollection, tsInfo);
+        Import(FFileName, False, Collection);
+
+        //
+        // Import штатно завершается и после Canceled; без этой проверки
+        // отмена закоммитила бы обрезанную коллекцию.
+        //
+        if Canceled then
+        begin
+          Collection.EndBulkOperation(False);
+          Teletype(rstrCancelledByUser, tsInfo);
+          Exit;
+        end;
+
+        Teletype(Format(rstrRestoreUserData, [FDisplayName]), tsInfo);
+        Collection.ImportUserData(UserDataBackup, nil);
+      finally
+        FreeAndNil(UserDataBackup);
+      end;
+
+      Collection.EndBulkOperation(True);
+    except
+      Collection.EndBulkOperation(False);
+      raise;
+    end;
+
+    //
+    // Полный переимпорт переназначает BookID — группы приводим к новой
+    // нумерации по LibID. Только после коммита коллекции: системная БД отдельная.
+    //
+    FSystemData.RemapCollectionBookIDs(FCollectionID, True);
+
+    Teletype(rstrUpdateComplete, tsInfo);
     SetComment(rstrReady);
   except
     on E: Exception do

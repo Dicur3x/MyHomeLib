@@ -111,7 +111,8 @@ uses
   unit_Settings,
   dm_user,
   unit_Interfaces,
-  unit_ImportInpxThread;
+  unit_ImportInpxThread,
+  unit_ImportMetabibThread;
 
 {$R *.dfm}
 
@@ -173,7 +174,7 @@ begin
       Result := True;
 
     INPXSOURCE_PAGE_ID:
-      Result := (FParams.Operation = otInpx);
+      Result := FParams.Operation in [otInpx, otMetabib];
 
     DOWNLOAD_PAGE_ID:
       Result := (FParams.Operation = otInpxDownload);
@@ -426,7 +427,14 @@ begin
     else
       Assert(False);
   end;
-  FWorker := TImportInpxThread.Create(FParams.CollectionID, FParams.INPXFile, GenresType);
+  //
+  // Формат определяется операцией мастера, а не анализом файла: metabib
+  // теперь отдельная ветка выбора, а не скрытый вариант источника INPX.
+  //
+  if FParams.Operation = otMetabib then
+    FWorker := TImportMetabibThread.Create(FParams.CollectionID, FParams.INPXFile, GenresType)
+  else
+    FWorker := TImportInpxThread.Create(FParams.CollectionID, FParams.INPXFile, GenresType);
 
   FProgressPage.SetComment(rstrDataImport);
   FProgressPage.ShowTeletype(rstrDataImporting, tsInfo);

@@ -68,6 +68,7 @@ type
 // start. Delayed, the absence degrades to "no file catalog can be verified",
 // and the languages in the exe keep working -- which is how every other
 // failure in this feature behaves.
+{$WARN SYMBOL_PLATFORM OFF}
 function BCryptOpenAlgorithmProvider(out phAlgorithm: TBCryptHandle;
   pszAlgId, pszImplementation: PWideChar; dwFlags: ULONG): TNTStatus;
   stdcall; external 'bcrypt.dll' delayed;
@@ -85,6 +86,7 @@ function BCryptDestroyKey(hKey: TBCryptHandle): TNTStatus;
 function BCryptVerifySignature(hKey: TBCryptHandle; pPaddingInfo: Pointer;
   pbHash: PByte; cbHash: ULONG; pbSignature: PByte;
   cbSignature, dwFlags: ULONG): TNTStatus; stdcall; external 'bcrypt.dll' delayed;
+{$WARN SYMBOL_PLATFORM ON}
 
 // BCRYPT_ECCPUBLIC_BLOB is an 8-byte header followed by the raw X||Y that
 // LANG_PUBLIC_KEY already holds.

@@ -6,8 +6,8 @@
   *
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
-  * Created                  
-  * Description              
+  * Created
+  * Description
   *
   * $Id: frm_book_info.pas 1164 2014-05-03 08:47:22Z koreec $
   *
@@ -302,6 +302,26 @@ begin
     AddItem(lvFileInfo, rstrSize, GetFormattedSize(bookInfo.Size, True), GroupID);
     AddItem(lvFileInfo, rstrAdded, DateToStr(bookInfo.Date), GroupID);
   end;
+
+  //
+  // Метаданные из каталога metabib показываем только при их наличии, чтобы книги
+  // из INPX/FB2 не получали пустую группу.
+  //
+  if (bookInfo.Translators <> '') or (bookInfo.Publisher <> '') or
+    (bookInfo.City <> '') or (bookInfo.PubYear <> 0) or (bookInfo.ISBN <> '') then
+  begin
+    with lvFileInfo.Groups.Add do
+    begin
+      Header := rstrPublisherInfo;
+      AddItem(lvFileInfo, rstrTranslators, bookInfo.Translators, GroupID);
+      AddItem(lvFileInfo, rstrPublisher, bookInfo.Publisher, GroupID);
+      AddItem(lvFileInfo, rstrCity, bookInfo.City, GroupID);
+      if bookInfo.PubYear <> 0 then
+        AddItem(lvFileInfo, rstrYear, IntToStr(bookInfo.PubYear), GroupID);
+      AddItem(lvFileInfo, rstrISBN, bookInfo.ISBN, GroupID);
+    end;
+  end;
+
   { TODO -oNickR -cUsability : для онлайн коллекций необходимо показывать следующие поля }
   // libID: string;    ???
   // LibRate: Integer;  ???

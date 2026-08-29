@@ -147,6 +147,7 @@ $outputSubdirectory = if ($Platform -eq 'Win32') { 'Out\Bin' } else { 'Out\Bin64
 $outputDirectory = Join-Path $programDirectory $outputSubdirectory
 $exePath = Join-Path $outputDirectory 'MyHomeLib.exe'
 $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
+$zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
 
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Сначала соберите $Platform Release: не найден '$exePath'."
@@ -178,7 +179,8 @@ else {
 $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
-    (Join-Path $outputDirectory 'MHLMcpServer.exe')
+    (Join-Path $outputDirectory 'MHLMcpServer.exe'),
+    $zstdDestination
 )
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -188,6 +190,7 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
+Assert-Architecture -Path $zstdDestination -Expected $Platform
 
 $genreSourceDirectory = Join-Path $repositoryRoot 'Installer\GenreLists'
 foreach ($genreFile in Get-ChildItem -LiteralPath $genreSourceDirectory -Filter '*.glst' -File) {
@@ -198,5 +201,6 @@ Write-Host ''
 Write-Host 'Проверенные файлы:'
 Write-FileHash -Path $exePath
 Write-FileHash -Path $sqliteDestination
+Write-FileHash -Path $zstdDestination
 Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')

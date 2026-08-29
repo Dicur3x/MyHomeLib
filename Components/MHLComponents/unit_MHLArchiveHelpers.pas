@@ -406,7 +406,7 @@ function TMHLZip.GetFileSize(const Index: Integer): Integer;
 begin
   if (Index < 0) or (Index >= FZip.FileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
-  if FZip.FileInfos[Index].UncompressedSize > High(Integer) then
+  if FZip.FileInfos[Index].UncompressedSize > UInt64(High(Integer)) then
     raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[Index]]);
   Result := Integer(FZip.FileInfos[Index].UncompressedSize);
 end;
@@ -427,7 +427,7 @@ function TMHLZip.GetLastSize: Integer;
 begin
   if (FLastID < 0) or (FLastID >= FZip.FileCount) then
     raise ERangeError.Create('No current archive entry');
-  if FZip.FileInfos[FLastID].UncompressedSize > High(Integer) then
+  if FZip.FileInfos[FLastID].UncompressedSize > UInt64(High(Integer)) then
     raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[FLastID]]);
   Result := Integer(FZip.FileInfos[FLastID].UncompressedSize);
 end;
