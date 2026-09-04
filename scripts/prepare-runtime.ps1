@@ -150,6 +150,8 @@ $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
 $zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
 $sevenZipDestination = Join-Path $outputDirectory 'tools\7zip\7za.exe'
 $jpegXlDestination = Join-Path $outputDirectory 'tools\jpeg-xl\djxl.exe'
+$alReaderDestination = Join-Path $outputDirectory 'Readers\AlReader\AlReader2.exe'
+$sumatraDestination = Join-Path $outputDirectory 'Readers\SumatraPDF\SumatraPDF.exe'
 
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Сначала соберите $Platform Release: не найден '$exePath'."
@@ -186,7 +188,12 @@ $requiredRuntimeFiles = @(
     $sevenZipDestination,
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
     $jpegXlDestination,
-    (Join-Path $outputDirectory 'tools\jpeg-xl\licenses\LICENSE.libjxl')
+    (Join-Path $outputDirectory 'tools\jpeg-xl\licenses\LICENSE.libjxl'),
+    $alReaderDestination,
+    $sumatraDestination,
+    (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.txt'),
+    (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.BSD.txt'),
+    (Join-Path $outputDirectory 'Readers\SumatraPDF\AUTHORS.txt')
 )
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -201,6 +208,10 @@ Assert-Architecture -Path $sevenZipDestination -Expected $Platform
 # libjxl currently publishes a static Windows x64 decoder.  A Win32 MyHomeLib
 # process can launch it normally on 64-bit Windows.
 Assert-Architecture -Path $jpegXlDestination -Expected 'Win64'
+# AlReader is distributed as one Win32 portable executable for both packages;
+# SumatraPDF must match the MyHomeLib package architecture.
+Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
+Assert-Architecture -Path $sumatraDestination -Expected $Platform
 
 $genreSourceDirectory = Join-Path $repositoryRoot 'Installer\GenreLists'
 foreach ($genreFile in Get-ChildItem -LiteralPath $genreSourceDirectory -Filter '*.glst' -File) {
@@ -216,3 +227,5 @@ Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
 Write-FileHash -Path $sevenZipDestination
 Write-FileHash -Path $jpegXlDestination
+Write-FileHash -Path $alReaderDestination
+Write-FileHash -Path $sumatraDestination

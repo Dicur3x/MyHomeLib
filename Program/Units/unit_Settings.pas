@@ -1184,10 +1184,43 @@ begin
 end;
 
 procedure TMHLSettings.LoadReaders(iniFile: TMemIniFile);
+const
+  LEGACY_ALREADER_PATH = 'AlReader\AlReader2.exe';
+  BUNDLED_ALREADER_PATH = 'Readers\AlReader\AlReader2.exe';
+  BUNDLED_SUMATRA_PATH = 'Readers\SumatraPDF\SumatraPDF.exe';
+  ALREADER_EXTENSIONS: array [0 .. 4] of string =
+    ('fb2', 'doc', 'txt', 'htm', 'html');
+  SUMATRA_EXTENSIONS: array [0 .. 57] of string =
+    ('pdf', 'ai',
+     'epub', 'mobi', 'azw', 'azw1', 'azw3', 'prc', 'azw4', 'pdb',
+     'fb2z', 'fbz', 'zfb2',
+     'cbz', 'cbr', 'cbt', 'cb7', 'ora',
+     'djvu', 'djv', 'chm',
+     'xps', 'oxps', 'xod', 'dwfx',
+     'zip', 'rar', '7z', 'tar',
+     'png', 'jpg', 'jpeg', 'gif', 'tif', 'tiff', 'bmp', 'dib', 'tga',
+     'jxr', 'hdp', 'wdp', 'webp', 'jp2', 'j2k', 'jpx', 'jpf', 'jpm',
+     'j2c', 'heic', 'avif', 'svg',
+     'js', 'json', 'xml', 'log', 'nfo', 'tcr', 'xhtml');
 var
   I: Integer;
   sl: TStringList;
   slHelper: TStringList;
+  Reader: TReaderDesc;
+
+  function BundledReaderExists(const RelativePath: string): Boolean;
+  begin
+    Result := FileExists(FAppPath + RelativePath);
+  end;
+
+  procedure EnsureBundledReader(const Extension, RelativePath: string);
+  begin
+    Reader := FReaders.Find(Extension);
+    if Reader = nil then
+      FReaders.Add(Extension, RelativePath)
+    else if Reader.Path = '' then
+      Reader.Path := RelativePath;
+  end;
 begin
   FReaders.Clear;
 
@@ -1214,19 +1247,32 @@ begin
     else
     begin
       //
-      // Добавим некоторые ридеры по умолчанию
+      // Добавим штатные читалки по умолчанию. Пути сохраняются и тогда, когда
+      // папка Readers случайно удалена: при открытии пользователь увидит
+      // точное имя отсутствующей программы, а не неясную ошибку ассоциации
+      // Windows.
       //
-      FReaders.Add('fb2', 'AlReader\AlReader2.exe');
-      FReaders.Add('doc', 'AlReader\AlReader2.exe');
-      FReaders.Add('txt', 'AlReader\AlReader2.exe');
-      FReaders.Add('htm', 'AlReader\AlReader2.exe');
-      FReaders.Add('html', 'AlReader\AlReader2.exe');
-
-      FReaders.Add('pdf', '');
-      FReaders.Add('djvu', '');
-      FReaders.Add('mht', '');
-      FReaders.Add('chm', '');
+      for I := Low(ALREADER_EXTENSIONS) to High(ALREADER_EXTENSIONS) do
+        FReaders.Add(ALREADER_EXTENSIONS[I], BUNDLED_ALREADER_PATH);
+      for I := Low(SUMATRA_EXTENSIONS) to High(SUMATRA_EXTENSIONS) do
+        FReaders.Add(SUMATRA_EXTENSIONS[I], BUNDLED_SUMATRA_PATH);
     end;
+
+    // В старых переносимых поставках AlReader лежал непосредственно в папке
+    // программы. Переходим на новое расположение Readers, не меняя явно
+    // выбранные пользователем относительные и абсолютные пути.
+    if BundledReaderExists(BUNDLED_ALREADER_PATH) then
+      for I := 0 to FReaders.Count - 1 do
+        if SameText(FReaders[I].Path, LEGACY_ALREADER_PATH) then
+          FReaders[I].Path := BUNDLED_ALREADER_PATH;
+
+    // SumatraPDF покрывает остальные распространённые документы, электронные
+    // книги, комиксы, архивы изображений и графические форматы. В существующих
+    // настройках добавляем только отсутствующие строки и заменяем старые
+    // пустые заглушки; явный выбор пользователя остаётся нетронутым.
+    if BundledReaderExists(BUNDLED_SUMATRA_PATH) then
+      for I := Low(SUMATRA_EXTENSIONS) to High(SUMATRA_EXTENSIONS) do
+        EnsureBundledReader(SUMATRA_EXTENSIONS[I], BUNDLED_SUMATRA_PATH);
   finally
     sl.Free;
   end;

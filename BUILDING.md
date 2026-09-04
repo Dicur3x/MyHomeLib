@@ -28,6 +28,10 @@
 - `tools\7zip\7za.exe` — чтение книг из компактных раздач FLibrary;
 - `tools\jpeg-xl\djxl.exe` — преобразование вынесенных JPEG XL-иллюстраций в
   обычный JPEG/PNG;
+- `Readers\AlReader\AlReader2.exe` — чтение FB2, DOC, TXT и HTML;
+- `Readers\SumatraPDF\SumatraPDF.exe` — свободная переносимая читалка для PDF,
+  DjVu, EPUB, MOBI/Kindle, CHM, XPS, комиксов и графических форматов; рядом с
+  ней находятся тексты лицензий и список авторов;
 - `MHLMcpServer.exe` — вспомогательный MCP-сервер;
 - `Icons\MHLIcons.dll` — значки интерфейса;
 - каталог `Help` — встроенная справка;
@@ -107,6 +111,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-flibrary-runtime.ps1 
 32-разрядная MyHomeLib нормально запускает его на x64 Windows, но на старой
 32-разрядной Windows восстановление JPEG XL недоступно.
 
+Теперь подготовьте комплектные программы для чтения. AlReader берётся из уже
+имеющейся переносимой папки, а официальный SumatraPDF 3.6.1, тексты лицензий
+и список авторов
+скачиваются сценарием с проверкой закреплённых SHA-256:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-readers.ps1 `
+  -Platform Win64 `
+  -AlReaderDirectory "C:\Portable\AlReader"
+```
+
+Для второй сборки замените платформу на `Win32`. Сценарий создаёт единообразную
+структуру `Readers\AlReader` и `Readers\SumatraPDF`; если AlReader уже лежит в
+старой папке `Bin64\AlReader`/`Bin\AlReader`, параметр
+`-AlReaderDirectory` можно не указывать.
+
 После этого проверьте остальные файлы поставки.
 
 Откройте PowerShell в корне репозитория. Сначала запустите безопасную проверку,
@@ -140,8 +160,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-runtime.ps1 `
 ```
 
 Сценарий проверяет разрядность EXE, SQLite, zstd, MCP-сервера и DLL значков,
-проверяет справку, копирует списки жанров и выводит SHA-256 основных файлов. Он не
-перезаписывает уже существующий отличающийся файл без явных `-Copy -Force`.
+наличие обеих читалок, справку и лицензии, копирует списки жанров и выводит
+SHA-256 основных файлов. Он не перезаписывает уже существующий отличающийся
+файл без явных `-Copy -Force`.
 
 Теперь запустите:
 

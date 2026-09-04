@@ -84,7 +84,11 @@ Source: {#SourceFolder + 'libzstd.dll'}; DestDir: {app}; Flags: replacesameversi
 ; copying the complete tree is both less fragile and licence-correct.
 Source: {#SourceFolder + 'tools\*'}; DestDir: {app}\tools; Flags: recursesubdirs createallsubdirs
 
-Source: Common\AlReader\*; DestDir: {app}\AlReader; Flags: recursesubdirs
+; Portable readers are kept under one predictable root. MyHomeLib resolves
+; their relative paths against {app}, so changed working directories do not
+; affect book opening. Take them from the platform build output so x64 gets
+; the x64 SumatraPDF executable and x86 gets the x86 one.
+Source: {#SourceFolder + 'Readers\*'}; DestDir: {app}\Readers; Flags: recursesubdirs createallsubdirs
 Source: Common\converters\fb2lrf\*; DestDir: {app}\converters\fb2lrf\; Flags: skipifsourcedoesntexist
 Source: Common\converters\fb2pdf\*; DestDir: {app}\converters\fb2pdf\; Flags: skipifsourcedoesntexist
 Source: Common\converters\fb2epub\*; DestDir: {app}\converters\fb2epub\; Flags: skipifsourcedoesntexist
