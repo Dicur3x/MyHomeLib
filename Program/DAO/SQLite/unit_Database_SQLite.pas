@@ -52,8 +52,12 @@ type
       FCollection: TBookCollection_SQLite;
       FSystemData: ISystemData;
       FBooks: TSQLiteQuery;
+      FAuthors: TSQLiteQuery;
+      FGenres: TSQLiteQuery;
       FCount: TSQLiteQuery;
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
+      FCollectionRoot: string;
+      FCollectionName: string;
       FLoadMemos: Boolean;
       FMode: TBookIteratorMode;
       FExpandSearchSeries: Boolean;
@@ -250,6 +254,7 @@ type
     procedure InternalLoadGenres;
     procedure InternalUpdateField(const BookID: Integer; const UpdateSQL: string; const NewValue: string);
     function GetSeriesTitle(SeriesID: Integer): string;
+    function GetRootGenre(const GenreCode: string): TGenreData;
     function FindOrCreateSeries(const Title: string; Cache: TImportCache): Integer; overload;
     function InsertAuthorIfMissing(const Author: TAuthorData): Integer; overload;
     function InsertAuthorIfMissing(const Author: TAuthorData; Cache: TImportCache): Integer; overload;
@@ -519,6 +524,8 @@ begin
   FCollection := Collection;
   FCollectionID := FCollection.CollectionID;
   Assert(FCollectionID > 0);
+  FCollectionRoot := FCollection.CollectionRoot;
+  FCollectionName := FCollection.CollectionDisplayName;
 
   if Mode = bmSearch then
   begin
@@ -532,6 +539,8 @@ end;
 destructor TBookCollection_SQLite.TBookIteratorImpl.Destroy;
 begin
   FreeAndNil(FBooks);
+  FreeAndNil(FAuthors);
+  FreeAndNil(FGenres);
   FreeAndNil(FCount);
 
   inherited Destroy;
@@ -541,13 +550,89 @@ end;
 function TBookCollection_SQLite.TBookIteratorImpl.Next(out BookRecord: TBookRecord): Boolean;
 var
   BookID: Integer;
+  Genre: TGenreData;
+  GenreCount: Integer;
 begin
   Result := not FBooks.Eof;
 
   if Result then
   begin
     BookID := FBooks.FieldAsInt(0);
-    FCollection.GetBookRecord(CreateBookKey(BookID, FCollectionID), BookRecord, FLoadMemos);
+
+    // The genre page may contain tens of thousands of books. Its iterator uses
+    // three ordered result sets (books, authors and genres), avoiding several
+    // new SQLite queries for every individual book.
+    if FMode = bmByGenre then
+    begin
+      BookRecord.Clear;
+      BookRecord.BookKey := CreateBookKey(BookID, FCollectionID);
+      BookRecord.Title := FBooks.FieldAsString(1);
+      BookRecord.Folder := FBooks.FieldAsString(2);
+      BookRecord.FileName := FBooks.FieldAsString(3);
+      BookRecord.FileExt := FBooks.FieldAsString(4);
+      BookRecord.InsideNo := FBooks.FieldAsInt(5);
+      if not FBooks.FieldIsNull(6) then
+      begin
+        BookRecord.SeriesID := FBooks.FieldAsInt(6);
+        BookRecord.SeqNumber := FBooks.FieldAsInt(7);
+        BookRecord.Series := FBooks.FieldAsString(25);
+      end;
+      BookRecord.Size := FBooks.FieldAsInt(8);
+      BookRecord.LibID := FBooks.FieldAsString(9);
+      if FBooks.FieldAsBoolean(10) then
+        Include(BookRecord.BookProps, bpIsDeleted);
+      if FBooks.FieldAsBoolean(11) then
+        Include(BookRecord.BookProps, bpIsLocal);
+      BookRecord.Date := FBooks.FieldAsDateTime(12);
+      BookRecord.Lang := FBooks.FieldAsString(13);
+      BookRecord.LibRate := FBooks.FieldAsInt(14);
+      BookRecord.KeyWords := FBooks.FieldAsString(15);
+      BookRecord.Rate := FBooks.FieldAsInt(16);
+      BookRecord.Progress := FBooks.FieldAsInt(17);
+      if not FBooks.FieldIsNull(18) then
+        Include(BookRecord.BookProps, bpHasReview);
+      if FLoadMemos then
+      begin
+        BookRecord.Review := FBooks.FieldAsBlobString(18);
+        BookRecord.Annotation := FBooks.FieldAsString(19);
+      end;
+      BookRecord.Translators := FBooks.FieldAsString(20);
+      BookRecord.Publisher := FBooks.FieldAsString(21);
+      BookRecord.City := FBooks.FieldAsString(22);
+      if not FBooks.FieldIsNull(23) then
+        BookRecord.PubYear := FBooks.FieldAsInt(23);
+      BookRecord.ISBN := FBooks.FieldAsString(24);
+      BookRecord.CollectionRoot := FCollectionRoot;
+      BookRecord.CollectionName := FCollectionName;
+
+      while not FAuthors.Eof and (FAuthors.FieldAsInt(0) = BookID) do
+      begin
+        TAuthorsHelper.Add(
+          BookRecord.Authors,
+          FAuthors.FieldAsString(2),
+          FAuthors.FieldAsString(3),
+          FAuthors.FieldAsString(4),
+          FAuthors.FieldAsInt(1)
+        );
+        FAuthors.Next;
+      end;
+
+      while not FGenres.Eof and (FGenres.FieldAsInt(0) = BookID) do
+      begin
+        FCollection.GetGenre(FGenres.FieldAsString(1), Genre);
+        GenreCount := Length(BookRecord.Genres);
+        SetLength(BookRecord.Genres, GenreCount + 1);
+        BookRecord.Genres[GenreCount] := Genre;
+        FGenres.Next;
+      end;
+      if Length(BookRecord.Genres) > 0 then
+        BookRecord.RootGenre := FCollection.GetRootGenre(
+          BookRecord.Genres[0].GenreCode
+        );
+    end
+    else
+      FCollection.GetBookRecord(CreateBookKey(BookID, FCollectionID), BookRecord, FLoadMemos);
+
     if (FMode = bmBySeries) or FExpandSearchSeries then
     begin
       // A book has one physical record but can be reached through any linked
@@ -591,6 +676,10 @@ var
   Where: string;
   SQLRows: string;
   SQLCount: string;
+  SQLAuthors: string;
+  SQLGenres: string;
+  MatchedBooksSQL: string;
+  MemoFields: string;
 
   procedure SetParams(query: TSQLiteQuery; const Mode: TBookIteratorMode);
   begin
@@ -626,6 +715,8 @@ var
 
 begin
   Where := '';
+  SQLAuthors := '';
+  SQLGenres := '';
 
   case Mode of
     bmAll:
@@ -673,7 +764,41 @@ begin
   end;
 
   SQLRows := SQLRows + Where;
-  SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
+  if Mode = bmByGenre then
+  begin
+    MatchedBooksSQL := SQLRows;
+    SQLCount := 'SELECT COUNT(*) FROM (' + MatchedBooksSQL + ') ROWS ';
+
+    if FLoadMemos then
+      MemoFields := 'b.Review, b.Annotation, '
+    else
+      MemoFields :=
+        'CASE WHEN b.Review IS NULL THEN NULL ELSE 1 END, NULL, ';
+
+    SQLRows :=
+      'SELECT b.BookID, ' +
+      'b.Title, b.Folder, b.FileName, b.Ext, b.InsideNo, ' +
+      'b.SeriesID, b.SeqNumber, b.BookSize, b.LibID, ' +
+      'b.IsDeleted, b.IsLocal, b.UpdateDate, b.Lang, b.LibRate, ' +
+      'b.KeyWords, b.Rate, b.Progress, ' + MemoFields +
+      'b.Translators, b.Publisher, b.City, b.PubYear, b.ISBN, ' +
+      's.SeriesTitle ' +
+      'FROM Books b LEFT JOIN Series s ON s.SeriesID = b.SeriesID ' +
+      'WHERE b.BookID IN (' + MatchedBooksSQL + ') ORDER BY b.BookID';
+
+    SQLAuthors :=
+      'SELECT al.BookID, a.AuthorID, a.LastName, a.FirstName, a.MiddleName ' +
+      'FROM Author_List al INNER JOIN Authors a ON a.AuthorID = al.AuthorID ' +
+      'WHERE al.BookID IN (' + MatchedBooksSQL + ') ' +
+      'ORDER BY al.BookID, a.LastName, a.FirstName, a.MiddleName';
+
+    SQLGenres :=
+      'SELECT gl.BookID, gl.GenreCode FROM Genre_List gl ' +
+      'WHERE gl.BookID IN (' + MatchedBooksSQL + ') ' +
+      'ORDER BY gl.BookID, gl.GenreCode';
+  end
+  else
+    SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
 
   FCount := FCollection.FDatabase.NewQuery(SQLCount);
   SetParams(FCount, Mode);
@@ -682,8 +807,21 @@ begin
   try
     SetParams(FBooks, Mode);
     FBooks.Open;
+
+    if Mode = bmByGenre then
+    begin
+      FAuthors := FCollection.FDatabase.NewQuery(SQLAuthors);
+      SetParams(FAuthors, Mode);
+      FAuthors.Open;
+
+      FGenres := FCollection.FDatabase.NewQuery(SQLGenres);
+      SetParams(FGenres, Mode);
+      FGenres.Open;
+    end;
   except
     FreeAndNil(FBooks);
+    FreeAndNil(FAuthors);
+    FreeAndNil(FGenres);
     raise;
   end;
 end;
@@ -2838,6 +2976,11 @@ begin
   begin
     Result := FDatabase.QuerySingleString(SQL, [SeriesID]);
   end
+end;
+
+function TBookCollection_SQLite.GetRootGenre(const GenreCode: string): TGenreData;
+begin
+  Result := FGenreCache.GetRootGenre(GenreCode);
 end;
 
 procedure TBookCollection_SQLite.BeginBulkOperation;

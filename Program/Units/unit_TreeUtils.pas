@@ -286,6 +286,29 @@ var
   Nodes: TDictionary<string, PVirtualNode>;
   ParentNode: PVirtualNode;
   SelectedNode: PVirtualNode;
+  UnknownGenre: TGenreData;
+  HasUnknownGenre: Boolean;
+
+  procedure AddGenreNode(const Item: TGenreData);
+  begin
+    ParentNode := nil;
+    if (Item.ParentCode <> '0') and Nodes.ContainsKey(Item.ParentCode) then
+      ParentNode := Nodes[Item.ParentCode];
+
+    GenreNode := Tree.AddChild(ParentNode);
+    Data := Tree.GetNodeData(GenreNode);
+
+    Initialize(Data^);
+    Data^ := Item;
+    if not FillFB2 then
+      Data^.FB2GenreCode := '';
+
+    Nodes.AddOrSetValue(Data^.GenreCode, GenreNode);
+
+    if Data^.GenreCode = SelectCode then
+      SelectedNode := GenreNode;
+  end;
+
 begin
   Tree.NodeDataSize := SizeOf(TGenreData);
 
@@ -297,28 +320,26 @@ begin
       try
         Tree.Clear;
         SelectedNode := nil;
+        UnknownGenre.Clear;
+        HasUnknownGenre := False;
 
         while GenreIterator.Next(Genre) do
         begin
-          ParentNode := nil;
-          if (Genre.ParentCode <> '0') and Nodes.ContainsKey(Genre.ParentCode) then
-            ParentNode := Nodes[Genre.ParentCode];
-
-          GenreNode := Tree.AddChild(ParentNode);
-          Data := Tree.GetNodeData(GenreNode);
-
-          Initialize(Data^);
-          Data^ := Genre;
-          if not FillFB2 then
-            Data^.FB2GenreCode := '';
-
-          Nodes.AddOrSetValue(Data^.GenreCode, GenreNode);
-
-          if Data^.GenreCode = SelectCode then
+          if Genre.GenreCode = UNKNOWN_GENRE_CODE then
           begin
-            SelectedNode := GenreNode;
+            UnknownGenre := Genre;
+            HasUnknownGenre := True;
+            Continue;
           end;
+
+          AddGenreNode(Genre);
         end;
+
+        // "Unsorted" is a fallback bucket rather than a useful browsing
+        // category. Keep it available, but place it after all regular genres
+        // so an empty saved selection never opens the largest bucket first.
+        if HasUnknownGenre then
+          AddGenreNode(UnknownGenre);
 
         SafeSelectNode(Tree, SelectedNode);
       finally
