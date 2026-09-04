@@ -186,6 +186,22 @@ CREATE INDEX IXBooks_SearchKeyWords ON Books (SearchKeyWords);
 CREATE INDEX IXBooks_SearchAnnotation ON Books (SearchAnnotation);
 --@@
 
+-- A book may belong to several series. Books.SeriesID/SeqNumber remains the
+-- primary-series mirror for compatibility with older MyHomeLib builds.
+CREATE TABLE Series_List (
+  BookID      INTEGER NOT NULL,
+  SeriesID    INTEGER NOT NULL,
+  SeqNumber   INTEGER,
+  IsPrimary   INTEGER NOT NULL DEFAULT 0,
+  OrdNum      INTEGER NOT NULL DEFAULT 0,
+
+  CONSTRAINT "PKSeriesList" PRIMARY KEY (BookID, SeriesID)
+);
+--@@
+
+CREATE INDEX IXSeriesList_SeriesID_BookID ON Series_List (SeriesID, BookID);
+--@@
+
 CREATE TRIGGER TRBooks_AI AFTER INSERT ON Books WHEN MHL_TRIGGERS_ON()
   BEGIN
     UPDATE Books
@@ -218,6 +234,36 @@ CREATE TRIGGER TRBooks_AU AFTER UPDATE OF Title, Lang, Folder, FileName, Ext, Ke
   END;
 --@@
 
+CREATE TRIGGER TRBooks_AI_Series AFTER INSERT ON Books
+  WHEN MHL_TRIGGERS_ON() AND NEW.SeriesID IS NOT NULL
+  BEGIN
+    INSERT OR REPLACE INTO Series_List
+      (BookID, SeriesID, SeqNumber, IsPrimary, OrdNum)
+      VALUES (NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0);
+  END;
+--@@
+
+CREATE TRIGGER TRBooks_AU_Series AFTER UPDATE OF SeriesID, SeqNumber ON Books
+  WHEN MHL_TRIGGERS_ON()
+  BEGIN
+    UPDATE Series_List SET IsPrimary = 0 WHERE BookID = NEW.BookID;
+    DELETE FROM Series_List
+      WHERE BookID = NEW.BookID
+        AND SeriesID = OLD.SeriesID
+        AND OLD.SeriesID IS NOT NULL
+        AND (NEW.SeriesID IS NULL OR OLD.SeriesID <> NEW.SeriesID);
+    INSERT OR REPLACE INTO Series_List
+      (BookID, SeriesID, SeqNumber, IsPrimary, OrdNum)
+      SELECT NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0
+      WHERE NEW.SeriesID IS NOT NULL;
+    DELETE FROM Series
+      WHERE SeriesID = OLD.SeriesID
+        AND NOT EXISTS (
+          SELECT 1 FROM Series_List sl WHERE sl.SeriesID = OLD.SeriesID
+        );
+  END;
+--@@
+
 -- CREATE TRIGGER TRBooks_BD BEFORE DELETE ON Books
 --  BEGIN
 --    DELETE FROM Genre_List WHERE BookID = OLD.BookID;
@@ -232,7 +278,15 @@ CREATE TRIGGER TRBooks_BD BEFORE DELETE ON Books
     DELETE FROM Genre_List WHERE BookID = OLD.BookID;
 --	  DELETE FROM Authors WHERE AuthorID in (SELECT DISTINCT AuthorID FROM Author_List WHERE BookID = OLD.BookID);
     DELETE FROM Author_List WHERE BookID = OLD.BookID;
-    DELETE FROM Series WHERE SeriesID IN (SELECT b.SeriesID FROM Books b WHERE  b.SeriesID = OLD.SeriesID GROUP BY b.SeriesID HAVING COUNT(b.SeriesID) <= 1);
+    DELETE FROM Series
+      WHERE SeriesID IN (
+        SELECT SeriesID FROM Series_List WHERE BookID = OLD.BookID
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM Series_List sl
+          WHERE sl.SeriesID = Series.SeriesID AND sl.BookID <> OLD.BookID
+      );
+    DELETE FROM Series_List WHERE BookID = OLD.BookID;
   END;
 
 --@@

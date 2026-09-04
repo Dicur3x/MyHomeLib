@@ -139,9 +139,25 @@ type
     SeriesTitle: string;
   end;
 
+  TBookSeriesData = record
+    SeriesID: Integer;
+    SeriesTitle: string;
+    SeqNumber: Integer;
+    IsPrimary: Boolean;
+  end;
+  TBookSeries = array of TBookSeriesData;
+
   TSeriesHelper = class
   public
+    class procedure Add(
+      var Series: TBookSeries;
+      const SeriesID: Integer;
+      const SeriesTitle: string;
+      const SeqNumber: Integer;
+      const IsPrimary: Boolean
+    );
     class function GetLink(const SeriesID: Integer; const SeriesTitle: string): string;
+    class function GetLinkList(const Series: TBookSeries): string;
   end;
 
   // --------------------------------------------------------------------------
@@ -253,7 +269,8 @@ type
     function GetBookFileName: string;
     function GetBookContainer: string;
     function GetBookStream: TStream;
-    function GetBookDescriptorStream: TStream;
+    function GetBookDescriptorStream(const RestoreImages: Boolean = True): TStream;
+    function GetBookPreviewCoverStream: TStream;
     procedure SaveBookToFile(const DestFileName: String);
     function SaveBookToStream:TStream;
   end;
@@ -293,7 +310,11 @@ type
 
     DownloadedIdx: Integer;
     DateIdx: Integer;
-    DateText: string
+    DateText: string;
+
+    // True keeps one search row per physical book. False preserves the
+    // classic MyHomeLib view where every series relationship has its own row.
+    CollapseMultiSeriesResults: Boolean;
   end;
 
   PFilterValue = ^TFilterValue;
@@ -444,6 +465,8 @@ uses
   unit_FB2Utils,
   unit_MHLGenerics,
   unit_MHLArchiveHelpers,
+  unit_MHLExternalTools,
+  unit_FLibraryCompat,
   unit_Errors,
   unit_Settings;
 
@@ -978,9 +1001,37 @@ end;
 
 { TSeriesHelper }
 
+class procedure TSeriesHelper.Add(var Series: TBookSeries;
+  const SeriesID: Integer; const SeriesTitle: string;
+  const SeqNumber: Integer; const IsPrimary: Boolean);
+var
+  i: Integer;
+begin
+  i := Length(Series);
+  SetLength(Series, i + 1);
+  Series[i].SeriesID := SeriesID;
+  Series[i].SeriesTitle := SeriesTitle;
+  Series[i].SeqNumber := SeqNumber;
+  Series[i].IsPrimary := IsPrimary;
+end;
+
 class function TSeriesHelper.GetLink(const SeriesID: Integer; const SeriesTitle: string): string;
 begin
   Result := Format('<a href="%d">%s</a>', [SeriesID, SeriesTitle]);
+end;
+
+class function TSeriesHelper.GetLinkList(const Series: TBookSeries): string;
+begin
+  Result := TArrayUtils.Join<TBookSeriesData>(
+    Series,
+    '<br>',
+    function(const Item: TBookSeriesData): string
+    begin
+      Result := GetLink(Item.SeriesID, Item.SeriesTitle);
+      if Item.SeqNumber <> 0 then
+        Result := Result + Format(' № %d', [Item.SeqNumber]);
+    end
+  );
 end;
 
 { TGenreData }
@@ -1150,7 +1201,7 @@ var
   LongFileName: string;
 begin
   Result := bfRaw; // default
-  BookContainer := TPath.Combine(CollectionRoot, Folder);
+  BookContainer := GetBookContainer;
   PathLen := Length(BookContainer);
 
   if
@@ -1202,8 +1253,21 @@ end;
 //  For bfFb2, bfFBD and bfRaw - brings the folder containing the file
 //  For bfFb2Zip - brings the name of the Zip file
 function TBookRecord.GetBookContainer: string;
+var
+  SevenZipFallback: string;
 begin
   Result := TPath.Combine(CollectionRoot, Folder);
+  // Collections imported by older MyHomeLib builds assumed that every INPX
+  // member referred to a ZIP.  FLibrary keeps the same base name in 7z.  Make
+  // an already-created collection usable without rewriting its database.
+  if SameText(ExtractFileExt(Result), ZIP_EXTENSION) and
+    not FileExists(Result) then
+  begin
+    SevenZipFallback := ChangeFileExt(Result,
+      SEVENZIP_ARCHIVE_EXTENSION);
+    if FileExists(SevenZipFallback) then
+      Result := SevenZipFallback;
+  end;
 end;
 
 // Get the book file as a stream.
@@ -1211,9 +1275,12 @@ end;
 // For FBD archives brings the raw book (and NOT the FBD descriptor)
 function TBookRecord.GetBookStream: TStream;
 var
+  ArchiveFileName: string;
+  ArchiveEntryName: string;
   BookFormat: TBookFormat;
   BookFileName: string;
   archiver: TMHLZip;
+  RestoredStream: TStream;
 begin
   Result := nil;
   archiver := nil;
@@ -1224,13 +1291,44 @@ begin
   begin
     try
       try
-        archiver := TMHLZip.Create(
-          TPath.Combine(Settings.ReadPath, BookFileName), True);
-        Result := archiver.ExtractToStream(InsideNo);
+        ArchiveFileName := TPath.Combine(Settings.ReadPath, BookFileName);
+        archiver := TMHLZip.Create(ArchiveFileName, True);
+        ArchiveEntryName := FileName + FileExt;
+        if IsSevenZipArchive(ArchiveFileName) then
+        begin
+          Result := TMemoryStream.Create;
+          archiver.ExtractToStream(ArchiveEntryName, Result);
+        end
+        else
+          Result := archiver.ExtractToStream(InsideNo);
       except
-        FreeAndNil(Result);
-        if not Settings.IgnoreAbsentArchives then
-          raise EBookNotFound.CreateFmt(rstrArchiveNotFound, [BookFileName]);
+        on E: EMHLExternalToolError do
+        begin
+          FreeAndNil(Result);
+          raise;
+        end;
+        on E: Exception do
+        begin
+          FreeAndNil(Result);
+          if not Settings.IgnoreAbsentArchives then
+            raise EBookNotFound.CreateFmt(rstrArchiveNotFound, [BookFileName]);
+        end;
+      end;
+
+      if Assigned(Result) and IsSevenZipArchive(ArchiveFileName) then
+      begin
+        try
+          RestoredStream := RestoreFLibraryBook(ArchiveFileName,
+            ArchiveEntryName, Result);
+          if Assigned(RestoredStream) then
+          begin
+            FreeAndNil(Result);
+            Result := RestoredStream;
+          end;
+        except
+          FreeAndNil(Result);
+          raise;
+        end;
       end;
     finally
       FreeAndNil(archiver);
@@ -1259,19 +1357,48 @@ end;
 //  For bfFbd - brings the FBD descriptor file
 //  For bfFb2Zip and bfFb2 - brings the FB2 file
 //  For bfRaw - raise ENotSupportedException exception
-function TBookRecord.GetBookDescriptorStream: TStream;
+function TBookRecord.GetBookDescriptorStream(
+  const RestoreImages: Boolean): TStream;
 var
   bookFileName: string;
   archiveFileName: string;
+  archiveEntryName: string;
   archiver: TMHLZip;
 begin
   Result := nil;
   archiver := nil;
 
   case GetBookFormat of
-    bfFb2, bfFb2Archive:
+    bfFb2:
       begin
         Result := GetBookStream;
+      end;
+
+    bfFb2Archive:
+      begin
+        bookFileName := GetBookFileName;
+        archiveFileName := TPath.Combine(Settings.ReadPath, bookFileName);
+        if RestoreImages or not IsSevenZipArchive(archiveFileName) then
+          Result := GetBookStream
+        else
+        begin
+          // The information panel only needs FB2 metadata.  In an FLibrary
+          // collection, restoring every external illustration here used to
+          // block the UI for several seconds on each selection change.
+          archiveEntryName := FileName + FileExt;
+          archiver := TMHLZip.Create(archiveFileName, True);
+          try
+            Result := TMemoryStream.Create;
+            try
+              archiver.ExtractToStream(archiveEntryName, Result);
+            except
+              FreeAndNil(Result);
+              raise;
+            end;
+          finally
+            FreeAndNil(archiver);
+          end;
+        end;
       end;
 
     bfFbd:
@@ -1305,6 +1432,22 @@ begin
       end;
   end;
 
+end;
+
+function TBookRecord.GetBookPreviewCoverStream: TStream;
+var
+  ArchiveFileName: string;
+  BookFormat: TBookFormat;
+begin
+  Result := nil;
+  BookFormat := GetBookFormat;
+  if not (BookFormat in [bfFb2Archive, bfRawArchive]) then
+    Exit;
+
+  ArchiveFileName := TPath.Combine(Settings.ReadPath, GetBookFileName);
+  if IsSevenZipArchive(ArchiveFileName) then
+    Result := ExtractFLibraryBookCover(ArchiveFileName,
+      FileName + FileExt);
 end;
 
 // Save the book to a destination file

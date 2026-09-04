@@ -95,6 +95,7 @@ uses
   SysUtils,
   IOUtils,
   ComCtrls,
+  Generics.Collections,
   unit_MHLArchiveHelpers,
   unit_Consts,
   unit_Helpers,
@@ -403,6 +404,12 @@ var
   BytesDone: Int64;
   Params: TStringList;
   Cache: TImportCache;
+  ImportedBooks: TDictionary<string, Integer>;
+  ArchiveEntries: TDictionary<string, Integer>;
+  BookIdentity: string;
+  ArchiveEntryKey: string;
+  ExistingBookID: Integer;
+  InsertedBookID: Integer;
 
   function EntryBaseName(const EntryName: string): string;
   begin
@@ -423,11 +430,15 @@ begin
   inpStream := nil;
   Params := nil;
   Cache := nil;
+  ImportedBooks := nil;
+  ArchiveEntries := nil;
 
   BookCollection.StartBatchUpdate;
   try
     Params := TStringList.Create;
     Cache := TImportCache.Create;
+    ImportedBooks := TDictionary<string, Integer>.Create;
+    ArchiveEntries := TDictionary<string, Integer>.Create;
     Zip := TMHLZip.Create(INPXFileName, True);
     if Zip.Find(STRUCTUREINFO_FILENAME) then
       StructureInfo := Zip.ExtractToString(STRUCTUREINFO_FILENAME)
@@ -482,6 +493,11 @@ begin
 
       BookList := TStringList.Create;
       try
+        // Multi-series rows for one physical archive are emitted into the same
+        // .inp member. Reuse the dictionary for every member but do not retain
+        // millions of path strings for the entire import (important for x86).
+        ImportedBooks.Clear;
+        ArchiveEntries.Clear;
         try
           inpStream := TMemoryStream.Create;
           Zip.ExtractToStream(CurrentFile, inpStream);
@@ -511,16 +527,51 @@ begin
               Include(R.BookProps, bpIsLocal);
               if not FUseStoredFolder then
               begin
-                // 98058-98693.inp -> 98058-98693.zip
-                R.Folder := ChangeFileExt(CurrentFile, ZIP_EXTENSION);
-                //
-                R.InsideNo := j;
+                // Conventional INPX uses matching ZIP archives.  FLibrary's
+                // compact torrent keeps the same member base name but stores
+                // books in 7z.  Prefer an existing 7z without changing the
+                // behaviour of ordinary collections.
+                if FileExists(TPath.Combine(CollectionRoot,
+                  ChangeFileExt(CurrentFile, SEVENZIP_ARCHIVE_EXTENSION))) then
+                  R.Folder := ChangeFileExt(CurrentFile,
+                    SEVENZIP_ARCHIVE_EXTENSION)
+                else
+                  R.Folder := ChangeFileExt(CurrentFile, ZIP_EXTENSION);
+                // A multi-series INPX repeats the same physical file on several
+                // lines. Count unique archive entries so subsequent files keep
+                // their real zero-based index.
+                ArchiveEntryKey := LowerCase(R.FileName + #1 + R.FileExt);
+                if not ArchiveEntries.TryGetValue(ArchiveEntryKey, R.InsideNo) then
+                begin
+                  R.InsideNo := ArchiveEntries.Count;
+                  ArchiveEntries.Add(ArchiveEntryKey, R.InsideNo);
+                end;
               end
             end;
 
             try
-              if BookCollection.InsertBook(R, CheckFiles, False, Cache) <> 0 then
-                Inc(filesProcessed);
+              // INPX can express several series only by repeating a row with
+              // the same physical locator and changing SERIES/SERNO. Collapse
+              // those rows into one book and attach every series relationship.
+              BookIdentity := LowerCase(R.Folder) + #1 +
+                IntToStr(R.InsideNo) + #1 + LowerCase(R.FileName) + #1 +
+                LowerCase(R.FileExt) + #1 + LowerCase(R.LibID);
+
+              if ImportedBooks.TryGetValue(BookIdentity, ExistingBookID) then
+                BookCollection.AddBookSeries(
+                  ExistingBookID, R.Series, R.SeqNumber, Cache
+                )
+              else
+              begin
+                InsertedBookID := BookCollection.InsertBook(
+                  R, CheckFiles, False, Cache
+                );
+                if InsertedBookID <> 0 then
+                begin
+                  ImportedBooks.Add(BookIdentity, InsertedBookID);
+                  Inc(filesProcessed);
+                end;
+              end;
             except
               on E: Exception do
                 raise EDBError.Create(E.Message);
@@ -601,6 +652,8 @@ begin
   finally
     FreeAndNil(Zip);
     FreeAndNil(inpStream);
+    FreeAndNil(ArchiveEntries);
+    FreeAndNil(ImportedBooks);
     FreeAndNil(Cache);
     FreeAndNil(Params);
     BookCollection.FinishBatchUpdate;

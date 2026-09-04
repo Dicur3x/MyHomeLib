@@ -68,6 +68,7 @@ contains
   FBDDocument in 'FBDDocument.pas',
   fbd_xml in 'fbd_xml.pas',
   FBDAuthorTable in 'FBDAuthorTable.pas' {frmEditAuthorFull},
+  unit_MHLExternalTools in 'unit_MHLExternalTools.pas',
   unit_MHLArchiveHelpers in 'unit_MHLArchiveHelpers.pas';
 
 end.

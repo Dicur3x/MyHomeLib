@@ -55,6 +55,8 @@ type
       FCount: TSQLiteQuery;
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
       FLoadMemos: Boolean;
+      FMode: TBookIteratorMode;
+      FExpandSearchSeries: Boolean;
 
       procedure PrepareData(const Mode: TBookIteratorMode; const FilterValue: PFilterValue; const SearchCriteria: TBookSearchCriteria);
       procedure PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
@@ -177,6 +179,9 @@ type
     function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean; const FullCheck: Boolean;
       Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean); override;
+    function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
+      const SeqNumber: Integer; Cache: TImportCache = nil);
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; override;
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
@@ -385,6 +390,7 @@ var
   query: TSQLiteQuery;
   Existing: TStringList;
   i: Integer;
+  SeriesListExists: Boolean;
 begin
   Existing := TStringList.Create;
   try
@@ -407,6 +413,80 @@ begin
           'ALTER TABLE Books ADD COLUMN %s %s',
           [NEW_COLUMNS[i][0], NEW_COLUMNS[i][1]]
         ));
+
+    SeriesListExists := FDatabase.QuerySingleInt(
+      'SELECT COUNT(*) FROM sqlite_master ' +
+      'WHERE type = ''table'' AND name = ''Series_List'''
+    ) > 0;
+
+    // INPX has only one SERIES field per row, so producers encode a book that
+    // belongs to several series as several rows pointing to the same physical
+    // archive entry. Keep one Books row and normalize those relationships here.
+    // The legacy columns remain a primary-series mirror, which means an older
+    // MyHomeLib build can still open the collection.
+    FDatabase.ExecSQL(
+      'CREATE TABLE IF NOT EXISTS Series_List (' +
+      'BookID INTEGER NOT NULL, SeriesID INTEGER NOT NULL, SeqNumber INTEGER, ' +
+      'IsPrimary INTEGER NOT NULL DEFAULT 0, OrdNum INTEGER NOT NULL DEFAULT 0, ' +
+      'CONSTRAINT PKSeriesList PRIMARY KEY (BookID, SeriesID))'
+    );
+    FDatabase.ExecSQL(
+      'CREATE INDEX IF NOT EXISTS IXSeriesList_SeriesID_BookID ' +
+      'ON Series_List (SeriesID, BookID)'
+    );
+    if not SeriesListExists then
+    begin
+      // One-time migration. Do not rescan a multi-million-book collection at
+      // every startup after the normalized table has been created.
+      FDatabase.ExecSQL(
+        'INSERT OR IGNORE INTO Series_List ' +
+        '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
+        'SELECT BookID, SeriesID, SeqNumber, 1, 0 FROM Books ' +
+        'WHERE SeriesID IS NOT NULL'
+      );
+    end;
+
+    // Keep the legacy primary-series mirror and the normalized list aligned
+    // even if this database is later edited by an older MyHomeLib build.
+    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AI_Series');
+    FDatabase.ExecSQL(
+      'CREATE TRIGGER TRBooks_AI_Series AFTER INSERT ON Books ' +
+      'WHEN MHL_TRIGGERS_ON() AND NEW.SeriesID IS NOT NULL BEGIN ' +
+      'INSERT OR REPLACE INTO Series_List ' +
+      '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
+      'VALUES (NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0); END'
+    );
+    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AU_Series');
+    FDatabase.ExecSQL(
+      'CREATE TRIGGER TRBooks_AU_Series AFTER UPDATE OF SeriesID, SeqNumber ON Books ' +
+      'WHEN MHL_TRIGGERS_ON() BEGIN ' +
+      'UPDATE Series_List SET IsPrimary = 0 WHERE BookID = NEW.BookID; ' +
+      'DELETE FROM Series_List WHERE BookID = NEW.BookID ' +
+      'AND SeriesID = OLD.SeriesID AND OLD.SeriesID IS NOT NULL ' +
+      'AND (NEW.SeriesID IS NULL OR OLD.SeriesID <> NEW.SeriesID); ' +
+      'INSERT OR REPLACE INTO Series_List ' +
+      '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
+      'SELECT NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0 ' +
+      'WHERE NEW.SeriesID IS NOT NULL; ' +
+      'DELETE FROM Series WHERE SeriesID = OLD.SeriesID ' +
+      'AND NOT EXISTS (SELECT 1 FROM Series_List sl ' +
+      'WHERE sl.SeriesID = OLD.SeriesID); END'
+    );
+
+    // Replace the legacy cleanup trigger. It only inspected Books.SeriesID and
+    // could delete a series still used as a secondary relationship.
+    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_BD');
+    FDatabase.ExecSQL(
+      'CREATE TRIGGER TRBooks_BD BEFORE DELETE ON Books BEGIN ' +
+      'DELETE FROM Genre_List WHERE BookID = OLD.BookID; ' +
+      'DELETE FROM Author_List WHERE BookID = OLD.BookID; ' +
+      'DELETE FROM Series WHERE SeriesID IN (' +
+      'SELECT SeriesID FROM Series_List WHERE BookID = OLD.BookID) ' +
+      'AND NOT EXISTS (SELECT 1 FROM Series_List sl ' +
+      'WHERE sl.SeriesID = Series.SeriesID AND sl.BookID <> OLD.BookID); ' +
+      'DELETE FROM Series_List WHERE BookID = OLD.BookID; ' +
+      'END'
+    );
   finally
     FreeAndNil(Existing);
   end;
@@ -431,6 +511,10 @@ begin
   Assert(Assigned(SystemData));
 
   FLoadMemos := LoadMemos;
+  FMode := Mode;
+  FExpandSearchSeries := False;
+  if Mode = bmSearch then
+    FExpandSearchSeries := not SearchCriteria.CollapseMultiSeriesResults;
   FSystemData := SystemData;
   FCollection := Collection;
   FCollectionID := FCollection.CollectionID;
@@ -464,6 +548,27 @@ begin
   begin
     BookID := FBooks.FieldAsInt(0);
     FCollection.GetBookRecord(CreateBookKey(BookID, FCollectionID), BookRecord, FLoadMemos);
+    if (FMode = bmBySeries) or FExpandSearchSeries then
+    begin
+      // A book has one physical record but can be reached through any linked
+      // series. Use the selected relationship for sorting/display in this view;
+      // editing reloads the canonical record by BookKey.
+      if FBooks.FieldIsNull(1) then
+      begin
+        BookRecord.SeriesID := NO_SERIES_ID;
+        BookRecord.Series := '';
+        BookRecord.SeqNumber := 0
+      end
+      else
+      begin
+        BookRecord.SeriesID := FBooks.FieldAsInt(1);
+        BookRecord.Series := FCollection.GetSeriesTitle(BookRecord.SeriesID);
+        if FBooks.FieldIsNull(2) then
+          BookRecord.SeqNumber := 0
+        else
+          BookRecord.SeqNumber := FBooks.FieldAsInt(2);
+      end;
+    end;
     FBooks.Next;
   end;
 end;
@@ -548,8 +653,10 @@ begin
     bmBySeries:
     begin
       Assert(Assigned(FilterValue));
-      SQLRows := 'SELECT b.BookID FROM Books b ';
-      AddToWhere(Where, 'b.SeriesID = :SeriesID ');
+      SQLRows :=
+        'SELECT b.BookID, sl.SeriesID, sl.SeqNumber ' +
+        'FROM Series_List sl INNER JOIN Books b ON b.BookID = sl.BookID ';
+      AddToWhere(Where, 'sl.SeriesID = :SeriesID ');
     end;
 
     else
@@ -588,10 +695,13 @@ const
   DT_FORMAT = 'yyyy-mm-dd';
 var
   FilterString: string;
+  SeriesFilterString: string;
   SQLRows: string;
   SQLCount: string;
+  MatchedBooksSQL: string;
 begin
   SQLRows := '';
+  SeriesFilterString := '';
 
   try
     // ------------------------ авторы ----------------------------------------
@@ -616,12 +726,13 @@ begin
     if SearchCriteria.Series <> '' then
     begin
       AddToFilter('s.SearchSeriesTitle', PrepareQuery(SearchCriteria.Series, True), False, FilterString);
+      SeriesFilterString := FilterString;
 
       if FilterString <> '' then
       begin
         FilterString := SQL_START_STR +
-          ' FROM Series s JOIN Books b ON b.SeriesID = s.SeriesID WHERE ' +
-           FilterString;
+          ' FROM Series s JOIN Series_List sl ON sl.SeriesID = s.SeriesID ' +
+          'JOIN Books b ON b.BookID = sl.BookID WHERE ' + FilterString;
               if SQLRows <> '' then
           SQLRows := SQLRows + ' INTERSECT ';
 
@@ -692,6 +803,29 @@ begin
 
   if SQLRows = '' then
     raise Exception.Create(rstrCheckFilterParams);
+
+  // The current compact mode returns one row per physical book. The optional
+  // classic mode expands those matched IDs back through Series_List so a book
+  // linked to several series appears once for every relationship, without
+  // duplicating the book itself in the database.
+  if not SearchCriteria.CollapseMultiSeriesResults then
+  begin
+    MatchedBooksSQL := SQLRows;
+    SQLRows :=
+      'SELECT matched.BookID, sl.SeriesID, sl.SeqNumber FROM (' +
+      MatchedBooksSQL + ') matched ' +
+      'LEFT JOIN Series_List sl ON sl.BookID = matched.BookID ';
+
+    // A series search historically displayed only the relationship that
+    // matched the requested series, not every other series of the same book.
+    if SeriesFilterString <> '' then
+      SQLRows := SQLRows +
+        'JOIN Series s ON s.SeriesID = sl.SeriesID WHERE ' +
+        SeriesFilterString + ' ';
+
+    SQLRows := SQLRows +
+      'ORDER BY matched.BookID, sl.IsPrimary DESC, sl.OrdNum, sl.SeriesID';
+  end;
 
   // InitRows - workaround for the need to reset params between invocations to receive a new dataset
   SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
@@ -1046,7 +1180,9 @@ begin
       SQLRows := 'SELECT DISTINCT s.SeriesID, s.SeriesTitle FROM Series s ';
       if FCollection.GetHideDeleted or FCollection.GetShowLocalOnly then
       begin
-        SQLRows := SQLRows + ' INNER JOIN Books b ON s.SeriesID = b.SeriesID ';
+        SQLRows := SQLRows +
+          ' INNER JOIN Series_List sl ON s.SeriesID = sl.SeriesID ' +
+          ' INNER JOIN Books b ON b.BookID = sl.BookID ';
         if FCollection.GetHideDeleted then
           AddToWhere(Where, ' b.IsDeleted = :IsDeleted ');
 
@@ -1713,10 +1849,15 @@ end;
 // Change SeriesID value for all books in the current database with old SeriesID value
 procedure TBookCollection_SQLite.ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 const
-  SQL_UPDATE_BOOKS = 'UPDATE Books SET SeriesID = ? WHERE SeriesID = ? ';
-  SQL_DELETE_SERIES = 'DELETE FROM Series WHERE SeriesID = ? ';
+  SQL_PRIMARY_BOOKS = 'SELECT BookID FROM Books WHERE SeriesID = ?';
 var
   Query: TSQLiteQuery;
+  UpdateQuery: TSQLiteQuery;
+  PrimaryBooks: TList<Integer>;
+  BookID: Integer;
+  PromotedSeriesID: Integer;
+  PromotedSeqNumber: Integer;
+  OwnTransaction: Boolean;
 begin
   Assert(OldSeriesID <> NewSeriesID);
 
@@ -1724,31 +1865,142 @@ begin
     FSystemData.GetCollection(DatabaseID).ChangeBookSeriesID(OldSeriesID, NewSeriesID, DatabaseID)
   else
   begin
-    Query := FDatabase.NewQuery(SQL_UPDATE_BOOKS);
+    PrimaryBooks := TList<Integer>.Create;
     try
-      if (NewSeriesID <> NO_SERIES_ID) then
-        Query.SetParam(0, NewSeriesID);
-      if (OldSeriesID <> NO_SERIES_ID) then
-        Query.SetParam(1, OldSeriesID);
-      Query.ExecSQL;
-    finally
-      FreeAndNil(Query);
-    end;
-
-    // Clean up empty series:
-    if NO_SERIES_ID <> OldSeriesID then
-    begin
-      Query := FDatabase.NewQuery(SQL_DELETE_SERIES);
+      Query := FDatabase.NewQuery(SQL_PRIMARY_BOOKS);
       try
         Query.SetParam(0, OldSeriesID);
-        Query.ExecSQL;
+        Query.Open;
+        while not Query.Eof do
+        begin
+          PrimaryBooks.Add(Query.FieldAsInt(0));
+          Query.Next;
+        end;
       finally
         FreeAndNil(Query);
       end;
-    end;
 
-    // Обновим информацию в группах
-    FSystemData.ChangeBookSeriesID(OldSeriesID, NewSeriesID, DatabaseID);
+      OwnTransaction := not FDatabase.InTransaction;
+      if OwnTransaction then
+        FDatabase.Start;
+      try
+        if NewSeriesID <> NO_SERIES_ID then
+        begin
+          // Merge the old relationship into the target one. INSERT OR IGNORE
+          // handles books that already belonged to both series.
+          FDatabase.ExecSQL(
+            'INSERT OR IGNORE INTO Series_List ' +
+            '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
+            'SELECT BookID, ?, SeqNumber, IsPrimary, OrdNum ' +
+            'FROM Series_List WHERE SeriesID = ?',
+            [NewSeriesID, OldSeriesID]
+          );
+          FDatabase.ExecSQL(
+            'UPDATE Series_List SET IsPrimary = 0 WHERE BookID IN (' +
+            'SELECT BookID FROM Books WHERE SeriesID = ?)',
+            [OldSeriesID]
+          );
+          FDatabase.ExecSQL(
+            'UPDATE Series_List SET IsPrimary = 1 WHERE SeriesID = ? AND BookID IN (' +
+            'SELECT BookID FROM Books WHERE SeriesID = ?)',
+            [NewSeriesID, OldSeriesID]
+          );
+          FDatabase.ExecSQL(
+            'UPDATE Books SET SeriesID = ?, SeqNumber = (' +
+            'SELECT sl.SeqNumber FROM Series_List sl ' +
+            'WHERE sl.BookID = Books.BookID AND sl.SeriesID = ?) ' +
+            'WHERE SeriesID = ?',
+            [NewSeriesID, NewSeriesID, OldSeriesID]
+          );
+          FDatabase.ExecSQL(
+            'DELETE FROM Series_List WHERE SeriesID = ?', [OldSeriesID]
+          );
+        end
+        else
+        begin
+          // Deleting a series must not discard other memberships. For books
+          // whose primary series was removed, promote the first remaining one.
+          FDatabase.ExecSQL(
+            'DELETE FROM Series_List WHERE SeriesID = ?', [OldSeriesID]
+          );
+
+          for BookID in PrimaryBooks do
+          begin
+            PromotedSeriesID := NO_SERIES_ID;
+            PromotedSeqNumber := 0;
+            Query := FDatabase.NewQuery(
+              'SELECT SeriesID, IFNULL(SeqNumber, 0) FROM Series_List ' +
+              'WHERE BookID = ? ORDER BY OrdNum, SeriesID LIMIT 1'
+            );
+            try
+              Query.SetParam(0, BookID);
+              Query.Open;
+              if not Query.Eof then
+              begin
+                PromotedSeriesID := Query.FieldAsInt(0);
+                PromotedSeqNumber := Query.FieldAsInt(1);
+              end;
+            finally
+              FreeAndNil(Query);
+            end;
+
+            UpdateQuery := FDatabase.NewQuery(
+              'UPDATE Books SET SeriesID = ?, SeqNumber = ? WHERE BookID = ?'
+            );
+            try
+              if PromotedSeriesID = NO_SERIES_ID then
+              begin
+                UpdateQuery.SetNullParam(0);
+                UpdateQuery.SetNullParam(1);
+              end
+              else
+              begin
+                UpdateQuery.SetParam(0, PromotedSeriesID);
+                UpdateQuery.SetParam(1, PromotedSeqNumber);
+                FDatabase.ExecSQL(
+                  'UPDATE Series_List SET IsPrimary = 1 ' +
+                  'WHERE BookID = ? AND SeriesID = ?',
+                  [BookID, PromotedSeriesID]
+                );
+              end;
+              UpdateQuery.SetParam(2, BookID);
+              UpdateQuery.ExecSQL;
+            finally
+              FreeAndNil(UpdateQuery);
+            end;
+          end;
+        end;
+
+        FDatabase.ExecSQL(
+          'DELETE FROM Series WHERE SeriesID = ? AND NOT EXISTS (' +
+          'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)',
+          [OldSeriesID]
+        );
+
+        if OwnTransaction then
+          FDatabase.Commit;
+      except
+        if OwnTransaction and FDatabase.InTransaction then
+          FDatabase.Rollback;
+        raise;
+      end;
+
+      // Обновим информацию в группах после фиксации коллекции.
+      if NewSeriesID <> NO_SERIES_ID then
+        FSystemData.ChangeBookSeriesID(OldSeriesID, NewSeriesID, DatabaseID)
+      else
+        for BookID in PrimaryBooks do
+        begin
+          PromotedSeriesID := FDatabase.QuerySingleInt(
+            'SELECT IFNULL(SeriesID, -1) FROM Books WHERE BookID = ?', [BookID]
+          );
+          FSystemData.SetBookSeriesID(
+            CreateBookKey(BookID, CollectionID), PromotedSeriesID
+          );
+        end;
+    finally
+      PrimaryBooks.Free;
+    end;
   end;
 end;
 
@@ -1901,6 +2153,16 @@ begin
       query.Free;
     end;
 
+    // Keep the normalized series list in sync with the legacy primary-series
+    // columns. During batch imports the regular database triggers are disabled,
+    // so this relationship has to be written explicitly.
+    if BookRecord.SeriesID <> NO_SERIES_ID then
+      FDatabase.ExecSQL(
+        'INSERT OR REPLACE INTO Series_List ' +
+        '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) VALUES (?, ?, ?, 1, 0)',
+        [BookRecord.BookKey.BookID, BookRecord.SeriesID, BookRecord.SeqNumber]
+      );
+
     SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, False);
     SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, False);
 
@@ -2047,6 +2309,86 @@ begin
     FSystemData.GetBookRecord(BookKey, BookRecord);
 end;
 
+function TBookCollection_SQLite.GetBookSeries(const BookKey: TBookKey): TBookSeries;
+const
+  SQL =
+    'SELECT s.SeriesID, s.SeriesTitle, sl.SeqNumber, sl.IsPrimary ' +
+    'FROM Series_List sl INNER JOIN Series s ON s.SeriesID = sl.SeriesID ' +
+    'WHERE sl.BookID = ? ORDER BY sl.IsPrimary DESC, sl.OrdNum, s.SeriesTitle';
+var
+  Query: TSQLiteQuery;
+  Count: Integer;
+begin
+  SetLength(Result, 0);
+
+  if BookKey.DatabaseID <> CollectionID then
+  begin
+    Result := FSystemData.GetCollection(BookKey.DatabaseID).GetBookSeries(BookKey);
+    Exit;
+  end;
+
+  Query := FDatabase.NewQuery(SQL);
+  try
+    Query.SetParam(0, BookKey.BookID);
+    Query.Open;
+    Count := 0;
+    while not Query.Eof do
+    begin
+      SetLength(Result, Count + 1);
+      Result[Count].SeriesID := Query.FieldAsInt(0);
+      Result[Count].SeriesTitle := Query.FieldAsString(1);
+      if Query.FieldIsNull(2) then
+        Result[Count].SeqNumber := 0
+      else
+        Result[Count].SeqNumber := Query.FieldAsInt(2);
+      Result[Count].IsPrimary := Query.FieldAsBoolean(3);
+      Inc(Count);
+      Query.Next;
+    end;
+  finally
+    Query.Free;
+  end;
+end;
+
+procedure TBookCollection_SQLite.AddBookSeries(const BookID: Integer;
+  const SeriesTitle: string; const SeqNumber: Integer; Cache: TImportCache);
+const
+  SQL_INSERT =
+    'INSERT OR IGNORE INTO Series_List ' +
+    '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) VALUES (?, ?, ?, ?, ?)';
+var
+  SeriesID: Integer;
+  PrimarySeriesID: Integer;
+  NormalizedSeqNumber: Integer;
+  OrdNum: Integer;
+  IsPrimary: Boolean;
+begin
+  if Trim(SeriesTitle) = NO_SERIES_TITLE then
+    Exit;
+
+  SeriesID := FindOrCreateSeries(SeriesTitle, Cache);
+  if SeriesID = NO_SERIES_ID then
+    Exit;
+
+  NormalizedSeqNumber := SeqNumber;
+  if NormalizedSeqNumber > 5000 then
+    NormalizedSeqNumber := 0;
+
+  PrimarySeriesID := FDatabase.QuerySingleInt(
+    'SELECT IFNULL(SeriesID, -1) FROM Books WHERE BookID = ?', [BookID]);
+  IsPrimary := PrimarySeriesID = NO_SERIES_ID;
+  OrdNum := FDatabase.QuerySingleInt(
+    'SELECT IFNULL(MAX(OrdNum), -1) + 1 FROM Series_List WHERE BookID = ?', [BookID]);
+
+  FDatabase.ExecSQL(SQL_INSERT,
+    [BookID, SeriesID, NormalizedSeqNumber, IsPrimary, OrdNum]);
+
+  if IsPrimary then
+    FDatabase.ExecSQL(
+      'UPDATE Books SET SeriesID = ?, SeqNumber = ? WHERE BookID = ?',
+      [SeriesID, NormalizedSeqNumber, BookID]);
+end;
+
 procedure TBookCollection_SQLite.UpdateAuthor(Author : PAuthorData);
 const
   SQL_INSERT =
@@ -2162,12 +2504,19 @@ begin
       else
         query.SetParam(17, BookRecord.Annotation);
 
-      query.SetParam(18, BookRecord.BookKey.BookID);
+    query.SetParam(18, BookRecord.BookKey.BookID);
 
       query.ExecSQL;
     finally
       query.Free;
     end;
+
+    if BookRecord.SeriesID <> NO_SERIES_ID then
+      FDatabase.ExecSQL(
+        'UPDATE Series_List SET SeqNumber = ? ' +
+        'WHERE BookID = ? AND SeriesID = ? AND IsPrimary = 1',
+        [BookRecord.SeqNumber, BookRecord.BookKey.BookID, BookRecord.SeriesID]
+      );
 
     SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, True);
     SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, True);
@@ -2391,48 +2740,90 @@ end;
 
 procedure TBookCollection_SQLite.SetSeriesID(const BookKey: TBookKey; const SeriesID: Integer);
 const
-  SQL_SELECT_OLD_SERIES = 'SELECT IFNULL(b.SeriesID, 0) FROM Books b WHERE b.BookID = ? ';
+  SQL_SELECT_OLD_SERIES = 'SELECT IFNULL(b.SeriesID, -1) FROM Books b WHERE b.BookID = ? ';
+  SQL_SELECT_SEQ_NUMBER = 'SELECT IFNULL(b.SeqNumber, 0) FROM Books b WHERE b.BookID = ? ';
   SQL_UPDATE = 'UPDATE Books SET SeriesID = ? WHERE BookID = ? ';
-  SQL_SELECT_COUNT_BOOKS_IN_SERIES = 'SELECT COUNT(*) FROM Books b WHERE b.SeriesID = ? ';
-  SQL_DELETE = 'DELETE FROM Series WHERE SeriesID = ? ';
 var
   Query: TSQLiteQuery;
   OldSeriesID: Integer;
-  CountBooksInASeries: Integer;
+  SeqNumber: Integer;
+  OwnTransaction: Boolean;
 begin
   if BookKey.DatabaseID <> CollectionID then
     FSystemData.GetCollection(BookKey.DatabaseID).SetSeriesID(BookKey, SeriesID)
   else
   begin
     OldSeriesID := FDatabase.QuerySingleInt(SQL_SELECT_OLD_SERIES, [BookKey.BookID]);
-
-    Query := FDatabase.NewQuery(SQL_UPDATE);
+    SeqNumber := FDatabase.QuerySingleInt(SQL_SELECT_SEQ_NUMBER, [BookKey.BookID]);
+    OwnTransaction := not FDatabase.InTransaction;
+    if OwnTransaction then
+      FDatabase.Start;
     try
-      if NO_SERIES_ID = SeriesID then
-        Query.SetNullParam(0)
+      if SeriesID = NO_SERIES_ID then
+      begin
+        // In the existing UI an empty series means "remove the book from
+        // series", not merely hide its primary label. Clear every membership
+        // so no invisible secondary relationship survives that command.
+        FDatabase.ExecSQL(
+          'DELETE FROM Series_List WHERE BookID = ?', [BookKey.BookID]
+        );
+      end
       else
-        Query.SetParam(0, SeriesID);
-      Query.SetParam(1, BookKey.BookID);
-      Query.ExecSQL;
-    finally
-      FreeAndNil(Query);
-    end;
+      begin
+        // Replacing the primary series must retain unrelated secondary
+        // memberships. If the requested series was secondary, promote it.
+        FDatabase.ExecSQL(
+          'DELETE FROM Series_List WHERE BookID = ? AND IsPrimary = 1',
+          [BookKey.BookID]
+        );
+        FDatabase.ExecSQL(
+          'UPDATE Series_List SET IsPrimary = 0 WHERE BookID = ?',
+          [BookKey.BookID]
+        );
+        FDatabase.ExecSQL(
+          'DELETE FROM Series_List WHERE BookID = ? AND SeriesID = ?',
+          [BookKey.BookID, SeriesID]
+        );
+        FDatabase.ExecSQL(
+          'INSERT INTO Series_List ' +
+          '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) VALUES (?, ?, ?, 1, 0)',
+          [BookKey.BookID, SeriesID, SeqNumber]
+        );
+      end;
 
-    CountBooksInASeries := FDatabase.QuerySingleInt(SQL_SELECT_COUNT_BOOKS_IN_SERIES, [OldSeriesID]);
-
-    if (CountBooksInASeries = 0) then
-    begin
-      // was a single book in a series and was just removed from it
-      Query := FDatabase.NewQuery(SQL_DELETE);
+      Query := FDatabase.NewQuery(SQL_UPDATE);
       try
-        Query.SetParam(0, OldSeriesID);
+        if NO_SERIES_ID = SeriesID then
+          Query.SetNullParam(0)
+        else
+          Query.SetParam(0, SeriesID);
+        Query.SetParam(1, BookKey.BookID);
         Query.ExecSQL;
       finally
         FreeAndNil(Query);
       end;
+
+      if SeriesID = NO_SERIES_ID then
+        FDatabase.ExecSQL(
+          'DELETE FROM Series WHERE NOT EXISTS (' +
+          'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)'
+        )
+      else if OldSeriesID <> NO_SERIES_ID then
+        FDatabase.ExecSQL(
+          'DELETE FROM Series WHERE SeriesID = ? AND NOT EXISTS (' +
+          'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)',
+          [OldSeriesID]
+        );
+
+      if OwnTransaction then
+        FDatabase.Commit;
+    except
+      if OwnTransaction and FDatabase.InTransaction then
+        FDatabase.Rollback;
+      raise;
     end;
 
-    // Обновим информацию в группах
+    // Обновим информацию в группах только после успешного изменения коллекции
     FSystemData.SetBookSeriesID(BookKey, SeriesID);
   end;
 end;
@@ -2540,7 +2931,9 @@ end;
 procedure TBookCollection_SQLite.TruncateTablesBeforeImport;
 const
   SQL_TRUNCATE = 'DROP TABLE %s';
-  TABLE_NAMES: array [0 .. 4] of string = ('Author_List', 'Genre_List', 'Books', 'Authors', 'Series');
+  TABLE_NAMES: array [0 .. 5] of string = (
+    'Series_List', 'Author_List', 'Genre_List', 'Books', 'Authors', 'Series'
+  );
 var
   TableName: string;
   StringList: TStringList;

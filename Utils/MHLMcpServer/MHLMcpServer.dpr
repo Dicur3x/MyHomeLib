@@ -22,6 +22,7 @@ uses
   unit_MCP_Fb2Extract in 'unit_MCP_Fb2Extract.pas',
   unit_MCP_TextCache in 'unit_MCP_TextCache.pas',
   unit_MCP_CacheSelfTest in 'unit_MCP_CacheSelfTest.pas',
+  unit_MCP_FLibrarySelfTest in 'unit_MCP_FLibrarySelfTest.pas',
   unit_MCP_Fixture in 'unit_MCP_Fixture.pas';
 
 // Extracts one FB2 file's text and section structure and prints it as a
@@ -154,6 +155,30 @@ begin
       on E: Exception do
       begin
         Writeln(ErrOutput, 'Cache self-test failed: ' + E.Message);
+        Halt(1);
+      end;
+    end;
+    Exit;
+  end;
+
+  // Reconstructs one real FLibrary book without touching a MyHomeLib
+  // database.  Besides making the 7z/JPEG XL path reproducible in automated
+  // checks, this avoids relying on a locally configured reader for EPUB.
+  if (ParamCount >= 1) and (ParamStr(1) = '--restore-flibrary') then
+  begin
+    if ParamCount <> 4 then
+    begin
+      Writeln(ErrOutput,
+        '--restore-flibrary requires: <container.7z> <entry> <output-file>.');
+      Halt(1);
+    end;
+
+    try
+      RunFLibraryRestoreMode(ParamStr(2), ParamStr(3), ParamStr(4));
+    except
+      on E: Exception do
+      begin
+        Writeln(ErrOutput, 'FLibrary restoration failed: ' + E.Message);
         Halt(1);
       end;
     end;

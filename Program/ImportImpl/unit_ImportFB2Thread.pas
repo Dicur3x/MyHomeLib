@@ -278,7 +278,8 @@ begin
           AddedBeforeArchive := Added;
           try
             if Settings.EnableSort and NoErrors and
-               (MatchedEntryCount = 1) and (Length(Records) = 1) then
+               (MatchedEntryCount = 1) and (Length(Records) = 1) and
+               not IsSevenZipArchive(FFiles[i]) then
             begin
               SortFilesZip(Records[0], FFiles[i], EntryNames[0],
                 CreatedArchiveName);
@@ -288,8 +289,10 @@ begin
               if Settings.EnableSort then
               begin
                 // A multi-book container cannot have one unambiguous template
-                // name.  Preserve the archive and every entry, but still place
-                // the container in the templated folder of its first book.
+                // name.  A 7z container is deliberately read-only as well, so
+                // it cannot be renamed internally like an ordinary ZIP.
+                // Preserve the archive and every entry, but still place the
+                // container in the templated folder of its first book.
                 Records[0].Folder := FFiles[i];
                 NewFolder := GetNewFolder(Settings.FB2FolderTemplate, Records[0]);
                 if not CreateFolders(FCollectionRoot, NewFolder) then

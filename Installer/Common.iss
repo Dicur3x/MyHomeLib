@@ -79,6 +79,11 @@ Source: {#SourceFolder + 'Icons\MHLIcons.dll'}; DestDir: {app}\Icons; Flags: rep
 ; libzstd.dll - metabib dataset import (unit_ZstdStream, loaded dynamically).
 Source: {#SourceFolder + 'libzstd.dll'}; DestDir: {app}; Flags: replacesameversion
 
+; Read-only 7z support and JPEG XL conversion for compact FLibrary torrents.
+; The preparation script also places the third-party licences under tools, so
+; copying the complete tree is both less fragile and licence-correct.
+Source: {#SourceFolder + 'tools\*'}; DestDir: {app}\tools; Flags: recursesubdirs createallsubdirs
+
 Source: Common\AlReader\*; DestDir: {app}\AlReader; Flags: recursesubdirs
 Source: Common\converters\fb2lrf\*; DestDir: {app}\converters\fb2lrf\; Flags: skipifsourcedoesntexist
 Source: Common\converters\fb2pdf\*; DestDir: {app}\converters\fb2pdf\; Flags: skipifsourcedoesntexist

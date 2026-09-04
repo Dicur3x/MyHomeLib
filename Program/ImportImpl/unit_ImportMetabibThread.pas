@@ -158,6 +158,8 @@ var
   CollectionRoot: string;
   ArcName: string;
   idx, added, skippedNoFile, badLines: Integer;
+  InsertedBookID: Integer;
+  SequenceIndex: Integer;
   Skip: Boolean;
   Cache: TImportCache;
 begin
@@ -259,8 +261,20 @@ begin
 
             if not Skip then
               try
-                if BookCollection.InsertBook(R, CheckFiles, False, Cache) <> 0 then
+                InsertedBookID := BookCollection.InsertBook(
+                  R, CheckFiles, False, Cache
+                );
+                if InsertedBookID <> 0 then
+                begin
+                  for SequenceIndex := 1 to High(MB.Sequences) do
+                    BookCollection.AddBookSeries(
+                      InsertedBookID,
+                      MB.Sequences[SequenceIndex].Name,
+                      MB.Sequences[SequenceIndex].Number,
+                      Cache
+                    );
                   Inc(added);
+                end;
               except
                 on E: Exception do
                   raise EDBError.Create(E.Message);

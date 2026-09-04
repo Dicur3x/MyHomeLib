@@ -21,7 +21,8 @@ interface
 uses
   Classes,
   System.Zip,
-  System.Masks;
+  System.Masks,
+  System.Generics.Collections;
 type
 
   TStreamSource = record
@@ -32,6 +33,11 @@ type
   TMHLZip = class(TObject)
     private
       FZip: TZipFile;
+      FArchiveFileName: string;
+      FSevenZipTool: string;
+      FSevenZipSizes: TArray<Int64>;
+      FIsSevenZip: Boolean;
+      FFileNamesLoaded: Boolean;
       FLastID: Integer;
       FSearchPattern: string;
       FSearchMask: TMask;
@@ -39,6 +45,8 @@ type
       FSearchBaseNameOnly: Boolean;
       FHeader: TZipHeader;
       FFileNames: TArray<string>;
+      procedure EnsureFileNames;
+      procedure RefreshSevenZipFileNames;
       procedure RefreshFileNames;
       function EntryMatches(const Index: Integer): Boolean;
       function FindFrom(const StartIndex: Integer): Boolean;
@@ -64,6 +72,7 @@ type
       function GetIdxByExt(const Ext: string):Integer;
       function FileNameAt(const Index: Integer): string;
       function ExtractToString(AFileName: string):string;
+      procedure ExtractAllToDirectory(const DestinationDirectory: string);
 
       function Find(AFileName: string): Boolean;
       function FindNext: Boolean;
@@ -89,21 +98,30 @@ type
   );
 
 function IsArchiveExt(const FileName: string): Boolean;
+function IsSevenZipArchive(const FileName: string): Boolean;
 
 const
   ZIP_EXTENSION = '.zip';
+  SEVENZIP_ARCHIVE_EXTENSION = '.7z';
 
 implementation
 
 uses
-  SysUtils;
+  SysUtils,
+  StrUtils,
+  unit_MHLExternalTools;
+
+function IsSevenZipArchive(const FileName: string): Boolean;
+begin
+  Result := SameText(ExtractFileExt(FileName), SEVENZIP_ARCHIVE_EXTENSION);
+end;
 
 function IsArchiveExt(const FileName: string): Boolean;
 var
   ext: string;
 begin
   ext := AnsiLowercase(ExtractFileExt(FileName));
-  Result := (ext = ZIP_EXTENSION);
+  Result := (ext = ZIP_EXTENSION) or (ext = SEVENZIP_ARCHIVE_EXTENSION);
 end;
 
 function IsValidUTF8(const Bytes: TBytes; const StartIndex: Integer): Boolean;
@@ -164,11 +182,100 @@ end;
 
 { TMHLZip }
 
+procedure TMHLZip.EnsureFileNames;
+begin
+  if not FFileNamesLoaded then
+    RefreshFileNames;
+end;
+
+procedure TMHLZip.RefreshSevenZipFileNames;
+var
+  Block: TStringList;
+  I: Integer;
+  IsFolder: Boolean;
+  Line: string;
+  ListOutput: TMemoryStream;
+  Name: string;
+  Names: TList<string>;
+  Size: Int64;
+  Sizes: TList<Int64>;
+  Text: string;
+  TextBytes: TBytes;
+
+  procedure FinishBlock;
+  begin
+    if (Name <> '') and not IsFolder then
+    begin
+      Names.Add(Name);
+      Sizes.Add(Size);
+    end;
+    Name := '';
+    Size := 0;
+    IsFolder := False;
+  end;
+
+begin
+  Names := TList<string>.Create;
+  Sizes := TList<Int64>.Create;
+  ListOutput := TMemoryStream.Create;
+  Block := TStringList.Create;
+  try
+    RunExternalToolToStream(FSevenZipTool,
+      ['l', '-slt', '-ba', '-sccUTF-8', '--', FArchiveFileName], ListOutput);
+    if ListOutput.Size > 0 then
+    begin
+      if ListOutput.Size > MaxInt then
+        raise ERangeError.Create('Список файлов архива слишком велик.');
+      SetLength(TextBytes, Integer(ListOutput.Size));
+      Move(ListOutput.Memory^, TextBytes[0], Length(TextBytes));
+      Text := TEncoding.UTF8.GetString(TextBytes);
+    end;
+
+    Block.Text := StringReplace(Text, #13#10, #10, [rfReplaceAll]);
+    Name := '';
+    Size := 0;
+    IsFolder := False;
+    for I := 0 to Block.Count - 1 do
+    begin
+      Line := Block[I];
+      if Line = '' then
+      begin
+        FinishBlock;
+        Continue;
+      end;
+      if StartsText('Path = ', Line) then
+        Name := Copy(Line, Length('Path = ') + 1, MaxInt)
+      else if StartsText('Size = ', Line) then
+        Size := StrToInt64Def(Copy(Line, Length('Size = ') + 1, MaxInt), 0)
+      else if SameText(Line, 'Folder = +') then
+        IsFolder := True;
+    end;
+    FinishBlock;
+
+    FFileNames := Names.ToArray;
+    FSevenZipSizes := Sizes.ToArray;
+    FFileNamesLoaded := True;
+    if (FLastID < 0) and (Length(FFileNames) > 0) then
+      FLastID := 0;
+  finally
+    Block.Free;
+    ListOutput.Free;
+    Sizes.Free;
+    Names.Free;
+  end;
+end;
+
 procedure TMHLZip.RefreshFileNames;
 begin
+  if FIsSevenZip then
+  begin
+    RefreshSevenZipFileNames;
+    Exit;
+  end;
   // TZipFile.FileNames materialises and decodes the complete array on every
   // access.  Cache it once so wildcard scans stay O(n), not O(n^2).
   FFileNames := FZip.FileNames;
+  FFileNamesLoaded := True;
 end;
 
 function TMHLZip.EntryMatches(const Index: Integer): Boolean;
@@ -176,6 +283,7 @@ var
   EntryName: string;
   DelimiterPos: Integer;
 begin
+  EnsureFileNames;
   EntryName := FFileNames[Index];
 
   // MatchesMask follows DOS wildcard rules.  Treat *.* as "all entries"
@@ -208,8 +316,9 @@ function TMHLZip.FindFrom(const StartIndex: Integer): Boolean;
 var
   I: Integer;
 begin
+  EnsureFileNames;
   Result := False;
-  for I := StartIndex to FZip.FileCount - 1 do
+  for I := StartIndex to GetFileCount - 1 do
     if EntryMatches(I) then
     begin
       FLastID := I;
@@ -223,8 +332,9 @@ function TMHLZip.FindEntryIndex(const AFileName: string): Integer;
 var
   I: Integer;
 begin
+  EnsureFileNames;
   Result := -1;
-  for I := 0 to FZip.FileCount - 1 do
+  for I := 0 to GetFileCount - 1 do
     if SameText(FFileNames[I], AFileName) then
       Exit(I);
 end;
@@ -235,8 +345,18 @@ var
 begin
   if not Assigned(Destination) then
     raise EArgumentNilException.Create('Destination');
-  if (Index < 0) or (Index >= FZip.FileCount) then
+  EnsureFileNames;
+  if (Index < 0) or (Index >= GetFileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+
+  if FIsSevenZip then
+  begin
+    RunExternalToolToStream(FSevenZipTool,
+      ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName,
+       FFileNames[Index]], Destination);
+    FLastID := Index;
+    Exit;
+  end;
 
   Source := nil;
   try
@@ -282,6 +402,18 @@ procedure TMHLZip.ExtractToStream(const AFileName: string; const Stream: TStream
 var
   Index: Integer;
 begin
+  if FIsSevenZip and not FFileNamesLoaded then
+  begin
+    RunExternalToolToStream(FSevenZipTool,
+      ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName, AFileName],
+      Stream);
+    if Stream.Size = 0 then
+      raise EZipException.CreateFmt('Archive entry "%s" was not found',
+        [AFileName]);
+    FLastID := -1;
+    Exit;
+  end;
+
   Index := FindEntryIndex(AFileName);
   if Index < 0 then
     raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
@@ -328,6 +460,33 @@ begin
     Result := Encoding.GetString(Bytes, Offset, Length(Bytes) - Offset);
   end;
 end;
+
+procedure TMHLZip.ExtractAllToDirectory(
+  const DestinationDirectory: string);
+var
+  Output: TMemoryStream;
+begin
+  if not FIsSevenZip then
+    raise EZipException.Create(
+      'Пакетная распаковка поддерживается только для архивов 7z.');
+  if DestinationDirectory = '' then
+    raise EArgumentException.Create('DestinationDirectory');
+  if not ForceDirectories(DestinationDirectory) then
+    raise EFCreateError.CreateFmt('Не удалось создать папку "%s".',
+      [DestinationDirectory]);
+
+  Output := TMemoryStream.Create;
+  try
+    // A solid 7z archive must be decompressed once.  Extracting every EPUB
+    // member via a separate "7z x -so" process repeatedly walks the same
+    // solid block and turns opening one book into dozens of decompressions.
+    RunExternalToolToStream(FSevenZipTool,
+      ['x', '-y', '-aoa', '-spd', '-sccUTF-8',
+       '-o' + DestinationDirectory, '--', FArchiveFileName], Output);
+  finally
+    Output.Free;
+  end;
+end;
 function TMHLZip.Find(AFileName: string): Boolean;
 var
   NewMask: TMask;
@@ -364,7 +523,11 @@ end;
 
 function TMHLZip.GetFileCount: Integer;
 begin
-  Result := FZip.FileCount;
+  EnsureFileNames;
+  if FIsSevenZip then
+    Result := Length(FFileNames)
+  else
+    Result := FZip.FileCount;
 end;
 
 function TMHLZip.GetIdxByExt(const Ext: string): Integer;
@@ -372,13 +535,14 @@ var
   i: Integer;
   FN: string;
 begin
+  EnsureFileNames;
   Result := -1;
   FSearchPattern := '';
   FreeAndNil(FSearchMask);
   FSearchMatchAll := False;
   FSearchBaseNameOnly := False;
   FLastID := -1;
-  for i := 0 to FZip.FileCount - 1 do
+  for i := 0 to GetFileCount - 1 do
   begin
     FN := FFileNames[i];
     if SameText(ExtractFileExt(FN), Ext) then
@@ -392,7 +556,8 @@ end;
 
 function TMHLZip.FileNameAt(const Index: Integer): string;
 begin
-  if (Index < 0) or (Index >= FZip.FileCount) then
+  EnsureFileNames;
+  if (Index < 0) or (Index >= GetFileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
   Result := FFileNames[Index];
 end;
@@ -404,8 +569,15 @@ end;
 
 function TMHLZip.GetFileSize(const Index: Integer): Integer;
 begin
-  if (Index < 0) or (Index >= FZip.FileCount) then
+  EnsureFileNames;
+  if (Index < 0) or (Index >= GetFileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+  if FIsSevenZip then
+  begin
+    if FSevenZipSizes[Index] > High(Integer) then
+      raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[Index]]);
+    Exit(Integer(FSevenZipSizes[Index]));
+  end;
   if FZip.FileInfos[Index].UncompressedSize > UInt64(High(Integer)) then
     raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[Index]]);
   Result := Integer(FZip.FileInfos[Index].UncompressedSize);
@@ -413,20 +585,29 @@ end;
 
 function TMHLZip.GetLastName: string;
 begin
-  if (FLastID < 0) or (FLastID >= FZip.FileCount) then
+  EnsureFileNames;
+  if (FLastID < 0) or (FLastID >= GetFileCount) then
     raise ERangeError.Create('No current archive entry');
   Result := FFileNames[FLastID];
 end;
 
 function TMHLZip.GetLastIndex: Integer;
 begin
+  EnsureFileNames;
   Result := FLastID;
 end;
 
 function TMHLZip.GetLastSize: Integer;
 begin
-  if (FLastID < 0) or (FLastID >= FZip.FileCount) then
+  EnsureFileNames;
+  if (FLastID < 0) or (FLastID >= GetFileCount) then
     raise ERangeError.Create('No current archive entry');
+  if FIsSevenZip then
+  begin
+    if FSevenZipSizes[FLastID] > High(Integer) then
+      raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[FLastID]]);
+    Exit(Integer(FSevenZipSizes[FLastID]));
+  end;
   if FZip.FileInfos[FLastID].UncompressedSize > UInt64(High(Integer)) then
     raise ERangeError.CreateFmt('Archive entry "%s" is too large', [FFileNames[FLastID]]);
   Result := Integer(FZip.FileInfos[FLastID].UncompressedSize);
@@ -436,6 +617,9 @@ procedure TMHLZip.RenameFile(const OldFileName, NewFileName: string);
 var
   Index: Integer;
 begin
+  if FIsSevenZip then
+    raise ENotSupportedException.Create(
+      'Изменение архивов 7z не поддерживается.');
   Index := FindEntryIndex(OldFileName);
   if Index < 0 then
     raise EZipException.CreateFmt('Archive entry "%s" was not found', [OldFileName]);
@@ -446,12 +630,20 @@ end;
 
 function TMHLZip.Test(const AFileName: string): Boolean;
 begin
- //
-  Result := FZip.IsValid(AFileName)
+  if FIsSevenZip then
+  begin
+    EnsureFileNames;
+    Result := FileExists(AFileName) and (Length(FFileNames) > 0);
+  end
+  else
+    Result := FZip.IsValid(AFileName)
 end;
 
 procedure TMHLZip.AddFiles(const FileNames: string);
 begin
+  if FIsSevenZip then
+    raise ENotSupportedException.Create(
+      'Запись архивов 7z не поддерживается.');
   FZip.Add(FileNames);
   RefreshFileNames;
 end;
@@ -461,6 +653,9 @@ var
 begin
   if not Assigned(AStream) then
     raise EArgumentNilException.Create('AStream');
+  if FIsSevenZip then
+    raise ENotSupportedException.Create(
+      'Запись архивов 7z не поддерживается.');
 
   SavedPosition := AStream.Position;
   try
@@ -476,6 +671,9 @@ procedure TMHLZip.DeleteFile(const AFileName: string);
 var
   Index: Integer;
 begin
+  if FIsSevenZip then
+    raise ENotSupportedException.Create(
+      'Изменение архивов 7z не поддерживается.');
   Index := FindEntryIndex(AFileName);
   if Index < 0 then
     raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
@@ -496,6 +694,11 @@ begin
   Inherited Create;
 
   FZip := nil;
+  FArchiveFileName := AFileName;
+  FSevenZipTool := '';
+  SetLength(FSevenZipSizes, 0);
+  FIsSevenZip := IsSevenZipArchive(AFileName);
+  FFileNamesLoaded := False;
   FLastID := -1;
   FSearchPattern := '';
   FSearchMask := nil;
@@ -504,6 +707,23 @@ begin
 
   if RO and not(FileExists(AFileName)) then
     raise Exception.Create(Format('Архив %s не найден!',[AFileName]));
+
+  if FIsSevenZip then
+  begin
+    if not RO then
+      raise ENotSupportedException.Create(
+        'Создание и изменение архивов 7z не поддерживается.');
+    FSevenZipTool := FindExternalTool('7zz.exe', '7zip');
+    if FSevenZipTool = '' then
+      FSevenZipTool := FindExternalTool('7za.exe', '7zip');
+    if FSevenZipTool = '' then
+      FSevenZipTool := FindExternalTool('7z.exe', '7zip');
+    if FSevenZipTool = '' then
+      raise EMHLExternalToolError.Create(
+        'Для чтения 7z нужен tools\7zip\7za.exe или установленный 7-Zip.');
+    Exit;
+  end;
+
   FZip := TZipFile.Create;
   if RO then
     FZip.Open(AFileName, zmRead)

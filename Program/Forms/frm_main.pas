@@ -271,6 +271,7 @@ type
     cbLang: TComboBox;
     cbDownloaded: TComboBox;
     cbDeleted: TCheckBox;
+    cbCollapseMultiSeriesResults: TCheckBox;
     ctpFile: TCategoryPanel;
     Label27: TLabel;
     Label29: TLabel;
@@ -1510,6 +1511,8 @@ begin
   ctpBook.Collapsed := Settings.BookSRCollapsed;
   ctpFile.Collapsed := Settings.FileSRCollapsed;
   ctpOther.Collapsed := Settings.OtherSRCollapsed;
+  cbCollapseMultiSeriesResults.Checked :=
+    Settings.CollapseMultiSeriesSearchResults;
 
   pgControl.ActivePageIndex := Settings.ActivePage;
   pgControlChange(nil); // update the toolbar, etc
@@ -1545,6 +1548,8 @@ begin
         FSearchCriteria.Deleted := cbDeleted.Checked;
         FSearchCriteria.LibRate := cbLibRate.Text;
         FSearchCriteria.Readed := cbReaded.Checked;
+        FSearchCriteria.CollapseMultiSeriesResults :=
+          cbCollapseMultiSeriesResults.Checked;
 
         FSearchCriteria.DateIdx := cbDate.ItemIndex;
         if FSearchCriteria.DateIdx= -1 then
@@ -1952,6 +1957,9 @@ var
   bookKey: TBookKey;
   filterValue: TFilterValue;
   Button : TToolButton;
+  BookCollection: IBookCollection;
+  BookSeries: TBookSeries;
+  SeriesItem: TBookSeriesData;
 begin
   Assert(Assigned(FCollection));
 
@@ -1963,11 +1971,26 @@ begin
     Exit;
   bookKey := bookData^.BookKey;
 
-  seriesID := StrToInt(Link);
-  if bookData.SeriesID <> seriesID then
-    Exit // shouldn't happen, just in case
-  else
+  seriesID := StrToIntDef(Link, NO_SERIES_ID);
+  if seriesID = NO_SERIES_ID then
+    Exit;
+
+  seriesTitle := '';
+  if bookData.SeriesID = seriesID then
     seriesTitle := bookData^.Series;
+  if seriesTitle = '' then
+  begin
+    BookCollection := FSystemData.GetCollection(bookKey.DatabaseID);
+    BookSeries := BookCollection.GetBookSeries(bookKey);
+    for SeriesItem in BookSeries do
+      if SeriesItem.SeriesID = seriesID then
+      begin
+        seriesTitle := SeriesItem.SeriesTitle;
+        Break;
+      end;
+  end;
+  if seriesTitle = '' then
+    Exit;
 
   savedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
@@ -3228,6 +3251,8 @@ begin
   Settings.BookSRCollapsed := ctpBook.Collapsed;
   Settings.FileSRCollapsed := ctpFile.Collapsed;
   Settings.OtherSRCollapsed := ctpOther.Collapsed;
+  Settings.CollapseMultiSeriesSearchResults :=
+    cbCollapseMultiSeriesResults.Checked;
 
   Settings.InfoPanelHeight := ipnlAuthors.Height;
 
@@ -3598,10 +3623,17 @@ var
   Tree: TBookTree;
   InfoPanel: TInfoPanel;
   bookStream: TStream;
+  coverStream: TStream;
   book: IXMLFictionBook;
   imgBookCover: TGraphic;
+  BookFormat: TBookFormat;
+  CoverLoaded: Boolean;
+  NeedDescriptor: Boolean;
   isFBDDocument: Boolean;
   StoredBookKey: PBookKey;
+  BookCollection: IBookCollection;
+  BookSeries: TBookSeries;
+  SeriesLinks: string;
 
 begin
   if FInvisible or not Assigned(Node) then Exit;
@@ -3654,51 +3686,103 @@ begin
 
   if Settings.ShowInfoPanel then
   begin
+    SeriesLinks := TSeriesHelper.GetLink(Data^.SeriesID, Data^.Series);
+    try
+      BookCollection := FSystemData.GetCollection(Data^.BookKey.DatabaseID);
+      BookSeries := BookCollection.GetBookSeries(Data^.BookKey);
+      if Length(BookSeries) > 0 then
+        SeriesLinks := TSeriesHelper.GetLinkList(BookSeries);
+    except
+      // The information panel must remain usable when a removable or network
+      // collection is temporarily unavailable; the primary series is already
+      // present in the tree record and is a safe fallback.
+    end;
+
     InfoPanel.SetBookInfo(
       Data^.Title,
       TAuthorsHelper.GetLinkList(Data^.Authors),
-      TSeriesHelper.GetLink(Data^.SeriesID, Data^.Series),
+      SeriesLinks,
       TGenresHelper.GetLinkList(Data^.Genres)
     );
 
     if Settings.ShowBookCover or Settings.ShowBookAnnotation or Settings.Fb2InfoPriority then
     begin
-      if (bpIsLocal in Data^.BookProps) and (bfRaw <> Data^.GetBookFormat) and (bfRawArchive <> Data^.GetBookFormat) then
+      if bpIsLocal in Data^.BookProps then
       begin
-        try
-          bookStream := Data^.GetBookDescriptorStream;
-          if Assigned(bookStream) then
+        BookFormat := Data^.GetBookFormat;
+        CoverLoaded := False;
+
+        // FLibrary keeps pictures outside the book archive.  A preview only
+        // needs one image: do not rebuild the complete FB2/EPUB here.
+        if Settings.ShowBookCover then
+        begin
+          coverStream := nil;
+          imgBookCover := nil;
+          try
             try
-              book := LoadFictionBook(bookStream);
-
-              //
-              // Загрузим обложку
-              //
-              imgBookCover := GetBookCover(book);
-              try
+              coverStream := Data^.GetBookPreviewCoverStream;
+              imgBookCover := CreateGraphicFromStream(coverStream);
+              if Assigned(imgBookCover) then
+              begin
                 InfoPanel.SetBookCover(imgBookCover);
-              finally
-                imgBookCover.Free;
+                CoverLoaded := True;
               end;
-
-              //
-              // Загрузим аннотацию и информацию
-              //
-              InfoPanel.SetBookAnnotation(book);
-              InfoPanel.SetFb2Info(book, Data.Folder, Data.FileName + Data.FileExt);
             finally
-              FreeAndNil(bookStream);
-            end
-          else begin
-            InfoPanel.SetBookCover(nil);
-            InfoPanel.SetBookAnnotation(nil);
+              imgBookCover.Free;
+              coverStream.Free;
+            end;
+          except
+            // An incomplete torrent or unavailable JPEG XL decoder should
+            // only hide the thumbnail, never break navigation in the list.
           end;
-        except
-          on E : Exception do
-               begin
+        end;
+
+        NeedDescriptor := not (BookFormat in [bfRaw, bfRawArchive]) and
+          (Settings.ShowBookAnnotation or Settings.Fb2InfoPriority or
+          (Settings.ShowBookCover and not CoverLoaded));
+        if NeedDescriptor then
+        begin
+          try
+            // For an FLibrary FB2 this reads only the XML text.  Full image
+            // restoration remains enabled for opening, exporting and sending.
+            bookStream := Data^.GetBookDescriptorStream(False);
+            if Assigned(bookStream) then
+              try
+                book := LoadFictionBook(bookStream);
+
+                if Settings.ShowBookCover and not CoverLoaded then
+                begin
+                  imgBookCover := GetBookCover(book);
+                  try
+                    InfoPanel.SetBookCover(imgBookCover);
+                    CoverLoaded := Assigned(imgBookCover);
+                  finally
+                    imgBookCover.Free;
+                  end;
+                end;
+
+                InfoPanel.SetBookAnnotation(book);
+                InfoPanel.SetFb2Info(book, Data.Folder,
+                  Data.FileName + Data.FileExt);
+              finally
+                FreeAndNil(bookStream);
+              end
+            else
+              InfoPanel.SetBookAnnotation(nil);
+          except
+            on E : Exception do
+            begin
+              if not CoverLoaded then
                 InfoPanel.SetBookCover(nil);
-                InfoPanel.SetBookAnnotation(nil);
-               end;
+              InfoPanel.SetBookAnnotation(nil);
+            end;
+          end;
+        end
+        else
+        begin
+          if Settings.ShowBookCover and not CoverLoaded then
+            InfoPanel.SetBookCover(nil);
+          InfoPanel.SetBookAnnotation(nil);
         end;
       end
       else

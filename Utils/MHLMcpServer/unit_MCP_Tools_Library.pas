@@ -543,6 +543,9 @@ begin
   Collection := CollectionOrFail(RequireInt(Args, 'collection_id'));
 
   Criteria := Default(TBookSearchCriteria);
+  // The MCP API has always promised unique physical books. Keep that stable;
+  // the desktop UI exposes the optional classic per-series expansion.
+  Criteria.CollapseMultiSeriesResults := True;
 
   // Title/author/series/lang/keyword/annotation all go through
   // LiteralLikeCondition (see its comment above) rather than a direct

@@ -124,16 +124,17 @@ comparing results with the MyHomeLib app itself:
 
 ## Diagnostic CLI modes
 
-All three write whatever they print through `TMcpTransport` (never raw
+All four write whatever they print through `TMcpTransport` (never raw
 `Writeln`), keeping the "only the transport writes to stdout" rule
 mechanically true even in these modes; diagnostics and failures go to stderr.
 
-They are not otherwise alike. `--extract` and `--cache-selftest` are read-only
-and database-free, and run *before* `Application.Initialize`/`DMUser` —
-neither touches a database or the real machine-wide cache. `--make-fixture` is
-the odd one out on every count: it needs `DMUser`, so it runs *after*
-`Application.Initialize`, and it is **destructive** — read its entry below
-before running it.
+They are not otherwise alike. `--extract`, `--cache-selftest` and
+`--restore-flibrary` are database-free and run *before*
+`Application.Initialize`/`DMUser`. The first two are read-only;
+`--restore-flibrary` writes only the explicit output path passed by its caller.
+`--make-fixture` is the odd one out on every count: it needs `DMUser`, so it
+runs *after* `Application.Initialize`, and it is **destructive** — read its
+entry below before running it.
 
 - **`MHLMcpServer.exe --extract <file.fb2>`** — runs `ExtractFb2` on a local
   FB2 file and prints `{"text":…,"sections":[…],"structured":…,
@@ -147,6 +148,15 @@ before running it.
   prints a pass/fail line per scenario. This is what `tests/cache_tests.js`
   drives; run it directly for a quick sanity check of the cache logic in
   isolation.
+- **`MHLMcpServer.exe --restore-flibrary <container.7z> <entry>
+  <output-file>`** — extracts one book from a compact FLibrary container,
+  restores its external cover/images and writes a conventional FB2 or EPUB to
+  the explicitly named output file. It never opens a MyHomeLib database and is
+  intended for repeatable compatibility tests against real torrent data. On
+  success it prints `restored`, `source_size`, `output_size`, `cover_found`,
+  `cover_size`, `cover_ms`, `extract_ms` and `restore_ms` as one JSON line.
+  `cover_ms` exercises the fast information-panel path without reconstructing
+  the complete book. Quote paths containing spaces.
 - **`MHLMcpServer.exe --make-fixture uselocaldata user mcpfixture`** —
   **destructive.** Builds the six-book throwaway collection the protocol suite
   runs against (see "The fixture `run_tests.js` builds for itself" below), and

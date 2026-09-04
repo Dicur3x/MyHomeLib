@@ -1518,7 +1518,7 @@ object frmMain: TfrmMain
           HeaderFont.Style = []
           TabOrder = 0
           object ctpOther: TCategoryPanel
-            Top = 491
+            Top = 514
             Caption = #1056#1072#1079#1085#1086#1077
             TabOrder = 0
             ExplicitWidth = 185
@@ -1668,7 +1668,7 @@ object frmMain: TfrmMain
             end
           end
           object ctpFile: TCategoryPanel
-            Top = 314
+            Top = 337
             Height = 177
             Caption = #1060#1072#1081#1083
             TabOrder = 1
@@ -1736,7 +1736,7 @@ object frmMain: TfrmMain
           end
           object ctpBook: TCategoryPanel
             Top = 0
-            Height = 314
+            Height = 337
             Caption = #1050#1085#1080#1075#1072
             TabOrder = 2
             ExplicitWidth = 220
@@ -1761,7 +1761,7 @@ object frmMain: TfrmMain
             object Label26: TLabel
               AlignWithMargins = True
               Left = 3
-              Top = 141
+              Top = 164
               Width = 28
               Height = 13
               Align = alTop
@@ -1770,7 +1770,7 @@ object frmMain: TfrmMain
             object Label6: TLabel
               AlignWithMargins = True
               Left = 3
-              Top = 95
+              Top = 118
               Width = 31
               Height = 13
               Align = alTop
@@ -1779,7 +1779,7 @@ object frmMain: TfrmMain
             object Label7: TLabel
               AlignWithMargins = True
               Left = 3
-              Top = 238
+              Top = 261
               Width = 55
               Height = 13
               Align = alBottom
@@ -1788,7 +1788,7 @@ object frmMain: TfrmMain
             object Label3: TLabel
               AlignWithMargins = True
               Left = 3
-              Top = 191
+              Top = 214
               Width = 86
               Height = 13
               Margins.Top = 0
@@ -1820,23 +1820,23 @@ object frmMain: TfrmMain
             object edFSeries: TMHLButtonedEdit
               AlignWithMargins = True
               Left = 3
-              Top = 114
+              Top = 137
               Width = 195
               Height = 21
               Align = alTop
-              TabOrder = 2
+              TabOrder = 3
               OnKeyDown = PresetFieldKeyDown
               OnRightButtonClick = ShowExpressionEditor
             end
             object edFGenre: TMHLButtonedEdit
               AlignWithMargins = True
               Left = 3
-              Top = 160
+              Top = 183
               Width = 195
               Height = 21
               Margins.Bottom = 10
               Align = alTop
-              TabOrder = 3
+              TabOrder = 4
               OnKeyDown = PresetFieldKeyDown
               OnKeyPress = edFGenreKeyPress
               OnRightButtonClick = ShowGenreEditor
@@ -1844,19 +1844,19 @@ object frmMain: TfrmMain
             object edFAnnotation: TMHLButtonedEdit
               AlignWithMargins = True
               Left = 3
-              Top = 257
+              Top = 280
               Width = 195
               Height = 21
               Margins.Bottom = 10
               Align = alBottom
-              TabOrder = 4
+              TabOrder = 6
               OnKeyDown = PresetFieldKeyDown
               OnRightButtonClick = ShowExpressionEditor
             end
             object edFKeyWords: TMHLButtonedEdit
               AlignWithMargins = True
               Left = 3
-              Top = 210
+              Top = 233
               Width = 195
               Height = 21
               Hint = #1050#1083#1102#1095#1077#1074#1099#1077' '#1089#1083#1086#1074#1072
@@ -1866,6 +1866,20 @@ object frmMain: TfrmMain
               TabOrder = 5
               OnKeyDown = PresetFieldKeyDown
               OnRightButtonClick = ShowExpressionEditor
+            end
+            object cbCollapseMultiSeriesResults: TCheckBox
+              AlignWithMargins = True
+              Left = 5
+              Top = 95
+              Width = 193
+              Height = 17
+              Hint = #1050#1085#1080#1075#1072' '#1089' '#1085#1077#1089#1082#1086#1083#1100#1082#1080#1084#1080' '#1089#1077#1088#1080#1103#1084#1080' '#1087#1086#1082#1072#1079#1099#1074#1072#1077#1090#1089#1103' '#1086#1076#1085#1086#1081' '#1089#1090#1088#1086#1082#1086#1081'. '#1057#1072#1084#1080' '#1089#1077#1088#1080#1080' '#1089#1086#1093#1088#1072#1085#1103#1102#1090#1089#1103'.'
+              Margins.Left = 5
+              Align = alTop
+              Caption = #1041#1077#1079' '#1087#1086#1074#1090#1086#1088#1086#1074' '#1087#1086' '#1089#1077#1088#1080#1103#1084
+              ParentShowHint = False
+              ShowHint = True
+              TabOrder = 2
             end
           end
         end

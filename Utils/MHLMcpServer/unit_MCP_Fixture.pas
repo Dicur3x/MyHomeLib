@@ -327,6 +327,10 @@ begin
   Ids[5] := AddFixtureBook(Collection, RootFolder, 'book6', Titles[5],
     'Шевченко', 'Іван', '', 0, 'prose_contemporary', 'uk', 0, True, []);
 
+  // The same physical book belongs to two series. Search through the secondary
+  // relationship must return one canonical Books row, not a duplicate.
+  Collection.AddBookSeries(Ids[0], 'Вторая линия', 7);
+
   Summary := TJSONObject.Create;
   try
     Summary.AddPair('collection_id', TJSONNumber.Create(CollectionID));
