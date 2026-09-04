@@ -29,6 +29,11 @@ type
     NickName: string;
   end;
 
+  TMetabibSequence = record
+    Name: string;
+    Number: Integer;
+  end;
+
   TMetabibBook = record
     BookID: Int64;
     LocatorKind: string;
@@ -42,6 +47,7 @@ type
     Authors: TArray<TMetabibPerson>;
     Translators: TArray<TMetabibPerson>;
     Genres: TArray<string>;
+    Sequences: TArray<TMetabibSequence>;
     SeriesName: string;
     SeriesNo: Integer;
     Lang: string;
@@ -543,6 +549,8 @@ var
   vArt, vOcc: TJSONValue;
   Occ, Chosen, FirstOcc: TJSONObject;
   Seqs: TArray<TJSONValue>;
+  i: Integer;
+  SeqCount: Integer;
   StampStr: string;
   dt: TDateTime;
 begin
@@ -628,10 +636,24 @@ begin
     Book.Keywords := FirstClaimString(Bib, 'keywords');
 
     Seqs := ClaimValues(Bib, 'sequences');
-    if (Length(Seqs) > 0) and (Seqs[0] is TJSONObject) then
+    SetLength(Book.Sequences, Length(Seqs));
+    SeqCount := 0;
+    for i := 0 to High(Seqs) do
+      if Seqs[i] is TJSONObject then
+      begin
+        Book.Sequences[SeqCount].Name := StrValue(TJSONObject(Seqs[i]), 'name');
+        Book.Sequences[SeqCount].Number := IntValue(TJSONObject(Seqs[i]), 'number', 0);
+        if Book.Sequences[SeqCount].Name <> '' then
+          Inc(SeqCount);
+      end;
+    SetLength(Book.Sequences, SeqCount);
+
+    // Keep the first sequence in the legacy fields used by TBookRecord. The
+    // importer attaches the remaining sequence relationships after insertion.
+    if Length(Book.Sequences) > 0 then
     begin
-      Book.SeriesName := StrValue(TJSONObject(Seqs[0]), 'name');
-      Book.SeriesNo := IntValue(TJSONObject(Seqs[0]), 'number', 0);
+      Book.SeriesName := Book.Sequences[0].Name;
+      Book.SeriesNo := Book.Sequences[0].Number;
     end;
 
     Book.Publisher := FirstClaimString(Pub, 'publisher');

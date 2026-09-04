@@ -148,6 +148,8 @@ $outputDirectory = Join-Path $programDirectory $outputSubdirectory
 $exePath = Join-Path $outputDirectory 'MyHomeLib.exe'
 $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
 $zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
+$sevenZipDestination = Join-Path $outputDirectory 'tools\7zip\7za.exe'
+$jpegXlDestination = Join-Path $outputDirectory 'tools\jpeg-xl\djxl.exe'
 
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Сначала соберите $Platform Release: не найден '$exePath'."
@@ -180,7 +182,11 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
-    $zstdDestination
+    $zstdDestination,
+    $sevenZipDestination,
+    (Join-Path $outputDirectory 'tools\7zip\License.txt'),
+    $jpegXlDestination,
+    (Join-Path $outputDirectory 'tools\jpeg-xl\licenses\LICENSE.libjxl')
 )
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -191,6 +197,10 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
 Assert-Architecture -Path $zstdDestination -Expected $Platform
+Assert-Architecture -Path $sevenZipDestination -Expected $Platform
+# libjxl currently publishes a static Windows x64 decoder.  A Win32 MyHomeLib
+# process can launch it normally on 64-bit Windows.
+Assert-Architecture -Path $jpegXlDestination -Expected 'Win64'
 
 $genreSourceDirectory = Join-Path $repositoryRoot 'Installer\GenreLists'
 foreach ($genreFile in Get-ChildItem -LiteralPath $genreSourceDirectory -Filter '*.glst' -File) {
@@ -204,3 +214,5 @@ Write-FileHash -Path $sqliteDestination
 Write-FileHash -Path $zstdDestination
 Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
+Write-FileHash -Path $sevenZipDestination
+Write-FileHash -Path $jpegXlDestination

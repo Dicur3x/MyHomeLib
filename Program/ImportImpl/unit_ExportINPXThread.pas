@@ -99,6 +99,9 @@ end;
 procedure TExport2INPXThread.WorkFunction;
 var
   R: TBookRecord;
+  ExportRecord: TBookRecord;
+  BookSeries: TBookSeries;
+  SeriesItem: TBookSeriesData;
   BookIterator: IBookIterator;
 
   inpxStream: TMemoryStream;
@@ -125,7 +128,21 @@ begin
             if Canceled then
               Exit;
 
-            INPRecordCreate(R, inpxWriter);
+            BookSeries := FCollection.GetBookSeries(R.BookKey);
+            if Length(BookSeries) = 0 then
+              INPRecordCreate(R, inpxWriter)
+            else
+              // INPX has one SERIES/SERNO pair per row. Repeating the physical
+              // locator is the convention used by FLibrary and other modern
+              // cataloguers to preserve every series membership.
+              for SeriesItem in BookSeries do
+              begin
+                ExportRecord := R;
+                ExportRecord.SeriesID := SeriesItem.SeriesID;
+                ExportRecord.Series := SeriesItem.SeriesTitle;
+                ExportRecord.SeqNumber := SeriesItem.SeqNumber;
+                INPRecordCreate(ExportRecord, inpxWriter);
+              end;
 
             FProgressEngine.AddProgress;
           end;

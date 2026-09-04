@@ -216,6 +216,7 @@ type
     FMinimizeToTray: Boolean;
     FAutoStartDwnld: Boolean;
     FShowSubGenreBooks: Boolean;
+    FCollapseMultiSeriesSearchResults: Boolean;
     FAllowMixed: Boolean;
 
     FAutoRunUpdate: Boolean;
@@ -366,6 +367,8 @@ type
     property HideDeletedBooks: Boolean read FDoNotShowDeleted write FDoNotShowDeleted;
     property ShowLocalOnly: Boolean read FShowLocalOnly write FShowLocalOnly;
     property ShowSubGenreBooks: Boolean read FShowSubGenreBooks write FShowSubGenreBooks;
+    property CollapseMultiSeriesSearchResults: Boolean
+      read FCollapseMultiSeriesSearchResults write FCollapseMultiSeriesSearchResults;
 
     property AutoRunUpdate: Boolean read FAutoRunUpdate write FAutoRunUpdate;
 
@@ -858,6 +861,8 @@ begin
     FShowLocalOnly := iniFile.ReadBool(BEHAVIOR_SECTION, 'ShowLocalOnly', False);
 
     FShowSubGenreBooks := iniFile.ReadBool(BEHAVIOR_SECTION, 'ShowSubGenreBooks', True);
+    FCollapseMultiSeriesSearchResults := iniFile.ReadBool(
+      BEHAVIOR_SECTION, 'CollapseMultiSeriesSearchResults', False);
     FMinimizeToTray := iniFile.ReadBool(BEHAVIOR_SECTION, 'MinimizeToTray', False);
     FAutoStartDwnld := iniFile.ReadBool(BEHAVIOR_SECTION, 'AutoStartDwnld', False);
     FAllowMixed := iniFile.ReadBool(BEHAVIOR_SECTION, 'AllowMixed', False);
@@ -1026,6 +1031,8 @@ begin
     iniFile.WriteBool(BEHAVIOR_SECTION, 'Fb2InfoPriority', FFb2InfoPriority);
 
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ShowSubGenreBooks', FShowSubGenreBooks);
+    iniFile.WriteBool(BEHAVIOR_SECTION, 'CollapseMultiSeriesSearchResults',
+      FCollapseMultiSeriesSearchResults);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'MinimizeToTray', FMinimizeToTray);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'AutoStartDwnld', FAutoStartDwnld);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'AllowMixed', FAllowMixed);

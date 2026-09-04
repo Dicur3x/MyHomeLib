@@ -27,6 +27,7 @@ uses
 
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
 function GetBookCover(book: IXMLFictionBook): TGraphic;
+function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
 function GetBookAnnotation(book: IXMLFictionBook): string;
 function GetBookInfo(book: IXMLFictionBook): string;
 function FormatName(const LastName: string; const FirstName: string; const MiddleName: string; const nickName: string = ''; onlyInitials: Boolean = False): string;
@@ -151,29 +152,44 @@ begin
   end;
 end;
 
-function GetBookCover(book: IXMLFictionBook): TGraphic;
+function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
 var
-  coverStream: TStream;
+  SavedPosition: Int64;
   StreamFormat: TStreamFormat;
 begin
   Result := nil;
+  if not Assigned(ImageStream) then
+    Exit;
 
-  coverStream := InternalGetBookCoverStream(book);
-  if Assigned(coverStream) then
+  SavedPosition := ImageStream.Position;
   try
-    coverStream.Seek(0, soFromBeginning);
-    StreamFormat := DetectStreamFormat(coverStream);
+    ImageStream.Position := 0;
+    StreamFormat := DetectStreamFormat(ImageStream);
     if not IsSupportedImageFormat(StreamFormat) then
       Exit;
 
     Result := InternalCreateGraphic(StreamFormat);
     if Assigned(Result) then
     try
-      coverStream.Seek(0, soFromBeginning);
-      Result.LoadFromStream(coverStream);
+      ImageStream.Position := 0;
+      Result.LoadFromStream(ImageStream);
     except
       FreeAndNil(Result);
     end;
+  finally
+    ImageStream.Position := SavedPosition;
+  end;
+end;
+
+function GetBookCover(book: IXMLFictionBook): TGraphic;
+var
+  coverStream: TStream;
+begin
+  Result := nil;
+  coverStream := InternalGetBookCoverStream(book);
+  if Assigned(coverStream) then
+  try
+    Result := CreateGraphicFromStream(coverStream);
   finally
     coverStream.Free;
   end;

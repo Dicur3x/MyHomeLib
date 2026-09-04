@@ -195,6 +195,9 @@ type
     function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
       const FullCheck: Boolean; Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean);
+    function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
+      const SeqNumber: Integer; Cache: TImportCache = nil);
     //
     // Проверить/восстановить BookID книги по стабильному LibID:
     // BookID переприсваивается при полном переимпорте коллекции, LibID - нет.
