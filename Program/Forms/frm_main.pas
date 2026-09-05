@@ -201,6 +201,7 @@ type
     pnGenreBooksTitle: TMHLSimplePanel;
     lblBooksTotalG: TLabel;
     lblGenreTitle: TLabel;
+    btnShowGenreBooks: TButton;
     ipnlGenres: TInfoPanel;
     TrayIcon: TTrayIcon;
     pmTray: TPopupMenu;
@@ -531,6 +532,7 @@ type
     //
     procedure tvGenresChange(Sender: TBaseVirtualTree; Node: PVirtualNode);
     procedure tvGenresKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure btnShowGenreBooksClick(Sender: TObject);
 
     //
     // Список групп
@@ -922,6 +924,7 @@ type
     FLastGenreCode: string;
     FLastGenreIsContainer: Boolean;
     FLastGenreIsTopLevelContainer: Boolean;
+    FRootGenreBooksRequested: Boolean;
     FLastGenreBookID: TBookKey;
     FLastGroupID: Integer;
     FLastGroupBookID: TBookKey;
@@ -941,6 +944,7 @@ type
     function AuthorBookFilter: TFilterValue;
     function SeriesBookFilter: TFilterValue;
     function GenreBookFilter: TFilterValue;
+    procedure FillCurrentGenreBooks;
 
     //
     function GetBookNode(const Tree: TBookTree; const BookKey: TBookKey): PVirtualNode; overload;
@@ -1694,7 +1698,9 @@ begin
     FLastGenreCode := '';
     FLastGenreIsContainer := False;
     FLastGenreIsTopLevelContainer := False;
+    FRootGenreBooksRequested := False;
     FLastGenreBookID.Clear;
+    btnShowGenreBooks.Visible := False;
 
     FLastGroupID := MHL_INVALID_ID;
     FLastGroupBookID.Clear;
@@ -2082,7 +2088,6 @@ var
   bookTree: TBookTree;
   bookData: PBookRecord;
   bookKey: TBookKey;
-  filterValue: TFilterValue;
 begin
   Assert(Assigned(FCollection));
 
@@ -2123,27 +2128,16 @@ begin
         FLastGenreIsContainer := (node^.ChildCount > 0);
         FLastGenreIsTopLevelContainer :=
           (genreData^.ParentCode = '0') and FLastGenreIsContainer;
+        FRootGenreBooksRequested := False;
         Break;
       end;
       node := tvGenres.GetNext(node);
     end;
 
-    // Top-level genre nodes are navigation groups. Loading every descendant
-    // here can create hundreds of thousands of rows and make the UI look
-    // frozen, so expand the group and let the user choose a subgenre.
-    if FLastGenreIsTopLevelContainer and Assigned(node) then
-    begin
-      tvGenres.Expanded[node] := True;
-      lblBooksTotalG.Caption := '()';
-      ipnlGenres.Clear;
-      tvBooksG.Clear;
-      Exit;
-    end;
-
-    // Fill book tree and locate the book:
-    filterValue := GenreBookFilter; // uses FLastGenreCode initialized earlier
+    // Concrete genres are loaded immediately. Top-level genres remain
+    // collapsed and empty until the user explicitly asks to show them.
     FLastGenreBookID := bookKey;
-    FillBooksTree(tvBooksG, cbLangSelectG, FCollection.GetBookIterator(bmByGenre, False, @filterValue),  True,  True, @FLastGenreBookID);
+    FillCurrentGenreBooks;
   finally
     Screen.Cursor := savedCursor;
   end;
@@ -2663,8 +2657,7 @@ begin
 
       2:
       begin
-        FilterValue := GenreBookFilter;
-        FillBooksTree(tvBooksG, cbLangSelectG, FCollection.GetBookIterator(bmByGenre, False, @FilterValue),  True,  True, @FLastGenreBookID);      // жанры
+        FillCurrentGenreBooks; // жанры
       end;
 
       3: FillBooksTree(tvBooksSR, nil, FCollection.Search(FSearchCriteria, False), True,  True, nil);  // поиск
@@ -2754,8 +2747,7 @@ begin
     FilterValue := SeriesBookFilter;
     FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
 
-    FilterValue := GenreBookFilter;
-    FillBooksTree(tvBooksG, cbLangSelectG, FCollection.GetBookIterator(bmByGenre, False, @FilterValue),   True,  True, @FLastGenreBookID);  // жанры
+    FillCurrentGenreBooks; // жанры
 
     FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True,  True, @FLastGroupBookID);  // избранное
   finally
@@ -3111,6 +3103,7 @@ begin
   FLastGenreCode := '';
   FLastGenreIsContainer := False;
   FLastGenreIsTopLevelContainer := False;
+  FRootGenreBooksRequested := False;
   FLastGenreBookID.Clear;
 
   FLastGroupID := MHL_INVALID_ID;
@@ -3280,12 +3273,14 @@ begin
       FLastGenreIsContainer := (tvGenres.GetFirstSelected^.ChildCount > 0);
       FLastGenreIsTopLevelContainer :=
         (GenreData^.ParentCode = '0') and FLastGenreIsContainer;
+      FRootGenreBooksRequested := False;
     end
     else
     begin
       FLastGenreCode := '';
       FLastGenreIsContainer := False;
       FLastGenreIsTopLevelContainer := False;
+      FRootGenreBooksRequested := False;
     end;
     FLastGenreBookID.Clear;
   end;
@@ -3520,7 +3515,6 @@ procedure TfrmMain.tvGenresChange(Sender: TBaseVirtualTree; Node: PVirtualNode);
 var
   SavedCursor: TCursor;
   Data: PGenreData;
-  FilterValue: TFilterValue;
 {$IFDEF USELOGGER}
   logger: IScopeLogger;
 {$ENDIF}
@@ -3542,6 +3536,11 @@ begin
     Data := tvGenres.GetNodeData(Node);
     if not Assigned(Data) then
     begin
+      FLastGenreCode := '';
+      FLastGenreIsContainer := False;
+      FLastGenreIsTopLevelContainer := False;
+      FRootGenreBooksRequested := False;
+      btnShowGenreBooks.Visible := False;
       lblGenreTitle.Caption := '...';
       lblBooksTotalG.Caption := '()';
       ipnlGenres.Clear;
@@ -3556,29 +3555,33 @@ begin
       FLastGenreIsContainer := (Node^.ChildCount > 0);
       FLastGenreIsTopLevelContainer :=
         (Data^.ParentCode = '0') and FLastGenreIsContainer;
+      FRootGenreBooksRequested := False;
       FLastGenreBookID.Clear;
     end;
 
-    // Root genres such as "Fantasy" are navigation groups, not practical
-    // result sets. A classic INPX collection can contain hundreds of thousands
-    // of books below one such node. Keep root-node behaviour identical for
-    // classic and FLibrary collections: expand it immediately and load books
-    // only after a concrete subgenre is selected. "Unsorted" has no children,
-    // so it continues to load normally.
-    if FLastGenreIsTopLevelContainer then
-    begin
-      tvGenres.Expanded[Node] := True;
-      lblBooksTotalG.Caption := '()';
-      ipnlGenres.Clear;
-      tvBooksG.Clear;
-      Exit;
-    end;
-
-    FilterValue := GenreBookFilter;
-    if Assigned(FCollection) then
-      FillBooksTree(tvBooksG, cbLangSelectG, FCollection.GetBookIterator(bmByGenre, False, @FilterValue), True, True, @FLastGenreBookID);
+    // A root genre can represent hundreds of thousands of books. Selecting it
+    // is therefore navigation-only: do not expand it and do not build the
+    // combined result until the user presses the explicit button.
+    FillCurrentGenreBooks;
   finally
     Screen.Cursor := SavedCursor;
+  end;
+end;
+
+procedure TfrmMain.btnShowGenreBooksClick(Sender: TObject);
+begin
+  if not FLastGenreIsTopLevelContainer or not Assigned(FCollection) then
+    Exit;
+
+  FRootGenreBooksRequested := True;
+  btnShowGenreBooks.Enabled := False;
+  try
+    FillCurrentGenreBooks;
+  except
+    FRootGenreBooksRequested := False;
+    raise;
+  finally
+    btnShowGenreBooks.Enabled := True;
   end;
 end;
 
@@ -7491,8 +7494,7 @@ begin
          FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
        end;
     2: begin
-         FilterValue := GenreBookFilter;
-         FillBooksTree(tvBooksG, cbLangSelectG, FCollection.GetBookIterator(bmByGenre, False, @FilterValue),   True,  True, @FLastGenreBookID);  // жанры
+         FillCurrentGenreBooks; // жанры
        end;
     4: FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True,  True, @FLastGroupBookID);  // избранное
   end;
@@ -7968,6 +7970,33 @@ begin
     Result.ValueString := FLastGenreCode
   else
     Result.ValueString := FLastGenreCode + IfThen(FLastGenreIsContainer, '.', '');
+end;
+
+procedure TfrmMain.FillCurrentGenreBooks;
+var
+  FilterValue: TFilterValue;
+  Mode: TBookIteratorMode;
+begin
+  btnShowGenreBooks.Visible := FLastGenreIsTopLevelContainer;
+
+  if not Assigned(FCollection) or (FLastGenreCode = '') or
+    (FLastGenreIsTopLevelContainer and not FRootGenreBooksRequested) then
+  begin
+    lblBooksTotalG.Caption := '()';
+    ipnlGenres.Clear;
+    tvBooksG.Clear;
+    Exit;
+  end;
+
+  FilterValue := GenreBookFilter;
+  if FLastGenreIsTopLevelContainer then
+    Mode := bmByGenreRecursive
+  else
+    Mode := bmByGenre;
+
+  FillBooksTree(tvBooksG, cbLangSelectG,
+    FCollection.GetBookIterator(Mode, False, @FilterValue), True, True,
+    @FLastGenreBookID);
 end;
 
 end.
