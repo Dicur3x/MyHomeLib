@@ -3576,10 +3576,12 @@ begin
   FRootGenreBooksRequested := True;
   btnShowGenreBooks.Enabled := False;
   try
-    FillCurrentGenreBooks;
-  except
-    FRootGenreBooksRequested := False;
-    raise;
+    try
+      FillCurrentGenreBooks;
+    except
+      FRootGenreBooksRequested := False;
+      raise;
+    end;
   finally
     btnShowGenreBooks.Enabled := True;
   end;
