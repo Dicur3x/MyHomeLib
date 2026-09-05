@@ -106,8 +106,8 @@
 <h2>If there is no reader for an extension</h2>
 <p>The list does not have to cover every file type in the collection: for an extension that is not in the table, MyHomeLib simply hands the file to whichever program Windows itself has registered for that extension (the ordinary file association) — exactly as it does for an entry with an empty <span class="ui">Path</span> field.</p>
 
-<h2>The built-in reader</h2>
-<p>MyHomeLib has no built-in reader of its own — "Read" always launches a separate program. All the installer does is put AlReader alongside it and, on first run (while the reader list is still empty), fill the table itself: it assigns AlReader to the <code>fb2</code>, <code>doc</code>, <code>txt</code>, <code>htm</code> and <code>html</code> extensions, and for four more — <code>pdf</code>, <code>djvu</code>, <code>mht</code> and <code>chm</code> — it also adds a row, but with an empty <span class="ui">Path</span> field, which, as described above, opens such a file with the program Windows has registered by default. This starting set is only a convenient initial state for the table: you are free to edit or delete any of it, like any other row.</p>
+<h2>Bundled readers</h2>
+<p>MyHomeLib has no built-in reader of its own — "Read" always launches a separate program. The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. On first run, MyHomeLib assigns AlReader to FB2/FBD, DOC/DOCX, RTF, TXT and HTML, and SumatraPDF to PDF, DjVu, EPUB, MOBI/Kindle, CHM, XPS, comics and supported image formats. ZIP/RAR/7z/TAR remain assigned to Windows. The old <code>AlReader\AlReader2.exe</code> path is updated automatically. A different reader explicitly selected by the user is never replaced; the initial set can be freely edited or removed.</p>
 <!-- BODY:END -->
 </main>
 </body>

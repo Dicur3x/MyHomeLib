@@ -921,6 +921,7 @@ type
     FLastSeriesBookID: TBookKey;
     FLastGenreCode: string;
     FLastGenreIsContainer: Boolean;
+    FLastGenreIsTopLevelContainer: Boolean;
     FLastGenreBookID: TBookKey;
     FLastGroupID: Integer;
     FLastGroupBookID: TBookKey;
@@ -1692,6 +1693,7 @@ begin
 
     FLastGenreCode := '';
     FLastGenreIsContainer := False;
+    FLastGenreIsTopLevelContainer := False;
     FLastGenreBookID.Clear;
 
     FLastGroupID := MHL_INVALID_ID;
@@ -2119,9 +2121,23 @@ begin
         tvGenres.FocusedNode := node;
         FLastGenreCode := genreCode;
         FLastGenreIsContainer := (node^.ChildCount > 0);
+        FLastGenreIsTopLevelContainer :=
+          (genreData^.ParentCode = '0') and FLastGenreIsContainer;
         Break;
       end;
       node := tvGenres.GetNext(node);
+    end;
+
+    // Top-level genre nodes are navigation groups. Loading every descendant
+    // here can create hundreds of thousands of rows and make the UI look
+    // frozen, so expand the group and let the user choose a subgenre.
+    if FLastGenreIsTopLevelContainer and Assigned(node) then
+    begin
+      tvGenres.Expanded[node] := True;
+      lblBooksTotalG.Caption := '()';
+      ipnlGenres.Clear;
+      tvBooksG.Clear;
+      Exit;
     end;
 
     // Fill book tree and locate the book:
@@ -3094,6 +3110,7 @@ begin
 
   FLastGenreCode := '';
   FLastGenreIsContainer := False;
+  FLastGenreIsTopLevelContainer := False;
   FLastGenreBookID.Clear;
 
   FLastGroupID := MHL_INVALID_ID;
@@ -3261,11 +3278,14 @@ begin
       FLastGenreCode := GenreData^.GenreCode;
       Assert(Assigned(tvGenres.GetFirstSelected()));
       FLastGenreIsContainer := (tvGenres.GetFirstSelected^.ChildCount > 0);
+      FLastGenreIsTopLevelContainer :=
+        (GenreData^.ParentCode = '0') and FLastGenreIsContainer;
     end
     else
     begin
       FLastGenreCode := '';
       FLastGenreIsContainer := False;
+      FLastGenreIsTopLevelContainer := False;
     end;
     FLastGenreBookID.Clear;
   end;
@@ -3534,7 +3554,24 @@ begin
       lblGenreTitle.Caption := Data^.GenreAlias;
       FLastGenreCode := Data^.GenreCode;
       FLastGenreIsContainer := (Node^.ChildCount > 0);
+      FLastGenreIsTopLevelContainer :=
+        (Data^.ParentCode = '0') and FLastGenreIsContainer;
       FLastGenreBookID.Clear;
+    end;
+
+    // Root genres such as "Fantasy" are navigation groups, not practical
+    // result sets. A classic INPX collection can contain hundreds of thousands
+    // of books below one such node. Keep root-node behaviour identical for
+    // classic and FLibrary collections: expand it immediately and load books
+    // only after a concrete subgenre is selected. "Unsorted" has no children,
+    // so it continues to load normally.
+    if FLastGenreIsTopLevelContainer then
+    begin
+      tvGenres.Expanded[Node] := True;
+      lblBooksTotalG.Caption := '()';
+      ipnlGenres.Clear;
+      tvBooksG.Clear;
+      Exit;
     end;
 
     FilterValue := GenreBookFilter;
@@ -7925,7 +7962,9 @@ end;
 function TfrmMain.GenreBookFilter: TFilterValue;
 begin
   Assert(Assigned(FCollection));
-  if isFB2Collection(FCollection.CollectionCode) or (not Settings.ShowSubGenreBooks) then
+  if FLastGenreIsTopLevelContainer or
+    isFB2Collection(FCollection.CollectionCode) or
+    (not Settings.ShowSubGenreBooks) then
     Result.ValueString := FLastGenreCode
   else
     Result.ValueString := FLastGenreCode + IfThen(FLastGenreIsContainer, '.', '');

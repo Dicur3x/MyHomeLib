@@ -1188,20 +1188,12 @@ const
   LEGACY_ALREADER_PATH = 'AlReader\AlReader2.exe';
   BUNDLED_ALREADER_PATH = 'Readers\AlReader\AlReader2.exe';
   BUNDLED_SUMATRA_PATH = 'Readers\SumatraPDF\SumatraPDF.exe';
-  ALREADER_EXTENSIONS: array [0 .. 4] of string =
-    ('fb2', 'doc', 'txt', 'htm', 'html');
-  SUMATRA_EXTENSIONS: array [0 .. 57] of string =
-    ('pdf', 'ai',
-     'epub', 'mobi', 'azw', 'azw1', 'azw3', 'prc', 'azw4', 'pdb',
-     'fb2z', 'fbz', 'zfb2',
-     'cbz', 'cbr', 'cbt', 'cb7', 'ora',
-     'djvu', 'djv', 'chm',
-     'xps', 'oxps', 'xod', 'dwfx',
-     'zip', 'rar', '7z', 'tar',
-     'png', 'jpg', 'jpeg', 'gif', 'tif', 'tiff', 'bmp', 'dib', 'tga',
-     'jxr', 'hdp', 'wdp', 'webp', 'jp2', 'j2k', 'jpx', 'jpf', 'jpm',
-     'j2c', 'heic', 'avif', 'svg',
-     'js', 'json', 'xml', 'log', 'nfo', 'tcr', 'xhtml');
+  ALREADER_EXTENSIONS: array [0 .. 7] of string =
+    ('fb2', 'fbd', 'doc', 'docx', 'rtf', 'txt', 'htm', 'html');
+  SUMATRA_EXTENSIONS: array [0 .. 20] of string =
+    ('pdf', 'epub', 'mobi', 'azw', 'azw3', 'prc', 'pdb',
+     'cbz', 'cbr', 'djvu', 'djv', 'chm', 'xps',
+     'jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff', 'webp', 'xml');
 var
   I: Integer;
   sl: TStringList;
@@ -1220,6 +1212,16 @@ var
       FReaders.Add(Extension, RelativePath)
     else if Reader.Path = '' then
       Reader.Path := RelativePath;
+  end;
+
+  function IsDefaultSumatraExtension(const Extension: string): Boolean;
+  var
+    ExtensionIndex: Integer;
+  begin
+    Result := False;
+    for ExtensionIndex := Low(SUMATRA_EXTENSIONS) to High(SUMATRA_EXTENSIONS) do
+      if SameText(Extension, SUMATRA_EXTENSIONS[ExtensionIndex]) then
+        Exit(True);
   end;
 begin
   FReaders.Clear;
@@ -1262,17 +1264,34 @@ begin
     // программы. Переходим на новое расположение Readers, не меняя явно
     // выбранные пользователем относительные и абсолютные пути.
     if BundledReaderExists(BUNDLED_ALREADER_PATH) then
+    begin
       for I := 0 to FReaders.Count - 1 do
         if SameText(FReaders[I].Path, LEGACY_ALREADER_PATH) then
           FReaders[I].Path := BUNDLED_ALREADER_PATH;
+      for I := Low(ALREADER_EXTENSIONS) to High(ALREADER_EXTENSIONS) do
+        EnsureBundledReader(ALREADER_EXTENSIONS[I], BUNDLED_ALREADER_PATH);
+    end;
 
-    // SumatraPDF покрывает остальные распространённые документы, электронные
-    // книги, комиксы, архивы изображений и графические форматы. В существующих
+    // SumatraPDF покрывает проверенные документы, электронные книги, комиксы и
+    // графические форматы. Обычные архивы ZIP/RAR/7z/TAR намеренно оставляем
+    // файловым ассоциациям Windows: в библиотеке они не обязательно содержат
+    // изображения, которые умеет показывать SumatraPDF. В существующих
     // настройках добавляем только отсутствующие строки и заменяем старые
     // пустые заглушки; явный выбор пользователя остаётся нетронутым.
     if BundledReaderExists(BUNDLED_SUMATRA_PATH) then
+    begin
+      // В одной из тестовых сборок SumatraPDF была назначена слишком широко,
+      // включая обычные архивы. Удаляем только автоматически созданные строки
+      // с нашим точным комплектным путём; любой другой путь пользователя не
+      // затрагивается.
+      for I := FReaders.Count - 1 downto 0 do
+        if SameText(FReaders[I].Path, BUNDLED_SUMATRA_PATH) and
+          (not IsDefaultSumatraExtension(FReaders[I].Extension)) then
+          FReaders[I].Free;
+
       for I := Low(SUMATRA_EXTENSIONS) to High(SUMATRA_EXTENSIONS) do
         EnsureBundledReader(SUMATRA_EXTENSIONS[I], BUNDLED_SUMATRA_PATH);
+    end;
   finally
     sl.Free;
   end;

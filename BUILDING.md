@@ -28,7 +28,8 @@
 - `tools\7zip\7za.exe` — чтение книг из компактных раздач FLibrary;
 - `tools\jpeg-xl\djxl.exe` — преобразование вынесенных JPEG XL-иллюстраций в
   обычный JPEG/PNG;
-- `Readers\AlReader\AlReader2.exe` — чтение FB2, DOC, TXT и HTML;
+- `Readers\AlReader\AlReader2.exe` — чтение FB2/FBD, DOC/DOCX, RTF, TXT и
+  HTML;
 - `Readers\SumatraPDF\SumatraPDF.exe` — свободная переносимая читалка для PDF,
   DjVu, EPUB, MOBI/Kindle, CHM, XPS, комиксов и графических форматов; рядом с
   ней находятся тексты лицензий и список авторов;
