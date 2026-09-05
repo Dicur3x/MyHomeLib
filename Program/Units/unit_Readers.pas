@@ -62,6 +62,7 @@ implementation
 uses
   Forms,
   ShellAPI,
+  IOUtils,
   unit_Errors,
   unit_Globals,
   unit_Helpers;
@@ -145,22 +146,30 @@ end;
 procedure TReaders.RunReader(const FileName: string);
 var
   Ext: string;
+  ReaderPath: string;
   AReader: TReaderDesc;
   AHInst: HINST;
 begin
   Ext := ExtractFileExt(FileName);
 
   AReader := Find(Ext);
-  if Assigned(AReader) and (AReader.Path <> '') then
-    AHInst := SimpleShellExecute(Application.Handle, AReader.Path, FileName)
+  ReaderPath := '';
+  if Assigned(AReader) then
+    ReaderPath := AReader.Path;
+  if ReaderPath <> '' then
+  begin
+    if not TPath.IsPathRooted(ReaderPath) then
+      ReaderPath := TPath.Combine(ExtractFilePath(Application.ExeName), ReaderPath);
+    AHInst := SimpleShellExecute(Application.Handle, ReaderPath, FileName);
+  end
   else
     AHInst := SimpleShellExecute(Application.Handle, FileName);
 
   if AHInst <= 32 then
   begin
     // Если читалка не установлена для расширения, AReader.Path - Access Violation
-    if Assigned(AReader) then
-      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + AReader.Path) // читалка не найдена
+    if ReaderPath <> '' then
+      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + ReaderPath) // читалка не найдена
     else
       raise Exception.Create(SysErrorMessage(AHInst) + ': ' + FileName); // книга не найдена
   end;

@@ -1132,6 +1132,28 @@ object frmMain: TfrmMain
             Layout = tlCenter
             ExplicitHeight = 13
           end
+          object btnShowGenreBooks: TButton
+            AlignWithMargins = True
+            Left = 105
+            Top = 3
+            Width = 70
+            Height = 20
+            Margins.Left = 8
+            Align = alLeft
+            Caption = #1055#1086#1082#1072#1079#1072#1090#1100
+            Font.Charset = DEFAULT_CHARSET
+            Font.Color = clWindowText
+            Font.Height = -11
+            Font.Name = 'Tahoma'
+            Font.Style = []
+            Hint = #1047#1072#1075#1088#1091#1079#1080#1090#1100' '#1082#1085#1080#1075#1080' '#1101#1090#1086#1075#1086' '#1078#1072#1085#1088#1072' '#1080' '#1074#1089#1077#1093' '#1077#1075#1086' '#1087#1086#1076#1078#1072#1085#1088#1086#1074
+            ParentFont = False
+            ParentShowHint = False
+            ShowHint = True
+            TabOrder = 1
+            Visible = False
+            OnClick = btnShowGenreBooksClick
+          end
           object lbl2: TLabel
             Left = 358
             Top = 0

@@ -42,11 +42,12 @@ type
   TGenresType = (gtFb2, gtAny);
 
   TBookIteratorMode = (
-    bmAll,       // All books
-    bmByGenre,   // Books by genre
-    bmByAuthor,  // Books by author
-    bmBySeries,  // Books by series
-    bmSearch     // Book search
+    bmAll,                // All books
+    bmByGenre,            // Books by genre
+    bmByAuthor,           // Books by author
+    bmBySeries,           // Books by series
+    bmSearch,             // Book search
+    bmByGenreRecursive    // Books by a genre and all of its subgenres
   );
 
   TAuthorIteratorMode = (

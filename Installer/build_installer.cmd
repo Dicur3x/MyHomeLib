@@ -123,12 +123,6 @@ copy /y "%SCRIPT_DIR%Licenses\License_uk.txt" "%COMMON_DIR%\" >nul
 :: Default collections config
 copy /y "%BIN_DIR%\collections.ini" "%COMMON_DIR%\" >nul
 
-:: AlReader
-if exist "%BIN_DIR%\AlReader" (
-    echo   Copying AlReader...
-    robocopy "%BIN_DIR%\AlReader" "%COMMON_DIR%\AlReader" /s /e /njh /njs /ndl /nc /ns /np >nul
-)
-
 :: Converters
 :: Only fb2lrf is redistributed. fb2mobi/fb2epub/fb2pdf are third-party
 :: downloads (fb2mobi bundles Amazon's kindlegen, fb2pdf needs a JRE) and are

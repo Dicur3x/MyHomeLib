@@ -21,6 +21,12 @@ PRAGMA page_size = 16384;
 PRAGMA journal_mode = OFF;
 --@@
 
+-- This table was added after the original recreation script. It must be
+-- removed explicitly or a second import into the same collection database
+-- fails when CREATE TABLE Series_List is reached.
+DROP TABLE IF EXISTS Series_List;
+--@@
+
 DROP TABLE IF EXISTS Series;
 --@@
 

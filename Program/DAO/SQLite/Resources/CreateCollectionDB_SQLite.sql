@@ -24,6 +24,12 @@ PRAGMA journal_mode = OFF;
 DROP TABLE IF EXISTS Settings;
 --@@
 
+-- A previous collection file may already contain the normalized multi-series
+-- table. Drop it before the legacy tables so recreating a collection with the
+-- same file name remains idempotent.
+DROP TABLE IF EXISTS Series_List;
+--@@
+
 DROP TABLE IF EXISTS Series;
 --@@
 

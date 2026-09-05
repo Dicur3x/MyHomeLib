@@ -562,7 +562,7 @@ begin
     // The genre page may contain tens of thousands of books. Its iterator uses
     // three ordered result sets (books, authors and genres), avoiding several
     // new SQLite queries for every individual book.
-    if FMode = bmByGenre then
+    if FMode in [bmByGenre, bmByGenreRecursive] then
     begin
       BookRecord.Clear;
       BookRecord.BookKey := CreateBookKey(BookID, FCollectionID);
@@ -692,6 +692,12 @@ var
           query.SetParam(':GenreCode', FilterValue^.ValueString + '%');
       end;
 
+      bmByGenreRecursive:
+      begin
+        query.SetParam(':GenreCode', FilterValue^.ValueString);
+        query.SetParam(':SubGenreCode', FilterValue^.ValueString + '.%');
+      end;
+
       bmByAuthor:
       begin
         query.SetParam(':AuthorID', FilterValue^.ValueInt);
@@ -703,7 +709,7 @@ var
       end;
     end;
 
-    if Mode in [bmByGenre, bmByAuthor, bmBySeries] then
+    if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries] then
     begin
       if FCollection.GetHideDeleted then
         query.SetParam(':IsDeleted', False);
@@ -734,6 +740,14 @@ begin
         AddToWhere(Where, 'gl.GenreCode LIKE :GenreCode');
     end;
 
+    bmByGenreRecursive:
+    begin
+      Assert(Assigned(FilterValue));
+      SQLRows := 'SELECT DISTINCT b.BookID FROM Genre_List gl INNER JOIN Books b ON gl.BookID = b.BookID ';
+      AddToWhere(Where,
+        '(gl.GenreCode = :GenreCode OR gl.GenreCode LIKE :SubGenreCode)');
+    end;
+
     bmByAuthor:
     begin
       Assert(Assigned(FilterValue));
@@ -754,7 +768,7 @@ begin
       raise Exception.CreateFmt('Unexpected TBookIteratorMode: %d', [Ord(Mode)]);
   end;
 
-  if Mode in [bmByGenre, bmByAuthor, bmBySeries] then
+  if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries] then
   begin
     if FCollection.GetHideDeleted then
       AddToWhere(Where, ' b.IsDeleted = :IsDeleted');
@@ -764,7 +778,7 @@ begin
   end;
 
   SQLRows := SQLRows + Where;
-  if Mode = bmByGenre then
+  if Mode in [bmByGenre, bmByGenreRecursive] then
   begin
     MatchedBooksSQL := SQLRows;
     SQLCount := 'SELECT COUNT(*) FROM (' + MatchedBooksSQL + ') ROWS ';
@@ -808,7 +822,7 @@ begin
     SetParams(FBooks, Mode);
     FBooks.Open;
 
-    if Mode = bmByGenre then
+    if Mode in [bmByGenre, bmByGenreRecursive] then
     begin
       FAuthors := FCollection.FDatabase.NewQuery(SQLAuthors);
       SetParams(FAuthors, Mode);
