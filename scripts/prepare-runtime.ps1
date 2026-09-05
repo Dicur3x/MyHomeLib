@@ -205,9 +205,9 @@ Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Exp
 Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
 Assert-Architecture -Path $zstdDestination -Expected $Platform
 Assert-Architecture -Path $sevenZipDestination -Expected $Platform
-# libjxl currently publishes a static Windows x64 decoder.  A Win32 MyHomeLib
-# process can launch it normally on 64-bit Windows.
-Assert-Architecture -Path $jpegXlDestination -Expected 'Win64'
+# The official static djxl build must match the package architecture so the
+# Win32 distribution also restores JPEG XL images on 32-bit Windows.
+Assert-Architecture -Path $jpegXlDestination -Expected $Platform
 # AlReader is distributed as one Win32 portable executable for both packages;
 # SumatraPDF must match the MyHomeLib package architecture.
 Assert-Architecture -Path $alReaderDestination -Expected 'Win32'

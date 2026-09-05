@@ -17,8 +17,20 @@ $sevenZipExtraUrl = 'https://github.com/ip7z/7zip/releases/download/26.02/7z2602
 $sevenZipExtraSha256 = '081DF9E9311DFD9C9E0E98C1C80180B99BB51E4CB24156B5F3057FE3C259D70A'
 
 $jpegXlVersion = '0.12.0'
-$jpegXlUrl = 'https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-x64-windows-static.7z'
-$jpegXlSha256 = 'FF147DC7AC4CE55392974CCC70F2A8A8EC0EFF3AE28529B072258B66C8F01AB2'
+$jpegXlRuntime = if ($Platform -eq 'Win32') {
+    @{
+        Url = 'https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-x86-windows-static.7z'
+        Sha256 = 'C6F419659910A68782810A400AADAF5C1BFCBC67EA324223AF09D7A7477C16CC'
+        Root = 'x86-windows-static'
+    }
+}
+else {
+    @{
+        Url = 'https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-x64-windows-static.7z'
+        Sha256 = 'FF147DC7AC4CE55392974CCC70F2A8A8EC0EFF3AE28529B072258B66C8F01AB2'
+        Root = 'x64-windows-static'
+    }
+}
 
 function Get-VerifiedDownload {
     param(
@@ -58,8 +70,8 @@ function Copy-RuntimeFile {
     Write-Host "[COPIED] $Destination"
 }
 
-if (-not [Environment]::Is64BitOperatingSystem) {
-    throw 'The JPEG XL decoder requires 64-bit Windows.'
+if (($Platform -eq 'Win64') -and (-not [Environment]::Is64BitOperatingSystem)) {
+    throw 'A Win64 runtime cannot be prepared on 32-bit Windows.'
 }
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -96,14 +108,14 @@ try {
     Copy-RuntimeFile -Source $sevenZipExe -Destination (Join-Path $outputDirectory 'tools\7zip\7za.exe')
     Copy-RuntimeFile -Source $sevenZipLicense -Destination (Join-Path $outputDirectory 'tools\7zip\License.txt')
 
-    Get-VerifiedDownload -Uri $jpegXlUrl -Destination $jpegXlArchive -Sha256 $jpegXlSha256
+    Get-VerifiedDownload -Uri $jpegXlRuntime.Url -Destination $jpegXlArchive -Sha256 $jpegXlRuntime.Sha256
     [System.IO.Directory]::CreateDirectory($jpegXlExtracted) | Out-Null
     & $sevenZipExe x -y "-o$jpegXlExtracted" -- $jpegXlArchive | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Cannot unpack the JPEG XL runtime.'
     }
 
-    $jpegXlRoot = Join-Path $jpegXlExtracted 'x64-windows-static'
+    $jpegXlRoot = Join-Path $jpegXlExtracted $jpegXlRuntime.Root
     Copy-RuntimeFile -Source (Join-Path $jpegXlRoot 'bin\djxl.exe') -Destination (Join-Path $outputDirectory 'tools\jpeg-xl\djxl.exe')
     foreach ($license in Get-ChildItem -LiteralPath (Join-Path $jpegXlRoot 'licenses') -File) {
         Copy-RuntimeFile -Source $license.FullName -Destination (Join-Path $outputDirectory ('tools\jpeg-xl\licenses\' + $license.Name))
