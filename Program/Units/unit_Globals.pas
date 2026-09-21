@@ -47,7 +47,8 @@ type
     bmByAuthor,           // Books by author
     bmBySeries,           // Books by series
     bmSearch,             // Book search
-    bmByGenreRecursive    // Books by a genre and all of its subgenres
+    bmByGenreRecursive,   // Books by a genre and all of its subgenres
+    bmByPublisherSeries  // Books by a publisher's series, separate from cycles
   );
 
   TAuthorIteratorMode = (
@@ -158,7 +159,8 @@ type
       const IsPrimary: Boolean
     );
     class function GetLink(const SeriesID: Integer; const SeriesTitle: string): string;
-    class function GetLinkList(const Series: TBookSeries): string;
+    class function GetLinkList(const Series: TBookSeries;
+      const LiteralTitles: Boolean = False): string;
   end;
 
   // --------------------------------------------------------------------------
@@ -251,6 +253,9 @@ type
     City: string;
     PubYear: Integer;
     ISBN: string;
+    PublisherSeries: TBookSeries;
+    PublisherSeriesKnown: Boolean;
+    PublisherSeqNumber: Integer;
 
     // ----------------------------------------------------
     function GetFileType: string;
@@ -1021,14 +1026,23 @@ begin
   Result := Format('<a href="%d">%s</a>', [SeriesID, SeriesTitle]);
 end;
 
-class function TSeriesHelper.GetLinkList(const Series: TBookSeries): string;
+class function TSeriesHelper.GetLinkList(const Series: TBookSeries;
+  const LiteralTitles: Boolean): string;
 begin
   Result := TArrayUtils.Join<TBookSeriesData>(
     Series,
     '<br>',
     function(const Item: TBookSeriesData): string
+    var
+      Title: string;
     begin
-      Result := GetLink(Item.SeriesID, Item.SeriesTitle);
+      Title := Item.SeriesTitle;
+      // Native SysLink does not decode HTML entities. A zero-width separator
+      // prevents literal title text from opening links or our <br> separators.
+      // The stored title is unchanged; publisher labels also use LWS_NOPREFIX.
+      if LiteralTitles then
+        Title := StringReplace(Title, '<', '<' + #$200B, [rfReplaceAll]);
+      Result := GetLink(Item.SeriesID, Title);
       if Item.SeqNumber <> 0 then
         Result := Result + Format(' № %d', [Item.SeqNumber]);
     end
@@ -1135,6 +1149,9 @@ begin
   City := '';
   PubYear := 0;
   ISBN := '';
+  PublisherSeries := nil;
+  PublisherSeriesKnown := False;
+  PublisherSeqNumber := 0;
 end;
 
 //

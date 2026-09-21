@@ -2,6 +2,8 @@
 
 {$APPTYPE CONSOLE}
 
+{$R *.res}
+
 // Embeds the CreateSystemDB_SQLite / CreateCollectionDB_SQLite DDL scripts
 // under this module's own HInstance -- see unit_SQLiteUtils.ReadResourceAsStringList
 // and the comment in MHLMcpServer_SQL.rc. --make-fixture (unit_MCP_Fixture.pas)
@@ -93,7 +95,7 @@ end;
 // This process links the VCL because the DAO layer does, but it creates no
 // forms and runs no message loop.
 //
-// Note: unlike MyHomeLib.dpr, this does NOT call FirstHinstanceRunning —
+// Note: unlike HomeLibRu.dpr, this does NOT call FirstHinstanceRunning —
 // several server instances may run alongside the running app.
 //
 // DMUser is deliberately NOT created here. unit_MCP_Tools_Library boots it

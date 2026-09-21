@@ -2,7 +2,7 @@
 setlocal
 :: ============================================================================
 :: Pre-build step: regenerate lang.rc from Program\Lang and compile it to
-:: lang.res, which MyHomeLib.dpr links.
+:: lang.res, which HomeLibRu.dpr links.
 ::
 :: Usage: embed_lang.cmd <BDS-directory>
 ::

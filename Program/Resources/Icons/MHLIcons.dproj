@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{7C4F1A62-9D3B-4E58-B0A7-5F2C8E14D6A9}</ProjectGuid>
         <MainSource>MHLIcons.dpr</MainSource>
@@ -33,7 +33,7 @@
         <DCC_Namespace>System;$(DCC_Namespace)</DCC_Namespace>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MyHomeLib;FileDescription=MyHomeLib icon resources;FileVersion=1.0.0.0;InternalName=MHLIcons;LegalCopyright=;LegalTrademarks=;OriginalFilename=MHLIcons.dll;ProductName=MyHomeLib;ProductVersion=1.0.0.0;Comments=Generated from MHLIcons.rc</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLib Ru icon resources;FileVersion=1.0.0.0;InternalName=MHLIcons;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLIcons.dll;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.01;Comments=Generated from MHLIconsImages.rc</VerInfo_Keys>
         <GenDll>true</GenDll>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
@@ -50,8 +50,8 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <RcCompile Include="MHLIcons.rc">
-            <Form>MHLIcons.res</Form>
+        <RcCompile Include="MHLIconsImages.rc">
+            <Form>MHLIconsImages.res</Form>
         </RcCompile>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

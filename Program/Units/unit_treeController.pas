@@ -408,6 +408,9 @@ begin
   end
   else
     CellText := BooksGetColumnText(ColumnID, Data);
+  if (Page = PAGE_PUBLISHER_SERIES) and (ColumnID = COL_NO) and
+     (Data^.nodeType = ntBookInfo) then
+    CellText := IfThen(Data^.PublisherSeqNumber = 0, '', IntToStr(Data^.PublisherSeqNumber));
 end;
 
 procedure TTreeController.BooksGetCellIsEmpty(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex; var IsEmpty: Boolean);
@@ -572,9 +575,17 @@ end;
 procedure TTreeController.BooksCompareNodes(Sender: TBaseVirtualTree; Node1, Node2: PVirtualNode; Column: TColumnIndex; var Result: Integer);
 var
   Data1, Data2: PBookRecord;
+  Number1, Number2: Integer;
 begin
   Data1 := Sender.GetNodeData(Node1);
   Data2 := Sender.GetNodeData(Node2);
+  Number1 := Data1^.SeqNumber;
+  Number2 := Data2^.SeqNumber;
+  if Sender.Tag = PAGE_PUBLISHER_SERIES then
+  begin
+    Number1 := Data1^.PublisherSeqNumber;
+    Number2 := Data2^.PublisherSeqNumber;
+  end;
 
   if NoColumn = Column then
   begin
@@ -587,7 +598,7 @@ begin
         Result := CompareStr(Data1^.Series, Data2^.Series)
       else
       begin
-        Result := CompareSeqNumber(Data1^.SeqNumber, Data2^.SeqNumber);
+        Result := CompareSeqNumber(Number1, Number2);
         if Result = 0 then
           Result := CompareStr(Data1^.Title, Data2^.Title);
         if Result = 0 then
@@ -603,7 +614,7 @@ begin
       COL_AUTHOR:  Result := CompareStr(TAuthorsHelper.GetList(Data1^.Authors), TAuthorsHelper.GetList(Data2^.Authors));
       COL_TITLE:   Result := CompareStr(Data1^.Title, Data2^.Title);
       COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
-      COL_NO:      Result := CompareSeqNumber(Data1^.SeqNumber, Data2^.SeqNumber);
+      COL_NO:      Result := CompareSeqNumber(Number1, Number2);
       COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);
       COL_RATE:    Result := CompareInt(Data1^.Rate, Data2^.Rate);
       COL_GENRE:   Result := CompareStr(TGenresHelper.GetList(Data1^.Genres), TGenresHelper.GetList(Data2^.Genres));

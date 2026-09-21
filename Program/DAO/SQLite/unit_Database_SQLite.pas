@@ -119,7 +119,8 @@ type
     //-------------------------------------------------------------------------
     TSeriesIteratorImpl = class(TInterfacedObject, ISeriesIterator)
     public
-      constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData; const Mode: TSeriesIteratorMode);
+      constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData; const Mode: TSeriesIteratorMode); overload;
+      constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData; const FilterText: string); overload;
       destructor Destroy; override;
 
     protected
@@ -137,6 +138,7 @@ type
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
 
       procedure PrepareData(const Mode: TSeriesIteratorMode);
+      procedure PreparePublisherData(const FilterText: string);
     end;
     // << TSeriesIteratorImpl
 
@@ -173,6 +175,7 @@ type
     function GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator; override;
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator; override;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
+    function GetPublisherSeriesIterator(const FilterText: string = ''): ISeriesIterator;
     function GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
 
@@ -184,6 +187,8 @@ type
       Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean); override;
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
+    procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; override;
@@ -264,6 +269,7 @@ type
 
   private
     procedure EnsureSchemaCurrent;
+    procedure EnsurePublisherSeriesSchema;
   end;
 
 implementation
@@ -478,6 +484,8 @@ begin
       'WHERE sl.SeriesID = OLD.SeriesID); END'
     );
 
+    EnsurePublisherSeriesSchema;
+
     // Replace the legacy cleanup trigger. It only inspected Books.SeriesID and
     // could delete a series still used as a secondary relationship.
     FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_BD');
@@ -495,6 +503,36 @@ begin
   finally
     FreeAndNil(Existing);
   end;
+end;
+
+procedure TBookCollection_SQLite.EnsurePublisherSeriesSchema;
+begin
+  // Separate namespaces keep print publisher series distinct from author
+  // cycles. These additions require no scan or change to the legacy schema ID.
+  FDatabase.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS PublisherSeries (' +
+    'SeriesID INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, ' +
+    'SeriesTitle TEXT NOT NULL COLLATE MHL_SYSTEM_NOCASE UNIQUE, ' +
+    'SearchSeriesTitle TEXT COLLATE NOCASE)');
+  FDatabase.ExecSQL(
+    'CREATE INDEX IF NOT EXISTS IXPublisherSeries_SearchTitle ' +
+    'ON PublisherSeries (SearchSeriesTitle)');
+  FDatabase.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS PublisherSeries_List (' +
+    'BookID INTEGER NOT NULL, SeriesID INTEGER NOT NULL, ' +
+    'SeqNumber INTEGER NOT NULL DEFAULT 0, OrdNum INTEGER NOT NULL DEFAULT 0, ' +
+    'PRIMARY KEY (BookID, SeriesID))');
+  FDatabase.ExecSQL(
+    'CREATE INDEX IF NOT EXISTS IXPublisherSeriesList_SeriesID_BookID ' +
+    'ON PublisherSeries_List (SeriesID, BookID)');
+  FDatabase.ExecSQL(
+    'CREATE TRIGGER IF NOT EXISTS TRBooks_BD_PublisherSeries ' +
+    'BEFORE DELETE ON Books BEGIN ' +
+    'DELETE FROM PublisherSeries WHERE SeriesID IN (' +
+    'SELECT SeriesID FROM PublisherSeries_List WHERE BookID = OLD.BookID) ' +
+    'AND NOT EXISTS (SELECT 1 FROM PublisherSeries_List sl ' +
+    'WHERE sl.SeriesID = PublisherSeries.SeriesID AND sl.BookID <> OLD.BookID); ' +
+    'DELETE FROM PublisherSeries_List WHERE BookID = OLD.BookID; END');
 end;
 
 // ------------------------------------------------------------------------------
@@ -595,6 +633,8 @@ begin
       begin
         BookRecord.Review := FBooks.FieldAsBlobString(18);
         BookRecord.Annotation := FBooks.FieldAsString(19);
+        BookRecord.PublisherSeries := FCollection.GetBookPublisherSeries(BookRecord.BookKey);
+        BookRecord.PublisherSeriesKnown := True;
       end;
       BookRecord.Translators := FBooks.FieldAsString(20);
       BookRecord.Publisher := FBooks.FieldAsString(21);
@@ -632,6 +672,9 @@ begin
     end
     else
       FCollection.GetBookRecord(CreateBookKey(BookID, FCollectionID), BookRecord, FLoadMemos);
+
+    if FMode = bmByPublisherSeries then
+      BookRecord.PublisherSeqNumber := FBooks.FieldAsInt(1);
 
     if (FMode = bmBySeries) or FExpandSearchSeries then
     begin
@@ -703,13 +746,13 @@ var
         query.SetParam(':AuthorID', FilterValue^.ValueInt);
       end;
 
-      bmBySeries:
+      bmBySeries, bmByPublisherSeries:
       begin
         query.SetParam(':SeriesID', FilterValue^.ValueInt);
       end;
     end;
 
-    if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries] then
+    if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries, bmByPublisherSeries] then
     begin
       if FCollection.GetHideDeleted then
         query.SetParam(':IsDeleted', False);
@@ -764,11 +807,19 @@ begin
       AddToWhere(Where, 'sl.SeriesID = :SeriesID ');
     end;
 
+    bmByPublisherSeries:
+    begin
+      Assert(Assigned(FilterValue));
+      SQLRows := 'SELECT b.BookID, sl.SeqNumber ' +
+        'FROM PublisherSeries_List sl INNER JOIN Books b ON b.BookID = sl.BookID ';
+      AddToWhere(Where, 'sl.SeriesID = :SeriesID ');
+    end;
+
     else
       raise Exception.CreateFmt('Unexpected TBookIteratorMode: %d', [Ord(Mode)]);
   end;
 
-  if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries] then
+  if Mode in [bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries, bmByPublisherSeries] then
   begin
     if FCollection.GetHideDeleted then
       AddToWhere(Where, ' b.IsDeleted = :IsDeleted');
@@ -1134,6 +1185,10 @@ begin
         else
         begin
           FromList := 'Authors a ';
+          // Keep unused names out of the browser without restoring the large
+          // DISTINCT join. amAll still includes them for author editing.
+          AddToWhere(Where,
+            'EXISTS (SELECT 1 FROM Author_List al WHERE al.AuthorID = a.AuthorID)');
           SQLRows := 'SELECT a.AuthorID FROM ' + FromList + Where;
           SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
           SQLRows := 'SELECT a.AuthorID, a.LastName, a.FirstName, a.MiddleName FROM ' + FromList + Where + ' ORDER BY a.LastName, a.FirstName, a.MiddleName ';
@@ -1262,6 +1317,17 @@ begin
   PrepareData(Mode);
 end;
 
+constructor TBookCollection_SQLite.TSeriesIteratorImpl.Create(
+  Collection: TBookCollection_SQLite; SystemData: ISystemData;
+  const FilterText: string);
+begin
+  inherited Create;
+  FCollection := Collection;
+  FSystemData := SystemData;
+  FCollectionID := Collection.CollectionID;
+  PreparePublisherData(FilterText);
+end;
+
 destructor TBookCollection_SQLite.TSeriesIteratorImpl.Destroy;
 begin
   FreeAndNil(FSeries);
@@ -1290,6 +1356,48 @@ begin
   FCount.Open;
   Result := FCount.FieldAsInt(0);
   FreeAndNil(FCount);
+end;
+
+procedure TBookCollection_SQLite.TSeriesIteratorImpl.PreparePublisherData(
+  const FilterText: string);
+var
+  Where, BookWhere, Prefix: string;
+
+  procedure SetParams(Query: TSQLiteQuery);
+  begin
+    if (Prefix <> '') and (Prefix <> ALPHA_FILTER_NON_ALPHA) then
+      Query.SetParam(':FilterType', Char.ToUpper(Prefix) + '%');
+  end;
+
+begin
+  Where := '';
+  BookWhere := '';
+  Prefix := Trim(FilterText);
+  if Prefix = ALPHA_FILTER_ALL then Prefix := '';
+  if FCollection.GetHideDeleted then
+    BookWhere := BookWhere + ' AND b.IsDeleted = 0';
+  if FCollection.GetShowLocalOnly then
+    BookWhere := BookWhere + ' AND b.IsLocal = 1';
+  // The outer relation lookup is indexed and stops on the first visible book.
+  // Keep Books behind its primary key lookup even before SQLite ANALYZE runs.
+  AddToWhere(Where, 'EXISTS (SELECT 1 FROM PublisherSeries_List sl ' +
+    'WHERE sl.SeriesID = s.SeriesID AND EXISTS (' +
+    'SELECT 1 FROM Books b WHERE b.BookID = sl.BookID' + BookWhere + '))');
+  if Prefix = ALPHA_FILTER_NON_ALPHA then
+    AddToWhere(Where,
+      '(SUBSTR(s.SearchSeriesTitle, 1, 1) NOT IN (' + LATIN_ALPHABET_SEPARATORS + ')) AND ' +
+      '(SUBSTR(s.SearchSeriesTitle, 1, 1) NOT IN (' + CYRILLIC_ALPHABET_SEPARATORS + '))')
+  else if Prefix <> '' then
+    AddToWhere(Where, 's.SearchSeriesTitle LIKE :FilterType');
+
+  FCount := FCollection.FDatabase.NewQuery(
+    'SELECT COUNT(*) FROM PublisherSeries s ' + Where);
+  SetParams(FCount);
+  FSeries := FCollection.FDatabase.NewQuery(
+    'SELECT s.SeriesID, s.SeriesTitle FROM PublisherSeries s ' + Where +
+    ' ORDER BY s.SeriesTitle');
+  SetParams(FSeries);
+  FSeries.Open;
 end;
 
 procedure TBookCollection_SQLite.TSeriesIteratorImpl.PrepareData(const Mode: TSeriesIteratorMode);
@@ -1848,6 +1956,12 @@ begin
   Result := TSeriesIteratorImpl.Create(Self, FSystemData, Mode);
 end;
 
+function TBookCollection_SQLite.GetPublisherSeriesIterator(
+  const FilterText: string): ISeriesIterator;
+begin
+  Result := TSeriesIteratorImpl.Create(Self, FSystemData, FilterText);
+end;
+
 function TBookCollection_SQLite.GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator;
 begin
   Result := TGenreIteratorImpl.Create(Self, FSystemData, Mode, FilterValue);
@@ -2317,6 +2431,8 @@ begin
 
     SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, False);
     SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, False);
+    if BookRecord.PublisherSeriesKnown and (Length(BookRecord.PublisherSeries) > 0) then
+      SetBookPublisherSeries(BookRecord.BookKey, BookRecord.PublisherSeries);
 
     Result := BookRecord.BookKey.BookID;
   end;
@@ -2452,6 +2568,8 @@ begin
         //
         BookRecord.Review := Table.FieldAsBlobString(17);
         BookRecord.Annotation := Table.FieldAsString(18);
+        BookRecord.PublisherSeries := GetBookPublisherSeries(BookKey);
+        BookRecord.PublisherSeriesKnown := True;
       end;
     finally
       FreeAndNil(Table);
@@ -2499,6 +2617,80 @@ begin
     end;
   finally
     Query.Free;
+  end;
+end;
+
+function TBookCollection_SQLite.GetBookPublisherSeries(
+  const BookKey: TBookKey): TBookSeries;
+var
+  Query: TSQLiteQuery;
+begin
+  Result := nil;
+  if BookKey.DatabaseID <> CollectionID then
+    Exit(FSystemData.GetCollection(BookKey.DatabaseID).GetBookPublisherSeries(BookKey));
+  Query := FDatabase.NewQuery(
+    'SELECT s.SeriesID, s.SeriesTitle, sl.SeqNumber FROM PublisherSeries_List sl ' +
+    'INNER JOIN PublisherSeries s ON s.SeriesID = sl.SeriesID ' +
+    'WHERE sl.BookID = ? ORDER BY sl.OrdNum, s.SeriesID');
+  try
+    Query.SetParam(0, BookKey.BookID);
+    Query.Open;
+    while not Query.Eof do
+    begin
+      TSeriesHelper.Add(Result, Query.FieldAsInt(0), Query.FieldAsString(1),
+        Query.FieldAsInt(2), False);
+      Query.Next;
+    end;
+  finally
+    Query.Free;
+  end;
+end;
+
+procedure TBookCollection_SQLite.SetBookPublisherSeries(
+  const BookKey: TBookKey; const Series: TBookSeries);
+var
+  Item: TBookSeriesData;
+  Title: string;
+  SeriesID, Number, Position: Integer;
+begin
+  if BookKey.DatabaseID <> CollectionID then
+  begin
+    FSystemData.GetCollection(BookKey.DatabaseID).SetBookPublisherSeries(BookKey, Series);
+    Exit;
+  end;
+  if FDatabase.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID = ?',
+    [BookKey.BookID]) = 0 then
+    raise Exception.Create('Книга не найдена в коллекции');
+
+  // A savepoint makes replacement atomic both on its own and in an import or
+  // indexing transaction. Empty metadata is an intentional replacement.
+  FDatabase.ExecSQL('SAVEPOINT PublisherSeriesUpdate');
+  try
+    FDatabase.ExecSQL('DELETE FROM PublisherSeries_List WHERE BookID = ?',
+      [BookKey.BookID]);
+    Position := 0;
+    for Item in Series do
+    begin
+      Title := Trim(Item.SeriesTitle);
+      if Title = '' then Continue;
+      FDatabase.ExecSQL(
+        'INSERT OR IGNORE INTO PublisherSeries (SeriesTitle, SearchSeriesTitle) ' +
+        'VALUES (?, MHL_UPPER(?))', [Title, Title]);
+      SeriesID := FDatabase.QuerySingleInt(
+        'SELECT SeriesID FROM PublisherSeries WHERE SeriesTitle = ?', [Title]);
+      Number := Item.SeqNumber;
+      if Number < 0 then Number := 0;
+      FDatabase.ExecSQL(
+        'INSERT OR IGNORE INTO PublisherSeries_List ' +
+        '(BookID, SeriesID, SeqNumber, OrdNum) VALUES (?, ?, ?, ?)',
+        [BookKey.BookID, SeriesID, Number, Position]);
+      Inc(Position);
+    end;
+    FDatabase.ExecSQL('RELEASE SAVEPOINT PublisherSeriesUpdate');
+  except
+    FDatabase.ExecSQL('ROLLBACK TO SAVEPOINT PublisherSeriesUpdate');
+    FDatabase.ExecSQL('RELEASE SAVEPOINT PublisherSeriesUpdate');
+    raise;
   end;
 end;
 
@@ -2672,6 +2864,8 @@ begin
 
     SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, True);
     SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, True);
+    if BookRecord.PublisherSeriesKnown then
+      SetBookPublisherSeries(BookRecord.BookKey, BookRecord.PublisherSeries);
 
     FSystemData.UpdateBook(BookRecord);
   end;
@@ -3088,8 +3282,9 @@ end;
 procedure TBookCollection_SQLite.TruncateTablesBeforeImport;
 const
   SQL_TRUNCATE = 'DROP TABLE %s';
-  TABLE_NAMES: array [0 .. 5] of string = (
-    'Series_List', 'Author_List', 'Genre_List', 'Books', 'Authors', 'Series'
+  TABLE_NAMES: array [0 .. 7] of string = (
+    'PublisherSeries_List', 'PublisherSeries', 'Series_List', 'Author_List',
+    'Genre_List', 'Books', 'Authors', 'Series'
   );
 var
   TableName: string;
@@ -3107,6 +3302,7 @@ begin
       FDatabase.ExecSQL(StructureDDL);
   end;
 
+  EnsurePublisherSeriesSchema;
 end;
 
 procedure TBookCollection_SQLite.StartBatchUpdate;

@@ -70,9 +70,8 @@ for (const t of topics) {
   if (!html.includes('<!-- BODY:BEGIN -->') || !html.includes('<!-- BODY:END -->'))
     fail(`${t.file}: missing BODY markers`);
 
-  // The index page's own title *is* "Справка MyHomeLib" — appending the
-  // suffix would double it up ("Справка MyHomeLib — Справка MyHomeLib").
-  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Справка MyHomeLib`;
+  // The index page already carries the complete help title.
+  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Справка HomeLib Ru`;
   const expectedTitle = `<title>${expectedTitleText}</title>`;
   if (!html.includes(expectedTitle)) fail(`${t.file}: <title> should be ${expectedTitle}`);
 
@@ -106,7 +105,7 @@ const LOCALE_DIRS = fs.existsSync(HELP)
       .sort()
   : [];
 
-const TITLE_SUFFIX = { uk: 'Довідка MyHomeLib', en: 'MyHomeLib Help', bg: 'Помощ за MyHomeLib' };
+const TITLE_SUFFIX = { uk: 'Довідка HomeLib Ru', en: 'HomeLib Ru Help', bg: 'Помощ за HomeLib Ru' };
 
 for (const loc of LOCALE_DIRS) {
   const dir = path.join(HELP, loc);

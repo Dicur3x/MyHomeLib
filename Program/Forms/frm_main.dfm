@@ -3,7 +3,7 @@ object frmMain: TfrmMain
   Top = 0
   HelpContext = 2
   ActiveControl = edLocateAuthor
-  Caption = 'MyHomeLib'
+  Caption = 'HomeLib Ru'
   ClientHeight = 772
   ClientWidth = 792
   Color = clBtnFace
@@ -3716,8 +3716,8 @@ object frmMain: TfrmMain
     end
   end
   object TrayIcon: TTrayIcon
-    Hint = 'MyHomeLib'
-    BalloonHint = 'MyHomeLib'
+    Hint = 'HomeLib Ru'
+    BalloonHint = 'HomeLib Ru'
     PopupMenu = pmTray
     OnDblClick = TrayIconDblClick
     Left = 456
@@ -4079,6 +4079,8 @@ object frmMain: TfrmMain
     object acViewSelectColumns: TAction
       Category = #1042#1080#1076
       Caption = #1042#1099#1073#1086#1088' '#1089#1090#1086#1083#1073#1094#1086#1074' '#1074' '#1090#1072#1073#1083#1080#1094#1077'...'
+      OnExecute = SelectColumnsExecute
+      OnUpdate = SelectColumnsUpdate
     end
     object acViewHideDeletedBooks: TAction
       Category = #1042#1080#1076

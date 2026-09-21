@@ -57,7 +57,7 @@ const
     '<html>' + CRLF +
     '<head>' + CRLF +
     '  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">' + CRLF +
-    '  <title>MyHomeLib HTML</title>' + CRLF +
+    '  <title>HomeLib Ru HTML</title>' + CRLF +
     '</head>' + CRLF +
     '<body>' + CRLF;
   HTMLFoot =

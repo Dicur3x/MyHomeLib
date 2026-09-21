@@ -75,13 +75,6 @@ var
   i: Integer;
   s: string;
 
-  function PersonLastName(const Person: TMetabibPerson): string;
-  begin
-    Result := Person.LastName;
-    if Result = '' then
-      Result := Person.NickName;
-  end;
-
   function PersonDisplayName(const Person: TMetabibPerson): string;
   begin
     Result := Trim(Person.LastName + ' ' + Person.FirstName + ' ' +
@@ -97,8 +90,11 @@ begin
     R.Title := MB.BookName;
 
   for i := 0 to High(MB.Authors) do
-    TAuthorsHelper.Add(R.Authors, PersonLastName(MB.Authors[i]), MB.Authors[i].FirstName,
-      MB.Authors[i].MiddleName);
+    if (MB.Authors[i].LastName = '') and (MB.Authors[i].FirstName = '') then
+      TAuthorsHelper.Add(R.Authors, MB.Authors[i].NickName, '', '')
+    else
+      TAuthorsHelper.Add(R.Authors, MB.Authors[i].LastName, MB.Authors[i].FirstName,
+        MB.Authors[i].MiddleName);
 
   for i := 0 to High(MB.Genres) do
     if FGenresType = gtFb2 then
@@ -143,6 +139,10 @@ begin
   R.City := MB.City;
   R.PubYear := MB.PubYear;
   R.ISBN := MB.ISBN;
+  for i := 0 to High(MB.PublisherSequences) do
+    TSeriesHelper.Add(R.PublisherSeries, 0, MB.PublisherSequences[i].Name,
+      MB.PublisherSequences[i].Number, False);
+  R.PublisherSeriesKnown := True;
 
   R.Normalize; // автор/жанр/название по умолчанию, как при импорте INPX
 end;

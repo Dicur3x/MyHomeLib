@@ -9,7 +9,7 @@ const spec = JSON.parse(fs.readFileSync(path.join(__dirname, 'topics.json'), 'ut
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function navFor(current) {
-  const out = ['<p class="nav-title"><a href="index.html">Справка MyHomeLib</a></p>'];
+  const out = ['<p class="nav-title"><a href="index.html">Справка HomeLib Ru</a></p>'];
   for (const section of spec.sections) {
     out.push(`<p class="nav-section">${esc(section.title)}</p>`);
     out.push('<ul>');
@@ -24,9 +24,8 @@ function navFor(current) {
 }
 
 function pageTitle(title, file) {
-  // The index page's own title *is* "Справка MyHomeLib" — appending the
-  // suffix would double it up ("Справка MyHomeLib — Справка MyHomeLib").
-  return file === 'index.html' ? title : `${title} — Справка MyHomeLib`;
+  // The index page already carries the complete help title.
+  return file === 'index.html' ? title : `${title} — Справка HomeLib Ru`;
 }
 
 function template(title, file) {

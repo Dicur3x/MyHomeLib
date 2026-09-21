@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FAQ — MyHomeLib Help</title>
+<title>FAQ — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html" class="cur" aria-current="page">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -91,22 +91,22 @@
 <h1>FAQ</h1>
 <!-- BODY:BEGIN -->
 <h2>Where are the settings and the system database stored?</h2>
-<p>By default MyHomeLib keeps its settings and the system database (see <a href="terms.html">Key terms</a>) in the <code>%APPDATA%\MyHomeLib</code> folder, and the database itself in the <code>Data</code> subfolder inside it. If there is a portable-mode marker next to the program's executable (or if there is no Windows user data folder at all), MyHomeLib stores those same files in a folder of its own next to <code>MyHomeLib.exe</code> instead. For details see <a href="portable.html">Portable version</a>.</p>
+<p>By default HomeLib Ru keeps its settings and the system database (see <a href="terms.html">Key terms</a>) in the <code>%APPDATA%\MyHomeLib</code> folder, and the database itself in the <code>Data</code> subfolder inside it. If there is a portable-mode marker next to the program's executable (or if there is no Windows user data folder at all), HomeLib Ru stores those same files in a folder of its own next to <code>HomeLibRu.exe</code> instead. For details see <a href="portable.html">Portable version</a>.</p>
 
 <h2>Why does a book not open?</h2>
-<p>Usually for one of two reasons. First, no reader may be assigned to the file extension while Windows has no default program for that file type either — in that case assign a reader in <a href="set_readers.html">File types and readers</a>. Second, the book file itself may have gone from disk — moved, renamed or deleted outside MyHomeLib; this is reported by the error "File … not found! Check the collection settings!".</p>
+<p>Usually for one of two reasons. First, no reader may be assigned to the file extension while Windows has no default program for that file type either — in that case assign a reader in <a href="set_readers.html">File types and readers</a>. Second, the book file itself may have gone from disk — moved, renamed or deleted outside HomeLib Ru; this is reported by the error "File … not found! Check the collection settings!".</p>
 
 <h2>Why is a downloaded book missing?</h2>
 <p>A downloaded book goes into the very online collection it was downloaded from, not into some separate "downloads" folder — check that this is the collection you have open. If the download ended in an error, the details are written to the <code>download_errors.log</code> log next to the program settings. See <a href="download.html">Downloading books</a>.</p>
 
 <h2>What happens if the collection file disappears from disk?</h2>
-<p>MyHomeLib keeps the path to the collection file and its other properties in the system database, not in the collection file itself. So when a <code>.hlc2</code> file has been moved, renamed or deleted outside the program, the collection does not vanish from the list you switch collections with (<span class="ui">Collection</span> → <span class="ui">Select collection</span>) — that list is built without checking whether the file exists. You will not be able to open that particular collection, though, until the file is put back where it was or the collection is connected again with the new path; see <a href="collections.html">Working with collections</a>. The message "Collection file not found. The program cannot start." appears only once — at startup, and only when the files of every single registered collection are unavailable at the same time; if even one of them still has its file, MyHomeLib simply opens that one instead of the collection that went missing.</p>
+<p>HomeLib Ru keeps the path to the collection file and its other properties in the system database, not in the collection file itself. So when a <code>.hlc2</code> file has been moved, renamed or deleted outside the program, the collection does not vanish from the list you switch collections with (<span class="ui">Collection</span> → <span class="ui">Select collection</span>) — that list is built without checking whether the file exists. You will not be able to open that particular collection, though, until the file is put back where it was or the collection is connected again with the new path; see <a href="collections.html">Working with collections</a>. The message "Collection file not found. The program cannot start." appears only once — at startup, and only when the files of every single registered collection are unavailable at the same time; if even one of them still has its file, HomeLib Ru simply opens that one instead of the collection that went missing.</p>
 
 <h2>How do I move a collection to another drive?</h2>
 <p>Copy (or move) the folder holding the book files and the collection database file to the new drive, then open the collection properties and enter the new path in the <span class="ui">Books folder:</span> field. See <a href="coll_params.html">Collection properties</a>.</p>
 
 <h2>How do I move my whole library to a new computer?</h2>
-<p>Copy the MyHomeLib data folder (the system database, the settings, the logs) to the new computer along with the folders that hold the collection files, keeping the same paths; or use portable mode — then all of it already sits next to the program and moves by copying a single folder. See <a href="portable.html">Portable version</a>. To transfer or merge only the user data (ratings, groups and so on) separately, use the tools described in <a href="user_data.html">User data export and import</a>.</p>
+<p>Copy the HomeLib Ru data folder (the system database, the settings, the logs) to the new computer along with the folders that hold the collection files, keeping the same paths; or use portable mode — then all of it already sits next to the program and moves by copying a single folder. See <a href="portable.html">Portable version</a>. To transfer or merge only the user data (ratings, groups and so on) separately, use the tools described in <a href="user_data.html">User data export and import</a>.</p>
 <!-- BODY:END -->
 </main>
 </body>

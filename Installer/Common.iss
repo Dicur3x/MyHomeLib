@@ -1,6 +1,6 @@
 ﻿; ****************************************************************************
 ;
-; InnoSetup script for MyHomeLib
+; InnoSetup script for HomeLib Ru
 ;
 ; Copyright: ©2008-2026 Oleksiy Penkov (aka Koreec)
 ;
@@ -28,29 +28,27 @@ SolidCompression=yes
 LicenseFile=Common\License.txt
 VersionInfoVersion = {#AppVersion}
 AppName = {#MyAppName}
-DefaultDirName = {autopf}\{#MyAppName}\
+; Preserve the existing installation and profile paths for upgrades.
+DefaultDirName = {autopf}\MyHomeLib\
 DefaultGroupName = {#MyAppName}
-AppVerName = {#MyAppName + " v. " + ShortVersion}
+AppVerName = {#MyAppName + " v. " + ReleaseVersion}
 UninstallDisplayIcon = {app}\{#AppExeName}
 AppPublisherURL = {#AppURL}
 AppSupportURL = {#AppURL}
 AppUpdatesURL = {#AppURL}
 
 [Dirs]
-Name: "{userappdata}\{#MyAppName}"; Permissions: everyone-modify
+Name: "{userappdata}\MyHomeLib"; Permissions: everyone-modify
 
 [Icons]
 Name: {group}\{#MyAppName}; Filename: {app}\{#AppExeName}; WorkingDir: {app}; IconFilename: {app}\{#AppExeName}; IconIndex: 0; Comment: {#MyAppName}
-Name: {group}\{cm:HelpShortcut}; Filename: {app}\{cm:HelpIndex}; WorkingDir: {app}; IconFilename: {sys}\ieframe.dll; IconIndex: 36; Comment: {#MyAppName} Help
+Name: {group}\{cm:HelpShortcut}; Filename: {app}\{cm:HelpIndex}; WorkingDir: {app}; IconFilename: {sys}\ieframe.dll; IconIndex: 36; Comment: {cm:HelpShortcut}
 Name: {commondesktop}\{#MyAppName}; Filename: {app}\{#AppExeName}; WorkingDir: {app}; IconFilename: {app}\{#AppExeName}; IconIndex: 0; Comment: {#MyAppName}; Tasks: desktopicon
-Name: {group}\{#MyAppName} website; Filename: {app}\{#MyAppName}.url; IconFilename: {sys}\ieframe.dll; IconIndex: 36
-Name: {group}\{cm:UninstallProgram, My Home Library}; Filename: {uninstallexe}
+Name: {group}\{cm:WebsiteShortcut}; Filename: {app}\HomeLibRu.url; IconFilename: {sys}\ieframe.dll; IconIndex: 36
+Name: {group}\{cm:UninstallProgram,{#MyAppName}}; Filename: {uninstallexe}
 
 [UninstallDelete]
-Name: {userappdata}\{#MyAppName}\Data; Type: filesandordirs
-Name: {userappdata}\{#MyAppName}\Presets; Type: filesandordirs
-Name: {userappdata}\{#MyAppName}\*.*; Type: files
-Name: {userappdata}\{#MyAppName}; Type: dirifempty
+; The legacy profile is shared with existing installations. Keep user data.
 Name: {app}; Type: files
 
 [Run]
@@ -106,7 +104,9 @@ Source: Common\genres_fb2_bg.glst; DestDir: {app}; Flags: replacesameversion
 Source: Common\genres_nonfb2_bg.glst; DestDir: {app}; Flags: replacesameversion
 Source: Common\collections.ini; DestDir: {userappdata}\MyHomeLib; Flags: onlyifdoesntexist
 Source: Common\Help\*; DestDir: {app}\Help; Flags: recursesubdirs
-Source: Common\MyHomeLib.url; DestDir: {app}; Flags: replacesameversion
+Source: Common\HomeLibRu.url; DestDir: {app}; Flags: replacesameversion
+Source: Common\LICENSE; DestDir: {app}; Flags: replacesameversion
+Source: Common\NOTICE; DestDir: {app}; Flags: replacesameversion
 Source: Common\License.txt; DestDir: {app}; Flags: replacesameversion
 Source: Common\License_uk.txt; DestDir: {app}; Flags: replacesameversion
 
@@ -142,11 +142,18 @@ Bulgarian.LocaleCode=bg
 ; user who chose another language. Russian help lives at the root of Help\
 ; and translations in Help\<locale>\, which is why the path is spelled out per
 ; language rather than composed from LocaleCode.
-Russian.HelpShortcut=Справка MyHomeLib
-English.HelpShortcut=MyHomeLib Help
-Ukrainian.HelpShortcut=Довідка MyHomeLib
-Bulgarian.HelpShortcut=Помощ за MyHomeLib
+Russian.HelpShortcut=Справка HomeLib Ru
+English.HelpShortcut=HomeLib Ru Help
+Ukrainian.HelpShortcut=Довідка HomeLib Ru
+Bulgarian.HelpShortcut=Помощ за HomeLib Ru
 Russian.HelpIndex=Help\index.html
+; The website shortcut caption. Only the word around the product name is
+; translated -- HomeLib Ru is a name, not a phrase.
+Russian.WebsiteShortcut=Сайт HomeLib Ru
+English.WebsiteShortcut=HomeLib Ru website
+Ukrainian.WebsiteShortcut=Сайт HomeLib Ru
+Bulgarian.WebsiteShortcut=Уебсайт на HomeLib Ru
+
 English.HelpIndex=Help\en\index.html
 Ukrainian.HelpIndex=Help\uk\index.html
 Bulgarian.HelpIndex=Help\bg\index.html
@@ -166,3 +173,5 @@ Bulgarian.HelpIndex=Help\bg\index.html
 ; already has. Anyone else gets the application's own default and can switch it
 ; from the View menu.
 Filename: {userappdata}\MyHomeLib\myhomelib2.ini; Section: INTERFACE; Key: Locale; String: {cm:LocaleCode}; Flags: createkeyifdoesntexist
+
+#include "LegacyUpgrade.iss"

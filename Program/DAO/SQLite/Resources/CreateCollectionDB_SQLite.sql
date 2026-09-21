@@ -24,6 +24,14 @@ PRAGMA journal_mode = OFF;
 DROP TABLE IF EXISTS Settings;
 --@@
 
+-- Book IDs restart when the collection is recreated. Derived publisher
+-- metadata must not survive and attach itself to unrelated replacement books.
+DROP TABLE IF EXISTS PublisherSeries_List;
+--@@
+
+DROP TABLE IF EXISTS PublisherSeries;
+--@@
+
 -- A previous collection file may already contain the normalized multi-series
 -- table. Drop it before the legacy tables so recreating a collection with the
 -- same file name remains idempotent.

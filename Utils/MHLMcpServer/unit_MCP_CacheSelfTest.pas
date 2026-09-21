@@ -553,6 +553,9 @@ begin
       // and not a race against wall-clock granularity or the OS's own
       // last-access-tracking policy (see the report for this machine's
       // measured behaviour). ----
+      // Earlier scenarios share this disposable override directory. Their
+      // bytes/access times must not participate in the five-pair cap below.
+      EvictCache(0);
       Stamp9 := EncodeDateTime(2026, 9, 9, 0, 0, 0, 0);
       AccessRank9[0] := 2;
       AccessRank9[1] := 4;

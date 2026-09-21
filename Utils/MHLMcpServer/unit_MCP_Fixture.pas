@@ -60,6 +60,8 @@ uses
   unit_Globals,
   unit_Consts,
   unit_Interfaces,
+  unit_MCP_PublisherSeriesSelfTest,
+  unit_MCP_PublisherIndexSelfTest,
   unit_MCP_Transport;
 
 // A private, local, FB2 collection. CONTENT_FB, LIBRARY_PRIVATE and
@@ -203,6 +205,145 @@ begin
       [Target, FIXTURE_USER_NAME]);
 end;
 
+procedure CheckCollectionBrowserFilters(const Collection: IBookCollection;
+  const BookIDs: TArray<Integer>);
+var
+  SavedHideDeleted, SavedLocalOnly: Boolean;
+  SavedAuthorFilter: string;
+  Book: TBookRecord;
+  OrphanAuthorID, ActiveAuthorID, DeletedAuthorID: Integer;
+  DeletedSeriesID: Integer;
+  DeletedGenreCode: string;
+
+  procedure CheckAuthors(const Mode: TAuthorIteratorMode;
+    const ExpectedIDs: array of Integer);
+  var
+    Iterator: IAuthorIterator;
+    Author: TAuthorData;
+    Count, I: Integer;
+    Found: Boolean;
+  begin
+    Iterator := Collection.GetAuthorIterator(Mode);
+    if Iterator.RecordCount <> Length(ExpectedIDs) then
+      raise Exception.Create('Author browser returned an incorrect row count');
+    Count := 0;
+    while Iterator.Next(Author) do
+    begin
+      Found := False;
+      for I := Low(ExpectedIDs) to High(ExpectedIDs) do
+        Found := Found or (Author.AuthorID = ExpectedIDs[I]);
+      if not Found then
+        raise Exception.Create('Author browser exposed an unexpected author');
+      Inc(Count);
+    end;
+    if Count <> Length(ExpectedIDs) then
+      raise Exception.Create('Author browser count differs from its rows');
+  end;
+
+  procedure CheckBooks(const Iterator: IBookIterator;
+    const ExpectedIDs: array of Integer);
+  var
+    Row: TBookRecord;
+    Count, I: Integer;
+    Found: Boolean;
+  begin
+    if Iterator.RecordCount <> Length(ExpectedIDs) then
+      raise Exception.Create('Deleted-book filter returned an incorrect count');
+    Count := 0;
+    while Iterator.Next(Row) do
+    begin
+      Found := False;
+      for I := Low(ExpectedIDs) to High(ExpectedIDs) do
+        Found := Found or (Row.BookKey.BookID = ExpectedIDs[I]);
+      if not Found then
+        raise Exception.Create('Deleted-book filter returned an unexpected book');
+      Inc(Count);
+    end;
+    if Count <> Length(ExpectedIDs) then
+      raise Exception.Create('Deleted-book filter count differs from its rows');
+  end;
+
+  procedure CheckDeletedBooks(const HideDeleted: Boolean);
+  var
+    Filter: TFilterValue;
+    Criteria: TBookSearchCriteria;
+    Mode: TBookIteratorMode;
+  begin
+    for Mode in [bmByAuthor, bmBySeries, bmByGenre, bmByGenreRecursive] do
+    begin
+      case Mode of
+        bmByAuthor: Filter.ValueInt := DeletedAuthorID;
+        bmBySeries: Filter.ValueInt := DeletedSeriesID;
+        bmByGenre, bmByGenreRecursive: Filter.ValueString := DeletedGenreCode;
+      end;
+      if Mode in [bmByGenre, bmByGenreRecursive] then
+      begin
+        if HideDeleted then
+          CheckBooks(Collection.GetBookIterator(Mode, False, @Filter),
+            [BookIDs[0], BookIDs[1]])
+        else
+          CheckBooks(Collection.GetBookIterator(Mode, False, @Filter),
+            [BookIDs[0], BookIDs[1], BookIDs[5]]);
+      end
+      else if HideDeleted then
+        CheckBooks(Collection.GetBookIterator(Mode, False, @Filter), [])
+      else
+        CheckBooks(Collection.GetBookIterator(Mode, False, @Filter), [BookIDs[5]]);
+    end;
+
+    // The search checkbox governs search independently of the browser toggle.
+    Criteria := Default(TBookSearchCriteria);
+    Criteria.FileName := 'book6';
+    Criteria.DateIdx := -1;
+    Criteria.CollapseMultiSeriesResults := True;
+    CheckBooks(Collection.Search(Criteria, False), [BookIDs[5]]);
+    Criteria.Deleted := True;
+    CheckBooks(Collection.Search(Criteria, False), []);
+  end;
+
+begin
+  SavedHideDeleted := Collection.GetHideDeleted;
+  SavedLocalOnly := Collection.GetShowLocalOnly;
+  SavedAuthorFilter := Collection.GetAuthorFilterType;
+  Collection.GetBookRecord(CreateBookKey(BookIDs[0], Collection.CollectionID), Book, False);
+  OrphanAuthorID := Book.Authors[0].AuthorID;
+  Collection.GetBookRecord(CreateBookKey(BookIDs[2], Collection.CollectionID), Book, False);
+  ActiveAuthorID := Book.Authors[0].AuthorID;
+  Collection.GetBookRecord(CreateBookKey(BookIDs[5], Collection.CollectionID), Book, False);
+  DeletedAuthorID := Book.Authors[0].AuthorID;
+  DeletedGenreCode := Book.Genres[0].GenreCode;
+
+  // Remove links only inside a rolled-back transaction. The protocol fixtures
+  // retain their original authors, books, and deterministic IDs afterward.
+  Collection.BeginBulkOperation;
+  try
+    Collection.SetBookAuthors(BookIDs[0], nil, True);
+    Collection.SetBookAuthors(BookIDs[1], nil, True);
+    Collection.SetBookAuthors(BookIDs[4], nil, True);
+    Collection.AddBookSeries(BookIDs[5], 'Deleted-only test series', 1);
+    DeletedSeriesID := Collection.FindOrCreateSeries('Deleted-only test series');
+    Collection.SetAuthorFilterType(ALPHA_FILTER_ALL);
+    Collection.SetShowLocalOnly(False);
+    Collection.SetHideDeleted(False);
+    CheckAuthors(amFullFilter, [ActiveAuthorID, DeletedAuthorID]);
+    CheckAuthors(amAll, [OrphanAuthorID, ActiveAuthorID, DeletedAuthorID]);
+    CheckDeletedBooks(False);
+    Collection.SetHideDeleted(True);
+    CheckAuthors(amFullFilter, [ActiveAuthorID]);
+    CheckDeletedBooks(True);
+    Collection.SetHideDeleted(False);
+    CheckAuthors(amFullFilter, [ActiveAuthorID, DeletedAuthorID]);
+    CheckDeletedBooks(False);
+    Collection.SetShowLocalOnly(True);
+    CheckAuthors(amFullFilter, [ActiveAuthorID, DeletedAuthorID]);
+  finally
+    Collection.EndBulkOperation(False);
+    Collection.SetHideDeleted(SavedHideDeleted);
+    Collection.SetShowLocalOnly(SavedLocalOnly);
+    Collection.SetAuthorFilterType(SavedAuthorFilter);
+  end;
+end;
+
 procedure RunMakeFixtureMode;
 var
   DbFileName: string;
@@ -331,11 +472,18 @@ begin
   // relationship must return one canonical Books row, not a duplicate.
   Collection.AddBookSeries(Ids[0], 'Вторая линия', 7);
 
+  CheckCollectionBrowserFilters(Collection, Ids);
+  CheckPublisherSeries(SystemDB, Collection, CollectionFile, Ids);
+  CheckPublisherSeriesIndexer(Collection, Ids);
+
   Summary := TJSONObject.Create;
   try
     Summary.AddPair('collection_id', TJSONNumber.Create(CollectionID));
     Summary.AddPair('root', RootFolder);
     Summary.AddPair('db', DbFileName);
+    Summary.AddPair('browser_filters_checked', TJSONBool.Create(True));
+    Summary.AddPair('publisher_series_checked', TJSONBool.Create(True));
+    Summary.AddPair('publisher_indexer_checked', TJSONBool.Create(True));
 
     Books := TJSONArray.Create;
     for I := 0 to 5 do

@@ -419,7 +419,7 @@ begin
     Add(COL_DATE, 200, 5);
     Add(COL_GENRE, 200, 6);
   end
-  else if Section = SECTION_S_FLAT then
+  else if (Section = SECTION_S_FLAT) or (Section = SECTION_PUBLISHER_S_FLAT) then
   begin
     Add(COL_STATE, S(15), 0);
     Add(COL_AUTHOR, 200, 1);

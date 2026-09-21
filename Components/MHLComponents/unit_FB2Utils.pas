@@ -25,10 +25,19 @@ uses
   Graphics,
   fictionbook_21;
 
+type
+  TFB2PublisherSeriesItem = record
+    Title: string;
+    Number: Integer;
+  end;
+  TFB2PublisherSeries = TArray<TFB2PublisherSeriesItem>;
+
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
 function GetBookCover(book: IXMLFictionBook): TGraphic;
 function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
 function GetBookAnnotation(book: IXMLFictionBook): string;
+function GetBookPublisherSeries(book: IXMLFictionBook): string;
+function GetBookPublisherSeriesData(book: IXMLFictionBook): TFB2PublisherSeries;
 function GetBookInfo(book: IXMLFictionBook): string;
 function FormatName(const LastName: string; const FirstName: string; const MiddleName: string; const nickName: string = ''; onlyInitials: Boolean = False): string;
 
@@ -213,6 +222,58 @@ begin
     Result := sl.Text;
   finally
     sl.Free;
+  end;
+end;
+
+function GetBookPublisherSeriesData(book: IXMLFictionBook): TFB2PublisherSeries;
+var
+  Sequences: IXMLSequenceTypeList;
+  I: Integer;
+
+  procedure AppendSequence(const Sequence: IXMLSequenceType);
+  var
+    Title: string;
+    Number, ChildIndex, ItemIndex: Integer;
+  begin
+    Title := Trim(Sequence.Name);
+    if Title <> '' then
+    begin
+      // Read the optional attribute as text: broken catalogue numbers must
+      // not raise a variant conversion error or hide the rest of the panel.
+      Number := 0;
+      if Sequence.HasAttribute('number') then
+        if not TryStrToInt(Sequence.AttributeNodes['number'].Text, Number) or
+           (Number < 0) then
+          Number := 0;
+      ItemIndex := Length(Result);
+      SetLength(Result, ItemIndex + 1);
+      Result[ItemIndex].Title := Title;
+      Result[ItemIndex].Number := Number;
+    end;
+    for ChildIndex := 0 to Sequence.Count - 1 do
+      AppendSequence(Sequence[ChildIndex]);
+  end;
+
+begin
+  Result := nil;
+  if not Assigned(book) then Exit;
+  Sequences := book.Description.Publishinfo.Sequence;
+  for I := 0 to Sequences.Count - 1 do
+    AppendSequence(Sequences[I]);
+end;
+
+function GetBookPublisherSeries(book: IXMLFictionBook): string;
+var
+  Item: TFB2PublisherSeriesItem;
+begin
+  Result := '';
+  for Item in GetBookPublisherSeriesData(book) do
+  begin
+    if Result <> '' then
+      Result := Result + '; ';
+    Result := Result + Item.Title;
+    if Item.Number > 0 then
+      Result := Result + ' (' + IntToStr(Item.Number) + ')';
   end;
 end;
 

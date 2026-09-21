@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Portable version — MyHomeLib Help</title>
+<title>Portable version — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -90,19 +90,19 @@
 <main id="content">
 <h1>Portable version</h1>
 <!-- BODY:BEGIN -->
-<h2>Running MyHomeLib from a removable drive</h2>
-<p>MyHomeLib offers no separate portable distribution: portable mode is the same program, copied together with its folder onto a flash drive or another removable disk and started without being installed. Administrator rights are needed only by the installer (see <a href="install.html">Installation</a>); the executable itself does not require them.</p>
+<h2>Running HomeLib Ru from a removable drive</h2>
+<p>Portable ZIP bundles are available on the <a href="https://github.com/Dicur3x/MyHomeLib/releases">releases page</a>. Extract the whole bundle into a writable folder. The <code>uselocaldata</code> marker described below selects portable mode; it does not require a separate executable or administrator rights.</p>
 
 <h2>Which files have to sit next to the executable</h2>
-<p>Required: the <code>sqlite3.dll</code> library — the program will not start without it. MyHomeLib also always looks in its own folder for the genre lists <code>genres_fb2.glst</code> and <code>genres_nonfb2.glst</code>, whether the run is portable or ordinary. The folder of the bundled AlReader reader and the folders of the format converters are optional: without them the program starts normally, it is just that the default reader and conversion are unavailable until you point <a href="set_readers.html">File types and readers</a> at another path. The simplest and most reliable approach is to copy the whole folder of the installed program onto the removable drive, exactly as the installer laid it out.</p>
+<p>Required: the <code>sqlite3.dll</code> library — the program will not start without it. HomeLib Ru also always looks in its own folder for the genre lists <code>genres_fb2.glst</code> and <code>genres_nonfb2.glst</code>, whether the run is portable or ordinary. The folder of the bundled AlReader reader and the folders of the format converters are optional: without them the program starts normally, it is just that the default reader and conversion are unavailable until you point <a href="set_readers.html">File types and readers</a> at another path. The simplest and most reliable approach is to copy the whole folder of the installed program onto the removable drive, exactly as the installer laid it out.</p>
 
 <h2>How the program chooses between the portable and the installed data location</h2>
-<p>By default MyHomeLib keeps its settings and the system database in the <code>%APPDATA%\MyHomeLib</code> folder (for details see <a href="faq.html">FAQ</a>). To force the program to use its own folder instead, put an empty, extensionless file named <code>uselocaldata</code> next to <code>MyHomeLib.exe</code> — that file is what marks a portable run. An equally empty <code>uselocaltemp</code> file next to the executable moves the temporary files into a subfolder of its own (<code>$tmp</code>) as well; otherwise they are written to the Windows temporary files folder. The command line parameters <code>uselocaldata</code> and <code>uselocaltemp</code> have the same effect if you start <code>MyHomeLib.exe</code> from a shortcut with those arguments.</p>
-<p>There is an automatic case, too: if the current Windows user has no <code>%APPDATA%\MyHomeLib</code> folder at all, MyHomeLib takes that as a sign of a portable run by itself and keeps its data next to the executable straight away, even without a <code>uselocaldata</code> file. It is not worth relying on that: one ordinary run of MyHomeLib on some computer (or one installation onto it) is enough to create the folder, after which a portable run on that same computer does need the <code>uselocaldata</code> file. So, for portable mode to be guaranteed on any computer, always keep the <code>uselocaldata</code> file next to the executable rather than counting on the automatic detection.</p>
+<p>By default HomeLib Ru keeps its settings and the system database in the <code>%APPDATA%\MyHomeLib</code> folder (for details see <a href="faq.html">FAQ</a>). To force the program to use its own folder instead, put an empty, extensionless file named <code>uselocaldata</code> next to <code>HomeLibRu.exe</code> — that file is what marks a portable run. An equally empty <code>uselocaltemp</code> file next to the executable moves the temporary files into a subfolder of its own (<code>$tmp</code>) as well; otherwise they are written to the Windows temporary files folder. The command line parameters <code>uselocaldata</code> and <code>uselocaltemp</code> have the same effect if you start <code>HomeLibRu.exe</code> from a shortcut with those arguments.</p>
+<p>There is an automatic case, too: if the current Windows user has no <code>%APPDATA%\MyHomeLib</code> folder at all, HomeLib Ru takes that as a sign of a portable run by itself and keeps its data next to the executable straight away, even without a <code>uselocaldata</code> file. It is not worth relying on that: one ordinary run of HomeLib Ru on some computer (or one installation onto it) is enough to create the folder, after which a portable run on that same computer does need the <code>uselocaldata</code> file. So, for portable mode to be guaranteed on any computer, always keep the <code>uselocaldata</code> file next to the executable rather than counting on the automatic detection.</p>
 <p>In portable mode the system database lives in a <code>Data</code> subfolder next to the executable (<code>Data\user.dbs2</code>), while the settings, <code>collections.ini</code> and the working logs sit in that same folder rather than in <code>%APPDATA%</code>.</p>
 
 <h2>Limitations</h2>
-<p>The <code>uselocaldata</code> marker moves only the settings and the system database; it does not take the temporary folder with it — that needs the separate <code>uselocaltemp</code> file. Without it, even in portable mode MyHomeLib uses the Windows temporary files folder of whatever computer it is running on rather than one of its own, so it does not quite vanish from the computer without a trace.</p>
+<p>The <code>uselocaldata</code> marker moves only the settings and the system database; it does not take the temporary folder with it — that needs the separate <code>uselocaltemp</code> file. Without it, even in portable mode HomeLib Ru uses the Windows temporary files folder of whatever computer it is running on rather than one of its own, so it does not quite vanish from the computer without a trace.</p>
 <p>The paths to the device folder, the reading folder, the download folder, the import folder and so on are stored in the settings as ordinary absolute paths and do not adapt to a new drive letter: if the flash drive or external disk was given a different letter on another computer, those paths have to be set again.</p>
 <p>A portable copy comes with no installer support: there are no Start menu shortcuts and no uninstall entry — you manage the folder (copying, moving, deleting it) by hand.</p>
 <!-- BODY:END -->

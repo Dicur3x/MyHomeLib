@@ -20,6 +20,9 @@ interface
 
 uses
   Winapi.Windows,
+  Winapi.Messages,
+  Winapi.CommCtrl,
+  System.Types,
   Controls,
   Forms,
   Graphics,
@@ -28,6 +31,7 @@ uses
   ComCtrls,
   ExtCtrls,
   SysUtils,
+  Math,
   Clipbrd,
   Menus,
   FictionBook_21,
@@ -40,11 +44,15 @@ type
   TInfoPanel = class(TPanel)
   private
     FCover: TImage;
+    FInfoViewport: TScrollBox;
     FInfoPanel: TPanel;
     FTitle: TLabel;
     FAuthors: TMHLLinkLabel;
     FSerieLabel: TLabel;
     FSeries: TMHLLinkLabel;
+    FPublisherSerieLabel: TLabel;
+    FPublisherSeries: TLabel;
+    FPublisherSeriesLinks: TMHLLinkLabel;
     FGenreLabel: TLabel;
     FGenres: TMHLLinkLabel;
     FAnnotation: TMemo;
@@ -53,9 +61,11 @@ type
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
     FOnSeriesLinkClicked: TSysLinkEvent;
+    FOnPublisherSeriesLinkClicked: TSysLinkEvent;
     FMenu: TPopupMenu;
 
     FInfoPriority: Boolean;
+    FUpdatingLayout: Boolean;
 
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
@@ -70,8 +80,11 @@ type
     procedure SetInfoPriority(const Value: Boolean);
     procedure CopyToClipboard(Sender: TObject);
     procedure LayoutControls;
+    procedure InfoPanelResize(Sender: TObject);
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
 
   protected
+    procedure CreateWnd; override;
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
 
@@ -88,6 +101,9 @@ type
     procedure SetBookCover(
       BookCover: TGraphic
       );
+
+    procedure SetPublisherSeries(const Value: string);
+    procedure SetPublisherSeriesLinks(const Value: string);
 
     procedure SetFb2Info(
       book: IXMLFictionBook;
@@ -109,13 +125,21 @@ type
 
     property OnAuthorLinkClicked: TSysLinkEvent read FOnAuthorLinkClicked write FOnAuthorLinkClicked;
     property OnSeriesLinkClicked: TSysLinkEvent read FOnSeriesLinkClicked write FOnSeriesLinkClicked;
+    property OnPublisherSeriesLinkClicked: TSysLinkEvent read FOnPublisherSeriesLinkClicked write FOnPublisherSeriesLinkClicked;
     property OnGenreLinkClicked: TSysLinkEvent read FOnGenreLinkClicked write FOnGenreLinkClicked;
   end;
 
 implementation
 
+type
+  TPublisherSeriesLinkLabel = class(TMHLLinkLabel)
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+  end;
+
 resourcestring
   rstrSerieLabel = 'Серия:';
+  rstrPublisherSeriesLabel = 'Книжные серии:';
   rstrGenreLabel = 'Жанр(ы):';
   rstrNoAnnotationHint = 'Аннотация отсутствует';
   rsrtCopyLabel = 'Копировать';
@@ -132,6 +156,12 @@ const
 function GetCoverWidth(Height: Integer): Integer;
 begin
   Result := Height * 2 div 3;
+end;
+
+procedure TPublisherSeriesLinkLabel.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.Style := Params.Style or $00000004; // LWS_NOPREFIX: literal ampersands in titles.
 end;
 
 procedure TInfoPanel.CopyToClipboard(Sender: TObject);
@@ -168,12 +198,20 @@ begin
   FCover.Proportional := True;
   FCover.Stretch := True;
 
+  FInfoViewport := TScrollBox.Create(Self);
+  FInfoViewport.Parent := Self;
+  FInfoViewport.Align := alClient;
+  FInfoViewport.AlignWithMargins := True;
+  FInfoViewport.Margins.SetBounds(CoverGap, PanelPadding, PanelPadding, PanelPadding);
+  FInfoViewport.BorderStyle := bsNone;
+  FInfoViewport.ParentColor := True;
+  FInfoViewport.HorzScrollBar.Visible := False;
+  FInfoViewport.VertScrollBar.Tracking := True;
+  FInfoViewport.VertScrollBar.Smooth := True;
   FInfoPanel := TPanel.Create(Self);
-  FInfoPanel.Parent := Self;
-  FInfoPanel.SetBounds(200, 0, 300, 200);
-  FInfoPanel.Align := alClient;
-  FInfoPanel.AlignWithMargins := True;
-  FInfoPanel.Margins.SetBounds(CoverGap, PanelPadding, PanelPadding, PanelPadding);
+  FInfoPanel.Parent := FInfoViewport;
+  FInfoPanel.Align := alTop;
+  FInfoPanel.Height := 200;
   FInfoPanel.BevelOuter := bvNone;
   FInfoPanel.ParentColor := True;
 
@@ -184,8 +222,10 @@ begin
   FTitle.Font.Style := [fsBold];
 
   FAuthors := TMHLLinkLabel.Create(FInfoPanel);
+  FAuthors.AutoSize := False;
   FAuthors.Parent := FInfoPanel;
-  FAuthors.UseVisualStyle := True;
+  // SysLink's visual-style flag ignores the chosen font and always draws at theme size.
+  FAuthors.UseVisualStyle := False;
   FAuthors.OnLinkClick := OnLinkClicked;
 
   FSerieLabel := TLabel.Create(FInfoPanel);
@@ -195,9 +235,30 @@ begin
   FSerieLabel.Font.Style := [fsBold];
 
   FSeries := TMHLLinkLabel.Create(FInfoPanel);
+  FSeries.AutoSize := False;
   FSeries.Parent := FInfoPanel;
-  FSeries.UseVisualStyle := True;
+  FSeries.UseVisualStyle := False;
   FSeries.OnLinkClick := OnLinkClicked;
+
+  FPublisherSerieLabel := TLabel.Create(FInfoPanel);
+  FPublisherSerieLabel.Parent := FInfoPanel;
+  FPublisherSerieLabel.Caption := rstrPublisherSeriesLabel;
+  FPublisherSerieLabel.AutoSize := False;
+  FPublisherSerieLabel.Font.Style := [fsBold];
+  FPublisherSerieLabel.Visible := False;
+
+  FPublisherSeries := TLabel.Create(FInfoPanel);
+  FPublisherSeries.Parent := FInfoPanel;
+  FPublisherSeries.AutoSize := False;
+  FPublisherSeries.WordWrap := True;
+  FPublisherSeries.ShowAccelChar := False;
+  FPublisherSeries.Visible := False;
+  FPublisherSeriesLinks := TPublisherSeriesLinkLabel.Create(FInfoPanel);
+  FPublisherSeriesLinks.Parent := FInfoPanel;
+  FPublisherSeriesLinks.AutoSize := False;
+  FPublisherSeriesLinks.UseVisualStyle := False;
+  FPublisherSeriesLinks.Visible := False;
+  FPublisherSeriesLinks.OnLinkClick := OnLinkClicked;
 
   FGenreLabel := TLabel.Create(FInfoPanel);
   FGenreLabel.Parent := FInfoPanel;
@@ -206,8 +267,9 @@ begin
   FGenreLabel.Font.Style := [fsBold];
 
   FGenres := TMHLLinkLabel.Create(FInfoPanel);
+  FGenres.AutoSize := False;
   FGenres.Parent := FInfoPanel;
-  FGenres.UseVisualStyle := True;
+  FGenres.UseVisualStyle := False;
   FGenres.OnLinkClick := OnLinkClicked;
 
   FAnnotation := TMemo.Create(FInfoPanel);
@@ -274,6 +336,9 @@ begin
   FFb2Info.SetBounds(0, 80, 300, 120);
 
   Constraints.MinHeight := 150;
+  FInfoPanel.OnResize := InfoPanelResize;
+  FInfoViewport.OnResize := InfoPanelResize;
+  LayoutControls;
 end;
 
 procedure TInfoPanel.SetBookAnnotation;
@@ -302,56 +367,123 @@ end;
 
 procedure TInfoPanel.Resize;
 begin
-  FCover.Width := GetCoverWidth(FCover.Height);
+  if Assigned(FCover) then
+    FCover.Width := GetCoverWidth(FCover.Height);
   LayoutControls;
   inherited;
 end;
 
+procedure TInfoPanel.CreateWnd;
+begin
+  inherited;
+  LayoutControls;
+end;
+
+procedure TInfoPanel.InfoPanelResize(Sender: TObject);
+begin
+  LayoutControls;
+end;
+
+procedure TInfoPanel.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  LayoutControls;
+end;
+
 procedure TInfoPanel.LayoutControls;
 var
-  RowH, Gap, LblW, W, H, Y: Integer;
+  RowH, LinkH, Gap, LblW, W, H, Y, DetailH: Integer;
+  TextRect: TRect;
+
+  function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer): Integer;
+  var
+    IdealSize: TSize;
+  begin
+    Result := RowH;
+    if HandleAllocated and (AvailableWidth > 0) and (Link.Caption <> '') then
+    begin
+      SendMessage(Link.Handle, WM_SETFONT, WPARAM(Link.Font.Handle), 0);
+      IdealSize.cx := 0;
+      IdealSize.cy := 0;
+      SendMessage(Link.Handle, LM_GETIDEALSIZE, AvailableWidth, LPARAM(@IdealSize));
+      Result := Max(RowH, IdealSize.cy + MulDiv(RowSpacing, CurrentPPI, 96));
+    end;
+  end;
+
 begin
-  if not Assigned(FInfoPanel) then
+  if FUpdatingLayout or not Assigned(FFb2Info) or not Assigned(Parent) then
     Exit;
 
   W := FInfoPanel.ClientWidth;
-  H := FInfoPanel.ClientHeight;
+  H := FInfoViewport.ClientHeight;
   if (W <= 0) or (H <= 0) then
     Exit;
 
-  // Sync bold label fonts with parent (ParentFont=False due to Font.Style)
-  FTitle.Font.Height := FInfoPanel.Font.Height;
-  FTitle.Font.Name := FInfoPanel.Font.Name;
-  FSerieLabel.Font.Height := FInfoPanel.Font.Height;
-  FSerieLabel.Font.Name := FInfoPanel.Font.Name;
-  FGenreLabel.Font.Height := FInfoPanel.Font.Height;
-  FGenreLabel.Font.Name := FInfoPanel.Font.Name;
+  FUpdatingLayout := True;
+  try
+    // Bold captions do not inherit the parent font after Font.Style is set.
+    FTitle.Font.Assign(FInfoPanel.Font);
+    FTitle.Font.Style := [fsBold];
+    FSerieLabel.Font.Assign(FInfoPanel.Font);
+    FSerieLabel.Font.Style := [fsBold];
+    FGenreLabel.Font.Assign(FInfoPanel.Font);
+    FGenreLabel.Font.Style := [fsBold];
+    FPublisherSerieLabel.Font.Assign(FInfoPanel.Font);
+    FPublisherSerieLabel.Font.Style := [fsBold];
 
-  // Row height follows the current font: ShortFontSize is user-configurable, so
-  // a fixed 20px row makes the text collide once the font grows. Bold is the
-  // tallest face used in a row, so measure with it.
-  Canvas.Font := FInfoPanel.Font;
-  Canvas.Font.Style := [fsBold];
-  RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
-  Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
-  LblW := MulDiv(LabelColumn, CurrentPPI, 96);
+    Canvas.Font := FTitle.Font;
+    RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
+    Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
+    LblW := Max(MulDiv(LabelColumn, CurrentPPI, 96),
+      Max(Canvas.TextWidth(FSerieLabel.Caption), Canvas.TextWidth(FGenreLabel.Caption)) + Gap);
+    if FPublisherSerieLabel.Visible then
+      LblW := Max(LblW, Canvas.TextWidth(FPublisherSerieLabel.Caption) + Gap);
+    LblW := Min(LblW, W);
 
-  Y := 0;
-  FTitle.SetBounds(0, Y, W, RowH);
-  Inc(Y, RowH);
-  FAuthors.SetBounds(0, Y, W, RowH);
-  Inc(Y, RowH);
-  FSerieLabel.SetBounds(0, Y, LblW, RowH);
-  FSeries.SetBounds(LblW, Y, W - LblW, RowH);
-  Inc(Y, RowH);
-  FGenreLabel.SetBounds(0, Y, LblW, RowH);
-  FGenres.SetBounds(LblW, Y, W - LblW, RowH);
-  Inc(Y, RowH + Gap);
-  if H > Y then
-  begin
-    FAnnotation.SetBounds(0, Y, W, H - Y);
-    FFb2Info.SetBounds(0, Y, W, H - Y);
+    Y := 0;
+    FTitle.SetBounds(0, Y, W, RowH);
+    Inc(Y, RowH);
+    LinkH := LinkHeight(FAuthors, W);
+    FAuthors.SetBounds(0, Y, W, LinkH);
+    Inc(Y, LinkH);
+    LinkH := LinkHeight(FSeries, W - LblW);
+    FSerieLabel.SetBounds(0, Y, LblW, RowH);
+    FSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+    Inc(Y, LinkH);
+    if FPublisherSeriesLinks.Visible then
+    begin
+      LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW);
+      FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
+      FPublisherSeriesLinks.SetBounds(LblW, Y, W - LblW, LinkH);
+      Inc(Y, LinkH);
+    end
+    else if FPublisherSeries.Visible then
+    begin
+      Canvas.Font := FPublisherSeries.Font;
+      TextRect := Rect(0, 0, Max(1, W - LblW), 0);
+      DrawText(Canvas.Handle, PChar(FPublisherSeries.Caption), Length(FPublisherSeries.Caption),
+        TextRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, CurrentPPI, 96));
+      FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
+      FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+      Inc(Y, LinkH);
+    end;
+    LinkH := LinkHeight(FGenres, W - LblW);
+    FGenreLabel.SetBounds(0, Y, LblW, RowH);
+    FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
+    Inc(Y, LinkH + Gap);
+    // Even a very short panel must not leave the old annotation over the links.
+    DetailH := Max(0, H - Y);
+    if (DetailH = 0) and (FAnnotation.Visible or FFb2Info.Visible) then
+      DetailH := MulDiv(80, CurrentPPI, 96);
+    FInfoPanel.Height := Y + DetailH;
+    FAnnotation.SetBounds(0, Y, W, DetailH);
+    FFb2Info.SetBounds(0, Y, W, DetailH);
+  finally
+    FUpdatingLayout := False;
   end;
+  // A vertical scrollbar changes the available wrapping width once it appears.
+  if FInfoPanel.ClientWidth <> W then LayoutControls;
 end;
 
 procedure TInfoPanel.ChangeScale(M, D: Integer; isDpiChange: Boolean);
@@ -383,6 +515,11 @@ begin
     if Assigned(FOnGenreLinkClicked) then
       FOnGenreLinkClicked(Self, Link, LinkType);
   end
+  else if Sender = FPublisherSeriesLinks then
+  begin
+    if Assigned(FOnPublisherSeriesLinkClicked) then
+      FOnPublisherSeriesLinkClicked(Self, Link, LinkType);
+  end
   else
     Assert(False);
 end;
@@ -394,10 +531,33 @@ procedure TInfoPanel.SetBookInfo(
   const Genres: string
 );
 begin
+  FInfoViewport.VertScrollBar.Position := 0;
   FTitle.Caption := BookTitle;
   FAuthors.Caption := Autors;
-  FSeries.Caption := Series;
+  // SysLink supports anchor tags; explicit line breaks must be plain CRLF.
+  FSeries.Caption := StringReplace(Series, '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]);
   FGenres.Caption := Genres;
+  SetPublisherSeries('');
+end;
+
+procedure TInfoPanel.SetPublisherSeries(const Value: string);
+begin
+  FPublisherSeriesLinks.Caption := '';
+  FPublisherSeriesLinks.Visible := False;
+  FPublisherSeries.Caption := Trim(Value);
+  FPublisherSeries.Visible := FPublisherSeries.Caption <> '';
+  FPublisherSerieLabel.Visible := FPublisherSeries.Visible;
+  LayoutControls;
+end;
+
+procedure TInfoPanel.SetPublisherSeriesLinks(const Value: string);
+begin
+  FPublisherSeries.Caption := '';
+  FPublisherSeries.Visible := False;
+  FPublisherSeriesLinks.Caption := StringReplace(Trim(Value), '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]);
+  FPublisherSeriesLinks.Visible := FPublisherSeriesLinks.Caption <> '';
+  FPublisherSerieLabel.Visible := FPublisherSeriesLinks.Visible;
+  LayoutControls;
 end;
 
 
@@ -575,6 +735,7 @@ end;
 
 procedure TInfoPanel.Clear;
 begin
+  FInfoViewport.VertScrollBar.Position := 0;
   FTitle.Caption := '';
   FAuthors.Caption := '';
   FSeries.Caption := '';
@@ -582,6 +743,7 @@ begin
   FAnnotation.Lines.Clear;
   FFb2Info.Items.Clear;
   FCover.Picture.Assign(nil);
+  SetPublisherSeries('');
 end;
 
 

@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Script examples — MyHomeLib Help</title>
+<title>Script examples — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -90,7 +90,7 @@
 <main id="content">
 <h1>Script examples</h1>
 <!-- BODY:BEGIN -->
-<p>This page supplements <a href="set_scripts.html">Scripts</a> with examples. A MyHomeLib script is not a conversion script (the program converts to LRF, EPUB, PDF and MOBI by itself, with built-in converters — see <a href="export_device.html">Sending books to a device</a>) and not a script for working with an online library; it is any external program you like, launched after the books have been sent, with paths substituted into its parameters. So the examples below are not about converters but about the typical shape of such an entry.</p>
+<p>This page supplements <a href="set_scripts.html">Scripts</a> with examples. A HomeLib Ru script is not a conversion script (the program converts to LRF, EPUB, PDF and MOBI by itself, with built-in converters — see <a href="export_device.html">Sending books to a device</a>) and not a script for working with an online library; it is any external program you like, launched after the books have been sent, with paths substituted into its parameters. So the examples below are not about converters but about the typical shape of such an entry.</p>
 
 <h2>A second copy folder (with no program at all)</h2>
 <p>The simplest entry uses no external program whatsoever, only the special value <code>%COPY%</code> in the <span class="ui">Path</span> field (see <a href="set_scripts.html">Scripts</a>):</p>
@@ -108,14 +108,14 @@
 </table>
 
 <h2>A batch file of your own</h2>
-<p>For anything more involved (renaming, a detailed log, calling a third-party device sync tool and so on) the path points at a <code>.bat</code> or <code>.cmd</code> file of your own, and the sequence of actions is written inside that file, not in the parameters field. MyHomeLib merely passes it the substituted values as command line arguments:</p>
+<p>For anything more involved (renaming, a detailed log, calling a third-party device sync tool and so on) the path points at a <code>.bat</code> or <code>.cmd</code> file of your own, and the sequence of actions is written inside that file, not in the parameters field. HomeLib Ru merely passes it the substituted values as command line arguments:</p>
 <table>
 <tr><th>Title</th><th>Path</th><th>Options</th></tr>
 <tr><td>My action</td><td><code>C:\Scripts\send_to_device.bat</code></td><td><code>%DEST% %FILENAME%</code></td></tr>
 </table>
-<p>Inside such a <code>.bat</code> file the substituted values are available as ordinary command line parameters (<code>%1</code>, <code>%2</code> and so on); what the file does with them is entirely up to whoever wrote it — MyHomeLib only launches it.</p>
+<p>Inside such a <code>.bat</code> file the substituted values are available as ordinary command line parameters (<code>%1</code>, <code>%2</code> and so on); what the file does with them is entirely up to whoever wrote it — HomeLib Ru only launches it.</p>
 
-<p class="note">This help gives no ready-made examples for particular third-party device sync or cloud storage programs — MyHomeLib ships none of those tools and tests none of them; supply your own path and parameters from the documentation of the program you need.</p>
+<p class="note">This help gives no ready-made examples for particular third-party device sync or cloud storage programs — HomeLib Ru ships none of those tools and tests none of them; supply your own path and parameters from the documentation of the program you need.</p>
 <!-- BODY:END -->
 </main>
 </body>

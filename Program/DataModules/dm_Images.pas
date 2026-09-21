@@ -59,8 +59,8 @@ resourcestring
   rstrIconResourceMissing =
     'Невозможно загрузить источник значков:'#13#10'%s'#13#10#13#10 +
     'Ошибка Windows %d: %s'#13#10#13#10 +
-    'Программа будет работать без значков. Переустановите MyHomeLib или ' +
-    'скопируйте папку Icons рядом с MyHomeLib.exe.';
+    'Программа будет работать без значков. Переустановите HomeLib Ru или ' +
+    'скопируйте папку Icons рядом с HomeLibRu.exe.';
 
 const
   CIconResFile = 'Icons\MHLIcons.dll';
@@ -312,7 +312,7 @@ begin
         if not FLoadErrorReported then
         begin
           FLoadErrorReported := True;
-          Application.MessageBox(PChar(E.Message), 'MyHomeLib',
+          Application.MessageBox(PChar(E.Message), 'HomeLib Ru',
             MB_ICONWARNING or MB_OK);
         end;
       end;

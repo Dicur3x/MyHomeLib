@@ -33,10 +33,10 @@ const TOPICS = path.join(__dirname, 'topics.json');
 // The suffix appended to every page title except the index, whose own title is
 // already the help's name. Must agree with TITLE_SUFFIX in check_help.js.
 const TITLE_SUFFIX = {
-  ru: 'Справка MyHomeLib',
-  uk: 'Довідка MyHomeLib',
-  en: 'MyHomeLib Help',
-  bg: 'Помощ за MyHomeLib',
+  ru: 'Справка HomeLib Ru',
+  uk: 'Довідка HomeLib Ru',
+  en: 'HomeLib Ru Help',
+  bg: 'Помощ за HomeLib Ru',
 };
 
 function fail(message) {

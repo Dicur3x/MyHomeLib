@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 set "PATH=%SystemRoot%\System32;%PATH%"
 
 :: ============================================================================
-:: MyHomeLib Installer Build Script
+:: HomeLib Ru Installer Build Script
 ::
 :: Collects redistributables from the build output into the Installer staging
 :: directories (Common, x86, x64) and invokes Inno Setup to compile the
@@ -65,21 +65,21 @@ if /i "%TARGET%"=="all" (
 )
 
 :: Post-build sanity check — binaries must now exist
-if not exist "%BIN_DIR%\MyHomeLib.exe" (
+if not exist "%BIN_DIR%\HomeLibRu.exe" (
     if /i not "%TARGET%"=="x64" (
-        echo ERROR: %BIN_DIR%\MyHomeLib.exe missing after build.
+        echo ERROR: %BIN_DIR%\HomeLibRu.exe missing after build.
         exit /b 1
     )
 )
 if /i "%TARGET%"=="x64" (
-    if not exist "%BIN64_DIR%\MyHomeLib.exe" (
-        echo ERROR: %BIN64_DIR%\MyHomeLib.exe missing after build.
+    if not exist "%BIN64_DIR%\HomeLibRu.exe" (
+        echo ERROR: %BIN64_DIR%\HomeLibRu.exe missing after build.
         exit /b 1
     )
 )
 if /i "%TARGET%"=="all" (
-    if not exist "%BIN64_DIR%\MyHomeLib.exe" (
-        echo ERROR: %BIN64_DIR%\MyHomeLib.exe missing after build.
+    if not exist "%BIN64_DIR%\HomeLibRu.exe" (
+        echo ERROR: %BIN64_DIR%\HomeLibRu.exe missing after build.
         exit /b 1
     )
 )
@@ -112,7 +112,12 @@ if errorlevel 1 (
 :: Help and licences (staged from source, not from the build output), URL
 call "%ROOT_DIR%\Program\copy_help.cmd" "%COMMON_DIR%"
 if errorlevel 1 exit /b 1
-copy /y "%BIN_DIR%\MyHomeLib.url" "%COMMON_DIR%\" >nul
+copy /y "%SCRIPT_DIR%HomeLibRu.url" "%COMMON_DIR%\" >nul
+if errorlevel 1 exit /b 1
+copy /y "%ROOT_DIR%\LICENSE" "%COMMON_DIR%\LICENSE" >nul
+if errorlevel 1 exit /b 1
+copy /y "%ROOT_DIR%\NOTICE" "%COMMON_DIR%\NOTICE" >nul
+if errorlevel 1 exit /b 1
 :: Licences live in Licenses\ under version control. They must NOT come from
 :: the build output: that copy is untracked and was stale CP1251 for years,
 :: which is what mangled the licence page in the wizard. Inno 6 needs UTF-8
@@ -220,7 +225,7 @@ if errorlevel 1 (
 echo.
 echo === Done ===
 echo.
-for %%F in ("%SCRIPT_DIR%Out\Setup_MyHomeLib_*.exe") do (
+for %%F in ("%SCRIPT_DIR%Out\Setup_HomeLibRu_*.exe") do (
     echo   Created: %%~nxF
 )
 echo.
@@ -237,4 +242,6 @@ if errorlevel 1 (
     echo ERROR: %~1 build failed!
     exit /b 1
 )
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%\scripts\prepare-runtime.ps1" -Platform %~1 -Copy -Force
+if errorlevel 1 exit /b 1
 exit /b 0

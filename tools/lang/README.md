@@ -35,7 +35,7 @@ Two consequences worth knowing before they bite:
 ## Regenerating the catalogs
 
 ```
-msbuild ... /p:DCC_OutputDRCFile=true      # MyHomeLib.drc must be fresh
+msbuild ... /p:DCC_OutputDRCFile=true      # HomeLibRu.drc must be fresh
 node tools/lang/extract.js
 node tools/lang/check_lang.js
 ```

@@ -1,6 +1,6 @@
 ; ****************************************************************************
 ;
-; InnoSetup script for MyHomeLib (Win32)
+; InnoSetup script for HomeLib Ru (Win32)
 ;
 ; Copyright: ©2008-2026 Oleksiy Penkov (aka Koreec)
 ;
@@ -14,20 +14,21 @@
 
 [Setup]
 #define SourceFolder = '..\Program\Out\Bin\'
-#define AppURL = 'https://github.com/OleksiyPenkov/MyHomeLib'
+#define AppURL = 'https://github.com/Dicur3x/MyHomeLib'
 #define protected Major
 #define protected Minor
 #define protected Revision
 #define protected Build
-#define protected MyAppName = 'MyHomeLib'
-#define protected AppExeName = MyAppName + '.exe'
+#define protected MyAppName = 'HomeLib Ru'
+#define protected AppExeName = 'HomeLibRu.exe'
+#define ReleaseVersion = '2.7.0_pre5.01'
 #define protected FullSourcePath = SourceFolder + AppExeName
 
 #define AppVersion GetVersionComponents(FullSourcePath, Major, Minor, Revision, Build)
 #define protected ShortVersion = Str(Major) +'.' + Str(Minor) +'.' + Str(Revision)
 #define LibFolder = 'x86\'
 
-OutputBaseFilename = {#'Setup_' + MyAppName + '_' + ShortVersion}
+OutputBaseFilename = {#'Setup_HomeLibRu_' + ReleaseVersion}
 
 
 #include "common.iss"

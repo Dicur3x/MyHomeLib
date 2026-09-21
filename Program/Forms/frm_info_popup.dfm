@@ -2,7 +2,7 @@ object frmInfoPopup: TfrmInfoPopup
   Left = 0
   Top = 0
   BorderStyle = bsNone
-  Caption = 'MyHomeLib'
+  Caption = 'HomeLib Ru'
   ClientHeight = 62
   ClientWidth = 294
   Color = clBtnFace

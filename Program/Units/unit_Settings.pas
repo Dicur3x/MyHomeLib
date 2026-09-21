@@ -28,6 +28,7 @@ interface
 uses
   Classes,
   SysUtils,
+  Math,
   Forms,
   Graphics,
   IniFiles,
@@ -1081,16 +1082,18 @@ begin
     // Сначала сплиттеры
     //
     slHelper.DelimitedText := iniFile.ReadString(INTERFACE_SECTION, 'Splitters', '250;250;250;250;250');
-    SetLength(FSplitters, 5);
-    for i := 0 to slHelper.Count - 1 do
+    SetLength(FSplitters, 6);
+    for i := 0 to High(FSplitters) do FSplitters[i] := 250;
+    for i := 0 to Min(slHelper.Count, Length(FSplitters)) - 1 do
       FSplitters[i] := StrToIntDef(slHelper[i], 250);
 
     //
     // режимы таблиц
     //
     slHelper.DelimitedText := iniFile.ReadString(INTERFACE_SECTION, 'TreeModes', '0;1;0;1;0;1');
-    SetLength(FTreeModes, 6);
-    for i := 0 to slHelper.Count - 1 do
+    SetLength(FTreeModes, 7);
+    FTreeModes[6] := tmFlat;
+    for i := 0 to Min(slHelper.Count, Length(FTreeModes)) - 1 do
       case StrToIntDef(slHelper[i], 0) of
         0: FTreeModes[i] := tmTree;
         1: FTreeModes[i] := tmFlat;

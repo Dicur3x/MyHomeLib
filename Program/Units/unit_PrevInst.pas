@@ -25,11 +25,11 @@ uses
   StrUtils,
   SysUtils;
 
-function FirstHinstanceRunning(RunMode: Integer = 0): boolean;
+function FirstHinstanceRunning(RunMode: Integer = 0; const InstanceName: string = ''): boolean;
 
 implementation
 
-function FirstHinstanceRunning(RunMode: Integer = 0): boolean;
+function FirstHinstanceRunning(RunMode: Integer; const InstanceName: string): boolean;
 const
   MemFileSize = 127;
 
@@ -43,6 +43,8 @@ begin
   Result := False;
   lpBaseAddress := nil;
   MemFileName := Application.ExeName;
+  if InstanceName <> '' then
+    MemFileName := ExtractFilePath(MemFileName) + InstanceName;
   case RunMode of
     0: MemFileName := AnsiReplaceText(MemFileName, '\', '/');
     1: MemFileName := ExtractFileName(MemFileName);

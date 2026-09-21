@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Installation — MyHomeLib Help</title>
+<title>Installation — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -91,21 +91,22 @@
 <h1>Installation</h1>
 <!-- BODY:BEGIN -->
 <h2>System requirements</h2>
-<p>MyHomeLib is a Windows application, available as a 32-bit (x86) and a 64-bit (x64) build; choose the installer that matches the architecture of your copy of Windows. The installer itself runs with administrator rights. Everything the program needs in order to work — the SQLite library (<code>sqlite3.dll</code>), the bundled AlReader reader and the genre lists — is placed next to the program by the installer, so there is nothing to install separately.</p>
+<p>HomeLib Ru is a Windows application, available as a 32-bit (x86) and a 64-bit (x64) build; choose the installer that matches the architecture of your copy of Windows. The installer itself runs with administrator rights. Everything the program needs in order to work — the SQLite library (<code>sqlite3.dll</code>), the bundled AlReader reader and the genre lists — is placed next to the program by the installer, so there is nothing to install separately.</p>
 
 <h2>x86 or x64</h2>
-<p>There are two distributions: <code>Setup_MyHomeLib_&lt;version&gt;.exe</code> (32-bit) and <code>Setup_MyHomeLib_&lt;version&gt;_x64.exe</code> (64-bit). The x64 version installs on 64-bit Windows only; the x86 version runs on both 32-bit and 64-bit Windows. In every other respect the two installers are identical — the same default installation folder, the same shortcuts, the same choice of setup wizard language (English, Ukrainian or Bulgarian).</p>
+<p>This fork publishes <code>HomeLibRu.zip</code> (x86) and <code>HomeLibRu_x64.zip</code> (x64) on its <a href="https://github.com/Dicur3x/MyHomeLib/releases">releases page</a>. Extract the entire archive into a clean folder and run <code>HomeLibRu.exe</code>. x64 requires 64-bit Windows; x86 also supports 32-bit Windows. Read <a href="upgrade.html">upgrading</a> before moving an existing profile.</p>
+<p>Optional installers can be built from source as <code>Setup_HomeLibRu_&lt;version&gt;.exe</code> and <code>Setup_HomeLibRu_&lt;version&gt;_x64.exe</code>. The sections below describe those installers, not ZIP extraction.</p>
 
 <h2>What the installer writes to the program folder, and what to %APPDATA%\MyHomeLib</h2>
-<p>By default the program is installed into the standard Program Files folder — <code>Program Files\MyHomeLib</code> for the x64 version, or <code>Program Files (x86)\MyHomeLib</code> for the x86 version on 64-bit Windows. There the installer puts the executable <code>MyHomeLib.exe</code>, the <code>sqlite3.dll</code> library, the bundled AlReader reader, the format converters (where a particular build includes them), the genre lists, the help file, the license text and a shortcut to the project website.</p>
+<p>By default the program is installed into the standard Program Files folder — <code>Program Files\MyHomeLib</code> for the x64 version, or <code>Program Files (x86)\MyHomeLib</code> for the x86 version on 64-bit Windows. There the installer puts the executable <code>HomeLibRu.exe</code>, the <code>sqlite3.dll</code> library, the bundled AlReader reader, the format converters (where a particular build includes them), the genre lists, the help file, the license text and a shortcut to the project website.</p>
 <p>Separately, the installer creates the <code>%APPDATA%\MyHomeLib</code> folder (writable by any Windows user) and puts a single file there — <code>collections.ini</code>, the list of sources for updating online libraries — and only when no such file is there yet. Everything else in that folder — the settings, the system database (<code>Data\user.dbs2</code>, see <a href="terms.html">Key terms</a>) and the working logs — is created by the program itself on its first and later runs, not by the installer; there is more about this in <a href="faq.html">FAQ</a>.</p>
 
 <h2>Start menu shortcuts</h2>
-<p>The installer creates a program group with a shortcut that starts <span class="ui">MyHomeLib</span>, a shortcut that opens the help file (the installer writes its caption, <span class="ui">MyHomeLib Help</span>, in Ukrainian whichever wizard language you choose), a <span class="ui">MyHomeLib website</span> link to the project home page, and an entry that uninstalls the program. Tick the corresponding checkbox during installation and a desktop shortcut is created as well. The setup wizard also lets you skip creating a Start menu folder altogether.</p>
+<p>The installer creates a program group with a shortcut that starts <span class="ui">HomeLib Ru</span>, a shortcut that opens the help file (the installer writes its caption, <span class="ui">HomeLib Ru Help</span>, in Ukrainian whichever wizard language you choose), a <span class="ui">HomeLib Ru website</span> link to the project home page, and an entry that uninstalls the program. Tick the corresponding checkbox during installation and a desktop shortcut is created as well. The setup wizard also lets you skip creating a Start menu folder altogether.</p>
 
 <h2>Uninstalling</h2>
-<p>You can remove MyHomeLib either through the uninstall shortcut in the Start menu program group or through the standard Windows list of installed programs — both run the same uninstaller.</p>
-<p class="note">The uninstaller removes not only the files in the program folder but the whole <code>%APPDATA%\MyHomeLib</code> folder as well, including the <code>Data</code> subfolder that holds the system database <code>user.dbs2</code>. Uninstalling the program therefore destroys the list of connected collections, the groups (Favorites among them), and the ratings and notes attached to books. If you want to keep that data, copy the <code>%APPDATA%\MyHomeLib</code> folder somewhere else before you uninstall.</p>
+<p>You can remove HomeLib Ru either through the uninstall shortcut in the Start menu program group or through the standard Windows list of installed programs — both run the same uninstaller.</p>
+<p class="note">The new uninstaller preserves <code>%APPDATA%\MyHomeLib</code> and its <code>Data</code> folder. Collections, groups and personal settings are not automatically deleted. Back up before uninstalling an older release: its old uninstaller may remove the profile.</p>
 <p>The collections themselves — the book files and the <code>.hlc2</code> database file — are touched by neither the installer nor the uninstaller: they stay where you put them when you created or connected the collection (see <a href="coll_params.html">Collection properties</a>), so uninstalling the program does not affect them.</p>
 <!-- BODY:END -->
 </main>

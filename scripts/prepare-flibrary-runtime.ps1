@@ -78,7 +78,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $outputDirectory = Join-Path $repositoryRoot $outputSubdirectory
 if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
-    throw "Build MyHomeLib first; output folder not found: '$outputDirectory'."
+    throw "Build HomeLib Ru first; output folder not found: '$outputDirectory'."
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('mhl-runtime-' + [Guid]::NewGuid().ToString('N'))

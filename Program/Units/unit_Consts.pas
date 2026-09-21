@@ -129,8 +129,8 @@ const
   PAGE_GENRES = 2;      // жанры
   PAGE_SEARCH = 3;      // поиск
   PAGE_FAVORITES = 4;   // группы
-  /// REMOVE PAGE_FILTER = 5;      // фильтр
-  PAGE_DOWNLOAD = 6;    // фильтр
+  PAGE_DOWNLOAD = 5;    // загрузки
+  PAGE_PUBLISHER_SERIES = 6; // logical book-view ID; existing saved IDs stay unchanged
 
   PAGE_ALL = 99;        // все вкладки
 
@@ -177,6 +177,7 @@ const
   SECTION_A_FLAT = 'COLUMNS_AUTHOR_FLAT';
 
   SECTION_S_FLAT = 'COLUMNS_SERIES_FLAT';
+  SECTION_PUBLISHER_S_FLAT = 'PublisherSeriesFlat';
   SECTION_S_TREE = 'COLUMNS_SERIES_TREE';
 
   SECTION_G_FLAT = 'COLUMNS_GENRES_FLAT';
@@ -322,6 +323,9 @@ const
   // were filled from the same file. Empty on collections created before this
   // property existed.
   PROP_GENRE_FILE         = PROP_CLASS_COLLECTION or PROP_TYPE_STRING   or $0016;
+  PROP_LAST_PUBLISHER_SERIES = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0017;
+  PROP_LAST_PUBLISHER_BOOK = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0018;
+  PROP_PUBLISHER_LANG_FILTER = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0019;
 type
   TColumnSet = set of 0 .. 255;
 

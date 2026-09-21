@@ -124,6 +124,33 @@ function Copy-CheckedFile {
     Write-Host "[COPIED] $destinationPath"
 }
 
+function Assert-HomeLibBrand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InternalName
+    )
+
+    $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+    $expected = @{
+        ProductName = 'HomeLib Ru'
+        InternalName = $InternalName
+        OriginalFilename = [System.IO.Path]::GetFileName($Path)
+        LegalCopyright = 'Copyright (c) 2008-2026 Oleksiy Penkov'
+    }
+    foreach ($field in $expected.Keys) {
+        if ($info.$field -cne $expected[$field]) {
+            throw "Invalid $field in '$Path': expected '$($expected[$field])', got '$($info.$field)'. Rebuild this project."
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($info.LegalTrademarks)) {
+        throw "Unexpected LegalTrademarks in '$Path': '$($info.LegalTrademarks)'."
+    }
+    Write-Host "[OK] HomeLib Ru product metadata: $Path"
+}
+
 function Write-FileHash {
     param(
         [Parameter(Mandatory = $true)]
@@ -136,6 +163,27 @@ function Write-FileHash {
     }
 }
 
+function Get-HelpManifest {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return }
+    $rootItem = Get-Item -LiteralPath $Root -Force
+    if ($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "Help directory must not be a link: $Root"
+    }
+    $prefix = $rootItem.FullName.TrimEnd('\') + '\'
+    foreach ($item in Get-ChildItem -LiteralPath $Root -Recurse -Force | Sort-Object FullName) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "Help must not contain links: $($item.FullName)"
+        }
+        if (-not $item.PSIsContainer) {
+            $relative = $item.FullName.Substring($prefix.Length).ToLowerInvariant()
+            $hash = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+            "$relative`t$hash"
+        }
+    }
+}
+
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
 if ($Force -and (-not $Copy)) {
@@ -145,7 +193,7 @@ if ($Force -and (-not $Copy)) {
 $programDirectory = Join-Path $repositoryRoot 'Program'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Out\Bin' } else { 'Out\Bin64' }
 $outputDirectory = Join-Path $programDirectory $outputSubdirectory
-$exePath = Join-Path $outputDirectory 'MyHomeLib.exe'
+$exePath = Join-Path $outputDirectory 'HomeLibRu.exe'
 $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
 $zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
 $sevenZipDestination = Join-Path $outputDirectory 'tools\7zip\7za.exe'
@@ -158,6 +206,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1068'
 if ($exeInfo.Length -eq 0) {
     throw "EXE имеет нулевой размер и не является успешной сборкой: $exePath"
 }
@@ -180,7 +229,40 @@ else {
     }
 }
 
+foreach ($licenseName in @('LICENSE', 'NOTICE')) {
+    Copy-CheckedFile -Source (Join-Path $repositoryRoot $licenseName) `
+        -Destination (Join-Path $outputDirectory $licenseName)
+}
+
+$helpSource = Join-Path $programDirectory 'Help'
+$helpDestination = Join-Path $outputDirectory 'Help'
+$sourceHelpManifest = @(Get-HelpManifest -Root $helpSource)
+if ($sourceHelpManifest.Count -eq 0) {
+    throw "Help source is empty or missing: $helpSource"
+}
+$runtimeHelpManifest = @(Get-HelpManifest -Root $helpDestination)
+if (@(Compare-Object $sourceHelpManifest $runtimeHelpManifest).Count -gt 0) {
+    if ((-not $Copy) -or (($runtimeHelpManifest.Count -gt 0) -and (-not $Force))) {
+        throw 'Runtime Help differs from Program/Help. Refresh it with -Copy -Force before packaging.'
+    }
+    # copy_help.cmd mirrors the tree. Its destination must be this platform's
+    # generated runtime directory, never a profile or caller-supplied folder.
+    $expectedOutput = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot ('Program\' + $outputSubdirectory)))
+    if ([System.IO.Path]::GetFullPath($outputDirectory) -ine $expectedOutput) {
+        throw "Refusing to mirror Help outside the runtime directory: $outputDirectory"
+    }
+    & (Join-Path $programDirectory 'copy_help.cmd') $outputDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'copy_help.cmd failed.' }
+    $runtimeHelpManifest = @(Get-HelpManifest -Root $helpDestination)
+    if (@(Compare-Object $sourceHelpManifest $runtimeHelpManifest).Count -gt 0) {
+        throw 'Runtime Help does not match Program/Help after copying.'
+    }
+}
+Write-Host "[OK] Help source manifest and SHA-256 match ($($sourceHelpManifest.Count) files)."
+
 $requiredRuntimeFiles = @(
+    (Join-Path $outputDirectory 'LICENSE'),
+    (Join-Path $outputDirectory 'NOTICE'),
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
@@ -203,13 +285,15 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
+Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
+Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
 Assert-Architecture -Path $zstdDestination -Expected $Platform
 Assert-Architecture -Path $sevenZipDestination -Expected $Platform
 # The official static djxl build must match the package architecture so the
 # Win32 distribution also restores JPEG XL images on 32-bit Windows.
 Assert-Architecture -Path $jpegXlDestination -Expected $Platform
 # AlReader is distributed as one Win32 portable executable for both packages;
-# SumatraPDF must match the MyHomeLib package architecture.
+# SumatraPDF must match the HomeLib Ru package architecture.
 Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
 Assert-Architecture -Path $sumatraDestination -Expected $Platform
 

@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCP server for AI assistants — MyHomeLib Help</title>
+<title>MCP server for AI assistants — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -93,7 +93,7 @@
 <h2>What it is</h2>
 <p>A separate executable, <code>MHLMcpServer.exe</code>, is installed together with the program: an MCP server that opens your library to AI assistants. MCP (Model Context Protocol) is an agreed way for such assistants to reach external data. Connect the server to an assistant and you can ask about your own collection in plain language: find the books of a particular author, recall what a series consists of, summarize a book or find a passage in it.</p>
 <p>The server has no window of its own and does not sit running in the background: the assistant starts it when it needs data and closes it when the conversation is over. There is no point in starting <code>MHLMcpServer.exe</code> yourself by double-clicking it — without an assistant it simply waits for commands and shows nothing.</p>
-<p>The server works with the same collections and the same system database as MyHomeLib itself, and sees them in the same way — there are no paths to configure and no collection to choose.</p>
+<p>The server works with the same collections and the same system database as HomeLib Ru itself, and sees them in the same way — there are no paths to configure and no collection to choose.</p>
 
 <h2>What the server can do</h2>
 <p>Catalog work: list the collections, authors, series and genres you have; find books by title, author, series, genre, language, keyword, annotation or rating; and show the full description of a single book, exactly as the info panel in the main window shows it.</p>
@@ -110,12 +110,12 @@
     }
   }
 }</code></pre>
-<p>The path has to point at the folder MyHomeLib is installed in. The one above is the usual one for the 64-bit version; if you chose a different folder during installation, or installed the 32-bit version, substitute your own path. Note the doubled backslashes: that is how a path is written in JSON.</p>
+<p>The path has to point at the folder HomeLib Ru is installed in. The one above is the usual one for the 64-bit version; if you chose a different folder during installation, or installed the 32-bit version, substitute your own path. Note the doubled backslashes: that is how a path is written in JSON.</p>
 <p>The server has no command-line parameters, switches or settings of its own — it works everything else out for itself. Where the <code>.mcp.json</code> file lives and how to make the assistant re-read it are covered in your assistant's own documentation.</p>
 
 <h2>The server only reads</h2>
 <p>The server works strictly read-only: it changes neither the databases nor the book files, and it adds, deletes and edits nothing. Whatever you ask the assistant for, the collection stays exactly as it was, so it is safe to connect the server even to a large and carefully curated library.</p>
-<p>MyHomeLib itself is not needed for this: the server reads the collections with the program closed as well. You do not have to keep the main window open for the assistant to answer questions.</p>
+<p>HomeLib Ru itself is not needed for this: the server reads the collections with the program closed as well. You do not have to keep the main window open for the assistant to answer questions.</p>
 
 <h2>Limitations</h2>
 <p>The table of contents, the text and the search inside a book are available only for books in FB2 format. For books in other formats the server reports that the format is not supported; catalog information (author, series, genre, annotation) is available for every book whatever its format.</p>

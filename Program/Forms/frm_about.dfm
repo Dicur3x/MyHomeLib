@@ -42,7 +42,7 @@ object frmAbout: TfrmAbout
       Height = 29
       Align = alTop
       Alignment = taCenter
-      Caption = 'MyHomeLib'
+      Caption = 'HomeLib Ru'
       Font.Charset = DEFAULT_CHARSET
       Font.Color = clBlue
       Font.Height = -24
@@ -115,7 +115,7 @@ object frmAbout: TfrmAbout
       Height = 39
       Align = alTop
       Alignment = taCenter
-      Caption = #1040#1083#1077#1082#1089#1077#1081' '#1055#1077#1085#1100#1082#1086#1074#13#1053#1080#1082#1086#1083#1072#1081' '#1056#1099#1084#1072#1085#1086#1074#13#10'eg'
+      Caption = 'Oleksiy Penkov'#13#1053#1080#1082#1086#1083#1072#1081' '#1056#1099#1084#1072#1085#1086#1074#13#10'eg'
       ExplicitWidth = 90
     end
     object Label2: TLabel

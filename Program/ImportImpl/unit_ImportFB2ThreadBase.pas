@@ -125,6 +125,7 @@ Settings.ImportPath
 
 uses
   unit_Helpers,
+  unit_FB2Utils,
   dm_user;
 
 resourcestring
@@ -164,7 +165,14 @@ end;
 procedure TImportFB2ThreadBase.GetBookInfo(book: IXMLFictionBook; var R: TBookRecord);
 var
   i: Integer;
+  PublisherSequence: TFB2PublisherSeriesItem;
 begin
+  R.PublisherSeries := nil;
+  for PublisherSequence in GetBookPublisherSeriesData(book) do
+    TSeriesHelper.Add(R.PublisherSeries, 0, PublisherSequence.Title,
+      PublisherSequence.Number, False);
+  R.PublisherSeriesKnown := True;
+
   //
   // TODO : создать в unit_FB2Utils ф-ию для получения инф-ии о книге из файла и заменить этот метод
   //

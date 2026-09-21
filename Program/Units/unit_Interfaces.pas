@@ -180,6 +180,7 @@ type
     function GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator;
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
+    function GetPublisherSeriesIterator(const FilterText: string = ''): ISeriesIterator;
     function GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
 
@@ -196,6 +197,8 @@ type
       const FullCheck: Boolean; Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean);
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
+    procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     //

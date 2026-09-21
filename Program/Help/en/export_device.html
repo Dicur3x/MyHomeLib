@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sending books to a device — MyHomeLib Help</title>
+<title>Sending books to a device — HomeLib Ru Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">MyHomeLib Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About MyHomeLib</a></li>
+<li><a href="about.html">About HomeLib Ru</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -93,13 +93,13 @@
 <p>The <span class="ui">Send to device</span> command (from the Book menu, or <kbd>Ctrl</kbd>+<kbd>D</kbd> in the book list context menu; see <a href="menu_book.html">Book menu</a> and <a href="context_menus.html">Context menus</a>) copies the checked books into the device folder, converting them to the required format if necessary. The device itself and the format are configured beforehand in <a href="set_device.html">Devices and export</a>.</p>
 
 <h2>Where the books are written</h2>
-<p>The destination folder is either the one already configured as the default or, if the settings ask for the path every time, one you pick in a dialog immediately before the send; the choices there can include MTP devices (a phone or a reader connected as a portable device rather than as a drive). If any of the checked books belong to an online collection and have not been downloaded yet, MyHomeLib downloads them first — exactly as it does when you open them for reading; see <a href="reading.html">Reading books</a>.</p>
+<p>The destination folder is either the one already configured as the default or, if the settings ask for the path every time, one you pick in a dialog immediately before the send; the choices there can include MTP devices (a phone or a reader connected as a portable device rather than as a drive). If any of the checked books belong to an online collection and have not been downloaded yet, HomeLib Ru downloads them first — exactly as it does when you open them for reading; see <a href="reading.html">Reading books</a>.</p>
 
 <h2>Conversion</h2>
-<p>MyHomeLib handles the FB2, FB2.ZIP and TXT formats on its own. LRF, EPUB, PDF and MOBI need separate converters, which ship alongside the program in the <code>converters\…</code> subfolders (not every build includes them); if the converter you need is not on disk, MyHomeLib checks for that up front, before any copying starts, and reports the missing converter instead of silently writing nothing.</p>
+<p>HomeLib Ru handles the FB2, FB2.ZIP and TXT formats on its own. LRF, EPUB, PDF and MOBI need separate converters, which ship alongside the program in the <code>converters\…</code> subfolders (not every build includes them); if the converter you need is not on disk, HomeLib Ru checks for that up front, before any copying starts, and reports the missing converter instead of silently writing nothing.</p>
 
 <h2>File and folder names</h2>
-<p>The file name and the subfolder inside the device folder are built from templates with substitutions such as <code>%f</code> (author), <code>%t</code> (title), <code>%s</code> (series), <code>%n</code> (number in the series) and <code>%g</code> (genre) — the percent sign goes in front only, with no closing "%". This is the same template mechanism used to sort files during import (see <a href="import_fb2.html">Importing FB2 books</a>). Part of a template can be enclosed in square brackets — only one macro is allowed inside the brackets, and the whole fragment appears in the file name only if that macro's value is not empty (for example, the default file template <code>[%n - ]%t</code> puts the number and a "-" separator in front of the title only when the book has a number in its series; otherwise the title alone remains). The templates themselves are edited in <a href="set_device.html">Devices and export</a>, where you will also find the full list of substitutions. If a file of the same name already exists on the device, MyHomeLib does not overwrite it but appends "(1)", "(2)" and so on to the name.</p>
+<p>The file name and the subfolder inside the device folder are built from templates with substitutions such as <code>%f</code> (author), <code>%t</code> (title), <code>%s</code> (series), <code>%n</code> (number in the series) and <code>%g</code> (genre) — the percent sign goes in front only, with no closing "%". This is the same template mechanism used to sort files during import (see <a href="import_fb2.html">Importing FB2 books</a>). Part of a template can be enclosed in square brackets — only one macro is allowed inside the brackets, and the whole fragment appears in the file name only if that macro's value is not empty (for example, the default file template <code>[%n - ]%t</code> puts the number and a "-" separator in front of the title only when the book has a number in its series; otherwise the title alone remains). The templates themselves are edited in <a href="set_device.html">Devices and export</a>, where you will also find the full list of substitutions. If a file of the same name already exists on the device, HomeLib Ru does not overwrite it but appends "(1)", "(2)" and so on to the name.</p>
 
 <h2>What the progress window shows</h2>
 <p>While the copying runs you see a counter reading "Files written: N of M". If some file could not be processed, you are asked whether to carry on with the remaining files, and whether to remember that answer for the rest of the current send (so you are not asked again on every subsequent failure).</p>

@@ -1,4 +1,4 @@
-# MyHomeLib
+# HomeLib Ru
 
 [Русский](README.md) · [Українська](README.uk.md) · **English** · [Български](README.bg.md)
 
@@ -9,11 +9,24 @@ Manage your home e-book library: catalogue your own collection of book files, an
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-lightgrey.svg)](#installation)
 [![Built with Delphi](https://img.shields.io/badge/built%20with-Delphi%2013-red.svg)](#building-from-source)
 
+## Current release work
+
+The owner has approved **HomeLib Ru** as the name of this fork of
+[MyHomeLib by Oleksiy Penkov](https://github.com/OleksiyPenkov/MyHomeLib).
+The repository remains [Dicur3x/MyHomeLib](https://github.com/Dicur3x/MyHomeLib).
+The planned release is **HomeLib Ru 2.7.0_pre5.01**, executable `HomeLibRu.exe`
+version `2.7.0.1068`, with `HomeLibRu.zip` (x86) and `HomeLibRu_x64.zip` (x64).
+As of 21 September 2026, x86/x64 builds and interface checks have passed;
+the final MCP regression after the schema fix has passed. Both final ZIP packages
+have been verified; clean-extraction launch checks are in progress before publication.
+This release has not been published. The last published release is
+`2.7.0_pre2.02`, under its historical name. See [`ROADMAP.md`](ROADMAP.md).
+
 ## What it is
 
-MyHomeLib is a Windows desktop application for cataloguing a collection of e-book files. Books are organised by author, series and genre, searchable by an arbitrary set of conditions, and open in whichever reader application you configure.
+HomeLib Ru is a Windows desktop application for cataloguing a collection of e-book files. Books are organised by author, series and genre, searchable by an arbitrary set of conditions, and open in whichever reader application you configure.
 
-Beyond your own collections, MyHomeLib works as a client for libraries running the Librusec engine — Flibusta and similar sites. Such a library's catalogue is attached from an INPX file, after which you browse and search it locally and download from the server only the books you actually want.
+Beyond your own collections, HomeLib Ru works as a client for libraries running the Librusec engine — Flibusta and similar sites. Such a library's catalogue is attached from an INPX file, after which you browse and search it locally and download from the server only the books you actually want.
 
 Books are stored as FB2 (loose files or zip archives), FBD, or any other format; collection metadata lives in a SQLite database.
 
@@ -42,7 +55,7 @@ Books are stored as FB2 (loose files or zip archives), FBD, or any other format;
 
 **AI assistants**
 
-- An MCP server (`MHLMcpServer.exe`) installs alongside the application and exposes the collection to assistants such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. Read-only, and it does not need MyHomeLib to be running. Setup is covered in the help under “MCP server for AI assistants”.
+- An MCP server (`MHLMcpServer.exe`) installs alongside the application and exposes the collection to assistants such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. Read-only, and it does not need HomeLib Ru to be running. Setup is covered in the help under “MCP server for AI assistants”.
 
 ## Interface language
 
@@ -52,15 +65,26 @@ The genre tree follows the interface language too. Existing collections update t
 
 **The Bulgarian translation is machine-made** and has not been reviewed by a native speaker; the language menu says so. If a string reads wrong, please open an [issue](https://github.com/Dicur3x/MyHomeLib/issues) quoting it with a suggested replacement.
 
-Additional languages load from translation catalogues placed next to the application (`Lang\<code>.json`). Only catalogues signed with the project key are loaded — an unsigned file is ignored and never appears in the menu. If you would like to translate the interface into your language, open an [issue](https://github.com/Dicur3x/MyHomeLib/issues): a finished translation is signed and returned to you together with its signature file.
+Additional languages load from translation catalogues placed next to the application (`Lang\<code>.json`). These external files require a signature; unsigned files are ignored and do not appear in the menu. This requirement does not apply to the fork's bundled resources. Translation proposals are welcome in [Issues](https://github.com/Dicur3x/MyHomeLib/issues).
 
 ## Installation
 
-Prebuilt installers for 64- and 32-bit Windows are published on the [Releases](https://github.com/Dicur3x/MyHomeLib/releases) page. If the file you need is not there, you can build the installer yourself — see `Installer/build_installer.cmd` (requires [Inno Setup](https://jrsoftware.org/isinfo.php)).
+Portable builds for 64- and 32-bit Windows are published on the [Releases](https://github.com/Dicur3x/MyHomeLib/releases) page. You can also build an installer with `Installer/build_installer.cmd` (requires [Inno Setup](https://jrsoftware.org/isinfo.php)).
 
 Requirements: Windows 10 or newer. Disk space is driven mostly by the size of your book collections rather than by the application itself.
 
-Portable mode is supported: if a `myhomelib2.ini` sits next to the executable, settings are read from it instead of `%APPDATA%`, so the application and its collection can travel together on removable media.
+For portable mode, place an empty file named `uselocaldata` without an extension
+next to the executable, or launch with the `uselocaldata` argument. Settings
+and `Data` are then read beside the EXE instead of `%APPDATA%\MyHomeLib`.
+A `myhomelib2.ini` beside the EXE alone does not select portable mode.
+
+When upgrading from MyHomeLib, close it and back up `%APPDATA%\MyHomeLib`
+and any separately stored `.hlc2` collections. Extract the new ZIP into a
+clean folder and run `HomeLibRu.exe`; it reuses the existing normal profile.
+For portable mode, copy `uselocaldata`, your backed-up `myhomelib2.ini`,
+`Data` and `presets.cxml2`, then check the collection paths. Keep the old folder until you have
+verified the new version. Do not extract over it: that leaves an obsolete
+`MyHomeLib.exe` which can be launched accidentally.
 
 ## Quick start
 
@@ -77,33 +101,32 @@ The full help (55 pages, in Russian, Ukrainian, English and Bulgarian) ships wit
 
 ## Building from source
 
-**Prerequisites:**
+See [`BUILDING.md`](BUILDING.md) for current instructions. Delphi 13 (Studio
+37.0), VCL, VirtualTreeView and the matching SQLite DLL are required.
+Konopka/Raize components are no longer required. Node.js is used for
+translation resources and test runners.
 
-- Delphi 13 (RAD Studio 37.0);
-- [VirtualTreeView](https://github.com/JAM-Software/Virtual-TreeView) (install via GetIt);
-- Konopka Signature VCL Controls (`BonusKSVC` 8.0.2, also via GetIt);
-- `C:\Windows\System32` on `PATH` — the post-build event calls `robocopy`, and without it the build fails at `copy_help.cmd`;
-- [Node.js](https://nodejs.org/) — optional. The pre-build event runs `Program\embed_lang.cmd`, which embeds the translation catalogues into the executable. Without Node.js the build still succeeds, but you get a Russian-only application.
+With Delphi Trial, build the icon DLL, `Program\MyhomeLib.dproj` and
+`Utils\MHLMcpServer\MHLMcpServer.dproj` separately in the IDE, first in
+Release/Win64 and then Release/Win32. Trial does not support command-line
+compilation. A full licence can use the separate MSBuild commands in
+`BUILDING.md`.
 
-The translation catalogues (`Program/Lang/`) are not part of this repository. Without them the build succeeds and produces a Russian-only application; see [`tools/lang/README.md`](tools/lang/README.md) for how to obtain them.
+The new application executable is `HomeLibRu.exe`; `MyhomeLib.dproj` now
+uses `HomeLibRu.dpr` as its main source. Prepare the complete `Program\Out\Bin64` and
+`Program\Out\Bin` folders using the documented scripts, including readers,
+archive/image tools and their licences. Include unchanged `LICENSE` and
+`NOTICE` in each package.
 
-**Build through the group project only** — `Program\MHL.groupproj` builds the component package, the icon DLL, the main application and the MCP server in the right order:
-
-```
-cmd.exe /c "set BDS=C:\Program Files (x86)\Embarcadero\Studio\37.0&& set BDSCOMMONDIR=C:\Users\Public\Documents\Embarcadero\Studio\37.0&& C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe Program\MHL.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /nologo /v:minimal"
-```
-
-Swap `/p:Platform=Win64` for `/p:Platform=Win32` for the 32-bit build. Win64 is the primary target — build it first, but both must pass before a release.
-
-> **Never run msbuild on `Program\MyhomeLib.dproj` directly.** It re-serialises the project file and moves the `CodeGear.Delphi.Targets` import above the config property groups, after which *every* subsequent build — the group build included — fails with `F2613 Unit 'SysUtils' not found`. The group project does not rewrite the file.
-
-**Build output:** `Program/OUT/Bin64/` and `Program/OUT/BIN/` (executables), `Program/OUT/Units/` (DCUs). The post-build event stages the help folder and `Resources\Icons\<platform>\MHLIcons.dll` next to the exe — every icon is loaded from that DLL at runtime.
+Russian is compiled into the source. Bundled translation resources do not
+require a private signing key in this fork; signature checks still apply to
+additional catalogues loaded from files.
 
 ## Repository layout
 
 ```
 Program/
-  MyHomeLib.dpr        main project
+  HomeLibRu.dpr        main project
   MHL.groupproj        group project (components + icons + app + MCP server)
   Forms/               VCL forms (frm_*.pas); Forms/Editors/ holds the editor dialogs
   DataModules/         dm_user.pas — global data module (settings, system DB)
@@ -124,7 +147,7 @@ tools/                 development helper scripts (help, translation catalogues)
 
 ## Utilities
 
-- **`Utils/MHLMcpServer`** — a read-only MCP (Model Context Protocol) server that exposes a MyHomeLib collection to clients such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. It links the same DAO layer as the application, so it sees exactly the same collections. Unlike the other utilities it ships in the installer, next to `MyHomeLib.exe`. The user-facing description is in the help ([`mcp_server.html`](Program/Help/mcp_server.html)); the technical one is in [`Utils/MHLMcpServer/README.md`](Utils/MHLMcpServer/README.md).
+- **`Utils/MHLMcpServer`** — a read-only MCP (Model Context Protocol) server that exposes a HomeLib Ru collection to clients such as Claude: search books, browse authors, series and genres, read a book's table of contents and text, search inside a book. It links the same DAO layer as the application, so it sees exactly the same collections. Unlike the other utilities it ships in the installer, next to `HomeLibRu.exe`. The user-facing description is in the help ([`mcp_server.html`](Program/Help/mcp_server.html)); the technical one is in [`Utils/MHLMcpServer/README.md`](Utils/MHLMcpServer/README.md).
 - **`Utils/MHLSQLiteConsole`** — a standalone SQLite console for working with collection databases directly.
 - **`Utils/MHLSQLiteExt`** — a C++ SQLite extension providing the custom functions the application uses.
 
@@ -132,9 +155,13 @@ tools/                 development helper scripts (help, translation catalogues)
 
 MIT — see [LICENSE](LICENSE). © 2008–2026 Oleksiy Penkov.
 
+The licence covers the code, not the name. A fork that distributes binaries must release them under its own name — see [NOTICE](NOTICE).
+
 ## Credits
 
 Programming: Oleksiy Penkov, Nikolay Rymanov, eg.
+
+Development of HomeLib Ru: Dicur3x.
 
 Testing: eg, Evgeniy_V, albert, AlbanSpy, kaznelson, Olega.
 

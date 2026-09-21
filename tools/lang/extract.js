@@ -15,8 +15,8 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const DRC_PATH = path.join(REPO_ROOT, 'Program', 'OUT', 'Bin64', 'MyHomeLib.drc');
-const EXE_PATH = path.join(REPO_ROOT, 'Program', 'OUT', 'Bin64', 'MyHomeLib.exe');
+const DRC_PATH = path.join(REPO_ROOT, 'Program', 'OUT', 'Bin64', 'HomeLibRu.drc');
+const EXE_PATH = path.join(REPO_ROOT, 'Program', 'OUT', 'Bin64', 'HomeLibRu.exe');
 const PROGRAM_DIR = path.join(REPO_ROOT, 'Program');
 const LANG_DIR = path.join(REPO_ROOT, 'Program', 'Lang');
 const ALLOWLIST_PATH = path.join(__dirname, 'vcl_allowlist.json');
@@ -112,14 +112,14 @@ function checkDrcFreshness() {
   const exeTime = fs.statSync(EXE_PATH).mtimeMs;
   if (drcTime + STALE_TOLERANCE_MS < exeTime) {
     fail(
-      'MyHomeLib.drc is stale or missing. Rebuild with:\n' +
+      'HomeLibRu.drc is stale or missing. Rebuild with:\n' +
       '  msbuild Program\\MHL.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
     );
   }
   const newestPas = findNewestPas(PROGRAM_DIR);
   if (newestPas && drcTime + STALE_TOLERANCE_MS < newestPas.mtime) {
     fail(
-      `MyHomeLib.drc is stale: ${newestPas.file} was modified more recently ` +
+      `HomeLibRu.drc is stale: ${newestPas.file} was modified more recently ` +
       'than the .drc, so the .drc cannot reflect its current resourcestrings. Rebuild with:\n' +
       '  msbuild Program\\MHL.groupproj /t:Build /p:Config=Release /p:Platform=Win64 /p:DCC_OutputDRCFile=true'
     );

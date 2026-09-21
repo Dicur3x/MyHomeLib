@@ -32,6 +32,9 @@ if (summary) {
   check('system db exists', fs.existsSync(summary.db), summary.db);
   check('collection root exists', fs.existsSync(summary.root), summary.root);
   check('books is an array', Array.isArray(summary.books), typeof summary.books);
+  check('private collection browser filters passed', summary.browser_filters_checked === true);
+  check('publisher series migration and storage passed', summary.publisher_series_checked === true);
+  check('publisher indexer cancellation and descriptor errors passed', summary.publisher_indexer_checked === true);
 }
 
 if (summary && Array.isArray(summary.books)) {
