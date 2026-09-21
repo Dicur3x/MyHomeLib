@@ -48,6 +48,12 @@ type
   IGroupIterator = IIterator<TGroupData>;
   ICollectionInfoIterator = IIterator<TCollectionInfo>;
 
+  IPublisherSeriesIndexIterator = interface
+    // Book contains source fields only, without authors, genres or memo data.
+    function Next(out Book: TBookRecord; out IndexedSourceKey: string): Boolean;
+    function RecordCount: Integer;
+  end;
+
   TGUIUpdateExtraProc = reference to procedure(
     const BookKey: TBookKey;
     extra: TBookExtra
@@ -181,6 +187,7 @@ type
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
     function GetPublisherSeriesIterator(const FilterText: string = ''): ISeriesIterator;
+    function GetPublisherSeriesIndexIterator: IPublisherSeriesIndexIterator;
     function GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
 
@@ -199,6 +206,9 @@ type
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
+    // Atomically store complete metadata (including empty) and its source key.
+    procedure CompletePublisherSeriesIndex(const BookKey: TBookKey;
+      const Series: TBookSeries; const SourceKey: string);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     //

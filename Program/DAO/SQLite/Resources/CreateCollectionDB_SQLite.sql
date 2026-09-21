@@ -26,6 +26,9 @@ DROP TABLE IF EXISTS Settings;
 
 -- Book IDs restart when the collection is recreated. Derived publisher
 -- metadata must not survive and attach itself to unrelated replacement books.
+DROP TABLE IF EXISTS PublisherSeries_Index;
+--@@
+
 DROP TABLE IF EXISTS PublisherSeries_List;
 --@@
 

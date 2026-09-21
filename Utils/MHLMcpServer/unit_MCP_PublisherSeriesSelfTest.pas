@@ -27,6 +27,103 @@ begin
     raise Exception.Create('Publisher series: ' + Message);
 end;
 
+function IndexedSourceKey(const Collection: IBookCollection;
+  const BookID: Integer): string;
+var
+  Iterator: IPublisherSeriesIndexIterator;
+  Book: TBookRecord;
+begin
+  Iterator := Collection.GetPublisherSeriesIndexIterator;
+  while Iterator.Next(Book, Result) do
+    if Book.BookKey.BookID = BookID then Exit;
+  raise Exception.Create('Publisher index fixture book not found');
+end;
+
+procedure CheckPublisherIndexAtomicity(const SystemData: ISystemData;
+  const FileName: string; var Collection: IBookCollection; const Key: TBookKey;
+  const Series: TBookSeries);
+var
+  Database: TSQLiteDatabase;
+  Failed: Boolean;
+begin
+  // Upgrade an existing publisher-series database without rebuilding its data.
+  Collection := nil;
+  Database := TSQLiteDatabase.Create(FileName);
+  try
+    Database.ExecSQL('DROP TRIGGER TRBooks_BD_PublisherSeriesIndex');
+    Database.ExecSQL('DROP TABLE PublisherSeries_Index');
+  finally
+    Database.Free;
+  end;
+  Collection := TBookCollection_SQLite.CreateTemp(FileName, SystemData);
+  Require(Length(Collection.GetBookPublisherSeries(Key)) = 1,
+    'adding the index cache changed existing publisher series');
+  Require(IndexedSourceKey(Collection, Key.BookID) = '',
+    'new cache invented a successful source');
+  Collection.CompletePublisherSeriesIndex(Key, Series, 'original-source');
+  Collection := nil;
+  Collection := TBookCollection_SQLite.CreateTemp(FileName, SystemData);
+  Require(IndexedSourceKey(Collection, Key.BookID) = 'original-source',
+    'successful source did not survive reopening');
+
+  Collection.BeginBulkOperation;
+  try
+    Collection.CompletePublisherSeriesIndex(Key, nil, 'empty-source');
+    Require((IndexedSourceKey(Collection, Key.BookID) = 'empty-source') and
+      (Length(Collection.GetBookPublisherSeries(Key)) = 0),
+      'successful empty metadata was not indexed');
+  finally
+    Collection.EndBulkOperation(False);
+  end;
+  Require((IndexedSourceKey(Collection, Key.BookID) = 'original-source') and
+    (Length(Collection.GetBookPublisherSeries(Key)) = 1),
+    'caller rollback did not restore both metadata and source');
+
+  Database := TSQLiteDatabase.Create(FileName);
+  try
+    Database.ExecSQL('CREATE TRIGGER FixtureRejectSource BEFORE INSERT ON ' +
+      'PublisherSeries_Index WHEN NEW.SourceKey = ''rejected-source'' BEGIN ' +
+      'SELECT RAISE(ABORT, ''fixture source failure''); END');
+  finally
+    Database.Free;
+  end;
+  try
+    Failed := False;
+    try
+      Collection.CompletePublisherSeriesIndex(Key, nil, 'rejected-source');
+    except
+      on E: Exception do Failed := True;
+    end;
+    Require(Failed, 'source failure injection did not run');
+    Require((IndexedSourceKey(Collection, Key.BookID) = 'original-source') and
+      (Length(Collection.GetBookPublisherSeries(Key)) = 1),
+      'source write failure left partially replaced publisher series');
+  finally
+    Database := TSQLiteDatabase.Create(FileName);
+    try
+      Database.ExecSQL('DROP TRIGGER FixtureRejectSource');
+    finally
+      Database.Free;
+    end;
+  end;
+  Failed := False;
+  try
+    Collection.CompletePublisherSeriesIndex(Key, nil, '');
+  except
+    on E: EArgumentException do Failed := True;
+  end;
+  Require(Failed and (IndexedSourceKey(Collection, Key.BookID) = 'original-source'),
+    'empty source key was accepted or changed completion state');
+  Collection.SetBookPublisherSeries(Key, Series);
+  Require(IndexedSourceKey(Collection, Key.BookID) = '',
+    'ordinary metadata replacement retained a stale source marker');
+  Collection.CompletePublisherSeriesIndex(Key, nil, 'empty-source');
+  Require((IndexedSourceKey(Collection, Key.BookID) = 'empty-source') and
+    (Length(Collection.GetBookPublisherSeries(Key)) = 0),
+    'committed empty metadata was not indexed');
+  Collection.CompletePublisherSeriesIndex(Key, Series, 'before-recreation');
+end;
+
 procedure CheckCollectionRecreation(const SystemData: ISystemData);
 var
   FileName: string;
@@ -67,6 +164,10 @@ begin
       Scratch.SetBookPublisherSeries(Key, Series);
       Require(Length(Scratch.GetBookPublisherSeries(Key)) = 1,
         'recreation fixture publisher metadata missing');
+      if Pass = 0 then
+        CheckPublisherIndexAtomicity(SystemData, FileName, Scratch, Key, Series)
+      else
+        Scratch.CompletePublisherSeriesIndex(Key, Series, 'before-recreation');
       Scratch := nil;
 
       if Pass = 0 then
@@ -93,6 +194,8 @@ begin
       try
         Require(Database.QuerySingleInt('SELECT COUNT(*) FROM Books') = 0,
           'recreation retained old books');
+        Require(Database.QuerySingleInt('SELECT COUNT(*) FROM PublisherSeries_Index') = 0,
+          'recreation retained successful source markers');
       finally
         Database.Free;
       end;
@@ -104,18 +207,102 @@ begin
       Key := CreateBookKey(NewBookID, Scratch.CollectionID);
       Require(Length(Scratch.GetBookPublisherSeries(Key)) = 0,
         'reused book ID inherited old publisher metadata');
+      Require(IndexedSourceKey(Scratch, NewBookID) = '',
+        'reused book ID inherited a completed source');
       Items := Scratch.GetPublisherSeriesIterator('*');
       Require(Items.RecordCount = 0, 'recreation retained publisher series');
       Items := nil;
       Require(Length(Scratch.GetBookSeries(Key)) = 0,
         'reused book ID inherited old author cycles');
+      Scratch.CompletePublisherSeriesIndex(Key, Series, 'before-delete');
+      Database := TSQLiteDatabase.Create(FileName);
+      try
+        Database.ExecSQL('DELETE FROM Books WHERE BookID = ?', [NewBookID]);
+        Require(Database.QuerySingleInt('SELECT COUNT(*) FROM PublisherSeries_Index') = 0,
+          'book deletion retained its completed source');
+      finally
+        Database.Free;
+      end;
+      NewBookID := Scratch.InsertBook(Book, False, False);
+      Key := CreateBookKey(NewBookID, Scratch.CollectionID);
+      Scratch.CompletePublisherSeriesIndex(Key, Series, 'before-truncate');
       Scratch.TruncateTablesBeforeImport;
+      Database := TSQLiteDatabase.Create(FileName);
+      try
+        Require(Database.QuerySingleInt('SELECT COUNT(*) FROM PublisherSeries_Index') = 0,
+          'full reimport retained completed source markers');
+      finally
+        Database.Free;
+      end;
       Scratch := nil;
     end;
   finally
     Items := nil;
     Scratch := nil;
     TFile.Delete(FileName);
+  end;
+end;
+
+procedure CheckPublisherIndexIterator(const Collection: IBookCollection;
+  const ExpectedCount, FirstBookID, LastBookID: Integer);
+var
+  Iterator: IPublisherSeriesIndexIterator;
+  Book, FullBook: TBookRecord;
+  SourceKey, FirstFolder, LastFolder: string;
+  Seen: TArray<Integer>;
+  Count, I: Integer;
+  SavedHideDeleted, SavedLocalOnly: Boolean;
+begin
+  Collection.GetBookRecord(CreateBookKey(FirstBookID, Collection.CollectionID), FullBook, False);
+  FirstFolder := FullBook.Folder;
+  Collection.GetBookRecord(CreateBookKey(LastBookID, Collection.CollectionID), FullBook, False);
+  LastFolder := FullBook.Folder;
+  SavedHideDeleted := Collection.GetHideDeleted;
+  SavedLocalOnly := Collection.GetShowLocalOnly;
+  Collection.SetFolder(CreateBookKey(FirstBookID, Collection.CollectionID), 'aaa-index-fixture/');
+  Collection.SetFolder(CreateBookKey(LastBookID, Collection.CollectionID), 'zzz-index-fixture/');
+  try
+    Collection.SetHideDeleted(True);
+    Collection.SetShowLocalOnly(True);
+    Iterator := Collection.GetPublisherSeriesIndexIterator;
+    Require(Iterator.RecordCount = ExpectedCount, 'index iterator applied a browser filter');
+    SetLength(Seen, ExpectedCount);
+    Count := 0;
+    while Iterator.Next(Book, SourceKey) do
+    begin
+      Require(Count < ExpectedCount, 'index iterator duplicated rows during writes');
+      for I := 0 to Count - 1 do
+        Require(Seen[I] <> Book.BookKey.BookID, 'index iterator repeated a book');
+      Seen[Count] := Book.BookKey.BookID;
+      Inc(Count);
+      Collection.GetBookRecord(Book.BookKey, FullBook, False);
+      Require((Book.Title = FullBook.Title) and (Book.Folder = FullBook.Folder) and
+        (Book.FileName = FullBook.FileName) and (Book.FileExt = FullBook.FileExt) and
+        (Book.InsideNo = FullBook.InsideNo) and (Book.LibID = FullBook.LibID) and
+        (Book.CollectionRoot = FullBook.CollectionRoot) and
+        ((bpIsLocal in Book.BookProps) = (bpIsLocal in FullBook.BookProps)) and
+        ((bpIsDeleted in Book.BookProps) = (bpIsDeleted in FullBook.BookProps)),
+        'lightweight iterator lost source metadata');
+      Require((Length(Book.Authors) = 0) and (Length(Book.Genres) = 0) and
+        (Book.Series = '') and (Book.Annotation = '') and (Book.Review = '') and
+        not Book.PublisherSeriesKnown, 'index iterator loaded unrelated metadata');
+      Require(SourceKey = '', 'new fixture unexpectedly has a completed source');
+      Collection.CompletePublisherSeriesIndex(Book.BookKey,
+        Collection.GetBookPublisherSeries(Book.BookKey), 'iterator-' + IntToStr(Book.BookKey.BookID));
+    end;
+    Require((Count = ExpectedCount) and (Seen[0] = FirstBookID) and
+      (Seen[Count - 1] = LastBookID), 'index iterator lost archive grouping or rows');
+    Require((Book.BookKey.BookID <= 0) and (SourceKey = ''),
+      'index iterator left stale output after EOF');
+    Iterator := nil;
+    Require(IndexedSourceKey(Collection, FirstBookID) = 'iterator-' + IntToStr(FirstBookID),
+      'iterator did not return the stored source key');
+  finally
+    Iterator := nil;
+    Collection.SetHideDeleted(SavedHideDeleted);
+    Collection.SetShowLocalOnly(SavedLocalOnly);
+    Collection.SetFolder(CreateBookKey(FirstBookID, Collection.CollectionID), FirstFolder);
+    Collection.SetFolder(CreateBookKey(LastBookID, Collection.CollectionID), LastFolder);
   end;
 end;
 
@@ -265,6 +452,7 @@ begin
     Exclude(Book.BookProps, bpIsLocal);
     RemoteBookID := Collection.InsertBook(Book, False, False);
     Require(RemoteBookID <> 0, 'publisher import fixture was not inserted');
+    CheckPublisherIndexIterator(Collection, Length(BookIDs) + 1, BookIDs[1], BookIDs[0]);
     CheckBooks(Collection.GetBookIterator(bmByPublisherSeries, False, @Filter),
       [BookIDs[0], RemoteBookID], 6001);
     Collection.SetShowLocalOnly(True);
@@ -332,6 +520,8 @@ begin
     Collection.SetShowLocalOnly(SavedLocalOnly);
   end;
   Require(CountPublisherSeries('') = 0, 'publisher updates escaped caller rollback');
+  Require(IndexedSourceKey(Collection, Original.BookKey.BookID) = '',
+    'index completion escaped caller rollback');
 end;
 
 end.

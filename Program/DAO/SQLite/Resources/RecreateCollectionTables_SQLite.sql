@@ -22,6 +22,9 @@ PRAGMA journal_mode = OFF;
 --@@
 
 -- Book IDs restart on reimport, so discard their derived publisher metadata.
+DROP TABLE IF EXISTS PublisherSeries_Index;
+--@@
+
 DROP TABLE IF EXISTS PublisherSeries_List;
 --@@
 

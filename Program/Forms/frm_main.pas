@@ -1795,7 +1795,8 @@ var
   ProgressForm: TImportProgressFormEx;
 begin
   if not Assigned(FCollection) or FFormBusy then Exit;
-  Worker := TIndexPublisherSeriesThread.Create(FCollection.CollectionID);
+  Worker := TIndexPublisherSeriesThread.Create(FCollection.CollectionID,
+    FPublisher.FullScan.Checked);
   FFormBusy := True;
   FPublisher.SearchTimer.Enabled := False;
   try

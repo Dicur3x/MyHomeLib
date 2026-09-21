@@ -20,6 +20,7 @@ interface
 
 uses
   Classes,
+  System.SysUtils,
   System.Zip,
   System.Masks,
   System.Generics.Collections;
@@ -38,6 +39,7 @@ type
       FSevenZipSizes: TArray<Int64>;
       FIsSevenZip: Boolean;
       FFileNamesLoaded: Boolean;
+      FIsCanceled: TFunc<Boolean>;
       FLastID: Integer;
       FSearchPattern: string;
       FSearchMask: TMask;
@@ -62,7 +64,7 @@ type
 
     public
       constructor Create(const AFileName: string; RO: Boolean;
-        UpdateExisting: Boolean = False);
+        UpdateExisting: Boolean = False; const IsCanceled: TFunc<Boolean> = nil);
       destructor Destroy; override;
 
       function ExtractToStream(No: integer): TMemoryStream; overload;
@@ -73,6 +75,11 @@ type
       function FileNameAt(const Index: Integer): string;
       function ExtractToString(AFileName: string):string;
       procedure ExtractAllToDirectory(const DestinationDirectory: string);
+      procedure ExtractFlatBatch(const Names: TArray<string>;
+        const DestinationDirectory: string; const IsCanceled: TFunc<Boolean>);
+      // Metadata-only callers may stop before EOF. The archive must outlive
+      // the returned stream; ordinary extraction still verifies the full CRC.
+      function OpenEntryStream(const Index: Integer): TStream;
 
       function Find(AFileName: string): Boolean;
       function FindNext: Boolean;
@@ -107,7 +114,6 @@ const
 implementation
 
 uses
-  SysUtils,
   StrUtils,
   unit_MHLExternalTools;
 
@@ -221,7 +227,7 @@ begin
   Block := TStringList.Create;
   try
     RunExternalToolToStream(FSevenZipTool,
-      ['l', '-slt', '-ba', '-sccUTF-8', '--', FArchiveFileName], ListOutput);
+      ['l', '-slt', '-ba', '-sccUTF-8', '--', FArchiveFileName], ListOutput, FIsCanceled);
     if ListOutput.Size > 0 then
     begin
       if ListOutput.Size > MaxInt then
@@ -353,7 +359,7 @@ begin
   begin
     RunExternalToolToStream(FSevenZipTool,
       ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName,
-       FFileNames[Index]], Destination);
+       FFileNames[Index]], Destination, FIsCanceled);
     FLastID := Index;
     Exit;
   end;
@@ -406,7 +412,7 @@ begin
   begin
     RunExternalToolToStream(FSevenZipTool,
       ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName, AFileName],
-      Stream);
+      Stream, FIsCanceled);
     if Stream.Size = 0 then
       raise EZipException.CreateFmt('Archive entry "%s" was not found',
         [AFileName]);
@@ -487,6 +493,57 @@ begin
     Output.Free;
   end;
 end;
+function TMHLZip.OpenEntryStream(const Index: Integer): TStream;
+var
+  Header: TZipHeader;
+begin
+  if FIsSevenZip then
+    raise ENotSupportedException.Create('Streaming entry access requires ZIP');
+  if (Index < 0) or (Index >= FZip.FileCount) then
+    raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+  FZip.Read(Index, Result, Header, False);
+end;
+
+procedure TMHLZip.ExtractFlatBatch(const Names: TArray<string>;
+  const DestinationDirectory: string; const IsCanceled: TFunc<Boolean>);
+var
+  Arguments: TArray<string>;
+  Output: TMemoryStream;
+  I: Integer;
+  Ch: Char;
+begin
+  if not FIsSevenZip then
+    raise ENotSupportedException.Create('Batch extraction requires 7z');
+  if (Length(Names) = 0) or not DirectoryExists(DestinationDirectory) then
+    raise EArgumentException.Create('Invalid extraction batch');
+  SetLength(Arguments, 9 + Length(Names));
+  Arguments[0] := 'e';
+  Arguments[1] := '-y';
+  Arguments[2] := '-aoa';
+  Arguments[3] := '-spd';
+  Arguments[4] := '-sccUTF-8';
+  Arguments[5] := '-bsp0';
+  Arguments[6] := '-o' + DestinationDirectory;
+  Arguments[7] := '--';
+  Arguments[8] := FArchiveFileName;
+  for I := 0 to High(Names) do
+  begin
+    // Only ordinary flat file names are accepted, never paths or wildcards.
+    if (Names[I] = '') or (Names[I] = '.') or (Names[I] = '..') then
+      raise EArgumentException.Create('Invalid archive entry name');
+    for Ch in Names[I] do
+      if (Ord(Ch) < 32) or CharInSet(Ch, ['/', '\', ':', '*', '?', '"', '<', '>', '|']) then
+        raise EArgumentException.Create('Unsafe archive entry name');
+    Arguments[9 + I] := Names[I];
+  end;
+  Output := TMemoryStream.Create;
+  try
+    RunExternalToolToStream(FSevenZipTool, Arguments, Output, IsCanceled);
+  finally
+    Output.Free;
+  end;
+end;
+
 function TMHLZip.Find(AFileName: string): Boolean;
 var
   NewMask: TMask;
@@ -689,9 +746,10 @@ begin
 end;
 
 constructor TMHLZip.Create(const AFileName: string; RO: Boolean;
-  UpdateExisting: Boolean);
+  UpdateExisting: Boolean; const IsCanceled: TFunc<Boolean>);
 begin
   Inherited Create;
+  FIsCanceled := IsCanceled;
 
   FZip := nil;
   FArchiveFileName := AFileName;

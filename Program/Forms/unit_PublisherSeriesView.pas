@@ -20,6 +20,7 @@ type
     Search: TEdit;
     ClearSearch: TButton;
     IndexButton: TButton;
+    FullScan: TCheckBox;
     Title, Total: TLabel;
     SearchTimer: TTimer;
     constructor CreateView(AOwner: TComponent; Pages: TPageControl;
@@ -78,6 +79,13 @@ begin
   IndexButton.Align := alBottom;
   IndexButton.Height := Scale(30);
   IndexButton.Caption := 'Заполнить из книг...';
+  FullScan := TCheckBox.Create(Self);
+  FullScan.Parent := Sidebar;
+  FullScan.Align := alBottom;
+  FullScan.Height := Scale(26);
+  FullScan.Caption := 'Полная проверка';
+  FullScan.Hint := 'Включая ранее проверенные и неизменившиеся файлы';
+  FullScan.ShowHint := True;
   SeriesTree := TVirtualStringTree.Create(Self);
   SeriesTree.Parent := Sidebar;
   SeriesTree.Align := alClient;

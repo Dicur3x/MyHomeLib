@@ -18,7 +18,8 @@ type
 
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
-  const Arguments: array of string; const Output: TStream);
+  const Arguments: array of string; const Output: TStream;
+  const IsCanceled: TFunc<Boolean> = nil);
 
 implementation
 
@@ -121,12 +122,16 @@ begin
 end;
 
 procedure RunExternalToolToStream(const ToolPath: string;
-  const Arguments: array of string; const Output: TStream);
+  const Arguments: array of string; const Output: TStream;
+  const IsCanceled: TFunc<Boolean>);
 const
   BUFFER_SIZE = 64 * 1024;
 var
   Buffer: array [0 .. BUFFER_SIZE - 1] of Byte;
   BytesRead: DWORD;
+  BytesAvailable: DWORD;
+  ProcessFinished: Boolean;
+  ProcessExited: Boolean;
   CommandLine: string;
   ExitCode: Cardinal;
   I: Integer;
@@ -185,14 +190,36 @@ begin
 
         CloseHandle(PipeWrite);
         PipeWrite := 0;
+        ProcessFinished := False;
+        ProcessExited := False;
         try
           Output.Position := 0;
           Output.Size := 0;
-          while ReadFile(PipeRead, Buffer[0], SizeOf(Buffer), BytesRead, nil) and
-            (BytesRead > 0) do
-            Output.WriteBuffer(Buffer[0], BytesRead);
+          while True do
+          begin
+            if Assigned(IsCanceled) and IsCanceled() then
+              raise EAbort.Create('Operation canceled');
+            if not PeekNamedPipe(PipeRead, nil, 0, nil, @BytesAvailable, nil) then
+            begin
+              if GetLastError = ERROR_BROKEN_PIPE then
+                Break;
+              RaiseLastOSError;
+            end;
+            if BytesAvailable > 0 then
+            begin
+              if not ReadFile(PipeRead, Buffer[0], SizeOf(Buffer), BytesRead, nil) then
+                RaiseLastOSError;
+              if BytesRead > 0 then
+                Output.WriteBuffer(Buffer[0], BytesRead);
+            end
+            else if ProcessExited then
+              Break;
+            if BytesAvailable = 0 then
+              ProcessExited := WaitForSingleObject(ProcessInfo.hProcess, 10) = WAIT_OBJECT_0;
+          end;
 
           WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+          ProcessFinished := True;
           if not GetExitCodeProcess(ProcessInfo.hProcess, ExitCode) then
             RaiseLastOSError;
           if ExitCode <> 0 then
@@ -201,6 +228,11 @@ begin
               [ExtractFileName(ToolPath), ExitCode]);
           Output.Position := 0;
         finally
+          if not ProcessFinished then
+          begin
+            TerminateProcess(ProcessInfo.hProcess, ERROR_CANCELLED);
+            WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+          end;
           CloseHandle(ProcessInfo.hThread);
           CloseHandle(ProcessInfo.hProcess);
         end;

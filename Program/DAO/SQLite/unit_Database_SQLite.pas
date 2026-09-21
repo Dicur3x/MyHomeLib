@@ -67,6 +67,21 @@ type
     end;
     // << TBookIteratorImpl
 
+    TPublisherSeriesIndexIterator = class(TInterfacedObject, IPublisherSeriesIndexIterator)
+    private
+      FCollection: IBookCollection;
+      FBooks: TSQLiteQuery;
+      FCount: Integer;
+      FCollectionID: Integer;
+      FCollectionRoot: string;
+      FCollectionName: string;
+    public
+      constructor Create(Collection: TBookCollection_SQLite);
+      destructor Destroy; override;
+      function Next(out Book: TBookRecord; out IndexedSourceKey: string): Boolean;
+      function RecordCount: Integer;
+    end;
+
     //-------------------------------------------------------------------------
     TAuthorIteratorImpl = class(TInterfacedObject, IAuthorIterator)
     public
@@ -176,6 +191,7 @@ type
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator; override;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
     function GetPublisherSeriesIterator(const FilterText: string = ''): ISeriesIterator;
+    function GetPublisherSeriesIndexIterator: IPublisherSeriesIndexIterator;
     function GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
 
@@ -189,6 +205,8 @@ type
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
+    procedure CompletePublisherSeriesIndex(const BookKey: TBookKey;
+      const Series: TBookSeries; const SourceKey: string);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; override;
@@ -266,6 +284,8 @@ type
     function InternalInsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean;
       const FullCheck: Boolean; Cache: TImportCache): Integer;
     function IsFileNameConflict(const BookRecord: TBookRecord; const IncludeFolder: Boolean): Boolean;
+    procedure InternalSetBookPublisherSeries(const BookKey: TBookKey;
+      const Series: TBookSeries; const SourceKey: string);
 
   private
     procedure EnsureSchemaCurrent;
@@ -526,6 +546,13 @@ begin
     'CREATE INDEX IF NOT EXISTS IXPublisherSeriesList_SeriesID_BookID ' +
     'ON PublisherSeries_List (SeriesID, BookID)');
   FDatabase.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS PublisherSeries_Index (' +
+    'BookID INTEGER NOT NULL PRIMARY KEY, SourceKey TEXT NOT NULL)');
+  FDatabase.ExecSQL(
+    'CREATE TRIGGER IF NOT EXISTS TRBooks_BD_PublisherSeriesIndex ' +
+    'BEFORE DELETE ON Books BEGIN ' +
+    'DELETE FROM PublisherSeries_Index WHERE BookID = OLD.BookID; END');
+  FDatabase.ExecSQL(
     'CREATE TRIGGER IF NOT EXISTS TRBooks_BD_PublisherSeries ' +
     'BEFORE DELETE ON Books BEGIN ' +
     'DELETE FROM PublisherSeries WHERE SeriesID IN (' +
@@ -536,6 +563,64 @@ begin
 end;
 
 // ------------------------------------------------------------------------------
+
+{ TPublisherSeriesIndexIterator }
+
+constructor TBookCollection_SQLite.TPublisherSeriesIndexIterator.Create(
+  Collection: TBookCollection_SQLite);
+const
+  SQL =
+    'SELECT b.BookID, b.Title, b.Folder, b.FileName, b.Ext, b.InsideNo, ' +
+    'b.LibID, b.IsLocal, b.IsDeleted, p.SourceKey ' +
+    'FROM Books b LEFT JOIN PublisherSeries_Index p ON p.BookID = b.BookID ' +
+    'ORDER BY b.Folder, b.BookID';
+begin
+  inherited Create;
+  FCollection := Collection;
+  FCollectionID := Collection.CollectionID;
+  if FCollectionID <> INVALID_COLLECTION_ID then
+  begin
+    FCollectionRoot := Collection.CollectionRoot;
+    FCollectionName := Collection.CollectionDisplayName;
+  end;
+  FCount := Collection.FDatabase.QuerySingleInt('SELECT COUNT(*) FROM Books');
+  FBooks := Collection.FDatabase.NewQuery(SQL);
+  FBooks.Open;
+end;
+
+destructor TBookCollection_SQLite.TPublisherSeriesIndexIterator.Destroy;
+begin
+  FBooks.Free;
+  inherited Destroy;
+end;
+
+function TBookCollection_SQLite.TPublisherSeriesIndexIterator.Next(
+  out Book: TBookRecord; out IndexedSourceKey: string): Boolean;
+begin
+  Book.Clear;
+  IndexedSourceKey := '';
+  Result := not FBooks.Eof;
+  if not Result then Exit;
+  Book.NodeType := ntBookInfo;
+  Book.BookKey := CreateBookKey(FBooks.FieldAsInt(0), FCollectionID);
+  Book.Title := FBooks.FieldAsString(1);
+  Book.Folder := FBooks.FieldAsString(2);
+  Book.FileName := FBooks.FieldAsString(3);
+  Book.FileExt := FBooks.FieldAsString(4);
+  Book.InsideNo := FBooks.FieldAsInt(5);
+  Book.LibID := FBooks.FieldAsString(6);
+  if FBooks.FieldAsBoolean(7) then Include(Book.BookProps, bpIsLocal);
+  if FBooks.FieldAsBoolean(8) then Include(Book.BookProps, bpIsDeleted);
+  Book.CollectionRoot := FCollectionRoot;
+  Book.CollectionName := FCollectionName;
+  IndexedSourceKey := FBooks.FieldAsString(9);
+  FBooks.Next;
+end;
+
+function TBookCollection_SQLite.TPublisherSeriesIndexIterator.RecordCount: Integer;
+begin
+  Result := FCount;
+end;
 
 { TBookIteratorImpl }
 
@@ -1962,6 +2047,11 @@ begin
   Result := TSeriesIteratorImpl.Create(Self, FSystemData, FilterText);
 end;
 
+function TBookCollection_SQLite.GetPublisherSeriesIndexIterator: IPublisherSeriesIndexIterator;
+begin
+  Result := TPublisherSeriesIndexIterator.Create(Self);
+end;
+
 function TBookCollection_SQLite.GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator;
 begin
   Result := TGenreIteratorImpl.Create(Self, FSystemData, Mode, FilterValue);
@@ -2648,16 +2738,32 @@ end;
 
 procedure TBookCollection_SQLite.SetBookPublisherSeries(
   const BookKey: TBookKey; const Series: TBookSeries);
+begin
+  if BookKey.DatabaseID <> CollectionID then
+    FSystemData.GetCollection(BookKey.DatabaseID).SetBookPublisherSeries(BookKey, Series)
+  else
+    InternalSetBookPublisherSeries(BookKey, Series, '');
+end;
+
+procedure TBookCollection_SQLite.CompletePublisherSeriesIndex(
+  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string);
+begin
+  if SourceKey = '' then
+    raise EArgumentException.Create('Publisher index source key must not be empty');
+  if BookKey.DatabaseID <> CollectionID then
+    FSystemData.GetCollection(BookKey.DatabaseID).CompletePublisherSeriesIndex(
+      BookKey, Series, SourceKey)
+  else
+    InternalSetBookPublisherSeries(BookKey, Series, SourceKey);
+end;
+
+procedure TBookCollection_SQLite.InternalSetBookPublisherSeries(
+  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string);
 var
   Item: TBookSeriesData;
   Title: string;
   SeriesID, Number, Position: Integer;
 begin
-  if BookKey.DatabaseID <> CollectionID then
-  begin
-    FSystemData.GetCollection(BookKey.DatabaseID).SetBookPublisherSeries(BookKey, Series);
-    Exit;
-  end;
   if FDatabase.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID = ?',
     [BookKey.BookID]) = 0 then
     raise Exception.Create('Книга не найдена в коллекции');
@@ -2686,6 +2792,15 @@ begin
         [BookKey.BookID, SeriesID, Number, Position]);
       Inc(Position);
     end;
+    // A successful empty result is still indexed. Other metadata writers
+    // invalidate the completion marker instead of claiming a source was read.
+    if SourceKey = '' then
+      FDatabase.ExecSQL('DELETE FROM PublisherSeries_Index WHERE BookID = ?',
+        [BookKey.BookID])
+    else
+      FDatabase.ExecSQL(
+        'INSERT OR REPLACE INTO PublisherSeries_Index (BookID, SourceKey) VALUES (?, ?)',
+        [BookKey.BookID, SourceKey]);
     FDatabase.ExecSQL('RELEASE SAVEPOINT PublisherSeriesUpdate');
   except
     FDatabase.ExecSQL('ROLLBACK TO SAVEPOINT PublisherSeriesUpdate');
@@ -3282,8 +3397,8 @@ end;
 procedure TBookCollection_SQLite.TruncateTablesBeforeImport;
 const
   SQL_TRUNCATE = 'DROP TABLE %s';
-  TABLE_NAMES: array [0 .. 7] of string = (
-    'PublisherSeries_List', 'PublisherSeries', 'Series_List', 'Author_List',
+  TABLE_NAMES: array [0 .. 8] of string = (
+    'PublisherSeries_Index', 'PublisherSeries_List', 'PublisherSeries', 'Series_List', 'Author_List',
     'Genre_List', 'Books', 'Authors', 'Series'
   );
 var

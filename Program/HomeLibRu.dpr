@@ -164,6 +164,7 @@ uses
   frm_NewCollectionWizard in 'Wizards\NewCollection\frm_NewCollectionWizard.pas' {NewCollectionWizard},
   unit_CollectionWorkerThread in 'ImportImpl\unit_CollectionWorkerThread.pas',
   unit_IndexPublisherSeriesThread in 'UtilsImpl\unit_IndexPublisherSeriesThread.pas',
+  unit_PublisherSeriesSource in 'UtilsImpl\unit_PublisherSeriesSource.pas',
   unit_PublisherSeriesView in 'Forms\unit_PublisherSeriesView.pas',
   unit_Events in 'Units\unit_Events.pas',
   frm_DeleteCollection in 'Forms\frm_DeleteCollection.pas' {dlgDeleteCollection},

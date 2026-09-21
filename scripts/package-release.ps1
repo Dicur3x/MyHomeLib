@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.01'
+$release = '2.7.0_pre5.02'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -37,8 +37,26 @@ try {
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
-    foreach ($directory in @('Help', 'Icons', 'Readers', 'tools')) {
+    foreach ($directory in @('Help', 'Icons', 'tools')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
+    }
+    # Readers can save reading history alongside their executables. Ship only
+    # their distribution files, never a recursively copied working profile.
+    $readerFiles = @{
+        AlReader = @('$savevtut.ini', 'AlDictionary.aldict', 'AlReader2.exe',
+            'book_new0.m2.bmp', 'book_new1.m2.bmp', 'book_white.m2.bmp',
+            'DefaultTexture.BMP', 'DefaultTextureBlack.BMP',
+            'English_US_hyphen_(Alan).pdb', 'fon_white.m1.bmp', 'readme.txt',
+            'Russian_1251_hyphen_(Alan).pdb', 'Russian_EnUS_hyphen_(Alan).pdb',
+            'Russian_hyphen_(Alan).pdb', 'UNRAR.DLL')
+        SumatraPDF = @('SumatraPDF.exe', 'AUTHORS.txt', 'COPYING.BSD.txt', 'COPYING.txt')
+    }
+    foreach ($reader in $readerFiles.Keys) {
+        $destination = Join-Path $payloadDirectory "Readers\$reader"
+        [System.IO.Directory]::CreateDirectory($destination) | Out-Null
+        foreach ($name in $readerFiles[$reader]) {
+            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "Readers\$reader\$name") -Destination $destination
+        }
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\HomeLibRu.url') -Destination $payloadDirectory
     $converter = Join-Path $runtimeDirectory 'converters\fb2lrf'

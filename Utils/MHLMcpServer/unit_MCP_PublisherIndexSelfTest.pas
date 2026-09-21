@@ -24,6 +24,8 @@ type
     Worker: TIndexPublisherSeriesThread;
     CancelPercent: Integer;
     CancelIssued: Boolean;
+    LastPercent: Integer;
+    CompletedAfterCancel: Boolean;
     procedure OnProgress(Percent: Integer);
   end;
 
@@ -35,6 +37,9 @@ end;
 
 procedure TIndexObserver.OnProgress(Percent: Integer);
 begin
+  LastPercent := Percent;
+  if CancelIssued and (Percent >= 100) then
+    CompletedAfterCancel := True;
   if (CancelPercent > 0) and not CancelIssued and
      (Percent >= CancelPercent) and (Percent < 100) then
   begin
@@ -44,14 +49,14 @@ begin
 end;
 
 procedure RunIndexer(const CollectionID, CancelPercent, ExpectedIndexed,
-  ExpectedFailed: Integer);
+  ExpectedFailed, ExpectedCached: Integer; const ForceRescan: Boolean = False);
 var
   Observer: TIndexObserver;
   Worker: TIndexPublisherSeriesThread;
 begin
   Observer := TIndexObserver.Create;
   try
-    Worker := TIndexPublisherSeriesThread.Create(CollectionID);
+    Worker := TIndexPublisherSeriesThread.Create(CollectionID, ForceRescan);
     try
       Observer.Worker := Worker;
       Observer.CancelPercent := CancelPercent;
@@ -70,7 +75,18 @@ begin
         Format('saved %d books, expected %d', [Worker.IndexedCount, ExpectedIndexed]));
       Require(Worker.FailedCount = ExpectedFailed,
         Format('failed %d books, expected %d', [Worker.FailedCount, ExpectedFailed]));
+      Require(Worker.CachedCount = ExpectedCached,
+        Format('cached %d books, expected %d', [Worker.CachedCount, ExpectedCached]));
       Require(Worker.SkippedCount = 0, 'local FB2 books were skipped');
+      if Observer.CancelIssued then
+      begin
+        Require(not Observer.CompletedAfterCancel,
+          'cancellation incorrectly reported 100 percent');
+        Require(Observer.LastPercent = CancelPercent,
+          'cancellation did not retain its actual progress');
+      end
+      else
+        Require(Observer.LastPercent = 100, 'complete scan did not report 100 percent');
     finally
       Worker.Free;
     end;
@@ -100,6 +116,8 @@ var
   Series, Stored: TBookSeries;
   I, Indexed: Integer;
   Iterator: IBookIterator;
+  ChangedBook: string;
+  PreviousWriteTime: TDateTime;
 
   procedure RequireSeries(const BookID: Integer; const ExpectedTitle: string);
   var
@@ -156,7 +174,7 @@ begin
 
     // 108 completions cross the 100-book commit boundary and leave eight
     // completed records in the partial chunk flushed on cancellation.
-    RunIndexer(Collection.CollectionID, 90, 108, 0);
+    RunIndexer(Collection.CollectionID, 90, 108, 0, 0);
     Indexed := 0;
     for I := 0 to High(AllIDs) do
     begin
@@ -174,9 +192,28 @@ begin
     end;
     Require(Indexed = 108, 'committed data differs from the canceled worker count');
 
-    RunIndexer(Collection.CollectionID, 0, TotalBooks, 0);
+    RunIndexer(Collection.CollectionID, 0, 12, 0, 108);
     for I := 0 to High(AllIDs) do
       RequireSeries(AllIDs[I], SeriesTitle);
+    RunIndexer(Collection.CollectionID, 0, 0, 0, TotalBooks);
+    RunIndexer(Collection.CollectionID, 0, TotalBooks, 0, 0, True);
+
+    // Only book6 refers to this source; the 114 extra records share book1.
+    ChangedBook := StringReplace(ValidBook, 'number="23"', 'number="142"', []);
+    TFile.WriteAllBytes(Paths[5], TEncoding.UTF8.GetBytes(ChangedBook));
+    RunIndexer(Collection.CollectionID, 0, 1, 0, TotalBooks - 1);
+    Stored := Collection.GetBookPublisherSeries(Originals[5].BookKey);
+    Require((Length(Stored) = 1) and (Stored[0].SeqNumber = 142),
+      'changed source size did not invalidate the cache');
+
+    PreviousWriteTime := TFile.GetLastWriteTimeUtc(Paths[5]);
+    ChangedBook := StringReplace(ChangedBook, 'number="142"', 'number="143"', []);
+    TFile.WriteAllBytes(Paths[5], TEncoding.UTF8.GetBytes(ChangedBook));
+    TFile.SetLastWriteTimeUtc(Paths[5], PreviousWriteTime + EncodeTime(0, 0, 2, 0));
+    RunIndexer(Collection.CollectionID, 0, 1, 0, TotalBooks - 1);
+    Stored := Collection.GetBookPublisherSeries(Originals[5].BookKey);
+    Require((Length(Stored) = 1) and (Stored[0].SeqNumber = 143),
+      'changed source mtime with identical size did not invalidate the cache');
 
     Collection.GetBookRecord(Originals[0].BookKey, Book, False);
     Book.FileName := '__publisher_index_missing_file__';
@@ -186,12 +223,14 @@ begin
     TFile.WriteAllBytes(Paths[3], TEncoding.UTF8.GetBytes('<NotFictionBook/>'));
     TFile.WriteAllBytes(Paths[4], TEncoding.UTF8.GetBytes(
       '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"/>'));
-    RunIndexer(Collection.CollectionID, 0, TotalBooks - 4, 4);
+    RunIndexer(Collection.CollectionID, 0, 1, 4, TotalBooks - 5);
     RequireSeries(BookIDs[0], SeriesTitle);
     RequireSeries(BookIDs[1], SeriesTitle);
     RequireSeries(BookIDs[2], '');
     RequireSeries(BookIDs[3], SeriesTitle);
     RequireSeries(BookIDs[4], SeriesTitle);
+    // Errors must remain retryable, while a valid empty result is cached.
+    RunIndexer(Collection.CollectionID, 0, 0, 4, TotalBooks - 4);
   finally
     for I := 0 to High(Paths) do
       TFile.WriteAllBytes(Paths[I], OriginalFiles[I]);

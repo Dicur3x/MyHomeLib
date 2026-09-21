@@ -25,6 +25,8 @@ uses
   unit_MCP_TextCache in 'unit_MCP_TextCache.pas',
   unit_MCP_CacheSelfTest in 'unit_MCP_CacheSelfTest.pas',
   unit_MCP_FLibrarySelfTest in 'unit_MCP_FLibrarySelfTest.pas',
+  unit_MCP_PublisherIndexBenchmark in 'unit_MCP_PublisherIndexBenchmark.pas',
+  unit_MCP_PublisherSourceSelfTest in 'unit_MCP_PublisherSourceSelfTest.pas',
   unit_MCP_Fixture in 'unit_MCP_Fixture.pas';
 
 // Extracts one FB2 file's text and section structure and prints it as a
@@ -107,6 +109,7 @@ end;
 
 var
   Server: TMcpServer;
+  BenchmarkRealArchive: string;
 
 begin
   // --extract is a pure, database-free CLI mode (see RunExtractMode above),
@@ -187,7 +190,65 @@ begin
     Exit;
   end;
 
+  if (ParamCount >= 1) and (ParamStr(1) = '--publisher-source-selftest') then
+  begin
+    if ParamCount <> 1 then
+    begin
+      Writeln(ErrOutput, '--publisher-source-selftest takes no extra arguments.');
+      Halt(1);
+    end;
+    try
+      RunPublisherSourceSelfTestMode;
+    except
+      on E: Exception do
+      begin
+        Writeln(ErrOutput, 'Publisher source self-test failed: ' + E.Message);
+        Halt(1);
+      end;
+    end;
+    Exit;
+  end;
+
   Application.Initialize;
+
+  if (ParamCount >= 1) and (ParamStr(1) = '--publisher-index-benchmark') then
+  begin
+    if not ((ParamCount = 4) or (ParamCount = 6)) or
+       (ParamStr(2) <> 'uselocaldata') or (ParamStr(3) <> 'user') or
+       (ParamStr(4) <> 'mcpfixture') or
+       ((ParamCount = 6) and (ParamStr(5) <> '--real-archive')) then
+    begin
+      Writeln(ErrOutput, '--publisher-index-benchmark requires: ' +
+        'uselocaldata user mcpfixture [--real-archive <40-book.7z>]. ' +
+        'It replaces only the disposable mcpfixture profile.');
+      Halt(1);
+    end;
+    BenchmarkRealArchive := '';
+    if ParamCount = 6 then
+    begin
+      BenchmarkRealArchive := ParamStr(6);
+      if not FileExists(BenchmarkRealArchive) then
+      begin
+        Writeln(ErrOutput, 'Benchmark archive not found: ' + BenchmarkRealArchive);
+        Halt(1);
+      end;
+    end;
+    try
+      RunMakeFixtureMode;
+      RunPublisherIndexBenchmarkMode(BenchmarkRealArchive);
+    except
+      on E: Exception do
+      begin
+        Writeln(ErrOutput, 'Publisher indexing benchmark failed: ' + E.Message);
+        if Assigned(DMUser) then
+          FreeAndNil(DMUser);
+        Halt(1);
+      end;
+    end;
+    if Assigned(DMUser) then
+      FreeAndNil(DMUser);
+    Exit;
+  end;
 
   // --make-fixture builds the throwaway test collection and exits. Unlike
   // --extract and --cache-selftest above it needs DMUser, so it sits after

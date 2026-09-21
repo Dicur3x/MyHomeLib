@@ -128,7 +128,36 @@ All four write whatever they print through `TMcpTransport` (never raw
 `Writeln`), keeping the "only the transport writes to stdout" rule
 mechanically true even in these modes; diagnostics and failures go to stderr.
 
-They are not otherwise alike. `--extract`, `--cache-selftest` and
+Publisher-index regression commands added in `2.7.0_pre5.02`:
+
+```powershell
+node Utils/MHLMcpServer/tests/publisher_index_benchmark.js Program/Out/Bin64/MHLMcpServer.exe
+node Utils/MHLMcpServer/tests/publisher_source_tests.js Program/Out/Bin64/MHLMcpServer.exe
+```
+
+Use `Bin` for Win32. The benchmark runner recreates the **disposable
+`mcpfixture` profile**, then compares legacy full-DOM/per-entry archive reads
+against uncached, cached and forced indexing of a generated 1000-book ZIP.
+An optional second argument is a read-only path to the known 40-book real
+FLibrary sample `d.fb2-009373-367300.7z`. It asserts matching series/numbers,
+counters, and zero archive opens on the cached pass. OS caches are not cleared;
+timings include the current shared DAO and exclude fixture generation. Do not
+extrapolate these small samples to a full library.
+
+Direct benchmark mode requires `--publisher-index-benchmark uselocaldata user
+mcpfixture` and accepts optional `--real-archive <path>`; the profile guard is
+checked before opening any database. `--publisher-source-selftest` takes no
+other arguments, opens no profile/database and creates only temporary test
+files. It checks four 20-MiB entries in a solid 7z, the 64-MiB batch cap,
+single-entry fallback, full stdout draining, cancellation and cleanup. This
+self-test temporarily redirects TEMP/TMP only within its own process.
+
+The standalone `Components/MHLComponents/tests/FB2PublisherMetadataReaderTest.dproj`
+checks the SAX parser without the collection layer. Build and run both Win32
+and Win64: 291 checks each, including encoding errors after the description,
+non-seekable streams, cancellation, reuse and exception propagation.
+
+The original modes are not otherwise alike. `--extract`, `--cache-selftest` and
 `--restore-flibrary` are database-free and run *before*
 `Application.Initialize`/`DMUser`. The first two are read-only;
 `--restore-flibrary` writes only the explicit output path passed by its caller.
