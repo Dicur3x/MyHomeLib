@@ -1580,7 +1580,8 @@ begin
       HTTP := CreateHTTPClientGlobal;
       try
         try
-          HTTP.Get(IncludeUrlSlash(Settings.UpdateURL) + PROGRAM_VERINFO_FILENAME, LF);
+          // Collection update servers must not select this fork's app releases.
+          HTTP.Get(PROGRAM_UPDATE_URL, LF);
         except
           on E: ENetHTTPClientException do
           begin

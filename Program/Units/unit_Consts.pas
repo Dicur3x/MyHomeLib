@@ -119,7 +119,8 @@ const
   EXTRA_INP_FILENAME = 'extra.inp'; // только online: список книг, которых нет в основной базе
   TEMP_FOLDER_NAME = '_myhomelib';
   UPDATE_LOGFILE = 'update.log';
-  PROGRAM_HOMEPAGE = 'https://github.com/OleksiyPenkov/myhomelib/';
+  PROGRAM_HOMEPAGE = 'https://github.com/Dicur3x/MyHomeLib';
+  PROGRAM_UPDATE_URL = 'https://raw.githubusercontent.com/Dicur3x/MyHomeLib/master/update/last_version.info';
 
   //
   // Номера вкладок в главном окне ( = tags)
