@@ -5,7 +5,20 @@
 `codex/pre5-feedback-codex`. Не очищай другие грязные деревья:
 `C:\Users\cloud\IdeaProjects\MyHomeLib` и `C:\Users\cloud\IdeaProjects\MyHomeLib-codex-worktree`.
 Прочитай верхние разделы `ROADMAP.md`, `README.md`, `BUILDING.md` и
-`RELEASE_NOTES_2.7.0_pre5.02.md`, затем сверь git status, origin/master и релизы.
+`RELEASE_NOTES_2.7.0_pre5.03.md`, затем сверь git status, origin/master и релизы.
+
+22 сентября подготовлена **pre5.03 / 1070**: исправление SAX-reader для FB2
+с BOM UTF-16 и ошибочной декларацией UTF-8 (`Unable to switch the encoding`).
+Две реальные книги владельца проверены только на временных копиях, в каждой
+найдена серия, прочитано 8192 байта. Теперь BOM задаёт MSXML `charset`;
+сброс перед каждой книгой обязателен. Без BOM кодировка не угадывается.
+Ключ `publisher-metadata-v2` и схема прежние, кэш 1069 не сбрасывать.
+Все проверки 1070 и ограничения перечислены в верхнем разделе BUILDING.
+Итоговые ZIP: `Installer\Out\pre5.03-publish`; публикацию сверить на GitHub.
+Локальные EXE Bin/Bin64 уже 1070. Владелец сам закрыл рабочую Win32-программу;
+его коллекцию не индексировали и не изменяли. Тестовые GUI закрыты.
+На 4pda ответ про pre5.02 уже опубликован самим владельцем, повторять не надо.
+Ниже оставлена история предыдущего выпуска.
 
 Текущий выпуск: **HomeLib Ru 2.7.0_pre5.02**, EXE **2.7.0.1069**.
 [Опубликован 21 сентября](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.02)

@@ -104,6 +104,7 @@ type
     FAfterGreater: Boolean;
   public
     constructor Create(Stream: TStream; Handler: TMetadataHandler);
+    function Prepare(out Charset: string): HResult;
     function Read(pv: Pointer; cb: FixedUInt; pcbRead: PFixedUInt): HResult; stdcall;
     function Write(pv: Pointer; cb: FixedUInt; pcbWritten: PFixedUInt): HResult; stdcall;
   end;
@@ -371,6 +372,42 @@ begin
   FHandler := Handler;
 end;
 
+function TMetadataInput.Prepare(out Charset: string): HResult;
+var
+  Count: Integer;
+begin
+  Charset := '';
+  try
+    // Retain the first buffer for non-seekable archive streams. A BOM is more
+    // reliable than the contradictory XML declaration found in some FB2 files.
+    repeat
+      Result := FHandler.CheckContinue;
+      if Failed(Result) then
+        Exit;
+      Count := FStream.Read(FBuffer[FCount], Length(FBuffer) - FCount);
+      Inc(FCount, Count);
+      Inc(FBytesRead, Count);
+    until (FCount >= 4) or (Count = 0);
+    if FCount >= 4 then
+    begin
+      if (FBuffer[0] = $FF) and (FBuffer[1] = $FE) and
+        ((FBuffer[2] <> 0) or (FBuffer[3] <> 0)) then
+        Charset := 'UTF-16'
+      else if (FBuffer[0] = $FE) and (FBuffer[1] = $FF) then
+        Charset := 'unicodeFFFE'
+      else if (FBuffer[0] = $EF) and (FBuffer[1] = $BB) and
+        (FBuffer[2] = $BF) then
+        Charset := 'UTF-8';
+    end;
+    Result := S_OK;
+  except
+    on E: EStreamError do
+      Result := FHandler.Invalid(E.Message);
+    else
+      Result := FHandler.CaptureException;
+  end;
+end;
+
 function TMetadataInput.Read(pv: Pointer; cb: FixedUInt; pcbRead: PFixedUInt): HResult;
 var
   Count, I, Limit: Integer;
@@ -479,6 +516,8 @@ function TFB2PublisherMetadataReader.Read(Stream: TStream;
 var
   Handler: TMetadataHandler;
   Input: ISequentialStream;
+  InputObject: TMetadataInput;
+  Charset: string;
   Value: OleVariant;
   ParseResult: HResult;
 begin
@@ -492,9 +531,18 @@ begin
   Handler := TMetadataHandler(FHandlerObject);
   Handler.Reset(IsCanceled);
   try
-    Input := TMetadataInput.Create(Stream, Handler);
-    Value := IUnknown(Input);
-    ParseResult := FReader.parse(Value);
+    InputObject := TMetadataInput.Create(Stream, Handler);
+    Input := InputObject;
+    ParseResult := InputObject.Prepare(Charset);
+    if Succeeded(ParseResult) then
+    begin
+      // Always reset the override: this reader is reused for differently
+      // encoded books. An empty BSTR restores MSXML's normal auto-detection.
+      Value := Charset;
+      OleCheck(FReader.putProperty(PWord(PWideChar('charset'))^, Value));
+      Value := IUnknown(Input);
+      ParseResult := FReader.parse(Value);
+    end;
     Handler.RaiseCapturedException;
     if Handler.FCanceled then
       Exit(fmsCanceled);

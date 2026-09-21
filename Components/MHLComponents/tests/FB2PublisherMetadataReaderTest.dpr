@@ -299,6 +299,31 @@ begin
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
   Run('UTF-16 BE', Encoded(Prefix + Text, TEncoding.BigEndianUnicode, True), fmsComplete, 1,
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
+  for I := 1 to 4 do
+  begin
+    Run('UTF-16 LE BOM overrides UTF-8 declaration ' + IntToStr(I),
+      Encoded('<?xml version="1.0" encoding="UTF-8"?>' + Text,
+        TEncoding.Unicode, True), fmsComplete, 1,
+      CYRILLIC_TITLE + ' & <test> "quoted"', 17, I);
+    Run('UTF-16 BE BOM overrides UTF-8 declaration ' + IntToStr(I),
+      Encoded('<?xml version="1.0" encoding="UTF-8"?>' + Text,
+        TEncoding.BigEndianUnicode, True), fmsComplete, 1,
+      CYRILLIC_TITLE + ' & <test> "quoted"', 17, I);
+  end;
+  Run('UTF-8 BOM overrides windows-1251 declaration',
+    Encoded('<?xml version="1.0" encoding="windows-1251"?>' + Text,
+      TEncoding.UTF8, True), fmsComplete, 1,
+    CYRILLIC_TITLE + ' & <test> "quoted"', 17, 1);
+  Run('UTF-16 BOM override with large unread body',
+    Encoded('<?xml version="1.0" encoding="UTF-8"?>' + Text,
+      TEncoding.Unicode, True), fmsComplete, 1,
+    CYRILLIC_TITLE + ' & <test> "quoted"', 17, MaxInt, -1, 64 * 1024 * 1024);
+  Run('BOM override does not hide malformed metadata',
+    Encoded('<?xml version="1.0" encoding="UTF-8"?>' +
+      '<FictionBook><description><title-info></description>',
+      TEncoding.Unicode, True), fmsInvalid, 0);
+  Run('reuse without BOM after override', Encoded(Text, TEncoding.UTF8),
+    fmsComplete, 1, CYRILLIC_TITLE + ' & <test> "quoted"', 17);
   Encoding1251 := TEncoding.GetEncoding(1251);
   try
     Run('Windows-1251', Encoded('<?xml version="1.0" encoding="windows-1251"?>' +
@@ -323,6 +348,11 @@ begin
   RunText('missing title-info', '<FictionBook><description><publish-info/></description>', fmsInvalid);
   RunText('foreign title-info', '<FictionBook><description><title-info xmlns="urn:wrong"/></description>', fmsInvalid);
   RunText('empty stream', '', fmsInvalid);
+  Run('single BOM byte', TBytes.Create($FF), fmsInvalid, 0, '', 0, 1);
+  Run('UTF-16 BOM only', TBytes.Create($FF, $FE), fmsInvalid, 0, '', 0, 1);
+  Run('UTF-8 BOM only', TBytes.Create($EF, $BB, $BF), fmsInvalid, 0, '', 0, 1);
+  Run('UTF-32 is not mistaken for UTF-16', TBytes.Create($FF, $FE, 0, 0,
+    $3C, 0, 0, 0), fmsInvalid, 0, '', 0, 1);
   RunText('truncated description', '<FictionBook><description><title-info/>', fmsInvalid);
   RunText('malformed description', '<FictionBook><description><title-info></description>', fmsInvalid);
   RunText('malformed description after publisher sequence', '<FictionBook><description>' +
@@ -355,6 +385,8 @@ begin
   Run('64 MiB body stays unread', Encoded(Text, TEncoding.UTF8), fmsComplete, 1,
     CYRILLIC_TITLE + ' & <test> "quoted"', 17, MaxInt, -1, 64 * 1024 * 1024);
   Run('canceled before reading', Encoded(Text, TEncoding.UTF8), fmsCanceled, 0, '', 0, MaxInt, 0);
+  Run('canceled during fragmented BOM', Encoded(Prefix + Text,
+    TEncoding.Unicode, True), fmsCanceled, 0, '', 0, 1, 1);
   Run('canceled during description', Encoded('<FictionBook><description><title-info>' +
     StringOfChar(' ', 32000) + '</title-info><publish-info><sequence name="Never"/>' +
     '</publish-info></description>', TEncoding.UTF8), fmsCanceled, 0, '', 0, 8192, 8192);
@@ -378,6 +410,29 @@ begin
   RunText('reuse after errors and cancellation', Metadata('<sequence name="Final" number="2"/>'), fmsComplete, 1, 'Final', 2);
 end;
 
+procedure CheckFiles;
+var
+  I: Integer;
+  Input: TFileStream;
+  Items: TFB2PublisherSeries;
+  ErrorText: string;
+begin
+  for I := 1 to ParamCount do
+  begin
+    Input := TFileStream.Create(ParamStr(I), fmOpenRead or fmShareDenyNone);
+    try
+      Check(Reader.Read(Input, Items, ErrorText) = fmsComplete,
+        'file metadata: ' + ExtractFileName(ParamStr(I)));
+      if ErrorText <> '' then
+        Report.Add('  Diagnostic: ' + ErrorText);
+      Report.Add(Format('  Read %d of %d bytes; %d publisher series',
+        [Input.Position, Input.Size, Length(Items)]));
+    finally
+      Input.Free;
+    end;
+  end;
+end;
+
 var
   ComInitialized: Boolean;
 begin
@@ -389,6 +444,7 @@ begin
       ComInitialized := True;
       Reader := TFB2PublisherMetadataReader.Create;
       RunTests;
+      CheckFiles;
     except
       on E: Exception do
       begin

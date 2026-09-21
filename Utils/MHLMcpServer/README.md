@@ -154,8 +154,14 @@ self-test temporarily redirects TEMP/TMP only within its own process.
 
 The standalone `Components/MHLComponents/tests/FB2PublisherMetadataReaderTest.dproj`
 checks the SAX parser without the collection layer. Build and run both Win32
-and Win64: 291 checks each, including encoding errors after the description,
+and Win64: 404 checks each, including encoding errors after the description,
 non-seekable streams, cancellation, reuse and exception propagation.
+Since `2.7.0_pre5.03`, a UTF-8/UTF-16 BOM overrides contradictory XML encoding
+declarations using MSXML's native `charset` property, reset before every parse.
+Tests include fragmented BOMs, override reuse, malformed metadata, and unread
+large bodies. Optional command-line FB2 paths add read-only metadata checks;
+the report includes consumed bytes and publisher-series counts. Do not commit
+private book samples or include them in release archives.
 
 The original modes are not otherwise alike. `--extract`, `--cache-selftest` and
 `--restore-flibrary` are database-free and run *before*
