@@ -9,18 +9,20 @@ Manage your home e-book library: catalogue your own collection of book files, an
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-lightgrey.svg)](#installation)
 [![Built with Delphi](https://img.shields.io/badge/built%20with-Delphi%2013-red.svg)](#building-from-source)
 
-## Current release work
+## Current Release
 
 The owner has approved **HomeLib Ru** as the name of this fork of
 [MyHomeLib by Oleksiy Penkov](https://github.com/OleksiyPenkov/MyHomeLib).
 The repository remains [Dicur3x/MyHomeLib](https://github.com/Dicur3x/MyHomeLib).
-The planned release is **HomeLib Ru 2.7.0_pre5.01**, executable `HomeLibRu.exe`
-version `2.7.0.1068`, with `HomeLibRu.zip` (x86) and `HomeLibRu_x64.zip` (x64).
-As of 21 September 2026, x86/x64 builds and interface checks have passed;
-the final MCP regression after the schema fix has passed. Both final ZIP packages
-have been verified; clean-extraction launch checks are in progress before publication.
-This release has not been published. The last published release is
-`2.7.0_pre2.02`, under its historical name. See [`ROADMAP.md`](ROADMAP.md).
+[**HomeLib Ru 2.7.0_pre5.01**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.01)
+was published on 21 September 2026: executable `HomeLibRu.exe` version
+`2.7.0.1068`, with `HomeLibRu.zip` (x86) and `HomeLibRu_x64.zip` (x64).
+The release tag points to merge commit
+[`400df2f`](https://github.com/Dicur3x/MyHomeLib/commit/400df2f10aa26e8494f132c8fdb78412485a2bd5)
+on `master`. Both builds, interface tests and final MCP regressions passed;
+the published ZIP contents and SHA-256 hashes were verified. See
+[`BUILDING.md`](BUILDING.md) for detailed results and the first-launch
+verification limitation, and [`ROADMAP.md`](ROADMAP.md) for project history.
 
 ## What it is
 

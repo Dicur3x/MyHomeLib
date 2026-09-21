@@ -9,18 +9,20 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20x86-lightgrey.svg)](#встановлення)
 [![Built with Delphi](https://img.shields.io/badge/built%20with-Delphi%2013-red.svg)](#збірка-з-вихідного-коду)
 
-## Підготовка випуску
+## Поточний випуск
 
 Власник затвердив **HomeLib Ru** як назву цього форку
 [MyHomeLib від Oleksiy Penkov](https://github.com/OleksiyPenkov/MyHomeLib).
 Репозиторій залишається [Dicur3x/MyHomeLib](https://github.com/Dicur3x/MyHomeLib).
-Готується **HomeLib Ru 2.7.0_pre5.01**, `HomeLibRu.exe` версії `2.7.0.1068`,
-з архівами `HomeLibRu.zip` (x86) та `HomeLibRu_x64.zip` (x64).
-Станом на 21 вересня 2026 року x86/x64 зібрано й інтерфейс перевірено;
-остаточний повтор MCP-тестів пройдено. Фінальні ZIP підготовлено й перевірено;
-перед публікацією перевіряється запуск із чистих розпакованих комплектів.
-Випуск не опубліковано. Останній опублікований випуск:
-`2.7.0_pre2.02` під попередньою назвою. Див. [`ROADMAP.md`](ROADMAP.md).
+21 вересня 2026 року опубліковано
+[**HomeLib Ru 2.7.0_pre5.01**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.01):
+`HomeLibRu.exe` версії `2.7.0.1068`, архіви `HomeLibRu.zip` (x86)
+та `HomeLibRu_x64.zip` (x64). Тег випуску вказує на коміт злиття в `master`
+[`400df2f`](https://github.com/Dicur3x/MyHomeLib/commit/400df2f10aa26e8494f132c8fdb78412485a2bd5).
+Обидві збірки, перевірки інтерфейсу та остаточні MCP-тести пройдено;
+склад і SHA-256 опублікованих ZIP перевірено. Детальні результати й обмеження
+перевірки першого запуску наведено в [`BUILDING.md`](BUILDING.md),
+історію проєкту збережено в [`ROADMAP.md`](ROADMAP.md).
 
 ## Що це таке
 
