@@ -41,7 +41,7 @@
         <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;Bde;Xml.Win;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;$(DCC_Namespace)</DCC_Namespace>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLib Ru MCP Server;FileVersion=1.0.0.0;InternalName=MHLMcpServer;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLMcpServer.exe;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.04;Comments=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLib Ru MCP Server;FileVersion=1.0.0.0;InternalName=MHLMcpServer;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLMcpServer.exe;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.05;Comments=</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_ExeOutput>..\..\Program\OUT\BIN</DCC_ExeOutput>
@@ -76,6 +76,8 @@
         <DCCReference Include="unit_MCP_FLibrarySelfTest.pas"/>
         <DCCReference Include="unit_MCP_PublisherIndexBenchmark.pas"/>
         <DCCReference Include="unit_MCP_PublisherSourceSelfTest.pas"/>
+        <DCCReference Include="unit_MCP_DownloadSelfTest.pas"/>
+        <DCCReference Include="..\..\Program\DwnldImpl\unit_Downloader.pas"/>
         <DCCReference Include="unit_MCP_Fixture.pas"/>
         <DCCReference Include="..\..\Program\DataModules\dm_user.pas"/>
         <RcCompile Include="MHLMcpServer_SQL.rc">

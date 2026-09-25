@@ -1086,3 +1086,15 @@ been stated as confirmed. This specific combination (every field blank plus
 above: `search_books` now detects it itself and returns
 `isError: true`/`"code":"empty_filter"` instead of letting
 `PrepareSearchData`'s raw exception text reach the client — see case `33`.
+
+## Проверка онлайн-загрузки (issue #8)
+
+`node tests/download_tests.js <MHLMcpServer.exe>` копирует только зависимости
+во временную папку и запускает HTTP-сервер на `127.0.0.1` со свободным портом.
+Проверяет настоящий `TDownloader.Download`: GET, POST с полем формы,
+сценарий POST/GET `%RESURL%` с перенаправлением, percent-escaped URL и
+Unicode/пробелы в пути. Проверяются точные адреса запросов, содержимое файлов
+и локальный статус книги. Сеть Интернет и рабочие профили не используются.
+Внутренний режим `--download-selftest uselocaldata user mcpfixture <port>`
+пересоздаёт только тестовый профиль, как `--make-fixture`; используйте обёртку
+Node.js, чтобы запускать его в отдельной временной установке.

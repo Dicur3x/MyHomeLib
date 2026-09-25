@@ -5,13 +5,26 @@
 `codex/pre5-feedback-codex`. Не очищай другие грязные деревья:
 `C:\Users\cloud\IdeaProjects\MyHomeLib` и `C:\Users\cloud\IdeaProjects\MyHomeLib-codex-worktree`.
 Прочитай верхние разделы `ROADMAP.md`, `README.md`, `BUILDING.md` и
-`RELEASE_NOTES_2.7.0_pre5.04.md`, затем сверь git status, origin/master и релизы.
+`RELEASE_NOTES_2.7.0_pre5.05.md`, затем сверь git status, origin/master и релизы.
 
-Текущий выпуск: [**pre5.04 / 1071**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.04),
+25 сентября подготовлен **pre5.05 / 1072** по issue #8: TDownloader ошибочно
+передавал THTTPClient целый URL через form-encoder. Убрано кодирование перед
+GET и POST; макросы, сценарии и настройки прокси не менялись. Приложенный
+collection.info исправен, переимпортировать INPX не нужно. Регрессия:
+`node Utils/MHLMcpServer/tests/download_tests.js <MHLMcpServer.exe>`.
+Она копирует только зависимости в отдельную временную установку и проверяет
+пять сценариев на loopback-сервере. Старый код провалил тест; исправленный
+x86/x64 проходят. Не путать это с проверкой доступности настоящей Флибусты.
+Оба основных EXE и MCP собраны; локальные Bin/Bin64 содержат pre5.05.
+Готовые ZIP: `Installer\Out\pre5.05-publish`; SHA-256 и границы проверок
+описаны в BUILDING. Прочие регрессионные тесты и GUI заново не прогонялись.
+Ниже оставлена история предыдущего выпуска.
+
+Предыдущий выпуск: [**pre5.04 / 1071**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.04),
 опубликован 22 сентября от `Dicur3x`, исходники
 `e07bd9de88def2b8845c5993cae9d1bd402c5dfe` в `master`. Размеры и SHA-256
 обоих вложений проверены; адрес версии вернул HTTP 200 и `2.7.0.1071`.
-Повторно не публиковать. Локальные EXE Bin/Bin64 уже 1071.
+Повторно не публиковать.
 Сайт программы и отдельный адрес проверки версий теперь
 ведут в `Dicur3x/MyHomeLib`. `update/last_version.info` в master обязательно
 обновлять при будущих релизах: первая строка равна версии EXE.

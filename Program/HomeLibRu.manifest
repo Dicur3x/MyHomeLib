@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="HomeLibRu" version="2.7.0.1071" processorArchitecture="*"/>
+  <assemblyIdentity type="win32" name="HomeLibRu" version="2.7.0.1072" processorArchitecture="*"/>
   <description>HomeLib Ru</description>
   <dependency>
     <dependentAssembly>

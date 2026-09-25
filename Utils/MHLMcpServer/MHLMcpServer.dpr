@@ -27,6 +27,8 @@ uses
   unit_MCP_FLibrarySelfTest in 'unit_MCP_FLibrarySelfTest.pas',
   unit_MCP_PublisherIndexBenchmark in 'unit_MCP_PublisherIndexBenchmark.pas',
   unit_MCP_PublisherSourceSelfTest in 'unit_MCP_PublisherSourceSelfTest.pas',
+  unit_Downloader in '..\..\Program\DwnldImpl\unit_Downloader.pas',
+  unit_MCP_DownloadSelfTest in 'unit_MCP_DownloadSelfTest.pas',
   unit_MCP_Fixture in 'unit_MCP_Fixture.pas';
 
 // Extracts one FB2 file's text and section structure and prints it as a
@@ -110,6 +112,7 @@ end;
 var
   Server: TMcpServer;
   BenchmarkRealArchive: string;
+  DownloadTestPort: Integer;
 
 begin
   // --extract is a pure, database-free CLI mode (see RunExtractMode above),
@@ -210,6 +213,32 @@ begin
   end;
 
   Application.Initialize;
+
+  if (ParamCount >= 1) and (ParamStr(1) = '--download-selftest') then
+  begin
+    DownloadTestPort := StrToIntDef(ParamStr(5), 0);
+    if (ParamCount <> 5) or (ParamStr(2) <> 'uselocaldata') or
+       (ParamStr(3) <> 'user') or (ParamStr(4) <> 'mcpfixture') or
+       (DownloadTestPort < 1) or (DownloadTestPort > 65535) then
+    begin
+      Writeln(ErrOutput, '--download-selftest requires: ' +
+        'uselocaldata user mcpfixture <loopback-port>.');
+      Halt(1);
+    end;
+    try
+      RunMakeFixtureMode;
+      RunDownloadSelfTestMode(DownloadTestPort);
+    except
+      on E: Exception do
+      begin
+        Writeln(ErrOutput, 'Download self-test failed: ' + E.Message);
+        FreeAndNil(DMUser);
+        Halt(1);
+      end;
+    end;
+    FreeAndNil(DMUser);
+    Exit;
+  end;
 
   if (ParamCount >= 1) and (ParamStr(1) = '--publisher-index-benchmark') then
   begin

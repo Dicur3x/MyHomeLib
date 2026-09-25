@@ -106,7 +106,6 @@ uses
   HTTPApp,
   StrUtils,
   DateUtils,
-  System.NetEncoding,
   unit_Settings,
   dm_user,
   unit_Consts,
@@ -570,17 +569,19 @@ begin
 
   try
     FStartDate := Now;
+    // THTTPClient takes a full URL. Form encoding would escape : / ? & and
+    // double-encode existing percent escapes (issue #8).
     case Kind of
       qkGet:
         begin
           FNoProgress := False;
-          Response := FHTTPClient.Get(TNetEncoding.URL.Encode(URL), FResponse);
+          Response := FHTTPClient.Get(URL, FResponse);
         end;
 
       qkPost:
         begin
           FNoProgress := True;
-          Response := FHTTPClient.Post(TNetEncoding.URL.Encode(URL), FParams, FResponse);
+          Response := FHTTPClient.Post(URL, FParams, FResponse);
         end;
     end;
     Result := True;
