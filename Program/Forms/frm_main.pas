@@ -7721,9 +7721,12 @@ procedure TfrmMain.OnChangeLocalStatus(var Message: TLocalStatusChangedMessage);
 begin
   Assert(Assigned(Message.Params));
 
-  SetBookLocalStatus(Message.Params^.BookKey, Message.Params^.LocalStatus);
-
-  Dispose(Message.Params);
+  try
+    SetBookLocalStatus(Message.Params^.BookKey, Message.Params^.LocalStatus);
+  finally
+    Dispose(Message.Params);
+  end;
+  Message.Result := 0;
 end;
 
 procedure TfrmMain.SetBookLocalStatus(const BookKey: TBookKey; IsLocal: Boolean);

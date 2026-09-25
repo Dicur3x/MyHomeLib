@@ -5,7 +5,21 @@
 `codex/pre5-feedback-codex`. Не очищай другие грязные деревья:
 `C:\Users\cloud\IdeaProjects\MyHomeLib` и `C:\Users\cloud\IdeaProjects\MyHomeLib-codex-worktree`.
 Прочитай верхние разделы `ROADMAP.md`, `README.md`, `BUILDING.md` и
-`RELEASE_NOTES_2.7.0_pre5.05.md`, затем сверь git status, origin/master и релизы.
+`RELEASE_NOTES_2.7.0_pre5.06.md`, затем сверь git status, origin/master и релизы.
+
+25 сентября подготовлен **pre5.06 / 1073** по новому комментарию issue #8.
+После успешной загрузки Win64 падал в OnChangeLocalStatus: packed record
+сообщения не учитывал Win64 padding, Params читался по смещению 12 вместо 16.
+Это подтверждено дизассемблированием опубликованного EXE по offset 7CA2CF.
+Исправлены padding/LRESULT, освобождение payload в finally и при отказе
+PostMessage. Предыдущий тест не создавал окна и не ловил этот сбой; теперь
+проверяет ABI и шесть настоящих уведомлений скрытому окну VCL. Старый x64
+провалил проверку, окончательные x86/x64 прошли. Обе программы и MCP собраны,
+ZIP в `Installer\Out\pre5.06-publish`, SHA-256 и границы проверок в BUILDING.
+Полный GUI, внешняя читалка и настоящий сайт заново не проверялись.
+В MCP dproj до этого задания уже были служебные изменения IDE: не откатывать,
+не включать их в исправление; в релиз нужен только новый ProductVersion.
+Далее история предыдущих выпусков, не выдавать её проверки за новые.
 
 25 сентября опубликован [**pre5.05 / 1072**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.05),
 исходники `860054c16243ad59810fa74c705c6401c9d59c1d` в master. SHA-256 и размеры

@@ -38,9 +38,13 @@ type
 
   TLocalStatusChangedMessage = packed record
     Msg: Cardinal;
+    // Match TMessage: Win64 aligns WPARAM/LPARAM on an eight-byte boundary.
+{$IFDEF WIN64}
+    MsgFiller: Cardinal;
+{$ENDIF}
     Unused: WPARAM;
     Params: PBookLocalStatus;
-    Result: Longint;
+    Result: LRESULT;
   end;
 
 procedure BookLocalStatusChanged(
@@ -60,16 +64,20 @@ procedure BookLocalStatusChanged(
 var
   Param: PBookLocalStatus;
 begin
+  if Application.MainForm = nil then
+    Exit;
+
   New(Param);
   Param^.BookKey := BookKey;
   Param^.LocalStatus := LocalStatus;
 
-  PostMessage(
+  if not PostMessage(
     Application.MainFormHandle,
     WM_MHL_CHANGELOCALSTATUS,
     0,
     LPARAM(Param)
-  );
+  ) then
+    Dispose(Param);
 end;
 
 end.

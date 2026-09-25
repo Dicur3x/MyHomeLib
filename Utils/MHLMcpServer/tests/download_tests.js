@@ -66,9 +66,11 @@ async function main() {
     const messages = run.stdout.trim().split(/\r?\n/).map(JSON.parse);
     assert.equal(messages.length, 2, 'expected fixture and download reports');
     assert.equal(messages[1].cases.length, 5);
+    assert.equal(messages[1].clear_status_notified, true, 'cleared local status not delivered to VCL');
     for (const item of messages[1].cases) {
       assert.equal(item.downloaded, true, `${item.name}: download failed`);
       assert.equal(item.local, true, `${item.name}: not marked local`);
+      assert.equal(item.notified, true, `${item.name}: local-status notification lost or corrupted`);
       assert.ok(path.resolve(item.path).startsWith(root + path.sep));
       assert.deepEqual(fs.readFileSync(item.path), payload, `${item.name}: response changed or appended`);
       assert.ok(!fs.existsSync(item.path.replace(/\.fb2$/, '.part.fb2')));
@@ -85,7 +87,7 @@ async function main() {
     assert.match(requests[1].type, /^multipart\/form-data;/i);
     assert.match(requests[1].body, /name="token"/);
     assert.match(requests[1].body, /value\+with%literal/);
-    console.log('PASS: GET, POST, issue #8 redirect scenario, escaped URL, Unicode path; exact payloads and local flags');
+    console.log('PASS: GET, POST, issue #8 redirect scenario, escaped URL, Unicode path; exact payloads, local flags, VCL status messages');
   } finally {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));

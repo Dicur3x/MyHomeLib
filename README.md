@@ -26,6 +26,12 @@ HomeLib Ru — настольная программа для Windows, кото�
 
 ## Состояние проекта на 25 сентября 2026 года
 
+- Подготовлено **2.7.0_pre5.06**, EXE **2.7.0.1073**: исправлена ошибка
+  `Access violation` в x64 после успешного скачивания книги (продолжение
+  [issue #8](https://github.com/Dicur3x/MyHomeLib/issues/8)). Причина была в
+  сообщении обновления статуса книги, а не в файле или читалке.
+  Подробности: [`RELEASE_NOTES_2.7.0_pre5.06.md`](RELEASE_NOTES_2.7.0_pre5.06.md).
+
 - Опубликовано [**2.7.0_pre5.05**](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.05), EXE **2.7.0.1072**: исправлена
   ошибка `Invalid URL` при онлайн-загрузке книг, описанная в
   [issue #8](https://github.com/Dicur3x/MyHomeLib/issues/8). Менять
