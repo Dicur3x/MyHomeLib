@@ -63,6 +63,13 @@ LICENSE и NOTICE прежние. CRC, архитектура и версии EX
 - `HomeLibRu_x64.zip`: 27093104 байта, 280 файлов,
   `DFF5524B460E6076B9BFBD9F2A2FA67E6AD7586C409F19E13A450FA74B438E47`.
 
+[Выпуск опубликован](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.07)
+1 октября. Тег указывает на `73f87084dbc4d6a17cb7f5953831e72aa32e8454`,
+исходники переданы в master и `codex/pre5-feedback-codex` без force-push.
+Публичный GitHub API `/releases/latest` возвращает pre5.07; размеры и digest
+SHA-256 обоих вложений совпали с локальными ZIP. Публичный старый update-feed
+вернул HTTP 200 и 2.7.0.1074. Предыдущие релизы не изменялись.
+
 ## Проверка 2.7.0_pre5.06, сборки 1073
 
 [Выпуск опубликован](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.06)
