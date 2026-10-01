@@ -43,6 +43,7 @@ uses
   Menus,
   ShellAPI,
   unit_Globals,
+  unit_ProgramUpdates,
   unit_Interfaces,
   XMLIntf,
   XMLDoc,
@@ -844,6 +845,8 @@ type
     // Проверяет возможность редактирования информации (о книге, если задано).
     // В случае если книга из онлайн коллекции предлагает перейти на сайт для изменения информации там
     //
+    procedure ProgramUpdateChecked(var Message: TMessage); message WM_PROGRAM_UPDATE_CHECKED;
+    procedure UpdateDownloadToolbarSize;
     function IsLibRusecEdit(const BookKey: TBookKey): Boolean;
 
     //
@@ -912,6 +915,8 @@ type
     FSelectionState: Boolean;
 
     FAutoCheck: Boolean;
+    FProgramUpdateThread: TProgramUpdateThread;
+    FLastNotifiedRelease: string;
     FFormBusy: Boolean;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
@@ -1048,6 +1053,7 @@ uses
   Character,
   Generics.Collections,
   unit_HelpTopics,
+  unit_MHLHttpClient,
   Math,
   fictionbook_21,
   unit_FB2Utils,
@@ -1105,6 +1111,10 @@ rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверь�
    rstrNotForExtension = 'Операция недоступна для файлов с расширением %s';
    rstrUnableDeleteBuiltinGroupError = 'Нельзя удалить встроенную группу!';
    rstrCheckingUpdates = 'Проверка обновлений...';
+   rstrProgramLatestVersion = 'У вас установлена актуальная версия HomeLib Ru.';
+   rstrProgramUpdateCheckFailed = 'Не удалось проверить наличие обновлений. Попробуйте позже.';
+   rstrProgramReleaseAvailable = 'Доступна новая версия HomeLib Ru: %s.' + CRLF + CRLF +
+     'Открыть страницу релиза, чтобы скачать обновление?';
    rstrGroupAlreadyExists = 'Группа с таким именем уже существует!';
    rstrAdding2GroupMessage = 'Добавляем книги в группу...';
    rstrRemovingFromGroupMessage = 'Удаляем книги из группы...';
@@ -3080,7 +3090,47 @@ end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
 begin
-  CheckUpdates(GetFileVersion(Application.ExeName), FAutoCheck);
+  if Assigned(FProgramUpdateThread) then
+    Exit;
+  FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal);
+  acHelpCheckUpdates.Enabled := False;
+  FProgramUpdateThread.Start;
+end;
+
+procedure TfrmMain.ProgramUpdateChecked(var Message: TMessage);
+var
+  ReleaseInfo: TProgramRelease;
+  Successful: Boolean;
+  Comparison: Integer;
+begin
+  Message.Result := 0;
+  if not Assigned(FProgramUpdateThread) then
+    Exit;
+  FProgramUpdateThread.WaitFor;
+  Successful := FProgramUpdateThread.Successful;
+  ReleaseInfo := FProgramUpdateThread.ReleaseInfo;
+  FreeAndNil(FProgramUpdateThread);
+  acHelpCheckUpdates.Enabled := True;
+  if not Successful then
+  begin
+    if not FAutoCheck then
+      MHLShowError(rstrProgramUpdateCheckFailed);
+    FAutoCheck := False;
+    Exit;
+  end;
+  if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
+     (Comparison > 0) then
+  begin
+    if (FLastNotifiedRelease <> ReleaseInfo.Tag) or not FAutoCheck then
+    begin
+      FLastNotifiedRelease := ReleaseInfo.Tag;
+      if MHLShowInfo(Format(rstrProgramReleaseAvailable, [ReleaseInfo.Tag]), mbYesNo) = mrYes then
+        ShellExecute(Handle, 'open', PChar(ReleaseInfo.URL), nil, nil, SW_SHOWNORMAL);
+    end;
+  end
+  else if not FAutoCheck then
+    MHLShowInfo(rstrProgramLatestVersion);
+  FAutoCheck := False;
 end;
 
 // ------------------------------------------------------------------------------
@@ -3094,13 +3144,11 @@ begin
   tmrCheckUpdates.Enabled := False;
   StatusMessage := rstrCheckingUpdates;
 
-  if Settings.CheckUpdate then
+  if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) then
   begin
     FAutoCheck := True;
     CheckUpdatesExecute(nil);
-  end
-  else
-    FAutoCheck := False;
+  end;
 
   if Settings.CheckExternalLibUpdate then
     if CheckLibUpdates(True) then
@@ -3428,6 +3476,7 @@ begin
   FrameTrees;
 
   dmImages.ScaleForDPI(Self.CurrentPPI);
+  UpdateDownloadToolbarSize;
 
   ConnectTreeControllers;
 
@@ -3485,10 +3534,24 @@ end;
 procedure TfrmMain.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
 begin
   dmImages.ScaleForDPI(NewDPI);
+  UpdateDownloadToolbarSize;
+end;
+
+procedure TfrmMain.UpdateDownloadToolbarSize;
+begin
+  // Recompute native button padding after image-list scaling.
+  tlbrDownloadList.ButtonHeight := dmImages.vilDownload.Height + MulDiv(8, CurrentPPI, 96);
+  tlbrDownloadList.ButtonWidth := dmImages.vilDownload.Width + MulDiv(8, CurrentPPI, 96);
+  tlbrDownloadList.Height := tlbrDownloadList.ButtonHeight + MulDiv(4, CurrentPPI, 96);
 end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  if Assigned(FProgramUpdateThread) then
+  begin
+    FProgramUpdateThread.Terminate;
+    FreeAndNil(FProgramUpdateThread);
+  end;
   // SQ
   FreeAndNil(FPresets);
 

@@ -67,6 +67,7 @@ uses
   frm_main in 'Forms\frm_main.pas' {frmMain},
   dm_user in 'DataModules\dm_user.pas' {DMUser: TDataModule},
   unit_Globals in 'Units\unit_Globals.pas',
+  unit_ProgramUpdates in 'Units\unit_ProgramUpdates.pas',
   frm_settings in 'Forms\frm_settings.pas' {frmSettings},
   frm_about in 'Forms\frm_about.pas' {frmAbout},
   frm_statistic in 'Forms\frm_statistic.pas' {frmStat},

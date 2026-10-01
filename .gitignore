@@ -30,6 +30,8 @@ __recovery/
 /Components/MHLComponents/tests/*.identcache
 /tools/metabib/tests/*.res
 /tools/metabib/tests/*.identcache
+/Program/Tests/*.res
+/Program/Tests/*.identcache
 
 .superpowers/
 .claude/

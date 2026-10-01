@@ -206,7 +206,14 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1073'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1074'
+$updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
+if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
+    throw 'Не найдена версия для проверки релизов приложения.'
+}
+if ($exeInfo.VersionInfo.ProductVersion -ne $Matches[1]) {
+    throw 'Версия проверки релизов не совпадает с ProductVersion собранного EXE.'
+}
 if ($exeInfo.Length -eq 0) {
     throw "EXE имеет нулевой размер и не является успешной сборкой: $exePath"
 }

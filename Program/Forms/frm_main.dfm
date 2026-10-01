@@ -2264,10 +2264,11 @@ object frmMain: TfrmMain
         Left = 3
         Top = 3
         Width = 772
-        Height = 24
+        Height = 36
         Align = alTop
         Images = dmImages.vilDownload
-        ButtonHeight = 20
+        ButtonHeight = 32
+        ButtonWidth = 32
         AutoSize = True
         Flat = True
         ParentShowHint = False

@@ -447,7 +447,6 @@ type
   function CleanExtension(const Ext: string): string;
   function c_GetTempPath: String;
 
-  procedure CheckUpdates(const Version: string; var AutoCheck: Boolean);
 
 var
   CurrentSelectedAuthor: string; //Текущий выбранный автор для передачи в парсер экспорта
@@ -1564,62 +1563,6 @@ begin
   end;
   Result := IncludeTrailingPathDelimiter(PChar(S));
 end;
-
-procedure CheckUpdates(const Version: string; var AutoCheck: Boolean);
-var
-  SL: TStringList;
-  LF: TMemoryStream;
-  i: Integer;
-  S: string;
-  HTTP: THTTPClient;
-begin
-  LF := TMemoryStream.Create;
-  try
-    SL := TStringList.Create;
-    try
-      HTTP := CreateHTTPClientGlobal;
-      try
-        try
-          // Collection update servers must not select this fork's app releases.
-          HTTP.Get(PROGRAM_UPDATE_URL, LF);
-        except
-          on E: ENetHTTPClientException do
-          begin
-            MHLShowError(rstrUpdateFailedConnectionError, [0]);
-            AutoCheck := False;
-            Exit;
-          end;
-          on E: Exception do
-          begin
-            MHLShowError(rstrUpdateFailedServerError, [0]);
-            AutoCheck := False;
-            Exit;
-          end;
-        end;
-        LF.SaveToFile(Settings.SystemFileName[sfAppVerInfo]);
-        SL.LoadFromFile(Settings.SystemFileName[sfAppVerInfo]);
-        if SL.Count > 0 then
-          if CompareStr(Version, SL[0]) < 0 then
-          begin
-            S := CRLF;
-            for i := 1 to SL.Count - 1 do
-              S := S + '  ' + SL[i] + CRLF;
-            MHLShowInfo(Format(rstrFoundNewAppVersion, [SL[0] + CRLF + S + CRLF]));
-          end
-          else if not AutoCheck then
-            MHLShowInfo(rstrLatestVersion);
-        AutoCheck := False;
-      finally
-        HTTP.Free;
-      end;
-    finally
-      SL.Free;
-    end;
-  finally
-    LF.Free;
-  end;
-end;
-
 
 function ExecAndWait(const FileName, Params: string; const WinState: word): Boolean;
 var
