@@ -154,23 +154,6 @@ const
 
   COL_STATE = 99;
 
-  ColumnTags: array [0 .. 13] of Integer = (
-    COL_AUTHOR,
-    COL_TITLE,
-    COL_SERIES,
-    COL_NO,
-    COL_GENRE,
-    COL_SIZE,
-    COL_RATE,
-    COL_DATE,
-    COL_TYPE,
-    COL_COLLECTION,
-    COL_LANG,
-    COL_LIBRATE,
-    COL_LIBID,
-    COL_STATE
-  );
-
   //
   // названия секций колонок в файле настрок
   //
@@ -324,6 +307,10 @@ const
   // were filled from the same file. Empty on collections created before this
   // property existed.
   PROP_GENRE_FILE         = PROP_CLASS_COLLECTION or PROP_TYPE_STRING   or $0016;
+  // Collection data from a curated catalogue, preserved across UI language changes.
+  PROP_SOURCE_GENRES = PROP_CLASS_COLLECTION or PROP_TYPE_BOOLEAN or $001A;
+  PROP_SOURCE_LIBRARY = PROP_CLASS_COLLECTION or PROP_TYPE_STRING or $001B;
+  PROP_MIXED_LIBRARY_IDS = PROP_CLASS_COLLECTION or PROP_TYPE_BOOLEAN or $001C;
   PROP_LAST_PUBLISHER_SERIES = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0017;
   PROP_LAST_PUBLISHER_BOOK = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0018;
   PROP_PUBLISHER_LANG_FILTER = PROP_CLASS_COLLECTION or PROP_TYPE_INTEGER or $0019;

@@ -44,6 +44,7 @@ uses
   ShellAPI,
   unit_Globals,
   unit_ProgramUpdates,
+  frm_OPDS,
   unit_Interfaces,
   XMLIntf,
   XMLDoc,
@@ -768,8 +769,10 @@ type
     FPendingPublisherBookID: Integer;
     FTimerDone: Boolean;
     FIgnoreAuthorChange: Boolean;
-    FLangSelected: Boolean;
+    FViewLanguageSelected: array[TView] of Boolean;
     FLocales: TArray<TLocaleInfo>;
+    FOPDSForm: TfrmOPDS;
+    procedure ShowOPDS(Sender: TObject);
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
 
@@ -1754,14 +1757,14 @@ begin
   FPublisher.Title.Caption := Data^.SeriesTitle;
   Filter := Default(TFilterValue);
   Filter.ValueInt := FLastPublisherSeriesID;
-  WasLangSelected := FLangSelected;
-  FLangSelected := True;
+  WasLangSelected := FViewLanguageSelected[PublisherSeriesView];
+  FViewLanguageSelected[PublisherSeriesView] := True;
   try
     FillBooksTree(FPublisher.Books, FPublisher.Language,
       FCollection.GetBookIterator(bmByPublisherSeries, False, @Filter),
       False, False, @FLastPublisherBookID);
   finally
-    FLangSelected := WasLangSelected;
+    FViewLanguageSelected[PublisherSeriesView] := WasLangSelected;
   end;
 end;
 
@@ -1922,6 +1925,7 @@ procedure TfrmMain.CloseCollection;
 var
   FCursor: TCursor;
 begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   FCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
   try
@@ -2053,6 +2057,7 @@ procedure TfrmMain.SyncGenreLanguage;
 var
   Wanted: string;
   Current: string;
+  SourceGenres: Variant;
 begin
   Assert(Assigned(FCollection));
 
@@ -2061,6 +2066,10 @@ begin
   // own choice.
   if not isFB2Collection(FCollection.CollectionCode) then
     Exit;
+
+  SourceGenres := FCollection.GetProperty(PROP_SOURCE_GENRES);
+  if not VarIsEmpty(SourceGenres) and not VarIsNull(SourceGenres) then
+    if Boolean(SourceGenres) then Exit;
 
   Wanted := ExtractFileName(Settings.SystemFileName[sfGenresFB2]);
   Current := VarToStr(FCollection.GetProperty(PROP_GENRE_FILE));
@@ -2092,6 +2101,7 @@ var
   SelectedNode: PVirtualNode;
   AuthorData: PAuthorData;
   SeriesData: PSeriesData;
+  View: TView;
 
   procedure ResetLangFilter(LangComboBox: TComboBox);
   begin
@@ -2124,7 +2134,8 @@ begin
     ResetLangFilter(cbLangSelectS);
     ResetLangFilter(cbLangSelectG);
     ResetLangFilter(cbLangSelectF);
-    FLangSelected := False;
+    for View := Low(TView) to High(TView) do
+      FViewLanguageSelected[View] := False;
 
 
     //
@@ -2206,6 +2217,11 @@ begin
     FIgnoreAuthorChange := False;
     LocateAuthor(FSA);
     SelectedNode := tvAuthors.GetFirstSelected;
+    if not Assigned(SelectedNode) then
+    begin
+      SelectedNode := tvAuthors.FocusedNode;
+      if Assigned(SelectedNode) then tvAuthors.Selected[SelectedNode] := True;
+    end;
     AuthorData := nil;
     if Assigned(SelectedNode) then
       AuthorData := tvAuthors.GetNodeData(SelectedNode);
@@ -2220,6 +2236,11 @@ begin
     InternalSetSeriesFilter(Button);
     LocateSeries(FSS);
     SelectedNode := tvSeries.GetFirstSelected;
+    if not Assigned(SelectedNode) then
+    begin
+      SelectedNode := tvSeries.FocusedNode;
+      if Assigned(SelectedNode) then tvSeries.Selected[SelectedNode] := True;
+    end;
     SeriesData := nil;
     if Assigned(SelectedNode) then
       SeriesData := tvSeries.GetNodeData(SelectedNode);
@@ -2264,6 +2285,8 @@ begin
     EnsureActiveBookViewLoaded;
 
   finally
+    FInvisible := False;
+    FIgnoreAuthorChange := False;
     Screen.Cursor := SavedCursor;
   end;
 end;
@@ -2277,7 +2300,6 @@ var
   bookTree: TBookTree;
   bookData: PBookRecord;
   bookKey: TBookKey;
-  filterValue: TFilterValue;
   Button : TToolButton;
   BookCollection: IBookCollection;
   BookSeries: TBookSeries;
@@ -2335,9 +2357,8 @@ begin
 
 
     // Fill book tree and locate the book:
-    filterValue := SeriesBookFilter; // uses FLastSeriesID initialized earlier
     FLastSeriesBookID := bookKey;
-    FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
+    Exclude(FLoadedBookViews, SeriesView);
 
     // Change page to Series:
     ActivateView(SeriesView);
@@ -2378,10 +2399,6 @@ begin
       InitCollection;
     end;
 
-    // Change page to Genres:
-    ActivateView(GenresView);
-    pgControlChange(nil);
-
     // Locate the genre:
     genreCode := Link;
     node := tvGenres.GetFirst;
@@ -2393,6 +2410,7 @@ begin
       begin
         tvGenres.Selected[node] := True;
         tvGenres.FocusedNode := node;
+        lblGenreTitle.Caption := genreData^.GenreAlias;
         FLastGenreCode := genreCode;
         FLastGenreIsContainer := (node^.ChildCount > 0);
         FLastGenreIsTopLevelContainer :=
@@ -2406,7 +2424,9 @@ begin
     // Concrete genres are loaded immediately. Top-level genres remain
     // collapsed and empty until the user explicitly asks to show them.
     FLastGenreBookID := bookKey;
-    FillCurrentGenreBooks;
+    Exclude(FLoadedBookViews, GenresView);
+    ActivateView(GenresView);
+    pgControlChange(nil);
   finally
     Screen.Cursor := savedCursor;
   end;
@@ -3010,29 +3030,12 @@ begin
 end;
 
 procedure TfrmMain.FillAllBooksTree;
-var
-  SavedCursor: TCursor;
-  FilterValue: TFilterValue;
 begin
   Assert(Assigned(FCollection));
-  SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
-  try
-    FilterValue := AuthorBookFilter;
-    FillBooksTree(tvBooksA, cbLangSelectA, FCollection.GetBookIterator(bmByAuthor, False, @FilterValue), False, True, @FLastAuthorBookID);  // авторы
-
-    FilterValue := SeriesBookFilter;
-    FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
-
-    FillCurrentGenreBooks; // жанры
-
-    FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True,  True, @FLastGroupBookID);  // избранное
-    FPublisherListLoaded := False;
-    Exclude(FLoadedBookViews, PublisherSeriesView);
-    if ActiveView = PublisherSeriesView then EnsureActiveBookViewLoaded;
-  finally
-    Screen.Cursor := SavedCursor;
-  end;
+  FLoadedBookViews := FLoadedBookViews -
+    [AuthorsView, SeriesView, GenresView, FavoritesView, PublisherSeriesView];
+  FPublisherListLoaded := False;
+  EnsureActiveBookViewLoaded;
 end;
 
 function TfrmMain.CheckLibUpdates(Auto: Boolean): Boolean;
@@ -3272,6 +3275,7 @@ end;
 
 procedure TfrmMain.StartLibUpdate;
 begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   unit_Utils.LibrusecUpdate(Settings.SystemFileName[sfUpdateLog]);
 end;
 
@@ -3466,16 +3470,39 @@ begin
     ClearDir(Settings.DataDir);
 end;
 
+procedure TfrmMain.ShowOPDS(Sender: TObject);
+begin
+  if not Assigned(FCollection) then
+  begin
+    MessageDlg('Сначала выберите коллекцию для каталога читалки.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+  if not Assigned(FOPDSForm) then FOPDSForm := TfrmOPDS.Create(Self);
+  FOPDSForm.SetCollection(FSystemData.GetCollectionInfo(FCollection.CollectionID));
+  FOPDSForm.Show;
+  FOPDSForm.BringToFront;
+end;
+
 procedure TfrmMain.FormCreate(Sender: TObject);
+var
+  OPDSMenu: TMenuItem;
 begin
   OnShortCut := FormShortCut;
   FSystemData := SystemDB;
+  OPDSMenu := TMenuItem.Create(Self);
+  OPDSMenu.Caption := 'Каталог для читалки (OPDS)...';
+  OPDSMenu.OnClick := ShowOPDS;
+  miTools.Insert(0, OPDSMenu);
 
   CreatePublisherSeriesView;
 
   FrameTrees;
 
   dmImages.ScaleForDPI(Self.CurrentPPI);
+  // VCL uses the existing AlignWithMargins gap above this toolbar.
+  // Keep that gap at each monitor DPI while holding the designed row height.
+  tlbrMain.AutoSize := False;
+  tlbrMain.Margins.Top := MulDiv(4, CurrentPPI, 96);
   UpdateDownloadToolbarSize;
 
   ConnectTreeControllers;
@@ -3534,6 +3561,7 @@ end;
 procedure TfrmMain.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
 begin
   dmImages.ScaleForDPI(NewDPI);
+  tlbrMain.Margins.Top := MulDiv(4, NewDPI, 96);
   UpdateDownloadToolbarSize;
 end;
 
@@ -3547,6 +3575,7 @@ end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  FreeAndNil(FOPDSForm);
   if Assigned(FProgramUpdateThread) then
   begin
     FProgramUpdateThread.Terminate;
@@ -3915,9 +3944,12 @@ begin
   btnShowGenreBooks.Enabled := False;
   try
     try
-      FillCurrentGenreBooks;
+      // First actual load also restores the language deferred by root navigation.
+      Exclude(FLoadedBookViews, GenresView);
+      EnsureActiveBookViewLoaded;
     except
       FRootGenreBooksRequested := False;
+      Exclude(FLoadedBookViews, GenresView);
       raise;
     end;
   finally
@@ -4044,7 +4076,8 @@ begin
       FSystemData.CopyBookToGroup(BookData^.BookKey, SourceGroupID, TargetGroupID, ssShift in Shift);
     end;
   end;
-  FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True, True, @FLastGroupBookID);
+  Exclude(FLoadedBookViews, FavoritesView);
+  if ActiveView = FavoritesView then EnsureActiveBookViewLoaded;
 end;
 
 procedure TfrmMain.tvGroupsDragOver(Sender: TBaseVirtualTree; Source: TObject; Shift: TShiftState; State: TDragState; Pt: TPoint; Mode: TDropMode; var Effect: Integer; var Accept: Boolean);
@@ -4673,6 +4706,9 @@ var
   BookFileName: string;
   BookFormat: TBookFormat;
   WorkFile: string;
+  ReadWorkPath: string;
+  CompatStream: TStream;
+  DestStream: TFileStream;
   CollectionInfo: TCollectionInfo;
 begin
   Assert(Assigned(FCollection));
@@ -4681,11 +4717,20 @@ begin
 
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
+  CompatStream := nil;
   try
     BookFileName := BookRecord.GetBookFileName;
     BookFormat := BookRecord.GetBookFormat;
 
-    if BookFormat in [bfFb2Archive, bfFbd, bfRawArchive] then
+    if (BookFormat = bfFb2) and Settings.ConvertWebPToPNG then
+    begin
+      CompatStream := BookRecord.GetBookStream;
+      // An unchanged plain FB2 keeps its original path and reader progress.
+      if CompatStream is TFileStream then FreeAndNil(CompatStream);
+    end;
+
+    if (BookFormat in [bfFb2Archive, bfFbd, bfRawArchive]) or
+      Assigned(CompatStream) then
     begin
       if BookFormat = bfFb2Archive then
       begin
@@ -4705,8 +4750,15 @@ begin
       end;
 
       Assert(Length(BookRecord.Authors) > 0);
+      ReadWorkPath := Settings.ReadPath;
+      if (BookFormat in [bfFb2, bfFb2Archive]) and Settings.ConvertWebPToPNG then
+      begin
+        // Converted copies have a separate cache when the export policy changes.
+        ReadWorkPath := TPath.Combine(ReadWorkPath, 'webp-png');
+        ForceDirectories(ReadWorkPath);
+      end;
       WorkFile := TPath.Combine(
-        Settings.ReadPath,
+        ReadWorkPath,
         Format('%s - %s', [CheckSymbols(BookRecord.Authors[0].GetFullName),
                            CheckSymbols(BookRecord.Title)]));
 
@@ -4718,7 +4770,17 @@ begin
                                     BookRecord.FileExt]);
 
       if not FileExists(WorkFile) then
-        BookRecord.SaveBookToFile(WorkFile);
+        if Assigned(CompatStream) then
+        begin
+          DestStream := TFileStream.Create(WorkFile, fmCreate);
+          try
+            DestStream.CopyFrom(CompatStream, 0);
+          finally
+            DestStream.Free;
+          end;
+        end
+        else
+          BookRecord.SaveBookToFile(WorkFile);
     end
     else // bfFb2 or bfRaw
       WorkFile := BookFileName;
@@ -4728,6 +4790,7 @@ begin
 
     Settings.Readers.RunReader(WorkFile);
   finally
+    FreeAndNil(CompatStream);
     Screen.Cursor := SavedCursor;
   end;
 end;
@@ -5119,7 +5182,7 @@ begin
       begin
         Tree := tvBooksA;
         LangSelector := cbLangSelectA;
-        if FLastAuthorBookID.BookID <> 0 then
+        if FLastAuthorBookID.BookID > 0 then
           PendingBookID := FLastAuthorBookID.BookID
         else
           PendingBookID := FPendingAuthorBookID;
@@ -5130,7 +5193,7 @@ begin
       begin
         Tree := tvBooksS;
         LangSelector := cbLangSelectS;
-        if FLastSeriesBookID.BookID <> 0 then
+        if FLastSeriesBookID.BookID > 0 then
           PendingBookID := FLastSeriesBookID.BookID
         else
           PendingBookID := FPendingSeriesBookID;
@@ -5141,7 +5204,7 @@ begin
       begin
         Tree := FPublisher.Books;
         LangSelector := FPublisher.Language;
-        if FLastPublisherBookID.BookID <> 0 then
+        if FLastPublisherBookID.BookID > 0 then
           PendingBookID := FLastPublisherBookID.BookID
         else
           PendingBookID := FPendingPublisherBookID;
@@ -5168,7 +5231,11 @@ begin
 
   Include(FLoadedBookViews, View);
 
-  if Assigned(LangSelector) then
+  // A root genre has not built a language list until the explicit Show action.
+  // Preserve the stored filter instead of treating the navigation-only list as data.
+  if Assigned(LangSelector) and
+    not ((View = GenresView) and FLastGenreIsTopLevelContainer and
+      not FRootGenreBooksRequested) then
   begin
     PendingLangIndex := FPendingLangFilters[View];
     FPendingLangFilters[View] := -1;
@@ -5342,12 +5409,11 @@ begin
       begin
         SelectedLang := LangSelector.Text;
 
-        if not FLangSelected then
+        if not FViewLanguageSelected[TView(Tree.Tag)] then
         begin
           LangSelector.Items.Clear;
           LangSelector.Items.Add('-');
           LangSelector.ItemIndex := 0;
-          FLangSelected := False;
         end;
 
       end;
@@ -6182,7 +6248,9 @@ begin
   try
     FSystemData.ClearGroup(GroupData^.GroupID);
 
-    FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True, True, @FLastGroupBookID); // избранное
+    Exclude(FLoadedBookViews, FavoritesView);
+
+    if ActiveView = FavoritesView then EnsureActiveBookViewLoaded;
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -6616,7 +6684,8 @@ begin
   GroupData := tvGroups.GetNodeData(tvGroups.GetFirstSelected);
   if Assigned(GroupData) and (GroupData^.GroupID = GroupID) then
   begin
-    FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True, True, @FLastGroupBookID); // Группы
+    Exclude(FLoadedBookViews, FavoritesView);
+    if ActiveView = FavoritesView then EnsureActiveBookViewLoaded;
   end;
 end;
 
@@ -6668,7 +6737,9 @@ begin
       //
       FSystemData.RemoveUnusedBooks;
 
-      FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True, True, @FLastGroupBookID);
+      Exclude(FLoadedBookViews, FavoritesView);
+
+      if ActiveView = FavoritesView then EnsureActiveBookViewLoaded;
     finally
       ShowStatusProgress := False;
     end;
@@ -6908,7 +6979,6 @@ end;
 procedure TfrmMain.LocateAuthorAndBook(const FullAuthorName: string; const BookKey: TBookKey);
 var
   authorData: PAuthorData;
-  filterValue: TFilterValue;
   savedCursor: TCursor;
   Button : TToolButton;
 
@@ -6937,9 +7007,8 @@ begin
     FLastAuthorID := authorData.AuthorID;
 
     // Locate the book:
-    filterValue := AuthorBookFilter; // uses FLastAuthorID
     FLastAuthorBookID := BookKey;
-//    FillBooksTree(tvBooksA, FCollection.GetBookIterator(bmByAuthor, False, @filterValue), False, True, @FLastAuthorBookID);
+    Exclude(FLoadedBookViews, AuthorsView);
 
     // Change current page:
     ActivateView(AuthorsView);
@@ -7316,6 +7385,7 @@ var
   ActiveCollectionID: Integer;
 begin
   Assert(Assigned(FCollection));
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   UpdatePositions;
 
   ActiveCollectionID := FCollection.CollectionID;
@@ -7356,6 +7426,7 @@ end;
 
 procedure TfrmMain.CompactDataBaseExecute(Sender: TObject);
 begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   Assert(Assigned(FCollection));
   FCollection.CompactDatabase;
 end;
@@ -7410,6 +7481,7 @@ procedure TfrmMain.ClearReadFolderExecute(Sender: TObject);
 var
   dirPath: string;
 begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   dirPath := ExcludeTrailingPathDelimiter(Settings.ReadPath);
   if DirectoryExists(dirPath) then
     ClearDir(dirPath);
@@ -7595,6 +7667,7 @@ procedure TfrmMain.ChangeSettingsExecute(Sender: TObject);
 var
   frmSettings: TfrmSettings;
 begin
+  if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   SaveMainFormSettings;
 
   frmSettings := TfrmSettings.Create(Application);
@@ -7624,7 +7697,6 @@ begin
   for i := 0 to pmHeaders.Items.Count - 1 do
   begin
     pmHeaders.Items[i].Checked := False;
-    pmHeaders.Items[i].Tag := ColumnTags[i];
   end;
 
   for i := 0 to Tree.Header.Columns.Count - 1 do
@@ -7896,7 +7968,9 @@ procedure TfrmMain.cbLangSelectAChange(Sender: TObject);
 var
   filterValue: TFilterValue;
 begin
-  FLangSelected := True;
+  if not ((Sender as TComboBox).Tag in [Ord(AuthorsView), Ord(SeriesView),
+    Ord(GenresView), Ord(FavoritesView), Ord(PublisherSeriesView)]) then Exit;
+  FViewLanguageSelected[TView((Sender as TComboBox).Tag)] := True;
   case (Sender as TComboBox).Tag of
     0:begin
         FilterValue := AuthorBookFilter;

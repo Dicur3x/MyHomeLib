@@ -198,6 +198,7 @@ $sqliteDestination = Join-Path $outputDirectory 'sqlite3.dll'
 $zstdDestination = Join-Path $outputDirectory 'libzstd.dll'
 $sevenZipDestination = Join-Path $outputDirectory 'tools\7zip\7za.exe'
 $jpegXlDestination = Join-Path $outputDirectory 'tools\jpeg-xl\djxl.exe'
+$webpDestination = Join-Path $outputDirectory 'tools\webp\libwebp.dll'
 $alReaderDestination = Join-Path $outputDirectory 'Readers\AlReader\AlReader2.exe'
 $sumatraDestination = Join-Path $outputDirectory 'Readers\SumatraPDF\SumatraPDF.exe'
 
@@ -206,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1074'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1075'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -278,6 +279,10 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
     $jpegXlDestination,
     (Join-Path $outputDirectory 'tools\jpeg-xl\licenses\LICENSE.libjxl'),
+    $webpDestination,
+    (Join-Path $outputDirectory 'tools\webp\COPYING.txt'),
+    (Join-Path $outputDirectory 'tools\webp\PATENTS.txt'),
+    (Join-Path $outputDirectory 'tools\webp\AUTHORS.txt'),
     $alReaderDestination,
     $sumatraDestination,
     (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.txt'),
@@ -299,6 +304,7 @@ Assert-Architecture -Path $sevenZipDestination -Expected $Platform
 # The official static djxl build must match the package architecture so the
 # Win32 distribution also restores JPEG XL images on 32-bit Windows.
 Assert-Architecture -Path $jpegXlDestination -Expected $Platform
+Assert-Architecture -Path $webpDestination -Expected $Platform
 # AlReader is distributed as one Win32 portable executable for both packages;
 # SumatraPDF must match the HomeLib Ru package architecture.
 Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
@@ -318,5 +324,6 @@ Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
 Write-FileHash -Path $sevenZipDestination
 Write-FileHash -Path $jpegXlDestination
+Write-FileHash -Path $webpDestination
 Write-FileHash -Path $alReaderDestination
 Write-FileHash -Path $sumatraDestination

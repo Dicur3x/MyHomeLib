@@ -472,6 +472,7 @@ uses
   unit_MHLArchiveHelpers,
   unit_MHLExternalTools,
   unit_FLibraryCompat,
+  unit_WebPCompat,
   unit_Errors,
   unit_Settings;
 
@@ -1231,7 +1232,7 @@ begin
 
     if AnsiLowercase(ExtractFileExt(LongFileName)) = ZIP_EXTENSION then
       Result := bfFbd
-    else if FileExt = FB2_EXTENSION then
+    else if SameText(FileExt, FB2_EXTENSION) then
       Result := bfFb2
   end
   else
@@ -1239,14 +1240,14 @@ begin
 
     if IsArchiveExt(BookContainer) then
     begin
-      if (FileExt = FB2_EXTENSION) then
+      if (SameText(FileExt, FB2_EXTENSION)) then
         Result := bfFb2Archive
       else
         Result := bfRawArchive;
     end;
   end;
 
-  if (Result = bfRaw) and (FileExt = FB2_EXTENSION) then
+  if (Result = bfRaw) and (SameText(FileExt, FB2_EXTENSION)) then
     Result := bfFb2
 end;
 
@@ -1311,13 +1312,10 @@ begin
         ArchiveFileName := TPath.Combine(Settings.ReadPath, BookFileName);
         archiver := TMHLZip.Create(ArchiveFileName, True);
         ArchiveEntryName := FileName + FileExt;
-        if IsSevenZipArchive(ArchiveFileName) then
-        begin
-          Result := TMemoryStream.Create;
-          archiver.ExtractToStream(ArchiveEntryName, Result);
-        end
-        else
-          Result := archiver.ExtractToStream(InsideNo);
+        // The INPX locator is the file name, not a source archive index. A
+        // compact distribution can remove books or reorder its ZIP entries.
+        Result := TMemoryStream.Create;
+        archiver.ExtractBookToStream(ArchiveEntryName, InsideNo, Result);
       except
         on E: EMHLExternalToolError do
         begin
@@ -1354,7 +1352,8 @@ begin
   else // bfFb2, bfRaw
   begin
     try
-      Result := TFileStream.Create(BookFileName, fmOpenRead);
+      Result := TFileStream.Create(BookFileName,
+        fmOpenRead or fmShareDenyWrite);
     except
       on e: EFOpenError do
       begin
@@ -1366,6 +1365,21 @@ begin
     end;
   end;
 
+  if Assigned(Result) and SameText(FileExt, FB2_EXTENSION) and
+    Settings.ConvertWebPToPNG then
+  begin
+    try
+      RestoredStream := NormalizeEmbeddedWebPFb2(Result);
+      if Assigned(RestoredStream) then
+      begin
+        FreeAndNil(Result);
+        Result := RestoredStream;
+      end;
+    except
+      FreeAndNil(Result);
+      raise;
+    end;
+  end;
   Assert(Assigned(Result) or Settings.IgnoreAbsentArchives);
 end;
 
@@ -1388,26 +1402,29 @@ begin
   case GetBookFormat of
     bfFb2:
       begin
-        Result := GetBookStream;
+        if RestoreImages then
+          Result := GetBookStream
+        else
+          Result := TFileStream.Create(GetBookFileName,
+            fmOpenRead or fmShareDenyWrite);
       end;
 
     bfFb2Archive:
       begin
         bookFileName := GetBookFileName;
         archiveFileName := TPath.Combine(Settings.ReadPath, bookFileName);
-        if RestoreImages or not IsSevenZipArchive(archiveFileName) then
+        if RestoreImages then
           Result := GetBookStream
         else
         begin
-          // The information panel only needs FB2 metadata.  In an FLibrary
-          // collection, restoring every external illustration here used to
-          // block the UI for several seconds on each selection change.
+          // The information panel only needs metadata and one cover. Do not
+          // restore every FLibrary picture or convert every embedded WebP.
           archiveEntryName := FileName + FileExt;
           archiver := TMHLZip.Create(archiveFileName, True);
           try
             Result := TMemoryStream.Create;
             try
-              archiver.ExtractToStream(archiveEntryName, Result);
+              archiver.ExtractBookToStream(archiveEntryName, InsideNo, Result);
             except
               FreeAndNil(Result);
               raise;

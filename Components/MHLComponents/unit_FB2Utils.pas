@@ -87,7 +87,8 @@ uses
   unit_MHLHelpers,
   GIFImg,
   jpeg,
-  pngimage;
+  pngimage,
+  unit_WebPCompat;
 
 function InternalGetBookCoverStream(book: IXMLFictionBook): TStream;
 var
@@ -150,10 +151,22 @@ end;
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
 var
   StreamFormat: TStreamFormat;
+  Converted: TStream;
 begin
   Result := InternalGetBookCoverStream(book);
   if Assigned(Result) then
   begin
+    try
+      Converted := ConvertWebPStreamToPNG(Result);
+      if Assigned(Converted) then
+      begin
+        Result.Free;
+        Result := Converted;
+      end;
+    except
+      FreeAndNil(Result);
+      Exit;
+    end;
     Result.Seek(0, soFromBeginning);
     StreamFormat := DetectStreamFormat(Result);
     if not IsSupportedImageFormat(StreamFormat) then
@@ -165,27 +178,39 @@ function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
 var
   SavedPosition: Int64;
   StreamFormat: TStreamFormat;
+  Converted, GraphicStream: TStream;
 begin
   Result := nil;
   if not Assigned(ImageStream) then
     Exit;
 
   SavedPosition := ImageStream.Position;
+  Converted := nil;
   try
-    ImageStream.Position := 0;
-    StreamFormat := DetectStreamFormat(ImageStream);
+    try
+      Converted := ConvertWebPStreamToPNG(ImageStream);
+    except
+      Exit;
+    end;
+    if Assigned(Converted) then
+      GraphicStream := Converted
+    else
+      GraphicStream := ImageStream;
+    GraphicStream.Position := 0;
+    StreamFormat := DetectStreamFormat(GraphicStream);
     if not IsSupportedImageFormat(StreamFormat) then
       Exit;
 
     Result := InternalCreateGraphic(StreamFormat);
     if Assigned(Result) then
     try
-      ImageStream.Position := 0;
-      Result.LoadFromStream(ImageStream);
+      GraphicStream.Position := 0;
+      Result.LoadFromStream(GraphicStream);
     except
       FreeAndNil(Result);
     end;
   finally
+    Converted.Free;
     ImageStream.Position := SavedPosition;
   end;
 end;

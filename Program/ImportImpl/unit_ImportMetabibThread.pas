@@ -28,7 +28,7 @@ type
   protected
     FGenresType: TGenresType;
 
-    procedure MapBook(const MB: TMetabibBook; var R: TBookRecord);
+    procedure MapBook(const MB: TMetabibBook; var R: TBookRecord; const BookCollection: IBookCollection);
     procedure Import(const DatasetFileName: string; CheckFiles: Boolean;
       BookCollection: IBookCollection);
   end;
@@ -50,6 +50,7 @@ uses
   SysUtils,
   IOUtils,
   ComCtrls,
+  Variants,
   unit_Consts,
   unit_Errors,
   dm_user;
@@ -62,6 +63,8 @@ resourcestring
   rstrMbSkippedNoFile = 'Пропущено записей без файла в архивах: %u';
   rstrMbSkippedBadLines = 'Пропущено ошибочных строк: %u';
   rstrMbUpdatingDB = 'Обновление базы данных. Пожалуйста, подождите...';
+  rstrMbLibraryMismatch = 'Каталог другой библиотеки не соответствует коллекции.';
+  rstrMbTransactionLost = 'Транзакция импорта была прервана. Изменения не сохранены.';
 
 { TImportMetabibThreadBase }
 
@@ -70,10 +73,11 @@ resourcestring
 // Расположение (Folder/IsLocal для онлайн-ветки) дополняет Import:
 // оно зависит от типа коллекции.
 //
-procedure TImportMetabibThreadBase.MapBook(const MB: TMetabibBook; var R: TBookRecord);
+procedure TImportMetabibThreadBase.MapBook(const MB: TMetabibBook; var R: TBookRecord; const BookCollection: IBookCollection);
 var
   i: Integer;
   s: string;
+  Genre: TGenreData;
 
   function PersonDisplayName(const Person: TMetabibPerson): string;
   begin
@@ -97,10 +101,16 @@ begin
         MB.Authors[i].MiddleName);
 
   for i := 0 to High(MB.Genres) do
-    if FGenresType = gtFb2 then
-      TGenresHelper.Add(R.Genres, '', '', MB.Genres[i])
+    if MB.Genres[i].Catalog then
+    begin
+      Genre := BookCollection.EnsureGenre(MB.Genres[i].Code,
+        MB.Genres[i].Description, MB.Genres[i].Category);
+      TGenresHelper.Add(R.Genres, Genre.GenreCode, Genre.GenreAlias, Genre.FB2GenreCode);
+    end
+    else if FGenresType = gtFb2 then
+      TGenresHelper.Add(R.Genres, '', '', MB.Genres[i].Code)
     else
-      TGenresHelper.Add(R.Genres, MB.Genres[i], '', '');
+      TGenresHelper.Add(R.Genres, MB.Genres[i].Code, '', '');
 
   if MB.SeriesName <> '' then
   begin
@@ -162,6 +172,9 @@ var
   SequenceIndex: Integer;
   Skip: Boolean;
   Cache: TImportCache;
+  Res: TMetabibReadResult;
+  ParseError: string;
+  SourceLibrary: Variant;
 begin
   SetProgress(0);
   collectionCode := BookCollection.CollectionCode;
@@ -179,6 +192,11 @@ begin
   try
     Cache := TImportCache.Create;
     Reader := TMetabibReader.Create(DatasetFileName);
+    SourceLibrary := BookCollection.GetProperty(PROP_SOURCE_LIBRARY);
+    if not VarIsEmpty(SourceLibrary) and not VarIsNull(SourceLibrary) then
+      if (string(SourceLibrary) <> '') and not SameText(string(SourceLibrary), Reader.LibraryName) then
+        raise EDBError.Create(rstrMbLibraryMismatch);
+    BookCollection.SetProperty(PROP_SOURCE_LIBRARY, Reader.LibraryName);
 
     Teletype(Format(rstrMbProcessingFile,
       [ExtractFileName(DatasetFileName), Reader.LibraryName,
@@ -189,19 +207,34 @@ begin
 
     while True do
     begin
-      case Reader.ReadNext(MB) of
+      // Один зіпсований запис у сторонньому каталозі не сміє зірвати весь
+      // імпорт: раніше виняток з розбору вилітав з Import і відкочував усю
+      // транзакцію. Такий рядок іде шляхом mrBadLine - пропущений і полічений.
+      Res := mrBadLine;
+      ParseError := '';
+      try
+        Res := Reader.ReadNext(MB);
+      except
+        on E: Exception do
+          ParseError := ' ' + E.Message;
+      end;
+      if (Res = mrOk) and not SameText(MB.LibraryName, Reader.LibraryName) then
+        raise EDBError.Create(rstrMbLibraryMismatch);
+
+      case Res of
         mrEof:
           Break;
 
         mrBadLine:
           begin
             Inc(badLines);
-            Teletype(Format(rstrMbBadLine, [Cardinal(Reader.LineNo)]), tsError);
+            Teletype(Format(rstrMbBadLine, [Cardinal(Reader.LineNo)]) +
+              ParseError, tsError);
           end;
 
         mrOk:
           try
-            MapBook(MB, R);
+            MapBook(MB, R, BookCollection);
             Skip := False;
 
             if IsOnline then
@@ -290,6 +323,8 @@ begin
               Teletype(E.Message, tsError);
           end;
       end;
+      if not BookCollection.InBulkOperation then
+        raise EDBError.Create(rstrMbTransactionLost);
 
       Inc(idx);
       if Reader.RecordCount > 0 then
@@ -350,7 +385,8 @@ begin
     on E: Exception do
     begin
       Teletype(E.Message, tsError);
-      FCollection.EndBulkOperation(False);
+      if FCollection.InBulkOperation then
+        FCollection.EndBulkOperation(False);
       raise;
     end;
   end;

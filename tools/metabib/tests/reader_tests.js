@@ -62,11 +62,13 @@ function idRecord(extra) {
 
 let caseNo = 0;
 
-function run(rec) {
+// Runs any number of lines (records, or raw strings for malformed input)
+// through the harness and returns the whole report.
+function runReport(lines) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mbtest${caseNo++}-`));
   const data = path.join(dir, 'dataset.jsonl');
-  fs.writeFileSync(data,
-    JSON.stringify(HEADER) + '\n' + JSON.stringify(rec) + '\n', 'utf8');
+  const body = lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n');
+  fs.writeFileSync(data, JSON.stringify(HEADER) + '\n' + body + '\n', 'utf8');
   const report = path.join(dir, 'report.json');
   const r = spawnSync(EXE, [data, report], { encoding: 'utf8' });
   if (r.status !== 0) {
@@ -74,6 +76,11 @@ function run(rec) {
   }
   const out = JSON.parse(fs.readFileSync(report, 'utf8').replace(/^﻿/, ''));
   if (out.error) throw new Error('reader error: ' + out.error);
+  return out;
+}
+
+function run(rec) {
+  const out = runReport([rec]);
   if (!out.books || out.books.length !== 1) {
     throw new Error('expected exactly 1 book, got ' + (out.books || []).length);
   }
@@ -390,7 +397,7 @@ const checks = [
     ]);
   }],
 
-  ['malformed publisher numbers do not wrap or reject a book', () => {
+  ['publisher numbers are bounded and fractional numbers are truncated', () => {
     const b = run(record({ publication: { sequences: [{ value: [
       { name: 'Text number', number: 'bad' },
       { name: 'Negative', number: -3 },
@@ -400,7 +407,99 @@ const checks = [
       { name: 'Missing' },
     ] }] } }));
     return b.publisher_sequences.length === 6
-      && b.publisher_sequences.every(item => item.number === 0);
+      && b.publisher_sequences.every(item => item.number === (item.name === 'Fraction' ? 1 : 0));
+  }],
+
+  ['integer string locator IDs are valid', () => {
+    const rec = record({});
+    rec.record.locator.book_id = '101';
+    const b = run(rec);
+    return b.book_id === 101 && b.book_id_valid === true;
+  }],
+
+  ['fractional numeric and string locator IDs are invalid, not truncated', () => {
+    return [101.5, '101.5'].every((id) => {
+      const rec = record({});
+      rec.record.locator.book_id = id;
+      const b = run(rec);
+      return b.book_id === 0 && b.book_id_valid === false;
+    });
+  }],
+
+  ['malformed preferred locator IDs never silently use a catalog fallback', () => {
+    return ['junk', 0, -1, null, true, {}, '9223372036854775808'].every((id) => {
+      const rec = record({});
+      rec.record.locator.book_id = id;
+      rec.identities = { catalog: [
+        { scheme: 'test-lib.book', value: '777', observation: 'db' },
+      ] };
+      const b = run(rec);
+      return b.book_id === 0 && b.book_id_valid === false;
+    });
+  }],
+
+  ['fractional database identities are invalid and do not use an archive fallback', () => {
+    return [888.5, '888.5'].every((id) => {
+      const rec = idRecord({ identities: { catalog: [
+        { scheme: 'test-lib.book', value: '555', observation: 'archive' },
+        { scheme: 'test-lib.book', value: id, observation: 'db' },
+      ] } });
+      const b = run(rec);
+      return b.book_id === 0 && b.book_id_valid === false;
+    });
+  }],
+
+  ['a malformed preferred identity is not replaced by a later identity from the same source', () => {
+    const b = run(idRecord({ identities: { catalog: [
+      { scheme: 'test-lib.book', observation: 'db' },
+      { scheme: 'test-lib.book', value: '777', observation: 'db' },
+    ] } }));
+    return b.book_id === 0 && b.book_id_valid === false;
+  }],
+
+  ['fractional database observation IDs do not use an archive fallback', () => {
+    const b = run(idRecord({
+      observations: [{ id: 'db', status: 'present', locator: { book_id: '777.5' } }],
+      identities: { catalog: [{ scheme: 'test-lib.book', value: '555', observation: 'archive' }] },
+    }));
+    return b.book_id === 0 && b.book_id_valid === false;
+  }],
+
+  ['a missing locator ID can resolve a valid catalog ID', () => {
+    const b = run(idRecord({ identities: { catalog: [
+      { scheme: 'test-lib.book', value: '777', observation: 'db' },
+    ] } }));
+    return b.book_id === 777 && b.book_id_valid === true;
+  }],
+
+  ['a book with no usable ID is reported as invalid', () => {
+    const b = run(idRecord({}));
+    return b.book_id === 0 && b.book_id_valid === false;
+  }],
+
+  ['a record library mismatch remains visible instead of using the header library', () => {
+    const rec = idRecord({ identities: { catalog: [
+      { scheme: 'other.book', value: '777', observation: 'db' },
+    ] } });
+    rec.record.library = 'other';
+    const out = runReport([rec]);
+    return out.library === 'test-lib' && out.books[0].library === 'other' &&
+      out.books[0].book_id === 777 && out.books[0].book_id_valid === true;
+  }],
+
+  ['a missing record library uses the header library', () => {
+    const rec = idRecord({ identities: { catalog: [
+      { scheme: 'test-lib.book', value: '777', observation: 'db' },
+    ] } });
+    delete rec.record.library;
+    const b = run(rec);
+    return b.library === 'test-lib' && b.book_id === 777 && b.book_id_valid === true;
+  }],
+
+  ['an explicitly empty record library is not hidden by the header fallback', () => {
+    const rec = record({});
+    rec.record.library = '';
+    return run(rec).library === '';
   }],
 
   ['an ordinary record still parses', () => {
@@ -410,6 +509,180 @@ const checks = [
     }));
     return b.title === 'Проба' && b.lang === 'uk'
       && b.publisher === 'Вид' && b.isbn === '978-0' && b.deleted === false;
+  }],
+
+  ['normalized genre objects keep their FB2 codes instead of becoming Unsorted', () => {
+    const b = run(record(bib({ genres: [
+      { observation: 'db', value: [
+        { code: 'prose_contemporary', description: 'Проза', meta: 'Проза' },
+        { code: 'sf_fantasy' },
+      ] },
+      { observation: 'fb2', value: [{ code: 'prose_contemporary' }] },
+    ] })));
+    return JSON.stringify(b.genres) === JSON.stringify(['prose_contemporary', 'sf_fantasy']);
+  }],
+
+  ['legacy string genres and normalized objects can coexist', () => {
+    const b = run(record(bib({ genres: [{ value: [
+      'sf_fantasy', { code: 'prose_contemporary' }, null, {}, { code: '' }, { code: 42 },
+    ] }] })));
+    return JSON.stringify(b.genres) === JSON.stringify(['sf_fantasy', 'prose_contemporary']);
+  }],
+  ['curated database genres preserve their labels, categories and provenance', () => {
+    const b = run(record(bib({ genres: [{ observation: 'db', value: [
+      { code: 'popadancy', description: 'Попаданці', meta: 'Фантастика' },
+      { code: 'det_lady', description: 'Жіночий детектив', meta: 'Детективи' },
+      { code: 'dark_fantasy', description: 'Темне фентезі', meta: 'Фантастика' },
+    ] }] })));
+    return JSON.stringify(b.genre_details) === JSON.stringify([
+      { code: 'popadancy', description: 'Попаданці', category: 'Фантастика', catalog: true },
+      { code: 'det_lady', description: 'Жіночий детектив', category: 'Детективи', catalog: true },
+      { code: 'dark_fantasy', description: 'Темне фентезі', category: 'Фантастика', catalog: true },
+    ]);
+  }],
+
+  ['database genres win over different FB2 and FBD lists without a union', () => {
+    const b = run(record(bib({ genres: [
+      { observation: 'fb2', value: ['sf_fantasy', 'junk_tag'] },
+      { observation: 'fbd', value: ['prose_contemporary'] },
+      { observation: 'db', value: [{ code: 'popadancy', description: 'Попаданці', meta: 'Фантастика' }] },
+    ] })));
+    return JSON.stringify(b.genres) === JSON.stringify(['popadancy']);
+  }],
+
+  ['empty and malformed database genre claims fall back to usable FB2 genres', () => {
+    const b = run(record(bib({ genres: [
+      { observation: 'db', value: [] },
+      { observation: 'db', value: [null, {}, { code: 42 }, { code: '' }, { code: '  ' }, '���'] },
+      { observation: 'fbd', value: ['prose_contemporary'] },
+      { observation: 'fb2', value: [{ code: 'sf_fantasy', description: 'Фентезі', meta: 'Фантастика' }] },
+    ] })));
+    return JSON.stringify(b.genres) === JSON.stringify(['sf_fantasy']) &&
+      JSON.stringify(b.genre_details) === JSON.stringify([
+        { code: 'sf_fantasy', description: 'Фентезі', category: 'Фантастика', catalog: false },
+      ]);
+  }],
+
+  ['FBD genres win over unknown and legacy claims when DB and FB2 are unusable', () => {
+    const b = run(record(bib({ genres: [
+      { value: ['legacy'] },
+      { observation: 'other', value: ['unknown'] },
+      { observation: 'db', value: null },
+      { observation: 'fb2', value: { code: false } },
+      { observation: 'fbd', value: 'det_lady' },
+    ] })));
+    return JSON.stringify(b.genre_details) === JSON.stringify([
+      { code: 'det_lady', description: '', category: '', catalog: false },
+    ]);
+  }],
+
+  ['legacy and unknown source genres never acquire catalog provenance', () => {
+    const legacy = run(record(bib({ genres: [{ value: [
+      'sf_fantasy', { code: 'dark_fantasy', description: 'Темне фентезі', meta: 'Фантастика' },
+    ] }] })));
+    const unknown = run(record(bib({ genres: [{ observation: 'other', value: [
+      { code: 'det_lady', description: 'Жіночий детектив', meta: 'Детективи' },
+    ] }] })));
+    return JSON.stringify(legacy.genre_details) === JSON.stringify([
+      { code: 'sf_fantasy', description: '', category: '', catalog: false },
+      { code: 'dark_fantasy', description: 'Темне фентезі', category: 'Фантастика', catalog: false },
+    ]) && unknown.genre_details[0].catalog === false;
+  }],
+
+  ['exact duplicate genre codes keep only the first definition', () => {
+    const b = run(record(bib({ genres: [{ observation: 'db', value: [
+      { code: 'popadancy', description: 'Попаданці', meta: 'Фантастика' },
+      'popadancy',
+      { code: 'popadancy', description: 'Друга назва', meta: 'Інша категорія' },
+      { code: 'POPADANCY' },
+    ] }] })));
+    return JSON.stringify(b.genres) === JSON.stringify(['popadancy', 'POPADANCY']) &&
+      JSON.stringify(b.genre_details) === JSON.stringify([
+        { code: 'popadancy', description: 'Попаданці', category: 'Фантастика', catalog: true },
+        { code: 'POPADANCY', description: '', category: '', catalog: true },
+      ]);
+  }],
+
+  ['malformed genre labels do not invalidate a usable code or invent metadata', () => {
+    const b = run(record(bib({ genres: [{ observation: 'db', value: [
+      { code: 'popadancy', description: 42, meta: { name: 'Фантастика' } },
+    ] }] })));
+    return JSON.stringify(b.genre_details) === JSON.stringify([
+      { code: 'popadancy', description: '', category: '', catalog: true },
+    ]);
+  }],
+
+  ['all unusable genre claims leave both genre arrays empty', () => {
+    const b = run(record(bib({ genres: [
+      { observation: 'db', value: [null, {}, { code: [] }] },
+      { observation: 'fb2', value: ['', '  ', '���', '()'] },
+    ] })));
+    return JSON.stringify(b.genres) === '[]' && JSON.stringify(b.genre_details) === '[]';
+  }],
+
+
+  ['normalized deleted state hides deleted books', () => {
+    const b = run(record({ catalog: { deleted: [
+      { observation: 'db', value: { raw: '1', state: 'deleted' } },
+    ] } }));
+    return b.deleted === true;
+  }],
+
+  ['normalized active state is an answer, not a fallback to a later deleted claim', () => {
+    const b = run(record({ catalog: { deleted: [
+      { observation: 'db', value: { raw: '0', state: 'active' } },
+      { value: true },
+    ] } }));
+    return b.deleted === false;
+  }],
+
+  ['a malformed normalized state does not hide a later usable deleted claim', () => {
+    const b = run(record({ catalog: { deleted: [
+      { value: { raw: '1', state: 42 } },
+      { value: { raw: '1', state: 'deleted' } },
+    ] } }));
+    return b.deleted === true;
+  }],
+
+  // A database series claim stores its number as {"value": n}, and n is not
+  // always an integer: 28.6 occurs in a real Flibusta dump. TJSONNumber.AsInt64
+  // is StrToInt64, so reading it raised "'28.6' is not a valid integer value",
+  // and that exception aborted a whole 705,399-record import.
+  ['a fractional database series number is truncated, not an error', () => {
+    const b = run(record(bib({
+      sequences: [{ value: { name: 'Хроніки', number: { value: 28.6 } }, observation: 'db' }],
+    })));
+    return b.series === 'Хроніки' && b.series_no === 28;
+  }],
+
+  ['a fractional series number in a string is truncated too', () => {
+    const b = run(record(bib({
+      sequences: [{ value: { name: 'Хроніки', number: '28.6' } }],
+    })));
+    return b.series === 'Хроніки' && b.series_no === 28;
+  }],
+
+  ['a fractional year does not abort the record', () => {
+    const b = run(record({
+      bibliographic: { title: [{ value: 'Проба' }] },
+      publication: { year: [{ value: 2005.5 }] },
+    }));
+    return b.pub_year === 2005;
+  }],
+
+  ['a fractional deleted flag is read as zero', () => {
+    const b = run(record({
+      bibliographic: { title: [{ value: 'Проба' }] },
+      catalog: { deleted: [{ value: 0.5 }] },
+    }));
+    return b.deleted === false;
+  }],
+
+  // The risk is not the bad record itself but the run around it: one
+  // unparseable line must cost that line only, not the lines after it.
+  ['a malformed line is skipped, not fatal', () => {
+    const out = runReport([record({}), '{ "schema": "metabib.dataset', record({})]);
+    return out.books.length === 2 && out.bad_lines === 1;
   }],
 ];
 

@@ -56,6 +56,8 @@ type
       or as UnicodeString (on Delphi 2009 and higher)!
     }
     constructor Create(const FileName: string);
+    // OPDS opens its own connection without creating or changing a database.
+    constructor CreateReadOnly(const FileName: string);
 
     {: Class descructor. Call Free instead.}
     destructor Destroy; override;
@@ -283,6 +285,36 @@ begin
     QuerySingleInt('PRAGMA mmap_size = 67108864');
 {$ENDIF}
 
+    RegisterSystemCollateAndFunc;
+  except
+    if Assigned(FDB) then
+    begin
+      SQLite3_Close(FDB);
+      FDB := nil;
+    end;
+    raise;
+  end;
+end;
+
+constructor TSQLiteDatabase.CreateReadOnly(const FileName: string);
+var
+  s: string;
+begin
+  inherited Create;
+  FDB := nil;
+  try
+    if SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)), FDB,
+      SQLITE_OPEN_READONLY or SQLITE_OPEN_PRIVATECACHE, nil) <> SQLITE_OK then
+    begin
+      if Assigned(FDB) then
+        s := string(UTF8String(SQLite3_ErrMsg(FDB)))
+      else
+        s := c_unknown;
+      raise ESQLiteException.CreateFmt(c_failopen, [FileName, s]);
+    end;
+    SetTimeout(2000);
+    ExecSQL('PRAGMA query_only = ON');
+    ExecSQL('PRAGMA cache_size = -4096');
     RegisterSystemCollateAndFunc;
   except
     if Assigned(FDB) then

@@ -273,6 +273,7 @@ type
     function CheckFileInCollection(const FileName: string; const FullNameSearch: Boolean; const ZipFolder: Boolean): Boolean;
 
     procedure BeginBulkOperation;
+    function InBulkOperation: Boolean;
     procedure EndBulkOperation(Commit: Boolean = True);
 
     procedure CompactDatabase;
@@ -281,6 +282,7 @@ type
     function GetTopGenreAlias(const FB2Code: string): string;
     procedure ReloadGenres(const FileName: string);
     procedure LoadGenres(const GenresFileName: string);
+    function EnsureGenre(const FB2Code, Alias, Category: string): TGenreData;
 
     procedure GetStatistics(out AuthorsCount: Integer; out BooksCount: Integer; out SeriesCount: Integer);
 

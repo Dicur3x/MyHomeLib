@@ -203,6 +203,7 @@ type
     lbProxyType: TLabel;
     cbProxyType: TComboBox;
     cbIgnoreArchives: TCheckBox;
+    cbConvertWebPToPNG: TCheckBox;
     Label25: TLabel;
 
     procedure SaveSettingsClick(Sender: TObject);
@@ -430,6 +431,7 @@ begin
   edTitleTemplate.Text := Settings.BookHeaderTemplate;
   cbSelectedIsChecked.Checked := Settings.SelectedIsChecked;
   cbIgnoreArchives.Checked := Settings.IgnoreAbsentArchives;
+  cbConvertWebPToPNG.Checked := Settings.ConvertWebPToPNG;
 
   //
   // Page 6 -  FileSort
@@ -551,6 +553,7 @@ begin
   Settings.AutoStartDwnld := cbAutoStartDwnld.Checked;
   Settings.SelectedIsChecked := cbSelectedIsChecked.Checked;
   Settings.IgnoreAbsentArchives := cbIgnoreArchives.Checked;
+  Settings.ConvertWebPToPNG := cbConvertWebPToPNG.Checked;
 
   // Page 6 -  FileSort
 

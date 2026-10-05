@@ -60,6 +60,7 @@ uses
   unit_Globals,
   unit_Consts,
   unit_Interfaces,
+  unit_MCP_SearchDateSelfTest,
   unit_MCP_PublisherSeriesSelfTest,
   unit_MCP_PublisherIndexSelfTest,
   unit_MCP_Transport;
@@ -359,6 +360,8 @@ var
   I: Integer;
   Ids: TArray<Integer>;
   Titles: TArray<string>;
+  DateSearchChecks: Integer;
+  ReportedPresetsChecked: Boolean;
 begin
   if not Assigned(DMUser) then
     DMUser := TDMUser.Create(nil);
@@ -475,6 +478,8 @@ begin
   CheckCollectionBrowserFilters(Collection, Ids);
   CheckPublisherSeries(SystemDB, Collection, CollectionFile, Ids);
   CheckPublisherSeriesIndexer(Collection, Ids);
+  CheckSearchDatePeriods(SystemDB, Collection, Ids, RootFolder,
+    DateSearchChecks, ReportedPresetsChecked);
 
   Summary := TJSONObject.Create;
   try
@@ -484,6 +489,8 @@ begin
     Summary.AddPair('browser_filters_checked', TJSONBool.Create(True));
     Summary.AddPair('publisher_series_checked', TJSONBool.Create(True));
     Summary.AddPair('publisher_indexer_checked', TJSONBool.Create(True));
+    Summary.AddPair('date_search_checks', TJSONNumber.Create(DateSearchChecks));
+    Summary.AddPair('reported_date_presets_checked', TJSONBool.Create(ReportedPresetsChecked));
 
     Books := TJSONArray.Create;
     for I := 0 to 5 do

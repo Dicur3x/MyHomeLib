@@ -240,6 +240,7 @@ type
     FOverwriteFB2Info: Boolean;
     FSelectedIsChecked: Boolean;
     FIgnoreAbsentArchives: Boolean;
+    FConvertWebPToPNG: Boolean;
 
     // SORT_SECTION
     FEnableSort: Boolean;
@@ -432,6 +433,7 @@ type
     property ForceConvertToFBD: Boolean read FForceConvertToFBD write FForceConvertToFBD;
     property OverwriteFB2Info: Boolean read FOverwriteFB2Info write FOverwriteFB2Info;
     property IgnoreAbsentArchives: Boolean read FIgnoreAbsentArchives write FIgnoreAbsentArchives;
+    property ConvertWebPToPNG: Boolean read FConvertWebPToPNG write FConvertWebPToPNG;
 
     property FullTextSearch: Boolean read FFullTextSearch write FFullTextSearch;
 
@@ -565,6 +567,7 @@ var
   Paths: TMHLPathInfo;
 begin
   inherited Create;
+  FConvertWebPToPNG := True;
 
   Paths := ResolveMHLPaths;
 
@@ -878,6 +881,7 @@ begin
     FFBDBookHeaderTemplate := iniFile.ReadString(BEHAVIOR_SECTION, 'BookHeaderTemplate', '%t');
     FSelectedIsChecked := iniFile.ReadBool(BEHAVIOR_SECTION, 'SelectedIsChecked', True);
     FIgnoreAbsentArchives := iniFile.ReadBool(BEHAVIOR_SECTION, 'IgnoreAbsentArchives', True);
+    FConvertWebPToPNG := iniFile.ReadBool(BEHAVIOR_SECTION, 'ConvertWebPToPNG', True);
 
 
     //
@@ -1049,6 +1053,7 @@ begin
     iniFile.WriteString(BEHAVIOR_SECTION, 'BookHeaderTemplate', FFBDBookHeaderTemplate);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'SelectedIsChecked', FSelectedIsChecked);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'IgnoreAbsentArchives', FIgnoreAbsentArchives);
+    iniFile.WriteBool(BEHAVIOR_SECTION, 'ConvertWebPToPNG', FConvertWebPToPNG);
 
     //
     // FILE_SORT_SECTION

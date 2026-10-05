@@ -40,3 +40,6 @@ __recovery/
 CLAUDE.md
 TODO.md
 /docs/superpowers/
+
+/tools/ui/tests/*.res
+/tools/ui/tests/*.identcache

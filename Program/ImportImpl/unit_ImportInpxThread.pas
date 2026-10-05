@@ -24,6 +24,7 @@ interface
 uses
   Windows,
   Classes,
+  unit_InpxSeries,
   unit_WorkerThread,
   unit_CollectionWorkerThread,
   unit_Globals,
@@ -63,6 +64,7 @@ type
     FGenresType: TGenresType;
 
     FFields: array of TFields;
+    FParsedSeries: TInpxSeriesItems;
     FUseStoredFolder: Boolean;
     //
     // False (по умолчанию) — collection.info из архива применяется к коллекции.
@@ -93,9 +95,11 @@ implementation
 
 uses
   SysUtils,
+  Variants,
   IOUtils,
   ComCtrls,
   Generics.Collections,
+  unit_LibrarySourceID,
   unit_MHLArchiveHelpers,
   unit_Consts,
   unit_Helpers,
@@ -181,12 +185,16 @@ var
   strMidName: string;
   GenreList: string;
   s: string;
+  SeriesTitles, SeriesNumbers: string;
   mm, dd, yy: word;
   pStart, pCur, pItemStart, pSub, pSubStart: PChar;
 
   Max: Integer;
 begin
   R.Clear;
+  SetLength(FParsedSeries, 0);
+  SeriesTitles := '';
+  SeriesNumbers := '';
   Params.Clear;
   ExtractStrings(PChar(input), INPX_FIELD_DELIMITER, Params);
 
@@ -271,10 +279,10 @@ begin
           R.Title := Params[i]; // Название
 
         flSeries:
-          R.Series := Params[i]; // Серия
+          SeriesTitles := Params[i]; // Серия
 
         flSerNo:
-          R.SeqNumber := StrToIntDef(Params[i], 0); // Номер внутри серии
+          SeriesNumbers := Params[i]; // Номер внутри серии
 
         flFile:
           R.FileName := CheckSymbols(Trim(Params[i])); // Имя файла
@@ -337,6 +345,12 @@ begin
       end; // case, for
     end;
 
+  FParsedSeries := ParseInpxSeries(SeriesTitles, SeriesNumbers);
+  if Length(FParsedSeries) > 0 then
+  begin
+    R.Series := FParsedSeries[0].Title;
+    R.SeqNumber := FParsedSeries[0].Number;
+  end;
   R.Normalize;
 end;
 
@@ -410,6 +424,10 @@ var
   ArchiveEntryKey: string;
   ExistingBookID: Integer;
   InsertedBookID: Integer;
+  SeriesIndex: Integer;
+  MixedLibraryIndex: Boolean;
+  StoredMixedLibraryIDs: Variant;
+  IndexNames: TArray<string>;
 
   function EntryBaseName(const EntryName: string): string;
   begin
@@ -440,6 +458,18 @@ begin
     ImportedBooks := TDictionary<string, Integer>.Create;
     ArchiveEntries := TDictionary<string, Integer>.Create;
     Zip := TMHLZip.Create(INPXFileName, True);
+    SetLength(IndexNames, Zip.FileCount);
+    for i := 0 to Zip.FileCount - 1 do
+      IndexNames[i] := Zip.FileNames[i];
+    MixedLibraryIndex := IsMixedLibraryIndex(IndexNames);
+    StoredMixedLibraryIDs := BookCollection.GetProperty(PROP_MIXED_LIBRARY_IDS);
+    if not VarIsEmpty(StoredMixedLibraryIDs) and not VarIsNull(StoredMixedLibraryIDs) then
+      MixedLibraryIndex := MixedLibraryIndex or Boolean(StoredMixedLibraryIDs);
+    // Remember the namespace when a combined collection is later updated with
+    // a single original-source INPX. Ordinary collections never enable it.
+    if MixedLibraryIndex then
+      BookCollection.SetProperty(PROP_MIXED_LIBRARY_IDS, True);
+    IndexNames := nil;
     if Zip.Find(STRUCTUREINFO_FILENAME) then
       StructureInfo := Zip.ExtractToString(STRUCTUREINFO_FILENAME)
     else
@@ -511,6 +541,11 @@ begin
         begin
           try
             ParseData(BookList[j], IsOnline, R, Params);
+            // Numeric source IDs collide in combined Librusec/Flibusta INPX.
+            // Scope only such indexes; ordinary and existing FLibrary IDs keep
+            // their historical values for groups, ratings and read progress.
+            if MixedLibraryIndex then
+              R.LibID := ScopedLibraryID(CurrentFile, R.LibID);
             if IsOnline then
             begin
 
@@ -558,9 +593,12 @@ begin
                 LowerCase(R.FileExt) + #1 + LowerCase(R.LibID);
 
               if ImportedBooks.TryGetValue(BookIdentity, ExistingBookID) then
+              begin
                 BookCollection.AddBookSeries(
                   ExistingBookID, R.Series, R.SeqNumber, Cache
-                )
+                );
+                InsertedBookID := ExistingBookID;
+              end
               else
               begin
                 InsertedBookID := BookCollection.InsertBook(
@@ -572,6 +610,11 @@ begin
                   Inc(filesProcessed);
                 end;
               end;
+              if InsertedBookID <> 0 then
+                for SeriesIndex := 1 to High(FParsedSeries) do
+                  BookCollection.AddBookSeries(InsertedBookID,
+                    FParsedSeries[SeriesIndex].Title,
+                    FParsedSeries[SeriesIndex].Number, Cache);
             except
               on E: Exception do
                 raise EDBError.Create(E.Message);

@@ -722,10 +722,43 @@ begin
         Res := PrepareFile(FBookIdList[i].BookKey);
         if Res then
         begin
-          if i = 0 then
-            FProcessedFiles := FFileOprecord.SourceFile;
+          // Scripts must receive the extracted or restored book, rather than
+          // its archive or the original FB2 containing incompatible pictures.
+          if FExtractOnly and Assigned(FFileOprecord.Stream) and
+            ((FBookFormat in [bfFb2Archive, bfFbd, bfRawArchive]) or
+            not (FFileOprecord.Stream is TFileStream)) then
+          begin
+            try
+              var TempPrefix := Format('script-%d-%d-',
+                [FBookIdList[i].BookKey.DatabaseID, FBookIdList[i].BookKey.BookID]);
+              var TempName := ExtractFileName(FFileOprecord.TempFile);
+              var TempExt := ExtractFileExt(TempName);
+              FFileOprecord.TempFile := TPath.Combine(FTempPath, TempPrefix +
+                Copy(ChangeFileExt(TempName, ''), 1,
+                  FMaxTempPathLength - Length(TempPrefix) - Length(TempExt)) + TempExt);
+              Res := StreamToFile(FFileOprecord.TempFile, FFileOprecord.Stream);
+              if Res then
+                FFileOprecord.SourceFile := FFileOprecord.TempFile
+              else
+                FLastError := Format('Не удалось подготовить файл для скрипта: %s',
+                  [FFileOprecord.TempFile]);
+            except
+              on E: Exception do
+              begin
+                Res := False;
+                FLastError := Format('Не удалось подготовить файл для скрипта: %s (%s)',
+                  [FFileOprecord.TempFile, E.Message]);
+              end;
+            end;
+          end;
 
-          if not FExtractOnly Then Res := SendFileToDevice;
+          if Res then
+          begin
+            if i = 0 then
+              FProcessedFiles := FFileOprecord.SourceFile;
+
+            if not FExtractOnly Then Res := SendFileToDevice;
+          end;
         end;
 
         if FFileOprecord.Stream <> nil then

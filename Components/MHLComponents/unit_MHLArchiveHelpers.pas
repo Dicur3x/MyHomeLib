@@ -53,6 +53,8 @@ type
       function EntryMatches(const Index: Integer): Boolean;
       function FindFrom(const StartIndex: Integer): Boolean;
       function FindEntryIndex(const AFileName: string): Integer;
+      function EntryNeedsExternalDecoder(const Index: Integer): Boolean;
+      procedure EnsureSevenZipTool;
       procedure CopyEntryToStream(const Index: Integer; const Destination: TStream);
       function GetLastSize: Integer;
       function GetLastName: string;
@@ -71,6 +73,8 @@ type
       procedure ExtractToStream(const No: Integer; const Stream: TStream); overload;
       procedure ExtractToStream(const AFileName: string; const Stream: TMemoryStream); overload;
       procedure ExtractToStream(const AFileName: string; const Stream: TStream); overload;
+      procedure ExtractBookToStream(const AFileName: string;
+        const LegacyIndex: Integer; const Stream: TStream);
       function GetIdxByExt(const Ext: string):Integer;
       function FileNameAt(const Index: Integer): string;
       function ExtractToString(AFileName: string):string;
@@ -116,6 +120,29 @@ implementation
 uses
   StrUtils,
   unit_MHLExternalTools;
+
+procedure TMHLZip.EnsureSevenZipTool;
+begin
+  if FSevenZipTool <> '' then
+    Exit;
+  FSevenZipTool := FindExternalTool('7zz.exe', '7zip');
+  if FSevenZipTool = '' then
+    FSevenZipTool := FindExternalTool('7za.exe', '7zip');
+  if FSevenZipTool = '' then
+    FSevenZipTool := FindExternalTool('7z.exe', '7zip');
+  if FSevenZipTool = '' then
+    raise EMHLExternalToolError.Create(
+      'Для чтения 7z и ZIP с PPMd нужен tools\7zip\7za.exe или установленный 7-Zip.');
+end;
+
+function TMHLZip.EntryNeedsExternalDecoder(const Index: Integer): Boolean;
+begin
+  // ZIP method 98 is PPMd. Delphi reads its central-directory metadata but
+  // cannot decompress it; ordinary Stored/Deflate ZIP stays on the fast path.
+  if FIsSevenZip then
+    Exit(True);
+  Result := FZip.FileInfos[Index].CompressionMethod = 98;
+end;
 
 function IsSevenZipArchive(const FileName: string): Boolean;
 begin
@@ -355,8 +382,9 @@ begin
   if (Index < 0) or (Index >= GetFileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
 
-  if FIsSevenZip then
+  if EntryNeedsExternalDecoder(Index) then
   begin
+    EnsureSevenZipTool;
     RunExternalToolToStream(FSevenZipTool,
       ['x', '-so', '-y', '-spd', '-sccUTF-8', '--', FArchiveFileName,
        FFileNames[Index]], Destination, FIsCanceled);
@@ -421,6 +449,34 @@ begin
   end;
 
   Index := FindEntryIndex(AFileName);
+  if Index < 0 then
+    raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
+  CopyEntryToStream(Index, Stream);
+end;
+
+procedure TMHLZip.ExtractBookToStream(const AFileName: string;
+  const LegacyIndex: Integer; const Stream: TStream);
+var
+  Index: Integer;
+  Method: Word;
+begin
+  if FIsSevenZip then
+  begin
+    ExtractToStream(AFileName, Stream);
+    Exit;
+  end;
+  Index := FindEntryIndex(AFileName);
+  if (Index < 0) and (LegacyIndex >= 0) and
+    (LegacyIndex < FZip.FileCount) then
+  begin
+    // Older ordinary collections/downloads can use a display file name while
+    // locating the actual ZIP member by its index. Preserve that contract for
+    // Stored/Deflate. PPMd compact archives must match the requested file name:
+    // a stale source index must never open a different book after deduplication.
+    Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
+    if (Method = 0) or (Method = 8) then
+      Index := LegacyIndex;
+  end;
   if Index < 0 then
     raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
   CopyEntryToStream(Index, Stream);
@@ -501,6 +557,9 @@ begin
     raise ENotSupportedException.Create('Streaming entry access requires ZIP');
   if (Index < 0) or (Index >= FZip.FileCount) then
     raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+  // External extraction validates the complete CRC before yielding the stream.
+  if EntryNeedsExternalDecoder(Index) then
+    Exit(ExtractToStream(Index));
   FZip.Read(Index, Result, Header, False);
 end;
 
@@ -771,14 +830,7 @@ begin
     if not RO then
       raise ENotSupportedException.Create(
         'Создание и изменение архивов 7z не поддерживается.');
-    FSevenZipTool := FindExternalTool('7zz.exe', '7zip');
-    if FSevenZipTool = '' then
-      FSevenZipTool := FindExternalTool('7za.exe', '7zip');
-    if FSevenZipTool = '' then
-      FSevenZipTool := FindExternalTool('7z.exe', '7zip');
-    if FSevenZipTool = '' then
-      raise EMHLExternalToolError.Create(
-        'Для чтения 7z нужен tools\7zip\7za.exe или установленный 7-Zip.');
+    EnsureSevenZipTool;
     Exit;
   end;
 

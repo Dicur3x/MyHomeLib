@@ -252,11 +252,13 @@ type
     // Bulk operation
     //
     procedure BeginBulkOperation;
+    function InBulkOperation: Boolean;
     procedure EndBulkOperation(Commit: Boolean = True);
 
     procedure CompactDatabase;
     function CheckDatabase: string;
     procedure ReloadGenres(const FileName: string);
+    function EnsureGenre(const FB2Code, Alias, Category: string): TGenreData; override;
     procedure GetStatistics(out AuthorsCount: Integer; out BooksCount: Integer; out SeriesCount: Integer);
 
     procedure TruncateTablesBeforeImport;
@@ -273,6 +275,7 @@ type
 
   strict private
     FDatabase: TSQLiteDatabase;
+    FSourceGenres: Boolean;
 
     procedure InternalLoadGenres;
     procedure InternalUpdateField(const BookID: Integer; const UpdateSQL: string; const NewValue: string);
@@ -1057,13 +1060,13 @@ begin
       AddToFilter('b.UpdateDate', PrepareQuery(SearchCriteria.DateText, False), False, FilterString)
     else
       case SearchCriteria.DateIdx of
+        // Indices are persisted by cbDate: today, 3 days, week, 2 weeks, month, 3 months.
         0: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -1))]), False, FilterString);
-        1: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -2))]), False, FilterString);
-        2: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -3))]), False, FilterString);
-        3: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -7))]), False, FilterString);
-        4: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -14))]), False, FilterString);
-        5: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -1))]), False, FilterString);
-        6: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -3))]), False, FilterString);
+        1: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -3))]), False, FilterString);
+        2: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -7))]), False, FilterString);
+        3: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncDay(Now, -14))]), False, FilterString);
+        4: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -1))]), False, FilterString);
+        5: AddToFilter('b.UpdateDate', Format('> "%s"', [FormatDateTime(DT_FORMAT, IncMonth(Now, -3))]), False, FilterString);
       end;
 
     case SearchCriteria.DownloadedIdx of
@@ -1355,7 +1358,7 @@ begin
   case Mode of
     gmAll:
     begin
-      SQLRows := 'SELECT GenreCode FROM Genres';
+      SQLRows := 'SELECT GenreCode FROM Genres ORDER BY (GenreCode = ''' + UNKNOWN_GENRE_CODE + '''), GenreCode';
       SQLCount := 'SELECT COUNT(*) FROM Genres';
     end;
 
@@ -1964,6 +1967,77 @@ begin
   end;
 end;
 
+function TBookCollection_SQLite.EnsureGenre(const FB2Code, Alias, Category: string): TGenreData;
+const
+  SAVEPOINT_NAME = 'mhl_source_genre';
+  FALLBACK_CATEGORY = 'Жанры каталога';
+var
+  Root: TGenreData;
+  CategoryAlias: string;
+begin
+  if FB2Code = '' then
+  begin
+    Result.Clear;
+    Exit;
+  end;
+
+  // Existing IDs, aliases and book links are never changed by registration.
+  if FGenreCache.TryGetByFB2Code(FB2Code, Result) then
+    Exit;
+
+  CategoryAlias := Trim(Category);
+  if CategoryAlias = '' then
+    CategoryAlias := FALLBACK_CATEGORY;
+
+  // A savepoint also works within the import/repair bulk transaction.
+  FDatabase.Start(SAVEPOINT_NAME);
+  try
+    // Exact source/category names are safe to reuse. Do not guess translations.
+    if not FGenreCache.TryGetRootByAlias(CategoryAlias, Root) then
+    begin
+      Root.Clear;
+      Root.GenreCode := FGenreCache.NextGenreCode('0');
+      Root.ParentCode := '0';
+      Root.GenreAlias := CategoryAlias;
+      InsertGenreIfMissing(Root);
+    end;
+
+    Result.Clear;
+    Result.GenreCode := FGenreCache.NextGenreCode(Root.GenreCode);
+    Result.ParentCode := Root.GenreCode;
+    Result.FB2GenreCode := FB2Code;
+    Result.GenreAlias := Trim(Alias);
+    if Result.GenreAlias = '' then
+      Result.GenreAlias := FB2Code;
+    InsertGenreIfMissing(Result);
+
+    if not FSourceGenres then
+      SetProperty(PROP_SOURCE_GENRES, True);
+    FDatabase.Commit(SAVEPOINT_NAME);
+    FSourceGenres := True;
+  except
+    // A trigger can roll back the outer transaction and remove this savepoint.
+    // Cleanup failures must not hide the original error or skip cache recovery.
+    try
+      if FDatabase.InTransaction then
+      begin
+        FDatabase.Rollback(SAVEPOINT_NAME);
+        FDatabase.Commit(SAVEPOINT_NAME);
+      end;
+    except
+      // Preserve the original registration exception.
+    end;
+    try
+      InternalLoadGenres;
+    except
+      // Never leave partially rebuilt or rolled-back genre data in the cache.
+      FGenreCache.Clear;
+      FSourceGenres := False;
+    end;
+    raise;
+  end;
+end;
+
 procedure TBookCollection_SQLite.InsertGenreIfMissing(const GenreData: TGenreData);
 const
   SQL_INSERT = 'INSERT INTO Genres (GenreCode, ParentCode, FB2Code, GenreAlias) VALUES(?, ?, ?, ?)';
@@ -1993,7 +2067,7 @@ end;
 
 procedure TBookCollection_SQLite.InternalLoadGenres;
 const
-  SQL = 'SELECT GenreCode, ParentCode, FB2Code, GenreAlias FROM Genres';
+  SQL = 'SELECT GenreCode, ParentCode, FB2Code, GenreAlias FROM Genres ORDER BY GenreCode';
 var
   query: TSQLiteQuery;
   Genre: TGenreData;
@@ -2017,6 +2091,8 @@ begin
   finally
     FreeAndNil(query);
   end;
+  FSourceGenres := FDatabase.QuerySingleInt(
+    'SELECT SettingValue FROM Settings WHERE SettingID = ?', [PROP_SOURCE_GENRES]) <> 0;
 end;
 
 function TBookCollection_SQLite.GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
@@ -3313,6 +3389,11 @@ begin
   FDatabase.Start;
 end;
 
+function TBookCollection_SQLite.InBulkOperation: Boolean;
+begin
+  Result := FDatabase.InTransaction;
+end;
+
 procedure TBookCollection_SQLite.EndBulkOperation(Commit: Boolean = True);
 begin
   Assert(FDatabase.InTransaction);
@@ -3320,7 +3401,10 @@ begin
   if Commit then
     FDatabase.Commit
   else
+  begin
     FDatabase.Rollback;
+    InternalLoadGenres;
+  end;
 end;
 
 procedure TBookCollection_SQLite.CompactDatabase;
@@ -3372,6 +3456,8 @@ begin
   // Record which list the Genres table now holds, so that a later interface
   // language change can tell whether these names still match the UI.
   SetProperty(PROP_GENRE_FILE, ExtractFileName(FileName));
+  SetProperty(PROP_SOURCE_GENRES, False);
+  FSourceGenres := False;
 
   // Remove missing genre reference:
   FDatabase.ExecSQL(SQL_DELETE_GENRE_LIST);

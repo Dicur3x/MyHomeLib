@@ -376,6 +376,21 @@ object frmSettings: TfrmSettings
       Caption = 'tsReaders'
       ImageIndex = 1
       TabVisible = False
+      object cbConvertWebPToPNG: TCheckBox
+        AlignWithMargins = True
+        Left = 9
+        Top = 327
+        Width = 429
+        Height = 24
+        Margins.Left = 9
+        Align = alBottom
+        Caption = #1055#1088#1077#1086#1073#1088#1072#1079#1086#1074#1099#1074#1072#1090#1100' WebP '#1074' PNG '#1087#1088#1080' '#1086#1090#1082#1088#1099#1090#1080#1080' '#1080' '#1101#1082#1089#1087#1086#1088#1090#1077
+        Checked = True
+        State = cbChecked
+        TabOrder = 2
+        Hint = #1044#1083#1103' '#1089#1086#1074#1084#1077#1089#1090#1080#1084#1086#1089#1090#1080' '#1089' '#1095#1080#1090#1072#1083#1082#1072#1084#1080'. '#1048#1089#1093#1086#1076#1085#1099#1077' '#1082#1085#1080#1075#1080' '#1074' '#1072#1088#1093#1080#1074#1077' '#1085#1077' '#1080#1079#1084#1077#1085#1103#1102#1090#1089#1103'.'
+        ShowHint = True
+      end
       object Label11: TLabel
         AlignWithMargins = True
         Left = 3
