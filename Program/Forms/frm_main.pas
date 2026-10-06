@@ -4695,8 +4695,11 @@ begin
   if Assigned(Data) and (Data^.nodeType = ntBookInfo) then
   begin
     FCurrentBookOnly := True;
-    OnReadBookHandler(Data^);
-    FCurrentBookOnly := False;
+    try
+      OnReadBookHandler(Data^);
+    finally
+      FCurrentBookOnly := False;
+    end;
   end;
 end;
 
@@ -4722,6 +4725,19 @@ begin
     BookFileName := BookRecord.GetBookFileName;
     BookFormat := BookRecord.GetBookFormat;
 
+    // Download remote FB2 before reading its bytes for reader compatibility.
+    if (BookFormat in [bfFb2, bfFb2Archive]) and
+      not (bpIsLocal in BookRecord.BookProps) then
+    begin
+      CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
+      if isOnlineCollection(CollectionInfo.CollectionType) then
+      begin
+        DownloadBooks(FCurrentBookOnly);
+        if not FileExists(BookFileName) then
+          Exit; // The download already reported its failure or was cancelled.
+      end;
+    end;
+
     if (BookFormat = bfFb2) and Settings.ConvertWebPToPNG then
     begin
       CompatStream := BookRecord.GetBookStream;
@@ -4732,23 +4748,6 @@ begin
     if (BookFormat in [bfFb2Archive, bfFbd, bfRawArchive]) or
       Assigned(CompatStream) then
     begin
-      if BookFormat = bfFb2Archive then
-      begin
-        CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
-
-        if (not (bpIsLocal in BookRecord.BookProps)) and isOnlineCollection(CollectionInfo.CollectionType) then
-        begin
-          // Why do we need to verify this? The code doesn't even use FCollection
-          //          // A not-yet-downloaded book of an online collection, can download only if book's collection is selected
-          //          FCollection.VerifyCurrentCollection(BookRecord.BookKey.DatabaseID);
-
-          DownloadBooks(FCurrentBookOnly);
-          /// TODO : RESTORE ??? Tree.RepaintNode(Tree.GetFirstSelected);
-          if not FileExists(BookFileName) then
-            Exit; // если файла нет, значит закачка не удалась, и юзер об  этом уже знает
-        end;
-      end;
-
       Assert(Length(BookRecord.Authors) > 0);
       ReadWorkPath := Settings.ReadPath;
       if (BookFormat in [bfFb2, bfFb2Archive]) and Settings.ConvertWebPToPNG then
@@ -8056,6 +8055,8 @@ begin
   end;
 
   FDMThread := TDownloadManagerThread.Create(Self);
+  // Start after construction: the RTL also processes suspension there.
+  FDMThread.Start;
 end;
 
 procedure TfrmMain.btnPauseDownloadClick(Sender: TObject);

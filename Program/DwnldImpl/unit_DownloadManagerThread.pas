@@ -117,7 +117,6 @@ begin
     Assert(Assigned(View));
     FView := View;
     FCanceled := False;
-    Start;
   except
     FreeAndNil(FDownloaderLock);
     raise;

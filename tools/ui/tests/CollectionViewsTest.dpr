@@ -11,6 +11,7 @@ uses
   Vcl.Forms, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls,
   VirtualTrees, BookTreeView,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
+  unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView;
 
 type
@@ -225,6 +226,285 @@ begin
     frmMain.btnShowGenreBooksClick(nil);
 end;
 
+procedure TestOnlineDownload(const Collection: IBookCollection;
+  DirectBookID, QueueBookID, RestartBookID: Integer);
+var
+  Book: PBookRecord;
+  Stored: TBookRecord;
+  Node: PVirtualNode;
+  Probe, Captured, SourceFile, ExportDir: string;
+  Started: UInt64;
+  SourceBytes: TBytes;
+  Keys: TBookIdList;
+  Worker: TExportToDeviceThread;
+  Component: TComponent;
+  HasCover: Boolean;
+
+  procedure RequireUnchangedZip;
+  var
+    Actual: TBytes;
+  begin
+    Actual := TFile.ReadAllBytes(SourceFile);
+    Require((Length(Actual) = Length(SourceBytes)) and
+      CompareMem(Pointer(SourceBytes), Pointer(Actual), Length(SourceBytes)),
+      'Reading, preview or export rewrote the downloaded ZIP');
+  end;
+
+  procedure Pump;
+  begin
+    Application.ProcessMessages;
+    CheckSynchronize;
+    Sleep(10);
+  end;
+
+  procedure SelectBook(const BookID: Integer);
+  begin
+    Node := frmMain.tvBooksA.GetFirst;
+    while Assigned(Node) do
+    begin
+      Book := frmMain.tvBooksA.GetNodeData(Node);
+      if Assigned(Book) and (Book.NodeType = ntBookInfo) and
+        (Book.BookKey.BookID = BookID) then Break;
+      Node := frmMain.tvBooksA.GetNext(Node);
+    end;
+    Require(Assigned(Node), 'Online book is absent from the visible author list');
+    frmMain.tvBooksA.ClearSelection;
+    frmMain.tvBooksA.Selected[Node] := True;
+    frmMain.tvBooksA.FocusedNode := Node;
+    frmMain.tvBooksTreeChange(frmMain.tvBooksA, Node);
+  end;
+
+  procedure ReadSelected;
+  begin
+    if FileExists(Probe) then TFile.Delete(Probe);
+    frmMain.ReadBookExecute(nil);
+    Started := GetTickCount64;
+    while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do Pump;
+    Require(FileExists(Probe), 'Online download did not hand a book to the reader');
+    Captured := TFile.ReadAllText(Probe, TEncoding.UTF8);
+    Require(FileExists(Captured), 'The reader received an absent file');
+    Captured := TFile.ReadAllText(Captured, TEncoding.UTF8);
+    Require((Pos('Online fixture text', Captured) > 0) and
+      (Pos('image/png', Captured) > 0) and (Pos('iVBOR', Captured) > 0) and
+      (Pos('UklGR', Captured) = 0),
+      'Online reader received the wrong book or unconverted WebP');
+  end;
+
+begin
+  Settings.UseIESettings := False;
+  Settings.ProxyType := 0;
+  Settings.ProxyServer := '';
+  Settings.ProxyPort := 0;
+  Settings.TimeOut := 5000;
+  Settings.ReadTimeOut := 5000;
+  Settings.DwnldInterval := 0;
+  Settings.AutoStartDwnld := False;
+  Settings.SelectedIsChecked := True;
+  Settings.ErrorLog := True;
+  Settings.Readers.Clear;
+  Settings.Readers.Add('.fb2', ParamStr(0));
+  Settings.OverwriteFB2Info := False;
+  Settings.ConvertWebPToPNG := True;
+  Settings.ShowBookCover := True;
+  Settings.ShowBookAnnotation := True;
+  Settings.ShowInfoPanel := True;
+  frmMain.ipnlAuthors.ShowCover := True;
+  frmMain.ipnlAuthors.ShowAnnotation := True;
+  Probe := Settings.AppPath + 'reader-probe-path.txt';
+  ChangeCollection(Collection.CollectionID);
+  ShowPage(PAGE_AUTHORS);
+  SelectBook(DirectBookID);
+  Require((Book.GetBookFormat = bfFb2Archive) and
+    not (bpIsLocal in Book.BookProps), 'Online fixture must start as a remote FB2 ZIP');
+  Trace('online direct reader download');
+  ReadSelected;
+  Collection.GetBookRecord(CreateBookKey(DirectBookID, Collection.CollectionID), Stored, False);
+  Require((bpIsLocal in Stored.BookProps) and (bpIsLocal in Book.BookProps),
+    'Online direct download did not update database and visible local status');
+  SourceFile := Stored.GetBookFileName;
+  Require(FileExists(SourceFile), 'Downloaded ZIP is absent');
+  SourceBytes := TFile.ReadAllBytes(SourceFile);
+  frmMain.tvBooksTreeChange(frmMain.tvBooksA, Node);
+  HasCover := False;
+  for Component in frmMain.ipnlAuthors do
+    if (Component is TImage) and Assigned(TImage(Component).Picture.Graphic) then
+      HasCover := not TImage(Component).Picture.Graphic.Empty;
+  Require(HasCover, 'Downloaded WebP cover is absent from the real main info panel');
+  ReadSelected;
+  RequireUnchangedZip;
+  Writeln('PASS online main reader downloads ZIP, updates local status, previews cover and reads converted FB2');
+
+  SelectBook(QueueBookID);
+  Require(not (bpIsLocal in Book.BookProps), 'Queue fixture is already local');
+  Trace('online download queue');
+  frmMain.Add2DownloadListExecute(nil);
+  Require(frmMain.tvDownloadList.GetFirst <> nil, 'Online book was not added to the real download queue');
+  frmMain.btnStartDownloadClick(nil);
+  Trace('online queue manager started');
+  Started := GetTickCount64;
+  while ((frmMain.tvDownloadList.GetFirst <> nil) or not frmMain.btnStartDownload.Enabled) and
+    (GetTickCount64 - Started < 20000) do Pump;
+  Require((frmMain.tvDownloadList.GetFirst = nil) and frmMain.btnStartDownload.Enabled,
+    'Online download queue did not complete successfully');
+  Collection.GetBookRecord(CreateBookKey(QueueBookID, Collection.CollectionID), Stored, False);
+  Require((bpIsLocal in Stored.BookProps) and (bpIsLocal in Book.BookProps),
+    'Queue download did not update database and main tree local status');
+  SourceFile := Stored.GetBookFileName;
+  SourceBytes := TFile.ReadAllBytes(SourceFile);
+  Trace('online queued book downloaded');
+  ReadSelected;
+  Settings.FileNameTemplate := '%t';
+  Settings.FolderTemplate := '';
+  ExportDir := TPath.Combine(Settings.AppPath, 'online-export');
+  ForceDirectories(ExportDir);
+  SetLength(Keys, 1);
+  Keys[0].BookKey := Stored.BookKey;
+  Worker := TExportToDeviceThread.Create;
+  Trace('online export worker created');
+  try
+    Worker.BookIdList := Keys;
+    Worker.ExtractOnly := False;
+    Worker.ExportMode := emFB2;
+    Worker.DeviceDir := ExportDir;
+    Worker.Start;
+    Worker.WaitFor;
+    Require(not Assigned(Worker.FatalException), 'Online downloaded book export failed');
+  finally
+    Worker.Free;
+  end;
+  Captured := TFile.ReadAllText(TPath.Combine(ExportDir, Stored.Title + '.fb2'), TEncoding.UTF8);
+  Require((Pos('Online fixture text', Captured) > 0) and
+    (Pos('image/png', Captured) > 0) and (Pos('UklGR', Captured) = 0),
+    'Export of the queued online book lost its text or conversion policy');
+  RequireUnchangedZip;
+  Writeln('PASS online main queue downloads ZIP and its local book remains readable and exportable');
+
+  SelectBook(RestartBookID);
+  Require(not (bpIsLocal in Book.BookProps), 'Restart fixture is already local');
+  frmMain.Add2DownloadListExecute(nil);
+  Require(frmMain.tvDownloadList.GetFirst <> nil, 'Restart book was not added to the real queue');
+  frmMain.btnStartDownloadClick(nil);
+  Started := GetTickCount64;
+  while ((frmMain.tvDownloadList.GetFirst <> nil) or not frmMain.btnStartDownload.Enabled) and
+    (GetTickCount64 - Started < 20000) do Pump;
+  Require((frmMain.tvDownloadList.GetFirst = nil) and frmMain.btnStartDownload.Enabled,
+    'The completed download manager could not be restarted');
+  Collection.GetBookRecord(CreateBookKey(RestartBookID, Collection.CollectionID), Stored, False);
+  Require((bpIsLocal in Stored.BookProps) and (bpIsLocal in Book.BookProps),
+    'Restart download did not update database and visible local status');
+  SourceFile := Stored.GetBookFileName;
+  SourceBytes := TFile.ReadAllBytes(SourceFile);
+  ReadSelected;
+  RequireUnchangedZip;
+  Writeln('PASS online main queue restarts for another remote book and preserves its downloaded ZIP');
+end;
+
+procedure CreateOnlineResponse;
+const
+  WEBP = 'UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
+  XML = '<?xml version="1.0" encoding="utf-8"?>' +
+    '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" ' +
+    'xmlns:l="http://www.w3.org/1999/xlink"><description><title-info>' +
+    '<author><first-name>Alex</first-name><last-name>Online</last-name></author>' +
+    '<book-title>Online payload</book-title><annotation><p>Online fixture annotation</p></annotation>' +
+    '<coverpage><image l:href="#cover.jpg"/></coverpage><lang>ru</lang>' +
+    '</title-info></description><body><section><p>Online fixture text</p></section></body>' +
+    '<binary id="cover.jpg" content-type="image/jpeg">' + WEBP + '</binary></FictionBook>';
+var
+  Zip: TMHLZip;
+  Stream: TBytesStream;
+begin
+  TFile.WriteAllBytes(Settings.AppPath + 'online-plain-response.fb2', TEncoding.UTF8.GetBytes(XML));
+  Zip := TMHLZip.Create(Settings.AppPath + 'download-response.zip', False);
+  try
+    Stream := TBytesStream.Create(TEncoding.UTF8.GetBytes(XML));
+    try
+      // Real servers need not use the INPX display filename for their ZIP member.
+      Zip.AddFromStream('server-member-name.fb2', Stream);
+    finally
+      Stream.Free;
+    end;
+  finally
+    Zip.Free;
+  end;
+end;
+
+function AddOnlineBook(const Collection: IBookCollection;
+  const Title, LibID: string; const AsArchive: Boolean = True): Integer;
+var
+  Book: TBookRecord;
+begin
+  Book.Clear;
+  Book.Title := Title;
+  Book.FileName := LibID;
+  Book.FileExt := '.fb2';
+  Book.LibID := LibID;
+  Book.Lang := 'ru';
+  Book.Date := EncodeDate(2026, 10, 6);
+  TAuthorsHelper.Add(Book.Authors, 'Online', 'Alex', '');
+  TGenresHelper.Add(Book.Genres, '', '', 'prose_contemporary');
+  if AsArchive then
+    Book.Folder := Book.GenerateLocation + FB2ZIP_EXTENSION
+  else
+    Book.Folder := 'online-plain' + PathDelim;
+  Book.InsideNo := 0;
+  Result := Collection.InsertBook(Book, False, False);
+  Require(Result > 0, 'Online fixture book was not inserted');
+end;
+
+procedure TestOnlinePlain(const Collection: IBookCollection; BookID: Integer);
+var
+  Book: PBookRecord;
+  Stored: TBookRecord;
+  Node: PVirtualNode;
+  Probe, Captured: string;
+  Started: UInt64;
+begin
+  Settings.UseIESettings := False;
+  Settings.ProxyType := 0;
+  Settings.ProxyServer := '';
+  Settings.ProxyPort := 0;
+  Settings.TimeOut := 5000;
+  Settings.ReadTimeOut := 5000;
+  Settings.Readers.Clear;
+  Settings.ErrorLog := True;
+  Settings.Readers.Add('.fb2', ParamStr(0));
+  Settings.OverwriteFB2Info := False;
+  Settings.ConvertWebPToPNG := True;
+  ChangeCollection(Collection.CollectionID);
+  ShowPage(PAGE_AUTHORS);
+  Node := frmMain.tvBooksA.GetFirst;
+  Require(Assigned(Node), 'Plain online fixture is absent');
+  Book := frmMain.tvBooksA.GetNodeData(Node);
+  Require(Assigned(Book) and (Book.BookKey.BookID = BookID) and
+    (Book.GetBookFormat = bfFb2) and not (bpIsLocal in Book.BookProps),
+    'Plain online fixture must start remote without a ZIP container');
+  frmMain.tvBooksA.ClearSelection;
+  frmMain.tvBooksA.Selected[Node] := True;
+  frmMain.tvBooksA.FocusedNode := Node;
+  Probe := Settings.AppPath + 'reader-probe-path.txt';
+  frmMain.ReadBookExecute(nil);
+  Started := GetTickCount64;
+  while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
+  begin
+    Application.ProcessMessages;
+    CheckSynchronize;
+    Sleep(10);
+  end;
+  Require(FileExists(Probe), 'Plain remote FB2 was opened before downloading');
+  Captured := TFile.ReadAllText(TFile.ReadAllText(Probe, TEncoding.UTF8), TEncoding.UTF8);
+  Require((Pos('Online fixture text', Captured) > 0) and
+    (Pos('image/png', Captured) > 0) and (Pos('UklGR', Captured) = 0),
+    'Plain online reader received the wrong book or unconverted WebP');
+  Collection.GetBookRecord(CreateBookKey(BookID, Collection.CollectionID), Stored, False);
+  Require((bpIsLocal in Stored.BookProps) and (bpIsLocal in Book.BookProps),
+    'Plain online download did not update local status');
+  Require(TFile.ReadAllText(Stored.GetBookFileName, TEncoding.UTF8) =
+    TFile.ReadAllText(Settings.AppPath + 'online-plain-response.fb2', TEncoding.UTF8),
+    'Plain online reader modified the downloaded source');
+  Writeln('PASS plain online FB2 is downloaded before compatibility conversion and reader handoff');
+end;
+
 procedure TestLanguageIsolation;
 begin
   frmMain.cbLangSelectA.ItemIndex := frmMain.cbLangSelectA.Items.IndexOf('ru');
@@ -378,8 +658,9 @@ begin
 end;
 
 var
-  One, Two: IBookCollection;
+  One, Two, Online: IBookCollection;
   OneID, TwoID, FirstBook, LastBook, UnknownBook, I: Integer;
+  OnlineID, DirectBookID, QueueBookID, RestartBookID, Port: Integer;
   Book: PBookRecord;
   ImportedGenre: TGenreData;
   PublisherSeries: TBookSeries;
@@ -390,6 +671,9 @@ begin
   try
     RequireIsolatedRegression;
     HandleReaderProbe;
+    DirectBookID := 0;
+    QueueBookID := 0;
+    RestartBookID := 0;
     Trace('application bootstrap');
     Application.Initialize;
     ExceptionHandler := TRegressionExceptionHandler.Create;
@@ -420,6 +704,25 @@ begin
       UnknownBook := AddBook(One, 'Unknown', 'Gamma', 'ru', '', '');
       AddBook(Two, 'Other uk', 'Other', 'uk', '', '0.1');
       AddBook(Two, 'Other ru', 'Other', 'ru', '', '0.1');
+      if (ParamStr(1) = 'online-download') or (ParamStr(1) = 'online-plain') then
+      begin
+        Port := StrToIntDef(ParamStr(2), 0);
+        Require((Port > 0) and (Port <= 65535), 'Online regression requires its loopback server port');
+        CreateOnlineResponse;
+        OnlineID := SystemDB.CreateCollection('Online regression', Settings.AppPath,
+          'online.hlc2', CT_EXTERNAL_ONLINE_FB, Settings.AppPath + 'genres_fb2.glst');
+        Online := SystemDB.GetCollection(OnlineID);
+        Online.SetProperty(PROP_URL, Format('http://127.0.0.1:%d/', [Port]));
+        Online.SetProperty(PROP_CONNECTIONSCRIPT, 'GET %URL%b/%LIBID%/get' + sLineBreak + 'CHECK');
+        if ParamStr(1) = 'online-plain' then
+          DirectBookID := AddOnlineBook(Online, 'Online plain', '900003', False)
+        else
+        begin
+          DirectBookID := AddOnlineBook(Online, 'Online reader', '900001');
+          QueueBookID := AddOnlineBook(Online, 'Online queue', '900002');
+          RestartBookID := AddOnlineBook(Online, 'Online restart', '900004');
+        end;
+      end;
       if ParamStr(1) = 'publisher-selection' then
       begin
         TSeriesHelper.Add(PublisherSeries, 0, 'Fixture publisher', 1, False);
@@ -476,6 +779,10 @@ begin
         TestPublisherSelection(OneID, TwoID, LastBook)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'online-download' then
+        TestOnlineDownload(Online, DirectBookID, QueueBookID, RestartBookID)
+      else if ParamStr(1) = 'online-plain' then
+        TestOnlinePlain(Online, DirectBookID)
       else if ParamStr(1) = 'source-genres' then
       begin
         TestSourceGenrePreservation(ImportedGenre);
@@ -530,6 +837,7 @@ begin
       frmMain := nil;
       One := nil;
       Two := nil;
+      Online := nil;
       dmImages.Free;
       dmImages := nil;
       DMUser.Free;
@@ -544,6 +852,7 @@ begin
     on E: Exception do
     begin
       Writeln('FAIL ', E.ClassName, ': ', E.Message);
+      Writeln('TRACE exception RVA ', IntToHex(NativeUInt(ExceptAddr) - NativeUInt(HInstance), 8));
       Halt(1);
     end;
   end;

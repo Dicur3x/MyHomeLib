@@ -386,6 +386,122 @@ begin
   Collection := nil;
   Writeln('PASS single-source full INPX update preserves namespace, rating, progress and Favorites');
 end;
+
+procedure TestOnlineInpx;
+const
+  URL = 'https://catalog.example.test/';
+  SCRIPT = 'GET=%URL%b/%LIBID%/fb2';
+  EXPECTED_FAILURE = 'только в локальной коллекции';
+var
+  Collection: IBookCollection;
+  DB: TSQLiteDatabase;
+  CollectionID, BookID, A, B, S: Integer;
+  Root, RootProperty, SingleInp, OtherInp, SingleDataset, MixedDataset, ExpectedPath: string;
+  Book: TBookRecord;
+  Iterator: IBookIterator;
+  Marker: Variant;
+  Failed, FoundFavorite: Boolean;
+
+  procedure ExpectUnchanged;
+  begin
+    SystemDB.ClearCollectionCache;
+    Collection := SystemDB.GetCollection(CollectionID);
+    Collection.GetStatistics(A, B, S);
+    Marker := Collection.GetProperty(PROP_MIXED_LIBRARY_IDS);
+    if (B <> 1) or
+      (not VarIsEmpty(Marker) and not VarIsNull(Marker) and Boolean(Marker)) or
+      (string(Collection.GetProperty(PROP_URL)) <> URL) or
+      (string(Collection.GetProperty(PROP_CONNECTIONSCRIPT)) <> SCRIPT) or
+      (string(Collection.GetProperty(PROP_ROOTFOLDER)) <> RootProperty) then
+      raise Exception.Create('Rejected mixed online import changed rows or connection settings');
+    DB := TSQLiteDatabase.Create(string(Collection.GetProperty(PROP_DATAFILE)));
+    try
+      if (DB.QuerySingleInt('SELECT BookID FROM Books WHERE LibID=''42''') <> BookID) or
+        (DB.QuerySingleString('SELECT Title FROM Books WHERE BookID=?', [BookID]) <> 'Online forty two') or
+        (DB.QuerySingleInt('SELECT Rate FROM Books WHERE BookID=?', [BookID]) <> 4) or
+        (DB.QuerySingleInt('SELECT Progress FROM Books WHERE BookID=?', [BookID]) <> 37) or
+        (DB.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE LibID LIKE ''%:%''') <> 0) then
+        raise Exception.Create('Mixed online import did not roll back book identity and user state');
+    finally
+      DB.Free;
+    end;
+    Collection.GetBookRecord(CreateBookKey(BookID, CollectionID), Book, False);
+    if (Book.LibID <> '42') or (Book.FileName <> '42') or (Book.FileExt <> '.fb2') or
+      (Book.Folder <> Book.GenerateLocation + FB2ZIP_EXTENSION) or
+      (Book.GetBookFileName <> ExpectedPath) or
+      (Collection.GetViewURL(Book.LibID) <> URL + 'b/42/') then
+      raise Exception.Create('Mixed online import changed the ordinary online download URL or path');
+    FoundFavorite := False;
+    Iterator := SystemDB.GetBookIterator(FAVORITES_GROUP_ID);
+    while Iterator.Next(Book) do
+      if Book.BookKey.DatabaseID = CollectionID then
+      begin
+        if (Book.BookKey.BookID <> BookID) or (Book.LibID <> '42') then
+          raise Exception.Create('Mixed online import remapped the existing favorite onto another book');
+        FoundFavorite := True;
+      end;
+    Iterator := nil;
+    if not FoundFavorite then
+      raise Exception.Create('Mixed online import removed the existing favorite');
+    Collection := nil;
+  end;
+
+begin
+  Root := Settings.AppPath;
+  SingleInp := Root + 'online-flibusta.inp';
+  OtherInp := Root + 'online-librusec.inp';
+  TFile.WriteAllText(SingleInp, InpRow('Online forty two', '', ''), TEncoding.UTF8);
+  TFile.WriteAllText(OtherInp, InpRow('Other library forty two', '', ''), TEncoding.UTF8);
+  SingleDataset := Root + 'online-single.inpx';
+  MixedDataset := Root + 'online-mixed.inpx';
+  MakeZip(SingleDataset, [SingleInp], ['f.fb2-101-200.inp']);
+  MakeZip(MixedDataset, [OtherInp, SingleInp], ['fb2-101-200.inp', 'f.fb2-101-200.inp']);
+  CollectionID := SystemDB.CreateCollection('Ordinary online INPX test', Root,
+    'online-inpx-test.hlc2', CT_EXTERNAL_ONLINE_FB, Root + 'genres_fb2.glst');
+  Collection := SystemDB.GetCollection(CollectionID);
+  RootProperty := string(Collection.GetProperty(PROP_ROOTFOLDER));
+  Collection.SetProperty(PROP_URL, URL);
+  Collection.SetProperty(PROP_CONNECTIONSCRIPT, SCRIPT);
+  Collection := nil;
+  RunInpx(CollectionID, SingleDataset, False);
+  SystemDB.ClearCollectionCache;
+  Collection := SystemDB.GetCollection(CollectionID);
+  DB := TSQLiteDatabase.Create(string(Collection.GetProperty(PROP_DATAFILE)));
+  try
+    BookID := DB.QuerySingleInt('SELECT BookID FROM Books WHERE LibID=''42''');
+    if BookID <= 0 then raise Exception.Create('Single-source online INPX lost its numeric identity');
+  finally
+    DB.Free;
+  end;
+  Collection.GetBookRecord(CreateBookKey(BookID, CollectionID), Book, False);
+  ExpectedPath := TPath.Combine(Root, Book.GenerateLocation + FB2ZIP_EXTENSION);
+  Collection.SetRate(Book.BookKey, 4);
+  Collection.SetProgress(Book.BookKey, 37);
+  Collection.AddBookToGroup(Book.BookKey, FAVORITES_GROUP_ID);
+  Collection := nil;
+  ExpectUnchanged;
+  Writeln('PASS ordinary single-source online INPX keeps numeric IDs, download URL and path');
+
+  Failed := False;
+  try
+    RunInpx(CollectionID, MixedDataset, False);
+  except
+    on E: Exception do
+    begin
+      Failed := True;
+      if Pos(EXPECTED_FAILURE, E.Message) = 0 then
+        raise Exception.Create('Unexpected mixed online rejection: ' + E.Message);
+    end;
+  end;
+  if not Failed then
+    raise Exception.Create('Mixed-source INPX was accepted by an online collection');
+  ExpectUnchanged;
+  // The manual worker reports its failure in the log instead of FatalException.
+  // Verify the actual full-update transaction restores the rows it first truncates.
+  RunInpx(CollectionID, MixedDataset, True);
+  ExpectUnchanged;
+  Writeln('PASS mixed-source online INPX is rejected with import and full-update rollback');
+end;
 var
   Collection: IBookCollection;
   CollectionID, A, B, S: Integer;
@@ -462,6 +578,7 @@ begin
       Writeln('PASS production importer stops after losing the outer transaction');
       Collection := nil;
       TestCombinedInpx;
+      TestOnlineInpx;
     finally
       DMUser.Free;
       DMUser := nil;

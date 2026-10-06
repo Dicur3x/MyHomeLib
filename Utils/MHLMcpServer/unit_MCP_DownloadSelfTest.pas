@@ -12,6 +12,7 @@ uses
   Winapi.Messages,
   System.Classes,
   System.SysUtils,
+  System.IOUtils,
   System.JSON,
   Vcl.Forms,
   unit_Globals,
@@ -69,29 +70,57 @@ end;
 procedure RunDownloadSelfTestMode(const Port: Integer);
 var
   Collection: IBookCollection;
+  OnlineCollection: IBookCollection;
+  OnlineCollectionID, BeforeClear: Integer;
   Report: TJSONObject;
   Cases: TJSONArray;
   Transport: TMcpTransport;
   Receiver: TDownloadMessageForm;
 
-  procedure DownloadCase(const Name, Script: string);
+  procedure SaveReturnedStream(const Stream: TStream; const FileName: string);
   var
+    Destination: TFileStream;
+  begin
+    if not Assigned(Stream) then
+      raise Exception.Create('Downloaded archive returned no book stream');
+    try
+      Stream.Position := 0;
+      Destination := TFileStream.Create(FileName, fmCreate);
+      try
+        Destination.CopyFrom(Stream, 0);
+      finally
+        Destination.Free;
+      end;
+    finally
+      Stream.Free;
+    end;
+  end;
+
+  procedure DownloadCase(const Name, Script: string; const Archive: Boolean);
+  var
+    TargetCollection: IBookCollection;
     Book: TBookRecord;
     Key: TBookKey;
     Downloader: TDownloader;
     Item: TJSONObject;
     Downloaded: Boolean;
     Before: Integer;
+    StreamFile, DescriptorFile: string;
   begin
+    if Archive then TargetCollection := OnlineCollection
+    else TargetCollection := Collection;
     Book.Clear;
     Book.Title := Name;
     Book.FileName := Name;
     Book.FileExt := FB2_EXTENSION;
     Book.Folder := 'downloads\';
+    if Archive then
+      Book.Folder := TPath.Combine(Book.Folder, Name + FB2ZIP_EXTENSION);
     Book.LibID := '854807';
     Book.Date := EncodeDate(2026, 9, 25);
-    Key := CreateBookKey(Collection.InsertBook(Book, False, False), 1);
-    Collection.SetProperty(PROP_CONNECTIONSCRIPT, Script);
+    Key := CreateBookKey(TargetCollection.InsertBook(Book, False, False),
+      TargetCollection.CollectionID);
+    TargetCollection.SetProperty(PROP_CONNECTIONSCRIPT, Script);
     Downloader := TDownloader.Create;
     try
       Downloader.IgnoreErrors := True;
@@ -101,8 +130,9 @@ var
     finally
       Downloader.Free;
     end;
-    Collection.GetBookRecord(Key, Book, False);
+    TargetCollection.GetBookRecord(Key, Book, False);
     Item := TJSONObject.Create;
+    Cases.AddElement(Item);
     Item.AddPair('name', Name);
     Item.AddPair('downloaded', TJSONBool.Create(Downloaded));
     Item.AddPair('local', TJSONBool.Create(bpIsLocal in Book.BookProps));
@@ -112,7 +142,20 @@ var
       (Receiver.LastStatus.BookKey.DatabaseID = Key.DatabaseID) and
       Receiver.LastStatus.LocalStatus));
     Item.AddPair('path', Book.GetBookFileName);
-    Cases.AddElement(Item);
+    Item.AddPair('archive', TJSONBool.Create(Archive));
+    if Archive and Downloaded then
+    begin
+      if Book.GetBookFormat <> bfFb2Archive then
+        raise Exception.Create('Online ZIP fixture did not exercise bfFb2Archive');
+      // The server member deliberately differs from the catalog file name.
+      // INSNO=0 must keep working for ordinary Deflate downloads.
+      StreamFile := TPath.Combine(Book.CollectionRoot, Name + '-extracted.fb2');
+      DescriptorFile := TPath.Combine(Book.CollectionRoot, Name + '-descriptor.fb2');
+      SaveReturnedStream(Book.GetBookStream, StreamFile);
+      SaveReturnedStream(Book.GetBookDescriptorStream(False), DescriptorFile);
+      Item.AddPair('stream_path', StreamFile);
+      Item.AddPair('descriptor_path', DescriptorFile);
+    end;
   end;
 
 begin
@@ -123,24 +166,34 @@ begin
     Receiver.HandleNeeded;
     Collection := SystemDB.GetCollection(1);
     Collection.SetProperty(PROP_URL, Format('http://127.0.0.1:%d/', [Port]));
+    OnlineCollectionID := SystemDB.CreateCollection('Disposable online ZIP download',
+      Collection.CollectionRoot, 'download-online.hlc2', CT_EXTERNAL_ONLINE_FB,
+      Settings.AppPath + 'genres_fb2.glst');
+    OnlineCollection := SystemDB.GetCollection(OnlineCollectionID);
+    OnlineCollection.SetProperty(PROP_URL, Format('http://127.0.0.1:%d/', [Port]));
     Report := TJSONObject.Create;
     try
       Cases := TJSONArray.Create;
       Report.AddPair('cases', Cases);
-      DownloadCase('get', 'GET %URL%b/%LIBID%/get' + sLineBreak + 'CHECK');
+      Report.AddPair('webp_default_enabled', TJSONBool.Create(Settings.ConvertWebPToPNG));
+      DownloadCase('get', 'GET %URL%b/%LIBID%/get' + sLineBreak + 'CHECK', False);
       DownloadCase('post', 'ADD token value+with%literal' + sLineBreak +
-        'POST %URL%post/%LIBID%/get' + sLineBreak + 'CHECK');
+        'POST %URL%post/%LIBID%/get' + sLineBreak + 'CHECK', False);
       // The attached collection.info from issue #8, with only its host replaced.
       DownloadCase('redirect', 'POST %URL%b/%LIBID%/get' + sLineBreak +
-        'GET %RESURL%' + sLineBreak + 'CHECK');
+        'GET %RESURL%' + sLineBreak + 'CHECK', False);
       DownloadCase('encoded', 'GET %URL%encoded/a%2Fb%20c' +
-        '?token=x%2By%26z&literal=%252F&plus=a+b' + sLineBreak + 'CHECK');
+        '?token=x%2By%26z&literal=%252F&plus=a+b' + sLineBreak + 'CHECK', False);
       DownloadCase('unicode', 'GET %URL%unicode/' + #$041A#$043D#$0438#$0433#$0430 +
-        ' 1.fb2' + sLineBreak + 'CHECK');
+        ' 1.fb2' + sLineBreak + 'CHECK', False);
+      DownloadCase('archive-get', 'GET %URL%zip/b/%LIBID%/get' + sLineBreak + 'CHECK', True);
+      DownloadCase('archive-redirect', 'POST %URL%zip-redirect/b/%LIBID%/get' + sLineBreak +
+        'GET %RESURL%' + sLineBreak + 'CHECK', True);
+      BeforeClear := Receiver.Notifications;
       BookLocalStatusChanged(CreateBookKey(123, 456), False);
       Application.ProcessMessages;
       Report.AddPair('clear_status_notified', TJSONBool.Create(
-        (Receiver.Notifications = 6) and
+        (Receiver.Notifications = BeforeClear + 1) and
         (Receiver.LastStatus.BookKey.BookID = 123) and
         (Receiver.LastStatus.BookKey.DatabaseID = 456) and
         not Receiver.LastStatus.LocalStatus));

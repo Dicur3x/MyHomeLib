@@ -465,6 +465,11 @@ begin
     StoredMixedLibraryIDs := BookCollection.GetProperty(PROP_MIXED_LIBRARY_IDS);
     if not VarIsEmpty(StoredMixedLibraryIDs) and not VarIsNull(StoredMixedLibraryIDs) then
       MixedLibraryIndex := MixedLibraryIndex or Boolean(StoredMixedLibraryIDs);
+    // Scoped source IDs cannot identify books on a single online server.
+    // Fail before changing rows or connection properties; the caller rolls back.
+    if MixedLibraryIndex and IsOnline then
+      raise Exception.Create('Объединённый каталог Либрусека и Флибусты можно использовать только в локальной коллекции.');
+
     // Remember the namespace when a combined collection is later updated with
     // a single original-source INPX. Ordinary collections never enable it.
     if MixedLibraryIndex then

@@ -8,8 +8,12 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const cp = require("child_process");
+const http = require("http");
 const marker = "HomeLib Ru isolated native regression v1";
 const [runtimeArg, genreArg, importArg, viewsArg] = process.argv.slice(2);
+const onlineOnly = process.argv.includes("--online-only");
+const archiveOnly = process.argv.includes("--online-archive-only");
+const plainOnly = process.argv.includes("--online-plain-only");
 if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
   console.error("Usage: node native_collection_tests.js <runtime-dir> <GenreRegistryTest.exe> <MetabibImportTest.exe> <CollectionViewsTest.exe>");
   process.exit(2);
@@ -41,12 +45,15 @@ const requiredViews = {
   "source-genres": ["PASS imported source genre survives"],
   "publisher-selection": ["PASS deferred publisher view restores"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
+  "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
+  "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
 };
 function requiredPasses(executable, mode) {
   if (path.basename(executable).toLowerCase() === "metabibimporttest.exe") return [
     "PASS production import registers", "PASS conflicting source import", "PASS production importer stops",
     "PASS production INPX import", "PASS production book stream", "PASS single-source full INPX update",
     "PASS production script extraction", "PASS production uppercase FB2 export", "PASS production same-title batch extraction",
+    "PASS ordinary single-source online INPX", "PASS mixed-source online INPX",
   ];
   if (path.basename(executable).toLowerCase() === "collectionviewstest.exe") return [
     "PASS header menu keeps column IDs", "PASS default author selection and saved book", ...requiredViews[mode || ""],
@@ -81,7 +88,7 @@ function stage(folder, executable) {
   fs.writeFileSync(path.join(folder, "myhomelib2.ini"), [
     "[SYSTEM]", "CheckUpdates=0", "CheckLibrusecUpdates=0", "[INTERFACE]", "Locale=ru", "ActivePage=0",
     "[BEHAVIOR]", "CoverPanel=0", "ShowCover=0", "ShowAnnotation=0", "AutoLoadReview=0", "IgnoreAbsentArchives=1",
-    "[OPDS]", "Enabled=0", "", // A network server is never started by view regression.
+    "[OPDS]", "Enabled=0", "", // OPDS is never started; dedicated online tests use only loopback.
   ].join("\r\n"), "utf8");
 }
 function run(executable, mode) {
@@ -105,12 +112,61 @@ function run(executable, mode) {
     if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
   }
 }
+async function runOnline(executable, mode) {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-"));
+  const absolute = path.resolve(folder), expectedRoot = path.resolve(os.tmpdir()) + path.sep;
+  if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
+  const requests = [];
+  const expected = mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
+  const server = http.createServer((req, res) => {
+    requests.push(`${req.method} ${req.url}`);
+    if (req.method !== "GET" || !expected.includes(req.url)) { res.writeHead(404); res.end(); return; }
+    const filename = mode === "online-plain" ? "online-plain-response.fb2" : "download-response.zip";
+    try {
+      const payload = fs.readFileSync(path.join(folder, filename));
+      res.writeHead(200, { "Content-Type": mode === "online-plain" ? "application/fb2+xml" : "application/zip", "Content-Length": payload.length });
+      res.end(payload);
+    } catch (error) { res.writeHead(500); res.end(String(error)); }
+  });
+  try {
+    stage(folder, executable);
+    await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+    const exe = path.join(folder, path.basename(executable)), port = server.address().port;
+    const output = await new Promise((resolve, reject) => {
+      const child = cp.spawn(exe, [mode, String(port)], { cwd: folder, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let text = "", timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill(); }, 60000);
+      const collect = data => { text += data.toString("utf8"); if (text.length > 2 * 1024 * 1024) child.kill(); };
+      child.stdout.on("data", collect); child.stderr.on("data", collect);
+      child.once("error", error => { clearTimeout(timer); reject(error); });
+      child.once("close", status => {
+        clearTimeout(timer);
+        process.stdout.write(`${path.basename(exe)} (${mode}):\n${text}`);
+        if (timedOut || status !== 0 || /^FAIL\b/m.test(text)) reject(new Error(`Native online test failed: ${mode}, exit ${status}${timedOut ? ", timed out" : ""}`));
+        else resolve(text);
+      });
+    });
+    for (const marker of requiredPasses(executable, mode)) if (!output.includes(marker)) throw new Error(`Native online test omitted ${marker}; reload and rebuild DPR.`);
+    if (JSON.stringify(requests) !== JSON.stringify(expected.map(url => `GET ${url}`))) throw new Error(`Unexpected online requests: ${JSON.stringify(requests)}`);
+    console.log(`PASS exact loopback requests for main ${mode}; repeated reads use the downloaded book`);
+  } finally {
+    server.closeAllConnections();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+    if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
+  }
+}
+(async () => {
 try {
-  run(tests[0], "");
-  run(tests[1], "");
-  for (const mode of modes) run(tests[2], mode);
+  if (!onlineOnly && !archiveOnly && !plainOnly) {
+    run(tests[0], "");
+    run(tests[1], "");
+    for (const mode of modes) run(tests[2], mode);
+  }
+  if (!plainOnly) await runOnline(tests[2], "online-download");
+  if (!archiveOnly) await runOnline(tests[2], "online-plain");
   console.log(`PASS all native collection regressions (${architecture === 0x8664 ? "x64" : "x86"}); only temporary fixtures used`);
 } catch (error) {
   console.error(`FAIL ${error.stack || error}`);
   process.exitCode = 1;
 }
+})();
