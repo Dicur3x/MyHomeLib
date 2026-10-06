@@ -810,7 +810,7 @@ object frmSettings: TfrmSettings
         Left = 0
         Top = 0
         Width = 447
-        Height = 176
+        Height = 272
         Align = alTop
         AutoSize = True
         BevelOuter = bvNone
@@ -818,7 +818,7 @@ object frmSettings: TfrmSettings
         TabOrder = 0
         DesignSize = (
           447
-          176)
+          272)
         object Label27: TLabel
           AlignWithMargins = True
           Left = 3
@@ -921,19 +921,72 @@ object frmSettings: TfrmSettings
           TabOrder = 4
         end
         object cbUpdates: TCheckBox
-          AlignWithMargins = True
           Left = 12
           Top = 156
           Width = 424
           Height = 17
-          Anchors = [akLeft, akTop, akRight]
-          Caption = #1055#1088#1086#1074#1077#1088#1103#1090#1100' '#1085#1072#1083#1080#1095#1080#1077' '#1086#1073#1085#1086#1074#1083#1077#1085#1080#1081' '#1087#1088#1086#1075#1088#1072#1084#1084#1099
+          Visible = False
           TabOrder = 6
         end
+        object lblProgramInterval: TLabel
+          Left = 12
+          Top = 163
+          Caption = #1054#1073#1085#1086#1074#1083#1077#1085#1080#1103#32#72#111#109#101#76#105#98#32#82#117#58
+          FocusControl = cbProgramInterval
+        end
+        object cbProgramInterval: TComboBox
+          Left = 175
+          Top = 159
+          Width = 260
+          Height = 21
+          Style = csDropDownList
+          TabOrder = 7
+          OnChange = ProgramIntervalChanged
+          Items.Strings = (
+            #1053#1080#1082#1086#1075#1076#1072
+            #1050#1072#1078#1076#1099#1077#32#49#53#32#1084#1080#1085#1091#1090
+            #1050#1072#1078#1076#1099#1081#32#1095#1072#1089
+            #1050#1072#1078#1076#1099#1077#32#54#32#1095#1072#1089#1086#1074
+            #1050#1072#1078#1076#1099#1077#32#49#50#32#1095#1072#1089#1086#1074
+            #1056#1072#1079#32#1074#32#1089#1091#1090#1082#1080
+            #1056#1072#1079#32#1074#32#51#32#1076#1085#1103
+            #1056#1072#1079#32#1074#32#1085#1077#1076#1077#1083#1102
+            #1057#1074#1086#1081#32#1080#1085#1090#1077#1088#1074#1072#1083)
+        end
+        object edProgramInterval: TEdit
+          Left = 175
+          Top = 189
+          Width = 80
+          Height = 21
+          NumbersOnly = True
+          Text = '1440'
+          TabOrder = 8
+        end
+        object udProgramInterval: TUpDown
+          Left = 255
+          Top = 189
+          Width = 16
+          Height = 21
+          Associate = edProgramInterval
+          Min = 1
+          Max = 525600
+          Position = 1440
+          TabOrder = 9
+        end
+        object cbProgramIntervalUnit: TComboBox
+          Left = 281
+          Top = 189
+          Width = 154
+          Height = 21
+          Style = csDropDownList
+          TabOrder = 10
+          Items.Strings = (#1084#1080#1085#1091#1090 #1095#1072#1089#1086#1074 #1076#1085#1077#1081)
+        end
+
       end
       object Panel6: TPanel
         Left = 0
-        Top = 195
+        Top = 291
         Width = 447
         Height = 93
         Align = alTop
@@ -1065,7 +1118,7 @@ object frmSettings: TfrmSettings
       object Panel9: TPanel
         AlignWithMargins = True
         Left = 3
-        Top = 179
+        Top = 275
         Width = 441
         Height = 13
         Align = alTop

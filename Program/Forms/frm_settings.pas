@@ -60,6 +60,11 @@ type
     Button1: TButton;
     cbCheckColUpdate: TCheckBox;
     cbUpdates: TCheckBox;
+    cbProgramInterval: TComboBox;
+    edProgramInterval: TEdit;
+    udProgramInterval: TUpDown;
+    cbProgramIntervalUnit: TComboBox;
+    lblProgramInterval: TLabel;
     tvSections: TTreeView;
     tsScripts: TTabSheet;
     lvScripts: TListView;
@@ -207,6 +212,7 @@ type
     Label25: TLabel;
 
     procedure SaveSettingsClick(Sender: TObject);
+    procedure ProgramIntervalChanged(Sender: TObject);
     procedure ShowHelpClick(Sender: TObject);
 
     procedure tvSectionsChange(Sender: TObject; Node: TTreeNode);
@@ -390,6 +396,20 @@ begin
 
   cbCheckColUpdate.Checked := Settings.CheckExternalLibUpdate;
   cbUpdates.Checked := Settings.CheckUpdate;
+  case Settings.ProgramUpdateMinutes of
+    15: cbProgramInterval.ItemIndex := 1;
+    60: cbProgramInterval.ItemIndex := 2;
+    360: cbProgramInterval.ItemIndex := 3;
+    720: cbProgramInterval.ItemIndex := 4;
+    1440: cbProgramInterval.ItemIndex := 5;
+    4320: cbProgramInterval.ItemIndex := 6;
+    10080: cbProgramInterval.ItemIndex := 7;
+    else cbProgramInterval.ItemIndex := 8;
+  end;
+  if not Settings.CheckUpdate then cbProgramInterval.ItemIndex := 0;
+  cbProgramIntervalUnit.ItemIndex := 0;
+  udProgramInterval.Position := Settings.ProgramUpdateMinutes;
+  ProgramIntervalChanged(nil);
   cbAutoRunUpdate.Checked := Settings.AutoRunUpdate;
 
   udTimeOut.Position := Settings.TimeOut;
@@ -518,7 +538,23 @@ begin
   Settings.ProxyPassword := edProxyPassword.Text;
   Settings.UpdateURL := edUpdates.Text;
   Settings.CheckExternalLibUpdate := cbCheckColUpdate.Checked;
-  Settings.CheckUpdate := cbUpdates.Checked;
+  Settings.CheckUpdate := cbProgramInterval.ItemIndex <> 0;
+  case cbProgramInterval.ItemIndex of
+    1: Settings.ProgramUpdateMinutes := 15;
+    2: Settings.ProgramUpdateMinutes := 60;
+    3: Settings.ProgramUpdateMinutes := 360;
+    4: Settings.ProgramUpdateMinutes := 720;
+    5: Settings.ProgramUpdateMinutes := 1440;
+    6: Settings.ProgramUpdateMinutes := 4320;
+    7: Settings.ProgramUpdateMinutes := 10080;
+    8: begin
+      Settings.ProgramUpdateMinutes := StrToIntDef(edProgramInterval.Text, 1440);
+      if cbProgramIntervalUnit.ItemIndex = 1 then Settings.ProgramUpdateMinutes := Settings.ProgramUpdateMinutes * 60;
+      if cbProgramIntervalUnit.ItemIndex = 2 then Settings.ProgramUpdateMinutes := Settings.ProgramUpdateMinutes * 1440;
+      if (Settings.ProgramUpdateMinutes < 1) or (Settings.ProgramUpdateMinutes > 525600) then
+        Settings.ProgramUpdateMinutes := 1440;
+    end;
+  end;
   Settings.TimeOut := udTimeOut.Position;
   Settings.ReadTimeOut := udReadTimeOut.Position;
   Settings.DwnldInterval := udDwnldInterval.Position;
@@ -598,7 +634,22 @@ begin
 end;
 
 procedure TfrmSettings.SaveSettingsClick(Sender: TObject);
+var IntervalValue, Multiplier: Integer;
 begin
+  if cbProgramInterval.ItemIndex = 8 then
+  begin
+    Multiplier := 1;
+    if cbProgramIntervalUnit.ItemIndex = 1 then Multiplier := 60;
+    if cbProgramIntervalUnit.ItemIndex = 2 then Multiplier := 1440;
+    if not TryStrToInt(edProgramInterval.Text, IntervalValue) or (IntervalValue < 1) or
+       (IntervalValue > 525600 div Multiplier) then
+    begin
+      ShowMessage('Укажите интервал от 1 минуты до 365 дней.');
+      tvSections.Select(tvSections.Items[tsInternet.PageIndex]);
+      FocusControl(edProgramInterval);
+      Exit;
+    end;
+  end;
   if cbOverwriteFB2Info.Checked and (edTitleTemplate.Text = '') then
   begin
     ShowMessage(rstrNeedTemplate);
@@ -732,6 +783,13 @@ begin
   finally
     frmEditScript.Free;
   end;
+end;
+
+procedure TfrmSettings.ProgramIntervalChanged(Sender: TObject);
+begin
+  edProgramInterval.Visible := cbProgramInterval.ItemIndex = 8;
+  udProgramInterval.Visible := edProgramInterval.Visible;
+  cbProgramIntervalUnit.Visible := edProgramInterval.Visible;
 end;
 
 procedure TfrmSettings.FormShow(Sender: TObject);

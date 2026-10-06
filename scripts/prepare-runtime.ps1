@@ -207,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1077'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1078'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -274,6 +274,7 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
+    (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
     $zstdDestination,
     $sevenZipDestination,
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
@@ -291,12 +292,13 @@ $requiredRuntimeFiles = @(
 )
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-        throw "Неполная сборка: отсутствует '$requiredFile'. Соберите три проекта по порядку из BUILDING.md."
+        throw "Неполная сборка: отсутствует '$requiredFile'. Соберите проекты по порядку из BUILDING.md."
     }
 }
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
+Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -Expected $Platform
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
 Assert-Architecture -Path $zstdDestination -Expected $Platform

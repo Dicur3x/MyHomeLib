@@ -35,7 +35,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
   "": ["PASS unopened genre filter", "PASS first series visit", "PASS changed deletion filter", "PASS visible genre view", "PASS first group visit", "PASS empty author selection"],
@@ -47,6 +47,7 @@ const requiredViews = {
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
+  "program-update-ui": ["PASS update settings preserve never and custom hours", "PASS update popup shows installed version"],
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
 };
@@ -85,6 +86,7 @@ function stage(folder, executable) {
   if (fs.existsSync(path.join(runtime, "Icons"))) copyDllTree(path.join(runtime, "Icons"), path.join(folder, "Icons"));
   for (const name of fs.readdirSync(runtime)) if (/^genres[^\\/]*\.glst$/i.test(name)) fs.copyFileSync(path.join(runtime, name), path.join(folder, name));
   fs.writeFileSync(path.join(folder, "uselocaldata"), "");
+  fs.copyFileSync(path.resolve(__dirname, '../../../Installer/Components.json'), path.join(folder, 'COMPONENTS.json'));
   fs.writeFileSync(path.join(folder, "uselocaltemp"), "");
   fs.writeFileSync(path.join(folder, "native-regression.marker"), marker, "utf8");
   fs.writeFileSync(path.join(folder, "myhomelib2.ini"), [

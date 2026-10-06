@@ -1,4 +1,4 @@
-program CollectionViewsTest;
+﻿program CollectionViewsTest;
 
 {$APPTYPE CONSOLE}
 {$R *.res}
@@ -8,11 +8,12 @@ program CollectionViewsTest;
 
 uses
   NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows,
-  Vcl.Forms, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls,
+  Vcl.Forms, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
-  dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView;
+  dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
+  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ProgramUpdateInstaller;
 
 type
   TRegressionExceptionHandler = class
@@ -37,6 +38,120 @@ end;
 
 var
   CleanupExitTemp, CleanupExitPersistent, CleanupExitSource: string;
+
+procedure TestProgramUpdateUI;
+var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo: TProgramRelease;
+  I: Integer; Notes: TMemo; Primary: TButton; Version, Bytes: TLabel; Selector: TComboBox;
+begin
+  Configuration := TfrmSettings.Create(nil);
+  try
+    Require(Configuration.cbProgramInterval.Items[0] = 'Никогда', 'Never option missing');
+    Configuration.cbProgramInterval.ItemIndex := 8; Configuration.ProgramIntervalChanged(nil);
+    Require(Configuration.edProgramInterval.Visible and Configuration.cbProgramIntervalUnit.Visible,
+      'Custom interval controls missing');
+    Configuration.edProgramInterval.Text := '17'; Configuration.cbProgramIntervalUnit.ItemIndex := 1;
+    Configuration.SaveSettingsClick(nil);
+    Require(Settings.CheckUpdate and (Settings.ProgramUpdateMinutes = 1020), 'Custom hours not saved');
+    Configuration.cbProgramInterval.ItemIndex := 0; Configuration.SaveSettingsClick(nil);
+    Require(not Settings.CheckUpdate, 'Never does not disable checking');
+    Settings.SaveSettings;
+  finally Configuration.Free; end;
+  Writeln('PASS update settings preserve never and custom hours');
+  Popup := TfrmProgramUpdate.Create(nil);
+  try
+    Notes := nil; Primary := nil; Version := nil; Bytes := nil; Selector := nil;
+    for I := 0 to Popup.ControlCount - 1 do
+    begin
+      if Popup.Controls[I] is TMemo then Notes := TMemo(Popup.Controls[I]);
+      if Popup.Controls[I] is TComboBox then Selector := TComboBox(Popup.Controls[I]);
+      if (Popup.Controls[I] is TButton) and TButton(Popup.Controls[I]).Default then Primary := TButton(Popup.Controls[I]);
+      if (Popup.Controls[I] is TLabel) and (Pos('Текущая', TLabel(Popup.Controls[I]).Caption) = 1) then Version := TLabel(Popup.Controls[I]);
+      if (Popup.Controls[I] is TLabel) and (Popup.Controls[I].Top > 400) then Bytes := TLabel(Popup.Controls[I]);
+    end;
+    Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
+    Require(Pos(PROGRAM_RELEASE_VERSION, Version.Caption) > 0, 'Installed version missing');
+    Require(Assigned(Selector) and (Selector.Items.Count = 3), 'Separate component choices missing');
+    Require(Selector.Items[1].StartsWith('SQLite:') and Selector.Items[2].StartsWith('SumatraPDF:'),
+      'Component selection must skip AlReader and retain SumatraPDF');
+    Selector.ItemIndex := 1; Selector.OnChange(Selector);
+    Require(Pos('3.53.4', Notes.Text) > 0, 'Installed component changelog missing');
+    Require(Primary.Caption = 'Проверить компонент', 'Component check missing');
+    Selector.ItemIndex := 0; Selector.OnChange(Selector);
+    ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.12';
+    // GitHub and bundled Markdown may use Unix line breaks; the Windows memo
+    // must retain separate heading and bullet lines when displaying them.
+    ReleaseInfo.Changelog := '2.7.0_pre5.12' + #10 + 'Новые изменения' + #10#10 + '- Первый пункт';
+    ReleaseInfo.History := ReleaseInfo.Changelog + sLineBreak + PROGRAM_RELEASE_VERSION;
+    ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.12/HomeLibRu.zip';
+    Popup.SetRelease(ReleaseInfo);
+    Require(Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
+    Require(Pos('Новые изменения', Notes.Text) > 0, 'Changelog missing');
+    Require((Notes.Lines.Count >= 4) and (Notes.Lines[0] = '2.7.0_pre5.12') and
+      (Notes.Lines[1] = 'Новые изменения') and (Notes.Lines[3] = '- Первый пункт'),
+      'Unix changelog line breaks collapsed in Windows memo');
+    Require(Bytes.Caption = '', 'No download must happen before the click');
+    Popup.BeginCheck; Popup.SetCurrent(ReleaseInfo);
+    Require(Primary.Enabled and (Primary.Caption = 'Проверить ещё раз'), 'No-update check is not retryable');
+    Popup.CheckFailed('Не удалось проверить');
+    Require(Primary.Enabled and (Primary.Caption = 'Повторить проверку'), 'Manual failure is not retryable');
+  finally Popup.Free; end;
+  Writeln('PASS update popup shows installed version and changelog without automatic download');
+end;
+
+procedure TestProgramUpdateDownload;
+var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
+  Primary, Later: TButton; Notes: TMemo; Bytes: TLabel; Bar: TProgressBar;
+  I: Integer; Deadline: UInt64; ReadyFile: string;
+  procedure Controls;
+  var J: Integer;
+  begin
+    Primary := nil; Later := nil; Notes := nil; Bytes := nil; Bar := nil;
+    for J := 0 to Popup.ControlCount - 1 do
+    begin
+      if Popup.Controls[J] is TMemo then Notes := TMemo(Popup.Controls[J]);
+      if Popup.Controls[J] is TProgressBar then Bar := TProgressBar(Popup.Controls[J]);
+      if (Popup.Controls[J] is TLabel) and (Popup.Controls[J].Top > 400) then Bytes := TLabel(Popup.Controls[J]);
+      if Popup.Controls[J] is TButton then
+      begin
+        if TButton(Popup.Controls[J]).Default then Primary := TButton(Popup.Controls[J]);
+        if TButton(Popup.Controls[J]).Caption = 'Позже' then Later := TButton(Popup.Controls[J]);
+      end;
+    end;
+    Require(Assigned(Primary) and Assigned(Later) and Assigned(Notes) and Assigned(Bytes) and Assigned(Bar), 'Update controls missing');
+  end;
+begin
+  Require(ParamCount = 4, 'Update test requires loopback URL, size and checksum');
+  Require(ParamStr(2).StartsWith('http://127.0.0.1:'), 'Update test must use loopback');
+  Popup := TfrmProgramUpdate.Create(nil);
+  try
+    Controls;
+    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.12';
+    Info.DownloadURL := ParamStr(2); Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4);
+    Info.Changelog := 'Новые изменения тестового выпуска'; Popup.SetRelease(Info);
+    Require(Bytes.Caption = '', 'Unexpected automatic download');
+    Primary.Click;
+    Require(not Primary.Enabled and (Later.Caption = 'Отменить'), 'Download did not enter cancellable state');
+    Deadline := GetTickCount64 + 30000;
+    repeat Application.ProcessMessages; Sleep(10);
+    until Primary.Enabled or (GetTickCount64 > Deadline);
+    Require(Primary.Caption = 'Установить и перезапустить', 'Download failed: ' + Popup.Caption + ' / ' + Primary.Caption);
+    Require((Bar.Position = 100) and (Pos('Скачано:', Bytes.Caption) = 1) and (Pos(' / ', Bytes.Caption) > 0), 'Download size or progress missing');
+    Require(Pos('Новые изменения', Notes.Text) > 0, 'Download discarded changelog');
+    Later.Click; Require(not Popup.Visible, 'Later did not hide ready update');
+  finally Popup.Free; end;
+  Writeln('PASS update popup downloads only on click, displays bytes, retains changelog and postpones installation');
+  OwnedPopup := nil;
+  for I := 0 to frmMain.ComponentCount - 1 do
+    if frmMain.Components[I] is TfrmProgramUpdate then OwnedPopup := TfrmProgramUpdate(frmMain.Components[I]);
+  Require(Assigned(OwnedPopup), 'Main form update popup missing');
+  Popup := OwnedPopup;
+  Require(Popup.RestoreReady, 'Ready update did not survive reopening'); Controls;
+  Require(Primary.Caption = 'Установить и перезапустить', 'Restored update cannot install');
+  ReadyFile := IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath)) + 'ready.json';
+  Require(FileExists(ReadyFile), 'Ready download was lost');
+  Primary.Click;
+  Writeln('PASS ready update restores and real main close launches native replacement and restart');
+end;
 
 procedure TestHeaderMenuTags;
 const
@@ -867,6 +982,10 @@ begin
         TestReadFolderCleanup
       else if ParamStr(1) = 'temp-exit-cleanup' then
         TestExitReaderCleanup
+      else if ParamStr(1) = 'program-update-ui' then
+        TestProgramUpdateUI
+      else if ParamStr(1) = 'program-update-download' then
+        TestProgramUpdateDownload
       else if ParamStr(1) = 'online-download' then
         TestOnlineDownload(Online, DirectBookID, QueueBookID, RestartBookID)
       else if ParamStr(1) = 'online-plain' then

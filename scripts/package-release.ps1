@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.10'
+$release = '2.7.0_pre5.11'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -31,12 +31,18 @@ $stagingRoot = Join-Path $temporaryDirectory ('homelibru-package-' + [guid]::New
 $payloadDirectory = Join-Path $stagingRoot 'payload'
 [System.IO.Directory]::CreateDirectory($payloadDirectory) | Out-Null
 try {
-    foreach ($name in @('HomeLibRu.exe', 'MHLMcpServer.exe', 'sqlite3.dll', 'libzstd.dll', 'LICENSE', 'NOTICE')) {
+    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'MHLMcpServer.exe', 'sqlite3.dll', 'libzstd.dll', 'LICENSE', 'NOTICE')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
     }
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
+    $history = @(Get-ChildItem -LiteralPath $repositoryRoot -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
+        Sort-Object { [int]($_.BaseName.Split('.')[-1]) } -Descending |
+        Select-Object -First 8 | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 })
+    [IO.File]::WriteAllText((Join-Path $payloadDirectory 'CHANGES.txt'),
+        ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $payloadDirectory 'COMPONENTS.json')
     foreach ($directory in @('Help', 'Icons', 'tools')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
     }
@@ -65,6 +71,17 @@ try {
         [System.IO.Directory]::CreateDirectory($converterDestination) | Out-Null
         Copy-Item -LiteralPath $converter -Destination $converterDestination -Recurse
     }
+
+    $manifestFiles = @(Get-ChildItem -LiteralPath $payloadDirectory -Recurse -File | Sort-Object FullName | ForEach-Object {
+        [ordered]@{
+            path = $_.FullName.Substring($payloadDirectory.Length + 1).Replace('\', '/')
+            size = $_.Length
+            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    })
+    $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform; files = $manifestFiles }
+    [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
+        ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 
     # No whole-runtime copy: Data, Presets, INI files, logs, old EXEs and test
     # fixtures in the output directory do not belong in a release archive.

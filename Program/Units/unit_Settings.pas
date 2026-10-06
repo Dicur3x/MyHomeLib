@@ -128,6 +128,8 @@ type
     // SYSTEM_SECTION
     FActiveCollection: Integer;
     FDoCheckUpdate: Boolean;
+    FProgramUpdateMinutes: Integer;
+    FProgramUpdateLastCheckUTC: TDateTime;
     FCheckExternalLibUpdate: Boolean;
     FPromptDevicePath: Boolean;
     FFolderTemplate: string;
@@ -342,6 +344,8 @@ type
 
     property ActiveCollection: Integer read FActiveCollection write FActiveCollection;
     property CheckUpdate: Boolean read FDoCheckUpdate write FDoCheckUpdate;
+    property ProgramUpdateMinutes: Integer read FProgramUpdateMinutes write FProgramUpdateMinutes;
+    property ProgramUpdateLastCheckUTC: TDateTime read FProgramUpdateLastCheckUTC write FProgramUpdateLastCheckUTC;
     property CheckExternalLibUpdate: Boolean read FCheckExternalLibUpdate write FCheckExternalLibUpdate;
     property PromptDevicePath: Boolean read FPromptDevicePath write FPromptDevicePath;
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
@@ -729,6 +733,9 @@ begin
     //
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
+    FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 1440);
+    if (FProgramUpdateMinutes < 1) or (FProgramUpdateMinutes > 525600) then FProgramUpdateMinutes := 1440;
+    FProgramUpdateLastCheckUTC := iniFile.ReadDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', 0);
     FCheckExternalLibUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', True);
     FPromptDevicePath := iniFile.ReadBool(SYSTEM_SECTION, 'PromptDevicePath', DEF_PROMPT_DEVICE_PATH);
     // %fc (выбранный автор), а не %f (первый автор книги) - иначе книги
@@ -927,6 +934,8 @@ begin
     //
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckUpdates', FDoCheckUpdate);
+    iniFile.WriteInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', FProgramUpdateMinutes);
+    iniFile.WriteDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', FProgramUpdateLastCheckUTC);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', FCheckExternalLibUpdate);
     iniFile.WriteBool(SYSTEM_SECTION, 'PromptDevicePath', FPromptDevicePath);
     iniFile.WriteString(SYSTEM_SECTION, 'FolderTemplate', FFolderTemplate);

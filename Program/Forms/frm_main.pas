@@ -44,6 +44,7 @@ uses
   ShellAPI,
   unit_Globals,
   unit_ProgramUpdates,
+  frm_ProgramUpdate,
   frm_OPDS,
   unit_Interfaces,
   XMLIntf,
@@ -919,6 +920,11 @@ type
 
     FAutoCheck: Boolean;
     FProgramUpdateThread: TProgramUpdateThread;
+    FProgramUpdateForm: TfrmProgramUpdate;
+    FProgramUpdateTimer: TTimer;
+    procedure ProgramUpdateSchedule(Sender: TObject);
+    procedure RestartForProgramUpdate(Sender: TObject);
+  private
     FLastNotifiedRelease: string;
     FFormBusy: Boolean;
 
@@ -3093,8 +3099,13 @@ end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
 begin
+  if Assigned(Sender) then FAutoCheck := False;
   if Assigned(FProgramUpdateThread) then
     Exit;
+  if not FAutoCheck and Assigned(FProgramUpdateForm) then FProgramUpdateForm.BeginCheck;
+  if Assigned(FProgramUpdateForm) then FProgramUpdateForm.CheckComponents(FAutoCheck);
+  Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
+  Settings.SaveSettings;
   FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal);
   acHelpCheckUpdates.Enabled := False;
   FProgramUpdateThread.Start;
@@ -3117,22 +3128,22 @@ begin
   if not Successful then
   begin
     if not FAutoCheck then
-      MHLShowError(rstrProgramUpdateCheckFailed);
+      FProgramUpdateForm.CheckFailed(rstrProgramUpdateCheckFailed);
     FAutoCheck := False;
     Exit;
   end;
+  FProgramUpdateForm.RememberHistory(ReleaseInfo);
   if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
      (Comparison > 0) then
   begin
     if (FLastNotifiedRelease <> ReleaseInfo.Tag) or not FAutoCheck then
     begin
       FLastNotifiedRelease := ReleaseInfo.Tag;
-      if MHLShowInfo(Format(rstrProgramReleaseAvailable, [ReleaseInfo.Tag]), mbYesNo) = mrYes then
-        ShellExecute(Handle, 'open', PChar(ReleaseInfo.URL), nil, nil, SW_SHOWNORMAL);
+      FProgramUpdateForm.SetRelease(ReleaseInfo);
     end;
   end
   else if not FAutoCheck then
-    MHLShowInfo(rstrProgramLatestVersion);
+    FProgramUpdateForm.SetCurrent(ReleaseInfo);
   FAutoCheck := False;
 end;
 
@@ -3147,7 +3158,9 @@ begin
   tmrCheckUpdates.Enabled := False;
   StatusMessage := rstrCheckingUpdates;
 
-  if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) then
+  if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) and
+     ProgramUpdateDue(Settings.ProgramUpdateLastCheckUTC, TTimeZone.Local.ToUniversalTime(Now),
+       Settings.ProgramUpdateMinutes) then
   begin
     FAutoCheck := True;
     CheckUpdatesExecute(nil);
@@ -3161,6 +3174,24 @@ begin
         StartLibUpdate;
 
   StatusMessage := rstrDownloadStateDone;
+end;
+
+procedure TfrmMain.ProgramUpdateSchedule(Sender: TObject);
+begin
+  if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) and
+     ProgramUpdateDue(Settings.ProgramUpdateLastCheckUTC, TTimeZone.Local.ToUniversalTime(Now),
+       Settings.ProgramUpdateMinutes) then
+  begin
+    FLastNotifiedRelease := '';
+    FAutoCheck := True;
+    CheckUpdatesExecute(nil);
+  end;
+end;
+
+procedure TfrmMain.RestartForProgramUpdate(Sender: TObject);
+begin
+  Close;
+  if Assigned(FProgramUpdateForm) then FProgramUpdateForm.CancelInstallation;
 end;
 
 procedure TfrmMain.tmrSearchATimer(Sender: TObject);
@@ -3528,6 +3559,15 @@ begin
   SetFormState;
 
   UpdateSplashScreen(rstrStarting);
+  FProgramUpdateTimer := TTimer.Create(Self);
+  FProgramUpdateTimer.Interval := 30000;
+  FProgramUpdateTimer.OnTimer := ProgramUpdateSchedule;
+  FProgramUpdateTimer.Enabled := True;
+  FProgramUpdateForm := TfrmProgramUpdate.Create(Self);
+  FProgramUpdateForm.OnRestart := RestartForProgramUpdate;
+  FProgramUpdateForm.OnCheck := CheckUpdatesExecute;
+  if FProgramUpdateForm.RestoreReady then FProgramUpdateForm.Show;
+
 end;
 
 procedure TfrmMain.FormShortCut(var Msg: TWMKey; var Handled: Boolean);
@@ -3556,6 +3596,8 @@ begin
     end
     else
       CanClose := False;
+  if CanClose and Assigned(FProgramUpdateForm) and FProgramUpdateForm.PendingInstall then
+    CanClose := FProgramUpdateForm.LaunchInstallation
 end;
 
 procedure TfrmMain.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
@@ -3576,6 +3618,8 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
   FreeAndNil(FOPDSForm);
+  FreeAndNil(FProgramUpdateTimer);
+  FreeAndNil(FProgramUpdateForm);
   if Assigned(FProgramUpdateThread) then
   begin
     FProgramUpdateThread.Terminate;

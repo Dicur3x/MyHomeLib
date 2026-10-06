@@ -1,19 +1,23 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-        <ProjectGuid>{EB1D77E6-73C5-41AD-900E-0F925557B6D6}</ProjectGuid>
-        <MainSource>ProgramUpdatesTest.dpr</MainSource>
+        <ProjectGuid>{569A77EB-2A6B-4230-A34E-75160FF6FBB0}</ProjectGuid>
+        <MainSource>HomeLibRuUpdater.dpr</MainSource>
         <ProjectVersion>20.3</ProjectVersion>
         <FrameworkType>VCL</FrameworkType>
-        <AppType>Console</AppType>
-        <Manifest_File>ProgramUpdatesTest.manifest</Manifest_File>
+        <AppType>Application</AppType>
+        <Manifest_File>HomeLibRuUpdater.manifest</Manifest_File>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Locale>1049</VerInfo_Locale>
+        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.11;FileVersion=2.7.0.1078;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <DCC_Namespace>System;Xml;Data;Vcl;Vcl.Imaging;Vcl.Themes;Winapi;System.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..;..\Units;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
-        <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
+        <DCC_ExeOutput Condition="'$(Platform)'=='Win32'">..\..\Program\Out\Bin</DCC_ExeOutput>
+        <DCC_ExeOutput Condition="'$(Platform)'=='Win64'">..\..\Program\Out\Bin64</DCC_ExeOutput>
         <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_Assertions>true</DCC_Assertions>
@@ -26,7 +30,7 @@
     <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" />
     <ProjectExtensions>
         <Borland.Personality>Delphi.Personality.12</Borland.Personality>
-        <Borland.ProjectType>Console</Borland.ProjectType>
+        <Borland.ProjectType>Application</Borland.ProjectType>
         <BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject>
     </ProjectExtensions>
 </Project>
