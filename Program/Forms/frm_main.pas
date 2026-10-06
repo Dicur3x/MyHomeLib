@@ -3586,15 +3586,16 @@ begin
 
   tvDownloadList.SaveToFile(Settings.SystemFileName[sfDownloadsStore]);
 
-  if DirectoryExists(Settings.TempDir) then
-    ClearDir(Settings.TempDir);
-
   SavePositions;
   SaveMainFormSettings;
   Settings.SaveSettings;
 
   FreeAndNil(FController);
   FreeAndNil(FDMThread);
+
+  // Persistent custom reading folders keep their files across sessions.
+  if DirectoryExists(Settings.TempDir) then
+    ClearReadFolder(Settings.TempDir);
 end;
 
 procedure TfrmMain.UpdatePositions;
@@ -4753,7 +4754,7 @@ begin
       if (BookFormat in [bfFb2, bfFb2Archive]) and Settings.ConvertWebPToPNG then
       begin
         // Converted copies have a separate cache when the export policy changes.
-        ReadWorkPath := TPath.Combine(ReadWorkPath, 'webp-png');
+        ReadWorkPath := TPath.Combine(ReadWorkPath, WEBP_READER_CACHE_FOLDER);
         ForceDirectories(ReadWorkPath);
       end;
       WorkFile := TPath.Combine(
@@ -7481,9 +7482,9 @@ var
   dirPath: string;
 begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
-  dirPath := ExcludeTrailingPathDelimiter(Settings.ReadPath);
+  dirPath := Settings.ReadPath;
   if DirectoryExists(dirPath) then
-    ClearDir(dirPath);
+    ClearReadFolder(dirPath);
 end;
 
 procedure TfrmMain.Export2HTMLExecute(Sender: TObject);

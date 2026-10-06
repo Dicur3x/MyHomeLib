@@ -35,7 +35,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "reader-compatibility"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup"];
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
   "": ["PASS unopened genre filter", "PASS first series visit", "PASS changed deletion filter", "PASS visible genre view", "PASS first group visit", "PASS empty author selection"],
@@ -45,6 +45,8 @@ const requiredViews = {
   "source-genres": ["PASS imported source genre survives"],
   "publisher-selection": ["PASS deferred publisher view restores"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
+  "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
+  "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
 };
@@ -98,6 +100,13 @@ function run(executable, mode) {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable);
+    if (mode === "read-folder-cleanup") {
+      const reading = path.join(folder, "junction-reading"), target = path.join(folder, "junction-target");
+      fs.mkdirSync(reading); fs.mkdirSync(target);
+      fs.writeFileSync(path.join(reading, "ordinary.tmp"), "isolated root cleanup probe");
+      fs.writeFileSync(path.join(target, "keep.fb2"), "junction target must survive");
+      fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
+    }
     const exe = path.join(folder, path.basename(executable));
     const result = cp.spawnSync(exe, mode ? [mode] : [], { cwd: folder, encoding: "utf8", timeout: 60000, windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");

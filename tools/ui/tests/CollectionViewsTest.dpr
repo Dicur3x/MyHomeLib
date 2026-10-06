@@ -35,6 +35,9 @@ begin
     raise Exception.Create(Message);
 end;
 
+var
+  CleanupExitTemp, CleanupExitPersistent, CleanupExitSource: string;
+
 procedure TestHeaderMenuTags;
 const
   Expected: array[0..12] of Integer = (COL_AUTHOR, COL_TITLE, COL_SERIES,
@@ -133,6 +136,87 @@ begin
   Require(SameFileName(ReadSelected, Converted), 'PNG mode lost its separate reader cache');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'Reader policy changes wrote to the source');
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
+end;
+
+procedure MakeCleanupFixture(const Folder: string);
+begin
+  TDirectory.CreateDirectory(TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER));
+  TFile.WriteAllText(TPath.Combine(Folder, 'ordinary.tmp'), 'temporary root file');
+  TFile.WriteAllText(TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER + '\copy.fb2'), 'converted copy');
+end;
+
+procedure TestReadFolderCleanup;
+var
+  Root, Converted, Persistent, Unrelated, JunctionRoot, Outside: string;
+  Busy: TFileStream;
+begin
+  TestReaderCompatibility;
+  Root := Settings.TempDir;
+  Converted := TFile.ReadAllText(Settings.AppPath + 'reader-probe-path.txt', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(Root, 'ordinary.tmp'), 'root cleanup probe');
+  Unrelated := TPath.Combine(Root, 'unrelated\keep.txt');
+  TDirectory.CreateDirectory(ExtractFilePath(Unrelated));
+  TFile.WriteAllText(Unrelated, 'unrelated directory must survive');
+  Busy := TFileStream.Create(Converted, fmOpenRead or fmShareExclusive);
+  try
+    frmMain.ClearReadFolderExecute(nil);
+    Require(FileExists(Converted), 'A reader-locked book was deleted');
+    Require(not FileExists(TPath.Combine(Root, 'ordinary.tmp')), 'Other temporary files were not cleaned');
+  finally
+    Busy.Free;
+  end;
+  frmMain.ClearReadFolderExecute(nil);
+  Require(not FileExists(Converted), 'Converted reader copy survived explicit cleanup');
+  Require(not DirectoryExists(TPath.Combine(Root, WEBP_READER_CACHE_FOLDER)), 'Empty converted reader folder survived cleanup');
+  Require(FileExists(Unrelated), 'Cleanup recursed into an unrelated directory');
+  frmMain.ClearReadFolderExecute(nil);
+  Writeln('PASS manual reader cleanup removes converted copies, preserves unrelated folders and retries busy files');
+
+  Persistent := TPath.Combine(Settings.AppPath, 'persistent-reading');
+  MakeCleanupFixture(Persistent);
+  MakeCleanupFixture(Root);
+  Settings.ReadDir := Persistent;
+  frmMain.ClearReadFolderExecute(nil);
+  Require(not FileExists(TPath.Combine(Persistent, 'ordinary.tmp')) and
+    not DirectoryExists(TPath.Combine(Persistent, WEBP_READER_CACHE_FOLDER)), 'Explicit custom reader folder cleanup failed');
+  Require(FileExists(TPath.Combine(Root, 'ordinary.tmp')) and
+    FileExists(TPath.Combine(Root, WEBP_READER_CACHE_FOLDER + '\copy.fb2')), 'Custom reader cleanup changed the default temp folder');
+  Writeln('PASS custom reading folder is cleared only when explicitly selected');
+
+  // The Node wrapper creates this junction entirely inside its owned runtime.
+  JunctionRoot := TPath.Combine(Settings.AppPath, 'junction-reading');
+  Outside := TPath.Combine(Settings.AppPath, 'junction-target\keep.fb2');
+  Require(FileExists(Outside) and DirectoryExists(TPath.Combine(JunctionRoot, WEBP_READER_CACHE_FOLDER)), 'Junction fixture is absent');
+  Settings.ReadDir := JunctionRoot;
+  frmMain.ClearReadFolderExecute(nil);
+  Require(FileExists(Outside), 'Cleanup followed the cache junction into another folder');
+  Require(not FileExists(TPath.Combine(JunctionRoot, 'ordinary.tmp')), 'Junction protection prevented ordinary file cleanup');
+  Settings.ReadDir := '';
+  Writeln('PASS reader cleanup does not follow a converted-cache junction');
+end;
+
+procedure TestExitReaderCleanup;
+var
+  Book: PBookRecord;
+begin
+  TestReaderCompatibility;
+  CleanupExitTemp := Settings.TempDir;
+  Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
+  CleanupExitSource := Book.GetBookFileName;
+  MakeCleanupFixture(CleanupExitTemp);
+  CleanupExitPersistent := TPath.Combine(Settings.AppPath, 'persistent-reading');
+  MakeCleanupFixture(CleanupExitPersistent);
+  Settings.ReadDir := CleanupExitPersistent;
+end;
+
+procedure CheckExitReaderCleanup;
+begin
+  Require(not FileExists(TPath.Combine(CleanupExitTemp, 'ordinary.tmp')) and
+    not DirectoryExists(TPath.Combine(CleanupExitTemp, WEBP_READER_CACHE_FOLDER)), 'Main-form destruction left temporary reader copies');
+  Require(FileExists(TPath.Combine(CleanupExitPersistent, 'ordinary.tmp')) and
+    FileExists(TPath.Combine(CleanupExitPersistent, WEBP_READER_CACHE_FOLDER + '\copy.fb2')), 'Exit removed persistent custom reading files');
+  Require(FileExists(CleanupExitSource), 'Exit removed the original library book');
+  Writeln('PASS real main-form exit removes temporary converted copies and preserves custom reading files and originals');
 end;
 
 function AddBook(const Collection: IBookCollection; const Title, Author,
@@ -779,6 +863,10 @@ begin
         TestPublisherSelection(OneID, TwoID, LastBook)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'read-folder-cleanup' then
+        TestReadFolderCleanup
+      else if ParamStr(1) = 'temp-exit-cleanup' then
+        TestExitReaderCleanup
       else if ParamStr(1) = 'online-download' then
         TestOnlineDownload(Online, DirectBookID, QueueBookID, RestartBookID)
       else if ParamStr(1) = 'online-plain' then
@@ -835,6 +923,7 @@ begin
       frmGenreTree := nil;
       frmMain.Free;
       frmMain := nil;
+      if ParamStr(1) = 'temp-exit-cleanup' then CheckExitReaderCleanup;
       One := nil;
       Two := nil;
       Online := nil;

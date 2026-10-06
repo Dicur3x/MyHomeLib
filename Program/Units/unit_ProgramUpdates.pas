@@ -7,7 +7,7 @@ uses
 
 const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.09';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.10';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type

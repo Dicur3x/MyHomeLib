@@ -419,6 +419,7 @@ type
   function CleanFileName(const Input: string): string;
 
   function ClearDir(const DirectoryName: string): Boolean;
+  function ClearReadFolder(const DirectoryName: string): Boolean;
   //function IsRelativePath(const FileName: string): Boolean;
   function CreateFolders(const Root: string; const Path: string): Boolean;
   function CopyFile(const SourceFileName: string; const DestFileName: string): boolean;
@@ -825,6 +826,44 @@ begin
   end;
 end;
 {$WARNINGS ON}
+
+function ClearReadFolder(const DirectoryName: string): Boolean;
+var
+  ReadDirectory, CacheDirectory: string;
+  Attributes: DWORD;
+begin
+  Result := False;
+  if DirectoryName = '' then Exit;
+  try
+    ReadDirectory := TPath.GetFullPath(DirectoryName);
+    Attributes := GetFileAttributes(PChar(ReadDirectory));
+    if Attributes = INVALID_FILE_ATTRIBUTES then Exit(True);
+    if ((Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0) or
+      ((Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0) then Exit;
+
+    Result := True;
+    // Reader copies are flat files in this known child. Never recurse into
+    // arbitrary folders or follow a junction into another location.
+    CacheDirectory := TPath.Combine(ReadDirectory, WEBP_READER_CACHE_FOLDER);
+    Attributes := GetFileAttributes(PChar(CacheDirectory));
+    if (Attributes <> INVALID_FILE_ATTRIBUTES) and
+      ((Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) then
+    begin
+      if (Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0 then
+        Result := False
+      else
+      begin
+        Result := ClearDir(CacheDirectory);
+        if Result then
+          Result := RemoveDir(CacheDirectory);
+      end;
+    end;
+    // A busy reader file may remain; still clean the other temporary files.
+    Result := ClearDir(ReadDirectory) and Result;
+  except
+    Result := False;
+  end;
+end;
 
 function Transliterate(const Input: string): string;
 var

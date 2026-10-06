@@ -20,7 +20,7 @@
 #define protected Build
 #define protected MyAppName = 'HomeLib Ru'
 #define protected AppExeName = 'HomeLibRu.exe'
-#define ReleaseVersion = '2.7.0_pre5.09'
+#define ReleaseVersion = '2.7.0_pre5.10'
 #define protected FullSourcePath = SourceFolder + AppExeName
 
 #define AppVersion GetVersionComponents(FullSourcePath, Major, Minor, Revision, Build)
