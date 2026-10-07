@@ -36,6 +36,7 @@ type
   private
     FCloseOnTimer: boolean;
     FErrors: TStringList;
+    FFullErrorLogFileName: string;
     procedure DoCloseForm(Sender: TObject);
 
   protected
@@ -44,6 +45,7 @@ type
 
   public
     property CloseOnTimer: Boolean read FCloseOnTimer write FCloseOnTimer;
+    property FullErrorLogFileName: string read FFullErrorLogFileName write FFullErrorLogFileName;
     procedure SaveErrorLog(AFileName: string);
   end;
 
@@ -53,7 +55,7 @@ var
 implementation
 
 uses 
-  unit_Helpers;
+  unit_Helpers, System.IOUtils;
 
 resourcestring
   rstrClose = 'Закрыть';
@@ -76,7 +78,7 @@ end;
 
 procedure TImportProgressFormEx.CloseProgress;
 begin
-  if FErrors.Count <> 0 then
+  if (FErrors.Count <> 0) or FileExists(FFullErrorLogFileName) then
     btnSaveLog.Visible := True;
   btnCancel.OnClick := DoCloseForm;
   btnCancel.Caption := rstrClose;
@@ -101,9 +103,15 @@ end;
 procedure TImportProgressFormEx.SaveErrorLog;
 begin
   try
-    FErrors.SaveToFile(AFileName, TEncoding.Unicode);
+    if (FFullErrorLogFileName <> '') and FileExists(FFullErrorLogFileName) then
+    begin
+      if not SameFileName(ExpandFileName(AFileName), ExpandFileName(FFullErrorLogFileName)) then
+        TFile.Copy(FFullErrorLogFileName, AFileName, True);
+    end
+    else
+      FErrors.SaveToFile(AFileName, TEncoding.Unicode);
   except
-    on e: EFileStreamError do
+    on e: Exception do
     begin
       Application.MessageBox(
         PChar(e.Message),

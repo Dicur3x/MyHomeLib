@@ -35,6 +35,7 @@ implementation
 
 uses
   System.Generics.Collections,
+  System.Math,
   System.Variants,
   System.Win.ComObj,
   Winapi.Windows,
@@ -42,6 +43,8 @@ uses
 
 const
   FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0';
+  FB2_NAMESPACE_21 = 'http://www.gribuser.ru/xml/fictionbook/2.1';
+  FB2_NAMESPACE_22 = 'http://www.gribuser.ru/xml/fictionbook/2.2';
   INPUT_BUFFER_SIZE = 8192;
 
 type
@@ -112,6 +115,12 @@ type
 function SAXText(Value: PWideChar; Count: Integer): string;
 begin
   SetString(Result, Value, Count);
+end;
+
+function IsFB2Namespace(const Value: string): Boolean;
+begin
+  Result := (Value = '') or (Value = FB2_NAMESPACE) or
+    (Value = FB2_NAMESPACE_21) or (Value = FB2_NAMESPACE_22);
 end;
 
 constructor TMetadataHandler.Create;
@@ -224,21 +233,21 @@ begin
     if FDepth = 1 then
     begin
       if (Name <> 'FictionBook') or
-        ((Namespace <> '') and (Namespace <> FB2_NAMESPACE)) then
-        Exit(Invalid('Expected a FictionBook root element'));
+        not IsFB2Namespace(Namespace) then
+        Exit(Invalid('Неверный корневой элемент FB2 или пространство имён: ' + Name + ' (' + Namespace + ')'));
       FNamespace := Namespace;
     end
     else if FDepth = 2 then
     begin
-      if (Namespace = FNamespace) and (Name = 'description') then
+      if ((Namespace = FNamespace) or (Namespace = '')) and (Name = 'description') then
       begin
         FInDescription := True;
       end
-      else if (Namespace = FNamespace) and
+      else if ((Namespace = FNamespace) or (Namespace = '')) and
         ((Name = 'body') or (Name = 'binary')) then
-        Exit(Invalid('FictionBook description is missing'));
+        Exit(Invalid('В FB2 отсутствует описание книги'));
     end
-    else if FInDescription and (Namespace = FNamespace) then
+    else if FInDescription and ((Namespace = FNamespace) or (Namespace = '')) then
     begin
       if FDepth = 3 then
       begin
@@ -277,7 +286,7 @@ begin
     if (FDepth = 2) and FInDescription then
     begin
       if not FHasTitleInfo then
-        Exit(Invalid('FictionBook title-info is missing'));
+        Exit(Invalid('В описании FB2 отсутствует title-info'));
       // This deliberate SAX abort is success. The body is never XML-parsed.
       FComplete := True;
       Exit(E_ABORT);
@@ -303,7 +312,7 @@ end;
 
 function TMetadataHandler.endDocument: HResult;
 begin
-  Result := Invalid('FictionBook description is incomplete');
+  Result := Invalid('Описание FB2 не завершено или не распознано');
 end;
 
 function TMetadataHandler.startPrefixMapping(var pwchPrefix: Word;
@@ -374,7 +383,10 @@ end;
 
 function TMetadataInput.Prepare(out Charset: string): HResult;
 var
-  Count: Integer;
+  Count, HeaderEnd, I, Start: Integer;
+  Header, EncodingName: string;
+  HeaderBytes: AnsiString;
+  Quote: Char;
 begin
   Charset := '';
   try
@@ -398,6 +410,49 @@ begin
       else if (FBuffer[0] = $EF) and (FBuffer[1] = $BB) and
         (FBuffer[2] = $BF) then
         Charset := 'UTF-8';
+    end;
+    if (Charset = '') and (FCount >= 4) and
+      (FBuffer[0] = Ord('<')) and (FBuffer[1] = Ord('?')) and
+      (FBuffer[2] = Ord('x')) and (FBuffer[3] = Ord('m')) then
+    begin
+      // Some converters spell UTF-8 as UTF8. Read only the declaration, retain
+      // every byte for SAX and normalize this unambiguous alias, without guessing
+      // unknown encodings or seeking a non-seekable archive member.
+      repeat
+        SetString(HeaderBytes, PAnsiChar(@FBuffer[0]), Min(FCount, 1024));
+        Header := string(HeaderBytes);
+        HeaderEnd := Pos('?>', Header);
+        if (HeaderEnd > 0) or (FCount >= 1024) then Break;
+        Result := FHandler.CheckContinue;
+        if Failed(Result) then Exit;
+        Count := FStream.Read(FBuffer[FCount], 1024 - FCount);
+        Inc(FCount, Count);
+        Inc(FBytesRead, Count);
+      until Count = 0;
+      if (HeaderEnd > 0) and (Copy(Header, 1, 5) = '<?xml') then
+      begin
+        I := Pos('encoding', Copy(Header, 1, HeaderEnd));
+        if (I > 5) and CharInSet(Header[I - 1], [#9, #10, #13, ' ']) then
+        begin
+          Inc(I, Length('encoding'));
+          while (I < HeaderEnd) and CharInSet(Header[I], [#9, #10, #13, ' ']) do Inc(I);
+          if (I < HeaderEnd) and (Header[I] = '=') then
+          begin
+            Inc(I);
+            while (I < HeaderEnd) and CharInSet(Header[I], [#9, #10, #13, ' ']) do Inc(I);
+            if (I < HeaderEnd) and CharInSet(Header[I], ['"', '''']) then
+            begin
+              Quote := Header[I];
+              Inc(I);
+              Start := I;
+              while (I < HeaderEnd) and (Header[I] <> Quote) do Inc(I);
+              EncodingName := Copy(Header, Start, I - Start);
+              if (I < HeaderEnd) and SameText(EncodingName, 'UTF8') then
+                Charset := 'UTF-8';
+            end;
+          end;
+        end;
+      end;
     end;
     Result := S_OK;
   except

@@ -21,6 +21,9 @@ uses
   Classes,
   Generics.Collections;
 
+const
+  MHL_METABIB_SNAPSHOT_MODEL = 'myhomelib.catalog-snapshot/1';
+
 type
   TMetabibPerson = record
     LastName: string;
@@ -36,6 +39,7 @@ type
 
   TMetabibGenre = record
     Code: string;
+    TranslatedCode: string;
     Description: string;
     Category: string;
     Catalog: Boolean;
@@ -55,6 +59,7 @@ type
     BookName: string;
     Authors: TArray<TMetabibPerson>;
     Translators: TArray<TMetabibPerson>;
+    TranslatorDisplay: string;
     Genres: TArray<TMetabibGenre>;
     Sequences: TArray<TMetabibSequence>;
     PublisherSequences: TArray<TMetabibSequence>;
@@ -90,6 +95,7 @@ type
     FLibraryName: string;
     FRecordCount: Integer;
     FLineNo: Integer;
+    FPreserveStoredValues: Boolean;
     procedure OpenContainer(const FileName: string);
     function ReadRawLine(out Line: string): Boolean;
     procedure ReadHeader;
@@ -329,6 +335,14 @@ begin
   end;
 end;
 
+function IsClaimTextUsable(const Value: string; StoredValues: Boolean): Boolean;
+begin
+  if StoredValues then
+    Result := Value <> ''
+  else
+    Result := IsUsableText(Value);
+end;
+
 // "First usable value", tried source by source. A source that simply had
 // nothing to say still contributes a claim with an empty value, and a corrupted
 // FB2 contributes one full of replacement characters; stopping at either would
@@ -338,7 +352,7 @@ end;
 // The value itself is returned unmodified. Only the decision to skip is made
 // on it, so nothing rewrites text on its way into a collection.
 function ClaimStringByObservation(Group: TJSONObject; const Field: string;
-  const Order: array of string): string;
+  const Order: array of string; StoredValues: Boolean = False): string;
 var
   claim: TJSONObject;
   v, el: TJSONValue;
@@ -350,18 +364,19 @@ begin
     if v is TJSONArray then
     begin
       for el in TJSONArray(v) do
-        if (el is TJSONString) and IsUsableText(TJSONString(el).Value) then
+        if (el is TJSONString) and IsClaimTextUsable(TJSONString(el).Value, StoredValues) then
           Exit(TJSONString(el).Value);
     end
-    else if (v is TJSONString) and IsUsableText(TJSONString(v).Value) then
+    else if (v is TJSONString) and IsClaimTextUsable(TJSONString(v).Value, StoredValues) then
       Exit(TJSONString(v).Value);
   end;
 end;
 
 // Same rule for fields where no source is preferred: claims in array order.
-function FirstClaimString(Group: TJSONObject; const Field: string): string;
+function FirstClaimString(Group: TJSONObject; const Field: string;
+  StoredValues: Boolean = False): string;
 begin
-  Result := ClaimStringByObservation(Group, Field, []);
+  Result := ClaimStringByObservation(Group, Field, [], StoredValues);
 end;
 
 function FirstClaimInt(Group: TJSONObject; const Field: string; Def: Integer): Integer;
@@ -450,11 +465,12 @@ end;
 // Names are trimmed and entity-decoded, a name part with no letter or digit is
 // dropped, and a person left with no name at all is skipped.
 function ClaimPersons(Group: TJSONObject; const Field: string;
-  const Order: array of string): TArray<TMetabibPerson>;
+  const Order: array of string; DisplayText: PString = nil;
+  StoredValues: Boolean = False): TArray<TMetabibPerson>;
 var
   list: TList<TMetabibPerson>;
   claim: TJSONObject;
-  v, el: TJSONValue;
+  v, el, raw, format: TJSONValue;
 
   function CleanName(o: TJSONObject; const Name: string): string;
   var
@@ -464,8 +480,10 @@ var
     fv := o.Values[Name];
     if fv is TJSONString then
     begin
-      Result := Trim(DecodeEntities(TJSONString(fv).Value));
-      if not IsUsableText(Result) then
+      Result := TJSONString(fv).Value;
+      if not StoredValues then
+        Result := Trim(DecodeEntities(Result));
+      if not IsClaimTextUsable(Result, StoredValues) then
         Result := '';
     end;
   end;
@@ -490,11 +508,29 @@ var
   end;
 
 begin
+  if Assigned(DisplayText) then
+    DisplayText^ := '';
   list := TList<TMetabibPerson>.Create;
   try
     for claim in ClaimsInOrder(Group, Field, Order) do
     begin
       v := claim.Values['value'];
+      if Assigned(DisplayText) and (v is TJSONString) and
+        (TJSONString(v).Value <> '') then
+      begin
+        raw := claim.Values['raw'];
+        if raw is TJSONObject then
+        begin
+          format := TJSONObject(raw).Values['format'];
+          if (format is TJSONString) and
+            (TJSONString(format).Value = 'myhomelib.translators-display/1') then
+          begin
+            DisplayText^ := TJSONString(v).Value;
+            Result := nil;
+            Exit;
+          end;
+        end;
+      end;
       if v is TJSONArray then
       begin
         for el in TJSONArray(v) do
@@ -537,6 +573,7 @@ var
     genre, previous: TMetabibGenre;
   begin
     genre.Code := '';
+    genre.TranslatedCode := '';
     genre.Description := '';
     genre.Category := '';
     genre.Catalog := catalog;
@@ -545,6 +582,7 @@ var
     else if Value is TJSONObject then
     begin
       genre.Code := GenreText(TJSONObject(Value), 'code');
+      genre.TranslatedCode := GenreText(TJSONObject(Value), 'translated_code');
       genre.Description := GenreText(TJSONObject(Value), 'description');
       genre.Category := GenreText(TJSONObject(Value), 'meta');
     end;
@@ -630,7 +668,7 @@ end;
 // duplicates series with different spellings, while taking one value loses
 // secondary series. Newer dumps wrap sequence numbers in {"value": n}.
 function ClaimSequences(Group: TJSONObject;
-  const Order: array of string): TArray<TMetabibSequence>;
+  const Order: array of string; StoredValues: Boolean = False): TArray<TMetabibSequence>;
 var
   claim: TJSONObject;
   v, el: TJSONValue;
@@ -645,8 +683,10 @@ var
   begin
     if not (Item is TJSONObject) then
       Exit;
-    sequence.Name := Trim(StrValue(TJSONObject(Item), 'name'));
-    if not IsUsableText(sequence.Name) then
+    sequence.Name := StrValue(TJSONObject(Item), 'name');
+    if not StoredValues then
+      sequence.Name := Trim(sequence.Name);
+    if not IsClaimTextUsable(sequence.Name, StoredValues) then
       Exit;
     nv := TJSONObject(Item).Values['number'];
     if nv is TJSONObject then
@@ -979,6 +1019,9 @@ begin
 
     FLibraryName := StrValue(Obj, 'library');
     FRecordCount := IntValue(Obj, 'records', 0);
+    // Snapshot values are already stored catalog text, not source XML/HTML.
+    FPreserveStoredValues := StrValue(ObjValue(Obj, 'normalization'), 'model') =
+      MHL_METABIB_SNAPSHOT_MODEL;
 
     if Obj.Values['archives'] is TJSONArray then
     begin
@@ -1116,18 +1159,19 @@ begin
     Pub := ObjValue(Claims, 'publication');
     Cat := ObjValue(Claims, 'catalog');
 
-    Book.Title := ClaimStringByObservation(Bib, 'title', CATALOG_SOURCES);
-    Book.BookName := FirstClaimString(Pub, 'book_name');
-    Book.Authors := ClaimPersons(Bib, 'authors', CATALOG_SOURCES);
-    Book.Translators := ClaimPersons(Bib, 'translators', CATALOG_SOURCES);
+    Book.Title := ClaimStringByObservation(Bib, 'title', CATALOG_SOURCES, FPreserveStoredValues);
+    Book.BookName := FirstClaimString(Pub, 'book_name', FPreserveStoredValues);
+    Book.Authors := ClaimPersons(Bib, 'authors', CATALOG_SOURCES, nil, FPreserveStoredValues);
+    Book.Translators := ClaimPersons(Bib, 'translators', CATALOG_SOURCES,
+      @Book.TranslatorDisplay, FPreserveStoredValues);
     Book.Genres := ClaimGenres(Bib, 'genres');
-    Book.Lang := FirstClaimString(Bib, 'language');
+    Book.Lang := FirstClaimString(Bib, 'language', FPreserveStoredValues);
     Book.Annotation := ClaimStringByObservation(Bib, 'annotation',
-      ANNOTATION_SOURCES);
-    Book.Keywords := FirstClaimString(Bib, 'keywords');
+      ANNOTATION_SOURCES, FPreserveStoredValues);
+    Book.Keywords := FirstClaimString(Bib, 'keywords', FPreserveStoredValues);
 
-    Book.Sequences := ClaimSequences(Bib, CATALOG_SOURCES);
-    Book.PublisherSequences := ClaimSequences(Pub, CATALOG_SOURCES);
+    Book.Sequences := ClaimSequences(Bib, CATALOG_SOURCES, FPreserveStoredValues);
+    Book.PublisherSequences := ClaimSequences(Pub, CATALOG_SOURCES, FPreserveStoredValues);
 
     // Keep the first sequence in the legacy fields used by TBookRecord. The
     // importer attaches the remaining sequence relationships after insertion.
@@ -1137,9 +1181,9 @@ begin
       Book.SeriesNo := Book.Sequences[0].Number;
     end;
 
-    Book.Publisher := FirstClaimString(Pub, 'publisher');
-    Book.City := FirstClaimString(Pub, 'city');
-    Book.ISBN := FirstClaimString(Pub, 'isbn');
+    Book.Publisher := FirstClaimString(Pub, 'publisher', FPreserveStoredValues);
+    Book.City := FirstClaimString(Pub, 'city', FPreserveStoredValues);
+    Book.ISBN := FirstClaimString(Pub, 'isbn', FPreserveStoredValues);
     Book.PubYear := FirstClaimInt(Pub, 'year', 0);
 
     Book.Deleted := FirstClaimBool(Cat, 'deleted');

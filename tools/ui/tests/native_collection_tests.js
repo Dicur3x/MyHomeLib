@@ -35,7 +35,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-error-log", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
   "": ["PASS unopened genre filter", "PASS first series visit", "PASS changed deletion filter", "PASS visible genre view", "PASS first group visit", "PASS empty author selection"],
@@ -44,6 +44,7 @@ const requiredViews = {
   "genre-link": ["PASS genre link restores"],
   "source-genres": ["PASS imported source genre survives"],
   "publisher-selection": ["PASS deferred publisher view restores"],
+  "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],

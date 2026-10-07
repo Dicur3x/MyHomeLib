@@ -2788,6 +2788,12 @@ object frmMain: TfrmMain
       object N82: TMenuItem
         Action = acGroupDelete
       end
+      object miGroupExportMetabib: TMenuItem
+        Action = acGroupExportMetabib
+      end
+      object miGroupExportDestination: TMenuItem
+        Action = acGroupExportDestination
+      end
     end
     object N36: TMenuItem
       Caption = #1056#1077#1076#1072#1082#1090#1080#1088#1086#1074#1072#1085#1080#1077
@@ -3954,6 +3960,17 @@ object frmMain: TfrmMain
       OnExecute = DeleteGroupExecute
       OnUpdate = EditGroupUpdate
     end
+    object acGroupExportMetabib: TAction
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1069#1082#1089#1087#1086#1088#1090#1080#1088#1086#1074#1072#1090#1100#32#1075#1088#1091#1087#1087#1091#32#40#109#101#116#97#98#105#98#41
+      OnExecute = ExportGroupMetabibExecute
+      OnUpdate = GroupExportMetabibUpdate
+    end
+    object acGroupExportDestination: TAction
+      Category = #1043#1088#1091#1087#1087#1099
+      Caption = #1055#1072#1087#1082#1072#32#1101#1082#1089#1087#1086#1088#1090#1072#32#1075#1088#1091#1087#1087#8230
+      OnExecute = GroupExportDestinationExecute
+    end
     object acSavePreset: TAction
       Category = #1055#1086#1080#1089#1082
       Caption = #1057#1086#1093#1088#1072#1085#1080#1090#1100
@@ -4240,6 +4257,12 @@ object frmMain: TfrmMain
     end
     object N59: TMenuItem
       Action = acGroupDelete
+    end
+    object miPopupGroupExportMetabib: TMenuItem
+      Action = acGroupExportMetabib
+    end
+    object miPopupGroupExportDestination: TMenuItem
+      Action = acGroupExportDestination
     end
   end
   object tmrCheckUpdates: TTimer

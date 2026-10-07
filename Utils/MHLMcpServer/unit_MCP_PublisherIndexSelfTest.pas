@@ -1,4 +1,4 @@
-unit unit_MCP_PublisherIndexSelfTest;
+﻿unit unit_MCP_PublisherIndexSelfTest;
 
 interface
 
@@ -15,6 +15,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.IOUtils,
+  System.Math,
   unit_Globals,
   unit_IndexPublisherSeriesThread;
 
@@ -26,13 +27,20 @@ type
     CancelIssued: Boolean;
     LastPercent: Integer;
     CompletedAfterCancel: Boolean;
+    WarningCount: Integer;
     procedure OnProgress(Percent: Integer);
+    procedure OnTeletype(const Msg: string; Severity: TTeletypeSeverity);
   end;
 
 procedure Require(Condition: Boolean; const Message: string);
 begin
   if not Condition then
     raise Exception.Create('Publisher indexer: ' + Message);
+end;
+
+procedure TIndexObserver.OnTeletype(const Msg: string; Severity: TTeletypeSeverity);
+begin
+  if Severity = tsWarning then Inc(WarningCount);
 end;
 
 procedure TIndexObserver.OnProgress(Percent: Integer);
@@ -53,6 +61,9 @@ procedure RunIndexer(const CollectionID, CancelPercent, ExpectedIndexed,
 var
   Observer: TIndexObserver;
   Worker: TIndexPublisherSeriesThread;
+  Log: TStringList;
+  Line: string;
+  ErrorCount: Integer;
 begin
   Observer := TIndexObserver.Create;
   try
@@ -61,6 +72,7 @@ begin
       Observer.Worker := Worker;
       Observer.CancelPercent := CancelPercent;
       Worker.OnProgress := Observer.OnProgress;
+      Worker.OnTeletype := Observer.OnTeletype;
       Worker.Start;
       // The production worker synchronizes progress events. Pump them without
       // a VCL message loop or windows, then join before inspecting its result.
@@ -87,6 +99,28 @@ begin
       end
       else
         Require(Observer.LastPercent = 100, 'complete scan did not report 100 percent');
+      if ExpectedFailed > 0 then
+      begin
+        Require(FileExists(Worker.ErrorLogFileName), 'full error log was not created');
+        Log := TStringList.Create;
+        try
+          Log.LoadFromFile(Worker.ErrorLogFileName, TEncoding.UTF8);
+          ErrorCount := 0;
+          for Line in Log do
+            if Line.StartsWith('Книга ') then Inc(ErrorCount);
+          Require(ErrorCount = ExpectedFailed, 'full log lost errors beyond the visible limit');
+          Require(Log.Text.Contains('Файл в архиве:'), 'log is missing archive entry names');
+          if CancelPercent > 0 then
+            Require(Log.Text.Contains('Индексация отменена'), 'cancellation missing from full log');
+        finally
+          Log.Free;
+        end;
+        Require(Observer.WarningCount = Min(ExpectedFailed, 20) + Ord(ExpectedFailed > 20),
+          'visible errors exceed the preview limit');
+        TFile.Delete(Worker.ErrorLogFileName);
+      end
+      else
+        Require(not FileExists(Worker.ErrorLogFileName), 'successful scan created an empty error log');
     finally
       Worker.Free;
     end;
@@ -98,7 +132,7 @@ end;
 procedure CheckPublisherSeriesIndexer(const Collection: IBookCollection;
   const BookIDs: TArray<Integer>);
 const
-  TotalBooks = 120;
+  TotalBooks = 600;
   SeriesTitle = 'Index fixture publisher series';
   ValidBook = '<?xml version="1.0" encoding="utf-8"?>' +
     '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">' +
@@ -172,9 +206,9 @@ begin
       raise;
     end;
 
-    // 108 completions cross the 100-book commit boundary and leave eight
+    // 540 completions cross five 100-book commit boundaries and leave forty
     // completed records in the partial chunk flushed on cancellation.
-    RunIndexer(Collection.CollectionID, 90, 108, 0, 0);
+    RunIndexer(Collection.CollectionID, 90, 540, 0, 0);
     Indexed := 0;
     for I := 0 to High(AllIDs) do
     begin
@@ -190,15 +224,15 @@ begin
         Require(Stored[0].SeriesTitle = 'Previous publisher series',
           'cancellation changed an unprocessed book');
     end;
-    Require(Indexed = 108, 'committed data differs from the canceled worker count');
+    Require(Indexed = 540, 'committed data differs from the canceled worker count');
 
-    RunIndexer(Collection.CollectionID, 0, 12, 0, 108);
+    RunIndexer(Collection.CollectionID, 0, 60, 0, 540);
     for I := 0 to High(AllIDs) do
       RequireSeries(AllIDs[I], SeriesTitle);
     RunIndexer(Collection.CollectionID, 0, 0, 0, TotalBooks);
     RunIndexer(Collection.CollectionID, 0, TotalBooks, 0, 0, True);
 
-    // Only book6 refers to this source; the 114 extra records share book1.
+    // Only book6 refers to this source; the extra records share book1.
     ChangedBook := StringReplace(ValidBook, 'number="23"', 'number="142"', []);
     TFile.WriteAllBytes(Paths[5], TEncoding.UTF8.GetBytes(ChangedBook));
     RunIndexer(Collection.CollectionID, 0, 1, 0, TotalBooks - 1);
@@ -231,6 +265,9 @@ begin
     RequireSeries(BookIDs[4], SeriesTitle);
     // Errors must remain retryable, while a valid empty result is cached.
     RunIndexer(Collection.CollectionID, 0, 0, 4, TotalBooks - 4);
+    TFile.WriteAllBytes(Paths[0], TEncoding.UTF8.GetBytes('<NotFictionBook/>'));
+    RunIndexer(Collection.CollectionID, 0, 0, TotalBooks - 2, 2);
+    RunIndexer(Collection.CollectionID, 90, 0, 538, 2);
   finally
     for I := 0 to High(Paths) do
       TFile.WriteAllBytes(Paths[I], OriginalFiles[I]);

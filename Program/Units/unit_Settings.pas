@@ -124,6 +124,7 @@ type
 
     // PATH_SECTION
     FDeviceDir: string;
+    FGroupExportDir: string;
 
     // SYSTEM_SECTION
     FActiveCollection: Integer;
@@ -338,6 +339,7 @@ type
     //
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property DevicePath: string read GetDevicePath;
+    property GroupExportDir: string read FGroupExportDir write FGroupExportDir;
 
     property ReadDir: string read FReadDir write SetReadDir;
     property ReadPath: string read GetReadPath;
@@ -727,6 +729,7 @@ begin
     DeviceDir := iniFile.ReadString(PATH_SECTION, 'Device', DEF_DEVICE_DIR);
     ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
+    FGroupExportDir := iniFile.ReadString(PATH_SECTION, 'GroupExport', '');
 
     //
     // SYSTEM_SECTION
@@ -928,6 +931,7 @@ begin
     iniFile.WriteString(PATH_SECTION, 'Device', FDeviceDir);
     iniFile.WriteString(PATH_SECTION, 'Read', FReadDir);
     iniFile.WriteString(PATH_SECTION, 'Update', FUpdateDir);
+    iniFile.WriteString(PATH_SECTION, 'GroupExport', FGroupExportDir);
 
     //
     // SYSTEM_SECTION

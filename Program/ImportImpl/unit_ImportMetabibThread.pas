@@ -137,7 +137,7 @@ begin
     R.LibID := IntToStr(MB.BookID);
 
   // ---- новые поля
-  s := '';
+  s := MB.TranslatorDisplay;
   for i := 0 to High(MB.Translators) do
   begin
     if s <> '' then

@@ -8,6 +8,7 @@ unit unit_IndexPublisherSeriesThread;
 interface
 
 uses
+  System.Classes,
   unit_CollectionWorkerThread,
   unit_Globals,
   unit_PublisherSeriesSource,
@@ -26,6 +27,9 @@ type
     FReader: TFB2PublisherMetadataReader;
     FArchiveOpenCount: Integer;
     FBatchCount: Integer;
+    FErrorLog: TStreamWriter;
+    FErrorLogFileName: string;
+    procedure ReportFailure(const BookRecord: TBookRecord; const ErrorText: string);
     procedure ReportIndexProgress(Percent: Integer);
     function ReadPublisherSeries(const BookRecord: TBookRecord;
       out Series: TBookSeries): Boolean;
@@ -34,6 +38,7 @@ type
   public
     constructor Create(const CollectionID: Integer;
       const ForceRescan: Boolean = False);
+    destructor Destroy; override;
     // Read these counters only after the worker has finished.
     property IndexedCount: Integer read FIndexedCount;
     property SkippedCount: Integer read FSkippedCount;
@@ -41,14 +46,15 @@ type
     property CachedCount: Integer read FCachedCount;
     property ArchiveOpenCount: Integer read FArchiveOpenCount;
     property BatchCount: Integer read FBatchCount;
+    property ErrorLogFileName: string read FErrorLogFileName;
   end;
 
 implementation
 
 uses
-  Classes,
   SysUtils,
   System.Math,
+  System.IOUtils,
   unit_FB2Utils,
   unit_Interfaces;
 
@@ -58,13 +64,54 @@ resourcestring
   rstrIndexPublisherSeriesError = 'Книга %d (%s): %s';
   rstrIndexPublisherSeriesSummary = 'Книжные серии: сохранено книг %u, уже проверено %u, пропущено %u, ошибок %u.';
   rstrIndexPublisherSeriesCanceled = 'Индексация отменена. Завершённые книги сохранены.';
-  rstrIndexPublisherSeriesMoreErrors = 'Остальные ошибки учтены в итоговом количестве.';
+  rstrIndexPublisherSeriesMoreErrors = 'В окне показаны первые 20 ошибок. Полный список доступен по кнопке «Сохранить журнал» после завершения или отмены.';
+  rstrIndexPublisherSeriesLog = 'Полный журнал ошибок: %s';
+  rstrIndexPublisherSeriesChanged = 'Файл книги изменился во время чтения; метаданные не сохранены';
 
 constructor TIndexPublisherSeriesThread.Create(const CollectionID: Integer;
   const ForceRescan: Boolean);
+var
+  ID: TGUID;
 begin
   inherited Create(CollectionID);
   FForceRescan := ForceRescan;
+  CreateGUID(ID);
+  FErrorLogFileName := TPath.Combine(TPath.GetTempPath,
+    'HomeLibRu-publisher-errors-' + GUIDToString(ID) + '.log');
+end;
+
+destructor TIndexPublisherSeriesThread.Destroy;
+begin
+  FErrorLog.Free;
+  inherited;
+end;
+
+procedure TIndexPublisherSeriesThread.ReportFailure(
+  const BookRecord: TBookRecord; const ErrorText: string);
+const
+  MaxReportedErrors = 20;
+var
+  MessageText: string;
+begin
+  if FErrorLog = nil then
+  begin
+    FErrorLog := TStreamWriter.Create(FErrorLogFileName, False, TEncoding.UTF8);
+    FErrorLog.WriteLine('HomeLib Ru — заполнение книжных серий');
+    FErrorLog.WriteLine(Format('Коллекция: %s (%d)',
+      [BookRecord.CollectionName, FCollectionID]));
+    FErrorLog.WriteLine(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now));
+    FErrorLog.WriteLine;
+  end;
+  Inc(FFailedCount);
+  MessageText := Format(rstrIndexPublisherSeriesError,
+    [BookRecord.BookKey.BookID, BookRecord.Title, ErrorText]);
+  FErrorLog.WriteLine(MessageText);
+  FErrorLog.WriteLine('  Источник: ' + BookRecord.GetBookFileName);
+  FErrorLog.WriteLine('  Файл в архиве: ' + BookRecord.FileName + BookRecord.FileExt);
+  if FFailedCount <= MaxReportedErrors then
+    Teletype(MessageText, tsWarning)
+  else if FFailedCount = MaxReportedErrors + 1 then
+    Teletype(rstrIndexPublisherSeriesMoreErrors, tsWarning);
 end;
 
 procedure TIndexPublisherSeriesThread.ReportIndexProgress(Percent: Integer);
@@ -77,8 +124,6 @@ end;
 
 function TIndexPublisherSeriesThread.ReadPublisherSeries(
   const BookRecord: TBookRecord; out Series: TBookSeries): Boolean;
-const
-  MaxReportedErrors = 20;
 var
   Stream: TStream;
   Metadata: TFB2PublisherSeries;
@@ -116,12 +161,7 @@ begin
       Series := nil;
       if Canceled then
         Exit;
-      Inc(FFailedCount);
-      if FFailedCount <= MaxReportedErrors then
-        Teletype(Format(rstrIndexPublisherSeriesError,
-          [BookRecord.BookKey.BookID, BookRecord.Title, E.Message]), tsWarning)
-      else if FFailedCount = MaxReportedErrors + 1 then
-        Teletype(rstrIndexPublisherSeriesMoreErrors, tsWarning);
+      ReportFailure(BookRecord, E.Message);
     end;
   end;
 end;
@@ -227,7 +267,7 @@ begin
                 CommitPending;
             end
             else
-              Inc(FFailedCount);
+              ReportFailure(BookRecord, rstrIndexPublisherSeriesChanged);
           end;
         end;
         FProgressEngine.AddProgress;
@@ -241,12 +281,30 @@ begin
     Teletype(Format(rstrIndexPublisherSeriesSummary,
       [FIndexedCount, FCachedCount, FSkippedCount, FFailedCount]));
   finally
-    Iterator := nil;
-    FArchiveOpenCount := FSource.ArchiveOpenCount;
-    FBatchCount := FSource.BatchCount;
-    FreeAndNil(FReader);
-    FreeAndNil(FSource);
-    FProgressEngine.EndOperation;
+    try
+      if FErrorLog <> nil then
+      begin
+        try
+          FErrorLog.WriteLine;
+          FErrorLog.WriteLine(Format(rstrIndexPublisherSeriesSummary,
+            [FIndexedCount, FCachedCount, FSkippedCount, FFailedCount]));
+          if Canceled then
+            FErrorLog.WriteLine(rstrIndexPublisherSeriesCanceled);
+          if not FCompleted and not Canceled then
+            FErrorLog.WriteLine('Обработка прервана ошибкой.');
+        finally
+          FreeAndNil(FErrorLog);
+        end;
+        Teletype(Format(rstrIndexPublisherSeriesLog, [FErrorLogFileName]));
+      end;
+    finally
+      Iterator := nil;
+      FArchiveOpenCount := FSource.ArchiveOpenCount;
+      FBatchCount := FSource.BatchCount;
+      FreeAndNil(FReader);
+      FreeAndNil(FSource);
+      FProgressEngine.EndOperation;
+    end;
   end;
 end;
 

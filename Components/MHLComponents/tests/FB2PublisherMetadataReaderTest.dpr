@@ -294,6 +294,17 @@ begin
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
   Run('UTF-8 BOM', Encoded(Text, TEncoding.UTF8, True), fmsComplete, 1,
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
+  for I := 1 to 4 do
+    Run('UTF8 declaration alias fragmented ' + IntToStr(I),
+      Encoded('<?xml version="1.0" encoding = ''UTF8''?>' + Text, TEncoding.UTF8),
+      fmsComplete, 1, CYRILLIC_TITLE + ' & <test> "quoted"', 17, I);
+  RunText('UTF8 alias does not hide malformed description',
+    '<?xml version="1.0" encoding="UTF8"?><FictionBook><description><title-info></description>', fmsInvalid);
+  RunText('unknown encoding is not guessed',
+    '<?xml version="1.0" encoding="unrecognized-xyz"?>' + Text, fmsInvalid);
+  Run('UTF8 alias does not hide invalid UTF-8 metadata',
+    TEncoding.ASCII.GetBytes('<?xml version="1.0" encoding="UTF8"?><FictionBook><description><title-info>') +
+    TBytes.Create($FF) + TEncoding.ASCII.GetBytes('</title-info></description>'), fmsInvalid, 0);
   Prefix := '<?xml version="1.0" encoding="UTF-16"?>';
   Run('UTF-16 LE', Encoded(Prefix + Text, TEncoding.Unicode, True), fmsComplete, 1,
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
@@ -342,6 +353,21 @@ begin
   RunText('namespace prefix', '<fb:FictionBook xmlns:fb="' + FB2_NS + '">' +
     '<fb:description><fb:title-info/><fb:publish-info><fb:sequence name="Prefix"/>' +
     '</fb:publish-info></fb:description>', fmsComplete, 1, 'Prefix');
+  RunText('FB2 namespace 2.1', StringReplace(Metadata('<sequence name="Version 2.1" number="8"/>'),
+    FB2_NS, 'http://www.gribuser.ru/xml/fictionbook/2.1', []), fmsComplete, 1, 'Version 2.1', 8);
+  RunText('FB2 namespace 2.2', StringReplace(Metadata('<sequence name="Version 2.2" number="9"/>'),
+    FB2_NS, 'http://www.gribuser.ru/xml/fictionbook/2.2', []), fmsComplete, 1, 'Version 2.2', 9);
+  RunText('converter resets description namespace', StringReplace(Metadata('<sequence name="Reset" number="6"/>'),
+    '<description>', '<description xmlns="">', []), fmsComplete, 1, 'Reset', 6);
+  RunText('converter resets publish-info namespace', StringReplace(Metadata('<sequence name="Reset publish"/>'),
+    '<publish-info>', '<publish-info xmlns="">', []), fmsComplete, 1, 'Reset publish');
+  RunText('namespace reset does not accept foreign sequence',
+    StringReplace(Metadata('<sequence xmlns="urn:wrong" name="Ignore"/>'),
+    '<description>', '<description xmlns="">', []), fmsComplete, 0);
+  RunText('namespace reset does not hide malformed XML',
+    '<FictionBook xmlns="' + FB2_NS + '"><description xmlns=""><title-info></description>', fmsInvalid);
+  RunText('unknown FB2 namespace stays invalid', '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.20">' +
+    '<description><title-info/></description>', fmsInvalid);
   RunText('wrong root', '<Book><description><title-info/></description></Book>', fmsInvalid);
   RunText('wrong namespace', '<FictionBook xmlns="urn:wrong"><description><title-info/></description>', fmsInvalid);
   RunText('foreign description', '<FictionBook><description xmlns="urn:wrong"><title-info/></description></FictionBook>', fmsInvalid);

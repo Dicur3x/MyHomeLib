@@ -13,7 +13,8 @@ uses
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
-  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ProgramUpdateInstaller;
+  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ProgramUpdateInstaller,
+  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread;
 
 type
   TRegressionExceptionHandler = class
@@ -856,6 +857,108 @@ begin
   Writeln('PASS deferred publisher view restores its language and book without changing author selection');
 end;
 
+type
+  TPublisherLogDriver = class
+    Timer: TTimer;
+    SavedLog, SourceLog: string;
+    PreviewCount: Integer;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TPublisherLogDriver.Tick(Sender: TObject);
+var
+  I: Integer;
+  Progress: TImportProgressFormEx;
+begin
+  for I := Screen.FormCount - 1 downto 0 do
+    if (Screen.Forms[I] is TImportProgressFormEx) and Screen.Forms[I].Visible then
+    begin
+      Progress := TImportProgressFormEx(Screen.Forms[I]);
+      if (Progress.WorkerThread is TIndexPublisherSeriesThread) and
+        Progress.WorkerThread.Finished and (Progress.btnCancel.Caption = 'Закрыть') then
+      begin
+        SourceLog := Progress.FullErrorLogFileName;
+        PreviewCount := Progress.errorLog.Items.Count;
+        Require(Progress.btnSaveLog.Visible, 'Full journal save button is hidden');
+        Progress.SaveErrorLog(SavedLog);
+        Progress.btnCancel.Click;
+      end;
+    end;
+end;
+
+procedure TestPublisherErrorLog(const Collection: IBookCollection);
+var
+  R: TBookRecord;
+  Series: TBookSeries;
+  IDs: TArray<Integer>;
+  I, ErrorCount: Integer;
+  Driver: TPublisherLogDriver;
+  Log: TStringList;
+  Line: string;
+begin
+  SetLength(IDs, 25);
+  TSeriesHelper.Add(Series, 0, 'Keep existing publisher', 7, False);
+  for I := 0 to High(IDs) do
+  begin
+    R.Clear;
+    R.Title := 'Broken series fixture ' + IntToStr(I);
+    R.LibID := 'broken-' + IntToStr(I);
+    R.FileName := 'broken-' + IntToStr(I);
+    R.FileExt := '.fb2';
+    Include(R.BookProps, bpIsLocal);
+    IDs[I] := Collection.InsertBook(R, False, False);
+    Collection.SetBookPublisherSeries(CreateBookKey(IDs[I], Collection.CollectionID), Series);
+    TFile.WriteAllText(TPath.Combine(Collection.CollectionRoot, R.FileName + '.fb2'),
+      '<NotFictionBook/>', TEncoding.UTF8);
+  end;
+  R.Clear;
+  R.Title := 'Valid reset namespace'; R.LibID := 'valid-reset';
+  R.FileName := 'valid-reset'; R.FileExt := '.fb2';
+  Include(R.BookProps, bpIsLocal);
+  I := Collection.InsertBook(R, False, False);
+  TFile.WriteAllText(TPath.Combine(Collection.CollectionRoot, R.FileName + '.fb2'),
+    '<?xml version="1.0" encoding="UTF8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.1">' +
+    '<description xmlns=""><title-info/><publish-info><sequence name="Recovered" number="5"/>' +
+    '</publish-info></description><body/></FictionBook>', TEncoding.UTF8);
+  Driver := TPublisherLogDriver.Create;
+  try
+    Driver.SavedLog := Settings.AppPath + 'saved-publisher-errors.log';
+    Driver.Timer := TTimer.Create(nil);
+    Driver.Timer.Interval := 25;
+    Driver.Timer.OnTimer := Driver.Tick;
+    PublisherView.IndexButton.Click;
+    Require(FileExists(Driver.SavedLog), 'Actual main command did not save its full error log');
+    Require(Driver.PreviewCount <= 24, 'Preview grows without a bound');
+    Require(TFile.ReadAllText(Driver.SourceLog, TEncoding.UTF8) =
+      TFile.ReadAllText(Driver.SavedLog, TEncoding.UTF8), 'Save journal copied only the visible errors');
+    Log := TStringList.Create;
+    try
+      Log.LoadFromFile(Driver.SavedLog, TEncoding.UTF8);
+      ErrorCount := 0;
+      for Line in Log do
+        if Line.StartsWith('Книга ') then Inc(ErrorCount);
+      Require(ErrorCount = 32, 'Full journal did not preserve all 32 broken/missing books');
+      Require(Log.Text.Contains('broken-24.fb2'), 'Error beyond the first twenty is missing');
+    finally
+      Log.Free;
+    end;
+    for ErrorCount in IDs do
+    begin
+      Series := Collection.GetBookPublisherSeries(CreateBookKey(ErrorCount, Collection.CollectionID));
+      Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Keep existing publisher'),
+        'Malformed book erased existing publisher metadata');
+    end;
+    Series := Collection.GetBookPublisherSeries(CreateBookKey(I, Collection.CollectionID));
+    Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Recovered') and
+      (Series[0].SeqNumber = 5), 'Actual command failed to recover converter metadata');
+    Writeln('PASS actual publisher indexing saves all errors, bounds preview and preserves metadata');
+  finally
+    Driver.Timer.Free;
+    if FileExists(Driver.SourceLog) then TFile.Delete(Driver.SourceLog);
+    Driver.Free;
+  end;
+end;
+
 var
   One, Two, Online: IBookCollection;
   OneID, TwoID, FirstBook, LastBook, UnknownBook, I: Integer;
@@ -976,6 +1079,8 @@ begin
         TestGenreOrder(One, UnknownBook)
       else if ParamStr(1) = 'publisher-selection' then
         TestPublisherSelection(OneID, TwoID, LastBook)
+      else if ParamStr(1) = 'publisher-error-log' then
+        TestPublisherErrorLog(One)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
       else if ParamStr(1) = 'read-folder-cleanup' then
