@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows, Winapi.Messages,
+  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
@@ -46,7 +46,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
   Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TComboBox;
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
-  ReloadedView: TUpdateNotesView;
+  ReloadedView: TUpdateNotesView; EndPoint: TPoint;
 begin
   Configuration := TfrmSettings.Create(nil);
   try
@@ -201,6 +201,51 @@ begin
     NotesView.ZoomPercent := 100;
     Writeln('PASS update window expands reading space, reflows zoom and scrolls continuously across releases');
 
+    Popup.Show; Application.ProcessMessages;
+    NotesView.VertScrollBar.Position := 1000;
+    NotesView.SetExpanded(1, False); NotesView.SetExpanded(1, True);
+    Require(NotesView.SectionNotes(1).Height < MulDiv(70, Notes.CurrentPPI, 96),
+      'Scrolled short release has blank height: ' + IntToStr(NotesView.SectionNotes(1).Height));
+    // Short releases must shrink after a long document and remain compact
+    // across repeated layout, expansion and zoom changes.
+    NotesView.Load('3.51.1 — 28.11.2025' + sLineBreak +
+      '- First fix' + sLineBreak + '- Second fix' + sLineBreak +
+      '## Hashes:' + sLineBreak + '- SQLITE_SOURCE_ID: abc' + sLineBreak +
+      '- SHA3: def' + sLineBreak + '3.51.0 — 04.11.2025' + sLineBreak +
+      '- Another short release');
+    Require(Notes.Height < MulDiv(180, Notes.CurrentPPI, 96),
+      'Short release retains blank height from previous long text: ' + IntToStr(Notes.Height));
+    BodyBefore := Notes.Height;
+    for I := 1 to 20 do
+    begin
+      Popup.ClientHeight := Popup.ClientHeight + 8;
+      Popup.ClientHeight := Popup.ClientHeight - 8;
+      NotesView.SetExpanded(1, True); NotesView.SetExpanded(1, False);
+    end;
+    Require(Abs(Notes.Height - BodyBefore) <= 1,
+      'Repeated layout accumulates blank space: ' + IntToStr(BodyBefore) + ' -> ' + IntToStr(Notes.Height));
+    NotesView.SetExpanded(1, True);
+    Require(NotesView.SectionNotes(1).Height < MulDiv(70, Notes.CurrentPPI, 96),
+      'Previous short release has excessive blank space');
+    NotesView.ZoomPercent := 200; NotesView.ZoomPercent := 80; NotesView.ZoomPercent := 100;
+    Require(Abs(Notes.Height - BodyBefore) <= 1, 'Zoom down does not shrink the document');
+    Popup.ClientWidth := Popup.ClientWidth - 180; Popup.ClientWidth := Popup.ClientWidth + 180;
+    Require(Abs(Notes.Height - BodyBefore) <= 1, 'Width reflow retains blank space');
+    NotesView.Load('3.51.1 — 28.11.2025' + sLineBreak + '- Short release' + sLineBreak +
+      '3.51.0 — 04.11.2025' + sLineBreak + Copy(ReleaseInfo.History,
+      Pos(sLineBreak, ReleaseInfo.History) + Length(sLineBreak), MaxInt));
+    NotesView.SetExpanded(1, True); PreviousEditor := NotesView.SectionNotes(1);
+    Application.ProcessMessages;
+    EndPoint := Point(0, 0);
+    PreviousEditor.Perform(WM_USER + 38, WPARAM(@EndPoint), PreviousEditor.GetTextLen - 1);
+    Writeln('TRACE expanded old release height ', PreviousEditor.Height, ' last line ', EndPoint.Y);
+    Require((EndPoint.Y > 0) and (PreviousEditor.Height - EndPoint.Y < MulDiv(60, Notes.CurrentPPI, 96)),
+      'Expanded previous release has blank space after its last line');
+    Writeln('PASS expanded old release ends directly after its text');
+    Writeln('PASS short release height stays compact after long text, resize, expansion and zoom');
+    Popup.Hide;
+    NotesView.Load(ReleaseInfo.History);
+
     Cache := ProgramUpdateCache(Settings.AppPath);
     Previous := Default(TComponentReleases);
     Previous[0].History := '3.53.4' + sLineBreak + '- Сохранённое описание SQLite';
@@ -262,6 +307,8 @@ begin
         TFile.ReadAllText(Settings.AppPath + 'notes-preview.html', TEncoding.UTF8)) +
         sLineBreak + sLineBreak + ReleaseNotesHeading('3.52.0', '2026-03-06') + sLineBreak + '## Предыдущий выпуск' +
         sLineBreak + '- Пример отдельного выпуска';
+      if FileExists(Settings.AppPath + 'notes-preview-history.txt') then
+        ReleaseInfo.Changelog := TFile.ReadAllText(Settings.AppPath + 'notes-preview-history.txt', TEncoding.UTF8);
       Popup.SetRelease(ReleaseInfo); Popup.Hide; Popup.ShowModal;
     end;
   finally Popup.Free; end;
@@ -295,7 +342,7 @@ begin
   Popup := TfrmProgramUpdate.Create(nil);
   try
     Controls;
-    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.12';
+    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.13';
     Info.DownloadURL := ParamStr(2); Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4);
     Info.Changelog := 'Новые изменения тестового выпуска'; Popup.SetRelease(Info);
     Require(Bytes.Caption = '', 'Unexpected automatic download');

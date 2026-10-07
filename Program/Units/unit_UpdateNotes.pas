@@ -263,7 +263,14 @@ begin
 end;
 
 function TUpdateNotesEdit.MeasureHeight: Integer;
+var Bounds: TRect;
 begin
+  // A previously collapsed editor can retain its initial narrow formatting
+  // rectangle. Force native reflow at the final width before requesting the
+  // content height; old control height must not become a minimum document size.
+  Height := 1;
+  Bounds := Rect(0, 0, ClientWidth, 1);
+  Perform(EM_SETRECT, 0, LPARAM(@Bounds));
   FTextHeight := 0;
   Perform(EM_SETEVENTMASK, 0, Perform(EM_GETEVENTMASK, 0, 0) or ENM_REQUESTRESIZE);
   Perform(EM_REQUESTRESIZE, 0, 0);
@@ -397,7 +404,9 @@ begin
     Padding := MulDiv(8, CurrentPPI, 96);
     for I := 0 to High(FSections) do
     begin
+      FSections[I].Panel.Width := Width;
       FSections[I].Body.Width := Max(1, Width - 2 * Padding);
+      FSections[I].Body.Visible := FSections[I].Expanded;
       if FSections[I].Expanded then
         FSections[I].BodyHeight := TUpdateNotesEdit(FSections[I].Body).MeasureHeight;
       Height := HeaderHeight;

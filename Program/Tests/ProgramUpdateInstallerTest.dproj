@@ -14,7 +14,7 @@
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <DCC_Namespace>System;Xml;Data;Vcl;Vcl.Imaging;Vcl.Themes;Winapi;System.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..;..\Units;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
         <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
         <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>

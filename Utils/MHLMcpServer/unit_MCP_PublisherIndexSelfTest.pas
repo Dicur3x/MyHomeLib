@@ -57,7 +57,8 @@ begin
 end;
 
 procedure RunIndexer(const CollectionID, CancelPercent, ExpectedIndexed,
-  ExpectedFailed, ExpectedCached: Integer; const ForceRescan: Boolean = False);
+  ExpectedFailed, ExpectedCached: Integer; const ForceRescan: Boolean = False;
+  const ExpectedSkipped: Integer = 0);
 var
   Observer: TIndexObserver;
   Worker: TIndexPublisherSeriesThread;
@@ -89,7 +90,8 @@ begin
         Format('failed %d books, expected %d', [Worker.FailedCount, ExpectedFailed]));
       Require(Worker.CachedCount = ExpectedCached,
         Format('cached %d books, expected %d', [Worker.CachedCount, ExpectedCached]));
-      Require(Worker.SkippedCount = 0, 'local FB2 books were skipped');
+      Require(Worker.SkippedCount = ExpectedSkipped,
+        Format('skipped %d books, expected %d', [Worker.SkippedCount, ExpectedSkipped]));
       if Observer.CancelIssued then
       begin
         Require(not Observer.CompletedAfterCancel,
@@ -257,17 +259,18 @@ begin
     TFile.WriteAllBytes(Paths[3], TEncoding.UTF8.GetBytes('<NotFictionBook/>'));
     TFile.WriteAllBytes(Paths[4], TEncoding.UTF8.GetBytes(
       '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"/>'));
-    RunIndexer(Collection.CollectionID, 0, 1, 4, TotalBooks - 5);
+    RunIndexer(Collection.CollectionID, 0, 1, 3, TotalBooks - 5, False, 1);
     RequireSeries(BookIDs[0], SeriesTitle);
     RequireSeries(BookIDs[1], SeriesTitle);
     RequireSeries(BookIDs[2], '');
     RequireSeries(BookIDs[3], SeriesTitle);
     RequireSeries(BookIDs[4], SeriesTitle);
-    // Errors must remain retryable, while a valid empty result is cached.
-    RunIndexer(Collection.CollectionID, 0, 0, 4, TotalBooks - 4);
+    // Errors remain retryable; missing metadata is silently skipped and preserves
+    // prior series, while a valid empty publish-info result is cached.
+    RunIndexer(Collection.CollectionID, 0, 0, 3, TotalBooks - 4, False, 1);
     TFile.WriteAllBytes(Paths[0], TEncoding.UTF8.GetBytes('<NotFictionBook/>'));
-    RunIndexer(Collection.CollectionID, 0, 0, TotalBooks - 2, 2);
-    RunIndexer(Collection.CollectionID, 90, 0, 538, 2);
+    RunIndexer(Collection.CollectionID, 0, 0, TotalBooks - 3, 2, False, 1);
+    RunIndexer(Collection.CollectionID, 90, 0, 537, 2, False, 1);
   finally
     for I := 0 to High(Paths) do
       TFile.WriteAllBytes(Paths[I], OriginalFiles[I]);

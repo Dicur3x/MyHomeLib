@@ -16,7 +16,7 @@ for(const size of [0,1,3,135,136,137,271,272,273,1024*1024+1]){
 }pass('SHA3-256 agrees with independent implementation across rate boundaries and streaming');
 const sqlite=first(['--sqlite-parse',path.join(official,'sqlite-download.html'),path.join(official,'sqlite-changes.html'),'3.53.3']);
 assert.equal(sqlite[0],'3.53.4');assert.match(sqlite[1],new RegExp('/sqlite-dll-win-'+arch+'-3530400\\.zip$'));
-assert.equal(sqlite[2].length,64);assert(sqlite[3]>1000000);assert.match(sqlite[4],/^3\.53\.4\r?$/m);assert.doesNotMatch(sqlite[4],/^3\.53\.3\r?$/m);
+assert.equal(sqlite[2].length,64);assert(sqlite[3]>1000000);assert.match(sqlite[4],/^3\.53\.4 \u2014 24\.07\.2026\r?$/m);assert.doesNotMatch(sqlite[4],/^3\.53\.3(?: \u2014 [^\r\n]+)?\r?$/m);
 pass('official SQLite metadata chooses running architecture and combines only missed changelog');
 const badHTML=path.join(root,'bad.html');fs.writeFileSync(badHTML,'PRODUCT,3.53.4,https://evil.example/sqlite.zip,123,'+'a'.repeat(64));
 run(['--sqlite-parse',badHTML,path.join(official,'sqlite-changes.html')],1);pass('SQLite parser refuses foreign or malformed archives');

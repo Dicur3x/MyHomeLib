@@ -99,13 +99,13 @@ async function main() {
   const release = (tag,body,draft=false) => ({tag_name:tag,body,draft,assets:[{name:expectedName,
     browser_download_url:`https://github.com/Dicur3x/MyHomeLib/releases/download/${tag}/${expectedName}`,digest:'sha256:'+'a'.repeat(64),size:123}]});
   const jsonFile=path.join(root,'releases.json');
-  fs.writeFileSync(jsonFile,JSON.stringify([release('2.7.0_pre5.12','new12'),release('2.7.0_pre5.10','old10'),release('2.7.0_pre5.14','draft',true),release('2.7.0_pre5.13','new13')]));
+  fs.writeFileSync(jsonFile,JSON.stringify([release('2.7.0_pre5.13','new13'),release('2.7.0_pre5.12','installed12'),release('2.7.0_pre5.15','draft',true),release('2.7.0_pre5.14','new14')]));
   const parsed=JSON.parse(run(['--parse',jsonFile]).split('\n')[0]);
-  assert.equal(parsed[0],'2.7.0_pre5.13');assert.equal(parsed[3],123);
-  assert.match(parsed[4],/new13[\s\S]*new12/);assert.doesNotMatch(parsed[4],/old10|draft/);
-  assert.match(parsed[5],/new13[\s\S]*new12[\s\S]*old10/);pass('combined changelog in newest-first order, drafts excluded');
+  assert.equal(parsed[0],'2.7.0_pre5.14');assert.equal(parsed[3],123);
+  assert.match(parsed[4],/new14[\s\S]*new13/);assert.doesNotMatch(parsed[4],/installed12|draft/);
+  assert.match(parsed[5],/new14[\s\S]*new13[\s\S]*installed12/);pass('combined changelog in newest-first order, drafts excluded');
   for(const change of [r=>r.assets[0].browser_download_url='https://other.example/update.zip',r=>r.assets[0].digest=null,r=>r.assets[0].size=300*1024*1024]) {
-    const r=release('2.7.0_pre5.12','text');change(r);fs.writeFileSync(jsonFile,JSON.stringify([r]));
+    const r=release('2.7.0_pre5.13','text');change(r);fs.writeFileSync(jsonFile,JSON.stringify([r]));
     assert.equal(JSON.parse(run(['--parse',jsonFile]).split('\n')[0])[1],'');
   }pass('foreign URL, missing checksum and oversized release cannot be downloaded');
   const zip=archive(), prepared=prepare(zip);pass('strict archive, every hash, PE architecture and ProductVersion verified');
