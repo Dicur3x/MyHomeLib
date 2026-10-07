@@ -392,7 +392,7 @@ end;
 
 procedure TInfoPanel.LayoutControls;
 var
-  RowH, LinkH, Gap, LblW, W, H, Y, DetailH: Integer;
+  RowH, LinkH, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
   TextRect: TRect;
 
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer): Integer;
@@ -414,76 +414,83 @@ begin
   if FUpdatingLayout or not Assigned(FFb2Info) or not Assigned(Parent) then
     Exit;
 
-  W := FInfoPanel.ClientWidth;
-  H := FInfoViewport.ClientHeight;
-  if (W <= 0) or (H <= 0) then
-    Exit;
-
+  // Reading client bounds may create child windows and trigger OnResize.
+  // Keep the guard set through those reads and scrollbar-related realignment.
   FUpdatingLayout := True;
   try
-    // Bold captions do not inherit the parent font after Font.Style is set.
-    FTitle.Font.Assign(FInfoPanel.Font);
-    FTitle.Font.Style := [fsBold];
-    FSerieLabel.Font.Assign(FInfoPanel.Font);
-    FSerieLabel.Font.Style := [fsBold];
-    FGenreLabel.Font.Assign(FInfoPanel.Font);
-    FGenreLabel.Font.Style := [fsBold];
-    FPublisherSerieLabel.Font.Assign(FInfoPanel.Font);
-    FPublisherSerieLabel.Font.Style := [fsBold];
-
-    Canvas.Font := FTitle.Font;
-    RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
-    Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
-    LblW := Max(MulDiv(LabelColumn, CurrentPPI, 96),
-      Max(Canvas.TextWidth(FSerieLabel.Caption), Canvas.TextWidth(FGenreLabel.Caption)) + Gap);
-    if FPublisherSerieLabel.Visible then
-      LblW := Max(LblW, Canvas.TextWidth(FPublisherSerieLabel.Caption) + Gap);
-    LblW := Min(LblW, W);
-
-    Y := 0;
-    FTitle.SetBounds(0, Y, W, RowH);
-    Inc(Y, RowH);
-    LinkH := LinkHeight(FAuthors, W);
-    FAuthors.SetBounds(0, Y, W, LinkH);
-    Inc(Y, LinkH);
-    LinkH := LinkHeight(FSeries, W - LblW);
-    FSerieLabel.SetBounds(0, Y, LblW, RowH);
-    FSeries.SetBounds(LblW, Y, W - LblW, LinkH);
-    Inc(Y, LinkH);
-    if FPublisherSeriesLinks.Visible then
+    for Pass := 1 to 3 do
     begin
-      LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW);
-      FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
-      FPublisherSeriesLinks.SetBounds(LblW, Y, W - LblW, LinkH);
+      W := FInfoPanel.ClientWidth;
+      H := FInfoViewport.ClientHeight;
+      if (W <= 0) or (H <= 0) then
+        Exit;
+
+      // Bold captions do not inherit the parent font after Font.Style is set.
+      FTitle.Font.Assign(FInfoPanel.Font);
+      FTitle.Font.Style := [fsBold];
+      FSerieLabel.Font.Assign(FInfoPanel.Font);
+      FSerieLabel.Font.Style := [fsBold];
+      FGenreLabel.Font.Assign(FInfoPanel.Font);
+      FGenreLabel.Font.Style := [fsBold];
+      FPublisherSerieLabel.Font.Assign(FInfoPanel.Font);
+      FPublisherSerieLabel.Font.Style := [fsBold];
+
+      Canvas.Font := FTitle.Font;
+      RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
+      Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
+      LblW := Max(MulDiv(LabelColumn, CurrentPPI, 96),
+        Max(Canvas.TextWidth(FSerieLabel.Caption), Canvas.TextWidth(FGenreLabel.Caption)) + Gap);
+      if FPublisherSerieLabel.Visible then
+        LblW := Max(LblW, Canvas.TextWidth(FPublisherSerieLabel.Caption) + Gap);
+      LblW := Min(LblW, W);
+
+      Y := 0;
+      FTitle.SetBounds(0, Y, W, RowH);
+      Inc(Y, RowH);
+      LinkH := LinkHeight(FAuthors, W);
+      FAuthors.SetBounds(0, Y, W, LinkH);
       Inc(Y, LinkH);
-    end
-    else if FPublisherSeries.Visible then
-    begin
-      Canvas.Font := FPublisherSeries.Font;
-      TextRect := Rect(0, 0, Max(1, W - LblW), 0);
-      DrawText(Canvas.Handle, PChar(FPublisherSeries.Caption), Length(FPublisherSeries.Caption),
-        TextRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-      LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, CurrentPPI, 96));
-      FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
-      FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+      LinkH := LinkHeight(FSeries, W - LblW);
+      FSerieLabel.SetBounds(0, Y, LblW, RowH);
+      FSeries.SetBounds(LblW, Y, W - LblW, LinkH);
       Inc(Y, LinkH);
+      if FPublisherSeriesLinks.Visible then
+      begin
+        LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW);
+        FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
+        FPublisherSeriesLinks.SetBounds(LblW, Y, W - LblW, LinkH);
+        Inc(Y, LinkH);
+      end
+      else if FPublisherSeries.Visible then
+      begin
+        Canvas.Font := FPublisherSeries.Font;
+        TextRect := Rect(0, 0, Max(1, W - LblW), 0);
+        DrawText(Canvas.Handle, PChar(FPublisherSeries.Caption), Length(FPublisherSeries.Caption),
+          TextRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, CurrentPPI, 96));
+        FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
+        FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+        Inc(Y, LinkH);
+      end;
+      LinkH := LinkHeight(FGenres, W - LblW);
+      FGenreLabel.SetBounds(0, Y, LblW, RowH);
+      FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
+      Inc(Y, LinkH + Gap);
+      // Even a very short panel must not leave the old annotation over the links.
+      DetailH := Max(0, H - Y);
+      if (DetailH = 0) and (FAnnotation.Visible or FFb2Info.Visible) then
+        DetailH := MulDiv(80, CurrentPPI, 96);
+      FInfoPanel.Height := Y + DetailH;
+      FAnnotation.SetBounds(0, Y, W, DetailH);
+      FFb2Info.SetBounds(0, Y, W, DetailH);
+      // A scrollbar changes the wrapping width. Retry with the new width,
+      // but never recurse: VCL alignment can alternate between two widths.
+      if FInfoPanel.ClientWidth = W then
+        Break;
     end;
-    LinkH := LinkHeight(FGenres, W - LblW);
-    FGenreLabel.SetBounds(0, Y, LblW, RowH);
-    FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
-    Inc(Y, LinkH + Gap);
-    // Even a very short panel must not leave the old annotation over the links.
-    DetailH := Max(0, H - Y);
-    if (DetailH = 0) and (FAnnotation.Visible or FFb2Info.Visible) then
-      DetailH := MulDiv(80, CurrentPPI, 96);
-    FInfoPanel.Height := Y + DetailH;
-    FAnnotation.SetBounds(0, Y, W, DetailH);
-    FFb2Info.SetBounds(0, Y, W, DetailH);
   finally
     FUpdatingLayout := False;
   end;
-  // A vertical scrollbar changes the available wrapping width once it appears.
-  if FInfoPanel.ClientWidth <> W then LayoutControls;
 end;
 
 procedure TInfoPanel.ChangeScale(M, D: Integer; isDpiChange: Boolean);

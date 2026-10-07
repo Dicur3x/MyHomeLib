@@ -978,6 +978,8 @@ begin
     RestartBookID := 0;
     Trace('application bootstrap');
     Application.Initialize;
+    if ParamStr(1) = 'publisher-startup' then
+      Application.MainFormOnTaskbar := True;
     ExceptionHandler := TRegressionExceptionHandler.Create;
     Application.OnException := ExceptionHandler.HandleException;
     Trace('localization');
@@ -1025,7 +1027,7 @@ begin
           RestartBookID := AddOnlineBook(Online, 'Online restart', '900004');
         end;
       end;
-      if ParamStr(1) = 'publisher-selection' then
+      if (ParamStr(1) = 'publisher-selection') or (ParamStr(1) = 'publisher-startup') then
       begin
         TSeriesHelper.Add(PublisherSeries, 0, 'Fixture publisher', 1, False);
         One.SetBookPublisherSeries(CreateBookKey(FirstBook, OneID), PublisherSeries);
@@ -1053,6 +1055,17 @@ begin
       Two.SetProperty(PROP_GENRES_LANG_FILTER, 1);
       Settings.ActiveCollection := OneID;
       Settings.ActivePage := PAGE_AUTHORS;
+      if ParamStr(1) = 'publisher-startup' then
+      begin
+        Settings.ActivePage := PAGE_PUBLISHER_SERIES;
+        Settings.ShowInfoPanel := True;
+        Settings.ShowBookCover := True;
+        Settings.ShowBookAnnotation := True;
+        Settings.InfoPanelHeight := 310;
+        Settings.FormWidth := 1173;
+        Settings.FormHeight := 1073;
+        Settings.Splitters[5] := 434;
+      end;
       Trace('image module');
       Application.CreateForm(TdmImages, dmImages);
       dmImages.ApplyThemeIcons;
@@ -1064,6 +1077,16 @@ begin
       Trace('genre form');
       Application.CreateForm(TfrmGenreTree, frmGenreTree);
       Trace('initial selection checks');
+      if ParamStr(1) = 'publisher-startup' then
+      begin
+        Require(frmMain.pgControl.ActivePage = PublisherView.Tab, 'Saved publisher page was not restored');
+        ExpectTitles(PublisherView.Books, ['Alpha ru']);
+        Require(PublisherView.Info.Visible and PublisherView.Info.HandleAllocated,
+          'Publisher information panel was not created');
+        Application.ProcessMessages;
+        Writeln('PASS saved publisher page starts with visible cover and information panel');
+        ShowPage(PAGE_AUTHORS);
+      end;
       ExpectTitles(frmMain.tvBooksA, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
       Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
       Require(Assigned(Book) and (Book.BookKey.BookID = LastBook),
@@ -1079,6 +1102,16 @@ begin
         TestGenreOrder(One, UnknownBook)
       else if ParamStr(1) = 'publisher-selection' then
         TestPublisherSelection(OneID, TwoID, LastBook)
+      else if ParamStr(1) = 'publisher-startup' then
+      begin
+        frmMain.pgControl.ActivePage := PublisherView.Tab;
+        frmMain.pgControlChange(nil);
+        ExpectTitles(PublisherView.Books, ['Alpha ru']);
+        ChangeCollection(TwoID);
+        ChangeCollection(OneID);
+        ExpectTitles(PublisherView.Books, ['Alpha ru']);
+        Writeln('PASS startup publisher view survives collection switches');
+      end
       else if ParamStr(1) = 'publisher-error-log' then
         TestPublisherErrorLog(One)
       else if ParamStr(1) = 'reader-compatibility' then
