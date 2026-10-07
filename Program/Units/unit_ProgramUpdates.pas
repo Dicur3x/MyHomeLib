@@ -53,7 +53,7 @@ type
   private
     FHTTP: THTTPClient;
     FWindow: HWND;
-    FURL: string;
+    FURL, FCacheFolder: string;
     FSuccessful: Boolean;
     FRelease: TProgramRelease;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
@@ -62,7 +62,7 @@ type
     procedure Execute; override;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
-      const AURL: string = PROGRAM_RELEASES_API);
+      const AURL: string = PROGRAM_RELEASES_API; const CacheFolder: string = '');
     destructor Destroy; override;
     property Successful: Boolean read FSuccessful;
     property ReleaseInfo: TProgramRelease read FRelease;
@@ -79,7 +79,7 @@ implementation
 uses
   System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateAuthenticity;
+  unit_UpdateAuthenticity, unit_UpdateTextCache;
 
 type
   TReleaseNumbers = array[0..4] of Integer;
@@ -177,6 +177,8 @@ begin
         Candidate.PublishedAt := Copy(Candidate.PublishedAt, 1, 64);
       if Obj.TryGetValue<string>('body', Candidate.Notes) then
         Candidate.Notes := Copy(Candidate.Notes, 1, 24000);
+      if Candidate.Notes.Trim = '' then
+        Candidate.Notes := 'Автор не опубликовал описание изменений этого выпуска.';
 {$IFDEF WIN64}
       ExpectedName := 'HomeLibRu_x64.zip';
 {$ELSE}
@@ -344,12 +346,14 @@ begin
   PostMessage(FWindow, WM_PROGRAM_UPDATE_DOWNLOADED, 0, 0);
 end;
 
-constructor TProgramUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient; const AURL: string);
+constructor TProgramUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient;
+  const AURL, CacheFolder: string);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FWindow := AWindow;
   FURL := AURL;
+  FCacheFolder := CacheFolder;
   FHTTP := AHTTP;
   FHTTP.UserAgent := 'HomeLib Ru';
   FHTTP.ConnectionTimeout := 4000;
@@ -372,15 +376,13 @@ begin
 end;
 
 procedure TProgramUpdateThread.Execute;
-var
-  Response: IHTTPResponse;
+var Text: string;
 begin
   try
     if not Terminated then
     begin
-      Response := FHTTP.Get(FURL);
-      if (Response.StatusCode = 200) and not Terminated then
-        FSuccessful := ParseProgramReleases(Response.ContentAsString(TEncoding.UTF8), FRelease);
+      Text := CachedUpdateText(FHTTP, FURL, FCacheFolder);
+      if not Terminated then FSuccessful := ParseProgramReleases(Text, FRelease);
     end;
   except
     // The form decides whether a failed check needs a manual-check message.

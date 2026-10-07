@@ -12,6 +12,9 @@ type
     FNotes: TUpdateNotesView;
     FProgress: TProgressBar;
     FPrimary, FLater, FPage: TButton;
+    FZoomOut, FZoomReset, FZoomIn: TButton;
+    FUIUpdateCount, FNormalWidth, FNormalHeight: Integer;
+    FUIRedraw, FPresentPending: Boolean;
     FThread: TProgramDownloadThread;
     FComponentThread: TComponentUpdateThread;
     FComponents: TComponentReleases;
@@ -40,6 +43,16 @@ type
     procedure ComponentsChecked(var Message: TMessage); message WM_COMPONENT_UPDATE_CHECKED;
     procedure UpdateComponentList;
     function ReleaseTitle: string;
+    procedure BeginUIUpdate;
+    procedure EndUIUpdate;
+    procedure Present;
+    procedure LayoutWindow;
+    procedure ZoomClick(Sender: TObject);
+    procedure ZoomChanged(Sender: TObject);
+    procedure LoadViewPreferences;
+    procedure SaveViewPreferences;
+  protected
+    procedure Resize; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -59,16 +72,20 @@ type
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.JSON, System.RegularExpressions, Winapi.ShellAPI,
+uses System.SysUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
+  System.Types, Winapi.ShellAPI,
   Vcl.Controls, Vcl.Graphics, dm_user, unit_Settings, unit_Globals,
-  unit_ProgramUpdateInstaller, unit_MHLHttpClient;
+  unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache;
 
 constructor TfrmProgramUpdate.Create(AOwner: TComponent);
 var HistoryFile: string;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'Обновление HomeLib Ru'; BorderStyle := bsDialog;
-  Position := poMainFormCenter; ClientWidth := 740; ClientHeight := 520;
+  Caption := 'Обновление HomeLib Ru'; BorderStyle := bsSizeable;
+  BorderIcons := [biSystemMenu, biMinimize, biMaximize];
+  Position := poMainFormCenter; ClientWidth := 860; ClientHeight := 640;
+  Constraints.MinWidth := 660; Constraints.MinHeight := 440;
+  DoubleBuffered := True;
   Font.Name := 'Segoe UI'; Font.Size := 9;
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
@@ -100,22 +117,37 @@ begin
   FLater := TButton.Create(Self); FLater.Parent := Self;
   FLater.SetBounds(605, 473, 115, 30); FLater.Caption := 'Позже'; FLater.OnClick := LaterClick;
   FCache := ProgramUpdateCache(Settings.AppPath);
+  LoadComponentHistory(FCache, FComponents);
+  FZoomOut := TButton.Create(Self); FZoomOut.Parent := Self;
+  FZoomOut.Caption := 'A−'; FZoomOut.Tag := -10; FZoomOut.OnClick := ZoomClick;
+  FZoomOut.Hint := 'Уменьшить текст (Ctrl + колёсико)'; FZoomOut.ShowHint := True;
+  FZoomReset := TButton.Create(Self); FZoomReset.Parent := Self;
+  FZoomReset.Caption := '100%'; FZoomReset.OnClick := ZoomClick;
+  FZoomReset.Hint := 'Обычный размер текста'; FZoomReset.ShowHint := True;
+  FZoomIn := TButton.Create(Self); FZoomIn.Parent := Self;
+  FZoomIn.Caption := 'A+'; FZoomIn.Tag := 10; FZoomIn.OnClick := ZoomClick;
+  FZoomIn.Hint := 'Увеличить текст (Ctrl + колёсико)'; FZoomIn.ShowHint := True;
+  FNotes.OnZoomChanged := ZoomChanged;
   FPrimary.Caption := 'Проверить обновления';
   FNeedsCheck := True;
   FStatus.Caption := 'История последних выпусков';
   FApplicationStatus := FStatus.Caption;
   try
-    if FileExists(IncludeTrailingPathDelimiter(FCache) + 'notes.txt') then
-      DisplayNotes(Copy(TFile.ReadAllText(IncludeTrailingPathDelimiter(FCache) + 'notes.txt', TEncoding.UTF8), 1, 324000))
+    HistoryFile := ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'notes.txt');
+    if HistoryFile.Trim <> '' then
+      DisplayNotes(Copy(HistoryFile, 1, 324000))
     else if FileExists(Settings.AppPath + 'CHANGES.txt') then
       DisplayNotes(Copy(TFile.ReadAllText(Settings.AppPath + 'CHANGES.txt', TEncoding.UTF8), 1, 324000))
     else DisplayNotes('');
   except end;
+  LoadViewPreferences;
   ScaleForPPI(Screen.PixelsPerInch);
+  LayoutWindow;
 end;
 
 destructor TfrmProgramUpdate.Destroy;
 begin
+  SaveViewPreferences;
   if Assigned(FComponentThread) then
   begin FComponentThread.Terminate; FreeAndNil(FComponentThread); end;
   if Assigned(FThread) then
@@ -123,6 +155,125 @@ begin
   // Keep a verified ready update when installation is postponed or the app exits.
   if not FReady then DiscardJob;
   inherited;
+end;
+
+procedure TfrmProgramUpdate.BeginUIUpdate;
+begin
+  if FUIUpdateCount = 0 then
+  begin
+    DisableAlign;
+    FUIRedraw := HandleAllocated and IsWindowVisible(Handle);
+    if FUIRedraw then SendMessage(Handle, WM_SETREDRAW, 0, 0);
+  end;
+  Inc(FUIUpdateCount);
+end;
+
+procedure TfrmProgramUpdate.EndUIUpdate;
+begin
+  Dec(FUIUpdateCount);
+  if FUIUpdateCount <> 0 then Exit;
+  EnableAlign; LayoutWindow;
+  if FUIRedraw then
+  begin
+    SendMessage(Handle, WM_SETREDRAW, 1, 0);
+    RedrawWindow(Handle, nil, 0, RDW_INVALIDATE or RDW_ALLCHILDREN);
+  end;
+  FUIRedraw := False;
+  if FPresentPending then begin FPresentPending := False; Present; end;
+end;
+
+procedure TfrmProgramUpdate.Present;
+begin
+  if FUIUpdateCount > 0 then begin FPresentPending := True; Exit; end;
+  if not Visible then Show;
+  BringToFront;
+end;
+
+procedure TfrmProgramUpdate.Resize;
+begin
+  inherited;
+  if Assigned(FZoomIn) and (FUIUpdateCount = 0) then LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.LayoutWindow;
+var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight: Integer;
+  Bounds: TRect;
+  function S(Value: Integer): Integer;
+  begin Result := MulDiv(Value, CurrentPPI, 96); end;
+begin
+  if not Assigned(FZoomIn) then Exit;
+  DisableAlign;
+  try
+    Margin := S(12); Gap := S(8); Width := ClientWidth - 2 * Margin;
+    FVersion.SetBounds(Margin, S(12), Width - S(160), S(22));
+    FZoomOut.SetBounds(ClientWidth - Margin - S(150), S(8), S(40), S(26));
+    FZoomReset.SetBounds(ClientWidth - Margin - S(105), S(8), S(60), S(26));
+    FZoomIn.SetBounds(ClientWidth - Margin - S(40), S(8), S(40), S(26));
+    FSelector.SetBounds(Margin, S(42), Width - S(220) - Gap, S(25));
+    FComponentCheck.SetBounds(ClientWidth - Margin - S(220), S(41), S(220), S(27));
+    Canvas.Font.Assign(Font); Bounds := Rect(0, 0, Width, 0);
+    DrawText(Canvas.Handle, PChar(FStatus.Caption), Length(FStatus.Caption), Bounds,
+      DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    StatusHeight := EnsureRange(Bounds.Height + S(4), S(22), S(70));
+    FStatus.SetBounds(Margin, S(76), Width, StatusHeight);
+    ButtonTop := ClientHeight - Margin - S(30);
+    FPrimary.SetBounds(Margin, ButtonTop, Width - S(125 + 115) - 2 * Gap, S(30));
+    FPage.SetBounds(ClientWidth - Margin - S(125 + 115) - Gap, ButtonTop, S(125), S(30));
+    FLater.SetBounds(ClientWidth - Margin - S(115), ButtonTop, S(115), S(30));
+    FProgress.Visible := Assigned(FThread) or FReady or (FBytes.Caption <> '');
+    FBytes.Visible := FProgress.Visible;
+    FProgress.SetBounds(Margin, ButtonTop - S(52), Width, S(18));
+    FBytes.SetBounds(Margin, ButtonTop - S(28), Width, S(20));
+    NotesTop := FStatus.Top + StatusHeight + Gap;
+    NotesBottom := ButtonTop - Gap;
+    if FProgress.Visible then NotesBottom := FProgress.Top - Gap;
+    FNotes.SetBounds(Margin, NotesTop, Width, Max(S(100), NotesBottom - NotesTop));
+    if WindowState = wsNormal then
+    begin
+      FNormalWidth := MulDiv(ClientWidth, 96, CurrentPPI);
+      FNormalHeight := MulDiv(ClientHeight, 96, CurrentPPI);
+    end;
+  finally EnableAlign; end;
+end;
+
+procedure TfrmProgramUpdate.ZoomClick(Sender: TObject);
+begin
+  if Sender = FZoomReset then FNotes.ZoomPercent := 100
+  else FNotes.ZoomPercent := FNotes.ZoomPercent + TButton(Sender).Tag;
+end;
+
+procedure TfrmProgramUpdate.ZoomChanged(Sender: TObject);
+begin
+  FZoomReset.Caption := IntToStr(FNotes.ZoomPercent) + '%';
+end;
+
+procedure TfrmProgramUpdate.LoadViewPreferences;
+var Root: TJSONValue; Width, Height, Zoom: Integer; Maximized: Boolean;
+begin
+  Root := TJSONObject.ParseJSONValue(ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'view.json', 4096));
+  try
+    if not (Root is TJSONObject) then Exit;
+    if TJSONObject(Root).TryGetValue<Integer>('width', Width) then
+      ClientWidth := EnsureRange(Width, 660, Max(660, MulDiv(Screen.WorkAreaWidth - 40, 96, Screen.PixelsPerInch)));
+    if TJSONObject(Root).TryGetValue<Integer>('height', Height) then
+      ClientHeight := EnsureRange(Height, 400, Max(400, MulDiv(Screen.WorkAreaHeight - 70, 96, Screen.PixelsPerInch)));
+    if TJSONObject(Root).TryGetValue<Integer>('zoom', Zoom) then FNotes.ZoomPercent := Zoom;
+    if TJSONObject(Root).TryGetValue<Boolean>('maximized', Maximized) and Maximized then WindowState := wsMaximized;
+  finally Root.Free; end;
+end;
+
+procedure TfrmProgramUpdate.SaveViewPreferences;
+var Root: TJSONObject;
+begin
+  if not Assigned(FNotes) or (FNormalWidth = 0) then Exit;
+  Root := TJSONObject.Create;
+  try
+    Root.AddPair('width', TJSONNumber.Create(FNormalWidth));
+    Root.AddPair('height', TJSONNumber.Create(FNormalHeight));
+    Root.AddPair('zoom', TJSONNumber.Create(FNotes.ZoomPercent));
+    Root.AddPair('maximized', TJSONBool.Create(WindowState = wsMaximized));
+    WriteUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'view.json', Root.ToJSON);
+  finally Root.Free; end;
 end;
 
 procedure TfrmProgramUpdate.DiscardJob;
@@ -134,9 +285,11 @@ end;
 
 procedure TfrmProgramUpdate.SetRelease(const ReleaseInfo: TProgramRelease);
 begin
+  BeginUIUpdate;
+  try
   if ReleaseInfo.ComponentID = '' then FApplicationRelease := ReleaseInfo;
   if FRecovery or Assigned(FThread) or FReady then
-  begin Show; BringToFront; Exit; end;
+  begin Present; Exit; end;
   if ReleaseInfo.ComponentID = '' then
   begin FSelector.ItemIndex := 0; FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
@@ -148,7 +301,8 @@ begin
   FProgress.Position := 0; FBytes.Caption := '';
   FPrimary.Caption := 'Скачать обновление'; FPrimary.Enabled := True;
   if FRelease.DownloadURL = '' then FPrimary.Caption := 'Скачать со страницы выпуска';
-  Show;
+  Present;
+  finally EndUIUpdate; end;
 end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
@@ -184,6 +338,8 @@ procedure TfrmProgramUpdate.ComponentSelected(Sender: TObject);
 var I: Integer; Version: string;
 begin
   if Assigned(FThread) or FReady then Exit;
+  BeginUIUpdate;
+  try
   I := FSelector.ItemIndex - 1;
   if I < 0 then
   begin
@@ -221,6 +377,7 @@ begin
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить компонент», чтобы узнать о новой версии.';
   end;
+  finally EndUIUpdate; end;
 end;
 
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
@@ -230,7 +387,8 @@ procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 begin
   if Assigned(FComponentThread) then Exit;
   FComponentAutomatic := Automatic; FComponentError := '';
-  FComponentThread := TComponentUpdateThread.Create(Handle, CreateHTTPClientGlobal);
+  FComponentThread := TComponentUpdateThread.Create(Handle, CreateHTTPClientGlobal,
+    PROGRAM_RELEASES_API, FCache);
   FComponentCheck.Enabled := False;
   if (FSelector.ItemIndex > 0) and not Assigned(FThread) and not FReady then
   begin
@@ -240,11 +398,19 @@ begin
 end;
 
 procedure TfrmProgramUpdate.ComponentsChecked(var Message: TMessage);
-var I, J, Errors: Integer; Successful: Boolean;
+var I, J, Errors: Integer; Successful: Boolean; Releases: TComponentReleases;
 begin
   Message.Result := 0; if not Assigned(FComponentThread) then Exit;
   FComponentThread.WaitFor; Successful := FComponentThread.Successful;
-  if Successful then FComponents := FComponentThread.Releases
+  BeginUIUpdate;
+  try
+  if Successful then
+  begin
+    Releases := FComponentThread.Releases;
+    PreserveComponentHistory(Releases, FComponents);
+    FComponents := Releases;
+    SaveComponentHistory(FCache, FComponents);
+  end
   else FComponentError := FComponentThread.ErrorText;
   FreeAndNil(FComponentThread); FComponentCheck.Enabled := True; UpdateComponentList;
   if Assigned(FThread) or FReady then
@@ -256,11 +422,11 @@ begin
       FStatus.Caption := 'Некоторые компоненты не удалось проверить. Выберите их в списке, чтобы увидеть подробности.'
     else if Successful then FStatus.Caption := 'Компоненты проверены. Выберите компонент в списке, чтобы увидеть версию и изменения.'
     else FStatus.Caption := FComponentError;
-    Show; BringToFront;
+    Present;
   end;
   FComponentExplicit := False;
   if (FSelector.ItemIndex > 0) and not FComponentAutomatic then
-  begin ComponentSelected(nil); if not FComponentAutomatic then begin Show; BringToFront; end; end
+  begin ComponentSelected(nil); if not FComponentAutomatic then Present; end
   else if Successful and FComponentAutomatic and (FApplicationRelease.Tag = '') then
     for J := 0 to High(CHECKED_COMPONENT_INDICES) do
     begin
@@ -272,38 +438,51 @@ begin
         FSelector.ItemIndex := J + 1; ComponentSelected(nil); Break;
       end;
     end;
+  finally EndUIUpdate; end;
 end;
 
 procedure TfrmProgramUpdate.DisplayNotes(const Notes: string);
+var Text: string;
 begin
-  FNotes.Load(Notes);
-  if FSelector.ItemIndex = 0 then FApplicationHistory := Notes;
+  Text := Notes;
+  if FSelector.ItemIndex = 0 then
+  begin
+    if Text.Trim = '' then Text := FApplicationHistory;
+    if Text.Trim <> '' then FApplicationHistory := Text;
+  end;
+  FNotes.Load(Text);
 end;
 
 procedure TfrmProgramUpdate.RememberHistory(const ReleaseInfo: TProgramRelease);
 begin
+  if ReleaseInfo.History.Trim = '' then Exit;
+  FApplicationHistory := ReleaseInfo.History;
   try
     AssertUpdatePath(FCache);
-    ForceDirectories(FCache);
-    TFile.WriteAllText(IncludeTrailingPathDelimiter(FCache) + 'notes.txt', ReleaseInfo.History, TEncoding.UTF8);
+    WriteUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'notes.txt', Copy(ReleaseInfo.History, 1, 324000));
   except end;
 end;
 
 procedure TfrmProgramUpdate.BeginCheck;
 begin
+  BeginUIUpdate;
+  try
   if (FSelector.ItemIndex > 0) and not FReady and not Assigned(FThread) then
   begin FSelector.ItemIndex := 0; ComponentSelected(nil); end;
   if FSelector.ItemIndex > 0 then Exit;
   FStatus.Caption := 'Проверка обновлений на GitHub…';
   if not FReady then FNeedsCheck := True;
   if not Assigned(FThread) and not FReady then FPrimary.Enabled := False;
-  Show; BringToFront;
+  Present;
+  finally EndUIUpdate; end;
 end;
 
 procedure TfrmProgramUpdate.SetCurrent(const ReleaseInfo: TProgramRelease);
 begin
+  BeginUIUpdate;
+  try
   FApplicationRelease := Default(TProgramRelease);
-  FApplicationHistory := ReleaseInfo.History;
+  if ReleaseInfo.History.Trim <> '' then FApplicationHistory := ReleaseInfo.History;
   FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
   if FSelector.ItemIndex > 0 then Exit;
   if Assigned(FThread) or FReady then Exit;
@@ -312,7 +491,8 @@ begin
   DisplayNotes(ReleaseInfo.History);
   FStatus.Caption := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
   FPrimary.Caption := 'Проверить ещё раз'; FPrimary.Enabled := True; FLater.Caption := 'Закрыть';
-  Show;
+  Present;
+  finally EndUIUpdate; end;
 end;
 
 procedure TfrmProgramUpdate.CheckFailed(const Error: string);
@@ -322,7 +502,7 @@ begin
   FStatus.Caption := Error;
   if not Assigned(FThread) and not FReady then
   begin FNeedsCheck := True; FPrimary.Caption := 'Повторить проверку'; FPrimary.Enabled := True; end;
-  Show;
+  LayoutWindow; Present;
 end;
 
 procedure TfrmProgramUpdate.PrimaryClick(Sender: TObject);
@@ -352,6 +532,7 @@ begin
   FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + ReleaseTitle + '…';
   FProgress.Position := 0;
   FBytes.Caption := Format('Скачано: 0,0 / %.1f МБ', [FRelease.Size / 1048576]);
+  LayoutWindow;
   FThread.Start;
 end;
 
@@ -368,8 +549,7 @@ end;
 procedure TfrmProgramUpdate.PageClick(Sender: TObject);
 begin
   if FSelector.ItemIndex = 1 then FRelease.URL := 'https://www.sqlite.org/changes.html';
-  if FSelector.ItemIndex = 2 then FRelease.URL := 'https://www.alreader.com/downloads.php?lang=ru';
-  if FSelector.ItemIndex = 3 then FRelease.URL := 'https://www.sumatrapdfreader.org/docs/Version-history';
+  if FSelector.ItemIndex = 2 then FRelease.URL := 'https://www.sumatrapdfreader.org/docs/Version-history';
   if FRelease.URL = '' then FRelease.URL := 'https://github.com/Dicur3x/MyHomeLib/releases';
   ShellExecute(Handle, 'open', PChar(FRelease.URL), nil, nil, SW_SHOWNORMAL);
 end;
@@ -404,7 +584,7 @@ begin
     FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
     FStatus.Caption := 'Обновление скачано и проверено.' + sLineBreak +
       'Для установки HomeLib Ru закроется и запустится снова.';
-    Show;
+    Present;
   end
   else
   begin
@@ -412,6 +592,7 @@ begin
     FPrimary.Caption := 'Повторить загрузку'; FStatus.Caption := Error;
     DiscardJob;
   end;
+  LayoutWindow;
 end;
 
 procedure TfrmProgramUpdate.SaveReady;
@@ -501,6 +682,7 @@ begin
     // Automatic startup remains quiet if a cached download was removed.
   end;
   finally Journal.Free; Root.Free; end;
+  LayoutWindow;
 end;
 
 function TfrmProgramUpdate.LaunchInstallation: Boolean;

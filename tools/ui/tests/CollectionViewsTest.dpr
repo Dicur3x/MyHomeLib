@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows,
+  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows, Winapi.Messages,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
@@ -43,7 +43,10 @@ var
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
-  I: Integer; Notes: TRichEdit; Primary: TButton; Version, Bytes: TLabel; Selector: TComboBox;
+  I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
+  Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TComboBox;
+  Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
+  ReloadedView: TUpdateNotesView;
 begin
   Configuration := TfrmSettings.Create(nil);
   try
@@ -173,6 +176,79 @@ begin
     ReleaseInfo.ComponentID := ''; ReleaseInfo.PublishedAt := '';
     Writeln('PASS dates and shared formatting cover application and every component');
 
+    ReleaseInfo.History := '2.7.0_pre5.12' + sLineBreak;
+    for I := 1 to 100 do ReleaseInfo.History := ReleaseInfo.History +
+      '- Строка ' + IntToStr(I) + ' длинного журнала изменений' + sLineBreak;
+    ReleaseInfo.History := ReleaseInfo.History + '2.7.0_pre5.11' + sLineBreak + '- Старый выпуск';
+    Popup.SetRelease(ReleaseInfo);
+    Require((Popup.BorderStyle = bsSizeable) and (biMaximize in Popup.BorderIcons), 'Update window cannot resize/maximize');
+    HeightBefore := NotesView.Height; Popup.ClientHeight := Popup.ClientHeight + 80;
+    Require((NotesView.Height > HeightBefore + 60) and (NotesView.Height > Popup.ClientHeight div 2),
+      'Reading area does not use the available window space');
+    Require(Notes.ScrollBars = ssNone, 'Individual release traps scrolling');
+    Require(Notes.Height > NotesView.ClientHeight, 'Long release text is clipped instead of fully laid out');
+    Notes.Perform(WM_MOUSEWHEEL, WPARAM($FF880000), 0);
+    Require(NotesView.VertScrollBar.Position > 0, 'Wheel over text cannot scroll across release history');
+    NotesView.SetExpanded(1, True); PreviousEditor := NotesView.SectionNotes(1);
+    PreviousEditor.Perform(WM_MOUSEWHEEL, WPARAM($00780000), 0);
+    Require(NotesView.VertScrollBar.Position = 0, 'Wheel over a previous release does not reach the common scrollbar');
+    BodyBefore := Notes.Height;
+    Notes.Perform(WM_MOUSEWHEEL, WPARAM($00780008), 0);
+    Require((NotesView.ZoomPercent = 110) and (Notes.Height > BodyBefore), 'Ctrl-wheel does not enlarge/reflow text');
+    NotesView.Load(ReleaseInfo.History);
+    Require((NotesView.SectionNotes(1) = PreviousEditor) and NotesView.IsExpanded(1),
+      'Unchanged history is recreated, losing expansion and causing flicker');
+    NotesView.ZoomPercent := 100;
+    Writeln('PASS update window expands reading space, reflows zoom and scrolls continuously across releases');
+
+    Cache := ProgramUpdateCache(Settings.AppPath);
+    Previous := Default(TComponentReleases);
+    Previous[0].History := '3.53.4' + sLineBreak + '- Сохранённое описание SQLite';
+    Previous[2].History := '3.6.1' + sLineBreak + '- Сохранённое описание SumatraPDF';
+    Failed := Default(TComponentReleases); Failed[0].ComponentError := 'Проверка не удалась';
+    PreserveComponentHistory(Failed, Previous);
+    Require((Failed[0].History = Previous[0].History) and (Failed[0].DownloadURL = '') and
+      (Failed[0].ComponentError <> ''), 'Failed check erases history or revives stale download metadata');
+    SaveComponentHistory(Cache, Failed);
+    Failed := Default(TComponentReleases); LoadComponentHistory(Cache, Failed);
+    Require(Failed[2].History = Previous[2].History, 'Saved component history not reloaded');
+    Popup.RememberHistory(ReleaseInfo);
+    Reloaded := TfrmProgramUpdate.Create(nil);
+    try
+      ReloadedView := nil; ReloadedSelector := nil;
+      for I := 0 to Reloaded.ControlCount - 1 do
+      begin
+        if Reloaded.Controls[I] is TUpdateNotesView then ReloadedView := TUpdateNotesView(Reloaded.Controls[I]);
+        if Reloaded.Controls[I] is TComboBox then ReloadedSelector := TComboBox(Reloaded.Controls[I]);
+      end;
+      Require(Pos('длинного журнала', ReloadedView.PrimaryNotes.Text) > 0, 'Application history missing before network check');
+      ReloadedSelector.ItemIndex := 2; ReloadedSelector.OnChange(ReloadedSelector);
+      Require(Pos('Сохранённое описание SumatraPDF', ReloadedView.PrimaryNotes.Text) > 0,
+        'Cached component history missing before network check');
+      Reloaded.CheckFailed('Сеть недоступна');
+      Require(Pos('Сохранённое описание', ReloadedView.PrimaryNotes.Text) > 0, 'Manual failure clears cached text');
+      Reloaded.ClientWidth := MulDiv(1000, Reloaded.CurrentPPI, 96);
+      Reloaded.ClientHeight := MulDiv(760, Reloaded.CurrentPPI, 96);
+      ReloadedView.ZoomPercent := 140;
+      SavedWidth := MulDiv(Reloaded.ClientWidth, 96, Reloaded.CurrentPPI);
+      SavedHeight := MulDiv(Reloaded.ClientHeight, 96, Reloaded.CurrentPPI);
+    finally Reloaded.Free; end;
+    Reloaded := TfrmProgramUpdate.Create(nil);
+    try
+      ReloadedView := nil;
+      for I := 0 to Reloaded.ControlCount - 1 do
+        if Reloaded.Controls[I] is TUpdateNotesView then ReloadedView := TUpdateNotesView(Reloaded.Controls[I]);
+      Require((Abs(MulDiv(Reloaded.ClientWidth, 96, Reloaded.CurrentPPI) - SavedWidth) <= 1) and
+        (Abs(MulDiv(Reloaded.ClientHeight, 96, Reloaded.CurrentPPI) - SavedHeight) <= 1),
+        'Resized update window was not restored from disk');
+      Require(Assigned(ReloadedView) and (ReloadedView.ZoomPercent = 140), 'Text zoom was not restored from disk');
+    finally Reloaded.Free; end;
+    Writeln('PASS resized update window and text zoom survive reopening from disk');
+    Require(ParseProgramReleases('[{"tag_name":"2.7.0_pre5.11","draft":false,"body":"",' +
+      '"assets":[{"name":"HomeLibRu.zip"}]}]', Parsed) and
+      (Pos('Автор не опубликовал', Parsed.History) > 0), 'Empty author release mistaken for unloaded history');
+    Writeln('PASS saved histories survive reopening and network failure; empty author notes are explained');
+
     Require(Bytes.Caption = '', 'No download must happen before the click');
     Popup.BeginCheck; Popup.SetCurrent(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Проверить ещё раз'), 'No-update check is not retryable');
@@ -181,6 +257,7 @@ begin
     // Optional local preview for Computer Use, only inside the guarded fixture runtime.
     if FileExists(Settings.AppPath + 'notes-preview.html') then
     begin
+      ReleaseInfo.History := '';
       ReleaseInfo.Changelog := ReleaseNotesHeading('3.53.0', '2026-04-09') + sLineBreak + SQLiteNotesToMarkdown(
         TFile.ReadAllText(Settings.AppPath + 'notes-preview.html', TEncoding.UTF8)) +
         sLineBreak + sLineBreak + ReleaseNotesHeading('3.52.0', '2026-03-06') + sLineBreak + '## Предыдущий выпуск' +

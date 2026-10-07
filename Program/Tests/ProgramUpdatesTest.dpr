@@ -1,10 +1,10 @@
-program ProgramUpdatesTest;
+﻿program ProgramUpdatesTest;
 
 {$APPTYPE CONSOLE}
 {$R *.res}
 
 uses
-  System.SysUtils, System.Classes, System.Net.HttpClient, System.Net.URLClient,
+  System.SysUtils, System.Classes, System.IOUtils, System.Net.HttpClient, System.Net.URLClient,
   Winapi.Windows, Winapi.Messages,
   unit_ProgramUpdates in '..\Units\unit_ProgramUpdates.pas';
 
@@ -30,7 +30,8 @@ begin
     ',"html_url":"https://example.invalid/evil","assets":[{"name":"HomeLibRu.zip"}]}';
 end;
 
-procedure HTTPCheck(const URL: string; Expected: Boolean; Cancel: Boolean = False);
+procedure HTTPCheck(const URL: string; Expected: Boolean; Cancel: Boolean = False;
+  const CacheFolder: string = ''; const ExpectedTag: string = '2.7.0_pre5.08');
 var
   HTTP: THTTPClient;
   Thread: TProgramUpdateThread;
@@ -43,7 +44,7 @@ begin
   Check(Window <> 0, 'hidden test window');
   HTTP := THTTPClient.Create;
   HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');
-  Thread := TProgramUpdateThread.Create(Window, HTTP, URL);
+  Thread := TProgramUpdateThread.Create(Window, HTTP, URL, CacheFolder);
   try
     Started := GetTickCount64;
     Thread.Start;
@@ -52,7 +53,7 @@ begin
     Thread.WaitFor;
     Check(GetTickCount64 - Started < 12000, 'bounded network wait');
     Check(Thread.Successful = Expected, URL);
-    if Expected then Check(Thread.ReleaseInfo.Tag = '2.7.0_pre5.08', 'HTTP release');
+    if Expected then Check(Thread.ReleaseInfo.Tag = ExpectedTag, 'HTTP release');
     if not Cancel then
       Check(PeekMessage(Msg, Window, WM_PROGRAM_UPDATE_CHECKED, WM_PROGRAM_UPDATE_CHECKED,
         PM_REMOVE), 'completion message without payload');
@@ -65,7 +66,7 @@ end;
 var
   Info: TProgramRelease;
   C: Integer;
-  BaseURL: string;
+  BaseURL, CacheFolder: string; CacheID: TGUID;
 begin
   try
     Compare('2.7.0_pre5.07', '2.7.0_pre5.06', 1);
@@ -96,6 +97,15 @@ begin
       HTTPCheck(BaseURL + '/slow', False);
       HTTPCheck(BaseURL + '/ok', False, True);
       HTTPCheck('http://127.0.0.1:1/unavailable', False);
+      CreateGUID(CacheID);
+      CacheFolder := IncludeTrailingPathDelimiter(TPath.GetTempPath) + 'HomeLibRu-update-test-http-' + GUIDToString(CacheID);
+      HTTPCheck(BaseURL + '/cached', True, False, CacheFolder);
+      HTTPCheck(BaseURL + '/cached', True, False, CacheFolder);
+      HTTPCheck(BaseURL + '/cached', True, False, CacheFolder, '2.7.0_pre5.09');
+      HTTPCheck(BaseURL + '/cached', False, False, CacheFolder);
+      HTTPCheck(BaseURL + '/modified', True, False, CacheFolder);
+      HTTPCheck(BaseURL + '/modified', True, False, CacheFolder);
+      Writeln('PASS conditional history cache handles 304, changed releases and manual network failure');
     end;
     Writeln('PASS: ', Checks, ' program-update checks');
   except

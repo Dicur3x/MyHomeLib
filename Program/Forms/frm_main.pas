@@ -3147,7 +3147,8 @@ begin
   if Assigned(FProgramUpdateForm) then FProgramUpdateForm.CheckComponents(FAutoCheck);
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
   Settings.SaveSettings;
-  FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal);
+  FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal,
+    PROGRAM_RELEASES_API, ProgramUpdateCache(Settings.AppPath));
   acHelpCheckUpdates.Enabled := False;
   FProgramUpdateThread.Start;
 end;

@@ -17,7 +17,7 @@ type
     FHTTP: THTTPClient;
     FWindow: HWND;
     FSuccessful: Boolean;
-    FError, FURL: string;
+    FError, FURL, FCacheFolder: string;
     FReleases: TComponentReleases;
     FLimit: Int64;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
@@ -26,7 +26,7 @@ type
     procedure Execute; override;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
-      const URL: string = PROGRAM_RELEASES_API);
+      const URL: string = PROGRAM_RELEASES_API; const CacheFolder: string = '');
     destructor Destroy; override;
     property Successful: Boolean read FSuccessful;
     property ErrorText: string read FError;
@@ -41,11 +41,44 @@ function ComponentArchiveName(const ID, Platform: string): string;
 function ComponentChanges(const Info: TProgramRelease; const Installed: string): string;
 function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRelease): Boolean;
 function ParseSumatraReleases(const JSON: string; out Info: TProgramRelease): Boolean;
+procedure PreserveComponentHistory(var Current: TComponentReleases; const Previous: TComponentReleases);
+procedure LoadComponentHistory(const CacheFolder: string; var Releases: TComponentReleases);
+procedure SaveComponentHistory(const CacheFolder: string; const Releases: TComponentReleases);
 
 implementation
 
 uses System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils,
-  System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller, unit_UpdateNotes;
+  System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
+  unit_UpdateNotes, unit_UpdateTextCache;
+
+procedure PreserveComponentHistory(var Current: TComponentReleases; const Previous: TComponentReleases);
+var I: Integer;
+begin
+  for I in CHECKED_COMPONENT_INDICES do
+    if Current[I].History.Trim = '' then
+    begin
+      Current[I].History := Previous[I].History;
+      Current[I].Notes := Previous[I].Notes;
+    end;
+end;
+
+procedure LoadComponentHistory(const CacheFolder: string; var Releases: TComponentReleases);
+var I: Integer; Text: string;
+begin
+  for I in CHECKED_COMPONENT_INDICES do
+  begin
+    Text := ReadUpdateHistory(IncludeTrailingPathDelimiter(CacheFolder) + 'notes-' + COMPONENT_IDS[I] + '.txt');
+    if Text.Trim <> '' then Releases[I].History := Copy(Text, 1, 324000);
+  end;
+end;
+
+procedure SaveComponentHistory(const CacheFolder: string; const Releases: TComponentReleases);
+var I: Integer;
+begin
+  for I in CHECKED_COMPONENT_INDICES do
+    WriteUpdateHistory(IncludeTrailingPathDelimiter(CacheFolder) + 'notes-' + COMPONENT_IDS[I] + '.txt',
+      Copy(Releases[I].History, 1, 324000));
+end;
 
 function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRelease): Boolean;
 var Match, Item: TMatch; Arch, Text: string; History: TJSONArray; Entry: TJSONObject;
@@ -240,9 +273,10 @@ begin
   finally Root.Free; AssetsRoot.Free; end;
 end;
 
-constructor TComponentUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient; const URL: string);
+constructor TComponentUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient; const URL, CacheFolder: string);
 begin
   inherited Create(True); FreeOnTerminate := False; FHTTP := AHTTP; FWindow := AWindow; FURL := URL;
+  FCacheFolder := CacheFolder;
   FHTTP.UserAgent := 'HomeLib Ru'; FHTTP.ConnectionTimeout := 4000; FHTTP.ResponseTimeout := 6000;
   FHTTP.OnReceiveData := ReceiveData; FLimit := 8 * 1024 * 1024;
 end;
@@ -259,10 +293,8 @@ var I: Integer; DownloadPage, Changes: string; Response: IHTTPResponse;
   function GetText(const URL: string): string;
   begin
     if Terminated then Abort;
-    Response := FHTTP.Get(URL);
-    if Terminated or (Response.StatusCode <> 200) then
-      raise Exception.Create('Не удалось получить сведения с официального сайта. Попробуйте позже.');
-    Result := Response.ContentAsString(TEncoding.UTF8);
+    Result := CachedUpdateText(FHTTP, URL, FCacheFolder, FLimit);
+    if Terminated then Abort;
   end;
 begin
   for I in CHECKED_COMPONENT_INDICES do
