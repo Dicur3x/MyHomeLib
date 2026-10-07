@@ -45,7 +45,7 @@ function ParseSumatraReleases(const JSON: string; out Info: TProgramRelease): Bo
 implementation
 
 uses System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils,
-  System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller;
+  System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller, unit_UpdateNotes;
 
 function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRelease): Boolean;
 var Match, Item: TMatch; Arch, Text: string; History: TJSONArray; Entry: TJSONObject;
@@ -68,17 +68,15 @@ begin
   Info.URL := 'https://www.sqlite.org/changes.html'; Info.SourceSHA3 := Match.Groups[4].Value;
   Info.OfficialComponent := True; History := TJSONArray.Create;
   try
-    for Item in TRegEx.Matches(Changes, '(?is)<h3[^>]*>[^<]*\(([0-9.]+)\)</h3>(.*?)(?=<h3|\z)') do
-      if CompareComponentVersions(Item.Groups[1].Value, Info.ComponentVersion, Comparison) and (Comparison <= 0) then
+    for Item in TRegEx.Matches(Changes, '(?is)<h3[^>]*>\s*(?:([0-9]{4}-[0-9]{2}-[0-9]{2})\s*)?\(([0-9.]+)\)</h3>(.*?)(?=<h3|\z)') do
+      if CompareComponentVersions(Item.Groups[2].Value, Info.ComponentVersion, Comparison) and (Comparison <= 0) then
       begin
-        Text := TRegEx.Replace(Item.Groups[2].Value, '(?i)<li[^>]*>', sLineBreak + '• ');
-        Text := TRegEx.Replace(Text, '(?i)<br[^>]*>|</p>|</ol>|</ul>', sLineBreak);
-        Text := TRegEx.Replace(Text, '<[^>]+>', '');
-        Text := StringReplace(Text, '&nbsp;', ' ', [rfReplaceAll]);
-        Text := StringReplace(Text, '&amp;', '&', [rfReplaceAll]);
-        Entry := TJSONObject.Create; Entry.AddPair('version', Item.Groups[1].Value);
+        Text := SQLiteNotesToMarkdown(Item.Groups[3].Value);
+        Entry := TJSONObject.Create; Entry.AddPair('version', Item.Groups[2].Value);
+        Entry.AddPair('date', Item.Groups[1].Value);
+        if Comparison = 0 then Info.PublishedAt := Item.Groups[1].Value;
         Entry.AddPair('notes', Copy(Text.Trim, 1, 12000)); History.AddElement(Entry);
-        Info.History := Info.History + Item.Groups[1].Value + sLineBreak + Copy(Text.Trim, 1, 12000) + sLineBreak + sLineBreak;
+        Info.History := Info.History + ReleaseNotesHeading(Item.Groups[2].Value, Item.Groups[1].Value) + sLineBreak + Copy(Text.Trim, 1, 12000) + sLineBreak + sLineBreak;
         if (History.Count >= 30) or (Length(Info.History) > 120000) then Break;
       end;
     if History.Count = 0 then Exit;
@@ -111,7 +109,10 @@ begin
       Notes := ''; Obj.TryGetValue<string>('body', Notes);
       if Notes.Trim = '' then Notes := 'Автор не опубликовал описание изменений этой версии.';
       ReleaseEntry := Default(TProgramRelease); ReleaseEntry.ComponentVersion := Version;
-      ReleaseEntry.Notes := Copy(Notes, 1, 12000); Entries.Add(ReleaseEntry);
+      ReleaseEntry.Notes := Copy(Notes, 1, 12000);
+      if Obj.TryGetValue<string>('published_at', ReleaseEntry.PublishedAt) then
+        ReleaseEntry.PublishedAt := Copy(ReleaseEntry.PublishedAt, 1, 64);
+      Entries.Add(ReleaseEntry);
     end;
     if Info.ComponentVersion = '' then Exit;
     Entries.Sort(TComparer<TProgramRelease>.Construct(
@@ -122,8 +123,10 @@ begin
     for ReleaseEntry in Entries do
     begin
       Entry := TJSONObject.Create; Entry.AddPair('version', ReleaseEntry.ComponentVersion);
-      Entry.AddPair('notes', ReleaseEntry.Notes); History.AddElement(Entry);
-      Info.History := Info.History + ReleaseEntry.ComponentVersion + sLineBreak +
+      Entry.AddPair('notes', ReleaseEntry.Notes); Entry.AddPair('date', ReleaseEntry.PublishedAt);
+      History.AddElement(Entry);
+      if ReleaseEntry.ComponentVersion = Info.ComponentVersion then Info.PublishedAt := ReleaseEntry.PublishedAt;
+      Info.History := Info.History + ReleaseNotesHeading(ReleaseEntry.ComponentVersion, ReleaseEntry.PublishedAt) + sLineBreak +
         ReleaseEntry.Notes + sLineBreak + sLineBreak;
       if (History.Count >= 30) or (Length(Info.History) > 120000) then Break;
     end;
@@ -160,7 +163,7 @@ begin
 end;
 
 function ComponentChanges(const Info: TProgramRelease; const Installed: string): string;
-var Root: TJSONValue; Entry: TJSONValue; Version, Notes: string; Comparison: Integer;
+var Root: TJSONValue; Entry: TJSONValue; Version, Notes, Date: string; Comparison: Integer;
 begin
   Result := ''; Root := TJSONObject.ParseJSONValue(Info.Notes);
   try
@@ -169,7 +172,10 @@ begin
       if (Entry is TJSONObject) and TJSONObject(Entry).TryGetValue<string>('version', Version) and
          TJSONObject(Entry).TryGetValue<string>('notes', Notes) and
          ((Installed = '') or (CompareComponentVersions(Version, Installed, Comparison) and (Comparison > 0))) then
-        Result := Result + Version + sLineBreak + Notes + sLineBreak + sLineBreak;
+      begin
+        Date := ''; TJSONObject(Entry).TryGetValue<string>('date', Date);
+        Result := Result + ReleaseNotesHeading(Version, Date) + sLineBreak + Notes + sLineBreak + sLineBreak;
+      end;
   finally Root.Free; end;
   Result := Result.Trim;
 end;
@@ -177,7 +183,7 @@ end;
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
   out Releases: TComponentReleases; RequireAssets: Boolean): Boolean;
 var Root, AssetsRoot: TJSONValue; Items, History, Assets: TJSONArray;
-  Value, Entry, Asset: TJSONValue; Obj: TJSONObject; ID, Version, Platform, Notes, Name, URL, Digest: string;
+  Value, Entry, Asset: TJSONValue; Obj: TJSONObject; ID, Version, Platform, Notes, Name, URL, Digest, Date: string;
   Format, I, Comparison: Integer; Info: TProgramRelease; Found: array[0..2] of Boolean;
 begin
   Result := False; Releases := Default(TComponentReleases); Root := nil; AssetsRoot := nil;
@@ -210,7 +216,9 @@ begin
            not TJSONObject(Entry).TryGetValue<string>('version', Name) or
            not CompareComponentVersions(Name, Version, Comparison) or (Comparison > 0) or
            not TJSONObject(Entry).TryGetValue<string>('notes', Notes) or (Notes.Trim = '') then Exit;
-        Info.History := Info.History + Name + sLineBreak + Copy(Notes, 1, 12000) + sLineBreak + sLineBreak;
+        Date := ''; TJSONObject(Entry).TryGetValue<string>('date', Date);
+        if Name = Version then Info.PublishedAt := Copy(Date, 1, 64);
+        Info.History := Info.History + ReleaseNotesHeading(Name, Date) + sLineBreak + Copy(Notes, 1, 12000) + sLineBreak + sLineBreak;
         if Length(Info.History) > 120000 then Exit;
       end;
       // Asset location, checksum and size come from GitHub, not the feed body.

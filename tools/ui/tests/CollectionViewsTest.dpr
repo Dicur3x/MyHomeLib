@@ -8,12 +8,12 @@
 
 uses
   NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows,
-  Vcl.Forms, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
-  VirtualTrees, BookTreeView,
+  Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
+  VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
-  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ProgramUpdateInstaller,
+  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread;
 
 type
@@ -41,8 +41,9 @@ var
   CleanupExitTemp, CleanupExitPersistent, CleanupExitSource: string;
 
 procedure TestProgramUpdateUI;
-var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo: TProgramRelease;
-  I: Integer; Notes: TMemo; Primary: TButton; Version, Bytes: TLabel; Selector: TComboBox;
+var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
+  ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
+  I: Integer; Notes: TRichEdit; Primary: TButton; Version, Bytes: TLabel; Selector: TComboBox;
 begin
   Configuration := TfrmSettings.Create(nil);
   try
@@ -60,10 +61,11 @@ begin
   Writeln('PASS update settings preserve never and custom hours');
   Popup := TfrmProgramUpdate.Create(nil);
   try
-    Notes := nil; Primary := nil; Version := nil; Bytes := nil; Selector := nil;
+    NotesView := nil; Notes := nil; Primary := nil; Version := nil; Bytes := nil; Selector := nil;
     for I := 0 to Popup.ControlCount - 1 do
     begin
-      if Popup.Controls[I] is TMemo then Notes := TMemo(Popup.Controls[I]);
+      if Popup.Controls[I] is TUpdateNotesView then
+      begin NotesView := TUpdateNotesView(Popup.Controls[I]); Notes := NotesView.PrimaryNotes; end;
       if Popup.Controls[I] is TComboBox then Selector := TComboBox(Popup.Controls[I]);
       if (Popup.Controls[I] is TButton) and TButton(Popup.Controls[I]).Default then Primary := TButton(Popup.Controls[I]);
       if (Popup.Controls[I] is TLabel) and (Pos('Текущая', TLabel(Popup.Controls[I]).Caption) = 1) then Version := TLabel(Popup.Controls[I]);
@@ -75,7 +77,8 @@ begin
     Require(Selector.Items[1].StartsWith('SQLite:') and Selector.Items[2].StartsWith('SumatraPDF:'),
       'Component selection must skip AlReader and retain SumatraPDF');
     Selector.ItemIndex := 1; Selector.OnChange(Selector);
-    Require(Pos('3.53.4', Notes.Text) > 0, 'Installed component changelog missing');
+    Require((Pos('3.53.4', NotesView.SectionHeader(0).Caption) > 0) and
+      (Pos('Исправлены', Notes.Text) > 0), 'Installed component changelog missing');
     Require(Primary.Caption = 'Проверить компонент', 'Component check missing');
     Selector.ItemIndex := 0; Selector.OnChange(Selector);
     ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.12';
@@ -87,21 +90,110 @@ begin
     Popup.SetRelease(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Changelog missing');
-    Require((Notes.Lines.Count >= 4) and (Notes.Lines[0] = '2.7.0_pre5.12') and
-      (Notes.Lines[1] = 'Новые изменения') and (Notes.Lines[3] = '- Первый пункт'),
+    Require((Notes.Lines.Count >= 3) and (Pos('2.7.0_pre5.12', NotesView.SectionHeader(0).Caption) > 0) and
+      (Notes.Lines[0] = 'Новые изменения') and (Pos('Первый пункт', Notes.Lines[2]) > 0),
       'Unix changelog line breaks collapsed in Windows memo');
+    Require((NotesView.SectionCount = 2) and not NotesView.IsExpanded(1) and
+      (Pos(PROGRAM_RELEASE_VERSION, NotesView.SectionHeader(1).Caption) > 0),
+      'New update hides installed-version history');
+    ReleaseInfo.History := '';
+    ReleaseInfo.Changelog := '2.7.0_pre5.12' + #10 + '## Исправления' + #10 +
+      '- **Переходы** по ссылкам' + #10 + '  - Дочерний пункт' + #10#10 +
+      '2.7.0_pre5.11' + #10 + 'Текст {\rtf1} и кириллица ← ↔';
+    Popup.SetRelease(ReleaseInfo);
+    Require((fsBold in NotesView.SectionHeader(0).Font.Style) and
+      (NotesView.SectionHeader(0).Font.Size > Notes.Font.Size),
+      'Release heading is not emphasized');
+    Notes.SelStart := Pos('Исправления', Notes.Text) - 1; Notes.SelLength := Length('Исправления');
+    Require(fsBold in Notes.SelAttributes.Style, 'Markdown section heading is not bold');
+    Notes.SelStart := Pos('Дочерний пункт', Notes.Text) - 1; Notes.SelLength := 1;
+    Require(Notes.Paragraph.LeftIndent > 0, 'Nested list lost its indentation');
+    Require((Pos('**', Notes.Text) = 0) and (Pos('{\rtf1}', NotesView.SectionNotes(1).Text) > 0) and
+      (Pos('кириллица ← ↔', NotesView.SectionNotes(1).Text) > 0), 'Markdown or Unicode/RTF escaping is broken');
+    Require((NotesView.SectionCount = 2) and
+      (Pos('2.7.0_pre5.11', NotesView.SectionHeader(1).Caption) > 0), 'Second release was lost');
+    Require(NotesView.IsExpanded(0) and not NotesView.IsExpanded(1) and
+      not NotesView.SectionNotes(1).Visible, 'Previous changelog is not collapsed initially');
+    NotesView.SectionHeader(1).OnClick(NotesView.SectionHeader(1));
+    Require(NotesView.IsExpanded(0) and NotesView.IsExpanded(1) and
+      NotesView.SectionNotes(1).Visible, 'Previous changelog cannot be expanded independently');
+    NotesView.SectionHeader(1).OnClick(NotesView.SectionHeader(1));
+    Require(not NotesView.IsExpanded(1), 'Previous changelog cannot be collapsed again');
+    Writeln('PASS previous changelogs start collapsed and can be expanded independently');
+    ReleaseInfo.Changelog := SQLiteNotesToMarkdown('<ol><li>Fix the bug.' + #10 +
+      '<li>New SQL language features:<ol><li>Nested   item' + #10 +
+      ' continuation &amp; &harr;</ol></ol><p><b>Hashes:</b><ol><li>SHA3: abc</ol>');
+    Require((Pos('  - Nested item continuation & ↔', ReleaseInfo.Changelog) > 0) and
+      (Pos('## Hashes:', ReleaseInfo.Changelog) > 0), 'SQLite HTML hierarchy or whitespace lost');
+    Popup.SetRelease(ReleaseInfo);
+    Notes.SelStart := Pos('New SQL language features:', Notes.Text) - 1;
+    Notes.SelLength := Length('New SQL language features:');
+    Require(fsBold in Notes.SelAttributes.Style, 'SQLite subsection is not emphasized');
+    Writeln('PASS update notes retain nested SQLite lists, headings and safe Unicode text');
+    Require(ReleaseNotesHeading('3.53.0', '2026-04-09T00:00:00Z') =
+      '3.53.0 — 09.04.2026', 'Release date missing');
+    Require((ReleaseNotesHeading('3.53.0', '') = '3.53.0') and
+      (ReleaseNotesHeading('3.53.0', '2026-02-30') = '3.53.0'), 'Unknown or invalid date was invented');
+    Require(ParseProgramReleases('[{"tag_name":"2.7.0_pre9.99","draft":false,' +
+      '"published_at":"2026-10-07T12:00:00Z","body":"## Изменения\n- Первый пункт",' +
+      '"assets":[{"name":"HomeLibRu.zip"}]}]', Parsed), 'Application date fixture failed');
+    Require((Pos('2.7.0_pre9.99 — 07.10.2026', Parsed.Changelog) > 0) and
+      (Pos('2.7.0_pre9.99 — 07.10.2026', Parsed.History) > 0), 'Application history omitted its date');
+{$IFDEF WIN64}
+    SQLiteArch := 'x64';
+{$ELSE}
+    SQLiteArch := 'x86';
+{$ENDIF}
+    Require(ParseSQLiteDownload('PRODUCT,3.53.0,2026/sqlite-dll-win-' + SQLiteArch +
+      '-3530000.zip,2000000,' + StringOfChar('a', 64),
+      '<h3>2026-04-09 (3.53.0)</h3><ol><li>New SQL language features:' +
+      '<ol><li>Nested feature</ol></ol><h3>2026-03-06 (3.52.0)</h3><ol><li>Old feature</ol>', Parsed),
+      'SQLite dated changelog fixture failed');
+    Require((Pos('3.53.0 — 09.04.2026', ComponentChanges(Parsed, '3.52.0')) > 0) and
+      (Pos('Old feature', ComponentChanges(Parsed, '3.52.0')) = 0), 'SQLite missed releases or dates are wrong');
+    Require(ParseSumatraReleases('[{"tag_name":"3.6.1rel","published_at":"2026-01-15T12:00:00Z",' +
+      '"body":"## Bugfixes\n- First fix\n  - Nested detail"}]', Parsed), 'Sumatra dated changelog fixture failed');
+    Require(Pos('3.6.1 — 15.01.2026', ComponentChanges(Parsed, '3.6.0')) > 0,
+      'Sumatra changelog omitted its date');
+    for ComponentID in COMPONENT_IDS do
+    begin
+      ReleaseInfo.ComponentID := ComponentID; ReleaseInfo.ComponentVersion := '3.53.0';
+      ReleaseInfo.PublishedAt := '2026-04-09';
+      ReleaseInfo.Changelog := ReleaseNotesHeading('3.53.0', ReleaseInfo.PublishedAt) + #10 +
+        '## Изменения' + #10 + '- **Исправление**' + #10 + '  - Дочерний пункт' + #10#10 +
+        ReleaseNotesHeading('3.52.0', '2026-03-06') + #10 + '- Прежний выпуск';
+      Popup.SetRelease(ReleaseInfo);
+      Require((Pos('3.53.0 — 09.04.2026', NotesView.SectionHeader(0).Caption) > 0) and
+        (fsBold in NotesView.SectionHeader(0).Font.Style) and
+        (NotesView.SectionHeader(0).Font.Size > Notes.Font.Size),
+        ComponentID + ' dated heading is not emphasized');
+      Notes.SelStart := Pos('Дочерний пункт', Notes.Text) - 1; Notes.SelLength := 1;
+      Require(Notes.Paragraph.LeftIndent > 0, ComponentID + ' nested list is flat');
+    end;
+    ReleaseInfo.ComponentID := ''; ReleaseInfo.PublishedAt := '';
+    Writeln('PASS dates and shared formatting cover application and every component');
+
     Require(Bytes.Caption = '', 'No download must happen before the click');
     Popup.BeginCheck; Popup.SetCurrent(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Проверить ещё раз'), 'No-update check is not retryable');
     Popup.CheckFailed('Не удалось проверить');
     Require(Primary.Enabled and (Primary.Caption = 'Повторить проверку'), 'Manual failure is not retryable');
+    // Optional local preview for Computer Use, only inside the guarded fixture runtime.
+    if FileExists(Settings.AppPath + 'notes-preview.html') then
+    begin
+      ReleaseInfo.Changelog := ReleaseNotesHeading('3.53.0', '2026-04-09') + sLineBreak + SQLiteNotesToMarkdown(
+        TFile.ReadAllText(Settings.AppPath + 'notes-preview.html', TEncoding.UTF8)) +
+        sLineBreak + sLineBreak + ReleaseNotesHeading('3.52.0', '2026-03-06') + sLineBreak + '## Предыдущий выпуск' +
+        sLineBreak + '- Пример отдельного выпуска';
+      Popup.SetRelease(ReleaseInfo); Popup.Hide; Popup.ShowModal;
+    end;
   finally Popup.Free; end;
   Writeln('PASS update popup shows installed version and changelog without automatic download');
 end;
 
 procedure TestProgramUpdateDownload;
 var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
-  Primary, Later: TButton; Notes: TMemo; Bytes: TLabel; Bar: TProgressBar;
+  Primary, Later: TButton; Notes: TRichEdit; Bytes: TLabel; Bar: TProgressBar;
   I: Integer; Deadline: UInt64; ReadyFile: string;
   procedure Controls;
   var J: Integer;
@@ -109,7 +201,7 @@ var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
     Primary := nil; Later := nil; Notes := nil; Bytes := nil; Bar := nil;
     for J := 0 to Popup.ControlCount - 1 do
     begin
-      if Popup.Controls[J] is TMemo then Notes := TMemo(Popup.Controls[J]);
+      if Popup.Controls[J] is TUpdateNotesView then Notes := TUpdateNotesView(Popup.Controls[J]).PrimaryNotes;
       if Popup.Controls[J] is TProgressBar then Bar := TProgressBar(Popup.Controls[J]);
       if (Popup.Controls[J] is TLabel) and (Popup.Controls[J].Top > 400) then Bytes := TLabel(Popup.Controls[J]);
       if Popup.Controls[J] is TButton then
@@ -858,87 +950,57 @@ begin
   Writeln('PASS deferred publisher view restores its language and book without changing author selection');
 end;
 
-procedure TestPublisherGenres(const One: IBookCollection; OneID, TwoID: Integer);
-var
-  View: TPublisherSeriesView;
-  OtherGenre, MainGenre: TGenreData;
-  Filter: TFilterValue;
-  GenreIterator: IGenreIterator;
-  SeriesIterator: ISeriesIterator;
-  Item: TSeriesData;
-  Series: TBookSeries;
-  Node: PVirtualNode;
-  Genre: PGenreData;
-  BookID, OtherBook, HiddenBook: Integer;
-  Names: TStringList;
-
-  procedure ExpectSeries(const GenreCode: string; const Expected: array of string);
-  var I: Integer;
-  begin
-    Names := TStringList.Create;
-    try
-      SeriesIterator := One.GetPublisherSeriesIterator('Audit', GenreCode);
-      Require(SeriesIterator.RecordCount = Length(Expected), 'Filtered series count differs');
-      while SeriesIterator.Next(Item) do Names.Add(Item.SeriesTitle);
-      Names.Sort;
-      Require(Names.Count = Length(Expected), 'Wrong publisher genres result');
-      for I := 0 to High(Expected) do Require(Names[I] = Expected[I], 'Unexpected publisher genre result');
-      SeriesIterator := nil;
-    finally Names.Free; end;
-  end;
+procedure TestPublisherLinks(const One: IBookCollection; OneID, TwoID: Integer);
+var View: TPublisherSeriesView; Series: TBookSeries; Item: TSeriesData;
+  Iter: ISeriesIterator; Book: PBookRecord; Node: PVirtualNode;
+  BookID, OtherBook, SeriesID, CycleID: Integer; GenreCode: string;
+  Annotation: TMemo; I: Integer; Viewport: TScrollBox; Content: TWinControl;
 begin
   View := PublisherView;
-  BookID := AddBook(One, 'Audit prose', 'Audit', 'ru', '', 'prose_contemporary');
-  Filter := Default(TFilterValue); Filter.ValueInt := BookID;
-  GenreIterator := One.GetGenreIterator(gmByBook, @Filter);
-  Require(GenreIterator.Next(MainGenre), 'Main genre fixture absent');
-  GenreIterator := nil;
-  OtherGenre := One.EnsureGenre('audit_other', 'Audit other genre', 'Audit group');
-  OtherBook := AddBook(One, 'Audit science', 'Audit', 'ru', '', OtherGenre.GenreCode);
-  HiddenBook := AddBook(One, 'Audit deleted', 'Audit', 'ru', '', OtherGenre.GenreCode, True);
+  BookID := AddBook(One, 'Audit prose', 'Audit', 'ru', 'Audit cycle', 'prose_contemporary');
+  OtherBook := AddBook(One, 'Audit science', 'Audit', 'ru', 'Audit cycle', 'sci_physics');
   TSeriesHelper.Add(Series, 0, 'Audit common', 7, False);
   One.SetBookPublisherSeries(CreateBookKey(BookID, OneID), Series);
-  TSeriesHelper.Add(Series, 0, 'Audit other', 8, False);
   One.SetBookPublisherSeries(CreateBookKey(OtherBook, OneID), Series);
-  Series := nil;
-  TSeriesHelper.Add(Series, 0, 'Audit hidden', 0, False);
-  One.SetBookPublisherSeries(CreateBookKey(HiddenBook, OneID), Series);
-  One.SetHideDeleted(True);
-  ExpectSeries('', ['Audit common', 'Audit other']);
-  ExpectSeries(MainGenre.GenreCode, ['Audit common']);
-  ExpectSeries(OtherGenre.GenreCode, ['Audit common', 'Audit other']);
-  ExpectSeries(OtherGenre.ParentCode, ['Audit common', 'Audit other']);
-  ExpectSeries('missing-genre', []);
-  Writeln('PASS publisher genres follow actual parent relations and hide deleted-only series');
+  Iter := One.GetPublisherSeriesIterator('Audit'); Require(Iter.Next(Item), 'Publisher fixture absent');
+  SeriesID := Item.SeriesID; Iter := nil;
+  // A previously saved grouping must not hide books after returning to a flat list.
+  One.SetProperty(PROP_PUBLISHER_BY_GENRE, True); One.SetProperty(PROP_PUBLISHER_GENRE, 'missing-genre');
+  One.SetProperty(PROP_LAST_PUBLISHER_SERIES, SeriesID);
+  One.SetProperty(PROP_LAST_PUBLISHER_BOOK, BookID); One.SetProperty(PROP_PUBLISHER_LANG_FILTER, 0);
   ChangeCollection(TwoID); ChangeCollection(OneID);
   frmMain.pgControl.ActivePage := View.Tab; frmMain.pgControlChange(nil);
-  View.ByGenre.Checked := True; View.ByGenre.OnClick(View.ByGenre);
-  Require(View.GenreTree.Visible and View.AllGenres.Visible, 'Genre browser is hidden');
-  Node := View.GenreTree.GetFirst;
-  while Assigned(Node) do
-  begin
-    Genre := View.GenreTree.GetNodeData(Node);
-    if Genre^.GenreCode = OtherGenre.ParentCode then Break;
-    Node := View.GenreTree.GetNext(Node);
-  end;
-  Require(Assigned(Node), 'Imported genre parent is missing from publisher view');
-  View.GenreTree.Selected[Node] := True; View.GenreTree.FocusedNode := Node;
-  View.GenreTree.OnChange(View.GenreTree, Node);
-  Require(View.SeriesTree.RootNodeCount = 2, 'Root genre must immediately list its series');
+  Require(View.SeriesTree.RootNodeCount = 1, 'Flat view duplicated or hid a mixed-genre series');
   ExpectTitles(View.Books, ['Audit prose', 'Audit science']);
-  ChangeCollection(TwoID);
-  Require(not View.ByGenre.Checked, 'Grouping leaked into another collection');
-  ChangeCollection(OneID);
-  Require(View.ByGenre.Checked and (View.SeriesTree.RootNodeCount = 2), 'Saved genre grouping was lost');
-  Genre := View.GenreTree.GetNodeData(View.GenreTree.GetFirstSelected);
-  Require(Assigned(Genre) and (Genre^.GenreCode = OtherGenre.ParentCode), 'Selected genre was lost');
-  View.AllGenres.Click;
-  Require(View.GenreTree.GetFirstSelected = nil, 'All genres did not clear selection');
-  View.ByGenre.Checked := False; View.ByGenre.OnClick(View.ByGenre);
-  Require(not View.GenreTree.Visible, 'Flat list did not return');
+  Node := View.Books.FocusedNode; Book := View.Books.GetNodeData(Node);
+  Require(Assigned(Book) and (Book.BookKey.BookID = BookID), 'Publisher selection lost');
+  CycleID := Book.SeriesID; GenreCode := Book.Genres[0].GenreCode;
+  Annotation := nil; Viewport := nil;
+  for I := 0 to View.Info.ControlCount - 1 do
+    if View.Info.Controls[I] is TScrollBox then Viewport := TScrollBox(View.Info.Controls[I]);
+  Require(Assigned(Viewport), 'Card viewport missing'); Content := TWinControl(Viewport.Controls[0]);
+  for I := 0 to Content.ControlCount - 1 do
+    if Content.Controls[I] is TMemo then Annotation := TMemo(Content.Controls[I]);
+  Require(Assigned(Annotation), 'Annotation missing'); Annotation.Text := 'Keep the current card';
+  View.Info.OnPublisherSeriesLinkClicked(View.Info, IntToStr(SeriesID), Low(TSysLinkType));
+  Require((View.Books.FocusedNode = Node) and (Annotation.Text = 'Keep the current card'),
+    'Same publisher link rebuilt its book tree or cleared its card');
+  View.Info.OnSeriesLinkClicked(View.Info, IntToStr(CycleID), Low(TSysLinkType));
+  Require(frmMain.pgControl.ActivePage = frmMain.tsBySerie, 'Cycle link did not switch tabs');
+  Book := frmMain.tvBooksS.GetNodeData(frmMain.tvBooksS.FocusedNode);
+  Require(Assigned(Book) and (Book.BookKey.BookID = BookID), 'Cycle link lost the book');
+  frmMain.ipnlSeries.OnPublisherSeriesLinkClicked(frmMain.ipnlSeries, IntToStr(SeriesID), Low(TSysLinkType));
+  Require(frmMain.pgControl.ActivePage = View.Tab, 'Publisher link did not return');
+  Book := View.Books.GetNodeData(View.Books.FocusedNode);
+  Require(Assigned(Book) and (Book.BookKey.BookID = BookID), 'Return link lost the book');
+  View.Info.OnGenreLinkClicked(View.Info, GenreCode, Low(TSysLinkType));
+  Require(frmMain.pgControl.ActivePage = frmMain.tsByGenre, 'Genre link did not switch tabs');
+  Book := frmMain.tvBooksG.GetNodeData(frmMain.tvBooksG.FocusedNode);
+  Require(Assigned(Book) and (Book.BookKey.BookID = BookID), 'Genre link lost the book');
   Require(One.GetBookPublisherSeries(CreateBookKey(BookID, OneID))[0].SeqNumber = 7,
-    'Genre grouping changed a book series number');
-  Writeln('PASS publisher genre navigation preserves full series contents and collection selection');
+    'Navigation changed a publisher number');
+  Writeln('PASS flat publisher list ignores old grouping and retains mixed genres without duplicates');
+  Writeln('PASS publisher links keep current card and select the same book across cycle and genre tabs');
 end;
 
 type
@@ -1226,8 +1288,8 @@ begin
         TestGenreOrder(One, UnknownBook)
       else if ParamStr(1) = 'publisher-selection' then
         TestPublisherSelection(OneID, TwoID, LastBook)
-      else if ParamStr(1) = 'publisher-genres' then
-        TestPublisherGenres(One, OneID, TwoID)
+      else if ParamStr(1) = 'publisher-links' then
+        TestPublisherLinks(One, OneID, TwoID)
       else if ParamStr(1) = 'publisher-startup' then
       begin
         frmMain.pgControl.ActivePage := PublisherView.Tab;

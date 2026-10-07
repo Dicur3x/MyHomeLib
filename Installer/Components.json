@@ -1,11 +1,11 @@
 {
   "format": 1,
   "components": [
-    {"id":"SQLite","platform":"Win32","version":"3.53.4.0","history":[{"version":"3.53.4.0","notes":"Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"}]},
-    {"id":"SQLite","platform":"Win64","version":"3.53.4.0","history":[{"version":"3.53.4.0","notes":"Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"}]},
+    {"id":"SQLite","platform":"Win32","version":"3.53.4.0","history":[{"version":"3.53.4.0","date":"2026-07-24","notes":"Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"}]},
+    {"id":"SQLite","platform":"Win64","version":"3.53.4.0","history":[{"version":"3.53.4.0","date":"2026-07-24","notes":"Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"}]},
     {"id":"AlReader","platform":"Win32","version":"2.5.1009.25","history":[{"version":"2.5.1009.25","notes":"Встроенная Windows-версия AlReader2. Подтверждённого журнала изменений этой старой сборки нет. Более новую официальную Windows-сборку на 6 октября 2026 года подтвердить не удалось. Настройки и история чтения сохраняются при обновлении."}]},
     {"id":"AlReader","platform":"Win64","version":"2.5.1009.25","history":[{"version":"2.5.1009.25","notes":"Встроенная Windows-версия AlReader2. Подтверждённого журнала изменений этой старой сборки нет. Более новую официальную Windows-сборку на 6 октября 2026 года подтвердить не удалось. Настройки и история чтения сохраняются при обновлении."}]},
-    {"id":"SumatraPDF","platform":"Win32","version":"3.6.1.0","history":[{"version":"3.6.1.0","notes":"Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"}]},
-    {"id":"SumatraPDF","platform":"Win64","version":"3.6.1.0","history":[{"version":"3.6.1.0","notes":"Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"}]}
+    {"id":"SumatraPDF","platform":"Win32","version":"3.6.1.0","history":[{"version":"3.6.1.0","date":"2026-04-06","notes":"Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"}]},
+    {"id":"SumatraPDF","platform":"Win64","version":"3.6.1.0","history":[{"version":"3.6.1.0","date":"2026-04-06","notes":"Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"}]}
   ]
 }

@@ -13,9 +13,6 @@ type
     Tab: unit_ColorTabs.TTabSheet;
     Sidebar: TMHLSimplePanel;
     SeriesTree: TVirtualStringTree;
-    ByGenre: TCheckBox;
-    GenreTree: TVirtualStringTree;
-    AllGenres: TButton;
     Books: TBookTree;
     Info: TInfoPanel;
     InfoSplitter: TMHLSplitter;
@@ -27,14 +24,14 @@ type
     Title, Total: TLabel;
     SearchTimer: TTimer;
     constructor CreateView(AOwner: TComponent; Pages: TPageControl;
-      SeriesTemplate, GenreTemplate: TVirtualStringTree; BooksTemplate: TBookTree;
+      SeriesTemplate: TVirtualStringTree; BooksTemplate: TBookTree;
       const ViewTag: Integer);
   end;
 
 implementation
 
 constructor TPublisherSeriesView.CreateView(AOwner: TComponent;
-  Pages: TPageControl; SeriesTemplate, GenreTemplate: TVirtualStringTree;
+  Pages: TPageControl; SeriesTemplate: TVirtualStringTree;
   BooksTemplate: TBookTree; const ViewTag: Integer);
 var
   SearchPanel, BooksPanel, TitlePanel: TMHLSimplePanel;
@@ -97,33 +94,6 @@ begin
   SeriesTree.DefaultNodeHeight := SeriesTemplate.DefaultNodeHeight;
   SeriesTree.ChangeDelay := SeriesTemplate.ChangeDelay;
   SeriesTree.Font.Assign(SeriesTemplate.Font);
-  GenreTree := TVirtualStringTree.Create(Self);
-  GenreTree.Parent := Sidebar;
-  GenreTree.Align := alTop;
-  GenreTree.Height := Scale(200);
-  GenreTree.TreeOptions.Assign(GenreTemplate.TreeOptions);
-  GenreTree.Header.Assign(GenreTemplate.Header);
-  GenreTree.DefaultNodeHeight := GenreTemplate.DefaultNodeHeight;
-  GenreTree.ChangeDelay := GenreTemplate.ChangeDelay;
-  GenreTree.Font.Assign(GenreTemplate.Font);
-  GenreTree.Visible := False;
-  GenreTree.Hint := 'Серия доступна во всех жанрах её книг. Справа показан полный состав выбранной серии.';
-  GenreTree.ShowHint := True;
-  AllGenres := TButton.Create(Self);
-  AllGenres.Parent := Sidebar;
-  AllGenres.Align := alTop;
-  AllGenres.Height := Scale(28);
-  AllGenres.Caption := 'Все жанры';
-  AllGenres.Visible := False;
-  ByGenre := TCheckBox.Create(Self);
-  ByGenre.Parent := Sidebar;
-  ByGenre.Align := alTop;
-  ByGenre.Height := Scale(26);
-  ByGenre.Caption := 'По жанрам';
-  ByGenre.Top := 0;
-  AllGenres.Top := ByGenre.Height;
-  GenreTree.Top := ByGenre.Height + AllGenres.Height;
-  SearchPanel.Top := GenreTree.Top + GenreTree.Height;
 
   Splitter := TMHLSplitter.Create(Self);
   Splitter.Parent := Tab;

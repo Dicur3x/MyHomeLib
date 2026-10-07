@@ -69,6 +69,7 @@ uses
   unit_Globals in 'Units\unit_Globals.pas',
   unit_MetabibWriter in 'Units\unit_MetabibWriter.pas',
   unit_ProgramUpdates in 'Units\unit_ProgramUpdates.pas',
+  unit_UpdateNotes in 'Units\unit_UpdateNotes.pas',
   unit_ComponentUpdates in 'Units\unit_ComponentUpdates.pas',
   unit_UpdateAuthenticity in 'Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in 'Units\unit_ProgramUpdateInstaller.pas',

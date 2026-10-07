@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // Runs only freshly built native tests, each beside an isolated runtime copy.
 // Usage: node native_collection_tests.js <runtime-dir> <GenreRegistryTest.exe>
@@ -38,7 +38,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-genres", "publisher-error-log", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 if (viewsMode !== null && !modes.includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
@@ -49,12 +49,12 @@ const requiredViews = {
   "source-genres": ["PASS imported source genre survives"],
   "publisher-selection": ["PASS deferred publisher view restores"],
   "publisher-startup": ["PASS saved publisher page starts with visible cover and information panel", "PASS startup publisher view survives collection switches"],
-  "publisher-genres": ["PASS publisher genres follow actual parent relations", "PASS publisher genre navigation preserves full series contents"],
+  "publisher-links": ["PASS flat publisher list ignores old grouping", "PASS publisher links keep current card"],
   "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
-  "program-update-ui": ["PASS update settings preserve never and custom hours", "PASS update popup shows installed version"],
+  "program-update-ui": ["PASS update settings preserve never and custom hours", "PASS update popup shows installed version", "PASS dates and shared formatting", "PASS update notes retain nested SQLite", "PASS previous changelogs start collapsed"],
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
 };

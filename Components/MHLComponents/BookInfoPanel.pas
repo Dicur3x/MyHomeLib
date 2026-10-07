@@ -66,6 +66,8 @@ type
 
     FInfoPriority: Boolean;
     FUpdatingLayout: Boolean;
+    FUpdateCount: Integer;
+    FRedrawSuspended: Boolean;
 
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
@@ -116,6 +118,8 @@ type
       book: IXMLFictionBook
       );
 
+    procedure BeginUpdate;
+    procedure EndUpdate;
     procedure Clear;
 
   published
@@ -411,7 +415,7 @@ var
   end;
 
 begin
-  if FUpdatingLayout or not Assigned(FFb2Info) or not Assigned(Parent) then
+  if (FUpdateCount > 0) or FUpdatingLayout or not Assigned(FFb2Info) or not Assigned(Parent) then
     Exit;
 
   // Reading client bounds may create child windows and trigger OnResize.
@@ -739,6 +743,35 @@ begin
   FCover.Picture.Assign(BookCover);
 end;
 
+
+procedure TInfoPanel.BeginUpdate;
+begin
+  Inc(FUpdateCount);
+  if FUpdateCount <> 1 then Exit;
+  DisableAlign;
+  FInfoPanel.DisableAlign;
+  FRedrawSuspended := HandleAllocated and IsWindowVisible(Handle);
+  if FRedrawSuspended then SendMessage(Handle, WM_SETREDRAW, 0, 0);
+end;
+
+procedure TInfoPanel.EndUpdate;
+begin
+  Assert(FUpdateCount > 0);
+  Dec(FUpdateCount);
+  if FUpdateCount <> 0 then Exit;
+  try
+    FInfoPanel.EnableAlign;
+    EnableAlign;
+    LayoutControls;
+  finally
+    if FRedrawSuspended then
+    begin
+      FRedrawSuspended := False;
+      SendMessage(Handle, WM_SETREDRAW, 1, 0);
+      RedrawWindow(Handle, nil, 0, RDW_INVALIDATE or RDW_ERASE or RDW_ALLCHILDREN);
+    end;
+  end;
+end;
 
 procedure TInfoPanel.Clear;
 begin

@@ -3,13 +3,13 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls,
-  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates;
+  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes;
 
 type
   TfrmProgramUpdate = class(TForm)
   private
     FStatus, FVersion, FBytes: TLabel;
-    FNotes: TMemo;
+    FNotes: TUpdateNotesView;
     FProgress: TProgressBar;
     FPrimary, FLater, FPage: TButton;
     FThread: TProgramDownloadThread;
@@ -87,9 +87,8 @@ begin
   FComponentCheck.OnClick := ComponentCheckClick;
   UpdateComponentList; FSelector.ItemIndex := 0;
   FStatus.SetBounds(20, 88, 700, 60); FStatus.AutoSize := False; FStatus.WordWrap := True;
-  FNotes := TMemo.Create(Self); FNotes.Parent := Self;
-  FNotes.SetBounds(20, 155, 700, 238); FNotes.ReadOnly := True;
-  FNotes.ScrollBars := ssVertical; FNotes.WordWrap := True;
+  FNotes := TUpdateNotesView.Create(Self); FNotes.Parent := Self;
+  FNotes.SetBounds(20, 155, 700, 238);
   FBytes := TLabel.Create(Self); FBytes.Parent := Self;
   FBytes.SetBounds(20, 430, 700, 18);
   FProgress := TProgressBar.Create(Self); FProgress.Parent := Self;
@@ -142,7 +141,8 @@ begin
   begin FSelector.ItemIndex := 0; FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
   FLater.Caption := 'Позже'; FLater.Enabled := True;
-  DisplayNotes(FRelease.Changelog);
+  if FRelease.History.Trim <> '' then DisplayNotes(FRelease.History)
+  else DisplayNotes(FRelease.Changelog);
   FStatus.Caption := 'Доступно обновление ' + ReleaseTitle + '.' + sLineBreak +
     'Настройки, коллекции и история чтения сохранятся.';
   FProgress.Position := 0; FBytes.Caption := '';
@@ -153,8 +153,8 @@ end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
 begin
-  if FRelease.ComponentID = '' then Result := 'HomeLib Ru ' + FRelease.Tag
-  else Result := FRelease.ComponentID + ' ' + FRelease.ComponentVersion;
+  if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLib Ru ' + FRelease.Tag, FRelease.PublishedAt)
+  else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + FRelease.ComponentVersion, FRelease.PublishedAt);
 end;
 
 procedure TfrmProgramUpdate.UpdateComponentList;
@@ -275,14 +275,8 @@ begin
 end;
 
 procedure TfrmProgramUpdate.DisplayNotes(const Notes: string);
-var Text: string;
 begin
-  Text := TRegEx.Replace(Notes, '(?m)^#{1,6} +', '');
-  Text := TRegEx.Replace(Text, '\[([^\]]+)\]\((https://[^)]+)\)', '$1 ($2)');
-  Text := StringReplace(Text, '**', '', [rfReplaceAll]);
-  Text := StringReplace(Text, '`', '', [rfReplaceAll]);
-  if Text.Trim = '' then Text := 'Описание выпусков пока не загружено.';
-  FNotes.Text := AdjustLineBreaks(Text); FNotes.SelStart := 0;
+  FNotes.Load(Notes);
   if FSelector.ItemIndex = 0 then FApplicationHistory := Notes;
 end;
 
@@ -427,7 +421,8 @@ begin
   try
     Root.AddPair('job', FJob); Root.AddPair('tag', FRelease.Tag);
     Root.AddPair('sha256', FRelease.SHA256); Root.AddPair('url', FRelease.URL);
-    Root.AddPair('notes', FRelease.Changelog);
+    if FRelease.History.Trim <> '' then Root.AddPair('notes', FRelease.History)
+    else Root.AddPair('notes', FRelease.Changelog);
     Root.AddPair('component', FRelease.ComponentID); Root.AddPair('version', FRelease.ComponentVersion);
     Root.AddPair('size', TJSONNumber.Create(FRelease.Size));
     TFile.WriteAllText(IncludeTrailingPathDelimiter(FCache) + 'ready.json', Root.ToJSON, TEncoding.UTF8);

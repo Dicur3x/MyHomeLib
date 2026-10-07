@@ -1,4 +1,4 @@
-unit unit_ProgramUpdates;
+﻿unit unit_ProgramUpdates;
 
 interface
 
@@ -18,6 +18,7 @@ type
     URL: string;
     DownloadURL, SHA256: string;
     Notes, Changelog, History: string;
+    PublishedAt: string;
     Size: Int64;
     ComponentID, ComponentVersion: string;
     SourceSHA3, ComponentError: string;
@@ -68,6 +69,7 @@ type
   end;
 
 function CompareReleaseTags(const Left, Right: string; out Comparison: Integer): Boolean;
+function ReleaseNotesHeading(const Version, PublishedAt: string): string;
 function ParseProgramReleases(const JSON: string; out ReleaseInfo: TProgramRelease): Boolean;
 function ProgramUpdateDue(LastCheck, CurrentUTC: TDateTime; IntervalMinutes: Integer): Boolean;
 function ProgramUpdateCache(const AppPath: string): string;
@@ -125,6 +127,18 @@ begin
     end;
 end;
 
+function ReleaseNotesHeading(const Version, PublishedAt: string): string;
+var Match: TMatch; Year, Month, Day: Integer; Date: TDateTime;
+begin
+  Result := Version;
+  Match := TRegEx.Match(PublishedAt.Trim, '^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T.*)?$');
+  if Match.Success and TryStrToInt(Match.Groups[1].Value, Year) and
+     TryStrToInt(Match.Groups[2].Value, Month) and
+     TryStrToInt(Match.Groups[3].Value, Day) and
+     TryEncodeDate(Year, Month, Day, Date) then
+    Result := Result + ' — ' + FormatDateTime('dd.mm.yyyy', Date);
+end;
+
 function ParseProgramReleases(const JSON: string; out ReleaseInfo: TProgramRelease): Boolean;
 var
   Root, Item, Asset: TJSONValue;
@@ -159,6 +173,8 @@ begin
       HasArchive := False;
       Candidate := Default(TProgramRelease);
       Candidate.Tag := Tag;
+      if Obj.TryGetValue<string>('published_at', Candidate.PublishedAt) then
+        Candidate.PublishedAt := Copy(Candidate.PublishedAt, 1, 64);
       if Obj.TryGetValue<string>('body', Candidate.Notes) then
         Candidate.Notes := Copy(Candidate.Notes, 1, 24000);
 {$IFDEF WIN64}
@@ -205,10 +221,10 @@ begin
     for Candidate in Releases do
     begin
       if Length(History) < 300000 then
-        History := History + Candidate.Tag + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
+        History := History + ReleaseNotesHeading(Candidate.Tag, Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
       if CompareReleaseTags(Candidate.Tag, PROGRAM_RELEASE_VERSION, Comparison) and (Comparison > 0) and
          (Length(NewNotes) < 300000) then
-        NewNotes := NewNotes + Candidate.Tag + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
+        NewNotes := NewNotes + ReleaseNotesHeading(Candidate.Tag, Candidate.PublishedAt) + sLineBreak + Candidate.Notes.Trim + sLineBreak + sLineBreak;
     end;
     ReleaseInfo.Changelog := NewNotes.Trim; ReleaseInfo.History := History.Trim;
     Result := ReleaseInfo.Tag <> '';
