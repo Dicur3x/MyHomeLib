@@ -777,6 +777,7 @@ type
     FLastPublisherSeriesID: Integer;
     FLastPublisherBookID: TBookKey;
     FPendingPublisherBookID: Integer;
+    FPublisherGenreCode: string;
     FTimerDone: Boolean;
     FIgnoreAuthorChange: Boolean;
     FViewLanguageSelected: array[TView] of Boolean;
@@ -815,6 +816,9 @@ type
     procedure PublisherSearchChanged(Sender: TObject);
     procedure PublisherSearchTimer(Sender: TObject);
     procedure PublisherSearchClear(Sender: TObject);
+    procedure PublisherGroupingChanged(Sender: TObject);
+    procedure PublisherGenreChanged(Sender: TBaseVirtualTree; Node: PVirtualNode);
+    procedure PublisherAllGenres(Sender: TObject);
     procedure IndexPublisherSeries(Sender: TObject);
     procedure PublisherSeriesLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure ActivateView(View: TView);
@@ -1429,6 +1433,7 @@ begin
   FrameTree(tvAuthors);
   FrameTree(tvSeries);
   FrameTree(FPublisher.SeriesTree);
+  FrameTree(FPublisher.GenreTree);
   FrameTree(FPublisher.Books);
   FrameTree(tvGenres);
   FrameTree(tvGroups);
@@ -1492,6 +1497,7 @@ begin
   SetTreeViewColor2(tvSeries);
   SetTreeViewColor(tvBooksS);
   SetTreeViewColor2(FPublisher.SeriesTree);
+  SetTreeViewColor2(FPublisher.GenreTree);
   SetTreeViewColor(FPublisher.Books);
   SetPnlColor(FPublisher.Info);
   FPublisher.Search.Color := BGColor;
@@ -1693,7 +1699,7 @@ end;
 
 procedure TfrmMain.CreatePublisherSeriesView;
 begin
-  FPublisher := TPublisherSeriesView.CreateView(Self, pgControl, tvSeries, tvBooksS, PAGE_PUBLISHER_SERIES);
+  FPublisher := TPublisherSeriesView.CreateView(Self, pgControl, tvSeries, tvGenres, tvBooksS, PAGE_PUBLISHER_SERIES);
   FPublisher.Tab.PageIndex := tsBySerie.PageIndex + 1;
   FPublisher.SeriesTree.OnChange := PublisherSeriesChange;
   FPublisher.SeriesTree.OnKeyDown := PublisherSeriesKeyDown;
@@ -1702,6 +1708,9 @@ begin
   FPublisher.Search.OnChange := PublisherSearchChanged;
   FPublisher.Search.OnKeyDown := PublisherSeriesKeyDown;
   FPublisher.ClearSearch.OnClick := PublisherSearchClear;
+  FPublisher.ByGenre.OnClick := PublisherGroupingChanged;
+  FPublisher.GenreTree.OnChange := PublisherGenreChanged;
+  FPublisher.AllGenres.OnClick := PublisherAllGenres;
   FPublisher.SearchTimer.OnTimer := PublisherSearchTimer;
   FPublisher.IndexButton.OnClick := IndexPublisherSeries;
   FPublisher.Language.OnChange := cbLangSelectAChange;
@@ -1729,7 +1738,7 @@ begin
   FInvisible := True;
   try
     FillSeriesTree(FPublisher.SeriesTree,
-      FCollection.GetPublisherSeriesIterator(Trim(FPublisher.Search.Text)), FLastPublisherSeriesID);
+      FCollection.GetPublisherSeriesIterator(Trim(FPublisher.Search.Text), FPublisherGenreCode), FLastPublisherSeriesID);
     FPublisherListLoaded := True;
     Exclude(FLoadedBookViews, PublisherSeriesView);
   finally
@@ -1819,6 +1828,44 @@ begin
   ActiveControl := FPublisher.Search;
 end;
 
+procedure TfrmMain.PublisherGroupingChanged(Sender: TObject);
+begin
+  FPublisher.GenreTree.Visible := FPublisher.ByGenre.Checked;
+  FPublisher.AllGenres.Visible := FPublisher.ByGenre.Checked;
+  if FInvisible or not Assigned(FCollection) then Exit;
+  PublisherAllGenres(nil);
+end;
+
+procedure TfrmMain.PublisherGenreChanged(Sender: TBaseVirtualTree; Node: PVirtualNode);
+var
+  Data: PGenreData;
+begin
+  if FInvisible or not Assigned(FCollection) or not FPublisher.ByGenre.Checked then Exit;
+  Data := nil;
+  if Assigned(Node) then Data := Sender.GetNodeData(Node);
+  if Assigned(Data) then FPublisherGenreCode := Data^.GenreCode
+  else FPublisherGenreCode := '';
+  FPublisher.SearchTimer.Enabled := False;
+  ReloadPublisherSeries;
+end;
+
+procedure TfrmMain.PublisherAllGenres(Sender: TObject);
+var
+  WasInvisible: Boolean;
+begin
+  WasInvisible := FInvisible;
+  FInvisible := True;
+  try
+    FPublisherGenreCode := '';
+    FPublisher.GenreTree.ClearSelection;
+    FPublisher.GenreTree.FocusedNode := nil;
+  finally
+    FInvisible := WasInvisible;
+  end;
+  FPublisher.SearchTimer.Enabled := False;
+  if not FInvisible and Assigned(FCollection) then ReloadPublisherSeries;
+end;
+
 procedure TfrmMain.IndexPublisherSeries(Sender: TObject);
 var
   Worker: TIndexPublisherSeriesThread;
@@ -1871,6 +1918,9 @@ begin
   FLastPublisherBookID := BookKey;
   FPublisher.SearchTimer.Enabled := False;
   SetTextNoChange(FPublisher.Search, '');
+  // A link from any book must reveal that series even if the previous genre
+  // selection would hide it. Do not reset the independent Genres tab.
+  PublisherAllGenres(nil);
   FPublisher.Language.ItemIndex := 0;
   FPendingLangFilters[PublisherSeriesView] := -1;
   ActivateView(PublisherSeriesView);
@@ -1907,6 +1957,8 @@ begin
       FCollection.SetProperty(PROP_LAST_AUTHOR_BOOK, FLastAuthorBookID.BookID);
     FCollection.SetProperty(PROP_LAST_SERIES, FLastSeriesStr);
     FCollection.SetProperty(PROP_LAST_PUBLISHER_SERIES, FLastPublisherSeriesID);
+    FCollection.SetProperty(PROP_PUBLISHER_BY_GENRE, FPublisher.ByGenre.Checked);
+    FCollection.SetProperty(PROP_PUBLISHER_GENRE, FPublisherGenreCode);
     if FPendingPublisherBookID <> 0 then
       FCollection.SetProperty(PROP_LAST_PUBLISHER_BOOK, FPendingPublisherBookID)
     else
@@ -1953,6 +2005,8 @@ begin
     tvSeries.Clear;
     FPublisher.SearchTimer.Enabled := False;
     FPublisher.SeriesTree.Clear;
+    FPublisher.GenreTree.Clear;
+    FPublisherGenreCode := '';
     FPublisher.Books.Clear;
     SetTextNoChange(FPublisher.Search, '');
     FPublisherListLoaded := False;
@@ -2298,6 +2352,17 @@ begin
     FLastPublisherSeriesID := FCollection.GetProperty(PROP_LAST_PUBLISHER_SERIES);
     FPendingPublisherBookID := FCollection.GetProperty(PROP_LAST_PUBLISHER_BOOK);
     FPendingLangFilters[PublisherSeriesView] := FCollection.GetProperty(PROP_PUBLISHER_LANG_FILTER);
+    FPublisher.ByGenre.Checked := FCollection.GetProperty(PROP_PUBLISHER_BY_GENRE);
+    FPublisherGenreCode := FCollection.GetProperty(PROP_PUBLISHER_GENRE);
+    if not FPublisher.ByGenre.Checked then FPublisherGenreCode := '';
+    FillGenresTree(FPublisher.GenreTree, FCollection.GetGenreIterator(gmAll), False, FPublisherGenreCode);
+    if FPublisherGenreCode = '' then
+    begin
+      FPublisher.GenreTree.ClearSelection;
+      FPublisher.GenreTree.FocusedNode := nil;
+    end;
+    FPublisher.GenreTree.Visible := FPublisher.ByGenre.Checked;
+    FPublisher.AllGenres.Visible := FPublisher.ByGenre.Checked;
 
     FInvisible := False;
     EnsureActiveBookViewLoaded;
@@ -3426,6 +3491,7 @@ begin
   FController.ConnectBooksTree(tvBooksA);
   FController.ConnectBooksTree(tvBooksS);
   FController.ConnectSeriesTree(FPublisher.SeriesTree);
+  FController.ConnectGenresTree(FPublisher.GenreTree);
   FController.ConnectBooksTree(FPublisher.Books);
   FController.ConnectBooksTree(tvBooksG);
   FController.ConnectBooksTree(tvBooksSR);

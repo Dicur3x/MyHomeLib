@@ -38,7 +38,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-error-log", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-genres", "publisher-error-log", "reader-compatibility", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 if (viewsMode !== null && !modes.includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
@@ -49,6 +49,7 @@ const requiredViews = {
   "source-genres": ["PASS imported source genre survives"],
   "publisher-selection": ["PASS deferred publisher view restores"],
   "publisher-startup": ["PASS saved publisher page starts with visible cover and information panel", "PASS startup publisher view survives collection switches"],
+  "publisher-genres": ["PASS publisher genres follow actual parent relations", "PASS publisher genre navigation preserves full series contents"],
   "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],

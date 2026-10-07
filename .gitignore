@@ -43,3 +43,4 @@ TODO.md
 
 /tools/ui/tests/*.res
 /tools/ui/tests/*.identcache
+/tools/__pycache__/

@@ -857,6 +857,89 @@ begin
   Writeln('PASS deferred publisher view restores its language and book without changing author selection');
 end;
 
+procedure TestPublisherGenres(const One: IBookCollection; OneID, TwoID: Integer);
+var
+  View: TPublisherSeriesView;
+  OtherGenre, MainGenre: TGenreData;
+  Filter: TFilterValue;
+  GenreIterator: IGenreIterator;
+  SeriesIterator: ISeriesIterator;
+  Item: TSeriesData;
+  Series: TBookSeries;
+  Node: PVirtualNode;
+  Genre: PGenreData;
+  BookID, OtherBook, HiddenBook: Integer;
+  Names: TStringList;
+
+  procedure ExpectSeries(const GenreCode: string; const Expected: array of string);
+  var I: Integer;
+  begin
+    Names := TStringList.Create;
+    try
+      SeriesIterator := One.GetPublisherSeriesIterator('Audit', GenreCode);
+      Require(SeriesIterator.RecordCount = Length(Expected), 'Filtered series count differs');
+      while SeriesIterator.Next(Item) do Names.Add(Item.SeriesTitle);
+      Names.Sort;
+      Require(Names.Count = Length(Expected), 'Wrong publisher genres result');
+      for I := 0 to High(Expected) do Require(Names[I] = Expected[I], 'Unexpected publisher genre result');
+      SeriesIterator := nil;
+    finally Names.Free; end;
+  end;
+begin
+  View := PublisherView;
+  BookID := AddBook(One, 'Audit prose', 'Audit', 'ru', '', 'prose_contemporary');
+  Filter := Default(TFilterValue); Filter.ValueInt := BookID;
+  GenreIterator := One.GetGenreIterator(gmByBook, @Filter);
+  Require(GenreIterator.Next(MainGenre), 'Main genre fixture absent');
+  GenreIterator := nil;
+  OtherGenre := One.EnsureGenre('audit_other', 'Audit other genre', 'Audit group');
+  OtherBook := AddBook(One, 'Audit science', 'Audit', 'ru', '', OtherGenre.GenreCode);
+  HiddenBook := AddBook(One, 'Audit deleted', 'Audit', 'ru', '', OtherGenre.GenreCode, True);
+  TSeriesHelper.Add(Series, 0, 'Audit common', 7, False);
+  One.SetBookPublisherSeries(CreateBookKey(BookID, OneID), Series);
+  TSeriesHelper.Add(Series, 0, 'Audit other', 8, False);
+  One.SetBookPublisherSeries(CreateBookKey(OtherBook, OneID), Series);
+  Series := nil;
+  TSeriesHelper.Add(Series, 0, 'Audit hidden', 0, False);
+  One.SetBookPublisherSeries(CreateBookKey(HiddenBook, OneID), Series);
+  One.SetHideDeleted(True);
+  ExpectSeries('', ['Audit common', 'Audit other']);
+  ExpectSeries(MainGenre.GenreCode, ['Audit common']);
+  ExpectSeries(OtherGenre.GenreCode, ['Audit common', 'Audit other']);
+  ExpectSeries(OtherGenre.ParentCode, ['Audit common', 'Audit other']);
+  ExpectSeries('missing-genre', []);
+  Writeln('PASS publisher genres follow actual parent relations and hide deleted-only series');
+  ChangeCollection(TwoID); ChangeCollection(OneID);
+  frmMain.pgControl.ActivePage := View.Tab; frmMain.pgControlChange(nil);
+  View.ByGenre.Checked := True; View.ByGenre.OnClick(View.ByGenre);
+  Require(View.GenreTree.Visible and View.AllGenres.Visible, 'Genre browser is hidden');
+  Node := View.GenreTree.GetFirst;
+  while Assigned(Node) do
+  begin
+    Genre := View.GenreTree.GetNodeData(Node);
+    if Genre^.GenreCode = OtherGenre.ParentCode then Break;
+    Node := View.GenreTree.GetNext(Node);
+  end;
+  Require(Assigned(Node), 'Imported genre parent is missing from publisher view');
+  View.GenreTree.Selected[Node] := True; View.GenreTree.FocusedNode := Node;
+  View.GenreTree.OnChange(View.GenreTree, Node);
+  Require(View.SeriesTree.RootNodeCount = 2, 'Root genre must immediately list its series');
+  ExpectTitles(View.Books, ['Audit prose', 'Audit science']);
+  ChangeCollection(TwoID);
+  Require(not View.ByGenre.Checked, 'Grouping leaked into another collection');
+  ChangeCollection(OneID);
+  Require(View.ByGenre.Checked and (View.SeriesTree.RootNodeCount = 2), 'Saved genre grouping was lost');
+  Genre := View.GenreTree.GetNodeData(View.GenreTree.GetFirstSelected);
+  Require(Assigned(Genre) and (Genre^.GenreCode = OtherGenre.ParentCode), 'Selected genre was lost');
+  View.AllGenres.Click;
+  Require(View.GenreTree.GetFirstSelected = nil, 'All genres did not clear selection');
+  View.ByGenre.Checked := False; View.ByGenre.OnClick(View.ByGenre);
+  Require(not View.GenreTree.Visible, 'Flat list did not return');
+  Require(One.GetBookPublisherSeries(CreateBookKey(BookID, OneID))[0].SeqNumber = 7,
+    'Genre grouping changed a book series number');
+  Writeln('PASS publisher genre navigation preserves full series contents and collection selection');
+end;
+
 type
   TPublisherLogDriver = class
     Timer: TTimer;
@@ -1102,6 +1185,8 @@ begin
         TestGenreOrder(One, UnknownBook)
       else if ParamStr(1) = 'publisher-selection' then
         TestPublisherSelection(OneID, TwoID, LastBook)
+      else if ParamStr(1) = 'publisher-genres' then
+        TestPublisherGenres(One, OneID, TwoID)
       else if ParamStr(1) = 'publisher-startup' then
       begin
         frmMain.pgControl.ActivePage := PublisherView.Tab;

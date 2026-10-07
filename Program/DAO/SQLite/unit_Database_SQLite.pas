@@ -135,7 +135,8 @@ type
     TSeriesIteratorImpl = class(TInterfacedObject, ISeriesIterator)
     public
       constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData; const Mode: TSeriesIteratorMode); overload;
-      constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData; const FilterText: string); overload;
+      constructor Create(Collection: TBookCollection_SQLite; SystemData: ISystemData;
+        const FilterText, GenreCode: string); overload;
       destructor Destroy; override;
 
     protected
@@ -153,7 +154,7 @@ type
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
 
       procedure PrepareData(const Mode: TSeriesIteratorMode);
-      procedure PreparePublisherData(const FilterText: string);
+      procedure PreparePublisherData(const FilterText, GenreCode: string);
     end;
     // << TSeriesIteratorImpl
 
@@ -190,7 +191,8 @@ type
     function GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator; override;
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator; override;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
-    function GetPublisherSeriesIterator(const FilterText: string = ''): ISeriesIterator;
+    function GetPublisherSeriesIterator(const FilterText: string = '';
+      const GenreCode: string = ''): ISeriesIterator;
     function GetPublisherSeriesIndexIterator: IPublisherSeriesIndexIterator;
     function GetBookIterator(const Mode: TBookIteratorMode; const LoadMemos: Boolean; const FilterValue: PFilterValue = nil): IBookIterator;
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
@@ -1407,13 +1409,13 @@ end;
 
 constructor TBookCollection_SQLite.TSeriesIteratorImpl.Create(
   Collection: TBookCollection_SQLite; SystemData: ISystemData;
-  const FilterText: string);
+  const FilterText, GenreCode: string);
 begin
   inherited Create;
   FCollection := Collection;
   FSystemData := SystemData;
   FCollectionID := Collection.CollectionID;
-  PreparePublisherData(FilterText);
+  PreparePublisherData(FilterText, GenreCode);
 end;
 
 destructor TBookCollection_SQLite.TSeriesIteratorImpl.Destroy;
@@ -1447,25 +1449,39 @@ begin
 end;
 
 procedure TBookCollection_SQLite.TSeriesIteratorImpl.PreparePublisherData(
-  const FilterText: string);
+  const FilterText, GenreCode: string);
 var
-  Where, BookWhere, Prefix: string;
+  Where, BookWhere, Prefix, WithGenres: string;
 
   procedure SetParams(Query: TSQLiteQuery);
   begin
     if (Prefix <> '') and (Prefix <> ALPHA_FILTER_NON_ALPHA) then
       Query.SetParam(':FilterType', Char.ToUpper(Prefix) + '%');
+    if GenreCode <> '' then
+      Query.SetParam(':GenreCode', GenreCode);
   end;
 
 begin
   Where := '';
   BookWhere := '';
+  WithGenres := '';
   Prefix := Trim(FilterText);
   if Prefix = ALPHA_FILTER_ALL then Prefix := '';
   if FCollection.GetHideDeleted then
     BookWhere := BookWhere + ' AND b.IsDeleted = 0';
   if FCollection.GetShowLocalOnly then
     BookWhere := BookWhere + ' AND b.IsLocal = 1';
+  if GenreCode <> '' then
+  begin
+    // Follow the actual parent relations, including imported source genres.
+    // UNION terminates even if a malformed catalogue contains a parent cycle.
+    WithGenres := 'WITH RECURSIVE selected_genres(GenreCode) AS (' +
+      'SELECT GenreCode FROM Genres WHERE GenreCode = :GenreCode UNION ' +
+      'SELECT g.GenreCode FROM Genres g INNER JOIN selected_genres p ' +
+      'ON g.ParentCode = p.GenreCode) ';
+    BookWhere := BookWhere + ' AND EXISTS (SELECT 1 FROM Genre_List gl ' +
+      'WHERE gl.BookID = b.BookID AND gl.GenreCode IN (SELECT GenreCode FROM selected_genres))';
+  end;
   // The outer relation lookup is indexed and stops on the first visible book.
   // Keep Books behind its primary key lookup even before SQLite ANALYZE runs.
   AddToWhere(Where, 'EXISTS (SELECT 1 FROM PublisherSeries_List sl ' +
@@ -1479,10 +1495,10 @@ begin
     AddToWhere(Where, 's.SearchSeriesTitle LIKE :FilterType');
 
   FCount := FCollection.FDatabase.NewQuery(
-    'SELECT COUNT(*) FROM PublisherSeries s ' + Where);
+    WithGenres + 'SELECT COUNT(*) FROM PublisherSeries s ' + Where);
   SetParams(FCount);
   FSeries := FCollection.FDatabase.NewQuery(
-    'SELECT s.SeriesID, s.SeriesTitle FROM PublisherSeries s ' + Where +
+    WithGenres + 'SELECT s.SeriesID, s.SeriesTitle FROM PublisherSeries s ' + Where +
     ' ORDER BY s.SeriesTitle');
   SetParams(FSeries);
   FSeries.Open;
@@ -2118,9 +2134,9 @@ begin
 end;
 
 function TBookCollection_SQLite.GetPublisherSeriesIterator(
-  const FilterText: string): ISeriesIterator;
+  const FilterText, GenreCode: string): ISeriesIterator;
 begin
-  Result := TSeriesIteratorImpl.Create(Self, FSystemData, FilterText);
+  Result := TSeriesIteratorImpl.Create(Self, FSystemData, FilterText, GenreCode);
 end;
 
 function TBookCollection_SQLite.GetPublisherSeriesIndexIterator: IPublisherSeriesIndexIterator;
