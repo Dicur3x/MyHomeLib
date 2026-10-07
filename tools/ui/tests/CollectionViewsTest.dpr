@@ -348,6 +348,7 @@ begin
   Book.Lang := Lang;
   Book.Series := Series;
   Book.Date := EncodeDate(2020, 1, 1);
+  Book.Size := 100; // Ordinary fixture books are not deleted zero-size placeholders.
   TAuthorsHelper.Add(Book.Authors, Author, 'Alex', '');
   if Genre <> '' then
     if Pos('0.', Genre) = 1 then
@@ -974,10 +975,26 @@ var
   R: TBookRecord;
   Series: TBookSeries;
   IDs: TArray<Integer>;
-  I, ErrorCount: Integer;
+  I, ErrorCount, PlaceholderID, NoDescriptionID, RepairedID, DeletedValidID: Integer;
   Driver: TPublisherLogDriver;
   Log: TStringList;
   Line: string;
+
+  function AddFixture(const Name, XML: string; Deleted: Boolean; Size: Integer): Integer;
+  var Book: TBookRecord;
+  begin
+    Book.Clear;
+    Book.Title := Name; Book.LibID := Name; Book.FileName := Name;
+    Book.FileExt := '.fb2'; Book.Size := Size;
+    Include(Book.BookProps, bpIsLocal);
+    if Deleted then Include(Book.BookProps, bpIsDeleted);
+    Result := Collection.InsertBook(Book, False, False);
+    Collection.SetBookPublisherSeries(CreateBookKey(Result, Collection.CollectionID), Series);
+    if XML = '' then
+      TFile.WriteAllBytes(TPath.Combine(Collection.CollectionRoot, Name + '.fb2'), nil)
+    else
+      TFile.WriteAllText(TPath.Combine(Collection.CollectionRoot, Name + '.fb2'), XML, TEncoding.UTF8);
+  end;
 begin
   SetLength(IDs, 25);
   TSeriesHelper.Add(Series, 0, 'Keep existing publisher', 7, False);
@@ -1003,6 +1020,13 @@ begin
     '<?xml version="1.0" encoding="UTF8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.1">' +
     '<description xmlns=""><title-info/><publish-info><sequence name="Recovered" number="5"/>' +
     '</publish-info></description><body/></FictionBook>', TEncoding.UTF8);
+  PlaceholderID := AddFixture('empty-deleted-placeholder', '', True, 0);
+  NoDescriptionID := AddFixture('no-description', '<FictionBook><body/></FictionBook>', False, 40);
+  RepairedID := AddFixture('repair-annotation', '<FictionBook><description><title-info>' +
+    '<annotation><p>text</annotation></title-info><publish-info>' +
+    '<sequence name="Recovered & exact" number="26"/></publish-info></description>', False, 250);
+  DeletedValidID := AddFixture('deleted-valid', '<FictionBook><description><title-info/>' +
+    '<publish-info><sequence name="Deleted readable" number="8"/></publish-info></description>', True, 200);
   Driver := TPublisherLogDriver.Create;
   try
     Driver.SavedLog := Settings.AppPath + 'saved-publisher-errors.log';
@@ -1020,8 +1044,11 @@ begin
       ErrorCount := 0;
       for Line in Log do
         if Line.StartsWith('Книга ') then Inc(ErrorCount);
-      Require(ErrorCount = 32, 'Full journal did not preserve all 32 broken/missing books');
+      Require(ErrorCount = 32, Format('Full journal has %d errors; expected 32 broken/missing books', [ErrorCount]));
       Require(Log.Text.Contains('broken-24.fb2'), 'Error beyond the first twenty is missing');
+      Require(not Log.Text.Contains('empty-deleted-placeholder'), 'Deleted empty placeholder was logged as error');
+      Require(not Log.Text.Contains('no-description'), 'Missing optional metadata was logged as error');
+      Require(Log.Text.Contains('Восстановлено при чтении:'), 'Recovery was not recorded in the full journal');
     finally
       Log.Free;
     end;
@@ -1034,6 +1061,20 @@ begin
     Series := Collection.GetBookPublisherSeries(CreateBookKey(I, Collection.CollectionID));
     Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Recovered') and
       (Series[0].SeqNumber = 5), 'Actual command failed to recover converter metadata');
+    for ErrorCount in TArray<Integer>.Create(PlaceholderID, NoDescriptionID) do
+    begin
+      Series := Collection.GetBookPublisherSeries(CreateBookKey(ErrorCount, Collection.CollectionID));
+      Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Keep existing publisher'),
+        'Skipped book erased existing publisher metadata');
+    end;
+    Series := Collection.GetBookPublisherSeries(CreateBookKey(RepairedID, Collection.CollectionID));
+    Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Recovered & exact') and
+      (Series[0].SeqNumber = 26), 'Recovered metadata lost exact title or number');
+    Series := Collection.GetBookPublisherSeries(CreateBookKey(DeletedValidID, Collection.CollectionID));
+    Require((Length(Series) = 1) and (Series[0].SeriesTitle = 'Deleted readable'),
+      'Nonempty deleted book was incorrectly skipped');
+    Require(TFile.ReadAllText(TPath.Combine(Collection.CollectionRoot, 'repair-annotation.fb2'),
+      TEncoding.UTF8).Contains('<p>text</annotation>'), 'Recovery modified the original book');
     Writeln('PASS actual publisher indexing saves all errors, bounds preview and preserves metadata');
   finally
     Driver.Timer.Free;

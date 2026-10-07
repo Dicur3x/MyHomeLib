@@ -20,6 +20,7 @@ type
     FIndexedCount: Integer;
     FSkippedCount: Integer;
     FFailedCount: Integer;
+    FRecoveredCount: Integer;
     FCachedCount: Integer;
     FForceRescan: Boolean;
     FCompleted: Boolean;
@@ -29,6 +30,7 @@ type
     FBatchCount: Integer;
     FErrorLog: TStreamWriter;
     FErrorLogFileName: string;
+    procedure EnsureLog(const BookRecord: TBookRecord);
     procedure ReportFailure(const BookRecord: TBookRecord; const ErrorText: string);
     procedure ReportIndexProgress(Percent: Integer);
     function ReadPublisherSeries(const BookRecord: TBookRecord;
@@ -43,6 +45,7 @@ type
     property IndexedCount: Integer read FIndexedCount;
     property SkippedCount: Integer read FSkippedCount;
     property FailedCount: Integer read FFailedCount;
+    property RecoveredCount: Integer read FRecoveredCount;
     property CachedCount: Integer read FCachedCount;
     property ArchiveOpenCount: Integer read FArchiveOpenCount;
     property BatchCount: Integer read FBatchCount;
@@ -65,7 +68,8 @@ resourcestring
   rstrIndexPublisherSeriesSummary = 'Книжные серии: сохранено книг %u, уже проверено %u, пропущено %u, ошибок %u.';
   rstrIndexPublisherSeriesCanceled = 'Индексация отменена. Завершённые книги сохранены.';
   rstrIndexPublisherSeriesMoreErrors = 'В окне показаны первые 20 ошибок. Полный список доступен по кнопке «Сохранить журнал» после завершения или отмены.';
-  rstrIndexPublisherSeriesLog = 'Полный журнал ошибок: %s';
+  rstrIndexPublisherSeriesLog = 'Полный журнал: %s';
+  rstrIndexPublisherSeriesRecovered = 'Восстановлено описаний при чтении: %u. Исходные файлы не изменялись.';
   rstrIndexPublisherSeriesChanged = 'Файл книги изменился во время чтения; метаданные не сохранены';
 
 constructor TIndexPublisherSeriesThread.Create(const CollectionID: Integer;
@@ -86,12 +90,7 @@ begin
   inherited;
 end;
 
-procedure TIndexPublisherSeriesThread.ReportFailure(
-  const BookRecord: TBookRecord; const ErrorText: string);
-const
-  MaxReportedErrors = 20;
-var
-  MessageText: string;
+procedure TIndexPublisherSeriesThread.EnsureLog(const BookRecord: TBookRecord);
 begin
   if FErrorLog = nil then
   begin
@@ -102,6 +101,16 @@ begin
     FErrorLog.WriteLine(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now));
     FErrorLog.WriteLine;
   end;
+end;
+
+procedure TIndexPublisherSeriesThread.ReportFailure(
+  const BookRecord: TBookRecord; const ErrorText: string);
+const
+  MaxReportedErrors = 20;
+var
+  MessageText: string;
+begin
+  EnsureLog(BookRecord);
   Inc(FFailedCount);
   MessageText := Format(rstrIndexPublisherSeriesError,
     [BookRecord.BookKey.BookID, BookRecord.Title, ErrorText]);
@@ -145,8 +154,21 @@ begin
         end);
       if Status = fmsCanceled then
         Exit;
+      if Status = fmsNoMetadata then
+      begin
+        Inc(FSkippedCount);
+        Exit;
+      end;
       if Status <> fmsComplete then
         raise EReadError.Create(ErrorText);
+      if FReader.LastRecoveryDetails <> '' then
+      begin
+        Inc(FRecoveredCount);
+        EnsureLog(BookRecord);
+        FErrorLog.WriteLine(Format('Восстановлено при чтении: книга %d (%s)',
+          [BookRecord.BookKey.BookID, BookRecord.Title]));
+        FErrorLog.WriteLine('  ' + FReader.LastRecoveryDetails);
+      end;
       for Item in Metadata do
         TSeriesHelper.Add(Series, 0, Item.Title, Item.Number, False);
       Result := True;
@@ -244,7 +266,8 @@ begin
         FSource.SetUpcoming(Books, BookIndex);
         BookRecord := Books[BookIndex];
         if not (bpIsLocal in BookRecord.BookProps) or
-           (BookRecord.GetBookFormat in [bfRaw, bfRawArchive]) then
+           (BookRecord.GetBookFormat in [bfRaw, bfRawArchive]) or
+           ((bpIsDeleted in BookRecord.BookProps) and (BookRecord.Size = 0)) then
           Inc(FSkippedCount)
         else
         begin
@@ -280,6 +303,8 @@ begin
     FCompleted := not Canceled;
     Teletype(Format(rstrIndexPublisherSeriesSummary,
       [FIndexedCount, FCachedCount, FSkippedCount, FFailedCount]));
+    if FRecoveredCount > 0 then
+      Teletype(Format(rstrIndexPublisherSeriesRecovered, [FRecoveredCount]));
   finally
     try
       if FErrorLog <> nil then
@@ -288,6 +313,8 @@ begin
           FErrorLog.WriteLine;
           FErrorLog.WriteLine(Format(rstrIndexPublisherSeriesSummary,
             [FIndexedCount, FCachedCount, FSkippedCount, FFailedCount]));
+          if FRecoveredCount > 0 then
+            FErrorLog.WriteLine(Format(rstrIndexPublisherSeriesRecovered, [FRecoveredCount]));
           if Canceled then
             FErrorLog.WriteLine(rstrIndexPublisherSeriesCanceled);
           if not FCompleted and not Canceled then

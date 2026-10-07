@@ -1,4 +1,4 @@
-program FB2PublisherMetadataReaderTest;
+﻿program FB2PublisherMetadataReaderTest;
 
 {$APPTYPE CONSOLE}
 {$R *.res}
@@ -11,7 +11,8 @@ uses
   System.Win.ComObj,
   fictionbook_21 in '..\fictionbook_21.pas',
   unit_FB2Utils in '..\unit_FB2Utils.pas',
-  unit_FB2PublisherMetadataReader in '..\unit_FB2PublisherMetadataReader.pas';
+  unit_FB2PublisherMetadataReader in '..\unit_FB2PublisherMetadataReader.pas',
+  unit_FB2MetadataRecovery in '..\unit_FB2MetadataRecovery.pas';
 
 type
   TNonSeekableInput = class(TStream)
@@ -389,7 +390,8 @@ begin
     Metadata('<sequence name="&x;"/>'), fmsInvalid);
   RunText('DTD external rejected', '<!DOCTYPE FictionBook SYSTEM "file:///C:/must-not-be-read.dtd">' + Text, fmsInvalid);
   RunText('DTD network rejected', '<!DOCTYPE FictionBook SYSTEM "http://127.0.0.1:9/must-not-connect.dtd">' + Text, fmsInvalid);
-  RunText('missing description before body', '<FictionBook><body>' + StringOfChar('x', 16000), fmsInvalid);
+  RunText('missing description before body', '<FictionBook><body>' + StringOfChar('x', 16000), fmsNoMetadata);
+  RunText('absent description in closed root', '<FictionBook/>', fmsNoMetadata);
   RunText('malformed body ignored', Text + '<body><p>broken &unknown; <tag></body>', fmsComplete, 1,
     CYRILLIC_TITLE + ' & <test> "quoted"', 17);
   RunText('XML lookalikes in comments CDATA PI', '<FictionBook><!-- </description> -->' +
@@ -436,26 +438,140 @@ begin
   RunText('reuse after errors and cancellation', Metadata('<sequence name="Final" number="2"/>'), fmsComplete, 1, 'Final', 2);
 end;
 
+procedure CheckRecovery;
+var
+  XML, Broken: string;
+  I: Integer;
+  CP1251: TEncoding;
+begin
+  XML := Metadata('<sequence name="' + CYRILLIC_TITLE + ' & Palm" number="26"/>');
+  for I := 1 to 4 do
+  begin
+    Run('recover bare amp UTF8 fragment ' + IntToStr(I), Encoded(XML, TEncoding.UTF8),
+      fmsComplete, 1, CYRILLIC_TITLE + ' & Palm', 26, I);
+    Run('recover bare amp UTF16 fragment ' + IntToStr(I),
+      Encoded('<?xml version="1.0" encoding="UTF8"?>' + XML, TEncoding.Unicode, True),
+      fmsComplete, 1, CYRILLIC_TITLE + ' & Palm', 26, I);
+  end;
+  Run('recovery keeps large body unread', Encoded(XML, TEncoding.UTF8),
+    fmsComplete, 1, CYRILLIC_TITLE + ' & Palm', 26, MaxInt, -1, 64 * 1024 * 1024);
+  CP1251 := TEncoding.GetEncoding(1251);
+  try
+    Run('recovery windows1251 preserves title',
+      Encoded('<?xml version="1.0" encoding="windows-1251"?>' + XML, CP1251),
+      fmsComplete, 1, CYRILLIC_TITLE + ' & Palm', 26, 1);
+  finally CP1251.Free; end;
+  RunText('recover known entity missing semicolon', Metadata('<sequence name="A &amp B" number="3"/>'),
+    fmsComplete, 1, 'A & B', 3);
+  RunText('recover annotation formatting only', '<FictionBook><description><title-info>' +
+    '<annotation><p>text<strong>words</annotation></title-info><publish-info>' +
+    '<sequence name="Keep exact name" number="9"/></publish-info></description>',
+    fmsComplete, 1, 'Keep exact name', 9);
+  RunText('recover image missing greater', '<FictionBook><description><title-info>' +
+    '<coverpage><image href="#cover" /</coverpage></title-info><publish-info>' +
+    '<sequence name="Cover"/></publish-info></description>', fmsComplete, 1, 'Cover');
+  RunText('recover annotation closing greater', '<FictionBook><description><title-info>' +
+    '<annotation><p>text</p></annotation <date>2000</date></title-info><publish-info>' +
+    '<sequence name="Date"/></publish-info></description>', fmsComplete, 1, 'Date');
+  RunText('recover joined language and empty line', '<FictionBook><description><title-info>' +
+    '<langru</lang></title-info><document-info><empty-line/' + #13#10 +
+    '<nickname>author</nickname</document-info><publish-info><sequence name="Language"/>' +
+    '</publish-info></description>', fmsComplete, 1, 'Language');
+  RunText('recover standard undeclared image link', '<FictionBook><description><title-info>' +
+    '<coverpage><image l:href="#cover"/></coverpage></title-info><publish-info>' +
+    '<sequence name="Image"/></publish-info></description>', fmsComplete, 1, 'Image');
+  RunText('existing foreign link namespace unchanged', '<FictionBook xmlns:l="urn:foreign">' +
+    '<description><title-info><coverpage><image l:href="#cover"/></coverpage></title-info>' +
+    '<publish-info><sequence name="Image"/></publish-info></description>', fmsComplete, 1, 'Image');
+  RunText('recover exact escaped description boundary', StringReplace(Metadata('<sequence name="Boundary"/>'),
+    '</description>', '&lt;/description&gt;<body>', []), fmsComplete, 1, 'Boundary');
+  RunText('do not invent absent description closing', Metadata('<sequence name="Partial"/>').Replace(
+    '</description>', '<body>'), fmsInvalid);
+  RunText('escaped example in annotation is not markup', '<FictionBook><description><title-info>' +
+    '<annotation>&lt;/description&gt;<body/></annotation></title-info>', fmsInvalid);
+  RunText('CDATA escaped example is not markup', '<FictionBook><description><title-info>' +
+    '<annotation><![CDATA[&lt;/description&gt;<body>]]></annotation></title-info>', fmsInvalid);
+  RunText('recover typo XML version', '<?xml version="1.01" encoding="UTF-8"?>' +
+    Metadata('<sequence name="Version" number="8"/>'), fmsComplete, 1, 'Version', 8);
+  RunText('unknown XML version not guessed', '<?xml version="1.2"?>' +
+    Metadata('<sequence name="Version"/>'), fmsInvalid);
+  RunText('namespace typo 2.01', Metadata('<sequence name="Namespace"/>').Replace(
+    FB2_NS, 'http://www.gribuser.ru/xml/fictionbook/2.01'), fmsComplete, 1, 'Namespace');
+  RunText('recognized mixed namespace', '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.1">' +
+    '<description xmlns="' + FB2_NS + '"><title-info/><publish-info>' +
+    '<sequence name="Mixed" number="4"/><sequence xmlns="urn:foreign" name="Ignored"/>' +
+    '</publish-info></description>', fmsComplete, 1, 'Mixed', 4);
+  RunText('binary before metadata', '<FictionBook><binary id="cover">AAAA</binary>' +
+    '<description><title-info/><publish-info><sequence name="Binary"/></publish-info></description>',
+    fmsComplete, 1, 'Binary');
+  Broken := '<FictionBook><description><title-info><annotation><p>oops</annotation>' +
+    '</title-info><publish-info><sequence name="Partial"><bad/></publish-info></description>';
+  RunText('repair does not guess sequence container', Broken, fmsInvalid);
+  Run('invalid UTF8 not hidden by repair', TEncoding.UTF8.GetBytes('<FictionBook><description><title-info>') +
+    TBytes.Create($FF) + TEncoding.UTF8.GetBytes('</title-info><publish-info>' +
+    '<sequence name="A & B"/></publish-info></description>'), fmsInvalid, 0);
+  Run('cancel while recovery reads fragmented prefix', Encoded(XML, TEncoding.UTF8),
+    fmsCanceled, 0, '', 0, 1, Length(XML)-10);
+  RunText('reuse after recovered and unrecoverable metadata', Metadata('<sequence name="After" number="2"/>'),
+    fmsComplete, 1, 'After', 2);
+  Check(Reader.LastRecoveryDetails = '', 'reuse clears prior recovery details');
+end;
+
 procedure CheckFiles;
 var
   I: Integer;
   Input: TFileStream;
   Items: TFB2PublisherSeries;
   ErrorText: string;
+  Expected, Actual: TFB2MetadataStatus;
+  Recorded: TRecordedMetadataStream;
+  Retry: TStringStream;
+  XML, Details: string;
+  Canceled: Boolean;
 begin
-  for I := 1 to ParamCount do
+  I := 1;
+  while I <= ParamCount do
   begin
+    Expected := fmsComplete;
+    if ParamStr(I) = '--invalid-file' then
+    begin Expected := fmsInvalid; Inc(I); end;
+    if I > ParamCount then raise EArgumentException.Create('Missing file after option');
     Input := TFileStream.Create(ParamStr(I), fmOpenRead or fmShareDenyNone);
     try
-      Check(Reader.Read(Input, Items, ErrorText) = fmsComplete,
+      Actual := Reader.Read(Input, Items, ErrorText);
+      Check(Actual = Expected,
         'file metadata: ' + ExtractFileName(ParamStr(I)));
       if ErrorText <> '' then
         Report.Add('  Diagnostic: ' + ErrorText);
       Report.Add(Format('  Read %d of %d bytes; %d publisher series',
         [Input.Position, Input.Size, Length(Items)]));
+      if Reader.LastRecoveryDetails <> '' then
+        Report.Add('  Recovered: ' + Reader.LastRecoveryDetails);
+      if (Actual <> Expected) and (Expected = fmsComplete) then
+      begin
+        Input.Position := 0;
+        Recorded := TRecordedMetadataStream.Create(Input, FB2_METADATA_MAX_BYTES);
+        try
+          // Seed the bounded prefix without a parser, for failure diagnostics.
+          SetLength(Items, 0);
+          Reader.Read(Recorded, Items, ErrorText);
+          if RecoverMetadataPrefix(Recorded, FB2_METADATA_MAX_BYTES,
+            FB2_METADATA_MAX_DEPTH, nil, XML, Details, Canceled) then
+          begin
+            Report.Add('  Recovery candidate: ' + Details);
+            Retry := TStringStream.Create(XML, TEncoding.UTF8);
+            try
+              Actual := Reader.Read(Retry, Items, ErrorText);
+              Report.Add('  Candidate status: ' + IntToStr(Ord(Actual)) + ' ' + ErrorText);
+            finally Retry.Free; end;
+          end
+          else Report.Add('  No complete recovery candidate');
+        finally Recorded.Free; end;
+      end;
     finally
       Input.Free;
     end;
+    Inc(I);
   end;
 end;
 
@@ -470,6 +586,7 @@ begin
       ComInitialized := True;
       Reader := TFB2PublisherMetadataReader.Create;
       RunTests;
+      CheckRecovery;
       CheckFiles;
     except
       on E: Exception do

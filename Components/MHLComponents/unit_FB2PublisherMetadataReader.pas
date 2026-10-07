@@ -1,4 +1,4 @@
-unit unit_FB2PublisherMetadataReader;
+﻿unit unit_FB2PublisherMetadataReader;
 
 interface
 
@@ -13,7 +13,7 @@ const
   FB2_METADATA_MAX_DEPTH = 256;
 
 type
-  TFB2MetadataStatus = (fmsComplete, fmsInvalid, fmsCanceled);
+  TFB2MetadataStatus = (fmsComplete, fmsInvalid, fmsCanceled, fmsNoMetadata);
 
   // Create, reuse and destroy on one COM-initialized thread. Streams are borrowed.
   TFB2PublisherMetadataReader = class
@@ -21,14 +21,18 @@ type
     FReader: ISAXXMLReader;
     FHandler: IInterface;
     FHandlerObject: TObject;
+    FLastRecoveryDetails: string;
+    function ReadStrict(Stream: TStream; out Series: TFB2PublisherSeries;
+      out ErrorText: string; const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
   public
     constructor Create;
     destructor Destroy; override;
     // Reads from the current position without seeking. Only Complete can replace
-    // stored metadata; Invalid/Canceled always return an empty Series array.
+    // stored metadata; all other statuses return an empty Series array.
     function Read(Stream: TStream; out Series: TFB2PublisherSeries;
       out ErrorText: string;
       const IsCanceled: TFunc<Boolean> = nil): TFB2MetadataStatus;
+    property LastRecoveryDetails: string read FLastRecoveryDetails;
   end;
 
 implementation
@@ -39,12 +43,14 @@ uses
   System.Variants,
   System.Win.ComObj,
   Winapi.Windows,
-  Winapi.ActiveX;
+  Winapi.ActiveX,
+  unit_FB2MetadataRecovery;
 
 const
   FB2_NAMESPACE = 'http://www.gribuser.ru/xml/fictionbook/2.0';
   FB2_NAMESPACE_21 = 'http://www.gribuser.ru/xml/fictionbook/2.1';
   FB2_NAMESPACE_22 = 'http://www.gribuser.ru/xml/fictionbook/2.2';
+  FB2_NAMESPACE_201 = 'http://www.gribuser.ru/xml/fictionbook/2.01';
   INPUT_BUFFER_SIZE = 8192;
 
 type
@@ -55,6 +61,7 @@ type
     FException: Exception;
     FError: string;
     FNamespace: string;
+    FDescriptionNamespace: string;
     FDepth: Integer;
     FHasTitleInfo: Boolean;
     FInDescription: Boolean;
@@ -62,6 +69,7 @@ type
     FSequencePath: array[0..FB2_METADATA_MAX_DEPTH] of Boolean;
     FComplete: Boolean;
     FCanceled: Boolean;
+    FNoMetadata: Boolean;
     function CheckContinue: HResult;
     function Invalid(const MessageText: string): HResult;
     function CaptureException: HResult;
@@ -120,7 +128,8 @@ end;
 function IsFB2Namespace(const Value: string): Boolean;
 begin
   Result := (Value = '') or (Value = FB2_NAMESPACE) or
-    (Value = FB2_NAMESPACE_21) or (Value = FB2_NAMESPACE_22);
+    (Value = FB2_NAMESPACE_21) or (Value = FB2_NAMESPACE_22) or
+    (Value = FB2_NAMESPACE_201);
 end;
 
 constructor TMetadataHandler.Create;
@@ -143,12 +152,14 @@ begin
   FreeAndNil(FException);
   FError := '';
   FNamespace := '';
+  FDescriptionNamespace := '';
   FDepth := 0;
   FHasTitleInfo := False;
   FInDescription := False;
   FInPublishInfo := False;
   FComplete := False;
   FCanceled := False;
+  FNoMetadata := False;
   FillChar(FSequencePath, SizeOf(FSequencePath), 0);
 end;
 
@@ -176,7 +187,7 @@ begin
   try
     if Assigned(FCancel) and FCancel() then
       FCanceled := True;
-    if FCanceled or FComplete or (FError <> '') or (FException <> nil) then
+    if FCanceled or FComplete or FNoMetadata or (FError <> '') or (FException <> nil) then
       Result := E_ABORT
     else
       Result := S_OK;
@@ -239,15 +250,23 @@ begin
     end
     else if FDepth = 2 then
     begin
-      if ((Namespace = FNamespace) or (Namespace = '')) and (Name = 'description') then
+      if Name = 'description' then
       begin
+        if not IsFB2Namespace(Namespace) then
+          Exit(Invalid('Неизвестное пространство имён description: ' + Namespace));
         FInDescription := True;
+        FDescriptionNamespace := Namespace;
       end
       else if ((Namespace = FNamespace) or (Namespace = '')) and
-        ((Name = 'body') or (Name = 'binary')) then
-        Exit(Invalid('В FB2 отсутствует описание книги'));
+        (Name = 'body') then
+      begin
+        FNoMetadata := True;
+        Exit(E_ABORT);
+      end;
+      // Some converters put binary images before description. SAX skips them
+      // within the same prefix/depth limits and continues to the metadata.
     end
-    else if FInDescription and ((Namespace = FNamespace) or (Namespace = '')) then
+    else if FInDescription and ((Namespace = FDescriptionNamespace) or (Namespace = '')) then
     begin
       if FDepth = 3 then
       begin
@@ -293,6 +312,11 @@ begin
     end;
     if FDepth = 3 then
       FInPublishInfo := False;
+    if (FDepth = 1) and not FInDescription then
+    begin
+      FNoMetadata := True;
+      Exit(E_ABORT);
+    end;
     Dec(FDepth);
     Result := S_OK;
   except
@@ -565,7 +589,7 @@ begin
   inherited;
 end;
 
-function TFB2PublisherMetadataReader.Read(Stream: TStream;
+function TFB2PublisherMetadataReader.ReadStrict(Stream: TStream;
   out Series: TFB2PublisherSeries; out ErrorText: string;
   const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
 var
@@ -606,6 +630,7 @@ begin
       Series := Handler.FItems.ToArray;
       Exit(fmsComplete);
     end;
+    if Handler.FNoMetadata then Exit(fmsNoMetadata);
     ErrorText := Handler.FError;
     if ErrorText = '' then
       ErrorText := Format('Incomplete FictionBook metadata (HRESULT %.8x)',
@@ -613,6 +638,63 @@ begin
     Result := fmsInvalid;
   finally
     Handler.FCancel := nil;
+  end;
+end;
+
+function TFB2PublisherMetadataReader.Read(Stream: TStream;
+  out Series: TFB2PublisherSeries; out ErrorText: string;
+  const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
+var
+  Recorded: TRecordedMetadataStream;
+  Repaired: TStringStream;
+  XML, Details, RetryError: string;
+  RetryStatus: TFB2MetadataStatus;
+  WasCanceled: Boolean;
+begin
+  FLastRecoveryDetails := '';
+  if Stream = nil then
+    Exit(ReadStrict(nil, Series, ErrorText, IsCanceled));
+  Recorded := TRecordedMetadataStream.Create(Stream, FB2_METADATA_MAX_BYTES);
+  try
+    Result := ReadStrict(Recorded, Series, ErrorText, IsCanceled);
+    if Result <> fmsInvalid then Exit;
+    if Recorded.Captured.Size = 0 then
+    begin
+      if not Recorded.ReadFailed then ErrorText := 'Пустой файл книги';
+      Exit;
+    end;
+    // Never bypass the parser's resource limits by repairing excessive nesting.
+    if (TMetadataHandler(FHandlerObject).FDepth > FB2_METADATA_MAX_DEPTH) or
+      (Pos('maximum XML depth', ErrorText) > 0) then Exit;
+    try
+      WasCanceled := False;
+      if not RecoverMetadataPrefix(Recorded, FB2_METADATA_MAX_BYTES,
+        FB2_METADATA_MAX_DEPTH, IsCanceled, XML, Details, WasCanceled) then
+      begin
+        if WasCanceled then Result := fmsCanceled;
+        Exit;
+      end;
+    except
+      on E: EStreamError do Exit; // Retain the original diagnostic and metadata.
+    end;
+    begin
+      Repaired := TStringStream.Create(XML, TEncoding.UTF8);
+      try
+        RetryStatus := ReadStrict(Repaired, Series, RetryError, IsCanceled);
+        if RetryStatus = fmsComplete then
+        begin
+          Result := RetryStatus;
+          ErrorText := '';
+          FLastRecoveryDetails := Details;
+        end
+        else if RetryStatus = fmsCanceled then
+          Result := fmsCanceled;
+      finally
+        Repaired.Free;
+      end;
+    end;
+  finally
+    Recorded.Free;
   end;
 end;
 
