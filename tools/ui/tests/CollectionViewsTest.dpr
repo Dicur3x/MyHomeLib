@@ -1,4 +1,4 @@
-﻿program CollectionViewsTest;
+program CollectionViewsTest;
 
 {$APPTYPE CONSOLE}
 {$R *.res}
@@ -1218,6 +1218,59 @@ begin
   Writeln('PASS plain online FB2 is downloaded before compatibility conversion and reader handoff');
 end;
 
+type
+  TProfileBooks = class(TInterfacedObject, IBookIterator)
+  private FIndex: Integer;
+  public
+    function Next(out Book: TBookRecord): Boolean;
+    function RecordCount: Integer;
+  end;
+
+function TProfileBooks.RecordCount: Integer;
+begin Result := 50000; end;
+
+function TProfileBooks.Next(out Book: TBookRecord): Boolean;
+begin
+  Result := FIndex < RecordCount;
+  if not Result then Exit;
+  Inc(FIndex); Book.Clear; Book.nodeType := ntBookInfo;
+  Book.BookKey := CreateBookKey(FIndex, Settings.ActiveCollection);
+  Book.Title := Format('Profile book %.6d', [FIndex]);
+  TAuthorsHelper.Add(Book.Authors, 'Profile', '', '');
+  Book.SeriesID := 1 + (FIndex mod 5000);
+  Book.Series := Format('Series %.5d', [Book.SeriesID]);
+  Book.Lang := 'ru'; Book.FileExt := '.fb2';
+end;
+
+procedure TestListPerformance;
+var I, BookCount, SeriesCount: Integer; Started: UInt64; Node: PVirtualNode;
+  Data: PBookRecord; Languages: TComboBox;
+begin
+  Languages := TComboBox.Create(nil);
+  try
+    Languages.Parent := frmMain; Languages.Visible := False;
+    Languages.Items.Add('-'); Languages.ItemIndex := 0;
+    Settings.TreeModes[PAGE_SEARCH] := tmTree;
+    for I := 1 to 3 do
+    begin
+      Started := GetTickCount64;
+      frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, TProfileBooks.Create, True, True, nil);
+      Writeln('PROFILE list build 50000 books / 5000 series ms=', GetTickCount64 - Started);
+      BookCount := 0; SeriesCount := 0; Node := frmMain.tvBooksSR.GetFirst;
+      while Assigned(Node) do
+      begin
+        Data := frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.nodeType = ntBookInfo then Inc(BookCount);
+        if Data.nodeType = ntSeriesInfo then Inc(SeriesCount);
+        Node := frmMain.tvBooksSR.GetNext(Node);
+      end;
+      Require((BookCount = 50000) and (SeriesCount = 5000), 'Profile tree lost books or groups');
+      Require(Languages.Items.IndexOf('ru') > 0, 'Profile language was not registered');
+    end;
+    Writeln('PASS list profiling preserves all books, author-series groups and languages');
+  finally Languages.Free; end;
+end;
+
 procedure TestLanguageIsolation;
 begin
   frmMain.cbLangSelectA.ItemIndex := frmMain.cbLangSelectA.Items.IndexOf('ru');
@@ -1726,6 +1779,8 @@ begin
         TestReaderCompatibility
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
+      else if ParamStr(1) = 'list-performance' then
+        TestListPerformance
       else if ParamStr(1) = 'column-filters' then
         TestBookColumnFilters
       else if ParamStr(1) = 'read-folder-cleanup' then

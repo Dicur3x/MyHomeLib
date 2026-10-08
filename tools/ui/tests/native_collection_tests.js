@@ -38,7 +38,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "column-filters", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "column-filters", "list-performance", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 if (viewsMode !== null && !modes.includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
@@ -54,6 +54,7 @@ const requiredViews = {
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths", "PASS stable reader cache survives reimport", "PASS reader cache hit avoids source extraction"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "book-gallery": ["PASS gallery loads lazily in background", "PASS illustration preview arrows work and resized window position persists", "PASS changing books cancels old gallery", "PASS EPUB gallery leaves source unchanged"],
+  "list-performance": ["PASS list profiling preserves"],
   "column-filters": ["PASS column filters combine, survive regrouping, hide empty groups and mark only matching books"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
   "program-update-ui": ["PASS new update default is three days and preserves explicit choices", "PASS update settings preserve never and custom hours", "PASS update popup shows installed version", "PASS dates and shared formatting", "PASS update notes retain nested SQLite", "PASS previous changelogs start collapsed", "PASS update window expands reading space", "PASS saved histories survive reopening", "PASS resized update window and text zoom", "PASS short release height stays compact", "PASS expanded old release ends directly after its text"],

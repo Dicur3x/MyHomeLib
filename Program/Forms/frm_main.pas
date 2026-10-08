@@ -790,14 +790,7 @@ type
     //
     // Построение деревьев
     //
-    procedure FillBooksTree(
-      const Tree: TBookTree;
-      const LangSelector: TComboBox;
-      const BookIterator: IBookIterator;
-      ShowAuth: Boolean;
-      ShowSer: Boolean;
-      SelectedID: PBookKey
-    ); overload;
+
 
     //
     // TODO -oNickR -cRefactoring : вынести эти методы в соответствующие датамодули
@@ -915,6 +908,14 @@ type
     procedure OnSetSerieFilter(Sender: TObject);
 
   public
+    procedure FillBooksTree(
+      const Tree: TBookTree;
+      const LangSelector: TComboBox;
+      const BookIterator: IBookIterator;
+      ShowAuth: Boolean;
+      ShowSer: Boolean;
+      SelectedID: PBookKey
+    ); overload;
     procedure OnSetControlsStateHandler(State: Boolean);
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -5390,34 +5391,30 @@ end;
 
 procedure TfrmMain.OnSelectBookHandler(MoveForward: Boolean);
 var
-  Tree: TBookTree;
-  NewNode, OldNode: PVirtualNode;
-  Data: PBookRecord;
+  Tree: TBookTree; Node, OldNode: PVirtualNode;
+  Data: PBookRecord; Attempts: Cardinal;
 begin
-  GetActiveTree(Tree);
-  OldNode := Tree.GetFirstSelected;
-  NewNode := OldNode;
-
-  repeat
+  GetActiveTree(Tree); OldNode := Tree.GetFirstSelected; Node := OldNode;
+  for Attempts := 1 to Tree.TotalCount do
+  begin
     if MoveForward then
     begin
-      NewNode := Tree.GetNext(NewNode);
-      if not Assigned(NewNode) then
-        NewNode := Tree.GetFirst;
+      Node := Tree.GetNext(Node);
+      if not Assigned(Node) then Node := Tree.GetFirst;
     end
     else
     begin
-      NewNode := Tree.GetPrevious(NewNode);
-      if not Assigned(NewNode) then
-        NewNode := Tree.GetLast;
+      Node := Tree.GetPrevious(Node);
+      if not Assigned(Node) then Node := Tree.GetLast;
     end;
-
-    Data := Tree.GetNodeData(NewNode);
-  until Data^.nodeType = ntBookInfo;
-
-  Tree.Selected[OldNode] := False;
-  Tree.Selected[NewNode] := True;
-  Tree.FocusedNode := NewNode;
+    if not Assigned(Node) then Exit;
+    Data := Tree.GetNodeData(Node);
+    if (Data.nodeType = ntBookInfo) and not Tree.IsEffectivelyFiltered[Node] then
+    begin
+      if Assigned(OldNode) then Tree.Selected[OldNode] := False;
+      Tree.Selected[Node] := True; Tree.FocusedNode := Node; Exit;
+    end;
+  end;
 end;
 
 procedure TfrmMain.tbSelectAllClick(Sender: TObject);
@@ -5447,6 +5444,10 @@ var
   Author: string;
 
   AuthorNodes: TDictionary<string, PVirtualNode>;
+  SeriesNodes: TObjectDictionary<PVirtualNode, TDictionary<Integer, PVirtualNode>>;
+  AuthorSeries: TDictionary<Integer, PVirtualNode>;
+  Languages: TDictionary<string, Boolean>;
+  Language: string;
 
   SeriesID: Integer;
 
@@ -5500,17 +5501,22 @@ begin
       try
         AuthorNodes := TDictionary<string, PVirtualNode>.Create;
         try
+          SeriesNodes := TObjectDictionary<PVirtualNode, TDictionary<Integer, PVirtualNode>>.Create([doOwnsValues]);
+          Languages := TDictionary<string, Boolean>.Create;
+          try
+          if Assigned(LangSelector) then
+            for Language in LangSelector.Items do Languages.AddOrSetValue(Language, True);
           Max := BookIterator.RecordCount;
 
           while BookIterator.Next(BookRecord) do
           begin
             if LangSelector <> nil then
             begin
-              // Добавление в ComboBox отсутствующего в нем языка.
-              // Можно добавить сразу в список несколько языков как в cbLang
-              // но скорость работы с диском невелирует этот if Pos(
-              if Pos(BookRecord.Lang, LangSelector.Items.Text) = 0 then
+              if not Languages.ContainsKey(BookRecord.Lang) then
+              begin
                 LangSelector.Items.Add(BookRecord.Lang);
+                Languages.Add(BookRecord.Lang, True);
+              end;
 
               //    and ((BookRecord.Lang = 'ru') or (BookRecord.Lang = 'bg'))
               // Соответственно добавление в дерево узла с выбранным языком (или любым
@@ -5553,8 +5559,12 @@ begin
               end
               else
               begin
-                SerieNode := FindSeriesInTree(Tree, AuthorNode, SeriesID);
-                if not Assigned(SerieNode) then
+                if not SeriesNodes.TryGetValue(AuthorNode, AuthorSeries) then
+                begin
+                  AuthorSeries := TDictionary<Integer, PVirtualNode>.Create;
+                  SeriesNodes.Add(AuthorNode, AuthorSeries);
+                end;
+                if not AuthorSeries.TryGetValue(SeriesID, SerieNode) then
                 begin
                   //
                   // Серия не найдена
@@ -5572,6 +5582,7 @@ begin
                   Data^.nodeType := ntSeriesInfo;
                   Data^.SeriesID := SeriesID;
                   Data^.Series := BookRecord.Series;
+                  AuthorSeries.Add(SeriesID, SerieNode);
                 end;
               end;
             end
@@ -5598,6 +5609,9 @@ begin
             Tree.SortTree(FSortSettings[Tree.Tag].Column, FSortSettings[Tree.Tag].Direction)
           else
             Tree.SortTree(NoColumn, sdAscending);
+          finally
+            Languages.Free; SeriesNodes.Free;
+          end;
         finally
           FreeAndNil(AuthorNodes);
         end;
