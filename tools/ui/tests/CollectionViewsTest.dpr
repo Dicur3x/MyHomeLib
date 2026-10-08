@@ -111,12 +111,16 @@ begin
     Application.CreateForm(TfrmGenreTree, frmGenreTree);
     frmSplash.Hide;
     Started := GetTickCount64;
-    Application.ProcessMessages;
+    if ParamStr(1) <> 'first-run-cancel' then Application.ProcessMessages;
     while not Driver.Finished and (GetTickCount64 - Started < 10000) do
     begin Application.ProcessMessages; Sleep(10); end;
     Require(Driver.Finished, 'First-run wizard did not appear');
     if ParamStr(1) = 'first-run-cancel' then
     begin
+      Require(not SystemDB.HasCollections, 'Cancelling first launch created a collection');
+      // Match the real DPR: Run consumes the posted quit message.
+      // ProcessMessages may remove WM_QUIT without ending Run.
+      Application.Run;
       Require(Application.Terminated and not SystemDB.HasCollections,
         'Cancelling first launch must exit without creating a collection');
       Writeln('PASS visible first-run wizard cancellation exits cleanly');

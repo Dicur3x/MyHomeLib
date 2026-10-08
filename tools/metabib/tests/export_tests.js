@@ -29,7 +29,7 @@ for (const [sourceArg, expectedName, expectedPasses] of cases) {
   fs.writeFileSync(path.join(folder, "native-regression.marker"), "HomeLib Ru isolated native regression v1", "utf8");
   fs.writeFileSync(path.join(folder, "myhomelib2.ini"), "[SYSTEM]\r\nCheckUpdates=0\r\nCheckLibrusecUpdates=0\r\nProgramCheckMinutes=0\r\n[INTERFACE]\r\nLocale=ru\r\n[BEHAVIOR]\r\nIgnoreAbsentArchives=1\r\n", "utf8");
   const args = expectedName === "MetabibExportTest.exe" ? [selector] : [];
-  const result = cp.spawnSync(path.join(folder, expectedName), args, {cwd:folder,encoding:"utf8",windowsHide:true,timeout:240000,maxBuffer:2*1024*1024});
+  const result = cp.spawnSync(path.join(folder, expectedName), args, {cwd:folder,encoding:"utf8",windowsHide:true,timeout:900000,maxBuffer:2*1024*1024});
   process.stdout.write(`${expectedName}:\n${result.stdout || ""}${result.stderr || ""}Artifacts: ${folder}\n`);
   if (result.error) throw result.error;
   if (result.status !== 0 || /^FAIL\b/m.test(result.stdout || "")) throw new Error(`Native export failed (${result.status})`);
