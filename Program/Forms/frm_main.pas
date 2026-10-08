@@ -4206,6 +4206,7 @@ var
   BookCollection: IBookCollection;
   BookSeries: TBookSeries;
   SeriesLinks: string;
+  GalleryBook: TBookRecord;
 
 begin
   if FInvisible or (FBookInfoUpdateCount > 0) or not Assigned(Node) then Exit;
@@ -4283,6 +4284,17 @@ begin
       SeriesLinks,
       TGenresHelper.GetLinkList(Data^.Genres)
     );
+    if bpIsLocal in Data^.BookProps then
+    begin
+      GalleryBook := Data^;
+      InfoPanel.Gallery.PreviewSettingsFile := Settings.DataPath + 'gallery-window.ini';
+      InfoPanel.Gallery.SetBook(IntToStr(GalleryBook.BookKey.DatabaseID) + ':' +
+        IntToStr(GalleryBook.BookKey.BookID), GalleryBook.FileExt,
+        function: TStream
+        begin
+          Result := GalleryBook.GetBookStream;
+        end);
+    end;
     try
       if Assigned(BookCollection) then
         InfoPanel.SetPublisherSeriesLinks(TSeriesHelper.GetLinkList(

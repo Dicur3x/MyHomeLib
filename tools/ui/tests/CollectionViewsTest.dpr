@@ -9,7 +9,8 @@
 uses
   NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
-  VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
+  VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
+  System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
@@ -515,6 +516,185 @@ begin
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'Reader policy changes wrote to the source');
   Writeln('PASS stable reader cache survives reimport and refreshes changed sources');
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
+end;
+
+procedure TestBookGallery;
+const
+  WEBP = 'UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
+  FB2 = '<FictionBook><body><section><p>Gallery</p></section></body>' +
+    '<binary id="one.webp" content-type="image/webp">' + WEBP + '</binary>' +
+    '<binary id="damaged.png" content-type="image/png">not-an-image</binary>' +
+    '<binary id="two.jpg" content-type="image/jpeg">' + WEBP + '</binary></FictionBook>';
+var Host: TForm; Panel: TInfoPanel; Gallery: TBookGallery; Calls: Integer;
+  Started, ReleaseOld, OldFactoryDone: TEvent; Zip: TZipFile; Stream: TBytesStream;
+  EpubFile: string; BeforeSource: string;
+
+  function VisualBook: string;
+  var Bitmap: TBitmap; Png: TPngImage; Bytes: TBytesStream; I: Integer;
+  begin
+    Result := '<FictionBook><body><section><p>Gallery</p></section></body>';
+    Bitmap := TBitmap.Create;
+    Png := TPngImage.Create;
+    Bytes := TBytesStream.Create;
+    try
+      Bitmap.SetSize(640, 400);
+      for I := 1 to 3 do
+      begin
+        Bitmap.Canvas.Brush.Color := RGB(30 + I * 30, 90 + I * 25, 150);
+        Bitmap.Canvas.FillRect(Rect(0, 0, 640, 400));
+        Bitmap.Canvas.Font.Name := 'Segoe UI';
+        Bitmap.Canvas.Font.Size := 24;
+        Bitmap.Canvas.Font.Color := clWhite;
+        Bitmap.Canvas.TextOut(40, 60, 'Проверочная иллюстрация ' + IntToStr(I));
+        Bitmap.Canvas.Brush.Color := RGB(230, 180 - I * 20, 80);
+        Bitmap.Canvas.Ellipse(220, 160, 420, 360);
+        Png.Assign(Bitmap);
+        Bytes.Clear;
+        Png.SaveToStream(Bytes);
+        Result := Result + '<binary id="image' + IntToStr(I) + '.png" content-type="image/png">' +
+          TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes, 0, Integer(Bytes.Size))) + '</binary>';
+      end;
+      Result := Result + '</FictionBook>';
+    finally Bytes.Free; Png.Free; Bitmap.Free; end;
+  end;
+
+  procedure WaitLoaded;
+  var Start: UInt64;
+  begin
+    Start := GetTickCount64;
+    while Gallery.Loading and (GetTickCount64 - Start < 10000) do
+    begin Application.ProcessMessages; CheckSynchronize(10); end;
+    Require(not Gallery.Loading, 'Gallery worker failed to finish');
+  end;
+
+begin
+  Calls := 0;
+  Host := TForm.CreateNew(nil);
+  Started := TEvent.Create(nil, True, False, '');
+  ReleaseOld := TEvent.Create(nil, True, False, '');
+  OldFactoryDone := TEvent.Create(nil, True, False, '');
+  try
+    Host.Width := 850;
+    Host.Height := 450;
+    Panel := TInfoPanel.Create(Host);
+    Panel.Parent := Host;
+    Panel.Align := alClient;
+    Gallery := Panel.Gallery;
+    Gallery.PreviewSettingsFile := Settings.DataPath + 'gallery-window.ini';
+    Panel.SetBookInfo('Gallery fixture', '', '', '');
+    Gallery.SetBook('fixture', '.fb2',
+      function: TStream
+      begin
+        TInterlocked.Increment(Calls);
+        Result := TBytesStream.Create(TEncoding.UTF8.GetBytes(FB2));
+      end);
+    Host.Show;
+    Application.ProcessMessages;
+    if ParamStr(2) = 'visual' then
+    begin
+      BeforeSource := VisualBook;
+      Host.Caption := 'HomeLib Ru — проверка галереи';
+      Panel.SetBookInfo('Проверочная книга с иллюстрациями', '', '', '');
+      Gallery.SetBook('visual-book', '.fb2',
+        function: TStream
+        begin Result := TBytesStream.Create(TEncoding.UTF8.GetBytes(BeforeSource)); end);
+      while Host.Visible do
+      begin Application.ProcessMessages; CheckSynchronize(10); end;
+      Exit;
+    end;
+    Require(not Gallery.Expanded and not Gallery.Loading and (Calls = 0),
+      'Collapsed gallery read the source eagerly');
+    Gallery.Expanded := True;
+    WaitLoaded;
+    Require((Gallery.ImageCount = 2) and (Calls = 1),
+      'FB2 gallery did not isolate damaged image or decode WebP by signature');
+    Gallery.Expanded := False;
+    Gallery.Expanded := True;
+    WaitLoaded;
+    Require((Calls = 1) and (Gallery.ImageCount = 2), 'Reopening gallery reread the same book');
+    Writeln('PASS gallery loads lazily in background, isolates damaged images and reuses memory');
+
+    TThread.ForceQueue(nil,
+      procedure
+      var Preview: TForm;
+      begin
+        Preview := Screen.ActiveForm;
+        Require(Pos('Иллюстрации — 1 из 2', Preview.Caption) = 1, 'Wrong initial preview image');
+        Preview.Perform(CM_DIALOGKEY, VK_RIGHT, 0);
+        Require(Pos('2 из 2', Preview.Caption) > 0, 'Preview right arrow was consumed by button focus');
+        Preview.Perform(CM_DIALOGKEY, VK_LEFT, 0);
+        Require(Pos('1 из 2', Preview.Caption) > 0, 'Preview left arrow did not navigate');
+        Preview.SetBounds(100, 80, 720, 500);
+        Preview.Perform(CM_DIALOGKEY, VK_ESCAPE, 0);
+      end);
+    Gallery.OpenImage(0);
+    Require(FileExists(Gallery.PreviewSettingsFile), 'Preview preferences were not saved');
+    TThread.ForceQueue(nil,
+      procedure
+      var Preview: TForm;
+      begin
+        Preview := Screen.ActiveForm;
+        Require((Preview.Left = 100) and (Preview.Top = 80) and
+          (Preview.Width = 720) and (Preview.Height = 500), 'Preview bounds were not restored');
+        Preview.Perform(CM_DIALOGKEY, VK_ESCAPE, 0);
+      end);
+    Gallery.OpenImage(1);
+    Writeln('PASS illustration preview arrows work and resized window position persists');
+
+    Gallery.SetBook('slow-old', '.fb2',
+      function: TStream
+      begin
+        Started.SetEvent;
+        ReleaseOld.WaitFor(10000);
+        OldFactoryDone.SetEvent;
+        Result := TBytesStream.Create(TEncoding.UTF8.GetBytes(FB2));
+      end);
+    Gallery.Expanded := True;
+    Require(Started.WaitFor(5000) = wrSignaled, 'Gallery cancellation fixture never started');
+    Gallery.SetBook('new-book', '.fb2',
+      function: TStream
+      begin
+        Result := TBytesStream.Create(TEncoding.UTF8.GetBytes(
+          '<FictionBook><binary id="new.webp">' + WEBP + '</binary></FictionBook>'));
+      end);
+    Require((Gallery.ImageCount = 0) and not Gallery.Expanded, 'Book change retained old thumbnails');
+    ReleaseOld.SetEvent;
+    Gallery.Expanded := True;
+    WaitLoaded;
+    Require(Gallery.ImageCount = 1, 'Cancelled old gallery published pictures into the new book');
+    Writeln('PASS changing books cancels old gallery and releases temporary pictures');
+
+    EpubFile := Settings.TempPath + 'gallery-fixture.epub';
+    Zip := TZipFile.Create;
+    try
+      Zip.Open(EpubFile, zmWrite);
+      Stream := TBytesStream.Create(TNetEncoding.Base64.DecodeStringToBytes(WEBP));
+      try Zip.Add(Stream, 'images/one.webp'); finally Stream.Free; end;
+      Stream := TBytesStream.Create(TEncoding.UTF8.GetBytes('not an image'));
+      try Zip.Add(Stream, '../../bad.png'); finally Stream.Free; end;
+    finally Zip.Free; end;
+    BeforeSource := TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(EpubFile));
+    Gallery.SetBook('epub-book', '.epub',
+      function: TStream
+      begin Result := TFileStream.Create(EpubFile, fmOpenRead or fmShareDenyWrite); end);
+    Gallery.Expanded := True;
+    WaitLoaded;
+    Require(Gallery.ImageCount = 1, 'EPUB gallery did not read image entries');
+    Require(BeforeSource = TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(EpubFile)), 'Gallery changed EPUB source');
+    Panel.Clear;
+    Require(not Gallery.Visible and (Gallery.ImageCount = 0) and not Gallery.Loading,
+      'Clearing card retained temporary gallery pictures');
+    Writeln('PASS EPUB gallery leaves source unchanged, uses no extracted image files and clears with card');
+  finally
+    ReleaseOld.SetEvent;
+    Host.Free;
+    if (Started.WaitFor(0) <> wrSignaled) or (OldFactoryDone.WaitFor(5000) = wrSignaled) then
+    begin
+      ReleaseOld.Free;
+      Started.Free;
+      OldFactoryDone.Free;
+    end;
+  end;
 end;
 
 procedure MakeCleanupFixture(const Folder: string);
@@ -1475,6 +1655,8 @@ begin
         TestPublisherErrorLog(One)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'book-gallery' then
+        TestBookGallery
       else if ParamStr(1) = 'read-folder-cleanup' then
         TestReadFolderCleanup
       else if ParamStr(1) = 'temp-exit-cleanup' then

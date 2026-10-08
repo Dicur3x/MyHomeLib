@@ -38,7 +38,8 @@ uses
   StrUtils,
   unit_MHLHelpers,
   unit_FB2Utils,
-  MHLLinkLabel;
+  MHLLinkLabel,
+  unit_BookGallery;
 
 type
   TInfoPanel = class(TPanel)
@@ -57,6 +58,7 @@ type
     FGenres: TMHLLinkLabel;
     FAnnotation: TMemo;
     FFb2Info: TListView;
+    FGallery: TBookGallery;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
@@ -121,6 +123,7 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     procedure Clear;
+    property Gallery: TBookGallery read FGallery;
 
   published
     property ShowCover: Boolean read GetShowCover write SetShowCover default True;
@@ -275,6 +278,10 @@ begin
   FGenres.Parent := FInfoPanel;
   FGenres.UseVisualStyle := False;
   FGenres.OnLinkClick := OnLinkClicked;
+
+  FGallery := TBookGallery.Create(Self);
+  FGallery.Parent := FInfoPanel;
+  FGallery.OnLayout := InfoPanelResize;
 
   FAnnotation := TMemo.Create(FInfoPanel);
   FAnnotation.Parent := FInfoPanel;
@@ -480,9 +487,15 @@ begin
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
       Inc(Y, LinkH + Gap);
+      if FGallery.Visible then
+      begin
+        FGallery.SetBounds(0, Y, W, FGallery.Height);
+        Inc(Y, FGallery.Height + Gap);
+      end;
       // Even a very short panel must not leave the old annotation over the links.
       DetailH := Max(0, H - Y);
-      if (DetailH = 0) and (FAnnotation.Visible or FFb2Info.Visible) then
+      if (DetailH < MulDiv(80, CurrentPPI, 96)) and
+        (FAnnotation.Visible or FFb2Info.Visible) then
         DetailH := MulDiv(80, CurrentPPI, 96);
       FInfoPanel.Height := Y + DetailH;
       FAnnotation.SetBounds(0, Y, W, DetailH);
@@ -775,6 +788,7 @@ end;
 
 procedure TInfoPanel.Clear;
 begin
+  FGallery.Clear;
   FInfoViewport.VertScrollBar.Position := 0;
   FTitle.Caption := '';
   FAuthors.Caption := '';
