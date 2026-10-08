@@ -918,6 +918,7 @@ type
     ); overload;
     procedure OnSetControlsStateHandler(State: Boolean);
     procedure ShowBookColumnFilters(Sender: TObject);
+    procedure ShowCatalogSources(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
     procedure SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
 
@@ -1120,7 +1121,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters;
+  frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources;
 
 resourcestring
 rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
@@ -3561,6 +3562,25 @@ begin
   FOPDSForm.BringToFront;
 end;
 
+procedure TfrmMain.ShowCatalogSources(Sender: TObject);
+var Dialog: TfrmCatalogSources; Changed: Boolean;
+begin
+  if not Assigned(FCollection) then Exit;
+  if isOnlineCollection(FCollection.CollectionCode) then
+  begin
+    Application.MessageBox('Источники и объединение доступны для локальных коллекций.', 'HomeLib Ru', MB_OK or MB_ICONINFORMATION);
+    Exit;
+  end;
+  Dialog := TfrmCatalogSources.CreateForCollection(Self,FCollection);
+  try Dialog.ShowModal; Changed := Dialog.CatalogChanged;
+  finally Dialog.Free; end;
+  if Changed then
+  begin
+    FCollection := FSystemData.GetCollection(Settings.ActiveCollection,True);
+    InitCollection;
+  end;
+end;
+
 procedure TfrmMain.FormCreate(Sender: TObject);
 var
   OPDSMenu, FilterMenu: TMenuItem;
@@ -3584,6 +3604,11 @@ begin
     FilterMenu.OnClick := ShowBookColumnFilters;
     if I = 0 then pmHeaders.Items.Add(FilterMenu) else miView.Add(FilterMenu);
   end;
+
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Caption := 'Источники и объединение коллекции...';
+  FilterMenu.OnClick := ShowCatalogSources;
+  N2.Insert(3, FilterMenu);
 
   CreatePublisherSeriesView;
 

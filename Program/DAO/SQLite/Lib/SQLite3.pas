@@ -138,6 +138,11 @@ type
   //function prototype for define own collate
   TCollateXCompare = function(UserData: Pointer; Buf1Len: Integer; Buf1: Pointer; Buf2Len: Integer; Buf2: Pointer): integer; cdecl;
 
+function SQLite3_Backup_Init(Dest: TSQLite3DB; DestName: PUTF8Char;
+  Source: TSQLite3DB; SourceName: PUTF8Char): Pointer; cdecl; external SQLiteDLL name 'sqlite3_backup_init';
+function SQLite3_Backup_Step(Backup: Pointer; Pages: Integer): Integer; cdecl; external SQLiteDLL name 'sqlite3_backup_step';
+function SQLite3_Backup_Finish(Backup: Pointer): Integer; cdecl; external SQLiteDLL name 'sqlite3_backup_finish';
+
 function SQLite3_Initialize: Integer; cdecl; external SQLiteDLL name 'sqlite3_initialize';
 function SQLite3_Shutdown: Integer; cdecl; external SQLiteDLL name 'sqlite3_shutdown';
 function SQLite3_Version: PUTF8Char; cdecl; external SQLiteDLL name 'sqlite3_libversion';

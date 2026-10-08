@@ -70,6 +70,9 @@ type
     procedure ExecSQL(const SQL : string); overload; inline;
     procedure ExecSQL(const SQL : string; const Params: array of const); overload;
 
+    procedure BackupTo(const FileName: string);
+    procedure RestoreFrom(const FileName: string);
+
     procedure CompactDatabase; inline;
     procedure ReindexDatabase; inline;
 
@@ -241,6 +244,7 @@ uses
   unit_Interfaces,
 {$ENDIF}
   Math,
+  Winapi.Windows,
   SQLite3UDF;
 
 const
@@ -252,6 +256,48 @@ var
   SQLite_FormatSettings: TFormatSettings;
 
 { TSQLiteDatabase }
+
+procedure CopyDatabase(Source, Target: TSQLiteDatabase);
+var Backup: Pointer; Code, Finished: Integer; Started: UInt64;
+begin
+  Backup := SQLite3_Backup_Init(Target.DB, 'main', Source.DB, 'main');
+  if not Assigned(Backup) then Target.RaiseError('Не удалось начать копирование каталога.', 'backup_init');
+  Started := Winapi.Windows.GetTickCount64;
+  try
+    repeat
+      Code := SQLite3_Backup_Step(Backup, 512);
+      if Code in [SQLITE_BUSY, SQLITE_LOCKED] then
+      begin
+        if Winapi.Windows.GetTickCount64 - Started > 30000 then Break;
+        TThread.Sleep(10);
+      end;
+    until not (Code in [SQLITE_OK, SQLITE_BUSY, SQLITE_LOCKED]);
+  finally
+    Finished := SQLite3_Backup_Finish(Backup);
+  end;
+  if (Code <> SQLITE_DONE) or (Finished <> SQLITE_OK) then
+    Target.RaiseError('Не удалось завершить копирование каталога.', 'backup_step');
+end;
+
+procedure TSQLiteDatabase.BackupTo(const FileName: string);
+var Target: TSQLiteDatabase;
+begin
+  if FileExists(FileName) then raise ESQLiteException.Create('Файл резервной копии уже существует.');
+  Target := TSQLiteDatabase.Create(FileName);
+  try
+    // Backup may change page size; a destination in WAL mode cannot do that.
+    Target.QuerySingleString('PRAGMA journal_mode = DELETE');
+    CopyDatabase(Self, Target);
+  finally Target.Free; end;
+end;
+
+procedure TSQLiteDatabase.RestoreFrom(const FileName: string);
+var Source: TSQLiteDatabase;
+begin
+  if InTransaction then raise ESQLiteException.Create('Перед восстановлением завершите транзакцию.');
+  Source := TSQLiteDatabase.CreateReadOnly(FileName);
+  try CopyDatabase(Source, Self); finally Source.Free; end;
+end;
 
 constructor TSQLiteDatabase.Create(const FileName: string);
 var

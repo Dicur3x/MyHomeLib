@@ -175,6 +175,9 @@ type
     //
     // Пользовательские данные
     //
+    function GetDataRevision: string;
+    procedure BeginDataUpdate;
+    procedure EndDataUpdate(Commit: Boolean);
     procedure ImportUserData(data: TUserData);
     // procedure ExportUserData(data: TUserData); // use base implementation
 
@@ -1719,6 +1722,21 @@ begin
       FreeAndnil(query);
     end;
   end;
+end;
+
+function TSystemData_SQLite.GetDataRevision: string;
+begin
+  Result := IntToStr(FDatabase.QuerySingleInt('PRAGMA data_version')) + ':' +
+    IntToStr(FDatabase.QuerySingleInt('SELECT total_changes()'));
+end;
+
+procedure TSystemData_SQLite.BeginDataUpdate;
+begin FDatabase.Start; end;
+
+procedure TSystemData_SQLite.EndDataUpdate(Commit: Boolean);
+begin
+  if Commit then FDatabase.Commit
+  else if FDatabase.InTransaction then FDatabase.Rollback;
 end;
 
 procedure TSystemData_SQLite.ImportUserData(data: TUserData);

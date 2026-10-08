@@ -173,6 +173,9 @@ type
     //
     // Служебные методы
     //
+    function GetDataRevision: string;
+    procedure BeginDataUpdate;
+    procedure EndDataUpdate(Commit: Boolean);
     procedure ClearCollectionCache;
     procedure RemoveUnusedBooks;
   end;
@@ -219,6 +222,10 @@ type
     // иначе - актуальный BookID (0, если книги в коллекции нет).
     //
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer;
+    function GetCatalogRevision: string;
+    procedure RestoreCollectionBackup(const FileName: string);
+    function GetCatalogBookID(const SourceKey: string): Integer;
+    procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
     procedure AddBookToGroup(const BookKey: TBookKey; const GroupID: Integer);
@@ -238,6 +245,7 @@ type
     //
     // манипуляции с авторами и жанрами книги
     //
+    function EnsureAuthor(const Author: TAuthorData): TAuthorData;
     procedure SetBookAuthors(const BookID: Integer; const Authors: TBookAuthors; Replace: Boolean); // заменить Integer на TBookKey
     procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean); // заменить Integer на TBookKey
 

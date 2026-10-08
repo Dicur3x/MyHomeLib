@@ -11,7 +11,7 @@ uses
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters,
+  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters, unit_CollectionMerge, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
@@ -872,6 +872,217 @@ begin
     Include(Book.BookProps, bpIsDeleted);
   Result := Collection.InsertBook(Book, False, False);
   Require(Result > 0, 'Fixture book was not inserted');
+end;
+
+procedure TestCollectionMerge;
+var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
+  Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing: TBookRecord;
+  Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup: string;
+  DB: TSQLiteDatabase;
+
+  procedure Locate(const Collection: IBookCollection; BookID: Integer;
+    const Folder, FileName, LibID: string);
+  begin
+    Collection.GetBookRecord(CreateBookKey(BookID, Collection.CollectionID), Book, True);
+    Book.Folder := Folder; Book.FileName := FileName; Book.LibID := LibID; Collection.UpdateBook(Book);
+  end;
+
+  procedure Publisher(const Collection: IBookCollection; BookID: Integer; const Name: string);
+  begin
+    Series := nil; TSeriesHelper.Add(Series, 0, Name, 7, True);
+    Collection.SetBookPublisherSeries(CreateBookKey(BookID, Collection.CollectionID), Series);
+  end;
+begin
+  HighID := SystemDB.CreateCollection('Merge high', Settings.AppPath + 'root-one\',
+    'merge-high.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  LowID := SystemDB.CreateCollection('Merge low', Settings.AppPath + 'root-two\',
+    'merge-low.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  TargetID := SystemDB.CreateCollection('Merge target', Settings.AppPath,
+    'merge-target.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  High := SystemDB.GetCollection(HighID); Low := SystemDB.GetCollection(LowID); Target := SystemDB.GetCollection(TargetID);
+  A := AddBook(High, 'High title', 'High', 'ru', 'High cycle', 'prose_contemporary');
+  B := AddBook(Low, 'Low title', 'Low', 'ru', 'Low cycle', 'detective');
+  C := AddBook(Low, 'Other file', 'Other', 'ru', '', 'prose_contemporary');
+  ExistingID := AddBook(Target, 'User title', 'User', 'ru', 'User cycle', 'prose_contemporary');
+  Locate(High, A, '', 'book', '42');
+  Locate(Low, B, High.CollectionRoot, 'book', '99');
+  Locate(Low, C, '', 'other', '42');
+  Locate(Target, ExistingID, High.CollectionRoot, 'book', 'user-book');
+  High.SetRate(CreateBookKey(A, HighID), 4); High.SetProgress(CreateBookKey(A, HighID), 20);
+  High.SetReview(CreateBookKey(A, HighID), 'High review');
+  Low.SetRate(CreateBookKey(B, LowID), 3); Low.SetProgress(CreateBookKey(B, LowID), 80);
+  Low.SetReview(CreateBookKey(B, LowID), 'Low review');
+  Target.SetRate(CreateBookKey(ExistingID, TargetID), 5);
+  Target.SetProgress(CreateBookKey(ExistingID, TargetID), 10);
+  Target.SetReview(CreateBookKey(ExistingID, TargetID), 'User review');
+  Publisher(High,A,'High publisher'); Publisher(Low,B,'Low publisher'); Publisher(Target,ExistingID,'User publisher');
+  High.AddBookToGroup(CreateBookKey(A, HighID), FAVORITES_GROUP_ID);
+  Low.AddBookToGroup(CreateBookKey(C, LowID), FAVORITES_GROUP_ID);
+  SetLength(Sources, 2);
+  Sources[0].ID := 'high'; Sources[0].Name := 'High'; Sources[0].Collection := High;
+  Sources[0].DatabaseFile := SystemDB.GetCollectionInfo(HighID).DBFileName;
+  Sources[1].ID := 'low'; Sources[1].Name := 'Low'; Sources[1].Collection := Low;
+  Sources[1].DatabaseFile := SystemDB.GetCollectionInfo(LowID).DBFileName;
+  Plan := TCollectionMergePlan.Create(Target, Sources);
+  try
+    Plan.Preview;
+    Require((Plan.NewBooks=1) and (Plan.Duplicates=2) and (Plan.Conflicts=2), 'Merge preview counts incorrect');
+    Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
+    ID := Target.GetCatalogBookID('high:42'); Require(ID=ExistingID, 'Merge changed existing BookID');
+    Require(Target.GetCatalogBookID('low:99')=ID, 'Physical duplicate was not combined');
+    Require((Target.GetCatalogBookID('low:42')>0) and (Target.GetCatalogBookID('low:42')<>ID), 'Cross-source numeric ID merged distinct books');
+    Target.GetBookRecord(CreateBookKey(ID,TargetID), Existing, True);
+    Require((Existing.Title='High title') and (Existing.Rate=5) and (Existing.Progress=10), 'Priority or target user values lost');
+    Require(Existing.Review.Contains('User review') and Existing.Review.Contains('High review') and Existing.Review.Contains('Low review'), 'Merge lost reviews');
+    Require(Length(Target.GetBookSeries(Existing.BookKey))=3, 'Merge lost author cycles');
+    Require(Length(Target.GetBookPublisherSeries(Existing.BookKey))=3, 'Merge lost publisher series');
+    Require(Length(Existing.Authors)=3, 'Merge lost authors');
+    Iterator := Target.GetBookIterator(bmAll,False); Count := 0;
+    while Iterator.Next(Book) do Inc(Count); Require(Count=2, 'Merge book count incorrect');
+    Iterator := SystemDB.GetBookIterator(FAVORITES_GROUP_ID, TargetID); Count := 0;
+    while Iterator.Next(Book) do Inc(Count); Require(Count=2, 'Merge lost group membership');
+    DB := TSQLiteDatabase.CreateReadOnly(Backup + '\destination.hlc2');
+    try Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Books')=1, 'Backup did not preserve pre-merge state');
+    finally DB.Free; end;
+    High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
+    Require((Book.Title='High title') and (Book.LibID='42') and (Book.Review='High review'), 'Merge modified source');
+    Plan.Preview; Plan.Apply(Settings.AppPath + 'merge-repeat');
+    Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
+    Require((Book.Review=Existing.Review) and (Length(Target.GetBookSeries(Book.BookKey))=3), 'Repeat merge duplicated data');
+    Plan.Preview;
+    High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
+    Book.Title := 'Changed after preview'; High.UpdateBook(Book);
+    try
+      Plan.Apply(Settings.AppPath + 'merge-stale');
+      Require(False, 'Stale preview was accepted');
+    except on E: Exception do Require(E.Message.Contains('заново'), 'Unexpected stale preview error'); end;
+    Require(not DirectoryExists(Settings.AppPath + 'merge-stale'), 'Stale merge created backup or changed data');
+    Plan.Preview; CancelCalls := 0;
+    try
+      Plan.Apply(Settings.AppPath + 'merge-canceled', nil,
+        function: Boolean begin Inc(CancelCalls); Result := CancelCalls>4; end);
+      Require(False, 'Cancellation did not abort merge');
+    except on E: EAbort do ; end;
+    Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
+    Require((Book.Review=Existing.Review) and (Book.Title=Existing.Title), 'Canceled merge changed committed data');
+    Require((CancelCalls=5) and TFile.ReadAllText(Settings.AppPath + 'merge-canceled\status.txt').Contains('Отменено'),
+      'Cancellation was not tested after mutation started');
+    BackupCollectionFile(Backup + '\destination.hlc2', Settings.AppPath + 'restore-test.hlc2');
+    DB := TSQLiteDatabase.Create(Settings.AppPath + 'restore-test.hlc2');
+    try
+      DB.ExecSQL('CREATE TABLE RestoreProbe(Value TEXT)');
+      DB.ExecSQL('INSERT INTO RestoreProbe VALUES (''Changed'')');
+      DB.RestoreFrom(Backup + '\destination.hlc2');
+      Require(DB.QuerySingleString('SELECT Title FROM Books')='User title', 'SQLite backup restore lost original data');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE name = ''RestoreProbe''')=0, 'Restore retained post-backup changes');
+      Require(DB.QuerySingleString('PRAGMA integrity_check')='ok', 'Restored SQLite database is damaged');
+    finally DB.Free; end;
+    High.BeginBulkOperation;
+    try
+      High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
+      for Count := 1 to 2200 do
+      begin Book.LibID := 'report-' + IntToStr(Count); High.InsertBook(Book, False, False); end;
+      High.EndBulkOperation(True);
+    except High.EndBulkOperation(False); raise; end;
+    Plan.Preview;
+    Require((Plan.Report.Count<=2050) and (Length(TFile.ReadAllText(Plan.FullReportFile).Split([#10]))>2200),
+      'Large preview report is truncated or loads all lines into the UI');
+    Writeln('PASS merge cancellation rolls back mutations, SQLite restore is intact and large report is saved in full');
+    Writeln('PASS repeat merge remains idempotent and stale previews are rejected');
+    Writeln('PASS safe merge previews duplicates, keeps IDs, all series, user values and groups, backs up WAL and rolls back cancellation');
+  finally Plan.Free; end;
+end;
+
+procedure TestCatalogSources;
+var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
+  ID, I: Integer; Refresh: TCatalogRefreshWorker; Worker: TCatalogMergeWorker;
+  Plan: TCollectionMergePlan; Book: TBookRecord; Iterator: IBookIterator; Count: Integer;
+  Dialog: TfrmCatalogSources;
+
+  procedure IndexFile(const FileName, Title: string);
+  var Zip: TZipFile; Data: TBytes;
+  begin
+    Zip := TZipFile.Create;
+    try
+      Zip.Open(FileName,zmWrite);
+      Data := TEncoding.UTF8.GetBytes('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG');
+      Zip.Add(Data,'structure.info');
+      Data := TEncoding.UTF8.GetBytes('Автор,Тест:'#4'prose_contemporary:'#4 + Title + #4'Цикл'#4'1'#4'1'#4'100'#4'1'#4'0'#4'fb2'#4'2026-10-08'#4'ru');
+      Zip.Add(Data,'books.inp');
+    finally Zip.Free; end;
+  end;
+begin
+  ID := SystemDB.CreateCollection('Multiple sources', Settings.AppPath,
+    'source-target.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.SystemFileName[sfGenresFB2]);
+  Target := SystemDB.GetCollection(ID); SetLength(Sources,2);
+  for I := 0 to 1 do
+  begin
+    Sources[I].ID := TCatalogSource.NewID; Sources[I].Name := 'Source ' + IntToStr(I);
+    Sources[I].Root := Settings.AppPath + 'source-books-' + IntToStr(I);
+    ForceDirectories(Sources[I].Root);
+    Sources[I].INPXFile := Settings.AppPath + 'source-' + IntToStr(I) + '.inpx';
+    Sources[I].CollectionID := INVALID_COLLECTION_ID;
+    IndexFile(Sources[I].INPXFile, 'Source title ' + IntToStr(I));
+    Refresh := TCatalogRefreshWorker.Create(Sources[I]);
+    try Refresh.Start; Refresh.WaitFor;
+      Require(Refresh.Success and not Assigned(Refresh.FatalException),'Snapshot refresh failed: ' + Refresh.Error);
+    finally Refresh.Free; end;
+  end;
+  SaveCatalogSources(Target,Sources); Loaded := LoadCatalogSources(Target);
+  Require((Length(Loaded)=2) and (Loaded[0].ID=Sources[0].ID) and (Loaded[1].Root=Sources[1].Root),'Sources settings lost priority/root');
+  Worker := TCatalogMergeWorker.CreatePreview(ID,Loaded);
+  try Worker.Start; Worker.WaitFor;
+    Require(Worker.Success,'Multi-source preview failed: ' + Worker.Error); Plan := Worker.TakePlan;
+  finally Worker.Free; end;
+  try
+    Require((Plan.NewBooks=2) and (Plan.Duplicates=0),'Different archive roots merged identical numeric IDs');
+    Worker := TCatalogMergeWorker.CreateApply(Plan,Settings.AppPath + 'source-merge-backup');
+    try Worker.Start; Worker.WaitFor; Require(Worker.Success,'Source apply failed: ' + Worker.Error);
+    finally Worker.Free; end;
+  finally Plan.Free; end;
+  Target := SystemDB.GetCollection(ID,True); Iterator := Target.GetBookIterator(bmAll,True); Count := 0;
+  while Iterator.Next(Book) do
+  begin
+    Require(Book.GetBookContainer.Contains('source-books-' + IntToStr(Count)), 'Source root was lost');
+    Inc(Count);
+  end;
+  Require(Count=2,'Multi-source collection lost books'); Iterator := nil;
+  IndexFile(Sources[0].INPXFile,'Updated source title');
+  Refresh := TCatalogRefreshWorker.Create(Sources[0]);
+  try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'Independent refresh failed: ' + Refresh.Error);
+  finally Refresh.Free; end;
+  SourceCollection := OpenCatalogSource(Sources[1],SystemDB); Iterator := SourceCollection.GetBookIterator(bmAll,False);
+  Require(Iterator.Next(Book) and (Book.Title='Source title 1'),'Refreshing first source altered second');
+  Iterator := nil; SourceCollection := nil;
+  Worker := TCatalogMergeWorker.CreatePreview(ID,Sources);
+  try Worker.Start; Worker.WaitFor; Require(Worker.Success,'Refresh preview failed: ' + Worker.Error); Plan := Worker.TakePlan;
+  finally Worker.Free; end;
+  try
+    Require((Plan.NewBooks=0) and (Plan.Duplicates=2),'Refresh created duplicate books');
+    Worker := TCatalogMergeWorker.CreateApply(Plan,Settings.AppPath + 'source-refresh-backup');
+    try Worker.Start; Worker.WaitFor; Require(Worker.Success,'Refreshed source apply failed: ' + Worker.Error);
+    finally Worker.Free; end;
+  finally Plan.Free; end;
+  Target := SystemDB.GetCollection(ID,True); Iterator := Target.GetBookIterator(bmAll,True); Count := 0;
+  while Iterator.Next(Book) do
+  begin
+    if Count=0 then Require(Book.Title='Updated source title','Source update did not refresh metadata');
+    Inc(Count);
+  end;
+  Require(Count=2,'Source update duplicated books'); Iterator := nil;
+  TFile.WriteAllText(Sources[0].INPXFile,'broken INPX');
+  Refresh := TCatalogRefreshWorker.Create(Sources[0]);
+  try Refresh.Start; Refresh.WaitFor; Require(not Refresh.Success,'Broken index was accepted');
+  finally Refresh.Free; end;
+  SourceCollection := OpenCatalogSource(Sources[0],SystemDB); Iterator := SourceCollection.GetBookIterator(bmAll,False);
+  Require(Iterator.Next(Book) and (Book.Title='Updated source title'),'Failed refresh replaced good source snapshot');
+  Iterator := nil; SourceCollection := nil;
+  if ParamStr(1)='catalog-sources-ui' then
+  begin
+    frmMain.Show; Dialog := TfrmCatalogSources.CreateForCollection(frmMain,Target);
+    try Dialog.ShowModal; finally Dialog.Free; end;
+  end;
+  Writeln('PASS multiple INPX sources keep separate roots and IDs, persist priority, refresh independently and merge in worker');
 end;
 
 procedure ExpectTitles(Tree: TBookTree; const Expected: array of string);
@@ -1779,6 +1990,10 @@ begin
         TestReaderCompatibility
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
+      else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') then
+        TestCatalogSources
+      else if ParamStr(1) = 'collection-merge' then
+        TestCollectionMerge
       else if ParamStr(1) = 'list-performance' then
         TestListPerformance
       else if ParamStr(1) = 'column-filters' then

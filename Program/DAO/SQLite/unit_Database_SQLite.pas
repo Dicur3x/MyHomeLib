@@ -212,6 +212,10 @@ type
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; override;
+    function GetCatalogRevision: string;
+    procedure RestoreCollectionBackup(const FileName: string);
+    function GetCatalogBookID(const SourceKey: string): Integer;
+    procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
 
@@ -231,6 +235,7 @@ type
     //
     // манипуляции с авторами и жанрами книги
     //
+    function EnsureAuthor(const Author: TAuthorData): TAuthorData;
     procedure SetBookAuthors(const BookID: Integer; const Authors: TBookAuthors; Replace: Boolean);
     procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean);
 
@@ -241,7 +246,7 @@ type
     //
     // Свойства коллекции
     //
-    procedure SetProperty(const PropID: TPropertyID; const Value: Variant);
+    procedure SetProperty(const PropID: TPropertyID; const Value: Variant); virtual;
     function GetProperty(const PropID: TPropertyID): Variant; override;
     procedure UpdateProperies;
 
@@ -510,6 +515,8 @@ begin
     );
 
     EnsurePublisherSeriesSchema;
+    FDatabase.ExecSQL('CREATE TABLE IF NOT EXISTS CatalogSourceBooks('
+      + 'SourceKey TEXT NOT NULL PRIMARY KEY, BookID INTEGER NOT NULL)');
 
     // Replace the legacy cleanup trigger. It only inspected Books.SeriesID and
     // could delete a series still used as a secondary relationship.
@@ -2962,6 +2969,29 @@ begin
   end;
 end;
 
+function TBookCollection_SQLite.GetCatalogRevision: string;
+begin
+  Result := IntToStr(FDatabase.QuerySingleInt('PRAGMA data_version')) + ':' +
+    IntToStr(FDatabase.QuerySingleInt('SELECT total_changes()'));
+end;
+
+procedure TBookCollection_SQLite.RestoreCollectionBackup(const FileName: string);
+begin
+  FDatabase.RestoreFrom(FileName);
+  InternalLoadGenres;
+end;
+
+function TBookCollection_SQLite.GetCatalogBookID(const SourceKey: string): Integer;
+begin
+  Result := FDatabase.QuerySingleInt('SELECT l.BookID FROM CatalogSourceBooks l '
+    + 'INNER JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey=?', [SourceKey]);
+end;
+
+procedure TBookCollection_SQLite.SetCatalogBookID(const SourceKey: string; BookID: Integer);
+begin
+  FDatabase.ExecSQL('INSERT OR REPLACE INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?)', [SourceKey,BookID]);
+end;
+
 procedure TBookCollection_SQLite.UpdateBook(BookRecord: TBookRecord);
 const
   SQL_INSERT =
@@ -2969,7 +2999,8 @@ const
     'Title = ?,     Folder = ?,    FileName = ?,   Ext = ?,      InsideNo = ?, ' +  // 0  .. 04
     'SeqNumber = ?, BookSize = ?, LibID = ?, ' +                                    // 05 .. 07
     'IsDeleted = ?, IsLocal = ?,   UpdateDate = ?, Lang = ?,     LibRate = ?, ' +   // 08 .. 12
-    'KeyWords = ?,  Rate = ?,      Progress = ?,   Review = ?,   Annotation = ?' +  // 13 .. 17
+    'KeyWords = ?,  Rate = ?,      Progress = ?,   Review = ?,   Annotation = ?, ' +
+    'Translators = ?, Publisher = ?, City = ?, PubYear = ?, ISBN = ? ' +  // 18 .. 22
     'WHERE BookID = ? ';
 var
   i: Integer;
@@ -3056,7 +3087,12 @@ begin
       else
         query.SetParam(17, BookRecord.Annotation);
 
-    query.SetParam(18, BookRecord.BookKey.BookID);
+      query.SetParam(18, BookRecord.Translators);
+      query.SetParam(19, BookRecord.Publisher);
+      query.SetParam(20, BookRecord.City);
+      if BookRecord.PubYear = 0 then query.SetNullParam(21) else query.SetParam(21, BookRecord.PubYear);
+      query.SetParam(22, BookRecord.ISBN);
+      query.SetParam(23, BookRecord.BookKey.BookID);
 
       query.ExecSQL;
     finally
@@ -3510,6 +3546,7 @@ var
   StructureDDL: string;
 
 begin
+  FDatabase.ExecSQL('DELETE FROM CatalogSourceBooks');
   for TableName in TABLE_NAMES do
     FDatabase.ExecSQL(Format(SQL_TRUNCATE, [TableName]));
 
@@ -3594,10 +3631,13 @@ begin
   end;
 end;
 
+function TBookCollection_SQLite.EnsureAuthor(const Author: TAuthorData): TAuthorData;
+begin Result := Author; Result.AuthorID := InsertAuthorIfMissing(Author); end;
+
 procedure TBookCollection_SQLite.SetBookAuthors(const BookID: Integer; const Authors: TBookAuthors; Replace: Boolean);
 const
   SQL_DELETE = 'DELETE FROM Author_List WHERE BookID = ? ';
-  SQL_INSERT = 'INSERT INTO Author_List (AuthorID, BookID) VALUES(?, ?)';
+  SQL_INSERT = 'INSERT INTO Author_List (AuthorID, BookID) VALUES(?, ?) ON CONFLICT(BookID,AuthorID) DO NOTHING';
 var
   insertedIds: TDictionary<Integer, Boolean>;
   query: TSQLiteQuery;
@@ -3634,7 +3674,7 @@ end;
 procedure TBookCollection_SQLite.SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean);
 const
   SQL_DELETE = 'DELETE FROM Genre_List WHERE BookID = ?';
-  SQL_INSERT = 'INSERT INTO Genre_List (BookID, GenreCode) VALUES(?, ?)';
+  SQL_INSERT = 'INSERT INTO Genre_List (BookID, GenreCode) VALUES(?, ?) ON CONFLICT(BookID,GenreCode) DO NOTHING';
 var
   insertedCodes: TDictionary<string, Boolean>;
   Genre: TGenreData;
