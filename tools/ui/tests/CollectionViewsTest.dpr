@@ -10,7 +10,7 @@ uses
   NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
-  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings,
+  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
@@ -456,6 +456,8 @@ var
   Book: PBookRecord;
   Original, Probe, Converted, WithWebP, Captured: string;
   Started: UInt64;
+  Locked: TFileStream;
+  Other: TBookRecord;
 
   function ReadSelected: string;
   begin
@@ -490,11 +492,28 @@ begin
   Require((Pos('image/png', Captured) > 0) and (Pos('iVBOR', Captured) > 0),
     'The reader received no converted PNG');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'The WebP source book changed');
+  Locked := TFileStream.Create(Original, fmOpenRead or fmShareExclusive);
+  try
+    Require(SameFileName(ReadSelected, Converted), 'Cache hit reopened the locked source');
+  finally Locked.Free; end;
+  Other := Book^;
+  Inc(Other.BookKey.DatabaseID);
+  Require(ReaderCopyName(Other) <> ReaderCopyName(Book^), 'Different collections share a reader path');
+  Writeln('PASS reader cache hit avoids source extraction and isolates collection identities');
   Settings.ConvertWebPToPNG := False;
   Require(SameFileName(ReadSelected, Original), 'Original mode reused the converted reader cache');
   Settings.ConvertWebPToPNG := True;
   Require(SameFileName(ReadSelected, Converted), 'PNG mode lost its separate reader cache');
+  Book.BookKey.BookID := Book.BookKey.BookID + 10000;
+  Book.Title := 'Renamed title after reimport';
+  Require(SameFileName(ReadSelected, Converted), 'Reimport or metadata edit changed the reader path');
+  WithWebP := StringReplace(WithWebP, 'WebP book', 'Updated WebP book', []);
+  TFile.WriteAllText(Original, WithWebP, TEncoding.UTF8);
+  Require(SameFileName(ReadSelected, Converted), 'Source refresh changed the reader path');
+  Require(TFile.ReadAllText(Converted, TEncoding.UTF8).Contains('Updated WebP book'),
+    'Changed source reused stale reader bytes');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'Reader policy changes wrote to the source');
+  Writeln('PASS stable reader cache survives reimport and refreshes changed sources');
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
 end;
 

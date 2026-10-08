@@ -25,6 +25,8 @@ function RestoreFLibraryBook(const ContainerFileName, BookEntryName: string;
 function ExtractFLibraryBookCover(const ContainerFileName,
   BookEntryName: string): TStream;
 
+function FLibraryImageSourceFiles(const ContainerFileName: string): TArray<string>;
+
 implementation
 
 uses
@@ -118,6 +120,12 @@ begin
   if FileExists(Candidate) then
     Exit(Candidate);
   Result := '';
+end;
+
+function FLibraryImageSourceFiles(const ContainerFileName: string): TArray<string>;
+begin
+  Result := [FindSiblingArchive(ContainerFileName, 'covers'),
+    FindSiblingArchive(ContainerFileName, 'images')];
 end;
 
 procedure AddImage(const Images: TExternalBookImages; const KnownNames:

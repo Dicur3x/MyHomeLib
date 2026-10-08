@@ -51,7 +51,7 @@ const requiredViews = {
   "publisher-startup": ["PASS saved publisher page starts with visible cover and information panel", "PASS startup publisher view survives collection switches"],
   "publisher-links": ["PASS flat publisher list ignores old grouping", "PASS publisher links keep current card"],
   "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
-  "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths"],
+  "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths", "PASS stable reader cache survives reimport", "PASS reader cache hit avoids source extraction"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
   "program-update-ui": ["PASS new update default is three days and preserves explicit choices", "PASS update settings preserve never and custom hours", "PASS update popup shows installed version", "PASS dates and shared formatting", "PASS update notes retain nested SQLite", "PASS previous changelogs start collapsed", "PASS update window expands reading space", "PASS saved histories survive reopening", "PASS resized update window and text zoom", "PASS short release height stays compact", "PASS expanded old release ends directly after its text"],

@@ -1093,6 +1093,7 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
+  unit_ReaderCache,
   dm_user,
   unit_Import,
   unit_IndexPublisherSeriesThread,
@@ -4802,9 +4803,6 @@ var
   BookFileName: string;
   BookFormat: TBookFormat;
   WorkFile: string;
-  ReadWorkPath: string;
-  CompatStream: TStream;
-  DestStream: TFileStream;
   CollectionInfo: TCollectionInfo;
 begin
   Assert(Assigned(FCollection));
@@ -4813,7 +4811,6 @@ begin
 
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
-  CompatStream := nil;
   try
     BookFileName := BookRecord.GetBookFileName;
     BookFormat := BookRecord.GetBookFormat;
@@ -4831,58 +4828,13 @@ begin
       end;
     end;
 
-    if (BookFormat = bfFb2) and Settings.ConvertWebPToPNG then
-    begin
-      CompatStream := BookRecord.GetBookStream;
-      // An unchanged plain FB2 keeps its original path and reader progress.
-      if CompatStream is TFileStream then FreeAndNil(CompatStream);
-    end;
-
-    if (BookFormat in [bfFb2Archive, bfFbd, bfRawArchive]) or
-      Assigned(CompatStream) then
-    begin
-      Assert(Length(BookRecord.Authors) > 0);
-      ReadWorkPath := Settings.ReadPath;
-      if (BookFormat in [bfFb2, bfFb2Archive]) and Settings.ConvertWebPToPNG then
-      begin
-        // Converted copies have a separate cache when the export policy changes.
-        ReadWorkPath := TPath.Combine(ReadWorkPath, WEBP_READER_CACHE_FOLDER);
-        ForceDirectories(ReadWorkPath);
-      end;
-      WorkFile := TPath.Combine(
-        ReadWorkPath,
-        Format('%s - %s', [CheckSymbols(BookRecord.Authors[0].GetFullName),
-                           CheckSymbols(BookRecord.Title)]));
-
-      if Length(WorkFile) > 240 then
-        WorkFile := Copy(WorkFile, 1, 240);
-
-      WorkFile := Format('%s.%d%s',[WorkFile,
-                                    BookRecord.BookKey.BookID,
-                                    BookRecord.FileExt]);
-
-      if not FileExists(WorkFile) then
-        if Assigned(CompatStream) then
-        begin
-          DestStream := TFileStream.Create(WorkFile, fmCreate);
-          try
-            DestStream.CopyFrom(CompatStream, 0);
-          finally
-            DestStream.Free;
-          end;
-        end
-        else
-          BookRecord.SaveBookToFile(WorkFile);
-    end
-    else // bfFb2 or bfRaw
-      WorkFile := BookFileName;
+    WorkFile := PrepareReaderFile(BookRecord);
 
     if Settings.OverwriteFB2Info and (BookFormat = bfFb2) then
       WriteFb2InfoToFile(BookRecord, WorkFile);
 
     Settings.Readers.RunReader(WorkFile);
   finally
-    FreeAndNil(CompatStream);
     Screen.Cursor := SavedCursor;
   end;
 end;
