@@ -372,7 +372,7 @@ begin
   Popup := TfrmProgramUpdate.Create(nil);
   try
     Controls;
-    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.13';
+    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.14';
     Info.DownloadURL := ParamStr(2); Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4);
     Info.Changelog := 'Новые изменения тестового выпуска'; Popup.SetRelease(Info);
     Require(Bytes.Caption = '', 'Unexpected automatic download');

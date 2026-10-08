@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.12';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.13';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
