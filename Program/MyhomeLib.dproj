@@ -42,6 +42,14 @@
         <DCCReference Include="..\Components\MHLComponents\unit_MHLExternalTools.pas"/>
         <DCCReference Include="..\Components\MHLComponents\unit_MHLArchiveHelpers.pas"/>
         <DCCReference Include="..\Components\MHLComponents\unit_FLibraryCompat.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\unit_BookGallery.pas"/>
+        <DCCReference Include="Units\unit_AuthorInfo.pas"/>
+        <DCCReference Include="Units\unit_ReaderCache.pas"/>
+        <DCCReference Include="Units\unit_BookColumnFilters.pas"/>
+        <DCCReference Include="Units\unit_CatalogSources.pas"/>
+        <DCCReference Include="Units\unit_CollectionMerge.pas"/>
+        <DCCReference Include="Forms\frm_AuthorInformation.pas"/>
+        <DCCReference Include="Forms\frm_CatalogSources.pas"/>
         <DCCReference Include="Forms\frm_main.pas">
             <Form>frmMain</Form>
         </DCCReference>
