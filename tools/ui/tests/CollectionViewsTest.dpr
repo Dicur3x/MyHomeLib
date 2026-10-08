@@ -7,10 +7,10 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
+  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_UpdateNotes,
-  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils,
+  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
@@ -40,6 +40,33 @@ end;
 var
   CleanupExitTemp, CleanupExitPersistent, CleanupExitSource: string;
 
+procedure TestUpdateDefaults;
+var Ini: TMemIniFile; Loaded: TMHLSettings;
+begin
+  Ini := TMemIniFile.Create(Settings.SettingsFileName, TEncoding.UTF8);
+  try
+    Ini.DeleteKey('SYSTEM', 'CheckUpdates');
+    Ini.DeleteKey('SYSTEM', 'ProgramUpdateMinutes');
+    Ini.UpdateFile;
+    Loaded := TMHLSettings.Create;
+    try
+      Loaded.LoadSettings;
+      Require(Loaded.CheckUpdate and (Loaded.ProgramUpdateMinutes = 4320),
+        'Fresh profile must check every three days');
+    finally Loaded.Free; end;
+    Ini.WriteBool('SYSTEM', 'CheckUpdates', False);
+    Ini.WriteInteger('SYSTEM', 'ProgramUpdateMinutes', 60);
+    Ini.UpdateFile;
+    Loaded := TMHLSettings.Create;
+    try
+      Loaded.LoadSettings;
+      Require(not Loaded.CheckUpdate and (Loaded.ProgramUpdateMinutes = 60),
+        'Explicit Never and interval must survive defaults');
+    finally Loaded.Free; end;
+  finally Ini.Free; end;
+  Writeln('PASS new update default is three days and preserves explicit choices');
+end;
+
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
@@ -48,6 +75,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
   ReloadedView: TUpdateNotesView; EndPoint: TPoint;
 begin
+  TestUpdateDefaults;
   Configuration := TfrmSettings.Create(nil);
   try
     Require(Configuration.cbProgramInterval.Items[0] = 'Никогда', 'Never option missing');

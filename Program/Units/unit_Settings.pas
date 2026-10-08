@@ -736,8 +736,8 @@ begin
     //
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
-    FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 1440);
-    if (FProgramUpdateMinutes < 1) or (FProgramUpdateMinutes > 525600) then FProgramUpdateMinutes := 1440;
+    FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 4320);
+    if (FProgramUpdateMinutes < 1) or (FProgramUpdateMinutes > 525600) then FProgramUpdateMinutes := 4320;
     FProgramUpdateLastCheckUTC := iniFile.ReadDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', 0);
     FCheckExternalLibUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', True);
     FPromptDevicePath := iniFile.ReadBool(SYSTEM_SECTION, 'PromptDevicePath', DEF_PROMPT_DEVICE_PATH);
