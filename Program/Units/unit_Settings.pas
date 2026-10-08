@@ -55,8 +55,8 @@ const
   DEF_TXT_ENCODING = 0;                 // enUTF8
 
   // Интерфейс
-  DEF_TREE_FONT_SIZE = 8;
-  DEF_SHORT_FONT_SIZE = 8;
+  DEF_TREE_FONT_SIZE = 9;
+  DEF_SHORT_FONT_SIZE = 9;
   DEF_FONT_COLOR = clBlack;
   DEF_LOCAL_COLOR = clBlack;
   DEF_DELETED_COLOR = clGray;

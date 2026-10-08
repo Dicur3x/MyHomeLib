@@ -2122,6 +2122,11 @@ begin
         TestPublisherErrorLog(One)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'main-preview' then
+      begin
+        frmMain.Show;
+        Application.Run;
+      end
       else if ParamStr(1) = 'review-http' then
         TestReviewHTTP
       else if ParamStr(1) = 'book-information' then

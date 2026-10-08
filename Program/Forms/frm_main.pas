@@ -1460,6 +1460,9 @@ var
     Height: cardinal;
   begin
     AControl.Color := BGColor;
+    AControl.Font.Name := 'Segoe UI';
+    AControl.Header.Font.Name := 'Segoe UI';
+    AControl.Header.Font.Size := TreeFontSize;
     AControl.Font.Size := TreeFontSize;
     AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
@@ -1474,6 +1477,7 @@ var
     Height: cardinal;
   begin
     AControl.Color := BGColor;
+    AControl.Font.Name := 'Segoe UI';
     AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
     Height := AControl.Canvas.TextHeight('Щ');
@@ -1484,6 +1488,7 @@ var
   procedure SetPnlColor(AControl: TInfoPanel);
   begin
     AControl.Color := BGColor;
+    AControl.Font.Name := 'Segoe UI';
     AControl.Font.Size := ShortFontSize;
     AControl.Font.Color := FontColor;
   end;
