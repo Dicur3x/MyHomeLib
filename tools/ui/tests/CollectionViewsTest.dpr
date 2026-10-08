@@ -11,7 +11,7 @@ uses
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache,
+  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
@@ -408,7 +408,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 2,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 4,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -516,6 +516,75 @@ begin
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'Reader policy changes wrote to the source');
   Writeln('PASS stable reader cache survives reimport and refreshes changed sources');
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
+end;
+
+procedure TestBookColumnFilters;
+var Filters: TBookColumnFilters; Node: PVirtualNode; Book: PBookRecord;
+  Marked: Integer;
+
+  function CountVisible: Integer;
+  var N: PVirtualNode; B: PBookRecord;
+  begin
+    Result := 0;
+    N := frmMain.tvBooksA.GetFirst;
+    while Assigned(N) do
+    begin
+      B := frmMain.tvBooksA.GetNodeData(N);
+      if (B.NodeType = ntBookInfo) and not frmMain.tvBooksA.IsEffectivelyFiltered[N] then Inc(Result);
+      N := frmMain.tvBooksA.GetNext(N);
+    end;
+  end;
+begin
+  Filters := TBookColumnFilters.ForTree(frmMain.tvBooksA);
+  Filters.SetValue(COL_TITLE, 'EXTRA');
+  Filters.SetValue(COL_LANG, 'uk');
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require((Filters.Count = 2) and (CountVisible = 1), 'Combined column filters did not narrow book rows');
+  Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
+  Require(Book.Title = 'Alpha extra uk', 'Filter retained a hidden focused book');
+  Require(Pos('1 из 3', frmMain.lblBooksTotalA.Caption) > 0, 'Active filter count is invisible');
+  frmMain.pmiCheckAllClick(nil);
+  Marked := 0;
+  Node := frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book := frmMain.tvBooksA.GetNodeData(Node);
+    if Book.NodeType = ntBookInfo then
+    begin
+      if Node.CheckState = csCheckedNormal then Inc(Marked);
+      Require(not frmMain.tvBooksA.IsEffectivelyFiltered[Node] or (Node.CheckState = csUncheckedNormal),
+        'Mark all included a filtered-out book');
+    end;
+    Node := frmMain.tvBooksA.GetNext(Node);
+  end;
+  Require(Marked = 1, 'Filtered mark-all selected the wrong books');
+  frmMain.pmiSelectAllClick(nil);
+  Node := frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Require(not frmMain.tvBooksA.IsEffectivelyFiltered[Node] or not frmMain.tvBooksA.Selected[Node],
+      'Select all included a filtered-out row');
+    Node := frmMain.tvBooksA.GetNext(Node);
+  end;
+  frmMain.LocateBook('Alpha ru', False);
+  Require(frmMain.tvBooksA.GetFirstSelected = nil, 'Quick search selected a filtered-out book');
+  frmMain.btnSwitchTreeModeClick(nil);
+  Require(CountVisible = 1, 'Flat mode rebuild lost active column filters');
+  frmMain.btnSwitchTreeModeClick(nil);
+  Require(CountVisible = 1, 'Grouped mode rebuild lost active column filters');
+  Filters.SetValue(COL_TITLE, 'nothing matches');
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require((CountVisible = 0) and (frmMain.tvBooksA.FocusedNode = nil), 'No-match filter retained a book');
+  Require(frmMain.tvBooksA.GetFirstVisible = nil, 'Empty groups survived the filter');
+  Filters.Clear;
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require((CountVisible = 3) and Assigned(frmMain.tvBooksA.FocusedNode), 'Clearing filters failed to restore books');
+  Writeln('PASS column filters combine, survive regrouping, hide empty groups and mark only matching books');
+  if ParamStr(2) = 'visual' then
+  begin
+    frmMain.Show;
+    frmMain.ShowBookColumnFilters(nil);
+  end;
 end;
 
 procedure TestBookGallery;
@@ -1657,6 +1726,8 @@ begin
         TestReaderCompatibility
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
+      else if ParamStr(1) = 'column-filters' then
+        TestBookColumnFilters
       else if ParamStr(1) = 'read-folder-cleanup' then
         TestReadFolderCleanup
       else if ParamStr(1) = 'temp-exit-cleanup' then

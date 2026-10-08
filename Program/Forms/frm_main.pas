@@ -916,6 +916,9 @@ type
 
   public
     procedure OnSetControlsStateHandler(State: Boolean);
+    procedure ShowBookColumnFilters(Sender: TObject);
+    procedure ApplyBookColumnFilters(Tree: TBookTree);
+    procedure SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
 
     procedure LocateBook(const Text: string; MoveForward: Boolean);
     procedure LocateAuthorAndBook(const FullAuthorName: string; const BookKey: TBookKey);
@@ -1116,7 +1119,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  frm_DeleteCollection, unit_ImportOldUserData;
+  frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters;
 
 resourcestring
 rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
@@ -3559,7 +3562,8 @@ end;
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 var
-  OPDSMenu: TMenuItem;
+  OPDSMenu, FilterMenu: TMenuItem;
+  I: Integer;
 begin
   OnShortCut := FormShortCut;
   FSystemData := SystemDB;
@@ -3567,6 +3571,18 @@ begin
   OPDSMenu.Caption := 'Каталог для читалки (OPDS)...';
   OPDSMenu.OnClick := ShowOPDS;
   miTools.Insert(0, OPDSMenu);
+  for I := 0 to 1 do
+  begin
+    FilterMenu := TMenuItem.Create(Self);
+    FilterMenu.Caption := 'Фильтры столбцов...';
+    FilterMenu.OnClick := ShowBookColumnFilters;
+    if I = 0 then pmHeaders.Items.Add(FilterMenu) else miView.Add(FilterMenu);
+    FilterMenu := TMenuItem.Create(Self);
+    FilterMenu.Caption := 'Сбросить фильтры столбцов';
+    FilterMenu.Tag := 1;
+    FilterMenu.OnClick := ShowBookColumnFilters;
+    if I = 0 then pmHeaders.Items.Add(FilterMenu) else miView.Add(FilterMenu);
+  end;
 
   CreatePublisherSeriesView;
 
@@ -5361,7 +5377,7 @@ begin
     Node := Tree.GetFirst;
     while Assigned(Node) do
     begin
-      if SelState then
+      if SelState and not Tree.IsEffectivelyFiltered[Node] then
         Node.CheckState := csCheckedNormal
       else
         Node.CheckState := csUncheckedNormal;
@@ -5427,7 +5443,7 @@ var
   SelectedNode: PVirtualNode;
 
   Data: PBookRecord;
-  Max, i: Integer;
+  Max, i, VisibleCount: Integer;
   Author: string;
 
   AuthorNodes: TDictionary<string, PVirtualNode>;
@@ -5593,13 +5609,17 @@ begin
       //
       // Выбрать книгу
       //
+      VisibleCount := i;
+      if TBookColumnFilters.ForTree(Tree).Count > 0 then
+        VisibleCount := TBookColumnFilters.ForTree(Tree).Apply(False);
+      if Assigned(SelectedNode) and Tree.IsEffectivelyFiltered[SelectedNode] then SelectedNode := nil;
       if not Assigned(SelectedNode) then
       begin
         SelectedNode := Tree.GetFirst;
         while Assigned(SelectedNode) do
         begin
           Data := Tree.GetNodeData(SelectedNode);
-          if Data^.nodeType = ntBookInfo then
+          if (Data^.nodeType = ntBookInfo) and not Tree.IsEffectivelyFiltered[SelectedNode] then
             Break;
           SelectedNode := Tree.GetNext(SelectedNode);
         end;
@@ -5616,14 +5636,7 @@ begin
       Tree.EndUpdate;
     end;
 
-    case Tree.Tag of
-      0: lblBooksTotalA.Caption := Format('(%d)', [i]);
-      1: lblBooksTotalS.Caption := Format('(%d)', [i]);
-      2: lblBooksTotalG.Caption := Format('(%d)', [i]);
-      3: lblTotalBooksFL.Caption := Format('(%d)', [i]);
-      4: lblBooksTotalF.Caption := Format('(%d)', [i]);
-      PAGE_PUBLISHER_SERIES: FPublisher.Total.Caption := Format('(%d)', [i]);
-    end;
+    SetBookListTotals(Tree, VisibleCount, i);
 
     case Tree.Tag of
       PAGE_AUTHORS:
@@ -6147,7 +6160,8 @@ begin
     while Assigned(NodeB) do
     begin
       DataB := Tree.GetNodeData(NodeB);
-      if (DataB^.nodeType = ntBookInfo) and ((Tree.CheckState[NodeB] = csCheckedNormal) or (Tree.Selected[NodeB])) then
+      if (DataB^.nodeType = ntBookInfo) and not Tree.IsEffectivelyFiltered[NodeB] and
+        ((Tree.CheckState[NodeB] = csCheckedNormal) or (Tree.Selected[NodeB])) then
       begin
         frmGenreTree.GetSelectedGenres(DataB^);
 
@@ -6210,7 +6224,8 @@ begin
       while Assigned(Node) do
       begin
         Data := Tree.GetNodeData(Node);
-        if ((Tree.CheckState[Node] = csCheckedNormal) or (Tree.Selected[Node])) then
+        if not Tree.IsEffectivelyFiltered[Node] and
+          ((Tree.CheckState[Node] = csCheckedNormal) or (Tree.Selected[Node])) then
           FCollection.SetSeriesID(Data^.BookKey, SeriesID);
         Node := Tree.GetNext(Node);
       end;
@@ -7087,7 +7102,8 @@ begin
   begin
     Data := Tree.GetNodeData(Node);
     Assert(Assigned(Data));
-    if FixedText = Copy(AnsiUpperCase(Data.Title), 1, L) then
+    if not Tree.IsEffectivelyFiltered[Node] and
+      (FixedText = Copy(AnsiUpperCase(Data.Title), 1, L)) then
     begin
       Tree.Selected[Node] := True;
       Tree.FocusedNode := Node;
@@ -7103,7 +7119,7 @@ begin
     Node := Tree.GetNext(Node);
   end;
 
-  if Assigned(FFirstFoundBook) then
+  if Assigned(FFirstFoundBook) and not Tree.IsEffectivelyFiltered[FFirstFoundBook] then
   begin
     FLastFoundBook := FFirstFoundBook;
 
@@ -7405,9 +7421,18 @@ end;
 procedure TfrmMain.pmiSelectAllClick(Sender: TObject);
 var
   Tree: TBookTree;
+  Node: PVirtualNode;
 begin
   GetActiveTree(Tree);
-  Tree.SelectAll(False);
+  Tree.BeginUpdate;
+  try
+    Node := Tree.GetFirst;
+    while Assigned(Node) do
+    begin
+      Tree.Selected[Node] := not Tree.IsEffectivelyFiltered[Node];
+      Node := Tree.GetNext(Node);
+    end;
+  finally Tree.EndUpdate; end;
 end;
 
 procedure TfrmMain.pmMarkSelectedClick(Sender: TObject);
@@ -7666,6 +7691,51 @@ end;
 procedure TfrmMain.SelectColumnsUpdate(Sender: TObject);
 begin
   acViewSelectColumns.Enabled := not FFormBusy and (ActiveView <> DownloadView);
+end;
+
+procedure TfrmMain.SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
+var Text: string;
+begin
+  if TBookColumnFilters.ForTree(Tree).Count > 0 then
+    Text := Format('(%d из %d · фильтр)', [VisibleCount, TotalCount])
+  else Text := Format('(%d)', [TotalCount]);
+  case Tree.Tag of
+    PAGE_AUTHORS: lblBooksTotalA.Caption := Text;
+    PAGE_SERIES: lblBooksTotalS.Caption := Text;
+    PAGE_GENRES: lblBooksTotalG.Caption := Text;
+    PAGE_SEARCH: lblTotalBooksFL.Caption := Text;
+    PAGE_FAVORITES: lblBooksTotalF.Caption := Text;
+    PAGE_PUBLISHER_SERIES: FPublisher.Total.Caption := Text;
+  end;
+end;
+
+procedure TfrmMain.ApplyBookColumnFilters(Tree: TBookTree);
+var Node: PVirtualNode; Book: PBookRecord; Total, VisibleCount: Integer;
+begin
+  FFirstFoundBook := nil;
+  FLastFoundBook := nil;
+  Total := 0;
+  Node := Tree.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book := Tree.GetNodeData(Node);
+    if Assigned(Book) and (Book.NodeType = ntBookInfo) then Inc(Total);
+    Node := Tree.GetNext(Node);
+  end;
+  VisibleCount := TBookColumnFilters.ForTree(Tree).Apply;
+  SetBookListTotals(Tree, VisibleCount, Total);
+  RefreshBookInfo(Tree);
+end;
+
+procedure TfrmMain.ShowBookColumnFilters(Sender: TObject);
+var Tree: TBookTree;
+begin
+  if FFormBusy or (ActiveView = DownloadView) then Exit;
+  GetActiveTree(Tree);
+  if (Sender is TMenuItem) and (TMenuItem(Sender).Tag = 1) then
+    TBookColumnFilters.ForTree(Tree).Clear
+  else if not EditBookColumnFilters(Tree) then Exit;
+  ApplyBookColumnFilters(Tree);
 end;
 
 procedure TfrmMain.HeaderPopupItemClick(Sender: TObject);
@@ -8459,11 +8529,11 @@ begin
   begin
     if Node = FNode then
       FNode := nil;
-    ProcessProc(Tree, Node);
+    if not Tree.IsEffectivelyFiltered[Node] then ProcessProc(Tree, Node);
     Node := Tree.GetNextChecked(Node);
   end;
 
-  if Assigned(FNode) then
+  if Assigned(FNode) and not Tree.IsEffectivelyFiltered[FNode] then
     ProcessProc(Tree, FNode);
 end;
 
@@ -8495,6 +8565,7 @@ end;
 
 function TfrmMain.IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
 begin
+  if Assigned(Node) and (vsFiltered in Node.States) then Exit(False);
   if Settings.SelectedIsChecked then
      Result :=
         Assigned(Node) and Assigned(Data) and
