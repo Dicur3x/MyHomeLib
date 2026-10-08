@@ -39,9 +39,11 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 if (viewsMode !== null && !modes.includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  "first-run": ["PASS visible first-run wizard creates an empty collection without indexing"],
+  "first-run-cancel": ["PASS visible first-run wizard cancellation exits cleanly"],
   "genre-order": ["PASS Unsorted is last"],
   "": ["PASS unopened genre filter", "PASS first series visit", "PASS changed deletion filter", "PASS visible genre view", "PASS first group visit", "PASS empty author selection"],
   "language-isolation": ["PASS language choice survives"],
@@ -73,6 +75,7 @@ function requiredPasses(executable, mode) {
     "PASS production script extraction", "PASS production uppercase FB2 export", "PASS production same-title batch extraction",
     "PASS ordinary single-source online INPX", "PASS mixed-source online INPX",
   ];
+  if (mode.startsWith("first-run")) return requiredViews[mode];
   if (path.basename(executable).toLowerCase() === "collectionviewstest.exe") return [
     "PASS header menu keeps column IDs", "PASS default author selection and saved book", ...requiredViews[mode || ""],
   ];
@@ -126,7 +129,7 @@ function run(executable, mode) {
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode] : [], { cwd: folder, encoding: "utf8", timeout: 60000, windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode] : [], { cwd: folder, encoding: "utf8", timeout: 60000, windowsHide: !mode.startsWith("first-run"), maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;

@@ -16,7 +16,9 @@ uses
   frm_AuthorInformation, frm_book_info, unit_ReviewParser,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
-  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread;
+  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, frm_NewCollectionWizard,
+  frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
+  frame_NCWFinish, frame_WizardPageBase;
 
 type
   TRegressionExceptionHandler = class
@@ -37,6 +39,104 @@ procedure Require(Condition: Boolean; const Message: string);
 begin
   if not Condition then
     raise Exception.Create(Message);
+end;
+
+type
+  TFirstRunDriver = class
+    Step: Integer;
+    Finished: Boolean;
+    Timer: TTimer;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TFirstRunDriver.Tick(Sender: TObject);
+var I: Integer; Wizard: TNewCollectionWizard; Page: TWizardPageBase;
+  Names: TframeNCWNameAndLocation; Files: TframeNCWCollectionFileTypes;
+begin
+  Wizard := nil;
+  for I := 0 to Screen.FormCount - 1 do
+    if Screen.Forms[I] is TNewCollectionWizard then
+      Wizard := TNewCollectionWizard(Screen.Forms[I]);
+  if not Assigned(Wizard) or not Wizard.Visible or not IsWindowVisible(Wizard.Handle) then Exit;
+  Writeln('TRACE wizard Visible=', Wizard.Visible, ' bounds=', Wizard.Left, ',',
+    Wizard.Top, ',', Wizard.Width, ',', Wizard.Height);
+  Flush(Output);
+  Require((Wizard.Width >= 520) and (Wizard.Height >= 390), 'First-run wizard has invalid bounds');
+  if ParamStr(1) = 'first-run-cancel' then
+  begin
+    Finished := True; Timer.Enabled := False; Wizard.OnCancel(Wizard.btnCancel); Exit;
+  end;
+  Page := nil;
+  for I := 0 to Wizard.ComponentCount - 1 do
+    if (Wizard.Components[I] is TWizardPageBase) and
+      TWizardPageBase(Wizard.Components[I]).Visible then
+      Page := TWizardPageBase(Wizard.Components[I]);
+  Require(Assigned(Page), 'First-run wizard has no visible page');
+  if Page is TframeNCWNameAndLocation then
+  begin
+    Names := TframeNCWNameAndLocation(Page);
+    Names.edCollectionName.Text := 'First launch regression';
+    Names.edCollectionRoot.Text := Settings.AppPath + 'first-run-books';
+    ForceDirectories(Names.edCollectionRoot.Text);
+    Names.edCollectionFile.Text := Settings.DataDir + 'first-run.hlc2';
+  end;
+  if Page is TframeNCWCollectionFileTypes then
+  begin
+    Files := TframeNCWCollectionFileTypes(Page);
+    Files.cbAutoImport.Checked := False;
+  end;
+  Inc(Step); Require(Step <= 8, 'First-run wizard did not advance');
+  Writeln('TRACE wizard page ', Page.ClassName); Flush(Output);
+  if Page is TframeNCWFinish then
+  begin
+    Finished := True; Timer.Enabled := False; Wizard.OnCancel(Wizard.btnCancel);
+  end
+  else
+    Wizard.DoChangePage(Wizard.btnForward);
+end;
+
+procedure RunFirstRunRegression;
+var Driver: TFirstRunDriver; Started: UInt64; Collection: IBookCollection;
+begin
+  Require(not SystemDB.HasCollections, 'First-run regression needs an empty profile');
+  Application.MainFormOnTaskbar := True;
+  Application.CreateForm(TdmImages, dmImages);
+  dmImages.ApplyThemeIcons;
+  Driver := TFirstRunDriver.Create;
+  try
+    Driver.Timer := TTimer.Create(nil); Driver.Timer.Enabled := False;
+    Driver.Timer.Interval := 100; Driver.Timer.OnTimer := Driver.Tick;
+    Driver.Timer.Enabled := True;
+    Application.CreateForm(TfrmMain, frmMain);
+    Application.CreateForm(TfrmGenreTree, frmGenreTree);
+    frmSplash.Hide;
+    Started := GetTickCount64;
+    Application.ProcessMessages;
+    while not Driver.Finished and (GetTickCount64 - Started < 10000) do
+    begin Application.ProcessMessages; Sleep(10); end;
+    Require(Driver.Finished, 'First-run wizard did not appear');
+    if ParamStr(1) = 'first-run-cancel' then
+    begin
+      Require(Application.Terminated and not SystemDB.HasCollections,
+        'Cancelling first launch must exit without creating a collection');
+      Writeln('PASS visible first-run wizard cancellation exits cleanly');
+    end
+    else
+    begin
+      Require(SystemDB.HasCollections and (Settings.ActiveCollection > 0),
+        'First-run wizard did not create and select the collection');
+      Collection := SystemDB.GetCollection(Settings.ActiveCollection);
+      Require(Assigned(Collection) and (Collection.CollectionDisplayName = 'First launch regression'),
+        'First-run collection name was not saved');
+      Require(not Application.Terminated and frmMain.Visible, 'Main window did not remain visible');
+      Writeln('PASS visible first-run wizard creates an empty collection without indexing');
+      Collection := nil;
+    end;
+    frmGenreTree.Free; frmGenreTree := nil;
+    frmMain.Free; frmMain := nil;
+    dmImages.Free; dmImages := nil;
+    DMUser.Free; DMUser := nil;
+  finally Driver.Timer.Free; Driver.Free; end;
 end;
 
 var
@@ -1994,6 +2094,12 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if (ParamStr(1) = 'first-run') or (ParamStr(1) = 'first-run-cancel') then
+      begin
+        RunFirstRunRegression;
+        Flush(Output);
+        Halt(0);
+      end;
       Trace('tiny fixtures');
       OneID := SystemDB.CreateCollection('One', Settings.AppPath,
         'one.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');

@@ -23,9 +23,7 @@ unit SQLiteWrap;
 interface
 
 uses
-  {$IFDEF WIN32}
-  Windows,
-  {$ENDIF}
+  Winapi.Windows,
   SQLite3,
   Classes,
   SysUtils;
@@ -244,7 +242,6 @@ uses
   unit_Interfaces,
 {$ENDIF}
   Math,
-  Winapi.Windows,
   SQLite3UDF;
 
 const
