@@ -36,6 +36,7 @@ type
     FBackupFolder, FError: string;
     FSuccess: Boolean;
     procedure ReportProgress(Current, Total: Integer);
+    procedure ReportStage(const Stage: string; Current, Total: Integer);
   protected
     procedure WorkFunction; override;
   public
@@ -241,7 +242,18 @@ procedure TCatalogMergeWorker.ReportProgress(Current, Total: Integer);
 begin
   SetProgressHint(pbstNormal);
   if Total > 0 then SetProgress(Integer(Int64(Current) * 100 div Total));
-  SetComment(Format('Проверено книг: %d из %d', [Current, Total]));
+  if FApply then SetComment(Format('Обработано записей: %d из %d', [Current, Total]))
+  else SetComment(Format('Сопоставлено записей: %d из %d', [Current, Total]));
+end;
+
+procedure TCatalogMergeWorker.ReportStage(const Stage: string; Current, Total: Integer);
+begin
+  if Total > 0 then
+  begin
+    SetProgressHint(pbstNormal); SetProgress(Integer(Int64(Current) * 100 div Total));
+    SetComment(Format('%s: %d%%', [Stage, Integer(Int64(Current) * 100 div Total)]));
+  end
+  else begin SetProgressHint(pbstMarquee); SetComment(Stage + '...'); end;
 end;
 
 procedure TCatalogMergeWorker.WorkFunction;
@@ -262,12 +274,18 @@ begin
         else Sources[I].DatabaseFile := FSources[I].CollectionFile;
       end;
       FPlan := TCollectionMergePlan.Create(FCollection, Sources, FSystemData);
+      FPlan.StageProgress := ReportStage;
       FPlan.Preview(ReportProgress, function: Boolean begin Result := Canceled; end);
     end
-    else FPlan.Apply(FBackupFolder, ReportProgress, function: Boolean begin Result := Canceled; end);
+    else
+    begin
+      FPlan.StageProgress := ReportStage;
+      FPlan.Apply(FBackupFolder, ReportProgress, function: Boolean begin Result := Canceled; end);
+    end;
     FSuccess := True;
     Teletype('Готово.', tsInfo);
   except on E: Exception do begin FError := E.Message; Teletype(FError, tsError); end; end;
+  if Assigned(FPlan) then FPlan.StageProgress := nil;
 end;
 
 end.

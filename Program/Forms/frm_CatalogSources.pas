@@ -59,8 +59,8 @@ begin
   LabelText := TLabel.Create(Self); LabelText.Parent := Panel; LabelText.AutoSize := False;
   LabelText.SetBounds(12,8,796,42); LabelText.Anchors := [akLeft,akTop,akRight];
   LabelText.WordWrap := True;
-  LabelText.Caption := 'Приоритет источников — сверху вниз. Сначала обновите нужный INPX, затем выполните предпросмотр.' + #13#10 +
-    'Применение сохраняет резервные копии каталогов и групп. Исходные книги и названия серий не изменяются.';
+  LabelText.Caption := '1. Добавьте INPX и папку книг.  2. Проверьте предпросмотр.  3. Примените объединение.' + #13#10 +
+    'Порядок сверху вниз задаёт приоритет для одного и того же файла. Разные копии книги сохраняются отдельно.';
   FList := TListView.Create(Self); FList.Parent := Self; FList.SetBounds(0,54,ClientWidth,176); FList.Align := alTop;
   FList.Height := 176; FList.ViewStyle := vsReport; FList.ReadOnly := True;
   FList.RowSelect := True; FList.HideSelection := False; FList.DoubleBuffered := True;
@@ -77,7 +77,7 @@ begin
   Button(Panel,'Отключить источник',498,158,DisconnectSource);
   FIndexFile := Button(Panel,'Файл INPX...',662,146,ChooseIndexFile);
   FRoot := Button(Panel,'Папка книг...',12,148,ChooseRoot); FRoot.Top := 44;
-  FRefresh := Button(Panel,'Обновить выбранный INPX',166,226,RefreshSource); FRefresh.Top := 44;
+  FRefresh := Button(Panel,'Перечитать выбранный INPX',166,226,RefreshSource); FRefresh.Top := 44;
   B := Button(Panel,'Предпросмотр объединения',398,258,Preview); B.Top := 44;
   Panel := TPanel.Create(Self); Panel.Parent := Self; Panel.Align := alBottom;
   Panel.Height := 48; Panel.BevelOuter := bvNone;
@@ -150,6 +150,7 @@ begin
     Source.CollectionID := INVALID_COLLECTION_ID;
     InvalidatePreview; SetLength(FSources,Length(FSources)+1); FSources[High(FSources)] := Source;
     Save; RebuildList(High(FSources));
+    RefreshSource(nil);
   finally Dialog.Free; end;
 end;
 

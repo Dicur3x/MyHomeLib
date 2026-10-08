@@ -26,6 +26,11 @@ type
     FComponentNotified: array[0..2] of string;
     FApplicationRelease: TProgramRelease;
     FApplicationStatus, FApplicationHistory: string;
+    FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic: Boolean;
+    FQueue: TArray<TProgramRelease>;
+    FQueueJobs: TArray<string>;
+    FQueueIndex: Integer;
+    FQueueBytes, FQueueTotal: Int64;
     FRelease: TProgramRelease;
     FJob, FCache: string;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
@@ -51,6 +56,12 @@ type
     procedure ZoomChanged(Sender: TObject);
     procedure LoadViewPreferences;
     procedure SaveViewPreferences;
+    function AvailableUpdates: TArray<TProgramRelease>;
+    function AvailableSummary: string;
+    procedure UpdateSummary;
+    procedure FinishCheckCycle;
+    procedure StartQueuedDownload;
+    procedure ClearQueueJobs;
   protected
     procedure Resize; override;
   public
@@ -62,6 +73,9 @@ type
     procedure CheckFailed(const Error: string);
     procedure RememberHistory(const ReleaseInfo: TProgramRelease);
     procedure CheckComponents(Automatic: Boolean);
+    function StartCheckCycle(Automatic: Boolean): Boolean;
+    procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
+    procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string);
     function RestoreReady: Boolean;
     function LaunchInstallation: Boolean;
     procedure CancelInstallation;
@@ -90,7 +104,7 @@ begin
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
   FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION;
-  FStatus := TLabel.Create(Self); FStatus.Parent := Self;
+  FStatus := TLabel.Create(Self); FStatus.Parent := Self; FStatus.Name := 'UpdateStatus';
   FSelector := TComboBox.Create(Self); FSelector.Parent := Self;
   FSelector.Style := csDropDownList; FSelector.SetBounds(20, 48, 465, 25);
   FSelector.OnChange := ComponentSelected;
@@ -154,6 +168,7 @@ begin
   begin FThread.Terminate; FreeAndNil(FThread); end;
   // Keep a verified ready update when installation is postponed or the app exits.
   if not FReady then DiscardJob;
+  ClearQueueJobs;
   inherited;
 end;
 
@@ -301,12 +316,14 @@ begin
   FProgress.Position := 0; FBytes.Caption := '';
   FPrimary.Caption := 'Скачать обновление'; FPrimary.Enabled := True;
   if FRelease.DownloadURL = '' then FPrimary.Caption := 'Скачать со страницы выпуска';
+  UpdateSummary;
   Present;
   finally EndUIUpdate; end;
 end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
 begin
+  if FRelease.ComponentID = 'batch' then Exit('компонентов HomeLib Ru');
   if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLib Ru ' + FRelease.Tag, FRelease.PublishedAt)
   else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + FRelease.ComponentVersion, FRelease.PublishedAt);
 end;
@@ -352,6 +369,7 @@ begin
       FStatus.Caption := FApplicationStatus; DisplayNotes(FApplicationHistory);
       FPrimary.Caption := 'Проверить обновления'; FPrimary.Enabled := True;
     end;
+    UpdateSummary;
     Exit;
   end;
   I := CHECKED_COMPONENT_INDICES[I];
@@ -377,7 +395,106 @@ begin
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить компонент», чтобы узнать о новой версии.';
   end;
+  UpdateSummary;
   finally EndUIUpdate; end;
+end;
+
+function TfrmProgramUpdate.AvailableUpdates: TArray<TProgramRelease>;
+var I, Count: Integer;
+begin
+  Result := nil;
+  if FApplicationRelease.Tag <> '' then
+  begin SetLength(Result, 1); Result[0] := FApplicationRelease; end;
+  for I in CHECKED_COMPONENT_INDICES do
+    if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) then
+    begin
+      Count := Length(Result); SetLength(Result, Count + 1); Result[Count] := FComponents[I];
+    end;
+end;
+
+function TfrmProgramUpdate.AvailableSummary: string;
+var Releases: TArray<TProgramRelease>; I: Integer; Name: string;
+begin
+  Releases := AvailableUpdates; Result := '';
+  for I := 0 to High(Releases) do
+  begin
+    Name := Releases[I].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+    if I > 0 then
+      if I = High(Releases) then Result := Result + ' и ' else Result := Result + ', ';
+    Result := Result + Name;
+  end;
+  if Result <> '' then Result := 'Есть обновления для ' + Result;
+end;
+
+procedure TfrmProgramUpdate.UpdateSummary;
+var Summary: string;
+begin
+  if FReady or Assigned(FThread) then Exit;
+  Summary := AvailableSummary;
+  if Summary <> '' then
+  begin
+    FStatus.Caption := Summary; FNeedsCheck := False;
+    if Length(AvailableUpdates) > 1 then FPrimary.Caption := 'Скачать все обновления'
+    else FPrimary.Caption := 'Скачать обновление';
+    FPrimary.Enabled := not FCheckingCycle;
+  end;
+end;
+
+function TfrmProgramUpdate.StartCheckCycle(Automatic: Boolean): Boolean;
+var I: Integer;
+begin
+  Result := False;
+  if FCheckingCycle or Assigned(FThread) then Exit;
+  if FReady then begin if not Automatic then Present; Exit; end;
+  FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
+  FApplicationRelease := Default(TProgramRelease);
+  for I in CHECKED_COMPONENT_INDICES do FComponents[I].DownloadURL := '';
+  if not Automatic then BeginCheck;
+  Result := True;
+end;
+
+procedure TfrmProgramUpdate.ApplicationChecked(const ReleaseInfo: TProgramRelease;
+  Successful: Boolean; const Error: string);
+var Comparison: Integer;
+begin
+  if not FCheckingCycle then Exit;
+  FAppPending := False;
+  if Successful then
+  begin
+    RememberHistory(ReleaseInfo);
+    FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
+    if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and (Comparison > 0) then
+      FApplicationRelease := ReleaseInfo;
+  end
+  else FApplicationStatus := Error;
+  FinishCheckCycle;
+end;
+
+procedure TfrmProgramUpdate.FinishCheckCycle;
+var J: Integer;
+begin
+  if not FCheckingCycle or FAppPending or FComponentsPending then Exit;
+  FCheckingCycle := False;
+  UpdateComponentList;
+  if Length(AvailableUpdates) > 0 then
+  begin
+    FSelector.ItemIndex := 0;
+    if FApplicationRelease.Tag = '' then
+      for J := 0 to High(CHECKED_COMPONENT_INDICES) do
+        if ComponentNewer(FComponents[CHECKED_COMPONENT_INDICES[J]],
+          ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[CHECKED_COMPONENT_INDICES[J]])) then
+        begin FSelector.ItemIndex := J + 1; Break; end;
+    ComponentSelected(nil); UpdateSummary; Present;
+  end
+  else if not FCycleAutomatic then
+  begin
+    FSelector.ItemIndex := 0; ComponentSelected(nil); FStatus.Caption := FApplicationStatus;
+    if FComponentError <> '' then FStatus.Caption := FStatus.Caption + ' ' + FComponentError
+    else for J in CHECKED_COMPONENT_INDICES do
+      if FComponents[J].ComponentError <> '' then
+        FStatus.Caption := FStatus.Caption + ' Не удалось проверить ' + COMPONENT_IDS[J] + '.';
+    FPrimary.Enabled := True; FPrimary.Caption := 'Проверить ещё раз'; Present;
+  end;
 end;
 
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
@@ -398,21 +515,32 @@ begin
 end;
 
 procedure TfrmProgramUpdate.ComponentsChecked(var Message: TMessage);
-var I, J, Errors: Integer; Successful: Boolean; Releases: TComponentReleases;
+var Successful: Boolean; Releases: TComponentReleases; Error: string;
 begin
   Message.Result := 0; if not Assigned(FComponentThread) then Exit;
   FComponentThread.WaitFor; Successful := FComponentThread.Successful;
+  Releases := FComponentThread.Releases; Error := FComponentThread.ErrorText;
+  FreeAndNil(FComponentThread);
+  ComponentsReceived(Releases, Successful, Error);
+end;
+
+procedure TfrmProgramUpdate.ComponentsReceived(const Releases: TComponentReleases;
+  Successful: Boolean; const Error: string);
+var I, J, Errors: Integer; Updated: TComponentReleases;
+begin
   BeginUIUpdate;
   try
   if Successful then
   begin
-    Releases := FComponentThread.Releases;
-    PreserveComponentHistory(Releases, FComponents);
-    FComponents := Releases;
+    Updated := Releases;
+    PreserveComponentHistory(Updated, FComponents);
+    FComponents := Updated;
     SaveComponentHistory(FCache, FComponents);
   end
-  else FComponentError := FComponentThread.ErrorText;
-  FreeAndNil(FComponentThread); FComponentCheck.Enabled := True; UpdateComponentList;
+  else FComponentError := Error;
+  FComponentCheck.Enabled := True; UpdateComponentList;
+  if FCheckingCycle then
+  begin FComponentsPending := False; FinishCheckCycle; Exit; end;
   if Assigned(FThread) or FReady then
   begin FComponentExplicit := False; Exit; end;
   if FComponentExplicit and not FComponentAutomatic and (FSelector.ItemIndex = 0) then
@@ -438,6 +566,7 @@ begin
         FSelector.ItemIndex := J + 1; ComponentSelected(nil); Break;
       end;
     end;
+  UpdateSummary;
   finally EndUIUpdate; end;
 end;
 
@@ -506,7 +635,7 @@ begin
 end;
 
 procedure TfrmProgramUpdate.PrimaryClick(Sender: TObject);
-var ID: TGUID;
+var ReleaseInfo: TProgramRelease;
 begin
   if FReady then
   begin
@@ -515,25 +644,45 @@ begin
     Exit;
   end;
   if Assigned(FThread) then Exit;
-  if FNeedsCheck or (FRelease.Tag = '') then
+  if FCheckingCycle then Exit;
+  FQueue := AvailableUpdates;
+  if (Length(FQueue) = 0) and not FNeedsCheck and (FRelease.Tag <> '') then
+  begin SetLength(FQueue, 1); FQueue[0] := FRelease; end;
+  if Length(FQueue) = 0 then
   begin
     if FSelector.ItemIndex > 0 then CheckComponents(False)
     else if Assigned(FCheck) then FCheck(Self);
     Exit;
   end;
-  if FRelease.DownloadURL = '' then
-  begin PageClick(nil); Exit; end;
-  DiscardJob; CreateGUID(ID);
+  for ReleaseInfo in FQueue do
+    if ReleaseInfo.DownloadURL = '' then begin PageClick(nil); Exit; end;
+  DiscardJob; ClearQueueJobs; FQueueIndex := 0; FQueueBytes := 0; FQueueTotal := 0;
+  for ReleaseInfo in FQueue do Inc(FQueueTotal, ReleaseInfo.Size);
+  StartQueuedDownload;
+end;
+
+procedure TfrmProgramUpdate.StartQueuedDownload;
+var ID: TGUID; Name: string;
+begin
+  CreateGUID(ID);
   FJob := IncludeTrailingPathDelimiter(FCache) + 'HomeLibRu-update-' +
     StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
-  FThread := TProgramDownloadThread.Create(Handle, CreateHTTPClientGlobal, FRelease, FJob);
+  FThread := TProgramDownloadThread.Create(Handle, CreateHTTPClientGlobal, FQueue[FQueueIndex], FJob);
   FSelector.Enabled := False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';
-  FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + ReleaseTitle + '…';
-  FProgress.Position := 0;
-  FBytes.Caption := Format('Скачано: 0,0 / %.1f МБ', [FRelease.Size / 1048576]);
+  Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+  FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + Name + '…';
+  if FQueueTotal > 0 then FProgress.Position := Integer(FQueueBytes * 100 div FQueueTotal);
+  FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FQueueBytes / 1048576, FQueueTotal / 1048576]);
   LayoutWindow;
   FThread.Start;
+end;
+
+procedure TfrmProgramUpdate.ClearQueueJobs;
+var Job: string;
+begin
+  for Job in FQueueJobs do try CleanProgramUpdate(Job); except end;
+  FQueueJobs := nil;
 end;
 
 procedure TfrmProgramUpdate.LaterClick(Sender: TObject);
@@ -555,24 +704,53 @@ begin
 end;
 
 procedure TfrmProgramUpdate.DownloadProgress(var Message: TMessage);
+var Name: string; Downloaded: Int64;
 begin
   Message.Result := 0;
   if not Assigned(FThread) then Exit;
-  FProgress.Position := Message.WParam;
+  Downloaded := FQueueBytes + Message.LParam;
+  if FQueueTotal > 0 then FProgress.Position := Min(99, Integer(Downloaded * 100 div FQueueTotal));
   if Message.WParam >= 95 then FStatus.Caption := 'Проверка и подготовка обновления…'
-  else FStatus.Caption := 'Загрузка ' + ReleaseTitle + '…';
-  FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [Message.LParam / 1048576, FRelease.Size / 1048576]);
+  else
+  begin
+    Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+    FStatus.Caption := 'Загрузка ' + Name + '…';
+  end;
+  FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [Downloaded / 1048576, FQueueTotal / 1048576]);
 end;
 
 procedure TfrmProgramUpdate.DownloadCompleted(var Message: TMessage);
-var Error: string;
+var Error, CombinedJob: string; ID: TGUID; Count: Integer;
 begin
   Message.Result := 0;
   if not Assigned(FThread) then Exit;
   FThread.WaitFor; FReady := FThread.Successful; Error := FThread.ErrorText;
-  if FReady then FRelease := FThread.ReleaseInfo;
+  if FReady then FQueue[FQueueIndex] := FThread.ReleaseInfo;
   FreeAndNil(FThread); FLater.Enabled := True; FLater.Caption := 'Позже';
   FPrimary.Enabled := True;
+  if FReady then
+  begin
+    Inc(FQueueBytes, FQueue[FQueueIndex].Size);
+    Count := Length(FQueueJobs); SetLength(FQueueJobs, Count + 1); FQueueJobs[Count] := FJob;
+    FJob := ''; Inc(FQueueIndex);
+    if FQueueIndex < Length(FQueue) then
+    begin FReady := False; StartQueuedDownload; Exit; end;
+    FRelease := FQueue[0]; FRelease.Size := FQueueBytes;
+    try
+      if Length(FQueueJobs) = 1 then
+      begin FJob := FQueueJobs[0]; FQueueJobs := nil; end
+      else
+      begin
+        CreateGUID(ID); CombinedJob := IncludeTrailingPathDelimiter(FCache) + 'HomeLibRu-update-' +
+          StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
+        FJob := CombinedJob;
+        FRelease.SHA256 := CombinePreparedProgramUpdates(FQueueJobs, FRelease.Tag, ProgramUpdatePlatform, CombinedJob);
+        if FRelease.ComponentID <> '' then
+        begin FRelease.ComponentID := 'batch'; FRelease.ComponentVersion := ''; end;
+        ClearQueueJobs;
+      end;
+    except on E: Exception do begin FReady := False; Error := E.Message; end; end;
+  end;
   if FReady then
   begin
     try SaveReady;
@@ -590,7 +768,7 @@ begin
   begin
     FSelector.Enabled := True;
     FPrimary.Caption := 'Повторить загрузку'; FStatus.Caption := Error;
-    DiscardJob;
+    DiscardJob; ClearQueueJobs;
   end;
   LayoutWindow;
 end;
@@ -627,7 +805,12 @@ begin
        not TJSONObject(Root).TryGetValue<string>('sha256', Digest) or not IsUpdateSHA256(Digest) then Exit;
     Component := ''; TJSONObject(Root).TryGetValue<string>('component', Component);
     Version := ''; TJSONObject(Root).TryGetValue<string>('version', Version);
-    if Component = '' then
+    if Component = 'batch' then
+    begin
+      if not TRegEx.IsMatch(Tag, '^[A-Za-z0-9._-]{1,80}$') then Exit;
+      Comparison := 0; if PreparedComponentsNewer(Job, Settings.AppPath) then Comparison := 1;
+    end
+    else if Component = '' then
     begin if not CompareReleaseTags(Tag, PROGRAM_RELEASE_VERSION, Comparison) then Exit; end
     else
     begin
@@ -637,6 +820,8 @@ begin
       else if not CompareComponentVersions(Version, ComponentInstalledVersion(Settings.AppPath, Component), Comparison) then Exit;
     end;
     AssertUpdatePath(Job);
+    if (Component = '') and (Comparison <= 0) and PreparedComponentsNewer(Job, Settings.AppPath) then
+      Comparison := 1;
     // Preserve interrupted transactions and offer to restore them explicitly.
     if FileExists(IncludeTrailingPathDelimiter(Job) + 'journal.json') then
     begin
@@ -655,7 +840,8 @@ begin
     FSelector.ItemIndex := 0;
     for I := 0 to High(CHECKED_COMPONENT_INDICES) do
       if Component = COMPONENT_IDS[CHECKED_COMPONENT_INDICES[I]] then FSelector.ItemIndex := I + 1;
-    if Component <> '' then
+    if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLib Ru'
+    else if Component <> '' then
     begin
       FPage.Caption := 'Сайт автора';
       FVersion.Caption := 'Текущая версия ' + Component + ': ' +

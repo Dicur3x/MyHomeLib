@@ -83,6 +83,51 @@ async function main() {
     pass('independent '+id+' installation preserves application and all profiles');
     run(['--prepare-component',componentZip,sha(read(componentZip)),tag,job(),id,'9.9.9.9'],1);
   }
+  function componentJob(id, newer=false) {
+    const version=newer ? '9.0.0.0' : versions[id];
+    const zip=archive({component:id,version,mutate:newer ? (m,e)=>{
+      const data=Buffer.from(e[0][1]), fixed=data.indexOf(Buffer.from([0xbd,0x04,0xef,0xfe])); assert(fixed>=0);
+      data.writeUInt32LE(9<<16,fixed+8);data.writeUInt32LE(0,fixed+12);
+      e[0][1]=data;m.files[0].sha256=sha(data);
+    } : undefined});
+    const result=job();run(['--prepare-component',zip,sha(read(zip)),tag,result,id,version]);return result;
+  }
+  function combined(children,expected=0) {
+    const result=path.join(root,'HomeLibRu-update-job-'+number++);
+    const output=run(['--combine',result,tag,...children],expected);
+    if(!expected) assert.equal(output.split(/\r?\n/)[0],sha(read(path.join(result,'release.zip'))));
+    return result;
+  }
+  const batchSQLite=componentJob('SQLite',true),batchSumatra=componentJob('SumatraPDF');
+  const componentsBatch=combined([batchSQLite,batchSumatra]),componentsTarget=target();
+  const componentsPersonal=snapshot(componentsTarget,['HomeLibRu.exe','LICENSE','NOTICE',...personal]);
+  run(['--install',componentsBatch,componentsTarget]);
+  assert.deepEqual(snapshot(componentsTarget,['HomeLibRu.exe','LICENSE','NOTICE',...personal]),componentsPersonal);
+  for(const name of ['sqlite3.dll','Readers/SumatraPDF/SumatraPDF.exe'])
+    assert.equal(sha(read(path.join(componentsTarget,name))),sha(read(path.join(componentsBatch,'payload',name))));
+  pass('SQLite and reader install together in one transaction without replacing the application');
+  const combinedBatch=combined([prepare(archive({runtimeComponents:true})),batchSQLite,batchSumatra]);
+  const allTarget=target(),allPersonal=snapshot(allTarget,personal);
+  run(['--install',combinedBatch,allTarget]);assert.deepEqual(snapshot(allTarget,personal),allPersonal);
+  assert.equal(sha(read(path.join(allTarget,'sqlite3.dll'))),sha(read(path.join(batchSQLite,'payload/sqlite3.dll'))));
+  assert.equal(json(path.join(combinedBatch,'manifest.json')).bundle.length,2);
+  pass('program and both components install together; independent component replaces bundled file');
+  const rollbackBatch=combined([prepare(archive({runtimeComponents:true})),batchSQLite,batchSumatra]);
+  const rollbackTarget=target(),rollbackNames=['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal];
+  const rollbackBefore=snapshot(rollbackTarget,rollbackNames);
+  run(['--install',rollbackBatch,rollbackTarget,'3'],1);
+  assert.deepEqual(snapshot(rollbackTarget,rollbackNames),rollbackBefore);
+  assert.equal(json(path.join(rollbackBatch,'journal.json')).state,'rolled-back');
+  pass('failure in a combined installation rolls back the whole application and component transaction');
+  const modifiedBatch=combined([batchSQLite,batchSumatra]),modifiedTarget=target();
+  const altered=json(path.join(modifiedBatch,'manifest.json'));altered.bundle[0].version='10.0';
+  fs.writeFileSync(path.join(modifiedBatch,'manifest.json'),JSON.stringify(altered));
+  run(['--install',modifiedBatch,modifiedTarget],1);
+  assert.equal(read(path.join(modifiedTarget,'sqlite3.dll')).toString(),'old sqlite');
+  pass('modified combined descriptor is rejected before changing installation');
+  combined([batchSQLite,batchSQLite],1);
+  combined([batchSQLite,prepare(archive({runtimeComponents:true}))],1);
+  pass('combined updates reject repeated components and application in the wrong order');
   const compZip=archive({component:'SQLite',version:versions.SQLite,entry:'HomeLibRu.exe'});
   run(['--prepare-component',compZip,sha(read(compZip)),tag,job(),'SQLite',versions.SQLite],1);
   pass('component package cannot replace the main application or a different version');

@@ -25,6 +25,7 @@ var Mode, Job, Target, Archive, Digest, Tag: string; Files: TUpdateFiles;
   Window: HWND; HTTP: THTTPClient; Msg: TMsg; Params: TJSONArray; I: Integer;
   Lock: TFileStream; Components: TComponentReleases;
   ComponentThread: TComponentUpdateThread;
+  Jobs: TArray<string>;
 begin
   try
     Mode := ParamStr(1);
@@ -148,6 +149,14 @@ begin
         end;
         Writeln(Params.ToJSON);
       finally Params.Free; end;
+    end
+    else if Mode = '--combine' then
+    begin
+      Job := ParamStr(2); Tag := ParamStr(3); Guard(Job);
+      SetLength(Jobs, ParamCount - 3);
+      for I := 4 to ParamCount do begin Guard(ParamStr(I)); Jobs[I - 4] := ParamStr(I); end;
+      Writeln(CombinePreparedProgramUpdates(Jobs, Tag, ProgramUpdatePlatform, Job));
+      VerifyPreparedProgramUpdate(Job, Tag, ProgramUpdatePlatform);
     end
     else if Mode = '--prepare-component' then
     begin

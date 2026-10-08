@@ -37,6 +37,9 @@ procedure CleanProgramUpdate(const Job: string);
 function ProgramUpdatePlatform: string;
 procedure VerifyPreparedProgramUpdate(const Job, Tag, Platform: string);
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string);
+function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
+  const Tag, Platform, Job: string): string;
+function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
 
 implementation
 
@@ -214,9 +217,16 @@ function ManifestFiles(Root: TJSONObject): TUpdateFiles;
 var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   Names: TDictionary<string, Boolean>; FileInfo: TUpdateFile; Total: Int64;
   Component, Version: string; Comparison: Integer;
+  Bundle: TJSONArray; Part: TJSONValue; Allowed: Boolean; IDs: TDictionary<string, Boolean>;
 begin
   Component := ''; Root.TryGetValue<string>('component', Component);
-  if (Component <> '') and ((ComponentFileName(Component) = '') or
+  Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
+  if Component = 'batch' then
+  begin
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 2) then
+      raise Exception.Create('Некорректный пакет компонентов.');
+  end
+  else if (Component <> '') and ((ComponentFileName(Component) = '') or
      not Root.TryGetValue<string>('version', Version) or
      not CompareComponentVersions(Version, Version, Comparison)) then
     raise Exception.Create('Некорректный компонент обновления.');
@@ -225,15 +235,37 @@ begin
      ((Component = '') and (ArrayValue.Count < 3)) then
     raise Exception.Create('Некорректный список файлов обновления.');
   Names := TDictionary<string, Boolean>.Create;
+  IDs := TDictionary<string, Boolean>.Create;
   try
+    if Assigned(Bundle) then
+    begin
+      if (Bundle.Count < 1) or (Bundle.Count > 2) then raise Exception.Create('Некорректный пакет компонентов.');
+      for Part in Bundle do
+      begin
+        if not (Part is TJSONObject) or not TJSONObject(Part).TryGetValue<string>('component', Version) or
+           not ((Version = 'SQLite') or (Version = 'SumatraPDF')) or IDs.ContainsKey(Version) or
+           Assigned(TJSONObject(Part).GetValue('bundle')) then
+          raise Exception.Create('Некорректный компонент пакета.');
+        IDs.Add(Version, True);
+        if not TJSONObject(Part).TryGetValue<string>('version', Version) or
+           not CompareComponentVersions(Version, Version, Comparison) then
+          raise Exception.Create('Некорректная версия компонента пакета.');
+      end;
+    end;
     SetLength(Result, ArrayValue.Count); I := 0; Total := 0;
     for Value in ArrayValue do
     begin
       FileInfo := Default(TUpdateFile);
+      Allowed := Component <> 'batch';
+      if (Component = 'batch') and (Value is TJSONObject) and
+         TJSONObject(Value).TryGetValue<string>('path', Version) then
+        for Part in Bundle do
+          if SafeComponentFile(TJSONObject(Part).GetValue<string>('component'), Version) then Allowed := True;
       if not (Value is TJSONObject) or
          not TJSONObject(Value).TryGetValue<string>('path', FileInfo.Name) or
          not SafeUpdateName(FileInfo.Name) or
-         ((Component <> '') and not SafeComponentFile(Component, FileInfo.Name)) or
+         not Allowed or
+         ((Component <> '') and (Component <> 'batch') and not SafeComponentFile(Component, FileInfo.Name)) or
          not TJSONObject(Value).TryGetValue<string>('sha256', FileInfo.SHA256) or
          not IsUpdateSHA256(FileInfo.SHA256) or
          not TJSONObject(Value).TryGetValue<Int64>('size', FileInfo.Size) or
@@ -249,9 +281,12 @@ begin
     end;
     if ((Component = '') and (not Names.ContainsKey('homelibru.exe') or
        not Names.ContainsKey('license') or not Names.ContainsKey('notice'))) or
-       ((Component <> '') and not Names.ContainsKey(LowerCase(ComponentFileName(Component)))) then
+       ((Component <> '') and (Component <> 'batch') and not Names.ContainsKey(LowerCase(ComponentFileName(Component)))) then
       raise Exception.Create('В обновлении отсутствуют обязательные файлы.');
-  finally Names.Free; end;
+    if Assigned(Bundle) then for Part in Bundle do
+      if not Names.ContainsKey(LowerCase(ComponentFileName(TJSONObject(Part).GetValue<string>('component')))) then
+        raise Exception.Create('В пакете отсутствует файл компонента.');
+  finally IDs.Free; Names.Free; end;
 end;
 
 procedure VerifyUpdateExecutable(const FileName, Tag, Platform: string; Component: Boolean = False);
@@ -297,9 +332,13 @@ end;
 
 procedure VerifyPreparedProgramUpdateIdentity(Manifest: TJSONObject;
   const Stage, Tag, Platform: string);
-var Component, Version, Architecture: string; Official: Boolean;
+var Component, Version, Architecture: string; Official: Boolean; Bundle: TJSONArray; Part: TJSONValue;
 begin
   Component := ''; Manifest.TryGetValue<string>('component', Component);
+  if Manifest.TryGetValue<TJSONArray>('bundle', Bundle) then
+    for Part in Bundle do
+      VerifyPreparedProgramUpdateIdentity(TJSONObject(Part), Stage, Tag, Platform);
+  if Component = 'batch' then Exit;
   if Component = '' then
     VerifyUpdateExecutable(ChildPath(Stage, 'HomeLibRu.exe'), Tag, Platform)
   else
@@ -316,6 +355,91 @@ begin
     if (Component = 'AlReader') and FileExists(ChildPath(Stage, 'Readers/AlReader/UNRAR.DLL')) then
       VerifyUpdateExecutable(ChildPath(Stage, 'Readers/AlReader/UNRAR.DLL'), '', 'Win32', True);
   end;
+end;
+
+function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
+  const Tag, Platform, Job: string): string;
+var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
+  Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
+  Zip: TZipFile; HasApplication: Boolean; Values: TUpdateFiles;
+begin
+  if (Length(Jobs) < 2) or (Length(Jobs) > 3) or DirectoryExists(Job) then
+    raise Exception.Create('Некорректный набор подготовленных обновлений.');
+  AssertUpdatePath(Job); ForceDirectories(Job); Stage := ChildPath(Job, 'payload');
+  Manifest := TJSONObject.Create; Files := TDictionary<string, TUpdateFile>.Create;
+  Bundle := TJSONArray.Create; List := TJSONArray.Create; Zip := TZipFile.Create;
+  Manifest.AddPair('format', TJSONNumber.Create(1)); Manifest.AddPair('release', Tag);
+  Manifest.AddPair('platform', Platform); Manifest.AddPair('bundle', Bundle); Manifest.AddPair('files', List);
+  HasApplication := False;
+  try
+    for JobName in Jobs do
+    begin
+      AssertUpdatePath(JobName); Child := ReadJSON(ChildPath(JobName, 'manifest.json'));
+      try
+        ReleaseTag := Child.GetValue<string>('release');
+        VerifyPreparedProgramUpdate(JobName, ReleaseTag, Platform);
+        Component := ''; Child.TryGetValue<string>('component', Component);
+        if Component = '' then
+        begin
+          if HasApplication or (ReleaseTag <> Tag) or (Bundle.Count > 0) then
+            raise Exception.Create('Обновление программы должно быть первым в пакете.');
+          HasApplication := True;
+        end
+        else
+        begin
+          if (Component <> 'SQLite') and (Component <> 'SumatraPDF') then
+            raise Exception.Create('Этот компонент нельзя включить в пакет.');
+          Part := TJSONObject.Create; Part.AddPair('component', Component);
+          Part.AddPair('version', Child.GetValue<string>('version'));
+          Part.AddPair('official', TJSONBool.Create(Child.GetValue<Boolean>('official', False)));
+          Bundle.AddElement(Part);
+        end;
+        Values := ManifestFiles(Child);
+        for Info in Values do
+        begin
+          if not SameText(UpdateSHA256(ChildPath(JobName, 'payload/' + Info.Name)), Info.SHA256) then
+            raise Exception.Create('Подготовленное обновление повреждено: ' + Info.Name);
+          ForceDirectories(ExtractFileDir(ChildPath(Stage, Info.Name)));
+          TFile.Copy(ChildPath(JobName, 'payload/' + Info.Name), ChildPath(Stage, Info.Name), True);
+          Files.AddOrSetValue(Info.Name, Info);
+        end;
+      finally Child.Free; end;
+    end;
+    if not HasApplication then Manifest.AddPair('component', 'batch');
+    for Info in Files.Values do
+    begin
+      Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
+      Entry.AddPair('sha256', Info.SHA256); Entry.AddPair('size', TJSONNumber.Create(Info.Size));
+      List.AddElement(Entry);
+    end;
+    ManifestFiles(Manifest);
+    VerifyPreparedProgramUpdateIdentity(Manifest, Stage, Tag, Platform);
+    WriteJSON(ChildPath(Job, 'manifest.json'), Manifest);
+    Zip.Open(ChildPath(Job, 'release.zip'), zmWrite);
+    Zip.Add(ChildPath(Job, 'manifest.json'), UPDATE_MANIFEST);
+    for Info in Files.Values do Zip.Add(ChildPath(Stage, Info.Name), Info.Name);
+    Zip.Close;
+    Result := UpdateSHA256(ChildPath(Job, 'release.zip'));
+  finally Zip.Free; Files.Free; Manifest.Free; end;
+end;
+
+function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
+var Manifest: TJSONObject; Bundle: TJSONArray; Part: TJSONValue;
+  ID, Version, Installed: string; Comparison: Integer;
+begin
+  Result := False; Manifest := ReadJSON(ChildPath(Job, 'manifest.json'));
+  try
+    ManifestFiles(Manifest);
+    if not Manifest.TryGetValue<TJSONArray>('bundle', Bundle) then Exit;
+    for Part in Bundle do
+    begin
+      ID := TJSONObject(Part).GetValue<string>('component');
+      Version := TJSONObject(Part).GetValue<string>('version');
+      Installed := UpdateFileVersion(ChildPath(AppPath, ComponentFileName(ID)));
+      if (Installed = '') or
+         (CompareComponentVersions(Version, Installed, Comparison) and (Comparison > 0)) then Exit(True);
+    end;
+  finally Manifest.Free; end;
 end;
 
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string);
@@ -421,7 +545,7 @@ begin
 end;
 
 procedure VerifyPreparedProgramUpdate(const Job, Tag, Platform: string);
-var Manifest: TJSONObject; Value: string;
+var Manifest: TJSONObject; Value: string; Bundle: TJSONArray; Zip: TZipFile; PackedBytes, Saved: TBytes;
 begin
   Manifest := ReadJSON(ChildPath(Job, 'manifest.json'));
   try
@@ -429,6 +553,17 @@ begin
        not Manifest.TryGetValue<string>('platform', Value) or (Value <> Platform) then
       raise Exception.Create('Подготовленное обновление не подходит этой программе.');
     ManifestFiles(Manifest);
+    if Manifest.TryGetValue<TJSONArray>('bundle', Bundle) then
+    begin
+      Zip := TZipFile.Create;
+      try
+        Zip.Open(ChildPath(Job, 'release.zip'), zmRead); Zip.Read(UPDATE_MANIFEST, PackedBytes);
+        Saved := TFile.ReadAllBytes(ChildPath(Job, 'manifest.json'));
+        if (Length(PackedBytes) <> Length(Saved)) or (Length(Saved) = 0) or
+           not CompareMem(@PackedBytes[0], @Saved[0], Length(Saved)) then
+          raise Exception.Create('Манифест пакета обновлений изменён.');
+      finally Zip.Free; end;
+    end;
     VerifyPreparedProgramUpdateIdentity(Manifest, ChildPath(Job, 'payload'), Tag, Platform);
   finally Manifest.Free; end;
 end;
@@ -487,7 +622,11 @@ begin
     raise Exception.Create('Предыдущее обновление восстановлено. Проверьте обновления ещё раз.');
   end;
   Manifest := ReadJSON(ChildPath(Job, 'manifest.json'));
-  try Files := ManifestFiles(Manifest); finally Manifest.Free; end;
+  try
+    if Assigned(Manifest.GetValue('bundle')) then
+      VerifyPreparedProgramUpdate(Job, Manifest.GetValue<string>('release'), ProgramUpdatePlatform);
+    Files := ManifestFiles(Manifest);
+  finally Manifest.Free; end;
   // A full application archive can bundle an older component than the user
   // has already installed independently. Preserve that whole component.
   for ComponentID in ComponentNames do

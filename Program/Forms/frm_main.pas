@@ -746,6 +746,8 @@ type
 
   protected
     procedure DoCreate; override;
+    procedure DrawNavigationTab(Control: TCustomTabControl; TabIndex: Integer;
+      const Rect: TRect; Active: Boolean);
     procedure WMGetSysCommand(var Message: TMessage); message WM_SYSCOMMAND;
     procedure OnChangeLocalStatus(var Message: TLocalStatusChangedMessage); message WM_MHL_CHANGELOCALSTATUS;
 
@@ -1278,6 +1280,31 @@ begin
   // the LoadResStringFunc hook translates when it is read, so the menu needs
   // no second pass and Localize has nothing to do to it.
   CreateLanguageMenu;
+  pgControl.OwnerDraw := True;
+  pgControl.OnDrawTab := DrawNavigationTab;
+  pgControl.TabHeight := MulDiv(28, Screen.PixelsPerInch, 96);
+  pgControl.DoubleBuffered := True;
+end;
+
+procedure TfrmMain.DrawNavigationTab(Control: TCustomTabControl; TabIndex: Integer;
+  const Rect: TRect; Active: Boolean);
+var Area: TRect; Canvas: TCanvas; Text: string;
+begin
+  Canvas := Control.Canvas; Canvas.Font.Assign(pgControl.Font);
+  Canvas.Font.Color := clWindowText; Canvas.Brush.Color := clBtnFace;
+  if Active then
+  begin Canvas.Brush.Color := clWindow; Canvas.Font.Style := Canvas.Font.Style + [fsBold]; end;
+  Canvas.FillRect(Rect); Area := Rect;
+  if Active then
+  begin
+    Canvas.Brush.Color := clHighlight;
+    Area.Top := Area.Bottom - MulDiv(3, Screen.PixelsPerInch, 96); Canvas.FillRect(Area);
+    Canvas.Brush.Color := clWindow;
+  end;
+  Area := Rect; InflateRect(Area, -3, -3);
+  Text := pgControl.Pages[TabIndex].Caption;
+  DrawText(Canvas.Handle, PChar(Text), Length(Text), Area,
+    DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
 end;
 
 procedure TfrmMain.WMGetSysCommand(var Message: TMessage);
@@ -3154,8 +3181,11 @@ begin
   if Assigned(Sender) then FAutoCheck := False;
   if Assigned(FProgramUpdateThread) then
     Exit;
-  if not FAutoCheck and Assigned(FProgramUpdateForm) then FProgramUpdateForm.BeginCheck;
-  if Assigned(FProgramUpdateForm) then FProgramUpdateForm.CheckComponents(FAutoCheck);
+  if Assigned(FProgramUpdateForm) then
+  begin
+    if not FProgramUpdateForm.StartCheckCycle(FAutoCheck) then Exit;
+    FProgramUpdateForm.CheckComponents(FAutoCheck);
+  end;
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
   Settings.SaveSettings;
   FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal,
@@ -3178,25 +3208,7 @@ begin
   ReleaseInfo := FProgramUpdateThread.ReleaseInfo;
   FreeAndNil(FProgramUpdateThread);
   acHelpCheckUpdates.Enabled := True;
-  if not Successful then
-  begin
-    if not FAutoCheck then
-      FProgramUpdateForm.CheckFailed(rstrProgramUpdateCheckFailed);
-    FAutoCheck := False;
-    Exit;
-  end;
-  FProgramUpdateForm.RememberHistory(ReleaseInfo);
-  if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
-     (Comparison > 0) then
-  begin
-    if (FLastNotifiedRelease <> ReleaseInfo.Tag) or not FAutoCheck then
-    begin
-      FLastNotifiedRelease := ReleaseInfo.Tag;
-      FProgramUpdateForm.SetRelease(ReleaseInfo);
-    end;
-  end
-  else if not FAutoCheck then
-    FProgramUpdateForm.SetCurrent(ReleaseInfo);
+  FProgramUpdateForm.ApplicationChecked(ReleaseInfo, Successful, rstrProgramUpdateCheckFailed);
   FAutoCheck := False;
 end;
 

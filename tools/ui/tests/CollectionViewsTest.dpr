@@ -7,13 +7,13 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
+  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters, unit_CollectionMerge, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
   unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
-  frm_AuthorInformation, frm_book_info, unit_ReviewParser,
+  frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, frm_NewCollectionWizard,
@@ -180,8 +180,67 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TComboBox;
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
   ReloadedView: TUpdateNotesView; EndPoint: TPoint;
+  CycleComponents: TComponentReleases;
+
+  function StatusText(Form: TfrmProgramUpdate): string;
+  var Index: Integer;
+  begin
+    Result := '';
+    for Index := 0 to Form.ControlCount - 1 do
+      if (Form.Controls[Index] is TLabel) and (Form.Controls[Index].Name = 'UpdateStatus') then
+        Result := TLabel(Form.Controls[Index]).Caption;
+  end;
+
+  procedure CheckCycles;
+  var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TComboBox; Index: Integer;
+  begin
+    Cycle := TfrmProgramUpdate.Create(nil);
+    try
+      Selector := nil;
+      for Index := 0 to Cycle.ControlCount - 1 do
+        if Cycle.Controls[Index] is TComboBox then Selector := TComboBox(Cycle.Controls[Index]);
+      Current := Default(TProgramRelease); Current.Tag := PROGRAM_RELEASE_VERSION;
+      CycleComponents := Default(TComponentReleases);
+      Require(Cycle.StartCheckCycle(True), 'Automatic cycle did not start');
+      Cycle.ApplicationChecked(Current, True, '');
+      Require(not Cycle.Visible, 'Empty automatic cycle opened before component response');
+      Cycle.ComponentsReceived(CycleComponents, True, '');
+      Require(not Cycle.Visible, 'Automatic cycle without updates opened a window');
+      Require(Cycle.StartCheckCycle(True), 'Second cycle did not start');
+      Cycle.ComponentsReceived(CycleComponents, False, 'Component failure');
+      Cycle.ApplicationChecked(Current, False, 'Application failure');
+      Require(not Cycle.Visible, 'Automatic failed check opened a window');
+      CycleComponents[0].ComponentID := 'SQLite'; CycleComponents[0].ComponentVersion := '100.0';
+      CycleComponents[0].Tag := '100.0'; CycleComponents[0].DownloadURL := 'http://127.0.0.1/fixture.zip';
+      CycleComponents[2] := CycleComponents[0]; CycleComponents[2].ComponentID := 'SumatraPDF';
+      Require(Cycle.StartCheckCycle(True), 'Component cycle did not start');
+      Cycle.ComponentsReceived(CycleComponents, True, '');
+      Require(not Cycle.Visible, 'Component response opened before application check completed');
+      Cycle.ApplicationChecked(Current, True, '');
+      Require(Cycle.Visible and (Selector.ItemIndex = 1), 'Component-only update did not select SQLite');
+      Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect');
+      Cycle.Hide;
+      App := Current; App.Tag := '2.7.0_pre5.999'; App.DownloadURL := 'http://127.0.0.1/application.zip';
+      Require(Cycle.StartCheckCycle(True), 'Combined cycle did not start');
+      Cycle.ApplicationChecked(App, True, '');
+      Require(not Cycle.Visible, 'Application response opened before component check completed');
+      Cycle.ComponentsReceived(CycleComponents, True, '');
+      Require(Cycle.Visible and (Selector.ItemIndex = 0), 'Application update did not select program');
+      Require(StatusText(Cycle) = 'Есть обновления для HomeLib Ru, SQLite и SumatraPDF', 'Combined summary incorrect');
+      Cycle.Hide;
+      CycleComponents := Default(TComponentReleases);
+      Require(Cycle.StartCheckCycle(False), 'Manual cycle disabled by Never');
+      Cycle.ApplicationChecked(Current, False, 'Не удалось проверить обновления');
+      Cycle.ComponentsReceived(CycleComponents, False, 'Не удалось проверить компоненты');
+      Require(Cycle.Visible and StatusText(Cycle).Contains('Не удалось'), 'Manual failure was silent');
+      Cycle.Hide;
+    finally Cycle.Free; end;
+    Writeln('PASS automatic update cycle waits for both responses, stays quiet without updates and selects components');
+    Writeln('PASS one-line update summaries combine all available components and manual failure remains visible');
+  end;
 begin
   TestUpdateDefaults;
+  CheckCycles;
   Configuration := TfrmSettings.Create(nil);
   try
     Require(Configuration.cbProgramInterval.Items[0] = 'Никогда', 'Never option missing');
@@ -452,7 +511,8 @@ end;
 procedure TestProgramUpdateDownload;
 var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
   Primary, Later: TButton; Notes: TRichEdit; Bytes: TLabel; Bar: TProgressBar;
-  I: Integer; Deadline: UInt64; ReadyFile: string;
+  I, ComponentIndex: Integer; Deadline: UInt64; ReadyFile, Scenario, Descriptor: string;
+  Releases: TComponentReleases; Root: TJSONValue; Item: TJSONObject;
   procedure Controls;
   var J: Integer;
   begin
@@ -471,20 +531,64 @@ var Popup, OwnedPopup: TfrmProgramUpdate; Info: TProgramRelease;
     Require(Assigned(Primary) and Assigned(Later) and Assigned(Notes) and Assigned(Bytes) and Assigned(Bar), 'Update controls missing');
   end;
 begin
-  Require(ParamCount = 4, 'Update test requires loopback URL, size and checksum');
+  Require((ParamCount = 4) or (ParamCount = 6), 'Update test requires loopback URL, size and checksum');
   Require(ParamStr(2).StartsWith('http://127.0.0.1:'), 'Update test must use loopback');
+  Scenario := ParamStr(6); Releases := Default(TComponentReleases);
+  if ParamCount=6 then
+  begin
+    Descriptor := TPath.GetFullPath(ParamStr(5));
+    Require(Descriptor.StartsWith(Settings.AppPath,True), 'Component fixture outside isolated runtime');
+    Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(Descriptor,TEncoding.UTF8));
+    try
+      Require((Root is TJSONArray) and (TJSONArray(Root).Count=2),'Component fixture malformed');
+      for I := 0 to 1 do
+      begin
+        ComponentIndex := I*2; Item := TJSONObject(TJSONArray(Root).Items[I]);
+        Releases[ComponentIndex].Tag := '2.7.0_pre5.14';
+        Releases[ComponentIndex].ComponentID := Item.GetValue<string>('id');
+        Releases[ComponentIndex].ComponentVersion := '9.0.0.0';
+        Releases[ComponentIndex].DownloadURL := Item.GetValue<string>('url');
+        Releases[ComponentIndex].SHA256 := Item.GetValue<string>('sha256');
+        Releases[ComponentIndex].Size := Item.GetValue<Int64>('size');
+        Releases[ComponentIndex].Changelog := 'Новые изменения тестового компонента';
+        Releases[ComponentIndex].History := '9.0.0.0' + sLineBreak + Releases[ComponentIndex].Changelog;
+        Releases[ComponentIndex].Notes := '[{"version":"9.0.0.0","notes":"Новые изменения тестового компонента"}]';
+        Require(Releases[ComponentIndex].DownloadURL.StartsWith('http://127.0.0.1:'),'External component fixture URL');
+      end;
+    finally Root.Free; end;
+  end;
   Popup := TfrmProgramUpdate.Create(nil);
   try
     Controls;
     Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.14';
     Info.DownloadURL := ParamStr(2); Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4);
-    Info.Changelog := 'Новые изменения тестового выпуска'; Popup.SetRelease(Info);
+    Info.Changelog := 'Новые изменения тестового выпуска';
+    if Scenario='components' then
+    begin
+      Require(Popup.StartCheckCycle(False),'Component cycle did not start');
+      Popup.ComponentsReceived(Releases,True,''); Info.Tag := PROGRAM_RELEASE_VERSION;
+      Popup.ApplicationChecked(Info,True,'');
+    end
+    else
+    begin
+      Popup.SetRelease(Info);
+      if ParamCount=6 then Popup.ComponentsReceived(Releases,True,'');
+    end;
     Require(Bytes.Caption = '', 'Unexpected automatic download');
     Primary.Click;
     Require(not Primary.Enabled and (Later.Caption = 'Отменить'), 'Download did not enter cancellable state');
     Deadline := GetTickCount64 + 30000;
     repeat Application.ProcessMessages; Sleep(10);
     until Primary.Enabled or (GetTickCount64 > Deadline);
+    if Scenario='failure' then
+    begin
+      Require(Primary.Caption='Повторить загрузку','Component failure offered partial installation');
+      ReadyFile := IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath)) + 'ready.json';
+      Require(not FileExists(ReadyFile),'Component failure saved partial ready update');
+      Require(Length(TDirectory.GetDirectories(ProgramUpdateCache(Settings.AppPath),'HomeLibRu-update-*'))=0,
+        'Component failure retained staged jobs');
+      Writeln('PASS failed component download removes all stages and prevents partial installation'); Exit;
+    end;
     Require(Primary.Caption = 'Установить и перезапустить', 'Download failed: ' + Popup.Caption + ' / ' + Primary.Caption);
     Require((Bar.Position = 100) and (Pos('Скачано:', Bytes.Caption) = 1) and (Pos(' / ', Bytes.Caption) > 0), 'Download size or progress missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Download discarded changelog');
@@ -500,6 +604,8 @@ begin
   Require(Primary.Caption = 'Установить и перезапустить', 'Restored update cannot install');
   ReadyFile := IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath)) + 'ready.json';
   Require(FileExists(ReadyFile), 'Ready download was lost');
+  if Scenario='components' then
+  begin Writeln('PASS component batch download restores one ready installation without replacing application'); Exit; end;
   Primary.Click;
   Writeln('PASS ready update restores and real main close launches native replacement and restart');
 end;
@@ -1114,7 +1220,7 @@ end;
 
 procedure TestCollectionMerge;
 var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
-  Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing: TBookRecord;
+  Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing, Probe: TBookRecord;
   Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup: string;
   DB: TSQLiteDatabase;
 
@@ -1165,6 +1271,9 @@ begin
   try
     Plan.Preview;
     Require((Plan.NewBooks=1) and (Plan.Duplicates=2) and (Plan.Conflicts=2), 'Merge preview counts incorrect');
+    Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; одинаковых файлов 1.') and
+      Plan.Report.Text.Contains('Источник Low: новых записей 1; уже подключено 0; одинаковых файлов 1.'),
+      'Initial source summary does not distinguish physical matches');
     Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
     ID := Target.GetCatalogBookID('high:42'); Require(ID=ExistingID, 'Merge changed existing BookID');
     Require(Target.GetCatalogBookID('low:99')=ID, 'Physical duplicate was not combined');
@@ -1184,7 +1293,10 @@ begin
     finally DB.Free; end;
     High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
     Require((Book.Title='High title') and (Book.LibID='42') and (Book.Review='High review'), 'Merge modified source');
-    Plan.Preview; Plan.Apply(Settings.AppPath + 'merge-repeat');
+    Plan.Preview;
+    Require(Plan.Report.Text.Contains('Источник Low: новых записей 0; уже подключено 2; одинаковых файлов 0.'),
+      'Repeat preview describes existing source links as new physical matches');
+    Plan.Apply(Settings.AppPath + 'merge-repeat');
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
     Require((Book.Review=Existing.Review) and (Length(Target.GetBookSeries(Book.BookKey))=3), 'Repeat merge duplicated data');
     Plan.Preview;
@@ -1198,12 +1310,17 @@ begin
     Plan.Preview; CancelCalls := 0;
     try
       Plan.Apply(Settings.AppPath + 'merge-canceled', nil,
-        function: Boolean begin Inc(CancelCalls); Result := CancelCalls>4; end);
+        function: Boolean
+        begin
+          Inc(CancelCalls);
+          Target.GetBookRecord(CreateBookKey(ID,TargetID), Probe, False);
+          Result := Probe.Title <> Existing.Title;
+        end);
       Require(False, 'Cancellation did not abort merge');
     except on E: EAbort do ; end;
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
     Require((Book.Review=Existing.Review) and (Book.Title=Existing.Title), 'Canceled merge changed committed data');
-    Require((CancelCalls=5) and TFile.ReadAllText(Settings.AppPath + 'merge-canceled\status.txt').Contains('Отменено'),
+    Require((CancelCalls>1) and TFile.ReadAllText(Settings.AppPath + 'merge-canceled\status.txt').Contains('Отменено'),
       'Cancellation was not tested after mutation started');
     BackupCollectionFile(Backup + '\destination.hlc2', Settings.AppPath + 'restore-test.hlc2');
     DB := TSQLiteDatabase.Create(Settings.AppPath + 'restore-test.hlc2');
@@ -1223,8 +1340,10 @@ begin
       High.EndBulkOperation(True);
     except High.EndBulkOperation(False); raise; end;
     Plan.Preview;
-    Require((Plan.Report.Count<=2050) and (Length(TFile.ReadAllText(Plan.FullReportFile).Split([#10]))>2200),
+    Require((Plan.Report.Count<=2052) and (Length(TFile.ReadAllText(Plan.FullReportFile).Split([#10]))>2200),
       'Large preview report is truncated or loads all lines into the UI');
+    Require(Plan.Report[1].StartsWith('Источник High:') and Plan.Report[2].StartsWith('Источник Low:'),
+      'Source summaries are hidden behind thousands of matches');
     Writeln('PASS merge cancellation rolls back mutations, SQLite restore is intact and large report is saved in full');
     Writeln('PASS repeat merge remains idempotent and stale previews are rejected');
     Writeln('PASS safe merge previews duplicates, keeps IDs, all series, user values and groups, backs up WAL and rolls back cancellation');
@@ -1235,7 +1354,7 @@ procedure TestCatalogSources;
 var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   ID, I: Integer; Refresh: TCatalogRefreshWorker; Worker: TCatalogMergeWorker;
   Plan: TCollectionMergePlan; Book: TBookRecord; Iterator: IBookIterator; Count: Integer;
-  Dialog: TfrmCatalogSources;
+  Dialog: TfrmCatalogSources; Statistics: TfrmStat;
 
   procedure IndexFile(const FileName, Title: string);
   var Zip: TZipFile; Data: TBytes;
@@ -1285,6 +1404,17 @@ begin
     Inc(Count);
   end;
   Require(Count=2,'Multi-source collection lost books'); Iterator := nil;
+  Statistics := TfrmStat.Create(nil);
+  try
+    Statistics.LoadCollectionInfo(Target);
+    Require((Statistics.lvInfo.Items[5].SubItems[0]='2') and
+      (Statistics.lvInfo.Groups.Count=3), 'Statistics duplicate multi-series books or hide sources');
+    Require(Statistics.lvInfo.Items[8].SubItems[0].StartsWith('1 связанных записей;') and
+      Statistics.lvInfo.Items[9].SubItems[0].StartsWith('1 связанных записей;'), 'Source record count incorrect');
+    Statistics.LoadCollectionInfo(Target);
+    Require(Statistics.lvInfo.Items.Count=11, 'Repeated statistics load duplicates source rows');
+  finally Statistics.Free; end;
+  Writeln('PASS statistics count book records once and show linked supplemental sources');
   IndexFile(Sources[0].INPXFile,'Updated source title');
   Refresh := TCatalogRefreshWorker.Create(Sources[0]);
   try Refresh.Start; Refresh.WaitFor; Require(Refresh.Success,'Independent refresh failed: ' + Refresh.Error);
@@ -1691,10 +1821,35 @@ begin
   Book.Lang := 'ru'; Book.FileExt := '.fb2';
 end;
 
+procedure TestNestedGenreIterators;
+var Collection: IBookCollection; Filter: TFilterValue; First, Second: IBookIterator;
+  Book: TBookRecord; ID, I, Count: Integer;
+begin
+  ID := SystemDB.CreateCollection('Nested genres', Settings.AppPath, 'nested-genres.hlc2',
+    CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  Collection := SystemDB.GetCollection(ID);
+  for I := 1 to 20 do AddBook(Collection, 'Nested ' + IntToStr(I), 'Nested', 'ru', '', 'prose_contemporary', I mod 3 = 0);
+  Collection.SetHideDeleted(True); Filter.ValueString := '0.3';
+  First := Collection.GetBookIterator(bmByGenreRecursive, False, @Filter);
+  Require(First.RecordCount = 14, 'Genre count includes deleted books');
+  Require(First.Next(Book), 'First nested iterator has no book');
+  Second := Collection.GetBookIterator(bmByGenreRecursive, False, @Filter);
+  Require(Second.Next(Book), 'Second nested iterator has no book');
+  Second := nil;
+  Count := 1; while First.Next(Book) do begin Inc(Count); Require(Length(Book.Authors)=1, 'Genre stream lost author'); end;
+  Require(Count=14, 'Destroying second genre iterator changed first membership'); First := nil;
+  Collection.SetHideDeleted(False);
+  First := Collection.GetBookIterator(bmByGenreRecursive, False, @Filter);
+  Require(First.RecordCount=20, 'Genre filter change retained old temporary membership');
+  First := nil; Collection := nil;
+  Writeln('PASS nested genre iterators retain independent membership and deletion filters without table locks');
+end;
+
 procedure TestListPerformance;
 var I, BookCount, SeriesCount: Integer; Started: UInt64; Node: PVirtualNode;
   Data: PBookRecord; Languages: TComboBox;
 begin
+  TestNestedGenreIterators;
   Languages := TComboBox.Create(nil);
   try
     Languages.Parent := frmMain; Languages.Visible := False;

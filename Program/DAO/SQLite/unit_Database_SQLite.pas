@@ -61,6 +61,7 @@ type
       FLoadMemos: Boolean;
       FMode: TBookIteratorMode;
       FExpandSearchSeries: Boolean;
+      FMatchedViewID: string;
 
       procedure PrepareData(const Mode: TBookIteratorMode; const FilterValue: PFilterValue; const SearchCriteria: TBookSearchCriteria);
       procedure PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
@@ -283,6 +284,7 @@ type
   strict private
     FDatabase: TSQLiteDatabase;
     FSourceGenres: Boolean;
+    FCatalogLookup, FCatalogWrite: TSQLiteQuery;
 
     procedure InternalLoadGenres;
     procedure InternalUpdateField(const BookID: Integer; const UpdateSQL: string; const NewValue: string);
@@ -583,7 +585,7 @@ constructor TBookCollection_SQLite.TPublisherSeriesIndexIterator.Create(
 const
   SQL =
     'SELECT b.BookID, b.Title, b.Folder, b.FileName, b.Ext, b.InsideNo, ' +
-    'b.LibID, b.IsLocal, b.IsDeleted, p.SourceKey, b.BookSize ' +
+    'b.LibID, b.IsLocal, b.IsDeleted, p.SourceKey, b.BookSize, b.Rate, b.Progress ' +
     'FROM Books b LEFT JOIN PublisherSeries_Index p ON p.BookID = b.BookID ' +
     'ORDER BY b.Folder, b.BookID';
 begin
@@ -627,6 +629,8 @@ begin
   Book.CollectionName := FCollectionName;
   IndexedSourceKey := FBooks.FieldAsString(9);
   Book.Size := FBooks.FieldAsInt(10);
+  Book.Rate := FBooks.FieldAsInt(11);
+  Book.Progress := FBooks.FieldAsInt(12);
   FBooks.Next;
 end;
 
@@ -678,6 +682,8 @@ begin
   FreeAndNil(FAuthors);
   FreeAndNil(FGenres);
   FreeAndNil(FCount);
+  if FMatchedViewID <> '' then FCollection.FDatabase.ExecSQL(
+    'DELETE FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID));
 
   inherited Destroy;
 end;
@@ -698,7 +704,7 @@ begin
     // The genre page may contain tens of thousands of books. Its iterator uses
     // three ordered result sets (books, authors and genres), avoiding several
     // new SQLite queries for every individual book.
-    if FMode in [bmByGenre, bmByGenreRecursive] then
+    if FMode in [bmAll, bmByGenre, bmByGenreRecursive] then
     begin
       BookRecord.Clear;
       BookRecord.BookKey := CreateBookKey(BookID, FCollectionID);
@@ -821,6 +827,8 @@ var
   SQLGenres: string;
   MatchedBooksSQL: string;
   MemoFields: string;
+  MatchQuery: TSQLiteQuery;
+  MatchID: TGUID;
 
   procedure SetParams(query: TSQLiteQuery; const Mode: TBookIteratorMode);
   begin
@@ -927,9 +935,20 @@ begin
   end;
 
   SQLRows := SQLRows + Where;
-  if Mode in [bmByGenre, bmByGenreRecursive] then
+  if Mode in [bmAll, bmByGenre, bmByGenreRecursive] then
   begin
     MatchedBooksSQL := SQLRows;
+    if Mode <> bmAll then
+    begin
+      // Separate membership rows belong to each iterator. Cleanup uses DELETE,
+      // because DROP TABLE is blocked by any other active SQLite statement.
+      CreateGUID(MatchID);
+      FMatchedViewID := GUIDToString(MatchID);
+      MatchQuery := FCollection.FDatabase.NewQuery('INSERT INTO temp.MHLGenreMatches ' +
+        'SELECT ' + QuotedStr(FMatchedViewID) + ', BookID FROM (' + MatchedBooksSQL + ')');
+      try SetParams(MatchQuery, Mode); MatchQuery.Open; finally MatchQuery.Free; end;
+      MatchedBooksSQL := 'SELECT BookID FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
+    end;
     SQLCount := 'SELECT COUNT(*) FROM (' + MatchedBooksSQL + ') ROWS ';
 
     if FLoadMemos then
@@ -959,26 +978,33 @@ begin
       'SELECT gl.BookID, gl.GenreCode FROM Genre_List gl ' +
       'WHERE gl.BookID IN (' + MatchedBooksSQL + ') ' +
       'ORDER BY gl.BookID, gl.GenreCode';
+    if Mode = bmAll then
+    begin
+      SQLCount := 'SELECT COUNT(*) FROM Books';
+      SQLRows := StringReplace(SQLRows, 'WHERE b.BookID IN (' + MatchedBooksSQL + ') ', '', []);
+      SQLAuthors := StringReplace(SQLAuthors, 'WHERE al.BookID IN (' + MatchedBooksSQL + ') ', '', []);
+      SQLGenres := StringReplace(SQLGenres, 'WHERE gl.BookID IN (' + MatchedBooksSQL + ') ', '', []);
+    end;
   end
   else
     SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
 
   FCount := FCollection.FDatabase.NewQuery(SQLCount);
-  SetParams(FCount, Mode);
+  if FMatchedViewID = '' then SetParams(FCount, Mode);
 
   FBooks := FCollection.FDatabase.NewQuery(SQLRows);
   try
-    SetParams(FBooks, Mode);
+    if FMatchedViewID = '' then SetParams(FBooks, Mode);
     FBooks.Open;
 
-    if Mode in [bmByGenre, bmByGenreRecursive] then
+    if Mode in [bmAll, bmByGenre, bmByGenreRecursive] then
     begin
       FAuthors := FCollection.FDatabase.NewQuery(SQLAuthors);
-      SetParams(FAuthors, Mode);
+      if FMatchedViewID = '' then SetParams(FAuthors, Mode);
       FAuthors.Open;
 
       FGenres := FCollection.FDatabase.NewQuery(SQLGenres);
-      SetParams(FGenres, Mode);
+      if FMatchedViewID = '' then SetParams(FGenres, Mode);
       FGenres.Open;
     end;
   except
@@ -1665,6 +1691,8 @@ begin
   FDatabase.AddFunction('MHL_TRIGGERS_ON', 0, getIsTriggersOn, SQLITE_ANY, Self);
 
   EnsureSchemaCurrent;
+  FDatabase.ExecSQL('CREATE TEMP TABLE MHLGenreMatches(' +
+    'ViewID TEXT NOT NULL,BookID INTEGER NOT NULL,PRIMARY KEY(ViewID,BookID)) WITHOUT ROWID');
 
   InternalLoadGenres;
 end;
@@ -1684,12 +1712,15 @@ begin
   FDatabase.AddFunction('MHL_TRIGGERS_ON', 0, getIsTriggersOn, SQLITE_ANY, Self);
 
   EnsureSchemaCurrent;
+  FDatabase.ExecSQL('CREATE TEMP TABLE MHLGenreMatches(' +
+    'ViewID TEXT NOT NULL,BookID INTEGER NOT NULL,PRIMARY KEY(ViewID,BookID)) WITHOUT ROWID');
 
   InternalLoadGenres;
 end;
 
 destructor TBookCollection_SQLite.Destroy;
 begin
+  FreeAndNil(FCatalogLookup); FreeAndNil(FCatalogWrite);
   FreeAndNil(FDatabase);
 
   inherited Destroy;
@@ -2983,13 +3014,22 @@ end;
 
 function TBookCollection_SQLite.GetCatalogBookID(const SourceKey: string): Integer;
 begin
-  Result := FDatabase.QuerySingleInt('SELECT l.BookID FROM CatalogSourceBooks l '
-    + 'INNER JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey=?', [SourceKey]);
+  if not Assigned(FCatalogLookup) then
+    FCatalogLookup := FDatabase.NewQuery('SELECT l.BookID FROM CatalogSourceBooks l '
+      + 'INNER JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey=?');
+  FCatalogLookup.Reset; FCatalogLookup.SetParam(0, SourceKey);
+  try
+    FCatalogLookup.Open; Result := 0;
+    if not FCatalogLookup.Eof then Result := FCatalogLookup.FieldAsInt(0);
+  finally FCatalogLookup.Reset; end;
 end;
 
 procedure TBookCollection_SQLite.SetCatalogBookID(const SourceKey: string; BookID: Integer);
 begin
-  FDatabase.ExecSQL('INSERT OR REPLACE INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?)', [SourceKey,BookID]);
+  if not Assigned(FCatalogWrite) then
+    FCatalogWrite := FDatabase.NewQuery('INSERT OR REPLACE INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?)');
+  FCatalogWrite.Reset; FCatalogWrite.SetParam(0, SourceKey); FCatalogWrite.SetParam(1, BookID);
+  try FCatalogWrite.Open; finally FCatalogWrite.Reset; end;
 end;
 
 procedure TBookCollection_SQLite.UpdateBook(BookRecord: TBookRecord);

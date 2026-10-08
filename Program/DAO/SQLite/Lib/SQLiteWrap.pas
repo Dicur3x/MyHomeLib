@@ -29,6 +29,7 @@ uses
   SysUtils;
 
 type
+  TSQLiteBackupProgress = reference to procedure(CopiedPages, TotalPages: Integer);
   {: @abstract(Exception Class for SQLite based errors)}
   ESQLiteException = class(Exception);
 
@@ -68,7 +69,7 @@ type
     procedure ExecSQL(const SQL : string); overload; inline;
     procedure ExecSQL(const SQL : string; const Params: array of const); overload;
 
-    procedure BackupTo(const FileName: string);
+    procedure BackupTo(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
     procedure RestoreFrom(const FileName: string);
 
     procedure CompactDatabase; inline;
@@ -254,7 +255,7 @@ var
 
 { TSQLiteDatabase }
 
-procedure CopyDatabase(Source, Target: TSQLiteDatabase);
+procedure CopyDatabase(Source, Target: TSQLiteDatabase; const Progress: TSQLiteBackupProgress = nil);
 var Backup: Pointer; Code, Finished: Integer; Started: UInt64;
 begin
   Backup := SQLite3_Backup_Init(Target.DB, 'main', Source.DB, 'main');
@@ -263,6 +264,9 @@ begin
   try
     repeat
       Code := SQLite3_Backup_Step(Backup, 512);
+      if Assigned(Progress) and (Code in [SQLITE_OK, SQLITE_DONE]) then
+        Progress(SQLite3_Backup_PageCount(Backup) - SQLite3_Backup_Remaining(Backup),
+          SQLite3_Backup_PageCount(Backup));
       if Code in [SQLITE_BUSY, SQLITE_LOCKED] then
       begin
         if Winapi.Windows.GetTickCount64 - Started > 30000 then Break;
@@ -276,7 +280,7 @@ begin
     Target.RaiseError('Не удалось завершить копирование каталога.', 'backup_step');
 end;
 
-procedure TSQLiteDatabase.BackupTo(const FileName: string);
+procedure TSQLiteDatabase.BackupTo(const FileName: string; const Progress: TSQLiteBackupProgress);
 var Target: TSQLiteDatabase;
 begin
   if FileExists(FileName) then raise ESQLiteException.Create('Файл резервной копии уже существует.');
@@ -284,7 +288,7 @@ begin
   try
     // Backup may change page size; a destination in WAL mode cannot do that.
     Target.QuerySingleString('PRAGMA journal_mode = DELETE');
-    CopyDatabase(Self, Target);
+    CopyDatabase(Self, Target, Progress);
   finally Target.Free; end;
 end;
 

@@ -28,8 +28,8 @@ uses
   Forms,
   StdCtrls,
   ExtCtrls,
-  Dialogs,
-  frame_WizardPageBase;
+  Dialogs, Graphics,
+  frame_WizardPageBase, frame_InteriorPageBase;
 
 type
   TMHLWizardBase = class(TForm)
@@ -88,6 +88,12 @@ procedure TMHLWizardBase.DoCreate;
 begin
   inherited;
   Localize(Self);
+  Font.Name := 'Segoe UI'; Font.Size := 9;
+  DoubleBuffered := True;
+  btnForward.Caption := 'Далее →'; btnBackward.Caption := '← Назад';
+  btnForward.Width := 96; btnBackward.Width := 96; btnCancel.Width := 96;
+  btnCancel.Left := ClientWidth - 12 - 96;
+  btnForward.Left := btnCancel.Left - 8 - 96; btnBackward.Left := btnForward.Left - 8 - 96;
 end;
 
 function TMHLWizardBase.AddPage(pageClass: TWizardPageClass): TWizardPageBase;
@@ -96,6 +102,15 @@ var
 begin
   Result := pageClass.Create(Self);
   Result.Parent := Self;
+  Result.Font.Assign(Font); Result.DoubleBuffered := True;
+  if Result is TInteriorPageBase then
+  begin
+    TInteriorPageBase(Result).lblTitle.Font.Name := 'Segoe UI';
+    TInteriorPageBase(Result).lblTitle.Font.Size := 12;
+    TInteriorPageBase(Result).lblTitle.Font.Style := [fsBold];
+    TInteriorPageBase(Result).lblTitle.Font.Color := clHighlight;
+    TInteriorPageBase(Result).lblSubTitle.WordWrap := True;
+  end;
 
   n := Length(FPages);
   SetLength(FPages, n + 1);

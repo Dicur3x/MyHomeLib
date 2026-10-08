@@ -12,6 +12,7 @@ type
   end;
   TMergeSources = TArray<TMergeSource>;
   TMergeProgress = reference to procedure(Current, Total: Integer);
+  TMergeStageProgress = reference to procedure(const Stage: string; Current, Total: Integer);
   TMergeCanceled = reference to function: Boolean;
 
   TCollectionMergePlan = class
@@ -26,6 +27,7 @@ type
     FFullReportFile: string;
     FNewBooks, FDuplicates, FTotal, FConflicts: Integer;
     FReady: Boolean;
+    FStageProgress: TMergeStageProgress;
     procedure LoadTarget(const Canceled: TMergeCanceled = nil);
     procedure AddReport(const Text: string);
     procedure CaptureStamps;
@@ -43,6 +45,7 @@ type
     property Duplicates: Integer read FDuplicates;
     property Conflicts: Integer read FConflicts;
     property Total: Integer read FTotal;
+    property StageProgress: TMergeStageProgress read FStageProgress write FStageProgress;
   end;
 
 function BookPhysicalIdentity(const Book: TBookRecord): string;
@@ -166,21 +169,29 @@ begin
 end;
 
 procedure TCollectionMergePlan.LoadTarget(const Canceled: TMergeCanceled);
-var Iterator: IBookIterator; Book: TBookRecord;
+var Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord; Stamp: string;
+  Count, Total: Integer;
 begin
-  FLocations.Clear; Iterator := AllBooks(FTarget, False);
-  while Iterator.Next(Book) do
+  FLocations.Clear; Iterator := FTarget.GetPublisherSeriesIndexIterator;
+  Count := 0; Total := Iterator.RecordCount;
+  if Assigned(FStageProgress) then FStageProgress('Указатель файлов текущей коллекции', 0, Total);
+  while Iterator.Next(Book, Stamp) do
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Операция отменена.');
     FLocations.AddOrSetValue(BookPhysicalIdentity(Book), Book.BookKey.BookID);
+    Inc(Count);
+    if Assigned(FStageProgress) and ((Count mod 1000 = 0) or (Count = Total)) then
+      FStageProgress('Указатель файлов текущей коллекции', Count, Total);
   end;
 end;
 
 procedure TCollectionMergePlan.Preview(const Progress: TMergeProgress; const Canceled: TMergeCanceled);
 type TUserValues = record Rate, Progress: Integer; end;
-var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
-  Key, CompareKey: string; ID, Count: Integer; Seen: TDictionary<string, TUserValues>;
-  Values: TUserValues; ReportID: TGUID;
+var Source: TMergeSource; Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord;
+  Key, CompareKey: string; ID, Count, SourceNew, SourceLinked, SourcePhysical: Integer;
+  AlreadyLinked: Boolean; Seen: TDictionary<string, TUserValues>;
+  Values: TUserValues; ReportID: TGUID; Stamp, TargetFile: string;
+  DB: TSQLiteDatabase; Lookup, UserValues: TSQLiteQuery; Summaries: TStringList;
 begin
   FReady := False; FNewBooks := 0; FDuplicates := 0; FConflicts := 0; FTotal := 0; Count := 0;
   FReport.Clear; CaptureStamps; LoadTarget(Canceled);
@@ -189,9 +200,14 @@ begin
   FFullReportFile := TPath.Combine(Settings.TempPath, 'merge-preview-' + GUIDToString(ReportID) + '.txt');
   FReportWriter := TStreamWriter.Create(FFullReportFile,False,TEncoding.UTF8,65536);
   Seen := TDictionary<string, TUserValues>.Create;
+  DB := nil; Lookup := nil; UserValues := nil; Summaries := TStringList.Create;
   try
+    TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
+    DB := TSQLiteDatabase.CreateReadOnly(TargetFile);
+    Lookup := DB.NewQuery('SELECT l.BookID FROM CatalogSourceBooks l JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey=?');
+    UserValues := DB.NewQuery('SELECT Rate,Progress FROM Books WHERE BookID=?');
     for Source in FSources do
-    begin Iterator := AllBooks(Source.Collection, False); Inc(FTotal, Iterator.RecordCount); end;
+    begin Iterator := Source.Collection.GetPublisherSeriesIndexIterator; Inc(FTotal, Iterator.RecordCount); end;
     AddReport('Приоритет: источники сверху вниз. Совпадение — один файл или член одного архива.');
     AddReport('Одинаковые числовые LIBID разных источников не объединяются.');
     AddReport('Названия серий не исправляются. Авторы, жанры, все серии и группы дополняются.');
@@ -200,11 +216,16 @@ begin
     AddReport('');
     for Source in FSources do
     begin
-      Iterator := AllBooks(Source.Collection, True);
-      while Iterator.Next(Book) do
+      Iterator := Source.Collection.GetPublisherSeriesIndexIterator;
+      SourceNew := 0; SourceLinked := 0; SourcePhysical := 0;
+      if Assigned(FStageProgress) then FStageProgress('Сопоставление: ' + Source.Name, Count, FTotal);
+      while Iterator.Next(Book, Stamp) do
       begin
         if Assigned(Canceled) and Canceled() then raise EAbort.Create('Предпросмотр отменён.');
-        Key := BookPhysicalIdentity(Book); ID := FTarget.GetCatalogBookID(MergeSourceKey(Source, Book));
+        Key := BookPhysicalIdentity(Book);
+        Lookup.Reset; Lookup.SetParam(0, MergeSourceKey(Source, Book)); Lookup.Open;
+        ID := 0; if not Lookup.Eof then ID := Lookup.FieldAsInt(0);
+        Lookup.Reset; AlreadyLinked := ID <> 0;
         if ID = 0 then FLocations.TryGetValue(Key, ID);
         CompareKey := Key;
         if ID <> 0 then CompareKey := 'book:' + IntToStr(ID);
@@ -213,13 +234,17 @@ begin
           Values.Rate := 0; Values.Progress := 0;
           if ID <> 0 then
           begin
-            FTarget.GetBookRecord(CreateBookKey(ID, FTarget.CollectionID), Existing, True);
-            Values.Rate := Existing.Rate; Values.Progress := Existing.Progress;
+            UserValues.Reset; UserValues.SetParam(0, ID); UserValues.Open;
+            if not UserValues.Eof then
+            begin Values.Rate := UserValues.FieldAsInt(0); Values.Progress := UserValues.FieldAsInt(1); end;
+            UserValues.Reset;
           end;
         end;
         if (ID <> 0) or Seen.ContainsKey(CompareKey) then
         begin
-          Inc(FDuplicates); AddReport(Format('Совпадение: %s | %s | %s', [Source.Name, Book.Title, Book.GetBookFileName]));
+          Inc(FDuplicates);
+          if AlreadyLinked then Inc(SourceLinked) else Inc(SourcePhysical);
+          AddReport(Format('Совпадение: %s | %s | %s', [Source.Name, Book.Title, Book.GetBookFileName]));
           if ((Book.Rate <> 0) and (Values.Rate <> 0) and (Book.Rate <> Values.Rate)) or
             ((Book.Progress <> 0) and (Values.Progress <> 0) and (Book.Progress <> Values.Progress)) then
           begin
@@ -228,17 +253,23 @@ begin
               [Values.Rate, Book.Rate, Values.Progress, Book.Progress]));
           end;
         end
-        else Inc(FNewBooks);
+        else begin Inc(FNewBooks); Inc(SourceNew); end;
         if Values.Rate = 0 then Values.Rate := Book.Rate;
         if Values.Progress = 0 then Values.Progress := Book.Progress;
         Seen.AddOrSetValue(CompareKey, Values); Inc(Count);
         if Assigned(Progress) and ((Count mod 100 = 0) or (Count = FTotal)) then Progress(Count, FTotal);
+        if Assigned(FStageProgress) and ((Count mod 1000 = 0) or (Count = FTotal)) then
+          FStageProgress('Сопоставление: ' + Source.Name, Count, FTotal);
       end;
+      Summaries.Add(Format('Источник %s: новых записей %d; уже подключено %d; одинаковых файлов %d.',
+        [Source.Name, SourceNew, SourceLinked, SourcePhysical]));
+      FReportWriter.WriteLine(Summaries[Summaries.Count-1]);
     end;
+    for ID := Summaries.Count-1 downto 0 do FReport.Insert(0, Summaries[ID]);
     FReport.Insert(0, Format('Новых книг: %d. Совпадений: %d. Конфликтов пользовательских значений: %d.',
       [FNewBooks, FDuplicates, FConflicts]));
     FReportWriter.WriteLine(FReport[0]); CheckStamps; FReady := True;
-  finally Seen.Free; FreeAndNil(FReportWriter); end;
+  finally Summaries.Free; UserValues.Free; Lookup.Free; DB.Free; Seen.Free; FreeAndNil(FReportWriter); end;
 end;
 
 function JoinReviews(const Existing, Incoming, SourceName: string): string;
@@ -271,6 +302,23 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   Series, Publishers, OldSeries: TBookSeries; Sequence: TBookSeriesData; Genre: TGenreData;
   UserData, Mapped: TUserData; Group, NewGroup: TBookGroup; GroupBook: TGroupBook;
   SavedHide, SavedLocal, TargetCommitted, SystemStarted: Boolean; TargetFile: string; Manifest: TStringList;
+  AuthorCache: TDictionary<Integer, TAuthorData>;
+  GenreCache: TDictionary<string, TGenreData>; Author: TAuthorData;
+  ImportCache: TImportCache;
+  procedure Backup(const FileName, BackupName, Description: string);
+  var DB: TSQLiteDatabase;
+  begin
+    if Assigned(FStageProgress) then FStageProgress(Description, 0, 0);
+    DB := TSQLiteDatabase.CreateReadOnly(FileName);
+    try
+      DB.BackupTo(TPath.Combine(BackupFolder, BackupName),
+        procedure(Current, Total: Integer)
+        begin
+          if Assigned(Canceled) and Canceled() then raise EAbort.Create('Резервное копирование отменено.');
+          if Assigned(FStageProgress) then FStageProgress(Description, Current, Total);
+        end);
+    finally DB.Free; end;
+  end;
 begin
   if not FReady then raise Exception.Create('Сначала выполните предпросмотр объединения.');
   CheckStamps;
@@ -278,10 +326,10 @@ begin
   if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
   ForceDirectories(BackupFolder);
   TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
-  BackupCollectionFile(TargetFile, TPath.Combine(BackupFolder, 'destination.hlc2'));
-  BackupCollectionFile(Settings.SystemFileName[sfSystemDB], TPath.Combine(BackupFolder, 'system.hlc2'));
+  Backup(TargetFile, 'destination.hlc2', 'Резервная копия текущей коллекции');
+  Backup(Settings.SystemFileName[sfSystemDB], 'system.hlc2', 'Резервная копия групп и настроек');
   for I := 0 to High(FSources) do
-    BackupCollectionFile(FSources[I].DatabaseFile, TPath.Combine(BackupFolder, Format('source-%d.hlc2', [I+1])));
+    Backup(FSources[I].DatabaseFile, Format('source-%d.hlc2', [I+1]), 'Резервная копия: ' + FSources[I].Name);
   TFile.Copy(FFullReportFile,TPath.Combine(BackupFolder, 'preview.txt'),False);
   Manifest := TStringList.Create;
   try
@@ -294,7 +342,12 @@ begin
   finally Manifest.Free; end;
   CheckStamps;
   TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Подготовлено', TEncoding.UTF8);
-  LoadTarget(Canceled); Seen := TDictionary<Integer, Boolean>.Create; Remap := TDictionary<string, Integer>.Create;
+  // The validated preview already contains this index. CheckStamps above keeps
+  // it valid until the write transaction; rebuilding it was a second full scan.
+  Seen := TDictionary<Integer, Boolean>.Create; Remap := TDictionary<string, Integer>.Create;
+  AuthorCache := TDictionary<Integer, TAuthorData>.Create;
+  GenreCache := TDictionary<string, TGenreData>.Create;
+  ImportCache := TImportCache.Create;
   Mapped := TUserData.Create; Count := 0; TargetCommitted := False; SystemStarted := False;
   SavedHide := FTarget.GetHideDeleted; SavedLocal := FTarget.GetShowLocalOnly;
   FTarget.SetHideDeleted(False); FTarget.SetShowLocalOnly(False);
@@ -304,6 +357,7 @@ begin
       FSystem.BeginDataUpdate; SystemStarted := True;
       for Source in FSources do
       begin
+        AuthorCache.Clear;
         Iterator := AllBooks(Source.Collection, True);
         while Iterator.Next(Book) do
         begin
@@ -313,7 +367,7 @@ begin
           ID := FTarget.GetCatalogBookID(SourceKey);
           if ID = 0 then FLocations.TryGetValue(Physical, ID);
           Series := Source.Collection.GetBookSeries(Book.BookKey);
-          Publishers := Source.Collection.GetBookPublisherSeries(Book.BookKey);
+          Publishers := Book.PublisherSeries;
           Book.Folder := TPath.GetFullPath(Book.GetBookContainer);
           if not (Book.GetBookFormat in [bfFb2Archive, bfRawArchive]) then
             Book.Folder := IncludeTrailingPathDelimiter(Book.Folder);
@@ -321,13 +375,25 @@ begin
           for I := 0 to High(Book.Genres) do
           begin
             Genre := Book.Genres[I];
-            Book.Genres[I] := FTarget.EnsureGenre(Genre.FB2GenreCode, Genre.GenreAlias, Book.RootGenre.GenreAlias);
+            if not GenreCache.TryGetValue(Genre.FB2GenreCode, Book.Genres[I]) then
+            begin
+              Book.Genres[I] := FTarget.EnsureGenre(Genre.FB2GenreCode, Genre.GenreAlias, Book.RootGenre.GenreAlias);
+              GenreCache.Add(Genre.FB2GenreCode, Book.Genres[I]);
+            end;
           end;
-          for I := 0 to High(Book.Authors) do Book.Authors[I] := FTarget.EnsureAuthor(Book.Authors[I]);
+          for I := 0 to High(Book.Authors) do
+          begin
+            Author := Book.Authors[I];
+            if not AuthorCache.TryGetValue(Author.AuthorID, Book.Authors[I]) then
+            begin
+              Book.Authors[I] := FTarget.EnsureAuthor(Author);
+              AuthorCache.Add(Author.AuthorID, Book.Authors[I]);
+            end;
+          end;
           if ID = 0 then
           begin
             Book.LibID := 'merged:' + SourceKey;
-            ID := FTarget.InsertBook(Book, False, False);
+            ID := FTarget.InsertBook(Book, False, False, ImportCache);
             if ID = 0 then raise Exception.Create('Не удалось добавить книгу: ' + Book.Title);
           end
           else
@@ -365,7 +431,7 @@ begin
             end;
           end;
           DestinationKey := CreateBookKey(ID, FTarget.CollectionID);
-          for Sequence in Series do FTarget.AddBookSeries(ID, Sequence.SeriesTitle, Sequence.SeqNumber);
+          for Sequence in Series do FTarget.AddBookSeries(ID, Sequence.SeriesTitle, Sequence.SeqNumber, ImportCache);
           FTarget.SetBookPublisherSeries(DestinationKey, Publishers);
           FTarget.GetBookRecord(DestinationKey, Existing, True);
           FSystem.UpdateBook(Existing);
@@ -412,6 +478,7 @@ begin
     if Assigned(Progress) then Progress(FTotal, FTotal);
   finally
     FTarget.SetHideDeleted(SavedHide); FTarget.SetShowLocalOnly(SavedLocal);
+    ImportCache.Free; GenreCache.Free; AuthorCache.Free;
     Mapped.Free; Remap.Free; Seen.Free;
   end;
 end;

@@ -49,7 +49,7 @@ uses
   SysUtils,
   unit_Consts,
   unit_Helpers,
-  unit_Localization;
+  unit_Localization, unit_CatalogSources, unit_Settings, SQLiteWrap, dm_user;
 
 resourcestring
   rstrUnknown = 'unknown';
@@ -60,6 +60,11 @@ procedure TfrmStat.DoCreate;
 begin
   inherited;
   Localize(Self);
+  BorderStyle := bsSizeable;
+  Font.Name := 'Segoe UI'; Font.Size := 9;
+  Constraints.MinWidth := 660; Constraints.MinHeight := 360;
+  ClientWidth := 720; ClientHeight := 420;
+  lvInfo.DoubleBuffered := True;
 end;
 
 procedure TfrmStat.LoadCollectionInfo(const Collection: IBookCollection);
@@ -69,6 +74,9 @@ var
   AuthorsCount: Integer;
   BooksCount: Integer;
   SeriesCount: Integer;
+  Sources: TCatalogSources;
+  Source: TCatalogSource; Item: TListItem; SourceGroup: TListGroup;
+  DB: TSQLiteDatabase; Linked: Int64;
 begin
   Assert(Assigned(Collection));
 
@@ -92,8 +100,36 @@ begin
   lvInfo.Items[5].SubItems[0] := IntToStr(BooksCount);
   lvInfo.Items[6].SubItems[0] := IntToStr(SeriesCount);
 
+  lvInfo.Items[3].Caption := 'Описание исходного INPX:';
+  lvInfo.Items[5].Caption := 'Записей книг:';
+  while lvInfo.Items.Count > 7 do lvInfo.Items.Delete(7);
+  while lvInfo.Groups.Count > 2 do lvInfo.Groups.Delete(2);
+  Item := lvInfo.Items.Add; Item.GroupID := 2;
+  Item.Caption := 'Подсчёт:';
+  Item.SubItems.Add('Каждая запись один раз, независимо от числа серий');
+  Sources := LoadCatalogSources(Collection);
+  if Length(Sources) > 0 then
+  begin
+    SourceGroup := lvInfo.Groups.Add;
+    SourceGroup.Header := 'Дополнительные источники (' + IntToStr(Length(Sources)) + ')';
+    SourceGroup.GroupID := 3;
+    DB := TSQLiteDatabase.CreateReadOnly(Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE))));
+    try
+      for Source in Sources do
+      begin
+        Linked := DB.QuerySingleInt('SELECT COUNT(DISTINCT l.BookID) FROM CatalogSourceBooks l ' +
+          'JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey>=? AND l.SourceKey<?',
+          [Source.ID + ':', Source.ID + ';']);
+        Item := lvInfo.Items.Add; Item.GroupID := 3; Item.Caption := Source.Name;
+        Item.SubItems.Add(IntToStr(Linked) + ' связанных записей; ' + Source.Root);
+      end;
+    finally DB.Free; end;
+    Item := lvInfo.Items.Add; Item.GroupID := 3; Item.Caption := 'Примечание:';
+    Item.SubItems.Add('Связи источников могут пересекаться. Разные файлы одного произведения считаются отдельно.');
+  end;
+
   lvInfo.AutosizeColumn(0);
-  lvInfo.AutosizeColumn(1);
+  lvInfo.Columns[1].Width := 460;
 end;
 
 end.
