@@ -37,19 +37,42 @@ type
     destructor Destroy; override;
 
     procedure Parse(const url: string; targetList, targetlistA: TStringList);
+    procedure ParsePage(const PageText, URL: string; targetList, targetlistA: TStringList);
   end;
+
+function IsLibraryReviewURL(const URL: string): Boolean;
 
 implementation
 
 uses
   SysUtils,
   unit_Globals,
-  unit_MHLHttpClient;
+  unit_MHLHttpClient, System.RegularExpressions, unit_UpdateNotes;
+
+function IsLibraryReviewURL(const URL: string): Boolean;
+begin
+  // Merged IDs and arbitrary local IDs must never become a remote book number.
+  Result := TRegEx.IsMatch(URL, '^https?://[^/\s]+/b/[0-9]+/?$', [roIgnoreCase]);
+end;
+
+type
+  TReviewPageStream = class(TMemoryStream)
+    function Write(const Buffer; Count: Longint): Longint; override;
+  end;
+
+function TReviewPageStream.Write(const Buffer; Count: Longint): Longint;
+begin
+  if (Count < 0) or (Position + Count > 4 * 1024 * 1024) then
+    raise EStreamError.Create('Ответ сайта слишком велик.');
+  Result := inherited Write(Buffer, Count);
+end;
 
 constructor TReviewParser.Create;
 begin
   inherited Create;
   FHTTPClient := CreateHTTPClientGlobal;
+  FHTTPClient.ConnectionTimeout := 5000;
+  FHTTPClient.ResponseTimeout := 15000;
 end;
 
 destructor TReviewParser.Destroy;
@@ -62,6 +85,11 @@ end;
 // url - the book's URL
 // targetList - an initialised list to be populated with reviews
 procedure TReviewParser.Parse(const url: string; targetList, targetlistA: TStringList);
+begin
+  ParsePage(GetPage(URL), URL, targetList, targetlistA);
+end;
+
+procedure TReviewParser.ParsePage(const PageText, URL: string; targetList, targetlistA: TStringList);
 const
   NAME_REVIEW_DELIM = ':';
 var
@@ -78,7 +106,11 @@ begin
   Assert(Assigned(targetList));
   Assert(Assigned(targetListA));
 
-  page := GetPage(url);
+  page := PageText;
+  targetList.Clear; targetListA.Clear;
+  if (Pos('<h2', LowerCase(page)) = 0) and (Pos('/polka/show/', page) = 0) and
+    (Pos('newann', page) = 0) then
+    raise Exception.Create('Сайт вернул страницу без сведений о книге (возможна блокировка или смена формата).');
 
 
 //  Sl := TStringList.Create;
@@ -151,40 +183,26 @@ begin
   targetList.Text := ReplaceStr(targetList.Text,'&quot;','"');
   targetList.Text := ReplaceStr(targetList.Text,'&gt;','');
   targetList.Text := ReplaceStr(targetList.Text,'<hr>','');
+  targetList.Text := SQLiteNotesToMarkdown(targetList.Text);
+  targetListA.Text := SQLiteNotesToMarkdown(targetListA.Text);
 end;
 
 // Do a GET request and return result as a String
 // url - the URL of the page to GET
 function TReviewParser.GetPage(const url: string): string;
-var
-  outputStream: TMemoryStream;
-  responseList: TStringList;
+var Stream: TReviewPageStream; Response: IHTTPResponse; Bytes: TBytes;
 begin
-  Result := '';
-
-  responseList := TStringList.Create;
+  if not IsLibraryReviewURL(URL) then
+    raise Exception.Create('Для книги нет корректного адреса отзывов.');
+  Stream := TReviewPageStream.Create;
   try
-    outputStream := TMemoryStream.Create;
-    try
-      FHTTPClient.Get(url, outputStream);
-
-//      outputStream.Position := 0;
-//      outputStream.SaveToFile('e:\temp\test.out');
-
-
-      outputStream.Position := 0;
-      responseList.LoadFromStream(outputStream);
-
-      if responseList.Count > 0 then
-        // Страница приходит в UTF-8, но загружается в список как ANSI,
-        // поэтому возвращаем байты обратно и декодируем их явно.
-        Result := UTF8ToString(RawByteString(AnsiString(responseList.Text)));
-    finally
-      outputStream.Free;
-    end;
-  finally
-    responseList.Free;
-  end;
+    Response := FHTTPClient.Get(URL, Stream);
+    if Response.StatusCode <> 200 then
+      raise Exception.CreateFmt('Сайт ответил HTTP %d.', [Response.StatusCode]);
+    SetLength(Bytes, Stream.Size); Stream.Position := 0;
+    if Length(Bytes) > 0 then Stream.ReadBuffer(Bytes[0], Length(Bytes));
+    Result := TEncoding.UTF8.GetString(Bytes);
+  finally Stream.Free; end;
 end;
 
 // Extract part of the text and clean it up

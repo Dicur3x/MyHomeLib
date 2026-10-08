@@ -1,4 +1,4 @@
-program CollectionViewsTest;
+﻿program CollectionViewsTest;
 
 {$APPTYPE CONSOLE}
 {$R *.res}
@@ -12,7 +12,8 @@ uses
   VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
   unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters, unit_CollectionMerge, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
-  unit_MHLArchiveHelpers, unit_ExportToDeviceThread,
+  unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
+  frm_AuthorInformation, frm_book_info, unit_ReviewParser,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread;
@@ -771,6 +772,139 @@ begin
   TDirectory.CreateDirectory(TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER));
   TFile.WriteAllText(TPath.Combine(Folder, 'ordinary.tmp'), 'temporary root file');
   TFile.WriteAllText(TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER + '\copy.fb2'), 'converted copy');
+end;
+
+procedure TestReviewHTTP;
+var Details: TfrmBookDetails; URL: string; Started: UInt64;
+  procedure WaitDownload;
+  begin
+    Started := GetTickCount64;
+    while Assigned(Details.Downloading) do
+    begin
+      Application.ProcessMessages; CheckSynchronize(10);
+      Require(GetTickCount64 - Started < 20000, 'Review request hung');
+    end;
+  end;
+begin
+  URL := 'http://127.0.0.1:' + ParamStr(2) + '/b/';
+  Details := TfrmBookDetails.Create(nil);
+  try
+    Details.Review := 'Сохранённый отзыв';
+    Require(not Details.ReviewChanged, 'Showing saved reviews counts as an edit');
+    Details.AllowOnlineReview(URL + '1/'); Details.Download; WaitDownload;
+    Require((Pos('Читатель:', Details.Review) > 0) and (Pos('хорошая', Details.Review) > 0),
+      'HTTP UTF-8 review text corrupted');
+    Details.Review := 'Не терять этот отзыв'; Details.ReviewChanged := False;
+    Details.AllowOnlineReview(URL + '2/'); Details.Download; WaitDownload;
+    Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
+      not Details.ReviewChanged and (Pos('HTTP 503', Details.ReviewStatus.Caption) > 0),
+      'HTTP failure cleared saved reviews or was hidden');
+    Details.AllowOnlineReview(URL + '3/'); Details.Download; WaitDownload;
+    Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
+      not Details.ReviewChanged and (Pos('Не удалось', Details.ReviewStatus.Caption) = 1),
+      'Blocked page replaced saved reviews');
+  finally Details.Free; end;
+  Details := TfrmBookDetails.Create(nil);
+  Details.AllowOnlineReview(URL + '4/'); Details.Download;
+  Started := GetTickCount64;
+  while not FileExists(Settings.AppPath + 'review-request-started.marker') do
+  begin
+    Application.ProcessMessages; CheckSynchronize(10);
+    Require(GetTickCount64 - Started < 5000, 'Closing test did not start HTTP request');
+  end;
+  Started := GetTickCount64; Details.Free;
+  Require(GetTickCount64 - Started < 200, 'Closing reviews waits for network');
+  Started := GetTickCount64;
+  while GetTickCount64 - Started < 1800 do
+  begin Application.ProcessMessages; CheckSynchronize(10); end;
+  Writeln('PASS HTTP reviews decode UTF-8, preserve saved text on failures and close safely during an active request');
+end;
+
+procedure TestBookInformation;
+var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Information: TAuthorInformation;
+  Parser: TReviewParser; Reviews, Annotation: TStringList; Before: string;
+  Started: UInt64; PhotoHash: string;
+  procedure WaitForAuthor;
+  begin
+    Started := GetTickCount64;
+    while Pos('Загрузка', Details.AuthorInformation.Status.Caption) = 1 do
+    begin
+      Application.ProcessMessages; CheckSynchronize(10);
+      Require(GetTickCount64 - Started < 15000, 'Author worker did not finish');
+    end;
+  end;
+begin
+  BookData := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
+  OldLocal := bpIsLocal in BookData.BookProps; Exclude(BookData.BookProps, bpIsLocal);
+  try
+    Settings.ShowInfoPanel := False; frmMain.ShowBookInfoPanelExecute(nil);
+    Require(frmMain.ipnlAuthors.DetailsButton.Visible and
+      (frmMain.ipnlAuthors.DetailsButton.Caption = 'Информация о книге'), 'Card has no common information button');
+    TThread.ForceQueue(nil,
+      procedure
+      var Popup: TfrmBookDetails;
+      begin
+        Require(Screen.ActiveForm is TfrmBookDetails, 'Card button did not open book details');
+        Popup := TfrmBookDetails(Screen.ActiveForm);
+        Require(Popup.AuthorTab.Caption = 'Об авторе', 'Common author tab absent');
+        Require(not Popup.ReviewChanged, 'Opening book details modified review'); Popup.Close;
+      end);
+    frmMain.ipnlAuthors.DetailsButton.Click;
+  finally
+    if OldLocal then Include(BookData.BookProps, bpIsLocal);
+  end;
+  Writeln('PASS card bottom button opens common book and author information');
+  PhotoHash := '323283b6c184ad7fcabf271fbe3ea655'; // independently generated fixture name
+  Require(AuthorNameHash('  Толстой' + #9 + 'Лев   Николаевич ') = PhotoHash,
+    'Author hash differs from FLibrary fullname normalization: ' + AuthorNameHash('Толстой Лев Николаевич'));
+  Information := ReadAuthorInformation(Settings.AppPath + 'authors', 'Толстой Лев Николаевич');
+  Require(Information.Found and (Pos('Русский писатель', Information.HTML) > 0),
+    'Real PPMd author archive did not decode UTF-8');
+  Require(not ReadAuthorInformation(Settings.AppPath + 'authors', 'Другой Автор').Found,
+    'Unknown author matched another biography');
+  Before := TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(Information.SourceFile));
+  Details := TfrmBookDetails.Create(nil);
+  try
+    Details.Caption := 'HomeLib Ru — информация о книге';
+    Details.AuthorInformation.Configure(Settings.AppPath, '', ['Толстой Лев Николаевич'], nil);
+    Require(Details.AuthorInformation.Text.Text = '', 'Book information loaded biography eagerly');
+    Details.pcBookInfo.ActivePage := Details.AuthorTab; Details.pcBookInfo.OnChange(nil);
+    WaitForAuthor;
+    Require(Pos('Русский писатель', Details.AuthorInformation.Text.Text) > 0, 'Biography did not reach common book information window');
+    Require(not Details.AuthorInformation.Photographs.Expanded and
+      (Details.AuthorInformation.Photographs.ImageCount = 0), 'Author photographs loaded before expansion');
+    Details.AuthorInformation.Photographs.Expanded := True;
+    Started := GetTickCount64;
+    while Details.AuthorInformation.Photographs.Loading do
+    begin
+      Application.ProcessMessages; CheckSynchronize(10);
+      Require(GetTickCount64 - Started < 15000, 'Photographs did not finish');
+    end;
+    Require(Details.AuthorInformation.Photographs.ImageCount = 1, 'Author photograph boundary leaked another author or failed to decode');
+    if ParamStr(2) = 'visual' then Details.ShowModal;
+    Require(Before = TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(Information.SourceFile)), 'Biography source changed');
+    Details.AuthorInformation.Configure('', '', ['Другой Автор'], nil);
+    Details.AuthorInformation.Activate;
+    Require(Pos('В INPX нет биографий', Details.AuthorInformation.Status.Caption) = 1, 'Missing author packs not explained');
+    Details.AllowOnlineReview('https://flibusta.is/b/merged:source:1/');
+    Require(not Details.btnLoadReview.Enabled, 'Merged local ID became an online book number');
+  finally Details.Free; end;
+  Details := TfrmBookDetails.Create(nil);
+  Details.AuthorInformation.Configure(Settings.AppPath, '', ['Толстой Лев Николаевич'], nil);
+  Details.AuthorInformation.Activate; Details.Free; CheckSynchronize(0);
+  Writeln('PASS common book information loads real FLibrary biographies and isolated photographs lazily, closes safely and preserves sources');
+  Parser := TReviewParser.Create; Reviews := TStringList.Create; Annotation := TStringList.Create;
+  try
+    Parser.ParsePage('<h2>Аннотация</h2><p>Русская &amp; аннотация</p><form></form>' +
+      '<a href="/polka/show/1">Читатель</a><br><p>Очень <strong>хорошая</strong> книга</p><div></div><div id="newann"></div>',
+      'https://flibusta.is/b/1/', Reviews, Annotation);
+    Require((Pos('Читатель:', Reviews.Text) > 0) and (Pos('хорошая', Reviews.Text) > 0) and
+      (Pos('<strong>', Reviews.Text) = 0) and (Pos('Русская & аннотация', Annotation.Text) > 0),
+      'Review parser lost UTF-8, formatting or annotation');
+    Require(not IsLibraryReviewURL('https://flibusta.is/b/1/?q=bad') and
+      IsLibraryReviewURL('http://127.0.0.1:1234/b/1/'), 'Review URL boundaries incorrect');
+  finally Parser.Free; Reviews.Free; Annotation.Free; end;
+  Writeln('PASS review parser preserves Russian text and shows readable public comments');
 end;
 
 procedure TestReadFolderCleanup;
@@ -1988,6 +2122,10 @@ begin
         TestPublisherErrorLog(One)
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'review-http' then
+        TestReviewHTTP
+      else if ParamStr(1) = 'book-information' then
+        TestBookInformation
       else if ParamStr(1) = 'book-gallery' then
         TestBookGallery
       else if (ParamStr(1) = 'catalog-sources') or (ParamStr(1) = 'catalog-sources-ui') then

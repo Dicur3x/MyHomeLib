@@ -38,7 +38,7 @@ type
     FRetiredHandles: TList<THandle>;
     FLoader: TGalleryLoader;
     FSource: TFunc<TStream>;
-    FExtension, FBookIdentity: string;
+    FExtension, FBookIdentity, FTitle: string;
     FPreviewSettingsFile: string;
     FExpanded, FLoaded: Boolean;
     FOnLayout: TNotifyEvent;
@@ -48,6 +48,7 @@ type
     procedure ResetImages;
     procedure CancelLoad;
     procedure UpdateLayout;
+    procedure SetTitle(const Value: string);
     function GetImageCount: Integer;
     function GetLoading: Boolean;
   protected
@@ -65,6 +66,7 @@ type
     property Loading: Boolean read GetLoading;
     property PreviewSettingsFile: string read FPreviewSettingsFile write FPreviewSettingsFile;
     property OnLayout: TNotifyEvent read FOnLayout write FOnLayout;
+    property Title: string read FTitle write SetTitle;
   end;
 
 implementation
@@ -231,6 +233,7 @@ end;
 constructor TBookGallery.Create(AOwner: TComponent);
 begin
   inherited;
+  FTitle := 'Иллюстрации';
   BevelOuter := bvNone;
   ParentColor := True;
   FImages := TList<TImage>.Create;
@@ -238,7 +241,7 @@ begin
   FToggle := TButton.Create(Self);
   FToggle.Name := 'GalleryToggle';
   FToggle.Parent := Self;
-  FToggle.Caption := 'Иллюстрации ▸';
+  FToggle.Caption := FTitle + ' ▸';
   FToggle.OnClick := ToggleClick;
   FStrip := TScrollBox.Create(Self);
   FStrip.Parent := Self;
@@ -302,6 +305,13 @@ begin
   FLoaded := False;
 end;
 
+procedure TBookGallery.SetTitle(const Value: string);
+begin
+  FTitle := Value;
+  if FExpanded then FToggle.Caption := FTitle + ' ▾'
+  else FToggle.Caption := FTitle + ' ▸';
+end;
+
 procedure TBookGallery.Clear;
 begin
   CancelLoad;
@@ -322,7 +332,7 @@ begin
   FExtension := Extension;
   FSource := Source;
   Visible := Assigned(Source) and (SameText(Extension, '.fb2') or SameText(Extension, '.epub'));
-  FToggle.Caption := 'Иллюстрации ▸';
+  FToggle.Caption := FTitle + ' ▸';
   UpdateLayout;
 end;
 
@@ -338,18 +348,18 @@ begin
   FStrip.Visible := Value;
   if Value then
   begin
-    FToggle.Caption := 'Иллюстрации ▾';
+    FToggle.Caption := FTitle + ' ▾';
     if not FLoaded and not Assigned(FLoader) and Assigned(FSource) then
     begin
       ResetImages;
       FStatus.Visible := True;
-      FStatus.Caption := 'Загрузка иллюстраций…';
+      FStatus.Caption := 'Загрузка изображений…';
       FLoader := TGalleryLoader.Create(FSource, FExtension);
       FLoader.OnTerminate := WorkerFinished;
       FLoader.Start;
     end;
   end
-  else FToggle.Caption := 'Иллюстрации ▸';
+  else FToggle.Caption := FTitle + ' ▸';
   UpdateLayout;
 end;
 
@@ -380,7 +390,7 @@ begin
     FStatus.Caption := 'Не удалось загрузить галерею: ' + Loader.ErrorText +
       ' Сверните и раскройте её для повторной попытки.'
   else if FImages.Count = 0 then FStatus.Caption := 'В книге нет поддерживаемых иллюстраций.'
-  else if Loader.Limited then FStatus.Caption := 'Показана часть изображений. Полная книга доступна в читалке.';
+  else if Loader.Limited then FStatus.Caption := 'Показана часть изображений.';
   UpdateLayout;
 end;
 
@@ -446,7 +456,7 @@ var Bar: TPanel;
 begin
   inherited CreateNew(Gallery);
   FGallery := Gallery;
-  Caption := 'Иллюстрации';
+  Caption := FGallery.Title;
   BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMaximize];
   Font.Name := 'Segoe UI';
@@ -560,7 +570,7 @@ begin
   FIndex := Index;
   FImage.Picture.Assign(FGallery.FImages[Index].Picture);
   FPosition.Caption := IntToStr(Index + 1) + ' из ' + IntToStr(FGallery.ImageCount);
-  Caption := 'Иллюстрации — ' + FPosition.Caption;
+  Caption := FGallery.Title + ' — ' + FPosition.Caption;
   FPrevious.Enabled := Index > 0;
   FNext.Enabled := Index < FGallery.ImageCount - 1;
 end;

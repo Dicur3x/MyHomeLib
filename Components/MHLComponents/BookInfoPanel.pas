@@ -59,6 +59,7 @@ type
     FAnnotation: TMemo;
     FFb2Info: TListView;
     FGallery: TBookGallery;
+    FDetailsButton: TButton;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
@@ -124,6 +125,7 @@ type
     procedure EndUpdate;
     procedure Clear;
     property Gallery: TBookGallery read FGallery;
+    property DetailsButton: TButton read FDetailsButton;
 
   published
     property ShowCover: Boolean read GetShowCover write SetShowCover default True;
@@ -324,6 +326,11 @@ begin
   end;
 
 
+  FDetailsButton := TButton.Create(Self);
+  FDetailsButton.Parent := FInfoPanel;
+  FDetailsButton.Caption := 'Информация о книге';
+  FDetailsButton.Visible := False;
+
   //       300 200
   //0,  0, 300,  20
   //0, 20, 300,  20
@@ -494,10 +501,18 @@ begin
       end;
       // Even a very short panel must not leave the old annotation over the links.
       DetailH := Max(0, H - Y);
+      if FDetailsButton.Visible then
+        Dec(DetailH, MulDiv(32, CurrentPPI, 96) + Gap);
       if (DetailH < MulDiv(80, CurrentPPI, 96)) and
         (FAnnotation.Visible or FFb2Info.Visible) then
         DetailH := MulDiv(80, CurrentPPI, 96);
       FInfoPanel.Height := Y + DetailH;
+      if FDetailsButton.Visible then
+      begin
+        FDetailsButton.SetBounds(0, Y + DetailH + Gap,
+          Min(W, MulDiv(180, CurrentPPI, 96)), MulDiv(32, CurrentPPI, 96));
+        FInfoPanel.Height := FDetailsButton.Top + FDetailsButton.Height;
+      end;
       FAnnotation.SetBounds(0, Y, W, DetailH);
       FFb2Info.SetBounds(0, Y, W, DetailH);
       // A scrollbar changes the wrapping width. Retry with the new width,
@@ -789,6 +804,7 @@ end;
 procedure TInfoPanel.Clear;
 begin
   FGallery.Clear;
+  FDetailsButton.Visible := False;
   FInfoViewport.VertScrollBar.Position := 0;
   FTitle.Caption := '';
   FAuthors.Caption := '';

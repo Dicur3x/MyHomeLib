@@ -4326,6 +4326,8 @@ begin
       SeriesLinks,
       TGenresHelper.GetLinkList(Data^.Genres)
     );
+    InfoPanel.DetailsButton.OnClick := ShowBookInfo;
+    InfoPanel.DetailsButton.Visible := True;
     if bpIsLocal in Data^.BookProps then
     begin
       GalleryBook := Data^;
@@ -7334,6 +7336,8 @@ var
 
   bookStream: TStream;
   ReviewEditable: Boolean;
+  BookCollection: IBookCollection;
+  AuthorNames: TArray<string>; I: Integer;
 
   URL: string;
 
@@ -7389,11 +7393,19 @@ begin
         frmBookDetails.FillBookInfo(Data^, nil);
 
       frmBookDetails.mmReview.ReadOnly := not ReviewEditable;
+      BookCollection := FSystemData.GetCollection(Data^.BookKey.DatabaseID);
+      SetLength(AuthorNames, Length(Data^.Authors));
+      for I := 0 to High(AuthorNames) do AuthorNames[I] := Data^.Authors[I].GetFullName;
+      frmBookDetails.AuthorInformation.Configure(Data^.CollectionRoot,
+        BookCollection.GetProperty(PROP_AUTHOR_INFO_FOLDER), AuthorNames,
+        procedure(Folder: string)
+        begin BookCollection.SetProperty(PROP_AUTHOR_INFO_FOLDER, Folder); end);
 
       //if IsOnline and ReviewEditable then         - логика нарушена
-      if not IsPrivate then
+      URL := '';
+      if not isPrivateCollection(BookCollection.CollectionCode) then
       begin
-        URL := FCollection.GetViewURL(Data^.LibID);
+        URL := BookCollection.GetViewURL(Data^.LibID);
 
         frmBookDetails.AllowOnlineReview(URL);
       end;

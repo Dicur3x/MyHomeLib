@@ -40,9 +40,11 @@ uses
   ComCtrls,
   unit_Globals,
   Menus,
-  ActnList, System.Actions;
+  ActnList, System.Actions, frm_AuthorInformation;
 
 type
+  TReviewDownloadThread = class;
+
   TfrmBookDetails = class(TForm)
     pcBookInfo: TPageControl;
     tsInfo: TTabSheet;
@@ -78,6 +80,13 @@ type
   private
     FUrl: string;
     FReviewChanged: Boolean;
+    FWorker: TReviewDownloadThread;
+    FReviewStatus: TLabel;
+    FAuthorTab: TTabSheet;
+    FAuthorInformation: TAuthorInformationPanel;
+    FReviewReadOnly, FAnnotationReadOnly: Boolean;
+    procedure FinishDownload(Sender: TObject);
+    procedure PageChanged(Sender: TObject);
     function GetReview: string;
     procedure SetReview(const Value: string);
     function GetAnnotation: string;
@@ -87,6 +96,11 @@ type
     procedure DoCreate; override;
 
   public
+    destructor Destroy; override;
+    property AuthorInformation: TAuthorInformationPanel read FAuthorInformation;
+    property AuthorTab: TTabSheet read FAuthorTab;
+    property ReviewStatus: TLabel read FReviewStatus;
+    property Downloading: TReviewDownloadThread read FWorker;
     procedure AllowOnlineReview(const URL: string);
     procedure Download;
 
@@ -100,20 +114,14 @@ type
 
   TReviewDownloadThread = class(TThread)
   private
-    FForm: TfrmBookDetails;
-    FReview: TStringList;
-    FAnnotation: TStringList;
     FUrl: string;
-
-    procedure StartDownload;
-    procedure Finish;
-
   protected
     procedure Execute; override;
-    property Form: TfrmBookDetails read FForm write FForm;
-
   public
-    property URL: string write FUrl;
+    Review, Annotation: TStringList;
+    ErrorText: string;
+    constructor Create(const URL: string);
+    destructor Destroy; override;
   end;
 
 procedure DownloadReview(Form: TfrmBookDetails; const URL: string);
@@ -144,6 +152,20 @@ end;
 
 procedure TfrmBookDetails.FormCreate(Sender: TObject);
 begin
+  Font.Name := 'Segoe UI'; Font.Size := 9; DoubleBuffered := True;
+  BorderStyle := bsSizeable; ClientWidth := 720; ClientHeight := 520;
+  Constraints.MinWidth := 640; Constraints.MinHeight := 440;
+  FAuthorTab := TTabSheet.Create(Self); FAuthorTab.PageControl := pcBookInfo;
+  FAuthorTab.Caption := 'Об авторе';
+  FAuthorInformation := TAuthorInformationPanel.Create(Self);
+  FAuthorInformation.Parent := FAuthorTab; FAuthorInformation.Align := alClient;
+  pcBookInfo.OnChange := PageChanged;
+  FReviewStatus := TLabel.Create(Self); FReviewStatus.Parent := tsReview;
+  FReviewStatus.AutoSize := False; FReviewStatus.Align := alTop;
+  FReviewStatus.WordWrap := True; FReviewStatus.Height := 38;
+  FReviewStatus.AlignWithMargins := True; FReviewStatus.Margins.Left := 8;
+  FReviewStatus.Caption := 'Сохранённые отзывы. Загрузка с сайта выполняется по кнопке.';
+  tsReview.Caption := 'Отзывы';
   lvFileInfo.ShowColumnHeaders := False;
   lvInfo.ShowColumnHeaders := False;
   FReviewChanged := False;
@@ -178,48 +200,56 @@ begin
     acCopyValue.Enabled := False;
 end;
 
+procedure TfrmBookDetails.PageChanged(Sender: TObject);
+begin
+  if pcBookInfo.ActivePage = FAuthorTab then FAuthorInformation.Activate;
+end;
+
+destructor TfrmBookDetails.Destroy;
+begin
+  // The worker owns its lists and HTTP client; it never retains the form.
+  // Detaching the callback makes closing during a request immediate and safe.
+  if Assigned(FWorker) then
+  begin FWorker.OnTerminate := nil; FWorker.Terminate; FWorker := nil; end;
+  inherited;
+end;
+
 procedure TfrmBookDetails.AllowOnlineReview(const URL: string);
 begin
   FUrl := URL;
-
   pnReviewButtons.Visible := True;
+  btnLoadReview.Enabled := IsLibraryReviewURL(URL);
+  if not btnLoadReview.Enabled then
+    FReviewStatus.Caption := 'Для этой книги нет адреса отзывов на сайте источника.';
 end;
 
 procedure TfrmBookDetails.Download;
-var
-  reviewParser: TReviewParser;
-  SavedCursor: TCursor;
-  Review, Annotation: TStringList;
-
 begin
-  btnLoadReview.Enabled := False;
-  SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
-  try
-    reviewParser := TReviewParser.Create;
-    try
-      try
-        Review := TStringList.Create;
-        Annotation := TStringList.Create;
+  if Assigned(FWorker) or not IsLibraryReviewURL(FUrl) then Exit;
+  btnLoadReview.Enabled := False; btnClearReview.Enabled := False;
+  FReviewReadOnly := mmReview.ReadOnly; FAnnotationReadOnly := mmoAnnotation.ReadOnly;
+  mmReview.ReadOnly := True; mmoAnnotation.ReadOnly := True;
+  FReviewStatus.Caption := 'Загрузка отзывов с сайта коллекции...';
+  FWorker := TReviewDownloadThread.Create(FUrl);
+  FWorker.OnTerminate := FinishDownload; FWorker.Start;
+end;
 
-        reviewParser.Parse(FUrl, Review, Annotation);
-        mmReview.Lines.Text := Review.Text;
-        mmoAnnotation.Lines.Text := Annotation.Text;
-
-        FReviewChanged := True;
-      finally
-        FreeAndNil(Review);
-        FreeAndNil(Annotation);
-      end;
-
-
-    finally
-      reviewParser.Free;
-    end;
-  finally
-    Screen.Cursor := SavedCursor;
-    btnLoadReview.Enabled := True;
+procedure TfrmBookDetails.FinishDownload(Sender: TObject);
+var Worker: TReviewDownloadThread;
+begin
+  Worker := FWorker; FWorker := nil;
+  if Worker.ErrorText <> '' then
+    FReviewStatus.Caption := 'Не удалось загрузить отзывы: ' + Worker.ErrorText
+  else
+  begin
+    if Worker.Review.Count > 0 then mmReview.Lines := Worker.Review;
+    if Worker.Annotation.Count > 0 then mmoAnnotation.Lines := Worker.Annotation;
+    if Worker.Review.Count = 0 then
+      FReviewStatus.Caption := 'На странице книги нет отзывов. Сохранённый текст оставлен.'
+    else FReviewStatus.Caption := 'Отзывы загружены с сайта коллекции.';
   end;
+  mmReview.ReadOnly := FReviewReadOnly; mmoAnnotation.ReadOnly := FAnnotationReadOnly;
+  btnLoadReview.Enabled := True; btnClearReview.Enabled := True;
 end;
 
 procedure TfrmBookDetails.FormShow(Sender: TObject);
@@ -264,7 +294,10 @@ end;
 
 procedure TfrmBookDetails.SetReview(const Value: string);
 begin
-  mmReview.Lines.Text := Value;
+  // Showing a saved review is not an edit.
+  mmReview.OnChange := nil;
+  try mmReview.Lines.Text := Value;
+  finally mmReview.OnChange := mmReviewChange; end;
 end;
 
 procedure TfrmBookDetails.FillBookInfo(bookInfo: TBookRecord; bookStream: TStream);
@@ -455,62 +488,29 @@ begin
   end;
 end;
 
-{ -------------------- TReviewDownloadThread ----------------------------------- }
+constructor TReviewDownloadThread.Create(const URL: string);
+begin
+  inherited Create(True); FreeOnTerminate := True; FUrl := URL;
+  Review := TStringList.Create; Annotation := TStringList.Create;
+end;
+
+destructor TReviewDownloadThread.Destroy;
+begin
+  Review.Free; Annotation.Free; inherited;
+end;
 
 procedure TReviewDownloadThread.Execute;
-var
-  reviewParser: TReviewParser;
+var Parser: TReviewParser;
 begin
-  Synchronize(StartDownload);
-  FReview := TStringList.Create;
-  FAnnotation :=  TStringList.Create;
   try
-    reviewParser := TReviewParser.Create;
-    try
-      reviewParser.Parse(FUrl, FReview, FAnnotation);
-    finally
-      reviewParser.Free;
-    end;
-  finally
-    Synchronize(Finish);
-    FreeAndNil(FReview);
-    FreeAndNil(FAnnotation);
-  end;
+    Parser := TReviewParser.Create;
+    try Parser.Parse(FUrl, Review, Annotation); finally Parser.Free; end;
+  except on E: Exception do ErrorText := E.Message; end;
 end;
-
-procedure TReviewDownloadThread.StartDownload;
-begin
-  FForm.btnLoadReview.Enabled := False;
-end;
-
-procedure TReviewDownloadThread.Finish;
-begin
-  if FForm.mmReview = nil then
-    Exit; // FForm почему-то не равно nil после уничтожения.
-  // зато компоненты обнуляются, поэтому проверям по ним
-
-  FForm.mmReview.Lines := FReview;
-
-  if Assigned(FAnnotation) then
-          FForm.mmoAnnotation.Lines := FAnnotation;
-
-  FForm.btnLoadReview.Enabled := True;
-  FForm.ReviewChanged := True;
-  // FForm.RzPageControl1.ActivePageIndex := 1;
-end;
-
-// ------------------------------------------------------------------------------
 
 procedure DownloadReview(Form: TfrmBookDetails; const URL: string);
-var
-  Worker: TReviewDownloadThread;
 begin
-  Worker := TReviewDownloadThread.Create(True);
-  Worker.Form := Form;
-  Worker.URL := URL;
-  Worker.Priority := tpLower;
-  Worker.FreeOnTerminate := True;
-  Worker.Start;
+  Form.AllowOnlineReview(URL); Form.Download;
 end;
 
 end.

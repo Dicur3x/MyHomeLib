@@ -15,6 +15,7 @@ const [runtimeArg, genreArg, importArg, viewsArg] = process.argv.slice(2);
 const onlineOnly = process.argv.includes("--online-only");
 const archiveOnly = process.argv.includes("--online-archive-only");
 const plainOnly = process.argv.includes("--online-plain-only");
+const reviewsOnly = process.argv.includes("--online-reviews-only");
 const viewsModeArg = process.argv.find(arg => arg.startsWith("--views-mode="));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
@@ -38,7 +39,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
+const modes = ["genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui"];
 if (viewsMode !== null && !modes.includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   "genre-order": ["PASS Unsorted is last"],
@@ -55,6 +56,7 @@ const requiredViews = {
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "book-gallery": ["PASS gallery loads lazily in background", "PASS illustration preview arrows work and resized window position persists", "PASS changing books cancels old gallery", "PASS EPUB gallery leaves source unchanged"],
   "catalog-sources": ["PASS multiple INPX sources keep separate roots"],
+  "book-information": ["PASS common book information loads real FLibrary biographies", "PASS review parser preserves Russian text"],
   "collection-merge": ["PASS safe merge previews"],
   "list-performance": ["PASS list profiling preserves"],
   "column-filters": ["PASS column filters combine, survive regrouping, hide empty groups and mark only matching books"],
@@ -62,6 +64,7 @@ const requiredViews = {
   "program-update-ui": ["PASS new update default is three days and preserves explicit choices", "PASS update settings preserve never and custom hours", "PASS update popup shows installed version", "PASS dates and shared formatting", "PASS update notes retain nested SQLite", "PASS previous changelogs start collapsed", "PASS update window expands reading space", "PASS saved histories survive reopening", "PASS resized update window and text zoom", "PASS short release height stays compact", "PASS expanded old release ends directly after its text"],
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
+  "review-http": ["PASS HTTP reviews decode UTF-8"],
 };
 function requiredPasses(executable, mode) {
   if (path.basename(executable).toLowerCase() === "metabibimporttest.exe") return [
@@ -114,6 +117,7 @@ function run(executable, mode) {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable);
+    if (mode === 'book-information') require('./book_information_fixture')(runtime, folder);
     if (mode === "read-folder-cleanup") {
       const reading = path.join(folder, "junction-reading"), target = path.join(folder, "junction-target");
       fs.mkdirSync(reading); fs.mkdirSync(target);
@@ -140,10 +144,20 @@ async function runOnline(executable, mode) {
   const absolute = path.resolve(folder), expectedRoot = path.resolve(os.tmpdir()) + path.sep;
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   const requests = [];
-  const expected = mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
+  const expected = mode === 'review-http' ? ['/b/1/', '/b/2/', '/b/3/', '/b/4/'] : mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
   const server = http.createServer((req, res) => {
     requests.push(`${req.method} ${req.url}`);
     if (req.method !== "GET" || !expected.includes(req.url)) { res.writeHead(404); res.end(); return; }
+    if (mode === 'review-http') {
+      if (req.url === '/b/2/') { res.writeHead(503); res.end('unavailable'); return; }
+      const text = req.url === '/b/3/' ? '<h1>Access denied</h1>' : '<h2>Аннотация</h2><p>Русская аннотация</p><form></form><a href="/polka/show/1">Читатель</a><br><p>Очень хорошая книга</p><div></div><div id="newann"></div>';
+      const reply = () => { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(text); };
+      if (req.url === '/b/4/') {
+        fs.writeFileSync(path.join(folder, 'review-request-started.marker'), 'request active');
+        setTimeout(reply, 1000);
+      } else reply();
+      return;
+    }
     const filename = mode === "online-plain" ? "online-plain-response.fb2" : "download-response.zip";
     try {
       const payload = fs.readFileSync(path.join(folder, filename));
@@ -185,13 +199,14 @@ try {
     console.log(`PASS native view scenario ${viewsMode || "default"}; only temporary fixtures used`);
     return;
   }
-  if (!onlineOnly && !archiveOnly && !plainOnly) {
+  if (!onlineOnly && !archiveOnly && !plainOnly && !reviewsOnly) {
     run(tests[0], "");
     run(tests[1], "");
     for (const mode of modes) run(tests[2], mode);
   }
-  if (!plainOnly) await runOnline(tests[2], "online-download");
-  if (!archiveOnly) await runOnline(tests[2], "online-plain");
+  if (!plainOnly && !reviewsOnly) await runOnline(tests[2], "online-download");
+  if (!archiveOnly && !reviewsOnly) await runOnline(tests[2], "online-plain");
+  if (reviewsOnly || (!plainOnly && !archiveOnly && !onlineOnly)) await runOnline(tests[2], 'review-http');
   console.log(`PASS all native collection regressions (${architecture === 0x8664 ? "x64" : "x86"}); only temporary fixtures used`);
 } catch (error) {
   console.error(`FAIL ${error.stack || error}`);
