@@ -517,6 +517,53 @@ begin
   Check(Reader.LastRecoveryDetails = '', 'reuse clears prior recovery details');
 end;
 
+procedure CheckInlineAnnotation;
+var
+  Encoding: TEncoding;
+  Input: TBytesStream;
+  Book: IXMLFictionBook;
+  XML, Decl, Expected: string;
+  I: Integer;
+  Items: TFB2PublisherSeries;
+  ErrorText: string;
+begin
+  Expected := 'Before emphasized deep after and bold tail.' + sLineBreak +
+    CYRILLIC_TITLE + ' & second.' + sLineBreak;
+  for I := 0 to 2 do
+  begin
+    case I of
+      0: begin Encoding := TEncoding.UTF8; Decl := 'utf-8'; end;
+      1: begin Encoding := TEncoding.Unicode; Decl := 'utf-16'; end;
+    else
+      Encoding := TEncoding.GetEncoding(1251); Decl := 'windows-1251';
+    end;
+    try
+      XML := '<?xml version="1.0" encoding="' + Decl + '"?>' +
+        '<FictionBook xmlns="' + FB2_NS + '"><description><title-info>' +
+        '<book-title>Inline formatting</book-title><annotation>' +
+        '<p>Before <emphasis>emphasized <strong>deep</strong> after</emphasis>' +
+        ' and <strong>bold</strong> tail.</p><p><![CDATA[' + CYRILLIC_TITLE +
+        ' & second.]]></p></annotation></title-info><publish-info>' +
+        '<sequence name="Inline sequence" number="3"/></publish-info>' +
+        '</description><body><section><p>Body <strong>text</strong>.</p>' +
+        '</section></body></FictionBook>';
+      Input := TBytesStream.Create(Encoded(XML, Encoding));
+      try
+        Book := LoadFictionBook(Input);
+        Check(GetBookAnnotation(Book) = Expected,
+          'mixed emphasis/strong text and CDATA remain in order: ' + Decl);
+        Book := nil;
+        Input.Position := 0;
+        Check((Reader.Read(Input, Items, ErrorText) = fmsComplete) and
+          (Length(Items) = 1) and (Items[0].Title = 'Inline sequence') and
+          (Items[0].Number = 3), 'inline annotation does not affect publisher series: ' + Decl);
+      finally Input.Free; end;
+    finally
+      if I = 2 then Encoding.Free;
+    end;
+  end;
+end;
+
 procedure CheckFiles;
 var
   I: Integer;
@@ -587,6 +634,7 @@ begin
       Reader := TFB2PublisherMetadataReader.Create;
       RunTests;
       CheckRecovery;
+      CheckInlineAnnotation;
       CheckFiles;
     except
       on E: Exception do
