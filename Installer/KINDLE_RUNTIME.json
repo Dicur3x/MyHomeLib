@@ -1,0 +1,19 @@
+{
+  "kindleunpack": {
+    "commit": "bf0ca6ece4e73494625e7950be3e259b6260774c",
+    "url": "https://github.com/kevinhendricks/KindleUnpack/archive/bf0ca6ece4e73494625e7950be3e259b6260774c.zip",
+    "sha256": "dc445158b8347fd19cd29366ba475387c2895e9e482e75c76b6a7b3b8dfeecfb",
+    "license": "GPL-3.0"
+  },
+  "python": {
+    "version": "3.13.16",
+    "Win64": {
+      "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-amd64.zip",
+      "sha256": "97dae5274cc54867065e8d5a3226e48c35017ed332a0fdb0e27d5b5821961297"
+    },
+    "Win32": {
+      "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-win32.zip",
+      "sha256": "0a3b162281b0a8e4d95d748e40ec2db9927086c7ec4231a5c8d29f91a1c2ba89"
+    }
+  }
+}

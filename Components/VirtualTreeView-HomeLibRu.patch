@@ -1,0 +1,166 @@
+diff --git a/Source/VirtualTrees.BaseTree.pas b/Source/VirtualTrees.BaseTree.pas
+index d8a9c68..3c4a771 100644
+--- a/Source/VirtualTrees.BaseTree.pas
++++ b/Source/VirtualTrees.BaseTree.pas
+@@ -732,6 +732,7 @@ type
+ 
+     procedure AdjustTotalCount(Node: PVirtualNode; Value: Integer; relative: Boolean = False);
+     function CalculateCacheEntryCount: Integer;
++    function CachedVisibleNeighbour(Node: PVirtualNode; Forward: Boolean; out Neighbour: PVirtualNode): Boolean;
+     procedure CalculateVerticalAlignments(var PaintInfo: TVTPaintInfo; var VButtonAlign: TDimension);
+     function ChangeCheckState(Node: PVirtualNode; Value: TCheckState): Boolean;
+     function CollectSelectedNodesLTR(MainColumn: Integer; NodeLeft, NodeRight: TDimension; Alignment: TAlignment; OldRect,
+@@ -2253,7 +2254,10 @@ function TBaseVirtualTree.CalculateCacheEntryCount: Integer;
+ // Calculates the size of the position cache.
+ 
+ begin
+-  if FVisibleCount > 1 then
++  if (FVisibleCount > 0) and (FVisibleCount <= Cardinal(CacheThreshold)) and
++    (FRoot.TotalCount > Cardinal(CacheThreshold)) then
++    Result := FVisibleCount
++  else if FVisibleCount > 1 then
+     Result := Ceil(FVisibleCount / CacheThreshold)
+   else
+     Result := 0;
+@@ -2261,6 +2265,33 @@ end;
+ 
+ //----------------------------------------------------------------------------------------------------------------------
+ 
++function TBaseVirtualTree.CachedVisibleNeighbour(Node: PVirtualNode; Forward: Boolean;
++  out Neighbour: PVirtualNode): Boolean;
++var L, H, I, Comparison: Integer;
++begin
++  Result := False; Neighbour := nil;
++  // A dense cache indexes a sparse filtered result without scanning hidden siblings.
++  // Existing cache invalidation stops readers before any node is changed or freed.
++  if not (tsUseCache in FStates) or (Length(FPositionCache) = 0) or
++    (Cardinal(Length(FPositionCache)) <> FVisibleCount) then Exit;
++  L := 0; H := High(FPositionCache);
++  while L <= H do
++  begin
++    I := (L + H) shr 1;
++    Comparison := CompareNodePositions(FPositionCache[I].Node, Node);
++    if Comparison < 0 then L := I + 1
++    else if Comparison > 0 then H := I - 1
++    else
++    begin
++      if Forward then Inc(I) else Dec(I);
++      if (I >= 0) and (I < Length(FPositionCache)) then Neighbour := FPositionCache[I].Node;
++      Exit(True);
++    end;
++  end;
++end;
++
++//----------------------------------------------------------------------------------------------------------------------
++
+ procedure TBaseVirtualTree.CalculateVerticalAlignments(var PaintInfo: TVTPaintInfo; var VButtonAlign: TDimension);
+ 
+ // Calculates the vertical alignment of the given node and its associated expand/collapse button during
+@@ -11038,12 +11069,14 @@ function TBaseVirtualTree.DoValidateCache(): Boolean;
+ 
+ var
+   EntryCount,
+-  Index: Cardinal;
++  Index, CacheStep: Cardinal;
+   CurrentNode,
+   Temp: PVirtualNode;
+   CurrentTop: TNodeHeight;
+ begin
+-  EntryCount := 0;
++  EntryCount := 0; Index := 0;
++  CacheStep := CacheThreshold;
++  if (FVisibleCount <= Cardinal(CacheThreshold)) and (FRoot.TotalCount > Cardinal(CacheThreshold)) then CacheStep := 1;
+   if not (tsStopValidation in FStates) then
+   begin
+     if FStartIndex = 0 then
+@@ -11085,7 +11118,7 @@ begin
+         // If the cache is full then stop the loop.
+         if (Integer(Index) >= Length(FPositionCache)) then
+           Break;
+-        if (EntryCount mod CacheThreshold) = 0 then
++        if (EntryCount mod CacheStep) = 0 then
+         begin
+           // New cache entry to set up.
+           with FPositionCache[Index] do
+@@ -11119,7 +11152,7 @@ begin
+     end;
+   end;
+ 
+-  Result := (EntryCount > 0) and not (tsStopValidation in FStates);
++  Result := (Index > 0) and not (tsStopValidation in FStates);
+ 
+   // In variable node height mode it might have happend that some or all of the nodes have been adjusted in their
+   // height. During validation updates of the scrollbars is disabled so let's do this here.
+@@ -15342,7 +15375,9 @@ begin
+   InterruptValidation();
+ 
+   FStartIndex := 0;
+-  if (tsValidationNeeded in FStates) and (FVisibleCount > CacheThreshold) then
++  if (tsValidationNeeded in FStates) and
++    ((FVisibleCount > Cardinal(CacheThreshold)) or
++    ((FVisibleCount > 0) and (FRoot.TotalCount > Cardinal(CacheThreshold)))) then
+   begin
+     // Tell the thread this tree needs actually something to do.
+     TWorkerThread.AddTree(Self);
+@@ -17058,6 +17093,9 @@ function TBaseVirtualTree.GetFirstVisible(Node: PVirtualNode = nil; ConsiderChil
+ // If necessary nodes are initialized on demand.
+ 
+ begin
++  if not Assigned(Node) and ConsiderChildrenAbove and not IncludeFiltered and
++    (tsUseCache in FStates) and (Length(FPositionCache) > 0) and
++    (vsInitialized in FPositionCache[0].Node.States) then Exit(FPositionCache[0].Node);
+   Result := Node;
+   if not Assigned(Result) then
+     Result := FRoot;
+@@ -17187,6 +17225,9 @@ function TBaseVirtualTree.GetFirstVisibleNoInit(Node: PVirtualNode = nil;
+ // No initialization is performed.
+ 
+ begin
++  if not Assigned(Node) and ConsiderChildrenAbove and not IncludeFiltered and
++    (tsUseCache in FStates) and (Length(FPositionCache) > 0) then
++    Exit(FPositionCache[0].Node);
+   Result := Node;
+   if not Assigned(Result) then
+     Result := FRoot;
+@@ -18087,6 +18128,10 @@ begin
+   Result := Node;
+   if not Assigned(Result) then Exit;
+ 
++  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node,True,Result) and
++    (not Assigned(Result) or (vsInitialized in Result.States)) then Exit;
++  Result := Node;
++
+   Assert(Result <> FRoot, 'Node must not be the hidden root node.');
+ 
+   repeat
+@@ -18214,6 +18259,9 @@ begin
+   Result := Node;
+   if not Assigned(Result) then Exit;
+ 
++  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node, True, Result) then Exit;
++  Result := Node;
++
+   Assert(Result <> FRoot, 'Node must not be the hidden root node.');
+ 
+   repeat
+@@ -18848,6 +18896,10 @@ begin
+   Result := Node;
+   if not Assigned(Result) then Exit;
+ 
++  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node,False,Result) and
++    (not Assigned(Result) or (vsInitialized in Result.States)) then Exit;
++  Result := Node;
++
+   Assert(Result <> FRoot, 'Node must not be the hidden root node.');
+ 
+   repeat
+@@ -18974,6 +19026,9 @@ begin
+   Result := Node;
+   if not Assigned(Result) then Exit;
+ 
++  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node, False, Result) then Exit;
++  Result := Node;
++
+   Assert(Result <> FRoot, 'Node must not be the hidden root node.');
+ 
+   repeat

@@ -226,6 +226,9 @@ type
     procedure RestoreCollectionBackup(const FileName: string);
     function GetCatalogBookID(const SourceKey: string): Integer;
     procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
+    procedure SetCatalogBookCopy(const SourceKey, SourceName: string; const Book: TBookRecord);
+    procedure SetCatalogBookPreferredSource(const BookKey: TBookKey; const SourceName: string);
+    function GetCatalogBookCopies(const BookKey: TBookKey): TArray<TBookRecord>;
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
     procedure AddBookToGroup(const BookKey: TBookKey; const GroupID: Integer);

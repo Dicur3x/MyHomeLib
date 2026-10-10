@@ -92,6 +92,8 @@
 <!-- BODY:BEGIN -->
 <p>The <span class="ui">File types</span> section of the settings dialog (see <a href="settings.html">Program settings</a>) is a table matching file extensions to viewer programs, and it is what the <span class="ui">Read</span> command works from; for more about how the reader is picked, see <a href="reading.html">Reading books</a>.</p>
 
+<h2>Default reader</h2>
+<p><span class="ui">Open in the built-in reader</span> is enabled by default. Double-click opens supported books internally and uses the assigned external program for other formats. External assignments are locked while this option is on, but all paths are retained. Disable it to edit and use these assignments for normal opening. The context menu always offers explicit built-in and external reading commands.</p>
 <h2>The list</h2>
 <p>The table has two columns — <span class="ui">Extension</span> and <span class="ui">Path</span> — and is managed with the three buttons below it:</p>
 <dl>
@@ -107,7 +109,8 @@
 <p>The list does not have to cover every file type in the collection: for an extension that is not in the table, HomeLib Ru simply hands the file to whichever program Windows itself has registered for that extension (the ordinary file association) — exactly as it does for an entry with an empty <span class="ui">Path</span> field.</p>
 
 <h2>Bundled readers</h2>
-<p>HomeLib Ru has no built-in reader of its own — "Read" always launches a separate program. The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. On first run, HomeLib Ru assigns AlReader to FB2/FBD, DOC/DOCX, RTF, TXT and HTML, and SumatraPDF to PDF, DjVu, EPUB, MOBI/Kindle, CHM, XPS, comics and supported image formats. ZIP/RAR/7z/TAR remain assigned to Windows. The old <code>AlReader\AlReader2.exe</code> path is updated automatically. A different reader explicitly selected by the user is never replaced; the initial set can be freely edited or removed.</p>
+<p>The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. An experimental built-in reader is also available; the opening dialog offers it when the book format is supported. Some office formats need LibreOffice for preparation. PDF, DjVu, comics and image files use page display with click-to-magnify inspection. OCR is not performed.</p>
+<p>External reader paths are retained when the default-reader option is changed. A supported book inside ZIP/RAR/7z is prepared before reading. The separate <span class="ui">View archive contents</span> command opens the archive in an archive program.</p>
 <!-- BODY:END -->
 </main>
 </body>

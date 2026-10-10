@@ -35,6 +35,7 @@ uses
 procedure AddToFilter(const Field: string; Value: string; UP: Boolean; var FilterString: string);
 var
   FixedField: string;
+  I: Integer; Quoted, NeedsYo: Boolean; Quote: Char;
 begin
   if Value = '' then
     Exit;
@@ -43,6 +44,23 @@ begin
     FixedField := 'UPPER(' + Field + ')'
   else
     FixedField := Field;
+
+  // Inspect SQL string literals, excluding operators such as LIKE.
+  // Queries without these letters retain their existing indexed expression.
+  Quoted := False; NeedsYo := False; Quote := #0;
+  for I := 1 to Length(Value) do
+    if not Quoted then
+    begin
+      if CharInSet(Value[I], [#34,#39]) then begin Quoted := True; Quote := Value[I]; end;
+    end
+    else if Value[I] = Quote then Quoted := False
+    else if (Value[I] = 'Е') or (Value[I] = 'е') or (Value[I] = 'Ё') or (Value[I] = 'ё') then
+      NeedsYo := True;
+  if NeedsYo then
+  begin
+    FixedField := 'REPLACE(REPLACE('+FixedField+',''Ё'',''Е''),''ё'',''е'')';
+    Value := StringReplace(StringReplace(Value,'Ё','Е',[rfReplaceAll]),'ё','е',[rfReplaceAll]);
+  end;
 
   Value := ' ' + Value; // this way the search for ' LIKE' and such is possible for the first expression as well
   StrReplace(CRLF, ' ', Value);

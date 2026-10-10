@@ -1,5 +1,30 @@
 "use strict";
 const fs = require('fs'), path = require('path'), cp = require('child_process'), crypto = require('crypto');
+const zlib = require('zlib');
+function portraitPNG() {
+  // A real image-sized fixture, rather than a one-pixel tracking/placeholder tile.
+  function chunk(type, data) {
+    const name = Buffer.from(type), payload = Buffer.concat([name, data]);
+    let crc = 0xffffffff;
+    for (const byte of payload) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+    length.writeUInt32BE(data.length); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+    return Buffer.concat([length, payload, checksum]);
+  }
+  const width = 32, height = 48, header = Buffer.alloc(13);
+  header.writeUInt32BE(width); header.writeUInt32BE(height, 4);
+  header[8] = 8; header[9] = 2;
+  const rows = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = y * (width * 3 + 1) + 1 + x * 3;
+    rows[offset] = 50 + x; rows[offset + 1] = 80 + y; rows[offset + 2] = 150;
+  }
+  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header),
+    chunk('IDAT', zlib.deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
 module.exports = function stageAuthorFixture(runtime, folder) {
   const toolFolder = path.join(folder, 'tools', '7zip');
   fs.mkdirSync(toolFolder, {recursive: true});
@@ -19,7 +44,7 @@ module.exports = function stageAuthorFixture(runtime, folder) {
   const photos = path.join(photoInput, hash), other = path.join(photoInput, hash + 'wrong');
   fs.mkdirSync(photos); fs.mkdirSync(other);
   // Valid small PNG; a nearby hash prefix must not become this author's photo.
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const png = portraitPNG();
   fs.writeFileSync(path.join(photos, 'portrait.png'), png);
   fs.writeFileSync(path.join(other, 'other.png'), png);
   fs.mkdirSync(path.join(authors, 'pictures'));

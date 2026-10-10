@@ -49,4 +49,22 @@ const checked=first(['--official-check']);assert.equal(checked[0],'SQLite');asse
 assert.deepEqual(checked.slice(5,10),['','','',0,'']);
 assert.equal(checked[10],'SumatraPDF');assert(checked[12].startsWith('https://www.sumatrapdfreader.org/'));assert(checked[13]>0);assert.equal(checked[14],'');
 pass('real official checks query SQLite and SumatraPDF while skipping AlReader');
+assert.equal(checked.length,25);
+assert.equal(checked[15],'DjVuLibre');assert.match(checked[16],/^3\.5\.\d+$/);
+assert(checked[17].startsWith('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'));
+assert.equal(checked[18],0);assert.equal(checked[19],'');
+assert.equal(checked[20],'7-Zip');assert.match(checked[21],/^\d{2}\.\d{2}$/);
+assert.equal(checked[22],'https://www.7-zip.org/download.html');
+assert.equal(checked[23],0);assert.equal(checked[24],'');
+pass('real DjVuLibre Windows and 7-Zip checks report versions separately from installation');
+const raster=path.join(root,'raster.json');
+fs.writeFileSync(raster,JSON.stringify({tag_name:'26.04',body:'Official release.',draft:false,prerelease:false}));
+assert.equal(first(['--raster-parse',raster,'7-Zip'])[0],'26.04');
+for(const change of [{draft:true},{prerelease:true},{tag_name:'26.04/evil'}]){
+  fs.writeFileSync(raster,JSON.stringify({tag_name:'26.04',...change}));run(['--raster-parse',raster,'7-Zip'],1);
+}
+fs.writeFileSync(raster,'/projects/djvu/files/DjVuLibre/3.5.99/ /projects/djvu/files/DjVuLibre_Windows/3.5.28%2B4.11/ /projects/djvu/files/DjVuLibre_Windows/3.5.29+4.12/');
+assert.equal(first(['--raster-parse',raster,'DjVuLibre'])[0],'3.5.29');
+fs.writeFileSync(raster,'/projects/djvu/files/DjVuLibre/3.5.99/');run(['--raster-parse',raster,'DjVuLibre'],1);
+pass('raster checks reject drafts, prereleases, malformed versions and source-only DjVu releases');
 console.log('PASS TOTAL '+count+' ('+platform+'); isolated fixtures: '+root);

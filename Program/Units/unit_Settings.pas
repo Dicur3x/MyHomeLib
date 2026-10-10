@@ -129,6 +129,9 @@ type
     // SYSTEM_SECTION
     FActiveCollection: Integer;
     FDoCheckUpdate: Boolean;
+    FBookCacheLimitMB: Integer;
+    FBookCacheDirectory, FBookCachePreviousPath: string;
+    FClearBookCacheOnExit: Boolean;
     FProgramUpdateMinutes: Integer;
     FProgramUpdateLastCheckUTC: TDateTime;
     FCheckExternalLibUpdate: Boolean;
@@ -200,6 +203,7 @@ type
 
     // READERS_SECTION
     FReaders: TReaders;
+    FUseBuiltinReaderByDefault: Boolean;
 
     // UPDATES_SECTION
     FUpdateList: TUpdateInfoList;
@@ -320,6 +324,10 @@ type
 
     property TempDir: string read FTempDir write FTempDir;
     property TempPath: string read MHLGetTempPath;
+    property BookCacheLimitMB: Integer read FBookCacheLimitMB write FBookCacheLimitMB;
+    property BookCachePreviousPath: string read FBookCachePreviousPath write FBookCachePreviousPath;
+    property BookCacheDirectory: string read FBookCacheDirectory write FBookCacheDirectory;
+    property ClearBookCacheOnExit: Boolean read FClearBookCacheOnExit write FClearBookCacheOnExit;
 
     property WorkDir: string read FWorkDir;
     property WorkPath: string read GetWorkPath;
@@ -444,6 +452,7 @@ type
     property FullTextSearch: Boolean read FFullTextSearch write FFullTextSearch;
 
     property Readers: TReaders read FReaders;
+    property UseBuiltinReaderByDefault: Boolean read FUseBuiltinReaderByDefault write FUseBuiltinReaderByDefault;
 
     property Updates: TUpdateInfoList read FUpdateList;
 
@@ -574,6 +583,7 @@ var
 begin
   inherited Create;
   FConvertWebPToPNG := True;
+  FUseBuiltinReaderByDefault := True;
 
   Paths := ResolveMHLPaths;
 
@@ -736,6 +746,11 @@ begin
     //
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
+    FBookCachePreviousPath := iniFile.ReadString(SYSTEM_SECTION, 'BookCachePreviousPath', '');
+    FBookCacheDirectory := iniFile.ReadString(SYSTEM_SECTION, 'BookCacheDirectory', '');
+    FBookCacheLimitMB := iniFile.ReadInteger(SYSTEM_SECTION, 'BookCacheLimitMB', 5120);
+    if (FBookCacheLimitMB<1) or (FBookCacheLimitMB>1048576) then FBookCacheLimitMB:=5120;
+    FClearBookCacheOnExit := iniFile.ReadBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', True);
     FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 4320);
     if (FProgramUpdateMinutes < 1) or (FProgramUpdateMinutes > 525600) then FProgramUpdateMinutes := 4320;
     FProgramUpdateLastCheckUTC := iniFile.ReadDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', 0);
@@ -892,6 +907,7 @@ begin
     FSelectedIsChecked := iniFile.ReadBool(BEHAVIOR_SECTION, 'SelectedIsChecked', True);
     FIgnoreAbsentArchives := iniFile.ReadBool(BEHAVIOR_SECTION, 'IgnoreAbsentArchives', True);
     FConvertWebPToPNG := iniFile.ReadBool(BEHAVIOR_SECTION, 'ConvertWebPToPNG', True);
+    FUseBuiltinReaderByDefault := iniFile.ReadBool(BEHAVIOR_SECTION, 'UseBuiltinReaderByDefault', True);
 
 
     //
@@ -938,6 +954,10 @@ begin
     //
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckUpdates', FDoCheckUpdate);
+    iniFile.WriteString(SYSTEM_SECTION, 'BookCachePreviousPath', FBookCachePreviousPath);
+    iniFile.WriteString(SYSTEM_SECTION, 'BookCacheDirectory', FBookCacheDirectory);
+    iniFile.WriteInteger(SYSTEM_SECTION, 'BookCacheLimitMB', FBookCacheLimitMB);
+    iniFile.WriteBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', FClearBookCacheOnExit);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', FProgramUpdateMinutes);
     iniFile.WriteDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', FProgramUpdateLastCheckUTC);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', FCheckExternalLibUpdate);
@@ -1067,6 +1087,7 @@ begin
     iniFile.WriteBool(BEHAVIOR_SECTION, 'SelectedIsChecked', FSelectedIsChecked);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'IgnoreAbsentArchives', FIgnoreAbsentArchives);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ConvertWebPToPNG', FConvertWebPToPNG);
+    iniFile.WriteBool(BEHAVIOR_SECTION, 'UseBuiltinReaderByDefault', FUseBuiltinReaderByDefault);
 
     //
     // FILE_SORT_SECTION

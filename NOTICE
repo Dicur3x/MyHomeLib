@@ -17,3 +17,27 @@ be transliterated into any other form.
 
 On those two conditions, forking, modifying and redistributing this source is
 welcome.
+
+The bundled Kindle compatibility helper is separate third-party software:
+KindleUnpack, commit bf0ca6ece4e73494625e7950be3e259b6260774c,
+https://github.com/kevinhendricks/KindleUnpack, GPL-3.0. Its complete unmodified
+library source and licence accompany each binary distribution in tools/kindle.
+The HomeLib Ru wrapper is tools/kindle/convert_kf8.py. It invokes KindleUnpack
+in a separate private Python process and does not alter the original book.
+
+The private CPython 3.13.16 embedded runtime and its licence are included in
+tools/kindle/python. No system Python installation is required. Exact download
+URLs and checksums are recorded in Installer/KINDLE_RUNTIME.json in the source.
+
+The separate DjVu page renderer uses the unmodified DjVuLibre 3.5.29 Windows
+decoder library and command-line tools, GPL-2.0-or-later. Their complete matching source archive,
+copyright notice and licence accompany the binaries in tools/djvu. HomeLib Ru
+runs HomeLibDjvu as a private persistent process, passing finished pixels
+directly to the reader. Its complete source is in tools/djvu/HomeLibDjvu-source
+and Utils/HomeLibDjvu in the repository. It performs no OCR. The IJG JPEG, libtiff and zlib notices accompany their original DLLs.
+Exact official download URLs and checksums are in Installer/RASTER_RUNTIME.json.
+
+The private full 7-Zip 26.04 command-line decoder and DLL are included for RAR
+comic archives. They are unmodified, with their original License.txt in
+tools/7zip. This includes LGPL/BSD components and the unRAR restriction;
+see that file and https://www.7-zip.org/license.txt for details.

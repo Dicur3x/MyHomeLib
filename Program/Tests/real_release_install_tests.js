@@ -39,10 +39,23 @@ for (const entry of manifest.files) {
 }
 assert.deepEqual(files(unpacked).sort(), [...payload, 'HomeLibRu.update.json'].sort());
 fs.writeFileSync(path.join(installation, 'uselocaldata'), '');
-execute(path.join(installation, 'MHLMcpServer.exe'), ['--make-fixture', 'uselocaldata', 'user', 'mcpfixture']);
+// Build disposable data with the current fixture generator. Older releases
+// contain obsolete self-test expectations for empty FB2 descriptors. Restore
+// their exact executable before the real update so this still tests installation
+// over the original, complete previous distribution.
+const fixtureBuilder = path.join(installation, 'MHLMcpServer.exe');
+const previousBuilder = read(fixtureBuilder);
+try {
+  fs.copyFileSync(path.join(unpacked, 'MHLMcpServer.exe'), fixtureBuilder);
+  execute(fixtureBuilder, ['--make-fixture', 'uselocaldata', 'user', 'mcpfixture']);
+} finally {
+  fs.writeFileSync(fixtureBuilder, previousBuilder);
+}
+assert.equal(sha(read(fixtureBuilder)), sha(previousBuilder));
 const profiles = {'myhomelib2.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
   'presets.cxml2': 'isolated saved presets', 'Readers/AlReader/options.ini': 'saved reader options',
-  'Readers/SumatraPDF/SumatraPDF-settings.txt': 'saved reading history'};
+  'Readers/SumatraPDF/SumatraPDF-settings.txt': 'saved reading history',
+  'Data/reader.ini': '[Reader]\r\nFontSize=19\r\nFontName=Georgia\r\n[Book.night-test]\r\nPosition=7234\r\n'};
 for (const [name, contents] of Object.entries(profiles)) fs.writeFileSync(path.join(installation, name), contents);
 const protectedFiles = files(installation).filter(name => !payload.has(name) && name !== 'HomeLibRu.update.json');
 const before = protectedFiles.map(name => sha(read(path.join(installation, name))));

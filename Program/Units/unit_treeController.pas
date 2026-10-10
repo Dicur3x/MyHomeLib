@@ -20,7 +20,7 @@ interface
 
 uses
   Types,
-  Classes,
+  Classes, SysUtils,
   Graphics,
   Generics.Collections,
   VirtualTrees,
@@ -33,6 +33,8 @@ type
   TTreeController = class
   private
     FSystemData: ISystemData;
+    FCompareCount: Integer;
+    FCancelCheck: TFunc<Boolean>;
     FCollectionTypes: TDictionary<Integer, COLLECTION_TYPE>;
 
     FStarImage: TPngImage;
@@ -96,6 +98,7 @@ type
     procedure DownloadsSaveNode(Sender: TBaseVirtualTree; Node: PVirtualNode; Stream: TStream);
 
   public
+    property CancelCheck: TFunc<Boolean> read FCancelCheck write FCancelCheck;
     constructor Create(SystemData: ISystemData);
     destructor Destroy; override;
 
@@ -111,7 +114,6 @@ implementation
 
 uses
   Winapi.Windows,
-  SysUtils,
   Math,
   StrUtils,
   Forms,
@@ -353,6 +355,8 @@ begin
       Result := Data^.Title;
     COL_SERIES:
       Result := Data^.Series;
+    COL_PUBLISHER_SERIES:
+      Result := TSeriesHelper.GetList(Data^.PublisherSeries);
     COL_NO:
       Result := IfThen(Data^.SeqNumber = 0, '', IntToStr(Data^.SeqNumber));
     COL_SIZE:
@@ -369,7 +373,7 @@ begin
     COL_COLLECTION:
       Result := Data^.CollectionName;
     COL_LIBID:
-      Result := Data^.LibID;
+      Result := Data^.DisplayLibID;
   end;
 end;
 
@@ -575,8 +579,30 @@ end;
 procedure TTreeController.BooksCompareNodes(Sender: TBaseVirtualTree; Node1, Node2: PVirtualNode; Column: TColumnIndex; var Result: Integer);
 var
   Data1, Data2: PBookRecord;
-  Number1, Number2: Integer;
+  Number1, Number2: Integer; Tree: TBookTree; Key: TBookSortKey;
+  function CompareColumn(Tag: Integer): Integer;
+  begin
+    Result := 0;
+    case Tag of
+      COL_AUTHOR:  Result := CompareStr(TAuthorsHelper.GetList(Data1^.Authors), TAuthorsHelper.GetList(Data2^.Authors));
+      COL_TITLE:   Result := CompareStr(Data1^.Title, Data2^.Title);
+      COL_PUBLISHER_SERIES: Result := CompareStr(TSeriesHelper.GetList(Data1^.PublisherSeries),TSeriesHelper.GetList(Data2^.PublisherSeries));
+      COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
+      COL_NO:      Result := CompareSeqNumber(Number1, Number2);
+      COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);
+      COL_RATE:    Result := CompareInt(Data1^.Rate, Data2^.Rate);
+      COL_GENRE:   Result := CompareStr(TGenresHelper.GetList(Data1^.Genres), TGenresHelper.GetList(Data2^.Genres));
+      COL_DATE:    Result := CompareDate(Data1^.Date, Data2^.Date);
+      COL_LANG:    Result := CompareStr(Data1^.Lang, Data2^.Lang);
+      COL_LIBRATE: Result := CompareInt(Data1^.LibRate, Data2^.LibRate);
+      COL_LIBID:   Result := CompareInt(StrToIntDef(Data1^.DisplayLibID, 0), StrToIntDef(Data2^.DisplayLibID, 0));
+      COL_COLLECTION: Result := CompareStr(Data1^.CollectionName, Data2^.CollectionName);
+      COL_TYPE:   Result := CompareStr(Data1^.GetFileType, Data2^.GetFileType);
+    end;
+  end;
 begin
+  Inc(FCompareCount);
+  if Assigned(FCancelCheck) and ((FCompareCount and 4095)=0) and FCancelCheck() then Abort;
   Data1 := Sender.GetNodeData(Node1);
   Data2 := Sender.GetNodeData(Node2);
   Number1 := Data1^.SeqNumber;
@@ -587,7 +613,26 @@ begin
     Number2 := Data2^.PublisherSeqNumber;
   end;
 
-  if NoColumn = Column then
+  Tree := Sender as TBookTree;
+  if (Settings.TreeModes[Sender.Tag] = tmFlat) and (Column = NoColumn) then
+    Result := CompareInt(Data1^.ListOrder,Data2^.ListOrder)
+  else if (Column >= 0) and (Length(Tree.SortKeys) > 0) then
+  begin
+    Result := 0;
+    for Key in Tree.SortKeys do
+    begin
+      Result := CompareColumn(Key.Tag);
+      // VirtualTrees reverses the complete comparator for the primary direction.
+      if Key.Direction <> Tree.Header.SortDirection then Result := -Result;
+      if Result <> 0 then Break;
+    end;
+    if Result = 0 then
+    begin
+      Result := CompareInt(Data1^.ListOrder,Data2^.ListOrder);
+      if Tree.Header.SortDirection = sdDescending then Result := -Result;
+    end;
+  end
+  else if NoColumn = Column then
   begin
     if Data1^.nodeType = Data2^.nodeType then
     begin
@@ -608,23 +653,7 @@ begin
     else
       Result := Sign(Ord(Data1^.nodeType) - Ord(Data2^.nodeType));
   end
-  else
-  begin
-    case (Sender as TBookTree).Header.Columns[Column].Tag of
-      COL_AUTHOR:  Result := CompareStr(TAuthorsHelper.GetList(Data1^.Authors), TAuthorsHelper.GetList(Data2^.Authors));
-      COL_TITLE:   Result := CompareStr(Data1^.Title, Data2^.Title);
-      COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
-      COL_NO:      Result := CompareSeqNumber(Number1, Number2);
-      COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);
-      COL_RATE:    Result := CompareInt(Data1^.Rate, Data2^.Rate);
-      COL_GENRE:   Result := CompareStr(TGenresHelper.GetList(Data1^.Genres), TGenresHelper.GetList(Data2^.Genres));
-      COL_DATE:    Result := CompareDate(Data1^.Date, Data2^.Date);
-      COL_LANG:    Result := CompareStr(Data1^.Lang, Data2^.Lang);
-      COL_LIBRATE: Result := CompareInt(Data1^.LibRate, Data2^.LibRate);
-      COL_LIBID:   Result := CompareInt(StrToIntDef(Data1^.LibID, 0), StrToIntDef(Data2^.LibID, 0));
-      COL_TYPE:   Result := CompareSTr(Data1^.FileExt, Data2^.FileExt);
-    end;
-  end;
+  else Result := CompareColumn(Tree.Header.Columns[Column].Tag);
 end;
 
 //

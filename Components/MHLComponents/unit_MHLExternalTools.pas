@@ -1,4 +1,4 @@
-(* ****************************************************************************
+﻿(* ****************************************************************************
   MyHomeLib external runtime tool helper.
 
   The helper deliberately uses CreateProcess instead of a command shell.  This
@@ -19,7 +19,11 @@ type
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
-  const IsCanceled: TFunc<Boolean> = nil);
+  const IsCanceled: TFunc<Boolean> = nil; const PrefixBytes: Integer = 0;
+  const ContainProcessTree: Boolean = False);
+
+// Optional UI heartbeat, scoped to the thread that initiated the decoder.
+threadvar MHLExternalToolHeartbeat: TProc;
 
 implementation
 
@@ -123,12 +127,13 @@ end;
 
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
-  const IsCanceled: TFunc<Boolean>);
+  const IsCanceled: TFunc<Boolean>; const PrefixBytes: Integer;
+  const ContainProcessTree: Boolean);
 const
   BUFFER_SIZE = 64 * 1024;
 var
   Buffer: array [0 .. BUFFER_SIZE - 1] of Byte;
-  BytesRead: DWORD;
+  BytesRead: DWORD; ReadCount: DWORD;
   BytesAvailable: DWORD;
   ProcessFinished: Boolean;
   ProcessExited: Boolean;
@@ -142,6 +147,9 @@ var
   ProcessInfo: TProcessInformation;
   Security: TSecurityAttributes;
   StartInfo: TStartupInfo;
+  Job: THandle;
+  JobLimits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION;
+  CreationFlags: DWORD;
 begin
   if not FileExists(ToolPath) then
     raise EMHLExternalToolError.CreateFmt(
@@ -152,7 +160,9 @@ begin
   FillChar(Security, SizeOf(Security), 0);
   Security.nLength := SizeOf(Security);
   Security.bInheritHandle := True;
-  if not CreatePipe(PipeRead, PipeWrite, @Security, 0) then
+  // A small default pipe repeatedly blocks the decoder while the caller waits
+  // for the next poll. Match the read buffer so full-book extraction can stream.
+  if not CreatePipe(PipeRead, PipeWrite, @Security, BUFFER_SIZE) then
     RaiseLastOSError;
   try
     if not SetHandleInformation(PipeRead, HANDLE_FLAG_INHERIT, 0) then
@@ -182,9 +192,22 @@ begin
             QuoteCommandLineArgument(Arguments[I]);
         UniqueString(CommandLine);
 
+        Job := 0;
+        CreationFlags := CREATE_NO_WINDOW or NORMAL_PRIORITY_CLASS;
+        if ContainProcessTree then
+        begin
+          Job := CreateJobObject(nil,nil);
+          if Job = 0 then RaiseLastOSError;
+          FillChar(JobLimits,SizeOf(JobLimits),0);
+          JobLimits.BasicLimitInformation.LimitFlags := JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+          if not SetInformationJobObject(Job,JobObjectExtendedLimitInformation,@JobLimits,SizeOf(JobLimits)) then
+          begin CloseHandle(Job); RaiseLastOSError; end;
+          CreationFlags := CreationFlags or CREATE_SUSPENDED;
+        end;
+        try
         FillChar(ProcessInfo, SizeOf(ProcessInfo), 0);
         if not CreateProcess(PChar(ToolPath), PChar(CommandLine), nil, nil,
-          True, CREATE_NO_WINDOW or NORMAL_PRIORITY_CLASS, nil,
+          True, CreationFlags, nil,
           PChar(ExtractFilePath(ToolPath)), StartInfo, ProcessInfo) then
           RaiseLastOSError;
 
@@ -193,10 +216,16 @@ begin
         ProcessFinished := False;
         ProcessExited := False;
         try
+          if ContainProcessTree then
+          begin
+            if not AssignProcessToJobObject(Job,ProcessInfo.hProcess) then RaiseLastOSError;
+            if ResumeThread(ProcessInfo.hThread) = DWORD(-1) then RaiseLastOSError;
+          end;
           Output.Position := 0;
           Output.Size := 0;
           while True do
           begin
+            if Assigned(MHLExternalToolHeartbeat) then MHLExternalToolHeartbeat();
             if Assigned(IsCanceled) and IsCanceled() then
               raise EAbort.Create('Operation canceled');
             if not PeekNamedPipe(PipeRead, nil, 0, nil, @BytesAvailable, nil) then
@@ -207,15 +236,24 @@ begin
             end;
             if BytesAvailable > 0 then
             begin
-              if not ReadFile(PipeRead, Buffer[0], SizeOf(Buffer), BytesRead, nil) then
+              ReadCount := SizeOf(Buffer);
+              if (PrefixBytes > 0) and (PrefixBytes - Output.Size < ReadCount) then
+                ReadCount := PrefixBytes - Output.Size;
+              if not ReadFile(PipeRead, Buffer[0], ReadCount, BytesRead, nil) then
                 RaiseLastOSError;
               if BytesRead > 0 then
                 Output.WriteBuffer(Buffer[0], BytesRead);
+              if (PrefixBytes > 0) and (Output.Size >= PrefixBytes) then
+              begin
+                // Intentionally bounded metadata preview, never a complete
+                // extraction or a CRC-verified book used by the reader/editor.
+                Output.Position := 0; Exit;
+              end;
             end
             else if ProcessExited then
               Break;
             if BytesAvailable = 0 then
-              ProcessExited := WaitForSingleObject(ProcessInfo.hProcess, 10) = WAIT_OBJECT_0;
+              ProcessExited := WaitForSingleObject(ProcessInfo.hProcess, 1) = WAIT_OBJECT_0;
           end;
 
           WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
@@ -235,6 +273,9 @@ begin
           end;
           CloseHandle(ProcessInfo.hThread);
           CloseHandle(ProcessInfo.hProcess);
+        end;
+        finally
+          if Job <> 0 then CloseHandle(Job);
         end;
       finally
         CloseHandle(NullError);

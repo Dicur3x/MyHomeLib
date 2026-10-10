@@ -75,7 +75,7 @@ uses
   Vcl.Themes,
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
-  unit_Localization;
+  unit_Localization, unit_BookInfoPreview;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -646,6 +646,7 @@ type
     procedure UpdateCollectionFromFileExecute(Sender: TObject);
     procedure UpdateCollectionFromFileUpdate(Sender: TObject);
     procedure ClearReadFolderExecute(Sender: TObject);
+    procedure BookCacheActionUpdate(Sender: TObject);
     procedure ChangeSettingsExecute(Sender: TObject);
 
     //
@@ -769,6 +770,7 @@ type
     FDownloadNode: PVirtualNode;
 
     FCurrentBookOnly: Boolean;
+    FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FInvisible: Boolean;
     FLoadedBookViews: set of TView;
     FPendingLangFilters: array[TView] of Integer;
@@ -777,6 +779,11 @@ type
     FPublisher: TPublisherSeriesView;
     FPublisherListLoaded: Boolean;
     FBookInfoUpdateCount: Integer;
+    FBookPreviews: array[0..6] of TBookInfoPreview;
+    FBookListCancel: TButton;
+    FBookListLoading, FBookListCancelled: Boolean;
+    FBookListLastPump, FCacheMenuUpdated: UInt64;
+    FStaleSelectors: set of TView;
     FLastPublisherSeriesID: Integer;
     FLastPublisherBookID: TBookKey;
     FPendingPublisherBookID: Integer;
@@ -838,6 +845,16 @@ type
 
     // Handlers:
     procedure OnReadBookHandler(const BookRecord: TBookRecord);
+    procedure ReadBuiltinExecute(Sender: TObject);
+    procedure ReadExternalExecute(Sender: TObject);
+    procedure ReadBuiltinUpdate(Sender: TObject);
+    procedure OpenArchiveExecute(Sender: TObject);
+    procedure OpenArchiveUpdate(Sender: TObject);
+    procedure BookLocationUpdate(Sender: TObject);
+    procedure BookLocationExecute(Sender: TObject);
+    procedure ChooseReaderExecute(Sender: TObject);
+    procedure ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin: Boolean; ChooseReader: Boolean = False; ForceChoice: Boolean = False;
+      const ReaderPathOverride: string = ''; KeepKindlePreparation: Boolean = False);
     procedure OnSelectBookHandler(MoveForward: Boolean);
     procedure OnGetBookHandler(var BookRecord: TBookRecord);
     procedure OnUpdateBookHandler(const BookRecord: TBookRecord);
@@ -918,10 +935,17 @@ type
       ShowSer: Boolean;
       SelectedID: PBookKey
     ); overload;
+    procedure FillBooksTree(const Tree: TBookTree; const LangSelector: TComboBox;
+      const Factory: TFunc<IBookIterator>; ShowAuth, ShowSer: Boolean;
+      SelectedID: PBookKey); overload;
+    property BookListCancelled: Boolean read FBookListCancelled;
     procedure OnSetControlsStateHandler(State: Boolean);
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
+    procedure ResetColumnFiltersClick(Sender: TObject);
+    procedure ClearBookSorting(Sender: TObject);
+    procedure SortLoadedBooks(Tree: TBookTree);
     procedure SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
 
     procedure LocateBook(const Text: string; MoveForward: Boolean);
@@ -954,6 +978,7 @@ type
     FLastLetterA: TToolButton;
     FLastLetterS: TToolButton;
 
+    FColumnReset: array[0..6] of TButton;
     FSortSettings: array [0 .. 6] of TSortSetting;
 
     FLastFoundBook: PVirtualNode;
@@ -1042,6 +1067,10 @@ type
     function ShowNCWizard: Boolean;
     function LoadLastCollection: boolean;
     procedure SetShowStatusProgress(const Value: Boolean);
+    procedure CancelBookList(Sender: TObject);
+    function PollBookListCancel: Boolean;
+    procedure FillBooksTreeCore(const Tree: TBookTree; const LangSelector: TComboBox;
+      const BookIterator: IBookIterator; ShowAuth, ShowSer: Boolean; SelectedID: PBookKey);
     procedure SetStatusProgress(const Value: Integer);
     function GetShowStatusProgress: Boolean;
     function GetStatusProgress: Integer;
@@ -1074,6 +1103,7 @@ const
 implementation
 
 uses
+  SQLiteWrap,
   StrUtils,
   DateUtils,
   IOUtils,
@@ -1100,7 +1130,9 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
-  unit_ReaderCache,
+  unit_Readers, unit_ReaderCache, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
+  unit_ReaderDocument,
+  frm_BuiltinReader,
   dm_user,
   unit_Import,
   unit_IndexPublisherSeriesThread,
@@ -1123,7 +1155,9 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources;
+
+type TBookTreeAccess = class(TBookTree);
 
 resourcestring
 rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
@@ -1327,6 +1361,7 @@ end;
 procedure TfrmMain.SetColumns;
 var
   Columns: TColumns;
+  Tree: TBookTree;
 begin
   Columns := TColumns.Create(Settings.SystemFileName[sfColumnsStore]);
   try
@@ -1363,6 +1398,13 @@ begin
     else
       Columns.Load(SECTION_SR_FLAT, tmFlat);
     Columns.SetColumns(tvBooksSR.Header.Columns);
+    for Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG, tvBooksF, tvBooksSR, FPublisher.Books) do
+    begin
+      Tree.HeaderFilterTags := TArray<Integer>.Create(COL_AUTHOR, COL_TITLE, COL_SERIES, COL_PUBLISHER_SERIES,
+        COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE, COL_COLLECTION, COL_LANG,
+        COL_LIBRATE, COL_LIBID);
+      Tree.Header.Height := Max(Tree.Header.Height, MulDiv(24, Tree.CurrentPPI, 96));
+    end;
 
     (* REMOVE
     if Settings.TreeModes[PAGE_FILTER] = tmTree then
@@ -1672,11 +1714,12 @@ begin
           FSearchCriteria.DateText := cbDate.Text;
 
         Assert(Assigned(FCollection));
-        BookIterator := FCollection.Search(FSearchCriteria, False);
+
 
         // Ставим фильтр
         StatusMessage := rstrApplyingFilter;
-        FillBooksTree(tvBooksSR, nil, BookIterator, True, True, nil);
+        FillBooksTree(tvBooksSR, nil,
+          function: IBookIterator begin Result := FCollection.Search(FSearchCriteria, False); end, True, True, nil);
       except
         on E: Exception do
           MHLShowError(rstrFilterParamError);
@@ -1817,8 +1860,7 @@ begin
   FViewLanguageSelected[PublisherSeriesView] := True;
   try
     FillBooksTree(FPublisher.Books, FPublisher.Language,
-      FCollection.GetBookIterator(bmByPublisherSeries, False, @Filter),
-      False, False, @FLastPublisherBookID);
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByPublisherSeries, False, @Filter); end, False, False, @FLastPublisherBookID);
   finally
     FViewLanguageSelected[PublisherSeriesView] := WasLangSelected;
   end;
@@ -1991,8 +2033,12 @@ end;
 
 procedure TfrmMain.CloseCollection;
 var
-  FCursor: TCursor;
+  FCursor: TCursor; I: Integer;
 begin
+  for I:=Low(FBookPreviews) to High(FBookPreviews) do
+    if Assigned(FBookPreviews[I]) then FBookPreviews[I].Cancel;
+  FStaleSelectors := [];
+  FBookListCancelled := False;
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   FCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
@@ -2247,7 +2293,9 @@ begin
     //
     // Поиск
     //
-    edFAnnotation.Enabled := IsPrivate;
+    edFAnnotation.Enabled := True;
+    edFAnnotation.ShowHint := True;
+    edFAnnotation.Hint := 'Поиск по аннотациям, сохранённым в каталоге. INPX обычно не содержит аннотаций; текст внутри файлов здесь не просматривается.';
 
     // --------- Вкладки, прочее  -------------------------------------------------
 
@@ -3021,13 +3069,15 @@ begin
       0:
       begin
         FilterValue := AuthorBookFilter;
-        FillBooksTree(tvBooksA, cbLangSelectA, FCollection.GetBookIterator(bmByAuthor, False, @FilterValue), False, True, @FLastAuthorBookID);  // авторы
+        FillBooksTree(tvBooksA, cbLangSelectA,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID);  // авторы
       end;
 
       1:
       begin
         FilterValue := SeriesBookFilter;
-        FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
+        FillBooksTree(tvBooksS, cbLangSelectS,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmBySeries, False, @FilterValue); end, False, False, @FLastSeriesBookID); // серии
       end;
 
       2:
@@ -3035,9 +3085,11 @@ begin
         FillCurrentGenreBooks; // жанры
       end;
 
-      3: FillBooksTree(tvBooksSR, nil, FCollection.Search(FSearchCriteria, False), True,  True, nil);  // поиск
+      3: FillBooksTree(tvBooksSR, nil,
+        function: IBookIterator begin Result := FCollection.Search(FSearchCriteria, False); end, True, True, nil);  // поиск
 
-      4: FillBooksTree(tvBooksF,cbLangSelectF,  FSystemData.GetBookIterator(FLastGroupID), True,  True, @FLastGroupBookID);  // избранное
+      4: FillBooksTree(tvBooksF, cbLangSelectF,
+        function: IBookIterator begin Result := FSystemData.GetBookIterator(FLastGroupID); end, True, True, @FLastGroupBookID);  // избранное
     end;
 
     SetHeaderPopUp;
@@ -3533,6 +3585,16 @@ begin
   FStatusProgressBar := TProgressBar.Create(Self);
   FStatusProgressBar.Parent := StatusBar;
   FStatusProgressBar.Visible := False;
+  FStatusProgressBar.SetBounds(0, 0, 150, StatusBar.Height);
+  FBookListCancel := TButton.Create(Self);
+  FBookListCancel.Name := 'BookListCancel';
+  FBookListCancel.Parent := StatusBar;
+  FBookListCancel.SetBounds(152, 0, 26, StatusBar.Height);
+  FBookListCancel.Caption := '×';
+  FBookListCancel.Hint := 'Остановить загрузку списка';
+  FBookListCancel.ShowHint := True;
+  FBookListCancel.Visible := False;
+  FBookListCancel.OnClick := CancelBookList;
   StatusMessage := '';
   ShowStatusProgress := False;
   StatusProgress := 0;
@@ -3609,6 +3671,42 @@ begin
   OPDSMenu.Caption := 'Каталог для читалки (OPDS)...';
   OPDSMenu.OnClick := ShowOPDS;
   miTools.Insert(0, OPDSMenu);
+  FReadBuiltinAction := TAction.Create(Self);
+  FReadBuiltinAction.Name := 'acReadBuiltin';
+  FReadBuiltinAction.ActionList := Actions;
+  FReadBuiltinAction.Caption := 'Читать во встроенной читалке (экспериментально)';
+  FReadBuiltinAction.ShortCut := ShortCut(Ord('R'), [ssCtrl, ssAlt]);
+  FReadBuiltinAction.ImageIndex := 12;
+  FReadBuiltinAction.OnExecute := ReadBuiltinExecute;
+  FReadBuiltinAction.OnUpdate := ReadBuiltinUpdate;
+  acToolsClearReadFolder.OnUpdate := BookCacheActionUpdate;
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Action := FReadBuiltinAction;
+  miBook.Insert(0, FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Action := FReadBuiltinAction;
+  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex + 1, FilterMenu);
+  FOpenArchiveAction := TAction.Create(Self);
+  FOpenArchiveAction.Name := 'acOpenBookArchive'; FOpenArchiveAction.ActionList := Actions;
+  FOpenArchiveAction.Caption := 'Посмотреть содержимое архива';
+  FOpenArchiveAction.OnExecute := OpenArchiveExecute; FOpenArchiveAction.OnUpdate := OpenArchiveUpdate;
+  FilterMenu := TMenuItem.Create(Self); FilterMenu.Action := FOpenArchiveAction;
+  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+2,FilterMenu);
+  FilterMenu := TMenuItem.Create(Self); FilterMenu.Action := FOpenArchiveAction; miBook.Insert(1,FilterMenu);
+  FLocationAction:=TAction.Create(Self); FLocationAction.Name:='acBookLocation'; FLocationAction.ActionList:=Actions;
+  FLocationAction.Caption:='Где хранится книга…'; FLocationAction.OnExecute:=BookLocationExecute; FLocationAction.OnUpdate:=BookLocationUpdate;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FLocationAction; miBook.Insert(2,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FLocationAction; pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+3,FilterMenu);
+  FChooseReaderAction:=TAction.Create(Self); FChooseReaderAction.Name:='acChooseReader'; FChooseReaderAction.ActionList:=Actions;
+  FChooseReaderAction.Caption:='Выбрать читалку…'; FChooseReaderAction.OnExecute:=ChooseReaderExecute; FChooseReaderAction.OnUpdate:=BookLocationUpdate;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FChooseReaderAction; miBook.Insert(3,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FChooseReaderAction; pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+4,FilterMenu);
+  FReadExternalAction:=TAction.Create(Self); FReadExternalAction.Name:='acReadExternal';
+  FReadExternalAction.ActionList:=Actions; FReadExternalAction.Caption:='Читать во внешней программе';
+  FReadExternalAction.OnExecute:=ReadExternalExecute; FReadExternalAction.OnUpdate:=BookLocationUpdate;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FReadExternalAction; miBook.Insert(1,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FReadExternalAction;
+  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+2,FilterMenu);
   for I := 0 to 1 do
   begin
     FilterMenu := TMenuItem.Create(Self);
@@ -3621,6 +3719,14 @@ begin
     FilterMenu.OnClick := ShowBookColumnFilters;
     if I = 0 then pmHeaders.Items.Add(FilterMenu) else miView.Add(FilterMenu);
   end;
+
+  FilterMenu := TMenuItem.Create(Self); FilterMenu.Caption := 'Сбросить сортировку';
+  FilterMenu.OnClick := ClearBookSorting; pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self); FilterMenu.Caption := 'Shift + щелчок: добавить 2-й или 3-й столбец';
+  FilterMenu.Enabled := False; pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self); FilterMenu.Caption := 'Книжная серия';
+  FilterMenu.Tag := COL_PUBLISHER_SERIES; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
 
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Caption := 'Источники и объединение коллекции...';
@@ -3718,7 +3824,10 @@ begin
 end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
+var I: Integer;
 begin
+  CancelReaderPreparations(Self);
+  for I:=Low(FBookPreviews) to High(FBookPreviews) do FreeAndNil(FBookPreviews[I]);
   FreeAndNil(FOPDSForm);
   FreeAndNil(FProgramUpdateTimer);
   FreeAndNil(FProgramUpdateForm);
@@ -3742,6 +3851,7 @@ begin
   // Persistent custom reading folders keep their files across sessions.
   if DirectoryExists(Settings.TempDir) then
     ClearReadFolder(Settings.TempDir);
+  FinishBookCacheSession;
 end;
 
 procedure TfrmMain.UpdatePositions;
@@ -3842,33 +3952,81 @@ begin
 
 end;
 
+procedure TfrmMain.ClearBookSorting(Sender: TObject);
+var Tree: TBookTree;
+begin
+  if FBookListLoading or (ActiveView = DownloadView) then Exit;
+  GetActiveTree(Tree); Tree.SortKeys := nil;
+  SortLoadedBooks(Tree);
+end;
+
+procedure TfrmMain.SortLoadedBooks(Tree: TBookTree);
+var I, Primary: Integer; SavedCursor: TCursor;
+begin
+  if FBookListLoading then Exit;
+  Primary := NoColumn;
+  if Length(Tree.SortKeys) > 0 then
+    for I := 0 to Tree.Header.Columns.Count-1 do
+      if Tree.Header.Columns[I].Tag = Tree.SortKeys[0].Tag then Primary := I;
+  Tree.Header.SortColumn := Primary;
+  if Primary >= 0 then Tree.Header.SortDirection := Tree.SortKeys[0].Direction
+  else begin Tree.Header.SortDirection := sdAscending; Tree.SortKeys := nil; end;
+  FSortSettings[Tree.Tag].Column := Primary; FSortSettings[Tree.Tag].Direction := Tree.Header.SortDirection;
+  FBookListLoading := True; FBookListCancelled := False; FBookListLastPump := 0;
+  SavedCursor := Screen.Cursor; Screen.Cursor := crDefault; Inc(FBookInfoUpdateCount);
+  FBookListCancel.Visible := True; FBookListCancel.BringToFront;
+  FController.CancelCheck := function: Boolean begin Result := PollBookListCancel; end;
+  try
+    try Tree.SortTree(Primary,Tree.Header.SortDirection);
+    except on E: EAbort do if not FBookListCancelled then raise; end;
+  finally
+    FController.CancelCheck := nil; FBookListCancel.Visible := False;
+    FBookListLoading := False; Dec(FBookInfoUpdateCount); Screen.Cursor := SavedCursor;
+  end;
+  Tree.Invalidate;
+end;
+
 procedure TfrmMain.tvBooksTreeHeaderClick(Sender: TVTHeader; HitInfo: TVTHeaderHitInfo);
 var
   Tree: TBookTree;
+  LeftEdge, RightEdge: TDimension;
+  ColumnTag, I, KeyIndex: Integer; Keys: TArray<TBookSortKey>; Direction: VirtualTrees.Types.TSortDirection;
 begin
-  if (HitInfo.Button = mbLeft) then
+  Tree := Sender.Treeview as TBookTree;
+  if HitInfo.Column < 0 then Exit;
+  ColumnTag := Tree.Header.Columns[HitInfo.Column].Tag;
+  Tree.Header.Columns.GetColumnBounds(HitInfo.Column, LeftEdge, RightEdge);
+  if not (coFixed in Tree.Header.Columns[HitInfo.Column].Options) then
+    Dec(RightEdge, TBookTreeAccess(Tree).EffectiveOffsetX);
+  if (ColumnTag <> COL_STATE) and
+    ((HitInfo.Button = mbLeft) and (HitInfo.X >= RightEdge - MulDiv(20, Tree.CurrentPPI, 96))) then
   begin
-    GetActiveTree(Tree);
-    if (Settings.TreeModes[Tree.Tag] = tmTree) or (HitInfo.Column < 0) then
-      Exit;
-
-    //
-    // Меняем индекс сортирующей колонки на индекс колонки, которая была нажата.
-    //
-    Tree.Header.SortColumn := HitInfo.Column;
-
-    //
-    // Сортируем всё дерево относительно этой колонки и изменяем порядок сортировки на противополжный
-    //
-    if Tree.Header.SortDirection = sdAscending then
-      Tree.Header.SortDirection := sdDescending
+    if EditBookColumnFilter(Tree, ColumnTag) then ApplyBookColumnFilters(Tree);
+    Exit;
+  end;
+  if HitInfo.Button = mbLeft then
+  begin
+    if Settings.TreeModes[Tree.Tag] = tmTree then Exit;
+    Keys := Tree.SortKeys; KeyIndex := -1;
+    for I := 0 to High(Keys) do if Keys[I].Tag = ColumnTag then KeyIndex := I;
+    Direction := sdAscending;
+    if KeyIndex >= 0 then
+      if Keys[KeyIndex].Direction = sdAscending then Direction := sdDescending;
+    if (GetKeyState(VK_SHIFT) and $8000) = 0 then
+    begin
+      SetLength(Keys,1); Keys[0].Tag := ColumnTag; Keys[0].Direction := Direction;
+    end
     else
-      Tree.Header.SortDirection := sdAscending;
-    Tree.SortTree(HitInfo.Column, Tree.Header.SortDirection);
-
-    // запоминаем параметры для активного дерева
-    FSortSettings[Tree.Tag].Column := HitInfo.Column;
-    FSortSettings[Tree.Tag].Direction := Tree.Header.SortDirection;
+    begin
+      if KeyIndex < 0 then
+      begin
+        if Length(Keys) < 3 then begin KeyIndex := Length(Keys); SetLength(Keys,KeyIndex+1); end
+        else KeyIndex := 2;
+      end;
+      Keys[KeyIndex].Tag := ColumnTag; Keys[KeyIndex].Direction := Direction;
+    end;
+    Tree.SortKeys := Keys;
+    SortLoadedBooks(Tree);
   end;
 end;
 
@@ -3930,7 +4088,8 @@ begin
 
     FilterValue := AuthorBookFilter;
     if Assigned(FCollection) then
-      FillBooksTree(tvBooksA, cbLangSelectA, FCollection.GetBookIterator(bmByAuthor, False, @FilterValue), False, True, @FLastAuthorBookID); // авторы
+      FillBooksTree(tvBooksA, cbLangSelectA,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID); // авторы
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -4006,7 +4165,8 @@ begin
 
     FilterValue := SeriesBookFilter;
     if Assigned(FCollection) then
-      FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // авторы
+      FillBooksTree(tvBooksS, cbLangSelectS,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmBySeries, False, @FilterValue); end, False, False, @FLastSeriesBookID); // авторы
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -4157,7 +4317,8 @@ begin
       FLastGroupBookID.Clear;
     end;
 
-    FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True, True, @FLastGroupBookID);
+    FillBooksTree(tvBooksF, cbLangSelectF,
+        function: IBookIterator begin Result := FSystemData.GetBookIterator(FLastGroupID); end, True, True, @FLastGroupBookID);
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -4253,13 +4414,6 @@ var
   Data: PBookRecord;
   Tree: TBookTree;
   InfoPanel: TInfoPanel;
-  bookStream: TStream;
-  coverStream: TStream;
-  book: IXMLFictionBook;
-  imgBookCover: TGraphic;
-  BookFormat: TBookFormat;
-  CoverLoaded: Boolean;
-  NeedDescriptor: Boolean;
   isFBDDocument: Boolean;
   StoredBookKey: PBookKey;
   BookCollection: IBookCollection;
@@ -4268,7 +4422,7 @@ var
   GalleryBook: TBookRecord;
 
 begin
-  if FInvisible or (FBookInfoUpdateCount > 0) or not Assigned(Node) then Exit;
+  if FInvisible or (FBookInfoUpdateCount > 0) then Exit;
 
   Tree := Sender as TBookTree;
 
@@ -4308,9 +4462,17 @@ begin
   end;
 
 
+  if not Assigned(FBookPreviews[Tree.Tag]) then
+    FBookPreviews[Tree.Tag]:=TBookInfoPreview.CreateFor(Self,InfoPanel);
+  FBookPreviews[Tree.Tag].Cancel;
   InfoPanel.BeginUpdate;
   try
   InfoPanel.Clear;
+  if not Assigned(Node) then
+  begin
+    if Assigned(StoredBookKey) then StoredBookKey^.Clear;
+    Exit;
+  end;
   Data := Tree.GetNodeData(Node);
 
   if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
@@ -4343,6 +4505,7 @@ begin
       SeriesLinks,
       TGenresHelper.GetLinkList(Data^.Genres)
     );
+    InfoPanel.SetReadingSupport(ReaderAvailability(Data^.FileExt));
     InfoPanel.DetailsButton.OnClick := ShowBookInfo;
     InfoPanel.DetailsButton.Visible := True;
     if bpIsLocal in Data^.BookProps then
@@ -4350,10 +4513,11 @@ begin
       GalleryBook := Data^;
       InfoPanel.Gallery.PreviewSettingsFile := Settings.DataPath + 'gallery-window.ini';
       InfoPanel.Gallery.SetBook(IntToStr(GalleryBook.BookKey.DatabaseID) + ':' +
-        IntToStr(GalleryBook.BookKey.BookID), GalleryBook.FileExt,
+        IntToStr(GalleryBook.BookKey.BookID),
+        IfThen(IsArchiveExt(GalleryBook.FileName+GalleryBook.FileExt),FB2_EXTENSION,GalleryBook.FileExt),
         function: TStream
         begin
-          Result := GalleryBook.GetBookStream;
+          Result := OpenBookImageSource(GalleryBook);
         end);
     end;
     try
@@ -4364,92 +4528,10 @@ begin
       // Keep the rest of the panel usable for temporarily unavailable collections.
     end;
 
-    if Settings.ShowBookCover or Settings.ShowBookAnnotation or Settings.Fb2InfoPriority then
-    begin
-      if bpIsLocal in Data^.BookProps then
-      begin
-        BookFormat := Data^.GetBookFormat;
-        CoverLoaded := False;
+    if bpIsLocal in Data^.BookProps then
+      FBookPreviews[Tree.Tag].Load(Data^, Settings.ShowBookCover,
+        Settings.ShowBookAnnotation, Settings.Fb2InfoPriority);
 
-        // FLibrary keeps pictures outside the book archive.  A preview only
-        // needs one image: do not rebuild the complete FB2/EPUB here.
-        if Settings.ShowBookCover then
-        begin
-          coverStream := nil;
-          imgBookCover := nil;
-          try
-            try
-              coverStream := Data^.GetBookPreviewCoverStream;
-              imgBookCover := CreateGraphicFromStream(coverStream);
-              if Assigned(imgBookCover) then
-              begin
-                InfoPanel.SetBookCover(imgBookCover);
-                CoverLoaded := True;
-              end;
-            finally
-              imgBookCover.Free;
-              coverStream.Free;
-            end;
-          except
-            // An incomplete torrent or unavailable JPEG XL decoder should
-            // only hide the thumbnail, never break navigation in the list.
-          end;
-        end;
-
-        NeedDescriptor := not (BookFormat in [bfRaw, bfRawArchive]) and
-          (Settings.ShowBookAnnotation or Settings.Fb2InfoPriority or
-          (Settings.ShowBookCover and not CoverLoaded));
-        if NeedDescriptor then
-        begin
-          try
-            // For an FLibrary FB2 this reads only the XML text.  Full image
-            // restoration remains enabled for opening, exporting and sending.
-            bookStream := Data^.GetBookDescriptorStream(False);
-            if Assigned(bookStream) then
-              try
-                book := LoadFictionBook(bookStream);
-
-                if Settings.ShowBookCover and not CoverLoaded then
-                begin
-                  imgBookCover := GetBookCover(book);
-                  try
-                    InfoPanel.SetBookCover(imgBookCover);
-                    CoverLoaded := Assigned(imgBookCover);
-                  finally
-                    imgBookCover.Free;
-                  end;
-                end;
-
-                InfoPanel.SetBookAnnotation(book);
-                InfoPanel.SetFb2Info(book, Data.Folder,
-                  Data.FileName + Data.FileExt);
-              finally
-                FreeAndNil(bookStream);
-              end
-            else
-              InfoPanel.SetBookAnnotation(nil);
-          except
-            on E : Exception do
-            begin
-              if not CoverLoaded then
-                InfoPanel.SetBookCover(nil);
-              InfoPanel.SetBookAnnotation(nil);
-            end;
-          end;
-        end
-        else
-        begin
-          if Settings.ShowBookCover and not CoverLoaded then
-            InfoPanel.SetBookCover(nil);
-          InfoPanel.SetBookAnnotation(nil);
-        end;
-      end
-      else
-      begin
-        InfoPanel.SetBookCover(nil);
-        InfoPanel.SetBookAnnotation(nil);
-      end;
-    end;
   end;
 
   finally
@@ -4871,45 +4953,188 @@ begin
 end;
 
 procedure TfrmMain.OnReadBookHandler;
+begin
+  ReadPreparedBook(BookRecord, False, True);
+end;
+
+procedure TfrmMain.ReadBuiltinUpdate(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord;
+begin
+  FReadBuiltinAction.Enabled := False;
+  if not Assigned(FCollection) or not (ActiveView in [AuthorsView, SeriesView,
+    PublisherSeriesView, GenresView, SearchView, FavoritesView]) then Exit;
+  GetActiveTree(Tree);
+  if not Assigned(Tree) then Exit;
+  Data := Tree.GetNodeData(Tree.GetFirstSelected);
+  if Assigned(Data) and (Data^.nodeType=ntBookInfo) then
+    FReadBuiltinAction.Enabled:=IsBuiltinReaderFormat(Data^.FileExt) or
+      (IsOfficeReaderFormat(Data^.FileExt) and (FindReaderOffice<>'')) or
+      IsReaderArchive(Data^.FileName+Data^.FileExt) or
+      (Pos('|'+LowerCase(Data^.FileExt)+'|','|.mobi|.azw|.azw3|.prc|.fb|.original_fb2|.xml|')>0) or
+      (Data^.GetFileType='Некорректный тип') or (Data^.GetFileType='Без расширения');
+end;
+
+procedure TfrmMain.ReadBuiltinExecute(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord; Book: TBookRecord;
+begin
+  if not (ActiveView in [AuthorsView, SeriesView, PublisherSeriesView,
+    GenresView, SearchView, FavoritesView]) then Exit;
+  GetActiveTree(Tree);
+  if not Assigned(Tree) then Exit;
+  Data := Tree.GetNodeData(Tree.GetFirstSelected);
+  if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then Exit;
+  Book := Data^;
+  FCurrentBookOnly := True;
+  try ReadPreparedBook(Book, True); finally FCurrentBookOnly := False; end;
+end;
+
+procedure TfrmMain.ReadExternalExecute(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord;
+begin
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit; Data:=Tree.GetNodeData(Tree.GetFirstSelected);
+  if Assigned(Data) and (Data^.NodeType=ntBookInfo) then ReadPreparedBook(Data^,False);
+end;
+
+procedure TfrmMain.OpenArchiveUpdate(Sender: TObject);
+var Tree: TBookTree; Book: PBookRecord;
+begin
+  TAction(Sender).Enabled := False; GetActiveTree(Tree);
+  if not Assigned(Tree) then Exit;
+  Book := Tree.GetNodeData(Tree.GetFirstSelected);
+  if Assigned(Book) and (Book^.NodeType = ntBookInfo) then
+    TAction(Sender).Enabled := IsReaderArchive(Book^.FileName+Book^.FileExt);
+end;
+
+procedure TfrmMain.OpenArchiveExecute(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord; Book: TBookRecord;
+begin
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+  Data := Tree.GetNodeData(Tree.GetFirstSelected);
+  if not Assigned(Data) or (Data^.NodeType <> ntBookInfo) then Exit;
+  Book := ResolveReaderBook(FSystemData.GetCollection(Data^.BookKey.DatabaseID),Data^);
+  PrepareReaderFileInBackground(Self,Book,True,
+    procedure(WorkFile: string)
+    begin
+      WorkFile := ExistingBookCacheFile(WorkFile); PinReaderCacheFile(WorkFile);
+      OpenInArchiveManager(WorkFile);
+    end,True);
+end;
+
+procedure TfrmMain.BookLocationUpdate(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord;
+begin
+  TAction(Sender).Enabled:=False;
+  if not Assigned(FCollection) or not (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView,GenresView,SearchView,FavoritesView]) then Exit;
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+  Data:=Tree.GetNodeData(Tree.GetFirstSelected);
+  TAction(Sender).Enabled:=Assigned(Data) and (Data^.NodeType=ntBookInfo);
+end;
+
+procedure TfrmMain.BookLocationExecute(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord;
+begin
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit; Data:=Tree.GetNodeData(Tree.GetFirstSelected);
+  if Assigned(Data) and (Data^.NodeType=ntBookInfo) then ShowBookLocation(Self,Data^);
+end;
+
+procedure TfrmMain.ChooseReaderExecute(Sender: TObject);
+var Tree: TBookTree; Data: PBookRecord;
+begin
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit; Data:=Tree.GetNodeData(Tree.GetFirstSelected);
+  if Assigned(Data) and (Data^.NodeType=ntBookInfo) then ReadPreparedBook(Data^,False,True,True);
+end;
+
+procedure TfrmMain.ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin, ChooseReader, ForceChoice: Boolean;
+  const ReaderPathOverride: string; KeepKindlePreparation: Boolean);
 var
-  SavedCursor: TCursor;
   BookFileName: string;
   BookFormat: TBookFormat;
-  WorkFile: string;
   CollectionInfo: TCollectionInfo;
+  ReaderBook: TBookRecord;
+  ReaderCollection: IBookCollection;
+  ReaderKey: TBookKey;
+  Snapshot: TBookRecord;
+  KindleReader: TReaderDesc;
+  PrepareKindle: Boolean;
 begin
   Assert(Assigned(FCollection));
 
   Assert(BookRecord.nodeType = ntBookInfo);
 
-  SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
-  try
-    BookFileName := BookRecord.GetBookFileName;
-    BookFormat := BookRecord.GetBookFormat;
+  Snapshot := BookRecord;
+  KindleReader := Settings.Readers.Find(BookRecord.FileExt);
+  PrepareKindle := KeepKindlePreparation or UseBuiltin or ChooseReader or (Assigned(KindleReader) and
+    SameText(ExtractFileName(KindleReader.Path),'SumatraPDF.exe'));
+  ReaderCollection := FSystemData.GetCollection(BookRecord.BookKey.DatabaseID);
+  ReaderKey := BookRecord.BookKey;
+  ReaderBook := ResolveReaderBook(ReaderCollection, BookRecord);
+  BookFileName := ReaderBook.GetBookFileName;
+  BookFormat := ReaderBook.GetBookFormat;
 
-    // Download remote FB2 before reading its bytes for reader compatibility.
-    if (BookFormat in [bfFb2, bfFb2Archive]) and
-      not (bpIsLocal in BookRecord.BookProps) then
+  // Download remote FB2 before reading its bytes for reader compatibility.
+  if (BookFormat in [bfFb2, bfFb2Archive]) and
+    not (bpIsLocal in ReaderBook.BookProps) then
+  begin
+    CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
+    if isOnlineCollection(CollectionInfo.CollectionType) then
     begin
-      CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
-      if isOnlineCollection(CollectionInfo.CollectionType) then
-      begin
-        DownloadBooks(FCurrentBookOnly);
-        if not FileExists(BookFileName) then
-          Exit; // The download already reported its failure or was cancelled.
-      end;
+      DownloadBooks(FCurrentBookOnly);
+      if not FileExists(BookFileName) then
+        Exit; // The download already reported its failure or was cancelled.
     end;
-
-    WorkFile := PrepareReaderFile(BookRecord);
-
-    if Settings.OverwriteFB2Info and (BookFormat = bfFb2) then
-      WriteFb2InfoToFile(BookRecord, WorkFile);
-
-    Settings.Readers.RunReader(WorkFile);
-  finally
-    Screen.Cursor := SavedCursor;
   end;
+
+  PrepareReaderFileInBackground(Self, ReaderBook, UseBuiltin or ChooseReader,
+    procedure(WorkFile: string)
+    var ChosenBuiltin: Boolean; ExternalPath: string;
+    begin
+      try
+        if WorkFile = '' then Exit;
+        WorkFile := ExistingBookCacheFile(WorkFile);
+        PinReaderCacheFile(WorkFile);
+
+        ChosenBuiltin:=UseBuiltin; ExternalPath:=ReaderPathOverride;
+        if ChooseReader and not ChooseBookReader(Self,WorkFile,Snapshot.FileExt,ChosenBuiltin,ExternalPath,ForceChoice) then Exit;
+        if ChooseReader and not ChosenBuiltin then
+        begin
+          // The first preparation preserves originals for the reader choice.
+          // Apply the external reader's WebP compatibility policy afterwards.
+          ReadPreparedBook(Snapshot,False,False,False,ExternalPath,PrepareKindle);
+          Exit;
+        end;
+        if not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat = bfFb2) then
+          WriteFb2InfoToFile(Snapshot, WorkFile);
+
+        if ChosenBuiltin then
+        begin
+          if IsOfficeReaderFormat(ExtractFileExt(WorkFile)) then
+          begin
+            // The choice precedes conversion, so external Office opening stays immediate.
+            ReadPreparedBook(Snapshot,True);
+            Exit;
+          end;
+          if not ReaderSupportsReflow(WorkFile) and not SameText(ExtractFileExt(WorkFile), '.pdf') then
+          begin
+            MHLShowInfo('Этот формат пока не поддерживается экспериментальной читалкой. Используйте обычную команду «Чтение».');
+            Exit;
+          end;
+          OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderCopyName(Snapshot),
+            Settings.DataDir + 'reader.ini', Settings.AppPath + 'tools\pdfium\pdfium.dll',
+            procedure(Progress: Integer)
+            begin
+              ReaderCollection.SetProgress(ReaderKey, Progress);
+              UpdateNodes(ReaderKey,
+                procedure(BookData: PBookRecord)
+                begin if Assigned(BookData) then BookData^.Progress := Progress; end);
+            end);
+        end
+        else if ExternalPath<>'' then
+        begin if SimpleShellExecute(Handle,ExternalPath,WorkFile)<=32 then raise Exception.Create('Не удалось открыть читалку: '+ExternalPath); end
+        else Settings.Readers.RunReader(WorkFile);
+      finally
+        TrimBookCache;
+      end;
+    end, False, PrepareKindle, UseBuiltin);
 end;
 
 procedure TfrmMain.HideDeletedBooksExecute(Sender: TObject);
@@ -4926,17 +5151,10 @@ begin
 
     FCollection.SetHideDeleted(Settings.HideDeletedBooks);
 
-    // Search has its own Deleted criterion; groups retain their saved members.
-    // Rebuild the affected selectors now; hidden book lists remain lazy.
+    // Hidden selectors are refreshed only when their page is opened.
     FLoadedBookViews := FLoadedBookViews - [AuthorsView, SeriesView, GenresView, PublisherSeriesView];
     FPublisherListLoaded := False;
-    FInvisible := True;
-    try
-      FillAuthorTree(tvAuthors, FCollection.GetAuthorIterator(amFullFilter), FLastAuthorID);
-      FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
-    finally
-      FInvisible := False;
-    end;
+    FStaleSelectors := [AuthorsView, SeriesView];
     EnsureActiveBookViewLoaded;
   finally
     Screen.Cursor := SavedCursor;
@@ -5230,12 +5448,11 @@ end;
 
 //
 // Fills the info panel from whatever book the tree has focused. Only for the
-// view on screen: the handler parses the book's FB2 for the cover and the
-// annotation, which is not worth doing for four hidden tabs on startup.
+// view on screen. Covers and annotations are read by the background preview.
 //
 procedure TfrmMain.RefreshBookInfo(const Tree: TBookTree);
 begin
-  if FInvisible or not Assigned(Tree) or not Assigned(Tree.FocusedNode) then
+  if FInvisible or not Assigned(Tree) then
     Exit;
 
   if (ActiveView <> DownloadView) and (Tree = GetViewTree(ActiveView)) then
@@ -5292,6 +5509,17 @@ begin
   try
   View := ActiveView;
   AlreadyLoaded := View in FLoadedBookViews;
+  if View in FStaleSelectors then
+  begin
+    FInvisible := True;
+    try
+      if View = AuthorsView then
+        FillAuthorTree(tvAuthors, FCollection.GetAuthorIterator(amFullFilter), FLastAuthorID)
+      else if View = SeriesView then
+        FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
+      Exclude(FStaleSelectors, View);
+    finally FInvisible := False; end;
+  end;
 
   Tree := nil;
   LangSelector := nil;
@@ -5349,6 +5577,7 @@ begin
       end;
   end;
 
+  if FBookListCancelled then Exit;
   Include(FLoadedBookViews, View);
 
   // A root genre has not built a language list until the explicit Show action.
@@ -5469,7 +5698,98 @@ end;
 
 // - - - - - - Дерево книг для поиска, серий и избранного - - - - - - - - - - - -
 
-procedure TfrmMain.FillBooksTree(
+procedure TfrmMain.CancelBookList(Sender: TObject);
+begin
+  FBookListCancelled := True;
+end;
+
+function TfrmMain.PollBookListCancel: Boolean;
+var Message: TMsg; Now: UInt64;
+begin
+  Now:=GetTickCount64;
+  if Now-FBookListLastPump>=16 then
+  begin
+    FBookListLastPump:=Now;
+    // Check the complete queue so Windows sees the UI as responsive, even
+    // while actions and timers are intentionally left pending.
+    PeekMessage(Message,0,0,0,PM_NOREMOVE);
+    // Repaint every owned window and accept normal mouse input on Cancel.
+    // Timers, actions and queued callbacks remain deferred while SQLite runs.
+    while PeekMessage(Message,0,WM_PAINT,WM_PAINT,PM_REMOVE) do DispatchMessage(Message);
+    while PeekMessage(Message,0,WM_MOUSEFIRST,WM_MOUSELAST,PM_REMOVE) do
+      if Message.hwnd=FBookListCancel.Handle then
+      begin
+        // VCL can defer the button's command notification. Recognize the
+        // actual release here as well, before the restricted pump returns.
+        if (Message.message=WM_LBUTTONUP) and PtInRect(FBookListCancel.ClientRect,
+          Point(SmallInt(LOWORD(Message.lParam)),SmallInt(HIWORD(Message.lParam)))) then
+          FBookListCancelled:=True;
+        DispatchMessage(Message);
+      end;
+    while PeekMessage(Message,0,WM_COMMAND,WM_COMMAND,PM_REMOVE) do
+      if HWND(Message.lParam)=FBookListCancel.Handle then DispatchMessage(Message);
+    while PeekMessage(Message,0,WM_KEYFIRST,WM_KEYLAST,PM_REMOVE) do
+      if (Message.message=WM_KEYDOWN) and (Message.wParam=VK_ESCAPE) then FBookListCancelled:=True;
+  end;
+  Result:=FBookListCancelled;
+end;
+
+procedure TfrmMain.FillBooksTree(const Tree: TBookTree; const LangSelector: TComboBox;
+  const BookIterator: IBookIterator; ShowAuth, ShowSer: Boolean; SelectedID: PBookKey);
+begin
+  FillBooksTree(Tree, LangSelector,
+    function: IBookIterator begin Result := BookIterator; end, ShowAuth, ShowSer, SelectedID);
+end;
+
+procedure TfrmMain.FillBooksTree(const Tree: TBookTree; const LangSelector: TComboBox;
+  const Factory: TFunc<IBookIterator>; ShowAuth, ShowSer: Boolean; SelectedID: PBookKey);
+var Iterator: IBookIterator; SavedCursor: TCursor;
+begin
+  if FBookListLoading then Exit;
+  FBookListLoading := True;
+  FBookListCancelled := False;
+  Inc(FBookInfoUpdateCount);
+  SavedCursor := Screen.Cursor;
+  Screen.Cursor := crDefault;
+  FBookListLastPump:=0;
+  FController.CancelCheck:=function: Boolean begin Result:=PollBookListCancel; end;
+  ShowStatusProgress := True;
+  StatusProgress := 0;
+  FBookListCancel.Visible := True;
+  FBookListCancel.BringToFront;
+  FStatusProgressBar.BringToFront;
+  FBookListCancel.Update;
+  SQLiteCancelCallback := PollBookListCancel;
+  try
+    try
+      Iterator := Factory();
+      FillBooksTreeCore(Tree, LangSelector, Iterator, ShowAuth, ShowSer, SelectedID);
+    except
+      on E: Exception do
+      begin
+        if not FBookListCancelled then raise;
+        SQLiteCancelCallback := nil;
+        Tree.Clear;
+        SetBookListTotals(Tree, 0, 0);
+        Exclude(FLoadedBookViews, TView(Tree.Tag));
+      end;
+    end;
+  finally
+    // Cleanup queries must remain possible after SQLITE_INTERRUPT.
+    SQLiteCancelCallback := nil;
+    FController.CancelCheck:=nil;
+    Iterator := nil;
+    FBookListCancel.Visible := False;
+    ShowStatusProgress := False;
+    Screen.Cursor := SavedCursor;
+    FBookListLoading := False;
+    Dec(FBookInfoUpdateCount);
+  end;
+  if FBookListCancelled then StatusMessage := 'Загрузка списка отменена';
+  RefreshBookInfo(Tree);
+end;
+
+procedure TfrmMain.FillBooksTreeCore(
   const Tree: TBookTree;
   const LangSelector: TComboBox;
   const BookIterator: IBookIterator;
@@ -5499,6 +5819,7 @@ var
   SavedCursor: TCursor;
 
   SelectedLang: string;
+  SelectedKey: TBookKey;
 
 begin
   Assert(Assigned(Tree));
@@ -5513,11 +5834,13 @@ begin
     ShowSer := False;
   end;
 
+  SelectedKey.Clear;
+  if Assigned(SelectedID) then SelectedKey := SelectedID^;
   ShowStatusProgress := True;
   StatusProgress := 0;
 
-  SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
+  SavedCursor := Tree.Cursor;
+  Tree.Cursor := crHourGlass;
   try
     Tree.BeginUpdate;
     try
@@ -5554,6 +5877,7 @@ begin
 
           while BookIterator.Next(BookRecord) do
           begin
+            if ((i and 255) = 0) and PollBookListCancel then Abort;
             if LangSelector <> nil then
             begin
               if not Languages.ContainsKey(BookRecord.Lang) then
@@ -5638,17 +5962,18 @@ begin
             //
             BookNode := Tree.AddChild(SerieNode);
             Data := Tree.GetNodeData(BookNode);
-            Data^ := BookRecord;
+            Data^ := BookRecord; Data^.ListOrder := i;
 
-            if Assigned(SelectedID) and SelectedID^.IsSameAs(Data^.BookKey) then
+            if (SelectedKey.BookID > 0) and SelectedKey.IsSameAs(Data^.BookKey) then
               SelectedNode := BookNode;
 
             Inc(i);
-            StatusProgress := i * 100 div Max;
+            if Max > 0 then StatusProgress := i * 100 div Max;
           end; // while
           //
           // Отсортировать дерево
           //
+          if PollBookListCancel then Abort;
           if (Settings.TreeModes[Tree.Tag] = tmFlat) then
             Tree.SortTree(FSortSettings[Tree.Tag].Column, FSortSettings[Tree.Tag].Direction)
           else
@@ -5669,7 +5994,8 @@ begin
       //
       VisibleCount := i;
       if TBookColumnFilters.ForTree(Tree).Count > 0 then
-        VisibleCount := TBookColumnFilters.ForTree(Tree).Apply(False);
+        VisibleCount := TBookColumnFilters.ForTree(Tree).Apply(False,
+          function: Boolean begin Result:=PollBookListCancel; end);
       if Assigned(SelectedNode) and Tree.IsEffectivelyFiltered[SelectedNode] then SelectedNode := nil;
       if not Assigned(SelectedNode) then
       begin
@@ -5716,9 +6042,9 @@ begin
     // The book above was focused inside BeginUpdate/EndUpdate, where the tree
     // swallows OnChange - so the info panel would keep showing nothing until
     // the user clicked a book.
-    RefreshBookInfo(Tree);
+
   finally
-    Screen.Cursor := SavedCursor;
+    Tree.Cursor := SavedCursor;
   end;
 end;
 
@@ -7386,7 +7712,7 @@ begin
       begin
         // Load FB2 info only for local files that can provide one
         try
-          bookStream := Data^.GetBookDescriptorStream;
+          bookStream := Data^.GetBookDescriptorStream(False);
           try
             frmBookDetails.FillBookInfo(Data^, bookStream)
           finally
@@ -7714,7 +8040,16 @@ begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   dirPath := Settings.ReadPath;
   if DirectoryExists(dirPath) then
-    ClearReadFolder(dirPath);
+    ClearReadFolder(dirPath,Settings.ReadDir<>'');
+  ClearBookCache;
+  BookCacheActionUpdate(nil);
+end;
+
+procedure TfrmMain.BookCacheActionUpdate(Sender: TObject);
+begin
+  if (Sender<>nil) and (GetTickCount64-FCacheMenuUpdated<1000) then Exit;
+  FCacheMenuUpdated:=GetTickCount64; ScheduleBookCacheMaintenance;
+  acToolsClearReadFolder.Caption:='Очистить кэш — '+BookCacheSizeText(BookCacheUsage);
 end;
 
 procedure TfrmMain.Export2HTMLExecute(Sender: TObject);
@@ -7762,8 +8097,37 @@ begin
 end;
 
 procedure TfrmMain.SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
-var Text: string;
+var Text: string; TotalLabel: TLabel; Button: TButton; I: Integer; ActiveTags: TArray<Integer>; Filters: TBookColumnFilters;
 begin
+  Filters := TBookColumnFilters.ForTree(Tree);
+  for I := 0 to Tree.Header.Columns.Count - 1 do
+    if Filters.Value(Tree.Header.Columns[I].Tag) <> '' then
+      ActiveTags := ActiveTags + [Tree.Header.Columns[I].Tag];
+  Tree.HeaderFilteredTags := ActiveTags;
+  Tree.Invalidate;
+  TotalLabel := nil;
+  case Tree.Tag of
+    PAGE_AUTHORS: TotalLabel := lblBooksTotalA;
+    PAGE_SERIES: TotalLabel := lblBooksTotalS;
+    PAGE_GENRES: TotalLabel := lblBooksTotalG;
+    PAGE_SEARCH: TotalLabel := lblTotalBooksFL;
+    PAGE_FAVORITES: TotalLabel := lblBooksTotalF;
+    PAGE_PUBLISHER_SERIES: TotalLabel := FPublisher.Total;
+  end;
+  if Assigned(TotalLabel) then
+  begin
+    Button := FColumnReset[Tree.Tag];
+    if not Assigned(Button) then
+    begin
+      Button := TButton.Create(Self); FColumnReset[Tree.Tag] := Button;
+      Button.Parent := TotalLabel.Parent; Button.Caption := 'Сбросить фильтры столбцов';
+      Button.Width := MulDiv(176,Tree.CurrentPPI,96); Button.Height := MulDiv(24,Tree.CurrentPPI,96);
+      Button.Left := Max(0,TotalLabel.Left-Button.Width-8); Button.Align := alRight;
+      Button.Margins.Right := 8; Button.AlignWithMargins := True; Button.OnClick := ResetColumnFiltersClick;
+    end;
+    Button.Visible := Filters.Count > 0;
+  end;
+
   if TBookColumnFilters.ForTree(Tree).Count > 0 then
     Text := Format('(%d из %d · фильтр)', [VisibleCount, TotalCount])
   else Text := Format('(%d)', [TotalCount]);
@@ -7777,22 +8141,47 @@ begin
   end;
 end;
 
-procedure TfrmMain.ApplyBookColumnFilters(Tree: TBookTree);
-var Node: PVirtualNode; Book: PBookRecord; Total, VisibleCount: Integer;
+procedure TfrmMain.ResetColumnFiltersClick(Sender: TObject);
+var Tree: TBookTree;
 begin
-  FFirstFoundBook := nil;
-  FLastFoundBook := nil;
-  Total := 0;
-  Node := Tree.GetFirst;
-  while Assigned(Node) do
-  begin
-    Book := Tree.GetNodeData(Node);
-    if Assigned(Book) and (Book.NodeType = ntBookInfo) then Inc(Total);
-    Node := Tree.GetNext(Node);
+  GetActiveTree(Tree);
+  TBookColumnFilters.ForTree(Tree).Clear;
+  ApplyBookColumnFilters(Tree);
+end;
+
+procedure TfrmMain.ApplyBookColumnFilters(Tree: TBookTree);
+var Node: PVirtualNode; Book: PBookRecord; Total, VisibleCount: Integer; SavedCursor: TCursor;
+begin
+  if FBookListLoading then Exit;
+  FBookListLoading:=True; FBookListCancelled:=False; FBookListLastPump:=0;
+  Inc(FBookInfoUpdateCount); SavedCursor:=Screen.Cursor; Screen.Cursor:=crDefault;
+  FBookListCancel.Visible:=True; FBookListCancel.BringToFront;
+  ShowStatusProgress:=True; StatusProgress:=0;
+  try
+    FFirstFoundBook:=nil; FLastFoundBook:=nil;
+    try
+      if FBookListCancelled then Abort;
+      VisibleCount:=TBookColumnFilters.ForTree(Tree).Apply(True,
+        function: Boolean begin Result:=PollBookListCancel; end);
+      Total:=TBookColumnFilters.ForTree(Tree).Total;
+    except
+      on E: EAbort do
+      begin
+        if not FBookListCancelled then raise;
+        // The filter evaluator leaves the previous display intact on cancel.
+        // Restore its conditions as well, including case-sensitive matching.
+        TBookColumnFilters.ForTree(Tree).RestoreApplied;
+        VisibleCount:=TBookColumnFilters.ForTree(Tree).Apply;
+        Total:=TBookColumnFilters.ForTree(Tree).Total;
+      end;
+    end;
+    SetBookListTotals(Tree,VisibleCount,Total);
+  finally
+    FBookListCancel.Visible:=False; ShowStatusProgress:=False;
+    Screen.Cursor:=SavedCursor; FBookListLoading:=False; Dec(FBookInfoUpdateCount);
   end;
-  VisibleCount := TBookColumnFilters.ForTree(Tree).Apply;
-  SetBookListTotals(Tree, VisibleCount, Total);
   RefreshBookInfo(Tree);
+  if FBookListCancelled then StatusMessage:='Фильтрация отменена; сохранён предыдущий результат';
 end;
 
 procedure TfrmMain.ShowBookColumnFilters(Sender: TObject);
@@ -7808,7 +8197,7 @@ end;
 
 procedure TfrmMain.HeaderPopupItemClick(Sender: TObject);
 var
-  i: Integer;
+  i, J: Integer;
   Tree: TBookTree;
   Tag: Integer;
   Column: TVirtualTreeColumn;
@@ -7817,6 +8206,7 @@ var
   MinWidth, MaxWidth: Integer;
   Options: TVTColumnOptions;
   Alignment: TAlignment;
+  Keys, Kept: TArray<TBookSortKey>; Key: TBookSortKey;
 
 begin
   GetActiveTree(Tree);
@@ -7828,7 +8218,18 @@ begin
     for i := 0 to Tree.Header.Columns.Count - 1 do
       if Tree.Header.Columns[i].Tag = Tag then
       begin
+        Keys := Tree.SortKeys; Kept := nil;
+        for Key in Keys do if Key.Tag <> Tag then
+        begin SetLength(Kept,Length(Kept)+1); Kept[High(Kept)] := Key; end;
+        Tree.SortKeys := Kept;
+        if Length(Keys)>0 then Tree.Header.SortColumn := NoColumn;
         Tree.Header.Columns.Delete(i);
+        if Length(Kept)>0 then
+          for J := 0 to Tree.Header.Columns.Count-1 do
+            if Tree.Header.Columns[J].Tag = Kept[0].Tag then
+            begin Tree.Header.SortColumn := J; Tree.Header.SortDirection := Kept[0].Direction; end;
+        FSortSettings[Tree.Tag].Column := Tree.Header.SortColumn;
+        FSortSettings[Tree.Tag].Direction := Tree.Header.SortDirection;
         (Sender as TMenuItem).Checked := False;
         Break;
       end;
@@ -8005,7 +8406,11 @@ begin
         pmHeaders.Items[12].Checked := True;
     end;
   end;
-  pmHeaders.Items[9].Visible := (Tree.Tag = PAGE_FAVORITES);
+  for i := 0 to pmHeaders.Items.Count-1 do
+    if pmHeaders.Items[i].Tag = COL_PUBLISHER_SERIES then
+      for var J := 0 to Tree.Header.Columns.Count-1 do
+        if Tree.Header.Columns[J].Tag = COL_PUBLISHER_SERIES then pmHeaders.Items[i].Checked := True;
+  pmHeaders.Items[9].Visible := True;
 end;
 
 procedure TfrmMain.pgControlChange(Sender: TObject);
@@ -8249,18 +8654,21 @@ begin
   case (Sender as TComboBox).Tag of
     0:begin
         FilterValue := AuthorBookFilter;
-        FillBooksTree(tvBooksA, cbLangSelectA, FCollection.GetBookIterator(bmByAuthor, False, @FilterValue), False, True, @FLastAuthorBookID);  // авторы
+        FillBooksTree(tvBooksA, cbLangSelectA,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID);  // авторы
        end;
 
 
     1: begin
          FilterValue := SeriesBookFilter;
-         FillBooksTree(tvBooksS, cbLangSelectS, FCollection.GetBookIterator(bmBySeries, False, @FilterValue), False, False, @FLastSeriesBookID); // серии
+         FillBooksTree(tvBooksS, cbLangSelectS,
+        function: IBookIterator begin Result := FCollection.GetBookIterator(bmBySeries, False, @FilterValue); end, False, False, @FLastSeriesBookID); // серии
        end;
     2: begin
          FillCurrentGenreBooks; // жанры
        end;
-    4: FillBooksTree(tvBooksF, cbLangSelectF, FSystemData.GetBookIterator(FLastGroupID), True,  True, @FLastGroupBookID);  // избранное
+    4: FillBooksTree(tvBooksF, cbLangSelectF,
+        function: IBookIterator begin Result := FSystemData.GetBookIterator(FLastGroupID); end, True, True, @FLastGroupBookID);  // избранное
     PAGE_PUBLISHER_SERIES:
       PublisherSeriesChange(FPublisher.SeriesTree, FPublisher.SeriesTree.GetFirstSelected);
   end;
@@ -8764,8 +9172,7 @@ begin
     Mode := bmByGenre;
 
   FillBooksTree(tvBooksG, cbLangSelectG,
-    FCollection.GetBookIterator(Mode, False, @FilterValue), True, True,
-    @FLastGenreBookID);
+        function: IBookIterator begin Result := FCollection.GetBookIterator(Mode, False, @FilterValue); end, True, True, @FLastGenreBookID);
 end;
 
 end.

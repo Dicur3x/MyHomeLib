@@ -6,8 +6,9 @@ uses System.SysUtils, System.Classes, System.Generics.Collections,
   unit_Interfaces, unit_Globals;
 
 type
+  TCollectionMergePolicy = (mpKeepAll, mpSourcePriority, mpSmallestFile);
   TMergeSource = record
-    ID, Name, DatabaseFile, Root: string;
+    ID, Name, DatabaseFile, Root, LibraryNamespace: string;
     Collection: IBookCollection;
   end;
   TMergeSources = TArray<TMergeSource>;
@@ -21,6 +22,9 @@ type
     FSystem: ISystemData;
     FSources: TMergeSources;
     FLocations: TDictionary<string, Integer>;
+    FIdentities: TDictionary<string, Integer>;
+    FPolicy: TCollectionMergePolicy;
+    FTargetNamespace: string;
     FReport: TStringList;
     FStamps: TDictionary<string, string>;
     FReportWriter: TStreamWriter;
@@ -34,7 +38,7 @@ type
     procedure CheckStamps;
   public
     constructor Create(const Target: IBookCollection; const Sources: TMergeSources;
-      const SystemData: ISystemData = nil);
+      const SystemData: ISystemData = nil; Policy: TCollectionMergePolicy = mpKeepAll);
     destructor Destroy; override;
     procedure Preview(const Progress: TMergeProgress = nil; const Canceled: TMergeCanceled = nil);
     procedure Apply(const BackupFolder: string; const Progress: TMergeProgress = nil;
@@ -50,12 +54,41 @@ type
 
 function BookPhysicalIdentity(const Book: TBookRecord): string;
 function MergeSourceKey(const Source: TMergeSource; const Book: TBookRecord): string;
+function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
 procedure BackupCollectionFile(const SourceFile, BackupFile: string);
 
 implementation
 
 uses System.IOUtils, System.Hash, System.Variants, System.Math, System.DateUtils,
-  unit_Consts, unit_Settings, unit_UserData, SQLiteWrap, dm_user;
+  unit_Consts, unit_Settings, unit_UserData, SQLiteWrap, dm_user, unit_LibrarySourceID;
+
+function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
+var ID, Namespace, OriginalID: string; C: Char; P: Integer;
+begin
+  Result := '';
+  // Deleted/empty entries are placeholders, not evidence of equal content.
+  if (bpIsDeleted in Book.BookProps) or (Book.Size <= 0) or (Trim(Book.Title) = '') then Exit;
+  ID := Book.LibID;
+  if ID.StartsWith('merged:', True) then
+  begin
+    Delete(ID, 1, Length('merged:')); P := Pos(':', ID);
+    if P = 0 then Exit;
+    Delete(ID, 1, P);
+  end;
+  Namespace := LowerCase(Trim(LibraryNamespace));
+  if TryParseLibrarySourceID(ID, Namespace, OriginalID) then ID := OriginalID
+  else
+  begin
+    Namespace := LowerCase(Trim(LibraryNamespace));
+    if (Namespace <> 'flibusta') and (Namespace <> 'librusec') then Exit;
+    if ID = '' then Exit;
+    for C in ID do if not CharInSet(C, ['0'..'9']) then Exit;
+  end;
+  // IDs from different libraries can collide. A changed title/language/format
+  // is kept apart even when the numeric ID matches; file size is not identity.
+  Result := THashSHA2.GetHashString(Namespace + #1 + ID + #1 +
+    LowerCase(Trim(Book.Title)) + #1 + LowerCase(Trim(Book.Lang)) + #1 + LowerCase(Book.FileExt));
+end;
 
 function BookPhysicalIdentity(const Book: TBookRecord): string;
 var Container, Name: string;
@@ -88,8 +121,8 @@ begin
 end;
 
 constructor TCollectionMergePlan.Create(const Target: IBookCollection; const Sources: TMergeSources;
-  const SystemData: ISystemData);
-var Source: TMergeSource; IDs: TDictionary<string, Boolean>; TargetFile: string;
+  const SystemData: ISystemData; Policy: TCollectionMergePolicy);
+var Source: TMergeSource; IDs: TDictionary<string, Boolean>; TargetFile: string; I: Integer;
 begin
   inherited Create;
   if not Assigned(Target) or isOnlineCollection(Target.CollectionCode) then
@@ -111,8 +144,14 @@ begin
   end;
   finally IDs.Free; end;
   FTarget := Target; FSources := Copy(Sources); FSystem := SystemData;
+  FPolicy := Policy;
+  FTargetNamespace := VarToStr(Target.GetProperty(PROP_SOURCE_LIBRARY));
+  for I := 0 to High(FSources) do
+    if FSources[I].LibraryNamespace = '' then
+      FSources[I].LibraryNamespace := VarToStr(FSources[I].Collection.GetProperty(PROP_SOURCE_LIBRARY));
   if not Assigned(FSystem) then FSystem := SystemDB;
   FLocations := TDictionary<string, Integer>.Create; FReport := TStringList.Create;
+  FIdentities := TDictionary<string, Integer>.Create;
   FStamps := TDictionary<string, string>.Create;
 end;
 
@@ -124,7 +163,7 @@ begin
   except
     // A locked temporary report must not prevent release of catalog connections.
   end;
-  FStamps.Free; FReport.Free; FLocations.Free; inherited;
+  FStamps.Free; FReport.Free; FIdentities.Free; FLocations.Free; inherited;
 end;
 
 procedure TCollectionMergePlan.AddReport(const Text: string);
@@ -169,16 +208,22 @@ begin
 end;
 
 procedure TCollectionMergePlan.LoadTarget(const Canceled: TMergeCanceled);
-var Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord; Stamp: string;
+var Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord; Stamp, Identity: string;
   Count, Total: Integer;
 begin
-  FLocations.Clear; Iterator := FTarget.GetPublisherSeriesIndexIterator;
+  FLocations.Clear; FIdentities.Clear; Iterator := FTarget.GetPublisherSeriesIndexIterator;
   Count := 0; Total := Iterator.RecordCount;
   if Assigned(FStageProgress) then FStageProgress('Указатель файлов текущей коллекции', 0, Total);
   while Iterator.Next(Book, Stamp) do
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Операция отменена.');
     FLocations.AddOrSetValue(BookPhysicalIdentity(Book), Book.BookKey.BookID);
+    if FPolicy <> mpKeepAll then
+    begin
+      Identity := BookLibraryIdentity(Book, FTargetNamespace);
+      if (Identity <> '') and not FIdentities.ContainsKey(Identity) then
+        FIdentities.Add(Identity, Book.BookKey.BookID);
+    end;
     Inc(Count);
     if Assigned(FStageProgress) and ((Count mod 1000 = 0) or (Count = Total)) then
       FStageProgress('Указатель файлов текущей коллекции', Count, Total);
@@ -188,7 +233,7 @@ end;
 procedure TCollectionMergePlan.Preview(const Progress: TMergeProgress; const Canceled: TMergeCanceled);
 type TUserValues = record Rate, Progress: Integer; end;
 var Source: TMergeSource; Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord;
-  Key, CompareKey: string; ID, Count, SourceNew, SourceLinked, SourcePhysical: Integer;
+  Key, CompareKey, Identity: string; ID, Count, SourceNew, SourceLinked, SourcePhysical: Integer;
   AlreadyLinked: Boolean; Seen: TDictionary<string, TUserValues>;
   Values: TUserValues; ReportID: TGUID; Stamp, TargetFile: string;
   DB: TSQLiteDatabase; Lookup, UserValues: TSQLiteQuery; Summaries: TStringList;
@@ -209,7 +254,13 @@ begin
     for Source in FSources do
     begin Iterator := Source.Collection.GetPublisherSeriesIndexIterator; Inc(FTotal, Iterator.RecordCount); end;
     AddReport('Приоритет: источники сверху вниз. Совпадение — один файл или член одного архива.');
-    AddReport('Одинаковые числовые LIBID разных источников не объединяются.');
+    case FPolicy of
+      mpKeepAll: AddReport('Режим: сохранить все разные копии. Одинаковые числовые LIBID разных источников не объединяются.');
+      mpSourcePriority: AddReport('Режим: объединить проверенные ID одной библиотеки; файл выбирается по порядку источников сверху вниз.');
+      mpSmallestFile: AddReport('Режим: объединить проверенные ID одной библиотеки; предпочитать меньший файл. Размер не определяет качество.');
+    end;
+    if FPolicy <> mpKeepAll then
+      AddReport('Нужны одинаковые исходная библиотека, ID, название, язык и формат. Все пути к копиям сохраняются; исходные файлы не удаляются.');
     AddReport('Названия серий не исправляются. Авторы, жанры, все серии и группы дополняются.');
     AddReport('Оценка и прогресс назначения сохраняются; при пустом значении берётся источник.');
     AddReport('Разные отзывы сохраняются вместе с названием источника. Книги и источники не удаляются.');
@@ -227,7 +278,14 @@ begin
         ID := 0; if not Lookup.Eof then ID := Lookup.FieldAsInt(0);
         Lookup.Reset; AlreadyLinked := ID <> 0;
         if ID = 0 then FLocations.TryGetValue(Key, ID);
+        Identity := '';
+        if FPolicy <> mpKeepAll then
+        begin
+          Identity := BookLibraryIdentity(Book, Source.LibraryNamespace);
+          if (ID = 0) and (Identity <> '') then FIdentities.TryGetValue(Identity, ID);
+        end;
         CompareKey := Key;
+        if Identity <> '' then CompareKey := 'identity:' + Identity;
         if ID <> 0 then CompareKey := 'book:' + IntToStr(ID);
         if not Seen.TryGetValue(CompareKey, Values) then
         begin
@@ -261,7 +319,7 @@ begin
         if Assigned(FStageProgress) and ((Count mod 1000 = 0) or (Count = FTotal)) then
           FStageProgress('Сопоставление: ' + Source.Name, Count, FTotal);
       end;
-      Summaries.Add(Format('Источник %s: новых записей %d; уже подключено %d; одинаковых файлов %d.',
+      Summaries.Add(Format('Источник %s: новых записей %d; уже подключено %d; сопоставленных копий %d.',
         [Source.Name, SourceNew, SourceLinked, SourcePhysical]));
       FReportWriter.WriteLine(Summaries[Summaries.Count-1]);
     end;
@@ -297,7 +355,8 @@ end;
 procedure TCollectionMergePlan.Apply(const BackupFolder: string; const Progress: TMergeProgress;
   const Canceled: TMergeCanceled);
 var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
-  ID, I, Count, OriginalID: Integer; Physical, SourceKey: string; DestinationKey: TBookKey;
+  ID, I, Count, OriginalID: Integer; Physical, SourceKey, Identity: string; DestinationKey: TBookKey;
+  IncomingCopy: TBookRecord; KeepExistingFile: Boolean;
   Seen: TDictionary<Integer, Boolean>; Remap: TDictionary<string, Integer>;
   Series, Publishers, OldSeries: TBookSeries; Sequence: TBookSeriesData; Genre: TGenreData;
   UserData, Mapped: TUserData; Group, NewGroup: TBookGroup; GroupBook: TGroupBook;
@@ -366,6 +425,14 @@ begin
           Physical := BookPhysicalIdentity(Book); SourceKey := MergeSourceKey(Source, Book);
           ID := FTarget.GetCatalogBookID(SourceKey);
           if ID = 0 then FLocations.TryGetValue(Physical, ID);
+          Identity := '';
+          if FPolicy <> mpKeepAll then
+          begin
+            Identity := BookLibraryIdentity(Book, Source.LibraryNamespace);
+            if (ID = 0) and (Identity <> '') then FIdentities.TryGetValue(Identity, ID);
+          end;
+          IncomingCopy := Book;
+          KeepExistingFile := False;
           Series := Source.Collection.GetBookSeries(Book.BookKey);
           Publishers := Book.PublisherSeries;
           Book.Folder := TPath.GetFullPath(Book.GetBookContainer);
@@ -399,6 +466,18 @@ begin
           else
           begin
             FTarget.GetBookRecord(CreateBookKey(ID, FTarget.CollectionID), Existing, True);
+            if FPolicy <> mpKeepAll then
+              FTarget.SetCatalogBookCopy('base:' + BookPhysicalIdentity(Existing), Existing.CollectionName, Existing);
+            KeepExistingFile := ((FPolicy = mpSourcePriority) and Seen.ContainsKey(ID)) or
+              ((FPolicy = mpSmallestFile) and (Existing.Size > 0) and
+                ((Book.Size <= 0) or (Book.Size >= Existing.Size)));
+            if KeepExistingFile then
+            begin
+              Book.Folder := Existing.Folder; Book.FileName := Existing.FileName;
+              Book.FileExt := Existing.FileExt; Book.InsideNo := Existing.InsideNo;
+              Book.Size := Existing.Size; Book.CollectionRoot := Existing.CollectionRoot;
+              Book.BookProps := Existing.BookProps;
+            end;
             Book.LibID := Existing.LibID; Book.BookKey := Existing.BookKey;
             if Existing.Rate <> 0 then Book.Rate := Existing.Rate;
             if Existing.Progress <> 0 then Book.Progress := Existing.Progress;
@@ -409,7 +488,7 @@ begin
             if Book.City = '' then Book.City := Existing.City;
             if Book.PubYear = 0 then Book.PubYear := Existing.PubYear;
             if Book.ISBN = '' then Book.ISBN := Existing.ISBN;
-            if not Seen.ContainsKey(ID) then
+            if not Seen.ContainsKey(ID) or ((FPolicy = mpSmallestFile) and not KeepExistingFile) then
             begin
               // UpdateBook replaces the author-series primary mirror; restore all relationships afterwards.
               OldSeries := FTarget.GetBookSeries(Existing.BookKey);
@@ -431,6 +510,13 @@ begin
             end;
           end;
           DestinationKey := CreateBookKey(ID, FTarget.CollectionID);
+          if FPolicy <> mpKeepAll then
+          begin
+            IncomingCopy.BookKey := DestinationKey;
+            FTarget.SetCatalogBookCopy(SourceKey, Source.Name, IncomingCopy);
+            if not KeepExistingFile then FTarget.SetCatalogBookPreferredSource(DestinationKey, Source.Name);
+            if Identity <> '' then FIdentities.AddOrSetValue(Identity, ID);
+          end;
           for Sequence in Series do FTarget.AddBookSeries(ID, Sequence.SeriesTitle, Sequence.SeqNumber, ImportCache);
           FTarget.SetBookPublisherSeries(DestinationKey, Publishers);
           FTarget.GetBookRecord(DestinationKey, Existing, True);

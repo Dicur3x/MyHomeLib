@@ -372,7 +372,7 @@ begin
 
   // FS.SaveToFile('C:\temp\book.xml');
   try
-    book := LoadFictionbook(bookStream);
+    book := LoadFB2Description(bookStream);
 
     //
     // покажем обложку (если есть)

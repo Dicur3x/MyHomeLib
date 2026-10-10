@@ -21,20 +21,25 @@ unit unit_FB2Utils;
 interface
 
 uses
-  Classes,
+  Classes, System.SysUtils,
   Graphics,
   fictionbook_21;
 
 type
+  TFB2ImageVisitor = reference to procedure(const Name: string; Stream: TStream);
   TFB2PublisherSeriesItem = record
     Title: string;
     Number: Integer;
   end;
   TFB2PublisherSeries = TArray<TFB2PublisherSeriesItem>;
 
+function LoadFB2Description(Stream: TStream; IncludeCover: Boolean = True): IXMLFictionBook;
+procedure VisitFB2Images(Stream: TStream; const Visitor: TFB2ImageVisitor;
+  const Canceled: TFunc<Boolean> = nil);
+
 function GetBookCoverStream(book: IXMLFictionBook): TStream;
 function GetBookCover(book: IXMLFictionBook): TGraphic;
-function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
+function CreateGraphicFromStream(const ImageStream: TStream; const MaxDecodedBytes: Int64 = 256*1024*1024): TGraphic;
 function GetBookAnnotation(book: IXMLFictionBook): string;
 function GetBookPublisherSeries(book: IXMLFictionBook): string;
 function GetBookPublisherSeriesData(book: IXMLFictionBook): TFB2PublisherSeries;
@@ -81,14 +86,136 @@ implementation
 
 uses
   Windows,
-  SysUtils,
   ActiveX,
   UrlMon,
   unit_MHLHelpers,
   GIFImg,
   jpeg,
   pngimage,
-  unit_WebPCompat;
+  unit_WebPCompat, unit_ImageBounds, unit_FB2MetadataRecovery, System.RegularExpressions,
+  System.NetEncoding, System.Math, Xml.XMLDoc, Xml.XMLIntf;
+
+
+function LoadFB2Description(Stream: TStream; IncludeCover: Boolean): IXMLFictionBook;
+var Recorded: TRecordedMetadataStream; Buffer: array[0..8191] of Byte;
+  XML, Details, CoverID: string; Canceled: Boolean; Minimal: TStringStream;
+  Book: IXMLFictionBook;
+begin
+  Result := nil;
+  if not Assigned(Stream) then Exit;
+  Stream.Position := 0;
+  Recorded := TRecordedMetadataStream.Create(Stream,16*1024*1024);
+  try
+    Recorded.Read(Buffer,SizeOf(Buffer));
+    if not RecoverMetadataPrefix(Recorded,16*1024*1024,64,nil,XML,Details,Canceled,True) then
+      raise Exception.Create('Не удалось прочитать описание книги.');
+  finally Recorded.Free; end;
+  Minimal := TStringStream.Create(XML,TEncoding.UTF8);
+  try Book := LoadFictionBook(Minimal); finally Minimal.Free; end;
+  if IncludeCover and (Book.Description.Titleinfo.Coverpage.Count > 0) then
+  begin
+    CoverID := Book.Description.Titleinfo.Coverpage[0].xlinkHref;
+    if CoverID.StartsWith('#') then
+    begin
+      Delete(CoverID,1,1);
+      VisitFB2Images(Stream,
+        procedure(const Name: string; Image: TStream)
+        var Bytes: TBytes; Binary: IXMLBinary;
+        begin
+          if Name <> CoverID then Exit;
+          if Book.Binary.Count > 0 then Exit;
+          SetLength(Bytes,Image.Size); Image.Position := 0;
+          if Length(Bytes)>0 then Image.ReadBuffer(Bytes[0],Length(Bytes));
+          Binary := Book.Binary.Add; Binary.Id := Name;
+          Binary.Text := TNetEncoding.Base64.EncodeBytesToString(Bytes);
+        end);
+    end;
+  end;
+  Result := Book;
+end;
+
+procedure VisitFB2Images(Stream: TStream; const Visitor: TFB2ImageVisitor;
+  const Canceled: TFunc<Boolean>);
+var Bytes, ImageBytes: TBytes; Text, Prefix, Fragment, Name: string;
+  Doc: IXMLDocument; Binary: IXMLNode;
+  At, TagEnd, NameEnd, CloseAt, CloseEnd, ColonAt, Pictures: Integer; TagName, LocalTag: string;
+  Image: TBytesStream; I, Count: Integer; Encoding: TEncoding; OwnEncoding: Boolean; Header: TMatch;
+begin
+  if not Assigned(Stream) or not Assigned(Visitor) then Exit;
+  if Stream.Size > 128*1024*1024 then raise Exception.Create('Книга слишком велика для галереи.');
+  Stream.Position := 0; SetLength(Bytes,Stream.Size); I := 0;
+  while I < Length(Bytes) do
+  begin
+    if Assigned(Canceled) and Canceled() then Exit;
+    Count := Stream.Read(Bytes[I],Min(65536,Length(Bytes)-I));
+    if Count=0 then raise EReadError.Create('Файл книги прочитан не полностью.');
+    Inc(I,Count);
+  end;
+  // Image tags/base64 are ASCII in UTF-8 and all common single-byte FB2
+  // encodings. Do not decode or parse the body, where broken Unicode may occur.
+  if (Length(Bytes)>=2) and (Bytes[0]=$FF) and (Bytes[1]=$FE) then
+    Text := TEncoding.Unicode.GetString(Bytes,2,Length(Bytes)-2)
+  else if (Length(Bytes)>=2) and (Bytes[0]=$FE) and (Bytes[1]=$FF) then
+    Text := TEncoding.BigEndianUnicode.GetString(Bytes,2,Length(Bytes)-2)
+  else
+  begin
+    Encoding := TEncoding.UTF8; OwnEncoding := False; I := 0;
+    if (Length(Bytes)>=3) and (Bytes[0]=$EF) and (Bytes[1]=$BB) and (Bytes[2]=$BF) then I := 3;
+    Header := TRegEx.Match(TEncoding.ASCII.GetString(Bytes,0,Min(1024,Length(Bytes))),
+      '^<\?xml\s+[^?]*\bencoding\s*=\s*(["''])([^"'']+)\1');
+    if Header.Success then
+      try Encoding := TEncoding.GetEncoding(Header.Groups[2].Value); OwnEncoding := True; except end;
+    try Text := Encoding.GetString(Bytes,I,Length(Bytes)-I);
+    finally if OwnEncoding then Encoding.Free; end;
+  end;
+  Bytes := nil;
+  // Walk markup boundaries with fast string searches. A regular expression
+  // over every character of a large body made an empty gallery need seconds.
+  At := 1; Pictures := 0;
+  repeat
+    At := Pos('<',Text,At); if At=0 then Break;
+    if Copy(Text,At,4)='<!--' then
+    begin
+      CloseAt := Pos('-->',Text,At+4); if CloseAt=0 then Break;
+      At := CloseAt+3; Continue;
+    end;
+    if Copy(Text,At,9)='<![CDATA[' then
+    begin
+      CloseAt := Pos(']]>',Text,At+9); if CloseAt=0 then Break;
+      At := CloseAt+3; Continue;
+    end;
+    if Assigned(Canceled) and Canceled() then Exit;
+    NameEnd := At+1;
+    while (NameEnd<=Length(Text)) and not CharInSet(Text[NameEnd],[' ',#9,#10,#13,'>','/']) do Inc(NameEnd);
+    TagName := Copy(Text,At+1,NameEnd-At-1); LocalTag := TagName;
+    ColonAt := Pos(':',LocalTag); if ColonAt>0 then Delete(LocalTag,1,ColonAt);
+    TagEnd := Pos('>',Text,NameEnd); if TagEnd=0 then Break;
+    if (LocalTag<>'binary') or (Text[TagEnd-1]='/') then begin At:=TagEnd+1; Continue; end;
+    CloseAt := Pos('</'+TagName,Text,TagEnd+1);
+    if (CloseAt=0) or (Pos('<',Text,TagEnd+1)<>CloseAt) then begin At:=TagEnd+1; Continue; end;
+    CloseEnd := CloseAt+Length(TagName)+2;
+    while (CloseEnd<=Length(Text)) and CharInSet(Text[CloseEnd],[' ',#9,#10,#13]) do Inc(CloseEnd);
+    if (CloseEnd>Length(Text)) or (Text[CloseEnd]<>'>') then begin At:=TagEnd+1; Continue; end;
+    Inc(Pictures); if Pictures>256 then Break;
+    if CloseAt-TagEnd <= 16*1024*1024*4 div 3+1024 then
+    begin
+      Prefix := '';
+      if ColonAt>0 then Prefix := ' xmlns:'+Copy(TagName,1,ColonAt-1)+'="'+TargetNamespace+'"';
+      Fragment := '<FictionBook xmlns="'+TargetNamespace+'"'+Prefix+'>'+Copy(Text,At,CloseEnd-At+1)+'</FictionBook>';
+      try
+        Doc := LoadXMLData(Fragment); Binary := Doc.DocumentElement.ChildNodes[0];
+        if Binary.HasAttribute('id') then Name := Binary.AttributeNodes['id'].Text else Name := IntToStr(Pictures);
+        ImageBytes := TNetEncoding.Base64.DecodeStringToBytes(Binary.Text);
+        Image := TBytesStream.Create(ImageBytes);
+        try Visitor(Name,Image); finally Image.Free; end;
+      except
+        // Isolate malformed blocks; all other original images remain available.
+      end;
+      Binary := nil; Doc := nil;
+    end;
+    At := CloseEnd+1;
+  until At>Length(Text);
+end;
 
 function InternalGetBookCoverStream(book: IXMLFictionBook): TStream;
 var
@@ -174,17 +301,23 @@ begin
   end;
 end;
 
-function CreateGraphicFromStream(const ImageStream: TStream): TGraphic;
+function CreateGraphicFromStream(const ImageStream: TStream; const MaxDecodedBytes: Int64): TGraphic;
 var
   SavedPosition: Int64;
   StreamFormat: TStreamFormat;
   Converted, GraphicStream: TStream;
 begin
   Result := nil;
-  if not Assigned(ImageStream) then
-    Exit;
-
-  SavedPosition := ImageStream.Position;
+  if not Assigned(ImageStream) then Exit;
+  SavedPosition:=ImageStream.Position;
+  if not ImageFitsMemory(ImageStream,MaxDecodedBytes) then
+  begin
+    // A metafile retains its bounded vector command stream, not a pixel grid.
+    if ImageStream.Size>16*1024*1024 then Exit;
+    try ImageStream.Position:=0; StreamFormat:=DetectStreamFormat(ImageStream);
+    finally ImageStream.Position:=SavedPosition; end;
+    if StreamFormat<>sfMetafile then Exit;
+  end;
   Converted := nil;
   try
     try

@@ -1,0 +1,56 @@
+{
+  "format": 1,
+  "djvu": {
+    "version": "3.5.29",
+    "url": "https://master.dl.sourceforge.net/project/djvu/DjVuLibre_Windows/3.5.29%2B4.12/DjVuLibre-3.5.29_DjView-4.12_Setup.exe?viasf=1",
+    "sha256": "92233fbf891c63f3fb7a0b5e1ce108baa4c29a40c89a442d1313f883aae84670",
+    "source": "https://sourceforge.net/projects/djvu/files/DjVuLibre/3.5.29/",
+    "architecture": "Win32",
+    "files": {
+      "ddjvu.exe": "5a3dba5d3630ea8947ddbc78fc470468cec1fe0b05d9ddd5957ccf00cf1f58bb",
+      "djvused.exe": "cde02834971268ea99f04ed1a9c5bfcd284dcbb368d6073d02c00b67321fe644",
+      "libdjvulibre.dll": "d0c5f982096b9da04d018c7a966e3aa417a0d9e8790cd88a6b5a388a5c1108ea",
+      "libjpeg.dll": "978b9e30220e06e4be405ea415be5ead9f77cfba547b705b60bc9935f20c2e4e",
+      "libtiff.dll": "3cd71ed52e14fceaecaebe8582e91a46ca35808077f4470f56b5a569b0aa8f74",
+      "libz.dll": "7029b0041b505446668b6ed41435255e41ce225fd934639ff6518e4f506100d2",
+      "COPYING.txt": "189b1af95d661151e054cea10c91b3d754e4de4d3fecfb074c1fb29476f7167b"
+    },
+    "source_url": "https://sourceforge.net/projects/djvu/files/DjVuLibre/3.5.29/djvulibre-3.5.29.tar.gz/download",
+    "distribution": {
+      "COPYRIGHT": "aca12808fc2c0c9d67ac550bc52864863eff8c92d3fc505fdf16d3a5903dbdb6",
+      "djvulibre-3.5.29.tar.gz": "d3b4b03ae2bdca8516a36ef6eb27b777f0528c9eda26745d9962824a3fdfeccf",
+      "IJG-README.txt": "4cf9c190f184019b61c36bcc49d4a24ffeb2a838c6f1690d6c4db14cfb2d0478",
+      "LIBTIFF-COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
+      "ZLIB-README.txt": "7960b6b1cc63e619abb77acaea5427159605afee8c8b362664f4effc7d7f7d15"
+    }
+  },
+  "sevenzip": {
+    "version": "26.04",
+    "Win64": {
+      "url": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604-x64.exe",
+      "sha256": "d54bf805f9f3704d1e8db2fa3498ae7ef2df0312b40b558e7c71c734430a665d",
+      "files": {
+        "7z.exe": "95fff19b73eff77c87c0d7bd32822e43fb90dd2932459f962eb532d8dfb6ba53",
+        "7z.dll": "899cd73d7fc60e1c1c35c7de0f5bed3dc69bfe2cecbd48014d868a347970a0b1",
+        "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d"
+      }
+    },
+    "Win32": {
+      "url": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604.exe",
+      "sha256": "39bf65045153fc26c42fa9fe47afd8cd1b11671c7f11d031e738c9a13960c009",
+      "files": {
+        "7z.exe": "684955b4978fdbace051ffd55edab90d180b7cb4d208f943998866727d8d6c13",
+        "7z.dll": "4a796dd5993c7e1188da7610f0d81972cb21b82f28a7c9fb24015ec46b2c0308",
+        "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d"
+      }
+    }
+  },
+  "viewer_helper": {
+    "path": "HomeLibDjvu.exe",
+    "architecture": "Win32",
+    "sha256": "fda5410c382d2b99cbbc401d1b77c1e8384416ed25fc9717ae4625436336f14c",
+    "source": "Utils/HomeLibDjvu/HomeLibDjvu.dpr",
+    "protocol": "Program/Units/unit_DjvuProtocol.pas",
+    "license": "GPL-2.0-or-later"
+  }
+}

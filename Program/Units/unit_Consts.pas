@@ -152,6 +152,7 @@ const
   COL_LANG       = 21;
   COL_LIBRATE    = 22;
   COL_LIBID      = 23;
+  COL_PUBLISHER_SERIES = 24;
 
   COL_STATE = 99;
 

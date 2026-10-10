@@ -22,6 +22,7 @@ uses
   Winapi.Windows,
   Classes,
   SysUtils,
+  System.Math,
   Controls,
   Graphics,
   VirtualTrees,
@@ -61,6 +62,11 @@ const
   ];
 
 type
+  TBookSortKey = record
+    Tag: Integer;
+    Direction: TSortDirection;
+  end;
+
   TBookTreeOptions = class(TCustomStringTreeOptions)
   public
     constructor Create(AOwner: TCustomControl); override;
@@ -77,6 +83,10 @@ type
   TBookTree = class(TCustomVirtualStringTree)
   private
     FHeaderColor: TColor;
+    FDataVersion: UInt64;
+    FSortKeys: TArray<TBookSortKey>;
+    FHeaderFilterTags: TArray<Integer>;
+    FHeaderFilteredTags: TArray<Integer>;
 
     function GetOptions: TBookTreeOptions;
     procedure SetOptions(const Value: TBookTreeOptions);
@@ -89,9 +99,14 @@ type
       const Elements: THeaderPaintElements);
   protected
     function GetOptionsClass: TTreeOptionsClass; override;
+    procedure DoFreeNode(Node: PVirtualNode); override;
+    procedure DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates); override;
+    procedure DoColumnResize(Column: TColumnIndex); override;
   public
     constructor Create(AOwner: TComponent); override;
+    property SortKeys: TArray<TBookSortKey> read FSortKeys write FSortKeys;
     property Canvas;
+    property DataVersion: UInt64 read FDataVersion;
 
     //
     // Background of the column header. clNone (the default) derives it from the
@@ -259,6 +274,8 @@ type
     property OnGetPopupMenu;
     //property OnGetUserClipboardFormats;
     //property OnHeaderCheckBoxClick;
+    property HeaderFilterTags: TArray<Integer> read FHeaderFilterTags write FHeaderFilterTags;
+    property HeaderFilteredTags: TArray<Integer> read FHeaderFilteredTags write FHeaderFilteredTags;
     property OnHeaderClick;
     //property OnHeaderDblClick;
     //property OnHeaderDragged;
@@ -377,15 +394,25 @@ end;
 
 procedure TBookTree.HeaderDrawQueryElements(Sender: TVTHeader;
   var PaintInfo: THeaderPaintInfo; var Elements: THeaderPaintElements);
+var FilterTag: Integer;
 begin
   Elements := Elements + [hpeBackground, hpeOverlay];
+  if Assigned(PaintInfo.Column) then
+    for FilterTag in FHeaderFilterTags do
+      if FilterTag = PaintInfo.Column.Tag then
+      begin
+        Elements := Elements + [hpeText, hpeSortGlyph];
+        Break;
+      end;
 end;
 
 procedure TBookTree.AdvancedHeaderDraw(Sender: TVTHeader;
   var PaintInfo: THeaderPaintInfo; const Elements: THeaderPaintElements);
 var
-  Y: Integer;
-  Base, Fill: TColor;
+  Y, X, FilterTag, ActiveTag, DX, DY, Stem, Small: Integer;
+  SortIndex: Integer; SortText: string;
+  ActiveFilter: Boolean;
+  Base, Fill: TColor; CaptionRect: TRect; TextFlags: Cardinal;
 begin
   Base := BaseHeaderColor;
 
@@ -418,6 +445,64 @@ begin
   if not (hpeOverlay in Elements) then
     Exit;
 
+  if Assigned(PaintInfo.Column) then
+    for FilterTag in FHeaderFilterTags do
+      if FilterTag = PaintInfo.Column.Tag then
+      begin
+        CaptionRect := PaintInfo.PaintRectangle;
+        CaptionRect.Right := CaptionRect.Right - MulDiv(20, CurrentPPI, 96);
+        SortIndex := -1;
+        for var I := 0 to High(FSortKeys) do if FSortKeys[I].Tag = FilterTag then SortIndex := I;
+        if SortIndex >= 0 then
+        begin
+          if FSortKeys[SortIndex].Direction = sdAscending then SortText := '↑' else SortText := '↓';
+          SortText := SortText + IntToStr(SortIndex+1);
+          PaintInfo.TargetCanvas.Font.Color := RGB(43,91,143);
+          PaintInfo.TargetCanvas.TextOut(CaptionRect.Right-MulDiv(24,CurrentPPI,96),CaptionRect.Top+2,SortText);
+          Dec(CaptionRect.Right,MulDiv(26,CurrentPPI,96));
+          PaintInfo.TargetCanvas.Font.Color := Font.Color;
+        end
+        else if PaintInfo.ShowSortGlyph then
+        begin
+          PaintInfo.SortGlyphPos.X := CaptionRect.Right - PaintInfo.SortGlyphSize.cx;
+          CaptionRect.Right := PaintInfo.SortGlyphPos.X - MulDiv(4, CurrentPPI, 96);
+          PaintInfo.DrawSortArrow(Sender.SortDirection);
+        end;
+        TextFlags := DT_SINGLELINE or DT_VCENTER or DT_END_ELLIPSIS or DT_NOPREFIX;
+        case PaintInfo.Column.Alignment of
+          taRightJustify: TextFlags := TextFlags or DT_RIGHT;
+          taCenter: TextFlags := TextFlags or DT_CENTER;
+        end;
+        if hpeText in Elements then
+          DrawText(PaintInfo.TargetCanvas.Handle, PChar(PaintInfo.Column.Text), -1, CaptionRect, TextFlags);
+        X := PaintInfo.PaintRectangle.Right - MulDiv(10, CurrentPPI, 96);
+        Y := (PaintInfo.PaintRectangle.Top + PaintInfo.PaintRectangle.Bottom) div 2;
+        PaintInfo.TargetCanvas.Brush.Color := Base;
+        PaintInfo.TargetCanvas.FillRect(Rect(X - MulDiv(7, CurrentPPI, 96), Y - MulDiv(7, CurrentPPI, 96),
+          PaintInfo.PaintRectangle.Right - MulDiv(2, CurrentPPI, 96), Y + MulDiv(7, CurrentPPI, 96)));
+        ActiveFilter := False;
+        for ActiveTag in FHeaderFilteredTags do if ActiveTag = FilterTag then ActiveFilter := True;
+        PaintInfo.TargetCanvas.Pen.Color := clGrayText;
+        if ActiveFilter then
+        begin
+          PaintInfo.TargetCanvas.Brush.Color := RGB(43,91,143);
+          PaintInfo.TargetCanvas.Pen.Color := RGB(43,91,143);
+          PaintInfo.TargetCanvas.RoundRect(X-MulDiv(8,CurrentPPI,96),Y-MulDiv(9,CurrentPPI,96),
+            X+MulDiv(8,CurrentPPI,96),Y+MulDiv(9,CurrentPPI,96),4,4);
+          PaintInfo.TargetCanvas.Pen.Color := clWhite;
+        end;
+        DX := MulDiv(4, CurrentPPI, 96); DY := MulDiv(3, CurrentPPI, 96);
+        Stem := MulDiv(5, CurrentPPI, 96); Small := MulDiv(2, CurrentPPI, 96);
+        PaintInfo.TargetCanvas.MoveTo(X - DX, Y - DY);
+        PaintInfo.TargetCanvas.LineTo(X + DX, Y - DY);
+        PaintInfo.TargetCanvas.LineTo(X, Y + 1);
+        PaintInfo.TargetCanvas.LineTo(X, Y + Stem);
+        PaintInfo.TargetCanvas.LineTo(X - Small, Y + DX);
+        PaintInfo.TargetCanvas.LineTo(X - Small, Y + 1);
+        PaintInfo.TargetCanvas.LineTo(X - DX, Y - DY);
+        Break;
+      end;
+
   // A themed header has no bottom edge of its own, so the rows run straight
   // into it. Draw the missing divider in the same colour as the panel frame.
   //
@@ -433,6 +518,26 @@ begin
   PaintInfo.TargetCanvas.Pen.Width := 1;
   PaintInfo.TargetCanvas.MoveTo(0, Y);
   PaintInfo.TargetCanvas.LineTo(ClientWidth, Y);
+end;
+
+procedure TBookTree.DoFreeNode(Node: PVirtualNode);
+begin Inc(FDataVersion); inherited; end;
+
+procedure TBookTree.DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates);
+begin Inc(FDataVersion); inherited; end;
+
+procedure TBookTree.DoColumnResize(Column: TColumnIndex);
+begin
+  // Library book rows have a fixed, single-line height. The base control scans
+  // every initialized node on each pixel of a drag, solely for multiline rows.
+  if (csDesigning in ComponentState) or (toVariableNodeHeight in TreeOptions.MiscOptions) or
+    (tsEditing in TreeStates) then begin inherited; Exit; end;
+  if (csLoading in ComponentState) or not HandleAllocated then Exit;
+  if Header.Columns.UpdateCount = 0 then UpdateHorizontalScrollBar(True);
+  Invalidate;
+  if Column > NoColumn then Header.Invalidate(Header.Columns[Column], True);
+  if [hsColumnWidthTracking,hsResizing] * Header.States = [hsColumnWidthTracking] then UpdateWindow;
+  if Assigned(OnColumnResize) and not (hsResizing in Header.States) then OnColumnResize(Header,Column);
 end;
 
 function TBookTree.GetOptions: TBookTreeOptions;

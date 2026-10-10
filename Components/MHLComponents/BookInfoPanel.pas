@@ -60,6 +60,7 @@ type
     FFb2Info: TListView;
     FGallery: TBookGallery;
     FDetailsButton: TButton;
+    FPreviewStatus, FReadingSupport: TLabel;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
     FOnGenreLinkClicked: TSysLinkEvent;
@@ -116,6 +117,11 @@ type
       const FileName: string = ''
       );
 
+
+    procedure SetBookAnnotationText(const Value: string);
+    procedure SetPreviewStatus(const Value: string);
+    procedure SetReadingSupport(const Value: string);
+    function PreviewStatusText: string;
 
     procedure SetBookAnnotation(
       book: IXMLFictionBook
@@ -285,6 +291,14 @@ begin
   FGallery.Parent := FInfoPanel;
   FGallery.OnLayout := InfoPanelResize;
 
+  FReadingSupport:=TLabel.Create(FInfoPanel); FReadingSupport.Parent:=FInfoPanel;
+  FReadingSupport.AutoSize:=False; FReadingSupport.WordWrap:=True; FReadingSupport.ShowAccelChar:=False;
+  FReadingSupport.Visible:=False;
+  FPreviewStatus:=TLabel.Create(FInfoPanel); FPreviewStatus.Parent:=FInfoPanel;
+  FPreviewStatus.AutoSize:=False; FPreviewStatus.WordWrap:=True;
+  FPreviewStatus.ShowAccelChar:=False; FPreviewStatus.Font.Color:=clGrayText;
+  FPreviewStatus.Visible:=False;
+
   FAnnotation := TMemo.Create(FInfoPanel);
   FAnnotation.Parent := FInfoPanel;
   FAnnotation.Anchors := [akLeft, akTop, akRight, akBottom];
@@ -358,6 +372,24 @@ begin
   FInfoViewport.OnResize := InfoPanelResize;
   LayoutControls;
 end;
+
+procedure TInfoPanel.SetBookAnnotationText(const Value: string);
+begin
+  FAnnotation.Text:=Value; FAnnotation.Visible:=not FInfoPriority;
+  FAnnotation.SelStart:=0; FAnnotation.SelLength:=0;
+end;
+
+procedure TInfoPanel.SetReadingSupport(const Value: string);
+begin FReadingSupport.Caption:=Value; FReadingSupport.Visible:=Value<>''; LayoutControls; end;
+
+procedure TInfoPanel.SetPreviewStatus(const Value: string);
+begin
+  FPreviewStatus.Caption:=Value; FPreviewStatus.Visible:=Value<>'';
+  LayoutControls;
+end;
+
+function TInfoPanel.PreviewStatusText: string;
+begin Result:=FPreviewStatus.Caption; end;
 
 procedure TInfoPanel.SetBookAnnotation;
 var
@@ -494,6 +526,22 @@ begin
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
       Inc(Y, LinkH + Gap);
+      if FReadingSupport.Visible then
+      begin
+        FReadingSupport.Font.Assign(FInfoPanel.Font); FReadingSupport.Font.Color:=$0063482E;
+        Canvas.Font:=FReadingSupport.Font; TextRect:=Rect(0,0,Max(1,W),0);
+        DrawText(Canvas.Handle,PChar(FReadingSupport.Caption),Length(FReadingSupport.Caption),TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        LinkH:=Max(RowH,TextRect.Height); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+      end;
+      if FPreviewStatus.Visible then
+      begin
+        FPreviewStatus.Font.Assign(FInfoPanel.Font); FPreviewStatus.Font.Color:=clGrayText;
+        Canvas.Font:=FPreviewStatus.Font; TextRect:=Rect(0,0,Max(1,W),0);
+        DrawText(Canvas.Handle,PChar(FPreviewStatus.Caption),Length(FPreviewStatus.Caption),
+          TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        LinkH:=Max(RowH,TextRect.Height);
+        FPreviewStatus.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+      end;
       if FGallery.Visible then
       begin
         FGallery.SetBounds(0, Y, W, FGallery.Height);
@@ -803,6 +851,7 @@ end;
 
 procedure TInfoPanel.Clear;
 begin
+  SetPreviewStatus(''); SetReadingSupport('');
   FGallery.Clear;
   FDetailsButton.Visible := False;
   FInfoViewport.VertScrollBar.Position := 0;

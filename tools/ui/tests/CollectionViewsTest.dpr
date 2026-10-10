@@ -7,16 +7,16 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
-  Vcl.Forms, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
+  Vcl.Forms, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
-  System.SyncObjs, System.Zip, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookColumnFilters, unit_CollectionMerge, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
-  unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
-  frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser,
+  System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, Vcl.Imaging.pngimage,
+  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
+  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
+  frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
-  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, frm_NewCollectionWizard,
+  frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase;
 
@@ -39,6 +39,22 @@ procedure Require(Condition: Boolean; const Message: string);
 begin
   if not Condition then
     raise Exception.Create(Message);
+end;
+
+procedure TestSQLiteRuntime;
+var DB: TSQLiteDatabase;
+begin
+  DB:=TSQLiteDatabase.Create(Settings.AppPath+'sqlite-runtime-probe.db');
+  try
+    Require(DB.QuerySingleString('SELECT sqlite_version()')='3.54.0','Unexpected packaged SQLite runtime');
+    Require(DB.QuerySingleString('SELECT sqlite_source_id()')=
+      '2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcd5e3','SQLite source differs from pinned release');
+    DB.ExecSQL('CREATE VIRTUAL TABLE RuntimeSearch USING fts5(Text)');
+    DB.ExecSQL('INSERT INTO RuntimeSearch VALUES (''книга поиск''),(''другой документ'')');
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM RuntimeSearch WHERE RuntimeSearch MATCH ''поиск''')=1,'Packaged FTS5 Unicode search failed');
+    Require(DB.QuerySingleString('PRAGMA integrity_check')='ok','SQLite runtime fixture integrity failed');
+    Writeln('PASS packaged SQLite 3.54.0 source identity, FTS5 Unicode search and integrity');
+  finally DB.Free; end;
 end;
 
 type
@@ -192,7 +208,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   end;
 
   procedure CheckCycles;
-  var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TComboBox; Index: Integer;
+  var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TComboBox; Index: Integer; Primary: TButton;
   begin
     Cycle := TfrmProgramUpdate.Create(nil);
     try
@@ -234,6 +250,29 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Cycle.ComponentsReceived(CycleComponents, False, 'Не удалось проверить компоненты');
       Require(Cycle.Visible and StatusText(Cycle).Contains('Не удалось'), 'Manual failure was silent');
       Cycle.Hide;
+      CycleComponents := Default(TComponentReleases);
+      Require(ParseRasterComponent('/projects/djvu/files/DjVuLibre_Windows/3.5.99+4.12/',
+        'DjVuLibre', CycleComponents[3]), 'Windows DjVu version fixture failed');
+      Require(Cycle.StartCheckCycle(True), 'DjVu check cycle did not start');
+      Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
+      Require(Cycle.Visible and (Selector.ItemIndex=3), 'DjVu-only update was not presented');
+      Primary := nil;
+      for Index := 0 to Cycle.ControlCount-1 do
+        if (Cycle.Controls[Index] is TButton) and TButton(Cycle.Controls[Index]).Default then
+          Primary := TButton(Cycle.Controls[Index]);
+      Require(Assigned(Primary) and (Primary.Caption='Сайт автора') and
+        StatusText(Cycle).Contains('3.5.99'), 'Check-only component pretends it can install');
+      Cycle.Hide;
+      CycleComponents[0].ComponentID:='SQLite'; CycleComponents[0].ComponentVersion:='100.0';
+      CycleComponents[0].Tag:='100.0'; CycleComponents[0].DownloadURL:='http://127.0.0.1/fixture.zip';
+      Require(Cycle.StartCheckCycle(True), 'Mixed component cycle did not start');
+      Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
+      Require(StatusText(Cycle)='Есть обновления для SQLite', 'Check-only component entered download summary');
+      Selector.ItemIndex:=3; Selector.OnChange(Selector);
+      Require((Primary.Caption='Сайт автора') and StatusText(Cycle).Contains('3.5.99'),
+        'Batch summary overwrote check-only action');
+      Cycle.Hide;
+      Writeln('PASS bundled DjVu and 7-Zip checks remain separate from component installation');
     finally Cycle.Free; end;
     Writeln('PASS automatic update cycle waits for both responses, stays quiet without updates and selects components');
     Writeln('PASS one-line update summaries combine all available components and manual failure remains visible');
@@ -269,12 +308,14 @@ begin
     end;
     Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
     Require(Pos(PROGRAM_RELEASE_VERSION, Version.Caption) > 0, 'Installed version missing');
-    Require(Assigned(Selector) and (Selector.Items.Count = 3), 'Separate component choices missing');
+    Require(Assigned(Selector) and (Selector.Items.Count = 5), 'Separate component choices missing');
     Require(Selector.Items[1].StartsWith('SQLite:') and Selector.Items[2].StartsWith('SumatraPDF:'),
       'Component selection must skip AlReader and retain SumatraPDF');
+    Require(Selector.Items[3].StartsWith('DjVuLibre:') and Selector.Items[4].StartsWith('7-Zip:'),
+      'Bundled raster components missing from updater');
     Selector.ItemIndex := 1; Selector.OnChange(Selector);
-    Require((Pos('3.53.4', NotesView.SectionHeader(0).Caption) > 0) and
-      (Pos('Исправлены', Notes.Text) > 0), 'Installed component changelog missing');
+    Require((Pos('3.54.0', NotesView.SectionHeader(0).Caption) > 0) and
+      ContainsText(Notes.Text,'исправлены'), 'Installed component changelog missing');
     Require(Primary.Caption = 'Проверить компонент', 'Component check missing');
     Selector.ItemIndex := 0; Selector.OnChange(Selector);
     ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.12';
@@ -619,7 +660,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 4,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 7,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -660,6 +701,119 @@ begin
   Halt(0);
 end;
 
+type
+  TBuiltinReadDriver = class
+    Timer: TTimer;
+    Started: UInt64;
+    Finished: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TBuiltinReadDriver.Tick(Sender: TObject);
+var I: Integer; Reader: TfrmBuiltinReader;
+begin
+  Require(GetTickCount64-Started<10000,'Main built-in reader did not finish loading');
+  for I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I] is TfrmBuiltinReader then
+    begin
+      Reader:=TfrmBuiltinReader(Screen.Forms[I]);
+      if not Reader.Ready then Exit;
+      Timer.Enabled:=False;
+      Require(Pos('Исходный текст встроенной читалки',Reader.BookText)>0,'Main reader loaded wrong book');
+      Require(Reader.PictureCount=1,'Main modal reader lost its illustration at first show');
+      Reader.SetBounds(70,80,640,440); Reader.SetTypography('Georgia',110,32);
+      Require(Reader.PictureCount=1,'Main modal reader resize lost its illustration');
+      Reader.NextPage; Require(Reader.TextPosition>0,'Main reader did not turn a page');
+      Reader.AddBookmark; Reader.Close; Finished:=True; Exit;
+    end;
+end;
+
+procedure TestReaderDefaultSettings;
+var Configuration: TfrmSettings; Toggle: TCheckBox; Loaded: TMHLSettings;
+  Count, I: Integer; Paths: TStringList; External: TAction;
+begin
+  Require(Settings.UseBuiltinReaderByDefault,'Builtin reader default is not checked for fresh profile');
+  Configuration:=TfrmSettings.Create(nil); Paths:=TStringList.Create;
+  try
+    Configuration.LoadSetting;
+    Toggle:=Configuration.FindComponent('cbUseBuiltinReaderByDefault') as TCheckBox;
+    Require(Assigned(Toggle) and Toggle.Checked,'Reader default checkbox missing or unchecked');
+    Count:=Settings.Readers.Count;
+    for I:=0 to Count-1 do Paths.Add(Settings.Readers[I].Extension+'='+Settings.Readers[I].Path);
+    Require(not Configuration.lvReaders.Enabled and not Configuration.btnAddExt.Enabled and
+      not Configuration.btnChangeExt.Enabled and not Configuration.btnDeleteExt.Enabled,'External editors active under builtin default');
+    if Count>0 then
+    begin
+      Configuration.lvReaders.Selected:=Configuration.lvReaders.Items[0];
+      Configuration.btnDeleteExtClick(nil);
+      Require(Configuration.lvReaders.Items.Count=Count,'Programmatic delete bypasses reader-mode lock');
+    end;
+    Toggle.Checked:=False; Toggle.OnClick(Toggle);
+    Require(Configuration.lvReaders.Enabled and Configuration.btnAddExt.Enabled and
+      Configuration.btnChangeExt.Enabled and Configuration.btnDeleteExt.Enabled,'Disabling builtin default did not unlock external paths');
+    Configuration.SaveSettings; Settings.SaveSettings;
+    Loaded:=TMHLSettings.Create;
+    try
+      Loaded.LoadSettings;
+      Require(not Loaded.UseBuiltinReaderByDefault,'Disabled reader preference lost after reload');
+      Require(Loaded.Readers.Count=Count,'Reader mode toggle erased configured programs');
+      for I:=0 to Count-1 do Require(Paths[I]=Loaded.Readers[I].Extension+'='+Loaded.Readers[I].Path,'Reader path changed during toggle');
+    finally Loaded.Free; end;
+    Toggle.Checked:=True; Toggle.OnClick(Toggle); Configuration.SaveSettings; Settings.SaveSettings;
+    Loaded:=TMHLSettings.Create;
+    try Loaded.LoadSettings; Require(Loaded.UseBuiltinReaderByDefault,'Enabled reader preference lost after reload');
+    finally Loaded.Free; end;
+    External:=frmMain.FindComponent('acReadExternal') as TAction;
+    Require(Assigned(External),'Explicit external reader command missing'); External.Update;
+    Require(External.Enabled,'Builtin default disables explicit external reading');
+    Require((Toggle.BoundsRect.Bottom<=Configuration.lvReaders.Top) and
+      (Configuration.lvReaders.Height>100),'Reader settings controls overlap or consume the whole list');
+    Writeln('PASS reader default checkbox, editor locks, persistence, preserved paths and explicit external command');
+  finally Paths.Free; Configuration.Free; end;
+end;
+
+procedure TestBuiltinReaderIntegration(const Collection: IBookCollection);
+var Book: PBookRecord; Updated: TBookRecord; Source, BeforeHash, Body: string;
+  Action: TAction; Driver: TBuiltinReadDriver; I: Integer;
+  Bitmap: TBitmap; Png: TPngImage; Bytes: TBytesStream; Picture: string;
+begin
+  TestReaderDefaultSettings;
+  Book:=frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
+  Require(Assigned(Book) and (Book.GetBookFormat=bfFb2),'Main built-in fixture is not FB2');
+  Source:=Book.GetBookFileName; Body:='';
+  for I:=1 to 180 do Body:=Body+'<p>Исходный текст встроенной читалки. Проверка чтения из главной формы и сохранения прогресса. '+IntToStr(I)+'</p>';
+  Bitmap:=TBitmap.Create; Png:=TPngImage.Create; Bytes:=TBytesStream.Create;
+  try
+    Bitmap.SetSize(160,100); Bitmap.Canvas.Brush.Color:=clGreen;
+    Bitmap.Canvas.FillRect(Rect(0,0,160,100)); Png.Assign(Bitmap); Png.SaveToStream(Bytes);
+    Picture:=TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes,0,Integer(Bytes.Size)));
+  finally Bytes.Free; Png.Free; Bitmap.Free; end;
+  TFile.WriteAllText(Source,'<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section><image l:href="#picture"/>'+Body+
+    '</section></body><binary id="picture" content-type="image/png">'+Picture+'</binary></FictionBook>',TEncoding.UTF8);
+  BeforeHash:=THashSHA2.GetHashStringFromFile(Source);
+  Settings.ConvertWebPToPNG:=True; Settings.OverwriteFB2Info:=True;
+  Action:=frmMain.FindComponent('acReadBuiltin') as TAction;
+  Require(Assigned(Action),'Main built-in reader action absent');
+  Action.Update;
+  Require(Action.Enabled and (Action.ShortCut=ShortCut(Ord('R'),[ssCtrl,ssAlt])),'Main reader shortcut or availability incorrect');
+  Driver:=TBuiltinReadDriver.Create;
+  try
+    Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=25; Driver.Timer.OnTimer:=Driver.Tick;
+    Driver.Started:=GetTickCount64; Driver.Timer.Enabled:=True;
+    frmMain.acBookRead.Execute; // Same automatic opening path as a double click.
+    while not Driver.Finished and (GetTickCount64-Driver.Started<12000) do
+    begin Application.ProcessMessages; CheckSynchronize(0); Sleep(10); end;
+    Require(Driver.Finished,'Main reader did not close through ordinary modal pipeline');
+    Collection.GetBookRecord(Book^.BookKey,Updated,False);
+    Require((Updated.Progress>0) and (Updated.Progress<100),'Main reader did not persist partial progress');
+    Require(Book^.Progress=Updated.Progress,'Main visible book progress was not refreshed');
+    Require(FileExists(Settings.DataDir+'reader.ini'),'Main reader settings not saved under data folder');
+    Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Built-in reading rewrote original FB2 metadata');
+    Require(Settings.ConvertWebPToPNG and Settings.OverwriteFB2Info,'Built-in reader changed export settings');
+    Writeln('PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings');
+  finally Driver.Timer.Free; Driver.Free; end;
+end;
+
 procedure TestReaderCompatibility;
 const
   WEBP = 'UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
@@ -670,13 +824,28 @@ var
   Started: UInt64;
   Locked: TFileStream;
   Other: TBookRecord;
+  ReaderPreferences: TMemIniFile;
+
+  procedure WriteSource(const Content: string);
+  var Deadline: UInt64;
+  begin
+    // The initial info-panel preview can still hold a read-only source handle.
+    // Wait for that independent worker before replacing our test fixture.
+    Deadline:=GetTickCount64+3000;
+    repeat
+      try TFile.WriteAllText(Original,Content,TEncoding.UTF8); Exit;
+      except on E: EFCreateError do if GetTickCount64>=Deadline then raise; end;
+      Application.ProcessMessages; CheckSynchronize(0); Sleep(20);
+    until False;
+  end;
 
   function ReadSelected: string;
   begin
     if FileExists(Probe) then TFile.Delete(Probe);
     frmMain.ReadBookExecute(nil);
     Started := GetTickCount64;
-    while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do Sleep(20);
+    while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
+    begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
     Require(FileExists(Probe), 'The isolated reader probe did not receive a book');
     Result := TFile.ReadAllText(Probe, TEncoding.UTF8);
   end;
@@ -688,15 +857,22 @@ begin
   Probe := Settings.AppPath + 'reader-probe-path.txt';
   Settings.Readers.Clear;
   Settings.Readers.Add('.fb2', ParamStr(0));
+  // The chooser itself is exercised by Round2Probe. This compatibility test
+  // remembers the isolated probe, as a user can remember an external reader.
+  ReaderPreferences:=TMemIniFile.Create(Settings.DataDir+'reader.ini',TEncoding.UTF8);
+  try
+    ReaderPreferences.WriteString('OpenWith','.fb2','@configured');
+    ReaderPreferences.UpdateFile;
+  finally ReaderPreferences.Free; end;
   Settings.OverwriteFB2Info := False;
   Settings.ConvertWebPToPNG := True;
-  TFile.WriteAllText(Original, PLAIN, TEncoding.UTF8);
+  WriteSource(PLAIN);
   Captured := ReadSelected;
   Require(SameFileName(Captured, Original), 'An ordinary FB2 lost its stable reader path');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = PLAIN, 'An ordinary source book changed');
   WithWebP := '<FictionBook><body><section><p>WebP book</p></section></body>' +
     '<binary id="cover.jpg" content-type="image/jpeg">' + WEBP + '</binary></FictionBook>';
-  TFile.WriteAllText(Original, WithWebP, TEncoding.UTF8);
+  WriteSource(WithWebP);
   Converted := ReadSelected;
   Require(not SameFileName(Converted, Original) and
     (Pos('webp-png', LowerCase(Converted)) > 0), 'A WebP book was not read from its converted cache');
@@ -704,6 +880,8 @@ begin
   Require((Pos('image/png', Captured) > 0) and (Pos('iVBOR', Captured) > 0),
     'The reader received no converted PNG');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'The WebP source book changed');
+  Require(SameFileName(PrepareReaderFile(Book^, True), Original), 'Built-in reader received a converted plain FB2');
+  Require(Settings.ConvertWebPToPNG, 'Built-in reader changed export compatibility setting');
   Locked := TFileStream.Create(Original, fmOpenRead or fmShareExclusive);
   try
     Require(SameFileName(ReadSelected, Converted), 'Cache hit reopened the locked source');
@@ -720,7 +898,7 @@ begin
   Book.Title := 'Renamed title after reimport';
   Require(SameFileName(ReadSelected, Converted), 'Reimport or metadata edit changed the reader path');
   WithWebP := StringReplace(WithWebP, 'WebP book', 'Updated WebP book', []);
-  TFile.WriteAllText(Original, WithWebP, TEncoding.UTF8);
+  WriteSource(WithWebP);
   Require(SameFileName(ReadSelected, Converted), 'Source refresh changed the reader path');
   Require(TFile.ReadAllText(Converted, TEncoding.UTF8).Contains('Updated WebP book'),
     'Changed source reused stale reader bytes');
@@ -729,9 +907,91 @@ begin
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
 end;
 
+procedure TestLooseArchiveReading;
+const WEBP = 'UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
+var Book: TBookRecord; Source, Prepared, Expected, BeforeHash: string;
+  Zip: TZipFile; Failed: Boolean; Stamp: TDateTime;
+  procedure WriteArchive(const Entries, Contents: array of string);
+  var I: Integer;
+  begin
+    Zip := TZipFile.Create;
+    try
+      Zip.Open(Source, zmWrite);
+      for I := 0 to High(Entries) do Zip.Add(TEncoding.UTF8.GetBytes(Contents[I]), Entries[I]);
+      Zip.Close;
+    finally Zip.Free; end;
+  end;
+  procedure ChooseMember(Index: Integer; Accept: Boolean);
+  begin
+    TThread.ForceQueue(nil,
+      procedure
+      var Popup: TForm; Component: TComponent;
+      begin
+        Popup := Screen.ActiveForm;
+        Require(Assigned(Popup) and (Popup.Caption = 'Какую книгу открыть?'), 'Archive picker is absent');
+        for Component in Popup do if Component is TListBox then
+        begin
+          Require(TListBox(Component).Items.Count = 2, 'Executable was offered as a reading format');
+          TListBox(Component).ItemIndex := Index;
+        end;
+        if Accept then Popup.ModalResult := mrOk else Popup.ModalResult := mrCancel;
+      end);
+  end;
+begin
+  Book := Default(TBookRecord); Book.NodeType := ntBookInfo;
+  Book.BookKey := CreateBookKey(777, Settings.ActiveCollection);
+  Book.CollectionRoot := IncludeTrailingPathDelimiter(Settings.AppPath);
+  Book.FileName := 'loose-reader'; Book.FileExt := '.zip'; Book.LibID := 'archive-fixture';
+  Source := Book.GetBookFileName;
+  Require(Book.GetBookFormat = bfRaw, 'Loose archive fixture uses catalog-member semantics');
+  WriteArchive(['../../escape.txt'], ['Original archive text']);
+  BeforeHash := THashSHA2.GetHashStringFromFile(Source);
+  Prepared := PrepareReaderFile(Book);
+  Require(SameText(ExtractFileExt(Prepared), '.txt') and
+    SameFileName(ExtractFilePath(Prepared), IncludeTrailingPathDelimiter(BookCachePath)),
+    'Loose archive extraction did not use a flat reading-cache path');
+  Require(TFile.ReadAllText(Prepared, TEncoding.UTF8) = 'Original archive text', 'Loose member bytes changed');
+  Require(not FileExists(Settings.AppPath + 'escape.txt'), 'Archive path escaped the reading cache');
+  Require(THashSHA2.GetHashStringFromFile(Source) = BeforeHash, 'Reading rewrote the source archive');
+  BeforeHash:=THashSHA2.GetHashStringFromFile(Prepared);
+  Require(SameFileName(PrepareReaderFile(Book), Prepared) and
+    (THashSHA2.GetHashStringFromFile(Prepared)=BeforeHash), 'Loose archive cache hit rewrote extracted bytes');
+  WriteArchive(['../../escape.txt'], ['Refreshed and longer archive text']);
+  Require(SameFileName(PrepareReaderFile(Book), Prepared) and
+    TFile.ReadAllText(Prepared, TEncoding.UTF8).Contains('Refreshed'), 'Changed archive reused stale member bytes');
+  Settings.ConvertWebPToPNG := True;
+  Expected := '<FictionBook><body><section><p>Original WebP</p></section></body>' +
+    '<binary id="cover.jpg" content-type="image/webp">' + WEBP + '</binary></FictionBook>';
+  WriteArchive(['book.fb2'], [Expected]);
+  BeforeHash := THashSHA2.GetHashStringFromFile(Source);
+  Prepared := PrepareReaderFile(Book);
+  Require(Pos('webp-png', LowerCase(Prepared)) > 0, 'Archive FB2 bypassed reader compatibility policy');
+  Require(TFile.ReadAllText(Prepared, TEncoding.UTF8).Contains('image/png') and
+    (THashSHA2.GetHashStringFromFile(Source) = BeforeHash), 'Archive conversion changed source or lost PNG');
+  Prepared := PrepareReaderFile(Book, True);
+  Require(TFile.ReadAllText(Prepared, TEncoding.UTF8) = Expected,
+    'Built-in reader lost original archive WebP');
+  Require(Settings.ConvertWebPToPNG, 'Archive original mode changed global conversion policy');
+  Settings.ConvertWebPToPNG := False;
+  Prepared := PrepareReaderFile(Book);
+  Require(TFile.ReadAllText(Prepared, TEncoding.UTF8) = Expected, 'Original archive policy reused converted bytes');
+  WriteArchive(['one.txt', 'two.pdf', 'unsafe.exe'], ['One text', '%PDF-1.4 test', 'Never execute']);
+  ChooseMember(1, True); Prepared := PrepareReaderFile(Book);
+  Require(SameText(ExtractFileExt(Prepared), '.pdf') and
+    TFile.ReadAllText(Prepared, TEncoding.UTF8).StartsWith('%PDF-'), 'Archive picker extracted the wrong member');
+  ChooseMember(0, False);
+  Require(PrepareReaderFile(Book) = '', 'Cancelled archive picker opened a file');
+  WriteArchive(['unsafe.exe', 'another.zip'], ['Never execute', 'Not a nested-book scan']);
+  Failed := False;
+  try PrepareReaderFile(Book); except on E: Exception do Failed := Pos('не найдены книги', E.Message) > 0; end;
+  Require(Failed, 'Archive without readable members was accepted');
+  Writeln('PASS loose archives open readable members, preserve originals, refresh cache and contain entry paths');
+  Writeln('PASS archive picker handles several books and cancellation without offering executables');
+end;
+
 procedure TestBookColumnFilters;
 var Filters: TBookColumnFilters; Node: PVirtualNode; Book: PBookRecord;
-  Marked: Integer;
+  Marked, I, PopupTag: Integer;
 
   function CountVisible: Integer;
   var N: PVirtualNode; B: PBookRecord;
@@ -754,6 +1014,13 @@ begin
   Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
   Require(Book.Title = 'Alpha extra uk', 'Filter retained a hidden focused book');
   Require(Pos('1 из 3', frmMain.lblBooksTotalA.Caption) > 0, 'Active filter count is invisible');
+  Filters.SetValue(COL_TITLE,'unmatched'); Filters.SetCaseSensitive(COL_TITLE,True);
+  PostMessage(frmMain.Handle,WM_KEYDOWN,VK_ESCAPE,0);
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Require(frmMain.BookListCancelled and (CountVisible=1) and (Filters.Value(COL_TITLE)='EXTRA') and
+    not Filters.CaseSensitive(COL_TITLE) and (Filters.Value(COL_LANG)='uk'),
+    'Cancelled filtering erased previous conditions, case setting or displayed result');
+  Require(Pos('1 из 3',frmMain.lblBooksTotalA.Caption)>0,'Cancelled filter count differs from restored result');
   frmMain.pmiCheckAllClick(nil);
   Marked := 0;
   Node := frmMain.tvBooksA.GetFirst;
@@ -791,6 +1058,163 @@ begin
   frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
   Require((CountVisible = 3) and Assigned(frmMain.tvBooksA.FocusedNode), 'Clearing filters failed to restore books');
   Writeln('PASS column filters combine, survive regrouping, hide empty groups and mark only matching books');
+  Node := frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book := frmMain.tvBooksA.GetNodeData(Node);
+    if Book.NodeType = ntBookInfo then
+    begin
+      if Book.Title = 'Alpha extra uk' then Book.Date := EncodeDate(2026, 10, 10)
+      else Book.Date := EncodeDate(2026, 10, 9);
+      if Book.Title = 'Alpha ru' then begin Book.Size := 1024; Book.Rate := 1; Book.SeqNumber := 1; end
+      else if Book.Title = 'Alpha uk' then begin Book.Size := 1048576; Book.Rate := 3; Book.SeqNumber := 2; end
+      else begin Book.Size := 2097152; Book.Rate := 5; Book.SeqNumber := 3; end;
+      TSeriesHelper.Add(Book.PublisherSeries, 1234, 'Publisher fixture', 1, False);
+      Book.PublisherSeriesKnown := True;
+    end;
+    Node := frmMain.tvBooksA.GetNext(Node);
+  end;
+  Filters.SetValue(COL_DATE, 'date;1;2026-10-09;2026-10-09');
+  Require(Filters.Apply = 2, 'Equal-date filter includes another day');
+  Filters.SetValue(COL_DATE, 'date;4;2026-10-09;2026-10-09');
+  Require(Filters.Apply = 1, 'After-date filter is not exclusive');
+  Filters.SetValue(COL_DATE, 'date;3;2026-10-09;2026-10-09');
+  Require(Filters.Apply = 2, 'Before-inclusive filter excludes its boundary');
+  Filters.SetValue(COL_DATE, 'date;6;2026-10-09;2026-10-10');
+  Require(Filters.Apply = 3, 'Date range is not inclusive');
+  Filters.Clear;
+  Filters.SetValue(COL_PUBLISHER_SERIES_FILTER, 'Publisher fixture');
+  Require(Filters.Apply = 3, 'Loaded publisher series are not filterable');
+  Filters.Clear;
+  Filters.SetValue(COL_SIZE, 'num;4;1048576;1048576;2');
+  Require(Filters.Apply = 1, 'Greater-than size includes equal or smaller bytes');
+  Filters.SetValue(COL_SIZE, 'num;5;1048576;1048576;2');
+  Require(Filters.Apply = 1, 'Less-than size includes equal or larger bytes');
+  Filters.SetValue(COL_SIZE, 'num;1;1048576;1048576;1');
+  Require(Filters.Apply = 1, 'Equal size compares a rounded display string');
+  Filters.SetValue(COL_SIZE, 'num;6;1024;1048576;1');
+  Require(Filters.Apply = 2, 'Size range excludes either boundary');
+  Filters.SetValue(COL_RATE, 'num;2;3;3;0');
+  Require(Filters.Apply = 1, 'Rating and size do not combine');
+  Filters.Clear; Filters.SetValue(COL_NO, 'num;6;2;3;0');
+  Require(Filters.Apply = 2, 'Sequence numbers lack numeric comparisons');
+  Filters.Clear;
+  for I in TArray<Integer>.Create(COL_TITLE, COL_AUTHOR, COL_SERIES, COL_TYPE, COL_COLLECTION, COL_DATE, COL_LIBID, COL_LIBRATE, COL_SIZE, COL_NO, COL_RATE) do
+  begin
+    PopupTag := I;
+    TThread.ForceQueue(nil,
+      procedure
+      var Popup: TForm; Component: TComponent; EditCount, ChoiceCount, DateCount: Integer; Checks: TCheckListBox; Values: TVirtualStringTree;
+      begin
+        Checks := nil; Values := nil; Popup := Screen.ActiveForm;
+        EditCount := 0; ChoiceCount := 0; DateCount := 0;
+        for Component in Popup do
+        begin
+          if Component is TEdit then Inc(EditCount);
+          if Component is TComboBox then Inc(ChoiceCount);
+          if Component is TDateTimePicker then Inc(DateCount);
+          if Component is TCheckListBox then Checks := TCheckListBox(Component);
+          if Component is TVirtualStringTree then Values := TVirtualStringTree(Component);
+        end;
+        if PopupTag = COL_DATE then Require((EditCount = 0) and (ChoiceCount = 1) and (DateCount = 2), 'Date icon opens unrelated fields')
+        else if PopupTag in [COL_AUTHOR,COL_SERIES,COL_TYPE,COL_COLLECTION] then
+          Require(Assigned(Values) and (EditCount = 1) and (ChoiceCount = 0) and (DateCount = 0), 'Loaded-value popup lacks searchable checkbox list')
+        else if PopupTag in [COL_RATE,COL_LIBRATE] then
+          Require(Assigned(Checks) and (Checks.Items.Count=6) and (EditCount = 0) and (ChoiceCount = 0) and (DateCount = 0), 'Rating checklist lacks six values or contains numeric controls')
+        else if PopupTag in [COL_SIZE, COL_NO] then
+          Require((EditCount = 2) and (ChoiceCount = 1 + Ord(PopupTag = COL_SIZE)) and (DateCount = 0), 'Numeric icon lacks comparison or size units')
+        else Require((EditCount = 1) and (ChoiceCount = 0) and (DateCount = 0), 'Text icon opens more than its column');
+        Require(Popup.ClientWidth <= MulDiv(360, Popup.CurrentPPI, 96), 'Individual filter is wider than the compact layout');
+        Popup.ModalResult := mrCancel;
+      end);
+    Require(not EditBookColumnFilter(frmMain.tvBooksA, I), 'Cancel unexpectedly applied a column filter');
+    Require(Filters.Count = 0, 'Cancel changed existing filters');
+  end;
+  TThread.ForceQueue(nil,
+    procedure
+    var Popup: TForm; Component: TComponent; Mode, Units: TComboBox; First, Last: TEdit;
+    begin
+      Popup := Screen.ActiveForm; Mode := nil; Units := nil; First := nil; Last := nil;
+      for Component in Popup do
+      begin
+        if Component is TComboBox then
+          if TComboBox(Component).Items.IndexOf('МБ') >= 0 then Units := TComboBox(Component)
+          else Mode := TComboBox(Component);
+        if Component is TEdit then
+          if not Assigned(First) then First := TEdit(Component) else Last := TEdit(Component);
+      end;
+      Require(Assigned(Mode) and Assigned(Units) and Assigned(First) and Assigned(Last), 'Size editor controls missing');
+      Mode.ItemIndex := 6; Mode.OnChange(Mode); Units.ItemIndex := 2;
+      First.Text := FloatToStr(0.5); Last.Text := FloatToStr(1.5);
+      Require(Last.Visible, 'Between condition hides its second value');
+      Popup.ModalResult := mrOk;
+    end);
+  Require(EditBookColumnFilter(frmMain.tvBooksA, COL_SIZE), 'Size popup did not apply');
+  Require(Filters.Value(COL_SIZE) = 'num;6;524288;1572864;2', 'MB fractions were not converted to bytes');
+  Require(Filters.Apply = 1, 'MB range retained the wrong books');
+  Filters.SetValue(COL_TITLE, 'Alpha');
+  TThread.ForceQueue(nil,
+    procedure
+    var Component: TComponent; Reset: TButton;
+    begin
+      Reset := nil;
+      for Component in Screen.ActiveForm do
+        if (Component is TButton) and (TButton(Component).Caption = 'Сбросить') then Reset := TButton(Component);
+      Require(Assigned(Reset), 'Compact filter lacks reset'); Reset.Click;
+    end);
+  Require(EditBookColumnFilter(frmMain.tvBooksA, COL_SIZE), 'Size reset did not apply');
+  Require((Filters.Value(COL_SIZE) = '') and (Filters.Value(COL_TITLE) <> ''), 'Reset cleared other columns');
+  Filters.SetCaseSensitive(COL_TITLE,True);
+  TThread.ForceQueue(nil,
+    procedure
+    var Manager: TForm; Component: TComponent; TitleButton: TButton;
+    begin
+      Manager := Screen.ActiveForm; TitleButton := nil;
+      for Component in Manager do
+        if (Component is TButton) and (TButton(Component).Tag=COL_TITLE) and
+          string(TButton(Component).Caption).StartsWith('Название') then TitleButton := TButton(Component);
+      Require(Assigned(TitleButton),'All-filters manager lacks title button');
+      TThread.ForceQueue(nil,
+        procedure
+        var C: TComponent;
+        begin
+          for C in Screen.ActiveForm do
+          begin
+            if C is TEdit then TEdit(C).Text := 'temporary';
+            if C is TCheckBox then TCheckBox(C).Checked := False;
+          end;
+          Screen.ActiveForm.ModalResult := mrOk;
+        end);
+      TitleButton.Click;
+      Require(Filters.Value(COL_TITLE)='temporary','Manager child edit did not apply');
+      Manager.ModalResult := mrCancel;
+    end);
+  Require(not EditBookColumnFilters(frmMain.tvBooksA),'Manager cancel unexpectedly applied');
+  Require((Filters.Value(COL_TITLE)='Alpha') and Filters.CaseSensitive(COL_TITLE),
+    'Manager cancel did not restore both value and case flag');
+  Filters.Clear;
+  frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Node := frmMain.tvBooksA.GetFirst;
+  while Assigned(Node) do
+  begin
+    Book := frmMain.tvBooksA.GetNodeData(Node);
+    if Book.NodeType = ntBookInfo then
+    begin
+      if Book.Rate = 5 then Book.Title := 'Учебник Творца';
+      if Book.Rate = 3 then Book.Title := 'Второе творение';
+    end;
+    Node := frmMain.tvBooksA.GetNext(Node);
+  end;
+  Filters.SetValue(COL_TITLE,'твор'); Require(Filters.Apply = 2,'Cyrillic default filter is case-sensitive');
+  Filters.SetCaseSensitive(COL_TITLE,True); Require(Filters.Apply = 1,'Case checkbox does not distinguish Cyrillic');
+  Filters.SetCaseSensitive(COL_TITLE,False);
+  Filters.SetValue(COL_RATE,'set;3;5'); Require(Filters.Apply = 2,'Rating checklist does not union selected values');
+  Filters.SetValue(COL_RATE,'set;5'); Require(Filters.Apply = 1,'Rating checklist does not combine with text');
+  Filters.Clear; frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  Writeln('PASS Unicode Cyrillic case mapping, explicit case mode and multi-value ratings');
+  Writeln('PASS numeric size, number and rating filters compare raw values with inclusive ranges');
+  Writeln('PASS compact size popup converts fractional MB and resets only its own column');
+  Writeln('PASS per-column dialogs expose only their own loaded values; date boundaries and publisher series filters work');
   if ParamStr(2) = 'visual' then
   begin
     frmMain.Show;
@@ -807,7 +1231,18 @@ const
     '<binary id="two.jpg" content-type="image/jpeg">' + WEBP + '</binary></FictionBook>';
 var Host: TForm; Panel: TInfoPanel; Gallery: TBookGallery; Calls: Integer;
   Started, ReleaseOld, OldFactoryDone: TEvent; Zip: TZipFile; Stream: TBytesStream;
-  EpubFile: string; BeforeSource: string;
+  EpubFile: string; BeforeSource, SmallImage, LargeImage: string; DuplicateCase: Integer;
+
+  function PNGBytes(W, H: Integer): string;
+  var Bitmap: TBitmap; Png: TPngImage; Bytes: TBytesStream;
+  begin
+    Bitmap := TBitmap.Create; Png := TPngImage.Create; Bytes := TBytesStream.Create;
+    try
+      Bitmap.SetSize(W, H); Bitmap.Canvas.Brush.Color := clBlue;
+      Bitmap.Canvas.FillRect(Rect(0, 0, W, H)); Png.Assign(Bitmap); Png.SaveToStream(Bytes);
+      Result := TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes, 0, Integer(Bytes.Size)));
+    finally Bytes.Free; Png.Free; Bitmap.Free; end;
+  end;
 
   function VisualBook: string;
   var Bitmap: TBitmap; Png: TPngImage; Bytes: TBytesStream; I: Integer;
@@ -920,6 +1355,39 @@ begin
       end);
     Gallery.OpenImage(1);
     Writeln('PASS illustration preview arrows work and resized window position persists');
+
+    SmallImage := PNGBytes(200, 300); LargeImage := PNGBytes(333, 500);
+    for DuplicateCase := 0 to 2 do
+    begin
+      BeforeSource := '<FictionBook><binary id="cover.jpg">';
+      case DuplicateCase of
+        0: BeforeSource := BeforeSource + SmallImage + '</binary><binary id="cover.jpg">' + LargeImage;
+        1: BeforeSource := BeforeSource + LargeImage + '</binary><binary id="cover.jpg">' + SmallImage;
+        2: BeforeSource := BeforeSource + 'broken' + '</binary><binary id="cover.jpg">' + LargeImage;
+      end;
+      BeforeSource := BeforeSource + '</binary></FictionBook>';
+      Gallery.SetBook('duplicate-' + IntToStr(DuplicateCase), '.fb2',
+        function: TStream begin Result := TBytesStream.Create(TEncoding.UTF8.GetBytes(BeforeSource)); end);
+      Gallery.Expanded := True; WaitLoaded;
+      Require(Gallery.ImageCount = 1, 'Repeated XML image ID produced multiple thumbnails');
+      TThread.ForceQueue(nil,
+        procedure
+        var Component: TComponent; Found: Boolean;
+        begin
+          Found := False;
+          for Component in Screen.ActiveForm do
+            if Component is TImage then
+            begin
+              Found := True;
+              Require((TImage(Component).Picture.Width = 333) and (TImage(Component).Picture.Height = 500),
+                'Duplicate cover retained its smaller image');
+            end;
+          Require(Found, 'Image preview is missing');
+          Screen.ActiveForm.ModalResult := mrCancel;
+        end);
+      Gallery.OpenImage(0);
+    end;
+    Writeln('PASS duplicate cover IDs retain the larger original pixels in either order and recover a broken first image');
 
     Gallery.SetBook('slow-old', '.fb2',
       function: TStream
@@ -1147,13 +1615,16 @@ begin
   Persistent := TPath.Combine(Settings.AppPath, 'persistent-reading');
   MakeCleanupFixture(Persistent);
   MakeCleanupFixture(Root);
+  TFile.WriteAllText(TPath.Combine(Persistent,'homelib-old.fb2'),'owned reader cache');
+  TFile.WriteAllText(TPath.Combine(Persistent,'homelib-old.fb2.source'),'owned stamp');
   Settings.ReadDir := Persistent;
   frmMain.ClearReadFolderExecute(nil);
-  Require(not FileExists(TPath.Combine(Persistent, 'ordinary.tmp')) and
-    not DirectoryExists(TPath.Combine(Persistent, WEBP_READER_CACHE_FOLDER)), 'Explicit custom reader folder cleanup failed');
+  Require(FileExists(TPath.Combine(Persistent,'ordinary.tmp')) and
+    FileExists(TPath.Combine(Persistent,WEBP_READER_CACHE_FOLDER+'\copy.fb2')) and
+    not FileExists(TPath.Combine(Persistent,'homelib-old.fb2')),'Custom reader cleanup must preserve unowned files');
   Require(FileExists(TPath.Combine(Root, 'ordinary.tmp')) and
     FileExists(TPath.Combine(Root, WEBP_READER_CACHE_FOLDER + '\copy.fb2')), 'Custom reader cleanup changed the default temp folder');
-  Writeln('PASS custom reading folder is cleared only when explicitly selected');
+  Writeln('PASS custom reading folder is cleared safely: only owned stamped copies, personal files preserved');
 
   // The Node wrapper creates this junction entirely inside its owned runtime.
   JunctionRoot := TPath.Combine(Settings.AppPath, 'junction-reading');
@@ -1162,7 +1633,7 @@ begin
   Settings.ReadDir := JunctionRoot;
   frmMain.ClearReadFolderExecute(nil);
   Require(FileExists(Outside), 'Cleanup followed the cache junction into another folder');
-  Require(not FileExists(TPath.Combine(JunctionRoot, 'ordinary.tmp')), 'Junction protection prevented ordinary file cleanup');
+  Require(FileExists(TPath.Combine(JunctionRoot,'ordinary.tmp')),'Legacy cleanup deleted unowned file next to junction');
   Settings.ReadDir := '';
   Writeln('PASS reader cleanup does not follow a converted-cache junction');
 end;
@@ -1218,6 +1689,92 @@ begin
   Require(Result > 0, 'Fixture book was not inserted');
 end;
 
+procedure TestMergePolicies;
+var HighSource, LowSource, Target: IBookCollection; Sources: TMergeSources;
+  Policy: TCollectionMergePolicy; Plan: TCollectionMergePlan;
+  Book, Stored, Original, Resolved: TBookRecord; TargetID, ID, I, Count: Integer;
+  Iterator: IBookIterator; Copies: TArray<TBookRecord>; BasePath: string;
+  procedure Configure(const Collection: IBookCollection; const FileName: string; Size: Integer);
+  var BookID: Integer;
+  begin
+    BookID := AddBook(Collection, 'Same edition', 'Author', 'ru', 'Same cycle', 'detective');
+    Collection.GetBookRecord(CreateBookKey(BookID, Collection.CollectionID), Book, False);
+    Book.LibID := '42'; Book.Folder := Settings.AppPath; Book.FileName := FileName;
+    Book.FileExt := '.fb2'; Book.Size := Size; Include(Book.BookProps, bpIsLocal);
+    Collection.UpdateBook(Book);
+    TFile.WriteAllText(Book.GetBookFileName, '<FictionBook><body>' + FileName + '</body></FictionBook>', TEncoding.UTF8);
+  end;
+begin
+  I := SystemDB.CreateCollection('Policy high', Settings.AppPath, 'policy-high.hlc2',
+    CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst'); HighSource := SystemDB.GetCollection(I);
+  I := SystemDB.CreateCollection('Policy low', Settings.AppPath, 'policy-low.hlc2',
+    CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst'); LowSource := SystemDB.GetCollection(I);
+  Configure(HighSource, 'policy-high', 100); Original := Book;
+  Configure(LowSource, 'policy-low', 50);
+  Require(BookLibraryIdentity(Original, 'flibusta') = BookLibraryIdentity(Book, 'flibusta'),
+    'Size difference hides equal library IDs');
+  Require(BookLibraryIdentity(Original, 'flibusta') <> BookLibraryIdentity(Book, 'librusec'),
+    'Equal numeric IDs from different libraries collide');
+  Book.Title := 'Different edition';
+  Require(BookLibraryIdentity(Original, 'flibusta') <> BookLibraryIdentity(Book, 'flibusta'), 'Different titles collapse');
+  Book := Original; Book.Lang := 'en';
+  Require(BookLibraryIdentity(Original, 'flibusta') <> BookLibraryIdentity(Book, 'flibusta'), 'Different languages collapse');
+  Book := Original; Include(Book.BookProps,bpIsDeleted);
+  Require(BookLibraryIdentity(Book,'flibusta')='', 'Deleted placeholders qualify for merging');
+  Require(BookLibraryIdentity(Original,'')='', 'Unknown numeric origin qualifies for merging');
+  Book := Original; Book.LibID := 'merged:{A}:flibusta:42';
+  Require(BookLibraryIdentity(Book,'')=BookLibraryIdentity(Original,'flibusta'), 'Scoped merged identity is lost');
+  SetLength(Sources,2);
+  Sources[0].ID := 'policy-high'; Sources[0].Name := 'High'; Sources[0].Collection := HighSource;
+  Sources[0].DatabaseFile := SystemDB.GetCollectionInfo(HighSource.CollectionID).DBFileName;
+  Sources[1].ID := 'policy-low'; Sources[1].Name := 'Low'; Sources[1].Collection := LowSource;
+  Sources[1].DatabaseFile := SystemDB.GetCollectionInfo(LowSource.CollectionID).DBFileName;
+  for Policy := Low(TCollectionMergePolicy) to High(TCollectionMergePolicy) do
+  begin
+    Sources[0].LibraryNamespace := 'flibusta'; Sources[1].LibraryNamespace := 'flibusta';
+    TargetID := SystemDB.CreateCollection('Policy target ' + IntToStr(Ord(Policy)), Settings.AppPath,
+      'policy-target-' + IntToStr(Ord(Policy)) + '.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+    Target := SystemDB.GetCollection(TargetID); Target.SetProperty(PROP_SOURCE_LIBRARY,'flibusta');
+    Configure(Target,'policy-base-' + IntToStr(Ord(Policy)),300); ID := Book.BookKey.BookID;
+    Target.SetRate(Book.BookKey,5); Target.SetProgress(Book.BookKey,72);
+    Plan := TCollectionMergePlan.Create(Target,Sources,nil,Policy);
+    try
+      Plan.Preview;
+      if Policy=mpKeepAll then Require((Plan.NewBooks=2) and (Plan.Duplicates=0),'Default merges different copies')
+      else Require((Plan.NewBooks=0) and (Plan.Duplicates=2),'Verified IDs are not previewed as copies');
+      Plan.Apply(Settings.AppPath + 'policy-backup-' + IntToStr(Ord(Policy)));
+      Iterator := Target.GetBookIterator(bmAll,False); Count := 0;
+      while Iterator.Next(Book) do Inc(Count);
+      if Policy=mpKeepAll then Require(Count=3,'Keep-all lost a copy')
+      else
+      begin
+        Require(Count=1,'Optional mode left duplicate book rows');
+        Target.GetBookRecord(CreateBookKey(ID,TargetID),Stored,False);
+        Require((Stored.Rate=5) and (Stored.Progress=72),'Optional merge lost reading progress');
+        if Policy=mpSourcePriority then Require(Stored.FileName='policy-high','Source order was not used')
+        else Require((Stored.FileName='policy-low') and (Stored.Size=50),'Smallest file was not selected');
+        if Policy=mpSourcePriority then Require(Stored.CollectionName='High','Preferred source name is hidden')
+        else Require(Stored.CollectionName='Low','Smallest source name is hidden');
+        Iterator := Target.GetBookIterator(bmAll,False); Require(Iterator.Next(Book), 'Merged iterator is empty');
+        Require(Book.CollectionName=Stored.CollectionName,'Streamed list lost preferred source name'); Iterator := nil;
+        Copies := Target.GetCatalogBookCopies(Stored.BookKey); Require(Length(Copies)>=3,'Original paths were lost');
+        BasePath := Stored.GetBookFileName; TFile.Move(BasePath,BasePath+'.busy');
+        try
+          Resolved := ResolveReaderBook(Target,Stored);
+          Require(FileExists(Resolved.GetBookFileName) and (Resolved.Title=Stored.Title), 'Missing preferred copy has no fallback');
+        finally TFile.Move(BasePath+'.busy',BasePath); end;
+        Plan.Preview; Plan.Apply(Settings.AppPath+'policy-repeat-'+IntToStr(Ord(Policy)));
+        Iterator := Target.GetBookIterator(bmAll,False); Count := 0; while Iterator.Next(Book) do Inc(Count);
+        Require(Count=1,'Repeated optional merge duplicates records');
+      end;
+    finally Plan.Free; end;
+  end;
+  HighSource.GetBookRecord(Original.BookKey,Stored,False);
+  Require((Stored.LibID=Original.LibID) and (Stored.FileName=Original.FileName) and
+    (Stored.Title=Original.Title),'Optional merge modified source catalog');
+  Writeln('PASS optional copy merging verifies origin, ID, title, language and format, preserves sources and alternatives, and honors priority or size');
+end;
+
 procedure TestCollectionMerge;
 var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
   Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing, Probe: TBookRecord;
@@ -1271,8 +1828,8 @@ begin
   try
     Plan.Preview;
     Require((Plan.NewBooks=1) and (Plan.Duplicates=2) and (Plan.Conflicts=2), 'Merge preview counts incorrect');
-    Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; одинаковых файлов 1.') and
-      Plan.Report.Text.Contains('Источник Low: новых записей 1; уже подключено 0; одинаковых файлов 1.'),
+    Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; сопоставленных копий 1.') and
+      Plan.Report.Text.Contains('Источник Low: новых записей 1; уже подключено 0; сопоставленных копий 1.'),
       'Initial source summary does not distinguish physical matches');
     Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
     ID := Target.GetCatalogBookID('high:42'); Require(ID=ExistingID, 'Merge changed existing BookID');
@@ -1294,7 +1851,7 @@ begin
     High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
     Require((Book.Title='High title') and (Book.LibID='42') and (Book.Review='High review'), 'Merge modified source');
     Plan.Preview;
-    Require(Plan.Report.Text.Contains('Источник Low: новых записей 0; уже подключено 2; одинаковых файлов 0.'),
+    Require(Plan.Report.Text.Contains('Источник Low: новых записей 0; уже подключено 2; сопоставленных копий 0.'),
       'Repeat preview describes existing source links as new physical matches');
     Plan.Apply(Settings.AppPath + 'merge-repeat');
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
@@ -1348,12 +1905,14 @@ begin
     Writeln('PASS repeat merge remains idempotent and stale previews are rejected');
     Writeln('PASS safe merge previews duplicates, keeps IDs, all series, user values and groups, backs up WAL and rolls back cancellation');
   finally Plan.Free; end;
+  TestMergePolicies;
 end;
 
 procedure TestCatalogSources;
 var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   ID, I: Integer; Refresh: TCatalogRefreshWorker; Worker: TCatalogMergeWorker;
-  Plan: TCollectionMergePlan; Book: TBookRecord; Iterator: IBookIterator; Count: Integer;
+  Plan: TCollectionMergePlan; Book, AliasBook: TBookRecord; Iterator: IBookIterator; Count, AliasID: Integer;
+  AliasWorker: TSeriesAliasWorker; AliasPlan: TSeriesAliasPlan;
   Dialog: TfrmCatalogSources; Statistics: TfrmStat;
 
   procedure IndexFile(const FileName, Title: string);
@@ -1445,6 +2004,27 @@ begin
   SourceCollection := OpenCatalogSource(Sources[0],SystemDB); Iterator := SourceCollection.GetBookIterator(bmAll,False);
   Require(Iterator.Next(Book) and (Book.Title='Updated source title'),'Failed refresh replaced good source snapshot');
   Iterator := nil; SourceCollection := nil;
+  AliasBook := Default(TBookRecord); AliasBook.Title := 'Alias fixture'; AliasBook.Series := 'Цикл[a]';
+  AliasBook.LibID := 'alias-fixture'; AliasBook.FileName := 'alias-fixture'; AliasBook.FileExt := '.fb2';
+  TAuthorsHelper.Add(AliasBook.Authors,'Автор','Тест','');
+  AliasID := Target.InsertBook(AliasBook,False,False);
+  AliasWorker := TSeriesAliasWorker.CreatePreview(ID);
+  try
+    AliasWorker.Start; AliasWorker.WaitFor;
+    Require(AliasWorker.Success,'Series alias worker preview failed: '+AliasWorker.Error);
+    AliasPlan := AliasWorker.TakePlan;
+  finally AliasWorker.Free; end;
+  try
+    Require(AliasPlan.Count=1,'Threaded series alias preview missed shared author');
+    AliasWorker := TSeriesAliasWorker.CreateApply(AliasPlan,Settings.AppPath+'threaded-series-backup');
+    try AliasWorker.Start; AliasWorker.WaitFor;
+      Require(AliasWorker.Success,'Series alias worker apply failed: '+AliasWorker.Error);
+    finally AliasWorker.Free; end;
+  finally AliasPlan.Free; end;
+  Target := SystemDB.GetCollection(ID,True);
+  Target.GetBookRecord(CreateBookKey(AliasID,ID),AliasBook,False);
+  Require(AliasBook.Series='Цикл','Threaded series merge did not refresh primary name');
+  Writeln('PASS series aliases preview and apply across background workers');
   if ParamStr(1)='catalog-sources-ui' then
   begin
     frmMain.Show; Dialog := TfrmCatalogSources.CreateForCollection(frmMain,Target);
@@ -1512,6 +2092,51 @@ begin
   frmMain.pgControlChange(nil);
 end;
 
+procedure TestAdjacentSeriesSelection(const Collection: IBookCollection; OneID, TwoID: Integer);
+var Node, FirstBook: PVirtualNode; Data: PSeriesData; Book: PBookRecord;
+  I: Integer; Name: string;
+  procedure SelectSeries(const SeriesName: string);
+  begin
+    Node := frmMain.tvSeries.GetFirst;
+    while Assigned(Node) do
+    begin
+      Data := frmMain.tvSeries.GetNodeData(Node);
+      if Data.SeriesTitle = SeriesName then Break;
+      Node := frmMain.tvSeries.GetNext(Node);
+    end;
+    Require(Assigned(Node), 'Adjacent series fixture is absent');
+    frmMain.tvSeries.ClearSelection;
+    frmMain.tvSeries.Selected[Node] := True;
+    frmMain.tvSeries.FocusedNode := Node;
+    frmMain.tvSeriesChange(frmMain.tvSeries, Node);
+    FirstBook := frmMain.tvBooksS.GetFirst;
+    while Assigned(FirstBook) do
+    begin
+      Book := frmMain.tvBooksS.GetNodeData(FirstBook);
+      if Book.NodeType = ntBookInfo then Break;
+      FirstBook := frmMain.tvBooksS.GetNext(FirstBook);
+    end;
+    Require(Assigned(FirstBook), 'Adjacent series has no books');
+    Require(frmMain.tvBooksS.FocusedNode = FirstBook, 'New series selected its second book');
+  end;
+begin
+  for I := 1 to 3 do
+  begin
+    AddBook(Collection, 'First group ' + IntToStr(I), 'Selection', 'ru', 'Alpha selection base', 'prose_contemporary');
+    AddBook(Collection, 'Second group ' + IntToStr(I), 'Selection', 'ru', 'Alpha selection base[a]', 'prose_contemporary');
+  end;
+  ChangeCollection(TwoID); ChangeCollection(OneID);
+  ShowPage(PAGE_SERIES);
+  frmMain.cbLangSelectS.ItemIndex := 0;
+  frmMain.cbLangSelectS.OnChange(frmMain.cbLangSelectS);
+  for I := 1 to 8 do
+  begin
+    if Odd(I) then Name := 'Alpha selection base' else Name := 'Alpha selection base[a]';
+    SelectSeries(Name);
+  end;
+  Writeln('PASS adjacent series consistently select the first book without a mutable saved-key race');
+end;
+
 procedure RequestRootGenreBooks;
 begin
   if frmMain.btnShowGenreBooks.Visible then
@@ -1530,7 +2155,7 @@ var
   Keys: TBookIdList;
   Worker: TExportToDeviceThread;
   Component: TComponent;
-  HasCover: Boolean;
+  HasCover: Boolean; I: Integer;
 
   procedure RequireUnchangedZip;
   var
@@ -1617,6 +2242,7 @@ begin
   Require(FileExists(SourceFile), 'Downloaded ZIP is absent');
   SourceBytes := TFile.ReadAllBytes(SourceFile);
   frmMain.tvBooksTreeChange(frmMain.tvBooksA, Node);
+  for I:=1 to 100 do begin Application.ProcessMessages; CheckSynchronize(10); Sleep(10); end;
   HasCover := False;
   for Component in frmMain.ipnlAuthors do
     if (Component is TImage) and Assigned(TImage(Component).Picture.Graphic) then
@@ -1801,6 +2427,8 @@ type
   TProfileBooks = class(TInterfacedObject, IBookIterator)
   private FIndex: Integer;
   public
+    CancelAt: Integer;
+    CancelControl: TButton;
     function Next(out Book: TBookRecord): Boolean;
     function RecordCount: Integer;
   end;
@@ -1813,6 +2441,11 @@ begin
   Result := FIndex < RecordCount;
   if not Result then Exit;
   Inc(FIndex); Book.Clear; Book.nodeType := ntBookInfo;
+  if Assigned(CancelControl) and (FIndex = CancelAt) then
+  begin
+    PostMessage(CancelControl.Handle, WM_LBUTTONDOWN, MK_LBUTTON, MakeLParam(4, 4));
+    PostMessage(CancelControl.Handle, WM_LBUTTONUP, 0, MakeLParam(4, 4));
+  end;
   Book.BookKey := CreateBookKey(FIndex, Settings.ActiveCollection);
   Book.Title := Format('Profile book %.6d', [FIndex]);
   TAuthorsHelper.Add(Book.Authors, 'Profile', '', '');
@@ -1823,7 +2456,8 @@ end;
 
 procedure TestNestedGenreIterators;
 var Collection: IBookCollection; Filter: TFilterValue; First, Second: IBookIterator;
-  Book: TBookRecord; ID, I, Count: Integer;
+  Book: TBookRecord; ID, I, Count, FirstID: Integer; Criteria: TBookSearchCriteria;
+  Publisher: TBookSeries;
 begin
   ID := SystemDB.CreateCollection('Nested genres', Settings.AppPath, 'nested-genres.hlc2',
     CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
@@ -1841,13 +2475,727 @@ begin
   Collection.SetHideDeleted(False);
   First := Collection.GetBookIterator(bmByGenreRecursive, False, @Filter);
   Require(First.RecordCount=20, 'Genre filter change retained old temporary membership');
+  First := nil;
+  Criteria := Default(TBookSearchCriteria); Criteria.Deleted := True;
+  Criteria.DateIdx := -1; Criteria.CollapseMultiSeriesResults := True;
+  First := Collection.Search(Criteria, False);
+  Require(First.RecordCount = 14, 'Compact hide-deleted search count is wrong');
+  Count := 0; FirstID := 0;
+  while First.Next(Book) do
+  begin
+    Inc(Count); if FirstID = 0 then FirstID := Book.BookKey.BookID;
+    Require((Length(Book.Authors) = 1) and (Length(Book.Genres) = 1), 'Bulk search lost metadata');
+    Require(Book.PublisherSeriesKnown, 'Bulk search left publisher series unloaded');
+  end;
+  Require(Count = 14, 'Compact hide-deleted search lost books'); First := nil;
+  Collection.AddBookSeries(FirstID, 'First cycle', 1);
+  Collection.AddBookSeries(FirstID, 'Second cycle', 2);
+  TSeriesHelper.Add(Publisher, 0, 'Publisher cycle', 3, False);
+  Collection.SetBookPublisherSeries(CreateBookKey(FirstID, ID), Publisher);
+  Criteria.CollapseMultiSeriesResults := False;
+  First := Collection.Search(Criteria, False);
+  Require(First.RecordCount = 15, 'Expanded hide-deleted search count is wrong');
+  Count := 0;
+  while First.Next(Book) do
+  begin
+    Inc(Count); Require(Length(Book.Authors) = 1, 'Expanded second series lost cached authors');
+    if Book.BookKey.BookID = FirstID then
+      Require((Length(Book.PublisherSeries) = 1) and (Book.PublisherSeries[0].SeriesTitle = 'Publisher cycle'),
+        'Expanded search lost preloaded publisher series');
+  end;
+  Require(Count = 15, 'Expanded search lost a relationship'); First := nil;
+  Criteria.Series := 'Second cycle';
+  First := Collection.Search(Criteria, False);
+  Require((First.RecordCount = 1) and First.Next(Book) and (Book.Series = 'Second cycle'), 'Expanded series search shows nonmatching relationships');
   First := nil; Collection := nil;
+  Writeln('PASS compact and expanded bulk searches preserve books, all metadata, counts and matching series');
   Writeln('PASS nested genre iterators retain independent membership and deletion filters without table locks');
+end;
+
+type
+  TLoadingPaintProbe = class(TCustomControl)
+  public PaintCount: Integer;
+  protected procedure Paint; override;
+  end;
+
+procedure TLoadingPaintProbe.Paint;
+begin Inc(PaintCount); Canvas.Brush.Color:=clWindow; Canvas.FillRect(ClientRect); end;
+
+procedure TestAsyncBookPreview;
+var Host: TForm; Panel: TInfoPanel; Preview: TBookInfoPreview; Book: TBookRecord;
+  Started, Elapsed: UInt64; Viewport: TScrollBox; Content: TWinControl; Annotation: TMemo;
+  LockedSource: TFileStream;
+  I: Integer; FileName, OriginalHash: string;
+  procedure WaitPreview;
+  var Deadline: UInt64;
+  begin
+    Deadline:=GetTickCount64+15000;
+    while Preview.Busy and (GetTickCount64<Deadline) do
+    begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+    Require(not Preview.Busy,'Book preview did not finish');
+  end;
+begin
+  Host:=TForm.CreateNew(nil); Panel:=TInfoPanel.Create(Host); Panel.Parent:=Host;
+  Host.SetBounds(80,100,850,450); Panel.Align:=alClient; Host.Show;
+  Preview:=TBookInfoPreview.CreateFor(Host,Panel);
+  try
+    FileName:=Settings.AppPath+'preview-first.fb2';
+    TFile.WriteAllText(FileName,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
+      '<description><title-info><book-title>First</book-title><annotation><p>Stale first annotation</p>'+
+      '</annotation></title-info></description><body><section><p>'+StringOfChar('x',16*1024*1024)+
+      '</p></section></body></FictionBook>',TEncoding.UTF8);
+    OriginalHash:=THashSHA2.GetHashStringFromFile(FileName);
+    Book:=Default(TBookRecord); Book.CollectionRoot:=Settings.AppPath;
+    Book.FileName:='preview-first'; Book.FileExt:='.fb2';
+    Panel.SetBookInfo('Immediate title','Author','Series','Genre');
+    // Measure user selection after the new host's first paint. Keep the same
+    // responsiveness bound, and prove that Load does not need a source handle.
+    Application.ProcessMessages; CheckSynchronize(0);
+    LockedSource:=TFileStream.Create(FileName,fmOpenRead or fmShareExclusive);
+    try
+      Started:=GetTickCount64; Preview.Load(Book,True,True,True);
+      Elapsed:=GetTickCount64-Started;
+      Writeln('PROFILE preview selection_ms=',Elapsed);
+      Require(Elapsed<100,'Book preview selection exceeded 100 ms');
+      Require(Preview.Busy and (Panel.PreviewStatusText='Загрузка дополнительных сведений из файла…'),
+        'Preview tried to read its exclusively locked source during selection');
+    finally LockedSource.Free; end;
+    // Let the first worker start, then replace it while it is reading.
+    Sleep(120); Application.ProcessMessages;
+    TFile.WriteAllText(Settings.AppPath+'preview-second.fb2',
+      '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description>'+
+      '<title-info><book-title>Second</book-title><annotation><p>Latest annotation</p></annotation>'+
+      '</title-info></description><body><section><p>Second book</p></section></body></FictionBook>',TEncoding.UTF8);
+    Book.FileName:='preview-second'; Preview.Load(Book,True,True,True); WaitPreview;
+    Viewport:=nil; Annotation:=nil;
+    for I:=0 to Panel.ControlCount-1 do if Panel.Controls[I] is TScrollBox then Viewport:=TScrollBox(Panel.Controls[I]);
+    Require(Assigned(Viewport),'Preview viewport absent'); Content:=TWinControl(Viewport.Controls[0]);
+    for I:=0 to Content.ControlCount-1 do if Content.Controls[I] is TMemo then Annotation:=TMemo(Content.Controls[I]);
+    Require(Assigned(Annotation) and (Pos('Latest annotation',Annotation.Text)>0), 'Latest annotation absent');
+    Require(Pos('Stale first annotation',Annotation.Text)=0,'A stale preview replaced the selected book');
+    Require(THashSHA2.GetHashStringFromFile(FileName)=OriginalHash,'Preview modified its source');
+    TFile.WriteAllText(Settings.AppPath+'preview-missing.fb2',
+      '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description>'+
+      '<title-info><book-title>'+Char($FFFD)+'broken</book-title></title-info></description>'+
+      '<body><section><p>Text</p></section></body></FictionBook>',TEncoding.UTF8);
+    Book.FileName:='preview-missing'; Preview.Load(Book,True,True,True); WaitPreview;
+    Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
+      (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
+      (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)>0),
+      'Missing metadata did not explain all three conditions');
+    if TFile.Exists(Settings.AppPath+'preview-real.fb2') then
+    begin
+      OriginalHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2');
+      Book.FileName:='preview-real'; Book.Title:='Космос Пушкина'; Preview.Load(Book,True,True,True); WaitPreview;
+      Require((Pos('В файле нет аннотации.',Panel.PreviewStatusText)>0) and
+        (Pos('Обложка в метаданных не задана.',Panel.PreviewStatusText)>0) and
+        (Pos('Название в файле отличается от каталога: «ГЛАВА ЧЕТВЁРТАЯ»',Panel.PreviewStatusText)>0) and
+        (Pos('Название в метаданных повреждено',Panel.PreviewStatusText)=0),'Real metadata warnings differ: '+Panel.PreviewStatusText);
+      Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+'preview-real.fb2')=OriginalHash,'Real preview modified copy');
+      Writeln('PASS real Cosmos metadata explains missing annotation, cover and different title');
+    end;
+    Writeln('PASS missing metadata shows explicit explanations without replacing catalogue fields');
+    Book.FileName:='preview-first'; Preview.Load(Book,True,True,True);
+    Sleep(120); Application.ProcessMessages; FreeAndNil(Preview);
+    Writeln('PASS asynchronous book preview keeps latest selection, annotation, source and safe teardown');
+  finally Preview.Free; Host.Free; end;
+end;
+
+
+
+procedure TestArchiveAndImageAudit;
+var Source, XML, ImageText, BeforeHash, Prepared, Kind: string;
+  Book: TBookRecord; Zip: TZipFile; Stream: TStream; Doc: IXMLFictionBook;
+  Bitmap: TBitmap; PNG: TPngImage; Bytes: TBytesStream; Graphic: TGraphic;
+  Header: TBytes; W,H,I: Integer;
+  procedure CheckDescriptor;
+  begin
+    Stream:=OpenBookMetadataSource(Book);
+    try
+      Require(Assigned(Stream),'Selected archive descriptor missing'); Doc:=LoadFB2Description(Stream);
+      Require(Doc.Description.Titleinfo.Booktitle.Text='Нужная книга','Description belongs to another archived book');
+      Require(GetBookAnnotation(Doc).Contains('Правильная аннотация'),'Selected annotation missing');
+      Graphic:=GetBookCover(Doc);
+      try Require(Assigned(Graphic) and (Graphic.Width=32) and (Graphic.Height=48),'Original archive cover missing');
+      finally Graphic.Free; end;
+    finally Doc:=nil; Stream.Free; end;
+    Stream:=OpenBookImageSource(Book);
+    try Require(Assigned(Stream),'FBD illustration source missing'); finally Stream.Free; end;
+  end;
+  procedure LE32(P: Integer; Value: Cardinal);
+  var J: Integer;
+  begin for J:=0 to 3 do Header[P+J]:=(Value shr (8*J)) and $FF; end;
+  procedure BE32(P: Integer; Value: Cardinal);
+  var J: Integer;
+  begin for J:=0 to 3 do Header[P+J]:=(Value shr (8*(3-J))) and $FF; end;
+  procedure Magic(P: Integer; const Value: AnsiString);
+  var J: Integer;
+  begin for J:=1 to Length(Value) do Header[P+J-1]:=Ord(Value[J]); end;
+  procedure RejectImage;
+  begin
+    Stream:=TBytesStream.Create(Header);
+    try
+      Stream.Position:=3; Require(ImageDimensions(Stream,W,H),'Oversized header not recognized');
+      Require(Stream.Position=3,'Header inspection moved caller position');
+      Require(not ImageFitsMemory(Stream,64*1024*1024),'Oversized image passed allocation guard');
+      Graphic:=CreateGraphicFromStream(Stream);
+      try Require(not Assigned(Graphic),'Oversized image decoded before size check'); finally Graphic.Free; end;
+      Require(Stream.Position=3,'Rejected decoder moved caller position');
+    finally Stream.Free; end;
+  end;
+begin
+  Kind:=ParamStr(2);
+  if Kind='images' then
+  begin
+    SetLength(Header,64); Magic(0,#137'PNG'#13#10#26#10); Magic(12,'IHDR'); BE32(16,100000); BE32(20,100000); RejectImage;
+    FillChar(Header[0],Length(Header),0); Magic(0,'BM'); LE32(14,40); LE32(18,100000); LE32(22,100000); RejectImage;
+    FillChar(Header[0],Length(Header),0); Magic(0,'GIF89a'); Header[6]:=$FF; Header[7]:=$FF; Header[8]:=$FF; Header[9]:=$FF; RejectImage;
+    FillChar(Header[0],Length(Header),0); Magic(0,#255#216#255#192#0#8#8#255#255#255#255); RejectImage;
+    FillChar(Header[0],Length(Header),0); Magic(0,'RIFF'); Magic(8,'WEBP'); Magic(12,'VP8X');
+    for I:=24 to 29 do Header[I]:=$FF; RejectImage;
+    Writeln('PASS PNG JPEG GIF BMP WebP dimensions reject oversized allocation before decoder');
+  end else
+  begin
+    Bitmap:=TBitmap.Create; PNG:=TPngImage.Create; Bytes:=TBytesStream.Create;
+    try
+      Bitmap.SetSize(32,48); Bitmap.Canvas.Brush.Color:=clBlue; Bitmap.Canvas.FillRect(Rect(0,0,32,48));
+      PNG.Assign(Bitmap); PNG.SaveToStream(Bytes); ImageText:=TNetEncoding.Base64.EncodeBytesToString(Copy(Bytes.Bytes,0,Integer(Bytes.Size)));
+    finally Bytes.Free; PNG.Free; Bitmap.Free; end;
+    XML:='<FictionBook xmlns="'+TargetNamespace+'" xmlns:l="http://www.w3.org/1999/xlink"><description><title-info>'+
+      '<book-title>Нужная книга</book-title><annotation><p>Правильная аннотация</p></annotation>'+
+      '<coverpage><image l:href="#cover"/></coverpage></title-info></description><binary id="cover" content-type="image/png">'+ImageText+'</binary></FictionBook>';
+    Source:=Settings.AppPath+'archive-books.zip'; Zip:=TZipFile.Create;
+    try
+      Zip.Open(Source,zmWrite); Zip.Add(TEncoding.UTF8.GetBytes('%PDF-1.4 exact selected book'),'чтение/Книга [1].pdf');
+      Zip.Add(TEncoding.UTF8.GetBytes(XML.Replace('Нужная книга','Чужая книга')),'другие/Книга [1].fbd');
+      Zip.Add(TEncoding.UTF8.GetBytes(XML),'чтение/Книга [1].fbd');
+      Zip.Add(TEncoding.UTF8.GetBytes('%PDF-1.4 another book'),'другие/Другая.pdf');
+      Zip.Add(TEncoding.UTF8.GetBytes(XML.Replace('Нужная книга','Другая книга')),'другие/Другая.fbd'); Zip.Close;
+    finally Zip.Free; end;
+    BeforeHash:=THashSHA2.GetHashStringFromFile(Source);
+    Book:=Default(TBookRecord); Book.CollectionRoot:=Settings.AppPath; Book.Folder:='archive-books.zip';
+    Book.FileName:='чтение/Книга [1]'; Book.FileExt:='.pdf'; CheckDescriptor;
+    Prepared:=PrepareReaderFile(Book); Require(SameText(ExtractFileExt(Prepared),'.pdf'),'Archive launched archive handler');
+    Require(TFile.ReadAllText(Prepared,TEncoding.UTF8).Contains('exact selected book'),'Wrong archived book opened');
+    Book.FileName:='bad metadata'; Book.FileExt:='.pdf'; Book.InsideNo:=0; CheckDescriptor;
+    Prepared:=PrepareReaderFile(Book); Require(TFile.ReadAllText(Prepared,TEncoding.UTF8).Contains('exact selected book'),'Catalog locator selects wrong reading member');
+    Book.FileExt:='.295510'; CheckDescriptor;
+    Book.Folder:=''; Book.FileName:='archive-books.zip'; Book.FileExt:='';
+    Stream:=OpenBookMetadataSource(Book); try Require(not Assigned(Stream),'Ambiguous multi-book archive borrowed unrelated description'); finally Stream.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Reading or metadata modified source archive');
+    Writeln('PASS exact archived PDF opens with its own FBD annotation and original cover; UTF8 nested paths, brackets, damaged catalog locator and ambiguity preserve source');
+  end;
+  Writeln('PASS adversarial audit fixed checks with isolated fixture');
+end;
+
+procedure TestAdversarialAudit;
+var Kind, Root, Name, Other, Dest, Probe, Text, ErrorText, ArchivePath: string;
+  Started, FirstTime, SecondTime: UInt64; I, N, BeforeCount, AfterCount: Integer;
+  Stream: TStream; FileStream: TFileStream; ByteValue: Byte; Worker: TThread;
+  Tree: TBookTree; Filters: TBookColumnFilters; Node: PVirtualNode; Data: PBookRecord;
+  Names: TStringList; Config: TfrmSettings; Book: TBookRecord; Scope: TBookCacheWrite;
+  procedure AwaitMigration;
+  var Since: UInt64;
+  begin Since:=GetTickCount64; while BookCacheMigrationBusy and (GetTickCount64-Since<35000) do
+    begin CheckSynchronize(0); Sleep(20); end;
+  end;
+begin
+  Kind:=ParamStr(2); Settings.ClearBookCacheOnExit:=False;
+  Settings.BookCacheLimitMB:=5120;
+  if Kind='legacy' then
+  begin
+    AwaitMigration;
+    Require(not BookCacheMigrationBusy and not BookCacheMigrationPending,'Legacy transfer did not complete');
+    Other:=TPath.Combine(Settings.AppPath,'legacy-read');
+    Name:=TPath.Combine(Other,'homelib-owned.pdf'); Dest:=TPath.Combine(BookCachePath,ExtractFileName(Name));
+    Require(not FileExists(Name) and FileExists(Dest),'Owned legacy cache was not moved');
+    Require(TFile.ReadAllText(Dest,TEncoding.UTF8)='legacy owned book','Legacy bytes changed');
+    Require(TFile.ReadAllText(TPath.Combine(Other,'personal.pdf'),TEncoding.UTF8)='personal preserved','Legacy transfer changed personal file');
+    Book:=Default(TBookRecord); Book.CollectionRoot:=Settings.AppPath; Book.Folder:='legacy-source.zip';
+    Book.FileName:='book'; Book.FileExt:='.pdf';
+    Settings.ReadDir:=Other;
+    Dest:=PrepareReaderFile(Book); Require(SameFileName(ExtractFileDir(Dest),BookCachePath),'Explicit ReadDir bypassed managed cache');
+    frmMain.ClearReadFolderExecute(nil); Require(not FileExists(Dest),'New prepared copy bypassed cache cleanup');
+    Require(FileExists(TPath.Combine(Other,'personal.pdf')),'Cache cleanup deleted personal legacy file');
+    Writeln('PASS legacy owned cache migrates, personal files survive, explicit reading folder cannot bypass managed cache');
+    Writeln('PASS adversarial audit fixed checks with isolated fixture'); Exit;
+  end;
+  ClearBookCache; Root:=BookCachePath;
+  ForceDirectories(Root);
+  if Kind='filters' then
+  begin
+    Tree:=frmMain.tvBooksA; Filters:=TBookColumnFilters.ForTree(Tree); Filters.Clear;
+    Node:=Tree.GetFirst; I:=0;
+    while Assigned(Node) do
+    begin
+      Data:=Tree.GetNodeData(Node);
+      if Data.NodeType=ntBookInfo then
+      begin
+        case I of
+          0: begin Data.Title:='творца'; Data.FileExt:='.pdf'; end;
+          1: begin Data.Title:='Творца'; Data.FileExt:='.epub'; end;
+        else begin Data.Title:='Другой'; Data.FileExt:='.pdf'; end;
+        end;
+        Inc(I);
+      end;
+      Node:=Tree.GetNext(Node);
+    end;
+    Filters.SetCaseSensitive(COL_TITLE,True); Filters.SetValue(COL_TITLE,'твор');
+    BeforeCount:=Filters.Apply; Filters.SetValue(COL_TITLE,'Твор'); AfterCount:=Filters.Apply;
+    Writeln('OBSERVE case-sensitive change lower=',BeforeCount,' upper incremental=',AfterCount);
+    Filters.Clear; Filters.SetCaseSensitive(COL_TITLE,True); Filters.SetValue(COL_TITLE,'Твор'); N:=Filters.Apply;
+    Writeln('OBSERVE same uppercase filter fresh=',N);
+    Require((BeforeCount=1) and (AfterCount=1) and (N=1),'Case-sensitive change narrowed the old subset');
+    Writeln('REGRESSION originally: case-sensitive filter incorrectly narrows when only letter case changes');
+    Filters.Clear; Filters.Apply; Names:=TStringList.Create;
+    try
+      Filters.GetOptions(COL_TYPE,Names); BeforeCount:=Names.Count;
+      Filters.SetValue(COL_TYPE,'=pdf'); Filters.Apply; Filters.GetOptions(COL_TYPE,Names);
+      Writeln('OBSERVE type choices before=',BeforeCount,' after own filter=',Names.Count,' EPUB available=',Names.IndexOf('epub')>=0);
+      Require((BeforeCount=2) and (Names.Count=2) and (Names.IndexOf('epub')>=0),'Own format filter restricts available choices');
+      Filters.SetValue(COL_TYPE,'=epub'); Require(Filters.Apply=1,'Direct PDF to EPUB switch failed');
+      Writeln('REGRESSION originally: reopening format filter cannot directly select a different loaded format');
+    finally Names.Free; end;
+  end
+  else if Kind='orphan' then
+  begin
+    Name:=TPath.Combine(Root,'homelib-orphan.fb2.pending-99999999');
+    FileStream:=TFileStream.Create(Name,fmCreate); try FileStream.Size:=1024*1024; finally FileStream.Free; end;
+    Writeln('OBSERVE orphan disk bytes=',TFile.GetSize(Name),' reported bytes=',BookCacheUsage);
+    ClearBookCache;
+    Require(not FileExists(Name) and (BookCacheUsage=0),'Stale pending file survived clear');
+    Writeln('REGRESSION originally: stale pending file is invisible to usage, size limit and clear');
+  end
+  else if Kind='nested' then
+  begin
+    ChangeBookCacheDirectory(Root); AwaitMigration;
+    Name:=TPath.Combine(BookCachePath,'homelib-nested.fb2'); Dest:=CurrentBookCacheFile(Name);
+    Writeln('OBSERVE intended path=',Name); Writeln('OBSERVE rewritten path=',Dest);
+    Require(SameFileName(Name,Dest) and SameFileName(BookCachePath,Root),'Selecting cache root nested the path');
+    Writeln('REGRESSION originally: selecting cache root as its parent remaps new files into a second nested subdirectory');
+  end
+  else if Kind='collision' then
+  begin
+    Name:=TPath.Combine(Root,'homelib-collision.fb2'); TFile.WriteAllText(Name,'NEW-current-book',TEncoding.UTF8);
+    Other:=TPath.Combine(Settings.AppPath,'previous-cache'); Dest:=TPath.Combine(Other,'HomeLibRu-BookCache');
+    ForceDirectories(Dest); Dest:=TPath.Combine(Dest,ExtractFileName(Name));
+    TFile.WriteAllText(Dest,'OLD-stale-book',TEncoding.UTF8);
+    RefreshBookCache(True); ChangeBookCacheDirectory(Other); AwaitMigration;
+    Text:=TFile.ReadAllText(Dest,TEncoding.UTF8);
+    Writeln('OBSERVE destination=',Text,' current source survives=',FileExists(Name));
+    Require((Text='NEW-current-book') and not FileExists(Name),'Transfer kept stale destination');
+    Writeln('REGRESSION originally: transfer discards current cache when destination already contains stale file with same name');
+  end
+  else if Kind='failure' then
+  begin
+    Name:=TPath.Combine(Root,'homelib-failure.fb2'); TFile.WriteAllText(Name,'current book',TEncoding.UTF8);
+    Other:=TPath.Combine(Settings.AppPath,'bad-cache'); Dest:=TPath.Combine(Other,'HomeLibRu-BookCache');
+    ForceDirectories(Dest);
+    Probe:=TPath.Combine(Dest,ExtractFileName(Name)+'.pending-transfer-'+IntToStr(GetCurrentProcessId));
+    ForceDirectories(Probe); RefreshBookCache(True); ChangeBookCacheDirectory(Other); AwaitMigration;
+    Writeln('OBSERVE busy=',BookCacheMigrationBusy,' transfer error=',BookCacheMigrationError);
+    Require(BookCacheMigrationError<>'','Expected blocked transfer did not report its error');
+    ErrorText:=''; try ChangeBookCacheDirectory(TPath.Combine(Settings.AppPath,'good-cache'));
+    except on E: Exception do ErrorText:=E.Message; end;
+    Writeln('OBSERVE attempt to choose working directory=',ErrorText);
+    Require(ErrorText='','Failed migration blocked recovery: '+ErrorText); AwaitMigration;
+    Dest:=TPath.Combine(BookCachePath,ExtractFileName(Name));
+    Require(FileExists(Dest) and (TFile.ReadAllText(Dest,TEncoding.UTF8)='current book'),'Recovery lost current book');
+    Writeln('REGRESSION originally: failed transfer blocks choosing a different directory although no transfer is running');
+  end
+  else if (Kind='inflight') or (Kind='source-inflight') then
+  begin
+    ArchivePath:=ParamStr(3); Require(FileExists(ArchivePath),'Real read-only Amber input unavailable');
+    Book:=Default(TBookRecord); Book.CollectionRoot:=ExtractFilePath(ArchivePath);
+    Book.Folder:=ExtractFileName(ArchivePath); Book.FileName:='793007'; Book.FileExt:='.fb2';
+    Book.Size:=17487703; Book.InsideNo:=0; Book.BookProps:=[bpIsLocal];
+    ErrorText:='';
+    Worker:=TThread.CreateAnonymousThread(procedure
+      var Input: TStream;
+      begin
+        try Input:=OpenRawBookSource(Book); try Require(Input.Size=17487703,'Amber size changed'); finally Input.Free; end;
+        except on E: Exception do ErrorText:=E.Message; end;
+      end);
+    Worker.FreeOnTerminate:=False;
+    try
+      Worker.Start; Sleep(500); Require(not Worker.Finished,'Input decoded too quickly for clear race');
+      if Kind='source-inflight' then RemoveBookCacheSource(Book.CollectionRoot,[]) else ClearBookCache;
+      Writeln('OBSERVE bytes immediately after invalidation=',BookCacheUsage);
+      Worker.WaitFor; Require(Pos('кэш очищен',ErrorText)>0,'In-flight writer was not invalidated: '+ErrorText);
+      Writeln('OBSERVE bytes after previously active decoder completes=',BookCacheUsage);
+      Require(BookCacheUsage=0,'In-flight decoder republished cache after clear');
+      Writeln('REGRESSION originally: clearing cache does not invalidate previously started book extraction');
+    finally Worker.Free; end;
+  end
+  else if Kind='active-pending' then
+  begin
+    Name:=TPath.Combine(Root,'homelib-active.fb2'); Scope:=TBookCacheWrite.Create(Settings.AppPath+'source.fb2');
+    try
+      Other:=Scope.TemporaryName(Name); FileStream:=TFileStream.Create(Other,fmCreate);
+      try FileStream.Size:=1024*1024; finally FileStream.Free; end;
+      RefreshBookCache(True); Require(BookCacheUsage>=1024*1024,'Active pending bytes not counted');
+      ClearBookCache; Require(FileExists(Other),'Clear deleted an active writer temporary file');
+      ErrorText:=''; try Scope.Publish(Other,Name); except on E: EAbort do ErrorText:=E.Message; end;
+      Require(ErrorText<>'','Canceled active writer still published');
+    finally Scope.Free; end;
+    Require(not FileExists(Other) and (BookCacheUsage=0),'Canceled temporary file leaked');
+  end
+  else if Kind='return' then
+  begin
+    Name:=TPath.Combine(Root,'homelib-return.fb2'); TFile.WriteAllText(Name,'fresh',TEncoding.UTF8);
+    RegisterBookCacheFile(Name,Settings.AppPath+'source.fb2');
+    Other:=TPath.Combine(Settings.AppPath,'return-other'); ChangeBookCacheDirectory(Other); AwaitMigration;
+    Require(FileExists(CurrentBookCacheFile(Name)),'First move lost file');
+    ChangeBookCacheDirectory(''); AwaitMigration; Require(SameFileName(BookCachePath,Root),'Return did not restore default root');
+    Dest:=CurrentBookCacheFile(Name); Require(FileExists(Dest),'Return move lost file');
+    Require(SameFileName(Dest,TPath.Combine(BookCachePath,ExtractFileName(Name))),'Return move remaps into nested folder');
+    Require(TFile.ReadAllText(Dest,TEncoding.UTF8)='fresh','Return changed bytes');
+  end
+  else if Kind='performance' then
+  begin
+    frmMain.BookCacheActionUpdate(nil); Started:=GetTickCount64;
+    for I:=1 to 5 do frmMain.BookCacheActionUpdate(nil); FirstTime:=GetTickCount64-Started;
+    for I:=1 to 5000 do
+    begin
+      Name:=TPath.Combine(Root,'homelib-bench-'+IntToStr(I)+'.fb2');
+      FileStream:=TFileStream.Create(Name,fmCreate); try ByteValue:=1; FileStream.WriteBuffer(ByteValue,1); finally FileStream.Free; end;
+      TFile.WriteAllText(Name+'.origin',TPath.Combine(Settings.AppPath,'original.fb2'),TEncoding.UTF8);
+    end;
+    RefreshBookCache(True); Started:=GetTickCount64;
+    for I:=1 to 5 do frmMain.BookCacheActionUpdate(nil); SecondTime:=GetTickCount64-Started;
+    Writeln('PROFILE five UI cache updates empty ms=',FirstTime,' 5000 entries ms=',SecondTime,' average ms=',SecondTime div 5);
+    Require(SecondTime<500,'Cache UI counter still blocks the main thread');
+  end
+  else raise Exception.Create('Unknown audit case');
+  Writeln('PASS adversarial audit fixed checks with isolated fixture');
+end;
+
+procedure TestPersistentCache;
+var A,B,C,Root,OtherRoot,Folder,Origin: string; Stream: TStream; Writer: TFileStream;
+  Configuration: TfrmSettings; Status: TMHLOperationStatus; Started: UInt64;
+  SettingsCopy: TMHLSettings; LoadedBytes: TBytes;
+  procedure AddCache(const Name, Source: string; Size: Integer);
+  begin
+    Writer:=TFileStream.Create(Name,fmCreate);
+    try Writer.Size:=Size; finally Writer.Free; end;
+    RegisterBookCacheFile(Name,Source);
+  end;
+begin
+  Require(Settings.BookCacheLimitMB=5120,'New cache default is not 5 GiB');
+  Require(Settings.ClearBookCacheOnExit,'New profile must clear cache at exit by default');
+  Settings.ClearBookCacheOnExit:=False;
+  frmMain.ClearReadFolderExecute(nil); ForceDirectories(BookCachePath);
+  Root:=TPath.Combine(Settings.AppPath,'cache-source'); OtherRoot:=Root+'-other';
+  ForceDirectories(Root); ForceDirectories(OtherRoot);
+  Origin:=TPath.Combine(Root,'original.fb2'); TFile.WriteAllText(Origin,'original unchanged',TEncoding.UTF8);
+  A:=TPath.Combine(BookCachePath,'homelib-cache-a.fb2');
+  B:=TPath.Combine(BookCachePath,'homelib-cache-b.fb2');
+  C:=TPath.Combine(BookCachePath,'homelib-cache-c.fb2');
+  Settings.BookCacheLimitMB:=2;
+  AddCache(A,Origin,400*1024); Sleep(30); AddCache(B,Origin,400*1024); Sleep(30);
+  Stream:=OpenCachedBookFile(A); Stream.Free; Sleep(30);
+  AddCache(C,TPath.Combine(OtherRoot,'other.fb2'),400*1024);
+  Settings.BookCacheLimitMB:=1; TrimBookCache;
+  Require(not FileExists(B) and FileExists(A) and FileExists(C),'LRU eviction or cache limit failed');
+  Require(BookCacheUsage<=1024*1024,'Cache exceeds configured byte limit');
+  Settings.BookCacheLimitMB:=2; AddCache(A,Origin,400*1024);
+  Stream:=OpenCachedBookFile(A);
+  try RemoveBookCacheSource(Root,[]); Require(FileExists(A),'An active stream was removed');
+  finally Stream.Free; end;
+  Require(not FileExists(A) and FileExists(C),'Disconnected-source deferred cleanup failed');
+  AddCache(A,Origin,100); RemoveBookCacheSource(Root,[Root]);
+  Require(FileExists(A),'Shared connected source cache was removed');
+  FinishBookCacheSession; Require(FileExists(A),'Disabled exit cleanup lost persistent cache');
+  Settings.ClearBookCacheOnExit:=True; FinishBookCacheSession;
+  Require(not FileExists(A) and not FileExists(C),'Optional exit cleanup failed');
+  Require(TFile.ReadAllText(Origin,TEncoding.UTF8)='original unchanged','Cache cleanup damaged original');
+  Writeln('PASS bounded persistent cache evicts least recently used files, defers active deletion and preserves shared sources');
+  Settings.ClearBookCacheOnExit:=False; Settings.BookCacheLimitMB:=5120;
+  AddCache(A,Origin,900*1024); frmMain.BookCacheActionUpdate(nil);
+  Require(frmMain.acToolsClearReadFolder.Caption.Contains('МБ'),'Cache menu has no live size');
+  Configuration:=TfrmSettings.Create(nil);
+  try
+    Configuration.LoadSetting;
+    Require((Pos('Занято:',TLabel(Configuration.FindComponent('lblBookCacheUsage')).Caption)>0),'Settings has no live cache level');
+    Require(TComboBox(Configuration.FindComponent('cbBookCacheUnit')).Items.Count=2,'Cache units missing');
+    Require(not TCheckBox(Configuration.FindComponent('cbClearBookCacheOnExit')).Checked,'Explicitly disabled exit toggle was lost');
+    Require(Assigned(Configuration.FindComponent('btnClearBookCache')),'Settings cleanup button absent');
+    TEdit(Configuration.FindComponent('edBookCacheLimit')).Text:='1,5';
+    Configuration.SaveSettings;
+    Require(Settings.BookCacheLimitMB=1536,'Fractional cache GiB conversion failed');
+    Folder:=TPath.Combine(Settings.AppPath,'custom-cache'); ForceDirectories(Folder);
+    TFile.WriteAllText(TPath.Combine(Folder,'keep-personal.txt'),'keep',TEncoding.UTF8);
+    TComboBox(Configuration.FindComponent('cbBookCacheUnit')).ItemIndex:=0;
+    TEdit(Configuration.FindComponent('edBookCacheLimit')).Text:='1';
+    TEdit(Configuration.FindComponent('edBookCacheDirectory')).Text:=Folder;
+    Configuration.SaveSettings;
+  finally Configuration.Free; end;
+  Started:=GetTickCount64;
+  while not FileExists(TPath.Combine(BookCachePath,ExtractFileName(A))) and (GetTickCount64-Started<10000) do
+  begin Application.ProcessMessages; CheckSynchronize(0); Sleep(10); end;
+  B:=TPath.Combine(BookCachePath,ExtractFileName(A));
+  Require(FileExists(B) and FileExists(B+'.origin'),'Accumulated cache did not transfer automatically');
+  TrimBookCache;
+  Require(FileExists(A) and FileExists(B),'Transfer counted one book twice and evicted its cache');
+  Stream:=OpenCachedBookFile(A); Stream.Free;
+  Started:=GetTickCount64;
+  while BookCacheMigrationBusy and (GetTickCount64-Started<35000) do
+  begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
+  Require(not BookCacheMigrationBusy and not FileExists(A),'Old cache was not removed after transfer');
+  Require(SameFileName(CurrentBookCacheFile(A),B),'Late cache writer retains the retired directory');
+  LoadedBytes:=TFile.ReadAllBytes(B); Require(Length(LoadedBytes)=900*1024,'Transferred bytes truncated');
+  // A clear during an unfinished move must cover both roots and not reappear.
+  Stream:=OpenCachedBookFile(B);
+  try
+    ChangeBookCacheDirectory(Folder+'-second');
+    ClearBookCache;
+    Require(FileExists(B),'Transfer cleanup removed an active stream');
+  finally Stream.Free; end;
+  Started:=GetTickCount64;
+  while BookCacheMigrationBusy and (GetTickCount64-Started<5000) do
+  begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
+  Require(not BookCacheMigrationBusy and (BookCacheUsage=0),'Clear during transfer republished deleted cache');
+  Require(not FileExists(B),'Retired active copy survived stream release');
+  Folder:=Folder+'-second';
+  Configuration:=TfrmSettings.Create(nil);
+  try
+    Configuration.LoadSetting;
+    B:=TPath.Combine(BookCachePath,'homelib-settings-cleanup.fb2'); AddCache(B,Origin,50);
+    TButton(Configuration.FindComponent('btnClearBookCache')).Click;
+    Require(not FileExists(B),'Settings cleanup button did not clear cache');
+    if ParamStr(2)='visual' then
+    begin
+      Settings.ClearBookCacheOnExit:=True; Configuration.LoadSetting;
+      Configuration.ShowModal; Settings.ClearBookCacheOnExit:=False;
+    end;
+  finally Configuration.Free; end;
+  Settings.SaveSettings;
+  SettingsCopy:=TMHLSettings.Create;
+  try SettingsCopy.LoadSettings;
+    Require(SettingsCopy.BookCacheDirectory=Folder,'Custom cache directory did not persist');
+    Require(SettingsCopy.BookCacheLimitMB=1,'Cache size setting did not persist');
+    Require(not SettingsCopy.ClearBookCacheOnExit,'Explicitly disabled cleanup did not persist');
+  finally SettingsCopy.Free; end;
+  Writeln('PASS cache menu and settings show live size, fractional MB/GB limits persist, existing cache moves in background');
+  Status:=TMHLOperationStatus.Create('Распаковка книги из архива…',True);
+  try
+    Require(not Status.Visible,'Fast operation flashes a status window');
+    Sleep(450); Status.Pulse; Require(Status.Visible,'Slow opening has no cursor status');
+    Status.SetStage('Открытие книги…');
+  finally Status.Free; end;
+  Require(not Assigned(MHLExternalToolHeartbeat),'Decoder status callback survived destruction');
+  ClearBookCache;
+  Require(TFile.ReadAllText(TPath.Combine(Folder.Substring(0,Length(Folder)-7),'keep-personal.txt'),TEncoding.UTF8)='keep','Custom directory cleanup removed unrelated data');
+  Writeln('PASS delayed cursor status has no fast-operation flicker and custom cache cleanup preserves other files');
+end;
+
+procedure TestFeedback14;
+var Tree: TBookTree; Filters: TBookColumnFilters; Node: PVirtualNode; Data: PBookRecord;
+  I: Integer; Names: TStringList; Item: TMenuItem; Column: TVirtualTreeColumn;
+  Keys: TArray<TBookSortKey>; Reset: TButton; Component: TComponent;
+  Book: TBookRecord; Source, Inner, XML, ImageText, BeforeHash, Prepared: string;
+  Zip: TZipFile; ImageStream, Stream: TStream; Document: IXMLFictionBook;
+  Bitmap: TBitmap; Png: TPngImage; ImageBytes: TBytesStream;
+  Started: UInt64; Pictures: Integer; Loader: TGalleryLoader;
+  procedure ExpectOrder(const Expected: array of Integer);
+  var N: PVirtualNode; B: PBookRecord; Index: Integer;
+  begin
+    N := Tree.GetFirst; Index := 0;
+    while Assigned(N) do
+    begin
+      B := Tree.GetNodeData(N);
+      Writeln('TRACE sort row ',Index,' order=',B.ListOrder,' expected=',Expected[Index]);
+      Require(B.ListOrder = Expected[Index],'Multi-column sort returned wrong order');
+      Inc(Index); N := Tree.GetNext(N);
+    end;
+    Require(Index=Length(Expected),'Sort lost rows');
+  end;
+  procedure RequireDescriptor;
+  var Cover: TGraphic;
+  begin
+    Stream := Book.GetBookDescriptorStream(False);
+    try
+      Require(Assigned(Stream),'Archive FBD is absent'); Document := LoadFB2Description(Stream);
+      Require(Pos('Настоящая аннотация',GetBookAnnotation(Document))>0,'FBD annotation is absent');
+      Cover := GetBookCover(Document);
+      try Require(Assigned(Cover) and (Cover.Width=32) and (Cover.Height=48),'FBD cover is absent');
+      finally Cover.Free; end;
+    finally Document := nil; Stream.Free; end;
+  end;
+begin
+  TestBookColumnFilters; Tree := frmMain.tvBooksA; Filters := TBookColumnFilters.ForTree(Tree);
+  Names := TStringList.Create;
+  try
+    Node := Tree.GetFirst; I := 0;
+    while Assigned(Node) do
+    begin
+      Data := Tree.GetNodeData(Node);
+      if Data.NodeType=ntBookInfo then
+      begin
+        Data.Series := 'Серия '+IntToStr(I); Inc(I);
+        if Data.Rate=5 then begin Data.FileExt := '._Современный_этикет'; Data.FileName := 'actual.pdf'; end;
+        if Data.Rate=3 then begin Data.FileExt := '.295510'; Data.FileName := 'actual'; end;
+      end;
+      Node := Tree.GetNext(Node);
+    end;
+    Filters.SetValue(COL_RATE,'set;5'); Require(Filters.Apply=1,'Rating selection failed');
+    Filters.GetOptions(COL_SERIES,Names); Require(Names.Count=1,'Series menu ignores remaining rows');
+    Filters.GetOptions(COL_TYPE,Names); Require((Names.Count=1) and (Names[0]='pdf'),'Invalid catalog extension did not use real suffix');
+    Filters.Clear; Filters.Apply; Filters.GetOptions(COL_TYPE,Names);
+    Require((Names.IndexOf('295510')<0) and (Names.IndexOf('_Современный_этикет')<0),'Malformed catalog type leaked into formats');
+    Filters.SetValue(COL_TITLE,'твор'); frmMain.ApplyBookColumnFilters(Tree);
+    Reset := nil;
+    for Component in frmMain do
+      if (Component is TButton) and (TButton(Component).Parent=frmMain.lblBooksTotalA.Parent) and
+        (TButton(Component).Caption='Сбросить фильтры столбцов') then Reset := TButton(Component);
+    Require(Assigned(Reset) and Reset.Visible,'Reset button beside count is absent');
+    frmMain.edFTitle.Text := 'Сохранить'; frmMain.cbDeleted.Checked := True; Reset.Click;
+    Require((Filters.Count=0) and (frmMain.edFTitle.Text='Сохранить') and frmMain.cbDeleted.Checked,
+      'Reset erased sidebar filters');
+    Require(frmMain.edFAnnotation.Enabled,'Sidebar annotation field is disabled');
+    frmMain.edFTitle.Text := ''; frmMain.cbDeleted.Checked := False;
+    Writeln('PASS visible-result series choices, valid formats, reset preserves sidebar and annotation input is active');
+  finally Names.Free; end;
+  if Settings.TreeModes[Tree.Tag]=tmTree then frmMain.btnSwitchTreeModeClick(nil);
+  Require(Settings.TreeModes[Tree.Tag]=tmFlat,'Sort fixture is not flat');
+  Item := nil; for I:=0 to frmMain.pmHeaders.Items.Count-1 do
+    if frmMain.pmHeaders.Items[I].Tag=COL_PUBLISHER_SERIES then Item := frmMain.pmHeaders.Items[I];
+  Require(Assigned(Item),'Publisher-series column menu absent');
+  for I:=0 to Tree.Header.Columns.Count-1 do
+    Require(Tree.Header.Columns[I].Tag<>COL_PUBLISHER_SERIES,'Publisher-series column enabled by default');
+  Item.Click;
+  Require(Item.Checked,'Publisher-series column did not turn on');
+  I := 0; Node := Tree.GetFirst;
+  while Assigned(Node) do
+  begin
+    Data := Tree.GetNodeData(Node); Data.ListOrder := I; Data.Lang := 'ru';
+    case I of
+      0: begin Data.Size := 20; Data.Title := 'Z'; end;
+      1: begin Data.Size := 10; Data.Title := 'A'; end;
+      2: begin Data.Size := 10; Data.Title := 'B'; end;
+    end;
+    Inc(I); Node := Tree.GetNext(Node);
+  end;
+  Item := nil; for I:=0 to frmMain.pmHeaders.Items.Count-1 do
+    if frmMain.pmHeaders.Items[I].Tag=COL_LANG then Item := frmMain.pmHeaders.Items[I];
+  Require(Assigned(Item),'Language column menu absent');
+  if not Item.Checked then Item.Click;
+  SetLength(Keys,3); Keys[0].Tag:=COL_LANG; Keys[0].Direction:=sdAscending;
+  Keys[1].Tag:=COL_SIZE; Keys[1].Direction:=sdDescending;
+  Keys[2].Tag:=COL_TITLE; Keys[2].Direction:=sdDescending;
+  Tree.SortKeys:=Keys; frmMain.SortLoadedBooks(Tree); ExpectOrder([0,2,1]);
+  Keys[0].Direction:=sdDescending; Tree.SortKeys:=Keys; frmMain.SortLoadedBooks(Tree); ExpectOrder([0,2,1]);
+  frmMain.ClearBookSorting(nil); ExpectOrder([0,1,2]);
+  Require(Tree.Header.SortColumn=NoColumn,'Clear sort retained a header sort');
+  Writeln('PASS optional publisher-series column, three sort priorities and explicit restoration of catalog order');
+
+  Bitmap:=TBitmap.Create; Png:=TPngImage.Create; ImageBytes:=TBytesStream.Create;
+  try
+    Bitmap.SetSize(32,48); Bitmap.Canvas.Brush.Color:=clBlue; Bitmap.Canvas.FillRect(Rect(0,0,32,48));
+    Png.Assign(Bitmap); Png.SaveToStream(ImageBytes);
+    ImageText:=TNetEncoding.Base64.EncodeBytesToString(Copy(ImageBytes.Bytes,0,Integer(ImageBytes.Size)));
+  finally ImageBytes.Free; Png.Free; Bitmap.Free; end;
+  XML := '<FictionBook xmlns="'+TargetNamespace+'" xmlns:l="http://www.w3.org/1999/xlink">'+
+    '<description><title-info><book-title>Рубаийат</book-title><annotation><p>Настоящая аннотация</p></annotation>'+
+    '<coverpage><image l:href="#original"/></coverpage></title-info></description>'+
+    '<body><section><p>Недопустимый символ &#xDC50;</p></section></body>'+
+    '<binary id="original" content-type="image/png">'+ImageText+'</binary></FictionBook>';
+  Stream:=TStringStream.Create(XML,TEncoding.UTF8);
+  try
+    Document:=LoadFB2Description(Stream);
+    Require(Pos('Настоящая аннотация',GetBookAnnotation(Document))>0,'Broken body hides valid metadata');
+    Pictures:=0; VisitFB2Images(Stream,procedure(const Name: string; Image: TStream) begin Inc(Pictures); end);
+    Require(Pictures=1,'Broken body hides original illustration');
+  finally Document:=nil; Stream.Free; end;
+  Inner:=Settings.AppPath+'nested-inner.zip'; Source:=Settings.AppPath+'nested-outer.zip';
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(Inner,zmWrite); Zip.Add(TEncoding.UTF8.GetBytes(XML),'readable.fbd');
+    Zip.Add(TEncoding.UTF8.GetBytes('%PDF-1.4 preserved original bytes'),'readable.pdf'); Zip.Close;
+    Zip.Open(Source,zmWrite); Zip.Add(TFile.ReadAllBytes(Inner),'member.zip');
+    Zip.Add(TEncoding.UTF8.GetBytes(XML),'direct.fbd');
+    Zip.Add(TEncoding.UTF8.GetBytes('%PDF-1.4 direct original'),'direct.pdf'); Zip.Close;
+  finally Zip.Free; end;
+  BeforeHash:=THashSHA2.GetHashStringFromFile(Source);
+  Book:=Default(TBookRecord); Book.CollectionRoot:=Settings.AppPath; Book.Folder:='nested-outer.zip';
+  Book.FileName:='member'; Book.FileExt:='.zip'; Book.LibID:='nested fixture'; Book.BookKey.BookID:=999;
+  RequireDescriptor;
+  Prepared:=PrepareReaderFile(Book); Require(SameText(ExtractFileExt(Prepared),'.pdf'),'Nested book ZIP opens archive handler');
+  Require(TFile.ReadAllText(Prepared,TEncoding.UTF8).Contains('preserved original'),'Nested reader bytes changed');
+  Book.FileName:='direct'; Book.FileExt:='.pdf'; RequireDescriptor;
+  Book.FileName:='broken catalog'; Book.FileExt:='.295510'; Book.InsideNo:=2;
+  Prepared:=PrepareReaderFile(Book);
+  Require(SameText(ExtractFileExt(Prepared),'.pdf') and
+    TFile.ReadAllText(Prepared,TEncoding.UTF8).Contains('direct original'),'Invalid catalog type does not resolve actual archived reader member');
+  Book.FileName:='direct.pdf'; Book.FileExt:='._Современный_этикет';
+  Prepared:=PrepareReaderFile(Book);
+  Require(SameText(ExtractFileExt(Prepared),'.pdf'),'Filename format fallback still opens a malformed extension');
+  Book.Folder:=''; Book.FileName:='nested-inner.zip'; Book.FileExt:=''; RequireDescriptor;
+  Require(Book.GetBookFormat=bfFbd,'Standalone FBD archive fixture is absent');
+  Require(SameText(ExtractFileExt(PrepareReaderFile(Book)),'.pdf'),'Standalone FBD archive opens archive handler');
+  Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Metadata or reading modified archive');
+  Writeln('PASS nested ZIP and standalone FBD archives open actual PDF, read annotation and original cover, preserve sources');
+  Writeln('PASS broken body Unicode leaves description and original illustrations readable');
+  if ParamStr(2)<>'' then
+  begin
+    Source:=ParamStr(2); Book:=Default(TBookRecord); Book.CollectionRoot:=ExtractFilePath(Source);
+    Book.Folder:=ExtractFileName(Source); Book.FileName:='793007'; Book.FileExt:='.fb2';
+    Started:=GetTickCount64; Stream:=Book.GetBookDescriptorStream(False);
+    try Document:=LoadFB2Description(Stream);
+      Require(Document.Description.Titleinfo.Booktitle.Text='Amber Sword','Real Amber title differs');
+      Require(GetBookAnnotation(Document).Trim='','Real Amber unexpectedly has annotation');
+      Require(Document.Description.Titleinfo.Coverpage.Count=0,'Real Amber unexpectedly has assigned cover');
+    finally Document:=nil; Stream.Free; end;
+    Writeln('PROFILE real Amber first metadata ms=',GetTickCount64-Started);
+    Started:=GetTickCount64; Stream:=Book.GetBookDescriptorStream(False); Stream.Free;
+    Writeln('PROFILE real Amber repeated metadata ms=',GetTickCount64-Started);
+    Started:=GetTickCount64; Stream:=OpenBookImageSource(Book); Pictures:=0;
+    Writeln('PROFILE real Amber raw extraction ms=',GetTickCount64-Started);
+    Started:=GetTickCount64;
+    try VisitFB2Images(Stream,procedure(const Name: string; Image: TStream) begin Inc(Pictures); end);
+    finally Stream.Free; end;
+    Require(Pictures=0,'Real Amber unexpectedly has illustrations');
+    Writeln('PROFILE real Amber image scan ms=',GetTickCount64-Started);
+    Started:=GetTickCount64; Stream:=OpenBookImageSource(Book); Stream.Free;
+    Writeln('PROFILE real Amber repeated gallery source ms=',GetTickCount64-Started);
+    Started:=GetTickCount64; Prepared:=PrepareReaderFile(Book,True);
+    Require(THashSHA2.GetHashStringFromFile(Prepared)='62c18a6a9337527b852a8b858e3f7f1a40d7a7d6eafd484c272777f795c43c32','Shared reader cache altered original bytes');
+    Writeln('PROFILE real Amber reader after gallery ms=',GetTickCount64-Started);
+    Writeln('PASS real LightLib Amber metadata and empty gallery ignore damaged body Unicode');
+  end;
+  Writeln('PASS feedback14 fixes verified with isolated fixtures');
+end;
+
+procedure TestInteractiveCancel;
+var Languages: TComboBox; DB: TSQLiteDatabase; Factory: TFunc<IBookIterator>;
+begin
+  ShowPage(PAGE_SEARCH); frmMain.Caption:='HomeLib Ru — проверка отмены загрузки';
+  frmMain.Hide; frmMain.WindowState:=wsNormal; frmMain.SetBounds(80,80,1100,700);
+  frmMain.Show; frmMain.BringToFront; Application.ProcessMessages;
+  Languages:=TComboBox.Create(nil);
+  DB:=TSQLiteDatabase.Create(Settings.AppPath+'interactive-cancel.db');
+  try
+    Languages.Parent:=frmMain; Languages.Visible:=False;
+    Languages.Items.Add('-'); Languages.ItemIndex:=0;
+    Writeln('WAIT real mouse cancellation on the lower progress cross'); Flush(Output);
+    Factory := function: IBookIterator
+      begin
+        DB.QuerySingleInt('WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<500000000) SELECT SUM(x) FROM n');
+        Result:=TProfileBooks.Create;
+      end;
+    frmMain.FillBooksTree(frmMain.tvBooksSR,Languages,Factory,True,True,nil);
+    Require(frmMain.BookListCancelled,'A real mouse click did not cancel the query');
+    Require(frmMain.tvBooksSR.GetFirst=nil,'Cancelled query retained partial results');
+    Require(DB.QuerySingleInt('SELECT 7')=7,'Database did not recover after mouse cancellation');
+    Writeln('PASS real mouse cancels running SQLite without a frozen white window');
+  finally DB.Free; Languages.Free; end;
 end;
 
 procedure TestListPerformance;
 var I, BookCount, SeriesCount: Integer; Started: UInt64; Node: PVirtualNode;
-  Data: PBookRecord; Languages: TComboBox;
+  Data: PBookRecord; Languages: TComboBox; CancelButton: TButton; Component: TComponent;
+  Profile: TProfileBooks; DB: TSQLiteDatabase; PaintProbe: TLoadingPaintProbe;
+  Filters: TBookColumnFilters; Column: TVirtualTreeColumn; Polls: Integer; Factory: TFunc<IBookIterator>;
 begin
   TestNestedGenreIterators;
   Languages := TComboBox.Create(nil);
@@ -1858,7 +3206,7 @@ begin
     for I := 1 to 3 do
     begin
       Started := GetTickCount64;
-      frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, TProfileBooks.Create, True, True, nil);
+      frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, TProfileBooks.Create as IBookIterator, True, True, nil);
       Writeln('PROFILE list build 50000 books / 5000 series ms=', GetTickCount64 - Started);
       BookCount := 0; SeriesCount := 0; Node := frmMain.tvBooksSR.GetFirst;
       while Assigned(Node) do
@@ -1872,6 +3220,60 @@ begin
       Require(Languages.Items.IndexOf('ru') > 0, 'Profile language was not registered');
     end;
     Writeln('PASS list profiling preserves all books, author-series groups and languages');
+    Column := frmMain.tvBooksSR.Header.Columns[1];
+    Started := GetTickCount64;
+    for I := 1 to 120 do Column.Width := 220+(I mod 80);
+    Writeln('PROFILE 120 column widths, 50000 loaded books ms=',GetTickCount64-Started);
+    Require(GetTickCount64-Started<1500,'Resizing traverses the complete book list');
+    Filters := TBookColumnFilters.ForTree(frmMain.tvBooksSR);
+    Filters.SetValue(COL_TITLE,'000001'); Require(Filters.Apply=1,'Single result profile failed');
+    Started := GetTickCount64;
+    for I := 1 to 120 do Column.Width := 220+(I mod 80);
+    Writeln('PROFILE 120 column widths, one visible / 50000 loaded ms=',GetTickCount64-Started);
+    Require(GetTickCount64-Started<1500,'Resizing a filtered list traverses hidden rows');
+    Filters.SetValue(COL_LANG,'=ru'); Polls := 0;
+    Require(Filters.Apply(True,function: Boolean begin Inc(Polls); Result:=False; end)=1,'Narrowing lost result');
+    Require(Polls<4,'Additional filters rescan all 50000 loaded rows');
+    Filters.Clear; Require(Filters.Apply=50000,'Clearing filter lost loaded rows');
+    Writeln('PASS general fixed-height resizing and incremental filtering on 50000 books');
+    if ParamStr(2)='visual' then
+    begin
+      ShowPage(PAGE_SEARCH);
+      frmMain.WindowState:=wsNormal; frmMain.SetBounds(80,80,1500,850);
+      Filters.SetValue(COL_TITLE,'000001'); frmMain.ApplyBookColumnFilters(frmMain.tvBooksSR);
+      frmMain.Caption:='HomeLib Ru — проверка таблицы на 50 000 книг';
+      frmMain.Show; Application.Run; Exit;
+    end;
+
+    CancelButton := nil;
+    for Component in frmMain do
+      if (Component is TButton) and (TButton(Component).Caption = '×') then CancelButton := TButton(Component);
+    Require(Assigned(CancelButton), 'Book list has no cancellation button');
+    PaintProbe:=TLoadingPaintProbe.Create(frmMain); PaintProbe.Parent:=frmMain;
+    PaintProbe.SetBounds(10,10,50,30); PaintProbe.Visible:=True; PaintProbe.PaintCount:=0;
+    DB := TSQLiteDatabase.Create(Settings.AppPath + 'cancel-probe.db');
+    try
+      Factory := function: IBookIterator
+        begin
+          PaintProbe.Invalidate;
+          PostMessage(CancelButton.Handle, WM_LBUTTONDOWN, MK_LBUTTON, MakeLParam(4, 4));
+          PostMessage(CancelButton.Handle, WM_LBUTTONUP, 0, MakeLParam(4, 4));
+          DB.QuerySingleInt('WITH RECURSIVE numbers(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM numbers WHERE x<1000000) SELECT SUM(x) FROM numbers');
+          Result := TProfileBooks.Create;
+        end;
+      frmMain.FillBooksTree(frmMain.tvBooksSR, Languages,Factory,True,True,nil);
+      Require(PaintProbe.PaintCount>0,'Window painting was blocked during SQLite preparation');
+      Require(frmMain.BookListCancelled and (frmMain.tvBooksSR.GetFirst = nil), 'SQL preparation ignored cancel or retained partial rows');
+      Require(not Assigned(SQLiteCancelCallback) and not CancelButton.Visible, 'Cancellation callback or button leaked');
+      Require(DB.QuerySingleInt('SELECT 7') = 7, 'Cancellation left the database unusable');
+    finally DB.Free; PaintProbe.Free; end;
+    Profile := TProfileBooks.Create; Profile.CancelControl := CancelButton; Profile.CancelAt := 900;
+    frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, Profile as IBookIterator, True, True, nil);
+    Require(frmMain.BookListCancelled and (frmMain.tvBooksSR.GetFirst = nil), 'Row loading ignored cancel or retained partial rows');
+    frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, TProfileBooks.Create as IBookIterator, True, True, nil);
+    Require(not frmMain.BookListCancelled and (frmMain.tvBooksSR.GetFirst <> nil), 'Loading did not recover after cancel');
+    Writeln('PASS main window repaints while SQL runs and cancel is available');
+    Writeln('PASS cancellation interrupts SQL preparation and row loading, clears partial results and permits the next request');
   finally Languages.Free; end;
 end;
 
@@ -2222,6 +3624,78 @@ begin
   end;
 end;
 
+procedure BenchmarkLargeINPX;
+var ID, A, B, S, I, Count, BookNodes, MetadataRows: Integer; Started: UInt64;
+  Importer: TImportInpxThread; Collection: IBookCollection; Iterator: IBookIterator;
+  Book: TBookRecord; Filter: TFilterValue; Criteria: TBookSearchCriteria;
+  Node: PVirtualNode; Data: PBookRecord; Languages: TComboBox; FileName: string;
+  function Query(Mode: Integer): IBookIterator;
+  begin
+    Filter := Default(TFilterValue);
+    case Mode of
+      0: begin Filter.ValueString := '0.1'; Result := Collection.GetBookIterator(bmByGenreRecursive, False, @Filter); end;
+      1: begin Filter.ValueString := '0.0'; Result := Collection.GetBookIterator(bmByGenre, False, @Filter); end;
+      2: begin Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
+          Criteria.Deleted := True; Criteria.CollapseMultiSeriesResults := True; Result := Collection.Search(Criteria, False); end;
+      3: begin Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
+          Criteria.Deleted := True; Criteria.CollapseMultiSeriesResults := True; Criteria.Title := 'Поттер';
+          Result := Collection.Search(Criteria, False); end;
+    else raise Exception.Create('Unknown benchmark query'); end;
+  end;
+begin
+  FileName := Settings.AppPath + 'large-fixture.inpx';
+  Require(FileExists(FileName), 'Large INPX must be copied into the isolated runtime');
+  ID := SystemDB.CreateCollection('Native full INPX benchmark', Settings.AppPath + 'books\',
+    'large-native.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  Started := GetTickCount64;
+  Importer := TImportInpxThread.Create(ID, FileName, gtFb2);
+  try
+    Importer.Start; Importer.WaitFor;
+    if Assigned(Importer.FatalException) then raise Exception.Create(Exception(Importer.FatalException).Message);
+  finally Importer.Free; end;
+  Writeln('NATIVE import_ms=', GetTickCount64 - Started); Flush(Output);
+  Collection := SystemDB.GetCollection(ID); Collection.GetStatistics(A, B, S);
+  Writeln('NATIVE statistics authors=', A, ' books=', B, ' series=', S); Flush(Output);
+  Require(B > 500000, 'Full benchmark input unexpectedly contains a small catalog');
+  Collection.SetHideDeleted(True); Collection.SetShowLocalOnly(False);
+  for I := 0 to 3 do
+  begin
+    Started := GetTickCount64; Iterator := Query(I);
+    Writeln('NATIVE query=', I, ' prepare_ms=', GetTickCount64 - Started); Flush(Output);
+    Count := 0; MetadataRows := 0;
+    while Iterator.Next(Book) do begin Inc(Count); Inc(MetadataRows, Length(Book.Authors) + Length(Book.Genres)); end;
+    Iterator := nil;
+    Writeln('NATIVE query=', I, ' all_rows_ms=', GetTickCount64 - Started, ' rows=', Count, ' metadata=', MetadataRows); Flush(Output);
+  end;
+  Settings.ActiveCollection := ID; Settings.ActivePage := PAGE_SEARCH;
+  Settings.ShowInfoPanel := False; Settings.ShowBookCover := False; Settings.ShowBookAnnotation := False;
+  Settings.CheckUpdate := False;
+  Started := GetTickCount64;
+  Application.CreateForm(TdmImages, dmImages); dmImages.ApplyThemeIcons;
+  Application.CreateForm(TfrmMain, frmMain);
+  Writeln('NATIVE main_bootstrap_ms=', GetTickCount64 - Started); Flush(Output);
+  Languages := TComboBox.Create(nil);
+  try
+    Languages.Parent := frmMain; Languages.Visible := False; Languages.Items.Add('-'); Languages.ItemIndex := 0;
+    Settings.TreeModes[PAGE_SEARCH] := tmTree;
+    for I := 0 to 2 do
+    begin
+      Started := GetTickCount64;
+      Iterator := Query(I);
+      frmMain.FillBooksTree(frmMain.tvBooksSR, Languages, Iterator, True, True, nil);
+      Iterator := nil;
+      Writeln('NATIVE tree_query=', I, ' build_ms=', GetTickCount64 - Started); Flush(Output);
+      Require(not frmMain.BookListCancelled, 'Native large query was cancelled');
+      BookNodes := 0; Node := frmMain.tvBooksSR.GetFirst;
+      while Assigned(Node) do begin Data := frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.NodeType = ntBookInfo then Inc(BookNodes); Node := frmMain.tvBooksSR.GetNext(Node); end;
+      Writeln('NATIVE tree_query=', I, ' book_nodes=', BookNodes); Flush(Output);
+      frmMain.tvBooksSR.Clear;
+    end;
+  finally Languages.Free; frmMain.Free; frmMain := nil; dmImages.Free; dmImages := nil; end;
+  Writeln('PASS full INPX production import and heavy native lists use only an isolated catalog');
+end;
+
 var
   One, Two, Online: IBookCollection;
   OneID, TwoID, FirstBook, LastBook, UnknownBook, I: Integer;
@@ -2241,7 +3715,7 @@ begin
     RestartBookID := 0;
     Trace('application bootstrap');
     Application.Initialize;
-    if ParamStr(1) = 'publisher-startup' then
+    if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') then
       Application.MainFormOnTaskbar := True;
     ExceptionHandler := TRegressionExceptionHandler.Create;
     Application.OnException := ExceptionHandler.HandleException;
@@ -2253,6 +3727,7 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
       if (ParamStr(1) = 'first-run') or (ParamStr(1) = 'first-run-cancel') then
       begin
         RunFirstRunRegression;
@@ -2385,8 +3860,14 @@ begin
       end
       else if ParamStr(1) = 'publisher-error-log' then
         TestPublisherErrorLog(One)
+      else if ParamStr(1) = 'adjacent-series' then
+        TestAdjacentSeriesSelection(One, OneID, TwoID)
+      else if ParamStr(1) = 'loose-archive' then
+        TestLooseArchiveReading
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1) = 'builtin-reader' then
+        TestBuiltinReaderIntegration(One)
       else if ParamStr(1) = 'main-preview' then
       begin
         frmMain.Show;
@@ -2402,8 +3883,22 @@ begin
         TestCatalogSources
       else if ParamStr(1) = 'collection-merge' then
         TestCollectionMerge
+      else if ParamStr(1) = 'book-preview' then
+        TestAsyncBookPreview
       else if ParamStr(1) = 'list-performance' then
         TestListPerformance
+      else if ParamStr(1) = 'cancel-interactive' then
+        TestInteractiveCancel
+      else if ParamStr(1) = 'persistent-cache' then
+        TestPersistentCache
+      else if ParamStr(1) = 'audit-new' then
+      begin
+        TestSQLiteRuntime;
+        if (ParamStr(2)='archives') or (ParamStr(2)='images') then TestArchiveAndImageAudit
+        else TestAdversarialAudit;
+      end
+      else if ParamStr(1) = 'feedback14' then
+        TestFeedback14
       else if ParamStr(1) = 'column-filters' then
         TestBookColumnFilters
       else if ParamStr(1) = 'read-folder-cleanup' then

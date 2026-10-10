@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
@@ -237,6 +237,14 @@ else {
     }
 }
 
+$sqliteManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer/SQLITE_RUNTIME.json') -Raw | ConvertFrom-Json
+$sqlitePin = $sqliteManifest.$Platform.dll_sha256
+if ((Test-Path -LiteralPath $sqliteDestination -PathType Leaf) -and
+    ((Get-FileHash -LiteralPath $sqliteDestination -Algorithm SHA256).Hash -ine $sqlitePin)) {
+    throw "SQLite не соответствует закреплённой версии $($sqliteManifest.version). Подготовьте официальный runtime через tools/sqlite/prepare_runtime.py --platform $Platform --copy."
+}
+Write-Host "[OK] SQLite $($sqliteManifest.version), official pinned SHA-256"
+
 foreach ($licenseName in @('LICENSE', 'NOTICE')) {
     Copy-CheckedFile -Source (Join-Path $repositoryRoot $licenseName) `
         -Destination (Join-Path $outputDirectory $licenseName)
@@ -284,6 +292,11 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'tools\webp\COPYING.txt'),
     (Join-Path $outputDirectory 'tools\webp\PATENTS.txt'),
     (Join-Path $outputDirectory 'tools\webp\AUTHORS.txt'),
+    (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll'),
+    (Join-Path $outputDirectory 'tools\pdfium\LICENSE'),
+    (Join-Path $outputDirectory 'tools\pdfium\licenses\pdfium.txt'),
+    (Join-Path $outputDirectory 'tools\pdfium\RUNTIME.json'),
+    (Join-Path $outputDirectory 'tools\pdfium\NOTICE.txt'),
     $alReaderDestination,
     $sumatraDestination,
     (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.txt'),
@@ -303,10 +316,25 @@ Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Int
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
 Assert-Architecture -Path $zstdDestination -Expected $Platform
 Assert-Architecture -Path $sevenZipDestination -Expected $Platform
+Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
+Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform
+# DjVuLibre is a separate persistent x86 decoder process on both platforms, with its own
+# x86 dependencies. None of these DLLs is loaded into HomeLib Ru.
+foreach ($djvuName in @('HomeLibDjvu.exe','ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll')) {
+    Assert-Architecture -Path (Join-Path $outputDirectory "tools\djvu\$djvuName") -Expected 'Win32'
+}
+& (Join-Path $PSScriptRoot 'prepare-raster-runtime.ps1') -Platform $Platform | Out-Host
 # The official static djxl build must match the package architecture so the
 # Win32 distribution also restores JPEG XL images on 32-bit Windows.
 Assert-Architecture -Path $jpegXlDestination -Expected $Platform
 Assert-Architecture -Path $webpDestination -Expected $Platform
+Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll') -Expected $Platform
+& (Join-Path $PSScriptRoot 'prepare-kindle-runtime.ps1') -Platform $Platform | Out-Host
+Assert-Architecture -Path (Join-Path $outputDirectory 'tools\kindle\python\python.exe') -Expected $Platform
+$pdfiumManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\PDFIUM_RUNTIME.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if ((Get-FileHash -LiteralPath (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll')).Hash -ine $pdfiumManifest.$Platform.dll_sha256) {
+    throw 'PDFium runtime differs from Installer/PDFIUM_RUNTIME.json. Run scripts/prepare-pdfium.ps1.'
+}
 # AlReader is distributed as one Win32 portable executable for both packages;
 # SumatraPDF must match the HomeLib Ru package architecture.
 Assert-Architecture -Path $alReaderDestination -Expected 'Win32'

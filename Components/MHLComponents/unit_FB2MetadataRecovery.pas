@@ -25,7 +25,8 @@ type
 
 function RecoverMetadataPrefix(Input: TRecordedMetadataStream;
   MaxBytes, MaxDepth: Integer; const IsCanceled: TFunc<Boolean>;
-  out XML, Details: string; out WasCanceled: Boolean): Boolean;
+  out XML, Details: string; out WasCanceled: Boolean;
+  AllowUnchanged: Boolean = False): Boolean;
 
 implementation
 
@@ -84,7 +85,7 @@ end;
 
 function RepairText(const Text: string; MaxDepth: Integer;
   const IsCanceled: TFunc<Boolean>; out XML, Details: string;
-  out PrefixEnd: Integer; out NeedMore, WasCanceled: Boolean): Boolean;
+  out PrefixEnd: Integer; out NeedMore, WasCanceled: Boolean; AllowUnchanged: Boolean): Boolean;
 var
   Stack: TList<string>;
   Notes: TStringList;
@@ -144,6 +145,7 @@ begin
           Output.Append('</' + Stack.Last + '>');
           PrefixEnd := J - 1;
           Note('восстановление экранированного закрытия description');
+          if AllowUnchanged then Output.Append('</' + Stack[0] + '>');
           XML := Output.ToString;
           Details := Notes.Text.Trim;
           Exit(True);
@@ -254,8 +256,9 @@ begin
       if DescriptionEnded then
       begin
         PrefixEnd := I - 1;
-        if Notes.Count = 0 then Exit;
+        if (Notes.Count = 0) and not AllowUnchanged then Exit;
         XML := Output.ToString;
+        if AllowUnchanged and (Stack.Count = 1) then XML := XML + '</' + Stack[0] + '>';
         Details := Notes.Text.Trim;
         Exit(True);
       end;
@@ -268,7 +271,7 @@ end;
 
 function RecoverMetadataPrefix(Input: TRecordedMetadataStream;
   MaxBytes, MaxDepth: Integer; const IsCanceled: TFunc<Boolean>;
-  out XML, Details: string; out WasCanceled: Boolean): Boolean;
+  out XML, Details: string; out WasCanceled: Boolean; AllowUnchanged: Boolean): Boolean;
 var
   Bytes, RoundTrip: TBytes;
   Buffer: array[0..8191] of Byte;
@@ -313,7 +316,7 @@ begin
         Text := Encoding.GetString(Bytes, Offset, Length(Bytes)-Offset);
       except on E: EEncodingError do Exit; end;
       if RepairText(Text, MaxDepth, IsCanceled, XML, Details,
-        PrefixEnd, NeedMore, WasCanceled) then
+        PrefixEnd, NeedMore, WasCanceled, AllowUnchanged) then
       begin
         // A decoder replacement must never silently change a series name.
         // Validate only the metadata prefix; damaged body bytes stay irrelevant.

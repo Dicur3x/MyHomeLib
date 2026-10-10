@@ -2,7 +2,7 @@
 // Interactive gallery check in a unique profile containing generated test pictures.
 const fs = require("fs"), os = require("os"), path = require("path"), cp = require("child_process");
 const [runtimeArg, fixtureArg, mode = 'book-gallery'] = process.argv.slice(2);
-if (!['book-gallery', 'column-filters', 'catalog-sources-ui', 'book-information', 'main-preview'].includes(mode)) throw new Error('Unsupported isolated visual scenario');
+if (!['book-gallery', 'column-filters', 'catalog-sources-ui', 'book-information', 'main-preview', 'list-performance'].includes(mode)) throw new Error('Unsupported isolated visual scenario');
 if (!runtimeArg || !fixtureArg) throw new Error("Usage: node gallery_preview_probe.js <runtime> <CollectionViewsTest.exe>");
 const runtime = fs.realpathSync(runtimeArg), fixture = fs.realpathSync(fixtureArg);
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-gallery-"));

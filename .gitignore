@@ -44,3 +44,11 @@ TODO.md
 /tools/ui/tests/*.res
 /tools/ui/tests/*.identcache
 /tools/__pycache__/
+
+__pycache__/
+# Downloaded, pinned runtime packages are provisioned by scripts; never source.
+/tools/runtime/
+/tools/sqlite/
+/tools/validation/
+/Utils/HomeLibDjvu/*.res
+/Utils/HomeLibDjvu/*.identcache

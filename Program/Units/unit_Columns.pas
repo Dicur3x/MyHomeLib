@@ -94,6 +94,7 @@ implementation
 
 uses
   Forms,
+  System.Math,
   unit_Consts,
   unit_Helpers;
 
@@ -123,10 +124,10 @@ const
   //
   BASE_COLUMN_OPTIONS              = [coDraggable, coEnabled, coParentColor, coVisible, coShowDropMark];
 
-  RESIZABLE_COLUMN_OPTIONS         = BASE_COLUMN_OPTIONS + [coResizable, coAutoSpring];
+  RESIZABLE_COLUMN_OPTIONS         = BASE_COLUMN_OPTIONS + [coResizable, coAutoSpring, coAllowClick];
   RESIZABLE_CLICK_COLUMN_OPTIONS   = BASE_COLUMN_OPTIONS + [coResizable, coAllowClick];
 
-  FIXED_COLUMN_OPTIONS             = BASE_COLUMN_OPTIONS + [];
+  FIXED_COLUMN_OPTIONS             = BASE_COLUMN_OPTIONS + [coAllowClick];
   FIXED_CLICK_COLUMN_OPTIONS       = BASE_COLUMN_OPTIONS + [coAllowClick];
 
 procedure GetDefaultColumnProperties(
@@ -172,9 +173,9 @@ begin
         Options := Rez;
       end;
 
-    COL_SERIES:
+    COL_PUBLISHER_SERIES, COL_SERIES:
       begin
-        Caption := rstrSeries;
+        if Tag = COL_PUBLISHER_SERIES then Caption := 'Книжная серия' else Caption := rstrSeries;
         MaxWidth := 900;
         MinWidth := 30;
         Alignment := taLeftJustify;
@@ -185,7 +186,7 @@ begin
       begin
         Caption := rstrNO;
         MaxWidth := 900;
-        MinWidth := 20;
+        MinWidth := S(45);
         Alignment := taRightJustify;
         Options := Rez;
       end;
@@ -365,7 +366,8 @@ procedure TColumns.Load(const Section: string; Mode: TTreeMode);
 var
   sl: TStringList;
   slHelper: TStringList;
-  i: Integer;
+  i, j, Tag, Width, Position: Integer;
+  HasSource, Duplicate: Boolean;
 begin
   Clear;
   FMode := Mode;
@@ -381,16 +383,36 @@ begin
           if Pos('Column', sl[i]) = 1 then
           begin
             slHelper.DelimitedText := FIniFile.ReadString(Section, sl[i], '');
-            if slHelper.Count = 3 then
-              Add(StrToInt(slHelper[0]), StrToInt(slHelper[1]), StrToInt(slHelper[2]));
+            if (slHelper.Count <> 3) or
+              not TryStrToInt(slHelper[0], Tag) or
+              not TryStrToInt(slHelper[1], Width) or
+              not TryStrToInt(slHelper[2], Position) then Continue;
+            if not (((Tag >= COL_TITLE) and (Tag <= COL_PUBLISHER_SERIES)) or
+              (Tag = COL_STATE)) or (Width < 0) or (Width > 65535) or
+              (Position < 0) or (Position >= sl.Count) then Continue;
+            Duplicate := False;
+            for j := 0 to Count - 1 do
+              if Items[j].Tag = Tag then Duplicate := True;
+            if not Duplicate then Add(Tag, Width, Position);
           end;
         end;
       finally
         slHelper.Free;
       end;
-    end
-    else
-      LoadDefault(Section);
+    end;
+    if Count = 0 then LoadDefault(Section);
+    // Introduce the source column once, including profiles with saved layouts.
+    // A later explicit removal stays respected on subsequent launches.
+    if ((Section = SECTION_SR_FLAT) or (Section = SECTION_SR_TREE)) and
+      not FIniFile.ReadBool('ColumnMigrations', Section + '_source', False) then
+    begin
+      HasSource := False;
+      for i := 0 to Count - 1 do
+        if Items[i].Tag = COL_COLLECTION then HasSource := True;
+      if not HasSource then Add(COL_COLLECTION, 200, Count);
+      Save(Section);
+      FIniFile.WriteBool('ColumnMigrations', Section + '_source', True);
+    end;
   finally
     sl.Free;
   end;
@@ -496,6 +518,7 @@ begin
     Add(COL_RATE, S(80), 6);
     Add(COL_DATE, 200, 8);
     Add(COL_GENRE, 200, 7);
+    Add(COL_COLLECTION, 200, 9);
   end
   else if Section = SECTION_SR_TREE then
   begin
@@ -506,6 +529,7 @@ begin
     Add(COL_RATE, S(80), 4);
     Add(COL_DATE, 200, 6);
     Add(COL_GENRE, 200, 5);
+    Add(COL_COLLECTION, 200, 7);
   end
   else if Section = SECTION_FL_FLAT then
   begin
@@ -570,7 +594,7 @@ begin
       Column := TVirtualTreeColumn.Create(Obj);
       Column.Text := Items[i].Caption;
       Column.Position := i;
-      Column.Width := Items[i].Width;
+      Column.Width := Max(Items[i].MinWidth, Items[i].Width);
       Column.MaxWidth := Items[i].MaxWidth;
       Column.MinWidth := Items[i].MinWidth;
       Column.Alignment := Items[i].Alignment;

@@ -7,7 +7,7 @@ uses System.SysUtils, System.Classes, unit_Globals, unit_Interfaces,
 
 type
   TCatalogSource = record
-    ID, Name, INPXFile, Root, CollectionFile: string;
+    ID, Name, INPXFile, Root, CollectionFile, LibraryNamespace: string;
     CollectionID: Integer;
     class function NewID: string; static;
     function IsINPX: Boolean;
@@ -35,12 +35,14 @@ type
     FApply: Boolean;
     FBackupFolder, FError: string;
     FSuccess: Boolean;
+    FPolicy: TCollectionMergePolicy;
     procedure ReportProgress(Current, Total: Integer);
     procedure ReportStage(const Stage: string; Current, Total: Integer);
   protected
     procedure WorkFunction; override;
   public
-    constructor CreatePreview(CollectionID: Integer; const Sources: TCatalogSources);
+    constructor CreatePreview(CollectionID: Integer; const Sources: TCatalogSources;
+      Policy: TCollectionMergePolicy = mpKeepAll);
     constructor CreateApply(Plan: TCollectionMergePlan; const BackupFolder: string);
     destructor Destroy; override;
     function TakePlan: TCollectionMergePlan;
@@ -124,6 +126,7 @@ begin
       Result[I].Root := Obj.GetValue<string>('root', '');
       Result[I].CollectionFile := Obj.GetValue<string>('file', '');
       Result[I].CollectionID := Obj.GetValue<Integer>('collection', INVALID_COLLECTION_ID);
+      Result[I].LibraryNamespace := Obj.GetValue<string>('library', '');
     end;
   finally JSON.Free; end;
 end;
@@ -140,6 +143,7 @@ begin
       Obj.AddPair('inpx', Source.INPXFile); Obj.AddPair('root', Source.Root);
       Obj.AddPair('file', Source.CollectionFile);
       Obj.AddPair('collection', TJSONNumber.Create(Source.CollectionID));
+      Obj.AddPair('library', Source.LibraryNamespace);
     end;
     Collection.SetProperty(PROP_CATALOG_SOURCES, JSON.ToJSON);
   finally JSON.Free; end;
@@ -221,8 +225,9 @@ begin
   end;
 end;
 
-constructor TCatalogMergeWorker.CreatePreview(CollectionID: Integer; const Sources: TCatalogSources);
-begin inherited Create(CollectionID); FSources := Copy(Sources); end;
+constructor TCatalogMergeWorker.CreatePreview(CollectionID: Integer; const Sources: TCatalogSources;
+  Policy: TCollectionMergePolicy);
+begin inherited Create(CollectionID); FSources := Copy(Sources); FPolicy := Policy; end;
 
 constructor TCatalogMergeWorker.CreateApply(Plan: TCollectionMergePlan; const BackupFolder: string);
 begin
@@ -269,11 +274,12 @@ begin
       for I := 0 to High(FSources) do
       begin
         Sources[I].ID := FSources[I].ID; Sources[I].Name := FSources[I].Name;
+        Sources[I].LibraryNamespace := FSources[I].LibraryNamespace;
         Sources[I].Collection := OpenCatalogSource(FSources[I], FSystemData);
         if FSources[I].IsINPX then Sources[I].DatabaseFile := FSources[I].CacheFile
         else Sources[I].DatabaseFile := FSources[I].CollectionFile;
       end;
-      FPlan := TCollectionMergePlan.Create(FCollection, Sources, FSystemData);
+      FPlan := TCollectionMergePlan.Create(FCollection, Sources, FSystemData, FPolicy);
       FPlan.StageProgress := ReportStage;
       FPlan.Preview(ReportProgress, function: Boolean begin Result := Canceled; end);
     end

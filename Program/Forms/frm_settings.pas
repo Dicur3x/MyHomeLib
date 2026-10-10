@@ -245,6 +245,20 @@ type
     procedure btnResetClick(Sender: TObject);
 
   private
+    FUseBuiltinReader: TCheckBox;
+    FCachePage: TTabSheet;
+    FCacheLimit, FCacheDirectory: TEdit;
+    FCacheUnit: TComboBox;
+    FCacheExit: TCheckBox;
+    FCacheUsage: TLabel;
+    FCacheTimer: TTimer;
+    procedure ReaderModeChanged(Sender: TObject);
+    procedure ChooseCacheDirectory(Sender: TObject);
+    procedure CacheUsageUpdate(Sender: TObject);
+    procedure LoadCacheSettings;
+    procedure ClearCacheClick(Sender: TObject);
+    procedure CacheTransferClick(Sender: TObject);
+    function CacheLimitMB(out Value: Integer): Boolean;
     procedure SetPanelFontColor(Value: Graphics.TColor);
 
     procedure ResetDevicesTab;
@@ -269,6 +283,7 @@ implementation
 uses
   StrUtils,
   Character,
+  unit_BookCache, System.Math, System.IOUtils,
   unit_HelpTopics,
   unit_Globals,
   unit_Readers,
@@ -280,7 +295,7 @@ uses
   unit_Helpers,
   frm_create_mask,
   unit_Templater,
-  unit_Localization;
+  unit_Localization, Vcl.FileCtrl;
 
 resourcestring
   rstrStandart = 'Стандартное';
@@ -304,6 +319,7 @@ resourcestring
 {$R *.dfm}
 
 procedure TfrmSettings.DoCreate;
+var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel;
 begin
   inherited;
 
@@ -322,17 +338,128 @@ begin
     tvSections.Items.Add(nil, rstrSectionScripts);
     tvSections.Items.Add(nil, rstrSectionOther);
     tvSections.Items.Add(nil, rstrSectionFileSorting);
+    tvSections.Items.Add(nil, 'Кэш книг');
   finally
     tvSections.Items.EndUpdate;
   end;
 
+  ReaderPanel:=TPanel.Create(Self); ReaderPanel.Parent:=tsReaders;
+  ReaderPanel.BevelOuter:=bvNone; ReaderPanel.ShowCaption:=False;
+  ReaderPanel.SetBounds(0,Label11.Top+Label11.Height+6,tsReaders.ClientWidth,76);
+  ReaderPanel.Align:=alTop;
+  FUseBuiltinReader:=TCheckBox.Create(Self); FUseBuiltinReader.Parent:=ReaderPanel;
+  FUseBuiltinReader.Name:='cbUseBuiltinReaderByDefault'; FUseBuiltinReader.SetBounds(6,2,420,24);
+  FUseBuiltinReader.Caption:='Открывать во встроенной читалке';
+  FUseBuiltinReader.Checked:=Settings.UseBuiltinReaderByDefault;
+  FUseBuiltinReader.OnClick:=ReaderModeChanged;
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=ReaderPanel; CaptionLabel.AutoSize:=False;
+  CaptionLabel.SetBounds(6,28,tsReaders.ClientWidth-12,44); CaptionLabel.WordWrap:=True;
+  CaptionLabel.Anchors:=[akLeft,akTop,akRight];
+  CaptionLabel.Caption:='Если формат поддерживается. Остальные файлы — во внешней программе. Пути ниже сохраняются. Правой кнопкой можно выбрать другую читалку.';
+  ReaderModeChanged(nil);
+
+  FCachePage:=TTabSheet.Create(Self); FCachePage.PageControl:=pcSetPages; FCachePage.TabVisible:=False;
+  FCachePage.Caption:='Кэш книг';
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,14,410,44); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
+  CaptionLabel.Caption:='Кэш ускоряет повторное открытие книг. При заполнении удаляются давно неиспользованные записи.';
+  FCacheUsage:=TLabel.Create(Self); FCacheUsage.Parent:=FCachePage;
+  FCacheUsage.Name:='lblBookCacheUsage'; FCacheUsage.SetBounds(12,76,405,22);
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,112,210,20); CaptionLabel.Caption:='Максимальный объём кэша:';
+  FCacheLimit:=TEdit.Create(Self); FCacheLimit.Parent:=FCachePage; FCacheLimit.Name:='edBookCacheLimit';
+  FCacheLimit.SetBounds(12,140,130,24);
+  FCacheUnit:=TComboBox.Create(Self); FCacheUnit.Parent:=FCachePage; FCacheUnit.Name:='cbBookCacheUnit';
+  FCacheUnit.Style:=csDropDownList; FCacheUnit.SetBounds(154,140,80,24);
+  FCacheUnit.Items.Add('МБ'); FCacheUnit.Items.Add('ГБ'); FCacheUnit.ItemIndex:=1;
+  FCacheExit:=TCheckBox.Create(Self); FCacheExit.Parent:=FCachePage;
+  FCacheExit.Name:='cbClearBookCacheOnExit'; FCacheExit.SetBounds(12,185,410,24);
+  FCacheExit.Caption:='Очищать кэш при каждом выходе из программы';
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,211,410,18);
+  CaptionLabel.Caption:='Снимите галочку, чтобы сохранять кэш между запусками.';
+  ClearButton:=TButton.Create(Self); ClearButton.Parent:=FCachePage; ClearButton.SetBounds(12,234,190,30);
+  ClearButton.Name:='btnClearBookCache'; ClearButton.Caption:='Очистить кэш сейчас'; ClearButton.OnClick:=ClearCacheClick;
+  ClearButton:=TButton.Create(Self); ClearButton.Parent:=FCachePage;
+  ClearButton.Name:='btnCacheTransfer'; ClearButton.SetBounds(212,234,210,30);
+  ClearButton.Caption:='Продолжить перенос'; ClearButton.Visible:=False;
+  ClearButton.OnClick:=CacheTransferClick;
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,282,410,18); CaptionLabel.Caption:='Папка для кэша (перенос автоматически):';
+  FCacheDirectory:=TEdit.Create(Self); FCacheDirectory.Parent:=FCachePage;
+  FCacheDirectory.Name:='edBookCacheDirectory'; FCacheDirectory.SetBounds(12,306,315,24);
+  ClearButton:=TButton.Create(Self); ClearButton.Parent:=FCachePage; ClearButton.SetBounds(335,304,88,28);
+  ClearButton.Caption:='Выбрать…'; ClearButton.OnClick:=ChooseCacheDirectory;
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,342,410,36); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
+  CaptionLabel.Caption:='Пустое поле — стандартная папка кэша. В выбранной папке создаётся подпапка HomeLibRu-BookCache.';
+  FCacheTimer:=TTimer.Create(Self); FCacheTimer.Interval:=1000; FCacheTimer.OnTimer:=CacheUsageUpdate;
+  LoadCacheSettings;
   Localize(Self);
+end;
+
+procedure TfrmSettings.ReaderModeChanged(Sender: TObject);
+begin
+  lvReaders.Enabled:=not FUseBuiltinReader.Checked;
+  btnAddExt.Enabled:=lvReaders.Enabled; btnChangeExt.Enabled:=lvReaders.Enabled;
+  btnDeleteExt.Enabled:=lvReaders.Enabled;
+end;
+
+procedure TfrmSettings.LoadCacheSettings;
+begin
+  if Settings.BookCacheLimitMB mod 1024=0 then
+  begin FCacheUnit.ItemIndex:=1; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB div 1024); end
+  else begin FCacheUnit.ItemIndex:=0; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB); end;
+  FCacheDirectory.Text:=Settings.BookCacheDirectory;
+  FCacheExit.Checked:=Settings.ClearBookCacheOnExit; CacheUsageUpdate(nil);
+end;
+
+procedure TfrmSettings.ChooseCacheDirectory(Sender: TObject);
+var Folder: string;
+begin
+  Folder:=FCacheDirectory.Text;
+  if SelectDirectory('Папка для кэша книг', '', Folder, [sdNewUI,sdShowEdit]) then FCacheDirectory.Text:=Folder;
+end;
+
+procedure TfrmSettings.CacheUsageUpdate(Sender: TObject);
+begin
+  FCacheUsage.Caption:='Занято: '+BookCacheSizeText(BookCacheUsage)+' (лимит '+BookCacheSizeText(Int64(Settings.BookCacheLimitMB)*1024*1024)+')';
+  if BookCacheMigrationBusy then FCacheUsage.Caption:=FCacheUsage.Caption+' · перенос…';
+  if Assigned(FindComponent('btnCacheTransfer')) then
+  begin
+    TButton(FindComponent('btnCacheTransfer')).Visible:=BookCacheMigrationPending;
+    if BookCacheMigrationBusy then TButton(FindComponent('btnCacheTransfer')).Caption:='Остановить перенос'
+    else TButton(FindComponent('btnCacheTransfer')).Caption:='Продолжить перенос';
+  end;
+  FCacheUsage.Hint:=BookCacheMigrationError; FCacheUsage.ShowHint:=FCacheUsage.Hint<>'';
+  if FCacheUsage.Hint<>'' then FCacheUsage.Caption:=FCacheUsage.Caption+' · перенос приостановлен';
+end;
+
+procedure TfrmSettings.CacheTransferClick(Sender: TObject);
+begin
+  if BookCacheMigrationBusy then StopBookCacheMigration else RetryBookCacheMigration;
+  CacheUsageUpdate(nil);
+end;
+
+procedure TfrmSettings.ClearCacheClick(Sender: TObject);
+begin ClearBookCache; CacheUsageUpdate(nil); end;
+
+function TfrmSettings.CacheLimitMB(out Value: Integer): Boolean;
+var Number: Double; Text: string;
+begin
+  Text:=Trim(FCacheLimit.Text); Text:=StringReplace(Text,',','.',[rfReplaceAll]);
+  Result:=TryStrToFloat(Text,Number,TFormatSettings.Invariant);
+  if not Result then Exit;
+  if FCacheUnit.ItemIndex=1 then Number:=Number*1024;
+  Result:=not IsNan(Number) and not IsInfinite(Number) and (Number>=1) and (Number<=1048576);
+  if Result then Value:=Ceil(Number);
 end;
 
 procedure TfrmSettings.LoadSetting;
 var
   i: integer;
 begin
+  LoadCacheSettings;
   //
   // Page 1 - Device settings
   //
@@ -349,6 +476,7 @@ begin
   cbTXTEncoding.ItemIndex := Ord(Settings.TXTEncoding);
 
   // Page 2 - Readers
+  FUseBuiltinReader.Checked:=Settings.UseBuiltinReaderByDefault; ReaderModeChanged(nil);
   lvReaders.Items.Clear;
   for i := 0 to Settings.Readers.Count - 1 do
   begin
@@ -484,7 +612,11 @@ begin
 end;
 
 procedure TfrmSettings.SaveSettings;
+var Limit: Integer;
 begin
+  if CacheLimitMB(Limit) then Settings.BookCacheLimitMB:=Limit;
+  ChangeBookCacheDirectory(Trim(FCacheDirectory.Text));
+  Settings.ClearBookCacheOnExit:=FCacheExit.Checked; TrimBookCache;
   // Page 1 - Device settings
   Settings.PromptDevicePath := cbPromptPath.Checked;
   Settings.DeviceDir := edDeviceDir.Text;
@@ -514,6 +646,7 @@ begin
   Settings.RemoveSquarebrackets := cbSquareFilter.Checked;
 
   // Page 2 - Readers
+  Settings.UseBuiltinReaderByDefault:=FUseBuiltinReader.Checked;
   SaveReaders;
 
   // Page 3 - Interface
@@ -634,8 +767,15 @@ begin
 end;
 
 procedure TfrmSettings.SaveSettingsClick(Sender: TObject);
-var IntervalValue, Multiplier: Integer;
+var IntervalValue, Multiplier, CacheValue: Integer;
 begin
+  if not CacheLimitMB(CacheValue) then
+  begin
+    ShowMessage('Укажите объём кэша от 1 МБ до 1024 ГБ.');
+    tvSections.Select(tvSections.Items[FCachePage.PageIndex]); FocusControl(FCacheLimit); Exit;
+  end;
+  if (Trim(FCacheDirectory.Text)<>'') and not TPath.IsPathRooted(Trim(FCacheDirectory.Text)) then
+  begin ShowMessage('Укажите полный путь к папке кэша.'); FocusControl(FCacheDirectory); Exit; end;
   if cbProgramInterval.ItemIndex = 8 then
   begin
     Multiplier := 1;
@@ -673,6 +813,7 @@ procedure TfrmSettings.EditReader(AItem: TListItem);
 var
   frmEditReader: TfrmEditReader;
 begin
+  if FUseBuiltinReader.Checked then Exit;
   frmEditReader := TfrmEditReader.Create(Self);
   try
     frmEditReader.Caption := IfThen(Assigned(AItem), rstrChangeFileType, rstrAddFileType);
@@ -731,6 +872,7 @@ end;
 
 procedure TfrmSettings.btnDeleteExtClick(Sender: TObject);
 begin
+  if FUseBuiltinReader.Checked then Exit;
   lvReaders.DeleteSelected;
 end;
 

@@ -158,6 +158,7 @@ type
       const SeqNumber: Integer;
       const IsPrimary: Boolean
     );
+    class function GetList(const Series: TBookSeries): string;
     class function GetLink(const SeriesID: Integer; const SeriesTitle: string): string;
     class function GetLinkList(const Series: TBookSeries;
       const LiteralTitles: Boolean = False): string;
@@ -219,6 +220,7 @@ type
   TBookRecord = record
     nodeType: TBookNodeType;
     BookKey: TBookKey;
+    ListOrder: Integer;
     SeriesID: Integer;
     Title: string;
     Series: string;
@@ -259,6 +261,7 @@ type
 
     // ----------------------------------------------------
     function GetFileType: string;
+    function DisplayLibID: string;
     procedure Normalize;
     procedure Clear;
 
@@ -274,7 +277,8 @@ type
     function GetBookFormat: TBookFormat;
     function GetBookFileName: string;
     function GetBookContainer: string;
-    function GetBookStream: TStream;
+    function GetBookStream(const PreserveWebP: Boolean = False;
+      const RestoreOriginalImages: Boolean = True): TStream;
     function GetBookDescriptorStream(const RestoreImages: Boolean = True): TStream;
     function GetBookPreviewCoverStream: TStream;
     procedure SaveBookToFile(const DestFileName: String);
@@ -419,7 +423,7 @@ type
   function CleanFileName(const Input: string): string;
 
   function ClearDir(const DirectoryName: string): Boolean;
-  function ClearReadFolder(const DirectoryName: string): Boolean;
+  function ClearReadFolder(const DirectoryName: string; const OwnedOnly: Boolean = False): Boolean;
   //function IsRelativePath(const FileName: string): Boolean;
   function CreateFolders(const Root: string; const Path: string): Boolean;
   function CopyFile(const SourceFileName: string; const DestFileName: string): boolean;
@@ -474,6 +478,7 @@ uses
   unit_MHLExternalTools,
   unit_FLibraryCompat,
   unit_WebPCompat,
+  unit_BookMetadataCache,
   unit_Errors,
   unit_Settings;
 
@@ -827,7 +832,34 @@ begin
 end;
 {$WARNINGS ON}
 
-function ClearReadFolder(const DirectoryName: string): Boolean;
+function ClearOwnedReaderFiles(const DirectoryName: string): Boolean;
+var Search: TSearchRec; Name, EntryName: string; Files: TStringList; Attributes: DWORD;
+begin
+  Result:=True; Files:=TStringList.Create;
+  try
+    if FindFirst(TPath.Combine(DirectoryName,'homelib-*'),faAnyFile,Search)=0 then
+    try
+      repeat
+        EntryName:=Search.Name;
+        Name:=TPath.Combine(DirectoryName,EntryName);
+        if (Search.Attr and faDirectory<>0) or EntryName.Contains('.pending') or
+          EntryName.EndsWith('.source',True) or EntryName.EndsWith('.origin',True) or
+          EntryName.EndsWith('.retire',True) then Continue;
+        Attributes:=GetFileAttributes(PChar(Name));
+        if (Attributes=INVALID_FILE_ATTRIBUTES) or (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then Continue;
+        if FileExists(Name+'.source') or FileExists(Name+'.origin') then Files.Add(Name);
+      until FindNext(Search)<>0;
+    finally System.SysUtils.FindClose(Search); end;
+    for Name in Files do
+      if System.SysUtils.DeleteFile(Name) then
+      begin
+        System.SysUtils.DeleteFile(Name+'.source'); System.SysUtils.DeleteFile(Name+'.origin');
+        System.SysUtils.DeleteFile(Name+'.retire');
+      end else Result:=False;
+  finally Files.Free; end;
+end;
+
+function ClearReadFolder(const DirectoryName: string; const OwnedOnly: Boolean): Boolean;
 var
   ReadDirectory, CacheDirectory: string;
   Attributes: DWORD;
@@ -853,13 +885,15 @@ begin
         Result := False
       else
       begin
-        Result := ClearDir(CacheDirectory);
+        if OwnedOnly then Result:=ClearOwnedReaderFiles(CacheDirectory)
+        else Result:=ClearDir(CacheDirectory);
         if Result then
-          Result := RemoveDir(CacheDirectory);
+          if OwnedOnly then RemoveDir(CacheDirectory) else Result:=RemoveDir(CacheDirectory);
       end;
     end;
     // A busy reader file may remain; still clean the other temporary files.
-    Result := ClearDir(ReadDirectory) and Result;
+    if OwnedOnly then Result:=ClearOwnedReaderFiles(ReadDirectory) and Result
+    else Result:=ClearDir(ReadDirectory) and Result;
   except
     Result := False;
   end;
@@ -1060,6 +1094,17 @@ begin
   Series[i].IsPrimary := IsPrimary;
 end;
 
+class function TSeriesHelper.GetList(const Series: TBookSeries): string;
+var Item: TBookSeriesData;
+begin
+  Result := '';
+  for Item in Series do
+  begin
+    if Result <> '' then Result := Result + ' / ';
+    Result := Result + Item.SeriesTitle;
+  end;
+end;
+
 class function TSeriesHelper.GetLink(const SeriesID: Integer; const SeriesTitle: string): string;
 begin
   Result := Format('<a href="%d">%s</a>', [SeriesID, SeriesTitle]);
@@ -1159,6 +1204,7 @@ procedure TBookRecord.Clear;
 begin
   nodeType := ntBookInfo;
   BookKey.Clear;
+  ListOrder := 0;
   SeriesID := NO_SERIES_ID;
   Title := '';
   Series := NO_SERIES_TITLE;
@@ -1217,8 +1263,23 @@ begin
 end;
 
 function TBookRecord.GetFileType: string;
+  function ValidExtension(const Value: string): Boolean;
+  var C: Char; HasLetter: Boolean;
+  begin
+    Result := (Length(Value) > 0) and (Length(Value) <= 10); HasLetter := False;
+    for C in Value do
+    begin
+      if not CharInSet(C,['a'..'z','0'..'9']) then Exit(False);
+      if CharInSet(C,['a'..'z']) then HasLetter := True;
+    end;
+    Result := Result and HasLetter;
+  end;
 begin
-  Result := CleanExtension(FileExt);
+  Result := LowerCase(CleanExtension(FileExt));
+  if not ValidExtension(Result) then Result := LowerCase(CleanExtension(ExtractFileExt(FileName)));
+  if not ValidExtension(Result) then
+    if (Trim(FileExt)='') and (ExtractFileExt(FileName)='') then Result := 'Без расширения'
+    else Result := 'Некорректный тип';
 end;
 
 //
@@ -1330,7 +1391,19 @@ end;
 // Get the book file as a stream.
 // The caller code must free the stream when done!
 // For FBD archives brings the raw book (and NOT the FBD descriptor)
-function TBookRecord.GetBookStream: TStream;
+function TBookRecord.DisplayLibID: string;
+var Separator: Integer;
+begin
+  Result := LibID;
+  if Copy(LibID, 1, 7) = 'merged:' then
+  begin
+    Separator := LastDelimiter(':', LibID);
+    if Separator > 7 then Result := Copy(LibID, Separator + 1, MaxInt);
+    if Pos(':file:', LibID) > 0 then Result := '';
+  end;
+end;
+
+function TBookRecord.GetBookStream(const PreserveWebP, RestoreOriginalImages: Boolean): TStream;
 var
   ArchiveFileName: string;
   ArchiveEntryName: string;
@@ -1365,11 +1438,16 @@ begin
         begin
           FreeAndNil(Result);
           if not Settings.IgnoreAbsentArchives then
-            raise EBookNotFound.CreateFmt(rstrArchiveNotFound, [BookFileName]);
+          begin
+            if not FileExists(ArchiveFileName) then
+              raise EBookNotFound.Create('Не найден архив коллекции: '+ArchiveFileName+#13#10+
+                'Книга внутри: '+FileName+FileExt+#13#10+'Проверьте папку книг и наличие этого архива. Запись в INPX не означает, что файл скачан.');
+            raise EBookNotFound.Create('Не удалось прочитать книгу '+FileName+FileExt+' из архива '+ArchiveFileName+#13#10+E.Message);
+          end;
         end;
       end;
 
-      if Assigned(Result) and IsSevenZipArchive(ArchiveFileName) then
+      if Assigned(Result) and RestoreOriginalImages and IsSevenZipArchive(ArchiveFileName) then
       begin
         try
           RestoredStream := RestoreFLibraryBook(ArchiveFileName,
@@ -1405,7 +1483,7 @@ begin
   end;
 
   if Assigned(Result) and SameText(FileExt, FB2_EXTENSION) and
-    Settings.ConvertWebPToPNG then
+    Settings.ConvertWebPToPNG and not PreserveWebP then
   begin
     try
       RestoredStream := NormalizeEmbeddedWebPFb2(Result);
@@ -1435,6 +1513,7 @@ var
   archiveEntryName: string;
   archiver: TMHLZip;
 begin
+  if not RestoreImages then Exit(OpenBookMetadataSource(Self));
   Result := nil;
   archiver := nil;
 

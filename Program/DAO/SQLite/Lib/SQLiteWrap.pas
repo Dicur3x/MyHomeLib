@@ -30,6 +30,7 @@ uses
 
 type
   TSQLiteBackupProgress = reference to procedure(CopiedPages, TotalPages: Integer);
+  TSQLiteCancelCallback = function: Boolean of object;
   {: @abstract(Exception Class for SQLite based errors)}
   ESQLiteException = class(Exception);
 
@@ -235,6 +236,10 @@ resourcestring
   c_errorbindingblob = 'Error binding blob to database';
   c_errorbindingparam = 'Error binding param';
 
+threadvar
+  // The UI installs this only while preparing a cancellable book list.
+  SQLiteCancelCallback: TSQLiteCancelCallback;
+
 implementation
 
 uses
@@ -252,6 +257,16 @@ const
 
 var
   SQLite_FormatSettings: TFormatSettings;
+
+function CancelProgress(UserData: Pointer): Integer; cdecl;
+begin
+  Result := 0;
+  try
+    if Assigned(SQLiteCancelCallback) and SQLiteCancelCallback() then Result := 1;
+  except
+    Result := 1;
+  end;
+end;
 
 { TSQLiteDatabase }
 
@@ -333,6 +348,7 @@ begin
 {$ENDIF}
 
     RegisterSystemCollateAndFunc;
+    SQLite3_ProgressHandler(FDB, 50000, CancelProgress, nil);
   except
     if Assigned(FDB) then
     begin
@@ -363,6 +379,7 @@ begin
     ExecSQL('PRAGMA query_only = ON');
     ExecSQL('PRAGMA cache_size = -4096');
     RegisterSystemCollateAndFunc;
+    SQLite3_ProgressHandler(FDB, 50000, CancelProgress, nil);
   except
     if Assigned(FDB) then
     begin

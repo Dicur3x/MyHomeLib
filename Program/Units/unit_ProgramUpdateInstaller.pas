@@ -52,6 +52,8 @@ begin
   if ID = 'SQLite' then Result := 'sqlite3.dll';
   if ID = 'AlReader' then Result := 'Readers/AlReader/AlReader2.exe';
   if ID = 'SumatraPDF' then Result := 'Readers/SumatraPDF/SumatraPDF.exe';
+  if ID = 'DjVuLibre' then Result := 'tools/djvu/djvused.exe';
+  if ID = '7-Zip' then Result := 'tools/7zip/7z.exe';
 end;
 
 function SafeComponentFile(const ID, Name: string): Boolean;

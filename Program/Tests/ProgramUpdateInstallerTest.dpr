@@ -98,12 +98,17 @@ begin
       Guard(ParamStr(2)); Guard(ParamStr(3));
       PrepareOfficialComponent(ParamStr(2), ParamStr(3), ParamStr(4), ParamStr(5), ProgramUpdatePlatform);
     end
-    else if (Mode = '--sqlite-parse') or (Mode = '--sumatra-parse') then
+    else if (Mode = '--sqlite-parse') or (Mode = '--sumatra-parse') or (Mode = '--raster-parse') then
     begin
       if Mode = '--sqlite-parse' then
       begin
         if not ParseSQLiteDownload(TFile.ReadAllText(ParamStr(2)), TFile.ReadAllText(ParamStr(3)), Info) then
           raise Exception.Create('SQLite metadata parse failed');
+      end
+      else if Mode='--raster-parse' then
+      begin
+        if not ParseRasterComponent(TFile.ReadAllText(ParamStr(2)),ParamStr(3),Info) or not Info.CheckOnly then
+          raise Exception.Create('Raster version check parse failed');
       end
       else if not ParseSumatraReleases(TFile.ReadAllText(ParamStr(2)), Info) then
         raise Exception.Create('Sumatra metadata parse failed');
@@ -125,7 +130,7 @@ begin
         Components := ComponentThread.Releases;
         Params := TJSONArray.Create;
         try
-          for I := 0 to 2 do
+          for I := 0 to High(Components) do
           begin
             Params.Add(Components[I].ComponentID); Params.Add(Components[I].ComponentVersion);
             Params.Add(Components[I].DownloadURL); Params.Add(Components[I].Size);
@@ -141,7 +146,7 @@ begin
         TFile.ReadAllText(ParamStr(4)), Components) then raise Exception.Create('component feed');
       Params := TJSONArray.Create;
       try
-        for I := 0 to 2 do
+        for I := 0 to High(Components) do
         begin
           Params.Add(Components[I].ComponentVersion);
           Params.Add(Components[I].DownloadURL);

@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{0e0e5963-527e-47a6-984c-c35abd0c5ab0}</ProjectGuid>
         <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
@@ -44,7 +44,24 @@
         <DCCReference Include="..\Components\MHLComponents\unit_FLibraryCompat.pas"/>
         <DCCReference Include="..\Components\MHLComponents\unit_BookGallery.pas"/>
         <DCCReference Include="Units\unit_AuthorInfo.pas"/>
+        <DCCReference Include="Units\unit_ReaderFormats.pas"/>
+        <DCCReference Include="Units\unit_ReaderMIME.pas"/>
+        <DCCReference Include="Units\unit_ReaderLaunch.pas"/>
+        <DCCReference Include="Units\unit_ReaderOffice.pas"/>
         <DCCReference Include="Units\unit_ReaderCache.pas"/>
+        <DCCReference Include="Units\unit_ReaderKindle.pas"/>
+        <DCCReference Include="Units\unit_SeriesAliases.pas"/>
+        <DCCReference Include="Units\unit_BookMetadataCache.pas"/>
+        <DCCReference Include="Units\unit_BookCache.pas"/>
+        <DCCReference Include="..\Components\MHLComponents\unit_MHLOperationStatus.pas"/>
+        <DCCReference Include="Units\unit_ReaderDocument.pas"/>
+        <DCCReference Include="Units\unit_ReaderPDF.pas"/>
+        <DCCReference Include="Units\unit_ReaderRaster.pas"/>
+        <DCCReference Include="Units\unit_ReaderDjvu.pas"/>
+        <DCCReference Include="Units\unit_DjvuProtocol.pas"/>
+        <DCCReference Include="Units\unit_ReaderDjvuNative.pas"/>
+        <DCCReference Include="Units\unit_ReaderRichEdit.pas"/>
+        <DCCReference Include="Forms\frm_BuiltinReader.pas"/>
         <DCCReference Include="Units\unit_BookColumnFilters.pas"/>
         <DCCReference Include="Units\unit_CatalogSources.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>
@@ -261,6 +278,7 @@
         <DCCReference Include="Units\unit_ColorTabs.pas"/>
         <DCCReference Include="DAO\unit_Database_Abstract.pas"/>
         <DCCReference Include="DAO\unit_SystemDatabase_Abstract.pas"/>
+        <DCCReference Include="Units\unit_BookInfoPreview.pas"/>
         <DCCReference Include="Units\unit_treeController.pas"/>
         <DCCReference Include="Units\unit_MHLHttpClient.pas"/>
         <DCCReference Include="Units\unit_FileMutex.pas"/>

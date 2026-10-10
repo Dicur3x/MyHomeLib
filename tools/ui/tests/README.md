@@ -154,3 +154,52 @@ node Program/Tests/program_update_popup_tests.js <CollectionViewsTest.exe> <Prog
 системной базой: проверяют видимый мастер, создание без импорта и отмену.
 Для этих двух сценариев runner не задаёт Windows скрытый первый показ окна;
 иначе проверялось бы скрытие, навязанное самим запуском теста.
+
+## Проверки pre5.13
+
+Все Delphi-проекты собираются через RAD Studio GUI, Release, для Win32 и Win64.
+`BuiltinReaderTest.dproj` проверяет документ, окно, поиск, настройки, PDF и
+визуальные форматы. `Round2Probe.dproj` проверяет архивы, подготовку форматов,
+выбор читалки, кэш, окно источников и повреждённые настройки столбцов.
+Запуски используют отдельные профили в TEMP с отключённым OPDS.
+
+`builtin_reader_tests.py <runtime> <BuiltinReaderTest.exe> <pdfium.dll>` создаёт
+синтетические документы. `--case` выбирает отдельную проверку, `--keep` оставляет
+артефакты. Длинные прогоны проверяют GDI/USER после прогрева. Отдельные проекты
+Benchmark, PDFBenchmark и Audit измеряют подготовку и повторные открытия.
+
+Режимы `raster-reader` и `release-pagination` также проверяют выбранные настоящие
+DjVu/CBR/CBZ/TIFF. Они требуют `--books-root <папка-архивов>` и
+`--raster-catalog <inventory.json>`. JSON содержит список, последний элемент
+которого имеет `samples`: записи с `ext`, `folder`, `file_name`, `book_id`.
+Для `real-formats` вместо этого нужен `--headers-json <headers.json>`: список
+записей `status`, `signature`, `catalog_ext`, `archive`, `actual_member`, `book_id`.
+Инвентаризации и настоящие книги предоставляются отдельно и не публикуются.
+Исходные архивы открываются только для чтения; CRC и неизменность проверяются.
+`BuiltinReaderLibraryProbe` с `builtin_reader_library_probe.py` проверяет
+выбранные LightLib FB2 с оригинальными WebP. Его список примеров указан в коде;
+папка архивов передаётся аргументом, без привязки к диску конкретной машины.
+
+`djvu_worker_tests.py <tools/djvu> <многостраничный-DjVu>` сравнивает пиксели с
+официальным ddjvu, проверяет Unicode, границы, неверную страницу, повреждённый
+файл и 12 прерываний декодера. Требуется Pillow. Сам помощник собирается через
+RAD Studio из `Utils/HomeLibDjvu/HomeLibDjvu.dproj`, Release/Win32.
+
+`native_collection_tests.js` и стандартный `CollectionViewsTest.dproj` включают:
+
+- `--views-mode=builtin-reader`: флажок открытия по умолчанию, блокировку
+  внешних назначений, сохранение путей и явную внешнюю команду;
+- `--views-mode=program-update-ui`: DjVu/7-Zip, сайт автора, выбор компонента,
+  совместную установку и исключение компонентов с одной проверкой;
+- `--views-mode=audit-new --audit-case=<case>`: `filters`, `archives`, `images`,
+  `orphan`, `active-pending`, `nested`, `collision`, `failure`, `return`,
+  `performance`, `legacy`. Для `inflight` и `source-inflight` дополнительно
+  передаётся `--amber-archive=<ZIP LightLib>`, только для чтения.
+
+Проверки требуют соответствующего поведения: е/ё и регистр, несколько значений,
+точное PDF/FBD по UTF-8 пути, отказ от чужого FBD, исходные изображения,
+границы декодирования, отмена с сохранением таблицы, ошибка переноса с повтором,
+A→B→A, активная распаковка, отключение источника и сохранность чужих файлов.
+Проверяется точный Source ID SQLite 3.54.0, FTS5 Unicode MATCH и integrity_check.
+
+Результаты и границы: [отчёт выпуска](../../../docs/RELEASE_VALIDATION_2.7.0_pre5.13.md).

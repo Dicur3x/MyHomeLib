@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "version": "157.0.8086.0",
+  "tag": "chromium/8086",
+  "date": "2026-10-05",
+  "source": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/8086",
+  "build": "standalone, release, without V8 or XFA",
+  "Win32": {
+    "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8086/pdfium-win-x86.tgz",
+    "archive_sha256": "4958b594e9709df44b8d69af3f90e62be54e335785c469217a2d364e6f141a54",
+    "dll_sha256": "095f17644e3dc324ac7800d5f1bbdc38bcfabd1f52045617d8050901ae9544b3"
+  },
+  "Win64": {
+    "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8086/pdfium-win-x64.tgz",
+    "archive_sha256": "1fd8af952832dbb0eb16d9249f68fe09e5f5ebf7c3dd9f6066ea2720cc28487d",
+    "dll_sha256": "1f2aee4286b8cf0413ab4562b7121aa454f9cfd9afd6ca8609bcef80927b3f80"
+  }
+}

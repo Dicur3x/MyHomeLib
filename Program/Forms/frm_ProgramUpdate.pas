@@ -23,7 +23,7 @@ type
     FComponentAutomatic: Boolean;
     FComponentExplicit: Boolean;
     FComponentError: string;
-    FComponentNotified: array[0..2] of string;
+    FComponentNotified: array[0..4] of string;
     FApplicationRelease: TProgramRelease;
     FApplicationStatus, FApplicationHistory: string;
     FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic: Boolean;
@@ -316,6 +316,11 @@ begin
   FProgress.Position := 0; FBytes.Caption := '';
   FPrimary.Caption := 'Скачать обновление'; FPrimary.Enabled := True;
   if FRelease.DownloadURL = '' then FPrimary.Caption := 'Скачать со страницы выпуска';
+  if FRelease.CheckOnly then
+  begin
+    FPrimary.Caption:='Сайт автора';
+    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Комплектные файлы обновляются вместе с проверенным выпуском HomeLib Ru.';
+  end;
   UpdateSummary;
   Present;
   finally EndUIUpdate; end;
@@ -406,7 +411,7 @@ begin
   if FApplicationRelease.Tag <> '' then
   begin SetLength(Result, 1); Result[0] := FApplicationRelease; end;
   for I in CHECKED_COMPONENT_INDICES do
-    if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) then
+    if not FComponents[I].CheckOnly and ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) then
     begin
       Count := Length(Result); SetLength(Result, Count + 1); Result[Count] := FComponents[I];
     end;
@@ -429,7 +434,7 @@ end;
 procedure TfrmProgramUpdate.UpdateSummary;
 var Summary: string;
 begin
-  if FReady or Assigned(FThread) then Exit;
+  if FReady or Assigned(FThread) or ((FSelector.ItemIndex > 0) and FRelease.CheckOnly) then Exit;
   Summary := AvailableSummary;
   if Summary <> '' then
   begin
@@ -471,12 +476,16 @@ begin
 end;
 
 procedure TfrmProgramUpdate.FinishCheckCycle;
-var J: Integer;
+var J: Integer; HasComponentUpdate: Boolean;
 begin
   if not FCheckingCycle or FAppPending or FComponentsPending then Exit;
   FCheckingCycle := False;
   UpdateComponentList;
-  if Length(AvailableUpdates) > 0 then
+  HasComponentUpdate := False;
+  for J in CHECKED_COMPONENT_INDICES do
+    if ComponentNewer(FComponents[J], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[J])) then
+      HasComponentUpdate := True;
+  if (Length(AvailableUpdates) > 0) or HasComponentUpdate then
   begin
     FSelector.ItemIndex := 0;
     if FApplicationRelease.Tag = '' then
@@ -545,7 +554,7 @@ begin
   begin FComponentExplicit := False; Exit; end;
   if FComponentExplicit and not FComponentAutomatic and (FSelector.ItemIndex = 0) then
   begin
-    Errors := 0; for I := 0 to 2 do if FComponents[I].ComponentError <> '' then Inc(Errors);
+    Errors := 0; for I := 0 to High(FComponents) do if FComponents[I].ComponentError <> '' then Inc(Errors);
     if Successful and (Errors > 0) then
       FStatus.Caption := 'Некоторые компоненты не удалось проверить. Выберите их в списке, чтобы увидеть подробности.'
     else if Successful then FStatus.Caption := 'Компоненты проверены. Выберите компонент в списке, чтобы увидеть версию и изменения.'
@@ -645,6 +654,7 @@ begin
   end;
   if Assigned(FThread) then Exit;
   if FCheckingCycle then Exit;
+  if FRelease.CheckOnly and not FNeedsCheck then begin PageClick(nil); Exit; end;
   FQueue := AvailableUpdates;
   if (Length(FQueue) = 0) and not FNeedsCheck and (FRelease.Tag <> '') then
   begin SetLength(FQueue, 1); FQueue[0] := FRelease; end;
@@ -699,6 +709,8 @@ procedure TfrmProgramUpdate.PageClick(Sender: TObject);
 begin
   if FSelector.ItemIndex = 1 then FRelease.URL := 'https://www.sqlite.org/changes.html';
   if FSelector.ItemIndex = 2 then FRelease.URL := 'https://www.sumatrapdfreader.org/docs/Version-history';
+  if FSelector.ItemIndex = 3 then FRelease.URL := 'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/';
+  if FSelector.ItemIndex = 4 then FRelease.URL := 'https://www.7-zip.org/download.html';
   if FRelease.URL = '' then FRelease.URL := 'https://github.com/Dicur3x/MyHomeLib/releases';
   ShellExecute(Handle, 'open', PChar(FRelease.URL), nil, nil, SW_SHOWNORMAL);
 end;

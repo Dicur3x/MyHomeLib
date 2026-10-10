@@ -22,7 +22,7 @@ type
     Size: Int64;
     ComponentID, ComponentVersion: string;
     SourceSHA3, ComponentError: string;
-    OfficialComponent: Boolean;
+    OfficialComponent, CheckOnly: Boolean;
   end;
 
   TProgramDownloadThread = class(TThread)

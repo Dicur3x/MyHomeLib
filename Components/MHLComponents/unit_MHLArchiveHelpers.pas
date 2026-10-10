@@ -56,6 +56,7 @@ type
       function EntryNeedsExternalDecoder(const Index: Integer): Boolean;
       procedure EnsureSevenZipTool;
       procedure CopyEntryToStream(const Index: Integer; const Destination: TStream);
+      function FindBookIndex(const AFileName: string; const LegacyIndex: Integer): Integer;
       function GetLastSize: Integer;
       function GetLastName: string;
       function GetLastIndex: Integer;
@@ -66,7 +67,8 @@ type
 
     public
       constructor Create(const AFileName: string; RO: Boolean;
-        UpdateExisting: Boolean = False; const IsCanceled: TFunc<Boolean> = nil);
+        UpdateExisting: Boolean = False; const IsCanceled: TFunc<Boolean> = nil;
+        ForceExternalDecoder: Boolean = False);
       destructor Destroy; override;
 
       function ExtractToStream(No: integer): TMemoryStream; overload;
@@ -75,6 +77,9 @@ type
       procedure ExtractToStream(const AFileName: string; const Stream: TStream); overload;
       procedure ExtractBookToStream(const AFileName: string;
         const LegacyIndex: Integer; const Stream: TStream);
+      procedure ExtractBookPrefix(const AFileName: string; const LegacyIndex,
+        PrefixBytes: Integer; const Stream: TStream);
+      function ResolveBookName(const AFileName: string; const LegacyIndex: Integer): string;
       function GetIdxByExt(const Ext: string):Integer;
       function FileNameAt(const Index: Integer): string;
       function ExtractToString(AFileName: string):string;
@@ -118,18 +123,29 @@ const
 implementation
 
 uses
-  StrUtils,
+  StrUtils, System.Math,
   unit_MHLExternalTools;
 
 procedure TMHLZip.EnsureSevenZipTool;
+var RequiresFullDecoder: Boolean;
 begin
   if FSevenZipTool <> '' then
     Exit;
   FSevenZipTool := FindExternalTool('7zz.exe', '7zip');
-  if FSevenZipTool = '' then
+  // 7za supports 7z/ZIP but cannot read RAR or CAB. Do not let the bundled
+  // limited decoder mask an installed full 7-Zip for these formats.
+  RequiresFullDecoder:=SameText(ExtractFileExt(FArchiveFileName),'.rar') or
+    SameText(ExtractFileExt(FArchiveFileName),'.cbr') or
+    SameText(ExtractFileExt(FArchiveFileName),'.cab');
+  if (FSevenZipTool = '') and RequiresFullDecoder then
+    FSevenZipTool := FindExternalTool('7z.exe', '7zip');
+  if (FSevenZipTool = '') and not RequiresFullDecoder then
     FSevenZipTool := FindExternalTool('7za.exe', '7zip');
   if FSevenZipTool = '' then
     FSevenZipTool := FindExternalTool('7z.exe', '7zip');
+  if FSevenZipTool = '' then
+    if RequiresFullDecoder then
+      raise EMHLExternalToolError.Create('Для распаковки RAR и CAB нужен установленный 7-Zip или полный tools\7zip\7zz.exe.');
   if FSevenZipTool = '' then
     raise EMHLExternalToolError.Create(
       'Для чтения 7z и ZIP с PPMd нужен tools\7zip\7za.exe или установленный 7-Zip.');
@@ -454,32 +470,54 @@ begin
   CopyEntryToStream(Index, Stream);
 end;
 
+function TMHLZip.FindBookIndex(const AFileName: string; const LegacyIndex: Integer): Integer;
+var Method: Word;
+begin
+  Result := FindEntryIndex(AFileName);
+  if (Result<0) and not FIsSevenZip and (LegacyIndex>=0) and (LegacyIndex<FZip.FileCount) then
+  begin
+    // Preserve the ordinary ZIP locator contract. Reordered compact archives
+    // must resolve by name and never by an obsolete source entry index.
+    Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
+    if (Method=0) or (Method=8) then Result := LegacyIndex;
+  end;
+  if Result<0 then raise EZipException.CreateFmt('Archive entry "%s" was not found',[AFileName]);
+end;
+
+function TMHLZip.ResolveBookName(const AFileName: string; const LegacyIndex: Integer): string;
+begin
+  Result := FileNames[FindBookIndex(AFileName,LegacyIndex)];
+end;
+
 procedure TMHLZip.ExtractBookToStream(const AFileName: string;
   const LegacyIndex: Integer; const Stream: TStream);
-var
-  Index: Integer;
-  Method: Word;
 begin
-  if FIsSevenZip then
+  CopyEntryToStream(FindBookIndex(AFileName,LegacyIndex),Stream);
+end;
+
+procedure TMHLZip.ExtractBookPrefix(const AFileName: string; const LegacyIndex,
+  PrefixBytes: Integer; const Stream: TStream);
+var Index: Integer; Input: TStream; Buffer: array[0..8191] of Byte;
+  Count: Integer;
+begin
+  if PrefixBytes <= 0 then raise EArgumentException.Create('Invalid metadata prefix size');
+  Index := FindBookIndex(AFileName,LegacyIndex);
+  if EntryNeedsExternalDecoder(Index) then
   begin
-    ExtractToStream(AFileName, Stream);
+    EnsureSevenZipTool;
+    RunExternalToolToStream(FSevenZipTool,
+      ['x','-so','-y','-spd','-sccUTF-8','--',FArchiveFileName,FFileNames[Index]],Stream,FIsCanceled,PrefixBytes);
     Exit;
   end;
-  Index := FindEntryIndex(AFileName);
-  if (Index < 0) and (LegacyIndex >= 0) and
-    (LegacyIndex < FZip.FileCount) then
-  begin
-    // Older ordinary collections/downloads can use a display file name while
-    // locating the actual ZIP member by its index. Preserve that contract for
-    // Stored/Deflate. PPMd compact archives must match the requested file name:
-    // a stale source index must never open a different book after deduplication.
-    Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
-    if (Method = 0) or (Method = 8) then
-      Index := LegacyIndex;
-  end;
-  if Index < 0 then
-    raise EZipException.CreateFmt('Archive entry "%s" was not found', [AFileName]);
-  CopyEntryToStream(Index, Stream);
+  Input := OpenEntryStream(Index);
+  try
+    Stream.Size := 0; Stream.Position := 0;
+    repeat
+      Count := Input.Read(Buffer,Min(SizeOf(Buffer),PrefixBytes-Integer(Stream.Size)));
+      if Count>0 then Stream.WriteBuffer(Buffer,Count);
+    until (Count=0) or (Stream.Size>=PrefixBytes);
+    Stream.Position := 0;
+  finally Input.Free; end;
 end;
 
 function TMHLZip.ExtractToString(AFileName: string): string;
@@ -805,7 +843,7 @@ begin
 end;
 
 constructor TMHLZip.Create(const AFileName: string; RO: Boolean;
-  UpdateExisting: Boolean; const IsCanceled: TFunc<Boolean>);
+  UpdateExisting: Boolean; const IsCanceled: TFunc<Boolean>; ForceExternalDecoder: Boolean);
 begin
   Inherited Create;
   FIsCanceled := IsCanceled;
@@ -814,7 +852,7 @@ begin
   FArchiveFileName := AFileName;
   FSevenZipTool := '';
   SetLength(FSevenZipSizes, 0);
-  FIsSevenZip := IsSevenZipArchive(AFileName);
+  FIsSevenZip := IsSevenZipArchive(AFileName) or ForceExternalDecoder;
   FFileNamesLoaded := False;
   FLastID := -1;
   FSearchPattern := '';

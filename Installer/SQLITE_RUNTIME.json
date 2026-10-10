@@ -1,0 +1,18 @@
+﻿{
+  "version": "3.54.0",
+  "date": "2026-10-09",
+  "source_id": "2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcd5e3",
+  "download_page": "https://sqlite.org/download.html",
+  "Win64": {
+    "url": "https://sqlite.org/2026/sqlite-dll-win-x64-3540000.zip",
+    "sha3_256": "f5fb500c73a3afd89976386bb8e4fdc8b5b65c052e187fb1ada1f5de034cd45b",
+    "machine": 34404,
+    "dll_sha256": "5ca6a16bdd2c5a5037b1e3a942d9ac1c66efe2def902b202d44774680a8a4656"
+  },
+  "Win32": {
+    "url": "https://sqlite.org/2026/sqlite-dll-win-x86-3540000.zip",
+    "sha3_256": "98d8e1c16846db4f6348d6bd6e2c2ce5a33a04b837153265c1eb96a34cea3870",
+    "machine": 332,
+    "dll_sha256": "54105a644c1ba56066256796901ea4ce1abc7fde98d036fee3476a355cfeba93"
+  }
+}

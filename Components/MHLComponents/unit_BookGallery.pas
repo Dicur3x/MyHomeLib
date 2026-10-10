@@ -4,7 +4,7 @@ interface
 
 uses
   System.Classes, System.SysUtils, System.Generics.Collections,
-  Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.ExtCtrls, Vcl.StdCtrls, Vcl.Graphics;
+  unit_MHLOperationStatus, Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.ExtCtrls, Vcl.StdCtrls, Vcl.Graphics;
 
 type
   TGalleryPicture = class
@@ -25,6 +25,7 @@ type
     Pictures: TObjectList<TGalleryPicture>;
     ErrorText: string;
     Limited: Boolean;
+    PlaceholderCount: Integer;
     constructor Create(const Source: TFunc<TStream>; const Extension: string);
     destructor Destroy; override;
   end;
@@ -36,6 +37,7 @@ type
     FStatus: TLabel;
     FImages: TList<TImage>;
     FRetiredHandles: TList<THandle>;
+    FLoadStatus: TMHLOperationStatus;
     FLoader: TGalleryLoader;
     FSource: TFunc<TStream>;
     FExtension, FBookIdentity, FTitle: string;
@@ -123,15 +125,42 @@ begin
 end;
 
 procedure TGalleryLoader.ReadImage(const Name: string; Stream: TStream);
-var Graphic: TGraphic; Picture: TGalleryPicture; Size: Int64;
+var Graphic: TGraphic; Picture, Existing: TGalleryPicture; Size, Budget: Int64;
 begin
   if Terminated or not Assigned(Stream) then Exit;
+  Existing := nil;
+  for Picture in Pictures do
+    if (Name <> '') and (Picture.Name = Name) then
+    begin Existing := Picture; Break; end;
   if (Pictures.Count >= MaxImages) or (Stream.Size > MaxImageBytes) then
   begin Limited := True; Exit; end;
   Graphic := nil;
   try
-    try Graphic := CreateGraphicFromStream(Stream); except Exit; end;
+    Budget:=MaxGalleryBytes-FBytes;
+    if Assigned(Existing) then Inc(Budget,Int64(Existing.Graphic.Width)*Existing.Graphic.Height*4);
+    try Graphic := CreateGraphicFromStream(Stream,Budget); except Exit; end;
     if not Assigned(Graphic) then Exit;
+    // LightLib replaces removed illustrations with a valid one-pixel WebP.
+    // Scaling it produces a misleading grey tile, not a usable illustration.
+    if (Graphic.Width = 1) and (Graphic.Height = 1) then
+    begin Inc(PlaceholderCount); Exit; end;
+    // Duplicate XML IDs are malformed but occur in compressed collections.
+    // Keep the larger original pixel grid; never recompress gallery images.
+    if Assigned(Existing) then
+    begin
+      if Int64(Graphic.Width) * Graphic.Height >
+        Int64(Existing.Graphic.Width) * Existing.Graphic.Height then
+      begin
+        Size := Int64(Graphic.Width) * Graphic.Height * 4;
+        if FBytes - Int64(Existing.Graphic.Width) * Existing.Graphic.Height * 4 + Size <= MaxGalleryBytes then
+        begin
+          Dec(FBytes, Int64(Existing.Graphic.Width) * Existing.Graphic.Height * 4);
+          Existing.Graphic.Free; Existing.Graphic := Graphic; Graphic := nil;
+          Inc(FBytes, Size);
+        end else Limited := True;
+      end;
+      Exit;
+    end;
     // Bound decoded pictures too, since highly compressed scans may be enormous.
     Size := Int64(Graphic.Width) * Graphic.Height * 4;
     if (Size <= 0) or (FBytes + Size > MaxGalleryBytes) then
@@ -164,32 +193,10 @@ begin
       Source.Position := 0;
       if SameText(FExtension, '.fb2') then
       begin
-        Doc := TXMLDocument.Create(nil);
-        Doc.LoadFromStream(Source);
-        if not Assigned(Doc.DocumentElement) or
-          not SameText(Doc.DocumentElement.LocalName, 'FictionBook') then
-          raise Exception.Create('Не удалось прочитать изображения книги.');
-        // Binary is a direct child in every FB2 namespace, including 2.1/2.2
-        // and producers which omit the namespace. Do not bind it to FB2 2.0.
-        for I := 0 to Doc.DocumentElement.ChildNodes.Count - 1 do
-        begin
-          if Terminated or (Pictures.Count >= MaxImages) then Break;
-          Binary := Doc.DocumentElement.ChildNodes[I];
-          if not SameText(Binary.LocalName, 'binary') then Continue;
-          if Length(Binary.Text) > MaxImageBytes * 4 div 3 + 1024 then
-          begin Limited := True; Continue; end;
-          try
-            Bytes := TNetEncoding.Base64.DecodeStringToBytes(Binary.Text);
-            Image := TBytesStream.Create(Bytes);
-            try
-              if Binary.HasAttribute('id') then Ext := Binary.AttributeNodes['id'].Text
-              else Ext := IntToStr(I + 1);
-              ReadImage(Ext, Image);
-            finally Image.Free; end;
-          except
-            // One malformed or unsupported binary must not hide other illustrations.
-          end;
-        end;
+        VisitFB2Images(Source,
+          procedure(const Name: string; Stream: TStream)
+          begin ReadImage(Name,Stream); end,
+          function: Boolean begin Result := Terminated or (Pictures.Count >= MaxImages); end);
       end
       else if SameText(FExtension, '.epub') then
       begin
@@ -279,6 +286,7 @@ end;
 procedure TBookGallery.CancelLoad;
 var WorkerHandle: THandle; I: Integer;
 begin
+  FreeAndNil(FLoadStatus);
   for I := FRetiredHandles.Count - 1 downto 0 do
     if WaitForSingleObject(FRetiredHandles[I], 0) = WAIT_OBJECT_0 then
     begin
@@ -354,6 +362,7 @@ begin
       ResetImages;
       FStatus.Visible := True;
       FStatus.Caption := 'Загрузка изображений…';
+      FLoadStatus:=TMHLOperationStatus.Create('Распаковка книги и загрузка иллюстраций…');
       FLoader := TGalleryLoader.Create(FSource, FExtension);
       FLoader.OnTerminate := WorkerFinished;
       FLoader.Start;
@@ -367,6 +376,7 @@ procedure TBookGallery.WorkerFinished(Sender: TObject);
 var Loader: TGalleryLoader; Picture: TGalleryPicture; Image: TImage;
 begin
   if Sender <> FLoader then Exit;
+  FreeAndNil(FLoadStatus);
   Loader := FLoader;
   FLoader := nil;
   FLoaded := Loader.ErrorText = '';
@@ -391,6 +401,11 @@ begin
       ' Сверните и раскройте её для повторной попытки.'
   else if FImages.Count = 0 then FStatus.Caption := 'В книге нет поддерживаемых иллюстраций.'
   else if Loader.Limited then FStatus.Caption := 'Показана часть изображений.';
+  if (Loader.ErrorText = '') and (Loader.PlaceholderCount > 0) then
+  begin
+    FStatus.Visible := True;
+    FStatus.Caption := 'В этой копии книги часть иллюстраций заменена заглушками: ' + IntToStr(Loader.PlaceholderCount) + '.';
+  end;
   UpdateLayout;
 end;
 
