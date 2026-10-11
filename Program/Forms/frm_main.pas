@@ -772,6 +772,9 @@ type
     FCurrentBookOnly: Boolean;
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FInvisible: Boolean;
+    FThemeToolbar: TToolBar;
+    FThemeButton: TToolButton;
+    FWindowsThemeOffer: TPanel;
     FLoadedBookViews: set of TView;
     FPendingLangFilters: array[TView] of Integer;
     FPendingAuthorBookID: Integer;
@@ -792,6 +795,10 @@ type
     FViewLanguageSelected: array[TView] of Boolean;
     FLocales: TArray<TLocaleInfo>;
     FOPDSForm: TfrmOPDS;
+    procedure UpdateThemeToolbar;
+    procedure WindowsThemeOfferAccept(Sender: TObject);
+    procedure WindowsThemeOfferDismiss(Sender: TObject);
+    procedure WMSettingChange(var Message: TMessage); message WM_SETTINGCHANGE;
     procedure ShowOPDS(Sender: TObject);
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
@@ -830,6 +837,7 @@ type
     procedure CreateCollectionMenu;
     procedure CreateScriptMenu;
     procedure SetColors;
+    procedure ToggleApplicationTheme(Sender: TObject);
     procedure CreateAlphabetToolbar;
 
     procedure CreateLanguageMenu;
@@ -926,7 +934,10 @@ type
     function InternalSetSeriesFilter(Button: TToolButton): string;
     procedure OnSetSerieFilter(Sender: TObject);
 
+  protected
+    procedure Resize; override;
   public
+    procedure UpdateWindowsThemeOffer(WindowsDark: Boolean);
     procedure FillBooksTree(
       const Tree: TBookTree;
       const LangSelector: TComboBox;
@@ -1130,7 +1141,7 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
-  unit_Readers, unit_ReaderCache, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
+  unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
   unit_ReaderDocument,
   frm_BuiltinReader,
   dm_user,
@@ -1325,20 +1336,24 @@ procedure TfrmMain.DrawNavigationTab(Control: TCustomTabControl; TabIndex: Integ
 var Area: TRect; Canvas: TCanvas; Text: string;
 begin
   Canvas := Control.Canvas; Canvas.Font.Assign(pgControl.Font);
-  Canvas.Font.Color := clWindowText; Canvas.Brush.Color := clBtnFace;
+  Canvas.Font.Color := MHLThemeText; Canvas.Brush.Color := MHLThemeBackground;
   if Active then
-  begin Canvas.Brush.Color := clWindow; Canvas.Font.Style := Canvas.Font.Style + [fsBold]; end;
+  begin
+    if MHLThemeDark then Canvas.Brush.Color:=RGB(49,51,55) else Canvas.Brush.Color:=clWindow;
+    Canvas.Font.Style := Canvas.Font.Style + [fsBold];
+  end;
   Canvas.FillRect(Rect); Area := Rect;
   if Active then
   begin
-    Canvas.Brush.Color := clHighlight;
+    if MHLThemeDark then Canvas.Brush.Color:=MHLThemeLink else Canvas.Brush.Color:=clHighlight;
     Area.Top := Area.Bottom - MulDiv(3, Screen.PixelsPerInch, 96); Canvas.FillRect(Area);
-    Canvas.Brush.Color := clWindow;
+    Canvas.Brush.Style:=bsClear;
   end;
   Area := Rect; InflateRect(Area, -3, -3);
   Text := pgControl.Pages[TabIndex].Caption;
   DrawText(Canvas.Handle, PChar(Text), Length(Text), Area,
     DT_CENTER or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
+  Canvas.Brush.Style:=bsSolid;
 end;
 
 procedure TfrmMain.WMGetSysCommand(var Message: TMessage);
@@ -1530,7 +1545,9 @@ var
   begin
     AControl.Color := BGColor;
     AControl.Font.Name := 'Segoe UI';
+    AControl.Font.Quality := fqClearTypeNatural;
     AControl.Header.Font.Name := 'Segoe UI';
+    AControl.Header.Font.Quality := fqClearTypeNatural;
     AControl.Header.Font.Size := TreeFontSize;
     AControl.Font.Size := TreeFontSize;
     AControl.ReinitNode(AControl.GetFirst, True);
@@ -1547,6 +1564,7 @@ var
   begin
     AControl.Color := BGColor;
     AControl.Font.Name := 'Segoe UI';
+    AControl.Font.Quality := fqClearTypeNatural;
     AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
     Height := AControl.Canvas.TextHeight('Щ');
@@ -1558,6 +1576,7 @@ var
   begin
     AControl.Color := BGColor;
     AControl.Font.Name := 'Segoe UI';
+    AControl.Font.Quality := fqClearTypeNatural;
     AControl.Font.Size := ShortFontSize;
     AControl.Font.Color := FontColor;
   end;
@@ -1614,6 +1633,7 @@ begin
   SetPnlColor(ipnlGenres);
   SetPnlColor(ipnlFavorites);
   SetPnlColor(ipnlSearch);
+  if MHLThemeDark then ApplyMHLControlTheme(Self);
 
 end;
 
@@ -1623,6 +1643,7 @@ begin
   // Синхронизация с настройками
   //
   tlbrMain.Visible := Settings.ShowToolbar;
+  UpdateThemeToolbar;
   tlbrEdit.Visible := Settings.EditToolBarVisible;
   tbarAuthorsRus.Visible := Settings.ShowRusBar;
   tbarSeriesRus.Visible := Settings.ShowRusBar;
@@ -2601,96 +2622,39 @@ procedure TfrmMain.CreateAlphabetToolbar;
 const
   EngAlphabet: string = ALPHA_FILTER_ALL + ALPHA_FILTER_NON_ALPHA + LATIN_ALPHABET;
   RusAlphabet: string = ALPHA_FILTER_ALL + ALPHA_FILTER_NON_ALPHA + CYRILLIC_ALPHABET;
-
-var
-  Image: TBitmap;
-  ImageCanvas: TCanvas;
-  ImageRect: TRect;
-  AlphaChar: Char;
-  ImageIndex: Integer;
-  ButtonPosA: Integer;
-  ButtonPosS: Integer;
-  Button: TToolButton;
-  CellW, CellH, PadX, PadY: Integer;
-
-  function CreateTextImage(ImageText: string): Integer;
+var AlphaChar: Char; APos, SPos: Integer;
+  procedure Prepare(Toolbar: TToolBar);
   begin
-    ImageCanvas.FillRect(ImageRect);
-    ImageCanvas.Font.Color := clWindowText;
-    ImageCanvas.TextRect(ImageRect, ImageText, [tfCenter, tfSingleLine, tfVerticalCenter]);
-    ilAlphabetNormal.AddMasked(Image, clBtnFace);
-
-    ImageCanvas.FillRect(ImageRect);
-    ImageCanvas.Font.Color := clHotLight;
-    ImageCanvas.TextRect(ImageRect, ImageText, [tfCenter, tfSingleLine, tfVerticalCenter]);
-    Result := ilAlphabetActive.AddMasked(Image, clBtnFace);
+    // Native captions stay sharp on either background; masked light glyphs
+    // retain coloured antialiasing fringes when reused in the dark theme.
+    Toolbar.Images:=nil; Toolbar.HotImages:=nil; Toolbar.DisabledImages:=nil;
+    Toolbar.ShowCaptions:=True; Toolbar.List:=True;
+    Toolbar.Font.Name:='Segoe UI'; Toolbar.Font.Size:=9;
+    Toolbar.Font.Style:=[fsBold]; Toolbar.Font.Quality:=fqClearTypeNatural;
+    Toolbar.ButtonWidth:=MulDiv(20,CurrentPPI,96);
+    Toolbar.ButtonHeight:=MulDiv(24,CurrentPPI,96);
   end;
-
-  function CreateTextButton(
-    ToolBar: TToolBar;
-    const ACaption: string;
-    ImageIndex: Integer;
-    FOnClick: TNotifyEvent;
-    Position: Integer
-  ): Integer;
+  function AddLetter(Toolbar: TToolBar; Letter: Char; Action: TNotifyEvent; Position: Integer): Integer;
+  var Button: TToolButton;
   begin
-    Button := TToolButton.Create(ToolBar);
-    Button.Caption := ACaption;
-    Button.ImageIndex := ImageIndex;
-    Button.OnClick := FOnClick;
-    Button.Left := Position;
-    Button.Parent := ToolBar;
-    Result := Button.Left + Button.Width;
+    Button:=TToolButton.Create(Toolbar); Button.Caption:=Letter; Button.ImageIndex:=-1;
+    Button.OnClick:=Action; Button.Left:=Position; Button.Parent:=Toolbar;
+    Result:=Button.Left+Button.Width;
   end;
-
 begin
-  Image := TBitmap.Create;
-  try
-    ImageCanvas := Image.Canvas;
-
-    ImageCanvas.Brush.Color := clBtnFace;
-    ImageCanvas.Font := tbarAuthorsRus.Font;
-    ImageCanvas.Font.Style := [fsBold];
-
-    CellW := Max(ImageCanvas.TextWidth('W'), ImageCanvas.TextWidth('С'));
-    CellH := ImageCanvas.TextHeight('С');
-    PadX := MulDiv(4, Self.CurrentPPI, 96);
-    PadY := MulDiv(2, Self.CurrentPPI, 96);
-    CellW := Max(CellW, CellH) + PadX;
-    CellH := CellH + PadY;
-
-    ilAlphabetNormal.Width  := CellW;
-    ilAlphabetNormal.Height := CellH;
-    ilAlphabetActive.Width  := CellW;
-    ilAlphabetActive.Height := CellH;
-
-    Image.Width  := CellW;
-    Image.Height := CellH;
-
-    ImageRect := Bounds(0, 0, CellW, CellH);
-
-    //
-    //
-    //
-    ButtonPosA := 0;
-    ButtonPosS := 0;
-    for AlphaChar in RusAlphabet do
-    begin
-      ImageIndex := CreateTextImage(AlphaChar);
-      ButtonPosA := CreateTextButton(tbarAuthorsRus, AlphaChar, ImageIndex, OnSetAuthorFilter, ButtonPosA);
-      ButtonPosS := CreateTextButton(tbarSeriesRus, AlphaChar, ImageIndex, OnSetSerieFilter, ButtonPosS);
-    end;
-
-    ButtonPosA := 0;
-    ButtonPosS := 0;
-    for AlphaChar in EngAlphabet do
-    begin
-      ImageIndex := CreateTextImage(AlphaChar);
-      ButtonPosA := CreateTextButton(tbarAuthorsEng, AlphaChar, ImageIndex, OnSetAuthorFilter, ButtonPosA);
-      ButtonPosS := CreateTextButton(tbarSeriesEng, AlphaChar, ImageIndex, OnSetSerieFilter, ButtonPosS);
-    end;
-  finally
-    Image.Free;
+  Prepare(tbarAuthorsRus); Prepare(tbarAuthorsEng);
+  Prepare(tbarSeriesRus); Prepare(tbarSeriesEng);
+  APos:=0; SPos:=0;
+  for AlphaChar in RusAlphabet do
+  begin
+    APos:=AddLetter(tbarAuthorsRus,AlphaChar,OnSetAuthorFilter,APos);
+    SPos:=AddLetter(tbarSeriesRus,AlphaChar,OnSetSerieFilter,SPos);
+  end;
+  APos:=0; SPos:=0;
+  for AlphaChar in EngAlphabet do
+  begin
+    APos:=AddLetter(tbarAuthorsEng,AlphaChar,OnSetAuthorFilter,APos);
+    SPos:=AddLetter(tbarSeriesEng,AlphaChar,OnSetSerieFilter,SPos);
   end;
 end;
 
@@ -3192,7 +3156,8 @@ begin
   UpdatesInfo := Settings.Updates;
   UpdatesInfo.URL := Settings.UpdateURL;
 
-  UpdatesInfo.UpdateExternalVersions;
+  // Local update packages can still be checked without a network server.
+  if Settings.UpdateURL.Trim <> '' then UpdatesInfo.UpdateExternalVersions;
 
   CollectionInfoIterator := FSystemData.GetCollectionInfoIterator;
   while CollectionInfoIterator.Next(CollectionInfo) do
@@ -3660,9 +3625,90 @@ begin
   end;
 end;
 
+procedure TfrmMain.UpdateThemeToolbar;
+begin
+  if not Assigned(FThemeToolbar) then Exit;
+  FThemeToolbar.SetBounds(ClientWidth-FThemeToolbar.Width-MulDiv(3,CurrentPPI,96),
+    tlbrMain.Top,FThemeToolbar.Width,tlbrMain.Height);
+  FThemeToolbar.Visible:=tlbrMain.Visible;
+  FThemeToolbar.BringToFront;
+end;
+
+procedure TfrmMain.Resize;
+begin
+  inherited;
+  UpdateThemeToolbar;
+end;
+
+procedure TfrmMain.UpdateWindowsThemeOffer(WindowsDark: Boolean);
+var Text: TLabel; Button: TButton;
+begin
+  if not WindowsDark then Settings.WindowsDarkThemeOfferDismissed:=False;
+  if not MHLShouldOfferWindowsDarkTheme(WindowsDark,Settings.DarkTheme,Settings.WindowsDarkThemeOfferDismissed) then
+  begin
+    if Assigned(FWindowsThemeOffer) then FWindowsThemeOffer.Visible:=False;
+    Exit;
+  end;
+  if not Assigned(FWindowsThemeOffer) then
+  begin
+    FWindowsThemeOffer:=TPanel.Create(Self); FWindowsThemeOffer.Name:='pnWindowsThemeOffer';
+    FWindowsThemeOffer.Parent:=Self; FWindowsThemeOffer.BevelOuter:=bvNone; FWindowsThemeOffer.Caption:='';
+    FWindowsThemeOffer.Height:=MulDiv(42,CurrentPPI,96);
+    FWindowsThemeOffer.Top:=tlbrMain.BoundsRect.Bottom+1; FWindowsThemeOffer.Align:=alTop;
+    Button:=TButton.Create(Self); Button.Parent:=FWindowsThemeOffer; Button.Name:='btnDismissWindowsTheme';
+    Button.Align:=alRight; Button.Width:=MulDiv(32,CurrentPPI,96); Button.Caption:='×';
+    Button.Hint:='Больше не предлагать для текущей темы Windows'; Button.ShowHint:=True;
+    Button.OnClick:=WindowsThemeOfferDismiss;
+    Button:=TButton.Create(Self); Button.Parent:=FWindowsThemeOffer; Button.Name:='btnApplyWindowsTheme';
+    Button.Align:=alRight; Button.Width:=MulDiv(144,CurrentPPI,96); Button.Caption:='Включить тёмную тему';
+    Button.OnClick:=WindowsThemeOfferAccept;
+    Text:=TLabel.Create(Self); Text.Parent:=FWindowsThemeOffer; Text.Align:=alClient;
+    Text.Layout:=tlCenter; Text.WordWrap:=True; Text.AlignWithMargins:=True;
+    Text.Margins.Left:=MulDiv(12,CurrentPPI,96);
+    Text.Caption:='В Windows выбрана тёмная тема. Включить её и в HomeLib Ru?';
+  end;
+  FWindowsThemeOffer.Visible:=True;
+end;
+
+procedure TfrmMain.WindowsThemeOfferAccept(Sender: TObject);
+begin
+  if not Settings.DarkTheme then ToggleApplicationTheme(Sender);
+end;
+
+procedure TfrmMain.WindowsThemeOfferDismiss(Sender: TObject);
+begin
+  Settings.WindowsDarkThemeOfferDismissed:=True;
+  if Assigned(FWindowsThemeOffer) then FWindowsThemeOffer.Visible:=False;
+  Settings.SaveSettings;
+end;
+
+procedure TfrmMain.WMSettingChange(var Message: TMessage);
+var WindowsDark: Boolean;
+begin
+  inherited;
+  if Assigned(FThemeButton) and TryMHLWindowsDarkTheme(WindowsDark) then
+    UpdateWindowsThemeOffer(WindowsDark);
+end;
+
+procedure TfrmMain.ToggleApplicationTheme(Sender: TObject);
+var WindowsDark: Boolean;
+begin
+  SetMHLTheme(not Settings.DarkTheme);
+  Settings.DarkTheme:=MHLThemeDark;
+  if TryMHLWindowsDarkTheme(WindowsDark) and WindowsDark then
+    Settings.WindowsDarkThemeOfferDismissed:=True;
+  if Assigned(FWindowsThemeOffer) then FWindowsThemeOffer.Visible:=False;
+  if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
+  else FThemeButton.Hint:='Переключить на тёмную тему';
+  dmImages.ApplyThemeIcons;
+  if not Settings.DarkTheme then SetColors;
+  Settings.SaveSettings;
+end;
+
 procedure TfrmMain.FormCreate(Sender: TObject);
 var
   OPDSMenu, FilterMenu: TMenuItem;
+  WindowsDark: Boolean;
   I: Integer;
 begin
   OnShortCut := FormShortCut;
@@ -3674,7 +3720,7 @@ begin
   FReadBuiltinAction := TAction.Create(Self);
   FReadBuiltinAction.Name := 'acReadBuiltin';
   FReadBuiltinAction.ActionList := Actions;
-  FReadBuiltinAction.Caption := 'Читать во встроенной читалке (экспериментально)';
+  FReadBuiltinAction.Caption := 'Читать во встроенной читалке (тестовая)';
   FReadBuiltinAction.ShortCut := ShortCut(Ord('R'), [ssCtrl, ssAlt]);
   FReadBuiltinAction.ImageIndex := 12;
   FReadBuiltinAction.OnExecute := ReadBuiltinExecute;
@@ -3685,10 +3731,14 @@ begin
   miBook.Insert(0, FilterMenu);
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Action := FReadBuiltinAction;
-  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex + 1, FilterMenu);
+  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex, FilterMenu);
+  // Double-click/Enter retain their configured reader, but the menus offer
+  // exactly two explicit destinations, with the built-in reader first.
+  pmiReadBook.Visible := False;
+  miRead.Visible := False;
   FOpenArchiveAction := TAction.Create(Self);
   FOpenArchiveAction.Name := 'acOpenBookArchive'; FOpenArchiveAction.ActionList := Actions;
-  FOpenArchiveAction.Caption := 'Посмотреть содержимое архива';
+  FOpenArchiveAction.Caption := 'Посмотреть содержимое архива'; FOpenArchiveAction.ImageIndex := 19;
   FOpenArchiveAction.OnExecute := OpenArchiveExecute; FOpenArchiveAction.OnUpdate := OpenArchiveUpdate;
   FilterMenu := TMenuItem.Create(Self); FilterMenu.Action := FOpenArchiveAction;
   pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+2,FilterMenu);
@@ -3706,7 +3756,7 @@ begin
   FReadExternalAction.OnExecute:=ReadExternalExecute; FReadExternalAction.OnUpdate:=BookLocationUpdate;
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FReadExternalAction; miBook.Insert(1,FilterMenu);
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FReadExternalAction;
-  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+2,FilterMenu);
+  pmiReadBook.Parent.Insert(pmiReadBook.MenuIndex+1,FilterMenu);
   for I := 0 to 1 do
   begin
     FilterMenu := TMenuItem.Create(Self);
@@ -3767,6 +3817,22 @@ begin
   SetFormState;
 
   UpdateSplashScreen(rstrStarting);
+  // A small toolbar aligned to the right keeps the theme switch at the edge,
+  // regardless of the number of regular toolbar buttons or window width.
+  FThemeToolbar:=TToolBar.Create(Self); FThemeToolbar.Parent:=Self;
+  FThemeToolbar.Align:=alNone; FThemeToolbar.Anchors:=[akTop,akRight]; FThemeToolbar.Width:=MulDiv(42,CurrentPPI,96);
+  FThemeToolbar.Flat:=True; FThemeToolbar.Wrapable:=False; FThemeToolbar.AutoSize:=False;
+  FThemeToolbar.Transparent:=True;
+  FThemeToolbar.Images:=dmImages.vilToolbar; FThemeToolbar.ButtonWidth:=MulDiv(36,CurrentPPI,96);
+  FThemeToolbar.ButtonHeight:=tlbrMain.ButtonHeight; FThemeToolbar.ShowHint:=True;
+  FThemeButton:=TToolButton.Create(Self); FThemeButton.Parent:=FThemeToolbar;
+  FThemeButton.ImageIndex:=25; FThemeButton.OnClick:=ToggleApplicationTheme;
+  UpdateThemeToolbar;
+  if Settings.DarkTheme then SetMHLTheme(True);
+  dmImages.ApplyThemeIcons;
+  if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
+  else FThemeButton.Hint:='Переключить на тёмную тему';
+  if TryMHLWindowsDarkTheme(WindowsDark) then UpdateWindowsThemeOffer(WindowsDark);
   FProgramUpdateTimer := TTimer.Create(Self);
   FProgramUpdateTimer.Interval := 30000;
   FProgramUpdateTimer.OnTimer := ProgramUpdateSchedule;
@@ -3811,8 +3877,14 @@ end;
 procedure TfrmMain.FormAfterMonitorDpiChanged(Sender: TObject; OldDPI, NewDPI: Integer);
 begin
   dmImages.ScaleForDPI(NewDPI);
+  if Assigned(FThemeToolbar) then
+  begin
+    FThemeToolbar.Width:=MulDiv(42,NewDPI,96);
+    FThemeToolbar.ButtonWidth:=MulDiv(36,NewDPI,96);
+  end;
   tlbrMain.Margins.Top := MulDiv(4, NewDPI, 96);
   UpdateDownloadToolbarSize;
+  UpdateThemeToolbar;
 end;
 
 procedure TfrmMain.UpdateDownloadToolbarSize;
@@ -3999,7 +4071,9 @@ begin
   if not (coFixed in Tree.Header.Columns[HitInfo.Column].Options) then
     Dec(RightEdge, TBookTreeAccess(Tree).EffectiveOffsetX);
   if (ColumnTag <> COL_STATE) and
-    ((HitInfo.Button = mbLeft) and (HitInfo.X >= RightEdge - MulDiv(20, Tree.CurrentPPI, 96))) then
+    ((HitInfo.Button = mbLeft) and
+     (HitInfo.X >= RightEdge - MulDiv(28, Tree.CurrentPPI, 96)) and
+     (HitInfo.X < RightEdge - MulDiv(8, Tree.CurrentPPI, 96))) then
   begin
     if EditBookColumnFilter(Tree, ColumnTag) then ApplyBookColumnFilters(Tree);
     Exit;
@@ -6829,6 +6903,7 @@ begin
   finally
     EnableAlign;
   end;
+  UpdateThemeToolbar;
 end;
 
 procedure TfrmMain.ShowRusAlphabetUpdate(Sender: TObject);

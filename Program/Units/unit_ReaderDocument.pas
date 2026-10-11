@@ -16,11 +16,25 @@ type
     Width, Height: Integer;
   end;
 
+  TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote);
+  TReaderStyledRange = record
+    Start, Count: Integer;
+    Kind: TReaderBlockKind;
+  end;
+
+  TReaderFootnoteLink = record
+    Start, Count: Integer;
+    Target: string;
+  end;
+
   TReaderDocument = class
   private
     FBody, FText: TStringBuilder;
     FPlainRTF: UTF8String;
     FChapters: TList<TReaderChapter>;
+    FStyles: TList<TReaderStyledRange>;
+    FNoteLinks: TList<TReaderFootnoteLink>;
+    FNoteBodies: TDictionary<string,string>;
     FImages, FSkippedImages: Integer;
     FPictures: TList<TReaderPicture>;
     procedure AddText(const Value: string; PreserveWhitespace: Boolean = False);
@@ -38,6 +52,9 @@ type
     procedure ReleaseUnusedBuffers;
     function PlainText: string;
     function Chapters: TArray<TReaderChapter>;
+    function Styles: TArray<TReaderStyledRange>;
+    function FootnoteCount: Integer;
+    function FootnotesForRange(Start, Finish: Integer): string;
     property ImageCount: Integer read FImages;
     property SkippedImages: Integer read FSkippedImages;
   end;
@@ -48,7 +65,7 @@ function ReaderSupportsReflow(const FileName: string): Boolean;
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
-  System.RegularExpressions, System.NetEncoding, System.Zip, System.Variants,
+  System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
   System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats;
 
 const
@@ -239,6 +256,7 @@ begin
   S:=NormalizeReaderXML(S);
   Result := CreateOleObject('Msxml2.DOMDocument.6.0') as IXMLDOMDocument3;
   Result.async := False; Result.resolveExternals := False; Result.validateOnParse := False;
+  Result.preserveWhiteSpace := True;
   Result.setProperty('ProhibitDTD',True);
   if not Result.loadXML(S) then raise Exception.Create('Не удалось прочитать XML: '+Result.parseError.reason);
 end;
@@ -274,12 +292,13 @@ begin
   inherited;
   FBody:=TStringBuilder.Create; FText:=TStringBuilder.Create;
   FPictures:=TList<TReaderPicture>.Create;
-  FChapters:=TList<TReaderChapter>.Create; Warnings:=TStringList.Create;
+  FChapters:=TList<TReaderChapter>.Create; FStyles:=TList<TReaderStyledRange>.Create;
+  FNoteLinks:=TList<TReaderFootnoteLink>.Create; FNoteBodies:=TDictionary<string,string>.Create; Warnings:=TStringList.Create;
 end;
 
 destructor TReaderDocument.Destroy;
 begin
-  FPictures.Free; Warnings.Free; FChapters.Free; FText.Free; FBody.Free; inherited;
+  FNoteBodies.Free; FNoteLinks.Free; FStyles.Free; FPictures.Free; Warnings.Free; FChapters.Free; FText.Free; FBody.Free; inherited;
 end;
 
 procedure TReaderDocument.AddText(const Value: string; PreserveWhitespace: Boolean);
@@ -337,8 +356,8 @@ end;
 
 procedure TReaderDocument.Load(const FileName: string; const Canceled: TFunc<Boolean>);
 var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
-  Binaries, Paths: TDictionary<string,string>; Resources: TDictionary<string,TBytes>; Zip: TZipFile;
-  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; UnpackedBytes: Int64;
+  Binaries, Paths: TDictionary<string,string>; Resources: TDictionary<string,TBytes>; NoteFiles: TDictionary<string,IXMLDOMDocument3>; Zip: TZipFile;
+  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes: Int64; NoteCharacters: Integer;
   procedure Check;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
@@ -380,20 +399,86 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для экспериментальной читалки.');
     Zip.Read(Index,Bytes);
   end;
+  function NoteText(const N: IXMLDOMNode; Depth: Integer = 0): string;
+  var J: Integer; Name: string;
+  begin
+    Check; Result:=''; if (N=nil) or (Depth>256) then Exit;
+    Name:=LocalName(N);
+    if (Name='script') or (Name='style') or (Name='binary') or (Name='img') or (Name='image') then Exit;
+    if N.nodeType in [NODE_TEXT,NODE_CDATA_SECTION] then
+      Exit(TRegEx.Replace(N.text,'[\r\n\t ]+',' '));
+    for J:=0 to N.childNodes.length-1 do
+    begin
+      Result:=Result+NoteText(N.childNodes.item[J],Depth+1);
+      if Length(Result)>65536 then begin Result:=Copy(Result,1,65536); Break; end;
+    end;
+    if (Name='p') or (Name='title') or (Name='br') or (Name='li') then Result:=Result+#13#10;
+  end;
+  procedure StoreNote(const Key, Text: string);
+  begin
+    if (Text='') or FNoteBodies.ContainsKey(Key) or (FNoteBodies.Count>=10000) or
+      (Int64(NoteCharacters)+Length(Text)>4*1024*1024) then Exit;
+    FNoteBodies.Add(Key,Text); Inc(NoteCharacters,Length(Text));
+  end;
+  procedure CollectNotes(const N: IXMLDOMNode; const Prefix: string; FB2Notes: Boolean; Depth: Integer = 0);
+  var J: Integer; Name,Key,Kind,Text: string;
+  begin
+    Check; if (N=nil) or (Depth>256) then Exit;
+    Name:=LocalName(N); Key:=Attribute(N,'id'); Kind:=LowerCase(Attribute(N,'type')+' '+Attribute(N,'role'));
+    if (Key<>'') and ((FB2Notes and (Name='section')) or Kind.Contains('footnote') or Kind.Contains('endnote')) then
+    begin
+      Text:=Trim(NoteText(N));
+      StoreNote(Prefix+Key,Text);
+    end;
+    for J:=0 to N.childNodes.length-1 do CollectNotes(N.childNodes.item[J],Prefix,FB2Notes,Depth+1);
+  end;
+  function NodeWithID(const N: IXMLDOMNode; const ID: string; Depth: Integer = 0): IXMLDOMNode;
+  var J: Integer;
+  begin
+    Check; Result:=nil; if (N=nil) or (Depth>256) then Exit;
+    if Attribute(N,'id')=ID then Exit(N);
+    for J:=0 to N.childNodes.length-1 do
+    begin Result:=NodeWithID(N.childNodes.item[J],ID,Depth+1); if Assigned(Result) then Exit; end;
+  end;
   procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False);
-  var J, Spaces: Integer; Name, Ref, Binary, Style: string; StyleNode, StyleValue: IXMLDOMNode; Bytes: TBytes; IsParagraph, IsTitle: Boolean;
+  var J, Spaces, StyleIndex, NoteStart: Integer; Name, Ref, Binary, Style, NoteTarget: string; Link: TReaderFootnoteLink;
+    StyleNode, StyleValue: IXMLDOMNode; Bytes: TBytes;
+    IsParagraph, IsTitle, IsBlock: Boolean; Range: TReaderStyledRange;
   begin
     Check; if Depth>256 then raise Exception.Create('Слишком глубокая разметка книги.');
     if N.nodeType in [NODE_TEXT,NODE_CDATA_SECTION] then
     begin
+      // Preserve the spaces around inline markup; discard indentation between blocks.
+      if (Trim(N.text)='') and Assigned(N.parentNode) and
+        not MatchText(LocalName(N.parentNode),['p','v','li','subtitle','text-author',
+          'span','a','strong','b','emphasis','i','em','t','h','h1','h2','h3']) then Exit;
       AddText(N.text,(E='.docx') and Assigned(N.parentNode) and
         SameText(Attribute(N.parentNode,'space'),'preserve'));
       Exit;
     end;
-    Name:=LocalName(N);
+    Name:=LocalName(N); NoteStart:=-1; NoteTarget:='';
+    if (Name='a') and (FNoteLinks.Count<10000) then
+    begin
+      Ref:=Attribute(N,'href');
+      if (E='.fb2') and Ref.StartsWith('#') then NoteTarget:=Ref.Substring(1)
+      else if (E='.epub') and (Pos('#',Ref)>0) and
+        (LowerCase(Attribute(N,'type')+' '+Attribute(N,'role')).Contains('noteref')) then
+      begin
+        J:=Pos('#',Ref);
+        try
+          Binary:=TNetEncoding.URL.Decode(Copy(Ref,J+1,MaxInt).Replace('+','%2B'));
+          if J=1 then NoteTarget:=CurrentPath+'#'+Binary
+          else NoteTarget:=ZipPath(CurrentPath,Copy(Ref,1,J-1))+'#'+Binary;
+        except
+          on Error: Exception do if Warnings.Count<20 then Warnings.Add('Сноска: '+Error.Message);
+        end;
+      end;
+      if NoteTarget<>'' then begin NoteStart:=FText.Length; FBody.Append('{\super\ul '); end;
+    end;
     if (Name='script') or (Name='style') or (Name='binary') or (Name='description') or
       (Name='ppr') or (Name='rpr') or (Name='del') or (Name='instrtext') then Exit;
-    IsParagraph:=(Name='p') or (Name='v') or (Name='li') or (Name='tr');
+    IsParagraph:=(Name='p') or (Name='v') or (Name='li') or (Name='tr') or
+      (Name='subtitle') or (Name='text-author');
     IsTitle:=(Name='title') or (Name='h') or (Name='h1') or (Name='h2') or (Name='h3');
     if (E='.docx') and (Name='p') then
     begin
@@ -402,8 +487,29 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       begin StyleValue:=FindNode(StyleNode,'pstyle'); if Assigned(StyleValue) then Style:=LowerCase(Attribute(StyleValue,'val')); end;
       IsTitle:=Style.StartsWith('heading') or (Style='title');
     end;
-    if IsTitle then begin Paragraph; Chapter(N.text); FBody.Append('{\pard\qc\b '); end;
-    if IsParagraph and not InsideTitle then FBody.Append('\pard\qj\fi360\sa100 ');
+    IsBlock:=IsTitle or (Name='subtitle') or (Name='epigraph') or
+      (Name='poem') or (Name='cite') or (Name='blockquote') or (Name='text-author') or (Name='code');
+    StyleIndex:=-1;
+    if IsTitle then begin Paragraph; Chapter(N.text); FBody.Append('{\pard\qc\b\sa160\sb200 '); end;
+    if IsParagraph and not InsideTitle then
+      if Name='v' then FBody.Append('\pard\ql\fi0\li360\sa40 ')
+      else if Name='text-author' then FBody.Append('\pard\qr\fi0\sa120 ')
+      else if Name='subtitle' then FBody.Append('\pard\qc\fi0\sa160\sb140 ')
+      else FBody.Append('\pard\qj\fi360\sa100 ');
+    if IsBlock then
+    begin
+      Range:=Default(TReaderStyledRange); Range.Start:=FText.Length;
+      if IsTitle then Range.Kind:=rbTitle
+      else if Name='subtitle' then Range.Kind:=rbSubtitle
+      else if Name='epigraph' then Range.Kind:=rbEpigraph
+      else if Name='poem' then Range.Kind:=rbPoem
+      else if Name='text-author' then Range.Kind:=rbAuthor
+      else if Name='code' then Range.Kind:=rbCode else Range.Kind:=rbCite;
+      StyleIndex:=FStyles.Count; FStyles.Add(Range);
+    end;
+    if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
+      begin Paragraph; FBody.Append('{\i '); end;
+    if (Name='poem') or (Name='stanza') then Paragraph;
     if (Name='strong') or (Name='b') or (Name='subtitle') then FBody.Append('{\b ');
     if (Name='emphasis') or (Name='i') or (Name='em') then FBody.Append('{\i ');
     if Name='code' then FBody.Append('{\f1 ');
@@ -448,6 +554,19 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     for J:=0 to N.childNodes.length-1 do Walk(N.childNodes.item[J],Depth+1,InsideTitle or IsTitle);
     if (Name='strong') or (Name='b') or (Name='subtitle') or (Name='emphasis') or
       (Name='i') or (Name='em') or (Name='code') or ((E='.docx') and (Name='r')) then FBody.Append('}');
+    if NoteStart>=0 then
+    begin
+      FBody.Append('}'); Link.Start:=NoteStart; Link.Count:=FText.Length-NoteStart; Link.Target:=NoteTarget;
+      if Link.Count>0 then
+      begin
+        FNoteLinks.Add(Link); Range.Start:=Link.Start; Range.Count:=Link.Count; Range.Kind:=rbFootnote; FStyles.Add(Range);
+      end;
+    end;
+    if StyleIndex>=0 then
+    begin Range:=FStyles[StyleIndex]; Range.Count:=FText.Length-Range.Start; FStyles[StyleIndex]:=Range; end;
+    if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
+      begin FBody.Append('}'); Paragraph; end;
+    if (Name='poem') or (Name='stanza') then Paragraph;
     if IsTitle then begin FBody.Append('}'); Paragraph; end;
     if IsParagraph then Paragraph;
   end;
@@ -505,10 +624,10 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
 
 begin
-  FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
-  UnpackedBytes:=0; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
+  FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
+  UnpackedBytes:=0; NoteCharacters:=0; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
   Title:=ExtractFileName(FileName); Zip:=nil;
-  Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create;
+  Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
   try
     if (E='.txt') or (E='.md') or (E='.markdown') or (E='.faq') or (E='.wri') then
     begin
@@ -585,8 +704,31 @@ begin
         if not Paths.TryGetValue(ID,CurrentPath) then raise Exception.Create('Не найден раздел EPUB: '+ID);
         CurrentPath:=ZipPath(PackagePath,CurrentPath);
         ReadZip(CurrentPath,Data); Document:=XMLDocument(Data);
-        Node:=FindNode(Document.documentElement,'body'); if Node<>nil then Walk(Node,0);
+        Node:=FindNode(Document.documentElement,'body');
+        if Node<>nil then begin CollectNotes(Node,CurrentPath+'#',False); Walk(Node,0); end;
       end;
+      for NoteLink in FNoteLinks do
+        if not FNoteBodies.ContainsKey(NoteLink.Target) then
+        begin
+          Check; I:=Pos('#',NoteLink.Target); if I=0 then Continue;
+          CurrentPath:=Copy(NoteLink.Target,1,I-1); ID:=Copy(NoteLink.Target,I+1,MaxInt);
+          if Zip.IndexOf(CurrentPath)<0 then Continue;
+          try
+          if not NoteFiles.TryGetValue(CurrentPath,Document) then
+          begin
+            // Remember a broken resource as well: repeated references must not reread it.
+            NoteFiles.Add(CurrentPath,nil);
+            ReadZip(CurrentPath,Data); Document:=XMLDocument(Data); NoteFiles[CurrentPath]:=Document;
+            CollectNotes(Document.documentElement,CurrentPath+'#',False);
+          end;
+          if not Assigned(Document) then Continue;
+          Node:=NodeWithID(Document.documentElement,ID);
+          if Assigned(Node) then StoreNote(NoteLink.Target,Trim(NoteText(Node)));
+          except
+            on Error: EAbort do raise;
+            on Error: Exception do if Warnings.Count<20 then Warnings.Add('Сноска: '+Error.Message);
+          end;
+        end;
     end
     else
     begin
@@ -617,13 +759,48 @@ begin
           end;
         end;
         for I:=0 to Root.childNodes.length-1 do
+        begin
+          Node:=Root.childNodes.item[I];
+          if (LocalName(Node)='body') and MatchText(Attribute(Node,'name'),['notes','comments']) then
+            CollectNotes(Node,'',True);
+        end;
+        // The FB2 cover belongs to description/title-info, outside its body.
+        Node:=FindNode(Root,'title-info');
+        if Node<>nil then Node:=FindNode(Node,'coverpage');
+        if Node<>nil then Walk(Node,0);
+        for I:=0 to Root.childNodes.length-1 do
         begin Node:=Root.childNodes.item[I]; if LocalName(Node)='body' then Walk(Node,0); end;
       end
       else
       begin Node:=FindNode(Root,'body'); if Node=nil then Node:=Root; Walk(Node,0); end;
     end;
     if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
-  finally Resources.Free; Zip.Free; Paths.Free; Binaries.Free; end;
+  finally NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free; end;
+end;
+
+function TReaderDocument.FootnoteCount: Integer;
+var Link: TReaderFootnoteLink;
+begin
+  Result:=0;
+  for Link in FNoteLinks do if FNoteBodies.ContainsKey(Link.Target) then Inc(Result);
+end;
+
+function TReaderDocument.FootnotesForRange(Start, Finish: Integer): string;
+var Link: TReaderFootnoteLink; Text: string; Seen: TDictionary<string,Boolean>;
+begin
+  Result:=''; Seen:=TDictionary<string,Boolean>.Create;
+  try
+    for Link in FNoteLinks do
+    begin
+      if Link.Start>=Finish then Break;
+      if (Link.Start+Link.Count<=Start) or Seen.ContainsKey(Link.Target) then Continue;
+      if not FNoteBodies.TryGetValue(Link.Target,Text) or (Text='') then Continue;
+      Seen.Add(Link.Target,True);
+      if Result<>'' then Result:=Result+#13#10+#13#10;
+      Result:=Result+Text;
+      if Length(Result)>32768 then begin Result:=Copy(Result,1,32768); Break; end;
+    end;
+  finally Seen.Free; end;
 end;
 
 function TReaderDocument.RTF(MaxPictureWidth, MaxPictureHeight: Integer): UTF8String;
@@ -704,5 +881,8 @@ begin Result:=FText.ToString; end;
 
 function TReaderDocument.Chapters: TArray<TReaderChapter>;
 begin Result:=FChapters.ToArray; end;
+
+function TReaderDocument.Styles: TArray<TReaderStyledRange>;
+begin Result:=FStyles.ToArray; end;
 
 end.

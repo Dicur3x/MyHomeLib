@@ -2,28 +2,38 @@
 
 interface
 
-uses System.SysUtils, System.Classes, System.Types, Vcl.Graphics,
+uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections, Vcl.Graphics,
   unit_ReaderPDF, unit_MHLArchiveHelpers, unit_ReaderDjvuNative;
 
 function IsRasterReaderFormat(const Extension: string): Boolean;
 
 type
-  // Only one decoded original page is retained. Archive entries stay compressed.
+  TReaderRasterPage = record
+    Pixels: TBytes;
+    Width, Height: Integer;
+    Used: Int64;
+  end;
+  // A bounded three-page LRU retains the current page and nearby turns.
+  // Compressed entries and the persistent DjVu decoder remain untouched.
   TReaderRaster = class(TReaderPDF)
   private
     FArchive: TMHLZip;
     FNames: TArray<string>;
     FFileName: string;
-    FCachedPage: Integer;
-    FOriginalPixels: TBytes;
-    FOriginalWidth, FOriginalHeight: Integer;
+    FPageCache: TDictionary<Integer,TReaderRasterPage>;
+    FCacheLock: TObject;
+    FVisiblePage: Integer;
+    FCacheBytes, FCacheClock: Int64;
     FTiff, FDjvu: Boolean;
     FSourceStream: TStream;
     FNativeDjvu: TReaderDjvuNative;
+    function DecodePage(Index: Integer): TReaderRasterPage;
+    function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
     constructor Create(const FileName: string);
     destructor Destroy; override;
-    procedure PreparePage(Index: Integer);
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False);
+    function IsPageCached(Index: Integer): Boolean;
     function PageSize(Index: Integer): TPoint; override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
     function Chapters: TArray<TPDFChapter>; override;
@@ -39,7 +49,7 @@ type
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, Winapi.Wincodec, System.Math, System.IOUtils,
-  System.Generics.Collections, System.Generics.Defaults, System.Win.ComObj,
+  System.Generics.Defaults, System.Win.ComObj,
   unit_WebPCompat, unit_ReaderDjvu, unit_BookCache;
 
 type TBitmap = Vcl.Graphics.TBitmap;
@@ -83,7 +93,8 @@ constructor TReaderRaster.Create(const FileName: string);
 var Names: TList<string>; I: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
-  inherited CreateEmpty; FFileName:=TPath.GetFullPath(FileName); FCachedPage:=-1;
+  inherited CreateEmpty; FFileName:=TPath.GetFullPath(FileName); FVisiblePage:=-1;
+  FCacheLock:=TObject.Create; FPageCache:=TDictionary<Integer,TReaderRasterPage>.Create;
   E:=LowerCase(ExtractFileExt(FFileName)); FTiff:=(E='.tif') or (E='.tiff');
   FSourceStream:=OpenCachedBookFile(FFileName);
   FDjvu:=Pos('|'+E+'|','|.djvu|.djv|.dju|.djm|.djvm|')>0;
@@ -124,9 +135,56 @@ begin
 end;
 
 destructor TReaderRaster.Destroy;
-begin FNativeDjvu.Free; FArchive.Free; FSourceStream.Free; inherited; end;
+begin FNativeDjvu.Free; FArchive.Free; FSourceStream.Free; FPageCache.Free; FCacheLock.Free; inherited; end;
 
-procedure TReaderRaster.PreparePage(Index: Integer);
+function TReaderRaster.CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean): Boolean;
+begin
+  TMonitor.Enter(FCacheLock);
+  try
+    Result:=FPageCache.TryGetValue(Index,Page);
+    if Result then
+    begin
+      Inc(FCacheClock); Page.Used:=FCacheClock; FPageCache[Index]:=Page;
+      if Visible then FVisiblePage:=Index;
+    end;
+  finally TMonitor.Exit(FCacheLock); end;
+end;
+
+function TReaderRaster.IsPageCached(Index: Integer): Boolean;
+begin
+  TMonitor.Enter(FCacheLock);
+  try Result:=FPageCache.ContainsKey(Index); finally TMonitor.Exit(FCacheLock); end;
+end;
+
+procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean);
+const Budget = 96*1024*1024;
+var Page, Visible, Old: TReaderRasterPage; Pair: TPair<Integer,TReaderRasterPage>;
+  Oldest, Protected: Integer; Stamp: Int64;
+begin
+  if CachedPage(Index,Page) then Exit;
+  Page:=DecodePage(Index);
+  TMonitor.Enter(FCacheLock);
+  try
+    Protected:=FVisiblePage;
+    // A very large neighbour must not evict the page currently being read.
+    if Prefetch and FPageCache.TryGetValue(Protected,Visible) and
+      (Int64(Length(Visible.Pixels))+Length(Page.Pixels)>Budget) then Exit;
+    if not Prefetch then Protected:=Index;
+    while (FPageCache.Count>=3) or (FCacheBytes+Length(Page.Pixels)>Budget) do
+    begin
+      Oldest:=-1; Stamp:=High(Int64);
+      for Pair in FPageCache do
+        if (Pair.Key<>Protected) and (Pair.Value.Used<Stamp) then
+        begin Oldest:=Pair.Key; Stamp:=Pair.Value.Used; end;
+      if Oldest<0 then Break;
+      Old:=FPageCache[Oldest]; Dec(FCacheBytes,Length(Old.Pixels)); FPageCache.Remove(Oldest);
+    end;
+    Inc(FCacheClock); Page.Used:=FCacheClock;
+    FPageCache.Add(Index,Page); Inc(FCacheBytes,Length(Page.Pixels));
+  finally TMonitor.Exit(FCacheLock); end;
+end;
+
+function TReaderRaster.DecodePage(Index: Integer): TReaderRasterPage;
 var Stream, Converted, PageStream: TStream; Adapter: IStream;
   Factory: IWICImagingFactory; Decoder: IWICBitmapDecoder;
   Frame: IWICBitmapFrameDecode; Converter: IWICFormatConverter;
@@ -134,14 +192,14 @@ var Stream, Converted, PageStream: TStream; Adapter: IStream;
   W,H: Cardinal; Scale: Double; PageFile: string; OriginalPixels: TBytes;
   I,A,NativeWidth,NativeHeight: Integer;
 begin
-  if Index=FCachedPage then Exit;
+  Result:=Default(TReaderRasterPage);
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы вне диапазона.');
   if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
   if Assigned(FNativeDjvu) then
   begin
     FNativeDjvu.RenderPage(Index,OriginalPixels,NativeWidth,NativeHeight);
-    FOriginalWidth:=NativeWidth; FOriginalHeight:=NativeHeight;
-    FOriginalPixels:=OriginalPixels; FCachedPage:=Index; Exit;
+    Result.Width:=NativeWidth; Result.Height:=NativeHeight;
+    Result.Pixels:=OriginalPixels; Exit;
   end;
   Stream:=nil; Converted:=nil; PageStream:=nil;
   try
@@ -196,7 +254,7 @@ begin
     end;
     if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
     // Only a finished pixel buffer crosses the thread boundary, never a GDI handle.
-    FOriginalWidth:=W; FOriginalHeight:=H; FOriginalPixels:=OriginalPixels; FCachedPage:=Index;
+    Result.Width:=W; Result.Height:=H; Result.Pixels:=OriginalPixels;
   finally
     Converter:=nil; Source:=nil; Scaler:=nil; Frame:=nil; Decoder:=nil; Adapter:=nil; Factory:=nil;
     Converted.Free; Stream.Free; PageStream.Free;
@@ -204,25 +262,26 @@ begin
 end;
 
 function TReaderRaster.PageSize(Index: Integer): TPoint;
+var Page: TReaderRasterPage;
 begin
-  if FCachedPage<>Index then raise Exception.Create('Страница ещё подготавливается.');
-  Result:=Point(FOriginalWidth,FOriginalHeight);
+  if not CachedPage(Index,Page,True) then raise Exception.Create('Страница ещё подготавливается.');
+  Result:=Point(Page.Width,Page.Height);
 end;
 
 function TReaderRaster.Render(Index, Width, Height: Integer; Night: Boolean): TBitmap;
-var Info: TBitmapInfo;
+var Info: TBitmapInfo; Page: TReaderRasterPage;
 begin
-  PageSize(Index);
+  if not CachedPage(Index,Page,True) then raise Exception.Create('Страница ещё подготавливается.');
   if (Width<=0) or (Height<=0) or (Int64(Width)*Height>25000000) then raise ERangeError.Create('Слишком большой масштаб страницы.');
   Result:=TBitmap.Create;
   try
     Result.PixelFormat:=pf32bit; Result.SetSize(Width,Height);
     SetStretchBltMode(Result.Canvas.Handle,HALFTONE); SetBrushOrgEx(Result.Canvas.Handle,0,0,nil);
     FillChar(Info,SizeOf(Info),0); Info.bmiHeader.biSize:=SizeOf(TBitmapInfoHeader);
-    Info.bmiHeader.biWidth:=FOriginalWidth; Info.bmiHeader.biHeight:=-FOriginalHeight;
+    Info.bmiHeader.biWidth:=Page.Width; Info.bmiHeader.biHeight:=-Page.Height;
     Info.bmiHeader.biPlanes:=1; Info.bmiHeader.biBitCount:=32;
-    if StretchDIBits(Result.Canvas.Handle,0,0,Width,Height,0,0,FOriginalWidth,FOriginalHeight,
-      @FOriginalPixels[0],Info,DIB_RGB_COLORS,SRCCOPY)<=0 then
+    if StretchDIBits(Result.Canvas.Handle,0,0,Width,Height,0,0,Page.Width,Page.Height,
+      @Page.Pixels[0],Info,DIB_RGB_COLORS,SRCCOPY)<=0 then
       raise Exception.Create('Не удалось отрисовать страницу.');
     // Comics retain their original colours even in a dark interface theme.
   except Result.Free; raise; end;

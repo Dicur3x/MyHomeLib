@@ -283,7 +283,7 @@ implementation
 uses
   StrUtils,
   Character,
-  unit_BookCache, System.Math, System.IOUtils,
+  unit_BookCache, System.Math, System.IOUtils, unit_MHLTheme,
   unit_HelpTopics,
   unit_Globals,
   unit_Readers,
@@ -314,7 +314,7 @@ resourcestring
   rstrSectionProxy = 'Прокси';
   rstrSectionScripts = 'Скрипты';
   rstrSectionOther = 'Разное';
-  rstrSectionFileSorting = 'Сортировка файлов';
+  rstrSectionFileSorting = 'Импорт: папки';
 
 {$R *.dfm}
 
@@ -396,6 +396,31 @@ begin
   FCacheTimer:=TTimer.Create(Self); FCacheTimer.Interval:=1000; FCacheTimer.OnTimer:=CacheUsageUpdate;
   LoadCacheSettings;
   Localize(Self);
+  ClientHeight:=Max(ClientHeight,MulDiv(540,CurrentPPI,96));
+  Label21.Caption := 'Размещение импортированных книг';
+  cbEnableFileSort.Caption := 'Раскладывать новые книги по папкам и переименовывать';
+  Label22.Caption := 'Куда:';
+  Label23.Caption := 'FB2: шаблоны папки и имени файла';
+  Label24.Caption := 'FBD: шаблоны для других форматов книг';
+  CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := tsFileSort;
+  CaptionLabel.Align := alTop; CaptionLabel.AutoSize := False; CaptionLabel.Height := MulDiv(104,CurrentPPI,96);
+  CaptionLabel.Margins.SetBounds(12,8,12,8); CaptionLabel.AlignWithMargins := True;
+  CaptionLabel.WordWrap := True;
+  CaptionLabel.Caption := 'Эти правила действуют при импорте отдельных FB2 и FBD. ' +
+    'Они задают папки и имена новых файлов, а не порядок книг в таблице.' + #13#10#13#10 +
+    'Кнопки «Изменить» открывают редактор шаблона: например, папка по автору и имя по названию. ' +
+    'Подключённые INPX и существующие книги здесь не перемещаются.';
+  CaptionLabel.Top := MaxInt;
+  Label27.Caption := 'Обновления каталогов (свой сервер)';
+  Label29.Caption := 'Каталоги:';
+  edINPXUrl.TextHint := 'Необязательно: адрес сервера INPX';
+  edUpdates.TextHint := 'Необязательно: адрес обновлений коллекций';
+  CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := tsInternet;
+  CaptionLabel.Align := alBottom; CaptionLabel.AutoSize := False; CaptionLabel.Height := MulDiv(70,CurrentPPI,96);
+  CaptionLabel.AlignWithMargins := True; CaptionLabel.WordWrap := True;
+  CaptionLabel.Caption := 'Обновления HomeLib Ru и компонентов проверяются на GitHub. ' +
+    'Поля сервера относятся только к каталогам книг. Старый сервер закрыт; ' +
+    'оставьте поля пустыми или укажите свой совместимый сервер. INPX можно подключать из файла.';
 end;
 
 procedure TfrmSettings.ReaderModeChanged(Sender: TObject);
@@ -936,6 +961,7 @@ end;
 
 procedure TfrmSettings.FormShow(Sender: TObject);
 begin
+  if MHLThemeDark then ApplyMHLControlTheme(Self);
   tvSections.Select(tvSections.Items[0], [ssLeft]);
 end;
 

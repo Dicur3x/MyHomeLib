@@ -1,4 +1,4 @@
-"""Isolated reader checks. The optional real-formats case reads selected archives only."""
+﻿"""Isolated reader checks. The optional real-formats case reads selected archives only."""
 import argparse, pathlib, tempfile, shutil, hashlib, subprocess, zipfile, base64, os, json
 
 p = argparse.ArgumentParser()
@@ -10,7 +10,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -35,6 +35,28 @@ try:
     for marker in ('uselocaldata','uselocaltemp'): (root/marker).write_text('')
     (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
     (root/'myhomelib2.ini').write_text('[SYSTEM]\nCheckUpdates=0\n[OPDS]\nEnabled=0\n',encoding='utf-8')
+    if a.case=='footnotes':
+        paragraphs=''.join('<p>'+'Long middle paragraph. '*25+'</p>' for _ in range(35))
+        (root/'footnotes.fb2').write_text(
+            '<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>Footnotes</book-title></title-info></description>'
+            '<body><section><p>Reference <a l:href="#note1" type="note">[1]</a> and repeated <a l:href="#note1" type="note">[1]</a>.</p>'+paragraphs+
+            '<p>Second reference <a l:href="#note2" type="note">[2]</a>.</p><p>Regular <strong>bold</strong> and <emphasis>italic</emphasis> text.</p>'
+            '<p>Encoded reference <a l:href="#note3" type="note">[3]</a>.</p><p>Broken reference <a l:href="#missing" type="note">[x]</a>.</p></section></body>'
+            '<body name="notes"><section id="note1"><title><p>1</p></title><p>First note content with Unicode ё.</p></section>'
+            '<section id="note2"><title><p>2</p></title><p>Second note content.</p></section><section id="note3"><p>Encoded note content.</p></section></body></FictionBook>',encoding='utf-8')
+        with zipfile.ZipFile(root/'footnotes.epub','w') as z:
+            z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+            z.writestr('OPS/book.opf','<package><metadata><title>Footnotes</title></metadata><manifest><item id="main" href="main.xhtml"/>'
+                '<item id="notes" href="notes.xhtml"/></manifest><spine><itemref idref="main"/><itemref idref="notes" linear="no"/></spine></package>')
+            z.writestr('OPS/main.xhtml','<html xmlns:epub="http://www.idpf.org/2007/ops"><body><p>Reference '
+                '<a epub:type="noteref" href="notes.xhtml#note1">[1]</a> and repeated <a role="doc-noteref" href="notes.xhtml#note1">[1]</a>.</p>'+paragraphs+
+                '<p>Second reference <a epub:type="noteref" href="notes.xhtml#note2">[2]</a>.</p><p>Regular <strong>bold</strong> and <em>italic</em> text.</p>'
+                '<p><a epub:type="noteref" href="notes.xhtml#%D0%BD%D0%BE%D1%82%D0%B0%2B3">[3]</a></p>'
+                '<p><a epub:type="noteref" href="bad.xhtml#one">bad</a><a epub:type="noteref" href="bad.xhtml#two">bad</a>'
+                '<a epub:type="noteref" href="https://example.invalid/note#one">external</a></p></body></html>')
+            z.writestr('OPS/bad.xhtml','<broken')
+            z.writestr('OPS/notes.xhtml','<html xmlns:epub="http://www.idpf.org/2007/ops"><body><aside id="note1" epub:type="footnote"><p>First note content with Unicode ё.</p></aside>'
+                '<aside id="note2" role="doc-footnote"><p>Second note content.</p></aside><aside id="нота+3" epub:type="footnote"><p>Encoded note content.</p></aside></body></html>')
     if a.case=='real-formats':
         headers=a.headers_json
         rows=json.loads(headers.read_text(encoding='utf-8'))
@@ -132,6 +154,15 @@ try:
          '</section><section><title><p>Вторая глава</p></title><p>Текст второй главы</p>'+paragraphs+'</section></body>'
          '<binary id="cover" content-type="image/png">'+base64.b64encode(png).decode()+'</binary></FictionBook>')
     (root/'sample.fb2').write_text(fb2,encoding='utf-8')
+    styled=('<?xml version="1.0" encoding="utf-8"?><FictionBook xmlns:l="http://www.w3.org/1999/xlink">'
+            '<description><title-info><coverpage><image l:href="#cover"/></coverpage></title-info></description>'
+            '<body><section><title><p>Оглавление</p><p>Первое название</p><p>Второе название</p></title>'
+            '<epigraph><p>Цитата с оформлением</p><text-author>Автор цитаты</text-author></epigraph>'
+            '<poem><stanza><v>Первая строка стиха</v><v>Вторая строка стиха</v></stanza></poem>'
+            '<subtitle>Подзаголовок</subtitle>'+paragraphs+'</section></body>'
+            '<binary id="cover" content-type="image/png">'+base64.b64encode(png).decode()+'</binary></FictionBook>')
+    (root/'styled.fb2').write_text(styled,encoding='utf-8')
+
     (root/'alias.fb').write_text(fb2,encoding='utf-8')
     # Lossless WebP with JPEG metadata, matching a PNG pixel for pixel.
     webp=base64.b64decode('UklGRiQAAABXRUJQVlA4TBcAAAAvn8AYAAdQt2aUtv9hABLC//9KRP9T5wA=')
@@ -230,6 +261,8 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.case=='oct11-reader':
+        assert 'PASS cover, semantic formatting' in r.stdout, 'The rebuilt test does not include the new scenario'
     if a.case=='oct10-reader':
         from PIL import Image, ImageChops
         before_image=Image.open(root/'oct10-pdf-before.bmp').convert('RGB')

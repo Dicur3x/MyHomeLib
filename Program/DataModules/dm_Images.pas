@@ -51,6 +51,8 @@ var
 
 implementation
 
+uses unit_MHLTheme;
+
 {%CLASSGROUP 'Vcl.Controls.TControl'}
 
 {$R *.dfm}
@@ -88,7 +90,7 @@ const
     '',                   // 18 (separator)
     '', '', '', '',       // 19-22 (unused)
     'delete',             // 23 — tbtnDownloadList_Add swaps to this on the Downloads tab
-    '', '',               // 24-25 (unused)
+    '', 'theme-switch',   // 24 unused; 25 application theme
     'help',               // 26
     ''                    // 27 (separator)
   );
@@ -114,7 +116,7 @@ const
     '',                       // 16 (unused)
     'help',                   // 17 acHelpHelp
     'import',                 // 18 miFb2Import
-    '',                       // 19 (unused)
+    'archive',                // 19 archive contents
     'add-to-download',        // 20 acBookAdd2DownloadList
     'remove-from-group',      // 21 miDelFavorites
     '',                       // 22 (unused)
@@ -165,6 +167,7 @@ var
   C: COLORREF;
   R, G, B: Byte;
 begin
+  if MHLThemeDark then Exit(itDark);
   C := GetSysColor(COLOR_BTNFACE);
   R := GetRValue(C);
   G := GetGValue(C);

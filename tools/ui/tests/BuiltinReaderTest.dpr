@@ -6,7 +6,7 @@
 
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.Diagnostics, System.Hash, System.IniFiles, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
-  Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, frm_BuiltinReader,
+  Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, frm_BuiltinReader,
   unit_ReaderFormats, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user;
 
 procedure Require(Value: Boolean; const MessageText: string);
@@ -37,7 +37,7 @@ var Reader: TfrmBuiltinReader; Name: string; Size,Pan: TPoint; Key: Word; Progre
   begin
     Size:=Reader.PageRasterSize; Pan:=Reader.PDFPan;
     Reader.ToggleInspection(Pan.X+Size.X div 2,Pan.Y+Size.Y div 2);
-    Require(Reader.Inspecting and (Reader.PDFZoom>=200),'Click did not enter inspection');
+    Require(Reader.Inspecting and (Reader.PDFZoom>=150),'Click did not enter inspection');
     Reader.MoveInspection(20,20); Require(Reader.PDFPan<>Pan,'Inspection did not follow mouse');
     Key:=VK_ESCAPE; Reader.OnKeyDown(Reader,Key,[]);
     Require((Key=0) and not Reader.Inspecting,'Esc did not leave inspection');
@@ -58,7 +58,7 @@ begin
       begin
         Require(Reader.TextLength=3,'Page count incorrect');
         Require(ColorToRGB(Reader.PageBackground)=ColorToRGB(clRed),'First page order or colour incorrect');
-        Reader.NextPage; Require(Reader.PageLoading,'Page decoded on UI thread'); WaitPage(Reader);
+        Reader.NextPage; WaitPage(Reader);
         Require((Reader.TextPosition=1) and (ColorToRGB(Reader.PageBackground)=ColorToRGB(clLime)),
           Format('Second page order or colour incorrect: page=%d colour=%x status=%s',[Reader.TextPosition,ColorToRGB(Reader.PageBackground),Reader.ReaderStatus.Caption]));
         Reader.SetTheme(5); Require(ColorToRGB(Reader.PageBackground)=ColorToRGB(clLime),'Dark theme inverted comic colours');
@@ -422,6 +422,106 @@ begin
   finally DMUser.Free; DMUser:=nil; end;
 end;
 
+procedure AuditFootnotes;
+var Document: TReaderDocument; Reader: TfrmBuiltinReader; Before: string; Name: string;
+begin
+  Application.CreateForm(TDMUser,DMUser); DMUser.Init;
+  try
+    for Name in ['footnotes.fb2','footnotes.epub'] do
+    begin
+      Before:=THashSHA2.GetHashStringFromFile(Name);
+      Document:=TReaderDocument.Create;
+      try
+        Document.Load(Name);
+        Require(Document.FootnoteCount=4,'Expected resolved references, including repeated/cross-file/encoded note: '+Name);
+        Require(Document.PlainText.Contains('Reference [1] and repeated [1].'),'Spaces around inline markup were removed: '+Name);
+        Require(Document.PlainText.Contains('Regular bold and italic text.'),'Inline formatting spacing was removed: '+Name);
+        Require(Document.FootnotesForRange(0,Length(Document.PlainText)).Contains('First note content'), 'Footnote body missing: '+Name);
+        Require(Document.FootnotesForRange(0,Length(Document.PlainText)).Contains('Second note content'), 'Second footnote missing: '+Name);
+      finally Document.Free; end;
+      Reader:=TfrmBuiltinReader.Create(nil);
+      try
+        Reader.Show; Reader.OpenBook(Name,'Footnotes',Name,'footnotes.ini','pdfium.dll'); WaitReady(Reader);
+        Require(Reader.ShowFootnotes and Reader.VisibleFootnotes.Contains('First note content'),'Current page note not visible: '+Name);
+        Require(not Reader.VisibleFootnotes.Contains('Second note content'),'Unreferenced page note is displayed too early');
+        Reader.SetTheme(4); Reader.ChangeSize(1); Reader.FindText('Reference');
+        Require(Reader.VisibleFootnotes.Contains('First note content'),'Theme/font/search loses current footnote');
+        Reader.SetShowFootnotes(False); Require(Reader.VisibleFootnotes='','Footnotes toggle is ignored');
+        Reader.SetShowFootnotes(True); Require(Reader.VisibleFootnotes.Contains('First note content'),'Footnotes cannot be restored');
+        Reader.FindText('Second reference');
+        Require(Reader.VisibleFootnotes.Contains('Second note content'),'Page navigation did not update footnotes');
+        Reader.SetTheme(1); Reader.Close;
+      finally Reader.Free; end;
+      Require(Before=THashSHA2.GetHashStringFromFile(Name),'Reader rewrote source book');
+    end;
+    Writeln('PASS FB2/EPUB current-page footnotes, non-linear EPUB resources, repeated references, theme/font/search/toggle and unchanged source');
+  finally DMUser.Free; DMUser:=nil; end;
+end;
+
+procedure AuditOctoberElevenReader;
+var Reader: TfrmBuiltinReader; Document: TReaderDocument; Range: TReaderStyledRange;
+  Key: Word; Pan,Size: TPoint; Ini: TMemIniFile; A,B: TBitmap; HasTitle,HasQuote,HasPoem: Boolean;
+begin
+  Application.CreateForm(TDMUser,DMUser); DMUser.Init;
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load('styled.fb2');
+    Require((Document.ImageCount=1) and (Pos(#$FFFC,Document.PlainText)<Pos('Оглавление',Document.PlainText)),'FB2 cover is not before body');
+    Require(Document.PlainText.Contains('Первое название'+#13+'Второе название'),'Title paragraphs concatenated');
+    HasTitle:=False; HasQuote:=False; HasPoem:=False;
+    for Range in Document.Styles do
+    begin
+      Require((Range.Count>0) and (Range.Start+Range.Count<=Length(Document.PlainText)),'Semantic range outside document');
+      if Range.Kind=rbTitle then HasTitle:=True;
+      if Range.Kind=rbEpigraph then HasQuote:=True;
+      if Range.Kind=rbPoem then HasPoem:=True;
+    end;
+    Require(HasTitle and HasQuote and HasPoem,'Semantic formatting ranges missing');
+  finally Document.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil); A:=TBitmap.Create; B:=TBitmap.Create;
+  try
+    Reader.Show; Reader.OpenBook('styled.fb2','Styled','oct11-styled','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.BookFormatting,'Book formatting is disabled by default');
+    Reader.GoToChapter(0); A.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+    Reader.ReadingSurface.PaintTo(A.Canvas.Handle,0,0); A.SaveToFile('oct11-styled-on.bmp');
+    Reader.SetBookFormatting(False); B.SetSize(A.Width,A.Height); Reader.ReadingSurface.PaintTo(B.Canvas.Handle,0,0); B.SaveToFile('oct11-styled-off.bmp');
+    Require(THashSHA2.GetHashStringFromFile('oct11-styled-on.bmp')<>THashSHA2.GetHashStringFromFile('oct11-styled-off.bmp'),'Formatting toggle does not change presentation');
+    Reader.SetBookFormatting(True); Reader.Close;
+  finally Reader.Free; B.Free; A.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('sample.pdf','Mixed PDF','oct11-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
+    Require(not Reader.PDFPageHasText,'Image-only PDF page wrongly marked as text');
+    Require(Reader.InspectionPercent=150,'Fresh inspection zoom is not 150 percent');
+    Size:=Reader.PageRasterSize; Pan:=Reader.PDFPan;
+    Reader.ToggleInspection(Pan.X+Size.X div 2,Pan.Y+Size.Y div 2);
+    Require(Reader.Inspecting and (Reader.PDFZoom=150),'Default click inspection is not 150 percent'); Reader.EndInspection;
+    Reader.SetInspectionPercent(120); Size:=Reader.PageRasterSize; Pan:=Reader.PDFPan;
+    Reader.ToggleInspection(Pan.X+Size.X div 2,Pan.Y+Size.Y div 2);
+    Require(Reader.Inspecting and (Reader.PDFZoom=120),'120 percent inspection ignored'); Reader.EndInspection;
+    Reader.SetInspectionPercent(300); Reader.ToggleInspection(Pan.X+Size.X div 2,Pan.Y+Size.Y div 2);
+    Require(Reader.Inspecting and (Reader.PDFZoom=300),'300 percent inspection ignored'); Reader.EndInspection;
+    Require((Reader.PDFZoom=100) and (Reader.PDFPan=Pan) and (Reader.PageRasterSize=Size),'Inspection did not restore fitted page');
+    Reader.NextPage; Require(Reader.PDFPageHasText,'Copyable PDF page not detected');
+    Reader.SelectPDFText(0,6); Require(Reader.PDFSelectedText='Needle','PDF selection text incorrect');
+    Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]); Require((Key=0) and (Clipboard.AsText='Needle'),'Ctrl+C did not copy selected PDF text');
+    Reader.NextPage; Require(not Reader.PDFPageHasText and (Reader.PDFSelectedText=''),'PDF selection leaked to another page');
+    Reader.ChangeSize(5); Require(Reader.PDFZoom=150,'Manual PDF zoom incorrect'); Reader.Close;
+  finally Reader.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('search.pdf','Different PDF','oct11-other-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
+    Require((Reader.PDFZoom=100) and (Reader.InspectionPercent=300),'New PDF inherits cropped zoom or loses inspection preference'); Reader.Close;
+  finally Reader.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('sample.pdf','Mixed PDF restored','oct11-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.PDFZoom=150,'Reopening the same PDF lost its zoom'); Reader.Close;
+  finally Reader.Free; end;
+  Writeln('PASS cover, semantic formatting, title paragraph breaks, PDF copying, configurable inspection and per-book zoom');
+  DMUser.Free; DMUser:=nil;
+end;
+
 procedure AuditRealFormats;
 var Name, Extension, Prepared, Hash: string; Doc: TReaderDocument; PDF: TReaderPDF; Watch: TStopwatch;
 begin
@@ -465,7 +565,9 @@ begin
     Application.Initialize;
     if ParamCount>0 then
     begin
-      if ParamStr(1)='oct10-reader' then AuditOctoberReader
+      if ParamStr(1)='footnotes' then AuditFootnotes
+      else if ParamStr(1)='oct11-reader' then AuditOctoberElevenReader
+      else if ParamStr(1)='oct10-reader' then AuditOctoberReader
       else if ParamStr(1)='raster-reader' then AuditRasterReader
       else if ParamStr(1)='release-pagination' then AuditReleasePagination
       else if ParamStr(1)='loading-preferences' then AuditLoadingPreferences
@@ -481,6 +583,7 @@ begin
       Name:=Trim(TFile.ReadAllText(ExtractFilePath(ParamStr(0))+'reader-preview.txt',TEncoding.UTF8));
       Name:=ExtractFilePath(ParamStr(0))+ExtractFileName(Name);
       Writeln('PREVIEW create'); Flush(Output);
+      Application.CreateForm(TDMUser,DMUser); DMUser.Init;
       Application.MainFormOnTaskBar:=True;
       Application.CreateForm(TfrmBuiltinReader,Form);
       Writeln('PREVIEW open'); Flush(Output);

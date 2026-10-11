@@ -23,6 +23,7 @@ const TOOLBAR_ICONS = {
   16: 'remove-from-group',
   17: 'settings',
   23: 'delete',
+  25: 'theme-switch',
   26: 'help'
 };
 
@@ -41,6 +42,7 @@ const MENU_ICONS = {
   14: 'collection-local',
   17: 'help',
   18: 'import',
+  19: 'archive',
   20: 'add-to-download',
   21: 'remove-from-group',
   23: 'copy-to-collection',

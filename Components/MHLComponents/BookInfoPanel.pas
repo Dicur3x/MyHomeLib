@@ -146,6 +146,8 @@ type
 
 implementation
 
+uses unit_MHLTheme;
+
 type
   TPublisherSeriesLinkLabel = class(TMHLLinkLabel)
   protected
@@ -528,14 +530,15 @@ begin
       Inc(Y, LinkH + Gap);
       if FReadingSupport.Visible then
       begin
-        FReadingSupport.Font.Assign(FInfoPanel.Font); FReadingSupport.Font.Color:=$0063482E;
+        FReadingSupport.Font.Assign(FInfoPanel.Font); if MHLThemeDark then FReadingSupport.Font.Color:=RGB(146,180,153) else FReadingSupport.Font.Color:=$0063482E;
         Canvas.Font:=FReadingSupport.Font; TextRect:=Rect(0,0,Max(1,W),0);
         DrawText(Canvas.Handle,PChar(FReadingSupport.Caption),Length(FReadingSupport.Caption),TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
         LinkH:=Max(RowH,TextRect.Height); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
-        FPreviewStatus.Font.Assign(FInfoPanel.Font); FPreviewStatus.Font.Color:=clGrayText;
+        FPreviewStatus.Font.Assign(FInfoPanel.Font);
+        if MHLThemeDark then FPreviewStatus.Font.Color:=RGB(150,152,156) else FPreviewStatus.Font.Color:=clGrayText;
         Canvas.Font:=FPreviewStatus.Font; TextRect:=Rect(0,0,Max(1,W),0);
         DrawText(Canvas.Handle,PChar(FPreviewStatus.Caption),Length(FPreviewStatus.Caption),
           TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);

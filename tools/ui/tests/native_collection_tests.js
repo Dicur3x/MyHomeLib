@@ -24,6 +24,8 @@ const amberArchiveArg = process.argv.find(arg => arg.startsWith("--amber-archive
 const previewBookArg = process.argv.find(arg => arg.startsWith("--preview-book="));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 const visualCache = process.argv.includes("--visual-cache");
+const visualUI = process.argv.includes("--visual-ui");
+if (visualUI && viewsMode !== "oct11-ui") throw new Error("Visual theme inspection requires --views-mode=oct11-ui");
 if (visualCache && viewsMode !== "persistent-cache") throw new Error("Visual cache inspection requires --views-mode=persistent-cache");
 if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
   console.error("Usage: node native_collection_tests.js <runtime-dir> <GenreRegistryTest.exe> <MetabibImportTest.exe> <CollectionViewsTest.exe>");
@@ -46,9 +48,9 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
+const modes = ["oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 if (viewsMode !== null && !modes.includes(viewsMode) && viewsMode !== 'cancel-interactive') throw new Error(`Unknown view scenario: ${viewsMode}`);
-const requiredViews = {"audit-new": ["PASS adversarial audit fixed checks"],
+const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
   "persistent-cache": ["PASS bounded persistent cache", "PASS cache menu and settings", "PASS delayed cursor status"],
   "feedback14": ["PASS visible-result series choices", "PASS optional publisher-series column", "PASS nested ZIP and standalone FBD", "PASS broken body Unicode"],
   "cancel-interactive": ["PASS real mouse cancels running SQLite without a frozen white window"],
@@ -90,6 +92,7 @@ function requiredPasses(executable, mode) {
     "PASS production script extraction", "PASS production uppercase FB2 export", "PASS production same-title batch extraction",
     "PASS ordinary single-source online INPX", "PASS mixed-source online INPX",
   ];
+  if (mode === "merge-scale") return requiredViews[mode];
   if (mode === "large-inpx") return requiredViews[mode];
   if (mode.startsWith("first-run")) return requiredViews[mode];
   if (path.basename(executable).toLowerCase() === "collectionviewstest.exe") return [
@@ -166,7 +169,7 @@ function run(executable, mode) {
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode,...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(visualCache ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...((visualCache || visualUI) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualUI ? 900000 : visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache && !visualUI, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;

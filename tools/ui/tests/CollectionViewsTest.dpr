@@ -8,10 +8,10 @@
 
 uses
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
-  Vcl.Forms, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, BookTreeView, BookInfoPanel, unit_BookGallery, unit_UpdateNotes,
+  Vcl.Forms, Vcl.Themes, Vcl.Styles, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
+  VirtualTrees, VirtualTrees.Types, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, SQLiteWrap,
+  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, SQLiteWrap, SQLite3,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
   frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
@@ -1773,6 +1773,142 @@ begin
   Require((Stored.LibID=Original.LibID) and (Stored.FileName=Original.FileName) and
     (Stored.Title=Original.Title),'Optional merge modified source catalog');
   Writeln('PASS optional copy merging verifies origin, ID, title, language and format, preserves sources and alternatives, and honors priority or size');
+end;
+
+procedure EnableScaleFixtureTriggers(Context: TSQLite3Context; ArgumentCount: Integer; Arguments: TSQLite3Value); cdecl;
+begin
+  SQLite3_Result_Int(Context,1);
+end;
+
+procedure TestOctoberElevenUI;
+var Configuration: TfrmSettings; Reader: TfrmBuiltinReader; Component: TComponent;
+  ThemeButton: TToolButton; Item: TMenuItem; Captions: TStringList; I: Integer;
+  Background,TextColour: TColor; Deadline: UInt64; Column: TVirtualTreeColumn;
+begin
+  Require(not Settings.DarkTheme,'Fresh fixture unexpectedly starts dark');
+  Require(MHLShouldOfferWindowsDarkTheme(True,False,False),'Windows dark theme is not offered');
+  Require(not MHLShouldOfferWindowsDarkTheme(True,False,True),'Dismissed suggestion is repeated');
+  Require(not MHLShouldOfferWindowsDarkTheme(True,True,False),'Matching theme is offered again');
+  Require(not MHLShouldOfferWindowsDarkTheme(False,False,False),'Light Windows incorrectly offers dark');
+  Require((Settings.InpxURL='') and (Settings.UpdateURL=''),'Fresh fixture retains dead catalog servers');
+  ThemeButton:=nil;
+  for Component in frmMain do
+    if (Component is TToolButton) and (TToolButton(Component).ImageIndex=25) then ThemeButton:=TToolButton(Component);
+  Require(Assigned(ThemeButton),'Main toolbar has no theme switch');
+  frmMain.Show; Application.ProcessMessages;
+  Require((ThemeButton.Parent.Parent=frmMain) and (ThemeButton.Parent.Left>frmMain.ClientWidth-80),
+    'Theme switch is not at the right edge');
+  Captions:=TStringList.Create;
+  try
+    for I:=0 to frmMain.pmiReadBook.Parent.Count-1 do
+    begin Item:=frmMain.pmiReadBook.Parent.Items[I]; if Item.Visible then Captions.Add(Item.Caption); end;
+    Require((Captions.Count>=2) and Captions[0].Contains('встроенной') and Captions[1].Contains('внешней'),
+      'Read destinations are duplicated or incorrectly ordered: '+Captions.Text);
+  finally Captions.Free; end;
+  for I:=0 to frmMain.tvBooksA.Header.Columns.Count-1 do
+  begin
+    Column:=frmMain.tvBooksA.Header.Columns[I];
+    if (Column.Tag=COL_LANG) or (Column.Tag=COL_TYPE) then
+      Require((coResizable in Column.Options) and (Column.MaxWidth>Column.MinWidth), 'Language/type column remains fixed width');
+  end;
+  Configuration:=TfrmSettings.Create(nil); Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Configuration.LoadSetting;
+    Background:=Configuration.pnCA.Color; TextColour:=Configuration.pnDefaultFontColor.Font.Color;
+    TFile.WriteAllText('theme-reader.txt','Theme readability test.');
+    Reader.Show; Reader.OpenBook('theme-reader.txt','Theme reader','theme-reader','theme-reader.ini','');
+    Deadline:=GetTickCount64+15000;
+    while not Reader.LoadFinished and (GetTickCount64<Deadline) do begin Application.ProcessMessages; CheckSynchronize(5); end;
+    Require(Reader.Ready,'Theme reader failed to open');
+    ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Require(TStyleManager.ActiveStyle.Name='Charcoal Dark Slate','Dark menu/control style was not activated');
+    Require(Settings.DarkTheme and MHLThemeDark,'Theme switch failed');
+    Require(ColorToRGB(frmMain.tvBooksA.Color)=RGB(30,31,34),'Book table stayed light');
+    Require(ColorToRGB(frmMain.tvBooksA.Font.Color)=RGB(205,208,214),'Book text lacks dark-theme contrast');
+    Require(Reader.ThemeIndex=4,'Open reader did not follow dark theme');
+    Require((Configuration.pnCA.Color=Background) and (Configuration.pnDefaultFontColor.Font.Color=TextColour),
+      'Theme switch overwrote user colour previews');
+    Configuration.SaveSettings;
+    Require((Settings.AuthorColor=Background) and (Settings.FontColor=TextColour),'Saving dark settings corrupts light colours');
+    ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Require(not Settings.DarkTheme and not MHLThemeDark,'Light theme was not restored');
+    Require(Reader.ThemeIndex=1,'Open reader did not return to paper');
+    Require((Configuration.pnCA.Color=Background) and (Configuration.pnDefaultFontColor.Font.Color=TextColour),
+      'Returning to light theme overwrote user colour previews');
+    Settings.WindowsDarkThemeOfferDismissed:=False;
+    frmMain.UpdateWindowsThemeOffer(True);
+    Require(TPanel(frmMain.FindComponent('pnWindowsThemeOffer')).Visible,'Windows theme suggestion is hidden');
+    TButton(frmMain.FindComponent('btnDismissWindowsTheme')).Click;
+    frmMain.UpdateWindowsThemeOffer(True);
+    Require(Settings.WindowsDarkThemeOfferDismissed and not TPanel(frmMain.FindComponent('pnWindowsThemeOffer')).Visible,
+      'Dismissing the Windows theme suggestion is not retained');
+    Settings.WindowsDarkThemeOfferDismissed:=False; Settings.LoadSettings;
+    Require(Settings.WindowsDarkThemeOfferDismissed,'Dismissed Windows suggestion is not saved across startup');
+    Require(TPanel(frmMain.FindComponent('pnWindowsThemeOffer')).Caption='','Suggestion shows an internal panel name');
+    frmMain.UpdateWindowsThemeOffer(False); frmMain.UpdateWindowsThemeOffer(True);
+    Require(TPanel(frmMain.FindComponent('pnWindowsThemeOffer')).Visible,'A new Windows dark-theme cycle is not offered');
+    TButton(frmMain.FindComponent('btnApplyWindowsTheme')).Click; Application.ProcessMessages;
+    Require(Settings.DarkTheme and (Reader.ThemeIndex=4),'Windows suggestion does not apply app/reader theme');
+    ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Writeln('PASS Windows dark-theme suggestion, dismissal and reader synchronization without changing Windows');
+    Writeln('PASS app theme switch, reader synchronization, preserved colour settings, explicit read menus and resizable language/type'); Flush(Output);
+    if ParamStr(2)='visual' then
+    begin
+      Reader.Close; Settings.WindowsDarkThemeOfferDismissed:=False;
+      frmMain.UpdateWindowsThemeOffer(True); frmMain.Show; Application.Run;
+    end;
+  finally Reader.Free; Configuration.Free; end;
+end;
+
+procedure BenchmarkMergeScale;
+const BookCount=10000; SeriesCount=160000;
+var Source,Target: IBookCollection; SourceID,TargetID,I,Anchor,BookID: Integer;
+  DB: TSQLiteDatabase; Sources: TMergeSources; Plan: TCollectionMergePlan;
+  SeedMS,PreviewMS,ApplyMS,Started: UInt64; RecordValue: TBookRecord;
+begin
+  Started:=GetTickCount64;
+  SourceID:=SystemDB.CreateCollection('Merge scale source',Settings.AppPath,'merge-scale-source.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  TargetID:=SystemDB.CreateCollection('Merge scale target',Settings.AppPath,'merge-scale-target.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Source:=SystemDB.GetCollection(SourceID); Target:=SystemDB.GetCollection(TargetID);
+  Source.BeginBulkOperation; Target.BeginBulkOperation;
+  try
+    Anchor:=AddBook(Target,'Keep unrelated secondary series','Anchor','ru','','');
+    for I:=1 to BookCount do
+    begin
+      AddBook(Source,'Scale '+IntToStr(I),'Author','ru','','prose_contemporary');
+      AddBook(Target,'Scale '+IntToStr(I),'Author','ru','','prose_contemporary');
+    end;
+    Source.EndBulkOperation(True); Target.EndBulkOperation(True);
+  except Source.EndBulkOperation(False); Target.EndBulkOperation(False); raise; end;
+  DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try
+    DB.AddFunction('MHL_TRIGGERS_ON',0,EnableScaleFixtureTriggers);
+    DB.Start;
+    DB.ExecSQL('WITH RECURSIVE ids(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM ids WHERE n<'+IntToStr(SeriesCount)+') '+
+      'INSERT INTO Series(SeriesID,SeriesTitle,SearchSeriesTitle) SELECT 200000+n,''Unrelated ''||n,''Unrelated ''||n FROM ids');
+    DB.ExecSQL('INSERT INTO Series_List(BookID,SeriesID,SeqNumber,IsPrimary,OrdNum) SELECT '+IntToStr(Anchor)+',SeriesID,0,0,0 FROM Series');
+    DB.Commit;
+  finally DB.Free; end;
+  SeedMS:=GetTickCount64-Started;
+  SetLength(Sources,1); Sources[0].ID:='scale'; Sources[0].Name:='Scale'; Sources[0].Collection:=Source;
+  Sources[0].DatabaseFile:=SystemDB.GetCollectionInfo(SourceID).DBFileName;
+  Plan:=TCollectionMergePlan.Create(Target,Sources,nil,mpSourcePriority);
+  try
+    Started:=GetTickCount64; Plan.Preview; PreviewMS:=GetTickCount64-Started;
+    Require((Plan.Total=BookCount) and (Plan.NewBooks=0) and (Plan.Duplicates=BookCount),'Large merge did not match already imported books');
+    Started:=GetTickCount64; Plan.Apply(Settings.AppPath+'merge-scale-backup'); ApplyMS:=GetTickCount64-Started;
+    DB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+    try
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Books')=BookCount+1,'Large merge duplicated existing catalog');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series')=SeriesCount,'Large merge deleted unrelated secondary series');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series_List')=SeriesCount,'Large merge damaged secondary memberships');
+    finally DB.Free; end;
+    BookID:=Target.GetCatalogBookID('scale:Scale 10000'); Require(BookID>0,'Last book lost source mapping');
+    Target.GetBookRecord(CreateBookKey(BookID,TargetID),RecordValue,True);
+    Require(RecordValue.Title='Scale 10000','Last merged metadata missing');
+    Writeln('PROFILE merge_scale books=',BookCount,' series=',SeriesCount,' seed_ms=',SeedMS,' preview_ms=',PreviewMS,' apply_ms=',ApplyMS);
+    Writeln('PASS large merge reuses imported books and preserves unrelated secondary series'); Flush(Output);
+  finally Plan.Free; end;
 end;
 
 procedure TestCollectionMerge;
@@ -3728,6 +3864,7 @@ begin
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
+      if ParamStr(1) = 'merge-scale' then begin BenchmarkMergeScale; Halt(0); end;
       if (ParamStr(1) = 'first-run') or (ParamStr(1) = 'first-run-cancel') then
       begin
         RunFirstRunRegression;
@@ -3836,7 +3973,9 @@ begin
       Require(Assigned(Book) and (Book.BookKey.BookID = LastBook),
         'The saved author book was not restored');
       Writeln('PASS default author selection and saved book');
-      if ParamStr(1) = 'language-isolation' then
+      if ParamStr(1) = 'oct11-ui' then
+        TestOctoberElevenUI
+      else if ParamStr(1) = 'language-isolation' then
         TestLanguageIsolation
       else if ParamStr(1) = 'favorites-add' then
         TestAddBeforeFirstGroupVisit

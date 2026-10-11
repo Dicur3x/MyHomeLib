@@ -26,6 +26,10 @@ type
     FStream: TFileStream;
     FAccess: TPDFFileAccess;
     FDocument: Pointer;
+    FCopyPage, FCopyText: Pointer;
+    FCopyIndex: Integer;
+    function SelectionPage(Index: Integer): Pointer;
+    procedure CloseSelectionPage;
   protected
     FPageCount: Integer;
     constructor CreateEmpty;
@@ -37,6 +41,10 @@ type
     function Chapters: TArray<TPDFChapter>; virtual;
     function DisplayName: string; virtual;
     function HasTextSearch: Boolean; virtual;
+    function PageHasText(Page: Integer): Boolean;
+    function TextCharacterAt(Page: Integer; X, Y, ToleranceX, ToleranceY: Double): Integer;
+    function TextRange(Page, Start, Count: Integer): string;
+    function TextRectangles(Page, Start, Count: Integer): TArray<TRectF>;
     function FindOnPage(Page: Integer; const Query: string; Start: Integer;
       out Match: TPDFMatch; MatchCase: Boolean = False; WholeWord: Boolean = False;
       Backward: Boolean = False): Boolean; virtual;
@@ -72,6 +80,8 @@ type
   THandleInt = function(Value: Pointer): Integer; cdecl;
   TCountRects = function(TextPage: Pointer; Start, Count: Integer): Integer; cdecl;
   TGetRect = function(TextPage: Pointer; Index: Integer; var Left, Top, Right, Bottom: Double): Integer; cdecl;
+  TCharAt = function(TextPage: Pointer; X, Y, ToleranceX, ToleranceY: Double): Integer; cdecl;
+  TGetText = function(TextPage: Pointer; Start, Count: Integer; Buffer: PWideChar): Integer; cdecl;
 
 var
   Module: HMODULE;
@@ -95,6 +105,7 @@ var
   FindNext, FindPrevious, FindIndex, FindCount: THandleInt;
   CountRects: TCountRects;
   GetRect: TGetRect;
+  CountChars: THandleInt; CharAt: TCharAt; GetText: TGetText;
 
 procedure LoadPDFLibrary(const FileName: string);
   procedure Entry(var Proc; const Name: AnsiString);
@@ -121,6 +132,8 @@ begin
     Entry(FindPrevious,'FPDFText_FindPrev');
     Entry(FindIndex,'FPDFText_GetSchResultIndex'); Entry(FindCount,'FPDFText_GetSchCount');
     Entry(FindClose,'FPDFText_FindClose'); Entry(CountRects,'FPDFText_CountRects'); Entry(GetRect,'FPDFText_GetRect');
+    Entry(CountChars,'FPDFText_CountChars'); Entry(CharAt,'FPDFText_GetCharIndexAtPos');
+    Entry(GetText,'FPDFText_GetText');
     InitLibrary;
   except FreeLibrary(Module); Module:=0; raise; end;
 end;
@@ -139,7 +152,7 @@ begin
 end;
 
 constructor TReaderPDF.CreateEmpty;
-begin inherited Create; end;
+begin inherited Create; FCopyIndex:=-1; end;
 
 function TReaderPDF.DisplayName: string;
 begin Result:='PDF'; end;
@@ -149,7 +162,7 @@ begin Result:=True; end;
 
 constructor TReaderPDF.Create(const LibraryFile, FileName: string);
 begin
-  inherited Create; LoadPDFLibrary(LibraryFile);
+  inherited Create; FCopyIndex:=-1; LoadPDFLibrary(LibraryFile);
   FStream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
   if FStream.Size>High(Cardinal) then raise Exception.Create('PDF больше 4 ГБ пока открывается внешней читалкой.');
   FAccess.Length:=FStream.Size; FAccess.GetBlock:=ReadBlock; FAccess.Param:=FStream;
@@ -161,8 +174,62 @@ end;
 
 destructor TReaderPDF.Destroy;
 begin
+  CloseSelectionPage;
   if (FDocument<>nil) and Assigned(CloseDocument) then CloseDocument(FDocument);
   FStream.Free; inherited;
+end;
+
+procedure TReaderPDF.CloseSelectionPage;
+begin
+  if FCopyText<>nil then TextClose(FCopyText);
+  if FCopyPage<>nil then ClosePage(FCopyPage);
+  FCopyText:=nil; FCopyPage:=nil; FCopyIndex:=-1;
+end;
+
+function TReaderPDF.SelectionPage(Index: Integer): Pointer;
+begin
+  Result:=nil;
+  if not HasTextSearch or (FDocument=nil) or (Index<0) or (Index>=FPageCount) then Exit;
+  if FCopyIndex<>Index then
+  begin
+    CloseSelectionPage;
+    FCopyPage:=LoadPage(FDocument,Index);
+    if FCopyPage<>nil then FCopyText:=TextLoad(FCopyPage);
+    FCopyIndex:=Index;
+  end;
+  Result:=FCopyText;
+end;
+
+function TReaderPDF.PageHasText(Page: Integer): Boolean;
+var Text: Pointer;
+begin Text:=SelectionPage(Page); Result:=(Text<>nil) and (CountChars(Text)>0); end;
+
+function TReaderPDF.TextCharacterAt(Page: Integer; X, Y, ToleranceX, ToleranceY: Double): Integer;
+var Text: Pointer;
+begin
+  Result:=-1; Text:=SelectionPage(Page);
+  if Text<>nil then Result:=CharAt(Text,X,Y,ToleranceX,ToleranceY);
+end;
+
+function TReaderPDF.TextRange(Page, Start, Count: Integer): string;
+var Text: Pointer; Copied, Available: Integer;
+begin
+  Result:=''; Text:=SelectionPage(Page); if Text=nil then Exit;
+  Available:=CountChars(Text); Start:=EnsureRange(Start,0,Max(0,Available));
+  Count:=Min(1000000,Min(Max(0,Count),Available-Start)); if Count<=0 then Exit;
+  SetLength(Result,Count*2+1);
+  Copied:=GetText(Text,Start,Count,PWideChar(Result));
+  if Copied<=0 then Result:='' else SetLength(Result,Copied-1);
+end;
+
+function TReaderPDF.TextRectangles(Page, Start, Count: Integer): TArray<TRectF>;
+var Text: Pointer; I,N: Integer; L,T,R,B: Double;
+begin
+  Result:=nil; Text:=SelectionPage(Page); if (Text=nil) or (Start<0) or (Count<=0) then Exit;
+  N:=CountRects(Text,Start,Count); if (N<=0) or (N>100000) then Exit;
+  SetLength(Result,N);
+  for I:=0 to N-1 do
+    if GetRect(Text,I,L,T,R,B)<>0 then Result[I]:=TRectF.Create(L,B,R,T);
 end;
 
 function TReaderPDF.PageSize(Index: Integer): TPoint;

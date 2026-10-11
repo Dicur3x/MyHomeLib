@@ -3558,6 +3558,8 @@ var
   OldSeriesID: Integer;
   SeqNumber: Integer;
   OwnTransaction: Boolean;
+  RemovedSeries: TArray<Integer>;
+  N, RemovedID: Integer;
 begin
   if BookKey.DatabaseID <> CollectionID then
     FSystemData.GetCollection(BookKey.DatabaseID).SetSeriesID(BookKey, SeriesID)
@@ -3574,6 +3576,17 @@ begin
         // In the existing UI an empty series means "remove the book from
         // series", not merely hide its primary label. Clear every membership
         // so no invisible secondary relationship survives that command.
+        // Only memberships removed from this book can become orphaned.
+        // Scanning every series for each unsequenced import made large merges quadratic.
+        Query := FDatabase.NewQuery('SELECT SeriesID FROM Series_List WHERE BookID = ?');
+        try
+          Query.SetParam(0, BookKey.BookID); Query.Open;
+          while not Query.Eof do
+          begin
+            N := Length(RemovedSeries); SetLength(RemovedSeries, N+1);
+            RemovedSeries[N] := Query.FieldAsInt(0); Query.Next;
+          end;
+        finally Query.Free; end;
         FDatabase.ExecSQL(
           'DELETE FROM Series_List WHERE BookID = ?', [BookKey.BookID]
         );
@@ -3614,10 +3627,14 @@ begin
       end;
 
       if SeriesID = NO_SERIES_ID then
-        FDatabase.ExecSQL(
-          'DELETE FROM Series WHERE NOT EXISTS (' +
-          'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)'
-        )
+      begin
+        for RemovedID in RemovedSeries do
+          FDatabase.ExecSQL(
+            'DELETE FROM Series WHERE SeriesID = ? AND NOT EXISTS (' +
+            'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)',
+            [RemovedID]
+          );
+      end
       else if OldSeriesID <> NO_SERIES_ID then
         FDatabase.ExecSQL(
           'DELETE FROM Series WHERE SeriesID = ? AND NOT EXISTS (' +

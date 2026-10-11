@@ -239,19 +239,19 @@ begin
     COL_TYPE:
       begin
         Caption := rstrType;
-        MaxWidth := S(55);
-        MinWidth := S(55);
+        MaxWidth := S(900);
+        MinWidth := S(45);
         Alignment := taCenter;
-        Options := Fix;
+        Options := Rez;
       end;
 
     COL_LANG:
       begin
         Caption := rstrLang;
-        MaxWidth := S(55);
-        MinWidth := S(55);
+        MaxWidth := S(900);
+        MinWidth := S(45);
         Alignment := taCenter;
-        Options := Fix;
+        Options := Rez;
       end;
 
     COL_LIBRATE:

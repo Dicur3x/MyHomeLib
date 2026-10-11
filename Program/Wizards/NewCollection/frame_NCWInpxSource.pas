@@ -260,7 +260,11 @@ begin
 
       FillList;
       rbLocal.Checked := True;
-      rbDownload.Enabled := (lvCollections.Items.Count > 0);
+      rbDownload.Enabled := (lvCollections.Items.Count > 0) and (Settings.InpxURL.Trim <> '');
+      rbDownload.ShowHint := True;
+      if Settings.InpxURL.Trim = '' then
+        rbDownload.Hint := 'Для загрузки каталогов задайте свой сервер INPX в настройках. Можно выбрать локальный файл.'
+      else rbDownload.Hint := '';
 
       OnSetINPXSource(rbLocal);
     end;
@@ -289,7 +293,8 @@ begin
     //
     // TODO: необходимо хранить URL для получения INPX. Иначе все INPX должны лежать на одном сервере.
     //
-    FPParams^.INPXUrl := Settings.InpxURL + FCollection.INPX;
+    if Settings.InpxURL.Trim = '' then Exit(False);
+    FPParams^.INPXUrl := IncludeTrailingPathDelimiter(Settings.InpxURL).Replace('\','/') + FCollection.INPX;
   end;
 
   Result := True;

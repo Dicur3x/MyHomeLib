@@ -20,6 +20,7 @@ interface
 
 uses
   Winapi.Windows,
+  Winapi.Messages,
   Classes,
   SysUtils,
   System.Math,
@@ -98,6 +99,8 @@ type
     procedure AdvancedHeaderDraw(Sender: TVTHeader; var PaintInfo: THeaderPaintInfo;
       const Elements: THeaderPaintElements);
   protected
+    procedure CreateWnd; override;
+    procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
     function GetOptionsClass: TTreeOptionsClass; override;
     procedure DoFreeNode(Node: PVirtualNode); override;
     procedure DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates); override;
@@ -329,6 +332,8 @@ type
 
 implementation
 
+uses unit_MHLTheme;
+
 { TBookTreeOptions }
 
 constructor TBookTreeOptions.Create(AOwner: TCustomControl);
@@ -384,9 +389,22 @@ begin
   Result := RGB(Shift(GetRValue(Value)), Shift(GetGValue(Value)), Shift(GetBValue(Value)));
 end;
 
+procedure TBookTree.CreateWnd;
+begin
+  inherited;
+  if MHLThemeDark then ApplyMHLControlTheme(Self);
+end;
+
+procedure TBookTree.CMStyleChanged(var Message: TMessage);
+begin
+  inherited;
+  ApplyMHLControlTheme(Self);
+end;
+
 function TBookTree.BaseHeaderColor: TColor;
 begin
-  if FHeaderColor <> clNone then
+  if MHLThemeDark then Result:=MHLThemeBackground
+  else if FHeaderColor <> clNone then
     Result := FHeaderColor
   else
     Result := ShadeColor(Color, -8);
@@ -450,14 +468,14 @@ begin
       if FilterTag = PaintInfo.Column.Tag then
       begin
         CaptionRect := PaintInfo.PaintRectangle;
-        CaptionRect.Right := CaptionRect.Right - MulDiv(20, CurrentPPI, 96);
+        CaptionRect.Right := CaptionRect.Right - MulDiv(28, CurrentPPI, 96);
         SortIndex := -1;
         for var I := 0 to High(FSortKeys) do if FSortKeys[I].Tag = FilterTag then SortIndex := I;
         if SortIndex >= 0 then
         begin
           if FSortKeys[SortIndex].Direction = sdAscending then SortText := '↑' else SortText := '↓';
           SortText := SortText + IntToStr(SortIndex+1);
-          PaintInfo.TargetCanvas.Font.Color := RGB(43,91,143);
+          PaintInfo.TargetCanvas.Font.Color := MHLThemeLink;
           PaintInfo.TargetCanvas.TextOut(CaptionRect.Right-MulDiv(24,CurrentPPI,96),CaptionRect.Top+2,SortText);
           Dec(CaptionRect.Right,MulDiv(26,CurrentPPI,96));
           PaintInfo.TargetCanvas.Font.Color := Font.Color;
@@ -475,11 +493,13 @@ begin
         end;
         if hpeText in Elements then
           DrawText(PaintInfo.TargetCanvas.Handle, PChar(PaintInfo.Column.Text), -1, CaptionRect, TextFlags);
-        X := PaintInfo.PaintRectangle.Right - MulDiv(10, CurrentPPI, 96);
+        // Reserve the outer eight pixels for the column divider, including
+        // the active filter's background. Its hit area uses the same inset.
+        X := PaintInfo.PaintRectangle.Right - MulDiv(18, CurrentPPI, 96);
         Y := (PaintInfo.PaintRectangle.Top + PaintInfo.PaintRectangle.Bottom) div 2;
         PaintInfo.TargetCanvas.Brush.Color := Base;
         PaintInfo.TargetCanvas.FillRect(Rect(X - MulDiv(7, CurrentPPI, 96), Y - MulDiv(7, CurrentPPI, 96),
-          PaintInfo.PaintRectangle.Right - MulDiv(2, CurrentPPI, 96), Y + MulDiv(7, CurrentPPI, 96)));
+          PaintInfo.PaintRectangle.Right - MulDiv(10, CurrentPPI, 96), Y + MulDiv(7, CurrentPPI, 96)));
         ActiveFilter := False;
         for ActiveTag in FHeaderFilteredTags do if ActiveTag = FilterTag then ActiveFilter := True;
         PaintInfo.TargetCanvas.Pen.Color := clGrayText;

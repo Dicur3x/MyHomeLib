@@ -112,7 +112,7 @@ type
 
 implementation
 
-uses
+uses unit_MHLTheme,
   Winapi.Windows,
   Math,
   StrUtils,
@@ -443,6 +443,17 @@ begin
   Data := Sender.GetNodeData(Node);
   Assert(Assigned(Data));
 
+  if MHLThemeDark then
+  begin
+    case Data^.nodeType of
+      ntAuthorInfo: Color:=RGB(43,45,48);
+      ntSeriesInfo: Color:=RGB(38,40,43);
+      else Color:=RGB(30,31,34);
+    end;
+    TargetCanvas.Brush.Color:=Color; TargetCanvas.FillRect(CellRect);
+    Exit;
+  end;
+
   Color := Settings.BGColor;
   case Data^.nodeType of
     ntAuthorInfo:
@@ -469,9 +480,15 @@ var
   Data: PBookRecord;
 begin
   Data := Sender.GetNodeData(Node);
+  if MHLThemeDark and not Sender.Selected[Node] then
+  begin
+    TargetCanvas.Font.Color:=MHLThemeText;
+    if bpIsLocal in Data^.BookProps then TargetCanvas.Font.Color:=RGB(137,190,137);
+    if bpIsDeleted in Data^.BookProps then TargetCanvas.Font.Color:=RGB(137,139,146);
+  end;
   if Data^.nodeType <> ntBookInfo then
     TargetCanvas.Font.Style := [fsBold]
-  else if not Sender.Selected[Node] then
+  else if not MHLThemeDark and not Sender.Selected[Node] then
   begin
     if (bpIsLocal in Data^.BookProps) then
       TargetCanvas.Font.Color := Settings.LocalColor;

@@ -1,5 +1,7 @@
 @echo off
 setlocal
+:: Resource paths are relative to Program even when the IDE builds from another directory.
+pushd "%~dp0" || exit /b 1
 :: ============================================================================
 :: Pre-build step: regenerate lang.rc from Program\Lang and compile it to
 :: lang.res, which HomeLibRu.dpr links.
@@ -23,7 +25,7 @@ set "RES=%~dp0lang.res"
 :: msbuild does not necessarily inherit a PATH containing node, so fall back
 :: to the default installation directory before giving up on it.
 set "NODE="
-where node >nul 2>&1 && set "NODE=node"
+for /f "delims=" %%n in ('where node.exe 2^>nul') do if not defined NODE set "NODE=%%n"
 if not defined NODE if exist "%ProgramFiles%\nodejs\node.exe" set "NODE=%ProgramFiles%\nodejs\node.exe"
 
 if defined NODE (

@@ -34,6 +34,8 @@ const lines = [
   '',
 ];
 
+lines.push('MHL_DARK_STYLE VCLSTYLE \"Resources\\\\Themes\\\\HomeLibRuDark.vsf\"');
+
 const embedded = [];
 for (const code of EMBEDDED) {
   const file = path.join(LANG_DIR, `${code}.json`);

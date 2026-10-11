@@ -204,6 +204,8 @@ type
     // READERS_SECTION
     FReaders: TReaders;
     FUseBuiltinReaderByDefault: Boolean;
+    FDarkTheme: Boolean;
+    FWindowsDarkThemeOfferDismissed: Boolean;
 
     // UPDATES_SECTION
     FUpdateList: TUpdateInfoList;
@@ -453,6 +455,8 @@ type
 
     property Readers: TReaders read FReaders;
     property UseBuiltinReaderByDefault: Boolean read FUseBuiltinReaderByDefault write FUseBuiltinReaderByDefault;
+    property DarkTheme: Boolean read FDarkTheme write FDarkTheme;
+    property WindowsDarkThemeOfferDismissed: Boolean read FWindowsDarkThemeOfferDismissed write FWindowsDarkThemeOfferDismissed;
 
     property Updates: TUpdateInfoList read FUpdateList;
 
@@ -796,6 +800,8 @@ begin
     FFileSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'FileSR', False);
     FOtherSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'OtherSR', False);
     FEditToolBarVisible := iniFile.ReadBool(INTERFACE_SECTION, 'ShowEditToolBar', False);
+    FDarkTheme := iniFile.ReadBool(INTERFACE_SECTION, 'DarkTheme', False);
+    FWindowsDarkThemeOfferDismissed := iniFile.ReadBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', False);
 
     // The legacy integer 'Lang' key is deliberately ignored, not migrated:
     // it was written but never read, so it encodes no real user preference.
@@ -817,8 +823,13 @@ begin
     FProxyPassword := DecodePassString(iniFile.ReadString(NETWORK_SECTION, 'proxy-pass', ''));
     FProxyPort := iniFile.ReadInteger(NETWORK_SECTION, 'proxy-port', 0);
     // Legacy setting retained for collection updates only, not app releases.
-    FUpdateURL := iniFile.ReadString(NETWORK_SECTION, 'update_server', 'https://oleksiypenkov.github.io/update/');
-    FInpxURL := iniFile.ReadString(NETWORK_SECTION, 'inpx-url', 'https://oleksiypenkov.github.io/inpx/');
+    FUpdateURL := iniFile.ReadString(NETWORK_SECTION, 'update_server', '');
+    FInpxURL := iniFile.ReadString(NETWORK_SECTION, 'inpx-url', '');
+    // Retire only the shipped endpoints. Custom library servers stay intact.
+    if SameText(FUpdateURL.TrimRight(['/']), 'https://oleksiypenkov.github.io/update') or
+      SameText(FUpdateURL.TrimRight(['/']), 'http://oleksiypenkov.github.io/update') then FUpdateURL := '';
+    if SameText(FInpxURL.TrimRight(['/']), 'https://oleksiypenkov.github.io/inpx') or
+      SameText(FInpxURL.TrimRight(['/']), 'http://oleksiypenkov.github.io/inpx') then FInpxURL := '';
     FErrorLog := iniFile.ReadBool(NETWORK_SECTION, 'use_error_log', False);
     FTimeOut := iniFile.ReadInteger(NETWORK_SECTION, 'time-out', 9000);
     FReadTimeOut := iniFile.ReadInteger(NETWORK_SECTION, 'read_time-out', 90000);
@@ -988,6 +999,8 @@ begin
     iniFile.WriteBool(INTERFACE_SECTION, 'FileSR', FFileSRCollapsed);
     iniFile.WriteBool(INTERFACE_SECTION, 'OtherSR', FOtherSRCollapsed);
     iniFile.WriteBool(INTERFACE_SECTION, 'ShowEditToolBar', FEditToolBarVisible);
+    iniFile.WriteBool(INTERFACE_SECTION, 'DarkTheme', FDarkTheme);
+    iniFile.WriteBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', FWindowsDarkThemeOfferDismissed);
 
     SaveSplitters(iniFile);
 
