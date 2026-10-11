@@ -38,12 +38,9 @@ uses
   unit_Events, System.ImageList;
 
 type
-  //
-  // Результат обробки однієї книги у пакетному режимі
-  //
   TAutoModeResult = (
-    amrConverted,  // FBD створено
-    amrSkipped,    // книга не потребує перетворення (вже FBD)
+    amrConverted,
+    amrSkipped,
     amrLocked,     // файл зайнятий іншим процесом - книгу не чіпали
     amrFailed      // помилка запису; книга лишилась недоторканою
   );
@@ -96,7 +93,6 @@ type
     FTerminated: Boolean;
     FLastSaveLocked: Boolean;
 
-    // Events:
     FOnReadBook: TBookEvent;
     FOnSelectBook: TSelectBookEvent;
     FOnGetBook: TGetBookEvent;
@@ -115,9 +111,6 @@ type
     procedure DoCreate; override;
 
   public
-    //
-    // Пакетне створення FBD для всіх книг активного дерева.
-    //
     procedure AutoMode;
 
     property OnGetBook: TGetBookEvent read FOnGetBook write FOnGetBook;
@@ -134,7 +127,6 @@ implementation
 uses
   IOUtils,
   StrUtils,
-  //EncdDecd,
   jpeg,
   pngimage,
   Clipbrd,
@@ -218,10 +210,8 @@ begin
   if FBusy then
     Exit;
 
-  //
   // Форму закриваємо лише коли книга справді збережена, інакше користувач
   // втратив би введені дані разом із повідомленням про помилку.
-  //
   if SaveFBD then
     ModalResult := mrOk;
 end;
@@ -246,9 +236,7 @@ begin
   lblTitle.Caption := FBookRecord.Title;
 
   // Never bfFb2Zip, so it's always a folder:
-  //
   // TODO : POSSIBLE BUG - как насчет смешанных коллекций?
-  //
   Folder := FBookRecord.GetBookContainer;
 
   if FEditorMode
@@ -277,9 +265,6 @@ begin
     FCover.Picture := nil;
   end;
 
-  //
-  // TODO : зачитывать аннотацию и обложку
-  //
 end;
 
 function TfrmConvertToFBD.FillFBDData: Boolean;
@@ -326,13 +311,9 @@ begin
   Result := True;
 end;
 
-//
-// Запис FBD у файл книги.
-//
 // Файл переписується лише під міжпроцесним м'ютексом: поки він наш, жоден інший
 // екземпляр MyHomeLib не візьметься за цю саму книгу. Якщо файл зайнятий, нічого
 // не робимо - краще пропустити книгу, ніж зіпсувати її.
-//
 function TfrmConvertToFBD.SaveFBD: Boolean;
 var
   SavedCursor: TCursor;
@@ -362,9 +343,7 @@ begin
       FreeAndNil(Lock);
     end;
 
-    //
     // Ім'я у базі змінюємо лише після того, як архів справді створено.
-    //
     if Result and not FEditorMode then
     begin
       Assert(Assigned(FOnChangeBook2Zip));
@@ -384,15 +363,10 @@ begin
   btnSave.Enabled     := State;
 end;
 
-//
-// Обробка книги, що зараз завантажена у форму.
-//
 function TfrmConvertToFBD.ConvertCurrentBook: TAutoModeResult;
 begin
-  //
   // Книга вже має опис - у пакетному режимі її не чіпаємо: перезапис
   // існуючого FBD не додає нічого, зате це зайва операція над файлом.
-  //
   if FEditorMode then
     Exit(amrSkipped);
 
@@ -405,13 +379,6 @@ begin
     Result := amrFailed;
 end;
 
-//
-// Пакетний режим.
-//
-// Проходимо дерево книг тією ж навігацією, що і кнопки "вперед/назад", доки не
-// повернемось до книги, з якої почали. Кожна книга обробляється незалежно:
-// зайняті та проблемні пропускаються, а не зупиняють весь прохід.
-//
 procedure TfrmConvertToFBD.AutoMode;
 var
   FirstBookKey: TBookKey;
@@ -433,10 +400,8 @@ begin
     FirstBookKey := FBookRecord.BookKey;
 
     repeat
-      //
       // Беремо тільки книги без опису. Усе інше - fb2, архіви, вже готові FBD -
       // перетворення не потребує, а форма таких книг і не вміє показувати.
-      //
       if FBookRecord.GetBookFormat = bfRaw then
       begin
         PrepareForm;
@@ -450,10 +415,8 @@ begin
       else
         Inc(Skipped);
 
-      //
       // Без прокачки черги повідомлень кнопка "Скасувати" не отримала б кліку
       // і пакетний режим неможливо було б зупинити.
-      //
       Application.ProcessMessages;
       if FTerminated then
         Break;

@@ -224,9 +224,7 @@ begin
   for frame in FPages do
   begin
     frame.Align := alClient;
-    //
     // Constraints необходимо проверять _ДО_ скрытия страницы
-    //
     if Constraints.MinHeight < frame.Constraints.MinHeight then
       Constraints.MinHeight := frame.Constraints.MinHeight;
     if Constraints.MinWidth < frame.Constraints.MinWidth then

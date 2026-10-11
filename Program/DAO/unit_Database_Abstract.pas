@@ -12,7 +12,6 @@
   * $Id: unit_Database_Abstract.pas 1064 2011-09-02 11:33:04Z eg_ $
   *
   * History
-  * NickR 15.02.2010    Код переформатирован
   *
   ****************************************************************************** *)
 
@@ -37,33 +36,23 @@ type
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; virtual; abstract;
     procedure AddBookToGroup(const BookKey: TBookKey; const GroupID: Integer);
 
-    //
-    // Свойства коллекции
-    //
     function CollectionID: Integer;
     function CollectionCode: COLLECTION_TYPE;
     function CollectionRoot: string;
     function CollectionDisplayName: string;
     function CollectionURL: string;
 
-    //
     // Базова адреса бібліотеки: власний URL колекції, а якщо його немає -
     // загальний URL з налаштувань.
-    //
     function CollectionBaseURL: string;
 
-    //
     // Формат посилань Librusec/Flibusta. Обв'язка бібліотеки з іншою схемою
     // адрес має перекрити ці методи.
-    //
     function GetViewURL(const LibID: string): string; virtual;
     function GetEditURL(const LibID: string): string; virtual;
 
     function GetProperty(const PropID: TPropertyID): Variant; virtual; abstract;
 
-    //
-    // очень странная ф-ия. Нужна только в одном месте и то, не ясно, нужна ли на самом деле.
-    //
     function GetTopGenreAlias(const FB2Code: string): string;
 
   protected
@@ -138,8 +127,6 @@ uses
   unit_Errors,
   unit_Consts;
 
-{ TBookCollection }
-
 procedure TBookCollection.LoadGenres(const GenresFileName: string);
 var
   FS: TStringList;
@@ -155,19 +142,12 @@ begin
     for i := 0 to FS.Count - 1 do
     begin
       S := FS[i];
-      //
-      // Пропустим пустые строки
-      //
       if S = '' then
         Continue;
 
-      //
-      // ... и комментарии
-      //
       if S[1] = '#' then
         Continue;
 
-      //
       // Дальше идут строки в следующем формате
       // -------------------------------------
       // 0.1 Фантастика (Научная фантастика и Фэнтези)
@@ -178,26 +158,18 @@ begin
       // ...
       // -------------------------------------
 
-      //
-      // Выделяем код (0.1)
-      //
       p := AnsiPos(' ', S);
       if 0 = p then
         Continue;
       Genre.GenreCode := Copy(S, 1, p - 1);
       Delete(S, 1, p);
 
-      //
-      // и код родительского элемента (0)
-      //
       p := LastDelimiter('.', Genre.GenreCode);
       if 0 = p then
         Continue;
       Genre.ParentCode := Copy(Genre.GenreCode, 1, p - 1);
 
-      //
       // fb2 код. Может отсутствовать! (sf)
-      //
       Genre.FB2GenreCode := '';
       p := AnsiPos(';', S);
       if 0 <> p then
@@ -208,9 +180,6 @@ begin
 
       Genre.GenreAlias := S;
 
-      //
-      // Если такой жанр уже существует => пропустим его
-      //
       InsertGenreIfMissing(Genre);
     end;
   finally
@@ -333,8 +302,6 @@ begin
 
   FSystemData.AddBookToGroup(BookKey, GroupID, BookRecord);
 end;
-
-{ TBookCollection.TGenreCache }
 
 constructor TBookCollection.TGenreCache.Create;
 begin
@@ -484,7 +451,6 @@ end;
 
 function TBookCollection.CollectionID: Integer;
 begin
-  //Assert(INVALID_COLLECTION_ID <> FCollectionInfo.ID);
   Result := FCollectionInfo.ID;
 end;
 

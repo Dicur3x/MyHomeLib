@@ -41,9 +41,7 @@ type
     FFiles: TStringList;
     FFilesList: TFilesList;
 
-    //
     // Эти поля должны быть установлены конструктором производного класса
-    //
     FTargetExt: string;
     FZipFolder: Boolean;
     FFullNameSearch: Boolean;
@@ -70,16 +68,6 @@ type
 
 implementation
 
-{
-Settings.CheckExistsFiles
-Settings.EnableSort
-Settings.FB2FolderTemplate
-Settings.FB2FileTemplate
-Settings.FBDFolderTemplate
-Settings.FBDFileTemplate
-Settings.ImportPath
-}
-
 uses
   Dialogs,
   dm_user;
@@ -90,8 +78,6 @@ resourcestring
    rstrScanningAll = 'Скануємо...';
    rstrFoundFiles = 'Виявлено файли: %u';
    rstrScanningFolders = 'Сканування папок...';
-
-{ TImportFB2Thread }
 
 constructor TImportFB2ThreadBase.Create;
 begin
@@ -109,9 +95,7 @@ procedure TImportFB2ThreadBase.GetBookInfo(book: IXMLFictionBook; var R: TBookRe
 var
   i: Integer;
 begin
-  //
   // TODO : создать в unit_FB2Utils ф-ию для получения инф-ии о книге из файла и заменить ее этот метод
-  //
   with book.Description.Titleinfo do
   begin
     for i := 0 to Author.Count - 1 do
@@ -172,8 +156,6 @@ end;
 
 function TImportFB2ThreadBase.GetNewFileName(FileName: string; R: TBookRecord): string;
 begin
-  { DONE -oNickR -cPerformance : необходимо создавать шаблонизатор только один раз при инициализации потока }
-  { DONE -oNickR -cBug : нет реакции на невалидный шаблон }
   if FTemplater.SetTemplate(FileName, TpFile) = ErFine then
     FileName := FTemplater.ParseString(R, TpFile)
   else
@@ -191,8 +173,6 @@ end;
 
 function TImportFB2ThreadBase.GetNewFolder(Folder: string; R: TBookRecord): string;
 begin
-  { DONE -oNickR -cPerformance : необходимо создавать шаблонизатор только один раз при инициализации потока }
-  { DONE -oNickR -cBug : нет реакции на невалидный шаблон }
   if FTemplater.SetTemplate(Folder, TpPath) = ErFine then
     Folder := FTemplater.ParseString(R, TpPath)
   else
@@ -254,7 +234,7 @@ begin
         Teletype(Format(rstrFoundFiles, [FFiles.Count]));
       except
         on EAbort do
-          { ignore} ;
+          ;
       end;
     finally
       FreeAndNil(FFilesList);

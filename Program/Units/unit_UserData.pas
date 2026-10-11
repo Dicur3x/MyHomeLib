@@ -147,8 +147,6 @@ uses
   SysUtils,
   unit_xmlUtils;
 
-{ TBookInfo }
-
 const
   ATTRIBUTE_ID       = 'id';
   ATTRIBUTE_LIBID    = 'libid';
@@ -216,8 +214,6 @@ begin
     thisElement.setAttribute(ATTRIBUTE_LIBID, FLibID);
   end;
 end;
-
-{ TBookExtra }
 
 constructor TBookExtra.Create(element: IXMLDOMNode);
 begin
@@ -288,8 +284,6 @@ begin
   end;
 end;
 
-{ TBookExtras }
-
 procedure TBookExtras.AddExtra(BookID: Integer; LibID: string; Rating, Progress: Integer; const Review: string);
 begin
   Add(TBookExtra.Create(BookID, LibID, Rating, Progress, Review));
@@ -331,8 +325,6 @@ begin
   parentElement.appendChild(xmlExtras);
 end;
 
-{ TGroupBook }
-
 constructor TGroupBook.Create(BookID: Integer; LibID: string);
 begin
   inherited Create(ELEMENT_BOOK, BookID, LibID);
@@ -342,8 +334,6 @@ constructor TGroupBook.Create(element: IXMLDOMNode);
 begin
   inherited Create(ELEMENT_BOOK, element);
 end;
-
-{ TBookGroup }
 
 constructor TBookGroup.Create(element: IXMLDOMNode);
 begin
@@ -410,8 +400,6 @@ begin
   Add(TGroupBook.Create(BookID, LibID));
 end;
 
-{ TBookGroups }
-
 procedure TBookGroups.Load(element: IXMLDOMNode);
 var
   xmlGroups: IXMLDOMNodeList;
@@ -453,8 +441,6 @@ begin
   Result := Items[Add(TBookGroup.Create(GroupID, GroupName))];
 end;
 
-{ TUserData }
-
 constructor TUserData.Create;
 begin
   inherited;
@@ -492,7 +478,6 @@ var
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
 
-  // Create the root element (i.e., the documentElement).
   xmlRoot := xmlDoc.createElement(ELEMENT_USERDATA);
 
   FExtras.Save(xmlDoc, xmlRoot);

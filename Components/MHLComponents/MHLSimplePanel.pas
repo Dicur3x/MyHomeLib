@@ -38,12 +38,10 @@ type
     constructor Create(AOwner: TComponent); override;
     property DockManager;
 
-    //
     // Draws a flat rounded frame around the given child, in the gap its
     // Margins leave free. Lets a borderless child (a tree, say) get the same
     // frame TRzPanel paints with BorderOuter = fsFlatRounded, without wrapping
     // it in another window.
-    //
     property FramedControl: TControl read FFramedControl write SetFramedControl;
 
   published
@@ -59,7 +57,6 @@ type
     property BiDiMode;
     property BorderWidth;
     property BorderStyle;
-    //property Caption;
     property Color;
     property Constraints;
     property Ctl3D;
@@ -82,7 +79,6 @@ type
     property ParentFont;
     property ParentShowHint;
     property PopupMenu;
-    //property ShowCaption;
     property ShowHint;
     property TabOrder;
     property TabStop;
@@ -125,8 +121,6 @@ begin
   RegisterComponents('mHLComponents', [TMHLSimplePanel]);
 end;
 
-{ TMHLSimplePanel }
-
 constructor TMHLSimplePanel.Create(AOwner: TComponent);
 begin
   inherited;
@@ -152,7 +146,6 @@ begin
     FFramedControl := nil;
 end;
 
-//
 // Keeps every splitter on the correct side of the control it resizes.
 //
 // The VCL orders same-aligned siblings by their trailing edge (for alBottom:
@@ -165,7 +158,6 @@ end;
 // resize, and stays there. Re-asserting the order here means every realign
 // starts from a sane state instead of the layout depending on the order the
 // bounds happened to change in.
-//
 procedure TMHLSimplePanel.EnforceSplitterOrder;
 var
   I: Integer;

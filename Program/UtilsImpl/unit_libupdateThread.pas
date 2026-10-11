@@ -35,10 +35,7 @@ type
 
   TCollectionUpdateThreadBase = class(TImportInpxThreadBase)
   protected
-    //
-    // Повертає False, якщо користувач скасував операцію: зміни відкочено,
-    // колекція лишилась такою, якою була.
-    //
+    // False = скасовано користувачем; зміни відкочено.
     function UpdateCollection(const AFileName: string; ACollectionID: Integer;
       AFull: Boolean; const ADisplayName: string): Boolean;
   end;
@@ -76,11 +73,7 @@ type
     property DisplayName: string read FDisplayName write FDisplayName;
   end;
 
-  //
-  // Ручне оновлення з каталогу metabib. Каталог - завжди повний зріз,
-  // тож інкрементної гілки нема: тільки повний переімпорт зі збереженням
-  // даних користувача (те, що TCollectionUpdateThreadBase робить для INPX).
-  //
+  // Каталог metabib - завжди повний зріз: лише повний переімпорт зі збереженням даних користувача.
   TMetabibManualUpdateThread = class(TImportMetabibThreadBase)
   private
     FFileName: string;
@@ -142,12 +135,6 @@ rstrDownloadProgress = 'Завантажено: %u%% із %u байт';
    rstrInvalidUpdateFile = 'Неправильний формат файлу INPX: %s';
    rstrMbDatasetAlwaysFull = 'Каталог metabib імпортується завжди повністю.';
 
-{ TCollectionUpdateThreadBase }
-
-//
-// Оновлення однієї колекції з одного файлу списків.
-// Файл AFileName не видаляється — про нього дбає викликач.
-//
 function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
   ACollectionID: Integer; AFull: Boolean; const ADisplayName: string): Boolean;
 var
@@ -156,7 +143,7 @@ var
 begin
   Result := False;
 
-  //Truncate won't work with TBookCollection.Create(DBFileName, False)
+  // Truncate won't work with TBookCollection.Create(DBFileName, False)
   Collection := FSystemData.GetCollection(ACollectionID);
   Collection.BeginBulkOperation;
   try
@@ -164,11 +151,9 @@ begin
     try
       if AFull then
       begin
-        // Backup user data:
         Teletype(Format(rstrBackupUserData, [ADisplayName]), tsInfo);
         Collection.ExportUserData(UserDataBackup);
 
-        // clear most tables in a collection
         Teletype(Format(rstrRemovingOldCollection, [ADisplayName]), tsInfo);
         Collection.TruncateTablesBeforeImport;
       end;
@@ -176,11 +161,8 @@ begin
       Teletype(rstrImportIntoCollection, tsInfo);
       Import(AFileName, not AFull, Collection);
 
-      //
-      // Import лише перериває свої цикли за Canceled і повертає керування
-      // штатно. Без цієї перевірки скасований повний переімпорт закомітив би
-      // обрізану колекцію, а RemapCollectionBookIDs ще й вичистив би групи.
-      //
+      // Import повертається штатно і після Canceled; без перевірки закомітилась
+      // би обрізана колекція, а RemapCollectionBookIDs вичистив би групи.
       if Canceled then
       begin
         Collection.EndBulkOperation(False);
@@ -190,7 +172,6 @@ begin
 
       if AFull then
       begin
-        // Restore user data:
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
         Collection.ImportUserData(UserDataBackup, nil);
       end;
@@ -204,26 +185,16 @@ begin
     raise;
   end;
 
-  //
-  // При полном переимпорте BookID в коллекции переприсваиваются, и сохранённые
-  // в группах BookID начинают указывать на чужие книги. Приводим их к новой
-  // нумерации по LibID (при полном переимпорте заодно убираем книги, которых
-  // в коллекции больше нет).
-  // Делается только после коммита коллекции: системная БД - отдельный файл,
-  // её изменения не откатятся вместе с импортом.
-  //
+  // Повний переімпорт переприсвоює BookID, і BookID у групах вказують на чужі
+  // книги. Лише після коміту колекції: системна БД - окремий файл і не відкотиться.
   FSystemData.RemapCollectionBookIDs(ACollectionID, AFull);
   Result := True;
 end;
 
-{ TLibUpdateThread }
-
 constructor TLibUpdateThread.Create;
 begin
   inherited Create(MHL_INVALID_ID);
-  //
-  // Сейчас считается, что обновления могут быть только для коллекций, содержащих fb2 жанры
-  //
+  // Вважається, що оновлення бувають лише для колекцій з fb2-жанрами.
   FGenresType := gtFb2;
 end;
 
@@ -308,15 +279,12 @@ begin
         Exit;
       end;
 
-      //
-      // Скасування під час імпорту: зміни вже відкочено, файли оновлень
-      // лишаємо на місці, щоб можна було повторити спробу.
-      //
+      // Скасування: зміни відкочено, файли оновлень лишаємо для повторної спроби.
       if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
         Exit;
 
       Teletype(rstrReady, tsInfo);
-    end; //for .. with
+    end;
 
     Teletype(rstrUpdateComplete, tsInfo);
     for i := 0 to Settings.Updates.Count - 1 do
@@ -335,18 +303,12 @@ begin
 {$IFDEF USELOGGER}
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
-      //
-      // InpxFileName - файл, на якому впала обробка; до першої ітерації циклу
-      // він порожній. Раніше тут використовувався лічильник i, невизначений
-      // за межами циклу, та ще й з іншою текою.
-      //
+      // До першої ітерації InpxFileName порожній.
       if (InpxFileName <> '') and FileExists(InpxFileName) then
         DeleteFile(InpxFileName);
     end;
   end;
 end;
-
-{ TManualUpdateThread }
 
 constructor TManualUpdateThread.Create(const ACollectionID: Integer;
   const AFileName: string; AFull: Boolean; AGenresType: TGenresType);
@@ -355,17 +317,11 @@ begin
   FFileName := AFileName;
   FFull := AFull;
   FGenresType := AGenresType;
-  //
-  // Файл вибрав користувач, він може бути з будь-якого джерела: не дозволяємо
-  // його collection.info перезаписати URL і скрипт підключення колекції.
-  //
+  // Файл з довільного джерела: його collection.info не має перезаписати URL і скрипт колекції.
   FKeepCollectionProps := True;
 end;
 
-//
-// Import не переживає файл, який не є архівом, або архів без .inp:
-// його finally звільняє неініціалізовані вказівники. Перевіряємо заздалегідь.
-//
+// Import на не-архіві чи архіві без .inp звільняє неініціалізовані вказівники у finally.
 function TManualUpdateThread.IsValidUpdateArchive: Boolean;
 var
   Zip: TMHLZip;
@@ -410,8 +366,6 @@ begin
   end;
 end;
 
-{ TMetabibManualUpdateThread }
-
 constructor TMetabibManualUpdateThread.Create(const ACollectionID: Integer;
   const AFileName: string; AGenresType: TGenresType);
 begin
@@ -455,10 +409,7 @@ begin
         Teletype(rstrImportIntoCollection, tsInfo);
         Import(FFileName, False, Collection);
 
-        //
-        // Import завершується штатно і після Canceled; без цієї перевірки
-        // скасування закомітило б обрізану колекцію.
-        //
+        // Import повертається штатно і після Canceled.
         if Canceled then
         begin
           Collection.EndBulkOperation(False);
@@ -478,10 +429,7 @@ begin
       raise;
     end;
 
-    //
-    // Повний переімпорт переприсвоює BookID - групи приводимо до нової
-    // нумерації за LibID. Лише після коміту колекції: системна БД окрема.
-    //
+    // Лише після коміту колекції: системна БД окрема.
     FSystemData.RemapCollectionBookIDs(FCollectionID, True);
 
     Teletype(rstrUpdateComplete, tsInfo);

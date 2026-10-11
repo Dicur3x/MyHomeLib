@@ -11,7 +11,6 @@
   * $Id: unit_ReviewParser.pas 1186 2015-05-14 05:20:24Z koreec $
   *
   * History
-  * NickR 15.02.2010    Код переформатирован
   *
   ****************************************************************************** *)
 
@@ -58,9 +57,6 @@ begin
   inherited Destroy;
 end;
 
-// Get an HTML page and extract all available book reviews
-// url - the book's URL
-// targetList - an initialised list to be populated with reviews
 procedure TReviewParser.Parse(const url: string; targetList, targetlistA: TStringList);
 const
   NAME_REVIEW_DELIM = ':';
@@ -72,19 +68,11 @@ var
   name: string;
   review: string;
   BLOCK_PREFIX, BLOCK_END, END_ALL, ANNOTATION_START, ANNOTATION_END: string;
-
-//  SL: TStringList;
 begin
   Assert(Assigned(targetList));
   Assert(Assigned(targetListA));
 
   page := GetPage(url);
-
-
-//  Sl := TStringList.Create;
-//  SL.LoadFromFile('E:\Temp\test.html', TEncoding.UTF8);
-//  Page := SL.Text;
-
 
   if pos('lib.rus.ec', URL) <> 0 then
   begin
@@ -105,7 +93,6 @@ begin
 
   end;
 
-  // аннотация
   idxReviewBlockStart := Pos(ANNOTATION_START, page);
   Delete(page, 1 , idxReviewBlockStart);
   idxReviewBlockStart := 1;
@@ -130,11 +117,6 @@ begin
   targetListA.Text := ReplaceStr(targetListA.Text,'<br />','');
   targetListA.Text := ReplaceStr(targetListA.Text,'<br>','');
 
-//  SL.Text := page;
-//  sl.SaveToFile('E:\temp\out.html');
-
-  // отзывы
-
   idxReviewBlockStart := Pos(BLOCK_PREFIX, page);
   idxEndAllBookReviews := Pos(END_ALL, page);
   while ((idxReviewBlockStart <> 0) and (idxReviewBlockStart < idxEndAllBookReviews)) do
@@ -147,14 +129,11 @@ begin
     idxReviewBlockStart := PosEx(BLOCK_PREFIX, page, idxReviewBlockStart + 1);
   end;
 
-  // post-cleaning
   targetList.Text := ReplaceStr(targetList.Text,'&quot;','"');
   targetList.Text := ReplaceStr(targetList.Text,'&gt;','');
   targetList.Text := ReplaceStr(targetList.Text,'<hr>','');
 end;
 
-// Do a GET request and return result as a String
-// url - the URL of the page to GET
 function TReviewParser.GetPage(const url: string): string;
 var
   outputStream: TMemoryStream;
@@ -167,10 +146,6 @@ begin
     outputStream := TMemoryStream.Create;
     try
       FHTTPClient.Get(url, outputStream);
-
-//      outputStream.Position := 0;
-//      outputStream.SaveToFile('e:\temp\test.out');
-
 
       outputStream.Position := 0;
       responseList.LoadFromStream(outputStream);
@@ -187,11 +162,6 @@ begin
   end;
 end;
 
-// Extract part of the text and clean it up
-// page - html page to search in
-// idxReviewBlockStart - index pointing to the start of the current review block
-// before - the string located before the text we want to extract
-// after - the string located after the text we want to extract
 function TReviewParser.Extract(const page: string; const idxReviewBlockStart: Integer; const before: string; const after: string): string;
 var
   idxNameStart: Integer;
@@ -210,7 +180,7 @@ begin
     begin
       lenName := idxNameEnd - idxNameStart;
       Result := Copy(page, idxNameStart, lenName);
-      Result := ReplaceStr(Result, '<br>', ''); // clean up the junk
+      Result := ReplaceStr(Result, '<br>', '');
     end;
   end;
 end;

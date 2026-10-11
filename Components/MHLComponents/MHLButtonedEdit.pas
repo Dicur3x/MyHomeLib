@@ -66,10 +66,8 @@ type
     property Enabled;
     property Font;
     property HideSelection;
-    ///property Images;
     property ImeMode;
     property ImeName;
-    //property LeftButton;
     property MaxLength;
     property OEMConvert;
     property NumbersOnly;
@@ -105,7 +103,6 @@ type
     property OnKeyPress;
     property OnKeyUp;
     property OnGesture;
-    ///property OnLeftButtonClick;
     property OnMouseActivate;
     property OnMouseDown;
     property OnMouseEnter;
@@ -130,8 +127,6 @@ type
     property ImageIndex default 0;
     property Visible default True;
   end;
-
-{ TMHLButtonedEdit }
 
 class constructor TMHLButtonedEdit.Create;
 var

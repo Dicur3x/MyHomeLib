@@ -14,8 +14,6 @@
   *
   ****************************************************************************** *)
 
-{ TODO -oNickR : добавить поддержку тени }
-
 unit unit_StaticTip;
 
 interface
@@ -71,8 +69,6 @@ type
 
 implementation
 
-{ TMHLStaticTip }
-
 constructor TMHLStaticTip.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -112,9 +108,6 @@ var
 begin
   PaintBuffer := BeginBufferedPaint(Canvas.Handle, Rect, BPBF_TOPDOWNDIB, nil, MemDC);
   try
-    //
-    // TODO -oNickR -cподдержка Vista : заменить на RoundRect
-    //
     FillRect(MemDC, Rect, Canvas.Brush.Handle);
     BufferedPaintMakeOpaque(PaintBuffer, @Rect);
   finally

@@ -99,8 +99,6 @@ begin
   Result := (ext = ZIP_EXTENSION);
 end;
 
-{ TMHLZip }
-
 function TMHLZip.ExtractToStream(No: integer): TMemoryStream;
 var
   S: TStream;
@@ -257,7 +255,6 @@ end;
 
 function TMHLZip.Test(const AFileName: string): Boolean;
 begin
- //
   Result := FZip.IsValid(AFileName)
 end;
 

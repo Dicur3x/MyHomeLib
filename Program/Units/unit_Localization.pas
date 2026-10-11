@@ -100,8 +100,6 @@ begin
   Result := (Info <> nil) and (GetObjectProp(AObject, Info) is TStrings);
 end;
 
-// Rewrites one published string property in place, only when the current
-// value actually has a translation.
 procedure TranslateProps(AObject: TObject);
 var
   I: Integer;

@@ -49,7 +49,6 @@ uses
   Generics.Collections,
   System.Classes;
 
-//  ============= Exports =====================================================
 function Export2HTML;
 const
   HTMLHead =
@@ -78,11 +77,7 @@ begin
     case Tag of
       351:
         begin
-          //
-          // І наш заголовок, і <META> від VirtualTrees оголошують charset=utf-8,
-          // тож і байти файлу мають бути UTF-8, а не ANSI. BOM тут зайвий:
-          // кодування вже вказане у самій розмітці.
-          //
+          // Розмітка оголошує charset=utf-8, тож байти теж UTF-8; BOM не потрібен.
           Bytes := TEncoding.UTF8.GetBytes(HTMLHead + Tree.ContentToHTML(tstAll) + HTMLFoot);
           if Length(Bytes) > 0 then
             FS.WriteBuffer(Bytes[0], Length(Bytes));
@@ -90,10 +85,7 @@ begin
 
       352:
         begin
-          //
-          // У .txt немає де оголосити кодування, тому пишемо UTF-8 з BOM —
-          // саме за ним Notepad, Excel та інші розпізнають файл правильно.
-          //
+          // У .txt кодування не оголосити, тож UTF-8 з BOM - за ним його розпізнають Notepad, Excel тощо.
           BOM := TEncoding.UTF8.GetPreamble;
           FS.WriteBuffer(BOM[0], Length(BOM));
 
@@ -104,10 +96,7 @@ begin
 
       353:
         begin
-          //
-          // RTF від VirtualTrees уже несе власний \ansicpg та \'xx-послідовності,
-          // тож віддаємо його байт-у-байт.
-          //
+          // RTF уже несе власний \ansicpg і \'xx-послідовності - пишемо байт-у-байт.
           Str := Tree.ContentToRTF(tstAll);
           if Length(Str) > 0 then
             FS.WriteBuffer(PAnsiChar(Str)^, Length(Str));
@@ -119,7 +108,6 @@ begin
 end;
 
 
-// ============================================================================
 procedure GetSelections(Tree: TBookTree; out List: TSelectionList);
 var
   Node: PVirtualNode;
@@ -134,7 +122,6 @@ begin
   end;
 end;
 
-// ============================================================================
 function FindParentInTree(Tree: TVirtualStringTree; const Folder: string): PVirtualNode;
 var
   Node: PVirtualNode;
@@ -158,7 +145,6 @@ begin
   end;
 end;
 
-// ============================================================================
 function FindSeriesInTree(Tree: TBookTree; Parent: PVirtualNode; SeriesID: Integer): PVirtualNode;
 var
   Node: PVirtualNode;
@@ -183,7 +169,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure SafeSelectNode(Tree: TVirtualStringTree; Node: PVirtualNode);
 begin
   Assert(Assigned(Tree));
@@ -196,12 +181,10 @@ begin
     Tree.Selected[Node] := True;
     Tree.FocusedNode := Node;
     Tree.TopNode := Node;
-    //Tree.FullyVisible[Node] := True;
     Tree.ScrollIntoView(Node, True);
   end;
 end;
 
-// ============================================================================
 procedure FillAuthorTree(Tree: TVirtualStringTree; const AuthorIterator: IAuthorIterator; SelectID: Integer = MHL_INVALID_ID);
 var
   Node: PVirtualNode;
@@ -239,7 +222,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure FillSeriesTree(Tree: TVirtualStringTree; const SeriesIterator: ISeriesIterator; SelectID: Integer = MHL_INVALID_ID);
 var
   Node: PVirtualNode;
@@ -277,7 +259,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure FillGenresTree(Tree: TVirtualStringTree; const GenreIterator: IGenreIterator; FillFB2: Boolean = False; const SelectCode: string = '');
 var
   GenreNode: PVirtualNode;
@@ -332,7 +313,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure FillGroupsList(Tree: TVirtualStringTree; const GroupIterator: IGroupIterator; SelectID: Integer = MHL_INVALID_ID);
 var
   Node: PVirtualNode;

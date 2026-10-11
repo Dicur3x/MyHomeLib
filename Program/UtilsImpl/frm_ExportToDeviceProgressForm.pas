@@ -9,9 +9,7 @@ uses
 type
   TExportToDeviceProgressForm = class(TImportProgressForm)
   private
-    { Private declarations }
   public
-    { Public declarations }
   end;
 
 var

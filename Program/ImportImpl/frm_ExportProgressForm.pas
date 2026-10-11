@@ -26,9 +26,7 @@ uses
 type
   TExportProgressForm = class(TImportProgressForm)
   private
-    { Private declarations }
   public
-    { Public declarations }
   end;
 
 var

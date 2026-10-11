@@ -54,8 +54,6 @@ resourcestring
    rstrProcessedArchives = 'Оброблено архіви: %u з %u';
    rstrBooksAdded = 'Додано книг: %u, пропущено книг: %u';
 
-{ TImportFB2Thread }
-
 constructor TImportFBDThread.Create(const CollectionID: Integer);
 begin
   inherited Create(CollectionID);
@@ -87,7 +85,6 @@ begin
       archiver := TMHLZip.Create(FCollectionRoot + NewFolder + NewFileName + ZIP_EXTENSION, False);
       archiver.RenameFile(FCollectionRoot + NewFolder + R.FileName, NewFileName);
     except
-      // ничего не делаем
     end;
     FreeAndNil(archiver);
   end;
@@ -175,8 +172,7 @@ begin
                         Teletype(Format(rstrErrorFB2Structure, [archiveFileName, R.FileName]), tsError);
                   end;
                 except
-                    //Teletype(e.Message, tsError);
-                end; //try
+                end;
               finally
                 FreeAndNil(FS);
               end;

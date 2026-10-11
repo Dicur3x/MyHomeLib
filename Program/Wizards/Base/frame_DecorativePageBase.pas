@@ -33,7 +33,5 @@ implementation
 
 {$R *.dfm}
 
-{ TDecorativePageBase }
-
 end.
 

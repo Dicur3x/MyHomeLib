@@ -30,7 +30,6 @@ uses
 type
   TframeNCWFinish = class(TDecorativePageBase)
   private
-    { Private declarations }
   public
     function PageButtons: TWizardButtons; override;
   end;
@@ -41,8 +40,6 @@ var
 implementation
 
 {$R *.dfm}
-
-{ TframeNCWFinish }
 
 function TframeNCWFinish.PageButtons: TWizardButtons;
 begin

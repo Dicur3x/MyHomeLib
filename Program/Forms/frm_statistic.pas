@@ -80,9 +80,6 @@ begin
   else
     DataVersion := IntToStr(vVersion);
 
-  //
-  // Заполним данные
-  //
   lvInfo.Items[0].SubItems[0] := Collection.GetProperty(PROP_DISPLAYNAME);
   lvInfo.Items[1].SubItems[0] := DateToStr(Collection.GetProperty(PROP_CREATIONDATE));
   lvInfo.Items[2].SubItems[0] := DataVersion;

@@ -1,7 +1,5 @@
 ﻿unit unit_LangSignature;
 
-// Signature verification for language catalogs.
-//
 // Catalogs for locales the project does not ship must arrive as a pair --
 // <code>.json and <code>.json.sig -- where the .sig is 64 raw bytes (r||s) of
 // an ECDSA P-256 signature over the catalog's exact bytes. No canonicalisation
@@ -12,10 +10,6 @@
 // a file into a folder becomes running a patched binary from a stranger, and
 // that difference is the entire point. See
 // docs/superpowers/specs/2026-08-11-signed-lang-catalogs-design.md.
-//
-// Crypto lives only in this unit. unit_Localization knows nothing beyond the
-// two functions below: one for a catalog on disk, one for a catalog embedded
-// in the exe as a resource pair.
 
 interface
 

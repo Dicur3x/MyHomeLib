@@ -1,10 +1,6 @@
 'use strict';
 
-// Tests for keygen.js and sign.js. Everything runs in a scratch directory --
-// no test may touch the real signing key or the real catalogs.
-//
-// Usage: node tools/lang/tests/sign_tests.js
-// Exit code: 0 = pass, 1 = fail.
+// No test may touch the real signing key or the real catalogs.
 
 const fs = require('fs');
 const os = require('os');

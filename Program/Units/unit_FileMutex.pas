@@ -17,16 +17,12 @@ unit unit_FileMutex;
 interface
 
 type
-  //
-  // Іменований м'ютекс, прив'язаний до конкретного файлу.
-  //
   // Ім'я м'ютекса залежить лише від повного шляху до файлу, тож два екземпляри
   // MyHomeLib (як і два потоки одного екземпляра) отримують той самий об'єкт ядра
   // і ніколи не переписують книгу одночасно.
   //
   // Захоплення завжди неблокуюче: якщо файл уже комусь належить, книгу треба
   // пропустити, а не чекати на неї.
-  //
   TFileMutex = class
   private
     FHandle: THandle;
@@ -51,16 +47,12 @@ uses
 const
   MUTEX_PREFIX = 'MyHomeLib.File.';
 
-//
 // Ім'я об'єкта ядра не може містити '\', а довжина обмежена MAX_PATH, тому
 // шлях згортається у хеш. Регістр прибираємо: у Windows шляхи регістронезалежні.
-//
 function MutexNameFor(const FileName: string): string;
 begin
   Result := MUTEX_PREFIX + THashMD5.GetHashString(AnsiLowerCase(ExpandFileName(FileName)));
 end;
-
-{ TFileMutex }
 
 constructor TFileMutex.Create(const FileName: string);
 begin
@@ -89,10 +81,8 @@ begin
     Exit;
 
   WaitResult := WaitForSingleObject(FHandle, 0);
-  //
   // WAIT_ABANDONED означає, що попередній власник загинув, не звільнивши м'ютекс.
   // Володіння все одно переходить до нас, тому це успіх.
-  //
   FAcquired := WaitResult in [WAIT_OBJECT_0, WAIT_ABANDONED];
   Result := FAcquired;
 end;

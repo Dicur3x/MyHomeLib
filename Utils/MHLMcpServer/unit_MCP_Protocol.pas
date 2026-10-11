@@ -18,8 +18,7 @@ const
   JSONRPC_INTERNAL_ERROR   = -32603;
 
 type
-  // A domain fault. Surfaces as a tool result with isError=true and a
-  // machine-readable code, NOT as a JSON-RPC error.
+  // Reported as a tool result with isError=true, NOT as a JSON-RPC error.
   EMcpToolError = class(Exception)
   private
     FCode: string;
@@ -64,13 +63,6 @@ begin
   FCode := ACode;
 end;
 
-// Diagnostic-only logging for a developer attached to stderr -- never stdout,
-// which is reserved solely for TMcpTransport's JSON-RPC output. This is a
-// private copy of the same one-line helper unit_MCP_Tools_Library.pas and
-// unit_MCP_TextCache.pas each keep for themselves, not an import: this unit
-// sits *below* unit_MCP_Tools_Library in the dependency graph (Tools_Library
-// uses this unit, not the other way around), so importing it here would be
-// circular. See DispatchRequest's catch-all below for why this exists.
 procedure LogToStderr(const Msg: string);
 begin
   Writeln(ErrOutput, Msg);
@@ -178,7 +170,7 @@ begin
   ToolName := Params.GetValue<string>('name', '');
 
   Args := nil;
-  ArgsValue := Params.GetValue('arguments'); // may be absent
+  ArgsValue := Params.GetValue('arguments');
   if Assigned(ArgsValue) then
   begin
     if not (ArgsValue is TJSONObject) then
@@ -265,9 +257,8 @@ var
   Params: TJSONObject;
 begin
   Method := Request.GetValue<string>('method', '');
-  Id := Request.GetValue('id'); // nil for notifications
+  Id := Request.GetValue('id');
 
-  // Notifications never get a response.
   if not Assigned(Id) then
     Exit;
 
@@ -296,20 +287,8 @@ begin
       SendError(Id, JSONRPC_INVALID_PARAMS, E.Message);
     on E: Exception do
     begin
-      // E.Message here is whatever an uncaught, non-EMcpToolError exception
-      // happened to carry -- an ESQLiteException's message includes the
-      // ENTIRE generated SQL statement (SQLiteWrap.pas), and a plain
-      // TFileStream failure (e.g. opening a cached .txt another process
-      // holds under FileShare.None) includes the absolute file path. Both
-      // were confirmed to reach the client verbatim through this branch
-      // before this fix. Every other exception class in this project is
-      // already sanitized before it gets anywhere near SendError (see
-      // EMcpToolError and the LogToStderr call sites in
-      // unit_MCP_Tools_Library.pas/unit_MCP_Tools_Text.pas) -- this is the
-      // one remaining place that had not been, precisely because it is the
-      // catch-all for whatever those call sites did not anticipate. So the
-      // full detail goes to stderr only, and the client gets stable,
-      // generic text naming the method and nothing else.
+      // Unsanitized messages leak full SQL (ESQLiteException) or absolute
+      // paths (TFileStream); log them to stderr, send generic text.
       LogToStderr(Format('DispatchRequest(%s): %s: %s', [Method, E.ClassName, E.Message]));
       SendError(Id, JSONRPC_INTERNAL_ERROR,
         Format('Internal error while handling "%s"', [Method]));
@@ -334,9 +313,6 @@ begin
 
     if not (Value is TJSONObject) then
     begin
-      // Valid JSON but not a request envelope (e.g. a top-level array or
-      // scalar). There is no id to answer with, so this is discarded the
-      // same way an unparseable line is above.
       Value.Free;
       Continue;
     end;

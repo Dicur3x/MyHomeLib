@@ -39,7 +39,6 @@ var
   p, Rate: Integer;
   ID: string;
 begin
-  // Рейтинги
   inc(i);
   while pos('#', SL[i]) = 0 do
   begin
@@ -57,7 +56,6 @@ var
   p, Progress: Integer;
   ID: string;
 begin
-  // Прочитаное
   inc(i);
   while (i < SL.Count) and (pos('#', SL[i]) = 0) do
   begin
@@ -76,7 +74,6 @@ var
   S: string;
   ID: string;
 begin
-  // Рецензии
   inc(i);
   while (i < SL.Count) and (pos('#', SL[i]) = 0) do
   begin
@@ -84,7 +81,6 @@ begin
     ID := copy(SL[i], 1, p - 1);
     S := copy(SL[i], p + 1);
 
-    // StrReplace('~',#13#10,S);
     UserDataSource.Extras.AddExtra(0, ID, 0, 0, S);
     inc(i);
   end;
@@ -96,7 +92,6 @@ var
   p, GroupID: Integer;
   ID, Name: string;
 begin
-  // Избранное
   inc(i);
   while (i < SL.Count) and (pos('#', SL[i]) = 0) do
   begin
@@ -107,9 +102,7 @@ begin
       Name := copy(SL[i], p + 1);
       Groups.TryGetValue(Name, GroupID);
       try
-        // GroupID := StrToInt(Name);
       except
-        // on E: Exception do
         GroupID := 1;
       end;
     end

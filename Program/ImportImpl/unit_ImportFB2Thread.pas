@@ -64,8 +64,6 @@ rstrStructureError = 'Помилка структури fb2: %s.zip -> %s';
    rstrImportFB2 = 'Імпорт файлів fb2:';
    rstrImportFB2Zip = 'Імпорт файлів fb2.zip:';
 
-{ TImportFB2Thread }
-
 constructor TImportFB2Thread.Create;
 begin
   inherited Create(CollectionID);
@@ -200,7 +198,6 @@ begin
                   begin
                     NoErrors := False;
                     Teletype(Format(rstrErrorFB2Structure, [FFiles[i], R.FileName + FB2_EXTENSION]), tsError);
-                    //Teletype(e.Message, tsError);
                     Inc(Defective);
                   end;
                 end;
@@ -266,7 +263,6 @@ begin
           archiver.RenameFile(R.FileName +  R.FileExt, NewFileName + R.FileExt); // assuming there are only fb2 files there
           R.FileName := NewFileName;
         except
-          // ничего не делаем
         end;
       finally
         FreeAndNil(archiver);
@@ -282,7 +278,6 @@ begin
 
   FFiles := TStringList.Create;
   try
-    // Import FB2
     Teletype(rstrImportFb2);
 
     FTargetExt := FB2_EXTENSION;
@@ -301,7 +296,6 @@ begin
       raise;
     end;
 
-    // Import fb2.zip
     Teletype(rstrImportFb2Zip);
     FZipFolder := True;
     case FArchiveFormat of

@@ -1,15 +1,6 @@
 'use strict';
 
-// Runs LangTest.exe against generated scratch fixtures and asserts on the
-// JSON report it writes. Every case builds a complete, isolated app
-// directory: the exe, a myhomelib2.ini, an optional Lang\ folder, and
-// probe.json.
-//
-// Usage: node tools/lang/tests/loader_tests.js <path-to-LangTest.exe>
-// Exit code: 0 = pass, 1 = fail.
-//
-// Build the harness first -- it is in no dproj. See the build script named in
-// docs/superpowers/plans/2026-08-11-signed-lang-catalogs.md, Task 2.
+// LangTest.exe is in no dproj: build it first (tools/lang/tests/build.sh).
 
 const fs = require('fs');
 const os = require('os');
@@ -17,13 +8,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
-// The real signing key, so the tests prove the key compiled into the binary
-// matches the one the maintainer signs with. A generated throwaway key would
-// pass the negative cases and silently fail to prove the positive one.
+// The real key, not a throwaway: only it proves the compiled-in public key matches.
 const SIGN_KEY = process.env.MHL_LANG_KEY
   || path.join(os.homedir(), '.myhomelib', 'lang-signing-key.pem');
 
-// Signs bytes the same way tools/lang/sign.js does.
 function signBytes(bytes) {
   const key = crypto.createPrivateKey(fs.readFileSync(SIGN_KEY));
   return crypto.sign('sha256', bytes, { key, dsaEncoding: 'ieee-p1363' });
@@ -39,12 +27,8 @@ const PROBES = ['Автор', 'Назва', 'Серія'];
 
 let caseNo = 0;
 
-// Builds a scratch app directory and runs the harness in it.
-//   opts.locale    -> written as [INTERFACE] Locale=<value>; omit for no key
-//   opts.catalogs  -> { 'en.json': <object|string>, ... } placed in Lang\
-//   opts.noLangDir -> true to omit the Lang folder entirely
-//   opts.appFiles  -> { 'genres_fb2_bg.glst': <text>, ... } placed BESIDE the
-//                     exe, not in Lang\ -- genre lists live in AppPath
+// opts.locale -> [INTERFACE] Locale; opts.catalogs -> files in Lang\;
+// opts.noLangDir -> no Lang\; opts.appFiles -> files beside the exe (genre lists).
 function run(opts) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `langtest${caseNo++}-`));
   fs.copyFileSync(EXE, path.join(dir, 'LangTest.exe'));
@@ -78,9 +62,7 @@ function run(opts) {
   if (r.status !== 0) {
     throw new Error(`harness exit ${r.status}: ${r.stderr || r.stdout}`);
   }
-  // TEncoding.UTF8 writes a BOM and JSON.parse refuses one. The same trap
-  // applies to catalogs read out of the exe's resources -- see
-  // EmbeddedCatalogText in unit_Localization.pas.
+  // TEncoding.UTF8 writes a BOM, which JSON.parse refuses.
   return JSON.parse(fs.readFileSync(report, 'utf8').replace(/^﻿/, ''));
 }
 
@@ -115,9 +97,8 @@ const checks = [
     return r.active === true && r.translations['Автор'] === 'Author';
   }],
 
-  // LANG_XX and LANG_ZZ are linked by the harness alone (make_fixture_res.js).
-  // They stand in for what a resource editor can add to a shipped exe: a
-  // perfectly well-formed catalog that the maintainer never signed.
+  // LANG_XX/LANG_ZZ are linked only into the harness (make_fixture_res.js) and
+  // model unsigned catalogs a resource editor could add.
   ['an embedded catalog with no signature resource is not offered', () => {
     const r = run({ locale: 'uk', noLangDir: true });
     return !r.locales.some(l => l.code === 'xx');
@@ -173,10 +154,7 @@ const checks = [
       && r.locales.some(l => l.code === 'pl' && l.name === 'Polski');
   }],
 
-  // The three rule cases below must be SIGNED. An unsigned catalog is now
-  // rejected before these rules are ever reached, so leaving them unsigned
-  // would keep them passing while proving the signature gate rather than the
-  // rule each was written to cover.
+  // Must be SIGNED: unsigned catalogs are rejected before these rules run.
   ['malformed catalog does not crash and does not install', () => {
     const body = '{ this is not json';
     const r = run({ locale: 'pl',
@@ -261,9 +239,7 @@ const checks = [
   }],
 
   ['bg works with no Lang directory at all -- it is in the exe', () => {
-    // Probes Назва/Серія, not Автор: "Автор" is spelled identically in
-    // Bulgarian and Ukrainian, so an unchanged value there proves nothing.
-    // The en case above can use Автор because Author differs.
+    // Not Автор: it is identical in Bulgarian and Ukrainian.
     const r = run({ locale: 'bg', noLangDir: true });
     return r.active === true
       && r.translations['Назва'] === 'Заглавие'
@@ -276,17 +252,13 @@ const checks = [
   }],
 
   ['bg carries its machine-translation disclosure in the menu name', () => {
-    // The disclosure reaches users only through this string. If the name in
-    // extract.js LOCALES is ever shortened to a plain "Български", the caveat
-    // silently disappears from the UI -- nothing else would notice.
+    // This string is the disclosure's only path to users.
     const r = run({ locale: 'uk', noLangDir: true });
     const bg = r.locales.find(l => l.code === 'bg');
     return !!bg && /машинен превод/.test(bg.name);
   }],
 
-  // --- Locale-aware genre lists -------------------------------------------
-  // The list content is irrelevant here: these cases test which FILE the app
-  // resolves to, not what is in it. check_glst.js covers the content.
+  // These test which FILE resolves, not its content (check_glst.js does that).
 
   ['genres: no locale list present falls back to the Russian original', () => {
     const r = run({ locale: 'bg', noLangDir: true });
@@ -304,9 +276,7 @@ const checks = [
   }],
 
   ['genres: fb2 and nonfb2 resolve independently', () => {
-    // Only the fb2 list is present, so nonfb2 must still fall back. A helper
-    // that resolved both from one existence check would pass the case above
-    // and fail here.
+    // Catches resolving both lists from one existence check.
     const r = run({
       locale: 'bg',
       noLangDir: true,

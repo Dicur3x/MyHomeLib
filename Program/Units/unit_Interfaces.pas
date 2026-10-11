@@ -58,13 +58,6 @@ type
   ISystemData = interface
     ['{3896E4C6-8E2F-42F3-9FB2-91753258E9B7}']
 
-    //
-    // Создание, регистрация и удаление коллекций
-    //
-
-    //
-    // Создание новой коллекции
-    //
     function CreateCollection(
       const DisplayName: string;
       const RootFolder: string;
@@ -73,27 +66,18 @@ type
       const GenresFileName: string
     ): Integer;
 
-    //
-    // Регистрация существующей коллекции
-    //
     function RegisterCollection(
       const DBFileName: string;
       const DisplayName: string;
       const RootFolder: string
     ): Integer;
 
-    //
-    // Удаление коллекции
-    //
     procedure DeleteCollection(const CollectionID: Integer; const RemoveFromDisk: Boolean = True);
 
     function HasCollections: Boolean;
     function HasCollectionWithProp(PropID: TPropertyID; const Value: string; IgnoreID: Integer = INVALID_COLLECTION_ID): Boolean;
     function FindFirstExistingCollectionID(const PreferredID: Integer): Integer;
 
-    //
-    // Свойства коллекции
-    //
     procedure SetProperty(const CollectionID: Integer; const PropID: TPropertyID; const Value: Variant);
     function GetProperty(const CollectionID: Integer; const PropID: TPropertyID): Variant;
 
@@ -101,11 +85,8 @@ type
 
     function GetCollection(const CollectionID: Integer; const RefreshCache: Boolean = False): IBookCollection;
 
-    function ActivateGroup(const ID: Integer): Boolean; //deprecated;
+    function ActivateGroup(const ID: Integer): Boolean;
 
-    //
-    // Работа с книгами
-    //
     procedure GetBookRecord(const BookKey: TBookKey; var BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
     procedure UpdateBook(const BookRecord: TBookRecord);
@@ -125,9 +106,6 @@ type
     procedure SetBookSeriesID(const BookKey: TBookKey; const SeriesID: Integer);
     procedure SetFolder(const BookKey: TBookKey; const Folder: string);
 
-    //
-    // Работа с группами
-    //
     function AddGroup(const GroupName: string; const AllowDelete: Boolean = True): Boolean;
     function GetGroup(const GroupID: Integer): TGroupData;
     function RenameGroup(GroupID: Integer; const NewName: string): Boolean;
@@ -138,35 +116,21 @@ type
     procedure CopyBookToGroup(const BookKey: TBookKey; SourceGroupID: Integer; TargetGroupID: Integer; MoveBook: Boolean);
     procedure DeleteFromGroup(const BookKey: TBookKey; GroupID: Integer);
     procedure CleanCollectionBooks(const DatabaseID: Integer);
-    //
     // Привести BookID книг в группах к текущей нумерации коллекции (сверка по LibID).
     // Вызывается после переимпорта коллекции и при построении списка группы.
     // Если RemoveMissing = True, записи, которых больше нет в коллекции, удаляются.
     // Возвращает количество исправленных записей.
-    //
     function RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean = False): Integer;
 
-    //
-    // Пользовательские данные
-    //
     procedure ImportUserData(data: TUserData);
     procedure ExportUserData(data: TUserData; const DatabaseID: Integer);
 
-    //
-    // Batch update methods:
-    //
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
-    //
-    // Iterators
-    //
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator;
     function GetGroupIterator: IGroupIterator;
     function GetCollectionInfoIterator: ICollectionInfoIterator;
 
-    //
-    // Служебные методы
-    //
     procedure ClearCollectionCache;
     procedure RemoveUnusedBooks;
   end;
@@ -174,9 +138,6 @@ type
   IBookCollection = interface
     ['{B1BB5762-2942-48C3-90E3-3154405EC01B}']
 
-    //
-    //
-    //
     function GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator;
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
@@ -184,20 +145,13 @@ type
     function Search(const SearchCriteria: TBookSearchCriteria; const LoadMemos: Boolean): IBookIterator;
 
 
-    // работа с авторами
-
     procedure UpdateAuthor(Author : PAuthorData);
-    //
-    //
-    //
-    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean; const FullCheck: Boolean): Integer; // превратить в процедуру
+    function InsertBook(BookRecord: TBookRecord; const CheckFileName: Boolean; const FullCheck: Boolean): Integer;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean);
-    //
     // Проверить/восстановить BookID книги по стабильному LibID:
     // BookID переприсваивается при полном переимпорте коллекции, LibID - нет.
     // Возвращает CurrentBookID, если он всё ещё указывает на книгу с этим LibID,
     // иначе - актуальный BookID (0, если книги в коллекции нет).
-    //
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer;
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
@@ -206,7 +160,7 @@ type
 
     function GetReview(const BookKey: TBookKey): string;
 
-    function SetReview(const BookKey: TBookKey; const Review: string): Integer; // превратить в процедуру
+    function SetReview(const BookKey: TBookKey; const Review: string): Integer;
     procedure SetAnnotation(const BookKey: TBookKey; const Annotation: string);
     procedure SetProgress(const BookKey: TBookKey; const Progress: Integer);
     procedure SetRate(const BookKey: TBookKey; const Rate: Integer);
@@ -215,32 +169,21 @@ type
     procedure SetFileName(const BookKey: TBookKey; const FileName: string);
     procedure SetSeriesID(const BookKey: TBookKey; const SeriesID: Integer);
 
-    //
-    // манипуляции с авторами и жанрами книги
-    //
-    procedure SetBookAuthors(const BookID: Integer; const Authors: TBookAuthors; Replace: Boolean); // заменить Integer на TBookKey
-    procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean); // заменить Integer на TBookKey
+    procedure SetBookAuthors(const BookID: Integer; const Authors: TBookAuthors; Replace: Boolean);
+    procedure SetBookGenres(const BookID: Integer; const Genres: TBookGenres; Replace: Boolean);
 
-    //
-    //
-    //
     function FindOrCreateSeries(const Title: string): Integer;
     procedure SetSeriesTitle(const SeriesID: Integer; const NewSeriesTitle: string);
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
-    //
-    // Свойства коллекции
-    //
     function CollectionID: Integer;
     function CollectionCode: COLLECTION_TYPE;
     function CollectionRoot: string;
     function CollectionDisplayName: string;
     function CollectionURL: string;
 
-    //
     // Посилання на книгу на сайті бібліотеки. Формат залежить від обв'язки
     // конкретної бібліотеки, тому його формує сама колекція, а не UI.
-    //
     function GetViewURL(const LibID: string): string;
     function GetEditURL(const LibID: string): string;
 

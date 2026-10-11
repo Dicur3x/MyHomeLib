@@ -97,15 +97,11 @@ implementation
 uses
   StrUtils;
 
-{ TInterfaceCache<TKey, TValue>.TInterfaceAdapter }
-
 constructor TInterfaceCache<TKey, TValue>.TInterfaceAdapter.Create(const Value: TValue);
 begin
   inherited Create;
   FValue := Value;
 end;
-
-{ TInterfaceCache<TKey, TValue> }
 
 constructor TInterfaceCache<TKey, TValue>.Create;
 begin
@@ -116,7 +112,7 @@ end;
 
 destructor TInterfaceCache<TKey, TValue>.Destroy;
 begin
-  LockMap;    // Make sure nobody else is inside the list.
+  LockMap;
   try
     FMap.Free;
     inherited Destroy;
@@ -195,8 +191,6 @@ begin
     UnlockMap;
   end;
 end;
-
-{ TArrayUtils }
 
 class function TArrayUtils.Join(const Values: array of string; const itemDelimeter: string): string;
 var

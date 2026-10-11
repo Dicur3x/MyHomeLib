@@ -315,9 +315,6 @@ procedure TfrmSettings.LoadSetting;
 var
   i: integer;
 begin
-  //
-  // Page 1 - Device settings
-  //
   cbPromptPath.Checked := Settings.PromptDevicePath;
   edDeviceDir.Text := Settings.DeviceDir;
 
@@ -326,11 +323,9 @@ begin
   rgDeviceFormat.ItemIndex := Ord(Settings.ExportMode);
   edFolderTemplate.Text := Settings.FolderTemplate;
   edFileNameTemplate.Text := Settings.FileNameTemplate;
-  // TODO : REMOVE cbTranslit.Checked := Settings.TransliterateFileName;
   cbSquareFilter.Checked := Settings.RemoveSquarebrackets;
   cbTXTEncoding.ItemIndex := Ord(Settings.TXTEncoding);
 
-  // Page 2 - Readers
   lvReaders.Items.Clear;
   for i := 0 to Settings.Readers.Count - 1 do
   begin
@@ -341,9 +336,6 @@ begin
     end;
   end;
 
-  //
-  // Интерфейс
-  //
   udFontSize.Position := Settings.TreeFontSize;
   udShortFontSize.Position := Settings.ShortFontSize;
   SetPanelFontColor(Settings.FontColor);
@@ -356,9 +348,6 @@ begin
   pnCT.Color := Settings.BookColor;
   pnBS.Color := Settings.SeriesBookColor;
 
-  //
-  // Page 4 - Internet
-  //
   cbUseIESettings.Checked := Settings.UseIESettings;
   edProxyServer.Text := Settings.ProxyServer;
   edProxyPort.Text := IntToStr(Settings.ProxyPort);
@@ -384,9 +373,6 @@ begin
   udReadTimeOut.Position := Settings.ReadTimeOut;
   udDwnldInterval.Position := Settings.DwnldInterval;
 
-  //
-  // Page 5 - Scripts
-  //
   lvScripts.Items.Clear;
   cbDefaultAction.Items.Clear;
   cbDefaultAction.Items.Add(rstrStandart);
@@ -404,9 +390,6 @@ begin
   end;
   cbDefaultAction.ItemIndex := Settings.DefaultScript;
 
-  //
-  // Page 6 - Behavior
-  //
   cbShowSubGenreBooks.Checked := Settings.ShowSubGenreBooks;
   cbMinimizeToTray.Checked := Settings.MinimizeToTray;
   cbAutoStartDwnld.Checked := Settings.AutoStartDwnld;
@@ -420,9 +403,6 @@ begin
   cbSelectedIsChecked.Checked := Settings.SelectedIsChecked;
   cbIgnoreArchives.Checked := Settings.IgnoreAbsentArchives;
 
-  //
-  // Page 6 -  FileSort
-  //
   cbEnableFileSort.Checked := Settings.EnableSort;
   edImportFolder.Text := Settings.ImportDir;
   edFB2FolderTemplate.Text := Settings.FB2FolderTemplate;
@@ -430,9 +410,6 @@ begin
   edFBDFolderTemplate.Text := Settings.FBDFolderTemplate;
   edFBDFileTemplate.Text := Settings.FBDFileTemplate;
 
-  //
-  // настроим GUI - запретим или разрешим контролы
-  //
   cbPromptPathClick(nil);
   cbUseIESettingsClick(nil);
   cbOverwriteFB2InfoClick(nil);
@@ -452,7 +429,6 @@ end;
 
 procedure TfrmSettings.SaveSettings;
 begin
-  // Page 1 - Device settings
   Settings.PromptDevicePath := cbPromptPath.Checked;
   Settings.DeviceDir := edDeviceDir.Text;
 
@@ -470,7 +446,6 @@ begin
 
   Settings.FolderTemplate := edFolderTemplate.Text;
   Settings.FileNameTemplate := edFileNameTemplate.Text;
-  // TODO : REMOVE Settings.TransliterateFileName := cbTranslit.Checked;
 
   case cbTXTEncoding.ItemIndex of
     0: Settings.TXTEncoding := enUTF8;
@@ -480,10 +455,7 @@ begin
 
   Settings.RemoveSquarebrackets := cbSquareFilter.Checked;
 
-  // Page 2 - Readers
   SaveReaders;
-
-  // Page 3 - Interface
 
   Settings.TreeFontSize := udFontSize.Position;
   Settings.ShortFontSize := udShortFontSize.Position;
@@ -497,7 +469,6 @@ begin
   Settings.BookColor := pnCT.Color;
   Settings.SeriesBookColor := pnBS.Color;
 
-  // Page 4 - Internet
   Settings.UseIESettings := cbUseIESettings.Checked;
   Settings.ProxyServer := edProxyServer.Text;
   Settings.ProxyPort := StrToIntDef(edProxyPort.Text, 0);
@@ -511,7 +482,6 @@ begin
   Settings.DwnldInterval := udDwnldInterval.Position;
   Settings.AutoRunUpdate := cbAutoRunUpdate.Checked;
   Settings.InpxURL := IncludeUrlSlash(edINPXUrl.Text);
-  // Дополнительный прокси
   Settings.UseProxyForUpdate := rbUseProxyForUpdate.Checked;
   Settings.ProxyServerUpdate := edProxyServerUpdate.Text;
   Settings.ProxyPortUpdate := StrToIntDef(edProxyPortUpdate.Text, 0);
@@ -522,11 +492,8 @@ begin
 
   Settings.UpdateDir := edUpdateDir.Text;
 
-  // Page 5 - Scripts
   SaveScripts;
   Settings.DefaultScript := cbDefaultAction.ItemIndex;
-
-  // Page 6 - Behavior
 
   Settings.ShowSubGenreBooks := cbShowSubGenreBooks.Checked;
   Settings.MinimizeToTray := cbMinimizeToTray.Checked;
@@ -540,8 +507,6 @@ begin
   Settings.AutoStartDwnld := cbAutoStartDwnld.Checked;
   Settings.SelectedIsChecked := cbSelectedIsChecked.Checked;
   Settings.IgnoreAbsentArchives := cbIgnoreArchives.Checked;
-
-  // Page 6 -  FileSort
 
   Settings.EnableSort := cbEnableFileSort.Checked;
   Settings.ImportDir := edImportFolder.Text;
@@ -599,11 +564,6 @@ begin
   Close;
 end;
 
-// ============================================================================
-//
-// Настройка читалок
-//
-
 procedure TfrmSettings.EditReader(AItem: TListItem);
 var
   frmEditReader: TfrmEditReader;
@@ -622,14 +582,12 @@ begin
       if Assigned(AItem) and (AnsiCompareText(AItem.Caption,
           frmEditReader.Extension) = 0) then
       begin
-        // Расширение не поменялось -> обновим путь
         AItem.SubItems[0] := frmEditReader.Path;
         Exit;
       end;
 
       if lvReaders.FindCaption(0, frmEditReader.Extension, False, True, False) <> nil then
       begin
-        // Это расширение уже зарегистрировано
         MessageDlg(Format(rstrTypeAlreadyInTheList, [frmEditReader.Extension]), mtError, [mbOk], 0);
         Exit;
       end;
@@ -668,11 +626,6 @@ procedure TfrmSettings.btnDeleteExtClick(Sender: TObject);
 begin
   lvReaders.DeleteSelected;
 end;
-
-// ============================================================================
-//
-// Настройка скриптов
-//
 
 procedure TfrmSettings.EditScript(AItem: TListItem);
 var
@@ -753,9 +706,6 @@ begin
   lvScripts.DeleteSelected;
 end;
 
-//
-// Настройки интерфейса
-//
 procedure TfrmSettings.SetBackgroundColor(Sender: TObject);
 var
   PanelControl: TPanel;
@@ -817,26 +767,17 @@ begin
     PanelControl.Font.Color := dlgColors.Color;
 end;
 
-//
-//
-//
 procedure TfrmSettings.tvSectionsChange(Sender: TObject; Node: TTreeNode);
 begin
   pcSetPages.ActivePageIndex := tvSections.Selected.Index;
 
-  //
   // Скидання реалізоване лише для цих двох розділів
-  //
   btnReset.Enabled := (pcSetPages.ActivePage = tsDevices) or
                       (pcSetPages.ActivePage = tsInterface);
 end;
 
-//
-// Скидання розділу налаштувань до типових значень.
-//
 // Змінюємо лише контроли форми, а не Settings - інакше "Відміна" перестане
 // скасовувати скидання. Збереження й далі йде через звичайний SaveSettings.
-//
 procedure TfrmSettings.ResetDevicesTab;
 begin
   cbPromptPath.Checked := DEF_PROMPT_DEVICE_PATH;
@@ -849,7 +790,6 @@ begin
   cbSquareFilter.Checked := DEF_REMOVE_SQUARE_BRACKETS;
   cbTXTEncoding.ItemIndex := DEF_TXT_ENCODING;
 
-  // перечитаємо стан доступності полів шляху до пристрою
   cbPromptPathClick(nil);
 end;
 
@@ -978,8 +918,6 @@ begin
 
 end;
 
-// ============================================================================
-
 procedure TfrmSettings.SelectFolder(Sender: TObject);
 var
   EditControl: TEdit;
@@ -1015,7 +953,6 @@ begin
     EditControl := edFB2FolderTemplate
   else if Sender = btnFBDFolderTemplate then
     EditControl := edFBDFolderTemplate
-  //else if Sender =  then
   else
   begin
     Assert(False);
@@ -1038,7 +975,6 @@ begin
     EditControl := edFB2FileTemplate
   else if Sender = btnFBDFileTemplate then
     EditControl := edFBDFileTemplate
-  //else if Sender =  then
   else
   begin
     Assert(False);
@@ -1061,7 +997,6 @@ end;
 
 procedure TfrmSettings.edTimeOutChange(Sender: TObject);
 begin
-//
 end;
 
 end.

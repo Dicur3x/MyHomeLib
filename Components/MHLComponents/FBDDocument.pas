@@ -17,12 +17,6 @@
 
 unit FBDDocument;
 
-//
-// TODO -oNickR: разобраться с использованием FImage. Не везде есть проверки на nil, картинка не перерисовывается...
-// TODO -oNickR: более аккуратная работа с архивами (расставить флаги у метода OpenArchive)
-// TODO -oNickR: расставить const у параметров
-//
-
 interface
 
 uses
@@ -103,9 +97,7 @@ type
     function Load(Folder, Filename, Ext: string; NoCover: Boolean = False): Boolean;
     function Save(EditorMode: Boolean): Boolean;
 
-    //
     // Пакетний режим сам звітує про помилки, тому діалог можна вимкнути.
-    //
     property ReportErrors: Boolean read FReportErrors write FReportErrors;
 
     property Title: IXMLTitleInfoType read GetTitleInfo write SetTitleInfo;
@@ -115,9 +107,7 @@ type
     property Cover: TCover read FCoverData write FCoverData;
     property ProgramUsed: string read FProgramUsed write FProgramUsed;
 
-    //
     // Повне ім'я цільового архіву. Визначене після New/Load.
-    //
     property ArchiveFileName: string read FArchiveFilename;
 
     procedure SetCustom(const Field: string; const Value: string);
@@ -164,8 +154,6 @@ const
   ZIP_EXTENSION = '.zip';
   TEMP_EXTENSION = '.mhltmp';
   DEFAULT_PROGRAM_USED = 'MyHomeLib';
-
-{ TFBDDocument }
 
 procedure TFBDDocument.SetFileNames(const Folder: string; const Filename: string; const Ext: string);
 begin
@@ -488,12 +476,11 @@ begin
         for I := 0 to FMemo.Lines.Count - 1 do
         begin
           Str := FMemo.Lines[i];
-          // StrReplace(#10,'',str);
           P := Annotation.P.Add;
           P.Text := Str;
         end;
       end;
-    end; // with Description
+    end;
 
     with FFBD.Description do
     begin
@@ -536,10 +523,8 @@ begin
   end;
 end;
 
-//
 // Переносить у новий архів усі записи старого, крім старого опису FBD
 // (він щойно перезаписаний і додається окремо).
-//
 procedure TFBDDocument.CopyArchiveContent(const SourceArchive: string; Target: TMHLZip);
 var
   source: TMHLZip;
@@ -572,11 +557,9 @@ begin
   end;
 end;
 
-//
 // Архів завжди збирається у тимчасовому файлі та перевіряється вже закритим.
 // Оригінальні файли книги видаляються лише після того, як перевірений архів
 // став на місце цільового. Будь-яка помилка на шляху лишає книгу недоторканою.
-//
 function TFBDDocument.CreateArchive(EditorMode: boolean):boolean;
 var
   archiveFileName: string;
@@ -600,18 +583,14 @@ begin
       archiver.AddFiles(fbdFileName);
 
       if EditorMode then
-        //
         // Книга вже лежить у цільовому архіві - переносимо її як є,
         // інакше перезапис опису знищив би сам файл книги.
-        //
         CopyArchiveContent(archiveFileName, archiver)
       else
         archiver.AddFiles(bookFileName);
     finally
-      //
       // Центральний каталог zip дописується лише при закритті, тому перевіряти
       // архів можна тільки після знищення archiver.
-      //
       FreeAndNil(archiver);
     end;
 
@@ -638,7 +617,6 @@ begin
   end;
 end;
 
-{--------------------  Списки авторов ----------------------------------------}
 function TFBDDocument.GetAuthors(ListType: TAuthorListType): TAuthorDataList;
 var
   i: integer;
@@ -734,8 +712,6 @@ begin
   end;
 end;
 
-{--------------------  Helpers -----------------------------------------------}
-
 procedure TFBDDocument.AddSeries(SeriesType: TSeriesListType; const Title: string; const No: integer);
 var
   Sequence : IXMLSequenceTypeList;
@@ -766,7 +742,6 @@ var
     begin
       thumbRect.Left := 0;
       thumbRect.Top := 0;
-      //proportional resize
       if thumbnail.Width > thumbnail.Height then
       begin
         thumbRect.Right := FCoverWidth;
@@ -778,7 +753,6 @@ var
         thumbRect.Right := (FCoverHeight * thumbnail.Width) div thumbnail.Height;
       end;
       thumbnail.Canvas.StretchDraw(thumbRect, thumbnail) ;
-      //resize image
       thumbnail.Width := thumbRect.Right;
       thumbnail.Height := thumbRect.Bottom;
     end;
@@ -791,11 +765,9 @@ var
       thumbRect.Left := 0;
       thumbRect.Top := 0;
 
-      //proportional resize
       thumbRect.Right := FCoverWidth;
       thumbRect.Bottom := (FCoverWidth * thumbnail.Height) div thumbnail.Width;
       thumbnail.Canvas.StretchDraw(thumbRect, thumbnail) ;
-      //resize image
       thumbnail.Width := thumbRect.Right;
       thumbnail.Height := thumbRect.Bottom;
     end;
@@ -808,11 +780,9 @@ var
       thumbRect.Left := 0;
       thumbRect.Top := 0;
 
-      //proportional resize
       thumbRect.Bottom := FCoverHeight;
       thumbRect.Right := (FCoverHeight * thumbnail.Width) div thumbnail.Height;
       thumbnail.Canvas.StretchDraw(thumbRect, thumbnail) ;
-      //resize image
       thumbnail.Width := thumbRect.Right;
       thumbnail.Height := thumbRect.Bottom;
     end;
@@ -841,8 +811,6 @@ begin
     ImageType := itJPG;
   end;
 end;
-
-{--------------   Custom info           --------------------------------------}
 
 function TFBDDocument.GetCustom(const Field: string): string;
 var
@@ -907,18 +875,15 @@ begin
   if Result then
   begin
     WaitForSingleObject(ProcInfo.hProcess, INFINITE);
-    { Free the Handles }
     CloseHandle(ProcInfo.hProcess);
     CloseHandle(ProcInfo.hThread);
   end
   else
   begin
-    // { TODO -oNickR -cRefactoring : не самая лучшая идея показывать диалоги прямо из этой функции. Она может быть вызвана из рабочего потока. }
+    // Не самая лучшая идея показывать диалоги прямо из этой функции: она может быть вызвана из рабочего потока.
     Application.MessageBox(PChar(Format(rstrErrorLaunching, [FileName])), '', mb_IconExclamation);
   end;
 end;
-
-{---------------   FBD sections         --------------------------------------}
 
 function TFBDDocument.GetCustomInfo: IXMLCustominfoList;
 begin

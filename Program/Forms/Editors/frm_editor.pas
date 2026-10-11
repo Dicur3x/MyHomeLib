@@ -87,7 +87,6 @@ begin
   else
     InsText := '';
 
-  // Кнопка з несподіваним Tag не потрапить у жодну гілку — лишаємо курсор на місці
   OffSet := P;
 
   case (Sender as TButton).Tag of

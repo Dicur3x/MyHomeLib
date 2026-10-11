@@ -2,18 +2,7 @@
 setlocal enabledelayedexpansion
 set "PATH=%SystemRoot%\System32;%PATH%"
 
-:: ============================================================================
-:: MyHomeLib Installer Build Script
-::
-:: Collects redistributables from the build output into the Installer staging
-:: directories (Common, x86, x64) and invokes Inno Setup to compile the
-:: installer(s).
-::
-:: Usage:
-::   build_installer.cmd [x86|x64|all]
-::
-:: Default: all
-:: ============================================================================
+:: Usage: build_installer.cmd [x86|x64|all]   (default: all)
 
 set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%SCRIPT_DIR%.."
@@ -32,9 +21,6 @@ set "GROUPPROJ=%ROOT_DIR%\Program\MHL.groupproj"
 set "TARGET=%~1"
 if "%TARGET%"=="" set "TARGET=all"
 
-:: ============================================================================
-:: Validate
-:: ============================================================================
 if not exist "%MSBUILD%" (
     echo ERROR: MSBuild not found at "%MSBUILD%"
     exit /b 1
@@ -50,9 +36,6 @@ if not exist "%ISCC%" (
     exit /b 1
 )
 
-:: ============================================================================
-:: Build binaries (components package + main app) for each requested platform
-:: ============================================================================
 if /i "%TARGET%"=="x86" call :build_platform Win32
 if errorlevel 1 exit /b 1
 if /i "%TARGET%"=="x64" call :build_platform Win64
@@ -64,7 +47,6 @@ if /i "%TARGET%"=="all" (
     if errorlevel 1 exit /b 1
 )
 
-:: Post-build sanity check — binaries must now exist
 if not exist "%BIN_DIR%\MyHomeLib.exe" (
     if /i not "%TARGET%"=="x64" (
         echo ERROR: %BIN_DIR%\MyHomeLib.exe missing after build.
@@ -84,20 +66,12 @@ if /i "%TARGET%"=="all" (
     )
 )
 
-:: ============================================================================
-:: Collect Common redistributables (shared between x86 and x64)
-:: ============================================================================
 echo.
 echo === Collecting Common redistributables ===
 
 if not exist "%COMMON_DIR%" mkdir "%COMMON_DIR%"
 
-:: Genre lists, including the per-locale ones. Staged from GenreLists\ under
-:: version control for the same reason the licences are: the build-output copy
-:: is untracked, so it drifts silently and a fresh clone does not have it.
-:: Copying the whole pattern means a new locale needs no edit here -- but it
-:: also means a list nobody validated would ship, so run
-:: `node tools\lang\check_glst.js` before building the installer.
+:: Copies every locale's list unvalidated: run `node tools\lang\check_glst.js` first.
 copy /y "%SCRIPT_DIR%GenreLists\genres_fb2*.glst"    "%COMMON_DIR%\" >nul
 if errorlevel 1 (
     echo ERROR: could not stage genres_fb2 lists from GenreLists\
@@ -109,32 +83,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Help and licences (staged from source, not from the build output), URL
 call "%ROOT_DIR%\Program\copy_help.cmd" "%COMMON_DIR%"
 if errorlevel 1 exit /b 1
 copy /y "%BIN_DIR%\MyHomeLib.url" "%COMMON_DIR%\" >nul
-:: Licences live in Licenses\ under version control. They must NOT come from
-:: the build output: that copy is untracked and was stale CP1251 for years,
-:: which is what mangled the licence page in the wizard. Inno 6 needs UTF-8
-:: with a BOM, so keep these files in that encoding.
+:: Licences come from Licenses\, NOT the untracked build output (was stale CP1251).
+:: Inno 6 needs UTF-8 with BOM.
 copy /y "%SCRIPT_DIR%Licenses\License.txt"    "%COMMON_DIR%\" >nul
 copy /y "%SCRIPT_DIR%Licenses\License_uk.txt" "%COMMON_DIR%\" >nul
 
-:: Default collections config
 copy /y "%BIN_DIR%\collections.ini" "%COMMON_DIR%\" >nul
 
-:: AlReader
 if exist "%BIN_DIR%\AlReader" (
     echo   Copying AlReader...
     robocopy "%BIN_DIR%\AlReader" "%COMMON_DIR%\AlReader" /s /e /njh /njs /ndl /nc /ns /np >nul
 )
 
-:: Converters
-:: Only fb2lrf is redistributed. fb2mobi/fb2epub/fb2pdf are third-party
-:: downloads (fb2mobi bundles Amazon's kindlegen, fb2pdf needs a JRE) and are
-:: NOT bundled - users install them into converters\<name>\ themselves. They
-:: are often present in the build output for local testing, so do not stage
-:: them here or they end up in the installer.
+:: Only fb2lrf is redistributable; the others (kindlegen, JRE) are user-installed
+:: but often present in the build output, so never stage them.
 for %%C in (fb2lrf) do (
     if exist "%BIN_DIR%\converters\%%C" (
         robocopy "%BIN_DIR%\converters\%%C" "%COMMON_DIR%\converters\%%C" /s /e /njh /njs /ndl /nc /ns /np >nul
@@ -143,9 +108,6 @@ for %%C in (fb2lrf) do (
 
 echo   Common files collected.
 
-:: ============================================================================
-:: Collect x86 DLLs
-:: ============================================================================
 if /i "%TARGET%"=="x86" goto :collect_x86
 if /i "%TARGET%"=="all" goto :collect_x86
 goto :skip_x86
@@ -155,7 +117,6 @@ echo.
 echo === Collecting x86 DLLs ===
 if not exist "%X86_DIR%" mkdir "%X86_DIR%"
 
-:: SQLite — prefer the one from SQLite/x32 if it exists (known good version)
 if exist "%BIN_DIR%\SQLite\x32\sqlite3.dll" (
     copy /y "%BIN_DIR%\SQLite\x32\sqlite3.dll" "%X86_DIR%\" >nul
 ) else (
@@ -165,9 +126,6 @@ if exist "%BIN_DIR%\SQLite\x32\sqlite3.dll" (
 echo   x86 DLLs collected.
 :skip_x86
 
-:: ============================================================================
-:: Collect x64 DLLs
-:: ============================================================================
 if /i "%TARGET%"=="x64" goto :collect_x64
 if /i "%TARGET%"=="all" goto :collect_x64
 goto :skip_x64
@@ -177,7 +135,6 @@ echo.
 echo === Collecting x64 DLLs ===
 if not exist "%X64_DIR%" mkdir "%X64_DIR%"
 
-:: SQLite — prefer the one from SQLite/x64 if it exists
 if exist "%BIN_DIR%\SQLite\x64\sqlite3.dll" (
     copy /y "%BIN_DIR%\SQLite\x64\sqlite3.dll" "%X64_DIR%\" >nul
 ) else (
@@ -187,9 +144,6 @@ if exist "%BIN_DIR%\SQLite\x64\sqlite3.dll" (
 echo   x64 DLLs collected.
 :skip_x64
 
-:: ============================================================================
-:: Build installer(s)
-:: ============================================================================
 if not exist "%SCRIPT_DIR%Out" mkdir "%SCRIPT_DIR%Out"
 
 if /i "%TARGET%"=="x86" goto :build_x86
@@ -220,9 +174,6 @@ if errorlevel 1 (
 )
 :skip_build_x64
 
-:: ============================================================================
-:: Done
-:: ============================================================================
 echo.
 echo === Done ===
 echo.
@@ -232,9 +183,6 @@ for %%F in ("%SCRIPT_DIR%Out\Setup_MyHomeLib_*.exe") do (
 echo.
 exit /b 0
 
-:: ============================================================================
-:: Subroutine: build_platform <Win32|Win64>
-:: ============================================================================
 :build_platform
 echo.
 echo === Building %~1 binaries ===

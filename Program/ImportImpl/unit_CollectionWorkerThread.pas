@@ -28,9 +28,7 @@ type
     FCollectionID: Integer;
 
   protected
-    //
     // эти поля будут инициализированы только в рабочем потоке
-    //
     FSystemData: ISystemData;
     FCollection: IBookCollection;
     FCollectionRoot: string;
@@ -47,8 +45,6 @@ implementation
 uses
   unit_Consts,
   dm_user;
-
-{ TCollectionWorker }
 
 constructor TCollectionWorker.Create(const CollectionID: Integer);
 begin

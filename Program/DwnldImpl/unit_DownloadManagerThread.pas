@@ -27,12 +27,8 @@ uses
   unit_Interfaces;
 
 type
-  //
-  // Менеджер черги завантажень.
-  //
   // Потік не знає ані про головну форму, ані про дерево черги: усе спілкування
   // з інтерфейсом іде через IDownloadView і тільки в межах Synchronize.
-  //
   TDownloadManagerThread = class(TThread)
   private
     FView: IDownloadView;
@@ -49,28 +45,21 @@ type
 
     FError : boolean;
 
-    //
-    // Обгортки над IDownloadView: кожна виконується у головному потоці.
-    //
+    // Кожна виконується у головному потоці.
     procedure ShowState(const State: string);
     procedure ShowProgress(Position: Integer);
     procedure ShowCurrentItem;
     procedure SetQueueControlsEnabled(Enabled: Boolean);
     function AskIgnoreErrors: Integer;
 
-    //
-    // Кроки черги
-    //
     procedure SelectNextFile;
     procedure FinishCurrentFile;
     procedure CancelCurrentFile;
 
     procedure InterruptibleSleep(Milliseconds: Integer);
 
-    //
     // Зворотні виклики завантажувача. Приходять з фонового потоку, тому
     // всередині лише Synchronize.
-    //
     procedure SetComment(const Current, Total: string);
     procedure SetProgress(Current, Total: Integer);
 
@@ -102,9 +91,7 @@ rstrConnecting = 'Підключення...';
 
 constructor TDownloadManagerThread.Create(const View: IDownloadView);
 begin
-  //
   // Створюємо призупиненим: потік не має стартувати, доки не отримає View.
-  //
   inherited Create(True);
   Assert(Assigned(View));
   FView := View;
@@ -114,9 +101,7 @@ end;
 procedure TDownloadManagerThread.TerminateNow;
 begin
   try
-    //
     // Завантажувача може вже не бути: потік міг завершити роботу сам.
-    //
     if Assigned(FDownloader) then
       FDownloader.Stop;
     Terminate;
@@ -125,12 +110,8 @@ begin
   end;
 end;
 
-//
-// Пауза, яку можна перервати.
-//
 // Звичайний Sleep змусив би і закриття програми, і перезапуск черги чекати до
 // 30 секунд - саме стільки триває пауза після помилки завантаження.
-//
 procedure TDownloadManagerThread.InterruptibleSleep(Milliseconds: Integer);
 const
   SLICE = 100;
@@ -144,10 +125,6 @@ begin
     Inc(Elapsed, SLICE);
   end;
 end;
-
-//
-// - - - - - - - - - - - Обгортки над представленням - - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.ShowState(const State: string);
 begin
@@ -221,10 +198,6 @@ begin
   Result := Res;
 end;
 
-//
-// - - - - - - - - - - - - - - - Кроки черги - - - - - - - - - - - - - - - - - -
-//
-
 procedure TDownloadManagerThread.SelectNextFile;
 var
   HasItem: Boolean;
@@ -286,10 +259,6 @@ begin
   );
 end;
 
-//
-// - - - - - - - - - - - Зворотні виклики завантажувача - - - - - - - - - - - - -
-//
-
 procedure TDownloadManagerThread.SetComment(const Current, Total: string);
 begin
   ShowState(Current);
@@ -299,10 +268,6 @@ procedure TDownloadManagerThread.SetProgress(Current, Total: Integer);
 begin
   ShowProgress(Current);
 end;
-
-//
-// - - - - - - - - - - - - - - - - Робота - - - - - - - - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.Execute;
 begin
@@ -338,10 +303,8 @@ begin
       FDownloader.OnProgress := SetProgress;
       try
         SelectNextFile;
-        //
         // Нічого не качаємо, поки черга не дала книгу: інакше перший прохід
         // пішов би завантажувати порожній ключ.
-        //
         while not (FFinished or FCanceled) do
         begin
           if FError then

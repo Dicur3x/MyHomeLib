@@ -60,8 +60,6 @@ resourcestring
 
 {$R *.dfm}
 
-{ TImportProgressForm1 }
-
 procedure TImportProgressFormEx.btnSaveLogClick(Sender: TObject);
 var
   FileName: string;
@@ -127,7 +125,6 @@ begin
   end;
   item.SubItems.Add(Msg);
 
-//  if Severity = tsError then
   FErrors.Add(Msg);
   errorLog.Perform(WM_KEYDOWN, VK_DOWN, 0);
 end;

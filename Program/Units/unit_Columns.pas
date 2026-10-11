@@ -27,7 +27,7 @@ uses
   VirtualTrees,
   VirtualTrees.Types,
   IniFiles,
-  unit_Globals;          // для TTreeMode
+  unit_Globals;
 
 type
   TColumnDesc = class(TCollectionItem)
@@ -118,9 +118,6 @@ rstrAuthor = 'Автор';
    rstrLibID = 'BookID';
 
 const
-  //
-  // Наборы опций для изменяемых и неизменяемых колонок
-  //
   BASE_COLUMN_OPTIONS              = [coDraggable, coEnabled, coParentColor, coVisible, coShowDropMark];
 
   RESIZABLE_COLUMN_OPTIONS         = BASE_COLUMN_OPTIONS + [coResizable, coAutoSpring];
@@ -282,8 +279,6 @@ begin
   end;
 end;
 
-{ TColumns }
-
 constructor TColumns.Create(const FileName: string);
 begin
   inherited Create(TColumnDesc);
@@ -307,9 +302,6 @@ begin
       Column.Tag := Tag;
       Column.Width := Width;
       Column.Position := Position;
-      //
-      // не изменяемые пользователем значения
-      //
       GetDefaultColumnProperties(FMode, Tag, Column.FCaption, Column.FMinWidth, Column.FMaxWidth, Column.FAlignment, Column.FOptions);
     except
       Column.Free;

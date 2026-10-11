@@ -1,18 +1,7 @@
 'use strict';
 
-// Generates langtest_fixture.res: embedded catalogs that only the test harness
-// links, covering the two ways an embedded catalog can be illegitimate.
-//
-// Neither case needs the signing key -- that is the point. A catalog with no
-// signature resource and a catalog with 64 bytes of nonsense are both things
-// an attacker can produce with a resource editor, and both must be refused.
-// The positive case is the real LANG_EN/LANG_BG the harness already links.
-//
-//   LANG_XX  catalog, no LANG_XX_SIG        -> must not be offered
-//   LANG_ZZ  catalog + LANG_ZZ_SIG of junk  -> must not be offered
-//
-// Usage: node tools/lang/tests/make_fixture_res.js <path-to-brcc32.exe>
-// Exit code: 0 = written, 1 = brcc32 failed.
+// LANG_XX has no _SIG and LANG_ZZ a junk _SIG: what a resource editor can add
+// without the key. Both must not be offered.
 
 const fs = require('fs');
 const path = require('path');
@@ -29,8 +18,7 @@ if (!brcc32 || !fs.existsSync(brcc32)) {
   process.exit(1);
 }
 
-// Deliberately translated, not identity: an identity catalog produces an empty
-// index and would be dropped for that reason instead of the one under test.
+// Not identity: an identity catalog is dropped as empty, not for the reason under test.
 function catalog(code, name) {
   return {
     locale: code,
@@ -50,8 +38,7 @@ const zz = Buffer.from(JSON.stringify(catalog('zz', 'Badly signed'), null, 2), '
 fs.writeFileSync(path.join(FIXTURE_DIR, 'xx.json'), xx);
 fs.writeFileSync(path.join(FIXTURE_DIR, 'zz.json'), zz);
 
-// 64 bytes, so the length check passes and the verifier is actually reached.
-// Fixed, not random: a failing test should reproduce byte for byte.
+// 64 bytes so the verifier is reached; fixed so failures reproduce.
 fs.writeFileSync(path.join(FIXTURE_DIR, 'zz.json.sig'),
   Buffer.alloc(64, 0xA5));
 

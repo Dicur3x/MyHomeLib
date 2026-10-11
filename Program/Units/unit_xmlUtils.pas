@@ -70,8 +70,6 @@ uses
   ActiveX,
   ZLib;
 
-{ TMSXMLHelper }
-
 class function TMSXMLHelper.LoadFromZFile(const FileName: string): IXMLDOMDocument;
 var
   fileStream: TFileStream;
@@ -125,7 +123,6 @@ class function TMSXMLHelper.CreateEmptyDocument: IXMLDOMDocument;
 begin
   Result := newDocument;
 
-  // Create a processing instruction targeted for xml.
   Result.appendChild(Result.createProcessingInstruction('xml', 'version="1.0" encoding="UTF-8"'));
 end;
 
@@ -152,8 +149,6 @@ begin
     fileStream.Free;
   end;
 end;
-
-{ EMSXMLParseError }
 
 constructor EMSXMLParseError.Create(const ParseError: IXMLDOMParseError; const Msg: string);
 begin

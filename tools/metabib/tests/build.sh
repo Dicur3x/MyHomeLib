@@ -1,13 +1,5 @@
 #!/bin/bash
-# Builds the MetabibTest harness (tools/metabib/tests/MetabibTest.dpr) with dcc64.
-#
-# unit_MetabibReader needs only the RTL plus unit_ZstdStream and
-# unit_MHLArchiveHelpers, so the search path is far shorter than the lang
-# harness's -- no VCL, no third-party components.
-#
-# Two Git Bash traps: unquoted backslashes are eaten before the compiler sees
-# them (use forward slashes), and POSIX-looking arguments are rewritten into
-# C:/Program Files/Git/... unless argument conversion is disabled.
+# Git Bash: use forward slashes, and disable POSIX path conversion.
 export MSYS2_ARG_CONV_EXCL="*"
 export MSYS_NO_PATHCONV=1
 cd "D:/DelphiProjects/MyHomeLib" || exit 1

@@ -14,21 +14,6 @@
   *
   ****************************************************************************** *)
 
-(*
-
-Достаточка простая progress engine.
-
-Назначение:
-  - установка хинтов прогресса в зависимости от возможности показать точный прогресс
-  - генерация сообщений о ходе прогресса только в случае реального изменения прогресса
-
-TODO:
-  - названия методов не очень удачные
-  - плохо обрабатывается Total = 0
-  - необходимо иметь возможность менять сообщение вместе с основным прогрессом
-
-*)
-
 unit unit_ProgressEngine;
 
 interface
@@ -83,7 +68,6 @@ type
 
   public
     constructor Create(BaseEngine: TProgressEngine = nil);
-    //destructor Done; override;
 
     procedure BeginOperation(const Total: Integer; const ShortCommentFormat: string; const LongCommentFormat: string);
     procedure EndOperation;
@@ -107,8 +91,6 @@ uses
   SysUtils,
   StrUtils,
   Math;
-
-{ TProgressInfo }
 
 constructor TProgressEngine.Create(BaseEngine: TProgressEngine = nil);
 begin
@@ -190,15 +172,9 @@ begin
   FShortCommentFormat := ShortCommentFormat;
   FLongCommentFormat := LongCommentFormat;
 
-  //
-  // Это вложенная операция. Сообщим родительской операции о своем начале.
-  //
   if IsSubOperation then
     FParentEngine.BeginSubOperation(IsPreciseProgress);
 
-  //
-  // Настроим GUI и приведем его в начальное состояние.
-  //
   if IsPreciseProgress then
     DoSetProgressHint(pbstNormal, pbsNormal)
   else
@@ -220,14 +196,8 @@ var
 begin
   if IsPreciseProgress then
   begin
-    //
-    // Эта операция использует точный прогресс
-    //
     Percent := Min(FCurrent * 100 div FTotal, 100);
 
-    //
-    // Вложенная операция использует точный прогресс. Учтем его.
-    //
     if FUseSubPercent then
     begin
       Inc(Percent, FSubPercent div FTotal);
@@ -245,9 +215,7 @@ begin
   end
   else
   begin
-    //
-    // цикличный прогресс. Прогресс вложенно й операции не учитываем.
-    //
+    // Прогрес вкладеної операції тут не враховується.
     if ((FCurrent mod FThreshold) = 0) then
     begin
       DoSetComment(GetComment);
@@ -259,9 +227,7 @@ end;
 
 procedure TProgressEngine.AddProgress(const Value: Integer);
 begin
-  //
-  // Считаем, что подоперация закончена и пока не начнется новая операция игнорируем подпрогресс.
-  //
+  // Підоперацію вважаємо завершеною: до нової підпрогрес ігнорується.
   FSubPercent := 0;
   FUseSubPercent := False;
   Inc(FCurrent, Value);

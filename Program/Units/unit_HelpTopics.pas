@@ -42,10 +42,8 @@ type
   end;
 
 const
-  //
   // Кожен ID узятий з властивості HelpContext відповідної форми, вкладки
   // або пункту меню. 5001 та будь-який невідомий ID відкривають зміст.
-  //
   HelpTopics: array [0 .. 21] of THelpTopic = (
     (ContextID: 1;   FileName: 'index.html'),              // pgControl
     (ContextID: 2;   FileName: 'main_window.html'),        // frmMain

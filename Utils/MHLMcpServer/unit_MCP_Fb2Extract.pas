@@ -7,15 +7,7 @@ uses
   System.SysUtils;
 
 type
-  // Distinguishes the two cases Task 10 must map to different MCP error
-  // codes: eekNoText for a book that extracted cleanly but genuinely has no
-  // text (picture-only, empty body -- not corrupt, just textless), and
-  // eekExtractionFailed for everything else (both the DOM walk and the
-  // tag-stripping fallback raised; nothing at all could be recovered, or a
-  // nil stream was handed in). Set explicitly at each raise site below
-  // rather than left for a caller to infer from message text, which is
-  // fragile -- message text is free to change for clarity without silently
-  // breaking a substring match on the consuming side.
+  // eekNoText: extraction succeeded but the book has no text (picture-only).
   TFb2ExtractErrorKind = (eekExtractionFailed, eekNoText);
 
   EFb2ExtractError = class(Exception)
@@ -26,23 +18,10 @@ type
     property Kind: TFb2ExtractErrorKind read FKind;
   end;
 
-  // A section as found by one pre-order DOM/text walk. Sections form a
-  // HIERARCHY, not a flat partition of Text: FB2 sections nest (<section>
-  // inside <section>), and a parent's [Offset, Offset+Length) span strictly
-  // CONTAINS every one of its descendants' spans -- entries are emitted in
-  // pre-order with Level recording the nesting depth (0 = top-level). A
-  // caller that slices a single section's span gets exactly that section's
-  // own text (heading plus body, including any nested subsections). A
-  // caller that concatenates every entry's slice instead of picking one
-  // double-counts: each nested section's text is covered once by itself and
-  // again by every ancestor's span.
-  //
-  // Offset is 0-BASED and, like Length, counts UTF-16 CODE UNITS of Text --
-  // i.e. plain Delphi string/char indices (minus the usual Pascal 1-based
-  // string-indexing convention: Offset 0 means "before the first
-  // character"). It is NOT a byte count and NOT a Unicode codepoint count. A
-  // consumer seeking into a UTF-16LE-encoded copy of Text must multiply by
-  // SizeOf(Char) to get a byte offset.
+  // Sections nest: a parent's [Offset, Offset+Length) contains its
+  // descendants' spans, so concatenating every entry double-counts.
+  // Offset/Length are 0-based UTF-16 code units of Text, not bytes or
+  // code points.
   TFb2Section = record
     Title: string;
     Level: Integer;
@@ -58,18 +37,8 @@ type
     Structured: Boolean;
   end;
 
-// Walks an FB2 DOM once, building Text and Sections from the same character
-// space so a Sections[i].Offset always indexes correctly into Text. Falls
-// back to a tag-stripping scan (Structured=False, Sections empty) when the
-// DOM parse fails -- malformed FB2 is common in real libraries. Raises
-// EFb2ExtractError (Kind = eekExtractionFailed) only when no usable text
-// could be produced at all because both the DOM walk and the fallback scan
-// raised, or Stream itself is nil (a defensive check for a caller that fails
-// to resolve a book's stream but calls in anyway -- TBookRecord.GetBookStream
-// can return nil without raising at all when Settings.IgnoreAbsentArchives is
-// True, which is its default). Raises EFb2ExtractError (Kind = eekNoText)
-// when extraction itself succeeded but the book genuinely has no text, e.g.
-// a picture-only file.
+// Falls back to a tag-stripping scan (Structured=False, Sections empty) when the
+// DOM parse fails; malformed FB2 is common in real libraries.
 function ExtractFb2(Stream: TStream): TFb2Extraction;
 
 implementation
@@ -81,15 +50,11 @@ uses
   Xml.xmldom;
 
 const
-  // System.SysUtils declares CP_UTF7/CP_UTF8 but not KOI8-R's Windows code
-  // page number.
+  // System.SysUtils has no constant for KOI8-R.
   CP_KOI8R = 20866;
 
 type
-  // Walks the DOM exactly once, appending every bit of body text to FText and
-  // recording each <section>'s start/end offsets into that same
-  // TStringBuilder as it descends. This is what keeps a TOC offset and the
-  // extracted text in the same character space -- see the unit header.
+  // One walk builds both text and offsets, so TOC offsets index into the text.
   TFb2Walker = class
   private
     FText: TStringBuilder;
@@ -116,10 +81,6 @@ begin
   inherited Destroy;
 end;
 
-// Flatten a node's descendant text without recording sections. Used for
-// <title> text (which is folded into a section's own title/offset span by
-// WalkNode, not tracked as a nested section) and is not on the main text-walk
-// path for anything else.
 function TFb2Walker.NodeText(const Node: IXMLNode): string;
 var
   I: Integer;
@@ -157,7 +118,6 @@ begin
 
   Name := LowerCase(Node.LocalName);
 
-  // <description> holds metadata, not body text.
   if Name = 'description' then
     Exit;
 
@@ -185,10 +145,7 @@ begin
       WalkNode(Node.ChildNodes[I], Level + 1);
     end;
 
-    // Recorded AFTER the whole child loop (title included) has appended to
-    // FText -- computing Length before the title text goes in would shrink
-    // every section's span by its own title, and a get_book_text caller
-    // slicing [Offset, Offset+Length) would silently lose the heading.
+    // Recorded after the title is appended, so the span includes the heading.
     FSections[SectionIndex].Length := FText.Length - StartOffset;
     Exit;
   end;
@@ -216,18 +173,8 @@ begin
       WalkNode(Root.ChildNodes[I], 0);
 end;
 
-// ---------------------------------------------------------------------
-// Fallback tag stripper for malformed FB2.
-// ---------------------------------------------------------------------
-
-// Scans the raw leading bytes for `encoding="..."` / `encoding='...'` in the
-// XML prolog, entirely at the BYTE level -- no decode of the document is
-// attempted before or during this scan. That is deliberate and safe for
-// every real-world encoding this project sees (UTF-8, windows-1251, koi8-r,
-// ...): the prolog, and the encoding name in particular, is always plain
-// ASCII per the XML spec, even when the rest of the document is single-byte
-// Cyrillic. A byte-for-byte Chr() mapping of just those bytes can never
-// raise, regardless of what codec the rest of the file turns out to need.
+// Byte-level scan, no decoding: the XML prolog is ASCII even when the document
+// is single-byte Cyrillic.
 function SniffDeclaredEncoding(const Bytes: TBytes): string;
 const
   Needle: array[0..7] of Byte = (
@@ -261,7 +208,7 @@ begin
   Result := '';
   N := System.Length(Bytes);
   if N > 512 then
-    N := 512; // the prolog is always within the first handful of bytes
+    N := 512;
 
   I := 0;
   while I < N do
@@ -299,10 +246,6 @@ begin
   end;
 end;
 
-// Maps a sniffed prolog encoding name to a Windows code page. Returns 0 for
-// anything not recognised (including an absent declaration) -- the caller
-// then falls back to a UTF-8 validity probe and, failing that, a windows-1251
-// guess.
 function CodePageForDeclaredEncoding(const Name: string): Integer;
 begin
   if (Name = 'windows-1251') or (Name = 'cp1251') or (Name = 'x-cp1251') then
@@ -315,32 +258,10 @@ begin
     Result := 0;
 end;
 
-// Resolves the real encoding of a raw FB2 byte stream and decodes it. Tried,
-// in order:
-//  1. A byte-order mark, which conclusively identifies UTF-8 / UTF-16LE /
-//     UTF-16BE and is trusted over any prolog attribute (a BOM cannot lie
-//     the way a stale or simply wrong encoding="..." can).
-//  2. The declared encoding="..."/encoding='...' name from the prolog,
-//     sniffed at the byte level by SniffDeclaredEncoding, so this step
-//     itself cannot raise. windows-1251/cp1251 and koi8-r are decoded via
-//     TEncoding.GetEncoding, which -- unlike TEncoding.UTF8 -- is created
-//     with no MB_ERR_INVALID_CHARS flag (see TMBCSEncoding.Create(CodePage)
-//     in System.SysUtils), so it never raises on an unmapped byte either.
-//  3. When the declared name is absent, unrecognised, or names UTF-8 but the
-//     bytes do not actually parse as UTF-8 (a real case: cp1251 bytes
-//     mis-labelled utf-8), a non-raising UTF-8 validity probe
-//     (TEncoding.UTF8.IsBufferValid) decides whether to trust UTF-8 anyway.
-//  4. As an explicit last resort, windows-1251.
-//
-// Step 4 is a deliberate choice, not an oversight: for the Librusec/Flibusta
-// corpus this project actually has to deal with, a file that is neither
-// valid UTF-8 nor labelled with a recognised encoding is, empirically,
-// windows-1251 far more often than anything else. Decoding with the wrong
-// single-byte code page produces mojibake, which a human reader can still
-// work around (and which a corrected re-extraction fixes outright) --
-// raising here would instead turn a merely mislabelled file into an
-// unrecoverable failure, for the one code path whose entire job is "text
-// always works".
+// Order: BOM (trusted over the prolog), declared encoding, UTF-8 validity probe,
+// then windows-1251. GetEncoding(CodePage) has no MB_ERR_INVALID_CHARS, so it
+// never raises. The 1251 fallback is deliberate: unlabelled non-UTF-8 files in
+// the Librusec/Flibusta corpus are mostly cp1251, and mojibake beats failure.
 function DecodeFb2Bytes(const Bytes: TBytes): string;
 var
   BomEncoding, GuessEncoding: TEncoding;
@@ -356,7 +277,7 @@ begin
       Exit(BomEncoding.GetString(Bytes, Preamble, System.Length(Bytes) - Preamble));
     except
       on E: EEncodingError do
-        ; // Fall through to the declared/guessed path below rather than raise.
+        ;
     end;
   end;
 
@@ -383,21 +304,13 @@ begin
 
     Result := GuessEncoding.GetString(Bytes);
   finally
-    // GuessEncoding.Free only, not also a defensive := nil -- the variable
-    // goes out of scope at the very next statement (this function's own
-    // return), so re-assigning it here is dead by construction, not merely
-    // in this run.
     if OwnsGuess then
       GuessEncoding.Free;
   end;
 end;
 
-// Decodes the handful of XML entities that survive into fallback-scanned
-// text: the five predefined entities plus numeric character references. A
-// bare '&' is itself a common reason the real DOM parse failed in the first
-// place, so this path is exercised often, not hypothetically. Malformed or
-// unrecognised entities are left verbatim rather than dropped -- this is a
-// best-effort decode, not a validator.
+// A bare '&' is a common reason the DOM parse failed; unknown entities stay
+// verbatim.
 function DecodeEntities(const S: string): string;
 var
   SB: TStringBuilder;
@@ -414,9 +327,6 @@ begin
       begin
         SemiPos := 0;
         J := I + 1;
-        // Real entities are short; capping the lookahead keeps a bare '&'
-        // in ordinary text (not a real entity) from scanning arbitrarily far
-        // ahead for a ';' that may never come.
         while (J <= System.Length(S)) and (J <= I + 12) do
         begin
           if S[J] = ';' then
@@ -476,11 +386,6 @@ begin
   end;
 end;
 
-// True when Chunk (already lower-cased) has NameLen characters that are
-// followed by a real tag boundary ('>', whitespace, or '/' for a self-closed
-// tag) rather than continuing into a longer, unrelated tag name -- e.g. this
-// is what stops a check for "binary" from also matching a hypothetical
-// "binary-note" tag.
 function TagBoundaryOk(const Chunk: string; NameLen: Integer): Boolean;
 begin
   Result := (System.Length(Chunk) <= NameLen) or
@@ -503,40 +408,16 @@ begin
   Result := Chunk.StartsWith(Prefix) and TagBoundaryOk(Chunk, System.Length(Prefix));
 end;
 
-// Last resort for malformed FB2: strip tags, keep text, claim no structure.
-// Decodes the raw bytes itself via DecodeFb2Bytes -- this path never sees a
-// pre-decoded string, so it has to honour the prolog's encoding (or make a
-// safe guess) exactly the way the DOM parser does when fed bytes directly.
-//
-// Tag tracking is a single Depth flag that is unconditionally SET (not
-// incremented/decremented) to 1 on '<' and to 0 on '>': it tracks only
-// "currently inside the nearest unmatched '<...>' span", not a nesting
-// count. This is deliberately self-resynchronising. The previous
-// Inc(Depth)/Dec(Depth) version could never recover from a single unescaped
-// '<' in text content (illegal XML, but common in real files): Depth would
-// sit at >=1 for the rest of the document and every remaining character,
-// including entire later chapters, would be silently dropped. Measured
-// before this fix, on a file whose only defect was a stray '<' in one
-// paragraph: the extracted text was truncated at that paragraph and every
-// later paragraph vanished with no signal beyond the unrelated
-// Structured=False. With the set-not-count fix, only the characters between
-// the stray '<' and the very next '>' in the byte stream are lost (the
-// scanner cannot tell a real tag from a stray one), and every tag boundary
-// after that point resynchronises correctly -- later paragraphs, including
-// the very next one, are recovered. The same fix also stops a literal '>'
-// legally occurring inside an XML attribute value (e.g.
-// href="http://x/?a=1>2") from leaving Depth permanently unbalanced; some
-// leakage of the attribute's own tail into the output can still occur for
-// that specific case (this scanner does not parse quotes), but it no longer
-// desynchronises tracking for the rest of the document the way unbounded
-// Inc/Dec bookkeeping did.
+// Depth is SET to 1 on '<' and 0 on '>', not counted: a stray '<' in text
+// (common in real files) then loses only the text up to the next '>' instead
+// of the rest of the document.
 function StripTags(Stream: TStream): string;
 var
   Bytes: TBytes;
   Raw, Chunk: string;
   I, Depth: Integer;
   SB: TStringBuilder;
-  Suppress: Boolean; // inside <description>/<binary>/<stylesheet>
+  Suppress: Boolean;
 begin
   Stream.Position := 0;
   SetLength(Bytes, Stream.Size);
@@ -555,14 +436,8 @@ begin
       if Raw[I] = '<' then
       begin
         Chunk := Copy(Raw, I, 16).ToLower;
-        // <description> is metadata (title/author/etc, not book text).
-        // <binary> is a base64-encoded embedded file (almost always the
-        // cover image) -- without this, its base64 payload, which can run
-        // to hundreds of KB, comes out as "text" in the middle of the book.
-        // <stylesheet> is CSS, not book text either. The DOM path already
-        // excludes all of these structurally (TFb2Walker.Walk only descends
-        // into <body>); this scanner has no such structure to rely on, so it
-        // has to suppress them explicitly.
+        // <binary> holds base64 covers (hundreds of KB) that would otherwise
+        // come out as text; the DOM path only walks <body>.
         if StartsWithOpenTag(Chunk, 'description') or
            StartsWithOpenTag(Chunk, 'binary') or
            StartsWithOpenTag(Chunk, 'stylesheet') then
@@ -599,13 +474,8 @@ begin
   Result.Structured := False;
   SetLength(Result.Sections, 0);
 
-  // Defensive: a nil Stream must never reach Stream.Position below (an
-  // access violation, not a catchable EFb2ExtractError). The one real
-  // caller this guards today is Task 10's LoadBookForText, which now checks
-  // for nil itself right after GetBookStream and never calls in with nil --
-  // but that check living correctly at one call site today is no guarantee
-  // it will at every call site tomorrow, and an AV here would otherwise
-  // reach an MCP client as a raw, unmapped JSON-RPC -32603.
+  // GetBookStream can return nil without raising; an AV here would reach the
+  // client as a raw -32603.
   if not Assigned(Stream) then
     raise EFb2ExtractError.Create(eekExtractionFailed,
       'FB2 extraction failed: no stream provided (nil)');
@@ -629,7 +499,6 @@ begin
   except
     on E: Exception do
     begin
-      // Malformed FB2 is common. Serve text, admit there is no structure.
       try
         Result.Text := StripTags(Stream);
         Result.Structured := False;
@@ -642,10 +511,6 @@ begin
     end;
   end;
 
-  // Distinguish a genuinely empty book (DOM or fallback ran fine, there is
-  // just no text -- e.g. a picture-only file) from an actual extraction
-  // failure via Kind, not message text -- so Task 10 can switch on it
-  // directly instead of matching a substring that is free to change.
   if Result.Text.Trim = '' then
   begin
     if Result.Structured then

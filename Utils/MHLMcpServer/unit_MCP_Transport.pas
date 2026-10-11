@@ -8,8 +8,7 @@ uses
   System.SysUtils;
 
 type
-  // Newline-delimited UTF-8 JSON over the process's standard handles.
-  // This is the ONLY class in the project permitted to write to stdout.
+  // The ONLY class permitted to write to stdout.
   TMcpTransport = class
   private
     FInput: THandleStream;
@@ -21,7 +20,6 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    // Blocks until a full line arrives. False means stdin reached EOF.
     function ReadMessage(out Msg: string): Boolean;
     procedure WriteMessage(const Msg: string);
   end;
@@ -55,10 +53,10 @@ begin
   Line := '';
 
   for I := 0 to FPendingLen - 1 do
-    if FPending[I] = 10 then // LF
+    if FPending[I] = 10 then
     begin
       LineLen := I;
-      if (LineLen > 0) and (FPending[LineLen - 1] = 13) then // strip CR
+      if (LineLen > 0) and (FPending[LineLen - 1] = 13) then
         Dec(LineLen);
 
       Line := TEncoding.UTF8.GetString(FPending, 0, LineLen);
@@ -85,7 +83,7 @@ begin
 
     Got := FInput.Read(FPending[FPendingLen], CHUNK_SIZE);
     if Got <= 0 then
-      Exit(False); // EOF: the client closed the pipe
+      Exit(False);
 
     Inc(FPendingLen, Got);
 

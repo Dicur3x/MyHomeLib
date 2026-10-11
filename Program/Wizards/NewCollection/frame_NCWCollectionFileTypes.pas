@@ -58,12 +58,6 @@ resourcestring
    rstrCollectionTypeAny = 'Книги у будь-якому форматі. Ви самі заповнюватимете інформацію про книгу при додаванні її до колекції. Ви також можете вказати файл із описом жанрів на наступній сторінці.';
 {$R *.dfm}
 
-{
-TODO -oNickR -cRelease2.0: в файле импорта необходимо сохранять тип хранящихся файлов и список использованных жанров.
-Вообще говоря, здесь скрыта идеологическая ошибка.
-Проблема в том, что мы даем пользователю указать тип файлов (fb/non-fb) для существующей коллекции.
-}
-
 function TframeNCWCollectionFileTypes.Activate(LoadData: Boolean): Boolean;
 var
   rb: TRadioButton;
@@ -74,7 +68,7 @@ begin
   begin
     if ftFB2 = FPParams^.FileTypes then
       rb := rbSoreFB2Files
-    else {if ftAny = FPParams^.FileTypes then}
+    else
       rb := rbSoreAnyFiles;
 
     rb.Checked := True;
@@ -90,7 +84,7 @@ function TframeNCWCollectionFileTypes.Deactivate(CheckData: Boolean): Boolean;
 begin
   if rbSoreFB2Files.Checked then
     FPParams^.FileTypes := ftFB2
-  else {if rbSoreAnyFiles.Checked then}
+  else
     FPParams^.FileTypes := ftAny;
 
   FPParams^.AutoImport := cbAutoImport.Checked;

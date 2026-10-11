@@ -39,8 +39,6 @@ implementation
 
 {$R *.dfm}
 
-{ TframeInteriorPageBase }
-
 function TInteriorPageBase.GetTitle: string;
 begin
   Result := lblTitle.Caption;

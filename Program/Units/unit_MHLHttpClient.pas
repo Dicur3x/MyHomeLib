@@ -6,12 +6,8 @@ uses
   System.Net.HttpClient,
   System.Net.URLClient;
 
-/// Creates a THTTPClient configured with the "Global" proxy settings
-/// (used for book downloads, reviews, app update checks).
 function CreateHTTPClientGlobal: THTTPClient;
 
-/// Creates a THTTPClient configured with the "Update" proxy settings
-/// (used for library list updates, INPX downloads).
 function CreateHTTPClientUpdate: THTTPClient;
 
 implementation
@@ -22,7 +18,6 @@ uses
   dm_user;
 
 const
-  // WinHTTP scheme prefixes for proxy types
   ProxySchemes: array[0..2] of string = ('', 'socks4', 'socks5');
 
 // When ProxySettings.Host is empty, TWinHTTPClient auto-detects proxy from

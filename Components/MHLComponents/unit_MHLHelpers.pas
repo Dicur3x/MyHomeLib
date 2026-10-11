@@ -24,14 +24,8 @@ uses
   Classes,
   SysUtils;
 
-//
-// String helpers
-//
 function DecodeBase64(const CinLine: AnsiString): AnsiString;
 
-//
-// Stream helpers
-//
 type
   TStreamFormat = (
     sfUnknown,
@@ -262,26 +256,8 @@ begin
 
       LookupString := 'StringFileInfo\' + LanguageID + CodePage + '\';
 
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'CompanyName' ), Pointer( Value ), Len ) then
-      //  CompanyName := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'FileDescription' ), Pointer( Value ), Len ) then
-      //  FileDescription := Value;
       if VerQueryValue(InfoBuf, PChar(LookupString + 'FileVersion'), Pointer(Value), Len) then
         Result := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'InternalName' ), Pointer( Value ), Len ) then
-      //  InternalName := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'LegalCopyright' ), Pointer( Value ), Len ) then
-      //  LegalCopyright := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'LegalTrademarks' ), Pointer( Value ), Len ) then
-      //  LegalTradeMarks := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'OriginalFilename' ), Pointer( Value ), Len ) then
-      //  OriginalFilename := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'ProductName' ), Pointer( Value ), Len ) then
-      //  ProductName := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'ProductVersion' ), Pointer( Value ), Len ) then
-      //  ProductVersion := Value;
-      //if VerQueryValue( InfoBuf, PChar( LookupString + 'Comments' ), Pointer( Value ), Len ) then
-      //  Comments := Value;
     finally
       FreeMem(InfoBuf, InfoSize);
     end;

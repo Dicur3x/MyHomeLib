@@ -16,56 +16,13 @@ function RequireInt(const Args: TJSONObject; const Name: string): Integer;
 
 implementation
 
-// ArgStr/ArgInt/ArgBool used to call TJSONValue's *defaulting* GetValue<T>
-// overload (GetValue<T>(Name, Default)), which internally calls
-// TryGetValue<T> and falls back to Default on ANY failure -- an ABSENT
-// argument and a PRESENT-but-wrong-typed one were indistinguishable to the
-// caller, both silently producing Default. Measured against the real
-// collection: search_books{title:{"a":1}} (an object where a string was
-// documented) returned total_count: 439393 -- the whole non-deleted
-// collection -- because the swallowed type mismatch left Criteria.Title
-// empty, the same "silently becomes no filter" shape as an absent title --
-// not an error a caller (usually an LLM) has any way to notice.
-// include_deleted:"yes" silently became False; limit:"abc" silently became
-// 25 with no "clamped" flag -- every one of these is a malformed call
-// answered with a confidently wrong result instead of invalid_params.
+// Absent arguments take the default; present ones use the strict, non-defaulting
+// GetValue<T>(Name), so a wrong-typed value raises invalid_params instead of
+// silently becoming "no filter". The RTL still coerces "42" to Integer and
+// numbers to String; only outright-incompatible values raise.
 //
-// Fixed the same way RequireInt already handled this for required integers:
-// distinguish "absent" (Args.GetValue(Name) = nil -- the key is not in the
-// object at all) from "present", and only default on the former. A present
-// value goes through the strict, non-defaulting GetValue<T>(Name) overload,
-// which raises EJSONException on a genuine type mismatch; that is mapped to
-// EMcpToolError('invalid_params', ...) naming the argument, exactly like
-// RequireInt's own except block.
-//
-// Note on coercion: the RTL's own TJSONValue.AsTValue/StrToTValue performs
-// some conversions before failing outright -- a JSON string that parses as a
-// number (e.g. "42") still succeeds as an Integer argument, and a JSON
-// number still succeeds as a String argument (rendered as its decimal text).
-// That coercion is inherited from GetValue<T> itself (RequireInt already
-// exhibited it for required integers) and is left alone here for
-// consistency between all four helpers -- only an outright-incompatible
-// value (an object/array where a scalar is expected, a non-numeric string
-// for an integer, a non-"true"/"false"-shaped string for a boolean) raises.
-
-// An explicit JSON null counts as ABSENT, in every helper.
-//
-// The RTL makes this need saying: TJSONObject.GetValue(Name) returns a
-// TJSONNull instance -- not nil -- for "key": null, so a naive nil test
-// classes null as present and hands it to GetValue<T>. There the behaviours
-// diverge: GetValue<string> yields '', while GetValue<Integer>/<Boolean>
-// raise. That is the inconsistency this removes.
-//
-// Chosen because MCP clients generated from JSON Schema routinely emit
-// "series": null for an optional the caller left unset; rejecting those makes
-// the server needlessly awkward to drive.
-//
-// This does NOT reopen the hole the comment above was written against. That
-// one is about values that are WRONG FOR THE SLOT -- "abc" for an integer, an
-// object where a scalar belongs -- which silently became a default and
-// produced a confidently wrong result. An explicit null is not wrong for the
-// slot; it is a well-formed way of saying nothing, and nothing is precisely
-// what a default is for. Type mismatches still raise, exactly as before.
+// An explicit JSON null counts as absent: GetValue(Name) returns a TJSONNull,
+// not nil, and clients generated from JSON Schema emit null for unset optionals.
 function IsAbsent(const Args: TJSONObject; const Name: string): Boolean;
 var
   Value: TJSONValue;

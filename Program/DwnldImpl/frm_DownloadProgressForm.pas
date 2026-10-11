@@ -65,8 +65,6 @@ implementation
 
 {$R *.dfm}
 
-{ TDownloadProgressForm }
-
 procedure TDownloadProgressForm.btnCancelClick(Sender: TObject);
 begin
   CancelWorker;
@@ -80,7 +78,6 @@ end;
 
 procedure TDownloadProgressForm.SetProgressHint(Style: TProgressBarStyle; State: TProgressBarState);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.SetComment2(const Current, Total: string);
@@ -95,17 +92,14 @@ end;
 
 procedure TDownloadProgressForm.ShowProgress(Percent: Integer);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.SetComment(const Comment: string);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.ShowTeletype(const Msg: string; Severity: TTeletypeSeverity);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.ShowProgress2(Current, Total: Integer);

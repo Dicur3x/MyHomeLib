@@ -28,10 +28,7 @@ uses
   unit_UserData;
 
 type
-  // --------------------------------------------------------------------------
   TBookCollectionCache = TInterfaceCache<Integer, IBookCollection>;
-
-  // --------------------------------------------------------------------------
 
   TSystemData = class abstract(TInterfacedObject)
   protected
@@ -40,27 +37,17 @@ type
     function InternalCreateCollection(const CollectionID: Integer): IBookCollection; virtual; abstract;
 
   protected
-    //
-    // ISystemData
-    //
     function HasCollections: Boolean;
     function FindFirstExistingCollectionID(const PreferredID: Integer): Integer;
 
     function GetCollection(const CollectionID: Integer; const RefreshCache: Boolean): IBookCollection;
 
-    //
-    // Пользовательские данные
-    //
     procedure ExportUserData(data: TUserData; const DatabaseID: Integer);
 
-    //Iterators:
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator; virtual; abstract;
     function GetGroupIterator: IGroupIterator; virtual; abstract;
     function GetCollectionInfoIterator: ICollectionInfoIterator; virtual; abstract;
 
-    //
-    // Служебные методы
-    //
     procedure ClearCollectionCache;
 
   public
@@ -95,8 +82,6 @@ implementation
 uses
   SysUtils;
 
-{ TSystemData }
-
 constructor TSystemData.Create;
 begin
   inherited Create;
@@ -129,18 +114,12 @@ begin
     begin
       if Info.ID = PreferredID then
       begin
-        //
-        // Пользователь предпочитает эту коллекцию, она доступна -> выходим
-        //
         Result := Info.ID;
         Break;
       end;
 
       if Result = INVALID_COLLECTION_ID then
       begin
-        //
-        // Запомним первую доступную коллекцию
-        //
         Result := Info.ID;
       end;
     end;

@@ -68,8 +68,6 @@ const
   FIELD_ELEMENT = 'Field';
   DISPLAYNAME_ATTRIBUTE = 'displayName';
 
-{ TSearchPreset }
-
 constructor TSearchPreset.Create(const DisplayName: string);
 begin
   inherited Create;
@@ -80,8 +78,6 @@ destructor TSearchPreset.Destroy;
 begin
   inherited;
 end;
-
-{ TSearchPresets }
 
 constructor TSearchPresets.Create;
 begin
@@ -136,7 +132,6 @@ var
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
 
-  // Create the root element (i.e., the documentElement).
   xmlPresets := xmlDoc.createElement(PRESETS_ELEMENT);
   xmlDoc.appendChild(xmlPresets);
 

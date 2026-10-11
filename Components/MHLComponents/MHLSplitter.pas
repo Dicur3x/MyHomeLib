@@ -245,12 +245,6 @@ var
   R: TRect;
   C: TColor;
 begin
-  //  4 x 4 cells (Grey, White, Null)
-  //  GG--
-  //  GGW-
-  //  -WW-
-  //  ----
-
   C := ACanvas.Brush.Color;
 
   XCellCount := (ARect.Right - ARect.Left) div 4;
@@ -292,7 +286,6 @@ begin
     Canvas.FillRect(ClientRect);
 
     if csDesigning in ComponentState then
-      { Draw outline }
       with Canvas do
       begin
         Pen.Style := psDot;
@@ -303,7 +296,6 @@ begin
       end;
   end;
 
-  // Paint grip
   if Align in [alLeft, alRight] then
   begin
     R := Bounds(0, (Height - DEF_GRIP_SIZE) div 2, Width, DEF_GRIP_SIZE);

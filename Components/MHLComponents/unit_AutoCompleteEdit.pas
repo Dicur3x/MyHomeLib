@@ -58,8 +58,6 @@ type
 
 implementation
 
-{ TMHLAutoCompleteEdit }
-
 constructor TMHLAutoCompleteEdit.Create(AOwner: TComponent);
 begin
   inherited;

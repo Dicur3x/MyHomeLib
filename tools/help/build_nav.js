@@ -24,8 +24,7 @@ function navFor(current) {
 }
 
 function pageTitle(title, file) {
-  // The index page's own title *is* "Довідка MyHomeLib" — appending the
-  // suffix would double it up ("Довідка MyHomeLib — Довідка MyHomeLib").
+  // The index title already is "Довідка MyHomeLib"; the suffix would double it.
   return file === 'index.html' ? title : `${title} — Довідка MyHomeLib`;
 }
 

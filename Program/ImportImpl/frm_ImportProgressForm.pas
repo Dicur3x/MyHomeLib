@@ -46,8 +46,6 @@ implementation
 
 {$R *.dfm}
 
-{ TImportProgressForm }
-
 procedure TImportProgressForm.btnCancelClick(Sender: TObject);
 begin
   CancelWorker;
@@ -76,7 +74,6 @@ end;
 
 procedure TImportProgressForm.ShowTeletype(const Msg: string; Severity: TTeletypeSeverity);
 begin
-  // ничего не делаем
 end;
 
 end.

@@ -66,13 +66,8 @@ resourcestring
   rstrMbLibraryMismatch = 'Каталог іншої бібліотеки не відповідає колекції.';
   rstrMbTransactionLost = 'Транзакцію імпорту було перервано. Зміни не збережено.';
 
-{ TImportMetabibThreadBase }
-
-//
-// Переносить розібраний запис metabib у TBookRecord.
 // Розташування (Folder/IsLocal для онлайн-гілки) добудовує Import:
 // воно залежить від типу колекції.
-//
 procedure TImportMetabibThreadBase.MapBook(const MB: TMetabibBook; var R: TBookRecord; const BookCollection: IBookCollection);
 var
   i: Integer;
@@ -87,7 +82,7 @@ begin
 
   for i := 0 to High(MB.Authors) do
     if (MB.Authors[i].LastName = '') and (MB.Authors[i].FirstName = '') then
-      TAuthorsHelper.Add(R.Authors, MB.Authors[i].NickName, '', '') // лише псевдонім
+      TAuthorsHelper.Add(R.Authors, MB.Authors[i].NickName, '', '')
     else
       TAuthorsHelper.Add(R.Authors, MB.Authors[i].LastName, MB.Authors[i].FirstName,
         MB.Authors[i].MiddleName);
@@ -128,7 +123,6 @@ begin
   if MB.BookID > 0 then
     R.LibID := IntToStr(MB.BookID);
 
-  // ---- нові поля
   s := MB.TranslatorDisplay;
   for i := 0 to High(MB.Translators) do
   begin
@@ -146,7 +140,7 @@ begin
   R.PubYear := MB.PubYear;
   R.ISBN := MB.ISBN;
 
-  R.Normalize; // автор/жанр/назва за замовчуванням, як у INPX-імпорті
+  R.Normalize;
 end;
 
 procedure TImportMetabibThreadBase.Import(const DatasetFileName: string;
@@ -226,10 +220,8 @@ begin
 
             if IsOnline then
             begin
-              //
               // Онлайн-колекція: файл ще не завантажено, LibID - ключ
               // завантаження. Записи без book_id завантажити неможливо.
-              //
               if MB.BookID <= 0 then
               begin
                 Inc(skippedNoFile);
@@ -251,9 +243,7 @@ begin
             end
             else
             begin
-              //
               // Локальна колекція: без артефакта запису нема на що вказувати.
-              //
               ArcName := '';
               if MB.HasArtifact then
                 ArcName := Reader.ArchiveName(MB.ArchiveID);
@@ -322,8 +312,6 @@ begin
     BookCollection.FinishBatchUpdate;
   end;
 end;
-
-{ TImportMetabibThread }
 
 constructor TImportMetabibThread.Create(const CollectionID: Integer;
   const DatasetFileName: string; GenresType: TGenresType);

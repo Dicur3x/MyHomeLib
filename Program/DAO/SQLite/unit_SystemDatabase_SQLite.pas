@@ -40,9 +40,6 @@ type
       destructor Destroy; override;
 
     protected
-      //
-      // IBookIterator
-      //
       function Next(out BookRecord: TBookRecord): Boolean;
       function RecordCount: Integer;
 
@@ -53,7 +50,6 @@ type
 
       procedure PrepareData(const GroupID: Integer; const DatabaseID: Integer);
     end;
-    // << TBookIteratorImpl
 
     TGroupIteratorImpl = class(TInterfacedObject, IGroupIterator)
     public
@@ -61,9 +57,6 @@ type
       destructor Destroy; override;
 
     protected
-      //
-      // IGroupIterator
-      //
       function Next(out Group: TGroupData): Boolean;
       function RecordCount: Integer;
 
@@ -74,7 +67,6 @@ type
 
       procedure PrepareData;
     end;
-    // << TGroupIteratorImpl
 
     TCollectionInfoIteratorImpl = class(TInterfacedObject, ICollectionInfoIterator)
     public
@@ -82,9 +74,6 @@ type
       destructor Destroy; override;
 
     protected
-      //
-      // ICollectionInfoIterator
-      //
       function Next(out CollectionInfo: TCollectionInfo): Boolean;
       function RecordCount: Integer;
 
@@ -95,7 +84,6 @@ type
 
       procedure PrepareData;
     end;
-    // << TCollectionInfoIteratorImpl
 
   protected
     function InternalCreateCollection(const CollectionID: Integer): IBookCollection; override;
@@ -109,9 +97,6 @@ type
     destructor Destroy; override;
 
   protected
-    //
-    // ISystemData
-    //
     function CreateCollection(
       const DisplayName: string;
       const RootFolder: string;
@@ -128,16 +113,12 @@ type
 
     procedure DeleteCollection(const CollectionID: Integer; const RemoveFromDisk: Boolean = True);
 
-    // function HasCollections: Boolean; // use base implementation
     function HasCollectionWithProp(PropID: TPropertyID; const Value: string; IgnoreID: Integer = INVALID_COLLECTION_ID): Boolean;
-    // function FindFirstExistingCollectionID(const PreferredID: Integer): Integer; // use base implementation
 
     procedure SetProperty(const CollectionID: Integer; const PropID: TPropertyID; const Value: Variant);
     function GetProperty(const CollectionID: Integer; const PropID: TPropertyID): Variant;
 
     function GetCollectionInfo(const CollectionID: Integer): TCollectionInfo;
-
-    // function GetCollectionByID(const CollectionID: Integer): IBookCollection; // use base implementation
 
     function ActivateGroup(const ID: Integer): Boolean;
 
@@ -157,9 +138,6 @@ type
     procedure SetBookSeriesID(const BookKey: TBookKey; const SeriesID: Integer);
     procedure SetFolder(const BookKey: TBookKey; const Folder: string);
 
-    //
-    // Работа с группами
-    //
     function AddGroup(const GroupName: string; const AllowDelete: Boolean = True): Boolean;
     function GetGroup(const GroupID: Integer): TGroupData;
     function RenameGroup(GroupID: Integer; const NewName: string): Boolean;
@@ -172,24 +150,14 @@ type
     procedure CleanCollectionBooks(const DatabaseID: Integer);
     function RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean = False): Integer;
 
-    //
-    // Пользовательские данные
-    //
     procedure ImportUserData(data: TUserData);
-    // procedure ExportUserData(data: TUserData); // use base implementation
 
-    // Batch update methods:
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
-    //Iterators:
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator; override;
     function GetGroupIterator: IGroupIterator; override;
     function GetCollectionInfoIterator: ICollectionInfoIterator; override;
 
-    //
-    // Служебные методы
-    //
-    // procedure ClearCollectionCache; // use base implementation
     procedure RemoveUnusedBooks;
 
   private
@@ -217,7 +185,6 @@ resourcestring
   rstrInvalidCollection = 'Файл %s не є колекцією.';
   rstrFailedToMountDB = 'Помилка завантаження файлу колекції %s';
 
-// Generate table structure and minimal system data
 class procedure TSystemData_SQLite.CreateSystemTables(const DBUserFile: string);
 var
   ADatabase: TSQLiteDatabase;
@@ -248,15 +215,10 @@ begin
     FreeAndNil(ADatabase);
   end;
 
-  //
-  // Зададим дефлотные группы
-  //
   SystemData := TSystemData_SQLite.Create(DBUserFile);
   SystemData.AddGroup(rstrFavoritesGroupName, False);
   SystemData.AddGroup(rstrToReadGroupName, False);
 end;
-
-{ TBookIteratorImpl }
 
 constructor TSystemData_SQLite.TBookIteratorImpl.Create(User: TSystemData_SQLite; const GroupID: Integer; const DatabaseID: Integer);
 begin
@@ -277,7 +239,6 @@ begin
   inherited Destroy;
 end;
 
-// Read next record (if present), return True if read
 function TSystemData_SQLite.TBookIteratorImpl.Next(out BookRecord: TBookRecord): Boolean;
 var
   bookID: Integer;
@@ -314,10 +275,8 @@ var
   query: TSQLiteQuery;
   i: Integer;
 begin
-  //
   // Перед построением списка приводим BookID к текущей нумерации коллекции:
   // после полного переимпорта сохранённые в группе BookID указывают на чужие книги.
-  //
   dbIDs := TList<Integer>.Create;
   try
     if DatabaseID <> INVALID_COLLECTION_ID then
@@ -366,8 +325,6 @@ begin
   FBooks.Open;
 end;
 
-{ TGroupIteratorImpl }
-
 constructor TSystemData_SQLite.TGroupIteratorImpl.Create(User: TSystemData_SQLite);
 begin
   inherited Create;
@@ -387,7 +344,6 @@ begin
   inherited Destroy;
 end;
 
-// Read next record (if present), return True if read
 function TSystemData_SQLite.TGroupIteratorImpl.Next(out Group: TGroupData): Boolean;
 begin
   Result := not FGroups.Eof;
@@ -421,8 +377,6 @@ begin
   FGroups.Open;
 end;
 
-{ TCollectionInfoIteratorImpl }
-
 constructor TSystemData_SQLite.TCollectionInfoIteratorImpl.Create(User: TSystemData_SQLite);
 begin
   inherited Create;
@@ -442,7 +396,6 @@ begin
   inherited Destroy;
 end;
 
-// Read next record (if present), return True if read
 function TSystemData_SQLite.TCollectionInfoIteratorImpl.Next(out CollectionInfo: TCollectionInfo): Boolean;
 begin
   Result := not FBases.Eof;
@@ -474,8 +427,6 @@ begin
   FBases.Open;
 end;
 
-{TSystemData_SQLite}
-
 constructor TSystemData_SQLite.Create(const DBUserFile: string);
 begin
   inherited Create;
@@ -493,14 +444,13 @@ end;
 function TSystemData_SQLite.GetCollectionInfo(const CollectionID: Integer): TCollectionInfo;
 const
   SQL_SELECT = 'SELECT ' +
-    'bs.BaseName, bs.RootFolder, bs.DBFileName, bs.Code, '   + // 0 .. 3
-    'bs.DataVersion, bs.Notes, bs.LibUser, bs.LibPassword, ' + // 4 .. 7
-    'bs.URL, bs.ConnectionScript ' +                           // 8 .. 9
+    'bs.BaseName, bs.RootFolder, bs.DBFileName, bs.Code, '   +
+    'bs.DataVersion, bs.Notes, bs.LibUser, bs.LibPassword, ' +
+    'bs.URL, bs.ConnectionScript ' +
     'FROM Bases bs WHERE bs.DatabaseID = ?';
 var
   query: TSQLiteQuery;
 begin
-//  Assert(CollectionID > 0);
 
   query := FDatabase.NewQuery(SQL_SELECT);
   try
@@ -512,13 +462,10 @@ begin
       Result.ID := CollectionID;
       Result.DisplayName := query.FieldAsString(0);
 
-      //
-      // восстановить абсолютные пути
-      //
       Result.RootFolder := Settings.ExpandCollectionRoot(query.FieldAsString(1));
       Result.DBFileName := Settings.ExpandCollectionFileName(query.FieldAsString(2));
 
-      Result.CollectionType := query.FieldAsInt(3); // code
+      Result.CollectionType := query.FieldAsInt(3);
 
       if query.FieldIsNull(4) then
         Result.DataVersion := UNVERSIONED_COLLECTION
@@ -676,8 +623,6 @@ begin
   begin
     if PROP_DATAFILE = PropID then
       Result := Settings.ExpandCollectionFileName(Result)
-//    else if PROP_ROOTFOLDER = PropID then
-//      Result := Settings.ExpandCollectionRoot(Result);
   end;
 end;
 
@@ -688,9 +633,6 @@ var
   info: TCollectionInfo;
   DBFileName: string;
 begin
-  //
-  // Почистить кэши
-  //
   info := GetCollectionInfo(CollectionID);
   DBFileName := info.DBFileName;
 
@@ -728,9 +670,6 @@ begin
     storedRoot := RootFolder;
     PrepareCollectionPath(storedRoot, storedFileName);
 
-    //
-    // регистрируем коллекцию
-    //
     query := FDatabase.NewQuery(SQL_INSERT);
     try
       query.SetParam(0, DisplayName);
@@ -746,9 +685,6 @@ begin
       FreeAndNil(query);
     end;
   except
-    //
-    // в случае неудачной регистрации удалим файл коллекции
-    //
     DeleteFile(absDBFileName);
     raise;
   end;
@@ -778,9 +714,6 @@ begin
     storedFileName := DBFileName;
     PrepareCollectionPath(storedRoot, storedFileName);
 
-    //
-    // регистрируем коллекцию
-    //
     query := FDatabase.NewQuery(SQL_INSERT);
     try
       query.SetParam(0, DisplayName);
@@ -793,10 +726,6 @@ begin
 
       Result := FDatabase.LastInsertRowID;
 
-      //
-      // TODO : принудительно обновить свойства коллекции
-      //
-      // Collection.UpdateProperies;
     finally
       FreeAndNil(query);
     end;
@@ -844,11 +773,11 @@ end;
 procedure TSystemData_SQLite.GetBookRecord(const BookKey: TBookKey; var BookRecord: TBookRecord);
 const
   SQL_SELECT = 'SELECT ' +
-    'LibID, Title, SeriesID, SeqNumber, UpdateDate, ' + // 0 .. 4
-    'LibRate, Lang, Folder, FileName, InsideNo, ' +     // 5 .. 9
-    'Ext, BookSize, IsLocal, IsDeleted, ' +             // 10 .. 13
-    'KeyWords, Rate, Progress, Annotation, Review, ' +  // 14 .. 18
-    'ExtraInfo ' +                                      // 19
+    'LibID, Title, SeriesID, SeqNumber, UpdateDate, ' +
+    'LibRate, Lang, Folder, FileName, InsideNo, ' +
+    'Ext, BookSize, IsLocal, IsDeleted, ' +
+    'KeyWords, Rate, Progress, Annotation, Review, ' +
+    'ExtraInfo ' +
     'FROM Books WHERE BookID = ? AND DatabaseID = ? ';
 var
   stream: TStream;
@@ -911,14 +840,12 @@ begin
       try
         BookRecord.Series := reader.ReadString;
         if BookRecord.SeriesID = NO_SERIES_ID then
-          BookRecord.Series := NO_SERIES_TITLE; // ignore the stored series title if series ID is empty
+          BookRecord.Series := NO_SERIES_TITLE;
 
         reader.ReadListBegin;
         while not reader.EndOfList do
         begin
-          //
           // не полагаемся на порядок вычисления аргументов, т к важен порядок чтения строк
-          //
           Author.LastName := reader.ReadString;
           Author.FirstName := reader.ReadString;
           Author.MiddleName := reader.ReadString;
@@ -992,12 +919,12 @@ end;
 procedure TSystemData_SQLite.UpdateBook(const BookRecord: TBookRecord);
 const
   SQL_UPDATE = 'UPDATE Books ' +
-    'SET LibID = ?, Title = ?, SeriesID = ?, SeqNumber = ?, UpdateDate = ?, ' + // 0 .. 4
-    'LibRate = ?, Lang = ?, Folder = ?, FileName = ?, InsideNo = ?, ' +         // 5 .. 9
-    'Ext = ?, BookSize = ?, IsLocal = ?, IsDeleted = ?, ' +                     // 10 .. 13
-    'KeyWords = ?, Rate = ?, Progress = ?, Annotation = ?, Review = ?, ' +      // 14 .. 18
-    'ExtraInfo = ? ' +                                                          // 19
-    'WHERE BookID = ? AND DatabaseID = ? ';                                         // 20 .. 21
+    'SET LibID = ?, Title = ?, SeriesID = ?, SeqNumber = ?, UpdateDate = ?, ' +
+    'LibRate = ?, Lang = ?, Folder = ?, FileName = ?, InsideNo = ?, ' +
+    'Ext = ?, BookSize = ?, IsLocal = ?, IsDeleted = ?, ' +
+    'KeyWords = ?, Rate = ?, Progress = ?, Annotation = ?, Review = ?, ' +
+    'ExtraInfo = ? ' +
+    'WHERE BookID = ? AND DatabaseID = ? ';
 var
   stream: TStream;
   writer: TWriter;
@@ -1267,7 +1194,7 @@ begin
   try
     Query.SetParam(0, GroupName);
     Query.Open;
-    Result := Query.Eof; // means doesn't exist yet
+    Result := Query.Eof;
   finally
     FreeAndNil(Query);
   end;
@@ -1306,17 +1233,11 @@ begin
   end;
 end;
 
-//
-// Удалить группу
-//
 procedure TSystemData_SQLite.DeleteGroup(GroupID: Integer);
 begin
   InternalClearGroup(GroupID, True);
 end;
 
-//
-// Очистить
-//
 procedure TSystemData_SQLite.ClearGroup(GroupID: Integer);
 begin
   InternalClearGroup(GroupID, False);
@@ -1350,11 +1271,11 @@ procedure TSystemData_SQLite.AddBookToGroup(
 const
   SQL_SELECT = 'SELECT Count(*) FROM Books WHERE BookID = ? AND DatabaseID = ? ';
   SQL_INSERT = 'INSERT INTO BOOKS (' +
-    'LibID, Title, SeriesID, SeqNumber, UpdateDate, ' + // 0 .. 4
-    'LibRate, Lang, Folder, FileName, InsideNo, ' +     // 5 .. 9
-    'Ext, BookSize, IsLocal, IsDeleted, ' +             // 10 .. 13
-    'KeyWords, Rate, Progress, Annotation, Review, ' +  // 14 .. 18
-    'ExtraInfo, BookID, DatabaseID ) ' +                // 19 .. 21
+    'LibID, Title, SeriesID, SeqNumber, UpdateDate, ' +
+    'LibRate, Lang, Folder, FileName, InsideNo, ' +
+    'Ext, BookSize, IsLocal, IsDeleted, ' +
+    'KeyWords, Rate, Progress, Annotation, Review, ' +
+    'ExtraInfo, BookID, DatabaseID ) ' +
     'SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ';
 
 var
@@ -1449,25 +1370,16 @@ begin
     end;
   end;
 
-  //
-  // Поместить книгу в нужную группу
-  //
   CopyBookToGroup(BookKey, 0, GroupID, False);
 end;
 
-//
-// Удалить указанную книгу из указанной группы.
 // NOTE: этот метод не удаляет неиспользуемые книги !!! После его вызова обязательно нужно вызвать RemoveUnusedBooks
-//
 procedure TSystemData_SQLite.DeleteFromGroup(const BookKey: TBookKey; GroupID: Integer);
 const
   SQL_DELETE_BOOKGROUPS = 'DELETE FROM BookGroups WHERE BookID = ? AND GroupID = ? ';
 var
   query: TSQLiteQuery;
 begin
-  //
-  // Удалить книги из группы
-  //
   query := FDatabase.NewQuery(SQL_DELETE_BOOKGROUPS);
   try
     query.SetParam(0, BookKey.BookID);
@@ -1478,9 +1390,6 @@ begin
   end;
 end;
 
-//
-// Удалить книги, не входящие в группы
-//
 procedure TSystemData_SQLite.RemoveUnusedBooks;
 const
   SQL: string =
@@ -1523,7 +1432,6 @@ begin
   end;
 end;
 
-//
 // Книги в группах хранятся по (BookID, DatabaseID), но BookID в коллекции - это
 // AUTOINCREMENT: при полном переимпорте коллекции он переприсваивается, и сохранённые
 // в группах BookID начинают указывать на совершенно другие книги. В списке группы при
@@ -1533,7 +1441,6 @@ end;
 //
 // Сверяем по LibID - он при переимпорте не меняется - и приводим BookID к текущей
 // нумерации коллекции.
-//
 function TSystemData_SQLite.RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean): Integer;
 const
   SQL_SELECT_BOOKS = 'SELECT BookID, LibID FROM Books WHERE DatabaseID = ? ';
@@ -1556,10 +1463,8 @@ var
 begin
   Result := 0;
 
-  //
   // Коллекция может быть недоступна (файл удалён, съёмный диск отключён) -
   // в этом случае сверять не с чем, оставляем всё как есть.
-  //
   collection := nil;
   try
     collection := GetCollection(DatabaseID, False);
@@ -1571,9 +1476,7 @@ begin
 
   items := TList<TRemapItem>.Create;
   try
-    //
     // Сначала соберём список изменений: менять таблицу, пока по ней открыт курсор, нельзя
-    //
     query := FDatabase.NewQuery(SQL_SELECT_BOOKS);
     try
       query.SetParam(0, DatabaseID);
@@ -1581,10 +1484,8 @@ begin
       while not query.Eof do
       begin
         libID := query.FieldAsString(1);
-        //
         // Без LibID (локальные коллекции) сверить книгу не с чем - не трогаем её,
         // иначе можно удалить нормальные записи.
-        //
         if (libID <> '') and (libID <> '0') then
         begin
           item.OldID := query.FieldAsInt(0);
@@ -1611,12 +1512,10 @@ begin
 
       if item.NewID > 0 then
       begin
-        //
         // Переносим членство в группах на актуальный BookID.
         // OR IGNORE - та же книга уже может присутствовать в этой группе под новым
         // BookID (например, была добавлена повторно после переимпорта);
         // такие строки не переносятся, а удаляются следующим запросом.
-        //
         FDatabase.ExecSQL(SQL_MOVE_GROUPS, [item.NewID, item.OldID, DatabaseID]);
         FDatabase.ExecSQL(SQL_DROP_GROUPS, [item.OldID, DatabaseID]);
 
@@ -1625,9 +1524,6 @@ begin
       end
       else
       begin
-        //
-        // Книги больше нет в коллекции (RemoveMissing)
-        //
         FDatabase.ExecSQL(SQL_DROP_GROUPS, [item.OldID, DatabaseID]);
         FDatabase.ExecSQL(SQL_DROP_BOOK, [item.OldID, DatabaseID]);
       end;
@@ -1666,7 +1562,7 @@ begin
   end;
 
   if foundTarget then
-    Exit; // Skip, book already in the target group
+    Exit;
 
   if MoveBook then
   begin
@@ -1750,7 +1646,6 @@ begin
   end;
 end;
 
-// Change SeriesID value for all books having DatabaseID and old SeriesID value
 procedure TSystemData_SQLite.ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 const
   UPDATE_SQL = 'UPDATE Books SET SeriesID = ? WHERE DatabaseID = ? AND SeriesID = ? ';
@@ -1806,9 +1701,6 @@ const
 var
   query: TSQLiteQuery;
 begin
-  //
-  // Удалить книги из группы
-  //
   query := FDatabase.NewQuery(SQL_DELETE_BOOKGROUPS);
   try
     query.SetParam(0, GroupID);
@@ -1817,14 +1709,8 @@ begin
     FreeAndNil(query);
   end;
 
-  //
-  // Удалить неиспользуемые книги
-  //
   RemoveUnusedBooks;
 
-  //
-  // Удалить группу
-  //
   if RemoveGroup then
   begin
     query := FDatabase.NewQuery(SQL_DELETE_GROUPS);
@@ -1856,25 +1742,11 @@ end;
 
 procedure TSystemData_SQLite.PrepareCollectionPath(var CollectionRoot, CollectionFile: string);
 begin
-  //
-  // Получим полные пути. Если были указаны относительные пути, то в качестве базового используем DataPath.
-  //
   CollectionRoot := Settings.ExpandCollectionRoot(CollectionRoot);
   CollectionFile := Settings.ExpandCollectionFileName(CollectionFile);
 
-  //
-  // Создадим необходимые каталоги
-  //
-//  TDirectory.CreateDirectory(CollectionRoot);
-//  TDirectory.CreateDirectory(TPath.GetDirectoryName(CollectionFile));
+  // Каталоги тут не створюємо: це ламає підключення мережевої папки.
 
-// создание каталогов в данном случае просто не имеет смысла и приводит к
-// ошибкам при попытке подключить сетевую папку!
-
-
-  //
-  // Получим относительные пути. В качестве базового используем DataPath.
-  //
   CollectionRoot := ExtractRelativePath(Settings.WorkPath, CollectionRoot);
   CollectionFile := ExtractRelativePath(Settings.DataPath, CollectionFile);
 end;

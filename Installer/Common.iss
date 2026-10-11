@@ -64,19 +64,12 @@ Source: {#FullSourcePath}; DestDir: {app}; DestName: {#AppExeName}; Flags: repla
 
 Source: {#LibFolder + 'sqlite3.dll'}; DestDir: {app}; Flags: replacesameversion
 
-; MCP server for AI assistants (see Help\mcp_server.html). Taken straight from
-; the build output, like MHLIcons.dll below, so it always matches the packaged
-; app. Needs the sqlite3.dll above sitting beside it: the DAO layer imports it
-; at load time, so without it the server fails to start at all.
+; Needs sqlite3.dll beside it: the DAO layer imports it at load time.
 Source: {#SourceFolder + 'MHLMcpServer.exe'}; DestDir: {app}; Flags: replacesameversion
 
-; Icon resource DLL, loaded at runtime by dm_Images from {app}\Icons.
-; Taken from the build output so it always matches the exe being packaged.
-; Deliberately no skipifsourcedoesntexist: if this is missing the app installs
-; with no icons at all, so the installer build must fail instead.
+; No skipifsourcedoesntexist on purpose: without it the app installs with no icons.
 Source: {#SourceFolder + 'Icons\MHLIcons.dll'}; DestDir: {app}\Icons; Flags: replacesameversion
 
-; libzstd.dll - metabib dataset import (unit_ZstdStream, loaded dynamically).
 Source: {#SourceFolder + 'libzstd.dll'}; DestDir: {app}; Flags: replacesameversion
 
 Source: Common\AlReader\*; DestDir: {app}\AlReader; Flags: recursesubdirs
@@ -86,9 +79,7 @@ Source: Common\converters\fb2epub\*; DestDir: {app}\converters\fb2epub\; Flags: 
 Source: Common\converters\fb2mobi\*; DestDir: {app}\converters\fb2mobi\; Flags: skipifsourcedoesntexist
 Source: Common\genres_nonfb2.glst; DestDir: {app}; Flags: replacesameversion
 Source: Common\genres_fb2.glst; DestDir: {app}; Flags: replacesameversion
-; Per-locale genre lists. The app prefers genres_<base>_<locale>.glst over the
-; Russian original when one exists, so these are purely additive -- a install
-; missing them behaves exactly as before.
+; Optional: the app falls back to the Russian original when these are absent.
 Source: Common\genres_fb2_uk.glst; DestDir: {app}; Flags: replacesameversion
 Source: Common\genres_nonfb2_uk.glst; DestDir: {app}; Flags: replacesameversion
 Source: Common\genres_fb2_en.glst; DestDir: {app}; Flags: replacesameversion
@@ -105,57 +96,31 @@ Source: Common\License_uk.txt; DestDir: {app}; Flags: replacesameversion
 Name: desktopicon; Description: {cm:CreateDesktopIcon}
 
 [Languages]
-; LicenseFile here overrides the [Setup] default, so each language shows the
-; licence in its own language. Both files are UTF-8 with a BOM -- Inno 6 reads
-; a BOM-less text file as the system ANSI codepage and mangles non-ASCII.
+; Licence files must be UTF-8 with BOM: Inno 6 reads BOM-less text as ANSI.
 Name: English; MessagesFile: compiler:Default.isl; LicenseFile: Common\License.txt
 Name: Ukrainian; MessagesFile: compiler:Languages\Ukrainian.isl; LicenseFile: Common\License_uk.txt
-; Bulgarian points at the English licence deliberately. Only the English MIT
-; text is authoritative, so a translated copy would be informational at best
-; and would have to track every future licence change. Bulgarian.isl ships with
-; Inno 6, so every wizard message is covered without any custom translation.
+; Bulgarian uses the English licence on purpose: only the English MIT text is authoritative.
 Name: Bulgarian; MessagesFile: compiler:Languages\Bulgarian.isl; LicenseFile: Common\License.txt
 
 [CustomMessages]
-; The application's locale code for each wizard language, so the interface
-; starts in the language the user chose in the installer. Kept here rather than
-; derived from {language} because the wizard language name is a display string
-; and the locale code is an identifier -- mapping one to the other in Pascal
-; code would be a second place to forget when a language is added.
+; Initial app interface locale, keyed by wizard language.
 English.LocaleCode=en
 Ukrainian.LocaleCode=uk
 Bulgarian.LocaleCode=bg
 
-; The Start menu help shortcut, in the wizard's language. Its caption used to
-; be hardcoded Ukrainian and it always opened the Ukrainian index, even for a
-; user who chose another language. Ukrainian help lives at the root of Help\
-; and translations in Help\<locale>\, which is why the path is spelled out per
-; language rather than composed from LocaleCode.
 English.HelpShortcut=MyHomeLib Help
 Ukrainian.HelpShortcut=Довідка MyHomeLib
 Bulgarian.HelpShortcut=Помощ за MyHomeLib
-; The website shortcut caption. Only the word around the product name is
-; translated -- MyHomeLib is a name, not a phrase.
 English.WebsiteShortcut=MyHomeLib website
 Ukrainian.WebsiteShortcut=Сайт MyHomeLib
 Bulgarian.WebsiteShortcut=Уебсайт на MyHomeLib
 
+; Ukrainian help is at the root of Help\, translations in Help\<locale>\.
 English.HelpIndex=Help\en\index.html
 Ukrainian.HelpIndex=Help\index.html
 Bulgarian.HelpIndex=Help\bg\index.html
 
 [INI]
-; Seed the interface language from the wizard language, but ONLY when the key
-; is absent. createkeyifdoesntexist is load-bearing: an existing installation
-; must never have its language changed by an update. That is the same reason
-; DetectDefaultLocale was removed from the application -- guessing a user's
-; language from the environment and rewriting their setting is a regression,
-; not a feature. A first install has no ini, so it gets the wizard's choice; an
-; upgrade keeps whatever the user already selected.
-;
-; This writes to the installing user's profile. With PrivilegesRequired=admin
-; and a per-machine install that is the administrator's, not necessarily the
-; person who will run the program -- the same limitation collections.ini
-; already has. Anyone else gets the application's own default and can switch it
-; from the View menu.
+; createkeyifdoesntexist is load-bearing: an update must never change an existing user's language.
+; Writes to the installing (admin) user's profile, not necessarily the end user's.
 Filename: {userappdata}\MyHomeLib\myhomelib2.ini; Section: INTERFACE; Key: Locale; String: {cm:LocaleCode}; Flags: createkeyifdoesntexist

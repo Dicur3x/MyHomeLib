@@ -322,7 +322,6 @@ begin
   Result := True;
 end;
 
-// Update the current book if changed and move on to another book.
 procedure TfrmEditBookInfo.DoNextBook(const MoveForward: Boolean);
 begin
   Assert(Assigned(FOnUpdateBook) and Assigned(FOnSelectBook));

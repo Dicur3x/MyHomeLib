@@ -1,27 +1,11 @@
 'use strict';
 
-// Exports the translatable text of the help, and assembles a translated tree
-// from the pieces.
+// A translator supplies text, never structure: `build` takes each Ukrainian page
+// as the template, replaces only the lang attribute, <title>, <h1> and BODY, and
+// regenerates the navigation from one title map so all pages get the same menu.
 //
-// Same principle as tools/lang/translate.js and tools/lang/glst_translate.js:
-// a translator supplies text, never structure. `build` takes each Ukrainian
-// page as the template and replaces exactly four things -- the lang attribute,
-// the <title>, the <h1> and the BODY block -- then regenerates the navigation
-// from topics.json. Everything else is copied byte for byte.
-//
-// The navigation is the reason this tool exists. All 55 pages carry the same
-// TOC, differing only in which link is marked class="cur". Handing that block
-// to 55 separate translators would produce 55 subtly different menus; deriving
-// it from one title map cannot.
-//
-// Usage:
-//   node tools/help/help_translate.js titles <out.json>
-//   node tools/help/help_translate.js build <locale> <titles.json> <bodydir>
-//
-//   <bodydir> holds one <topic>.html per topic, each the translated BODY
-//   content only -- no <html>, no TOC, no <h1>.
-//
-// Exit code: 0 = ok, 1 = failure.
+// <bodydir> holds one <topic>.html per topic: BODY content only, no <html>,
+// no TOC, no <h1>.
 
 const fs = require('fs');
 const path = require('path');
@@ -30,8 +14,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const HELP = path.join(ROOT, 'Program', 'Help');
 const TOPICS = path.join(__dirname, 'topics.json');
 
-// The suffix appended to every page title except the index, whose own title is
-// already the help's name. Must agree with TITLE_SUFFIX in check_help.js.
+// Must agree with TITLE_SUFFIX in check_help.js.
 const TITLE_SUFFIX = {
   uk: 'Довідка MyHomeLib',
   en: 'MyHomeLib Help',
@@ -67,8 +50,6 @@ function cmdTitles(outFile) {
   process.exit(0);
 }
 
-// Rebuilds the navigation for one page. `cur` is the file that should carry
-// the current-page marker.
 function buildToc(spec, titles, cur, eol) {
   const lines = [''];
   const indexTitle = titles.topics['index.html'];
@@ -91,12 +72,8 @@ function buildToc(spec, titles, cur, eol) {
   return lines.join(eol);
 }
 
-// The line endings the existing content between two markers uses. The pages
-// are mixed on purpose-by-accident: the TOC blocks are LF because a generator
-// wrote them, the hand-written bodies are CRLF, and git's autocrlf normalises
-// both so the difference never shows up as a change. Preserving each block's
-// own convention is what makes a rebuild byte-identical instead of producing a
-// 55-file whitespace diff nobody asked for.
+// TOC blocks are LF (generated), bodies CRLF (hand-written); autocrlf hides the
+// mix. Preserving each block's own EOL keeps a rebuild byte-identical.
 function blockEol(html, beginMarker, endMarker) {
   const a = html.indexOf(beginMarker);
   const b = html.indexOf(endMarker);
@@ -123,8 +100,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
   const titles = JSON.parse(fs.readFileSync(titlesFile, 'utf8'));
   const allTopics = spec.sections.flatMap((s) => s.topics);
 
-  // Validate everything before writing a single file: a half-built tree that
-  // passes some checks is harder to reason about than one that was refused.
+  // Validate everything before writing any file: no half-built trees.
   const missing = [];
   for (const s of spec.sections) {
     if (!titles.sections?.[s.title]) missing.push(`section title: ${s.title}`);
@@ -149,9 +125,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
     let html = fs.readFileSync(path.join(HELP, t.file), 'utf8');
     const title = titles.topics[t.file];
 
-    // Per block, not per file -- see blockEol. A translated body arrives with
-    // whatever endings the writer used, so it is normalised to the block it
-    // replaces.
+    // A translated body arrives with arbitrary EOLs; normalise to the block's.
     const tocEol = blockEol(html, '<!-- TOC:BEGIN -->', '<!-- TOC:END -->');
     const bodyEol = blockEol(html, '<!-- BODY:BEGIN -->', '<!-- BODY:END -->');
     const body = fs.readFileSync(path.join(bodyDir, t.file), 'utf8')
@@ -163,8 +137,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
     const fullTitle = t.file === 'index.html' ? title : `${title} — ${suffix}`;
     html = html.replace(/<title>[^<]*<\/title>/, `<title>${fullTitle}</title>`);
 
-    // Only the first <h1>, which is the page heading immediately before
-    // BODY:BEGIN. A body is free to contain its own headings.
+    // First <h1> only: a body may contain its own headings.
     html = html.replace(/<h1>[\s\S]*?<\/h1>/, `<h1>${title}</h1>`);
 
     html = replaceBetween(html, '<!-- TOC:BEGIN -->', '<!-- TOC:END -->',
@@ -180,14 +153,7 @@ function cmdBuild(locale, titlesFile, bodyDir) {
   process.exit(0);
 }
 
-// Rewrites the BODY block of the Ukrainian source pages in place.
-//
-// The counterpart of `build`, for correcting the original rather than
-// producing a translation. Only files present in <bodydir> are touched, so a
-// partial set is the normal case: fixing four pages means supplying four
-// bodies. Everything outside the BODY markers -- head, navigation, heading --
-// is left exactly as it was, and the block's line endings are preserved the
-// same way build does it.
+// Rewrites only the BODY of the Ukrainian source pages present in <bodydir>.
 function cmdPatch(bodyDir) {
   if (!bodyDir) fail('Usage: help_translate.js patch <bodydir>');
 

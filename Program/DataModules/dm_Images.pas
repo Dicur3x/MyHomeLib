@@ -11,9 +11,8 @@ uses
 type
   TIconTheme = (itLight, itDark);
 
-  /// Raised when Icons\MHLIcons.dll cannot be loaded. Worth a dedicated class:
-  /// a missing resource DLL leaves every image collection empty, which used to
-  /// fail silently and shipped that way in 2.6.0 pre1.
+  /// Raised when Icons\MHLIcons.dll cannot be loaded; without it every image
+  /// collection stays empty, so this must not fail silently.
   EIconResourceMissing = class(Exception);
 
   TdmImages = class(TDataModule)
@@ -67,29 +66,29 @@ const
 
   // Main toolbar icon names — indices match old ilToolBar ImageIndex values
   CToolbarOrder: array[0..27] of string = (
-    'book-read',          // 0
-    'send-to-device',     // 1
-    'add-to-download',    // 2
-    'alphabet-cyrillic',  // 3
-    'alphabet-latin',     // 4
-    '',                   // 5 (unused)
-    'collection-select',  // 6
-    'select-all',         // 7
-    'collapse-expand',    // 8
-    '',                   // 9 (unused)
+    'book-read',
+    'send-to-device',
+    'add-to-download',
+    'alphabet-cyrillic',
+    'alphabet-latin',
+    '',
+    'collection-select',
+    'select-all',
+    'collapse-expand',
+    '',
     'tree-table-mode',    // 10 — btnSwitchTreeMode, table state (TreeIcons[0])
     'tree-mode',          // 11 — btnSwitchTreeMode, tree state  (TreeIcons[1])
-    'hide-deleted',       // 12
-    'local-only',         // 13
-    'info-panel',         // 14
-    'add-to-favorites',   // 15
+    'hide-deleted',
+    'local-only',
+    'info-panel',
+    'add-to-favorites',
     'remove-from-group',  // 16 — BtnFav_add swaps to this on the Groups tab
-    'settings',           // 17
+    'settings',
     '',                   // 18 (separator)
-    '', '', '', '',       // 19-22 (unused)
+    '', '', '', '',
     'delete',             // 23 — tbtnDownloadList_Add swaps to this on the Downloads tab
-    '', '',               // 24-25 (unused)
-    'help',               // 26
+    '', '',
+    'help',
     ''                    // 27 (separator)
   );
 
@@ -100,54 +99,53 @@ const
     'collection-delete',      // 2  acCollectionDelete
     'collection-properties',  // 3  acCollectionProperties
     'collection-online',      // 4  collection type: online FB
-    '',                       // 5  (unused)
-    '',                       // 6  (unused)
+    '',
+    '',
     'send-to-device',         // 7  acBookSend2Device
     'import',                 // 8  miPdfdjvu
     'sync',                   // 9  acCollectionSyncFiles
-    '',                       // 10 (unused)
+    '',
     'settings',               // 11 acToolsSettings
     'book-read',              // 12 acBookRead
     'add-to-favorites',       // 13 acBookAdd2Favorites
     'collection-local',       // 14 collection type: local FB
-    '',                       // 15 (unused)
-    '',                       // 16 (unused)
+    '',
+    '',
     'help',                   // 17 acHelpHelp
     'import',                 // 18 miFb2Import
-    '',                       // 19 (unused)
+    '',
     'add-to-download',        // 20 acBookAdd2DownloadList
     'remove-from-group',      // 21 miDelFavorites
-    '',                       // 22 (unused)
+    '',
     'copy-to-collection',     // 23 miCopyToCollection
     'select-all',             // 24 pmiCheckAll
-    '',                       // 25 (unused)
-    '',                       // 26 (unused)
+    '',
+    '',
     'collection-select',      // 27 miCollSelect
-    '',                       // 28 (unused)
+    '',
     'script',                 // 29 mmiScripts
     'rating',                 // 30 miRate
     'copy-to-clipboard',      // 31 miCopyClBrd
     'deselect-all',           // 32 pmiDeselectAll
     'exit',                   // 33 acApplicationExit
-    '',                       // 34 (unused)
+    '',
     'go-to-author'            // 35 miGoToAuthor
   );
 
-  // File type icon names for pmScripts dropdown menu
   CFileTypeOrder: array[0..7] of string = (
-    'filetype-fb2',       // 0
-    'filetype-fb2zip',    // 1
-    'filetype-lrf',       // 2
-    'filetype-txt',       // 3
-    'filetype-epub',      // 4
-    'filetype-pdf',       // 5
-    'filetype-mobi',      // 6
-    'script'              // 7
+    'filetype-fb2',
+    'filetype-fb2zip',
+    'filetype-lrf',
+    'filetype-txt',
+    'filetype-epub',
+    'filetype-pdf',
+    'filetype-mobi',
+    'script'
   );
 
   // Download toolbar icon names — indices match old ilToolImages ImageIndex values
   CDownloadOrder: array[0..9] of string = (
-    '',              // 0 (unused)
+    '',
     'play',          // 1 btnStartDownload
     'stop',          // 2 btnPauseDownload
     'move-first',    // 3 BtnFirstRecord

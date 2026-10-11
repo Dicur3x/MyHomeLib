@@ -34,63 +34,45 @@ const
   NO_ACTIVECOLLECTION_ID = MHL_INVALID_ID;
   NO_SERIES_ID           = MHL_INVALID_ID;
 
-  //
-  // Значения полей по умолчанию
-  //
   UNVERSIONED_COLLECTION = MHL_INVALID_ID;
   NO_SERIES_TITLE = '';
   FAVORITES_GROUP_ID = 1;
   UNKNOWN_GENRE_CODE = '0.0';
 
-  //
-  // Разделители полей в INPX
-  //
   INPX_FIELD_DELIMITER   = Chr(4);
   INPX_ITEM_DELIMITER    = ':';
   INPX_SUBITEM_DELIMITER = ',';
 
-  //
-  // Наиболее часто используемые расширения файлов
-  //
   COLLECTION_EXTENSION_SHORT = 'hlc2';
-  COLLECTION_EXTENSION       = '.' + COLLECTION_EXTENSION_SHORT; // .hlc
+  COLLECTION_EXTENSION       = '.' + COLLECTION_EXTENSION_SHORT;
 
   FB2_EXTENSION_SHORT        = 'fb2';
-  FB2_EXTENSION              = '.' + FB2_EXTENSION_SHORT;        // .fb2
+  FB2_EXTENSION              = '.' + FB2_EXTENSION_SHORT;
 
   ZIP_EXTENSION_SHORT        = 'zip';
-  ZIP_EXTENSION              = '.' + ZIP_EXTENSION_SHORT;        // .zip
+  ZIP_EXTENSION              = '.' + ZIP_EXTENSION_SHORT;
 
   SEVENZIP_EXTENSION_SHORT   = '7z';
-  SEVENZIP_EXTENSION         = '.' + SEVENZIP_EXTENSION_SHORT;  // .7z
+  SEVENZIP_EXTENSION         = '.' + SEVENZIP_EXTENSION_SHORT;
 
   FBD_EXTENSION_SHORT        = 'fbd';
-  FBD_EXTENSION              = '.' + FBD_EXTENSION_SHORT;        // .fbd
+  FBD_EXTENSION              = '.' + FBD_EXTENSION_SHORT;
 
-  FB2ZIP_EXTENSION           = FB2_EXTENSION + ZIP_EXTENSION;      // .fb2.zip
-  FB2SEVENZIP_EXTENSION      = FB2_EXTENSION + SEVENZIP_EXTENSION; // .fb2.7z
+  FB2ZIP_EXTENSION           = FB2_EXTENSION + ZIP_EXTENSION;
+  FB2SEVENZIP_EXTENSION      = FB2_EXTENSION + SEVENZIP_EXTENSION;
 
   GENRELIST_EXTENSION_SHORT  = 'glst';
   GENRELIST_EXTENSION        = '.' + GENRELIST_EXTENSION_SHORT;
 
-  //
-  // Алфавиты
-  //
   LATIN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   CYRILLIC_ALPHABET = 'АБВГДЕЁЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЭЮЯ';
 
   LATIN_ALPHABET_SEPARATORS = '"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"';
   // As UPPER() in SQL doesn't always convert correctly, need alphabet to include lower case letters as well
-  CYRILLIC_ALPHABET_SEPARATORS = '"А","Б","В","Г","Д","Е","Ё","Є","Ж","З","И","І","Й","Ї","К","Л","М","Н","О","П","Р","С","Т","У","Ф","Х","Ц","Ч","Ш","Щ","Э","Ю","Я"'; //,"а","б","в","г","д","е","ё","ж","з","и","й","к","л","м","н","о","п","р","с","т","у","ф","х","ц","ч","ш","щ","э","ю","я"';
+  CYRILLIC_ALPHABET_SEPARATORS = '"А","Б","В","Г","Д","Е","Ё","Є","Ж","З","И","І","Й","Ї","К","Л","М","Н","О","П","Р","С","Т","У","Ф","Х","Ц","Ч","Ш","Щ","Э","Ю","Я"';
 
-  //
-  // Некоторые пути
-  //
   DATA_DIR_NAME   = 'Data';
 
-  //
-  // Предефайненные имена файлов
-  //
   SETTINGS_FILE_NAME = 'myhomelib2.ini';
   SYSTEM_DATABASE_FILENAME = 'user.dbs2';
   GENRES_FB2_FILENAME = 'genres_fb2' + GENRELIST_EXTENSION;
@@ -114,29 +96,23 @@ const
   EXPORT_ERRORLOG_FILENAME = 'export_errors.log';
   COLLECTIONS_FILENAME = 'collections.ini';
   PRESETS_FILENAME = 'presets.cxml2';
-  COLLECTIONINFO_FILENAME = 'collection.info'; // file holding URL, Script, etc
+  COLLECTIONINFO_FILENAME = 'collection.info';
   INP_EXTENSION = '.inp';
   EXTRA_INP_FILENAME = 'extra.inp'; // on-line only: список книг, яких нема в основній базі
   TEMP_FOLDER_NAME = '_myhomelib';
   UPDATE_LOGFILE = 'update.log';
   PROGRAM_HOMEPAGE = 'https://github.com/OleksiyPenkov/myhomelib/';
 
-  //
   // Номера вкладок в главном окне ( = tags)
-  //
-  PAGE_AUTHORS = 0;     // авторы
-  PAGE_SERIES = 1;      // серии
-  PAGE_GENRES = 2;      // жанры
-  PAGE_SEARCH = 3;      // поиск
-  PAGE_FAVORITES = 4;   // группы
-  /// REMOVE PAGE_FILTER = 5;      // фильтр
-  PAGE_DOWNLOAD = 6;    // фильтр
+  PAGE_AUTHORS = 0;
+  PAGE_SERIES = 1;
+  PAGE_GENRES = 2;
+  PAGE_SEARCH = 3;
+  PAGE_FAVORITES = 4;
+  PAGE_DOWNLOAD = 6;
 
-  PAGE_ALL = 99;        // все вкладки
+  PAGE_ALL = 99;
 
-  //
-  // Теги колонок
-  //
   COL_AUTHOR     = 20;
   COL_TITLE      = 11;
   COL_SERIES     = 12;
@@ -170,9 +146,6 @@ const
     COL_STATE
   );
 
-  //
-  // названия секций колонок в файле настрок
-  //
   SECTION_A_TREE = 'COLUMNS_AUTHOR_TREE';
   SECTION_A_FLAT = 'COLUMNS_AUTHOR_FLAT';
 
@@ -191,9 +164,6 @@ const
   SECTION_FL_FLAT = 'COLUMNS_FILTER_FLAT';
   SECTION_FL_TREE = 'COLUMNS_FILTER_TREE';
 
-  //
-  // Поля поиска
-  //
   SF_AUTHORS     = 'Authors';
   SF_TITLE       = 'Title';
   SF_SERIES      = 'Series';
@@ -214,10 +184,7 @@ const
   SF_LIBRATE     = 'LibRate';
   SF_LIBRATE_STR = 'LibRate_Str';
 
-  SF_READED      = 'Readed';  // Для поиска прочитанных книг
-  //
-  // специальные значения фильтров
-  //
+  SF_READED      = 'Readed';
   ALPHA_FILTER_ALL       = '*';
   ALPHA_FILTER_NON_ALPHA = '#';
 
@@ -240,45 +207,27 @@ const
     0800 - 0FFF : внешние онлайн коллекции
     }
 
-  //
-  // тип содержимого
-  //
   CONTENT_FB       = $00000000;
   CONTENT_NONFB    = $00000001;
 
-  //
-  // предопределенные библиотеки
-  //
   LIBRARY_PRIVATE  = $00000000;
   LIBRARY_EXTERNAL = $00010000;
 
-  //
-  // расположения библиотеки
-  //
   LOCATION_LOCAL   = $00000000;
   LOCATION_ONLINE  = $08000000;
 
-  //
-  // различные маски
-  //
   CT_CONTENT_MASK  = $00000001;
   CT_LOCATION_MASK = $08000000;
   CT_TYPE_MASK     = $08030000;
   CT_MASK          = CT_CONTENT_MASK or CT_TYPE_MASK;
 
-  //
-  // Несколько предопределенных типов
-  //
-  CT_PRIVATE_FB            = LIBRARY_PRIVATE or LIBRARY_PRIVATE  or CONTENT_FB;    // 0000 0000 -
-  CT_PRIVATE_NONFB         = LIBRARY_PRIVATE or LIBRARY_PRIVATE  or CONTENT_NONFB; // 0000 0001 -
-  CT_EXTERNAL_LOCAL_FB     = LOCATION_LOCAL  or LIBRARY_EXTERNAL or CONTENT_FB;    // 0001 0000 - local lib.rus.ec
-  CT_EXTERNAL_ONLINE_FB    = LOCATION_ONLINE or LIBRARY_EXTERNAL or CONTENT_FB;    // 0801 0000 - online lib.rus.ec
-  CT_EXTERNAL_LOCAL_NONFB  = LOCATION_LOCAL  or LIBRARY_EXTERNAL or CONTENT_NONFB; // 0001 0001 - local Genesis
-  CT_EXTERNAL_ONLINE_NONFB = LOCATION_ONLINE or LIBRARY_EXTERNAL or CONTENT_NONFB; // 0001 0001 - online Genesis
+  CT_PRIVATE_FB            = LIBRARY_PRIVATE or LIBRARY_PRIVATE  or CONTENT_FB;
+  CT_PRIVATE_NONFB         = LIBRARY_PRIVATE or LIBRARY_PRIVATE  or CONTENT_NONFB;
+  CT_EXTERNAL_LOCAL_FB     = LOCATION_LOCAL  or LIBRARY_EXTERNAL or CONTENT_FB;
+  CT_EXTERNAL_ONLINE_FB    = LOCATION_ONLINE or LIBRARY_EXTERNAL or CONTENT_FB;
+  CT_EXTERNAL_LOCAL_NONFB  = LOCATION_LOCAL  or LIBRARY_EXTERNAL or CONTENT_NONFB;
+  CT_EXTERNAL_ONLINE_NONFB = LOCATION_ONLINE or LIBRARY_EXTERNAL or CONTENT_NONFB;
 
-  //
-  // Свойства коллекции
-  //
   PROP_CLASS_SYSTEM     = $10000000;
   PROP_CLASS_COLLECTION = $20000000;
   PROP_CLASS_BOTH       = PROP_CLASS_SYSTEM or PROP_CLASS_COLLECTION;

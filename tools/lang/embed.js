@@ -1,33 +1,11 @@
 'use strict';
 
-// Generates Program/lang.rc, which links the catalogs we ship into the exe.
+// Each catalog is linked with its LANG_<CODE>_SIG: the loader verifies the pair,
+// which stops a resource editor adding a language to a shipped exe.
 //
-// Only uk, en and bg are ever embedded: they are the languages the project
-// ships, and being inside the binary is what makes them unreplaceable by a
-// file in Lang\. Any other locale is a community catalog and must be signed.
-//
-// Embedded catalogs are signed too. Each is linked as a pair --
-// LANG_<CODE> and LANG_<CODE>_SIG -- because the loader verifies the resource
-// before it will use it, which is what stops a resource editor from adding a
-// language to a shipped exe. A catalog with no .sig is therefore not
-// embeddable, and this script refuses rather than quietly dropping it.
-//
-// Bulgarian is embedded rather than shipped as a signed file because it is a
-// language the project ships, and the signature gate exists to keep unapproved
-// third-party catalogs out. Nothing stages Lang\ beside the exe any more --
-// copy_lang.cmd went when catalogs moved inside the binary -- so an external
-// bg.json would have needed installer plumbing for no benefit. The trade is
-// that correcting a Bulgarian string requires a release.
-//
-// A missing catalog is NOT an error. A clean clone has no Program/Lang at all
-// (it is gitignored, and lives in a separate private repository), and it must
-// still build -- producing a Ukrainian-only exe rather than a build failure.
-// A catalog that is PRESENT but unsigned is a different case: somebody has
-// the catalogs and forgot to sign them, and silently shipping one language
-// fewer is the worst outcome available.
-//
-// Usage: node tools/lang/embed.js
-// Exit code: 0 normally, 1 if a catalog exists but is unusable.
+// A missing catalog is not an error: a clean clone has no Program/Lang (private
+// repo) and must still build Ukrainian-only. A present but unsigned catalog
+// fails, since it would silently ship one language fewer.
 
 const fs = require('fs');
 const path = require('path');
@@ -48,9 +26,7 @@ for (const code of EMBEDDED) {
   const file = path.join(LANG_DIR, `${code}.json`);
   if (!fs.existsSync(file)) continue;
 
-  // Parse it: linking a catalog that is not valid JSON, or that declares a
-  // different locale than its filename, would produce an exe that silently
-  // ignores it at runtime. Fail the build here instead.
+  // The loader would silently ignore an invalid or mislabelled catalog.
   let doc;
   try {
     doc = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));

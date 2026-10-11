@@ -26,7 +26,6 @@ uses
 
 type
   EMHLError = class(Exception);
-  //EInvalidLogin = class(Exception);
   EBookNotFound = class(Exception);
   EDBError = class(Exception);
 
@@ -83,32 +82,32 @@ function MHLShowError(
 
 implementation
 
-function MHLShowInfo(const InfoMessage: string; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowInfo(const InfoMessage: string; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MessageDlg(InfoMessage, mtInformation, Buttons, 0);
 end;
 
-function MHLShowInfo(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowInfo(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MHLShowInfo(Format(MessageFormat, Args), Buttons);
 end;
 
-function MHLShowWarning(const WarningMessage: string; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowWarning(const WarningMessage: string; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MessageDlg(WarningMessage, mtWarning, Buttons, 0);
 end;
 
-function MHLShowWarning(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowWarning(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MHLShowWarning(Format(MessageFormat, Args), Buttons);
 end;
 
-function MHLShowError(const ErrorMessage: string; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowError(const ErrorMessage: string; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MessageDlg(ErrorMessage, mtError, Buttons, 0);
 end;
 
-function MHLShowError(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons {= [mbOK]}): Integer;
+function MHLShowError(const MessageFormat: string; const Args: array of const; Buttons: TMsgDlgButtons): Integer;
 begin
   Result := MHLShowError(Format(MessageFormat, Args), Buttons);
 end;

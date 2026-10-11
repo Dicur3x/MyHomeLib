@@ -90,18 +90,6 @@ resourcestring
   rstrInpxSourceSubTitle = 'Виберіть файл inpx для створення колекції';
   rstrMetabibSourceTitle = 'Джерело metabib';
   rstrMetabibSourceSubTitle = 'Виберіть файл каталогу metabib для створення колекції';
-  //rstrGroupLibrusec = 'Библиотека Lib.rus.ec';
-  //rstrGroupFlibusta = 'Библиотека Flibusta';
-  //rstrGroupTraum = 'Библиотека Траума';
-  //rstrLibrusecFB2 = 'Архивы FB2 (fb2-xxxxxx-xxxxxx.zip)';
-  //rstrLibrusecUSR = 'Архивы USR (usr-xxxxxx-xxxxxx.zip)';
-  //rstrLibrusecAll = 'Все архивы (fb2-xxxxxx-xxxxxx.zip и usr-xxxxxx-xxxxxx.zip)';
-  //rstrLibrusecOnline = 'Книги скачиваются по запросу с серввера lib.rus.ec (необходима регистрация)';
-  //rstrFlibustaOnline = 'Книги скачиваются по запросу с сервера flibusta.net';
-  //rstrTraum_2_11_FB2 = 'Библиотека Траума 2.11';
-  //rstrTraum_2_12_FB2 = 'Библиотека Траума 2.12';
-  //rstrTraum_2_13_FB2 = 'Библиотека Траума 2.13 (только FB2)';
-  //rstrTraum_2_13_All = 'Библиотека Траума 2.13 (Полная)';
 
 {$R *.dfm}
 
@@ -110,23 +98,6 @@ const
   INPX_GROUP_SECTION = 'GROUPS';
   INPX_KEY_PREFIX = 'Inpx';
   INPX_GROUP_KEY_PREFIX = 'Group';
-
-(*
-  DefaultGroups: array [0 .. 2] of string = (rstrGroupLibrusec, rstrGroupFlibusta, rstrGroupTraum);
-
-  DefaultCollections: array [0 .. 8] of TCollectionDesc =
-  (
-    (Group: 0; Title: 'Lib.rus.ec [FB2]';        Desc: rstrLibrusecFB2; INPX: 'librusec.inpx'),
-    (Group: 0; Title: 'Lib.rus.ec [USR]';        Desc: rstrLibrusecUSR; INPX: 'librusec_usr.inpx'),
-    (Group: 0; Title: 'Lib.rus.ec [ALLBOOKS]';   Desc: rstrLibrusecAll;    INPX: 'librusec_allbooks.inpx'),
-    (Group: 0; Title: 'Lib.rus.ec Online [FB2]'; Desc: rstrLibrusecOnline; INPX: 'librusec_online.inpx'),
-    (Group: 1; Title: 'Flibusta OnLine [FB2]';   Desc: rstrFlibustaOnline; INPX: 'flibusta_online.inpx'),
-    (Group: 2; Title: 'Traum 2.11 [FB2]';        Desc: rstrTraum_2_11_FB2; INPX: 'Traum_2-11.inpx'),
-    (Group: 2; Title: 'Traum 2.12 [FB2]';        Desc: rstrTraum_2_12_FB2; INPX: 'Traum_2-12.inpx'),
-    (Group: 2; Title: 'Traum 2.13 [FB2]';        Desc: rstrTraum_2_13_FB2; INPX: 'Traum_2-13_fb2.inpx'),
-    (Group: 2; Title: 'Traum 2.13 [ALLBOOKS]';   Desc: rstrTraum_2_13_All; INPX: 'Traum_2-13_full.inpx')
-  );
-*)
 
 procedure TframeNCWInpxSource.LoadDescriptions;
 var
@@ -142,21 +113,18 @@ begin
     sl := TStringList.Create;
     try
       INIFile.ReadSection(INPX_GROUP_SECTION, sl);
-      // обрабатываем файл
       if sl.Count > 0 then
       begin
         SetLength(FGroups, sl.Count);
         for I := 0 to sl.Count - 1 do
           if Pos(INPX_GROUP_KEY_PREFIX, sl[I]) = 1 then
             FGroups[I] := INIFile.ReadString(INPX_GROUP_SECTION, sl[I], '');
-      end // if
+      end
       else
       begin
-        // Добавим группы по умолчанию
       end;
 
       INIFile.ReadSection(INPX_SECTION, sl);
-      // обрабатываем файл
       if sl.Count > 0 then
       begin
         SetLength(FCollections, sl.Count);
@@ -179,12 +147,9 @@ begin
         finally
           slHelper.Free;
         end;
-      end // if
+      end
       else
       begin
-        // Добавим inpx по умолчанию
-        // SetLength(FCollections, 9);
-        // FCollections := DefaultCollections;
       end;
     finally
       sl.Free;
@@ -286,9 +251,7 @@ begin
   begin
     FPParams^.Operation := otInpxDownload;
     FPParams^.INPXFile := TPath.Combine(Settings.WorkPath, FCollection.INPX);
-    //
-    // TODO: необходимо хранить URL для получения INPX. Иначе все INPX должны лежать на одном сервере.
-    //
+    // TODO: хранить URL для каждого INPX; сейчас все INPX должны лежать на одном сервере.
     FPParams^.INPXUrl := Settings.InpxURL + FCollection.INPX;
   end;
 

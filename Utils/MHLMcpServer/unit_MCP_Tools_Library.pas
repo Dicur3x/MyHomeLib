@@ -16,11 +16,8 @@ function BookToJson(const Book: TBookRecord; Full: Boolean): TJSONObject;
 function AuthorsToJson(const Authors: TBookAuthors): TJSONArray;
 function GenresToJson(const Genres: TBookGenres): TJSONArray;
 
-// Exported (not just used internally by this unit) so any other tool unit --
-// unit_MCP_Tools_Text.pas included -- can log a caught exception's full
-// detail to stderr while still returning a sanitized, path-free message to
-// the client, the same discipline CollectionOrFail/GetBook already follow
-// below.
+// Exceptions can carry build-machine paths: log detail here, send the client
+// a sanitized message.
 procedure LogToStderr(const Msg: string);
 
 implementation
@@ -33,25 +30,11 @@ uses
   SQLiteWrap;
 
 var
-  // Flips to True only after TDMUser.Init has completed against an existing
-  // system database. Makes EnsureLibraryInitialized idempotent so DMUser is
-  // booted at most once, on the first tool call that needs it.
   GLibraryInitialized: Boolean = False;
 
-// Boots DMUser lazily, on first tool use, instead of at process startup.
-// This is what keeps the server from ever writing to the system database:
-// TDMUser.Init calls TSystemData_SQLite.CreateSystemTables (DDL plus two
-// INSERTs) whenever the system DB file is absent. Checking for the file
-// first and refusing with a domain error if it is missing means that branch
-// of Init is never reached from this process.
-//
-// Ordering note: TMHLSettings computes every path field (FDataDir,
-// FDbsFileName, ...) inside its own constructor, which TDMUser.Create runs
-// immediately. TMHLSettings.LoadSettings -- called later, from TDMUser.Init
-// -- only overwrites user-preference fields (device path, proxy, UI layout,
-// ...), never the path fields. So DMUser.Settings.SystemFileName[sfSystemDB]
-// is already correct right after TDMUser.Create, before Init ever runs, and
-// can be safely checked before deciding whether to call Init at all.
+// Refusing when the system DB file is missing keeps TDMUser.Init from ever
+// creating it. SystemFileName is valid right after TDMUser.Create: path fields
+// are set in the TMHLSettings constructor, LoadSettings never changes them.
 procedure EnsureLibraryInitialized;
 var
   SysDBFileName: string;
@@ -73,18 +56,9 @@ begin
   GLibraryInitialized := True;
 end;
 
-// Wraps a handler so that (1) DMUser is brought up on first use (see
-// EnsureLibraryInitialized) and (2) SQLite lock contention becomes a domain
-// error instead of an opaque internal one. SQLiteWrap exposes no read-only
-// or busy-timeout open mode, so a write by the running app surfaces here as
-// "database is locked".
-//
-// EnsureLibraryInitialized is called INSIDE the try/except, not before it:
-// TDMUser.Init itself opens the system database, so an ESQLiteException it
-// raises (the system DB exists but the running app holds a lock at that
-// exact moment) must go through the same collection_busy mapping as every
-// other SQLite exception a handler can raise -- not surface as a raw
-// JSON-RPC -32603 just because it happened one call earlier than the rest.
+// SQLiteWrap has no read-only or busy-timeout mode, so a write by the running
+// app surfaces as "database is locked". EnsureLibraryInitialized is inside the
+// try because TDMUser.Init opens the DB and can hit the same lock.
 function Guarded(Handler: TMcpToolHandler): TMcpToolHandler;
 begin
   Result :=
@@ -106,11 +80,6 @@ begin
     end;
 end;
 
-// Diagnostic-only logging for a developer attached to stderr. Never stdout --
-// stdout is reserved solely for TMcpTransport's JSON-RPC output (see the
-// warning in MHLMcpServer.dpr). Used to preserve inner exception detail
-// (which can carry build-machine paths, e.g. from a Delphi Assert) without
-// leaking it to the client in an EMcpToolError message.
 procedure LogToStderr(const Msg: string);
 begin
   Writeln(ErrOutput, Msg);
@@ -141,11 +110,6 @@ var
   Arr: TJSONArray;
   Entry: TJSONObject;
 begin
-  // Arr (and every Entry already added to it) must not leak if the iterator
-  // raises partway through -- which is exactly what happens on the
-  // collection_busy path, in a process that lives for a whole client
-  // session. Same shape to be reused by every later tool building a result
-  // array.
   Arr := TJSONArray.Create;
   try
     Iterator := SystemDB.GetCollectionInfoIterator;
@@ -168,24 +132,8 @@ begin
   Result.AddPair('collections', Arr);
 end;
 
-// Composes a display name from raw name parts, skipping blanks, instead of
-// calling TAuthorData.GetFullName. GetFullName does Assert(LastName <> ''),
-// which raises EAssertionFailed -- carrying an absolute build-machine source
-// path, since assertions are enabled at runtime in this project's Release
-// config -- for any author row with no last name. Authors come straight from
-// the DB via GetBookAuthors with no backfill, and hand-edited or
-// badly-imported metadata makes a blank LastName a real case in a home
-// library, not a hypothetical one. Nothing upstream of BookToJson catches
-// EAssertionFailed, so it would otherwise reach the client raw, reintroducing
-// the same path leak that CollectionOrFail/GetBook were just fixed for, via
-// this route instead.
-//
-// For well-formed data (LastName non-blank) this produces output identical
-// to today's GetFullName: both build LastName, then (if non-blank) FirstName,
-// then (if non-blank) MiddleName, each separated by a single space. This
-// version additionally tolerates a blank LastName by just skipping it,
-// rather than asserting or (as unit_FB2Utils.FormatName would, called
-// directly with an empty LastName) leaving a stray leading space.
+// Not TAuthorData.GetFullName: it asserts LastName <> '', and assertions are
+// on in Release, so a blank last name would leak a build-machine path.
 function ComposeAuthorFullName(const Author: TAuthorData): string;
 begin
   Result := Author.LastName;
@@ -212,9 +160,6 @@ var
   I: Integer;
   Entry: TJSONObject;
 begin
-  // Same leak-safe shape as ListCollections: Result (and, per entry, Entry)
-  // must not leak if anything raises mid-loop -- Entry until it is handed to
-  // Result via AddElement, Result for as long as it lives.
   Result := TJSONArray.Create;
   try
     for I := 0 to High(Authors) do
@@ -265,14 +210,7 @@ end;
 
 function BookToJson(const Book: TBookRecord; Full: Boolean): TJSONObject;
 begin
-  // Same leak-safe shape once more. Ownership note: as soon as AddPair('authors', ...)
-  // / AddPair('genres', ...) succeeds, Result owns that array -- freeing
-  // Result on the except branch below cascades into freeing it too, so it
-  // must NOT be freed separately (that would double-free it). If
-  // AuthorsToJson/GenresToJson themselves raise, they have already cleaned up
-  // their own partial state (see above) before the exception reaches here, so
-  // there is nothing of theirs left to free; only Result (and whatever it
-  // already owns from earlier AddPair calls in this function) needs freeing.
+  // Once AddPair succeeds Result owns the array; do not free it separately.
   Result := TJSONObject.Create;
   try
     Result.AddPair('book_id', TJSONNumber.Create(Book.BookKey.BookID));
@@ -334,30 +272,9 @@ begin
   Result := BookToJson(Book, True);
 end;
 
-// Rejects a free-text search_books argument that is unsafe to embed in SQL
-// text at all, regardless of which of the two encodings below (CHAR()-coded
-// LIKE pattern for the six LiteralLikeCondition fields, or single-quoted
-// literal for genre) ends up rendering it. Split out from LiteralLikeCondition
-// so it can be called for genre too: genre (below) never went through
-// LiteralLikeCondition -- it fills in one bare `g.GenreCode = '...'`
-// comparison via its own quote-doubling path -- and until this fix that path
-// had NEITHER of these two guards, so a NUL in `genre` reached
-// sqlite3_prepare_v2 and truncated the statement there exactly the way a NUL
-// in `title` used to (see LiteralLikeCondition's own history below).
-// Confirmed against the real collection: search_books(genre: "x\0y") is what
-// first reached the raw internal-error leak this fix round closes (see
-// unit_MCP_Protocol.pas's DispatchRequest).
-//
-// - A NUL (#0) is rejected outright, not encoded/escaped: SQLite's own
-//   internal string handling (and, for the six CHAR()-encoded fields, the
-//   LIKE implementation's UTF-8 reader specifically) treats a zero byte as
-//   a terminator, so anything after it is silently dropped from the
-//   resulting pattern/literal -- never "just another character".
-// - A value longer than MaxLength is rejected: harmless for genre's own
-//   quote-doubled literal (no length blow-up there), but shared here rather
-//   than duplicated so both call sites stay governed by one limit and one
-//   piece of reasoning, and so a future free-text field cannot be added
-//   without this guard by construction.
+// A NUL is a terminator inside SQLite (truncating the pattern/statement), so it
+// is rejected, not encoded. Overlong values hit SQLite's LIKE length limit,
+// whose error message carries the whole generated SQL.
 procedure ValidateFreeTextArg(const ArgName, Value: string);
 const
   MaxLength = 4000;
@@ -372,105 +289,24 @@ begin
         [ArgName, Length(Value), MaxLength]));
 end;
 
-// Builds a `<field> LIKE <literal>` fragment for one of search_books' free-text
-// arguments (title/author/series/lang/keyword/annotation) that matches Value
-// as a literal, case-insensitive substring -- regardless of what characters
-// Value contains -- instead of letting unit_SearchUtils.PrepareQuery/
-// AddToFilter interpret it.
+// Matches Value as a literal, case-insensitive substring. PrepareQuery and
+// AddToFilter (unit_Database_SQLite.PrepareSearchData) splice caller text into
+// the WHERE clause unescaped and text-search it for operator tokens, so Value
+// is rendered as CHAR(code, ...) calls: no caller character, quote or
+// operator-shaped substring reaches the SQL text. Our own 'LIKE' keyword makes
+// PrepareQuery pass the string through.
 //
-// Why a plain quoted literal is not safe here: PrepareSearchData
-// (Program\DAO\SQLite\unit_Database_SQLite.pas) runs every one of these
-// fields through PrepareQuery(Value, UP=True) then AddToFilter with a
-// hard-coded column name. PrepareQuery wraps a "plain" value as `LIKE
-// "%value%"`, but the moment Value already contains '%', '=', '"' or the word
-// LIKE, it assumes the caller wrote a hand-crafted condition and passes
-// Value through nearly verbatim (no escaping of embedded quotes at all) --
-// so a title containing a '"' defeats the wrapping outright, and a value
-// shaped like `x' OR '1'='1` sails through unescaped into the WHERE clause.
-// AddToFilter then makes it worse independent of PrepareQuery: it splices in
-// the column name by blindly text-searching the *final* value for
-// space-bounded ' LIKE ', ' =', ' <>', ' <', ' >' tokens -- so even a
-// correctly-quoted literal would be at risk if the caller's own text
-// happens to contain one of those substrings (e.g. an annotation containing
-// "x < y"), because AddToFilter cannot tell "inside the literal" from "the
-// real operator" and would splice the column name into the middle of it.
+// Chunks of 100 codes per CHAR(): SQLITE_MAX_FUNCTION_ARG defaults to 127.
 //
-// The fix used here is the one Task 7 established for `genre`, taken
-// further: build the whole condition ourselves so PrepareQuery has nothing
-// left to reinterpret (our own literal 'LIKE' keyword makes PrepareQuery
-// skip its wrapping/escaping branches and pass the string through close to
-// verbatim), and render Value's *escaped* text as SQLite CHAR(code, code,
-// ...) calls -- decimal Unicode code points joined by commas -- instead of
-// a quoted string. A CHAR()-built value contains none of the caller's
-// original characters anywhere in the spliced SQL text (only digits,
-// commas, parentheses and our own fixed keywords), so AddToFilter's blind
-// token search can never mistake part of the literal for a second operator,
-// and there is no quote character of any kind for the value to break out
-// through. This is a stronger guarantee than escaping quotes the way the
-// `genre` fix does, because `genre` only ever fills in one bare `=`
-// comparison, never arbitrary free text that could itself contain
-// operator-shaped substrings.
+// The column side is precomputed by MHL_UPPER (Char.ToUpper), and PrepareQuery
+// cannot uppercase encoded codes, so Value is uppercased with the same function.
 //
-// Chunked into groups of 100 code points per CHAR() call, concatenated with
-// `||`: SQLite's SQLITE_MAX_FUNCTION_ARG defaults to 127, so a single
-// CHAR() call would reject any search value longer than ~125 characters
-// after escaping -- a real limit for `annotation` searches in particular.
-//
-// Case: the column side of this comparison (b.SearchTitle etc.) is
-// precomputed by a custom MHL_UPPER SQLite UDF backed by
-// `Char.ToUpper` (System.Character's TCharHelper.ToUpper, see
-// Program\DAO\SQLite\Lib\SQLite3UDF.pas), not Delphi's AnsiUpperCase. Since
-// this function encodes Value's exact character codes into the SQL text,
-// PrepareQuery's own UP=True uppercasing step (which only touches the
-// "LIKE CHAR(...)" text, not the numbers' represented characters) cannot
-// perform the case-folding that step normally does -- so Value must be
-// uppercased with the *same* function before it is escaped/encoded, or this
-// would silently become a case-SENSITIVE match against an always-uppercase
-// column.
-//
-// Wildcard escaping: '%' and '_' are LIKE metacharacters regardless of how
-// the pattern string was built, so a literal search must escape them (and
-// the escape character itself, backslash, in case Value already contains
-// one) and declare ESCAPE '\' -- otherwise a title containing a literal '%'
-// or '_' would be (mis)interpreted as a wildcard instead of matched
-// literally.
-//
-// Rejected rather than silently matched, and why:
-//
-// - A NUL (#0) anywhere in Value used to be encoded as CHAR(...,0,...) like
-//   any other code point, and that is NOT inert the way every other
-//   character is: SQLite's char(0) embeds a real zero byte into the runtime
-//   string, and the LIKE implementation's own UTF-8 reader
-//   (sqlite3.c's Utf8Read, used by patternCompare) stops at that byte,
-//   truncating the pattern there. `title: #0` alone collapsed to a
-//   zero-length "%<nothing>%" pattern, i.e. "matches everything" --
-//   confirmed against the real collection, where it returned
-//   total_count: 439393, the entire non-deleted collection, from a value
-//   that should match nothing. `title: 'Бел'#0'ка'` collapsed to "%БЕЛ%",
-//   returning 11 unrelated books. This is exactly the caller-controlled
-//   widening this whole task exists to prevent, so a NUL is rejected
-//   outright rather than patched around: stored text cannot contain a NUL
-//   either (it is not valid inside the SQLite text values MHL_UPPER
-//   produces), so a value containing one could never legitimately match
-//   anything -- there is no "make it literal" fix for this one, only
-//   "refuse it".
-// - An arbitrarily long Value is not a hard-vs-soft correctness question the
-//   way NUL is, but is cheap to fix here and adjacent to it: an unbounded
-//   value still reaches SQLite's LIKE pattern-length limit (50000 bytes)
-//   uncaught, and the resulting EOutOfRange-style SQLite error message
-//   contains the entire generated SQL text -- hundreds of thousands of
-//   characters, including the whole statement -- which would otherwise
-//   leak through Guarded's generic exception handling as a raw internal
-//   error carrying that text (the very leak class LogToStderr/EMcpToolError
-//   exist to prevent). MaxLength (4000) is far larger than any genuine
-//   title/author/series/lang/keyword/annotation search term needs to be,
-//   and comfortably under the ~24900-character point where this
-//   CHAR()-chunked construction was confirmed to start hitting that SQLite
-//   limit.
+// MaxLength 4000 is well under ~24900 chars, where this construction hits
+// SQLite's 50000-byte LIKE pattern limit.
 function LiteralLikeCondition(const ArgName, Value: string): string;
 const
   ChunkSize = 100;
-  SQ = ''''; // a single apostrophe as a string value
+  SQ = '''';
 var
   Escaped: string;
   Codes, Terms: string;
@@ -510,18 +346,9 @@ begin
   Result := 'LIKE ' + Terms + ' ESCAPE ' + SQ + '\' + SQ;
 end;
 
-// Full-text-ish search across a single collection. LoadMemos is False --
-// summary rows (BookToJson Full=False) never surface annotation or review,
-// so there is no point paying for the extra SQLite reads. RecordCount is
-// read exactly once, into Total, before the paging loop below: the SQLite
-// iterators behind IBookIterator assert on a second call (see
-// unit_Database_SQLite.pas), which would otherwise surface to the client as
-// an uncaught EAssertionFailed carrying a build-machine path.
+// RecordCount is read once: the SQLite iterators assert on a second call.
 function SearchBooks(const Args: TJSONObject): TJSONObject;
 type
-  // ArgName is what both LiteralLikeCondition and ValidateFreeTextArg name in
-  // their invalid_params messages; Target is the TBookSearchCriteria field
-  // (Title/FullName/Series/Lang/KeyWord/Annotation) this argument feeds.
   TFreeTextField = record
     ArgName: string;
     Target: PString;
@@ -544,21 +371,7 @@ begin
 
   Criteria := Default(TBookSearchCriteria);
 
-  // Title/author/series/lang/keyword/annotation all go through
-  // LiteralLikeCondition (see its comment above) rather than a direct
-  // ArgStr(...) assignment -- PrepareSearchData would otherwise hand the
-  // caller's raw text to PrepareQuery/AddToFilter, which splice it into the
-  // WHERE clause with no escaping at all (see that function's comment for
-  // the full argument). Folded into one loop over their (ArgName, Target)
-  // pairs, rather than six near-identical `Arg := ArgStr(...); if Arg <> ''
-  // then Criteria.X := LiteralLikeCondition(...)` blocks repeated by hand --
-  // that repetition is exactly what let `genre` (below, a seventh free-text
-  // argument that does NOT go through this loop because it needs a different
-  // SQL shape -- an equality, not a LIKE pattern) go unnoticed as the one
-  // field whose NUL/length guards (see ValidateFreeTextArg) were never
-  // wired in. Six copies of the same shape is also six places a future
-  // change to this pairing could be applied to only some of them; one loop
-  // cannot go half-updated.
+  // genre is not in this loop: it needs an equality, not a LIKE pattern.
   FreeTextFields[0].ArgName := 'title';      FreeTextFields[0].Target := @Criteria.Title;
   FreeTextFields[1].ArgName := 'author';     FreeTextFields[1].Target := @Criteria.FullName;
   FreeTextFields[2].ArgName := 'series';     FreeTextFields[2].Target := @Criteria.Series;
@@ -574,41 +387,10 @@ begin
         LiteralLikeCondition(FreeTextFields[FieldIdx].ArgName, FieldValue);
   end;
 
-  // TBookSearchCriteria.Genre is not a value to compare -- PrepareSearchData
-  // splices it verbatim into a WHERE clause (' WHERE (' + SearchCriteria.Genre
-  // + ')'), matching how frm_main.pas builds it from its genre-tree picker:
-  // Format('(g.GenreCode = "%s")', [Genre.GenreCode]). A bare code (what
-  // list_genres' "code" field is and what this tool's schema documents the
-  // argument as) is not valid SQL on its own -- confirmed against a real
-  // collection, where passing "0.3.3" straight through as SearchBooks did
-  // before this fix produced 'near ".3": syntax error'. Build the same
-  // condition shape frm_main does, but deliberately with single quotes
-  // instead of frm_main's double quotes, and double up any embedded '''
-  // (SQLite's escape for a literal quote inside a single-quoted string) so a
-  // caller-supplied genre string can't break out of the literal and inject
-  // arbitrary SQL into this WHERE clause.
-  //
-  // Double quotes were tried first and are NOT safe here even though doubling
-  // "" does contain the value: SQLite resolves a double-quoted token as an
-  // *identifier* first, falling back to a string literal only when no
-  // matching identifier exists. frm_main.pas can get away with this because
-  // it only ever quotes a real GenreCode value picked from its own genre
-  // tree. This tool quotes arbitrary caller input, so a genre argument that
-  // happens to match a column name -- e.g. the literal string "GenreCode" --
-  // would become g.GenreCode = "GenreCode", comparing the column to itself
-  // and matching every row instead of matching nothing. Single-quoted strings
-  // have no such identifier fallback in SQLite, so they close both the
-  // injection hole and this identifier-collision trap.
-  //
-  // ValidateFreeTextArg (NUL + length guards) is called explicitly here,
-  // exactly as the loop above calls it implicitly via LiteralLikeCondition --
-  // genre never went through LiteralLikeCondition (it needs an equality, not
-  // a LIKE pattern), so until this fix it was the one free-text argument
-  // that skipped both guards entirely. A NUL in genre truncates the
-  // sqlite3_prepare_v2 statement the same way it used to for title/etc:
-  // confirmed against the real collection, search_books(genre: "x\0y")
-  // reached a raw internal error carrying the whole generated SQL statement
-  // before this fix. See case 41.
+  // PrepareSearchData splices Genre verbatim into the WHERE clause, so a bare
+  // code is not valid SQL. Single quotes, not frm_main's double quotes: SQLite
+  // resolves a double-quoted token as an identifier first, so genre "GenreCode"
+  // would compare the column to itself and match every row.
   GenreCode := ArgStr(Args, 'genre');
   if GenreCode <> '' then
   begin
@@ -616,52 +398,22 @@ begin
     Criteria.Genre := Format('g.GenreCode = ''%s''',
       [StringReplace(GenreCode, '''', '''''', [rfReplaceAll])]);
   end;
-  // TBookSearchCriteria.Deleted is inverted relative to this tool's
-  // include_deleted argument: PrepareSearchData only adds a filter when
-  // Deleted is True, and that filter is `b.IsDeleted = 0` -- i.e. Deleted
-  // means "hide deleted books" (it is set straight from a "hide deleted"
-  // checkbox in frm_main.pas), not "include deleted books". So the default
-  // include_deleted=False (exclude deleted books) must map to Deleted=True,
-  // and include_deleted=True (include deleted books) must map to
-  // Deleted=False (no filter, deleted rows pass through). Do not "simplify"
-  // this back to a direct assignment -- it was tried and is backwards.
+  // Inverted: Criteria.Deleted means "hide deleted" (filter b.IsDeleted = 0).
   Criteria.Deleted    := not ArgBool(Args, 'include_deleted', False);
 
-  // DateIdx must be -1, not the Default(...) zero value. PrepareSearchData's
-  // 0 branch is not "no date filter" -- it means "modified in the last
-  // calendar day", silently restricting every search to yesterday's imports.
-  // -1 is the sentinel that actually skips date filtering (it falls through
-  // to DateText, which Default(...) already left empty). Confirmed against
-  // a real 525k-book collection: without this, search_books returned zero
-  // rows for every query.
+  // DateIdx 0 means "modified in the last day"; -1 skips date filtering.
   Criteria.DateIdx := -1;
 
-  // min_lib_rate is documented (and named) as a *minimum* rating, but
-  // `Criteria.LibRate := IntToStr(MinRate)` (the previous code) went through
-  // PrepareQuery(S, UP=False, ConverToFull=False), which wraps a plain
-  // number as `="N"` -- an EXACT match, silently turning "4 and up" into
-  // "exactly 4". Criteria.LibRate is spliced by AddToFilter the same
-  // untrusted-text way every other field here is, but MinRate itself is
-  // always our own IntToStr of a parsed Integer, never caller text, so no
-  // literal-escaping is needed for this one -- only the operator needs
-  // fixing. '>= N' (no '=' immediately after a space, so AddToFilter's
-  // ' =' token does not fire; its ' >' token does, splicing in the column
-  // name as `b.LibRate >= N`) gives the documented "at least" semantics.
+  // A plain number would become an exact match ="N". '>= N' gives a minimum;
+  // AddToFilter's ' >' token splices in the column name. MinRate is our own
+  // IntToStr, so no escaping is needed.
   MinRate := ArgInt(Args, 'min_lib_rate', 0);
   if MinRate > 0 then
     Criteria.LibRate := Format('>= %d', [MinRate]);
 
-  // PrepareSearchData raises a plain Exception (message
-  // rstrCheckFilterParams, "Перевірте параметри фільтра") whenever it built
-  // no WHERE clause at all, and that exception is not an EMcpToolError, so
-  // it would otherwise fall through Guarded/HandleToolsCall uncaught and
-  // surface to the client as a raw JSON-RPC -32603 carrying the DAO's own
-  // message text. That happens whenever every one of the fields above is
-  // blank AND include_deleted=true (Criteria.Deleted=False skips the one
-  // filter -- b.IsDeleted = 0 -- that a call with every other field left at
-  // its default would otherwise always pick up). Detect the same condition
-  // here first and fail with a stable, machine-readable domain error
-  // instead of letting that raw text leak through.
+  // With every field blank and include_deleted=true, PrepareSearchData raises a
+  // plain Exception whose DAO text would leak as -32603; fail with a domain
+  // error first.
   if (Criteria.Title = '') and (Criteria.FullName = '') and (Criteria.Series = '') and
      (Criteria.Genre = '') and (Criteria.Lang = '') and (Criteria.KeyWord = '') and
      (Criteria.Annotation = '') and (Criteria.LibRate = '') and (not Criteria.Deleted) then
@@ -677,9 +429,6 @@ begin
   Iterator := Collection.Search(Criteria, False);
   Total := Iterator.RecordCount;
 
-  // Same leak-safe accumulator shape as ListCollections/AuthorsToJson: Arr
-  // (and, per entry, the TJSONObject from BookToJson) must not leak if
-  // anything raises mid-loop.
   Arr := TJSONArray.Create;
   try
     Skipped := 0;
@@ -711,10 +460,7 @@ begin
     Result.AddPair('clamped', TJSONBool.Create(True));
 end;
 
-// Whole genre tree, unpaged: genre lists are small and fixed for a given
-// collection, and the codes returned here are exactly what a caller needs to
-// build a search_books(genre=...) call -- there is no other way to discover
-// them, so truncating this list would make that argument unusable.
+// Unpaged: these codes are the only way to discover search_books' genre values.
 function ListGenres(const Args: TJSONObject): TJSONObject;
 var
   Collection: IBookCollection;
@@ -725,8 +471,6 @@ var
 begin
   Collection := CollectionOrFail(RequireInt(Args, 'collection_id'));
 
-  // Same leak-safe accumulator shape as ListCollections/SearchBooks: Arr (and,
-  // per entry, Entry) must not leak if anything raises mid-loop.
   Arr := TJSONArray.Create;
   try
     Iterator := Collection.GetGenreIterator(gmAll, nil);
@@ -752,20 +496,7 @@ begin
   Result.AddPair('genres', Arr);
 end;
 
-// Series list with an optional case-insensitive substring filter, applied in
-// Delphi over the iterator -- GetSeriesIterator's smAll mode takes no
-// free-text filter of its own (smFullFilter instead reads alpha/local/deleted
-// state off the collection object, not a caller-supplied string, and is not
-// used here).
-//
-// Loop shape note: the limit is checked with `while Taken < Limit do` before
-// calling Iterator.Next, rather than folding both into one `Next(...) and
-// (Taken < Limit)` condition. With the latter, Pascal's short-circuit `and`
-// still evaluates Next(...) first (it is the left operand), so on the
-// iteration where Taken reaches Limit, Next would already have fetched and
-// discarded one more record before the condition as a whole came back False.
-// Checking Limit first means Next is called only when a record taken from it
-// can actually still be used.
+// Limit is checked before Iterator.Next so no record is fetched and discarded.
 function ListSeries(const Args: TJSONObject): TJSONObject;
 var
   Collection: IBookCollection;
@@ -815,13 +546,6 @@ begin
     Result.AddPair('clamped', TJSONBool.Create(True));
 end;
 
-// Author list with the same optional substring-filter/limit shape as
-// ListSeries (same loop-order reasoning applies). Uses ComposeAuthorFullName,
-// not TAuthorData.GetFullName -- GetFullName asserts LastName <> '', and
-// assertions are enabled in this build, so a blank-last-name row (a real
-// possibility in hand-edited or badly-imported metadata) would otherwise
-// raise EAssertionFailed carrying a build-machine source path straight out to
-// the client, uncaught by anything between here and the transport.
 function ListAuthors(const Args: TJSONObject): TJSONObject;
 var
   Collection: IBookCollection;

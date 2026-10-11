@@ -2,11 +2,7 @@
 
 {$APPTYPE CONSOLE}
 
-// Embeds the CreateSystemDB_SQLite / CreateCollectionDB_SQLite DDL scripts
-// under this module's own HInstance -- see unit_SQLiteUtils.ReadResourceAsStringList
-// and the comment in MHLMcpServer_SQL.rc. --make-fixture (unit_MCP_Fixture.pas)
-// is the first mode in this project to create a system database or a
-// collection, so it is the first mode that needs these.
+// DDL scripts for --make-fixture; see MHLMcpServer_SQL.rc.
 {$R MHLMcpServer_SQL.res}
 
 uses
@@ -24,13 +20,6 @@ uses
   unit_MCP_CacheSelfTest in 'unit_MCP_CacheSelfTest.pas',
   unit_MCP_Fixture in 'unit_MCP_Fixture.pas';
 
-// Extracts one FB2 file's text and section structure and prints it as a
-// single JSON line, exactly like a tool result would look, but with no MCP
-// envelope. Runs before the server/DMUser bootstrap (see the dispatch below)
-// -- ExtractFb2 touches no database, so this needs neither DMUser nor a
-// system database to exist. Still goes through TMcpTransport, not Writeln,
-// so the same "only the transport writes to stdout" discipline holds here
-// too.
 procedure RunExtractMode(const FileName: string);
 var
   Stream: TFileStream;
@@ -86,38 +75,21 @@ begin
   end;
 end;
 
-// IMPORTANT: nothing in this project may write to stdout except TMcpTransport.
-// A single stray WriteLn corrupts every JSON-RPC response.
+// Nothing may write to stdout except TMcpTransport: a stray WriteLn corrupts
+// every JSON-RPC response.
 //
-// This process links the VCL because the DAO layer does, but it creates no
-// forms and runs no message loop.
+// No FirstHinstanceRunning: several servers may run alongside the app.
 //
-// Note: unlike MyHomeLib.dpr, this does NOT call FirstHinstanceRunning —
-// several server instances may run alongside the running app.
-//
-// DMUser is deliberately NOT created here. unit_MCP_Tools_Library boots it
-// lazily, on the first tool call, via EnsureLibraryInitialized -- so a
-// missing system database surfaces as a normal tool error (system_db_missing)
-// instead of TDMUser.Init silently creating a brand-new one. That is also why
-// every tool registration below is wrapped in Guarded(...): it is the one
-// path by which DMUser gets initialized.
+// DMUser is created lazily on the first tool call (EnsureLibraryInitialized),
+// so a missing system database becomes a system_db_missing tool error instead
+// of TDMUser.Init silently creating a new one.
 
 var
   Server: TMcpServer;
 
 begin
-  // --extract is a pure, database-free CLI mode (see RunExtractMode above),
-  // so it is handled before Application.Initialize / DMUser ever come into
-  // play. Any failure here is reported to stderr, never stdout -- the
-  // transport already owns stdout for the (unused, in this mode) JSON line.
-  //
-  // Checked on ParamStr(1) alone, not on ParamCount = 2: an unquoted path
-  // containing spaces is split by the OS into several ParamStr entries, and
-  // falling through to server mode in that case would silently start a
-  // JSON-RPC server that blocks forever reading stdin, with no indication
-  // that --extract was even recognised. There is no reliable way to
-  // reconstruct one path from several already-split arguments, so this
-  // fails fast with a clear message instead of guessing.
+  // Checked on ParamStr(1), not ParamCount = 2: an unquoted path with spaces
+  // would otherwise fall through to server mode and block on stdin.
   if (ParamCount >= 1) and (ParamStr(1) = '--extract') then
   begin
     if ParamCount <> 2 then
@@ -140,12 +112,6 @@ begin
     Exit;
   end;
 
-  // --cache-selftest is likewise a pure, database-free CLI mode (see
-  // RunCacheSelfTestMode in unit_MCP_CacheSelfTest.pas) -- it only exercises
-  // unit_MCP_TextCache against a throwaway temp directory, so it runs before
-  // Application.Initialize/DMUser exactly like --extract does, and it must
-  // NOT run EvictCache below (that call targets the real cache directory,
-  // which this mode never touches).
   if (ParamCount >= 1) and (ParamStr(1) = '--cache-selftest') then
   begin
     try
@@ -162,21 +128,9 @@ begin
 
   Application.Initialize;
 
-  // --make-fixture builds the throwaway test collection and exits. Unlike
-  // --extract and --cache-selftest above it needs DMUser, so it sits after
-  // Application.Initialize rather than before it. It must never reach
-  // Server.Run.
-  //
-  // This is the one mode that deliberately reaches TDMUser.Init's
-  // create-if-missing branch, which the note above says server mode never
-  // reaches -- and to get there it first DELETES a system database, a
-  // settings file and a collection folder. Which files those are is decided
-  // entirely by the `uselocaldata user mcpfixture` switches, i.e. by the
-  // caller, so the deciding is not left to the caller: RunMakeFixtureMode
-  // checks every target's name against FIXTURE_USER_NAME before the first
-  // delete (RequireFixtureTarget in unit_MCP_Fixture.pas) and raises here --
-  // stderr, exit 1, nothing deleted -- when the switches were omitted and the
-  // paths therefore resolved to the user's real user.dbs2 / myhomelib2.ini.
+  // Deletes a system database, settings file and collection folder; the
+  // targets come from the caller's switches, so RunMakeFixtureMode refuses
+  // any whose name lacks FIXTURE_USER_NAME (protects the real user.dbs2).
   if (ParamCount >= 1) and (ParamStr(1) = '--make-fixture') then
   begin
     try
@@ -195,18 +149,7 @@ begin
     Exit;
   end;
 
-  // Filesystem-only, database-free, and idempotent-by-design (see
-  // EvictCache's own comment): runs exactly once here, at process startup,
-  // never inside --extract/--cache-selftest and never on the per-request
-  // path a tool call would take.
-  //
-  // Guarded even though EvictCache's own individual deletes are now
-  // best-effort (see SafeDeleteFile in unit_MCP_TextCache): this call site
-  // has no outer exception handler of its own, and eviction is advisory
-  // housekeeping that must never be able to stop the server from starting --
-  // e.g. if CacheDir/TDirectory.GetFiles itself fails (permissions, a
-  // missing drive), that is reported to stderr and otherwise ignored, not
-  // allowed to propagate.
+  // Eviction is advisory: it must never stop the server from starting.
   try
     EvictCache;
   except

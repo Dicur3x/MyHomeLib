@@ -27,22 +27,12 @@ uses
   Vcl.Themes;
 
 type
+  // Інтерпозер: модуль має стояти ОСТАННІМ у uses форми, після ComCtrls. DFM не
+  // змінюється: TReader.FindComponentClass бере тип опублікованого поля форми,
+  // а для успадкованих форм шукає компонент за іменем, ігноруючи клас у DFM.
   //
-  // Інтерпозер стандартного TProgressBar: домальовує відсоток усередині смуги.
-  //
-  // Підключається додаванням цього модуля ОСТАННІМ у uses модуля форми - після
-  // ComCtrls. DFM не змінюється: TReader.FindComponentClass шукає клас із DFM
-  // серед опублікованих полів форми і бере тип поля, а не зареєстрований клас.
-  // Успадковані форми, які перевизначають `inherited ProgressBar: TProgressBar`,
-  // теж отримують його - для успадкованого читання компонент шукається за
-  // іменем, а ім'я класу в DFM ігнорується.
-  //
-  // Смуга з точним прогресом малюється власноруч, а не поверх рідного
-  // контрола: тема Windows 10/11 плавно «доїжджає» до заданої позиції власною
-  // анімацією, яка перемальовує контрол поза нашим WM_PAINT і стирала б текст.
-  // Для pbstMarquee малювання віддається базовому класу - там Position не має
-  // сенсу, і відсоток не показується.
-  //
+  // Смуга малюється власноруч: анімація теми Windows 10/11 перемальовує рідний
+  // контрол поза нашим WM_PAINT і стирала б текст.
   TProgressBar = class(Vcl.ComCtrls.TProgressBar)
   private
     FShowPercent: Boolean;
@@ -65,19 +55,12 @@ type
 
 implementation
 
-{ TProgressBar }
-
 constructor TProgressBar.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FShowPercent := True;
-  //
-  // csOpaque - фон малюємо самі, батьківський не потрібен.
-  // csOverrideStylePaint - TWinControl.WndProc віддає повідомлення хуку
-  // TProgressBarStyleHook, щойно ввімкнено користувацький стиль VCL, і наш
-  // обробник WM_PAINT туди б не дійшов. Зараз програма стилів не вмикає, але
-  // цей прапорець лишає малювання за нами, якщо їх колись увімкнуть.
-  //
+  // csOverrideStylePaint: інакше за ввімкненого стилю VCL WM_PAINT піде в
+  // TProgressBarStyleHook і наш обробник не спрацює.
   ControlStyle := ControlStyle + [csOpaque, csOverrideStylePaint];
 end;
 
@@ -90,11 +73,7 @@ begin
   end;
 end;
 
-//
-// Стани pbsError/pbsPaused програма не використовує (TProgressEngine завжди
-// шле pbsNormal), і власне малювання їх не відтворює. Віддамо такі випадки
-// рідному контролу.
-//
+// pbsError/pbsPaused власне малювання не відтворює - їх малює рідний контрол.
 function TProgressBar.UseCustomPaint: Boolean;
 begin
   Result := FShowPercent and (Style = pbstNormal) and (State = pbsNormal) and
@@ -134,11 +113,8 @@ begin
   end;
 end;
 
-//
-// Рідний контрол після PBM_* перемальовується сам, але покладатись на це не
-// варто: явно просимо перемалювання, щоб відсоток не відставав від позиції.
-// Мерехтіння немає - csOpaque плюс WM_ERASEBKGND, що нічого не стирає.
-//
+// Рідний контрол перемальовується після PBM_* сам, але на це не покладаємось,
+// щоб відсоток не відставав від позиції.
 procedure TProgressBar.WndProc(var Message: TMessage);
 begin
   inherited WndProc(Message);
@@ -171,10 +147,7 @@ begin
   LStyle := StyleServices;
   if LStyle.Available then
   begin
-    //
-    // Ті самі елементи теми, якими малює штатний TProgressBarStyleHook:
-    // tpBar - жолоб на всю площу, tpChunk - заповнення, вписане на 1 піксель.
-    //
+    // Як у TProgressBarStyleHook: tpChunk вписаний на 1 піксель у tpBar.
     Details := LStyle.GetElementDetails(tpBar);
     LStyle.DrawElement(DC, Details, BarRect);
     if ChunkRect.Right > ChunkRect.Left then
@@ -185,9 +158,6 @@ begin
   end
   else
   begin
-    //
-    // Класична тема без uxtheme.
-    //
     Brush := CreateSolidBrush(ColorToRGB(clBtnFace));
     try
       FillRect(DC, BarRect, Brush);
@@ -221,11 +191,8 @@ begin
   OldFont := SelectObject(DC, Font.Handle);
   SetBkMode(DC, TRANSPARENT);
   try
-    //
-    // Текст малюється двічі з різним відсіканням: над заповненою частиною
-    // світлим, над порожньою - звичайним кольором. Інакше цифри тонули б у
-    // смузі, що наповзає.
-    //
+    // Текст двічі з різним відсіканням, щоб цифри були видні і над заповненою
+    // частиною, і над порожньою.
     Rgn := CreateRectRgn(ABarRect.Left, ABarRect.Top, AChunkRect.Right, ABarRect.Bottom);
     try
       SelectClipRgn(DC, Rgn);

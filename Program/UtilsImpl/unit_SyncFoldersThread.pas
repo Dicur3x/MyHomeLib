@@ -51,8 +51,6 @@ uses
 resourcestring
   rstrBuildingFileList = 'Створення списку файлів ...';
 
-{ TImportXMLThread }
-
 function TSyncFoldersThread.FindNewFolder(const FileName: string): string;
 var
   i: Integer;
@@ -121,9 +119,7 @@ begin
         FileName := BookRecord.GetBookFileName;
         if not FileExists(FileName)  then
         begin
-          //
-          // Попробуем найти файл с таким же именем и размером. Если нашли, то заменим старый путь к файлу новым.
-          //
+          // ищем файл с тем же именем и размером
           NewFolder := FindNewFolder(ExtractFileName(FileName) + ' ' + IntToStr(BookRecord.Size));
           if NewFolder <> '*' then
           begin
@@ -133,7 +129,7 @@ begin
               BookRecord.Folder := NewFolder
             else if BookFormat = bfFb2Archive then
                    BookRecord.Folder := NewFolder + ExtractFileName(FileName)
-                 else // bfFb2 or bfRaw
+                 else
                     BookRecord.Folder := NewFolder;
             FCollection.SetFolder(BookRecord.BookKey, BookRecord.Folder);
           end;

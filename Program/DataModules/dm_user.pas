@@ -12,7 +12,6 @@
   * $Id: dm_user.pas 845 2010-10-06 11:03:28Z nrymanov@gmail.com $
   *
   * History
-  * NickR 02.03.2010    Код переформатирован
   *
   ****************************************************************************** *)
 
@@ -83,8 +82,6 @@ begin
   Assert(Assigned(DMUser.SystemDB));
   Result := DMUser.SystemDB;
 end;
-
-{ TDMUser }
 
 constructor TDMUser.Create(AOwner: TComponent);
 begin

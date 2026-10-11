@@ -62,8 +62,6 @@ uses
 
 {$R *.dfm}
 
-{ TfrmEditAuthorData }
-
 procedure TfrmEditAuthorData.DoCreate;
 begin
   inherited;

@@ -21,7 +21,6 @@ uses
 type
   TframeNCWWelcom = class(TDecorativePageBase)
   private
-    { Private declarations }
   public
     function PageButtons: TWizardButtons; override;
   end;
@@ -32,8 +31,6 @@ var
 implementation
 
 {$R *.dfm}
-
-{ TframeNCWelcom }
 
 function TframeNCWWelcom.PageButtons: TWizardButtons;
 begin

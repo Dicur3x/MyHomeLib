@@ -105,10 +105,10 @@ begin
         FBookIdList[i].Res := FDownloader.Download(FSystemDB, FBookIdList[i].BookKey);
         if
           (not Canceled) and                // это реальная ошибка, а не отмена операции пользователем
-          (not FBookIdList[i].Res) and      //
+          (not FBookIdList[i].Res) and
           (i < totalBooks - 1) and          // для последней книги вопрос смысла не имеет
-          (not Settings.ErrorLog) and       //
-          (not FIgnoreErrors)               //
+          (not Settings.ErrorLog) and
+          (not FIgnoreErrors)
         then
         begin
           Res := ShowMessage(rstrIgnoreDownloadErrors, MB_ICONQUESTION or MB_YESNO);
@@ -135,8 +135,6 @@ begin
     FSystemDB := nil;
   end;
 end;
-
-//------------------------------------------------------------------------------
 
 procedure TDownloadBooksThread.DoSetComment2;
 begin

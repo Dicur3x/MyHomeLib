@@ -27,23 +27,18 @@ function walk(dir, out = []) {
   return out;
 }
 
-// --- 0. topics.json parsed a sane number of topics ------------------------
-// A near-zero count almost certainly means the TOC got wiped or misparsed
-// rather than someone legitimately trimming the topic list, so this is a
-// floor, not an exact match against the current count (54).
+// A floor, not the exact count: near zero means topics.json was wiped or misparsed.
 const topics = listTopics();
 if (topics.length < 40) {
   console.error(`check_help: topics.json parsed only ${topics.length} topics (expected around 54)`);
   process.exit(1);
 }
 
-// --- 1. every topic in topics.json exists on disk -------------------------
 const declared = new Set(topics.map((t) => t.file));
 for (const t of topics) {
   if (!fs.existsSync(path.join(HELP, t.file))) fail(`missing topic file: ${t.file}`);
 }
 
-// --- 2. no stray html in Help/ that topics.json does not declare ----------
 const onDisk = fs.existsSync(HELP)
   ? fs.readdirSync(HELP).filter((f) => f.endsWith('.html'))
   : [];
@@ -51,7 +46,6 @@ for (const f of onDisk) {
   if (!declared.has(f)) fail(`undeclared file in Program/Help: ${f}`);
 }
 
-// --- 3. per-file content rules -------------------------------------------
 for (const t of topics) {
   const p = path.join(HELP, t.file);
   if (!fs.existsSync(p)) continue;
@@ -70,8 +64,7 @@ for (const t of topics) {
   if (!html.includes('<!-- BODY:BEGIN -->') || !html.includes('<!-- BODY:END -->'))
     fail(`${t.file}: missing BODY markers`);
 
-  // The index page's own title *is* "Довідка MyHomeLib" — appending the
-  // suffix would double it up ("Довідка MyHomeLib — Довідка MyHomeLib").
+  // The index title already is "Довідка MyHomeLib"; the suffix would double it.
   const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Довідка MyHomeLib`;
   const expectedTitle = `<title>${expectedTitleText}</title>`;
   if (!html.includes(expectedTitle)) fail(`${t.file}: <title> should be ${expectedTitle}`);
@@ -80,7 +73,6 @@ for (const t of topics) {
   if (body.trim() === '' || body.includes('Розділ у роботі'))
     fail(`${t.file}: body not written yet`);
 
-  // internal links resolve (external URLs and mailto: links are skipped below)
   for (const m of html.matchAll(/href="([^"#]+)(#[^"]*)?"/g)) {
     const target = m[1];
     if (target.startsWith('http') || target.startsWith('mailto:')) continue;
@@ -89,16 +81,9 @@ for (const t of topics) {
   }
 }
 
-// --- 3b. translated help trees -------------------------------------------
-// A translation lives in Help/<locale>/. Structure is enforced exactly as for
-// the Ukrainian original; wording is not, because topics.json holds Ukrainian
-// titles and a translated <title> cannot be matched against it. The suffix
-// convention still can be, which is what catches a page translated without
-// its title.
-//
-// Missing pages fail even though ShowHelpTopic falls back per page to the
-// Ukrainian original. That fallback exists so an incomplete tree degrades
-// instead of erroring -- not as licence to ship one.
+// Translated titles cannot be matched against the Ukrainian topics.json; only the
+// suffix is checked. Missing pages fail despite ShowHelpTopic's per-page fallback
+// to Ukrainian: the fallback is for degrading, not for shipping incomplete trees.
 const LOCALE_DIRS = fs.existsSync(HELP)
   ? fs.readdirSync(HELP, { withFileTypes: true })
       .filter((e) => e.isDirectory() && /^[a-z]{2}$/.test(e.name))
@@ -163,10 +148,8 @@ for (const loc of LOCALE_DIRS) {
   }
 }
 
-// --- 4. stylesheet exists -------------------------------------------------
 if (!fs.existsSync(path.join(HELP, 'help.css'))) fail('missing Program/Help/help.css');
 
-// --- 5. Pascal context map (skipped until the unit exists) ---------------
 if (!fs.existsSync(MAP_UNIT)) {
   fail('missing Program/Units/unit_HelpTopics.pas');
 } else {
@@ -175,7 +158,6 @@ if (!fs.existsSync(MAP_UNIT)) {
     .map((m) => ({ id: Number(m[1]), file: m[2] }));
   if (entries.length === 0) fail('unit_HelpTopics.pas: no map entries parsed');
 
-  // the declared array bound must match the number of entries actually written
   const bound = pas.match(/HelpTopics:\s*array\s*\[0\s*\.\.\s*(\d+)\]/);
   if (!bound) fail('unit_HelpTopics.pas: cannot read the HelpTopics array bound');
   else if (Number(bound[1]) + 1 !== entries.length)
@@ -191,7 +173,7 @@ if (!fs.existsSync(MAP_UNIT)) {
     if (!declared.has(e.file)) fail(`unit_HelpTopics.pas: ContextID ${e.id} -> undeclared topic ${e.file}`);
   }
 
-  // every HelpContext in a live DFM is either mapped or the 5001 sentinel
+  // HelpContext 5001 is a sentinel and needs no map entry.
   const dfmIds = new Set();
   for (const dir of DFM_DIRS) {
     for (const f of walk(path.join(ROOT, dir))) {
@@ -206,10 +188,6 @@ if (!fs.existsSync(MAP_UNIT)) {
   }
 }
 
-// --- 6. nothing but declared topics and help.css anywhere under Help/ -----
-// The help ships with no images at all, so Program/Help must contain only
-// the .html files listed in topics.json plus help.css — no subdirectories
-// (e.g. an img/ folder) and no other stray files, at any depth.
 function walkAll(dir, base, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -231,9 +209,7 @@ for (const entry of walkAll(HELP, HELP)) {
   const inLocale = parts.length > 1 && /^[a-z]{2}$/.test(parts[0]);
 
   if (entry.isDir) {
-    // A two-letter directory directly under Help/ is a translated tree, and
-    // section 3b has already validated its contents. Anything else -- an img/
-    // folder, a nested directory inside a translation -- is still a stray.
+    // Two-letter dirs are translated trees, validated above.
     if (isLocaleRoot) continue;
     fail(`stray directory in Program/Help: ${entry.rel}`);
     continue;
@@ -245,7 +221,6 @@ for (const entry of walkAll(HELP, HELP)) {
   fail(`stray file in Program/Help: ${entry.rel}`);
 }
 
-// --- report ---------------------------------------------------------------
 if (problems.length) {
   console.error(`check_help: ${problems.length} problem(s)`);
   for (const p of problems) console.error('  - ' + p);

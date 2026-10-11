@@ -31,8 +31,6 @@ type
 
 implementation
 
-{ TFb2ToText }
-
 uses
   StrUtils;
 
