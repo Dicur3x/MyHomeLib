@@ -91,7 +91,7 @@ type
     FInspectPan, FInspectSize: TPoint;
     FResizeTimer, FSearchTimer: TTimer;
     FFontName, FSearchQuery, FPDFQuery, FSearchStatus: string;
-    FLinePercent, FMargin, FSearchPage, FSearchStart, FSearchVisited: Integer;
+    FLinePercent, FMargin, FMaxTextWidth, FSearchPage, FSearchStart, FSearchVisited: Integer;
     FPDFMatchPage, FPDFMatchIndex: Integer;
     FPDFRects: TArray<TRectF>;
     FImageWidth, FImageHeight: Integer;
@@ -146,6 +146,7 @@ type
     procedure RestoreSettings;
     procedure SaveSettings;
     procedure InvalidateLayout;
+    function TextAreaWidth: Integer;
     procedure UpdateFootnotesPanel;
     procedure ApplyBookStyles(ColorsOnly: Boolean = False);
     function FormatText(Start, Finish: Integer; Draw: Boolean): Integer;
@@ -164,6 +165,7 @@ type
     procedure ChangeSize(Delta: Integer);
     procedure ToggleNight;
     procedure SetTypography(const FontName: string; LinePercent, Margin: Integer);
+    procedure SetMaxTextWidth(Value: Integer);
     procedure SetShowFootnotes(Value: Boolean);
     procedure SetBookFormatting(Value: Boolean);
     procedure FindText(const Query: string; Backward: Boolean = False);
@@ -206,6 +208,7 @@ type
     function VisibleFootnotes: string;
     property ShowFootnotes: Boolean read FShowFootnotes;
     property BookFormatting: Boolean read FBookFormatting;
+    property MaxTextWidth: Integer read FMaxTextWidth;
     function PDFSelectedText: string;
     procedure SelectPDFText(Start, Count: Integer);
     property PDFPageHasText: Boolean read FPDFPageHasText;
@@ -352,7 +355,7 @@ begin
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
   Constraints.MinWidth:=520; Constraints.MinHeight:=360;
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;
-  FFontSize:=14; FFontName:='Georgia'; FLinePercent:=110; FMargin:=32; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
+  FFontSize:=14; FFontName:='Georgia'; FLinePercent:=110; FMargin:=32; FMaxTextWidth:=960; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
   FPDFMatchPage:=-1; FPDFMatchIndex:=-1;
   FTextMatch:=-1; FHighlightColor:=$0080E5FF; FHighlighted:=TList<TPoint>.Create;
   FZoom:=100; FPrefetchedForPage:=-1; FPages:=TList<Integer>.Create; FPages.Add(0);
@@ -526,7 +529,14 @@ procedure TfrmBuiltinReader.RequestPage(Index: Integer; Moved: Boolean);
 begin
   if not FReady or FClosing or not (FPDF is TReaderRaster) then Exit;
   FRequestedPage:=EnsureRange(Index,0,FPDF.PageCount-1); FRequestedMoved:=Moved;
-  if FRequestedPage=FPage then Exit;
+  if FRequestedPage=FPage then
+  begin
+    // Returning to the visible page cancels navigation, although the decoder
+    // may still finish its private buffer. Restore the visible page's status.
+    if Assigned(FPageStatus) then
+    begin FreeAndNil(FPageStatus); RenderPage; end;
+    Exit;
+  end;
   // A foreground decode owns the pending navigation until it completes.
   if Assigned(FPageWorker) and not FPageWorker.Prefetch then Exit;
   if TReaderRaster(FPDF).IsPageCached(FRequestedPage) then
@@ -556,7 +566,7 @@ begin
   end;
   if (FRequestedPage<>FPage) and (Preloaded or (FRequestedPage<>Index)) then
     RequestPage(FRequestedPage,FRequestedMoved)
-  else if not Preloaded and (Error<>'') then
+  else if not Preloaded and (Error<>'') and (Index=FRequestedPage) then
     FStatus.Caption:='Не удалось открыть страницу: '+Error
   else PrefetchNextPage;
 end;
@@ -564,7 +574,7 @@ end;
 procedure TfrmBuiltinReader.LoadPresentation;
 var Stream: TReaderRTFStream;
 begin
-  FImageWidth:=Max(16,FSurface.ClientWidth-FMargin*2-16);
+  FImageWidth:=Max(16,TextAreaWidth-16);
   FImageHeight:=Max(16,FSurface.ClientHeight-80);
   Stream:=TReaderRTFStream.Create(FDocument.RTF(FImageWidth,FImageHeight));
   try
@@ -593,13 +603,21 @@ begin Result:=Point(FBitmap.Width,FBitmap.Height); end;
 function TfrmBuiltinReader.PageBackground: TColor;
 begin Result:=FBitmap.Canvas.Pixels[10,10]; end;
 
+function TfrmBuiltinReader.TextAreaWidth: Integer;
+begin
+  Result:=Max(16,FSurface.ClientWidth-FMargin*2);
+  if FMaxTextWidth>0 then Result:=Min(Result,MulDiv(FMaxTextWidth,CurrentPPI,96));
+end;
+
 function TfrmBuiltinReader.FormatText(Start, Finish: Integer; Draw: Boolean): Integer;
-var Range: TFormatRange; DPI: Integer;
+var Range: TFormatRange; DPI, Width: Integer;
 begin
   FillChar(Range,SizeOf(Range),0); DPI:=GetDeviceCaps(FBitmap.Canvas.Handle,LOGPIXELSY);
   Range.hdc:=FBitmap.Canvas.Handle; Range.hdcTarget:=Range.hdc;
   Range.rcPage:=Rect(0,0,MulDiv(FBitmap.Width,1440,DPI),MulDiv(FBitmap.Height,1440,DPI));
   Range.rc:=Range.rcPage; InflateRect(Range.rc,-MulDiv(FMargin,1440,96),-MulDiv(20,1440,96));
+  Width:=Min(Range.rc.Width,MulDiv(TextAreaWidth,1440,DPI));
+  Inc(Range.rc.Left,(Range.rc.Width-Width) div 2); Range.rc.Right:=Range.rc.Left+Width;
   Range.chrg.cpMin:=Start; Range.chrg.cpMax:=Finish;
   try Result:=SendMessage(FRichEdit.Handle,EM_FORMATRANGE,Ord(Draw),LPARAM(@Range));
   finally SendMessage(FRichEdit.Handle,EM_FORMATRANGE,0,0); end;
@@ -811,7 +829,7 @@ begin
   if not Assigned(FPDF) then
   begin
     if Assigned(FDocument) and (FDocument.ImageCount>0) and
-      ((FImageWidth<>Max(16,FSurface.ClientWidth-FMargin*2-16)) or
+      ((FImageWidth<>Max(16,TextAreaWidth-16)) or
        (FImageHeight<>Max(16,FSurface.ClientHeight-80))) then LoadPresentation;
     FRichEdit.SelectAll;
     // Apply face/size/color together, preserving bold and italic source runs.
@@ -1260,8 +1278,14 @@ begin
   InvalidateLayout;
 end;
 
+procedure TfrmBuiltinReader.SetMaxTextWidth(Value: Integer);
+begin
+  if Value=0 then FMaxTextWidth:=0 else FMaxTextWidth:=EnsureRange(Value,320,1600);
+  InvalidateLayout;
+end;
+
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
-var Dialog: TForm; FontBox, SpacingBox, MarginBox, ZoomBox: TComboBox; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox: TCheckBox; I: Integer;
+var Dialog: TForm; FontBox, SpacingBox, MarginBox, WidthBox, ZoomBox: TComboBox; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox: TCheckBox; I: Integer;
   procedure AddLabel(const Text: string; Top: Integer);
   begin LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.SetBounds(16,Top,100,22); LabelText.Caption:=Text; end;
   function Choice(Top: Integer): TComboBox;
@@ -1287,20 +1311,31 @@ begin
   Dialog:=TForm.CreateNew(Self);
   try
     Dialog.Caption:='Текст и поля'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=242; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=280; Dialog.Font.Assign(Font);
     AddLabel('Шрифт',20); FontBox:=Choice(16); FontBox.Items.Assign(Screen.Fonts); FontBox.ItemIndex:=FontBox.Items.IndexOf(FFontName);
     AddLabel('Интервал, %',58); SpacingBox:=Choice(54); SpacingBox.Items.Text:='100'+#13+'110'+#13+'120'+#13+'130'+#13+'140'+#13+'150'+#13+'160'+#13+'170'+#13+'180';
     SpacingBox.ItemIndex:=SpacingBox.Items.IndexOf(IntToStr(FLinePercent)); if SpacingBox.ItemIndex<0 then SpacingBox.ItemIndex:=1;
     AddLabel('Поля, пикс.',96); MarginBox:=Choice(92); MarginBox.Items.Text:='12'+#13+'20'+#13+'24'+#13+'32'+#13+'40'+#13+'48'+#13+'64'+#13+'80';
     MarginBox.ItemIndex:=MarginBox.Items.IndexOf(IntToStr(FMargin)); if MarginBox.ItemIndex<0 then MarginBox.ItemIndex:=3;
-    FormattingBox:=TCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,128,320,26);
+    AddLabel('Ширина, пикс.',134); WidthBox:=Choice(130);
+    WidthBox.Items.Text:='Вся ширина'+#13+'320'+#13+'640'+#13+'800'+#13+'960'+#13+'1120'+#13+'1280'+#13+'1600';
+    if FMaxTextWidth=0 then WidthBox.ItemIndex:=0 else
+    begin
+      if WidthBox.Items.IndexOf(IntToStr(FMaxTextWidth))<0 then WidthBox.Items.Add(IntToStr(FMaxTextWidth));
+      WidthBox.ItemIndex:=WidthBox.Items.IndexOf(IntToStr(FMaxTextWidth));
+    end;
+    FormattingBox:=TCheckBox.Create(Dialog); FormattingBox.Parent:=Dialog; FormattingBox.SetBounds(16,166,320,26);
     FormattingBox.Caption:='Оформление книги: заголовки, стихи, цитаты'; FormattingBox.Checked:=FBookFormatting;
-    NotesBox:=TCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,158,320,26);
+    NotesBox:=TCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,196,320,26);
     NotesBox.Caption:='Показывать сноски этой страницы внизу'; NotesBox.Checked:=FShowFootnotes;
-    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,206,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,206,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,244,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,244,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     if Dialog.ShowModal=mrOk then
-    begin FBookFormatting:=FormattingBox.Checked; FShowFootnotes:=NotesBox.Checked; UpdateFootnotesPanel; SetTypography(FontBox.Text,StrToIntDef(SpacingBox.Text,110),StrToIntDef(MarginBox.Text,32)); end;
+    begin
+      FBookFormatting:=FormattingBox.Checked; FShowFootnotes:=NotesBox.Checked;
+      if WidthBox.ItemIndex=0 then FMaxTextWidth:=0 else FMaxTextWidth:=EnsureRange(StrToIntDef(WidthBox.Text,960),320,1600);
+      UpdateFootnotesPanel; SetTypography(FontBox.Text,StrToIntDef(SpacingBox.Text,110),StrToIntDef(MarginBox.Text,32));
+    end;
   finally Dialog.Free; end;
 end;
 
@@ -1375,6 +1410,8 @@ begin
       FFontName:=Ini.ReadString('Reader','FontName','Georgia');
       FLinePercent:=EnsureRange(Ini.ReadInteger('Reader','LinePercent',110),100,180);
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
+      FMaxTextWidth:=Ini.ReadInteger('Reader','MaxTextWidth',960);
+      if FMaxTextWidth<>0 then FMaxTextWidth:=EnsureRange(FMaxTextWidth,320,1600);
       FBookFormatting:=Ini.ReadBool('Reader','BookFormatting',True);
       FShowFootnotes:=Ini.ReadBool('Reader','ShowFootnotes',True);
       FInspectionPercent:=EnsureRange(Ini.ReadInteger('Reader','InspectionPercent',150),120,300);
@@ -1426,6 +1463,7 @@ begin
     Ini.WriteInteger('Reader','FontSize',FFontSize);
     Ini.WriteBool('Reader','BookFormatting',FBookFormatting);
     Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes);
+    Ini.WriteInteger('Reader','MaxTextWidth',FMaxTextWidth);
     Ini.WriteInteger('Reader','InspectionPercent',FInspectionPercent);
     if FInspect then Ini.WriteInteger('Reader','PDFZoom',FInspectZoom) else Ini.WriteInteger('Reader','PDFZoom',FZoom);
     Ini.WriteBool('Reader','Night',FNight);

@@ -76,6 +76,12 @@ begin
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('broken-page.cbz','Damaged comic page','broken-page.cbz','raster-test.ini','pdfium.dll'); WaitReady(Reader);
+    Reader.NextPage; Reader.PreviousPage;
+    Require(Pos('Открытие страницы',Reader.ReaderStatus.Caption)=0,'Returning to visible page leaves a stale opening status');
+    WaitPage(Reader);
+    Require(Reader.TextPosition=0,'Cancelled page decode replaced the visible page');
+    Reader.NextPage; Reader.PreviousPage; WaitPage(Reader);
+    Require(Pos('Не удалось',Reader.ReaderStatus.Caption)=0,'Cancelled foreground decode replaces good-page status with an error');
     Reader.NextPage; Watch:=TStopwatch.StartNew;
     while Reader.PageLoading and (Watch.ElapsedMilliseconds<35000) do
     begin Application.ProcessMessages; CheckSynchronize(5); end;
@@ -461,6 +467,12 @@ end;
 procedure AuditOctoberElevenReader;
 var Reader: TfrmBuiltinReader; Document: TReaderDocument; Range: TReaderStyledRange;
   Key: Word; Pan,Size: TPoint; Ini: TMemIniFile; A,B: TBitmap; HasTitle,HasQuote,HasPoem: Boolean;
+  CappedEnd, WideEnd: Integer;
+  procedure GoStart;
+  begin
+    Reader.ReadingSurface.SetFocus; Key:=VK_HOME; Reader.OnKeyDown(Reader,Key,[]);
+    Require(Reader.TextPosition=0,'Home did not return to the beginning');
+  end;
 begin
   Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   Document:=TReaderDocument.Create;
@@ -488,6 +500,23 @@ begin
     Require(THashSHA2.GetHashStringFromFile('oct11-styled-on.bmp')<>THashSHA2.GetHashStringFromFile('oct11-styled-off.bmp'),'Formatting toggle does not change presentation');
     Reader.SetBookFormatting(True); Reader.Close;
   finally Reader.Free; B.Free; A.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('sample.txt','Text width','oct11-width','oct11-width.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.MaxTextWidth=960,'Fresh text width is not limited to 960 pixels');
+    Reader.SetBounds(0,0,2000,800); Reader.SetMaxTextWidth(960); GoStart; Reader.NextPage; CappedEnd:=Reader.TextPosition;
+    Reader.SetBounds(0,0,2400,800); Reader.SetMaxTextWidth(960); GoStart; Reader.NextPage;
+    Require(Reader.TextPosition=CappedEnd,'Capped text width changes on a wider screen');
+    Reader.SetMaxTextWidth(0); GoStart; Reader.NextPage; WideEnd:=Reader.TextPosition;
+    Require(WideEnd>CappedEnd,'Full-width text preference has no effect');
+    Reader.SetMaxTextWidth(320); GoStart; Reader.NextPage;
+    Require(Reader.TextPosition<CappedEnd,'Narrow text preference has no effect'); Reader.Close;
+  finally Reader.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('sample.txt','Text width restored','oct11-width','oct11-width.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.MaxTextWidth=320,'Text width did not survive reopening'); Reader.Close;
+  finally Reader.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('sample.pdf','Mixed PDF','oct11-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
@@ -518,7 +547,7 @@ begin
     Reader.Show; Reader.OpenBook('sample.pdf','Mixed PDF restored','oct11-pdf','oct11-reader.ini','pdfium.dll'); WaitReady(Reader);
     Require(Reader.PDFZoom=150,'Reopening the same PDF lost its zoom'); Reader.Close;
   finally Reader.Free; end;
-  Writeln('PASS cover, semantic formatting, title paragraph breaks, PDF copying, configurable inspection and per-book zoom');
+  Writeln('PASS cover, semantic formatting, title paragraph breaks, capped text width, PDF copying, configurable inspection and per-book zoom');
   DMUser.Free; DMUser:=nil;
 end;
 

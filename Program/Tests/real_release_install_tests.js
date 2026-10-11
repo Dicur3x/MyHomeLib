@@ -29,7 +29,7 @@ function files(folder, prefix = '') {
 fs.copyFileSync(candidateArg, archive);
 unpack(previousArg, installation); unpack(archive, unpacked);
 const manifest = JSON.parse(read(path.join(unpacked, 'HomeLibRu.update.json')));
-assert.equal(manifest.release, '2.7.0_pre5.13');
+assert.equal(manifest.release, '2.7.0_pre5.14');
 const payload = new Set(manifest.files.map(entry => entry.path));
 assert.equal(payload.size, manifest.files.length);
 for (const entry of manifest.files) {

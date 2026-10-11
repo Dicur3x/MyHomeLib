@@ -4952,7 +4952,7 @@ begin
           end;
           if not ReaderSupportsReflow(WorkFile) and not SameText(ExtractFileExt(WorkFile), '.pdf') then
           begin
-            MHLShowInfo('Этот формат пока не поддерживается экспериментальной читалкой. Используйте обычную команду «Чтение».');
+            MHLShowInfo('Этот формат пока не поддерживается встроенной читалкой. Выберите «Читать во внешней программе» в меню книги.');
             Exit;
           end;
           OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderCopyName(Snapshot),

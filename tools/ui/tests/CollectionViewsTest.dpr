@@ -840,14 +840,19 @@ var
   end;
 
   function ReadSelected: string;
+  var PreviousBuiltin: Boolean;
   begin
-    if FileExists(Probe) then TFile.Delete(Probe);
-    frmMain.ReadBookExecute(nil);
-    Started := GetTickCount64;
-    while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
-    begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
-    Require(FileExists(Probe), 'The isolated reader probe did not receive a book');
-    Result := TFile.ReadAllText(Probe, TEncoding.UTF8);
+    PreviousBuiltin:=Settings.UseBuiltinReaderByDefault;
+    Settings.UseBuiltinReaderByDefault:=False;
+    try
+      if FileExists(Probe) then TFile.Delete(Probe);
+      frmMain.ReadBookExecute(nil);
+      Started := GetTickCount64;
+      while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
+      begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
+      Require(FileExists(Probe), 'The isolated reader probe did not receive a book');
+      Result := TFile.ReadAllText(Probe, TEncoding.UTF8);
+    finally Settings.UseBuiltinReaderByDefault:=PreviousBuiltin; end;
   end;
 
 begin
@@ -2329,6 +2334,7 @@ var
 
   procedure ReadSelected;
   begin
+    Settings.UseBuiltinReaderByDefault:=False;
     if FileExists(Probe) then TFile.Delete(Probe);
     frmMain.ReadBookExecute(nil);
     Started := GetTickCount64;
@@ -2537,6 +2543,7 @@ begin
   frmMain.tvBooksA.Selected[Node] := True;
   frmMain.tvBooksA.FocusedNode := Node;
   Probe := Settings.AppPath + 'reader-probe-path.txt';
+  Settings.UseBuiltinReaderByDefault:=False;
   frmMain.ReadBookExecute(nil);
   Started := GetTickCount64;
   while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
@@ -3383,7 +3390,7 @@ begin
 
     CancelButton := nil;
     for Component in frmMain do
-      if (Component is TButton) and (TButton(Component).Caption = '×') then CancelButton := TButton(Component);
+      if (Component is TButton) and (Component.Name = 'BookListCancel') then CancelButton := TButton(Component);
     Require(Assigned(CancelButton), 'Book list has no cancellation button');
     PaintProbe:=TLoadingPaintProbe.Create(frmMain); PaintProbe.Parent:=frmMain;
     PaintProbe.SetBounds(10,10,50,30); PaintProbe.Visible:=True; PaintProbe.PaintCount:=0;
