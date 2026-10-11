@@ -66,7 +66,6 @@ end;
 function TTemplater.ValidateTemplate(const Template: string;
   TemplType: TTemplateType): TErrorType;
 const
-  { DONE : совпадает с названием константы }
   MASK_ELEMENTS: array [1 .. COL_MASK_ELEMENTS] of string = ('f', 'fa', 't',
     's', 'n', 'id', 'g', 'ga', 'ff', 'fl', 'rg', 'fn', 'fc', 'gr');
 var
@@ -89,7 +88,6 @@ begin
   last_col_elements := 0;
   last_char := 0;
 
-  // Определение количества элементов в шаблоне
   ColElements := 0;
   for i := 1 to Length(Template) do
     if Template[i] = '%' then
@@ -123,7 +121,6 @@ begin
   while not(TemplEnd) do
   begin
     i := 1;
-    // Разбор пути к файлу на составляющие
     PartStart := k;
     while (k <= Length(Template)) and (Template[k] <> '\') do
       Inc(k);
@@ -133,12 +130,10 @@ begin
     if k > Length(Template) then
       TemplEnd := True;
 
-    // Инициализация счётчика глубины стека и элементов шаблона
     StackPos := 0;
     ElementPos := 0;
     while i <= Length(TemplatePart) do
     begin
-      // Поиск открывающей скобки блока элемента
       if TemplatePart[i] = '[' then
       begin
         Inc(StackPos);
@@ -152,17 +147,14 @@ begin
 
       end;
 
-      // Поиск элемента шаблона
       if TemplatePart[i] = '%' then
       begin
-        // Если внутри блока имеется более одного элемента, то шаблон неправильный
         if (stack[StackPos].name <> '') and (StackPos > 0) then
         begin
-          Result := ErTemplate; // В блоке не может быть более одного элемента
+          Result := ErTemplate;
           Exit;
         end;
 
-        // Выделяем название элемента
         Inc(i);
         stack[StackPos].name := '';
         while (i <= Length(TemplatePart)) and
@@ -178,7 +170,6 @@ begin
         end;
         Dec(i);
 
-        // Добавляем элемент в общий список элементов
         if StackPos = 0 then
         begin
           if ElementPos + last_col_elements > High(FBlocksMap) then
@@ -194,20 +185,15 @@ begin
         end;
       end;
 
-      // Поиск окончания блока элемента
       if TemplatePart[i] = ']' then
       begin
-        // Если на текущем уровне стека нет элемента или элемент на 0-м уровне
-        // то шаблон неправильный
         if (stack[StackPos].name = '') or (StackPos <= 0) then
         begin
           Result := ErBlocks;
-          // Проверьте соответствие открывающих и закрывающих скобок блоков элементов
           Exit;
         end;
         stack[StackPos].EndBlock := i;
 
-        // Добавляем элемент в общий список элементов
         if ElementPos + last_col_elements > High(FBlocksMap) then
         begin
           Result := ErTemplate;
@@ -221,19 +207,15 @@ begin
         Inc(ElementPos);
         Dec(StackPos);
       end;
-      // Переход к очередному символу в шаблоне
       Inc(i);
     end;
 
-    // Имеются незакрытые скобки блоков
     if StackPos > 0 then
     begin
       Result := ErBlocks;
-      // Проверьте соответствие открывающих и закрывающих скобок блоков элементов
       Exit;
     end;
 
-    // Проверка всех элементов на правильность написания
     for h := 0 to ColElements - 1 do
     begin
       if FBlocksMap[h].name <> '' then
@@ -251,10 +233,9 @@ begin
       end;
     end;
 
-    // Имеются неверние элементы шаблона
     if not(bol) then
     begin
-      Result := ErElements; // Неверные элементы шаблона
+      Result := ErElements;
       Exit;
     end;
 
@@ -271,7 +252,6 @@ begin
     Inc(i);
   end;
 
-  // Если проверяем шаблон имени файла, то бэкслэш не допустим
   if TemplType = TpFile then
     if pos('\', Template) <> 0 then
     begin
@@ -279,14 +259,12 @@ begin
       Exit;
     end;
 
-  // Если замечаний нет, то шаблон валиден
   Result := ErFine;
 end;
 
 function TTemplater.SetTemplate(Template: String; TemplType: TTemplateType)
   : TErrorType;
 begin
-  // Спецсимволы чистим только для имени файла или пути к файлу
   if TemplType in [TpFile, TpPath] then
     Template := CheckSymbols(Template, False);
   Template := Trim(Template);
@@ -323,7 +301,6 @@ var
 begin
   Result := FTemplate;
 
-  // Формирование массива значений элементов маски
   MaskElements[1].templ := 'ga';
   for i := Low(R.Genres) to High(R.Genres) do
   begin
@@ -477,7 +454,6 @@ begin
   StrReplace('[', '', Result);
   StrReplace(']', '', Result);
 
-  // Цикл замены элементов шаблона их значениями
   for i := 1 to COL_MASK_ELEMENTS do
   begin
     Token := '%' + UpperCase(MaskElements[i].templ);
@@ -492,7 +468,6 @@ begin
       StrReplace(Token, MaskElements[i].value, Result);
   end;
 
-  // Удаление содержимого квадратных скобок из названий (для либрусека)
   if Settings.RemoveSquarebrackets then
   begin
     p1 := pos('[', Result);

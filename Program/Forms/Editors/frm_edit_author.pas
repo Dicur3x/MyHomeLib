@@ -7,7 +7,7 @@
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
   * Created                  20.08.2008
-  * Description              
+  * Description
   *
   * $Id: frm_edit_author.pas 543 2010-07-29 06:34:09Z nrymanov@gmail.com $
   *
@@ -62,7 +62,6 @@ uses
 
 {$R *.dfm}
 
-{ TfrmEditAuthorData }
 
 procedure TfrmEditAuthorData.DoCreate;
 begin

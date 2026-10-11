@@ -139,9 +139,6 @@ procedure TNewCollectionWizard.InitWizard;
 var
   frame: TWizardPageBase;
 begin
-  //
-  // Проинициализируем параметры по умолчанию
-  //
   FParams.Operation := otNew;
   FParams.CollectionType := ltUser;
   FParams.FileTypes := ftFB2;
@@ -160,7 +157,6 @@ begin
   for frame in FPages do
     frame.Initialize(@FParams);
 
-  { TODO -oAlex -cRefactoring : Костыль! может быть его пристроить в другое место? }
   FFinishPage.lblPageHint.Caption := '';
 end;
 
@@ -223,10 +219,6 @@ begin
 
     if not CreateCollection then
     begin
-      //
-      // мы не смогли создать/зарегистрировать коллекцию,
-      // CancelToClose и никакого продолжения
-      //
       FProgressPage.ShowSaveLogPanel(True);
       AdjustButtons([wbFinish], [wbFinish]);
       Exit;
@@ -236,10 +228,6 @@ begin
 
     if not StartImportData then
     begin
-      //
-      // ничего ждать не нужно, нечего импортировать
-      // можно переходить на следующую страницу
-      //
       DoChangePage(btnForward);
     end;
   end;
@@ -247,14 +235,8 @@ end;
 
 function TNewCollectionWizard.CanCloseWizard: Boolean;
 begin
-  //
-  // необходимо останавливать закачку INPX если она активна
-  //
   if Assigned(FWorker) and not FWorker.Finished then
   begin
-    //
-    // Запущен рабочий поток -> остановим его.
-    //
     CancelWorker;
     Result := False;
     Exit;
@@ -272,9 +254,6 @@ begin
 
   if Assigned(FWorker) then
   begin
-    //
-    // Запущен рабочий поток -> остановим его.
-    //
     CancelWorker;
     Exit;
   end;
@@ -284,9 +263,6 @@ end;
 
 procedure TNewCollectionWizard.CorrectParams;
 begin
-  //
-  // определим реальный код коллекции
-  //
   if FParams.CollectionCode = 0 then
   begin
     case FParams.CollectionType of
@@ -300,11 +276,8 @@ begin
     end;
   end;
 
-  //
-  // для специальных коллекций установим некоторые параметры по умолчанию
-  //
   case FParams.CollectionType of
-    ltUser: ; // ничего не трогаем, все должен задать пользователь
+    ltUser: ;
 
     ltUserFB, ltExternalLocalFB, ltExternalOnlineFB:
     begin
@@ -326,13 +299,7 @@ begin
     end;
   end;
 
-  //
-  // заполним файл жанров
-  //
   if not FParams.DefaultGenres then
-    //
-    // относительно текущего каталога
-    //
     FParams.GenreFile := ExpandFileName(FParams.GenreFile)
   else if FParams.GenreFile = '' then
   begin
@@ -357,23 +324,15 @@ begin
   try
     if FParams.Operation = otExisting then
     begin
-      //
-      // Подключаем коллекцию
-      //
       FParams.CollectionID := SystemDB.RegisterCollection(
         FParams.CollectionFile,
         FParams.DisplayName,
         FParams.CollectionRoot
       );
     end
-    else // if FParams.Operation <> otExisting then
+    else
     begin
-      //
-      // Создаем коллекцию
-      //
       FProgressPage.ShowTeletype(rstrCreationCollection, tsInfo);
-      { TODO -oNickR -cUsability : проверять существование на соответствующей странице с выдачей предупреждения }
-      //Assert(not FileExists(FParams.CollectionFile));
       Assert(FileExists(FParams.GenreFile));
       FParams.CollectionID := SystemDB.CreateCollection(
         FParams.DisplayName,
@@ -427,10 +386,8 @@ begin
     else
       Assert(False);
   end;
-  //
   // Формат определяется операцией мастера, а не анализом файла: metabib
   // теперь отдельная ветка выбора, а не скрытый вариант источника INPX.
-  //
   if FParams.Operation = otMetabib then
     FWorker := TImportMetabibThread.Create(FParams.CollectionID, FParams.INPXFile, GenresType)
   else
@@ -439,9 +396,6 @@ begin
   FProgressPage.SetComment(rstrDataImport);
   FProgressPage.ShowTeletype(rstrDataImporting, tsInfo);
 
-  //
-  // подключить и запустить импортер
-  //
   FWorker.OnOpenProgress := FProgressPage.OpenProgress;
   FWorker.OnProgressHint := FProgressPage.SetProgressHint;
   FWorker.OnProgress := FProgressPage.ShowProgress;
@@ -485,26 +439,17 @@ begin
   end;
 end;
 
-//
-// Рабочий поток завершил свою работу
-//
 procedure TNewCollectionWizard.PMWorkerDone(var Message: TMessage);
 var
   stayOnCurrentPage: Boolean;
   IgnoreErrors : Boolean;
 begin
-  //
-  // Если во время работы небыло ошибок и поток не был остановлен пользователем
-  //
   IgnoreErrors := True;
   if FProgressPage.HasErrors then
     IgnoreErrors := (MessageDlg(rstrImportDoneWithErrors, mtWarning, [mbYes,mbNo], 0) = mrYes);
 
   stayOnCurrentPage := (not IgnoreErrors) or FWorker.Canceled;
 
-  //
-  // Закрыть и уничтожить рабочий поток
-  //
   CloseWorker;
 
   if stayOnCurrentPage then
@@ -519,18 +464,11 @@ begin
     end
     else
     begin
-      //
-      // Рабочий поток был остановлен пользователем, ошибок нет -> закрываем форму
-      //
       ModalResult := FModalResult;
     end;
   end
   else
   begin
-    //
-    // все в порядке -> переходим на следующую страницу
-    //
-    ///RegisterCollection;
     DoChangePage(btnForward);
   end;
 end;

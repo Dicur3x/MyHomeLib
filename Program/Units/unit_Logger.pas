@@ -59,9 +59,6 @@ type
 
   TLoggerImpl = class(TInterfacedObject, ILogger)
   protected
-    //
-    // ILogger
-    //
     procedure Log(const logMessage: string; const extraInfo: string);
   end;
 
@@ -71,9 +68,6 @@ type
     destructor Destroy; override;
 
   protected
-    //
-    // IIntervalLogger
-    //
     procedure Restart(const extraInfo: string);
 
   private
@@ -88,15 +82,11 @@ type
     destructor Destroy; override;
 
   protected
-    //
-    // IScopeLogger
-    //
 
   private
     FScopeName: string;
   end;
 
-{ TGlobalLogger }
 
 class constructor TGlobalLogger.Create;
 begin
@@ -143,14 +133,12 @@ begin
   WriteFile(FLogFile, PAnsiChar(logString)^, Length(logString), bytesWritten, nil);
 end;
 
-{ TLoggerImpl }
 
 procedure TLoggerImpl.Log(const logMessage, extraInfo: string);
 begin
   TGlobalLogger.Log(logMessage, extraInfo);
 end;
 
-{ TIntervalLoggerImpl }
 
 constructor TIntervalLoggerImpl.Create(const intervalName: string; const extraInfo: string);
 begin
@@ -175,7 +163,6 @@ begin
   FStopwatch := TStopwatch.StartNew;
 end;
 
-{ TScopeLoggerImpl }
 
 constructor TScopeLoggerImpl.Create(const scopeName: string; const extraInfo: string);
 begin

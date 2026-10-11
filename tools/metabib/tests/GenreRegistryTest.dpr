@@ -4,8 +4,6 @@
 {$R *.res}
 {$R '..\..\..\Utils\MHLMcpServer\MHLMcpServer_SQL.res'}
 
-// Isolated DAO contract tests. No DMUser bootstrap and no live-profile access.
-// A fresh GUID directory holds the real SQLite system/collection databases.
 uses
   NativeRegressionGuard,
   System.SysUtils,
@@ -125,8 +123,6 @@ begin
     Require(VarIsEmpty(Collection.GetProperty(PROP_SOURCE_GENRES)),
       'First registration rollback retained provenance');
 
-    // RAISE(ROLLBACK) removes the outer transaction and its savepoints.
-    // Registry cleanup must preserve this error and remove all pending cache data.
     DB.ExecSQL('CREATE TRIGGER reject_outer_genre BEFORE INSERT ON Genres ' +
       'WHEN NEW.FB2Code = ''outer_rejected'' ' +
       'BEGIN SELECT RAISE(ROLLBACK, ''fixture outer rollback''); END');
@@ -274,7 +270,6 @@ begin
     Require(Again.ParentCode = Second.ParentCode, 'Reopening duplicated an existing category root');
     DB.ExecSQL('DROP TRIGGER preserve_source_marker');
 
-    // Explicit reload must clear every lookup index, not only internal IDs.
     Collection.ReloadGenres(GenreFile);
     Again := Collection.EnsureGenre('popadancy', 'Fresh description', 'Fresh category');
     Require(Again.GenreAlias = 'Fresh description', 'Reload retained stale FB2 lookup');

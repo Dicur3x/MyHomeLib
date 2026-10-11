@@ -50,11 +50,9 @@ type
     btnOk: TButton;
     btnCancel: TButton;
   private
-    { Private declarations }
   protected
     procedure DoCreate; override;
   public
-    { Public declarations }
   end;
 
 var

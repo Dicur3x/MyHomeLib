@@ -69,10 +69,8 @@ var
   MarshalStream: IStream;
   ConverterPath: string;
 begin
-  //
   // Внешние конвертеры не входят в состав программы. Если нужного нет,
   // экспорт тихо ничего бы не записал (#59), поэтому проверяем это заранее.
-  //
   if not ExtractOnly then
   begin
     ConverterPath := GetConverterPath(Settings.AppPath, Mode);
@@ -91,7 +89,6 @@ begin
     worker.ExtractOnly := ExtractOnly;
     worker.UseMTP := AUseMTP;
 
-    // Marshal IShellItem for cross-thread use (MTP devices)
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin
       if Succeeded(CoMarshalInterThreadInterfaceInStream(IShellItem, ADeviceShellItem, MarshalStream)) then

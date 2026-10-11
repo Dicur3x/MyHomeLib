@@ -66,9 +66,8 @@ resourcestring
    rstrSaving = 'Сохраняем документ. Подождите, пожалуйста.';
 
 const
-  BOOKS_INFO_FILE = 'books.inp'; { TODO -oNickR -cRefactoring : добавить в систебные файлы? }
+  BOOKS_INFO_FILE = 'books.inp';
 
-  { TImportXMLThread }
 
 constructor TExport2INPXThread.Create(const CollectionID: Integer; const INPXFileName: string);
 begin
@@ -172,16 +171,12 @@ begin
         sources[2].Name := STRUCTUREINFO_FILENAME;
         sources[2].Stream := TStringStream.Create('AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;INSNO;FOLDER;LANG;KEYWORDS;');
 
-        //
-        // Устанавливаем комментарий для INPX-файла
-        //
         header.Name := FCollection.GetProperty(PROP_DISPLAYNAME);
         header.FileName := ExtractFileName(FCollection.GetProperty(PROP_DATAFILE));
         header.ContentType := FCollection.CollectionCode;
         header.Notes := FCollection.GetProperty(PROP_NOTES);
         header.URL := FCollection.GetProperty(PROP_URL);
         header.Script := FCollection.GetProperty(PROP_CONNECTIONSCRIPT);
-        //
         sources[3].Name := COLLECTIONINFO_FILENAME;
         sources[3].Stream := TStringStream.Create(header.AsString);
 
@@ -210,9 +205,6 @@ var
   strFileExt: string;
   title: string;
 begin
-  //
-  // Список авторов
-  //
   strAuthors :=
     TArrayUtils.Join<TAuthorData>(
       R.Authors,
@@ -223,9 +215,6 @@ begin
       end
     ) + INPX_ITEM_DELIMITER;
 
-  //
-  // Список жанров
-  //
   strGenres :=
     TArrayUtils.Join<TGenreData>(
       R.Genres,

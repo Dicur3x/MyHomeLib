@@ -46,11 +46,9 @@ type
     procedure RzURLLabelLinkClick(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure FormShow(Sender: TObject);
   private
-    { Private declarations }
   protected
     procedure DoCreate; override;
   public
-    { Public declarations }
   end;
 
 var

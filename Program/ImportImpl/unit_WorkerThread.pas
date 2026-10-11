@@ -79,7 +79,7 @@ type
     procedure CloseProgress;
     procedure Teletype(const Msg: string; Severity: TTeletypeSeverity = tsInfo);
     procedure SetComment(const Comment: string);
-    function ShowMessage(const Text: string; Flags: Longint {= MB_OK}): Integer;
+    function ShowMessage(const Text: string; Flags: Longint ): Integer;
 
     procedure Initialize; virtual;
     procedure Uninitialize; virtual;
@@ -110,7 +110,6 @@ uses
   ActiveX,
   ComObj;
 
-// ============================================================================
 constructor TWorker.Create;
 begin
   inherited Create(True);
@@ -124,7 +123,6 @@ begin
   FMessageResult := 0;
 end;
 
-// ============================================================================
 procedure TWorker.DoOpenProgress;
 begin
   if Assigned(FOnOpenProgress) then
@@ -142,7 +140,6 @@ begin
   Synchronize(DoSetProgress);
 end;
 
-// ============================================================================
 procedure TWorker.DoProgressHint;
 begin
   if Assigned(FProgressHint) then
@@ -156,7 +153,6 @@ begin
   Synchronize(DoProgressHint);
 end;
 
-// ============================================================================
 procedure TWorker.DoSetProgress;
 begin
   if Assigned(FOnProgress) then
@@ -172,7 +168,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure TWorker.DoTeletype;
 begin
   if Assigned(FOnTeletype) then
@@ -186,7 +181,6 @@ begin
   Synchronize(DoTeletype);
 end;
 
-// ============================================================================
 procedure TWorker.DoCloseProgress;
 begin
   if Assigned(FOnCloseProgress) then
@@ -207,7 +201,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure TWorker.DoSetComment;
 begin
   if Assigned(FOnSetComment) then
@@ -220,7 +213,6 @@ begin
   Synchronize(DoSetComment);
 end;
 
-// ============================================================================
 procedure TWorker.DoShowMessage;
 begin
   if Assigned(FOnShowMessage) then
@@ -229,7 +221,7 @@ begin
     FMessageResult := 0;
 end;
 
-function TWorker.ShowMessage(const Text: string; Flags: Longint {= MB_OK}): Integer;
+function TWorker.ShowMessage(const Text: string; Flags: Longint ): Integer;
 begin
   FMessageText := Text;
   FMessageFlags := Flags;
@@ -238,7 +230,6 @@ begin
   Result := FMessageResult;
 end;
 
-// ============================================================================
 procedure TWorker.Cancel;
 begin
   SetCanceled(True);
@@ -260,7 +251,6 @@ begin
   Result := TInterlocked.CompareExchange(FFinished, 0, 0) <> 0;
 end;
 
-// ============================================================================
 procedure TWorker.Initialize;
 var
   HR: HRESULT;
@@ -273,7 +263,6 @@ begin
     OleCheck(HR);
 end;
 
-// ============================================================================
 procedure TWorker.Uninitialize;
 begin
   if FComInitialized then
@@ -283,7 +272,6 @@ begin
   end;
 end;
 
-// ============================================================================
 procedure TWorker.Execute;
 begin
   FProgressEngine := nil;
@@ -321,4 +309,3 @@ begin
 end;
 
 end.
-

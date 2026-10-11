@@ -135,7 +135,6 @@ var
 begin
   Result := False;
   try
-    { TODO -oNickR -cBug : MEMLEAK проверить }
     XML := TXmlDocument.Create(FileName);
 
     XML.Active := True;

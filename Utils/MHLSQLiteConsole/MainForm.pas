@@ -221,26 +221,3 @@ begin
 end;
 
 end.
-
-
-{
-
-select *
-from Authors a
-where
-exists
-(
-select al.AuthorID
-from
-  Author_List al
-  inner join Books b on al.BookID = b.BookID
-where
-  a.AuthorID = al.AuthorID AND
-  b.IsLocal = 1 AND
-  b.IsDeleted = 0
-)
-
-}
-
-
-

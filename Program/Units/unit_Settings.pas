@@ -1,22 +1,4 @@
-﻿(* *****************************************************************************
-  *
-  * MyHomeLib
-  *
-  * Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
-  *
-  * Author(s)           Nick Rymanov (nrymanov@gmail.com)
-  *                     Oleksiy Penkov  oleksiy.penkov@gmail.com
-  *                     Matvienko Sergei  matv84@mail.ru
-  * Created             12.02.2010
-  * Description
-  *
-  * $Id: unit_Settings.pas 1172 2014-06-25 01:02:04Z koreec $
-  *
-  * History
-  * NickR 15.02.2010    Код переформатирован
-  *
-  ****************************************************************************** *)
-
+﻿
 {
 TODO -oNickR -cBug: если поменять путь на устройство и указан относительный путь к читалке, то она перестает запускаться. после перезапуска проги все нормально
 }
@@ -38,11 +20,9 @@ uses
   unit_Lib_Updates;
 
 const
-  //
   // Стандартные значения настроек. Используются также в качестве запасных значений при
   // чтении ini-файла и кнопкой «Сбросить» в окне настроек, так что держим
   // их в одном месте - иначе свежая установка и сброс разойдутся.
-  //
 
   // Папки/Устройства
   DEF_DEVICE_DIR = '';
@@ -72,10 +52,8 @@ type
     sfGenresFB2,
     sfGenresNonFB2,
     sfServerErrorLog,
-    // sfImportErrorLog,  // UNUSED
     sfAppHelp,
     sfAppVerInfo,
-    // sfCollectionVerInfo, // UNUSED
     sfColumnsStore,
     sfDownloadsStore,
     sfDownloadErrorLog,
@@ -100,17 +78,11 @@ function ResolveMHLPaths: TMHLPathInfo;
 
 const
   DEFAULT_LOCALE = 'ru';
-  // The base locale's own name, for the language menu. A plain constant and
-  // NOT a resourcestring: a language is always written in its own language, so
-  // this must not change when the UI language does.
   BASE_LOCALE_NAME = 'Русский';
 
 type
   TMHLSettings = class
   private
-    //
-    // System paths
-    //
     FAppPath: string;
     FDataDir: string;
     FTempDir: string;
@@ -118,15 +90,10 @@ type
     FReadDir: string;
     FUpdateDir: string;
 
-    //
-    // Settings
-    //
 
-    // PATH_SECTION
     FDeviceDir: string;
     FGroupExportDir: string;
 
-    // SYSTEM_SECTION
     FActiveCollection: Integer;
     FDoCheckUpdate: Boolean;
     FBookCacheLimitMB: Integer;
@@ -142,7 +109,6 @@ type
     FRemoveSquareBrackets: Boolean;
     FTXTEncoding: TTXTEncoding;
 
-    // INTERFACE_SECTION
     FTreeFontSize: Integer;
     FShortFontSize: Integer;
     FLocale: string;
@@ -159,7 +125,6 @@ type
     FOtherSRCollapsed: Boolean;
     FEditToolBarVisible: Boolean;
 
-    // NETWORK_SECTION
     FProxyServer: string;
     FProxyUsername: string;
     FProxyPassword: string;
@@ -178,7 +143,6 @@ type
     FIEProxyServer: string;
     FIEProxyPort: Integer;
 
-    // Дополнительный прокси сервер для обновлений
     FUseProxyForUpdate: Boolean;
     FProxyServerUpdate: string;
     FProxyUsernameUpdate: string;
@@ -187,7 +151,6 @@ type
 
     FProxyType: Integer;
 
-    // COLORS_SECTION
     FBookColor: TColor;
     FSeriesColor: TColor;
     FAuthorColor: TColor;
@@ -198,31 +161,21 @@ type
     FDeletedColor: TColor;
     FLocalColor: TColor;
 
-    // SEARCH_SECTION
     FFullTextSearch: Boolean;
 
-    // READERS_SECTION
     FReaders: TReaders;
     FUseBuiltinReaderByDefault: Boolean;
     FDarkTheme: Boolean;
     FWindowsDarkThemeOfferDismissed: Boolean;
 
-    // UPDATES_SECTION
     FUpdateList: TUpdateInfoList;
 
-    // SCRIPTS_SECTION
     FScripts: TScripts;
     FDefaultScript: Integer;
 
-    // IMPORT_SECTION
-    //
-    // UNUSED
-    //
-    //FCheckExistsFiles: Boolean;
 
     FInitialDirs: TStringList;
 
-    // BEHAVIOR_SECTION
     FMinimizeToTray: Boolean;
     FAutoStartDwnld: Boolean;
     FShowSubGenreBooks: Boolean;
@@ -251,7 +204,6 @@ type
     FIgnoreAbsentArchives: Boolean;
     FConvertWebPToPNG: Boolean;
 
-    // SORT_SECTION
     FEnableSort: Boolean;
     FImportDir: string;
 
@@ -336,17 +288,10 @@ type
 
     property UpdateDir: string read FUpdateDir write SetUpdateDir;
     property UpdatePath: string read GetUpdatePath;
-    //
-    // Полные пути к некоторым файлам
-    //
     property SystemFileName[fileType: TMHLSystemFile]: string read GetSystemFileName;
 
-    // Полный путь к ini-файлу настроек (myhomelib2.ini или <user>.ini).
     property SettingsFileName: string read GetSettingsFileName;
 
-    //
-    // Собственно настройки программы
-    //
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property DevicePath: string read GetDevicePath;
     property GroupExportDir: string read FGroupExportDir write FGroupExportDir;
@@ -463,10 +408,6 @@ type
     property Scripts: TScripts read FScripts;
     property DefaultScript: Integer read FDefaultScript write FDefaultScript;
 
-    //
-    // UNUSED
-    //
-    // property CheckExistsFiles: Boolean read FCheckExistsFiles write FCheckExistsFiles;
 
     property InitialDir[const key: string]: string read GetInitialDir write SetInitialDir;
 
@@ -477,7 +418,6 @@ type
     property DeleteFiles: Boolean read FDeleteFiles write FDeleteFiles;
     property SelectedIsChecked: Boolean read FSelectedIsChecked write FSelectedIsChecked;
 
-    // SORT_SECTION
     property EnableSort: Boolean read FEnableSort write FEnableSort;
     property ImportDir: string read FImportDir write SetImportDir;
     property ImportPath: string read GetImportPath;
@@ -527,7 +467,6 @@ const
 
   INITIAL_DIRS_SECTION = 'InitialDirs';
 
-{ TMHLSettings }
 
 function ResolveMHLPaths: TMHLPathInfo;
 const
@@ -599,7 +538,6 @@ begin
 
   if Paths.IniFileName <> SETTINGS_FILE_NAME then
   begin
-    // пользовательский файл настроек: если такого файла еще нет, копируем стандартный
     if FileExists(WorkPath + SETTINGS_FILE_NAME) and not FileExists(WorkPath + FIniFileName) then
       unit_globals.CopyFile(WorkPath + SETTINGS_FILE_NAME, WorkPath + FIniFileName);
   end;
@@ -609,7 +547,6 @@ begin
   else
     FTempDir := c_GetTempPath + TEMP_FOLDER_NAME;
 
-  // -----------------------------------------------------
   FReaders := TReaders.Create;
   FScripts := TScripts.Create;
   FUpdateList := TUpdateInfoList.Create;
@@ -651,7 +588,6 @@ begin
   InternetQueryOption(nil, INTERNET_OPTION_PROXY, proxyInfo, dwBufLen);
   if (dwBufLen = 0) or (GetLastError <> ERROR_INSUFFICIENT_BUFFER) then
   begin
-    // InternetQueryOption failed to return buffer size
     Exit;
   end;
 
@@ -666,10 +602,6 @@ begin
       begin
         if Pos('=', strProxy) <> 0 then
         begin
-          //
-          // ftp=proxy.domain.com:8082 gopher=proxy.domain.com:8083 http=proxy.domain.com:8080 https=proxy.domain.com:8081"
-          // разные прокси для разных протоколов. Выделим нужный
-          //
           slHelper := TStringList.Create;
           try
             slHelper.Delimiter := ';';
@@ -680,20 +612,11 @@ begin
           end;
         end;
 
-        //
-        // здесь имеем настройки прокси в виде "proxy.domain.com[:8082]" или пустой строки
-        //
         if strProxy <> '' then
         begin
-          //
-          // теперь надо поделить строчку на сервер и порт
-          //
           i := Pos(':', strProxy);
           if i = 0 then
           begin
-            //
-            // Порт не указан - используем порт по умолчанию
-            //
             ProxyServer := strProxy;
             ProxyPort := INTERNET_DEFAULT_HTTP_PORT;
           end
@@ -703,9 +626,6 @@ begin
             ProxyPort := StrToIntDef(Copy(strProxy, i + 1, Length(strProxy) - i), INTERNET_DEFAULT_HTTP_PORT);
           end;
 
-          //
-          // Только в этом случае нужно использовать прокси-сервер
-          //
           Result := True;
         end;
       end;
@@ -737,17 +657,11 @@ var
 begin
   iniFile := TMemIniFile.Create(GetSettingsFileName, TEncoding.UTF8);
   try
-    //
-    // PATH_SECTION
-    //
     DeviceDir := iniFile.ReadString(PATH_SECTION, 'Device', DEF_DEVICE_DIR);
     ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
     FGroupExportDir := iniFile.ReadString(PATH_SECTION, 'GroupExport', '');
 
-    //
-    // SYSTEM_SECTION
-    //
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
     FBookCachePreviousPath := iniFile.ReadString(SYSTEM_SECTION, 'BookCachePreviousPath', '');
@@ -782,9 +696,6 @@ begin
       2: FTXTEncoding := enUnicode;
     end;
 
-    //
-    // INTERFACE_SECTION
-    //
     FTreeFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'FontSize', DEF_TREE_FONT_SIZE);
     FShortFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'ShortFontSize', DEF_SHORT_FONT_SIZE);
     FActivePage := iniFile.ReadInteger(INTERFACE_SECTION, 'ActivePage', 0);
@@ -815,9 +726,6 @@ begin
 
     FWindowState := iniFile.ReadInteger(INTERFACE_SECTION, 'WindowState', 2);
 
-    //
-    // NETWORK_SECTION
-    //
     FProxyServer := iniFile.ReadString(NETWORK_SECTION, 'proxy', '');
     FProxyUsername := iniFile.ReadString(NETWORK_SECTION, 'proxy-user', '');
     FProxyPassword := DecodePassString(iniFile.ReadString(NETWORK_SECTION, 'proxy-pass', ''));
@@ -849,9 +757,6 @@ begin
     FUseProxyForUpdate := iniFile.ReadBool(NETWORK_SECTION, 'use_proxy_update', False);
     FProxyType := iniFile.ReadInteger(NETWORK_SECTION, 'proxy-type', 0);
 
-    //
-    // COLORS_SECTION
-    //
     FBookColor := iniFile.ReadInteger(COLORS_SECTION, 'Book', DEF_BOOK_COLOR);
     FSeriesColor := iniFile.ReadInteger(COLORS_SECTION, 'Series', DEF_SERIES_COLOR);
     FAuthorColor := iniFile.ReadInteger(COLORS_SECTION, 'Author', DEF_AUTHOR_COLOR);
@@ -862,32 +767,14 @@ begin
     FLocalColor := iniFile.ReadInteger(COLORS_SECTION, 'Downloaded', DEF_LOCAL_COLOR);
     FDeletedColor := iniFile.ReadInteger(COLORS_SECTION, 'Deleted', DEF_DELETED_COLOR);
 
-    //
-    // SEARCH_SECTION
-    //
     FFullTextSearch := iniFile.ReadBool(SEARCH_SECTION, 'FullText', False);
 
-    //
-    // READERS_SECTION
-    //
     LoadReaders(iniFile);
 
-    //
-    // SCRIPTS_SECTION
-    //
     LoadScripts(iniFile);
     FDefaultScript := iniFile.ReadInteger(SCRIPTS_SECTION, 'Default', 0);
 
-    //
-    // IMPORT_SECTION
-    //
-    // UNUSED
-    //
-    //FCheckExistsFiles := iniFile.ReadBool(IMPORT_SECTION, 'CheckFB2Exist', True);
 
-    //
-    // BEHAVIOR_SECTION
-    //
     FShowToolbar := iniFile.ReadBool(BEHAVIOR_SECTION, 'ShowToolbar', True);
     FShowRusBar := iniFile.ReadBool(BEHAVIOR_SECTION, 'ShowRusABC', True);
     FShowEngBar := iniFile.ReadBool(BEHAVIOR_SECTION, 'ShowEngABC', True);
@@ -921,9 +808,6 @@ begin
     FUseBuiltinReaderByDefault := iniFile.ReadBool(BEHAVIOR_SECTION, 'UseBuiltinReaderByDefault', True);
 
 
-    //
-    // FILE_SORT_SECTION
-    //
 
     FEnableSort := iniFile.ReadBool(FILE_SORT_SECTION, 'EnableFileSort', False);
     FImportDir := iniFile.ReadString(FILE_SORT_SECTION, 'InputFolder', '');
@@ -934,12 +818,8 @@ begin
     FFBDFolderTemplate := iniFile.ReadString(FILE_SORT_SECTION, 'FBDFolderTemplate', '');
     FFBDFileTemplate := iniFile.ReadString(FILE_SORT_SECTION, 'FBDFileTemplate', '');
 
-    //
-    // INITIAL_DIRS_SECTION
-    //
     LoadInitialDirs(iniFile);
 
-    // LoadUpdates(iniFile);
     LoadUpdates;
   finally
     iniFile.Free;
@@ -952,17 +832,11 @@ var
 begin
   iniFile := TMemIniFile.Create(GetSettingsFileName, TEncoding.UTF8);
   try
-    //
-    // PATH_SECTION
-    //
     iniFile.WriteString(PATH_SECTION, 'Device', FDeviceDir);
     iniFile.WriteString(PATH_SECTION, 'Read', FReadDir);
     iniFile.WriteString(PATH_SECTION, 'Update', FUpdateDir);
     iniFile.WriteString(PATH_SECTION, 'GroupExport', FGroupExportDir);
 
-    //
-    // SYSTEM_SECTION
-    //
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckUpdates', FDoCheckUpdate);
     iniFile.WriteString(SYSTEM_SECTION, 'BookCachePreviousPath', FBookCachePreviousPath);
@@ -978,9 +852,6 @@ begin
     iniFile.WriteInteger(SYSTEM_SECTION, 'ExpFormat', Ord(FExportMode));
     iniFile.WriteBool(SYSTEM_SECTION, 'RemoveSquareBrackets', FRemoveSquareBrackets);
     iniFile.WriteInteger(SYSTEM_SECTION, 'TXTEncoding', Ord(FTXTEncoding));
-    //
-    // INTERFACE_SECTION
-    //
     iniFile.WriteInteger(INTERFACE_SECTION, 'FontSize', FTreeFontSize);
     iniFile.WriteInteger(INTERFACE_SECTION, 'ShortFontSize', FShortFontSize);
     iniFile.WriteString(INTERFACE_SECTION, 'Locale', FLocale);
@@ -1004,9 +875,6 @@ begin
 
     SaveSplitters(iniFile);
 
-    //
-    // NETWORK_SECTION
-    //
     iniFile.WriteString(NETWORK_SECTION, 'proxy', FProxyServer);
     iniFile.WriteString(NETWORK_SECTION, 'proxy-user', FProxyUsername);
     iniFile.WriteString(NETWORK_SECTION, 'proxy-pass', EncodePassString(FProxyPassword));
@@ -1031,9 +899,6 @@ begin
     iniFile.WriteInteger(NETWORK_SECTION, 'proxy-type', FProxyType);
 
 
-    //
-    // COLORS_SECTION
-    //
     iniFile.WriteInteger(COLORS_SECTION, 'Book', FBookColor);
     iniFile.WriteInteger(COLORS_SECTION, 'Series', FSeriesColor);
     iniFile.WriteInteger(COLORS_SECTION, 'Author', FAuthorColor);
@@ -1044,32 +909,14 @@ begin
     iniFile.WriteInteger(COLORS_SECTION, 'Downloaded', FLocalColor);
     iniFile.WriteInteger(COLORS_SECTION, 'Deleted', FDeletedColor);
 
-    //
-    // SEARCH_SECTION
-    //
     iniFile.WriteBool(SEARCH_SECTION, 'FullText', FFullTextSearch);
 
-    //
-    // READERS_SECTION
-    //
     SaveReaders(iniFile);
 
-    //
-    // SCRIPTS_SECTION
-    //
     SaveScripts(iniFile);
     iniFile.WriteInteger(SCRIPTS_SECTION, 'Default', FDefaultScript);
 
-    //
-    // IMPORT_SECTION
-    //
-    // UNUSED
-    //
-    //iniFile.WriteBool(IMPORT_SECTION, 'CheckFB2Exist', FCheckExistsFiles);
 
-    //
-    // BEHAVIOR_SECTION
-    //
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ShowToolbar', FShowToolbar);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ShowRusABC', FShowRusBar);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ShowEngABC', FShowEngBar);
@@ -1102,9 +949,6 @@ begin
     iniFile.WriteBool(BEHAVIOR_SECTION, 'ConvertWebPToPNG', FConvertWebPToPNG);
     iniFile.WriteBool(BEHAVIOR_SECTION, 'UseBuiltinReaderByDefault', FUseBuiltinReaderByDefault);
 
-    //
-    // FILE_SORT_SECTION
-    //
     iniFile.WriteBool(FILE_SORT_SECTION, 'EnableFileSort', FEnableSort);
     iniFile.WriteString(FILE_SORT_SECTION, 'InputFolder', FImportDir);
 
@@ -1114,9 +958,6 @@ begin
     iniFile.WriteString(FILE_SORT_SECTION, 'FBDFolderTemplate', FFBDFolderTemplate);
     iniFile.WriteString(FILE_SORT_SECTION, 'FBDFileTemplate', FFBDFileTemplate);
 
-    //
-    // INITIAL_DIRS_SECTION
-    //
     SaveInitialDirs(iniFile);
     iniFile.UpdateFile;
   finally
@@ -1131,18 +972,12 @@ var
 begin
   slHelper := TIniStringList.Create;
   try
-    //
-    // Сначала сплиттеры
-    //
     slHelper.DelimitedText := iniFile.ReadString(INTERFACE_SECTION, 'Splitters', '250;250;250;250;250');
     SetLength(FSplitters, 6);
     for i := 0 to High(FSplitters) do FSplitters[i] := 250;
     for i := 0 to Min(slHelper.Count, Length(FSplitters)) - 1 do
       FSplitters[i] := StrToIntDef(slHelper[i], 250);
 
-    //
-    // режимы таблиц
-    //
     slHelper.DelimitedText := iniFile.ReadString(INTERFACE_SECTION, 'TreeModes', '0;1;0;1;0;1');
     SetLength(FTreeModes, 7);
     FTreeModes[6] := tmFlat;
@@ -1171,7 +1006,6 @@ begin
   INIFile := TMemIniFile.Create(SystemFileName[sfCollectionsStore]);
   try
     INIFile.Encoding := TEncoding.UTF8;
-    // обрабатываем файл
     sl := TStringList.Create;
     try
       iniFile.ReadSection(UPDATES_SECTION, sl);
@@ -1191,10 +1025,9 @@ begin
         finally
           slHelper.Free;
         end;
-      end // if
+      end
       else
       begin
-        // Добавим апдейты по умолчанию
         FUpdateList.Add('Lib.rus.ec [FB2]',        '', 'last_librusec.info',       'librusec_update.zip',       True,  CT_EXTERNAL_LOCAL_FB);
         FUpdateList.Add('Lib.rus.ec [FB2]',        '', '',                         'daily_update.zip',          False, CT_EXTERNAL_LOCAL_FB);
         FUpdateList.Add('Lib.rus.ec OnLine [FB2]', '', 'last_librusec.info',       'librusec_update.zip',       True,  CT_EXTERNAL_ONLINE_FB);
@@ -1219,18 +1052,12 @@ var
 begin
   sl := TIniStringList.Create;
   try
-    //
-    // сначала сплиттеры
-    //
     for Splitter in FSplitters do
       sl.Add(IntToStr(Splitter));
     iniFile.WriteString(INTERFACE_SECTION, 'Splitters', sl.DelimitedText);
 
     sl.Clear;
 
-    //
-    // потом - режимы списков
-    //
     for Mode in FTreeModes do
       sl.Add(IntToStr(Ord(Mode)));
     iniFile.WriteString(INTERFACE_SECTION, 'TreeModes', sl.DelimitedText);
@@ -1304,12 +1131,10 @@ begin
     end
     else
     begin
-      //
       // Добавим штатные читалки по умолчанию. Пути сохраняются и тогда, когда
       // папка Readers случайно удалена: при открытии пользователь увидит
       // точное имя отсутствующей программы, а не неясную ошибку ассоциации
       // Windows.
-      //
       for I := Low(ALREADER_EXTENSIONS) to High(ALREADER_EXTENSIONS) do
         FReaders.Add(ALREADER_EXTENSIONS[I], BUNDLED_ALREADER_PATH);
       for I := Low(SUMATRA_EXTENSIONS) to High(SUMATRA_EXTENSIONS) do
@@ -1458,9 +1283,6 @@ end;
 
 function TMHLSettings.GetUpdatePath: string;
 begin
-  //
-  // провериться на пустоту и существование. Вернуть папку по умолчанию в случае надобности
-  //
   if (FUpdateDir = '') or not TDirectory.Exists(FUpdateDir) then
     Result := WorkPath
   else
@@ -1495,10 +1317,6 @@ begin
   FDeviceDir := SafeGetDirName(Value);
 end;
 
-// Prefers a locale-specific copy of a system file, e.g. genres_fb2_bg.glst
-// over genres_fb2.glst. Purely additive: with no locale copy on disk the
-// result is byte-identical to what this replaced, which is why shipping no
-// list for a locale is a supported state rather than a gap.
 function TMHLSettings.LocalisedSystemFile(const BaseName: string): string;
 var
   Candidate: string;
@@ -1517,12 +1335,7 @@ begin
     Result := Candidate;
 end;
 
-// Help\<locale>\index.html when a translated tree is installed, otherwise the
 // Russian Help\index.html. Callers derive the whole help directory from this
-// one path, so redirecting it moves every topic at once.
-//
-// Keyed on the index page existing rather than on the directory: a stray empty
-// Help\en\ would otherwise send every topic somewhere with nothing in it.
 function TMHLSettings.LocalisedHelpIndex: string;
 var
   Candidate: string;
@@ -1546,10 +1359,8 @@ begin
     sfGenresFB2: Result := LocalisedSystemFile(GENRES_FB2_FILENAME);
     sfGenresNonFB2: Result := LocalisedSystemFile(GENRES_NONFB2_FILENAME);
     sfServerErrorLog: Result := WorkPath + SERVER_ERRORLOG_FILENAME;
-    // sfImportErrorLog: Result := WorkPath + IMPORT_ERRORLOG_FILENAME;         // UNUSED
     sfAppHelp: Result := LocalisedHelpIndex;
     sfAppVerInfo: Result := WorkPath + PROGRAM_VERINFO_FILENAME;
-    // sfCollectionVerInfo: Result := TempPath + COLLECTION_VERINFO_FILENAME;   // UNUSED
     sfColumnsStore: Result := WorkPath + COLUMNS_STORE_FILENAME;
     sfDownloadsStore: Result := WorkPath + DOWNLOADS_STORE_FILENAME;
     sfDownloadErrorLog: Result := WorkPath + DOWNLOAD_ERRORLOG_FILENAME;

@@ -138,10 +138,8 @@ begin
 
   CollectionInfo := DMUser.GetSystemDBConnection.GetCollectionInfo(CollectionID);
 
-  //
   // То же распределение, что и у мастера создания коллекции: локальная не-FB2
   // коллекция (CT_EXTERNAL_LOCAL_NONFB) всё равно использует жанры fb2.
-  //
   case CollectionInfo.CollectionType of
     CT_PRIVATE_NONFB, CT_EXTERNAL_ONLINE_NONFB:
       GenresType := gtAny;

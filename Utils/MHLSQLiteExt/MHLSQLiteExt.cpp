@@ -30,7 +30,6 @@
 
 SQLITE_EXTENSION_INIT1
 
-// ============================================================================
 inline
 void
 localeChangeCase(sqlite3_context *context, int argc, sqlite3_value **argv, DWORD dwMapFlags)
@@ -52,22 +51,19 @@ localeChangeCase(sqlite3_context *context, int argc, sqlite3_value **argv, DWORD
     sqlite3_result_text16(context, pResult, -1, sqlite3_free);
 }
 
-// ============================================================================
 void
 localeUpper(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
 	localeChangeCase(context, argc, argv, LCMAP_UPPERCASE);
 }
 
-// ============================================================================
 void
 localeLower(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
 	localeChangeCase(context, argc, argv, LCMAP_LOWERCASE);
 }
 
-// ============================================================================
-inline 
+inline
 LPWSTR
 getFullName(sqlite3_context *context, int argc, sqlite3_value **argv, int* pResultLen)
 {
@@ -88,10 +84,10 @@ getFullName(sqlite3_context *context, int argc, sqlite3_value **argv, int* pResu
     size_t nFirstLen = pFirstName ? wcslen(pFirstName) : 0;
     size_t nMiddleLen = pMiddleName ? wcslen(pMiddleName) : 0;
 
-    size_t nResultLen = 
+    size_t nResultLen =
         (
             nLastLen +
-            (nFirstLen > 0 ? nFirstLen + 1 : 0) + 
+            (nFirstLen > 0 ? nFirstLen + 1 : 0) +
             (nMiddleLen > 0 ? nMiddleLen + 1 : 0) +
             1
         );
@@ -121,7 +117,6 @@ getFullName(sqlite3_context *context, int argc, sqlite3_value **argv, int* pResu
     return pResult;
 }
 
-// ============================================================================
 void
 fullAuthorName(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
@@ -137,7 +132,6 @@ fullAuthorName(sqlite3_context *context, int argc, sqlite3_value **argv)
     sqlite3_result_text16(context, pResult, nResultLen * sizeof(WCHAR), sqlite3_free);
 }
 
-// ============================================================================
 void
 fullAuthorNameEx(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
@@ -164,8 +158,7 @@ fullAuthorNameEx(sqlite3_context *context, int argc, sqlite3_value **argv)
     sqlite3_result_text16(context, pResult, nResultLen * sizeof(WCHAR), sqlite3_free);
 }
 
-// ============================================================================
-int 
+int
 systemCollate(void* pUserData, int Buf1Len, const void* Buf1, int Buf2Len, const void* Buf2)
 {
 	return ::CompareStringW(
@@ -176,8 +169,7 @@ systemCollate(void* pUserData, int Buf1Len, const void* Buf1, int Buf2Len, const
 	) - CSTR_EQUAL;
 }
 
-// ============================================================================
-int 
+int
 systemCollateNoCase(void* pUserData, int Buf1Len, const void* Buf1, int Buf2Len, const void* Buf2)
 {
 	return ::CompareStringW(
@@ -188,11 +180,6 @@ systemCollateNoCase(void* pUserData, int Buf1Len, const void* Buf1, int Buf2Len,
 	) - CSTR_EQUAL;
 }
 
-// ============================================================================
-// SQLite invokes this routine once when it loads the extension.
-// Create new functions, collating sequences, and virtual table
-// modules here. This is usually the only exported symbol in
-// the shared library.
 extern "C"
 _declspec(dllexport)
 int
@@ -210,5 +197,3 @@ sqlite3_extension_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines 
 
     return 0;
 }
-
-

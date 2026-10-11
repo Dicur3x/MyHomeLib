@@ -4,14 +4,6 @@ program MetabibTest;
 
 // Test harness for unit_MetabibReader. Not shipped.
 // Delphi Trial users build MetabibTest.dproj in the IDE.
-//
-// Usage:  MetabibTest.exe <dataset.jsonl> <report.json>
-//
-// Reads every record through the real public API -- Create/ReadNext, the same
-// path unit_ImportMetabibThread takes -- and writes a UTF-8 JSON report.
-//
-// The report goes to a FILE rather than stdout because the values under test
-// are Cyrillic and console output would go through the console code page.
 
 uses
   System.SysUtils,

@@ -52,7 +52,6 @@ begin
     Exit;
   end;
 
-  // если FileMapping есть - то происходит OpenFileMapping
   MemHnd := CreateFileMapping(HWND($FFFFFFFF), nil, PAGE_READWRITE, 0, MemFileSize, PChar(MemFileName));
   if GetLastError <> ERROR_ALREADY_EXISTS then
   begin
@@ -65,7 +64,6 @@ begin
   end
   else
   begin
-    // MemFileHnd := OpenFileMapping(FILE_MAP_READ, False, PChar(MemFileName));
     Result := True;
     if MemHnd <> 0 then
     begin

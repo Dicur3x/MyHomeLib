@@ -15,9 +15,6 @@
   *
   ****************************************************************************** *)
 
-{
-TODO -oNickR : возможно, стоит здесь задавать свойства обновления. сервер, названия файлов обновлений и периодичность обновлений
-}
 
 unit frm_bases;
 
@@ -145,12 +142,6 @@ var
   storedRoot: string;
   storedFileName: string;
 begin
-  //
-  // Получим абсолютные пути. В качестве базового каталого используется DataPath. <--- Иделогическая ошибка!
-  //
-//  CollectionName := Trim(edCollectionName.Text);
-//  storedRoot := Settings.ExpandCollectionRoot(Trim(edCollectionRoot.Text));
-//  storedFileName := Settings.ExpandCollectionFileName(edCollectionFile.Text);
 
   // Абсолютные пути нахрен не нужны, приводят к куче пробелм и тупых вопросов!
 
@@ -165,18 +156,12 @@ begin
     Exit;
   end;
 
-  //
-  // Проверим название коллекции
-  //
   if FSystemData.HasCollectionWithProp(PROP_DISPLAYNAME, CollectionName, FCollection.CollectionID) then
   begin
     MessageDlg(Format(rstrCollectionAlreadyExists, [CollectionName]), mtError, [mbOk], 0);
     Exit;
   end;
 
-  //
-  // Проверим название и существование файла
-  //
   if not FileExists(storedFileName) then
   begin
     MessageDlg(Format(rstrFileDoesntExists, [storedFileName]), mtError, [mbOk], 0);
@@ -201,4 +186,3 @@ begin
 end;
 
 end.
-

@@ -6,7 +6,7 @@
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             13.07.2010
-  * Description         
+  * Description
   *
   * $Id: unit_xmlUtils.pas 1064 2011-09-02 11:33:04Z eg_ $
   *
@@ -70,7 +70,6 @@ uses
   ActiveX,
   ZLib;
 
-{ TMSXMLHelper }
 
 class function TMSXMLHelper.LoadFromZFile(const FileName: string): IXMLDOMDocument;
 var
@@ -138,7 +137,6 @@ class function TMSXMLHelper.CreateEmptyDocument: IXMLDOMDocument;
 begin
   Result := newDocument;
 
-  // Create a processing instruction targeted for xml.
   Result.appendChild(Result.createProcessingInstruction('xml', 'version="1.0" encoding="UTF-8"'));
 end;
 
@@ -166,7 +164,6 @@ begin
   end;
 end;
 
-{ EMSXMLParseError }
 
 constructor EMSXMLParseError.Create(const ParseError: IXMLDOMParseError; const Msg: string);
 begin

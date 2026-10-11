@@ -1,35 +1,9 @@
 'use strict';
 
-// Exports the translatable names out of a genre list, and rebuilds a
-// translated list from a filled-in map.
-//
-// Deliberately mirrors tools/lang/translate.js: export a flat map, translate
-// the map, apply it. The reason is the same in both cases -- a translator
-// (human or model) handed the whole file will eventually perturb a key, and
-// for .glst files that failure is silent: the fb2 code stops matching and the
-// books land in "Неотсортированное".
-//
-// `apply` never copies a line from the map. It walks the ORIGINAL, keeps every
-// tree path, fb2 code, comment, BOM byte and line ending exactly as it found
-// them, and substitutes only the name. A key therefore cannot drift, because
-// nothing in the translated map is ever in a position to become one.
-//
-// Names are keyed by tree path ("0.1.0"), which is unique within a file.
-// Keying by the source name would collide: several genres share a name.
-//
-// Usage:
-//   node tools/lang/glst_translate.js export <base> <out.json>
-//   node tools/lang/glst_translate.js apply  <base> <locale> <map.json>
-//
-//   <base> is genres_fb2 or genres_nonfb2.
-//
-// Exit code: 0 = ok, 1 = failure.
 
 const fs = require('fs');
 const path = require('path');
 
-// The tracked source of the genre lists -- NOT Installer/Common, which is a
-// gitignored staging directory that build_installer.cmd populates.
 const DIR = path.join(__dirname, '..', '..', 'Installer', 'GenreLists');
 
 function fail(message) {
@@ -37,9 +11,6 @@ function fail(message) {
   process.exit(1);
 }
 
-// Reads a .glst and splits it into records plus the byte-level traits that
-// must be reproduced verbatim. Kept deliberately identical in shape to the
-// parser in check_glst.js -- if one changes, change both.
 function read(file) {
   const raw = fs.readFileSync(file, 'utf8');
   const hadBom = raw.charCodeAt(0) === 0xfeff;
@@ -122,10 +93,6 @@ function cmdApply(base, locale, mapFile) {
 
   const src = read(originalPath(base));
 
-  // Validate the whole map before writing anything. A map that is missing
-  // entries, or carries paths that do not exist, is a translation that was
-  // authored against a different revision of the list -- writing half of it
-  // would produce a file that passes check_glst.js while being wrong.
   const missing = [];
   const unknown = [];
   const empty = [];
@@ -156,7 +123,6 @@ function cmdApply(base, locale, mapFile) {
   bad = report('empty translation(s)', empty) || bad;
   if (bad) process.exit(1);
 
-  // Rebuild from the ORIGINAL. Only `name` ever comes from the map.
   const out = src.records.map((r) => {
     switch (r.kind) {
       case 'comment':

@@ -1,24 +1,7 @@
 'use strict';
 
-// Generates Program/lang.rc, which links the catalogs we ship into the exe.
-//
 // Only ru, uk, en and bg are ever embedded: they are the languages the project
-// ships, and being inside the binary is what makes them unreplaceable by a
-// file in Lang\. Any other locale is a community catalog and must be signed.
-//
-// Bulgarian is embedded rather than shipped as a signed file because it is a
-// language the project ships, and the signature gate exists to keep unapproved
-// third-party catalogs out. Nothing stages Lang\ beside the exe any more --
-// copy_lang.cmd went when catalogs moved inside the binary -- so an external
-// bg.json would have needed installer plumbing for no benefit. The trade is
-// that correcting a Bulgarian string requires a release.
-//
-// A missing catalog is NOT an error. A clean clone has no Program/Lang at all
-// (it is gitignored, and lives in a separate private repository), and it must
 // still build -- producing a Russian-only exe rather than a build failure.
-//
-// Usage: node tools/lang/embed.js
-// Exit code: 0 normally, 1 if a catalog exists but is unusable.
 
 const fs = require('fs');
 const path = require('path');
@@ -41,9 +24,6 @@ for (const code of EMBEDDED) {
   const file = path.join(LANG_DIR, `${code}.json`);
   if (!fs.existsSync(file)) continue;
 
-  // Parse it: linking a catalog that is not valid JSON, or that declares a
-  // different locale than its filename, would produce an exe that silently
-  // ignores it at runtime. Fail the build here instead.
   let doc;
   try {
     doc = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, ''));

@@ -37,7 +37,7 @@ type
     function GetIdealSize(const Link: string): TSize;
 
   published
-    property Alignment; // Requires Windows Vista or later
+    property Alignment;
     property Anchors;
     property AutoSize;
     property BevelEdges;
@@ -111,7 +111,7 @@ begin
   while Pos <= Last do
   begin
     case Caption[Pos] of
-      '<': //do not localize
+      '<':
       begin
         LookAhead := Pos;
 
@@ -125,9 +125,9 @@ begin
         Inc(LookAhead);
         if SearchMode = psmLinkStart then
         begin
-          if CharInSet(Caption[LookAhead], ['a', 'A']) then //do not localize
+          if CharInSet(Caption[LookAhead], ['a', 'A']) then
           begin
-            while (Caption[LookAhead] <> '>') and (LookAhead <= Last) do //do not localize
+            while (Caption[LookAhead] <> '>') and (LookAhead <= Last) do
               Inc(LookAhead);
 
             if LookAhead > Last then
@@ -137,25 +137,24 @@ begin
               Inc(Len, LookAhead - Pos);
               Break;
             end
-            else //LookAhead > Last
+            else
             begin
               Pos := LookAhead + 1;
               SearchMode := psmLinkEnd;
             end;
           end
-          else //CharInSet(LookAhead^, ['a', 'A'])
+          else
           begin
             Inc(Len);
             Result[Len] := Caption[Pos];
             Inc(Pos);
           end;
         end
-        else //SearchMode = psmLinkStart
+        else
         begin
-          //A bit of an ugly way to do this, but its fast
-          if (Caption[LookAhead] = '/') and //do not localize
-             (CharInSet(Caption[LookAhead + 1], ['a', 'A'])) and //do not localize
-             (Caption[LookAhead + 2] = '>') then //do not localize
+          if (Caption[LookAhead] = '/') and
+             (CharInSet(Caption[LookAhead + 1], ['a', 'A'])) and
+             (Caption[LookAhead + 2] = '>') then
           begin
             Inc(Pos, 4);
             SearchMode := psmLinkStart;

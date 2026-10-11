@@ -28,10 +28,8 @@ uses
   unit_UserData;
 
 type
-  // --------------------------------------------------------------------------
   TBookCollectionCache = TInterfaceCache<Integer, IBookCollection>;
 
-  // --------------------------------------------------------------------------
 
   TSystemData = class abstract(TInterfacedObject)
   protected
@@ -40,27 +38,17 @@ type
     function InternalCreateCollection(const CollectionID: Integer): IBookCollection; virtual; abstract;
 
   protected
-    //
-    // ISystemData
-    //
     function HasCollections: Boolean;
     function FindFirstExistingCollectionID(const PreferredID: Integer): Integer;
 
     function GetCollection(const CollectionID: Integer; const RefreshCache: Boolean): IBookCollection;
 
-    //
-    // Пользовательские данные
-    //
     procedure ExportUserData(data: TUserData; const DatabaseID: Integer);
 
-    //Iterators:
     function GetBookIterator(const GroupID: Integer; const DatabaseID: Integer = INVALID_COLLECTION_ID): IBookIterator; virtual; abstract;
     function GetGroupIterator: IGroupIterator; virtual; abstract;
     function GetCollectionInfoIterator: ICollectionInfoIterator; virtual; abstract;
 
-    //
-    // Служебные методы
-    //
     procedure ClearCollectionCache;
 
   public
@@ -77,14 +65,12 @@ resourcestring
 const
   // Names earlier releases seeded the two default groups with, before the
   // interface was translated to Ukrainian.
-  //
   // Deliberately const and not resourcestring: these must never themselves be
   // translated. They exist so that a profile created by an older build can be
   // recognised as still carrying a name MyHomeLib wrote, rather than one the
   // user chose. The localisation catalogs cannot supply them -- Russian is no
   // longer a shipped language -- so without this list a pre-existing user.dbs2
   // keeps Russian group names for good.
-  //
   // Append here if a future release renames the seeded groups again; never
   // remove an entry, because some profile out there still holds it.
   LegacyFavoritesGroupNames: array[0..0] of string = ('Обране');
@@ -95,7 +81,6 @@ implementation
 uses
   SysUtils;
 
-{ TSystemData }
 
 constructor TSystemData.Create;
 begin
@@ -129,9 +114,6 @@ begin
     begin
       if Info.ID = PreferredID then
       begin
-        //
-        // Пользователь предпочитает эту коллекцию, она доступна -> выходим
-        //
         Result := Info.ID;
         Break;
       end;
@@ -139,7 +121,6 @@ begin
       if Result = INVALID_COLLECTION_ID then
       begin
         //
-        // Запомним первую доступную коллекцию
         //
         Result := Info.ID;
       end;

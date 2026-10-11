@@ -33,7 +33,6 @@ uses
   unit_Interfaces;
 
 type
-  // --------------------------------------------------------------------------
   ETemplateError = class(Exception)
   public
     FErrorPosition: Integer;
@@ -46,18 +45,13 @@ rstrEInvalidTemplate = 'Неправильный шаблон, позиция %d
    rstrEUnclosedBracket = 'Незакрытая скобка, позиция %d';
 
 type
-  // --------------------------------------------------------------------------
   TBaseParamsParser<T> = class abstract (TInterfacedObject, IParamsParser<T>)
   public
-    //
-    // IParamsParser<T>
-    //
     function CheckLiteral(const literalValue: string): Boolean; virtual;
     function CheckParam(const paramName: string): Boolean; virtual;
     function GetValue(const params: T; const paramName: string): string; virtual; abstract;
   end;
 
-  // --------------------------------------------------------------------------
   TTemplateElement<T> = class
   protected
     FParamParser: IParamsParser<T>;
@@ -126,7 +120,7 @@ type
     function GetValue(const params: T; out strValue: string): Integer; override;
 
     procedure SetTemplate(const strTemplate: string);
-    function Value(const params: T): string; //virtual;
+    function Value(const params: T): string;
 
   public
     constructor Create(paramParser: IParamsParser<T>);
@@ -144,7 +138,6 @@ implementation
 uses
   Character;
 
-{ TBaseParamsParser }
 
 function TBaseParamsParser<T>.CheckLiteral(const literalValue: string): Boolean;
 begin
@@ -156,7 +149,6 @@ begin
   Result := True;
 end;
 
-{ TTemplateElement }
 
 constructor TTemplateElement<T>.Create(paramParser: IParamsParser<T>);
 begin
@@ -177,7 +169,6 @@ begin
   raise Error;
 end;
 
-{ TLiteralTemplateElement }
 
 constructor TLiteralTemplateElement<T>.Create(paramParser: IParamsParser<T>; const Value: string);
 begin
@@ -198,7 +189,6 @@ begin
   Result := 0;
 end;
 
-{ TParamTemplateElement }
 
 constructor TParamTemplateElement<T>.Create(paramParser: IParamsParser<T>; const paramName: string);
 begin
@@ -227,7 +217,6 @@ begin
     Result := 1;
 end;
 
-{ TBlockTemplateElement }
 
 constructor TBlockTemplateElement<T>.Create(paramParser: IParamsParser<T>);
 begin
@@ -288,7 +277,6 @@ begin
       if FTopLevel then
         RaiseTemplateError(rstrEUnopenedBracket, nPos);
 
-      // + проверки на пустоту ??? уже забыл зачем
 
       endPos := nPos + 1;
       Exit;

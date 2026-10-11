@@ -27,22 +27,18 @@ uses
   Vcl.Themes;
 
 type
-  //
   // Класс-перехватчик стандартного TProgressBar: дорисовывает процент внутри полосы.
-  //
   // Подключается добавлением этого модуля ПОСЛЕДНИМ в uses модуля формы - после
   // ComCtrls. DFM не изменяется: TReader.FindComponentClass ищет класс в DFM
   // среди опубликованных полей формы и берет тип поля, а не зарегистрированный класс.
   // Наследуемые формы, которые переопределяют `inherited ProgressBar: TProgressBar`,
   // тоже получают его - для наследуемого чтения компонент ищется по
   // имени, а имя класса в DFM игнорируется.
-  //
   // Полоса с точным прогрессом рисуется вручную, а не поверх родного
   // элемента управления: тема Windows 10/11 плавно «доезжает» до заданной позиции
   // собственной анимацией, которая перерисовывает элемент вне нашего WM_PAINT и стирала бы текст.
   // Для pbstMarquee рисование отдается базовому классу - там Position не имеет
   // смысла, и процент не показывается.
-  //
   TProgressBar = class(Vcl.ComCtrls.TProgressBar)
   private
     FShowPercent: Boolean;
@@ -65,19 +61,16 @@ type
 
 implementation
 
-{ TProgressBar }
 
 constructor TProgressBar.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FShowPercent := True;
-  //
   // csOpaque - фон рисуем сами, родительский не нужен.
   // csOverrideStylePaint - TWinControl.WndProc передает сообщения хуку
   // TProgressBarStyleHook, как только включен пользовательский стиль VCL, и наш
   // обработчик WM_PAINT туда бы не дошёл. Сейчас пользовательские стили не применяются, но
   // этот флажок оставляет рисование за нами, если их когда-нибудь включат.
-  //
   ControlStyle := ControlStyle + [csOpaque, csOverrideStylePaint];
 end;
 
@@ -90,11 +83,9 @@ begin
   end;
 end;
 
-//
 // Состояния pbsError/pbsPaused программа не использует (TProgressEngine всегда
 // посылает pbsNormal), а собственная отрисовка их не воспроизводит. Передадим такие случаи
 // родному контролу.
-//
 function TProgressBar.UseCustomPaint: Boolean;
 begin
   Result := FShowPercent and (Style = pbstNormal) and (State = pbsNormal) and
@@ -134,11 +125,9 @@ begin
   end;
 end;
 
-//
 // Родной контрол после PBM_* перерисовывается сам, но полагаться на это не
 // стоит: явно просим перерисовку, чтобы процент не отставал от позиции.
 // Мерцания нет - csOpaque плюс WM_ERASEBKGND, который ничего не стирает.
-//
 procedure TProgressBar.WndProc(var Message: TMessage);
 begin
   inherited WndProc(Message);
@@ -171,10 +160,8 @@ begin
   LStyle := StyleServices;
   if LStyle.Available then
   begin
-    //
     // Те же элементы темы, которыми рисует штатный TProgressBarStyleHook:
     // tpBar - желоб на всю площадь, tpChunk - заполнение, вписанное на 1 пиксель.
-    //
     Details := LStyle.GetElementDetails(tpBar);
     LStyle.DrawElement(DC, Details, BarRect);
     if ChunkRect.Right > ChunkRect.Left then
@@ -185,9 +172,7 @@ begin
   end
   else
   begin
-    //
 // Классическая тема без uxtheme.
-    //
     Brush := CreateSolidBrush(ColorToRGB(clBtnFace));
     try
       FillRect(DC, BarRect, Brush);
@@ -221,7 +206,6 @@ begin
   OldFont := SelectObject(DC, Font.Handle);
   SetBkMode(DC, TRANSPARENT);
   try
-    //
     // Текст рисуется дважды с разной обрезкой: над заполненной частью
     // светлым, над пустой — обычным цветом. Иначе цифры терялись бы под
     // набегающей полосой.

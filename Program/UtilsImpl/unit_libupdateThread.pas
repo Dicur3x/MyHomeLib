@@ -35,10 +35,8 @@ type
 
   TCollectionUpdateThreadBase = class(TImportInpxThreadBase)
   protected
-    //
     // Возвращает False, если пользователь отменил операцию: изменения откатились,
     // коллекция осталась такой, какой была.
-    //
     function UpdateCollection(const AFileName: string; ACollectionID: Integer;
       AFull: Boolean; const ADisplayName: string): Boolean;
   end;
@@ -76,11 +74,9 @@ type
     property DisplayName: string read FDisplayName write FDisplayName;
   end;
 
-  //
   // Ручное обновление из каталога metabib. Каталог всегда содержит полный срез,
   // поэтому инкрементальной ветки нет: только полный переимпорт с сохранением
   // пользовательских данных (аналогично TCollectionUpdateThreadBase для INPX).
-  //
   TMetabibManualUpdateThread = class(TImportMetabibThreadBase)
   private
     FFileName: string;
@@ -142,12 +138,9 @@ rstrDownloadProgress = 'Загружено: %u%% из %u байт';
    rstrInvalidUpdateFile = 'Неверный формат файла INPX: %s';
    rstrMbDatasetAlwaysFull = 'Каталог metabib всегда импортируется полностью.';
 
-{ TCollectionUpdateThreadBase }
 
-//
 // Обновление одной коллекции из одного файла списков.
 // Файл AFileName не удаляется — о нем заботится вызывающий.
-//
 function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
   ACollectionID: Integer; AFull: Boolean; const ADisplayName: string): Boolean;
 var
@@ -156,7 +149,6 @@ var
 begin
   Result := False;
 
-  //Truncate won't work with TBookCollection.Create(DBFileName, False)
   Collection := FSystemData.GetCollection(ACollectionID);
   Collection.BeginBulkOperation;
   try
@@ -164,11 +156,9 @@ begin
     try
       if AFull then
       begin
-        // Backup user data:
         Teletype(Format(rstrBackupUserData, [ADisplayName]), tsInfo);
         Collection.ExportUserData(UserDataBackup);
 
-        // clear most tables in a collection
         Teletype(Format(rstrRemovingOldCollection, [ADisplayName]), tsInfo);
         Collection.TruncateTablesBeforeImport;
       end;
@@ -176,11 +166,9 @@ begin
       Teletype(rstrImportIntoCollection, tsInfo);
       Import(AFileName, not AFull, Collection);
 
-      //
       // Импорт лишь прерывает свои циклы по Canceled и возвращает управление
       // штатно. Без этой проверки отменённый полный переимпорт закоммитил бы
       // обрезанную коллекцию, а RemapCollectionBookIDs ещё и почистил бы группы.
-      //
       if Canceled then
       begin
         Collection.EndBulkOperation(False);
@@ -190,7 +178,6 @@ begin
 
       if AFull then
       begin
-        // Restore user data:
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
         Collection.ImportUserData(UserDataBackup, nil);
       end;
@@ -204,26 +191,14 @@ begin
     raise;
   end;
 
-  //
-  // При полном переимпорте BookID в коллекции переприсваиваются, и сохранённые
-  // в группах BookID начинают указывать на чужие книги. Приводим их к новой
-  // нумерации по LibID (при полном переимпорте заодно убираем книги, которых
-  // в коллекции больше нет).
-  // Делается только после коммита коллекции: системная БД - отдельный файл,
-  // её изменения не откатятся вместе с импортом.
-  //
   FSystemData.RemapCollectionBookIDs(ACollectionID, AFull);
   Result := True;
 end;
 
-{ TLibUpdateThread }
 
 constructor TLibUpdateThread.Create;
 begin
   inherited Create(MHL_INVALID_ID);
-  //
-  // Сейчас считается, что обновления могут быть только для коллекций, содержащих fb2 жанры
-  //
   FGenresType := gtFb2;
 end;
 
@@ -308,15 +283,13 @@ begin
         Exit;
       end;
 
-      //
       // Отмена во время импорта: изменения уже отменены, файлы обновлений
       // оставляем на месте, чтобы можно было повторить попытку.
-      //
       if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
         Exit;
 
       Teletype(rstrReady, tsInfo);
-    end; //for .. with
+    end;
 
     Teletype(rstrUpdateComplete, tsInfo);
     for i := 0 to Settings.Updates.Count - 1 do
@@ -335,18 +308,15 @@ begin
 {$IFDEF USELOGGER}
       GetLogger.Log('TLibUpdateThread.WorkFunction ERROR', E.Message);
 {$ENDIF}
-      //
       // InpxFileName - файл, на котором произошла ошибка обработки; до первой итерации цикла
       // он пуст. Ранее здесь использовался счетчик i, неопределенный
       // за пределами цикла, да еще и с другой папкой.
-      //
       if (InpxFileName <> '') and FileExists(InpxFileName) then
         DeleteFile(InpxFileName);
     end;
   end;
 end;
 
-{ TManualUpdateThread }
 
 constructor TManualUpdateThread.Create(const ACollectionID: Integer;
   const AFileName: string; AFull: Boolean; AGenresType: TGenresType);
@@ -355,17 +325,13 @@ begin
   FFileName := AFileName;
   FFull := AFull;
   FGenresType := AGenresType;
-  //
   // Файл выбрал пользователь, он может быть из любого источника: не разрешаем
   // ему collection.info перезаписать URL и скрипт подключения коллекции.
-  //
   FKeepCollectionProps := True;
 end;
 
-//
 // Import некорректно обрабатывает файл, который не является архивом, или архив без .inp:
 // его finally освобождает неинициализированные указатели. Проверяем заранее.
-//
 function TManualUpdateThread.IsValidUpdateArchive: Boolean;
 var
   Zip: TMHLZip;
@@ -410,7 +376,6 @@ begin
   end;
 end;
 
-{ TMetabibManualUpdateThread }
 
 constructor TMetabibManualUpdateThread.Create(const ACollectionID: Integer;
   const AFileName: string; AGenresType: TGenresType);
@@ -455,10 +420,8 @@ begin
         Teletype(rstrImportIntoCollection, tsInfo);
         Import(FFileName, False, Collection);
 
-        //
         // Import штатно завершается и после Canceled; без этой проверки
         // отмена закоммитила бы обрезанную коллекцию.
-        //
         if Canceled then
         begin
           Collection.EndBulkOperation(False);
@@ -478,10 +441,8 @@ begin
       raise;
     end;
 
-    //
     // Полный переимпорт переназначает BookID — группы приводим к новой
     // нумерации по LibID. Только после коммита коллекции: системная БД отдельная.
-    //
     FSystemData.RemapCollectionBookIDs(FCollectionID, True);
 
     Teletype(rstrUpdateComplete, tsInfo);

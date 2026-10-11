@@ -77,7 +77,6 @@ resourcestring
   rstrImportFB2Zip           = 'Импорт файлов fb2.zip:';
   rstrErrorRenamingInArchive = 'Ошибка переименования файла в архиве %s: %s';
 
-{ TImportFB2Thread }
 
 // [BUGFIX] Original implementation had no parameters — would not compile against
 // the interface declaration. Parameters are now correctly forwarded to base class.
@@ -428,7 +427,6 @@ begin
   // owned by the base class constructor (TImportFB2ThreadBase.Create).
   // Creating it here again was leaking the instance allocated by the base class.
 
-  // Import FB2
   Teletype(rstrImportFB2);
 
   FTargetExt := FB2_EXTENSION;
@@ -465,7 +463,6 @@ begin
     raise;
   end;
 
-  // Import fb2.zip
   Teletype(rstrImportFB2Zip);
   FZipFolder := True;
 

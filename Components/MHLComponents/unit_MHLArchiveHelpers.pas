@@ -229,7 +229,6 @@ begin
   Result := True;
 end;
 
-{ TMHLZip }
 
 procedure TMHLZip.EnsureFileNames;
 begin

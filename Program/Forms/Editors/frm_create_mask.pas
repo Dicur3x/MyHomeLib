@@ -7,8 +7,8 @@
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
   *         Matvienko Sergei matv84@mail.ru
-  * Created                  
-  * Description              
+  * Created
+  * Description
   *
   * $Id: frm_create_mask.pas 789 2010-09-17 15:49:55Z eg_ $
   *
@@ -140,14 +140,6 @@ begin
     R.Title := Edit7.Text;
   if CheckBox3.Checked then
     R.Series := Edit8.Text;
-//  if CheckBox5.Checked then
-//  begin
-//    code := StrToInt(Edit10.Text);
-//    if code = 1 then
-//      Include(R.BookProps, bpHasReview)
-//    else
-//      Exclude(R.BookProps, bpHasReview);
-//  end;
   if CheckBox5.Checked then
     R.LibID := Edit10.Text;
 

@@ -67,7 +67,6 @@ resourcestring
 
 {$R *.dfm}
 
-{ TframeNCWDownload }
 
 function TframeNCWDownload.Activate(LoadData: Boolean): Boolean;
 begin

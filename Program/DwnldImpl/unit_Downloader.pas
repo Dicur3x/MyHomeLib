@@ -134,7 +134,6 @@ rstrWrongCredentials = 'Неправильный логин/пароль';
 const
   CommandList: array [0 .. 5] of string = ('CHECK', 'REDIR', 'PAUSE', 'GET', 'POST', 'ADD');
 
-  { TDownloader }
 
 constructor TDownloader.Create;
 begin
@@ -344,12 +343,10 @@ begin
   try
     ctx := TRttiContext.Create;
     ConstParams := TStringList.Create;
-    // Add macro from collection info
     ConstParams.Values['%USER%'] := Collection.GetProperty(PROP_LIBUSER);
     ConstParams.Values['%PASS%'] := Collection.GetProperty(PROP_LIBPASSWORD);
     ConstParams.Values['%URL%'] := Collection.GetProperty(PROP_URL);
 
-    // Build macro dictionary from book info
     for field in ctx.GetType(TypeInfo(TBookRecord)).GetFields do
     begin
       if (nil <> field) and (nil <> field.FieldType) and
@@ -368,7 +365,6 @@ begin
       end;
     end;
 
-    // Execute scenario
     Commands := ParseCommands(Collection.GetProperty(PROP_CONNECTIONSCRIPT), ConstParams);
 
     // Создаём непосредственно перед try, который его освобождает
@@ -424,14 +420,12 @@ begin
   try
     parameters := TStringList.Create;
     commandStr := TStringList.Create;
-    // Parse each command in scenario
     commandStr.Text := scenario;
     SetLength(Commands, commandStr.Count);
     for commnadIndx := 0 to (commandStr.Count - 1) do
     begin
       Commands[commnadIndx].Code := -1;
 
-      // Get command
       data := commandStr[commnadIndx];
       index := Pos(' ', data);
       if index <> 0 then
@@ -442,7 +436,6 @@ begin
       else
         command := data;
 
-      // Identify and process command
       for commnadType := 0 to (Length(CommandList) - 1) do
       begin
         if CommandList[commnadType] = command then
@@ -461,11 +454,9 @@ begin
 
             3 .. 4: // 'GET', 'POST' - just one parameter
               begin
-                // Replace all macros
                 for index := 0 to macros.Count - 1 do
                   StrReplace(macros.Names[index],
                     macros.ValueFromIndex[index], data);
-                // Save parameter
                 SetLength(Commands[commnadIndx].Params, 1);
                 Commands[commnadIndx].Params[0] := data;
               end;
@@ -478,11 +469,9 @@ begin
               for param := 0 to parameters.Count - 1 do
               begin
                 data := parameters[param];
-                // Replace all macros
                 for index := 0 to macros.Count - 1 do
                   StrReplace(macros.Names[index],
                     macros.ValueFromIndex[index], data);
-                // Save parameter
                 Commands[commnadIndx].Params[param] := data;
               end;
             end;
@@ -559,7 +548,6 @@ begin
   Response := nil;
 
   URL := Uri;
-  // Add result of last operation
   StrReplace('%RESURL%', FNewURL, URL);
 
   // Connection scenarios may issue several HTTP commands. Each response must
@@ -608,7 +596,7 @@ begin
       else if not FIgnoreErrors then
         ProcessError(Format(rstrServerError, [E.Message]), rstrError, FFile);
     end;
-  end; // try ... except
+  end;
 end;
 
 procedure TDownloader.Stop;

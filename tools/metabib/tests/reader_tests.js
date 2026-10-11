@@ -1,15 +1,5 @@
 'use strict';
 
-// Runs MetabibTest.exe against generated datasets and asserts on the report.
-//
-// The cases here are about ONE rule: a claim array holds several claims, and a
-// claim that is present but empty is not an answer. metabib emits FB2, FBD and
-// (since 2.1.0) database claims into the same array, so an empty FB2 annotation
-// sitting in front of a populated database one is the realistic shape, not a
-// contrived one.
-//
-// Usage: node tools/metabib/tests/reader_tests.js <path-to-MetabibTest.exe>
-// Exit code: 0 = pass, 1 = fail.
 
 const fs = require('fs');
 const os = require('os');
@@ -34,7 +24,6 @@ const HEADER = {
   archives: [{ id: 'arc1', ordinal: 0, name: 'fb2-000001-000100.zip', entries: 1 }],
 };
 
-// claims are given as { bibliographic: {...}, publication: {...}, catalog: {...} }
 function record(claims) {
   return {
     schema: 'metabib.dataset_record/1',
@@ -53,7 +42,6 @@ function record(claims) {
   };
 }
 
-// The shape of a real 2.1.0+ archive-backed record: no book_id in the locator.
 function idRecord(extra) {
   const rec = record({});
   delete rec.record.locator.book_id;
@@ -62,8 +50,6 @@ function idRecord(extra) {
 
 let caseNo = 0;
 
-// Runs any number of lines (records, or raw strings for malformed input)
-// through the harness and returns the whole report.
 function runReport(lines) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mbtest${caseNo++}-`));
   const data = path.join(dir, 'dataset.jsonl');
@@ -87,8 +73,6 @@ function run(rec) {
   return out.books[0];
 }
 
-// A book whose FB2 carried no annotation but whose database row does. The empty
-// claim comes first, exactly as an FB2-then-DB ordering would produce it.
 const bib = (o) => ({ bibliographic: Object.assign({ title: [{ value: 'Проба' }] }, o) });
 
 const checks = [
@@ -126,9 +110,6 @@ const checks = [
     return b.annotation === 'З файлу FB2';
   }],
 
-  // Annotation sources are ranked, not taken in array order. Real dumps put
-  // the database claim first in every field, so "first populated" alone would
-  // always hand the UI the libbannotations text.
   ['the FB2 annotation wins over the database one', () => {
     const b = run(record(bib({ annotation: [
       { value: 'З бази', observation: 'db', raw: { nid: 42, title: 'Проба', body: 'З бази' } },
@@ -161,7 +142,6 @@ const checks = [
     return b.annotation === 'З бази';
   }],
 
-  // A source we have never seen beats no annotation at all.
   ['an annotation from an unranked source is still used', () => {
     const b = run(record(bib({ annotation: [
       { value: 'Зі стороннього джерела', observation: 'whatever' },
@@ -177,8 +157,6 @@ const checks = [
     return b.lang === 'ru';
   }],
 
-  // Not annotation-specific: the same helper serves every string field, so the
-  // rule has to hold for all of them or the fix is a special case.
   ['an empty language claim does not shadow a populated one', () => {
     const b = run(record(bib({ language: [{ value: '' }, { value: 'uk' }] })));
     return b.lang === 'uk';
@@ -200,8 +178,6 @@ const checks = [
     return b.deleted === true;
   }],
 
-  // Book id. Since metabib 2.1.0 an archive_entry locator carries only
-  // source + index; the id sits in identities.catalog and in the db observation.
   ['book_id is read from the locator when present', () => {
     return run(record({})).book_id === 101;
   }],
@@ -644,10 +620,6 @@ const checks = [
     return b.deleted === true;
   }],
 
-  // A database series claim stores its number as {"value": n}, and n is not
-  // always an integer: 28.6 occurs in a real Flibusta dump. TJSONNumber.AsInt64
-  // is StrToInt64, so reading it raised "'28.6' is not a valid integer value",
-  // and that exception aborted a whole 705,399-record import.
   ['a fractional database series number is truncated, not an error', () => {
     const b = run(record(bib({
       sequences: [{ value: { name: 'Хроніки', number: { value: 28.6 } }, observation: 'db' }],
@@ -678,8 +650,6 @@ const checks = [
     return b.deleted === false;
   }],
 
-  // The risk is not the bad record itself but the run around it: one
-  // unparseable line must cost that line only, not the lines after it.
   ['a malformed line is skipped, not fatal', () => {
     const out = runReport([record({}), '{ "schema": "metabib.dataset', record({})]);
     return out.books.length === 2 && out.bad_lines === 1;

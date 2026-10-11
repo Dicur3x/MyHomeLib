@@ -66,13 +66,10 @@ resourcestring
   rstrMbLibraryMismatch = 'Каталог другой библиотеки не соответствует коллекции.';
   rstrMbTransactionLost = 'Транзакция импорта была прервана. Изменения не сохранены.';
 
-{ TImportMetabibThreadBase }
 
-//
 // Переносит разобранную запись metabib в TBookRecord.
 // Расположение (Folder/IsLocal для онлайн-ветки) дополняет Import:
 // оно зависит от типа коллекции.
-//
 procedure TImportMetabibThreadBase.MapBook(const MB: TMetabibBook; var R: TBookRecord; const BookCollection: IBookCollection);
 var
   i: Integer;
@@ -239,10 +236,8 @@ begin
 
             if IsOnline then
             begin
-              //
               // Онлайн-коллекция: файл ещё не загружен, LibID — ключ
               // загрузки. Записи без book_id загрузить невозможно.
-              //
               if MB.BookID <= 0 then
               begin
                 Inc(skippedNoFile);
@@ -264,9 +259,7 @@ begin
             end
             else
             begin
-              //
               // Локальная коллекция: без артефакта записи не на что ссылаться.
-              //
               ArcName := '';
               if MB.HasArtifact then
                 ArcName := Reader.ArchiveName(MB.ArchiveID);
@@ -360,7 +353,6 @@ begin
   end;
 end;
 
-{ TImportMetabibThread }
 
 constructor TImportMetabibThread.Create(const CollectionID: Integer;
   const DatasetFileName: string; GenresType: TGenresType);

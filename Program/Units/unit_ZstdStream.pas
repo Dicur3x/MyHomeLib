@@ -125,7 +125,6 @@ begin
     raise EZstdError.CreateFmt(rstrZstdError, [string(AnsiString(ZSTD_getErrorName(Code)))]);
 end;
 
-{ TZstdDecompressionStream }
 
 constructor TZstdDecompressionStream.Create(ASource: TStream; AOwnsSource: Boolean);
 begin
@@ -151,9 +150,7 @@ begin
   inherited Destroy;
 end;
 
-//
 // Заполняет FOutBuf следующей порцией. False — данные закончились.
-//
 function TZstdDecompressionStream.FillOutBuffer: Boolean;
 var
   InBuf: ZSTD_inBuffer;

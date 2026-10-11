@@ -6,8 +6,8 @@
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
-  * Created             
-  * Description         
+  * Created
+  * Description
   *
   * $Id: frm_DownloadProgressForm.pas 875 2010-10-25 09:10:20Z nrymanov@gmail.com $
   *
@@ -65,7 +65,6 @@ implementation
 
 {$R *.dfm}
 
-{ TDownloadProgressForm }
 
 procedure TDownloadProgressForm.btnCancelClick(Sender: TObject);
 begin
@@ -80,7 +79,6 @@ end;
 
 procedure TDownloadProgressForm.SetProgressHint(Style: TProgressBarStyle; State: TProgressBarState);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.SetComment2(const Current, Total: string);
@@ -95,17 +93,14 @@ end;
 
 procedure TDownloadProgressForm.ShowProgress(Percent: Integer);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.SetComment(const Comment: string);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.ShowTeletype(const Msg: string; Severity: TTeletypeSeverity);
 begin
-  // ничего не делаем
 end;
 
 procedure TDownloadProgressForm.ShowProgress2(Current, Total: Integer);

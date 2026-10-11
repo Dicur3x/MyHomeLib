@@ -6,7 +6,7 @@
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             30.06.2010
-  * Description         
+  * Description
   *
   * $Id: unit_SearchPresets.pas 1064 2011-09-02 11:33:04Z eg_ $
   *
@@ -68,7 +68,6 @@ const
   FIELD_ELEMENT = 'Field';
   DISPLAYNAME_ATTRIBUTE = 'displayName';
 
-{ TSearchPreset }
 
 constructor TSearchPreset.Create(const DisplayName: string);
 begin
@@ -81,7 +80,6 @@ begin
   inherited;
 end;
 
-{ TSearchPresets }
 
 constructor TSearchPresets.Create;
 begin
@@ -136,7 +134,6 @@ var
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
 
-  // Create the root element (i.e., the documentElement).
   xmlPresets := xmlDoc.createElement(PRESETS_ELEMENT);
   xmlDoc.appendChild(xmlPresets);
 

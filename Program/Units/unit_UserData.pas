@@ -6,7 +6,7 @@
   *
   * Author(s)           Nick Rymanov (nrymanov@gmail.com)
   * Created             13.07.2010
-  * Description         
+  * Description
   *
   * $Id: unit_UserData.pas 1064 2011-09-02 11:33:04Z eg_ $
   *
@@ -147,7 +147,6 @@ uses
   SysUtils,
   unit_xmlUtils;
 
-{ TBookInfo }
 
 const
   ATTRIBUTE_ID       = 'id';
@@ -217,7 +216,6 @@ begin
   end;
 end;
 
-{ TBookExtra }
 
 constructor TBookExtra.Create(element: IXMLDOMNode);
 begin
@@ -288,7 +286,6 @@ begin
   end;
 end;
 
-{ TBookExtras }
 
 procedure TBookExtras.AddExtra(BookID: Integer; LibID: string; Rating, Progress: Integer; const Review: string);
 begin
@@ -331,7 +328,6 @@ begin
   parentElement.appendChild(xmlExtras);
 end;
 
-{ TGroupBook }
 
 constructor TGroupBook.Create(BookID: Integer; LibID: string);
 begin
@@ -343,7 +339,6 @@ begin
   inherited Create(ELEMENT_BOOK, element);
 end;
 
-{ TBookGroup }
 
 constructor TBookGroup.Create(element: IXMLDOMNode);
 begin
@@ -410,7 +405,6 @@ begin
   Add(TGroupBook.Create(BookID, LibID));
 end;
 
-{ TBookGroups }
 
 procedure TBookGroups.Load(element: IXMLDOMNode);
 var
@@ -453,7 +447,6 @@ begin
   Result := Items[Add(TBookGroup.Create(GroupID, GroupName))];
 end;
 
-{ TUserData }
 
 constructor TUserData.Create;
 begin
@@ -492,7 +485,6 @@ var
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
 
-  // Create the root element (i.e., the documentElement).
   xmlRoot := xmlDoc.createElement(ELEMENT_USERDATA);
 
   FExtras.Save(xmlDoc, xmlRoot);

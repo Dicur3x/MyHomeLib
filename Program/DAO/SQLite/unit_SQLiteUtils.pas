@@ -36,10 +36,8 @@ const
   SQL_COMMENT = '--';
   SCRIPT_NEXT = SQL_COMMENT + '@@';
 
-//
 // Read provided resource file as a string list (split by '--@@')
 // This is done as ExecSQL works with only one statement at a time
-//
 function ReadResourceAsStringList(const ResourceName: string): TStringList;
 var
   rStream: TStream;
@@ -58,15 +56,9 @@ begin
         strStatement := '';
         for i := 0 to rScript.Count - 1 do
         begin
-          //
-          // Пропустим пустые строки
-          //
           if Trim(rScript[i]) = '' then
             Continue;
 
-          //
-          // Нашли конец команды. Запомним и начнем следующий цикл.
-          //
           if StartsText(SCRIPT_NEXT, rScript[i]) then
           begin
             if strStatement <> '' then
@@ -75,18 +67,13 @@ begin
             Continue;
           end;
 
-          //
-          // Пропустим коментарии
-          //
           if StartsText(SQL_COMMENT, TrimLeft(rScript[i])) then
             Continue;
 
           strStatement := strStatement + rScript[i] + CRLF;
         end;
 
-        //
         // Последняя команда может не иметь маркера завершения.
-        //
         if strStatement <> '' then
           Result.Add(strStatement);
       finally

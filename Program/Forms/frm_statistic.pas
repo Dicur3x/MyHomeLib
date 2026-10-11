@@ -7,7 +7,7 @@
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
   * Created                  20.08.2008
-  * Description              
+  * Description
   *
   * $Id: frm_statistic.pas 840 2010-10-06 07:37:58Z nrymanov@gmail.com $
   *
@@ -88,9 +88,6 @@ begin
   else
     DataVersion := IntToStr(vVersion);
 
-  //
-  // Заполним данные
-  //
   lvInfo.Items[0].SubItems[0] := Collection.GetProperty(PROP_DISPLAYNAME);
   lvInfo.Items[1].SubItems[0] := DateToStr(Collection.GetProperty(PROP_CREATIONDATE));
   lvInfo.Items[2].SubItems[0] := DataVersion;

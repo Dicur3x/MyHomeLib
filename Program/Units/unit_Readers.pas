@@ -67,7 +67,6 @@ uses
   unit_Globals,
   unit_Helpers;
 
-{ TReaderC }
 
 procedure TReaderDesc.AssignTo(Dest: TPersistent);
 var
@@ -88,7 +87,6 @@ begin
   FExtension := CleanExtension(Value);
 end;
 
-{ TReaders }
 
 constructor TReaders.Create;
 begin
@@ -104,7 +102,7 @@ procedure TReaders.Add(const Extension, Path: string);
 var
   Reader: TReaderDesc;
 begin
-  if (CleanExtension(Extension) = '') {or (Path = '')} then
+  if CleanExtension(Extension) = '' then
     raise EMHLError.Create(rstrErrorInvalidArgument);
 
   BeginUpdate;
@@ -167,11 +165,10 @@ begin
 
   if AHInst <= 32 then
   begin
-    // Если читалка не установлена для расширения, AReader.Path - Access Violation
     if ReaderPath <> '' then
-      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + ReaderPath) // читалка не найдена
+      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + ReaderPath)
     else
-      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + FileName); // книга не найдена
+      raise Exception.Create(SysErrorMessage(AHInst) + ': ' + FileName);
   end;
 end;
 

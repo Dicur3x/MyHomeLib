@@ -23,7 +23,6 @@ type
   protected
     procedure DoCreate; override;
   public
-    { Public declarations }
   end;
 
 var

@@ -6,7 +6,7 @@
   *
   * Author(s)             Nick Rymanov     nrymanov@gmail.com
   * Created               20.08.2008
-  * Description         
+  * Description
   *
   * $Id: frm_ImportProgressForm.pas 875 2010-10-25 09:10:20Z nrymanov@gmail.com $
   *
@@ -46,7 +46,6 @@ implementation
 
 {$R *.dfm}
 
-{ TImportProgressForm }
 
 procedure TImportProgressForm.btnCancelClick(Sender: TObject);
 begin
@@ -76,8 +75,6 @@ end;
 
 procedure TImportProgressForm.ShowTeletype(const Msg: string; Severity: TTeletypeSeverity);
 begin
-  // ничего не делаем
 end;
 
 end.
-

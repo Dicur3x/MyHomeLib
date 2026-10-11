@@ -6,8 +6,8 @@
   *
   * Authors             Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
-  * Created             
-  * Description         
+  * Created
+  * Description
   *
   * $Id: unit_DownloadBooksThread.pas 875 2010-10-25 09:10:20Z nrymanov@gmail.com $
   *
@@ -105,10 +105,10 @@ begin
         FBookIdList[i].Res := FDownloader.Download(FSystemDB, FBookIdList[i].BookKey);
         if
           (not Canceled) and                // это реальная ошибка, а не отмена операции пользователем
-          (not FBookIdList[i].Res) and      //
+          (not FBookIdList[i].Res) and
           (i < totalBooks - 1) and          // для последней книги вопрос смысла не имеет
-          (not Settings.ErrorLog) and       //
-          (not FIgnoreErrors)               //
+          (not Settings.ErrorLog) and
+          (not FIgnoreErrors)
         then
         begin
           Res := ShowMessage(rstrIgnoreDownloadErrors, MB_ICONQUESTION or MB_YESNO);
@@ -136,7 +136,6 @@ begin
   end;
 end;
 
-//------------------------------------------------------------------------------
 
 procedure TDownloadBooksThread.DoSetComment2;
 begin

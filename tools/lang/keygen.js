@@ -1,17 +1,5 @@
 'use strict';
 
-// Generates the ECDSA P-256 keypair used to sign community language catalogs.
-// Run ONCE. The private key must never enter the repository tree -- not this
-// one, and not the private catalog repository either.
-//
-// Usage: node tools/lang/keygen.js [path-to-private-key.pem]
-//        default: %USERPROFILE%\.myhomelib\lang-signing-key.pem
-//
-// Prints the public key as a Pascal constant to paste into
-// Program/Units/unit_LangSignature.pas.
-//
-// Losing this key means: new keypair, new constant, new build, and every
-// community catalog re-signed. Back it up offline.
 
 const fs = require('fs');
 const os = require('os');
@@ -34,10 +22,6 @@ fs.mkdirSync(path.dirname(target), { recursive: true });
 fs.writeFileSync(target,
   privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
 
-// The 'jwk' export gives the raw affine coordinates, base64url-encoded, which
-// is exactly the X||Y pair CNG's BCRYPT_ECCPUBLIC_BLOB wants after its header.
-// Going through the DER SubjectPublicKeyInfo instead would mean parsing ASN.1
-// to reach the same 64 bytes.
 const jwk = publicKey.export({ format: 'jwk' });
 const xy = Buffer.concat([
   Buffer.from(jwk.x, 'base64url'),

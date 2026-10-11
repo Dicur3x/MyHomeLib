@@ -164,10 +164,10 @@ resourcestring
   rsrtValueLabel = 'Значение';
 
 const
-  PanelPadding = 10;  // inset of the content from the panel's rounded border
-  CoverGap = 12;      // gap between the cover and the info column
-  RowSpacing = 5;     // leading added to the text height of an info row
-  AnnotationGap = 8;  // gap between the last info row and the annotation
+  PanelPadding = 10;
+  CoverGap = 12;
+  RowSpacing = 5;
+  AnnotationGap = 8;
   LabelColumn = 70;   // width of the "Серия:"/"Жанр(ы):" caption column
 
 function GetCoverWidth(Height: Integer): Integer;
@@ -195,7 +195,7 @@ begin
   FMenu := TPopupMenu.Create(Self);
   Item := TMenuItem.Create(Self);
   Item.Caption := rsrtCopyLabel;
-  Item.ShortCut := TextToShortCut('Ctrl+C'); //ShortCut(43,[ssCtrl]) ;
+  Item.ShortCut := TextToShortCut('Ctrl+C');
   Item.OnClick :=  CopyToClipboard;
   FMenu.Items.Add(Item);
 
@@ -304,8 +304,6 @@ begin
   FAnnotation := TMemo.Create(FInfoPanel);
   FAnnotation.Parent := FInfoPanel;
   FAnnotation.Anchors := [akLeft, akTop, akRight, akBottom];
-  // No sunken frame inside the panel's own rounded border, and follow the
-  // panel's background so the annotation reads as part of the panel.
   FAnnotation.BorderStyle := bsNone;
   FAnnotation.ParentColor := True;
   FAnnotation.ReadOnly := True;
@@ -347,12 +345,6 @@ begin
   FDetailsButton.Caption := 'Информация о книге';
   FDetailsButton.Visible := False;
 
-  //       300 200
-  //0,  0, 300,  20
-  //0, 20, 300,  20
-  //0, 40,  60,  20 | 60, 40, 140, 20
-  //0, 60,  60,  20 | 60, 60, 140, 20
-  //0, 80, 300, 120
 
   if csDesigning in ComponentState then
   begin
@@ -401,7 +393,6 @@ begin
   FAnnotation.Visible := not FInfoPriority;
 
 
-  // ---------------------------------------------
   if (book = nil) then
     Exit;
 
@@ -413,7 +404,6 @@ begin
     FAnnotation.SelStart := 0;
     FAnnotation.SelLength := 0;
   except
-    //
   end;
 end;
 
@@ -681,10 +671,8 @@ begin
     AddItem(ffb2Info, rstrFile, FileName, GroupID);
   end;
 
-  // ---------------------------------------------
   if (book = nil) then   Exit;
 
-  // ---------------------------------------------
   try
     with book.Description.Titleinfo, ffb2info.Groups.Add do
     begin
@@ -704,7 +692,6 @@ begin
         AddItem(ffb2info, IfThen(i = 0, rstrSingleSeries), Sequence[i].Name + ' ' + IntToStr(Sequence[i].Number), GroupID);
       end;
 
-      { TODO -oNickR -cUsability : показывать алиасы вместо внутренних имен }
       for i := 0 to Genre.Count - 1 do
       begin
         AddItem(ffb2info, IfThen(i = 0, rstrGenre), Genre[i], GroupID);
@@ -721,12 +708,10 @@ begin
           tmpStr := FormatName(Lastname.Text, Firstname.Text, Middlename.Text, NickName.Text);
         AddItem(ffb2info, IfThen(i = 0, rstrTranslators), tmpStr, GroupID);
       end;
-    end; //with
+    end;
   except
-    //
   end;
 
-  // ---------------------------------------------
   try
     with book.Description.Srctitleinfo, ffb2info.Groups.Add do
     begin
@@ -750,12 +735,10 @@ begin
       AddItem(ffb2info, rstrDate, Date.Text, GroupID);
       AddItem(ffb2info, rstrBookLanguage, Lang, GroupID);
       AddItem(ffb2info, rstrSourceLanguage, Srclang, GroupID);
-    end; //with
+    end;
   except
-    //
   end;
 
-  // ---------------------------------------------
   try
     with book.Description.Publishinfo, ffb2info.Groups.Add do
     begin
@@ -768,15 +751,12 @@ begin
       AddItem(ffb2info, rstrYear, Year, GroupID);
       AddItem(ffb2info, rstrISBN, Isbn.Text, GroupID);
 
-      { TODO -oNickR -cUsability : показывать номер в серии }
       for i := 0 to Sequence.Count - 1 do
         AddItem(ffb2info, IfThen(i = 0, rstrSingleSeries), Sequence[i].Name + ' ' + IntToStr(Sequence[i].Number), GroupID);
-    end; //with
+    end;
   except
-    //
   end;
 
-  // ---------------------------------------------
   try
     with book.Description.Documentinfo, ffb2info.Groups.Add do
     begin
@@ -800,9 +780,8 @@ begin
 
       for i := 0 to History.p.Count - 1 do
         AddItem(ffb2info, IfThen(i = 0, rstrHistory), History.p[i].OnlyText, GroupID);
-    end; //with
+    end;
   except
-    //
   end;
 
 end;
@@ -902,9 +881,6 @@ end;
 
 procedure TInfoPanel.UpdateLinkTexts;
 begin
-  //
-  // TODO : задача этого метода превратить обрезанные линки в "Link Link и пр.", т е убрать невлезающие и добавить " и пр."
-  //
 end;
 
 end.

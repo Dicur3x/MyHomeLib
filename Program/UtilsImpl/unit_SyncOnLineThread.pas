@@ -42,7 +42,6 @@ uses
   unit_Messages,
   unit_Interfaces;
 
-{ TImportXMLThread }
 
 procedure TSyncOnLineThread.WorkFunction;
 var
@@ -65,9 +64,6 @@ begin
         Exit;
 
       try
-        //
-        //  Проверяем был ли файл закачан ранее и ставим отметку в базу
-        //
         BookFile := BookRecord.GetBookFileName;
         IsLocal := TFile.Exists(BookFile);
 
@@ -95,4 +91,3 @@ begin
 end;
 
 end.
-

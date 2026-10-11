@@ -143,10 +143,8 @@ const
   // в FB2 встречаются повреждённые имена с символами U+FFFD.
   CATALOG_SOURCES: array [0 .. 2] of string = ('db', 'fb2', 'fbd');
 
-// ---------------------------------------------------------------------------
 // Вспомогательный разбор "claim array": каждое поле claims — массив
 // {observation, value, raw}; value бывает скаляром или массивом.
-// ---------------------------------------------------------------------------
 
 function ClaimValues(Group: TJSONObject; const Field: string): TArray<TJSONValue>;
 var
@@ -185,12 +183,6 @@ begin
   end;
 end;
 
-// A value is usable when it has at least one letter or digit. Empty and blank
-// values are a source with nothing to say; values made of nothing but
-// punctuation or U+FFFD replacement characters are what a corrupted FB2 leaves
-// behind ("()", "- -", "������"), and taking one would hide a good claim from
-// another source. Surrogates pass: a name written entirely outside the BMP is
-// rare but real, and U+FFFD is never one.
 function IsUsableText(const S: string): Boolean;
 var
   ch: Char;
@@ -201,13 +193,6 @@ begin
   Result := False;
 end;
 
-// A numeric field is read without raising. metabib can put a fractional number
-// where an integer belongs ("number": {"value": 28.6} in a database series
-// claim), and TJSONNumber.AsInt64 is StrToInt64, so it raised EConvertError
-// ("'28.6' is not a valid integer value"); that exception escaped the import
-// loop and rolled a whole transaction back. The literal text is parsed with
-// invariant settings and truncated; anything unusable -- a magnitude that does
-// not fit into Int64, junk -- yields Def.
 function ToInt64(const Text: string; Def: Int64): Int64;
 var
   s: string;
@@ -225,9 +210,6 @@ begin
     Result := Def;
 end;
 
-// Decodes the HTML entities that leak into names from the library database
-// ("&quot;", "&#34;", "&#x2014;"). Anything that does not parse as an entity is
-// left as it is.
 function DecodeEntities(const S: string): string;
 var
   i, j, code: Integer;
@@ -288,14 +270,6 @@ begin
   end;
 end;
 
-// Claims of a field in the order the consumer trusts them: those whose
-// observation is in Order, source by source, then everything else in the order
-// metabib wrote it. The merge step deliberately picks no winner between
-// sources -- it tags each claim with an "observation" ("db", "fb2", "fbd") and
-// leaves the choice to the consumer -- so the preference is spelled out here
-// rather than read off the array. A claim from a source outside Order (or one
-// with no observation at all) is still better than an empty field, which is why
-// it stays in the list as a last resort.
 function ClaimsInOrder(Group: TJSONObject; const Field: string;
   const Order: array of string): TArray<TJSONObject>;
 var
@@ -343,14 +317,6 @@ begin
     Result := IsUsableText(Value);
 end;
 
-// "First usable value", tried source by source. A source that simply had
-// nothing to say still contributes a claim with an empty value, and a corrupted
-// FB2 contributes one full of replacement characters; stopping at either would
-// discard a populated claim sitting right behind it -- a book with no FB2
-// annotation but a database one would import with no annotation at all.
-//
-// The value itself is returned unmodified. Only the decision to skip is made
-// on it, so nothing rewrites text on its way into a collection.
 function ClaimStringByObservation(Group: TJSONObject; const Field: string;
   const Order: array of string; StoredValues: Boolean = False): string;
 var
@@ -372,7 +338,6 @@ begin
   end;
 end;
 
-// Same rule for fields where no source is preferred: claims in array order.
 function FirstClaimString(Group: TJSONObject; const Field: string;
   StoredValues: Boolean = False): string;
 begin
@@ -456,14 +421,6 @@ begin
     end;
 end;
 
-// The person list of ONE source, the first in Order that names anybody usable.
-// Lists are never merged across sources: each source lists the same people, so
-// merging put every author on a book twice, turned a spelling difference
-// ("Татьяна О." / "Татьяна Олеговна") into a second person, and let a corrupted
-// FB2 name ride along next to the good database one.
-//
-// Names are trimmed and entity-decoded, a name part with no letter or digit is
-// dropped, and a person left with no name at all is skipped.
 function ClaimPersons(Group: TJSONObject; const Field: string;
   const Order: array of string; DisplayText: PString = nil;
   StoredValues: Boolean = False): TArray<TMetabibPerson>;
@@ -839,7 +796,6 @@ begin
     Valid := TryBookID(Value, Result);
 end;
 
-{ TMetabibReader }
 
 class function TMetabibReader.IsDatasetFile(const FileName: string): Boolean;
 var
@@ -920,10 +876,8 @@ begin
   end;
 end;
 
-//
 // Читает одну строку, двигаясь только вперёд: TStreamReader здесь не подходит,
 // потому что на границе буфера откатывает поток назад, а zstd-поток не умеет Seek.
-//
 function TMetabibReader.ReadRawLine(out Line: string): Boolean;
 var
   i, OldLen, Chunk: Integer;
@@ -1097,7 +1051,6 @@ begin
     if StrValue(Obj, 'schema') <> RECORD_SCHEMA then
       Exit(mrBadLine);
 
-    // ------ локатор
     RecObj := ObjValue(Obj, 'record');
     Locator := ObjValue(RecObj, 'locator');
     Book.LocatorKind := StrValue(Locator, 'kind');
@@ -1153,7 +1106,6 @@ begin
       Book.UncompressedSize := IntValue(Chosen, 'uncompressed_size', 0);
     end;
 
-    // ------ claims
     Claims := ObjValue(Obj, 'claims');
     Bib := ObjValue(Claims, 'bibliographic');
     Pub := ObjValue(Claims, 'publication');

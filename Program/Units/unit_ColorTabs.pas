@@ -15,9 +15,7 @@ type
     property Color: TColor read FColor write SetColor;
   end;
 
-  {...}
  implementation
-{...}
 
 constructor TTabSheet.Create(aOwner: TComponent);
 begin

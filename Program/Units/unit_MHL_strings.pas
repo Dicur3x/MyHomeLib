@@ -35,9 +35,6 @@ resourcestring
 
   rstrHelpFileNotFound = 'Файл справки не найден:'#13#10'%s';
 
-  //
-  // Названия коллекций по-умолчанию
-  //
   rstrLocalLibRusEcDefName = 'Локальная коллекция Либрусек';
   rstrOnlineLibRusEcDefName = 'Онлайн коллекция Либрусек';
   rstrOnlineGenesisDefName = 'Онлайн коллекция Genesis';
@@ -46,15 +43,9 @@ resourcestring
   rstrOnlineLibRusEcDefLocation = 'librusec_online';
   rstrOnlineGenesisDefLocation = 'genesis_online';
 
-  //
-  //
-  //
   rstrBookProcessedMsg1 = 'Обработано книг: %u';
   rstrBookProcessedMsg2 = 'Обработано книг: %u из %u';
 
-  //
-  // Форма редактирования/создания FBD и пунк меню в главной форме
-  //
   rstrEditFBD = 'Редактировать FBD';
   rstrConvert2FBD = 'Преобразовать в FBD';
 

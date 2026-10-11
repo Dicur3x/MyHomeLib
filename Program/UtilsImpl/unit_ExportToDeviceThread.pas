@@ -30,16 +30,13 @@ type
     TFileOprecord = record
       SourceFile: string;
       TargetFile: string;
-      TargetFolder: string; // relative folder (from folder template) under DeviceDir
+      TargetFolder: string;
       TempFile: string;
       FileName: string;
       Stream: TStream;
     end;
 
   protected
-    //
-    // эти поля будут инициализированы только в рабочем потоке
-    //
     FSystemData: ISystemData;
 
   private
@@ -99,10 +96,8 @@ type
     property ExtractOnly: boolean write FExtractOnly;
   end;
 
-//
 // Полный путь к внешнему конвертеру, необходимому для режима Mode.
 // Возвращает '', если режим обрабатывается собственными средствами (fb2/fb2.zip/txt).
-//
 function GetConverterPath(const AppPath: string; Mode: TExportMode): string;
 
 implementation
@@ -145,7 +140,6 @@ begin
   end;
 end;
 
-  { TExportToDeviceThread }
 
 constructor TExportToDeviceThread.Create;
 var
@@ -163,10 +157,6 @@ begin
   FMaxTempPathLength := MaxPathLength - Length(FTempPath);
 end;
 
-//
-// Определяем имя файла, если нужно - предварительно распаковываем
-// формируем названия папок и файла
-//
 function TExportToDeviceThread.PrepareFile(const BookKey: TBookKey): Boolean;
 var
   Collection: IBookCollection;
@@ -183,16 +173,10 @@ begin
     Collection := FSystemData.GetCollection(BookKey.DatabaseID);
     Collection.GetBookRecord(BookKey, R, False);
 
-    // если не задействован скрипт, создаем папки
-    // если будет вызываться скрипт, то папки не нужны, все равно они не обрабатываются
-    // промежуточный файл остается во временной папке
     FTargetFolder := '';
     if not FExtractOnly Then
     begin
 
-      //
-      // Сформируем имя каталога в соответствии с заданным темплейтом
-      //
       if FTemplater.SetTemplate(FFolderTemplate, TpPath) = ErFine then
         FTargetFolder := FTemplater.ParseString(R, TpPath)
       else
@@ -210,9 +194,6 @@ begin
 
     FFileOprecord.TargetFolder := FTargetFolder;
 
-    //
-    // Сформируем имя файла в соответствии с заданным темплейтом
-    //
     if FTemplater.SetTemplate(FFileNameTemplate, TpFile) = ErFine then
       FTargetFileName := FTemplater.ParseString(R, TpFile)
     else
@@ -229,11 +210,8 @@ begin
     else
       FTargetFullFilePath  := Format('%s.%d%s',[copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, R.FileExt]);
 
-    // Ensure unique filename to avoid overwriting books with identical names (#63)
-    // FileExists does not work for MTP shell paths; IFileOperation handles conflicts
     if not FUseMTP then
     begin
-      // Compute actual output path based on export mode
       var ActualOutputPath: string;
       case FExportMode of
         emFB2Zip: ActualOutputPath := FTargetFullFilePath + ZIP_EXTENSION;
@@ -277,9 +255,6 @@ begin
     else
       FFileOprecord.TargetFile := FTargetFullFilePath;
 
-    //
-    // Если файл в архиве - распаковываем в $tmp
-    //
     FBookFormat := R.GetBookFormat;
     if FBookFormat in [bfFb2, bfFb2Archive, bfRawArchive, bfFbd] then
     begin
@@ -371,7 +346,6 @@ begin
       TempFileCreated := True;
     end;
 
-    // Compute the path the converter will actually produce.
     case FExportMode of
       emLrf:  OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.lrf');
       emEpub: OutputPath := ChangeFileExt(FFileOprecord.TargetFile, '.epub');
@@ -459,12 +433,10 @@ begin
   end;
 end;
 
-//
 // Папки по шаблону создаются еще до конвертации, так что после неудачного
 // при экспорте на устройства остаются пустые каталоги (#59). Убираем их,
 // поднимаясь до DeviceDir; RemoveDir не трогает непустые папки, поэтому
 // каталоги с уже записанными книгами уцелят.
-//
 procedure TExportToDeviceThread.RemoveEmptyTargetFolders;
 var
   Root: string;
@@ -506,7 +478,6 @@ begin
     Exit;
   end;
 
-  // Resolve (and create) the author/series subfolder on MTP before copying (#65).
   if FUseMTP then
   begin
     if not Assigned(FDeviceShellItem) then
@@ -518,14 +489,12 @@ begin
 
     if not Assigned(MTPTargetFolder) then
     begin
-      //
       // Оболочка Windows перечисляет папки MTP асинхронно: пока в Проводнике
       // видно "Working on it...", папка еще не готова - потомки кажутся
       // пустыми, а любая операция под ней возвращает E_UNEXPECTED.
       // Вручную это лечится повторным выбором папки в диалоге, так что делаем то
       // же программно: перечитываем корень по сохраненному пути и пробуем еще
       // раз. Делаем одну попытку без ожидания — этого достаточно для обхода чужой асинхронности.
-      //
       if Succeeded(SHCreateItemFromParsingName(PChar(FDeviceDir), nil, IShellItem, FreshRoot)) then
       begin
         MTPTargetFolder := ResolveOrCreateShellSubfolder(FreshRoot, FFileOprecord.TargetFolder);
@@ -558,10 +527,8 @@ begin
       Exit;
     end;
 
-    // For MTP: shell-copy the temp output file to the device, then clean up
     if FUseMTP then
     begin
-      // Determine the actual output file path
       case FExportMode of
         emFB2Zip: TempFile := FFileOprecord.TargetFile + ZIP_EXTENSION;
         emLrf:    TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.lrf');
@@ -673,18 +640,15 @@ begin
   Assert(Assigned(FSystemData));
   FTemplater := TTemplater.Create;
 
-  // Unmarshal IShellItem from the main thread's COM apartment
   if FUseMTP and Assigned(FMarshalStream) then
   begin
     CoGetInterfaceAndReleaseStream(FMarshalStream, IShellItem, FDeviceShellItem);
-    //
     // CoGetInterfaceAndReleaseStream принимает владение ссылкой, которую держит
     // FMarshalStream, и освобождает поток даже в случае ошибки. Обычное
     // присвоение nil вызвало бы Release ещё раз, на уже освобожденном потоке:
     // на ссылку приходилось два AddRef и три Release, так что экспорт падал с AV
     // в конце, когда ExportToDevice освобождал свою локальную переменную.
     // Обнуляем поле через Pointer, не освобождая его повторно.
-    //
     Pointer(FMarshalStream) := nil;
   end;
 end;

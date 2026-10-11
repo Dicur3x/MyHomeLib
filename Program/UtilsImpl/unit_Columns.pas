@@ -63,8 +63,6 @@ type
                   const Width: integer;
                   const Position: integer);
 
-    // procedure Insert
-    // procedure Delete
 
     procedure Load(const Section:string; Mode:TTreeMode);
     procedure LoadDefault(Section: string);
@@ -97,9 +95,6 @@ uses
 
 const
 
-    //
-    // Наборы опций для изменяемых и неизменяемых колонок
-    //
     ResibleColumnOptions = [coDraggable,coEnabled,coParentColor,coResizable,coShowDropMark,coVisible,coAutoSpring];
     ResClickColumnOptions = [coAllowClick,coDraggable,coEnabled,coParentColor,coResizable,coShowDropMark,coVisible];
 
@@ -108,7 +103,6 @@ const
 
 
 
-{ TColumns }
 
 procedure GetDefaultColumnProperties(Mode: TTreeMode; Tag: integer; out Caption: string;
   out MinWidth, MaxWidth: integer; out Alignment: TAlignment;
@@ -223,7 +217,6 @@ begin
       Column.Tag := Tag;
       Column.Width := Width;
       Column.Position := Position;
-      // не изменяемые пользователем значения
       GetDefaultColumnProperties(FMode,Tag,
                            Column.FCaption,
                            Column.FMinWidth,

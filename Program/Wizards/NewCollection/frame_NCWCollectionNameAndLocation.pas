@@ -74,7 +74,6 @@ rstrShowCollectionType = 'Укажите название коллекции.';
 
 {$R *.dfm}
 
-{ TframeNCWNameAndLocation }
 
 function TframeNCWNameAndLocation.GetCollectionDataFromINPX: boolean;
 var
@@ -244,9 +243,6 @@ begin
 
   SystemData := SystemDB;
 
-  //
-  // Проверим название коллекции
-  //
   if CheckThis(edCollectionName) then
   begin
     strValue := Trim(edCollectionName.Text);
@@ -263,9 +259,6 @@ begin
     end;
   end;
 
-  //
-  // Проверим файл коллекции
-  //
   if CheckThis(edCollectionFile) then
   begin
     strValue := Trim(edCollectionFile.Text);
@@ -288,9 +281,6 @@ begin
     end;
   end;
 
-  //
-  // Проверим корень библиотеки
-  //
   if CheckThis(edCollectionRoot) then
   begin
     strValue := Trim(edCollectionRoot.Text);
@@ -333,4 +323,3 @@ begin
 end;
 
 end.
-

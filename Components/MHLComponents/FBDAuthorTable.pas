@@ -104,18 +104,11 @@ type
 
   published
     property Align;
-    //property Alignment;
     property Anchors;
     property AutoSize;
-    //property BevelEdges;
-    //property BevelInner;
-    //property BevelKind;
-    //property BevelOuter default bvNone;
-    //property BevelWidth;
     property BiDiMode;
     property BorderWidth;
     property BorderStyle;
-    //property Caption;
     property Color;
     property Constraints;
     property Ctl3D;
@@ -137,15 +130,12 @@ type
     property ParentDoubleBuffered;
     property ParentFont;
     property ParentShowHint;
-    //property PopupMenu;
-    //property ShowCaption;
     property ReadOnly: Boolean read FReadOnly write SetReadOnly default False;
     property ShowHint;
     property TabOrder;
     property TabStop;
     property Touch;
 
-    //property VerticalAlignment;
     property Visible;
     property OnAlignInsertBefore;
     property OnAlignPosition;
@@ -155,7 +145,6 @@ type
     property OnContextPopup;
     property OnDockDrop;
     property OnDockOver;
-    //property OnDblClick;
     property OnDragDrop;
     property OnDragOver;
     property OnEndDock;
@@ -195,7 +184,6 @@ implementation
 uses
   Dialogs;
 
-{ TFBDAuthorTable }
 
 procedure TFBDAuthorTable.Add(Sender: TObject);
 var
@@ -226,7 +214,6 @@ begin
   Row.SubItems.Add(Author.Nick);
   Row.SubItems.Add(Author.Email);
   Row.SubItems.Add(Author.Homepage);
-  //Row.Focused := True;
   FList.Selected := Row;
 
   UpdateButtons;
@@ -493,7 +480,6 @@ begin
     Width := 75;
     Caption := rstrAddFromList;
     TabOrder := 4;
-    // OnClick := ; To be defined in the caller form
     Visible := False; // The code that will pass the event will change it as well
     Anchors := [akLeft, akBottom];
   end;
@@ -501,7 +487,6 @@ begin
   UpdateButtons;
 end;
 
-{ TfrmEditAuthor }
 
 procedure TfrmEditAuthorFull.FormShow(Sender: TObject);
 begin

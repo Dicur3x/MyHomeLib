@@ -39,7 +39,6 @@ implementation
 
 {$R *.dfm}
 
-{ TframeInteriorPageBase }
 
 function TInteriorPageBase.GetTitle: string;
 begin
@@ -62,4 +61,3 @@ begin
 end;
 
 end.
-

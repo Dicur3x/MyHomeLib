@@ -35,9 +35,6 @@ type
     FFull: Boolean;
     FCode: Integer;
 
-    //
-    // Временные поля
-    //
     FExternalVersion: Integer;
     FCollectionID: Integer;
     FAvailable: Boolean;
@@ -102,7 +99,6 @@ uses
   unit_Globals,
   unit_MHLHttpClient;
 
-{ TUpdateInfoList }
 
 procedure TUpdateInfoList.Add(
   const Name: string;
@@ -241,7 +237,6 @@ begin
   FURL := IncludeUrlSlash(Value);
 end;
 
-{ TUpdateInfo }
 
 function TUpdateInfo.CheckCodes(const Name: string; t, id: Integer): Boolean;
 begin

@@ -159,7 +159,6 @@ begin
         CardRect.Width  := W - S(CCardMarginLR) * 2;
         CardRect.Height := H - S(CCardMarginTop) - S(CCardMarginBottom);
 
-        // Drop shadow — concentric semi-transparent rounded rects
         for i := 12 downto 1 do
         begin
           Path := TGPGraphicsPath.Create;
@@ -181,7 +180,6 @@ begin
           end;
         end;
 
-        // Card background — vertical gradient
         Path := TGPGraphicsPath.Create;
         try
           AddRoundedRect(Path, CardRect.X, CardRect.Y, CardRect.Width, CardRect.Height, CornerRadius);
@@ -199,7 +197,6 @@ begin
           Path.Free;
         end;
 
-        // Top highlight — subtle inner glow along the top edge
         Path := TGPGraphicsPath.Create;
         try
           AddRoundedRect(Path, CardRect.X + 1, CardRect.Y + 1,
@@ -222,7 +219,6 @@ begin
             SF.SetAlignment(StringAlignmentNear);
             SF.SetLineAlignment(StringAlignmentNear);
 
-            // Title
             Font := TGPFont.Create(FontLight, S(40), FontStyleRegular, UnitPixel);
             try
               SolidBrush := TGPSolidBrush.Create(MakeColor(255, 255, 255, 255));
@@ -239,7 +235,6 @@ begin
               Font.Free;
             end;
 
-            // Tagline
             Font := TGPFont.Create(FontRegular, S(13), FontStyleRegular, UnitPixel);
             try
               SolidBrush := TGPSolidBrush.Create(MakeColor(220, 200, 225, 245));
@@ -256,12 +251,6 @@ begin
               Font.Free;
             end;
 
-            // Version, read from the exe's own resource rather than
-            // written here. A literal cannot be bumped by anything in the
-            // build, so it silently disagrees with the About box, the status
-            // bar and the update check the moment VerInfo_Keys changes -- this
-            // one still said 2.6.1 through the whole of 2.7.0. Same call those
-            // three already use.
             {$IFDEF WIN64}
             VersionText := Format('Version %s  ·  x64',
               [GetFileVersion(Application.ExeName)]);
@@ -285,7 +274,6 @@ begin
               Font.Free;
             end;
 
-            // Status line
             if FStatus <> '' then
             begin
               Font := TGPFont.Create(FontRegular, S(10), FontStyleRegular, UnitPixel);

@@ -1,23 +1,6 @@
 'use strict';
 
-// Fills a catalog's `target` fields from flat source -> target map files.
-//
-// Translation is authored PER UNIQUE SOURCE, never per key, because the
-// runtime looks a translation up by source text: several keys legitimately
 // share one Russian string, and unit_Localization.pas LoadSection keeps the
-// first target it sees for a source and silently discards the rest (with only
-// a status line to show for it). check_lang.js Check 1 detects that after the
-// fact; authoring a flat source -> target map means it cannot be written in
-// the first place.
-//
-// The catalog files themselves are never hand-edited. `apply` rewrites only
-// the `target` field of existing entries -- it never adds, removes or
-// reorders a key, so a later extract.js run produces a clean diff.
-//
-// Usage:
-//   node tools/lang/translate.js export <locale> <out.json>
-//   node tools/lang/translate.js apply  <locale> <map.json> [<map.json>...] [--fill-latin]
-//   node tools/lang/translate.js table  <locale> <out.md>
 
 const fs = require('fs');
 const path = require('path');
@@ -54,28 +37,16 @@ function loadCatalog(locale) {
   return { file, data };
 }
 
-// Same formatting as extract.js writeJsonNoBom: 2-space JSON, UTF-8, no BOM.
-// Any deviation would make every catalog line show up in the next extract.js
-// diff and bury the change that actually matters.
 function writeCatalog(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), { encoding: 'utf8' });
 }
 
-// The editorial group a source belongs to: the unit for a code string, the
-// form for a DFM string. Used only to order and caption the worklist -- the
-// runtime never sees it.
 function groupOf(section, key) {
   if (section === 'dfm') return key.split('.')[0];
-  // A code key is "<unit>_<identifier>", and the unit name itself contains
-  // underscores (unit_libupdateThread, frm_edit_book_info). What separates the
-  // two is the identifier's convention: it starts with rstr/rsrt/c_ or an
-  // uppercase letter. Anchoring on that splits frm_edit_book_info_rstrX at the
-  // right underscore, where a naive non-greedy [a-z_]+ would stop at frm_edit.
   const m = key.match(/^(.*?)_(rstr|rsrt|c_|[A-Z])/);
   return m ? m[1] : key;
 }
 
-// Every entry of both sections, in file order, as one flat list.
 function entries(data) {
   const out = [];
   for (const section of ['strings', 'dfm']) {
@@ -86,7 +57,6 @@ function entries(data) {
   return out;
 }
 
-// source text -> { group, keys[], target } in first-appearance order.
 function uniqueSources(data) {
   const map = new Map();
   for (const { section, key, entry } of entries(data)) {
@@ -97,8 +67,6 @@ function uniqueSources(data) {
       map.set(entry.source, rec);
     }
     rec.keys.push(key);
-    // First non-empty target wins; a conflict here is Check 1's problem, and
-    // it will be reported by check_lang.js rather than papered over.
     if (!rec.target && typeof entry.target === 'string') rec.target = entry.target;
   }
   return map;
@@ -173,11 +141,7 @@ function cmdApply(locale, args) {
     if (typeof entry.source === 'string') known.add(entry.source);
   }
 
-  // Merge every map file first, and only touch the catalog once all of them
-  // are known-good. A typo'd source would otherwise translate nothing at all
-  // and leave no trace -- the single most likely mistake in this whole step,
-  // and the hardest to spot afterwards.
-  const merged = new Map(); // source -> { target, file }
+  const merged = new Map();
   const unknown = [];
   const clashes = [];
   for (const mapFile of mapFiles) {
@@ -221,8 +185,6 @@ function cmdApply(locale, args) {
     if (hit) {
       if (entry.target !== hit.target) written++;
       entry.target = hit.target;
-      // The target was just authored against the current source, so whatever
-      // made it stale is resolved by construction.
       delete entry.stale;
       delete entry.staleTarget;
     } else if (fillLatin && !entry.target && !CYRILLIC.test(entry.source)) {
@@ -255,8 +217,6 @@ function cmdTable(locale, outFile) {
     byGroup.get(rec.group).push({ source, ...rec });
   }
 
-  // A pipe or a newline inside a source string would break the table row it
-  // sits in; both occur (menu separators, multi-line message text).
   const cell = (s) =>
     s.replace(/\r\n/g, ' ¶ ').replace(/\r|\n/g, ' ¶ ').replace(/\|/g, '\\|');
 

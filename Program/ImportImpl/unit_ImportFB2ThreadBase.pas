@@ -60,9 +60,7 @@ type
     FCreatedFiles: TStringList;
     FImportCache: TImportCache;
 
-    //
     // Эти поля должны быть установлены конструктором производного класса
-    //
     FTargetExt: string;
     FZipFolder: Boolean;
     FFullNameSearch: Boolean;
@@ -104,7 +102,6 @@ type
     // [REFACTOR] Extracted shared template-application logic from GetNewFileName
     // and GetNewFolder. Both methods were structurally identical — only the
     // template type (TpFile vs TpPath) differed.
-    //
     // Returns True and sets OutValue on success.
     // Returns False and shows an error message if the template is invalid.
     function ApplyTemplate(const Template: string; TemplateType: TTemplateType;
@@ -113,15 +110,6 @@ type
 
 implementation
 
-{
-Settings.CheckExistsFiles
-Settings.EnableSort
-Settings.FB2FolderTemplate
-Settings.FB2FileTemplate
-Settings.FBDFolderTemplate
-Settings.FBDFileTemplate
-Settings.ImportPath
-}
 
 uses
   unit_Helpers,
@@ -173,7 +161,6 @@ begin
       PublisherSequence.Number, False);
   R.PublisherSeriesKnown := True;
 
-  //
   // TODO : создать в unit_FB2Utils ф-ию для получения инф-ии о книге из файла и заменить этот метод
   //
   with book.Description.Titleinfo do

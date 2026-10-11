@@ -108,9 +108,6 @@ begin
   Windows.OutputDebugString(PChar(Format(FormatString, Args)));
 end;
 
-// ============================================================================
-// TIniStringList
-// ============================================================================
 constructor TIniStringList.Create;
 begin
   inherited Create;
@@ -120,7 +117,6 @@ begin
   StrictDelimiter := True;
 end;
 
-// ============================================================================
 type
   THackEdit = class(TCustomEdit);
 
@@ -139,7 +135,6 @@ begin
   end;
 end;
 
-// ============================================================================
 function GetFileSize(const FileName: string): Integer;
 var
   hFile: THandle;
@@ -168,7 +163,6 @@ begin
     Result := pathBuf;
 end;
 
-// ============================================================================
 type
   TStdDialogClass = class of TOpenDialog;
 
@@ -214,9 +208,6 @@ function GetOpenFileName(
   ExtraOptions: TOpenOptions = []
   ): Boolean;
 begin
-  //
-  // TODO -oNickR -cUsability : использовать TFileOpenDialog под Vista-ой
-  //
   Include(ExtraOptions, ofFileMustExist);
   Include(ExtraOptions, ofNoChangeDir);
   Result := InternalGetFileName(TOpenDialog, Title, DefaultExt, Filter, strFileName, ExtraOptions, dialogKey);
@@ -231,9 +222,6 @@ function GetSaveFileName(
   ExtraOptions: TOpenOptions = []
   ): Boolean;
 begin
-  //
-  // TODO -oNickR -cUsability : использовать TFileSaveDialog под Vista-ой
-  //
   Include(ExtraOptions, ofOverwritePrompt);
   Include(ExtraOptions, ofNoChangeDir);
   Result := InternalGetFileName(TSaveDialog, Title, DefaultExt, Filter, strFileName, ExtraOptions, dialogKey);
@@ -249,68 +237,53 @@ type
   end;
 
 resourcestring
-//fnGenreList
    rstrGenreListDlgTitle = 'Выбор списка жанров';
    rstrGenreListDlgFilter = 'Список жанров MyHomeLib (*.glst)|*.glst|Все типы|*.*';
    rstrGenreListDlgDefaultExt = GENRELIST_EXTENSION_SHORT;
 
-   // fnOpenCollection
    rstrOpenCollectionDlgTitle = 'Открыть файл коллекции';
-   // fnSaveCollection
    rstrSaveCollectionDlgTitle = 'Сохранить файл коллекции';
    rstrCollectionDlgFilter = 'Коллекция MyHomeLib (*.hlc2)|*.hlc2|Все типы|*.*';
    rstrCollectionDlgDefaultExt = COLLECTION_EXTENSION_SHORT;
 
-   // fnSelectReader
    rstrSelectReaderDlgTitle = 'Выбор программы для просмотра';
-   // fnSelectScript
    rstrSelectScriptDlgTitle = 'Выбор скрипта';
    rstrSelectProgrammDlgFilter = 'Скрипты, программы (*.exe;*.bat;*.cmd;*.vbs;*.js)|*.exe;*.bat;*.cmd;*.vbs;*.js|Все типы |*.*';
    rstrSelectProgrammDlgDefaultExt = 'exe';
 
-   // fnOpenImportFile
    rstrOpenImportFileDlgTitle = 'Открыть xml';
-   // fnSaveImportFile
    rstrSaveImportFileDlgTitle = 'Сохранить xml';
    rstrImportFileDlgFilter = 'xml (*.xml)|*.xml|Все файлы|*.*';
    rstrImportFileDlgDefaultExt = 'xml';
 
-   // fnSaveLog
    rstrSaveLogDlgTitle = 'Сохранить лог работы';
    rstrSaveLogDlgFilter = 'Файл протокола (*.log)|*.log|Все типы|*.*';
    rstrSaveLogDlgDefaultExt = 'log';
-   //fnOpenINPX
    rstrOpenINPXDlgTitle = 'Выбор файла списков';
    rstrOpenINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
    rstrOpenINPXDlgDefaultExt = 'inpx';
 
-   //fnSaveINPX
    rstrSaveINPXDlgTitle = 'Выбор файла списков';
    rstrSaveINPXDlgFilter = 'Список книг MyHomeLib (*.inpx)|*.inpx|Все типы|*.*';
    rstrSaveINPXDlgDefaultExt = 'inpx';
 
-   //fnOpenUserData
    rstrOpenUDDlgTitle = 'Импорт пользовательских данных';
    rstrOpenUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud, mhlud2)|*.mhlud2;*.mhlud|Все типы|*.*';
    rstrOpenUDDlgDefaultExt = 'mhlud2';
 
-   //fnSaveUserData
    rstrSaveUDDlgTitle = 'Экспорт пользовательских данных';
    rstrSaveUDDlgFilter = 'Дополнительные данные MyHomeLib (mhlud2)|*.mhlud2|Все типы|*.*';
    rstrSaveUDDlgDefaultExt = 'mhlud2';
 
-   //fnOpenCoverImage
    rstrOpenCIDlgTitle = 'Загрузка файла обложки';
    rstrOpenCIDlgFilter = 'Изображение (*.png;*.jpg;*.jpeg)|*.jpeg;*.jpg;*.png';
    rstrOpenCIDlgDefaultExt = 'jpeg';
 
-   //fnOpenUpdate
    rstrOpenUpdateDlgTitle = 'Выбор файла обновления';
    rstrOpenUpdateDlgFilter = 'Файл обновления (*.inpx, *.zip, *.jsonl, *.jsonl.zst, *.jsonl.gz)|' +
      '*.inpx;*.zip;*.jsonl;*.jsonl.zst;*.jsonl.gz|Все типы|*.*';
    rstrOpenUpdateDlgDefaultExt = 'inpx';
 
-   //fnOpenMetabib
    rstrOpenMetabibDlgTitle = 'Выбор каталога metabib';
    rstrOpenMetabibDlgFilter = 'Каталог metabib (*.jsonl, *.jsonl.zst, *.jsonl.gz, *.zip)|' +
      '*.jsonl;*.jsonl.zst;*.jsonl.gz;*.zip|Все типы|*.*';
@@ -397,7 +370,6 @@ const
     )
 
 
-    //(Title: ''; Filter: ''; DefaultExt: ''; ExtraOptions: ; DialogKey: ''; GetFileNameFunction:)
   );
 begin
   if DlgParams[key].OpenFile then
@@ -465,7 +437,6 @@ begin
     Dialog.GetOptions(Options);
     Dialog.SetOptions((Options or FOS_PICKFOLDERS) and not FOS_FORCEFILESYSTEM); // allow non-filesystem (MTP)
 
-    // Set initial folder if available
     if (strFolder <> '') and Succeeded(SHCreateItemFromParsingName(PChar(strFolder), nil, IShellItem, InitFolder)) then
       Dialog.SetFolder(InitFolder);
 
@@ -540,7 +511,6 @@ begin
       Continue;
     end;
 
-    // Not found - create it
     if Failed(CoCreateInstance(CLSID_FileOperation, nil, CLSCTX_INPROC_SERVER, IFileOperation, FileOp)) then Exit;
     FileOp.SetOperationFlags(FOF_NOCONFIRMATION or FOF_NOERRORUI or FOF_SILENT);
     if Failed(FileOp.NewItem(Current, FILE_ATTRIBUTE_DIRECTORY, PChar(Segment), nil, nil)) then Exit;
@@ -556,7 +526,6 @@ end;
 
 function IsShellPath(const Path: string): Boolean;
 begin
-  // MTP/shell paths start with \\?\ or ::{  or don't have a drive letter
   Result := (Path <> '') and not TPath.DriveExists(Path) and
     ((Pos('\\?\', Path) = 1) or (Pos('::{', Path) = 1) or
      ((Length(Path) >= 2) and (Path[2] <> ':')));
@@ -602,8 +571,6 @@ begin
     else
       AParameters := Parameters;
 
-    //  AFileName := FileName;
-//  AParameters := Parameters;
 
   ADirectory := Directory;
   if ADirectory = '' then
@@ -635,7 +602,6 @@ begin
   Result := (0 = ShFileOperation(fos));
 end;
 
-{ TListViewHelper }
 
 procedure TListViewHelper.AutosizeColumn(nColumn: Integer);
 begin
@@ -643,6 +609,3 @@ begin
 end;
 
 end.
-
-
-

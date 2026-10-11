@@ -2,24 +2,6 @@
 
 interface
 
-// Exercises unit_MCP_TextCache end to end against a throwaway temp directory
-// -- never the real %LOCALAPPDATA%\MyHomeLib\McpCache -- via
-// SetCacheDirOverrideForTests. No database, no DMUser, and (like --extract)
-// meant to run entirely before Application.Initialize; see the one-line
-// dispatch in MHLMcpServer.dpr.
-//
-// Task 9's brief provides no automated coverage for the cache unit; this
-// mode exists to close that gap. Each check is a self-contained assertion
-// evaluated in Pascal (only Pascal has direct access to EnsureCached's
-// invocation-count closures and to the cache's on-disk files), and the
-// verdicts are reported as one JSON line for tests/cache_tests.js to turn
-// into PASS/FAIL console lines, mirroring RunExtractMode/extract_tests.js.
-//
-// Lives in its own unit (moved out of MHLMcpServer.dpr in fix round 2)
-// because it is, by a wide margin, the largest single block of code in the
-// project's CLI dispatch story -- Task 10 adds more to the .dpr itself, and
-// a ~500-line procedure sitting in the middle of the program file it does
-// not otherwise touch was making that file hard to read.
 procedure RunCacheSelfTestMode;
 
 implementation
@@ -76,10 +58,6 @@ var
   Stamp9: TDateTime;
   NonMatchTxt, NonMatchJson, NonMatchPairTxt, NonMatchPairJson: string;
 
-  // Rebuilds the on-disk path for a key exactly the way
-  // unit_MCP_TextCache.CacheKey does (the format is fixed by the task spec
-  // plus fix round 2's millisecond widening), so this test can assert file
-  // existence directly without the unit exporting its private key function.
   function TxtPathForTest(const CollectionID, BookID: Integer;
     const SourceSize: Int64; const Stamp: TDateTime): string;
   begin
@@ -102,9 +80,6 @@ var
     Checks[High(Checks)].Detail := Detail;
   end;
 
-  // Wraps one boolean assertion so a bug in the code under test (e.g. an
-  // out-of-range Seek) shows up as a named FAIL with the exception message,
-  // instead of aborting every check that has not run yet.
   procedure CheckSafe(const Name: string; Fn: TFunc<Boolean>);
   var
     Pass: Boolean;
@@ -147,10 +122,6 @@ begin
   try
     SetCacheDirOverrideForTests(TempDir);
     try
-      // ---- Scenario 1: miss populates both files; a repeat call is a hit
-      // that does not re-extract; sections (including a nested Level AND a
-      // non-ASCII title, so a sidecar-encoding regression would be visible)
-      // survive the round trip through the sidecar. ----
       CallCount := 0;
       Text1 := 'Root heading' + sLineBreak + 'Root body text. ' +
         'Child heading' + sLineBreak + 'Child body text.';
@@ -195,10 +166,6 @@ begin
       AddCheck('a non-ASCII (Russian) section title survives the sidecar round trip',
         (Length(Cached.Sections) = 2) and (Cached.Sections[1].Title = 'Раздел первый'));
 
-      // ---- Scenario 2: a changed SourceSize or SourceStamp misses and
-      // re-extracts, even though CollectionID/BookID stay the same. Also
-      // regression-tests fix round 2's millisecond-widened key: a stamp
-      // differing only in milliseconds must miss too. ----
       CallCount := 0;
       Stamp2 := EncodeDateTime(2026, 2, 2, 0, 0, 0, 0);
 
@@ -262,9 +229,7 @@ begin
       AddCheck('a sub-second (millisecond-only) SourceStamp difference misses and re-extracts',
         CallCountMs = 2);
 
-      // ---- Scenario 3: slice boundaries on plain ASCII text, including the
-      // exact Offset = total_length edge (must return empty, not fail). ----
-      Text3 := 'ABCDEFGHIJ'; // 10 code units
+      Text3 := 'ABCDEFGHIJ';
       Stamp3 := EncodeDateTime(2026, 3, 3, 0, 0, 0, 0);
       EnsureCached(3, 300, 10, Stamp3,
         function: TFb2Extraction
@@ -300,7 +265,6 @@ begin
           Result := ReadCachedSlice(3, 300, 10, Stamp3, 10, 5) = '';
         end);
 
-      // ---- Scenario 4: non-ASCII (Cyrillic) round-trips identically. ----
       Text4 := 'Привет, мир, это тестовая строка.';
       Stamp4 := EncodeDateTime(2026, 4, 4, 0, 0, 0, 0);
       EnsureCached(4, 400, 999, Stamp4,
@@ -321,13 +285,6 @@ begin
           Result := ReadCachedSlice(4, 400, 999, Stamp4, 2, 5) = Copy(Text4, 3, 5);
         end);
 
-      // ---- Scenario 5: surrogate safety at a genuine CUT. S5 packs a valid
-      // surrogate pair, a lone low surrogate and a lone high surrogate into
-      // one string, none of which came from a real decoder -- exactly the
-      // "may contain a lone surrogate that was never part of a pair" case
-      // the brief calls out. Every slice below is a real cut (its clamped
-      // bounds differ from S5's true [0, Length) extent), so trimming is
-      // expected to fire on whichever side is actually cut. ----
       S5 := 'AB' + Char($D83D) + Char($DE00) + 'CD' + Char($DC00) + 'EF' + Char($D800) + 'GH';
       Stamp5 := EncodeDateTime(2026, 5, 5, 0, 0, 0, 0);
       EnsureCached(5, 500, 1, Stamp5,
@@ -359,17 +316,7 @@ begin
           Result := ReadCachedSlice(5, 500, 1, Stamp5, 7, 3) = 'EF';
         end);
 
-      // ---- Scenario 5b (fix round 2 / Important 4 regression): a text that
-      // BEGINS and ENDS with a lone surrogate. A full read
-      // (Offset=0, Count=TotalLength -- exactly what search_in_book uses)
-      // must return EVERY unit, including both boundary lone surrogates,
-      // because neither end of this read is an actual cut. The original S5
-      // fixture above starts with 'A' and ends with 'H', so it could never
-      // have caught the bug where TrimSurrogateBoundaries fired
-      // unconditionally regardless of whether a boundary was a real cut or
-      // the true start/end of the text -- this fixture exists specifically
-      // to close that blind spot. ----
-      S5b := Char($DC00) + 'MID' + Char($D800); // lone low ... lone high, 5 units total
+      S5b := Char($DC00) + 'MID' + Char($D800);
       Stamp5b := EncodeDateTime(2026, 5, 6, 0, 0, 0, 0);
       EnsureCached(5, 501, 1, Stamp5b,
         function: TFb2Extraction
@@ -384,8 +331,6 @@ begin
           Result := ReadCachedSlice(5, 501, 1, Stamp5b, 0, Length(S5b)) = S5b;
         end);
 
-      // ---- Scenario 6: an embedded NUL code unit (Task 8's decoder emits
-      // one verbatim for &#0;) must not truncate the text. ----
       Text6 := 'X' + Char(0) + 'Y';
       Stamp6 := EncodeDateTime(2026, 6, 6, 0, 0, 0, 0);
       EnsureCached(6, 600, 1, Stamp6,
@@ -401,9 +346,6 @@ begin
           Result := ReadCachedSlice(6, 600, 1, Stamp6, 0, 3) = Text6;
         end);
 
-      // ---- Scenario 7: a sidecar without its text file, and a text file
-      // without its sidecar, must each be treated as a miss, and the pair
-      // must self-heal on the very next call. ----
       CallCount := 0;
       Stamp7 := EncodeDateTime(2026, 7, 7, 0, 0, 0, 0);
       S7Text := 'hello world';
@@ -446,12 +388,6 @@ begin
         TFile.Exists(TxtPathForTest(7, 700, 11, Stamp7)) and
         TFile.Exists(JsonPathForTest(7, 700, 11, Stamp7)));
 
-      // ---- Scenario 7b: TryReadSidecar's corrupt/missing-field path --
-      // previously the unit's most defensive code (a blanket try/except
-      // meant to turn any parse problem into "treat as a miss") had no
-      // dedicated test at all. Both a syntactically-broken sidecar and a
-      // syntactically-valid one missing a required field must be treated as
-      // a miss, exactly like an absent sidecar, and self-heal. ----
       CallCount7b := 0;
       Stamp7b := EncodeDateTime(2026, 7, 11, 0, 0, 0, 0);
       Txt7bPath := TxtPathForTest(7100, 1, 1, Stamp7b);
@@ -486,7 +422,7 @@ begin
       Txt7cPath := TxtPathForTest(7200, 1, 1, Stamp7c);
       Json7cPath := JsonPathForTest(7200, 1, 1, Stamp7c);
       TFile.WriteAllBytes(Txt7cPath, TEncoding.Unicode.GetBytes('placeholder'));
-      TFile.WriteAllText(Json7cPath, '{"structured":false,"sections":[]}'); // total_length missing
+      TFile.WriteAllText(Json7cPath, '{"structured":false,"sections":[]}');
 
       EnsureCached(7200, 1, 1, Stamp7c,
         function: TFb2Extraction
@@ -499,10 +435,6 @@ begin
       AddCheck('a sidecar missing a required field (total_length) is treated as a miss',
         CallCount7c = 1);
 
-      // ---- Scenario 7d: the total_length/actual-.txt-size integrity check.
-      // External truncation of the .txt behind an otherwise-valid, unchanged
-      // sidecar must be detected and treated as a miss, not served forever
-      // as a stale hit reporting the old (now-wrong) total_length. ----
       CallCount7d := 0;
       Stamp7d := EncodeDateTime(2026, 7, 13, 0, 0, 0, 0);
       OriginalText7d := StringOfChar('X', 30);
@@ -517,9 +449,6 @@ begin
       AddCheck('scenario 7d initial cache call extracted once', CallCount7d = 1);
 
       Txt7dPath := TxtPathForTest(7300, 1, 1, Stamp7d);
-      // Truncate the .txt directly to 10 code units behind the still-intact
-      // sidecar, which keeps claiming total_length: 30 -- simulating
-      // external corruption this unit itself never causes.
       TFile.WriteAllBytes(Txt7dPath, TEncoding.Unicode.GetBytes(Copy(OriginalText7d, 1, 10)));
 
       Cached7d := EnsureCached(7300, 1, 1, Stamp7d,
@@ -533,26 +462,6 @@ begin
       AddCheck('a .txt truncated behind a stale sidecar is detected and re-extracted, not served as a permanent stale hit',
         (CallCount7d = 2) and (Cached7d.TotalLength = 30));
 
-      // ---- Scenario 8: the real size-cap / oldest-last-accessed-first
-      // eviction path, driven with a throwaway few-KB cap instead of the
-      // production 200 MB constant (EvictCache's CapBytes parameter exists
-      // for exactly this reason -- the parameterless call site at server
-      // startup still gets CACHE_CAP_BYTES unchanged). Five pairs, each
-      // holding a unique short marker so a corrupted/cross-contaminated read
-      // after eviction would actually be detectable, not masked by every
-      // entry having identical content.
-      //
-      // AccessRank9 is a deliberately SCRAMBLED permutation of 0..4, not the
-      // ascending order the entries are created in and not their filename
-      // order either (both of those already ascend with K, since
-      // CollectionID = 9000+K) -- so an implementation that accidentally
-      // sorted by filename or creation order instead of the actually-stamped
-      // access time would fail this, rather than passing it by coincidence.
-      // Last-access times are set EXPLICITLY rather than relied upon from
-      // real read/write timing, so the ordering assertion is deterministic
-      // and not a race against wall-clock granularity or the OS's own
-      // last-access-tracking policy (see the report for this machine's
-      // measured behaviour). ----
       // Earlier scenarios share this disposable override directory. Their
       // bytes/access times must not participate in the five-pair cap below.
       EvictCache(0);
@@ -582,10 +491,6 @@ begin
         TFile.SetLastAccessTime(Json9[K], IncMinute(Stamp9, AccessRank9[K]));
       end;
 
-      // A file this unit did not create and whose name does not match its
-      // key pattern must survive eviction untouched, regardless of shape:
-      // a lone .txt with no sidecar, a lone .json with no text file, and a
-      // same-named pair that merely happens to have both extensions.
       NonMatchTxt := TPath.Combine(TempDir, 'my important notes.txt');
       NonMatchJson := TPath.Combine(TempDir, 'settings.json');
       NonMatchPairTxt := TPath.Combine(TempDir, 'readme.txt');
@@ -600,8 +505,8 @@ begin
       for K := 0 to 4 do
         Inc(Total9, TFile.GetSize(Txt9[K]) + TFile.GetSize(Json9[K]));
 
-      CapBig9 := Total9 + 1024;       // comfortably above the real total
-      Cap3Of9 := 3 * PairBytes9;      // room for exactly the 3 newest-by-access pairs
+      CapBig9 := Total9 + 1024;
+      Cap3Of9 := 3 * PairBytes9;
 
       EvictCache(CapBig9);
       AddCheck('below the injected cap, EvictCache deletes nothing',
@@ -612,8 +517,6 @@ begin
         TFile.Exists(Txt9[4]) and TFile.Exists(Json9[4]));
 
       EvictCache(Cap3Of9);
-      // Ranks: K=2 is oldest (rank 0), K=4 is rank 1 -- these two are evicted.
-      // K=0 (rank 2), K=3 (rank 3), K=1 (rank 4, newest) survive.
       AddCheck('over the injected cap, the two oldest-by-STAMPED-ACCESS-TIME pairs are deleted (scrambled name/creation order)',
         (not TFile.Exists(Txt9[2])) and (not TFile.Exists(Json9[2])) and
         (not TFile.Exists(Txt9[4])) and (not TFile.Exists(Json9[4])));
@@ -637,11 +540,6 @@ begin
       AddCheck('a non-cache-pattern same-named .txt/.json pair survives eviction untouched',
         TFile.Exists(NonMatchPairTxt) and TFile.Exists(NonMatchPairJson));
 
-      // ---- Scenario 9 (bonus, beyond the brief's required list): EvictCache
-      // prunes a true orphan -- a .txt with no matching .json -- that was
-      // never created through EnsureCached and so never self-heals, as long
-      // as its name matches the cache key pattern (17-digit timestamp tail,
-      // matching fix round 2's millisecond-widened format). ----
       OrphanTxtPath := TPath.Combine(TempDir, '9999_9999_1_20260101000000000.txt');
       TFile.WriteAllBytes(OrphanTxtPath, TEncoding.Unicode.GetBytes('orphan'));
       EvictCache;
@@ -658,8 +556,6 @@ begin
     try
       TDirectory.Delete(TempDir, True);
     except
-      // Best-effort cleanup of our own OS-temp scratch directory; a failure
-      // here must never mask the self-test's own result below.
     end;
   end;
   AddCheck('self-test ran to completion without an unhandled exception',

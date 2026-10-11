@@ -28,12 +28,9 @@ uses
   unit_Interfaces;
 
 type
-  //
   // Менеджер очереди загрузок.
-  //
   // Поток не знает ни о главной форме, ни о дереве очереди: все общение
   // с интерфейсом идет через IDownloadView и только в пределах Synchronize.
-  //
   TDownloadManagerThread = class(TThread)
   private
     FView: IDownloadView;
@@ -51,18 +48,14 @@ type
 
     FError : boolean;
 
-    //
     // Обертки над IDownloadView: каждая выполняется в главном потоке.
-    //
     procedure ShowState(const State: string);
     procedure ShowProgress(Position: Integer);
     procedure ShowCurrentItem;
     procedure SetQueueControlsEnabled(Enabled: Boolean);
     function AskIgnoreErrors: Integer;
 
-    //
     // Шаги очереди
-    //
     procedure SelectNextFile;
     procedure FinishCurrentFile;
     procedure CancelCurrentFile;
@@ -72,10 +65,8 @@ type
     procedure ClearDownloader(const Downloader: TDownloader);
     procedure StopDownloader;
 
-    //
     // Обратные вызовы загрузчика. Приходят из фонового потока, поэтому
     // внутри только Synchronize.
-    //
     procedure SetComment(const Current, Total: string);
     procedure SetProgress(Current, Total: Integer);
 
@@ -108,9 +99,7 @@ rstrConnecting = 'Подключение...';
 
 constructor TDownloadManagerThread.Create(const View: IDownloadView);
 begin
-  //
   // Создаем приостановленным: поток не должен стартовать, пока не получит View.
-  //
   inherited Create(True);
   FDownloaderLock := TCriticalSection.Create;
   try
@@ -172,9 +161,7 @@ end;
 procedure TDownloadManagerThread.TerminateNow;
 begin
   try
-    //
     // Загрузчика может уже не быть: поток мог завершить работу сам.
-    //
     FCanceled := True;
     StopDownloader;
     Terminate;
@@ -183,12 +170,9 @@ begin
   end;
 end;
 
-//
 // Пауза, которую можно прервать.
-//
 // Обычный Sleep заставил бы и закрытие программы, и перезапуск очереди ожидать до
 // 30 секунд - именно столько длится пауза после ошибки загрузки.
-//
 procedure TDownloadManagerThread.InterruptibleSleep(Milliseconds: Integer);
 const
   SLICE = 100;
@@ -203,9 +187,7 @@ begin
   end;
 end;
 
-//
 // - - - - - - - - - - - Обёртки над представлением - - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.ShowState(const State: string);
 begin
@@ -279,9 +261,7 @@ begin
   Result := Res;
 end;
 
-//
 // - - - - - - - - - - - - - - - Шаги очереди - - - - - - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.SelectNextFile;
 var
@@ -344,9 +324,7 @@ begin
   );
 end;
 
-//
 // - - - - - - - - - - - Обратные вызовы загрузчика - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.SetComment(const Current, Total: string);
 begin
@@ -358,9 +336,6 @@ begin
   ShowProgress(Current);
 end;
 
-//
-// - - - - - - - - - - - - - - - - Робота - - - - - - - - - - - - - - - - - - - -
-//
 
 procedure TDownloadManagerThread.Execute;
 begin
@@ -398,10 +373,8 @@ begin
       Downloader.OnProgress := SetProgress;
       try
         SelectNextFile;
-        //
         // Ничего не качаем, пока очередь не выдала книгу: иначе первый проход
         // пошел бы загружать пустой ключ.
-        //
         while not (FFinished or FCanceled) do
         begin
           if FError then

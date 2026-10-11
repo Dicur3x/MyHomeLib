@@ -254,7 +254,6 @@ end;
 
 procedure TfrmBookDetails.FormShow(Sender: TObject);
 begin
-  // TODO перенести под конец заполнения ?
   lvFileInfo.AutosizeColumn(0);
   lvFileInfo.AutosizeColumn(1);
   lvInfo.AutosizeColumn(0);
@@ -321,9 +320,6 @@ var
   end;
 
 begin
-  //
-  // Покажем информацию из TBookRecord
-  //
   lblTitle.Caption := bookInfo.Title;
   lblAuthors.Caption := bookInfo.Authors[0].GetFullName;
 
@@ -336,10 +332,8 @@ begin
     AddItem(lvFileInfo, rstrAdded, DateToStr(bookInfo.Date), GroupID);
   end;
 
-  //
   // Метаданные из каталога metabib показываем только при их наличии, чтобы книги
   // из INPX/FB2 не получали пустую группу.
-  //
   if (bookInfo.Translators <> '') or (bookInfo.Publisher <> '') or
     (bookInfo.City <> '') or (bookInfo.PubYear <> 0) or (bookInfo.ISBN <> '') then
   begin
@@ -355,28 +349,16 @@ begin
     end;
   end;
 
-  { TODO -oNickR -cUsability : для онлайн коллекций необходимо показывать следующие поля }
-  // libID: string;    ???
-  // LibRate: Integer;  ???
-  // URI: string;       ???
 
-  //
-  // Покажем информацию из книги
-  // TODO : здесь на самом деле нужно более общее решение. Может со временем мы научимся вытаскивать инфу из pdf и других форматов
-  //
   if not Assigned(bookStream) or (bookStream.Size = 0) then
   begin
     tsInfo.TabVisible := False;
     Exit;
   end;
 
-  // FS.SaveToFile('C:\temp\book.xml');
   try
     book := LoadFB2Description(bookStream);
 
-    //
-    // покажем обложку (если есть)
-    //
     imgBookCover := GetBookCover(book);
     if Assigned(imgBookCover) then
     begin
@@ -390,7 +372,6 @@ begin
     else
       imgCover.Visible := False;
 
-    // ---------------------------------------------
     with book.Description.Titleinfo, lvInfo.Groups.Add do
     begin
       Header := rstrGeneralInfo;
@@ -404,13 +385,11 @@ begin
         AddItem(lvInfo, IfThen(i = 0, rstrAuthors), tmpStr, GroupID);
       end;
 
-      { TODO -oNickR -cUsability : показывать номер в серии }
       for i := 0 to Sequence.Count - 1 do
       begin
         AddItem(lvInfo, IfThen(i = 0, rstrSingleSeries), Sequence[i].Name, GroupID);
       end;
 
-      { TODO -oNickR -cUsability : показывать алиасы вместо внутренних имен }
       for i := 0 to Genre.Count - 1 do
       begin
         AddItem(lvInfo, IfThen(i = 0, rstrGenre), Genre[i], GroupID);
@@ -429,7 +408,6 @@ begin
       end;
     end;
 
-    // ---------------------------------------------
     with book.Description.Publishinfo, lvInfo.Groups.Add do
     begin
       Header := rstrPublisherInfo;
@@ -441,14 +419,12 @@ begin
       AddItem(lvInfo, rstrYear, Year, GroupID);
       AddItem(lvInfo, rstrISBN, Isbn.Text, GroupID);
 
-      { TODO -oNickR -cUsability : показывать номер в серии }
       for i := 0 to Sequence.Count - 1 do
       begin
         AddItem(lvInfo, IfThen(i = 0, rstrSingleSeries), Sequence[i].Name, GroupID);
       end;
     end;
 
-    // ---------------------------------------------
     with book.Description.Documentinfo, lvInfo.Groups.Add do
     begin
       Header := rstrOCRInfo;
@@ -474,8 +450,6 @@ begin
         AddItem(lvInfo, IfThen(i = 0, rstrHistory), History.p[i].OnlyText, GroupID);
     end;
 
-    // ---------------------------------------------
-    { TODO -oNickR -cUsability : может стоит добавлять параграфы как есть? }
     with book.Description.Titleinfo do
     begin
       for i := 0 to Annotation.p.Count - 1 do
@@ -483,7 +457,6 @@ begin
     end;
     mmShort.Visible := (mmShort.Lines.Text <> '');
   except
-    //
     Assert(False);
   end;
 end;

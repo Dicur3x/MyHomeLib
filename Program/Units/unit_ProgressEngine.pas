@@ -83,7 +83,6 @@ type
 
   public
     constructor Create(BaseEngine: TProgressEngine = nil);
-    //destructor Done; override;
 
     procedure BeginOperation(const Total: Integer; const ShortCommentFormat: string; const LongCommentFormat: string);
     procedure EndOperation;
@@ -108,7 +107,6 @@ uses
   StrUtils,
   Math;
 
-{ TProgressInfo }
 
 constructor TProgressEngine.Create(BaseEngine: TProgressEngine = nil);
 begin
@@ -190,15 +188,9 @@ begin
   FShortCommentFormat := ShortCommentFormat;
   FLongCommentFormat := LongCommentFormat;
 
-  //
-  // Это вложенная операция. Сообщим родительской операции о своем начале.
-  //
   if IsSubOperation then
     FParentEngine.BeginSubOperation(IsPreciseProgress);
 
-  //
-  // Настроим GUI и приведем его в начальное состояние.
-  //
   if IsPreciseProgress then
     DoSetProgressHint(pbstNormal, pbsNormal)
   else
@@ -220,14 +212,8 @@ var
 begin
   if IsPreciseProgress then
   begin
-    //
-    // Эта операция использует точный прогресс
-    //
     Percent := Min(FCurrent * 100 div FTotal, 100);
 
-    //
-    // Вложенная операция использует точный прогресс. Учтем его.
-    //
     if FUseSubPercent then
     begin
       Inc(Percent, FSubPercent div FTotal);
@@ -245,9 +231,6 @@ begin
   end
   else
   begin
-    //
-    // цикличный прогресс. Прогресс вложенно й операции не учитываем.
-    //
     if ((FCurrent mod FThreshold) = 0) then
     begin
       DoSetComment(GetComment);
@@ -259,9 +242,6 @@ end;
 
 procedure TProgressEngine.AddProgress(const Value: Integer);
 begin
-  //
-  // Считаем, что подоперация закончена и пока не начнется новая операция игнорируем подпрогресс.
-  //
   FSubPercent := 0;
   FUseSubPercent := False;
   Inc(FCurrent, Value);

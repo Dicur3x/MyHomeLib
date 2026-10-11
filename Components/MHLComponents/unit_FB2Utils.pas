@@ -46,8 +46,6 @@ function GetBookPublisherSeriesData(book: IXMLFictionBook): TFB2PublisherSeries;
 function GetBookInfo(book: IXMLFictionBook): string;
 function FormatName(const LastName: string; const FirstName: string; const MiddleName: string; const nickName: string = ''; onlyInitials: Boolean = False): string;
 
-{ TODO -oNickR -cRefactoring : доделать эту функцию. Для этого необходимо вынести определение TBookRecord в доступное место }
-// procedure GetBookInfo(book: IXMLFictionBook; var R: TBookRecord);
 
 const
   dlmtr = ': ';
@@ -230,7 +228,6 @@ begin
     coverID := book.Description.Titleinfo.Coverpage[0].xlinkHref;
     if Pos('#', coverID) = 1 then
     begin
-      // это локальная ссылка (начинается с #)
       coverID := Copy(coverID, 2, MaxInt);
 
       for i := 0 to book.Binary.Count - 1 do
@@ -265,7 +262,6 @@ begin
     sfBitmap: Result := Graphics.TBitmap.Create;
     sfGif: Result := TGIFImage.Create;
     sfJPEGImage: Result := TJPEGImage.Create;
-    //sfTiff: ;
     sfPngImage: Result := TPngImage.Create;
     sfMetafile: Result := Graphics.TMetafile.Create;
     fsIcon: Result := Graphics.TIcon.Create;

@@ -66,7 +66,6 @@ uses
   StrUtils,
   unit_Helpers;
 
-{ TScriptC }
 
 procedure TScriptDesc.AssignTo(Dest: TPersistent);
 var
@@ -95,7 +94,6 @@ begin
     raise Exception.Create(SysErrorMessage(AHInst));
 end;
 
-{ TScripts }
 
 constructor TScripts.Create;
 begin
@@ -121,7 +119,7 @@ procedure TScripts.Add(const Title, Path, Params: string);
 var
   Script: TScriptDesc;
 begin
-  if (Title = '') or (Path = '') {or (Params = '')} then
+  if (Title = '') or (Path = '')  then
     raise EMHLError.Create(rstrErrorInvalidArgument);
 
   BeginUpdate;

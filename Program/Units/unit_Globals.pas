@@ -42,36 +42,36 @@ type
   TGenresType = (gtFb2, gtAny);
 
   TBookIteratorMode = (
-    bmAll,                // All books
-    bmByGenre,            // Books by genre
-    bmByAuthor,           // Books by author
-    bmBySeries,           // Books by series
-    bmSearch,             // Book search
+    bmAll,
+    bmByGenre,
+    bmByAuthor,
+    bmBySeries,
+    bmSearch,
     bmByGenreRecursive,   // Books by a genre and all of its subgenres
     bmByPublisherSeries  // Books by a publisher's series, separate from cycles
   );
 
   TAuthorIteratorMode = (
-    amAll,       // All authors
-    amByBook,    // Authors by book id
-    amFullFilter // Full filter - both Alpha, Local and Deleted
+    amAll,
+    amByBook,
+    amFullFilter
   );
 
   TGenreIteratorMode = (
-    gmAll,       // All genres
-    gmByBook     // Genres by book id
+    gmAll,
+    gmByBook
   );
 
   TSeriesIteratorMode = (
-    smAll,       // All series
-    smFullFilter // Full filter - both Alpha, Local and Deleted
+    smAll,
+    smFullFilter
   );
 
   TBookFormat = (
-    bfFb2,        // A pure FB2 file
-    bfFb2Archive, // An FB2 packed in ZIP or 7z (or another supported archive)
+    bfFb2,
+    bfFb2Archive,
     bfFbd,        // An (FBD + a raw book file) packed together in a zip
-    bfRaw,         // A raw file = any other book format
+    bfRaw,
     bfRawArchive
   );
 
@@ -93,10 +93,6 @@ type
 
   TExportMode = (emFB2, emFB2Zip, emLrf, emTxt, emEpub, emPDF, emMobi);
 
-  //
-  // TreeView data records
-  //
-  // --------------------------------------------------------------------------
   PAuthorData = ^TAuthorData;
   TAuthorData = record
     AuthorID: Integer;
@@ -134,7 +130,6 @@ type
     class function GetLinkList(const Authors: TBookAuthors): string;
   end;
 
-  // --------------------------------------------------------------------------
   PSeriesData = ^TSeriesData;
   TSeriesData = record
     SeriesID: Integer;
@@ -164,7 +159,6 @@ type
       const LiteralTitles: Boolean = False): string;
   end;
 
-  // --------------------------------------------------------------------------
   PGenreData = ^TGenreData;
   TGenreData = record
     GenreCode: string;
@@ -189,7 +183,6 @@ type
     class function GetLinkList(const Genres: TBookGenres): string;
   end;
 
-  // --------------------------------------------------------------------------
   PGroupData = ^TGroupData;
   TGroupData = record
     GroupID: Integer;
@@ -197,7 +190,6 @@ type
     CanDelete: Boolean;
   end;
 
-  // --------------------------------------------------------------------------
   TDownloadState = (dsWait, dsRun, dsOk, dsError);
   PDownloadData = ^TDownloadData;
   TDownloadData = record
@@ -210,7 +202,6 @@ type
     State: TDownloadState;
   end;
 
-  // --------------------------------------------------------------------------
   TBookNodeType = (ntAuthorInfo = 1, ntSeriesInfo, ntBookInfo);
 
   TBookProp = (bpIsLocal = 1, bpIsDeleted, bpHasReview);
@@ -245,7 +236,6 @@ type
     KeyWords: string;
     CollectionRoot: String;
 
-    //TODO - rethink when to load the memo fields. Today are loaded only when LoadMemos flag is True
     Annotation: string;
     Review: string;
 
@@ -259,7 +249,6 @@ type
     PublisherSeriesKnown: Boolean;
     PublisherSeqNumber: Integer;
 
-    // ----------------------------------------------------
     function GetFileType: string;
     function DisplayLibID: string;
     procedure Normalize;
@@ -273,7 +262,6 @@ type
     procedure ClearGenres; inline;
     function GenreCount: Integer; inline;
 
-    // ----------------------------------------------------
     function GetBookFormat: TBookFormat;
     function GetBookFileName: string;
     function GetBookContainer: string;
@@ -285,7 +273,6 @@ type
     function SaveBookToStream:TStream;
   end;
 
-  // --------------------------------------------------------------------------
   PFileData = ^TFileData;
   TFileData = record
     FullPath, FileName, Folder, Ext, Title: string;
@@ -294,7 +281,6 @@ type
     Date: TDateTime;
   end;
 
-  // --------------------------------------------------------------------------
   TColumnData = record
     Text: string;
     Position, Width, MaxWidth, MinWidth: Integer;
@@ -302,7 +288,6 @@ type
     Options: TVTColumnOptions;
   end;
 
-  // --------------------------------------------------------------------------
   TBookSearchCriteria = record
     FullName: string;
     Series: string;
@@ -316,7 +301,7 @@ type
     KeyWord: string;
     Deleted: Boolean;
     LibRate: string;
-    Readed: Boolean;  //Признак, что книга прочитана
+    Readed: Boolean;
 
     DownloadedIdx: Integer;
     DateIdx: Integer;
@@ -334,9 +319,7 @@ type
     ValueString: string;
   end;
 
-  //
   // Вспомогательная структура для обработки заголовков INPX
-  //
   // Структура заголовка
   // 1. Название коллекции
   // 2. Название файла коллекции
@@ -344,7 +327,6 @@ type
   // 4. Notes
   // 5. URL
   // 6. Все оставшиеся строки содержат скрипт подключения
-  //
   TINPXHeader = record
     Name: string;
     FileName: string;
@@ -394,14 +376,8 @@ type
   end;
 
 
-// ============================================================================
-//
-// helpers
-//
-// ============================================================================
   function CreateBookKey(BookID: Integer; DatabaseID: Integer): TBookKey; inline;
 
-  // -----------------------------------------------------------------------------
   function isPrivateCollection(t: COLLECTION_TYPE): Boolean; inline;
   function isExternalCollection(t: COLLECTION_TYPE): Boolean; inline;
   function isLocalCollection(t: COLLECTION_TYPE): Boolean; inline;
@@ -409,12 +385,10 @@ type
   function isFB2Collection(t: COLLECTION_TYPE): Boolean; inline;
   function isNonFB2Collection(t: COLLECTION_TYPE): Boolean; inline;
 
-  // -----------------------------------------------------------------------------
   function isSystemProp(propID: TPropertyID): Boolean; inline;
   function isCollectionProp(propID: TPropertyID): Boolean; inline;
   function propertyType(propID: TPropertyID): Integer; inline;
 
-  // -----------------------------------------------------------------------------
   function Transliterate(const Input: string): string;
   function CheckSymbols(const Input: string; const Full: boolean = False): string;
   function EncodePassString(const Input: string): string;
@@ -424,7 +398,6 @@ type
 
   function ClearDir(const DirectoryName: string): Boolean;
   function ClearReadFolder(const DirectoryName: string; const OwnedOnly: Boolean = False): Boolean;
-  //function IsRelativePath(const FileName: string): Boolean;
   function CreateFolders(const Root: string; const Path: string): Boolean;
   function CopyFile(const SourceFileName: string; const DestFileName: string): boolean;
   procedure ConvertToTxt(DestFileName: string; Enc: TTXTEncoding; Stream: TStream);
@@ -552,9 +525,6 @@ begin
   FSeries.Clear;
 end;
 
-  // -----------------------------------------------------------------------------
-  // различная информация о коллекции
-  // -----------------------------------------------------------------------------
 function isPrivateCollection(t: COLLECTION_TYPE): Boolean;
 begin
   Result := (t and CT_TYPE_MASK) = LIBRARY_PRIVATE;
@@ -585,7 +555,6 @@ begin
   Result := (t and CT_CONTENT_MASK) = CONTENT_NONFB;
 end;
 
-// -----------------------------------------------------------------------------
 function isSystemProp(propID: TPropertyID): Boolean; inline;
 begin
   Result := (propID and PROP_CLASS_SYSTEM) = PROP_CLASS_SYSTEM;
@@ -601,9 +570,6 @@ begin
   Result := (propID and PROP_TYPE_MASK);
 end;
 
-// -----------------------------------------------------------------------------
-//
-// -----------------------------------------------------------------------------
 
 function c_GetTempPath: String;
 var
@@ -690,7 +656,6 @@ begin
   end;
 end;
 
-// Replace non-valid file name characters with spaces
 function CleanFileName(const Input: string): string;
 var
   i: Integer;
@@ -708,22 +673,6 @@ begin
   Result := SanitizeWindowsComponent(Result);
 end;
 
-(*
-function IsRelativePath(const FileName: string): Boolean;
-//var
-//  L: Integer;
-begin
-  Result := TPath.IsPathRooted(FileName);
-  {
-  Result := True;
-  L := Length(FileName);
-  if ((L >= 1) and IsPathDelimiter(FileName, 1)) or // \dir\subdir or /dir/subdir
-    ((L >= 2) and CharInSet(FileName[1], ['A' .. 'Z', 'a' .. 'z']) and (FileName[2] = ':')) // C:, D:, etc.
-  then
-    Result := False;
-  }
-end;
-*)
 
 function CreateFolders(const Root: string; const Path: string): Boolean;
 var
@@ -971,10 +920,8 @@ var
   Letter: Char;
   AuthorName: string;
 begin
-  //
   // Не обрезаем пробелы здесь!!! От их наличия зависит расположение файла - на букве или в каталоге '_'
-  //
-  AuthorName := Trim(CheckSymbols(FullName)); // Ф.И.О. - полностью!
+  AuthorName := Trim(CheckSymbols(FullName));
 
   if AuthorName = '' then
     AuthorName := rstrUnknownAuthor;
@@ -1194,7 +1141,6 @@ begin
   DatabaseID := MHL_INVALID_ID;
 end;
 
-// Is the other key equal to this one?
 function TBookKey.IsSameAs(const other: TBookKey): Boolean;
 begin
   Result := (BookID = other.BookID) and (DatabaseID = other.DatabaseID);
@@ -1239,9 +1185,6 @@ begin
   PublisherSeqNumber := 0;
 end;
 
-//
-// Добавляет отсутствующую информацию о книге, заполняя поля значения по умолчанию
-//
 procedure TBookRecord.Normalize;
 var
   i: Integer;
@@ -1282,9 +1225,7 @@ begin
     else Result := 'Некорректный тип';
 end;
 
-//
 // Формирует И\Иванов Иван Иванович\Просто книга
-//
 function TBookRecord.GenerateLocation: string;
 begin
   Assert(AuthorCount > 0);
@@ -1311,14 +1252,13 @@ begin
   Result := Length(Genres);
 end;
 
-// Get the book format enum value
 function TBookRecord.GetBookFormat: TBookFormat;
 var
   BookContainer: string;
   PathLen: Integer;
   LongFileName: string;
 begin
-  Result := bfRaw; // default
+  Result := bfRaw;
   BookContainer := GetBookContainer;
   PathLen := Length(BookContainer);
 
@@ -1327,7 +1267,6 @@ begin
     (BookContainer[PathLen] = TPath.DirectorySeparatorChar) or
     (BookContainer[PathLen] = TPath.AltDirectorySeparatorChar) then
   begin
-    //BookContainer is either empty or a path
     LongFileName := TPath.Combine(BookContainer, FileName);
 
     if AnsiLowercase(ExtractFileExt(LongFileName)) = ZIP_EXTENSION then
@@ -1351,7 +1290,6 @@ begin
     Result := bfFb2
 end;
 
-// Get the fully expanded book file name
 function TBookRecord.GetBookFileName: string;
 var
   BookFormat: TBookFormat;
@@ -1363,13 +1301,10 @@ begin
     Result := TPath.Combine(BookContainer, FileName)
   else if (BookFormat = bfFb2Archive) or (BookFormat = bfRawArchive)  then
     Result := BookContainer
-  else // bfFb2 or bfRaw
+  else
     Result := TPath.Combine(BookContainer, FileName) + FileExt;
 end;
 
-// Get the container holding the book (folder or zip file)
-//  For bfFb2, bfFBD and bfRaw - brings the folder containing the file
-//  For bfFb2Zip - brings the name of the Zip file
 function TBookRecord.GetBookContainer: string;
 var
   SevenZipFallback: string;
@@ -1388,7 +1323,6 @@ begin
   end;
 end;
 
-// Get the book file as a stream.
 // The caller code must free the stream when done!
 // For FBD archives brings the raw book (and NOT the FBD descriptor)
 function TBookRecord.DisplayLibID: string;
@@ -1466,7 +1400,7 @@ begin
       FreeAndNil(archiver);
     end;
   end
-  else // bfFb2, bfRaw
+  else
   begin
     try
       Result := TFileStream.Create(BookFileName,
@@ -1474,7 +1408,6 @@ begin
     except
       on e: EFOpenError do
       begin
-        //
         // TODO: на самом деле, файл может существовать, но буть заблокирован другим приложением
         //
         raise EBookNotFound.CreateFmt(rstrFileNotFound, [BookFileName]);
@@ -1500,7 +1433,6 @@ begin
   Assert(Assigned(Result) or Settings.IgnoreAbsentArchives);
 end;
 
-// Get the descriptor file as a stream.
 // The caller code must free the stream when done!
 //  For bfFbd - brings the FBD descriptor file
 //  For bfFb2Zip and bfFb2 - brings the FB2 file
@@ -1602,7 +1534,6 @@ begin
       FileName + FileExt);
 end;
 
-// Save the book to a destination file
 procedure TBookRecord.SaveBookToFile(const DestFileName: String);
 var
   SourceStream: TStream;
@@ -1629,14 +1560,12 @@ begin
   Result := GetBookStream;
 end;
 
-// ============================================================================
 
 function IncludeUrlSlash(const S: string): string;
 begin
   Result := S;
   if Result <> '' then
   begin
-    // relevant only for non-empty URL strings
     if Result[Length(Result)] <> '/' then
       Result := Result + '/';
   end;
@@ -1648,7 +1577,7 @@ begin
     Result := 1
   else if d1 < d2 then
     Result := -1
-  else // if d1 = d2 then
+  else
     Result := 0;
 end;
 
@@ -1764,7 +1693,6 @@ begin
     end
     else
       Result := ExitCode = 0;
-    { Free the Handles }
     CloseHandle(ProcInfo.hProcess);
     CloseHandle(ProcInfo.hThread);
   end;

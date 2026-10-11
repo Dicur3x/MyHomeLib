@@ -6,7 +6,7 @@
   *
   * Author(s)             Nick Rymanov     nrymanov@gmail.com
   * Created               20.08.2008
-  * Description         
+  * Description
   *
   * $Id: frm_ImportProgressFormEx.pas 1167 2014-06-16 02:07:14Z koreec $
   *
@@ -54,7 +54,7 @@ var
 
 implementation
 
-uses 
+uses
   unit_Helpers, System.IOUtils;
 
 resourcestring
@@ -62,7 +62,6 @@ resourcestring
 
 {$R *.dfm}
 
-{ TImportProgressForm1 }
 
 procedure TImportProgressFormEx.btnSaveLogClick(Sender: TObject);
 var
@@ -135,7 +134,6 @@ begin
   end;
   item.SubItems.Add(Msg);
 
-//  if Severity = tsError then
   FErrors.Add(Msg);
   errorLog.Perform(WM_KEYDOWN, VK_DOWN, 0);
 end;
@@ -146,4 +144,3 @@ begin
 end;
 
 end.
-

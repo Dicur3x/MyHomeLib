@@ -1,14 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Builds the MetabibTest harness (tools/metabib/tests/MetabibTest.dpr) with dcc64.
-#
-# unit_MetabibReader needs only the RTL plus unit_ZstdStream and
 # unit_MHLArchiveHelpers/unit_MHLExternalTools, so the search path is shorter than the lang
-# harness's -- no VCL, no third-party components.
-#
-# Two Git Bash traps: unquoted backslashes are eaten before the compiler sees
-# them (use forward slashes), and POSIX-looking arguments are rewritten into
-# C:/Program Files/Git/... unless argument conversion is disabled.
 export MSYS2_ARG_CONV_EXCL="*"
 export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/../../.."

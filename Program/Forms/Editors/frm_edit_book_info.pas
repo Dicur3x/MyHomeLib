@@ -7,7 +7,7 @@
   * Authors Oleksiy Penkov   oleksiy.penkov@gmail.com
   *         Nick Rymanov     nrymanov@gmail.com
   * Created                  20.08.2008
-  * Description              
+  * Description
   *
   * $Id: frm_edit_book_info.pas 854 2010-10-08 13:43:19Z eg_ $
   *
@@ -322,7 +322,6 @@ begin
   Result := True;
 end;
 
-// Update the current book if changed and move on to another book.
 procedure TfrmEditBookInfo.DoNextBook(const MoveForward: Boolean);
 begin
   Assert(Assigned(FOnUpdateBook) and Assigned(FOnSelectBook));

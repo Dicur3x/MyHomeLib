@@ -1,14 +1,5 @@
 'use strict';
 
-// Tests for tools/lang/check_glst.js.
-//
-// Each case builds a scratch directory holding a tiny original list plus one
-// translated variant, runs the validator against it, and asserts on the exit
-// code. Fixtures are deliberately three records long: the validator compares
-// structure positionally, so a 300-line fixture would prove nothing a 3-line
-// one does not.
-//
-// Usage: node tools/lang/tests/glst_tests.js
 
 const fs = require('fs');
 const os = require('os');
@@ -25,15 +16,6 @@ const ORIGINAL = [
 
 let caseNo = 0;
 
-// Writes an original + one translated list into a scratch dir and runs the
-// validator. `translated` is the full text of genres_fb2_xx.glst; pass
-// `{ bom: false }` to omit the BOM, `{ eol: '\r\n' }` to give the translation
-// CRLF, or `{ originalEol: '\r\n' }` to give the ORIGINAL CRLF.
-//
-// Both endings are parameterised because the validator compares the two files
-// against each other rather than against a fixed expectation: core.autocrlf is
-// true in this repository, so the real .glst files are LF in git and CRLF in
-// the working tree, and either could be what a translator sees.
 function run(translated, opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `glst${caseNo++}-`));
   const bom = opts.bom === false ? '' : '﻿';
@@ -84,9 +66,6 @@ const checks = [
   }],
 
   ['a lost semicolon fails', () => {
-    // Asserts on the message, not just the exit code: a bare `status === 1`
-    // also matches "Cannot find module", so this case would pass before the
-    // validator existed at all.
     const r = run([
       '#---- comment ----',
       '0.1 Фантастика',
@@ -105,8 +84,6 @@ const checks = [
   }],
 
   ['a name identical to the original passes', () => {
-    // Драматургия is spelled the same in Bulgarian. Identical names are
-    // legitimate and must never fail, or the Bulgarian list is unshippable.
     const r = run([
       '#---- comment ----',
       '0.1 Фантастика',
@@ -134,9 +111,6 @@ const checks = [
   }],
 
   ['LF against a CRLF original fails', () => {
-    // The mirror of the case above. This is the one that matters in practice:
-    // the working tree is CRLF because core.autocrlf is true, so a translation
-    // written with bare LF is the mistake actually waiting to happen.
     const r = run([
       '#---- comment ----',
       '0.1 Фантастика',

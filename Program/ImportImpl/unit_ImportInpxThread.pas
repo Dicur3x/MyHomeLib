@@ -66,11 +66,9 @@ type
     FFields: array of TFields;
     FParsedSeries: TInpxSeriesItems;
     FUseStoredFolder: Boolean;
-    //
     // False (по умолчанию) — collection.info из архива применяется к коллекции.
     // True — свойства коллекции не изменяются: файл может быть чужим, и его
     // URL со скриптом подключения стер бы настройки пользователя.
-    //
     FKeepCollectionProps: Boolean;
 
   protected
@@ -140,7 +138,6 @@ const
 
   DEFAULTSTRUCTURE = 'AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG;LIBRATE;KEYWORDS';
 
-{ TImportInpxThread }
 
 function ExtractStrings(Content: PChar; const Separator: Char; Strings: TStrings): Integer;
 var
@@ -161,7 +158,7 @@ begin
         Tail := StrNextChar(Tail);
 
       EOS := Tail^ = #0;
-      if {(Head <> Tail) and} (Head^ <> #0) then
+      if  (Head^ <> #0) then
       begin
         SetString(Item, Head, Tail - Head);
         Strings.Add(Item);
@@ -198,60 +195,53 @@ begin
   Params.Clear;
   ExtractStrings(PChar(input), INPX_FIELD_DELIMITER, Params);
 
-    // -- костыль
     if Params.Count <= High(FFields) then
       Max := Params.Count - 1
     else
       Max := High(FFields);
-    // --
 
     for i := 0 to Max do
     begin
       case FFields[i] of
         flAuthor:
-          begin // Список авторов
+          begin
             AuthorList := Params[i];
             pStart := PChar(AuthorList);
             pCur := pStart;
             while pCur^ <> #0 do
             begin
-              // Find the end of this author entry (delimited by INPX_ITEM_DELIMITER)
               pItemStart := pCur;
               while (pCur^ <> #0) and (pCur^ <> INPX_ITEM_DELIMITER) do
                 Inc(pCur);
 
               if pCur > pItemStart then
               begin
-                // Parse author sub-fields (LastName,FirstName,MiddleName)
                 pSub := pItemStart;
 
-                // LastName
                 pSubStart := pSub;
                 while (pSub < pCur) and (pSub^ <> INPX_SUBITEM_DELIMITER) do
                   Inc(pSub);
                 SetString(strLastName, pSubStart, pSub - pSubStart);
                 if (pSub < pCur) then Inc(pSub);
 
-                // FirstName
                 pSubStart := pSub;
                 while (pSub < pCur) and (pSub^ <> INPX_SUBITEM_DELIMITER) do
                   Inc(pSub);
                 SetString(strFirstName, pSubStart, pSub - pSubStart);
                 if (pSub < pCur) then Inc(pSub);
 
-                // MiddleName (rest until item delimiter)
                 SetString(strMidName, pSub, pCur - pSub);
 
                 TAuthorsHelper.Add(R.Authors, strLastName, strFirstName, strMidName);
               end;
 
               if pCur^ <> #0 then
-                Inc(pCur); // skip delimiter
+                Inc(pCur);
             end;
           end;
 
         flGenre:
-          begin // Список жанров
+          begin
             GenreList := Params[i];
             pStart := PChar(GenreList);
             pCur := pStart;
@@ -276,16 +266,16 @@ begin
           end;
 
         flTitle:
-          R.Title := Params[i]; // Название
+          R.Title := Params[i];
 
         flSeries:
-          SeriesTitles := Params[i]; // Серия
+          SeriesTitles := Params[i];
 
         flSerNo:
-          SeriesNumbers := Params[i]; // Номер внутри серии
+          SeriesNumbers := Params[i];
 
         flFile:
-          R.FileName := CheckSymbols(Trim(Params[i])); // Имя файла
+          R.FileName := CheckSymbols(Trim(Params[i]));
 
         flExt:
           begin
@@ -296,20 +286,20 @@ begin
           end;
 
         flSize:
-          R.Size := StrToIntDef(Params[i], 0); // Размер
+          R.Size := StrToIntDef(Params[i], 0);
 
-        flLibID: R.LibID := Params[i]; // внутр. номер   ИСПОЛЬЗУЕТСЯ ВО ВСЕХ КОЛЛЕКЦИЯХ!
+        flLibID: R.LibID := Params[i];
 
         flDeleted:
           begin
-            if Params[i] = '1' then // удалена
+            if Params[i] = '1' then
               Include(R.BookProps, bpIsDeleted)
             else
               Exclude(R.BookProps, bpIsDeleted);
           end;
 
         flDate:
-          begin // дата
+          begin
             if Params[i] <> '' then
             begin
               yy := StrToInt(Copy(Params[i], 1, 4));
@@ -322,27 +312,26 @@ begin
           end;
 
         flInsideNo:
-          R.InsideNo := StrToIntDef(Params[i], 0); // номер в архиве
+          R.InsideNo := StrToIntDef(Params[i], 0);
 
         flFolder:
-          R.Folder := Params[i]; // папка
+          R.Folder := Params[i];
 
         flLibRate:
-          R.LibRate := StrToIntDef(Params[i], 0); // внешний рейтинг
+          R.LibRate := StrToIntDef(Params[i], 0);
 
         flRate:
           R.Rate := StrToIntDef(Params[i], 0);
 
         flLang:
-          R.Lang := Params[i]; // язык
+          R.Lang := Params[i];
 
         flKeyWords:
-          R.KeyWords := Params[i]; // ключевые слова
+          R.KeyWords := Params[i];
 
         flURI:
           Assert(False, 'Not supported anymore');
-          ///R.URI := slParams[i]; // ключевые слова
-      end; // case, for
+      end;
     end;
 
   FParsedSeries := ParseInpxSeries(SeriesTitles, SeriesNumbers);
@@ -482,16 +471,13 @@ begin
 
     GetFields(StructureInfo);
 
-    //
     // Предыдущий проход: собираем .inp-члены архива и их распакованные
     // размеры. Размер находится в центральном каталоге zip, чтение ничего не
     // стоит, а учитывать прогресс байтами точнее, чем количеством членов: строки
     // .inp почти одинаковой длины, а сами члены очень разные по объему.
-    //
     // Заодно это устраняет старый недостаток обхода: TMHLZip.FindNext не проверяет
     // расширение, поэтому старый цикл, пропустив последний .inp, передавал
     // в ParseData файлы version.info и collection.info и засорял журнал ошибок.
-    //
     SetLength(InpEntries, Zip.FileCount);
     EntryCount := 0;
     TotalBytes := 0;
@@ -510,12 +496,10 @@ begin
     end;
     SetLength(InpEntries, EntryCount);
 
-    //
     // TWorker.OpenProgress открывает операцию с Total = 0, и TProgressEngine
     // устанавливает стиль бегущей строки pbstMarquee. Пока стиль marquee, Position не виден -
     // именно из-за этого диалог обновления показывал бесконечную «бегущую дорожку»
     // вместо прогресса.
-    //
     if TotalBytes > 0 then
       SetProgressHint(pbstNormal, pbsNormal);
 
@@ -556,7 +540,6 @@ begin
 
               if 0 = (CONTENT_NONFB and collectionCode) then
                 R.Folder := R.GenerateLocation + FB2ZIP_EXTENSION;  // И\Иванов Иван\1234 Просто книга.fb2.zip
-              // Сохраним отметку о существовании файла
               if FileExists(TPath.Combine(CollectionRoot, R.Folder)) then
                 Include(R.BookProps, bpIsLocal)
               else
@@ -642,12 +625,10 @@ begin
             end;
           end;
 
-          //
           // Продвигаем полосу на каждой разобранной строке, а не на каждой сотой
           // *вставленной* книге: инкрементальное обновление, где почти всё уже есть
           // в коллекции, иначе стоит на месте. SetProgress сам отсекает вызовы
           // Synchronize, пока целое число процентов не изменилось.
-          //
           if TotalBytes > 0 then
             SetProgress(Integer(
               (BytesDone + Round(InpEntries[i].Size * ((j + 1) / BookList.Count))) * 100 div TotalBytes));

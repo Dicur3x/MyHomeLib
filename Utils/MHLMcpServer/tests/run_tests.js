@@ -12,9 +12,6 @@ const casesDir = path.join(__dirname, 'cases');
 
 const SERVER_ARGS = ['uselocaldata', 'user', 'mcpfixture'];
 
-// Build the throwaway collection before any case runs. Without this the
-// suite silently falls back to whatever library the machine has, which is
-// exactly the failure mode this replaces.
 const setup = spawnSync(exe, ['--make-fixture', ...SERVER_ARGS], { encoding: 'utf8' });
 if (setup.status !== 0) {
   console.error(`Fixture creation failed (exit ${setup.status}): ${setup.stderr.trim()}`);

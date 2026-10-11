@@ -550,7 +550,6 @@ procedure TfrmAddnonfb2.btnNextClick(Sender: TObject);
 var
   archiver: TMHLZip;
 begin
-  // Конвертация в FBD и добавление в базу
   Screen.Cursor := crHourGlass;
   Enabled := False;
   try
@@ -567,7 +566,6 @@ begin
       finally
         FreeAndNil(archiver);
       end;
-      // заносим данные в БД
       CommitData;
     end
       else CommitData;
@@ -638,15 +636,9 @@ begin
   if Ext = '' then
     Exit;
 
-  //
-  // Пропустим fb2-документы и зипы
-  //
   if (CompareText(Ext, FB2_EXTENSION) = 0) or (CompareText(Ext, ZIP_EXTENSION) = 0) then
     Exit;
 
-  //
-  // Проверим, есть ли у нас ридер для этого документа
-  //
 
   if Settings.Readers.Find(Ext) = nil then
     Exit;

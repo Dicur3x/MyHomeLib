@@ -1,36 +1,9 @@
 'use strict';
 
-// Validates translated genre lists against their Russian original.
-//
-// A .glst line is one of:
-//   #...                      comment
-//   <path> <name>             category   (e.g. "0.1 Фантастика")
-//   <path> <code>;<name>      genre      (e.g. "0.1.0 sf_history;Альт...")
-//
-// The path and the fb2 code are KEYS: the collection database stores the code,
-// and the tree position comes from the path. Only the name is translatable.
-// If a translator perturbs a key the failure is silent -- genres simply stop
-// matching and their books land in "Неотсортированное" -- so this tool
-// compares structure positionally and refuses any drift.
-//
-// Names are never compared. Some Bulgarian genre names are spelled exactly as
-// the Russian ("Драматургия"), so an identical name is not evidence of an
-// untranslated line.
-//
-// Encoding and line endings are compared against the original, not against a
-// fixed expectation -- see the note in compare().
-//
-// Usage:
-//   node tools/lang/check_glst.js [dir]      dir defaults to Installer/Common
-//
-// Exit code: 0 = pass, 1 = fail.
 
 const fs = require('fs');
 const path = require('path');
 
-// Installer/GenreLists is the tracked source of the genre lists. Installer/
-// Common is a staging directory that build_installer.cmd fills and .gitignore
-// excludes, so validating that copy would be validating build output.
 const DIR = process.argv[2]
   || path.join(__dirname, '..', '..', 'Installer', 'GenreLists');
 
@@ -42,8 +15,6 @@ function problem(file, message) {
   problems.push(`${file}: ${message}`);
 }
 
-// Splits a .glst into positional records. Returns { records, hadBom, hadCrLf }.
-// A trailing newline produces a final empty element that is not a record.
 function parse(raw) {
   const hadBom = raw.charCodeAt(0) === 0xfeff;
   const body = hadBom ? raw.slice(1) : raw;
@@ -79,11 +50,6 @@ function compare(originalFile, translatedFile) {
   const orig = parse(fs.readFileSync(path.join(DIR, originalFile), 'utf8'));
   const tr = parse(fs.readFileSync(path.join(DIR, translatedFile), 'utf8'));
 
-  // Both properties are compared against the original rather than against a
-  // fixed expectation. core.autocrlf is true in this repository, so the .glst
-  // files are stored with LF and checked out with CRLF -- hard-coding either
-  // one would fail on somebody's tree. What must hold is that a translation
-  // matches its original in the tree it is sitting in.
   if (orig.hadBom !== tr.hadBom) {
     problem(translatedFile, tr.hadBom
       ? 'has a UTF-8 BOM, the original has none'

@@ -1,14 +1,4 @@
 #!/bin/bash
-# Builds the LangTest harness (tools/lang/tests/LangTest.dpr) with dcc64.
-#
-# The unit search path mirrors the IDE's Win64 library path, read from
-# HKCU\Software\Embarcadero\BDS\37.0\Library\Win64 and expanded, plus every
-# source directory in the repo. dcc64 does not read the IDE library path
-# itself, so it has to be handed over explicitly.
-#
-# Two Git Bash traps: unquoted backslashes are eaten before the compiler sees
-# them (use forward slashes), and POSIX-looking arguments are rewritten into
-# C:/Program Files/Git/... unless argument conversion is disabled.
 export MSYS2_ARG_CONV_EXCL="*"
 export MSYS_NO_PATHCONV=1
 cd "D:/DelphiProjects/MyHomeLib" || exit 1

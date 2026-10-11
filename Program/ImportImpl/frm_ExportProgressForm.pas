@@ -6,8 +6,8 @@
   *
   * Author(s)           Oleksiy Penkov   oleksiy.penkov@gmail.com
   *                     Nick Rymanov     nrymanov@gmail.com
-  * Created             
-  * Description         
+  * Created
+  * Description
   *
   * $Id: frm_ExportProgressForm.pas 543 2010-07-29 06:34:09Z nrymanov@gmail.com $
   *
@@ -26,9 +26,7 @@ uses
 type
   TExportProgressForm = class(TImportProgressForm)
   private
-    { Private declarations }
   public
-    { Public declarations }
   end;
 
 var
@@ -39,4 +37,3 @@ implementation
 {$R *.dfm}
 
 end.
-
