@@ -31,7 +31,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -151,6 +151,7 @@ type
     procedure CleanCollectionBooks(const DatabaseID: Integer);
     function RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean = False): Integer;
 
+    function StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
     function GetDataRevision: string;
     procedure BeginDataUpdate;
     procedure EndDataUpdate(Commit: Boolean);
@@ -1631,12 +1632,32 @@ begin
 end;
 
 procedure TSystemData_SQLite.BeginDataUpdate;
-begin FDatabase.Start; end;
+begin
+  FDatabase.Start;
+  FDatabase.BeginQueryBatch;
+end;
+
+function TSystemData_SQLite.StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
+var Query: TSQLiteQuery; IDs: TList<Integer>;
+begin
+  IDs := TList<Integer>.Create;
+  try
+    Query := FDatabase.NewQuery('SELECT BookID FROM Books WHERE DatabaseID=?');
+    try
+      Query.SetParam(0, CollectionID); Query.Open;
+      while not Query.Eof do
+      begin IDs.Add(Query.FieldAsInt(0)); Query.Next; end;
+      Result := IDs.ToArray;
+    finally Query.Free; end;
+  finally IDs.Free; end;
+end;
 
 procedure TSystemData_SQLite.EndDataUpdate(Commit: Boolean);
 begin
-  if Commit then FDatabase.Commit
-  else if FDatabase.InTransaction then FDatabase.Rollback;
+  try
+    if Commit then FDatabase.Commit
+    else if FDatabase.InTransaction then FDatabase.Rollback;
+  finally FDatabase.EndQueryBatch; end;
 end;
 
 procedure TSystemData_SQLite.ImportUserData(data: TUserData);

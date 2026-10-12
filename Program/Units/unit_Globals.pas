@@ -262,8 +262,10 @@ type
     procedure ClearGenres; inline;
     function GenreCount: Integer; inline;
 
-    function GetBookFormat: TBookFormat;
-    function GetBookFileName: string;
+    function GetBookFormat: TBookFormat; overload;
+    function GetBookFormat(const ResolvedContainer: string): TBookFormat; overload;
+    function GetBookFileName: string; overload;
+    function GetBookFileName(const ResolvedContainer: string): string; overload;
     function GetBookContainer: string;
     function GetBookStream(const PreserveWebP: Boolean = False;
       const RestoreOriginalImages: Boolean = True): TStream;
@@ -1253,13 +1255,16 @@ begin
 end;
 
 function TBookRecord.GetBookFormat: TBookFormat;
+begin Result:=GetBookFormat(GetBookContainer); end;
+
+function TBookRecord.GetBookFormat(const ResolvedContainer: string): TBookFormat;
 var
   BookContainer: string;
   PathLen: Integer;
   LongFileName: string;
 begin
   Result := bfRaw;
-  BookContainer := GetBookContainer;
+  BookContainer := ResolvedContainer;
   PathLen := Length(BookContainer);
 
   if
@@ -1291,12 +1296,15 @@ begin
 end;
 
 function TBookRecord.GetBookFileName: string;
+begin Result:=GetBookFileName(GetBookContainer); end;
+
+function TBookRecord.GetBookFileName(const ResolvedContainer: string): string;
 var
   BookFormat: TBookFormat;
   BookContainer: string;
 begin
-  BookContainer := GetBookContainer;
-  BookFormat := GetBookFormat;
+  BookContainer := ResolvedContainer;
+  BookFormat := GetBookFormat(BookContainer);
   if BookFormat = bfFBD then
     Result := TPath.Combine(BookContainer, FileName)
   else if (BookFormat = bfFb2Archive) or (BookFormat = bfRawArchive)  then

@@ -26,6 +26,30 @@ uses
   unit_UserData;
 
 type
+  // Optional snapshot of existing user cards; merges never create absent cards.
+  ISystemBookPresence = interface
+    ['{D4977BE5-9C8F-44F0-A21C-CC7D46B79BD7}']
+    function StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
+  end;
+
+  // Sequential, read-only relations for an immutable catalogue. Book IDs must
+  // be requested in nondecreasing order; no whole-catalogue relation cache.
+  IBookSeriesReadStream = interface
+    function ReadBook(BookID: Integer): TBookSeries;
+  end;
+
+  // Within a bulk transaction, merge updates metadata with already resolved
+  // author/genre memberships, retaining existing cycle identities.
+  IBookMergeMetadataUpdater = interface
+    ['{943BD756-A71C-42B3-B7A9-A06186B2B63B}']
+    procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
+  end;
+
+  IBookSeriesStreamProvider = interface
+    ['{C4621D4C-322A-4CBF-86C1-41B6BB0348E6}']
+    function OpenBookSeriesReadStream: IBookSeriesReadStream;
+  end;
+
   IIterator<T: record> = interface
     function Next(out v: T): Boolean;
     function RecordCount: Integer;

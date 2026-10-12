@@ -15,7 +15,7 @@ type
     FList: TListView;
     FReport: TMemo;
     FApply, FRefresh, FRoot, FIndexFile, FUp, FDown, FDisconnect, FLibrary, FPreview: TButton;
-    FDetails, FPolicyHelp: TLabel;
+    FDetails, FPolicyHelp, FSpace: TLabel;
     FPolicy, FTargetLibrary: TComboBox;
     FChanged: Boolean;
     FLastReportFile: string;
@@ -25,6 +25,7 @@ type
     procedure RebuildList(Index: Integer);
     procedure UpdateSelection;
     procedure UpdatePolicyHelp;
+    procedure UpdateSpaceEstimate;
     procedure AddINPX(Sender: TObject);
     procedure AddCollection(Sender: TObject);
     procedure MoveSource(Sender: TObject);
@@ -52,7 +53,7 @@ implementation
 
 uses System.SysUtils, System.IOUtils, System.Variants, Vcl.Controls, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
-  frm_ImportProgressFormEx, unit_BookCache, dm_user;
+  frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math;
 
 constructor TfrmCatalogSources.CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
 var Panel: TPanel; LabelText: TLabel; B: TButton;
@@ -99,7 +100,7 @@ begin
   FRefresh.Hint:='Перечитывает выбранный INPX в отдельный каталог источника. Текущая коллекция пока не меняется.'; FRefresh.ShowHint:=True;
   FPreview:=Button(Panel,'2. Проверить объединение',264,252,Preview); FPreview.Top:=80;
   FDetails:=LabelAt(Panel,'',12,118,936,36);
-  Panel:=TPanel.Create(Self); Panel.Parent:=Self; Panel.SetBounds(0,400,ClientWidth,136); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  Panel:=TPanel.Create(Self); Panel.Parent:=Self; Panel.SetBounds(0,400,ClientWidth,198); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
   LabelAt(Panel,'Повторные книги:',12,10,142,20);
   FPolicy:=TComboBox.Create(Self); FPolicy.Parent:=Panel; FPolicy.Style:=csDropDownList;
   FPolicy.SetBounds(158,6,790,26); FPolicy.Anchors:=[akLeft,akTop,akRight];
@@ -119,6 +120,7 @@ begin
   if SameText(VarToStr(FTarget.GetProperty(PROP_SOURCE_LIBRARY)),'mixed') then FTargetLibrary.ItemIndex:=3;
   FTargetLibrary.OnChange:=PolicyChanged;
   LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,20);
+  FSpace:=LabelAt(Panel,'',12,142,936,52);
   Panel:=TPanel.Create(Self); Panel.Parent:=Self;
   // Establish the final parent width before anchoring the right-hand button.
   Panel.SetBounds(0,ClientHeight-48,ClientWidth,48); Panel.Align:=alBottom; Panel.BevelOuter:=bvNone;
@@ -152,6 +154,7 @@ procedure TfrmCatalogSources.InvalidatePreview;
 begin
   FreeAndNil(FSeriesPlan); FreeAndNil(FPlan); FApply.Enabled := False;
   FApply.Caption := '3. Применить объединение';
+  UpdateSpaceEstimate;
 end;
 
 procedure TfrmCatalogSources.Save;
@@ -186,7 +189,50 @@ begin
     end;
     if (Index >= 0) and (Index < FList.Items.Count) then FList.Items[Index].Selected := True;
   finally FList.Items.EndUpdate; end;
-  UpdateSelection;
+  UpdateSelection; UpdateSpaceEstimate;
+end;
+
+procedure TfrmCatalogSources.UpdateSpaceEstimate;
+var Source: TCatalogSource; One, Growth: TCollectionSpaceEstimate;
+  FileName, TargetFile: string; Metadata, NewSnapshots, Temporary, Existing: Int64;
+begin
+  if not Assigned(FSpace) then Exit;
+  Growth:=Default(TCollectionSpaceEstimate); Growth.Known:=True;
+  Metadata:=0; NewSnapshots:=0; Temporary:=0;
+  for Source in FSources do
+  begin
+    One:=Default(TCollectionSpaceEstimate);
+    try
+    if Source.IsINPX then
+    begin
+      FileName:=Source.CacheFile;
+      if FileExists(FileName) then One:=EstimateCatalogBytes(FileName)
+      else
+      begin
+        One:=EstimateCatalogBytes(Source.INPXFile);
+        if One.Known then Inc(NewSnapshots,One.HighBytes);
+      end;
+    end
+    else FileName:=Settings.ExpandCollectionFileName(Source.CollectionFile);
+    if not Source.IsINPX then One:=EstimateCatalogBytes(FileName);
+    except on Error: Exception do One:=Default(TCollectionSpaceEstimate); end;
+    Growth.Known:=Growth.Known and One.Known;
+    Inc(Growth.LowBytes,One.LowBytes); Inc(Growth.HighBytes,One.HighBytes);
+    Inc(Metadata,One.HighBytes);
+  end;
+  if Assigned(FPlan) and (FPlan.Total>0) then
+  begin
+    Growth.LowBytes:=Round(Growth.LowBytes*(FPlan.NewBooks/Double(FPlan.Total)));
+    Growth.HighBytes:=Round(Growth.HighBytes*(FPlan.NewBooks/Double(FPlan.Total)));
+    // Existing copies still add locations and metadata links, even with no new cards.
+    Inc(Growth.HighBytes,Int64(FPlan.Total)*512);
+  end;
+  Inc(Growth.LowBytes,NewSnapshots); Inc(Growth.HighBytes,NewSnapshots);
+  TargetFile:=Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
+  Existing:=0; if FileExists(TargetFile) then Existing:=TFile.GetSize(TargetFile);
+  Temporary:=Existing+Metadata+Growth.HighBytes;
+  FSpace.Caption:=CollectionSpaceText(Growth,Temporary,CollectionDiskFree(Settings.DataPath))+#13#10+
+    'Оценка приблизительная. Архивы книг остаются в исходных папках; уже импортированные книги учитываются после проверки.';
 end;
 
 procedure TfrmCatalogSources.UpdateSelection;
@@ -363,7 +409,7 @@ begin
     if Worker.Success then
     begin FPlan := Worker.TakePlan; FReport.Lines.Assign(FPlan.Report); FApply.Enabled := True; end
     else FReport.Lines.Text := Worker.Error;
-  finally Worker.Free; end;
+  finally Worker.Free; UpdateSpaceEstimate; end;
 end;
 
 procedure TfrmCatalogSources.Apply(Sender: TObject);
@@ -397,7 +443,7 @@ begin
       FApply.Caption := 'Объединить серии'; FApply.Enabled := FSeriesPlan.Count > 0;
     end
     else FReport.Lines.Text := Worker.Error;
-  finally Worker.Free; end;
+  finally Worker.Free; UpdateSpaceEstimate; end;
 end;
 
 procedure TfrmCatalogSources.ApplySeriesAliases;

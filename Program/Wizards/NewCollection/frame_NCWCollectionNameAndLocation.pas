@@ -62,7 +62,7 @@ uses
   unit_Consts,
   unit_Globals,
   unit_MHLArchiveHelpers,
-  unit_MetabibReader;
+  unit_MetabibReader, unit_CollectionSpace, unit_Settings;
 
 resourcestring
 rstrShowCollectionType = 'Укажите название коллекции.';
@@ -185,8 +185,15 @@ begin
 end;
 
 procedure TframeNCWNameAndLocation.HidePageMessage;
+var Estimate: TCollectionSpaceEstimate; Destination: string;
 begin
   pageHint.Visible := False;
+  if not (FPParams^.Operation in [otInpx,otInpxDownload,otMetabib]) or (FPParams^.INPXFile='') then Exit;
+  Estimate:=EstimateCatalogBytes(FPParams^.INPXFile);
+  Destination:=Settings.ExpandCollectionFileName(edCollectionFile.Text);
+  ShowPageMessage(CollectionSpaceText(Estimate,Estimate.HighBytes,CollectionDiskFree(Destination))+#13#10+
+    'Книги остаются в своей папке. Оценка приблизительная.',1);
+  pageHint.Height:=MulDiv(92,CurrentPPI,96);
 end;
 
 function TframeNCWNameAndLocation.Activate(LoadData: Boolean): Boolean;

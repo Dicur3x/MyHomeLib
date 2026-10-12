@@ -26,6 +26,7 @@ uses
   Winapi.Windows,
   SQLite3,
   Classes,
+  System.Generics.Collections,
   SysUtils;
 
 type
@@ -40,6 +41,13 @@ type
   TSQLiteDatabase = class(TObject)
   private
     FDB: TSQLite3DB;
+    FProfileName: string;
+    FQueryBatchDepth: Integer;
+    FStatementGeneration: Integer;
+    FIdleStatements: TDictionary<string, TSQLiteStmt>;
+    procedure ClearIdleStatements;
+    function TakeStatement(const SQL: string; out Generation: Integer): TSQLiteStmt;
+    procedure ReturnStatement(const SQL: string; Statement: TSQLiteStmt; Generation: Integer);
 
   protected
     procedure SetParams(query: TSQLiteQuery; const Params: array of const);
@@ -72,6 +80,10 @@ type
 
     procedure BackupTo(const FileName: string; const Progress: TSQLiteBackupProgress = nil);
     procedure RestoreFrom(const FileName: string);
+    // Reuse a bounded set of statements only while an import/iterator is active.
+    // Live queries keep exclusive ownership; released parameters are cleared.
+    procedure BeginQueryBatch;
+    procedure EndQueryBatch;
 
     procedure CompactDatabase; inline;
     procedure ReindexDatabase; inline;
@@ -126,6 +138,7 @@ type
   private
     FDatabase: TSQLiteDatabase;
     FStmt: TSQLiteStmt;
+    FStatementGeneration: Integer;
     FColCount: Longint;
     FCols: TStringList;
     FRow: Cardinal;
@@ -139,6 +152,7 @@ type
     function GetFieldByName(const FieldName: string): string;
 
     procedure LoadBlob(I: Integer; Stream: TStream);
+    function ProfiledStep: Integer; inline;
 
   public
     {: Class constructor. Called internally by @link(TSqliteDatabase)}
@@ -248,7 +262,7 @@ uses
   unit_Interfaces,
 {$ENDIF}
   Math,
-  SQLite3UDF;
+  SQLite3UDF, SQLiteProfile;
 
 const
   DATE_FORMAT = 'yyyy-mm-dd';
@@ -321,6 +335,8 @@ var
 begin
   inherited Create;
   FDB := nil;
+  FProfileName := ExtractFileName(ExcludeTrailingPathDelimiter(ExtractFilePath(FileName))) +
+    '/' + ExtractFileName(FileName);
   try
     if SQLite3_Open(PUTF8Char(UTF8String(FileName)), FDB) <> SQLITE_OK then
     begin
@@ -365,6 +381,8 @@ var
 begin
   inherited Create;
   FDB := nil;
+  FProfileName := ExtractFileName(ExcludeTrailingPathDelimiter(ExtractFilePath(FileName))) +
+    '/' + ExtractFileName(FileName);
   try
     if SQLite3_Open_v2(PUTF8Char(UTF8String(FileName)), FDB,
       SQLITE_OPEN_READONLY or SQLITE_OPEN_PRIVATECACHE, nil) <> SQLITE_OK then
@@ -392,10 +410,88 @@ end;
 
 destructor TSQLiteDatabase.Destroy;
 begin
+  ClearIdleStatements;
+  FreeAndNil(FIdleStatements);
   if Assigned(FDB) then
     SQLite3_Close(FDB);
 
   inherited Destroy;
+end;
+
+procedure TSQLiteDatabase.ClearIdleStatements;
+var Statement: TSQLiteStmt;
+begin
+  TMonitor.Enter(Self);
+  try
+    if Assigned(FIdleStatements) then
+    begin
+      for Statement in FIdleStatements.Values do SQLite3_Finalize(Statement);
+      FIdleStatements.Clear;
+    end;
+  finally TMonitor.Exit(Self); end;
+end;
+
+procedure TSQLiteDatabase.BeginQueryBatch;
+begin
+  TMonitor.Enter(Self);
+  try
+    if not Assigned(FIdleStatements) then
+      FIdleStatements := TDictionary<string, TSQLiteStmt>.Create;
+    if FQueryBatchDepth = 0 then Inc(FStatementGeneration);
+    Inc(FQueryBatchDepth);
+  finally TMonitor.Exit(Self); end;
+end;
+
+procedure TSQLiteDatabase.EndQueryBatch;
+begin
+  TMonitor.Enter(Self);
+  try
+    if FQueryBatchDepth = 0 then Exit;
+    Dec(FQueryBatchDepth);
+    if FQueryBatchDepth = 0 then ClearIdleStatements;
+  finally TMonitor.Exit(Self); end;
+end;
+
+function BatchStatement(const SQL: string): Boolean;
+var Verb: string;
+begin
+  Verb := UpperCase(Copy(TrimLeft(SQL), 1, 7));
+  Result := (Length(SQL) < 8192) and
+    ((Copy(Verb, 1, 6) = 'SELECT') or (Copy(Verb, 1, 6) = 'INSERT') or
+     (Copy(Verb, 1, 6) = 'UPDATE') or (Copy(Verb, 1, 6) = 'DELETE') or
+     (Verb = 'REPLACE'));
+end;
+
+function TSQLiteDatabase.TakeStatement(const SQL: string; out Generation: Integer): TSQLiteStmt;
+begin
+  Result := nil;
+  TMonitor.Enter(Self);
+  try
+    Generation := FStatementGeneration;
+    if FQueryBatchDepth = 0 then Exit;
+    if not BatchStatement(SQL) then
+    begin
+      // Schema operations must not leave cached SELECT * column metadata behind.
+      ClearIdleStatements;
+      Inc(FStatementGeneration);
+      Generation := FStatementGeneration;
+      Exit;
+    end;
+    if FIdleStatements.TryGetValue(SQL, Result) then FIdleStatements.Remove(SQL);
+  finally TMonitor.Exit(Self); end;
+end;
+
+procedure TSQLiteDatabase.ReturnStatement(const SQL: string; Statement: TSQLiteStmt; Generation: Integer);
+begin
+  TMonitor.Enter(Self);
+  try
+    if (FQueryBatchDepth > 0) and (Generation = FStatementGeneration) and BatchStatement(SQL) and
+      (FIdleStatements.Count < 128) and not FIdleStatements.ContainsKey(SQL) and
+      (SQLite3_Reset(Statement) = SQLITE_OK) and
+      (SQLite3_Clear_Bindings(Statement) = SQLITE_OK) then
+      FIdleStatements.Add(SQL, Statement)
+    else SQLite3_Finalize(Statement);
+  finally TMonitor.Exit(Self); end;
 end;
 
 procedure TSQLiteDatabase.RaiseError(const s, SQL: string);
@@ -613,6 +709,7 @@ constructor TSQLiteQuery.Create(const DB: TSQLiteDatabase; const SQL: string);
 var
   NextSQLStatement: PUTF8Char;
   i: Integer;
+  ProfileStarted: Int64;
 begin
   inherited Create;
 
@@ -621,8 +718,11 @@ begin
   FRow := 0;
   FColCount := 0;
   FSQL := SQL;
+  ProfileStarted := SQLiteProfileClock;
 
-  if SQLITE_OK <> Sqlite3_Prepare_v2(FDatabase.FDB, PUTF8Char(UTF8String(FSQL)), -1, FStmt, NextSQLStatement) then
+  FStmt := FDatabase.TakeStatement(FSQL, FStatementGeneration);
+  if not Assigned(FStmt) and
+    (SQLITE_OK <> Sqlite3_Prepare_v2(FDatabase.FDB, PUTF8Char(UTF8String(FSQL)), -1, FStmt, NextSQLStatement)) then
     DB.RaiseError(c_errorsql, FSQL);
 
   if not Assigned(FStmt) then
@@ -633,13 +733,14 @@ begin
   FColCount := SQLite3_ColumnCount(FStmt);
   for i := 0 to FColCount - 1 do
     FCols.Add(string(UTF8String(SQLite3_ColumnName(FStmt, i))));
+  RecordSQLiteProfile(FDatabase.FProfileName,'prepare',FSQL,ProfileStarted);
 end;
 
 destructor TSQLiteQuery.Destroy;
 begin
   if Assigned(FStmt) then
   begin
-    Sqlite3_Finalize(FStmt);
+    FDatabase.ReturnStatement(FSQL, FStmt, FStatementGeneration);
     FStmt := nil;
   end;
 
@@ -888,6 +989,14 @@ begin
   end;
 end;
 
+function TSQLiteQuery.ProfiledStep: Integer;
+var Started: Int64;
+begin
+  Started := SQLiteProfileClock;
+  Result := SQLite3_Step(FStmt);
+  RecordSQLiteProfile(FDatabase.FProfileName,'step',FSQL,Started);
+end;
+
 procedure TSQLiteQuery.ExecSQL;
 {$IFDEF USELOGGER}
 var
@@ -898,7 +1007,7 @@ begin
 begin
 {$ENDIF}
   try
-    if SQLITE_DONE <> SQLite3_Step(FStmt) then
+    if SQLITE_DONE <> ProfiledStep then
       FDatabase.RaiseError(c_errorexec, FSQL);
   finally
     Reset;
@@ -920,7 +1029,7 @@ end;
 function TSQLiteQuery.Next: Boolean;
 begin
   FEof := True;
-  case SQLite3_Step(FStmt) of
+  case ProfiledStep of
     SQLITE_ROW:
       begin
         FEof := False;

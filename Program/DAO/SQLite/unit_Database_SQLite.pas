@@ -28,7 +28,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater)
   strict private type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
@@ -59,12 +59,25 @@ type
       FCollectionName: string;
       FLoadMemos: Boolean;
       FMode: TBookIteratorMode;
+      FQueryBatchStarted: Boolean;
       FExpandSearchSeries: Boolean;
       FMatchedViewID: string;
       FLastStreamBook: TBookRecord;
 
       procedure PrepareData(const Mode: TBookIteratorMode; const FilterValue: PFilterValue; const SearchCriteria: TBookSearchCriteria);
       procedure PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
+    end;
+
+    TBookSeriesReadStreamImpl = class(TInterfacedObject, IBookSeriesReadStream)
+    private
+      FCollection: IBookCollection;
+      FQuery: TSQLiteQuery;
+      FLastBookID: Integer;
+      FLastSeries: TBookSeries;
+    public
+      constructor Create(Collection: TBookCollection_SQLite);
+      destructor Destroy; override;
+      function ReadBook(BookID: Integer): TBookSeries;
     end;
 
     TPublisherSeriesIndexIterator = class(TInterfacedObject, IPublisherSeriesIndexIterator)
@@ -185,6 +198,7 @@ type
       Cache: TImportCache): Integer; overload;
     procedure GetBookRecord(const BookKey: TBookKey; out BookRecord: TBookRecord; const LoadMemos: Boolean); override;
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
+    function OpenBookSeriesReadStream: IBookSeriesReadStream;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
     procedure CompletePublisherSeriesIndex(const BookKey: TBookKey;
@@ -200,6 +214,8 @@ type
     procedure SetCatalogBookPreferredSource(const BookKey: TBookKey; const SourceName: string);
     function GetCatalogBookCopies(const BookKey: TBookKey): TArray<TBookRecord>;
     procedure UpdateBook(BookRecord: TBookRecord);
+    procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
+    function SeriesTriggersEnabled: Boolean;
     procedure DeleteBook(const BookKey: TBookKey);
 
     procedure UpdateAuthor(Author : PAuthorData);
@@ -256,6 +272,8 @@ type
 
   strict private
     FDatabase: TSQLiteDatabase;
+    FPreserveSeriesOnUpdate: Boolean;
+    FBulkSavedCacheSize: Integer;
     FSourceDisplayNames: TStringList;
     FPreferredSourceNames: TDictionary<Integer,string>;
     FSourceGenres: Boolean;
@@ -457,7 +475,7 @@ begin
     FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AI_Series');
     FDatabase.ExecSQL(
       'CREATE TRIGGER TRBooks_AI_Series AFTER INSERT ON Books ' +
-      'WHEN MHL_TRIGGERS_ON() AND NEW.SeriesID IS NOT NULL BEGIN ' +
+      'WHEN MHL_SERIES_TRIGGERS_ON() AND NEW.SeriesID IS NOT NULL BEGIN ' +
       'INSERT OR REPLACE INTO Series_List ' +
       '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
       'VALUES (NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0); END'
@@ -465,7 +483,7 @@ begin
     FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AU_Series');
     FDatabase.ExecSQL(
       'CREATE TRIGGER TRBooks_AU_Series AFTER UPDATE OF SeriesID, SeqNumber ON Books ' +
-      'WHEN MHL_TRIGGERS_ON() BEGIN ' +
+      'WHEN MHL_SERIES_TRIGGERS_ON() BEGIN ' +
       'UPDATE Series_List SET IsPrimary = 0 WHERE BookID = NEW.BookID; ' +
       'DELETE FROM Series_List WHERE BookID = NEW.BookID ' +
       'AND SeriesID = OLD.SeriesID AND OLD.SeriesID IS NOT NULL ' +
@@ -638,6 +656,8 @@ begin
   Assert(FCollectionID > 0);
   FCollectionRoot := FCollection.CollectionRoot;
   FCollectionName := FCollection.CollectionDisplayName;
+  FCollection.FDatabase.BeginQueryBatch;
+  FQueryBatchStarted := True;
 
   if Mode = bmSearch then
   begin
@@ -670,7 +690,10 @@ begin
   FreeAndNil(FCount);
   if FMatchedViewID <> '' then FCollection.FDatabase.ExecSQL(
     'DELETE FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID));
-  finally SQLiteCancelCallback := SavedCancel; end;
+  finally
+    if FQueryBatchStarted then FCollection.FDatabase.EndQueryBatch;
+    SQLiteCancelCallback := SavedCancel;
+  end;
   inherited Destroy;
 end;
 
@@ -1734,6 +1757,17 @@ begin
     SQLite3_Result_Int(pCtx, 1);
 end;
 
+function TBookCollection_SQLite.SeriesTriggersEnabled: Boolean;
+begin Result:=FTriggersEnabled and not FPreserveSeriesOnUpdate; end;
+
+procedure getIsSeriesTriggersOn(pCtx: TSQLite3Context; nArgs: Integer; Args: TSQLite3Value); cdecl;
+var DB: TBookCollection_SQLite;
+begin
+  DB:=TBookCollection_SQLite(SQLite3_User_Data(pCtx));
+  if Assigned(DB) then SQLite3_Result_Int(pCtx,Ord(DB.SeriesTriggersEnabled))
+  else SQLite3_Result_Int(pCtx,1);
+end;
+
 constructor TBookCollection_SQLite.Create(const CollectionInfo: TCollectionInfo; const SystemData: ISystemData);
 begin
   Assert(Assigned(SystemData));
@@ -1747,6 +1781,7 @@ begin
   FDatabase.AddFunction('MHL_FULLNAME',    3, fullAuthorName);
   FDatabase.AddFunction('MHL_FULLNAME',    4, fullAuthorNameEx);
   FDatabase.AddFunction('MHL_TRIGGERS_ON', 0, getIsTriggersOn, SQLITE_ANY, Self);
+  FDatabase.AddFunction('MHL_SERIES_TRIGGERS_ON', 0, getIsSeriesTriggersOn, SQLITE_ANY, Self);
 
   EnsureSchemaCurrent;
   FDatabase.ExecSQL('CREATE TEMP TABLE MHLGenreMatches(' +
@@ -1768,6 +1803,7 @@ begin
   FDatabase.AddFunction('MHL_FULLNAME',    3, fullAuthorName);
   FDatabase.AddFunction('MHL_FULLNAME',    4, fullAuthorNameEx);
   FDatabase.AddFunction('MHL_TRIGGERS_ON', 0, getIsTriggersOn, SQLITE_ANY, Self);
+  FDatabase.AddFunction('MHL_SERIES_TRIGGERS_ON', 0, getIsSeriesTriggersOn, SQLITE_ANY, Self);
 
   EnsureSchemaCurrent;
   FDatabase.ExecSQL('CREATE TEMP TABLE MHLGenreMatches(' +
@@ -2815,6 +2851,40 @@ begin
     FSystemData.GetBookRecord(BookKey, BookRecord);
 end;
 
+constructor TBookCollection_SQLite.TBookSeriesReadStreamImpl.Create(Collection: TBookCollection_SQLite);
+begin
+  inherited Create; FCollection:=Collection;
+  FQuery:=Collection.FDatabase.NewQuery(
+    'SELECT sl.BookID,s.SeriesID,s.SeriesTitle,sl.SeqNumber,sl.IsPrimary ' +
+    'FROM Series_List sl INNER JOIN Series s ON s.SeriesID=sl.SeriesID ' +
+    'ORDER BY sl.BookID,sl.IsPrimary DESC,sl.OrdNum,s.SeriesTitle');
+  FQuery.Open;
+end;
+
+destructor TBookCollection_SQLite.TBookSeriesReadStreamImpl.Destroy;
+begin FQuery.Free; inherited; end;
+
+function TBookCollection_SQLite.TBookSeriesReadStreamImpl.ReadBook(BookID: Integer): TBookSeries;
+var Count: Integer;
+begin
+  if BookID<FLastBookID then raise EArgumentException.Create('Series stream requires increasing book IDs');
+  if BookID=FLastBookID then Exit(Copy(FLastSeries));
+  FLastBookID:=BookID; Result:=nil;
+  while not FQuery.Eof and (FQuery.FieldAsInt(0)<BookID) do FQuery.Next;
+  Count:=0;
+  while not FQuery.Eof and (FQuery.FieldAsInt(0)=BookID) do
+  begin
+    SetLength(Result,Count+1); Result[Count].SeriesID:=FQuery.FieldAsInt(1);
+    Result[Count].SeriesTitle:=FQuery.FieldAsString(2);
+    if FQuery.FieldIsNull(3) then Result[Count].SeqNumber:=0 else Result[Count].SeqNumber:=FQuery.FieldAsInt(3);
+    Result[Count].IsPrimary:=FQuery.FieldAsBoolean(4); Inc(Count); FQuery.Next;
+  end;
+  FLastSeries:=Copy(Result);
+end;
+
+function TBookCollection_SQLite.OpenBookSeriesReadStream: IBookSeriesReadStream;
+begin Result:=TBookSeriesReadStreamImpl.Create(Self); end;
+
 function TBookCollection_SQLite.GetBookSeries(const BookKey: TBookKey): TBookSeries;
 const
   SQL =
@@ -3043,7 +3113,8 @@ end;
 procedure TBookCollection_SQLite.SetCatalogBookID(const SourceKey: string; BookID: Integer);
 begin
   if not Assigned(FCatalogWrite) then
-    FCatalogWrite := FDatabase.NewQuery('INSERT OR REPLACE INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?)');
+    FCatalogWrite := FDatabase.NewQuery('INSERT INTO CatalogSourceBooks(SourceKey,BookID) VALUES(?,?) '+
+      'ON CONFLICT(SourceKey) DO UPDATE SET BookID=excluded.BookID WHERE BookID IS NOT excluded.BookID');
   FCatalogWrite.Reset; FCatalogWrite.SetParam(0, SourceKey); FCatalogWrite.SetParam(1, BookID);
   try FCatalogWrite.Open; finally FCatalogWrite.Reset; end;
 end;
@@ -3052,7 +3123,9 @@ procedure TBookCollection_SQLite.SetCatalogBookPreferredSource(const BookKey: TB
 begin
   LoadPreferredSourceNames;
   if not Assigned(FCatalogPreferredWrite) then
-    FCatalogPreferredWrite := FDatabase.NewQuery('INSERT OR REPLACE INTO CatalogPreferredSource(BookID,SourceName) VALUES(?,?)');
+    FCatalogPreferredWrite := FDatabase.NewQuery('INSERT INTO CatalogPreferredSource(BookID,SourceName) VALUES(?,?) '+
+      'ON CONFLICT(BookID) DO UPDATE SET SourceName=excluded.SourceName '+
+      'WHERE SourceName COLLATE BINARY IS NOT excluded.SourceName');
   FCatalogPreferredWrite.Reset; FCatalogPreferredWrite.SetParam(0,BookKey.BookID);
   FCatalogPreferredWrite.SetParam(1,SourceName);
   try FCatalogPreferredWrite.Open; finally FCatalogPreferredWrite.Reset; end;
@@ -3063,9 +3136,15 @@ procedure TBookCollection_SQLite.SetCatalogBookCopy(const SourceKey, SourceName:
   const Book: TBookRecord);
 begin
   if not Assigned(FCatalogCopyWrite) then
-    FCatalogCopyWrite := FDatabase.NewQuery('INSERT OR REPLACE INTO CatalogBookCopies '
+    FCatalogCopyWrite := FDatabase.NewQuery('INSERT INTO CatalogBookCopies '
       + '(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '
-      + 'VALUES(?,?,?,?,?,?,?,?,?,?)');
+      + 'VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(SourceKey) DO UPDATE SET '
+      + 'BookID=excluded.BookID,SourceName=excluded.SourceName,Root=excluded.Root,Folder=excluded.Folder,'
+      + 'FileName=excluded.FileName,Ext=excluded.Ext,InsideNo=excluded.InsideNo,BookSize=excluded.BookSize,LibID=excluded.LibID '
+      + 'WHERE BookID IS NOT excluded.BookID OR SourceName COLLATE BINARY IS NOT excluded.SourceName '
+      + 'OR Root COLLATE BINARY IS NOT excluded.Root OR Folder COLLATE BINARY IS NOT excluded.Folder '
+      + 'OR FileName COLLATE BINARY IS NOT excluded.FileName OR Ext COLLATE BINARY IS NOT excluded.Ext '
+      + 'OR InsideNo IS NOT excluded.InsideNo OR BookSize IS NOT excluded.BookSize OR LibID COLLATE BINARY IS NOT excluded.LibID');
   FCatalogCopyWrite.Reset;
   FCatalogCopyWrite.SetParam(0, SourceKey); FCatalogCopyWrite.SetParam(1, Book.BookKey.BookID);
   FCatalogCopyWrite.SetParam(2, SourceName); FCatalogCopyWrite.SetParam(3, Book.CollectionRoot);
@@ -3096,6 +3175,14 @@ begin
   finally Query.Free; end;
 end;
 
+procedure TBookCollection_SQLite.UpdateBookPreservingSeries(BookRecord: TBookRecord);
+var Previous: Boolean;
+begin
+  if not InBulkOperation then raise EInvalidOperation.Create('Обновление метаданных объединения требует пакетной транзакции.');
+  Previous:=FPreserveSeriesOnUpdate; FPreserveSeriesOnUpdate:=True;
+  try UpdateBook(BookRecord); finally FPreserveSeriesOnUpdate:=Previous; end;
+end;
+
 procedure TBookCollection_SQLite.UpdateBook(BookRecord: TBookRecord);
 const
   SQL_INSERT =
@@ -3119,10 +3206,12 @@ begin
     BookRecord.Normalize;
 
     Assert(BookRecord.AuthorCount > 0);
-    for i := 0 to BookRecord.AuthorCount - 1 do
-      BookRecord.Authors[i].AuthorID := InsertAuthorIfMissing(BookRecord.Authors[i]);
+    if not FPreserveSeriesOnUpdate then
+      for i := 0 to BookRecord.AuthorCount - 1 do
+        BookRecord.Authors[i].AuthorID := InsertAuthorIfMissing(BookRecord.Authors[i]);
 
     Assert(BookRecord.GenreCount > 0);
+    if not FPreserveSeriesOnUpdate then
     for i := 0 to BookRecord.GenreCount - 1 do
     begin
       if BookRecord.Genres[i].FB2GenreCode <> '' then
@@ -3197,8 +3286,13 @@ begin
         [BookRecord.SeqNumber, BookRecord.BookKey.BookID, BookRecord.SeriesID]
       );
 
-    SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, True);
-    SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, True);
+    // Merge already resolved and unioned these memberships. Rewriting the
+    // same author/genre relations for each metadata update dirties many pages.
+    if not FPreserveSeriesOnUpdate then
+    begin
+      SetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, True);
+      SetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors, True);
+    end;
     if BookRecord.PublisherSeriesKnown then
       SetBookPublisherSeries(BookRecord.BookKey, BookRecord.PublisherSeries);
 
@@ -3411,7 +3505,16 @@ begin
     if OwnTransaction then
       FDatabase.Start;
     try
-      if SeriesID = NO_SERIES_ID then
+      if FPreserveSeriesOnUpdate then
+      begin
+        // The merge may choose another primary cycle, but old memberships and
+        // IDs remain available for restored links and existing user cards.
+        FDatabase.ExecSQL('UPDATE Series_List SET IsPrimary=0 WHERE BookID=? AND IsPrimary<>0',[BookKey.BookID]);
+        if SeriesID<>NO_SERIES_ID then
+          FDatabase.ExecSQL('INSERT INTO Series_List (BookID,SeriesID,SeqNumber,IsPrimary,OrdNum) VALUES(?,?,?,1,0) '+
+            'ON CONFLICT(BookID,SeriesID) DO UPDATE SET IsPrimary=1,OrdNum=0',[BookKey.BookID,SeriesID,SeqNumber]);
+      end
+      else if SeriesID = NO_SERIES_ID then
       begin
         // In the existing UI an empty series means "remove the book from
         // series", not merely hide its primary label. Clear every membership
@@ -3466,7 +3569,7 @@ begin
         FreeAndNil(Query);
       end;
 
-      if SeriesID = NO_SERIES_ID then
+      if not FPreserveSeriesOnUpdate and (SeriesID = NO_SERIES_ID) then
       begin
         for RemovedID in RemovedSeries do
           FDatabase.ExecSQL(
@@ -3475,7 +3578,7 @@ begin
             [RemovedID]
           );
       end
-      else if OldSeriesID <> NO_SERIES_ID then
+      else if not FPreserveSeriesOnUpdate and (OldSeriesID <> NO_SERIES_ID) then
         FDatabase.ExecSQL(
           'DELETE FROM Series WHERE SeriesID = ? AND NOT EXISTS (' +
           'SELECT 1 FROM Series_List sl WHERE sl.SeriesID = Series.SeriesID)',
@@ -3513,10 +3616,25 @@ begin
 end;
 
 procedure TBookCollection_SQLite.BeginBulkOperation;
+{$IFDEF WIN64}
+var Memory: TMemoryStatusEx;
+{$ENDIF}
 begin
   Assert(not FDatabase.InTransaction);
 
   FDatabase.Start;
+{$IFDEF WIN64}
+  // Large merges touch several indexes per row. Keep their hot pages in RAM
+  // when it is available; restore the ordinary connection budget afterwards.
+  FBulkSavedCacheSize := FDatabase.QuerySingleInt('PRAGMA cache_size');
+  Memory.dwLength := SizeOf(Memory);
+  if GlobalMemoryStatusEx(Memory) then
+    if Memory.ullAvailPhys >= UInt64(8) * 1024 * 1024 * 1024 then
+      FDatabase.ExecSQL('PRAGMA cache_size = -524288')
+    else if Memory.ullAvailPhys >= UInt64(2) * 1024 * 1024 * 1024 then
+      FDatabase.ExecSQL('PRAGMA cache_size = -131072');
+{$ENDIF}
+  FDatabase.BeginQueryBatch;
 end;
 
 function TBookCollection_SQLite.InBulkOperation: Boolean;
@@ -3529,12 +3647,21 @@ begin
   Assert(FDatabase.InTransaction);
   FreeAndNil(FPreferredSourceNames);
 
-  if Commit then
-    FDatabase.Commit
-  else
-  begin
-    FDatabase.Rollback;
-    InternalLoadGenres;
+  try
+    if Commit then
+      FDatabase.Commit
+    else
+    begin
+      FDatabase.Rollback;
+      InternalLoadGenres;
+    end;
+  finally
+    FDatabase.EndQueryBatch;
+    if FBulkSavedCacheSize <> 0 then
+    begin
+      FDatabase.ExecSQL('PRAGMA cache_size = ' + IntToStr(FBulkSavedCacheSize));
+      FBulkSavedCacheSize := 0;
+    end;
   end;
 end;
 
