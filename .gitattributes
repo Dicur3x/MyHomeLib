@@ -1,0 +1,2 @@
+# Preserve pinned font resources and upstream license bytes across Windows checkouts.
+Installer/ReaderFonts/** -text
