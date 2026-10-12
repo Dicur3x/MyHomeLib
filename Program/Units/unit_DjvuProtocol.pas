@@ -11,6 +11,8 @@ const
 
 type
   TDjvuRequest = packed record
+    // Length: UTF-8 filename byte count for OPEN; max image edge for RENDER
+    // (0 keeps the original 4000px limit); no payload follows RENDER.
     Magic, Command, Index, Length: Integer;
   end;
   TDjvuResponse = packed record

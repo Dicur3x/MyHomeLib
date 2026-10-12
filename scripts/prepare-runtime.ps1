@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
@@ -207,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1081'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1083'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -324,6 +324,7 @@ foreach ($djvuName in @('HomeLibDjvu.exe','ddjvu.exe','djvused.exe','libdjvulibr
     Assert-Architecture -Path (Join-Path $outputDirectory "tools\djvu\$djvuName") -Expected 'Win32'
 }
 & (Join-Path $PSScriptRoot 'prepare-raster-runtime.ps1') -Platform $Platform | Out-Host
+& (Join-Path $PSScriptRoot 'prepare-reader-fonts.ps1') -Platform $Platform -Copy:$Copy | Out-Host
 # The official static djxl build must match the package architecture so the
 # Win32 distribution also restores JPEG XL images on 32-bit Windows.
 Assert-Architecture -Path $jpegXlDestination -Expected $Platform

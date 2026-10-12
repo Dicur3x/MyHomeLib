@@ -1,0 +1,661 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "commit": "bd8f81ddb5c74d5c8897b36ad88b440266245103",
+  "license": "SIL Open Font License 1.1",
+  "files": [
+    {
+      "path": "ptserif/OFL.txt",
+      "size": 4434,
+      "sha256": "ddf311c28ddf5a5ad9747649837346b67bed9d356789c3072bb27dbce49e514d"
+    },
+    {
+      "path": "ptserif/PT_Serif-Web-Bold.ttf",
+      "size": 339996,
+      "sha256": "038ba7336bd7ea14f12ad155bed51a4345cac5153275d521dec3ba04021c526e"
+    },
+    {
+      "path": "ptserif/PT_Serif-Web-BoldItalic.ttf",
+      "size": 337580,
+      "sha256": "f003788ba08981eb0988b3557a6f224a53dab49c20e283e8b74d5af3c466f8be"
+    },
+    {
+      "path": "ptserif/PT_Serif-Web-Italic.ttf",
+      "size": 375356,
+      "sha256": "f57e95ff9dc85691a3b2e193f2028db36f6663939a46c0fc4f286d618b80b7ce"
+    },
+    {
+      "path": "ptserif/PT_Serif-Web-Regular.ttf",
+      "size": 359048,
+      "sha256": "a4951fade06ff8f09b7673aa81ffb65a8cd409e24d3289a6dc670bc4dda2557a"
+    },
+    {
+      "path": "ptsans/OFL.txt",
+      "size": 4425,
+      "sha256": "2758cf7a872827f39661cf8cc24188113c030447aefb5ca7145993650076ca8c"
+    },
+    {
+      "path": "ptsans/PT_Sans-Web-Bold.ttf",
+      "size": 470240,
+      "sha256": "3128bd5ecf01816e59a23d54c57a7a6b14615b07db53ff277c77376010265b05"
+    },
+    {
+      "path": "ptsans/PT_Sans-Web-BoldItalic.ttf",
+      "size": 375204,
+      "sha256": "81ac221cdd02bccfa679c74adb122478e9d092e65a722e31ca11469961483785"
+    },
+    {
+      "path": "ptsans/PT_Sans-Web-Italic.ttf",
+      "size": 436452,
+      "sha256": "5a90fe2d0cd798700935240580bdcc12c0ffc9102c0c7163b3418e13bc21debd"
+    },
+    {
+      "path": "ptsans/PT_Sans-Web-Regular.ttf",
+      "size": 442960,
+      "sha256": "9cc831490532009bae2b3ce0d39c62adfc889060beb421593bfd9d2396d0f10a"
+    },
+    {
+      "path": "noto/NotoSerif-Regular.ttf",
+      "size": 616196,
+      "sha256": "c8f669ceb2c9c60ccf55198b305e08a997ffca79a38cc7eeb551e643cbe66505",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerif/NotoSerif-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerif-Bold.ttf",
+      "size": 638164,
+      "sha256": "3b2086a869bcded2aeb4416fc281ceec9d6ce3c06756cda19f8f763636204e7d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerif/NotoSerif-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerif-Italic.ttf",
+      "size": 657092,
+      "sha256": "0ea81d6b54fc8aa5dff0fd6ebe7cfa431e9e6cf747a8d4aa33581fa0aaccffea",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerif/NotoSerif-Italic.ttf"
+    },
+    {
+      "path": "noto/NotoSerif-BoldItalic.ttf",
+      "size": 675428,
+      "sha256": "4fb8737145b4a503d548af4b517afdfc532e44a96ac15378257e825741334eec",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerif/NotoSerif-BoldItalic.ttf"
+    },
+    {
+      "path": "noto/NotoSans-Regular.ttf",
+      "size": 569208,
+      "sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSans-Bold.ttf",
+      "size": 575740,
+      "sha256": "c976e4b1b99edc88775377fcc21692ca4bfa46b6d6ca6522bfda505b28ff9d6a",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSans/NotoSans-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSans-Italic.ttf",
+      "size": 552776,
+      "sha256": "36cff144df01309dab648bea71baff9bb074026914afe63aeacc8bc90b67a28b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSans/NotoSans-Italic.ttf"
+    },
+    {
+      "path": "noto/NotoSans-BoldItalic.ttf",
+      "size": 555292,
+      "sha256": "6edf4227ef0fa846aca70e86a307804ca4401741830f5b3af0f2554abe2b8466",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSans/NotoSans-BoldItalic.ttf"
+    },
+    {
+      "path": "noto/NotoSerifArmenian-Regular.ttf",
+      "size": 31192,
+      "sha256": "d1970a69c54a03d44371f3825738832783fea983c3ae2c030d2515390d8376e3",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifArmenian/NotoSerifArmenian-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifArmenian-Bold.ttf",
+      "size": 30412,
+      "sha256": "ab04a5f764fc8dfda0ea2f3ff0c79a04a53ca3efa10538d4915255886586617b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifArmenian/NotoSerifArmenian-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifBengali-Regular.ttf",
+      "size": 263780,
+      "sha256": "04935aea18655c451d05b1d4bb5bdc835226a221663f89a2ecfbcfdc4483e399",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifBengali/NotoSerifBengali-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifBengali-Bold.ttf",
+      "size": 258728,
+      "sha256": "f752131cd292f3e0fd7a25c8fc86f5424062bc06e29f6dfadcb3c09ff4881dd0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifBengali/NotoSerifBengali-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifDevanagari-Regular.ttf",
+      "size": 262176,
+      "sha256": "7d4e2b1a7712840218a2726d598490647959ed1104934f3d30a72e77b7c51dad",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifDevanagari/NotoSerifDevanagari-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifDevanagari-Bold.ttf",
+      "size": 278024,
+      "sha256": "ed4f180a6c63605a336541ba533f7aeb30e1e979a0d1ca7ce110703c13ef8015",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifDevanagari/NotoSerifDevanagari-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifEthiopic-Regular.ttf",
+      "size": 289588,
+      "sha256": "25983a0af987cef4f615e4dbebd25d66ffd4692a40241272b462d74915f519fe",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifEthiopic/NotoSerifEthiopic-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifEthiopic-Bold.ttf",
+      "size": 283060,
+      "sha256": "7065e66bf1bb81351d0c246fe3da86284e563a2ec253d4fb7fb2dd88944159c0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifEthiopic/NotoSerifEthiopic-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGeorgian-Regular.ttf",
+      "size": 61176,
+      "sha256": "8a5614430701ffaa134cf7745468c75cfe6b3c849c5a526cbb92312ec07fc26e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGeorgian/NotoSerifGeorgian-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGeorgian-Bold.ttf",
+      "size": 63768,
+      "sha256": "7dd3f76df0a7a520d45cb46a335be0cc74009b8426968c2efd32fa61561cd281",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGeorgian/NotoSerifGeorgian-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGujarati-Regular.ttf",
+      "size": 144736,
+      "sha256": "e2f5198b0d222a018cb61f9b1ad367aed0f44106b79e416863f4373df3d4ebe0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGujarati/NotoSerifGujarati-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGujarati-Bold.ttf",
+      "size": 147448,
+      "sha256": "1fd2b2d5a1a79d897dbb8fb0293939d9e36b64bba0cb8f9fb224384ab250f1f1",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGujarati/NotoSerifGujarati-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGurmukhi-Regular.ttf",
+      "size": 52688,
+      "sha256": "e1eaad136a435f6dfa5f0ddd20283b5b8457e04277fd0172170b5972130c05b0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGurmukhi/NotoSerifGurmukhi-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifGurmukhi-Bold.ttf",
+      "size": 53624,
+      "sha256": "1c9f227e5bb652ba775b0376c3fe9e8ac546c512078821b119534305478ed841",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifGurmukhi/NotoSerifGurmukhi-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifHebrew-Regular.ttf",
+      "size": 31584,
+      "sha256": "972cfce9bad925c350e0e1a0e79457543fcdc44adab1aa8adeae7b55985cf74b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifHebrew/NotoSerifHebrew-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifHebrew-Bold.ttf",
+      "size": 32324,
+      "sha256": "9fa00119ecf50e8b40e19589660a6ecc432efec3042d2dbd414184fefc84ca61",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifHebrew/NotoSerifHebrew-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifKannada-Regular.ttf",
+      "size": 194492,
+      "sha256": "13621affeebd95198c35c98aaf40027e93c611051490bb48f4766b28f36debd6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifKannada/NotoSerifKannada-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifKannada-Bold.ttf",
+      "size": 214044,
+      "sha256": "fa4ad6b8c4cb3ee90acfac43295c3b4fa4e2741a6d6a946a9ffa29b2e027f819",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifKannada/NotoSerifKannada-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifKhmer-Regular.ttf",
+      "size": 154040,
+      "sha256": "97f00cabc9f55ec1fc74e1e7d84e92e2fdd260a641b31313e8d99b136a289424",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifKhmer/NotoSerifKhmer-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifKhmer-Bold.ttf",
+      "size": 151828,
+      "sha256": "7f4c9844e98d0602648977644cc855ccf1e052e1c9f08cef0b5fe5a96f68b3fe",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifKhmer/NotoSerifKhmer-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifLao-Regular.ttf",
+      "size": 38516,
+      "sha256": "55845d2fdb33b8a7ea44dcf980ea5c986af860f0fd5f36d1e3a98c173bd4d6f1",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifLao/NotoSerifLao-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifLao-Bold.ttf",
+      "size": 40352,
+      "sha256": "9fc254b4c443d9e2098279fff7e51deaa1438c41b02d3c79b21aaeb03bf2259b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifLao/NotoSerifLao-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifMalayalam-Regular.ttf",
+      "size": 111052,
+      "sha256": "78e06f3779a8bfa022692f8c333bf01c35b6f52de1cf1a07c259122d49f2f1c4",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifMalayalam/NotoSerifMalayalam-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifMalayalam-Bold.ttf",
+      "size": 112256,
+      "sha256": "a85eb59057a5f496b683d84bd6186ce7c656eacb0ec3dd19bbac29a25805d533",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifMalayalam/NotoSerifMalayalam-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifMyanmar-Regular.ttf",
+      "size": 260404,
+      "sha256": "be851bee6c1dad293c176473a62b61f59bbc516bd0e238e7db2b19be5f69e0f8",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifMyanmar/NotoSerifMyanmar-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifMyanmar-Bold.ttf",
+      "size": 271328,
+      "sha256": "1289b00a744c7c33ec271afb3c3492060f3a6f7127cf9a1979f22b0998d1f6c8",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifMyanmar/NotoSerifMyanmar-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifOriya-Regular.ttf",
+      "size": 113568,
+      "sha256": "4bd74637b0714f9bc903b54d5badb623acdd9a0af049de0635f5f499f12351fb",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifOriya/NotoSerifOriya-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifOriya-Bold.ttf",
+      "size": 111212,
+      "sha256": "2910287e6f904f2ad923b510620528e1af1f6cfc2fc807945b82861035d3b46f",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifOriya/NotoSerifOriya-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifSinhala-Regular.ttf",
+      "size": 322840,
+      "sha256": "3f5436fa46dd8c31f676021296d448059bea40621aa8a671fcc20beefd812cb0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifSinhala/NotoSerifSinhala-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifSinhala-Bold.ttf",
+      "size": 334568,
+      "sha256": "a40dcea59771cd9c382494a430cbcae46f77ff2eb5d85a2e4d742359a533762f",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifSinhala/NotoSerifSinhala-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTamil-Regular.ttf",
+      "size": 79636,
+      "sha256": "ceca1de97e8b2b65c1a7b7b0a62c6015d20c1544ecbfb4b1dd044bf6f56e0cb8",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTamil/NotoSerifTamil-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTamil-Bold.ttf",
+      "size": 78460,
+      "sha256": "85f214d326e175a2bb6df01d2761c317c7ada0bc4ceebd85f3e93bd31ed6c7b1",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTamil/NotoSerifTamil-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTelugu-Regular.ttf",
+      "size": 312332,
+      "sha256": "02cf5610b0aa2dc1ab66ed8edadad207ffb86b85eea4889a0b229f041a4b4bf9",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTelugu/NotoSerifTelugu-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTelugu-Bold.ttf",
+      "size": 332592,
+      "sha256": "c0ef9aeb5fe554daa93517e2f2e3b627ddaa1ab56bf7cc99f3059fe5a4e7cdfd",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTelugu/NotoSerifTelugu-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifThai-Regular.ttf",
+      "size": 46000,
+      "sha256": "36718303c18459aa1a6010c71566b1487b4385e923cb13e367ff7e7fba218ae0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifThai/NotoSerifThai-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifThai-Bold.ttf",
+      "size": 47000,
+      "sha256": "29185ee50f218e5e6998bc67d33b75d147479660213d6d3a6e2a152f9e62b176",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifThai/NotoSerifThai-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansArmenian-Regular.ttf",
+      "size": 30876,
+      "sha256": "c3332abfe298018517d7f5b687a9c0f5c92f163ea9258f23934eaa7a9378f40e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansArmenian/NotoSansArmenian-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansArmenian-Bold.ttf",
+      "size": 30908,
+      "sha256": "4767e3e240db91f638a56c86db9b9f83b0f4e8749b11f83bb6724c85ef418149",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansArmenian/NotoSansArmenian-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansBengali-Regular.ttf",
+      "size": 200048,
+      "sha256": "6300c5370cd688b0641343de4c786de6d412bb6c578d129dae75e93a0322dcab",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansBengali/NotoSansBengali-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansBengali-Bold.ttf",
+      "size": 209084,
+      "sha256": "7ad632c41ae1ac0931bfffb703470df0fd03e76bcb78f1fcd023d35fbed5ea8e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansBengali/NotoSansBengali-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansDevanagari-Regular.ttf",
+      "size": 219212,
+      "sha256": "385e78e6359a9d88a0f243d53b1209d7548361ba2194e2b9ec779bcaa7e8949d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansDevanagari-Bold.ttf",
+      "size": 225748,
+      "sha256": "19cc835a064c4af63e3c20feb54f5bf51dc25ffa52c0f493a23904572af8b26e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansEthiopic-Regular.ttf",
+      "size": 344328,
+      "sha256": "e3a81ca66eb6d6b1a50a287c1dba18195541f69e0986f8b49a42658aa592ff0d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansEthiopic/NotoSansEthiopic-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansEthiopic-Bold.ttf",
+      "size": 342152,
+      "sha256": "3b059ae981d216a7ca2c2a5be77f8d6049945f61566f9855982424f17d5584db",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansEthiopic/NotoSansEthiopic-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansGeorgian-Regular.ttf",
+      "size": 53948,
+      "sha256": "b36ab61cbdd820ffd32f957f704f5bf0c53655e820b7a64001091058919a11a6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGeorgian/NotoSansGeorgian-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansGeorgian-Bold.ttf",
+      "size": 55876,
+      "sha256": "0f27678704367df776f1a0f433b24ef77108253fd26e6fb775b889f6f3726eb6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGeorgian/NotoSansGeorgian-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansGujarati-Regular.ttf",
+      "size": 208452,
+      "sha256": "8d5c22d7b729ef2839e6d1fe2cde77b2d083907be3659bca63676baa76e01fd6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansGujarati-Bold.ttf",
+      "size": 208708,
+      "sha256": "dfa02697acd99735fab0082a0387ff7c2c9288227e80c0d277479cf29dd4cb4e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansGurmukhi-Regular.ttf",
+      "size": 53000,
+      "sha256": "bbde4d85fdfb998eff6921cb2c7a9a7924a1c95560a6aa9a06172530e4f596da",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGurmukhi/NotoSansGurmukhi-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansGurmukhi-Bold.ttf",
+      "size": 53004,
+      "sha256": "3330d107d9756f6d43091a520fcbc0105176fb970fa7e23d5e84e602c968bb75",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansGurmukhi/NotoSansGurmukhi-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansHebrew-Regular.ttf",
+      "size": 26900,
+      "sha256": "a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansHebrew-Bold.ttf",
+      "size": 27164,
+      "sha256": "a30243d1c625eaf63bb889f036fe9de97e81d9248976f89e6e4252f9668c832e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansHebrew/NotoSansHebrew-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansKannada-Regular.ttf",
+      "size": 151940,
+      "sha256": "5c804033c57f2c2844b1cd425f45b9a78d81d2f71bf358351b24258ebe168aea",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansKannada/NotoSansKannada-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansKannada-Bold.ttf",
+      "size": 156124,
+      "sha256": "9eb680d4160918e4bf1e63183932c363d105548c05e0a5013f873ca56d781127",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansKannada/NotoSansKannada-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansKhmer-Regular.ttf",
+      "size": 114096,
+      "sha256": "5c1ec068352f1e1fe8e7a3218230360d054e104d377ef40c0423b17c34c3c259",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansKhmer/NotoSansKhmer-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansKhmer-Bold.ttf",
+      "size": 113208,
+      "sha256": "2c622badc8c31ace01705c48924d8466f6e28c841a9bc81f276a950b4d6cf91d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansKhmer/NotoSansKhmer-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansLao-Regular.ttf",
+      "size": 31340,
+      "sha256": "4a64d40850990992913d4be44b2e87a93d52f76882c1f0c0755edcb12ec57aa2",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansLao/NotoSansLao-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansLao-Bold.ttf",
+      "size": 32596,
+      "sha256": "b6275642ccc7f773b59f67b3240f939342d89ddadc98e0a6c3ebca2e2ce10e19",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansLao/NotoSansLao-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansMalayalam-Regular.ttf",
+      "size": 111724,
+      "sha256": "42eb462ff13e820ebbeaaec4e7b426bd1de145d02cef8b634f5a3efd376b513c",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansMalayalam/NotoSansMalayalam-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansMalayalam-Bold.ttf",
+      "size": 117236,
+      "sha256": "bcc3ec37c2675a952fc336a5483c53f2f7e417c958b668cfeda170dc51bd998e",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansMalayalam/NotoSansMalayalam-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansMyanmar-Regular.ttf",
+      "size": 195408,
+      "sha256": "9dd2bc76a822a974efce803a4b07302d14d01d5c1fa9e33a258d15a9cb513a7d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansMyanmar/NotoSansMyanmar-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansMyanmar-Bold.ttf",
+      "size": 209068,
+      "sha256": "0f20a5e23dfa2efd0fd98b384d8c1c6ab379810985b79e0ae4369936dec6897b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansMyanmar/NotoSansMyanmar-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansOriya-Regular.ttf",
+      "size": 95776,
+      "sha256": "b8d8bd784b9d09c0668233437359913c93a3a83bf37d92ecde859e2bc728a0e0",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansOriya/NotoSansOriya-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansOriya-Bold.ttf",
+      "size": 92940,
+      "sha256": "c0d1eb7ecdeafc860c04066d1d22f6406645a5c165c469d527762cd76b05453f",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansOriya/NotoSansOriya-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansSinhala-Regular.ttf",
+      "size": 310232,
+      "sha256": "a966549310b2d3046ba25bbeef11985428ff9356fa656fd6118bc90fb82df031",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansSinhala/NotoSansSinhala-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansSinhala-Bold.ttf",
+      "size": 342464,
+      "sha256": "2b31c8080247f4c144db137f473bb6a2d3f7cf36d1a1a0a8bdfad2f26c15d6d4",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansSinhala/NotoSansSinhala-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansTamil-Regular.ttf",
+      "size": 74248,
+      "sha256": "6532db33b8b264abe3a098a40619feb489b5ddf5ab1d2b46e72b51eeb548001b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansTamil/NotoSansTamil-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansTamil-Bold.ttf",
+      "size": 77428,
+      "sha256": "61ccb56bafc7f8316644b91a91ebb3a878c238238ac14cb6ea2f19fa01e9d504",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansTamil/NotoSansTamil-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansTelugu-Regular.ttf",
+      "size": 197228,
+      "sha256": "2c05072e8018a9be1cb0582953d9edf9a0cf129cdfb74e611de763b09c411f7f",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansTelugu-Bold.ttf",
+      "size": 205304,
+      "sha256": "e7c717097993e71944ef221f520a9d79db05e9c7652f4b037e1801c96379ca22",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansThai-Regular.ttf",
+      "size": 37752,
+      "sha256": "404ddfb5ed0aaa6b6ec8a85700d682978992062d67da93903967b56cbd9a4acc",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansThai/NotoSansThai-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansThai-Bold.ttf",
+      "size": 37796,
+      "sha256": "2b67cfb22337a868c6c85709e648ea30c79e0a7c530a5fc169a73d3f461d7c52",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansThai/NotoSansThai-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoNaskhArabic-Regular.ttf",
+      "size": 178388,
+      "sha256": "2f4b88e6ee50fa82c617e2d1d4ba18281cb1c6cd71c3af3ec64970c23995db4b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoNaskhArabic-Bold.ttf",
+      "size": 184164,
+      "sha256": "7432f2350487d9f784b47a24526d9fc48f2712bb6c2ff602898b104b0c26ee80",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansArabic-Regular.ttf",
+      "size": 240456,
+      "sha256": "ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansArabic/NotoSansArabic-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansArabic-Bold.ttf",
+      "size": 248468,
+      "sha256": "ed2711b387750ae991b6a980b8dd16fdd65e6702b97e9f52adf3a8edf09ef4df",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoNastaliqUrdu-Regular.ttf",
+      "size": 1171972,
+      "sha256": "2fd7b78ce48768b4d7b251457191e0f6db4c85e966a8a10a1f04e196dad35bb6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoNastaliqUrdu/NotoNastaliqUrdu-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoNastaliqUrdu-Bold.ttf",
+      "size": 1173220,
+      "sha256": "630d8e4ce83e76d468d6d4488179f96bf14540b31d35693bec4ec9a44bebd063",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoNastaliqUrdu/NotoNastaliqUrdu-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTibetan-Regular.ttf",
+      "size": 613292,
+      "sha256": "3dd3876c670008cef5e29a79392fc8874d9bb9e349fc54755b2861c050c0fd7c",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTibetan/NotoSerifTibetan-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSerifTibetan-Bold.ttf",
+      "size": 606276,
+      "sha256": "7bc1625088a1058a0cf7f77918ab87b1a97ea685cbf46daf161d57ea740f106d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSerifTibetan/NotoSerifTibetan-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansThaana-Regular.ttf",
+      "size": 18728,
+      "sha256": "bb219bc7cbe681caab69bda873e38d088c723a565adb8c823d5923dade24aa63",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansThaana/NotoSansThaana-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansThaana-Bold.ttf",
+      "size": 18536,
+      "sha256": "dfeab1e5d197dde6b81e9d5374e1a9276dcd7720c0e0479eddbfce8f5a92446a",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansThaana/NotoSansThaana-Bold.ttf"
+    },
+    {
+      "path": "noto/NotoSansSyriac-Regular.ttf",
+      "size": 233516,
+      "sha256": "7e05622602dd5333006807f61b30452a94cca0a0791047a120edff00cf189082",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansSyriac/NotoSansSyriac-Regular.ttf"
+    },
+    {
+      "path": "noto/NotoSansSymbols2-Regular.ttf",
+      "size": 656852,
+      "sha256": "630846d528dbe4c4981370a4d0a9475a1fd1491a129bb411f8e157cdb5de13c6",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf"
+    },
+    {
+      "path": "noto/OFL.txt",
+      "size": 4377,
+      "sha256": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/LICENSE"
+    },
+    {
+      "path": "noto-cjk/NotoSansCJK-Regular.ttc",
+      "size": 19484784,
+      "sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTC/NotoSansCJK-Regular.ttc"
+    },
+    {
+      "path": "noto-cjk/NotoSansCJK-Bold.ttc",
+      "size": 20050760,
+      "sha256": "faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTC/NotoSansCJK-Bold.ttc"
+    },
+    {
+      "path": "noto-cjk/Sans-OFL.txt",
+      "size": 4301,
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE"
+    },
+    {
+      "path": "noto-cjk/NotoSerifCJK-Regular.ttc",
+      "size": 26411360,
+      "sha256": "5d9c31a059600193c9d7968a998bde886ccdc77e934006ad243b41794c496a7d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Serif/OTC/NotoSerifCJK-Regular.ttc"
+    },
+    {
+      "path": "noto-cjk/NotoSerifCJK-Bold.ttc",
+      "size": 27397052,
+      "sha256": "1505ee3b9c0890fae6302ee0e9c6fd74d690f4a55a6ace1d9944f3f6352d622d",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Serif/OTC/NotoSerifCJK-Bold.ttc"
+    },
+    {
+      "path": "noto-cjk/Serif-OFL.txt",
+      "size": 4301,
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Serif/LICENSE"
+    }
+  ],
+  "additional_sources": [
+    {
+      "repository": "https://github.com/notofonts/noto-fonts",
+      "commit": "ffebf8c1ee449e544955a7e813c54f9b73848eac"
+    },
+    {
+      "repository": "https://github.com/notofonts/noto-cjk",
+      "commit": "f8d157532fbfaeda587e826d4cd5b21a49186f7c"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ function IsRasterReaderFormat(const Extension: string): Boolean;
 type
   TReaderRasterPage = record
     Pixels: TBytes;
-    Width, Height: Integer;
+    Width, Height, RenderEdge: Integer;
     Used: Int64;
   end;
   // A bounded three-page LRU retains the current page and nearby turns.
@@ -27,13 +27,13 @@ type
     FTiff, FDjvu: Boolean;
     FSourceStream: TStream;
     FNativeDjvu: TReaderDjvuNative;
-    function DecodePage(Index: Integer): TReaderRasterPage;
+    function DecodePage(Index, RenderEdge: Integer): TReaderRasterPage;
     function CachedPage(Index: Integer; out Page: TReaderRasterPage; Visible: Boolean = False): Boolean;
   public
-    constructor Create(const FileName: string);
+    constructor Create(const FileName: string; RenderEdge: Integer = 4000);
     destructor Destroy; override;
-    procedure PreparePage(Index: Integer; Prefetch: Boolean = False);
-    function IsPageCached(Index: Integer): Boolean;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000);
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean;
     function PageSize(Index: Integer): TPoint; override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
     function Chapters: TArray<TPDFChapter>; override;
@@ -89,7 +89,7 @@ begin
   OleCheck(Factory.CreateDecoderFromFilename(PWideChar(FileName),GUID_NULL,GENERIC_READ,WICDecodeMetadataCacheOnDemand,Decoder));
 end;
 
-constructor TReaderRaster.Create(const FileName: string);
+constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer);
 var Names: TList<string>; I: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
@@ -131,7 +131,7 @@ begin
     FPageCount:=Length(FNames);
     if FPageCount=0 then raise Exception.Create('В комиксе не найдены изображения страниц.');
   end;
-  PreparePage(0);
+  PreparePage(0,False,RenderEdge);
 end;
 
 destructor TReaderRaster.Destroy;
@@ -150,25 +150,32 @@ begin
   finally TMonitor.Exit(FCacheLock); end;
 end;
 
-function TReaderRaster.IsPageCached(Index: Integer): Boolean;
+function TReaderRaster.IsPageCached(Index, MinEdge: Integer): Boolean;
+var Page: TReaderRasterPage;
 begin
   TMonitor.Enter(FCacheLock);
-  try Result:=FPageCache.ContainsKey(Index); finally TMonitor.Exit(FCacheLock); end;
+  try
+    Result:=FPageCache.TryGetValue(Index,Page);
+    if Result then Result:=Page.RenderEdge>=MinEdge;
+  finally TMonitor.Exit(FCacheLock); end;
 end;
 
-procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean);
+procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
 const Budget = 96*1024*1024;
 var Page, Visible, Old: TReaderRasterPage; Pair: TPair<Integer,TReaderRasterPage>;
   Oldest, Protected: Integer; Stamp: Int64;
 begin
-  if CachedPage(Index,Page) then Exit;
-  Page:=DecodePage(Index);
+  RenderEdge:=EnsureRange(RenderEdge,200,4000);
+  if CachedPage(Index,Page) and (Page.RenderEdge>=RenderEdge) then Exit;
+  Page:=DecodePage(Index,RenderEdge);
   TMonitor.Enter(FCacheLock);
   try
     Protected:=FVisiblePage;
     // A very large neighbour must not evict the page currently being read.
-    if Prefetch and FPageCache.TryGetValue(Protected,Visible) and
+    if Prefetch and (Protected<>Index) and FPageCache.TryGetValue(Protected,Visible) and
       (Int64(Length(Visible.Pixels))+Length(Page.Pixels)>Budget) then Exit;
+    if FPageCache.TryGetValue(Index,Old) then
+    begin Dec(FCacheBytes,Length(Old.Pixels)); FPageCache.Remove(Index); end;
     if not Prefetch then Protected:=Index;
     while (FPageCache.Count>=3) or (FCacheBytes+Length(Page.Pixels)>Budget) do
     begin
@@ -184,7 +191,7 @@ begin
   finally TMonitor.Exit(FCacheLock); end;
 end;
 
-function TReaderRaster.DecodePage(Index: Integer): TReaderRasterPage;
+function TReaderRaster.DecodePage(Index, RenderEdge: Integer): TReaderRasterPage;
 var Stream, Converted, PageStream: TStream; Adapter: IStream;
   Factory: IWICImagingFactory; Decoder: IWICBitmapDecoder;
   Frame: IWICBitmapFrameDecode; Converter: IWICFormatConverter;
@@ -193,11 +200,13 @@ var Stream, Converted, PageStream: TStream; Adapter: IStream;
   I,A,NativeWidth,NativeHeight: Integer;
 begin
   Result:=Default(TReaderRasterPage);
+  Result.RenderEdge:=4000; // Other raster formats retain their source resolution.
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы вне диапазона.');
   if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
   if Assigned(FNativeDjvu) then
   begin
-    FNativeDjvu.RenderPage(Index,OriginalPixels,NativeWidth,NativeHeight);
+    FNativeDjvu.RenderPage(Index,OriginalPixels,NativeWidth,NativeHeight,RenderEdge);
+    Result.RenderEdge:=RenderEdge;
     Result.Width:=NativeWidth; Result.Height:=NativeHeight;
     Result.Pixels:=OriginalPixels; Exit;
   end;

@@ -7,7 +7,7 @@ uses System.SysUtils, System.Classes, System.Generics.Collections;
 type
   TReaderChapter = record
     Title: string;
-    Position: Integer;
+    Position, Depth: Integer;
   end;
 
   // A read-only presentation. No source book or archive member is rewritten.
@@ -16,15 +16,15 @@ type
     Width, Height: Integer;
   end;
 
-  TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote);
+  TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize);
   TReaderStyledRange = record
-    Start, Count: Integer;
+    Start, Count, ScalePercent: Integer;
     Kind: TReaderBlockKind;
   end;
 
   TReaderFootnoteLink = record
     Start, Count: Integer;
-    Target: string;
+    Target, LabelText: string;
   end;
 
   TReaderDocument = class
@@ -39,10 +39,10 @@ type
     FPictures: TList<TReaderPicture>;
     procedure AddText(const Value: string; PreserveWhitespace: Boolean = False);
     procedure Paragraph;
-    procedure Chapter(const Value: string);
+    procedure Chapter(const Value: string; Depth: Integer = 0);
     procedure Picture(const Bytes: TBytes);
   public
-    Title, FormatName: string;
+    Title, FormatName, Language: string;
     Warnings: TStringList;
     constructor Create;
     destructor Destroy; override;
@@ -54,7 +54,7 @@ type
     function Chapters: TArray<TReaderChapter>;
     function Styles: TArray<TReaderStyledRange>;
     function FootnoteCount: Integer;
-    function FootnotesForRange(Start, Finish: Integer): string;
+    function FootnotesForRange(Start, Finish: Integer; MaxCharacters: Integer = 32768): string;
     property ImageCount: Integer read FImages;
     property SkippedImages: Integer read FSkippedImages;
   end;
@@ -66,7 +66,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats;
+  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -312,10 +312,10 @@ end;
 procedure TReaderDocument.Paragraph;
 begin FBody.Append('\par '); FText.Append(#13); end;
 
-procedure TReaderDocument.Chapter(const Value: string);
+procedure TReaderDocument.Chapter(const Value: string; Depth: Integer);
 var C: TReaderChapter;
 begin
-  C.Title:=Trim(TRegEx.Replace(Value,'\s+',' ')); C.Position:=FText.Length;
+  C.Title:=Trim(TRegEx.Replace(Value,'\s+',' ')); C.Position:=FText.Length; C.Depth:=EnsureRange(Depth,-1,15);
   if C.Title<>'' then FChapters.Add(C);
 end;
 
@@ -357,7 +357,8 @@ end;
 procedure TReaderDocument.Load(const FileName: string; const Canceled: TFunc<Boolean>);
 var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   Binaries, Paths: TDictionary<string,string>; Resources: TDictionary<string,TBytes>; NoteFiles: TDictionary<string,IXMLDOMDocument3>; Zip: TZipFile;
-  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes: Int64; NoteCharacters: Integer;
+  CSS: TReaderCSS; CSSCache: TDictionary<string,string>;
+  Data: TBytes; E, PackagePath, CurrentPath, ID, ExistingBinary, HTML: string; I: Integer; NoteLink: TReaderFootnoteLink; UnpackedBytes: Int64; NoteCharacters: Integer; PendingInitial: Boolean;
   procedure Check;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
@@ -398,6 +399,30 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     Inc(UnpackedBytes,Zip.FileInfo[Index].UncompressedSize);
     if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для экспериментальной читалки.');
     Zip.Read(Index,Bytes);
+  end;
+  procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);
+  var J, Index: Integer; Name, Path, Text: string; Bytes: TBytes;
+  begin
+    Check; if (N=nil) or (Depth>32) then Exit;
+    Name:=LocalName(N);
+    if Name='style' then CSS.Add(N.text)
+    else if (Name='link') and LowerCase(Attribute(N,'rel')).Contains('stylesheet') then
+    begin
+      try
+        Path:=ZipPath(CurrentPath,Attribute(N,'href'));
+        if not CSSCache.TryGetValue(Path,Text) then
+        begin
+          Index:=Zip.IndexOf(Path);
+          if (Index<0) or (Zip.FileInfo[Index].UncompressedSize>1024*1024) then Exit;
+          ReadZip(Path,Bytes); Text:=ReaderDecodeText(Bytes); CSSCache.Add(Path,Text);
+        end;
+        CSS.Add(Text);
+      except
+        on E: EAbort do raise;
+        on Error: Exception do if Warnings.Count<20 then Warnings.Add('Оформление EPUB: '+Error.Message);
+      end;
+    end;
+    for J:=0 to N.childNodes.length-1 do LoadCSS(N.childNodes.item[J],Depth+1);
   end;
   function NoteText(const N: IXMLDOMNode; Depth: Integer = 0): string;
   var J: Integer; Name: string;
@@ -440,10 +465,30 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     for J:=0 to N.childNodes.length-1 do
     begin Result:=NodeWithID(N.childNodes.item[J],ID,Depth+1); if Assigned(Result) then Exit; end;
   end;
-  procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False);
-  var J, Spaces, StyleIndex, NoteStart: Integer; Name, Ref, Binary, Style, NoteTarget: string; Link: TReaderFootnoteLink;
-    StyleNode, StyleValue: IXMLDOMNode; Bytes: TBytes;
-    IsParagraph, IsTitle, IsBlock: Boolean; Range: TReaderStyledRange;
+  function UnmarkedHeading(const N: IXMLDOMNode): Boolean;
+  var Text: string; C: Char; Letters: Integer;
+  begin
+    Result:=False;
+    // Some FB2 files use a short all-caps paragraph instead of <subtitle>.
+    // Restrict inference to direct prose section paragraphs, not poems, quotes,
+    // inline-marked paragraphs, long prose or sentences ending in punctuation.
+    if (E<>'.fb2') or (LocalName(N)<>'p') or (N.parentNode=nil) or
+      (LocalName(N.parentNode)<>'section') or (N.childNodes.length<>1) or
+      not (N.childNodes.item[0].nodeType in [NODE_TEXT,NODE_CDATA_SECTION]) then Exit;
+    Text:=Trim(N.text);
+    if (Length(Text)<6) or (Length(Text)>100) then Exit;
+    if CharInSet(Text[Length(Text)],['.','!','?',';',',',':']) then Exit;
+    Letters:=0;
+    for C in Text do
+      if C.IsLetter then
+      begin if not C.IsUpper then Exit; Inc(Letters); end
+      else if not C.IsDigit and not C.IsWhiteSpace and not CharInSet(C,['-',':','.', '(',')']) then Exit;
+    Result:=Letters>=6;
+  end;
+  procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False; StyledContainer: Boolean = False; InheritedFontPercent: Integer = 100);
+  var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle: string; Link: TReaderFootnoteLink;
+    StyleNode, StyleValue, Ancestor, Previous: IXMLDOMNode; Bytes: TBytes;
+    IsParagraph, IsTitle, IsBlock, ChapterInitial, InferredHeading: Boolean; Range: TReaderStyledRange;
   begin
     Check; if Depth>256 then raise Exception.Create('Слишком глубокая разметка книги.');
     if N.nodeType in [NODE_TEXT,NODE_CDATA_SECTION] then
@@ -451,12 +496,12 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       // Preserve the spaces around inline markup; discard indentation between blocks.
       if (Trim(N.text)='') and Assigned(N.parentNode) and
         not MatchText(LocalName(N.parentNode),['p','v','li','subtitle','text-author',
-          'span','a','strong','b','emphasis','i','em','t','h','h1','h2','h3']) then Exit;
+          'span','style','a','strong','b','emphasis','i','em','t','h','h1','h2','h3','h4','h5','h6']) then Exit;
       AddText(N.text,(E='.docx') and Assigned(N.parentNode) and
         SameText(Attribute(N.parentNode,'space'),'preserve'));
       Exit;
     end;
-    Name:=LocalName(N); NoteStart:=-1; NoteTarget:='';
+    Name:=LocalName(N); NoteStart:=-1; InitialStart:=-1; ChapterInitial:=False; NoteTarget:='';
     if (Name='a') and (FNoteLinks.Count<10000) then
     begin
       Ref:=Attribute(N,'href');
@@ -475,32 +520,49 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       if NoteTarget<>'' then begin NoteStart:=FText.Length; FBody.Append('{\super\ul '); end;
     end;
-    if (Name='script') or (Name='style') or (Name='binary') or (Name='description') or
+    if (Name='script') or ((Name='style') and (E<>'.fb2')) or (Name='binary') or (Name='description') or
       (Name='ppr') or (Name='rpr') or (Name='del') or (Name='instrtext') then Exit;
     IsParagraph:=(Name='p') or (Name='v') or (Name='li') or (Name='tr') or
       (Name='subtitle') or (Name='text-author');
-    IsTitle:=(Name='title') or (Name='h') or (Name='h1') or (Name='h2') or (Name='h3');
+    IsTitle:=(Name='title') or (Name='h') or ((Length(Name)=2) and (Name[1]='h') and CharInSet(Name[2],['1'..'6']));
+    HeadingLevel:=1;
+    if IsTitle then
+      if (Length(Name)=2) and (Name[1]='h') then HeadingLevel:=Ord(Name[2])-Ord('0')
+      else if (E='.odt') and (Name='h') then HeadingLevel:=StrToIntDef(Attribute(N,'outline-level'),1)
+      else if (E='.fb2') and (Name='title') then
+      begin
+        HeadingLevel:=0; Ancestor:=N.parentNode;
+        while Assigned(Ancestor) do
+        begin
+          if LocalName(Ancestor)='section' then Inc(HeadingLevel);
+          Ancestor:=Ancestor.parentNode;
+        end;
+      end;
     if (E='.docx') and (Name='p') then
     begin
       StyleNode:=FindNode(N,'ppr'); Style:='';
       if Assigned(StyleNode) then
       begin StyleValue:=FindNode(StyleNode,'pstyle'); if Assigned(StyleValue) then Style:=LowerCase(Attribute(StyleValue,'val')); end;
       IsTitle:=Style.StartsWith('heading') or (Style='title');
+      if IsTitle and Style.StartsWith('heading') then
+        HeadingLevel:=StrToIntDef(Trim(Copy(Style,8,MaxInt)),1);
     end;
-    IsBlock:=IsTitle or (Name='subtitle') or (Name='epigraph') or
+    InferredHeading:=not InsideTitle and not StyledContainer and UnmarkedHeading(N);
+    if IsTitle or InferredHeading or (Name='body') or (Name='section') then PendingInitial:=True;
+    IsBlock:=IsTitle or InferredHeading or (Name='subtitle') or (Name='epigraph') or
       (Name='poem') or (Name='cite') or (Name='blockquote') or (Name='text-author') or (Name='code');
     StyleIndex:=-1;
-    if IsTitle then begin Paragraph; Chapter(N.text); FBody.Append('{\pard\qc\b\sa160\sb200 '); end;
-    if IsParagraph and not InsideTitle then
+    if IsTitle then begin Paragraph; Chapter(N.text,HeadingLevel-1); FBody.Append('{\pard\qc\b\sa160\sb200 '); end;
+    if IsParagraph and not IsTitle and not InsideTitle then
       if Name='v' then FBody.Append('\pard\ql\fi0\li360\sa40 ')
       else if Name='text-author' then FBody.Append('\pard\qr\fi0\sa120 ')
-      else if Name='subtitle' then FBody.Append('\pard\qc\fi0\sa160\sb140 ')
+      else if (Name='subtitle') or InferredHeading then FBody.Append('\pard\qc\fi0\sa160\sb140 ')
       else FBody.Append('\pard\qj\fi360\sa100 ');
     if IsBlock then
     begin
       Range:=Default(TReaderStyledRange); Range.Start:=FText.Length;
-      if IsTitle then Range.Kind:=rbTitle
-      else if Name='subtitle' then Range.Kind:=rbSubtitle
+      if IsTitle then begin if HeadingLevel>1 then Range.Kind:=rbSubtitle else Range.Kind:=rbTitle; end
+      else if (Name='subtitle') or InferredHeading then Range.Kind:=rbSubtitle
       else if Name='epigraph' then Range.Kind:=rbEpigraph
       else if Name='poem' then Range.Kind:=rbPoem
       else if Name='text-author' then Range.Kind:=rbAuthor
@@ -510,7 +572,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
       begin Paragraph; FBody.Append('{\i '); end;
     if (Name='poem') or (Name='stanza') then Paragraph;
-    if (Name='strong') or (Name='b') or (Name='subtitle') then FBody.Append('{\b ');
+    if (Name='strong') or (Name='b') or (Name='subtitle') or InferredHeading then FBody.Append('{\b ');
     if (Name='emphasis') or (Name='i') or (Name='em') then FBody.Append('{\i ');
     if Name='code' then FBody.Append('{\f1 ');
     if (E='.docx') and (Name='r') then
@@ -524,6 +586,18 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         if Assigned(StyleValue) and not (Attribute(StyleValue,'val')='0') and not SameText(Attribute(StyleValue,'val'),'false') then FBody.Append('\i ');
       end;
     end;
+    CSSStyle:=''; FontStyleIndex:=-1; FontPercent:=InheritedFontPercent;
+    if E='.epub' then
+    begin
+      CSSStyle:=CSS.RTF(Name,Attribute(N,'class'),Attribute(N,'id'),Attribute(N,'style'));
+      FontPercent:=CSS.FontPercent(Name,Attribute(N,'class'),Attribute(N,'id'),Attribute(N,'style'),InheritedFontPercent);
+      if FontPercent<>InheritedFontPercent then
+      begin
+        Range:=Default(TReaderStyledRange); Range.Start:=FText.Length; Range.Kind:=rbRelativeSize; Range.ScalePercent:=FontPercent;
+        FontStyleIndex:=FStyles.Count; FStyles.Add(Range);
+      end;
+    end;
+    if CSSStyle<>'' then FBody.Append('{'+CSSStyle);
     if (Name='image') or (Name='img') or (Name='blip') then
     begin
       Ref:=Attribute(N,'href'); if Ref='' then Ref:=Attribute(N,'src');
@@ -551,12 +625,46 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       if (Spaces<1) or (Spaces>10000) then raise Exception.Create('Недопустимое число пробелов в документе ODT.');
       AddText(StringOfChar(' ',Spaces),True);
     end;
-    for J:=0 to N.childNodes.length-1 do Walk(N.childNodes.item[J],Depth+1,InsideTitle or IsTitle);
-    if (Name='strong') or (Name='b') or (Name='subtitle') or (Name='emphasis') or
+    // Keep neighbouring table cells distinct in readable/copyable text.
+    if MatchText(Name,['td','th']) then
+    begin
+      Previous:=N.previousSibling;
+      while Assigned(Previous) and not MatchText(LocalName(Previous),['td','th']) do Previous:=Previous.previousSibling;
+      if Assigned(Previous) then AddText(#9,True);
+    end;
+    if IsParagraph and (Name='p') and not IsTitle and not InferredHeading and not InsideTitle and not StyledContainer then
+    begin InitialStart:=FText.Length; ChapterInitial:=PendingInitial; PendingInitial:=False; end;
+    for J:=0 to N.childNodes.length-1 do Walk(N.childNodes.item[J],Depth+1,InsideTitle or IsTitle,
+      StyledContainer or IsTitle or MatchText(Name,['epigraph','cite','blockquote','poem','stanza','text-author','code']),FontPercent);
+    if InitialStart>=0 then
+    begin
+      for J:=InitialStart to FText.Length-1 do
+        if TCharacter.IsLetter(FText.Chars[J]) then
+        begin
+          Range:=Default(TReaderStyledRange); Range.Start:=J; Range.Count:=1;
+          // Keep a decomposed accent with its decorated base letter.
+          while (J+Range.Count<FText.Length) and
+            (TCharacter.GetUnicodeCategory(FText.Chars[J+Range.Count]) in
+              [TUnicodeCategory.ucCombiningMark,TUnicodeCategory.ucEnclosingMark,TUnicodeCategory.ucNonSpacingMark]) do Inc(Range.Count);
+          if ChapterInitial then Range.Kind:=rbInitial else Range.Kind:=rbParagraphInitial;
+          FStyles.Add(Range); InitialStart:=-1; Break;
+        end;
+      if (InitialStart>=0) and ChapterInitial then PendingInitial:=True;
+    end;
+    if FontStyleIndex>=0 then
+    begin Range:=FStyles[FontStyleIndex]; Range.Count:=FText.Length-Range.Start; FStyles[FontStyleIndex]:=Range; end;
+    if CSSStyle<>'' then
+    begin
+      // Paragraph properties must remain active through the paragraph mark.
+      if IsParagraph or IsTitle then Paragraph;
+      FBody.Append('}');
+    end;
+    if (Name='strong') or (Name='b') or (Name='subtitle') or InferredHeading or (Name='emphasis') or
       (Name='i') or (Name='em') or (Name='code') or ((E='.docx') and (Name='r')) then FBody.Append('}');
     if NoteStart>=0 then
     begin
       FBody.Append('}'); Link.Start:=NoteStart; Link.Count:=FText.Length-NoteStart; Link.Target:=NoteTarget;
+      Link.LabelText:=Trim(N.text);
       if Link.Count>0 then
       begin
         FNoteLinks.Add(Link); Range.Start:=Link.Start; Range.Count:=Link.Count; Range.Kind:=rbFootnote; FStyles.Add(Range);
@@ -567,12 +675,21 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
       begin FBody.Append('}'); Paragraph; end;
     if (Name='poem') or (Name='stanza') then Paragraph;
-    if IsTitle then begin FBody.Append('}'); Paragraph; end;
+    if IsTitle then begin Paragraph; FBody.Append('}'); end;
     if IsParagraph then Paragraph;
   end;
   procedure WalkHTML(const Value: string);
-  var Match, AttributeMatch: TMatch; Token, Name, Ref, Heading: string; Bytes: TBytes; Closing: Boolean;
+  var Match, AttributeMatch: TMatch; Token, Name, Ref, Heading, ActiveHeading: string;
+    Bytes: TBytes; Closing, HasCell: Boolean; HeadingIndex: Integer; HeadingRange: TReaderStyledRange;
+    procedure FinishHeading;
+    begin
+      if HeadingIndex<0 then Exit;
+      HeadingRange:=FStyles[HeadingIndex]; HeadingRange.Count:=FText.Length-HeadingRange.Start;
+      FStyles[HeadingIndex]:=HeadingRange; HeadingIndex:=-1; ActiveHeading:='';
+      Paragraph; FBody.Append('}');
+    end;
   begin
+    HeadingIndex:=-1; ActiveHeading:=''; HasCell:=False;
     for Match in TRegEx.Matches(Value,'<!\[CDATA\[.*?\]\]>|<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>|<[^>]*>|[^<]+|<',[roSingleLine,roIgnoreCase]) do
     begin
       Check; Token:=Match.Value;
@@ -582,17 +699,24 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       AttributeMatch:=TRegEx.Match(Token,'^</?\s*([a-z0-9]+)',[roIgnoreCase]);
       if not AttributeMatch.Success then Continue;
       Name:=LowerCase(AttributeMatch.Groups[1].Value); Closing:=Token.StartsWith('</');
+      if Name='tr' then HasCell:=False;
+      if MatchText(Name,['td','th']) and not Closing then
+      begin if HasCell then AddText(#9,True); HasCell:=True; end;
       if (Name='p') or (Name='div') or (Name='li') or (Name='tr') or (Name='br') or (Name='pre') then Paragraph;
       if (Name='b') or (Name='strong') then begin if Closing then FBody.Append('\b0 ') else FBody.Append('\b '); end;
       if (Name='i') or (Name='em') then begin if Closing then FBody.Append('\i0 ') else FBody.Append('\i '); end;
       if (Length(Name)=2) and (Name[1]='h') and CharInSet(Name[2],['1'..'6']) then
       begin
-        Paragraph;
-        if Closing then FBody.Append('\b0 ')
+        if Closing then begin if Name=ActiveHeading then FinishHeading; end
         else
         begin
+          FinishHeading; Paragraph;
           Heading:=Copy(Value,Match.Index+Match.Length,MaxInt); Heading:=Copy(Heading,1,Pos('</'+Name,LowerCase(Heading))-1);
-          Chapter(TNetEncoding.HTML.Decode(TRegEx.Replace(Heading,'<[^>]*>',''))); FBody.Append('\b ');
+          Chapter(TNetEncoding.HTML.Decode(TRegEx.Replace(Heading,'<[^>]*>','')));
+          HeadingRange:=Default(TReaderStyledRange); HeadingRange.Start:=FText.Length;
+          if Name='h1' then HeadingRange.Kind:=rbTitle else HeadingRange.Kind:=rbSubtitle;
+          HeadingIndex:=FStyles.Count; FStyles.Add(HeadingRange); ActiveHeading:=Name;
+          FBody.Append('{\pard\qc\b\sa160\sb200 ');
         end;
       end;
       if (Name='img') and not Closing then
@@ -621,12 +745,14 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         end;
       end;
     end;
+    FinishHeading;
   end;
 
 begin
   FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
-  UnpackedBytes:=0; NoteCharacters:=0; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
-  Title:=ExtractFileName(FileName); Zip:=nil;
+  UnpackedBytes:=0; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
+  Title:=ExtractFileName(FileName); Language:=''; Zip:=nil;
+  CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
   Binaries:=TDictionary<string,string>.Create; Paths:=TDictionary<string,string>.Create; Resources:=TDictionary<string,TBytes>.Create; NoteFiles:=TDictionary<string,IXMLDOMDocument3>.Create;
   try
     if (E='.txt') or (E='.md') or (E='.markdown') or (E='.faq') or (E='.wri') then
@@ -690,6 +816,7 @@ begin
       if Node=nil then raise Exception.Create('В EPUB не найден основной документ.');
       PackagePath:=Attribute(Node,'full-path'); ReadZip(PackagePath,Data); Document:=XMLDocument(Data);
       Root:=Document.documentElement; Node:=FindNode(Root,'title'); if Node<>nil then Title:=Node.text;
+      Node:=FindNode(Root,'language'); if Node<>nil then Language:=Trim(Node.text);
       Manifest:=FindNode(Root,'manifest'); Spine:=FindNode(Root,'spine');
       if (Manifest=nil) or (Spine=nil) then raise Exception.Create('В EPUB нет порядка чтения.');
       for I:=0 to Manifest.childNodes.length-1 do
@@ -704,6 +831,7 @@ begin
         if not Paths.TryGetValue(ID,CurrentPath) then raise Exception.Create('Не найден раздел EPUB: '+ID);
         CurrentPath:=ZipPath(PackagePath,CurrentPath);
         ReadZip(CurrentPath,Data); Document:=XMLDocument(Data);
+        CSS.Clear; LoadCSS(FindNode(Document.documentElement,'head'));
         Node:=FindNode(Document.documentElement,'body');
         if Node<>nil then begin CollectNotes(Node,CurrentPath+'#',False); Walk(Node,0); end;
       end;
@@ -748,6 +876,7 @@ begin
       begin
         if LocalName(Root)<>'fictionbook' then raise Exception.Create('Файл не является FB2.');
         Node:=FindNode(Root,'book-title'); if Node<>nil then Title:=Node.text;
+        Node:=FindNode(Root,'lang'); if Node<>nil then Language:=Trim(Node.text);
         for I:=0 to Root.childNodes.length-1 do
         begin
           Node:=Root.childNodes.item[I];
@@ -775,7 +904,7 @@ begin
       begin Node:=FindNode(Root,'body'); if Node=nil then Node:=Root; Walk(Node,0); end;
     end;
     if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
-  finally NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free; end;
+  finally CSSCache.Free; CSS.Free; NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free; end;
 end;
 
 function TReaderDocument.FootnoteCount: Integer;
@@ -785,8 +914,8 @@ begin
   for Link in FNoteLinks do if FNoteBodies.ContainsKey(Link.Target) then Inc(Result);
 end;
 
-function TReaderDocument.FootnotesForRange(Start, Finish: Integer): string;
-var Link: TReaderFootnoteLink; Text: string; Seen: TDictionary<string,Boolean>;
+function TReaderDocument.FootnotesForRange(Start, Finish, MaxCharacters: Integer): string;
+var Link: TReaderFootnoteLink; Text, LabelText, FirstLine: string; Seen: TDictionary<string,Boolean>; P: Integer;
 begin
   Result:=''; Seen:=TDictionary<string,Boolean>.Create;
   try
@@ -796,9 +925,22 @@ begin
       if (Link.Start+Link.Count<=Start) or Seen.ContainsKey(Link.Target) then Continue;
       if not FNoteBodies.TryGetValue(Link.Target,Text) or (Text='') then Continue;
       Seen.Add(Link.Target,True);
-      if Result<>'' then Result:=Result+#13#10+#13#10;
+      LabelText:=Link.LabelText.Trim(['[',']','(',')','.', ' ',#13,#10]);
+      // FB2 usually stores the number in a separate title paragraph. The
+      // reading footer joins it with the body; one CRLF separates actual notes.
+      P:=Pos(#13,Text); if P=0 then P:=Pos(#10,Text);
+      if P>0 then
+      begin
+        FirstLine:=Copy(Text,1,P-1).Trim(['[',']','(',')','.', ' ']);
+        if (LabelText<>'') and SameText(FirstLine,LabelText) then Text:=Copy(Text,P+1,MaxInt);
+      end;
+      Text:=Trim(TRegEx.Replace(Text,'\s+',' '));
+      if (LabelText<>'') and (Length(LabelText)<=12) and
+        not Text.StartsWith(LabelText+'. ') then Text:=LabelText+'. '+Text;
+      if Result<>'' then Result:=Result+#13#10;
       Result:=Result+Text;
-      if Length(Result)>32768 then begin Result:=Copy(Result,1,32768); Break; end;
+      if (MaxCharacters>0) and (Length(Result)>MaxCharacters) then
+      begin Result:=Copy(Result,1,MaxCharacters); Break; end;
     end;
   finally Seen.Free; end;
 end;

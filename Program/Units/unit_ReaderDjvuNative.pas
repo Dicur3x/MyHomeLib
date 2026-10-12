@@ -20,7 +20,8 @@ type
   public
     constructor Create(const FileName: string);
     destructor Destroy; override;
-    procedure RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer);
+    procedure RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer;
+      MaxEdge: Integer = 0);
     property PageCount: Integer read FPageCount;
   end;
 
@@ -158,12 +159,14 @@ begin inherited Create; FFileName:=TPath.GetFullPath(FileName); Start; end;
 destructor TReaderDjvuNative.Destroy;
 begin Stop; inherited; end;
 
-procedure TReaderDjvuNative.RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer);
+procedure TReaderDjvuNative.RenderPage(Index: Integer; out Pixels: TBytes; out Width, Height: Integer;
+  MaxEdge: Integer);
 var Request: TDjvuRequest; Response: TDjvuResponse; Size: Int64;
 begin
   Start;
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы DjVu вне диапазона.');
   Request:=Default(TDjvuRequest); Request.Magic:=DJVU_PROTOCOL; Request.Command:=DJVU_RENDER; Request.Index:=Index;
+  Request.Length:=MaxEdge;
   Send(Request); Receive(Response);
   Width:=Response.Width; Height:=Response.Height; Size:=Int64(Width)*Height*4;
   if (Width<=0) or (Height<=0) or (Width>4000) or (Height>4000) or (Size>DJVU_BUFFER_BYTES) then

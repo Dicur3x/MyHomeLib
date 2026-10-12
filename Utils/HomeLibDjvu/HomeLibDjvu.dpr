@@ -117,13 +117,15 @@ begin
   Inc(Age); Slots[Slot].Used:=Age; Result:=Slots[Slot].Page;
 end;
 
-procedure RenderPage(Index: Integer);
+procedure RenderPage(Index, MaxEdge: Integer);
 var Page: Pointer; W,H: Integer; Scale: Double; Rect: TDjvuRect;
 begin
   if Document=nil then raise Exception.Create('Книга DjVu не открыта.');
+  if MaxEdge=0 then MaxEdge:=4000; // Compatible with existing clients.
+  if (MaxEdge<200) or (MaxEdge>4000) then raise Exception.Create('Некорректный масштаб страницы DjVu.');
   Page:=DecodedPage(Index); W:=PageWidth(Page); H:=PageHeight(Page);
   if (W<=0) or (H<=0) or (W>100000) or (H>100000) then raise Exception.Create('Некорректный размер страницы DjVu.');
-  Scale:=Min(1.0,Min(4000.0/Max(W,H),Sqrt(16000000.0/(Double(W)*H))));
+  Scale:=Min(1.0,Min(MaxEdge/Double(Max(W,H)),Sqrt(16000000.0/(Double(W)*H))));
   W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
   Rect.X:=0; Rect.Y:=0; Rect.W:=W; Rect.H:=H;
   if Int64(W)*H*4>DJVU_BUFFER_BYTES then raise Exception.Create('Страница DjVu превышает бюджет памяти.');
@@ -183,7 +185,7 @@ begin
             if (PageCount<=0) or (PageCount>100000) then raise Exception.Create('Некорректное число страниц DjVu.');
             Reply(0,0,0);
           end;
-        DJVU_RENDER: RenderPage(Request.Index);
+        DJVU_RENDER: RenderPage(Request.Index,Request.Length);
       else Abort;
       end;
     except

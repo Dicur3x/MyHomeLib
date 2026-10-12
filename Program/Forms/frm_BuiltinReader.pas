@@ -5,9 +5,12 @@ interface
 uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
-  unit_ReaderRaster;
+  unit_ReaderRaster, unit_ReaderFonts, unit_ReaderFontFallback, unit_ReaderAnnotations;
 
 type
+  TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
+  TReaderProgress = class(TPaintBox)
+  public property MouseCapture; end;
   TfrmBuiltinReader = class;
   TReaderSurface = class(TCustomControl)
   private FReader: TfrmBuiltinReader;
@@ -20,24 +23,24 @@ type
   end;
 
   TReaderLoadThread = class(TThread)
-  private FFileName: string;
+  private FFileName: string; FRasterEdge: Integer;
   protected procedure Execute; override;
   public
     Document: TReaderDocument;
     Pages: TReaderPDF;
     Error: string;
-    constructor Create(const FileName: string);
+    constructor Create(const FileName: string; RasterEdge: Integer = 4000);
     destructor Destroy; override;
   end;
 
   TReaderPageThread = class(TThread)
-  private FReader: TReaderRaster;
+  private FReader: TReaderRaster; FRasterEdge: Integer;
   protected procedure Execute; override;
   public
     Index: Integer;
     Navigated, Prefetch: Boolean;
     Error: string;
-    constructor Create(Reader: TReaderRaster; Page: Integer);
+    constructor Create(Reader: TReaderRaster; Page: Integer; RasterEdge: Integer = 4000);
   end;
 
   TfrmBuiltinReader = class(TForm)
@@ -52,19 +55,34 @@ type
     FPDFSelectionAnchor, FPDFSelectionEnd: Integer;
     FPDFSelectionRects: TArray<TRectF>;
     FCopyMenu: TPopupMenu;
-    FCopyItem: TMenuItem;
+    FCopyItem, FCopyPageItem, FCopyAllItem, FCopyViewItem: TMenuItem;
     FSearchCase, FSearchWord, FSearchAll: TCheckBox;
     FTheme: Integer;
     FHighlightColor: TColor;
     FHighlighted: TList<TPoint>;
+    FStyledIntervals: TList<TPoint>;
     FTextMatch, FTextMatchLength: Integer;
     FSearchBackward, FUpdatingSearch: Boolean;
     FChapters: TComboBox;
+    FContentsButton: TButton;
+    FChapterOutline, FChapterSourceTitles: TStringList;
+    FChapterDepths: TList<Integer>;
+    FNumberChapters: Boolean;
+    FChapterNumbers: array[0..15] of Integer;
+    FChapterParents: array[0..15] of string;
+    FProgressLine: TPaintBox;
+    FProgressDragging, FGlobalPagesDone, FGlobalPagesFailed: Boolean;
+    FProgressTarget: Double;
+    FSeekTimer, FPaginationTimer: TTimer;
+    FGlobalPages: TList<Integer>;
+    FMeasureBitmap: TBitmap;
+    FLastPageInteraction: UInt64;
     FRichEdit: TRichEdit;
     FFormattingHost: TForm;
     FOleCallback: IInterface;
     FBitmap: TBitmap;
     FDocument: TReaderDocument;
+    FStyleRanges: TArray<TReaderStyledRange>;
     FPDF: TReaderPDF;
     FLoadStatus: TMHLOperationStatus;
     FLoader: TReaderLoadThread;
@@ -72,16 +90,19 @@ type
     FRequestedPage: Integer;
     FRequestedMoved: Boolean;
     FPrefetchedForPage: Integer;
+    FQualityAttemptPage, FQualityAttemptEdge: Integer;
     FPageTimer: TTimer;
     FPageStatus: TMHLOperationStatus;
     FPages: TList<Integer>;
     FPage, FNext, FLength, FFontSize, FZoom, FWheel: Integer;
     FNight, FFullScreen, FReady, FClosing, FLoadFinished, FReadingMoved, FWheelControl: Boolean;
-    FBookFormatting, FShowFootnotes: Boolean;
+    FBookFormatting, FShowFootnotes, FDecorativeInitials, FTypographyDirty: Boolean;
+    FInitialsMode: TReaderInitialsMode;
+    FHeadingColors: array[0..1,0..1] of TColor;
     FFootnotesPanel: TPanel;
     FFootnotesLabel: TLabel;
     FFootnotesMemo: TMemo;
-    FIdentity, FSettingsFile, FFileName: string;
+    FIdentity, FSettingsFile, FFileName, FBookTitle: string;
     FNormalBounds, FRestoredBounds: TRect;
     FBeforeFullScreenState: TWindowState;
     FPan, FDrag: TPoint;
@@ -101,6 +122,7 @@ type
     procedure LoaderFinished(Sender: TObject);
     procedure RequestPage(Index: Integer; Moved: Boolean = True);
     procedure PrefetchNextPage;
+    function DesiredRasterEdge: Integer;
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
     procedure LoadPresentation;
@@ -113,7 +135,12 @@ type
     procedure PreviousClick(Sender: TObject);
     procedure BiggerClick(Sender: TObject);
     procedure FitPageClick(Sender: TObject);
+    procedure CopyReaderText(const Text, SuccessStatus: string);
     procedure CopyTextClick(Sender: TObject);
+    procedure CopyPageClick(Sender: TObject);
+    procedure CopyAllClick(Sender: TObject);
+    procedure CopyViewClick(Sender: TObject);
+    function HeadingColor(Subtitle: Boolean = False): TColor;
     procedure CopyMenuPopup(Sender: TObject);
     function PDFCharacterAt(X,Y: Integer): Integer;
     procedure SelectPDFCharacter(Index: Integer);
@@ -129,6 +156,7 @@ type
     procedure ShowSearchStatus(const Text: string);
     procedure SearchPreviousClick(Sender: TObject);
     procedure SearchNextClick(Sender: TObject);
+    procedure SearchResultsClick(Sender: TObject);
     procedure SearchOptionsClick(Sender: TObject);
     procedure SearchColorClick(Sender: TObject);
     procedure SearchCloseClick(Sender: TObject);
@@ -142,14 +170,34 @@ type
     procedure ClampPan;
     procedure StyleClick(Sender: TObject);
     procedure ChapterClick(Sender: TObject);
+    procedure ContentsClick(Sender: TObject);
+    procedure AddChapter(const Title: string; Position, Depth: Integer);
+    procedure PaintProgress(Sender: TObject);
+    procedure ProgressMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+    procedure ProgressMouseMove(Sender: TObject; Shift: TShiftState; X,Y: Integer);
+    procedure ProgressMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+    procedure SeekTick(Sender: TObject);
+    procedure PaginationTick(Sender: TObject);
+    procedure ResetPagination;
+    function MeasureGlobalPage(Start: Integer): Integer;
+    procedure RebuildChapterTitles;
+    function ChapterIndexAt(Position: Integer): Integer;
+    procedure NotesClick(Sender: TObject);
+    procedure NotesManageClick(Sender: TObject);
+    procedure ExportNotesClick(Sender: TObject);
+    procedure ExportFormatChanged(Sender: TObject);
+    procedure QuoteNoteClick(Sender: TObject);
+    procedure AddNote(const Quote: string);
     procedure CloseReader(Sender: TObject; var Action: TCloseAction);
     procedure RestoreSettings;
     procedure SaveSettings;
     procedure InvalidateLayout;
     function TextAreaWidth: Integer;
+    function FullTextHeight: Integer;
     procedure UpdateFootnotesPanel;
-    procedure ApplyBookStyles(ColorsOnly: Boolean = False);
-    function FormatText(Start, Finish: Integer; Draw: Boolean): Integer;
+    procedure ApplyBookStyles(ColorsOnly: Boolean = False; Start: Integer = 0; Finish: Integer = MaxInt);
+    procedure EnsureBookStyles(Start, Finish: Integer);
+    function FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap = nil; LayoutWidth: Integer = 0; LayoutHeight: Integer = 0): Integer;
     function CurrentPosition: Integer;
     procedure NavigateTo(Position: Integer);
   protected
@@ -168,7 +216,13 @@ type
     procedure SetMaxTextWidth(Value: Integer);
     procedure SetShowFootnotes(Value: Boolean);
     procedure SetBookFormatting(Value: Boolean);
+    procedure SetDecorativeInitials(Value: Boolean);
+    procedure SetInitialsMode(Value: TReaderInitialsMode);
+    procedure SetHeadingColor(Value: TColor; Subtitle: Boolean = False);
+    function PageText: string;
+    function AllBookText: string;
     procedure FindText(const Query: string; Backward: Boolean = False);
+    procedure ShowSearchResults(const Query: string);
     procedure SetSearchOptions(MatchCase, WholeWord, AllMatches: Boolean);
     procedure SetHighlightColor(Value: TColor);
     procedure SetTheme(Index: Integer);
@@ -180,6 +234,17 @@ type
     function PageLoading: Boolean;
     function SearchRunning: Boolean;
     procedure GoToChapter(Index: Integer);
+    procedure GoToPosition(Position: Integer);
+    function ReadingProgress: Double;
+    procedure SeekProgress(Value: Double);
+    procedure RequestGlobalPages;
+    function GlobalPageAt(Position: Integer): Integer;
+    function GlobalPaginationReady: Boolean;
+    procedure SetNumberChapters(Value: Boolean);
+    function AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
+    function ExportAnnotations(AllBooks, HTML: Boolean): string;
+    property NumberChapters: Boolean read FNumberChapters;
+    function ChapterTitle(Index: Integer): string;
     function ChapterCount: Integer;
     procedure AddBookmark;
     procedure GoToBookmark(Index: Integer);
@@ -208,18 +273,26 @@ type
     function VisibleFootnotes: string;
     property ShowFootnotes: Boolean read FShowFootnotes;
     property BookFormatting: Boolean read FBookFormatting;
+    property DecorativeInitials: Boolean read FDecorativeInitials;
+    property InitialsMode: TReaderInitialsMode read FInitialsMode;
     property MaxTextWidth: Integer read FMaxTextWidth;
     function PDFSelectedText: string;
     procedure SelectPDFText(Start, Count: Integer);
     property PDFPageHasText: Boolean read FPDFPageHasText;
   end;
 
+function ReaderColorContrast(Foreground, Background: TColor): Double;
+function ReadableReaderColor(Color, Background: TColor): TColor;
+function ResolveReaderSettingsFile(const DataDir: string): string;
+
+procedure ConfigureReaderColorBox(Box: TColorBox; SelectedColor: TColor);
+
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
   SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer> = nil);
 
 implementation
 
-uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, System.Math, System.IOUtils,
+uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, System.Math, System.IOUtils, System.RegularExpressions,
   System.IniFiles, System.Hash, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme;
 
 type
@@ -230,6 +303,68 @@ type
     constructor Create(const Bytes: UTF8String);
     function Write(const Buffer; Count: Longint): Longint; override;
   end;
+
+function ReaderColorContrast(Foreground, Background: TColor): Double;
+  function Luminance(Value: TColor): Double;
+    function Linear(Channel: Byte): Double;
+    var Level: Double;
+    begin
+      Level:=Channel/255;
+      if Level<=0.04045 then Result:=Level/12.92 else Result:=Power((Level+0.055)/1.055,2.4);
+    end;
+  var RGBValue: Cardinal;
+  begin
+    RGBValue:=ColorToRGB(Value);
+    Result:=0.2126*Linear(GetRValue(RGBValue))+0.7152*Linear(GetGValue(RGBValue))+0.0722*Linear(GetBValue(RGBValue));
+  end;
+var A,B: Double;
+begin
+  A:=Luminance(Foreground); B:=Luminance(Background);
+  Result:=(Max(A,B)+0.05)/(Min(A,B)+0.05);
+end;
+
+function ReadableReaderColor(Color, Background: TColor): TColor;
+var Original: Cardinal; Percent: Integer;
+begin
+  Result:=ColorToRGB(Color); Original:=Result;
+  // Preserve the chosen hue while making dark purple/blue readable on a dark page.
+  // Settings retain the original color. The light theme does not use this adjustment.
+  if ReaderColorContrast(Result,Background)>=4.5 then Exit;
+  for Percent:=1 to 100 do
+  begin
+    Result:=RGB(GetRValue(Original)+(255-GetRValue(Original))*Percent div 100,
+      GetGValue(Original)+(255-GetGValue(Original))*Percent div 100,
+      GetBValue(Original)+(255-GetBValue(Original))*Percent div 100);
+    if ReaderColorContrast(Result,Background)>=4.5 then Exit;
+  end;
+end;
+
+function ResolveReaderSettingsFile(const DataDir: string): string;
+var Legacy, Temporary: string;
+begin
+  Result:=TPath.Combine(DataDir,'reader.ini');
+  // Older releases omitted the path separator. Keep the original profile,
+  // including reading positions and bookmarks, until the copied one exists.
+  Legacy:=ExcludeTrailingPathDelimiter(DataDir)+'reader.ini';
+  if not TFile.Exists(Result) and TFile.Exists(Legacy) then
+  begin
+    Temporary:=Result+'.migrating-'+TGUID.NewGuid.ToString;
+    try
+      try
+        ForceDirectories(DataDir);
+        TFile.Copy(Legacy,Temporary,False);
+        // Publish only the complete copy; never treat a partial migration as a profile.
+        if not MoveFile(PChar(Temporary),PChar(Result)) then RaiseLastOSError;
+      except
+        // A read-only installation must still be able to reopen its old profile.
+        if not TFile.Exists(Result) then Result:=Legacy;
+      end;
+    finally
+      if TFile.Exists(Temporary) then
+        try TFile.Delete(Temporary); except end;
+    end;
+  end;
+end;
 
 constructor TReaderRTFStream.Create(const Bytes: UTF8String);
 begin
@@ -303,8 +438,8 @@ begin
   if Assigned(FReader) and (Button=mbLeft) then FReader.FPDFSelecting:=False;
 end;
 
-constructor TReaderLoadThread.Create(const FileName: string);
-begin inherited Create(True); FreeOnTerminate:=False; FFileName:=FileName; end;
+constructor TReaderLoadThread.Create(const FileName: string; RasterEdge: Integer);
+begin inherited Create(True); FreeOnTerminate:=False; FFileName:=FileName; FRasterEdge:=RasterEdge; end;
 
 destructor TReaderLoadThread.Destroy;
 begin Pages.Free; Document.Free; inherited; end;
@@ -315,7 +450,7 @@ begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
     try
-      if IsRasterReaderFormat(ExtractFileExt(FFileName)) then Pages:=TReaderRaster.Create(FFileName)
+      if IsRasterReaderFormat(ExtractFileExt(FFileName)) then Pages:=TReaderRaster.Create(FFileName,FRasterEdge)
       else
       begin
         Document:=TReaderDocument.Create;
@@ -325,20 +460,277 @@ begin
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
-constructor TReaderPageThread.Create(Reader: TReaderRaster; Page: Integer);
-begin inherited Create(True); FreeOnTerminate:=False; FReader:=Reader; Index:=Page; end;
+constructor TReaderPageThread.Create(Reader: TReaderRaster; Page, RasterEdge: Integer);
+begin inherited Create(True); FreeOnTerminate:=False; FReader:=Reader; Index:=Page; FRasterEdge:=RasterEdge; end;
 
 procedure TReaderPageThread.Execute;
 var HR: HRESULT;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
-    try FReader.PreparePage(Index,Prefetch); except on E: Exception do Error:=E.Message; end;
+    try FReader.PreparePage(Index,Prefetch,FRasterEdge); except on E: Exception do Error:=E.Message; end;
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
+type
+  TReaderContentsDialog = class(TForm)
+  private
+    FReader: TfrmBuiltinReader;
+    FSearch: TEdit;
+    FList: TListBox;
+    FGo: TButton;
+    FNumbers: TCheckBox;
+    procedure NumbersChanged(Sender: TObject);
+    procedure Filter(Sender: TObject);
+    procedure OpenSelected(Sender: TObject);
+    procedure ListKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+  public
+    constructor CreateFor(Reader: TfrmBuiltinReader);
+    function SelectedChapter: Integer;
+  end;
+
+constructor TReaderContentsDialog.CreateFor(Reader: TfrmBuiltinReader);
+var Row, Footer: TPanel; Close: TButton;
+begin
+  inherited CreateNew(Reader); FReader:=Reader;
+  Caption:='Оглавление'; Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
+  ClientWidth:=520; ClientHeight:=540; Constraints.MinWidth:=360; Constraints.MinHeight:=320;
+  Font.Name:='Segoe UI'; Font.Size:=10;
+  Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alTop; Row.Height:=44;
+  Row.BevelOuter:=bvNone; Row.Padding.SetBounds(10,8,10,8);
+  FSearch:=TEdit.Create(Self); FSearch.Parent:=Row; FSearch.Align:=alClient;
+  FSearch.TextHint:='Найти главу…'; FSearch.OnChange:=Filter;
+  FNumbers:=TCheckBox.Create(Self); FNumbers.Parent:=Self; FNumbers.Align:=alTop; FNumbers.Top:=44;
+  FNumbers.Height:=28; FNumbers.Caption:='Добавлять номера ненумерованным главам';
+  FNumbers.Checked:=Reader.FNumberChapters; FNumbers.OnClick:=NumbersChanged;
+  Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom;
+  Footer.Height:=44; Footer.BevelOuter:=bvNone;
+  FGo:=TButton.Create(Self); FGo.Parent:=Footer; FGo.SetBounds(286,8,110,28);
+  FGo.Anchors:=[akRight,akBottom]; FGo.Caption:='Перейти'; FGo.Default:=True; FGo.ModalResult:=mrOk;
+  Close:=TButton.Create(Self); Close.Parent:=Footer; Close.SetBounds(404,8,106,28);
+  Close.Anchors:=[akRight,akBottom]; Close.Caption:='Закрыть'; Close.Cancel:=True; Close.ModalResult:=mrCancel;
+  FList:=TListBox.Create(Self); FList.Parent:=Self; FList.Align:=alClient;
+  FList.Font.Size:=11; FList.ItemHeight:=26; FList.OnDblClick:=OpenSelected; FList.OnKeyDown:=ListKey;
+  Filter(nil); ApplyMHLControlTheme(Self); ActiveControl:=FSearch;
+end;
+
+procedure TReaderContentsDialog.NumbersChanged(Sender: TObject);
+begin FReader.SetNumberChapters(FNumbers.Checked); Filter(nil); end;
+
+procedure TReaderContentsDialog.Filter(Sender: TObject);
+var I, Selected, Width: Integer; Pattern: string;
+begin
+  Pattern:=string(FSearch.Text).ToLower.Replace('ё','е'); Selected:=FReader.FChapters.ItemIndex;
+  if FList.ItemIndex>=0 then Selected:=SelectedChapter;
+  FList.Items.BeginUpdate;
+  try
+    FList.Clear; Width:=0; FList.Canvas.Font.Assign(FList.Font);
+    for I:=0 to FReader.FChapters.Items.Count-1 do
+      if (Pattern='') or FReader.FChapters.Items[I].ToLower.Replace('ё','е').Contains(Pattern) then
+      begin
+        FList.Items.AddObject(FReader.FChapterOutline[I],TObject(NativeInt(I)));
+        Width:=Max(Width,FList.Canvas.TextWidth(FReader.FChapterOutline[I])+24);
+        if I=Selected then FList.ItemIndex:=FList.Items.Count-1;
+      end;
+    FList.ScrollWidth:=Width;
+    if (FList.ItemIndex<0) and (FList.Items.Count>0) then FList.ItemIndex:=0;
+    FGo.Enabled:=FList.Items.Count>0;
+  finally FList.Items.EndUpdate; end;
+end;
+
+function TReaderContentsDialog.SelectedChapter: Integer;
+begin
+  Result:=-1;
+  if FList.ItemIndex>=0 then Result:=NativeInt(FList.Items.Objects[FList.ItemIndex]);
+end;
+
+procedure TReaderContentsDialog.OpenSelected(Sender: TObject);
+begin if SelectedChapter>=0 then ModalResult:=mrOk; end;
+
+procedure TReaderContentsDialog.ListKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin if Key=VK_RETURN then begin OpenSelected(nil); Key:=0; end; end;
+
+type
+  TReaderSearchHit = record Page, Position, Count: Integer; end;
+  TReaderSearchResults = class(TForm)
+  private
+    FReader: TfrmBuiltinReader;
+    FQuery: string;
+    FHits: TList<TReaderSearchHit>;
+    FList: TListView;
+    FStatus: TLabel;
+    FTimer: TTimer;
+    FStop: TButton;
+    FPage, FPosition, FTotal, FLastPageCount: Integer;
+    procedure Tick(Sender: TObject);
+    procedure StopClick(Sender: TObject);
+    procedure OpenSelected(Sender: TObject);
+    procedure ItemData(Sender: TObject; Item: TListItem);
+    procedure ListKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure UpdateStatus(const Stage: string);
+  public
+    constructor CreateFor(Reader: TfrmBuiltinReader; const Query: string);
+    destructor Destroy; override;
+    function SelectedHit(out Hit: TReaderSearchHit): Boolean;
+  end;
+
+constructor TReaderSearchResults.CreateFor(Reader: TfrmBuiltinReader; const Query: string);
+var Row: TPanel; LabelText: TLabel; Button: TButton;
+begin
+  inherited CreateNew(Reader); FReader:=Reader; FQuery:=Query; FHits:=TList<TReaderSearchHit>.Create;
+  Caption:='Результаты поиска'; Position:=poOwnerFormCenter; PopupMode:=pmExplicit; PopupParent:=Reader;
+  ClientWidth:=740; ClientHeight:=460; Constraints.MinWidth:=520; Constraints.MinHeight:=300;
+  Font.Name:='Segoe UI'; Font.Size:=10; BorderStyle:=bsSizeable;
+  LabelText:=TLabel.Create(Self); LabelText.Parent:=Self; LabelText.Align:=alTop; LabelText.Height:=48;
+  LabelText.WordWrap:=True; LabelText.Caption:='Поиск: «'+Query+'»'+sLineBreak+
+    'Дважды нажмите на результат, чтобы перейти к тексту.';
+  Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alBottom; Row.Height:=76; Row.BevelOuter:=bvNone;
+  FStatus:=TLabel.Create(Self); FStatus.Parent:=Row; FStatus.SetBounds(10,2,720,30);
+  FStatus.AutoSize:=False; FStatus.WordWrap:=True; FStatus.Anchors:=[akLeft,akRight,akTop];
+  FStop:=TButton.Create(Self); FStop.Parent:=Row; FStop.SetBounds(10,38,152,30);
+  FStop.Caption:='Остановить поиск'; FStop.OnClick:=StopClick;
+  Button:=TButton.Create(Self); Button.Parent:=Row; Button.SetBounds(462,38,158,30);
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Перейти к результату'; Button.OnClick:=OpenSelected; Button.Default:=True;
+  Button:=TButton.Create(Self); Button.Parent:=Row; Button.SetBounds(630,38,100,30);
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Закрыть'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
+  FList:=TListView.Create(Self); FList.Parent:=Self; FList.Align:=alClient; FList.ViewStyle:=vsReport;
+  FList.OwnerData:=True; FList.ReadOnly:=True; FList.RowSelect:=True; FList.HideSelection:=False;
+  with FList.Columns.Add do begin Caption:='№'; Width:=46; end;
+  with FList.Columns.Add do begin Caption:='Страница книги'; Width:=110; end;
+  with FList.Columns.Add do begin Caption:='Глава'; Width:=240; end;
+  with FList.Columns.Add do begin Caption:='Текст вокруг совпадения'; Width:=480; end;
+  FList.OnData:=ItemData; FList.OnDblClick:=OpenSelected; FList.OnKeyDown:=ListKey;
+  FTimer:=TTimer.Create(Self); FTimer.Interval:=15; FTimer.OnTimer:=Tick;
+  UpdateStatus('Поиск…'); ApplyMHLControlTheme(Self); ActiveControl:=FList;
+end;
+
+destructor TReaderSearchResults.Destroy;
+begin if Assigned(FTimer) then FTimer.Enabled:=False; FReader.FPaginationTimer.Enabled:=False; FHits.Free; inherited; end;
+
+procedure TReaderSearchResults.UpdateStatus(const Stage: string);
+begin
+  FStatus.Caption:=Stage+' · Совпадений: '+IntToStr(FTotal);
+  if (FTotal>0) and not Assigned(FReader.FPDF) and not FReader.FGlobalPagesDone then
+    if FReader.FGlobalPagesFailed then FStatus.Caption:=FStatus.Caption+' · Позиции показаны в процентах'
+    else FStatus.Caption:=FStatus.Caption+' · Рассчитываются страницы книги…';
+  if FTotal>FHits.Count then FStatus.Caption:=FStatus.Caption+'; в списке первые '+IntToStr(FHits.Count)+'. Уточните запрос.';
+end;
+
+procedure TReaderSearchResults.StopClick(Sender: TObject);
+begin FTimer.Enabled:=False; FStop.Enabled:=False; UpdateStatus('Поиск остановлен'); end;
+
+procedure TReaderSearchResults.Tick(Sender: TObject);
+var Started: UInt64; P, Finish: Integer; Match: TPDFMatch; Hit: TReaderSearchHit; Done: Boolean;
+begin
+  FTimer.Enabled:=False; Started:=GetTickCount64; Done:=FPosition<0;
+  if FLastPageCount<>FReader.FGlobalPages.Count then begin FLastPageCount:=FReader.FGlobalPages.Count; FList.Invalidate; end;
+  try
+    if not Done then repeat
+      if Assigned(FReader.FPDF) then
+      begin
+        if FPage>=FReader.FPDF.PageCount then begin Done:=True; Break; end;
+        if not FReader.FPDF.FindOnPage(FPage,FQuery,FPosition,Match,FReader.FSearchCase.Checked,FReader.FSearchWord.Checked) then
+        begin Inc(FPage); FPosition:=0; Continue; end;
+        Hit.Page:=FPage; Hit.Position:=Match.Index; Hit.Count:=Match.Count;
+        FPosition:=Match.Index+Max(1,Match.Count);
+      end
+      else
+      begin
+        if FPosition>=FReader.FLength then begin Done:=True; Break; end;
+        Finish:=Min(FReader.FLength,FPosition+32768+Length(FQuery)-1);
+        P:=FReader.FindTextRange(FQuery,FPosition,Finish,False);
+        if P<0 then
+        begin
+          if Finish=FReader.FLength then begin Done:=True; Break; end;
+          FPosition:=Finish-Length(FQuery)+1; Continue;
+        end;
+        Hit.Page:=-1; Hit.Position:=P; Hit.Count:=Length(FQuery); FPosition:=P+Max(1,Hit.Count);
+      end;
+      Inc(FTotal);
+      // Keep list memory bounded. Continue counting the entire document and
+      // create context only for visible rows, without formatting any page.
+      if FHits.Count<10000 then FHits.Add(Hit);
+    until GetTickCount64-Started>=12;
+    FList.Items.Count:=FHits.Count; if FHits.Count>0 then FReader.RequestGlobalPages;
+    if Done then
+    begin
+      FPosition:=-1; FStop.Enabled:=False; UpdateStatus('Поиск завершён');
+      if not Assigned(FReader.FPDF) and not FReader.FGlobalPagesDone and not FReader.FGlobalPagesFailed and (FTotal>0) then FTimer.Enabled:=True;
+    end
+    else begin UpdateStatus('Поиск…'); FTimer.Enabled:=True; end;
+  except
+    on E: Exception do begin FStop.Enabled:=False; UpdateStatus('Не удалось завершить поиск: '+E.Message); end;
+  end;
+end;
+
+procedure TReaderSearchResults.ItemData(Sender: TObject; Item: TListItem);
+var Hit: TReaderSearchHit; Context, Title, Page: string; I, Number: Integer;
+begin
+  if (Item.Index<0) or (Item.Index>=FHits.Count) then Exit;
+  Hit:=FHits[Item.Index]; Title:='';
+  if Hit.Page>=0 then
+  begin
+    Page:=IntToStr(Hit.Page+1);
+    I:=FReader.ChapterIndexAt(Hit.Page); if I>=0 then Title:=FReader.ChapterTitle(I);
+    Context:=FReader.FPDF.TextRange(Hit.Page,Max(0,Hit.Position-55),Hit.Count+140);
+  end
+  else
+  begin
+    Number:=FReader.GlobalPageAt(Hit.Position);
+    if Number>0 then Page:=IntToStr(Number) else Page:='… ('+IntToStr(Round(Hit.Position*100/Max(1,FReader.FLength)))+'%)';
+    I:=FReader.ChapterIndexAt(Hit.Position); if I>=0 then Title:=FReader.ChapterTitle(I);
+    Context:=ReaderTextRange(FReader.FRichEdit,Max(0,Hit.Position-55),Hit.Count+140);
+  end;
+  Item.Caption:=IntToStr(Item.Index+1);
+  Item.SubItems.Clear; Item.SubItems.Add(Page); Item.SubItems.Add(Title);
+  Item.SubItems.Add(TRegEx.Replace(Context,'\s+',' ').Trim);
+end;
+
+function TReaderSearchResults.SelectedHit(out Hit: TReaderSearchHit): Boolean;
+begin
+  Result:=Assigned(FList.Selected) and (FList.Selected.Index>=0) and (FList.Selected.Index<FHits.Count);
+  if Result then Hit:=FHits[FList.Selected.Index];
+end;
+
+procedure TReaderSearchResults.OpenSelected(Sender: TObject);
+var Hit: TReaderSearchHit;
+begin if SelectedHit(Hit) then ModalResult:=mrOk; end;
+
+procedure TReaderSearchResults.ListKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin if Key=VK_RETURN then begin OpenSelected(nil); Key:=0; end; end;
+
+procedure TfrmBuiltinReader.ShowSearchResults(const Query: string);
+var Dialog: TReaderSearchResults; Hit: TReaderSearchHit; Match: TPDFMatch;
+begin
+  StopSearch;
+  if not FReady or (Query='') then Exit;
+  if Assigned(FPDF) and not FPDF.HasTextSearch then
+  begin ShowSearchStatus('В этом формате нет текстового слоя. Поиск недоступен.'); Exit; end;
+  FSearchQuery:=Copy(Query,1,1024); FSearch.Text:=FSearchQuery;
+  Dialog:=TReaderSearchResults.CreateFor(Self,FSearchQuery);
+  try
+    if (Dialog.ShowModal=mrOk) and Dialog.SelectedHit(Hit) then
+    begin
+      if Hit.Page<0 then
+      begin
+        FTextMatch:=Hit.Position; FTextMatchLength:=Hit.Count;
+        if Hit.Position=CurrentPosition then RenderPage else NavigateTo(Hit.Position);
+      end
+      else if FPDF.FindOnPage(Hit.Page,FSearchQuery,Hit.Position,Match,FSearchCase.Checked,FSearchWord.Checked) then
+      begin
+        FPDFQuery:=FSearchQuery; FPDFMatchPage:=Hit.Page; FPDFMatchIndex:=Match.Index; FPDFRects:=Match.Rects;
+        if Hit.Page=FPage then RenderPage else NavigateTo(Hit.Page);
+      end;
+      ShowSearchStatus('Выбран результат · F3 — следующий · Shift+F3 — предыдущий');
+    end;
+  finally Dialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.SearchResultsClick(Sender: TObject);
+begin ShowSearchResults(FSearch.Text); end;
+
 constructor TfrmBuiltinReader.Create(AOwner: TComponent);
-var SearchRow, OptionsRow: TPanel; Button: TButton;
+var SearchRow, NavigationRow, OptionsRow, ContentsRow: TPanel; Button: TButton; MenuItem: TMenuItem; I,J: Integer;
   procedure SearchButton(const Text: string; Width: Integer; Handler: TNotifyEvent);
   begin
     Button:=TButton.Create(Self); Button.Parent:=SearchRow; Button.Align:=alRight;
@@ -351,13 +743,20 @@ var SearchRow, OptionsRow: TPanel; Button: TButton;
   end;
 begin
   inherited CreateNew(AOwner);
+  if AOwner is TCustomForm then
+  begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
   Caption:='HomeLib Ru — Читалка (экспериментальная)';
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
-  Constraints.MinWidth:=520; Constraints.MinHeight:=360;
+  Constraints.MinWidth:=640; Constraints.MinHeight:=360;
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;
-  FFontSize:=14; FFontName:='Georgia'; FLinePercent:=110; FMargin:=32; FMaxTextWidth:=960; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
+  PrepareReaderFonts;
+  FFontSize:=14; FFontName:=AvailableReaderFont('PT Serif'); FLinePercent:=110; FMargin:=32; FMaxTextWidth:=960; FBookFormatting:=True; FShowFootnotes:=True; FInspectionPercent:=150;
+  for I:=0 to 1 do for J:=0 to 1 do FHeadingColors[I,J]:=clDefault;
   FPDFMatchPage:=-1; FPDFMatchIndex:=-1;
   FTextMatch:=-1; FHighlightColor:=$0080E5FF; FHighlighted:=TList<TPoint>.Create;
+  FTypographyDirty:=True; FStyledIntervals:=TList<TPoint>.Create; FChapterOutline:=TStringList.Create;
+  FChapterSourceTitles:=TStringList.Create; FChapterDepths:=TList<Integer>.Create; FNumberChapters:=True;
+  FGlobalPages:=TList<Integer>.Create; FMeasureBitmap:=TBitmap.Create; FMeasureBitmap.SetSize(1,1);
   FZoom:=100; FPrefetchedForPage:=-1; FPages:=TList<Integer>.Create; FPages.Add(0);
   FBitmap:=TBitmap.Create; FBitmap.PixelFormat:=pf32bit;
   FTop:=TPanel.Create(Self); FTop.Parent:=Self; FTop.Align:=alTop; FTop.Height:=70; FTop.BevelOuter:=bvNone;
@@ -373,28 +772,52 @@ begin
   FFitButton.Left:=MaxInt; FFitButton.Width:=72; FFitButton.Caption:='Вписать';
   FFitButton.OnClick:=FitPageClick; FFitButton.Visible:=False;
   MakeButton('Закладки',BookmarkClick,80);
+  MakeButton('Заметки',NotesManageClick,72);
   MakeButton('Вид',StyleClick,50);
   MakeButton('Поиск',SearchClick,50); MakeButton('F11',FullScreenClick,50);
-  FChapters:=TComboBox.Create(Self); FChapters.Parent:=FTop; FChapters.Align:=alClient;
+  ContentsRow:=TPanel.Create(Self); ContentsRow.Parent:=FTop; ContentsRow.Align:=alClient; ContentsRow.BevelOuter:=bvNone;
+  FContentsButton:=TButton.Create(Self); FContentsButton.Parent:=ContentsRow; FContentsButton.Align:=alLeft;
+  FContentsButton.Width:=36; FContentsButton.Caption:='☰'; FContentsButton.Hint:='Оглавление (Ctrl+T)';
+  FContentsButton.ShowHint:=True; FContentsButton.Enabled:=False; FContentsButton.OnClick:=ContentsClick;
+  FChapters:=TComboBox.Create(Self); FChapters.Parent:=ContentsRow; FChapters.Align:=alClient; FChapters.DropDownCount:=20;
   FChapters.TextHint:='Содержание книги'; FChapters.Style:=csDropDownList; FChapters.OnChange:=ChapterClick; FChapters.Hint:='Содержание книги'; FChapters.ShowHint:=True;
-  FBottom:=TPanel.Create(Self); FBottom.Parent:=Self; FBottom.Align:=alBottom; FBottom.Height:=28; FBottom.BevelOuter:=bvNone;
+  FBottom:=TPanel.Create(Self); FBottom.Parent:=Self; FBottom.Align:=alBottom; FBottom.Height:=34; FBottom.BevelOuter:=bvNone;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=FBottom; FStatus.Align:=alClient; FStatus.Layout:=tlCenter; FStatus.Alignment:=taCenter;
   FStatus.Caption:='Колесо — страницы · Ctrl+колесо — размер · F11 — весь экран · Ctrl+F — поиск';
+  FProgressLine:=TReaderProgress.Create(Self); FProgressLine.Parent:=FBottom; FProgressLine.Align:=alBottom;
+  FProgressLine.Height:=8; FProgressLine.OnPaint:=PaintProgress; FProgressLine.Cursor:=crHandPoint;
+  FProgressLine.Hint:='Щёлкните или перетащите, чтобы перейти к нужному месту книги'; FProgressLine.ShowHint:=True;
+  FProgressLine.OnMouseDown:=ProgressMouseDown; FProgressLine.OnMouseMove:=ProgressMouseMove; FProgressLine.OnMouseUp:=ProgressMouseUp;
   FFootnotesPanel:=TPanel.Create(Self); FFootnotesPanel.Parent:=Self;
   FFootnotesPanel.Align:=alBottom; FFootnotesPanel.Top:=0; FFootnotesPanel.Height:=110;
   FFootnotesPanel.BevelOuter:=bvNone; FFootnotesPanel.Caption:=''; FFootnotesPanel.Visible:=False;
+  FFootnotesPanel.Padding.SetBounds(16,8,16,8);
+  with TBevel.Create(Self) do begin Parent:=FFootnotesPanel; Align:=alTop; Height:=6; Shape:=bsTopLine; end;
   FFootnotesLabel:=TLabel.Create(Self); FFootnotesLabel.Parent:=FFootnotesPanel;
-  FFootnotesLabel.Align:=alTop; FFootnotesLabel.Height:=22; FFootnotesLabel.Caption:='Сноски на этой странице';
+  FFootnotesLabel.Align:=alTop; FFootnotesLabel.AutoSize:=False; FFootnotesLabel.Height:=24;
+  FFootnotesLabel.Font.Style:=[fsBold]; FFootnotesLabel.Caption:='Сноски на этой странице';
   FFootnotesMemo:=TMemo.Create(Self); FFootnotesMemo.Parent:=FFootnotesPanel;
   FFootnotesMemo.Align:=alClient; FFootnotesMemo.ReadOnly:=True; FFootnotesMemo.WordWrap:=True;
   FFootnotesMemo.ScrollBars:=ssVertical; FFootnotesMemo.BorderStyle:=bsNone;
   FFootnotesMemo.Font.Name:='Segoe UI'; FFootnotesMemo.Font.Size:=10;
   FFootnotesMemo.Font.Quality:=fqClearTypeNatural;
   FFootnotesMemo.StyleElements:=FFootnotesMemo.StyleElements-[seClient,seFont];
-  FSearchPanel:=TPanel.Create(Self); FSearchPanel.Parent:=Self; FSearchPanel.Align:=alTop; FSearchPanel.Height:=66; FSearchPanel.Visible:=False;
+  FSearchPanel:=TPanel.Create(Self); FSearchPanel.Parent:=Self; FSearchPanel.Align:=alTop; FSearchPanel.Height:=98; FSearchPanel.Visible:=False;
   SearchRow:=TPanel.Create(Self); SearchRow.Parent:=FSearchPanel; SearchRow.Align:=alTop; SearchRow.Height:=32; SearchRow.BevelOuter:=bvNone;
-  SearchButton('×',28,SearchCloseClick); SearchButton('Далее',65,SearchNextClick); SearchButton('Назад',65,SearchPreviousClick);
+  SearchButton('×',28,SearchCloseClick);
   FSearch:=TEdit.Create(Self); FSearch.Parent:=SearchRow; FSearch.Align:=alClient; FSearch.TextHint:='Найти… Enter / Shift+Enter'; FSearch.OnKeyDown:=SearchKey;
+  NavigationRow:=TPanel.Create(Self); NavigationRow.Parent:=FSearchPanel; NavigationRow.Align:=alTop;
+  NavigationRow.Top:=32; NavigationRow.Height:=32; NavigationRow.BevelOuter:=bvNone;
+  for I:=0 to 2 do
+  begin
+    Button:=TButton.Create(Self); Button.Parent:=NavigationRow; Button.Align:=alLeft; Button.Left:=MaxInt;
+    case I of
+      0: begin Button.Caption:='Предыдущий результат'; Button.Width:=172; Button.OnClick:=SearchPreviousClick; end;
+      1: begin Button.Caption:='Следующий результат'; Button.Width:=162; Button.OnClick:=SearchNextClick; end;
+      2: begin Button.Caption:='Найти все…'; Button.Width:=110; Button.OnClick:=SearchResultsClick; end;
+    end;
+    Button.TabStop:=False;
+  end;
   OptionsRow:=TPanel.Create(Self); OptionsRow.Parent:=FSearchPanel; OptionsRow.Align:=alClient; OptionsRow.BevelOuter:=bvNone;
   FSearchCase:=SearchCheck('Регистр',78); FSearchWord:=SearchCheck('Слово целиком',118);
   FSearchAll:=SearchCheck('Подсветить все',122);
@@ -406,21 +829,36 @@ begin
   FCopyMenu:=TPopupMenu.Create(Self); FCopyMenu.OnPopup:=CopyMenuPopup;
   FCopyItem:=TMenuItem.Create(FCopyMenu); FCopyItem.Caption:='Копировать выделенный текст';
   FCopyItem.OnClick:=CopyTextClick; FCopyItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl]);
-  FCopyMenu.Items.Add(FCopyItem); FSurface.PopupMenu:=FCopyMenu;
+  FCopyMenu.Items.Add(FCopyItem);
+  FCopyPageItem:=TMenuItem.Create(FCopyMenu); FCopyPageItem.Caption:='Копировать текст страницы';
+  FCopyPageItem.OnClick:=CopyPageClick; FCopyMenu.Items.Add(FCopyPageItem);
+  FCopyAllItem:=TMenuItem.Create(FCopyMenu); FCopyAllItem.Caption:='Копировать весь текст книги';
+  FCopyAllItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl,ssShift]); FCopyAllItem.OnClick:=CopyAllClick; FCopyMenu.Items.Add(FCopyAllItem);
+  FCopyViewItem:=TMenuItem.Create(FCopyMenu); FCopyViewItem.Caption:='Выделить текст / цитату для заметки…';
+  FCopyViewItem.OnClick:=CopyViewClick; FCopyMenu.Items.Add(FCopyViewItem); FSurface.PopupMenu:=FCopyMenu;
+  MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
+  MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
   ActiveControl:=FSurface;
   FRichEdit:=TRichEdit.Create(Self);
   // This hidden formatting buffer must survive showing, scaling and restyling
   // the reader form: recreating a VCL child would discard its OLE pictures.
   FFormattingHost:=TForm.CreateNew(Self); FFormattingHost.Scaled:=False;
+  FFormattingHost.Name:='ReaderFormattingHost'; FFormattingHost.StyleElements:=[];
   FRichEdit.Parent:=FFormattingHost; FRichEdit.Visible:=False;
+  FRichEdit.StyleElements:=[];
+  FRichEdit.Font.Quality:=fqClearTypeNatural;
   FRichEdit.ReadOnly:=True; FRichEdit.PlainText:=False; FRichEdit.MaxLength:=MAXINT;
+  // The buffer is read-only. Thousands of decorative runs need no undo history.
+  SendMessage(FRichEdit.Handle,EM_SETUNDOLIMIT,0,0);
   // Only EM_FORMATRANGE paginates this hidden buffer; skip its narrow on-screen wrapping.
   FRichEdit.WordWrap:=False;
   FOleCallback:=AttachReaderPictures(FRichEdit);
   FResizeTimer:=TTimer.Create(Self); FResizeTimer.Enabled:=False; FResizeTimer.Interval:=140; FResizeTimer.OnTimer:=ResizePage;
   FPageTimer:=TTimer.Create(Self); FPageTimer.Enabled:=False; FPageTimer.Interval:=30; FPageTimer.OnTimer:=PageLoaded;
   FSearchTimer:=TTimer.Create(Self); FSearchTimer.Enabled:=False; FSearchTimer.Interval:=1; FSearchTimer.OnTimer:=SearchTick;
+  FSeekTimer:=TTimer.Create(Self); FSeekTimer.Enabled:=False; FSeekTimer.Interval:=90; FSeekTimer.OnTimer:=SeekTick;
+  FPaginationTimer:=TTimer.Create(Self); FPaginationTimer.Enabled:=False; FPaginationTimer.Interval:=35; FPaginationTimer.OnTimer:=PaginationTick;
   FBookmarks:=TPopupMenu.Create(Self);
   OnKeyDown:=KeyReader; OnResize:=ScheduleResize; OnClose:=CloseReader;
 end;
@@ -437,14 +875,14 @@ end;
 
 destructor TfrmBuiltinReader.Destroy;
 begin
-  FClosing:=True; FreeAndNil(FLoadStatus);
+  FClosing:=True; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
   FPageTimer.Enabled:=False;
   if Assigned(FPageWorker) then begin FPageWorker.Terminate; FPageWorker.WaitFor; FreeAndNil(FPageWorker); end;
   FreeAndNil(FPageStatus);
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
   FSurface.FReader:=nil;
-  FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; inherited;
+  FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
 
 procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, SettingsFile, PDFLibrary: string;
@@ -452,16 +890,15 @@ procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, Settin
 var Stream: TFileStream; Chapter: TPDFChapter;
 begin
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
-  FSettingsFile:=SettingsFile; FOnProgress:=OnProgress;
+  FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
   Caption:='HomeLib Ru — '+BookTitle+' — Читалка (экспериментальная)';
   RestoreSettings;
   if SameText(ExtractFileExt(FileName),'.pdf') then
   begin
     FPDF:=TReaderPDF.Create(PDFLibrary,FileName); FLength:=FPDF.PageCount;
     for Chapter in FPDF.Chapters do
-      FChapters.Items.AddObject(StringOfChar(' ',Chapter.Depth*2)+Chapter.Title,
-        TObject(NativeInt(Chapter.Page)));
-    FReady:=True; FLoadFinished:=True; RestoreSettings; RenderPage;
+      AddChapter(Chapter.Title,Chapter.Page,Chapter.Depth);
+    RebuildChapterTitles; FReady:=True; FLoadFinished:=True; RestoreSettings; RenderPage;
   end
   else if SameText(ExtractFileExt(FileName),'.rtf') then
   begin
@@ -477,7 +914,7 @@ begin
   begin
     FStatus.Caption:='Открытие книги…';
     FLoadStatus:=TMHLOperationStatus.Create('Подготовка текста и изображений книги…');
-    FLoader:=TReaderLoadThread.Create(FileName); FLoader.OnTerminate:=LoaderFinished; FLoader.Start;
+    FLoader:=TReaderLoadThread.Create(FileName,DesiredRasterEdge); FLoader.OnTerminate:=LoaderFinished; FLoader.Start;
   end;
 end;
 
@@ -492,7 +929,8 @@ begin
   if Assigned(FLoader.Pages) then
   begin
     FPDF:=FLoader.Pages; FLoader.Pages:=nil; FLength:=FPDF.PageCount;
-    for Chapter in FPDF.Chapters do FChapters.Items.AddObject(Chapter.Title,TObject(NativeInt(Chapter.Page)));
+    for Chapter in FPDF.Chapters do AddChapter(Chapter.Title,Chapter.Page,Chapter.Depth);
+    RebuildChapterTitles;
     FReady:=True; RestoreSettings; SavedPage:=FPage; FPage:=0; FRequestedPage:=0;
     RenderPage;
     if SavedPage<>0 then RequestPage(SavedPage,False);
@@ -501,8 +939,9 @@ begin
   FDocument:=FLoader.Document; FLoader.Document:=nil;
   UpdateFootnotesPanel; LoadPresentation;
   FLength:=ReaderTextLength(FRichEdit);
-  for C in FDocument.Chapters do FChapters.Items.AddObject(C.Title,TObject(NativeInt(C.Position)));
-  FDocument.ReleaseUnusedBuffers;
+  for C in FDocument.Chapters do AddChapter(C.Title,C.Position,C.Depth);
+  RebuildChapterTitles;
+  FStyleRanges:=FDocument.Styles; FDocument.ReleaseUnusedBuffers;
   FReady:=True; InvalidateLayout; RestoreSettings; RenderPage;
   except
     on E: Exception do
@@ -515,13 +954,34 @@ begin
   Result:=Assigned(FPageWorker) and ((not FPageWorker.Prefetch) or (FRequestedPage<>FPage));
 end;
 
+function TfrmBuiltinReader.DesiredRasterEdge: Integer;
+var Zoom: Integer;
+begin
+  Zoom:=FZoom;
+  if FInspect then Zoom:=FInspectZoom;
+  // Reserve enough detail for click magnification, without decoding a 4000px
+  // image for a small reading window. Larger windows/zoom upgrade in background.
+  Result:=EnsureRange(Ceil(Max(FSurface.ClientWidth,FSurface.ClientHeight)*
+    Max(100,Zoom)/100*Max(100,FInspectionPercent)/100*1.1),1200,4000);
+end;
+
 procedure TfrmBuiltinReader.PrefetchNextPage;
+var Edge: Integer;
 begin
   if FClosing or not FReady or not (FPDF is TReaderRaster) or Assigned(FPageWorker) or
-    (FRequestedPage<>FPage) or (FPage+1>=FPDF.PageCount) or (FPrefetchedForPage=FPage) then Exit;
+    (FRequestedPage<>FPage) then Exit;
+  Edge:=DesiredRasterEdge;
+  if not TReaderRaster(FPDF).IsPageCached(FPage,Edge) and
+    ((FQualityAttemptPage<>FPage) or (FQualityAttemptEdge<>Edge)) then
+  begin
+    FQualityAttemptPage:=FPage; FQualityAttemptEdge:=Edge;
+    FPageWorker:=TReaderPageThread.Create(TReaderRaster(FPDF),FPage,Edge);
+    FPageWorker.Prefetch:=True; FPageTimer.Enabled:=True; FPageWorker.Start; Exit;
+  end;
+  if (FPage+1>=FPDF.PageCount) or (FPrefetchedForPage=FPage) then Exit;
   FPrefetchedForPage:=FPage;
-  if TReaderRaster(FPDF).IsPageCached(FPage+1) then Exit;
-  FPageWorker:=TReaderPageThread.Create(TReaderRaster(FPDF),FPage+1);
+  if TReaderRaster(FPDF).IsPageCached(FPage+1,Edge) then Exit;
+  FPageWorker:=TReaderPageThread.Create(TReaderRaster(FPDF),FPage+1,Edge);
   FPageWorker.Prefetch:=True; FPageTimer.Enabled:=True; FPageWorker.Start;
 end;
 
@@ -548,12 +1008,12 @@ begin
   if not Assigned(FPageStatus) then FPageStatus:=TMHLOperationStatus.Create('Открытие страницы книги…');
   if Assigned(FPageWorker) then Exit;
   ResetInspection; FSearchStatus:='';
-  FPageWorker:=TReaderPageThread.Create(TReaderRaster(FPDF),FRequestedPage);
+  FPageWorker:=TReaderPageThread.Create(TReaderRaster(FPDF),FRequestedPage,DesiredRasterEdge);
   FPageWorker.Navigated:=Moved; FPageTimer.Enabled:=True; FPageWorker.Start;
 end;
 
 procedure TfrmBuiltinReader.PageLoaded(Sender: TObject);
-var Index: Integer; Error: string; Moved, Preloaded: Boolean;
+var Index: Integer; Error: string; Moved, Preloaded: Boolean; SavedPan: TPoint;
 begin
   if not Assigned(FPageWorker) or (WaitForSingleObject(FPageWorker.Handle,0)<>WAIT_OBJECT_0) then Exit;
   Index:=FPageWorker.Index; Error:=FPageWorker.Error; Moved:=FPageWorker.Navigated;
@@ -563,6 +1023,12 @@ begin
   begin
     FPage:=Index; FReadingMoved:=FReadingMoved or Moved;
     try RenderPage; except on E: Exception do Error:=E.Message; end;
+  end;
+  if Preloaded and (Error='') and (Index=FPage) and (FRequestedPage=FPage) then
+  begin
+    SavedPan:=FPan;
+    try RenderPage; FPan:=SavedPan; ClampPan; FSurface.Invalidate;
+    except on E: Exception do Error:=E.Message; end;
   end;
   if (FRequestedPage<>FPage) and (Preloaded or (FRequestedPage<>Index)) then
     RequestPage(FRequestedPage,FRequestedMoved)
@@ -575,7 +1041,8 @@ procedure TfrmBuiltinReader.LoadPresentation;
 var Stream: TReaderRTFStream;
 begin
   FImageWidth:=Max(16,TextAreaWidth-16);
-  FImageHeight:=Max(16,FSurface.ClientHeight-80);
+  FImageHeight:=Max(16,FullTextHeight-80);
+  FTypographyDirty:=True;
   Stream:=TReaderRTFStream.Create(FDocument.RTF(FImageWidth,FImageHeight));
   try
     // Showing or scaling the form can recreate the native edit handle.
@@ -609,18 +1076,47 @@ begin
   if FMaxTextWidth>0 then Result:=Min(Result,MulDiv(FMaxTextWidth,CurrentPPI,96));
 end;
 
-function TfrmBuiltinReader.FormatText(Start, Finish: Integer; Draw: Boolean): Integer;
-var Range: TFormatRange; DPI, Width: Integer;
+function TfrmBuiltinReader.FullTextHeight: Integer;
 begin
-  FillChar(Range,SizeOf(Range),0); DPI:=GetDeviceCaps(FBitmap.Canvas.Handle,LOGPIXELSY);
-  Range.hdc:=FBitmap.Canvas.Handle; Range.hdcTarget:=Range.hdc;
-  Range.rcPage:=Rect(0,0,MulDiv(FBitmap.Width,1440,DPI),MulDiv(FBitmap.Height,1440,DPI));
-  Range.rc:=Range.rcPage; InflateRect(Range.rc,-MulDiv(FMargin,1440,96),-MulDiv(20,1440,96));
-  Width:=Min(Range.rc.Width,MulDiv(TextAreaWidth,1440,DPI));
-  Inc(Range.rc.Left,(Range.rc.Width-Width) div 2); Range.rc.Right:=Range.rc.Left+Width;
-  Range.chrg.cpMin:=Start; Range.chrg.cpMax:=Finish;
-  try Result:=SendMessage(FRichEdit.Handle,EM_FORMATRANGE,Ord(Draw),LPARAM(@Range));
-  finally SendMessage(FRichEdit.Handle,EM_FORMATRANGE,0,0); end;
+  Result:=FSurface.ClientHeight;
+  if FFootnotesPanel.Visible then Inc(Result,FFootnotesPanel.Height);
+end;
+
+function TfrmBuiltinReader.FormatText(Start, Finish: Integer; Draw: Boolean; Target: TBitmap; LayoutWidth, LayoutHeight: Integer): Integer;
+var Range: TFormatRange; DPI, Width, Limit: Integer;
+begin
+  if not Assigned(Target) then Target:=FBitmap;
+  if LayoutWidth<=0 then LayoutWidth:=Target.Width;
+  if LayoutHeight<=0 then LayoutHeight:=Target.Height;
+  Limit:=Finish;
+  if Limit<0 then Limit:=Min(FLength,Start+4096);
+  repeat
+    EnsureBookStyles(Start,Limit);
+    // Preparing styles can allocate other VCL drawing contexts. Acquire and
+    // protect this bitmap's DC afterwards, keeping it live for native layout.
+    Target.Canvas.Lock;
+    try
+      FillChar(Range,SizeOf(Range),0); DPI:=GetDeviceCaps(Target.Canvas.Handle,LOGPIXELSY);
+      Range.hdc:=Target.Canvas.Handle; Range.hdcTarget:=Range.hdc;
+      Range.rcPage:=Rect(0,0,MulDiv(LayoutWidth,1440,DPI),MulDiv(LayoutHeight,1440,DPI));
+      Range.rc:=Range.rcPage; InflateRect(Range.rc,-MulDiv(FMargin,1440,96),-MulDiv(20,1440,96));
+      Width:=Min(Range.rc.Width,MulDiv(TextAreaWidth,1440,DPI));
+      Inc(Range.rc.Left,(Range.rc.Width-Width) div 2); Range.rc.Right:=Range.rc.Left+Width;
+      Range.chrg.cpMin:=Start; Range.chrg.cpMax:=Finish;
+      try Result:=SendMessage(FRichEdit.Handle,EM_FORMATRANGE,Ord(Draw),LPARAM(@Range));
+      finally SendMessage(FRichEdit.Handle,EM_FORMATRANGE,0,0); end;
+    finally Target.Canvas.Unlock; end;
+    // RichEdit can include the implicit final paragraph mark in its end index.
+    // Clamp that valid sentinel; a negative native result is a layout error.
+    if (Result<Start) or (Result>FLength+1) then
+      raise Exception.Create('Не удалось разметить страницу книги.');
+    Result:=Min(Result,FLength);
+    if (Finish>=0) or (Result<Limit) or (Limit>=FLength) then Break;
+    // Start with a typical visible page, not several off-screen pages.
+    // Very wide pages and small fonts extend this interval until all visible
+    // text is styled, retaining exact layout without costly distant work.
+    Limit:=Min(FLength,Limit+4096);
+  until False;
 end;
 
 procedure TfrmBuiltinReader.ResetInspection;
@@ -665,7 +1161,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.RenderPage;
-var Size: TPoint; Scale: Double; Temporary: TBitmap; W,H,I: Integer; Match: TPDFMatch;
+var Size: TPoint; Scale: Double; Temporary: TBitmap; W,H,I, FullHeight, NotesHeight: Integer; Match: TPDFMatch; Notes: string; NotesRect: TRect;
   procedure MarkPDF(const Rectangles: TArray<TRectF>);
   var R: TRectF; Box: TRect; X,Y: Integer; Pixel: PRGBQuad; Color: Cardinal;
   begin
@@ -714,28 +1210,43 @@ begin
   end
   else
   begin
-    FBitmap.SetSize(FSurface.ClientWidth,FSurface.ClientHeight);
+    FullHeight:=FullTextHeight;
+    FBitmap.SetSize(FSurface.ClientWidth,FullHeight);
+    ClearTextHighlights;
+    FNext:=FormatText(CurrentPosition,-1,False); Notes:=''; NotesHeight:=0;
+    if FShowFootnotes and Assigned(FDocument) then Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
+    if Notes<>'' then
+    begin
+      FBitmap.Canvas.Font.Assign(FFootnotesMemo.Font);
+      NotesRect:=Rect(0,0,Max(40,FSurface.ClientWidth-56),0);
+      DrawText(FBitmap.Canvas.Handle,PChar(Notes),Length(Notes),NotesRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      NotesHeight:=Min(Max(70,NotesRect.Height+54),Max(70,Min(200,FullHeight div 3)));
+      FBitmap.SetSize(FSurface.ClientWidth,Max(100,FullHeight-NotesHeight));
+      FNext:=FormatText(CurrentPosition,-1,False);
+      Notes:=FDocument.FootnotesForRange(CurrentPosition,FNext);
+      // If reserving room moves the first reference off this page, end the
+      // body before that reference. Its note will accompany the next page.
+      if Notes='' then begin NotesHeight:=0; FBitmap.SetSize(FSurface.ClientWidth,FullHeight); end;
+    end;
+    DisableAlign;
+    try
+      FFootnotesPanel.Height:=Max(70,NotesHeight); FFootnotesPanel.Visible:=Notes<>'';
+      FFootnotesMemo.Color:=ThemeBackground; FFootnotesMemo.Font.Color:=ThemeText;
+      FFootnotesPanel.Color:=ThemeBackground; FFootnotesLabel.Font.Color:=HeadingColor;
+      FFootnotesMemo.Text:=Notes; FFootnotesLabel.Caption:='Сноски на этой странице';
+    finally EnableAlign; end;
     FBitmap.Canvas.Brush.Color:=ThemeBackground;
     FBitmap.Canvas.FillRect(Rect(0,0,FBitmap.Width,FBitmap.Height));
-    ClearTextHighlights;
-    if FSearchQuery<>'' then
-    begin FNext:=FormatText(CurrentPosition,-1,False); HighlightTextPage; end;
-    FNext:=FormatText(CurrentPosition,-1,True);
-    if FFootnotesPanel.Visible then
-    begin
-      FFootnotesMemo.Color:=ThemeBackground; FFootnotesMemo.Font.Color:=ThemeText;
-      FFootnotesMemo.Text:=FDocument.FootnotesForRange(CurrentPosition,FNext);
-      if FFootnotesMemo.Text='' then FFootnotesLabel.Caption:='Сноски: на этой странице нет ссылок'
-      else FFootnotesLabel.Caption:='Сноски на этой странице';
-    end;
-    FStatus.Caption:=Format('%d%% · Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[Min(100,Round(CurrentPosition*100/Max(1,FLength))),FFontSize]);
+    if FSearchQuery<>'' then HighlightTextPage;
+    FNext:=FormatText(CurrentPosition,FNext,True);
+    FStatus.Caption:=Format('%d%% · Шрифт %d · Колесо — страницы · Ctrl+колесо — размер',[Min(100,Round(ReadingProgress*100)),FFontSize]);
     if Assigned(FDocument) and (FDocument.SkippedImages>0) then FStatus.Caption:=FStatus.Caption+' · Изображений пропущено: '+IntToStr(FDocument.SkippedImages);
   end;
-  for I:=FChapters.Items.Count-1 downto 0 do
-    if NativeInt(FChapters.Items.Objects[I])<=CurrentPosition then
-    begin FChapters.ItemIndex:=I; Break; end;
+  if Assigned(FPDF) then I:=ChapterIndexAt(CurrentPosition) else I:=ChapterIndexAt(Max(CurrentPosition,FNext-1));
+  FChapters.ItemIndex:=I;
+  FLastPageInteraction:=GetTickCount64;
   if FSearchStatus<>'' then FStatus.Caption:=FSearchStatus;
-  FSurface.Invalidate; PrefetchNextPage;
+  FProgressLine.Invalidate; FSurface.Invalidate; PrefetchNextPage;
 end;
 
 procedure TfrmBuiltinReader.PaintPage(Canvas: TCanvas);
@@ -766,25 +1277,37 @@ begin
     begin Canvas.Font.Assign(Font); Canvas.Font.Color:=ThemeText; Canvas.TextOut(24,24,FStatus.Caption); end;
 end;
 
-procedure TfrmBuiltinReader.ApplyBookStyles(ColorsOnly: Boolean);
-var Range: TReaderStyledRange; Characters: TCharFormat2; Color: TColor;
+procedure TfrmBuiltinReader.ApplyBookStyles(ColorsOnly: Boolean; Start, Finish: Integer);
+var Range: TReaderStyledRange; Characters: TCharFormat2; Selection: TCharRange; Color, TitleColor, SubtitleColor: TColor;
 begin
   if not Assigned(FDocument) or not FBookFormatting then Exit;
   // Semantic ranges survive reflow, font changes and search highlighting.
   // Nested ranges are stored after their enclosing block, so headings keep
   // their own appearance even inside a quote or poem.
-  for Range in FDocument.Styles do
+  TitleColor:=HeadingColor; SubtitleColor:=HeadingColor(True);
+  for Range in FStyleRanges do
   begin
-    if Range.Count<=0 then Continue;
+    if (Range.Count<=0) or (Range.Start>=Finish) or (Range.Start+Range.Count<=Start) then Continue;
     Color:=ThemeText;
     if Range.Kind in [rbTitle,rbSubtitle] then
-      if FNight then Color:=RGB(164,190,225) else Color:=RGB(53,83,121)
+      begin if Range.Kind=rbSubtitle then Color:=SubtitleColor else Color:=TitleColor; end
+    else if Range.Kind in [rbInitial,rbParagraphInitial] then
+    begin
+      if (FInitialsMode=rimNone) or ((Range.Kind=rbParagraphInitial) and (FInitialsMode<>rimParagraph)) then Continue;
+      Color:=TitleColor;
+    end
     else if Range.Kind=rbFootnote then
       if FNight then Color:=RGB(132,180,242) else Color:=RGB(34,94,164)
     else if Range.Kind in [rbEpigraph,rbCite,rbAuthor] then
       if FNight then Color:=RGB(178,193,184) else Color:=RGB(65,94,82);
+    if (Range.Kind=rbRelativeSize) and ColorsOnly then Continue;
     FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
-    Characters.dwMask:=CFM_COLOR; Characters.crTextColor:=ColorToRGB(Color);
+    if Range.Kind=rbRelativeSize then
+    begin
+      Characters.dwMask:=CFM_SIZE;
+      Characters.yHeight:=Max(160,MulDiv(FFontSize*20,Range.ScalePercent,100));
+    end
+    else begin Characters.dwMask:=CFM_COLOR; Characters.crTextColor:=ColorToRGB(Color); end;
     if not ColorsOnly then
     begin
       if Range.Kind in [rbTitle,rbSubtitle] then
@@ -792,18 +1315,54 @@ begin
         Characters.dwMask:=Characters.dwMask or CFM_SIZE;
         if Range.Kind=rbTitle then Characters.yHeight:=FFontSize*25 else Characters.yHeight:=FFontSize*22;
       end;
+      if Range.Kind in [rbInitial,rbParagraphInitial] then
+      begin Characters.dwMask:=Characters.dwMask or CFM_SIZE; Characters.yHeight:=FFontSize*32; end;
       if Range.Kind=rbCode then
       begin Characters.dwMask:=Characters.dwMask or CFM_FACE; StrPLCopy(PChar(@Characters.szFaceName[0]),'Consolas',LF_FACESIZE-1); end;
     end;
-    FRichEdit.SelStart:=Range.Start; FRichEdit.SelLength:=Range.Count;
+    // VCL SelLength obtains the length of the entire book on every run.
+    // Native UTF-16 ranges avoid rescanning a million-character novel.
+    Selection.cpMin:=Max(Start,Range.Start); Selection.cpMax:=Min(Finish,Range.Start+Range.Count);
+    SendMessage(FRichEdit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
     SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
   end;
   FRichEdit.SelLength:=0;
 end;
 
+procedure TfrmBuiltinReader.EnsureBookStyles(Start, Finish: Integer);
+var Interval: TPoint; I, First, Last, Previous: Integer; Language: string;
+begin
+  if not Assigned(FDocument) or (Finish<=Start) then Exit;
+  First:=Max(0,Start); Last:=Min(FLength,Finish);
+  repeat
+    Previous:=First;
+    for Interval in FStyledIntervals do
+      if (Interval.X<=First) and (Interval.Y>First) then First:=Min(Last,Interval.Y);
+  until First=Previous;
+  if First>=Last then Exit;
+  for Interval in FStyledIntervals do
+    if (Interval.X<Last) and (Interval.Y>=Last) then Last:=Max(First,Interval.X);
+  if First>=Last then Exit;
+  // A page formats a small UTF-16 interval instead of every paragraph of a
+  // long novel. Existing neighbouring intervals merge into one cache entry.
+  ApplyBookStyles(False,First,Last);
+  Language:=FDocument.Language;
+  ApplyReaderFallbackFonts(FRichEdit,ReaderTextRange(FRichEdit,First,Last-First),FFontName,Language,First);
+  I:=FStyledIntervals.Count-1;
+  while I>=0 do
+  begin
+    Interval:=FStyledIntervals[I];
+    if (Interval.X<=Last) and (Interval.Y>=First) then
+    begin First:=Min(First,Interval.X); Last:=Max(Last,Interval.Y); FStyledIntervals.Delete(I); end;
+    Dec(I);
+  end;
+  FStyledIntervals.Add(Point(First,Last));
+end;
+
 procedure TfrmBuiltinReader.UpdateFootnotesPanel;
 begin
-  FFootnotesPanel.Visible:=FShowFootnotes and Assigned(FDocument) and (FDocument.FootnoteCount>0);
+  if not FShowFootnotes or not Assigned(FDocument) then FFootnotesPanel.Visible:=False;
+  // RenderPage decides visibility from references on this page, not the whole book.
 end;
 
 procedure TfrmBuiltinReader.SetShowFootnotes(Value: Boolean);
@@ -818,32 +1377,65 @@ begin if FFootnotesPanel.Visible then Result:=FFootnotesMemo.Text else Result:='
 procedure TfrmBuiltinReader.SetBookFormatting(Value: Boolean);
 begin
   if FBookFormatting=Value then Exit;
-  FBookFormatting:=Value; InvalidateLayout;
+  FBookFormatting:=Value; FTypographyDirty:=True; InvalidateLayout;
+end;
+
+function TfrmBuiltinReader.HeadingColor(Subtitle: Boolean): TColor;
+begin
+  Result:=FHeadingColors[Ord(FNight),Ord(Subtitle)];
+  if Result=clDefault then
+    if FNight then Result:=RGB(164,190,225) else Result:=RGB(53,83,121);
+  if FNight then Result:=ReadableReaderColor(Result,ThemeBackground);
+end;
+
+procedure TfrmBuiltinReader.SetHeadingColor(Value: TColor; Subtitle: Boolean);
+begin
+  if Value<>clDefault then Value:=ColorToRGB(Value) and $00FFFFFF;
+  FHeadingColors[Ord(FNight),Ord(Subtitle)]:=Value; FTypographyDirty:=True; InvalidateLayout;
+end;
+
+procedure TfrmBuiltinReader.SetDecorativeInitials(Value: Boolean);
+begin
+  if Value then SetInitialsMode(rimChapter) else SetInitialsMode(rimNone);
+end;
+
+procedure TfrmBuiltinReader.SetInitialsMode(Value: TReaderInitialsMode);
+begin
+  if FInitialsMode=Value then Exit;
+  FInitialsMode:=Value; FDecorativeInitials:=Value<>rimNone; FTypographyDirty:=True; InvalidateLayout;
 end;
 
 procedure TfrmBuiltinReader.InvalidateLayout;
 var Position: Integer; Para: TParaFormat2; Characters: TCharFormat2;
 begin
   if not FReady then Exit;
-  Position:=CurrentPosition;
+  FResizeTimer.Enabled:=False; Position:=CurrentPosition; ResetPagination;
   if not Assigned(FPDF) then
   begin
     if Assigned(FDocument) and (FDocument.ImageCount>0) and
       ((FImageWidth<>Max(16,TextAreaWidth-16)) or
-       (FImageHeight<>Max(16,FSurface.ClientHeight-80))) then LoadPresentation;
+       (FImageHeight<>Max(16,FullTextHeight-80))) then LoadPresentation;
+    if FTypographyDirty then
+    begin
+    FRichEdit.Lines.BeginUpdate;
+    try
     FRichEdit.SelectAll;
     // Apply face/size/color together, preserving bold and italic source runs.
     FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
-    Characters.dwMask:=CFM_SIZE or CFM_FACE or CFM_COLOR; Characters.yHeight:=FFontSize*20;
+    Characters.dwMask:=CFM_SIZE or CFM_FACE or CFM_COLOR or CFM_BACKCOLOR;
+    Characters.dwEffects:=CFE_AUTOBACKCOLOR; Characters.yHeight:=FFontSize*20;
     StrPLCopy(PChar(@Characters.szFaceName[0]),FFontName,LF_FACESIZE-1);
     Characters.crTextColor:=ThemeText;
     SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_ALL,LPARAM(@Characters));
     FillChar(Para,SizeOf(Para),0); Para.cbSize:=SizeOf(Para);
     Para.dwMask:=$00000100; Para.bLineSpacingRule:=5; Para.dyLineSpacing:=FLinePercent div 5;
     SendMessage(FRichEdit.Handle,EM_SETPARAFORMAT,0,LPARAM(@Para));
-    ApplyBookStyles;
+    FStyledIntervals.Clear; FHighlighted.Clear;
     FRichEdit.Color:=ThemeBackground;
     FRichEdit.SelLength:=0;
+    finally FRichEdit.Lines.EndUpdate; end;
+    FTypographyDirty:=False;
+    end;
     FPages.Clear; FPages.Add(Position); FPage:=0;
   end;
   RenderPage;
@@ -861,8 +1453,14 @@ begin
   if Assigned(FPDF) then begin if FPage>=FPDF.PageCount-1 then Exit; Inc(FPage); end
   else
   begin
-    if (FNext<=CurrentPosition) or (FNext>=FLength) then Exit;
-    Inc(FPage); if FPage>=FPages.Count then FPages.Add(FNext);
+    // Returning from a fitted previous page must honor its already visited
+    // successor, even when the final short tail also fits on this page.
+    if FPage+1<FPages.Count then Inc(FPage)
+    else
+    begin
+      if (FNext<=CurrentPosition) or (FNext>=FLength) then Exit;
+      Inc(FPage); FPages.Add(FNext);
+    end;
   end;
   FSearchStatus:=''; FReadingMoved:=True; RenderPage;
 end;
@@ -918,7 +1516,7 @@ begin
   if Assigned(FPDF) then
   begin NewSize:=EnsureRange(FZoom+Delta*10,50,300); if NewSize=FZoom then Exit; FZoom:=NewSize; end
   else
-  begin NewSize:=EnsureRange(FFontSize+Delta,8,48); if NewSize=FFontSize then Exit; FFontSize:=NewSize; end;
+  begin NewSize:=EnsureRange(FFontSize+Delta,8,48); if NewSize=FFontSize then Exit; FFontSize:=NewSize; FTypographyDirty:=True; end;
   InvalidateLayout;
 end;
 
@@ -968,14 +1566,103 @@ begin
   Result:=FPDF.TextRange(FPage,Min(FPDFSelectionAnchor,FPDFSelectionEnd),Abs(FPDFSelectionAnchor-FPDFSelectionEnd)+1);
 end;
 
+function TfrmBuiltinReader.PageText: string;
+begin
+  Result:=''; if not FReady then Exit;
+  if Assigned(FPDF) then
+  begin
+    if FPDFPageHasText and not PageLoading then Result:=FPDF.TextRange(FPage,0,MaxInt);
+  end
+  else
+  begin
+    Result:=ReaderTextRange(FRichEdit,CurrentPosition,Max(0,FNext-CurrentPosition));
+    if VisibleFootnotes<>'' then Result:=Result+#13#10+#13#10+VisibleFootnotes;
+  end;
+  Result:=Result.Replace(#$FFFC,'').Replace(#13#10,#10).Replace(#13,#10).Replace(#10,#13#10).Trim;
+end;
+
+function TfrmBuiltinReader.AllBookText: string;
+begin
+  Result:=''; if not FReady then Exit;
+  if Assigned(FPDF) then Exit(PageText);
+  Result:=BookText.Replace(#$FFFC,'').Replace(#13#10,#10).Replace(#13,#10).Replace(#10,#13#10).Trim;
+  if Assigned(FDocument) then
+  begin
+    var Notes:=FDocument.FootnotesForRange(0,FLength,0);
+    if Notes<>'' then Result:=Result+#13#10+#13#10+Notes;
+  end;
+end;
+
 procedure TfrmBuiltinReader.CopyMenuPopup(Sender: TObject);
-begin FCopyItem.Enabled:=PDFSelectedText<>''; end;
+begin
+  FCopyItem.Visible:=Assigned(FPDF); FCopyItem.Enabled:=PDFSelectedText<>'';
+  FCopyPageItem.Enabled:=PageText<>'';
+  FCopyAllItem.Visible:=not Assigned(FPDF); FCopyAllItem.Enabled:=FReady and (FLength>0);
+  FCopyViewItem.Enabled:=FCopyPageItem.Enabled;
+end;
+
+procedure TfrmBuiltinReader.CopyReaderText(const Text, SuccessStatus: string);
+var Attempt: Integer;
+begin
+  // Other applications can briefly hold the shared Windows clipboard open.
+  // Bound the retry and report contention without raising a UI exception.
+  for Attempt:=0 to 9 do
+  begin
+    try
+      Clipboard.AsText:=Text; FStatus.Caption:=SuccessStatus; Exit;
+    except
+      on E: EClipboardException do
+        if Attempt<9 then Sleep(20);
+    end;
+  end;
+  FStatus.Caption:='Буфер обмена занят. Повторите копирование.';
+end;
 
 procedure TfrmBuiltinReader.CopyTextClick(Sender: TObject);
 var Text: string;
 begin
-  Text:=PDFSelectedText; if Text='' then Exit;
-  Clipboard.AsText:=Text; FStatus.Caption:='Выделенный текст скопирован';
+  Text:=PDFSelectedText; if Text='' then Text:=PageText;
+  if Text='' then Exit;
+  CopyReaderText(Text,'Текст скопирован');
+end;
+
+procedure TfrmBuiltinReader.CopyPageClick(Sender: TObject);
+var Text: string;
+begin
+  Text:=PageText; if Text='' then Exit;
+  CopyReaderText(Text,'Текст страницы скопирован');
+end;
+
+procedure TfrmBuiltinReader.CopyAllClick(Sender: TObject);
+var Text: string;
+begin
+  if not FReady then Exit; Text:=AllBookText; if Text='' then Exit;
+  CopyReaderText(Text,'Текст книги скопирован');
+end;
+
+procedure TfrmBuiltinReader.CopyViewClick(Sender: TObject);
+var Dialog: TForm; Memo: TRichEdit; Tip: TLabel; CloseButton, NoteButton: TButton; Footer: TPanel; Text, Quote: string;
+begin
+  Text:=PageText; if Text='' then Exit;
+  Dialog:=TForm.CreateNew(Self);
+  try
+    Dialog.Caption:='Текст страницы — выделение и копирование'; Dialog.Position:=poOwnerFormCenter;
+    Dialog.SetBounds(0,0,720,540); Dialog.Constraints.MinWidth:=400; Dialog.Constraints.MinHeight:=300;
+    Tip:=TLabel.Create(Dialog); Tip.Parent:=Dialog; Tip.Align:=alTop; Tip.Height:=30;
+    Tip.Caption:='Выделите фрагмент мышью и нажмите Ctrl+C. Ctrl+A — выделить всю страницу.';
+    Memo:=TRichEdit.Create(Dialog); Memo.PlainText:=True; Memo.Parent:=Dialog; Memo.Align:=alClient; Memo.ReadOnly:=True;
+    Memo.ScrollBars:=ssVertical; Memo.WordWrap:=True; Memo.Font.Name:=FFontName; Memo.Font.Size:=FFontSize;
+    Memo.Color:=ThemeBackground; Memo.Font.Color:=ThemeText; Memo.Text:=Text;
+    Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom; Footer.Height:=36; Footer.BevelOuter:=bvNone;
+    NoteButton:=TButton.Create(Dialog); NoteButton.Parent:=Footer; NoteButton.Align:=alLeft; NoteButton.Width:=250;
+    NoteButton.Caption:='Заметка с выделенной цитатой…'; NoteButton.OnClick:=QuoteNoteClick;
+    CloseButton:=TButton.Create(Dialog); CloseButton.Parent:=Footer; CloseButton.Align:=alRight; CloseButton.Width:=120;
+    CloseButton.Height:=32; CloseButton.Caption:='Закрыть'; CloseButton.ModalResult:=mrOk; CloseButton.Cancel:=True;
+    Dialog.ActiveControl:=Memo; ApplyMHLControlTheme(Dialog);
+    Memo.Color:=ThemeBackground; Memo.Font.Color:=ThemeText;
+    ApplyReaderFallbackFonts(Memo,Memo.Text,FFontName);
+    if Dialog.ShowModal=mrYes then begin Quote:=Memo.SelText; AddNote(Quote); end;
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmBuiltinReader.NextClick(Sender: TObject); begin NextPage; end;
@@ -997,7 +1684,7 @@ begin Result:=Colors[EnsureRange(FTheme,0,5)]; end;
 procedure TfrmBuiltinReader.SetTheme(Index: Integer);
 begin
   Index:=EnsureRange(Index,0,5); if Index=FTheme then Exit;
-  FTheme:=Index; FThemes.ItemIndex:=Index; FNight:=Index>=4; InvalidateLayout;
+  FTheme:=Index; FThemes.ItemIndex:=Index; FNight:=Index>=4; FTypographyDirty:=True; InvalidateLayout;
 end;
 
 procedure TfrmBuiltinReader.ThemeClick(Sender: TObject);
@@ -1025,7 +1712,7 @@ begin
     FRichEdit.SelStart:=Range.X; FRichEdit.SelLength:=Range.Y;
     SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Style));
   end;
-  if FHighlighted.Count>0 then ApplyBookStyles(True);
+  for Range in FHighlighted do ApplyBookStyles(True,Range.X,Range.X+Range.Y);
   FRichEdit.SelLength:=0; FHighlighted.Clear;
 end;
 
@@ -1065,6 +1752,331 @@ begin
   if FSearchWord.Checked then Flags:=Flags or FR_WHOLEWORD;
   Result:=SendMessage(FRichEdit.Handle,EM_FINDTEXTEXW,Flags,LPARAM(@Search));
 end;
+function EditReaderNote(Reader: TfrmBuiltinReader; var Note: TReaderAnnotation): Boolean;
+var Dialog: TForm; Header, Footer, Body: TPanel; TitleBox: TEdit; TextBox, QuoteBox: TMemo; Button: TButton; LabelText: TLabel;
+begin
+  Result:=False; Dialog:=TForm.CreateNew(Reader);
+  try
+    Dialog.Caption:='Заметка к книге'; Dialog.Position:=poOwnerFormCenter; Dialog.BorderStyle:=bsSizeable;
+    Dialog.PopupMode:=pmExplicit;
+    if Assigned(Screen.ActiveCustomForm) then Dialog.PopupParent:=Screen.ActiveCustomForm else Dialog.PopupParent:=Reader;
+    Dialog.ClientWidth:=610; Dialog.ClientHeight:=440;
+    Dialog.Constraints.MinWidth:=440; Dialog.Constraints.MinHeight:=350; Dialog.Font.Name:='Segoe UI'; Dialog.Font.Size:=10;
+    Header:=TPanel.Create(Dialog); Header.Parent:=Dialog; Header.Align:=alTop; Header.Height:=108; Header.BevelOuter:=bvNone;
+    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Header; LabelText.AutoSize:=False; LabelText.SetBounds(12,8,586,36);
+    LabelText.WordWrap:=True; LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.Caption:=Note.BookTitle+' · '+Note.Place;
+    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Header; LabelText.Caption:='Название (необязательно)'; LabelText.SetBounds(12,48,586,20);
+    TitleBox:=TEdit.Create(Dialog); TitleBox.Parent:=Header; TitleBox.SetBounds(12,72,586,26);
+    TitleBox.Anchors:=[akLeft,akTop,akRight]; TitleBox.TextHint:='Название заметки'; TitleBox.MaxLength:=256; TitleBox.Text:=Note.Title;
+    Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom; Footer.Height:=48; Footer.BevelOuter:=bvNone;
+    Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.SetBounds(368,8,110,30);
+    Button.Anchors:=[akRight,akBottom]; Button.Caption:='Сохранить'; Button.ModalResult:=mrOk; Button.Default:=True;
+    Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.SetBounds(486,8,112,30);
+    Button.Anchors:=[akRight,akBottom]; Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
+    Body:=TPanel.Create(Dialog); Body.Parent:=Dialog; Body.Align:=alClient; Body.BevelOuter:=bvNone;
+    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Body; LabelText.AutoSize:=False; LabelText.Align:=alTop;
+    LabelText.Height:=24; LabelText.Caption:='Ваши мысли';
+    QuoteBox:=TMemo.Create(Dialog); QuoteBox.Parent:=Body; QuoteBox.Align:=alBottom; QuoteBox.Height:=100;
+    QuoteBox.Text:='Цитата: '+Note.Quote; QuoteBox.ReadOnly:=True; QuoteBox.ScrollBars:=ssVertical; QuoteBox.Visible:=Note.Quote<>'';
+    TextBox:=TMemo.Create(Dialog); TextBox.Parent:=Body; TextBox.Align:=alClient; TextBox.ScrollBars:=ssVertical;
+    TextBox.TextHint:='Ваши мысли об этом месте книги…'; TextBox.MaxLength:=16384; TextBox.Text:=Note.Text;
+    ApplyMHLControlTheme(Dialog); Dialog.ActiveControl:=TextBox;
+    if Dialog.ShowModal=mrOk then
+    begin
+      Note.Title:=string(TitleBox.Text).Trim; Note.Text:=string(TextBox.Text).Trim;
+      if Note.Title='' then Note.Title:=Copy(Note.Text.Replace(#13,' ').Replace(#10,' '),1,80);
+      Result:=(Note.Title<>'') or (Note.Text<>'');
+    end;
+  finally Dialog.Free; end;
+end;
+
+type
+  TReaderSavedDialog = class(TForm)
+  private
+    FReader: TfrmBuiltinReader;
+    FStore: TReaderAnnotations;
+    FNotes: TArray<TReaderAnnotation>;
+    FList: TListView;
+    FContext: TMemo;
+    procedure Reload;
+    procedure SelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure OpenSelected(Sender: TObject);
+    procedure EditSelected(Sender: TObject);
+    procedure DeleteSelected(Sender: TObject);
+    procedure AddSelected(Sender: TObject);
+    procedure ExportSelected(Sender: TObject);
+  public
+    constructor CreateFor(Reader: TfrmBuiltinReader);
+    destructor Destroy; override;
+  end;
+
+constructor TReaderSavedDialog.CreateFor(Reader: TfrmBuiltinReader);
+var Row, Footer, Body: TPanel; Button: TButton;
+  procedure AddButton(const Text: string; Width, Tag: Integer; Handler: TNotifyEvent);
+  begin
+    Button:=TButton.Create(Self); Button.Parent:=Row; Button.Align:=alLeft; Button.Left:=MaxInt;
+    Button.Width:=Width; Button.Caption:=Text; Button.Tag:=Tag; Button.OnClick:=Handler;
+  end;
+begin
+  inherited CreateNew(Reader); FReader:=Reader; FStore:=TReaderAnnotations.Create(Reader.FSettingsFile);
+  Caption:='Закладки и заметки — '+Reader.FBookTitle; Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
+  PopupMode:=pmExplicit; PopupParent:=Reader; ClientWidth:=760; ClientHeight:=510;
+  Constraints.MinWidth:=720; Constraints.MinHeight:=360; Font.Name:='Segoe UI'; Font.Size:=10;
+  Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alTop; Row.Height:=38; Row.BevelOuter:=bvNone;
+  AddButton('Добавить заметку…',146,0,AddSelected); AddButton('Изменить…',106,0,EditSelected);
+  AddButton('Удалить',80,0,DeleteSelected); AddButton('Экспорт книги…',134,0,ExportSelected);
+  AddButton('Экспорт всех книг…',154,1,ExportSelected);
+  Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom; Footer.Height:=42; Footer.BevelOuter:=bvNone;
+  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(514,6,128,30);
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Перейти'; Button.OnClick:=OpenSelected;
+  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(650,6,100,30);
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Закрыть'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
+  Body:=TPanel.Create(Self); Body.Parent:=Self; Body.Align:=alClient; Body.BevelOuter:=bvNone;
+  FContext:=TMemo.Create(Self); FContext.Parent:=Body; FContext.Align:=alBottom; FContext.Height:=155;
+  FContext.ReadOnly:=True; FContext.ScrollBars:=ssVertical;
+  FList:=TListView.Create(Self); FList.Parent:=Body; FList.Align:=alClient; FList.ViewStyle:=vsReport;
+  FList.ReadOnly:=True; FList.RowSelect:=True; FList.HideSelection:=False;
+  with FList.Columns.Add do begin Caption:='Вид'; Width:=100; end;
+  with FList.Columns.Add do begin Caption:='Название'; Width:=450; end;
+  with FList.Columns.Add do begin Caption:='Место в книге'; Width:=180; end;
+  FList.OnSelectItem:=SelectItem; FList.OnDblClick:=OpenSelected;
+  Reload; ApplyMHLControlTheme(Self); ActiveControl:=FList;
+end;
+
+destructor TReaderSavedDialog.Destroy;
+begin FStore.Free; inherited; end;
+
+procedure TReaderSavedDialog.Reload;
+var Ini: TMemIniFile; Row: TListItem; Section: string;
+begin
+  FList.Items.BeginUpdate;
+  try
+    FList.Clear; FNotes:=FStore.Items(FReader.FIdentity); FContext.Clear;
+    for var I:=0 to High(FNotes) do
+    begin
+      Row:=FList.Items.Add; Row.Caption:='Заметка'; Row.Data:=Pointer(NativeInt(I+1));
+      Row.SubItems.Add(FNotes[I].Title); Row.SubItems.Add(FNotes[I].Place);
+    end;
+    Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
+    try
+      Section:='Bookmarks.'+FReader.FIdentity;
+      for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+      begin
+        Row:=FList.Items.Add; Row.Caption:='Закладка'; Row.Data:=Pointer(-NativeInt(I+1));
+        Row.SubItems.Add(Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&'));
+        var Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0);
+        if Assigned(FReader.FPDF) then Row.SubItems.Add('Страница '+IntToStr(Position+1))
+        else Row.SubItems.Add(IntToStr(Round(Position*100/Max(1,FReader.FLength)))+'%');
+      end;
+    finally Ini.Free; end;
+    if FList.Items.Count>0 then FList.Items[0].Selected:=True;
+  finally FList.Items.EndUpdate; end;
+end;
+
+procedure TReaderSavedDialog.SelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
+var Index: Integer;
+begin
+  if not Selected then Exit; Index:=NativeInt(Item.Data)-1; FContext.Clear;
+  if (Index>=0) and (Index<Length(FNotes)) then
+  begin
+    FContext.Text:=FNotes[Index].Text;
+    if FNotes[Index].Quote<>'' then FContext.Text:=FContext.Text+sLineBreak+sLineBreak+'Цитата: '+FNotes[Index].Quote;
+  end;
+end;
+
+procedure TReaderSavedDialog.OpenSelected(Sender: TObject);
+var Index: Integer;
+begin
+  if not Assigned(FList.Selected) then Exit; Index:=NativeInt(FList.Selected.Data);
+  if Index>0 then FReader.GoToPosition(FNotes[Index-1].Position) else FReader.GoToBookmark(-Index-1);
+  ModalResult:=mrOk;
+end;
+
+procedure TReaderSavedDialog.EditSelected(Sender: TObject);
+var Index: Integer; Note: TReaderAnnotation; Ini: TMemIniFile; Title: string;
+begin
+  if not Assigned(FList.Selected) then Exit; Index:=NativeInt(FList.Selected.Data);
+  if Index>0 then
+  begin
+    Note:=FNotes[Index-1];
+    while EditReaderNote(FReader,Note) do
+    begin
+      try FStore.Put(Note); Reload; Break;
+      except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
+    end;
+  end
+  else
+  begin
+    Title:=FList.Selected.SubItems[0];
+    if not InputQuery('Название закладки','Название:',Title) or (Title.Trim='') then Exit;
+    Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
+    try
+      Ini.WriteString('Bookmarks.'+FReader.FIdentity,'Title'+IntToStr(-Index-1),Copy(Title.Trim,1,256).Replace('&','&&'));
+      Ini.UpdateFile;
+    finally Ini.Free; end;
+    Reload;
+  end;
+end;
+
+procedure TReaderSavedDialog.DeleteSelected(Sender: TObject);
+var Index, Count: Integer; Ini: TMemIniFile; Section: string;
+begin
+  if not Assigned(FList.Selected) then Exit;
+  if MessageDlg('Удалить выбранную запись?',mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
+  Index:=NativeInt(FList.Selected.Data);
+  if Index>0 then FStore.Remove(FNotes[Index-1].ID)
+  else
+  begin
+    Index:=-Index-1; Section:='Bookmarks.'+FReader.FIdentity; Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
+    try
+      Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
+      for var I:=Index to Count-2 do
+      begin
+        Ini.WriteString(Section,'Title'+IntToStr(I),Ini.ReadString(Section,'Title'+IntToStr(I+1),''));
+        Ini.WriteInteger(Section,'Position'+IntToStr(I),Ini.ReadInteger(Section,'Position'+IntToStr(I+1),0));
+      end;
+      Ini.DeleteKey(Section,'Title'+IntToStr(Count-1)); Ini.DeleteKey(Section,'Position'+IntToStr(Count-1));
+      Ini.WriteInteger(Section,'Count',Max(0,Count-1)); Ini.UpdateFile;
+    finally Ini.Free; end;
+  end;
+  Reload;
+end;
+
+procedure TReaderSavedDialog.AddSelected(Sender: TObject);
+begin
+  FReader.AddNote(''); FreeAndNil(FStore); FStore:=TReaderAnnotations.Create(FReader.FSettingsFile); Reload;
+end;
+
+procedure TReaderSavedDialog.ExportSelected(Sender: TObject);
+begin FReader.ExportNotesClick(Sender); end;
+
+procedure TfrmBuiltinReader.NotesClick(Sender: TObject);
+begin
+  if Assigned(FPDF) then AddNote(PDFSelectedText)
+  else if (FTextMatch>=CurrentPosition) and (FTextMatch<FNext) then AddNote(ReaderTextRange(FRichEdit,FTextMatch,FTextMatchLength))
+  else AddNote('');
+end;
+
+procedure TfrmBuiltinReader.AddNote(const Quote: string);
+var Note: TReaderAnnotation; Store: TReaderAnnotations; Page: Integer;
+begin
+  if not FReady or (FSettingsFile='') then Exit;
+  Note:=Default(TReaderAnnotation); Note.BookID:=FIdentity; Note.BookTitle:=FBookTitle;
+  Note.Position:=CurrentPosition; Note.Quote:=Copy(Quote,1,8192); Page:=GlobalPageAt(CurrentPosition);
+  Note.Place:=IntToStr(Round(ReadingProgress*100))+'%'; if Page>0 then Note.Place:='Страница '+IntToStr(Page)+' · '+Note.Place;
+  if FChapters.ItemIndex>=0 then Note.Place:=Note.Place+' · '+ChapterTitle(FChapters.ItemIndex);
+  Store:=TReaderAnnotations.Create(FSettingsFile);
+  try
+    while True do
+    begin
+      if not EditReaderNote(Self,Note) then Exit;
+      try Store.Put(Note); Break;
+      except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
+    end;
+  finally Store.Free; end;
+  FStatus.Caption:='Заметка сохранена. Открыть и экспортировать: «Заметки».';
+end;
+
+procedure TfrmBuiltinReader.NotesManageClick(Sender: TObject);
+var Dialog: TReaderSavedDialog;
+begin
+  if not FReady or (FSettingsFile='') then Exit;
+  Dialog:=TReaderSavedDialog.CreateFor(Self);
+  try Dialog.ShowModal; finally Dialog.Free; end;
+end;
+
+function TfrmBuiltinReader.AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
+var Store: TReaderAnnotations; List: TList<TReaderAnnotation>; Ini: TMemIniFile; Sections: TStringList;
+  Note: TReaderAnnotation; BookID: string;
+begin
+  Store:=TReaderAnnotations.Create(FSettingsFile); List:=TList<TReaderAnnotation>.Create;
+  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8); Sections:=TStringList.Create;
+  try
+    if AllBooks then for Note in Store.Items do List.Add(Note)
+    else for Note in Store.Items(FIdentity) do List.Add(Note);
+    Ini.ReadSections(Sections);
+    for var Section in Sections do
+    begin
+      if not Section.StartsWith('Bookmarks.') then Continue; BookID:=Section.Substring(Length('Bookmarks.'));
+      if not AllBooks and (BookID<>FIdentity) then Continue;
+      for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+      begin
+        Note:=Default(TReaderAnnotation); Note.BookID:=BookID;
+        Note.BookTitle:=Ini.ReadString('Book.'+BookID,'Title','Книга '+Copy(BookID,1,8));
+        if BookID=FIdentity then Note.BookTitle:=FBookTitle;
+        Note.Title:='Закладка: '+Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&');
+        Note.Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0); Note.Place:='Сохранённое место в книге';
+        if BookID=FIdentity then
+        begin
+          var Page:=GlobalPageAt(Note.Position);
+          if Page>0 then Note.Place:='Страница '+IntToStr(Page);
+          if not Assigned(FPDF) then Note.Quote:=ReaderTextRange(FRichEdit,Note.Position,160);
+        end;
+        List.Add(Note);
+      end;
+    end;
+    Result:=List.ToArray;
+  finally Sections.Free; Ini.Free; List.Free; Store.Free; end;
+end;
+
+function TfrmBuiltinReader.ExportAnnotations(AllBooks, HTML: Boolean): string;
+begin Result:=ReaderAnnotationsText(AnnotationItems(AllBooks),HTML); end;
+
+procedure TfrmBuiltinReader.ExportFormatChanged(Sender: TObject);
+var Styles: TComponent;
+begin
+  Styles:=TComboBox(Sender).Owner.FindComponent('ExportStyle');
+  if Styles is TComboBox then TComboBox(Styles).Enabled:=TComboBox(Sender).ItemIndex<>2;
+end;
+
+procedure TfrmBuiltinReader.ExportNotesClick(Sender: TObject);
+var Dialog: TSaveDialog; StyleDialog: TForm; Styles, Formats: TComboBox; Tip: TLabel; Button: TButton;
+  Text, Temporary, Extension: string; Style, FormatIndex: Integer; Items: TArray<TReaderAnnotation>;
+begin
+  StyleDialog:=TForm.CreateNew(Self); Dialog:=TSaveDialog.Create(Self);
+  try
+    StyleDialog.Caption:='Оформление экспорта'; StyleDialog.Position:=poOwnerFormCenter;
+    StyleDialog.PopupMode:=pmExplicit;
+    if Assigned(Screen.ActiveCustomForm) then StyleDialog.PopupParent:=Screen.ActiveCustomForm else StyleDialog.PopupParent:=Self;
+    StyleDialog.BorderStyle:=bsDialog; StyleDialog.ClientWidth:=410; StyleDialog.ClientHeight:=216;
+    StyleDialog.Font.Name:='Segoe UI'; StyleDialog.Font.Size:=10;
+    Tip:=TLabel.Create(StyleDialog); Tip.Parent:=StyleDialog; Tip.AutoSize:=False; Tip.SetBounds(12,12,386,48); Tip.WordWrap:=True;
+    Tip.Caption:='Оформление для HTML и DOCX. Все варианты сохраняют названия книг, цитаты и ваши мысли.';
+    Formats:=TComboBox.Create(StyleDialog); Formats.Parent:=StyleDialog; Formats.SetBounds(12,66,386,26);
+    Formats.Style:=csDropDownList; Formats.Items.Add('Документ Word (DOCX)'); Formats.Items.Add('Документ HTML');
+    Formats.Items.Add('Обычный текст (UTF-8)'); Formats.ItemIndex:=0;
+    Styles:=TComboBox.Create(StyleDialog); Styles.Name:='ExportStyle'; Styles.Parent:=StyleDialog; Styles.SetBounds(12,104,386,26);
+    Styles.Style:=csDropDownList; Styles.Items.Add('Строгий — белый фон, без засечек');
+    Styles.Items.Add('Классический — засечки, мягкие акценты'); Styles.Items.Add('Современный — без засечек, синий акцент');
+    Styles.Items.Add('Бумага — тёплые акценты, засечки'); Styles.ItemIndex:=1; Formats.OnChange:=ExportFormatChanged;
+    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(166,170,112,30);
+    Button.Caption:='Продолжить'; Button.ModalResult:=mrOk; Button.Default:=True;
+    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(286,170,112,30);
+    Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
+    ApplyMHLControlTheme(StyleDialog);
+    if StyleDialog.ShowModal<>mrOk then Exit; Style:=Styles.ItemIndex; FormatIndex:=Formats.ItemIndex;
+    Dialog.Title:='Экспорт закладок и заметок';
+    case FormatIndex of
+      0: begin Dialog.Filter:='Документ Word DOCX|*.docx'; Extension:='docx'; end;
+      1: begin Dialog.Filter:='Оформленный документ HTML|*.html'; Extension:='html'; end;
+    else begin Dialog.Filter:='Текст UTF-8|*.txt'; Extension:='txt'; end; end;
+    Dialog.DefaultExt:=Extension; Dialog.Options:=Dialog.Options+[ofOverwritePrompt]; Dialog.FileName:='Закладки и заметки';
+    if not Dialog.Execute then Exit;
+    Items:=AnnotationItems((Sender is TComponent) and (TComponent(Sender).Tag=1));
+    Temporary:=Dialog.FileName+'.new-'+TGUID.NewGuid.ToString;
+    try
+      if FormatIndex=0 then TFile.WriteAllBytes(Temporary,ReaderAnnotationsDocx(Items,Style))
+      else
+      begin Text:=ReaderAnnotationsText(Items,FormatIndex=1,Style); TFile.WriteAllText(Temporary,Text,TEncoding.UTF8); end;
+      if not MoveFileEx(PChar(Temporary),PChar(Dialog.FileName),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+    finally if TFile.Exists(Temporary) then TFile.Delete(Temporary); end;
+    FStatus.Caption:='Закладки и заметки экспортированы.';
+  finally Dialog.Free; StyleDialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.QuoteNoteClick(Sender: TObject);
+begin TForm(TButton(Sender).Owner).ModalResult:=mrYes; end;
+
 procedure TfrmBuiltinReader.BookmarkClick(Sender: TObject);
 var Ini: TMemIniFile; Item: TMenuItem; I, Count: Integer; Point: TPoint;
 begin
@@ -1187,7 +2199,7 @@ begin
     begin
       FTextMatchLength:=Length(FSearchQuery);
       if (P>=CurrentPosition) and (P<FNext) then RenderPage else NavigateTo(P);
-      ShowSearchStatus('Найдено · Enter / F3 — далее · Shift+Enter / Shift+F3 — назад');
+      ShowSearchStatus('Найдено · Enter / F3 — следующий результат · Shift+F3 — предыдущий');
     end
     else begin RenderPage; ShowSearchStatus('Текст не найден.'); end;
   end;
@@ -1273,9 +2285,9 @@ end;
 
 procedure TfrmBuiltinReader.SetTypography(const FontName: string; LinePercent, Margin: Integer);
 begin
-  if FontName.Trim<>'' then FFontName:=Copy(FontName.Trim,1,100);
+  if FontName.Trim<>'' then FFontName:=AvailableReaderFont(Copy(FontName.Trim,1,100));
   FLinePercent:=EnsureRange(LinePercent,100,180); FMargin:=EnsureRange(Margin,12,80);
-  InvalidateLayout;
+  FTypographyDirty:=True; InvalidateLayout;
 end;
 
 procedure TfrmBuiltinReader.SetMaxTextWidth(Value: Integer);
@@ -1284,8 +2296,46 @@ begin
   InvalidateLayout;
 end;
 
+procedure ConfigureReaderColorBox(Box: TColorBox; SelectedColor: TColor);
+var I, SelectedIndex: Integer; Color: TColor; Caption: string;
+begin
+  // VCL includes clDefault only together with cbSystemColors. Keep the
+  // automatic choice, but hide the unrelated Windows element colors.
+  Box.Style:=[cbStandardColors,cbSystemColors,cbIncludeDefault,cbCustomColor];
+  Box.Selected:=SelectedColor;
+  for I:=Box.Items.Count-1 downto 17 do
+    if Box.Colors[I]<>clDefault then
+      Box.Items.Delete(I);
+  SelectedIndex:=0;
+  for I:=0 to Box.Items.Count-1 do
+  begin
+    Color:=Box.Colors[I]; Caption:=Box.Items[I];
+    if I=0 then Caption:='Другой цвет…'
+    else
+    begin
+      case Color of
+        clDefault: Caption:='Автоматически (по теме)';
+        clBlack: Caption:='Чёрный'; clMaroon: Caption:='Бордовый';
+        clGreen: Caption:='Зелёный'; clOlive: Caption:='Оливковый';
+        clNavy: Caption:='Тёмно-синий'; clPurple: Caption:='Фиолетовый';
+        clTeal: Caption:='Бирюзовый'; clGray: Caption:='Серый';
+        clSilver: Caption:='Светло-серый'; clRed: Caption:='Красный';
+        clLime: Caption:='Лаймовый'; clYellow: Caption:='Жёлтый';
+        clBlue: Caption:='Синий'; clFuchsia: Caption:='Фуксия';
+        clAqua: Caption:='Голубой'; clWhite: Caption:='Белый';
+      end;
+      if Color=SelectedColor then SelectedIndex:=I;
+    end;
+    // Native combo string replacement can recreate its item. Keep the color
+    // value as well as its caption, then select the actual standard item.
+    Box.Items[I]:=Caption;
+    Box.Items.Objects[I]:=TObject(NativeInt(Color));
+  end;
+  Box.ItemIndex:=SelectedIndex;
+end;
+
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
-var Dialog: TForm; FontBox, SpacingBox, MarginBox, WidthBox, ZoomBox: TComboBox; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox: TCheckBox; I: Integer;
+var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox: TComboBox; FontNames: TStringList; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox, InitialCheck: TCheckBox; TitleBox, SubtitleBox: TColorBox; I: Integer;
   procedure AddLabel(const Text: string; Top: Integer);
   begin LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.SetBounds(16,Top,100,22); LabelText.Caption:=Text; end;
   function Choice(Top: Integer): TComboBox;
@@ -1300,7 +2350,7 @@ begin
       AddLabel('По щелчку, %',20); ZoomBox:=Choice(16);
       for I:=12 to 30 do ZoomBox.Items.Add(IntToStr(I*10));
       ZoomBox.ItemIndex:=ZoomBox.Items.IndexOf(IntToStr(FInspectionPercent));
-      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.SetBounds(16,52,318,32);
+      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,52,318,32);
       LabelText.WordWrap:=True; LabelText.Caption:='Для сканов и комиксов. На странице с текстом мышь выделяет текст для копирования.';
       Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,96,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
       Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,96,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
@@ -1308,11 +2358,17 @@ begin
     finally Dialog.Free; end;
     Exit;
   end;
-  Dialog:=TForm.CreateNew(Self);
+  Dialog:=TForm.CreateNew(Self); FontNames:=TStringList.Create;
   try
-    Dialog.Caption:='Текст и поля'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-    Dialog.ClientWidth:=350; Dialog.ClientHeight:=280; Dialog.Font.Assign(Font);
-    AddLabel('Шрифт',20); FontBox:=Choice(16); FontBox.Items.Assign(Screen.Fonts); FontBox.ItemIndex:=FontBox.Items.IndexOf(FFontName);
+    Dialog.Caption:='Текст и оформление'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
+    Dialog.ClientWidth:=350; Dialog.ClientHeight:=435; Dialog.Font.Assign(Font);
+    AddLabel('Шрифт / размер',20); FontBox:=Choice(16); FontBox.Width:=160;
+    ReaderFontChoices(FontNames,FontBox.Items,FFontName); FontBox.ItemIndex:=FontNames.IndexOf(FFontName);
+    SizeBox:=TComboBox.Create(Dialog); SizeBox.Parent:=Dialog; SizeBox.SetBounds(286,16,48,26); SizeBox.Style:=csDropDownList;
+    SizeBox.Hint:='Размер шрифта'; SizeBox.ShowHint:=True;
+    for I:=8 to 32 do SizeBox.Items.Add(IntToStr(I));
+    if SizeBox.Items.IndexOf(IntToStr(FFontSize))<0 then SizeBox.Items.Add(IntToStr(FFontSize));
+    SizeBox.ItemIndex:=SizeBox.Items.IndexOf(IntToStr(FFontSize));
     AddLabel('Интервал, %',58); SpacingBox:=Choice(54); SpacingBox.Items.Text:='100'+#13+'110'+#13+'120'+#13+'130'+#13+'140'+#13+'150'+#13+'160'+#13+'170'+#13+'180';
     SpacingBox.ItemIndex:=SpacingBox.Items.IndexOf(IntToStr(FLinePercent)); if SpacingBox.ItemIndex<0 then SpacingBox.ItemIndex:=1;
     AddLabel('Поля, пикс.',96); MarginBox:=Choice(92); MarginBox.Items.Text:='12'+#13+'20'+#13+'24'+#13+'32'+#13+'40'+#13+'48'+#13+'64'+#13+'80';
@@ -1328,15 +2384,212 @@ begin
     FormattingBox.Caption:='Оформление книги: заголовки, стихи, цитаты'; FormattingBox.Checked:=FBookFormatting;
     NotesBox:=TCheckBox.Create(Dialog); NotesBox.Parent:=Dialog; NotesBox.SetBounds(16,196,320,26);
     NotesBox.Caption:='Показывать сноски этой страницы внизу'; NotesBox.Checked:=FShowFootnotes;
-    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,244,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,244,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+    InitialCheck:=TCheckBox.Create(Dialog); InitialCheck.Parent:=Dialog; InitialCheck.SetBounds(16,226,320,26);
+    InitialCheck.Caption:='Выделять первые буквы абзацев'; InitialCheck.Checked:=FInitialsMode<>rimNone;
+    AddLabel('Где выделять',260); InitialBox:=Choice(256);
+    InitialBox.Items.Text:='В начале главы'+#13+'В каждом абзаце';
+    InitialBox.ItemIndex:=Max(0,Ord(FInitialsMode)-1);
+    AddLabel('Заголовки',296); TitleBox:=TColorBox.Create(Dialog); TitleBox.Parent:=Dialog; TitleBox.SetBounds(118,292,216,26);
+    TitleBox.Style:=[cbStandardColors,cbIncludeDefault,cbCustomColor]; TitleBox.Selected:=FHeadingColors[Ord(FNight),0];
+    AddLabel('Подзаголовки',330); SubtitleBox:=TColorBox.Create(Dialog); SubtitleBox.Parent:=Dialog; SubtitleBox.SetBounds(118,326,216,26);
+    SubtitleBox.Style:=TitleBox.Style; SubtitleBox.Selected:=FHeadingColors[Ord(FNight),1];
+    ConfigureReaderColorBox(TitleBox,FHeadingColors[Ord(FNight),0]);
+    ConfigureReaderColorBox(SubtitleBox,FHeadingColors[Ord(FNight),1]);
+    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,360,318,34); LabelText.WordWrap:=True;
+    LabelText.Caption:='Цвета сохраняются для каждой темы. В тёмной теме слишком тёмные оттенки подсветляются.';
+    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,403,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+    Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,403,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     if Dialog.ShowModal=mrOk then
     begin
       FBookFormatting:=FormattingBox.Checked; FShowFootnotes:=NotesBox.Checked;
+      if InitialCheck.Checked then FInitialsMode:=TReaderInitialsMode(EnsureRange(InitialBox.ItemIndex+1,1,2)) else FInitialsMode:=rimNone;
+      FDecorativeInitials:=FInitialsMode<>rimNone; FTypographyDirty:=True;
+      FHeadingColors[Ord(FNight),0]:=TitleBox.Selected; FHeadingColors[Ord(FNight),1]:=SubtitleBox.Selected;
       if WidthBox.ItemIndex=0 then FMaxTextWidth:=0 else FMaxTextWidth:=EnsureRange(StrToIntDef(WidthBox.Text,960),320,1600);
-      UpdateFootnotesPanel; SetTypography(FontBox.Text,StrToIntDef(SpacingBox.Text,110),StrToIntDef(MarginBox.Text,32));
+      FFontSize:=EnsureRange(StrToIntDef(SizeBox.Text,FFontSize),8,48);
+      UpdateFootnotesPanel; SetTypography(FontNames[FontBox.ItemIndex],StrToIntDef(SpacingBox.Text,110),StrToIntDef(MarginBox.Text,32));
     end;
+  finally FontNames.Free; Dialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.AddChapter(const Title: string; Position, Depth: Integer);
+begin
+  FChapterSourceTitles.Add(Title.Trim); FChapterDepths.Add(EnsureRange(Depth,-1,15));
+  FChapters.Items.AddObject(Title.Trim,TObject(NativeInt(Position))); FContentsButton.Enabled:=True;
+end;
+
+procedure TfrmBuiltinReader.RebuildChapterTitles;
+var Numbered: array[0..15] of Boolean; I, J, Depth, Selected: Integer; Title, Path: string;
+begin
+  FillChar(Numbered,SizeOf(Numbered),0); FillChar(FChapterNumbers,SizeOf(FChapterNumbers),0);
+  for I:=0 to 15 do FChapterParents[I]:='';
+  for I:=0 to FChapterSourceTitles.Count-1 do
+  begin
+    Depth:=FChapterDepths[I];
+    if (Depth>=0) and TRegEx.IsMatch(FChapterSourceTitles[I],
+      '^(\d+([.\-]\d+)*([.)]|\s|$)|[IVXLCDM]+([.)]|\s|$)|Глава\s+\d+|Chapter\s+\d+)',[roIgnoreCase]) then Numbered[Depth]:=True;
+  end;
+  Selected:=FChapters.ItemIndex; FChapters.Items.BeginUpdate; FChapterOutline.Clear;
+  try
+    for I:=0 to FChapterSourceTitles.Count-1 do
+    begin
+      Depth:=FChapterDepths[I]; Title:=FChapterSourceTitles[I];
+      if Depth>=0 then
+      begin
+        Inc(FChapterNumbers[Depth]);
+        for J:=Depth+1 to 15 do begin FChapterNumbers[J]:=0; FChapterParents[J]:=''; end;
+        if FNumberChapters and not Numbered[Depth] then Title:=IntToStr(FChapterNumbers[Depth])+'. '+Title;
+        FChapterParents[Depth]:=Title;
+      end;
+      Path:='';
+      for J:=0 to Depth-1 do if FChapterParents[J]<>'' then Path:=Path+FChapterParents[J]+' › ';
+      FChapters.Items[I]:=Path+Title;
+      FChapterOutline.Add(StringOfChar(' ',Max(0,Depth)*3)+Title);
+    end;
+    FChapters.ItemIndex:=Selected;
+  finally FChapters.Items.EndUpdate; end;
+end;
+
+procedure TfrmBuiltinReader.SetNumberChapters(Value: Boolean);
+begin FNumberChapters:=Value; RebuildChapterTitles; end;
+
+function TfrmBuiltinReader.ChapterIndexAt(Position: Integer): Integer;
+begin
+  Result:=-1;
+  for var I:=FChapters.Items.Count-1 downto 0 do
+    if NativeInt(FChapters.Items.Objects[I])<=Position then Exit(I);
+end;
+
+procedure TfrmBuiltinReader.ContentsClick(Sender: TObject);
+var Dialog: TReaderContentsDialog;
+begin
+  if not FReady or (ChapterCount=0) then Exit;
+  Dialog:=TReaderContentsDialog.CreateFor(Self);
+  try if (Dialog.ShowModal=mrOk) and (Dialog.SelectedChapter>=0) then GoToChapter(Dialog.SelectedChapter);
   finally Dialog.Free; end;
+  FSurface.SetFocus;
+end;
+
+function TfrmBuiltinReader.ChapterTitle(Index: Integer): string;
+begin
+  Result:=''; if (Index>=0) and (Index<ChapterCount) then Result:=FChapters.Items[Index];
+end;
+
+procedure TfrmBuiltinReader.GoToPosition(Position: Integer);
+begin NavigateTo(Position); end;
+
+function TfrmBuiltinReader.ReadingProgress: Double;
+begin
+  Result:=0; if not FReady or (FLength=0) then Exit;
+  if Assigned(FPDF) then Result:=(CurrentPosition+1)/FLength
+  else if FNext>=FLength then Result:=1 else Result:=CurrentPosition/FLength;
+end;
+
+procedure TfrmBuiltinReader.SeekProgress(Value: Double);
+begin
+  if not FReady then Exit; StopSearch;
+  Value:=EnsureRange(Value,0.0,1.0);
+  if Assigned(FPDF) then NavigateTo(Round(Value*Max(0,FLength-1)))
+  else NavigateTo(ReaderCharacterStart(FRichEdit,Round(Value*Max(0,FLength-1))));
+end;
+
+procedure TfrmBuiltinReader.ProgressMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+begin
+  if (Button<>mbLeft) or not FReady then Exit;
+  FProgressDragging:=True; TReaderProgress(FProgressLine).MouseCapture:=True;
+  FProgressTarget:=EnsureRange(X/Max(1,FProgressLine.Width-1),0.0,1.0);
+  SeekProgress(FProgressTarget); FProgressLine.Invalidate;
+end;
+
+procedure TfrmBuiltinReader.ProgressMouseMove(Sender: TObject; Shift: TShiftState; X,Y: Integer);
+begin
+  if not FProgressDragging then Exit;
+  if not (ssLeft in Shift) then begin ProgressMouseUp(Sender,mbLeft,Shift,X,Y); Exit; end;
+  FProgressTarget:=EnsureRange(X/Max(1,FProgressLine.Width-1),0.0,1.0);
+  FSeekTimer.Enabled:=True; FProgressLine.Invalidate;
+end;
+
+procedure TfrmBuiltinReader.ProgressMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
+begin
+  if not FProgressDragging or (Button<>mbLeft) then Exit;
+  FProgressDragging:=False; TReaderProgress(FProgressLine).MouseCapture:=False; FSeekTimer.Enabled:=False;
+  FProgressTarget:=EnsureRange(X/Max(1,FProgressLine.Width-1),0.0,1.0);
+  SeekProgress(FProgressTarget); FSurface.SetFocus; FProgressLine.Invalidate;
+end;
+
+procedure TfrmBuiltinReader.SeekTick(Sender: TObject);
+begin FSeekTimer.Enabled:=False; if FProgressDragging then SeekProgress(FProgressTarget); end;
+
+procedure TfrmBuiltinReader.ResetPagination;
+begin
+  FGlobalPages.Clear; FGlobalPages.Add(0); FGlobalPagesDone:=False; FGlobalPagesFailed:=False;
+  FPaginationTimer.Enabled:=False; FLastPageInteraction:=GetTickCount64;
+end;
+
+procedure TfrmBuiltinReader.RequestGlobalPages;
+begin
+  if FReady and not Assigned(FPDF) and not FGlobalPagesDone and not FGlobalPagesFailed then FPaginationTimer.Enabled:=True;
+end;
+
+function TfrmBuiltinReader.MeasureGlobalPage(Start: Integer): Integer;
+var Height, NotesHeight: Integer; Notes: string; Box: TRect;
+begin
+  Height:=FullTextHeight;
+  Result:=FormatText(Start,-1,False,FMeasureBitmap,FSurface.ClientWidth,Height);
+  if FShowFootnotes and Assigned(FDocument) then
+  begin
+    Notes:=FDocument.FootnotesForRange(Start,Result);
+    if Notes<>'' then
+    begin
+      FMeasureBitmap.Canvas.Font.Assign(FFootnotesMemo.Font);
+      Box:=Rect(0,0,Max(40,FSurface.ClientWidth-56),0);
+      DrawText(FMeasureBitmap.Canvas.Handle,PChar(Notes),Length(Notes),Box,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      NotesHeight:=Min(Max(70,Box.Height+54),Max(70,Min(200,Height div 3)));
+      Result:=FormatText(Start,-1,False,FMeasureBitmap,FSurface.ClientWidth,Max(100,Height-NotesHeight));
+    end;
+  end;
+end;
+
+procedure TfrmBuiltinReader.PaginationTick(Sender: TObject);
+var Started: UInt64; Next: Integer;
+begin
+  if FClosing or not FReady or Assigned(FPDF) or FGlobalPagesDone then begin FPaginationTimer.Enabled:=False; Exit; end;
+  if FProgressDragging or FResizeTimer.Enabled or SearchRunning or (GetTickCount64-FLastPageInteraction<180) then Exit;
+  FPaginationTimer.Enabled:=False; Started:=GetTickCount64;
+  try
+    repeat
+      Next:=MeasureGlobalPage(FGlobalPages.Last);
+      if (Next<=FGlobalPages.Last) or (Next>=FLength) then begin FGlobalPagesDone:=True; Break; end;
+      FGlobalPages.Add(Next);
+    until GetTickCount64-Started>=8;
+  except
+    // Optional page numbering must never interrupt reading or lose a position.
+    FGlobalPagesFailed:=True; Exit;
+  end;
+  FPaginationTimer.Enabled:=not FGlobalPagesDone;
+end;
+
+function TfrmBuiltinReader.GlobalPageAt(Position: Integer): Integer;
+var L,H,M: Integer;
+begin
+  Result:=0;
+  if Assigned(FPDF) then Exit(EnsureRange(Position,0,Max(0,FLength-1))+1);
+  if Position=0 then Exit(1);
+  if (FGlobalPages.Count=0) or ((Position>=FGlobalPages.Last) and not FGlobalPagesDone) then Exit;
+  L:=0; H:=FGlobalPages.Count-1;
+  while L<H do begin M:=(L+H+1) div 2; if FGlobalPages[M]<=Position then L:=M else H:=M-1; end;
+  Result:=L+1;
+end;
+
+function TfrmBuiltinReader.GlobalPaginationReady: Boolean;
+begin Result:=Assigned(FPDF) or FGlobalPagesDone; end;
+
+procedure TfrmBuiltinReader.PaintProgress(Sender: TObject);
+begin
+  if FNight then FProgressLine.Canvas.Brush.Color:=RGB(68,71,75) else FProgressLine.Canvas.Brush.Color:=RGB(215,220,226);
+  FProgressLine.Canvas.FillRect(FProgressLine.ClientRect);
+  if FNight then FProgressLine.Canvas.Brush.Color:=RGB(114,159,213) else FProgressLine.Canvas.Brush.Color:=RGB(67,117,174);
+  FProgressLine.Canvas.FillRect(Rect(0,0,Round(FProgressLine.Width*IfThen(FProgressDragging,FProgressTarget,ReadingProgress)),FProgressLine.Height));
 end;
 
 procedure TfrmBuiltinReader.ChapterClick(Sender: TObject);
@@ -1366,10 +2619,13 @@ end;
 procedure TfrmBuiltinReader.KeyReader(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
   if (ssCtrl in Shift) and (Key=Ord('C')) and (ActiveControl=FSurface) then
-  begin CopyTextClick(nil); Key:=0; Exit; end;
+  begin
+    if ssShift in Shift then CopyAllClick(nil) else CopyTextClick(nil); Key:=0; Exit;
+  end;
   if (Key=VK_F3) and (FSearch.Text<>'') then
   begin FindText(FSearch.Text,ssShift in Shift); Key:=0; Exit; end;
   if FSearch.Focused then Exit;
+  if (Key=Ord('T')) and (Shift=[ssCtrl]) then begin ContentsClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
   if (Key=VK_ESCAPE) and SearchRunning then begin StopSearch; RenderPage; Key:=0; Exit; end;
@@ -1398,7 +2654,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.RestoreSettings;
-var Ini: TMemIniFile; Bounds,Work: TRect; Position: Integer;
+var Ini: TMemIniFile; Bounds,Work: TRect; Position,I,J: Integer;
 begin
   if FSettingsFile='' then Exit;
   Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
@@ -1407,18 +2663,29 @@ begin
     if not FReady then
     begin
       FFontSize:=EnsureRange(Ini.ReadInteger('Reader','FontSize',14),8,48);
-      FFontName:=Ini.ReadString('Reader','FontName','Georgia');
+      FFontName:=AvailableReaderFont(Ini.ReadString('Reader','FontName','PT Serif'));
       FLinePercent:=EnsureRange(Ini.ReadInteger('Reader','LinePercent',110),100,180);
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
       FMaxTextWidth:=Ini.ReadInteger('Reader','MaxTextWidth',960);
       if FMaxTextWidth<>0 then FMaxTextWidth:=EnsureRange(FMaxTextWidth,320,1600);
       FBookFormatting:=Ini.ReadBool('Reader','BookFormatting',True);
-      FShowFootnotes:=Ini.ReadBool('Reader','ShowFootnotes',True);
+      FShowFootnotes:=Ini.ReadBool('Reader','ShowFootnotes',True); FNumberChapters:=Ini.ReadBool('Reader','NumberChapters',True);
+      FDecorativeInitials:=Ini.ReadBool('Reader','DecorativeInitials',False);
+      FInitialsMode:=TReaderInitialsMode(EnsureRange(Ini.ReadInteger('Reader','InitialsMode',Ord(FDecorativeInitials)),0,2));
+      FDecorativeInitials:=FInitialsMode<>rimNone;
+      for I:=0 to 1 do for J:=0 to 1 do
+      begin
+        FHeadingColors[I,J]:=Ini.ReadInteger('Reader',Format('HeadingColor%d_%d',[I,J]),clDefault);
+        if FHeadingColors[I,J]<>clDefault then FHeadingColors[I,J]:=FHeadingColors[I,J] and $00FFFFFF;
+      end;
       FInspectionPercent:=EnsureRange(Ini.ReadInteger('Reader','InspectionPercent',150),120,300);
       // A new book always fits the window; zoom belongs to that book alone.
       FZoom:=EnsureRange(Ini.ReadInteger('Book.'+FIdentity,'Zoom',100),50,300); FNight:=Ini.ReadBool('Reader','Night',False);
       FTheme:=EnsureRange(Ini.ReadInteger('Reader','Theme',IfThen(FNight,5,0)),0,5);
-      if MHLThemeDark then FTheme:=4;
+      // Legacy settings do not record which app theme saved this reader choice.
+      // Infer it once, then preserve manual reader choices within the same app theme.
+      if Ini.ReadBool('Reader','AppThemeDark',FTheme>=4)<>MHLThemeDark then
+        if MHLThemeDark then FTheme:=4 else FTheme:=1;
       FThemes.ItemIndex:=FTheme; FNight:=FTheme>=4;
       FHighlightColor:=Ini.ReadInteger('Reader','HighlightColor',$0080E5FF) and $00FFFFFF;
       FUpdatingSearch:=True;
@@ -1451,7 +2718,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.SaveSettings;
-var Ini: TMemIniFile; Bounds: TRect;
+var Ini: TMemIniFile; Bounds: TRect; I,J: Integer;
 begin
   if FSettingsFile='' then Exit;
   Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
@@ -1462,17 +2729,22 @@ begin
     Ini.WriteInteger('Reader','Width',Bounds.Width); Ini.WriteInteger('Reader','Height',Bounds.Height);
     Ini.WriteInteger('Reader','FontSize',FFontSize);
     Ini.WriteBool('Reader','BookFormatting',FBookFormatting);
-    Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes);
+    Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes); Ini.WriteBool('Reader','NumberChapters',FNumberChapters);
+    Ini.WriteBool('Reader','DecorativeInitials',FDecorativeInitials);
+    Ini.WriteInteger('Reader','InitialsMode',Ord(FInitialsMode));
+    for I:=0 to 1 do for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);
     Ini.WriteInteger('Reader','MaxTextWidth',FMaxTextWidth);
     Ini.WriteInteger('Reader','InspectionPercent',FInspectionPercent);
     if FInspect then Ini.WriteInteger('Reader','PDFZoom',FInspectZoom) else Ini.WriteInteger('Reader','PDFZoom',FZoom);
     Ini.WriteBool('Reader','Night',FNight);
-    Ini.WriteInteger('Reader','Theme',FTheme); Ini.WriteInteger('Reader','HighlightColor',FHighlightColor);
+    Ini.WriteInteger('Reader','Theme',FTheme); Ini.WriteBool('Reader','AppThemeDark',MHLThemeDark);
+    Ini.WriteInteger('Reader','HighlightColor',FHighlightColor);
     Ini.WriteBool('Reader','SearchCase',FSearchCase.Checked); Ini.WriteBool('Reader','SearchWord',FSearchWord.Checked);
     Ini.WriteBool('Reader','SearchAll',FSearchAll.Checked);
     Ini.WriteString('Reader','FontName',FFontName); Ini.WriteInteger('Reader','LinePercent',FLinePercent); Ini.WriteInteger('Reader','Margin',FMargin);
     if FReady then
     begin
+      Ini.WriteString('Book.'+FIdentity,'Title',FBookTitle);
       Ini.WriteInteger('Book.'+FIdentity,'Position',CurrentPosition);
       if FInspect then Ini.WriteInteger('Book.'+FIdentity,'Zoom',FInspectZoom) else Ini.WriteInteger('Book.'+FIdentity,'Zoom',FZoom);
     end;
