@@ -194,7 +194,7 @@ begin
       2: begin Font:='Calibri,Arial,sans-serif'; Background:='#fff'; Heading:='#285e82'; end;
       3: begin Background:='#f5ecd9'; Heading:='#725739'; end;
     end;
-    if HTML then Builder.Append('<!doctype html><html lang="ru"><meta charset="utf-8"><title>Закладки и заметки</title>'+ 
+    if HTML then Builder.Append('<!doctype html><html lang="ru"><meta charset="utf-8"><title>Закладки и заметки</title>'+
       '<style>body{font:18px/1.6 '+Font+';max-width:850px;margin:32px auto;padding:0 20px;color:#252525;background:'+Background+'}'+
       'article{border-top:1px solid #bbb;padding:20px 0}h2,h3{margin:.3em 0;color:'+Heading+'}small{color:#555}blockquote{border-left:3px solid #8299b0;padding-left:16px;margin-left:0}</style><h1>Закладки и заметки</h1>');
     for var Note in Items do
