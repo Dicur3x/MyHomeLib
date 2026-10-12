@@ -48,7 +48,7 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
+const modes = ["series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 if (viewsMode !== null && !modes.includes(viewsMode) && viewsMode !== 'cancel-interactive') throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
   "persistent-cache": ["PASS bounded persistent cache", "PASS cache menu and settings", "PASS delayed cursor status"],
@@ -86,6 +86,11 @@ const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-
   "review-http": ["PASS HTTP reviews decode UTF-8"],
 };
 function requiredPasses(executable, mode) {
+  if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
+  if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
+  if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
+  if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields"];
+  if (mode === "query-batch") return ["PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback"];
   if (path.basename(executable).toLowerCase() === "metabibimporttest.exe") return [
     "PASS production import registers", "PASS conflicting source import", "PASS production importer stops",
     "PASS production INPX import", "PASS production book stream", "PASS single-source full INPX update",

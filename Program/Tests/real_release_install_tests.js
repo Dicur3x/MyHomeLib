@@ -3,7 +3,7 @@
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const cp = require('node:child_process'), crypto = require('node:crypto');
 const assert = require('node:assert/strict');
-const [testerArg, previousArg, candidateArg, python = 'python'] = process.argv.slice(2);
+const [testerArg, previousArg, candidateArg, python = 'python', expectedRelease = '2.7.0_pre5.15'] = process.argv.slice(2);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'HomeLibRu-update-test-real-release-'));
 const installation = path.join(root, 'installation'), job = path.join(root, 'job');
 const archive = path.join(root, 'release.zip'), unpacked = path.join(root, 'unpacked');
@@ -29,7 +29,7 @@ function files(folder, prefix = '') {
 fs.copyFileSync(candidateArg, archive);
 unpack(previousArg, installation); unpack(archive, unpacked);
 const manifest = JSON.parse(read(path.join(unpacked, 'HomeLibRu.update.json')));
-assert.equal(manifest.release, '2.7.0_pre5.14');
+assert.equal(manifest.release, expectedRelease);
 const payload = new Set(manifest.files.map(entry => entry.path));
 assert.equal(payload.size, manifest.files.length);
 for (const entry of manifest.files) {
@@ -55,7 +55,9 @@ assert.equal(sha(read(fixtureBuilder)), sha(previousBuilder));
 const profiles = {'myhomelib2.ini': '[SYSTEM]\r\nCheckUpdates=0\r\n',
   'presets.cxml2': 'isolated saved presets', 'Readers/AlReader/options.ini': 'saved reader options',
   'Readers/SumatraPDF/SumatraPDF-settings.txt': 'saved reading history',
-  'Data/reader.ini': '[Reader]\r\nFontSize=19\r\nFontName=Georgia\r\n[Book.night-test]\r\nPosition=7234\r\n'};
+  'Data/reader.ini': '[Reader]\r\nFontSize=19\r\nFontName=Georgia\r\n[Book.night-test]\r\nPosition=7234\r\n',
+  'Data/reader-notes.json': JSON.stringify({version:1, notes:[{id:'saved-note',book:'night-test',bookTitle:'Книга',title:'Мысль',text:'Сохранить ё и цитату',quote:'Отрывок',place:'Страница 12',created:'2026-10-12T12:00:00Z',position:7234}]}),
+  'Data/reader-notes.json.bak': JSON.stringify({version:1, notes:[]})};
 for (const [name, contents] of Object.entries(profiles)) fs.writeFileSync(path.join(installation, name), contents);
 const protectedFiles = files(installation).filter(name => !payload.has(name) && name !== 'HomeLibRu.update.json');
 const before = protectedFiles.map(name => sha(read(path.join(installation, name))));

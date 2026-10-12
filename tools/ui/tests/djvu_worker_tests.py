@@ -18,8 +18,9 @@ class Worker:
         self.process=subprocess.Popen([str(runtime/'HomeLibDjvu.exe'),'--worker',name],stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
         self.pool=ThreadPoolExecutor(max_workers=1)
-    def send(self,cmd,index=0,text=''):
-        data=text.encode('utf-8');self.process.stdin.write(struct.pack('<Iiii',magic,cmd,index,len(data))+data);self.process.stdin.flush()
+    def send(self,cmd,index=0,text='',edge=0):
+        data=text.encode('utf-8');length=edge if cmd==2 else len(data)
+        self.process.stdin.write(struct.pack('<Iiii',magic,cmd,index,length)+data);self.process.stdin.flush()
     def reply(self):
         def read():
             header=self.process.stdout.read(24);assert len(header)==24,('incomplete reply',self.process.poll())
@@ -53,6 +54,20 @@ with tempfile.TemporaryDirectory(prefix='HomeLibRu-djvu-test-') as folder:
                     expected=expected.convert('RGB').resize(native.size)
                     mean=ImageStat.Stat(ImageChops.difference(native,expected)).mean
                     assert max(mean)<5,('native orientation/colour differs from official CLI',mean)
+        for edge in (1200,1800,4000):
+            w.send(2,2,edge=edge);status,x,y,c,error=w.reply()
+            assert status==0 and max(x,y)<=edge,error
+            native=Image.frombytes('RGB',(x,y),w.buffer[:x*y*4],'raw','BGRX')
+            reference=folder/f'reference-{edge}.tiff'
+            subprocess.run([str(runtime/'ddjvu.exe'),'-format=tiff','-quality=uncompressed','-page=3',f'-size={x}x{y}',str(copy),str(reference)],
+                check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=35,creationflags=subprocess.CREATE_NO_WINDOW)
+            with Image.open(reference) as expected:
+                mean=ImageStat.Stat(ImageChops.difference(native,expected.convert('RGB').resize(native.size))).mean
+                assert max(mean)<5,('scaled native page differs from official CLI',edge,mean)
+        w.send(2,0,edge=199);assert w.reply()[0]==1
+        w.send(2,0,edge=4001);assert w.reply()[0]==1
+        w.send(2,0,edge=1800);assert w.reply()[0]==0
+        print('PASS requested DjVu resolution, quality upgrade, independent pixel comparison and scale bounds')
         w.close(normal=True);assert w.process.returncode==0
         print('PASS Unicode paths, bounds, recovery from invalid page, opaque BGRA and orientation/colour vs official renderer')
         print(json.dumps({'pages':len(timings),'mean_ms':round(sum(timings)/len(timings),2),'max_ms':max(timings)}))

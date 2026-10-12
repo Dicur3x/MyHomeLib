@@ -21,6 +21,7 @@
     <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
     <DCC_DcuOutput>Out\$(Platform)\CollectionViewsTest-dcu</DCC_DcuOutput>
     <DCC_DependencyCheckOutputName>Out\$(Platform)\CollectionViewsTest.exe</DCC_DependencyCheckOutputName>
+    <DCC_Define>MHL_SQL_PROFILE;$(DCC_Define)</DCC_Define>
     <DCC_Assertions>true</DCC_Assertions>
     <DCC_RangeChecking>true</DCC_RangeChecking>
     <DCC_OverflowChecking>true</DCC_OverflowChecking>

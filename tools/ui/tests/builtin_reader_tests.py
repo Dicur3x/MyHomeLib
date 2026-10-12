@@ -1,4 +1,4 @@
-﻿"""Isolated reader checks. The optional real-formats case reads selected archives only."""
+"""Isolated reader checks. The optional real-formats case reads selected archives only."""
 import argparse, pathlib, tempfile, shutil, hashlib, subprocess, zipfile, base64, os, json
 
 p = argparse.ArgumentParser()
@@ -6,11 +6,13 @@ p.add_argument('runtime', type=pathlib.Path)
 p.add_argument('exe', type=pathlib.Path)
 p.add_argument('pdfium', type=pathlib.Path)
 p.add_argument('--keep', action='store_true')
+p.add_argument('--epub-fixtures',type=pathlib.Path,help='Five read-only selected real EPUB fixtures')
+p.add_argument('--formatting-book',type=pathlib.Path,help='Optional read-only real FB2 fixture for formatting checks')
 p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -30,11 +32,13 @@ try:
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
-    for arch_dir in ('tools/webp','tools/7zip','tools/djvu'):
+    for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts'):
         if (runtime/arch_dir).exists(): shutil.copytree(runtime/arch_dir, root/arch_dir)
     for marker in ('uselocaldata','uselocaltemp'): (root/marker).write_text('')
     (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
     (root/'myhomelib2.ini').write_text('[SYSTEM]\nCheckUpdates=0\n[OPDS]\nEnabled=0\n',encoding='utf-8')
+    if a.case=='reader-note-ui':
+        (root/'contents-progress.fb2').write_text('<FictionBook><body><section><title><p>Заметки</p></title><p>Текст книги для заметки.</p></section></body></FictionBook>',encoding='utf-8')
     if a.case=='footnotes':
         paragraphs=''.join('<p>'+'Long middle paragraph. '*25+'</p>' for _ in range(35))
         (root/'footnotes.fb2').write_text(
@@ -129,6 +133,13 @@ try:
             evidence.append(dict(book_id=row['book_id'],archive=str(source),member=member,bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
         assert any(x['member'].endswith('.djvu') for x in evidence),'No original DjVu fixture read'
         (root/'raster-real-evidence.json').write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf8')
+    with zipfile.ZipFile(root/'css-style.epub','w') as z:
+        z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+        z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
+        z.writestr('OPS/book.css','p.center {text-align:center; margin-bottom:12px} .bold {font-weight:bold} span.small {font-size:75%; font-style:italic} h1 {font-size:150%} p.center {text-indent:0}')
+        z.writestr('OPS/main.xhtml','<html><head><link rel="stylesheet" href="book.css"/><style>p.right {text-align:right} .bold {font-weight:normal} p.center {font-weight:bold}</style></head>'
+            '<body><h1>Цветной заголовок</h1><p class="center">Центр <span class="small">малый курсив</span> центр.</p><p class="right" style="font-style:italic">Правый абзац.</p>'
+            '<p><span class="bold">обычный</span> <span class="bold" style="font-weight:bold">жирный</span> текст.</p></body></html>')
     (root/'search.txt').write_text('Needle needle NEEDLE needled cat cathedral.',encoding='utf-8-sig')
     for filename,transfer in (('mime.mht','base64'),('mime-qp.mhtml','quoted-printable')):
         import quopri
@@ -250,6 +261,30 @@ try:
     (root/'literal.xhtml').write_text('<html><body><p><![CDATA[Литерал &nbsp; &mdash;]]></p><p>Разрыв&nbsp;строки</p></body></html>',encoding='utf-8')
     (root/'literal-dtd.xhtml').write_text('<html><body><p><![CDATA[<!DOCTYPE html> обычный текст]]></p></body></html>',encoding='utf-8')
     (root/'encoding-attribute.xhtml').write_text('<html><body><p encoding="windows-1251">Русский текст с эмодзи 🌍</p></body></html>',encoding='utf-8')
+    (root/'unmarked.fb2').write_text('<FictionBook><body><section><p>ВСТРЕЧА С КАРОЛИНКОЙ</p><p>Обычная фраза</p><p>НЕ КРИЧИТЕ!</p><poem><stanza><v>ЗАГЛАВНАЯ СТРОКА СТИХА</v></stanza></poem><p>'+('ПРОЗА '*30)+'</p></section></body></FictionBook>',encoding='utf-8')
+    (root/'initial-marks.fb2').write_text('<FictionBook><body><section><p>E\u0301cole accent.</p><p>И\u0306 в начале абзаца.</p><p>A\u0308\u0301 multiple marks.</p><p>Simple ordinary letter.</p></section></body></FictionBook>',encoding='utf-8')
+    (root/'named-style.fb2').write_text('<FictionBook><body><section><p>До <style name="accent">важные слова ё</style> после.</p><p>Слово<style name="space"> </style>другое.</p></section></body></FictionBook>',encoding='utf-8')
+    (root/'css-style.xhtml').write_text('<html><head><style>CSS must stay hidden</style><script>SCRIPT must stay hidden</script></head><body><p>Visible prose.</p></body></html>',encoding='utf-8')
+    (root/'colors.fb2').write_text('<FictionBook><body><title><p>Цвет заголовка</p></title><section><subtitle>Цвет подзаголовка</subtitle><p>Обычный текст без цветных цитат и картинок.</p></section></body></FictionBook>',encoding='utf-8')
+    (root/'hierarchy.fb2').write_text('<FictionBook><body><section><title><p>Main heading</p></title><p>Body paragraph.</p><section><title><p>Sub heading</p></title><p>Nested paragraph.</p></section><table><tr><td>Alpha</td><td>Beta</td></tr></table></section></body></FictionBook>',encoding='utf-8')
+    hierarchy='<h1>Main heading</h1><p>Body paragraph.</p><h2>Sub heading</h2><p>Nested paragraph.</p><table><tr><td>Alpha</td><td>Beta</td></tr></table>'
+    (root/'hierarchy.xhtml').write_text('<html><body>'+hierarchy+'</body></html>',encoding='utf-8')
+    (root/'hierarchy-fallback.html').write_text('<html><body><br>'+hierarchy+'</body></html>',encoding='utf-8')
+    with zipfile.ZipFile(root/'hierarchy.docx','w') as z:
+        z.writestr('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Main heading</w:t></w:r></w:p><w:p><w:r><w:t>Body paragraph.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Sub heading</w:t></w:r></w:p><w:p><w:r><w:t>Nested paragraph.</w:t></w:r></w:p></w:body></w:document>')
+    with zipfile.ZipFile(root/'hierarchy.odt','w') as z:
+        z.writestr('content.xml','<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:h text:outline-level="1">Main heading</text:h><text:p>Body paragraph.</text:p><text:h text:outline-level="2">Sub heading</text:h><text:p>Nested paragraph.</text:p></office:text></office:body></office:document-content>')
+    with zipfile.ZipFile(root/'hierarchy.epub','w') as z:
+        z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+        z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
+        z.writestr('OPS/main.xhtml','<html><body>'+hierarchy+'</body></html>')
+    if a.case=='real-epub':
+        assert a.epub_fixtures and a.epub_fixtures.is_dir()
+        fixtures=sorted(a.epub_fixtures.glob('*.epub'));assert len(fixtures)==5
+        for fixture in fixtures:shutil.copy2(fixture,root/('real-epub-'+fixture.name))
+    if a.formatting_book:
+        assert a.formatting_book.is_file() and a.formatting_book.suffix.lower()=='.fb2'
+        shutil.copy2(a.formatting_book,root/'formatting-real.fb2')
     before={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in root.iterdir() if f.suffix in ('.fb2','.epub','.xhtml','.txt','.rtf','.docx','.odt','.pdf')}
     startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=0
     try:
@@ -261,8 +296,20 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.case=='reader-note-ui':
+        assert 'PASS note dialog input' in r.stdout, 'Stale binary omitted notes GUI tests'
+    if a.case in ('reader-additions','oct11-reader'):
+        assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
     if a.case=='oct11-reader':
         assert 'PASS cover, semantic formatting' in r.stdout, 'The rebuilt test does not include the new scenario'
+        from PIL import Image
+        for name in ('oct12-heading-colors.bmp','oct12-heading-colors-app-theme.bmp'):
+            im=Image.open(root/name).convert('RGB')
+            purple=sum(n for n,(r,g,b) in im.getcolors(im.width*im.height) if r>g+35 and b>g+35)
+            blue=sum(n for n,(r,g,b) in im.getcolors(im.width*im.height) if b>r+35 and b>g+35)
+            assert purple>100 and blue>100,(name,'rendered heading colors missing',purple,blue)
+        print('PASS chosen heading/subtitle colors reach rendered page before and after app-theme change',flush=True)
+
     if a.case=='oct10-reader':
         from PIL import Image, ImageChops
         before_image=Image.open(root/'oct10-pdf-before.bmp').convert('RGB')

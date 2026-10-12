@@ -7,18 +7,18 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   Vcl.Forms, Vcl.Themes, Vcl.Styles, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, SQLiteWrap, SQLite3,
+  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
   frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
-  frame_NCWFinish, frame_WizardPageBase;
+  frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex;
 
 type
   TRegressionExceptionHandler = class
@@ -41,6 +41,70 @@ begin
     raise Exception.Create(Message);
 end;
 
+type
+  TFBDNavigationFixture = class
+    Book: TBookRecord; Moves, Changes: Integer;
+    procedure GetBook(var Value: TBookRecord);
+    procedure NextBook(MoveForward: Boolean);
+    procedure Converted(const Value: TBookRecord);
+  end;
+
+procedure TFBDNavigationFixture.GetBook(var Value: TBookRecord);
+begin Value:=Book; end;
+procedure TFBDNavigationFixture.NextBook(MoveForward: Boolean);
+begin Inc(Moves); end;
+procedure TFBDNavigationFixture.Converted(const Value: TBookRecord);
+begin Inc(Changes); Book.FileName:='payload.zip'; end;
+
+procedure TestFBDEditorSave;
+var Fixture: TFBDNavigationFixture; Dialog: TfrmConvertToFBD;
+  Locked, Released: TEvent; Worker: TThread; Folder, RawPath, RawText: string;
+begin
+  Fixture:=TFBDNavigationFixture.Create; Dialog:=TfrmConvertToFBD.Create(nil);
+  Locked:=TEvent.Create(nil,True,False,''); Released:=TEvent.Create(nil,True,False,''); Worker:=nil;
+  try
+    Folder:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'fbd-edit-fixture'));
+    ForceDirectories(Folder); RawPath:=Folder+'payload.txt'; RawText:='Исходная книга ё и Unicode.';
+    TFile.WriteAllText(RawPath,RawText,TEncoding.UTF8);
+    Fixture.Book:=Default(TBookRecord); Fixture.Book.BookKey:=CreateBookKey(1,1);
+    Fixture.Book.CollectionRoot:=Folder; Fixture.Book.FileName:='payload'; Fixture.Book.FileExt:='.txt';
+    Fixture.Book.Title:='Книга без автора'; Fixture.Book.Lang:='ru'; Fixture.Book.NodeType:=ntBookInfo;
+    Dialog.OnGetBook:=Fixture.GetBook; Dialog.OnSelectBook:=Fixture.NextBook; Dialog.OnChangeBook2Zip:=Fixture.Converted;
+    Dialog.FBD.ReportErrors:=False; Dialog.Show; Application.ProcessMessages;
+    Require(Dialog.lblAuthor.Caption='Автор не указан','Authorless FBD card has no useful label');
+    Dialog.mmAnnotation.Text:='Новая аннотация ё'; Dialog.edPublisher.Text:='Свой издатель';
+    var ArchivePath:=Dialog.FBD.ArchiveFileName;
+    Worker:=TThread.CreateAnonymousThread(procedure
+      var Mutex: TFileMutex;
+      begin
+        Mutex:=TFileMutex.Create(ArchivePath);
+        try
+          if Mutex.TryAcquire then Locked.SetEvent;
+          Released.WaitFor(5000);
+        finally Mutex.Free; end;
+      end);
+    Worker.FreeOnTerminate:=False; Worker.Start;
+    Require(Locked.WaitFor(1000)=wrSignaled,'FBD lock fixture failed');
+    Dialog.btnNextClick(nil); Dialog.btnPreviousClick(nil); Dialog.btnSaveClick(nil);
+    Require((Fixture.Moves=0) and (Fixture.Changes=0),'Failed saving moved away from the current book or changed its filename');
+    Require((Dialog.mmAnnotation.Text='Новая аннотация ё') and (Dialog.edPublisher.Text='Свой издатель'),'Failed saving erased entered metadata');
+    Require(TFile.ReadAllText(RawPath,TEncoding.UTF8)=RawText,'Locked FBD conversion changed book contents');
+    Require(not FileExists(ArchivePath) and (Dialog.ModalResult<>mrOk),'Locked saving published an archive or closed the editor');
+    Released.SetEvent; Worker.WaitFor;
+    Dialog.btnNextClick(nil);
+    Require((Fixture.Moves=1) and (Fixture.Changes=1),'Successful FBD save did not resume navigation exactly once');
+    Require(FileExists(ArchivePath),'Successful conversion failed to publish archive');
+    Require((Dialog.mmAnnotation.Lines.Count=1) and (Dialog.mmAnnotation.Lines[0]='Новая аннотация ё') and (Dialog.edPublisher.Text='Свой издатель'),'Saved FBD metadata failed to reopen');
+    Require((Dialog.FBD.Title.Annotation.P.Count=1) and (Dialog.FBD.Title.Annotation.P.Items[0].Text='Новая аннотация ё'),'Saved annotation lost Unicode');
+    var Payload:=Dialog.FBD.ExtractBook(Folder);
+    Require(TFile.ReadAllText(Payload,TEncoding.UTF8)=RawText,'Successful FBD conversion lost original payload');
+    Writeln('PASS FBD editor preserves unsaved metadata on locked save, authorless cards, Unicode payload and resumes navigation only after successful publication');
+  finally
+    Released.SetEvent; if Assigned(Worker) then begin Worker.WaitFor; Worker.Free; end;
+    Released.Free; Locked.Free; Dialog.Free; Fixture.Free;
+  end;
+end;
+
 procedure TestSQLiteRuntime;
 var DB: TSQLiteDatabase;
 begin
@@ -54,6 +118,57 @@ begin
     Require(DB.QuerySingleInt('SELECT COUNT(*) FROM RuntimeSearch WHERE RuntimeSearch MATCH ''поиск''')=1,'Packaged FTS5 Unicode search failed');
     Require(DB.QuerySingleString('PRAGMA integrity_check')='ok','SQLite runtime fixture integrity failed');
     Writeln('PASS packaged SQLite 3.54.0 source identity, FTS5 Unicode search and integrity');
+  finally DB.Free; end;
+end;
+
+procedure TestSQLiteQueryBatch;
+var DB: TSQLiteDatabase; First, Second: TSQLiteQuery; I: Integer;
+begin
+  DB:=TSQLiteDatabase.Create(':memory:');
+  try
+    DB.ExecSQL('CREATE TABLE BatchValues(ID INTEGER PRIMARY KEY, Value TEXT)');
+    DB.BeginQueryBatch;
+    try
+      for I:=1 to 250 do DB.ExecSQL('INSERT INTO BatchValues VALUES(?,?)',[I,IntToStr(I)]);
+      First:=DB.NewQuery('SELECT ? AS Value');
+      try
+        First.SetParam(0,'first'); First.Open;
+        Second:=DB.NewQuery('SELECT ? AS Value');
+        try
+          Second.SetParam(0,'second'); Second.Open;
+          Require(First.FieldAsString(0)='first','Live cached statements shared parameters');
+          Require(Second.FieldAsString(0)='second','Concurrent statement lost its own value');
+        finally Second.Free; end;
+      finally First.Free; end;
+      First:=DB.NewQuery('SELECT ? AS Value');
+      try First.Open; Require(First.FieldIsNull(0),'Reused statement retained prior parameters');
+      finally First.Free; end;
+      First:=DB.NewQuery('SELECT * FROM BatchValues');
+      try Require(First.ColCount=2,'Initial query has wrong column count');
+      finally First.Free; end;
+      DB.ExecSQL('ALTER TABLE BatchValues ADD COLUMN Extra TEXT');
+      First:=DB.NewQuery('SELECT * FROM BatchValues');
+      try Require(First.ColCount=3,'Schema change retained old column metadata');
+      finally First.Free; end;
+      First:=DB.NewQuery('SELECT * FROM BatchValues');
+      try DB.ExecSQL('ALTER TABLE BatchValues ADD COLUMN Later TEXT');
+      finally First.Free; end;
+      First:=DB.NewQuery('SELECT * FROM BatchValues');
+      try Require(First.ColCount=4,'Old live query entered the pool after a schema change');
+      finally First.Free; end;
+      DB.BeginQueryBatch;
+      try
+        for I:=1 to 256 do Require(DB.QuerySingleInt('SELECT '+IntToStr(I))=I,
+          'Bounded statement pool returned a different query');
+      finally DB.EndQueryBatch; end;
+      DB.Start;
+      DB.ExecSQL('INSERT INTO BatchValues(ID,Value) VALUES(?,?)',[251,'rollback']);
+      DB.Rollback;
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM BatchValues')=250,'Cached statements broke rollback');
+    finally DB.EndQueryBatch; end;
+    Require(DB.QuerySingleString('PRAGMA integrity_check')='ok','Query batch integrity failed');
+    Writeln('PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback');
+    Flush(Output);
   finally DB.Free; end;
 end;
 
@@ -807,7 +922,7 @@ begin
     Collection.GetBookRecord(Book^.BookKey,Updated,False);
     Require((Updated.Progress>0) and (Updated.Progress<100),'Main reader did not persist partial progress');
     Require(Book^.Progress=Updated.Progress,'Main visible book progress was not refreshed');
-    Require(FileExists(Settings.DataDir+'reader.ini'),'Main reader settings not saved under data folder');
+    Require(FileExists(TPath.Combine(Settings.DataDir,'reader.ini')),'Main reader settings not saved under data folder');
     Require(THashSHA2.GetHashStringFromFile(Source)=BeforeHash,'Built-in reading rewrote original FB2 metadata');
     Require(Settings.ConvertWebPToPNG and Settings.OverwriteFB2Info,'Built-in reader changed export settings');
     Writeln('PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings');
@@ -864,7 +979,7 @@ begin
   Settings.Readers.Add('.fb2', ParamStr(0));
   // The chooser itself is exercised by Round2Probe. This compatibility test
   // remembers the isolated probe, as a user can remember an external reader.
-  ReaderPreferences:=TMemIniFile.Create(Settings.DataDir+'reader.ini',TEncoding.UTF8);
+  ReaderPreferences:=TMemIniFile.Create(TPath.Combine(Settings.DataDir,'reader.ini'),TEncoding.UTF8);
   try
     ReaderPreferences.WriteString('OpenWith','.fb2','@configured');
     ReaderPreferences.UpdateFile;
@@ -1129,7 +1244,31 @@ begin
         else if PopupTag in [COL_SIZE, COL_NO] then
           Require((EditCount = 2) and (ChoiceCount = 1 + Ord(PopupTag = COL_SIZE)) and (DateCount = 0), 'Numeric icon lacks comparison or size units')
         else Require((EditCount = 1) and (ChoiceCount = 0) and (DateCount = 0), 'Text icon opens more than its column');
-        Require(Popup.ClientWidth <= MulDiv(360, Popup.CurrentPPI, 96), 'Individual filter is wider than the compact layout');
+        Require(Popup.BorderStyle=bsSizeable,'Column filter cannot resize');
+        Require(Popup.ClientWidth <= MulDiv(420, Popup.CurrentPPI, 96), 'Individual filter is wider than its initial layout');
+        if Assigned(Values) then
+        begin
+          var N:=Values.GetFirst;
+          while Assigned(N) do
+          begin
+            Values.ValidateNode(N,False);
+            Require(N.CheckState=csUncheckedNormal,'Opening an inactive filter automatically checked a value');
+            N:=Values.GetNext(N);
+          end;
+        end;
+        for var PPI in TArray<Integer>.Create(96,120,144,192) do
+        begin
+          Popup.ScaleForPPI(PPI);
+          Popup.ClientWidth:=MulDiv(420,PPI,96); Popup.ClientHeight:=MulDiv(440,PPI,96);
+          for var C in Popup do if C is TButton then
+          begin
+            var B:=TButton(C);
+            Require((B.Left>=0) and (B.Top>=0) and (B.Left+B.Width<=B.Parent.ClientWidth) and
+              (B.Top+B.Height<=B.Parent.ClientHeight),'Filter button is cropped at '+IntToStr(PPI)+' DPI: '+B.Caption);
+          end;
+          Popup.ClientWidth:=Popup.ClientWidth+MulDiv(200,PPI,96);
+          if Assigned(Values) then Require(Values.Width>MulDiv(500,PPI,96),'Resizing popup did not enlarge its value list');
+        end;
         Popup.ModalResult := mrCancel;
       end);
     Require(not EditBookColumnFilter(frmMain.tvBooksA, I), 'Cancel unexpectedly applied a column filter');
@@ -1216,6 +1355,28 @@ begin
   Filters.SetValue(COL_RATE,'set;3;5'); Require(Filters.Apply = 2,'Rating checklist does not union selected values');
   Filters.SetValue(COL_RATE,'set;5'); Require(Filters.Apply = 1,'Rating checklist does not combine with text');
   Filters.Clear; frmMain.ApplyBookColumnFilters(frmMain.tvBooksA);
+  // A facet showing only one available value is still an explicit selection.
+  Filters.SetValue(COL_RATE,'set;5');
+  TThread.ForceQueue(nil,
+    procedure
+    var Component: TComponent; Select: TButton;
+    begin
+      Select:=nil;
+      for Component in Screen.ActiveForm do if (Component is TButton) and
+        (TButton(Component).Caption='Выбрать найденные') then Select:=TButton(Component);
+      Require(Assigned(Select),'Value popup lacks select found'); Select.Click;
+      Screen.ActiveForm.ModalResult:=mrOk;
+    end);
+  Require(EditBookColumnFilter(frmMain.tvBooksA,COL_LANG),'Explicit facet selection did not apply');
+  Require(Filters.Value(COL_LANG).StartsWith('values:'),'Selecting all current facet values silently removed the filter');
+  Filters.SetValue(COL_RATE,''); Require(Filters.Apply=2,'Clearing another column broadened the chosen language');
+  Filters.Clear;
+  TThread.ForceQueue(nil,
+    procedure begin Screen.ActiveForm.ModalResult:=mrOk; end);
+  Require(EditBookColumnFilter(frmMain.tvBooksA,COL_LANG),'Empty selection did not apply');
+  Require(Filters.Value(COL_LANG)='','No explicit choices should leave all values available');
+  Filters.Apply;
+  Writeln('PASS no implicit value selections, explicit facets survive other filters, all popup buttons fit at 96/120/144/192 DPI and lists resize');
   Writeln('PASS Unicode Cyrillic case mapping, explicit case mode and multi-value ratings');
   Writeln('PASS numeric size, number and rating filters compare raw values with inclusive ranges');
   Writeln('PASS compact size popup converts fractional MB and resets only its own column');
@@ -1694,6 +1855,83 @@ begin
   Require(Result > 0, 'Fixture book was not inserted');
 end;
 
+function SourceBookMapping(const Target: IBookCollection; const Source: TMergeSource;
+  BookID: Integer): Integer;
+var Book: TBookRecord;
+begin
+  Source.Collection.GetBookRecord(CreateBookKey(BookID, Source.Collection.CollectionID), Book, False);
+  Result := Target.GetCatalogBookID(MergeSourceKey(Source, Book));
+end;
+
+procedure TestSourceKeyCollisions;
+var Source, Target: IBookCollection; SourceID, TargetID, A, B, C, D, Anchor, Count: Integer;
+  Book, Moved: TBookRecord; Sources: TMergeSources; Shifted: TMergeSource;
+  Plan: TCollectionMergePlan; Policy: TCollectionMergePolicy; Iterator: IBookIterator;
+  procedure Locate(ID: Integer; const FileName, LibID, Ext: string);
+  begin
+    Source.GetBookRecord(CreateBookKey(ID, SourceID), Book, True);
+    Book.FileName := FileName; Book.LibID := LibID; Book.FileExt := Ext;
+    Source.UpdateBook(Book);
+  end;
+begin
+  SourceID := SystemDB.CreateCollection('Collision source', Settings.AppPath+'collision-root\',
+    'collision-source.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath+'genres_fb2.glst');
+  Source := SystemDB.GetCollection(SourceID);
+  A := AddBook(Source,'Alpha','Author','ru','','prose_contemporary');
+  B := AddBook(Source,'Beta','Author','ru','','prose_contemporary');
+  C := AddBook(Source,'Alpha','Author','ru','','prose_contemporary');
+  D := AddBook(Source,'Alpha','Author','ru','','prose_contemporary');
+  Locate(A,'alpha','42','.fb2'); Locate(B,'beta','42','.fb2');
+  Locate(C,'alpha','42','.pdf'); Locate(D,'alpha','43','.fb2');
+  SetLength(Sources,1); Sources[0].ID := 'collision'; Sources[0].Name := 'Collision';
+  Sources[0].Collection := Source; Sources[0].Root := Source.CollectionRoot;
+  Sources[0].LibraryNamespace := 'flibusta';
+  Sources[0].DatabaseFile := SystemDB.GetCollectionInfo(SourceID).DBFileName;
+  Source.GetBookRecord(CreateBookKey(A,SourceID),Book,False);
+  Shifted := Sources[0]; Shifted.Root := Settings.AppPath+'moved-collision-root\';
+  Moved := Book; Moved.CollectionRoot := Shifted.Root;
+  Require(MergeSourceKey(Sources[0],Book)=MergeSourceKey(Shifted,Moved),
+    'Source file identity changes when its root moves');
+  for Policy := Low(TCollectionMergePolicy) to High(TCollectionMergePolicy) do
+  begin
+    TargetID := SystemDB.CreateCollection('Collision target '+IntToStr(Ord(Policy)), Settings.AppPath,
+      'collision-target-'+IntToStr(Ord(Policy))+'.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath+'genres_fb2.glst');
+    Target := SystemDB.GetCollection(TargetID);
+    Anchor := AddBook(Target,'Unrelated legacy book','Author','ru','','prose_contemporary');
+    Target.SetCatalogBookID('collision:42',Anchor);
+    Plan := TCollectionMergePlan.Create(Target,Sources,nil,Policy);
+    try
+      Plan.Preview;
+      Require((Plan.NewBooks=3) and (Plan.Duplicates=1),'Colliding IDs/physical alias preview is wrong');
+      Require(Plan.SourceLookupCount=0,'Legacy-only catalog still performs impossible stable-key lookups');
+      Plan.Apply(Settings.AppPath+'collision-backup-'+IntToStr(Ord(Policy)));
+      Iterator := Target.GetBookIterator(bmAll,False); Count := 0;
+      while Iterator.Next(Book) do Inc(Count);
+      Require(Count=4,'Colliding numeric IDs overwrite different files or formats');
+      Require(SourceBookMapping(Target,Sources[0],A)=SourceBookMapping(Target,Sources[0],D),
+        'Physical file alias was duplicated');
+      Require(SourceBookMapping(Target,Sources[0],A)<>SourceBookMapping(Target,Sources[0],B),
+        'Different titles with the same ID collapsed');
+      Require(SourceBookMapping(Target,Sources[0],A)<>SourceBookMapping(Target,Sources[0],C),
+        'Different formats with the same ID collapsed');
+      Target.GetBookRecord(CreateBookKey(Anchor,TargetID),Book,False);
+      Require(Book.Title='Unrelated legacy book','Old ambiguous source link replaced an unrelated book');
+      Plan.Preview; Require(Plan.NewBooks=0,'Repeated collision-safe merge adds books');
+      Require(Plan.SourceLookupCount>0,'Repeated merge skips existing stable source links');
+      var OriginalRoot:=Source.CollectionRoot;
+      Plan.Free; Plan:=nil;
+      try
+        Source.SetProperty(PROP_ROOTFOLDER,Shifted.Root); Sources[0].Root:=Shifted.Root;
+        Plan:=TCollectionMergePlan.Create(Target,Sources,nil,Policy); Plan.Preview;
+        Require((Plan.NewBooks=0) and (Plan.SourceLookupCount>0),'Moving a source root loses stable links');
+        Plan.Apply(Settings.AppPath+'moved-collision-backup-'+IntToStr(Ord(Policy)));
+        Require(SourceBookMapping(Target,Sources[0],A)=SourceBookMapping(Target,Sources[0],D),'Moved physical aliases lose their shared book');
+      finally Source.SetProperty(PROP_ROOTFOLDER,OriginalRoot); Sources[0].Root:=OriginalRoot; end;
+    finally Plan.Free; end;
+  end;
+  Writeln('PASS repeated source IDs retain distinct titles/formats, physical aliases match preview, moved roots stay stable and legacy ambiguous links are ignored');
+end;
+
 procedure TestMergePolicies;
 var HighSource, LowSource, Target: IBookCollection; Sources: TMergeSources;
   Policy: TCollectionMergePolicy; Plan: TCollectionMergePlan;
@@ -1865,6 +2103,128 @@ begin
   finally Reader.Free; Configuration.Free; end;
 end;
 
+procedure TestUpdateNotesTheme;
+var Popup: TfrmProgramUpdate; View: TUpdateNotesView; Info: TProgramRelease;
+  SavedDark: Boolean; I, SelectedStart, SelectedCount: Integer; Text: string;
+  procedure RequireForeground(Body: TRichEdit);
+  begin
+    Body.SelStart := Body.FindText('Проверяемый',0,MaxInt,[]); Body.SelLength := 5;
+    Require(Body.SelStart >= 0,'Theme fixture text missing');
+    Require(ColorToRGB(Body.SelAttributes.Color)=ColorToRGB(MHLThemeText),
+      'Formatted update text ignores the current foreground');
+  end;
+begin
+  SavedDark := MHLThemeDark; SetMHLTheme(True);
+  Popup := TfrmProgramUpdate.Create(nil);
+  try
+    View := nil;
+    for I := 0 to Popup.ControlCount-1 do
+      if Popup.Controls[I] is TUpdateNotesView then View := TUpdateNotesView(Popup.Controls[I]);
+    Require(Assigned(View),'Update notes view missing');
+    Info := Default(TProgramRelease); Info.Tag := PROGRAM_RELEASE_VERSION;
+    Info.History := PROGRAM_RELEASE_VERSION+#10+'## Проверяемый заголовок'+#10+
+      '- Проверяемый **жирный** текст'+#10+'  - Дочерний пункт'+#10+#10+
+      '2.7.0_pre5.14'+#10+'Проверяемый предыдущий выпуск';
+    Popup.SetCurrent(Info); Application.ProcessMessages;
+    View.SetExpanded(1,True); View.ZoomPercent := 140;
+    RequireForeground(View.PrimaryNotes); RequireForeground(View.SectionNotes(1));
+    Require(ColorToRGB(View.PrimaryNotes.Color)=RGB(30,31,34),'Update body background is light');
+    Text := View.PrimaryNotes.Text;
+    View.PrimaryNotes.SelStart := View.PrimaryNotes.FindText('жирный',0,MaxInt,[]);
+    View.PrimaryNotes.SelLength := Length('жирный');
+    Require(fsBold in View.PrimaryNotes.SelAttributes.Style,'Theme removes inline emphasis');
+    SelectedStart := View.PrimaryNotes.SelStart; SelectedCount := View.PrimaryNotes.SelLength;
+    SetMHLTheme(False);
+    Require((View.PrimaryNotes.SelStart=SelectedStart) and (View.PrimaryNotes.SelLength=SelectedCount),
+      'Theme switch resets text selection');
+    Require((View.PrimaryNotes.Text=Text) and (View.ZoomPercent=140) and View.IsExpanded(1),
+      'Theme switch resets content, zoom or expanded releases');
+    Require(fsBold in View.PrimaryNotes.SelAttributes.Style,'Theme switch removes inline emphasis');
+    RequireForeground(View.PrimaryNotes);
+    Require(ColorToRGB(View.PrimaryNotes.Color)=ColorToRGB(clWindow),'Light update body was not restored');
+    SetMHLTheme(True); View.ZoomPercent := 90; RequireForeground(View.PrimaryNotes);
+    Info.ComponentID := 'SQLite'; Info.ComponentVersion := '3.54.0';
+    Info.History := '3.54.0'+#10+'Проверяемый текст другого компонента';
+    Popup.SetCurrent(Info); RequireForeground(View.PrimaryNotes);
+    Writeln('PASS update notes retain visible dark/light foreground, content, selection, emphasis, zoom and component switching');
+    Flush(Output);
+  finally Popup.Free; SetMHLTheme(SavedDark); end;
+end;
+
+procedure TestBulkWriteSafety;
+var Target: IBookCollection;
+  TargetID, ID, I: Integer; Book, Stored: TBookRecord; Copies: TArray<TBookRecord>;
+  DB: TSQLiteDatabase; Failed: Boolean;
+begin
+  TargetID:=SystemDB.CreateCollection('Batch writes',Settings.AppPath,'batch-writes.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Target:=SystemDB.GetCollection(TargetID);
+  ID:=AddBook(Target,'Batch book','Author','ru','','prose_contemporary');
+  Target.GetBookRecord(CreateBookKey(ID,TargetID),Book,True);
+  Target.AddBookToGroup(Book.BookKey,FAVORITES_GROUP_ID);
+  Book.FileName:='файл_日本語'; Book.CollectionRoot:='C:\Книги'; Book.Folder:='archive.zip';
+  Book.FileExt:='fb2'; Book.InsideNo:=7; Book.Size:=123456; Book.LibID:='flibusta:42';
+  Target.BeginBulkOperation;
+  try
+    for I:=1 to 1200 do
+    begin
+      Target.SetCatalogBookID('key-'+IntToStr(I),ID);
+      Target.SetCatalogBookCopy('key-'+IntToStr(I),'Источник '+IntToStr(I),Book);
+      Target.SetCatalogBookPreferredSource(Book.BookKey,'Источник '+IntToStr(I));
+    end;
+    Target.SetCatalogBookID('key-1200',999999);
+    Require(Target.GetCatalogBookID('key-1200')=0,'Source lookup accepts an orphan mapping');
+    Target.SetCatalogBookID('key-1200',ID);
+    Book.FileName:='последняя копия';
+    Target.SetCatalogBookCopy('key-1200','Последний источник',Book);
+    Copies:=Target.GetCatalogBookCopies(Book.BookKey);
+    Require(Length(Copies)=1200,'Bulk copies are invisible or an iteration loses a row');
+    Require(Target.GetCatalogBookID('key-1200')=ID,'Replacement mapping is invisible');
+    Target.GetBookRecord(Book.BookKey,Stored,False);
+    Require(Stored.CollectionName='Источник 1200','Preferred source is invisible');
+    Target.SetCatalogBookID('tail',ID);
+    Target.EndBulkOperation(True);
+  except Target.EndBulkOperation(False); raise; end;
+  DB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM CatalogSourceBooks')=1201,'Commit omits the last bulk row');
+    Require(DB.QuerySingleString('SELECT FileName FROM CatalogBookCopies WHERE SourceKey=''key-1200''')=Book.FileName,
+      'Repeated copy did not keep its last value');
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM CatalogBookCopies WHERE Root=? AND Ext=? AND InsideNo=? AND BookSize=?',
+      [Book.CollectionRoot,Book.FileExt,Book.InsideNo,Book.Size])=1200,'Copy paths/fields changed in bulk writes');
+  finally DB.Free; end;
+  Target.BeginBulkOperation;
+  for I:=1 to 617 do
+  begin
+    Target.SetCatalogBookID('rollback-'+IntToStr(I),ID);
+    Target.SetCatalogBookCopy('rollback-'+IntToStr(I),'Откат',Book);
+    Target.SetCatalogBookPreferredSource(Book.BookKey,'Откат');
+  end;
+  Target.EndBulkOperation(False);
+  Require(Target.GetCatalogBookID('rollback-1')=0,'Rollback retained flushed mappings');
+  Require(Target.GetCatalogBookID('rollback-617')=0,'Rollback retained the last bulk row');
+  Require(Length(Target.GetCatalogBookCopies(Book.BookKey))=1200,'Rollback retained copies');
+  Target.GetBookRecord(Book.BookKey,Stored,False);
+  Require(Stored.CollectionName='Источник 1200','Rollback retained preferred-source cache');
+  DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try DB.ExecSQL('CREATE TRIGGER RejectBatchCopy BEFORE INSERT ON CatalogBookCopies '+
+    'WHEN NEW.SourceKey=''fail'' BEGIN SELECT RAISE(ABORT,''injected batch failure''); END');
+  finally DB.Free; end;
+  Target.BeginBulkOperation;
+  Target.SetCatalogBookID('fail',ID);
+  Failed:=False;
+  try Target.SetCatalogBookCopy('fail','Fail',Book); except on E: Exception do Failed:=True; end;
+  Require(Failed,'Injected failure did not interrupt bulk writes');
+  Target.EndBulkOperation(False);
+  Require(Target.GetCatalogBookID('fail')=0,'Partial failed writes were not rolled back');
+  Target.BeginBulkOperation;
+  Target.SetCatalogBookID('after-failure',ID); Target.EndBulkOperation(True);
+  Require(Target.GetCatalogBookID('after-failure')=ID,'Bulk operation cannot be reused after rollback');
+  Target.SetCatalogBookID('ordinary',ID);
+  Require(Target.GetCatalogBookID('ordinary')=ID,'Ordinary writes became deferred');
+  Writeln('PASS bulk writes preserve Unicode fields, replacements, complete commits, rollback and failure recovery'); Flush(Output);
+end;
+
 procedure BenchmarkMergeScale;
 const BookCount=10000; SeriesCount=160000;
 var Source,Target: IBookCollection; SourceID,TargetID,I,Anchor,BookID: Integer;
@@ -1908,13 +2268,214 @@ begin
       Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series')=SeriesCount,'Large merge deleted unrelated secondary series');
       Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series_List')=SeriesCount,'Large merge damaged secondary memberships');
     finally DB.Free; end;
-    BookID:=Target.GetCatalogBookID('scale:Scale 10000'); Require(BookID>0,'Last book lost source mapping');
+    BookID:=SourceBookMapping(Target,Sources[0],BookCount); Require(BookID>0,'Last book lost source mapping');
     Target.GetBookRecord(CreateBookKey(BookID,TargetID),RecordValue,True);
     Require(RecordValue.Title='Scale 10000','Last merged metadata missing');
     Writeln('PROFILE merge_scale books=',BookCount,' series=',SeriesCount,' seed_ms=',SeedMS,' preview_ms=',PreviewMS,' apply_ms=',ApplyMS);
     Writeln('PASS large merge reuses imported books and preserves unrelated secondary series'); Flush(Output);
   finally Plan.Free; end;
 end;
+
+procedure BenchmarkExistingMerge;
+var Target: IBookCollection; Catalogs: TCatalogSources; Sources: TMergeSources;
+  Info: TCollectionInfo; Plan: TCollectionMergePlan; DB: TSQLiteDatabase;
+  I, OriginalCount, ExpectedTotal, NewCount, ProbeCount: Integer;
+  Started, PreviewMS, ApplyMS, LastLog, LastProfileSave: UInt64; Backup, Root: string;
+  LogProgress: TMergeStageProgress;
+  procedure RequirePrivatePath(const FileName: string);
+  begin
+    Require(TPath.GetFullPath(FileName).ToLower.StartsWith(Root),
+      'Existing-profile regression would access a database outside its private runtime: '+FileName);
+  end;
+begin
+  LogProgress:=procedure(const Stage: string; Current,Total: Integer)
+    begin
+      if (GetTickCount64-LastLog>=10000) or ((Total>0) and (Current=Total)) then
+      begin
+        Writeln('PROGRESS ',Stage,' ',Current,'/',Total,' elapsed_ms=',GetTickCount64-Started);
+        Flush(Output); LastLog:=GetTickCount64;
+      end;
+      if (ParamStr(4)='profile') and (GetTickCount64-LastProfileSave>=60000) then
+      begin SaveSQLiteProfile(Settings.AppPath+'profile-current.tsv'); LastProfileSave:=GetTickCount64; end;
+    end;
+  Root:=IncludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)).ToLower;
+  RequirePrivatePath(Settings.SystemFileName[sfSystemDB]);
+  RequirePrivatePath(Settings.TempPath);
+  Info:=SystemDB.GetCollectionInfo(StrToInt(ParamStr(2)));
+  RequirePrivatePath(Info.DBFileName);
+  Target:=SystemDB.GetCollection(Info.ID); Catalogs:=LoadCatalogSources(Target);
+  Require(Length(Catalogs)>0,'Existing-profile fixture has no catalog sources');
+  SetLength(Sources,Length(Catalogs));
+  for I:=0 to High(Catalogs) do
+  begin
+    Require(Catalogs[I].IsINPX,'Existing-profile regression accepts private INPX snapshots only');
+    RequirePrivatePath(Catalogs[I].CacheFile);
+    Sources[I].ID:=Catalogs[I].ID; Sources[I].Name:=Catalogs[I].Name;
+    Sources[I].LibraryNamespace:=Catalogs[I].LibraryNamespace;
+    Sources[I].DatabaseFile:=Catalogs[I].CacheFile;
+    Sources[I].Collection:=OpenCatalogSource(Catalogs[I],SystemDB);
+  end;
+  DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+  try OriginalCount:=DB.QuerySingleInt('SELECT COUNT(*) FROM Books'); finally DB.Free; end;
+  Writeln('PROFILE existing_merge before=',OriginalCount,' sources=',Length(Sources)); Flush(Output);
+  ExpectedTotal:=StrToInt(ParamStr(3)); Backup:=Settings.AppPath+'full-merge-backup';
+  Plan:=TCollectionMergePlan.Create(Target,Sources,SystemDB,mpSourcePriority);
+  try
+    Started:=GetTickCount64; LastLog:=Started; LastProfileSave:=Started;
+    if ParamStr(4)='profile' then StartSQLiteProfile;
+    Plan.StageProgress:=LogProgress;
+    Plan.Preview(procedure(Current,Total: Integer) begin LogProgress('preview',Current,Total); end);
+    PreviewMS:=GetTickCount64-Started;
+    if ParamStr(4)='profile' then
+    begin SaveSQLiteProfile(Settings.AppPath+'profile-preview.tsv'); StartSQLiteProfile; end;
+    Require(Plan.Total=ExpectedTotal,'Existing merge did not read every source record');
+    NewCount:=Plan.NewBooks;
+    Writeln('PROFILE existing_merge total=',Plan.Total,' new=',NewCount,' duplicates=',Plan.Duplicates,
+      ' conflicts=',Plan.Conflicts,' preview_ms=',PreviewMS); Flush(Output);
+    Started:=GetTickCount64; LastLog:=Started;
+    ProbeCount:=0;
+    if ParamStr(4)='probe' then
+    begin
+      try
+        Plan.Apply(Backup,
+          procedure(Current,Total: Integer)
+          begin ProbeCount:=Current; LogProgress('apply',Current,Total); end,
+          function: Boolean begin Result:=ProbeCount>=20000; end);
+        Require(False,'Merge probe did not cancel');
+      except on E: EAbort do Require(ProbeCount>=20000,'Merge probe canceled too early'); end;
+      ApplyMS:=GetTickCount64-Started;
+      DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+      try
+        Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Books')=OriginalCount,'Probe rollback changed the catalog');
+        Require(DB.QuerySingleString('PRAGMA quick_check')='ok','Probe rollback damaged the catalog');
+      finally DB.Free; end;
+      Writeln('PROFILE existing_merge_probe rows=',ProbeCount,' preview_ms=',PreviewMS,' apply_ms=',ApplyMS);
+      Writeln('PASS existing merge probe cancels and rolls back'); Flush(Output); Exit;
+    end;
+    Plan.Apply(Backup,procedure(Current,Total: Integer) begin LogProgress('apply',Current,Total); end);
+    Writeln('PROFILE merge read_snapshot_books=',Plan.ReadCacheBooks,' hits=',Plan.ReadCacheHits,' source_lookups=',Plan.SourceLookupCount); Flush(Output);
+    ApplyMS:=GetTickCount64-Started;
+    if ParamStr(4)='profile' then
+    begin SaveSQLiteProfile(Settings.AppPath+'profile-apply.tsv'); StopSQLiteProfile; end;
+    DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+    try
+      Require(DB.QuerySingleString('PRAGMA quick_check')='ok','Merged catalog integrity failed');
+      DB.ExecSQL('ATTACH DATABASE '+QuotedStr(Backup+'\destination.hlc2')+' AS prior');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Books')=OriginalCount+NewCount,'Merged count differs from preview');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM prior.Books p LEFT JOIN Books b USING(BookID) WHERE b.BookID IS NULL')=0,
+        'Full merge removed pre-existing books');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM prior.Books p JOIN Books b USING(BookID) WHERE '+
+        '(p.Rate<>0 AND b.Rate<>p.Rate) OR (p.Progress<>0 AND b.Progress<>p.Progress) OR '+
+        '(length(p.Review)>0 AND instr(b.Review,p.Review)=0)')=0,'Full merge lost ratings, progress or reviews');
+      Writeln('PROFILE existing_merge after=',DB.QuerySingleInt('SELECT COUNT(*) FROM Books'),
+        ' preview_ms=',PreviewMS,' apply_ms=',ApplyMS);
+    finally DB.Free; end;
+    DB:=TSQLiteDatabase.CreateReadOnly(Settings.SystemFileName[sfSystemDB]);
+    try Require(DB.QuerySingleString('PRAGMA quick_check')='ok','Merged system profile integrity failed');
+    finally DB.Free; end;
+    Writeln('PASS full existing merge reads every source, preserves committed books and user data, and passes integrity');
+    Flush(Output);
+  finally Plan.Free; end;
+end;
+
+procedure TestSeriesReadStream;
+var Collection: IBookCollection; Provider: IBookSeriesStreamProvider; Stream: IBookSeriesReadStream;
+  IDs: TArray<Integer>; CollectionID, ID, I: Integer; Expected, Actual: TBookSeries; Rejected: Boolean;
+begin
+  CollectionID:=SystemDB.CreateCollection('Series stream fixture',Settings.AppPath,
+    'series-stream.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(CollectionID);
+  SetLength(IDs,3);
+  IDs[0]:=AddBook(Collection,'First stream book','Author','ru','Primary ё','prose_contemporary');
+  IDs[1]:=AddBook(Collection,'Book without series','Author','ru','','prose_contemporary');
+  IDs[2]:=AddBook(Collection,'Last stream book','Author','ru','Other series','prose_contemporary');
+  Collection.AddBookSeries(IDs[0],'Additional ё',9);
+  Collection.AddBookSeries(IDs[0],'Second additional',3);
+  Require(Supports(Collection,IBookSeriesStreamProvider,Provider),'SQLite has no series stream');
+  Stream:=Provider.OpenBookSeriesReadStream;
+  for ID in IDs do
+  begin
+    Expected:=Collection.GetBookSeries(CreateBookKey(ID,CollectionID)); Actual:=Stream.ReadBook(ID);
+    Require(Length(Actual)=Length(Expected),'Stream lost empty/primary/secondary relationships');
+    for I:=0 to High(Expected) do
+      Require((Actual[I].SeriesID=Expected[I].SeriesID) and (Actual[I].SeriesTitle=Expected[I].SeriesTitle) and
+        (Actual[I].SeqNumber=Expected[I].SeqNumber) and (Actual[I].IsPrimary=Expected[I].IsPrimary),'Stream changed series order, titles, numbers or primary flags');
+    if Length(Actual)>0 then Actual[0].SeriesTitle:='Changed caller copy';
+    Actual:=Stream.ReadBook(ID);
+    if Length(Expected)>0 then Require(Actual[0].SeriesTitle=Expected[0].SeriesTitle,'Caller mutated cached series array');
+  end;
+  Require(Length(Stream.ReadBook(IDs[2]+10))=0,'Missing book at end has unrelated series');
+  Require(Length(Stream.ReadBook(IDs[2]+10))=0,'Repeated empty read changed result');
+  Rejected:=False;
+  try Stream.ReadBook(IDs[0]); except on E: EArgumentException do Rejected:=True; end;
+  Require(Rejected,'Unordered stream reads silently lose relations');
+  Stream:=nil;
+  Require(Length(Collection.GetBookSeries(CreateBookKey(IDs[0],CollectionID)))=3,'Read stream mutated collection');
+  Writeln('PASS sequential series stream matches ordinary lookup, preserves primary/additional order and Unicode, handles missing and repeated IDs and protects caller copies');
+end;
+
+procedure TestCatalogWriteNoOps;
+var Collection: IBookCollection; CollectionID, BookID, Before, RowID, OriginalCycle: Integer;
+  Updater: IBookMergeMetadataUpdater;
+  Book: TBookRecord; DB: TSQLiteDatabase; FileName: string;
+begin
+  CollectionID:=SystemDB.CreateCollection('No-op catalog links',Settings.AppPath,'no-op-catalog.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(CollectionID); BookID:=AddBook(Collection,'Preserved book','Writer','ru','','prose_contemporary');
+  Collection.GetBookRecord(CreateBookKey(BookID,CollectionID),Book,False);
+  FileName:=Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
+  Collection.BeginBulkOperation;
+  try
+    Collection.SetCatalogBookID('noop:source',BookID);
+    Collection.SetCatalogBookPreferredSource(Book.BookKey,'Case Source');
+    Collection.SetCatalogBookCopy('noop:copy','Case Source',Book); Collection.EndBulkOperation(True);
+  except if Collection.InBulkOperation then Collection.EndBulkOperation(False); raise; end;
+  DB:=TSQLiteDatabase.CreateReadOnly(FileName);
+  try
+    Before:=DB.QuerySingleInt('PRAGMA data_version');
+    RowID:=DB.QuerySingleInt('SELECT rowid FROM CatalogBookCopies WHERE SourceKey=''noop:copy''');
+    Collection.BeginBulkOperation;
+    try
+      for var I:=1 to 10 do
+      begin
+        Collection.SetCatalogBookID('noop:source',BookID);
+        Collection.SetCatalogBookPreferredSource(Book.BookKey,'Case Source');
+        Collection.SetCatalogBookCopy('noop:copy','Case Source',Book);
+      end;
+      Collection.EndBulkOperation(True);
+    except if Collection.InBulkOperation then Collection.EndBulkOperation(False); raise; end;
+    Require(DB.QuerySingleInt('PRAGMA data_version')=Before,'Identical catalog links still dirty the database');
+    Require(DB.QuerySingleInt('SELECT rowid FROM CatalogBookCopies WHERE SourceKey=''noop:copy''')=RowID,'Repeat copy write replaced its row identity');
+    Collection.BeginBulkOperation;
+    try
+      Book.InsideNo:=12; Collection.SetCatalogBookCopy('noop:copy','case source',Book);
+      Collection.SetCatalogBookPreferredSource(Book.BookKey,'case source'); Collection.EndBulkOperation(True);
+    except if Collection.InBulkOperation then Collection.EndBulkOperation(False); raise; end;
+    Require(DB.QuerySingleInt('SELECT InsideNo FROM CatalogBookCopies WHERE SourceKey=''noop:copy''')=12,'Changed copy member was discarded by no-op optimization');
+    Require(DB.QuerySingleString('SELECT SourceName FROM CatalogBookCopies WHERE SourceKey=''noop:copy''')='case source','Case-only copy name change was lost');
+    Require(DB.QuerySingleString('SELECT SourceName FROM CatalogPreferredSource WHERE BookID='+IntToStr(BookID))='case source','Case-only preferred source name change was lost');
+    Require(DB.QuerySingleInt('SELECT rowid FROM CatalogBookCopies WHERE SourceKey=''noop:copy''')=RowID,'Updating a copy unnecessarily replaced its row');
+    Require(Supports(Collection,IBookMergeMetadataUpdater,Updater),'SQLite merge metadata updater is unavailable');
+    Collection.AddBookSeries(BookID,'Unique preserved cycle',7); OriginalCycle:=Collection.GetBookSeries(Book.BookKey)[0].SeriesID;
+    Collection.GetBookRecord(CreateBookKey(BookID,CollectionID),Book,True); Book.Series:='Incoming primary cycle'; Book.SeqNumber:=3;
+    Collection.BeginBulkOperation;
+    try Updater.UpdateBookPreservingSeries(Book); Collection.EndBulkOperation(True);
+    except if Collection.InBulkOperation then Collection.EndBulkOperation(False); raise; end;
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series_List WHERE BookID=? AND SeriesID=?',[BookID,OriginalCycle])=1,
+      'Merge metadata update deleted the old cycle identity');
+    Book.Series:=''; Collection.BeginBulkOperation;
+    try Updater.UpdateBookPreservingSeries(Book); Collection.EndBulkOperation(True);
+    except if Collection.InBulkOperation then Collection.EndBulkOperation(False); raise; end;
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series_List WHERE BookID=?',[BookID])=2,'Unsequenced source deleted existing cycle memberships');
+    Require(DB.QuerySingleString('SELECT SeriesTitle FROM Series WHERE SeriesID=?',[OriginalCycle])='Unique preserved cycle','Original cycle ID was recreated');
+    // A normal explicit edit still clears every membership; merge semantics must not leak into it.
+    Collection.SetSeriesID(Book.BookKey,NO_SERIES_ID);
+    Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Series_List WHERE BookID=?',[BookID])=0,'Normal series removal inherited merge preservation mode');
+    Require(DB.QuerySingleString('PRAGMA quick_check')='ok','No-op catalog writes damaged integrity');
+  finally DB.Free; end;
+  Writeln('PASS identical catalog mappings/copies/preferences do not rewrite pages; changed values and case-only names persist without replacing row identities');
+end;
+
+procedure TestMergeArchiveResolution; forward;
 
 procedure TestCollectionMerge;
 var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
@@ -1957,6 +2518,7 @@ begin
   Target.SetRate(CreateBookKey(ExistingID, TargetID), 5);
   Target.SetProgress(CreateBookKey(ExistingID, TargetID), 10);
   Target.SetReview(CreateBookKey(ExistingID, TargetID), 'User review');
+  Target.AddBookToGroup(CreateBookKey(ExistingID,TargetID),FAVORITES_GROUP_ID);
   Publisher(High,A,'High publisher'); Publisher(Low,B,'Low publisher'); Publisher(Target,ExistingID,'User publisher');
   High.AddBookToGroup(CreateBookKey(A, HighID), FAVORITES_GROUP_ID);
   Low.AddBookToGroup(CreateBookKey(C, LowID), FAVORITES_GROUP_ID);
@@ -1971,14 +2533,20 @@ begin
     Require((Plan.NewBooks=1) and (Plan.Duplicates=2) and (Plan.Conflicts=2), 'Merge preview counts incorrect');
     Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; сопоставленных копий 1.') and
       Plan.Report.Text.Contains('Источник Low: новых записей 1; уже подключено 0; сопоставленных копий 1.'),
-      'Initial source summary does not distinguish physical matches');
+      'Initial source summary does not distinguish physical matches: '+Plan.Report.Text);
     Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
-    ID := Target.GetCatalogBookID('high:42'); Require(ID=ExistingID, 'Merge changed existing BookID');
-    Require(Target.GetCatalogBookID('low:99')=ID, 'Physical duplicate was not combined');
-    Require((Target.GetCatalogBookID('low:42')>0) and (Target.GetCatalogBookID('low:42')<>ID), 'Cross-source numeric ID merged distinct books');
+    Require((Plan.ReadCacheBooks=0) or (Plan.ReadCacheHits>0),'Prepared merge snapshot did not read matching existing books');
+    Writeln('PROFILE merge read_snapshot_books=',Plan.ReadCacheBooks,' hits=',Plan.ReadCacheHits,' source_lookups=',Plan.SourceLookupCount);
+    ID := SourceBookMapping(Target,Sources[0],A); Require(ID=ExistingID, 'Merge changed existing BookID');
+    Require(SourceBookMapping(Target,Sources[1],B)=ID, 'Physical duplicate was not combined');
+    Require((SourceBookMapping(Target,Sources[1],C)>0) and (SourceBookMapping(Target,Sources[1],C)<>ID), 'Cross-source numeric ID merged distinct books');
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Existing, True);
     Require((Existing.Title='High title') and (Existing.Rate=5) and (Existing.Progress=10), 'Priority or target user values lost');
     Require(Existing.Review.Contains('User review') and Existing.Review.Contains('High review') and Existing.Review.Contains('Low review'), 'Merge lost reviews');
+    SystemDB.GetBookRecord(Existing.BookKey,Probe);
+    Require((Probe.Title=Existing.Title) and (Probe.Rate=5) and (Probe.Progress=10) and
+      Probe.Review.Contains('User review') and (Length(Probe.Authors)=Length(Existing.Authors)),
+      'Stored group card was skipped or lost user values during merge');
     Require(Length(Target.GetBookSeries(Existing.BookKey))=3, 'Merge lost author cycles');
     Require(Length(Target.GetBookPublisherSeries(Existing.BookKey))=3, 'Merge lost publisher series');
     Require(Length(Existing.Authors)=3, 'Merge lost authors');
@@ -1991,12 +2559,26 @@ begin
     finally DB.Free; end;
     High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
     Require((Book.Title='High title') and (Book.LibID='42') and (Book.Review='High review'), 'Merge modified source');
+    DB := TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+    try
+      DB.ExecSQL('CREATE TABLE MergeWriteProbe(Count INTEGER)');
+      DB.ExecSQL('INSERT INTO MergeWriteProbe VALUES (0)');
+      DB.ExecSQL('CREATE TRIGGER MergeWriteProbeTrigger AFTER UPDATE ON Books BEGIN UPDATE MergeWriteProbe SET Count = Count + 1; END');
+    finally DB.Free; end;
     Plan.Preview;
     Require(Plan.Report.Text.Contains('Источник Low: новых записей 0; уже подключено 2; сопоставленных копий 0.'),
       'Repeat preview describes existing source links as new physical matches');
     Plan.Apply(Settings.AppPath + 'merge-repeat');
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Book, True);
     Require((Book.Review=Existing.Review) and (Length(Target.GetBookSeries(Book.BookKey))=3), 'Repeat merge duplicated data');
+    DB := TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+    try
+      Require(DB.QuerySingleInt('SELECT Count FROM MergeWriteProbe')=0,
+        'Repeat merge rewrites identical book metadata');
+      DB.ExecSQL('DROP TRIGGER MergeWriteProbeTrigger');
+      DB.ExecSQL('DROP TABLE MergeWriteProbe');
+    finally DB.Free; end;
+    Writeln('PASS repeated merge does not rewrite unchanged book metadata');
     Plan.Preview;
     High.GetBookRecord(CreateBookKey(A,HighID), Book, True);
     Book.Title := 'Changed after preview'; High.UpdateBook(Book);
@@ -2046,7 +2628,67 @@ begin
     Writeln('PASS repeat merge remains idempotent and stale previews are rejected');
     Writeln('PASS safe merge previews duplicates, keeps IDs, all series, user values and groups, backs up WAL and rolls back cancellation');
   finally Plan.Free; end;
-  TestMergePolicies;
+  TestMergePolicies; TestMergeArchiveResolution; TestCatalogWriteNoOps;
+  TestSourceKeyCollisions;
+end;
+
+procedure TestCollectionSpaceEstimate;
+var Zip: TZipFile; Estimate: TCollectionSpaceEstimate; Bytes: TBytes; Hash, Text: string;
+  One, Large: TCollectionSpaceEstimate;
+begin
+  Bytes:=TEncoding.UTF8.GetBytes(StringOfChar('X',2*1024*1024));
+  Zip:=TZipFile.Create;
+  try Zip.Open('space-estimate.inpx',zmWrite); Zip.Add(Bytes,'books.inp'); Zip.Add(Bytes,'ignored.txt');
+  finally Zip.Free; end;
+  Hash:=THashSHA2.GetHashStringFromFile('space-estimate.inpx');
+  Estimate:=EstimateCatalogBytes('space-estimate.inpx');
+  Require(Estimate.Known and (Estimate.LowBytes=4*1024*1024) and (Estimate.HighBytes=12*1024*1024),
+    'Disk estimate uses compressed size or unrelated ZIP entries');
+  Require(THashSHA2.GetHashStringFromFile('space-estimate.inpx')=Hash,'Size estimation modified index');
+  Require(not EstimateCatalogBytes('missing.inpx').Known,'Missing index acquired a misleading estimate');
+  TFile.WriteAllText('malformed.inpx','not a ZIP');
+  Require(not EstimateCatalogBytes('malformed.inpx').Known,'Broken index acquired a misleading estimate');
+  One:=EstimateMetadataBytes(1000000,False,False); Large:=EstimateMetadataBytes(10000000,False,False);
+  Require(Large.HighBytes>One.HighBytes,'Larger import did not increase estimate');
+  Require(not EstimateMetadataBytes(High(Int64),False,False).Known,'Estimated size overflowed');
+  Text:=CollectionSpaceText(Estimate,20*1024*1024,1024);
+  Require(Text.Contains('Места может не хватить'),'Estimate hides insufficient disk space');
+  Text:=CollectionSpaceText(Estimate,20*1024*1024,100*1024*1024);
+  Require(not Text.Contains('Места может не хватить'),'Estimate invents a full-disk warning');
+  Require(CollectionDiskFree(Settings.AppPath)>0,'Disk-free lookup failed for private runtime');
+  Writeln('PASS approximate disk estimates use uncompressed catalog metadata, preserve inputs, handle unknown/corrupt/overflow sizes and show available space');
+end;
+
+procedure TestMergeArchiveResolution;
+var Source, Target: IBookCollection; SourceID, TargetID, BookID: Integer; Book: TBookRecord;
+  Sources: TMergeSources; Plan: TCollectionMergePlan; Root, Archive, Hash: string; Rejected: Boolean;
+begin
+  Root:=Settings.AppPath+'archive-cache-fixture\'; ForceDirectories(Root);
+  SourceID:=SystemDB.CreateCollection('Archive cache source',Root,'archive-cache-source.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  TargetID:=SystemDB.CreateCollection('Archive cache target',Settings.AppPath,'archive-cache-target.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Source:=SystemDB.GetCollection(SourceID); Target:=SystemDB.GetCollection(TargetID);
+  BookID:=AddBook(Source,'Archive cache','Author','ru','','prose_contemporary');
+  Source.GetBookRecord(CreateBookKey(BookID,SourceID),Book,True); Book.Folder:='library.zip'; Book.FileName:='1'; Book.FileExt:='.fb2'; Source.UpdateBook(Book);
+  Archive:=Root+'library.7z'; TFile.WriteAllText(Archive,'identity fixture'); Hash:=THashSHA2.GetHashStringFromFile(Archive);
+  Require(SameFileName(Book.GetBookContainer,Archive),'ZIP to 7z fallback missing');
+  Require((Book.GetBookFormat=Book.GetBookFormat(Book.GetBookContainer)) and
+    (Book.GetBookFileName=Book.GetBookFileName(Book.GetBookContainer)),'Resolved-container overload changes archive semantics');
+  SetLength(Sources,1); Sources[0].ID:='archive-cache'; Sources[0].Name:='Cache fixture'; Sources[0].Root:=Root;
+  Sources[0].Collection:=Source; Sources[0].DatabaseFile:=SystemDB.GetCollectionInfo(SourceID).DBFileName;
+  Plan:=TCollectionMergePlan.Create(Target,Sources,SystemDB,mpKeepAll);
+  try
+    Plan.Preview; Require(Plan.NewBooks=1,'Archive cache fixture did not preview');
+    // The ZIP has higher priority than fallback 7z, but appeared after the preview.
+    TFile.WriteAllText(Root+'library.zip','new identity fixture'); Rejected:=False;
+    try Plan.Apply(Settings.AppPath+'archive-cache-stale-backup');
+    except on E: Exception do Rejected:=E.Message.Contains('Расположение архивов изменилось'); end;
+    Require(Rejected and not DirectoryExists(Settings.AppPath+'archive-cache-stale-backup'),'Changed archive was applied using a stale preview');
+    Plan.Preview; Plan.Apply(Settings.AppPath+'archive-cache-fresh-backup');
+    Target.GetBookRecord(CreateBookKey(SourceBookMapping(Target,Sources[0],BookID),TargetID),Book,True);
+    Require(SameFileName(Book.GetBookContainer,Root+'library.zip'),'New preview reused stale 7z path');
+    Require(THashSHA2.GetHashStringFromFile(Archive)=Hash,'Merge rewrote original archive');
+  finally Plan.Free; end;
+  Writeln('PASS bounded merge archive paths refresh between operations and reject stale ZIP/7z previews before writes');
 end;
 
 procedure TestCatalogSources;
@@ -2069,6 +2711,7 @@ var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
     finally Zip.Free; end;
   end;
 begin
+  TestCollectionSpaceEstimate;
   ID := SystemDB.CreateCollection('Multiple sources', Settings.AppPath,
     'source-target.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.SystemFileName[sfGenresFB2]);
   Target := SystemDB.GetCollection(ID); SetLength(Sources,2);
@@ -3153,6 +3796,17 @@ var Tree: TBookTree; Filters: TBookColumnFilters; Node: PVirtualNode; Data: PBoo
     end;
     Require(Index=Length(Expected),'Sort lost rows');
   end;
+  procedure ClickSortColumn(Tag: Integer);
+  var Hit: TVTHeaderHitInfo; LeftEdge, RightEdge: TDimension; J: Integer;
+  begin
+    Hit:=Default(TVTHeaderHitInfo); Hit.Column:=NoColumn; Hit.Button:=mbLeft;
+    for J:=0 to Tree.Header.Columns.Count-1 do
+      if Tree.Header.Columns[J].Tag=Tag then Hit.Column:=J;
+    Require(Hit.Column>=0,'Sort column missing from header');
+    Tree.Header.Columns.GetColumnBounds(Hit.Column,LeftEdge,RightEdge);
+    Hit.X:=LeftEdge+10;
+    frmMain.tvBooksTreeHeaderClick(Tree.Header,Hit);
+  end;
   procedure RequireDescriptor;
   var Cover: TGraphic;
   begin
@@ -3231,6 +3885,28 @@ begin
   frmMain.ClearBookSorting(nil); ExpectOrder([0,1,2]);
   Require(Tree.Header.SortColumn=NoColumn,'Clear sort retained a header sort');
   Writeln('PASS optional publisher-series column, three sort priorities and explicit restoration of catalog order');
+  Node:=Tree.GetFirst; I:=0;
+  while Assigned(Node) do
+  begin
+    Data:=Tree.GetNodeData(Node); SetLength(Data.Authors,1); Data.Authors[0]:=Default(TAuthorData);
+    if I<2 then Data.Authors[0].LastName:='Автор А' else Data.Authors[0].LastName:='Автор Б';
+    Inc(I); Node:=Tree.GetNext(Node);
+  end;
+  Item := nil; for I:=0 to frmMain.pmHeaders.Items.Count-1 do
+    if frmMain.pmHeaders.Items[I].Tag=COL_AUTHOR then Item := frmMain.pmHeaders.Items[I];
+  Require(Assigned(Item),'Author column menu absent');
+  if not Item.Checked then Item.Click;
+  ClickSortColumn(COL_TITLE); ExpectOrder([1,2,0]);
+  ClickSortColumn(COL_AUTHOR); ExpectOrder([1,0,2]);
+  Require((Length(Tree.SortKeys)=2) and (Tree.SortKeys[0].Tag=COL_AUTHOR) and (Tree.SortKeys[1].Tag=COL_TITLE),
+    'A normal author click discarded the preceding title priority');
+  ClickSortColumn(COL_AUTHOR); ExpectOrder([2,1,0]);
+  ClickSortColumn(COL_TITLE); ExpectOrder([1,2,0]);
+  ClickSortColumn(COL_TITLE); ExpectOrder([0,2,1]);
+  ClickSortColumn(COL_AUTHOR); ExpectOrder([2,0,1]);
+  frmMain.ClearBookSorting(nil); ExpectOrder([0,1,2]);
+  Writeln('PASS ordinary header clicks retain author/title priorities in both directions and reset restores original order');
+
 
   Bitmap:=TBitmap.Create; Png:=TPngImage.Create; ImageBytes:=TBytesStream.Create;
   try
@@ -3870,8 +4546,14 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
+      if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
+      if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
+      if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
+      if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; Halt(0); end;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
       if ParamStr(1) = 'merge-scale' then begin BenchmarkMergeScale; Halt(0); end;
+      if ParamStr(1) = 'existing-merge' then begin BenchmarkExistingMerge; Halt(0); end;
       if (ParamStr(1) = 'first-run') or (ParamStr(1) = 'first-run-cancel') then
       begin
         RunFirstRunRegression;
