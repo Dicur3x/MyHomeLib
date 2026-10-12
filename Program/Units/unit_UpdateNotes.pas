@@ -47,6 +47,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     procedure Load(const Notes: string);
+    procedure ApplyTheme;
     function SectionCount: Integer;
     function SectionHeader(Index: Integer): TLabel;
     function SectionNotes(Index: Integer): TRichEdit;
@@ -64,7 +65,7 @@ procedure LoadUpdateNotes(Control: TRichEdit; const Notes: string; ZoomPercent: 
 implementation
 
 uses System.SysUtils, System.Math, System.RegularExpressions, System.NetEncoding,
-  Vcl.Graphics, Winapi.Windows, Winapi.RichEdit, Winapi.CommCtrl;
+  Vcl.Graphics, Winapi.Windows, Winapi.RichEdit, Winapi.CommCtrl, unit_MHLTheme;
 
 function SQLiteNotesToMarkdown(const HTML: string): string;
 var Token: TMatch; Tag, Line, Text: string; Lines: TStringList;
@@ -177,7 +178,7 @@ begin
     Bitmap.Canvas.Font.Size := 8;
     Count := Max(8, Min(150, (Control.ClientWidth - GetSystemMetrics(SM_CXVSCROLL) - 12) div
       Max(1, Bitmap.Canvas.TextWidth('─'))));
-    Result := '\pard\f1\fs16\b0\cf1\li0\fi0\sb60\sa140 ' +
+    Result := '\pard\f1\fs16\b0\cf2\li0\fi0\sb60\sa140 ' +
       RTFText(StringOfChar('─', Count)) + '\par ';
   finally Bitmap.Free; end;
 end;
@@ -185,14 +186,24 @@ end;
 procedure LoadUpdateNotes(Control: TRichEdit; const Notes: string; ZoomPercent: Integer);
 var Lines: TStringList; Stream: TStringStream; Builder: TStringBuilder;
   Line, Text, Divider: string; Heading, ListItem: TMatch; Level, Indent: Integer;
-  Version, SeenVersion: Boolean;
+  Version, SeenVersion: Boolean; BodyColor, DividerColor: TColor;
+  function RTFColor(Value: TColor): string;
+  var RGB: Cardinal;
+  begin
+    RGB := ColorToRGB(Value);
+    Result := '\red'+IntToStr(GetRValue(RGB))+'\green'+IntToStr(GetGValue(RGB))+
+      '\blue'+IntToStr(GetBValue(RGB))+';';
+  end;
 begin
   Lines := TStringList.Create; Builder := TStringBuilder.Create;
   try
     Text := TRegEx.Replace(Notes, '\[([^\]]+)\]\((https://[^)]+)\)', '$1 ($2)');
     if Text.Trim = '' then Text := 'Автор не опубликовал описание изменений этого выпуска.';
     Lines.Text := AdjustLineBreaks(Text); SeenVersion := False; Divider := DividerRTF(Control);
-    Builder.Append('{\rtf1\ansi\deff0\uc1{\fonttbl{\f0 Segoe UI;}{\f1 Consolas;}}{\colortbl;\red140\green140\blue140;}');
+    BodyColor := MHLThemeText;
+    if MHLThemeDark then DividerColor := RGB(125,130,140) else DividerColor := RGB(140,140,140);
+    Builder.Append('{\rtf1\ansi\deff0\uc1{\fonttbl{\f0 Segoe UI;}{\f1 Consolas;}}{\colortbl;')
+      .Append(RTFColor(BodyColor)).Append(RTFColor(DividerColor)).Append('}');
     for Line in Lines do
     begin
       Text := Line.Trim;
@@ -203,7 +214,7 @@ begin
       if Version and SeenVersion then
         Builder.Append(Divider);
       if Version then SeenVersion := True;
-      Builder.Append('\pard\f0\fs').Append(MulDiv(20, ZoomPercent, 100)).Append('\b0\cf0\li0\fi0\sb0\sa80 ');
+      Builder.Append('\pard\f0\fs').Append(MulDiv(20, ZoomPercent, 100)).Append('\b0\cf1\li0\fi0\sb0\sa80 ');
       ListItem := TRegEx.Match(Line, '^(\s*)([-*+•]|[0-9]+[.)])\s+(.+)$');
       if ListItem.Success and not Heading.Success then
       begin
@@ -243,6 +254,37 @@ begin
   TUpdateNotesEdit(FPrimaryNotes).FView := Self;
   FPrimaryNotes.Parent := Self;
   FPrimaryNotes.Visible := False;
+  ApplyTheme;
+end;
+
+procedure TUpdateNotesView.ApplyTheme;
+var I: Integer; Background: TColor; Format: TCharFormat2;
+  procedure ThemeBody(Body: TRichEdit);
+  begin
+    Body.StyleElements := Body.StyleElements - [seClient,seFont];
+    Body.Color := Background;
+    if not Body.HandleAllocated then Exit;
+    FillChar(Format,SizeOf(Format),0);
+    Format.cbSize := SizeOf(Format); Format.dwMask := CFM_COLOR;
+    Format.crTextColor := ColorToRGB(MHLThemeText);
+    SendMessage(Body.Handle,EM_SETCHARFORMAT,SCF_ALL,LPARAM(@Format));
+    SendMessage(Body.Handle,EM_SETBKGNDCOLOR,0,ColorToRGB(Background));
+    Body.Invalidate;
+  end;
+begin
+  if MHLThemeDark then Background := RGB(30,31,34) else Background := clWindow;
+  Color := Background;
+  // RichEdit font changes can allocate its native window. Wait until this
+  // dynamically created view has been attached to its parent form.
+  if Parent = nil then Exit;
+  if Assigned(FPrimaryNotes) then ThemeBody(FPrimaryNotes);
+  for I := 0 to High(FSections) do
+  begin
+    FSections[I].Panel.Color := MHLThemeBackground;
+    FSections[I].Header.Font.Color := MHLThemeText;
+    if FSections[I].Body <> FPrimaryNotes then ThemeBody(FSections[I].Body);
+  end;
+  Invalidate;
 end;
 
 type
@@ -501,6 +543,7 @@ begin
       LoadUpdateNotes(FSections[I].Body, Bodies[I], FZoomPercent);
     end;
     FLastNotes := Notes;
+    ApplyTheme;
   finally
     EndDisplayUpdate;
     Lines.Free; Titles.Free; Bodies.Free;
