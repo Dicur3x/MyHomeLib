@@ -2078,7 +2078,7 @@ object frmMain: TfrmMain
             Height = 19
             Alignment = taRightJustify
             Anchors = []
-            Caption = '()'
+            Caption = '(0)'
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clNavy
             Font.Height = -16

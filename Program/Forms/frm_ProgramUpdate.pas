@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls,
-  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes;
+  Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme;
 
 type
   TfrmProgramUpdate = class(TForm)
@@ -35,6 +35,7 @@ type
     FJob, FCache: string;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
     FRestart, FCheck: TNotifyEvent;
+    procedure AppThemeChanged(var Message: TMessage); message WM_MHL_APP_THEME;
     procedure PrimaryClick(Sender: TObject);
     procedure LaterClick(Sender: TObject);
     procedure PageClick(Sender: TObject);
@@ -156,6 +157,7 @@ begin
   except end;
   LoadViewPreferences;
   ScaleForPPI(Screen.PixelsPerInch);
+  ApplyMHLControlTheme(Self); FNotes.ApplyTheme;
   LayoutWindow;
 end;
 
@@ -170,6 +172,11 @@ begin
   if not FReady then DiscardJob;
   ClearQueueJobs;
   inherited;
+end;
+
+procedure TfrmProgramUpdate.AppThemeChanged(var Message: TMessage);
+begin
+  if Assigned(FNotes) then FNotes.ApplyTheme;
 end;
 
 procedure TfrmProgramUpdate.BeginUIUpdate;

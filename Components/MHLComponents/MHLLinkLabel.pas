@@ -30,6 +30,7 @@ type
   TMHLLinkLabel = class(TCustomLinkLabel)
   private
     procedure CNCtlColorStatic(var Message: TWMCtlColorStatic); message CN_CTLCOLORSTATIC;
+    procedure CNNotify(var Message: TWMNotify); message CN_NOTIFY;
     procedure SetTransparent(const Value: Boolean);
     function GetTransparent: Boolean;
 
@@ -86,7 +87,9 @@ implementation
 
 uses
   CommCtrl,
-  Themes;
+  Themes,
+  Graphics,
+  unit_MHLTheme;
 
 function ParseLinks(const Caption: string): string;
 type
@@ -219,6 +222,25 @@ begin
   end
   else
     inherited;
+end;
+
+procedure TMHLLinkLabel.CNNotify(var Message: TWMNotify);
+var Draw: PNMCustomDraw;
+begin
+  inherited;
+  if not MHLThemeDark or (Message.NMHdr.code <> NM_CUSTOMDRAW) then Exit;
+  Draw := PNMCustomDraw(Message.NMHdr);
+  case Draw.dwDrawStage of
+    CDDS_PREPAINT: Message.Result := CDRF_NOTIFYITEMDRAW;
+    CDDS_ITEMPREPAINT:
+      begin
+        // SysLink paints links with the system colour, ignoring Font.Color.
+        if Draw.dwItemSpec = NativeUInt(-1) then
+          SetTextColor(Draw.hdc, ColorToRGB(MHLThemeText))
+        else SetTextColor(Draw.hdc, ColorToRGB(MHLThemeLink));
+        Message.Result := CDRF_NEWFONT;
+      end;
+  end;
 end;
 
 procedure TMHLLinkLabel.SetTransparent(const Value: Boolean);

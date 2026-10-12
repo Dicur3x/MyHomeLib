@@ -2897,7 +2897,7 @@ begin
         if Full then
         begin
           lblAuthor.Caption := '...';
-          lblBooksTotalA.Caption := '()';
+          lblBooksTotalA.Caption := '(0)';
         end;
       end;
 
@@ -2907,7 +2907,7 @@ begin
         if Full then
         begin
           lblSeries.Caption := '...';
-          lblBooksTotalS.Caption := '()';
+          lblBooksTotalS.Caption := '(0)';
         end;
       end;
 
@@ -2917,7 +2917,7 @@ begin
         if Full then
         begin
           lblGenreTitle.Caption := '...';
-          lblBooksTotalG.Caption := '()';
+          lblBooksTotalG.Caption := '(0)';
         end;
       end;
 
@@ -2927,7 +2927,7 @@ begin
         if Full then
         begin
           lblGroups.Caption := '...';
-          lblBooksTotalF.Caption := '()';
+          lblBooksTotalF.Caption := '(0)';
         end;
       end;
 
@@ -2935,7 +2935,7 @@ begin
       begin
         ipnlSearch.Clear;
         if Full then
-          lblTotalBooksFL.Caption := '()';
+          lblTotalBooksFL.Caption := '(0)';
       end;
 
     PAGE_PUBLISHER_SERIES:
@@ -3856,7 +3856,7 @@ procedure TfrmMain.tvBooksTreeHeaderClick(Sender: TVTHeader; HitInfo: TVTHeaderH
 var
   Tree: TBookTree;
   LeftEdge, RightEdge: TDimension;
-  ColumnTag, I, KeyIndex: Integer; Keys: TArray<TBookSortKey>; Direction: VirtualTrees.Types.TSortDirection;
+  ColumnTag: Integer;
 begin
   Tree := Sender.Treeview as TBookTree;
   if HitInfo.Column < 0 then Exit;
@@ -3875,25 +3875,7 @@ begin
   if HitInfo.Button = mbLeft then
   begin
     if Settings.TreeModes[Tree.Tag] = tmTree then Exit;
-    Keys := Tree.SortKeys; KeyIndex := -1;
-    for I := 0 to High(Keys) do if Keys[I].Tag = ColumnTag then KeyIndex := I;
-    Direction := sdAscending;
-    if KeyIndex >= 0 then
-      if Keys[KeyIndex].Direction = sdAscending then Direction := sdDescending;
-    if (GetKeyState(VK_SHIFT) and $8000) = 0 then
-    begin
-      SetLength(Keys,1); Keys[0].Tag := ColumnTag; Keys[0].Direction := Direction;
-    end
-    else
-    begin
-      if KeyIndex < 0 then
-      begin
-        if Length(Keys) < 3 then begin KeyIndex := Length(Keys); SetLength(Keys,KeyIndex+1); end
-        else KeyIndex := 2;
-      end;
-      Keys[KeyIndex].Tag := ColumnTag; Keys[KeyIndex].Direction := Direction;
-    end;
-    Tree.SortKeys := Keys;
+    Tree.UpdateSortKey(ColumnTag, (GetKeyState(VK_SHIFT) and $8000) <> 0);
     SortLoadedBooks(Tree);
   end;
 end;
@@ -3910,7 +3892,7 @@ var
   procedure ClearScreen;
   begin
     lblAuthor.Caption := '...';
-    lblBooksTotalA.Caption := '()';
+    lblBooksTotalA.Caption := '(0)';
     ipnlAuthors.Clear;
     tvBooksA.Clear;
   end;
@@ -3983,7 +3965,7 @@ var
   procedure ClearScreen;
   begin
     lblSeries.Caption := '...';
-    lblBooksTotalS.Caption := '()';
+    lblBooksTotalS.Caption := '(0)';
     ipnlSeries.Clear;
     tvBooksS.Clear;
   end;
@@ -4068,7 +4050,7 @@ begin
       FRootGenreBooksRequested := False;
       btnShowGenreBooks.Visible := False;
       lblGenreTitle.Caption := '...';
-      lblBooksTotalG.Caption := '()';
+      lblBooksTotalG.Caption := '(0)';
       ipnlGenres.Clear;
       tvBooksG.Clear;
       Exit;
@@ -4151,7 +4133,7 @@ begin
     if not Assigned(Data) then
     begin
       lblGroups.Caption := '...';
-      lblBooksTotalF.Caption := '()';
+      lblBooksTotalF.Caption := '(0)';
       ipnlFavorites.Clear;
       tvBooksF.Clear;
       Exit;
@@ -4956,7 +4938,7 @@ begin
             Exit;
           end;
           OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderCopyName(Snapshot),
-            Settings.DataDir + 'reader.ini', Settings.AppPath + 'tools\pdfium\pdfium.dll',
+            ResolveReaderSettingsFile(Settings.DataDir), Settings.AppPath + 'tools\pdfium\pdfium.dll',
             procedure(Progress: Integer)
             begin
               ReaderCollection.SetProgress(ReaderKey, Progress);
@@ -8851,7 +8833,7 @@ begin
   if not Assigned(FCollection) or (FLastGenreCode = '') or
     (FLastGenreIsTopLevelContainer and not FRootGenreBooksRequested) then
   begin
-    lblBooksTotalG.Caption := '()';
+    lblBooksTotalG.Caption := '(0)';
     ipnlGenres.Clear;
     tvBooksG.Clear;
     Exit;

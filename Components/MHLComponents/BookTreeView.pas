@@ -102,6 +102,7 @@ type
     procedure DoColumnResize(Column: TColumnIndex); override;
   public
     constructor Create(AOwner: TComponent); override;
+    procedure UpdateSortKey(Tag: Integer; Append: Boolean = False);
     property SortKeys: TArray<TBookSortKey> read FSortKeys write FSortKeys;
     property Canvas;
     property DataVersion: UInt64 read FDataVersion;
@@ -206,7 +207,7 @@ type
 
 implementation
 
-uses unit_MHLTheme;
+uses unit_MHLTheme, Vcl.Themes, VirtualTrees.StyleHooks;
 
 
 constructor TBookTreeOptions.Create(AOwner: TCustomControl);
@@ -416,6 +417,39 @@ begin Inc(FDataVersion); inherited; end;
 procedure TBookTree.DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates);
 begin Inc(FDataVersion); inherited; end;
 
+procedure TBookTree.UpdateSortKey(Tag: Integer; Append: Boolean);
+var Keys: TArray<TBookSortKey>; Chosen: TBookSortKey; I, Index, Count: Integer;
+begin
+  Keys := Copy(FSortKeys); Index := -1;
+  for I := 0 to High(Keys) do if Keys[I].Tag = Tag then Index := I;
+  Chosen.Tag := Tag; Chosen.Direction := sdAscending;
+  if Index >= 0 then
+  begin
+    Chosen.Direction := Keys[Index].Direction;
+    if Append or (Index = 0) then
+      if Chosen.Direction = sdAscending then Chosen.Direction := sdDescending
+      else Chosen.Direction := sdAscending;
+  end;
+  if Append then
+  begin
+    if Index < 0 then
+    begin
+      Index := Min(Length(Keys),2); SetLength(Keys,Index+1);
+    end;
+    Keys[Index] := Chosen;
+  end
+  else
+  begin
+    SetLength(FSortKeys,Min(Length(Keys)+Ord(Index<0),3));
+    FSortKeys[0] := Chosen; Count := 1;
+    for I := 0 to High(Keys) do
+      if (I <> Index) and (Count < Length(FSortKeys)) then
+      begin FSortKeys[Count] := Keys[I]; Inc(Count); end;
+    Exit;
+  end;
+  FSortKeys := Keys;
+end;
+
 procedure TBookTree.DoColumnResize(Column: TColumnIndex);
 begin
   // Library book rows have a fixed, single-line height. The base control scans
@@ -442,5 +476,14 @@ function TBookTree.GetOptionsClass: TTreeOptionsClass;
 begin
   Result := TBookTreeOptions;
 end;
+
+initialization
+  // Style hooks are registered for an exact control class. TBookTree derives
+  // from TCustomVirtualStringTree, so the stock TVirtualStringTree hook does
+  // not cover its non-client horizontal and vertical scrollbars.
+  TCustomStyleEngine.RegisterStyleHook(TBookTree, TVclStyleScrollBarsHook);
+
+finalization
+  TCustomStyleEngine.UnRegisterStyleHook(TBookTree, TVclStyleScrollBarsHook);
 
 end.

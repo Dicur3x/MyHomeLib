@@ -18,7 +18,7 @@ procedure SetMHLTheme(Dark: Boolean);
 implementation
 
 uses System.SysUtils, System.StrUtils, System.Win.Registry, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Themes, Vcl.Styles,
-  VirtualTrees;
+  VirtualTrees, Vcl.ComCtrls, Winapi.RichEdit;
 
 type TControlAccess = class(TControl);
   TTreeAccess = class(TCustomVirtualStringTree);
@@ -63,15 +63,33 @@ function MHLThemeLink: TColor;
 begin if DarkActive then Result:=RGB(114,167,232) else Result:=clHotLight; end;
 
 procedure ApplyMHLControlTheme(Control: TControl);
-var I: Integer; Tree: TTreeAccess;
+var I: Integer; Tree: TTreeAccess; Format: TCharFormat2; Rich: TCustomRichEdit;
 begin
   if Control=nil then Exit;
+  // The reader owns its hidden formatting buffer and reapplies semantic colors.
+  // Updating it after the reader's theme message would erase those colors.
+  if (Control is TForm) and SameText(Control.Name,'ReaderFormattingHost') then Exit;
   // These panels display user-selected colours and are saved as preferences.
   if (Control is TPanel) and MatchText(Control.Name, [
     'pnCA','pnCS','pnASG','pnCT','pnBS','pnDefaultFontColor',
     'pnDownloadedFontColor','pnDeletedFontColor']) then Exit;
-  TControlAccess(Control).Font.Color:=MHLThemeText;
-  TControlAccess(Control).Font.Quality:=fqClearTypeNatural;
+  if Control is TCustomRichEdit then
+  begin
+    // Changing RichEdit.Font reapplies the whole default font to its content,
+    // destroying bold/italic runs, heading sizes and embedded font choices.
+    Rich := TCustomRichEdit(Control);
+    if Rich.HandleAllocated then
+    begin
+      FillChar(Format,SizeOf(Format),0); Format.cbSize := SizeOf(Format);
+      Format.dwMask := CFM_COLOR; Format.crTextColor := ColorToRGB(MHLThemeText);
+      SendMessage(Rich.Handle,EM_SETCHARFORMAT,SCF_ALL,LPARAM(@Format));
+    end;
+  end
+  else
+  begin
+    TControlAccess(Control).Font.Color:=MHLThemeText;
+    TControlAccess(Control).Font.Quality:=fqClearTypeNatural;
+  end;
   if (Control is TCustomEdit) or (Control is TCustomListBox) or (Control is TCustomComboBox) then
   begin
     if DarkActive then TControlAccess(Control).Color:=RGB(30,31,34)

@@ -616,13 +616,13 @@ begin
         if ColumnTags[I] = OnlyTag then Dialog.Caption := 'Фильтр: ' + ColumnNames[I];
     Dialog.Position := poMainFormCenter;
     Dialog.ClientWidth := 650; Dialog.ClientHeight := 560;
+    Dialog.BorderStyle := bsSizeable;
     Dialog.Constraints.MinWidth := 540; Dialog.Constraints.MinHeight := 220;
     FieldLeft := 175;
     if OnlyTag >= 0 then
     begin
-      Dialog.BorderStyle := bsDialog;
-      Dialog.Constraints.MinWidth := 0; Dialog.Constraints.MinHeight := 0;
-      Dialog.ClientWidth := 360; FieldLeft := 12;
+      Dialog.Constraints.MinWidth := 396; Dialog.Constraints.MinHeight := 180;
+      Dialog.ClientWidth := 420; FieldLeft := 12;
     end;
     Dialog.Font.Name := 'Segoe UI'; Dialog.Font.Size := 9; Dialog.DoubleBuffered := True;
     Description := TLabel.Create(Dialog); Description.Parent := Dialog; Description.Align := alTop;
@@ -667,8 +667,11 @@ begin
         RatingList.Items.Add('Без оценки');
         for RatingIndex := 1 to 5 do RatingList.Items.Add(StringOfChar('★',RatingIndex));
         for RatingIndex := 0 to 5 do
-          RatingList.Checked[RatingIndex] := (Current = '') or (Pos(';'+IntToStr(RatingIndex)+';',Current+';') > 0);
-        Ratings.Add(Tag,RatingList); Inc(Y,108);
+          RatingList.Checked[RatingIndex] := (Current <> '') and (Pos(';'+IntToStr(RatingIndex)+';',Current+';') > 0);
+        Ratings.Add(Tag,RatingList);
+        LabelControl:=TLabel.Create(Dialog); LabelControl.Parent:=Scroll;
+        LabelControl.SetBounds(FieldLeft,Y+136,240,18); LabelControl.Caption:='Без выбора — все оценки';
+        Inc(Y,128);
       end
       else if Tag in [COL_SIZE, COL_NO] then
       begin
@@ -757,7 +760,7 @@ begin
       begin
         RatingList := Ratings[Tag]; Current := 'set'; RatingIndex := 0;
         for I := 0 to 5 do if RatingList.Checked[I] then begin Current := Current+';'+IntToStr(I); Inc(RatingIndex); end;
-        if RatingIndex = 6 then Current := '';
+        if (RatingIndex = 0) or (RatingIndex = 6) then Current := '';
         Filters.SetValue(Tag,Current);
       end;
       for Tag in CaseChecks.Keys do Filters.SetCaseSensitive(Tag,CaseChecks[Tag].Checked);
@@ -787,11 +790,12 @@ type
     FNames, FFolded: TStringList;
     FFound: TList<Integer>;
     FChecked: TDictionary<string,Byte>;
-    FAll, FBuilding, FLastSensitive: Boolean;
+    FBuilding, FLastSensitive: Boolean;
     FSearch: TEdit;
     FList: TVirtualStringTree;
     FCase: TCheckBox;
     FCount: TLabel;
+    procedure UpdateCount;
     function Key(Index: Integer): string;
     function Chosen(Index: Integer): Boolean;
     procedure SearchChanged(Sender: TObject);
@@ -816,11 +820,10 @@ end;
 function TListFilterEditor.Chosen(Index: Integer): Boolean;
 begin
   Result := FChecked.ContainsKey(Key(Index));
-  if FAll then Result := not Result;
 end;
 
 constructor TListFilterEditor.CreateList(Tree: TBookTree; Filters: TBookColumnFilters; Tag: Integer);
-var SearchPanel, Footer: TPanel; Button: TButton; I: Integer; Selected: TStringList;
+var SearchPanel, Footer: TPanel; Button: TButton; Legend: TLabel; I: Integer; Selected: TStringList;
   P: TPoint; Area: TRect;
 begin
   inherited CreateNew(nil);
@@ -829,12 +832,14 @@ begin
   Caption := 'Фильтр';
   for I := Low(ColumnTags) to High(ColumnTags) do
     if ColumnTags[I] = Tag then Caption := 'Фильтр: '+ColumnNames[I];
-  BorderStyle := bsDialog; Position := poDesigned;
-  ClientWidth := 360; ClientHeight := 370;
+  BorderStyle := bsSizeable; Position := poDesigned;
+  ClientWidth := 420; ClientHeight := 440;
+  Constraints.MinWidth := 396; Constraints.MinHeight := 320;
   Font.Name := 'Segoe UI'; Font.Size := 9; DoubleBuffered := True;
   SearchPanel := TPanel.Create(Self); SearchPanel.Parent := Self; SearchPanel.Align := alTop;
-  SearchPanel.Height := 102; SearchPanel.BevelOuter := bvNone;
-  FSearch := TEdit.Create(Self); FSearch.Parent := SearchPanel; FSearch.SetBounds(12,10,336,25);
+  SearchPanel.Height := 130; SearchPanel.BevelOuter := bvNone;
+  FSearch := TEdit.Create(Self); FSearch.Parent := SearchPanel; FSearch.SetBounds(12,10,ClientWidth-24,25);
+  FSearch.Anchors := [akLeft,akTop,akRight];
   FSearch.TextHint := 'Поиск по вариантам…'; FSearch.OnChange := SearchChanged;
   FCase := TCheckBox.Create(Self); FCase.Parent := SearchPanel; FCase.SetBounds(12,41,220,22);
   FCase.Caption := 'Учитывать регистр'; FCase.Checked := Filters.CaseSensitive(Tag);
@@ -843,14 +848,18 @@ begin
   Button.Caption := 'Выбрать найденные'; Button.Tag := 1; Button.OnClick := SelectFound;
   Button := TButton.Create(Self); Button.Parent := SearchPanel; Button.SetBounds(185,69,163,25);
   Button.Caption := 'Снять всё'; Button.OnClick := SelectFound;
+  Legend := TLabel.Create(Self); Legend.Parent := SearchPanel; Legend.AutoSize := False;
+  Legend.SetBounds(12,102,ClientWidth-24,22); Legend.Anchors := [akLeft,akTop,akRight];
+  Legend.Caption := 'Без выбора — все варианты. Список по загруженным книгам.';
   Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
   Footer.Height := 63; Footer.BevelOuter := bvNone;
-  FCount := TLabel.Create(Self); FCount.Parent := Footer; FCount.SetBounds(12,2,336,18);
+  FCount := TLabel.Create(Self); FCount.Parent := Footer; FCount.AutoSize := False;
+  FCount.SetBounds(12,2,ClientWidth-24,18); FCount.Anchors := [akLeft,akTop,akRight];
   Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(12,26,100,28);
   Button.Caption := 'Сбросить'; Button.ModalResult := mrYes;
-  Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(124,26,112,28);
+  Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(ClientWidth-236,26,112,28); Button.Anchors := [akRight,akTop];
   Button.Caption := 'Применить'; Button.ModalResult := mrOk; Button.Default := True;
-  Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(248,26,100,28);
+  Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(ClientWidth-112,26,100,28); Button.Anchors := [akRight,akTop];
   Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Cancel := True;
   FList := TVirtualStringTree.Create(Self); FList.Parent := Self; FList.Align := alClient;
   FList.NodeDataSize := 0; FList.Header.Options := [];
@@ -861,7 +870,6 @@ begin
   Filters.GetOptions(Tag,FNames);
   Selected := TStringList.Create;
   try
-    FAll := Filters.Value(Tag) = '';
     Filters.GetSelectedValues(Tag,Selected);
     // Keep earlier choices even if another column temporarily hides those values.
     for I := 0 to Selected.Count-1 do
@@ -897,7 +905,7 @@ begin
     Selected := TList<Integer>.Create;
     try
       for I := 0 to FNames.Count-1 do if Chosen(I) then Selected.Add(I);
-      FAll := False; FChecked.Clear; FLastSensitive := FCase.Checked;
+      FChecked.Clear; FLastSensitive := FCase.Checked;
       for I in Selected do FChecked.TryAdd(Key(I),0);
     finally Selected.Free; end;
   end;
@@ -913,8 +921,19 @@ begin
       if ((Pattern = '') or (Pos(Pattern,Text) > 0)) and Seen.TryAdd(Key(I),0) then FFound.Add(I);
     end;
     FList.RootNodeCount := FFound.Count;
-    FCount.Caption := 'Найдено: '+IntToStr(FFound.Count)+' из '+IntToStr(FNames.Count);
+    UpdateCount;
   finally FList.EndUpdate; Seen.Free; FBuilding := False; end;
+end;
+
+procedure TListFilterEditor.UpdateCount;
+var Seen: TDictionary<string,Byte>; I: Integer;
+begin
+  Seen := TDictionary<string,Byte>.Create;
+  try
+    for I := 0 to FNames.Count-1 do Seen.TryAdd(Key(I),0);
+    FCount.Caption := 'Вариантов: '+IntToStr(FFound.Count)+' из '+IntToStr(Seen.Count)+
+      ' · выбрано: '+IntToStr(FChecked.Count);
+  finally Seen.Free; end;
 end;
 
 procedure TListFilterEditor.InitItem(Sender: TBaseVirtualTree; ParentNode, Node: PVirtualNode;
@@ -934,22 +953,16 @@ var Checked: Boolean; K: string;
 begin
   if FBuilding then Exit;
   Checked := Node.CheckState in [csCheckedNormal,csCheckedPressed];
-  if FAll then Checked := not Checked;
   K := Key(FFound[Integer(Node.Index)]);
   if Checked then FChecked.TryAdd(K,0) else FChecked.Remove(K);
+  UpdateCount;
 end;
 
 procedure TListFilterEditor.SelectFound(Sender: TObject);
-var I: Integer; Checked: Boolean;
+var I: Integer;
 begin
-  if TButton(Sender).Tag = 0 then
-  begin FAll := False; FChecked.Clear; end
-  else
-  begin
-    Checked := not FAll;
-    for I in FFound do
-      if Checked then FChecked.TryAdd(Key(I),0) else FChecked.Remove(Key(I));
-  end;
+  if TButton(Sender).Tag = 0 then FChecked.Clear
+  else for I in FFound do FChecked.TryAdd(Key(I),0);
   SearchChanged(nil);
 end;
 
@@ -959,7 +972,7 @@ begin
   Values := TJSONArray.Create; Count := 0;
   try
     for I := 0 to FNames.Count-1 do if Chosen(I) then begin Values.Add(FNames[I]); Inc(Count); end;
-    if Count = FNames.Count then Result := '' else Result := 'values:'+Values.ToJSON;
+    if Count = 0 then Result := '' else Result := 'values:'+Values.ToJSON;
   finally Values.Free; end;
 end;
 
@@ -1006,19 +1019,21 @@ begin
   Dialog := TAllFiltersEditor.CreateNew(nil); Result := False;
   try
     Dialog.FTree := Tree; Dialog.Caption := 'Фильтры столбцов'; Dialog.Position := poMainFormCenter;
-    Dialog.ClientWidth := 360; Dialog.ClientHeight := 450;
+    Dialog.BorderStyle := bsSizeable;
+    Dialog.ClientWidth := 420; Dialog.ClientHeight := 450;
+    Dialog.Constraints.MinWidth := 396; Dialog.Constraints.MinHeight := 260;
     Dialog.Font.Name := 'Segoe UI'; Dialog.Font.Size := 9;
     Footer := TPanel.Create(Dialog); Footer.Parent := Dialog; Footer.Align := alBottom;
     Footer.Height := 44; Footer.BevelOuter := bvNone;
-    Button := TButton.Create(Dialog); Button.Parent := Footer; Button.SetBounds(124,6,112,28);
+    Button := TButton.Create(Dialog); Button.Parent := Footer; Button.SetBounds(Dialog.ClientWidth-236,6,112,28); Button.Anchors := [akRight,akTop];
     Button.Caption := 'Применить'; Button.ModalResult := mrOk; Button.Default := True;
-    Button := TButton.Create(Dialog); Button.Parent := Footer; Button.SetBounds(248,6,100,28);
+    Button := TButton.Create(Dialog); Button.Parent := Footer; Button.SetBounds(Dialog.ClientWidth-112,6,100,28); Button.Anchors := [akRight,akTop];
     Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Cancel := True;
     Scroll := TScrollBox.Create(Dialog); Scroll.Parent := Dialog; Scroll.Align := alClient; Y := 10;
     for I := Low(ColumnTags) to High(ColumnTags) do
     begin
       if ColumnTags[I] in [COL_LIBRATE,COL_LIBID] then Continue;
-      Button := TButton.Create(Dialog); Button.Parent := Scroll; Button.SetBounds(12,Y,320,30);
+      Button := TButton.Create(Dialog); Button.Parent := Scroll; Button.SetBounds(12,Y,Scroll.ClientWidth-24,30); Button.Anchors := [akLeft,akTop,akRight];
       Button.Tag := ColumnTags[I]; Button.Caption := ColumnNames[I];
       if Saved[I] <> '' then Button.Caption := Button.Caption+' • фильтр задан';
       Button.OnClick := Dialog.EditColumn; Inc(Y,36);

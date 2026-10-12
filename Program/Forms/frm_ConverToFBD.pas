@@ -189,7 +189,8 @@ begin
   if FBusy then
     Exit;
 
-  SaveFBD;
+  if not SaveFBD then
+    Exit;
 
   Assert(Assigned(FOnSelectBook));
   FOnSelectBook(MoveForward);
@@ -234,7 +235,10 @@ begin
   FEditorMode := (FBookRecord.GetBookFormat = bfFbd);
   Caption := IfThen(FEditorMode, rstrEditFBD, rstrConvert2FBD);
 
-  lblAuthor.Caption := FBookRecord.Authors[0].GetFullName;
+  if FBookRecord.AuthorCount>0 then
+    lblAuthor.Caption := FBookRecord.Authors[0].GetFullName
+  else
+    lblAuthor.Caption := 'Автор не указан';
   lblTitle.Caption := FBookRecord.Title;
 
   // Never bfFb2Zip, so it's always a folder:
@@ -323,6 +327,7 @@ var
   Lock: TFileMutex;
 begin
   Result := False;
+  FLastSaveLocked := False;
 
   EnableButtons(False);
   FBusy := True;
@@ -337,6 +342,8 @@ begin
       if not Lock.TryAcquire then
       begin
         FLastSaveLocked := True;
+        if FBD.ReportErrors then
+          MHLShowWarning('Файл занят другим экземпляром программы. Описание не сохранено. Повторите позже.');
         Exit;
       end;
 
