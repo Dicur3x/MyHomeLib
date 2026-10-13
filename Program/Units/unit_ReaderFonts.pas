@@ -11,7 +11,7 @@ function EnsureReaderFont(const Name: string): Boolean;
 
 implementation
 
-uses Winapi.Windows, System.SysUtils, Vcl.Forms;
+uses Winapi.Windows, System.SysUtils, System.IOUtils, Vcl.Forms, unit_ReaderFontDownloads;
 
 var LoadedFonts, LoadedFamilies: TStringList;
   Prepared: Boolean;
@@ -21,7 +21,6 @@ const Styles: array[0..3] of string = ('Regular','Bold','Italic','BoldItalic');
 var Prefix, Extension, FileName, Style: string;
 begin
   if LoadedFamilies.IndexOf(Name)>=0 then Exit(Screen.Fonts.IndexOf(Name)>=0);
-  LoadedFamilies.Add(Name);
   Prefix:=ExtractFilePath(ParamStr(0))+'tools\fonts\'; Extension:='.ttf';
   if Name='PT Serif' then Prefix:=Prefix+'ptserif\PT_Serif-Web-'
   else if Name='PT Sans' then Prefix:=Prefix+'ptsans\PT_Sans-Web-'
@@ -35,12 +34,15 @@ begin
   for Style in Styles do
   begin
     FileName:=Prefix+Style+Extension;
+    if not FileExists(FileName) and (ReaderFontPrefix(Name)<>'') and ReaderFontFamilyCached(Name) then
+      FileName:=TPath.Combine(ReaderFontCachePath,ReaderFontPrefix(Name).Replace('/',PathDelim)+Style+Extension);
     // Private resources require neither installation nor Windows settings.
     if (LoadedFonts.IndexOf(FileName)<0) and FileExists(FileName) and
       (AddFontResourceEx(PChar(FileName),FR_PRIVATE,nil)>0) then LoadedFonts.Add(FileName);
   end;
   Screen.ResetFonts;
   Result:=Screen.Fonts.IndexOf(Name)>=0;
+  if Result then LoadedFamilies.Add(Name);
 end;
 
 procedure PrepareReaderFonts;

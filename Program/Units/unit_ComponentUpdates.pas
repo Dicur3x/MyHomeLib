@@ -94,7 +94,7 @@ function ParseDocSharpVersions(const DocJSON, CommonJSON: string; out Info: TPro
 var Doc, Common: TJSONValue; DocItems, CommonItems: TJSONArray; Value: TJSONValue;
   Versions: TDictionary<string,Boolean>; Version: string; Comparison: Integer;
 begin
-  Result:=False; Info:=Default(TProgramRelease); Info.ComponentID:='DocSharp'; Info.CheckOnly:=True;
+  Result:=False; Info:=Default(TProgramRelease); Info.ComponentID:='DocSharp'; Info.OfficialComponent:=True;
   Doc:=nil; Common:=nil; Versions:=TDictionary<string,Boolean>.Create;
   try
     Doc:=TJSONObject.ParseJSONValue(DocJSON); Common:=TJSONObject.ParseJSONValue(CommonJSON);
@@ -118,11 +118,12 @@ begin
     end;
     if Info.ComponentVersion='' then Exit;
     Info.Tag:=Info.ComponentVersion; Info.URL:='https://github.com/manfromarce/DocSharp/releases';
-    Info.DownloadURL:=Info.URL;
+    Info.DownloadURL:='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/'+Info.ComponentVersion+'/docsharp.binary.doc.'+Info.ComponentVersion+'.nupkg';
+    Info.SecondaryURL:='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/'+Info.ComponentVersion+'/docsharp.binary.common.'+Info.ComponentVersion+'.nupkg';
     Info.History:=ReleaseNotesHeading(Info.ComponentVersion,'')+sLineBreak+
       'Версия DocSharp.Binary.Doc и DocSharp.Binary.Common проверена в официальном каталоге NuGet.'+sLineBreak+
       'Новые версии библиотеки выпускаются независимо от HomeLib Ru.'+sLineBreak+
-      'HomeLib Ru проверяет новые версии и устанавливает совместимые пакеты компонента отдельно от программы.'+sLineBreak+
+      'Обновление скачивается непосредственно из официального каталога NuGet.'+sLineBreak+
       'Изменения автора: '+Info.URL;
     Info.Changelog:=Info.History; Result:=True;
   finally Versions.Free; Doc.Free; Common.Free; end;
@@ -276,7 +277,7 @@ begin
 end;
 
 function ParseRasterComponent(const Text, ID: string; out Info: TProgramRelease): Boolean;
-var Root: TJSONValue; Tag, Notes: string; Match: TMatch; Comparison: Integer; Flag: Boolean;
+var Root: TJSONValue; Tag, Notes, Name, Suffix, URL, Digest: string; Match: TMatch; Comparison: Integer; Flag: Boolean; Assets: TJSONArray; Asset: TJSONValue;
 begin
   Info:=Default(TProgramRelease); Info.ComponentID:=ID; Info.CheckOnly:=True; Result:=False;
   if ID='7-Zip' then
@@ -292,6 +293,21 @@ begin
       Info.History:=Copy(Notes,1,12000);
       TJSONObject(Root).TryGetValue<string>('published_at',Info.PublishedAt);
       Info.URL:='https://www.7-zip.org/download.html';
+{$IFDEF WIN64}
+      Suffix:='-x64';
+{$ELSE}
+      Suffix:='';
+{$ENDIF}
+      Name:='7z'+Tag.Replace('.','')+Suffix+'.exe';
+      if TJSONObject(Root).TryGetValue<TJSONArray>('assets',Assets) then
+        for Asset in Assets do
+          if (Asset is TJSONObject) and TJSONObject(Asset).TryGetValue<string>('name',Notes) and
+            (Notes=Name) and TJSONObject(Asset).TryGetValue<string>('browser_download_url',URL) and
+            (URL='https://github.com/ip7z/7zip/releases/download/'+Tag+'/'+Name) and
+            TJSONObject(Asset).TryGetValue<string>('digest',Digest) and Digest.StartsWith('sha256:') and
+            IsUpdateSHA256(Copy(Digest,8,MaxInt)) and TJSONObject(Asset).TryGetValue<Int64>('size',Info.Size) and
+            (Info.Size>0) and (Info.Size<=UPDATE_MAX_ARCHIVE) then
+          begin Info.DownloadURL:=URL; Info.SHA256:=Copy(Digest,8,MaxInt); Info.CheckOnly:=False; Info.OfficialComponent:=True; end;
     finally Root.Free; end;
   end
   else if ID='DjVuLibre' then
@@ -305,8 +321,8 @@ begin
     Info.History:='Проверяется версия готовых инструментов DjVuLibre для Windows. Версия исходного кода и DjView могут отличаться.';
   end
   else Exit;
-  Info.Tag:=Info.ComponentVersion; Info.DownloadURL:=Info.URL;
-  Info.History:=Info.History+sLineBreak+sLineBreak+'Совместимые пакеты компонента устанавливаются обновлятором отдельно от программы.';
+  Info.Tag:=Info.ComponentVersion; if Info.DownloadURL='' then Info.DownloadURL:=Info.URL;
+  Info.History:=ReleaseNotesHeading(Info.ComponentVersion,Info.PublishedAt)+sLineBreak+Info.History;
   Info.Changelog:=Info.History; Result:=True;
 end;
 
@@ -427,40 +443,34 @@ procedure TComponentUpdateThread.ReceiveData(const Sender: TObject;
 begin AAbort := Terminated or (AContentLength > FLimit) or (AReadCount > FLimit); end;
 
 procedure TComponentUpdateThread.Execute;
-var I: Integer; DownloadPage, Changes: string; Response: IHTTPResponse;
+var I: Integer; DownloadPage, Changes, Folder: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
   function GetText(const URL: string): string;
   begin
     if Terminated then Abort;
     Result := CachedUpdateText(FHTTP, URL, FCacheFolder, FLimit);
     if Terminated then Abort;
   end;
-  procedure CheckPublishedPackages;
-  var Root: TJSONValue; Release, Asset: TJSONValue; Assets: TJSONArray;
-    Tag, Name, URL, Feed: string; Draft: Boolean; Count: Integer; Published: TComponentReleases;
+
+  procedure GetSize(var Info: TProgramRelease);
   begin
-    if FURL='' then Exit;
-    Root:=TJSONObject.ParseJSONValue(GetText(FURL)); Count:=0;
-    try
-      if not (Root is TJSONArray) then Exit;
-      for Release in TJSONArray(Root) do
-      begin
-        if not (Release is TJSONObject) then Continue;
-        Draft:=False; TJSONObject(Release).TryGetValue<Boolean>('draft',Draft);
-        if Draft or not TJSONObject(Release).TryGetValue<string>('tag_name',Tag) or
-          not TRegEx.IsMatch(Tag,'^[A-Za-z0-9._-]{1,80}$') or
-          not TJSONObject(Release).TryGetValue<TJSONArray>('assets',Assets) then Continue;
-        for Asset in Assets do
-        begin
-          if not (Asset is TJSONObject) or not TJSONObject(Asset).TryGetValue<string>('name',Name) or
-            (Name<>COMPONENT_FEED_NAME) or not TJSONObject(Asset).TryGetValue<string>('browser_download_url',URL) or
-            (URL<>'https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/'+COMPONENT_FEED_NAME) then Continue;
-          Feed:=GetText(URL);
-          if ParseComponentFeed(Feed,Tag,Assets.ToJSON,Published,False) then
-            MergeVerifiedComponentPackages(FReleases,Published);
-          Inc(Count); if Count>=3 then Exit;
-        end;
-      end;
-    finally Root.Free; end;
+    Response:=FHTTP.Head(Info.DownloadURL);
+    if Terminated then Abort;
+    if (Response.StatusCode<>200) or (Response.ContentLength<1) or
+      (Response.ContentLength>UPDATE_MAX_ARCHIVE) then raise Exception.Create('Не удалось определить размер официального файла.');
+    Info.Size:=Response.ContentLength;
+    if Info.SecondaryURL<>'' then
+    begin
+      Response:=FHTTP.Head(Info.SecondaryURL);
+      if Terminated then Abort;
+      if (Response.StatusCode<>200) or (Response.ContentLength<1) or
+        (Response.ContentLength>UPDATE_MAX_ARCHIVE-Info.Size) then raise Exception.Create('Не удалось проверить второй пакет библиотеки.');
+      Info.SecondarySize:=Response.ContentLength; Info.Size:=Info.Size+Info.SecondarySize;
+    end;
+  end;
+  procedure AuthorNotes(const API: string; var Info: TProgramRelease);
+  begin
+    if ParseSumatraReleases(GetText(API),NotesInfo) then
+    begin Info.History:=NotesInfo.History; Info.Notes:=NotesInfo.Notes; Info.Changelog:=NotesInfo.Changelog; end;
   end;
 begin
   for I in CheckedComponentIndices do
@@ -468,6 +478,13 @@ begin
     FReleases[I].ComponentID := ComponentIDs[I];
     try
       case UPDATE_COMPONENTS[I].CheckKind of
+        ccBundled:
+          begin
+            DownloadPage:=GetText('https://www.alreader.com/');
+            if not DownloadPage.Contains('AlReader2.Win32') then
+              raise Exception.Create('На официальном сайте сейчас нет доступного выпуска AlReader для Windows. Установленная читалка продолжает работать.');
+            raise Exception.Create('Официальный Windows-архив найден, но автор не опубликовал проверяемую версию.');
+          end;
         ccSQLite:
           begin
             DownloadPage := GetText('https://www.sqlite.org/download.html');
@@ -489,10 +506,33 @@ begin
           end;
         ccRaster:
           begin
-            if UPDATE_COMPONENTS[I].ID='DjVuLibre' then Changes:=GetText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/')
-            else Changes:=GetText('https://api.github.com/repos/ip7z/7zip/releases/latest');
-            if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) then
-              raise Exception.Create('Не удалось определить актуальную Windows-версию компонента.');
+            if UPDATE_COMPONENTS[I].ID='DjVuLibre' then
+            begin
+              Changes:=GetText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/');
+              if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) then
+                raise Exception.Create('Не удалось прочитать Windows-версию DjVuLibre.');
+              Match:=TRegEx.Match(Changes,'/projects/djvu/files/DjVuLibre_Windows/'+
+                FReleases[I].ComponentVersion.Replace('.','\.')+'(?:\+|%2[Bb])([0-9.]+)/');
+              if not Match.Success then raise Exception.Create('Не найдена папка официального Windows-выпуска.');
+              Folder:=FReleases[I].ComponentVersion+'%2B'+Match.Groups[1].Value;
+              DownloadPage:=GetText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'+Folder+'/');
+              Match:=TRegEx.Match(DownloadPage,'/projects/djvu/files/DjVuLibre_Windows/'+Folder+
+                '/(DjVuLibre-'+FReleases[I].ComponentVersion.Replace('.','\.')+'_DjView-[0-9.]+_Setup\.exe)/download');
+              if not Match.Success then raise Exception.Create('Не найден официальный Windows-архив DjVuLibre.');
+              FReleases[I].DownloadURL:='https://master.dl.sourceforge.net/project/djvu/DjVuLibre_Windows/'+Folder+'/'+Match.Groups[1].Value+'?viasf=1';
+              FReleases[I].SecondaryURL:='https://master.dl.sourceforge.net/project/djvu/DjVuLibre/'+FReleases[I].ComponentVersion+'/djvulibre-'+FReleases[I].ComponentVersion+'.tar.gz?viasf=1';
+              FReleases[I].OfficialComponent:=True; FReleases[I].CheckOnly:=False; GetSize(FReleases[I]);
+              Changes:=GetText('https://sourceforge.net/p/djvu/djvulibre-git/ci/master/tree/NEWS?format=raw');
+              Match:=TRegEx.Match(Changes,'(?is)NEW IN VERSION '+FReleases[I].ComponentVersion.Replace('.','\.')+'\s*(.*)');
+              if Match.Success then begin FReleases[I].History:=Copy(Match.Value,1,120000); FReleases[I].Changelog:=FReleases[I].History; end;
+            end
+            else
+            begin
+              Changes:=GetText('https://api.github.com/repos/ip7z/7zip/releases/latest');
+              if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) or FReleases[I].CheckOnly then
+                raise Exception.Create('Не удалось подтвердить официальный архив и контрольную сумму 7-Zip.');
+              AuthorNotes('https://api.github.com/repos/ip7z/7zip/releases?per_page=30',FReleases[I]);
+            end;
           end;
         ccDocSharp:
           begin
@@ -500,6 +540,8 @@ begin
             Changes:=GetText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json');
             if not ParseDocSharpVersions(DownloadPage,Changes,FReleases[I]) then
               raise Exception.Create('Не удалось проверить стабильную версию обеих библиотек DocSharp.');
+            GetSize(FReleases[I]);
+            AuthorNotes('https://api.github.com/repos/manfromarce/DocSharp/releases?per_page=30',FReleases[I]);
           end;
       end;
     except
@@ -510,16 +552,6 @@ begin
       end;
     end;
     if Terminated then Exit;
-  end;
-  if Terminated then Exit;
-  try CheckPublishedPackages;
-  except on E: Exception do
-    begin
-      FError:='Не удалось проверить пакеты компонентов: '+E.Message;
-      for I in CheckedComponentIndices do
-        if FReleases[I].CheckOnly or (FReleases[I].DownloadURL='') then
-          FReleases[I].ComponentError:=ComponentIDs[I]+': '+FError;
-    end;
   end;
   if Terminated then Exit;
   FSuccessful := True;

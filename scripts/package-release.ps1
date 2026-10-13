@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.16'
+$release = '2.7.0_pre5.17'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -43,9 +43,27 @@ try {
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'CHANGES.txt'),
         ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $payloadDirectory 'COMPONENTS.json')
-    foreach ($directory in @('Help', 'Icons', 'tools')) {
+    foreach ($directory in @('Help', 'Icons')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
     }
+    $toolsDestination = Join-Path $payloadDirectory 'tools'
+    [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
+    foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
+        if ($directory.Name -ne 'fonts') { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+    }
+    $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
+    $fontDestination = Join-Path $toolsDestination 'fonts'
+    $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($font in $fontManifest.files) {
+        if ($font.path -match '^(ptserif|ptsans)/' -or
+            $font.path -match '^noto/(NotoSerif|NotoSans)-(Regular|Bold|Italic|BoldItalic)\.ttf$' -or
+            $font.path -match '(OFL|LICENSE).*\.(txt|md)$') {
+            $target = Join-Path $fontDestination $font.path
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $fontSource $font.path) -Destination $target
+        }
+    }
+    Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
     # Readers can save reading history alongside their executables. Ship only
     # their distribution files, never a recursively copied working profile.
     $readerFiles = @{

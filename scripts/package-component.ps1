@@ -3,10 +3,12 @@ param(
     [Parameter(Mandatory=$true)][ValidateSet('Win32','Win64')][string]$Platform,
     [Parameter(Mandatory=$true)][ValidateSet('SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp')][string]$Component,
     [Parameter(Mandatory=$true)][ValidatePattern('^[A-Za-z0-9._-]{1,80}$')][string]$Release,
-    [Parameter(Mandatory=$true)][string]$OutputDirectory
+    [Parameter(Mandatory=$true)][string]$OutputDirectory,
+    [switch]$TestFixture
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+if (-not $TestFixture) { throw 'Separate component release archives are retired. This builder is only for isolated legacy installer tests; pass -TestFixture explicitly.' }
 $repositoryRoot=Split-Path -Parent $PSScriptRoot
 $runtime=Join-Path $repositoryRoot $(if($Platform -eq 'Win32'){'Program\Out\Bin'}else{'Program\Out\Bin64'})
 $files=@{

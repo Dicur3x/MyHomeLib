@@ -2,14 +2,14 @@
 
 interface
 
-uses Vcl.ComCtrls;
+uses Vcl.ComCtrls, System.SysUtils;
 
 procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont: string;
-  const Language: string = ''; StartOffset: Integer = 0);
+  const Language: string = ''; StartOffset: Integer = 0; const MissingFont: TProc<string> = nil);
 
 implementation
 
-uses Winapi.Windows, Winapi.Messages, Winapi.RichEdit, System.SysUtils,
+uses Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
   System.Generics.Collections, unit_ReaderFonts;
 
 var Coverage: TDictionary<string,TBytes>;
@@ -73,13 +73,15 @@ begin
   if Script<>'' then Result:=Prefix+' '+Script else Result:=Prefix;
 end;
 
-procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont, Language: string; StartOffset: Integer);
+procedure ApplyReaderFallbackFonts(Edit: TRichEdit; const Text, BaseFont, Language: string; StartOffset: Integer; const MissingFont: TProc<string>);
 var Supported: TBytes; Sans: Boolean; CJK, RunFont, NextFont: string;
   I, Start, Units, SavedStart, SavedLength, ParagraphStart, J: Integer; Code: Cardinal;
   Character: TCharFormat2; Paragraph: TParaFormat2;
   procedure ApplyRun(Finish: Integer);
   begin
-    if (RunFont='') or (Finish<=Start) or not EnsureReaderFont(RunFont) then Exit;
+    if (RunFont='') or (Finish<=Start) then Exit;
+    if not EnsureReaderFont(RunFont) then
+    begin if Assigned(MissingFont) then MissingFont(RunFont); Exit; end;
     var Selection: TCharRange;
     Selection.cpMin:=StartOffset+Start; Selection.cpMax:=StartOffset+Finish;
     SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));

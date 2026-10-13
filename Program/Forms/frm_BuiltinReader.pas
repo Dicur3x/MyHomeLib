@@ -5,7 +5,7 @@ interface
 uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
-  unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
+  unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
 
 type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
@@ -118,12 +118,22 @@ type
     FInspectPan, FInspectSize: TPoint;
     FResizeTimer, FSearchTimer: TTimer;
     FFontName, FSearchQuery, FPDFQuery, FSearchStatus: string;
+    FFontWindowCookie: Cardinal;
+    FMissingFonts: TStringList;
+    FFontOffer: TPanel;
+    FFontOfferText: TLabel;
+    FFontDownload: TButton;
+    FFontOfferDeclined, FFontsDownloading: Boolean;
     FLinePercent, FMargin, FMaxTextWidth, FSearchPage, FSearchStart, FSearchVisited: Integer;
     FPDFMatchPage, FPDFMatchIndex: Integer;
     FPDFRects: TArray<TRectF>;
     FImageWidth, FImageHeight: Integer;
     FOnProgress: TProc<Integer>;
     FBookmarks: TPopupMenu;
+    procedure MissingReaderFont(const Family: string);
+    procedure DownloadFontsClick(Sender: TObject);
+    procedure DismissFontsClick(Sender: TObject);
+    procedure WMReaderFontOffer(var Message: TMessage); message WM_APP + $0542;
     procedure MakeButton(const Caption: string; Action: TNotifyEvent; Width: Integer);
     procedure LoaderFinished(Sender: TObject);
     procedure RequestPage(Index: Integer; Moved: Boolean = True);
@@ -211,6 +221,9 @@ type
     function CurrentPosition: Integer;
     procedure NavigateTo(Position: Integer);
   protected
+    procedure WMReaderFontsReady(var Message: TMessage); message WM_READER_FONTS_READY;
+    procedure CreateWnd; override;
+    procedure DestroyWnd; override;
     procedure WMAppTheme(var Message: TMessage); message WM_APP + $42;
     procedure WMWindowPosChanged(var Message: TWMWindowPosChanged); message WM_WINDOWPOSCHANGED;
   public
@@ -1001,6 +1014,16 @@ begin
   FSeekTimer:=TTimer.Create(Self); FSeekTimer.Enabled:=False; FSeekTimer.Interval:=90; FSeekTimer.OnTimer:=SeekTick;
   FPaginationTimer:=TTimer.Create(Self); FPaginationTimer.Enabled:=False; FPaginationTimer.Interval:=35; FPaginationTimer.OnTimer:=PaginationTick;
   FBookmarks:=TPopupMenu.Create(Self);
+  FMissingFonts:=TStringList.Create;
+  FFontOffer:=TPanel.Create(Self); FFontOffer.Name:='ReaderLanguageFonts'; FFontOffer.Parent:=Self; FFontOffer.Align:=alTop;
+  FFontOffer.Height:=68; FFontOffer.BevelOuter:=bvNone; FFontOffer.Visible:=False;
+  FFontOfferText:=TLabel.Create(Self); FFontOfferText.Parent:=FFontOffer;
+  FFontOfferText.Align:=alClient; FFontOfferText.WordWrap:=True; FFontOfferText.Layout:=tlCenter;
+  FFontOfferText.Margins.SetBounds(12,4,12,4); FFontOfferText.AlignWithMargins:=True;
+  FFontDownload:=TButton.Create(Self); FFontDownload.Parent:=FFontOffer; FFontDownload.Align:=alRight;
+  FFontDownload.Width:=100; FFontDownload.Caption:='Скачать'; FFontDownload.OnClick:=DownloadFontsClick;
+  var LaterFont:=TButton.Create(Self); LaterFont.Parent:=FFontOffer; LaterFont.Align:=alRight;
+  LaterFont.Width:=80; LaterFont.Caption:='Позже'; LaterFont.OnClick:=DismissFontsClick;
   OnKeyDown:=KeyReader; OnResize:=ScheduleResize; OnClose:=CloseReader;
 end;
 
@@ -1014,6 +1037,65 @@ begin
   if Caption='F11' then begin Button.Hint:='На весь экран / вернуть окно'; Button.ShowHint:=True; end;
 end;
 
+procedure TfrmBuiltinReader.MissingReaderFont(const Family: string);
+begin
+  if FMissingFonts.IndexOf(Family)>=0 then Exit;
+  FMissingFonts.Add(Family);
+  if not FFontOfferDeclined then PostMessage(Handle,WM_APP+$0542,FFontWindowCookie,0);
+end;
+
+procedure TfrmBuiltinReader.WMReaderFontOffer(var Message: TMessage);
+var Languages: TStringList; Bytes: Int64; Size: string;
+begin
+  Message.Result:=0;
+  if FClosing or FFontOfferDeclined or (Cardinal(Message.WParam)<>FFontWindowCookie) then Exit;
+  Languages:=TStringList.Create; Bytes:=0;
+  try
+    for var Family in FMissingFonts do
+    begin
+      var Name:=ReaderFontLanguage(Family); if Languages.IndexOf(Name)<0 then Languages.Add(Name);
+      Bytes:=Bytes+ReaderFontDownloadBytes(Family);
+    end;
+    if Bytes>=1048576 then Size:=Format('%.1f МБ',[Bytes/1048576]) else Size:=Format('%d КБ',[(Bytes+1023) div 1024]);
+    FFontOfferText.Caption:='Скачать шрифты для '+Languages.CommaText+' текста ('+Size+')? '+
+      'Они сохранятся для следующих книг. Сейчас используется доступный шрифт Windows.';
+  finally Languages.Free; end;
+  FFontOffer.Color:=ThemeBackground; FFontOfferText.Font.Color:=ThemeText;
+  FFontOffer.Visible:=FMissingFonts.Count>0;
+end;
+
+procedure TfrmBuiltinReader.DownloadFontsClick(Sender: TObject);
+begin
+  FFontsDownloading:=True;
+  for var Family in FMissingFonts do RequestReaderFont(Family);
+  FFontOfferText.Caption:='Шрифты загружаются. Можно продолжать читать.';
+end;
+
+procedure TfrmBuiltinReader.DismissFontsClick(Sender: TObject);
+begin FFontOfferDeclined:=True; FFontOffer.Visible:=False; end;
+
+procedure TfrmBuiltinReader.CreateWnd;
+begin inherited; FFontWindowCookie:=RegisterReaderFontWindow(Handle); end;
+
+procedure TfrmBuiltinReader.DestroyWnd;
+begin UnregisterReaderFontWindow(Handle); FFontWindowCookie:=0; inherited; end;
+
+procedure TfrmBuiltinReader.WMReaderFontsReady(var Message: TMessage);
+begin
+  Message.Result:=0;
+  if FClosing or not FReady or Assigned(FPDF) or (Cardinal(Message.WParam)<>FFontWindowCookie) or
+    (FMissingFonts.Count=0) then Exit;
+  // InvalidateLayout retains the exact text position; no book reload or history write.
+  if Message.LParam=0 then
+  begin
+    if not FFontsDownloading then Exit;
+    FFontOfferText.Caption:='Не удалось скачать шрифты. Проверьте соединение и нажмите «Скачать» ещё раз.'; Exit; end;
+  FStyledIntervals.Clear; InvalidateLayout;
+  for var I:=FMissingFonts.Count-1 downto 0 do
+    if EnsureReaderFont(FMissingFonts[I]) then FMissingFonts.Delete(I);
+  if FMissingFonts.Count=0 then begin FFontsDownloading:=False; FFontOffer.Visible:=False; end;
+end;
+
 destructor TfrmBuiltinReader.Destroy;
 begin
   FClosing:=True; FSeekTimer.Enabled:=False; FPaginationTimer.Enabled:=False; FreeAndNil(FLoadStatus);
@@ -1022,6 +1104,7 @@ begin
   FreeAndNil(FPageStatus);
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
+  FreeAndNil(FMissingFonts);
   FSurface.FReader:=nil; FreeAndNil(FPageSelection); FreeAndNil(FSelectionTint);
   FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
@@ -1030,6 +1113,7 @@ procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, Settin
   const OnProgress: TProc<Integer>);
 var Stream: TFileStream; Chapter: TPDFChapter;
 begin
+  FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
   Caption:='HomeLib Ru — '+BookTitle+' — Читалка (экспериментальная)';
@@ -1344,6 +1428,7 @@ var Size: TPoint; Scale: Double; Temporary: TBitmap; W,H,I, FullHeight, NotesHei
     end;
   end;
 begin
+  FFontOffer.Color:=ThemeBackground; FFontOfferText.Font.Color:=ThemeText;
   if not FReady or FClosing or (Assigned(FPageWorker) and not FPageWorker.Prefetch) or (FSurface.ClientWidth<100) or (FSurface.ClientHeight<100) then Exit;
   if Assigned(FPDF) then
   begin
@@ -1511,7 +1596,7 @@ end;
 procedure TfrmBuiltinReader.EnsureBookStyles(Start, Finish: Integer);
 var Interval: TPoint; I, First, Last, Previous: Integer; Language: string;
 begin
-  if not Assigned(FDocument) or (Finish<=Start) then Exit;
+  if Finish<=Start then Exit;
   First:=Max(0,Start); Last:=Min(FLength,Finish);
   repeat
     Previous:=First;
@@ -1525,8 +1610,9 @@ begin
   // A page formats a small UTF-16 interval instead of every paragraph of a
   // long novel. Existing neighbouring intervals merge into one cache entry.
   ApplyBookStyles(False,First,Last);
-  Language:=FDocument.Language;
-  ApplyReaderFallbackFonts(FRichEdit,ReaderTextRange(FRichEdit,First,Last-First),FFontName,Language,First);
+  Language:=''; if Assigned(FDocument) then Language:=FDocument.Language;
+  ApplyReaderFallbackFonts(FRichEdit,ReaderTextRange(FRichEdit,First,Last-First),FFontName,Language,First,
+    procedure(Family: string) begin MissingReaderFont(Family); end);
   I:=FStyledIntervals.Count-1;
   while I>=0 do
   begin

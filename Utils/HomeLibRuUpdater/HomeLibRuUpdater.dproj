@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{569A77EB-2A6B-4230-A34E-75160FF6FBB0}</ProjectGuid>
         <MainSource>HomeLibRuUpdater.dpr</MainSource>
@@ -11,14 +11,14 @@
         <VerInfo_MajorVer>2</VerInfo_MajorVer>
         <VerInfo_MinorVer>7</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1084</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.16;FileVersion=2.7.0.1084;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_Build>1085</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.17;FileVersion=2.7.0.1085;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <DCC_Namespace>System;Xml;Data;Vcl;Vcl.Imaging;Vcl.Themes;Winapi;System.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\Components\MHLComponents;..\..\Program\Units;..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
         <DCC_ExeOutput Condition="'$(Platform)'=='Win32'">..\..\Program\Out\Bin</DCC_ExeOutput>
         <DCC_ExeOutput Condition="'$(Platform)'=='Win64'">..\..\Program\Out\Bin64</DCC_ExeOutput>

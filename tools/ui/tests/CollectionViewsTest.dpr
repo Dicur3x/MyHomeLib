@@ -456,7 +456,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       for Index := 0 to Cycle.ControlCount-1 do
         if (Cycle.Controls[Index] is TButton) and TButton(Cycle.Controls[Index]).Default then
           Primary := TButton(Cycle.Controls[Index]);
-      Require(Assigned(Primary) and (Primary.Caption='Проверить пакеты') and
+      Require(Assigned(Primary) and (Primary.Caption='Проверить у автора') and
         StatusText(Cycle).Contains('3.5.99'), 'Check-only component pretends it can install');
       Cycle.Hide;
       CycleComponents[0].ComponentID:='SQLite'; CycleComponents[0].ComponentVersion:='100.0';
@@ -465,7 +465,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(StatusText(Cycle)='Есть обновления для SQLite', 'Check-only component entered download summary');
       ChooseRow(Selector, 4);
-      Require((Primary.Caption='Проверить пакеты') and StatusText(Cycle).Contains('3.5.99'),
+      Require((Primary.Caption='Проверить у автора') and StatusText(Cycle).Contains('3.5.99'),
         'Batch summary overwrote check-only action');
       Cycle.Hide;
       CycleComponents:=Default(TComponentReleases);
@@ -473,34 +473,25 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         'DOC available-version fixture failed');
       Require(Cycle.StartCheckCycle(True),'DOC-only check cycle failed');
       Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
-      Require(Cycle.Visible and (Selector.Selected.Index=6) and (Primary.Caption='Проверить пакеты') and
-        StatusText(Cycle).Contains('0.99.0'),'DOC new version is hidden or pretends it can install');
+      Require(Cycle.Visible and (Selector.Selected.Index=6) and (Primary.Caption='Скачать обновление') and
+        (StatusText(Cycle)='Есть обновления для DocSharp'),'Official DOC pair does not offer automatic installation');
       Require(Selector.Items[6].SubItems[1]='0.99.0','DOC available version missing from table');
       Cycle.Hide;
       Require(Cycle.StartCheckCycle(False),'DOC failed refresh did not start');
       Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,False,'Сеть недоступна');
       Require(Selector.Items[6].SubItems[2]='Не удалось проверить','Failed refresh claims DOC is current');
       Cycle.Hide;
-      var Packaged:=Default(TComponentReleases);
-      Packaged[5]:=CycleComponents[5]; Packaged[5].CheckOnly:=False;
-      Packaged[5].Tag:='2.7.0_pre5.999'; Packaged[5].Size:=123;
-      Packaged[5].SHA256:=StringOfChar('a',64);
-      Packaged[5].DownloadURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+
-        Packaged[5].Tag+'/'+ComponentArchiveName('DocSharp',ProgramUpdatePlatform);
-      CycleComponents[5].ComponentError:=''; MergeVerifiedComponentPackages(CycleComponents,Packaged);
-      Require(not CycleComponents[5].CheckOnly and (CycleComponents[5].SHA256=Packaged[5].SHA256),
-        'Verified DOC package did not enable automatic installation');
-      Require(Cycle.StartCheckCycle(True),'Installable DOC cycle failed');
-      Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
-      Require(Cycle.Visible and (Primary.Caption='Скачать обновление') and
-        (StatusText(Cycle)='Есть обновления для DocSharp'),'Verified DOC package still only checks versions');
-      Cycle.Hide;
-      var Preserved:=CycleComponents[5].DownloadURL;
-      Packaged[5].DownloadURL:='https://other.example/doc.zip'; Packaged[5].ComponentVersion:='1.0.0';
-      MergeVerifiedComponentPackages(CycleComponents,Packaged);
-      Require(CycleComponents[5].DownloadURL=Preserved,'Foreign DOC package replaced verified download');
-      Writeln('PASS verified independent DOC package enables installation; foreign package is rejected');
-      Writeln('PASS bundled DjVu and 7-Zip checks remain separate from component installation');
+      Require(CycleComponents[5].OfficialComponent and not CycleComponents[5].CheckOnly and
+        IsOfficialComponentURL('DocSharp','0.99.0',CycleComponents[5].DownloadURL,ProgramUpdatePlatform,False) and
+        IsOfficialComponentURL('DocSharp','0.99.0',CycleComponents[5].SecondaryURL,ProgramUpdatePlatform,True),
+        'DOC metadata does not retain the matched direct NuGet pair');
+      Require(not IsOfficialComponentURL('DocSharp','0.99.0',
+        'https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.999/doc.zip',ProgramUpdatePlatform,False),
+        'Own release asset was accepted as an official DOC package');
+      Require(not IsOfficialComponentURL('DocSharp','0.99.0','https://other.example/doc.zip',ProgramUpdatePlatform,False),
+        'Foreign DOC origin was accepted');
+      Writeln('PASS official DOC pair offers direct automatic installation and rejects own or foreign package origins');
+      Writeln('PASS an unconfirmed DjVu Windows archive is reported without entering the installation queue');
     finally Cycle.Free; end;
     Writeln('PASS automatic update cycle waits for both responses, stays quiet without updates and selects components');
     Writeln('PASS one-line update summaries combine all available components and manual failure remains visible');
@@ -553,7 +544,7 @@ begin
 
     Require(ParseDocSharpVersions('{"versions":["0.9.0","0.21.0","0.22.0-preview","0.100.0","0.99.0"]}',
       '{"versions":["0.99.0","0.21.0","0.9.0"]}',Parsed) and (Parsed.ComponentVersion='0.99.0') and
-      Parsed.CheckOnly,'DOC update check must ignore previews and incomplete assembly pairs');
+      not Parsed.CheckOnly and Parsed.OfficialComponent and (Parsed.SecondaryURL<>''),'DOC update check must ignore previews and incomplete assembly pairs and offer the official pair');
     Require(not ParseDocSharpVersions('<html>error</html>','{"versions":["0.21.0"]}',Parsed),'Invalid DOC feed accepted');
     Require(not ParseDocSharpVersions('{"versions":["0.22.0-beta"]}','{"versions":["0.22.0-beta"]}',Parsed),
       'DOC preview-only feed accepted');

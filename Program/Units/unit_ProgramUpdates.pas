@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.16';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.17';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -17,6 +17,7 @@ type
     Tag: string;
     URL: string;
     DownloadURL, SHA256: string;
+    SecondaryURL: string; SecondarySize: Int64;
     Notes, Changelog, History: string;
     PublishedAt: string;
     Size: Int64;
@@ -34,6 +35,7 @@ type
     FJob, FError: string;
     FSuccessful: Boolean;
     FProgress: Integer;
+    FPartSize, FPartOffset: Int64;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -274,67 +276,66 @@ procedure TProgramDownloadThread.ReceiveData(const Sender: TObject;
   AContentLength, AReadCount: Int64; var AAbort: Boolean);
 var Percent: Integer;
 begin
-  AAbort := Terminated or (AReadCount > FRelease.Size) or
-    ((AContentLength > 0) and (AContentLength <> FRelease.Size));
+  AAbort := Terminated or (AReadCount > FPartSize) or
+    ((AContentLength > 0) and (AContentLength <> FPartSize));
   if AAbort then Exit;
-  Percent := Integer(AReadCount * 90 div FRelease.Size);
+  Percent := Integer((FPartOffset+AReadCount) * 90 div FRelease.Size);
   if Percent <> FProgress then
   begin
     FProgress := Percent;
-    PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, Percent, LPARAM(AReadCount));
+    PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, Percent, LPARAM(FPartOffset+AReadCount));
   end;
 end;
 
 procedure TProgramDownloadThread.Execute;
-var Response: IHTTPResponse; Stream: TFileStream; Archive: string;
+var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: string;
+  procedure DownloadPart(const URL, Destination: string; Size, Offset: Int64);
+  begin
+    FPartSize:=Size; FPartOffset:=Offset;
+    Stream:=TFileStream.Create(Destination,fmCreate);
+    try
+      Response:=FHTTP.Get(URL,Stream); if Terminated then Abort;
+      if (Response.StatusCode<>200) or (Stream.Size<>Size) then
+        raise Exception.Create('Не удалось полностью скачать обновление. Попробуйте позже.');
+      FlushFileBuffers(Stream.Handle);
+    finally Stream.Free; end;
+  end;
 begin
   try
     if Terminated then Abort;
-    if FRelease.OfficialComponent then
-    begin
-      if not TRegEx.IsMatch(FRelease.ComponentVersion, '^[0-9]+\.[0-9]+(?:\.[0-9]+){0,2}$') then
-        raise Exception.Create('Не удалось подтвердить версию компонента.');
-      if FRelease.ComponentID = 'SQLite' then
-      begin
-{$IFDEF WIN64}
-        if not TRegEx.IsMatch(FRelease.DownloadURL, '^https://www\.sqlite\.org/[0-9]{4}/sqlite-dll-win-x64-[0-9]{7}\.zip$') then
-{$ELSE}
-        if not TRegEx.IsMatch(FRelease.DownloadURL, '^https://www\.sqlite\.org/[0-9]{4}/sqlite-dll-win-x86-[0-9]{7}\.zip$') then
-{$ENDIF}
-          raise Exception.Create('Адрес обновления SQLite не принадлежит официальному источнику.');
-      end
-      else if FRelease.ComponentID = 'SumatraPDF' then
-      begin
-{$IFDEF WIN64}
-        if FRelease.DownloadURL <> 'https://www.sumatrapdfreader.org/dl/rel/' + FRelease.ComponentVersion + '/SumatraPDF-' + FRelease.ComponentVersion + '-64.zip' then
-{$ELSE}
-        if FRelease.DownloadURL <> 'https://www.sumatrapdfreader.org/dl/rel/' + FRelease.ComponentVersion + '/SumatraPDF-' + FRelease.ComponentVersion + '.zip' then
-{$ENDIF}
-          raise Exception.Create('Адрес обновления SumatraPDF не принадлежит официальному источнику.');
-      end
-      else raise Exception.Create('Официальное обновление этого компонента пока недоступно.');
-    end;
+    if FRelease.OfficialComponent and not IsOfficialComponentURL(FRelease.ComponentID,
+      FRelease.ComponentVersion,FRelease.DownloadURL,ProgramUpdatePlatform,False) then
+      raise Exception.Create('Адрес обновления не принадлежит официальному источнику компонента.');
+    if (FRelease.SecondaryURL<>'') and not IsOfficialComponentURL(FRelease.ComponentID,
+      FRelease.ComponentVersion,FRelease.SecondaryURL,ProgramUpdatePlatform,True) then
+      raise Exception.Create('Адрес второго пакета не принадлежит официальному источнику компонента.');
     if (FRelease.DownloadURL = '') or
        (not FRelease.OfficialComponent and not IsUpdateSHA256(FRelease.SHA256)) or
        (FRelease.Size <= 0) or (FRelease.Size > UPDATE_MAX_ARCHIVE) then
       raise Exception.Create('Для этого выпуска недоступно обновление внутри программы. Откройте страницу выпуска.');
     AssertUpdatePath(FJob); ForceDirectories(FJob);
     Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
-    Stream := TFileStream.Create(Archive, fmCreate);
-    try
-      Response := FHTTP.Get(FRelease.DownloadURL, Stream);
-      if Terminated then Abort;
-      if (Response.StatusCode <> 200) or (Stream.Size <> FRelease.Size) then
-        raise Exception.Create('Не удалось полностью скачать обновление. Попробуйте позже.');
-    finally Stream.Free; end;
+    if (FRelease.SecondarySize<0) or (FRelease.SecondarySize>=FRelease.Size) then
+      raise Exception.Create('Некорректный размер составного обновления.');
+    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize,0);
+    SecondaryArchive:='';
+    if FRelease.SecondaryURL<>'' then
+    begin
+      if FRelease.SecondarySize<1 then raise Exception.Create('Не подтверждён второй пакет библиотеки.');
+      SecondaryArchive:=IncludeTrailingPathDelimiter(FJob)+'secondary.archive';
+      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize);
+    end;
     PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
     if FRelease.OfficialComponent then
     begin
       if (FRelease.ComponentID = 'SQLite') and
          (not IsUpdateSHA256(FRelease.SourceSHA3) or not SameText(UpdateSHA3(Archive), FRelease.SourceSHA3)) then
         raise Exception.Create('Официальная контрольная сумма SQLite не совпадает.');
+      if (FRelease.ComponentID='7-Zip') and
+        (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
+        raise Exception.Create('Официальная контрольная сумма 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
-      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform);
+      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,ExtractFilePath(ParamStr(0)));
     end
     else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
       True, FRelease.ComponentID, FRelease.ComponentVersion);

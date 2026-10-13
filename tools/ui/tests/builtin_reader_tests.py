@@ -15,7 +15,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('optional-fonts','selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -36,10 +36,24 @@ try:
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
-        if (runtime/arch_dir).exists(): shutil.copytree(runtime/arch_dir, root/arch_dir)
+        if arch_dir=='tools/fonts' and a.case=='optional-fonts':
+            files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
+            for file in files:
+                name=file['path']
+                if name.startswith(('ptserif/','ptsans/')) or name.startswith(tuple('noto/'+family+'-'+style+'.ttf' for family in ('NotoSerif','NotoSans') for style in ('Regular','Bold','Italic','BoldItalic'))):
+                    dest=root/arch_dir/name; dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(runtime/arch_dir/name,dest)
+            shutil.copy2(runtime/arch_dir/'manifest.json',root/arch_dir/'manifest.json')
+        elif (runtime/arch_dir).exists(): shutil.copytree(runtime/arch_dir, root/arch_dir)
     for marker in ('uselocaldata','uselocaltemp'): (root/marker).write_text('')
     (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
     (root/'myhomelib2.ini').write_text('[SYSTEM]\nCheckUpdates=0\n[OPDS]\nEnabled=0\n',encoding='utf-8')
+    if a.case=='optional-fonts':
+        os.environ['LOCALAPPDATA']=str(root/'isolated-profile')
+        cache=root/'isolated-profile/HomeLibRu/Fonts/noto';cache.mkdir(parents=True)
+        shutil.copy2(runtime/'tools/fonts/noto/NotoSerifBengali-Regular.ttf',cache/'NotoSerifBengali-Regular.ttf')
+        (root/'basic-fonts.txt').write_text('Русский ё English Українська ї є ґ Беларуская ў',encoding='utf-8')
+        (root/'existing-fonts.txt').write_text('Հայերեն ընթերցում։',encoding='utf-8')
+        (root/'optional-fonts.txt').write_text(('বাংলা বই পড়া। '+ 'পড়ার জন্য বইয়ের লেখা। '*15+'\n')*100,encoding='utf-8')
     if a.case=='reader-note-ui':
         (root/'contents-progress.fb2').write_text('<FictionBook><body><section><title><p>Заметки</p></title><p>Текст книги для заметки.</p></section></body></FictionBook>',encoding='utf-8')
     if a.case=='footnotes':
@@ -312,6 +326,8 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.case=='optional-fonts':
+        assert 'PASS optional fonts require explicit download' in r.stdout,'Stale binary omitted optional-font gates'
     if a.case=='feedback16-reader':
         assert 'PASS direct FB2 mouse selection' in r.stdout and 'PASS PDF raster cache isolation' in r.stdout and (not a.feedback_pdf or 'PASS async PDF responsive UI' in r.stdout), 'Stale binary omitted feedback16 regressions'
     if a.case=='reader-note-ui':

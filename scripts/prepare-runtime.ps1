@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
@@ -207,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1084'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1085'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'

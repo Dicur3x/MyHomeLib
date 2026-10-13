@@ -27,6 +27,7 @@ var
   InputPipe, OutputPipe, Mapping: THandle;
   Pixels: Pointer;
   PageCount: Integer;
+  ProbeFailed: Boolean;
   Age: UInt64;
   Slots: array[0..2] of TPageSlot;
   ContextCreate: TDjvuCreate; ContextRelease, JobRelease, MessagePop, FormatRelease: TDjvuRelease;
@@ -206,10 +207,15 @@ end;
 begin
   // This helper keeps the official 32-bit decoder out of either host process.
   // The parent owns its job; cancellation/exit cannot leave a decoder behind.
+  ProbeFailed:=False;
   try
-    try Serve;
+    try
+      if ParamStr(1)='--self-test' then LoadAPI else Serve;
     except on E: EAbort do ; on E: Exception do
-      if OutputPipe<>0 then try Reply(1,0,0,E.Message); except end;
+      begin
+        ProbeFailed:=ParamStr(1)='--self-test';
+        if OutputPipe<>0 then try Reply(1,0,0,E.Message); except end;
+      end;
     end;
   finally
     if Context<>nil then CloseDocument;
@@ -219,4 +225,5 @@ begin
     if Mapping<>0 then CloseHandle(Mapping);
     if DLL<>0 then FreeLibrary(DLL);
   end;
+  if ProbeFailed then Halt(1);
 end.

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MyHomeLib contributors. MIT license; see ../../LICENSE.
+﻿// Copyright (c) 2026 MyHomeLib contributors. MIT license; see ../../LICENSE.
 // DOC decoding is provided by pinned DocSharp.Binary libraries (MIT/BSD).
 using System;
 using System.IO;
@@ -41,8 +41,17 @@ internal static class HomeLibDoc
     internal const int MaximumCharacters = 16 * 1024 * 1024;
     private static int Main(string[] args)
     {
+        try { return Run(args); }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine("DOC component: " + error.GetType().Name + ": " + error.Message);
+            return 1;
+        }
+    }
+    private static int Run(string[] args)
+    {
         Console.OutputEncoding = new UTF8Encoding(false);
-        if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("HomeLibDoc 1; DocSharp 0.21.0"); return 0; }
+        if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("HomeLibDoc 1; DocSharp " + typeof(WordDocument).Assembly.GetName().Version + "; Common " + typeof(StructuredStorageReader).Assembly.GetName().Version); return 0; }
         bool ownsOutput = false;
         string outputPath = null;
         string errorCode = "INVALID";

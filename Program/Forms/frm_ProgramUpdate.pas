@@ -421,8 +421,8 @@ begin
   if FRelease.DownloadURL = '' then FPrimary.Caption := 'Скачать со страницы выпуска';
   if FRelease.CheckOnly then
   begin
-    FPrimary.Caption:='Проверить пакеты';
-    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Совместимый пакет обновления ещё не опубликован. Новые пакеты проверяются автоматически.';
+    FPrimary.Caption:='Проверить у автора';
+    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Официальный Windows-архив пока не удалось подтвердить.';
   end;
   UpdateSummary;
   Present;
@@ -470,14 +470,14 @@ begin
       begin
         Available:=FComponents[I].ComponentVersion;
         if ComponentNewer(FComponents[I],ComponentInstalledVersion(Settings.AppPath,UPDATE_COMPONENTS[I].ID)) then
-          if FComponents[I].CheckOnly then State:='Ожидается пакет' else State:='Есть обновление'
+          if FComponents[I].CheckOnly then State:='Нет Windows-архива' else State:='Есть обновление'
         else State:='Актуально';
       end;
       if FComponents[I].AuthorVersion<>'' then
       begin
         Available:=FComponents[I].AuthorVersion;
         if (State='Актуально') and CompareComponentVersions(Available,Version,Comparison) and
-          (Comparison>0) then State:='Ожидается пакет';
+          (Comparison>0) then State:='Нет Windows-архива';
       end;
       if FComponentsPending or Assigned(FComponentThread) then
         State:='Проверяется…';
@@ -586,9 +586,9 @@ begin
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
     if UPDATE_COMPONENTS[I].CheckKind=ccBundled then
       if (FComponents[I].DownloadURL='') and (FComponents[I].ComponentError='') and (FComponentError='') then
-        FStatus.Caption:='Новые пакеты AlReader проверяются автоматически и устанавливаются отдельно от программы.';
+        FStatus.Caption:='Проверяется официальный выпуск AlReader для Windows.';
     if FComponents[I].CheckOnly then
-      FStatus.Caption:=FStatus.Caption+sLineBreak+'Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.';
+      FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
   UpdateSummary;
   finally EndUIUpdate; end;

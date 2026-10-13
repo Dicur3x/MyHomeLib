@@ -81,6 +81,7 @@ uses
   unit_ReaderAnnotations in 'Units\unit_ReaderAnnotations.pas',
   unit_ReaderDocument in 'Units\unit_ReaderDocument.pas',
   unit_ReaderPageSelection in 'Units\unit_ReaderPageSelection.pas',
+  unit_ReaderFontDownloads in 'Units\unit_ReaderFontDownloads.pas',
   unit_ReaderFonts in 'Units\unit_ReaderFonts.pas',
   unit_ReaderFontFallback in 'Units\unit_ReaderFontFallback.pas',
   unit_ReaderPDF in 'Units\unit_ReaderPDF.pas',

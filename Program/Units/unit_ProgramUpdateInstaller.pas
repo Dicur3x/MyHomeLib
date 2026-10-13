@@ -37,7 +37,9 @@ procedure RollbackProgramUpdate(const Job, Target: string);
 procedure CleanProgramUpdate(const Job: string);
 function ProgramUpdatePlatform: string;
 procedure VerifyPreparedProgramUpdate(const Job, Tag, Platform: string);
-procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string);
+procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
+  const SecondaryArchive: string = ''; const AppPath: string = '');
+function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Secondary: Boolean): Boolean;
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
   const Tag, Platform, Job: string): string;
 function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
@@ -45,7 +47,7 @@ function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
 implementation
 
 uses System.IOUtils, System.Hash, System.JSON, System.Zip,
-  System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity;
+  System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools;
 
 function ComponentFileName(const ID: string): string;
 begin
@@ -571,7 +573,7 @@ begin
   finally Manifest.Free; end;
 end;
 
-procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string);
+procedure PrepareOfficialSimpleComponent(const Archive, Job, ID, Version, Platform: string);
 var Zip: TZipFile; I, Selected: Integer; Name, Stage, Destination: string; Bytes: TBytes;
   Manifest, Entry: TJSONObject; Files: TJSONArray;
 begin
@@ -613,6 +615,151 @@ begin
     ManifestFiles(Manifest); VerifyPreparedProgramUpdateIdentity(Manifest, Stage, Version, Platform);
     WriteJSON(ChildPath(Job, 'manifest.json'), Manifest);
   finally Manifest.Free; Zip.Free; end;
+end;
+
+
+function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Secondary: Boolean): Boolean;
+var Suffix: string;
+begin
+  Result:=False;
+  if not TRegEx.IsMatch(Version,'^[0-9]+\.[0-9]+(?:\.[0-9]+){0,2}$') then Exit;
+  if ID='SQLite' then
+  begin
+    if Platform='Win64' then Suffix:='x64' else Suffix:='x86';
+    Exit(not Secondary and TRegEx.IsMatch(URL,'^https://www\.sqlite\.org/[0-9]{4}/sqlite-dll-win-'+Suffix+'-[0-9]{7}\.zip$'));
+  end;
+  if ID='SumatraPDF' then
+  begin
+    if Platform='Win64' then Suffix:='-64' else Suffix:='';
+    Exit(not Secondary and (URL='https://www.sumatrapdfreader.org/dl/rel/'+Version+'/SumatraPDF-'+Version+Suffix+'.zip'));
+  end;
+  if ID='7-Zip' then
+  begin
+    if Platform='Win64' then Suffix:='-x64' else Suffix:='';
+    Exit(not Secondary and (URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7z'+Version.Replace('.','')+Suffix+'.exe'));
+  end;
+  if ID='DocSharp' then
+  begin
+    if Secondary then Suffix:='common' else Suffix:='doc';
+    Exit(URL='https://api.nuget.org/v3-flatcontainer/docsharp.binary.'+Suffix+'/'+Version+'/docsharp.binary.'+Suffix+'.'+Version+'.nupkg');
+  end;
+  if ID='DjVuLibre' then
+  begin
+    if Secondary then Exit(URL='https://master.dl.sourceforge.net/project/djvu/DjVuLibre/'+Version+'/djvulibre-'+Version+'.tar.gz?viasf=1');
+    Exit(TRegEx.IsMatch(URL,'^https://master\.dl\.sourceforge\.net/project/djvu/DjVuLibre_Windows/'+
+      Version.Replace('.','\.')+'%2B[0-9.]+/DjVuLibre-'+Version.Replace('.','\.')+'_DjView-[0-9.]+_Setup\.exe\?viasf=1$'));
+  end;
+end;
+
+procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
+  const SecondaryArchive, AppPath: string);
+var Stage, Raw, Source, Destination, Tools, RuntimePath: string; Names: TArray<string>;
+  Manifest, Entry, Metadata, Hashes: TJSONObject; Files: TJSONArray;
+  Zip: TZipFile; Bytes: TBytes; Log: TStringStream; Started: UInt64;
+  procedure AddFile(const Name, SourceFile: string);
+  begin
+    if not SafeComponentFile(ID,Name) or not FileExists(SourceFile) or (TFile.GetSize(SourceFile)>128*1024*1024) then
+      raise Exception.Create('В официальном комплекте отсутствует файл: '+Name);
+    Destination:=ChildPath(Stage,Name); ForceDirectories(ExtractFileDir(Destination));
+    if not SameText(SourceFile,Destination) then TFile.Copy(SourceFile,Destination,False);
+    Entry:=TJSONObject.Create; Entry.AddPair('path',Name); Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(Destination)));
+    Entry.AddPair('sha256',UpdateSHA256(Destination)); Files.AddElement(Entry);
+  end;
+  procedure NuGetDLL(const PackageFile, AssemblyName: string);
+  var Text: string;
+  begin
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(PackageFile,zmRead);
+      if (Zip.FileCount<2) or (Zip.FileCount>1024) then raise Exception.Create('Некорректный пакет NuGet.');
+      var Index:=Zip.IndexOf(AssemblyName+'.nuspec');
+      if (Index<0) or (Zip.FileInfo[Index].UncompressedSize>131072) then raise Exception.Create('Нет описания официального пакета NuGet.');
+      Zip.Read(Index,Bytes); Text:=TEncoding.UTF8.GetString(Bytes);
+      if not Text.Contains('<id>'+AssemblyName+'</id>') or not Text.Contains('<version>'+Version+'</version>') then
+        raise Exception.Create('Версия или имя пакета NuGet не совпадает.');
+      Index:=Zip.IndexOf('lib/net462/'+AssemblyName+'.dll');
+      if (Index<0) or (Zip.FileInfo[Index].UncompressedSize>16*1024*1024) then
+        raise Exception.Create('Этот выпуск DocSharp не поддерживает встроенную читалку (.NET 4.6.2).');
+      Zip.Read(Index,Bytes); Source:=ChildPath(Stage,'tools/doc/'+AssemblyName+'.dll');
+      ForceDirectories(ExtractFileDir(Source)); TFile.WriteAllBytes(Source,Bytes); AddFile('tools/doc/'+AssemblyName+'.dll',Source);
+    finally Zip.Free; end;
+  end;
+  procedure RunBounded(const Tool: string; const Arguments: array of string);
+  begin
+    Log:=TStringStream.Create('',TEncoding.UTF8); Started:=GetTickCount64;
+    try
+      RunExternalToolToStream(Tool,Arguments,Log,
+        function: Boolean begin Result:=False; if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort; if GetTickCount64-Started>30000 then
+          raise Exception.Create('Подготовка официального компонента превысила 30 секунд.'); end,0,True,512*1024*1024);
+    finally Log.Free; end;
+  end;
+begin
+  if (ID='SQLite') or (ID='SumatraPDF') then
+  begin PrepareOfficialSimpleComponent(Archive,Job,ID,Version,Platform); Exit; end;
+  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') then
+    raise Exception.Create('Не найден официальный Windows-пакет этого компонента.');
+  AssertUpdatePath(Archive); AssertUpdatePath(Job); Stage:=ChildPath(Job,'payload');
+  if DirectoryExists(Stage) then raise Exception.Create('Папка обновления уже занята.');
+  RuntimePath:=AppPath; if RuntimePath='' then RuntimePath:=ExtractFilePath(ParamStr(0));
+  Manifest:=TJSONObject.Create;
+  try
+    Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',Version); Manifest.AddPair('platform',Platform);
+    Manifest.AddPair('component',ID); Manifest.AddPair('version',Version); Manifest.AddPair('official',TJSONBool.Create(True));
+    Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
+    if ID='DocSharp' then
+    begin
+      if SecondaryArchive='' then raise Exception.Create('Отсутствует второй пакет DocSharp.');
+      AssertUpdatePath(SecondaryArchive);
+      NuGetDLL(Archive,'DocSharp.Binary.Doc'); NuGetDLL(SecondaryArchive,'DocSharp.Binary.Common');
+      for var Name in ['HomeLibDoc.exe','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
+        AddFile('tools/doc/'+Name,TPath.Combine(RuntimePath,'tools/doc/'+Name));
+      Metadata:=TJSONObject.Create;
+      try
+        Metadata.AddPair('version',Version); Metadata.AddPair('upstream','https://github.com/manfromarce/DocSharp');
+        WriteJSON(ChildPath(Stage,'tools/doc/DOC_RUNTIME.json'),Metadata);
+      finally Metadata.Free; end;
+      AddFile('tools/doc/DOC_RUNTIME.json',ChildPath(Stage,'tools/doc/DOC_RUNTIME.json'));
+      // JIT of the retained converter catches incompatible public API before installation.
+      RunBounded(ChildPath(Stage,'tools/doc/HomeLibDoc.exe'),['--version']);
+    end
+    else
+    begin
+      Tools:=TPath.Combine(RuntimePath,'tools/7zip/7z.exe');
+      if not FileExists(Tools) then raise Exception.Create('В комплекте программы отсутствует распаковщик 7-Zip.');
+      Raw:=ChildPath(Job,'official-files'); ForceDirectories(Raw);
+      if ID='7-Zip' then Names:=TArray<string>.Create('7z.exe','7z.dll','License.txt')
+      else Names:=TArray<string>.Create('ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll','COPYING.txt');
+      var Arguments:=TArray<string>.Create('e',Archive,'-o'+Raw,'-y','-bd');
+      Arguments:=Arguments+Names;
+      // Extract selected members. The downloaded installer itself is never executed.
+      RunBounded(Tools,Arguments);
+      for var Name in Names do
+        if ID='7-Zip' then AddFile('tools/7zip/'+Name,ChildPath(Raw,Name))
+        else AddFile('tools/djvu/'+Name,ChildPath(Raw,Name));
+      if ID='DjVuLibre' then
+      begin
+        for var Name in ['COPYRIGHT','IJG-README.txt','LIBTIFF-COPYRIGHT.txt','ZLIB-README.txt'] do
+          AddFile('tools/djvu/'+Name,TPath.Combine(RuntimePath,'tools/djvu/'+Name));
+        if SecondaryArchive='' then raise Exception.Create('Нет соответствующего исходного кода DjVuLibre.');
+        AssertUpdatePath(SecondaryArchive);
+        AddFile('tools/djvu/djvulibre-'+Version+'.tar.gz',SecondaryArchive);
+        Metadata:=TJSONObject.Create; Hashes:=TJSONObject.Create;
+        try
+          Entry:=TJSONObject.Create; Entry.AddPair('version',Version); Entry.AddPair('files',Hashes); Metadata.AddPair('djvu',Entry);
+          for var Name in Names do Hashes.AddPair(Name,UpdateSHA256(ChildPath(Stage,'tools/djvu/'+Name)));
+          WriteJSON(ChildPath(Stage,'tools/djvu/RUNTIME.json'),Metadata);
+        finally Metadata.Free; end;
+        AddFile('tools/djvu/RUNTIME.json',ChildPath(Stage,'tools/djvu/RUNTIME.json'));
+        var Probe:=ChildPath(Job,'decoder-probe'); ForceDirectories(Probe);
+        for var Name in ['libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll'] do
+          TFile.Copy(ChildPath(Stage,'tools/djvu/'+Name),ChildPath(Probe,Name),False);
+        TFile.Copy(TPath.Combine(RuntimePath,'tools/djvu/HomeLibDjvu.exe'),ChildPath(Probe,'HomeLibDjvu.exe'),False);
+        RunBounded(ChildPath(Probe,'HomeLibDjvu.exe'),['--self-test']);
+      end;
+    end;
+    ManifestFiles(Manifest); VerifyPreparedProgramUpdateIdentity(Manifest,Stage,Version,Platform);
+    WriteJSON(ChildPath(Job,'manifest.json'),Manifest);
+  finally Manifest.Free; end;
 end;
 
 function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;

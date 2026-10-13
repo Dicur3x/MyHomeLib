@@ -7,6 +7,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   Winapi.Windows, Winapi.Messages, System.Net.HttpClient, System.Net.URLClient,
   unit_ProgramUpdates in '..\Units\unit_ProgramUpdates.pas',
   unit_ComponentUpdates in '..\Units\unit_ComponentUpdates.pas',
+  unit_ReaderFontDownloads in '..\Units\unit_ReaderFontDownloads.pas',
   unit_UpdateAuthenticity in '..\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas';
 
@@ -89,6 +90,19 @@ begin
         Writeln(Params.ToJSON);
       finally Params.Free; end;
     end
+    else if Mode='--font-download' then
+    begin
+      Guard(ParamStr(3));
+      if not DownloadReaderFontFamily(ParamStr(4),ParamStr(2),ParamStr(3),
+        function: Boolean begin Result:=ParamStr(5)='cancel'; end) then raise Exception.Create('Font download did not complete');
+      Writeln('PASS pinned font family cached');
+    end
+    else if Mode='--official-url' then
+    begin
+      if not IsOfficialComponentURL(ParamStr(2),ParamStr(3),ParamStr(4),ProgramUpdatePlatform,ParamStr(5)='secondary') then
+        raise Exception.Create('Foreign or malformed official URL');
+      Writeln('PASS official URL');
+    end
     else if Mode = '--sha3' then
     begin Guard(ParamStr(2)); Writeln(UpdateSHA3(ParamStr(2))); end
     else if Mode = '--signature' then
@@ -96,7 +110,8 @@ begin
     else if Mode = '--official-prepare' then
     begin
       Guard(ParamStr(2)); Guard(ParamStr(3));
-      PrepareOfficialComponent(ParamStr(2), ParamStr(3), ParamStr(4), ParamStr(5), ProgramUpdatePlatform);
+      Archive:=ParamStr(6); if Archive='-' then Archive:='';
+      PrepareOfficialComponent(ParamStr(2), ParamStr(3), ParamStr(4), ParamStr(5), ProgramUpdatePlatform,Archive,ParamStr(7));
     end
     else if (Mode = '--sqlite-parse') or (Mode = '--sumatra-parse') or (Mode = '--raster-parse') then
     begin
@@ -107,7 +122,7 @@ begin
       end
       else if Mode='--raster-parse' then
       begin
-        if not ParseRasterComponent(TFile.ReadAllText(ParamStr(2)),ParamStr(3),Info) or not Info.CheckOnly then
+        if not ParseRasterComponent(TFile.ReadAllText(ParamStr(2)),ParamStr(3),Info) then
           raise Exception.Create('Raster version check parse failed');
       end
       else if not ParseSumatraReleases(TFile.ReadAllText(ParamStr(2)), Info) then
@@ -187,11 +202,22 @@ begin
     begin
       Guard(ParamStr(2)); Guard(ParamStr(3)); RollbackProgramUpdate(ParamStr(2), ParamStr(3));
     end
-    else if Mode = '--download' then
+    else if (Mode = '--download') or (Mode = '--download-doc') then
     begin
       Job := ParamStr(6); Guard(Job);
-      Info := Default(TProgramRelease); Info.DownloadURL := ParamStr(2);
-      Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4); Info.Tag := ParamStr(5);
+      if Mode='--download-doc' then
+      begin
+        Guard(ExtractFilePath(ParamStr(0)));
+        if not ParseDocSharpVersions('{"versions":["'+ParamStr(2)+'"]}',
+          '{"versions":["'+ParamStr(2)+'"]}',Info) then raise Exception.Create('Official DOC pair metadata failed');
+        Info.SecondarySize:=StrToInt64(ParamStr(4)); Info.Size:=StrToInt64(ParamStr(3))+Info.SecondarySize;
+        if ParamStr(7)='--bad-second-size' then begin Inc(Info.SecondarySize); Inc(Info.Size); end;
+      end
+      else
+      begin
+        Info := Default(TProgramRelease); Info.DownloadURL := ParamStr(2);
+        Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4); Info.Tag := ParamStr(5);
+      end;
       Window := CreateWindowEx(0, 'STATIC', 'update test', 0, 0, 0, 0, 0, HWND_MESSAGE, 0, HInstance, nil);
       HTTP := THTTPClient.Create;
       HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');

@@ -7,7 +7,7 @@
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
-  unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
+  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
 
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
@@ -659,6 +659,81 @@ begin
     Writeln('PASS four bundled reading choices, 21 language samples, native glyphs, inline emphasis, RTL direction and Unicode copy; elapsed_ms=',Watch.ElapsedMilliseconds);
     Reader.Close;
   finally Reader.Free; end;
+end;
+
+procedure AuditOptionalFonts;
+var Reader: TfrmBuiltinReader; Offer: TPanel; Download, Later: TButton; LabelText: TLabel;
+  Watch: TStopwatch; Position: Integer; Source, Cache: string;
+  procedure FindOffer;
+  begin
+    Offer:=Reader.FindComponent('ReaderLanguageFonts') as TPanel;
+    Require(Assigned(Offer),'Language font offer was not created');
+    Download:=nil; Later:=nil; LabelText:=nil;
+    for var I:=0 to Offer.ControlCount-1 do
+      if Offer.Controls[I] is TButton then
+      begin
+        var B:=TButton(Offer.Controls[I]);
+        if B.Caption='Скачать' then Download:=B else if B.Caption='Позже' then Later:=B;
+      end
+      else if Offer.Controls[I] is TLabel then LabelText:=TLabel(Offer.Controls[I]);
+    Require(Assigned(Download) and Assigned(Later) and Assigned(LabelText),'Font offer buttons or explanation are missing');
+  end;
+begin
+  Cache:=ReaderFontCachePath;
+  Require(not ReaderFontFamilyCached('Noto Serif Bengali'),'Test needs an incomplete isolated font cache');
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('basic-fonts.txt','Basic languages','basic-fonts','font-offer.ini','pdfium.dll'); WaitReady(Reader);
+    Reader.SetTypography('PT Serif',110,32); Application.ProcessMessages; FindOffer;
+    Require(not Offer.Visible,'RU EN UK BE book incorrectly requests a font download');
+    Reader.Close;
+  finally Reader.Free; end;
+  if EnsureReaderFont('Noto Serif Armenian') then
+  begin
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.Show; Reader.OpenBook('existing-fonts.txt','Windows font','existing-fonts','font-offer.ini','pdfium.dll'); WaitReady(Reader);
+      Reader.SetTypography('PT Serif',110,32); Application.ProcessMessages; FindOffer;
+      Require(not Offer.Visible,'Font already available in Windows incorrectly requests a download'); Reader.Close;
+    finally Reader.Free; end;
+    Writeln('PASS an already available Windows script font does not request a download');
+  end;
+  // Production opens a fresh reader form for each book, with its own loader.
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('optional-fonts.txt','Bengali','optional-fonts','font-offer.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Pos('বাংলা',Reader.AllBookText)>0,'Optional-font fixture lost its Bengali text');
+    Require(Screen.Fonts.IndexOf('Noto Serif Bengali')<0,'Missing-font fixture is already installed in Windows');
+    FindOffer;
+    Reader.SetTypography('PT Serif',110,32); Application.ProcessMessages;
+    Require(Offer.Visible and (Pos('бенгальского',LabelText.Caption)>0) and ((Pos('КБ',LabelText.Caption)>0) or (Pos('МБ',LabelText.Caption)>0)),
+      'Missing-script offer has no language, size or visible controls: '+LabelText.Caption);
+    for var I:=1 to 10 do begin Reader.NextPage; Application.ProcessMessages; end;
+    Require(not ReaderFontFamilyCached('Noto Serif Bengali'),'Painting downloaded fonts without consent');
+    Require(Length(TDirectory.GetFiles(Cache,'*.ttf',TSearchOption.soAllDirectories))=1,'Reading or page turns downloaded font files');
+    Later.Click; Application.ProcessMessages; Require(not Offer.Visible,'Later did not dismiss the offer');
+    Reader.PreviousPage; Application.ProcessMessages; Require(not Offer.Visible,'Dismissed offer returns on every page');
+    Reader.Close;
+  finally Reader.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('optional-fonts.txt','Bengali','optional-fonts','font-offer.ini','pdfium.dll'); WaitReady(Reader);
+    Reader.SetTypography('PT Serif',110,32); Application.ProcessMessages; FindOffer;
+    Require(Offer.Visible,'A later book opening cannot retry the font offer');
+    Source:=Reader.AllBookText;
+    Reader.NextPage; Position:=Reader.TextPosition; Reader.SetTheme(4); Application.ProcessMessages;
+    Require(Offer.Color<>clWhite,'Language offer ignores dark reader theme');
+    Download.Click; Watch:=TStopwatch.StartNew;
+    while Offer.Visible and (Watch.ElapsedMilliseconds<60000) do
+    begin Sleep(10); Application.ProcessMessages; CheckSynchronize(1); end;
+    Require(not Offer.Visible,'Explicit font download did not complete: '+LabelText.Caption);
+    Require(ReaderFontFamilyCached('Noto Serif Bengali'),'Complete verified family was not cached');
+    Require(Reader.TextPosition=Position,'Font completion changed the reading position');
+    Require(Reader.AllBookText=Source,'Font completion changed book text');
+    Require(Screen.Fonts.IndexOf('Noto Serif Bengali')>=0,'Downloaded font was not privately registered');
+    Reader.Close;
+  finally Reader.Free; end;
+  Writeln('PASS optional fonts require explicit download, skip basic languages, retain position and text, retry after Later and cache a complete family');
 end;
 
 procedure AuditUnspacedHistory;
@@ -2151,6 +2226,7 @@ begin
     if ParamCount>0 then
     begin
       if ParamStr(1)='reader-colors' then AuditReaderColorBox
+      else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
       else if ParamStr(1)='footnotes' then AuditFootnotes
       else if ParamStr(1)='large-book' then AuditLargeBook
       else if ParamStr(1)='real-epub' then AuditRealEPUB
