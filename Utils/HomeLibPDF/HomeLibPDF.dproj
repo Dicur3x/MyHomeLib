@@ -1,0 +1,24 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{DC6E854C-1F15-4B1F-BF90-B922A871209D}</ProjectGuid>
+    <MainSource>HomeLibPDF.dpr</MainSource><ProjectVersion>20.3</ProjectVersion>
+    <ProjectName>HomeLibPDF</ProjectName><SanitizedProjectName>HomeLibPDF</SanitizedProjectName>
+    <Base>true</Base><Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform><TargetedPlatforms>3</TargetedPlatforms>
+    <AppType>Console</AppType><FrameworkType>VCL</FrameworkType>
+    <VerInfo_IncludeVerInfo>false</VerInfo_IncludeVerInfo>
+    <DCC_Namespace>Vcl;System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput><DCC_DcuOutput>Out\$(Platform)\dcu</DCC_DcuOutput>
+    <DCC_Optimize>true</DCC_Optimize><DCC_DebugInformation>0</DCC_DebugInformation>
+    <DCC_RangeChecking>true</DCC_RangeChecking><DCC_OverflowChecking>true</DCC_OverflowChecking>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent></PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
+    <BuildConfiguration Include="Release"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+  </ItemGroup>
+  <ProjectExtensions><Borland.Personality>Delphi.Personality.12</Borland.Personality><Borland.ProjectType>Console</Borland.ProjectType><BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject></ProjectExtensions>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+</Project>

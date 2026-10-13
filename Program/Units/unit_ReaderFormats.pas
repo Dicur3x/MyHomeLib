@@ -28,6 +28,7 @@ begin
   if IsBuiltinReaderFormat(Extension) then Exit('Можно читать во встроенной читалке');
   if InList(Extension,'|mobi|azw|azw3|prc|') then Exit('Встроенная читалка: после подготовки незашифрованной книги');
   if InList(Extension,'|djvu|djv|dju|djm|djvm|xps|oxps|chm|cbz|cbr|cb7|epub|pdf|') then Exit('Для чтения используйте SumatraPDF');
+  if InList(Extension,'|doc|dot|') then Exit('Можно читать во встроенной читалке');
   if IsOfficeReaderFormat(Extension) then Exit('Встроенная читалка: подготовка PDF через установленный LibreOffice');
   if InList(Extension,'|rgo|') then Exit('RepliGo: нужен просмотрщик этого старого формата');
   if InList(Extension,'|ibk|') then Exit('ICE Book Reader: собственный формат библиотеки');

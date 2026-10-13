@@ -13,6 +13,7 @@ const http = require("http");
 const marker = "HomeLib Ru isolated native regression v1";
 const [runtimeArg, genreArg, importArg, viewsArg] = process.argv.slice(2);
 const offlineOnly = process.argv.includes("--offline-only");
+const keepFixtures = process.argv.includes("--keep");
 const largeInpxArg = process.argv.find(arg => arg.startsWith("--large-inpx="));
 const onlineOnly = process.argv.includes("--online-only");
 const archiveOnly = process.argv.includes("--online-archive-only");
@@ -22,9 +23,12 @@ const auditCaseArg = process.argv.find(arg => arg.startsWith('--audit-case='));
 const viewsModeArg = process.argv.find(arg => arg.startsWith("--views-mode="));
 const amberArchiveArg = process.argv.find(arg => arg.startsWith("--amber-archive="));
 const previewBookArg = process.argv.find(arg => arg.startsWith("--preview-book="));
+const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixtures="));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 const visualCache = process.argv.includes("--visual-cache");
 const visualUI = process.argv.includes("--visual-ui");
+const visualUpdate = process.argv.includes("--visual-update");
+if (visualUpdate && viewsMode !== "program-update-ui") throw new Error("Visual update inspection requires --views-mode=program-update-ui");
 if (visualUI && viewsMode !== "oct11-ui") throw new Error("Visual theme inspection requires --views-mode=oct11-ui");
 if (visualCache && viewsMode !== "persistent-cache") throw new Error("Visual cache inspection requires --views-mode=persistent-cache");
 if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
@@ -49,7 +53,7 @@ if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
 const modes = ["series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
-if (viewsMode !== null && !modes.includes(viewsMode) && viewsMode !== 'cancel-interactive') throw new Error(`Unknown view scenario: ${viewsMode}`);
+if (viewsMode !== null && !modes.includes(viewsMode) && !['cancel-interactive','reader-filter'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
   "persistent-cache": ["PASS bounded persistent cache", "PASS cache menu and settings", "PASS delayed cursor status"],
   "feedback14": ["PASS visible-result series choices", "PASS optional publisher-series column", "PASS nested ZIP and standalone FBD", "PASS broken body Unicode"],
@@ -70,14 +74,15 @@ const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-
   "publisher-links": ["PASS flat publisher list ignores old grouping", "PASS publisher links keep current card"],
   "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
   "loose-archive": ["PASS loose archives open readable members", "PASS archive picker handles several books"],
-  "builtin-reader": ["PASS main built-in reader action opens selected book"],
+  "builtin-reader": ["PASS main built-in reader action opens selected book", "PASS malformed and canceled readers return"],
+  "reader-filter": ["PASS actual PDF DjVu EPUB TXT FB2 and DOC readers stay visible and avoid catalogue scans with filter on and off"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths", "PASS stable reader cache survives reimport", "PASS reader cache hit avoids source extraction"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "book-gallery": ["PASS gallery loads lazily in background", "PASS illustration preview arrows work and resized window position persists", "PASS changing books cancels old gallery", "PASS EPUB gallery leaves source unchanged"],
-  "catalog-sources": ["PASS multiple INPX sources keep separate roots", "PASS statistics count book records once"],
+  "catalog-sources": ["PASS multiple INPX sources keep separate roots", "PASS statistics count book records once", "PASS all sources participate without multiselect"],
   "book-information": ["PASS common book information loads real FLibrary biographies", "PASS review parser preserves Russian text"],
-  "collection-merge": ["PASS safe merge previews", "PASS optional copy merging verifies origin"],
-  "list-performance": ["PASS list profiling preserves", "PASS nested genre iterators retain independent membership", "PASS main window repaints while SQL runs and cancel is available"],
+  "collection-merge": ["PASS safe merge previews", "PASS optional copy merging verifies origin", "PASS merge preview reuses sparse target user snapshot"],
+  "list-performance": ["PASS list profiling preserves", "PASS nested genre iterators retain independent membership", "PASS main window repaints while SQL runs and cancel is available", "PASS filtered focused-book actions avoid repeated complete catalogue scans", "PASS no-focus and group-focus idle actions cache checks"],
   "column-filters": ["PASS column filters combine, survive regrouping, hide empty groups and mark only matching books", "PASS compact size popup converts fractional MB", "PASS per-column dialogs expose only their own loaded values"],
   "temp-exit-cleanup": ["PASS real main-form exit removes temporary converted copies"],
   "program-update-ui": ["PASS automatic update cycle waits for both responses", "PASS one-line update summaries combine all available components", "PASS new update default is three days and preserves explicit choices", "PASS update settings preserve never and custom hours", "PASS update popup shows installed version", "PASS dates and shared formatting", "PASS update notes retain nested SQLite", "PASS previous changelogs start collapsed", "PASS update window expands reading space", "PASS saved histories survive reopening", "PASS resized update window and text zoom", "PASS short release height stays compact", "PASS expanded old release ends directly after its text"],
@@ -89,7 +94,7 @@ function requiredPasses(executable, mode) {
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
-  if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields"];
+  if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields", "PASS current catalogs reopen without schema/data writes", "PASS metadata delta matches full writes", "PASS metadata delta preserves exact personal review prefix"];
   if (mode === "query-batch") return ["PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback"];
   if (path.basename(executable).toLowerCase() === "metabibimporttest.exe") return [
     "PASS production import registers", "PASS conflicting source import", "PASS production importer stops",
@@ -127,6 +132,8 @@ function stage(folder, executable) {
   // Icons and bundled genres contain no personal profiles or library databases.
   if (fs.existsSync(path.join(runtime, "Icons"))) copyDllTree(path.join(runtime, "Icons"), path.join(folder, "Icons"));
   for (const name of fs.readdirSync(runtime)) if (/^genres[^\\/]*\.glst$/i.test(name)) fs.copyFileSync(path.join(runtime, name), path.join(folder, name));
+  // The DOC component uses managed AnyCPU assemblies, all bundled and isolated.
+  if (fs.existsSync(path.join(runtime, 'tools', 'doc'))) fs.cpSync(path.join(runtime, 'tools', 'doc'), path.join(folder, 'tools', 'doc'), {recursive:true});
   fs.writeFileSync(path.join(folder, "uselocaldata"), "");
   fs.copyFileSync(path.resolve(__dirname, '../../../Installer/Components.json'), path.join(folder, 'COMPONENTS.json'));
   fs.writeFileSync(path.join(folder, "uselocaltemp"), "");
@@ -141,9 +148,26 @@ function run(executable, mode) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-"));
   const absolute = path.resolve(folder);
   const expectedRoot = path.resolve(os.tmpdir()) + path.sep;
+  const readonlyInputs = [];
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable);
+    if (mode === 'reader-filter') {
+      if (!readerFixturesArg) throw new Error('Reader filter test requires --reader-fixtures=<folder>');
+      const fixtureRoot = fs.realpathSync(readerFixturesArg.slice('--reader-fixtures='.length));
+      for (const name of ['reader-sky.pdf','reader-apple.djvu','reader-quixote.epub','reader-story.txt','reader-dome.fb2','reader-novel.doc']) {
+        const source=path.join(fixtureRoot,name);
+        readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+        fs.copyFileSync(source,path.join(folder,name));
+      }
+      for (const name of ['pdfium','djvu']) {
+        const source=path.join(runtime,'tools',name), target=path.join(folder,'tools',name);
+        fs.mkdirSync(target,{recursive:true});
+        for (const entry of fs.readdirSync(source,{withFileTypes:true})) {
+          if (entry.isFile() && /\.(dll|exe)$/i.test(entry.name)) fs.copyFileSync(path.join(source,entry.name),path.join(target,entry.name));
+        }
+      }
+    }
     if (mode === 'audit-new' && auditCaseArg === '--audit-case=legacy') {
       const legacy = path.join(folder, 'legacy-read'); fs.mkdirSync(legacy);
       fs.writeFileSync(path.join(legacy, 'personal.pdf'), 'personal preserved');
@@ -174,7 +198,7 @@ function run(executable, mode) {
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode,...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...((visualCache || visualUI) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualUI ? 900000 : visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache && !visualUI, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...((visualCache || visualUI || visualUpdate) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualUI || visualUpdate ? 900000 : visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache && !visualUI, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
@@ -182,9 +206,13 @@ function run(executable, mode) {
     for (const expected of requiredPasses(executable, mode)) {
       if (!output.includes(expected)) throw new Error(`Native test did not run required scenario (${expected}); reload and rebuild its DPR from disk.`);
     }
+    for (const [source,hash] of readonlyInputs) {
+      if (require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')!==hash) throw new Error('Readonly reader input was changed: '+source);
+    }
   } finally {
     // Only this process's verified, unique temporary runtime is removed.
-    if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
+    if (keepFixtures) console.log('RETAINED',absolute);
+    else if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
   }
 }
 async function runOnline(executable, mode) {

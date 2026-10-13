@@ -19,6 +19,12 @@ type
     GetBlock: TPDFGetBlock;
     Param: Pointer;
   end;
+  TPDFRasterCache = record
+    Pixels: TBytes;
+    Index, Width, Height: Integer;
+    Night: Boolean;
+    Used: UInt64;
+  end;
   // All PDFium calls run on the reader's UI thread. The backing stream lives
   // until CloseDocument; pages are rendered on demand, never indexed eagerly.
   TReaderPDF = class
@@ -28,6 +34,11 @@ type
     FDocument: Pointer;
     FCopyPage, FCopyText: Pointer;
     FCopyIndex: Integer;
+    FRasters: array[0..2] of TPDFRasterCache;
+    FRasterClock: UInt64;
+    FRenderCount: Integer;
+    function CachedRaster(Index, Width, Height: Integer; Night: Boolean): Integer;
+    procedure StoreRaster(Index, Width, Height: Integer; Night: Boolean; Pixels: Pointer);
     function SelectionPage(Index: Integer): Pointer;
     procedure CloseSelectionPage;
   protected
@@ -37,6 +48,10 @@ type
     constructor Create(const LibraryFile, FileName: string);
     destructor Destroy; override;
     function PageSize(Index: Integer): TPoint; virtual;
+    function AsyncPages: Boolean; virtual;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); virtual;
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; virtual;
+    procedure RenderPixels(Index, Width, Height: Integer; Pixels: Pointer);
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; virtual;
     function Chapters: TArray<TPDFChapter>; virtual;
     function DisplayName: string; virtual;
@@ -51,6 +66,7 @@ type
     function FindAllOnPage(Page: Integer; const Query: string; MatchCase,
       WholeWord: Boolean): TArray<TPDFMatch>; virtual;
     property PageCount: Integer read FPageCount;
+    property NativeRenderCount: Integer read FRenderCount;
   end;
 
 implementation
@@ -160,6 +176,32 @@ begin Result:='PDF'; end;
 function TReaderPDF.HasTextSearch: Boolean;
 begin Result:=True; end;
 
+function TReaderPDF.AsyncPages: Boolean;
+begin Result:=False; end;
+
+procedure TReaderPDF.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
+begin end;
+
+function TReaderPDF.IsPageCached(Index, MinEdge: Integer): Boolean;
+begin Result:=True; end;
+
+procedure TReaderPDF.RenderPixels(Index, Width, Height: Integer; Pixels: Pointer);
+var Page, Bitmap: Pointer;
+begin
+  if (Index<0) or (Index>=FPageCount) or (Pixels=nil) or (Width<=0) or (Height<=0) or
+    (Int64(Width)*Height>16000000) then raise ERangeError.Create('Некорректный размер страницы PDF.');
+  Page:=LoadPage(FDocument,Index);
+  if Page=nil then raise Exception.Create('Не удалось прочитать страницу PDF.');
+  try
+    Bitmap:=CreateBitmap(Width,Height,4,Pixels,Width*4);
+    if Bitmap=nil then raise Exception.Create('Недостаточно памяти для страницы PDF.');
+    try
+      FillBitmap(Bitmap,0,0,Width,Height,$FFFFFFFF);
+      RenderBitmap(Bitmap,Page,0,0,Width,Height,0,1); Inc(FRenderCount);
+    finally DestroyBitmap(Bitmap); end;
+  finally ClosePage(Page); end;
+end;
+
 constructor TReaderPDF.Create(const LibraryFile, FileName: string);
 begin
   inherited Create; FCopyIndex:=-1; LoadPDFLibrary(LibraryFile);
@@ -242,15 +284,46 @@ begin
   finally ClosePage(Page); end;
 end;
 
+function TReaderPDF.CachedRaster(Index, Width, Height: Integer; Night: Boolean): Integer;
+var I: Integer;
+begin
+  Result:=-1;
+  for I:=0 to High(FRasters) do
+    if (Length(FRasters[I].Pixels)>0) and (FRasters[I].Index=Index) and
+      (FRasters[I].Width=Width) and (FRasters[I].Height=Height) and
+      (FRasters[I].Night=Night) then
+    begin Inc(FRasterClock); FRasters[I].Used:=FRasterClock; Exit(I); end;
+end;
+
+procedure TReaderPDF.StoreRaster(Index, Width, Height: Integer; Night: Boolean; Pixels: Pointer);
+var I, Slot, Bytes: Integer;
+begin
+  // Three CPU buffers, each at most 16 MiB. No persistent GDI handles and no
+  // unbounded cache growth when the reader is resized or zoomed repeatedly.
+  if Int64(Width)*Height*4>16*1024*1024 then Exit;
+  Slot:=0;
+  for I:=0 to High(FRasters) do
+    if Length(FRasters[I].Pixels)=0 then begin Slot:=I; Break; end
+    else if FRasters[I].Used<FRasters[Slot].Used then Slot:=I;
+  Bytes:=Width*Height*4;
+  SetLength(FRasters[Slot].Pixels,Bytes); Move(Pixels^,FRasters[Slot].Pixels[0],Bytes);
+  FRasters[Slot].Index:=Index; FRasters[Slot].Width:=Width; FRasters[Slot].Height:=Height;
+  FRasters[Slot].Night:=Night; Inc(FRasterClock); FRasters[Slot].Used:=FRasterClock;
+end;
+
 function TReaderPDF.Render(Index, Width, Height: Integer; Night: Boolean): TBitmap;
-var Page, Bitmap: Pointer; Pixels: PByte; I: Integer;
+var Page, Bitmap: Pointer; Pixels: PByte; I, Cached: Integer;
   Info: TBitmapInfo; DIB: HBITMAP;
 begin
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы PDF вне диапазона.');
   if (Width<=0) or (Height<=0) or (Int64(Width)*Height>25000000) then
     raise ERangeError.Create('Слишком большой масштаб страницы PDF.');
-  Result:=nil; Page:=LoadPage(FDocument,Index);
-  if Page=nil then raise Exception.Create('Не удалось прочитать страницу PDF.');
+  Result:=nil; Page:=nil; Cached:=CachedRaster(Index,Width,Height,Night);
+  if Cached<0 then
+  begin
+    Page:=LoadPage(FDocument,Index);
+    if Page=nil then raise Exception.Create('Не удалось прочитать страницу PDF.');
+  end;
   try
     // PDFium needs a nonnegative stride. A top-down DIB lets it render into
     // the VCL bitmap itself, without a second full-page pixel allocation.
@@ -269,11 +342,13 @@ begin
       Result:=TBitmap.Create;
       Result.Handle:=DIB; DIB:=0; // TBitmap owns the DIB from this point.
       GdiFlush;
+      if Cached>=0 then
+      begin Move(FRasters[Cached].Pixels[0],Pixels^,Width*Height*4); Exit; end;
       Bitmap:=CreateBitmap(Width,Height,4,Pixels,Width*4);
       if Bitmap=nil then raise Exception.Create('Недостаточно памяти для страницы PDF.');
       try
         FillBitmap(Bitmap,0,0,Width,Height,$FFFFFFFF);
-        RenderBitmap(Bitmap,Page,0,0,Width,Height,0,1);
+        RenderBitmap(Bitmap,Page,0,0,Width,Height,0,1); Inc(FRenderCount);
         // Only the disposable page raster changes; the source remains intact.
         if Night then
           for I:=0 to Width*Height-1 do
@@ -283,11 +358,12 @@ begin
             Pixels[I*4+2]:=34+(255-Pixels[I*4+2])*186 div 255;
           end;
       finally DestroyBitmap(Bitmap); end;
+      StoreRaster(Index,Width,Height,Night,Pixels);
     except
       if DIB<>0 then DeleteObject(DIB);
       FreeAndNil(Result); raise;
     end;
-  finally ClosePage(Page); end;
+  finally if Page<>nil then ClosePage(Page); end;
 end;
 
 function TReaderPDF.Chapters: TArray<TPDFChapter>;

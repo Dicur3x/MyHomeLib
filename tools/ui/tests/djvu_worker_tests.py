@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image,ImageChops,ImageStat
 
 p=argparse.ArgumentParser();p.add_argument('runtime',type=pathlib.Path);p.add_argument('book',type=pathlib.Path)
+p.add_argument('--blank-page',type=int,help='One-based known blank page; compare it independently with ddjvu')
 a=p.parse_args();runtime=a.runtime.resolve();book=a.book.resolve();source_hash=hashlib.sha256(book.read_bytes()).hexdigest()
 magic=0x48444a31
 
@@ -42,18 +43,20 @@ with tempfile.TemporaryDirectory(prefix='HomeLibRu-djvu-test-') as folder:
         w.send(2,-1);assert w.reply()[0]==1
         for index in list(range(min(20,count)))+list(range(min(20,count)-1,-1,-1)):
             started=time.perf_counter();w.send(2,index);status,x,y,c,error=w.reply()
-            assert status==0 and c==count and 0<x<=4000 and 0<y<=4000,error
+            assert status==0 and c==count and 0<x<=4000 and 0<y<=4000,(index+1,error)
             pixels=w.buffer[:x*y*4];assert all(alpha==255 for alpha in pixels[3::4096])
             timings.append(round((time.perf_counter()-started)*1000,2))
-            if index==2:
+            if index==2 or (a.blank_page is not None and index==a.blank_page-1):
                 native=Image.frombytes('RGB',(x,y),pixels,'raw','BGRX')
                 reference=folder/'reference.tiff'
-                subprocess.run([str(runtime/'ddjvu.exe'),'-format=tiff','-quality=uncompressed','-page=3',f'-size={x}x{y}',str(copy),str(reference)],
+                subprocess.run([str(runtime/'ddjvu.exe'),'-format=tiff','-quality=uncompressed',f'-page={index+1}',f'-size={x}x{y}',str(copy),str(reference)],
                     check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=35,creationflags=subprocess.CREATE_NO_WINDOW)
                 with Image.open(reference) as expected:
                     expected=expected.convert('RGB').resize(native.size)
                     mean=ImageStat.Stat(ImageChops.difference(native,expected)).mean
                     assert max(mean)<5,('native orientation/colour differs from official CLI',mean)
+                    if a.blank_page is not None and index==a.blank_page-1:
+                        assert native.getextrema()==((255,255),(255,255),(255,255)),('blank page contains stale pixels',index+1)
         for edge in (1200,1800,4000):
             w.send(2,2,edge=edge);status,x,y,c,error=w.reply()
             assert status==0 and max(x,y)<=edge,error
@@ -72,11 +75,14 @@ with tempfile.TemporaryDirectory(prefix='HomeLibRu-djvu-test-') as folder:
         print('PASS Unicode paths, bounds, recovery from invalid page, opaque BGRA and orientation/colour vs official renderer')
         print(json.dumps({'pages':len(timings),'mean_ms':round(sum(timings)/len(timings),2),'max_ms':max(timings)}))
     finally:w.close()
-    bad=folder/'broken.djvu';bad.write_bytes(b'not a djvu')
-    w=Worker()
-    try:
-        w.send(1,text=str(bad));assert w.reply()[0]==1
-    finally:w.close()
+    for payload in (b'not a djvu',copy.read_bytes()[:32]):
+        bad=folder/'broken.djvu';bad.write_bytes(payload)
+        w=Worker()
+        try:
+            w.send(1,text=str(bad));assert w.reply()[0]==1
+            w.send(1,text=str(copy));assert w.reply()[0]==0
+            w.send(2,2,edge=1200);assert w.reply()[0]==0
+        finally:w.close()
     print('PASS broken document returns an error and exits without a dialog')
     for cycle in range(12):
         w=Worker()

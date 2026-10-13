@@ -7,7 +7,7 @@
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
-  unit_ReaderFormats, unit_ReaderRaster, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
+  unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
 
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
@@ -298,7 +298,7 @@ begin
   Result:=nil;
   for I:=0 to Control.ControlCount-1 do
   begin
-    if (Control.Controls[I] is TComboBox) and (Control.Controls[I].Hint='Содержание книги') then Exit(TComboBox(Control.Controls[I]));
+    if (Control.Controls[I] is TComboBox) and (Control.Controls[I].Name='ReaderChapterSelector') then Exit(TComboBox(Control.Controls[I]));
     if Control.Controls[I] is TWinControl then
     begin
       Result:=ChapterSelector(TWinControl(Control.Controls[I]));
@@ -936,6 +936,19 @@ begin
           Require(InitialBuffer.SelAttributes.Size=Reader.ReaderFontSize,'Initial-letter formatting leaks into paragraph');
         end;
       Require(ParagraphInitialCount>5,'Paragraph initial ranges are missing');
+      Reader.SetBookFormatting(False);
+      for Range in ParagraphDocument.Styles do
+        if Range.Kind in [rbInitial,rbParagraphInitial] then
+        begin
+          Reader.GoToPosition(Range.Start);
+          InitialBuffer.SelStart:=Range.Start; InitialBuffer.SelLength:=1;
+          Require(InitialBuffer.SelAttributes.Size>Reader.ReaderFontSize,'Disabling book formatting suppressed independently enabled initials');
+        end;
+      Reader.SetInitialsMode(rimNone); Reader.GoToPosition(InitialStart);
+      InitialBuffer.SelStart:=InitialStart; InitialBuffer.SelLength:=1;
+      Require(InitialBuffer.SelAttributes.Size=Reader.ReaderFontSize,'Disabled plain-mode initial remains enlarged');
+      Reader.SetBookFormatting(True); Reader.SetInitialsMode(rimParagraph);
+      Writeln('PASS paragraph initials remain independent of book formatting');
       Reader.SetInitialsMode(rimChapter);
       for Range in ParagraphDocument.Styles do
         if Range.Kind=rbParagraphInitial then
@@ -1036,10 +1049,10 @@ begin
     Reader.SetInspectionPercent(300); Reader.ToggleInspection(Pan.X+Size.X div 2,Pan.Y+Size.Y div 2);
     Require(Reader.Inspecting and (Reader.PDFZoom=300),'300 percent inspection ignored'); Reader.EndInspection;
     Require((Reader.PDFZoom=100) and (Reader.PDFPan=Pan) and (Reader.PageRasterSize=Size),'Inspection did not restore fitted page');
-    Reader.NextPage; Require(Reader.PDFPageHasText,'Copyable PDF page not detected');
+    Reader.NextPage; WaitPage(Reader); Require(Reader.PDFPageHasText,'Copyable PDF page not detected');
     Reader.SelectPDFText(0,6); Require(Reader.PDFSelectedText='Needle','PDF selection text incorrect');
     Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]); Require((Key=0) and (ReadClipboardText='Needle'),'Ctrl+C did not copy selected PDF text');
-    Reader.NextPage; Require(not Reader.PDFPageHasText and (Reader.PDFSelectedText=''),'PDF selection leaked to another page');
+    Reader.NextPage; Require(Reader.PDFSelectedText='','Pending PDF navigation retained selection'); WaitPage(Reader); Require(not Reader.PDFPageHasText and (Reader.PDFSelectedText=''),'PDF selection leaked to another page');
     Reader.ChangeSize(5); Require(Reader.PDFZoom=150,'Manual PDF zoom incorrect'); Reader.Close;
   finally Reader.Free; end;
   Reader:=TfrmBuiltinReader.Create(nil);
@@ -1143,6 +1156,80 @@ begin
   end;
 end;
 
+procedure AuditSelectionContrast;
+var Reader: TfrmBuiltinReader; Before, After: TBitmap; Theme: Integer; Prefix: string; GDI, RedrawGDI, UserBaseline, WarmUserPeak: Cardinal; FormsBaseline: Integer;
+begin
+  GDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
+  Reader:=TfrmBuiltinReader.Create(nil); Before:=TBitmap.Create; After:=TBitmap.Create;
+  try
+    Reader.Show; Reader.OpenBook('search.pdf','Selection contrast','selection-contrast','selection-contrast.ini','pdfium.dll'); WaitReady(Reader);
+    for Theme in [0,4] do
+    begin
+      Reader.SetTheme(Theme); WaitPage(Reader);
+      Prefix:='selection-contrast-'+IntToStr(Theme);
+      Reader.SetSelectionEnabled(False); Reader.SetSelectionEnabled(True);
+      Before.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+      Reader.ReadingSurface.PaintTo(Before.Canvas.Handle,0,0); Before.SaveToFile(Prefix+'-before.bmp');
+      Reader.SelectPDFText(0,28);
+      Require(Reader.PDFSelectedText='Needle needle NEEDLE needled','PDF selected quote changed');
+      After.SetSize(Before.Width,Before.Height);
+      Reader.ReadingSurface.PaintTo(After.Canvas.Handle,0,0); After.SaveToFile(Prefix+'-after.bmp');
+      RedrawGDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
+      for var I:=1 to 80 do
+      begin
+        Reader.SelectPDFText(0,28); Reader.ReadingSurface.PaintTo(After.Canvas.Handle,0,0);
+        Require(Reader.PDFSelectedText='Needle needle NEEDLE needled','Repeated selection corrupted PDF text');
+      end;
+      Writeln('PROFILE selection theme=',Theme,' GDI before=',RedrawGDI,' after=',GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS));
+      Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=RedrawGDI,'PDF repeated selection redraws leaked drawing objects');
+    end;
+    Reader.Close;
+  finally After.Free; Before.Free; Reader.Free; end;
+  DrainReaderCleanup;
+  Writeln('PROFILE selection closed GDI before=',GDI,' after=',GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS));
+  GdiFlush;
+  // VCL retains process-wide fonts on first use. Compare subsequent complete
+  // reader lifecycles after that initialization, as well as every redraw loop.
+  GDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
+  UserBaseline:=GetGuiResources(GetCurrentProcess,GR_USEROBJECTS); WarmUserPeak:=UserBaseline; FormsBaseline:=Screen.FormCount; LogReaderWindows;
+  for var Round:=1 to 384 do
+  begin
+    Reader:=TfrmBuiltinReader.Create(nil); After:=TBitmap.Create;
+    try
+      Reader.Show; Reader.OpenBook('search.pdf','Selection contrast','selection-contrast','selection-contrast.ini','pdfium.dll'); WaitReady(Reader);
+      for Theme in [0,4] do
+      begin
+        Reader.SetTheme(Theme); WaitPage(Reader);
+        After.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+        Reader.SelectPDFText(0,28); Reader.ReadingSurface.PaintTo(After.Canvas.Handle,0,0);
+        Require(Reader.PDFSelectedText='Needle needle NEEDLE needled','Reopened PDF selection lost quote');
+      end;
+      Reader.Close;
+    finally After.Free; Reader.Free; end;
+    Application.ProcessMessages;
+    if Round<=288 then WarmUserPeak:=Max(WarmUserPeak,GetGuiResources(GetCurrentProcess,GR_USEROBJECTS));
+    if Round=288 then
+    begin
+      DrainReaderCleanup;
+      Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=UserBaseline+64,'PDF reader window warm-up exceeded bounded cache budget');
+      GDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
+      // IME/message-window cache release can lower an instantaneous sample.
+      // Use the maximum CLOSED-reader sample during warm-up as the bound;
+      // the following 96 complete opens must not grow beyond that +2 budget.
+      UserBaseline:=WarmUserPeak; LogReaderWindows;
+      Writeln('PROFILE selection warm USER high-water=',UserBaseline);
+    end;
+    Require(Screen.FormCount=FormsBaseline,'PDF reader left an orphan form');
+    if (Round mod 16)=0 then
+      Writeln('PROFILE selection lifecycle=',Round,' GDI=',GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS),' USER=',GetGuiResources(GetCurrentProcess,GR_USEROBJECTS));
+  end;
+  DrainReaderCleanup;
+  Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=GDI+2,'PDF selection reader lifecycle leaked drawing objects');
+  LogReaderWindows;
+  Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=UserBaseline+2,'PDF selection reader lifecycle leaked windows');
+  Writeln('PASS PDF selection contrast images, exact quote and repeated light/dark redraw resource cleanup');
+end;
+
 procedure AuditContentsAndProgress;
 var Reader: TfrmBuiltinReader; Key: Word; XML: string; Before: Cardinal;
 begin
@@ -1163,13 +1250,15 @@ begin
     Before:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
     TThread.ForceQueue(nil,
       procedure
-      var Popup: TForm; C: TComponent; List: TListBox; Search: TEdit;
+      var Popup: TForm; C: TComponent; Outline: TTreeView; Search: TEdit;
       begin
-        Popup:=Screen.ActiveForm; List:=nil; Search:=nil;
+        Popup:=Screen.ActiveForm; Outline:=nil; Search:=nil;
         Require((Popup.Caption='Оглавление') and (Popup.BorderStyle=bsSizeable),'Contents is not a resizable dialog');
         for C in Popup do
-        begin if C is TListBox then List:=TListBox(C); if C is TEdit then Search:=TEdit(C); end;
-        Require(Assigned(List) and Assigned(Search) and (List.Items.Count=4),'Contents list or search is missing');
+        begin if C is TTreeView then Outline:=TTreeView(C); if C is TEdit then Search:=TEdit(C); end;
+        Require(Assigned(Outline) and Assigned(Search) and (Outline.Items.Count=4),'Contents tree or search is missing');
+        Require((Outline.Items[2].Parent=Outline.Items[1]) and (Outline.Items[1].Parent=Outline.Items[0]),'Contents chapters lost their real hierarchy');
+        for var N in Outline.Items do Require(not string(N.Text).Contains(' › '),'Contents repeats the complete parent path on each row');
         for var DPI in TArray<Integer>.Create(96,120,144,192) do
         begin
           Popup.ScaleForPPI(DPI); Popup.ClientWidth:=MulDiv(520,DPI,96); Popup.ClientHeight:=MulDiv(540,DPI,96);
@@ -1179,14 +1268,35 @@ begin
             Require((B.Left>=0) and (B.Top>=0) and (B.Left+B.Width<=B.Parent.ClientWidth) and
               (B.Top+B.Height<=B.Parent.ClientHeight),'Contents button is cropped at '+IntToStr(DPI)+' DPI');
           end;
-          var Height:=List.Height; Popup.ClientHeight:=Popup.ClientHeight+MulDiv(100,DPI,96);
-          Require(List.Height>Height,'Contents window growth did not enlarge its chapter list');
+          var Height:=Outline.Height; Popup.ClientHeight:=Popup.ClientHeight+MulDiv(100,DPI,96);
+          Require(Outline.Height>Height,'Contents window growth did not enlarge its chapter tree');
         end;
-        Search.Text:='барби'; Require((List.Items.Count=1) and string(List.Items[0]).Contains('Барби'),'Contents search lost Cyrillic or target chapter');
-        List.ItemIndex:=0; Popup.ModalResult:=mrOk;
+        Search.Text:='барби'; Require((Outline.Items.Count=3) and Assigned(Outline.Selected) and string(Outline.Selected.Text).Contains('Барби'),'Contents search lost its chapter or parent context');
+        Require(Outline.Selected.Parent.Expanded,'Search leaves the matching chapter collapsed');
+        Popup.ModalResult:=mrOk;
       end);
     Key:=Ord('T'); Reader.OnKeyDown(Reader,Key,[ssCtrl]);
     Require(Reader.PageText.Contains('Барби') and (Reader.TextPosition>0),'Contents selection did not navigate to the chapter');
+    var Selector:=ChapterSelector(Reader);
+    Require(Assigned(Selector),'Chapter header is missing');
+    Require(Selector.Hint=Reader.ChapterTitle(Selector.ItemIndex),'Compact chapter header lost full parent context');
+    for var OpenMessage in TArray<Integer>.Create(CB_SHOWDROPDOWN,WM_LBUTTONDOWN,WM_KEYDOWN) do
+    begin
+      TThread.ForceQueue(nil,
+        procedure
+        var Popup: TForm; Tree: TTreeView;
+        begin
+          Popup:=Screen.ActiveForm; Tree:=nil;
+          for var C in Popup do if C is TTreeView then Tree:=TTreeView(C);
+          Require((Popup.Caption='Оглавление') and Assigned(Tree),'Chapter header still opens a flat native list');
+          Require((Tree.Items.Count=4) and Assigned(Tree.Selected) and (NativeInt(Tree.Selected.Data)=Selector.ItemIndex),'Header tree lost current chapter');
+          Popup.ModalResult:=mrCancel;
+        end);
+      if OpenMessage=WM_KEYDOWN then Selector.Perform(OpenMessage,VK_F4,0)
+      else Selector.Perform(OpenMessage,1,0);
+      Require(not Selector.DroppedDown,'A native flat dropdown appeared after the tree closed');
+    end;
+    Writeln('PASS chapter header mouse arrow and F4 open the same hierarchy with current branch and full context');
     Require(Reader.ReadingProgress>0,'Progress did not follow chapter navigation');
     Reader.GoToPosition(Reader.TextLength-1); Require(Reader.ReadingProgress=1,'Final page does not complete progress');
     Reader.GoToPosition(0); Require(Reader.ReadingProgress=0,'Returning to the beginning leaves stale progress');
@@ -1236,6 +1346,373 @@ end;
     else begin TitleBox.Text:='Моя мысль — ё'; TextBox.Text:='Первая строка'+sLineBreak+'Вторая строка'; end;
     Editor.ModalResult:=mrOk;
   end;
+procedure AuditDirectDOC;
+var Source, Hash, Prepared, Cached, Expected, Actual, Stage: string;
+  Watch: TStopwatch; Reader: TfrmBuiltinReader; Document: TReaderDocument;
+  Worker: TThread; Done: TEvent; ErrorText: string; LongestDispatch: Int64;
+  function Compact(const Text: string): string;
+  var Builder: TStringBuilder; Ch: Char;
+  begin
+    Builder:=TStringBuilder.Create;
+    try
+      for Ch in Text do if not TCharacter.IsWhiteSpace(Ch) and (Ord(Ch)>=32) then Builder.Append(Ch);
+      Result:=Builder.ToString;
+    finally Builder.Free; end;
+  end;
+begin
+  Require(FindDirectDOCReader<>'','Bundled DOC helper is unavailable');
+  Application.CreateForm(TDMUser,DMUser); DMUser.Init;
+  Source:='doc-fixture.doc'; Hash:=THashSHA2.GetHashStringFromFile(Source);
+  Done:=TEvent.Create(nil,True,False,''); Prepared:=''; ErrorText:=''; LongestDispatch:=0;
+  Worker:=TThread.CreateAnonymousThread(
+    procedure
+    begin
+      try
+        try Prepared:=PrepareOfficeReaderFile(Source,Source);
+        except on E: Exception do ErrorText:=E.Message; end;
+      finally Done.SetEvent; end;
+    end);
+  Worker.FreeOnTerminate:=False;
+  try
+    Watch:=TStopwatch.StartNew; Worker.Start;
+    while Done.WaitFor(0)<>wrSignaled do
+    begin
+      var Tick:=TStopwatch.StartNew; Application.ProcessMessages; CheckSynchronize(1);
+      LongestDispatch:=Max(LongestDispatch,Tick.ElapsedMilliseconds);
+      if Watch.ElapsedMilliseconds>35000 then begin Worker.Terminate; raise Exception.Create('DOC preparation did not finish'); end;
+    end;
+    Worker.WaitFor; Require(ErrorText='','Direct DOC conversion failed: '+ErrorText);
+    Require(FileExists(Prepared) and SameText(ExtractFileExt(Prepared),'.docx'),'DOC did not use the reflow reader');
+    Writeln('PROFILE direct DOC first_prepare_ms=',Watch.ElapsedMilliseconds,' max_ui_dispatch_ms=',LongestDispatch); Flush(Output);
+    Require(LongestDispatch<150,'DOC helper freezes main UI');
+  finally Worker.Terminate; Worker.WaitFor; Worker.Free; Done.Free; end;
+  Stage:=''; Watch:=TStopwatch.StartNew;
+  Cached:=PrepareOfficeReaderFile(Source,Source,procedure(Value: string) begin Stage:=Value; end);
+  Require((Cached=Prepared) and Stage.Contains('из кэша'),'Repeated DOC preparation did not use the cache');
+  Require(Watch.ElapsedMilliseconds<500,'Cached DOC repeats conversion');
+  Writeln('PROFILE direct DOC cached_prepare_ms=',Watch.ElapsedMilliseconds);
+  Expected:=Compact(TFile.ReadAllText('doc-expected.txt',TEncoding.UTF8));
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(Prepared); Actual:=Compact(Document.PlainText);
+    Require(Actual=Expected,'DOC conversion changed body text compared with independent reference');
+  finally Document.Free; end;
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(PrepareOfficeReaderFile('styled-fixture.doc','styled-fixture.doc'));
+    Require((Length(Document.Chapters)=2) and (Document.Chapters[0].Title='Глава первая — Ёжик') and
+      (Document.Chapters[1].Depth=1),'DOC heading hierarchy was lost');
+    Require((Document.ImageCount=1) and (Document.SkippedImages=0),'DOC picture was lost: '+Document.Warnings.Text);
+    Require(Document.PlainText.Contains('Беларуская мова, Русский текст, English.') and
+      Document.PlainText.Contains('Текст после картинки — конец.'),'DOC text around image or Unicode was lost');
+    Require(string(Document.RTF).Contains('\b ') and string(Document.RTF).Contains('\i '),'DOC emphasis was lost');
+  finally Document.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Watch:=TStopwatch.StartNew;
+    Reader.OpenBook(Prepared,'Палыновы вецер','direct-doc','direct-doc.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Compact(Reader.BookText)=Expected,'Native DOC reading lost Unicode text');
+    Writeln('PROFILE direct DOC reader_open_ms=',Watch.ElapsedMilliseconds);
+    for var I:=1 to 20 do
+    begin
+      var Position:=Reader.TextPosition; Reader.NextPage;
+      Require(Reader.Visible and Reader.Ready and (Reader.TextPosition>Position),'DOC paging failed or hid reader');
+    end;
+    Reader.SetTheme(4); Reader.SetTheme(0); Reader.FindText('ПАЛЫНОВЫ');
+    Require(Reader.MatchPosition>=0,'DOC Unicode search failed');
+    Require(Compact(Reader.BookText)=Expected,'DOC navigation/theme changed source text');
+    Reader.Close;
+  finally Reader.Free; end;
+  try
+    PrepareDirectDOC(Source,Source,nil,function: Boolean begin Result:=True; end);
+    raise Exception.Create('Canceled DOC preparation succeeded');
+  except on E: EAbort do ; end;
+  TFile.WriteAllText('bad-doc.doc',StringOfChar('X',1024),TEncoding.UTF8);
+  try
+    PrepareDirectDOC('bad-doc.doc','bad-doc.doc');
+    raise Exception.Create('Broken DOC preparation succeeded');
+  except on E: Exception do Require(E.Message.Contains('Не удалось прочитать DOC'),'Broken DOC did not produce a useful message: '+E.Message); end;
+  Require(Hash=THashSHA2.GetHashStringFromFile(Source),'DOC original was changed');
+  Writeln('PASS bundled DOC reads exact Unicode body without Office, caches, searches, pages, cancels and preserves originals');
+end;
+
+procedure AuditRealTextSelection;
+var Reader: TfrmBuiltinReader; Painted: TBitmap; Surface: TWinControl;
+  FileName, BeforeHash, Text, Query: string; Left, Right, Top, Bottom, X,Y, Start, Finish: Integer; Key: Word;
+begin
+  for FileName in ['selection-real.fb2','selection-real.epub','selection-real.txt','selection-unicode.txt'] do
+  begin
+    BeforeHash:=THashSHA2.GetHashStringFromFile(FileName);
+    Reader:=TfrmBuiltinReader.Create(nil); Painted:=TBitmap.Create;
+    try
+      Reader.Show; Reader.OpenBook(FileName,FileName,FileName,'selection-real.ini','pdfium.dll'); WaitReady(Reader);
+      Require(Reader.SelectionEnabled,'Text selection is disabled by default: '+FileName);
+      Reader.SetTypography('Georgia',110,32); Reader.SetMaxTextWidth(960);
+      Text:=Reader.BookText;
+      if FileName='selection-unicode.txt' then Query:='😀'
+      else
+      begin
+        Start:=Min(1000,Length(Text)); Query:='';
+        while Start<Length(Text) do
+        begin
+          while (Start<Length(Text)) and not TCharacter.IsLetter(Text[Start]) do Inc(Start);
+          Finish:=Start; while (Finish<=Length(Text)) and TCharacter.IsLetter(Text[Finish]) do Inc(Finish);
+          if Finish-Start>=6 then begin Query:=Copy(Text,Start,Finish-Start); Break; end;
+          Start:=Finish+1;
+        end;
+      end;
+      Require(Query<>'','No bounded readable word in fixture: '+FileName);
+      for var Theme in [1,4] do
+      begin
+        Reader.SetTheme(Theme); Reader.SetHighlightColor(clLime); Reader.SetSearchOptions(True,False,False); Reader.FindText(Query);
+        Require(Reader.MatchPosition>=0,'Selection query is absent: '+FileName);
+        Surface:=Reader.ReadingSurface; Painted.SetSize(Surface.Width,Surface.Height);
+        Surface.PaintTo(Painted.Canvas.Handle,0,0);
+        Left:=Surface.Width; Right:=-1; Top:=Surface.Height; Bottom:=-1;
+        for Y:=0 to Surface.Height-1 do for X:=0 to Surface.Width-1 do
+          if ColorToRGB(Painted.Canvas.Pixels[X,Y])=ColorToRGB(clLime) then
+          begin Left:=Min(Left,X); Right:=Max(Right,X); Top:=Min(Top,Y); Bottom:=Max(Bottom,Y); end;
+        Require((Right>Left) and (Bottom>Top),'Search marker is absent from displayed page: '+FileName);
+        SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(Left-1,(Top+Bottom) div 2));
+        SendMessage(Surface.Handle,WM_MOUSEMOVE,MK_LBUTTON,MakeLParam(Right+1,(Top+Bottom) div 2));
+        SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(Right+1,(Top+Bottom) div 2));
+        Require(Reader.SelectedText=Query,'Visible quote differs from mouse selection: '+FileName+' expected=['+Query+'] got=['+Reader.SelectedText+']');
+        Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]);
+        Require(ReadClipboardText=Query,'Copy changed selected Unicode: '+FileName);
+        Require(Reader.BookText=Text,'Selection or theme changed original text: '+FileName);
+        Reader.NextPage; Require(Reader.SelectedText='','Selection leaked to next page: '+FileName);
+      end;
+      Reader.Close;
+    finally Painted.Free; Reader.Free; end;
+    Require(BeforeHash=THashSHA2.GetHashStringFromFile(FileName),'Selection changed source file: '+FileName);
+  end;
+  Writeln('PASS real FB2 EPUB TXT and emoji quotes match visible mouse selection in both themes and copy exact Unicode');
+end;
+
+procedure AuditSelectionGeometry;
+var Host: TForm; Source: TRichEdit; Hit: TReaderPageSelection; Stream: TStringStream;
+  Bitmap: Vcl.Graphics.TBitmap; Range: TFormatRange; Selection: TCharRange; Style: TCharFormat2;
+  Text: string; Start, Finish, Mark, DPI, X,Y, Left, Top, Right, Bottom, Index: Integer;
+  Bounds: TRect;
+begin
+  Host:=TForm.CreateNew(nil); Source:=TRichEdit.Create(Host); Hit:=nil; Bitmap:=Vcl.Graphics.TBitmap.Create;
+  try
+    Source.Parent:=Host; Source.Visible:=False; Source.StyleElements:=[];
+    Text:='{\rtf1\ansi\deff0{\fonttbl{\f0 Georgia;}}\pard\qj\fi600\f0\fs28 ';
+    for var WordIndex:=0 to 499 do Text:=Text+Format('word%.4d ',[WordIndex]);
+    Text:=Text+'\par}'; Stream:=TStringStream.Create(Text,TEncoding.ASCII);
+    try ReaderLoadRTF(Source,Stream); finally Stream.Free; end;
+    Hit:=TReaderPageSelection.Create(Host,Host); Start:=0;
+    for var PageIndex:=0 to 2 do
+    begin
+      Bitmap.SetSize(720,260); Bitmap.PixelFormat:=pf32bit;
+      DPI:=GetDeviceCaps(Bitmap.Canvas.Handle,LOGPIXELSY); Bounds:=Rect(32,20,688,240);
+      FillChar(Style,SizeOf(Style),0); Style.cbSize:=SizeOf(Style);
+      Style.dwMask:=CFM_COLOR; Style.dwEffects:=CFE_AUTOCOLOR;
+      SendMessage(Source.Handle,EM_SETCHARFORMAT,SCF_ALL,LPARAM(@Style));
+      FillChar(Range,SizeOf(Range),0); Range.hdc:=Bitmap.Canvas.Handle; Range.hdcTarget:=Range.hdc;
+      Range.rcPage:=Rect(0,0,MulDiv(Bitmap.Width,1440,DPI),MulDiv(Bitmap.Height,1440,DPI));
+      Range.rc:=Rect(MulDiv(Bounds.Left,1440,DPI),MulDiv(Bounds.Top,1440,DPI),
+        MulDiv(Bounds.Right,1440,DPI),MulDiv(Bounds.Bottom,1440,DPI));
+      Range.chrg.cpMin:=Start; Range.chrg.cpMax:=-1;
+      Bitmap.Canvas.Lock;
+      try
+        Range.hdc:=Bitmap.Canvas.Handle; Range.hdcTarget:=Range.hdc;
+        Finish:=SendMessage(Source.Handle,EM_FORMATRANGE,0,LPARAM(@Range));
+        SendMessage(Source.Handle,EM_FORMATRANGE,0,0);
+      finally Bitmap.Canvas.Unlock; end;
+      Require(Finish>Start+100,'Selection geometry fixture has too little visible text');
+      // Native renderer provides an independent marker for a visible character,
+      // including the first continued line and the last justified line.
+      for var ProbeIndex:=0 to 1 do
+      begin
+        if ProbeIndex=0 then Mark:=Start+6 else Mark:=Finish-12;
+        if ReaderTextRange(Source,Mark,1)=' ' then Inc(Mark);
+        Selection.cpMin:=Mark; Selection.cpMax:=Mark+1;
+        SendMessage(Source.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
+        Style.dwEffects:=0; Style.crTextColor:=RGB(0,255,0);
+        SendMessage(Source.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Style));
+        Bitmap.Canvas.Brush.Color:=clWhite; Bitmap.Canvas.FillRect(Rect(0,0,720,260));
+        Range.chrg.cpMin:=Start; Range.chrg.cpMax:=Finish;
+        Bitmap.Canvas.Lock;
+        try
+          Range.hdc:=Bitmap.Canvas.Handle; Range.hdcTarget:=Range.hdc;
+          Range.rc:=Rect(MulDiv(Bounds.Left,1440,DPI),MulDiv(Bounds.Top,1440,DPI),
+            MulDiv(Bounds.Right,1440,DPI),MulDiv(Bounds.Bottom,1440,DPI));
+          SendMessage(Source.Handle,EM_FORMATRANGE,1,LPARAM(@Range)); SendMessage(Source.Handle,EM_FORMATRANGE,0,0);
+        finally Bitmap.Canvas.Unlock; end;
+        Left:=720; Right:=-1; Top:=260; Bottom:=-1;
+        for Y:=Bounds.Top to Bounds.Bottom-1 do for X:=Bounds.Left to Bounds.Right-1 do
+          if ColorToRGB(Bitmap.Canvas.Pixels[X,Y])=RGB(0,255,0) then
+          begin Left:=Min(Left,X); Right:=Max(Right,X); Top:=Min(Top,Y); Bottom:=Max(Bottom,Y); end;
+        Bitmap.SaveToFile(Format('selection-geometry-%d-%d.bmp',[PageIndex,ProbeIndex]));
+        Require((Right>Left) and (Bottom>Top),'Native marker was not painted');
+        Hit.Prepare(Source,Start,Finish-Start,720,260,DPI,Bounds);
+        Index:=Hit.CharacterAt((Left+Right) div 2,(Top+Bottom) div 2);
+        Writeln('TRACE selection geometry page=',PageIndex,' probe=',ProbeIndex,' start=',Start,
+          ' mark=',Mark,' hit=',Index,' native=',Left,',',Top,'..',Right,',',Bottom);
+        Bitmap.SaveToFile(Format('selection-geometry-%d-%d.bmp',[PageIndex,ProbeIndex]));
+        Require((Index=Mark) or (Index=Mark+1),'Mouse hit test disagrees with the visible native character');
+        Style.dwEffects:=CFE_AUTOCOLOR;
+        SendMessage(Source.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Style));
+      end;
+      Start:=Finish; Hit.Clear;
+    end;
+  finally Hit.Free; Bitmap.Free; Host.Free; end;
+  Writeln('PASS text selection matches visible continued and justified native page lines');
+end;
+
+procedure AuditFailedReaderCleanup;
+var Reader: TfrmBuiltinReader; Watch: TStopwatch;
+begin
+  TFile.WriteAllText('failed-reader.fb2','<FictionBook><body><p>broken',TEncoding.UTF8);
+  for var Attempt:=1 to 8 do
+  begin
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.Show; Reader.OpenBook('failed-reader.fb2','Failed input','failed-reader','failed-reader.ini','pdfium.dll');
+      Watch:=TStopwatch.StartNew;
+      while not Reader.LoadFinished and (Watch.ElapsedMilliseconds<5000) do
+      begin Application.ProcessMessages; CheckSynchronize(1); end;
+      Require(Reader.LoadFinished and not Reader.Ready,'Malformed book has no controlled failure');
+      Reader.Close;
+    finally Reader.Free; end;
+    Application.ProcessMessages; CheckSynchronize(1);
+  end;
+  Writeln('PASS failed reader loads close cleanly and do not leave callbacks to freed forms');
+end;
+
+procedure AuditDirectTextSelection;
+var Reader: TfrmBuiltinReader; Surface: TWinControl; Key: Word; Fixture: string; I: Integer;
+begin
+  Fixture:='<FictionBook><body><section><title><p>Заголовок</p></title><p>Цитата для заметки. Следующее предложение.</p>';
+  for I:=1 to 30 do Fixture:=Fixture+'<p>Вторая строка текста. '+StringOfChar('Т',200)+'</p>';
+  TFile.WriteAllText('direct-selection.fb2',Fixture+'</section></body></FictionBook>',TEncoding.UTF8);
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.Show; Reader.OpenBook('direct-selection.fb2','Выделение','direct-selection','direct-selection.ini','pdfium.dll'); WaitReady(Reader);
+    Surface:=Reader.ReadingSurface;
+    // Select a visible line by real mouse messages, then use the normal copy command.
+    var Painted:=TBitmap.Create;
+    try
+      Painted.SetSize(Surface.Width,Surface.Height); Surface.PaintTo(Painted.Canvas.Handle,0,0); Painted.SaveToFile('direct-selection-before.bmp');
+    finally Painted.Free; end;
+    SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(56,170));
+    SendMessage(Surface.Handle,WM_MOUSEMOVE,MK_LBUTTON,MakeLParam(244,170));
+    SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(244,170));
+    Require(Reader.SelectedText<>'','Direct FB2 mouse selection is empty');
+    Require(Reader.SelectedText.StartsWith('Цитата для заметки.'),'Mouse selected a different visible line: '+Reader.SelectedText);
+    Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]);
+    Require(ReadClipboardText=Reader.SelectedText,'Ctrl+C copied page instead of selected FB2 quote');
+    Require(Reader.SelectedText.Length<Reader.PageText.Length,'Direct selection copied whole page');
+    Reader.NextPage; Require(Reader.SelectedText='','Text selection leaked into another page');
+    Reader.Close;
+  finally Reader.Free; end;
+  Writeln('PASS direct FB2 mouse selection copies chosen text and clears on page changes');
+end;
+
+procedure AuditFeedbackPDF;
+var PDF: TReaderPDF; Bitmap: TBitmap; Color: TColor; Count, I: Integer;
+  Reader: TfrmBuiltinReader; Surface: TWinControl; Size, Pan: TPoint; Watch: TStopwatch; X,Y: Integer; Step: string;
+begin
+  PDF:=TReaderPDF.Create('pdfium.dll','sample.pdf');
+  try
+    Bitmap:=PDF.Render(1,640,800);
+    try Color:=Bitmap.Canvas.Pixels[100,150]; Bitmap.Canvas.Pixels[100,150]:=clRed;
+    finally Bitmap.Free; end;
+    Count:=PDF.NativeRenderCount;
+    for I:=1 to 12 do
+    begin
+      Bitmap:=PDF.Render(1,640,800);
+      try Require(Bitmap.Canvas.Pixels[100,150]=Color,'PDF cache was modified by displayed bitmap');
+      finally Bitmap.Free; end;
+    end;
+    Require(PDF.NativeRenderCount=Count,'Same PDF page was decoded on every redraw');
+    Bitmap:=PDF.Render(1,640,800,True);
+    try Require(ColorToRGB(Bitmap.Canvas.Pixels[20,20])=$00222222,'PDF cache confused light and dark rasters');
+    finally Bitmap.Free; end;
+    if FileExists('feedback-sky.pdf') then
+    begin
+      PDF.Free; PDF:=nil; PDF:=TReaderPDF.Create('pdfium.dll','feedback-sky.pdf');
+      Bitmap:=PDF.Render(21,746,1100); Bitmap.Free; Count:=PDF.NativeRenderCount;
+      Watch:=TStopwatch.StartNew;
+      for I:=1 to 12 do begin Bitmap:=PDF.Render(21,746,1100); Bitmap.Free; end;
+      Require(PDF.NativeRenderCount=Count,'Actual scanned PDF raster was not reused');
+      Require(Watch.ElapsedMilliseconds<1000,'Cached scanned PDF still blocks repeated page display');
+      Writeln('PROFILE real scanned PDF 12 cached redraws_ms=',Watch.ElapsedMilliseconds);
+    end;
+  finally PDF.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    try
+    Step:='open scan';
+    Reader.Show; Reader.OpenBook('sample.pdf','Удержание масштаба','hold-feedback','hold-feedback.ini','pdfium.dll'); WaitReady(Reader);
+    Require(Reader.InspectionHold and Reader.SelectionEnabled,'New reader preferences are not enabled by default');
+    Surface:=Reader.ReadingSurface; Size:=Reader.PageRasterSize; Pan:=Reader.PDFPan;
+    X:=Pan.X+Size.X div 2; Y:=Pan.Y+Size.Y div 2;
+    Step:='press scan';
+    SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,Y));
+    Require(Reader.Inspecting,'Holding mouse did not zoom scanned page: '+Reader.ReaderStatus.Caption);
+    Step:='release outside';
+    SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(Surface.ClientWidth+20,Surface.ClientHeight+20));
+    Require(not Reader.Inspecting and (Reader.PageRasterSize=Size) and (Reader.PDFPan=Pan),'Release outside reader did not restore exact view');
+    Step:='press before losing capture';
+    SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,Y));
+    Step:='lose capture';
+    SendMessage(Surface.Handle,WM_CAPTURECHANGED,0,0);
+    Require(not Reader.Inspecting,'Lost mouse capture left held zoom active');
+    Step:='two-click inspection';
+    Reader.SetInspectionHold(False);
+    SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,Y));
+    SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(X,Y));
+    Require(Reader.Inspecting,'Optional two-click zoom ended on release');
+    SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,Y));
+    SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(X,Y));
+    Require(not Reader.Inspecting,'Optional second click did not restore view'); Reader.Close;
+    except on E: Exception do raise Exception.Create(Step+': '+E.ClassName+': '+E.Message); end;
+  finally Reader.Free; end;
+  Writeln('PASS PDF raster cache isolation, theme keys, hold/release, lost capture and two-click inspection');
+end;
+
+procedure AuditAsyncPDF;
+var Reader: TfrmBuiltinReader; Watch, Pump: TStopwatch; Maximum, OpenMS, JumpMS, I: Int64;
+  procedure FinishPage;
+  var Started: TStopwatch;
+  begin
+    Started:=TStopwatch.StartNew;
+    repeat
+      Pump:=TStopwatch.StartNew; Application.ProcessMessages;
+      Maximum:=Max(Maximum,Pump.ElapsedMilliseconds); CheckSynchronize(2);
+      Require(Started.ElapsedMilliseconds<15000,'Asynchronous PDF page never completed');
+    until Reader.LoadFinished and not Reader.PageLoading;
+    Require(not string(Reader.ReaderStatus.Caption).Contains('Не удалось'),'PDF page error: '+Reader.ReaderStatus.Caption);
+    Require(Reader.Visible,'Reader disappeared during page preparation');
+  end;
+begin
+  if not FileExists('feedback-sky.pdf') then Exit;
+  Reader:=TfrmBuiltinReader.Create(nil); Maximum:=0;
+  try
+    Reader.Show; Watch:=TStopwatch.StartNew;
+    Reader.OpenBook('feedback-sky.pdf','Фоновый PDF','async-pdf','async-pdf.ini','pdfium.dll');
+    OpenMS:=Watch.ElapsedMilliseconds;
+    Require(Reader.PageLoading,'Actual scanned PDF still renders synchronously');
+    FinishPage; Require(Reader.PageRasterSize.X>0,'Initial PDF page is empty');
+    Watch:=TStopwatch.StartNew; Reader.GoToPosition(21); JumpMS:=Watch.ElapsedMilliseconds;
+    Require(JumpMS<150,'Requesting an uncached PDF page blocks the UI'); FinishPage;
+    Require(Reader.TextPosition=21,'Random PDF jump opened the wrong page');
+    // Keep only the latest requested destination while a previous decode finishes.
+    for I:=2 to 17 do Reader.GoToPosition(I);
+    FinishPage; Require(Reader.TextPosition=17,'Rapid PDF navigation lost the final destination');
+    Reader.SetTheme(4); FinishPage;
+    Reader.SetTheme(0); FinishPage;
+    Require(Maximum<150,'PDF decoding still blocks message processing: '+IntToStr(Maximum));
+    Reader.GoToPosition(24); Watch:=TStopwatch.StartNew; Reader.Close; FreeAndNil(Reader);
+    Require(Watch.ElapsedMilliseconds<1000,'Closing during PDF decoding did not cancel promptly');
+    Writeln('PROFILE async scanned PDF open_request_ms=',OpenMS,' jump_request_ms=',JumpMS,' max_ui_dispatch_ms=',Maximum);
+  finally Reader.Free; end;
+  Writeln('PASS async PDF responsive UI, uncached jumps, final destination, themes and cancellation');
+end;
+
 procedure AuditNoteDialogs;
 var Reader: TfrmBuiltinReader; Store: TReaderAnnotations; Notes: TArray<TReaderAnnotation>;
   Ini: TMemIniFile;
@@ -1276,7 +1753,7 @@ begin
             Formats.ItemIndex:=1; Formats.OnChange(Formats); Require(Styles.Enabled and (Styles.Items.Count=4),'HTML styles unavailable');
             Exporter.ModalResult:=mrCancel;
           end);
-        NoteDialogButton(Manager,'Экспорт книги…').OnClick(NoteDialogButton(Manager,'Экспорт книги…'));
+        NoteDialogButton(Manager,'Экспорт заметок…').OnClick(NoteDialogButton(Manager,'Экспорт заметок…'));
         Manager.ModalResult:=mrCancel;
       end);
     NoteDialogButton(Reader,'Заметки').OnClick(nil); Reader.Close;
@@ -1288,7 +1765,7 @@ begin
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.Show; Reader.OpenBook('sample.pdf','PDF цитата','note-pdf','note-dialog.ini','pdfium.dll'); WaitReady(Reader);
-    Reader.NextPage; Reader.SelectPDFText(0,6);
+    Reader.NextPage; WaitPage(Reader); Reader.SelectPDFText(0,6);
     TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Reader,False,True); end);
     var Add: TMenuItem:=nil;
     for var I:=0 to TPaintBox(Reader.ReadingSurface).PopupMenu.Items.Count-1 do
@@ -1374,7 +1851,7 @@ begin
     Require(Reader.GlobalPaginationReady,'Global pagination did not complete through idle chunks');
     for var I:=0 to Starts.Count-1 do Require(Reader.GlobalPageAt(Starts[I])=I+1,'Global page count reset at chapter boundary');
     Reader.GoToPosition(0); Bar:=nil; for C in Reader do if C is TPaintBox then Bar:=TPaintBox(C);
-    Require(Assigned(Bar) and (Bar.Height>=8) and Assigned(Bar.OnMouseDown) and Assigned(Bar.OnMouseMove) and Assigned(Bar.OnMouseUp),'Progress bar has no click/drag navigation');
+    Require(Assigned(Bar) and (Bar.Height>=14) and Assigned(Bar.OnMouseDown) and Assigned(Bar.OnMouseMove) and Assigned(Bar.OnMouseUp),'Progress bar has no click/drag navigation');
     Bar.OnMouseDown(Bar,mbLeft,[],Bar.Width div 2,2); Require(Abs(Reader.TextPosition-Reader.TextLength div 2)<Reader.TextLength div 50,'Progress click missed midpoint');
     var At:=Reader.TextPosition; Watch:=TStopwatch.StartNew;
     for var I:=1 to 300 do Bar.OnMouseMove(Bar,[ssLeft],MulDiv(Bar.Width,I,300),2);
@@ -1677,8 +2154,13 @@ begin
       else if ParamStr(1)='footnotes' then AuditFootnotes
       else if ParamStr(1)='large-book' then AuditLargeBook
       else if ParamStr(1)='real-epub' then AuditRealEPUB
+      else if ParamStr(1)='doc-reader' then AuditDirectDOC
+      else if ParamStr(1)='text-selection' then AuditRealTextSelection
+      else if ParamStr(1)='selection-geometry' then begin AuditFailedReaderCleanup; AuditSelectionGeometry; end
+      else if ParamStr(1)='selection-contrast' then AuditSelectionContrast
       else if ParamStr(1)='unspaced-history' then AuditUnspacedHistory
-      else if ParamStr(1)='reader-note-ui' then AuditNoteDialogs
+      else if ParamStr(1)='reader-note-ui' then begin AuditNoteDialogs; AuditDirectTextSelection; end
+      else if ParamStr(1)='feedback16-reader' then begin AuditDirectTextSelection; AuditFeedbackPDF; AuditAsyncPDF; end
       else if ParamStr(1)='reader-additions' then begin AuditContentsAndProgress; AuditReaderNavigationAndNotes; end
       else if ParamStr(1)='oct11-reader' then begin AuditOctoberElevenReader; AuditContentsAndProgress; AuditSearchResults; AuditEPUBStyles; AuditReaderNavigationAndNotes; end
       else if ParamStr(1)='oct10-reader' then AuditOctoberReader

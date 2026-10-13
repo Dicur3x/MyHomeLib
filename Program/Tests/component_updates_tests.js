@@ -46,10 +46,10 @@ for(const [id,filename,version] of [['SQLite','sqlite-'+arch+'.zip','3.53.4'],['
   assert.deepEqual(fs.readFileSync(path.join(target,'HomeLibRu.exe')),bytes);pass('official '+id+' archive verifies identity and installs without changing application or history');
 }
 const checked=first(['--official-check']);assert.equal(checked[0],'SQLite');assert(checked[2].startsWith('https://www.sqlite.org/'));assert.equal(checked[4],'');
-assert.deepEqual(checked.slice(5,10),['','','',0,'']);
+assert.deepEqual(checked.slice(5,10),['AlReader','','',0,'']);
 assert.equal(checked[10],'SumatraPDF');assert(checked[12].startsWith('https://www.sumatrapdfreader.org/'));assert(checked[13]>0);assert.equal(checked[14],'');
 pass('real official checks query SQLite and SumatraPDF while skipping AlReader');
-assert.equal(checked.length,25);
+assert.equal(checked.length,30);
 assert.equal(checked[15],'DjVuLibre');assert.match(checked[16],/^3\.5\.\d+$/);
 assert(checked[17].startsWith('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'));
 assert.equal(checked[18],0);assert.equal(checked[19],'');
@@ -57,6 +57,11 @@ assert.equal(checked[20],'7-Zip');assert.match(checked[21],/^\d{2}\.\d{2}$/);
 assert.equal(checked[22],'https://www.7-zip.org/download.html');
 assert.equal(checked[23],0);assert.equal(checked[24],'');
 pass('real DjVuLibre Windows and 7-Zip checks report versions separately from installation');
+assert.equal(checked[25],'DocSharp');
+assert.match(checked[26],/^\d+\.\d+\.\d+$/);
+assert.equal(checked[27],'https://github.com/manfromarce/DocSharp/releases');
+assert.equal(checked[28],0);assert.equal(checked[29],'');
+pass('real DocSharp check reports the latest stable version shared by both bundled assemblies');
 const raster=path.join(root,'raster.json');
 fs.writeFileSync(raster,JSON.stringify({tag_name:'26.04',body:'Official release.',draft:false,prerelease:false}));
 assert.equal(first(['--raster-parse',raster,'7-Zip'])[0],'26.04');

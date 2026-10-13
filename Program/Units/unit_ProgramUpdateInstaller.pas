@@ -29,6 +29,7 @@ function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
 function UpdateFileVersion(const FileName: string): string;
 function CompareComponentVersions(const Left, Right: string; out Comparison: Integer): Boolean;
 function ComponentFileName(const ID: string): string;
+function InstalledComponentVersion(const AppPath, ID: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress = nil; FailAfter: Integer = -1);
@@ -54,6 +55,7 @@ begin
   if ID = 'SumatraPDF' then Result := 'Readers/SumatraPDF/SumatraPDF.exe';
   if ID = 'DjVuLibre' then Result := 'tools/djvu/djvused.exe';
   if ID = '7-Zip' then Result := 'tools/7zip/7z.exe';
+  if ID = 'DocSharp' then Result := 'tools/doc/DocSharp.Binary.Doc.dll';
 end;
 
 function SafeComponentFile(const ID, Name: string): Boolean;
@@ -62,6 +64,19 @@ begin
   Result := SafeUpdateName(Name);
   if not Result then Exit;
   if ID = 'SQLite' then Exit(Name = 'sqlite3.dll');
+  if ID='DocSharp' then Exit((Name='tools/doc/DocSharp.Binary.Doc.dll') or
+    (Name='tools/doc/DocSharp.Binary.Common.dll') or (Name='tools/doc/HomeLibDoc.exe') or
+    (Name='tools/doc/DOC_RUNTIME.json') or (Name='tools/doc/DocSharp-MIT.txt') or
+    (Name='tools/doc/b2xtranslator-BSD-3-Clause.txt') or (Name='tools/doc/HomeLibDoc-MIT.txt'));
+  if ID='7-Zip' then Exit((Name='tools/7zip/7z.exe') or (Name='tools/7zip/7z.dll') or
+    (Name='tools/7zip/License.txt'));
+  if ID='DjVuLibre' then Exit((Name='tools/djvu/ddjvu.exe') or (Name='tools/djvu/djvused.exe') or
+    (Name='tools/djvu/libdjvulibre.dll') or (Name='tools/djvu/libjpeg.dll') or
+    (Name='tools/djvu/libtiff.dll') or (Name='tools/djvu/libz.dll') or
+    (Name='tools/djvu/COPYING.txt') or (Name='tools/djvu/COPYRIGHT') or
+    (Name='tools/djvu/IJG-README.txt') or (Name='tools/djvu/LIBTIFF-COPYRIGHT.txt') or
+    (Name='tools/djvu/ZLIB-README.txt') or (Name='tools/djvu/RUNTIME.json') or
+    TRegEx.IsMatch(Name,'^tools/djvu/djvulibre-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$'));
   if ID = 'SumatraPDF' then
     Exit((Name = 'Readers/SumatraPDF/SumatraPDF.exe') or
       (Name = 'Readers/SumatraPDF/AUTHORS.txt') or
@@ -107,6 +122,36 @@ begin
      (Len >= SizeOf(TVSFixedFileInfo)) and (Fixed.dwSignature = $FEEF04BD) then
     Result := Format('%d.%d.%d.%d', [HiWord(Fixed.dwFileVersionMS), LoWord(Fixed.dwFileVersionMS),
       HiWord(Fixed.dwFileVersionLS), LoWord(Fixed.dwFileVersionLS)]);
+end;
+
+function InstalledComponentVersion(const AppPath, ID: string): string;
+var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
+  FileName, MetadataFile, Version, Hash: string; Comparison: Integer;
+begin
+  FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
+  Result:=UpdateFileVersion(FileName);
+  if ID='DocSharp' then
+  begin
+    if not FileExists(ExtractFilePath(FileName)+'HomeLibDoc.exe') or
+      not SameText(Result,UpdateFileVersion(ExtractFilePath(FileName)+'DocSharp.Binary.Common.dll')) then Result:='';
+  end;
+  if (ID<>'DjVuLibre') or (Result<>'') or not FileExists(FileName) then Exit;
+  Root:=nil;
+  try
+    try
+      MetadataFile:=ExtractFilePath(FileName)+'RUNTIME.json';
+      if not FileExists(MetadataFile) or (TFile.GetSize(MetadataFile)>65536) then Exit;
+      Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(MetadataFile,TEncoding.UTF8));
+      if (Root is TJSONObject) and TJSONObject(Root).TryGetValue<TJSONObject>('djvu',Metadata) and
+        Metadata.TryGetValue<string>('version',Version) and
+        CompareComponentVersions(Version,Version,Comparison) and Metadata.TryGetValue<TJSONObject>('files',Hashes) then
+      begin
+        HashValue:=Hashes.GetValue('djvused.exe');
+        if HashValue is TJSONString then
+        begin Hash:=HashValue.Value; if IsUpdateSHA256(Hash) and SameText(UpdateSHA256(FileName),Hash) then Result:=Version; end;
+      end;
+    except Result:=''; end;
+  finally Root.Free; end;
 end;
 
 function ProgramUpdatePlatform: string;
@@ -220,12 +265,33 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   Names: TDictionary<string, Boolean>; FileInfo: TUpdateFile; Total: Int64;
   Component, Version: string; Comparison: Integer;
   Bundle: TJSONArray; Part: TJSONValue; Allowed: Boolean; IDs: TDictionary<string, Boolean>;
+  procedure RequireMember(const Name: string);
+  begin
+    if not Names.ContainsKey(LowerCase(Name)) then
+      raise Exception.Create('В комплекте компонента отсутствует файл: '+Name);
+  end;
+  procedure RequireComponentMembers(const ID, Version: string);
+  begin
+    if ID='DocSharp' then
+      for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','HomeLibDoc.exe',
+        'DOC_RUNTIME.json','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
+        RequireMember('tools/doc/'+Name);
+    if ID='7-Zip' then
+      for var Name in ['7z.exe','7z.dll','License.txt'] do RequireMember('tools/7zip/'+Name);
+    if ID='DjVuLibre' then
+    begin
+      for var Name in ['ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll',
+        'COPYING.txt','COPYRIGHT','IJG-README.txt','LIBTIFF-COPYRIGHT.txt','ZLIB-README.txt','RUNTIME.json'] do
+        RequireMember('tools/djvu/'+Name);
+      RequireMember('tools/djvu/djvulibre-'+Version+'.tar.gz');
+    end;
+  end;
 begin
   Component := ''; Root.TryGetValue<string>('component', Component);
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 2) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 6) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -241,11 +307,11 @@ begin
   try
     if Assigned(Bundle) then
     begin
-      if (Bundle.Count < 1) or (Bundle.Count > 2) then raise Exception.Create('Некорректный пакет компонентов.');
+      if (Bundle.Count < 1) or (Bundle.Count > 6) then raise Exception.Create('Некорректный пакет компонентов.');
       for Part in Bundle do
       begin
         if not (Part is TJSONObject) or not TJSONObject(Part).TryGetValue<string>('component', Version) or
-           not ((Version = 'SQLite') or (Version = 'SumatraPDF')) or IDs.ContainsKey(Version) or
+           (ComponentFileName(Version)='') or IDs.ContainsKey(Version) or
            Assigned(TJSONObject(Part).GetValue('bundle')) then
           raise Exception.Create('Некорректный компонент пакета.');
         IDs.Add(Version, True);
@@ -288,7 +354,48 @@ begin
     if Assigned(Bundle) then for Part in Bundle do
       if not Names.ContainsKey(LowerCase(ComponentFileName(TJSONObject(Part).GetValue<string>('component')))) then
         raise Exception.Create('В пакете отсутствует файл компонента.');
+    if (Component<>'') and (Component<>'batch') then
+      RequireComponentMembers(Component,Root.GetValue<string>('version'));
+    if Assigned(Bundle) then for Part in Bundle do
+      RequireComponentMembers(TJSONObject(Part).GetValue<string>('component'),TJSONObject(Part).GetValue<string>('version'));
   finally IDs.Free; Names.Free; end;
+end;
+
+procedure VerifyManagedAnyCPU(const FileName: string);
+var Stream: TFileStream; PEOffset: Integer; Sections, OptionalSize, Magic: Word;
+  CLR, CLRSize, Flags, HeaderSize, VirtualAddress, RawSize, RawOffset: Cardinal;
+  Section: array[0..39] of Byte; Found: Boolean;
+begin
+  Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  try
+    if Stream.Size<64 then raise Exception.Create('Некорректная библиотека DOC.');
+    Stream.Position:=$3C; Stream.ReadBuffer(PEOffset,4);
+    if (PEOffset<64) or (Int64(PEOffset)+248>Stream.Size) then raise Exception.Create('Некорректная библиотека DOC.');
+    Stream.Position:=PEOffset+6; Stream.ReadBuffer(Sections,2);
+    Stream.Position:=PEOffset+20; Stream.ReadBuffer(OptionalSize,2);
+    Stream.Position:=PEOffset+24; Stream.ReadBuffer(Magic,2);
+    if (Magic<>$10B) or (OptionalSize<224) or (Sections<1) or (Sections>96) or
+      (Int64(PEOffset)+24+OptionalSize+Int64(Sections)*40>Stream.Size) then
+      raise Exception.Create('Библиотека DOC должна поддерживать обе разрядности Windows.');
+    Stream.Position:=PEOffset+24+96+14*8; Stream.ReadBuffer(CLR,4); Stream.ReadBuffer(CLRSize,4);
+    if (CLR=0) or (CLRSize<72) then raise Exception.Create('В библиотеке DOC нет управляемого кода.');
+    Found:=False;
+    for var I:=0 to Sections-1 do
+    begin
+      Stream.Position:=PEOffset+24+OptionalSize+I*40; Stream.ReadBuffer(Section,40);
+      Move(Section[12],VirtualAddress,4); Move(Section[16],RawSize,4); Move(Section[20],RawOffset,4);
+      if (CLR>=VirtualAddress) and (UInt64(CLR-VirtualAddress)+72<=RawSize) and
+        (UInt64(RawOffset)+CLR-VirtualAddress+72<=UInt64(Stream.Size)) then
+      begin
+        Stream.Position:=UInt64(RawOffset)+CLR-VirtualAddress; Stream.ReadBuffer(HeaderSize,4);
+        Stream.Position:=Stream.Position+12; Stream.ReadBuffer(Flags,4);
+        if (HeaderSize<72) or ((Flags and 1)=0) or ((Flags and $20002)<>0) then
+          raise Exception.Create('Библиотека DOC не поддерживает режим AnyCPU.');
+        Found:=True; Break;
+      end;
+    end;
+    if not Found then raise Exception.Create('Некорректный заголовок библиотеки DOC.');
+  finally Stream.Free; end;
 end;
 
 procedure VerifyUpdateExecutable(const FileName, Tag, Platform: string; Component: Boolean = False);
@@ -349,8 +456,28 @@ begin
       raise Exception.Create('Некорректное описание компонента.');
     Architecture := Platform;
     // AlReader's Windows edition is a 32-bit application in both distributions.
-    if Component = 'AlReader' then Architecture := 'Win32';
-    VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
+    if (Component='AlReader') or (Component='DocSharp') or (Component='DjVuLibre') then Architecture:='Win32';
+    if Component='DjVuLibre' then
+    begin
+      VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
+      if InstalledComponentVersion(Stage,Component)<>Version then
+        raise Exception.Create('Версия или контрольная сумма DjVuLibre не совпадает с описанием пакета.');
+      for var Name in ['ddjvu.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll'] do
+        VerifyUpdateExecutable(ChildPath(Stage,'tools/djvu/'+Name),'',Architecture,True);
+    end
+    else VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
+    if Component='DocSharp' then
+    begin
+      for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','HomeLibDoc.exe'] do
+      begin
+        VerifyManagedAnyCPU(ChildPath(Stage,'tools/doc/'+Name));
+        if Name='HomeLibDoc.exe' then
+          VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),'',Architecture,True)
+        else VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),Version,Architecture,True);
+      end;
+    end;
+    if Component='7-Zip' then
+      VerifyUpdateExecutable(ChildPath(Stage,'tools/7zip/7z.dll'),Version,Architecture,True);
     Official := False; Manifest.TryGetValue<Boolean>('official', Official);
     if Official and (Component = 'SumatraPDF') then
       VerifySumatraSignature(ChildPath(Stage, ComponentFileName(Component)));
@@ -365,7 +492,7 @@ var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
   Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
   Zip: TZipFile; HasApplication: Boolean; Values: TUpdateFiles;
 begin
-  if (Length(Jobs) < 2) or (Length(Jobs) > 3) or DirectoryExists(Job) then
+  if (Length(Jobs) < 2) or (Length(Jobs) > 7) or DirectoryExists(Job) then
     raise Exception.Create('Некорректный набор подготовленных обновлений.');
   AssertUpdatePath(Job); ForceDirectories(Job); Stage := ChildPath(Job, 'payload');
   Manifest := TJSONObject.Create; Files := TDictionary<string, TUpdateFile>.Create;
@@ -389,7 +516,7 @@ begin
         end
         else
         begin
-          if (Component <> 'SQLite') and (Component <> 'SumatraPDF') then
+          if ComponentFileName(Component)='' then
             raise Exception.Create('Этот компонент нельзя включить в пакет.');
           Part := TJSONObject.Create; Part.AddPair('component', Component);
           Part.AddPair('version', Child.GetValue<string>('version'));
@@ -437,7 +564,7 @@ begin
     begin
       ID := TJSONObject(Part).GetValue<string>('component');
       Version := TJSONObject(Part).GetValue<string>('version');
-      Installed := UpdateFileVersion(ChildPath(AppPath, ComponentFileName(ID)));
+      Installed := InstalledComponentVersion(AppPath,ID);
       if (Installed = '') or
          (CompareComponentVersions(Version, Installed, Comparison) and (Comparison > 0)) then Exit(True);
     end;
@@ -605,7 +732,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..2] of string = ('SQLite', 'AlReader', 'SumatraPDF');
+const ComponentNames: array[0..5] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
@@ -636,8 +763,8 @@ begin
     ComponentPath := ComponentFileName(ComponentID);
     for I := 0 to High(Files) do
       if (Files[I].Name = ComponentPath) and
-         CompareComponentVersions(UpdateFileVersion(ChildPath(Target, ComponentPath)),
-           UpdateFileVersion(ChildPath(Job, 'payload/' + ComponentPath)), Comparison) and
+         CompareComponentVersions(InstalledComponentVersion(Target,ComponentID),
+           InstalledComponentVersion(ChildPath(Job,'payload'),ComponentID), Comparison) and
          (Comparison > 0) then
       begin
         Folder := Copy(ComponentPath, 1, LastDelimiter('/', ComponentPath));

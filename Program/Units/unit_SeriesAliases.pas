@@ -112,6 +112,7 @@ begin
   end;
   if Assigned(Canceled) and Canceled() then Abort;
   FReport.Add(Format('Найдено пар авторских серий: %d.',[Count]));
+  FReport.Add('Проверка ничего не изменила. Для применения нажмите «Объединить найденные серии».');
   FReport.Add('Совпадают название без метки [a] и хотя бы один автор. Издательские [p] и смешанные [m] серии сохраняются отдельно.');
   FReport.Add('Книги обеих серий будут в одном списке. Все файлы, издания, оценки, прогресс чтения и группы сохраняются.');
   FReport.Add('Это объединение названий серий; выбор копий книг задаётся отдельно режимом объединения источников.');
@@ -209,6 +210,9 @@ begin
       procedure(const Stage: string; Current, Total: Integer)
       begin ReportStage(Stage,Current,Total); end,
       function: Boolean begin Result := Canceled; end);
+    if FApply then Teletype(Format('Готово: объединено %d пар серий. Все книги сохранены.',[FPlan.Count]),tsInfo)
+    else begin Teletype(Format('Проверка завершена. Найдено пар серий: %d.',[FPlan.Count]),tsInfo);
+      Teletype('Изменения ещё не применены. Результат появится в окне названий серий.',tsInfo); end;
     FSuccess := True;
   except
     on E: EAbort do FError := 'Операция отменена. Изменения не применены.';

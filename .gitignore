@@ -52,3 +52,5 @@ __pycache__/
 /tools/validation/
 /Utils/HomeLibDjvu/*.res
 /Utils/HomeLibDjvu/*.identcache
+/Utils/HomeLibPDF/*.res
+/Utils/HomeLibPDF/*.identcache

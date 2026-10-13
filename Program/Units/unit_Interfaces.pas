@@ -45,6 +45,13 @@ type
     procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
   end;
 
+  // A validated merge already holds the previous metadata. Update only
+  // changed columns, preserving the independent memberships and user cards.
+  IBookMergeMetadataDeltaUpdater = interface
+    ['{82BA3C11-97A7-48A9-B910-72831452CFC8}']
+    procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
+  end;
+
   IBookSeriesStreamProvider = interface
     ['{C4621D4C-322A-4CBF-86C1-41B6BB0348E6}']
     function OpenBookSeriesReadStream: IBookSeriesReadStream;

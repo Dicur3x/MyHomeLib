@@ -1,0 +1,35 @@
+{
+  "component": "HomeLib Ru bundled DOC reader",
+  "runtime": "Windows .NET Framework 4.6.2 or later (checked before launch)",
+  "licenses": [
+    "MIT",
+    "BSD-3-Clause"
+  ],
+  "upstream": "https://github.com/manfromarce/DocSharp",
+  "upstream_commit": "7c996f8f6934139d4a4a698963baeb59fd8d60df",
+  "source_sha256": "0aceb0cab5f363a78049f69b96201002850384eec26e78ed0546611e28a5902f",
+  "helper_sha256": "d00d670bd6a8005f328dc9a853e488801519909d4e610ecc2cbd1bbf9feb4a8c",
+  "helper_bytes": 7680,
+  "packages": [
+    {
+      "id": "docsharp.binary.doc",
+      "version": "0.21.0",
+      "url": "https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/0.21.0/docsharp.binary.doc.0.21.0.nupkg",
+      "package_sha256": "438a0b5da6ae1d98e53dcbda5505cbf0ca1eb19a917b96d101c0c9d3b0fa1f2e",
+      "entry": "lib/net462/DocSharp.Binary.Doc.dll",
+      "file": "DocSharp.Binary.Doc.dll",
+      "sha256": "d7b96b00684c0d80f729ef53c678d3706ad3d35da3e7e7ebb1716a4cb76520fc",
+      "bytes": 214528
+    },
+    {
+      "id": "docsharp.binary.common",
+      "version": "0.21.0",
+      "url": "https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/0.21.0/docsharp.binary.common.0.21.0.nupkg",
+      "package_sha256": "e7e8251def04befa6b3f1cb480dadc5eb33b0395c5db6738a8b0eca84a276f68",
+      "entry": "lib/net462/DocSharp.Binary.Common.dll",
+      "file": "DocSharp.Binary.Common.dll",
+      "sha256": "49178dcb8e62e5ac7280d99c8003f33421f0b21d4e79a58746108b9dd7b4597b",
+      "bytes": 427520
+    }
+  ]
+}

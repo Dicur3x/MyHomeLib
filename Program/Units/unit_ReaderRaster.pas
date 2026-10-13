@@ -32,8 +32,9 @@ type
   public
     constructor Create(const FileName: string; RenderEdge: Integer = 4000);
     destructor Destroy; override;
-    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000);
-    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean;
+    function AsyncPages: Boolean; override;
+    procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); override;
+    function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; override;
     function PageSize(Index: Integer): TPoint; override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
     function Chapters: TArray<TPDFChapter>; override;
@@ -159,6 +160,9 @@ begin
     if Result then Result:=Page.RenderEdge>=MinEdge;
   finally TMonitor.Exit(FCacheLock); end;
 end;
+
+function TReaderRaster.AsyncPages: Boolean;
+begin Result:=True; end;
 
 procedure TReaderRaster.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
 const Budget = 96*1024*1024;

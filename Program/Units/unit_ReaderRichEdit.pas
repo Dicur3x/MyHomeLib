@@ -5,6 +5,7 @@ interface
 uses Winapi.Windows, System.Classes, Vcl.ComCtrls;
 
 procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
+procedure ReaderSaveRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
 
 function AttachReaderPictures(Edit: TRichEdit): IInterface;
 function ReaderPictureCount(Edit: TRichEdit): Integer;
@@ -118,6 +119,29 @@ begin
   // binary RTF straight to RichEdit without any Unicode/ANSI conversion.
   SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF,LPARAM(@Info));
   if Info.Error<>0 then raise EStreamError.Create('Не удалось загрузить текст и изображения книги.');
+end;
+
+function ReaderStreamWrite(Cookie: NativeUInt; Buffer: Pointer; Count: Longint; var Copied: Longint): DWORD; stdcall;
+var Stream: TStream;
+begin
+  Copied:=0; Result:=0; Stream:=TStream(Pointer(Cookie));
+  try
+    if Stream.Size+Count>32*1024*1024 then Exit(1);
+    Copied:=Stream.Write(Buffer^,Count);
+  except Result:=1; end;
+end;
+
+procedure ReaderSaveRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
+var Info: TReaderStreamInfo; Saved, Selected: TCharRange;
+begin
+  SendMessage(Edit.Handle,EM_EXGETSEL,0,LPARAM(@Saved));
+  try
+    Selected.cpMin:=Start; Selected.cpMax:=Start+Count;
+    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selected));
+    FillChar(Info,SizeOf(Info),0); Info.Cookie:=NativeUInt(Stream); Info.Callback:=ReaderStreamWrite;
+    SendMessage(Edit.Handle,EM_STREAMOUT,SF_RTF or SFF_SELECTION,LPARAM(@Info));
+    if Info.Error<>0 then raise EStreamError.Create('Не удалось подготовить выделение текста страницы.');
+  finally SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Saved)); end;
 end;
 
 function AttachReaderPictures(Edit: TRichEdit): IInterface;

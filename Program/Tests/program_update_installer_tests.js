@@ -11,6 +11,13 @@ const platform = fs.readFileSync(tester).readUInt16LE(fs.readFileSync(tester).re
 const tag = '2.7.0_pre5.11'; let count = 0, number = 0, server;
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const read = p => fs.readFileSync(p);
+function fileVersion(relative) {
+  const data=read(path.join(path.dirname(helper),relative));
+  const fixed=data.indexOf(Buffer.from([0xbd,0x04,0xef,0xfe]));
+  assert(fixed>=0 && fixed+16<=data.length,'Fixture has no fixed version: '+relative);
+  const majorMinor=data.readUInt32LE(fixed+8),buildRevision=data.readUInt32LE(fixed+12);
+  return [majorMinor>>>16,majorMinor&65535,buildRevision>>>16,buildRevision&65535].join('.');
+}
 const json = p => JSON.parse(read(p).toString('utf8').replace(/^\uFEFF/, ''));
 const pass = label => { count++; console.log('PASS ' + label); };
 const folder = label => { const p = path.join(root, label + '-' + number++); fs.mkdirSync(p); return p; };
@@ -73,7 +80,8 @@ const snapshot = (p, names) => names.map(n=>sha(read(path.join(p,n))));
 async function until(file) { for(let i=0;i<150;i++){if(fs.existsSync(file))return;await new Promise(r=>setTimeout(r,50));}throw Error('Timeout '+file); }
 async function main() {
   run(['--metadata']); pass('schedule, never, custom interval, backward clock and safe names');
-  const versions={SQLite:'3.53.4.0',AlReader:'2.5.1009.25',SumatraPDF:'3.6.1.0'};
+  const versions={SQLite:fileVersion('sqlite3.dll'),AlReader:fileVersion('Readers/AlReader/AlReader2.exe'),
+    SumatraPDF:fileVersion('Readers/SumatraPDF/SumatraPDF.exe')};
   for(const id of Object.keys(versions)) {
     const componentZip=archive({component:id,version:versions[id]}), componentJob=job(), componentTarget=target();
     run(['--prepare-component',componentZip,sha(read(componentZip)),tag,componentJob,id,versions[id]]);
@@ -144,13 +152,16 @@ async function main() {
   const release = (tag,body,draft=false) => ({tag_name:tag,body,draft,assets:[{name:expectedName,
     browser_download_url:`https://github.com/Dicur3x/MyHomeLib/releases/download/${tag}/${expectedName}`,digest:'sha256:'+'a'.repeat(64),size:123}]});
   const jsonFile=path.join(root,'releases.json');
-  fs.writeFileSync(jsonFile,JSON.stringify([release('2.7.0_pre5.14','new14'),release('2.7.0_pre5.13','installed13'),release('2.7.0_pre5.16','draft',true),release('2.7.0_pre5.15','new15')]));
+  const current=/PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'/.exec(read(path.resolve(__dirname,'../Units/unit_ProgramUpdates.pas')).toString('utf8'))[1];
+  const versionParts=/^(.*\.)(\d+)$/.exec(current);assert(versionParts,'Test needs a numeric release suffix');
+  const nextRelease=n=>versionParts[1]+(Number(versionParts[2])+n);
+  fs.writeFileSync(jsonFile,JSON.stringify([release(nextRelease(1),'second'),release(current,'installed'),release(nextRelease(3),'draft',true),release(nextRelease(2),'latest')]));
   const parsed=JSON.parse(run(['--parse',jsonFile]).split('\n')[0]);
-  assert.equal(parsed[0],'2.7.0_pre5.15');assert.equal(parsed[3],123);
-  assert.match(parsed[4],/new15[\s\S]*new14/);assert.doesNotMatch(parsed[4],/installed13|draft/);
-  assert.match(parsed[5],/new15[\s\S]*new14[\s\S]*installed13/);pass('combined changelog in newest-first order, drafts excluded');
+  assert.equal(parsed[0],nextRelease(2));assert.equal(parsed[3],123);
+  assert.match(parsed[4],/latest[\s\S]*second/);assert.doesNotMatch(parsed[4],/installed|draft/);
+  assert.match(parsed[5],/latest[\s\S]*second[\s\S]*installed/);pass('combined changelog in newest-first order, drafts excluded');
   for(const change of [r=>r.assets[0].browser_download_url='https://other.example/update.zip',r=>r.assets[0].digest=null,r=>r.assets[0].size=300*1024*1024]) {
-    const r=release('2.7.0_pre5.14','text');change(r);fs.writeFileSync(jsonFile,JSON.stringify([r]));
+    const r=release(nextRelease(1),'text');change(r);fs.writeFileSync(jsonFile,JSON.stringify([r]));
     assert.equal(JSON.parse(run(['--parse',jsonFile]).split('\n')[0])[1],'');
   }pass('foreign URL, missing checksum and oversized release cannot be downloaded');
   const zip=archive(), prepared=prepare(zip);pass('strict archive, every hash, PE architecture and ProductVersion verified');

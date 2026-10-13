@@ -6,16 +6,20 @@ uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
   unit_Interfaces, unit_CatalogSources, unit_CollectionMerge, unit_WorkerThread, unit_SeriesAliases;
 
 type
-  TfrmCatalogSources = class(TForm)
+  TSourceDialogForm = class(TForm)
+  public
+    procedure ScaleForPPI(NewPPI: Integer); override;
+  end;
+
+  TfrmCatalogSources = class(TSourceDialogForm)
   private
     FTarget: IBookCollection;
     FSources: TCatalogSources;
     FPlan: TCollectionMergePlan;
-    FSeriesPlan: TSeriesAliasPlan;
     FList: TListView;
     FReport: TMemo;
     FApply, FRefresh, FRoot, FIndexFile, FUp, FDown, FDisconnect, FLibrary, FPreview: TButton;
-    FDetails, FPolicyHelp, FSpace: TLabel;
+    FDetails, FPolicyHelp, FSpace, FAllSources: TLabel;
     FPolicy, FTargetLibrary: TComboBox;
     FChanged: Boolean;
     FLastReportFile: string;
@@ -36,10 +40,9 @@ type
     procedure Preview(Sender: TObject);
     procedure Apply(Sender: TObject);
     procedure PreviewSeriesAliases(Sender: TObject);
-    procedure ApplySeriesAliases;
     procedure SaveReport(Sender: TObject);
     procedure Selected(Sender: TObject; Item: TListItem; Selected: Boolean);
-    procedure RunWorker(Worker: TWorker; const Caption: string);
+    procedure RunWorker(Worker: TWorker; const Caption: string; OwnerWindow: TCustomForm = nil);
     procedure Save;
     procedure PolicyChanged(Sender: TObject);
     procedure ChooseLibrary(Sender: TObject);
@@ -49,14 +52,50 @@ type
     property CatalogChanged: Boolean read FChanged;
   end;
 
+type
+  TfrmSeriesAliasReview = class(TSourceDialogForm)
+  private
+    FSourceDialog: TfrmCatalogSources;
+    FPlan: TSeriesAliasPlan;
+    FReport: TMemo;
+    FSummary: TLabel;
+    FCheck, FApply: TButton;
+    FFinished: Boolean;
+    procedure ApplyAliases(Sender: TObject);
+  public
+    constructor CreateFor(SourceDialog: TfrmCatalogSources);
+    destructor Destroy; override;
+    procedure PreviewAliases(Sender: TObject);
+  end;
+
 implementation
 
-uses System.SysUtils, System.IOUtils, System.Variants, Vcl.Controls, Vcl.Graphics,
+uses System.SysUtils, System.IOUtils, System.Variants, System.Types, Winapi.Windows, Vcl.Controls, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
   frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math;
 
+procedure TSourceDialogForm.ScaleForPPI(NewPPI: Integer);
+var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;
+begin
+  OldPPI:=CurrentPPI;
+  if (OldPPI<=0) or (NewPPI<=0) or (OldPPI=NewPPI) then
+  begin inherited; Exit; end;
+  // Runtime forms have no streamed design size. Scale the window as well as
+  // its controls; otherwise an initially hidden window keeps its old width.
+  NewWidth:=MulDiv(ClientWidth,NewPPI,OldPPI);
+  NewHeight:=MulDiv(ClientHeight,NewPPI,OldPPI);
+  MinWidth:=MulDiv(Constraints.MinWidth,NewPPI,OldPPI);
+  MinHeight:=MulDiv(Constraints.MinHeight,NewPPI,OldPPI);
+  DisableAlign;
+  try
+    inherited;
+    Constraints.MinWidth:=MinWidth; Constraints.MinHeight:=MinHeight;
+    ClientWidth:=NewWidth; ClientHeight:=NewHeight;
+  finally EnableAlign; end;
+end;
+
 constructor TfrmCatalogSources.CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
-var Panel: TPanel; LabelText: TLabel; B: TButton;
+var Panel, Footer: TPanel; LabelText: TLabel; B: TButton; Body: TScrollBox; WorkArea: TRect;
   function LabelAt(AParent: TPanel; const Text: string; X,Y,W,H: Integer): TLabel;
   begin
     Result:=TLabel.Create(Self); Result.Parent:=AParent; Result.AutoSize:=False;
@@ -67,26 +106,32 @@ begin
   inherited CreateNew(AOwner);
   FTarget:=Collection; FSources:=LoadCatalogSources(FTarget);
   Caption:='Источники коллекции — '+FTarget.CollectionDisplayName;
+  PixelsPerInch:=96; Font.PixelsPerInch:=96;
   Font.Name:='Segoe UI'; Font.Size:=9; Position:=poOwnerFormCenter;
-  BorderStyle:=bsSizeable; ClientWidth:=960; ClientHeight:=760;
-  Constraints.MinWidth:=976; Constraints.MinHeight:=740;
+  BorderStyle:=bsSizeable; ClientWidth:=960; ClientHeight:=792;
+  Constraints.MinWidth:=976; Constraints.MinHeight:=460;
   DisableAlign;
   try
-  Panel:=TPanel.Create(Self); Panel.Parent:=Self; Panel.SetBounds(0,0,ClientWidth,76); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
-  LabelText:=LabelAt(Panel,'Из каких каталогов собрать эту коллекцию',12,9,936,22);
+  Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.SetBounds(0,ClientHeight-48,ClientWidth,48);
+  Footer.Align:=alBottom; Footer.BevelOuter:=bvNone;
+  Body:=TScrollBox.Create(Self); Body.Parent:=Self; Body.Align:=alClient;
+  Body.BorderStyle:=bsNone; Body.HorzScrollBar.Visible:=False;
+  Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,0,ClientWidth,108); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  LabelText:=LabelAt(Panel,'Добавить книги в текущую коллекцию',12,9,936,22);
   LabelText.Font.Style:=[fsBold]; LabelText.Font.Size:=11;
   LabelAt(Panel,'INPX — список книг; папка книг — место, где лежат сами файлы и архивы. Можно подключить несколько библиотек, включая смешанные каталоги Флибусты и Либрусека.',12,36,936,34);
-  FList:=TListView.Create(Self); FList.Parent:=Self; FList.SetBounds(0,76,ClientWidth,166); FList.Align:=alTop;
+  FAllSources:=LabelAt(Panel,'',12,76,936,28); FAllSources.Font.Style:=[fsBold];
+  FList:=TListView.Create(Self); FList.Parent:=Body; FList.SetBounds(0,76,ClientWidth,166); FList.Align:=alTop;
   FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True;
   FList.HideSelection:=False; FList.DoubleBuffered:=True; FList.ShowHint:=True;
-  FList.Hint:='Каждая строка — отдельный источник. Для режима «Предпочитать источник» порядок сверху вниз задаёт приоритет.';
+  FList.Hint:='В объединении участвует весь список. Выделение строки нужно только для изменения одного источника. Порядок сверху вниз задаёт приоритет копий.';
   FList.Columns.Add.Caption:='Источник'; FList.Columns[0].Width:=175;
   FList.Columns.Add.Caption:='Папка с книгами'; FList.Columns[1].Width:=230;
   FList.Columns.Add.Caption:='Файл каталога'; FList.Columns[2].Width:=240;
   FList.Columns.Add.Caption:='Библиотека'; FList.Columns[3].Width:=145;
   FList.Columns.Add.Caption:='Состояние'; FList.Columns[4].Width:=150;
   FList.OnSelectItem:=Selected;
-  Panel:=TPanel.Create(Self); Panel.Parent:=Self; Panel.SetBounds(0,242,ClientWidth,158); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,242,ClientWidth,158); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
   Button(Panel,'Добавить INPX…',12,148,AddINPX);
   Button(Panel,'Добавить коллекцию…',166,182,AddCollection);
   FUp:=Button(Panel,'↑',366,38,MoveSource); FUp.Tag:=-1;
@@ -96,11 +141,11 @@ begin
   FRoot:=Button(Panel,'Изменить папку книг…',12,204,ChooseRoot); FRoot.Top:=44;
   FIndexFile:=Button(Panel,'Заменить файл INPX…',222,204,ChooseIndexFile); FIndexFile.Top:=44;
   FLibrary:=Button(Panel,'Библиотека источника…',432,210,ChooseLibrary); FLibrary.Top:=44;
-  FRefresh:=Button(Panel,'1. Обновить список книг',12,238,RefreshSource); FRefresh.Top:=80;
+  FRefresh:=Button(Panel,'Перечитать выбранный INPX',12,238,RefreshSource); FRefresh.Top:=80;
   FRefresh.Hint:='Перечитывает выбранный INPX в отдельный каталог источника. Текущая коллекция пока не меняется.'; FRefresh.ShowHint:=True;
-  FPreview:=Button(Panel,'2. Проверить объединение',264,252,Preview); FPreview.Top:=80;
+  FPreview:=Button(Panel,'1. Проверить все источники',264,252,Preview); FPreview.Top:=80;
   FDetails:=LabelAt(Panel,'',12,118,936,36);
-  Panel:=TPanel.Create(Self); Panel.Parent:=Self; Panel.SetBounds(0,400,ClientWidth,198); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,400,ClientWidth,198); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
   LabelAt(Panel,'Повторные книги:',12,10,142,20);
   FPolicy:=TComboBox.Create(Self); FPolicy.Parent:=Panel; FPolicy.Style:=csDropDownList;
   FPolicy.SetBounds(158,6,790,26); FPolicy.Anchors:=[akLeft,akTop,akRight];
@@ -121,27 +166,28 @@ begin
   FTargetLibrary.OnChange:=PolicyChanged;
   LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,20);
   FSpace:=LabelAt(Panel,'',12,142,936,52);
-  Panel:=TPanel.Create(Self); Panel.Parent:=Self;
-  // Establish the final parent width before anchoring the right-hand button.
-  Panel.SetBounds(0,ClientHeight-48,ClientWidth,48); Panel.Align:=alBottom; Panel.BevelOuter:=bvNone;
-  FApply:=Button(Panel,'3. Применить объединение',12,238,Apply); FApply.Enabled:=False;
+  Panel:=Footer;
+  FApply:=Button(Panel,'2. Добавить книги в коллекцию',12,238,Apply); FApply.Enabled:=False;
   Button(Panel,'Сохранить отчёт…',264,158,SaveReport);
-  Button(Panel,'Проверить дубли серий…',436,232,PreviewSeriesAliases);
+  Button(Panel,'Объединить названия серий…',436,232,PreviewSeriesAliases);
   B:=Button(Panel,'Закрыть',848,100,nil); B.Anchors:=[akTop,akRight]; B.ModalResult:=mrClose; B.Cancel:=True;
-  FReport:=TMemo.Create(Self); FReport.Parent:=Self; FReport.Align:=alClient;
+  FReport:=TMemo.Create(Self); FReport.Parent:=Body; FReport.Top:=MaxInt; FReport.Align:=alTop; FReport.Height:=156;
   FReport.AlignWithMargins:=True; FReport.Margins.Left:=12; FReport.Margins.Right:=12;
-  FReport.ReadOnly:=True; FReport.ScrollBars:=ssBoth; FReport.WordWrap:=True;
+  FReport.ReadOnly:=True; FReport.ScrollBars:=ssVertical; FReport.WordWrap:=True;
   FReport.Lines.Text:='Здесь появится результат проверки: сколько книг добавится, какие копии будут объединены и есть ли конфликты.'+#13#10+#13#10+
     'Уже импортированные книги учитываются: совпадение файла связывает их с источником. Текущие книги, оценки и прочитанное сохраняются.'+#13#10+
-    'Добавление источника само по себе не объединяет книги. Для INPX сначала обновите список, затем проверьте результат и примените его.'+#13#10+
+    'Для всех строк со статусом «Список подготовлен» повторно читать INPX не нужно. Нажмите «1. Проверить все источники», затем «2. Добавить книги в коллекцию». В проверке участвует весь список, независимо от выделения.'+#13#10+
     'Размер файла не гарантирует качество: если предпочитаете полные иллюстрации, поставьте нужный источник выше и выберите соответствующий режим.'+#13#10+
     'В смешанном каталоге номера Флибусты и Либрусека проверяются отдельно. Одинаковый номер в разных библиотеках не объединяет книги.';
   finally EnableAlign; end;
   UpdatePolicyHelp; RebuildList(0);
+  ScaleForPPI(Screen.PixelsPerInch);
+  WorkArea:=Monitor.WorkareaRect;
+  Height:=Min(Height,Max(Constraints.MinHeight,WorkArea.Height-48));
 end;
 
 destructor TfrmCatalogSources.Destroy;
-begin FSeriesPlan.Free; FPlan.Free; inherited; end;
+begin FPlan.Free; inherited; end;
 
 function TfrmCatalogSources.Button(ParentPanel: TPanel; const Caption: string; Left, Width: Integer;
   Handler: TNotifyEvent): TButton;
@@ -152,8 +198,8 @@ end;
 
 procedure TfrmCatalogSources.InvalidatePreview;
 begin
-  FreeAndNil(FSeriesPlan); FreeAndNil(FPlan); FApply.Enabled := False;
-  FApply.Caption := '3. Применить объединение';
+  FreeAndNil(FPlan); FApply.Enabled := False;
+  FApply.Caption := '2. Добавить книги в коллекцию';
   UpdateSpaceEstimate;
 end;
 
@@ -189,6 +235,7 @@ begin
     end;
     if (Index >= 0) and (Index < FList.Items.Count) then FList.Items[Index].Selected := True;
   finally FList.Items.EndUpdate; end;
+  FAllSources.Caption:=Format('Участвуют все источники в списке: %d. Выделять их вместе не нужно.',[Length(FSources)]);
   UpdateSelection; UpdateSpaceEstimate;
 end;
 
@@ -247,7 +294,7 @@ begin
   if not FRefresh.Enabled then begin FDetails.Caption:='Выберите источник в списке, чтобы изменить его настройки.'; Exit; end;
   Source:=FSources[Index]; FRefresh.Enabled:=Source.IsINPX;
   FRoot.Enabled:=Source.IsINPX; FIndexFile.Enabled:=Source.IsINPX;
-  if Source.IsINPX then FDetails.Caption:='Выбран: '+Source.Name+'. Обновление перечитывает только этот INPX; для изменения коллекции нужны проверка и применение.'
+  if Source.IsINPX then FDetails.Caption:='Изменение одного источника: '+Source.Name+'. Если список подготовлен, сразу проверяйте все источники.'
   else FDetails.Caption:='Выбрана локальная коллекция: '+Source.Name+'. Её папка и каталог настраиваются в свойствах самой коллекции.';
 end;
 
@@ -375,12 +422,15 @@ begin
   finally Dialog.Free; end;
 end;
 
-procedure TfrmCatalogSources.RunWorker(Worker: TWorker; const Caption: string);
+procedure TfrmCatalogSources.RunWorker(Worker: TWorker; const Caption: string; OwnerWindow: TCustomForm);
 var Progress: TImportProgressFormEx;
 begin
-  Progress := TImportProgressFormEx.Create(Self);
+  if not Assigned(OwnerWindow) then OwnerWindow:=Self;
+  Progress := TImportProgressFormEx.Create(OwnerWindow);
   try
     Progress.Caption := Caption; Progress.WorkerThread := Worker; Progress.CloseOnTimer := True;
+    Progress.PopupMode:=pmExplicit; Progress.PopupParent:=OwnerWindow;
+    Progress.Timer.Interval:=1;
     Progress.ShowModal; Worker.WaitFor;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
   finally Progress.Free; end;
@@ -415,7 +465,6 @@ end;
 procedure TfrmCatalogSources.Apply(Sender: TObject);
 var Worker: TCatalogMergeWorker; Backup: string;
 begin
-  if Assigned(FSeriesPlan) then begin ApplySeriesAliases; Exit; end;
   if not Assigned(FPlan) then Exit;
   Backup := TPath.Combine(Settings.DataPath,'Backups\merge-' + FormatDateTime('yyyymmdd-hhnnss',Now) + '-' + TCatalogSource.NewID);
   Worker := TCatalogMergeWorker.CreateApply(FPlan, Backup);
@@ -432,33 +481,86 @@ begin
 end;
 
 procedure TfrmCatalogSources.PreviewSeriesAliases(Sender: TObject);
-var Worker: TSeriesAliasWorker;
+var Review: TfrmSeriesAliasReview;
 begin
-  InvalidatePreview; Worker := TSeriesAliasWorker.CreatePreview(FTarget.CollectionID);
-  try
-    RunWorker(Worker,'Дубли названий серий');
-    if Worker.Success then
-    begin
-      FSeriesPlan := Worker.TakePlan; FReport.Lines.Assign(FSeriesPlan.Report);
-      FApply.Caption := 'Объединить серии'; FApply.Enabled := FSeriesPlan.Count > 0;
-    end
-    else FReport.Lines.Text := Worker.Error;
-  finally Worker.Free; UpdateSpaceEstimate; end;
+  Review:=TfrmSeriesAliasReview.CreateFor(Self);
+  try Review.ShowModal; finally Review.Free; end;
 end;
 
-procedure TfrmCatalogSources.ApplySeriesAliases;
+constructor TfrmSeriesAliasReview.CreateFor(SourceDialog: TfrmCatalogSources);
+var Header, Footer: TPanel; B: TButton; WorkArea: TRect;
+begin
+  inherited CreateNew(SourceDialog); FSourceDialog:=SourceDialog;
+  PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
+  Caption:='Объединить названия серий — '+SourceDialog.FTarget.CollectionDisplayName;
+  Position:=poOwnerFormCenter; BorderStyle:=bsSizeable; ClientWidth:=820; ClientHeight:=560;
+  Constraints.MinWidth:=700; Constraints.MinHeight:=380;
+  PopupMode:=pmExplicit; PopupParent:=SourceDialog;
+  Header:=TPanel.Create(Self); Header.Parent:=Self; Header.Align:=alTop; Header.Height:=100; Header.BevelOuter:=bvNone;
+  FSummary:=TLabel.Create(Self); FSummary.Parent:=Header; FSummary.AutoSize:=False;
+  FSummary.SetBounds(12,10,796,80); FSummary.Anchors:=[akLeft,akTop,akRight]; FSummary.WordWrap:=True;
+  FSummary.Caption:='Проверяем серии уже существующей коллекции. Повторно импортировать источники не нужно.';
+  Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.SetBounds(0,ClientHeight-48,ClientWidth,48);
+  Footer.Align:=alBottom; Footer.BevelOuter:=bvNone;
+  FCheck:=TButton.Create(Self); FCheck.Parent:=Footer; FCheck.SetBounds(12,10,150,28);
+  FCheck.Caption:='Проверить ещё раз'; FCheck.OnClick:=PreviewAliases;
+  FApply:=TButton.Create(Self); FApply.Parent:=Footer; FApply.SetBounds(174,10,310,28);
+  FApply.Caption:='Объединить найденные серии'; FApply.Enabled:=False; FApply.OnClick:=ApplyAliases;
+  B:=TButton.Create(Self); B.Parent:=Footer; B.SetBounds(708,10,100,28); B.Anchors:=[akTop,akRight];
+  B.Caption:='Закрыть'; B.Cancel:=True; B.ModalResult:=mrClose;
+  FReport:=TMemo.Create(Self); FReport.Parent:=Self; FReport.Align:=alClient; FReport.ReadOnly:=True;
+  FReport.AlignWithMargins:=True; FReport.Margins.SetBounds(12,0,12,0);
+  FReport.ScrollBars:=ssVertical; FReport.WordWrap:=True;
+  OnShow:=PreviewAliases; ScaleForPPI(Screen.PixelsPerInch);
+  WorkArea:=Monitor.WorkareaRect; Height:=Min(Height,Max(Constraints.MinHeight,WorkArea.Height-48));
+end;
+
+destructor TfrmSeriesAliasReview.Destroy;
+begin FPlan.Free; inherited; end;
+
+procedure TfrmSeriesAliasReview.PreviewAliases(Sender: TObject);
+var Worker: TSeriesAliasWorker;
+begin
+  OnShow:=nil; FreeAndNil(FPlan); FApply.Enabled:=False; FCheck.Enabled:=False; FFinished:=False;
+  Worker:=TSeriesAliasWorker.CreatePreview(FSourceDialog.FTarget.CollectionID);
+  try
+    FSourceDialog.RunWorker(Worker,'Проверка названий серий',Self);
+    if Worker.Success then
+    begin
+      FPlan:=Worker.TakePlan; FReport.Lines.Assign(FPlan.Report);
+      if FPlan.Count>0 then
+      begin
+        FSummary.Caption:=Format('Найдено пар серий: %s. Ниже показано «старое название → единое название». '+
+          'Для применения нажмите «Объединить». Книги и личные данные сохраняются; перед изменением создаётся резервная копия.',[FormatFloat('#,##0',FPlan.Count)]);
+        FApply.Caption:=Format('Объединить %s пар серий',[FormatFloat('#,##0',FPlan.Count)]); FApply.Enabled:=True;
+      end
+      else begin FSummary.Caption:='Проверка завершена: подходящих пар не найдено. Коллекция не изменена.';
+        FReport.Lines.Add('Похожие, но разные названия и серии разных авторов автоматически не объединяются.'); end;
+    end
+    else begin FSummary.Caption:='Проверка не завершена. Коллекция не изменена.'; FReport.Lines.Text:=Worker.Error; end;
+  finally Worker.Free; FCheck.Enabled:=True; end;
+end;
+
+procedure TfrmSeriesAliasReview.ApplyAliases(Sender: TObject);
 var Worker: TSeriesAliasWorker; Backup: string;
 begin
-  Backup := TPath.Combine(Settings.DataPath,'Backups\series-' +
-    FormatDateTime('yyyymmdd-hhnnss',Now) + '-' + TCatalogSource.NewID);
-  Worker := TSeriesAliasWorker.CreateApply(FSeriesPlan,Backup);
+  if not Assigned(FPlan) or (FPlan.Count=0) or FFinished then Exit;
+  FApply.Enabled:=False; FCheck.Enabled:=False;
+  Backup:=TPath.Combine(Settings.DataPath,'Backups\series-'+FormatDateTime('yyyymmdd-hhnnss',Now)+'-'+TCatalogSource.NewID);
+  Worker:=TSeriesAliasWorker.CreateApply(FPlan,Backup);
   try
-    RunWorker(Worker,'Объединение названий серий');
-    FLastReportFile := TPath.Combine(Backup,'series.txt');
+    FSourceDialog.RunWorker(Worker,'Объединение названий серий',Self);
     if Worker.Success then
-    begin FChanged := True; FReport.Lines.Add('Серии объединены. Резервные копии и полный отчёт: '+Backup); end
-    else FReport.Lines.Add(Worker.Error+#13#10+'Папка операции: '+Backup);
-  finally Worker.Free; InvalidatePreview; end;
+    begin
+      FFinished:=True; FSourceDialog.FChanged:=True; FSourceDialog.InvalidatePreview;
+      FSourceDialog.FLastReportFile:=TPath.Combine(Backup,'series.txt');
+      FSummary.Caption:=Format('Готово: объединено %s пар серий. Закройте это окно и окно источников, чтобы обновить список серий.',[FormatFloat('#,##0',FPlan.Count)]);
+      FReport.Lines.Add(''); FReport.Lines.Add('Резервная копия и полный отчёт: '+Backup);
+      FSourceDialog.FReport.Lines.Text:=FSummary.Caption+sLineBreak+'Резервная копия и полный отчёт: '+Backup;
+    end
+    else begin FSummary.Caption:='Объединение не завершено. Подробности ниже.';
+      FReport.Lines.Add(Worker.Error+sLineBreak+'Папка операции: '+Backup); FApply.Enabled:=True; end;
+  finally Worker.Free; FCheck.Enabled:=True; end;
 end;
 
 procedure TfrmCatalogSources.PolicyChanged(Sender: TObject);
@@ -467,7 +569,7 @@ begin
   InvalidatePreview;
   if Sender = FTargetLibrary then FTarget.SetProperty(PROP_SOURCE_LIBRARY, Names[FTargetLibrary.ItemIndex]);
   UpdatePolicyHelp;
-  FReport.Lines.Text := 'Режим изменён. Выполните новый предпросмотр. Для объединения ID укажите исходную библиотеку каждого источника кнопкой «Библиотека источника…». ' +
+  FReport.Lines.Text := 'Настройки изменены. Нажмите «1. Проверить все источники», чтобы увидеть, что добавится или объединится. Для совпадающих номеров книг важно знать библиотеку источника. ' +
     'ID смешанных индексов уже содержат библиотеку. Качество выбирайте порядком источников: больший размер сам по себе его не гарантирует.';
 end;
 
@@ -507,7 +609,6 @@ begin
     Dialog.Options := [ofOverwritePrompt,ofPathMustExist,ofEnableSizing];
     if Dialog.Execute then
       if Assigned(FPlan) then TFile.Copy(FPlan.FullReportFile,Dialog.FileName,True)
-      else if Assigned(FSeriesPlan) then FReport.Lines.SaveToFile(Dialog.FileName,TEncoding.UTF8)
       else if FileExists(FLastReportFile) then TFile.Copy(FLastReportFile,Dialog.FileName,True)
       else FReport.Lines.SaveToFile(Dialog.FileName,TEncoding.UTF8);
   finally Dialog.Free; end;

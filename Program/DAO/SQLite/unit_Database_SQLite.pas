@@ -28,7 +28,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater)
   strict private type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
@@ -215,6 +215,7 @@ type
     function GetCatalogBookCopies(const BookKey: TBookKey): TArray<TBookRecord>;
     procedure UpdateBook(BookRecord: TBookRecord);
     procedure UpdateBookPreservingSeries(BookRecord: TBookRecord);
+    procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
     function SeriesTriggersEnabled: Boolean;
     procedure DeleteBook(const BookKey: TBookKey);
 
@@ -297,6 +298,7 @@ type
   private
     procedure EnsureSchemaCurrent;
     procedure EnsurePublisherSeriesSchema;
+    procedure EnsureTrigger(const Name, Definition: string);
   end;
 
 implementation
@@ -401,6 +403,23 @@ end;
 // открывают мигрированную коллекцию, а старая коллекция добавляет колонки
 // при первом открытии. Транзакция не нужна: каждый ALTER атомарен,
 // а проверка существования колонки делает процедуру идемпотентной.
+procedure TBookCollection_SQLite.EnsureTrigger(const Name, Definition: string);
+begin
+  if Trim(FDatabase.QuerySingleString('SELECT sql FROM sqlite_master WHERE type=''trigger'' AND name=?',[Name]))=Trim(Definition) then Exit;
+  // Refresh legacy definitions once. A normal reopen must not mutate the
+  // catalog, and interrupted replacement must retain the previous trigger.
+  FDatabase.ExecSQL('SAVEPOINT homelib_trigger_refresh');
+  try
+    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS "'+Name+'"');
+    FDatabase.ExecSQL(Definition);
+    FDatabase.ExecSQL('RELEASE SAVEPOINT homelib_trigger_refresh');
+  except
+    FDatabase.ExecSQL('ROLLBACK TO SAVEPOINT homelib_trigger_refresh');
+    FDatabase.ExecSQL('RELEASE SAVEPOINT homelib_trigger_refresh');
+    raise;
+  end;
+end;
+
 procedure TBookCollection_SQLite.EnsureSchemaCurrent;
 const
   NEW_COLUMNS: array [0 .. 4] of array [0 .. 1] of string = (
@@ -472,16 +491,14 @@ begin
 
     // Keep the legacy primary-series mirror and the normalized list aligned
     // even if this database is later edited by an older MyHomeLib build.
-    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AI_Series');
-    FDatabase.ExecSQL(
+    EnsureTrigger('TRBooks_AI_Series',
       'CREATE TRIGGER TRBooks_AI_Series AFTER INSERT ON Books ' +
       'WHEN MHL_SERIES_TRIGGERS_ON() AND NEW.SeriesID IS NOT NULL BEGIN ' +
       'INSERT OR REPLACE INTO Series_List ' +
       '(BookID, SeriesID, SeqNumber, IsPrimary, OrdNum) ' +
       'VALUES (NEW.BookID, NEW.SeriesID, NEW.SeqNumber, 1, 0); END'
     );
-    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_AU_Series');
-    FDatabase.ExecSQL(
+    EnsureTrigger('TRBooks_AU_Series',
       'CREATE TRIGGER TRBooks_AU_Series AFTER UPDATE OF SeriesID, SeqNumber ON Books ' +
       'WHEN MHL_SERIES_TRIGGERS_ON() BEGIN ' +
       'UPDATE Series_List SET IsPrimary = 0 WHERE BookID = NEW.BookID; ' +
@@ -510,8 +527,7 @@ begin
 
     // Replace the legacy cleanup trigger. It only inspected Books.SeriesID and
     // could delete a series still used as a secondary relationship.
-    FDatabase.ExecSQL('DROP TRIGGER IF EXISTS TRBooks_BD');
-    FDatabase.ExecSQL(
+    EnsureTrigger('TRBooks_BD',
       'CREATE TRIGGER TRBooks_BD BEFORE DELETE ON Books BEGIN ' +
       'DELETE FROM Genre_List WHERE BookID = OLD.BookID; ' +
       'DELETE FROM Author_List WHERE BookID = OLD.BookID; ' +
@@ -3173,6 +3189,105 @@ begin
       Include(Result[N].BookProps, bpIsLocal); Query.Next;
     end;
   finally Query.Free; end;
+end;
+
+procedure TBookCollection_SQLite.UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean);
+const Columns: array[0..22] of string = ('Title','Folder','FileName','Ext','InsideNo','SeqNumber','BookSize','LibID','IsDeleted','IsLocal','UpdateDate','Lang','LibRate','KeyWords','Rate','Progress','Review','Annotation','Translators','Publisher','City','PubYear','ISBN');
+var Changed: array[0..22] of Boolean; SQL: string; I, ParamIndex: Integer;
+  Query: TSQLiteQuery; Previous: Boolean;
+begin
+  if not InBulkOperation then raise EInvalidOperation.Create('Обновление метаданных объединения требует пакетной транзакции.');
+  if (Before.BookKey.BookID<>BookRecord.BookKey.BookID) or
+    (Before.BookKey.DatabaseID<>CollectionID) or (BookRecord.BookKey.DatabaseID<>CollectionID) then
+    raise EInvalidOperation.Create('Предыдущая карточка относится к другой книге или коллекции.');
+  BookRecord.Normalize;
+  if Before.Series=BookRecord.Series then BookRecord.SeriesID:=Before.SeriesID
+  else BookRecord.SeriesID:=FindOrCreateSeries(BookRecord.Series);
+  if BookRecord.SeqNumber>5000 then BookRecord.SeqNumber:=0;
+  // Existing personal text is retained verbatim when another source appends
+  // its review. Trimming that prefix would silently change the stored thought.
+  if (Before.Review='') or not BookRecord.Review.StartsWith(Before.Review) then
+    BookRecord.Review:=Trim(BookRecord.Review);
+  if BookRecord.Review<>'' then Include(BookRecord.BookProps,bpHasReview)
+  else Exclude(BookRecord.BookProps,bpHasReview);
+  Changed[0]:=(Before.Title<>BookRecord.Title);
+  Changed[1]:=(Before.Folder<>BookRecord.Folder);
+  Changed[2]:=(Before.FileName<>BookRecord.FileName);
+  Changed[3]:=(Before.FileExt<>BookRecord.FileExt);
+  Changed[4]:=(Before.InsideNo<>BookRecord.InsideNo);
+  Changed[5]:=((Before.SeriesID<>BookRecord.SeriesID) or (Before.SeqNumber<>BookRecord.SeqNumber));
+  Changed[6]:=(Before.Size<>BookRecord.Size);
+  Changed[7]:=(Before.LibID<>BookRecord.LibID);
+  Changed[8]:=((bpIsDeleted in Before.BookProps)<>(bpIsDeleted in BookRecord.BookProps));
+  Changed[9]:=((bpIsLocal in Before.BookProps)<>(bpIsLocal in BookRecord.BookProps));
+  Changed[10]:=(Before.Date<>BookRecord.Date);
+  Changed[11]:=(Before.Lang<>BookRecord.Lang);
+  Changed[12]:=(Before.LibRate<>BookRecord.LibRate);
+  Changed[13]:=(Before.KeyWords<>BookRecord.KeyWords);
+  Changed[14]:=(Before.Rate<>BookRecord.Rate);
+  Changed[15]:=(Before.Progress<>BookRecord.Progress);
+  Changed[16]:=(Before.Review<>BookRecord.Review);
+  Changed[17]:=(Before.Annotation<>BookRecord.Annotation);
+  Changed[18]:=(Before.Translators<>BookRecord.Translators);
+  Changed[19]:=(Before.Publisher<>BookRecord.Publisher);
+  Changed[20]:=(Before.City<>BookRecord.City);
+  Changed[21]:=(Before.PubYear<>BookRecord.PubYear);
+  Changed[22]:=(Before.ISBN<>BookRecord.ISBN);
+  SQL:='';
+  for I:=0 to High(Columns) do if Changed[I] then
+  begin
+    if SQL<>'' then SQL:=SQL+',';
+    SQL:=SQL+Columns[I]+'=?';
+  end;
+  Previous:=FPreserveSeriesOnUpdate; FPreserveSeriesOnUpdate:=True;
+  try
+    // Retain the old primary as a secondary membership when it changes.
+    // A different file location must not rewrite an unchanged series graph.
+    if Before.SeriesID<>BookRecord.SeriesID then SetSeriesID(BookRecord.BookKey,BookRecord.SeriesID);
+    if SQL<>'' then
+    begin
+      Query:=FDatabase.NewQuery('UPDATE Books SET '+SQL+' WHERE BookID=?');
+      try
+        ParamIndex:=0;
+        for I:=0 to High(Columns) do if Changed[I] then
+        begin
+          case I of
+          0: Query.SetParam(ParamIndex,BookRecord.Title);
+          1: Query.SetParam(ParamIndex,BookRecord.Folder);
+          2: Query.SetParam(ParamIndex,BookRecord.FileName);
+          3: Query.SetParam(ParamIndex,BookRecord.FileExt);
+          4: Query.SetParam(ParamIndex,BookRecord.InsideNo);
+          5: if BookRecord.SeriesID=NO_SERIES_ID then Query.SetNullParam(ParamIndex) else Query.SetParam(ParamIndex,BookRecord.SeqNumber);
+          6: Query.SetParam(ParamIndex,BookRecord.Size);
+          7: Query.SetParam(ParamIndex,BookRecord.LibID);
+          8: Query.SetParam(ParamIndex,bpIsDeleted in BookRecord.BookProps);
+          9: Query.SetParam(ParamIndex,bpIsLocal in BookRecord.BookProps);
+          10: Query.SetParam(ParamIndex,BookRecord.Date);
+          11: Query.SetParam(ParamIndex,BookRecord.Lang);
+          12: Query.SetParam(ParamIndex,BookRecord.LibRate);
+          13: Query.SetParam(ParamIndex,BookRecord.KeyWords);
+          14: Query.SetParam(ParamIndex,BookRecord.Rate);
+          15: Query.SetParam(ParamIndex,BookRecord.Progress);
+          16: if BookRecord.Review='' then Query.SetNullParam(ParamIndex) else Query.SetBlobParam(ParamIndex,BookRecord.Review);
+          17: if BookRecord.Annotation='' then Query.SetNullParam(ParamIndex) else Query.SetParam(ParamIndex,BookRecord.Annotation);
+          18: Query.SetParam(ParamIndex,BookRecord.Translators);
+          19: Query.SetParam(ParamIndex,BookRecord.Publisher);
+          20: Query.SetParam(ParamIndex,BookRecord.City);
+          21: if BookRecord.PubYear=0 then Query.SetNullParam(ParamIndex) else Query.SetParam(ParamIndex,BookRecord.PubYear);
+          22: Query.SetParam(ParamIndex,BookRecord.ISBN);
+          end;
+          Inc(ParamIndex);
+        end;
+        Query.SetParam(ParamIndex,BookRecord.BookKey.BookID); Query.ExecSQL;
+      finally Query.Free; end;
+    end;
+    if (BookRecord.SeriesID<>NO_SERIES_ID) and Changed[5] then
+      FDatabase.ExecSQL('UPDATE Series_List SET SeqNumber=? WHERE BookID=? AND SeriesID=? AND IsPrimary=1',
+        [BookRecord.SeqNumber,BookRecord.BookKey.BookID,BookRecord.SeriesID]);
+    if BookRecord.PublisherSeriesKnown then SetBookPublisherSeries(BookRecord.BookKey,BookRecord.PublisherSeries);
+    // The merge refreshes an existing user card once after all relations.
+    if UpdateUserCard then FSystemData.UpdateBook(BookRecord);
+  finally FPreserveSeriesOnUpdate:=Previous; end;
 end;
 
 procedure TBookCollection_SQLite.UpdateBookPreservingSeries(BookRecord: TBookRecord);

@@ -8,7 +8,11 @@
         <Manifest_File>HomeLibRuUpdater.manifest</Manifest_File>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1049</VerInfo_Locale>
-        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.12;FileVersion=2.7.0.1079;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_MajorVer>2</VerInfo_MajorVer>
+        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>1084</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.16;FileVersion=2.7.0.1084;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>

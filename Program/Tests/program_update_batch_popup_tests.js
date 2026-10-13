@@ -3,15 +3,16 @@
 // newly created in TEMP, and HTTP serves only these fixtures over loopback.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),cp=require('node:child_process'),http=require('node:http');
 const crypto=require('node:crypto'),assert=require('node:assert/strict');
-const [viewsArg,testArg,runtimeArg,python='python']=process.argv.slice(2),runtime=path.resolve(runtimeArg);
+const [viewsArg,testArg,runtimeArg,python='python',packagesArg]=process.argv.slice(2),runtime=path.resolve(runtimeArg);
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'HomeLibRu-native-HomeLibRu-update-test-batch-popup-'));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const app=fs.readFileSync(path.resolve(testArg)),platform=app.readUInt16LE(app.readUInt32LE(0x3c)+4)===0x8664?'Win64':'Win32';
-const before=Buffer.from('2.7.0_pre5.11','utf16le'),after=Buffer.from('2.7.0_pre5.14','utf16le');
+const tag=packagesArg?'2.7.0_pre5.16':'2.7.0_pre5.14';
+const before=Buffer.from('2.7.0_pre5.11','utf16le'),after=Buffer.from(tag,'utf16le');
 let n=app.indexOf(before),replaced=0;
 while(n>=0){after.copy(app,n);replaced++;n=app.indexOf(before,n+before.length);}assert(replaced>0);
 function zip(name,entries,component){
- const manifest={format:1,release:'2.7.0_pre5.14',platform,files:entries.map(([p,b])=>({path:p,size:b.length,sha256:sha(b)}))};
+ const manifest={format:1,release:tag,platform,files:entries.map(([p,b])=>({path:p,size:b.length,sha256:sha(b)}))};
  if(component){manifest.component=component;manifest.version='9.0.0.0';}
  entries.push(['HomeLibRu.update.json',Buffer.from(JSON.stringify(manifest))]);
  const target=path.join(root,name+'.zip');
@@ -21,11 +22,22 @@ function zip(name,entries,component){
 }
 const payloads={app:zip('app',[['HomeLibRu.exe',app],['LICENSE',Buffer.from('fixture license')],['NOTICE',Buffer.from('fixture notice')]])};
 const componentFiles={SQLite:'sqlite3.dll',SumatraPDF:'Readers/SumatraPDF/SumatraPDF.exe'},expected={};
+const versions={SQLite:'9.0.0.0',SumatraPDF:'9.0.0.0'};
 for(const [id,file] of Object.entries(componentFiles)){
  const b=fs.readFileSync(path.join(runtime,file)),offset=b.indexOf(Buffer.from([0xbd,0x04,0xef,0xfe]));assert(offset>=0);
  b.writeUInt32LE(9<<16,offset+8);b.writeUInt32LE(0,offset+12);expected[id]=b;
  payloads[id]=zip(id,[[file,b]],id);
 }
+if(packagesArg)for(const [id,file] of Object.entries({AlReader:'Readers/AlReader/AlReader2.exe',
+ DjVuLibre:'tools/djvu/djvused.exe','7-Zip':'tools/7zip/7z.exe',DocSharp:'tools/doc/DocSharp.Binary.Doc.dll'})){
+ const archive=path.resolve(packagesArg,`HomeLibRu-${id}-${platform}.zip`);
+ const parsed=cp.spawnSync(python,['-X','utf8','-c','import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z: print(z.read("HomeLibRu.update.json").decode("utf-8-sig"))',archive],{encoding:'utf8',windowsHide:true});
+ assert.equal(parsed.status,0,parsed.stderr);const manifest=JSON.parse(parsed.stdout);
+ assert.equal(manifest.release,tag);assert.equal(manifest.platform,platform);assert.equal(manifest.component,id);
+ versions[id]=manifest.version;componentFiles[id]=file;expected[id]=fs.readFileSync(path.join(runtime,file));
+ payloads[id]=fs.readFileSync(archive);
+}
+const componentOrder=['SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp'].filter(id=>componentFiles[id]);
 function stage(scenario){
  const folder=path.join(root,'HomeLibRu-native-'+scenario);fs.mkdirSync(folder);
  fs.copyFileSync(path.resolve(viewsArg),path.join(folder,'HomeLibRu.exe'));
@@ -56,7 +68,7 @@ async function test(scenario){
  try{
   const base='http://127.0.0.1:'+server.address().port;
   const descriptor=path.join(folder,'component-fixtures.json');
-  fs.writeFileSync(descriptor,JSON.stringify(Object.keys(componentFiles).map(id=>({id,url:base+'/'+id,size:payloads[id].length,sha256:sha(payloads[id])}))));
+  fs.writeFileSync(descriptor,JSON.stringify(componentOrder.map(id=>({id,release:tag,version:versions[id],url:base+'/'+id,size:payloads[id].length,sha256:sha(payloads[id])}))));
   const args=['program-update-download',base+'/app',String(payloads.app.length),sha(payloads.app),descriptor,scenario];
   const child=cp.spawn(path.join(folder,'HomeLibRu.exe'),args,{cwd:folder,windowsHide:true,
     env:{...process.env,LOCALAPPDATA:cacheRoot}});let output='';
@@ -69,7 +81,7 @@ async function test(scenario){
    assert.deepEqual(fs.readFileSync(path.join(folder,'HomeLibRu.exe')),fs.readFileSync(path.resolve(viewsArg)));
    assert.deepEqual(fs.readFileSync(path.join(folder,'sqlite3.dll')),fs.readFileSync(path.join(runtime,'sqlite3.dll')));
   }else{
-   assert.deepEqual(requests,scenario==='components'?['SQLite','SumatraPDF']:['app','SQLite','SumatraPDF']);
+   assert.deepEqual(requests,scenario==='components'?componentOrder:['app',...componentOrder]);
    if(scenario==='components'){
     assert.match(output,/PASS component batch download restores/);
     const readyFiles=[];function find(dir){for(const item of fs.readdirSync(dir,{withFileTypes:true})){

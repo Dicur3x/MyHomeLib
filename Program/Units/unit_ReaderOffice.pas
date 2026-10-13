@@ -6,6 +6,7 @@ uses System.SysUtils;
 
 function IsOfficeReaderFormat(const Extension: string): Boolean;
 function FindReaderOffice: string;
+function OfficeReaderAvailable(const Extension: string): Boolean;
 function PrepareOfficeReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string> = nil; const IsCanceled: TFunc<Boolean> = nil): string;
 
@@ -13,12 +14,18 @@ implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.NetEncoding,
   System.Win.Registry, Winapi.Windows, unit_BookCache, unit_MHLExternalTools,
-  unit_Settings, dm_user;
+  unit_Settings, dm_user, unit_ReaderDOC;
 
 function IsOfficeReaderFormat(const Extension: string): Boolean;
 begin
   Result:=Pos('|'+LowerCase(Extension).TrimLeft(['.'])+'|',
     '|doc|docm|dot|wps|wpd|ppt|pptx|pptm|pps|ppsx|odp|xls|xlsx|ods|')>0;
+end;
+
+function OfficeReaderAvailable(const Extension: string): Boolean;
+begin
+  if IsDirectDOCFormat(Extension) then Result:=FindDirectDOCReader<>''
+  else Result:=FindReaderOffice<>'';
 end;
 
 procedure DeleteConversionDirectory(const Directory: string);
@@ -85,6 +92,8 @@ var Tool, Work, Profile, WorkingInput, Converted, Stamp, StampFile, Temporary, T
 begin
   Result:=SourceFile;
   if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
+  if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then
+    Exit(PrepareDirectDOC(SourceFile,OriginalSource,OnStage,IsCanceled));
   if Assigned(IsCanceled) and IsCanceled() then Abort;
   Tool:=FindReaderOffice;
   if Tool='' then raise Exception.Create('Для чтения этого документа во встроенной читалке нужен установленный LibreOffice. Можно открыть его внешней программой.');

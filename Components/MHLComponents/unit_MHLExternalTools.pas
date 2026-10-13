@@ -20,7 +20,7 @@ function FindExternalTool(const ToolName, ToolSubFolder: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
   const IsCanceled: TFunc<Boolean> = nil; const PrefixBytes: Integer = 0;
-  const ContainProcessTree: Boolean = False);
+  const ContainProcessTree: Boolean = False; const MemoryLimitBytes: NativeUInt = 0);
 
 // Optional UI heartbeat, scoped to the thread that initiated the decoder.
 threadvar MHLExternalToolHeartbeat: TProc;
@@ -128,7 +128,7 @@ end;
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
   const IsCanceled: TFunc<Boolean>; const PrefixBytes: Integer;
-  const ContainProcessTree: Boolean);
+  const ContainProcessTree: Boolean; const MemoryLimitBytes: NativeUInt);
 const
   BUFFER_SIZE = 64 * 1024;
 var
@@ -156,6 +156,8 @@ begin
       'Не найден вспомогательный файл "%s".', [ToolPath]);
   if not Assigned(Output) then
     raise EArgumentNilException.Create('Output');
+  if (MemoryLimitBytes<>0) and not ContainProcessTree then
+    raise EArgumentException.Create('A memory limit requires a contained process.');
 
   FillChar(Security, SizeOf(Security), 0);
   Security.nLength := SizeOf(Security);
@@ -200,6 +202,11 @@ begin
           if Job = 0 then RaiseLastOSError;
           FillChar(JobLimits,SizeOf(JobLimits),0);
           JobLimits.BasicLimitInformation.LimitFlags := JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+          if MemoryLimitBytes<>0 then
+          begin
+            JobLimits.BasicLimitInformation.LimitFlags:=JobLimits.BasicLimitInformation.LimitFlags or JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+            JobLimits.ProcessMemoryLimit:=MemoryLimitBytes;
+          end;
           if not SetInformationJobObject(Job,JobObjectExtendedLimitInformation,@JobLimits,SizeOf(JobLimits)) then
           begin CloseHandle(Job); RaiseLastOSError; end;
           CreationFlags := CreationFlags or CREATE_SUSPENDED;

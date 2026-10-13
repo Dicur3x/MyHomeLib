@@ -127,7 +127,7 @@ var Dialog: TForm; List: TListBox; Remember: TCheckBox; LabelText: TLabel; B: TB
 begin
   Result:=False; Builtin:=False; ReaderPath:='';
   Ext:=LowerCase(ExtractFileExt(FileName)); CanBuiltin:=IsBuiltinReaderFormat(Ext);
-  if IsOfficeReaderFormat(Ext) then CanBuiltin:=FindReaderOffice<>'';
+  if IsOfficeReaderFormat(Ext) then CanBuiltin:=OfficeReaderAvailable(Ext);
   PreferenceKey:=LowerCase(OriginalExtension);
   ValidKey:=(Length(PreferenceKey)>=2) and (Length(PreferenceKey)<=11) and PreferenceKey.StartsWith('.');
   HasLetter:=False;

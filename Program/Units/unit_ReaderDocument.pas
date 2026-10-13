@@ -379,8 +379,16 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   begin
     // This is a URI path, not form data: a literal '+' is part of the filename.
     S:=StringReplace(TNetEncoding.URL.Decode(Href.Replace('+','%2B')),'\','/',[rfReplaceAll]);
-    if (Pos(':',S)>0) or S.StartsWith('/') then raise Exception.Create('Внешнее изображение пропущено.');
-    P:=Copy(Base,1,LastDelimiter('/',Base)); Parts:=TStringList.Create;
+    if (Pos(':',S)>0) or S.StartsWith('//') then raise Exception.Create('Внешнее изображение пропущено.');
+    // OPC relationships can name a part from the package root. It is still
+    // read exclusively from this ZIP; TargetMode="External" is excluded.
+    if S.StartsWith('/') then
+    begin
+      if E<>'.docx' then raise Exception.Create('Внешнее изображение пропущено.');
+      P:=''; S:=S.Substring(1);
+    end
+    else P:=Copy(Base,1,LastDelimiter('/',Base));
+    Parts:=TStringList.Create;
     try
       for Segment in (P+S).Split(['/']) do
         if (Segment='') or (Segment='.') then Continue
@@ -598,10 +606,11 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
     end;
     if CSSStyle<>'' then FBody.Append('{'+CSSStyle);
-    if (Name='image') or (Name='img') or (Name='blip') then
+    if (Name='image') or (Name='img') or (Name='blip') or ((E='.docx') and (Name='imagedata')) then
     begin
       Ref:=Attribute(N,'href'); if Ref='' then Ref:=Attribute(N,'src');
       if Name='blip' then Ref:=Attribute(N,'embed');
+      if (E='.docx') and (Name='imagedata') then Ref:=Attribute(N,'id');
       try
         if (E='.docx') and Assigned(Zip) then
         begin

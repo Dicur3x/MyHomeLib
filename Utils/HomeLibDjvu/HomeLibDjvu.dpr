@@ -129,7 +129,15 @@ begin
   W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
   Rect.X:=0; Rect.Y:=0; Rect.W:=W; Rect.H:=H;
   if Int64(W)*H*4>DJVU_BUFFER_BYTES then raise Exception.Create('Страница DjVu превышает бюджет памяти.');
-  if PageRender(Page,0,Rect,Rect,Format,W*4,Pixels)=0 then raise Exception.Create('Не удалось отрисовать страницу DjVu.');
+  if PageRender(Page,0,Rect,Rect,Format,W*4,Pixels)=0 then
+  begin
+    // A successfully decoded page may have no image layers (e.g. a blank
+    // verso). The official ddjvu CLI renders that case as opaque white.
+    // Decode failures still belong to WaitJob, never to the blank fallback.
+    if JobStatus(PageJob(Page))<>2 then
+      raise Exception.Create('Не удалось отрисовать страницу DjVu.');
+    FillChar(Pixels^,W*H*4,$FF);
+  end;
   PumpMessages; Reply(0,W,H);
 end;
 

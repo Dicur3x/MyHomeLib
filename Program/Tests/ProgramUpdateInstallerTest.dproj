@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{EF0B516C-6F9F-41BD-8747-5EA667EA1AC7}</ProjectGuid>
         <MainSource>ProgramUpdateInstallerTest.dpr</MainSource>
@@ -14,7 +14,7 @@
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <DCC_Namespace>System;Xml;Data;Vcl;Vcl.Imaging;Vcl.Themes;Winapi;System.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..;..\Units;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..;..\Units;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
         <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
         <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>

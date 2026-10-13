@@ -880,6 +880,9 @@ type
     FAutoCheck: Boolean;
     FProgramUpdateThread: TProgramUpdateThread;
     FProgramUpdateForm: TfrmProgramUpdate;
+    FBookActionTree: TBookTree;
+    FBookActionVersion: UInt64;
+    FBookActionCached, FBookActionAvailable: Boolean;
     FProgramUpdateTimer: TTimer;
     procedure ProgramUpdateSchedule(Sender: TObject);
     procedure RestartForProgramUpdate(Sender: TObject);
@@ -4787,7 +4790,7 @@ begin
   Data := Tree.GetNodeData(Tree.GetFirstSelected);
   if Assigned(Data) and (Data^.nodeType=ntBookInfo) then
     FReadBuiltinAction.Enabled:=IsBuiltinReaderFormat(Data^.FileExt) or
-      (IsOfficeReaderFormat(Data^.FileExt) and (FindReaderOffice<>'')) or
+      (IsOfficeReaderFormat(Data^.FileExt) and OfficeReaderAvailable(Data^.FileExt)) or
       IsReaderArchive(Data^.FileName+Data^.FileExt) or
       (Pos('|'+LowerCase(Data^.FileExt)+'|','|.mobi|.azw|.azw3|.prc|.fb|.original_fb2|.xml|')>0) or
       (Data^.GetFileType='Некорректный тип') or (Data^.GetFileType='Без расширения');
@@ -6760,25 +6763,41 @@ begin
 end;
 
 procedure TfrmMain.UpdateBookAction(Sender: TObject);
-var
-  fBookNodesSelected: Boolean;
+var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord; Available: Boolean;
 begin
-  fBookNodesSelected := False;
-
-  ProcessNodes(
-    procedure (Tree: TBookTree; Node: PVirtualNode)
-    var
-      Data: PBookRecord;
+  GetActiveTree(Tree); Available:=False;
+  if Assigned(Tree) and (Tree.VisibleCount>0) then
+  begin
+    // Action updates run repeatedly during idle and after every selection.
+    // A focused visible book already answers the question; enumerating all
+    // checked nodes here scanned the entire loaded catalogue six times.
+    Node:=Tree.FocusedNode;
+    if Assigned(Node) and not Tree.IsEffectivelyFiltered[Node] then
     begin
-      Data := Tree.GetNodeData(Node);
-      if Assigned(Data) and (Data^.nodeType = ntBookInfo) then
+      Data:=Tree.GetNodeData(Node); Available:=Assigned(Data) and (Data.NodeType=ntBookInfo);
+    end;
+    if not Available then
+    begin
+      // A group or empty focus still permits operations on checked books.
+      // Reuse that answer until checks, filters or rows actually change.
+      if not FBookActionCached or (FBookActionTree<>Tree) or
+        (FBookActionVersion<>Tree.ActionVersion) then
       begin
-        fBookNodesSelected := True;
-      end;
-    end
-  );
-
-  (Sender as TAction).Enabled := fBookNodesSelected;
+        Node:=Tree.GetFirstChecked;
+        while Assigned(Node) do
+        begin
+          Data:=Tree.GetNodeData(Node);
+          if not Tree.IsEffectivelyFiltered[Node] and Assigned(Data) and (Data.NodeType=ntBookInfo) then
+          begin Available:=True; Break; end;
+          Node:=Tree.GetNextChecked(Node);
+        end;
+        FBookActionTree:=Tree; FBookActionVersion:=Tree.ActionVersion;
+        FBookActionAvailable:=Available; FBookActionCached:=True;
+      end
+      else Available:=FBookActionAvailable;
+    end;
+  end;
+  (Sender as TAction).Enabled:=Available;
 end;
 
 procedure TfrmMain.SavePresetUpdate(Sender: TObject);

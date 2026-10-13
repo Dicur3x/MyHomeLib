@@ -8,11 +8,14 @@ p.add_argument('pdfium', type=pathlib.Path)
 p.add_argument('--keep', action='store_true')
 p.add_argument('--epub-fixtures',type=pathlib.Path,help='Five read-only selected real EPUB fixtures')
 p.add_argument('--formatting-book',type=pathlib.Path,help='Optional read-only real FB2 fixture for formatting checks')
+p.add_argument('--feedback-pdf',type=pathlib.Path,help='Read-only scanned PDF fixture for cache checks')
+p.add_argument('--selection-fixtures',type=pathlib.Path,help='Read-only selected FB2 EPUB TXT fixtures')
+p.add_argument('--doc-fixtures',type=pathlib.Path,help='Read-only DOC plus independently checked text')
 p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -32,7 +35,7 @@ try:
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
-    for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts'):
+    for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
         if (runtime/arch_dir).exists(): shutil.copytree(runtime/arch_dir, root/arch_dir)
     for marker in ('uselocaldata','uselocaltemp'): (root/marker).write_text('')
     (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
@@ -278,14 +281,27 @@ try:
         z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
         z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
         z.writestr('OPS/main.xhtml','<html><body>'+hierarchy+'</body></html>')
+    if a.case=='text-selection':
+        assert a.selection_fixtures and a.selection_fixtures.is_dir()
+        for source,target in [('reader-dome.fb2','selection-real.fb2'),('reader-quixote.epub','selection-real.epub'),('reader-story.txt','selection-real.txt')]:
+            shutil.copy2(a.selection_fixtures/source,root/target)
+        (root/'selection-unicode.txt').write_text('Кириллица, العربية, עברית, Ελληνικά, 漢字 и 😀 emoji.\n'+('Following ordinary paragraph. '*80),encoding='utf-8')
     if a.case=='real-epub':
         assert a.epub_fixtures and a.epub_fixtures.is_dir()
         fixtures=sorted(a.epub_fixtures.glob('*.epub'));assert len(fixtures)==5
         for fixture in fixtures:shutil.copy2(fixture,root/('real-epub-'+fixture.name))
+    if a.feedback_pdf:
+        assert a.feedback_pdf.is_file() and a.feedback_pdf.suffix.lower()=='.pdf'
+        shutil.copy2(a.feedback_pdf,root/'feedback-sky.pdf')
+    if a.case=='doc-reader':
+        assert a.doc_fixtures and a.doc_fixtures.is_dir()
+        shutil.copy2(a.doc_fixtures/'under-dome.doc',root/'doc-fixture.doc')
+        shutil.copy2(a.doc_fixtures/'palynovy-expected.txt',root/'doc-expected.txt')
+        shutil.copy2(a.doc_fixtures/'styled-fixture.doc',root/'styled-fixture.doc')
     if a.formatting_book:
         assert a.formatting_book.is_file() and a.formatting_book.suffix.lower()=='.fb2'
         shutil.copy2(a.formatting_book,root/'formatting-real.fb2')
-    before={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in root.iterdir() if f.suffix in ('.fb2','.epub','.xhtml','.txt','.rtf','.docx','.odt','.pdf')}
+    before={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in root.iterdir() if f.suffix in ('.fb2','.epub','.xhtml','.txt','.rtf','.doc','.docx','.odt','.pdf')}
     startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=0
     try:
         r=subprocess.run([str(root/exe.name)]+([a.case] if a.case else []),cwd=root,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
@@ -296,10 +312,44 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.case=='feedback16-reader':
+        assert 'PASS direct FB2 mouse selection' in r.stdout and 'PASS PDF raster cache isolation' in r.stdout and (not a.feedback_pdf or 'PASS async PDF responsive UI' in r.stdout), 'Stale binary omitted feedback16 regressions'
     if a.case=='reader-note-ui':
         assert 'PASS note dialog input' in r.stdout, 'Stale binary omitted notes GUI tests'
+        assert 'PASS direct FB2 mouse selection' in r.stdout, 'Stale binary omitted direct text selection regression'
     if a.case in ('reader-additions','oct11-reader'):
         assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
+        assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'
+    if a.case=='text-selection':
+        assert 'PASS real FB2 EPUB TXT and emoji quotes' in r.stdout, 'Stale binary omitted actual selection checks'
+    if a.case=='selection-geometry':
+        assert 'PASS failed reader loads close cleanly' in r.stdout and 'PASS text selection matches visible continued' in r.stdout, 'Stale binary omitted selection geometry/error cleanup checks'
+    if a.case=='doc-reader':
+        assert 'PASS bundled DOC reads exact Unicode body without Office' in r.stdout, 'Stale binary omitted direct DOC checks'
+    if a.case=='selection-contrast':
+        assert 'PASS PDF selection contrast images' in r.stdout, 'Stale binary omitted selection contrast check'
+        from PIL import Image
+        from statistics import median
+        def luminance(rgb):
+            channels=[v/255 for v in rgb]
+            return sum(w*(v/12.92 if v<=0.04045 else ((v+0.055)/1.055)**2.4) for w,v in zip((0.2126,0.7152,0.0722),channels))
+        for theme,alpha in ((0,72),(4,56)):
+            image_before=Image.open(root/f'selection-contrast-{theme}-before.bmp').convert('RGB')
+            image_after=Image.open(root/f'selection-contrast-{theme}-after.bmp').convert('RGB')
+            assert image_before.size==image_after.size
+            ink=[];paper=[];changed=0
+            for original,selected in zip(image_before.getdata(),image_after.getdata()):
+                if original==selected:continue
+                changed+=1
+                expected=[(v*(255-alpha)+t*alpha)/255 for v,t in zip(original,(75,135,210))]
+                assert all(abs(actual-wanted)<=2 for actual,wanted in zip(selected,expected)), ('Nonlinear/inverted selection pixel',theme,original,selected)
+                if (theme==0 and max(original)<70) or (theme==4 and min(original)>170):ink.append(luminance(selected))
+                if (theme==0 and min(original)>245) or (theme==4 and max(original)<45):paper.append(luminance(selected))
+            assert changed>500 and len(ink)>50 and len(paper)>200,(theme,'Selection or text invisible',changed,len(ink),len(paper))
+            light,dark=sorted((median(ink),median(paper)),reverse=True)
+            contrast=(light+0.05)/(dark+0.05)
+            assert contrast>=4.5,(theme,'Selected text has insufficient contrast',contrast)
+            print(f'PASS PDF selected text remains readable in theme {theme}: contrast {contrast:.2f}, uniform translucent overlay',flush=True)
     if a.case=='oct11-reader':
         assert 'PASS cover, semantic formatting' in r.stdout, 'The rebuilt test does not include the new scenario'
         from PIL import Image

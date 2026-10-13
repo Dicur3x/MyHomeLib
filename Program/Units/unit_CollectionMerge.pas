@@ -15,6 +15,7 @@ type
   TMergeProgress = reference to procedure(Current, Total: Integer);
   TMergeStageProgress = reference to procedure(const Stage: string; Current, Total: Integer);
   TMergeCanceled = reference to function: Boolean;
+  TMergeUserValues = record Rate, Progress: Integer; end;
 
   TCollectionMergePlan = class
   private
@@ -24,6 +25,7 @@ type
     FLocations: TDictionary<string, Integer>;
     FResolvedContainers: TDictionary<string,string>;
     FIdentities: TDictionary<string, Integer>;
+    FTargetUserValues: TDictionary<Integer, TMergeUserValues>;
     FPolicy: TCollectionMergePolicy;
     FTargetNamespace: string;
     FReport: TStringList;
@@ -209,6 +211,7 @@ begin
   FResolvedContainers:=TDictionary<string,string>.Create;
   FLocations := TDictionary<string, Integer>.Create; FReport := TStringList.Create;
   FIdentities := TDictionary<string, Integer>.Create;
+  FTargetUserValues:=TDictionary<Integer,TMergeUserValues>.Create;
   FStamps := TDictionary<string, string>.Create;
 end;
 
@@ -220,7 +223,7 @@ begin
   except
     // A locked temporary report must not prevent release of catalog connections.
   end;
-  FStamps.Free; FReport.Free; FIdentities.Free; FLocations.Free; inherited;
+  FStamps.Free; FReport.Free; FTargetUserValues.Free; FIdentities.Free; FLocations.Free; inherited;
 end;
 
 procedure TCollectionMergePlan.AddReport(const Text: string);
@@ -266,15 +269,23 @@ end;
 
 procedure TCollectionMergePlan.LoadTarget(const Canceled: TMergeCanceled);
 var Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord; Stamp, Identity: string;
-  Count, Total: Integer;
+  Count, Total: Integer; Values: TMergeUserValues;
 begin
-  FResolvedContainers.Clear; FLocations.Clear; FIdentities.Clear; Iterator := FTarget.GetPublisherSeriesIndexIterator;
+  FResolvedContainers.Clear; FLocations.Clear; FIdentities.Clear; FTargetUserValues.Clear;
+  Iterator := FTarget.GetPublisherSeriesIndexIterator;
   Count := 0; Total := Iterator.RecordCount;
   if Assigned(FStageProgress) then FStageProgress('Указатель файлов текущей коллекции', 0, Total);
   while Iterator.Next(Book, Stamp) do
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Операция отменена.');
     FLocations.AddOrSetValue(PhysicalIdentityAt(Book,ResolvedContainer(Book)), Book.BookKey.BookID);
+    // These fields are already in the lightweight snapshot. Store only personal
+    // values, avoiding a second random database read for every matched book.
+    if (Book.Rate<>0) or (Book.Progress<>0) then
+    begin
+      Values.Rate:=Book.Rate; Values.Progress:=Book.Progress;
+      FTargetUserValues.Add(Book.BookKey.BookID,Values);
+    end;
     if FPolicy <> mpKeepAll then
     begin
       Identity := BookLibraryIdentity(Book, FTargetNamespace);
@@ -288,13 +299,12 @@ begin
 end;
 
 procedure TCollectionMergePlan.Preview(const Progress: TMergeProgress; const Canceled: TMergeCanceled);
-type TUserValues = record Rate, Progress: Integer; end;
 var Source: TMergeSource; Iterator: IPublisherSeriesIndexIterator; Book: TBookRecord;
   Key, CompareKey, Identity: string; ID, Count, SourceNew, SourceLinked, SourcePhysical: Integer;
-  AlreadyLinked: Boolean; Seen: TDictionary<string, TUserValues>;
+  AlreadyLinked: Boolean; Seen: TDictionary<string, TMergeUserValues>;
   Locations, Identities: TDictionary<string, Integer>;
-  Values: TUserValues; ReportID: TGUID; Stamp, TargetFile: string;
-  DB: TSQLiteDatabase; Lookup, UserValues: TSQLiteQuery; Summaries: TStringList;
+  Values: TMergeUserValues; ReportID: TGUID; Stamp, TargetFile: string;
+  DB: TSQLiteDatabase; Lookup: TSQLiteQuery; Summaries: TStringList;
 begin
   FReady := False; FNewBooks := 0; FDuplicates := 0; FConflicts := 0; FTotal := 0; Count := 0;
   FReport.Clear; FSourceLookupCount:=0; CaptureStamps; LoadTarget(Canceled);
@@ -302,20 +312,24 @@ begin
   CreateGUID(ReportID); ForceDirectories(Settings.TempPath);
   FFullReportFile := TPath.Combine(Settings.TempPath, 'merge-preview-' + GUIDToString(ReportID) + '.txt');
   FReportWriter := TStreamWriter.Create(FFullReportFile,False,TEncoding.UTF8,65536);
-  Seen := TDictionary<string, TUserValues>.Create;
+  Seen := TDictionary<string, TMergeUserValues>.Create;
   Locations := TDictionary<string, Integer>.Create;
   Identities := TDictionary<string, Integer>.Create;
-  DB := nil; Lookup := nil; UserValues := nil; Summaries := TStringList.Create;
+  DB := nil; Lookup := nil; Summaries := TStringList.Create;
   try
     TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
     DB := TSQLiteDatabase.CreateReadOnly(TargetFile);
     // Legacy numeric links cannot match the stable file keys. When there are
     // no stable links at preview time, physical identities cover all matches
     // created during this operation. CheckStamps protects this snapshot.
-    FHasStableSourceLinks:=DB.QuerySingleInt(
-      'SELECT EXISTS(SELECT 1 FROM CatalogSourceBooks WHERE SourceKey GLOB ''*:file:*'')')<>0;
+    FHasStableSourceLinks:=False;
+    // The primary-key prefix range avoids scanning millions of legacy keys.
+    // Only links belonging to a participating source can affect this plan.
+    for Source in FSources do
+      if DB.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM CatalogSourceBooks WHERE SourceKey>=? AND SourceKey<?)',
+        [Source.ID+':file:',Source.ID+':file;'])<>0 then
+      begin FHasStableSourceLinks:=True; Break; end;
     Lookup := DB.NewQuery('SELECT l.BookID FROM CatalogSourceBooks l JOIN Books b ON b.BookID=l.BookID WHERE l.SourceKey=?');
-    UserValues := DB.NewQuery('SELECT Rate,Progress FROM Books WHERE BookID=?');
     for Source in FSources do
     begin Iterator := Source.Collection.GetPublisherSeriesIndexIterator; Inc(FTotal, Iterator.RecordCount); end;
     AddReport('Приоритет: источники сверху вниз. Совпадение — один файл или член одного архива.');
@@ -362,14 +376,7 @@ begin
         if ID <> 0 then CompareKey := 'book:' + IntToStr(ID);
         if not Seen.TryGetValue(CompareKey, Values) then
         begin
-          Values.Rate := 0; Values.Progress := 0;
-          if ID <> 0 then
-          begin
-            UserValues.Reset; UserValues.SetParam(0, ID); UserValues.Open;
-            if not UserValues.Eof then
-            begin Values.Rate := UserValues.FieldAsInt(0); Values.Progress := UserValues.FieldAsInt(1); end;
-            UserValues.Reset;
-          end;
+          if not FTargetUserValues.TryGetValue(ID,Values) then Values:=Default(TMergeUserValues);
         end;
         if (ID <> 0) or Seen.ContainsKey(CompareKey) then
         begin
@@ -403,7 +410,7 @@ begin
     FReport.Insert(0, Format('Новых книг: %d. Совпадений: %d. Конфликтов пользовательских значений: %d.',
       [FNewBooks, FDuplicates, FConflicts]));
     FReportWriter.WriteLine(FReport[0]); CheckStamps; FReady := True;
-  finally Summaries.Free; UserValues.Free; Lookup.Free; DB.Free;
+  finally Summaries.Free; Lookup.Free; DB.Free;
     Identities.Free; Locations.Free; Seen.Free; FreeAndNil(FReportWriter); end;
 end;
 
@@ -433,7 +440,7 @@ procedure TCollectionMergePlan.Apply(const BackupFolder: string; const Progress:
   const Canceled: TMergeCanceled);
 var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   ID, I, Count, OriginalID: Integer; Physical, SourceKey, Identity: string; DestinationKey: TBookKey;
-  IncomingCopy: TBookRecord; KeepExistingFile, Changed, AuthorsChanged, GenresChanged: Boolean;
+  IncomingCopy, UserFields: TBookRecord; KeepExistingFile, Changed, AuthorsChanged, GenresChanged: Boolean;
   Seen: TDictionary<Integer, Boolean>; Remap: TDictionary<string, Integer>;
   Series, Publishers, OldSeries, OldPublishers: TBookSeries; Sequence: TBookSeriesData; Genre: TGenreData;
   UserData, Mapped: TUserData; Group, NewGroup: TBookGroup; GroupBook: TGroupBook;
@@ -445,7 +452,7 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   BookPresence: ISystemBookPresence; StoredBooks: TDictionary<Integer,Boolean>; StoredID: Integer;
   CachedBooks: TDictionary<Integer,TBookRecord>;
   CachedSeries: TDictionary<Integer,TBookSeries>;
-  MergeUpdater: IBookMergeMetadataUpdater;
+  MergeUpdater: IBookMergeMetadataUpdater; DeltaUpdater: IBookMergeMetadataDeltaUpdater;
   SourceSeriesProvider: IBookSeriesStreamProvider; SourceSeriesStream: IBookSeriesReadStream;
   procedure PrepareReadSnapshot;
   {$IFDEF WIN64}
@@ -760,7 +767,8 @@ begin
               if not SameMetadata(Book, Existing) then
               begin
                 Book.PublisherSeriesKnown := False;
-                if Supports(FTarget,IBookMergeMetadataUpdater,MergeUpdater) then MergeUpdater.UpdateBookPreservingSeries(Book)
+                if Supports(FTarget,IBookMergeMetadataDeltaUpdater,DeltaUpdater) then DeltaUpdater.UpdateBookMetadataDelta(Existing,Book,False)
+                else if Supports(FTarget,IBookMergeMetadataUpdater,MergeUpdater) then MergeUpdater.UpdateBookPreservingSeries(Book)
                 else FTarget.UpdateBook(Book);
                 Changed := True;
               end
@@ -768,12 +776,22 @@ begin
             end
             else
             begin
-              if Book.Rate <> Existing.Rate then
-              begin FTarget.SetRate(Book.BookKey, Book.Rate); Changed := True; end;
-              if Book.Progress <> Existing.Progress then
-              begin FTarget.SetProgress(Book.BookKey, Book.Progress); Changed := True; end;
-              if Book.Review <> Existing.Review then
-              begin FTarget.SetReview(Book.BookKey, Book.Review); Changed := True; end;
+              if (Book.Rate<>Existing.Rate) or (Book.Progress<>Existing.Progress) or (Book.Review<>Existing.Review) then
+              begin
+                if Supports(FTarget,IBookMergeMetadataDeltaUpdater,DeltaUpdater) then
+                begin
+                  UserFields:=Existing; UserFields.PublisherSeriesKnown:=False;
+                  UserFields.Rate:=Book.Rate; UserFields.Progress:=Book.Progress; UserFields.Review:=Book.Review;
+                  DeltaUpdater.UpdateBookMetadataDelta(Existing,UserFields,False);
+                end
+                else
+                begin
+                  if Book.Rate<>Existing.Rate then FTarget.SetRate(Book.BookKey,Book.Rate);
+                  if Book.Progress<>Existing.Progress then FTarget.SetProgress(Book.BookKey,Book.Progress);
+                  if Book.Review<>Existing.Review then FTarget.SetReview(Book.BookKey,Book.Review);
+                end;
+                Changed:=True;
+              end;
               Series := MissingSeries(Series, OldSeries);
               Publishers := UnionSeries(OldPublishers, Publishers);
             end;

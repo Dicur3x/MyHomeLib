@@ -8,10 +8,10 @@
 
 uses
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
-  Vcl.Forms, Vcl.Themes, Vcl.Styles, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
+  Vcl.Forms, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
-  System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, Vcl.Imaging.pngimage,
-  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, SQLiteWrap, SQLite3, SQLiteProfile,
+  System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, Vcl.Imaging.pngimage,
+  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
   frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
@@ -308,7 +308,7 @@ procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
   I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
-  Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TComboBox;
+  Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TListView;
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
   ReloadedView: TUpdateNotesView; EndPoint: TPoint;
   CycleComponents: TComponentReleases;
@@ -322,14 +322,95 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         Result := TLabel(Form.Controls[Index]).Caption;
   end;
 
+  function CopiedText: string;
+  begin
+    for var Attempt:=0 to 29 do
+      try Exit(Clipboard.AsText);
+      except on E: EClipboardException do if Attempt=29 then raise else Sleep(10); end;
+    Result:='';
+  end;
+
+  procedure ChooseRow(View: TListView; Index: Integer);
+  begin
+    View.Items[Index].Selected:=True;
+    View.OnSelectItem(View,View.Items[Index],True);
+  end;
+
+  procedure CheckTableLayout;
+  var Form: TfrmProgramUpdate; View: TListView; Body: TUpdateNotesView; DPI, Index: Integer;
+    SavedDark: Boolean; Button: TButton; Tabs: TTabControl; HistorySelector: TComboBox;
+  begin
+    SavedDark:=MHLThemeDark;
+    try
+      for DPI in [96,144,192] do
+      begin
+        Form:=TfrmProgramUpdate.Create(nil);
+        try
+          Form.Show; Application.ProcessMessages;
+          Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
+          Tabs:=TTabControl(Form.FindComponent('UpdateTabs'));
+          HistorySelector:=TComboBox(Form.FindComponent('UpdateHistoryComponent'));
+          Require(Assigned(Tabs) and Assigned(HistorySelector),'Update/changes views missing');
+          Tabs.TabIndex:=0; Tabs.OnChange(Tabs);
+          Form.Show; Application.ProcessMessages; View:=nil; Body:=nil; Button:=nil;
+          for Index:=0 to Form.ControlCount-1 do
+          begin
+            if Form.Controls[Index] is TListView then View:=TListView(Form.Controls[Index]);
+            if Form.Controls[Index] is TUpdateNotesView then Body:=TUpdateNotesView(Form.Controls[Index]);
+            if (Form.Controls[Index] is TButton) and TButton(Form.Controls[Index]).Default then Button:=TButton(Form.Controls[Index]);
+          end;
+          Require(Assigned(View) and Assigned(Body) and Assigned(Button),'Component layout controls missing');
+          Require((Body.Top>=View.Top+View.Height) and (Body.Top+Body.Height<=Button.Top) and
+            (Button.Top+Button.Height<=Form.ClientHeight),'Component table/status/details/buttons overlap at '+IntToStr(DPI));
+          Require(View.Items[High(UPDATE_COMPONENTS)+1].DisplayRect(drBounds).Bottom<=View.ClientHeight,
+            'Last component does not fit at '+IntToStr(DPI));
+          SetMHLTheme(True); Application.ProcessMessages;
+          Require((ColorToRGB(View.Color)=RGB(30,31,34)) and
+            (ColorToRGB(View.Font.Color)=ColorToRGB(MHLThemeText)),'Dark component table has unreadable colors');
+          SetMHLTheme(False); Application.ProcessMessages;
+          Require(ColorToRGB(View.Color)=ColorToRGB(clWindow),'Light component table was not restored');
+          Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
+          var PreviewHeight:=Body.Height;
+          View.OnDblClick(View); Application.ProcessMessages;
+          Writeln('TRACE changes DPI=',DPI,' PPI=',Form.CurrentPPI,' preview=',PreviewHeight,
+            ' reading=',Body.Height,' table=',View.Height,' selected=',Tabs.TabIndex,
+            ' client=',Form.ClientHeight);
+          Require((Tabs.TabIndex=1) and not View.Visible and HistorySelector.Visible and
+            (Body.Height>=PreviewHeight+MulDiv(150,Form.CurrentPPI,96)) and
+            (Body.Height>=MulDiv(280,Form.CurrentPPI,96)),
+            'Changes tab does not reclaim enough reading space at '+IntToStr(DPI));
+          Require(HistorySelector.ItemIndex=View.Selected.Index,'Changes tab lost the selected component');
+          HistorySelector.ItemIndex:=6; HistorySelector.OnChange(HistorySelector);
+          Require(View.Selected.Index=6,'Changes component selector and table disagree');
+          SetMHLTheme(True); Application.ProcessMessages;
+          Require(string(Body.PrimaryNotes.Text).Contains('DocSharp'),'Theme switch lost DOC changes on reading tab');
+          SetMHLTheme(False); Application.ProcessMessages;
+          TLabel(Form.FindComponent('UpdateBytes')).Caption:='Скачано: 1 / 2 МБ';
+          Form.ClientHeight:=Form.ClientHeight+1; Application.ProcessMessages;
+          var Progress: TProgressBar;
+          Progress:=nil;
+          for var ControlIndex:=0 to Form.ControlCount-1 do
+            if Form.Controls[ControlIndex] is TProgressBar then Progress:=TProgressBar(Form.Controls[ControlIndex]);
+          Require(Assigned(Progress) and Progress.Visible and (Body.Top+Body.Height<=Progress.Top),
+            'Minimum-size details overlap download progress at '+IntToStr(DPI));
+          Tabs.TabIndex:=0; Tabs.OnChange(Tabs); Application.ProcessMessages;
+          Require(View.Visible and not HistorySelector.Visible and (Body.Top+Body.Height<=Progress.Top),
+            'Returning to components overlaps progress or loses the view at '+IntToStr(DPI));
+
+        finally Form.Free; end;
+      end;
+    finally SetMHLTheme(SavedDark); end;
+    Writeln('PASS component table and dedicated changes tab remain separate at 96 144 192 DPI, minimum size and both themes');
+  end;
+
   procedure CheckCycles;
-  var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TComboBox; Index: Integer; Primary: TButton;
+  var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TListView; Index: Integer; Primary: TButton;
   begin
     Cycle := TfrmProgramUpdate.Create(nil);
     try
       Selector := nil;
       for Index := 0 to Cycle.ControlCount - 1 do
-        if Cycle.Controls[Index] is TComboBox then Selector := TComboBox(Cycle.Controls[Index]);
+        if Cycle.Controls[Index] is TListView then Selector := TListView(Cycle.Controls[Index]);
       Current := Default(TProgramRelease); Current.Tag := PROGRAM_RELEASE_VERSION;
       CycleComponents := Default(TComponentReleases);
       Require(Cycle.StartCheckCycle(True), 'Automatic cycle did not start');
@@ -348,7 +429,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(not Cycle.Visible, 'Component response opened before application check completed');
       Cycle.ApplicationChecked(Current, True, '');
-      Require(Cycle.Visible and (Selector.ItemIndex = 1), 'Component-only update did not select SQLite');
+      Require(Cycle.Visible and (Selector.Selected.Index = 1), 'Component-only update did not select SQLite');
       Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect');
       Cycle.Hide;
       App := Current; App.Tag := '2.7.0_pre5.999'; App.DownloadURL := 'http://127.0.0.1/application.zip';
@@ -356,7 +437,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Cycle.ApplicationChecked(App, True, '');
       Require(not Cycle.Visible, 'Application response opened before component check completed');
       Cycle.ComponentsReceived(CycleComponents, True, '');
-      Require(Cycle.Visible and (Selector.ItemIndex = 0), 'Application update did not select program');
+      Require(Cycle.Visible and (Selector.Selected.Index = 0), 'Application update did not select program');
       Require(StatusText(Cycle) = 'Есть обновления для HomeLib Ru, SQLite и SumatraPDF', 'Combined summary incorrect');
       Cycle.Hide;
       CycleComponents := Default(TComponentReleases);
@@ -370,12 +451,12 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         'DjVuLibre', CycleComponents[3]), 'Windows DjVu version fixture failed');
       Require(Cycle.StartCheckCycle(True), 'DjVu check cycle did not start');
       Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
-      Require(Cycle.Visible and (Selector.ItemIndex=3), 'DjVu-only update was not presented');
+      Require(Cycle.Visible and (Selector.Selected.Index=4), 'DjVu-only update was not presented');
       Primary := nil;
       for Index := 0 to Cycle.ControlCount-1 do
         if (Cycle.Controls[Index] is TButton) and TButton(Cycle.Controls[Index]).Default then
           Primary := TButton(Cycle.Controls[Index]);
-      Require(Assigned(Primary) and (Primary.Caption='Сайт автора') and
+      Require(Assigned(Primary) and (Primary.Caption='Проверить пакеты') and
         StatusText(Cycle).Contains('3.5.99'), 'Check-only component pretends it can install');
       Cycle.Hide;
       CycleComponents[0].ComponentID:='SQLite'; CycleComponents[0].ComponentVersion:='100.0';
@@ -383,10 +464,42 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Require(Cycle.StartCheckCycle(True), 'Mixed component cycle did not start');
       Cycle.ApplicationChecked(Current, True, ''); Cycle.ComponentsReceived(CycleComponents, True, '');
       Require(StatusText(Cycle)='Есть обновления для SQLite', 'Check-only component entered download summary');
-      Selector.ItemIndex:=3; Selector.OnChange(Selector);
-      Require((Primary.Caption='Сайт автора') and StatusText(Cycle).Contains('3.5.99'),
+      ChooseRow(Selector, 4);
+      Require((Primary.Caption='Проверить пакеты') and StatusText(Cycle).Contains('3.5.99'),
         'Batch summary overwrote check-only action');
       Cycle.Hide;
+      CycleComponents:=Default(TComponentReleases);
+      Require(ParseDocSharpVersions('{"versions":["0.99.0"]}','{"versions":["0.99.0"]}',CycleComponents[5]),
+        'DOC available-version fixture failed');
+      Require(Cycle.StartCheckCycle(True),'DOC-only check cycle failed');
+      Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
+      Require(Cycle.Visible and (Selector.Selected.Index=6) and (Primary.Caption='Проверить пакеты') and
+        StatusText(Cycle).Contains('0.99.0'),'DOC new version is hidden or pretends it can install');
+      Require(Selector.Items[6].SubItems[1]='0.99.0','DOC available version missing from table');
+      Cycle.Hide;
+      Require(Cycle.StartCheckCycle(False),'DOC failed refresh did not start');
+      Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,False,'Сеть недоступна');
+      Require(Selector.Items[6].SubItems[2]='Не удалось проверить','Failed refresh claims DOC is current');
+      Cycle.Hide;
+      var Packaged:=Default(TComponentReleases);
+      Packaged[5]:=CycleComponents[5]; Packaged[5].CheckOnly:=False;
+      Packaged[5].Tag:='2.7.0_pre5.999'; Packaged[5].Size:=123;
+      Packaged[5].SHA256:=StringOfChar('a',64);
+      Packaged[5].DownloadURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+
+        Packaged[5].Tag+'/'+ComponentArchiveName('DocSharp',ProgramUpdatePlatform);
+      CycleComponents[5].ComponentError:=''; MergeVerifiedComponentPackages(CycleComponents,Packaged);
+      Require(not CycleComponents[5].CheckOnly and (CycleComponents[5].SHA256=Packaged[5].SHA256),
+        'Verified DOC package did not enable automatic installation');
+      Require(Cycle.StartCheckCycle(True),'Installable DOC cycle failed');
+      Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
+      Require(Cycle.Visible and (Primary.Caption='Скачать обновление') and
+        (StatusText(Cycle)='Есть обновления для DocSharp'),'Verified DOC package still only checks versions');
+      Cycle.Hide;
+      var Preserved:=CycleComponents[5].DownloadURL;
+      Packaged[5].DownloadURL:='https://other.example/doc.zip'; Packaged[5].ComponentVersion:='1.0.0';
+      MergeVerifiedComponentPackages(CycleComponents,Packaged);
+      Require(CycleComponents[5].DownloadURL=Preserved,'Foreign DOC package replaced verified download');
+      Writeln('PASS verified independent DOC package enables installation; foreign package is rejected');
       Writeln('PASS bundled DjVu and 7-Zip checks remain separate from component installation');
     finally Cycle.Free; end;
     Writeln('PASS automatic update cycle waits for both responses, stays quiet without updates and selects components');
@@ -416,23 +529,51 @@ begin
     begin
       if Popup.Controls[I] is TUpdateNotesView then
       begin NotesView := TUpdateNotesView(Popup.Controls[I]); Notes := NotesView.PrimaryNotes; end;
-      if Popup.Controls[I] is TComboBox then Selector := TComboBox(Popup.Controls[I]);
+      if Popup.Controls[I] is TListView then Selector := TListView(Popup.Controls[I]);
       if (Popup.Controls[I] is TButton) and TButton(Popup.Controls[I]).Default then Primary := TButton(Popup.Controls[I]);
       if (Popup.Controls[I] is TLabel) and (Pos('Текущая', TLabel(Popup.Controls[I]).Caption) = 1) then Version := TLabel(Popup.Controls[I]);
       if (Popup.Controls[I] is TLabel) and (Popup.Controls[I].Top > 400) then Bytes := TLabel(Popup.Controls[I]);
     end;
     Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
     Require(Pos(PROGRAM_RELEASE_VERSION, Version.Caption) > 0, 'Installed version missing');
-    Require(Assigned(Selector) and (Selector.Items.Count = 5), 'Separate component choices missing');
-    Require(Selector.Items[1].StartsWith('SQLite:') and Selector.Items[2].StartsWith('SumatraPDF:'),
-      'Component selection must skip AlReader and retain SumatraPDF');
-    Require(Selector.Items[3].StartsWith('DjVuLibre:') and Selector.Items[4].StartsWith('7-Zip:'),
-      'Bundled raster components missing from updater');
-    Selector.ItemIndex := 1; Selector.OnChange(Selector);
+    Require(Assigned(Selector) and (Selector.Items.Count=Length(UPDATE_COMPONENTS)+1), 'Registered component rows missing');
+    Require((Selector.Columns.Count=4) and (Selector.Columns[1].Caption='Установлено') and
+      (Selector.Columns[2].Caption='У автора'),'Installed/available component columns missing');
+    for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      Require(Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].ID) and
+        Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].Title),'Purpose or library name missing');
+    Require(Selector.Items[6].SubItems[0]='0.21.0.0','Installed bundled DocSharp version missing');
+    ChooseRow(Selector,6); var CopyKey: Word:=Ord('C');
+    Selector.OnKeyDown(Selector,CopyKey,[ssCtrl]);
+    Require((CopyKey=0) and CopiedText.Contains('Чтение DOC · DocSharp') and
+      CopiedText.Contains('0.21.0.0'),'Component purpose/library/version cannot be copied');
+    Selector.PopupMenu.Items[1].Click;
+    Require(CopiedText.StartsWith('Компонент'+#9) and CopiedText.Contains('HomeLib Ru') and
+      CopiedText.Contains('DocSharp'),'Entire component list cannot be copied');
+
+    Require(ParseDocSharpVersions('{"versions":["0.9.0","0.21.0","0.22.0-preview","0.100.0","0.99.0"]}',
+      '{"versions":["0.99.0","0.21.0","0.9.0"]}',Parsed) and (Parsed.ComponentVersion='0.99.0') and
+      Parsed.CheckOnly,'DOC update check must ignore previews and incomplete assembly pairs');
+    Require(not ParseDocSharpVersions('<html>error</html>','{"versions":["0.21.0"]}',Parsed),'Invalid DOC feed accepted');
+    Require(not ParseDocSharpVersions('{"versions":["0.22.0-beta"]}','{"versions":["0.22.0-beta"]}',Parsed),
+      'DOC preview-only feed accepted');
+    var FeedRoot:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'COMPONENTS.json',TEncoding.UTF8));
+    try
+      var FeedRows:=TJSONObject(FeedRoot).GetValue<TJSONArray>('components');
+      var Future:=TJSONObject.Create; Future.AddPair('id','FutureReader'); Future.AddPair('platform',ProgramUpdatePlatform);
+      Future.AddPair('version','1.0'); var History:=TJSONArray.Create;
+      var Entry:=TJSONObject.Create; Entry.AddPair('version','1.0'); Entry.AddPair('notes','Future component');
+      History.AddElement(Entry); Future.AddPair('history',History); FeedRows.AddElement(Future);
+      var FeedResult: TComponentReleases;
+      Require(ParseComponentFeed(FeedRoot.ToJSON,PROGRAM_RELEASE_VERSION,'[]',FeedResult,False) and
+        (FeedResult[5].ComponentVersion='0.21.0'),'More than five components or a future ID invalidates known metadata');
+    finally FeedRoot.Free; end;
+    Writeln('PASS scalable component table keeps purpose, library name, installed and available versions; DocSharp checks stable pairs');
+    ChooseRow(Selector, 1);
     Require((Pos('3.54.0', NotesView.SectionHeader(0).Caption) > 0) and
       ContainsText(Notes.Text,'исправлены'), 'Installed component changelog missing');
-    Require(Primary.Caption = 'Проверить компонент', 'Component check missing');
-    Selector.ItemIndex := 0; Selector.OnChange(Selector);
+    Require(Primary.Caption = 'Проверить всё', 'Component check missing');
+    ChooseRow(Selector, 0);
     ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.12';
     // GitHub and bundled Markdown may use Unix line breaks; the Windows memo
     // must retain separate heading and bullet lines when displaying them.
@@ -507,7 +648,7 @@ begin
       '"body":"## Bugfixes\n- First fix\n  - Nested detail"}]', Parsed), 'Sumatra dated changelog fixture failed');
     Require(Pos('3.6.1 — 15.01.2026', ComponentChanges(Parsed, '3.6.0')) > 0,
       'Sumatra changelog omitted its date');
-    for ComponentID in COMPONENT_IDS do
+    for ComponentID in ComponentIDs do
     begin
       ReleaseInfo.ComponentID := ComponentID; ReleaseInfo.ComponentVersion := '3.53.0';
       ReleaseInfo.PublishedAt := '2026-04-09';
@@ -613,10 +754,10 @@ begin
       for I := 0 to Reloaded.ControlCount - 1 do
       begin
         if Reloaded.Controls[I] is TUpdateNotesView then ReloadedView := TUpdateNotesView(Reloaded.Controls[I]);
-        if Reloaded.Controls[I] is TComboBox then ReloadedSelector := TComboBox(Reloaded.Controls[I]);
+        if Reloaded.Controls[I] is TListView then ReloadedSelector := TListView(Reloaded.Controls[I]);
       end;
       Require(Pos('длинного журнала', ReloadedView.PrimaryNotes.Text) > 0, 'Application history missing before network check');
-      ReloadedSelector.ItemIndex := 2; ReloadedSelector.OnChange(ReloadedSelector);
+      ChooseRow(ReloadedSelector, 3);
       Require(Pos('Сохранённое описание SumatraPDF', ReloadedView.PrimaryNotes.Text) > 0,
         'Cached component history missing before network check');
       Reloaded.CheckFailed('Сеть недоступна');
@@ -624,6 +765,7 @@ begin
       Reloaded.ClientWidth := MulDiv(1000, Reloaded.CurrentPPI, 96);
       Reloaded.ClientHeight := MulDiv(760, Reloaded.CurrentPPI, 96);
       ReloadedView.ZoomPercent := 140;
+      TTabControl(Reloaded.FindComponent('UpdateTabs')).TabIndex:=1;
       SavedWidth := MulDiv(Reloaded.ClientWidth, 96, Reloaded.CurrentPPI);
       SavedHeight := MulDiv(Reloaded.ClientHeight, 96, Reloaded.CurrentPPI);
     finally Reloaded.Free; end;
@@ -636,13 +778,13 @@ begin
         (Abs(MulDiv(Reloaded.ClientHeight, 96, Reloaded.CurrentPPI) - SavedHeight) <= 1),
         'Resized update window was not restored from disk');
       Require(Assigned(ReloadedView) and (ReloadedView.ZoomPercent = 140), 'Text zoom was not restored from disk');
+      Require(TTabControl(Reloaded.FindComponent('UpdateTabs')).TabIndex=1,'Reading tab was not restored from disk');
     finally Reloaded.Free; end;
     Writeln('PASS resized update window and text zoom survive reopening from disk');
     Require(ParseProgramReleases('[{"tag_name":"2.7.0_pre5.11","draft":false,"body":"",' +
       '"assets":[{"name":"HomeLibRu.zip"}]}]', Parsed) and
       (Pos('Автор не опубликовал', Parsed.History) > 0), 'Empty author release mistaken for unloaded history');
     Writeln('PASS saved histories survive reopening and network failure; empty author notes are explained');
-
     Require(Bytes.Caption = '', 'No download must happen before the click');
     Popup.BeginCheck; Popup.SetCurrent(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Проверить ещё раз'), 'No-update check is not retryable');
@@ -660,8 +802,17 @@ begin
         ReleaseInfo.Changelog := TFile.ReadAllText(Settings.AppPath + 'notes-preview-history.txt', TEncoding.UTF8);
       Popup.SetRelease(ReleaseInfo); Popup.Hide; Popup.ShowModal;
     end;
+    CheckTableLayout;
+    Writeln('PASS update popup shows installed version and changelog without automatic download');
+    // Interactive preview may change theme, selection or close the main form.
+    // Run every assertion first so human inspection cannot alter its fixture.
+    if ParamStr(2)='visual' then
+    begin
+      SetMHLTheme(True); ChooseRow(Selector,0);
+      Popup.ClientWidth:=960; Popup.ClientHeight:=760; NotesView.ZoomPercent:=100;
+      Popup.Show; Application.Run;
+    end;
   finally Popup.Free; end;
-  Writeln('PASS update popup shows installed version and changelog without automatic download');
 end;
 
 procedure TestProgramUpdateDownload;
@@ -696,19 +847,30 @@ begin
     Require(Descriptor.StartsWith(Settings.AppPath,True), 'Component fixture outside isolated runtime');
     Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(Descriptor,TEncoding.UTF8));
     try
-      Require((Root is TJSONArray) and (TJSONArray(Root).Count=2),'Component fixture malformed');
-      for I := 0 to 1 do
+      Require((Root is TJSONArray) and (TJSONArray(Root).Count>=1) and
+        (TJSONArray(Root).Count<=Length(UPDATE_COMPONENTS)),'Component fixture malformed');
+      for I := 0 to TJSONArray(Root).Count-1 do
       begin
-        ComponentIndex := I*2; Item := TJSONObject(TJSONArray(Root).Items[I]);
+        Require(TJSONArray(Root).Items[I] is TJSONObject,'Invalid component fixture');
+        Item := TJSONObject(TJSONArray(Root).Items[I]);
+        ComponentIndex:=0;
+        while (ComponentIndex<Length(UPDATE_COMPONENTS)) and
+          (UPDATE_COMPONENTS[ComponentIndex].ID<>Item.GetValue<string>('id')) do Inc(ComponentIndex);
+        Require(ComponentIndex<Length(UPDATE_COMPONENTS),'Unknown component fixture');
+        Require(Releases[ComponentIndex].ComponentID='','Repeated component fixture');
         Releases[ComponentIndex].Tag := '2.7.0_pre5.14';
+        Item.TryGetValue<string>('release',Releases[ComponentIndex].Tag);
         Releases[ComponentIndex].ComponentID := Item.GetValue<string>('id');
         Releases[ComponentIndex].ComponentVersion := '9.0.0.0';
+        Item.TryGetValue<string>('version',Releases[ComponentIndex].ComponentVersion);
         Releases[ComponentIndex].DownloadURL := Item.GetValue<string>('url');
         Releases[ComponentIndex].SHA256 := Item.GetValue<string>('sha256');
         Releases[ComponentIndex].Size := Item.GetValue<Int64>('size');
         Releases[ComponentIndex].Changelog := 'Новые изменения тестового компонента';
-        Releases[ComponentIndex].History := '9.0.0.0' + sLineBreak + Releases[ComponentIndex].Changelog;
-        Releases[ComponentIndex].Notes := '[{"version":"9.0.0.0","notes":"Новые изменения тестового компонента"}]';
+        Releases[ComponentIndex].History := Releases[ComponentIndex].ComponentVersion +
+          sLineBreak + Releases[ComponentIndex].Changelog;
+        Releases[ComponentIndex].Notes := '[{"version":"'+Releases[ComponentIndex].ComponentVersion+
+          '","notes":"Новые изменения тестового компонента"}]';
         Require(Releases[ComponentIndex].DownloadURL.StartsWith('http://127.0.0.1:'),'External component fixture URL');
       end;
     finally Root.Free; end;
@@ -717,6 +879,9 @@ begin
   try
     Controls;
     Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.14';
+    if ParamCount=6 then
+      for ComponentIndex:=Low(Releases) to High(Releases) do
+        if Releases[ComponentIndex].Tag<>'' then begin Info.Tag:=Releases[ComponentIndex].Tag; Break; end;
     Info.DownloadURL := ParamStr(2); Info.Size := StrToInt64(ParamStr(3)); Info.SHA256 := ParamStr(4);
     Info.Changelog := 'Новые изменения тестового выпуска';
     if Scenario='components' then
@@ -843,6 +1008,61 @@ begin
     end;
 end;
 
+type
+  TFailedBuiltinReadDriver = class(TBuiltinReadDriver)
+    CancelDuringLoad, ObservedFailure: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TFailedBuiltinReadDriver.Tick(Sender: TObject);
+begin
+  Require(GetTickCount64-Started<10000,'Failed modal reader did not return');
+  for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I] is TfrmBuiltinReader then
+    begin
+      var Reader:=TfrmBuiltinReader(Screen.Forms[I]);
+      if not CancelDuringLoad and not Reader.LoadFinished then Exit;
+      if not CancelDuringLoad then
+      begin
+        Require(not Reader.Ready,'Malformed FB2 opened successfully');
+        ObservedFailure:=True;
+      end;
+      Timer.Enabled:=False; Reader.Close; Finished:=True; Exit;
+    end;
+end;
+
+procedure TestFailedBuiltinReaderOwner;
+var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean; BeforeGDI, BeforeUSER: Cardinal;
+begin
+  WasVisible:=frmMain.Visible; frmMain.Show; Application.ProcessMessages;
+  BeforeGDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
+  BeforeUSER:=GetGuiResources(GetCurrentProcess,GR_USEROBJECTS);
+  try
+    for var I:=0 to 7 do
+    begin
+      Source:=Settings.AppPath+'failed-modal-'+IntToStr(I)+'.fb2';
+      if I mod 2=0 then TFile.WriteAllText(Source,'<FictionBook><body><p>broken</body>',TEncoding.UTF8)
+      else TFile.WriteAllText(Source,'<FictionBook><body><section><p>'+StringOfChar('A',3000000)+'</p></section></body></FictionBook>',TEncoding.UTF8);
+      Hash:=THashSHA2.GetHashStringFromFile(Source); Driver:=TFailedBuiltinReadDriver.Create;
+      try
+        Driver.CancelDuringLoad:=I mod 2<>0;
+        Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=1; Driver.Timer.OnTimer:=Driver.Tick;
+        Driver.Started:=GetTickCount64; Driver.Timer.Enabled:=True;
+        OpenBuiltinReader(frmMain,Source,'Failure cleanup','failed-modal-'+IntToStr(I),Settings.DataDir+'failed-modal.ini',Settings.AppPath+'tools\pdfium\pdfium.dll');
+        Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),'Failed/canceled modal reader was not exercised');
+      finally Driver.Timer.Free; Driver.Free; end;
+      for var Pump:=1 to 12 do begin Application.ProcessMessages; CheckSynchronize(2); end;
+      Require(frmMain.Visible and frmMain.Enabled,'Failed reader left main window hidden or disabled');
+      Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Reader failure changed its input');
+      for var F:=0 to Screen.FormCount-1 do Require(not (Screen.Forms[F] is TfrmBuiltinReader),'Reader error left an orphan window');
+    end;
+    GdiFlush;
+    Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Failed main-owned readers leak drawing handles');
+    Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Failed main-owned readers leak window handles');
+  finally if not WasVisible then frmMain.Hide; end;
+  Writeln('PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs');
+end;
+
 procedure TestReaderDefaultSettings;
 var Configuration: TfrmSettings; Toggle: TCheckBox; Loaded: TMHLSettings;
   Count, I: Integer; Paths: TStringList; External: TAction;
@@ -927,6 +1147,7 @@ begin
     Require(Settings.ConvertWebPToPNG and Settings.OverwriteFB2Info,'Built-in reader changed export settings');
     Writeln('PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings');
   finally Driver.Timer.Free; Driver.Free; end;
+  TestFailedBuiltinReaderOwner;
 end;
 
 procedure TestReaderCompatibility;
@@ -2151,6 +2372,157 @@ begin
   finally Popup.Free; SetMHLTheme(SavedDark); end;
 end;
 
+procedure TestSchemaReopenSafety;
+var Collection, Reopened: IBookCollection; Info: TCollectionInfo; ID, BookID, Schema, Revision: Integer;
+  DB, Writer: TSQLiteDatabase; ExpectedTrigger: string; Book: TBookRecord;
+begin
+  ID:=SystemDB.CreateCollection('Schema reopen safety',Settings.AppPath,'schema-reopen.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(ID); Info:=SystemDB.GetCollectionInfo(ID);
+  BookID:=AddBook(Collection,'Preserved schema book','Writer','ru','Primary cycle','prose_contemporary');
+  Collection.AddBookSeries(BookID,'Secondary cycle',7);
+  Collection.SetRate(CreateBookKey(BookID,ID),5); Collection.SetProgress(CreateBookKey(BookID,ID),38);
+  Collection.SetReview(CreateBookKey(BookID,ID),'Личная мысль 😀');
+  DB:=TSQLiteDatabase.CreateReadOnly(Info.DBFileName);
+  try
+    Schema:=DB.QuerySingleInt('PRAGMA schema_version'); Revision:=DB.QuerySingleInt('PRAGMA data_version');
+    ExpectedTrigger:=DB.QuerySingleString('SELECT sql FROM sqlite_master WHERE name=''TRBooks_BD''');
+    for var I:=1 to 4 do
+    begin
+      Reopened:=TBookCollection_SQLite.Create(Info,SystemDB); Reopened:=nil;
+      Require(DB.QuerySingleInt('PRAGMA schema_version')=Schema,'Opening an up-to-date catalog rewrites its triggers');
+      Require(DB.QuerySingleInt('PRAGMA data_version')=Revision,'Opening an up-to-date catalog commits a database mutation');
+    end;
+    Writer:=TSQLiteDatabase.Create(Info.DBFileName);
+    try
+      Writer.ExecSQL('DROP TRIGGER TRBooks_BD');
+      Writer.ExecSQL('CREATE TRIGGER TRBooks_BD BEFORE DELETE ON Books BEGIN SELECT 1; END');
+    finally Writer.Free; end;
+    Reopened:=TBookCollection_SQLite.Create(Info,SystemDB); Reopened:=nil;
+    Require(DB.QuerySingleString('SELECT sql FROM sqlite_master WHERE name=''TRBooks_BD''')=ExpectedTrigger,'Legacy cleanup trigger was not repaired');
+    Schema:=DB.QuerySingleInt('PRAGMA schema_version'); Revision:=DB.QuerySingleInt('PRAGMA data_version');
+    Reopened:=TBookCollection_SQLite.Create(Info,SystemDB); Reopened:=nil;
+    Require((DB.QuerySingleInt('PRAGMA schema_version')=Schema) and (DB.QuerySingleInt('PRAGMA data_version')=Revision),'A repaired catalog is still rewritten on reopen');
+    Collection.GetBookRecord(CreateBookKey(BookID,ID),Book,True);
+    Require((Book.Title='Preserved schema book') and (Book.Rate=5) and (Book.Progress=38) and
+      (Book.Review='Личная мысль 😀') and (Length(Collection.GetBookSeries(Book.BookKey))=2),'Schema reopen/repair changed books or personal fields');
+    Require(DB.QuerySingleString('PRAGMA quick_check')='ok','Schema reopen damaged integrity');
+  finally Reopened:=nil; DB.Free; end;
+  Writeln('PASS current catalogs reopen without schema/data writes; legacy triggers repair once and preserve books, reviews, ratings, progress and secondary series');
+end;
+
+procedure TestMetadataDeltaSafety;
+const Fields='Title,Folder,FileName,Ext,InsideNo,SeqNumber,BookSize,LibID,IsDeleted,IsLocal,UpdateDate,Lang,LibRate,KeyWords,Rate,Progress,Review,Annotation,Translators,Publisher,City,PubYear,ISBN,SeriesID,SearchTitle,SearchLang,SearchFolder,SearchFileName,SearchExt,SearchKeyWords,SearchAnnotation';
+var Target: IBookCollection; Full: IBookMergeMetadataUpdater; Delta: IBookMergeMetadataDeltaUpdater;
+  TargetID, A, B, Step: Integer; Original, Before, Value, Stored: TBookRecord; DB: TSQLiteDatabase;
+  OldRow, NewRow: TSQLiteQuery; Failed: Boolean;
+  procedure EqualRows;
+  begin
+    DB:=TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+    try
+      OldRow:=DB.NewQuery('SELECT '+Fields+' FROM Books WHERE BookID=?');
+      NewRow:=DB.NewQuery('SELECT '+Fields+' FROM Books WHERE BookID=?');
+      try
+        OldRow.SetParam(0,A); NewRow.SetParam(0,B); OldRow.Open; NewRow.Open;
+        for var I:=0 to 30 do
+          if I=16 then Require(OldRow.FieldAsBlobString(I)=NewRow.FieldAsBlobString(I),'Delta changed review bytes at step '+IntToStr(Step))
+          else Require(OldRow.FieldAsString(I)=NewRow.FieldAsString(I),'Delta field '+IntToStr(I)+' differs at step '+IntToStr(Step));
+      finally NewRow.Free; OldRow.Free; end;
+      Require(DB.QuerySingleString('SELECT group_concat(SeriesID||'':''||IFNULL(SeqNumber,0)||'':''||IsPrimary) FROM (SELECT * FROM Series_List WHERE BookID=? ORDER BY SeriesID)',[A])=
+        DB.QuerySingleString('SELECT group_concat(SeriesID||'':''||IFNULL(SeqNumber,0)||'':''||IsPrimary) FROM (SELECT * FROM Series_List WHERE BookID=? ORDER BY SeriesID)',[B]),'Delta changed series membership');
+    finally DB.Free; end;
+  end;
+begin
+  TargetID:=SystemDB.CreateCollection('Metadata delta',Settings.AppPath,'metadata-delta.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Target:=SystemDB.GetCollection(TargetID);
+  Require(Supports(Target,IBookMergeMetadataUpdater,Full) and Supports(Target,IBookMergeMetadataDeltaUpdater,Delta),'Delta path was not built');
+  A:=AddBook(Target,'Delta baseline','Автор','ru','Cycle','prose_contemporary');
+  B:=AddBook(Target,'Delta baseline','Автор','ru','Cycle','prose_contemporary');
+  Target.GetBookRecord(CreateBookKey(A,TargetID),Original,True);
+  Original.PublisherSeriesKnown:=False; Original.Rate:=5; Original.Progress:=72; Original.Review:='Личная мысль 😀';
+  Target.AddBookToGroup(CreateBookKey(A,TargetID),FAVORITES_GROUP_ID);
+  Target.AddBookToGroup(CreateBookKey(B,TargetID),FAVORITES_GROUP_ID);
+  Target.AddBookSeries(A,'Secondary preserved',9); Target.AddBookSeries(B,'Secondary preserved',9);
+  for Step:=0 to 26 do
+  begin
+    Target.BeginBulkOperation; SystemDB.BeginDataUpdate;
+    try
+      Original.BookKey:=CreateBookKey(A,TargetID); Full.UpdateBookPreservingSeries(Original);
+      Original.BookKey:=CreateBookKey(B,TargetID); Full.UpdateBookPreservingSeries(Original);
+      Target.GetBookRecord(CreateBookKey(B,TargetID),Before,True); Value:=Before; Value.PublisherSeriesKnown:=False;
+      case Step of
+        0: Value.Title:='Новое название ё 日本語';
+        1: Value.Folder:='archive-new.zip';
+        2: Value.FileName:='новый файл';
+        3: Value.FileExt:='epub';
+        4: Value.InsideNo:=87;
+        5: Value.SeqNumber:=41;
+        6: Value.Size:=987654;
+        7: Value.LibID:='flibusta:12345';
+        8: Include(Value.BookProps,bpIsDeleted);
+        9: Exclude(Value.BookProps,bpIsLocal);
+        10: Value.Date:=EncodeDate(2026,10,13)+EncodeTime(4,27,15,123);
+        11: Value.Lang:='be';
+        12: Value.LibRate:=3;
+        13: Value.KeyWords:='ключевые слова Ελληνικά';
+        14: Value.Rate:=2;
+        15: Value.Progress:=34;
+        16: Value.Review:='  Новая мысль 😀  ';
+        17: Value.Annotation:='Аннотация עברית';
+        18: Value.Translators:='Новый переводчик';
+        19: Value.Publisher:='Издатель';
+        20: Value.City:='Минск';
+        21: Value.PubYear:=2024;
+        22: Value.ISBN:='978-0-123456-00-1';
+        23: Value.Series:='New primary';
+        24: begin Value.Series:=''; Value.SeqNumber:=47; end;
+        25: begin Value.Title:='Several fields'; Value.Folder:='other.zip'; Value.Size:=1456; Value.Review:=''; Value.Rate:=3; Value.Progress:=42; Value.PubYear:=0; end;
+        26: begin Value.Title:=''; Value.SeqNumber:=9000; Value.Annotation:=''; end;
+      end;
+      Delta.UpdateBookMetadataDelta(Before,Value);
+      Value.BookKey:=CreateBookKey(A,TargetID); Full.UpdateBookPreservingSeries(Value);
+      Target.EndBulkOperation(True); SystemDB.EndDataUpdate(True);
+    except if Target.InBulkOperation then Target.EndBulkOperation(False); SystemDB.EndDataUpdate(False); raise; end;
+    EqualRows;
+  end;
+  DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try
+    var Q:=DB.NewQuery('UPDATE Books SET Review=? WHERE BookID=?');
+    try Q.SetBlobParam(0,#13#10+'  Личная мысль 😀  '+#13#10); Q.SetParam(1,B); Q.ExecSQL; finally Q.Free; end;
+  finally DB.Free; end;
+  Target.GetBookRecord(CreateBookKey(B,TargetID),Before,True); Value:=Before; Value.PublisherSeriesKnown:=False;
+  Value.Review:=Before.Review+#13#10+'[Другой источник]'+#13#10+'Дополнение';
+  Target.BeginBulkOperation; SystemDB.BeginDataUpdate;
+  try Delta.UpdateBookMetadataDelta(Before,Value); Target.EndBulkOperation(True); SystemDB.EndDataUpdate(True);
+  except if Target.InBulkOperation then Target.EndBulkOperation(False); SystemDB.EndDataUpdate(False); raise; end;
+  Require(Target.GetReview(Value.BookKey)=Value.Review,'Delta trimmed original personal review prefix');
+  Writeln('PASS metadata delta preserves exact personal review prefix and appended Unicode text');
+  // Return both rows to the parity baseline before testing failure rollback.
+  Target.BeginBulkOperation; SystemDB.BeginDataUpdate;
+  try
+    Original.BookKey:=CreateBookKey(A,TargetID); Full.UpdateBookPreservingSeries(Original);
+    Original.BookKey:=CreateBookKey(B,TargetID); Full.UpdateBookPreservingSeries(Original);
+    Target.EndBulkOperation(True); SystemDB.EndDataUpdate(True);
+  except if Target.InBulkOperation then Target.EndBulkOperation(False); SystemDB.EndDataUpdate(False); raise; end;
+  Target.GetBookRecord(CreateBookKey(B,TargetID),Before,True);
+  Before.PublisherSeriesKnown:=False;
+  DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try DB.ExecSQL('CREATE TRIGGER RejectDelta BEFORE UPDATE ON Books WHEN NEW.BookID='+IntToStr(B)+' BEGIN SELECT RAISE(ABORT,''injected delta failure''); END'); finally DB.Free; end;
+  Target.BeginBulkOperation; SystemDB.BeginDataUpdate;
+  try
+    Delta.UpdateBookMetadataDelta(Before,Before); // No metadata write should reach the rejection trigger.
+    Target.EndBulkOperation(True); SystemDB.EndDataUpdate(True);
+  except if Target.InBulkOperation then Target.EndBulkOperation(False); SystemDB.EndDataUpdate(False); raise; end;
+  Value:=Before; Value.Folder:='must roll back'; Failed:=False;
+  Target.BeginBulkOperation; SystemDB.BeginDataUpdate;
+  try Delta.UpdateBookMetadataDelta(Before,Value); except on E: Exception do Failed:=True; end;
+  Target.EndBulkOperation(False); SystemDB.EndDataUpdate(False);
+  Require(Failed,'Delta ignored injected write failure');
+  Target.GetBookRecord(CreateBookKey(B,TargetID),Stored,True);
+  Require((Stored.Folder=Before.Folder) and (Stored.Rate=Before.Rate) and (Stored.Progress=Before.Progress) and (Stored.Review=Before.Review),'Delta rollback lost metadata or personal state');
+  EqualRows;
+  Writeln('PASS metadata delta matches full writes for every column, Unicode, primary and secondary series; no-op and failed updates preserve user state');
+end;
+
 procedure TestBulkWriteSafety;
 var Target: IBookCollection;
   TargetID, ID, I: Integer; Book, Stored: TBookRecord; Copies: TArray<TBookRecord>;
@@ -2332,6 +2704,12 @@ begin
     NewCount:=Plan.NewBooks;
     Writeln('PROFILE existing_merge total=',Plan.Total,' new=',NewCount,' duplicates=',Plan.Duplicates,
       ' conflicts=',Plan.Conflicts,' preview_ms=',PreviewMS); Flush(Output);
+    if ParamStr(4)='preview-only' then
+    begin
+      Require(NewCount=StrToInt(ParamStr(5)),'Read-only preview changed new-book count');
+      Require(Plan.Conflicts=0,'Read-only real preview invented personal-value conflicts');
+      Writeln('PASS full read-only merge preview covers every record and preserves expected duplicates'); Flush(Output); Exit;
+    end;
     Started:=GetTickCount64; LastLog:=Started;
     ProbeCount:=0;
     if ParamStr(4)='probe' then
@@ -2480,7 +2858,7 @@ procedure TestMergeArchiveResolution; forward;
 procedure TestCollectionMerge;
 var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
   Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing, Probe: TBookRecord;
-  Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup: string;
+  Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup, OriginalReview: string;
   DB: TSQLiteDatabase;
 
   procedure Locate(const Collection: IBookCollection; BookID: Integer;
@@ -2518,6 +2896,13 @@ begin
   Target.SetRate(CreateBookKey(ExistingID, TargetID), 5);
   Target.SetProgress(CreateBookKey(ExistingID, TargetID), 10);
   Target.SetReview(CreateBookKey(ExistingID, TargetID), 'User review');
+  OriginalReview:='  User review'+sLineBreak+' preserved personal spacing  ';
+  DB:=TSQLiteDatabase.Create(SystemDB.GetCollectionInfo(TargetID).DBFileName);
+  try
+    var ReviewQuery:=DB.NewQuery('UPDATE Books SET Review=? WHERE BookID=?');
+    try ReviewQuery.SetBlobParam(0,OriginalReview); ReviewQuery.SetParam(1,ExistingID); ReviewQuery.ExecSQL;
+    finally ReviewQuery.Free; end;
+  finally DB.Free; end;
   Target.AddBookToGroup(CreateBookKey(ExistingID,TargetID),FAVORITES_GROUP_ID);
   Publisher(High,A,'High publisher'); Publisher(Low,B,'Low publisher'); Publisher(Target,ExistingID,'User publisher');
   High.AddBookToGroup(CreateBookKey(A, HighID), FAVORITES_GROUP_ID);
@@ -2527,8 +2912,23 @@ begin
   Sources[0].DatabaseFile := SystemDB.GetCollectionInfo(HighID).DBFileName;
   Sources[1].ID := 'low'; Sources[1].Name := 'Low'; Sources[1].Collection := Low;
   Sources[1].DatabaseFile := SystemDB.GetCollectionInfo(LowID).DBFileName;
+  Target.BeginBulkOperation;
+  try
+    Target.SetCatalogBookID('unselected:file:proof',ExistingID);
+    Target.SetCatalogBookID('high:file;looks-similar',ExistingID);
+    Target.EndBulkOperation(True);
+  except if Target.InBulkOperation then Target.EndBulkOperation(False); raise; end;
   Plan := TCollectionMergePlan.Create(Target, Sources);
   try
+    High.SetRate(CreateBookKey(A,HighID),0); High.SetProgress(CreateBookKey(A,HighID),0);
+    StartSQLiteProfile;
+    try Plan.Preview; SaveSQLiteProfile(Settings.AppPath+'preview-user-snapshot.tsv'); finally StopSQLiteProfile; end;
+    Require((Plan.Conflicts=1) and Plan.Report.Text.Contains('Сохраняемая оценка 5 / источник 3; прогресс: 10 / 80.'),
+      'A later source lost conflicts with original target values after an empty first source');
+    Require(not TFile.ReadAllText(Settings.AppPath+'preview-user-snapshot.tsv').Contains('SELECT Rate,Progress FROM Books WHERE BookID'),
+      'Preview rereads user fields for every matched book');
+    Require(Plan.SourceLookupCount=0,'Unselected or neighboring source prefixes caused per-book stable lookups');
+    High.SetRate(CreateBookKey(A,HighID),4); High.SetProgress(CreateBookKey(A,HighID),20);
     Plan.Preview;
     Require((Plan.NewBooks=1) and (Plan.Duplicates=2) and (Plan.Conflicts=2), 'Merge preview counts incorrect');
     Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; сопоставленных копий 1.') and
@@ -2543,10 +2943,13 @@ begin
     Target.GetBookRecord(CreateBookKey(ID,TargetID), Existing, True);
     Require((Existing.Title='High title') and (Existing.Rate=5) and (Existing.Progress=10), 'Priority or target user values lost');
     Require(Existing.Review.Contains('User review') and Existing.Review.Contains('High review') and Existing.Review.Contains('Low review'), 'Merge lost reviews');
+    Require(Existing.Review.StartsWith(OriginalReview),'Source reviews trimmed existing personal text or line breaks');
     SystemDB.GetBookRecord(Existing.BookKey,Probe);
     Require((Probe.Title=Existing.Title) and (Probe.Rate=5) and (Probe.Progress=10) and
       Probe.Review.Contains('User review') and (Length(Probe.Authors)=Length(Existing.Authors)),
       'Stored group card was skipped or lost user values during merge');
+    Require(Probe.Review.StartsWith(OriginalReview),'Group card lost original personal review prefix');
+    Writeln('PASS merge preview reuses sparse target user snapshot, detects late-source conflicts and preserves original review prefix in catalog and groups');
     Require(Length(Target.GetBookSeries(Existing.BookKey))=3, 'Merge lost author cycles');
     Require(Length(Target.GetBookPublisherSeries(Existing.BookKey))=3, 'Merge lost publisher series');
     Require(Length(Existing.Authors)=3, 'Merge lost authors');
@@ -2691,12 +3094,49 @@ begin
   Writeln('PASS bounded merge archive paths refresh between operations and reject stale ZIP/7z previews before writes');
 end;
 
+function FeedbackButton(Form: TCustomForm; const Prefix: string): TButton;
+begin
+  Result:=nil;
+  for var Component in Form do
+    if (Component is TButton) and string(TButton(Component).Caption).StartsWith(Prefix) then Exit(TButton(Component));
+  Require(False,'Missing feedback action: '+Prefix);
+end;
+
+procedure CheckSourceDialogLayout(Form: TCustomForm);
+var R: TRect; LabelText: string;
+begin
+  for var DPI in TArray<Integer>.Create(96,144,192) do
+  begin
+    Form.ScaleForPPI(DPI);
+    for var C in Form do
+    begin
+      if C is TLabel then
+      begin
+        var LabelControl:=TLabel(C); LabelText:=LabelControl.Caption;
+        Form.Canvas.Font.Assign(LabelControl.Font); R:=Rect(0,0,LabelControl.Width,0);
+        DrawText(Form.Canvas.Handle,PChar(LabelText),Length(LabelText),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        Require(R.Height<=LabelControl.Height,'Source explanation clipped at '+IntToStr(DPI)+': '+LabelText);
+      end;
+      if C is TButton then
+      begin
+        var B:=TButton(C);
+        Require((B.Left>=0) and (B.Top>=0) and (B.Left+B.Width<=B.Parent.ClientWidth) and
+          (B.Top+B.Height<=B.Parent.ClientHeight),Format('Source button out of parent at %d: %s; button=%d,%d %dx%d; parent=%dx%d; form=%dx%d',
+            [DPI,string(B.Caption),B.Left,B.Top,B.Width,B.Height,B.Parent.ClientWidth,B.Parent.ClientHeight,Form.ClientWidth,Form.ClientHeight]));
+        Form.Canvas.Font.Assign(B.Font);
+        Require(Form.Canvas.TextWidth(B.Caption)+MulDiv(16,DPI,96)<=B.Width,'Source button text clipped at '+IntToStr(DPI)+': '+string(B.Caption));
+      end;
+    end;
+  end;
+  Form.ScaleForPPI(96);
+end;
+
 procedure TestCatalogSources;
 var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   ID, I: Integer; Refresh: TCatalogRefreshWorker; Worker: TCatalogMergeWorker;
   Plan: TCollectionMergePlan; Book, AliasBook: TBookRecord; Iterator: IBookIterator; Count, AliasID: Integer;
   AliasWorker: TSeriesAliasWorker; AliasPlan: TSeriesAliasPlan;
-  Dialog: TfrmCatalogSources; Statistics: TfrmStat;
+  Dialog: TfrmCatalogSources; Statistics: TfrmStat; Review: TfrmSeriesAliasReview;
 
   procedure IndexFile(const FileName, Title: string);
   var Zip: TZipFile; Data: TBytes;
@@ -2809,6 +3249,26 @@ begin
   Target.GetBookRecord(CreateBookKey(AliasID,ID),AliasBook,False);
   Require(AliasBook.Series='Цикл','Threaded series merge did not refresh primary name');
   Writeln('PASS series aliases preview and apply across background workers');
+  // A separate series review must not replace the source-merge action.
+  Dialog:=TfrmCatalogSources.CreateForCollection(frmMain,Target);
+  try
+    CheckSourceDialogLayout(Dialog);
+    Require(not FeedbackButton(Dialog,'2. Добавить книги').Enabled,'Source apply enabled before preview');
+    FeedbackButton(Dialog,'1. Проверить все источники').OnClick(FeedbackButton(Dialog,'1. Проверить все источники'));
+    Require(FeedbackButton(Dialog,'2. Добавить книги').Enabled,'All-source preview did not enable source apply');
+    Review:=TfrmSeriesAliasReview.CreateFor(Dialog);
+    try
+      Review.PreviewAliases(nil); CheckSourceDialogLayout(Review);
+      Require(not FeedbackButton(Review,'Объединить').Enabled,'Zero-pair series review offers a write');
+      Require(FeedbackButton(Dialog,'2. Добавить книги').Enabled,'Read-only series check invalidated source preview');
+    finally Review.Free; end;
+    var Scroll: TScrollBox:=nil;
+    for var C in Dialog do if C is TScrollBox then Scroll:=TScrollBox(C);
+    Require(Assigned(Scroll),'Sources cannot scroll in a short window');
+    Dialog.Height:=Dialog.Constraints.MinHeight; Application.ProcessMessages;
+    Require(Scroll.VertScrollBar.Range>Scroll.ClientHeight,'Short source window hides content without scrolling');
+  finally Dialog.Free; end;
+  Writeln('PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll');
   if ParamStr(1)='catalog-sources-ui' then
   begin
     frmMain.Show; Dialog := TfrmCatalogSources.CreateForCollection(frmMain,Target);
@@ -4010,13 +4470,38 @@ begin
   finally DB.Free; Languages.Free; end;
 end;
 
+type
+  TActionProbeTree = class(TBookTree)
+  public property OnBeforeGetCheckState; end;
+  TActionScanProbe = class
+    Visits: Integer;
+    procedure Checked(Sender: TBaseVirtualTree; Node: PVirtualNode);
+  end;
+procedure TActionScanProbe.Checked(Sender: TBaseVirtualTree; Node: PVirtualNode);
+begin Inc(Visits); end;
+
 procedure TestListPerformance;
 var I, BookCount, SeriesCount: Integer; Started: UInt64; Node: PVirtualNode;
   Data: PBookRecord; Languages: TComboBox; CancelButton: TButton; Component: TComponent;
   Profile: TProfileBooks; DB: TSQLiteDatabase; PaintProbe: TLoadingPaintProbe;
   Filters: TBookColumnFilters; Column: TVirtualTreeColumn; Polls: Integer; Factory: TFunc<IBookIterator>;
+  procedure CheckIdleActions(Probe: TActionScanProbe; Expected: Boolean; const Context: string);
+  begin
+    frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+    Require(frmMain.acBookSetRate1.Enabled=Expected,'Stale checked-book availability: '+Context);
+    Probe.Visits:=0;
+    for var ActionIndex:=1 to 120 do
+    begin
+      frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+      frmMain.UpdateBookAction(frmMain.acBookSetRate2);
+      Require(frmMain.acBookSetRate1.Enabled=Expected,'Wrong idle availability: '+Context);
+      Require(frmMain.acBookSetRate2.Enabled=Expected,'Actions disagree: '+Context);
+    end;
+    Require(Probe.Visits=0,'Repeated idle scans without book focus: '+Context);
+  end;
 begin
   TestNestedGenreIterators;
+  frmMain.pgControl.ActivePage:=frmMain.tsSearch;
   Languages := TComboBox.Create(nil);
   try
     Languages.Parent := frmMain; Languages.Visible := False;
@@ -4055,6 +4540,100 @@ begin
     Require(Polls<4,'Additional filters rescan all 50000 loaded rows');
     Filters.Clear; Require(Filters.Apply=50000,'Clearing filter lost loaded rows');
     Writeln('PASS general fixed-height resizing and incremental filtering on 50000 books');
+    var AllowedTypes:=TStringList.Create; var Probe:=TActionScanProbe.Create;
+    try
+      // Exactly the reported selection: select every type, then exclude FB2.
+      AllowedTypes.Add('pdf');
+      for var ExtIndex:=1 to 49 do AllowedTypes.Add('format'+IntToStr(ExtIndex));
+      Node:=frmMain.tvBooksSR.GetFirst;
+      while Assigned(Node) do
+      begin
+        Data:=frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.NodeType=ntBookInfo then
+          if Data.BookKey.BookID mod 100=0 then Data.FileExt:='.pdf' else Data.FileExt:='.fb2';
+        Node:=frmMain.tvBooksSR.GetNext(Node);
+      end;
+      Filters.SetSelectedValues(COL_TYPE,AllowedTypes); Require(Filters.Apply=500,'All types except FB2 filter lost visible PDF rows');
+      Node:=frmMain.tvBooksSR.GetFirstVisible;
+      while Assigned(Node) do
+      begin
+        Data:=frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.NodeType=ntBookInfo then Break;
+        Node:=frmMain.tvBooksSR.GetNextVisible(Node);
+      end;
+      Require(Assigned(Node),'No visible book to reproduce filtered-row selection');
+      frmMain.tvBooksSR.FocusedNode:=Node;
+      frmMain.tvBooksSR.Selected[Node]:=True;
+      Probe.Visits:=0; TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=Probe.Checked;
+      Started:=GetTickCount64;
+      for var ActionIndex:=1 to 120 do
+      begin
+        frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+        Require(frmMain.acBookSetRate1.Enabled,'Rating action disabled for filtered focused book');
+      end;
+      Require(Probe.Visits=0,'Selecting filtered book still scans checked state across catalogue');
+      Require(GetTickCount64-Started<500,'Filtered book action updates block the UI');
+      Writeln('PROFILE 120 action updates, all types except FB2 / 50000 loaded ms=',GetTickCount64-Started,' checked_visits=',Probe.Visits);
+      var CheckedBook:=Node; var FocusGroup:=Node.Parent;
+      frmMain.tvBooksSR.FocusedNode:=nil;
+      CheckIdleActions(Probe,False,'no focused or checked book');
+      frmMain.tvBooksSR.CheckState[CheckedBook]:=csCheckedNormal;
+      CheckIdleActions(Probe,True,'one checked book without focus');
+      Require(Assigned(FocusGroup) and (FocusGroup<>frmMain.tvBooksSR.RootNode),'Missing group fallback fixture');
+      frmMain.tvBooksSR.FocusedNode:=FocusGroup;
+      CheckIdleActions(Probe,True,'series focused and a book checked');
+      frmMain.tvBooksSR.CheckState[CheckedBook]:=csUncheckedNormal;
+      CheckIdleActions(Probe,False,'last book unchecked');
+      frmMain.pmiCheckAllClick(nil);
+      CheckIdleActions(Probe,True,'bulk check all visible books');
+      frmMain.pmiDeselectAllClick(nil);
+      CheckIdleActions(Probe,False,'bulk uncheck all books');
+      frmMain.tvBooksSR.CheckState[CheckedBook]:=csCheckedNormal;
+      CheckIdleActions(Probe,True,'checked book before narrowing');
+      var CheckedTitle:=PBookRecord(frmMain.tvBooksSR.GetNodeData(CheckedBook)).Title;
+      Filters.SetValue(COL_TITLE,'000200'); Require(Filters.Apply(False)=1,'Alternate filter result missing');
+      frmMain.tvBooksSR.FocusedNode:=nil;
+      CheckIdleActions(Probe,False,'checked book hidden by filter');
+      Filters.SetValue(COL_TITLE,CheckedTitle); Require(Filters.Apply(False)=1,'Original row cannot be restored');
+      CheckIdleActions(Probe,False,'same-count filter must preserve cleared checks');
+      frmMain.tvBooksSR.CheckState[CheckedBook]:=csCheckedNormal;
+      CheckIdleActions(Probe,True,'rechecked restored row');
+      frmMain.tvBooksSR.DeleteNode(CheckedBook);
+      CheckIdleActions(Probe,False,'checked row removed');
+      Writeln('PASS no-focus and group-focus idle actions cache checks and refresh on checking, bulk changes, filtering and deletion');
+      Filters.SetValue(COL_TITLE,'no-such-title-anywhere'); Require(Filters.Apply=0,'Empty filter fixture contains books');
+      Probe.Visits:=0;
+      for var ActionIndex:=1 to 120 do
+      begin
+        frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+        Require(not frmMain.acBookSetRate1.Enabled,'Empty filtered list offers a rating action');
+      end;
+      Require(Probe.Visits=0,'Empty filtered list scans all hidden books during idle');
+      TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=nil;
+      Filters.Clear; Filters.Apply;
+      Node:=frmMain.tvBooksSR.GetFirstVisible;
+      while Assigned(Node) do
+      begin
+        Data:=frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.NodeType=ntBookInfo then Break;
+        Node:=frmMain.tvBooksSR.GetNextVisible(Node);
+      end;
+      Require(Assigned(Node),'Missing book for format-independent action regression');
+      frmMain.tvBooksSR.FocusedNode:=Node;
+      var OldExtension:=Data.FileExt;
+      Probe.Visits:=0; TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=Probe.Checked;
+      try
+        for var Extension in string('fb2|fb3|epub|pdf|txt|rtf|html|htm|xhtml|shtml|mht|mhtml|docx|odt|md|markdown|faq|wri|jpg|jpeg|png|gif|bmp|webp|tif|tiff|cbz|cbr|cb7|djvu|djv|dju|djm|djvm|mobi|azw|azw3|prc|doc|xls|xlsx|ppt|pptx|ods|odp|xps|oxps|chm|zip|rar|7z|unknown').Split(['|']) do
+        begin
+          Data.FileExt:='.'+Extension;
+          frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+          Require(frmMain.acBookSetRate1.Enabled,'General book action depends on format: '+Extension);
+        end;
+        Require(Probe.Visits=0,'General action scans catalogue for a different book format');
+      finally Data.FileExt:=OldExtension; TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=nil; end;
+      Writeln('PASS common book action path avoids catalogue scans across all registered reader and external formats');
+    finally TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=nil; Probe.Free; AllowedTypes.Free; end;
+    Writeln('PASS filtered focused-book actions avoid repeated complete catalogue scans');
     if ParamStr(2)='visual' then
     begin
       ShowPage(PAGE_SEARCH);
@@ -4094,6 +4673,109 @@ begin
     Writeln('PASS main window repaints while SQL runs and cancel is available');
     Writeln('PASS cancellation interrupts SQL preparation and row loading, clears partial results and permits the next request');
   finally Languages.Free; end;
+end;
+
+procedure TestReaderWithColumnFilter;
+const Files: array[0..5] of string = ('reader-sky.pdf','reader-apple.djvu','reader-quixote.epub','reader-story.txt','reader-dome.fb2','reader-novel.doc');
+var Filters: TBookColumnFilters; Allowed: TStringList; Probe: TActionScanProbe;
+  Reader: TfrmBuiltinReader; Node: PVirtualNode; Data: PBookRecord; Watch: TStopwatch;
+  OpenTimes, PageTimes, PageTotals: array[0..1,0..5] of Int64; Trial, BookIndex, PageIndex: Integer; ActionVisits: Integer;
+  procedure UpdateMainActions;
+  var Before: Integer;
+  begin
+    Before:=Probe.Visits;
+    for var I:=1 to 6 do frmMain.UpdateBookAction(frmMain.acBookSetRate1);
+    Inc(ActionVisits,Probe.Visits-Before);
+    // Painting visible checkboxes legitimately reads their state. Count only
+    // the action updates, separately from ordinary window painting.
+    Application.ProcessMessages; CheckSynchronize(5);
+  end;
+  procedure WaitReader(Opening: Boolean);
+  var Deadline: TStopwatch;
+  begin
+    Deadline:=TStopwatch.StartNew;
+    while ((Opening and not Reader.LoadFinished) or Reader.PageLoading) and (Deadline.ElapsedMilliseconds<15000) do
+    begin UpdateMainActions; Sleep(2); end;
+    Require(Reader.Ready and not Reader.PageLoading,'Reader did not complete: '+Reader.ReaderStatus.Caption);
+  end;
+begin
+  TestListPerformance;
+  Filters:=TBookColumnFilters.ForTree(frmMain.tvBooksSR); Allowed:=TStringList.Create; Probe:=TActionScanProbe.Create;
+  try
+    Node:=frmMain.tvBooksSR.GetFirst;
+    while Assigned(Node) do
+    begin
+      Data:=frmMain.tvBooksSR.GetNodeData(Node);
+      if Data.NodeType=ntBookInfo then
+        if Data.BookKey.BookID mod 100=0 then Data.FileExt:='.pdf' else Data.FileExt:='.fb2';
+      Node:=frmMain.tvBooksSR.GetNext(Node);
+    end;
+    Allowed.Add('pdf'); for var I:=1 to 49 do Allowed.Add('format'+IntToStr(I));
+    frmMain.Show;
+    for Trial:=0 to 1 do
+    begin
+      Filters.Clear;
+      if Trial=1 then Filters.SetSelectedValues(COL_TYPE,Allowed);
+      Filters.Apply;
+      Node:=frmMain.tvBooksSR.GetFirstVisible;
+      while Assigned(Node) do
+      begin
+        Data:=frmMain.tvBooksSR.GetNodeData(Node);
+        if Data.NodeType=ntBookInfo then Break;
+        Node:=frmMain.tvBooksSR.GetNextVisible(Node);
+      end;
+      Require(Assigned(Node),'Reader filter fixture has no focused book');
+      frmMain.tvBooksSR.FocusedNode:=Node; frmMain.tvBooksSR.Selected[Node]:=True;
+      Probe.Visits:=0; ActionVisits:=0; TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=Probe.Checked;
+      for BookIndex:=0 to High(Files) do
+      begin
+        Require(FileExists(Files[BookIndex]),'Missing readonly reader fixture: '+Files[BookIndex]);
+        Reader:=TfrmBuiltinReader.Create(frmMain);
+        try
+          Reader.PopupMode:=pmExplicit; Reader.PopupParent:=frmMain; Reader.Show;
+          Watch:=TStopwatch.StartNew;
+          var InputBook:=Default(TBookRecord);
+          InputBook.CollectionRoot:=Settings.AppPath;
+          InputBook.FileName:=ChangeFileExt(Files[BookIndex],''); InputBook.FileExt:=ExtractFileExt(Files[BookIndex]);
+          InputBook.BookKey:=CreateBookKey(BookIndex+1,1); InputBook.LibID:=IntToStr(BookIndex+1);
+          InputBook.BookProps:=[bpIsLocal];
+          // Use the application's actual asynchronous preparation, including
+          // direct DOC conversion, before the reflow/page reader receives it.
+          PrepareReaderFileInBackground(frmMain,InputBook,True,
+            procedure(Prepared: string)
+            begin
+              Reader.OpenBook(Prepared,Files[BookIndex],Format('filter-%d-%d',[Trial,BookIndex]),
+                Format('filter-%d-%d.ini',[Trial,BookIndex]),'tools\pdfium\pdfium.dll');
+            end,False,False,True);
+          WaitReader(True); OpenTimes[Trial,BookIndex]:=Watch.ElapsedMilliseconds;
+          PageTimes[Trial,BookIndex]:=0; PageTotals[Trial,BookIndex]:=0;
+          for PageIndex:=1 to 5 do
+          begin
+            Watch:=TStopwatch.StartNew; Reader.NextPage; WaitReader(False); UpdateMainActions;
+            Inc(PageTotals[Trial,BookIndex],Watch.ElapsedMilliseconds);
+            PageTimes[Trial,BookIndex]:=Max(PageTimes[Trial,BookIndex],Watch.ElapsedMilliseconds);
+            Require(Watch.ElapsedMilliseconds<1500,'Page change blocks for seconds: '+Files[BookIndex]);
+            Require(Reader.Visible,'Paging hid or closed the reader');
+            Require(not string(Reader.ReaderStatus.Caption).StartsWith('Не удалось'),'Page failed: '+Reader.ReaderStatus.Caption);
+          end;
+          Writeln('PROFILE reader filter=',Trial,' file=',Files[BookIndex],' open_ms=',OpenTimes[Trial,BookIndex],
+            ' max_page_ms=',PageTimes[Trial,BookIndex],' mean_page_ms=',PageTotals[Trial,BookIndex] div 5);
+          Reader.Close;
+        finally Reader.Free; end;
+      end;
+      Require(ActionVisits=0,'Main action updates scan the catalogue while reader is open');
+      TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=nil;
+    end;
+    for BookIndex:=0 to High(Files) do
+    begin
+      Require(OpenTimes[1,BookIndex]<OpenTimes[0,BookIndex]+1500,'Type filter adds seconds to reader opening');
+      Require(PageTotals[1,BookIndex]<PageTotals[0,BookIndex]+5*150,'Type filter delays page changes');
+    end;
+    Writeln('PASS actual PDF DjVu EPUB TXT FB2 and DOC readers stay visible and avoid catalogue scans with filter on and off');
+  finally
+    TActionProbeTree(frmMain.tvBooksSR).OnBeforeGetCheckState:=nil;
+    Filters.Clear; Filters.Apply; Probe.Free; Allowed.Free; frmMain.Hide;
+  end;
 end;
 
 procedure TestLanguageIsolation;
@@ -4550,7 +5232,7 @@ begin
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
-      if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; Halt(0); end;
+      if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; TestSchemaReopenSafety; TestMetadataDeltaSafety; Halt(0); end;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
       if ParamStr(1) = 'merge-scale' then begin BenchmarkMergeScale; Halt(0); end;
       if ParamStr(1) = 'existing-merge' then begin BenchmarkExistingMerge; Halt(0); end;
@@ -4715,6 +5397,8 @@ begin
         TestAsyncBookPreview
       else if ParamStr(1) = 'list-performance' then
         TestListPerformance
+      else if ParamStr(1) = 'reader-filter' then
+        TestReaderWithColumnFilter
       else if ParamStr(1) = 'cancel-interactive' then
         TestInteractiveCancel
       else if ParamStr(1) = 'persistent-cache' then

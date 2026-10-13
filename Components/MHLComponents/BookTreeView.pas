@@ -80,6 +80,7 @@ type
   private
     FHeaderColor: TColor;
     FDataVersion: UInt64;
+    FActionVersion: UInt64;
     FSortKeys: TArray<TBookSortKey>;
     FHeaderFilterTags: TArray<Integer>;
     FHeaderFilteredTags: TArray<Integer>;
@@ -98,14 +99,17 @@ type
     procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
     function GetOptionsClass: TTreeOptionsClass; override;
     procedure DoFreeNode(Node: PVirtualNode); override;
+    procedure DoChecked(Node: PVirtualNode); override;
     procedure DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates); override;
     procedure DoColumnResize(Column: TColumnIndex); override;
   public
     constructor Create(AOwner: TComponent); override;
+    procedure EndUpdate; override;
     procedure UpdateSortKey(Tag: Integer; Append: Boolean = False);
     property SortKeys: TArray<TBookSortKey> read FSortKeys write FSortKeys;
     property Canvas;
     property DataVersion: UInt64 read FDataVersion;
+    property ActionVersion: UInt64 read FActionVersion;
 
     // Background of the column header. clNone (the default) derives it from the
     // tree's own Color, so it stays a shade off the rows whatever background the
@@ -412,10 +416,24 @@ begin
 end;
 
 procedure TBookTree.DoFreeNode(Node: PVirtualNode);
-begin Inc(FDataVersion); inherited; end;
+begin Inc(FDataVersion); Inc(FActionVersion); inherited; end;
 
 procedure TBookTree.DoInitNode(Parent, Node: PVirtualNode; var InitStates: TVirtualNodeInitStates);
-begin Inc(FDataVersion); inherited; end;
+begin Inc(FDataVersion); Inc(FActionVersion); inherited; end;
+
+procedure TBookTree.DoChecked(Node: PVirtualNode);
+begin
+  Inc(FActionVersion);
+  inherited;
+end;
+
+procedure TBookTree.EndUpdate;
+begin
+  // Bulk checking and filters also write node states directly. Invalidate
+  // after the complete change, without making idle actions walk the tree.
+  Inc(FActionVersion);
+  inherited;
+end;
 
 procedure TBookTree.UpdateSortKey(Tag: Integer; Append: Boolean);
 var Keys: TArray<TBookSortKey>; Chosen: TBookSortKey; I, Index, Count: Integer;

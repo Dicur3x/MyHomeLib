@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls,
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Controls,
   Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme;
 
 type
@@ -18,14 +18,19 @@ type
     FThread: TProgramDownloadThread;
     FComponentThread: TComponentUpdateThread;
     FComponents: TComponentReleases;
-    FSelector: TComboBox;
+    FComponentsView: TListView;
+    FTabs: TTabControl;
+    FHistorySelector: TComboBox;
+    FSelectedRow: Integer;
+    FRefreshingComponents: Boolean;
     FComponentCheck: TButton;
     FComponentAutomatic: Boolean;
     FComponentExplicit: Boolean;
     FComponentError: string;
-    FComponentNotified: array[0..4] of string;
+    FComponentNotified: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
     FApplicationRelease: TProgramRelease;
     FApplicationStatus, FApplicationHistory: string;
+    FApplicationVerified, FApplicationFailed: Boolean;
     FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic: Boolean;
     FQueue: TArray<TProgramRelease>;
     FQueueJobs: TArray<string>;
@@ -45,6 +50,13 @@ type
     procedure DiscardJob;
     procedure DisplayNotes(const Notes: string);
     procedure ComponentSelected(Sender: TObject);
+    procedure ComponentRowSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+    procedure ViewTabChanged(Sender: TObject);
+    procedure OpenChanges(Sender: TObject);
+    procedure HistoryComponentSelected(Sender: TObject);
+    procedure SelectRow(Value: Integer);
+    procedure ComponentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure CopyComponents(Sender: TObject);
     procedure ComponentCheckClick(Sender: TObject);
     procedure ComponentsChecked(var Message: TMessage); message WM_COMPONENT_UPDATE_CHECKED;
     procedure UpdateComponentList;
@@ -53,6 +65,7 @@ type
     procedure EndUIUpdate;
     procedure Present;
     procedure LayoutWindow;
+    procedure LayoutShown(Sender: TObject);
     procedure ZoomClick(Sender: TObject);
     procedure ZoomChanged(Sender: TObject);
     procedure LoadViewPreferences;
@@ -89,39 +102,63 @@ implementation
 
 uses System.SysUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
   System.Types, Winapi.ShellAPI,
-  Vcl.Controls, Vcl.Graphics, dm_user, unit_Settings, unit_Globals,
+  Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache;
 
 constructor TfrmProgramUpdate.Create(AOwner: TComponent);
-var HistoryFile: string;
+var HistoryFile: string; Menu: TPopupMenu; Entry: TMenuItem;
 begin
   inherited CreateNew(AOwner);
   Caption := 'Обновление HomeLib Ru'; BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMinimize, biMaximize];
-  Position := poMainFormCenter; ClientWidth := 860; ClientHeight := 640;
-  Constraints.MinWidth := 660; Constraints.MinHeight := 440;
+  Position := poMainFormCenter; ClientWidth := 960; ClientHeight := 760;
+  Constraints.MinWidth := 760; Constraints.MinHeight := 560;
   DoubleBuffered := True;
+  OnShow:=LayoutShown;
   Font.Name := 'Segoe UI'; Font.Size := 9;
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
   FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION;
   FStatus := TLabel.Create(Self); FStatus.Parent := Self; FStatus.Name := 'UpdateStatus';
-  FSelector := TComboBox.Create(Self); FSelector.Parent := Self;
-  FSelector.Style := csDropDownList; FSelector.SetBounds(20, 48, 465, 25);
-  FSelector.OnChange := ComponentSelected;
+  FTabs:=TTabControl.Create(Self); FTabs.Parent:=Self; FTabs.Name:='UpdateTabs';
+  FTabs.Tabs.Add('Обновления'); FTabs.Tabs.Add('Список изменений'); FTabs.TabIndex:=0;
+  FTabs.OnChange:=ViewTabChanged;
+  FHistorySelector:=TComboBox.Create(Self); FHistorySelector.Parent:=Self;
+  FHistorySelector.Name:='UpdateHistoryComponent'; FHistorySelector.Style:=csDropDownList;
+  FHistorySelector.Items.Add('HomeLib Ru');
+  for var ComponentIndex:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+    FHistorySelector.Items.Add(ComponentTitle(ComponentIndex));
+  FHistorySelector.ItemIndex:=0; FHistorySelector.Visible:=False;
+  FHistorySelector.OnChange:=HistoryComponentSelected;
+  FComponentsView:=TListView.Create(Self); FComponentsView.Parent:=Self;
+  FComponentsView.Name:='UpdateComponents'; FComponentsView.ViewStyle:=vsReport;
+  FComponentsView.ReadOnly:=True; FComponentsView.RowSelect:=True;
+  FComponentsView.HideSelection:=False; FComponentsView.MultiSelect:=False;
+  FComponentsView.DoubleBuffered:=True;
+  FComponentsView.Columns.Add.Caption:='Компонент';
+  FComponentsView.Columns.Add.Caption:='Установлено';
+  FComponentsView.Columns.Add.Caption:='У автора';
+  FComponentsView.Columns.Add.Caption:='Состояние';
+  FComponentsView.OnSelectItem:=ComponentRowSelected;
+  FComponentsView.OnKeyDown:=ComponentKeyDown;
+  FComponentsView.OnDblClick:=OpenChanges;
+  Menu:=TPopupMenu.Create(Self); FComponentsView.PopupMenu:=Menu;
+  Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать строку'; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
+  Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать список'; Entry.Tag:=1; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   HistoryFile := Settings.AppPath + 'COMPONENTS.json';
   try
     if FileExists(HistoryFile) then
       ParseComponentFeed(TFile.ReadAllText(HistoryFile, TEncoding.UTF8), PROGRAM_RELEASE_VERSION, '[]', FComponents, False);
   except end;
   FComponentCheck := TButton.Create(Self); FComponentCheck.Parent := Self;
-  FComponentCheck.SetBounds(500, 47, 220, 27); FComponentCheck.Caption := 'Проверить компоненты';
+  FComponentCheck.SetBounds(500, 47, 220, 27); FComponentCheck.Caption := 'Проверить всё';
   FComponentCheck.OnClick := ComponentCheckClick;
-  UpdateComponentList; FSelector.ItemIndex := 0;
+  UpdateComponentList; SelectRow(0);
   FStatus.SetBounds(20, 88, 700, 60); FStatus.AutoSize := False; FStatus.WordWrap := True;
   FNotes := TUpdateNotesView.Create(Self); FNotes.Parent := Self;
   FNotes.SetBounds(20, 155, 700, 238);
   FBytes := TLabel.Create(Self); FBytes.Parent := Self;
+  FBytes.Name:='UpdateBytes';
   FBytes.SetBounds(20, 430, 700, 18);
   FProgress := TProgressBar.Create(Self); FProgress.Parent := Self;
   FProgress.SetBounds(20, 404, 700, 18); FProgress.Max := 100;
@@ -133,6 +170,7 @@ begin
   FLater.SetBounds(605, 473, 115, 30); FLater.Caption := 'Позже'; FLater.OnClick := LaterClick;
   FCache := ProgramUpdateCache(Settings.AppPath);
   LoadComponentHistory(FCache, FComponents);
+  UpdateComponentList;
   FZoomOut := TButton.Create(Self); FZoomOut.Parent := Self;
   FZoomOut.Caption := 'A−'; FZoomOut.Tag := -10; FZoomOut.OnClick := ZoomClick;
   FZoomOut.Hint := 'Уменьшить текст (Ctrl + колёсико)'; FZoomOut.ShowHint := True;
@@ -158,11 +196,17 @@ begin
   LoadViewPreferences;
   ScaleForPPI(Screen.PixelsPerInch);
   ApplyMHLControlTheme(Self); FNotes.ApplyTheme;
+  FComponentsView.StyleElements:=FComponentsView.StyleElements-[seFont,seClient];
+  if MHLThemeDark then FComponentsView.Color:=RGB(30,31,34) else FComponentsView.Color:=clWindow;
   LayoutWindow;
 end;
 
 destructor TfrmProgramUpdate.Destroy;
 begin
+  Inc(FUIUpdateCount); // Child destruction must not run layout on released controls.
+  if Assigned(FComponentsView) then FComponentsView.OnSelectItem:=nil;
+  if Assigned(FTabs) then FTabs.OnChange:=nil;
+  if Assigned(FHistorySelector) then FHistorySelector.OnChange:=nil;
   SaveViewPreferences;
   if Assigned(FComponentThread) then
   begin FComponentThread.Terminate; FreeAndNil(FComponentThread); end;
@@ -176,7 +220,14 @@ end;
 
 procedure TfrmProgramUpdate.AppThemeChanged(var Message: TMessage);
 begin
+  if csDestroying in ComponentState then Exit;
   if Assigned(FNotes) then FNotes.ApplyTheme;
+  if Assigned(FComponentsView) then
+  begin
+    FComponentsView.StyleElements:=FComponentsView.StyleElements-[seFont,seClient];
+    FComponentsView.Font.Color:=MHLThemeText;
+    if MHLThemeDark then FComponentsView.Color:=RGB(30,31,34) else FComponentsView.Color:=clWindow;
+  end;
 end;
 
 procedure TfrmProgramUpdate.BeginUIUpdate;
@@ -217,8 +268,11 @@ begin
   if Assigned(FZoomIn) and (FUIUpdateCount = 0) then LayoutWindow;
 end;
 
+procedure TfrmProgramUpdate.LayoutShown(Sender: TObject);
+begin LayoutWindow; end;
+
 procedure TfrmProgramUpdate.LayoutWindow;
-var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight: Integer;
+var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHeight: Integer;
   Bounds: TRect;
   function S(Value: Integer): Integer;
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
@@ -231,18 +285,41 @@ begin
     FZoomOut.SetBounds(ClientWidth - Margin - S(150), S(8), S(40), S(26));
     FZoomReset.SetBounds(ClientWidth - Margin - S(105), S(8), S(60), S(26));
     FZoomIn.SetBounds(ClientWidth - Margin - S(40), S(8), S(40), S(26));
-    FSelector.SetBounds(Margin, S(42), Width - S(220) - Gap, S(25));
     FComponentCheck.SetBounds(ClientWidth - Margin - S(220), S(41), S(220), S(27));
+    FTabs.SetBounds(Margin,S(41),Width-S(220)-Gap,S(30));
+    FComponentsView.Visible:=FTabs.TabIndex=0;
+    FHistorySelector.Visible:=FTabs.TabIndex=1;
+    FHistorySelector.SetBounds(Margin,S(78),Width,S(28));
+    FHistorySelector.Enabled:=FComponentsView.Enabled;
     Canvas.Font.Assign(Font); Bounds := Rect(0, 0, Width, 0);
     DrawText(Canvas.Handle, PChar(FStatus.Caption), Length(FStatus.Caption), Bounds,
       DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     StatusHeight := EnsureRange(Bounds.Height + S(4), S(22), S(70));
-    FStatus.SetBounds(Margin, S(76), Width, StatusHeight);
     ButtonTop := ClientHeight - Margin - S(30);
+    FProgress.Visible := Assigned(FThread) or FReady or (FBytes.Caption <> '');
+    NotesBottom:=ButtonTop-Gap;
+    if FProgress.Visible then Dec(NotesBottom,S(52));
+    TableHeight:=S(204);
+    if FComponentsView.HandleAllocated and (FComponentsView.Items.Count>0) then
+    begin
+      Bounds:=FComponentsView.Items[0].DisplayRect(drBounds);
+      TableHeight:=Max(TableHeight,Bounds.Top+Bounds.Height*Min(FComponentsView.Items.Count,8)+S(8));
+    end;
+    // When a small window also shows transfer progress, let the component
+    // list scroll rather than painting details over the footer controls.
+    TableHeight:=Min(TableHeight,Max(S(120),NotesBottom-S(78)-2*Gap-StatusHeight-S(100)));
+    FComponentsView.SetBounds(Margin,S(78),Width,TableHeight);
+    FComponentsView.Columns[0].Width:=Width*42 div 100;
+    FComponentsView.Columns[1].Width:=Width*16 div 100;
+    FComponentsView.Columns[2].Width:=Width*16 div 100;
+    FComponentsView.Columns[3].Width:=Width-FComponentsView.Columns[0].Width-
+      FComponentsView.Columns[1].Width-FComponentsView.Columns[2].Width-S(22);
+    FStatus.SetBounds(Margin, FComponentsView.Top+FComponentsView.Height+Gap, Width, StatusHeight);
+    if FTabs.TabIndex=1 then
+      FStatus.SetBounds(Margin,FHistorySelector.Top+FHistorySelector.Height+Gap,Width,StatusHeight);
     FPrimary.SetBounds(Margin, ButtonTop, Width - S(125 + 115) - 2 * Gap, S(30));
     FPage.SetBounds(ClientWidth - Margin - S(125 + 115) - Gap, ButtonTop, S(125), S(30));
     FLater.SetBounds(ClientWidth - Margin - S(115), ButtonTop, S(115), S(30));
-    FProgress.Visible := Assigned(FThread) or FReady or (FBytes.Caption <> '');
     FBytes.Visible := FProgress.Visible;
     FProgress.SetBounds(Margin, ButtonTop - S(52), Width, S(18));
     FBytes.SetBounds(Margin, ButtonTop - S(28), Width, S(20));
@@ -258,6 +335,22 @@ begin
   finally EnableAlign; end;
 end;
 
+procedure TfrmProgramUpdate.ViewTabChanged(Sender: TObject);
+begin
+  LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.OpenChanges(Sender: TObject);
+begin
+  FTabs.TabIndex:=1; ViewTabChanged(nil);
+end;
+
+procedure TfrmProgramUpdate.HistoryComponentSelected(Sender: TObject);
+begin
+  if FRefreshingComponents or (FHistorySelector.ItemIndex<0) then Exit;
+  SelectRow(FHistorySelector.ItemIndex); ComponentSelected(nil);
+end;
+
 procedure TfrmProgramUpdate.ZoomClick(Sender: TObject);
 begin
   if Sender = FZoomReset then FNotes.ZoomPercent := 100
@@ -270,16 +363,17 @@ begin
 end;
 
 procedure TfrmProgramUpdate.LoadViewPreferences;
-var Root: TJSONValue; Width, Height, Zoom: Integer; Maximized: Boolean;
+var Root: TJSONValue; Width, Height, Zoom, Tab: Integer; Maximized: Boolean;
 begin
   Root := TJSONObject.ParseJSONValue(ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'view.json', 4096));
   try
     if not (Root is TJSONObject) then Exit;
     if TJSONObject(Root).TryGetValue<Integer>('width', Width) then
-      ClientWidth := EnsureRange(Width, 660, Max(660, MulDiv(Screen.WorkAreaWidth - 40, 96, Screen.PixelsPerInch)));
+      ClientWidth := EnsureRange(Width, 760, Max(760, MulDiv(Screen.WorkAreaWidth - 40, 96, Screen.PixelsPerInch)));
     if TJSONObject(Root).TryGetValue<Integer>('height', Height) then
-      ClientHeight := EnsureRange(Height, 400, Max(400, MulDiv(Screen.WorkAreaHeight - 70, 96, Screen.PixelsPerInch)));
+      ClientHeight := EnsureRange(Height, 560, Max(560, MulDiv(Screen.WorkAreaHeight - 70, 96, Screen.PixelsPerInch)));
     if TJSONObject(Root).TryGetValue<Integer>('zoom', Zoom) then FNotes.ZoomPercent := Zoom;
+    if TJSONObject(Root).TryGetValue<Integer>('tab',Tab) then FTabs.TabIndex:=EnsureRange(Tab,0,1);
     if TJSONObject(Root).TryGetValue<Boolean>('maximized', Maximized) and Maximized then WindowState := wsMaximized;
   finally Root.Free; end;
 end;
@@ -293,6 +387,7 @@ begin
     Root.AddPair('width', TJSONNumber.Create(FNormalWidth));
     Root.AddPair('height', TJSONNumber.Create(FNormalHeight));
     Root.AddPair('zoom', TJSONNumber.Create(FNotes.ZoomPercent));
+    Root.AddPair('tab',TJSONNumber.Create(FTabs.TabIndex));
     Root.AddPair('maximized', TJSONBool.Create(WindowState = wsMaximized));
     WriteUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'view.json', Root.ToJSON);
   finally Root.Free; end;
@@ -309,11 +404,12 @@ procedure TfrmProgramUpdate.SetRelease(const ReleaseInfo: TProgramRelease);
 begin
   BeginUIUpdate;
   try
-  if ReleaseInfo.ComponentID = '' then FApplicationRelease := ReleaseInfo;
+  if ReleaseInfo.ComponentID = '' then
+  begin FApplicationRelease:=ReleaseInfo; FApplicationVerified:=True; FApplicationFailed:=False; end;
   if FRecovery or Assigned(FThread) or FReady then
   begin Present; Exit; end;
   if ReleaseInfo.ComponentID = '' then
-  begin FSelector.ItemIndex := 0; FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
+  begin SelectRow(0); FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
   FLater.Caption := 'Позже'; FLater.Enabled := True;
   if FRelease.History.Trim <> '' then DisplayNotes(FRelease.History)
@@ -325,8 +421,8 @@ begin
   if FRelease.DownloadURL = '' then FPrimary.Caption := 'Скачать со страницы выпуска';
   if FRelease.CheckOnly then
   begin
-    FPrimary.Caption:='Сайт автора';
-    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Комплектные файлы обновляются вместе с проверенным выпуском HomeLib Ru.';
+    FPrimary.Caption:='Проверить пакеты';
+    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Совместимый пакет обновления ещё не опубликован. Новые пакеты проверяются автоматически.';
   end;
   UpdateSummary;
   Present;
@@ -341,26 +437,109 @@ begin
 end;
 
 procedure TfrmProgramUpdate.UpdateComponentList;
-var I, Index: Integer; Text, Version: string;
+var I, Comparison: Integer; Version, Available, State: string; Item: TListItem;
+  procedure Row(Index: Integer; const Caption, Installed, Latest, Status: string);
+  begin
+    Item:=FComponentsView.Items[Index]; Item.Caption:=Caption;
+    while Item.SubItems.Count<3 do Item.SubItems.Add('');
+    Item.SubItems[0]:=Installed; Item.SubItems[1]:=Latest; Item.SubItems[2]:=Status;
+  end;
 begin
-  Index := FSelector.ItemIndex;
-  FSelector.Items.BeginUpdate;
+  FRefreshingComponents:=True;
+  FComponentsView.Items.BeginUpdate;
   try
-    FSelector.Items.Clear; FSelector.Items.Add('HomeLib Ru');
-    for I in CHECKED_COMPONENT_INDICES do
+    // Keep row objects alive while their native selection notification is
+    // being handled. Refreshing versions must not recreate the selected item.
+    while FComponentsView.Items.Count<Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Add;
+    while FComponentsView.Items.Count>Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Delete(FComponentsView.Items.Count-1);
+    Available:=FApplicationRelease.Tag; State:='Не проверено';
+    if Available<>'' then State:='Есть обновление'
+    else if FApplicationVerified then
+    begin Available:=PROGRAM_RELEASE_VERSION; State:='Актуально'; end
+    else if FApplicationFailed then State:='Не удалось проверить';
+    if FAppPending then State:='Проверяется…';
+    if Available='' then Available:='—';
+    Row(0,'HomeLib Ru',PROGRAM_RELEASE_VERSION,Available,State);
+    for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     begin
-      Version := ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I]);
+      Version := ComponentInstalledVersion(Settings.AppPath, UPDATE_COMPONENTS[I].ID);
       if Version = '' then Version := 'не установлен';
-      Text := COMPONENT_IDS[I] + ': ' + Version;
-      if FComponents[I].ComponentError <> '' then Text := Text + ' — проверка не удалась'
-      else if (FComponents[I].DownloadURL <> '') and (FComponents[I].ComponentVersion <> '') then
-        if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) then
-          Text := Text + ' → ' + FComponents[I].ComponentVersion
-        else Text := Text + ' — обновлений нет';
-      FSelector.Items.Add(Text);
+      State:='Не проверено'; Available:='—';
+      if (FComponents[I].ComponentError<>'') or (FComponentError<>'') then State:='Не удалось проверить'
+      else if FComponents[I].DownloadURL<>'' then
+      begin
+        Available:=FComponents[I].ComponentVersion;
+        if ComponentNewer(FComponents[I],ComponentInstalledVersion(Settings.AppPath,UPDATE_COMPONENTS[I].ID)) then
+          if FComponents[I].CheckOnly then State:='Ожидается пакет' else State:='Есть обновление'
+        else State:='Актуально';
+      end;
+      if FComponents[I].AuthorVersion<>'' then
+      begin
+        Available:=FComponents[I].AuthorVersion;
+        if (State='Актуально') and CompareComponentVersions(Available,Version,Comparison) and
+          (Comparison>0) then State:='Ожидается пакет';
+      end;
+      if FComponentsPending or Assigned(FComponentThread) then
+        State:='Проверяется…';
+      Row(I+1,ComponentTitle(I),Version,Available,State);
     end;
-    if Index < 0 then Index := 0; FSelector.ItemIndex := Index;
-  finally FSelector.Items.EndUpdate; end;
+    SelectRow(FSelectedRow);
+  finally FComponentsView.Items.EndUpdate; FRefreshingComponents:=False; end;
+end;
+
+procedure TfrmProgramUpdate.SelectRow(Value: Integer);
+var Refreshing: Boolean;
+begin
+  if FComponentsView.Items.Count=0 then Exit;
+  FSelectedRow:=EnsureRange(Value,0,FComponentsView.Items.Count-1);
+  FHistorySelector.ItemIndex:=FSelectedRow;
+  Refreshing:=FRefreshingComponents; FRefreshingComponents:=True;
+  try
+    FComponentsView.Items[FSelectedRow].Selected:=True;
+    FComponentsView.Items[FSelectedRow].Focused:=True;
+  finally FRefreshingComponents:=Refreshing; end;
+end;
+
+procedure TfrmProgramUpdate.ComponentRowSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
+begin
+  if not Selected or FRefreshingComponents then Exit;
+  FSelectedRow:=Item.Index; ComponentSelected(nil);
+end;
+
+procedure TfrmProgramUpdate.ComponentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Key=Ord('C')) and (ssCtrl in Shift) then
+  begin CopyComponents(nil); Key:=0; end;
+end;
+
+procedure TfrmProgramUpdate.CopyComponents(Sender: TObject);
+var Text: string; I, First, Last, Attempt: Integer;
+begin
+  Text:=''; First:=FSelectedRow; Last:=First;
+  if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=1) then
+  begin
+    First:=0; Last:=FComponentsView.Items.Count-1;
+    for I:=0 to FComponentsView.Columns.Count-1 do
+    begin if I>0 then Text:=Text+#9; Text:=Text+FComponentsView.Columns[I].Caption; end;
+    Text:=Text+sLineBreak;
+  end;
+  for I:=First to Last do
+  begin
+    if I>First then Text:=Text+sLineBreak;
+    Text:=Text+FComponentsView.Items[I].Caption+#9+
+      FComponentsView.Items[I].SubItems[0]+#9+FComponentsView.Items[I].SubItems[1]+#9+
+      FComponentsView.Items[I].SubItems[2];
+  end;
+  // Clipboard managers sometimes hold the Windows clipboard briefly. A copy
+  // command must not leave the form through an unhandled access-denied error.
+  for Attempt:=0 to 9 do
+    try Clipboard.AsText:=Text; Exit;
+    except
+      on E: EClipboardException do
+        if Attempt=9 then
+        begin FStatus.Caption:='Буфер обмена занят. Повторите копирование.'; LayoutWindow; end
+        else Sleep(10);
+    end;
 end;
 
 procedure TfrmProgramUpdate.ComponentSelected(Sender: TObject);
@@ -369,7 +548,7 @@ begin
   if Assigned(FThread) or FReady then Exit;
   BeginUIUpdate;
   try
-  I := FSelector.ItemIndex - 1;
+  I := FSelectedRow - 1;
   if I < 0 then
   begin
     FPage.Caption := 'Открыть GitHub';
@@ -384,11 +563,10 @@ begin
     UpdateSummary;
     Exit;
   end;
-  I := CHECKED_COMPONENT_INDICES[I];
-  Version := ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I]);
+  Version := ComponentInstalledVersion(Settings.AppPath, UPDATE_COMPONENTS[I].ID);
   FPage.Caption := 'Сайт автора';
-  FVersion.Caption := 'Текущая версия ' + COMPONENT_IDS[I] + ': ' + Version;
-  if Version = '' then FVersion.Caption := 'Компонент ' + COMPONENT_IDS[I] + ' не установлен';
+  FVersion.Caption := ComponentTitle(I) + ': ' + Version;
+  if Version = '' then FVersion.Caption := ComponentTitle(I) + ': не установлен';
   if ComponentNewer(FComponents[I], Version) then
   begin
     FComponents[I].Changelog := ComponentChanges(FComponents[I], Version);
@@ -398,14 +576,19 @@ begin
   begin
     FRelease := Default(TProgramRelease); FNeedsCheck := True;
     FProgress.Position := 0; FBytes.Caption := ''; FPrimary.Enabled := not Assigned(FComponentThread);
-    FPrimary.Caption := 'Проверить компонент';
+    FPrimary.Caption := 'Проверить всё';
     DisplayNotes(FComponents[I].History);
     FStatus.Caption := 'Источник: официальный сайт автора компонента.' + sLineBreak;
     if FComponents[I].ComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponents[I].ComponentError
     else if FComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponentError
     else if FComponents[I].DownloadURL <> '' then
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
-    else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить компонент», чтобы узнать о новой версии.';
+    else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
+    if UPDATE_COMPONENTS[I].CheckKind=ccBundled then
+      if (FComponents[I].DownloadURL='') and (FComponents[I].ComponentError='') and (FComponentError='') then
+        FStatus.Caption:='Новые пакеты AlReader проверяются автоматически и устанавливаются отдельно от программы.';
+    if FComponents[I].CheckOnly then
+      FStatus.Caption:=FStatus.Caption+sLineBreak+'Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.';
   end;
   UpdateSummary;
   finally EndUIUpdate; end;
@@ -417,8 +600,8 @@ begin
   Result := nil;
   if FApplicationRelease.Tag <> '' then
   begin SetLength(Result, 1); Result[0] := FApplicationRelease; end;
-  for I in CHECKED_COMPONENT_INDICES do
-    if not FComponents[I].CheckOnly and ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) then
+  for I in CheckedComponentIndices do
+    if not FComponents[I].CheckOnly and ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[I])) then
     begin
       Count := Length(Result); SetLength(Result, Count + 1); Result[Count] := FComponents[I];
     end;
@@ -441,7 +624,8 @@ end;
 procedure TfrmProgramUpdate.UpdateSummary;
 var Summary: string;
 begin
-  if FReady or Assigned(FThread) or ((FSelector.ItemIndex > 0) and FRelease.CheckOnly) then Exit;
+  UpdateComponentList;
+  if FReady or Assigned(FThread) or ((FSelectedRow > 0) and FRelease.CheckOnly) then Exit;
   Summary := AvailableSummary;
   if Summary <> '' then
   begin
@@ -460,8 +644,10 @@ begin
   if FReady then begin if not Automatic then Present; Exit; end;
   FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
   FApplicationRelease := Default(TProgramRelease);
-  for I in CHECKED_COMPONENT_INDICES do FComponents[I].DownloadURL := '';
+  FApplicationVerified:=False; FApplicationFailed:=False;
+  for I in CheckedComponentIndices do FComponents[I].DownloadURL := '';
   if not Automatic then BeginCheck;
+  UpdateComponentList; FComponentCheck.Enabled:=False;
   Result := True;
 end;
 
@@ -471,6 +657,7 @@ var Comparison: Integer;
 begin
   if not FCheckingCycle then Exit;
   FAppPending := False;
+  FApplicationVerified:=Successful; FApplicationFailed:=not Successful;
   if Successful then
   begin
     RememberHistory(ReleaseInfo);
@@ -479,6 +666,7 @@ begin
       FApplicationRelease := ReleaseInfo;
   end
   else FApplicationStatus := Error;
+  UpdateComponentList;
   FinishCheckCycle;
 end;
 
@@ -487,34 +675,39 @@ var J: Integer; HasComponentUpdate: Boolean;
 begin
   if not FCheckingCycle or FAppPending or FComponentsPending then Exit;
   FCheckingCycle := False;
+  FComponentCheck.Enabled:=True;
   UpdateComponentList;
   HasComponentUpdate := False;
-  for J in CHECKED_COMPONENT_INDICES do
-    if ComponentNewer(FComponents[J], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[J])) then
+  for J in CheckedComponentIndices do
+    if ComponentNewer(FComponents[J], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[J])) then
       HasComponentUpdate := True;
   if (Length(AvailableUpdates) > 0) or HasComponentUpdate then
   begin
-    FSelector.ItemIndex := 0;
+    SelectRow(0);
     if FApplicationRelease.Tag = '' then
-      for J := 0 to High(CHECKED_COMPONENT_INDICES) do
-        if ComponentNewer(FComponents[CHECKED_COMPONENT_INDICES[J]],
-          ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[CHECKED_COMPONENT_INDICES[J]])) then
-        begin FSelector.ItemIndex := J + 1; Break; end;
+      for J := 0 to High(CheckedComponentIndices) do
+        if ComponentNewer(FComponents[CheckedComponentIndices[J]],
+          ComponentInstalledVersion(Settings.AppPath, ComponentIDs[CheckedComponentIndices[J]])) then
+        begin SelectRow(CheckedComponentIndices[J] + 1); Break; end;
     ComponentSelected(nil); UpdateSummary; Present;
   end
   else if not FCycleAutomatic then
   begin
-    FSelector.ItemIndex := 0; ComponentSelected(nil); FStatus.Caption := FApplicationStatus;
+    SelectRow(0); ComponentSelected(nil); FStatus.Caption := FApplicationStatus;
     if FComponentError <> '' then FStatus.Caption := FStatus.Caption + ' ' + FComponentError
-    else for J in CHECKED_COMPONENT_INDICES do
+    else for J in CheckedComponentIndices do
       if FComponents[J].ComponentError <> '' then
-        FStatus.Caption := FStatus.Caption + ' Не удалось проверить ' + COMPONENT_IDS[J] + '.';
+        FStatus.Caption := FStatus.Caption + ' Не удалось проверить ' + ComponentIDs[J] + '.';
     FPrimary.Enabled := True; FPrimary.Caption := 'Проверить ещё раз'; Present;
   end;
 end;
 
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
-begin FComponentExplicit := True; CheckComponents(False); end;
+begin
+  if Assigned(FThread) or FReady or FCheckingCycle then Exit;
+  if Assigned(FCheck) then FCheck(Self)
+  else begin FComponentExplicit:=True; CheckComponents(False); end;
+end;
 
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 begin
@@ -523,7 +716,8 @@ begin
   FComponentThread := TComponentUpdateThread.Create(Handle, CreateHTTPClientGlobal,
     PROGRAM_RELEASES_API, FCache);
   FComponentCheck.Enabled := False;
-  if (FSelector.ItemIndex > 0) and not Assigned(FThread) and not FReady then
+  UpdateComponentList;
+  if (FSelectedRow > 0) and not Assigned(FThread) and not FReady then
   begin
     FStatus.Caption := 'Проверка обновлений компонентов у авторов…'; FPrimary.Enabled := False;
   end;
@@ -548,18 +742,22 @@ begin
   try
   if Successful then
   begin
+    FComponentError:='';
     Updated := Releases;
     PreserveComponentHistory(Updated, FComponents);
     FComponents := Updated;
     SaveComponentHistory(FCache, FComponents);
   end
   else FComponentError := Error;
+  if not Successful then
+    for I in CheckedComponentIndices do
+    begin FComponents[I].DownloadURL:=''; FComponents[I].ComponentError:=Error; end;
   FComponentCheck.Enabled := True; UpdateComponentList;
   if FCheckingCycle then
   begin FComponentsPending := False; FinishCheckCycle; Exit; end;
   if Assigned(FThread) or FReady then
   begin FComponentExplicit := False; Exit; end;
-  if FComponentExplicit and not FComponentAutomatic and (FSelector.ItemIndex = 0) then
+  if FComponentExplicit and not FComponentAutomatic and (FSelectedRow = 0) then
   begin
     Errors := 0; for I := 0 to High(FComponents) do if FComponents[I].ComponentError <> '' then Inc(Errors);
     if Successful and (Errors > 0) then
@@ -569,17 +767,17 @@ begin
     Present;
   end;
   FComponentExplicit := False;
-  if (FSelector.ItemIndex > 0) and not FComponentAutomatic then
+  if (FSelectedRow > 0) and not FComponentAutomatic then
   begin ComponentSelected(nil); if not FComponentAutomatic then Present; end
   else if Successful and FComponentAutomatic and (FApplicationRelease.Tag = '') then
-    for J := 0 to High(CHECKED_COMPONENT_INDICES) do
+    for J := 0 to High(CheckedComponentIndices) do
     begin
-      I := CHECKED_COMPONENT_INDICES[J];
-      if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, COMPONENT_IDS[I])) and
+      I := CheckedComponentIndices[J];
+      if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[I])) and
          (FComponentNotified[I] <> FComponents[I].ComponentVersion) then
       begin
         FComponentNotified[I] := FComponents[I].ComponentVersion;
-        FSelector.ItemIndex := J + 1; ComponentSelected(nil); Break;
+        SelectRow(I + 1); ComponentSelected(nil); Break;
       end;
     end;
   UpdateSummary;
@@ -590,7 +788,7 @@ procedure TfrmProgramUpdate.DisplayNotes(const Notes: string);
 var Text: string;
 begin
   Text := Notes;
-  if FSelector.ItemIndex = 0 then
+  if FSelectedRow = 0 then
   begin
     if Text.Trim = '' then Text := FApplicationHistory;
     if Text.Trim <> '' then FApplicationHistory := Text;
@@ -612,9 +810,9 @@ procedure TfrmProgramUpdate.BeginCheck;
 begin
   BeginUIUpdate;
   try
-  if (FSelector.ItemIndex > 0) and not FReady and not Assigned(FThread) then
-  begin FSelector.ItemIndex := 0; ComponentSelected(nil); end;
-  if FSelector.ItemIndex > 0 then Exit;
+  if (FSelectedRow > 0) and not FReady and not Assigned(FThread) then
+  begin SelectRow(0); ComponentSelected(nil); end;
+  if FSelectedRow > 0 then Exit;
   FStatus.Caption := 'Проверка обновлений на GitHub…';
   if not FReady then FNeedsCheck := True;
   if not Assigned(FThread) and not FReady then FPrimary.Enabled := False;
@@ -629,7 +827,9 @@ begin
   FApplicationRelease := Default(TProgramRelease);
   if ReleaseInfo.History.Trim <> '' then FApplicationHistory := ReleaseInfo.History;
   FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
-  if FSelector.ItemIndex > 0 then Exit;
+  FApplicationVerified:=True; FApplicationFailed:=False;
+  UpdateComponentList;
+  if FSelectedRow > 0 then Exit;
   if Assigned(FThread) or FReady then Exit;
   FRelease := Default(TProgramRelease);
   FNeedsCheck := True;
@@ -643,7 +843,9 @@ end;
 procedure TfrmProgramUpdate.CheckFailed(const Error: string);
 begin
   FApplicationStatus := Error;
-  if FSelector.ItemIndex > 0 then Exit;
+  FApplicationVerified:=False; FApplicationFailed:=True;
+  UpdateComponentList;
+  if FSelectedRow > 0 then Exit;
   FStatus.Caption := Error;
   if not Assigned(FThread) and not FReady then
   begin FNeedsCheck := True; FPrimary.Caption := 'Повторить проверку'; FPrimary.Enabled := True; end;
@@ -661,14 +863,13 @@ begin
   end;
   if Assigned(FThread) then Exit;
   if FCheckingCycle then Exit;
-  if FRelease.CheckOnly and not FNeedsCheck then begin PageClick(nil); Exit; end;
+  if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   FQueue := AvailableUpdates;
   if (Length(FQueue) = 0) and not FNeedsCheck and (FRelease.Tag <> '') then
   begin SetLength(FQueue, 1); FQueue[0] := FRelease; end;
   if Length(FQueue) = 0 then
   begin
-    if FSelector.ItemIndex > 0 then CheckComponents(False)
-    else if Assigned(FCheck) then FCheck(Self);
+    ComponentCheckClick(nil);
     Exit;
   end;
   for ReleaseInfo in FQueue do
@@ -685,7 +886,8 @@ begin
   FJob := IncludeTrailingPathDelimiter(FCache) + 'HomeLibRu-update-' +
     StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
   FThread := TProgramDownloadThread.Create(Handle, CreateHTTPClientGlobal, FQueue[FQueueIndex], FJob);
-  FSelector.Enabled := False;
+  FComponentsView.Enabled := False;
+  FComponentCheck.Enabled:=False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';
   Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
   FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + Name + '…';
@@ -714,10 +916,7 @@ end;
 
 procedure TfrmProgramUpdate.PageClick(Sender: TObject);
 begin
-  if FSelector.ItemIndex = 1 then FRelease.URL := 'https://www.sqlite.org/changes.html';
-  if FSelector.ItemIndex = 2 then FRelease.URL := 'https://www.sumatrapdfreader.org/docs/Version-history';
-  if FSelector.ItemIndex = 3 then FRelease.URL := 'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/';
-  if FSelector.ItemIndex = 4 then FRelease.URL := 'https://www.7-zip.org/download.html';
+  if FSelectedRow>0 then FRelease.URL:=UPDATE_COMPONENTS[FSelectedRow-1].URL;
   if FRelease.URL = '' then FRelease.URL := 'https://github.com/Dicur3x/MyHomeLib/releases';
   ShellExecute(Handle, 'open', PChar(FRelease.URL), nil, nil, SW_SHOWNORMAL);
 end;
@@ -746,6 +945,7 @@ begin
   FThread.WaitFor; FReady := FThread.Successful; Error := FThread.ErrorText;
   if FReady then FQueue[FQueueIndex] := FThread.ReleaseInfo;
   FreeAndNil(FThread); FLater.Enabled := True; FLater.Caption := 'Позже';
+  FComponentCheck.Enabled:=not FReady;
   FPrimary.Enabled := True;
   if FReady then
   begin
@@ -785,7 +985,8 @@ begin
   end
   else
   begin
-    FSelector.Enabled := True;
+    FComponentsView.Enabled := True;
+    FComponentCheck.Enabled:=True;
     FPrimary.Caption := 'Повторить загрузку'; FStatus.Caption := Error;
     DiscardJob; ClearQueueJobs;
   end;
@@ -856,9 +1057,9 @@ begin
        not SameText(UpdateSHA256(IncludeTrailingPathDelimiter(Job) + 'release.zip'), Digest)) then Exit;
     FJob := Job; FRelease.Tag := Tag; FRelease.SHA256 := Digest;
     FRelease.ComponentID := Component; FRelease.ComponentVersion := Version;
-    FSelector.ItemIndex := 0;
-    for I := 0 to High(CHECKED_COMPONENT_INDICES) do
-      if Component = COMPONENT_IDS[CHECKED_COMPONENT_INDICES[I]] then FSelector.ItemIndex := I + 1;
+    SelectRow(0);
+    for I := 0 to High(CheckedComponentIndices) do
+      if Component = ComponentIDs[CheckedComponentIndices[I]] then SelectRow(CheckedComponentIndices[I] + 1);
     if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLib Ru'
     else if Component <> '' then
     begin
@@ -866,7 +1067,8 @@ begin
       FVersion.Caption := 'Текущая версия ' + Component + ': ' +
         ComponentInstalledVersion(Settings.AppPath, Component);
     end;
-    FSelector.Enabled := False;
+    FComponentsView.Enabled := False;
+    FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
     if FRelease.Size > 0 then
       FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);

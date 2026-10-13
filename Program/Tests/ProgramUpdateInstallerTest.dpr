@@ -123,7 +123,7 @@ begin
     begin
       HTTP := THTTPClient.Create;
       HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');
-      ComponentThread := TComponentUpdateThread.Create(0, HTTP);
+      ComponentThread := TComponentUpdateThread.Create(0, HTTP, '');
       try
         ComponentThread.Start; ComponentThread.WaitFor;
         if not ComponentThread.Successful then raise Exception.Create(ComponentThread.ErrorText);
