@@ -719,6 +719,7 @@ type
 
     FCurrentBookOnly: Boolean;
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
+    FMetadataFillAction: TAction;
     FInvisible: Boolean;
     FThemeToolbar: TToolBar;
     FThemeButton: TToolButton;
@@ -768,6 +769,9 @@ type
     procedure PublisherSearchTimer(Sender: TObject);
     procedure PublisherSearchClear(Sender: TObject);
     procedure IndexPublisherSeries(Sender: TObject);
+    procedure RefreshBookMetadataViews(const CollectionID: Integer);
+    procedure FillBookMetadataExecute(Sender: TObject);
+    procedure FillBookMetadataUpdate(Sender: TObject);
     procedure PublisherSeriesLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure ActivateView(View: TView);
 
@@ -951,6 +955,7 @@ type
     FInSetInfoPanelHeight: Boolean;
     FFavoriteStore: TAuthorFavorites;
     FFavoriteWorker: TAuthorFavoriteRefreshThread;
+    FBackgroundMessageWindow: HWND;
     FFavoriteQueue: TQueue<TAuthorFavoriteCollection>;
     FFavoriteDescriptor: TAuthorFavoriteCollection;
     FFavoriteGeneration: Cardinal;
@@ -963,6 +968,8 @@ type
     FFavoriteMenu: TPopupMenu;
     FFavoriteToggleMenu, FFavoriteNewMenu, FFavoriteViewedMenu, FFavoriteStopMenu, FFavoriteContextMenu: TMenuItem;
     FFavoriteOriginalGetText: TVSTGetTextEvent;
+    FFavoriteOriginalBeforeCellPaint: TVTBeforeCellPaintEvent;
+    FFavoriteOriginalAfterCellPaint: TVTAfterCellPaintEvent;
     FOnlyNewFavoriteBooks: Boolean;
 
     function FavoriteProfileFile: string;
@@ -971,6 +978,8 @@ type
     function FavoriteBindingsReady(const Descriptor: TAuthorFavoriteCollection): Boolean;
     procedure QueueFavoriteRefresh(const Descriptor: TAuthorFavoriteCollection; ForceRefresh: Boolean = False);
     procedure StartFavoriteRefresh;
+    procedure EnsureBackgroundMessageWindow;
+    procedure BackgroundMessageWindowProc(var Message: TMessage);
     procedure StopFavoriteRefresh(ClearQueue: Boolean);
     procedure CheckFavoriteCollection;
     function PrepareFavoriteSearch(var Criteria: TBookSearchCriteria): Boolean;
@@ -989,6 +998,14 @@ type
     procedure FillCurrentAuthorBooks;
     procedure FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
       Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
+    function IsFavoriteAuthorNode(Sender: TBaseVirtualTree; Node: PVirtualNode): Boolean;
+    procedure FavoriteAuthorBeforeCellPaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas;
+      Node: PVirtualNode; Column: TColumnIndex; CellPaintMode: TVTCellPaintMode;
+      CellRect: TRect; var ContentRect: TRect);
+    procedure FavoriteAuthorAfterCellPaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas;
+      Node: PVirtualNode; Column: TColumnIndex; CellRect: TRect);
+    procedure SearchFavoriteClick(Sender: TObject);
+    procedure UpdateBookFilterIndicators(Tree: TBookTree);
     procedure SearchFavoriteEditResize(Sender: TObject);
     procedure UpdateFavoriteSearchLayout;
     procedure CreateFavoriteAuthorControls;
@@ -1127,7 +1144,7 @@ uses
   frm_BuiltinReader,
   dm_user,
   unit_Import,
-  unit_IndexPublisherSeriesThread,
+  unit_IndexPublisherSeriesThread, frm_BookMetadataFill,
   frm_ImportProgressFormEx,
   unit_Consts,
   unit_Export,
@@ -1508,8 +1525,11 @@ var
 
   procedure SetTreeViewColor(AControl: TBookTree);
   var
-    Height: cardinal;
+    Height, NodeHeight: Cardinal;
+    MetricsChanged: Boolean;
   begin
+    MetricsChanged := not SameText(AControl.Font.Name, 'Segoe UI') or
+      (AControl.Font.Size <> TreeFontSize) or (AControl.Font.Quality <> fqClearTypeNatural);
     AControl.Color := BGColor;
     AControl.Font.Name := 'Segoe UI';
     AControl.Font.Quality := fqClearTypeNatural;
@@ -1517,26 +1537,41 @@ var
     AControl.Header.Font.Quality := fqClearTypeNatural;
     AControl.Header.Font.Size := TreeFontSize;
     AControl.Font.Size := TreeFontSize;
-    AControl.ReinitNode(AControl.GetFirst, True);
-    AControl.Font.Size := TreeFontSize;
-    Height := AControl.Canvas.TextHeight('Щ');
-    AControl.DefaultNodeHeight := round(Height + Height div 4);
-    AControl.Header.Height := round(Height * 1.5);
-    AControl.Font.Color := FontColor;
+    if MetricsChanged then
+    begin
+      // Drawing callbacks can leave a different font in the cached canvas.
+      // Measure the actual chosen font only when its metrics have changed.
+      AControl.Canvas.Font.Assign(AControl.Font);
+      Height := AControl.Canvas.TextHeight('Щ');
+      NodeHeight := Round(Height + Height div 4);
+      AControl.DefaultNodeHeight := NodeHeight;
+      AControl.Header.Height := Round(Height * 1.5);
+    end;
+    SetMHLControlFontColor(AControl, FontColor);
+    // Color-only changes neither resize nor reinitialize the loaded rows.
+    if MetricsChanged then AControl.ReinitNode(AControl.GetFirst, True);
   end;
 
   procedure SetTreeViewColor2(AControl: TVirtualStringTree);
   var
-    Height: cardinal;
+    Height, NodeHeight: Cardinal;
+    MetricsChanged: Boolean;
   begin
+    MetricsChanged := not SameText(AControl.Font.Name, 'Segoe UI') or
+      (AControl.Font.Size <> TreeFontSize) or (AControl.Font.Quality <> fqClearTypeNatural);
     AControl.Color := BGColor;
     AControl.Font.Name := 'Segoe UI';
     AControl.Font.Quality := fqClearTypeNatural;
-    AControl.ReinitNode(AControl.GetFirst, True);
     AControl.Font.Size := TreeFontSize;
-    Height := AControl.Canvas.TextHeight('Щ');
-    AControl.DefaultNodeHeight := round(Height + Height div 4);
-    AControl.Font.Color := FontColor;
+    if MetricsChanged then
+    begin
+      AControl.Canvas.Font.Assign(AControl.Font);
+      Height := AControl.Canvas.TextHeight('Щ');
+      NodeHeight := Round(Height + Height div 4);
+      AControl.DefaultNodeHeight := NodeHeight;
+    end;
+    SetMHLControlFontColor(AControl, FontColor);
+    if MetricsChanged then AControl.ReinitNode(AControl.GetFirst, True);
   end;
 
   procedure SetPnlColor(AControl: TInfoPanel);
@@ -1909,30 +1944,74 @@ procedure TfrmMain.IndexPublisherSeries(Sender: TObject);
 var
   Worker: TIndexPublisherSeriesThread;
   ProgressForm: TImportProgressFormEx;
+  IndexedCID: Integer;
+  ChangesCommitted: Boolean;
 begin
   if not Assigned(FCollection) or FFormBusy then Exit;
-  Worker := TIndexPublisherSeriesThread.Create(FCollection.CollectionID,
+  IndexedCID := FCollection.CollectionID;
+  ChangesCommitted := False;
+  UpdatePositions;
+  Worker := TIndexPublisherSeriesThread.Create(IndexedCID,
     FPublisher.FullScan.Checked);
   FFormBusy := True;
   FPublisher.SearchTimer.Enabled := False;
   try
     ProgressForm := TImportProgressFormEx.Create(Application);
     try
-      ProgressForm.Caption := 'Заполнение книжных серий';
+      ProgressForm.Caption := 'Заполнение издательств и книжных серий';
       ProgressForm.WorkerThread := Worker;
       ProgressForm.FullErrorLogFileName := Worker.ErrorLogFileName;
       ProgressForm.ShowModal;
     finally
       ProgressForm.Free;
     end;
+    Worker.WaitFor;
+    ChangesCommitted := Worker.CommittedChanges;
     if Assigned(Worker.FatalException) then
       MHLShowError(Exception(Worker.FatalException).Message);
   finally
+    if Worker.Finished then
+    begin
+      Worker.WaitFor;
+      ChangesCommitted := Worker.CommittedChanges;
+    end;
     Worker.Free;
     FFormBusy := False;
-    ReloadPublisherSeries;
-    RefreshActiveBookInfo;
+    if ChangesCommitted and Assigned(FCollection) and
+       (FCollection.CollectionID = IndexedCID) then
+    begin
+      RefreshBookMetadataViews(IndexedCID);
+    end;
   end;
+end;
+
+procedure TfrmMain.RefreshBookMetadataViews(const CollectionID: Integer);
+begin
+  if not Assigned(FCollection) or (FCollection.CollectionID<>CollectionID) then Exit;
+  // Only the visible list is rebuilt, from its applied search snapshot.
+  // Inactive lists consume the new row metadata when next opened.
+  FLoadedBookViews:=[]; FPublisherListLoaded:=False;
+  EnsureActiveBookViewLoaded; RefreshActiveBookInfo;
+end;
+
+procedure TfrmMain.FillBookMetadataExecute(Sender: TObject);
+var CollectionID: Integer; Changed: Boolean;
+begin
+  if not Assigned(FCollection) or FFormBusy then Exit;
+  CollectionID:=FCollection.CollectionID; Changed:=False; UpdatePositions;
+  FFormBusy:=True;
+  try Changed:=FillMissingBookMetadata(Self,CollectionID);
+  finally
+    FFormBusy:=False;
+    if Changed then RefreshBookMetadataViews(CollectionID);
+  end;
+end;
+
+procedure TfrmMain.FillBookMetadataUpdate(Sender: TObject);
+begin
+  TAction(Sender).Enabled:=False;
+  if Assigned(FCollection) then TAction(Sender).Enabled:=not FFormBusy and
+    not isOnlineCollection(FCollection.CollectionCode);
 end;
 
 procedure TfrmMain.PublisherSeriesLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
@@ -2822,6 +2901,8 @@ begin
 
   fb2Collection := Assigned(FCollection) and isFB2Collection(FCollection.CollectionCode);
 
+  pmiScripts.Caption := 'Конвертировать / сохранить';
+  mmiScripts.Caption := pmiScripts.Caption;
   ExportItemCount := 0;
   for i := 0 to ExpCount do
   begin
@@ -2838,6 +2919,17 @@ begin
     Item.ImageIndex := IconsSmall[i];
     pmScripts.Items.Insert(ExportItemCount, Item);
     Inc(ExportItemCount);
+    if i in [0, 4] then
+    begin
+      // Offer the bundled converter where books are selected, even when no
+      // personal scripts are configured. Keep ordinary device sending intact.
+      ItemP := TMenuItem.Create(pmiScripts); ItemP.OnClick := SendToDeviceExecute;
+      ItemP.Caption := Item.Caption; ItemP.Tag := Item.Tag; ItemP.ImageIndex := Item.ImageIndex;
+      pmiScripts.Add(ItemP);
+      ItemM := TMenuItem.Create(MainMenu); ItemM.OnClick := SendToDeviceExecute;
+      ItemM.Caption := Item.Caption; ItemM.Tag := Item.Tag; ItemM.ImageIndex := Item.ImageIndex;
+      mmiScripts.Add(ItemM);
+    end;
   end;
 
   F := ExportItemCount;
@@ -2848,6 +2940,8 @@ begin
     Item.Tag := 0;
     pmScripts.Items.Insert(F, Item);
     Inc(F);
+    ItemP := TMenuItem.Create(pmiScripts); ItemP.Caption := '-'; pmiScripts.Add(ItemP);
+    ItemM := TMenuItem.Create(MainMenu); ItemM.Caption := '-'; mmiScripts.Add(ItemM);
   end;
 
   for i := 0 to Settings.Scripts.Count - 1 do
@@ -2863,13 +2957,13 @@ begin
     ItemP.Caption := Settings.Scripts[i].Title;
     ItemP.Tag := 901 + i;
     ItemP.OnClick := SendToDeviceExecute;
-    pmiScripts.Insert(i, ItemP);
+    pmiScripts.Add(ItemP);
 
     ItemM := TMenuItem.Create(MainMenu);
     ItemM.Caption := Settings.Scripts[i].Title;
     ItemM.Tag := 901 + i;
     ItemM.OnClick := SendToDeviceExecute;
-    mmiScripts.Insert(i, ItemM);
+    mmiScripts.Add(ItemM);
   end;
 
 
@@ -2904,21 +2998,24 @@ end;
 function TfrmMain.ShowNCWizard: Boolean;
 var
   frmNCWizard: TNewCollectionWizard;
-  WizardResult: Integer;
-  ImportCommitted: Boolean;
+  WizardResult, CreatedCollectionID: Integer;
+  ImportCommitted, MetadataRequested, MetadataChanged, WasBusy: Boolean;
+  CreatedCollectionInfo: TCollectionInfo;
 begin
   Result := False;
   frmNCWizard := TNewCollectionWizard.Create(Application);
   try
     WizardResult := frmNCWizard.ShowModal;
-    if frmNCWizard.CommittedChanges and (frmNCWizard.NewCollectionID > 0) and
-      (FSystemData.FindFirstExistingCollectionID(frmNCWizard.NewCollectionID) = frmNCWizard.NewCollectionID) then
-      NotifyFavoriteCatalogChanged(TArray<Integer>.Create(frmNCWizard.NewCollectionID));
+    CreatedCollectionID := frmNCWizard.NewCollectionID;
+    MetadataRequested := frmNCWizard.RequestedMetadataFill;
+    if frmNCWizard.CommittedChanges and (CreatedCollectionID > 0) and
+      (FSystemData.FindFirstExistingCollectionID(CreatedCollectionID) = CreatedCollectionID) then
+      NotifyFavoriteCatalogChanged(TArray<Integer>.Create(CreatedCollectionID));
     if (WizardResult = mrOk) and frmNCWizard.OperationSucceeded and
-      (frmNCWizard.NewCollectionID > 0) and
-      (FSystemData.FindFirstExistingCollectionID(frmNCWizard.NewCollectionID) = frmNCWizard.NewCollectionID) then
+      (CreatedCollectionID > 0) and
+      (FSystemData.FindFirstExistingCollectionID(CreatedCollectionID) = CreatedCollectionID) then
     begin
-      Settings.ActiveCollection := frmNCWizard.NewCollectionID;
+      Settings.ActiveCollection := CreatedCollectionID;
       InitCollection;
       if frmNCWizard.Autoimport and IsFB2 then
       begin
@@ -2929,6 +3026,25 @@ begin
       end;
 
       Result := True;
+      // The finish button records a request only. Initialize the exact created
+      // collection (and any existing optional import) before opening the same
+      // explicit preview/fill dialog used by Collection and Sources commands.
+      if MetadataRequested and frmNCWizard.CommittedChanges and
+        (FSystemData.FindFirstExistingCollectionID(CreatedCollectionID) = CreatedCollectionID) then
+      begin
+        CreatedCollectionInfo := FSystemData.GetCollectionInfo(CreatedCollectionID);
+        if (CreatedCollectionInfo.ID = CreatedCollectionID) and
+          not isOnlineCollection(CreatedCollectionInfo.CollectionType) and
+          (Trim(CreatedCollectionInfo.RootFolder) <> '') and DirectoryExists(CreatedCollectionInfo.RootFolder) then
+        begin
+          MetadataChanged := False; WasBusy := FFormBusy; FFormBusy := True;
+          try MetadataChanged := FillMissingBookMetadata(Self, CreatedCollectionID);
+          finally
+            FFormBusy := WasBusy;
+            if MetadataChanged then RefreshBookMetadataViews(CreatedCollectionID);
+          end;
+        end;
+      end;
     end
     else
       Result := False;
@@ -3157,7 +3273,8 @@ begin
   end;
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
   Settings.SaveSettings;
-  FProgramUpdateThread := TProgramUpdateThread.Create(Handle, CreateHTTPClientGlobal,
+  EnsureBackgroundMessageWindow;
+  FProgramUpdateThread := TProgramUpdateThread.Create(FBackgroundMessageWindow, CreateHTTPClientGlobal,
     PROGRAM_RELEASES_API, ProgramUpdateCache(Settings.AppPath));
   acHelpCheckUpdates.Enabled := False;
   FProgramUpdateThread.Start;
@@ -3840,7 +3957,7 @@ begin
 end;
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
-var Dialog: TfrmCatalogSources; Changed: Boolean;
+var Dialog: TfrmCatalogSources; Changed, MetadataChanged: Boolean; CollectionID: Integer;
 begin
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -3848,19 +3965,34 @@ begin
     Application.MessageBox('Источники и объединение доступны для локальных коллекций.', 'HomeLib Ru', MB_OK or MB_ICONINFORMATION);
     Exit;
   end;
+  CollectionID:=FCollection.CollectionID;
   Dialog := TfrmCatalogSources.CreateForCollection(Self,FCollection);
-  try Dialog.ShowModal; Changed := Dialog.CatalogChanged;
+  try Dialog.ShowModal; Changed := Dialog.CatalogChanged; MetadataChanged:=Dialog.MetadataChanged;
   finally Dialog.Free; end;
   if Changed then
   begin
     NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
     FCollection := FSystemData.GetCollection(Settings.ActiveCollection,True);
     InitCollection;
-  end;
+  end
+  else if MetadataChanged then RefreshBookMetadataViews(CollectionID);
 end;
 
 procedure TfrmMain.UpdateThemeToolbar;
+var I, ButtonBottom, DesiredHeight: Integer;
 begin
+  if Assigned(tlbrMain) and tlbrMain.HandleAllocated then
+  begin
+    // Native image/style scaling can make a button taller than the scaled
+    // designed row. Preserve the base row while fitting its actual buttons.
+    ButtonBottom := 0;
+    for I := 0 to tlbrMain.ButtonCount - 1 do
+      if tlbrMain.Buttons[I].Visible then
+        ButtonBottom := Max(ButtonBottom, tlbrMain.Buttons[I].BoundsRect.Bottom);
+    DesiredHeight := Max(MulDiv(44, tlbrMain.CurrentPPI, 96),
+      ButtonBottom + tlbrMain.Height - tlbrMain.ClientHeight);
+    if tlbrMain.Height <> DesiredHeight then tlbrMain.Height := DesiredHeight;
+  end;
   if not Assigned(FThemeToolbar) then Exit;
   FThemeToolbar.SetBounds(ClientWidth-FThemeToolbar.Width-MulDiv(3,CurrentPPI,96),
     tlbrMain.Top,FThemeToolbar.Width,tlbrMain.Height);
@@ -3969,6 +4101,7 @@ begin
   if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
   else FThemeButton.Hint:='Переключить на тёмную тему';
   dmImages.ApplyThemeIcons;
+  UpdateThemeToolbar;
   if not Settings.DarkTheme then SetColors;
   Settings.SaveSettings;
 end;
@@ -4054,6 +4187,14 @@ begin
   FilterMenu.Caption := 'Источники и объединение коллекции...';
   FilterMenu.OnClick := ShowCatalogSources;
   N2.Insert(3, FilterMenu);
+
+  FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
+  FMetadataFillAction.ActionList:=Actions; FMetadataFillAction.Category:='Коллекция';
+  FMetadataFillAction.Caption:='Заполнить сведения из книг…';
+  FMetadataFillAction.Hint:='Из описаний местных FB2, только пустые поля каталога. Проверка запускается только по вашей команде.';
+  FMetadataFillAction.OnExecute:=FillBookMetadataExecute; FMetadataFillAction.OnUpdate:=FillBookMetadataUpdate;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miFillBookMetadata'; FilterMenu.Action:=FMetadataFillAction;
+  miUpdateFromFile.Parent.Insert(miUpdateFromFile.MenuIndex+1,FilterMenu);
 
   CreatePublisherSeriesView;
 
@@ -4177,9 +4318,23 @@ begin
 end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
-var I: Integer;
+var I: Integer; Message: TMsg;
 begin
   StopFavoriteRefresh(True);
+  if Assigned(FProgramUpdateThread) then
+  begin
+    FProgramUpdateThread.Terminate;
+    // Destroy also resumes an unstarted canceled thread before joining it.
+    FreeAndNil(FProgramUpdateThread);
+  end;
+  // Both producers finish before their notifier or callback state is destroyed.
+  if FBackgroundMessageWindow <> 0 then
+  begin
+    while PeekMessage(Message, FBackgroundMessageWindow, WM_PROGRAM_UPDATE_CHECKED,
+      WM_PROGRAM_UPDATE_CHECKED, PM_REMOVE) do ;
+    DeallocateHWnd(FBackgroundMessageWindow);
+    FBackgroundMessageWindow := 0;
+  end;
   FreeAndNil(FFavoriteQueue);
   FreeAndNil(FFavoriteDirtyCollections);
   FreeAndNil(FFavoriteStore);
@@ -4188,11 +4343,6 @@ begin
   FreeAndNil(FOPDSForm);
   FreeAndNil(FProgramUpdateTimer);
   FreeAndNil(FProgramUpdateForm);
-  if Assigned(FProgramUpdateThread) then
-  begin
-    FProgramUpdateThread.Terminate;
-    FreeAndNil(FProgramUpdateThread);
-  end;
   FreeAndNil(FPresets);
 
   try SaveDownloadsList;
@@ -6142,6 +6292,15 @@ end;
 
 function TfrmMain.PollBookListCancel: Boolean;
 var Message: TMsg; Now: UInt64;
+
+  function IsLocateInput(Window: HWND): Boolean;
+  begin
+    Result := (edLocateAuthor.HandleAllocated and (Window = edLocateAuthor.Handle)) or
+      (edLocateSeries.HandleAllocated and (Window = edLocateSeries.Handle)) or
+      (Assigned(FPublisher) and FPublisher.Search.HandleAllocated and
+        (Window = FPublisher.Search.Handle));
+  end;
+
 begin
   Now:=GetTickCount64;
   if Now-FBookListLastPump>=16 then
@@ -6166,7 +6325,18 @@ begin
     while PeekMessage(Message,0,WM_COMMAND,WM_COMMAND,PM_REMOVE) do
       if HWND(Message.lParam)=FBookListCancel.Handle then DispatchMessage(Message);
     while PeekMessage(Message,0,WM_KEYFIRST,WM_KEYLAST,PM_REMOVE) do
-      if (Message.message=WM_KEYDOWN) and (Message.wParam=VK_ESCAPE) then FBookListCancelled:=True;
+      if (Message.message=WM_KEYDOWN) and (Message.wParam=VK_ESCAPE) then FBookListCancelled:=True
+      else if IsLocateInput(Message.hwnd) and
+        ((Message.message = WM_KEYDOWN) or (Message.message = WM_KEYUP) or (Message.message = WM_CHAR)) then
+      begin
+        // Preserve typing/editing while its previous book query runs. Navigation
+        // keys and system shortcuts must not re-enter selectors or actions.
+        if ((Message.message = WM_KEYDOWN) or (Message.message = WM_KEYUP)) and
+          (Message.wParam in [VK_TAB, VK_RETURN, VK_UP, VK_DOWN, VK_ESCAPE]) then Continue;
+        if (Message.message = WM_CHAR) and (Message.wParam in [9, 13, 27]) then Continue;
+        if Message.message = WM_KEYDOWN then TranslateMessage(Message);
+        DispatchMessage(Message);
+      end;
   end;
   Result:=FBookListCancelled;
 end;
@@ -7862,11 +8032,31 @@ procedure TfrmMain.StartFavoriteRefresh;
 var Descriptor: TAuthorFavoriteCollection;
 begin
   if Assigned(FFavoriteWorker) or (FFavoriteQueue.Count = 0) or (csDestroying in ComponentState) then Exit;
+  EnsureBackgroundMessageWindow;
   Descriptor := FFavoriteQueue.Dequeue;
   Inc(FFavoriteGeneration);
-  FFavoriteWorker := TAuthorFavoriteRefreshThread.Create(Handle, FFavoriteGeneration, FavoriteProfileFile, Descriptor);
+  FFavoriteWorker := TAuthorFavoriteRefreshThread.Create(FBackgroundMessageWindow, FFavoriteGeneration, FavoriteProfileFile, Descriptor);
   FFavoriteWorker.Start;
   UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.EnsureBackgroundMessageWindow;
+begin
+  // Main's HWND can be recreated asynchronously by VCL style/DPI changes.
+  // A separate owned message window preserves producer delivery across that gap.
+  if FBackgroundMessageWindow = 0 then
+    FBackgroundMessageWindow := AllocateHWnd(BackgroundMessageWindowProc);
+end;
+
+procedure TfrmMain.BackgroundMessageWindowProc(var Message: TMessage);
+begin
+  case Message.Msg of
+    WM_AUTHOR_FAVORITES_READY: WMFavoriteReady(Message);
+    WM_AUTHOR_FAVORITES_PROGRESS: WMFavoriteProgress(Message);
+    WM_PROGRAM_UPDATE_CHECKED: ProgramUpdateChecked(Message);
+  else
+    Message.Result := DefWindowProc(FBackgroundMessageWindow, Message.Msg, Message.WParam, Message.LParam);
+  end;
 end;
 
 procedure TfrmMain.StopFavoriteRefresh(ClearQueue: Boolean);
@@ -7882,8 +8072,8 @@ begin
     FreeAndNil(FFavoriteWorker);
   end;
   Inc(FFavoriteGeneration);
-  if HandleAllocated then
-    while PeekMessage(Message, Handle, WM_AUTHOR_FAVORITES_READY, WM_AUTHOR_FAVORITES_PROGRESS, PM_REMOVE) do ;
+  if FBackgroundMessageWindow <> 0 then
+    while PeekMessage(Message, FBackgroundMessageWindow, WM_AUTHOR_FAVORITES_READY, WM_AUTHOR_FAVORITES_PROGRESS, PM_REMOVE) do ;
 end;
 
 procedure TfrmMain.CheckFavoriteCollection;
@@ -8046,15 +8236,21 @@ begin
   FFavoriteViewedMenu.Enabled := Ready;
   FFavoriteNewMenu.Checked := FOnlyNewFavoriteBooks;
   FFavoriteNewButton.Enabled := Ready;
+  FFavoriteNewButton.Font.Style := [];
+  if FOnlyNewFavoriteBooks then FFavoriteNewButton.Font.Style := [fsBold];
   if Ready then
   begin
     NewCount := FFavoriteStore.NewCount(Settings.ActiveCollection, Key);
-    if NewCount > 0 then FFavoriteNewButton.Caption := '+' + IntToStr(NewCount)
+    if FOnlyNewFavoriteBooks then FFavoriteNewButton.Caption := '✓ ' + IntToStr(NewCount)
+    else if NewCount > 0 then FFavoriteNewButton.Caption := '+' + IntToStr(NewCount)
     else FFavoriteNewButton.Caption := 'Новые';
     FFavoriteViewedMenu.Enabled := NewCount > 0;
   end
   else if Assigned(FFavoriteWorker) then FFavoriteNewButton.Caption := '…'
   else FFavoriteNewButton.Caption := 'Новые';
+  if FOnlyNewFavoriteBooks then
+    FFavoriteNewButton.Hint := 'Показаны только новые книги. Нажмите, чтобы показать все книги автора.'
+  else FFavoriteNewButton.Hint := 'Показать только новые книги выбранного любимого автора';
   FFavoriteStopMenu.Enabled := Assigned(FFavoriteWorker);
   FFavoriteListCheck.Font.Color := clGrayText;
   if FFavoriteListCheck.Checked then FFavoriteListCheck.Font.Color := clWindowText;
@@ -8196,6 +8392,74 @@ begin
   end;
 end;
 
+function TfrmMain.IsFavoriteAuthorNode(Sender: TBaseVirtualTree; Node: PVirtualNode): Boolean;
+var Data: PAuthorData;
+begin
+  Result := False;
+  if not Assigned(FFavoriteStore) or not Assigned(Node) then Exit;
+  Data := Sender.GetNodeData(Node);
+  if not Assigned(Data) then Exit;
+  try Result := FFavoriteStore.IsFavorite(Data^);
+  except on E: EAuthorFavorites do Exit; end;
+end;
+
+procedure TfrmMain.FavoriteAuthorBeforeCellPaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas;
+  Node: PVirtualNode; Column: TColumnIndex; CellPaintMode: TVTCellPaintMode;
+  CellRect: TRect; var ContentRect: TRect);
+var PPI: Integer;
+begin
+  if Assigned(FFavoriteOriginalBeforeCellPaint) then
+    FFavoriteOriginalBeforeCellPaint(Sender, TargetCanvas, Node, Column, CellPaintMode, CellRect, ContentRect);
+  if Column > 0 then Exit;
+  PPI := tvAuthors.Font.PixelsPerInch; if PPI <= 0 then PPI := CurrentPPI;
+  Inc(ContentRect.Left, Min(Max(0, ContentRect.Width), MulDiv(18, PPI, 96)));
+end;
+
+procedure TfrmMain.FavoriteAuthorAfterCellPaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas;
+  Node: PVirtualNode; Column: TColumnIndex; CellRect: TRect);
+var PPI: Integer; Bounds: TRect; OldColor: TColor; OldBrush: TBrushStyle;
+begin
+  if Assigned(FFavoriteOriginalAfterCellPaint) then
+    FFavoriteOriginalAfterCellPaint(Sender, TargetCanvas, Node, Column, CellRect);
+  if (Column > 0) or not IsFavoriteAuthorNode(Sender, Node) then Exit;
+  PPI := tvAuthors.Font.PixelsPerInch; if PPI <= 0 then PPI := CurrentPPI;
+  Bounds := CellRect; Inc(Bounds.Left, MulDiv(2, PPI, 96));
+  Bounds.Right := Min(CellRect.Right, Bounds.Left + MulDiv(14, PPI, 96));
+  if Bounds.Width <= 0 then Exit;
+  OldColor := TargetCanvas.Font.Color; OldBrush := TargetCanvas.Brush.Style;
+  try
+    if vsSelected in Node.States then TargetCanvas.Font.Color := clHighlightText
+    else if MHLThemeDark then TargetCanvas.Font.Color := RGB(150, 166, 180)
+    else TargetCanvas.Font.Color := RGB(90, 112, 130);
+    TargetCanvas.Brush.Style := bsClear;
+    DrawText(TargetCanvas.Handle, PChar('♥'), 1, Bounds, DT_SINGLELINE or DT_VCENTER or DT_CENTER or DT_NOPREFIX);
+  finally
+    TargetCanvas.Font.Color := OldColor; TargetCanvas.Brush.Style := OldBrush;
+  end;
+end;
+
+procedure TfrmMain.SearchFavoriteClick(Sender: TObject);
+begin
+  // This is a draft condition: repaint its indicator without querying books.
+  UpdateBookFilterIndicators(tvBooksSR);
+end;
+
+procedure TfrmMain.UpdateBookFilterIndicators(Tree: TBookTree);
+var Filters: TBookColumnFilters; ActiveTags: TArray<Integer>; Tag: Integer;
+begin
+  Filters := TBookColumnFilters.ForTree(Tree);
+  for var I := 0 to Tree.Header.Columns.Count - 1 do
+  begin
+    Tag := Tree.Header.Columns[I].Tag;
+    if (Filters.Value(Tag) <> '') or ((Tag = COL_AUTHOR) and
+      (Filters.FavoriteAuthorsOnly or ((Tree = tvBooksSR) and
+        Assigned(FSearchFavoriteCheck) and FSearchFavoriteCheck.Checked))) then
+      ActiveTags := ActiveTags + [Tag];
+  end;
+  Tree.HeaderFilteredTags := ActiveTags;
+  Tree.Header.Invalidate(nil);
+end;
+
 procedure TfrmMain.SearchFavoriteEditResize(Sender: TObject);
 begin
   if HandleAllocated then PostMessage(Handle, WM_AUTHOR_FAVORITES_LAYOUT, 0, 0);
@@ -8242,7 +8506,8 @@ begin
   FSearchFavoriteCheck.Parent := edFFullName;
   FSearchFavoriteCheck.Caption := '';
   FSearchFavoriteCheck.ShowHint := True;
-  FSearchFavoriteCheck.Hint := 'Только книги любимых авторов. Условие применяется кнопкой «Применить».';
+  FSearchFavoriteCheck.Hint := 'Только книги любимых авторов. Синий значок автора отмечает выбранное условие; поиск запускается кнопкой «Применить».';
+  FSearchFavoriteCheck.OnClick := SearchFavoriteClick;
   TFavoriteEditAccess(edFFullName).OnResize := SearchFavoriteEditResize;
   UpdateFavoriteSearchLayout;
 
@@ -8285,6 +8550,10 @@ begin
   pmAuthor.Items.Add(Item); FFavoriteContextMenu := Item;
   FFavoriteOriginalGetText := tvAuthors.OnGetText;
   tvAuthors.OnGetText := FavoriteAuthorGetText;
+  FFavoriteOriginalBeforeCellPaint := tvAuthors.OnBeforeCellPaint;
+  FFavoriteOriginalAfterCellPaint := tvAuthors.OnAfterCellPaint;
+  tvAuthors.OnBeforeCellPaint := FavoriteAuthorBeforeCellPaint;
+  tvAuthors.OnAfterCellPaint := FavoriteAuthorAfterCellPaint;
   UpdateFavoriteControls;
 end;
 
@@ -9160,13 +9429,10 @@ begin
 end;
 
 procedure TfrmMain.SetBookListTotals(Tree: TBookTree; VisibleCount, TotalCount: Integer);
-var Text: string; TotalLabel: TLabel; Button: TButton; I: Integer; ActiveTags: TArray<Integer>; Filters: TBookColumnFilters;
+var Text: string; TotalLabel: TLabel; Button: TButton; Filters: TBookColumnFilters;
 begin
   Filters := TBookColumnFilters.ForTree(Tree);
-  for I := 0 to Tree.Header.Columns.Count - 1 do
-    if Filters.Value(Tree.Header.Columns[I].Tag) <> '' then
-      ActiveTags := ActiveTags + [Tree.Header.Columns[I].Tag];
-  Tree.HeaderFilteredTags := ActiveTags;
+  UpdateBookFilterIndicators(Tree);
   Tree.Invalidate;
   TotalLabel := nil;
   case Tree.Tag of

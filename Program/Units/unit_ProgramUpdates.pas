@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.18';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.19';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -40,6 +40,7 @@ type
       var AAbort: Boolean);
   protected
     procedure Execute; override;
+    function FetchDownload(const URL: string; Content: TStream): IHTTPResponse; virtual;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const ReleaseInfo: TProgramRelease; const Job: string);
@@ -287,6 +288,11 @@ begin
   end;
 end;
 
+function TProgramDownloadThread.FetchDownload(const URL: string; Content: TStream): IHTTPResponse;
+begin
+  Result := FHTTP.Get(URL, Content);
+end;
+
 procedure TProgramDownloadThread.Execute;
 var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: string;
   procedure DownloadPart(const URL, Destination: string; Size, Offset: Int64);
@@ -294,7 +300,7 @@ var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: str
     FPartSize:=Size; FPartOffset:=Offset;
     Stream:=TFileStream.Create(Destination,fmCreate);
     try
-      Response:=FHTTP.Get(URL,Stream); if Terminated then Abort;
+      Response:=FetchDownload(URL,Stream); if Terminated then Abort;
       if (Response.StatusCode<>200) or (Stream.Size<>Size) then
         raise Exception.Create('Не удалось полностью скачать обновление. Попробуйте позже.');
       FlushFileBuffers(Stream.Handle);

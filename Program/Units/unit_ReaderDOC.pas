@@ -61,7 +61,7 @@ begin
   try
     if (Input.Size<512) or (Input.Size>64*1024*1024) then
       raise Exception.Create('Размер DOC превышает предел читалки (64 МБ) или файл неполный.');
-    Stamp:='doc-reflow-v1'; AddStamp(SourceFile); AddStamp(Tool);
+    Stamp:='doc-reflow-v2|'+BookCacheInputStamp(SourceFile,OriginalSource); AddStamp(Tool);
     for Dependency in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll'] do
       AddStamp(TPath.Combine(ExtractFilePath(Tool),Dependency));
     Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,

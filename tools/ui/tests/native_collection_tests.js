@@ -53,9 +53,10 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
+const modes = ["update-form-notifier", "book-preview-layout", "metadata-fill-layout", "metadata-fill-ui", "collection-metadata-sync", "metabib-size","reader-pipeline-cache","conversion-menu","publisher-metadata-index","main-toolbar-states", "main-publisher-index-cache", "feedback19-main","catalog-sources-workflow","search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 if (viewsMode !== null && !modes.includes(viewsMode) && !['cancel-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
-const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
+const requiredViews = {"update-form-notifier": ["PASS updater component check actual success survives form HWND recreation with owned loopback transport", "PASS updater component check actual failures release checking state after form HWND recreation", "PASS updater pre-Start UI failure frees its real canceled suspended worker without waiting forever or making HTTP requests", "PASS updater component in-flight teardown joins its actual worker before removing the notifier", "PASS updater download actual progress and verification failure survive form HWND recreation", "PASS updater download actual cancel completes through the stable form notifier", "PASS updater form in-flight teardown joins its actual download worker and removes its notifier without orphan windows", "PASS updater notifier lifecycle leaves catalog, personal cards and installed component source bytes unchanged", "PASS updater fixture restores the original process-local cache environment"],
+  "oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
   "filter-captions": ["PASS caption font measurements", "PASS annotation caption expanded dark=1 dpi=192"],
   "deleted-filter": ["PASS fresh search and tree-mode changes never load the whole catalog", "PASS search and group count/rows hide six deleted books", "PASS deletion toggle uses only the applied snapshot", "PASS legacy presets inherit the shared mode after reopen"],
   "cache-presets": ["PASS cache folder presets"],
@@ -64,6 +65,18 @@ const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-
   "ordinary-book-export-identity": ["PASS ordinary Main export identity matching", "PASS ordinary Main export identity replaced-before-worker"],
   "search-startup-layout": ["PASS search startup first category header, Author label and input are fully visible without scaling or scrolling", "PASS search startup fix preserves deliberate Date focus and scrolling during ordinary view refresh"],
   "queue-serialization": ["PASS queue serializer legacy odd", "PASS queue serializer restores versioned identity", "PASS queue serializer malformed/future identity", "PASS queue serializer rejects truncation"],
+  "metabib-size": ["PASS actual native Metabib and INPX import preserve the same 2000", "PASS Metabib retains annotation, publication metadata"],
+  "reader-pipeline-cache": ["PASS actual LRU Touch keeps proved bounded input", "PASS unmanaged raw input stamps", "PASS actual bundled DOC cold preparation runs once", "PASS actual KF8 warm adapter", "PASS pipeline preparation preserves"],
+  "publisher-metadata-index": ["PASS FB2 publisher parser", "PASS real publisher index", "PASS publisher, publisher series and source completion", "PASS publisher fill preserves known catalog values and rejects reused BookID"],
+  "conversion-menu": ["PASS zero-script raw collection actual context menu converts to .epub", "PASS zero-script raw collection actual context menu converts to .fb2"],
+  "collection-metadata-sync": ["PASS strict complete bounded metadata", "PASS real FB2/ZIP read-only preview", "PASS stale ID/path/root/source/late edits fail closed", "PASS canceled preview writes nothing"],
+  "book-preview-layout": ["PASS fixed information footer dark=0 dpi=96", "PASS fixed information footer dark=0 dpi=144", "PASS fixed information footer dark=0 dpi=192", "PASS fixed information footer dark=1 dpi=96", "PASS fixed information footer dark=1 dpi=144", "PASS fixed information footer dark=1 dpi=192", "PASS source bytes/profile preserved; short/long/cover/gallery/scroll/DPI/native click/cycling checked"],
+  "metadata-fill-layout": ["PASS metadata form captions/footer/defaults fit normal and minimum window dark=0 dpi=96", "PASS metadata form captions/footer/defaults fit normal and minimum window dark=0 dpi=144", "PASS metadata form captions/footer/defaults fit normal and minimum window dark=0 dpi=192", "PASS metadata form captions/footer/defaults fit normal and minimum window dark=1 dpi=96", "PASS metadata form captions/footer/defaults fit normal and minimum window dark=1 dpi=144", "PASS metadata form captions/footer/defaults fit normal and minimum window dark=1 dpi=192"],
+  "metadata-fill-ui": ["PASS actual metadata form defaults", "PASS actual Main metadata action fills", "PASS Sources target exposes independent", "PASS actual metadata UI rejects a changed collection root", "PASS wizard successful INPX Finish opens only the requested exact collection metadata dialog without auto-preview or writes", "PASS wizard ordinary finish, cancel, uncommitted preview, creation failure and vanished collection never request or open metadata fill", "PASS wizard metadata choice revalidates its registered local root and refuses unavailable or online-only targets", "PASS wizard Finish metadata button and explanation fit six theme/DPI combinations without scanning"],
+  "main-toolbar-states": ["PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=96", "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=144", "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=192", "PASS Main toolbar state matrix restores original theme, DPI and window without catalog changes", "PASS actual Main three-row font and DPI growth restores automatic options without catalog or personal card changes"],
+  "main-publisher-index-cache": ["PASS actual publisher index refreshes active rows, column and filter cache", "PASS inactive author books and publisher series reload new metadata", "PASS zero-commit cached publisher index keeps node identity"],
+  "feedback19-main": ["PASS native author locate preserves Cyrillic", "PASS native series locate preserves Cyrillic", "PASS native publisher series locate preserves Cyrillic", "PASS favorite author funnel actual pixels dark=1", "PASS favorite hearts paint independently", "PASS actual Main color-only theme toggles", "PASS favorite author funnel actual pixels dark=0", "PASS favorite worker completion survives actual Main HWND recreation", "PASS actual update-check producer delivers through stable Main notifier after HWND recreation using only loopback"],
+  "catalog-sources-workflow": ["PASS catalog source mode changes", "PASS target namespace changes and interleaved worker", "PASS target-only series scope"],
   "queue-persistence": ["PASS queue complete native serialization", "PASS queue actual Save read-only-lock-serialization failures", "PASS queue generic stream read fault", "PASS queue valid records remain complete after actual Main close"],
   "queue-load-negative": ["PASS queue startup negative", "PASS queue failed startup negative"],
   "queue-load-truncated": ["PASS queue startup truncated", "PASS queue failed startup truncated"],
@@ -206,7 +219,7 @@ function run(executable, mode, subcase = "") {
       fs.mkdirSync(destination);
       fs.copyFileSync(source,path.join(destination,'source.fb2'));
     }
-    if (mode === 'builtin-export') {
+    if (mode === 'builtin-export' || mode === 'conversion-menu') {
       if (!conversionFixturesArg) throw new Error('Export gate requires --conversion-fixtures=<folder>');
       const inputs = fs.realpathSync(conversionFixturesArg.slice('--conversion-fixtures='.length));
       const destination = path.join(folder, 'conversion-fixtures');
@@ -229,6 +242,25 @@ function run(executable, mode, subcase = "") {
       const source = path.join(fixtureRoot, 'reader-dome.fb2');
       readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
       fs.copyFileSync(source,path.join(folder,'reader-dome.fb2'));
+    }
+    if (mode === 'metabib-size') {
+      const arg = process.argv.find(value => value.startsWith('--metabib-size-fixtures='));
+      if (!arg) throw new Error('Metabib size test requires --metabib-size-fixtures=<folder>');
+      const fixtureRoot = fs.realpathSync(arg.slice('--metabib-size-fixtures='.length));
+      const destination = path.join(folder,'metabib-size-inputs'); fs.mkdirSync(destination);
+      for (const name of ['same-records-full.jsonl','same-records.inpx']) {
+        const source = path.join(fixtureRoot,name);
+        readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+        fs.copyFileSync(source,path.join(destination,name));
+      }
+    }
+    if (mode === 'reader-pipeline-cache') {
+      if (!readerFixturesArg) throw new Error('Pipeline cache test requires --reader-fixtures=<folder>');
+      const fixtureRoot = fs.realpathSync(readerFixturesArg.slice('--reader-fixtures='.length));
+      const source = path.join(fixtureRoot, 'reader-novel.doc');
+      readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+      fs.copyFileSync(source,path.join(folder,'reader-novel.doc'));
+      fs.cpSync(path.join(runtime,'tools/kindle'),path.join(folder,'tools/kindle'),{recursive:true});
     }
     if (mode === 'reader-filter') {
       if (!readerFixturesArg) throw new Error('Reader filter test requires --reader-fixtures=<folder>');

@@ -15,15 +15,15 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.18 / 2.7.0.1086**.
-[Release notes](RELEASE_NOTES_2.7.0_pre5.18.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.18.md) (in Russian).
+The current published release is **pre5.19 / 2.7.0.1087**.
+[Release notes](RELEASE_NOTES_2.7.0_pre5.19.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.19.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/SHA256.txt) | Archive checksums |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/SHA256.txt) | Archive checksums |
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
 Reading components are included: you do not need to install Delphi, Python
@@ -64,19 +64,28 @@ or a separate SQLite library to use the release.
   Compact search and author-filter conditions; new books are marked seen explicitly.
 - INPX updates, multiple sources with separate folders and priorities,
   folder synchronisation, database maintenance and collection merging with a preview.
+- **Fill metadata from books…** fills selected empty publisher, publication city/year,
+  ISBN and translator fields from local FB2 files and FB2 in ordinary ZIPs.
+  Open it from **Collection**, Sources, or the last page of a successfully completed
+  local-collection wizard. Comparison and filling are separate actions; existing
+  values stay unchanged. Annotation is off by default and can be enabled after
+  seeing its approximate text size. Other formats are skipped.
 - Download selected books from an online library, including a download queue.
 - Covers, annotations, an illustration gallery, author information and reviews
   when available from the source.
 
 [Search](Program/Help/en/search.html) · [Groups](Program/Help/en/groups.html) ·
 [Update a collection](Program/Help/en/update.html) ·
-[Personal information](Program/Help/en/user_data.html).
+[Personal information](Program/Help/en/user_data.html) ·
+[FB2/INPX metadata and review sources](docs/METADATA_AND_REVIEWS_RESEARCH_2026-10-15.md) (in Russian).
 
 ### Reading
 
 The built-in reader is enabled by default. It opens FB2, FB3, EPUB, TXT, RTF,
-HTML/MHTML, Markdown, DOC/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and images.
-Unencrypted MOBI/AZW/AZW3/PRC books are prepared before reading.
+HTML/MHTML, Markdown, DOC/DOT/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and images.
+DOC/DOT use bundled DocSharp to produce a cached DOCX, without LibreOffice.
+DOCX and ODT are read directly from XML. Unencrypted MOBI/AZW/AZW3/PRC support
+is limited to KF8 (format version 8); older variants may need an external reader.
 Some other office formats require an installed copy of LibreOffice.
 
 - Light and dark themes; adjustable fonts, text width, colours and appearance.
@@ -103,6 +112,8 @@ from the original. Protected books are not decrypted; scans do not receive OCR.
 ### Export and sharing
 
 - Two separate actions: **FB2 → EPUB** and **EPUB → FB2**, including books in ZIP.
+  Right-click a book and open its **Convert / save…** submenu, then choose FB2
+  or EPUB. These commands do not need custom scripts.
   Originals stay unchanged and existing output files are not replaced. Input: up to 64 MB;
   CSS may be simplified, and unrepresentable structures are rejected with an explanation.
   [Conversion limitations](tools/bookconvert/README.md) (in Russian).

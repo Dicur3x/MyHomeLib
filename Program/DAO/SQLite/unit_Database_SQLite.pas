@@ -20,15 +20,16 @@ unit unit_Database_SQLite;
 interface
 
 uses
-  Classes, System.Generics.Collections,
+  Classes, System.SysUtils, System.Generics.Collections,
   SQLiteWrap,
   unit_UserData,
   unit_Globals,
   unit_Interfaces,
+  unit_MetadataSyncTypes,
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter)
   strict private type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
@@ -207,10 +208,19 @@ type
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
     procedure CompletePublisherSeriesIndex(const BookKey: TBookKey;
-      const Series: TBookSeries; const SourceKey: string);
+      const Series: TBookSeries; const SourceKey: string; const Publisher: string = '';
+      const ExpectedBook: PBookRecord = nil);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     function ResolveBookID(const LibID: string; const CurrentBookID: Integer): Integer; override;
+    procedure BeginMetadataFillBatch;
+    procedure EndMetadataFillBatch(Commit: Boolean);
+    function MetadataCollectionRoot: string;
+    function MetadataBookCount: Int64;
+    function ReadMetadataBatch(AfterBookID, Limit: Integer): TArray<TBookRecord>;
+    function FillEmptyMetadata(const Expected, Values: TBookRecord;
+      const Fields: TMetadataSyncFields; const SourceStillMatches: TFunc<Boolean>;
+      out Updated: TMetadataSyncFields): TMetadataFillResult;
     function GetCatalogRevision: string;
     procedure RestoreCollectionBackup(const FileName: string);
     function GetCatalogBookID(const SourceKey: string): Integer;
@@ -280,6 +290,8 @@ type
     procedure InsertGenreIfMissing(const GenreData: TGenreData); override;
 
   private
+    FMetadataRootGuard: IMetadataCollectionRootGuard;
+    FMetadataFillBatch: Boolean;
     FTriggersEnabled: Boolean;
 
   strict private
@@ -304,7 +316,8 @@ type
       const FullCheck: Boolean; Cache: TImportCache): Integer;
     function IsFileNameConflict(const BookRecord: TBookRecord; const IncludeFolder: Boolean): Boolean;
     procedure InternalSetBookPublisherSeries(const BookKey: TBookKey;
-      const Series: TBookSeries; const SourceKey: string);
+      const Series: TBookSeries; const SourceKey: string; const Publisher: string = '';
+      const ExpectedBook: PBookRecord = nil);
 
   private
     procedure EnsureSchemaCurrent;
@@ -315,7 +328,6 @@ type
 implementation
 
 uses
-  SysUtils,
   Windows,
   Character,
   Generics.Collections,
@@ -3056,19 +3068,21 @@ begin
 end;
 
 procedure TBookCollection_SQLite.CompletePublisherSeriesIndex(
-  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string);
+  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string;
+  const Publisher: string; const ExpectedBook: PBookRecord);
 begin
   if SourceKey = '' then
     raise EArgumentException.Create('Publisher index source key must not be empty');
   if BookKey.DatabaseID <> CollectionID then
     FSystemData.GetCollection(BookKey.DatabaseID).CompletePublisherSeriesIndex(
-      BookKey, Series, SourceKey)
+      BookKey, Series, SourceKey, Publisher, ExpectedBook)
   else
-    InternalSetBookPublisherSeries(BookKey, Series, SourceKey);
+    InternalSetBookPublisherSeries(BookKey, Series, SourceKey, Publisher, ExpectedBook);
 end;
 
 procedure TBookCollection_SQLite.InternalSetBookPublisherSeries(
-  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string);
+  const BookKey: TBookKey; const Series: TBookSeries; const SourceKey: string;
+  const Publisher: string; const ExpectedBook: PBookRecord);
 var
   Item: TBookSeriesData;
   Title: string;
@@ -3082,6 +3096,25 @@ begin
   // indexing transaction. Empty metadata is an intentional replacement.
   FDatabase.ExecSQL('SAVEPOINT PublisherSeriesUpdate');
   try
+    if Assigned(ExpectedBook) then
+    begin
+      // Compare the persisted identity under the same transaction as every
+      // metadata write. Never reload ExpectedBook from the current catalog:
+      // its root and row fields describe the source that was actually parsed.
+      if not ExpectedBook^.BookKey.IsSameAs(BookKey) or
+        (ExpectedBook^.CollectionRoot = '') or
+        not SameText(ExcludeTrailingPathDelimiter(ExpandFileName(ExpectedBook^.CollectionRoot)),
+          ExcludeTrailingPathDelimiter(ExpandFileName(
+            FSystemData.GetCollectionInfo(CollectionID).RootFolder))) or
+        (FDatabase.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID=? ' +
+          'AND LibID COLLATE BINARY=? AND COALESCE(Folder,'''') COLLATE BINARY=? ' +
+          'AND FileName COLLATE BINARY=? AND Ext COLLATE BINARY=? ' +
+          'AND InsideNo=? AND COALESCE(BookSize,0)=?',
+          [BookKey.BookID, ExpectedBook^.LibID, ExpectedBook^.Folder,
+           ExpectedBook^.FileName, ExpectedBook^.FileExt, ExpectedBook^.InsideNo,
+           ExpectedBook^.Size]) <> 1) then
+        raise Exception.Create('Книга или папка коллекции изменились во время чтения FB2. Метаданные не сохранены.');
+    end;
     FDatabase.ExecSQL('DELETE FROM PublisherSeries_List WHERE BookID = ?',
       [BookKey.BookID]);
     Position := 0;
@@ -3102,6 +3135,12 @@ begin
         [BookKey.BookID, SeriesID, Number, Position]);
       Inc(Position);
     end;
+    // Enrich missing information only. An existing publisher, including a
+    // user's edit, is never replaced by a description from the source book.
+    if Trim(Publisher) <> '' then
+      FDatabase.ExecSQL('UPDATE Books SET Publisher = ? WHERE BookID = ? ' +
+        'AND trim(COALESCE(Publisher, '''')) = ''''',
+        [Trim(Publisher), BookKey.BookID]);
     // A successful empty result is still indexed. Other metadata writers
     // invalidate the completion marker instead of claiming a source was read.
     if SourceKey = '' then
@@ -3176,6 +3215,191 @@ begin
     query.ExecSQL;
   finally
     query.Free;
+  end;
+end;
+
+procedure TBookCollection_SQLite.BeginMetadataFillBatch;
+begin
+  if FMetadataFillBatch or FDatabase.InTransaction then
+    raise EInvalidOperation.Create('Другая операция меняет коллекцию; повторите позже');
+  if not Supports(FSystemData, IMetadataCollectionRootGuard, FMetadataRootGuard) then
+    raise ENotSupportedException.Create('Эта коллекция не поддерживает безопасную сверку папки');
+  FMetadataRootGuard.BeginMetadataRootGuard;
+  try
+    FDatabase.Start;
+    FDatabase.BeginQueryBatch; FMetadataFillBatch := True;
+  except
+    if FDatabase.InTransaction then try FDatabase.Rollback; except end;
+    try FMetadataRootGuard.EndMetadataRootGuard; finally FMetadataRootGuard := nil; end;
+    raise;
+  end;
+end;
+
+procedure TBookCollection_SQLite.EndMetadataFillBatch(Commit: Boolean);
+begin
+  if not FMetadataFillBatch then raise EInvalidOperation.Create('Нет транзакции заполнения сведений');
+  try
+  try
+    if Commit then
+    begin
+      if not FDatabase.InTransaction then
+        raise EInvalidOperation.Create('Транзакция заполнения была отменена; изменения не сохранены');
+      FDatabase.Commit;
+    end
+    else if FDatabase.InTransaction then FDatabase.Rollback;
+  except
+    if FDatabase.InTransaction then
+      try FDatabase.Rollback; except end;
+    raise;
+  end;
+  finally
+    FMetadataFillBatch := False;
+    try FDatabase.EndQueryBatch;
+    finally
+      try FMetadataRootGuard.EndMetadataRootGuard;
+      finally FMetadataRootGuard := nil; end;
+    end;
+  end;
+end;
+
+function TBookCollection_SQLite.MetadataCollectionRoot: string;
+begin Result := FSystemData.GetCollectionInfo(CollectionID).RootFolder; end;
+
+function TBookCollection_SQLite.MetadataBookCount: Int64;
+begin
+  Result := FDatabase.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE BookID>0 AND IsLocal=1');
+end;
+
+function TBookCollection_SQLite.ReadMetadataBatch(AfterBookID, Limit: Integer): TArray<TBookRecord>;
+var Query: TSQLiteQuery; Book: TBookRecord; Count: Integer; Root: string;
+begin
+  if (AfterBookID < 0) or (Limit < 1) or (Limit > 1000) then
+    raise EArgumentException.Create('Invalid metadata batch bounds');
+  Root := FSystemData.GetCollectionInfo(CollectionID).RootFolder;
+  // Existing values need only an empty/nonempty marker. Never copy a large
+  // annotation, review, author list or personal payload into the preview.
+  // Use a printable marker: Delphi Trim removes control characters such as #1.
+  Query := FDatabase.NewQuery('SELECT BookID,substr(Title,1,512),Folder,FileName,Ext,InsideNo,LibID,' +
+    'BookSize,IsDeleted,' +
+    'CASE WHEN trim(COALESCE(Publisher,''''))='''' THEN '''' ELSE ''x'' END,' +
+    'CASE WHEN trim(COALESCE(City,''''))='''' THEN '''' ELSE ''x'' END,PubYear,' +
+    'CASE WHEN trim(COALESCE(ISBN,''''))='''' THEN '''' ELSE ''x'' END,' +
+    'CASE WHEN trim(COALESCE(Translators,''''))='''' THEN '''' ELSE ''x'' END,' +
+    'CASE WHEN trim(COALESCE(Annotation,''''))='''' THEN '''' ELSE ''x'' END ' +
+    'FROM Books WHERE BookID>? AND IsLocal=1 ORDER BY BookID LIMIT ?', [AfterBookID,Limit]);
+  try
+    Query.Open; Count := 0; SetLength(Result, Limit);
+    while not Query.Eof do
+    begin
+      Book := Default(TBookRecord); Book.NodeType := ntBookInfo;
+      Book.BookKey := CreateBookKey(Query.FieldAsInt(0),CollectionID);
+      Book.Title := Query.FieldAsString(1); Book.Folder := Query.FieldAsString(2);
+      Book.FileName := Query.FieldAsString(3); Book.FileExt := Query.FieldAsString(4);
+      Book.InsideNo := Query.FieldAsInt(5); Book.LibID := Query.FieldAsString(6);
+      Book.Size := Query.FieldAsInt(7); Include(Book.BookProps,bpIsLocal);
+      if Query.FieldAsBoolean(8) then Include(Book.BookProps,bpIsDeleted);
+      Book.Publisher := Query.FieldAsString(9); Book.City := Query.FieldAsString(10);
+      Book.PubYear := Query.FieldAsInt(11); Book.ISBN := Query.FieldAsString(12);
+      Book.Translators := Query.FieldAsString(13); Book.Annotation := Query.FieldAsString(14);
+      Book.CollectionRoot := Root; Book.CollectionName := CollectionDisplayName;
+      Result[Count] := Book; Inc(Count); Query.Next;
+    end;
+    SetLength(Result,Count);
+  finally Query.Free; end;
+end;
+
+function TBookCollection_SQLite.FillEmptyMetadata(const Expected, Values: TBookRecord;
+  const Fields: TMetadataSyncFields; const SourceStillMatches: TFunc<Boolean>;
+  out Updated: TMetadataSyncFields): TMetadataFillResult;
+var Query: TSQLiteQuery; Current: TBookRecord; Savepoint, Column, Text: string;
+  ID: TGUID; Field: TMetadataSyncField; Released, OwnRootGuard: Boolean;
+  RootGuard: IMetadataCollectionRootGuard;
+  procedure WriteText(const Name, Value: string);
+  begin
+    FDatabase.ExecSQL('UPDATE Books SET '+Name+'=? WHERE BookID=? AND trim(COALESCE('+Name+',''''))=''''',
+      [Value,Expected.BookKey.BookID]);
+    if FDatabase.QuerySingleInt('SELECT changes()') <> 1 then
+      raise Exception.Create('Запись сведений не подтверждена: '+Name);
+  end;
+begin
+  Result := mfrIdentityChanged; Updated := [];
+  if (Expected.BookKey.DatabaseID <> CollectionID) or (Expected.BookKey.BookID <= 0) or
+    (Expected.CollectionRoot = '') or not Assigned(SourceStillMatches) then Exit;
+  OwnRootGuard := not FMetadataFillBatch;
+  if OwnRootGuard then
+  begin
+    // A standalone savepoint also reserves the SystemDB root first. It must
+    // not silently join somebody else's catalog or personal transaction.
+    if FDatabase.InTransaction then
+      raise EInvalidOperation.Create('Другая операция меняет коллекцию; повторите позже');
+    if not Supports(FSystemData, IMetadataCollectionRootGuard, RootGuard) then
+      raise ENotSupportedException.Create('Нет безопасной сверки папки коллекции');
+    RootGuard.BeginMetadataRootGuard;
+  end;
+  try
+  CreateGUID(ID); Savepoint := 'MetadataFill'+StringReplace(StringReplace(
+    StringReplace(GUIDToString(ID),'{','',[rfReplaceAll]),'}','',[rfReplaceAll]),'-','',[rfReplaceAll]);
+  Released := False; FDatabase.ExecSQL('SAVEPOINT '+Savepoint);
+  try
+    if not SameText(ExcludeTrailingPathDelimiter(ExpandFileName(Expected.CollectionRoot)),
+      ExcludeTrailingPathDelimiter(ExpandFileName(FSystemData.GetCollectionInfo(CollectionID).RootFolder))) then
+    begin FDatabase.ExecSQL('RELEASE SAVEPOINT '+Savepoint); Released := True; Exit; end;
+    Query := FDatabase.NewQuery('SELECT '+
+      'CASE WHEN trim(COALESCE(Publisher,''''))='''' THEN '''' ELSE ''x'' END,'+
+      'CASE WHEN trim(COALESCE(City,''''))='''' THEN '''' ELSE ''x'' END,PubYear,'+
+      'CASE WHEN trim(COALESCE(ISBN,''''))='''' THEN '''' ELSE ''x'' END,'+
+      'CASE WHEN trim(COALESCE(Translators,''''))='''' THEN '''' ELSE ''x'' END,'+
+      'CASE WHEN trim(COALESCE(Annotation,''''))='''' THEN '''' ELSE ''x'' END '+
+      'FROM Books WHERE BookID=? AND LibID COLLATE BINARY=? AND COALESCE(Folder,'''') COLLATE BINARY=? '+
+      'AND FileName COLLATE BINARY=? AND Ext COLLATE BINARY=? AND InsideNo=? '+
+      'AND COALESCE(BookSize,0)=? AND IsLocal=1 AND COALESCE(IsDeleted,0)=0',
+      [Expected.BookKey.BookID,Expected.LibID,Expected.Folder,Expected.FileName,
+       Expected.FileExt,Expected.InsideNo,Expected.Size]);
+    try
+      Query.Open;
+      if Query.Eof then
+      begin Query.Reset; FDatabase.ExecSQL('RELEASE SAVEPOINT '+Savepoint); Released := True; Exit; end;
+      Current := Default(TBookRecord);
+      Current.Publisher := Query.FieldAsString(0); Current.City := Query.FieldAsString(1);
+      Current.PubYear := Query.FieldAsInt(2); Current.ISBN := Query.FieldAsString(3);
+      Current.Translators := Query.FieldAsString(4); Current.Annotation := Query.FieldAsString(5);
+      Updated := MissingMetadataFields(Current,Values,Fields);
+    finally Query.Free; end;
+    if not SourceStillMatches() then
+    begin Updated := []; FDatabase.ExecSQL('RELEASE SAVEPOINT '+Savepoint); Released := True; Exit; end;
+    for Field := Low(Field) to High(Field) do
+      if Field in Updated then
+      begin
+        case Field of
+          msfPublisher: begin Column := 'Publisher'; Text := Trim(Values.Publisher); end;
+          msfCity: begin Column := 'City'; Text := Trim(Values.City); end;
+          msfISBN: begin Column := 'ISBN'; Text := Trim(Values.ISBN); end;
+          msfTranslators: begin Column := 'Translators'; Text := Trim(Values.Translators); end;
+          msfAnnotation: begin Column := 'Annotation'; Text := Values.Annotation; end;
+        else Column := ''; Text := ''; end;
+        if Field = msfPubYear then
+        begin
+          FDatabase.ExecSQL('UPDATE Books SET PubYear=? WHERE BookID=? AND COALESCE(PubYear,0)=0',
+            [Values.PubYear,Expected.BookKey.BookID]);
+          if FDatabase.QuerySingleInt('SELECT changes()') <> 1 then
+            raise Exception.Create('Запись года издания не подтверждена');
+        end else WriteText(Column,Text);
+      end;
+    FDatabase.ExecSQL('RELEASE SAVEPOINT '+Savepoint); Released := True;
+    if Updated = [] then Result := mfrUnchanged else Result := mfrChanged;
+  except
+    Updated := [];
+    if not Released then
+    begin
+      // RAISE(ROLLBACK) can already have removed the savepoint. Preserve the
+      // original error; cleanup failure must never turn a failure into success.
+      try FDatabase.ExecSQL('ROLLBACK TO SAVEPOINT '+Savepoint); except end;
+      try FDatabase.ExecSQL('RELEASE SAVEPOINT '+Savepoint); except end;
+    end;
+    raise;
+  end;
+  finally
+    if OwnRootGuard then RootGuard.EndMetadataRootGuard;
   end;
 end;
 

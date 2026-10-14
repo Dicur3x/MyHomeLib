@@ -1,4 +1,4 @@
-unit unit_PublisherSeriesSource;
+﻿unit unit_PublisherSeriesSource;
 
 interface
 
@@ -13,6 +13,7 @@ type
     FArchive: TMHLZip;
     FArchivePath: string;
     FArchiveStamp: string;
+    FArchiveIndexReady: Boolean;
     FEntryIndex: TDictionary<string, Integer>;
     FBatchFiles: TDictionary<string, string>;
     FBatchDirectory: string;
@@ -30,7 +31,10 @@ type
     constructor Create(const IsCanceled: TFunc<Boolean>);
     destructor Destroy; override;
     function GetSourceKey(const Book: TBookRecord): string;
-    function OpenDescriptor(const Book: TBookRecord): TStream;
+    function OpenDescriptor(const Book: TBookRecord;
+      const AllowExternalDecoder: Boolean = True): TStream;
+    // Hold the physical container unchanged while committing a metadata plan.
+    function LockSource(const Book: TBookRecord): TStream;
     procedure SetUpcoming(const Books: TArray<TBookRecord>; const Start: Integer);
     property ArchiveOpenCount: Integer read FArchiveOpenCount;
     property BatchCount: Integer read FBatchCount;
@@ -134,7 +138,7 @@ begin
     Exit;
   Parts := TJSONArray.Create;
   try
-    Parts.Add('publisher-metadata-v2');
+    Parts.Add('publisher-metadata-v3');
     Parts.Add(LowerCase(Path));
     Parts.Add(Stamp);
     Parts.Add(Ord(Book.GetBookFormat));
@@ -147,35 +151,40 @@ begin
   end;
 end;
 
+function MetadataEntryKey(const Name: string): string;
+begin Result := LowerCase(StringReplace(Name,'\','/',[rfReplaceAll])); end;
+
 procedure TPublisherSeriesSource.OpenArchive(const Path: string);
-var
-  I: Integer;
-  Key, Stamp: string;
+const MaxEntries = 200000; MaxNameChars = 8*1024*1024;
+var I, NameChars, Existing: Integer; Key, Stamp: string;
 begin
   Stamp := FileStamp(Path);
-  if Assigned(FArchive) and SameText(Path, FArchivePath) and
-     (Stamp = FArchiveStamp) then
+  if Assigned(FArchive) and SameText(Path,FArchivePath) and (Stamp=FArchiveStamp) then
+  begin
+    if not FArchiveIndexReady then
+      raise EReadError.Create('Список файлов архива слишком велик для чтения метаданных');
     Exit;
-  ClearBatch;
-  FreeAndNil(FArchive);
-  FEntryIndex.Clear;
-  FArchivePath := Path;
-  FArchiveStamp := Stamp;
-  FBatchDisabled := False;
-  FArchive := TMHLZip.Create(Path, True, False, FIsCanceled);
-  Inc(FArchiveOpenCount);
-  if IsSevenZipArchive(Path) then
-    for I := 0 to FArchive.FileCount - 1 do
+  end;
+  ClearBatch; FreeAndNil(FArchive); FEntryIndex.Clear;
+  FArchivePath:=Path; FArchiveStamp:=Stamp; FArchiveIndexReady:=False;
+  FBatchDisabled:=False;
+  FArchive:=TMHLZip.Create(Path,True,False,FIsCanceled); Inc(FArchiveOpenCount);
+  if FArchive.FileCount>MaxEntries then
+    raise EReadError.Create('Список файлов архива слишком велик для чтения метаданных');
+  NameChars:=0;
+  for I:=0 to FArchive.FileCount-1 do
+  begin
+    if Assigned(FIsCanceled) and FIsCanceled() then raise EAbort.Create('Чтение отменено');
+    Key:=MetadataEntryKey(FArchive.FileNameAt(I)); Inc(NameChars,Length(Key));
+    if NameChars>MaxNameChars then
+      raise EReadError.Create('Имена файлов архива превышают предел чтения метаданных');
+    if FEntryIndex.TryGetValue(Key,Existing) then
     begin
-      Key := LowerCase(FArchive.FileNameAt(I));
-      if FEntryIndex.ContainsKey(Key) then
-      begin
-        // Ambiguous names must retain the normal single-entry behavior.
-        FBatchDisabled := True;
-        Break;
-      end;
-      FEntryIndex.Add(Key, I);
-    end;
+      // Even a matching legacy ordinal cannot disambiguate duplicate names.
+      FEntryIndex.AddOrSetValue(Key,-1); FBatchDisabled:=True;
+    end else FEntryIndex.Add(Key,I);
+  end;
+  FArchiveIndexReady:=True;
 end;
 
 function TPublisherSeriesSource.PrepareBatch(const EntryName: string): Boolean;
@@ -195,7 +204,7 @@ begin
     Exit;
   if FBatchFiles.ContainsKey(LowerCase(EntryName)) then
     Exit(True);
-  if not FEntryIndex.TryGetValue(LowerCase(EntryName), StartIndex) then
+  if not FEntryIndex.TryGetValue(MetadataEntryKey(EntryName), StartIndex) or (StartIndex<0) then
     Exit;
   ClearBatch;
   SetLength(Names, MaxBatchFiles);
@@ -267,10 +276,18 @@ begin
   end;
 end;
 
-function TPublisherSeriesSource.OpenDescriptor(const Book: TBookRecord): TStream;
+function TPublisherSeriesSource.LockSource(const Book: TBookRecord): TStream;
+begin
+  Result := TFileStream.Create(SourcePath(Book), fmOpenRead or fmShareDenyWrite);
+end;
+
+function TPublisherSeriesSource.OpenDescriptor(const Book: TBookRecord;
+  const AllowExternalDecoder: Boolean): TStream;
+const MaxMetadataPrefix = 16*1024*1024;
 var
   Path, Entry: string;
   Memory: TMemoryStream;
+  EntryIndex: Integer;
 begin
   Result := nil;
   Path := SourcePath(Book);
@@ -278,35 +295,37 @@ begin
     Exit(TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite));
   if not (Book.GetBookFormat in [bfFb2Archive, bfFbd]) then
     Exit;
+  if not AllowExternalDecoder and IsSevenZipArchive(Path) then
+    raise ENotSupportedException.Create('Проверка сведений читает FB2 и ZIP без внешнего распаковщика');
   OpenArchive(Path);
   if Book.GetBookFormat = bfFbd then
   begin
     if not FArchive.Find('*.fbd') then
       Exit;
     Entry := FArchive.LastName;
+    EntryIndex := FArchive.LastIndex;
+    if FArchive.FindNext then
+      raise EReadError.Create('В архиве несколько описаний FBD; книга не определена однозначно');
   end
   else
-    Entry := Book.FileName + Book.FileExt;
-  if IsSevenZipArchive(Path) and PrepareBatch(Entry) then
-    Exit(TFileStream.Create(FBatchFiles[LowerCase(Entry)],
-      fmOpenRead or fmShareDenyWrite));
-  if not IsSevenZipArchive(Path) then
   begin
-    if Book.GetBookFormat = bfFbd then
-      Exit(FArchive.OpenEntryStream(FArchive.LastIndex));
-    Exit(FArchive.OpenEntryStream(Book.InsideNo));
+    Entry := Book.FileName + Book.FileExt;
+    if not FEntryIndex.TryGetValue(MetadataEntryKey(Entry),EntryIndex) or (EntryIndex<0) then
+      raise EReadError.Create('Файл книги не найден однозначно в архиве: '+Entry);
   end;
-  Memory := TMemoryStream.Create;
-  try
-    if IsSevenZipArchive(Path) or (Book.GetBookFormat = bfFbd) then
-      FArchive.ExtractToStream(Entry, Memory)
-    else
-      FArchive.ExtractToStream(Book.InsideNo, Memory);
-    Result := Memory;
-  except
-    Memory.Free;
-    raise;
-  end;
+  if FArchive.EntryUsesExternalDecoder(EntryIndex) then
+  begin
+    if not AllowExternalDecoder then
+      raise ENotSupportedException.Create('Этот ZIP требует внешнего распаковщика; сведения пропущены');
+    if IsSevenZipArchive(Path) and PrepareBatch(Entry) then
+      Exit(TFileStream.Create(FBatchFiles[LowerCase(Entry)], fmOpenRead or fmShareDenyWrite));
+    Memory := TMemoryStream.Create;
+    try
+      FArchive.ExtractBookPrefix(FArchive.FileNameAt(EntryIndex),EntryIndex,MaxMetadataPrefix,Memory);
+      Memory.Position := 0; Result := Memory;
+    except Memory.Free; raise; end;
+  end
+  else Result := FArchive.OpenEntryStream(EntryIndex);
 end;
 
 end.

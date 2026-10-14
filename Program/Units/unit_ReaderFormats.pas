@@ -134,32 +134,44 @@ begin
 end;
 
 function PrepareDetectedReaderFile(const FileName, Source: string): string;
-var Extension, Key, Stamp, StampFile, Temporary, TemporaryStamp: string; Writer: TBookCacheWrite;
-  Attributes: TWin32FileAttributeData;
+var InputName, Extension, Key, Stamp, StampFile, Temporary, TemporaryStamp: string;
+  Writer: TBookCacheWrite; Input, Target: TStream; KeepResult: Boolean;
 begin
-  Result:=FileName; Extension:=DetectReaderExtension(FileName);
-  if (Extension='') or SameText(Extension,ExtractFileExt(FileName)) then Exit;
-  // Comic containers retain their dedicated reader identity.
-  if (Extension='.zip') and InList(ExtractFileExt(FileName),'|cbz|fb3|epub|docx|odt|odp|ods|pptx|xlsx|apk|') then Exit;
-  if (Extension='.rar') and SameText(ExtractFileExt(FileName),'.cbr') then Exit;
-  if (Extension='.7z') and SameText(ExtractFileExt(FileName),'.cb7') then Exit;
-  // Exact attributes keep rapid replacements distinct without reopening a cache-hit source.
-  if not GetFileAttributesEx(PChar(FileName),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-  Stamp:='format-v2|'+LowerCase(TPath.GetFullPath(FileName))+'|'+
-    IntToStr(Attributes.nFileSizeHigh)+':'+IntToStr(Attributes.nFileSizeLow)+'|'+
-    IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
-  Key:=Copy(THashSHA2.GetHashString(Stamp),1,40);
-  Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-detected-'+Key+Extension));
-  StampFile:=Result+'.source';
-  if FileExists(Result) and FileExists(StampFile) and (TFile.ReadAllText(StampFile,TEncoding.UTF8)=Stamp) then
-  begin RegisterBookCacheFile(Result,Source); Exit; end;
-  ForceDirectories(ExtractFileDir(Result));
-  Writer:=TBookCacheWrite.Create(Source);
+  InputName:=ExistingBookCacheFile(FileName); Result:=InputName; KeepResult:=False;
+  Input:=OpenCachedBookFile(InputName);
   try
-    Temporary:=Writer.TemporaryName(Result); TemporaryStamp:=Writer.TemporaryName(StampFile);
-    TFile.Copy(FileName,Temporary,True); TFile.WriteAllText(TemporaryStamp,Stamp,TEncoding.UTF8);
-    Writer.Publish(Temporary,Result,TemporaryStamp);
-  finally Writer.Free; end;
+    Extension:=DetectReaderExtension(InputName);
+    if (Extension='') or SameText(Extension,ExtractFileExt(InputName)) then
+    begin KeepResult:=True; Exit; end;
+    // Comic containers retain their dedicated reader identity.
+    if (Extension='.zip') and InList(ExtractFileExt(InputName),'|cbz|fb3|epub|docx|odt|odp|ods|pptx|xlsx|apk|') then
+    begin KeepResult:=True; Exit; end;
+    if (Extension='.rar') and SameText(ExtractFileExt(InputName),'.cbr') then
+    begin KeepResult:=True; Exit; end;
+    if (Extension='.7z') and SameText(ExtractFileExt(InputName),'.cb7') then
+    begin KeepResult:=True; Exit; end;
+    // Stable dependency/content identity ignores only the owned cache's LRU Touch.
+    Stamp:='format-v3|'+BookCacheInputStamp(InputName,Source);
+    Key:=Copy(THashSHA2.GetHashString(Stamp),1,40);
+    Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-detected-'+Key+Extension));
+    StampFile:=Result+'.source';
+    if FileExists(Result) and FileExists(StampFile) and (TFile.ReadAllText(StampFile,TEncoding.UTF8)=Stamp) then
+    begin RegisterBookCacheFile(Result,Source); KeepResult:=True; Exit; end;
+    ForceDirectories(ExtractFileDir(Result));
+    Writer:=TBookCacheWrite.Create(Source);
+    try
+      Temporary:=Writer.TemporaryName(Result); TemporaryStamp:=Writer.TemporaryName(StampFile);
+      Target:=TFileStream.Create(Temporary,fmCreate);
+      try Input.Position:=0; Target.CopyFrom(Input,0); finally Target.Free; end;
+      TFile.WriteAllText(TemporaryStamp,Stamp,TEncoding.UTF8); Writer.Publish(Temporary,Result,TemporaryStamp);
+      KeepResult:=True;
+    finally Writer.Free; end;
+  finally
+    // Releasing a managed input can immediately trim the cache. Protect the
+    // completed result first, including unchanged-format and warm paths.
+    if KeepResult then PinReaderCacheFile(Result);
+    Input.Free;
+  end;
 end;
 
 initialization

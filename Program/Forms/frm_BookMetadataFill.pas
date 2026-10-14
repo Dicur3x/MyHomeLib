@@ -1,0 +1,358 @@
+﻿unit frm_BookMetadataFill;
+
+interface
+
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
+  unit_Globals, unit_MetadataSyncTypes, unit_CollectionWorkerThread, unit_CollectionMetadataSync;
+
+type
+  TfrmBookMetadataFill = class(TForm)
+  private
+    FCollectionID: Integer;
+    FPlan: TCollectionMetadataPlan;
+    FWorker: TCollectionWorker;
+    FFields: array[TMetadataSyncField] of TCheckBox;
+    FCounts: array[TMetadataSyncField] of TLabel;
+    FSummary, FReason, FComment, FAnnotationNote: TLabel;
+    FPreview, FApply, FStop, FClose: TButton;
+    FProgress: TProgressBar;
+    FReport: TMemo;
+    FTimer: TTimer;
+    FRequestedFields: TMetadataSyncFields;
+    FApplying, FCloseWhenReady, FDestroying, FCommittedChanges, FLayoutBusy: Boolean;
+    procedure LayoutFooter;
+    procedure Resize; override;
+    function GetBusy: Boolean;
+    function SelectedFields: TMetadataSyncFields;
+    procedure OptionsChanged(Sender: TObject);
+    procedure UpdateButtons;
+    procedure InvalidatePlan(const Reason: string);
+    procedure ShowCounts(const Counts: TMetadataSyncCounts);
+    procedure StartWorker(Worker: TCollectionWorker; Applying: Boolean);
+    procedure PreviewClick(Sender: TObject);
+    procedure ApplyClick(Sender: TObject);
+    procedure StopClick(Sender: TObject);
+    procedure CloseClick(Sender: TObject);
+    procedure PollWorker(Sender: TObject);
+    procedure ProgressChanged(Percent: Integer);
+    procedure CommentChanged(const Text: string);
+    procedure ReportLine(const Text: string; Severity: TTeletypeSeverity);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+  public
+    constructor CreateForCollection(AOwner: TComponent; CollectionID: Integer);
+    destructor Destroy; override;
+    procedure ScaleForPPI(NewPPI: Integer); override;
+    property CollectionID: Integer read FCollectionID;
+    property CommittedChanges: Boolean read FCommittedChanges;
+    property Busy: Boolean read GetBusy;
+  end;
+
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean;
+
+implementation
+
+uses System.SysUtils, System.Types, System.Math, Winapi.Windows, Vcl.Controls,
+  Vcl.Graphics, unit_MHLTheme, dm_user;
+
+const
+  FieldNames: array[TMetadataSyncField] of string =
+    ('Издательство', 'Город издания', 'Год издания', 'ISBN', 'Переводчики', 'Аннотация');
+
+constructor TfrmBookMetadataFill.CreateForCollection(AOwner: TComponent; CollectionID: Integer);
+var Body: TScrollBox; Options, Footer: TPanel; Intro: TLabel; WorkArea: TRect;
+
+  function LabelAt(Parent: TWinControl; const Name, Text: string;
+    X, Y, W, H: Integer): TLabel;
+  begin
+    Result:=TLabel.Create(Self); Result.Parent:=Parent; Result.Name:=Name;
+    Result.AutoSize:=False; Result.WordWrap:=True; Result.SetBounds(X,Y,W,H);
+    Result.Caption:=Text; Result.Anchors:=[akLeft,akTop,akRight];
+  end;
+
+  function ButtonAt(const Name, Text: string; X, W: Integer; Handler: TNotifyEvent): TButton;
+  begin
+    Result:=TButton.Create(Self); Result.Parent:=Footer; Result.Name:=Name;
+    Result.SetBounds(X,54,W,32); Result.Caption:=Text; Result.OnClick:=Handler;
+  end;
+
+begin
+  inherited CreateNew(AOwner);
+  FCollectionID:=CollectionID; Name:='frmBookMetadataFill';
+  Caption:='Сведения из FB2 — '+SystemDB.GetCollectionInfo(CollectionID).DisplayName;
+  PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
+  Position:=poOwnerFormCenter; BorderStyle:=bsSizeable; ClientWidth:=740; ClientHeight:=620;
+  Constraints.MinWidth:=708; Constraints.MinHeight:=440;
+  DisableAlign;
+  try
+    Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.BevelOuter:=bvNone;
+    Footer.SetBounds(0,ClientHeight-98,ClientWidth,98); Footer.Align:=alBottom;
+    FReason:=LabelAt(Footer,'lblMetadataFillReason','',12,8,716,38);
+    FPreview:=ButtonAt('btnMetadataPreview','1. Проверить книги',12,184,PreviewClick);
+    FApply:=ButtonAt('btnMetadataApply','2. Заполнить сведения',204,208,ApplyClick);
+    FStop:=ButtonAt('btnMetadataStop','Остановить',420,128,StopClick);
+    FClose:=ButtonAt('btnMetadataClose','Закрыть',600,128,CloseClick);
+    FClose.Anchors:=[akTop,akRight]; FClose.Cancel:=True;
+    Body:=TScrollBox.Create(Self); Body.Parent:=Self; Body.Align:=alClient;
+    Body.BorderStyle:=bsNone; Body.HorzScrollBar.Visible:=False;
+    Options:=TPanel.Create(Self); Options.Parent:=Body; Options.BevelOuter:=bvNone;
+    Options.SetBounds(0,0,ClientWidth,376); Options.Align:=alTop;
+    Intro:=LabelAt(Options,'lblMetadataFillScope',
+      'Недостающие сведения берутся из местных FB2 и FB2 в ZIP. '+
+      'Имеющиеся значения, файлы книг, заметки и прогресс чтения сохраняются.',12,10,716,48);
+    Intro.Font.Style:=[fsBold];
+    LabelAt(Options,'lblMetadataFillFields','Какие сведения заполнить',12,68,380,22);
+    LabelAt(Options,'lblMetadataFillAvailable','Можно заполнить в книгах',424,68,304,22);
+    for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
+    begin
+      FFields[Field]:=TCheckBox.Create(Self); FFields[Field].Parent:=Options;
+      FFields[Field].Name:='cbMetadataField'+IntToStr(Ord(Field));
+      FFields[Field].SetBounds(12,94+Ord(Field)*27,400,24);
+      FFields[Field].Caption:=FieldNames[Field];
+      FFields[Field].Checked:=Field in METADATA_SYNC_DEFAULT_FIELDS;
+      FFields[Field].OnClick:=OptionsChanged;
+      FCounts[Field]:=LabelAt(Options,'lblMetadataCount'+IntToStr(Ord(Field)),
+        'После проверки',424,94+Ord(Field)*27,304,24);
+    end;
+    FAnnotationNote:=LabelAt(Options,'lblMetadataAnnotationSize',
+      'Аннотации могут заметно увеличить каталог. Проверка покажет примерный объём выбранных текстов.',12,264,716,36);
+    FSummary:=LabelAt(Options,'lblMetadataFillSummary','',12,306,716,42);
+    FComment:=LabelAt(Options,'lblMetadataFillProgress','',12,350,716,24);
+    FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Body;
+    FProgress.SetBounds(12,376,716,18); FProgress.Align:=alTop;
+    FProgress.AlignWithMargins:=True; FProgress.Margins.Left:=12; FProgress.Margins.Right:=12;
+    FReport:=TMemo.Create(Self); FReport.Parent:=Body; FReport.Name:='mmMetadataFillReport';
+    FReport.SetBounds(12,400,716,110); FReport.Align:=alClient; FReport.ReadOnly:=True;
+    FReport.ScrollBars:=ssVertical; FReport.WordWrap:=True; FReport.AlignWithMargins:=True;
+    FReport.Margins.Left:=12; FReport.Margins.Right:=12; FReport.Margins.Bottom:=8;
+    FReport.Lines.Text:='Выберите сведения и нажмите «1. Проверить книги». '+
+      'Проверка не изменяет каталог. Заполнение доступно только после завершённой проверки.'+#13#10+
+      'Нужны местные файлы FB2 или ZIP с ними, указанные в каталоге. Одного списка INPX недостаточно. '+
+      'Другие форматы и недоступные файлы пропускаются.';
+    FTimer:=TTimer.Create(Self); FTimer.Enabled:=False; FTimer.Interval:=50; FTimer.OnTimer:=PollWorker;
+    OnCloseQuery:=FormCloseQuery;
+  finally EnableAlign; end;
+  InvalidatePlan('Сначала проверьте книги с выбранными сведениями.');
+  ScaleForPPI(Screen.PixelsPerInch); WorkArea:=Monitor.WorkareaRect;
+  Height:=Min(Height,Max(Constraints.MinHeight,WorkArea.Height-48));
+  ApplyMHLControlTheme(Self); LayoutFooter;
+end;
+
+destructor TfrmBookMetadataFill.Destroy;
+begin
+  FDestroying:=True;
+  if Assigned(FTimer) then FTimer.Enabled:=False;
+  if Assigned(FWorker) then
+  begin
+    FWorker.Cancel; FWorker.OnProgress:=nil; FWorker.OnSetComment:=nil; FWorker.OnTeletype:=nil;
+    FWorker.WaitFor; FreeAndNil(FWorker);
+  end;
+  FPlan.Free;
+  inherited;
+end;
+
+procedure TfrmBookMetadataFill.ScaleForPPI(NewPPI: Integer);
+var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;
+begin
+  OldPPI:=Font.PixelsPerInch;
+  if (OldPPI<=0) or (NewPPI<=0) or (OldPPI=NewPPI) then begin inherited; Exit; end;
+  NewWidth:=MulDiv(ClientWidth,NewPPI,OldPPI); NewHeight:=MulDiv(ClientHeight,NewPPI,OldPPI);
+  MinWidth:=MulDiv(Constraints.MinWidth,NewPPI,OldPPI); MinHeight:=MulDiv(Constraints.MinHeight,NewPPI,OldPPI);
+  DisableAlign;
+  try
+    inherited; Constraints.MinWidth:=MinWidth; Constraints.MinHeight:=MinHeight;
+    ClientWidth:=NewWidth; ClientHeight:=NewHeight;
+  finally EnableAlign; end;
+  LayoutFooter;
+end;
+
+procedure TfrmBookMetadataFill.Resize;
+begin
+  inherited; LayoutFooter;
+end;
+
+procedure TfrmBookMetadataFill.LayoutFooter;
+var PPI, Margin, Gap, X, RequiredWidth: Integer; Buttons: array[0..3] of TButton;
+  Widths: array[0..3] of Integer; Footer: TWinControl;
+const MinimumWidths: array[0..3] of Integer = (184,208,128,128);
+begin
+  if FLayoutBusy or not Assigned(FClose) then Exit;
+  FLayoutBusy:=True;
+  try
+    PPI:=Max(96,Font.PixelsPerInch); Margin:=MulDiv(12,PPI,96); Gap:=MulDiv(8,PPI,96);
+    Footer:=FPreview.Parent; Buttons[0]:=FPreview; Buttons[1]:=FApply; Buttons[2]:=FStop; Buttons[3]:=FClose;
+    RequiredWidth:=Margin*2+Gap*3;
+    for var I:=0 to High(Buttons) do
+    begin
+      Canvas.Font.Assign(Buttons[I].Font);
+      Widths[I]:=Max(MulDiv(MinimumWidths[I],PPI,96),Canvas.TextWidth(Buttons[I].Caption)+Margin*2);
+      Inc(RequiredWidth,Widths[I]);
+    end;
+    // Constraints are outer-window pixels; use the actual themed nonclient width.
+    Constraints.MinWidth:=Max(MulDiv(708,PPI,96),RequiredWidth+Max(0,Width-ClientWidth));
+    if ClientWidth<RequiredWidth then ClientWidth:=RequiredWidth;
+    X:=Margin;
+    for var I:=0 to High(Buttons) do
+    begin
+      if I=High(Buttons) then X:=Footer.ClientWidth-Margin-Widths[I];
+      Buttons[I].SetBounds(X,MulDiv(54,PPI,96),Widths[I],MulDiv(32,PPI,96));
+      Inc(X,Widths[I]+Gap);
+    end;
+    FReason.SetBounds(Margin,MulDiv(8,PPI,96),Footer.ClientWidth-Margin*2,MulDiv(38,PPI,96));
+  finally FLayoutBusy:=False; end;
+end;
+
+function TfrmBookMetadataFill.SelectedFields: TMetadataSyncFields;
+begin
+  Result:=[];
+  for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
+    if FFields[Field].Checked then Include(Result,Field);
+end;
+
+function TfrmBookMetadataFill.GetBusy: Boolean;
+begin Result:=Assigned(FWorker); end;
+
+procedure TfrmBookMetadataFill.UpdateButtons;
+var Working: Boolean;
+begin
+  Working:=Assigned(FWorker);
+  for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do FFields[Field].Enabled:=not Working;
+  FPreview.Enabled:=not Working and (SelectedFields<>[]);
+  FApply.Enabled:=not Working and Assigned(FPlan) and (FPlan.Counts.BooksPlanned>0);
+  FStop.Enabled:=Working; FPreview.Default:=not FApply.Enabled; FApply.Default:=FApply.Enabled;
+end;
+
+procedure TfrmBookMetadataFill.InvalidatePlan(const Reason: string);
+begin
+  FreeAndNil(FPlan); FReason.Caption:=Reason; UpdateButtons;
+end;
+
+procedure TfrmBookMetadataFill.OptionsChanged(Sender: TObject);
+begin
+  if Assigned(FWorker) then Exit;
+  for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do FCounts[Field].Caption:='После проверки';
+  FSummary.Caption:='';
+  FAnnotationNote.Caption:='Аннотации могут заметно увеличить каталог. Проверка покажет примерный объём выбранных текстов.';
+  if SelectedFields=[] then InvalidatePlan('Выберите хотя бы один вид сведений.')
+  else InvalidatePlan('Выбор изменён. Проверьте книги ещё раз.');
+end;
+
+procedure TfrmBookMetadataFill.ShowCounts(const Counts: TMetadataSyncCounts);
+var SizeText: string;
+begin
+  for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
+    if Field in FRequestedFields then FCounts[Field].Caption:=IntToStr(Counts.FieldCounts[Field])
+    else FCounts[Field].Caption:='Не выбрано';
+  FSummary.Caption:=Format('Проверено книг: %d из %d. Есть недостающие сведения: %d. '+
+    'Пропущено: %d; ошибки чтения: %d.',[Counts.BooksChecked,Counts.BooksTotal,Counts.BooksPlanned,Counts.BooksSkipped,Counts.BooksFailed]);
+  if msfAnnotation in FRequestedFields then
+  begin
+    if Counts.AnnotationBytes<1024 then SizeText:=IntToStr(Counts.AnnotationBytes)+' байт'
+    else if Counts.AnnotationBytes<1024*1024 then SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/1024.0)+' КБ'
+    else SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/(1024.0*1024))+' МБ';
+    FAnnotationNote.Caption:='Текст выбранных аннотаций: примерно '+SizeText+
+      '. Каталог может увеличиться сильнее из-за служебных данных.';
+  end;
+end;
+
+procedure TfrmBookMetadataFill.StartWorker(Worker: TCollectionWorker; Applying: Boolean);
+begin
+  FWorker:=Worker; FApplying:=Applying; FProgress.Position:=0; FReport.Clear;
+  FWorker.OnProgress:=ProgressChanged; FWorker.OnSetComment:=CommentChanged; FWorker.OnTeletype:=ReportLine;
+  UpdateButtons; FTimer.Enabled:=True;
+  try FWorker.Start;
+  except FTimer.Enabled:=False; FreeAndNil(FWorker); FApplying:=False; UpdateButtons; raise; end;
+end;
+
+procedure TfrmBookMetadataFill.PreviewClick(Sender: TObject);
+begin
+  if Assigned(FWorker) or (SelectedFields=[]) then Exit;
+  FRequestedFields:=SelectedFields; InvalidatePlan('Проверяем книги. Заполнение станет доступно после проверки.');
+  try StartWorker(TMetadataPreviewThread.Create(FCollectionID,FRequestedFields),False);
+  except on E: Exception do
+  begin FReason.Caption:='Не удалось начать проверку: '+E.Message; ReportLine(E.Message,tsError); UpdateButtons; end; end;
+end;
+
+procedure TfrmBookMetadataFill.ApplyClick(Sender: TObject);
+begin
+  if Assigned(FWorker) or not Assigned(FPlan) or not FApply.Enabled then Exit;
+  if SelectedFields<>FPlan.Fields then begin InvalidatePlan('Выбор изменён. Проверьте книги ещё раз.'); Exit; end;
+  FReason.Caption:='Заполняем только недостающие сведения. Завершённые записи сохраняются.';
+  try StartWorker(TMetadataApplyThread.Create(FPlan),True);
+  except on E: Exception do
+  begin FReason.Caption:='Не удалось начать заполнение: '+E.Message; ReportLine(E.Message,tsError); UpdateButtons; end; end;
+end;
+
+procedure TfrmBookMetadataFill.StopClick(Sender: TObject);
+begin
+  if not Assigned(FWorker) then Exit;
+  FWorker.Cancel; FStop.Enabled:=False; FReason.Caption:='Останавливаем обработку. Дождитесь завершения текущей записи.';
+end;
+
+procedure TfrmBookMetadataFill.CloseClick(Sender: TObject);
+begin Close; end;
+
+procedure TfrmBookMetadataFill.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+begin
+  CanClose:=not Assigned(FWorker);
+  if not CanClose then begin FCloseWhenReady:=True; StopClick(Sender); end;
+end;
+
+procedure TfrmBookMetadataFill.ProgressChanged(Percent: Integer);
+begin if not FDestroying then FProgress.Position:=EnsureRange(Percent,0,100); end;
+
+procedure TfrmBookMetadataFill.CommentChanged(const Text: string);
+begin if not FDestroying then FComment.Caption:=Text; end;
+
+procedure TfrmBookMetadataFill.ReportLine(const Text: string; Severity: TTeletypeSeverity);
+begin
+  if FDestroying then Exit;
+  if FReport.Lines.Count<500 then FReport.Lines.Add(Text)
+  else if FReport.Lines.Count=500 then FReport.Lines.Add('В окне показаны первые 500 сообщений. Дальнейшие ошибки отражены в итоговых счётчиках.');
+end;
+
+procedure TfrmBookMetadataFill.PollWorker(Sender: TObject);
+var ErrorText: string; Preview: TMetadataPreviewThread; Apply: TMetadataApplyThread;
+begin
+  if FDestroying or not Assigned(FWorker) or not FWorker.Finished then Exit;
+  FTimer.Enabled:=False; FWorker.WaitFor; ErrorText:='';
+  try
+    FCommittedChanges:=FCommittedChanges or FWorker.CommittedChanges;
+    if FWorker.FatalException is Exception then ErrorText:=Exception(FWorker.FatalException).Message;
+    if FApplying then
+    begin
+      Apply:=TMetadataApplyThread(FWorker);
+      FSummary.Caption:=Format('Сохранено книг: %d. Пропущено: %d; ошибки: %d.',
+        [Apply.BooksCommitted,Apply.BooksSkipped,Apply.BooksFailed]);
+      FreeAndNil(FPlan);
+      if ErrorText<>'' then FReason.Caption:='Заполнение не завершено: '+ErrorText
+      else if not Apply.Completed then FReason.Caption:='Обработка остановлена. Завершённые записи сохранены. Для продолжения повторите проверку.'
+      else FReason.Caption:='Заполнение завершено. Для новой проверки нажмите «1. Проверить книги».';
+    end
+    else
+    begin
+      Preview:=TMetadataPreviewThread(FWorker); ShowCounts(Preview.Counts);
+      if ErrorText<>'' then FReason.Caption:='Проверка не завершена: '+ErrorText
+      else if not Preview.Completed then FReason.Caption:='Проверка остановлена. Каталог не изменён. Повторите проверку.'
+      else if SelectedFields<>FRequestedFields then FReason.Caption:='Выбор изменён. Проверьте книги ещё раз.'
+      else
+      begin
+        FPlan:=Preview.TakePlan;
+        if not Assigned(FPlan) or (FPlan.Counts.BooksPlanned=0) then
+          FReason.Caption:='Недостающих сведений для заполнения не найдено. Для проверки нужны доступные местные FB2.'
+        else FReason.Caption:='Проверка завершена. Нажмите «2. Заполнить сведения».';
+      end;
+    end;
+    if ErrorText<>'' then ReportLine(ErrorText,tsError);
+  finally FreeAndNil(FWorker); FApplying:=False; UpdateButtons; end;
+  if FCloseWhenReady then Close;
+end;
+
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean;
+var Dialog: TfrmBookMetadataFill;
+begin
+  Dialog:=TfrmBookMetadataFill.CreateForCollection(AOwner,CollectionID);
+  try Dialog.ShowModal; Result:=Dialog.CommittedChanges;
+  finally Dialog.Free; end;
+end;
+
+end.

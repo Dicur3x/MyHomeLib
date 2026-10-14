@@ -38,6 +38,8 @@ type
       var AAbort: Boolean);
   protected
     procedure Execute; override;
+    function FetchText(const URL: string): string; virtual;
+    function FetchHead(const URL: string): IHTTPResponse; virtual;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const URL: string = PROGRAM_RELEASES_API; const CacheFolder: string = '');
@@ -442,25 +444,30 @@ procedure TComponentUpdateThread.ReceiveData(const Sender: TObject;
   AContentLength, AReadCount: Int64; var AAbort: Boolean);
 begin AAbort := Terminated or (AContentLength > FLimit) or (AReadCount > FLimit); end;
 
+function TComponentUpdateThread.FetchText(const URL: string): string;
+begin
+  if Terminated then Abort;
+  Result := CachedUpdateText(FHTTP, URL, FCacheFolder, FLimit);
+  if Terminated then Abort;
+end;
+
+function TComponentUpdateThread.FetchHead(const URL: string): IHTTPResponse;
+begin
+  Result := FHTTP.Head(URL);
+end;
+
 procedure TComponentUpdateThread.Execute;
 var I: Integer; DownloadPage, Changes, Folder: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
-  function GetText(const URL: string): string;
-  begin
-    if Terminated then Abort;
-    Result := CachedUpdateText(FHTTP, URL, FCacheFolder, FLimit);
-    if Terminated then Abort;
-  end;
-
   procedure GetSize(var Info: TProgramRelease);
   begin
-    Response:=FHTTP.Head(Info.DownloadURL);
+    Response:=FetchHead(Info.DownloadURL);
     if Terminated then Abort;
     if (Response.StatusCode<>200) or (Response.ContentLength<1) or
       (Response.ContentLength>UPDATE_MAX_ARCHIVE) then raise Exception.Create('Не удалось определить размер официального файла.');
     Info.Size:=Response.ContentLength;
     if Info.SecondaryURL<>'' then
     begin
-      Response:=FHTTP.Head(Info.SecondaryURL);
+      Response:=FetchHead(Info.SecondaryURL);
       if Terminated then Abort;
       if (Response.StatusCode<>200) or (Response.ContentLength<1) or
         (Response.ContentLength>UPDATE_MAX_ARCHIVE-Info.Size) then raise Exception.Create('Не удалось проверить второй пакет библиотеки.');
@@ -469,7 +476,7 @@ var I: Integer; DownloadPage, Changes, Folder: string; Response: IHTTPResponse; 
   end;
   procedure AuthorNotes(const API: string; var Info: TProgramRelease);
   begin
-    if ParseSumatraReleases(GetText(API),NotesInfo) then
+    if ParseSumatraReleases(FetchText(API),NotesInfo) then
     begin Info.History:=NotesInfo.History; Info.Notes:=NotesInfo.Notes; Info.Changelog:=NotesInfo.Changelog; end;
   end;
 begin
@@ -480,25 +487,25 @@ begin
       case UPDATE_COMPONENTS[I].CheckKind of
         ccBundled:
           begin
-            DownloadPage:=GetText('https://www.alreader.com/');
+            DownloadPage:=FetchText('https://www.alreader.com/');
             if not DownloadPage.Contains('AlReader2.Win32') then
               raise Exception.Create('На официальном сайте сейчас нет доступного выпуска AlReader для Windows. Установленная читалка продолжает работать.');
             raise Exception.Create('Официальный Windows-архив найден, но автор не опубликовал проверяемую версию.');
           end;
         ccSQLite:
           begin
-            DownloadPage := GetText('https://www.sqlite.org/download.html');
-            Changes := GetText('https://www.sqlite.org/changes.html');
+            DownloadPage := FetchText('https://www.sqlite.org/download.html');
+            Changes := FetchText('https://www.sqlite.org/changes.html');
             if not ParseSQLiteDownload(DownloadPage, Changes, FReleases[I]) then
               raise Exception.Create('Не удалось прочитать версию, контрольную сумму или changelog SQLite.');
           end;
         ccSumatra:
           begin
-            Changes := GetText('https://api.github.com/repos/sumatrapdfreader/sumatrapdf/releases?per_page=30');
+            Changes := FetchText('https://api.github.com/repos/sumatrapdfreader/sumatrapdf/releases?per_page=30');
             if not ParseSumatraReleases(Changes, FReleases[I]) then
               raise Exception.Create('Не удалось прочитать стабильную версию или changelog SumatraPDF.');
             if Terminated then Abort;
-            Response := FHTTP.Head(FReleases[I].DownloadURL);
+            Response := FetchHead(FReleases[I].DownloadURL);
             if Terminated or (Response.StatusCode <> 200) or (Response.ContentLength < 1) or
                (Response.ContentLength > UPDATE_MAX_ARCHIVE) then
               raise Exception.Create('Не удалось определить размер официального архива SumatraPDF.');
@@ -508,27 +515,27 @@ begin
           begin
             if UPDATE_COMPONENTS[I].ID='DjVuLibre' then
             begin
-              Changes:=GetText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/');
+              Changes:=FetchText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/');
               if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) then
                 raise Exception.Create('Не удалось прочитать Windows-версию DjVuLibre.');
               Match:=TRegEx.Match(Changes,'/projects/djvu/files/DjVuLibre_Windows/'+
                 FReleases[I].ComponentVersion.Replace('.','\.')+'(?:\+|%2[Bb])([0-9.]+)/');
               if not Match.Success then raise Exception.Create('Не найдена папка официального Windows-выпуска.');
               Folder:=FReleases[I].ComponentVersion+'%2B'+Match.Groups[1].Value;
-              DownloadPage:=GetText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'+Folder+'/');
+              DownloadPage:=FetchText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'+Folder+'/');
               Match:=TRegEx.Match(DownloadPage,'/projects/djvu/files/DjVuLibre_Windows/'+Folder+
                 '/(DjVuLibre-'+FReleases[I].ComponentVersion.Replace('.','\.')+'_DjView-[0-9.]+_Setup\.exe)/download');
               if not Match.Success then raise Exception.Create('Не найден официальный Windows-архив DjVuLibre.');
               FReleases[I].DownloadURL:='https://master.dl.sourceforge.net/project/djvu/DjVuLibre_Windows/'+Folder+'/'+Match.Groups[1].Value+'?viasf=1';
               FReleases[I].SecondaryURL:='https://master.dl.sourceforge.net/project/djvu/DjVuLibre/'+FReleases[I].ComponentVersion+'/djvulibre-'+FReleases[I].ComponentVersion+'.tar.gz?viasf=1';
               FReleases[I].OfficialComponent:=True; FReleases[I].CheckOnly:=False; GetSize(FReleases[I]);
-              Changes:=GetText('https://sourceforge.net/p/djvu/djvulibre-git/ci/master/tree/NEWS?format=raw');
+              Changes:=FetchText('https://sourceforge.net/p/djvu/djvulibre-git/ci/master/tree/NEWS?format=raw');
               Match:=TRegEx.Match(Changes,'(?is)NEW IN VERSION '+FReleases[I].ComponentVersion.Replace('.','\.')+'\s*(.*)');
               if Match.Success then begin FReleases[I].History:=Copy(Match.Value,1,120000); FReleases[I].Changelog:=FReleases[I].History; end;
             end
             else
             begin
-              Changes:=GetText('https://api.github.com/repos/ip7z/7zip/releases/latest');
+              Changes:=FetchText('https://api.github.com/repos/ip7z/7zip/releases/latest');
               if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) or FReleases[I].CheckOnly then
                 raise Exception.Create('Не удалось подтвердить официальный архив и контрольную сумму 7-Zip.');
               AuthorNotes('https://api.github.com/repos/ip7z/7zip/releases?per_page=30',FReleases[I]);
@@ -536,8 +543,8 @@ begin
           end;
         ccDocSharp:
           begin
-            DownloadPage:=GetText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json');
-            Changes:=GetText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json');
+            DownloadPage:=FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json');
+            Changes:=FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json');
             if not ParseDocSharpVersions(DownloadPage,Changes,FReleases[I]) then
               raise Exception.Create('Не удалось проверить стабильную версию обеих библиотек DocSharp.');
             GetSize(FReleases[I]);

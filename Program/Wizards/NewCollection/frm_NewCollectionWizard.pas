@@ -74,7 +74,10 @@ type
     FAutoImport: boolean;
     FOperationSucceeded: Boolean;
     FCollectionCommittedChanges: Boolean;
+    FRequestedMetadataFill: Boolean;
 
+    function CanRequestMetadataFill: Boolean;
+    procedure RequestMetadataFill(Sender: TObject);
     procedure CorrectParams;
     function CreateCollection: Boolean;
     function StartImportData: Boolean;
@@ -100,6 +103,7 @@ type
     property AutoImport:boolean  read FAutoImport;
     property OperationSucceeded: Boolean read FOperationSucceeded;
     property CommittedChanges: Boolean read FCollectionCommittedChanges;
+    property RequestedMetadataFill: Boolean read FRequestedMetadataFill;
   end;
 
 var
@@ -163,6 +167,7 @@ begin
     frame.Initialize(@FParams);
 
   FFinishPage.lblPageHint.Caption := '';
+  FFinishPage.btnMetadataFill.OnClick := RequestMetadataFill;
 end;
 
 function TNewCollectionWizard.IsPageVisible(PageIndex: Integer): Boolean;
@@ -198,6 +203,32 @@ begin
     Assert(False);
     Result := True;
   end;
+end;
+
+function TNewCollectionWizard.CanRequestMetadataFill: Boolean;
+var Info: TCollectionInfo;
+begin
+  Result := False;
+  if not FOperationSucceeded or not FCollectionCommittedChanges or (FParams.CollectionID <= 0) then Exit;
+  try
+    if SystemDB.FindFirstExistingCollectionID(FParams.CollectionID) <> FParams.CollectionID then Exit;
+    Info := SystemDB.GetCollectionInfo(FParams.CollectionID);
+    Result := (Info.ID = FParams.CollectionID) and not isOnlineCollection(Info.CollectionType) and
+      (Trim(Info.RootFolder) <> '') and DirectoryExists(Info.RootFolder);
+  except
+    // The finish action cannot turn a vanished/unavailable collection into a
+    // successful metadata request. No files or book descriptions are opened.
+    Result := False;
+  end;
+end;
+
+procedure TNewCollectionWizard.RequestMetadataFill(Sender: TObject);
+begin
+  if FCurrentPage <> FINISH_PAGE_ID then Exit;
+  FFinishPage.SetMetadataFillAvailable(CanRequestMetadataFill);
+  if not FFinishPage.btnMetadataFill.Enabled then Exit;
+  FRequestedMetadataFill := True;
+  ModalResult := mrOk;
 end;
 
 procedure TNewCollectionWizard.AfterShowPage;
@@ -236,7 +267,9 @@ begin
       FOperationSucceeded := True;
       DoChangePage(btnForward);
     end;
-  end;
+  end
+  else if FINISH_PAGE_ID = FCurrentPage then
+    FFinishPage.SetMetadataFillAvailable(CanRequestMetadataFill);
 end;
 
 function TNewCollectionWizard.CanCloseWizard: Boolean;
@@ -253,6 +286,7 @@ end;
 
 procedure TNewCollectionWizard.CancelWizard;
 begin
+  FRequestedMetadataFill := False;
   if DOWNLOAD_PAGE_ID = FCurrentPage then
   begin
     FDownloadPage.Stop;
@@ -325,6 +359,7 @@ begin
   Result := False;
   FOperationSucceeded := False;
   FCollectionCommittedChanges := False;
+  FRequestedMetadataFill := False;
 
   FProgressPage.OpenProgress;
   FProgressPage.SetComment(rstrCreationCollection);

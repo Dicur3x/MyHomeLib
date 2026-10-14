@@ -23,6 +23,7 @@ uses
   Winapi.Messages,
   Winapi.CommCtrl,
   System.Types,
+  System.Generics.Collections,
   Controls,
   Forms,
   Graphics,
@@ -42,6 +43,21 @@ uses
   unit_BookGallery;
 
 type
+  TInfoPanelLayoutStage = (ipsSuspendRedraw, ipsFlushTexts, ipsRestoreAlign,
+    ipsFlushVisibility, ipsLayout, ipsFooter, ipsLayoutPass, ipsLinkBounds,
+    ipsDetailBounds, ipsPassAlign, ipsRestoreRedraw);
+  TInfoPanelLayoutProfileEvent = procedure(Sender: TObject;
+    Stage: TInfoPanelLayoutStage; Starting: Boolean) of object;
+
+  TInfoLinkMetrics = record
+    Valid, Dark, VisualStyle: Boolean;
+    Caption: string;
+    Font: TFont;
+    Window: HWND;
+    PPI, RowHeight, NextSlot: Integer;
+    Widths, Heights: array[0..1] of Integer;
+  end;
+
   TInfoPanel = class(TPanel)
   private
     FCover: TImage;
@@ -72,6 +88,10 @@ type
     FUpdatingLayout: Boolean;
     FUpdateCount: Integer;
     FRedrawSuspended: Boolean;
+    FRedrawWindow: HWND;
+    FLinkMetrics: array[0..3] of TInfoLinkMetrics;
+    FLayoutProfile: TInfoPanelLayoutProfileEvent;
+    FPendingTexts: TDictionary<TControl, string>;
 
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
@@ -85,6 +105,13 @@ type
     procedure OnAnnotationClicked(Sender: TObject);
     procedure SetInfoPriority(const Value: Boolean);
     procedure CopyToClipboard(Sender: TObject);
+    procedure ApplyInfoText(Control: TControl; const Value: string);
+    procedure SetInfoText(Control: TControl; const Value: string);
+    function InfoText(Control: TControl): string;
+    procedure FlushInfoTexts;
+    procedure SuspendInfoRedraw;
+    procedure RestoreInfoRedraw;
+    procedure ProfileLayout(Stage: TInfoPanelLayoutStage; Starting: Boolean); inline;
     procedure LayoutControls;
     procedure InfoPanelResize(Sender: TObject);
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
@@ -93,9 +120,13 @@ type
     procedure CreateWnd; override;
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
+    // Optional bounded instrumentation used by the native regression fixture.
+    // No callback or timing work is performed by ordinary application panels.
+    property LayoutProfile: TInfoPanelLayoutProfileEvent read FLayoutProfile write FLayoutProfile;
 
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
 
     procedure SetBookInfo(
       const BookTitle: string;
@@ -149,6 +180,25 @@ implementation
 uses unit_MHLTheme;
 
 type
+  TInfoPreviewViewport = class(TScrollBox)
+  protected
+    procedure WndProc(var Message: TMessage); override;
+  end;
+
+  TInfoPreviewMemo = class(TMemo)
+  protected
+    procedure WndProc(var Message: TMessage); override;
+  end;
+
+  TInfoDetailsButton = class(TButton)
+  private
+    FVisibilityPending, FFlushingVisibility: Boolean;
+    procedure CMVisibleChanged(var Message: TMessage); message CM_VISIBLECHANGED;
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+  public
+    procedure FlushVisibility;
+  end;
+
   TPublisherSeriesLinkLabel = class(TMHLLinkLabel)
   protected
     procedure CreateParams(var Params: TCreateParams); override;
@@ -175,6 +225,77 @@ begin
   Result := Height * 2 div 3;
 end;
 
+function InfoFontsEqual(Left, Right: TFont): Boolean;
+begin
+  Result := (Left.Name = Right.Name) and (Left.Height = Right.Height) and
+    (Left.Style = Right.Style) and (Left.Charset = Right.Charset) and
+    (Left.Pitch = Right.Pitch) and (Left.Quality = Right.Quality) and
+    (Left.Orientation = Right.Orientation) and (Left.Color = Right.Color) and
+    (Left.PixelsPerInch = Right.PixelsPerInch);
+end;
+
+function DeferInfoPreviewPaint(Control: TWinControl; var Message: TMessage): Boolean;
+var Ancestor: TWinControl;
+begin
+  Result := False;
+  if not (Message.Msg in [WM_PAINT, WM_ERASEBKGND, WM_NCPAINT]) or
+    not MHLThemeDark or (csDestroying in Control.ComponentState) then Exit;
+  Ancestor := Control.Parent;
+  while Assigned(Ancestor) and not (Ancestor is TInfoPanel) do Ancestor := Ancestor.Parent;
+  if not Assigned(Ancestor) or (csDestroying in Ancestor.ComponentState) or
+    not TInfoPanel(Ancestor).FRedrawSuspended then Exit;
+  // The custom VCL style eagerly paints scroll-box backgrounds (including
+  // native memo text) during synchronous text/size/scroll changes. Suppress
+  // only those transient paint messages inside the existing outer book batch.
+  // Text, scrolling, style/font, range and visibility messages remain normal.
+  if (Message.Msg = WM_PAINT) and (Message.WParam = 0) and Control.HandleAllocated then
+    ValidateRect(Control.Handle, nil);
+  if Message.Msg = WM_ERASEBKGND then Message.Result := 1 else Message.Result := 0;
+  Result := True;
+  // RestoreInfoRedraw clears the flag before its coalesced native invalidation
+  // (including frame/children), so the actual final style is painted normally.
+end;
+
+procedure TInfoPreviewViewport.WndProc(var Message: TMessage);
+begin
+  if not DeferInfoPreviewPaint(Self, Message) then inherited;
+end;
+
+procedure TInfoPreviewMemo.WndProc(var Message: TMessage);
+begin
+  if not DeferInfoPreviewPaint(Self, Message) then inherited;
+end;
+
+procedure TInfoDetailsButton.CMVisibleChanged(var Message: TMessage);
+begin
+  if (Owner is TInfoPanel) and not (csDestroying in Owner.ComponentState) and
+    (TInfoPanel(Owner).FUpdateCount > 0) and not FFlushingVisibility then
+  begin
+    // Visible already contains the final requested logical value. Defer only
+    // the native show/hide while the panel is applying a book-selection batch.
+    FVisibilityPending := True;
+    Exit;
+  end;
+  inherited;
+  if (Owner is TInfoPanel) and not (csDestroying in Owner.ComponentState) then
+    TInfoPanel(Owner).LayoutControls;
+end;
+
+procedure TInfoDetailsButton.FlushVisibility;
+begin
+  if not FVisibilityPending then Exit;
+  FVisibilityPending := False; FFlushingVisibility := True;
+  try Perform(CM_VISIBLECHANGED, 0, 0);
+  finally FFlushingVisibility := False; end;
+end;
+
+procedure TInfoDetailsButton.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  if (Owner is TInfoPanel) and not (csDestroying in Owner.ComponentState) then
+    TInfoPanel(Owner).LayoutControls;
+end;
+
 procedure TPublisherSeriesLinkLabel.CreateParams(var Params: TCreateParams);
 begin
   inherited;
@@ -189,8 +310,12 @@ end;
 constructor TInfoPanel.Create(AOwner: TComponent);
 var
   Item: TMenuItem;
+  I: Integer;
 begin
   inherited Create(AOwner);
+  FPendingTexts := TDictionary<TControl, string>.Create;
+  for I := Low(FLinkMetrics) to High(FLinkMetrics) do
+    FLinkMetrics[I].Font := TFont.Create;
 
   FMenu := TPopupMenu.Create(Self);
   Item := TMenuItem.Create(Self);
@@ -215,9 +340,14 @@ begin
   FCover.Proportional := True;
   FCover.Stretch := True;
 
-  FInfoViewport := TScrollBox.Create(Self);
+  FInfoViewport := TInfoPreviewViewport.Create(Self);
   FInfoViewport.Parent := Self;
   FInfoViewport.Align := alClient;
+  // This private viewport has one explicitly laid-out content panel and no
+  // horizontal scrolling. Set its final logical extent in LayoutControls;
+  // automatic range scans otherwise repaint styled scrollbars twice even
+  // when scrolling the same unchanged content through AlignControls.
+  FInfoViewport.AutoScroll := False;
   FInfoViewport.AlignWithMargins := True;
   FInfoViewport.Margins.SetBounds(CoverGap, PanelPadding, PanelPadding, PanelPadding);
   FInfoViewport.BorderStyle := bsNone;
@@ -231,6 +361,10 @@ begin
   FInfoPanel.Height := 200;
   FInfoPanel.BevelOuter := bvNone;
   FInfoPanel.ParentColor := True;
+  // This solid content surface already paints its complete client area. Do not
+  // ask the styled scroll box to paint behind it again for every child repaint
+  // and scroll step; normal themed panel/child painting remains unchanged.
+  FInfoPanel.ParentBackground := False;
 
   FTitle := TLabel.Create(FInfoPanel);
   FTitle.Parent := FInfoPanel;
@@ -301,9 +435,9 @@ begin
   FPreviewStatus.ShowAccelChar:=False; FPreviewStatus.Font.Color:=clGrayText;
   FPreviewStatus.Visible:=False;
 
-  FAnnotation := TMemo.Create(FInfoPanel);
+  FAnnotation := TInfoPreviewMemo.Create(FInfoPanel);
   FAnnotation.Parent := FInfoPanel;
-  FAnnotation.Anchors := [akLeft, akTop, akRight, akBottom];
+  FAnnotation.Anchors := [akLeft, akTop];
   FAnnotation.BorderStyle := bsNone;
   FAnnotation.ParentColor := True;
   FAnnotation.ReadOnly := True;
@@ -333,15 +467,16 @@ begin
     RowSelect := True;
     TabOrder := 0;
     ViewStyle := vsReport;
-    Anchors := [akLeft, akTop, akRight, akBottom];
+    Anchors := [akLeft, akTop];
     OnDblClick := OnAnnotationClicked;
     Visible := FInfoPriority;
     PopupMenu := FMenu;
   end;
 
 
-  FDetailsButton := TButton.Create(Self);
-  FDetailsButton.Parent := FInfoPanel;
+  FDetailsButton := TInfoDetailsButton.Create(Self);
+  // The action stays outside the scrolling metadata and annotation content.
+  FDetailsButton.Parent := Self;
   FDetailsButton.Caption := 'Информация о книге';
   FDetailsButton.Visible := False;
 
@@ -367,44 +502,121 @@ begin
   LayoutControls;
 end;
 
+destructor TInfoPanel.Destroy;
+var I: Integer;
+begin
+  inherited;
+  FPendingTexts.Free;
+  for I := Low(FLinkMetrics) to High(FLinkMetrics) do FLinkMetrics[I].Font.Free;
+end;
+
+procedure TInfoPanel.ApplyInfoText(Control: TControl; const Value: string);
+begin
+  // Use each public setter so its own text cache/notifications stay intact.
+  if Control is TMemo then
+  begin
+    if TMemo(Control).Text <> Value then TMemo(Control).Text := Value;
+  end
+  else if Control is TMHLLinkLabel then
+  begin
+    if TMHLLinkLabel(Control).Caption <> Value then TMHLLinkLabel(Control).Caption := Value;
+  end
+  else if Control is TLabel then
+  begin
+    if TLabel(Control).Caption <> Value then TLabel(Control).Caption := Value;
+  end
+  else raise EArgumentException.Create('Unsupported book-preview text control');
+  if Control = FAnnotation then
+  begin FAnnotation.SelStart := 0; FAnnotation.SelLength := 0; end;
+end;
+
+procedure TInfoPanel.SetInfoText(Control: TControl; const Value: string);
+begin
+  if FUpdateCount > 0 then FPendingTexts.AddOrSetValue(Control, Value)
+  else ApplyInfoText(Control, Value);
+end;
+
+function TInfoPanel.InfoText(Control: TControl): string;
+begin
+  if FPendingTexts.TryGetValue(Control, Result) then Exit;
+  if Control is TMemo then Result := TMemo(Control).Text
+  else if Control is TMHLLinkLabel then Result := TMHLLinkLabel(Control).Caption
+  else if Control is TLabel then Result := TLabel(Control).Caption
+  else raise EArgumentException.Create('Unsupported book-preview text control');
+end;
+
+procedure TInfoPanel.FlushInfoTexts;
+var Item: TPair<TControl, string>;
+begin
+  for Item in FPendingTexts do ApplyInfoText(Item.Key, Item.Value);
+  FPendingTexts.Clear;
+end;
+
+procedure TInfoPanel.ProfileLayout(Stage: TInfoPanelLayoutStage; Starting: Boolean);
+begin
+  if Assigned(FLayoutProfile) then FLayoutProfile(Self, Stage, Starting);
+end;
+
+procedure TInfoPanel.SuspendInfoRedraw;
+begin
+  FRedrawSuspended := HandleAllocated and IsWindowVisible(Handle);
+  if not FRedrawSuspended then Exit;
+  FRedrawWindow := Handle;
+  // Suspending each descendant is measurably more expensive on Windows than
+  // the existing outer-panel batch. Keep the native redraw scope unchanged.
+  SendMessage(FRedrawWindow, WM_SETREDRAW, 0, 0);
+end;
+
+procedure TInfoPanel.RestoreInfoRedraw;
+var RequestedVisible: Boolean;
+begin
+  if not FRedrawSuspended then Exit;
+  FRedrawSuspended := False;
+  if HandleAllocated and (Handle = FRedrawWindow) then
+  begin
+    RequestedVisible := Showing;
+    SendMessage(FRedrawWindow, WM_SETREDRAW, 1, 0);
+    if not RequestedVisible then ShowWindow(FRedrawWindow, SW_HIDE)
+    else RedrawWindow(FRedrawWindow, nil, 0,
+      RDW_INVALIDATE or RDW_ERASE or RDW_FRAME or RDW_ALLCHILDREN);
+  end;
+  FRedrawWindow := 0;
+end;
+
 procedure TInfoPanel.SetBookAnnotationText(const Value: string);
 begin
-  FAnnotation.Text:=Value; FAnnotation.Visible:=not FInfoPriority;
+  SetInfoText(FAnnotation,Value); FAnnotation.Visible:=not FInfoPriority;
   FAnnotation.SelStart:=0; FAnnotation.SelLength:=0;
 end;
 
 procedure TInfoPanel.SetReadingSupport(const Value: string);
-begin FReadingSupport.Caption:=Value; FReadingSupport.Visible:=Value<>''; LayoutControls; end;
+begin SetInfoText(FReadingSupport,Value); FReadingSupport.Visible:=Value<>''; LayoutControls; end;
 
 procedure TInfoPanel.SetPreviewStatus(const Value: string);
 begin
-  FPreviewStatus.Caption:=Value; FPreviewStatus.Visible:=Value<>'';
+  SetInfoText(FPreviewStatus,Value); FPreviewStatus.Visible:=Value<>'';
   LayoutControls;
 end;
 
 function TInfoPanel.PreviewStatusText: string;
-begin Result:=FPreviewStatus.Caption; end;
+begin Result:=InfoText(FPreviewStatus); end;
 
 procedure TInfoPanel.SetBookAnnotation;
-var
-  i: Integer;
+var I: Integer; AnnotationLines: TStringList;
 begin
-  FAnnotation.Clear;
-  FAnnotation.Visible := not FInfoPriority;
-
-
-  if (book = nil) then
-    Exit;
-
+  AnnotationLines := TStringList.Create;
   try
-    with book.Description.Titleinfo do
-      for i := 0 to Annotation.p.Count - 1 do
-        FAnnotation.Lines.Add(Annotation.p[i].OnlyText);
-
-    FAnnotation.SelStart := 0;
-    FAnnotation.SelLength := 0;
-  except
-  end;
+    if book <> nil then
+      try
+        with book.Description.Titleinfo do
+          for I := 0 to Annotation.p.Count - 1 do
+            AnnotationLines.Add(Annotation.p[I].OnlyText);
+      except
+        // Preserve the existing partial/empty-preview behavior for malformed
+        // optional descriptions, without overwriting a later queued annotation.
+      end;
+    SetBookAnnotationText(AnnotationLines.Text);
+  finally AnnotationLines.Free; end;
 end;
 
 procedure TInfoPanel.Resize;
@@ -435,57 +647,142 @@ end;
 procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
+  LayoutPPI, FooterH, FooterW, Padding, ViewportBottom, CoverW: Integer;
   TextRect: TRect;
 
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer): Integer;
   var
     IdealSize: TSize;
+    Index, Slot: Integer;
+    NativeWindow: HWND;
+    CurrentCaption: string;
   begin
     Result := RowH;
-    if HandleAllocated and (AvailableWidth > 0) and (Link.Caption <> '') then
+    if not HandleAllocated or (AvailableWidth <= 0) then Exit;
+    CurrentCaption := Link.Caption;
+    if CurrentCaption = '' then Exit;
+    if Link = FAuthors then Index := 0
+    else if Link = FSeries then Index := 1
+    else if Link = FGenres then Index := 2
+    else Index := 3;
+    NativeWindow := Link.Handle;
+    // A cached measurement never authorizes a stale actual native font.
+    if HFONT(SendMessage(NativeWindow, WM_GETFONT, 0, 0)) <> Link.Font.Handle then
     begin
-      SendMessage(Link.Handle, WM_SETFONT, WPARAM(Link.Font.Handle), 0);
-      IdealSize.cx := 0;
-      IdealSize.cy := 0;
-      SendMessage(Link.Handle, LM_GETIDEALSIZE, AvailableWidth, LPARAM(@IdealSize));
-      Result := Max(RowH, IdealSize.cy + MulDiv(RowSpacing, CurrentPPI, 96));
+      SendMessage(NativeWindow, WM_SETFONT, WPARAM(Link.Font.Handle), 0);
+      FLinkMetrics[Index].Valid := False;
+    end;
+    with FLinkMetrics[Index] do
+    begin
+      // Four fixed link controls, two recent wrapping widths each. Text/font/
+      // DPI/handle/theme changes invalidate both slots; no per-book cache grows.
+      if not Valid or (Caption <> CurrentCaption) or
+        (Window <> NativeWindow) or
+        (PPI <> LayoutPPI) or (RowHeight <> RowH) or (Dark <> MHLThemeDark) or
+        (VisualStyle <> Link.UseVisualStyle) or not InfoFontsEqual(Font, Link.Font) then
+      begin
+        Valid := False;
+        Caption := CurrentCaption;
+        Window := NativeWindow;
+        PPI := LayoutPPI; RowHeight := RowH; Dark := MHLThemeDark;
+        VisualStyle := Link.UseVisualStyle; Font.Assign(Link.Font);
+        Widths[0] := -1; Widths[1] := -1; NextSlot := 0;
+        Valid := True;
+      end;
+      for Slot := 0 to 1 do
+        if Widths[Slot] = AvailableWidth then Exit(Heights[Slot]);
+      IdealSize.cx := 0; IdealSize.cy := 0;
+      SendMessage(NativeWindow, LM_GETIDEALSIZE, AvailableWidth, LPARAM(@IdealSize));
+      Result := Max(RowH, IdealSize.cy + MulDiv(RowSpacing, LayoutPPI, 96));
+      Widths[NextSlot] := AvailableWidth; Heights[NextSlot] := Result;
+      NextSlot := 1 - NextSlot;
     end;
   end;
 
+  procedure UseMeasuredFont(LabelControl: TLabel);
+  begin
+    if not InfoFontsEqual(LabelControl.Font, Canvas.Font) then
+      LabelControl.Font.Assign(Canvas.Font);
+  end;
+
 begin
-  if (FUpdateCount > 0) or FUpdatingLayout or not Assigned(FFb2Info) or not Assigned(Parent) then
+  if (csDestroying in ComponentState) or (FUpdateCount > 0) or FUpdatingLayout or not Assigned(FFb2Info) or
+    not Assigned(FDetailsButton) or not Assigned(Parent) then
     Exit;
 
   // Reading client bounds may create child windows and trigger OnResize.
   // Keep the guard set through those reads and scrollbar-related realignment.
   FUpdatingLayout := True;
+  ProfileLayout(ipsLayout, True);
   try
+    ProfileLayout(ipsFooter, True);
+    try
+    // Font.PixelsPerInch also follows ScaleForPPI when VCL CurrentPPI has not
+    // caught up during a resize notification. Measure the actual button font.
+    LayoutPPI := Max(1, Font.PixelsPerInch);
+    Padding := MulDiv(PanelPadding, LayoutPPI, 96);
+    Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
+    ViewportBottom := Padding;
+    if FDetailsButton.Visible then
+    begin
+      Canvas.Font.Assign(FDetailsButton.Font);
+      FooterH := Max(MulDiv(32, LayoutPPI, 96),
+        Canvas.TextHeight('Wg') + MulDiv(12, LayoutPPI, 96));
+      FooterW := Max(MulDiv(180, LayoutPPI, 96),
+        Canvas.TextWidth(FDetailsButton.Caption) + MulDiv(24, LayoutPPI, 96));
+      Inc(ViewportBottom, FooterH + Gap);
+    end
+    else
+    begin
+      FooterH := 0;
+      FooterW := 0;
+    end;
+    // A tall, narrow preview must leave enough horizontal room for the full
+    // action caption. The image remains proportional inside its original-height
+    // container; only its available width is reduced when space is scarce.
+    CoverW := GetCoverWidth(Max(0, ClientHeight - FCover.Margins.Top - FCover.Margins.Bottom));
+    if FDetailsButton.Visible and FCover.Visible then
+      CoverW := Min(CoverW, Max(0, ClientWidth - FCover.Margins.Left - FCover.Margins.Right -
+        FInfoViewport.Margins.Left - FInfoViewport.Margins.Right - FooterW));
+    if FCover.Width <> CoverW then FCover.Width := CoverW;
+    if FInfoViewport.Margins.Bottom <> ViewportBottom then
+      FInfoViewport.Margins.Bottom := ViewportBottom;
+    if FDetailsButton.Visible then
+      FDetailsButton.SetBounds(FInfoViewport.Left,
+        Max(0, ClientHeight - Padding - FooterH),
+        Min(FInfoViewport.Width, FooterW), FooterH);
+    finally ProfileLayout(ipsFooter, False); end;
+
     for Pass := 1 to 3 do
     begin
+      ProfileLayout(ipsLayoutPass, True);
+      FInfoPanel.DisableAlign;
+      FInfoViewport.DisableAlign;
+      try
       W := FInfoPanel.ClientWidth;
       H := FInfoViewport.ClientHeight;
       if (W <= 0) or (H <= 0) then
         Exit;
 
       // Bold captions do not inherit the parent font after Font.Style is set.
-      FTitle.Font.Assign(FInfoPanel.Font);
-      FTitle.Font.Style := [fsBold];
-      FSerieLabel.Font.Assign(FInfoPanel.Font);
-      FSerieLabel.Font.Style := [fsBold];
-      FGenreLabel.Font.Assign(FInfoPanel.Font);
-      FGenreLabel.Font.Style := [fsBold];
-      FPublisherSerieLabel.Font.Assign(FInfoPanel.Font);
-      FPublisherSerieLabel.Font.Style := [fsBold];
-
-      Canvas.Font := FTitle.Font;
-      RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, CurrentPPI, 96);
-      Gap := MulDiv(AnnotationGap, CurrentPPI, 96);
-      LblW := Max(MulDiv(LabelColumn, CurrentPPI, 96),
+      // Build the desired font once without toggling each control to regular
+      // and back to bold on every resize/selection.
+      Canvas.Font.Assign(FInfoPanel.Font);
+      Canvas.Font.Style := [fsBold];
+      UseMeasuredFont(FTitle);
+      UseMeasuredFont(FSerieLabel);
+      UseMeasuredFont(FGenreLabel);
+      UseMeasuredFont(FPublisherSerieLabel);
+      RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, LayoutPPI, 96);
+      Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
+      LblW := Max(MulDiv(LabelColumn, LayoutPPI, 96),
         Max(Canvas.TextWidth(FSerieLabel.Caption), Canvas.TextWidth(FGenreLabel.Caption)) + Gap);
       if FPublisherSerieLabel.Visible then
         LblW := Max(LblW, Canvas.TextWidth(FPublisherSerieLabel.Caption) + Gap);
       LblW := Min(LblW, W);
 
+      ProfileLayout(ipsLinkBounds, True);
+      try
       Y := 0;
       FTitle.SetBounds(0, Y, W, RowH);
       Inc(Y, RowH);
@@ -509,7 +806,7 @@ begin
         TextRect := Rect(0, 0, Max(1, W - LblW), 0);
         DrawText(Canvas.Handle, PChar(FPublisherSeries.Caption), Length(FPublisherSeries.Caption),
           TextRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-        LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, CurrentPPI, 96));
+        LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, LayoutPPI, 96));
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
         FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
         Inc(Y, LinkH);
@@ -520,16 +817,17 @@ begin
       Inc(Y, LinkH + Gap);
       if FReadingSupport.Visible then
       begin
-        FReadingSupport.Font.Assign(FInfoPanel.Font); if MHLThemeDark then FReadingSupport.Font.Color:=RGB(146,180,153) else FReadingSupport.Font.Color:=$0063482E;
-        Canvas.Font:=FReadingSupport.Font; TextRect:=Rect(0,0,Max(1,W),0);
+        Canvas.Font.Assign(FInfoPanel.Font);
+        if MHLThemeDark then Canvas.Font.Color:=RGB(146,180,153) else Canvas.Font.Color:=$0063482E;
+        UseMeasuredFont(FReadingSupport); TextRect:=Rect(0,0,Max(1,W),0);
         DrawText(Canvas.Handle,PChar(FReadingSupport.Caption),Length(FReadingSupport.Caption),TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
         LinkH:=Max(RowH,TextRect.Height); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
-        FPreviewStatus.Font.Assign(FInfoPanel.Font);
-        if MHLThemeDark then FPreviewStatus.Font.Color:=RGB(150,152,156) else FPreviewStatus.Font.Color:=clGrayText;
-        Canvas.Font:=FPreviewStatus.Font; TextRect:=Rect(0,0,Max(1,W),0);
+        Canvas.Font.Assign(FInfoPanel.Font);
+        if MHLThemeDark then Canvas.Font.Color:=RGB(150,152,156) else Canvas.Font.Color:=clGrayText;
+        UseMeasuredFont(FPreviewStatus); TextRect:=Rect(0,0,Max(1,W),0);
         DrawText(Canvas.Handle,PChar(FPreviewStatus.Caption),Length(FPreviewStatus.Caption),
           TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
         LinkH:=Max(RowH,TextRect.Height);
@@ -540,29 +838,41 @@ begin
         FGallery.SetBounds(0, Y, W, FGallery.Height);
         Inc(Y, FGallery.Height + Gap);
       end;
+      finally ProfileLayout(ipsLinkBounds, False); end;
+      ProfileLayout(ipsDetailBounds, True);
+      try
       // Even a very short panel must not leave the old annotation over the links.
       DetailH := Max(0, H - Y);
-      if FDetailsButton.Visible then
-        Dec(DetailH, MulDiv(32, CurrentPPI, 96) + Gap);
-      if (DetailH < MulDiv(80, CurrentPPI, 96)) and
+      if (DetailH < MulDiv(80, LayoutPPI, 96)) and
         (FAnnotation.Visible or FFb2Info.Visible) then
-        DetailH := MulDiv(80, CurrentPPI, 96);
+        DetailH := MulDiv(80, LayoutPPI, 96);
       FInfoPanel.Height := Y + DetailH;
-      if FDetailsButton.Visible then
-      begin
-        FDetailsButton.SetBounds(0, Y + DetailH + Gap,
-          Min(W, MulDiv(180, CurrentPPI, 96)), MulDiv(32, CurrentPPI, 96));
-        FInfoPanel.Height := FDetailsButton.Top + FDetailsButton.Height;
+      if FInfoViewport.VertScrollBar.Range <> FInfoPanel.Height then
+        FInfoViewport.VertScrollBar.Range := FInfoPanel.Height;
+      // Resize only the currently displayed detail view. Its public toggle
+      // immediately lays out the other view before that view can be used.
+      if FAnnotation.Visible then FAnnotation.SetBounds(0, Y, W, DetailH);
+      if FFb2Info.Visible then FFb2Info.SetBounds(0, Y, W, DetailH);
+      finally ProfileLayout(ipsDetailBounds, False); end;
+      finally
+        // Manual SetBounds must not realign/scan all siblings for every child.
+        // Restore VCL alignment once, including scroll range/anchor callbacks,
+        // before checking whether a new scrollbar width requires another pass.
+        ProfileLayout(ipsPassAlign, True);
+        try
+          try FInfoViewport.EnableAlign;
+          finally FInfoPanel.EnableAlign; end;
+        finally
+          ProfileLayout(ipsPassAlign, False);
+          ProfileLayout(ipsLayoutPass, False);
+        end;
       end;
-      FAnnotation.SetBounds(0, Y, W, DetailH);
-      FFb2Info.SetBounds(0, Y, W, DetailH);
-      // A scrollbar changes the wrapping width. Retry with the new width,
-      // but never recurse: VCL alignment can alternate between two widths.
-      if FInfoPanel.ClientWidth = W then
-        Break;
+      // A scrollbar changes wrapping width. Preserve the bounded retry.
+      if FInfoPanel.ClientWidth = W then Break;
     end;
   finally
     FUpdatingLayout := False;
+    ProfileLayout(ipsLayout, False);
   end;
 end;
 
@@ -574,8 +884,11 @@ end;
 
 procedure TInfoPanel.OnAnnotationClicked(Sender: TObject);
 begin
-  FFb2Info.Visible := not FFb2Info.Visible;
-  FAnnotation.Visible := not FAnnotation.Visible;
+  BeginUpdate;
+  try
+    FFb2Info.Visible := not FFb2Info.Visible;
+    FAnnotation.Visible := not FAnnotation.Visible;
+  finally EndUpdate; end;
 end;
 
 procedure TInfoPanel.OnLinkClicked(Sender: TObject; const Link: string; LinkType: TSysLinkType);
@@ -612,30 +925,30 @@ procedure TInfoPanel.SetBookInfo(
 );
 begin
   FInfoViewport.VertScrollBar.Position := 0;
-  FTitle.Caption := BookTitle;
-  FAuthors.Caption := Autors;
+  SetInfoText(FTitle, BookTitle);
+  SetInfoText(FAuthors, Autors);
   // SysLink supports anchor tags; explicit line breaks must be plain CRLF.
-  FSeries.Caption := StringReplace(Series, '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]);
-  FGenres.Caption := Genres;
+  SetInfoText(FSeries, StringReplace(Series, '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]));
+  SetInfoText(FGenres, Genres);
   SetPublisherSeries('');
 end;
 
 procedure TInfoPanel.SetPublisherSeries(const Value: string);
 begin
-  FPublisherSeriesLinks.Caption := '';
+  SetInfoText(FPublisherSeriesLinks, '');
   FPublisherSeriesLinks.Visible := False;
-  FPublisherSeries.Caption := Trim(Value);
-  FPublisherSeries.Visible := FPublisherSeries.Caption <> '';
+  SetInfoText(FPublisherSeries, Trim(Value));
+  FPublisherSeries.Visible := Trim(Value) <> '';
   FPublisherSerieLabel.Visible := FPublisherSeries.Visible;
   LayoutControls;
 end;
 
 procedure TInfoPanel.SetPublisherSeriesLinks(const Value: string);
 begin
-  FPublisherSeries.Caption := '';
+  SetInfoText(FPublisherSeries, '');
   FPublisherSeries.Visible := False;
-  FPublisherSeriesLinks.Caption := StringReplace(Trim(Value), '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]);
-  FPublisherSeriesLinks.Visible := FPublisherSeriesLinks.Caption <> '';
+  SetInfoText(FPublisherSeriesLinks, StringReplace(Trim(Value), '<br>', sLineBreak, [rfReplaceAll, rfIgnoreCase]));
+  FPublisherSeriesLinks.Visible := Trim(Value) <> '';
   FPublisherSerieLabel.Visible := FPublisherSeriesLinks.Visible;
   LayoutControls;
 end;
@@ -788,10 +1101,12 @@ end;
 
 procedure TInfoPanel.SetInfoPriority(const Value: Boolean);
 begin
-  FInfoPriority := Value;
-
-  FFb2Info.Visible := FInfoPriority;
-  FAnnotation.Visible := not FInfoPriority;
+  BeginUpdate;
+  try
+    FInfoPriority := Value;
+    FFb2Info.Visible := FInfoPriority;
+    FAnnotation.Visible := not FInfoPriority;
+  finally EndUpdate; end;
 end;
 
 procedure TInfoPanel.SetBookCover(
@@ -807,27 +1122,53 @@ begin
   Inc(FUpdateCount);
   if FUpdateCount <> 1 then Exit;
   DisableAlign;
+  FInfoViewport.DisableAlign;
   FInfoPanel.DisableAlign;
-  FRedrawSuspended := HandleAllocated and IsWindowVisible(Handle);
-  if FRedrawSuspended then SendMessage(Handle, WM_SETREDRAW, 0, 0);
+  ProfileLayout(ipsSuspendRedraw, True);
+  try SuspendInfoRedraw;
+  finally ProfileLayout(ipsSuspendRedraw, False); end;
 end;
 
 procedure TInfoPanel.EndUpdate;
 begin
   Assert(FUpdateCount > 0);
-  Dec(FUpdateCount);
-  if FUpdateCount <> 0 then Exit;
+  if FUpdateCount > 1 then
+  begin
+    Dec(FUpdateCount);
+    Exit;
+  end;
   try
-    FInfoPanel.EnableAlign;
-    EnableAlign;
+    // Alignment can send several child resize notifications. Keep the batch
+    // active through both realignments and lay out the final bounds once.
+    try
+      // Apply the final text once: Clear followed by SetBookInfo must not
+      // rebuild three identical native SysLinks through an intermediate blank.
+      try
+        ProfileLayout(ipsFlushTexts, True);
+        try FlushInfoTexts;
+        finally ProfileLayout(ipsFlushTexts, False); end;
+      finally
+        ProfileLayout(ipsRestoreAlign, True);
+        try
+          // Resolve the final outer viewport before its content and anchors.
+          // Otherwise a cover/visibility change lays out the scroll range once
+          // at the previous width and again after the outer panel realigns.
+          try EnableAlign;
+          finally
+            try FInfoViewport.EnableAlign;
+            finally FInfoPanel.EnableAlign; end;
+          end;
+        finally ProfileLayout(ipsRestoreAlign, False); end;
+        ProfileLayout(ipsFlushVisibility, True);
+        try TInfoDetailsButton(FDetailsButton).FlushVisibility;
+        finally ProfileLayout(ipsFlushVisibility, False); end;
+      end;
+    finally Dec(FUpdateCount); end;
     LayoutControls;
   finally
-    if FRedrawSuspended then
-    begin
-      FRedrawSuspended := False;
-      SendMessage(Handle, WM_SETREDRAW, 1, 0);
-      RedrawWindow(Handle, nil, 0, RDW_INVALIDATE or RDW_ERASE or RDW_ALLCHILDREN);
-    end;
+    ProfileLayout(ipsRestoreRedraw, True);
+    try RestoreInfoRedraw;
+    finally ProfileLayout(ipsRestoreRedraw, False); end;
   end;
 end;
 
@@ -837,12 +1178,12 @@ begin
   FGallery.Clear;
   FDetailsButton.Visible := False;
   FInfoViewport.VertScrollBar.Position := 0;
-  FTitle.Caption := '';
-  FAuthors.Caption := '';
-  FSeries.Caption := '';
-  FGenres.Caption := '';
-  FAnnotation.Lines.Clear;
-  FFb2Info.Items.Clear;
+  SetInfoText(FTitle, '');
+  SetInfoText(FAuthors, '');
+  SetInfoText(FSeries, '');
+  SetInfoText(FGenres, '');
+  SetInfoText(FAnnotation, '');
+  if FFb2Info.Items.Count > 0 then FFb2Info.Items.Clear;
   FCover.Picture.Assign(nil);
   SetPublisherSeries('');
 end;
@@ -859,9 +1200,10 @@ begin
   begin
     FAnnotation.Visible := Value;
     if Value then
-      Constraints.MinHeight := 150
+      Constraints.MinHeight := MulDiv(150, Max(1, Font.PixelsPerInch), 96)
     else
-      Constraints.MinHeight := 80;
+      Constraints.MinHeight := MulDiv(80, Max(1, Font.PixelsPerInch), 96);
+    LayoutControls;
   end;
 end;
 

@@ -15,7 +15,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('optional-fonts','selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('feedback19-reader','optional-fonts','selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -317,12 +317,18 @@ try:
         shutil.copy2(a.formatting_book,root/'formatting-real.fb2')
     before={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in root.iterdir() if f.suffix in ('.fb2','.epub','.xhtml','.txt','.rtf','.doc','.docx','.odt','.pdf')}
     startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=0
+    # Keep flushed native phase timings available while a long stress run is
+    # still running. All completion, pixel, resource and source-hash gates below
+    # continue to consume the complete output after the process has exited.
+    native_output=root/'reader-native-output.log'
+    print('NATIVE_OUTPUT',native_output,flush=True)
     try:
-        r=subprocess.run([str(root/exe.name)]+([a.case] if a.case else []),cwd=root,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                         encoding='mbcs',errors='replace',timeout=a.timeout,startupinfo=startup)
+        with native_output.open('wb') as output_file:
+            r=subprocess.run([str(root/exe.name)]+([a.case] if a.case else []),cwd=root,stdout=output_file,stderr=subprocess.STDOUT,
+                             timeout=a.timeout,startupinfo=startup)
+        r.stdout=native_output.read_text(encoding='mbcs',errors='replace')
     except subprocess.TimeoutExpired as error:
-        output=error.stdout or ''
-        print(output.decode('mbcs',errors='replace') if isinstance(output,bytes) else output,flush=True)
+        print(native_output.read_text(encoding='mbcs',errors='replace'),flush=True)
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
@@ -330,6 +336,9 @@ try:
         assert 'PASS optional fonts require explicit download' in r.stdout,'Stale binary omitted optional-font gates'
     if a.case=='feedback16-reader':
         assert 'PASS direct FB2 mouse selection' in r.stdout and 'PASS PDF raster cache isolation' in r.stdout and (not a.feedback_pdf or 'PASS async PDF responsive UI' in r.stdout), 'Stale binary omitted feedback16 regressions'
+    if a.case=='feedback19-reader':
+        for marker in ('PASS 1000 indexed annotation page queries', 'PASS ranged notes preserve legacy v1', 'PASS feedback19 reader breadcrumb', 'PASS feedback19 toolbar and manager', 'PASS feedback19 visible quote', 'PASS feedback19 page bookmarks'):
+            assert marker in r.stdout, f'Stale binary omitted {marker}'
     if a.case=='reader-note-ui':
         assert 'PASS note dialog input' in r.stdout, 'Stale binary omitted notes GUI tests'
         assert 'PASS direct FB2 mouse selection' in r.stdout, 'Stale binary omitted direct text selection regression'

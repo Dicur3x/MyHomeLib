@@ -34,7 +34,7 @@ type
     procedure ReportFailure(const BookRecord: TBookRecord; const ErrorText: string);
     procedure ReportIndexProgress(Percent: Integer);
     function ReadPublisherSeries(const BookRecord: TBookRecord;
-      out Series: TBookSeries): Boolean;
+      out Series: TBookSeries; out Publisher: string): Boolean;
   protected
     procedure WorkFunction; override;
   public
@@ -65,7 +65,7 @@ resourcestring
   rstrIndexPublisherSeriesProgress = 'Проверено книг: %u из %u';
   rstrIndexPublisherSeriesMissing = 'Описание книги недоступно';
   rstrIndexPublisherSeriesError = 'Книга %d (%s): %s';
-  rstrIndexPublisherSeriesSummary = 'Книжные серии: сохранено книг %u, уже проверено %u, пропущено %u, ошибок %u.';
+  rstrIndexPublisherSeriesSummary = 'Издательства и книжные серии: сохранено книг %u, уже проверено %u, пропущено %u, ошибок %u.';
   rstrIndexPublisherSeriesCanceled = 'Индексация отменена. Завершённые книги сохранены.';
   rstrIndexPublisherSeriesMoreErrors = 'В окне показаны первые 20 ошибок. Полный список доступен по кнопке «Сохранить журнал» после завершения или отмены.';
   rstrIndexPublisherSeriesLog = 'Полный журнал: %s';
@@ -95,7 +95,7 @@ begin
   if FErrorLog = nil then
   begin
     FErrorLog := TStreamWriter.Create(FErrorLogFileName, False, TEncoding.UTF8);
-    FErrorLog.WriteLine('HomeLib Ru — заполнение книжных серий');
+    FErrorLog.WriteLine('HomeLib Ru — заполнение издательств и книжных серий');
     FErrorLog.WriteLine(Format('Коллекция: %s (%d)',
       [BookRecord.CollectionName, FCollectionID]));
     FErrorLog.WriteLine(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now));
@@ -132,7 +132,7 @@ begin
 end;
 
 function TIndexPublisherSeriesThread.ReadPublisherSeries(
-  const BookRecord: TBookRecord; out Series: TBookSeries): Boolean;
+  const BookRecord: TBookRecord; out Series: TBookSeries; out Publisher: string): Boolean;
 var
   Stream: TStream;
   Metadata: TFB2PublisherSeries;
@@ -142,6 +142,7 @@ var
 begin
   Result := False;
   Series := nil;
+  Publisher := '';
   try
     Stream := FSource.OpenDescriptor(BookRecord);
     try
@@ -171,6 +172,7 @@ begin
       end;
       for Item in Metadata do
         TSeriesHelper.Add(Series, 0, Item.Title, Item.Number, False);
+      Publisher := FReader.LastPublisher;
       Result := True;
     finally
       Stream.Free;
@@ -181,6 +183,7 @@ begin
     on E: Exception do
     begin
       Series := nil;
+      Publisher := '';
       if Canceled then
         Exit;
       ReportFailure(BookRecord, E.Message);
@@ -196,6 +199,8 @@ type
     BookKey: TBookKey;
     Series: TBookSeries;
     SourceKey: string;
+    Publisher: string;
+    SourceBook: TBookRecord;
   end;
 var
   Iterator: IPublisherSeriesIndexIterator;
@@ -204,6 +209,7 @@ var
   IndexedKeys: TArray<string>;
   SourceKey: string;
   Series: TBookSeries;
+  Publisher: string;
   Pending: array[0..ChunkSize - 1] of TPendingBook;
   PendingCount, BookCount, BookIndex: Integer;
 
@@ -216,17 +222,28 @@ var
       Exit;
     BulkActive := False;
     try
+      // A completed chunk may wait while later files are read. Recheck each
+      // physical source immediately before starting its write transaction.
+      for I := 0 to PendingCount - 1 do
+        if Pending[I].SourceKey <> FSource.GetSourceKey(Pending[I].SourceBook) then
+          raise EReadError.Create(rstrIndexPublisherSeriesChanged);
       // Keep disk extraction and XML parsing outside the write transaction.
       FCollection.BeginBulkOperation;
       BulkActive := True;
       for I := 0 to PendingCount - 1 do
         FCollection.CompletePublisherSeriesIndex(Pending[I].BookKey,
-          Pending[I].Series, Pending[I].SourceKey);
+          Pending[I].Series, Pending[I].SourceKey, Pending[I].Publisher,
+          @Pending[I].SourceBook);
       FCollection.EndBulkOperation(True);
       BulkActive := False;
+      FChangesCommitted := True;
       Inc(FIndexedCount, PendingCount);
       for I := 0 to PendingCount - 1 do
+      begin
         Pending[I].Series := nil;
+        Pending[I].Publisher := '';
+        Pending[I].SourceBook.Clear;
+      end;
       PendingCount := 0;
     except
       if BulkActive then
@@ -275,7 +292,7 @@ begin
           if not FForceRescan and (SourceKey <> '') and
              (SourceKey = IndexedKeys[BookIndex]) then
             Inc(FCachedCount)
-          else if ReadPublisherSeries(BookRecord, Series) then
+          else if ReadPublisherSeries(BookRecord, Series, Publisher) then
           begin
             if Canceled then Break;
             // Never certify metadata if the underlying source changed mid-read.
@@ -285,6 +302,8 @@ begin
               Pending[PendingCount].BookKey := BookRecord.BookKey;
               Pending[PendingCount].Series := Series;
               Pending[PendingCount].SourceKey := SourceKey;
+              Pending[PendingCount].Publisher := Publisher;
+              Pending[PendingCount].SourceBook := BookRecord;
               Inc(PendingCount);
               if PendingCount = ChunkSize then
                 CommitPending;
@@ -333,6 +352,7 @@ begin
       FProgressEngine.EndOperation;
     end;
   end;
+  FOperationSuccess := FCompleted;
 end;
 
 end.

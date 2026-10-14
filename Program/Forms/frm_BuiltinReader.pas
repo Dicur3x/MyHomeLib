@@ -11,6 +11,10 @@ type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
   TReaderProgress = class(TPaintBox)
   public property MouseCapture; end;
+  TReaderVisibleAnnotation = record
+    Note: TReaderAnnotation;
+    Rectangles: TArray<TRect>;
+  end;
   TfrmBuiltinReader = class;
   TReaderSurface = class(TCustomControl)
   private FReader: TfrmBuiltinReader;
@@ -48,14 +52,22 @@ type
   private
     FSurface: TReaderSurface;
     FTop, FButtons, FBottom, FSearchPanel: TPanel;
-    FStatus: TLabel;
+    FStatus, FChapterPath: TLabel;
     FSearch: TEdit;
     FThemes: TComboBox;
     FFitButton: TButton;
     FPDFSelecting, FPDFPageHasText: Boolean;
     FPDFSelectionAnchor, FPDFSelectionEnd: Integer;
     FPDFSelectionRects: TArray<TRectF>;
-    FCopyMenu: TPopupMenu;
+    FCopyMenu, FAnnotationMenu: TPopupMenu;
+    FAnnotationIndex: TReaderAnnotationIndex;
+    FVisibleAnnotations: TArray<TReaderVisibleAnnotation>;
+    FAnnotationMenuNotes: TArray<TReaderAnnotation>;
+    FAnnotationLoadError: string;
+    FAnnotationClick: Integer;
+    FAnnotationMouseDown: TPoint;
+    FBookmarkPositions: TArray<Integer>;
+    FPageHasBookmark, FBookmarkClick: Boolean;
     FCopyItem, FCopyPageItem, FCopyAllItem, FCopyViewItem: TMenuItem;
     FSearchCase, FSearchWord, FSearchAll: TCheckBox;
     FTheme: Integer;
@@ -130,6 +142,9 @@ type
     FImageWidth, FImageHeight: Integer;
     FOnProgress: TProc<Integer>;
     FBookmarks: TPopupMenu;
+    procedure ReloadBookmarkMarkers;
+    function BookmarkMarkerBounds: TRect;
+    procedure PaintBookmarkMarker(Canvas: TCanvas);
     procedure MissingReaderFont(const Family: string);
     procedure DownloadFontsClick(Sender: TObject);
     procedure DismissFontsClick(Sender: TObject);
@@ -145,6 +160,13 @@ type
     function TextCharacterAt(X,Y: Integer): Integer;
     procedure UpdateTextSelection(X,Y: Integer);
     procedure PaintSelection(Canvas: TCanvas; const Boxes: TArray<TRect>);
+    procedure PreparePageSelection;
+    procedure RebuildAnnotationMarkers;
+    procedure PaintAnnotations(Canvas: TCanvas);
+    function AnnotationRectangle(const Box: TRect): TRect;
+    procedure AnnotationHover(X,Y: Integer);
+    procedure AnnotationClick(X,Y: Integer);
+    procedure AnnotationMenuClick(Sender: TObject);
     procedure RenderPage;
     procedure PaintPage(Canvas: TCanvas);
     procedure ResizePage(Sender: TObject);
@@ -201,6 +223,7 @@ type
     procedure ResetPagination;
     function MeasureGlobalPage(Start: Integer): Integer;
     procedure RebuildChapterTitles;
+    procedure UpdateChapterPath;
     function ChapterIndexAt(Position: Integer): Integer;
     procedure NotesClick(Sender: TObject);
     procedure NotesManageClick(Sender: TObject);
@@ -266,6 +289,13 @@ type
     function GlobalPageAt(Position: Integer): Integer;
     function GlobalPaginationReady: Boolean;
     procedure SetNumberChapters(Value: Boolean);
+    procedure ReloadAnnotations;
+    function VisibleAnnotationCount: Integer;
+    property PageHasBookmark: Boolean read FPageHasBookmark;
+    function AnnotationAtPoint(X,Y: Integer): Integer;
+    function AnnotationDraft(const Quote: string): TReaderAnnotation;
+    function CurrentChapterPath: string;
+    function BookmarkContext(Index: Integer): string;
     function AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
     function ExportAnnotations(AllBooks, HTML: Boolean): string;
     property NumberChapters: Boolean read FNumberChapters;
@@ -306,6 +336,7 @@ type
     function SelectedText: string;
     function PDFSelectedText: string;
     procedure SelectPDFText(Start, Count: Integer);
+    procedure SelectText(Start, Count: Integer);
     property PDFPageHasText: Boolean read FPDFPageHasText;
   end;
 
@@ -321,7 +352,7 @@ procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identi
 implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile;
 
 type
   TReaderChapterSelector = class(TComboBox)
@@ -456,6 +487,13 @@ end;
 procedure TReaderSurface.MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
 begin
   inherited; SetFocus;
+  if Assigned(FReader) and (Button=mbLeft) then
+  begin
+    FReader.FAnnotationMouseDown:=Point(X,Y);
+    FReader.FAnnotationClick:=FReader.AnnotationAtPoint(X,Y);
+    FReader.FBookmarkClick:=FReader.FPageHasBookmark and PtInRect(FReader.BookmarkMarkerBounds,Point(X,Y));
+    if FReader.FBookmarkClick then begin MouseCapture:=True; Exit; end;
+  end;
   if Assigned(FReader) and (Button=mbLeft) and not (ssCtrl in Shift) and Assigned(FReader.FPDF) then
   begin
     if FReader.FPDFPageHasText and FReader.FSelectionEnabled then
@@ -481,6 +519,7 @@ end;
 procedure TReaderSurface.MouseMove(Shift: TShiftState; X,Y: Integer);
 begin
   inherited;
+  if Assigned(FReader) and not (ssLeft in Shift) then FReader.AnnotationHover(X,Y);
   if Assigned(FReader) and FReader.FTextSelecting and (ssLeft in Shift) then
   begin FReader.UpdateTextSelection(X,Y); Exit; end;
   if Assigned(FReader) and FReader.FPDFSelecting and (ssLeft in Shift) then
@@ -503,6 +542,12 @@ begin
     if FReader.FTextSelecting then FReader.UpdateTextSelection(X,Y);
     FReader.FTextSelecting:=False; FReader.FPDFSelecting:=False; MouseCapture:=False;
     if FReader.FInspectionHold and FReader.FInspect then FReader.EndInspection;
+    if (FReader.FAnnotationClick>=0) and not (ssCtrl in Shift) and
+      (Abs(X-FReader.FAnnotationMouseDown.X)<=3) and (Abs(Y-FReader.FAnnotationMouseDown.Y)<=3) then
+      FReader.AnnotationClick(X,Y);
+    if FReader.FBookmarkClick and (Abs(X-FReader.FAnnotationMouseDown.X)<=3) and
+      (Abs(Y-FReader.FAnnotationMouseDown.Y)<=3) then FReader.BookmarkClick(nil);
+    FReader.FAnnotationClick:=-1; FReader.FBookmarkClick:=False;
   end;
 end;
 
@@ -910,7 +955,7 @@ begin
   FGlobalPages:=TList<Integer>.Create; FMeasureBitmap:=TBitmap.Create; FMeasureBitmap.SetSize(1,1);
   FZoom:=100; FPrefetchedForPage:=-1; FPages:=TList<Integer>.Create; FPages.Add(0);
   FBitmap:=TBitmap.Create; FBitmap.PixelFormat:=pf32bit;
-  FTop:=TPanel.Create(Self); FTop.Parent:=Self; FTop.Align:=alTop; FTop.Height:=70; FTop.BevelOuter:=bvNone;
+  FTop:=TPanel.Create(Self); FTop.Parent:=Self; FTop.Align:=alTop; FTop.Height:=92; FTop.BevelOuter:=bvNone;
   FButtons:=TPanel.Create(Self); FButtons.Parent:=FTop; FButtons.Align:=alTop; FButtons.Height:=38; FButtons.BevelOuter:=bvNone;
   MakeButton('‹',PreviousClick,30); MakeButton('›',NextClick,30);
   MakeButton('−',SmallerClick,30); MakeButton('+',BiggerClick,30);
@@ -924,8 +969,15 @@ begin
   FFitButton.OnClick:=FitPageClick; FFitButton.Visible:=False;
   MakeButton('Закладки',BookmarkClick,80);
   MakeButton('Заметки',NotesManageClick,72);
+  MakeButton('✎',NotesClick,34);
   MakeButton('Вид',StyleClick,50);
   MakeButton('Поиск',SearchClick,50); MakeButton('F11',FullScreenClick,50);
+  FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
+  FChapterPath.Parent:=FTop; FChapterPath.Align:=alBottom; FChapterPath.AutoSize:=False;
+  FChapterPath.Height:=22; FChapterPath.Margins.SetBounds(12,0,12,0); FChapterPath.AlignWithMargins:=True;
+  FChapterPath.Layout:=tlCenter; FChapterPath.EllipsisPosition:=epEndEllipsis;
+  FChapterPath.Font.Name:='Segoe UI'; FChapterPath.Font.Size:=9; FChapterPath.ShowHint:=True;
+  FChapterPath.Hint:='Текущая глава и её разделы';
   ContentsRow:=TPanel.Create(Self); ContentsRow.Parent:=FTop; ContentsRow.Align:=alClient; ContentsRow.BevelOuter:=bvNone;
   FContentsButton:=TButton.Create(Self); FContentsButton.Parent:=ContentsRow; FContentsButton.Align:=alLeft;
   FContentsButton.Width:=36; FContentsButton.Caption:='☰'; FContentsButton.Hint:='Оглавление (Ctrl+T)';
@@ -979,6 +1031,7 @@ begin
   FSurface.DoubleBuffered:=True; FSurface.TabStop:=True;
   FPDFSelectionAnchor:=-1; FPDFSelectionEnd:=-1; FTextSelectionStart:=-1; FTextSelectionEnd:=-1; FInspectionHold:=True; FSelectionEnabled:=True;
   FCopyMenu:=TPopupMenu.Create(Self); FCopyMenu.OnPopup:=CopyMenuPopup;
+  FAnnotationMenu:=TPopupMenu.Create(Self); FAnnotationMenu.Name:='ReaderAnnotationMenu'; FAnnotationClick:=-1; FSurface.ShowHint:=True;
   FCopyItem:=TMenuItem.Create(FCopyMenu); FCopyItem.Caption:='Копировать выделенный текст';
   FCopyItem.OnClick:=CopyTextClick; FCopyItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl]);
   FCopyMenu.Items.Add(FCopyItem);
@@ -986,8 +1039,8 @@ begin
   FCopyPageItem.OnClick:=CopyPageClick; FCopyMenu.Items.Add(FCopyPageItem);
   FCopyAllItem:=TMenuItem.Create(FCopyMenu); FCopyAllItem.Caption:='Копировать весь текст книги';
   FCopyAllItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl,ssShift]); FCopyAllItem.OnClick:=CopyAllClick; FCopyMenu.Items.Add(FCopyAllItem);
-  FCopyViewItem:=TMenuItem.Create(FCopyMenu); FCopyViewItem.Caption:='Выделить текст / цитату для заметки…';
-  FCopyViewItem.OnClick:=CopyViewClick; FCopyMenu.Items.Add(FCopyViewItem); FSurface.PopupMenu:=FCopyMenu;
+  FCopyViewItem:=TMenuItem.Create(FCopyMenu); FCopyViewItem.Caption:='Текст страницы…';
+  FCopyViewItem.OnClick:=CopyViewClick; FCopyViewItem.Visible:=False; FCopyMenu.Items.Add(FCopyViewItem); FSurface.PopupMenu:=FCopyMenu;
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
   MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
@@ -1035,6 +1088,7 @@ begin
   Button.TabStop:=False;
   if Caption='Ночь' then begin Button.Hint:='Ночной фон текста / инверсия страниц PDF'; Button.ShowHint:=True; end;
   if Caption='F11' then begin Button.Hint:='На весь экран / вернуть окно'; Button.ShowHint:=True; end;
+  if Caption='✎' then begin Button.Name:='ReaderAddNote'; Button.Hint:='Добавить заметку с выделенной цитатой (Ctrl+M)'; Button.ShowHint:=True; end;
 end;
 
 procedure TfrmBuiltinReader.MissingReaderFont(const Family: string);
@@ -1105,7 +1159,7 @@ begin
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
   FreeAndNil(FMissingFonts);
-  FSurface.FReader:=nil; FreeAndNil(FPageSelection); FreeAndNil(FSelectionTint);
+  FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSelectionTint);
   FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
 
@@ -1118,6 +1172,7 @@ begin
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
   Caption:='HomeLib Ru — '+BookTitle+' — Читалка (экспериментальная)';
   RestoreSettings;
+  ReloadAnnotations;
   if SameText(ExtractFileExt(FileName),'.pdf') then
   begin
     FPDF:=TReaderPDFAsync.Create(PDFLibrary,FileName); FLength:=FPDF.PageCount;
@@ -1167,7 +1222,7 @@ begin
   for C in FDocument.Chapters do AddChapter(C.Title,C.Position,C.Depth);
   RebuildChapterTitles;
   FStyleRanges:=FDocument.Styles; FDocument.ReleaseUnusedBuffers;
-  FReady:=True; InvalidateLayout; RestoreSettings; RenderPage;
+  FReady:=True; ReloadAnnotations; InvalidateLayout; RestoreSettings; RenderPage;
   except
     on E: Exception do
     begin FReady:=False; FStatus.Caption:='Не удалось открыть книгу: '+E.Message; FSurface.Invalidate; end;
@@ -1428,6 +1483,7 @@ var Size: TPoint; Scale: Double; Temporary: TBitmap; W,H,I, FullHeight, NotesHei
     end;
   end;
 begin
+  FVisibleAnnotations:=nil; FSurface.Hint:=''; FAnnotationClick:=-1;
   FFontOffer.Color:=ThemeBackground; FFontOfferText.Font.Color:=ThemeText;
   if not FReady or FClosing or (Assigned(FPageWorker) and not FPageWorker.Prefetch) or (FSurface.ClientWidth<100) or (FSurface.ClientHeight<100) then Exit;
   if Assigned(FPDF) then
@@ -1505,6 +1561,12 @@ begin
   if Assigned(FPDF) then I:=ChapterIndexAt(CurrentPosition) else I:=ChapterIndexAt(Max(CurrentPosition,FNext-1));
   FChapters.ItemIndex:=I;
   if I>=0 then FChapters.Hint:=ChapterTitle(I) else FChapters.Hint:='Оглавление (Ctrl+T)';
+  UpdateChapterPath; RebuildAnnotationMarkers;
+  FPageHasBookmark:=False;
+  for var Position in FBookmarkPositions do
+    if Assigned(FPDF) then begin if Position=FPage then FPageHasBookmark:=True; end
+    else if (Position>=CurrentPosition) and (Position<FNext) then FPageHasBookmark:=True;
+  if FAnnotationLoadError<>'' then FStatus.Caption:=FStatus.Caption+' · Заметки недоступны: '+FAnnotationLoadError;
   FLastPageInteraction:=GetTickCount64;
   if FSearchStatus<>'' then FStatus.Caption:=FSearchStatus;
   FProgressLine.Invalidate; FSurface.Invalidate; PrefetchNextPage;
@@ -1519,7 +1581,7 @@ begin
     begin
       if Assigned(FPDF) then
       begin
-        Canvas.Draw(FPan.X,FPan.Y,FBitmap);
+        Canvas.Draw(FPan.X,FPan.Y,FBitmap); PaintAnnotations(Canvas);
         if Length(FPDFSelectionRects)>0 then
         begin
           Size:=FPDF.PageSize(FPage); Boxes:=TList<TRect>.Create;
@@ -1534,7 +1596,8 @@ begin
           PaintSelection(Canvas,Boxes.ToArray);
           finally Boxes.Free; end;
         end;
-      end else begin Canvas.Draw(0,0,FBitmap); PaintSelection(Canvas,FTextSelectionRects); end;
+      end else begin Canvas.Draw(0,0,FBitmap); PaintAnnotations(Canvas); PaintSelection(Canvas,FTextSelectionRects); end;
+      PaintBookmarkMarker(Canvas);
     end
   else
     begin Canvas.Font.Assign(Font); Canvas.Font.Color:=ThemeText; Canvas.TextOut(24,24,FStatus.Caption); end;
@@ -1800,10 +1863,9 @@ end;
 procedure TfrmBuiltinReader.FitPageClick(Sender: TObject);
 begin if not FReady or not Assigned(FPDF) then Exit; ResetInspection; FZoom:=100; RenderPage; end;
 
-function TfrmBuiltinReader.TextCharacterAt(X,Y: Integer): Integer;
+procedure TfrmBuiltinReader.PreparePageSelection;
 var Content: TRect; DPI, Width, Margin: Integer;
 begin
-  Result:=-1;
   if not FReady or Assigned(FPDF) or (FNext<=CurrentPosition) then Exit;
   if not FPageSelection.Ready then
   begin
@@ -1813,7 +1875,12 @@ begin
       (FBitmap.Width+Width) div 2,FBitmap.Height-MulDiv(20,DPI,96));
     FPageSelection.Prepare(FRichEdit,CurrentPosition,FNext-CurrentPosition,FBitmap.Width,FBitmap.Height,DPI,Content);
   end;
-  Result:=FPageSelection.CharacterAt(X,Y);
+end;
+
+function TfrmBuiltinReader.TextCharacterAt(X,Y: Integer): Integer;
+begin
+  Result:=-1; if not FReady or Assigned(FPDF) or (FNext<=CurrentPosition) then Exit;
+  PreparePageSelection; Result:=FPageSelection.CharacterAt(X,Y);
 end;
 
 procedure TfrmBuiltinReader.UpdateTextSelection(X,Y: Integer);
@@ -1862,6 +1929,16 @@ begin
   if (Index<0) or (FPDFSelectionAnchor<0) then Exit;
   FPDFSelectionEnd:=Index; Start:=Min(Index,FPDFSelectionAnchor); Count:=Abs(Index-FPDFSelectionAnchor)+1;
   FPDFSelectionRects:=FPDF.TextRectangles(FPage,Start,Count); FSurface.Invalidate;
+end;
+
+procedure TfrmBuiltinReader.SelectText(Start, Count: Integer);
+begin
+  if Assigned(FPDF) then begin SelectPDFText(Start,Count); Exit; end;
+  if not FReady or not FSelectionEnabled then Exit;
+  FTextSelectionStart:=EnsureRange(Start,CurrentPosition,FNext);
+  FTextSelectionEnd:=Min(FNext,FTextSelectionStart+Min(Max(0,Count),FNext-FTextSelectionStart));
+  PreparePageSelection; FTextSelectionRects:=FPageSelection.Rectangles(FTextSelectionStart,FTextSelectionEnd);
+  FSurface.Invalidate;
 end;
 
 procedure TfrmBuiltinReader.SelectPDFText(Start, Count: Integer);
@@ -2095,7 +2172,6 @@ begin
     if Dialog.ShowModal=mrOk then
     begin
       Note.Title:=string(TitleBox.Text).Trim; Note.Text:=string(TextBox.Text).Trim;
-      if Note.Title='' then Note.Title:=Copy(Note.Text.Replace(#13,' ').Replace(#10,' '),1,80);
       Result:=(Note.Title<>'') or (Note.Text<>'');
     end;
   finally Dialog.Free; end;
@@ -2135,8 +2211,10 @@ begin
   Constraints.MinWidth:=720; Constraints.MinHeight:=360; Font.Name:='Segoe UI'; Font.Size:=10;
   Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alTop; Row.Height:=38; Row.BevelOuter:=bvNone;
   AddButton('Добавить заметку…',146,0,AddSelected); AddButton('Изменить…',106,0,EditSelected);
-  AddButton('Удалить',80,0,DeleteSelected); AddButton('Экспорт заметок…',150,0,ExportSelected);
-  AddButton('Экспорт всех заметок…',182,1,ExportSelected);
+  AddButton('Удалить',80,0,DeleteSelected); AddButton('Заметки этой книги…',188,0,ExportSelected);
+  Button.Hint:='Экспорт закладок и заметок только открытой книги'; Button.ShowHint:=True;
+  AddButton('Заметки всех книг…',184,1,ExportSelected);
+  Button.Hint:='Экспорт закладок и заметок из всех книг этого профиля'; Button.ShowHint:=True;
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom; Footer.Height:=42; Footer.BevelOuter:=bvNone;
   Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(514,6,128,30);
   Button.Anchors:=[akRight,akBottom]; Button.Caption:='Перейти'; Button.OnClick:=OpenSelected;
@@ -2166,7 +2244,7 @@ begin
     for var I:=0 to High(FNotes) do
     begin
       Row:=FList.Items.Add; Row.Caption:='Заметка'; Row.Data:=Pointer(NativeInt(I+1));
-      Row.SubItems.Add(FNotes[I].Title); Row.SubItems.Add(FNotes[I].Place);
+      Row.SubItems.Add(ReaderAnnotationDisplayTitle(FNotes[I])); Row.SubItems.Add(FNotes[I].Place);
     end;
     Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
     try
@@ -2192,7 +2270,8 @@ begin
   begin
     FContext.Text:=FNotes[Index].Text;
     if FNotes[Index].Quote<>'' then FContext.Text:=FContext.Text+sLineBreak+sLineBreak+'Цитата: '+FNotes[Index].Quote;
-  end;
+  end
+  else if NativeInt(Item.Data)<0 then FContext.Text:=FReader.BookmarkContext(-NativeInt(Item.Data)-1);
 end;
 
 procedure TReaderSavedDialog.OpenSelected(Sender: TObject);
@@ -2212,7 +2291,7 @@ begin
     Note:=FNotes[Index-1];
     while EditReaderNote(FReader,Note) do
     begin
-      try FStore.Put(Note); Reload; Break;
+      try FStore.Put(Note); FReader.ReloadAnnotations; Reload; Break;
       except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
     end;
   end
@@ -2235,7 +2314,7 @@ begin
   if not Assigned(FList.Selected) then Exit;
   if MessageDlg('Удалить выбранную запись?',mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
   Index:=NativeInt(FList.Selected.Data);
-  if Index>0 then FStore.Remove(FNotes[Index-1].ID)
+  if Index>0 then begin FStore.Remove(FNotes[Index-1].ID); FReader.ReloadAnnotations; end
   else
   begin
     Index:=-Index-1; Section:='Bookmarks.'+FReader.FIdentity; Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
@@ -2245,17 +2324,20 @@ begin
       begin
         Ini.WriteString(Section,'Title'+IntToStr(I),Ini.ReadString(Section,'Title'+IntToStr(I+1),''));
         Ini.WriteInteger(Section,'Position'+IntToStr(I),Ini.ReadInteger(Section,'Position'+IntToStr(I+1),0));
+        Ini.WriteInteger(Section,'EndPosition'+IntToStr(I),Ini.ReadInteger(Section,'EndPosition'+IntToStr(I+1),0));
+        Ini.WriteString(Section,'PageQuote'+IntToStr(I),Ini.ReadString(Section,'PageQuote'+IntToStr(I+1),''));
       end;
       Ini.DeleteKey(Section,'Title'+IntToStr(Count-1)); Ini.DeleteKey(Section,'Position'+IntToStr(Count-1));
+      Ini.DeleteKey(Section,'EndPosition'+IntToStr(Count-1)); Ini.DeleteKey(Section,'PageQuote'+IntToStr(Count-1));
       Ini.WriteInteger(Section,'Count',Max(0,Count-1)); SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
   end;
-  Reload;
+  FReader.ReloadBookmarkMarkers; FReader.RenderPage; Reload;
 end;
 
 procedure TReaderSavedDialog.AddSelected(Sender: TObject);
 begin
-  FReader.AddNote(''); FreeAndNil(FStore); FStore:=TReaderAnnotations.Create(FReader.FSettingsFile); Reload;
+  FReader.NotesClick(Sender); FreeAndNil(FStore); FStore:=TReaderAnnotations.Create(FReader.FSettingsFile); Reload;
 end;
 
 procedure TReaderSavedDialog.ExportSelected(Sender: TObject);
@@ -2269,20 +2351,247 @@ begin
   else AddNote('');
 end;
 
+procedure TfrmBuiltinReader.ReloadAnnotations;
+var Store: TReaderAnnotations; Notes: TArray<TReaderAnnotation>; Needle, Context: string;
+  First, Found: Integer;
+begin
+  FreeAndNil(FAnnotationIndex); FVisibleAnnotations:=nil; FAnnotationLoadError:='';
+  ReloadBookmarkMarkers;
+  if FSettingsFile='' then Exit;
+  try
+    Store:=TReaderAnnotations.Create(FSettingsFile);
+    try Notes:=Store.Items(FIdentity); finally Store.Free; end;
+    // Old profiles have a page position and quote, without a character range.
+    // Resolve only an unambiguous nearby quote in memory; never rewrite it.
+    if FReady and not Assigned(FPDF) then
+      for var I:=0 to High(Notes) do
+        if not ReaderAnnotationHasRange(Notes[I]) and (Notes[I].Quote<>'') then
+        begin
+          First:=EnsureRange(Notes[I].Position-4096,0,FLength);
+          Context:=ReaderTextRange(FRichEdit,First,Min(24576,FLength-First));
+          Needle:=Notes[I].Quote.Replace(#13#10,#13).Replace(#10,#13);
+          Found:=Pos(Needle,Context);
+          if (Found>0) and (Pos(Needle,Context,Found+1)=0) then
+          begin Notes[I].RangeStart:=First+Found-1; Notes[I].RangeEnd:=Notes[I].RangeStart+Length(Needle); end;
+        end;
+    FAnnotationIndex:=TReaderAnnotationIndex.Create(Notes);
+  except on E: Exception do FAnnotationLoadError:=E.Message; end;
+  if FReady then begin RebuildAnnotationMarkers; FSurface.Invalidate; end;
+end;
+
+function TfrmBuiltinReader.VisibleAnnotationCount: Integer;
+begin Result:=Length(FVisibleAnnotations); end;
+
+procedure TfrmBuiltinReader.RebuildAnnotationMarkers;
+var Notes: TArray<TReaderAnnotation>; Size: TPoint; Rectangles: TArray<TRectF>; Boxes: TList<TRect>;
+  PageMarker, First, Last: Integer; R: TRectF; Box: TRect;
+begin
+  FVisibleAnnotations:=nil;
+  if not FReady or not Assigned(FAnnotationIndex) or PageLoading then Exit;
+  if Assigned(FPDF) then Notes:=FAnnotationIndex.QueryPage(FPage)
+  else Notes:=FAnnotationIndex.Query(CurrentPosition,FNext);
+  if Length(Notes)=0 then Exit;
+  SetLength(FVisibleAnnotations,Length(Notes)); PageMarker:=0;
+  for var I:=0 to High(Notes) do
+  begin
+    FVisibleAnnotations[I].Note:=Notes[I];
+    if ReaderAnnotationHasRange(Notes[I]) then
+    begin
+      if Assigned(FPDF) then
+      begin
+        if not FPDFPageHasText or not Notes[I].RangeIsPageText then Continue;
+        Size:=FPDF.PageSize(FPage);
+        Rectangles:=FPDF.TextRectangles(FPage,Notes[I].RangeStart,Notes[I].RangeEnd-Notes[I].RangeStart);
+        Boxes:=TList<TRect>.Create;
+        try
+          for R in Rectangles do
+          begin
+            Box:=Rect(Round(R.Left*FBitmap.Width/Max(1,Size.X)),Round((Size.Y-R.Bottom)*FBitmap.Height/Max(1,Size.Y)),
+              Round(R.Right*FBitmap.Width/Max(1,Size.X)),Round((Size.Y-R.Top)*FBitmap.Height/Max(1,Size.Y)));
+            if not IsRectEmpty(Box) then Boxes.Add(Box);
+          end;
+          FVisibleAnnotations[I].Rectangles:=Boxes.ToArray;
+        finally Boxes.Free; end;
+      end
+      else if not Notes[I].RangeIsPageText then
+      begin
+        PreparePageSelection; First:=Max(CurrentPosition,Notes[I].RangeStart); Last:=Min(FNext,Notes[I].RangeEnd);
+        FVisibleAnnotations[I].Rectangles:=FPageSelection.Rectangles(First,Last);
+      end;
+    end
+    else
+    begin
+      // Notes without a quote mark the saved page rather than arbitrary text.
+      Box:=Rect(5,24+PageMarker*24,22,43+PageMarker*24); Inc(PageMarker);
+      FVisibleAnnotations[I].Rectangles:=TArray<TRect>.Create(Box);
+    end;
+  end;
+end;
+
+function TfrmBuiltinReader.AnnotationRectangle(const Box: TRect): TRect;
+begin
+  Result:=Box;
+  if Assigned(FPDF) then OffsetRect(Result,FPan.X,FPan.Y);
+end;
+
+function TfrmBuiltinReader.AnnotationAtPoint(X,Y: Integer): Integer;
+begin
+  Result:=-1;
+  if not FReady or PageLoading or FInspect then Exit;
+  for var I:=0 to High(FVisibleAnnotations) do
+    for var Box in FVisibleAnnotations[I].Rectangles do
+      if PtInRect(AnnotationRectangle(Box),Point(X,Y)) then Exit(I);
+end;
+
+procedure TfrmBuiltinReader.PaintAnnotations(Canvas: TCanvas);
+var Box, Clip: TRect; Blend: TBlendFunction; Color: TColor;
+begin
+  Color:=RGB(192,137,35); if FNight then Color:=RGB(232,190,87);
+  FSelectionTint.Canvas.Brush.Color:=Color; FSelectionTint.Canvas.FillRect(Rect(0,0,1,1));
+  FillChar(Blend,SizeOf(Blend),0); Blend.BlendOp:=AC_SRC_OVER; Blend.SourceConstantAlpha:=34;
+  Canvas.Pen.Color:=Color; Canvas.Pen.Width:=Max(1,MulDiv(1,CurrentPPI,96));
+  for var Mark in FVisibleAnnotations do
+    for var R in Mark.Rectangles do
+    begin
+      Box:=AnnotationRectangle(R);
+      if not IntersectRect(Clip,Box,FSurface.ClientRect) or IsRectEmpty(Clip) then Continue;
+      Winapi.Windows.AlphaBlend(Canvas.Handle,Clip.Left,Clip.Top,Clip.Width,Clip.Height,
+        FSelectionTint.Canvas.Handle,0,0,1,1,Blend);
+      Canvas.MoveTo(Clip.Left,Clip.Bottom-2); Canvas.LineTo(Clip.Right,Clip.Bottom-2);
+      if not ReaderAnnotationHasRange(Mark.Note) then
+      begin
+        Canvas.Brush.Style:=bsClear; Canvas.Rectangle(Clip); Canvas.Brush.Style:=bsSolid;
+        Canvas.Font.Name:='Segoe UI'; Canvas.Font.Size:=9; Canvas.Font.Color:=Color;
+        Canvas.TextOut(Clip.Left+4,Clip.Top,'✎');
+      end;
+    end;
+end;
+
+procedure TfrmBuiltinReader.AnnotationHover(X,Y: Integer);
+var Index: Integer; Hint: string;
+begin
+  Index:=AnnotationAtPoint(X,Y); Hint:='';
+  if Index>=0 then
+  begin
+    if FVisibleAnnotations[Index].Note.Title.Trim<>'' then Hint:=FVisibleAnnotations[Index].Note.Title+sLineBreak;
+    Hint:=Hint+FVisibleAnnotations[Index].Note.Text;
+    if Hint.Trim='' then Hint:=FVisibleAnnotations[Index].Note.Quote;
+    if Length(Hint)>1200 then
+    begin
+      Hint:=Copy(Hint,1,1200);
+      // Keep a shortened preview valid UTF-16 when its last character is emoji.
+      if (Hint[Length(Hint)]>=#$D800) and (Hint[Length(Hint)]<=#$DBFF) then
+        SetLength(Hint,Length(Hint)-1);
+      Hint:=Hint+'…';
+    end;
+    Hint:=Hint+sLineBreak+'Щёлкните, чтобы открыть заметку целиком.';
+  end;
+  if FPageHasBookmark and PtInRect(BookmarkMarkerBounds,Point(X,Y)) then Hint:='На этой странице есть закладка. Щёлкните, чтобы открыть меню закладок.';
+  if FSurface.Hint<>Hint then begin Application.CancelHint; FSurface.Hint:=Hint; end;
+end;
+
+procedure TfrmBuiltinReader.AnnotationClick(X,Y: Integer);
+var Item: TMenuItem; Caption: string; P: TPoint;
+begin
+  FAnnotationMenu.Items.Clear; FAnnotationMenuNotes:=nil;
+  for var I:=0 to High(FVisibleAnnotations) do
+    for var Box in FVisibleAnnotations[I].Rectangles do
+      if PtInRect(AnnotationRectangle(Box),Point(X,Y)) then
+      begin
+        Caption:=ReaderAnnotationDisplayTitle(FVisibleAnnotations[I].Note);
+        if Caption='—' then Caption:=Copy(FVisibleAnnotations[I].Note.Text.Replace(#13,' ').Replace(#10,' '),1,72);
+        if Caption='' then Caption:='Заметка к странице';
+        Item:=TMenuItem.Create(FAnnotationMenu); Item.Caption:=Caption.Replace('&','&&');
+        Item.Tag:=Length(FAnnotationMenuNotes); SetLength(FAnnotationMenuNotes,Item.Tag+1);
+        FAnnotationMenuNotes[Item.Tag]:=FVisibleAnnotations[I].Note;
+        Item.OnClick:=AnnotationMenuClick; FAnnotationMenu.Items.Add(Item); Break;
+      end;
+  if FAnnotationMenu.Items.Count=0 then Exit;
+  P:=FSurface.ClientToScreen(Point(X,Y)); FAnnotationMenu.Popup(P.X,P.Y);
+end;
+
+procedure TfrmBuiltinReader.AnnotationMenuClick(Sender: TObject);
+var Note, Current: TReaderAnnotation; Store: TReaderAnnotations;
+  Index: Integer; Found: Boolean;
+begin
+  Index:=TMenuItem(Sender).Tag;
+  if (Index<0) or (Index>=Length(FAnnotationMenuNotes)) then Exit;
+  Note:=FAnnotationMenuNotes[Index];
+  try Store:=TReaderAnnotations.Create(FSettingsFile);
+  except on E: Exception do
+    begin MessageDlg('Не удалось прочитать заметки.'+sLineBreak+E.Message,mtError,[mbOK],0); Exit; end;
+  end;
+  try
+    Found:=False;
+    for Current in Store.Items(FIdentity) do
+      if Current.ID=Note.ID then begin Note:=Current; Found:=True; Break; end;
+    if not Found then
+    begin
+      ReloadAnnotations;
+      MessageDlg('Эта заметка уже удалена. Список обновлён.',mtInformation,[mbOK],0);
+      Exit;
+    end;
+    while EditReaderNote(Self,Note) do
+    begin
+      try Store.Put(Note); ReloadAnnotations; Break;
+      except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
+    end;
+  finally Store.Free; end;
+end;
+
+function TfrmBuiltinReader.CurrentChapterPath: string;
+begin
+  Result:=ChapterTitle(FChapters.ItemIndex);
+  if Result='' then Result:=FBookTitle;
+end;
+
+procedure TfrmBuiltinReader.UpdateChapterPath;
+var Foreground, Background: Cardinal;
+begin
+  FChapterPath.Caption:=CurrentChapterPath; FChapterPath.Hint:=FChapterPath.Caption;
+  FChapterPath.Transparent:=False; FChapterPath.Color:=ThemeBackground;
+  Foreground:=ColorToRGB(ThemeText); Background:=ColorToRGB(ThemeBackground);
+  FChapterPath.Font.Color:=RGB((GetRValue(Foreground)*4+GetRValue(Background)) div 5,
+    (GetGValue(Foreground)*4+GetGValue(Background)) div 5,
+    (GetBValue(Foreground)*4+GetBValue(Background)) div 5);
+end;
+
+function TfrmBuiltinReader.AnnotationDraft(const Quote: string): TReaderAnnotation;
+var Page, First, Last: Integer;
+begin
+  Result:=Default(TReaderAnnotation); Result.BookID:=FIdentity; Result.BookTitle:=FBookTitle;
+  Result.Position:=CurrentPosition; Result.Quote:=Copy(Quote,1,8192);
+  if (Quote<>'') and (SelectedText=Quote) then
+  begin
+    if Assigned(FPDF) then
+    begin
+      First:=Min(FPDFSelectionAnchor,FPDFSelectionEnd); Last:=Max(FPDFSelectionAnchor,FPDFSelectionEnd)+1;
+      Result.RangeIsPageText:=True;
+    end
+    else begin First:=Min(FTextSelectionStart,FTextSelectionEnd); Last:=Max(FTextSelectionStart,FTextSelectionEnd); end;
+    if (First>=0) and (Last>First) then
+    begin
+      Result.RangeStart:=First; Result.RangeEnd:=Last;
+      if not Assigned(FPDF) then Result.Position:=First;
+    end;
+  end;
+  Page:=GlobalPageAt(Result.Position);
+  Result.Place:=IntToStr(Round(ReadingProgress*100))+'%';
+  if Page>0 then Result.Place:='Страница '+IntToStr(Page)+' · '+Result.Place;
+  if FChapters.ItemIndex>=0 then Result.Place:=Result.Place+' · '+CurrentChapterPath;
+end;
+
 procedure TfrmBuiltinReader.AddNote(const Quote: string);
-var Note: TReaderAnnotation; Store: TReaderAnnotations; Page: Integer;
+var Note: TReaderAnnotation; Store: TReaderAnnotations;
 begin
   if not FReady or (FSettingsFile='') then Exit;
-  Note:=Default(TReaderAnnotation); Note.BookID:=FIdentity; Note.BookTitle:=FBookTitle;
-  Note.Position:=CurrentPosition; Note.Quote:=Copy(Quote,1,8192); Page:=GlobalPageAt(CurrentPosition);
-  Note.Place:=IntToStr(Round(ReadingProgress*100))+'%'; if Page>0 then Note.Place:='Страница '+IntToStr(Page)+' · '+Note.Place;
-  if FChapters.ItemIndex>=0 then Note.Place:=Note.Place+' · '+ChapterTitle(FChapters.ItemIndex);
+  Note:=AnnotationDraft(Quote);
   Store:=TReaderAnnotations.Create(FSettingsFile);
   try
     while True do
     begin
       if not EditReaderNote(Self,Note) then Exit;
-      try Store.Put(Note); Break;
+      try Store.Put(Note); ReloadAnnotations; Break;
       except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
     end;
   finally Store.Free; end;
@@ -2318,11 +2627,13 @@ begin
         if BookID=FIdentity then Note.BookTitle:=FBookTitle;
         Note.Title:='Закладка: '+Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&');
         Note.Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0); Note.Place:='Сохранённое место в книге';
+        var SavedQuote:=Ini.ReadString(Section,'PageQuote'+IntToStr(I),'');
+        if SavedQuote<>'' then Note.Quote:=TEncoding.UTF8.GetString(TNetEncoding.Base64.DecodeStringToBytes(SavedQuote));
         if BookID=FIdentity then
         begin
           var Page:=GlobalPageAt(Note.Position);
           if Page>0 then Note.Place:='Страница '+IntToStr(Page);
-          if not Assigned(FPDF) then Note.Quote:=ReaderTextRange(FRichEdit,Note.Position,160);
+          if (Note.Quote='') and not Assigned(FPDF) then Note.Quote:=BookmarkContext(I);
         end;
         List.Add(Note);
       end;
@@ -2343,38 +2654,41 @@ end;
 
 procedure TfrmBuiltinReader.ExportNotesClick(Sender: TObject);
 var Dialog: TSaveDialog; StyleDialog: TForm; Styles, Formats: TComboBox; Tip: TLabel; Button: TButton;
-  Text, Temporary, Extension: string; Style, FormatIndex: Integer; Items: TArray<TReaderAnnotation>;
+  Text, Temporary, Extension, Scope: string; Style, FormatIndex: Integer; Items: TArray<TReaderAnnotation>; AllBooks: Boolean;
 begin
+  AllBooks:=(Sender is TComponent) and (TComponent(Sender).Tag=1);
+  Items:=AnnotationItems(AllBooks);
+  if Length(Items)=0 then begin MessageDlg('Нет закладок и заметок для экспорта.',mtInformation,[mbOK],0); Exit; end;
+  if AllBooks then Scope:='Из всех книг этого профиля' else Scope:='Из открытой книги: '+FBookTitle;
   StyleDialog:=TForm.CreateNew(Self); Dialog:=TSaveDialog.Create(Self);
   try
     StyleDialog.Caption:='Оформление экспорта'; StyleDialog.Position:=poOwnerFormCenter;
     StyleDialog.PopupMode:=pmExplicit;
     if Assigned(Screen.ActiveCustomForm) then StyleDialog.PopupParent:=Screen.ActiveCustomForm else StyleDialog.PopupParent:=Self;
-    StyleDialog.BorderStyle:=bsDialog; StyleDialog.ClientWidth:=410; StyleDialog.ClientHeight:=216;
+    StyleDialog.BorderStyle:=bsDialog; StyleDialog.ClientWidth:=410; StyleDialog.ClientHeight:=244;
     StyleDialog.Font.Name:='Segoe UI'; StyleDialog.Font.Size:=10;
-    Tip:=TLabel.Create(StyleDialog); Tip.Parent:=StyleDialog; Tip.AutoSize:=False; Tip.SetBounds(12,12,386,48); Tip.WordWrap:=True;
-    Tip.Caption:='Оформление для HTML и DOCX. Все варианты сохраняют названия книг, цитаты и ваши мысли.';
-    Formats:=TComboBox.Create(StyleDialog); Formats.Parent:=StyleDialog; Formats.SetBounds(12,66,386,26);
+    Tip:=TLabel.Create(StyleDialog); Tip.Parent:=StyleDialog; Tip.AutoSize:=False; Tip.SetBounds(12,12,386,74); Tip.WordWrap:=True;
+    Tip.Caption:=Scope+'. Оформление для HTML и DOCX сохраняет закладки, цитаты и ваши мысли.';
+    Formats:=TComboBox.Create(StyleDialog); Formats.Parent:=StyleDialog; Formats.SetBounds(12,92,386,26);
     Formats.Style:=csDropDownList; Formats.Items.Add('Документ Word (DOCX)'); Formats.Items.Add('Документ HTML');
     Formats.Items.Add('Обычный текст (UTF-8)'); Formats.ItemIndex:=0;
-    Styles:=TComboBox.Create(StyleDialog); Styles.Name:='ExportStyle'; Styles.Parent:=StyleDialog; Styles.SetBounds(12,104,386,26);
-    Styles.Style:=csDropDownList; Styles.Items.Add('Строгий — белый фон, без засечек');
-    Styles.Items.Add('Классический — засечки, мягкие акценты'); Styles.Items.Add('Современный — без засечек, синий акцент');
-    Styles.Items.Add('Бумага — тёплые акценты, засечки'); Styles.ItemIndex:=1; Formats.OnChange:=ExportFormatChanged;
-    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(166,170,112,30);
+    Styles:=TComboBox.Create(StyleDialog); Styles.Name:='ExportStyle'; Styles.Parent:=StyleDialog; Styles.SetBounds(12,130,386,26);
+    Styles.Style:=csDropDownList; Styles.Items.Add('Строгий — компактный отчёт с разделителями');
+    Styles.Items.Add('Классический — книжные заголовки и цитаты'); Styles.Items.Add('Современный — карточки с полями');
+    Styles.Items.Add('Бумага — дневник с полями для размышлений'); Styles.ItemIndex:=1; Formats.OnChange:=ExportFormatChanged;
+    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(166,198,112,30);
     Button.Caption:='Продолжить'; Button.ModalResult:=mrOk; Button.Default:=True;
-    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(286,170,112,30);
+    Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(286,198,112,30);
     Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
     ApplyMHLControlTheme(StyleDialog);
     if StyleDialog.ShowModal<>mrOk then Exit; Style:=Styles.ItemIndex; FormatIndex:=Formats.ItemIndex;
-    Dialog.Title:='Экспорт закладок и заметок';
+    Dialog.Title:='Экспорт закладок и заметок — '+Scope;
     case FormatIndex of
       0: begin Dialog.Filter:='Документ Word DOCX|*.docx'; Extension:='docx'; end;
       1: begin Dialog.Filter:='Оформленный документ HTML|*.html'; Extension:='html'; end;
     else begin Dialog.Filter:='Текст UTF-8|*.txt'; Extension:='txt'; end; end;
     Dialog.DefaultExt:=Extension; Dialog.Options:=Dialog.Options+[ofOverwritePrompt]; Dialog.FileName:='Закладки и заметки';
     if not Dialog.Execute then Exit;
-    Items:=AnnotationItems((Sender is TComponent) and (TComponent(Sender).Tag=1));
     Temporary:=Dialog.FileName+'.new-'+TGUID.NewGuid.ToString;
     try
       if FormatIndex=0 then TFile.WriteAllBytes(Temporary,ReaderAnnotationsDocx(Items,Style))
@@ -2383,6 +2697,7 @@ begin
       if not MoveFileEx(PChar(Temporary),PChar(Dialog.FileName),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
     finally if TFile.Exists(Temporary) then TFile.Delete(Temporary); end;
     FStatus.Caption:='Закладки и заметки экспортированы.';
+    MessageDlg('Экспорт завершён. Записей: '+IntToStr(Length(Items))+sLineBreak+Dialog.FileName,mtInformation,[mbOK],0);
   finally Dialog.Free; StyleDialog.Free; end;
 end;
 
@@ -2433,10 +2748,62 @@ begin
       Title:=IntToStr(Round(CurrentPosition*100/Max(1,FLength)))+'% · '+Text.Replace(#13,' ').Trim;
     end;
     Ini.WriteInteger(Section,'Position'+IntToStr(Count),CurrentPosition);
+    if not Assigned(FPDF) then Ini.WriteInteger(Section,'EndPosition'+IntToStr(Count),FNext);
+    // INI values remain single-line; preserve the whole rendered page verbatim.
+    Ini.WriteString(Section,'PageQuote'+IntToStr(Count),TNetEncoding.Base64.EncodeBytesToString(TEncoding.UTF8.GetBytes(PageText)).Replace(#13,'').Replace(#10,''));
     Ini.WriteString(Section,'Title'+IntToStr(Count),Title.Replace('&','&&'));
     Ini.WriteInteger(Section,'Count',Count+1); SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
+  ReloadBookmarkMarkers; FPageHasBookmark:=True; FSurface.Invalidate;
   FStatus.Caption:='Закладка сохранена. Она доступна в меню «Закладки».';
+end;
+
+procedure TfrmBuiltinReader.ReloadBookmarkMarkers;
+var Ini: TMemIniFile; Section: string; Count: Integer;
+begin
+  FBookmarkPositions:=nil; FPageHasBookmark:=False; if FSettingsFile='' then Exit;
+  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+  try
+    Section:='Bookmarks.'+FIdentity; Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
+    SetLength(FBookmarkPositions,Count);
+    for var I:=0 to Count-1 do FBookmarkPositions[I]:=Ini.ReadInteger(Section,'Position'+IntToStr(I),-1);
+  finally Ini.Free; end;
+end;
+
+function TfrmBuiltinReader.BookmarkMarkerBounds: TRect;
+var Width, Height, Gap: Integer;
+begin
+  Width:=MulDiv(15,CurrentPPI,96); Height:=MulDiv(23,CurrentPPI,96); Gap:=MulDiv(8,CurrentPPI,96);
+  Result:=Rect(FSurface.ClientWidth-Gap-Width,Gap,FSurface.ClientWidth-Gap,Gap+Height);
+end;
+
+procedure TfrmBuiltinReader.PaintBookmarkMarker(Canvas: TCanvas);
+var R: TRect; Color: TColor;
+begin
+  if not FPageHasBookmark then Exit; R:=BookmarkMarkerBounds;
+  Color:=RGB(113,130,145); if FNight then Color:=RGB(154,173,190);
+  Canvas.Brush.Color:=Color; Canvas.Pen.Color:=Color; Canvas.Pen.Width:=1;
+  Canvas.Polygon([Point(R.Left,R.Top),Point(R.Right,R.Top),Point(R.Right,R.Bottom),
+    Point((R.Left+R.Right) div 2,R.Bottom-R.Width div 2),Point(R.Left,R.Bottom)]);
+end;
+
+function TfrmBuiltinReader.BookmarkContext(Index: Integer): string;
+var Ini: TMemIniFile; Section, Encoded: string; Position, Finish: Integer;
+begin
+  Result:=''; if FSettingsFile='' then Exit;
+  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+  try
+    Section:='Bookmarks.'+FIdentity;
+    if (Index<0) or (Index>=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)) then Exit;
+    Encoded:=Ini.ReadString(Section,'PageQuote'+IntToStr(Index),'');
+    if Encoded<>'' then Exit(TEncoding.UTF8.GetString(TNetEncoding.Base64.DecodeStringToBytes(Encoded)));
+    Position:=Ini.ReadInteger(Section,'Position'+IntToStr(Index),-1);
+    if not FReady or (Position<0) or (Position>=FLength) then Exit;
+    if Assigned(FPDF) then begin if FPDF.IsPageCached(Position) then Result:=FPDF.TextRange(Position,0,MaxInt); Exit; end;
+    Finish:=Ini.ReadInteger(Section,'EndPosition'+IntToStr(Index),0);
+    if (Finish<=Position) or (Finish>FLength) then Finish:=MeasureGlobalPage(Position);
+    Result:=ReaderTextRange(FRichEdit,Position,Max(0,Finish-Position));
+  finally Ini.Free; end;
 end;
 
 procedure TfrmBuiltinReader.GoToBookmark(Index: Integer);
@@ -2778,7 +3145,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.SetNumberChapters(Value: Boolean);
-begin FNumberChapters:=Value; RebuildChapterTitles; end;
+begin FNumberChapters:=Value; RebuildChapterTitles; UpdateChapterPath; end;
 
 function TfrmBuiltinReader.ChapterIndexAt(Position: Integer): Integer;
 begin
@@ -2953,6 +3320,7 @@ begin
   begin FindText(FSearch.Text,ssShift in Shift); Key:=0; Exit; end;
   if FSearch.Focused then Exit;
   if (Key=Ord('T')) and (Shift=[ssCtrl]) then begin ContentsClick(nil); Key:=0; Exit; end;
+  if (Key=Ord('M')) and (Shift=[ssCtrl]) then begin NotesClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
   if (Key=VK_ESCAPE) and SearchRunning then begin StopSearch; RenderPage; Key:=0; Exit; end;

@@ -1,4 +1,4 @@
-object frmAbout: TfrmAbout
+﻿object frmAbout: TfrmAbout
   Left = 0
   Top = 0
   BorderStyle = bsDialog
@@ -82,7 +82,7 @@ object frmAbout: TfrmAbout
     object RzLabel4: TLabel
       AlignWithMargins = True
       Left = 3
-      Top = 197
+      Top = 140
       Width = 243
       Height = 13
       Align = alTop
@@ -99,7 +99,7 @@ object frmAbout: TfrmAbout
     object RzLabel6: TLabel
       AlignWithMargins = True
       Left = 3
-      Top = 216
+      Top = 159
       Width = 243
       Height = 26
       Align = alTop
@@ -121,7 +121,7 @@ object frmAbout: TfrmAbout
     object Label2: TLabel
       AlignWithMargins = True
       Left = 3
-      Top = 140
+      Top = 191
       Width = 243
       Height = 13
       Align = alTop
@@ -138,7 +138,7 @@ object frmAbout: TfrmAbout
     object Label3: TLabel
       AlignWithMargins = True
       Left = 3
-      Top = 159
+      Top = 210
       Width = 243
       Height = 26
       Align = alTop

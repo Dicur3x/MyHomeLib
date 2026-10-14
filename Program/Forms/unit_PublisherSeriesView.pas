@@ -78,7 +78,9 @@ begin
   IndexButton.Parent := Sidebar;
   IndexButton.Align := alBottom;
   IndexButton.Height := Scale(30);
-  IndexButton.Caption := 'Заполнить из книг...';
+  IndexButton.Caption := 'Заполнить из FB2...';
+  IndexButton.Hint := 'Заполнить издательства и издательские серии из описаний FB2. Ранее проверенные файлы используются из кэша.';
+  IndexButton.ShowHint := True;
   FullScan := TCheckBox.Create(Self);
   FullScan.Parent := Sidebar;
   FullScan.Align := alBottom;

@@ -15,6 +15,11 @@ const
 type
   TFB2MetadataStatus = (fmsComplete, fmsInvalid, fmsCanceled, fmsNoMetadata);
 
+  TFB2CatalogMetadata = record
+    Publisher, City, ISBN, Translators, Annotation: string;
+    PubYear: Integer;
+  end;
+
   // Create, reuse and destroy on one COM-initialized thread. Streams are borrowed.
   TFB2PublisherMetadataReader = class
   private
@@ -22,6 +27,9 @@ type
     FHandler: IInterface;
     FHandlerObject: TObject;
     FLastRecoveryDetails: string;
+    FLastPublisher: string;
+    FLastMetadata: TFB2CatalogMetadata;
+    FCaptureMetadata, FCaptureAnnotation: Boolean;
     function ReadStrict(Stream: TStream; out Series: TFB2PublisherSeries;
       out ErrorText: string; const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
   public
@@ -32,7 +40,12 @@ type
     function Read(Stream: TStream; out Series: TFB2PublisherSeries;
       out ErrorText: string;
       const IsCanceled: TFunc<Boolean> = nil): TFB2MetadataStatus;
+    function ReadCatalogMetadata(Stream: TStream; out Metadata: TFB2CatalogMetadata;
+      out ErrorText: string; const CaptureAnnotation: Boolean = False;
+      const IsCanceled: TFunc<Boolean> = nil): TFB2MetadataStatus;
     property LastRecoveryDetails: string read FLastRecoveryDetails;
+    // Available only after a complete, bounded metadata read.
+    property LastPublisher: string read FLastPublisher;
   end;
 
 implementation
@@ -70,6 +83,13 @@ type
     FComplete: Boolean;
     FCanceled: Boolean;
     FNoMetadata: Boolean;
+    FPublisher, FPublisherText: string;
+    FPublisherDepth: Integer;
+    FMetadata: TFB2CatalogMetadata;
+    FCaptureMetadata, FCaptureAnnotation, FInTitleInfo: Boolean;
+    FValueDepth, FAnnotationDepth, FTranslatorDepth, FForeignDepth: Integer;
+    FValueName, FValueText, FFirstName, FMiddleName, FLastName, FNickName: string;
+    function FinishValue: HResult;
     function CheckContinue: HResult;
     function Invalid(const MessageText: string): HResult;
     function CaptureException: HResult;
@@ -77,7 +97,8 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    procedure Reset(const IsCanceled: TFunc<Boolean>);
+    procedure Reset(const IsCanceled: TFunc<Boolean>;
+      CaptureMetadata, CaptureAnnotation: Boolean);
     procedure RaiseCapturedException;
     function putDocumentLocator(const pLocator: ISAXLocator): HResult; stdcall;
     function startDocument: HResult; stdcall;
@@ -145,7 +166,8 @@ begin
   inherited;
 end;
 
-procedure TMetadataHandler.Reset(const IsCanceled: TFunc<Boolean>);
+procedure TMetadataHandler.Reset(const IsCanceled: TFunc<Boolean>;
+  CaptureMetadata, CaptureAnnotation: Boolean);
 begin
   FItems.Clear;
   FCancel := IsCanceled;
@@ -160,6 +182,16 @@ begin
   FComplete := False;
   FCanceled := False;
   FNoMetadata := False;
+  FPublisher := '';
+  FPublisherText := '';
+  FPublisherDepth := 0;
+  FMetadata := Default(TFB2CatalogMetadata);
+  FCaptureMetadata := CaptureMetadata;
+  FCaptureAnnotation := CaptureAnnotation;
+  FInTitleInfo := False;
+  FValueDepth := 0; FAnnotationDepth := 0; FTranslatorDepth := 0;
+  FForeignDepth := 0; FValueName := ''; FValueText := '';
+  FFirstName := ''; FMiddleName := ''; FLastName := ''; FNickName := '';
   FillChar(FSequencePath, SizeOf(FSequencePath), 0);
 end;
 
@@ -224,6 +256,34 @@ begin
   end;
 end;
 
+function TMetadataHandler.FinishValue: HResult;
+var Value: string; Target: PString; Year: Integer;
+begin
+  Result := S_OK; Value := Trim(FValueText); Target := nil;
+  if FValueName = 'city' then Target := @FMetadata.City
+  else if FValueName = 'isbn' then Target := @FMetadata.ISBN
+  else if FValueName = 'first-name' then Target := @FFirstName
+  else if FValueName = 'middle-name' then Target := @FMiddleName
+  else if FValueName = 'last-name' then Target := @FLastName
+  else if FValueName = 'nickname' then Target := @FNickName
+  else if FValueName = 'year' then
+  begin
+    if TryStrToInt(Value, Year) and (Year > 0) and (Year <= 9999) then
+    begin
+      if (FMetadata.PubYear <> 0) and (FMetadata.PubYear <> Year) then
+        Exit(Invalid('В описании FB2 указаны разные годы издания.'));
+      FMetadata.PubYear := Year;
+    end;
+  end;
+  if Assigned(Target) and (Value <> '') then
+  begin
+    if (Target^ <> '') and (Target^ <> Value) then
+      Exit(Invalid('В описании FB2 указаны разные значения ' + FValueName));
+    Target^ := Value;
+  end;
+  FValueDepth := 0; FValueName := ''; FValueText := '';
+end;
+
 function TMetadataHandler.startElement(var pwchNamespaceUri: Word;
   cchNamespaceUri: Integer; var pwchLocalName: Word; cchLocalName: Integer;
   var pwchQName: Word; cchQName: Integer; const pAttributes: ISAXAttributes): HResult;
@@ -241,6 +301,13 @@ begin
     FSequencePath[FDepth] := False;
     Namespace := SAXText(PWideChar(@pwchNamespaceUri), cchNamespaceUri);
     Name := SAXText(PWideChar(@pwchLocalName), cchLocalName);
+    if FCaptureMetadata and (FValueDepth > 0) and (FDepth > FValueDepth) then
+      Exit(Invalid('Поле FB2 содержит вложенный элемент: ' + FValueName));
+    if FCaptureMetadata and (FAnnotationDepth > 0) and
+      (Namespace <> FDescriptionNamespace) and (Namespace <> '') and
+      (FForeignDepth = 0) then FForeignDepth := FDepth;
+    if (FPublisherDepth > 0) and (FDepth > FPublisherDepth) then
+      Exit(Invalid('Издательство FB2 содержит вложенный элемент; метаданные не сохранены.'));
     if FDepth = 1 then
     begin
       if (Name <> 'FictionBook') or
@@ -273,6 +340,34 @@ begin
         if Name = 'title-info' then
           FHasTitleInfo := True;
         FInPublishInfo := Name = 'publish-info';
+        FInTitleInfo := Name = 'title-info';
+      end
+      else if FInPublishInfo and (FDepth = 4) and (Name = 'publisher') then
+      begin
+        FPublisherDepth := FDepth;
+        FPublisherText := '';
+      end
+      else if FCaptureMetadata and FInPublishInfo and (FDepth = 4) and
+        ((Name = 'city') or (Name = 'year') or (Name = 'isbn')) then
+      begin
+        FValueDepth := FDepth; FValueName := Name; FValueText := '';
+      end
+      else if FCaptureMetadata and FInTitleInfo and (FDepth = 4) then
+      begin
+        if (Name = 'annotation') and FCaptureAnnotation then
+          FAnnotationDepth := FDepth
+        else if Name = 'translator' then
+        begin
+          FTranslatorDepth := FDepth;
+          FFirstName := ''; FMiddleName := ''; FLastName := ''; FNickName := '';
+        end;
+      end
+      else if FCaptureMetadata and (FTranslatorDepth > 0) and
+        (FDepth = FTranslatorDepth + 1) and
+        ((Name = 'first-name') or (Name = 'middle-name') or
+         (Name = 'last-name') or (Name = 'nickname')) then
+      begin
+        FValueDepth := FDepth; FValueName := Name; FValueText := '';
       end
       else if FInPublishInfo and (Name = 'sequence') and
         ((FDepth = 4) or FSequencePath[FDepth - 1]) then
@@ -297,11 +392,55 @@ end;
 function TMetadataHandler.endElement(var pwchNamespaceUri: Word;
   cchNamespaceUri: Integer; var pwchLocalName: Word; cchLocalName: Integer;
   var pwchQName: Word; cchQName: Integer): HResult;
+var Name, Person: string;
 begin
   try
     Result := CheckContinue;
     if Failed(Result) then
       Exit;
+    Name := SAXText(PWideChar(@pwchLocalName), cchLocalName);
+    if FCaptureMetadata then
+    begin
+      if (FValueDepth > 0) and (FDepth = FValueDepth) then
+      begin
+        Result := FinishValue;
+        if Failed(Result) then Exit;
+      end;
+      if (FAnnotationDepth > 0) and (FForeignDepth = 0) and
+        ((Name = 'p') or (Name = 'empty-line')) then
+      begin
+        if Length(FMetadata.Annotation) > 65534 then
+          Exit(Invalid('Аннотация FB2 превышает допустимый размер.'));
+        FMetadata.Annotation := FMetadata.Annotation + #13#10;
+      end;
+      if (FForeignDepth > 0) and (FDepth = FForeignDepth) then FForeignDepth := 0;
+      if (FAnnotationDepth > 0) and (FDepth = FAnnotationDepth) then
+      begin
+        FMetadata.Annotation := Trim(FMetadata.Annotation);
+        FAnnotationDepth := 0;
+      end;
+      if (FTranslatorDepth > 0) and (FDepth = FTranslatorDepth) then
+      begin
+        Person := FormatName(FLastName, FFirstName, FMiddleName, FNickName);
+        if Person <> '' then
+        begin
+          if FMetadata.Translators <> '' then Person := '; ' + Person;
+          if Length(FMetadata.Translators) + Length(Person) > 4096 then
+            Exit(Invalid('Список переводчиков FB2 превышает 4096 знаков.'));
+          FMetadata.Translators := FMetadata.Translators + Person;
+        end;
+        FTranslatorDepth := 0;
+      end;
+    end;
+    if (FPublisherDepth > 0) and (FDepth = FPublisherDepth) then
+    begin
+      if (FPublisher <> '') and (Trim(FPublisherText) <> '') and
+        (FPublisher <> Trim(FPublisherText)) then
+        Exit(Invalid('В описании FB2 указаны разные издательства; метаданные не сохранены.'));
+      if Trim(FPublisherText) <> '' then FPublisher := Trim(FPublisherText);
+      FPublisherText := '';
+      FPublisherDepth := 0;
+    end;
     if (FDepth = 2) and FInDescription then
     begin
       if not FHasTitleInfo then
@@ -311,7 +450,10 @@ begin
       Exit(E_ABORT);
     end;
     if FDepth = 3 then
+    begin
       FInPublishInfo := False;
+      FInTitleInfo := False;
+    end;
     if (FDepth = 1) and not FInDescription then
     begin
       FNoMetadata := True;
@@ -353,13 +495,39 @@ end;
 
 function TMetadataHandler.characters(var pwchChars: Word; cchChars: Integer): HResult;
 begin
-  Result := CheckContinue;
+  try
+    Result := CheckContinue;
+    if Failed(Result) then Exit;
+    if FCaptureMetadata then
+    begin
+      if FValueDepth > 0 then
+      begin
+        if (cchChars < 0) or (cchChars > 4096 - Length(FValueText)) then
+          Exit(Invalid('Поле FB2 превышает 4096 знаков: ' + FValueName));
+        FValueText := FValueText + SAXText(PWideChar(@pwchChars), cchChars);
+      end;
+      if (FAnnotationDepth > 0) and (FForeignDepth = 0) then
+      begin
+        if (cchChars < 0) or (cchChars > 65536 - Length(FMetadata.Annotation)) then
+          Exit(Invalid('Аннотация FB2 превышает допустимый размер.'));
+        FMetadata.Annotation := FMetadata.Annotation + SAXText(PWideChar(@pwchChars), cchChars);
+      end;
+    end;
+    if FPublisherDepth > 0 then
+    begin
+      if (cchChars < 0) or (cchChars > 4096 - Length(FPublisherText)) then
+        Exit(Invalid('Название издательства FB2 превышает 4096 знаков.'));
+      FPublisherText := FPublisherText + SAXText(PWideChar(@pwchChars), cchChars);
+    end;
+  except
+    Result := CaptureException;
+  end;
 end;
 
 function TMetadataHandler.ignorableWhitespace(var pwchChars: Word;
   cchChars: Integer): HResult;
 begin
-  Result := CheckContinue;
+  Result := characters(pwchChars, cchChars);
 end;
 
 function TMetadataHandler.processingInstruction(var pwchTarget: Word;
@@ -601,6 +769,8 @@ var
   ParseResult: HResult;
 begin
   Series := nil;
+  FLastPublisher := '';
+  FLastMetadata := Default(TFB2CatalogMetadata);
   ErrorText := '';
   if Stream = nil then
   begin
@@ -608,7 +778,7 @@ begin
     Exit(fmsInvalid);
   end;
   Handler := TMetadataHandler(FHandlerObject);
-  Handler.Reset(IsCanceled);
+  Handler.Reset(IsCanceled, FCaptureMetadata, FCaptureAnnotation);
   try
     InputObject := TMetadataInput.Create(Stream, Handler);
     Input := InputObject;
@@ -628,6 +798,9 @@ begin
     if Handler.FComplete then
     begin
       Series := Handler.FItems.ToArray;
+      FLastPublisher := Handler.FPublisher;
+      FLastMetadata := Handler.FMetadata;
+      FLastMetadata.Publisher := Handler.FPublisher;
       Exit(fmsComplete);
     end;
     if Handler.FNoMetadata then Exit(fmsNoMetadata);
@@ -652,6 +825,8 @@ var
   WasCanceled: Boolean;
 begin
   FLastRecoveryDetails := '';
+  FLastPublisher := '';
+  FLastMetadata := Default(TFB2CatalogMetadata);
   if Stream = nil then
     Exit(ReadStrict(nil, Series, ErrorText, IsCanceled));
   Recorded := TRecordedMetadataStream.Create(Stream, FB2_METADATA_MAX_BYTES);
@@ -695,6 +870,23 @@ begin
     end;
   finally
     Recorded.Free;
+  end;
+end;
+
+function TFB2PublisherMetadataReader.ReadCatalogMetadata(Stream: TStream;
+  out Metadata: TFB2CatalogMetadata; out ErrorText: string;
+  const CaptureAnnotation: Boolean; const IsCanceled: TFunc<Boolean>): TFB2MetadataStatus;
+var Series: TFB2PublisherSeries;
+begin
+  Metadata := Default(TFB2CatalogMetadata);
+  FCaptureMetadata := True;
+  FCaptureAnnotation := CaptureAnnotation;
+  try
+    Result := Read(Stream, Series, ErrorText, IsCanceled);
+    if Result = fmsComplete then Metadata := FLastMetadata;
+  finally
+    FCaptureMetadata := False;
+    FCaptureAnnotation := False;
   end;
 end;
 

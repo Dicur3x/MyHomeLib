@@ -12,19 +12,106 @@ function MHLShouldOfferWindowsDarkTheme(WindowsDark, AppDark, Dismissed: Boolean
 function MHLThemeBackground: TColor;
 function MHLThemeText: TColor;
 function MHLThemeLink: TColor;
+procedure SetMHLControlFontColor(Control: TControl; Color: TColor);
 procedure ApplyMHLControlTheme(Control: TControl);
 procedure SetMHLTheme(Dark: Boolean);
 
 implementation
 
-uses System.SysUtils, System.StrUtils, System.Win.Registry, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Themes, Vcl.Styles,
-  VirtualTrees, Vcl.ComCtrls, Winapi.RichEdit;
+uses System.SysUtils, System.StrUtils, System.Classes, System.Types, System.Math, System.Win.Registry, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.Themes, Vcl.Styles,
+  VirtualTrees, VirtualTrees.Types, Vcl.ComCtrls, Winapi.RichEdit;
 
 type TControlAccess = class(TControl);
   TTreeAccess = class(TCustomVirtualStringTree);
 
 const DarkStyleName = 'Charcoal Dark Slate';
 var DarkActive: Boolean;
+
+type
+  TThemeToolbarPainter = class(TComponent)
+  private
+    FBar: TToolBar;
+    FOriginalDraw: TTBCustomDrawEvent;
+    FOriginalButton: TTBCustomDrawBtnEvent;
+    FOriginalStyleElements: TStyleElements;
+    procedure Draw(Sender: TToolBar; const Bounds: TRect; var DefaultDraw: Boolean);
+    procedure DrawButton(Sender: TToolBar; Button: TToolButton; State: TCustomDrawState; var DefaultDraw: Boolean);
+  public
+    constructor CreateFor(Bar: TToolBar);
+    procedure Apply;
+  end;
+
+constructor TThemeToolbarPainter.CreateFor(Bar: TToolBar);
+begin
+  inherited Create(Bar); Name:='MHLToolbarPainter'; FBar:=Bar;
+  FOriginalDraw:=Bar.OnCustomDraw; FOriginalButton:=Bar.OnCustomDrawButton;
+  FOriginalStyleElements:=Bar.StyleElements;
+  Bar.OnCustomDraw:=Draw; Bar.OnCustomDrawButton:=DrawButton;
+end;
+
+procedure TThemeToolbarPainter.Apply;
+begin
+  // The stock Charcoal toolbar paints every idle button as a raised grey tile.
+  // Native custom drawing retains keyboard/menu/checked behavior and the icons.
+  if DarkActive then FBar.StyleElements:=[] else FBar.StyleElements:=FOriginalStyleElements;
+end;
+
+procedure TThemeToolbarPainter.Draw(Sender: TToolBar; const Bounds: TRect; var DefaultDraw: Boolean);
+begin
+  if not DarkActive then begin if Assigned(FOriginalDraw) then FOriginalDraw(Sender,Bounds,DefaultDraw); Exit; end;
+  Sender.Canvas.Brush.Color:=MHLThemeBackground; Sender.Canvas.FillRect(Bounds); DefaultDraw:=True;
+end;
+
+procedure TThemeToolbarPainter.DrawButton(Sender: TToolBar; Button: TToolButton; State: TCustomDrawState; var DefaultDraw: Boolean);
+var R, Content, TextBounds: TRect; Color, Border, Foreground: TColor; Active, Hot, Pressed: Boolean;
+  X, Y, ArrowWidth, Gap, Offset, Radius: Integer; Text: string;
+begin
+  if not DarkActive then begin if Assigned(FOriginalButton) then FOriginalButton(Sender,Button,State,DefaultDraw); Exit; end;
+  DefaultDraw:=False; R:=Button.BoundsRect; Sender.Canvas.Brush.Color:=MHLThemeBackground; Sender.Canvas.FillRect(R);
+  if Button.Style in [tbsSeparator,tbsDivider] then
+  begin
+    Sender.Canvas.Pen.Color:=RGB(71,74,79); X:=(R.Left+R.Right) div 2;
+    Sender.Canvas.MoveTo(X,R.Top+7); Sender.Canvas.LineTo(X,R.Bottom-7); Exit;
+  end;
+  Active:=Button.Down; Hot:=cdsHot in State; Pressed:=cdsSelected in State;
+  Color:=RGB(43,45,48); Border:=RGB(62,65,70); Foreground:=MHLThemeText;
+  if Hot then begin Color:=RGB(62,68,79); Border:=RGB(106,126,154); end;
+  if Active then begin Color:=RGB(43,76,119); Border:=RGB(112,173,239); Foreground:=RGB(239,245,255); end;
+  if Pressed then begin Color:=RGB(29,49,78); Border:=RGB(145,191,243); end;
+  if not Button.Enabled then Foreground:=RGB(115,120,129);
+  InflateRect(R,-1,-1); Sender.Canvas.Brush.Color:=Color; Sender.Canvas.Pen.Color:=Border;
+  Radius:=Max(3,MulDiv(5,Sender.CurrentPPI,96)); Sender.Canvas.RoundRect(R.Left,R.Top,R.Right,R.Bottom,Radius,Radius);
+  if Active then
+  begin
+    Sender.Canvas.Pen.Color:=Border; Sender.Canvas.Pen.Width:=Max(2,MulDiv(3,Sender.CurrentPPI,96));
+    Sender.Canvas.MoveTo(R.Left+4,R.Bottom-2); Sender.Canvas.LineTo(R.Right-4,R.Bottom-2); Sender.Canvas.Pen.Width:=1;
+  end;
+  Content:=R; ArrowWidth:=0; Gap:=MulDiv(4,Sender.CurrentPPI,96); Offset:=Ord(Pressed);
+  if Button.Style=tbsDropDown then
+  begin
+    ArrowWidth:=MulDiv(14,Sender.CurrentPPI,96); Dec(Content.Right,ArrowWidth);
+    X:=R.Right-ArrowWidth div 2-1; Y:=(R.Top+R.Bottom) div 2;
+    Sender.Canvas.Brush.Color:=Foreground; Sender.Canvas.Pen.Color:=Foreground;
+    Sender.Canvas.Polygon([Point(X-3,Y-1),Point(X+3,Y-1),Point(X,Y+2)]);
+  end;
+  Sender.Canvas.Font.Assign(Sender.Font); Sender.Canvas.Font.Color:=Foreground;
+  if Sender.ShowCaptions then Text:=Button.Caption else Text:='';
+  if Assigned(Sender.Images) and (Button.ImageIndex>=0) and (Button.ImageIndex<Sender.Images.Count) then
+  begin
+    X:=Content.Left+(Content.Width-Sender.Images.Width) div 2; Y:=Content.Top+(Content.Height-Sender.Images.Height) div 2;
+    if (Text<>'') and Sender.List then X:=Content.Left+Gap;
+    if (Text<>'') and not Sender.List then Y:=Content.Top+Gap;
+    Sender.Images.Draw(Sender.Canvas,X+Offset,Y+Offset,Button.ImageIndex,Button.Enabled);
+    if Sender.List then Content.Left:=X+Sender.Images.Width+Gap
+    else if Text<>'' then Content.Top:=Y+Sender.Images.Height;
+  end;
+  if Text<>'' then
+  begin
+    TextBounds:=Content; OffsetRect(TextBounds,Offset,Offset); Sender.Canvas.Brush.Style:=bsClear;
+    DrawText(Sender.Canvas.Handle,PChar(Text),Length(Text),TextBounds,DT_CENTER or DT_VCENTER or DT_SINGLELINE);
+    Sender.Canvas.Brush.Style:=bsSolid;
+  end;
+end;
 
 function MHLThemeDark: Boolean;
 begin Result := DarkActive; end;
@@ -62,8 +149,24 @@ begin if DarkActive then Result:=RGB(205,208,214) else Result:=clWindowText; end
 function MHLThemeLink: TColor;
 begin if DarkActive then Result:=RGB(114,167,232) else Result:=clHotLight; end;
 
+procedure SetMHLControlFontColor(Control: TControl; Color: TColor);
+var Tree: TTreeAccess; Options: TVTAutoOptions;
+begin
+  if (Control = nil) or (TControlAccess(Control).Font.Color = Color) then Exit;
+  if Control is TCustomVirtualStringTree then
+  begin
+    // A colour notification is not a font-metric change. VirtualTree's
+    // automatic font sizing would otherwise walk the loaded rows here.
+    Tree := TTreeAccess(Control); Options := Tree.TreeOptions.AutoOptions;
+    Tree.TreeOptions.AutoOptions := Options - [toAutoChangeScale];
+    try TControlAccess(Control).Font.Color := Color;
+    finally Tree.TreeOptions.AutoOptions := Options; end;
+  end
+  else TControlAccess(Control).Font.Color := Color;
+end;
+
 procedure ApplyMHLControlTheme(Control: TControl);
-var I: Integer; Tree: TTreeAccess; Format: TCharFormat2; Rich: TCustomRichEdit;
+var I: Integer; Tree: TTreeAccess; Format: TCharFormat2; Rich: TCustomRichEdit; Painter: TComponent;
 begin
   if Control=nil then Exit;
   // The reader owns its hidden formatting buffer and reapplies semantic colors.
@@ -87,7 +190,7 @@ begin
   end
   else
   begin
-    TControlAccess(Control).Font.Color:=MHLThemeText;
+    SetMHLControlFontColor(Control, MHLThemeText);
     TControlAccess(Control).Font.Quality:=fqClearTypeNatural;
   end;
   if (Control is TCustomEdit) or (Control is TCustomListBox) or (Control is TCustomComboBox) then
@@ -96,6 +199,12 @@ begin
     else TControlAccess(Control).Color:=clWindow;
   end
   else TControlAccess(Control).Color:=MHLThemeBackground;
+  if Control is TToolBar then
+  begin
+    Painter:=Control.FindComponent('MHLToolbarPainter');
+    if not Assigned(Painter) then Painter:=TThemeToolbarPainter.CreateFor(TToolBar(Control));
+    if Painter is TThemeToolbarPainter then TThemeToolbarPainter(Painter).Apply;
+  end;
   if Control is TCustomVirtualStringTree then
   begin
     Tree:=TTreeAccess(Control);
@@ -103,7 +212,7 @@ begin
     Tree.Header.Font.Color:=MHLThemeText;
     if DarkActive then
     begin
-      Tree.Color:=RGB(30,31,34); Tree.Font.Color:=MHLThemeText;
+      Tree.Color:=RGB(30,31,34); SetMHLControlFontColor(Tree, MHLThemeText);
       Tree.Colors.FocusedSelectionColor:=RGB(33,66,131);
       Tree.Colors.UnfocusedSelectionColor:=RGB(53,69,97);
       Tree.Colors.SelectionTextColor:=RGB(221,225,234);
@@ -112,7 +221,7 @@ begin
     end
     else
     begin
-      Tree.Color:=clWindow; Tree.Font.Color:=clWindowText;
+      Tree.Color:=clWindow; SetMHLControlFontColor(Tree, clWindowText);
       Tree.Colors.FocusedSelectionColor:=clHighlight;
       Tree.Colors.UnfocusedSelectionColor:=clBtnFace;
       Tree.Colors.SelectionTextColor:=clHighlightText;
@@ -128,6 +237,7 @@ procedure SetMHLTheme(Dark: Boolean);
 var I: Integer; WasDark: Boolean;
 begin
   WasDark:=DarkActive;
+  if Dark=WasDark then Exit;
   if Dark then
   begin
     // The VCL can discover embedded styles before the first toggle. Reuse

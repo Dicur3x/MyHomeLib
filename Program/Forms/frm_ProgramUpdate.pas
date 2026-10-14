@@ -17,6 +17,10 @@ type
     FUIRedraw, FPresentPending: Boolean;
     FThread: TProgramDownloadThread;
     FComponentThread: TComponentUpdateThread;
+    FMessageWindow: HWND;
+    procedure EnsureMessageWindow;
+    procedure MessageWindowProc(var Message: TMessage);
+  private
     FComponents: TComponentReleases;
     FComponentsView: TListView;
     FTabs: TTabControl;
@@ -78,6 +82,9 @@ type
     procedure ClearQueueJobs;
   protected
     procedure Resize; override;
+    function CreateComponentWorker(Window: HWND): TComponentUpdateThread; virtual;
+    function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
+      const Job: string): TProgramDownloadThread; virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -202,6 +209,7 @@ begin
 end;
 
 destructor TfrmProgramUpdate.Destroy;
+var Message: TMsg;
 begin
   Inc(FUIUpdateCount); // Child destruction must not run layout on released controls.
   if Assigned(FComponentsView) then FComponentsView.OnSelectItem:=nil;
@@ -209,9 +217,18 @@ begin
   if Assigned(FHistorySelector) then FHistorySelector.OnChange:=nil;
   SaveViewPreferences;
   if Assigned(FComponentThread) then
+  // TThread.Destroy joins and also resumes a canceled Create(True) thread
+  // after a pre-Start UI failure; an explicit WaitFor would deadlock there.
   begin FComponentThread.Terminate; FreeAndNil(FComponentThread); end;
   if Assigned(FThread) then
   begin FThread.Terminate; FreeAndNil(FThread); end;
+  // Producers finish before their stable delivery window or UI state disappears.
+  if FMessageWindow <> 0 then
+  begin
+    while PeekMessage(Message, FMessageWindow, WM_PROGRAM_UPDATE_DOWNLOADED,
+      WM_COMPONENT_UPDATE_CHECKED, PM_REMOVE) do ;
+    DeallocateHWnd(FMessageWindow); FMessageWindow := 0;
+  end;
   // Keep a verified ready update when installation is postponed or the app exits.
   if not FReady then DiscardJob;
   ClearQueueJobs;
@@ -709,12 +726,40 @@ begin
   else begin FComponentExplicit:=True; CheckComponents(False); end;
 end;
 
+procedure TfrmProgramUpdate.EnsureMessageWindow;
+begin
+  // VCL style/DPI changes can recreate this form's visible HWND while a
+  // worker runs. Its notifier stays owned and stable until both workers join.
+  if FMessageWindow = 0 then FMessageWindow := AllocateHWnd(MessageWindowProc);
+end;
+
+procedure TfrmProgramUpdate.MessageWindowProc(var Message: TMessage);
+begin
+  case Message.Msg of
+    WM_COMPONENT_UPDATE_CHECKED: ComponentsChecked(Message);
+    WM_PROGRAM_UPDATE_DOWNLOADED: DownloadCompleted(Message);
+    WM_PROGRAM_UPDATE_PROGRESS: DownloadProgress(Message);
+  else Message.Result := DefWindowProc(FMessageWindow, Message.Msg, Message.WParam, Message.LParam);
+  end;
+end;
+
+function TfrmProgramUpdate.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
+begin
+  Result := TComponentUpdateThread.Create(Window, CreateHTTPClientGlobal, PROGRAM_RELEASES_API, FCache);
+end;
+
+function TfrmProgramUpdate.CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
+  const Job: string): TProgramDownloadThread;
+begin
+  Result := TProgramDownloadThread.Create(Window, CreateHTTPClientGlobal, ReleaseInfo, Job);
+end;
+
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 begin
   if Assigned(FComponentThread) then Exit;
   FComponentAutomatic := Automatic; FComponentError := '';
-  FComponentThread := TComponentUpdateThread.Create(Handle, CreateHTTPClientGlobal,
-    PROGRAM_RELEASES_API, FCache);
+  EnsureMessageWindow;
+  FComponentThread := CreateComponentWorker(FMessageWindow);
   FComponentCheck.Enabled := False;
   UpdateComponentList;
   if (FSelectedRow > 0) and not Assigned(FThread) and not FReady then
@@ -885,7 +930,8 @@ begin
   CreateGUID(ID);
   FJob := IncludeTrailingPathDelimiter(FCache) + 'HomeLibRu-update-' +
     StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
-  FThread := TProgramDownloadThread.Create(Handle, CreateHTTPClientGlobal, FQueue[FQueueIndex], FJob);
+  EnsureMessageWindow;
+  FThread := CreateDownloadWorker(FMessageWindow, FQueue[FQueueIndex], FJob);
   FComponentsView.Enabled := False;
   FComponentCheck.Enabled:=False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';

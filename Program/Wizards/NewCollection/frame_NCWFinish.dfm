@@ -1,4 +1,4 @@
-inherited frameNCWFinish: TframeNCWFinish
+﻿inherited frameNCWFinish: TframeNCWFinish
   inherited Panel8: TPanel
     StyleElements = [seFont, seClient, seBorder]
   end
@@ -20,6 +20,36 @@ inherited frameNCWFinish: TframeNCWFinish
       ExplicitTop = 62
       ExplicitWidth = 284
       ExplicitHeight = 30
+    end
+    object btnMetadataFill: TButton
+      AlignWithMargins = True
+      Left = 14
+      Top = 100
+      Width = 286
+      Height = 36
+      Margins.Left = 14
+      Margins.Top = 14
+      Margins.Right = 7
+      Margins.Bottom = 0
+      Align = alTop
+      Caption = 'Заполнить сведения из книг…'
+      Enabled = False
+      TabOrder = 0
+    end
+    object lblMetadataFill: TLabel
+      AlignWithMargins = True
+      Left = 14
+      Top = 143
+      Width = 286
+      Height = 65
+      Margins.Left = 14
+      Margins.Top = 7
+      Margins.Right = 7
+      Margins.Bottom = 0
+      Align = alTop
+      AutoSize = True
+      Caption = 'Можно выбрать пустые поля каталога и заполнить их из местных FB2 и FB2 в ZIP. Проверка книг начнётся только по вашей команде. Нужна доступная папка книг.'
+      WordWrap = True
     end
     inherited lblPageHint: TLabel
       Width = 286

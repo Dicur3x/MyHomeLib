@@ -89,6 +89,8 @@ type
       // Metadata-only callers may stop before EOF. The archive must outlive
       // the returned stream; ordinary extraction still verifies the full CRC.
       function OpenEntryStream(const Index: Integer): TStream;
+      // Metadata callers can reject PPMd/7z without launching a helper.
+      function EntryUsesExternalDecoder(const Index: Integer): Boolean;
 
       function Find(AFileName: string): Boolean;
       function FindNext: Boolean;
@@ -586,6 +588,13 @@ begin
     Output.Free;
   end;
 end;
+function TMHLZip.EntryUsesExternalDecoder(const Index: Integer): Boolean;
+begin
+  if (Index < 0) or (Index >= FileCount) then
+    raise ERangeError.CreateFmt('Archive entry index %d is out of range', [Index]);
+  Result := EntryNeedsExternalDecoder(Index);
+end;
+
 function TMHLZip.OpenEntryStream(const Index: Integer): TStream;
 var
   Header: TZipHeader;

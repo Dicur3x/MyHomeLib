@@ -31,7 +31,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -86,6 +86,7 @@ type
     end;
 
   protected
+    FMetadataRootGuard: Boolean;
     function InternalCreateCollection(const CollectionID: Integer): IBookCollection; override;
     procedure PrepareCollectionPath(var CollectionRoot: string; var CollectionFile: string);
 
@@ -158,6 +159,8 @@ type
 
     function StoredBookIDs(const CollectionID: Integer): TArray<Integer>;
     function GetDataRevision: string;
+    procedure BeginMetadataRootGuard;
+    procedure EndMetadataRootGuard;
     procedure BeginDataUpdate;
     procedure EndDataUpdate(Commit: Boolean);
     procedure ImportUserData(data: TUserData);
@@ -589,7 +592,9 @@ begin
     PROP_CODE:
       raise ENotSupportedException.CreateFmt('Property %d is read-only', [PropID]);
     PROP_ROOTFOLDER:
-      vValue := ExtractRelativePath(Settings.DataPath, vValue);
+      // RootFolder is resolved against WorkPath by ExpandCollectionRoot,
+      // unlike the catalog filename which is relative to DataPath.
+      vValue := ExtractRelativePath(Settings.WorkPath, vValue);
   end;
 
   FieldName := FieldByPropID(PropID);
@@ -1817,6 +1822,24 @@ function TSystemData_SQLite.GetDataRevision: string;
 begin
   Result := IntToStr(FDatabase.QuerySingleInt('PRAGMA data_version')) + ':' +
     IntToStr(FDatabase.QuerySingleInt('SELECT total_changes()'));
+end;
+
+procedure TSystemData_SQLite.BeginMetadataRootGuard;
+begin
+  if FMetadataRootGuard or FDatabase.InTransaction then
+    raise EInvalidOperation.Create('Другая операция меняет данные коллекций; повторите позже');
+  // The connection already has a bounded SQLite busy timeout. No rows are
+  // written, and ordinary readers remain available while this reservation is
+  // held. Always acquire SystemDB before the catalog transaction.
+  FDatabase.Start('', 'IMMEDIATE'); FMetadataRootGuard := True;
+end;
+
+procedure TSystemData_SQLite.EndMetadataRootGuard;
+begin
+  if not FMetadataRootGuard then raise EInvalidOperation.Create('Нет защиты папки коллекции');
+  try
+    if FDatabase.InTransaction then FDatabase.Rollback;
+  finally FMetadataRootGuard := False; end;
 end;
 
 procedure TSystemData_SQLite.BeginDataUpdate;

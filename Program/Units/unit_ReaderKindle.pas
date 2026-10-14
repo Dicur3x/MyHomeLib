@@ -37,8 +37,7 @@ begin
     if not FileExists(Tool) or not FileExists(Script) then
       raise Exception.Create('Не найден компонент чтения Kindle. Проверьте комплектность папки программы.');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-    ResultStamp := 'kindleunpack-bf0ca6e-v1|'+SourceFile+'|'+IntToStr(Input.Size)+'|'+
-      IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
+    ResultStamp := 'kindleunpack-bf0ca6e-v2|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+
       Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile := Result+'.source';

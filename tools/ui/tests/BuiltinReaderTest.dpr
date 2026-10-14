@@ -5,9 +5,21 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
-  System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
+  System.JSON, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
   unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
+
+type
+  TReaderRegressionExceptionHandler = class
+    procedure Handle(Sender: TObject; E: Exception);
+  end;
+
+procedure TReaderRegressionExceptionHandler.Handle(Sender: TObject; E: Exception);
+begin
+  Writeln('FAIL VCL ',E.ClassName,': ',E.Message);
+  Writeln('TRACE exception RVA ',IntToHex(NativeUInt(ExceptAddr)-NativeUInt(HInstance),8));
+  Flush(Output); Halt(1);
+end;
 
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
@@ -1232,7 +1244,7 @@ begin
 end;
 
 procedure AuditSelectionContrast;
-var Reader: TfrmBuiltinReader; Before, After: TBitmap; Theme: Integer; Prefix: string; GDI, RedrawGDI, UserBaseline, WarmUserPeak: Cardinal; FormsBaseline: Integer;
+var Reader: TfrmBuiltinReader; Before, After: TBitmap; Theme: Integer; Prefix: string; GDI, RedrawGDI, UserBaseline, WarmUserPeak: Cardinal; FormsBaseline: Integer; CycleStart, PhaseStart: UInt64; Phase: array[0..5] of UInt64;
 begin
   GDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
   Reader:=TfrmBuiltinReader.Create(nil); Before:=TBitmap.Create; After:=TBitmap.Create;
@@ -1269,9 +1281,15 @@ begin
   UserBaseline:=GetGuiResources(GetCurrentProcess,GR_USEROBJECTS); WarmUserPeak:=UserBaseline; FormsBaseline:=Screen.FormCount; LogReaderWindows;
   for var Round:=1 to 384 do
   begin
+    if (Round=1) or (Round mod 16=0) then begin Writeln('TRACE selection reopen round=',Round,' before create'); Flush(Output); end;
+    CycleStart:=GetTickCount64; PhaseStart:=CycleStart;
     Reader:=TfrmBuiltinReader.Create(nil); After:=TBitmap.Create;
+    Phase[0]:=GetTickCount64-PhaseStart; PhaseStart:=GetTickCount64;
     try
-      Reader.Show; Reader.OpenBook('search.pdf','Selection contrast','selection-contrast','selection-contrast.ini','pdfium.dll'); WaitReady(Reader);
+      Reader.Show; Reader.OpenBook('search.pdf','Selection contrast','selection-contrast','selection-contrast.ini','pdfium.dll');
+      Phase[1]:=GetTickCount64-PhaseStart; PhaseStart:=GetTickCount64;
+      WaitReady(Reader); Phase[2]:=GetTickCount64-PhaseStart; PhaseStart:=GetTickCount64;
+      if (Round=1) or (Round mod 16=0) then begin Writeln('TRACE selection reopen round=',Round,' ready'); Flush(Output); end;
       for Theme in [0,4] do
       begin
         Reader.SetTheme(Theme); WaitPage(Reader);
@@ -1279,8 +1297,16 @@ begin
         Reader.SelectPDFText(0,28); Reader.ReadingSurface.PaintTo(After.Canvas.Handle,0,0);
         Require(Reader.PDFSelectedText='Needle needle NEEDLE needled','Reopened PDF selection lost quote');
       end;
-      Reader.Close;
+      Phase[3]:=GetTickCount64-PhaseStart; PhaseStart:=GetTickCount64;
+      Reader.Close; Phase[4]:=GetTickCount64-PhaseStart; PhaseStart:=GetTickCount64;
     finally After.Free; Reader.Free; end;
+    Phase[5]:=GetTickCount64-PhaseStart;
+    if (Round=1) or (Round mod 16=0) then
+    begin
+      Writeln('PROFILE selection phases round=',Round,' create=',Phase[0], ' show-open=',Phase[1],
+        ' ready=',Phase[2],' themes=',Phase[3],' close=',Phase[4],' free=',Phase[5],
+        ' total=',GetTickCount64-CycleStart); Flush(Output);
+    end;
     Application.ProcessMessages;
     if Round<=288 then WarmUserPeak:=Max(WarmUserPeak,GetGuiResources(GetCurrentProcess,GR_USEROBJECTS));
     if Round=288 then
@@ -1296,7 +1322,7 @@ begin
     end;
     Require(Screen.FormCount=FormsBaseline,'PDF reader left an orphan form');
     if (Round mod 16)=0 then
-      Writeln('PROFILE selection lifecycle=',Round,' GDI=',GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS),' USER=',GetGuiResources(GetCurrentProcess,GR_USEROBJECTS));
+      begin Writeln('PROFILE selection lifecycle=',Round,' GDI=',GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS),' USER=',GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)); Flush(Output); end;
   end;
   DrainReaderCleanup;
   Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=GDI+2,'PDF selection reader lifecycle leaked drawing objects');
@@ -1819,7 +1845,7 @@ begin
               if (C is TLabel) and TLabel(C).WordWrap then Tip:=TLabel(C);
             end;
             Require(Assigned(Formats) and Assigned(Styles) and Assigned(Tip),'Export fields or explanation missing');
-            CheckNoteDialogButtons(Exporter,410,216);
+            CheckNoteDialogButtons(Exporter,410,244);
             R:=Rect(0,0,Tip.Width,0); Exporter.Canvas.Font.Assign(Tip.Font);
             DrawText(Exporter.Canvas.Handle,PChar(Tip.Caption),Length(Tip.Caption),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
             Require((Tip.Width>=380) and (R.Height<=Tip.Height),'Export explanation was collapsed or clipped');
@@ -1828,7 +1854,7 @@ begin
             Formats.ItemIndex:=1; Formats.OnChange(Formats); Require(Styles.Enabled and (Styles.Items.Count=4),'HTML styles unavailable');
             Exporter.ModalResult:=mrCancel;
           end);
-        NoteDialogButton(Manager,'Экспорт заметок…').OnClick(NoteDialogButton(Manager,'Экспорт заметок…'));
+        NoteDialogButton(Manager,'Заметки этой книги…').OnClick(NoteDialogButton(Manager,'Заметки этой книги…'));
         Manager.ModalResult:=mrCancel;
       end);
     NoteDialogButton(Reader,'Заметки').OnClick(nil); Reader.Close;
@@ -2213,19 +2239,23 @@ begin
   Require(BeforeHash=THashSHA2.GetHashStringFromFile('formatting-real.fb2'),'Large book source was rewritten');
 end;
 
+{$I ReaderAnnotationRangeTests.inc}
+{$I ReaderFeedback19Tests.inc}
+
 var Doc: TReaderDocument; Form: TfrmBuiltinReader; Name, BeforeHash, Identity: string;
   Ini: TMemIniFile; Position, Progress: Integer; Watch: TStopwatch;
   PDF: TReaderPDF; Bitmap: Vcl.Graphics.TBitmap; PDFMatch: TPDFMatch; Raster: TPoint; CancelChecks: Integer; GDIInitial: Cardinal;
   Chapters: TComboBox; Encoded: UTF8String; RTFBytes: TBytes;
-  Cycle, UserInitial, FormsInitial: Integer;
+  Cycle, UserInitial, FormsInitial: Integer; RegressionExceptions: TReaderRegressionExceptionHandler;
 begin
   RequireIsolatedRegression;
   CoInitialize(nil);
   try
-    Application.Initialize;
+    Application.Initialize; RegressionExceptions:=TReaderRegressionExceptionHandler.Create; Application.OnException:=RegressionExceptions.Handle;
     if ParamCount>0 then
     begin
-      if ParamStr(1)='reader-colors' then AuditReaderColorBox
+      if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
+      else if ParamStr(1)='reader-colors' then AuditReaderColorBox
       else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
       else if ParamStr(1)='footnotes' then AuditFootnotes
       else if ParamStr(1)='large-book' then AuditLargeBook

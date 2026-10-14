@@ -29,8 +29,11 @@ uses
 
 type
   TframeNCWFinish = class(TDecorativePageBase)
+    btnMetadataFill: TButton;
+    lblMetadataFill: TLabel;
   private
   public
+    procedure SetMetadataFillAvailable(const Value: Boolean);
     function PageButtons: TWizardButtons; override;
   end;
 
@@ -41,6 +44,11 @@ implementation
 
 {$R *.dfm}
 
+
+procedure TframeNCWFinish.SetMetadataFillAvailable(const Value: Boolean);
+begin
+  btnMetadataFill.Enabled := Value;
+end;
 
 function TframeNCWFinish.PageButtons: TWizardButtons;
 begin

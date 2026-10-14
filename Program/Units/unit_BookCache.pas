@@ -33,6 +33,9 @@ function BookCacheUsage: Int64;
 function BookCacheSizeText(Bytes: Int64): string;
 function OpenCachedBookFile(const FileName: string): TStream;
 function BookCacheSource(const FileName: string): string;
+// Input identity for chained preparation. LRU Touch is not a content change.
+// Call while retaining the input stream; raw originals keep their timestamps.
+function BookCacheInputStamp(const FileName, OriginalSource: string): string;
 procedure RegisterBookCacheFile(const FileName, Source: string);
 procedure PinReaderCacheFile(const FileName: string);
 procedure TrimBookCache(const KeepFile: string = '');
@@ -43,7 +46,7 @@ procedure RemoveBookCacheSource(const Root: string; const RetainedRoots: TArray<
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Generics.Collections,
-  System.Generics.Defaults, System.SyncObjs, System.JSON,
+  System.Generics.Defaults, System.SyncObjs, System.JSON, System.Hash,
   unit_Settings, unit_Consts, dm_user;
 
 type
@@ -461,6 +464,60 @@ begin
     Name:=ExistingBookCacheFile(FileName);
     if CacheIndex.TryGetValue(Name,Entry) and (Entry.Source<>'') then Result:=Entry.Source;
   finally TMonitor.Exit(CacheGuard); end;
+end;
+
+function BookCacheInputStamp(const FileName, OriginalSource: string): string;
+const MaxPayload = 64*1024*1024; MaxSidecar = 1024*1024;
+var Name, Original, Origin: string; Data: TWin32FileAttributeData;
+  Dependency, OriginBytes, Buffer: TBytes; Stream: TFileStream;
+  Hash, DependencyHash: THashSHA2; ReadCount: Integer;
+  function Sidecar(const Suffix: string; out Bytes: TBytes): Boolean;
+  var Input: TFileStream;
+  begin
+    Result:=False; Bytes:=nil;
+    if not ManagedFile(Name+Suffix) or not FileExists(Name+Suffix) then Exit;
+    Input:=TFileStream.Create(Name+Suffix,fmOpenRead or fmShareDenyWrite);
+    try
+      if (Input.Size<=0) or (Input.Size>MaxSidecar) then Exit;
+      SetLength(Bytes,Input.Size); Input.ReadBuffer(Bytes[0],Length(Bytes)); Result:=True;
+    finally Input.Free; end;
+  end;
+begin
+  Name:=TPath.GetFullPath(FileName).Replace('/','\');
+  if not GetFileAttributesEx(PChar(Name),GetFileExInfoStandard,@Data) then RaiseLastOSError;
+  Result:=LowerCase(Name)+'|'+IntToStr(Data.nFileSizeHigh)+':'+IntToStr(Data.nFileSizeLow)+'|'+
+    IntToStr(Data.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Data.ftLastWriteTime.dwLowDateTime);
+  if not ManagedFile(Name) then Exit;
+  Original:=TPath.GetFullPath(OriginalSource).Replace('/','\');
+  if SameText(Name,Original) then Exit;
+  // Never accept an old/unproved cache payload solely by mutable timestamps.
+  // This bounded fallback deliberately regenerates the derived result.
+  Result:=Result+'|unproved:'+TGUID.NewGuid.ToString;
+  try
+    if not Sidecar('.origin',OriginBytes) or not Sidecar('.source',Dependency) then Exit;
+    if MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,PAnsiChar(@OriginBytes[0]),
+      Length(OriginBytes),nil,0)=0 then Exit;
+    Origin:=TEncoding.UTF8.GetString(OriginBytes).TrimStart([#$FEFF]);
+    if not SameText(TPath.GetFullPath(Origin).Replace('/','\'),Original) then Exit;
+    Stream:=TFileStream.Create(Name,fmOpenRead or fmShareDenyWrite);
+    try
+      if (Stream.Size<0) or (Stream.Size>MaxPayload) then Exit;
+      Hash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); SetLength(Buffer,65536);
+      repeat
+        if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+        ReadCount:=Stream.Read(Buffer[0],Length(Buffer));
+        if ReadCount>0 then begin SetLength(Buffer,ReadCount); Hash.Update(Buffer); end;
+      until ReadCount=0;
+      // Dependency metadata proves origin; the payload hash also catches a
+      // same-size replacement which left its old dependency sidecar intact.
+      DependencyHash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); DependencyHash.Update(Dependency);
+      Result:='prepared-input-v1|'+LowerCase(Name)+'|'+LowerCase(Original)+'|'+
+        IntToStr(Stream.Size)+'|'+DependencyHash.HashAsString+'|'+Hash.HashAsString;
+    finally Stream.Free; end;
+  except
+    on E: EAbort do raise;
+    on E: Exception do begin end; // Incomplete old metadata remains a miss.
+  end;
 end;
 
 procedure RegisterBookCacheFile(const FileName, Source: string);

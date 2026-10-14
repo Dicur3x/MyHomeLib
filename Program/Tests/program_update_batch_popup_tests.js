@@ -7,7 +7,7 @@ const [viewsArg,testArg,runtimeArg,python='python',packagesArg]=process.argv.sli
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'HomeLibRu-native-HomeLibRu-update-test-batch-popup-'));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const app=fs.readFileSync(path.resolve(testArg)),platform=app.readUInt16LE(app.readUInt32LE(0x3c)+4)===0x8664?'Win64':'Win32';
-const tag=packagesArg?'2.7.0_pre5.16':'2.7.0_pre5.14';
+const tag=packagesArg?'2.7.0_pre5.16':'2.7.0_pre5.99';
 const before=Buffer.from('2.7.0_pre5.11','utf16le'),after=Buffer.from(tag,'utf16le');
 let n=app.indexOf(before),replaced=0;
 while(n>=0){after.copy(app,n);replaced++;n=app.indexOf(before,n+before.length);}assert(replaced>0);

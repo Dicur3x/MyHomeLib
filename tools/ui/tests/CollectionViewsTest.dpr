@@ -7,9 +7,9 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
@@ -18,7 +18,9 @@ uses
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,
-  unit_ReaderAnnotations,
+  unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats,
+  unit_MetadataSyncTypes, unit_CollectionMetadataSync, frm_BookMetadataFill, unit_NCWParams,
+  unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_ReaderAnnotations,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
   unit_FB2MetadataRecovery, unit_WriteFb2Info,
@@ -869,7 +871,7 @@ begin
           (UPDATE_COMPONENTS[ComponentIndex].ID<>Item.GetValue<string>('id')) do Inc(ComponentIndex);
         Require(ComponentIndex<Length(UPDATE_COMPONENTS),'Unknown component fixture');
         Require(Releases[ComponentIndex].ComponentID='','Repeated component fixture');
-        Releases[ComponentIndex].Tag := '2.7.0_pre5.14';
+        Releases[ComponentIndex].Tag := '2.7.0_pre5.99';
         Item.TryGetValue<string>('release',Releases[ComponentIndex].Tag);
         Releases[ComponentIndex].ComponentID := Item.GetValue<string>('id');
         Releases[ComponentIndex].ComponentVersion := '9.0.0.0';
@@ -889,7 +891,7 @@ begin
   Popup := CreateTestProgramUpdate;
   try
     Controls;
-    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.14';
+    Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.99';
     if ParamCount=6 then
       for ComponentIndex:=Low(Releases) to High(Releases) do
         if Releases[ComponentIndex].Tag<>'' then begin Info.Tag:=Releases[ComponentIndex].Tag; Break; end;
@@ -5385,6 +5387,15 @@ end;
 {$I DownloadQueueSerializationTests.inc}
 {$I QueuePersistenceTests.inc}
 {$I SearchStartupLayoutTests.inc}
+{$I CatalogSourcesWorkflowTests.inc}
+{$I MainLiveInputFavoriteTests.inc}
+{$I UpdateFormNotifierTests.inc}
+{$I MetadataFillUiTests.inc}
+{$I BookInfoPanelFooterTests.inc}
+{$I CollectionMetadataSyncTests.inc}
+{$I PublisherMetadataIndexTests.inc}
+{$I ReaderPipelineCacheTests.inc}
+{$I MetabibSizeComparisonTests.inc}
 {$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
 
 var
@@ -5660,6 +5671,21 @@ begin
         TestReaderWithColumnFilter
       else if ParamStr(1) = 'reader-main-filter' then
         TestReaderMainWithColumnFilter
+      else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
+      else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
+      else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
+      else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
+      else if ParamStr(1) = 'collection-metadata-sync' then TestCollectionMetadataSync
+      else if ParamStr(1) = 'main-toolbar-states' then TestMainThemeToolbarStates
+      else if ParamStr(1) = 'main-publisher-index-cache' then TestMainPublisherIndexCache(OneID)
+      else if ParamStr(1) = 'conversion-menu' then TestMainBuiltinConversionMenus(OneID)
+      else if ParamStr(1) = 'metabib-size' then TestMetabibSizeComparison(ExpandFileName('metabib-size-inputs/same-records-full.jsonl'),ExpandFileName('metabib-size-inputs/same-records.inpx'))
+      else if ParamStr(1) = 'reader-pipeline-cache' then TestReaderPipelineCache
+      else if ParamStr(1) = 'publisher-metadata-index' then TestPublisherMetadataIndex
+      else if ParamStr(1) = 'feedback19-main' then
+      begin
+        TestMainLiveLocateInput(One, OneID); TestFavoriteAuthorAffordances(One, OneID); TestLoadedListThemeMetrics;
+      end
       else if ParamStr(1) = 'reader-chapters' then
         TestReaderChapterTitles
       else if ParamStr(1) = 'metadata-prefix-bounds' then
@@ -5684,6 +5710,7 @@ begin
         TestReadFolderCleanup
       else if ParamStr(1) = 'temp-exit-cleanup' then
         TestExitReaderCleanup
+      else if ParamStr(1) = 'update-form-notifier' then TestUpdateFormNotifier
       else if ParamStr(1) = 'program-update-ui' then
         TestProgramUpdateUI
       else if ParamStr(1) = 'program-update-download' then

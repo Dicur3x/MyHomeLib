@@ -20,10 +20,11 @@ unit unit_Interfaces;
 interface
 
 uses
-  Classes,
+  Classes, System.SysUtils,
   unit_Globals,
   unit_Consts,
-  unit_UserData;
+  unit_UserData,
+  unit_MetadataSyncTypes;
 
 type
   TBookIdentityPredicate = reference to function(const Current: TBookRecord): Boolean;
@@ -119,6 +120,29 @@ type
     // Book contains source fields only, without authors, genres or memo data.
     function Next(out Book: TBookRecord; out IndexedSourceKey: string): Boolean;
     function RecordCount: Integer;
+  end;
+
+  // A short read-only SystemDB reservation prevents a concurrent collection
+  // root change while catalog metadata is committed. Acquire before catalog
+  // transactions; release by rollback. Existing transactions fail closed.
+  IMetadataCollectionRootGuard = interface
+    ['{49D2BDB5-964C-4583-9246-11F40D6A241B}']
+    procedure BeginMetadataRootGuard;
+    procedure EndMetadataRootGuard;
+  end;
+
+  // Additive capability: bounded source-only reads, and empty-only writes.
+  // No personal card, relations, index completion marker or schema is changed.
+  IBookMetadataFillWriter = interface
+    ['{FFEFDF02-B767-4504-922C-39D617AEF4CD}']
+    procedure BeginMetadataFillBatch;
+    procedure EndMetadataFillBatch(Commit: Boolean);
+    function MetadataCollectionRoot: string;
+    function MetadataBookCount: Int64;
+    function ReadMetadataBatch(AfterBookID, Limit: Integer): TArray<TBookRecord>;
+    function FillEmptyMetadata(const Expected, Values: TBookRecord;
+      const Fields: TMetadataSyncFields; const SourceStillMatches: TFunc<Boolean>;
+      out Updated: TMetadataSyncFields): TMetadataFillResult;
   end;
 
   TGUIUpdateExtraProc = reference to procedure(
@@ -237,9 +261,12 @@ type
     function GetBookSeries(const BookKey: TBookKey): TBookSeries;
     function GetBookPublisherSeries(const BookKey: TBookKey): TBookSeries;
     procedure SetBookPublisherSeries(const BookKey: TBookKey; const Series: TBookSeries);
-    // Atomically store complete metadata (including empty) and its source key.
+    // Atomically store complete series (including empty), fill a missing
+    // publisher and certify the source. Production indexing supplies its
+    // captured book identity so reused IDs or moved roots cannot be certified.
     procedure CompletePublisherSeriesIndex(const BookKey: TBookKey;
-      const Series: TBookSeries; const SourceKey: string);
+      const Series: TBookSeries; const SourceKey: string; const Publisher: string = '';
+      const ExpectedBook: PBookRecord = nil);
     procedure AddBookSeries(const BookID: Integer; const SeriesTitle: string;
       const SeqNumber: Integer; Cache: TImportCache = nil);
     // Проверить/восстановить BookID книги по стабильному LibID:

@@ -101,8 +101,7 @@ begin
   try
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) or
       not GetFileAttributesEx(PChar(Tool),GetFileExInfoStandard,@ToolAttributes) then RaiseLastOSError;
-    Stamp:='office-pdf-v1|'+SourceFile+'|'+IntToStr(Input.Size)+'|'+
-      IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime)+'|'+
+    Stamp:='office-pdf-v2|'+BookCacheInputStamp(SourceFile,OriginalSource)+'|'+
       Tool+'|'+IntToStr(ToolAttributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(ToolAttributes.ftLastWriteTime.dwLowDateTime);
     Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-office-'+Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.pdf'));
     StampFile:=Result+'.source';
