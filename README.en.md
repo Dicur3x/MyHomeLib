@@ -15,15 +15,15 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.17 / 2.7.0.1085**.
-[Release notes](RELEASE_NOTES_2.7.0_pre5.17.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.17.md) (in Russian).
+The current published release is **pre5.18 / 2.7.0.1086**.
+[Release notes](RELEASE_NOTES_2.7.0_pre5.18.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.18.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.17/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.17/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.17/SHA256.txt) | Archive checksums |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.18/SHA256.txt) | Archive checksums |
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
 Reading components are included: you do not need to install Delphi, Python
@@ -51,12 +51,17 @@ or a separate SQLite library to use the release.
   and 7z. Connect existing MyHomeLib catalogues.
 - Browse by author, book series, publisher series, genre and group.
   One book can belong to several series without duplicating its file.
-- Search by author, title, series, genre, keywords, annotation, filename,
-  date, language and rating; use expressions and saved search presets.
+- Search by author, title, publisher, series, genre, keywords, annotation,
+  filename, date, language and rating; use expressions and saved search presets.
+- Import and export presets as editable XML; legacy cxml/cxml2 files are supported.
+  Import preserves existing presets and your current input.
 - Combine column filters. **No duplicates by series** collapses repeated
   search results belonging to several series.
+  An optional Publisher column has its own filter.
 - Favourites, custom groups, ratings, reading progress, reviews and editable
   descriptions. Export personal information separately from the catalogue.
+- Favourite authors: a saved list and new books after collection updates.
+  Compact search and author-filter conditions; new books are marked seen explicitly.
 - INPX updates, multiple sources with separate folders and priorities,
   folder synchronisation, database maintenance and collection merging with a preview.
 - Download selected books from an online library, including a download queue.
@@ -97,6 +102,10 @@ from the original. Protected books are not decrypted; scans do not receive OCR.
 
 ### Export and sharing
 
+- Two separate actions: **FB2 → EPUB** and **EPUB → FB2**, including books in ZIP.
+  Originals stay unchanged and existing output files are not replaced. Input: up to 64 MB;
+  CSS may be simplified, and unrepresentable structures are rejected with an explanation.
+  [Conversion limitations](tools/bookconvert/README.md) (in Russian).
 - Save books or send them to a device using filename and folder templates,
   external converters and custom scripts.
 - Export a catalogue to INPX, a book list to HTML, or personal information to a separate file.
