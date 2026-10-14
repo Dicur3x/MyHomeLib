@@ -1,18 +1,15 @@
 diff --git a/Source/VirtualTrees.BaseTree.pas b/Source/VirtualTrees.BaseTree.pas
-index d8a9c68..3c4a771 100644
+index d8a9c68..378015e 100644
 --- a/Source/VirtualTrees.BaseTree.pas
 +++ b/Source/VirtualTrees.BaseTree.pas
-@@ -732,6 +732,7 @@ type
- 
+@@ -733,5 +733,6 @@ type
      procedure AdjustTotalCount(Node: PVirtualNode; Value: Integer; relative: Boolean = False);
      function CalculateCacheEntryCount: Integer;
 +    function CachedVisibleNeighbour(Node: PVirtualNode; Forward: Boolean; out Neighbour: PVirtualNode): Boolean;
      procedure CalculateVerticalAlignments(var PaintInfo: TVTPaintInfo; var VButtonAlign: TDimension);
      function ChangeCheckState(Node: PVirtualNode; Value: TCheckState): Boolean;
      function CollectSelectedNodesLTR(MainColumn: Integer; NodeLeft, NodeRight: TDimension; Alignment: TAlignment; OldRect,
-@@ -2253,7 +2254,10 @@ function TBaseVirtualTree.CalculateCacheEntryCount: Integer;
- // Calculates the size of the position cache.
- 
+@@ -2255,5 +2256,8 @@ function TBaseVirtualTree.CalculateCacheEntryCount: Integer;
  begin
 -  if FVisibleCount > 1 then
 +  if (FVisibleCount > 0) and (FVisibleCount <= Cardinal(CacheThreshold)) and
@@ -22,10 +19,7 @@ index d8a9c68..3c4a771 100644
      Result := Ceil(FVisibleCount / CacheThreshold)
    else
      Result := 0;
-@@ -2261,6 +2265,33 @@ end;
- 
- //----------------------------------------------------------------------------------------------------------------------
- 
+@@ -2264,3 +2268,30 @@ end;
 +function TBaseVirtualTree.CachedVisibleNeighbour(Node: PVirtualNode; Forward: Boolean;
 +  out Neighbour: PVirtualNode): Boolean;
 +var L, H, I, Comparison: Integer;
@@ -56,8 +50,16 @@ index d8a9c68..3c4a771 100644
  procedure TBaseVirtualTree.CalculateVerticalAlignments(var PaintInfo: TVTPaintInfo; var VButtonAlign: TDimension);
  
  // Calculates the vertical alignment of the given node and its associated expand/collapse button during
-@@ -11038,12 +11069,14 @@ function TBaseVirtualTree.DoValidateCache(): Boolean;
- 
+@@ -3654,7 +3685,7 @@ begin
+   if Result then
+   begin
+     // Do some housekeeping if there was a change.
+-    MaxValue := PackArray(FSelection, FSelectionCount);
++    MaxValue := PackArray(FSelection, Length(FSelection));
+     if MaxValue > -1 then
+     begin
+       FSelectionCount := MaxValue;
+@@ -11039,11 +11070,13 @@ function TBaseVirtualTree.DoValidateCache(): Boolean;
  var
    EntryCount,
 -  Index: Cardinal;
@@ -82,18 +84,101 @@ index d8a9c68..3c4a771 100644
          begin
            // New cache entry to set up.
            with FPositionCache[Index] do
-@@ -11119,7 +11152,7 @@ begin
-     end;
-   end;
- 
+@@ -11122,4 +11155,4 @@ begin
 -  Result := (EntryCount > 0) and not (tsStopValidation in FStates);
 +  Result := (Index > 0) and not (tsStopValidation in FStates);
  
    // In variable node height mode it might have happend that some or all of the nodes have been adjusted in their
    // height. During validation updates of the scrollbars is disabled so let's do this here.
-@@ -15342,7 +15375,9 @@ begin
-   InterruptValidation();
- 
+@@ -11599,7 +11632,8 @@ begin
+   L := 0;
+   if LowBound >= 0 then
+     L := LowBound;
+-  H := FSelectionCount - 1;
++  // The physical array may still contain tagged removals during BeginUpdate.
++  H := High(FSelection);
+   if HighBound >= 0 then
+     H := HighBound;
+   while L <= H do
+@@ -13025,4 +13059,15 @@ var
+ begin
++  // Merge only compact live entries; a prior locked deletion leaves tagged slots.
++  // The usual already compact case keeps its constant-time selection path.
++  if Length(FSelection) <> FSelectionCount then
++  begin
++    I := PackArray(FSelection, Length(FSelection));
++    if I > -1 then
++    begin
++      FSelectionCount := I;
++      SetLength(FSelection, FSelectionCount);
++    end;
++  end;
+   lPreviousSelectedCount := FSelectionCount;
+   // The idea behind this code is to use a kind of reverse merge sort. QuickSort is quite fast
+   // and would do the job here too but has a serious problem with already sorted lists like FSelection.
+@@ -13164,9 +13209,9 @@ begin
+   // It is possible that there are invalid node references in the selection array
+   // if the tree update is locked and changes in the structure were made.
+   // Handle this potentially dangerous situation by packing the selection array explicitely.
+-  if IsUpdating then
++  if Length(FSelection) <> FSelectionCount then
+   begin
+-    Count := PackArray(FSelection, FSelectionCount);
++    Count := PackArray(FSelection, Length(FSelection));
+     if Count > -1 then
+     begin
+       FSelectionCount := Count;
+@@ -13178,6 +13223,8 @@ begin
+   begin
+     System.Dec(FSelectionCount);
+     lNode := FSelection[FSelectionCount];
++    // Keep physical slots consistent if a removal callback changes selection.
++    System.Inc(PAnsiChar(FSelection[FSelectionCount]));
+     //sync path note: deselect when click on another or on outside area
+     Exclude(lNode.States, vsSelected);
+     if SyncCheckstateWithSelection[lNode] then
+@@ -13440,7 +13487,8 @@ begin
+     if SyncCheckstateWithSelection[Node] then
+       Node.CheckState := csUncheckedNormal; // Avoid using SetCheckState() as it handles toSyncCheckboxesWithSelection as well.
+     System.Inc(PAnsiChar(FSelection[Index]));
+-    // update selection count
++    // Active count changes immediately for callbacks. Packing must still
++    // scan the entire physical array, including tagged removed slots.
+     System.Dec(FSelectionCount); // Fixes #1197
+     DoRemoveFromSelection(Node);
+     Change(Node); // Calling Change() here fixes issue #1047
+@@ -14639,6 +14687,16 @@ begin
+     if vsSelected in Node.States then
+     begin
+       Assert(FSelectionCount > 0, 'if one node has set the vsSelected flag, SelectionCount must be >0.');
++      // Public deselection shifts/counts compact entries, unlike tagged deletion.
++      if Length(FSelection) <> FSelectionCount then
++      begin
++        Index := PackArray(FSelection, Length(FSelection));
++        if Index > -1 then
++        begin
++          FSelectionCount := Index;
++          SetLength(FSelection, FSelectionCount);
++        end;
++      end;
+       //sync path note: deselect when a ctrl click removes a selection
+       Exclude(Node.States, vsSelected);
+       if SyncCheckstateWithSelection[Node] then
+@@ -15073,5 +15131,5 @@ begin
+       // Do some housekeeping if there was a change.
+-      NewSize := PackArray(FSelection, FSelectionCount);
++      NewSize := PackArray(FSelection, Length(FSelection));
+       if NewSize > -1 then
+       begin
+         FSelectionCount := NewSize;
+@@ -15153,5 +15211,5 @@ begin
+     // Do some housekeeping.
+-    NewSize := PackArray(FSelection, FSelectionCount);
++    NewSize := PackArray(FSelection, Length(FSelection));
+     if NewSize > -1 then
+     begin
+       FSelectionCount := NewSize;
+@@ -15344,5 +15402,7 @@ begin
    FStartIndex := 0;
 -  if (tsValidationNeeded in FStates) and (FVisibleCount > CacheThreshold) then
 +  if (tsValidationNeeded in FStates) and
@@ -102,9 +187,22 @@ index d8a9c68..3c4a771 100644
    begin
      // Tell the thread this tree needs actually something to do.
      TWorkerThread.AddTree(Self);
-@@ -17058,6 +17093,9 @@ function TBaseVirtualTree.GetFirstVisible(Node: PVirtualNode = nil; ConsiderChil
- // If necessary nodes are initialized on demand.
- 
+@@ -16189,7 +16249,7 @@ begin
+     InvalidateCache;
+     if FUpdateCount = 0 then
+     begin
+-      NewSize := PackArray(FSelection, FSelectionCount);
++      NewSize := PackArray(FSelection, Length(FSelection));
+       if NewSize > -1 then
+       begin
+         FSelectionCount := NewSize;
+@@ -16449,4 +16509,4 @@ begin
+-      NewSize := PackArray(FSelection, FSelectionCount);
++      NewSize := PackArray(FSelection, Length(FSelection));
+       if NewSize > -1 then
+       begin
+         FSelectionCount := NewSize;
+@@ -17060,4 +17120,7 @@ function TBaseVirtualTree.GetFirstVisible(Node: PVirtualNode = nil; ConsiderChil
  begin
 +  if not Assigned(Node) and ConsiderChildrenAbove and not IncludeFiltered and
 +    (tsUseCache in FStates) and (Length(FPositionCache) > 0) and
@@ -112,9 +210,7 @@ index d8a9c68..3c4a771 100644
    Result := Node;
    if not Assigned(Result) then
      Result := FRoot;
-@@ -17187,6 +17225,9 @@ function TBaseVirtualTree.GetFirstVisibleNoInit(Node: PVirtualNode = nil;
- // No initialization is performed.
- 
+@@ -17189,4 +17252,7 @@ function TBaseVirtualTree.GetFirstVisibleNoInit(Node: PVirtualNode = nil;
  begin
 +  if not Assigned(Node) and ConsiderChildrenAbove and not IncludeFiltered and
 +    (tsUseCache in FStates) and (Length(FPositionCache) > 0) then
@@ -122,10 +218,25 @@ index d8a9c68..3c4a771 100644
    Result := Node;
    if not Assigned(Result) then
      Result := FRoot;
-@@ -18087,6 +18128,10 @@ begin
-   Result := Node;
-   if not Assigned(Result) then Exit;
- 
+@@ -18027,7 +18093,16 @@ begin
+   if FSelectionCount > 0 then
+   begin
+     if (Node = nil) or (Node = FRoot) then
+-      Result := GetFirstNoInit(ConsiderChildrenAbove)
++    begin
++      // A sole selected node is first in every logical ordering. Reuse the
++      // maintained selection array instead of walking all hidden rows.
++      // During locked updates the array can contain tagged, freed tombstones;
++      // only an exactly packed, aligned sole entry is safe to dereference.
++      if (FSelectionCount = 1) and (Length(FSelection) = 1) and Assigned(FSelection[0]) and
++        ((NativeUInt(FSelection[0]) and 3) = 0) and (vsSelected in FSelection[0].States) then
++        Result := FSelection[0]
++      else Result := GetFirstNoInit(ConsiderChildrenAbove);
++    end
+     else
+       Result := GetNextNoInit(Node, ConsiderChildrenAbove);
+     while Assigned(Result) and not (vsSelected in Result.States) do
+@@ -18090,3 +18165,7 @@ begin
 +  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node,True,Result) and
 +    (not Assigned(Result) or (vsInitialized in Result.States)) then Exit;
 +  Result := Node;
@@ -133,20 +244,14 @@ index d8a9c68..3c4a771 100644
    Assert(Result <> FRoot, 'Node must not be the hidden root node.');
  
    repeat
-@@ -18214,6 +18259,9 @@ begin
-   Result := Node;
-   if not Assigned(Result) then Exit;
- 
+@@ -18217,3 +18296,6 @@ begin
 +  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node, True, Result) then Exit;
 +  Result := Node;
 +
    Assert(Result <> FRoot, 'Node must not be the hidden root node.');
  
    repeat
-@@ -18848,6 +18896,10 @@ begin
-   Result := Node;
-   if not Assigned(Result) then Exit;
- 
+@@ -18851,3 +18933,7 @@ begin
 +  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node,False,Result) and
 +    (not Assigned(Result) or (vsInitialized in Result.States)) then Exit;
 +  Result := Node;
@@ -154,13 +259,33 @@ index d8a9c68..3c4a771 100644
    Assert(Result <> FRoot, 'Node must not be the hidden root node.');
  
    repeat
-@@ -18974,6 +19026,9 @@ begin
-   Result := Node;
-   if not Assigned(Result) then Exit;
- 
+@@ -18977,3 +19063,6 @@ begin
 +  if ConsiderChildrenAbove and CachedVisibleNeighbour(Node, False, Result) then Exit;
 +  Result := Node;
 +
    Assert(Result <> FRoot, 'Node must not be the hidden root node.');
  
    repeat
+@@ -19377,5 +19466,13 @@ var
+ begin
+   SetLength(Result, FSelectionCount);
++  if (FSelectionCount = 1) and (Length(FSelection) = 1) and Assigned(FSelection[0]) and
++        ((NativeUInt(FSelection[0]) and 3) = 0) and (vsSelected in FSelection[0].States) then
++  begin
++    // Resolve and logical order cannot remove/reorder a sole selection.
++    // This method retains its original no-initialization contract.
++    Result[0] := FSelection[0];
++    Exit;
++  end;
+   if FSelectionCount > 0 then
+   begin
+     Run := FRoot.FirstChild;
+@@ -19726,7 +19823,7 @@ begin
+     // do some housekeeping
+     // Need to trigger the OnChange event from here if nodes were only deleted but not added.
+     TriggerChange := False;
+-    NewSize := PackArray(FSelection, FSelectionCount);
++    NewSize := PackArray(FSelection, Length(FSelection));
+     if NewSize > -1 then
+     begin
+       FSelectionCount := NewSize;

@@ -207,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1085'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1086'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -335,6 +335,7 @@ Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll')
 Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\HomeLibPDF.exe') -Expected $Platform
 & (Join-Path $PSScriptRoot 'prepare-kindle-runtime.ps1') -Platform $Platform | Out-Host
 Assert-Architecture -Path (Join-Path $outputDirectory 'tools\kindle\python\python.exe') -Expected $Platform
+& (Join-Path $PSScriptRoot 'prepare-book-converter.ps1') -Platform $Platform -Copy:$Copy | Out-Host
 $pdfiumManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\PDFIUM_RUNTIME.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll')).Hash -ine $pdfiumManifest.$Platform.dll_sha256) {
     throw 'PDFium runtime differs from Installer/PDFIUM_RUNTIME.json. Run scripts/prepare-pdfium.ps1.'

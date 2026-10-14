@@ -28,7 +28,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter)
   strict private type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
@@ -97,6 +97,8 @@ type
 
     TAuthorIteratorImpl = class(TInterfacedObject, IAuthorIterator)
     public
+      constructor CreateFavorite(Collection: TBookCollection_SQLite;
+        SystemData: ISystemData; const AuthorIDs: TArray<Integer>);
       constructor Create(
         Collection: TBookCollection_SQLite;
         SystemData: ISystemData;
@@ -116,6 +118,8 @@ type
       FCount: TSQLiteQuery;
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
 
+      FRestrictAuthorIDs: Boolean;
+      FRestrictedAuthorIDs: TArray<Integer>;
       procedure PrepareData(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue);
     end;
 
@@ -185,6 +189,7 @@ type
   protected
 
     function GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator; override;
+    function GetFavoriteAuthorIterator(const AuthorIDs: TArray<Integer>): IAuthorIterator;
     function GetGenreIterator(const Mode: TGenreIteratorMode; const FilterValue: PFilterValue = nil): IGenreIterator; override;
     function GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
     function GetPublisherSeriesIterator(const FilterText: string = '';
@@ -211,6 +216,7 @@ type
     function GetCatalogBookID(const SourceKey: string): Integer;
     procedure SetCatalogBookID(const SourceKey: string; BookID: Integer);
     procedure SetCatalogBookCopy(const SourceKey, SourceName: string; const Book: TBookRecord);
+    procedure CaptureOriginalCopyIfMissing(const SourceKey, SourceName: string; const Book: TBookRecord);
     procedure SetCatalogBookPreferredSource(const BookKey: TBookKey; const SourceName: string);
     function GetCatalogBookCopies(const BookKey: TBookKey): TArray<TBookRecord>;
     procedure UpdateBook(BookRecord: TBookRecord);
@@ -226,6 +232,11 @@ type
     procedure SetAnnotation(const BookKey: TBookKey; const Annotation: string);
     function GetAnnotation(const BookKey: TBookKey): string;
     procedure SetProgress(const BookKey: TBookKey; const Progress: Integer);
+    function TrySetIdentityProgress(const Expected: TBookRecord; Progress: Integer;
+      const Matches: TBookIdentityPredicate): Boolean;
+    function TrySetIdentityPersonal(const Expected: TBookRecord;
+      const Fields: TBookPersonalFields; const Matches: TBookIdentityPredicate;
+      RequirePersonal: Boolean = False): TBookIdentityWriteResult;
     procedure SetRate(const BookKey: TBookKey; const Rate: Integer);
     procedure SetLocal(const BookKey: TBookKey; const AState: Boolean);
     procedure SetFolder(const BookKey: TBookKey; const Folder: string);
@@ -278,7 +289,7 @@ type
     FSourceDisplayNames: TStringList;
     FPreferredSourceNames: TDictionary<Integer,string>;
     FSourceGenres: Boolean;
-    FCatalogLookup, FCatalogWrite, FCatalogCopyWrite, FCatalogPreferredWrite: TSQLiteQuery;
+    FCatalogLookup, FCatalogWrite, FCatalogCopyWrite, FCatalogOriginalCopyWrite, FCatalogPreferredWrite: TSQLiteQuery;
     procedure LoadPreferredSourceNames;
     function BookDisplaySource(const LibID: string; const DefaultName: string; BookID: Integer = 0): string;
 
@@ -321,6 +332,26 @@ uses
   dm_user,
   unit_Errors,
   unit_SQLiteUtils;
+
+function SQLIntegerIDs(const IDs: TArray<Integer>): string;
+var Seen: TDictionary<Integer, Boolean>; Builder: TStringBuilder;
+begin
+  if Length(IDs) > 1048576 then
+    raise EArgumentOutOfRangeException.Create('Too many catalog IDs');
+  Seen := TDictionary<Integer, Boolean>.Create;
+  Builder := TStringBuilder.Create;
+  try
+    for var ID in IDs do
+      if (ID > 0) and not Seen.ContainsKey(ID) then
+      begin
+        if Builder.Length > 0 then Builder.Append(',');
+        Builder.Append(ID);
+        Seen.Add(ID, True);
+      end;
+    // An empty restriction must never broaden to the whole collection.
+    if Builder.Length = 0 then Result := '0' else Result := Builder.ToString;
+  finally Builder.Free; Seen.Free; end;
+end;
 
 class procedure TBookCollection_SQLite.CreateCollection(
   const SystemData: ISystemData;
@@ -1140,6 +1171,20 @@ begin
       end;
     end;
 
+    if SearchCriteria.FavoriteAuthorsOnly then
+    begin
+      if SQLRows <> '' then SQLRows := SQLRows + ' INTERSECT ';
+      SQLRows := SQLRows + 'SELECT DISTINCT al.BookID FROM Author_List al ' +
+        'INDEXED BY IXAuthorList_AuthorID_BookID WHERE al.AuthorID IN (' +
+        SQLIntegerIDs(SearchCriteria.FavoriteAuthorIDs) + ')';
+    end;
+    if SearchCriteria.RestrictBookIDs then
+    begin
+      if SQLRows <> '' then SQLRows := SQLRows + ' INTERSECT ';
+      SQLRows := SQLRows + SQL_START_STR + 'FROM Books b WHERE b.BookID IN (' +
+        SQLIntegerIDs(SearchCriteria.BookIDs) + ')';
+    end;
+
     FilterString := '';
     if SearchCriteria.Series <> '' then
     begin
@@ -1173,6 +1218,9 @@ begin
 
     FilterString := '';
     AddToFilter('b.SearchAnnotation', PrepareQuery(SearchCriteria.Annotation, True), False, FilterString);
+    // Publisher is already stored metadata; do not read book files during search.
+    // SQLite's native UPPER only maps ASCII, so use our Windows Unicode mapping.
+    AddToFilter('MHL_UPPER(b.Publisher)', PrepareQuery(SearchCriteria.Publisher, True), False, FilterString);
     AddToFilter('b.SearchTitle', PrepareQuery(SearchCriteria.Title, True), False, FilterString);
     AddToFilter('b.SearchFileName', PrepareQuery(SearchCriteria.FileName, True), False, FilterString);
     AddToFilter('b.SearchFolder', PrepareQuery(SearchCriteria.Folder, True), False, FilterString);
@@ -1271,6 +1319,20 @@ begin
   if Assigned(FGenres) then FGenres.Open;
 end;
 
+
+constructor TBookCollection_SQLite.TAuthorIteratorImpl.CreateFavorite(
+  Collection: TBookCollection_SQLite; SystemData: ISystemData;
+  const AuthorIDs: TArray<Integer>);
+begin
+  inherited Create;
+  Assert(Assigned(Collection)); Assert(Assigned(SystemData));
+  FSystemData := SystemData;
+  FCollection := Collection;
+  FCollectionID := FCollection.CollectionID;
+  FRestrictAuthorIDs := True;
+  FRestrictedAuthorIDs := Copy(AuthorIDs);
+  PrepareData(amFullFilter, nil);
+end;
 
 constructor TBookCollection_SQLite.TAuthorIteratorImpl.Create(
   Collection: TBookCollection_SQLite;
@@ -1381,6 +1443,9 @@ begin
         NeedBookJoin := FCollection.GetHideDeleted or FCollection.GetShowLocalOnly;
         NeedAuthorListJoin := NeedBookJoin;
 
+        if FRestrictAuthorIDs then
+          AddToWhere(Where, 'a.AuthorID IN (' + SQLIntegerIDs(FRestrictedAuthorIDs) + ')');
+
         if FCollection.GetHideDeleted then
           AddToWhere(Where, ' b.IsDeleted = :IsDeleted ');
 
@@ -1406,7 +1471,11 @@ begin
 
         if NeedAuthorListJoin then
         begin
-          FromList := 'Author_List al INNER JOIN Books b ON al.BookID = b.BookID INNER JOIN Authors a ON a.AuthorID = al.AuthorID ';
+          if FRestrictAuthorIDs then
+            FromList := 'Authors a JOIN Author_List al INDEXED BY IXAuthorList_AuthorID_BookID ' +
+              'ON al.AuthorID=a.AuthorID JOIN Books b ON b.BookID=al.BookID '
+          else
+            FromList := 'Author_List al INNER JOIN Books b ON al.BookID = b.BookID INNER JOIN Authors a ON a.AuthorID = al.AuthorID ';
           SQLRows := 'SELECT DISTINCT a.AuthorID FROM ' + FromList + Where;
           SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
           SQLRows := 'SELECT DISTINCT a.AuthorID, a.LastName, a.FirstName, a.MiddleName FROM ' + FromList + Where + ' ORDER BY a.LastName, a.FirstName, a.MiddleName ';
@@ -1833,7 +1902,7 @@ begin
   FreeAndNil(FSourceDisplayNames);
   FreeAndNil(FPreferredSourceNames); FreeAndNil(FCatalogPreferredWrite);
   FreeAndNil(FCatalogLookup); FreeAndNil(FCatalogWrite);
-  FreeAndNil(FCatalogCopyWrite);
+  FreeAndNil(FCatalogCopyWrite); FreeAndNil(FCatalogOriginalCopyWrite);
   FreeAndNil(FDatabase);
 
   inherited Destroy;
@@ -2260,6 +2329,11 @@ end;
 function TBookCollection_SQLite.GetAuthorIterator(const Mode: TAuthorIteratorMode; const FilterValue: PFilterValue = nil): IAuthorIterator;
 begin
   Result := TAuthorIteratorImpl.Create(Self, FSystemData, Mode, FilterValue);
+end;
+
+function TBookCollection_SQLite.GetFavoriteAuthorIterator(const AuthorIDs: TArray<Integer>): IAuthorIterator;
+begin
+  Result := TAuthorIteratorImpl.CreateFavorite(Self, FSystemData, AuthorIDs);
 end;
 
 function TBookCollection_SQLite.GetSeriesIterator(const Mode: TSeriesIteratorMode): ISeriesIterator;
@@ -2790,20 +2864,24 @@ const
     'WHERE BookID = ?';
 var
   Table: TSQLiteQuery;
+  SavedKey: TBookKey;
 begin
+  // A caller may reload GetBookRecord(Book.BookKey, Book, ...). Preserve the
+  // scalar input before clearing the output record that owns the same field.
+  SavedKey := BookKey;
   BookRecord.Clear;
 
-  if BookKey.DatabaseID = CollectionID then
+  if SavedKey.DatabaseID = CollectionID then
   begin
     Table := FDatabase.NewQuery(SQL);
     try
-      Table.SetParam(0, BookKey.BookID);
+      Table.SetParam(0, SavedKey.BookID);
       Table.Open;
 
       Assert(not Table.Eof);
 
       BookRecord.NodeType := ntBookInfo;
-      BookRecord.BookKey := BookKey;
+      BookRecord.BookKey := SavedKey;
       BookRecord.Title := Table.FieldAsString(0);
       BookRecord.Folder := Table.FieldAsString(1);
       BookRecord.FileName := Table.FieldAsString(2);
@@ -2835,7 +2913,7 @@ begin
       BookRecord.Rate := Table.FieldAsInt(15);
       BookRecord.Progress := Table.FieldAsInt(16);
       BookRecord.CollectionRoot := CollectionRoot;
-      BookRecord.CollectionName := BookDisplaySource(BookRecord.LibID, VarToStr(GetProperty(PROP_DISPLAYNAME)), BookKey.BookID);
+      BookRecord.CollectionName := BookDisplaySource(BookRecord.LibID, VarToStr(GetProperty(PROP_DISPLAYNAME)), SavedKey.BookID);
 
       BookRecord.Translators := Table.FieldAsString(19);
       BookRecord.Publisher := Table.FieldAsString(20);
@@ -2849,14 +2927,14 @@ begin
       else
         Exclude(BookRecord.BookProps, bpHasReview);
 
-      GetBookGenres(BookRecord.BookKey.BookID, BookRecord.Genres, @(BookRecord.RootGenre));
-      GetBookAuthors(BookRecord.BookKey.BookID, BookRecord.Authors);
+      GetBookGenres(SavedKey.BookID, BookRecord.Genres, @(BookRecord.RootGenre));
+      GetBookAuthors(SavedKey.BookID, BookRecord.Authors);
 
       if LoadMemos then
       begin
         BookRecord.Review := Table.FieldAsBlobString(17);
         BookRecord.Annotation := Table.FieldAsString(18);
-        BookRecord.PublisherSeries := GetBookPublisherSeries(BookKey);
+        BookRecord.PublisherSeries := GetBookPublisherSeries(SavedKey);
         BookRecord.PublisherSeriesKnown := True;
       end;
     finally
@@ -2864,7 +2942,7 @@ begin
     end;
   end
   else
-    FSystemData.GetBookRecord(BookKey, BookRecord);
+    FSystemData.GetBookRecord(SavedKey, BookRecord);
 end;
 
 constructor TBookCollection_SQLite.TBookSeriesReadStreamImpl.Create(Collection: TBookCollection_SQLite);
@@ -3168,6 +3246,30 @@ begin
   FCatalogCopyWrite.SetParam(6, Book.FileExt); FCatalogCopyWrite.SetParam(7, Book.InsideNo);
   FCatalogCopyWrite.SetParam(8, Book.Size); FCatalogCopyWrite.SetParam(9, Book.LibID);
   try FCatalogCopyWrite.Open; finally FCatalogCopyWrite.Reset; end;
+end;
+
+procedure TBookCollection_SQLite.CaptureOriginalCopyIfMissing(const SourceKey, SourceName: string;
+  const Book: TBookRecord);
+begin
+  if not InBulkOperation or not SourceKey.StartsWith('base:') or
+    (Book.BookKey.DatabaseID<>CollectionID) or (Book.BookKey.BookID<=0) then
+    raise EInvalidOperation.Create('Original copy capture requires the matching book and a bulk merge transaction.');
+  if not Assigned(FCatalogOriginalCopyWrite) then
+    FCatalogOriginalCopyWrite := FDatabase.NewQuery('INSERT INTO CatalogBookCopies '
+      + '(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '
+      + 'SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS '
+      + '(SELECT 1 FROM CatalogBookCopies WHERE BookID=?) ON CONFLICT(SourceKey) DO NOTHING');
+  // Existing copy provenance is immutable here. A source-imported book already
+  // has an incoming copy, so a repeat must not invent another base copy from its
+  // current preferred metadata. The BookID index makes this an atomic point guard.
+  FCatalogOriginalCopyWrite.Reset;
+  FCatalogOriginalCopyWrite.SetParam(0,SourceKey); FCatalogOriginalCopyWrite.SetParam(1,Book.BookKey.BookID);
+  FCatalogOriginalCopyWrite.SetParam(2,SourceName); FCatalogOriginalCopyWrite.SetParam(3,Book.CollectionRoot);
+  FCatalogOriginalCopyWrite.SetParam(4,Book.Folder); FCatalogOriginalCopyWrite.SetParam(5,Book.FileName);
+  FCatalogOriginalCopyWrite.SetParam(6,Book.FileExt); FCatalogOriginalCopyWrite.SetParam(7,Book.InsideNo);
+  FCatalogOriginalCopyWrite.SetParam(8,Book.Size); FCatalogOriginalCopyWrite.SetParam(9,Book.LibID);
+  FCatalogOriginalCopyWrite.SetParam(10,Book.BookKey.BookID);
+  try FCatalogOriginalCopyWrite.Open; finally FCatalogOriginalCopyWrite.Reset; end;
 end;
 
 function TBookCollection_SQLite.GetCatalogBookCopies(const BookKey: TBookKey): TArray<TBookRecord>;
@@ -3509,6 +3611,93 @@ begin
     end;
 
     Result := NewCode or FSystemData.SetReview(BookKey, NewReview);
+  end;
+end;
+
+function TBookCollection_SQLite.TrySetIdentityProgress(const Expected: TBookRecord;
+  Progress: Integer; const Matches: TBookIdentityPredicate): Boolean;
+var Changed: TBookRecord;
+begin
+  Changed := Expected; Changed.Progress := Progress;
+  Result := TrySetIdentityPersonal(Changed, [bpfProgress], Matches) = biwSaved;
+end;
+
+function TBookCollection_SQLite.TrySetIdentityPersonal(const Expected: TBookRecord;
+  const Fields: TBookPersonalFields; const Matches: TBookIdentityPredicate;
+  RequirePersonal: Boolean): TBookIdentityWriteResult;
+const Columns: array[TBookPersonalField] of string = ('Rate','Progress','Review','Annotation','IsLocal');
+var Savepoint, SQL: string; Started: Boolean; Query: TSQLiteQuery; Current: TBookRecord;
+  Field: TBookPersonalField; ParameterIndex: Integer;
+  PersonalWriter: IBookIdentityPersonalWriter; PersonalResult: TBookIdentityWriteResult;
+begin
+  Result := biwUnavailable; Started := False;
+  if (Expected.BookKey.BookID <= 0) or (Expected.BookKey.DatabaseID <> CollectionID) or not Assigned(Matches) or
+    (Fields = []) or ((bpfProgress in Fields) and ((Expected.Progress < 0) or (Expected.Progress > 100))) or
+    ((bpfRate in Fields) and ((Expected.Rate < 0) or (Expected.Rate > 5))) then Exit;
+  // A separate store cannot durably synchronize an uncommitted outer batch.
+  // The reader keeps its own position/notes and retries after that operation.
+  if FDatabase.InTransaction then Exit;
+  Savepoint := 'mhl_identity_personal_' + StringReplace(StringReplace(StringReplace(
+    TGUID.NewGuid.ToString, '{', '', [rfReplaceAll]), '}', '', [rfReplaceAll]), '-', '', [rfReplaceAll]);
+  try
+    FDatabase.Start(Savepoint); Started := True;
+    Query := FDatabase.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=?');
+    try
+      Query.SetParam(0, Expected.BookKey.BookID); Query.Open;
+      Current := Default(TBookRecord);
+      if not Query.Eof then
+      begin
+        Current.BookKey := Expected.BookKey; Current.NodeType := ntBookInfo;
+        Current.LibID := Query.FieldAsString(0); Current.Folder := Query.FieldAsString(1);
+        Current.FileName := Query.FieldAsString(2); Current.FileExt := Query.FieldAsString(3);
+        Current.InsideNo := Query.FieldAsInt(4); Current.CollectionRoot := CollectionRoot;
+      end;
+    finally Query.Free; end;
+    if not Current.BookKey.IsSameAs(Expected.BookKey) then
+    begin
+      FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); Started := False;
+      Exit(biwNoCard);
+    end;
+    if not Matches(Current) then
+    begin
+      FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); Started := False;
+      Exit(biwMismatch);
+    end;
+    SQL := '';
+    for Field := Low(TBookPersonalField) to High(TBookPersonalField) do
+      if Field in Fields then
+      begin if SQL <> '' then SQL := SQL + ','; SQL := SQL + Columns[Field] + '=?'; end;
+    Query := FDatabase.NewQuery('UPDATE Books SET ' + SQL + ' WHERE BookID=?');
+    try
+      ParameterIndex := 0;
+      for Field := Low(TBookPersonalField) to High(TBookPersonalField) do
+        if Field in Fields then
+        begin
+          case Field of
+            bpfRate: Query.SetParam(ParameterIndex, Expected.Rate);
+            bpfProgress: Query.SetParam(ParameterIndex, Expected.Progress);
+            bpfReview: Query.SetBlobParam(ParameterIndex, Expected.Review);
+            bpfAnnotation: Query.SetBlobParam(ParameterIndex, Expected.Annotation);
+            bpfIsLocal: Query.SetParam(ParameterIndex, bpIsLocal in Expected.BookProps);
+          end;
+          Inc(ParameterIndex);
+        end;
+      Query.SetParam(ParameterIndex, Expected.BookKey.BookID); Query.ExecSQL;
+      if FDatabase.LastChangedRows <> 1 then raise Exception.Create('Identity personal update was not applied.');
+    finally Query.Free; end;
+    // Synchronize only a matching saved card; never call the unguarded setter
+    // on a personal card left at an old key after a failed/ambiguous remap.
+    PersonalResult := biwUnavailable;
+    if Supports(FSystemData, IBookIdentityPersonalWriter, PersonalWriter) then
+      PersonalResult := PersonalWriter.TrySetIdentityPersonal(Expected, Fields, Matches);
+    if (PersonalResult in [biwUnavailable,biwMismatch]) or
+      (RequirePersonal and (PersonalResult <> biwSaved)) then
+      raise Exception.Create('The saved personal card could not be safely synchronized.');
+    FDatabase.Commit(Savepoint); Started := False; Result := biwSaved;
+  except
+    if Started and FDatabase.InTransaction then
+      try FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); except end;
+    Result := biwUnavailable;
   end;
 end;
 

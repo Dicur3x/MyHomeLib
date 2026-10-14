@@ -89,7 +89,8 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    function Download(const ASystemDB: ISystemData; const BookKey: TBookKey): boolean;
+    function Download(const ASystemDB: ISystemData; const BookKey: TBookKey;
+      Expected: PBookIdStruct = nil): Boolean;
     procedure Stop;
 
     property IgnoreErrors: boolean read FIgnoreErrors write FIgnoreErrors;
@@ -114,7 +115,9 @@ uses
   unit_Helpers,
   unit_ImportInpxThread,
   unit_MHLArchiveHelpers,
-  unit_MHLHttpClient;
+  unit_MHLHttpClient,
+  System.Variants,
+  unit_ReaderCache;
 
 resourcestring
 rstrWrongCredentials = 'Неправильный логин/пароль';
@@ -266,22 +269,55 @@ begin
   end;
 end;
 
-function TDownloader.Download(const ASystemDB: ISystemData; const BookKey: TBookKey): boolean;
+function TDownloader.Download(const ASystemDB: ISystemData; const BookKey: TBookKey;
+  Expected: PBookIdStruct): Boolean;
 var
   Collection: IBookCollection;
   BookRecord: TBookRecord;
-begin
-  Result := False;
+  Writer: IBookIdentityPersonalWriter;
+  Physical: string;
 
-  Collection := ASystemDB.GetCollection(BookKey.DatabaseID);
-  Collection.GetBookRecord(BookKey, BookRecord, False);
-
-  FFile := BookRecord.GetBookFileName;
-  if IsDownloadedFileValid(FFile) or DoDownload(Collection, BookRecord) then
+  procedure RejectIdentity;
   begin
-    Collection.SetLocal(BookKey, True);
-    unit_Messages.BookLocalStatusChanged(BookKey, True);
-    Result := True;
+    ProcessError('Книга больше не совпадает с сохранённой записью. ' +
+      'Загрузка и отметка «скачано» не выполнены; добавьте нужную книгу в очередь заново.',
+      'Книга в каталоге изменилась', '');
+  end;
+
+begin
+  Result := False; FFile := ''; URL := '';
+  if not Assigned(ASystemDB) or (BookKey.BookID <= 0) or (BookKey.DatabaseID <= 0) then Exit;
+  try
+    Collection := ASystemDB.GetCollection(BookKey.DatabaseID);
+    BookRecord := Default(TBookRecord);
+    Collection.GetBookRecord(BookKey, BookRecord, False);
+    if not BookRecord.BookKey.IsSameAs(BookKey) then begin RejectIdentity; Exit; end;
+    if Assigned(Expected) and Expected^.HasExpectedIdentity and
+      (not Expected^.BookKey.IsSameAs(BookKey) or
+       not ReaderBookMatchesExpectedIdentity(Expected^.ExpectedLibID, Expected^.ExpectedPhysicalIdentity,
+         BookRecord, VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)))) then
+    begin RejectIdentity; Exit; end;
+    // Keep the authorized record for the entire transfer. A late catalog
+    // replacement cannot change its request or destination into another book.
+    Physical := ReaderBookPhysicalIdentity(BookRecord);
+    if not Supports(Collection, IBookIdentityPersonalWriter, Writer) then begin RejectIdentity; Exit; end;
+    FFile := BookRecord.GetBookFileName;
+    if IsDownloadedFileValid(FFile) or DoDownload(Collection, BookRecord) then
+    begin
+      Include(BookRecord.BookProps, bpIsLocal);
+      if Writer.TrySetIdentityPersonal(BookRecord, [bpfIsLocal],
+        function(const Current: TBookRecord): Boolean
+        begin
+          Result := Current.BookKey.IsSameAs(BookKey) and
+            ReaderBookMatchesExpectedIdentity(BookRecord.LibID, Physical, Current,
+              VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)));
+        end) <> biwSaved then begin RejectIdentity; Exit; end;
+      unit_Messages.BookLocalStatusChanged(BookKey, True);
+      Result := True;
+    end;
+  except
+    on E: Exception do
+      ProcessError('Не удалось безопасно загрузить книгу: ' + E.Message, rstrDownloadError, FFile);
   end;
 end;
 

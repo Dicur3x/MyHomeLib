@@ -27,6 +27,14 @@ type
     FConditions: TArray<TColumnFilterCondition>;
     FSelectionSets: TObjectList<TDictionary<string,Byte>>;
     FOptionCache: TObjectDictionary<string,TStringList>;
+    FFavoriteAuthorsOnly, FAppliedFavoriteAuthorsOnly: Boolean;
+    FFavoriteKeyRevision: UInt64;
+    FFavoriteKeys: TDictionary<string, Byte>;
+    FFavoriteMatches: TDictionary<string, Boolean>;
+    procedure SyncFavoriteKeys;
+    procedure CopyConfiguration(Source: TBookColumnFilters);
+    procedure SetFavoriteAuthorsOnly(Enabled: Boolean);
+    function MatchesFavoriteAuthors(const Book: TBookRecord): Boolean;
     procedure EnsureRows(const Cancelled: TFunc<Boolean> = nil);
     procedure Compile;
     function CanNarrow: Boolean;
@@ -50,8 +58,11 @@ type
     property Total: Integer read GetTotal;
     function Apply(SelectBook: Boolean = True; const Cancelled: TFunc<Boolean> = nil): Integer;
     property Count: Integer read GetCount;
+    property FavoriteAuthorsOnly: Boolean read FFavoriteAuthorsOnly write SetFavoriteAuthorsOnly;
   end;
 
+// The main form supplies its cached set; filtering never opens a database.
+function SetFavoriteAuthorFilterKeys(const Keys: TArray<string>): Boolean;
 function EditBookColumnFilters(Tree: TBookTree): Boolean;
 function EditBookColumnFilter(Tree: TBookTree; Tag: Integer): Boolean;
 
@@ -61,14 +72,99 @@ implementation
 
 uses System.StrUtils, System.DateUtils, System.Math, Winapi.Windows, Vcl.Forms,
   Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls, unit_MHLHelpers,
-  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types;
+  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types, unit_MHLTheme,
+  unit_AuthorFavorites;
+
+var FavoriteAuthorKeys: TArray<string>;
+    FavoriteAuthorKeysRevision: UInt64 = 1;
+
+function SetFavoriteAuthorFilterKeys(const Keys: TArray<string>): Boolean;
+var NewKeys: TDictionary<string,Byte>; Key: string; Same: Boolean;
+begin
+  NewKeys := TDictionary<string,Byte>.Create;
+  try
+    // Profile keys are canonical hashes. Treat order and duplicates as a set;
+    // background metadata refreshes must not invalidate an unchanged filter.
+    for var Value in Keys do
+    begin
+      Key := LowerCase(Trim(Value));
+      if Key <> '' then NewKeys.TryAdd(Key,0);
+    end;
+    Same := NewKeys.Count = Length(FavoriteAuthorKeys);
+    if Same then
+      for Key in FavoriteAuthorKeys do
+        if not NewKeys.ContainsKey(Key) then begin Same := False; Break; end;
+    Result := not Same;
+    if not Result then Exit;
+    FavoriteAuthorKeys := NewKeys.Keys.ToArray; Inc(FavoriteAuthorKeysRevision);
+  finally NewKeys.Free; end;
+end;
+
+procedure TBookColumnFilters.SyncFavoriteKeys;
+begin
+  if FFavoriteKeyRevision = FavoriteAuthorKeysRevision then Exit;
+  FFavoriteKeys.Clear;
+  for var Key in FavoriteAuthorKeys do FFavoriteKeys.TryAdd(Key, 0);
+  FFavoriteMatches.Clear;
+  FFavoriteKeyRevision := FavoriteAuthorKeysRevision;
+  FOptionCache.Clear;
+  FHaveResult := False;
+end;
+
+procedure TBookColumnFilters.CopyConfiguration(Source: TBookColumnFilters);
+var Pair: TPair<Integer,string>; Sensitive: TPair<Integer,Boolean>; SameSensitivity: Boolean;
+begin
+  SameSensitivity := FSensitive.Count = Source.FSensitive.Count;
+  if SameSensitivity then
+    for Sensitive in Source.FSensitive do
+      if not FSensitive.ContainsKey(Sensitive.Key) then begin SameSensitivity := False; Break; end;
+  if (FFavoriteAuthorsOnly <> Source.FFavoriteAuthorsOnly) or not SameSensitivity then FCaseChanged := True;
+  FValues.Clear; for Pair in Source.FValues do FValues.Add(Pair.Key,Pair.Value);
+  FSensitive.Clear; for Sensitive in Source.FSensitive do FSensitive.Add(Sensitive.Key,Sensitive.Value);
+  FFavoriteAuthorsOnly := Source.FFavoriteAuthorsOnly; FOptionCache.Clear;
+end;
+
+procedure TBookColumnFilters.SetFavoriteAuthorsOnly(Enabled: Boolean);
+begin
+  if FFavoriteAuthorsOnly = Enabled then Exit;
+  FFavoriteAuthorsOnly := Enabled;
+  FCaseChanged := True;
+  FOptionCache.Clear;
+end;
+
+function TBookColumnFilters.MatchesFavoriteAuthors(const Book: TBookRecord): Boolean;
+var RawKey: string; Favorite: Boolean;
+begin
+  if FFavoriteKeys.Count = 0 then Exit(False);
+  for var Author in Book.Authors do
+  begin
+    RawKey := IntToStr(Length(Author.LastName)) + ':' + Author.LastName +
+      IntToStr(Length(Author.FirstName)) + ':' + Author.FirstName +
+      IntToStr(Length(Author.MiddleName)) + ':' + Author.MiddleName;
+    if not FFavoriteMatches.TryGetValue(RawKey, Favorite) then
+    begin
+      try
+        Favorite := FFavoriteKeys.ContainsKey(LowerCase(AuthorFavoriteKey(
+          Author.LastName, Author.FirstName, Author.MiddleName)));
+      except
+        // Malformed catalog names cannot be favorites. Do not let one bad
+        // coauthor stop filtering valid authors or cache its oversized name.
+        on E: EAuthorFavorites do Continue;
+      end;
+      if FFavoriteMatches.Count >= 8192 then FFavoriteMatches.Clear;
+      FFavoriteMatches.Add(RawKey, Favorite);
+    end;
+    if Favorite then Exit(True);
+  end;
+  Result := False;
+end;
 
 const
-  ColumnTags: array[0..13] of Integer = (COL_AUTHOR, COL_TITLE, COL_SERIES,
-    COL_PUBLISHER_SERIES_FILTER,
+  ColumnTags: array[0..14] of Integer = (COL_AUTHOR, COL_TITLE, COL_SERIES,
+    COL_PUBLISHER_SERIES_FILTER, COL_PUBLISHER,
     COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE,
     COL_COLLECTION, COL_LANG, COL_LIBRATE, COL_LIBID);
-  ColumnNames: array[0..13] of string = ('Автор', 'Название', 'Серия', 'Книжная серия', '№',
+  ColumnNames: array[0..14] of string = ('Автор', 'Название', 'Серия', 'Книжная серия', 'Издательство', '№',
     'Жанр', 'Размер', 'Моя оценка', 'Добавлено', 'Тип', 'Коллекция',
     'Язык', 'Рейтинг библиотеки', 'ID в библиотеке');
 
@@ -85,11 +181,14 @@ begin
   FVisible := TList<PVirtualNode>.Create;
   FSelectionSets := TObjectList<TDictionary<string,Byte>>.Create(True);
   FOptionCache := TObjectDictionary<string,TStringList>.Create([doOwnsValues]);
+  FFavoriteKeys := TDictionary<string, Byte>.Create;
+  FFavoriteMatches := TDictionary<string, Boolean>.Create;
   FRevision := High(UInt64);
 end;
 
 destructor TBookColumnFilters.Destroy;
 begin
+  FFavoriteMatches.Free; FFavoriteKeys.Free;
   FOptionCache.Free; FSelectionSets.Free; FVisible.Free; FGroups.Free; FRows.Free; FAppliedSensitive.Free; FApplied.Free; FSensitive.Free; FValues.Free;
   inherited;
 end;
@@ -115,17 +214,19 @@ end;
 
 function TBookColumnFilters.GetCount: Integer;
 begin
-  Result := FValues.Count;
+  Result := FValues.Count + Ord(FFavoriteAuthorsOnly);
 end;
 
 procedure TBookColumnFilters.Clear;
 begin
+  FFavoriteAuthorsOnly := False;
   FValues.Clear; FSensitive.Clear; FCaseChanged := True;
 end;
 
 procedure TBookColumnFilters.RestoreApplied;
 var Pair: TPair<Integer,string>; Sensitive: TPair<Integer,Boolean>;
 begin
+  FFavoriteAuthorsOnly := FAppliedFavoriteAuthorsOnly;
   FValues.Clear; FSensitive.Clear;
   for Pair in FApplied do FValues.Add(Pair.Key,Pair.Value);
   for Sensitive in FAppliedSensitive do FSensitive.Add(Sensitive.Key,Sensitive.Value);
@@ -139,6 +240,7 @@ begin
   case Tag of
     COL_AUTHOR: Result := TAuthorsHelper.GetList(Book.Authors);
     COL_TITLE: Result := Book.Title;
+    COL_PUBLISHER: Result := Book.Publisher;
     COL_SERIES: Result := Book.Series;
     COL_PUBLISHER_SERIES_FILTER:
       for Series in Book.PublisherSeries do Result := Result + Series.SeriesTitle + sLineBreak;
@@ -198,6 +300,7 @@ begin Result := FSensitive.ContainsKey(Tag); end;
 procedure TBookColumnFilters.EnsureRows(const Cancelled: TFunc<Boolean>);
 var Node: PVirtualNode; Book: PBookRecord; Visited: Integer;
 begin
+  SyncFavoriteKeys;
   if (FRevision = FTree.DataVersion) and (FNodeCount = FTree.TotalCount) then Exit;
   FOptionCache.Clear;
   FRows.Clear; FGroups.Clear; FVisible.Clear; FApplied.Clear; FAppliedSensitive.Clear; FHaveResult := False;
@@ -259,7 +362,8 @@ var Node: PVirtualNode; Book: PBookRecord; Genre: TGenreData; Series: TBookSerie
   end;
 begin
   EnsureRows;
-  CacheKey := IntToStr(Tag)+':'+BoolToStr(CaseSensitive(Tag));
+  CacheKey := IntToStr(Tag)+':'+BoolToStr(CaseSensitive(Tag)) +
+    ':favorites=' + BoolToStr(FFavoriteAuthorsOnly);
   for OtherTag in ColumnTags do if OtherTag <> Tag then
     CacheKey := CacheKey+#1+IntToStr(OtherTag)+':'+BoolToStr(CaseSensitive(OtherTag))+':'+Value(OtherTag);
   if FOptionCache.TryGetValue(CacheKey,Sorted) then begin Names.Assign(Sorted); Exit; end;
@@ -338,6 +442,7 @@ function TBookColumnFilters.CanNarrow: Boolean;
 var Pair: TPair<Integer,string>; NewValue: string;
 begin
   Result := FHaveResult and not FCaseChanged;
+  if FAppliedFavoriteAuthorsOnly and not FFavoriteAuthorsOnly then Result := False;
   if not Result then Exit;
   for Pair in FApplied do
     if not FValues.TryGetValue(Pair.Key, NewValue) then Exit(False)
@@ -369,6 +474,7 @@ var C: TColumnFilterCondition; Genre: TGenreData; Series: TBookSeriesData; Autho
     Result := C.Selections.ContainsKey(Key);
   end;
 begin
+  if FFavoriteAuthorsOnly and not MatchesFavoriteAuthors(Book) then Exit(False);
   for C in FConditions do
   begin
     if C.Tag=IgnoreTag then Continue;
@@ -473,6 +579,7 @@ begin
     Result := FVisible.Count;
     FApplied.Clear; for Pair in FValues do FApplied.Add(Pair.Key,Pair.Value);
     FAppliedSensitive.Clear;
+    FAppliedFavoriteAuthorsOnly := FFavoriteAuthorsOnly;
     for Sensitive in FSensitive do FAppliedSensitive.Add(Sensitive.Key,Sensitive.Value);
     FCaseChanged := False; FHaveResult := True;
     if SelectBook and (FVisible.IndexOf(FTree.FocusedNode) < 0) then
@@ -582,7 +689,7 @@ begin
     FloatToStr(Upper, TFormatSettings.Invariant) + ';' + IntToStr(UnitIndex);
 end;
 
-function EditFilters(Tree: TBookTree; OnlyTag: Integer): Boolean;
+function EditFilters(Tree: TBookTree; OnlyTag: Integer; OverrideFilters: TBookColumnFilters = nil): Boolean;
 var Dialog: TFilterEditor; Scroll: TScrollBox; Description: TLabel; Footer: TPanel;
   ApplyButton, CancelButton, ResetButton: TButton; Editors: TDictionary<Integer, TWinControl>;
   CaseChecks: TObjectDictionary<Integer,TCheckBox>; Ratings: TDictionary<Integer,TCheckListBox>; RatingList: TCheckListBox; CaseCheck: TCheckBox; RatingIndex: Integer;
@@ -592,7 +699,8 @@ var Dialog: TFilterEditor; Scroll: TScrollBox; Description: TLabel; Footer: TPan
   Current: string; NumericEditors: TObjectDictionary<Integer, TNumericFilterEditor>;
   NumericValues: TDictionary<Integer, string>; Numeric: TNumericFilterEditor; Valid: Boolean; Parts: TArray<string>; Day: TDateTime; P: TPoint; WorkArea: TRect;
 begin
-  Filters := TBookColumnFilters.ForTree(Tree);
+  Filters := OverrideFilters;
+  if not Assigned(Filters) then Filters := TBookColumnFilters.ForTree(Tree);
   Dialog := TFilterEditor.CreateNew(nil);
   Editors := TDictionary<Integer, TWinControl>.Create;
   Options := TObjectDictionary<Integer, TStringList>.Create([doOwnsValues]);
@@ -601,7 +709,7 @@ begin
   CaseChecks := TObjectDictionary<Integer,TCheckBox>.Create([]);
   Ratings := TDictionary<Integer,TCheckListBox>.Create;
   try
-    for Tag in TArray<Integer>.Create(COL_COLLECTION,COL_GENRE,COL_TYPE,COL_LANG,COL_SERIES,COL_PUBLISHER_SERIES) do
+    for Tag in TArray<Integer>.Create(COL_COLLECTION,COL_GENRE,COL_TYPE,COL_LANG,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER) do
     begin
       if (OnlyTag >= 0) and (OnlyTag <> Tag) then Continue;
       Names := TStringList.Create; Names.Sorted := True; Names.CaseSensitive := False;
@@ -716,7 +824,7 @@ begin
         Edit.SetBounds(FieldLeft, Y, Scroll.ClientWidth - FieldLeft - 12, 25);
         Edit.Anchors := [akLeft, akTop, akRight]; Edit.Text := Current; Editors.Add(Tag, Edit);
       end;
-      if Tag in [COL_AUTHOR,COL_TITLE,COL_SERIES,COL_PUBLISHER_SERIES,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG,COL_LIBID] then
+      if Tag in [COL_AUTHOR,COL_TITLE,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG,COL_LIBID] then
       begin
         CaseCheck := TCheckBox.Create(Dialog); CaseCheck.Parent := Scroll;
         CaseCheck.SetBounds(FieldLeft,Y+29,220,22); CaseCheck.Caption := 'Учитывать регистр';
@@ -793,8 +901,13 @@ type
     FBuilding, FLastSensitive: Boolean;
     FSearch: TEdit;
     FList: TVirtualStringTree;
-    FCase: TCheckBox;
-    FCount: TLabel;
+    FCase, FFavoriteAuthors: TCheckBox;
+    FCount, FLegend: TLabel;
+    FSearchPanel, FFooter: TPanel;
+    FSelectFound, FClear, FReset, FApply, FCancel: TButton;
+    FLayoutLocked: Boolean;
+    FLayoutPPI: Integer;
+    procedure LayoutControls(TargetPPI: Integer = 0);
     procedure UpdateCount;
     function Key(Index: Integer): string;
     function Chosen(Index: Integer): Boolean;
@@ -805,8 +918,12 @@ type
       Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
     procedure ItemChecked(Sender: TBaseVirtualTree; Node: PVirtualNode);
     procedure SelectFound(Sender: TObject);
+  protected
+    procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
   public
     constructor CreateList(Tree: TBookTree; Filters: TBookColumnFilters; Tag: Integer);
+    procedure ScaleForPPI(NewPPI: Integer); override;
     destructor Destroy; override;
     function SelectedValue: string;
   end;
@@ -837,6 +954,7 @@ begin
   Constraints.MinWidth := 396; Constraints.MinHeight := 320;
   Font.Name := 'Segoe UI'; Font.Size := 9; DoubleBuffered := True;
   SearchPanel := TPanel.Create(Self); SearchPanel.Parent := Self; SearchPanel.Align := alTop;
+  FSearchPanel := SearchPanel; FSearchPanel.Name := 'FilterSearchPanel';
   SearchPanel.Height := 130; SearchPanel.BevelOuter := bvNone;
   FSearch := TEdit.Create(Self); FSearch.Parent := SearchPanel; FSearch.SetBounds(12,10,ClientWidth-24,25);
   FSearch.Anchors := [akLeft,akTop,akRight];
@@ -844,24 +962,43 @@ begin
   FCase := TCheckBox.Create(Self); FCase.Parent := SearchPanel; FCase.SetBounds(12,41,220,22);
   FCase.Caption := 'Учитывать регистр'; FCase.Checked := Filters.CaseSensitive(Tag);
   FLastSensitive := FCase.Checked; FCase.OnClick := SearchChanged;
+  if Tag = COL_AUTHOR then
+  begin
+    FFavoriteAuthors := TCheckBox.Create(Self);
+    FFavoriteAuthors.Parent := SearchPanel;
+    FFavoriteAuthors.Name := 'FavoriteAuthorsOnlyCheck';
+    FFavoriteAuthors.Caption := 'Только любимые авторы';
+    FFavoriteAuthors.Checked := Filters.FavoriteAuthorsOnly;
+    FFavoriteAuthors.ShowHint := True;
+    FFavoriteAuthors.Hint := 'Условие действует вместе с другими фильтрами после «Применить».';
+  end;
   Button := TButton.Create(Self); Button.Parent := SearchPanel; Button.SetBounds(12,69,163,25);
   Button.Caption := 'Выбрать найденные'; Button.Tag := 1; Button.OnClick := SelectFound;
+  FSelectFound := Button; Button.Name := 'SelectFoundButton';
   Button := TButton.Create(Self); Button.Parent := SearchPanel; Button.SetBounds(185,69,163,25);
   Button.Caption := 'Снять всё'; Button.OnClick := SelectFound;
+  FClear := Button; Button.Name := 'ClearSelectionButton';
   Legend := TLabel.Create(Self); Legend.Parent := SearchPanel; Legend.AutoSize := False;
+  FLegend := Legend; Legend.Name := 'FilterSelectionLegend'; Legend.WordWrap := True;
   Legend.SetBounds(12,102,ClientWidth-24,22); Legend.Anchors := [akLeft,akTop,akRight];
   Legend.Caption := 'Без выбора — все варианты. Список по загруженным книгам.';
   Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
+  FFooter := Footer; Footer.Name := 'FilterFooter';
   Footer.Height := 63; Footer.BevelOuter := bvNone;
   FCount := TLabel.Create(Self); FCount.Parent := Footer; FCount.AutoSize := False;
+  FCount.Name := 'FilterOptionCount'; FCount.WordWrap := True;
   FCount.SetBounds(12,2,ClientWidth-24,18); FCount.Anchors := [akLeft,akTop,akRight];
   Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(12,26,100,28);
   Button.Caption := 'Сбросить'; Button.ModalResult := mrYes;
+  FReset := Button; Button.Name := 'ResetFilterButton';
   Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(ClientWidth-236,26,112,28); Button.Anchors := [akRight,akTop];
   Button.Caption := 'Применить'; Button.ModalResult := mrOk; Button.Default := True;
+  FApply := Button; Button.Name := 'ApplyFilterButton';
   Button := TButton.Create(Self); Button.Parent := Footer; Button.SetBounds(ClientWidth-112,26,100,28); Button.Anchors := [akRight,akTop];
   Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Cancel := True;
+  FCancel := Button; Button.Name := 'CancelFilterButton';
   FList := TVirtualStringTree.Create(Self); FList.Parent := Self; FList.Align := alClient;
+  FList.Name := 'FilterOptionList';
   FList.NodeDataSize := 0; FList.Header.Options := [];
   FList.TreeOptions.MiscOptions := [toCheckSupport];
   FList.TreeOptions.PaintOptions := [toThemeAware];
@@ -882,9 +1019,142 @@ begin
   for I := 0 to FNames.Count-1 do FFolded.Add(FoldText(FNames[I]));
   SearchChanged(nil); ActiveControl := FSearch;
   ScaleForPPI(Tree.CurrentPPI);
+  ApplyMHLControlTheme(Self);
+  LayoutControls;
   GetCursorPos(P); Area := Screen.MonitorFromPoint(P).WorkareaRect;
   Left := EnsureRange(P.X-Width div 2,Area.Left,Max(Area.Left,Area.Right-Width));
   Top := EnsureRange(P.Y+12,Area.Top,Max(Area.Top,Area.Bottom-Height));
+end;
+
+procedure TListFilterEditor.LayoutControls(TargetPPI: Integer);
+var
+  Margin, Gap, TextPadding, SmallGap, RowHeight, SelectWidth, ClearWidth,
+    ResetWidth, ApplyWidth, CancelWidth, MinimumClientWidth, Available,
+    SearchHeight, CaseHeight, LegendHeight, CountHeight, Y, FrameWidth,
+    FrameHeight, MinimumClientHeight, LayoutPPI: Integer;
+
+  function Pixels(Value: Integer): Integer;
+  begin Result := MulDiv(Value, LayoutPPI, 96); end;
+
+  function CaptionWidth(Button: TButton; Minimum: Integer): Integer;
+  begin
+    Canvas.Font.Assign(Button.Font);
+    Result := Max(Pixels(Minimum), Canvas.TextWidth(Button.Caption) + TextPadding);
+  end;
+
+  function TextHeight(Control: TControl): Integer;
+  begin
+    if Control is TButton then Canvas.Font.Assign(TButton(Control).Font)
+    else if Control is TLabel then Canvas.Font.Assign(TLabel(Control).Font)
+    else if Control is TCheckBox then Canvas.Font.Assign(TCheckBox(Control).Font)
+    else Canvas.Font.Assign(FSearch.Font);
+    Result := Canvas.TextHeight('ЙдAg');
+  end;
+
+  function LabelHeight(LabelControl: TLabel; Width, Minimum: Integer): Integer;
+  var Bounds: TRect;
+  begin
+    Canvas.Font.Assign(LabelControl.Font);
+    Bounds := Rect(0, 0, Max(1, Width), 0);
+    DrawText(Canvas.Handle, PChar(LabelControl.Caption), Length(LabelControl.Caption),
+      Bounds, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    Result := Max(Pixels(Minimum), Bounds.Height + Pixels(2));
+  end;
+
+begin
+  if FLayoutLocked or not Assigned(FSelectFound) or not Assigned(FClear) or
+    not Assigned(FReset) or not Assigned(FApply) or not Assigned(FCancel) then Exit;
+  FLayoutLocked := True;
+  try
+    if TargetPPI > 0 then FLayoutPPI := TargetPPI;
+    LayoutPPI := FLayoutPPI;
+    if LayoutPPI <= 0 then LayoutPPI := CurrentPPI;
+    Margin := Pixels(12); Gap := Pixels(10); SmallGap := Pixels(6);
+    TextPadding := Pixels(24);
+    SelectWidth := CaptionWidth(FSelectFound, 190);
+    ClearWidth := CaptionWidth(FClear, 110);
+    ResetWidth := CaptionWidth(FReset, 100);
+    ApplyWidth := CaptionWidth(FApply, 112);
+    CancelWidth := CaptionWidth(FCancel, 100);
+    MinimumClientWidth := Max(Pixels(380), Max(
+      SelectWidth + ClearWidth + Gap + 2 * Margin,
+      ResetWidth + ApplyWidth + CancelWidth + 2 * Gap + 2 * Margin));
+    Canvas.Font.Assign(FCase.Font);
+    MinimumClientWidth := Max(MinimumClientWidth,
+      Canvas.TextWidth(FCase.Caption) + Pixels(24) + 2 * Margin);
+    FrameWidth := Width - ClientWidth;
+    Constraints.MinWidth := MinimumClientWidth + FrameWidth;
+    if ClientWidth < MinimumClientWidth then ClientWidth := MinimumClientWidth;
+    Available := ClientWidth - 2 * Margin;
+
+    SearchHeight := Max(Pixels(25), TextHeight(FSearch) + Pixels(8));
+    FSearch.SetBounds(Margin, Pixels(10), Available, SearchHeight);
+    Y := FSearch.Top + FSearch.Height + SmallGap;
+    CaseHeight := Max(Pixels(22), TextHeight(FCase) + Pixels(4));
+    FCase.SetBounds(Margin, Y, Available, CaseHeight);
+    Inc(Y, CaseHeight + SmallGap);
+    if Assigned(FFavoriteAuthors) then
+    begin
+      CaseHeight := Max(Pixels(22), TextHeight(FFavoriteAuthors) + Pixels(4));
+      FFavoriteAuthors.SetBounds(Margin, Y, Available, CaseHeight);
+      Inc(Y, CaseHeight + SmallGap);
+    end;
+    RowHeight := Max(Pixels(28), Max(TextHeight(FSelectFound), TextHeight(FClear)) + Pixels(12));
+    // Give spare space to the longer action rather than leaving an empty gap
+    // or stretching the short Clear caption equally with Select found.
+    SelectWidth := Max(SelectWidth, Available - Gap - ClearWidth);
+    FSelectFound.SetBounds(Margin, Y, SelectWidth, RowHeight);
+    FClear.SetBounds(Margin + SelectWidth + Gap, Y, ClearWidth, RowHeight);
+    Inc(Y, RowHeight + Gap);
+    LegendHeight := LabelHeight(FLegend, Available, 22);
+    FLegend.SetBounds(Margin, Y, Available, LegendHeight);
+    FSearchPanel.Height := Y + LegendHeight + SmallGap;
+
+    CountHeight := LabelHeight(FCount, Available, 18);
+    FCount.SetBounds(Margin, Pixels(2), Available, CountHeight);
+    Y := FCount.Top + CountHeight + SmallGap;
+    RowHeight := Max(Pixels(28), Max(TextHeight(FReset),
+      Max(TextHeight(FApply), TextHeight(FCancel))) + Pixels(12));
+    FReset.SetBounds(Margin, Y, ResetWidth, RowHeight);
+    FCancel.SetBounds(ClientWidth - Margin - CancelWidth, Y, CancelWidth, RowHeight);
+    FApply.SetBounds(FCancel.Left - Gap - ApplyWidth, Y, ApplyWidth, RowHeight);
+    FFooter.Height := Y + RowHeight + Pixels(8);
+    FrameHeight := Height - ClientHeight;
+    MinimumClientHeight := FSearchPanel.Height + FFooter.Height + Pixels(100);
+    Constraints.MinHeight := Max(Pixels(320), MinimumClientHeight + FrameHeight);
+    if ClientHeight < MinimumClientHeight then ClientHeight := MinimumClientHeight;
+  finally FLayoutLocked := False; end;
+end;
+
+procedure TListFilterEditor.Resize;
+begin
+  inherited;
+  LayoutControls;
+end;
+
+procedure TListFilterEditor.ChangeScale(M, D: Integer; IsDpiChange: Boolean);
+var WasLocked: Boolean;
+begin
+  WasLocked := FLayoutLocked; FLayoutLocked := True;
+  try
+    inherited ChangeScale(M, D, IsDpiChange);
+    if IsDpiChange then FLayoutPPI := M;
+  finally FLayoutLocked := WasLocked; end;
+  // Keep the applied DPI: CurrentPPI may continue to report the monitor
+  // DPI after an explicit ScaleForPPI, including subsequent Resize events.
+  if not WasLocked then
+    if IsDpiChange then LayoutControls(M) else LayoutControls;
+end;
+
+procedure TListFilterEditor.ScaleForPPI(NewPPI: Integer);
+var WasLocked: Boolean;
+begin
+  // Finish VCL anchor/font scaling before measuring and remember its target.
+  WasLocked := FLayoutLocked; FLayoutLocked := True;
+  try
+    inherited ScaleForPPI(NewPPI); FLayoutPPI := NewPPI;
+  finally FLayoutLocked := WasLocked; end;
+  if not WasLocked then LayoutControls(NewPPI);
 end;
 
 destructor TListFilterEditor.Destroy;
@@ -934,6 +1204,7 @@ begin
     FCount.Caption := 'Вариантов: '+IntToStr(FFound.Count)+' из '+IntToStr(Seen.Count)+
       ' · выбрано: '+IntToStr(FChecked.Count);
   finally Seen.Free; end;
+  LayoutControls;
 end;
 
 procedure TListFilterEditor.InitItem(Sender: TBaseVirtualTree; ParentNode, Node: PVirtualNode;
@@ -976,30 +1247,52 @@ begin
   finally Values.Free; end;
 end;
 
-function EditListFilter(Tree: TBookTree; Tag: Integer): Boolean;
+function EditListFilter(Tree: TBookTree; Tag: Integer; OverrideFilters: TBookColumnFilters = nil): Boolean;
 var Dialog: TListFilterEditor; Filters: TBookColumnFilters; Answer: Integer;
 begin
-  Filters := TBookColumnFilters.ForTree(Tree); Dialog := TListFilterEditor.CreateList(Tree,Filters,Tag);
+  Filters := OverrideFilters;
+  if not Assigned(Filters) then Filters := TBookColumnFilters.ForTree(Tree);
+  Dialog := TListFilterEditor.CreateList(Tree,Filters,Tag);
   try
     Answer := Dialog.ShowModal; Result := Answer in [mrOk,mrYes];
-    if Answer = mrYes then Filters.SetValue(Tag,'')
+    if Answer = mrYes then
+    begin
+      Filters.SetValue(Tag,'');
+      if Tag = COL_AUTHOR then Filters.FavoriteAuthorsOnly := False;
+    end
     else if Answer = mrOk then
-    begin Filters.SetCaseSensitive(Tag,Dialog.FCase.Checked); Filters.SetValue(Tag,Dialog.SelectedValue); end;
+    begin
+      Filters.SetCaseSensitive(Tag,Dialog.FCase.Checked);
+      Filters.SetValue(Tag,Dialog.SelectedValue);
+      if Assigned(Dialog.FFavoriteAuthors) then
+        Filters.FavoriteAuthorsOnly := Dialog.FFavoriteAuthors.Checked;
+    end;
   finally Dialog.Free; end;
+end;
+
+function EditColumnWithFilters(Tree: TBookTree; Tag: Integer; Filters: TBookColumnFilters): Boolean;
+begin
+  if Tag in [COL_AUTHOR,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG] then
+    Result := EditListFilter(Tree,Tag,Filters)
+  else Result := EditFilters(Tree,Tag,Filters);
 end;
 
 type
   TAllFiltersEditor = class(TForm)
   private
     FTree: TBookTree;
+    FFilters: TBookColumnFilters;
+    FFavoriteAuthors: TCheckBox;
     procedure EditColumn(Sender: TObject);
   end;
 
 procedure TAllFiltersEditor.EditColumn(Sender: TObject);
 var Button: TButton; Filters: TBookColumnFilters; I: Integer;
 begin
-  Button := TButton(Sender); Filters := TBookColumnFilters.ForTree(FTree);
-  if not EditBookColumnFilter(FTree,Button.Tag) then Exit;
+  Button := TButton(Sender); Filters := FFilters;
+  Filters.FavoriteAuthorsOnly := FFavoriteAuthors.Checked;
+  if not EditColumnWithFilters(FTree,Button.Tag,Filters) then Exit;
+  FFavoriteAuthors.Checked := Filters.FavoriteAuthorsOnly;
   for I := Low(ColumnTags) to High(ColumnTags) do if ColumnTags[I] = Button.Tag then
   begin
     Button.Caption := ColumnNames[I];
@@ -1010,15 +1303,16 @@ end;
 
 function EditBookColumnFilters(Tree: TBookTree): Boolean;
 var Dialog: TAllFiltersEditor; Scroll: TScrollBox; Footer: TPanel; Button: TButton;
-  Filters: TBookColumnFilters; Saved: TArray<string>; Sensitive: TArray<Boolean>; I, Y: Integer;
+  Filters, Draft: TBookColumnFilters; I, Y: Integer;
+  Favorites: TCheckBox;
 begin
   Filters := TBookColumnFilters.ForTree(Tree);
-  SetLength(Saved,Length(ColumnTags)); SetLength(Sensitive,Length(ColumnTags));
-  for I := Low(ColumnTags) to High(ColumnTags) do
-  begin Saved[I] := Filters.Value(ColumnTags[I]); Sensitive[I] := Filters.CaseSensitive(ColumnTags[I]); end;
-  Dialog := TAllFiltersEditor.CreateNew(nil); Result := False;
+  // Original is created first: background publications/ForTree always see
+  // committed conditions. Nested modal editors receive the separate draft.
+  Draft := TBookColumnFilters.CreateFor(Tree); Dialog := nil; Result := False;
   try
-    Dialog.FTree := Tree; Dialog.Caption := 'Фильтры столбцов'; Dialog.Position := poMainFormCenter;
+    Draft.CopyConfiguration(Filters); Dialog := TAllFiltersEditor.CreateNew(nil);
+    Dialog.FTree := Tree; Dialog.FFilters := Draft; Dialog.Caption := 'Фильтры столбцов'; Dialog.Position := poMainFormCenter;
     Dialog.BorderStyle := bsSizeable;
     Dialog.ClientWidth := 420; Dialog.ClientHeight := 450;
     Dialog.Constraints.MinWidth := 396; Dialog.Constraints.MinHeight := 260;
@@ -1030,27 +1324,31 @@ begin
     Button := TButton.Create(Dialog); Button.Parent := Footer; Button.SetBounds(Dialog.ClientWidth-112,6,100,28); Button.Anchors := [akRight,akTop];
     Button.Caption := 'Отмена'; Button.ModalResult := mrCancel; Button.Cancel := True;
     Scroll := TScrollBox.Create(Dialog); Scroll.Parent := Dialog; Scroll.Align := alClient; Y := 10;
+    Favorites := TCheckBox.Create(Dialog); Favorites.Parent := Scroll;
+    Dialog.FFavoriteAuthors := Favorites;
+    Favorites.Name := 'FavoriteAuthorsOnlyCheck';
+    Favorites.SetBounds(12, Y, Scroll.ClientWidth - 24, 24);
+    Favorites.Anchors := [akLeft, akTop, akRight];
+    Favorites.Caption := 'Только любимые авторы';
+    Favorites.Checked := Draft.FavoriteAuthorsOnly;
+    Inc(Y, 32);
     for I := Low(ColumnTags) to High(ColumnTags) do
     begin
       if ColumnTags[I] in [COL_LIBRATE,COL_LIBID] then Continue;
       Button := TButton.Create(Dialog); Button.Parent := Scroll; Button.SetBounds(12,Y,Scroll.ClientWidth-24,30); Button.Anchors := [akLeft,akTop,akRight];
       Button.Tag := ColumnTags[I]; Button.Caption := ColumnNames[I];
-      if Saved[I] <> '' then Button.Caption := Button.Caption+' • фильтр задан';
+      if Draft.Value(ColumnTags[I]) <> '' then Button.Caption := Button.Caption+' • фильтр задан';
       Button.OnClick := Dialog.EditColumn; Inc(Y,36);
     end;
     Dialog.ScaleForPPI(Tree.CurrentPPI); Result := Dialog.ShowModal = mrOk;
-  finally
-    if not Result then for I := Low(ColumnTags) to High(ColumnTags) do
-    begin Filters.SetValue(ColumnTags[I],Saved[I]); Filters.SetCaseSensitive(ColumnTags[I],Sensitive[I]); end;
-    Dialog.Free;
-  end;
+    if Result then
+    begin Draft.FavoriteAuthorsOnly := Favorites.Checked; Filters.CopyConfiguration(Draft); end;
+  finally Dialog.Free; Draft.Free; end;
 end;
 
 function EditBookColumnFilter(Tree: TBookTree; Tag: Integer): Boolean;
 begin
-  if Tag in [COL_AUTHOR,COL_SERIES,COL_PUBLISHER_SERIES,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG] then
-    Result := EditListFilter(Tree,Tag)
-  else Result := EditFilters(Tree,Tag);
+  Result := EditColumnWithFilters(Tree,Tag,nil);
 end;
 
 end.

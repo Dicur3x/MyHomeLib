@@ -35,6 +35,7 @@ uses
   ExtCtrls,
   ComCtrls,
   ImgList,
+  Vcl.Menus,
   unit_AutoCompleteEdit;
 
 type
@@ -247,13 +248,22 @@ type
   private
     FUseBuiltinReader: TCheckBox;
     FCachePage: TTabSheet;
-    FCacheLimit, FCacheDirectory: TEdit;
+    FCacheLimit, FCacheDirectory, FCacheResolved: TEdit;
+    FCacheFolderButton: TButton;
+    FCacheFolderMenu: TPopupMenu;
+    FCacheLocationInfo, FCacheDirectoryLabel, FCacheResolvedLabel: TLabel;
+    FCacheLayoutLocked: Boolean;
+    FCacheLayoutPPI: Integer;
     FCacheUnit: TComboBox;
     FCacheExit: TCheckBox;
     FCacheUsage: TLabel;
     FCacheTimer: TTimer;
     procedure ReaderModeChanged(Sender: TObject);
     procedure ChooseCacheDirectory(Sender: TObject);
+    procedure BrowseCacheDirectory;
+    procedure CacheFolderPresetClick(Sender: TObject);
+    procedure CacheDirectoryChanged(Sender: TObject);
+    procedure LayoutCacheControls(TargetPPI: Integer = 0);
     procedure CacheUsageUpdate(Sender: TObject);
     procedure LoadCacheSettings;
     procedure ClearCacheClick(Sender: TObject);
@@ -272,8 +282,11 @@ type
 
   protected
     procedure DoCreate; override;
+    procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
 
   public
+    procedure ScaleForPPI(NewPPI: Integer); override;
     procedure LoadSetting;
     procedure SaveSettings;
   end;
@@ -283,7 +296,7 @@ implementation
 uses
   StrUtils,
   Character,
-  unit_BookCache, System.Math, System.IOUtils, unit_MHLTheme,
+  unit_BookCache, System.Math, System.IOUtils, System.Types, unit_MHLTheme,
   unit_HelpTopics,
   unit_Globals,
   unit_Readers,
@@ -296,6 +309,9 @@ uses
   frm_create_mask,
   unit_Templater,
   unit_Localization, Vcl.FileCtrl;
+
+type
+  TCachePageControlAccess = class(TPageControl);
 
 resourcestring
   rstrStandart = 'Стандартное';
@@ -319,7 +335,7 @@ resourcestring
 {$R *.dfm}
 
 procedure TfrmSettings.DoCreate;
-var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel;
+var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem: TMenuItem; CacheControl: TControl; I, CachePPI: Integer;
 begin
   inherited;
 
@@ -385,18 +401,54 @@ begin
   ClearButton.Caption:='Продолжить перенос'; ClearButton.Visible:=False;
   ClearButton.OnClick:=CacheTransferClick;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  FCacheDirectoryLabel:=CaptionLabel; CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
   CaptionLabel.SetBounds(12,282,410,18); CaptionLabel.Caption:='Папка для кэша (перенос автоматически):';
   FCacheDirectory:=TEdit.Create(Self); FCacheDirectory.Parent:=FCachePage;
-  FCacheDirectory.Name:='edBookCacheDirectory'; FCacheDirectory.SetBounds(12,306,315,24);
-  ClearButton:=TButton.Create(Self); ClearButton.Parent:=FCachePage; ClearButton.SetBounds(335,304,88,28);
-  ClearButton.Caption:='Выбрать…'; ClearButton.OnClick:=ChooseCacheDirectory;
+  FCacheDirectory.Name:='edBookCacheDirectory'; FCacheDirectory.SetBounds(12,306,262,24);
+  FCacheDirectory.Anchors:=[akLeft,akTop,akRight];
+  FCacheDirectory.TextHint:='Рядом с данными программы'; FCacheDirectory.OnChange:=CacheDirectoryChanged;
+  FCacheFolderButton:=TButton.Create(Self); FCacheFolderButton.Parent:=FCachePage;
+  FCacheFolderButton.Name:='btnChooseBookCacheDirectory'; FCacheFolderButton.SetBounds(282,304,140,28);
+  FCacheFolderButton.Anchors:=[akTop,akRight]; FCacheFolderButton.Caption:='Выбрать папку';
+  FCacheFolderButton.OnClick:=ChooseCacheDirectory;
+  FCacheFolderMenu:=TPopupMenu.Create(Self); FCacheFolderMenu.Name:='pmBookCacheDirectory';
+  for I:=0 to 3 do
+  begin
+    FolderItem:=TMenuItem.Create(Self); FolderItem.Tag:=I; FolderItem.RadioItem:=True;
+    case I of
+      0: begin FolderItem.Name:='miCacheFolderData'; FolderItem.Caption:='Рядом с данными программы'; end;
+      1: begin FolderItem.Name:='miCacheFolderTemp'; FolderItem.Caption:='Временная папка Windows'; end;
+      2: begin FolderItem.Name:='miCacheFolderLocal'; FolderItem.Caption:='Локальные данные Windows'; end;
+      3: begin FolderItem.Name:='miCacheFolderOther'; FolderItem.Caption:='Другая папка…'; end;
+    end;
+    FolderItem.OnClick:=CacheFolderPresetClick; FCacheFolderMenu.Items.Add(FolderItem);
+  end;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
-  CaptionLabel.SetBounds(12,342,410,36); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
-  CaptionLabel.Caption:='Пустое поле — стандартная папка кэша. В выбранной папке создаётся подпапка HomeLibRu-BookCache.';
+  FCacheResolvedLabel:=CaptionLabel; CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
+  CaptionLabel.SetBounds(12,342,410,18); CaptionLabel.Caption:='Фактическая папка кэша:';
+  FCacheResolved:=TEdit.Create(Self); FCacheResolved.Parent:=FCachePage;
+  FCacheResolved.Name:='edBookCacheResolved'; FCacheResolved.SetBounds(12,364,410,24);
+  FCacheResolved.ReadOnly:=True; FCacheResolved.Anchors:=[akLeft,akTop,akRight];
+  FCacheResolved.Hint:='Полный путь. Его можно выделить и скопировать.'; FCacheResolved.ShowHint:=True;
+  FCacheLocationInfo:=TLabel.Create(Self); FCacheLocationInfo.Parent:=FCachePage;
+  FCacheLocationInfo.Name:='lblBookCacheLocationInfo'; FCacheLocationInfo.SetBounds(12,398,410,52);
+  FCacheLocationInfo.AutoSize:=False; FCacheLocationInfo.WordWrap:=True;
+  FCacheLocationInfo.Anchors:=[akLeft,akTop,akRight];
+  // This page is created after DFM scaling. Its design coordinates are 96-DPI;
+  // inherited fonts already match the form, so scale only the new bounds.
+  CachePPI:=FCacheLayoutPPI; if CachePPI<=0 then CachePPI:=CurrentPPI;
+  if CachePPI<>96 then
+    for I:=0 to FCachePage.ControlCount-1 do
+    begin
+      CacheControl:=FCachePage.Controls[I];
+      CacheControl.SetBounds(MulDiv(CacheControl.Left,CachePPI,96),MulDiv(CacheControl.Top,CachePPI,96),
+        MulDiv(CacheControl.Width,CachePPI,96),MulDiv(CacheControl.Height,CachePPI,96));
+    end;
   FCacheTimer:=TTimer.Create(Self); FCacheTimer.Interval:=1000; FCacheTimer.OnTimer:=CacheUsageUpdate;
   LoadCacheSettings;
   Localize(Self);
-  ClientHeight:=Max(ClientHeight,MulDiv(540,CurrentPPI,96));
+  ClientHeight:=Max(ClientHeight,MulDiv(540,CachePPI,96));
+  LayoutCacheControls;
   Label21.Caption := 'Размещение импортированных книг';
   cbEnableFileSort.Caption := 'Раскладывать новые книги по папкам и переименовывать';
   Label22.Caption := 'Куда:';
@@ -423,6 +475,86 @@ begin
     'оставьте поля пустыми или укажите свой совместимый сервер. INPX можно подключать из файла.';
 end;
 
+procedure TfrmSettings.LayoutCacheControls(TargetPPI: Integer);
+var LayoutPPI, Margin, Gap, Available, ButtonWidth, RowHeight, Y, RequiredHeight: Integer;
+  Area: TRect;
+  function Pixels(Value: Integer): Integer;
+  begin Result:=MulDiv(Value,LayoutPPI,96); end;
+  function LabelHeight(LabelControl: TLabel; Minimum: Integer): Integer;
+  var Bounds: TRect;
+  begin
+    Canvas.Font.Assign(LabelControl.Font); Bounds:=Rect(0,0,Max(1,Available),0);
+    DrawText(Canvas.Handle,PChar(LabelControl.Caption),Length(LabelControl.Caption),
+      Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    Result:=Max(Pixels(Minimum),Bounds.Height+Pixels(2));
+  end;
+  procedure FitPage;
+  begin
+    Realign; pcSetPages.Realign;
+    // The dynamically created inactive sheet must follow the page-control
+    // client area too; it may not receive active-sheet resize notifications.
+    Area:=TCachePageControlAccess(pcSetPages).DisplayRect;
+    FCachePage.SetBounds(Area.Left,Area.Top,Area.Width,Area.Height);
+  end;
+begin
+  if FCacheLayoutLocked or not Assigned(FCacheDirectoryLabel) or
+    not Assigned(FCacheResolvedLabel) or not Assigned(FCacheLocationInfo) then Exit;
+  FCacheLayoutLocked:=True;
+  try
+    if TargetPPI>0 then FCacheLayoutPPI:=TargetPPI;
+    LayoutPPI:=FCacheLayoutPPI; if LayoutPPI<=0 then LayoutPPI:=CurrentPPI;
+    Margin:=Pixels(12); Gap:=Pixels(8); FitPage;
+    Available:=Max(1,FCachePage.ClientWidth-2*Margin);
+    Canvas.Font.Assign(FCacheFolderButton.Font);
+    ButtonWidth:=Max(Pixels(140),Canvas.TextWidth(FCacheFolderButton.Caption)+Pixels(24));
+    RowHeight:=Max(Pixels(28),Canvas.TextHeight('ЙдAg')+Pixels(8));
+    Y:=Pixels(282);
+    FCacheDirectoryLabel.SetBounds(Margin,Y,Available,LabelHeight(FCacheDirectoryLabel,18));
+    Inc(Y,FCacheDirectoryLabel.Height+Pixels(6));
+    FCacheDirectory.SetBounds(Margin,Y,Max(1,Available-ButtonWidth-Gap),RowHeight);
+    FCacheFolderButton.SetBounds(Margin+Available-ButtonWidth,Y,ButtonWidth,RowHeight);
+    Inc(Y,RowHeight+Pixels(10));
+    FCacheResolvedLabel.SetBounds(Margin,Y,Available,LabelHeight(FCacheResolvedLabel,18));
+    Inc(Y,FCacheResolvedLabel.Height+Pixels(4));
+    Canvas.Font.Assign(FCacheResolved.Font);
+    RowHeight:=Max(Pixels(24),Canvas.TextHeight('ЙдAg')+Pixels(8));
+    FCacheResolved.SetBounds(Margin,Y,Available,RowHeight); Inc(Y,RowHeight+Pixels(10));
+    FCacheLocationInfo.SetBounds(Margin,Y,Available,LabelHeight(FCacheLocationInfo,52));
+    RequiredHeight:=FCacheLocationInfo.Top+FCacheLocationInfo.Height+Margin;
+    if FCachePage.ClientHeight<RequiredHeight then
+    begin
+      ClientHeight:=ClientHeight+RequiredHeight-FCachePage.ClientHeight; FitPage;
+    end;
+  finally FCacheLayoutLocked:=False; end;
+end;
+
+procedure TfrmSettings.Resize;
+begin
+  inherited; LayoutCacheControls;
+end;
+
+procedure TfrmSettings.ChangeScale(M,D: Integer; IsDpiChange: Boolean);
+var WasLocked: Boolean;
+begin
+  WasLocked:=FCacheLayoutLocked; FCacheLayoutLocked:=True;
+  try
+    inherited ChangeScale(M,D,IsDpiChange);
+    if IsDpiChange then FCacheLayoutPPI:=M;
+  finally FCacheLayoutLocked:=WasLocked; end;
+  if not WasLocked then
+    if IsDpiChange then LayoutCacheControls(M) else LayoutCacheControls;
+end;
+
+procedure TfrmSettings.ScaleForPPI(NewPPI: Integer);
+var WasLocked: Boolean;
+begin
+  WasLocked:=FCacheLayoutLocked; FCacheLayoutLocked:=True;
+  try
+    inherited ScaleForPPI(NewPPI); FCacheLayoutPPI:=NewPPI;
+  finally FCacheLayoutLocked:=WasLocked; end;
+  if not WasLocked then LayoutCacheControls(NewPPI);
+end;
+
 procedure TfrmSettings.ReaderModeChanged(Sender: TObject);
 begin
   lvReaders.Enabled:=not FUseBuiltinReader.Checked;
@@ -436,14 +568,78 @@ begin
   begin FCacheUnit.ItemIndex:=1; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB div 1024); end
   else begin FCacheUnit.ItemIndex:=0; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB); end;
   FCacheDirectory.Text:=Settings.BookCacheDirectory;
+  CacheDirectoryChanged(nil);
   FCacheExit.Checked:=Settings.ClearBookCacheOnExit; CacheUsageUpdate(nil);
 end;
 
 procedure TfrmSettings.ChooseCacheDirectory(Sender: TObject);
+var Point: TPoint; Item: TMenuItem; Directory, TempDirectory, LocalDirectory: string; I: Integer;
+begin
+  Directory:=Trim(FCacheDirectory.Text); TempDirectory:=GetEnvironmentVariable('TEMP');
+  LocalDirectory:=GetEnvironmentVariable('LOCALAPPDATA');
+  for I:=0 to FCacheFolderMenu.Items.Count-1 do
+  begin
+    Item:=FCacheFolderMenu.Items[I]; Item.Checked:=False;
+    case Item.Tag of
+      0: Item.Checked:=Directory='';
+      1: begin Item.Enabled:=TempDirectory<>''; Item.Checked:=Item.Enabled and SameFileName(Directory,TempDirectory); end;
+      2: begin Item.Enabled:=LocalDirectory<>''; Item.Checked:=Item.Enabled and SameFileName(Directory,TPath.Combine(LocalDirectory,'HomeLibRu')); end;
+    end;
+  end;
+  FCacheFolderMenu.Items[3].Checked:=not (FCacheFolderMenu.Items[0].Checked or
+    FCacheFolderMenu.Items[1].Checked or FCacheFolderMenu.Items[2].Checked);
+  Point:=FCacheFolderButton.ClientToScreen(System.Types.Point(0,FCacheFolderButton.Height));
+  FCacheFolderMenu.Popup(Point.X,Point.Y);
+end;
+
+procedure TfrmSettings.CacheFolderPresetClick(Sender: TObject);
+var Directory: string;
+begin
+  case TMenuItem(Sender).Tag of
+    0: FCacheDirectory.Text:='';
+    1: begin Directory:=GetEnvironmentVariable('TEMP'); if Directory<>'' then FCacheDirectory.Text:=Directory; end;
+    2: begin Directory:=GetEnvironmentVariable('LOCALAPPDATA'); if Directory<>'' then FCacheDirectory.Text:=TPath.Combine(Directory,'HomeLibRu'); end;
+    3: BrowseCacheDirectory;
+  end;
+  CacheDirectoryChanged(nil);
+end;
+
+procedure TfrmSettings.BrowseCacheDirectory;
 var Folder: string;
 begin
   Folder:=FCacheDirectory.Text;
   if SelectDirectory('Папка для кэша книг', '', Folder, [sdNewUI,sdShowEdit]) then FCacheDirectory.Text:=Folder;
+end;
+
+procedure TfrmSettings.CacheDirectoryChanged(Sender: TObject);
+var Directory, Resolved, CurrentRoot, TempDirectory: string; IsTemporary: Boolean;
+begin
+  if not Assigned(FCacheResolved) or not Assigned(FCacheLocationInfo) then Exit;
+  Directory:=Trim(FCacheDirectory.Text);
+  try
+    if Directory='' then Resolved:=TPath.Combine(Settings.DataPath,'BookCache')
+    else
+    begin
+      Directory:=TPath.GetFullPath(Directory);
+      // Preview is path arithmetic only: never start cache work for a draft.
+      if Settings.BookCacheDirectory='' then CurrentRoot:=TPath.Combine(Settings.DataPath,'BookCache')
+      else CurrentRoot:=TPath.Combine(TPath.GetFullPath(Settings.BookCacheDirectory),'HomeLibRu-BookCache');
+      if SameFileName(Directory,CurrentRoot) then Resolved:=Directory
+      else Resolved:=TPath.Combine(Directory,'HomeLibRu-BookCache');
+    end;
+    FCacheResolved.Text:=Resolved;
+    TempDirectory:=GetEnvironmentVariable('TEMP'); IsTemporary:=False;
+    if TempDirectory<>'' then
+      IsTemporary:=SameFileName(Directory,TPath.GetFullPath(TempDirectory)) or
+        Directory.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempDirectory)),True);
+    if IsTemporary then FCacheLocationInfo.Caption:='Временная папка: Windows может очистить кэш. Исходные книги сохраняются.'
+    else FCacheLocationInfo.Caption:='Сохраняемая папка. Очистка при выходе задаётся галочкой выше.';
+    FCacheLocationInfo.Caption:=FCacheLocationInfo.Caption+#13#10+'Папка изменится после нажатия «Применить».';
+  except
+    FCacheResolved.Text:='Проверьте путь к папке';
+    FCacheLocationInfo.Caption:='Укажите папку или выберите один из готовых вариантов.';
+  end;
+  LayoutCacheControls;
 end;
 
 procedure TfrmSettings.CacheUsageUpdate(Sender: TObject);

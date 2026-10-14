@@ -102,7 +102,8 @@ uses unit_MHLTheme,
   unit_Consts,
   dm_user,
   unit_Helpers,
-  unit_MHLHelpers;
+  unit_MHLHelpers,
+  System.JSON, VirtualTrees.Types;
 
 function DPIScale(Value: Integer): Integer; inline;
 begin
@@ -314,6 +315,8 @@ begin
       Result := Data^.Series;
     COL_PUBLISHER_SERIES:
       Result := TSeriesHelper.GetList(Data^.PublisherSeries);
+    COL_PUBLISHER:
+      Result := Data^.Publisher;
     COL_NO:
       Result := IfThen(Data^.SeqNumber = 0, '', IntToStr(Data^.SeqNumber));
     COL_SIZE:
@@ -557,6 +560,7 @@ var
       COL_AUTHOR:  Result := CompareStr(TAuthorsHelper.GetList(Data1^.Authors), TAuthorsHelper.GetList(Data2^.Authors));
       COL_TITLE:   Result := CompareStr(Data1^.Title, Data2^.Title);
       COL_PUBLISHER_SERIES: Result := CompareStr(TSeriesHelper.GetList(Data1^.PublisherSeries),TSeriesHelper.GetList(Data2^.PublisherSeries));
+      COL_PUBLISHER: Result := CompareStr(Data1^.Publisher, Data2^.Publisher);
       COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
       COL_NO:      Result := CompareSeqNumber(Number1, Number2);
       COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);
@@ -629,16 +633,73 @@ end;
 procedure TTreeController.DownloadsLoadNode(Sender: TBaseVirtualTree; Node: PVirtualNode; Stream: TStream);
 var
   Data: PDownloadData;
-  Size: Integer;
-  StrBuffer: PChar;
+  Parsed: TDownloadData;
+  Start, FrameEnd: Int64;
+  Header: TChunkHeader;
+  RawState: Cardinal;
+  Value: TJSONValue; Envelope: TJSONObject; Payload, RawURL: string;
+
+  procedure ReadExact(var Buffer; Count: Integer);
+  begin
+    if (Count<0) or (Stream.Position<Start) or (Stream.Position>FrameEnd) or
+      (Int64(Count)>FrameEnd-Stream.Position) then
+      raise EReadError.Create('Повреждена запись очереди: поле выходит за границу записи.');
+    Stream.ReadBuffer(Buffer,Count);
+  end;
 
   function GetString: string;
+  const MaxStringBytes=4*1024*1024;
+  var Size, Units: Integer; Bytes: TBytes;
   begin
-    Stream.Read(Size, SizeOf(Size));
-    StrBuffer := AllocMem(Size);
-    Stream.Read(StrBuffer^, Size);
-    Result := (StrBuffer);
-    FreeMem(StrBuffer);
+    ReadExact(Size,SizeOf(Size));
+    if (Size<1) or (Size>MaxStringBytes) or (Int64(Size)>FrameEnd-Stream.Position) then
+      raise EReadError.Create('Повреждена запись очереди: недопустимая длина строки.');
+    SetLength(Bytes,Size); ReadExact(Bytes[0],Size);
+    if Odd(Size) then
+    begin
+      // Old Unicode releases wrote only the first byte of the terminal NUL.
+      if Bytes[Size-1]<>0 then raise EReadError.Create('Повреждён конец строки очереди.');
+      Units:=(Size-1) div SizeOf(Char);
+    end
+    else
+    begin
+      if (Size<SizeOf(Char)) or (Bytes[Size-1]<>0) or (Bytes[Size-2]<>0) then
+        raise EReadError.Create('Повреждён конец строки очереди.');
+      Units:=(Size-SizeOf(Char)) div SizeOf(Char);
+    end;
+    if Units=0 then Result:='' else SetString(Result,PChar(@Bytes[0]),Units);
+  end;
+
+  function CompleteEnvelope(const Text: string): Boolean;
+  var Trimmed: string; InString, Escaped: Boolean; Depth, Separators: Integer;
+  begin
+    Result:=False; Trimmed:=Text.Trim;
+    if (Length(Trimmed)<2) or (Trimmed[1]<>'{') or (Trimmed[Length(Trimmed)]<>'}') then Exit;
+    InString:=False; Escaped:=False; Depth:=0; Separators:=0;
+    for var I:=1 to Length(Trimmed) do
+    begin
+      var C:=Trimmed[I];
+      if InString then
+      begin
+        if Ord(C)<32 then Exit;
+        if Escaped then Escaped:=False
+        else if C='\' then Escaped:=True
+        else if C='"' then InString:=False;
+      end
+      else
+      begin
+        if C='"' then InString:=True
+        else if CharInSet(C,['{','[']) then
+        begin Inc(Depth); if Depth>8 then Exit; end
+        else if CharInSet(C,['}',']']) then
+        begin
+          Dec(Depth); if (Depth<0) or ((Depth=0) and (I<>Length(Trimmed))) then Exit;
+        end
+        else if CharInSet(C,[':',',']) then
+        begin Inc(Separators); if Separators>5 then Exit; end;
+      end;
+    end;
+    Result:=not InString and not Escaped and (Depth=0);
   end;
 
 begin
@@ -647,18 +708,57 @@ begin
   Assert(Assigned(Stream));
 
   Data := Sender.GetNodeData(Node);
+  Start:=Stream.Position; FrameEnd:=Stream.Size;
+  if Start<>0 then
+  begin
+    if Start<SizeOf(Header) then raise EReadError.Create('Повреждена граница записи очереди.');
+    Stream.Position:=Start-SizeOf(Header);
+    try Stream.ReadBuffer(Header,SizeOf(Header)); finally Stream.Position:=Start; end;
+    if (Header.ChunkType<>UserChunk) or (Header.ChunkSize<0) or
+      (Int64(Header.ChunkSize)>Stream.Size-Start) then
+      raise EReadError.Create('Повреждена граница записи очереди.');
+    FrameEnd:=Start+Int64(Header.ChunkSize);
+  end;
+  Parsed:=Default(TDownloadData);
+  ReadExact(Parsed.BookKey,SizeOf(Parsed.BookKey));
+  Parsed.Title:=GetString; Parsed.Author:=GetString;
+  ReadExact(Parsed.Size,SizeOf(Parsed.Size));
+  Parsed.FileName:=GetString; Parsed.URL:=GetString;
+  // Preserve the legacy stream's field layout. Only this existing string
+  // carries a versioned optional envelope; it is never a network address.
+  if Parsed.URL.StartsWith('#MHL-download-identity-') then
+  begin
+    Parsed.HasExpectedIdentity:=True; RawURL:=Parsed.URL;
+    Payload := Copy(Parsed.URL, Length('#MHL-download-identity-v1#') + 1, MaxInt);
+    Value := nil;
+    try
+      if Parsed.URL.StartsWith('#MHL-download-identity-v1#') and
+        (Length(Payload)<=1048576) and CompleteEnvelope(Payload) then
+        Value:=TJSONObject.ParseJSONValue(Payload);
+      if Value is TJSONObject then
+      begin
+        Envelope := TJSONObject(Value);
+        if (Envelope.Count=3) and Assigned(Envelope.GetValue('url')) and (Envelope.GetValue('url') is TJSONString) and
+          Assigned(Envelope.GetValue('libid')) and (Envelope.GetValue('libid') is TJSONString) and
+          Assigned(Envelope.GetValue('physical')) and (Envelope.GetValue('physical') is TJSONString) then
+        begin
+          Parsed.URL := Envelope.GetValue('url').Value;
+          Parsed.ExpectedLibID := Envelope.GetValue('libid').Value;
+          Parsed.ExpectedPhysicalIdentity := Envelope.GetValue('physical').Value;
+        end;
+      end;
+    except
+      // Retain malformed/future raw data verbatim while failing identity proof.
+      Parsed.URL:=RawURL; Parsed.ExpectedLibID := ''; Parsed.ExpectedPhysicalIdentity := '';
+    end;
+    Value.Free;
+  end;
 
-  Stream.Read(Data^.BookKey, SizeOf(Data^.BookKey));
-
-  Data^.Title := GetString;
-  Data^.Author := GetString;
-
-  Stream.Read(Data^.Size, SizeOf(Data^.Size));
-
-  Data^.FileName := GetString;
-  Data^.URL := GetString;
-
-  Stream.Read(Data^.State, SizeOf(Data^.State));
+  RawState:=0; ReadExact(RawState,SizeOf(TDownloadState));
+  if RawState>Ord(High(TDownloadState)) then raise EReadError.Create('Повреждено состояние книги в очереди.');
+  Parsed.State:=TDownloadState(RawState);
+  if Stream.Position<>FrameEnd then raise EReadError.Create('В записи очереди остались неизвестные данные.');
+  Data^:=Parsed;
 end;
 
 procedure TTreeController.DownloadsGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
@@ -693,12 +793,18 @@ procedure TTreeController.DownloadsSaveNode(Sender: TBaseVirtualTree; Node: PVir
 var
   Data: PDownloadData;
   Size: Integer;
+  Envelope: TJSONObject;
 
   procedure WriteString(const S: string);
+  const MaxStringBytes=4*1024*1024;
+  var Bytes: Int64; Zero: Word;
   begin
-    Size := ByteLength(S) + 1;
-    Stream.Write(Size, SizeOf(Size));
-    Stream.Write(PChar(S)^, Size);
+    Bytes:=Int64(Length(S))*SizeOf(Char);
+    if Bytes+SizeOf(Char)>MaxStringBytes then raise EWriteError.Create('Строка очереди превышает допустимый размер.');
+    Size:=Integer(Bytes)+SizeOf(Char); Zero:=0;
+    Stream.WriteBuffer(Size,SizeOf(Size));
+    if Bytes>0 then Stream.WriteBuffer(PChar(S)^,Integer(Bytes));
+    Stream.WriteBuffer(Zero,SizeOf(Zero));
   end;
 
 begin
@@ -711,17 +817,33 @@ begin
   if not Assigned(Data) then
     Exit;
 
-  Stream.Write(Data^.BookKey, SizeOf(Data^.BookKey));
+  if (Ord(Data^.State)<Ord(Low(TDownloadState))) or (Ord(Data^.State)>Ord(High(TDownloadState))) then
+    raise EWriteError.Create('Недопустимое состояние книги в очереди.');
+
+  Stream.WriteBuffer(Data^.BookKey, SizeOf(Data^.BookKey));
 
   WriteString(Data^.Title);
   WriteString(Data^.Author);
 
-  Stream.Write(Data^.Size, SizeOf(Data^.Size));
+  Stream.WriteBuffer(Data^.Size, SizeOf(Data^.Size));
 
   WriteString(Data^.FileName);
-  WriteString(Data^.URL);
+  if Data^.HasExpectedIdentity and (Data^.ExpectedLibID='') and (Data^.ExpectedPhysicalIdentity='') and
+    Data^.URL.StartsWith('#MHL-download-identity-') then
+    WriteString(Data^.URL)
+  else if Data^.HasExpectedIdentity then
+  begin
+    Envelope := TJSONObject.Create;
+    try
+      Envelope.AddPair('url', Data^.URL);
+      Envelope.AddPair('libid', Data^.ExpectedLibID);
+      Envelope.AddPair('physical', Data^.ExpectedPhysicalIdentity);
+      WriteString('#MHL-download-identity-v1#' + Envelope.ToJSON);
+    finally Envelope.Free; end;
+  end
+  else WriteString(Data^.URL);
 
-  Stream.Write(Data^.State, SizeOf(Data^.State));
+  Stream.WriteBuffer(Data^.State, SizeOf(Data^.State));
 end;
 
 end.

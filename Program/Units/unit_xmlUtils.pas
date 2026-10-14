@@ -34,7 +34,10 @@ type
   public
     class function CreateEmptyDocument: IXMLDOMDocument;
     class function LoadFromZFile(const FileName: string): IXMLDOMDocument;
+    class function LoadFromFile(const FileName: string; Compressed: Boolean;
+      PreserveWhiteSpace: Boolean = False): IXMLDOMDocument;
     class procedure SaveToZFile(xmlDoc: IXMLDOMDocument; const FileName: string);
+    class procedure SaveToFile(xmlDoc: IXMLDOMDocument; const FileName: string; Compressed: Boolean);
   end;
 
   EMSXMLParseError = class(Exception)
@@ -66,52 +69,40 @@ type
 implementation
 
 uses
+  Winapi.Windows,
   Variants,
   ActiveX,
   ZLib;
 
 
 class function TMSXMLHelper.LoadFromZFile(const FileName: string): IXMLDOMDocument;
-var
-  fileStream: TFileStream;
-  zipStream: TZDecompressionStream;
-  vIn: OleVariant;
-  xmlDoc: IXMLDOMDocument;
-  ParseError: IXMLDOMParseError;
-  Msg: string;
-begin
-  fileStream := TFileStream.Create(FileName, fmOpenRead);
-  try
-    zipStream := TZDecompressionStream.Create(fileStream);
-    try
-      vIn := TStreamAdapter.Create(zipStream) as IStream;
-      try
-        xmlDoc := newDocument;
+begin Result:=LoadFromFile(FileName,True); end;
 
+class function TMSXMLHelper.LoadFromFile(const FileName: string; Compressed,
+  PreserveWhiteSpace: Boolean): IXMLDOMDocument;
+var
+  fileStream: TFileStream; zipStream: TZDecompressionStream; Input: TStream;
+  vIn: OleVariant; xmlDoc: IXMLDOMDocument; ParseError: IXMLDOMParseError; Msg: string;
+begin
+  fileStream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  try
+    zipStream:=nil; Input:=fileStream;
+    try
+      if Compressed then begin zipStream:=TZDecompressionStream.Create(fileStream); Input:=zipStream; end;
+      vIn:=TStreamAdapter.Create(Input) as IStream;
+      try
+        xmlDoc:=newDocument; xmlDoc.preserveWhiteSpace:=PreserveWhiteSpace;
         if not xmlDoc.load(vIn) then
         begin
-          ParseError := xmlDoc.parseError;
-          Msg := Format(
-            '%s%s%s: %d%s%s',
-            [
-              ParseError.reason, SLineBreak,
-              SLine, ParseError.line, SLineBreak,
-              Copy(ParseError.srcText, 1, 40)
-            ]
-          );
-          raise EMSXMLParseError.Create(ParseError, Msg);
+          ParseError:=xmlDoc.parseError;
+          Msg:=Format('%s%s%s: %d%s%s',[ParseError.reason,SLineBreak,SLine,
+            ParseError.line,SLineBreak,Copy(ParseError.srcText,1,40)]);
+          raise EMSXMLParseError.Create(ParseError,Msg);
         end;
-
-        Result := xmlDoc;
-      finally
-        vIn := Unassigned;
-      end;
-    finally
-      zipStream.Free;
-    end;
-  finally
-    fileStream.Free;
-  end;
+        Result:=xmlDoc;
+      finally vIn:=Unassigned; end;
+    finally zipStream.Free; end;
+  finally fileStream.Free; end;
 end;
 
 class function TMSXMLHelper.newDocument: IXMLDOMDocument;
@@ -141,26 +132,65 @@ begin
 end;
 
 class procedure TMSXMLHelper.SaveToZFile(xmlDoc: IXMLDOMDocument; const FileName: string);
+begin SaveToFile(xmlDoc,FileName,True); end;
+
+class procedure TMSXMLHelper.SaveToFile(xmlDoc: IXMLDOMDocument; const FileName: string; Compressed: Boolean);
 var
-  fileStream: TFileStream;
+  fileStream: THandleStream;
   zipStream: TZCompressionStream;
+  Output: TStream;
   vOut: OleVariant;
+  TempID: TGUID;
+  TempName: string;
+  FileHandle: THandle;
+  OwnTemp: Boolean;
 begin
-  fileStream := TFileStream.Create(FileName, fmCreate);
+  if not Assigned(xmlDoc) then
+    raise EArgumentNilException.Create('xmlDoc');
+
+  CreateGUID(TempID);
+  TempName := FileName + '.homelib-' + GUIDToString(TempID) + '.tmp';
+  FileHandle := CreateFile(PChar(TempName), GENERIC_READ or GENERIC_WRITE, 0,
+    nil, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
+  if FileHandle = INVALID_HANDLE_VALUE then
+    RaiseLastOSError;
+  OwnTemp := True;
   try
-    zipStream := TZCompressionStream.Create(fileStream);
     try
-      vOut := TStreamAdapter.Create(zipStream) as IStream;
+      fileStream := THandleStream.Create(FileHandle);
       try
-        xmlDoc.save(vOut);
+        zipStream := nil; Output := fileStream;
+        try
+          if Compressed then
+          begin zipStream := TZCompressionStream.Create(fileStream); Output := zipStream; end;
+          vOut := TStreamAdapter.Create(Output) as IStream;
+          try
+            xmlDoc.save(vOut);
+          finally
+            vOut := Unassigned;
+          end;
+        finally
+          // The zlib footer must be written before flushing and publication.
+          zipStream.Free;
+        end;
       finally
-        vOut := Unassigned;
+        fileStream.Free;
       end;
+      if not FlushFileBuffers(FileHandle) then
+        RaiseLastOSError;
     finally
-      zipStream.Free;
+      CloseHandle(FileHandle);
     end;
+
+    // The temporary file is adjacent, so publication remains on one volume.
+    // Failure (including a locked target) leaves the old complete file intact.
+    if not MoveFileEx(PChar(TempName), PChar(FileName),
+      MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+      RaiseLastOSError;
+    OwnTemp := False;
   finally
-    fileStream.Free;
+    if OwnTemp then
+      Winapi.Windows.DeleteFile(PChar(TempName));
   end;
 end;
 

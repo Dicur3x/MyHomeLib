@@ -8,6 +8,7 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   unit_ProgramUpdates in '..\Units\unit_ProgramUpdates.pas',
   unit_ComponentUpdates in '..\Units\unit_ComponentUpdates.pas',
   unit_ReaderFontDownloads in '..\Units\unit_ReaderFontDownloads.pas',
+  unit_BookConversion in '..\Units\unit_BookConversion.pas',
   unit_UpdateAuthenticity in '..\Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas';
 
@@ -27,6 +28,7 @@ var Mode, Job, Target, Archive, Digest, Tag: string; Files: TUpdateFiles;
   Lock: TFileStream; Components: TComponentReleases;
   ComponentThread: TComponentUpdateThread;
   Jobs: TArray<string>;
+  ConversionWarnings: TStringList; ConversionChecks: Integer; ConversionStream: TMemoryStream;
 begin
   try
     Mode := ParamStr(1);
@@ -36,6 +38,29 @@ begin
       TFile.WriteAllText(ExtractFilePath(ParamStr(0)) + 'update-restarted.txt',
         ParamStr(2) + sLineBreak + ParamStr(3) + sLineBreak + ParamStr(4), TEncoding.UTF8);
       Halt(0);
+    end;
+    if Mode = '--convert' then
+    begin
+      Guard(ParamStr(2)); Guard(ParamStr(3)); Guard(ParamStr(4));
+      ConversionWarnings:=TStringList.Create; ConversionChecks:=0; ConversionStream:=nil;
+      try
+        if ParamStr(6)='--stream' then
+        begin
+          ConversionStream:=TMemoryStream.Create;
+          ConversionStream.LoadFromFile(ParamStr(2)); ConversionStream.Position:=3;
+        end;
+        ConvertBasicBook(ParamStr(5),ParamStr(4),ParamStr(2),ExtractFileExt(ParamStr(2)),ParamStr(3),ConversionStream,
+          ConversionWarnings,function: Boolean
+            begin
+              Inc(ConversionChecks);
+              // Two checks precede CreateProcess; cancel after the child starts.
+              Result:=(ParamStr(6)='--cancel') and (ConversionChecks>2);
+            end);
+        if Assigned(ConversionStream) and (ConversionStream.Position<>3) then
+          raise Exception.Create('Conversion changed caller stream position');
+        Writeln(ConversionWarnings.Text);
+      finally ConversionStream.Free; ConversionWarnings.Free; end;
+      Writeln('PASS conversion'); Halt(0);
     end;
     if Mode = '--probe' then
     begin

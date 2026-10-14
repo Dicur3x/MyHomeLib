@@ -46,16 +46,20 @@ type
     FHTTPClient: THTTPClient;
     FStartDate: TDateTime;
     FUpdated: Boolean;
+    FCommittedCollectionIDs: TArray<Integer>;
+    function GetCommittedCollectionIDs: TArray<Integer>;
 
   protected
     procedure Initialize; override;
     procedure Uninitialize; override;
     procedure WorkFunction; override;
+    procedure CollectionCommitted(const CollectionID: Integer); override;
     procedure HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
 
   public
     constructor Create;
     property Updated: Boolean read FUpdated;
+    property CommittedCollectionIDs: TArray<Integer> read GetCommittedCollectionIDs;
   end;
 
   TManualUpdateThread = class(TCollectionUpdateThreadBase)
@@ -186,11 +190,15 @@ begin
     end;
 
     Collection.EndBulkOperation(True);
+    FChangesCommitted := True;
   except
     Collection.EndBulkOperation(False);
     raise;
   end;
 
+  // Notify durable change before remapping. A remap failure cannot make an
+  // already committed catalogue disappear from the caller's refresh list.
+  CollectionCommitted(ACollectionID);
   FSystemData.RemapCollectionBookIDs(ACollectionID, AFull);
   Result := True;
 end;
@@ -200,6 +208,21 @@ constructor TLibUpdateThread.Create;
 begin
   inherited Create(MHL_INVALID_ID);
   FGenresType := gtFb2;
+end;
+
+function TLibUpdateThread.GetCommittedCollectionIDs: TArray<Integer>;
+begin
+  Result := Copy(FCommittedCollectionIDs);
+end;
+
+procedure TLibUpdateThread.CollectionCommitted(const CollectionID: Integer);
+var ID, Index: Integer;
+begin
+  inherited;
+  for ID in FCommittedCollectionIDs do if ID = CollectionID then Exit;
+  Index := Length(FCommittedCollectionIDs);
+  SetLength(FCommittedCollectionIDs, Index + 1);
+  FCommittedCollectionIDs[Index] := CollectionID;
 end;
 
 procedure TLibUpdateThread.HTTPReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
@@ -242,7 +265,9 @@ var
   i: integer;
   InpxFileName: string;
   updateInfo: TUpdateInfo;
+  HadFailure: Boolean;
 begin
+  HadFailure := False;
   SetComment(rstrCheckingUpdate);
 
   try
@@ -269,6 +294,7 @@ begin
         SetProgress(0);
         if not Settings.Updates.DownloadUpdate(i, FHTTPClient) then
         begin
+          HadFailure := True;
           Teletype(rstrUpdateFailedDownload, tsInfo);
           Continue;
         end;
@@ -287,6 +313,7 @@ begin
       // оставляем на месте, чтобы можно было повторить попытку.
       if not UpdateCollection(InpxFileName, updateInfo.CollectionID, updateInfo.Full, updateInfo.Name) then
         Exit;
+      FUpdated := True;
 
       Teletype(rstrReady, tsInfo);
     end;
@@ -301,6 +328,7 @@ begin
     end;
 
     SetComment(rstrReady);
+    FOperationSuccess := not HadFailure and not Canceled;
   except
     on E: Exception do
     begin
@@ -365,7 +393,10 @@ begin
   try
     Teletype(Format(rstrManualCollectionUpdate, [FDisplayName, FFileName]), tsInfo);
     if UpdateCollection(FFileName, FCollectionID, FFull, FDisplayName) then
+    begin
+      FOperationSuccess := True;
       Teletype(rstrUpdateComplete, tsInfo);
+    end;
     SetComment(rstrReady);
   except
     on E: Exception do
@@ -436,6 +467,7 @@ begin
       end;
 
       Collection.EndBulkOperation(True);
+      FChangesCommitted := True;
     except
       Collection.EndBulkOperation(False);
       raise;
@@ -443,7 +475,9 @@ begin
 
     // Полный переимпорт переназначает BookID — группы приводим к новой
     // нумерации по LibID. Только после коммита коллекции: системная БД отдельная.
+    CollectionCommitted(FCollectionID);
     FSystemData.RemapCollectionBookIDs(FCollectionID, True);
+    FOperationSuccess := True;
 
     Teletype(rstrUpdateComplete, tsInfo);
     SetComment(rstrReady);

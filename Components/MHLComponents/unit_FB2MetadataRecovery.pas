@@ -30,7 +30,7 @@ function RecoverMetadataPrefix(Input: TRecordedMetadataStream;
 
 implementation
 
-uses System.Math, System.RegularExpressions, System.Generics.Collections;
+uses System.Math, System.RegularExpressions, System.Generics.Collections, Winapi.Windows;
 
 constructor TRecordedMetadataStream.Create(Source: TStream; Limit: Integer);
 begin
@@ -269,6 +269,43 @@ begin
   end;
 end;
 
+// Decode the bounded buffer only as a probe for the description boundary.
+// A SAX chunk may end inside a UTF-8 sequence / UTF-16 code unit in the body.
+// No replacement is accepted as metadata: RecoverMetadataPrefix still checks
+// its complete original byte prefix and rejects unpaired metadata surrogates.
+function DecodeMetadataProbe(const Bytes: TBytes; Offset: Integer;
+  Encoding: TEncoding; out Text: string): Boolean;
+var Count, Characters, I, At: Integer;
+begin
+  Result:=False; Text:=''; Count:=Length(Bytes)-Offset;
+  if Count<=0 then Exit(True);
+  case Encoding.CodePage of
+    CP_UTF8:
+      begin
+        Characters:=MultiByteToWideChar(CP_UTF8,0,PAnsiChar(@Bytes[Offset]),Count,nil,0);
+        if Characters<=0 then Exit;
+        SetLength(Text,Characters);
+        if MultiByteToWideChar(CP_UTF8,0,PAnsiChar(@Bytes[Offset]),Count,PChar(Text),Characters)<>Characters then Exit;
+      end;
+    1200,1201:
+      begin
+        // Preserve every complete UTF-16 code unit. An odd trailing body byte
+        // remains in Captured and is included on the next bounded read.
+        SetLength(Text,Count div 2);
+        for I:=1 to Length(Text) do
+        begin
+          At:=Offset+(I-1)*2;
+          if Encoding.CodePage=1200 then Text[I]:=Char(Integer(Bytes[At]) or (Integer(Bytes[At+1]) shl 8))
+          else Text[I]:=Char((Integer(Bytes[At]) shl 8) or Integer(Bytes[At+1]));
+        end;
+      end;
+  else
+    try Text:=Encoding.GetString(Bytes,Offset,Count);
+    except on E: EEncodingError do Exit; end;
+  end;
+  Result:=True;
+end;
+
 function RecoverMetadataPrefix(Input: TRecordedMetadataStream;
   MaxBytes, MaxDepth: Integer; const IsCanceled: TFunc<Boolean>;
   out XML, Details: string; out WasCanceled: Boolean; AllowUnchanged: Boolean): Boolean;
@@ -312,9 +349,7 @@ begin
       if Assigned(IsCanceled) and IsCanceled() then begin WasCanceled := True; Exit; end;
       SetLength(Bytes, Input.Captured.Size);
       Move(Input.Captured.Memory^, Bytes[0], Length(Bytes));
-      try
-        Text := Encoding.GetString(Bytes, Offset, Length(Bytes)-Offset);
-      except on E: EEncodingError do Exit; end;
+      if not DecodeMetadataProbe(Bytes,Offset,Encoding,Text) then Exit;
       if RepairText(Text, MaxDepth, IsCanceled, XML, Details,
         PrefixEnd, NeedMore, WasCanceled, AllowUnchanged) then
       begin

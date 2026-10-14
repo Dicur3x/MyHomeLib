@@ -46,6 +46,7 @@ type
 
     procedure Load(const FileName: string);
     procedure Save(const FileName: string);
+    function Clone: TSearchPresets;
 
     function GetPreset(const presetName: string): TSearchPreset;
     procedure RemovePreset(const presetName: string);
@@ -91,34 +92,56 @@ begin
   inherited;
 end;
 
+function TSearchPresets.Clone: TSearchPresets;
+var Source, Target: TSearchPreset; Field: TPair<string,string>;
+begin
+  Result:=TSearchPresets.Create;
+  try
+    for Source in Self do
+    begin
+      Target:=Result.GetPreset(Source.DisplayName);
+      for Field in Source do Target.AddOrSetValue(Field.Key,Field.Value);
+    end;
+  except Result.Free; raise; end;
+end;
+
 procedure TSearchPresets.Load(const FileName: string);
 var
-  xmlDoc : IXMLDOMDocument;
-  xmlPresets: IXMLDOMNodeList;
-  xmlPreset: IXMLDOMNode;
-  xmlFields: IXMLDOMNodeList;
-  xmlField: IXMLDOMNode;
-  preset: TSearchPreset;
+  xmlDoc: IXMLDOMDocument; xmlPresets, xmlFields: IXMLDOMNodeList;
+  xmlPreset, xmlField, Attribute: IXMLDOMNode; Preset: TSearchPreset;
+  Candidate: TSearchPresets; Name, Key: string; Prepared: TArray<TSearchPreset>;
 begin
-  xmlDoc := TMSXMLHelper.LoadFromZFile(FileName);
-
-  xmlPresets := xmlDoc.selectNodes('/' + PRESETS_ELEMENT + '/' + PRESET_ELEMENT);
-  xmlPreset := xmlPresets.nextNode;
-  while Assigned(xmlPreset) do
-  begin
-    preset := GetPreset(xmlPreset.attributes.getNamedItem(DISPLAYNAME_ATTRIBUTE).text);
-
-    xmlFields := xmlPreset.selectNodes(FIELD_ELEMENT);
-    xmlField := xmlFields.nextNode;
-    while Assigned(xmlField) do
+  xmlDoc:=TMSXMLHelper.LoadFromFile(FileName,not SameText(ExtractFileExt(FileName),'.xml'),True);
+  if not Assigned(xmlDoc.documentElement) or (xmlDoc.documentElement.nodeName<>PRESETS_ELEMENT) then
+    raise EArgumentException.Create('Файл не содержит пресеты поиска HomeLib Ru.');
+  Candidate:=Clone;
+  try
+    xmlPresets:=xmlDoc.selectNodes('/'+PRESETS_ELEMENT+'/'+PRESET_ELEMENT);
+    xmlPreset:=xmlPresets.nextNode;
+    while Assigned(xmlPreset) do
     begin
-      preset.AddOrSetValue(xmlField.attributes.getNamedItem(DISPLAYNAME_ATTRIBUTE).Text, xmlField.Text);
-
-      xmlField := xmlFields.nextNode;
+      Attribute:=xmlPreset.attributes.getNamedItem(DISPLAYNAME_ATTRIBUTE);
+      if not Assigned(Attribute) or (Trim(Attribute.text)='') then
+        raise EArgumentException.Create('В файле пресетов отсутствует название пресета.');
+      Name:=Attribute.text; Preset:=Candidate.GetPreset(Name);
+      xmlFields:=xmlPreset.selectNodes(FIELD_ELEMENT); xmlField:=xmlFields.nextNode;
+      while Assigned(xmlField) do
+      begin
+        Attribute:=xmlField.attributes.getNamedItem(DISPLAYNAME_ATTRIBUTE);
+        if not Assigned(Attribute) or (Trim(Attribute.text)='') then
+          raise EArgumentException.Create('В пресете «'+Name+'» отсутствует название поля.');
+        Key:=Attribute.text; Preset.AddOrSetValue(Key,xmlField.text);
+        xmlField:=xmlFields.nextNode;
+      end;
+      xmlPreset:=xmlPresets.nextNode;
     end;
-
-    xmlPreset := xmlPresets.nextNode;
-  end;
+    // All parsing/validation and required list allocation precede publication.
+    // A later invalid entry cannot leave an earlier preset partially imported.
+    Prepared:=Candidate.ToArray;
+    if Capacity<Length(Prepared) then Capacity:=Length(Prepared);
+    Candidate.OwnsObjects:=False;
+    Clear; AddRange(Prepared);
+  finally Candidate.Free; end;
 end;
 
 procedure TSearchPresets.Save(const FileName: string);
@@ -129,7 +152,7 @@ var
   preset: TSearchPreset;
   xmlPreset: IXMLDOMElement;
   xmlField: IXMLDOMElement;
-  xmlValue: IXMLDOMCDATASection;
+  At, SplitAt: Integer;
   presetField: TPair<string, string>;
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
@@ -149,8 +172,20 @@ begin
       xmlField := xmlDoc.createElement(FIELD_ELEMENT);
       xmlField.setAttribute(DISPLAYNAME_ATTRIBUTE, presetField.Key);
 
-      xmlValue := xmlDoc.createCDATASection(presetField.Value);
-      xmlField.appendChild(xmlValue);
+      // CDATA remains compatible with old readers. Split its closing marker
+      // without changing any field characters or inventing a new file schema.
+      At:=1;
+      repeat
+        SplitAt:=Pos(']]>',presetField.Value,At);
+        if SplitAt=0 then
+        begin
+          xmlField.appendChild(xmlDoc.createCDATASection(Copy(presetField.Value,At,MaxInt)));
+          Break;
+        end;
+        xmlField.appendChild(xmlDoc.createCDATASection(Copy(presetField.Value,At,SplitAt-At+2)));
+        xmlField.appendChild(xmlDoc.createTextNode('>'));
+        At:=SplitAt+3;
+      until False;
 
       xmlPreset.appendChild(xmlField);
     end;
@@ -158,7 +193,7 @@ begin
     xmlPresets.appendChild(xmlPreset);
   end;
 
-  TMSXMLHelper.SaveToZFile(xmlDoc, FileName);
+  TMSXMLHelper.SaveToFile(xmlDoc,FileName,not SameText(ExtractFileExt(FileName),'.xml'));
 end;
 
 function TSearchPresets.PresetByName(const presetName: string): Integer;

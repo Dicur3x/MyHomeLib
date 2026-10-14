@@ -37,12 +37,19 @@ type
     FSystemData: ISystemData;
     FCollection: IBookCollection;
     FCollectionRoot: string;
+    FChangesCommitted: Boolean;
+    FOperationSuccess: Boolean;
 
+    procedure CollectionCommitted(const CollectionID: Integer); virtual;
     procedure Initialize; override;
     procedure Uninitialize; override;
 
   public
     constructor Create(const CollectionID: Integer);
+    // Published only after the worker has been joined. A later cancellation or
+    // failure can coexist with an earlier durable commit.
+    property CommittedChanges: Boolean read FChangesCommitted;
+    property Success: Boolean read FOperationSuccess;
   end;
 
 implementation
@@ -56,6 +63,11 @@ constructor TCollectionWorker.Create(const CollectionID: Integer);
 begin
   inherited Create;
   FCollectionID := CollectionID;
+end;
+
+procedure TCollectionWorker.CollectionCommitted(const CollectionID: Integer);
+begin
+  FChangesCommitted := True;
 end;
 
 procedure TCollectionWorker.Initialize;

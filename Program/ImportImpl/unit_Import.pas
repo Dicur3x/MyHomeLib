@@ -26,9 +26,12 @@ uses
   unit_Interfaces,
   unit_MHLArchiveHelpers;
   
-procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat);
+procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat); overload;
+procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat;
+  out CommittedChanges: Boolean); overload;
 
-procedure ImportFBD(const CollectionID: Integer);
+procedure ImportFBD(const CollectionID: Integer); overload;
+procedure ImportFBD(const CollectionID: Integer; out CommittedChanges: Boolean); overload;
 
 implementation
 
@@ -40,11 +43,19 @@ uses
   frm_ImportProgressFormEx,
   unit_Consts;
 
-procedure ImportFB2;
+procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat);
+var CommittedChanges: Boolean;
+begin
+  ImportFB2(CollectionID, ArchiveFormat, CommittedChanges);
+end;
+
+procedure ImportFB2(const CollectionID: Integer; const ArchiveFormat: TArchiveFormat;
+  out CommittedChanges: Boolean);
 var
   worker: TImportFB2Thread;
   frmProgress: TImportProgressFormEx;
 begin
+  CommittedChanges := False;
   worker := TImportFB2Thread.Create(CollectionID, ArchiveFormat);
   try
     frmProgress := TImportProgressFormEx.Create(Application);
@@ -52,6 +63,8 @@ begin
       frmProgress.WorkerThread := worker;
       frmProgress.btnSaveLog.Visible := True;
       frmProgress.ShowModal;
+      worker.WaitFor;
+      CommittedChanges := worker.CommittedChanges;
     finally
       frmProgress.Free;
     end;
@@ -63,10 +76,17 @@ end;
 
 
 procedure ImportFBD(const CollectionID: Integer);
+var CommittedChanges: Boolean;
+begin
+  ImportFBD(CollectionID, CommittedChanges);
+end;
+
+procedure ImportFBD(const CollectionID: Integer; out CommittedChanges: Boolean);
 var
   worker: TImportFBDThread;
   frmProgress: TImportProgressFormEx;
 begin
+  CommittedChanges := False;
   worker := TImportFBDThread.Create(CollectionID);
   try
     frmProgress := TImportProgressFormEx.Create(Application);
@@ -74,6 +94,8 @@ begin
       frmProgress.WorkerThread := worker;
       frmProgress.btnSaveLog.Visible := True;
       frmProgress.ShowModal;
+      worker.WaitFor;
+      CommittedChanges := worker.CommittedChanges;
     finally
       frmProgress.Free;
     end;

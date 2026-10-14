@@ -72,6 +72,8 @@ type
     FWorker: TWorker;
 
     FAutoImport: boolean;
+    FOperationSucceeded: Boolean;
+    FCollectionCommittedChanges: Boolean;
 
     procedure CorrectParams;
     function CreateCollection: Boolean;
@@ -96,6 +98,8 @@ type
 
     function NewCollectionID: Integer; inline;
     property AutoImport:boolean  read FAutoImport;
+    property OperationSucceeded: Boolean read FOperationSucceeded;
+    property CommittedChanges: Boolean read FCollectionCommittedChanges;
   end;
 
 var
@@ -112,6 +116,7 @@ uses
   dm_user,
   unit_Interfaces,
   unit_ImportInpxThread,
+  unit_CollectionWorkerThread,
   unit_ImportMetabibThread;
 
 {$R *.dfm}
@@ -228,6 +233,7 @@ begin
 
     if not StartImportData then
     begin
+      FOperationSucceeded := True;
       DoChangePage(btnForward);
     end;
   end;
@@ -317,6 +323,8 @@ begin
   Assert(Assigned(FProgressPage));
 
   Result := False;
+  FOperationSucceeded := False;
+  FCollectionCommittedChanges := False;
 
   FProgressPage.OpenProgress;
   FProgressPage.SetComment(rstrCreationCollection);
@@ -346,6 +354,7 @@ begin
     FProgressPage.ShowProgress(100);
 
     FAutoImport := FParams.AutoImport;
+    FCollectionCommittedChanges := True;
 
     Result := True;
   except
@@ -444,6 +453,19 @@ var
   stayOnCurrentPage: Boolean;
   IgnoreErrors : Boolean;
 begin
+  // Completion notification precedes Uninitialize. Join before inspecting
+  // the final worker outcome or freeing its committed/success flags.
+  if Assigned(FWorker) then
+  begin
+    FWorker.WaitFor;
+    if FWorker is TCollectionWorker then
+    begin
+      FOperationSucceeded := TCollectionWorker(FWorker).Success and
+        not Assigned(FWorker.FatalException);
+      FCollectionCommittedChanges := FCollectionCommittedChanges or
+        TCollectionWorker(FWorker).CommittedChanges;
+    end;
+  end;
   IgnoreErrors := True;
   if FProgressPage.HasErrors then
     IgnoreErrors := (MessageDlg(rstrImportDoneWithErrors, mtWarning, [mbYes,mbNo], 0) = mrYes);
@@ -456,6 +478,8 @@ begin
   begin
     // User cancelled or errors occurred — destroy the partially created collection
     SystemDB.DeleteCollection(FParams.CollectionID);
+    FOperationSucceeded := False;
+    FCollectionCommittedChanges := False;
 
     if FProgressPage.HasErrors then
     begin

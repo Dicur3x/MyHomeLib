@@ -27,9 +27,13 @@ procedure SyncOnLineFiles(const CollectionID: Integer);
 
 procedure SyncFolders(const CollectionID: Integer);
 
-function LibrusecUpdate(const LogFileName: string): Boolean;
+function LibrusecUpdate(const LogFileName: string): Boolean; overload;
+function LibrusecUpdate(const LogFileName: string;
+  out AffectedCollectionIDs: TArray<Integer>): Boolean; overload;
 
-function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean;
+function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean; overload;
+function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string;
+  out CommittedChanges: Boolean): Boolean; overload;
 
 procedure ShowPopup(const Msg: string);
 procedure HidePopup;
@@ -99,10 +103,18 @@ begin
 end;
 
 function LibrusecUpdate(const LogFileName: string): Boolean;
+var AffectedCollectionIDs: TArray<Integer>;
+begin
+  Result := LibrusecUpdate(LogFileName, AffectedCollectionIDs);
+end;
+
+function LibrusecUpdate(const LogFileName: string;
+  out AffectedCollectionIDs: TArray<Integer>): Boolean;
 var
   worker : TLibUpdateThread;
   ProgressForm : TImportProgressFormEx;
 begin
+  AffectedCollectionIDs := nil;
   worker := TLibUpdateThread.Create;
   try
     ProgressForm := TImportProgressFormEx.Create(Application);
@@ -111,8 +123,10 @@ begin
     try
       ProgressForm.WorkerThread := worker;
       ProgressForm.ShowModal;
-      ProgressForm.SaveErrorLog(LogFileName);
+      worker.WaitFor;
       Result := worker.Updated;
+      AffectedCollectionIDs := worker.CommittedCollectionIDs;
+      ProgressForm.SaveErrorLog(LogFileName);
     finally
       ProgressForm.Free;
     end;
@@ -122,6 +136,13 @@ begin
 end;
 
 function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string): Boolean;
+var CommittedChanges: Boolean;
+begin
+  Result := ManualCollectionUpdate(CollectionID, LogFileName, CommittedChanges);
+end;
+
+function ManualCollectionUpdate(const CollectionID: Integer; const LogFileName: string;
+  out CommittedChanges: Boolean): Boolean;
 var
   FileName: string;
   Full: Boolean;
@@ -132,6 +153,7 @@ var
   ProgressForm: TImportProgressFormEx;
 begin
   Result := False;
+  CommittedChanges := False;
 
   if not AskUpdateFile(FileName, Full) then
     Exit;
@@ -160,6 +182,9 @@ begin
         ProgressForm.btnSaveLog.Visible := True;
         ProgressForm.WorkerThread := mbWorker;
         ProgressForm.ShowModal;
+        mbWorker.WaitFor;
+        Result := mbWorker.Success;
+        CommittedChanges := mbWorker.CommittedChanges;
         ProgressForm.SaveErrorLog(LogFileName);
       finally
         ProgressForm.Free;
@@ -167,7 +192,7 @@ begin
     finally
       mbWorker.Free;
     end;
-    Exit(True);
+    Exit;
   end;
 
   worker := TManualUpdateThread.Create(CollectionID, FileName, Full, GenresType);
@@ -180,6 +205,9 @@ begin
       ProgressForm.btnSaveLog.Visible := True;
       ProgressForm.WorkerThread := worker;
       ProgressForm.ShowModal;
+      worker.WaitFor;
+      Result := worker.Success;
+      CommittedChanges := worker.CommittedChanges;
       ProgressForm.SaveErrorLog(LogFileName);
     finally
       ProgressForm.Free;
@@ -188,7 +216,6 @@ begin
     worker.Free;
   end;
 
-  Result := True;
 end;
 
 procedure LocateBook;

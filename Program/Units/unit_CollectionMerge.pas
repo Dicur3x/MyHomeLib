@@ -453,6 +453,7 @@ var Source: TMergeSource; Iterator: IBookIterator; Book, Existing: TBookRecord;
   CachedBooks: TDictionary<Integer,TBookRecord>;
   CachedSeries: TDictionary<Integer,TBookSeries>;
   MergeUpdater: IBookMergeMetadataUpdater; DeltaUpdater: IBookMergeMetadataDeltaUpdater;
+  OriginalCopyRecorder: IBookMergeOriginalCopyRecorder;
   SourceSeriesProvider: IBookSeriesStreamProvider; SourceSeriesStream: IBookSeriesReadStream;
   procedure PrepareReadSnapshot;
   {$IFDEF WIN64}
@@ -627,6 +628,7 @@ begin
   ImportCache := TImportCache.Create;
   Mapped := TUserData.Create; StoredBooks := nil; CachedBooks := nil; CachedSeries:=nil;
   FReadCacheHits:=0; FReadCacheBooks:=0; Count := 0; TargetCommitted := False; SystemStarted := False;
+  Supports(FTarget,IBookMergeOriginalCopyRecorder,OriginalCopyRecorder);
   SavedHide := FTarget.GetHideDeleted; SavedLocal := FTarget.GetShowLocalOnly;
   FTarget.SetHideDeleted(False); FTarget.SetShowLocalOnly(False);
   try
@@ -712,6 +714,11 @@ begin
             else Book.LibID := 'merged:' + Source.ID + ':file:' + Physical;
             ID := FTarget.InsertBook(Book, False, False, ImportCache);
             if ID = 0 then raise Exception.Create('Не удалось добавить книгу: ' + Book.Title);
+            // InsertBook already establishes the primary membership. Compare
+            // with its actual graph: title caches and collection implementations
+            // may resolve source series IDs differently from the destination.
+            if Length(Series) <> 0 then
+              Series := MissingSeries(Series, FTarget.GetBookSeries(CreateBookKey(ID, FTarget.CollectionID)));
             RecordSQLiteProfile('merge','phase','insert-new-book',PhaseStarted);
           end
           else
@@ -721,7 +728,13 @@ begin
             RecordSQLiteProfile('merge','phase','read-existing-book',PhaseStarted);
             PhaseStarted := SQLiteProfileClock;
             if (FPolicy <> mpKeepAll) and not Seen.ContainsKey(ID) then
-              FTarget.SetCatalogBookCopy('base:' + PhysicalIdentityAt(Existing,ResolvedContainer(Existing)), Existing.CollectionName, Existing);
+            begin
+              if Assigned(OriginalCopyRecorder) then
+                OriginalCopyRecorder.CaptureOriginalCopyIfMissing('base:' +
+                  PhysicalIdentityAt(Existing,ResolvedContainer(Existing)),Existing.CollectionName,Existing)
+              else if Length(FTarget.GetCatalogBookCopies(Existing.BookKey))=0 then
+                FTarget.SetCatalogBookCopy('base:' + PhysicalIdentityAt(Existing,ResolvedContainer(Existing)),Existing.CollectionName,Existing);
+            end;
             KeepExistingFile := ((FPolicy = mpSourcePriority) and Seen.ContainsKey(ID)) or
               ((FPolicy = mpSmallestFile) and (Existing.Size > 0) and
                 ((Book.Size <= 0) or (Book.Size >= Existing.Size)));
@@ -767,9 +780,21 @@ begin
               if not SameMetadata(Book, Existing) then
               begin
                 Book.PublisherSeriesKnown := False;
-                if Supports(FTarget,IBookMergeMetadataDeltaUpdater,DeltaUpdater) then DeltaUpdater.UpdateBookMetadataDelta(Existing,Book,False)
-                else if Supports(FTarget,IBookMergeMetadataUpdater,MergeUpdater) then MergeUpdater.UpdateBookPreservingSeries(Book)
-                else FTarget.UpdateBook(Book);
+                if Supports(FTarget,IBookMergeMetadataDeltaUpdater,DeltaUpdater) then
+                begin
+                  DeltaUpdater.UpdateBookMetadataDelta(Existing,Book,False);
+                  // Scalar deltas retain the existing series graph. A primary
+                  // change can add or promote a membership, so use the result
+                  // of that update rather than the pre-update snapshot.
+                  if Book.Series = Existing.Series then Series := MissingSeries(Series, OldSeries)
+                  else Series := MissingSeries(Series, FTarget.GetBookSeries(Existing.BookKey));
+                end
+                else
+                begin
+                  if Supports(FTarget,IBookMergeMetadataUpdater,MergeUpdater) then MergeUpdater.UpdateBookPreservingSeries(Book)
+                  else FTarget.UpdateBook(Book);
+                  Series := MissingSeries(Series, FTarget.GetBookSeries(Existing.BookKey));
+                end;
                 Changed := True;
               end
               else Series := MissingSeries(Series, OldSeries);

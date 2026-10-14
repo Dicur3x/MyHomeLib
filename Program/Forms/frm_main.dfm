@@ -1758,7 +1758,7 @@ object frmMain: TfrmMain
           end
           object ctpBook: TCategoryPanel
             Top = 0
-            Height = 337
+            Height = 370
             Caption = #1050#1085#1080#1075#1072
             TabOrder = 2
             ExplicitWidth = 220
@@ -1804,7 +1804,8 @@ object frmMain: TfrmMain
               Top = 261
               Width = 55
               Height = 13
-              Align = alBottom
+              Align = alTop
+              AutoSize = True
               Caption = #1040#1085#1085#1086#1090#1072#1094#1080#1103
             end
             object Label3: TLabel
@@ -1870,7 +1871,7 @@ object frmMain: TfrmMain
               Width = 195
               Height = 21
               Margins.Bottom = 10
-              Align = alBottom
+              Align = alTop
               TabOrder = 6
               OnKeyDown = PresetFieldKeyDown
               OnRightButtonClick = ShowExpressionEditor

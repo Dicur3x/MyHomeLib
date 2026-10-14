@@ -107,6 +107,7 @@ resourcestring
 rstrAuthor = 'Автор';
    rstrTitle = 'Название';
    rstrSeries = 'Серия';
+   rstrPublisher = 'Издательство';
    rstrNO = '№';
    rstrSize = 'Размер';
    rstrRate = 'Моя оценка';
@@ -170,9 +171,13 @@ begin
         Options := Rez;
       end;
 
-    COL_PUBLISHER_SERIES, COL_SERIES:
+    COL_PUBLISHER, COL_PUBLISHER_SERIES, COL_SERIES:
       begin
-        if Tag = COL_PUBLISHER_SERIES then Caption := 'Книжная серия' else Caption := rstrSeries;
+        case Tag of
+          COL_PUBLISHER: Caption := rstrPublisher;
+          COL_PUBLISHER_SERIES: Caption := 'Книжная серия';
+        else Caption := rstrSeries;
+        end;
         MaxWidth := 900;
         MinWidth := 30;
         Alignment := taLeftJustify;
@@ -380,7 +385,7 @@ begin
               not TryStrToInt(slHelper[0], Tag) or
               not TryStrToInt(slHelper[1], Width) or
               not TryStrToInt(slHelper[2], Position) then Continue;
-            if not (((Tag >= COL_TITLE) and (Tag <= COL_PUBLISHER_SERIES)) or
+            if not (((Tag >= COL_TITLE) and (Tag <= COL_PUBLISHER)) or
               (Tag = COL_STATE)) or (Width < 0) or (Width > 65535) or
               (Position < 0) or (Position >= sl.Count) then Continue;
             Duplicate := False;

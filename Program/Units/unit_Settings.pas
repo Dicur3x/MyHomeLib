@@ -439,7 +439,8 @@ uses
   Windows,
   IOUtils,
   WinInet,
-  unit_Helpers;
+  unit_Helpers,
+  unit_AtomicIniFile;
 
 const
   TOOLS_DIR_NAME = 'Tools';
@@ -959,7 +960,7 @@ begin
     iniFile.WriteString(FILE_SORT_SECTION, 'FBDFileTemplate', FFBDFileTemplate);
 
     SaveInitialDirs(iniFile);
-    iniFile.UpdateFile;
+    SaveMemIniFileAtomically(iniFile);
   finally
     iniFile.Free;
   end;

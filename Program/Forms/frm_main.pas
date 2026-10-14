@@ -75,7 +75,8 @@ uses
   Vcl.Themes,
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
-  unit_Localization, unit_BookInfoPreview;
+  unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
+  unit_AuthorFavorites, unit_AuthorFavoriteRefresh;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -787,6 +788,9 @@ type
     procedure RefreshBookInfo(const Tree: TBookTree);
     procedure RefreshActiveBookInfo;
     procedure EnsureActiveBookViewLoaded;
+    procedure SetHideDeletedMode(Value: Boolean; RefreshCurrent: Boolean = True);
+    procedure SearchDeletedClick(Sender: TObject);
+    procedure ReloadAppliedSearch;
     function FrameControl(AControl: TWinControl): Boolean;
     procedure FrameTree(ATree: TVirtualStringTree); overload;
     procedure FrameTree(ATree: TBookTree); overload;
@@ -843,8 +847,14 @@ type
 
   protected
     procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override;
   public
+    procedure ScaleForPPI(NewPPI: Integer); override;
     procedure UpdateWindowsThemeOffer(WindowsDark: Boolean);
+    // Notify only after a durable catalog commit, including partial updates.
+    procedure NotifyFavoriteCatalogChanged(const CollectionIDs: TArray<Integer>);
+    function ImportSearchPresetsFromFile(const FileName: string): Integer;
+    procedure ExportSearchPresetsToFile(const FileName: string; AllPresets: Boolean);
     procedure FillBooksTree(
       const Tree: TBookTree;
       const LangSelector: TComboBox;
@@ -924,12 +934,72 @@ type
 
     FStatusProgressBar: TProgressBar;
 
+    FDownloadsReady, FDownloadsLoadFailed: Boolean;
     FPresets: TSearchPresets;
+    FPresetTransferMenu: TPopupMenu;
+    FPresetTransferButton: TButton;
+    FPresetImportItem, FPresetExportItem, FPresetExportAllItem: TMenuItem;
 
     FSearchCriteria: TBookSearchCriteria;
+    FHasAppliedSearch: Boolean;
+    FUpdatingDeletedControls: Boolean;
+    FPublisherSearchEdit: TMHLButtonedEdit;
+    FPublisherSearchLabel: TLabel;
+    FUpdatingSearchLayout: Boolean;
 
     FSystemData: ISystemData;
     FInSetInfoPanelHeight: Boolean;
+    FFavoriteStore: TAuthorFavorites;
+    FFavoriteWorker: TAuthorFavoriteRefreshThread;
+    FFavoriteQueue: TQueue<TAuthorFavoriteCollection>;
+    FFavoriteDescriptor: TAuthorFavoriteCollection;
+    FFavoriteGeneration: Cardinal;
+    FFavoriteDirtyCollections: TDictionary<Integer, Cardinal>;
+    FFavoriteSearchPending: Boolean;
+    FFavoritePendingCID: Integer;
+    FFavoritePendingCriteria: TBookSearchCriteria;
+    FSearchFavoriteCheck, FFavoriteListCheck: TCheckBox;
+    FFavoriteAuthorHeart, FFavoriteNewButton, FFavoriteMenuButton: TButton;
+    FFavoriteMenu: TPopupMenu;
+    FFavoriteToggleMenu, FFavoriteNewMenu, FFavoriteViewedMenu, FFavoriteStopMenu, FFavoriteContextMenu: TMenuItem;
+    FFavoriteOriginalGetText: TVSTGetTextEvent;
+    FOnlyNewFavoriteBooks: Boolean;
+
+    function FavoriteProfileFile: string;
+    function FavoriteStore: TAuthorFavorites;
+    function FavoriteDescriptor(const Collection: IBookCollection): TAuthorFavoriteCollection;
+    function FavoriteBindingsReady(const Descriptor: TAuthorFavoriteCollection): Boolean;
+    procedure QueueFavoriteRefresh(const Descriptor: TAuthorFavoriteCollection; ForceRefresh: Boolean = False);
+    procedure StartFavoriteRefresh;
+    procedure StopFavoriteRefresh(ClearQueue: Boolean);
+    procedure CheckFavoriteCollection;
+    function PrepareFavoriteSearch(var Criteria: TBookSearchCriteria): Boolean;
+    procedure WMFavoriteReady(var Message: TMessage); message WM_AUTHOR_FAVORITES_READY;
+    procedure WMFavoriteProgress(var Message: TMessage); message WM_AUTHOR_FAVORITES_PROGRESS;
+    procedure WMFavoriteLayout(var Message: TMessage); message WM_AUTHOR_FAVORITES_LAYOUT;
+    function SelectedFavoriteAuthor(out Author: TAuthorData; out Key: string): Boolean;
+    procedure UpdateFavoriteControls;
+    procedure FavoriteSelectedAuthorClick(Sender: TObject);
+    procedure FavoriteListClick(Sender: TObject);
+    procedure FavoriteNewClick(Sender: TObject);
+    procedure FavoriteViewedClick(Sender: TObject);
+    procedure FavoriteStopClick(Sender: TObject);
+    procedure FavoriteMenuClick(Sender: TObject);
+    function AuthorSelectorIterator: IAuthorIterator;
+    procedure FillCurrentAuthorBooks;
+    procedure FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
+      Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
+    procedure SearchFavoriteEditResize(Sender: TObject);
+    procedure UpdateFavoriteSearchLayout;
+    procedure CreateFavoriteAuthorControls;
+    procedure ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey = nil);
+    procedure PublishFavoriteFilterKeys;
+    function CatalogBookAvailable(const Book: TBookRecord; Notify: Boolean = True): Boolean;
+    function CatalogBookMatchesSaved(const Book: TBookRecord; Notify: Boolean = True): Boolean;
+    function SearchPresetIndex(const Name: string): Integer;
+    procedure CreatePublisherSearchField;
+    procedure UpdateSearchBookLayout;
+    procedure SearchBookExpanded(Sender: TObject);
 
     function AuthorBookFilter: TFilterValue;
     function SeriesBookFilter: TFilterValue;
@@ -995,10 +1065,18 @@ type
     procedure SetBookInfoPriority(State: Boolean);
     procedure ShowBookDelete(Sender: TObject);
     procedure LoadPresets;
+    procedure CreatePresetTransferMenu;
+    procedure PresetTransferMenuClick(Sender: TObject);
+    procedure PresetTransferMenuPopup(Sender: TObject);
+    procedure ImportSearchPresetsClick(Sender: TObject);
+    procedure ExportSearchPresetsClick(Sender: TObject);
+    function CreatePresetExportSnapshot(AllPresets: Boolean): TSearchPresets;
+    procedure SavePresetExportSnapshot(const FileName: string; Snapshot: TSearchPresets);
     procedure ConnectTreeControllers;
     procedure InitFormFileds;
     procedure UpdateSplashScreen(const AStatus: string);
     procedure LoadDownloadsList;
+    procedure SaveDownloadsList;
     procedure ClearDataFolder;
     property ActiveView: TView read GetActiveView;
 
@@ -1020,8 +1098,9 @@ uses
   StrUtils,
   DateUtils,
   IOUtils,
+  System.Hash,
+  unit_AtomicIniFile,
   Character,
-  Generics.Collections,
   unit_HelpTopics,
   unit_MHLHttpClient,
   Math,
@@ -1070,7 +1149,12 @@ uses
   unit_MHLArchiveHelpers,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources;
 
-type TBookTreeAccess = class(TBookTree);
+type
+  TBookTreeAccess = class(TBookTree);
+  TFavoriteEditAccess = class(TMHLButtonedEdit)
+  public
+    property OnResize;
+  end;
 
 resourcestring
 rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверьте настройки коллекции!';
@@ -1314,7 +1398,7 @@ begin
     Columns.SetColumns(tvBooksSR.Header.Columns);
     for Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG, tvBooksF, tvBooksSR, FPublisher.Books) do
     begin
-      Tree.HeaderFilterTags := TArray<Integer>.Create(COL_AUTHOR, COL_TITLE, COL_SERIES, COL_PUBLISHER_SERIES,
+      Tree.HeaderFilterTags := TArray<Integer>.Create(COL_AUTHOR, COL_TITLE, COL_SERIES, COL_PUBLISHER_SERIES, COL_PUBLISHER,
         COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE, COL_COLLECTION, COL_LANG,
         COL_LIBRATE, COL_LIBID);
       Tree.Header.Height := Max(Tree.Header.Height, MulDiv(24, Tree.CurrentPPI, 96));
@@ -1495,6 +1579,7 @@ begin
   edFExt.Color := BGColor;
   edFKeyWords.Color := BGColor;
   edFAnnotation.Color := BGColor;
+  if Assigned(FPublisherSearchEdit) then FPublisherSearchEdit.Color := BGColor;
 
   cbDate.Color := BGColor;
   cbLang.Color := BGColor;
@@ -1582,50 +1667,63 @@ end;
 procedure TfrmMain.DoApplyFilter(Sender: TObject);
 var
   SavedCursor: TCursor;
-  BookIterator: IBookIterator;
+  Criteria: TBookSearchCriteria;
 begin
+  if not Assigned(FCollection) or FInvisible or FBookListLoading then Exit;
+  Criteria := Default(TBookSearchCriteria);
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crSQLWait;
   try
     StatusMessage := rstrCreatingFilter;
     try
+      Exclude(FLoadedBookViews, SearchView);
       tvBooksSR.Clear;
       ClearLabels(tvBooksSR.Tag, True);
 
       try
-        FSearchCriteria.FullName := edFFullName.Text;
-        FSearchCriteria.Series := edFSeries.Text;
-        FSearchCriteria.Annotation := edFAnnotation.Text;
-        FSearchCriteria.Genre := edFGenre.Hint;
-        FSearchCriteria.Title := edFTitle.Text;
-        FSearchCriteria.FileName := edFFile.Text;
-        FSearchCriteria.Folder := edFFolder.Text;
-        FSearchCriteria.FileExt := edFExt.Text;
-        FSearchCriteria.Lang := cbLang.Text;
-        FSearchCriteria.Keyword := edFKeyWords.Text;
-        FSearchCriteria.DownloadedIdx := cbDownloaded.ItemIndex;
-        FSearchCriteria.Deleted := cbDeleted.Checked;
-        FSearchCriteria.LibRate := cbLibRate.Text;
-        FSearchCriteria.Readed := cbReaded.Checked;
-        FSearchCriteria.CollapseMultiSeriesResults :=
+        Criteria.FullName := edFFullName.Text;
+        Criteria.FavoriteAuthorsOnly := FSearchFavoriteCheck.Checked;
+        Criteria.Series := edFSeries.Text;
+        Criteria.Publisher := FPublisherSearchEdit.Text;
+        Criteria.Annotation := edFAnnotation.Text;
+        Criteria.Genre := edFGenre.Hint;
+        Criteria.Title := edFTitle.Text;
+        Criteria.FileName := edFFile.Text;
+        Criteria.Folder := edFFolder.Text;
+        Criteria.FileExt := edFExt.Text;
+        Criteria.Lang := cbLang.Text;
+        Criteria.Keyword := edFKeyWords.Text;
+        Criteria.DownloadedIdx := cbDownloaded.ItemIndex;
+        Criteria.Deleted := Settings.HideDeletedBooks;
+        Criteria.LibRate := cbLibRate.Text;
+        Criteria.Readed := cbReaded.Checked;
+        Criteria.CollapseMultiSeriesResults :=
           cbCollapseMultiSeriesResults.Checked;
 
-        FSearchCriteria.DateIdx := cbDate.ItemIndex;
-        if FSearchCriteria.DateIdx= -1 then
-          FSearchCriteria.DateText := cbDate.Text;
+        Criteria.DateIdx := cbDate.ItemIndex;
+        if Criteria.DateIdx= -1 then
+          Criteria.DateText := cbDate.Text;
 
         Assert(Assigned(FCollection));
 
 
+        FFavoriteSearchPending := False;
+        if not PrepareFavoriteSearch(Criteria) then
+        begin
+          FFavoritePendingCriteria := Criteria;
+          FFavoritePendingCID := FCollection.CollectionID;
+          FFavoriteSearchPending := True;
+          Exit;
+        end;
         StatusMessage := rstrApplyingFilter;
-        FillBooksTree(tvBooksSR, nil,
-          function: IBookIterator begin Result := FCollection.Search(FSearchCriteria, False); end, True, True, nil);
+        ApplySearchCriteria(Criteria);
       except
         on E: Exception do
           MHLShowError(rstrFilterParamError);
       end;
     finally
-      StatusMessage := rstrReadyMessage;
+      if FFavoriteSearchPending then StatusMessage := 'Подготовка любимых авторов...'
+      else StatusMessage := rstrReadyMessage;
     end;
   finally
     Screen.Cursor := SavedCursor;
@@ -1634,11 +1732,18 @@ end;
 
 procedure TfrmMain.DoClearFilter(KeepPreset: boolean);
 begin
+  FFavoriteSearchPending := False;
+  if Assigned(FSearchFavoriteCheck) then FSearchFavoriteCheck.Checked := False;
+  FHasAppliedSearch := False;
+  FSearchCriteria := Default(TBookSearchCriteria);
+  FSearchCriteria.Deleted := Settings.HideDeletedBooks;
+  Exclude(FLoadedBookViews, SearchView);
   if not KeepPreset then   cbPresetName.ItemIndex := -1;
 
   edFFullName.Text := '';
   edFTitle.Text := '';
   edFSeries.Text := '';
+  if Assigned(FPublisherSearchEdit) then FPublisherSearchEdit.Text := '';
   edFGenre.Text := '';
   edFGenre.Hint := '';
   edFAnnotation.Text := '';
@@ -1649,7 +1754,7 @@ begin
 
   cbDownloaded.ItemIndex := 0;
   edFKeyWords.Text := '';
-  cbDeleted.Checked := False;
+  SetHideDeletedMode(Settings.HideDeletedBooks, False);
   cbDate.ItemIndex := -1;
   cbDate.Text := '';
   cbLang.ItemIndex := -1;
@@ -1964,6 +2069,12 @@ begin
     ClearLabels(PAGE_ALL, True);
 
     FLoadedBookViews := [];
+    FHasAppliedSearch := False;
+    FFavoriteSearchPending := False;
+    FOnlyNewFavoriteBooks := False;
+    FFavoriteDescriptor := Default(TAuthorFavoriteCollection);
+    FSearchCriteria := Default(TBookSearchCriteria);
+    FSearchCriteria.Deleted := Settings.HideDeletedBooks;
     FPendingAuthorBookID := 0;
     FPendingSeriesBookID := 0;
 
@@ -2128,6 +2239,8 @@ begin
   FInvisible := True;
   try
     FSearchCriteria := EmptySearchCriteria;
+    FSearchCriteria.Deleted := Settings.HideDeletedBooks;
+    FHasAppliedSearch := False;
 
     CloseCollection;
 
@@ -2201,7 +2314,7 @@ begin
     ShowBookDelete(nil);
 
     FCollection.SetShowLocalOnly(IsOnline and Settings.ShowLocalOnly);
-    FCollection.SetHideDeleted(Settings.HideDeletedBooks);
+    SetHideDeletedMode(Settings.HideDeletedBooks, False);
 
     FCollection.GetStatistics(Acount, Scount, GCount);
 
@@ -2282,7 +2395,8 @@ begin
     FPendingPublisherBookID := FCollection.GetProperty(PROP_LAST_PUBLISHER_BOOK);
     FPendingLangFilters[PublisherSeriesView] := FCollection.GetProperty(PROP_PUBLISHER_LANG_FILTER);
     FInvisible := False;
-    EnsureActiveBookViewLoaded;
+    CheckFavoriteCollection;
+  EnsureActiveBookViewLoaded;
 
   finally
     FInvisible := False;
@@ -2700,6 +2814,7 @@ var
   F: Integer;
   i: Integer;
   fb2Collection: Boolean;
+  ExportItemCount: Integer;
 begin
   pmScripts.Items.Clear;
   pmiScripts.Clear;
@@ -2707,31 +2822,32 @@ begin
 
   fb2Collection := Assigned(FCollection) and isFB2Collection(FCollection.CollectionCode);
 
-  if fb2Collection or Settings.AllowMixed then
+  ExportItemCount := 0;
+  for i := 0 to ExpCount do
   begin
-    for i := 0 to ExpCount do
-    begin
-      Item := TMenuItem.Create(pmScripts);
-      Item.OnClick := SendToDeviceExecute;  // если присваивать свойство action,  то не передается tag, и ничего не работает
-      Item.Caption := ExpTypes[i];
-      Item.Tag := 850 + i;
-      Item.ImageIndex := IconsSmall[i];
-      pmScripts.Items.Insert(i, Item);
-    end;
+    // FB2 and EPUB are available in mixed/raw collections as well. Other
+    // historical converters retain their FB2-collection restriction.
+    if not (fb2Collection or Settings.AllowMixed) and not (i in [0, 4]) then
+      Continue;
+    Item := TMenuItem.Create(pmScripts);
+    Item.OnClick := SendToDeviceExecute;
+    Item.Caption := ExpTypes[i];
+    if i = 0 then Item.Caption := 'Экспорт в FB2...';
+    if i = 4 then Item.Caption := 'Экспорт в EPUB...';
+    Item.Tag := 850 + i;
+    Item.ImageIndex := IconsSmall[i];
+    pmScripts.Items.Insert(ExportItemCount, Item);
+    Inc(ExportItemCount);
+  end;
 
-    if Settings.Scripts.Count > 0 then
-    begin
-      Item := TMenuItem.Create(pmScripts);
-      Item.Caption := '-';
-      Item.Tag := 0;
-      pmScripts.Items.Insert(ExpCount + 1, Item);
-    end;
-
-    F := ExpCount + 2;
-  end
-  else
+  F := ExportItemCount;
+  if Settings.Scripts.Count > 0 then
   begin
-    F := 0;
+    Item := TMenuItem.Create(pmScripts);
+    Item.Caption := '-';
+    Item.Tag := 0;
+    pmScripts.Items.Insert(F, Item);
+    Inc(F);
   end;
 
   for i := 0 to Settings.Scripts.Count - 1 do
@@ -2788,17 +2904,27 @@ end;
 function TfrmMain.ShowNCWizard: Boolean;
 var
   frmNCWizard: TNewCollectionWizard;
+  WizardResult: Integer;
+  ImportCommitted: Boolean;
 begin
+  Result := False;
   frmNCWizard := TNewCollectionWizard.Create(Application);
   try
-    if frmNCWizard.ShowModal = mrOk then
+    WizardResult := frmNCWizard.ShowModal;
+    if frmNCWizard.CommittedChanges and (frmNCWizard.NewCollectionID > 0) and
+      (FSystemData.FindFirstExistingCollectionID(frmNCWizard.NewCollectionID) = frmNCWizard.NewCollectionID) then
+      NotifyFavoriteCatalogChanged(TArray<Integer>.Create(frmNCWizard.NewCollectionID));
+    if (WizardResult = mrOk) and frmNCWizard.OperationSucceeded and
+      (frmNCWizard.NewCollectionID > 0) and
+      (FSystemData.FindFirstExistingCollectionID(frmNCWizard.NewCollectionID) = frmNCWizard.NewCollectionID) then
     begin
       Settings.ActiveCollection := frmNCWizard.NewCollectionID;
       InitCollection;
       if frmNCWizard.Autoimport and IsFB2 then
       begin
         Assert(Assigned(FCollection));
-        unit_Import.ImportFB2(FCollection.CollectionID, afZip);
+        unit_Import.ImportFB2(FCollection.CollectionID, afZip, ImportCommitted);
+        if ImportCommitted then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
         InitCollection;
       end;
 
@@ -2861,9 +2987,7 @@ begin
     case Page of
       0:
       begin
-        FilterValue := AuthorBookFilter;
-        FillBooksTree(tvBooksA, cbLangSelectA,
-        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID);  // авторы
+        FillCurrentAuthorBooks; // авторы
       end;
 
       1:
@@ -2878,8 +3002,7 @@ begin
         FillCurrentGenreBooks; // жанры
       end;
 
-      3: FillBooksTree(tvBooksSR, nil,
-        function: IBookIterator begin Result := FCollection.Search(FSearchCriteria, False); end, True, True, nil);  // поиск
+      3: ReloadAppliedSearch; // поиск только по последнему применённому условию
 
       4: FillBooksTree(tvBooksF, cbLangSelectF,
         function: IBookIterator begin Result := FSystemData.GetBookIterator(FLastGroupID); end, True, True, @FLastGroupBookID);  // избранное
@@ -3205,9 +3328,11 @@ end;
 
 
 procedure TfrmMain.StartLibUpdate;
+var ChangedCollections: TArray<Integer>;
 begin
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
-  unit_Utils.LibrusecUpdate(Settings.SystemFileName[sfUpdateLog]);
+  unit_Utils.LibrusecUpdate(Settings.SystemFileName[sfUpdateLog], ChangedCollections);
+  NotifyFavoriteCatalogChanged(ChangedCollections);
 end;
 
 function TfrmMain.GetShowStatusProgress: Boolean;
@@ -3288,6 +3413,166 @@ begin
   end;
 end;
 
+procedure TfrmMain.CreatePresetTransferMenu;
+var PPI, ButtonWidth, Gap: Integer;
+begin
+  if Assigned(FPresetTransferMenu) then Exit;
+  FPresetTransferMenu:=TPopupMenu.Create(Self); FPresetTransferMenu.Name:='SearchPresetTransferMenu';
+  FPresetTransferMenu.OnPopup:=PresetTransferMenuPopup;
+  FPresetImportItem:=TMenuItem.Create(Self); FPresetImportItem.Name:='miSearchPresetImport';
+  FPresetImportItem.Caption:='Импорт пресетов…'; FPresetImportItem.OnClick:=ImportSearchPresetsClick;
+  FPresetTransferMenu.Items.Add(FPresetImportItem);
+  FPresetExportItem:=TMenuItem.Create(Self); FPresetExportItem.Name:='miSearchPresetExport';
+  FPresetExportItem.Caption:='Экспорт выбранного пресета…'; FPresetExportItem.OnClick:=ExportSearchPresetsClick;
+  FPresetTransferMenu.Items.Add(FPresetExportItem);
+  FPresetExportAllItem:=TMenuItem.Create(Self); FPresetExportAllItem.Name:='miSearchPresetExportAll';
+  FPresetExportAllItem.Caption:='Экспорт всех пресетов…'; FPresetExportAllItem.Tag:=1;
+  FPresetExportAllItem.OnClick:=ExportSearchPresetsClick; FPresetTransferMenu.Items.Add(FPresetExportAllItem);
+  PPI:=Max(96,cbPresetName.Font.PixelsPerInch); ButtonWidth:=MulDiv(24,PPI,96); Gap:=MulDiv(2,PPI,96);
+  cbPresetName.Width:=Max(MulDiv(60,PPI,96),cbPresetName.Width-ButtonWidth-Gap);
+  FPresetTransferButton:=TButton.Create(Self); FPresetTransferButton.Name:='btnSearchPresetTransfer';
+  FPresetTransferButton.Parent:=cbPresetName.Parent; FPresetTransferButton.Caption:='⋮';
+  FPresetTransferButton.SetBounds(cbPresetName.Left+cbPresetName.Width+Gap,btnSavePreset.Top,
+    ButtonWidth,btnSavePreset.Height);
+  FPresetTransferButton.Hint:='Импорт и экспорт пресетов поиска'; FPresetTransferButton.ShowHint:=True;
+  FPresetTransferButton.OnClick:=PresetTransferMenuClick; cbPresetName.PopupMenu:=FPresetTransferMenu;
+  PresetTransferMenuPopup(nil);
+end;
+
+procedure TfrmMain.PresetTransferMenuClick(Sender: TObject);
+var At: TPoint;
+begin
+  At:=FPresetTransferButton.ClientToScreen(Point(0,FPresetTransferButton.Height));
+  FPresetTransferMenu.Popup(At.X,At.Y);
+end;
+
+procedure TfrmMain.PresetTransferMenuPopup(Sender: TObject);
+begin
+  FPresetImportItem.Enabled:=not FFormBusy;
+  FPresetExportItem.Enabled:=not FFormBusy and Assigned(FPresets) and (SearchPresetIndex(cbPresetName.Text)>=0);
+  FPresetExportAllItem.Enabled:=not FFormBusy and Assigned(FPresets) and (FPresets.Count>0);
+end;
+
+function TfrmMain.ImportSearchPresetsFromFile(const FileName: string): Integer;
+var Imported, Candidate, Previous: TSearchPresets; Source, Target: TSearchPreset;
+  Names: TStringList; Field: TPair<string,string>; InternalFile, BeforeName, Name, BaseName, SourceStamp, TargetStamp: string;
+  Suffix: Integer;
+
+  function DiskStamp(const Path: string): string;
+  begin
+    if TFile.Exists(Path) then Result:=THashSHA2.GetHashStringFromFile(Path) else Result:='missing';
+  end;
+
+  function NameExists(const Value: string): Boolean;
+  begin
+    Result:=False;
+    for var Existing in Candidate do
+      if AnsiSameText(Trim(Existing.DisplayName),Trim(Value)) then Exit(True);
+  end;
+
+begin
+  Result:=0; if not Assigned(FPresets) then Exit;
+  InternalFile:=Settings.SystemFileName[sfPresets];
+  if SameFileName(TPath.GetFullPath(FileName),TPath.GetFullPath(InternalFile)) then
+    raise EArgumentException.Create('Это текущий файл пресетов. Для импорта выберите другой файл.');
+  Imported:=TSearchPresets.Create; Candidate:=nil; Names:=TStringList.Create;
+  try
+    try
+      SourceStamp:=DiskStamp(FileName); Imported.Load(FileName);
+      if Imported.Count=0 then raise EArgumentException.Create('В файле нет пресетов поиска.');
+      if DiskStamp(FileName)<>SourceStamp then raise EInOutError.Create('Файл импорта изменился. Повторите импорт.');
+      TargetStamp:=DiskStamp(InternalFile);
+      // Merge the latest complete disk snapshot, not a stale in-memory list.
+      // A detected intervening file change aborts before publication.
+      if TargetStamp='missing' then Candidate:=FPresets.Clone
+      else begin Candidate:=TSearchPresets.Create; Candidate.Load(InternalFile); end;
+      for Source in Imported do
+      begin
+        BaseName:=Trim(Source.DisplayName); Name:=BaseName; Suffix:=2;
+        while NameExists(Name) do
+        begin Name:=BaseName+' ('+IntToStr(Suffix)+')'; Inc(Suffix); end;
+        Target:=Candidate.GetPreset(Name);
+        for Field in Source do Target.AddOrSetValue(Field.Key,Field.Value);
+        Inc(Result);
+      end;
+      for Source in Candidate do Names.Add(Source.DisplayName);
+      if DiskStamp(InternalFile)<>TargetStamp then
+        raise EInOutError.Create('Список пресетов изменился. Повторите импорт.');
+      BeforeName:=cbPresetName.Text;
+      Candidate.Save(InternalFile);
+    except
+      on E: Exception do raise EInOutError.Create('Не удалось импортировать пресеты. Прежние пресеты сохранены. '+E.Message);
+    end;
+    Previous:=FPresets; FPresets:=Candidate; Candidate:=nil; Previous.Free;
+    cbPresetName.Items.BeginUpdate;
+    try
+      cbPresetName.Items.Assign(Names); cbPresetName.ItemIndex:=SearchPresetIndex(BeforeName); cbPresetName.Text:=BeforeName;
+    finally cbPresetName.Items.EndUpdate; end;
+    PresetTransferMenuPopup(nil);
+  finally Names.Free; Candidate.Free; Imported.Free; end;
+end;
+
+function TfrmMain.CreatePresetExportSnapshot(AllPresets: Boolean): TSearchPresets;
+var Index: Integer; Source, Target: TSearchPreset; Field: TPair<string,string>;
+begin
+  if not Assigned(FPresets) or (FPresets.Count=0) then raise EArgumentException.Create('Нет сохранённых пресетов.');
+  if AllPresets then Exit(FPresets.Clone);
+  Index:=SearchPresetIndex(cbPresetName.Text);
+  if Index<0 then raise EArgumentException.Create('Выберите сохранённый пресет.');
+  Source:=FPresets.GetPreset(cbPresetName.Items[Index]); Result:=TSearchPresets.Create;
+  try
+    Target:=Result.GetPreset(Source.DisplayName);
+    for Field in Source do Target.AddOrSetValue(Field.Key,Field.Value);
+  except Result.Free; raise; end;
+end;
+
+procedure TfrmMain.SavePresetExportSnapshot(const FileName: string; Snapshot: TSearchPresets);
+begin
+  if SameFileName(TPath.GetFullPath(FileName),TPath.GetFullPath(Settings.SystemFileName[sfPresets])) then
+    raise EArgumentException.Create('Экспорт не заменяет текущий файл пресетов. Выберите другое имя файла.');
+  try Snapshot.Save(FileName);
+  except on E: Exception do raise EInOutError.Create('Не удалось экспортировать пресеты. '+E.Message); end;
+end;
+
+procedure TfrmMain.ExportSearchPresetsToFile(const FileName: string; AllPresets: Boolean);
+var Snapshot: TSearchPresets;
+begin
+  Snapshot:=CreatePresetExportSnapshot(AllPresets);
+  try SavePresetExportSnapshot(FileName,Snapshot); finally Snapshot.Free; end;
+end;
+
+procedure TfrmMain.ImportSearchPresetsClick(Sender: TObject);
+var Dialog: TOpenDialog; Count: Integer;
+begin
+  Dialog:=TOpenDialog.Create(Self);
+  try
+    Dialog.Title:='Импорт пресетов поиска'; Dialog.DefaultExt:='xml'; Dialog.InitialDir:=Settings.WorkPath;
+    Dialog.Filter:='Пресеты поиска XML (*.xml)|*.xml|Пресеты прежних версий (*.cxml2;*.cxml)|*.cxml2;*.cxml';
+    Dialog.Options:=[ofFileMustExist,ofPathMustExist,ofHideReadOnly,ofEnableSizing];
+    if not Dialog.Execute then Exit;
+    Count:=ImportSearchPresetsFromFile(Dialog.FileName);
+    StatusMessage:=Format('Добавлено пресетов: %d. Выберите пресет в списке и нажмите «Применить».',[Count]);
+  finally Dialog.Free; end;
+end;
+
+procedure TfrmMain.ExportSearchPresetsClick(Sender: TObject);
+var Dialog: TSaveDialog; Snapshot: TSearchPresets;
+begin
+  // Snapshot before opening the file picker: later selection changes must not
+  // export another preset or unsaved search fields under the chosen filename.
+  Snapshot:=CreatePresetExportSnapshot(TMenuItem(Sender).Tag=1);
+  try
+    Dialog:=TSaveDialog.Create(Self);
+    try
+      Dialog.Title:='Экспорт пресетов поиска'; Dialog.DefaultExt:='xml'; Dialog.InitialDir:=Settings.WorkPath;
+      Dialog.Filter:='Пресеты поиска XML (*.xml)|*.xml'; Dialog.FileName:='Пресеты поиска.xml';
+      Dialog.Options:=[ofOverwritePrompt,ofPathMustExist,ofHideReadOnly,ofEnableSizing];
+      if not Dialog.Execute then Exit;
+      SavePresetExportSnapshot(Dialog.FileName,Snapshot); StatusMessage:='Пресеты экспортированы.';
+    finally Dialog.Free; end;
+  finally Snapshot.Free; end;
+end;
+
 procedure TfrmMain.ConnectTreeControllers;
 begin
   FController := TTreeController.Create(FSystemData);
@@ -3309,10 +3594,106 @@ begin
 
 end;
 
+procedure TfrmMain.CreatePublisherSearchField;
+var
+  Body: TWinControl;
+  Ordered: TArray<TControl>;
+  Control: TControl;
+  Position: Integer;
+begin
+  Body := edFSeries.Parent;
+  Body.DisableAlign;
+  try
+    FPublisherSearchLabel := TLabel.Create(Self);
+    FPublisherSearchLabel.Name := 'lblSearchPublisher';
+    FPublisherSearchLabel.Parent := Body;
+    FPublisherSearchLabel.Caption := 'Издательство';
+    FPublisherSearchLabel.Font.Assign(Label6.Font);
+    FPublisherSearchLabel.AutoSize := True;
+    FPublisherSearchLabel.Margins.Assign(Label6.Margins);
+    FPublisherSearchLabel.AlignWithMargins := True;
+    FPublisherSearchLabel.Align := alTop;
+
+    FPublisherSearchEdit := TMHLButtonedEdit.Create(Self);
+    FPublisherSearchEdit.Name := 'edFPublisher';
+    FPublisherSearchEdit.Text := '';
+    FPublisherSearchEdit.Parent := Body;
+    FPublisherSearchEdit.Font.Assign(edFSeries.Font);
+    FPublisherSearchEdit.Height := edFSeries.Height;
+    FPublisherSearchEdit.Margins.Assign(edFSeries.Margins);
+    FPublisherSearchEdit.AlignWithMargins := True;
+    FPublisherSearchEdit.Align := alTop;
+    FPublisherSearchEdit.ShowHint := True;
+    FPublisherSearchEdit.Hint := 'Поиск по издательству, сохранённому в каталоге. Если INPX не содержит этих сведений, файлы книг автоматически не просматриваются.';
+    FPublisherSearchEdit.OnKeyDown := PresetFieldKeyDown;
+    FPublisherSearchEdit.OnRightButtonClick := ShowExpressionEditor;
+    FPublisherSearchLabel.FocusControl := FPublisherSearchEdit;
+    FPublisherSearchEdit.TabOrder := edFSeries.TabOrder + 1;
+    edFGenre.TabOrder := FPublisherSearchEdit.TabOrder + 1;
+    edFKeyWords.TabOrder := edFGenre.TabOrder + 1;
+    edFAnnotation.TabOrder := edFKeyWords.TabOrder + 1;
+
+    // Explicit reading order also makes aligned controls independent of DFM Top values.
+    Ordered := TArray<TControl>.Create(Label5, edFFullName, Label24, edFTitle,
+      cbCollapseMultiSeriesResults, Label6, edFSeries, FPublisherSearchLabel,
+      FPublisherSearchEdit, Label26, edFGenre, Label3, edFKeyWords, Label7, edFAnnotation);
+    Position := Body.Padding.Top;
+    for Control in Ordered do
+    begin
+      Control.Top := Position;
+      Inc(Position, Control.Height);
+      if Control.AlignWithMargins then
+        Inc(Position, Control.Margins.Top + Control.Margins.Bottom);
+    end;
+  finally Body.EnableAlign; end;
+  ctpBook.OnExpand := SearchBookExpanded;
+  UpdateSearchBookLayout;
+end;
+
+procedure TfrmMain.UpdateSearchBookLayout;
+var
+  Body: TWinControl;
+  Control: TControl;
+  NeededHeight: Integer;
+begin
+  if FUpdatingSearchLayout or not Assigned(FPublisherSearchEdit) or
+    not Assigned(ctpBook) or ctpBook.Collapsed then Exit;
+  FUpdatingSearchLayout := True;
+  try
+    Body := edFAnnotation.Parent;
+    ctpBook.Realign;
+    Body.Realign;
+    NeededHeight := Body.Padding.Top + Body.Padding.Bottom +
+      Max(0, ctpBook.Height - Body.ClientHeight);
+    for var I := 0 to Body.ControlCount - 1 do
+    begin
+      Control := Body.Controls[I];
+      if Control.Visible and (Control.Align = alTop) then
+      begin
+        Inc(NeededHeight, Control.Height);
+        if Control.AlignWithMargins then
+          Inc(NeededHeight, Control.Margins.Top + Control.Margins.Bottom);
+      end;
+    end;
+    if ctpBook.Height <> NeededHeight then ctpBook.Height := NeededHeight;
+  finally FUpdatingSearchLayout := False; end;
+end;
+
+procedure TfrmMain.SearchBookExpanded(Sender: TObject);
+begin
+  UpdateSearchBookLayout;
+end;
+
 procedure TfrmMain.InitFormFileds;
 begin
   Application.OnHelp := OnHelpHandler;
   UseLatestCommonDialogs := True;
+
+  // Follow the visual order when VCL selects the first Search control.
+  // The inherited reverse tab order focused Date and scrolled Author offscreen.
+  ctpBook.TabOrder := 0;
+  ctpFile.TabOrder := 1;
+  ctpOther.TabOrder := 2;
 
   FSelectionState := False;
   FAutoCheck := False;
@@ -3375,15 +3756,68 @@ begin
 end;
 
 procedure TfrmMain.LoadDownloadsList;
+var
+  FileName: string; Attributes, Code: DWORD; Node: PVirtualNode; Data: PDownloadData;
 begin
-  if FileExists(Settings.SystemFileName[sfDownloadsStore]) then
-  begin
-    tvDownloadList.LoadFromFile(Settings.SystemFileName[sfDownloadsStore]);
+  FDownloadsReady := False;
+  FileName := Settings.SystemFileName[sfDownloadsStore];
+  try
+    Attributes := GetFileAttributes(PChar(FileName));
+    if Attributes = INVALID_FILE_ATTRIBUTES then
+    begin
+      Code := GetLastError;
+      if (Code <> ERROR_FILE_NOT_FOUND) and (Code <> ERROR_PATH_NOT_FOUND) then RaiseLastOSError(Code);
+    end
+    else
+    begin
+      tvDownloadList.LoadFromFile(FileName);
+      // A zero UserChunk skips VT's load callback. Reject uninitialized nodes
+      // after the entire tree loads, while retaining stale negative book keys.
+      Node := tvDownloadList.GetFirst;
+      while Assigned(Node) do
+      begin
+        Data := tvDownloadList.GetNodeData(Node);
+        if not Assigned(Data) or (Data^.BookKey.DatabaseID <= 0) or (Data^.BookKey.BookID = 0) then
+          raise EReadError.Create('В очереди загрузок найдена неполная запись книги.');
+        Node := tvDownloadList.GetNext(Node);
+      end;
+    end;
     UpdateDownloadCount;
+    FDownloadsLoadFailed := False;
+    FDownloadsReady := True;
+  except
+    on E: Exception do
+    begin
+      // Failed startup or partial VT loads never replace the source queue file.
+      FDownloadsLoadFailed := True;
+      FDownloadNode := nil;
+      tvDownloadList.Clear;
+      UpdateDownloadCount;
+      BtnSave.Enabled := False;
+      SetDownloadRunning(False);
+      MHLShowError('Не удалось восстановить очередь загрузок. Файл сохранён без изменений: ' +
+        FileName + sLineBreak + 'Автозапуск и сохранение очереди отключены на этот сеанс.' +
+        sLineBreak + E.Message);
+      Exit;
+    end;
   end;
 
+  // This is a session guard, not a change to the user's persistent preference.
   if Settings.AutoStartDwnld then
     btnStartDownloadClick(frmMain);
+end;
+
+procedure TfrmMain.SaveDownloadsList;
+var Stream: TMemoryStream;
+begin
+  if not FDownloadsReady or FDownloadsLoadFailed then Exit;
+  Stream := TMemoryStream.Create;
+  try
+    // The serializer completes before any adjacent temporary or target exists.
+    // Errors retain both the old disk file and this session's queue for retry.
+    tvDownloadList.SaveToStream(Stream);
+    SaveStreamAtomically(Stream, Settings.SystemFileName[sfDownloadsStore]);
+  finally Stream.Free; end;
 end;
 
 procedure TfrmMain.ClearDataFolder;
@@ -3419,6 +3853,7 @@ begin
   finally Dialog.Free; end;
   if Changed then
   begin
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
     FCollection := FSystemData.GetCollection(Settings.ActiveCollection,True);
     InitCollection;
   end;
@@ -3437,6 +3872,40 @@ procedure TfrmMain.Resize;
 begin
   inherited;
   UpdateThemeToolbar;
+  UpdateSearchBookLayout;
+  UpdateFavoriteSearchLayout;
+end;
+
+procedure TfrmMain.ChangeScale(M, D: Integer; IsDpiChange: Boolean);
+var WasUpdating: Boolean;
+begin
+  // Resize can run before VCL has scaled the child labels and edits. Keep
+  // their category height intact until this complete scaling pass finishes.
+  WasUpdating := FUpdatingSearchLayout;
+  FUpdatingSearchLayout := True;
+  try inherited ChangeScale(M, D, IsDpiChange);
+  finally FUpdatingSearchLayout := WasUpdating; end;
+  if not WasUpdating then
+  begin
+    UpdateSearchBookLayout;
+    UpdateFavoriteSearchLayout;
+  end;
+end;
+
+procedure TfrmMain.ScaleForPPI(NewPPI: Integer);
+var WasUpdating: Boolean;
+begin
+  // Explicit ScaleForPPI also restores anchors/fonts after ChangeScale.
+  // Measure the final controls once, as with a monitor DPI transition.
+  WasUpdating := FUpdatingSearchLayout;
+  FUpdatingSearchLayout := True;
+  try inherited ScaleForPPI(NewPPI);
+  finally FUpdatingSearchLayout := WasUpdating; end;
+  if not WasUpdating then
+  begin
+    UpdateSearchBookLayout;
+    UpdateFavoriteSearchLayout;
+  end;
 end;
 
 procedure TfrmMain.UpdateWindowsThemeOffer(WindowsDark: Boolean);
@@ -3576,6 +4045,10 @@ begin
   FilterMenu := TMenuItem.Create(Self); FilterMenu.Caption := 'Книжная серия';
   FilterMenu.Tag := COL_PUBLISHER_SERIES; FilterMenu.OnClick := HeaderPopupItemClick;
   pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnPublisher'; FilterMenu.Caption := 'Издательство';
+  FilterMenu.Tag := COL_PUBLISHER; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
 
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Caption := 'Источники и объединение коллекции...';
@@ -3594,14 +4067,21 @@ begin
   UpdateDownloadToolbarSize;
 
   ConnectTreeControllers;
+  acBookRead.OnUpdate := BookLocationUpdate;
 
   InitFormFileds;
+  CreatePublisherSearchField;
+  CreateFavoriteAuthorControls;
+  cbDeleted.OnClick := SearchDeletedClick;
+  cbDeleted.ShowHint := True;
+  cbDeleted.Hint := 'Общий режим с кнопкой «Скрыть удалённые книги». Обновляет применённый поиск, не применяя изменения в других полях.';
 
   ReadINIData;
 
   ClearDataFolder;
 
   LoadPresets;
+  CreatePresetTransferMenu;
 
   SetColumns;
 
@@ -3684,6 +4164,8 @@ begin
   tlbrMain.Margins.Top := MulDiv(4, NewDPI, 96);
   UpdateDownloadToolbarSize;
   UpdateThemeToolbar;
+  UpdateSearchBookLayout;
+  UpdateFavoriteSearchLayout;
 end;
 
 procedure TfrmMain.UpdateDownloadToolbarSize;
@@ -3697,6 +4179,10 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer;
 begin
+  StopFavoriteRefresh(True);
+  FreeAndNil(FFavoriteQueue);
+  FreeAndNil(FFavoriteDirtyCollections);
+  FreeAndNil(FFavoriteStore);
   CancelReaderPreparations(Self);
   for I:=Low(FBookPreviews) to High(FBookPreviews) do FreeAndNil(FBookPreviews[I]);
   FreeAndNil(FOPDSForm);
@@ -3709,7 +4195,11 @@ begin
   end;
   FreeAndNil(FPresets);
 
-  tvDownloadList.SaveToFile(Settings.SystemFileName[sfDownloadsStore]);
+  try SaveDownloadsList;
+  except
+    on E: Exception do MHLShowError('Не удалось сохранить очередь загрузок. Предыдущий файл сохранён.' +
+      sLineBreak + E.Message);
+  end;
 
   SavePositions;
   SaveMainFormSettings;
@@ -3910,7 +4400,11 @@ begin
     Exclude(FLoadedBookViews, AuthorsView);
     Exit;
   end;
-  if tvAuthors.RootNodeCount = 0 then ClearScreen;
+  if tvAuthors.RootNodeCount = 0 then
+  begin
+    ClearScreen; FLastAuthorID := MHL_INVALID_ID; FLastAuthorBookID.Clear;
+    FOnlyNewFavoriteBooks := False; UpdateFavoriteControls;
+  end;
   if (FIgnoreAuthorChange) or (Node = nil) then Exit;
 
   // finally восстанавливает курсор даже на пути Exit ниже, так что сохраняем до try
@@ -3925,6 +4419,10 @@ begin
 
     Screen.Cursor := crHourGlass;
 
+    if FOnlyNewFavoriteBooks then
+      try
+        if not Assigned(FFavoriteStore) or not FFavoriteStore.IsFavorite(Data^) then FOnlyNewFavoriteBooks := False;
+      except on E: EAuthorFavorites do FOnlyNewFavoriteBooks := False; end;
     if FLastAuthorID <> Data^.AuthorID then
     begin
       lblAuthor.Caption := Data^.GetFullName;
@@ -3933,10 +4431,8 @@ begin
       FLastAuthorBookID.Clear;
     end;
 
-    FilterValue := AuthorBookFilter;
-    if Assigned(FCollection) then
-      FillBooksTree(tvBooksA, cbLangSelectA,
-        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID); // авторы
+    if Assigned(FCollection) then FillCurrentAuthorBooks;
+    UpdateFavoriteControls;
   finally
     Screen.Cursor := SavedCursor;
   end;
@@ -4334,7 +4830,7 @@ begin
     InfoPanel.SetReadingSupport(ReaderAvailability(Data^.FileExt));
     InfoPanel.DetailsButton.OnClick := ShowBookInfo;
     InfoPanel.DetailsButton.Visible := True;
-    if bpIsLocal in Data^.BookProps then
+    if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
     begin
       GalleryBook := Data^;
       InfoPanel.Gallery.PreviewSettingsFile := Settings.DataPath + 'gallery-window.ini';
@@ -4354,7 +4850,7 @@ begin
       // Keep the rest of the panel usable for temporarily unavailable collections.
     end;
 
-    if bpIsLocal in Data^.BookProps then
+    if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
       FBookPreviews[Tree.Tag].Load(Data^, Settings.ShowBookCover,
         Settings.ShowBookAnnotation, Settings.Fb2InfoPriority);
 
@@ -4570,18 +5066,26 @@ procedure TfrmMain.AddCurrentToList(const Tree: TBookTree; var BookIDList: TBook
 var
   Data: PBookRecord;
 begin
+  SetLength(BookIDList, 0);
   Data := Tree.GetNodeData(Tree.FocusedNode);
-  SetLength(BookIDList, 1);
+  if not Assigned(Data) or (Data^.NodeType <> ntBookInfo) then Exit;
+  if (Tree = tvBooksF) and not CatalogBookMatchesSaved(Data^) then Exit;
+  SetLength(BookIDList, 1); BookIDList[0] := Default(TBookIdStruct);
   BookIDList[0].BookKey := Data^.BookKey;
+  // Every queued export/download keeps the selected row's identity, even
+  // when an ordinary catalog refresh replaces its key before worker lookup.
+  BookIDList[0].HasExpectedIdentity := True;
+  BookIDList[0].ExpectedLibID := Data^.LibID;
+  BookIDList[0].ExpectedPhysicalIdentity := ReaderBookPhysicalIdentity(Data^);
 end;
 
 procedure TfrmMain.FillBookIdList(const Tree: TBookTree; var BookIDList: TBookIdList; const Uncheck: Boolean);
 var
-  i: Integer;
+  i, Skipped: Integer;
   Node: PVirtualNode;
   Data: PBookRecord;
 begin
-  i := 0;
+  i := 0; Skipped := 0; SetLength(BookIDList, 0);
   Node := Tree.GetFirst;
   while Assigned(Node) do
   begin
@@ -4589,14 +5093,23 @@ begin
     Assert(Assigned(Data));
     if IsSelectedBookNode(Node, Data) then
     begin
-      SetLength(BookIDList, i + 1);
-      BookIDList[i].BookKey := Data^.BookKey;
-      Inc(i);
-      if Uncheck then
-        Tree.CheckState[Node] := csUncheckedNormal;
+      if (Tree = tvBooksF) and not CatalogBookMatchesSaved(Data^, False) then Inc(Skipped)
+      else
+      begin
+        SetLength(BookIDList, i + 1); BookIDList[i] := Default(TBookIdStruct);
+        BookIDList[i].BookKey := Data^.BookKey;
+        BookIDList[i].HasExpectedIdentity := True;
+        BookIDList[i].ExpectedLibID := Data^.LibID;
+        BookIDList[i].ExpectedPhysicalIdentity := ReaderBookPhysicalIdentity(Data^);
+        Inc(i);
+        if Uncheck then Tree.CheckState[Node] := csUncheckedNormal;
+      end;
     end;
     Node := Tree.GetNext(Node);
   end;
+  if Skipped > 0 then MHLShowInfo(Format('Пропущено книг из группы: %d. ' +
+    'Они больше не совпадают с каталогом. Записи и заметки сохранены; ' +
+    'экспорт и скачивание для них не выполняются.', [Skipped]));
 end;
 
 procedure TfrmMain.SendToDeviceExecute(Sender: TObject);
@@ -4611,6 +5124,7 @@ var
   S: string;
   Tree: TBookTree;
   ExportMode: TExportMode;
+  ExplicitFormat: Boolean;
   UseMTP: Boolean;
   DeviceShellItem: IShellItem;
   GroupData: PGroupData;
@@ -4646,8 +5160,9 @@ begin
   AFolder := Settings.DeviceDir;
   SaveFolderTemplate := Settings.FolderTemplate;
   ScriptID := (Sender as TComponent).Tag;
+  ExplicitFormat := (ScriptID = 850) or (ScriptID = 854);
 
-  if isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed then
+  if ExplicitFormat or isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed then
   begin
     case ScriptID of
       850: ExportMode := emFB2;
@@ -4736,7 +5251,7 @@ begin
     Settings.Scripts[ScriptID].Run;
   end
   else
-    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP);
+    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP, ExplicitFormat);
 
   Settings.FolderTemplate := SaveFolderTemplate;
 end;
@@ -4788,7 +5303,7 @@ begin
   GetActiveTree(Tree);
   if not Assigned(Tree) then Exit;
   Data := Tree.GetNodeData(Tree.GetFirstSelected);
-  if Assigned(Data) and (Data^.nodeType=ntBookInfo) then
+  if Assigned(Data) and (Data^.nodeType=ntBookInfo) and CatalogBookAvailable(Data^, False) then
     FReadBuiltinAction.Enabled:=IsBuiltinReaderFormat(Data^.FileExt) or
       (IsOfficeReaderFormat(Data^.FileExt) and OfficeReaderAvailable(Data^.FileExt)) or
       IsReaderArchive(Data^.FileName+Data^.FileExt) or
@@ -4823,7 +5338,7 @@ begin
   TAction(Sender).Enabled := False; GetActiveTree(Tree);
   if not Assigned(Tree) then Exit;
   Book := Tree.GetNodeData(Tree.GetFirstSelected);
-  if Assigned(Book) and (Book^.NodeType = ntBookInfo) then
+  if Assigned(Book) and (Book^.NodeType = ntBookInfo) and CatalogBookAvailable(Book^, False) then
     TAction(Sender).Enabled := IsReaderArchive(Book^.FileName+Book^.FileExt);
 end;
 
@@ -4833,6 +5348,7 @@ begin
   GetActiveTree(Tree); if not Assigned(Tree) then Exit;
   Data := Tree.GetNodeData(Tree.GetFirstSelected);
   if not Assigned(Data) or (Data^.NodeType <> ntBookInfo) then Exit;
+  if not CatalogBookAvailable(Data^) then Exit;
   Book := ResolveReaderBook(FSystemData.GetCollection(Data^.BookKey.DatabaseID),Data^);
   PrepareReaderFileInBackground(Self,Book,True,
     procedure(WorkFile: string)
@@ -4849,14 +5365,14 @@ begin
   if not Assigned(FCollection) or not (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView,GenresView,SearchView,FavoritesView]) then Exit;
   GetActiveTree(Tree); if not Assigned(Tree) then Exit;
   Data:=Tree.GetNodeData(Tree.GetFirstSelected);
-  TAction(Sender).Enabled:=Assigned(Data) and (Data^.NodeType=ntBookInfo);
+  TAction(Sender).Enabled:=Assigned(Data) and (Data^.NodeType=ntBookInfo) and CatalogBookAvailable(Data^, False);
 end;
 
 procedure TfrmMain.BookLocationExecute(Sender: TObject);
 var Tree: TBookTree; Data: PBookRecord;
 begin
   GetActiveTree(Tree); if not Assigned(Tree) then Exit; Data:=Tree.GetNodeData(Tree.GetFirstSelected);
-  if Assigned(Data) and (Data^.NodeType=ntBookInfo) then ShowBookLocation(Self,Data^);
+  if Assigned(Data) and (Data^.NodeType=ntBookInfo) and CatalogBookAvailable(Data^) then ShowBookLocation(Self,Data^);
 end;
 
 procedure TfrmMain.ChooseReaderExecute(Sender: TObject);
@@ -4877,17 +5393,20 @@ var
   ReaderKey: TBookKey;
   Snapshot: TBookRecord;
   KindleReader: TReaderDesc;
-  PrepareKindle: Boolean;
+  PrepareKindle, RequirePersonalProgress: Boolean;
+  ReaderNamespace: string;
 begin
+  if not CatalogBookAvailable(BookRecord) then Exit;
   Assert(Assigned(FCollection));
 
   Assert(BookRecord.nodeType = ntBookInfo);
 
-  Snapshot := BookRecord;
+  Snapshot := BookRecord; RequirePersonalProgress := ActiveView = FavoritesView;
   KindleReader := Settings.Readers.Find(BookRecord.FileExt);
   PrepareKindle := KeepKindlePreparation or UseBuiltin or ChooseReader or (Assigned(KindleReader) and
     SameText(ExtractFileName(KindleReader.Path),'SumatraPDF.exe'));
   ReaderCollection := FSystemData.GetCollection(BookRecord.BookKey.DatabaseID);
+  ReaderNamespace := ''; try ReaderNamespace := VarToStr(ReaderCollection.GetProperty(PROP_SOURCE_LIBRARY)); except end;
   ReaderKey := BookRecord.BookKey;
   ReaderBook := ResolveReaderBook(ReaderCollection, BookRecord);
   BookFileName := ReaderBook.GetBookFileName;
@@ -4908,7 +5427,7 @@ begin
 
   PrepareReaderFileInBackground(Self, ReaderBook, UseBuiltin or ChooseReader,
     procedure(WorkFile: string)
-    var ChosenBuiltin: Boolean; ExternalPath: string;
+    var ChosenBuiltin, RewriteFB2: Boolean; ExternalPath: string;
     begin
       try
         if WorkFile = '' then Exit;
@@ -4924,8 +5443,7 @@ begin
           ReadPreparedBook(Snapshot,False,False,False,ExternalPath,PrepareKindle);
           Exit;
         end;
-        if not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat = bfFb2) then
-          WriteFb2InfoToFile(Snapshot, WorkFile);
+        RewriteFB2:=not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat=bfFb2);
 
         if ChosenBuiltin then
         begin
@@ -4940,47 +5458,144 @@ begin
             MHLShowInfo('Этот формат пока не поддерживается встроенной читалкой. Выберите «Читать во внешней программе» в меню книги.');
             Exit;
           end;
-          OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderCopyName(Snapshot),
+          OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderHistoryName(Snapshot, ReaderNamespace),
             ResolveReaderSettingsFile(Settings.DataDir), Settings.AppPath + 'tools\pdfium\pdfium.dll',
             procedure(Progress: Integer)
+            var Changed: TBookRecord; Outcome: TReaderPersonalWriteResult;
+              GroupNode: PVirtualNode; GroupData: PBookRecord;
             begin
-              ReaderCollection.SetProgress(ReaderKey, Progress);
-              UpdateNodes(ReaderKey,
-                procedure(BookData: PBookRecord)
-                begin if Assigned(BookData) then BookData^.Progress := Progress; end);
+              Changed := Snapshot; Changed.Progress := Progress;
+              Outcome := TryStoreReaderBookPersonal(ReaderCollection, FSystemData, Changed,
+                [bpfProgress], RequirePersonalProgress);
+              if Outcome = rpwCatalog then
+                UpdateNodes(ReaderKey,
+                  procedure(BookData: PBookRecord)
+                  begin
+                    if Assigned(BookData) and ReaderBookMatchesExpectedIdentity(Snapshot.LibID,
+                      ReaderBookPhysicalIdentity(Snapshot), BookData^, ReaderNamespace) then
+                      BookData^.Progress := Progress;
+                  end)
+              else if Outcome = rpwPersonal then
+              begin
+                GroupNode := tvBooksF.GetFirst;
+                while Assigned(GroupNode) do
+                begin
+                  GroupData := tvBooksF.GetNodeData(GroupNode);
+                  if Assigned(GroupData) and GroupData^.BookKey.IsSameAs(ReaderKey) and
+                    ReaderBookMatchesExpectedIdentity(Snapshot.LibID, ReaderBookPhysicalIdentity(Snapshot),
+                      GroupData^, ReaderNamespace) then
+                  begin GroupData^.Progress := Progress; tvBooksF.InvalidateNode(GroupNode); end;
+                  GroupNode := tvBooksF.GetNext(GroupNode);
+                end;
+                if not (csDestroying in ComponentState) then
+                  StatusMessage := 'Позиция и личный прогресс сохранены. Каталог книги не обновлён.';
+              end
+              else if not (csDestroying in ComponentState) then
+                StatusMessage := 'Позиция сохранена в читалке. Карточка книги недоступна; прогресс каталога не обновлён.';
             end);
         end
         else if ExternalPath<>'' then
-        begin if SimpleShellExecute(Handle,ExternalPath,WorkFile)<=32 then raise Exception.Create('Не удалось открыть читалку: '+ExternalPath); end
-        else Settings.Readers.RunReader(WorkFile);
+          PrepareExternalReaderFileInBackground(Self,ReaderBook,WorkFile,ReaderNamespace,
+            procedure(NamedFile: string)
+            begin
+              if RewriteFB2 and not WriteFb2InfoToFile(Snapshot,NamedFile) then
+                raise Exception.Create('Не удалось обновить сведения FB2 в копии для читалки. Оригинал книги не изменён.');
+              if SimpleShellExecute(Handle,ExternalPath,NamedFile)<=32 then
+                raise Exception.Create('Не удалось открыть читалку: '+ExternalPath);
+            end,RewriteFB2)
+        else
+          PrepareExternalReaderFileInBackground(Self,ReaderBook,WorkFile,ReaderNamespace,
+            procedure(NamedFile: string)
+            begin
+              if RewriteFB2 and not WriteFb2InfoToFile(Snapshot,NamedFile) then
+                raise Exception.Create('Не удалось обновить сведения FB2 в копии для читалки. Оригинал книги не изменён.');
+              Settings.Readers.RunReader(NamedFile);
+            end,RewriteFB2);
       finally
         TrimBookCache;
       end;
     end, False, PrepareKindle, UseBuiltin);
 end;
 
-procedure TfrmMain.HideDeletedBooksExecute(Sender: TObject);
+procedure TfrmMain.SetHideDeletedMode(Value: Boolean; RefreshCurrent: Boolean);
 var
+  Changed: Boolean;
   SavedCursor: TCursor;
 begin
-  if not Assigned(FCollection) or FInvisible then Exit;
+  if FUpdatingDeletedControls then Exit;
+  Changed := Settings.HideDeletedBooks <> Value;
   SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
+  FUpdatingDeletedControls := True;
   try
-    UpdatePositions;
+    if Changed and Assigned(FCollection) and not FInvisible then UpdatePositions;
+    Settings.HideDeletedBooks := Value;
+    if Assigned(FCollection) then FCollection.SetHideDeleted(Value);
+    cbDeleted.Checked := Value;
+    acViewHideDeletedBooks.Checked := Value;
+    // Only this condition changes; unfinished search text stays in the controls.
+    FSearchCriteria.Deleted := Value;
+    if FFavoriteSearchPending then FFavoritePendingCriteria.Deleted := Value;
+    if not Changed then Exit;
 
-    Settings.HideDeletedBooks := not Settings.HideDeletedBooks;
-
-    FCollection.SetHideDeleted(Settings.HideDeletedBooks);
-
-    // Hidden selectors are refreshed only when their page is opened.
-    FLoadedBookViews := FLoadedBookViews - [AuthorsView, SeriesView, GenresView, PublisherSeriesView];
+    FLoadedBookViews := FLoadedBookViews -
+      [AuthorsView, SeriesView, GenresView, PublisherSeriesView, FavoritesView, SearchView];
     FPublisherListLoaded := False;
-    FStaleSelectors := [AuthorsView, SeriesView];
-    EnsureActiveBookViewLoaded;
+    FStaleSelectors := FStaleSelectors + [AuthorsView, SeriesView];
+    if RefreshCurrent and Assigned(FCollection) and not FInvisible then
+    begin
+      Screen.Cursor := crHourGlass;
+      EnsureActiveBookViewLoaded;
+    end;
   finally
+    FUpdatingDeletedControls := False;
     Screen.Cursor := SavedCursor;
   end;
+end;
+
+procedure TfrmMain.SearchDeletedClick(Sender: TObject);
+begin
+  if FUpdatingDeletedControls or FInvisible or not Assigned(FCollection) then Exit;
+  SetHideDeletedMode(cbDeleted.Checked);
+end;
+
+procedure TfrmMain.HideDeletedBooksExecute(Sender: TObject);
+begin
+  if not Assigned(FCollection) or FInvisible then Exit;
+  SetHideDeletedMode(not Settings.HideDeletedBooks);
+end;
+
+procedure TfrmMain.ReloadAppliedSearch;
+var
+  Criteria: TBookSearchCriteria;
+  SelectedKey: TBookKey;
+  Data: PBookRecord;
+begin
+  if not FHasAppliedSearch then
+  begin
+    tvBooksSR.Clear;
+    SetBookListTotals(tvBooksSR, 0, 0);
+    ClearLabels(PAGE_SEARCH, True);
+    FBookListCancelled := False;
+    Exit;
+  end;
+
+  SelectedKey.Clear;
+  Data := tvBooksSR.GetNodeData(tvBooksSR.GetFirstSelected);
+  if Assigned(Data) and (Data^.nodeType = ntBookInfo) then SelectedKey := Data^.BookKey;
+  Criteria := FSearchCriteria;
+  if not PrepareFavoriteSearch(Criteria) then
+  begin
+    FFavoritePendingCriteria := Criteria;
+    FFavoritePendingCID := FCollection.CollectionID;
+    FFavoriteSearchPending := True;
+    tvBooksSR.Clear;
+    SetBookListTotals(tvBooksSR, 0, 0);
+    StatusMessage := 'Подготовка любимых авторов...';
+    Exit;
+  end;
+  FillBooksTree(tvBooksSR, nil,
+    function: IBookIterator begin Result := FCollection.Search(Criteria, False); end,
+    True, True, @SelectedKey);
 end;
 
 procedure TfrmMain.HideDeletedBooksUpdate(Sender: TObject);
@@ -5041,7 +5656,7 @@ begin
 
   FCollection.SetAuthorFilterType(Result);
 
-  FillAuthorTree(tvAuthors, FCollection.GetAuthorIterator(amFullFilter), FLastAuthorID);
+  FillAuthorTree(tvAuthors, AuthorSelectorIterator, FLastAuthorID);
 
   if (Result = ALPHA_FILTER_ALL) or (Result = ALPHA_FILTER_NON_ALPHA) then
   begin
@@ -5156,7 +5771,7 @@ begin
 
     FCollection.SetShowLocalOnly(Settings.ShowLocalOnly);
 
-    FillAuthorTree(tvAuthors, FCollection.GetAuthorIterator(amFullFilter), FLastAuthorID);
+    FillAuthorTree(tvAuthors, AuthorSelectorIterator, FLastAuthorID);
     FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
     FillAllBooksTree;
   finally
@@ -5332,7 +5947,7 @@ begin
     FInvisible := True;
     try
       if View = AuthorsView then
-        FillAuthorTree(tvAuthors, FCollection.GetAuthorIterator(amFullFilter), FLastAuthorID)
+        FillAuthorTree(tvAuthors, AuthorSelectorIterator, FLastAuthorID)
       else if View = SeriesView then
         FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
       Exclude(FStaleSelectors, View);
@@ -5385,6 +6000,11 @@ begin
         LangSelector := cbLangSelectG;
         if not AlreadyLoaded then
           tvGenresChange(tvGenres, tvGenres.GetFirstSelected);
+      end;
+    SearchView:
+      begin
+        Tree := tvBooksSR;
+        if not AlreadyLoaded then ReloadAppliedSearch;
       end;
     FavoritesView:
       begin
@@ -6127,6 +6747,7 @@ var
 
   DownloadNode: PVirtualNode;
   DownloadData: PDownloadData;
+  Skipped: Integer;
 
   function BookInDownloadList(const BookKey: TBookKey): Boolean;
   var
@@ -6157,7 +6778,7 @@ begin
     Exit;
   end;
 
-  GetActiveTree(Tree);
+  GetActiveTree(Tree); Skipped := 0;
 
   BookNode := Tree.GetFirst;
   while Assigned(BookNode) do
@@ -6166,7 +6787,11 @@ begin
     Assert(Assigned(BookData));
     if IsSelectedBookNode(BookNode, BookData) then
     begin
-      if not (bpIsLocal in BookData^.BookProps) and (BookData^.BookKey.DatabaseID = FCollection.CollectionID) then
+      if (Tree = tvBooksF) and not CatalogBookMatchesSaved(BookData^, False) then
+      begin
+        Inc(Skipped); BookNode := Tree.GetNext(BookNode); Continue;
+      end;
+      if CatalogBookAvailable(BookData^, False) and not (bpIsLocal in BookData^.BookProps) and (BookData^.BookKey.DatabaseID = FCollection.CollectionID) then
       begin
         if not BookInDownloadList(BookData^.BookKey) then
         begin
@@ -6181,6 +6806,9 @@ begin
           DownloadData^.FileName := BookData^.GetBookFileName;
           DownloadData^.URL := Format(Settings.InpxURL + 'b/%s/get', [BookData^.LibID]);
           DownloadData^.State := dsWait;
+          DownloadData^.HasExpectedIdentity := True;
+          DownloadData^.ExpectedLibID := BookData^.LibID;
+          DownloadData^.ExpectedPhysicalIdentity := ReaderBookPhysicalIdentity(BookData^);
 
         end;
       end;
@@ -6190,6 +6818,8 @@ begin
     BookNode := Tree.GetNext(BookNode);
   end;
 
+  if Skipped > 0 then MHLShowInfo('Некоторые книги из группы больше не совпадают с каталогом. ' +
+    'Записи, заметки и отметки выбора сохранены; скачивание для них пропущено.');
   UpdateDownloadCount;
 
   if Settings.AutoStartDwnld then
@@ -6269,6 +6899,8 @@ begin
   if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
     Exit;
 
+  if not CatalogBookAvailable(Data^) then Exit;
+  if (Tree = tvBooksF) and not CatalogBookMatchesSaved(Data^) then Exit;
   if IsLibRusecEdit(Data^.BookKey) then
     Exit;
 
@@ -6743,11 +7375,20 @@ begin
   ProcessNodes(
     procedure (Tree: TBookTree; Node: PVirtualNode)
     var
-      Data: PBookRecord;
+      Data: PBookRecord; Changed: TBookRecord;
     begin
       Data := Tree.GetNodeData(Node);
       if Assigned(Data) and (Data^.nodeType = ntBookInfo) then
       begin
+        if Tree = tvBooksF then
+        begin
+          Changed := Data^; Changed.Rate := NewRate;
+          if TryStoreReaderBookPersonal(FSystemData.GetCollection(Data^.BookKey.DatabaseID), FSystemData,
+            Changed, [bpfRate]) <> rpwRejected then
+          begin Data^.Rate := NewRate; Tree.InvalidateNode(Node); end
+          else MHLShowInfo('Не удалось подтвердить личную карточку книги. Оценка не изменена.');
+          Exit;
+        end;
         FCollection.SetRate(Data^.BookKey, NewRate);
         UpdateNodes(
           Data^.BookKey,
@@ -6802,12 +7443,13 @@ end;
 
 procedure TfrmMain.SavePresetUpdate(Sender: TObject);
 begin
-  acSavePreset.Enabled := (Trim(cbPresetName.Text) <> '');
+  acSavePreset.Enabled := Assigned(FPresets) and (Trim(cbPresetName.Text) <> '');
 end;
 
 procedure TfrmMain.DeletePresetUpdate(Sender: TObject);
 begin
-  acDeletePreset.Enabled := cbPresetName.Items.IndexOf(cbPresetName.Text) <> -1;
+  acDeletePreset.Enabled := Assigned(FPresets) and
+    (SearchPresetIndex(cbPresetName.Text) >= 0);
 end;
 
 procedure TfrmMain.UpdateAllEditActions;
@@ -7083,9 +7725,11 @@ begin
 end;
 
 procedure TfrmMain.ImportFb2Execute(Sender: TObject);
+var CommittedChanges: Boolean;
 begin
   Assert(Assigned(FCollection));
-  unit_Import.ImportFB2(FCollection.CollectionID, afZip);
+  unit_Import.ImportFB2(FCollection.CollectionID, afZip, CommittedChanges);
+  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
 
   InitCollection;
 end;
@@ -7102,68 +7746,662 @@ begin
 end;
 
 procedure TfrmMain.ImportFBDExecute(Sender: TObject);
+var CommittedChanges: Boolean;
 begin
   Assert(Assigned(FCollection));
-  unit_Import.ImportFBD(FCollection.CollectionID);
+  unit_Import.ImportFBD(FCollection.CollectionID, CommittedChanges);
+  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
 
   InitCollection;
+end;
+
+function TfrmMain.CatalogBookAvailable(const Book: TBookRecord; Notify: Boolean): Boolean;
+begin
+  Result := Book.BookKey.BookID > 0;
+  if not Result and Notify then
+    MHLShowInfo('Книга больше не найдена в каталоге. Заметки и запись в группе сохранены.');
+end;
+
+function TfrmMain.CatalogBookMatchesSaved(const Book: TBookRecord; Notify: Boolean): Boolean;
+begin
+  Result := False;
+  try
+    Result := ReaderBookMatchesCatalog(FSystemData.GetCollection(Book.BookKey.DatabaseID), Book);
+  except on E: Exception do Result := False; end;
+  if not Result and Notify then MHLShowInfo('Книга из группы больше не совпадает с каталогом. ' +
+    'Её запись и заметки сохранены; операция с каталогом не выполнена.');
+end;
+
+procedure TfrmMain.PublishFavoriteFilterKeys;
+var Tree: TBookTree; Filters: TBookColumnFilters; Visible: Integer; Changed: Boolean;
+begin
+  if Assigned(FFavoriteStore) then Changed := SetFavoriteAuthorFilterKeys(FFavoriteStore.Keys)
+  else Changed := SetFavoriteAuthorFilterKeys(nil);
+  if not Changed then Exit;
+  for var View := Low(TView) to High(TView) do
+    if View in FLoadedBookViews then
+    begin
+      Tree := nil;
+      case View of
+        AuthorsView: Tree := tvBooksA;
+        SeriesView: Tree := tvBooksS;
+        GenresView: Tree := tvBooksG;
+        SearchView: Tree := tvBooksSR;
+        FavoritesView: Tree := tvBooksF;
+        PublisherSeriesView: if Assigned(FPublisher) then Tree := FPublisher.Books;
+      end;
+      if Assigned(Tree) then
+      begin
+        Filters := TBookColumnFilters.ForTree(Tree);
+        if Filters.FavoriteAuthorsOnly then
+        begin
+          Visible := Filters.Apply(False);
+          SetBookListTotals(Tree, Visible, Filters.Total);
+          if Ord(View) = Ord(ActiveView) then RefreshBookInfo(Tree);
+        end;
+      end;
+    end;
+end;
+
+function TfrmMain.FavoriteProfileFile: string;
+begin
+  Result := IncludeTrailingPathDelimiter(Settings.DataPath) + AUTHOR_FAVORITES_FILE_NAME;
+end;
+
+function TfrmMain.FavoriteStore: TAuthorFavorites;
+begin
+  if not Assigned(FFavoriteStore) then FFavoriteStore := TAuthorFavorites.Create(FavoriteProfileFile);
+  Result := FFavoriteStore;
+end;
+
+function TfrmMain.FavoriteDescriptor(const Collection: IBookCollection): TAuthorFavoriteCollection;
+var Info: TCollectionInfo;
+  function Stamp(const Name: string): string;
+  var Data: WIN32_FILE_ATTRIBUTE_DATA;
+  begin
+    if GetFileAttributesEx(PChar(Name), GetFileExInfoStandard, @Data) then
+      Result := IntToStr(Data.ftLastWriteTime.dwHighDateTime) + ':' +
+        IntToStr(Data.ftLastWriteTime.dwLowDateTime) + ':' +
+        IntToStr(Data.nFileSizeHigh) + ':' + IntToStr(Data.nFileSizeLow)
+    else if GetLastError in [ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND] then Result := '-'
+    else RaiseLastOSError;
+  end;
+begin
+  Info := FSystemData.GetCollectionInfo(Collection.CollectionID);
+  Result.ID := Info.ID;
+  Result.DatabaseFile := Info.DBFileName;
+  Result.RootFolder := Info.RootFolder;
+  Result.LibraryNamespace := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+  // These stamps survive process restarts. Connection total_changes() also
+  // counts TEMP search rows and is deliberately not a persistent revision.
+  Result.Revision := Stamp(Info.DBFileName) + '/' + Stamp(Info.DBFileName + '-wal');
+end;
+
+function TfrmMain.FavoriteBindingsReady(const Descriptor: TAuthorFavoriteCollection): Boolean;
+begin
+  Result := not FFavoriteDirtyCollections.ContainsKey(Descriptor.ID) and
+    (FavoriteStore.CollectionRevision(Descriptor.ID) = Descriptor.Revision);
+  if Length(FavoriteStore.Entries) = 0 then Exit(True);
+  if Result then
+    for var Entry in FavoriteStore.Entries do
+      if not FavoriteStore.State(Descriptor.ID, Entry.Key).HasBaseline then Exit(False);
+end;
+
+procedure TfrmMain.QueueFavoriteRefresh(const Descriptor: TAuthorFavoriteCollection; ForceRefresh: Boolean);
+begin
+  if Length(FavoriteStore.Entries) = 0 then Exit;
+  if not ForceRefresh and Assigned(FFavoriteWorker) and (FFavoriteWorker.Collection.ID = Descriptor.ID) and
+    (FFavoriteWorker.Collection.Revision = Descriptor.Revision) then Exit;
+  for var Queued in FFavoriteQueue do
+    if (Queued.ID = Descriptor.ID) and (Queued.Revision = Descriptor.Revision) then Exit;
+  FFavoriteQueue.Enqueue(Descriptor);
+  StartFavoriteRefresh;
+end;
+
+procedure TfrmMain.StartFavoriteRefresh;
+var Descriptor: TAuthorFavoriteCollection;
+begin
+  if Assigned(FFavoriteWorker) or (FFavoriteQueue.Count = 0) or (csDestroying in ComponentState) then Exit;
+  Descriptor := FFavoriteQueue.Dequeue;
+  Inc(FFavoriteGeneration);
+  FFavoriteWorker := TAuthorFavoriteRefreshThread.Create(Handle, FFavoriteGeneration, FavoriteProfileFile, Descriptor);
+  FFavoriteWorker.Start;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.StopFavoriteRefresh(ClearQueue: Boolean);
+var Message: TMsg;
+begin
+  FFavoriteSearchPending := False;
+  if ClearQueue and Assigned(FFavoriteQueue) then FFavoriteQueue.Clear;
+  if Assigned(FFavoriteWorker) then
+  begin
+    FFavoriteWorker.Terminate;
+    // The worker never synchronizes with the GUI; SQLite cancellation is bounded.
+    FFavoriteWorker.WaitFor;
+    FreeAndNil(FFavoriteWorker);
+  end;
+  Inc(FFavoriteGeneration);
+  if HandleAllocated then
+    while PeekMessage(Message, Handle, WM_AUTHOR_FAVORITES_READY, WM_AUTHOR_FAVORITES_PROGRESS, PM_REMOVE) do ;
+end;
+
+procedure TfrmMain.CheckFavoriteCollection;
+begin
+  if not Assigned(FCollection) or not Assigned(FFavoriteQueue) then Exit;
+  if not Assigned(FFavoriteStore) then
+  begin
+    if not FileExists(FavoriteProfileFile) then Exit;
+    FavoriteStore;
+    PublishFavoriteFilterKeys;
+  end;
+  if Length(FFavoriteStore.Entries) = 0 then Exit;
+  try
+    FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+    if not FavoriteBindingsReady(FFavoriteDescriptor) then QueueFavoriteRefresh(FFavoriteDescriptor);
+  except on E: Exception do StatusMessage := 'Не удалось проверить любимых авторов: ' + E.Message; end;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.NotifyFavoriteCatalogChanged(const CollectionIDs: TArray<Integer>);
+var Collection: IBookCollection; Descriptor: TAuthorFavoriteCollection; Seen: TDictionary<Integer, Boolean>;
+begin
+  if not Assigned(FFavoriteQueue) or (csDestroying in ComponentState) then Exit;
+  if not Assigned(FFavoriteStore) then
+  begin
+    if not FileExists(FavoriteProfileFile) then Exit;
+    FavoriteStore;
+    PublishFavoriteFilterKeys;
+  end;
+  if Length(FFavoriteStore.Entries) = 0 then Exit;
+  Seen := TDictionary<Integer, Boolean>.Create;
+  try
+    for var CID in CollectionIDs do
+      if (CID > 0) and not Seen.ContainsKey(CID) then
+      begin
+        Seen.Add(CID, True);
+        try
+          if FSystemData.GetCollectionInfo(CID).ID <> CID then Continue;
+          Collection := FSystemData.GetCollection(CID);
+          if not Assigned(Collection) then Continue;
+          Descriptor := FavoriteDescriptor(Collection);
+          // A known commit invalidates bindings even when NTFS has not yet
+          // changed the write-time stamp of an open catalog/WAL handle.
+          Inc(FFavoriteGeneration);
+          FFavoriteDirtyCollections.AddOrSetValue(CID, FFavoriteGeneration);
+          QueueFavoriteRefresh(Descriptor, True);
+        except
+          on E: Exception do StatusMessage := 'Не удалось проверить любимых авторов: ' + E.Message;
+        end;
+      end;
+  finally Seen.Free; end;
+  UpdateFavoriteControls;
+end;
+
+function TfrmMain.PrepareFavoriteSearch(var Criteria: TBookSearchCriteria): Boolean;
+begin
+  Result := True;
+  if not Criteria.FavoriteAuthorsOnly then Exit;
+  FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+  if not FavoriteBindingsReady(FFavoriteDescriptor) then
+  begin
+    QueueFavoriteRefresh(FFavoriteDescriptor);
+    Exit(False);
+  end;
+  Criteria.FavoriteAuthorIDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID);
+end;
+
+procedure TfrmMain.WMFavoriteProgress(var Message: TMessage);
+begin
+  if not Assigned(FFavoriteWorker) or (Message.WParam <> WPARAM(NativeUInt(FFavoriteWorker))) or
+    (Cardinal(Message.LParam) <> FFavoriteWorker.Generation) then Exit;
+  if (FFavoriteWorker.Collection.ID = Settings.ActiveCollection) and
+    ((ActiveView = AuthorsView) or FFavoriteSearchPending) then
+    StatusMessage := Format('Любимые авторы: %d из %d · книг проверено %d',
+      [FFavoriteWorker.AuthorsDone, FFavoriteWorker.AuthorsTotal, FFavoriteWorker.BooksRead]);
+end;
+
+procedure TfrmMain.WMFavoriteReady(var Message: TMessage);
+var Worker: TAuthorFavoriteRefreshThread; Criteria: TBookSearchCriteria; Matching: Boolean; DirtyGeneration: Cardinal;
+begin
+  if not Assigned(FFavoriteWorker) or (Message.WParam <> WPARAM(NativeUInt(FFavoriteWorker))) or
+    (Cardinal(Message.LParam) <> FFavoriteWorker.Generation) then Exit;
+  Worker := FFavoriteWorker;
+  FFavoriteWorker := nil;
+  Worker.WaitFor;
+  try
+    Matching := Assigned(FCollection) and (Worker.Collection.ID = FCollection.CollectionID);
+    if Worker.Succeeded then
+    begin
+      if FFavoriteDirtyCollections.TryGetValue(Worker.Collection.ID, DirtyGeneration) and
+        (Worker.Generation >= DirtyGeneration) then FFavoriteDirtyCollections.Remove(Worker.Collection.ID);
+      FavoriteStore.Reload;
+      PublishFavoriteFilterKeys;
+      if Matching then
+      begin
+        FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+        if not FavoriteBindingsReady(FFavoriteDescriptor) then QueueFavoriteRefresh(FFavoriteDescriptor)
+        else
+        begin
+          Include(FStaleSelectors, AuthorsView);
+          Exclude(FLoadedBookViews, AuthorsView);
+          if FFavoriteSearchPending and (FFavoritePendingCID = FCollection.CollectionID) then
+          begin
+            Criteria := FFavoritePendingCriteria;
+            Criteria.FavoriteAuthorIDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID);
+            FFavoriteSearchPending := False;
+            ApplySearchCriteria(Criteria);
+          end
+          else if FHasAppliedSearch and FSearchCriteria.FavoriteAuthorsOnly then
+          begin
+            FSearchCriteria.FavoriteAuthorIDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID);
+            Exclude(FLoadedBookViews, SearchView);
+          end;
+          EnsureActiveBookViewLoaded;
+          StatusMessage := rstrReadyMessage;
+        end;
+      end;
+    end
+    else if Matching then
+    begin
+      FFavoriteSearchPending := False;
+      if Worker.ErrorMessage <> '' then
+        StatusMessage := 'Не удалось проверить любимых авторов: ' + Worker.ErrorMessage
+      else StatusMessage := 'Проверка любимых авторов отменена';
+    end;
+  finally Worker.Free; end;
+  UpdateFavoriteControls;
+  StartFavoriteRefresh;
+end;
+
+function TfrmMain.SelectedFavoriteAuthor(out Author: TAuthorData; out Key: string): Boolean;
+var Data: PAuthorData;
+begin
+  Result := False; Key := '';
+  if not Assigned(FCollection) then Exit;
+  Data := tvAuthors.GetNodeData(tvAuthors.GetFirstSelected);
+  if not Assigned(Data) or (Data^.AuthorID <= 0) then Exit;
+  Author := Data^;
+  try Key := AuthorFavoriteKey(Author.LastName, Author.FirstName, Author.MiddleName);
+  except on E: EAuthorFavorites do Exit; end;
+  Result := Key <> '';
+end;
+
+procedure TfrmMain.UpdateFavoriteControls;
+var Author: TAuthorData; Key: string; Selected, Marked, Ready: Boolean; NewCount: Integer;
+begin
+  if not Assigned(FFavoriteListCheck) then Exit;
+  Selected := SelectedFavoriteAuthor(Author, Key);
+  Marked := Selected and Assigned(FFavoriteStore) and FFavoriteStore.IsFavorite(Author);
+  Ready := Marked and FFavoriteStore.State(Settings.ActiveCollection, Key).HasBaseline and
+    not FFavoriteDirtyCollections.ContainsKey(Settings.ActiveCollection) and
+    (FFavoriteStore.CollectionRevision(Settings.ActiveCollection) = FFavoriteDescriptor.Revision);
+  FFavoriteAuthorHeart.Enabled := Selected;
+  if Marked then FFavoriteAuthorHeart.Caption := '♥' else FFavoriteAuthorHeart.Caption := '♡';
+  if Marked then FFavoriteAuthorHeart.Hint := 'Убрать автора из любимых'
+  else FFavoriteAuthorHeart.Hint := 'Добавить автора в любимые';
+  FFavoriteToggleMenu.Caption := FFavoriteAuthorHeart.Hint;
+  FFavoriteToggleMenu.Enabled := Selected;
+  FFavoriteNewMenu.Enabled := Ready;
+  FFavoriteViewedMenu.Enabled := Ready;
+  FFavoriteNewMenu.Checked := FOnlyNewFavoriteBooks;
+  FFavoriteNewButton.Enabled := Ready;
+  if Ready then
+  begin
+    NewCount := FFavoriteStore.NewCount(Settings.ActiveCollection, Key);
+    if NewCount > 0 then FFavoriteNewButton.Caption := '+' + IntToStr(NewCount)
+    else FFavoriteNewButton.Caption := 'Новые';
+    FFavoriteViewedMenu.Enabled := NewCount > 0;
+  end
+  else if Assigned(FFavoriteWorker) then FFavoriteNewButton.Caption := '…'
+  else FFavoriteNewButton.Caption := 'Новые';
+  FFavoriteStopMenu.Enabled := Assigned(FFavoriteWorker);
+  FFavoriteListCheck.Font.Color := clGrayText;
+  if FFavoriteListCheck.Checked then FFavoriteListCheck.Font.Color := clWindowText;
+end;
+
+procedure TfrmMain.FavoriteSelectedAuthorClick(Sender: TObject);
+var Author: TAuthorData; Key: string; Enabled: Boolean;
+begin
+  if (ActiveView <> AuthorsView) or not SelectedFavoriteAuthor(Author, Key) then Exit;
+  Enabled := not FavoriteStore.IsFavorite(Author);
+  StopFavoriteRefresh(True);
+  FavoriteStore.SetFavorite(Author.LastName, Author.FirstName, Author.MiddleName, Enabled);
+  PublishFavoriteFilterKeys;
+  FOnlyNewFavoriteBooks := False;
+  CheckFavoriteCollection;
+  Include(FStaleSelectors, AuthorsView);
+  Exclude(FLoadedBookViews, AuthorsView);
+  if FHasAppliedSearch and FSearchCriteria.FavoriteAuthorsOnly then
+  begin
+    FSearchCriteria.FavoriteAuthorIDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID);
+    Exclude(FLoadedBookViews, SearchView);
+  end;
+  EnsureActiveBookViewLoaded;
+  tvAuthors.Invalidate;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.FavoriteListClick(Sender: TObject);
+begin
+  FOnlyNewFavoriteBooks := False;
+  if FFavoriteListCheck.Checked then CheckFavoriteCollection;
+  Include(FStaleSelectors, AuthorsView);
+  Exclude(FLoadedBookViews, AuthorsView);
+  if ActiveView = AuthorsView then EnsureActiveBookViewLoaded;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.FavoriteNewClick(Sender: TObject);
+var Author: TAuthorData; Key: string;
+begin
+  if not SelectedFavoriteAuthor(Author, Key) or not FavoriteStore.IsFavorite(Author) then Exit;
+  FOnlyNewFavoriteBooks := not FOnlyNewFavoriteBooks;
+  Exclude(FLoadedBookViews, AuthorsView);
+  if ActiveView = AuthorsView then EnsureActiveBookViewLoaded;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.FavoriteViewedClick(Sender: TObject);
+var Author: TAuthorData; Key: string;
+begin
+  if not SelectedFavoriteAuthor(Author, Key) or not FavoriteStore.IsFavorite(Author) then Exit;
+  StopFavoriteRefresh(True);
+  FavoriteStore.MarkViewed(FCollection.CollectionID, Key);
+  Exclude(FLoadedBookViews, AuthorsView);
+  if ActiveView = AuthorsView then EnsureActiveBookViewLoaded;
+  tvAuthors.Invalidate;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.FavoriteStopClick(Sender: TObject);
+begin
+  StopFavoriteRefresh(True);
+  StatusMessage := 'Проверка любимых авторов остановлена';
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.FavoriteMenuClick(Sender: TObject);
+var Position: TPoint;
+begin
+  UpdateFavoriteControls;
+  Position := FFavoriteMenuButton.ClientToScreen(Point(0, FFavoriteMenuButton.Height));
+  FFavoriteMenu.Popup(Position.X, Position.Y);
+end;
+
+function TfrmMain.AuthorSelectorIterator: IAuthorIterator;
+var View: IAuthorFavoriteCollectionView; IDs: TArray<Integer>;
+begin
+  if not Assigned(FFavoriteListCheck) or not FFavoriteListCheck.Checked then
+    Exit(FCollection.GetAuthorIterator(amFullFilter));
+  if not Supports(FCollection, IAuthorFavoriteCollectionView, View) then
+    raise EAuthorFavorites.Create('Любимые авторы недоступны для этого типа каталога.');
+  FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+  if FavoriteBindingsReady(FFavoriteDescriptor) then IDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID)
+  else QueueFavoriteRefresh(FFavoriteDescriptor);
+  Result := View.GetFavoriteAuthorIterator(IDs);
+end;
+
+procedure TfrmMain.FillCurrentAuthorBooks;
+var Filter: TFilterValue; Criteria: TBookSearchCriteria; Author: TAuthorData; Key: string;
+begin
+  if not FOnlyNewFavoriteBooks then
+  begin
+    Filter := AuthorBookFilter;
+    FillBooksTree(tvBooksA, cbLangSelectA,
+      function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @Filter); end,
+      False, True, @FLastAuthorBookID);
+    Exit;
+  end;
+  Criteria := Default(TBookSearchCriteria);
+  Criteria.DateIdx := -1;
+  Criteria.Deleted := Settings.HideDeletedBooks;
+  Criteria.CollapseMultiSeriesResults := True;
+  Criteria.FavoriteAuthorsOnly := True;
+  Criteria.FavoriteAuthorIDs := TArray<Integer>.Create(FLastAuthorID);
+  Criteria.RestrictBookIDs := True;
+  if FCollection.GetShowLocalOnly then Criteria.DownloadedIdx := 1;
+  if SelectedFavoriteAuthor(Author, Key) and FavoriteStore.IsFavorite(Author) then
+  begin
+    FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+    if FavoriteBindingsReady(FFavoriteDescriptor) then
+      Criteria.BookIDs := FavoriteStore.NewBookIDs(FCollection.CollectionID, Key)
+    else QueueFavoriteRefresh(FFavoriteDescriptor);
+  end;
+  FillBooksTree(tvBooksA, cbLangSelectA,
+    function: IBookIterator begin Result := FCollection.Search(Criteria, False); end,
+    False, True, @FLastAuthorBookID);
+end;
+
+procedure TfrmMain.FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
+  Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
+var Data: PAuthorData; Count: Integer;
+begin
+  if Assigned(FFavoriteOriginalGetText) then FFavoriteOriginalGetText(Sender, Node, Column, TextType, CellText);
+  if not Assigned(FFavoriteStore) then Exit;
+  Data := Sender.GetNodeData(Node);
+  try
+  if Assigned(Data) and FFavoriteStore.IsFavorite(Data^) and
+    not FFavoriteDirtyCollections.ContainsKey(Settings.ActiveCollection) and
+    (FFavoriteStore.CollectionRevision(Settings.ActiveCollection) = FFavoriteDescriptor.Revision) then
+  begin
+    Count := FFavoriteStore.NewCount(Settings.ActiveCollection,
+      AuthorFavoriteKey(Data^.LastName, Data^.FirstName, Data^.MiddleName));
+    if Count > 0 then CellText := CellText + '  +' + IntToStr(Count);
+  end;
+  except
+    // Keep the ordinary author text usable when source metadata cannot form
+    // a valid favorite key. A malformed row must not interrupt UI painting.
+    on E: EAuthorFavorites do Exit;
+  end;
+end;
+
+procedure TfrmMain.SearchFavoriteEditResize(Sender: TObject);
+begin
+  if HandleAllocated then PostMessage(Handle, WM_AUTHOR_FAVORITES_LAYOUT, 0, 0);
+end;
+
+procedure TfrmMain.WMFavoriteLayout(var Message: TMessage);
+begin UpdateFavoriteSearchLayout; end;
+
+procedure TfrmMain.UpdateFavoriteSearchLayout;
+var Size, Gap, RightWidth, PPI: Integer; Child: TControl;
+begin
+  if not Assigned(FSearchFavoriteCheck) then Exit;
+  PPI := edFFullName.Font.PixelsPerInch;
+  if PPI <= 0 then PPI := CurrentPPI;
+  Size := MulDiv(18, PPI, 96);
+  Gap := MulDiv(2, PPI, 96);
+  FSearchFavoriteCheck.SetBounds(edFFullName.ClientWidth - Size - Gap, Gap,
+    Size, Max(1, edFFullName.ClientHeight - 2 * Gap));
+  RightWidth := 0;
+  for var I := 0 to edFFullName.ControlCount - 1 do
+  begin
+    Child := edFFullName.Controls[I];
+    // Buttoned edit contains its expression button plus our checkbox. Moving
+    // by control identity also works at narrow widths and after DPI scaling.
+    if (Child <> FSearchFavoriteCheck) and Child.Visible then
+    begin
+      Child.Left := FSearchFavoriteCheck.Left - Child.Width - Gap;
+      RightWidth := Max(RightWidth, Child.Width);
+    end;
+  end;
+  if edFFullName.HandleAllocated then
+    SendMessage(edFFullName.Handle, EM_SETMARGINS, EC_RIGHTMARGIN, LPARAM(MakeLong(0, Size + RightWidth + 4 * Gap)));
+end;
+
+procedure TfrmMain.CreateFavoriteAuthorControls;
+var Panel: TPanel; Item: TMenuItem; PPI: Integer;
+begin
+  PPI := Font.PixelsPerInch;
+  if PPI <= 0 then PPI := CurrentPPI;
+  FFavoriteQueue := TQueue<TAuthorFavoriteCollection>.Create;
+  FFavoriteDirtyCollections := TDictionary<Integer, Cardinal>.Create;
+  FSearchFavoriteCheck := TCheckBox.Create(Self);
+  FSearchFavoriteCheck.Name := 'cbSearchFavoriteAuthorsOnly';
+  FSearchFavoriteCheck.Parent := edFFullName;
+  FSearchFavoriteCheck.Caption := '';
+  FSearchFavoriteCheck.ShowHint := True;
+  FSearchFavoriteCheck.Hint := 'Только книги любимых авторов. Условие применяется кнопкой «Применить».';
+  TFavoriteEditAccess(edFFullName).OnResize := SearchFavoriteEditResize;
+  UpdateFavoriteSearchLayout;
+
+  Panel := TPanel.Create(Self); Panel.Name := 'pnFavoriteAuthors';
+  Panel.Parent := pnAuthorsView; Panel.BevelOuter := bvNone; Panel.Caption := '';
+  Panel.Height := MulDiv(32, PPI, 96); Panel.Top := 0; Panel.Align := alTop;
+  FFavoriteListCheck := TCheckBox.Create(Self); FFavoriteListCheck.Name := 'cbFavoriteAuthorsList';
+  FFavoriteListCheck.Parent := Panel; FFavoriteListCheck.Caption := '♥ Любимые';
+  FFavoriteListCheck.AlignWithMargins := True; FFavoriteListCheck.Align := alClient;
+  FFavoriteListCheck.Font.Style := [fsBold]; FFavoriteListCheck.Font.Color := clGrayText;
+  FFavoriteListCheck.OnClick := FavoriteListClick;
+  FFavoriteMenuButton := TButton.Create(Self); FFavoriteMenuButton.Parent := Panel;
+  FFavoriteMenuButton.Name := 'btnFavoriteAuthorMenu'; FFavoriteMenuButton.Caption := '⋮';
+  FFavoriteMenuButton.Align := alRight; FFavoriteMenuButton.Width := MulDiv(26, PPI, 96);
+  FFavoriteMenuButton.OnClick := FavoriteMenuClick;
+  FFavoriteNewButton := TButton.Create(Self); FFavoriteNewButton.Parent := Panel;
+  FFavoriteNewButton.Name := 'btnFavoriteAuthorNew'; FFavoriteNewButton.Caption := 'Новые';
+  FFavoriteNewButton.Align := alRight; FFavoriteNewButton.Width := MulDiv(58, PPI, 96);
+  FFavoriteNewButton.ShowHint := True; FFavoriteNewButton.Hint := 'Только новые книги выбранного любимого автора';
+  FFavoriteNewButton.OnClick := FavoriteNewClick;
+  FFavoriteAuthorHeart := TButton.Create(Self); FFavoriteAuthorHeart.Name := 'btnFavoriteSelectedAuthor';
+  FFavoriteAuthorHeart.Parent := pnAuthorBooksTitle; FFavoriteAuthorHeart.Align := alRight;
+  FFavoriteAuthorHeart.Width := MulDiv(32, PPI, 96); FFavoriteAuthorHeart.Caption := '♡';
+  FFavoriteAuthorHeart.ShowHint := True; FFavoriteAuthorHeart.OnClick := FavoriteSelectedAuthorClick;
+
+  FFavoriteMenu := TPopupMenu.Create(Self); FFavoriteMenu.Name := 'pmFavoriteAuthors';
+  for var I := 0 to 3 do
+  begin
+    Item := TMenuItem.Create(Self);
+    case I of
+      0: begin Item.Caption := 'Добавить автора в любимые'; Item.OnClick := FavoriteSelectedAuthorClick; FFavoriteToggleMenu := Item; end;
+      1: begin Item.Caption := 'Только новые книги'; Item.OnClick := FavoriteNewClick; FFavoriteNewMenu := Item; end;
+      2: begin Item.Name := 'miFavoriteAuthorViewed'; Item.Caption := 'Отметить новые просмотренными'; Item.OnClick := FavoriteViewedClick; FFavoriteViewedMenu := Item; end;
+      3: begin Item.Name := 'miFavoriteAuthorStop'; Item.Caption := 'Остановить проверку'; Item.OnClick := FavoriteStopClick; FFavoriteStopMenu := Item; end;
+    end;
+    FFavoriteMenu.Items.Add(Item);
+  end;
+  Item := TMenuItem.Create(Self); Item.Name := 'miFavoriteSelectedAuthor';
+  Item.Caption := 'Добавить автора в любимые'; Item.OnClick := FavoriteSelectedAuthorClick;
+  pmAuthor.Items.Add(Item); FFavoriteContextMenu := Item;
+  FFavoriteOriginalGetText := tvAuthors.OnGetText;
+  tvAuthors.OnGetText := FavoriteAuthorGetText;
+  UpdateFavoriteControls;
+end;
+
+procedure TfrmMain.ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey);
+begin
+  Exclude(FLoadedBookViews, SearchView);
+  tvBooksSR.Clear;
+  ClearLabels(PAGE_SEARCH, True);
+  FillBooksTree(tvBooksSR, nil,
+    function: IBookIterator begin Result := FCollection.Search(Criteria, False); end, True, True, SelectedID);
+  if not FBookListCancelled then
+  begin
+    FSearchCriteria := Criteria;
+    FHasAppliedSearch := True;
+  end;
+end;
+
+function TfrmMain.SearchPresetIndex(const Name: string): Integer;
+var
+  TrimmedName: string;
+begin
+  TrimmedName := Trim(Name);
+  Result := cbPresetName.ItemIndex;
+  // Retain an explicitly selected legacy entry even if another differs only in case.
+  if (Result >= 0) and (Result < cbPresetName.Items.Count) and
+    (Trim(cbPresetName.Items[Result]) = TrimmedName) then Exit;
+  for var I := 0 to cbPresetName.Items.Count - 1 do
+    if Trim(cbPresetName.Items[I]) = TrimmedName then Exit(I);
+  for var I := 0 to cbPresetName.Items.Count - 1 do
+    if AnsiSameText(Trim(cbPresetName.Items[I]), TrimmedName) then Exit(I);
+  Result := -1;
 end;
 
 procedure TfrmMain.SaveSearchPreset(Sender: TObject);
 var
   presetName: string;
-  preset: TSearchPreset;
+  preset, ExistingPreset, CopiedPreset: TSearchPreset;
+  Candidate, Previous: TSearchPresets;
+  Field: TPair<string, string>;
+  PresetIndex: Integer;
 begin
   presetName := Trim(cbPresetName.Text);
-  if presetName = '' then
+  if (presetName = '') or not Assigned(FPresets) then
     Exit;
+  PresetIndex := SearchPresetIndex(presetName);
+  if PresetIndex >= 0 then presetName := cbPresetName.Items[PresetIndex];
 
-  preset := FPresets.GetPreset(presetName);
-  preset.Clear;
+  // Keep the current presets and controls intact until the file is committed.
+  Candidate := TSearchPresets.Create;
+  try
+    for ExistingPreset in FPresets do
+    begin
+      CopiedPreset := Candidate.GetPreset(ExistingPreset.DisplayName);
+      for Field in ExistingPreset do
+        CopiedPreset.AddOrSetValue(Field.Key, Field.Value);
+    end;
+    preset := Candidate.GetPreset(presetName);
+    preset.Clear;
 
-  preset.AddOrSetValue(SF_AUTHORS, edFFullName.Text);
-  preset.AddOrSetValue(SF_TITLE, edFTitle.Text);
-  preset.AddOrSetValue(SF_SERIES, edFSeries.Text);
-  preset.AddOrSetValue(SF_GENRE_TITLE, edFGenre.Text);
-  preset.AddOrSetValue(SF_GENRE_CODES, edFGenre.Hint);
-  preset.AddOrSetValue(SF_ANNOTATION, edFAnnotation.Text);
+    preset.AddOrSetValue(SF_AUTHORS, edFFullName.Text);
+    preset.AddOrSetValue(SF_FAVORITE_AUTHORS, BoolToStr(FSearchFavoriteCheck.Checked));
+    preset.AddOrSetValue(SF_TITLE, edFTitle.Text);
+    preset.AddOrSetValue(SF_SERIES, edFSeries.Text);
+    preset.AddOrSetValue(SF_PUBLISHER, FPublisherSearchEdit.Text);
+    preset.AddOrSetValue(SF_GENRE_TITLE, edFGenre.Text);
+    preset.AddOrSetValue(SF_GENRE_CODES, edFGenre.Hint);
+    preset.AddOrSetValue(SF_ANNOTATION, edFAnnotation.Text);
 
-  preset.AddOrSetValue(SF_FILE, edFFile.Text);
-  preset.AddOrSetValue(SF_FOLDER, edFFolder.Text);
-  preset.AddOrSetValue(SF_EXTENSION, edFExt.Text);
+    preset.AddOrSetValue(SF_FILE, edFFile.Text);
+    preset.AddOrSetValue(SF_FOLDER, edFFolder.Text);
+    preset.AddOrSetValue(SF_EXTENSION, edFExt.Text);
 
-  preset.AddOrSetValue(SF_DOWNLOADED, IntToStr(cbDownloaded.ItemIndex));
-  preset.AddOrSetValue(SF_KEYWORDS, edFKeyWords.Text);
-  preset.AddOrSetValue(SF_DELETED, BoolToStr(cbDeleted.Checked));
+    preset.AddOrSetValue(SF_DOWNLOADED, IntToStr(cbDownloaded.ItemIndex));
+    preset.AddOrSetValue(SF_KEYWORDS, edFKeyWords.Text);
+    preset.AddOrSetValue(SF_DELETED, BoolToStr(cbDeleted.Checked));
 
-  if cbDate.ItemIndex = -1 then
-  begin
-    preset.AddOrSetValue(SF_DATE, IntToStr(-1));
-    preset.AddOrSetValue(SF_DATE_STR, cbDate.Text);
-  end
-  else begin
-    preset.AddOrSetValue(SF_DATE, IntToStr(cbDate.ItemIndex));
-    preset.AddOrSetValue(SF_DATE_STR, '');
+    if cbDate.ItemIndex = -1 then
+    begin
+      preset.AddOrSetValue(SF_DATE, IntToStr(-1));
+      preset.AddOrSetValue(SF_DATE_STR, cbDate.Text);
+    end
+    else begin
+      preset.AddOrSetValue(SF_DATE, IntToStr(cbDate.ItemIndex));
+      preset.AddOrSetValue(SF_DATE_STR, '');
+    end;
+
+    if cbLibRate.ItemIndex = -1 then
+    begin
+      preset.AddOrSetValue(SF_LIBRATE, IntToStr(-1));
+      preset.AddOrSetValue(SF_LIBRATE_STR, cbLibRate.Text);
+    end
+    else begin
+      preset.AddOrSetValue(SF_LIBRATE, IntToStr(cbLibRate.ItemIndex));
+      preset.AddOrSetValue(SF_LIBRATE_STR, '');
+    end;
+
+    preset.AddOrSetValue(SF_LANG, IntToStr(cbLang.ItemIndex));
+    preset.AddOrSetValue(SF_READED, BoolToStr(cbReaded.Checked));
+
+    try
+      Candidate.Save(Settings.SystemFileName[sfPresets]);
+    except
+      on E: Exception do
+        raise EInOutError.Create('Не удалось сохранить пресет. Предыдущие пресеты сохранены. ' + E.Message);
+    end;
+
+    Previous := FPresets;
+    FPresets := Candidate;
+    Candidate := nil;
+    Previous.Free;
+    PresetIndex := SearchPresetIndex(presetName);
+    if PresetIndex < 0 then
+      PresetIndex := cbPresetName.Items.Add(presetName);
+    cbPresetName.ItemIndex := PresetIndex;
+  finally
+    Candidate.Free;
   end;
-
-  if cbLibRate.ItemIndex = -1 then
-  begin
-    preset.AddOrSetValue(SF_LIBRATE, IntToStr(-1));
-    preset.AddOrSetValue(SF_LIBRATE_STR, cbLibRate.Text);
-  end
-  else begin
-    preset.AddOrSetValue(SF_LIBRATE, IntToStr(cbLibRate.ItemIndex));
-    preset.AddOrSetValue(SF_LIBRATE_STR, '');
-  end;
-
-
-  preset.AddOrSetValue(SF_LANG, IntToStr(cbLang.ItemIndex));
-  preset.AddOrSetValue(SF_READED, BoolToStr(cbReaded.Checked));
-
-  FPresets.Save(Settings.SystemFileName[sfPresets]);
-
-  if cbPresetName.Items.IndexOf(presetName) = -1 then
-    cbPresetName.Items.Add(presetName);
 end;
 
 procedure TfrmMain.LocateAuthor(const Text: string);
@@ -7274,6 +8512,7 @@ var
   Button : TToolButton;
 
 begin
+  if Assigned(FFavoriteListCheck) then FFavoriteListCheck.Checked := False;
   savedCursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
   try
@@ -7436,7 +8675,12 @@ var
   URL: string;
 
   strReview, strAnnotation: string;
-  NewCode: Integer;
+  Saved, Stored, Changed: TBookRecord;
+  PersonalOnly, RetrySave: Boolean;
+  Outcome: TReaderPersonalWriteResult;
+  DraftPath, DraftText, Namespace: string;
+  DraftHandle: THandle; DraftStream: THandleStream; DraftBytes: TBytes;
+  GroupNode: PVirtualNode; GroupData: PBookRecord; Modal: Integer;
 begin
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
@@ -7446,14 +8690,18 @@ begin
   if not Assigned(Data) or (Data^.nodeType <> ntBookInfo) then
     Exit;
 
+  Saved := Data^; PersonalOnly := (Tree = tvBooksF) or (Saved.BookKey.BookID <= 0);
+  BookCollection := nil;
+  try BookCollection := FSystemData.GetCollection(Saved.BookKey.DatabaseID); except end;
   FFormBusy := True;
   try
-    ReviewEditable := (Data^.BookKey.DatabaseID = FCollection.CollectionID);
+    ReviewEditable := (Saved.BookKey.BookID <= 0) or
+      (Saved.BookKey.DatabaseID = FCollection.CollectionID);
 
     frmBookDetails := TfrmBookDetails.Create(Application);
     try
       // сейчас мы грузим только fb2 или fbd, т к больше ничего разбирать не умеем
-      if (bpIsLocal in Data^.BookProps) then
+      if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
       begin
         try
           bookStream := Data^.GetBookDescriptorStream(False);
@@ -7477,52 +8725,129 @@ begin
         frmBookDetails.FillBookInfo(Data^, nil);
 
       frmBookDetails.mmReview.ReadOnly := not ReviewEditable;
-      BookCollection := FSystemData.GetCollection(Data^.BookKey.DatabaseID);
       SetLength(AuthorNames, Length(Data^.Authors));
       for I := 0 to High(AuthorNames) do AuthorNames[I] := Data^.Authors[I].GetFullName;
-      frmBookDetails.AuthorInformation.Configure(Data^.CollectionRoot,
-        BookCollection.GetProperty(PROP_AUTHOR_INFO_FOLDER), AuthorNames,
-        procedure(Folder: string)
-        begin BookCollection.SetProperty(PROP_AUTHOR_INFO_FOLDER, Folder); end);
+      if Assigned(BookCollection) then
+        frmBookDetails.AuthorInformation.Configure(Saved.CollectionRoot,
+          BookCollection.GetProperty(PROP_AUTHOR_INFO_FOLDER), AuthorNames,
+          procedure(Folder: string)
+          begin if Assigned(BookCollection) then BookCollection.SetProperty(PROP_AUTHOR_INFO_FOLDER, Folder); end);
 
       URL := '';
-      if not isPrivateCollection(BookCollection.CollectionCode) then
+      if Assigned(BookCollection) and not isPrivateCollection(BookCollection.CollectionCode) then
       begin
         URL := BookCollection.GetViewURL(Data^.LibID);
 
         frmBookDetails.AllowOnlineReview(URL);
       end;
 
-      if bpHasReview in Data^.BookProps then
-        frmBookDetails.Review := FCollection.GetReview(Data^.BookKey)
-
+      if PersonalOnly then
+      begin
+        // Read the proved system snapshot or the already displayed saved A;
+        // never load a review from the reused positive catalogue key B.
+        if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
+        begin frmBookDetails.Review := Stored.Review; frmBookDetails.Annotation := Stored.Annotation; end
+        else begin frmBookDetails.Review := Saved.Review; frmBookDetails.Annotation := Saved.Annotation; end;
+      end
+      else if bpHasReview in Saved.BookProps then
+      begin
+        // Ordinary list rows may omit memo text. Load it only from a proved
+        // current snapshot, otherwise keep the saved personal/cached A.
+        Stored := Default(TBookRecord);
+        try
+          if Assigned(BookCollection) then BookCollection.GetBookRecord(Saved.BookKey, Stored, True);
+          Namespace := ''; if Assigned(BookCollection) then
+            Namespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY));
+          if Stored.BookKey.IsSameAs(Saved.BookKey) and
+            ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), Stored, Namespace) then
+            frmBookDetails.Review := Stored.Review
+          else if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
+            frmBookDetails.Review := Stored.Review
+          else frmBookDetails.Review := Saved.Review;
+        except on E: Exception do frmBookDetails.Review := Saved.Review; end;
+      end
       else if IsOnline and ReviewEditable and Settings.AutoLoadReview then
         DownloadReview(frmBookDetails, URL);
 
-      frmBookDetails.ShowModal;
-
-      if not frmBookDetails.ReviewChanged then
-        Exit;
-
-      strReview := frmBookDetails.Review;
-      strAnnotation := frmBookDetails.Annotation;
-    finally
-      FreeAndNil(frmBookDetails);
-    end;
-
-    NewCode := FCollection.SetReview(Data^.BookKey, strReview);
-    FCollection.SetAnnotation(Data^.BookKey, strAnnotation);
-    UpdateNodes(
-      Data^.BookKey,
-      procedure(BookData: PBookRecord)
-      begin
-        Assert(Assigned(BookData));
-        if NewCode = 1 then
-          Include(BookData^.BookProps, bpHasReview)
-        else
-          Exclude(BookData^.BookProps, bpHasReview);
-      end
-    );
+      Namespace := ''; if Assigned(BookCollection) then
+        try Namespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY)); except end;
+      RetrySave := False;
+      repeat
+        Modal := frmBookDetails.ShowModal;
+        if RetrySave and (Modal = mrCancel) then
+          if MHLShowWarning('Отзыв пока не сохранён. Закрыть редактор и отказаться от изменений?', mbYesNo) = mrYes then Exit
+          else Continue;
+        if not frmBookDetails.ReviewChanged then Exit;
+        strReview := frmBookDetails.Review; strAnnotation := frmBookDetails.Annotation;
+        Changed := Saved; Changed.Review := strReview; Changed.Annotation := strAnnotation;
+        Outcome := rpwRejected;
+        if ReviewEditable and not frmBookDetails.mmReview.ReadOnly then
+          Outcome := TryStoreReaderBookPersonal(BookCollection, FSystemData, Changed,
+            [bpfReview,bpfAnnotation], PersonalOnly);
+        if Outcome <> rpwRejected then
+        begin
+          if Outcome = rpwCatalog then
+            UpdateNodes(Saved.BookKey,
+              procedure(BookData: PBookRecord)
+              begin
+                if Assigned(BookData) and ReaderBookMatchesExpectedIdentity(Saved.LibID,
+                  ReaderBookPhysicalIdentity(Saved), BookData^, Namespace) then
+                begin
+                  BookData^.Review := strReview; BookData^.Annotation := strAnnotation;
+                  if strReview <> '' then Include(BookData^.BookProps,bpHasReview) else Exclude(BookData^.BookProps,bpHasReview);
+                end;
+              end)
+          else
+          begin
+            GroupNode := tvBooksF.GetFirst;
+            while Assigned(GroupNode) do
+            begin
+              GroupData := tvBooksF.GetNodeData(GroupNode);
+              if Assigned(GroupData) and GroupData^.BookKey.IsSameAs(Saved.BookKey) and
+                ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), GroupData^, Namespace) then
+              begin
+                GroupData^.Review := strReview; GroupData^.Annotation := strAnnotation;
+                if strReview <> '' then Include(GroupData^.BookProps,bpHasReview) else Exclude(GroupData^.BookProps,bpHasReview);
+                tvBooksF.InvalidateNode(GroupNode);
+              end;
+              GroupNode := tvBooksF.GetNext(GroupNode);
+            end;
+            StatusMessage := 'Отзыв сохранён в личной карточке. Каталог книги не обновлён.';
+          end;
+          Exit;
+        end;
+        // Publish a fresh, durable draft without replacing an existing file.
+        DraftHandle := INVALID_HANDLE_VALUE; DraftPath := '';
+        try
+          DraftPath := TPath.Combine(Settings.DataDir, 'ReviewDrafts'); ForceDirectories(DraftPath);
+          DraftPath := TPath.Combine(DraftPath, TGUID.NewGuid.ToString + '.txt');
+          DraftText := 'Книга: ' + Saved.Title + sLineBreak + 'LibID: ' + Saved.LibID + sLineBreak +
+            'Коллекция/номер: ' + IntToStr(Saved.BookKey.DatabaseID) + '/' + IntToStr(Saved.BookKey.BookID) +
+            sLineBreak + sLineBreak + 'Отзыв:' + sLineBreak + strReview + sLineBreak + sLineBreak +
+            'Аннотация:' + sLineBreak + strAnnotation;
+          DraftHandle := CreateFile(PChar(DraftPath), GENERIC_WRITE, 0, nil, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
+          if DraftHandle = INVALID_HANDLE_VALUE then RaiseLastOSError;
+          DraftStream := THandleStream.Create(DraftHandle);
+          try
+            DraftBytes := TEncoding.UTF8.GetBytes(DraftText);
+            if Length(DraftBytes) > 0 then DraftStream.WriteBuffer(DraftBytes[0], Length(DraftBytes));
+            if not FlushFileBuffers(DraftHandle) then RaiseLastOSError;
+          finally DraftStream.Free; end;
+          CloseHandle(DraftHandle); DraftHandle := INVALID_HANDLE_VALUE;
+          MHLShowInfo('Карточка книги недоступна для записи. Исходные данные не затронуты. ' +
+            'Ваш текст сохранён в файле:' + sLineBreak + DraftPath);
+          Exit;
+        except
+          on E: Exception do
+          begin
+            if DraftHandle <> INVALID_HANDLE_VALUE then
+            begin CloseHandle(DraftHandle); DraftHandle := INVALID_HANDLE_VALUE; SysUtils.DeleteFile(DraftPath); end;
+            MHLShowInfo('Не удалось сохранить отзыв и черновик. Текст остался в редакторе.' + sLineBreak + E.Message);
+            RetrySave := True;
+          end;
+        end;
+      until False;
+    finally FreeAndNil(frmBookDetails); end;
   finally
     FFormBusy := False;
   end;
@@ -7540,6 +8865,10 @@ end;
 
 procedure TfrmMain.pmAuthorPopup(Sender: TObject);
 begin
+  UpdateFavoriteControls;
+  FFavoriteContextMenu.Visible := ActiveView = AuthorsView;
+  FFavoriteContextMenu.Enabled := FFavoriteToggleMenu.Enabled;
+  FFavoriteContextMenu.Caption := FFavoriteToggleMenu.Caption;
   miAddToSearch.Visible := not (ActiveView in [GenresView, PublisherSeriesView]);
 end;
 
@@ -7673,13 +9002,16 @@ end;
 procedure TfrmMain.UpdateCollectionFromFileExecute(Sender: TObject);
 var
   ActiveCollectionID: Integer;
+  Succeeded, CommittedChanges: Boolean;
 begin
   Assert(Assigned(FCollection));
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   UpdatePositions;
 
   ActiveCollectionID := FCollection.CollectionID;
-  if unit_Utils.ManualCollectionUpdate(ActiveCollectionID, Settings.SystemFileName[sfUpdateLog]) then
+  Succeeded := unit_Utils.ManualCollectionUpdate(ActiveCollectionID, Settings.SystemFileName[sfUpdateLog], CommittedChanges);
+  if CommittedChanges then NotifyFavoriteCatalogChanged(TArray<Integer>.Create(ActiveCollectionID));
+  if Succeeded or CommittedChanges then
   begin
     Settings.ActiveCollection := ActiveCollectionID;
     InitCollection;
@@ -8018,7 +9350,7 @@ begin
   ProcessNodes(
     procedure (Tree: TBookTree; Node: PVirtualNode)
     var
-      Data: PBookRecord;
+      Data: PBookRecord; Changed: TBookRecord;
       NewProgress: Integer;
     begin
       Data := Tree.GetNodeData(Node);
@@ -8028,6 +9360,15 @@ begin
         // промежуточным прогрессом становится прочитанной (100%), уже прочитанная —
         // непрочитанной (0%). Таким образом, текущий прогресс чтения не теряется.
         NewProgress := IfThen(Data^.Progress = 100, 0, 100);
+        if Tree = tvBooksF then
+        begin
+          Changed := Data^; Changed.Progress := NewProgress;
+          if TryStoreReaderBookPersonal(FSystemData.GetCollection(Data^.BookKey.DatabaseID), FSystemData,
+            Changed, [bpfProgress]) <> rpwRejected then
+          begin Data^.Progress := NewProgress; Tree.InvalidateNode(Node); end
+          else MHLShowInfo('Не удалось подтвердить личную карточку книги. Прогресс не изменён.');
+          Exit;
+        end;
 
         FCollection.SetProgress(Data^.BookKey, NewProgress);
         UpdateNodes(
@@ -8135,9 +9476,9 @@ begin
     end;
   end;
   for i := 0 to pmHeaders.Items.Count-1 do
-    if pmHeaders.Items[i].Tag = COL_PUBLISHER_SERIES then
+    if pmHeaders.Items[i].Tag in [COL_PUBLISHER_SERIES, COL_PUBLISHER] then
       for var J := 0 to Tree.Header.Columns.Count-1 do
-        if Tree.Header.Columns[J].Tag = COL_PUBLISHER_SERIES then pmHeaders.Items[i].Checked := True;
+        if Tree.Header.Columns[J].Tag = pmHeaders.Items[i].Tag then pmHeaders.Items[i].Checked := True;
   pmHeaders.Items[9].Visible := True;
 end;
 
@@ -8227,6 +9568,7 @@ begin
   try
     frmAddBooks.Collection := FCollection;
     frmAddBooks.ShowModal;
+    CheckFavoriteCollection;
     InitCollection;
   finally
     frmAddBooks.Free;
@@ -8245,14 +9587,36 @@ begin
 end;
 
 procedure TfrmMain.OnChangeLocalStatus(var Message: TLocalStatusChangedMessage);
+var Collection: IBookCollection; Current, Personal: TBookRecord; Namespace: string;
 begin
   Assert(Assigned(Message.Params));
-
   try
-    SetBookLocalStatus(Message.Params^.BookKey, Message.Params^.LocalStatus);
-  finally
-    Dispose(Message.Params);
-  end;
+    // A posted completion can outlive a catalog replacement. Refresh from
+    // current, proven records instead of applying the old key-only Boolean.
+    Collection := nil; Current := Default(TBookRecord); Personal := Default(TBookRecord); Namespace := '';
+    try
+      Collection := FSystemData.GetCollection(Message.Params^.BookKey.DatabaseID);
+      Collection.GetBookRecord(Message.Params^.BookKey, Current, False);
+      Namespace := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+    except Current := Default(TBookRecord); end;
+    try FSystemData.GetBookRecord(Message.Params^.BookKey, Personal);
+    except Personal := Default(TBookRecord); end;
+    UpdateNodes(Message.Params^.BookKey,
+      procedure(BookData: PBookRecord)
+      var IsLocal: Boolean;
+      begin
+        if not Assigned(BookData) then Exit;
+        if Current.BookKey.IsSameAs(BookData^.BookKey) and
+          ReaderBookMatchesExpectedIdentity(BookData^.LibID, ReaderBookPhysicalIdentity(BookData^), Current, Namespace) then
+          IsLocal := bpIsLocal in Current.BookProps
+        else if Personal.BookKey.IsSameAs(BookData^.BookKey) and
+          ReaderBookMatchesExpectedIdentity(BookData^.LibID, ReaderBookPhysicalIdentity(BookData^), Personal, Namespace) then
+          IsLocal := bpIsLocal in Personal.BookProps
+        else Exit;
+        if IsLocal then Include(BookData^.BookProps, bpIsLocal)
+        else Exclude(BookData^.BookProps, bpIsLocal);
+      end);
+  finally Dispose(Message.Params); end;
   Message.Result := 0;
 end;
 
@@ -8360,9 +9724,7 @@ begin
   FViewLanguageSelected[TView((Sender as TComboBox).Tag)] := True;
   case (Sender as TComboBox).Tag of
     0:begin
-        FilterValue := AuthorBookFilter;
-        FillBooksTree(tvBooksA, cbLangSelectA,
-        function: IBookIterator begin Result := FCollection.GetBookIterator(bmByAuthor, False, @FilterValue); end, False, True, @FLastAuthorBookID);  // авторы
+        FillCurrentAuthorBooks; // авторы
        end;
 
 
@@ -8385,14 +9747,20 @@ procedure TfrmMain.cbPresetNameSelect(Sender: TObject);
 var
   preset: TSearchPreset;
   Value: string;
+  PresetIndex: Integer;
 begin
+  PresetIndex := SearchPresetIndex(cbPresetName.Text);
+  if (PresetIndex < 0) or not Assigned(FPresets) then Exit;
   DoClearFilter(True);
-
-  preset := FPresets.GetPreset(cbPresetName.Text);
+  cbPresetName.ItemIndex := PresetIndex;
+  preset := FPresets.GetPreset(cbPresetName.Items[PresetIndex]);
 
   if preset.TryGetValue(SF_AUTHORS, Value) then edFFullName.Text := Value;
+  if preset.TryGetValue(SF_FAVORITE_AUTHORS, Value) then
+    FSearchFavoriteCheck.Checked := StrToBoolDef(Value, False);
   if preset.TryGetValue(SF_TITLE, Value) then edFTitle.Text := Value;
   if preset.TryGetValue(SF_SERIES, Value) then edFSeries.Text := Value;
+  if preset.TryGetValue(SF_PUBLISHER, Value) then FPublisherSearchEdit.Text := Value;
   if preset.TryGetValue(SF_GENRE_TITLE, Value) then edFGenre.Text := Value;
   if preset.TryGetValue(SF_GENRE_CODES, Value) then edFGenre.Hint := Value;
   if preset.TryGetValue(SF_ANNOTATION, Value) then edFAnnotation.Text := Value;
@@ -8404,7 +9772,8 @@ begin
   if preset.TryGetValue(SF_DOWNLOADED, Value) then
     cbDownloaded.ItemIndex := EnsureRange(StrToIntDef(Value, 0), 0, cbDownloaded.Items.Count - 1);
   if preset.TryGetValue(SF_KEYWORDS, Value) then edFKeyWords.Text := Value;
-  if preset.TryGetValue(SF_DELETED, Value) then cbDeleted.Checked := StrToBoolDef(Value, False);
+  if preset.TryGetValue(SF_DELETED, Value) then
+    SetHideDeletedMode(StrToBoolDef(Value, False), False);
 
   if preset.TryGetValue(SF_DATE, Value) then
   begin
@@ -8458,7 +9827,11 @@ end;
 
 procedure TfrmMain.BtnSaveClick(Sender: TObject);
 begin
-  tvDownloadList.SaveToFile(Settings.SystemFileName[sfDownloadsStore]);
+  try SaveDownloadsList;
+  except
+    on E: Exception do MHLShowError('Не удалось сохранить очередь загрузок. Предыдущий файл сохранён.' +
+      sLineBreak + E.Message);
+  end;
 end;
 
 procedure TfrmMain.btnDeleteDownloadClick(Sender: TObject);
@@ -8532,6 +9905,23 @@ begin
       Item.BookKey := Data^.BookKey;
       Item.Author := Data^.Author;
       Item.Title := Data^.Title;
+      Item.Expected.BookKey := Data^.BookKey;
+      Item.Expected.HasExpectedIdentity := True;
+      if Data^.HasExpectedIdentity then
+      begin
+        Item.Expected.ExpectedLibID := Data^.ExpectedLibID;
+        Item.Expected.ExpectedPhysicalIdentity := Data^.ExpectedPhysicalIdentity;
+      end
+      else
+      begin
+        // Old persisted queues know only their original whole-file path.
+        // No library or archive member is guessed from an old positive key.
+        Item.Expected.ExpectedLibID := '';
+        try
+          if Data^.FileName <> '' then
+            Item.Expected.ExpectedPhysicalIdentity := TPath.GetFullPath(Data^.FileName).Replace('/', '\');
+        except Item.Expected.ExpectedPhysicalIdentity := ''; end;
+      end;
       Exit(True);
     end;
 
@@ -8642,7 +10032,7 @@ begin
   BtnDwnldUp.Enabled := Enabled;
   BtnDwnldDown.Enabled := Enabled;
   BtnLastRecord.Enabled := Enabled;
-  BtnSave.Enabled := Enabled;
+  BtnSave.Enabled := Enabled and FDownloadsReady and not FDownloadsLoadFailed;
   mi_dwnl_Delete.Enabled := Enabled;
 end;
 
@@ -8654,14 +10044,43 @@ end;
 procedure TfrmMain.DeleteSearchPreset(Sender: TObject);
 var
   presetName: string;
+  PresetIndex: Integer;
+  ExistingPreset, CopiedPreset: TSearchPreset;
+  Candidate, Previous: TSearchPresets;
+  Field: TPair<string, string>;
 begin
-  presetName := cbPresetName.Items[cbPresetName.ItemIndex];
-  FPresets.RemovePreset(presetName);
-  FPresets.Save(Settings.SystemFileName[sfPresets]);
+  presetName := Trim(cbPresetName.Text);
+  PresetIndex := SearchPresetIndex(presetName);
+  if (PresetIndex < 0) or not Assigned(FPresets) then
+    Exit;
+  presetName := cbPresetName.Items[PresetIndex];
 
-  cbPresetName.Items.Delete(cbPresetName.ItemIndex);
-  cbPresetName.ItemIndex := -1;
-  cbPresetName.Text := '';
+  Candidate := TSearchPresets.Create;
+  try
+    for ExistingPreset in FPresets do
+      if ExistingPreset.DisplayName <> presetName then
+      begin
+        CopiedPreset := Candidate.GetPreset(ExistingPreset.DisplayName);
+        for Field in ExistingPreset do
+          CopiedPreset.AddOrSetValue(Field.Key, Field.Value);
+      end;
+    try
+      Candidate.Save(Settings.SystemFileName[sfPresets]);
+    except
+      on E: Exception do
+        raise EInOutError.Create('Не удалось удалить пресет. Пресет сохранён. ' + E.Message);
+    end;
+
+    Previous := FPresets;
+    FPresets := Candidate;
+    Candidate := nil;
+    Previous.Free;
+    cbPresetName.Items.Delete(PresetIndex);
+    cbPresetName.ItemIndex := -1;
+    cbPresetName.Text := '';
+  finally
+    Candidate.Free;
+  end;
 end;
 
 function TfrmMain.GetBookNode(const Tree: TBookTree; const BookKey: TBookKey): PVirtualNode;

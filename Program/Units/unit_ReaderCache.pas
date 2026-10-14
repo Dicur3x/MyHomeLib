@@ -6,17 +6,34 @@ uses
   System.Classes, System.SysUtils, unit_Globals, unit_Interfaces;
 
 function ReaderCopyName(const Book: TBookRecord): string;
+function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
+function PrepareExternalReaderFile(const Book: TBookRecord; const PreparedFile, LibraryNamespace: string;
+  ForceCopy: Boolean = False): string;
+procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
+  const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean = False);
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
   PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False);
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
 function ResolveReaderBook(const Collection: IBookCollection; const Book: TBookRecord): TBookRecord;
+function ReaderBookPhysicalIdentity(const Book: TBookRecord): string;
+function ReaderBookMatchesExpectedIdentity(const ExpectedLibID, ExpectedPhysicalIdentity: string;
+  const Current: TBookRecord; const LibraryNamespace: string): Boolean;
+function ReaderBookMatchesCatalog(const Collection: IBookCollection; const Saved: TBookRecord): Boolean;
+function ReaderTryGetPersonalBook(const User: ISystemData; const Collection: IBookCollection;
+  const Saved: TBookRecord; out Stored: TBookRecord): Boolean;
+type TReaderPersonalWriteResult = (rpwRejected, rpwCatalog, rpwPersonal);
+function TryStoreReaderBookPersonal(const Collection: IBookCollection; const User: ISystemData;
+  const Expected: TBookRecord; const Fields: TBookPersonalFields;
+  RequirePersonal: Boolean = True): TReaderPersonalWriteResult;
+function TryStoreReaderBookProgress(const Collection: IBookCollection; const Saved: TBookRecord;
+  Progress: Integer): Boolean;
 
 implementation
 
 uses
-  System.IOUtils, System.Hash,
+  System.IOUtils, System.Hash, System.Variants, System.Math, unit_FileMutex, unit_LibrarySourceID,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
   Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
@@ -41,12 +58,39 @@ begin
   Result:=IsReaderArchive(FileName) and (Ext<>'.cbr') and (Ext<>'.cbz') and (Ext<>'.cb7');
 end;
 
+function ReaderPlaceholderIdentity(const Value: string): Boolean;
+var ID, Source, OriginalID: string; Separator, Depth: Integer;
+begin
+  ID := Trim(Value); Depth := 0;
+  if (Length(ID) > 4096) or (Pos(#0, ID) <> 0) then Exit(True);
+  while ID.StartsWith('merged:', True) do
+  begin
+    Inc(Depth); if Depth > 32 then Exit(True);
+    Delete(ID, 1, Length('merged:')); Separator := Pos(':', ID);
+    if Separator = 0 then Exit(True);
+    Delete(ID, 1, Separator);
+  end;
+  if TryParseLibrarySourceID(ID, Source, OriginalID) then ID := OriginalID
+  else if ID.StartsWith('flibusta:', True) or ID.StartsWith('librusec:', True) then
+    // A reserved prefix with an empty/zero payload is still a placeholder,
+    // even when whitespace makes the strict source-ID parser reject it.
+    ID := Trim(Copy(ID, Pos(':', ID) + 1, MaxInt));
+  if ID = '' then Exit(True);
+  for var C in ID do if C <> '0' then Exit(False);
+  Result := True;
+end;
+
 function ReaderCopyName(const Book: TBookRecord): string;
 var Identity, Extension: string;
 begin
   Identity := Book.LibID;
-  if Identity = '' then
+  if ReaderPlaceholderIdentity(Identity) then
+  begin
     Identity := LowerCase(Book.Folder + #1 + Book.FileName + Book.FileExt);
+    // Only unnamed members need their index to avoid sharing cache/history.
+    // Named members retain the longstanding identity across index changes.
+    if Book.FileName = '' then Identity := Identity + #1 + 'member-index:' + IntToStr(Book.InsideNo);
+  end;
   // BookID, author and title can change after a full INPX import.
   Extension:='.'+Book.GetFileType;
   if (Pos(' ',Extension)>0) or (Length(Extension)>11) then Extension:='.bin';
@@ -54,12 +98,235 @@ begin
     Copy(THashSHA2.GetHashString(Identity), 1, 32) + Extension;
 end;
 
+function ReaderStableIdentity(const Value, DefaultLibrary: string;
+  out LibraryName, OriginalID: string): Boolean;
+var ID, Namespace: string; Separator, Depth: Integer; Numeric, Nonzero: Boolean;
+begin
+  Result := False; LibraryName := ''; OriginalID := ''; ID := Trim(Value);
+  if (Length(ID) > 4096) or (Pos(#0, ID) <> 0) then Exit;
+  // Merged source wrappers preserve library provenance. File-derived merge
+  // keys are physical identities, not evidence that a different copy matches.
+  Depth := 0;
+  while ID.StartsWith('merged:', True) do
+  begin
+    Inc(Depth); if Depth > 32 then Exit;
+    Delete(ID, 1, Length('merged:')); Separator := Pos(':', ID);
+    if Separator = 0 then Exit;
+    Delete(ID, 1, Separator);
+  end;
+  if (ID = '') or ID.StartsWith('file:', True) then Exit;
+  Namespace := '';
+  if TryParseLibrarySourceID(ID, Namespace, OriginalID) then
+    ID := OriginalID
+  else
+  begin
+    // These library prefixes reserve numeric IDs. Malformed source IDs must
+    // not become opaque global identities after their parser rejects them.
+    if ID.StartsWith('flibusta:', True) or ID.StartsWith('librusec:', True) then Exit;
+    Namespace := '';
+  end;
+  Numeric := True; Nonzero := False;
+  for var C in ID do
+  begin
+    Numeric := Numeric and CharInSet(C, ['0'..'9']);
+    Nonzero := Nonzero or (C <> '0');
+  end;
+  if Numeric and not Nonzero then Exit;
+  if Numeric and (Namespace = '') then
+  begin
+    // A numeric ID belongs to a source library; it is not globally unique.
+    if not (SameText(DefaultLibrary, 'flibusta') or SameText(DefaultLibrary, 'librusec')) then Exit;
+    Namespace := LowerCase(DefaultLibrary);
+  end;
+  LibraryName := Namespace; OriginalID := ID; Result := True;
+end;
+
+function ReaderPhysicalIdentity(const Book: TBookRecord): string;
+var Container, Member: string;
+begin
+  Result := '';
+  try
+    // Metadata only. GetBookContainer probes ZIP/7z paths, so it must not be
+    // used to establish identity before a candidate has been authorized.
+    Container := TPath.GetFullPath(TPath.Combine(Book.CollectionRoot, Book.Folder));
+    if Book.GetBookFormat(Container) in [bfFb2Archive, bfRawArchive] then
+    begin
+      // An index alone is not stable physical proof after archive updates.
+      if Book.FileName = '' then Exit;
+      Member := Book.FileName;
+      if not SameText(ExtractFileExt(Member), Book.FileExt) then Member := Member + Book.FileExt;
+      if Member = '' then Exit;
+      Result := Container.Replace('/', '\') + #1 + Member.Replace('/', '\');
+    end
+    else Result := TPath.GetFullPath(Book.GetBookFileName(Container)).Replace('/', '\');
+  except on E: Exception do Result := ''; end;
+end;
+
+function ReaderHistoryName(const Book: TBookRecord; const LibraryNamespace: string): string;
+var ID, Namespace, OriginalID, Physical, Extension: string; Separator, Depth: Integer;
+  Numeric: Boolean;
+begin
+  Result := ReaderCopyName(Book);
+  if ReaderStableIdentity(Book.LibID, LibraryNamespace, Namespace, OriginalID) then Exit;
+  ID := Trim(Book.LibID); Depth := 0;
+  while ID.StartsWith('merged:', True) do
+  begin
+    Inc(Depth); if Depth > 32 then Exit;
+    Delete(ID, 1, Length('merged:')); Separator := Pos(':', ID);
+    if Separator = 0 then Exit;
+    Delete(ID, 1, Separator);
+  end;
+  // Preserve placeholders/known merged physical keys and all opaque IDs.
+  // A positive unscoped numeric ID cannot identify a book across row reuse.
+  Numeric := ID <> '';
+  for var C in ID do Numeric := Numeric and CharInSet(C, ['0'..'9']);
+  if not Numeric or ReaderPlaceholderIdentity(Book.LibID) then Exit;
+  Physical := ReaderPhysicalIdentity(Book);
+  if Physical = '' then Physical := Book.CollectionRoot + #1 + Book.Folder + #1 +
+    Book.FileName + Book.FileExt + #1 + IntToStr(Book.InsideNo);
+  Extension := '.' + Book.GetFileType;
+  if (Pos(' ', Extension) > 0) or (Length(Extension) > 11) then Extension := '.bin';
+  Result := 'homelib-' + IntToStr(Book.BookKey.DatabaseID) + '-' +
+    Copy(THashSHA2.GetHashString('reader-physical-history-v1' + #1 + Physical), 1, 32) + Extension;
+end;
+
+function ReaderSamePhysical(const First, Second: TBookRecord): Boolean;
+var Identity: string;
+begin
+  Identity := ReaderPhysicalIdentity(First);
+  // Exact case also protects case-sensitive directories and archive members.
+  Result := (Identity <> '') and (Identity = ReaderPhysicalIdentity(Second));
+end;
+
+function ReaderBookPhysicalIdentity(const Book: TBookRecord): string;
+begin Result := ReaderPhysicalIdentity(Book); end;
+
+function ReaderBookMatchesExpectedIdentity(const ExpectedLibID, ExpectedPhysicalIdentity: string;
+  const Current: TBookRecord; const LibraryNamespace: string): Boolean;
+var SavedLibrary, SavedID, CurrentLibrary, CurrentID: string;
+begin
+  Result := ReaderStableIdentity(ExpectedLibID, LibraryNamespace, SavedLibrary, SavedID) and
+    ReaderStableIdentity(Current.LibID, LibraryNamespace, CurrentLibrary, CurrentID) and
+    (SavedID = CurrentID) and (SavedLibrary = CurrentLibrary);
+  if not Result then
+    Result := (ExpectedPhysicalIdentity <> '') and
+      (ExpectedPhysicalIdentity = ReaderPhysicalIdentity(Current));
+end;
+
+function ReaderBookMatchesCatalog(const Collection: IBookCollection; const Saved: TBookRecord): Boolean;
+var Current: TBookRecord;
+begin
+  Result := False;
+  if not Assigned(Collection) or (Saved.BookKey.BookID <= 0) or
+    (Saved.BookKey.DatabaseID <> Collection.CollectionID) then Exit;
+  try
+    Collection.GetBookRecord(Saved.BookKey, Current, False);
+    Result := Current.BookKey.IsSameAs(Saved.BookKey) and
+      ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderPhysicalIdentity(Saved), Current,
+        VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)));
+  except on E: Exception do Result := False; end;
+end;
+
+function ReaderTryGetPersonalBook(const User: ISystemData; const Collection: IBookCollection;
+  const Saved: TBookRecord; out Stored: TBookRecord): Boolean;
+var Namespace: string;
+begin
+  Result := False; Stored := Default(TBookRecord); Namespace := '';
+  if not Assigned(User) or (Saved.BookKey.BookID = 0) then Exit;
+  try
+    User.GetBookRecord(Saved.BookKey, Stored);
+    if Assigned(Collection) then Namespace := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+    Result := Stored.BookKey.IsSameAs(Saved.BookKey) and
+      ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderPhysicalIdentity(Saved), Stored, Namespace);
+  except on E: Exception do Result := False; end;
+end;
+
+function TryStoreReaderBookPersonal(const Collection: IBookCollection; const User: ISystemData;
+  const Expected: TBookRecord; const Fields: TBookPersonalFields;
+  RequirePersonal: Boolean): TReaderPersonalWriteResult;
+var Writer: IBookIdentityPersonalWriter; Physical, Namespace: string;
+  Matches: TBookIdentityPredicate;
+begin
+  Result := rpwRejected; Physical := ReaderPhysicalIdentity(Expected); Namespace := '';
+  try
+    if Assigned(Collection) then
+    begin
+      if Collection.InBulkOperation then Exit;
+      Namespace := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+    end;
+    Matches := function(const Current: TBookRecord): Boolean
+      begin
+        Result := Current.BookKey.IsSameAs(Expected.BookKey) and
+          ReaderBookMatchesExpectedIdentity(Expected.LibID, Physical, Current, Namespace);
+      end;
+    if Assigned(Collection) and (Expected.BookKey.BookID > 0) and
+      (Expected.BookKey.DatabaseID = Collection.CollectionID) and
+      Supports(Collection, IBookIdentityPersonalWriter, Writer) then
+      if Writer.TrySetIdentityPersonal(Expected, Fields,
+        function(const Current: TBookRecord): Boolean
+        begin
+          // Fetch provenance inside the writer's snapshot as well.
+          Result := Current.BookKey.IsSameAs(Expected.BookKey) and
+            ReaderBookMatchesExpectedIdentity(Expected.LibID, Physical, Current,
+              VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)));
+        end, RequirePersonal) = biwSaved then Exit(rpwCatalog);
+    Writer := nil;
+    if Assigned(User) and Supports(User, IBookIdentityPersonalWriter, Writer) then
+      if Writer.TrySetIdentityPersonal(Expected, Fields, Matches) = biwSaved then Result := rpwPersonal;
+  except on E: Exception do Result := rpwRejected; end;
+end;
+
+function TryStoreReaderBookProgress(const Collection: IBookCollection; const Saved: TBookRecord;
+  Progress: Integer): Boolean;
+var Writer: IBookIdentityProgressWriter; Physical: string;
+begin
+  Result := False;
+  if not Assigned(Collection) or (Saved.BookKey.BookID <= 0) or
+    (Saved.BookKey.DatabaseID <> Collection.CollectionID) or
+    (Progress < 0) or (Progress > 100) or not Supports(Collection, IBookIdentityProgressWriter, Writer) then Exit;
+  Physical := ReaderPhysicalIdentity(Saved);
+  try
+    Result := Writer.TrySetIdentityProgress(Saved, Progress,
+      function(const Current: TBookRecord): Boolean
+      begin
+        Result := Current.BookKey.IsSameAs(Saved.BookKey) and
+          ReaderBookMatchesExpectedIdentity(Saved.LibID, Physical, Current,
+            VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)));
+      end);
+  except on E: Exception do Result := False; end;
+end;
+
 function ResolveReaderBook(const Collection: IBookCollection; const Book: TBookRecord): TBookRecord;
-var CopyBook: TBookRecord;
+var CopyBook, Current: TBookRecord; Namespace, SavedLibrary, SavedID,
+  CurrentLibrary, CurrentID, CopyLibrary, CopyID: string; SavedKnown, CurrentKnown, BoundKnown: Boolean;
 begin
   Result := Book;
-  if FileExists(Book.GetBookFileName) or not Assigned(Collection) then Exit;
+  if not Assigned(Collection) or (Book.BookKey.BookID <= 0) or
+    (Book.BookKey.DatabaseID <> Collection.CollectionID) then Exit;
+  if FileExists(Book.GetBookFileName) then Exit;
+  // A positive row number can be reused after a catalog replacement. Verify
+  // the saved card against the current row before consulting its copy links.
+  try
+    Collection.GetBookRecord(Book.BookKey, Current, False);
+    Namespace := VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY));
+  except on E: Exception do Exit; end;
+  SavedKnown := ReaderStableIdentity(Book.LibID, Namespace, SavedLibrary, SavedID);
+  CurrentKnown := ReaderStableIdentity(Current.LibID, Namespace, CurrentLibrary, CurrentID);
+  BoundKnown := SavedKnown and CurrentKnown and (SavedID = CurrentID) and
+    (SavedLibrary = CurrentLibrary);
+  if not BoundKnown and not ReaderSamePhysical(Book, Current) then Exit;
   for CopyBook in Collection.GetCatalogBookCopies(Book.BookKey) do
+  begin
+    if not ReaderSamePhysical(Book, CopyBook) then
+    begin
+      if not BoundKnown or not ReaderStableIdentity(CopyBook.LibID, SavedLibrary, CopyLibrary, CopyID) or
+        (SavedID <> CopyID) then Continue;
+      // Only a validated saved/current library can scope a raw merged copy
+      // ID. The target's default may describe a different preferred source.
+      // An explicit different library never qualifies.
+      if (CopyLibrary <> '') and (CopyLibrary <> SavedLibrary) then Continue;
+      if (SavedLibrary = '') and (CopyLibrary <> '') then Continue;
+    end;
     if FileExists(CopyBook.GetBookFileName) then
     begin
       Result.Folder := CopyBook.Folder; Result.CollectionRoot := CopyBook.CollectionRoot;
@@ -67,6 +334,7 @@ begin
       Result.InsideNo := CopyBook.InsideNo; Result.Size := CopyBook.Size;
       Include(Result.BookProps, bpIsLocal); Exit;
     end;
+  end;
 end;
 
 function FileStamp(const Source: string; Required: Boolean): string;
@@ -80,6 +348,196 @@ begin
   Result := LowerCase(TPath.GetFullPath(Source)) + '|' +
     IntToStr(Data.nFileSizeHigh) + ':' + IntToStr(Data.nFileSizeLow) + '|' +
     IntToStr(Data.ftLastWriteTime.dwHighDateTime) + ':' + IntToStr(Data.ftLastWriteTime.dwLowDateTime);
+end;
+
+function ReaderSameSourcePath(const First, Second: string): Boolean;
+var A, B: string; FirstHandle, SecondHandle: THandle;
+  FirstInfo, SecondInfo: BY_HANDLE_FILE_INFORMATION;
+begin
+  A:=TPath.GetFullPath(First).Replace('/','\'); B:=TPath.GetFullPath(Second).Replace('/','\');
+  if A=B then Exit(True);
+  if not SameText(A,B) then Exit(False);
+  // Windows casing is normally immaterial, but case-sensitive NTFS folders
+  // can hold distinct books. Prove the actual file, without reading bytes.
+  Result:=False;
+  FirstHandle:=CreateFile(PChar(A),0,FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,
+    nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+  if FirstHandle=INVALID_HANDLE_VALUE then Exit;
+  try
+    SecondHandle:=CreateFile(PChar(B),0,FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,
+      nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+    if SecondHandle=INVALID_HANDLE_VALUE then Exit;
+    try
+      Result:=GetFileInformationByHandle(FirstHandle,FirstInfo) and
+        GetFileInformationByHandle(SecondHandle,SecondInfo) and
+        ((FirstInfo.nFileIndexHigh<>0) or (FirstInfo.nFileIndexLow<>0)) and
+        (FirstInfo.dwVolumeSerialNumber=SecondInfo.dwVolumeSerialNumber) and
+        (FirstInfo.nFileIndexHigh=SecondInfo.nFileIndexHigh) and
+        (FirstInfo.nFileIndexLow=SecondInfo.nFileIndexLow);
+    finally CloseHandle(SecondHandle); end;
+  finally CloseHandle(FirstHandle); end;
+end;
+
+function ReaderMachineFileName(const FileName: string): Boolean;
+var Name: string; Numeric, Hexadecimal: Boolean; Digits: Integer;
+begin
+  Name:=ChangeFileExt(ExtractFileName(FileName),'');
+  if Name.StartsWith('homelib-',True) then Exit(True);
+  Numeric:=Name<>''; Hexadecimal:=Name<>''; Digits:=0;
+  for var Ch in Name do
+  begin
+    Numeric:=Numeric and CharInSet(Ch,['0'..'9']);
+    Hexadecimal:=Hexadecimal and CharInSet(Ch,['0'..'9','a'..'f','A'..'F','-','{','}']);
+    if CharInSet(Ch,['0'..'9','a'..'f','A'..'F']) then Inc(Digits);
+  end;
+  Result:=Numeric or (Hexadecimal and (Digits>=16));
+end;
+
+function ReaderDisplayPart(const Value: string; MaxLength: Integer): string;
+var Text: string; OutText: TStringBuilder; I, N: Integer; Ch: Char;
+begin
+  Text:=CheckSymbols(Value,True).Replace('.', ' '); OutText:=TStringBuilder.Create;
+  try
+    I:=1;
+    while I<=Length(Text) do
+    begin
+      Ch:=Text[I]; N:=Ord(Ch);
+      if (N<32) or (N=127) then Ch:=' ';
+      if (N>=$D800) and (N<=$DBFF) then
+      begin
+        if (I<Length(Text)) and (Ord(Text[I+1])>=$DC00) and (Ord(Text[I+1])<=$DFFF) then
+        begin OutText.Append(Ch).Append(Text[I+1]); Inc(I,2); Continue; end;
+        Ch:=Char($FFFD);
+      end
+      else if (N>=$DC00) and (N<=$DFFF) then Ch:=Char($FFFD);
+      if (Ch<>' ') or (OutText.Length=0) or (OutText.Chars[OutText.Length-1]<>' ') then OutText.Append(Ch);
+      Inc(I);
+    end;
+    Result:=Trim(OutText.ToString);
+  finally OutText.Free; end;
+  if Length(Result)>MaxLength then
+  begin
+    Result:=Copy(Result,1,MaxLength);
+    if (Result<>'') and (Ord(Result[Length(Result)])>=$D800) and
+      (Ord(Result[Length(Result)])<=$DBFF) then Delete(Result,Length(Result),1);
+    Result:=Trim(Result);
+  end;
+end;
+
+function ReaderExternalPreparedStamp(const Prepared, Original: string; out Stable: Boolean): string;
+var Data: TWin32FileAttributeData; Origin, Dependency: string;
+begin
+  Stable:=False;
+  if not GetFileAttributesEx(PChar(Prepared),GetFileExInfoStandard,@Data) then RaiseLastOSError;
+  // Cache maintenance touches payload last-write times on every open. A
+  // proved derived copy instead uses its immutable preparation dependency.
+  // Original files keep their real timestamp; missing metadata is a miss.
+  if not ReaderSameSourcePath(Prepared,Original) and FileExists(Prepared+'.origin') and
+    FileExists(Prepared+'.source') then
+  begin
+    try
+      Origin:=TFile.ReadAllText(Prepared+'.origin',TEncoding.UTF8);
+      if ReaderSameSourcePath(Origin,Original) then
+      begin
+        Dependency:=TFile.ReadAllText(Prepared+'.source',TEncoding.UTF8);
+        if Dependency<>'' then
+        begin
+          Stable:=True;
+          Exit('prepared-cache-v1|'+LowerCase(TPath.GetFullPath(Prepared))+'|'+
+            IntToStr(Data.nFileSizeHigh)+':'+IntToStr(Data.nFileSizeLow)+'|'+THashSHA2.GetHashString(Dependency));
+        end;
+      end;
+    except
+      // Old/incomplete sidecars cannot authorize a cached alias hit.
+    end;
+  end;
+  Result:=FileStamp(Prepared,True);
+end;
+
+function PrepareExternalReaderFile(const Book: TBookRecord; const PreparedFile, LibraryNamespace: string;
+  ForceCopy: Boolean): string;
+var Identity, Prefix, Stamp, ExistingStamp, Extension, Folder, DisplayName, Author,
+  Candidate, Original, Temporary, TemporaryStamp, PendingSuffix: string;
+  Writer: TBookCacheWrite; Input, Target: TStream; NameLimit: Integer;
+  OwnIdentity, StablePrepared, PostStable, ForceRefresh: Boolean;
+  Mutex: TFileMutex; Buffer: TBytes; ReadCount: Integer;
+begin
+  Result:=ExistingBookCacheFile(PreparedFile);
+  if Result='' then Exit;
+  Original:=Book.GetBookFileName;
+  if not ReaderSameSourcePath(Result,Original) and
+    not ReaderSameSourcePath(BookCacheSource(Result),Original) then
+    raise Exception.Create('Подготовленная копия относится к другой книге. Откройте книгу заново.');
+  if not ForceCopy and not ReaderMachineFileName(Result) then Exit;
+  if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+  Extension:=ExtractFileExt(Result); Folder:=BookCachePath;
+  // These are cache metadata suffixes, not supported reading formats.
+  if SameText(Extension,'.source') or SameText(Extension,'.origin') or
+    SameText(Extension,'.retire') or Extension.StartsWith('.pending',True) then Exit;
+  Identity:=THashSHA2.GetHashString('external-reader-display-v1'+#1+IntToStr(Book.BookKey.DatabaseID)+#1+
+    ReaderHistoryName(Book,LibraryNamespace)+#1+LowerCase(Trim(LibraryNamespace))+#1+
+    ReaderPhysicalIdentity(Book)+#1+ExtractFileName(Result)+#1+Extension+#1+BoolToStr(ForceCopy,True));
+  Prefix:='external-reader-display-v1|'+Identity+'|';
+  Stamp:=Prefix+ReaderExternalPreparedStamp(Result,Original,StablePrepared);
+  // The caller captures rewrite intent before starting this worker. Its
+  // private copy is refreshed each time and has a separate reading identity.
+  ForceRefresh:=ForceCopy or (not StablePrepared and not ReaderSameSourcePath(Result,Original));
+  DisplayName:=ReaderDisplayPart(Book.Title,110);
+  if DisplayName='' then DisplayName:='Книга без названия';
+  Author:=''; if Length(Book.Authors)>0 then Author:=ReaderDisplayPart(Book.Authors[0].GetFullName,32);
+  if Author<>'' then DisplayName:=DisplayName+' — '+Author;
+  // Leave room for both .source and the writer's actual pending suffix.
+  PendingSuffix:='.pending-4294967295-4294967295-{00000000-0000-0000-0000-000000000000}';
+  for var SuffixLength in TArray<Integer>.Create(12,20,32,64) do
+  begin
+    NameLimit:=Min(140,MAX_PATH-1-Length(IncludeTrailingPathDelimiter(Folder))-Length('homelib-')-
+      Length(' []')-SuffixLength-Length(Extension)-Length('.source')-Length(PendingSuffix));
+    if NameLimit<8 then raise EArgumentException.Create('Папка кэша слишком длинная для имени книги. Выберите более короткий путь в настройках кэша.');
+    Candidate:=ExistingBookCacheFile(TPath.Combine(Folder,'homelib-'+ReaderDisplayPart(DisplayName,NameLimit)+
+      ' ['+Copy(Identity,1,SuffixLength)+']'+Extension));
+    // A rewrite copy can never overwrite the original or its prepared input,
+    // even if a user-supplied source happens to have our generated filename.
+    if ReaderSameSourcePath(Candidate,Original) or ReaderSameSourcePath(Candidate,Result) then Continue;
+    Mutex:=TFileMutex.Create(CurrentBookCacheFile(Candidate));
+    try
+    if not Mutex.TryAcquire then raise Exception.Create('Копия этой книги уже готовится в другом окне. Откройте её ещё раз через несколько секунд.');
+    ExistingStamp:=''; OwnIdentity:=False;
+    if FileExists(Candidate+'.source') then
+      try ExistingStamp:=TFile.ReadAllText(Candidate+'.source',TEncoding.UTF8);
+        OwnIdentity:=ExistingStamp.StartsWith(Prefix);
+      except end;
+    // An occupied name of another identity is never replaced, even if the
+    // short hash or filename sanitization happens to collide.
+    if (FileExists(Candidate) or FileExists(Candidate+'.source') or FileExists(Candidate+'.origin')) and
+      not OwnIdentity then Continue;
+    if not ForceRefresh and FileExists(Candidate) and (ExistingStamp=Stamp) then
+    begin Result:=Candidate; RegisterBookCacheFile(Result,Original); PinReaderCacheFile(Result); Exit; end;
+    ForceDirectories(Folder); Writer:=TBookCacheWrite.Create(Original); Input:=nil; Target:=nil;
+    try
+      Temporary:=Writer.TemporaryName(Candidate); TemporaryStamp:=Writer.TemporaryName(Candidate+'.source');
+      Input:=OpenCachedBookFile(Result);
+      // Establish the snapshot after the cache's own Touch, while the stream
+      // denies writes. Keep this stream through publication and output pinning:
+      // closing a managed input may immediately evict it under a small limit.
+      Stamp:=Prefix+ReaderExternalPreparedStamp(Result,Original,StablePrepared);
+      Target:=TFileStream.Create(Temporary,fmCreate);
+      SetLength(Buffer,65536);
+      repeat
+        if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+        ReadCount:=Input.Read(Buffer[0],Length(Buffer));
+        if ReadCount>0 then Target.WriteBuffer(Buffer[0],ReadCount);
+      until ReadCount=0;
+      FreeAndNil(Target);
+      if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+      // A changing prepared copy is not valid evidence for cached bytes.
+      if Prefix+ReaderExternalPreparedStamp(Result,Original,PostStable)<>Stamp then raise EAbort.Create('Подготовленная книга изменилась. Откройте её ещё раз.');
+      TFile.WriteAllText(TemporaryStamp,Stamp,TEncoding.UTF8);
+      Writer.Publish(Temporary,Candidate,TemporaryStamp); Result:=Candidate;
+      PinReaderCacheFile(Result); Exit;
+    finally Target.Free; Input.Free; Writer.Free; end;
+    finally Mutex.Free; end;
+  end;
+  raise Exception.Create('Не удалось выбрать свободное имя копии книги для читалки.');
 end;
 
 function SourceStamp(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean): string;
@@ -299,6 +757,8 @@ type
   public
     constructor CreateTask(Owner: TComponent; const Book: TBookRecord;
       PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean);
+    constructor CreateExternalTask(Owner: TComponent; const Book: TBookRecord;
+      const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
     destructor Destroy; override;
   end;
 
@@ -328,6 +788,36 @@ begin
   FWorker.FreeOnTerminate := False;
   FTimer := TTimer.Create(Self); FTimer.Interval := 50; FTimer.OnTimer := Tick;
   FWorker.Start;
+end;
+
+constructor TReaderPreparation.CreateExternalTask(Owner: TComponent; const Book: TBookRecord;
+  const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
+var Snapshot: TBookRecord;
+begin
+  inherited Create(Owner);
+  Snapshot:=Book; FReady:=OnReady; FLock:=TCriticalSection.Create;
+  FStage:='Открытие книги во внешней читалке…'; FStatus:=TMHLOperationStatus.Create(FStage);
+  FWorker:=TThread.CreateAnonymousThread(
+    procedure
+    begin
+      try
+        if FWorker.CheckTerminated then Abort;
+        FResult:=PrepareExternalReaderFile(Snapshot,PreparedFile,LibraryNamespace,ForceCopy);
+      except
+        on E: EAbort do FResult:='';
+        on E: Exception do FError:=E.Message;
+      end;
+    end);
+  FWorker.FreeOnTerminate:=False;
+  FTimer:=TTimer.Create(Self); FTimer.Interval:=50; FTimer.OnTimer:=Tick; FWorker.Start;
+end;
+
+procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
+  const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
+var Component: TComponent;
+begin
+  for Component in Owner do if Component is TReaderPreparation then Exit;
+  TReaderPreparation.CreateExternalTask(Owner,Book,PreparedFile,LibraryNamespace,OnReady,ForceCopy);
 end;
 
 destructor TReaderPreparation.Destroy;

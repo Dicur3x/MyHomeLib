@@ -26,6 +26,28 @@ uses
   unit_UserData;
 
 type
+  TBookIdentityPredicate = reference to function(const Current: TBookRecord): Boolean;
+  TBookPersonalField = (bpfRate, bpfProgress, bpfReview, bpfAnnotation, bpfIsLocal);
+  TBookPersonalFields = set of TBookPersonalField;
+  TBookIdentityWriteResult = (biwUnavailable, biwNoCard, biwMismatch, biwSaved);
+
+  // Update selected personal fields on a proved current row. The other fields,
+  // reviews and binary card payload remain untouched.
+  IBookIdentityPersonalWriter = interface
+    ['{F8819C6B-BBCB-4658-B455-4D7B988A43F2}']
+    function TrySetIdentityPersonal(const Expected: TBookRecord;
+      const Fields: TBookPersonalFields; const Matches: TBookIdentityPredicate;
+      RequirePersonal: Boolean = False): TBookIdentityWriteResult;
+  end;
+
+  // Progress is allowed only when the identity still matches inside the
+  // writer's own transaction. Unsupported/busy/unavailable writers fail closed.
+  IBookIdentityProgressWriter = interface
+    ['{4B934550-DBE3-498E-A04C-2440C45B867D}']
+    function TrySetIdentityProgress(const Expected: TBookRecord; Progress: Integer;
+      const Matches: TBookIdentityPredicate): Boolean;
+  end;
+
   // Optional snapshot of existing user cards; merges never create absent cards.
   ISystemBookPresence = interface
     ['{D4977BE5-9C8F-44F0-A21C-CC7D46B79BD7}']
@@ -50,6 +72,13 @@ type
   IBookMergeMetadataDeltaUpdater = interface
     ['{82BA3C11-97A7-48A9-B910-72831452CFC8}']
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
+  end;
+
+  // Capture the pre-merge file provenance once, without replacing original
+  // metadata with the preferred source selected by a later or repeated merge.
+  IBookMergeOriginalCopyRecorder = interface
+    ['{6C1B3BCC-45D2-490D-B9B6-1F5E4A8F7914}']
+    procedure CaptureOriginalCopyIfMissing(const SourceKey, SourceName: string; const Book: TBookRecord);
   end;
 
   IBookSeriesStreamProvider = interface
@@ -78,6 +107,13 @@ type
   ISeriesIterator = IIterator<TSeriesData>;
   IGroupIterator = IIterator<TGroupData>;
   ICollectionInfoIterator = IIterator<TCollectionInfo>;
+
+  // Apply the usual author-browser visibility filters to a cached, indexed
+  // set of favorite IDs. Empty favorites deliberately return no authors.
+  IAuthorFavoriteCollectionView = interface
+    ['{67760201-7A8D-46B1-A7CF-8A2EA662EC56}']
+    function GetFavoriteAuthorIterator(const AuthorIDs: TArray<Integer>): IAuthorIterator;
+  end;
 
   IPublisherSeriesIndexIterator = interface
     // Book contains source fields only, without authors, genres or memo data.
@@ -156,7 +192,9 @@ type
     procedure CleanCollectionBooks(const DatabaseID: Integer);
     // Привести BookID книг в группах к текущей нумерации коллекции (сверка по LibID).
     // Вызывается после переимпорта коллекции и при построении списка группы.
-    // Если RemoveMissing = True, записи, которых больше нет в коллекции, удаляются.
+    // Отсутствующие книги со стабильным LibID сохраняются как недоступные;
+    // личные карточки, заметки и членство в группах не удаляются.
+    // RemoveMissing сохранён для совместимости существующих вызовов.
     // Возвращает количество исправленных записей.
     function RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean = False): Integer;
 

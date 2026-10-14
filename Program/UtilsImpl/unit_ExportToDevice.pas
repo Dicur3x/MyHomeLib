@@ -28,7 +28,8 @@ procedure ExportToDevice(
   const ExtractOnly: Boolean;
   out ProcessedFiles: string;
   const ADeviceShellItem: IShellItem = nil;
-  const AUseMTP: Boolean = False
+  const AUseMTP: Boolean = False;
+  const ExplicitFormat: Boolean = False
   );
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -48,6 +49,7 @@ uses
 
 resourcestring
   rstrSendToDevice = 'Отправить на устройство';
+  rstrExportAsFormat = 'Экспорт в %s';
   rstrDownloadingBooks = 'Скачивание книг';
   rstrConverterNotFound = 'Не установлен конвертер для выбранного формата:' + CRLF +
     '%s' + CRLF + CRLF +
@@ -61,7 +63,8 @@ procedure ExportToDevice(
   const ExtractOnly: Boolean;
   out ProcessedFiles: string;
   const ADeviceShellItem: IShellItem;
-  const AUseMTP: Boolean
+  const AUseMTP: Boolean;
+  const ExplicitFormat: Boolean
   );
 var
   worker: TExportToDeviceThread;
@@ -69,8 +72,9 @@ var
   MarshalStream: IStream;
   ConverterPath: string;
 begin
-  // Внешние конвертеры не входят в состав программы. Если нужного нет,
-  // экспорт тихо ничего бы не записал (#59), поэтому проверяем это заранее.
+  ProcessedFiles := '';
+  // FB2/EPUB используют встроенный конвертер. Старые режимы LRF/PDF/MOBI
+  // по-прежнему проверяют наличие своего внешнего инструмента до запуска.
   if not ExtractOnly then
   begin
     ConverterPath := GetConverterPath(Settings.AppPath, Mode);
@@ -88,6 +92,7 @@ begin
     worker.ExportMode := Mode;
     worker.ExtractOnly := ExtractOnly;
     worker.UseMTP := AUseMTP;
+    worker.ExplicitFormat := ExplicitFormat;
 
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin
@@ -97,7 +102,15 @@ begin
 
     frmProgress := TExportToDeviceProgressForm.Create(Application);
     try
-      frmProgress.Caption := rstrSendToDevice;
+      if ExplicitFormat then
+      begin
+        if Mode = emEpub then
+          frmProgress.Caption := Format(rstrExportAsFormat, ['EPUB'])
+        else
+          frmProgress.Caption := Format(rstrExportAsFormat, ['FB2']);
+      end
+      else
+        frmProgress.Caption := rstrSendToDevice;
       frmProgress.WorkerThread := worker;
       frmProgress.ShowModal;
       ProcessedFiles := worker.ProcessedFiles;

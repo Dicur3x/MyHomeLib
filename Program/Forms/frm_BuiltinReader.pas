@@ -321,7 +321,7 @@ procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identi
 implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme;
+  System.IniFiles, System.Hash, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile;
 
 type
   TReaderChapterSelector = class(TComboBox)
@@ -2223,7 +2223,7 @@ begin
     Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
     try
       Ini.WriteString('Bookmarks.'+FReader.FIdentity,'Title'+IntToStr(-Index-1),Copy(Title.Trim,1,256).Replace('&','&&'));
-      Ini.UpdateFile;
+      SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
     Reload;
   end;
@@ -2247,7 +2247,7 @@ begin
         Ini.WriteInteger(Section,'Position'+IntToStr(I),Ini.ReadInteger(Section,'Position'+IntToStr(I+1),0));
       end;
       Ini.DeleteKey(Section,'Title'+IntToStr(Count-1)); Ini.DeleteKey(Section,'Position'+IntToStr(Count-1));
-      Ini.WriteInteger(Section,'Count',Max(0,Count-1)); Ini.UpdateFile;
+      Ini.WriteInteger(Section,'Count',Max(0,Count-1)); SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
   end;
   Reload;
@@ -2434,7 +2434,7 @@ begin
     end;
     Ini.WriteInteger(Section,'Position'+IntToStr(Count),CurrentPosition);
     Ini.WriteString(Section,'Title'+IntToStr(Count),Title.Replace('&','&&'));
-    Ini.WriteInteger(Section,'Count',Count+1); Ini.UpdateFile;
+    Ini.WriteInteger(Section,'Count',Count+1); SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
   FStatus.Caption:='Закладка сохранена. Она доступна в меню «Закладки».';
 end;
@@ -2739,34 +2739,42 @@ end;
 
 procedure TfrmBuiltinReader.RebuildChapterTitles;
 var Numbered: array[0..15] of Boolean; I, J, Depth, Selected: Integer; Title, Path: string;
+  Matcher: TRegEx; Rebuilt: TStringList;
+const NumberPattern = '^(\d+([.\-]\d+)*([.)]|\s|$)|[IVXLCDM]+([.)]|\s|$)|Глава\s+\d+|Chapter\s+\d+)';
 begin
-  FillChar(Numbered,SizeOf(Numbered),0); FillChar(FChapterNumbers,SizeOf(FChapterNumbers),0);
-  for I:=0 to 15 do FChapterParents[I]:='';
-  for I:=0 to FChapterSourceTitles.Count-1 do
-  begin
-    Depth:=FChapterDepths[I];
-    if (Depth>=0) and TRegEx.IsMatch(FChapterSourceTitles[I],
-      '^(\d+([.\-]\d+)*([.)]|\s|$)|[IVXLCDM]+([.)]|\s|$)|Глава\s+\d+|Chapter\s+\d+)',[roIgnoreCase]) then Numbered[Depth]:=True;
-  end;
-  Selected:=FChapters.ItemIndex; FChapters.Items.BeginUpdate; FChapterOutline.Clear;
+  Matcher:=TRegEx.Create(NumberPattern,[roIgnoreCase]);
+  Rebuilt:=TStringList.Create;
   try
+    Rebuilt.Capacity:=FChapterSourceTitles.Count;
+    FillChar(Numbered,SizeOf(Numbered),0); FillChar(FChapterNumbers,SizeOf(FChapterNumbers),0);
+    for I:=0 to 15 do FChapterParents[I]:='';
     for I:=0 to FChapterSourceTitles.Count-1 do
     begin
-      Depth:=FChapterDepths[I]; Title:=FChapterSourceTitles[I];
-      if Depth>=0 then
-      begin
-        Inc(FChapterNumbers[Depth]);
-        for J:=Depth+1 to 15 do begin FChapterNumbers[J]:=0; FChapterParents[J]:=''; end;
-        if FNumberChapters and not Numbered[Depth] then Title:=IntToStr(FChapterNumbers[Depth])+'. '+Title;
-        FChapterParents[Depth]:=Title;
-      end;
-      Path:='';
-      for J:=0 to Depth-1 do if FChapterParents[J]<>'' then Path:=Path+FChapterParents[J]+' › ';
-      FChapters.Items[I]:=Path+Title;
-      FChapterOutline.Add(StringOfChar(' ',Max(0,Depth)*3)+Title);
+      Depth:=FChapterDepths[I];
+      if (Depth>=0) and Matcher.IsMatch(FChapterSourceTitles[I]) then Numbered[Depth]:=True;
     end;
-    FChapters.ItemIndex:=Selected;
-  finally FChapters.Items.EndUpdate; end;
+    Selected:=FChapters.ItemIndex; FChapters.Items.BeginUpdate; FChapterOutline.Clear;
+    try
+      for I:=0 to FChapterSourceTitles.Count-1 do
+      begin
+        Depth:=FChapterDepths[I]; Title:=FChapterSourceTitles[I];
+        if Depth>=0 then
+        begin
+          Inc(FChapterNumbers[Depth]);
+          for J:=Depth+1 to 15 do begin FChapterNumbers[J]:=0; FChapterParents[J]:=''; end;
+          if FNumberChapters and not Numbered[Depth] then Title:=IntToStr(FChapterNumbers[Depth])+'. '+Title;
+          FChapterParents[Depth]:=Title;
+        end;
+        Path:='';
+        for J:=0 to Depth-1 do if FChapterParents[J]<>'' then Path:=Path+FChapterParents[J]+' › ';
+        Rebuilt.AddObject(Path+Title,FChapters.Items.Objects[I]);
+        FChapterOutline.Add(StringOfChar(' ',Max(0,Depth)*3)+Title);
+      end;
+      // Publish the identical labels/positions once, after the outline is complete.
+      FChapters.Items.Assign(Rebuilt);
+      FChapters.ItemIndex:=Selected;
+    finally FChapters.Items.EndUpdate; end;
+  finally Rebuilt.Free; end;
 end;
 
 procedure TfrmBuiltinReader.SetNumberChapters(Value: Boolean);
@@ -3071,7 +3079,7 @@ begin
       Ini.WriteInteger('Book.'+FIdentity,'Position',CurrentPosition);
       if FInspect then Ini.WriteInteger('Book.'+FIdentity,'Zoom',FInspectZoom) else Ini.WriteInteger('Book.'+FIdentity,'Zoom',FZoom);
     end;
-    Ini.UpdateFile;
+    SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
   if FReady and FReadingMoved and Assigned(FOnProgress) then
     if not Assigned(FPDF) and (FNext>=FLength) then FOnProgress(100)

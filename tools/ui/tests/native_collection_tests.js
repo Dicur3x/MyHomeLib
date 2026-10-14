@@ -24,6 +24,7 @@ const viewsModeArg = process.argv.find(arg => arg.startsWith("--views-mode="));
 const amberArchiveArg = process.argv.find(arg => arg.startsWith("--amber-archive="));
 const previewBookArg = process.argv.find(arg => arg.startsWith("--preview-book="));
 const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixtures="));
+const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 const visualCache = process.argv.includes("--visual-cache");
 const visualUI = process.argv.includes("--visual-ui");
@@ -52,9 +53,33 @@ const architecture = machine(tests[0]);
 if (![0x14c, 0x8664].includes(architecture)) throw new Error("Tests must be x86 or x64.");
 for (const exe of tests) if (machine(exe) !== architecture) throw new Error("Native test architectures differ.");
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
-const modes = ["series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
-if (viewsMode !== null && !modes.includes(viewsMode) && !['cancel-interactive','reader-filter'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+const modes = ["search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
+if (viewsMode !== null && !modes.includes(viewsMode) && !['cancel-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-theme suggestion"],"merge-scale": ["PASS large merge reuses imported books"],"audit-new": ["PASS adversarial audit fixed checks"],
+  "filter-captions": ["PASS caption font measurements", "PASS annotation caption expanded dark=1 dpi=192"],
+  "deleted-filter": ["PASS fresh search and tree-mode changes never load the whole catalog", "PASS search and group count/rows hide six deleted books", "PASS deletion toggle uses only the applied snapshot", "PASS legacy presets inherit the shared mode after reopen"],
+  "cache-presets": ["PASS cache folder presets"],
+  "publisher-search": ["PASS publisher queries preserve Unicode case", "PASS publisher input waits for Apply", "PASS publisher presets preserve typed expressions", "PASS expanded annotation remains visible"],
+  "author-favorites": ["PASS favorite authors baseline", "PASS favorite authors persistence", "PASS favorite authors isolated durable profile"],
+  "ordinary-book-export-identity": ["PASS ordinary Main export identity matching", "PASS ordinary Main export identity replaced-before-worker"],
+  "search-startup-layout": ["PASS search startup first category header, Author label and input are fully visible without scaling or scrolling", "PASS search startup fix preserves deliberate Date focus and scrolling during ordinary view refresh"],
+  "queue-serialization": ["PASS queue serializer legacy odd", "PASS queue serializer restores versioned identity", "PASS queue serializer malformed/future identity", "PASS queue serializer rejects truncation"],
+  "queue-persistence": ["PASS queue complete native serialization", "PASS queue actual Save read-only-lock-serialization failures", "PASS queue generic stream read fault", "PASS queue valid records remain complete after actual Main close"],
+  "queue-load-negative": ["PASS queue startup negative", "PASS queue failed startup negative"],
+  "queue-load-truncated": ["PASS queue startup truncated", "PASS queue failed startup truncated"],
+  "queue-load-zero": ["PASS queue startup zero", "PASS queue failed startup zero"],
+  "atomic-ini": ["PASS atomic INI initial large UTF8 bytes match RTL", "PASS atomic INI lock failure and destructor retain the last complete profile", "PASS atomic INI data preservation all native cases"],
+  "group-book-identity": ["PASS Main saved group identity empty", "PASS Main saved group identity zero", "PASS Main saved group identity trusted", "PASS Main saved group identity rawunknown", "PASS saved download identity matching", "PASS saved download identity before-worker", "PASS saved download identity during-response", "PASS saved download identity legacy-matching", "PASS saved download identity legacy-replacement", "PASS saved download identity posted-completion"],
+  "reader-copy-identity": ["PASS reused positive IDs", "PASS matching stable and merged verified copies", "PASS placeholder cache/history IDs", "PASS atomic reader progress/local/personal guards", "PASS concurrent catalog commit after identity read"],
+  "favorite-ui": ["PASS favorite baseline", "PASS favorite search intersects", "PASS known commits refresh", "PASS favorite removal refreshes", "PASS inline favorite condition fits"],
+  "update-outcomes": ["PASS update outcomes"],
+  "system-remap": ["PASS system remap swap/raw BLOBs", "PASS system remap three-way cycle", "PASS system remap False mode quarantines", "PASS system remap exact BLOBs/personal fields/groups"],
+  "favorite-columns": ["PASS favorite column checkbox"],
+  "favorite-dao": ["PASS favorite DAO intersects"],
+  "publisher-columns": ["PASS publisher column uses loaded metadata"],
+  "search-preset-transfer": ["PASS preset transfer editable XML and legacy cxml2-cxml", "PASS preset transfer validates the entire input before merge", "PASS preset transfer actual import menu keeps draft and old names", "PASS preset transfer actual selected-all export snapshots", "PASS preset transfer legacy import, invalid-locked-readonly failures", "PASS preset transfer compact menu stays inside existing preset row at96-144-192DPI in both themes without widening search"],
+  "search-presets": ["PASS presets preserve typed names"],
+  "builtin-export": ["PASS independent native FB2 to EPUB and EPUB to FB2 actions", "PASS ordinary PDF copying is unchanged", "PASS cancelled native export workers", "PASS native conversion warnings", "PASS MTP export branch marshals", "PASS export log dark=1 dpi=192"],
   "persistent-cache": ["PASS bounded persistent cache", "PASS cache menu and settings", "PASS delayed cursor status"],
   "feedback14": ["PASS visible-result series choices", "PASS optional publisher-series column", "PASS nested ZIP and standalone FBD", "PASS broken body Unicode"],
   "cancel-interactive": ["PASS real mouse cancels running SQLite without a frozen white window"],
@@ -75,7 +100,11 @@ const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-
   "publisher-error-log": ["PASS actual publisher indexing saves all errors"],
   "loose-archive": ["PASS loose archives open readable members", "PASS archive picker handles several books"],
   "builtin-reader": ["PASS main built-in reader action opens selected book", "PASS malformed and canceled readers return"],
+  "external-reader-names": ["PASS real FB2 rewrite changes only private copy for Readable original book", "PASS real FB2 rewrite changes only private copy for 0031", "PASS external title-first Unicode name", "PASS equal titles/raw IDs remain separate", "PASS changed source refreshes owned alias", "PASS actual prepared extension, wrong-origin rejection", "PASS invalid control/device/path title", "PASS touched canonical warm hit uses dependency metadata", "PASS legacy missing dependency metadata and explicit same-size FB2 rewrite refresh safely after cache Touch", "PASS small cache limit keeps the canonical input alive", "PASS external friendly alias uses cancellable background lifecycle", "PASS external-reader filename policy preserves original/canonical bytes, profiles, reader history and notes"],
+  "metadata-prefix-bounds": ["PASS metadata prefix UTF8 all two-three-four-byte body splits, BOM and public parser, no extra body reads", "PASS metadata prefix closed Unicode metadata ignores malformed body, exact legal replacement character and series preserved", "PASS metadata prefix UTF16 LE-BE odd byte and split surrogate remain body-only, source position exact", "PASS metadata prefix 121 deterministic UTF8 corruption probes fail closed without changing series metadata", "PASS metadata prefix UTF16 malformed high-low-surrogate metadata rejected by recovery and public parser", "PASS metadata prefix fragmented split inside metadata resumes exactly, byte bound and both cancellation paths preserved", "PASS metadata prefix failed stream untouched, source bytes ownership and main profile preserved"],
+  "reader-chapters": ["PASS chapter titles exact nine independent mixed-level labels, numbering toggle, position objects and selected chapter", "PASS chapter titles all614 Dome labels and native positions match frozen original reader SHA, text and source/profile unchanged"],
   "reader-filter": ["PASS actual PDF DjVu EPUB TXT FB2 and DOC readers stay visible and avoid catalogue scans with filter on and off"],
+  "reader-main-filter": ["PASS native sole/multiple selections retain old hidden/focus/children-above/resolved/next/dirty-delete-add-unselect-invert/reentrant-clear/init semantics", "PASS actual Main modal opens and pages identical Under Dome content at a 50K tail selection, with filter off/on and complete idle actions"],
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths", "PASS stable reader cache survives reimport", "PASS reader cache hit avoids source extraction"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "book-gallery": ["PASS gallery loads lazily in background", "PASS illustration preview arrows work and resized window position persists", "PASS changing books cancels old gallery", "PASS EPUB gallery leaves source unchanged"],
@@ -90,7 +119,23 @@ const requiredViews = {"oct11-ui": ["PASS app theme switch", "PASS Windows dark-
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
   "review-http": ["PASS HTTP reviews decode UTF-8"],
 };
+// Each independent layout suite retains its full DPI sequence and the same
+// 90-second deadline. The default runner requires all three; none is optional.
+function filterCaptionPasses(subcase) {
+  const common = [`TRACE filter caption native subcase=${subcase}`, "PASS header menu keeps column IDs", "PASS default author selection and saved book", "TRACE main cleanup complete"];
+  if (subcase === "popup") return [...common,
+    ...[0,1].flatMap(dark => [96,144,192].map(dpi => `PASS filter captions dark=${dark} dpi=${dpi}`)),
+    "PASS caption font measurements"];
+  const dark = subcase === "annotation-light" ? 0 : subcase === "annotation-dark" ? 1 : null;
+  if (dark === null) throw new Error(`Unknown mandatory filter-caption case: ${subcase}`);
+  return [...common,
+    ...[96,144,192].map(dpi => `PASS annotation caption expanded dark=${dark} dpi=${dpi}`),
+    ...[96,144,192].map(dpi => `TRACE annotation stage after-collapsed-scale-dark-${dark}-dpi-${dpi}`),
+    `PASS annotation caption reexpanded dark=${dark} dpi=192`,
+    `PASS annotation caption complete theme=${dark}`];
+}
 function requiredPasses(executable, mode) {
+  if (mode === "search-startup-layout") return ["PASS header menu keeps column IDs", ...requiredViews[mode], "TRACE main cleanup complete"];
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
@@ -144,7 +189,7 @@ function stage(folder, executable) {
     "[OPDS]", "Enabled=0", "", // OPDS is never started; dedicated online tests use only loopback.
   ].join("\r\n"), "utf8");
 }
-function run(executable, mode) {
+function run(executable, mode, subcase = "") {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-"));
   const absolute = path.resolve(folder);
   const expectedRoot = path.resolve(os.tmpdir()) + path.sep;
@@ -152,6 +197,39 @@ function run(executable, mode) {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable);
+    if (mode === 'update-outcomes') {
+      if (!conversionFixturesArg) throw new Error('Update outcome gate requires --conversion-fixtures=<folder>');
+      const inputs = fs.realpathSync(conversionFixturesArg.slice('--conversion-fixtures='.length));
+      const source = path.join(inputs, 'source.fb2');
+      readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+      const destination = path.join(folder, 'conversion-fixtures');
+      fs.mkdirSync(destination);
+      fs.copyFileSync(source,path.join(destination,'source.fb2'));
+    }
+    if (mode === 'builtin-export') {
+      if (!conversionFixturesArg) throw new Error('Export gate requires --conversion-fixtures=<folder>');
+      const inputs = fs.realpathSync(conversionFixturesArg.slice('--conversion-fixtures='.length));
+      const destination = path.join(folder, 'conversion-fixtures');
+      fs.mkdirSync(destination);
+      for (const name of ['source.fb2','source.epub','warning.epub']) {
+        const source = path.join(inputs, name);
+        readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+        fs.copyFileSync(source,path.join(destination,name));
+      }
+      fs.cpSync(path.join(runtime,'tools/kindle/python'),path.join(folder,'tools/kindle/python'),{recursive:true});
+      fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
+    }
+    if (mode === 'group-book-identity' || mode === 'ordinary-book-export-identity') {
+      fs.cpSync(path.join(runtime,'tools/kindle/python'),path.join(folder,'tools/kindle/python'),{recursive:true});
+      fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
+    }
+    if (mode === 'reader-main-filter' || mode === 'reader-chapters') {
+      if (!readerFixturesArg) throw new Error('Actual Main reader test requires --reader-fixtures=<folder>');
+      const fixtureRoot = fs.realpathSync(readerFixturesArg.slice('--reader-fixtures='.length));
+      const source = path.join(fixtureRoot, 'reader-dome.fb2');
+      readonlyInputs.push([source,require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')]);
+      fs.copyFileSync(source,path.join(folder,'reader-dome.fb2'));
+    }
     if (mode === 'reader-filter') {
       if (!readerFixturesArg) throw new Error('Reader filter test requires --reader-fixtures=<folder>');
       const fixtureRoot = fs.realpathSync(readerFixturesArg.slice('--reader-fixtures='.length));
@@ -198,12 +276,17 @@ function run(executable, mode) {
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode,...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...((visualCache || visualUI || visualUpdate) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualUI || visualUpdate ? 900000 : visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache && !visualUI, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...((visualCache || visualUI || visualUpdate) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, encoding: "utf8", timeout: mode === "large-inpx" ? 900000 : mode === 'cancel-interactive' || visualUI || visualUpdate ? 900000 : visualCache ? 180000 : 90000, windowsHide: !mode.startsWith("first-run") && mode !== 'cancel-interactive' && !visualCache && !visualUI, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
-    for (const expected of requiredPasses(executable, mode)) {
+    const expectedPasses = mode === "filter-captions" && subcase
+      ? filterCaptionPasses(subcase)
+      : mode === "group-book-identity" && subcase
+      ? [subcase.startsWith("manager-") ? "PASS queued download manager " + subcase.slice(8) : subcase.startsWith("download-") ? "PASS saved download identity " + subcase.slice(9) : "PASS Main saved group identity " + subcase]
+      : requiredPasses(executable, mode);
+    for (const expected of expectedPasses) {
       if (!output.includes(expected)) throw new Error(`Native test did not run required scenario (${expected}); reload and rebuild its DPR from disk.`);
     }
     for (const [source,hash] of readonlyInputs) {
@@ -214,6 +297,15 @@ function run(executable, mode) {
     if (keepFixtures) console.log('RETAINED',absolute);
     else if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
   }
+}
+// Each complete case keeps the same 90-second deadline and a fresh profile.
+// No subcase marker is optional: all fourteen are required by the default suite.
+function runView(mode) {
+  if (mode === "filter-captions") {
+    for (const subcase of ["popup", "annotation-light", "annotation-dark"]) run(tests[2], mode, subcase);
+  } else if (mode === "group-book-identity") {
+    for (const subcase of ["empty", "zero", "trusted", "rawunknown", "download-matching", "download-before-worker", "download-during-response", "download-legacy-matching", "download-legacy-replacement", "download-posted-completion", "manager-cancel-before-loop", "manager-cancel-after-success", "manager-cancel-during-interval", "manager-matching-count"]) run(tests[2], mode, subcase);
+  } else run(tests[2], mode);
 }
 async function runOnline(executable, mode) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-"));
@@ -271,14 +363,14 @@ async function runOnline(executable, mode) {
 (async () => {
 try {
   if (viewsMode !== null) {
-    run(tests[2], viewsMode);
+    runView(viewsMode);
     console.log(`PASS native view scenario ${viewsMode || "default"}; only temporary fixtures used`);
     return;
   }
   if (!onlineOnly && !archiveOnly && !plainOnly && !reviewsOnly) {
     run(tests[0], "");
     run(tests[1], "");
-    for (const mode of modes.filter(m => m !== "large-inpx")) run(tests[2], mode);
+    for (const mode of modes.filter(m => m !== "large-inpx")) runView(mode);
   }
   if (offlineOnly) {
     console.log(`PASS offline native regressions (${architecture === 0x8664 ? "x64" : "x86"}); no network server started`);

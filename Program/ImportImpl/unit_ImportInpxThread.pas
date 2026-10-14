@@ -706,7 +706,10 @@ begin
     if Canceled then
       FCollection.EndBulkOperation(False)
     else
+    begin
       FCollection.EndBulkOperation(True);
+      FChangesCommitted := True;
+    end;
   except
     on E: Exception do
     begin
@@ -714,6 +717,11 @@ begin
       FCollection.EndBulkOperation(False);
       raise;
     end;
+  end;
+  if FChangesCommitted then
+  begin
+    CollectionCommitted(FCollectionID);
+    FOperationSuccess := True;
   end;
 end;
 

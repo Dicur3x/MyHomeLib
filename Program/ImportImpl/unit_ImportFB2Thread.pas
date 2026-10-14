@@ -452,6 +452,7 @@ begin
     end;
     FCollection.EndBulkOperation(True);
     BulkOperationActive := False;
+    FChangesCommitted := True;
     CommitFileOperations;
   except
     try
@@ -462,6 +463,7 @@ begin
     end;
     raise;
   end;
+  CollectionCommitted(FCollectionID);
 
   Teletype(rstrImportFB2Zip);
   FZipFolder := True;
@@ -496,6 +498,7 @@ begin
     end;
     FCollection.EndBulkOperation(True);
     BulkOperationActive := False;
+    FChangesCommitted := True;
     CommitFileOperations;
   except
     try
@@ -506,6 +509,8 @@ begin
     end;
     raise;
   end;
+  CollectionCommitted(FCollectionID);
+  FOperationSuccess := True;
 
   Teletype(Format(rstrAddedBooksTotal, [FAddCount, FDefectCount]), tsInfo);
 end;

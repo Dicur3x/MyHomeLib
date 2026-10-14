@@ -130,6 +130,7 @@ const
   COL_LIBRATE    = 22;
   COL_LIBID      = 23;
   COL_PUBLISHER_SERIES = 24;
+  COL_PUBLISHER = 25;
 
   COL_STATE = 99;
 
@@ -158,6 +159,8 @@ const
   SF_GENRE_TITLE = 'Genres';
   SF_GENRE_CODES = 'GenreCodes';
   SF_ANNOTATION  = 'Annotation';
+  SF_PUBLISHER   = 'Publisher';
+  SF_FAVORITE_AUTHORS = 'FavoriteAuthorsOnly';
 
   SF_FILE        = 'File';
   SF_FOLDER      = 'Folder';

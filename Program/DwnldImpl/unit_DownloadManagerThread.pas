@@ -45,6 +45,7 @@ type
 
     FCurrentItem: TDownloadItem;
     FHasCurrentItem: Boolean;
+    FCurrentSucceeded: Boolean;
 
     FError : boolean;
 
@@ -80,6 +81,7 @@ type
 
     procedure Stop;
     procedure TerminateNow;
+    property ProcessedCount: Integer read FProcessed;
    end;
 
 implementation
@@ -269,7 +271,7 @@ var
   Item: TDownloadItem;
 begin
   FFinished := True;
-  if FCanceled then
+  if FCanceled or Terminated then
     Exit;
 
   Synchronize(
@@ -284,32 +286,35 @@ begin
     Exit;
 
   FCurrentItem := Item;
+  FCurrentSucceeded := False;
   FFinished := False;
   ShowCurrentItem;
 end;
 
 procedure TDownloadManagerThread.FinishCurrentFile;
-var
-  Success: Boolean;
-  HadItem: Boolean;
 begin
-  HadItem := FHasCurrentItem;
-  Success := not FError;
-  if HadItem and Success then
-    Inc(FProcessed);
-
   Synchronize(
     procedure
+    var Success: Boolean;
     begin
-      if HadItem then
-        FView.CompleteCurrentDownload(Success);
+      // The outcome belongs to this selection, not to the preceding book.
+      // Read cancellation in the UI callback: Pause may run while Synchronize
+      // is pending. A canceled or unattempted item must remain in the queue.
+      if FHasCurrentItem then
+      begin
+        FHasCurrentItem := False;
+        Success := FCurrentSucceeded and not FCanceled and not Terminated;
+        if FCanceled or Terminated then
+          FView.CancelCurrentDownload
+        else
+          FView.CompleteCurrentDownload(Success);
+        if Success then
+          Inc(FProcessed);
+      end;
       FView.ResetDownloadState;
       FView.SetDownloadRunning(False);
     end
   );
-
-  if Success then
-    FHasCurrentItem := False;
 end;
 
 procedure TDownloadManagerThread.CancelCurrentFile;
@@ -317,7 +322,11 @@ begin
   Synchronize(
     procedure
     begin
-      FView.CancelCurrentDownload;
+      if FHasCurrentItem then
+      begin
+        FHasCurrentItem := False;
+        FView.CancelCurrentDownload;
+      end;
       FView.ResetDownloadState;
       FView.SetDownloadRunning(False);
     end
@@ -375,13 +384,18 @@ begin
         SelectNextFile;
         // Ничего не качаем, пока очередь не выдала книгу: иначе первый проход
         // пошел бы загружать пустой ключ.
-        while not (FFinished or FCanceled) do
+        while not (FFinished or FCanceled or Terminated) do
         begin
           if FError then
             InterruptibleSleep(30000);
+          if FCanceled or Terminated then
+            Break;
           InterruptibleSleep(Settings.DwnldInterval);
+          if FCanceled or Terminated then
+            Break;
           Downloader.IgnoreErrors := FIgnoreErrors;
-          FError := not Downloader.Download(FSystemDB, FCurrentItem.BookKey);
+          FCurrentSucceeded := Downloader.Download(FSystemDB, FCurrentItem.BookKey, @FCurrentItem.Expected);
+          FError := not FCurrentSucceeded;
           FinishCurrentFile;
 
           SelectNextFile;

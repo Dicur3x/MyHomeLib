@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.17'
+$release = '2.7.0_pre5.18'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -49,7 +49,12 @@ try {
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
     foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-        if ($directory.Name -ne 'fonts') { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+        if ($directory.Name -notin @('fonts', 'bookconvert')) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+    }
+    $bookConverterDestination = Join-Path $toolsDestination 'bookconvert'
+    [IO.Directory]::CreateDirectory($bookConverterDestination) | Out-Null
+    foreach ($name in @('convert_book.py', 'LICENSE.txt', 'README.md')) {
+        Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools\bookconvert\$name") -Destination $bookConverterDestination
     }
     $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
     $fontDestination = Join-Path $toolsDestination 'fonts'

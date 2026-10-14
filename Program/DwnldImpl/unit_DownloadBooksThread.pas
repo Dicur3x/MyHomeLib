@@ -102,7 +102,7 @@ begin
       begin
         SetComment2(rstrConnecting, '');
 
-        FBookIdList[i].Res := FDownloader.Download(FSystemDB, FBookIdList[i].BookKey);
+        FBookIdList[i].Res := FDownloader.Download(FSystemDB, FBookIdList[i].BookKey, @FBookIdList[i]);
         if
           (not Canceled) and                // это реальная ошибка, а не отмена операции пользователем
           (not FBookIdList[i].Res) and

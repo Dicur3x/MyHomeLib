@@ -31,7 +31,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -130,6 +130,11 @@ type
     procedure SetExtra(const BookKey: TBookKey; extra: TBookExtra);
     procedure SetRate(const BookKey: TBookKey; Rate: Integer);
     procedure SetProgress(const BookKey: TBookKey; Progress: Integer);
+    function TrySetIdentityProgress(const Expected: TBookRecord; Progress: Integer;
+      const Matches: TBookIdentityPredicate): Boolean;
+    function TrySetIdentityPersonal(const Expected: TBookRecord;
+      const Fields: TBookPersonalFields; const Matches: TBookIdentityPredicate;
+      RequirePersonal: Boolean = False): TBookIdentityWriteResult;
     function GetReview(const BookKey: TBookKey): string;
     function SetReview(const BookKey: TBookKey; const Review: string): Integer;
     function GetAnnotation(const BookKey: TBookKey): string;
@@ -317,6 +322,13 @@ begin
   begin
     sqlCount := sqlCount + ' AND bg.DatabaseID = ? ';
     sqlRows := sqlRows + ' AND bg.DatabaseID = ? ';
+  end;
+
+  if Settings.HideDeletedBooks then
+  begin
+    // Apply the same predicate to count and rows; membership is preserved.
+    sqlCount := sqlCount + ' AND b.IsDeleted = 0 ';
+    sqlRows := sqlRows + ' AND b.IsDeleted = 0 ';
   end;
 
   FCount := FUser.FDatabase.NewQuery(sqlCount);
@@ -851,6 +863,7 @@ begin
         if BookRecord.SeriesID = NO_SERIES_ID then
           BookRecord.Series := NO_SERIES_TITLE;
 
+        BookRecord.Authors:=nil;
         reader.ReadListBegin;
         while not reader.EndOfList do
         begin
@@ -870,6 +883,7 @@ begin
         end;
         reader.ReadListEnd;
 
+        BookRecord.Genres:=nil;
         reader.ReadListBegin;
         while not reader.EndOfList do
         begin
@@ -1045,6 +1059,84 @@ begin
     query.ExecSQL;
   finally
     FreeAndNil(query);
+  end;
+end;
+
+function TSystemData_SQLite.TrySetIdentityProgress(const Expected: TBookRecord;
+  Progress: Integer; const Matches: TBookIdentityPredicate): Boolean;
+var Changed: TBookRecord;
+begin
+  Changed := Expected; Changed.Progress := Progress;
+  Result := TrySetIdentityPersonal(Changed, [bpfProgress], Matches) = biwSaved;
+end;
+
+function TSystemData_SQLite.TrySetIdentityPersonal(const Expected: TBookRecord;
+  const Fields: TBookPersonalFields; const Matches: TBookIdentityPredicate;
+  RequirePersonal: Boolean): TBookIdentityWriteResult;
+const Columns: array[TBookPersonalField] of string = ('Rate','Progress','Review','Annotation','IsLocal');
+var Savepoint, SQL: string; Started: Boolean; Query: TSQLiteQuery; Current: TBookRecord;
+  Field: TBookPersonalField; ParameterIndex: Integer;
+begin
+  Result := biwUnavailable; Started := False;
+  if (Expected.BookKey.BookID = 0) or (Expected.BookKey.DatabaseID <= 0) or not Assigned(Matches) or
+    (Fields = []) or ((bpfProgress in Fields) and ((Expected.Progress < 0) or (Expected.Progress > 100))) or
+    ((bpfRate in Fields) and ((Expected.Rate < 0) or (Expected.Rate > 5))) then Exit;
+  // A separate store cannot durably synchronize an uncommitted outer batch.
+  // The reader keeps its own position/notes and retries after that operation.
+  if FDatabase.InTransaction then Exit;
+  Savepoint := 'mhl_identity_personal_' + StringReplace(StringReplace(StringReplace(
+    TGUID.NewGuid.ToString, '{', '', [rfReplaceAll]), '}', '', [rfReplaceAll]), '-', '', [rfReplaceAll]);
+  try
+    FDatabase.Start(Savepoint); Started := True;
+    Query := FDatabase.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=? AND DatabaseID=?');
+    try
+      Query.SetParam(0, Expected.BookKey.BookID); Query.SetParam(1, Expected.BookKey.DatabaseID); Query.Open;
+      Current := Default(TBookRecord);
+      if not Query.Eof then
+      begin
+        Current.BookKey := Expected.BookKey; Current.NodeType := ntBookInfo;
+        Current.LibID := Query.FieldAsString(0); Current.Folder := Query.FieldAsString(1);
+        Current.FileName := Query.FieldAsString(2); Current.FileExt := Query.FieldAsString(3);
+        Current.InsideNo := Query.FieldAsInt(4); Current.CollectionRoot := GetCollectionInfo(Expected.BookKey.DatabaseID).GetRootPath;
+      end;
+    finally Query.Free; end;
+    if not Current.BookKey.IsSameAs(Expected.BookKey) then
+    begin
+      FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); Started := False;
+      Exit(biwNoCard);
+    end;
+    if not Matches(Current) then
+    begin
+      FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); Started := False;
+      Exit(biwMismatch);
+    end;
+    SQL := '';
+    for Field := Low(TBookPersonalField) to High(TBookPersonalField) do
+      if Field in Fields then
+      begin if SQL <> '' then SQL := SQL + ','; SQL := SQL + Columns[Field] + '=?'; end;
+    Query := FDatabase.NewQuery('UPDATE Books SET ' + SQL + ' WHERE BookID=? AND DatabaseID=?');
+    try
+      ParameterIndex := 0;
+      for Field := Low(TBookPersonalField) to High(TBookPersonalField) do
+        if Field in Fields then
+        begin
+          case Field of
+            bpfRate: Query.SetParam(ParameterIndex, Expected.Rate);
+            bpfProgress: Query.SetParam(ParameterIndex, Expected.Progress);
+            bpfReview: Query.SetBlobParam(ParameterIndex, Expected.Review);
+            bpfAnnotation: Query.SetBlobParam(ParameterIndex, Expected.Annotation);
+            bpfIsLocal: Query.SetParam(ParameterIndex, bpIsLocal in Expected.BookProps);
+          end;
+          Inc(ParameterIndex);
+        end;
+      Query.SetParam(ParameterIndex, Expected.BookKey.BookID); Query.SetParam(ParameterIndex + 1, Expected.BookKey.DatabaseID); Query.ExecSQL;
+      if FDatabase.LastChangedRows <> 1 then raise Exception.Create('Identity personal update was not applied.');
+    finally Query.Free; end;
+    FDatabase.Commit(Savepoint); Started := False; Result := biwSaved;
+  except
+    if Started and FDatabase.InTransaction then
+      try FDatabase.Rollback(Savepoint); FDatabase.Commit(Savepoint); except end;
+    Result := biwUnavailable;
   end;
 end;
 
@@ -1463,96 +1555,192 @@ end;
 // нумерации коллекции.
 function TSystemData_SQLite.RemapCollectionBookIDs(const DatabaseID: Integer; const RemoveMissing: Boolean): Integer;
 const
-  SQL_SELECT_BOOKS = 'SELECT BookID, LibID FROM Books WHERE DatabaseID = ? ';
-  SQL_MOVE_GROUPS  = 'UPDATE OR IGNORE BookGroups SET BookID = ? WHERE BookID = ? AND DatabaseID = ? ';
-  SQL_DROP_GROUPS  = 'DELETE FROM BookGroups WHERE BookID = ? AND DatabaseID = ? ';
-  SQL_MOVE_BOOK    = 'UPDATE OR IGNORE Books SET BookID = ? WHERE BookID = ? AND DatabaseID = ? ';
-  SQL_DROP_BOOK    = 'DELETE FROM Books WHERE BookID = ? AND DatabaseID = ? ';
+  SAVEPOINT_NAME = 'mhl_system_book_remap';
+  SQL_SELECT_BOOKS = 'SELECT BookID, LibID, IsDeleted FROM Books WHERE DatabaseID = ? ORDER BY BookID';
+  SQL_GROUP_COUNTS = 'SELECT BookID, COUNT(*) FROM BookGroups WHERE DatabaseID = ? GROUP BY BookID';
+  SQL_MOVE_GROUPS = 'UPDATE BookGroups SET BookID = ? WHERE BookID = ? AND DatabaseID = ?';
+  SQL_MOVE_BOOK = 'UPDATE Books SET BookID = ? WHERE BookID = ? AND DatabaseID = ?';
+  SQL_RESTORE_BOOK = 'UPDATE Books SET BookID = ?, IsDeleted = ? WHERE BookID = ? AND DatabaseID = ?';
+  SQL_MARK_MISSING = 'UPDATE Books SET IsDeleted = 1 WHERE BookID = ? AND DatabaseID = ?';
 type
   TRemapItem = record
-    OldID: Integer;
-    NewID: Integer; // 0 - книги больше нет в коллекции
+    OldID, NewID, TemporaryID, GroupCount: Integer;
+    Verified, IsDeleted, RestoreDeleted, ResolvedDeleted: Boolean;
   end;
 var
-  collection: IBookCollection;
-  query: TSQLiteQuery;
-  items: TList<TRemapItem>;
-  item: TRemapItem;
-  libID: string;
-  i: Integer;
+  Collection: IBookCollection;
+  Query: TSQLiteQuery;
+  Items: TList<TRemapItem>;
+  Occupants, Targets, GroupCounts: TDictionary<Integer,Integer>;
+  Item, Occupant: TRemapItem;
+  Book: TBookRecord;
+  LibID: string;
+  SmallestID, PrivateID, RawID, RawCount: Int64;
+  I, OtherIndex, Count, MoveCount, ChangedCount: Integer;
+
+  function Moves(const Value: TRemapItem): Boolean;
+  begin
+    Result := Value.Verified and (((Value.NewID > 0) and (Value.NewID <> Value.OldID)) or
+      ((Value.NewID <= 0) and (Value.OldID >= 0)));
+  end;
+
+  function Changes(const Value: TRemapItem): Boolean;
+  begin
+    Result := Moves(Value) or (Value.Verified and (Value.NewID <= 0) and
+      not Value.IsDeleted);
+  end;
+
+  procedure CheckAffected(Expected: Integer; const TableName: string);
+  begin
+    if FDatabase.LastChangedRows <> Expected then
+      raise Exception.CreateFmt('Не удалось безопасно перенести записи %s коллекции %d. Изменения отменены.',
+        [TableName, DatabaseID]);
+  end;
+
+  procedure MoveRows(const Value: TRemapItem; FromID, ToID: Integer; RestoreFlag: Boolean);
+  begin
+    if Value.GroupCount > 0 then
+    begin
+      FDatabase.ExecSQL(SQL_MOVE_GROUPS, [ToID, FromID, DatabaseID]);
+      CheckAffected(Value.GroupCount, 'групп');
+    end;
+    if RestoreFlag then
+      FDatabase.ExecSQL(SQL_RESTORE_BOOK, [ToID, Value.ResolvedDeleted, FromID, DatabaseID])
+    else FDatabase.ExecSQL(SQL_MOVE_BOOK, [ToID, FromID, DatabaseID]);
+    CheckAffected(1, 'книг');
+  end;
+
 begin
   Result := 0;
+  // RemoveMissing is retained for API compatibility. A verified missing LibID
+  // must always detach from a reusable catalog key, never delete the card.
+  // An unavailable catalog cannot establish identity. Keep the saved cards.
+  Collection := nil;
+  try Collection := GetCollection(DatabaseID, False);
+  except Exit; end;
+  if not Assigned(Collection) then Exit;
 
-  // Коллекция может быть недоступна (файл удалён, съёмный диск отключён) -
-  // в этом случае сверять не с чем, оставляем всё как есть.
-  collection := nil;
+  Items := TList<TRemapItem>.Create;
+  Occupants := TDictionary<Integer,Integer>.Create;
+  Targets := TDictionary<Integer,Integer>.Create;
+  GroupCounts := TDictionary<Integer,Integer>.Create;
   try
-    collection := GetCollection(DatabaseID, False);
-  except
-    Exit;
-  end;
-  if not Assigned(collection) then
-    Exit;
-
-  items := TList<TRemapItem>.Create;
-  try
-    // Сначала соберём список изменений: менять таблицу, пока по ней открыт курсор, нельзя
-    query := FDatabase.NewQuery(SQL_SELECT_BOOKS);
+    // A savepoint is atomic both alone and inside an existing data update.
+    // Planning stays in the same system-database snapshot as the writes.
+    FDatabase.Start(SAVEPOINT_NAME);
     try
-      query.SetParam(0, DatabaseID);
-      query.Open;
-      while not query.Eof do
-      begin
-        libID := query.FieldAsString(1);
-        // Без LibID (локальные коллекции) сверить книгу не с чем - не трогаем её,
-        // иначе можно удалить нормальные записи.
-        if (libID <> '') and (libID <> '0') then
+      SmallestID := 0; MoveCount := 0; ChangedCount := 0;
+      Query := FDatabase.NewQuery(SQL_SELECT_BOOKS);
+      try
+        Query.SetParam(0, DatabaseID); Query.Open;
+        while not Query.Eof do
         begin
-          item.OldID := query.FieldAsInt(0);
-          item.NewID := collection.ResolveBookID(libID, item.OldID);
-
-          if item.NewID > 0 then
+          Item := Default(TRemapItem); RawID := Query.FieldAsInt(0);
+          if (RawID < Low(Integer)) or (RawID > High(Integer)) then
+            raise Exception.Create('Номер сохранённой книги выходит за допустимый диапазон. Изменения отменены.');
+          Item.OldID := Integer(RawID); Item.NewID := Item.OldID;
+          if RawID < SmallestID then SmallestID := RawID;
+          Item.IsDeleted := Query.FieldAsBoolean(2); LibID := Query.FieldAsString(1);
+          // Empty/local identities cannot be safely inferred from a catalog ID.
+          Item.Verified := (LibID <> '') and (LibID <> '0');
+          if Item.Verified then
           begin
-            if item.NewID <> item.OldID then
-              items.Add(item);
-          end
-          else if RemoveMissing then
-            items.Add(item);
+            Item.NewID := Collection.ResolveBookID(LibID, Item.OldID);
+            if Item.NewID > 0 then
+            begin
+              if Targets.TryGetValue(Item.NewID, OtherIndex) then
+                raise Exception.CreateFmt('Несколько сохранённых карточек (%d и %d) указывают на одну книгу %d коллекции %d. Данные сохранены; устраните неоднозначность перед обновлением.',
+                  [Items[OtherIndex].OldID, Item.OldID, Item.NewID, DatabaseID]);
+              Targets.Add(Item.NewID, Items.Count);
+              Item.RestoreDeleted := Item.OldID < 0;
+              if Item.RestoreDeleted then
+              begin
+                Collection.GetBookRecord(CreateBookKey(Item.NewID, DatabaseID), Book, False);
+                Item.ResolvedDeleted := bpIsDeleted in Book.BookProps;
+              end;
+            end;
+          end;
+          Occupants.Add(Item.OldID, Items.Count); Items.Add(Item); Query.Next;
         end;
+      finally Query.Free; end;
 
-        query.Next;
-      end;
-    finally
-      FreeAndNil(query);
-    end;
+      Query := FDatabase.NewQuery(SQL_GROUP_COUNTS);
+      try
+        Query.SetParam(0, DatabaseID); Query.Open;
+        while not Query.Eof do
+        begin
+          RawID := Query.FieldAsInt(0);
+          if (RawID < Low(Integer)) or (RawID > High(Integer)) then
+            raise Exception.Create('Номер книги в группе выходит за допустимый диапазон. Изменения отменены.');
+          RawCount := Query.FieldAsInt(1);
+          if (RawCount < 0) or (RawCount > High(Integer)) then
+            raise Exception.Create('Количество связей книги выходит за допустимый диапазон. Изменения отменены.');
+          GroupCounts.Add(Integer(RawID), Integer(RawCount));
+          if RawID < SmallestID then SmallestID := RawID;
+          Query.Next;
+        end;
+      finally Query.Free; end;
 
-    for i := 0 to items.Count - 1 do
-    begin
-      item := items[i];
-
-      if item.NewID > 0 then
+      for I := 0 to Items.Count - 1 do
       begin
-        // Переносим членство в группах на актуальный BookID.
-        // OR IGNORE - та же книга уже может присутствовать в этой группе под новым
-        // BookID (например, была добавлена повторно после переимпорта);
-        // такие строки не переносятся, а удаляются следующим запросом.
-        FDatabase.ExecSQL(SQL_MOVE_GROUPS, [item.NewID, item.OldID, DatabaseID]);
-        FDatabase.ExecSQL(SQL_DROP_GROUPS, [item.OldID, DatabaseID]);
-
-        FDatabase.ExecSQL(SQL_MOVE_BOOK, [item.NewID, item.OldID, DatabaseID]);
-        FDatabase.ExecSQL(SQL_DROP_BOOK, [item.OldID, DatabaseID]);
-      end
-      else
-      begin
-        FDatabase.ExecSQL(SQL_DROP_GROUPS, [item.OldID, DatabaseID]);
-        FDatabase.ExecSQL(SQL_DROP_BOOK, [item.OldID, DatabaseID]);
+        Item := Items[I];
+        if GroupCounts.TryGetValue(Item.OldID, Count) then Item.GroupCount := Count;
+        if Moves(Item) then
+        begin
+          Inc(MoveCount);
+          if Item.NewID > 0 then
+          begin
+            if Occupants.TryGetValue(Item.NewID, OtherIndex) then
+            begin
+              Occupant := Items[OtherIndex];
+              if not Moves(Occupant) then
+                raise Exception.CreateFmt('Номер %d коллекции %d занят другой сохранённой карточкой. Данные сохранены; переназначение отменено.',
+                  [Item.NewID, DatabaseID]);
+            end
+            else if GroupCounts.ContainsKey(Item.NewID) then
+              raise Exception.CreateFmt('Номер %d коллекции %d уже используется группой без карточки книги. Переназначение отменено.',
+                [Item.NewID, DatabaseID]);
+          end;
+        end;
+        if Changes(Item) then Inc(ChangedCount);
+        Items[I] := Item;
       end;
 
-      Inc(Result);
+      PrivateID := SmallestID - 1;
+      if (MoveCount > 0) and (PrivateID - MoveCount + 1 < Low(Integer)) then
+        raise Exception.Create('Недостаточно свободных служебных номеров для безопасного переназначения. Данные сохранены.');
+      for I := 0 to Items.Count - 1 do
+      begin
+        Item := Items[I];
+        if Moves(Item) then
+        begin
+          Item.TemporaryID := Integer(PrivateID); Dec(PrivateID); Items[I] := Item;
+        end;
+      end;
+
+      // Vacate every old key before installing any final key: swaps and cycles
+      // never collide, and no review/blob/group is merged or discarded.
+      for Item in Items do
+        if Moves(Item) then MoveRows(Item, Item.OldID, Item.TemporaryID, False);
+      for Item in Items do
+        if Moves(Item) and (Item.NewID > 0) then
+          MoveRows(Item, Item.TemporaryID, Item.NewID, Item.RestoreDeleted)
+        else if Changes(Item) then
+        begin
+          if Moves(Item) then Count := Item.TemporaryID else Count := Item.OldID;
+          // Missing books retain their full card and memberships on a private
+          // negative key. Repeated checks leave that key and its blobs alone;
+          // a later LibID match restores the current positive catalog key.
+          FDatabase.ExecSQL(SQL_MARK_MISSING, [Count, DatabaseID]); CheckAffected(1, 'книг');
+        end;
+      FDatabase.Commit(SAVEPOINT_NAME); Result := ChangedCount;
+    except
+      // A trigger using RAISE(ROLLBACK) may already have removed the savepoint.
+      if FDatabase.InTransaction then
+      begin FDatabase.Rollback(SAVEPOINT_NAME); FDatabase.Commit(SAVEPOINT_NAME); end;
+      raise;
     end;
-  finally
-    FreeAndNil(items);
-  end;
+  finally GroupCounts.Free; Targets.Free; Occupants.Free; Items.Free; end;
 end;
 
 procedure TSystemData_SQLite.CopyBookToGroup(

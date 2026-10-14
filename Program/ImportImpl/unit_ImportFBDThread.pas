@@ -174,6 +174,7 @@ begin
     end;
     FCollection.EndBulkOperation(True);
     BulkOperationActive := False;
+    FChangesCommitted := True;
     CommitFileOperations;
   except
     try
@@ -184,6 +185,8 @@ begin
     end;
     raise;
   end;
+  CollectionCommitted(FCollectionID);
+  FOperationSuccess := True;
 
   // [REFACTOR] Added summary output consistent with TImportFB2Thread.WorkFunction.
   Teletype(Format(rstrBooksAdded, [FAddCount, FDefectCount]));

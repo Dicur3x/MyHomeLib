@@ -7,12 +7,25 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.RichEdit,
-  Vcl.Forms, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
+  frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
+  MHLButtonedEdit, unit_Columns,
+  unit_SystemDatabase_SQLite,
+  unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
+  unit_ImportFBDThread, unit_ImportMetabibThread,
+  unit_ReaderAnnotations,
+  unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
+  IdHTTPServer, IdCustomHTTPServer, IdContext,
+  unit_FB2MetadataRecovery, unit_WriteFb2Info,
+  unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas',
+  unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
+  unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
+  unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
   frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
@@ -304,6 +317,13 @@ begin
   Writeln('PASS new update default is three days and preserves explicit choices');
 end;
 
+// Synthetic update versions must be visibly separated from real author checks.
+function CreateTestProgramUpdate: TfrmProgramUpdate;
+begin
+  Result:=TfrmProgramUpdate.Create(nil);
+  Result.Caption:='Обновление HomeLib Ru — тестовые данные';
+end;
+
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
@@ -344,7 +364,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
     try
       for DPI in [96,144,192] do
       begin
-        Form:=TfrmProgramUpdate.Create(nil);
+        Form:=CreateTestProgramUpdate;
         try
           Form.Show; Application.ProcessMessages;
           Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(760,DPI,96); Form.ClientHeight:=MulDiv(560,DPI,96);
@@ -406,7 +426,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
   procedure CheckCycles;
   var Cycle: TfrmProgramUpdate; App, Current: TProgramRelease; Selector: TListView; Index: Integer; Primary: TButton;
   begin
-    Cycle := TfrmProgramUpdate.Create(nil);
+    Cycle := CreateTestProgramUpdate;
     try
       Selector := nil;
       for Index := 0 to Cycle.ControlCount - 1 do
@@ -513,7 +533,7 @@ begin
     Settings.SaveSettings;
   finally Configuration.Free; end;
   Writeln('PASS update settings preserve never and custom hours');
-  Popup := TfrmProgramUpdate.Create(nil);
+  Popup := CreateTestProgramUpdate;
   try
     NotesView := nil; Notes := nil; Primary := nil; Version := nil; Bytes := nil; Selector := nil;
     for I := 0 to Popup.ControlCount - 1 do
@@ -739,7 +759,7 @@ begin
     Failed := Default(TComponentReleases); LoadComponentHistory(Cache, Failed);
     Require(Failed[2].History = Previous[2].History, 'Saved component history not reloaded');
     Popup.RememberHistory(ReleaseInfo);
-    Reloaded := TfrmProgramUpdate.Create(nil);
+    Reloaded := CreateTestProgramUpdate;
     try
       ReloadedView := nil; ReloadedSelector := nil;
       for I := 0 to Reloaded.ControlCount - 1 do
@@ -760,7 +780,7 @@ begin
       SavedWidth := MulDiv(Reloaded.ClientWidth, 96, Reloaded.CurrentPPI);
       SavedHeight := MulDiv(Reloaded.ClientHeight, 96, Reloaded.CurrentPPI);
     finally Reloaded.Free; end;
-    Reloaded := TfrmProgramUpdate.Create(nil);
+    Reloaded := CreateTestProgramUpdate;
     try
       ReloadedView := nil;
       for I := 0 to Reloaded.ControlCount - 1 do
@@ -866,7 +886,7 @@ begin
       end;
     finally Root.Free; end;
   end;
-  Popup := TfrmProgramUpdate.Create(nil);
+  Popup := CreateTestProgramUpdate;
   try
     Controls;
     Info := Default(TProgramRelease); Info.Tag := '2.7.0_pre5.14';
@@ -931,7 +951,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 7,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 8,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -949,6 +969,11 @@ begin
     (frmMain.N27.Tag = 0) and Assigned(frmMain.N27.OnClick) and
     (TMethod(frmMain.N27.OnClick).Code <> ColumnHandler.Code),
     'Default header action must never be treated as a column');
+  var PublisherColumn := frmMain.FindComponent('miColumnPublisher') as TMenuItem;
+  Require(Assigned(PublisherColumn) and (PublisherColumn.Tag = COL_PUBLISHER) and
+    (PublisherColumn.Caption = 'Издательство') and
+    (TMethod(PublisherColumn.OnClick).Code = ColumnHandler.Code),
+    'Publisher column lost its distinct identity or header action');
   Writeln('PASS header menu keeps column IDs separate from separator and default action');
 end;
 
@@ -1024,33 +1049,181 @@ end;
 
 procedure TestFailedBuiltinReaderOwner;
 var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean; BeforeGDI, BeforeUSER: Cardinal;
-begin
-  WasVisible:=frmMain.Visible; frmMain.Show; Application.ProcessMessages;
-  BeforeGDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS);
-  BeforeUSER:=GetGuiResources(GetCurrentProcess,GR_USEROBJECTS);
-  try
-    for var I:=0 to 7 do
+  BaseControls, BaseWindows, Controls, Windows: TStringList;
+  ColdGDI, ColdUSER: Cardinal; FormsBaseline, ColdControlCount, ColdWindowCount: Integer;
+
+  function NativeClass(Window: HWND): string;
+  var Buffer: array[0..255] of Char; Count: Integer;
+  begin
+    Count := GetClassName(Window, Buffer, Length(Buffer));
+    SetString(Result, PChar(@Buffer[0]), Count);
+  end;
+
+  procedure CaptureMainControls(Owner: TComponent; const Path: string; Snapshot: TStrings);
+  var Control: TWinControl; Name, Description: string;
+  begin
+    if Owner is TWinControl then
     begin
-      Source:=Settings.AppPath+'failed-modal-'+IntToStr(I)+'.fb2';
-      if I mod 2=0 then TFile.WriteAllText(Source,'<FictionBook><body><p>broken</body>',TEncoding.UTF8)
-      else TFile.WriteAllText(Source,'<FictionBook><body><section><p>'+StringOfChar('A',3000000)+'</p></section></body></FictionBook>',TEncoding.UTF8);
-      Hash:=THashSHA2.GetHashStringFromFile(Source); Driver:=TFailedBuiltinReadDriver.Create;
-      try
-        Driver.CancelDuringLoad:=I mod 2<>0;
-        Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=1; Driver.Timer.OnTimer:=Driver.Tick;
-        Driver.Started:=GetTickCount64; Driver.Timer.Enabled:=True;
-        OpenBuiltinReader(frmMain,Source,'Failure cleanup','failed-modal-'+IntToStr(I),Settings.DataDir+'failed-modal.ini',Settings.AppPath+'tools\pdfium\pdfium.dll');
-        Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),'Failed/canceled modal reader was not exercised');
-      finally Driver.Timer.Free; Driver.Free; end;
-      for var Pump:=1 to 12 do begin Application.ProcessMessages; CheckSynchronize(2); end;
-      Require(frmMain.Visible and frmMain.Enabled,'Failed reader left main window hidden or disabled');
-      Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Reader failure changed its input');
-      for var F:=0 to Screen.FormCount-1 do Require(not (Screen.Forms[F] is TfrmBuiltinReader),'Reader error left an orphan window');
+      Control := TWinControl(Owner);
+      // Reading Handle only after HandleAllocated must not warm the UI under test.
+      if Control.HandleAllocated then
+      begin
+        Description := Path + ' vcl=' + Control.ClassName + ' native=' + NativeClass(Control.Handle) +
+          ' hwnd=' + IntToHex(NativeUInt(Control.Handle), 16) + ' visible=' + IntToStr(Ord(Control.Visible));
+        Snapshot.Add(IntToHex(NativeUInt(Control), 16) + '=' + Description);
+      end;
     end;
+    for var J := 0 to Owner.ComponentCount - 1 do
+    begin
+      Name := Owner.Components[J].Name;
+      if Name = '' then Name := Owner.Components[J].ClassName + '#' + IntToStr(J);
+      CaptureMainControls(Owner.Components[J], Path + '/' + Name, Snapshot);
+    end;
+  end;
+
+  function CaptureOwnedWindow(Window: HWND; Snapshot: TStrings): Boolean;
+  var PID: DWORD;
+  begin
+    PID := 0; GetWindowThreadProcessId(Window, @PID);
+    Result := (PID = GetCurrentProcessId) and IsWindow(Window);
+    if Result then
+      Snapshot.Add(IntToHex(NativeUInt(Window), 16) + '=' + NativeClass(Window) +
+        ' thread=' + IntToStr(GetWindowThreadProcessId(Window, nil)) +
+        ' visible=' + IntToStr(Ord(IsWindowVisible(Window))));
+  end;
+
+  procedure CaptureOwnedChildren(Parent: HWND; Snapshot: TStrings; Depth: Integer);
+  var Child, Next: HWND;
+  begin
+    if Depth > 64 then Exit;
+    Child := GetWindow(Parent, GW_CHILD);
+    while Child <> 0 do
+    begin
+      Next := GetWindow(Child, GW_HWNDNEXT);
+      if CaptureOwnedWindow(Child, Snapshot) then CaptureOwnedChildren(Child, Snapshot, Depth + 1);
+      Child := Next;
+    end;
+  end;
+
+  procedure CaptureWindows(Snapshot: TStrings);
+  var Window, Next: HWND;
+  begin
+    Window := GetTopWindow(0);
+    while Window <> 0 do
+    begin
+      Next := GetWindow(Window, GW_HWNDNEXT);
+      if CaptureOwnedWindow(Window, Snapshot) then CaptureOwnedChildren(Window, Snapshot, 0);
+      Window := Next;
+    end;
+    // Timer/COM message-only windows are not part of the top-level desktop list.
+    Window := FindWindowEx(HWND_MESSAGE, 0, nil, nil);
+    while Window <> 0 do
+    begin
+      Next := FindWindowEx(HWND_MESSAGE, Window, nil, nil);
+      CaptureOwnedWindow(Window, Snapshot);
+      Window := Next;
+    end;
+  end;
+
+  procedure ReportDelta(const Stage: string; Current, Baseline: TStrings);
+  var Key: string;
+  begin
+    Writeln('TRACE failed reader ', Stage, ' baseline_count=', Baseline.Count, ' current_count=', Current.Count);
+    for var J := 0 to Current.Count - 1 do
+    begin
+      Key := Current.Names[J];
+      if Baseline.Values[Key] <> Current.ValueFromIndex[J] then
+        Writeln('TRACE failed reader ', Stage, ' new-or-changed ', Current[J]);
+    end;
+    for var J := 0 to Baseline.Count - 1 do
+      if Current.IndexOfName(Baseline.Names[J]) < 0 then
+        Writeln('TRACE failed reader ', Stage, ' released ', Baseline[J]);
+    Flush(Output);
+  end;
+
+  procedure ExerciseRound(I: Integer; const Phase: string; EnforceBudget: Boolean);
+  var Prefix: string;
+  begin
+    Prefix := 'failed-modal-';
+    if Phase <> 'original' then Prefix := Prefix + Phase + '-';
+    Source := Settings.AppPath + Prefix + IntToStr(I) + '.fb2';
+    if I mod 2 = 0 then TFile.WriteAllText(Source, '<FictionBook><body><p>broken</body>', TEncoding.UTF8)
+    else TFile.WriteAllText(Source, '<FictionBook><body><section><p>' + StringOfChar('A',3000000) +
+      '</p></section></body></FictionBook>', TEncoding.UTF8);
+    Hash := THashSHA2.GetHashStringFromFile(Source); Driver := TFailedBuiltinReadDriver.Create;
+    try
+      Driver.CancelDuringLoad := I mod 2 <> 0;
+      Driver.Timer := TTimer.Create(nil); Driver.Timer.Interval := 1; Driver.Timer.OnTimer := Driver.Tick;
+      Driver.Started := GetTickCount64; Driver.Timer.Enabled := True;
+      // Exercise the same real main-owned modal path for both first-use and measured cycles.
+      OpenBuiltinReader(frmMain, Source, 'Failure cleanup', Prefix + IntToStr(I),
+        Settings.DataDir + 'failed-modal.ini', Settings.AppPath + 'tools\pdfium\pdfium.dll');
+      Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),
+        'Failed/canceled modal reader was not exercised');
+    finally Driver.Timer.Free; Driver.Free; end;
+    for var Pump := 1 to 12 do begin Application.ProcessMessages; CheckSynchronize(2); end;
+    Require(frmMain.Visible and frmMain.Enabled, 'Failed reader left main window hidden or disabled');
+    Require(THashSHA2.GetHashStringFromFile(Source) = Hash, 'Reader failure changed its input');
+    for var F := 0 to Screen.FormCount - 1 do
+      Require(not (Screen.Forms[F] is TfrmBuiltinReader), 'Reader error left an orphan window');
+    Require(Screen.FormCount = FormsBaseline, 'Failure/cancel lifecycle left another orphan form');
+    GdiFlush;
+    Writeln('PROFILE failed reader phase=', Phase, ' round=', I,
+      ' gdi=', GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS),
+      ' user=', GetGuiResources(GetCurrentProcess, GR_USEROBJECTS), ' forms=', Screen.FormCount);
+    Flush(Output);
+    Controls.Clear; Windows.Clear;
+    CaptureMainControls(frmMain, 'frmMain', Controls); CaptureWindows(Windows);
+    ReportDelta(Phase + '-round-' + IntToStr(I) + '-main-controls', Controls, BaseControls);
+    ReportDelta(Phase + '-round-' + IntToStr(I) + '-native-windows', Windows, BaseWindows);
+    if EnforceBudget then
+    begin
+      Require(GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS) <= BeforeGDI + 4,
+        'Failed main-owned readers leak drawing handles');
+      Require(GetGuiResources(GetCurrentProcess, GR_USEROBJECTS) <= BeforeUSER + 4,
+        'Failed main-owned readers leak window handles');
+    end;
+  end;
+
+begin
+  BaseControls := TStringList.Create; BaseWindows := TStringList.Create;
+  Controls := TStringList.Create; Windows := TStringList.Create;
+  WasVisible := frmMain.Visible;
+  try
+    frmMain.Show; Application.ProcessMessages;
+    ColdGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
+    ColdUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
+    FormsBaseline := Screen.FormCount;
+    CaptureMainControls(frmMain, 'frmMain', BaseControls); CaptureWindows(BaseWindows);
+    ColdControlCount := BaseControls.Count; ColdWindowCount := BaseWindows.Count;
+    Writeln('PROFILE failed reader cold baseline gdi=', ColdGDI, ' user=', ColdUSER,
+      ' forms=', FormsBaseline, ' allocated_main_controls=', ColdControlCount,
+      ' owned_native_windows=', ColdWindowCount); Flush(Output);
+    // First exercise BOTH distinct lifecycles before sampling steady-state.
+    // Report the cold delta openly: its non-window source is not established.
+    // These two cycles retain every input, enabled-main and orphan-form guard.
+    ExerciseRound(0, 'cold', False); ExerciseRound(1, 'cold', False);
+    BeforeGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
+    BeforeUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
+    Writeln('PROFILE failed reader steady-state baseline gdi=', BeforeGDI, ' user=', BeforeUSER,
+      ' cold_gdi_delta=', Int64(BeforeGDI) - ColdGDI,
+      ' cold_user_delta=', Int64(BeforeUSER) - ColdUSER,
+      ' cold_main_controls=', ColdControlCount, ' current_main_controls=', Controls.Count,
+      ' cold_native_windows=', ColdWindowCount, ' current_native_windows=', Windows.Count); Flush(Output);
+    BaseControls.Assign(Controls); BaseWindows.Assign(Windows);
+    // Preserve the original eight loops, then independently probe another
+    // twenty-four complete lifecycles. The original +4 budget applies after
+    // EVERY measured close, rather than only to the final sample.
+    for var I := 0 to 7 do ExerciseRound(I, 'original', True);
+    for var I := 0 to 23 do ExerciseRound(I, 'stress', True);
     GdiFlush;
     Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Failed main-owned readers leak drawing handles');
     Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Failed main-owned readers leak window handles');
-  finally if not WasVisible then frmMain.Hide; end;
+  finally
+    if not WasVisible then frmMain.Hide;
+    Windows.Free; Controls.Free; BaseWindows.Free; BaseControls.Free;
+  end;
+  Writeln('PASS 32 steady-state failed/canceled reader lifecycles preserve the original +4 budgets after two reported cold paths');
   Writeln('PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs');
 end;
 
@@ -1542,7 +1715,7 @@ begin
           Screen.ActiveForm.ModalResult := mrOk;
         end);
       TitleButton.Click;
-      Require(Filters.Value(COL_TITLE)='temporary','Manager child edit did not apply');
+      Require((Filters.Value(COL_TITLE)='Alpha') and Filters.CaseSensitive(COL_TITLE),'Manager child edit leaked unconfirmed draft into live conditions');
       Manager.ModalResult := mrCancel;
     end);
   Require(not EditBookColumnFilters(frmMain.tvBooksA),'Manager cancel unexpectedly applied');
@@ -2327,7 +2500,7 @@ var Popup: TfrmProgramUpdate; View: TUpdateNotesView; Info: TProgramRelease;
   end;
 begin
   SavedDark := MHLThemeDark; SetMHLTheme(True);
-  Popup := TfrmProgramUpdate.Create(nil);
+  Popup := CreateTestProgramUpdate;
   try
     View := nil;
     for I := 0 to Popup.ControlCount-1 do
@@ -5188,6 +5361,32 @@ begin
   Writeln('PASS full INPX production import and heavy native lists use only an isolated catalog');
 end;
 
+{$I BuiltinBookExportTests.inc}
+{$I SearchPresetTests.inc}
+{$I SearchPresetTransferTests.inc}
+{$I FilterCaptionTests.inc}
+{$I DeletedFilterTests.inc}
+{$I PublisherSearchTests.inc}
+{$I PublisherColumnTests.inc}
+{$I AuthorFavoriteTests.inc}
+{$I AuthorFavoriteDaoTests.inc}
+{$I FavoriteAuthorColumnTests.inc}
+{$I SystemBookRemapTests.inc}
+{$I UpdateOutcomeTests.inc}
+{$I FavoriteAuthorUiTests.inc}
+{$I ReaderCopyIdentityTests.inc}
+{$I ReaderMainFilterTests.inc}
+{$I ReaderChapterTitlesTests.inc}
+{$I MetadataPrefixBoundsTests.inc}
+{$I ReaderExternalNameTests.inc}
+{$I GroupBookIdentityTests.inc}
+{$I OrdinaryBookExportIdentityTests.inc}
+{$I AtomicIniFileTests.inc}
+{$I DownloadQueueSerializationTests.inc}
+{$I QueuePersistenceTests.inc}
+{$I SearchStartupLayoutTests.inc}
+{$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
+
 var
   One, Two, Online: IBookCollection;
   OneID, TwoID, FirstBook, LastBook, UnknownBook, I: Integer;
@@ -5199,6 +5398,7 @@ var
   Publisher: TSeriesData;
   ExceptionHandler: TRegressionExceptionHandler;
 begin
+  SetTextCodePage(Output, 65001);
   try
     RequireIsolatedRegression;
     HandleReaderProbe;
@@ -5314,8 +5514,13 @@ begin
       dmImages.ApplyThemeIcons;
       Require(SystemDB.FindFirstExistingCollectionID(OneID) = OneID,
         'The registered fixture collection file is absent');
+      if ParamStr(1) = 'queue-load-negative' then PrepareQueuePersistenceStartup('negative')
+      else if ParamStr(1) = 'queue-load-truncated' then PrepareQueuePersistenceStartup('truncated')
+      else if ParamStr(1) = 'queue-load-zero' then PrepareQueuePersistenceStartup('zero');
+      if ParamStr(1) = 'search-startup-layout' then PrepareSearchStartupLayout;
       Trace('main form');
       Application.CreateForm(TfrmMain, frmMain);
+      if ParamStr(1) = 'search-startup-layout' then TestSearchStartupLayout;
       TestHeaderMenuTags;
       Trace('genre form');
       Application.CreateForm(TfrmGenreTree, frmGenreTree);
@@ -5330,13 +5535,76 @@ begin
         Writeln('PASS saved publisher page starts with visible cover and information panel');
         ShowPage(PAGE_AUTHORS);
       end;
-      ExpectTitles(frmMain.tvBooksA, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
-      Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
-      Require(Assigned(Book) and (Book.BookKey.BookID = LastBook),
-        'The saved author book was not restored');
-      Writeln('PASS default author selection and saved book');
-      if ParamStr(1) = 'oct11-ui' then
+      if ParamStr(1) <> 'search-startup-layout' then
+      begin
+        ExpectTitles(frmMain.tvBooksA, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
+        Book := frmMain.tvBooksA.GetNodeData(frmMain.tvBooksA.FocusedNode);
+        Require(Assigned(Book) and (Book.BookKey.BookID = LastBook),
+          'The saved author book was not restored');
+        Writeln('PASS default author selection and saved book');
+      end;
+      if ParamStr(1) = 'search-startup-layout' then
+        Trace('fresh Search startup already checked before other Main actions')
+      else if ParamStr(1) = 'oct11-ui' then
         TestOctoberElevenUI
+      else if ParamStr(1) = 'builtin-export' then
+        TestBuiltinBookExport(One)
+      else if ParamStr(1) = 'search-presets' then
+        TestSearchPresetSafety
+      else if ParamStr(1) = 'search-preset-transfer' then
+        TestSearchPresetTransfer(One, OneID)
+      else if ParamStr(1) = 'filter-captions' then
+      begin
+        Trace('filter caption native subcase=' + ParamStr(2));
+        if ParamStr(2) = '' then
+        begin
+          TestFilterCaptionLayout(frmMain.tvBooksA);
+          TestAnnotationCaptionLayout;
+        end
+        else if ParamStr(2) = 'popup' then
+          TestFilterCaptionLayout(frmMain.tvBooksA)
+        else if ParamStr(2) = 'annotation-light' then
+          TestAnnotationCaptionLayout(0)
+        else if ParamStr(2) = 'annotation-dark' then
+          TestAnnotationCaptionLayout(1)
+        else
+          Require(False, 'Unknown filter-caption subcase: ' + ParamStr(2));
+      end
+      else if ParamStr(1) = 'deleted-filter' then
+        TestUnifiedDeletedFilter(One, OneID, TwoID)
+      else if ParamStr(1) = 'cache-presets' then
+        TestCacheFolderPresets
+      else if ParamStr(1) = 'publisher-search' then
+        TestPublisherSearch(One, OneID)
+      else if ParamStr(1) = 'publisher-columns' then
+        TestPublisherColumnFilters
+      else if ParamStr(1) = 'author-favorites' then
+        TestAuthorFavorites
+      else if ParamStr(1) = 'favorite-dao' then
+        TestAuthorFavoriteDAO(One)
+      else if ParamStr(1) = 'favorite-columns' then
+        TestFavoriteAuthorColumnFilters
+      else if ParamStr(1) = 'system-remap' then
+        TestSystemBookRemapSafety
+      else if ParamStr(1) = 'update-outcomes' then
+        TestUpdateOutcomes
+      else if ParamStr(1) = 'favorite-ui' then
+        TestFavoriteAuthorUI(One, OneID, TwoID)
+      else if ParamStr(1) = 'atomic-ini' then
+        TestAtomicIniFile
+      else if ParamStr(1) = 'queue-serialization' then
+        TestDownloadQueueSerialization
+      else if ParamStr(1) = 'queue-persistence' then
+        TestQueuePersistence(OneID)
+      else if (ParamStr(1) = 'queue-load-negative') or (ParamStr(1) = 'queue-load-truncated') or
+        (ParamStr(1) = 'queue-load-zero') then
+        TestQueuePersistenceStartup
+      else if ParamStr(1) = 'group-book-identity' then
+        TestGroupBookIdentity(ParamStr(2))
+      else if ParamStr(1) = 'ordinary-book-export-identity' then
+        TestOrdinaryBookExportIdentity
+      else if ParamStr(1) = 'reader-copy-identity' then
+        TestReaderCopyIdentity
       else if ParamStr(1) = 'language-isolation' then
         TestLanguageIsolation
       else if ParamStr(1) = 'favorites-add' then
@@ -5390,6 +5658,14 @@ begin
         TestListPerformance
       else if ParamStr(1) = 'reader-filter' then
         TestReaderWithColumnFilter
+      else if ParamStr(1) = 'reader-main-filter' then
+        TestReaderMainWithColumnFilter
+      else if ParamStr(1) = 'reader-chapters' then
+        TestReaderChapterTitles
+      else if ParamStr(1) = 'metadata-prefix-bounds' then
+        TestMetadataPrefixBounds
+      else if ParamStr(1) = 'external-reader-names' then
+        TestExternalReaderNames
       else if ParamStr(1) = 'cancel-interactive' then
         TestInteractiveCancel
       else if ParamStr(1) = 'persistent-cache' then
@@ -5464,10 +5740,16 @@ begin
         ExpectTitles(frmMain.tvBooksA, []);
         Writeln('PASS empty author selection stays empty after a global refresh');
       end;
+      Trace('test completed; cleanup genre');
       frmGenreTree.Free;
       frmGenreTree := nil;
+      Trace('cleanup main');
       frmMain.Free;
       frmMain := nil;
+      Trace('main cleanup complete');
+      if (ParamStr(1) = 'queue-persistence') or (ParamStr(1) = 'queue-load-negative') or
+        (ParamStr(1) = 'queue-load-truncated') or (ParamStr(1) = 'queue-load-zero') then
+        CheckQueuePersistenceAfterClose;
       if ParamStr(1) = 'temp-exit-cleanup' then CheckExitReaderCleanup;
       One := nil;
       Two := nil;

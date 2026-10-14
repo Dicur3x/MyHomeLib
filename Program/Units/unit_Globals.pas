@@ -87,7 +87,12 @@ type
   TBookIdStruct = record
     BookKey: TBookKey;
     Res: Boolean;
+    // Group rows can outlive a catalogue's positive ID. Carry a compact
+    // expected identity into the worker, without copying authors/memo blobs.
+    HasExpectedIdentity: Boolean;
+    ExpectedLibID, ExpectedPhysicalIdentity: string;
   end;
+  PBookIdStruct = ^TBookIdStruct;
 
   TBookIdList = array of TBookIdStruct;
 
@@ -200,6 +205,9 @@ type
     FileName: string;
     URL: string;
     State: TDownloadState;
+    HasExpectedIdentity: Boolean;
+    ExpectedLibID: string;
+    ExpectedPhysicalIdentity: string;
   end;
 
   TBookNodeType = (ntAuthorInfo = 1, ntSeriesInfo, ntBookInfo);
@@ -292,6 +300,12 @@ type
 
   TBookSearchCriteria = record
     FullName: string;
+    Publisher: string;
+    // A captured set of catalog IDs, independent of later UI changes.
+    FavoriteAuthorsOnly: Boolean;
+    FavoriteAuthorIDs: TArray<Integer>;
+    RestrictBookIDs: Boolean;
+    BookIDs: TArray<Integer>;
     Series: string;
     Annotation: string;
     Genre: string;
