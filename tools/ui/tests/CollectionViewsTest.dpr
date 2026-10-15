@@ -13,7 +13,7 @@ uses
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
-  unit_Scripts, frm_edit_script, Vcl.ToolWin,
+  unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
   MHLButtonedEdit, unit_Columns,
   unit_SystemDatabase_SQLite,
@@ -5403,6 +5403,10 @@ end;
 {$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
 {$I NativeFolderPickerTests.inc}
 {$I Feedback22Tests.inc}
+{$I CatalogAuditTests.inc}
+{$I MainExportPreparationTests.inc}
+{$I SettingsWorkflowAuditTests.inc}
+{$I ReaderConversionAuditTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5595,6 +5599,12 @@ begin
         TestCacheFolderPresets
       else if ParamStr(1) = 'metadata-archive-codecs' then
         TestMetadataArchiveCodecs
+      else if ParamStr(1) = 'reader-conversion-audit' then
+        TestReaderConversionAudit(Settings.AppPath + 'reader-conversion-audit', Settings.AppPath)
+      else if ParamStr(1) = 'settings-workflow-audit' then TestSettingsWorkflowAudit
+      else if ParamStr(1) = 'catalog-audit' then TestCatalogAudit(One, Two, OneID, TwoID)
+      else if ParamStr(1) = 'export-preparation' then TestMainExportPreparation(False)
+      else if ParamStr(1) = 'export-cancel-interactive' then TestMainExportPreparation(True)
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)
       else if ParamStr(1) = 'feedback21' then TestFeedback21

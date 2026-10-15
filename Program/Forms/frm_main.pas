@@ -5425,7 +5425,8 @@ begin
   end;
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
-  FillBookIdList(Tree, BookIDList);
+  // Keep the selection while the destination dialog can still be canceled.
+  FillBookIdList(Tree, BookIDList, False);
 
   UseMTP := False;
 
@@ -5501,53 +5502,61 @@ begin
     end;
   end;
 
-  if ScriptID >= 0 then
-  begin
-    TMPParams := Settings.Scripts[ScriptID].Params;
-    if Pos('%NFT%', Settings.Scripts[ScriptID].Params) <> 0 then
+  // The destination is now accepted. Take the final identity snapshot and
+  // consume its marks at the same point at which export is handed off.
+  FillBookIdList(Tree, BookIDList);
+  if Length(BookIDList) = 0 then Exit;
+
+  try
+    if ScriptID >= 0 then
     begin
-      Settings.FolderTemplate := '';
-      StrReplace('%NFT%', '', TMPParams);
-    end;
+      TMPParams := Settings.Scripts[ScriptID].Params;
+      if Pos('%NFT%', Settings.Scripts[ScriptID].Params) <> 0 then
+      begin
+        Settings.FolderTemplate := '';
+        StrReplace('%NFT%', '', TMPParams);
+      end;
 
-    if Pos('%TMP%', Settings.Scripts[ScriptID].Params) <> 0 then
-      StrReplace('%TMP%', Settings.TempPath, TMPParams);
+      if Pos('%TMP%', Settings.Scripts[ScriptID].Params) <> 0 then
+        StrReplace('%TMP%', Settings.TempPath, TMPParams);
 
-    if Pos('%DEST%', Settings.Scripts[ScriptID].Params) <> 0 then
-      StrReplace('%DEST%', AFolder, TMPParams);
+      if Pos('%DEST%', Settings.Scripts[ScriptID].Params) <> 0 then
+        StrReplace('%DEST%', AFolder, TMPParams);
 
-    if Pos('%FOLDER ', Settings.Scripts[ScriptID].Params) <> 0 then
-    begin
-      StrReplace('%FOLDER ', '', TMPParams);
-      p := Pos('%', TMPParams);
-      S := Copy(TMPParams, 1, p - 1);
-      AFolder := S;
-      Delete(TMPParams, 1, p);
-    end;
+      if Pos('%FOLDER ', Settings.Scripts[ScriptID].Params) <> 0 then
+      begin
+        StrReplace('%FOLDER ', '', TMPParams);
+        p := Pos('%', TMPParams);
+        S := Copy(TMPParams, 1, p - 1);
+        AFolder := S;
+        Delete(TMPParams, 1, p);
+      end;
 
-    if (Settings.Scripts[ScriptID].Path = '%COPY%') and (Trim(TMPParams) <> '') then
-      AFolder := Trim(TMPParams);
+      if (Settings.Scripts[ScriptID].Path = '%COPY%') and (Trim(TMPParams) <> '') then
+        AFolder := Trim(TMPParams);
 
-    Settings.Scripts[ScriptID].TMPParams := TMPParams;
-  end;
-
-  if isOnlineCollection(FCollection.CollectionCode) then
-    unit_ExportToDevice.DownloadBooks(BookIDList);
-
-  if (ScriptID >= 0) and (Settings.Scripts[ScriptID].Path <> '%COPY%') then
-  begin
-    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True, Files, DeviceShellItem, UseMTP);
-    if Pos('%FILENAME%', Settings.Scripts[ScriptID].Params) <> 0 then
-    begin
-      StrReplace('%FILENAME%', Files, TMPParams);
       Settings.Scripts[ScriptID].TMPParams := TMPParams;
     end;
-    Settings.Scripts[ScriptID].Run;
-  end
-  else
-    unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP, ExplicitFormat);
 
-  Settings.FolderTemplate := SaveFolderTemplate;
+    if isOnlineCollection(FCollection.CollectionCode) then
+      unit_ExportToDevice.DownloadBooks(BookIDList);
+
+    if (ScriptID >= 0) and (Settings.Scripts[ScriptID].Path <> '%COPY%') then
+    begin
+      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True, Files, DeviceShellItem, UseMTP);
+      if Pos('%FILENAME%', Settings.Scripts[ScriptID].Params) <> 0 then
+      begin
+        StrReplace('%FILENAME%', Files, TMPParams);
+        Settings.Scripts[ScriptID].TMPParams := TMPParams;
+      end;
+      Settings.Scripts[ScriptID].Run;
+    end
+    else
+      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP, ExplicitFormat);
+
+  finally
+    Settings.FolderTemplate := SaveFolderTemplate;
+  end;
 end;
 
 procedure TfrmMain.DownloadBooks;
