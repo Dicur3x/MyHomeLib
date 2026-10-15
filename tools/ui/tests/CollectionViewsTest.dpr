@@ -5405,6 +5405,7 @@ end;
 {$I Feedback22Tests.inc}
 {$I CatalogAuditTests.inc}
 {$I MainExportPreparationTests.inc}
+{$I MainLegacyImportWorkflowTests.inc}
 {$I SettingsWorkflowAuditTests.inc}
 {$I ReaderConversionAuditTests.inc}
 
@@ -5604,6 +5605,7 @@ begin
       else if ParamStr(1) = 'settings-workflow-audit' then TestSettingsWorkflowAudit
       else if ParamStr(1) = 'catalog-audit' then TestCatalogAudit(One, Two, OneID, TwoID)
       else if ParamStr(1) = 'export-preparation' then TestMainExportPreparation(False)
+      else if ParamStr(1) = 'legacy-import-interactive' then TestMainLegacyImportWorkflow(One, OneID)
       else if ParamStr(1) = 'export-cancel-interactive' then TestMainExportPreparation(True)
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)

@@ -10211,7 +10211,7 @@ begin
   try
     Data := TUserData.Create;
     try
-      if ExtractFileExt(FileName) = '.mhlud' then
+      if SameText(ExtractFileExt(FileName), '.mhlud') then
         LoadOldUserData(FileName, Data)
       else
         Data.Load(FileName);
