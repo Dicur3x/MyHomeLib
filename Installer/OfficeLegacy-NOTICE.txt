@@ -1,0 +1,27 @@
+Portable WPS/WordPerfect reader for HomeLib Ru
+
+The bundled command-line readers and their DLLs are unmodified official MSYS2
+clang64 builds. They run privately from tools/office, do not install an office
+suite and do not change Windows associations. WPS/WPD require 64-bit Windows,
+including when HomeLib Ru itself is the 32-bit build.
+
+libwps 0.4.14, libwpd 0.10.3 and librevenge 0.0.6 are distributed under MPL 2.0
+(the upstream projects additionally offer LGPL 2.1 or later). Their complete
+MSYS2 source packages, including upstream sources, patches and build recipes,
+are included in sources/. License texts are in licenses/.
+
+libc++ and libunwind: Apache License 2.0 with LLVM exceptions.
+zlib: zlib license. No GCC runtime library is included in this component.
+
+Upstream projects and official binary/source package metadata:
+https://sourceforge.net/projects/libwps/
+https://libwpd.sourceforge.net/
+https://sourceforge.net/p/libwpd/librevenge/
+https://libcxx.llvm.org/
+https://www.zlib.net/
+https://packages.msys2.org/
+
+RUNTIME.json records every package URL, version and SHA-256 and every shipped
+member. Only readers, required DLLs, licenses and corresponding source archives
+are included; compilers, headers, development libraries and documentation are
+not needed for running HomeLib Ru.

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
@@ -15,9 +15,9 @@ $destinationDirectory = Join-Path $repositoryRoot "Program\Out\$outputName\tools
 
 # The converter shares the already bundled Python runtime. Ship only the
 # production script and its documentation, never fixtures or validation tools.
-$converterFiles = @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')
+$converterFiles = @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'legacy_inputs.py', 'fixed_layout.py', 'office_inputs.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')
 $converterFiles += @(Get-ChildItem -LiteralPath (Join-Path $sourceDirectory 'vendor') -Recurse -File |
-    Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'MISTUNE_LICENSE.txt' } |
+    Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -like '*_LICENSE.txt' } |
     ForEach-Object { $_.FullName.Substring($sourceDirectory.Length + 1) })
 foreach ($name in $converterFiles) {
     $sourcePath = Join-Path $sourceDirectory $name

@@ -750,7 +750,7 @@ begin
     frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
     Settings.PromptDevicePath:=False; Settings.OverwriteFB2Info:=False;
     Settings.FolderTemplate:=''; Settings.FileNameTemplate:='%t';
-    for var Ext in TArray<string>.Create('.xls','.ppt','.pdf','.djvu') do
+    for var Ext in TArray<string>.Create('.lit','.lrf') do
     begin
       Book.FileExt:=Ext; Raw.UpdateBook(Book);
       frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
@@ -758,7 +758,16 @@ begin
       Require(not frmMain.pmiScripts.Visible and not frmMain.mmiScripts.Visible,
         'Unsupported input offers conversion: '+Ext);
     end;
-    Writeln('PASS conversion menu hides unsupported XLS PPT PDF DjVu inputs');
+    Writeln('PASS conversion menu hides unsupported LIT LRF inputs');
+    for var Ext in TArray<string>.Create('.pdf','.djvu','.mht','.chm','.pdb','.wri','.tcr','.123456',
+      '.docm','.dotx','.dotm','.ott','.ppt','.pps','.pot','.pptx','.pptm','.ppsx','.ppsm','.potx','.potm',
+      '.xls','.xlt','.xlsx','.xlsm','.xltx','.xltm','.ods','.ots','.odp','.otp','.wps','.wpd') do
+    begin
+      Book.FileExt:=Ext; Raw.UpdateBook(Book);
+      frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
+      frmMain.pmMain.OnPopup(frmMain.pmMain); MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.pmiScripts,854);
+    end;
+    Writeln('PASS conversion menu offers new text containers and deferred PDF/DjVu text-layer validation');
     for var Tag in TArray<Integer>.Create(854,850) do
     begin
       Book.FileExt:='.fb2'; if Tag=850 then Book.FileExt:='.epub';
@@ -816,7 +825,8 @@ begin
       Writeln('PASS archive conversion ',SourceName,' selects supported contents, derives target and preserves source');
     end;
     for var SourceName in TArray<string>.Create('text-input.txt','text-input.html','text-input.rtf','text-input.docx','text-input.odt','text-input.doc','text-input.zip',
-      'text-input.fb3','text-input.md','kindle-1342.mobi','kindle-1342.azw3') do
+      'text-input.fb3','text-input.md','kindle-1342.mobi','kindle-1342.azw3',
+      'text-input.pdf','text-input.123456','text-input.djvu','text-input.chm','text-input.mht','text-input.tcr','text-input.pdb','text-input.wri','numeric-input.zip') do
     begin
       TFile.Copy(Settings.AppPath+'metadata-archive-fixtures\'+SourceName,Settings.AppPath+SourceName,False);
       Book.FileName:=ChangeFileExt(SourceName,''); Book.FileExt:=ExtractFileExt(SourceName); Raw.UpdateBook(Book);
@@ -840,7 +850,7 @@ begin
         begin
           var Document:=TReaderDocument.Create;
           try Document.Load(Outputs[0]);
-            if SourceName<>'text-input.doc' then Require(Document.PlainText.Contains('English'),'Text converter lost Unicode/English contents: '+SourceName)
+            if not MatchText(SourceName,['text-input.doc','text-input.djvu','text-input.chm','text-input.mht']) then Require(Document.PlainText.Contains('English'),'Text converter lost Unicode/English contents: '+SourceName)
             else Require(Length(Document.PlainText)>10,'DOC converter produced empty body');
           finally Document.Free; end;
         end;

@@ -1,5 +1,5 @@
 {
-  "component": "HomeLib Ru bundled DOC reader",
+  "component": "HomeLib Ru portable Office binary reader",
   "runtime": "Windows .NET Framework 4.6.2 or later (checked before launch)",
   "licenses": [
     "MIT",
@@ -7,9 +7,9 @@
   ],
   "upstream": "https://github.com/manfromarce/DocSharp",
   "upstream_commit": "7c996f8f6934139d4a4a698963baeb59fd8d60df",
-  "source_sha256": "0d4ebe346a756a113697aaf4458a45c58682c0a5555f38d9d46aeb8d7b4a907a",
-  "helper_sha256": "f654a8afb36ca387b03510ee80055e0c38ec43d3f3e0912009733b11726e5671",
-  "helper_bytes": 8192,
+  "source_sha256": "5a2c2fe6b13c4c75471c84fad93b96bf1190c1eb4da585cf7858af540c708902",
+  "helper_sha256": "ce522460dd287862eec2e022741141e31c005ad530e0800507cabc2ccb41cd5f",
+  "helper_bytes": 10240,
   "packages": [
     {
       "id": "docsharp.binary.doc",
@@ -30,6 +30,26 @@
       "file": "DocSharp.Binary.Common.dll",
       "sha256": "49178dcb8e62e5ac7280d99c8003f33421f0b21d4e79a58746108b9dd7b4597b",
       "bytes": 427520
+    },
+    {
+      "id": "docsharp.binary.ppt",
+      "version": "0.21.0",
+      "url": "https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/0.21.0/docsharp.binary.ppt.0.21.0.nupkg",
+      "package_sha256": "13147afa013fbb2866a921a526f92fa02108b8b51e95e00ff87cd9ac18c83bfb",
+      "entry": "lib/net462/DocSharp.Binary.Ppt.dll",
+      "file": "DocSharp.Binary.Ppt.dll",
+      "sha256": "abdda63a66d02daffef9e7f7b618f25653e26b4261287ec406f4534fb9b20cd2",
+      "bytes": 463872
+    },
+    {
+      "id": "docsharp.binary.xls",
+      "version": "0.21.0",
+      "url": "https://api.nuget.org/v3-flatcontainer/docsharp.binary.xls/0.21.0/docsharp.binary.xls.0.21.0.nupkg",
+      "package_sha256": "2d657d0639b4e483e5464df2655751bd92f0688e92de6b8afd596c8cd8d7a460",
+      "entry": "lib/net462/DocSharp.Binary.Xls.dll",
+      "file": "DocSharp.Binary.Xls.dll",
+      "sha256": "3f595880fe3bff66ddd7b53adb0972e2e79c7eb2b9f1a204d341cfcf0468f3cf",
+      "bytes": 213504
     }
   ]
 }

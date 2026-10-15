@@ -1820,3 +1820,26 @@ Release/Win64 и Release/Win32:
 
 Старый `package-components.ps1` отключён. `package-component.ps1 -TestFixture`
 можно применять только для проверки совместимости прежнего установщика.
+
+
+## Портативные офисные форматы (pre5.21)
+
+`prepare-doc-runtime.ps1 -Platform Win64 -Copy` готовит общий AnyCPU HomeLibDoc и
+четыре согласованных net462-библиотеки DocSharp (DOC/Common/PPT/XLS). Сборка
+обёртки и границы описаны в `Utils/HomeLibDoc/README.txt`. Источники и SHA-256
+закреплены в `Installer/DOC_RUNTIME.json`.
+
+`prepare-office-runtime.ps1 -Platform Win64 -Copy` получает только закреплённые
+компактные libwps/libwpd/librevenge из официальных MSYS2 clang64-пакетов,
+проверяет архивы и выбранные файлы, кладёт лицензии и соответствующие исходники
+в `tools/office`. Повторите подготовку для Win32; WPS/WPD в обеих поставках
+требуют 64-разрядной Windows. Установленный Office и MSYS2 не используются.
+`prepare-runtime.ps1` и `package-release.ps1` проверяют оба комплекта;
+пользователь получает один полный ZIP выбранной разрядности.
+
+Сценарий `feedback21` проверяет FBD в PPMd ZIP/solid 7z до настоящей карточки
+и галереи, портативную подготовку Office и защищённое повторное чтение из кэша,
+а также подготовку обновления из четырёх официальных NuGet-пакетов. Python-тесты
+`tools/bookconvert/tests/test_office_inputs.py` проверяют порядок слайдов,
+табличные значения, иллюстрации, пустые листы и отказ при потере встроенных
+объектов. Подготовка документов описана в `docs/READING_PREPARATION.md`.

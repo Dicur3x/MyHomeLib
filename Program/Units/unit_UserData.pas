@@ -1,4 +1,4 @@
-(* *****************************************************************************
+﻿(* *****************************************************************************
   *
   * MyHomeLib
   *
@@ -23,7 +23,7 @@ uses
   msxml,
   ComObj,
   Generics.Collections,
-  unit_Globals;
+  unit_Globals, unit_AuthorFavorites;
 
 type
   TBookInfo = class
@@ -125,6 +125,7 @@ type
   private
     FExtras: TBookExtras;
     FGroups: TBookGroups;
+    FFavoriteAuthors: TArray<TAuthorFavoriteEntry>;
 
   public
     constructor Create;
@@ -135,6 +136,7 @@ type
 
     property Extras: TBookExtras read FExtras;
     property Groups: TBookGroups read FGroups;
+    property FavoriteAuthors: TArray<TAuthorFavoriteEntry> read FFavoriteAuthors write FFavoriteAuthors;
   end;
 
   TOnImportUserDataEvent = procedure(const UserDataSource: TUserData) of object;
@@ -467,7 +469,15 @@ procedure TUserData.Load(const FileName: string);
 var
   xmlDoc: IXMLDOMDocument;
   xmlRoot: IXMLDOMNode;
+  Nodes: IXMLDOMNodeList; Node, Attribute: IXMLDOMNode;
+  Authors: TList<TAuthorFavoriteEntry>; Entry: TAuthorFavoriteEntry;
+  function NamePart(const Name: string): string;
+  begin
+    Attribute:=Node.attributes.getNamedItem(Name);
+    if Assigned(Attribute) then Result:=Attribute.Text else Result:='';
+  end;
 begin
+  FFavoriteAuthors:=nil;
   xmlDoc := TMSXMLHelper.LoadFromZFile(FileName);
   xmlRoot := xmlDoc.selectSingleNode(ELEMENT_USERDATA);
 
@@ -475,6 +485,20 @@ begin
   begin
     FExtras.Load(xmlRoot);
     FGroups.Load(xmlRoot);
+    Authors:=TList<TAuthorFavoriteEntry>.Create;
+    try
+      Nodes:=xmlRoot.selectNodes('FavoriteAuthors/Author'); Node:=Nodes.nextNode;
+      while Assigned(Node) do
+      begin
+        if Authors.Count>=4096 then raise Exception.Create('В файле слишком много любимых авторов.');
+        Entry:=Default(TAuthorFavoriteEntry);
+        Entry.LastName:=NamePart('last'); Entry.FirstName:=NamePart('first'); Entry.MiddleName:=NamePart('middle');
+        Entry.Key:=AuthorFavoriteKey(Entry.LastName,Entry.FirstName,Entry.MiddleName);
+        if Entry.Key<>'' then Authors.Add(Entry);
+        Node:=Nodes.nextNode;
+      end;
+      FFavoriteAuthors:=Authors.ToArray;
+    finally Authors.Free; end;
   end;
 end;
 
@@ -482,6 +506,7 @@ procedure TUserData.Save(const FileName: string);
 var
   xmlDoc : IXMLDOMDocument;
   xmlRoot: IXMLDOMElement;
+  Authors, Author: IXMLDOMElement; Entry: TAuthorFavoriteEntry;
 begin
   xmlDoc := TMSXMLHelper.CreateEmptyDocument;
 
@@ -489,6 +514,17 @@ begin
 
   FExtras.Save(xmlDoc, xmlRoot);
   FGroups.Save(xmlDoc, xmlRoot);
+  if Length(FFavoriteAuthors)>0 then
+  begin
+    Authors:=xmlDoc.createElement('FavoriteAuthors');
+    for Entry in FFavoriteAuthors do
+    begin
+      Author:=xmlDoc.createElement('Author');
+      Author.setAttribute('last',Entry.LastName); Author.setAttribute('first',Entry.FirstName);
+      Author.setAttribute('middle',Entry.MiddleName); Authors.appendChild(Author);
+    end;
+    xmlRoot.appendChild(Authors);
+  end;
 
   xmlDoc.appendChild(xmlRoot);
 

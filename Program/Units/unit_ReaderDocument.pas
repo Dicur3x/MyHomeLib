@@ -80,7 +80,7 @@ var I, Code, Magnitude, Digits, J, At: Integer; Total: Int64; C: Char;
   procedure Check;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
-    if Total>128*1024*1024 then raise Exception.Create('Книга слишком велика для экспериментальной читалки.');
+    if Total>128*1024*1024 then raise Exception.Create('Книга слишком велика для встроенной читалки.');
   end;
   procedure Emit(C: AnsiChar);
   begin Result[At]:=C; Inc(At); end;
@@ -174,7 +174,7 @@ begin
       if (I and 4095)=0 then
       begin
         if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
-        if B.Length>128*1024*1024 then raise Exception.Create('Книга слишком велика для экспериментальной читалки.');
+        if B.Length>128*1024*1024 then raise Exception.Create('Книга слишком велика для встроенной читалки.');
       end;
       C:=Value[I];
       case C of
@@ -244,7 +244,7 @@ end;
 function XMLDocument(const Bytes: TBytes): IXMLDOMDocument3;
 var S: string; M: TMatch; Enc: TEncoding;
 begin
-  if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел экспериментальной читалки (64 МБ).');
+  if Length(Bytes)>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
   S := ReaderDecodeText(Bytes);
   M := TRegEx.Match(Copy(S,1,512),'^<\?xml\s+[^?]*?\bencoding\s*=\s*["'']([^"'']+)');
   if M.Success and not SameText(M.Groups[1].Value,'utf-8') and
@@ -362,14 +362,14 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   procedure Check;
   begin
     if Assigned(Canceled) and Canceled() then raise EAbort.Create('Чтение отменено.');
-    if FBody.Length>128*1024*1024 then raise Exception.Create('Книга слишком велика для экспериментальной читалки.');
+    if FBody.Length>128*1024*1024 then raise Exception.Create('Книга слишком велика для встроенной читалки.');
   end;
   procedure ReadDocument(out Bytes: TBytes);
   var Stream: TFileStream;
   begin
     Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyNone);
     try
-      if Stream.Size>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел экспериментальной читалки (64 МБ).');
+      if Stream.Size>MAX_DOCUMENT_BYTES then raise Exception.Create('Документ превышает предел встроенной читалки (64 МБ).');
       SetLength(Bytes,Stream.Size);
       if Length(Bytes)>0 then Stream.ReadBuffer(Bytes[0],Length(Bytes));
     finally Stream.Free; end;
@@ -405,7 +405,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     if Index<0 then raise Exception.Create('Не найден элемент EPUB: '+Path);
     if Zip.FileInfo[Index].UncompressedSize>MAX_DOCUMENT_BYTES then raise Exception.Create('Элемент EPUB слишком велик.');
     Inc(UnpackedBytes,Zip.FileInfo[Index].UncompressedSize);
-    if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для экспериментальной читалки.');
+    if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для встроенной читалки.');
     Zip.Read(Index,Bytes);
   end;
   procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);

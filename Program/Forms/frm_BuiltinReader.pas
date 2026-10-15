@@ -302,7 +302,7 @@ type
     property NumberChapters: Boolean read FNumberChapters;
     function ChapterTitle(Index: Integer): string;
     function ChapterCount: Integer;
-    procedure AddBookmark;
+    procedure AddBookmark(const CustomTitle: string = '');
     procedure GoToBookmark(Index: Integer);
     function BookText: string;
     function PictureCount: Integer;
@@ -354,7 +354,7 @@ function BrowseReaderNotes(Owner: TComponent; const SettingsFile: string; out Op
 
 implementation
 
-uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.IOUtils, System.RegularExpressions,
+uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
   System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes;
 
 type
@@ -944,7 +944,7 @@ begin
   inherited CreateNew(AOwner);
   if AOwner is TCustomForm then
   begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
-  Caption:='HomeLib Ru — Читалка (экспериментальная)';
+  Caption:='HomeLib Ru — Читалка (beta)';
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
   Constraints.MinWidth:=640; Constraints.MinHeight:=360;
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;
@@ -970,9 +970,9 @@ begin
   FFitButton:=TButton.Create(Self); FFitButton.Parent:=FButtons; FFitButton.Align:=alLeft;
   FFitButton.Left:=MaxInt; FFitButton.Width:=72; FFitButton.Caption:='Вписать';
   FFitButton.OnClick:=FitPageClick; FFitButton.Visible:=False;
-  MakeButton('Закладки',BookmarkClick,80);
-  MakeButton('Заметки',NotesManageClick,72);
+  MakeButton('🔖︎',BookmarkSaveClick,34);
   MakeButton('✎',NotesClick,34);
+  MakeButton('Закладки и заметки',NotesManageClick,154);
   MakeButton('Вид',StyleClick,50);
   MakeButton('Поиск',SearchClick,50); MakeButton('F11',FullScreenClick,50);
   FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
@@ -1092,6 +1092,10 @@ begin
   if Caption='Ночь' then begin Button.Hint:='Ночной фон текста / инверсия страниц PDF'; Button.ShowHint:=True; end;
   if Caption='F11' then begin Button.Hint:='На весь экран / вернуть окно'; Button.ShowHint:=True; end;
   if Caption='✎' then begin Button.Name:='ReaderAddNote'; Button.Hint:='Добавить заметку с выделенной цитатой (Ctrl+M)'; Button.ShowHint:=True; end;
+  if Caption='🔖︎' then
+  begin Button.Name:='ReaderAddBookmark'; Button.Font.Name:='Segoe UI Symbol'; Button.Font.Size:=13;
+    Button.Hint:='Добавить закладку (Ctrl+B)'; Button.ShowHint:=True; end;
+  if Caption='Закладки и заметки' then Button.Name:='ReaderSavedItems';
 end;
 
 procedure TfrmBuiltinReader.MissingReaderFont(const Family: string);
@@ -1173,7 +1177,7 @@ begin
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
-  Caption:='HomeLib Ru — '+BookTitle+' — Читалка (экспериментальная)';
+  Caption:='HomeLib Ru — '+BookTitle+' — Читалка (beta)';
   RestoreSettings;
   ReloadAnnotations;
   if SameText(ExtractFileExt(FileName),'.pdf') then
@@ -2182,6 +2186,40 @@ end;
 
 procedure ExportReaderAnnotationItems(Owner: TCustomForm; const Items: TArray<TReaderAnnotation>; const Scope: string); forward;
 
+function SavedReaderBookmarks(const SettingsFile, Identity: string; IncludeQuotes: Boolean = True): TArray<TReaderAnnotation>;
+var Ini: TMemIniFile; Sections: TStringList; List: TList<TReaderAnnotation>; Note: TReaderAnnotation;
+  BookID, Encoded: string;
+begin
+  Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8); Sections:=TStringList.Create; List:=TList<TReaderAnnotation>.Create;
+  try
+    if Identity<>'' then Sections.Add('Bookmarks.'+Identity) else Ini.ReadSections(Sections);
+    for var Section in Sections do
+    begin
+      if not Section.StartsWith('Bookmarks.') then Continue;
+      BookID:=Section.Substring(Length('Bookmarks.'));
+      for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+      begin
+        Note:=Default(TReaderAnnotation); Note.ID:=IntToStr(I); Note.BookID:=BookID;
+        Note.BookTitle:=Ini.ReadString('Book.'+BookID,'Title','Книга '+Copy(BookID,1,8));
+        Note.Title:=Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&');
+        Note.Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0);
+        Note.Created:=Ini.ReadString(Section,'Created'+IntToStr(I),'');
+        Note.Place:=Ini.ReadString(Section,'Place'+IntToStr(I),'Сохранённое место в книге');
+        Note.RangeIsPageText:=Ini.ReadBool(Section,'PageText'+IntToStr(I),False);
+        if IncludeQuotes then
+        begin
+          Encoded:=Ini.ReadString(Section,'PageQuote'+IntToStr(I),'');
+          if Length(Encoded)<=1024*1024 then
+            try Note.Quote:=TEncoding.UTF8.GetString(TNetEncoding.Base64.DecodeStringToBytes(Encoded));
+            except Note.Quote:=''; end;
+        end;
+        List.Add(Note);
+      end;
+    end;
+    Result:=List.ToArray;
+  finally List.Free; Sections.Free; Ini.Free; end;
+end;
+
 type
   TReaderSavedDialog = class(TForm)
   private
@@ -2189,6 +2227,8 @@ type
     FSettingsFile, FCurrentIdentity, FCurrentTitle: string;
     FStore: TReaderAnnotations;
     FNotes: TArray<TReaderAnnotation>;
+    FBookmarkRows: TArray<TReaderAnnotation>;
+    FShowNotes, FShowBookmarks: TCheckBox;
     FList: TListView;
     FContext: TMemo;
     FBooks: TComboBox;
@@ -2201,6 +2241,7 @@ type
     function SelectedBookID: string;
     procedure RebuildBooks;
     procedure BooksChanged(Sender: TObject);
+    procedure KindChanged(Sender: TObject);
     procedure Reload;
     procedure SelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure OpenSelected(Sender: TObject);
@@ -2210,6 +2251,8 @@ type
     procedure AddSelected(Sender: TObject);
     procedure ExportMenu(Sender: TObject);
     procedure ExportSelected(Sender: TObject);
+  protected
+    procedure DoShow; override;
   public
     constructor CreateFor(Reader: TfrmBuiltinReader);
     constructor CreateProfile(AOwner: TComponent; const SettingsFile: string);
@@ -2237,7 +2280,7 @@ begin
   Caption:='Закладки и заметки'; Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
   PopupMode:=pmExplicit;
   if Assigned(FReader) then PopupParent:=FReader else if Owner is TCustomForm then PopupParent:=TCustomForm(Owner);
-  ClientWidth:=900; ClientHeight:=560; Constraints.MinWidth:=730; Constraints.MinHeight:=380;
+  ClientWidth:=1100; ClientHeight:=560; Constraints.MinWidth:=730; Constraints.MinHeight:=380;
   Font.Name:='Segoe UI'; Font.Size:=10;
   Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alTop; Row.Height:=38; Row.BevelOuter:=bvNone;
   AddButton('NotesAdd','Добавить заметку…',146,AddSelected); FAdd:=Button;
@@ -2247,12 +2290,18 @@ begin
   AddButton('NotesExport','Экспорт…',130,ExportMenu); FExport:=Button;
   FExports:=TPopupMenu.Create(Self); FExports.Name:='NotesExportMenu';
   Item:=TMenuItem.Create(Self); Item.Name:='ExportBookNotes';
-  Item.Caption:='Экспорт заметок выбранной книги…'; Item.Tag:=0; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
+  Item.Caption:='Экспорт закладок и заметок выбранной книги…'; Item.Tag:=0; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
   Item:=TMenuItem.Create(Self); Item.Name:='ExportAllNotes';
-  Item.Caption:='Экспорт заметок всех книг…'; Item.Tag:=1; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
+  Item.Caption:='Экспорт закладок и заметок всех книг…'; Item.Tag:=1; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
   Scope:=TPanel.Create(Self); Scope.Parent:=Self; Scope.Align:=alTop; Scope.Top:=Row.Height; Scope.Height:=36; Scope.BevelOuter:=bvNone;
-  FBooks:=TComboBox.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-16,26);
+  FBooks:=TComboBox.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-270,26);
   FBooks.Anchors:=[akLeft,akTop,akRight]; FBooks.Style:=csDropDownList; FBooks.OnChange:=BooksChanged;
+  FShowNotes:=TCheckBox.Create(Self); FShowNotes.Name:='NotesShowNotes'; FShowNotes.Parent:=Scope;
+  FShowNotes.SetBounds(ClientWidth-250,4,112,26); FShowNotes.Anchors:=[akTop,akRight];
+  FShowNotes.Caption:='Заметки'; FShowNotes.Checked:=True; FShowNotes.OnClick:=KindChanged;
+  FShowBookmarks:=TCheckBox.Create(Self); FShowBookmarks.Name:='NotesShowBookmarks'; FShowBookmarks.Parent:=Scope;
+  FShowBookmarks.SetBounds(ClientWidth-130,4,122,26); FShowBookmarks.Anchors:=[akTop,akRight];
+  FShowBookmarks.Caption:='Закладки'; FShowBookmarks.Checked:=True; FShowBookmarks.OnClick:=KindChanged;
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom; Footer.Height:=42; Footer.BevelOuter:=bvNone;
   Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(ClientWidth-248,6,132,30);
   Button.Anchors:=[akRight,akBottom]; Button.Caption:='Открыть книгу'; Button.OnClick:=OpenSelected;
@@ -2272,6 +2321,18 @@ begin
   RebuildBooks;
   if FCurrentIdentity<>'' then FBooks.ItemIndex:=FBookIDs.IndexOf(FCurrentIdentity);
   Reload; ApplyMHLControlTheme(Self); ActiveControl:=FList;
+end;
+
+procedure TReaderSavedDialog.DoShow;
+var Work: TRect;
+begin
+  inherited;
+  Work:=Monitor.WorkareaRect;
+  if Assigned(PopupParent) then Work:=PopupParent.Monitor.WorkareaRect;
+  // A dialog wider than a reader near the screen edge still stays reachable.
+  Width:=Min(Width,Work.Width); Height:=Min(Height,Work.Height);
+  SetBounds(EnsureRange(Left,Work.Left,Max(Work.Left,Work.Right-Width)),
+    EnsureRange(Top,Work.Top,Max(Work.Top,Work.Bottom-Height)),Width,Height);
 end;
 
 destructor TReaderSavedDialog.Destroy;
@@ -2294,9 +2355,11 @@ begin
     begin Seen.Add(FCurrentIdentity,True); Titles.Add(FCurrentTitle.Replace(#9,' ') + #9 + FCurrentIdentity); end;
     for var Note in FStore.Items do
       if Seen.TryAdd(Note.BookID,True) then Titles.Add(Note.BookTitle.Replace(#9,' ')+#9+Note.BookID);
+    for var Note in SavedReaderBookmarks(FSettingsFile,'',False) do
+      if Seen.TryAdd(Note.BookID,True) then Titles.Add(Note.BookTitle.Replace(#9,' ')+#9+Note.BookID);
     FBooks.Items.BeginUpdate;
     try
-      FBooks.Clear; FBookIDs.Clear; FBooks.Items.Add('Заметки всех книг'); FBookIDs.Add('');
+      FBooks.Clear; FBookIDs.Clear; FBooks.Items.Add('Все книги'); FBookIDs.Add('');
       for var I:=0 to Titles.Count-1 do
       begin FBooks.Items.Add(Titles.Names[I]); FBookIDs.Add(Titles.ValueFromIndex[I]); end;
       FBooks.ItemIndex:=Max(0,FBookIDs.IndexOf(Selected));
@@ -2307,36 +2370,45 @@ end;
 procedure TReaderSavedDialog.BooksChanged(Sender: TObject);
 begin if not FUpdatingBooks then Reload; end;
 
+procedure TReaderSavedDialog.KindChanged(Sender: TObject);
+begin Reload; end;
+
 procedure TReaderSavedDialog.Reload;
-var Ini: TMemIniFile; Row: TListItem; Section, Identity: string;
+var Row: TListItem; Identity, Created: string; Note: TReaderAnnotation;
 begin
   FList.Items.BeginUpdate;
   try
     FList.Clear; Identity:=SelectedBookID; FNotes:=FStore.Items(Identity); FContext.Clear;
-    if Identity='' then Caption:='Закладки и заметки — заметки всех книг'
+    if Identity='' then Caption:='Закладки и заметки — все книги'
     else Caption:='Закладки и заметки — '+FBooks.Text;
     FAdd.Enabled:=Assigned(FReader) and (Identity=FCurrentIdentity);
     for var I:=0 to High(FNotes) do
     begin
+      if not FShowNotes.Checked then Continue;
       Row:=FList.Items.Add; Row.Caption:='Заметка'; Row.Data:=Pointer(NativeInt(I+1));
       Row.SubItems.Add(ReaderAnnotationDisplayTitle(FNotes[I])); Row.SubItems.Add(FNotes[I].Place);
       Row.SubItems.Add(FNotes[I].BookTitle); Row.SubItems.Add(ReaderAnnotationLocalTime(FNotes[I].Created));
     end;
-    if Assigned(FReader) and (Identity=FCurrentIdentity) then
+    FBookmarkRows:=SavedReaderBookmarks(FSettingsFile,Identity);
+    if FShowBookmarks.Checked then
     begin
-      Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
-      try
-        Section:='Bookmarks.'+FCurrentIdentity;
-        for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+      for var I:=0 to High(FBookmarkRows) do
+      begin
+        Note:=FBookmarkRows[I];
+        if Assigned(FReader) and (Note.BookID=FCurrentIdentity) then
         begin
-          Row:=FList.Items.Add; Row.Caption:='Закладка'; Row.Data:=Pointer(-NativeInt(I+1));
-          Row.SubItems.Add(Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&'));
-          var Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0);
-          if Assigned(FReader.FPDF) then Row.SubItems.Add('Страница '+IntToStr(Position+1))
-          else Row.SubItems.Add(IntToStr(Round(Position*100/Max(1,FReader.FLength)))+'%');
-          Row.SubItems.Add(FCurrentTitle); Row.SubItems.Add('');
+          Note.BookTitle:=FCurrentTitle;
+          if Assigned(FReader.FPDF) then Note.Place:='Страница '+IntToStr(Note.Position+1)+' · '+Note.Place
+          else Note.Place:=IntToStr(Round(Note.Position*100/Max(1,FReader.FLength)))+'% · '+Note.Place;
+          if Note.Quote='' then Note.Quote:=FReader.BookmarkContext(StrToIntDef(Note.ID,-1));
+          FBookmarkRows[I]:=Note;
         end;
-      finally Ini.Free; end;
+        Row:=FList.Items.Add; Row.Caption:='Закладка'; Row.Data:=Pointer(-NativeInt(I+1));
+        Row.SubItems.Add(Note.Title); Row.SubItems.Add(Note.Place); Row.SubItems.Add(Note.BookTitle);
+        Created:=ReaderAnnotationLocalTime(Note.Created);
+        if Created='' then Created:='Не сохранено в старой версии';
+        Row.SubItems.Add(Created);
+      end;
     end;
     if FList.Items.Count>0 then FList.Items[0].Selected:=True;
   finally FList.Items.EndUpdate; end;
@@ -2351,7 +2423,11 @@ begin
     FContext.Text:=FNotes[Index].Text+sLineBreak+sLineBreak+ReaderAnnotationLocalTime(FNotes[Index].Created);
     if FNotes[Index].Quote<>'' then FContext.Text:=FContext.Text+sLineBreak+sLineBreak+'Цитата: '+FNotes[Index].Quote;
   end
-  else if NativeInt(Item.Data)<0 then FContext.Text:=FReader.BookmarkContext(-NativeInt(Item.Data)-1);
+  else if NativeInt(Item.Data)<0 then
+  begin
+    var Note:=FBookmarkRows[-NativeInt(Item.Data)-1];
+    FContext.Text:=Note.Title+sLineBreak+sLineBreak+ReaderAnnotationLocalTime(Note.Created)+sLineBreak+sLineBreak+Note.Quote;
+  end;
 end;
 
 procedure TReaderSavedDialog.OpenSelected(Sender: TObject);
@@ -2363,7 +2439,12 @@ begin
     if Assigned(FReader) and (FNotes[Index-1].BookID=FCurrentIdentity) then FReader.GoToPosition(FNotes[Index-1].Position)
     else FRequestedNote:=FNotes[Index-1];
   end
-  else if Assigned(FReader) then FReader.GoToBookmark(-Index-1);
+  else
+  begin
+    var Note:=FBookmarkRows[-Index-1];
+    if Assigned(FReader) and (Note.BookID=FCurrentIdentity) then FReader.GoToPosition(Note.Position)
+    else begin FRequestedNote:=Note; FRequestedNote.ID:='bookmark-'+Note.BookID+'-'+Note.ID; end;
+  end;
   ModalResult:=mrOk;
 end;
 
@@ -2384,9 +2465,10 @@ begin
   begin
     Title:=FList.Selected.SubItems[0];
     if not InputQuery('Название закладки','Название:',Title) or (Title.Trim='') then Exit;
-    Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
+    Note:=FBookmarkRows[-Index-1];
+    Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
     try
-      Ini.WriteString('Bookmarks.'+FReader.FIdentity,'Title'+IntToStr(-Index-1),Copy(Title.Trim,1,256).Replace('&','&&'));
+      Ini.WriteString('Bookmarks.'+Note.BookID,'Title'+Note.ID,Copy(Title.Trim,1,256).Replace('&','&&'));
       SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
     Reload;
@@ -2394,7 +2476,7 @@ begin
 end;
 
 procedure TReaderSavedDialog.DeleteSelected(Sender: TObject);
-var Index, Count: Integer; Ini: TMemIniFile; Section: string;
+var Index, Count: Integer; Ini: TMemIniFile; Section: string; Note: TReaderAnnotation;
 begin
   if not Assigned(FList.Selected) then Exit;
   if MessageDlg('Удалить выбранную запись?',mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
@@ -2402,7 +2484,8 @@ begin
   if Index>0 then begin FStore.Remove(FNotes[Index-1].ID); if Assigned(FReader) then FReader.ReloadAnnotations; end
   else
   begin
-    Index:=-Index-1; Section:='Bookmarks.'+FReader.FIdentity; Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
+    Note:=FBookmarkRows[-Index-1]; Index:=StrToInt(Note.ID);
+    Section:='Bookmarks.'+Note.BookID; Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
     try
       Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
       for var I:=Index to Count-2 do
@@ -2411,9 +2494,12 @@ begin
         Ini.WriteInteger(Section,'Position'+IntToStr(I),Ini.ReadInteger(Section,'Position'+IntToStr(I+1),0));
         Ini.WriteInteger(Section,'EndPosition'+IntToStr(I),Ini.ReadInteger(Section,'EndPosition'+IntToStr(I+1),0));
         Ini.WriteString(Section,'PageQuote'+IntToStr(I),Ini.ReadString(Section,'PageQuote'+IntToStr(I+1),''));
+        for var Key in TArray<string>.Create('Created','Place','PageText') do
+          Ini.WriteString(Section,Key+IntToStr(I),Ini.ReadString(Section,Key+IntToStr(I+1),''));
       end;
       Ini.DeleteKey(Section,'Title'+IntToStr(Count-1)); Ini.DeleteKey(Section,'Position'+IntToStr(Count-1));
       Ini.DeleteKey(Section,'EndPosition'+IntToStr(Count-1)); Ini.DeleteKey(Section,'PageQuote'+IntToStr(Count-1));
+      for var Key in TArray<string>.Create('Created','Place','PageText') do Ini.DeleteKey(Section,Key+IntToStr(Count-1));
       Ini.WriteInteger(Section,'Count',Max(0,Count-1)); SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
   end;
@@ -2428,13 +2514,26 @@ begin
 end;
 
 procedure TReaderSavedDialog.DeleteAll(Sender: TObject);
-var Identity, Scope: string; Count: Integer;
+var Identity, Scope: string; Count: Integer; Ini: TMemIniFile; Sections: TStringList;
 begin
-  Identity:=SelectedBookID; Count:=Length(FStore.Items(Identity));
+  Identity:=SelectedBookID; Count:=FList.Items.Count;
   if Count=0 then Exit;
   if Identity='' then Scope:='из всех книг' else Scope:='книги «'+FBooks.Text+'»';
-  if MessageDlg(Format('Удалить все заметки %s? Записей: %d. Закладки сохранятся.',[Scope,Count]),mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
-  FStore.RemoveAll(Identity);
+  if MessageDlg(Format('Удалить все показанные записи %s? Записей: %d. Учитываются галочки «Заметки» и «Закладки».',[Scope,Count]),mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
+  if FShowNotes.Checked then FStore.RemoveAll(Identity);
+  if FShowBookmarks.Checked then
+  begin
+    Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8); Sections:=TStringList.Create;
+    try
+      if Identity<>'' then Ini.EraseSection('Bookmarks.'+Identity)
+      else
+      begin
+        Ini.ReadSections(Sections);
+        for var Section in Sections do if Section.StartsWith('Bookmarks.') then Ini.EraseSection(Section);
+      end;
+      SaveMemIniFileAtomically(Ini);
+    finally Sections.Free; Ini.Free; end;
+  end;
   if Assigned(FReader) then FReader.ReloadAnnotations;
   RebuildBooks; Reload;
 end;
@@ -2443,21 +2542,26 @@ procedure TReaderSavedDialog.ExportMenu(Sender: TObject);
 var Point: TPoint;
 begin
   FExports.Items[0].Enabled:=SelectedBookID<>'';
-  if Assigned(FReader) and (SelectedBookID=FCurrentIdentity) then
-    FExports.Items[0].Caption:='Экспорт закладок и заметок этой книги…'
-  else FExports.Items[0].Caption:='Экспорт заметок выбранной книги…';
+  FExports.Items[0].Caption:='Экспорт закладок и заметок выбранной книги…';
+  FExports.Items[1].Caption:='Экспорт закладок и заметок всех книг…';
   Point:=FExport.ClientToScreen(System.Types.Point(0,FExport.Height)); FExports.Popup(Point.X,Point.Y);
 end;
 
 procedure TReaderSavedDialog.ExportSelected(Sender: TObject);
-var Identity, Scope: string; AllBooks: Boolean;
+var Identity, Scope: string; AllBooks: Boolean; Items: TList<TReaderAnnotation>;
 begin
   AllBooks:=TComponent(Sender).Tag=1; Identity:=SelectedBookID;
   if AllBooks then Identity:='';
-  if not AllBooks and Assigned(FReader) and (Identity=FCurrentIdentity) then
-  begin FReader.ExportNotesClick(Sender); Exit; end;
-  if AllBooks then Scope:='Заметки всех книг' else Scope:='Заметки книги: '+FBooks.Text;
-  ExportReaderAnnotationItems(Self,FStore.Items(Identity),Scope);
+  if FShowNotes.Checked and FShowBookmarks.Checked then Scope:='Закладки и заметки'
+  else if FShowBookmarks.Checked then Scope:='Закладки' else Scope:='Заметки';
+  if AllBooks then Scope:=Scope+' всех книг' else Scope:=Scope+' книги: '+FBooks.Text;
+  Items:=TList<TReaderAnnotation>.Create;
+  try
+    if FShowNotes.Checked then for var Note in FStore.Items(Identity) do Items.Add(Note);
+    if FShowBookmarks.Checked then for var Saved in SavedReaderBookmarks(FSettingsFile,Identity) do
+    begin var Note:=Saved; Note.Title:='Закладка: '+Note.Title; Items.Add(Note); end;
+    ExportReaderAnnotationItems(Self,Items.ToArray,Scope);
+  finally Items.Free; end;
 end;
 
 function BrowseReaderNotes(Owner: TComponent; const SettingsFile: string; out OpenNote: TReaderAnnotation): Boolean;
@@ -2473,9 +2577,7 @@ end;
 procedure TfrmBuiltinReader.NotesClick(Sender: TObject);
 begin
   if SelectedText<>'' then AddNote(SelectedText)
-  else if Assigned(FPDF) then AddNote('')
-  else if (FTextMatch>=CurrentPosition) and (FTextMatch<FNext) then AddNote(ReaderTextRange(FRichEdit,FTextMatch,FTextMatchLength))
-  else AddNote('');
+  else AddNote(PageText);
 end;
 
 procedure TfrmBuiltinReader.ReloadAnnotations;
@@ -2687,7 +2789,7 @@ function TfrmBuiltinReader.AnnotationDraft(const Quote: string): TReaderAnnotati
 var Page, First, Last: Integer;
 begin
   Result:=Default(TReaderAnnotation); Result.BookID:=FIdentity; Result.BookTitle:=FBookTitle;
-  Result.Position:=CurrentPosition; Result.Quote:=Copy(Quote,1,8192);
+  Result.Position:=CurrentPosition; Result.Quote:=Quote;
   if (Quote<>'') and (SelectedText=Quote) then
   begin
     if Assigned(FPDF) then
@@ -2701,6 +2803,12 @@ begin
       Result.RangeStart:=First; Result.RangeEnd:=Last;
       if not Assigned(FPDF) then Result.Position:=First;
     end;
+  end
+  else if (Quote<>'') and (Quote=PageText) then
+  begin
+    if Assigned(FPDF) then
+    begin Result.RangeIsPageText:=True; Result.RangeStart:=0; Result.RangeEnd:=Length(Quote); end
+    else begin Result.RangeStart:=CurrentPosition; Result.RangeEnd:=FNext; end;
   end;
   Page:=GlobalPageAt(Result.Position);
   Result.Place:=IntToStr(Round(ReadingProgress*100))+'%';
@@ -2722,7 +2830,7 @@ begin
       except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
     end;
   finally Store.Free; end;
-  FStatus.Caption:='Заметка сохранена. Открыть и экспортировать: «Заметки».';
+  FStatus.Caption:='Заметка сохранена. Открыть и экспортировать: «Закладки и заметки».';
 end;
 
 procedure TfrmBuiltinReader.NotesManageClick(Sender: TObject);
@@ -2737,39 +2845,25 @@ begin
 end;
 
 function TfrmBuiltinReader.AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
-var Store: TReaderAnnotations; List: TList<TReaderAnnotation>; Ini: TMemIniFile; Sections: TStringList;
-  Note: TReaderAnnotation; BookID: string;
+var Store: TReaderAnnotations; List: TList<TReaderAnnotation>; Identity: string;
 begin
   Store:=TReaderAnnotations.Create(FSettingsFile); List:=TList<TReaderAnnotation>.Create;
-  Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8); Sections:=TStringList.Create;
   try
-    if AllBooks then for Note in Store.Items do List.Add(Note)
-    else for Note in Store.Items(FIdentity) do List.Add(Note);
-    Ini.ReadSections(Sections);
-    for var Section in Sections do
+    if AllBooks then Identity:='' else Identity:=FIdentity;
+    for var Note in Store.Items(Identity) do List.Add(Note);
+    for var Saved in SavedReaderBookmarks(FSettingsFile,Identity) do
     begin
-      if not Section.StartsWith('Bookmarks.') then Continue; BookID:=Section.Substring(Length('Bookmarks.'));
-      if not AllBooks and (BookID<>FIdentity) then Continue;
-      for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+      var Note:=Saved;
+      Note.Title:='Закладка: '+Note.Title;
+      if Note.BookID=FIdentity then
       begin
-        Note:=Default(TReaderAnnotation); Note.BookID:=BookID;
-        Note.BookTitle:=Ini.ReadString('Book.'+BookID,'Title','Книга '+Copy(BookID,1,8));
-        if BookID=FIdentity then Note.BookTitle:=FBookTitle;
-        Note.Title:='Закладка: '+Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&');
-        Note.Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0); Note.Place:='Сохранённое место в книге';
-        var SavedQuote:=Ini.ReadString(Section,'PageQuote'+IntToStr(I),'');
-        if SavedQuote<>'' then Note.Quote:=TEncoding.UTF8.GetString(TNetEncoding.Base64.DecodeStringToBytes(SavedQuote));
-        if BookID=FIdentity then
-        begin
-          var Page:=GlobalPageAt(Note.Position);
-          if Page>0 then Note.Place:='Страница '+IntToStr(Page);
-          if (Note.Quote='') and not Assigned(FPDF) then Note.Quote:=BookmarkContext(I);
-        end;
-        List.Add(Note);
+        Note.BookTitle:=FBookTitle;
+        if Note.Quote='' then Note.Quote:=BookmarkContext(StrToIntDef(Note.ID,-1));
       end;
+      List.Add(Note);
     end;
     Result:=List.ToArray;
-  finally Sections.Free; Ini.Free; List.Free; Store.Free; end;
+  finally List.Free; Store.Free; end;
 end;
 
 function TfrmBuiltinReader.ExportAnnotations(AllBooks, HTML: Boolean): string;
@@ -2880,10 +2974,16 @@ begin
   Point:=Mouse.CursorPos; FBookmarks.Popup(Point.X,Point.Y);
 end;
 
-procedure TfrmBuiltinReader.BookmarkSaveClick(Sender: TObject); begin AddBookmark; end;
+procedure TfrmBuiltinReader.BookmarkSaveClick(Sender: TObject);
+var Title: string;
+begin
+  if not FReady then Exit;
+  Title:=CurrentChapterPath;
+  if InputQuery('Добавить закладку','Название (необязательно):',Title) then AddBookmark(Title);
+end;
 procedure TfrmBuiltinReader.BookmarkOpenClick(Sender: TObject); begin GoToBookmark(TMenuItem(Sender).Tag); end;
 
-procedure TfrmBuiltinReader.AddBookmark;
+procedure TfrmBuiltinReader.AddBookmark(const CustomTitle: string);
 var Ini: TMemIniFile; Section, Title, Text: string; I, Count: Integer;
 begin
   if not FReady or (FSettingsFile='') then Exit;
@@ -2901,15 +3001,20 @@ begin
       Text:=ReaderTextRange(FRichEdit,CurrentPosition,65);
       Title:=IntToStr(Round(CurrentPosition*100/Max(1,FLength)))+'% · '+Text.Replace(#13,' ').Trim;
     end;
+    if CustomTitle.Trim<>'' then Title:=Copy(CustomTitle.Trim,1,256);
     Ini.WriteInteger(Section,'Position'+IntToStr(Count),CurrentPosition);
     if not Assigned(FPDF) then Ini.WriteInteger(Section,'EndPosition'+IntToStr(Count),FNext);
     // INI values remain single-line; preserve the whole rendered page verbatim.
     Ini.WriteString(Section,'PageQuote'+IntToStr(Count),TNetEncoding.Base64.EncodeBytesToString(TEncoding.UTF8.GetBytes(PageText)).Replace(#13,'').Replace(#10,''));
     Ini.WriteString(Section,'Title'+IntToStr(Count),Title.Replace('&','&&'));
+    Ini.WriteString(Section,'Created'+IntToStr(Count),DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True));
+    Ini.WriteString(Section,'Place'+IntToStr(Count),CurrentChapterPath);
+    Ini.WriteBool(Section,'PageText'+IntToStr(Count),Assigned(FPDF));
+    Ini.WriteString('Book.'+FIdentity,'Title',FBookTitle);
     Ini.WriteInteger(Section,'Count',Count+1); SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
   ReloadBookmarkMarkers; FPageHasBookmark:=True; FSurface.Invalidate;
-  FStatus.Caption:='Закладка сохранена. Она доступна в меню «Закладки».';
+  FStatus.Caption:='Закладка сохранена. Она доступна в «Закладки и заметки».';
 end;
 
 procedure TfrmBuiltinReader.ReloadBookmarkMarkers;
@@ -2920,7 +3025,14 @@ begin
   try
     Section:='Bookmarks.'+FIdentity; Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
     SetLength(FBookmarkPositions,Count);
-    for var I:=0 to Count-1 do FBookmarkPositions[I]:=Ini.ReadInteger(Section,'Position'+IntToStr(I),-1);
+    for var I:=0 to Count-1 do
+    begin
+      FBookmarkPositions[I]:=Ini.ReadInteger(Section,'Position'+IntToStr(I),-1);
+      if FReady then
+        if Assigned(FPDF) then
+        begin if FBookmarkPositions[I]=FPage then FPageHasBookmark:=True; end
+        else if (FBookmarkPositions[I]>=CurrentPosition) and (FBookmarkPositions[I]<FNext) then FPageHasBookmark:=True;
+    end;
   finally Ini.Free; end;
 end;
 
@@ -3475,6 +3587,7 @@ begin
   if FSearch.Focused then Exit;
   if (Key=Ord('T')) and (Shift=[ssCtrl]) then begin ContentsClick(nil); Key:=0; Exit; end;
   if (Key=Ord('M')) and (Shift=[ssCtrl]) then begin NotesClick(nil); Key:=0; Exit; end;
+  if (Key=Ord('B')) and (Shift=[ssCtrl]) then begin BookmarkSaveClick(nil); Key:=0; Exit; end;
   if (FChapters.Focused or FThemes.Focused) and ((Key in [VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE,VK_RETURN]) or
     ((Key=VK_ESCAPE) and (FChapters.DroppedDown or FThemes.DroppedDown))) then Exit;
   if (Key=VK_ESCAPE) and SearchRunning then begin StopSearch; RenderPage; Key:=0; Exit; end;

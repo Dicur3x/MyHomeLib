@@ -966,14 +966,46 @@ def kindle_to_book(source, output, warnings, target_extension, **metadata):
         else: raise ConversionError('Неподдерживаемый результат KindleUnpack.')
 
 
+def detect_input(source):
+    """Bounded signature inspection, also for numeric/mistyped extensions."""
+    with source.open('rb') as stream: prefix = stream.read(131072)
+    if b'%PDF-' in prefix[:1024]: return '.pdf'
+    if prefix.startswith(b'AT&TFORM'): return '.djvu'
+    if prefix.startswith(b'ITSF'): return '.chm'
+    if prefix.startswith(b'ITOLITLS'): return '.lit'
+    if prefix.startswith(b'L\0R\0F\0\0\0'): return '.lrf'
+    if prefix.startswith(b'!!8-Bit!!'): return '.tcr'
+    if prefix[:2] in (b'1\xbe', b'2\xbe'): return '.wri'
+    if prefix.startswith(b'{\\rtf'): return '.rtf'
+    if len(prefix) >= 78:
+        if prefix[60:68] == b'BOOKMOBI': return '.mobi'
+        if prefix[60:68] in (b'TEXtREAd', b'zTXTGPlm', b'SDocSilX', b'PNRdPPrs'): return '.pdb'
+    if prefix.startswith(b'PK'):
+        with zipfile.ZipFile(source) as archive:
+            if len(archive.infolist()) > MAX_ENTRIES: raise ConversionError('В контейнере слишком много файлов.')
+            names = set(archive.namelist())
+            for marker, extension in [('META-INF/container.xml', '.epub'), ('word/document.xml', '.docx'), ('ppt/presentation.xml', '.pptx'), ('xl/workbook.xml', '.xlsx'), ('fb3/body.xml', '.fb3')]:
+                if marker in names: return extension
+            if 'mimetype' in names and archive.getinfo('mimetype').file_size < 1024:
+                mime = archive.read('mimetype')
+                for name, extension in [('text', '.odt'), ('spreadsheet', '.ods'), ('presentation', '.odp'), ('text-template', '.ott'), ('spreadsheet-template', '.ots'), ('presentation-template', '.otp')]:
+                    if mime == ('application/vnd.oasis.opendocument.' + name).encode('ascii'): return extension
+    probe = prefix.replace(b'\0', b'')
+    if re.search(br'<(?:\w+:)?FictionBook\b', probe, re.I): return '.fb2'
+    if re.search(br'^MIME-Version:', probe, re.M | re.I) and re.search(br'multipart/|text/html', probe, re.I): return '.mht'
+    if re.search(br'<html\b|<!DOCTYPE\s+html', probe, re.I): return '.html'
+    return source.suffix.lower()
+
+
 def convert_book(source, destination, **metadata):
     source, destination = Path(source).resolve(), Path(destination).absolute()
     if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
     if source.stat().st_size > MAX_FILE: raise ConversionError('Книга превышает предел конвертации (64 МБ).')
-    extension, target_extension = source.suffix.lower(), destination.suffix.lower()
+    extension, target_extension = detect_input(source), destination.suffix.lower()
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
-    text_input = extension in {'.txt', '.html', '.htm', '.xhtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown'} and target_extension in {'.epub', '.fb2'}
+    text_input = extension in {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown',
+                               '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
     kindle_input = extension in {'.mobi', '.azw', '.azw3', '.prc'} and target_extension in {'.epub', '.fb2'}
     if conversion is None and not text_input and not kindle_input: raise ConversionError('Этот формат пока не поддерживается конвертером FB2/EPUB.')
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -981,7 +1013,7 @@ def convert_book(source, destination, **metadata):
     os.close(handle); temporary = Path(temporary_name); warnings = set()
     try:
         if kindle_input: kindle_to_book(source, temporary, warnings, target_extension, **metadata)
-        elif text_input: text_to_book(source, temporary, warnings, target_extension, **metadata)
+        elif text_input: text_to_book(source, temporary, warnings, target_extension, input_extension=extension, **metadata)
         else: conversion(source, temporary, warnings)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
@@ -1001,6 +1033,8 @@ def main():
     parser.add_argument('source'); parser.add_argument('destination'); parser.add_argument('--report')
     parser.add_argument('--title', default=''); parser.add_argument('--author', default=''); parser.add_argument('--language', default='')
     parser.add_argument('--resource-root')
+    parser.add_argument('--tools-root')
+    parser.add_argument('--reading', action='store_true', help='Internal reading view with visible placeholders for unsupported office objects')
     options = parser.parse_args()
     report = Path(options.report).absolute() if options.report else None
     if report is not None and (report.exists() or report.resolve() in {Path(options.source).resolve(), Path(options.destination).resolve()}):
@@ -1014,12 +1048,12 @@ def main():
                 stream.write(text); stream.flush(); os.fsync(stream.fileno())
     try:
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
-                              language=options.language, resource_root=options.resource_root)
+                              language=options.language, resource_root=options.resource_root, tools_root=options.tools_root, reading=options.reading)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)
         return 0
-    except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError) as error:
+    except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError) as error:
         text = json.dumps({'error': str(error)}, ensure_ascii=False)
         try: publish_report(text)
         except OSError: pass

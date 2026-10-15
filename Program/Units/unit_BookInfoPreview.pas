@@ -78,8 +78,14 @@ begin
       NeedFileAnnotation:=NeedAnnotation and (Trim(Annotation)='');
       if LocalSource and NeedCover then
       begin
-        Stream:=Book.GetBookPreviewCoverStream;
-        try Cover:=CreateGraphicFromStream(Stream); finally Stream.Free; end;
+        // A broken optional sidecar cover must not suppress the book's own
+        // description/cover or the annotation already obtained from the catalog.
+        try
+          Stream:=Book.GetBookPreviewCoverStream;
+          try Cover:=CreateGraphicFromStream(Stream); finally Stream.Free; end;
+        except on E: Exception do
+          Status:='Не удалось прочитать отдельную обложку: '+E.Message;
+        end;
       end;
       if Terminated then Exit;
       if LocalSource and (NeedFileAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
@@ -127,8 +133,9 @@ begin
         Status:=Status+'Название в файле отличается от каталога: «'+Copy(MetadataTitle,1,120)+
           '». Показано название из каталога.';
       end;
-    except
-      Status:='Не удалось прочитать дополнительные сведения из файла. Показаны данные каталога.';
+    except on E: Exception do
+      Status:='Не удалось прочитать дополнительные сведения из файла: '+E.Message+
+        sLineBreak+'Показаны данные каталога. Книга: '+Book.FileName+Book.FileExt;
     end;
   finally
     Document:=nil; Collection:=nil;
@@ -197,6 +204,7 @@ begin
   FPanel.BeginUpdate;
   try
     FPanel.SetPreviewStatus(Worker.Status);
+    if Worker.HasDescriptor then FPanel.Gallery.UseDescriptorImages;
     if Worker.NeedCover then FPanel.SetBookCover(Worker.Cover);
     if Worker.NeedAnnotation then FPanel.SetBookAnnotationText(Worker.Annotation);
     if Worker.MetadataXML<>'' then

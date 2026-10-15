@@ -107,12 +107,24 @@ begin
 end;
 
 procedure TExportToDeviceProgressForm.CopyConversionLog(Sender: TObject);
+var Text: string;
 begin
   if not Assigned(FConversionLog) then Exit;
   if (Sender is TMenuItem) and (TMenuItem(Sender).Tag = 1) then
-    Clipboard.AsText := FConversionLog.Text
+    Text := FConversionLog.Text
   else
-    FConversionLog.CopyToClipboard;
+  begin
+    if FConversionLog.SelLength=0 then Exit;
+    Text := FConversionLog.SelText;
+  end;
+  // WM_COPY can silently do nothing while another application briefly owns
+  // the clipboard. Publish the selected Unicode text explicitly, with a
+  // short bounded retry; never replace a failed selection with the full log.
+  for var Attempt:=0 to 19 do
+    try Clipboard.AsText:=Text; Exit;
+    except on E: EClipboardException do
+      if Attempt=19 then raise else Sleep(10);
+    end;
 end;
 
 procedure TExportToDeviceProgressForm.ConversionLogMenuPopup(Sender: TObject);
@@ -132,7 +144,7 @@ begin
   end
   else if Key = Ord('C') then
   begin
-    FConversionLog.CopyToClipboard;
+    CopyConversionLog(nil);
     Key := 0;
   end;
 end;

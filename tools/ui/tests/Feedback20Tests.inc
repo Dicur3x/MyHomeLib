@@ -125,7 +125,7 @@ begin
       List:=TListView(Manager.FindComponent('NotesList'));
       Require(Assigned(Books) and (Books.Items.Count=3) and (Books.ItemIndex=0),'Global manager did not list all note books');
       Require((List.Items.Count=2) and (List.Columns.Count=5),'Global manager does not show two books and dates');
-      Require(TMenuItem(Manager.FindComponent('ExportAllNotes')).Caption.StartsWith('Экспорт заметок всех книг'),
+      Require(TMenuItem(Manager.FindComponent('ExportAllNotes')).Caption.StartsWith('Экспорт закладок и заметок всех книг'),
         'All-books export scope is ambiguous');
       Require(List.Items[0].SubItems[3].Contains('(UTC'),'Note list omits local timezone');
       List.Items[0].Selected:=True; List.Items[0].Focused:=True;

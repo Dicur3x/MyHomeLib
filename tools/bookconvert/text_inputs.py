@@ -11,7 +11,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import posixpath
 import re
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, quote
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -39,13 +39,15 @@ def decode(data, encoding=None):
 
 
 class Book:
-    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None):
+    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None, tools_root=None, reading=False):
         self.c, self.source, self.warnings = api, source, warnings
         self.title, self.author, self.language = title or source.stem, author, language or 'und'
         self.body = self.el('body')
         self.resources, self.images = {}, {}
         self.resource_root = Path(resource_root).resolve() if resource_root else source.parent.resolve()
+        self.tools_root = Path(tools_root).resolve() if tools_root else Path(__file__).resolve().parent.parent
         self.total = 0
+        self.reading = reading
 
     def el(self, name, text=None, **attrs):
         return self.c.element(self.c.XH, name, text, **attrs)
@@ -54,14 +56,24 @@ class Book:
         raise self.c.ConversionError(message)
 
     def image(self, data, mime=''):
+        if len(data) > 16 * 1024 * 1024:
+            self.fail('Изображение превышает 16 МБ.')
+        import hashlib
+        original_key = hashlib.sha256(data).hexdigest()
+        if original_key in self.images:
+            return self.el('img', src=self.images[original_key], alt='')
         signatures = [(b'\x89PNG\r\n\x1a\n', 'image/png', '.png'), (b'\xff\xd8\xff', 'image/jpeg', '.jpg'),
                       (b'GIF8', 'image/gif', '.gif')]
         match = next((s for s in signatures if data.startswith(s[0])), None)
         if match is None:
-            self.fail('Изображение документа имеет неподдерживаемый тип. Поддерживаются PNG, JPEG и GIF.')
+            import importlib.util
+            if not hasattr(self, '_image_decoder'):
+                spec = importlib.util.spec_from_file_location('homelib_office_images', Path(__file__).with_name('office_inputs.py'))
+                self._image_decoder = importlib.util.module_from_spec(spec); spec.loader.exec_module(self._image_decoder)
+            data = self._image_decoder.rasterize_image(self, data)
+            match = signatures[0]
         if len(data) > 16 * 1024 * 1024:
             self.fail('Изображение превышает 16 МБ.')
-        import hashlib
         key = hashlib.sha256(data).hexdigest()
         if key not in self.images:
             self.total += len(data)
@@ -69,6 +81,7 @@ class Book:
                 self.fail('Иллюстрации книги превышают предел конвертации.')
             path = 'images/' + key[:32] + match[2]
             self.resources[path] = (data, match[1]); self.images[key] = path
+        self.images[original_key] = self.images[key]
         return self.el('img', src=self.images[key], alt='')
 
     def local_image(self, href):
@@ -213,8 +226,10 @@ class HTMLInput(HTMLParser):
         for key in keys:
             if attrs.get(key): node.set(key, attrs[key])
         if name == 'a':
+            if not node.get('id') and attrs.get('name'): node.set('id', attrs['name'])
             href = attrs.get('href', '')
-            if href.startswith('#') or urlsplit(href).scheme.lower() in {'https', 'http', 'mailto'}: node.set('href', href)
+            if hasattr(self.b, 'local_link'): node.set('href', self.b.local_link(href))
+            elif href.startswith('#') or urlsplit(href).scheme.lower() in {'https', 'http', 'mailto'}: node.set('href', quote(href, safe=":/?#[]@!$&'()*+,;=%"))
             elif href: self.b.warnings.add('Ссылки на другие локальные HTML-файлы не перенесены; конвертируется выбранный документ.')
         # Preserve only text formatting; no url(), imports or executable CSS.
         declarations = []
@@ -246,9 +261,27 @@ class HTMLInput(HTMLParser):
         elif not self.in_head: self.b.c.append_text(self.stack[-1][1], value)
 
 
-def read_html(book, data):
+def read_html(book, data, html5=False):
     declaration = re.search(br'<meta\b[^>]*charset\s*=\s*[\'\"]?\s*([\w-]+)', data[:8192], re.I)
-    parser = HTMLInput(book); parser.feed(decode(data, declaration[1].decode('ascii') if declaration else None)); parser.close()
+    text = decode(data, declaration[1].decode('ascii') if declaration else None)
+    if html5:
+        import sys
+        vendor = str(Path(__file__).with_name('vendor')); sys.path.insert(0, vendor)
+        try:
+            import html5lib
+            tree = html5lib.parse(text, namespaceHTMLElements=False)
+            text = html5lib.serialize(tree, quote_attr_values='always', omit_optional_tags=False)
+        finally: sys.path.remove(vendor)
+    parser = HTMLInput(book); parser.feed(text); parser.close()
+    if html5:
+        blocks = HTMLInput.BLOCK | {'figure', 'figcaption', 'aside', 'header', 'footer', 'dl', 'dt', 'dd'}
+        for node in reversed(list(book.body.iter())):
+            name = book.c.tag(node)
+            if name in {'p', 'span', 'strong', 'em', 's', 'u', 'sub', 'sup', 'code', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
+                if any(child is not node and book.c.tag(child) in blocks for child in node.iter()):
+                    node.tag = '{' + book.c.XH + '}div'
+                    style = {'strong':'font-weight:bold', 'em':'font-style:italic', 's':'text-decoration:line-through', 'u':'text-decoration:underline'}.get(name)
+                    if style: node.set('style', node.get('style', '') + ';' + style)
     if ''.join(parser.title).strip(): book.title = ''.join(parser.title).strip()
 
 
@@ -694,22 +727,37 @@ def read_rtf(book, data):
     book.warnings.add('Страничная вёрстка, таблицы и сложные поля RTF упрощаются до текста; основные выделения сохраняются.')
 
 
-def to_epub(source, output, warnings, api, **metadata):
+def to_epub(source, output, warnings, api, input_extension=None, **metadata):
     book = Book(api, source, warnings, **metadata)
-    extension = source.suffix.lower()
+    extension = input_extension or source.suffix.lower()
     if extension == '.docx': read_docx(book)
     elif extension == '.odt': read_odt(book)
     elif extension == '.fb3': read_fb3(book)
+    elif extension in {'.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd'}:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_office_inputs', Path(__file__).with_name('office_inputs.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book, extension, Package, read_docx, read_odt, read_html)
+    elif extension in {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm'}:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_legacy_inputs', Path(__file__).with_name('legacy_inputs.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book, extension, lambda b, d: read_html(b, d, html5=True), decode)
+    elif extension in {'.pdf', '.djvu', '.djv', '.dju', '.djvm', '.djm'}:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_fixed_layout', Path(__file__).with_name('fixed_layout.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book, extension)
     else:
         data = source.read_bytes()
-        if extension == '.txt':
+        if extension in {'.txt', '.text', '.faq'}:
             # Preserve explicit line and blank paragraph boundaries; do not guess
             # chapters from arbitrary short lines or merge poetry into prose.
             for line in decode(data).splitlines():
                 paragraph = book.el('p', line)
                 if not line: paragraph.append(book.el('br'))
                 book.body.append(paragraph)
-        elif extension in {'.html', '.htm', '.xhtml'}: read_html(book, data)
+        elif extension in {'.html', '.htm', '.xhtml', '.shtml'}: read_html(book, data)
         elif extension == '.rtf': read_rtf(book, data)
         elif extension in {'.md', '.markdown'}: read_markdown(book, data)
         else: book.fail('Этот текстовый формат пока не поддерживается.')

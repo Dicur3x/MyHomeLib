@@ -998,6 +998,7 @@ type
     procedure FavoriteViewedClick(Sender: TObject);
     procedure FavoriteStopClick(Sender: TObject);
     procedure FavoriteMenuClick(Sender: TObject);
+    procedure FavoriteTransferClick(Sender: TObject);
     function AuthorSelectorIterator: IAuthorIterator;
     procedure FillCurrentAuthorBooks;
     procedure FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
@@ -3033,8 +3034,8 @@ var Tree: TBookTree; Book: PBookRecord; SourceType: string;
       if (Item.Tag>=850) and (Item.Tag<=856) then
       begin
         case Item.Tag of
-          850: Item.Visible:=(SourceType<>'fb2') and (IsBasicConversionSource(SourceType) or IsReaderArchive('book.'+SourceType));
-          854: Item.Visible:=(SourceType<>'epub') and (IsBasicConversionSource(SourceType) or IsReaderArchive('book.'+SourceType));
+          850: Item.Visible:=(SourceType<>'fb2') and (IsConversionCandidate(SourceType) or IsReaderArchive('book.'+SourceType));
+          854: Item.Visible:=(SourceType<>'epub') and (IsConversionCandidate(SourceType) or IsReaderArchive('book.'+SourceType));
         else Item.Visible:=SourceType='fb2'; end;
       end;
       if Item.Caption='-' then
@@ -3057,7 +3058,13 @@ begin
       // Inspect the selected row only: opening a menu never scans the library
       // or starts extraction. The export worker validates every queued input.
       Book:=Tree.GetNodeData(Tree.GetFirstSelected);
-      if Assigned(Book) and (Book^.NodeType=ntBookInfo) then SourceType:=Book^.GetFileType;
+      if Assigned(Book) and (Book^.NodeType=ntBookInfo) then
+      begin
+        SourceType:=Book^.GetFileType;
+        // Numeric extensions are deliberately not presented as ordinary file
+        // types. Conversion may inspect their content in its background job.
+        if IsConversionCandidate(Book^.FileExt) then SourceType:=LowerCase(Book^.FileExt).TrimLeft(['.']);
+      end;
     end;
   end;
   UpdateItems(pmiScripts,True); UpdateItems(mmiScripts,True); UpdateItems(pmScripts.Items,False);
@@ -4320,7 +4327,11 @@ begin
   FThemeButton:=TToolButton.Create(Self); FThemeButton.Parent:=FThemeToolbar;
   FThemeButton.ImageIndex:=25; FThemeButton.OnClick:=ToggleApplicationTheme;
   UpdateThemeToolbar;
-  if Settings.DarkTheme then SetMHLTheme(True);
+  if Settings.DarkTheme then
+  begin
+    if not MHLThemeDark then SetMHLTheme(True)
+    else ApplyMHLControlTheme(Self);
+  end;
   dmImages.ApplyThemeIcons;
   if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
   else FThemeButton.Hint:='Переключить на тёмную тему';
@@ -8441,6 +8452,35 @@ begin
   FFavoriteMenu.Popup(Position.X, Position.Y);
 end;
 
+procedure TfrmMain.FavoriteTransferClick(Sender: TObject);
+var FileName: string; Data: TUserData;
+begin
+  if TMenuItem(Sender).Tag=0 then
+  begin
+    if not GetFileName(fnSaveUserData,FileName) then Exit;
+    Data:=TUserData.Create;
+    try Data.FavoriteAuthors:=FavoriteStore.Entries; Data.Save(FileName);
+    finally Data.Free; end;
+    StatusMessage:='Любимые авторы экспортированы: '+FileName;
+  end
+  else
+  begin
+    if not GetFileName(fnOpenUserData,FileName) then Exit;
+    Data:=TUserData.Create;
+    try
+      Data.Load(FileName);
+      if Length(Data.FavoriteAuthors)=0 then
+      begin MHLShowInfo('В этом файле нет любимых авторов. Старые экспорты не включали этот список.'); Exit; end;
+      StopFavoriteRefresh(True); FavoriteStore.ImportFavorites(Data.FavoriteAuthors);
+      PublishFavoriteFilterKeys; FOnlyNewFavoriteBooks:=False;
+      Include(FStaleSelectors,AuthorsView); Exclude(FLoadedBookViews,AuthorsView);
+      CheckFavoriteCollection; EnsureActiveBookViewLoaded;
+      tvAuthors.Invalidate; UpdateFavoriteControls;
+      StatusMessage:='Любимые авторы импортированы. Имеющийся список сохранён.';
+    finally Data.Free; end;
+  end;
+end;
+
 function TfrmMain.AuthorSelectorIterator: IAuthorIterator;
 var View: IAuthorFavoriteCollectionView; IDs: TArray<Integer>;
 begin
@@ -8660,6 +8700,13 @@ begin
       3: begin Item.Name := 'miFavoriteAuthorStop'; Item.Caption := 'Остановить проверку'; Item.OnClick := FavoriteStopClick; FFavoriteStopMenu := Item; end;
     end;
     FFavoriteMenu.Items.Add(Item);
+  end;
+  Item:=TMenuItem.Create(Self); Item.Caption:='-'; FFavoriteMenu.Items.Add(Item);
+  for var I:=0 to 1 do
+  begin
+    Item:=TMenuItem.Create(Self); Item.Tag:=I;
+    if I=0 then Item.Caption:='Экспорт любимых авторов…' else Item.Caption:='Импорт любимых авторов…';
+    Item.OnClick:=FavoriteTransferClick; FFavoriteMenu.Items.Add(Item);
   end;
   Item := TMenuItem.Create(Self); Item.Name := 'miFavoriteSelectedAuthor';
   Item.Caption := 'Добавить автора в любимые'; Item.OnClick := FavoriteSelectedAuthorClick;
@@ -9525,6 +9572,7 @@ begin
   Data := TUserData.Create;
   try
     FCollection.ExportUserData(Data);
+    Data.FavoriteAuthors:=FavoriteStore.Entries;
     Data.Save(FileName);
   finally
     Data.Free;
@@ -10083,6 +10131,19 @@ begin
     );
 
     CreateGroupsMenu;
+
+    if Length(UserDataSource.FavoriteAuthors)>0 then
+    begin
+      StopFavoriteRefresh(True);
+      FavoriteStore.ImportFavorites(UserDataSource.FavoriteAuthors);
+      PublishFavoriteFilterKeys;
+      FOnlyNewFavoriteBooks:=False;
+      Include(FStaleSelectors,AuthorsView);
+      Exclude(FLoadedBookViews,AuthorsView);
+      CheckFavoriteCollection;
+      tvAuthors.Invalidate;
+      UpdateFavoriteControls;
+    end;
 
     // Обновим список групп. Побочным эффектом будет перечитывание списка книг на странице "Группы"
     FillGroupsList(tvGroups, FSystemData.GetGroupIterator, FLastGroupID);

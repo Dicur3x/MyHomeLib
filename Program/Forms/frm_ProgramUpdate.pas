@@ -45,6 +45,7 @@ type
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
     FRestart, FCheck: TNotifyEvent;
     procedure AppThemeChanged(var Message: TMessage); message WM_MHL_APP_THEME;
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure PrimaryClick(Sender: TObject);
     procedure LaterClick(Sender: TObject);
     procedure PageClick(Sender: TObject);
@@ -82,6 +83,7 @@ type
     procedure ClearQueueJobs;
   protected
     procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; virtual;
     function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
       const Job: string): TProgramDownloadThread; virtual;
@@ -122,8 +124,9 @@ begin
   Constraints.MinWidth := 760; Constraints.MinHeight := 560;
   DoubleBuffered := True;
   OnShow:=LayoutShown;
-  Font.Name := 'Segoe UI'; Font.Size := 9;
+  Font.Assign(Screen.MessageFont);
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
+  FVersion.AutoSize:=False; FVersion.EllipsisPosition:=epEndEllipsis; FVersion.ShowHint:=True;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
   FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION;
   FStatus := TLabel.Create(Self); FStatus.Parent := Self; FStatus.Name := 'UpdateStatus';
@@ -166,6 +169,7 @@ begin
   FNotes.SetBounds(20, 155, 700, 238);
   FBytes := TLabel.Create(Self); FBytes.Parent := Self;
   FBytes.Name:='UpdateBytes';
+  FBytes.Caption:=''; FBytes.AutoSize:=False; FBytes.ShowHint:=True;
   FBytes.SetBounds(20, 430, 700, 18);
   FProgress := TProgressBar.Create(Self); FProgress.Parent := Self;
   FProgress.SetBounds(20, 404, 700, 18); FProgress.Max := 100;
@@ -288,8 +292,22 @@ end;
 procedure TfrmProgramUpdate.LayoutShown(Sender: TObject);
 begin LayoutWindow; end;
 
+procedure TfrmProgramUpdate.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  if Assigned(FZoomIn) and (FUIUpdateCount=0) then LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.ChangeScale(M, D: Integer; isDpiChange: Boolean);
+begin
+  inherited;
+  if Assigned(FZoomIn) and (FUIUpdateCount=0) then LayoutWindow;
+end;
+
 procedure TfrmProgramUpdate.LayoutWindow;
 var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHeight: Integer;
+  TextHeight, ButtonHeight, TopHeight, TabsTop, TableTop, PageWidth, LaterWidth, FooterHeight,
+  BytesHeight, TransferHeight: Integer;
   Bounds: TRect;
   function S(Value: Integer): Integer;
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
@@ -298,24 +316,36 @@ begin
   DisableAlign;
   try
     Margin := S(12); Gap := S(8); Width := ClientWidth - 2 * Margin;
-    FVersion.SetBounds(Margin, S(12), Width - S(160), S(22));
-    FZoomOut.SetBounds(ClientWidth - Margin - S(150), S(8), S(40), S(26));
-    FZoomReset.SetBounds(ClientWidth - Margin - S(105), S(8), S(60), S(26));
-    FZoomIn.SetBounds(ClientWidth - Margin - S(40), S(8), S(40), S(26));
-    FComponentCheck.SetBounds(ClientWidth - Margin - S(220), S(41), S(220), S(27));
-    FTabs.SetBounds(Margin,S(41),Width-S(220)-Gap,S(30));
+    Canvas.Font.Assign(Font); TextHeight:=Canvas.TextHeight('Mg');
+    ButtonHeight:=Max(S(30),TextHeight+S(12)); TopHeight:=Max(S(26),TextHeight+S(8));
+    TabsTop:=S(8)+TopHeight+Gap; TableTop:=TabsTop+ButtonHeight+Gap;
+    FVersion.Hint:=FVersion.Caption;
+    FVersion.SetBounds(Margin,S(10),Max(S(80),Width-S(160)),TopHeight);
+    FZoomOut.SetBounds(ClientWidth-Margin-S(150),S(8),S(40),TopHeight);
+    FZoomReset.SetBounds(ClientWidth-Margin-S(105),S(8),S(60),TopHeight);
+    FZoomIn.SetBounds(ClientWidth-Margin-S(40),S(8),S(40),TopHeight);
+    FComponentCheck.SetBounds(ClientWidth-Margin-S(220),TabsTop,S(220),ButtonHeight);
+    FTabs.SetBounds(Margin,TabsTop,Width-S(220)-Gap,ButtonHeight);
     FComponentsView.Visible:=FTabs.TabIndex=0;
     FHistorySelector.Visible:=FTabs.TabIndex=1;
-    FHistorySelector.SetBounds(Margin,S(78),Width,S(28));
+    FHistorySelector.SetBounds(Margin,TableTop,Width,ButtonHeight);
     FHistorySelector.Enabled:=FComponentsView.Enabled;
     Canvas.Font.Assign(Font); Bounds := Rect(0, 0, Width, 0);
     DrawText(Canvas.Handle, PChar(FStatus.Caption), Length(FStatus.Caption), Bounds,
       DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-    StatusHeight := EnsureRange(Bounds.Height + S(4), S(22), S(70));
-    ButtonTop := ClientHeight - Margin - S(30);
+    StatusHeight := Max(TextHeight+S(4),Min(Bounds.Height+S(4),3*TextHeight+S(4)));
+    FStatus.ShowHint:=True; FStatus.Hint:=FStatus.Caption;
+    PageWidth:=Max(S(125),Canvas.TextWidth(FPage.Caption)+S(24));
+    LaterWidth:=Max(S(115),Canvas.TextWidth(FLater.Caption)+S(24));
+    FooterHeight:=ButtonHeight;
+    if Width-PageWidth-LaterWidth-2*Gap<Max(S(160),Canvas.TextWidth(FPrimary.Caption)+S(24)) then
+      FooterHeight:=2*ButtonHeight+Gap;
+    ButtonTop := ClientHeight - Margin - FooterHeight;
+    BytesHeight:=Max(S(20),TextHeight+S(4));
+    TransferHeight:=S(18)+2*Gap+BytesHeight;
     FProgress.Visible := Assigned(FThread) or FReady or (FBytes.Caption <> '');
     NotesBottom:=ButtonTop-Gap;
-    if FProgress.Visible then Dec(NotesBottom,S(52));
+    if FProgress.Visible then Dec(NotesBottom,TransferHeight);
     TableHeight:=S(204);
     if FComponentsView.HandleAllocated and (FComponentsView.Items.Count>0) then
     begin
@@ -324,8 +354,8 @@ begin
     end;
     // When a small window also shows transfer progress, let the component
     // list scroll rather than painting details over the footer controls.
-    TableHeight:=Min(TableHeight,Max(S(120),NotesBottom-S(78)-2*Gap-StatusHeight-S(100)));
-    FComponentsView.SetBounds(Margin,S(78),Width,TableHeight);
+    TableHeight:=Min(TableHeight,Max(S(100),NotesBottom-TableTop-2*Gap-StatusHeight-S(100)));
+    FComponentsView.SetBounds(Margin,TableTop,Width,TableHeight);
     FComponentsView.Columns[0].Width:=Width*42 div 100;
     FComponentsView.Columns[1].Width:=Width*16 div 100;
     FComponentsView.Columns[2].Width:=Width*16 div 100;
@@ -334,16 +364,26 @@ begin
     FStatus.SetBounds(Margin, FComponentsView.Top+FComponentsView.Height+Gap, Width, StatusHeight);
     if FTabs.TabIndex=1 then
       FStatus.SetBounds(Margin,FHistorySelector.Top+FHistorySelector.Height+Gap,Width,StatusHeight);
-    FPrimary.SetBounds(Margin, ButtonTop, Width - S(125 + 115) - 2 * Gap, S(30));
-    FPage.SetBounds(ClientWidth - Margin - S(125 + 115) - Gap, ButtonTop, S(125), S(30));
-    FLater.SetBounds(ClientWidth - Margin - S(115), ButtonTop, S(115), S(30));
+    if FooterHeight=ButtonHeight then
+    begin
+      FPrimary.SetBounds(Margin,ButtonTop,Width-PageWidth-LaterWidth-2*Gap,ButtonHeight);
+      FPage.SetBounds(ClientWidth-Margin-PageWidth-LaterWidth-Gap,ButtonTop,PageWidth,ButtonHeight);
+      FLater.SetBounds(ClientWidth-Margin-LaterWidth,ButtonTop,LaterWidth,ButtonHeight);
+    end
+    else
+    begin
+      FPrimary.SetBounds(Margin,ButtonTop,Width,ButtonHeight);
+      FPage.SetBounds(Margin,ButtonTop+ButtonHeight+Gap,Max(PageWidth,(Width-Gap) div 2),ButtonHeight);
+      FLater.SetBounds(FPage.Left+FPage.Width+Gap,FPage.Top,Width-FPage.Width-Gap,ButtonHeight);
+    end;
     FBytes.Visible := FProgress.Visible;
-    FProgress.SetBounds(Margin, ButtonTop - S(52), Width, S(18));
-    FBytes.SetBounds(Margin, ButtonTop - S(28), Width, S(20));
+    FProgress.SetBounds(Margin, ButtonTop - TransferHeight, Width, S(18));
+    FBytes.SetBounds(Margin, ButtonTop - Gap - BytesHeight, Width, BytesHeight);
+    FBytes.Hint:=FBytes.Caption;
     NotesTop := FStatus.Top + StatusHeight + Gap;
     NotesBottom := ButtonTop - Gap;
     if FProgress.Visible then NotesBottom := FProgress.Top - Gap;
-    FNotes.SetBounds(Margin, NotesTop, Width, Max(S(100), NotesBottom - NotesTop));
+    FNotes.SetBounds(Margin, NotesTop, Width, Max(0, NotesBottom - NotesTop));
     if WindowState = wsNormal then
     begin
       FNormalWidth := MulDiv(ClientWidth, 96, CurrentPPI);

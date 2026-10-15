@@ -112,7 +112,8 @@ begin
   Local:=TTimeZone.Local.ToLocalTime(UTC); ZoneName:=TTimeZone.Local.GetDisplayName(Local).Trim;
   if ZoneName.StartsWith('(') then
   begin Prefix:=Pos(')',ZoneName); if Prefix>0 then ZoneName:=Copy(ZoneName,Prefix+1,MaxInt).Trim; end;
-  if SameText(TTimeZone.Local.ID,'Russian Standard Time') or SameText(TTimeZone.Local.ID,'Europe/Moscow') then ZoneName:='Москва';
+  if SameText(TTimeZone.Local.ID,'Russian Standard Time') or SameText(TTimeZone.Local.ID,'Europe/Moscow') or
+    SameText(ZoneName,'Russia TZ 2 Standard Time') or SameText(ZoneName,'Russia TZ 2 Daylight Time') then ZoneName:='Москва';
   if ZoneName='' then ZoneName:=TTimeZone.Local.ID;
   Result:=ReaderAnnotationTimeAtOffset(Created,ZoneName,Round((Local-UTC)*MinsPerDay));
 end;
@@ -416,8 +417,8 @@ function TReaderAnnotations.Put(const Note: TReaderAnnotation): string;
 var Entry: TReaderAnnotation; Index: Integer; Old: TArray<TReaderAnnotation>;
 begin
   if (Note.BookID='') or (Note.Position<0) or (Length(Note.Title)>256) or
-    (Length(Note.Text)>16384) or (Length(Note.Quote)>8192) then
-    raise Exception.Create('Название: до 256 знаков, мысль: до 16 384, цитата: до 8192.');
+    (Length(Note.Text)>16384) or (Length(Note.Quote)>65536) then
+    raise Exception.Create('Название: до 256 знаков, мысль: до 16 384, цитата или текст страницы: до 65 536.');
   if ((Note.RangeStart<>0) or (Note.RangeEnd<>0)) and not ReaderAnnotationHasRange(Note) then
     raise Exception.Create('Некорректный диапазон заметки. Изменения не сохранены.');
   if (Note.Text.Trim='') and (Note.Title.Trim='') then raise Exception.Create('Добавьте название или текст заметки.');

@@ -60,6 +60,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure SetBook(const Identity, Extension: string; const Source: TFunc<TStream>);
+    procedure UseDescriptorImages;
     procedure Clear;
     procedure SetExpanded(Value: Boolean);
     procedure OpenImage(Index: Integer);
@@ -342,6 +343,14 @@ begin
   Visible := Assigned(Source) and (SameText(Extension, '.fb2') or SameText(Extension, '.epub'));
   FToggle.Caption := FTitle + ' ▸';
   UpdateLayout;
+end;
+
+procedure TBookGallery.UseDescriptorImages;
+begin
+  // The background preview proved that this PDF/other book has its own FBD.
+  // Its existing source callback returns that descriptor, not the raw book.
+  if not Assigned(FSource) or SameText(FExtension,'.fb2') or SameText(FExtension,'.epub') then Exit;
+  FExtension:='.fb2'; Visible:=True; UpdateLayout;
 end;
 
 procedure TBookGallery.ToggleClick(Sender: TObject);

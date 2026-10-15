@@ -1,9 +1,11 @@
-﻿// Copyright (c) 2026 MyHomeLib contributors. MIT license; see ../../LICENSE.
+// Copyright (c) 2026 MyHomeLib contributors. MIT license; see ../../LICENSE.
 // DOC decoding is provided by pinned DocSharp.Binary libraries (MIT/BSD).
 using System;
 using System.IO;
 using System.Text;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using DocSharp.Binary.DocFileFormat;
 using DocSharp.Binary.StructuredStorage.Reader;
 using DocSharp.Binary.OpenXmlLib;
@@ -51,7 +53,15 @@ internal static class HomeLibDoc
     private static int Run(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
-        if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("HomeLibDoc 1; DocSharp " + typeof(WordDocument).Assembly.GetName().Version + "; Common " + typeof(StructuredStorageReader).Assembly.GetName().Version); return 0; }
+        if (args.Length == 1 && args[0] == "--version")
+        {
+            Console.WriteLine("HomeLibDoc 3; DocSharp " + typeof(WordDocument).Assembly.GetName().Version +
+                "; Common " + typeof(StructuredStorageReader).Assembly.GetName().Version +
+                "; PPT " + typeof(DocSharp.Binary.PptFileFormat.PowerpointDocument).Assembly.GetName().Version +
+                "; XLS " + typeof(DocSharp.Binary.Spreadsheet.XlsFileFormat.XlsDocument).Assembly.GetName().Version);
+            return 0;
+        }
+        if (args.Length == 3 && args[0] == "--image-to-png") return RasterizeImage(args[1], args[2]);
         bool ownsOutput = false;
         string outputPath = null;
         string errorCode = "INVALID";
@@ -64,6 +74,32 @@ internal static class HomeLibDoc
             var inputInfo = new FileInfo(inputPath);
             if (inputInfo.Length < 512 || inputInfo.Length > MaximumBytes) throw new IOException("DOC size is outside the reader limit.");
             var watch = Stopwatch.StartNew();
+            string extension = Path.GetExtension(inputPath).ToLowerInvariant();
+            if (extension == ".ppt" || extension == ".pps" || extension == ".pot" || extension == ".xls" || extension == ".xlt")
+            {
+                using (var storage = new StructuredStorageReader(inputPath))
+                using (var file = new FileStream(outputPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                {
+                    ownsOutput = true;
+                    using (var bounded = new BoundedDocOutput(file))
+                    {
+                        if (extension == ".ppt" || extension == ".pps" || extension == ".pot")
+                        {
+                            var document = new DocSharp.Binary.PptFileFormat.PowerpointDocument(storage);
+                            using (var output = DocSharp.Binary.OpenXmlLib.PresentationML.PresentationDocument.Create(bounded, DocSharp.Binary.OpenXmlLib.PresentationDocumentType.Presentation))
+                                DocSharp.Binary.PresentationMLMapping.Converter.Convert(document, output);
+                        }
+                        else
+                        {
+                            var document = new DocSharp.Binary.Spreadsheet.XlsFileFormat.XlsDocument(storage);
+                            using (var output = DocSharp.Binary.OpenXmlLib.SpreadsheetML.SpreadsheetDocument.Create(bounded, DocSharp.Binary.OpenXmlLib.SpreadsheetDocumentType.Workbook))
+                                DocSharp.Binary.SpreadsheetMLMapping.Converter.Convert(document, output);
+                        }
+                    }
+                }
+                Console.WriteLine("OK office=" + extension + " ms=" + watch.ElapsedMilliseconds);
+                return 0;
+            }
             using (var storage = new StructuredStorageReader(inputPath))
             {
                 var fib = new FileInformationBlock(new VirtualStreamReader(storage.GetStream("WordDocument")));
@@ -92,5 +128,37 @@ internal static class HomeLibDoc
             Console.Error.WriteLine("DOC: " + error.GetType().Name + ": " + error.Message);
             return 1;
         }
+    }
+
+    private static int RasterizeImage(string input, string output)
+    {
+        input = Path.GetFullPath(input); output = Path.GetFullPath(output);
+        if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output))
+            throw new ArgumentException("Output must be a new file, separate from the original.");
+        if (new FileInfo(input).Length > 16L * 1024 * 1024) throw new IOException("Embedded image exceeds 16 MiB.");
+        bool ownsOutput = false;
+        try
+        {
+            // GDI+ is a Windows component, not an Office installation. Only the
+            // local image is decoded; no document, macro or external link runs.
+            using (var stream = File.OpenRead(input))
+            using (var image = Image.FromStream(stream, false, true))
+            {
+                int width = image.Width, height = image.Height;
+                if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || (long)width * height > 16777216)
+                    throw new IOException("Embedded image dimensions exceed the reader limit.");
+                using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb))
+                {
+                    using (var graphics = Graphics.FromImage(bitmap)) graphics.DrawImage(image, 0, 0, width, height);
+                    using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        ownsOutput = true;
+                        using (var bounded = new BoundedDocOutput(file)) bitmap.Save(bounded, ImageFormat.Png);
+                    }
+                }
+            }
+            return 0;
+        }
+        catch { if (ownsOutput) { try { File.Delete(output); } catch { } } throw; }
     }
 }

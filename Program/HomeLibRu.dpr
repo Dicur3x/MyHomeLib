@@ -110,6 +110,7 @@ uses
   frm_CatalogSources in 'Forms\frm_CatalogSources.pas',
   frm_main in 'Forms\frm_main.pas' {frmMain},
   dm_user in 'DataModules\dm_user.pas' {DMUser: TDataModule},
+  unit_MHLTheme,
   unit_Globals in 'Units\unit_Globals.pas',
   unit_MetabibWriter in 'Units\unit_MetabibWriter.pas',
   unit_ProgramUpdates in 'Units\unit_ProgramUpdates.pas',
@@ -260,15 +261,17 @@ begin
 
   Application.MainFormOnTaskbar := True;
   Application.Title := 'HomeLib Ru';
+  // Choose the persisted style before constructing any window. A late switch
+  // recreates all VCL handles and exposes the initial light frame at startup.
+  Application.CreateForm(TDMUser, DMUser);
+  DMUser.Init;
+  SetMHLTheme(Settings.DarkTheme);
   frmSplash := TfrmSplash.Create(Application);
   try
     frmSplash.Show;
     frmSplash.Update; // Update the splash screen to ensure it gets drawn
 
     // Важно! сначала создаем датамодули и главную форму, а потом - остальные формы!
-    Application.CreateForm(TDMUser, DMUser);
-    DMUser.Init;
-
     Application.CreateForm(TdmImages, dmImages);
     dmImages.ApplyThemeIcons;
 

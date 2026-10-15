@@ -137,7 +137,7 @@
         {
           "version": "0.21.0",
           "date": "2026-08-11",
-          "notes": "Чтение DOC без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc и DocSharp.Binary.Common (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
+          "notes": "Чтение DOC, PPT и XLS без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc, Common, Ppt и Xls (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
         }
       ]
     },
@@ -149,7 +149,7 @@
         {
           "version": "0.21.0",
           "date": "2026-08-11",
-          "notes": "Чтение DOC без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc и DocSharp.Binary.Common (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
+          "notes": "Чтение DOC, PPT и XLS без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc, Common, Ppt и Xls (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
         }
       ]
     }

@@ -46,10 +46,15 @@ The embedded dark VCL interface uses the unmodified Charcoal Dark Slate
 redistributable style supplied with Embarcadero RAD Studio 13. This style is
 separate from the MIT-licensed HomeLib Ru source code.
 
-The separate DOC reader uses DocSharp.Binary.Doc and DocSharp.Binary.Common
+The separate binary Office reader uses DocSharp.Binary.Doc, Common, Ppt and Xls
 0.21.0, by manfromarce, under the MIT licence. It includes code from
 b2xtranslator under its BSD 3-Clause licence. Both licences accompany the
 unmodified assemblies in tools/doc. The HomeLibDoc wrapper source is in
 Utils/HomeLibDoc. Exact package URLs and checksums are recorded in
 Installer/DOC_RUNTIME.json. It opens books read-only and writes the converted
 document to a private cache.
+
+WPS and WordPerfect use the unmodified libwps/libwpd/librevenge command-line
+readers on 64-bit Windows (MPL-2.0). Their matching source packages, licenses,
+MSYS2 clang64 runtime notices and package hashes accompany tools/office.
+See Installer/OFFICE_LEGACY_RUNTIME.json and OfficeLegacy-NOTICE.txt.

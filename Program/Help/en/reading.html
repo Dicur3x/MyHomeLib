@@ -90,12 +90,12 @@
 <main id="content">
 <h1>Reading books</h1>
 <!-- BODY:BEGIN -->
-<p>HomeLib Ru offers an experimental built-in reader alongside AlReader and SumatraPDF. Double-click opens supported books in the built-in reader by default. You can change this in File types settings or choose an explicit internal/external command in the context menu.</p>
+<p>HomeLib Ru offers a built-in reader (beta) alongside AlReader and SumatraPDF. Double-click opens supported books in the built-in reader by default. You can change this in File types settings or choose an explicit internal/external command in the context menu.</p>
 
 <h2>How the program is chosen</h2>
 <p>When the built-in default is disabled or the format is unsupported, the program looks up the external reader assigned to it in the <a href="set_readers.html">File types and readers</a> list. If a reader is configured for the extension, that is the one that starts; if not, the file is opened by whatever program Windows itself has associated with that extension (the ordinary file association).</p>
 <p>The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. Their assignments can be changed in Settings. For a supported book inside an ordinary archive, HomeLib Ru prepares the book before starting the selected reader. Use <span class="ui">View archive contents</span> to inspect an archive in your archive program, or <span class="ui">Where is this book stored?</span> to locate its source in the collection.</p>
-<p>The built-in reader offers six colour themes, typography settings, bookmarks, full screen, page turning with the mouse wheel, and text search with next/previous matches and highlighting. Kindle files require preparation; some office formats require LibreOffice.</p>
+<p>The built-in reader offers six colour themes, typography settings, bookmarks, full screen, page turning with the mouse wheel, and text search with next/previous matches and highlighting. Kindle files require preparation; Office documents use bundled components without an installed office suite. Presentations and spreadsheets retain text, tables and images in a reflowed reading view; WPS/WPD require 64-bit Windows.</p>
 <p>PDF, DjVu, CBR/CBZ/CB7, multipage TIFF and supported images are displayed as pages. Click a page to magnify it, then move the mouse to inspect details; click again or press Esc to return. Ctrl+drag also moves an enlarged page. PDF search uses the existing text layer. Image pages, comics and DjVu currently have no text search. OCR is not performed.</p>
 
 <p>Double-click uses the built-in reader by default for supported formats. Disable this option in File types settings to use your external assignments; their paths are retained. Both explicit commands remain available in the context menu. DjVu keeps its decoder and document open between pages and does not create temporary TIFF pages.</p>

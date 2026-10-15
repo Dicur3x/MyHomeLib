@@ -221,8 +221,9 @@ begin
     FFileOprecord.BookTitle:=R.Title; FFileOprecord.BookAuthor:=TAuthorsHelper.GetList(R.Authors);
     FFileOprecord.BookLanguage:=R.Lang;
     FConvertBasic := not FExtractOnly and (FExportMode in [emFB2, emEpub]) and
-      IsBasicConversionSource(SourceExtension) and
-      (FExplicitFormat or (FExportMode = emEpub));
+      IsConversionCandidate(SourceExtension) and
+      (FExplicitFormat or ((FExportMode = emEpub) and
+        (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0)));
     if FExplicitFormat and not FExtractOnly and not FConvertBasic then
     begin
       var FormatName := 'FB2';

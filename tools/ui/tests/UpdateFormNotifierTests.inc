@@ -126,6 +126,8 @@ begin
   Originals.Add(Official);
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json' then Exit(URL+'doc-index');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json' then Exit(URL+'common-index');
+  if (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/index.json') or
+    (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.xls/index.json') then Exit(URL+'common-index');
   if Official='https://api.github.com/repos/manfromarce/DocSharp/releases?per_page=30' then Exit(URL+'notes');
   if (Official='https://www.sqlite.org/download.html') or (Official='https://www.sqlite.org/changes.html') or
     (Official='https://www.alreader.com/') or
@@ -141,6 +143,8 @@ begin
   Originals.Add(Official);
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/0.99.0/docsharp.binary.doc.0.99.0.nupkg' then Exit(URL+'head-doc');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/0.99.0/docsharp.binary.common.0.99.0.nupkg' then Exit(URL+'head-common');
+  if (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/0.99.0/docsharp.binary.ppt.0.99.0.nupkg') or
+    (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.xls/0.99.0/docsharp.binary.xls.0.99.0.nupkg') then Exit(URL+'head-common');
   Failure:='Updater fixture refused an unexpected official HEAD route: '+Official; raise Exception.Create(Failure);
 end;
 

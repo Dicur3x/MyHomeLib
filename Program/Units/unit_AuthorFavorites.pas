@@ -50,6 +50,7 @@ type
     destructor Destroy; override;
     procedure Reload;
     procedure SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
+    procedure ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>);
     function IsFavorite(const LastName, FirstName, MiddleName: string): Boolean; overload;
     function IsFavorite(const Author: TAuthorData): Boolean; overload;
     function MatchesAuthors(const Authors: TBookAuthors): Boolean;
@@ -638,6 +639,33 @@ begin
         Query:=TAFQuery.Create(Database,'SELECT CID FROM Collections',[]);
         try while Query.Next do UpdateCounts(Database,Query.Number(0)); finally Query.Free; end;
       end;
+      Database.Execute('COMMIT');
+    except Database.Rollback; raise; end;
+  finally Database.Free; Lock.Free; end;
+  Reload;
+end;
+
+procedure TAuthorFavorites.ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>);
+var Database: TAFDatabase; Lock: TFileMutex; Entry: TAuthorFavoriteEntry; Key: string;
+begin
+  if Length(Authors)=0 then Exit;
+  if Length(Authors)>AF_MAX_FAVORITES then raise EAuthorFavorites.Create('В файле слишком много любимых авторов.');
+  // Validate the whole portable list before starting its transaction. Local
+  // author/collection IDs and seen-book baselines belong to this installation.
+  for Entry in Authors do AuthorFavoriteKey(Entry.LastName,Entry.FirstName,Entry.MiddleName);
+  Database:=OpenWriteProfile(FFileName,Lock);
+  try
+    Database.Execute('BEGIN IMMEDIATE');
+    try
+      for Entry in Authors do
+      begin
+        Key:=AuthorFavoriteKey(Entry.LastName,Entry.FirstName,Entry.MiddleName);
+        if Key='' then Continue;
+        Database.Execute('INSERT OR IGNORE INTO FavoriteAuthors VALUES(?,?,?,?,?)',
+          [Key,Trim(Entry.LastName),Trim(Entry.FirstName),Trim(Entry.MiddleName),UTCStamp]);
+      end;
+      if Database.Number('SELECT COUNT(*) FROM FavoriteAuthors')>AF_MAX_FAVORITES then
+        raise EAuthorFavorites.Create('Достигнут предел списка любимых авторов.');
       Database.Execute('COMMIT');
     except Database.Rollback; raise; end;
   finally Database.Free; Lock.Free; end;

@@ -29,7 +29,7 @@ begin
   if InList(Extension,'|mobi|azw|azw3|prc|') then Exit('Встроенная читалка: после подготовки незашифрованной книги');
   if InList(Extension,'|djvu|djv|dju|djm|djvm|xps|oxps|chm|cbz|cbr|cb7|epub|pdf|') then Exit('Для чтения используйте SumatraPDF');
   if InList(Extension,'|doc|dot|') then Exit('Можно читать во встроенной читалке');
-  if IsOfficeReaderFormat(Extension) then Exit('Встроенная читалка: подготовка PDF через установленный LibreOffice');
+  if IsOfficeReaderFormat(Extension) then Exit('Можно читать во встроенной читалке (адаптация документа)');
   if InList(Extension,'|rgo|') then Exit('RepliGo: нужен просмотрщик этого старого формата');
   if InList(Extension,'|ibk|') then Exit('ICE Book Reader: собственный формат библиотеки');
   if InList(Extension,'|zip|rar|7z|7zip|cab|tar|gz|gzip|bz2|xz|tgz|') then Exit('Архив: книга выбирается после распаковки');
@@ -50,6 +50,11 @@ begin
   Prefix:=TEncoding.ANSI.GetString(Bytes,0,Min(Length(Bytes),4096));
   if Pos('%PDF-',Copy(Prefix,1,1024))>0 then Exit('.pdf');
   if Copy(Prefix,1,8)='AT&TFORM' then Exit('.djvu');
+  if Copy(Prefix,1,4)='ITSF' then Exit('.chm');
+  if Copy(Prefix,1,8)='ITOLITLS' then Exit('.lit');
+  if Copy(Prefix,1,9)='!!8-Bit!!' then Exit('.tcr');
+  if (Length(Bytes)>=8) and (Bytes[0]=Ord('L')) and (Bytes[1]=0) and
+    (Bytes[2]=Ord('R')) and (Bytes[3]=0) and (Bytes[4]=Ord('F')) and (Bytes[5]=0) then Exit('.lrf');
   if Copy(Prefix,1,5)='{\rtf' then Exit('.rtf');
   if (Bytes[0]=$31) and (Bytes[1]=$BE) or (Bytes[0]=$32) and (Bytes[1]=$BE) then Exit('.wri');
   if (Bytes[0]=$D0) and (Bytes[1]=$CF) and (Bytes[2]=$11) and (Bytes[3]=$E0) then
@@ -98,7 +103,11 @@ begin
     ((Bytes[0]=$4D) and (Bytes[1]=$4D) and (Bytes[2]=0) and (Bytes[3]=$2A)) then Exit('.tif');
   // Palm Database stores the MOBI type/creator at byte 60, independent of the filename.
   if Length(Bytes)>=68 then
-    if TEncoding.ASCII.GetString(Bytes,60,8)='BOOKMOBI' then Exit('.mobi');
+  begin
+    Wide:=TEncoding.ASCII.GetString(Bytes,60,8);
+    if Wide='BOOKMOBI' then Exit('.mobi');
+    if (Wide='TEXtREAd') or (Wide='zTXTGPlm') or (Wide='SDocSilX') or (Wide='PNRdPPrs') then Exit('.pdb');
+  end;
   if Copy(Prefix,1,3)='GIF' then Exit('.gif');
   if (Copy(Prefix,1,4)='RIFF') and (Copy(Prefix,9,4)='WEBP') then Exit('.webp');
   if (Bytes[0]=$FF) and (Bytes[1]=$FE) then Prefix:=TEncoding.Unicode.GetString(Bytes,2,Min(Length(Bytes)-2,4096) and not 1)

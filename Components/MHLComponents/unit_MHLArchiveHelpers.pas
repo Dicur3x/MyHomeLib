@@ -297,7 +297,8 @@ begin
         Name := Copy(Line, Length('Path = ') + 1, MaxInt)
       else if StartsText('Size = ', Line) then
         Size := StrToInt64Def(Copy(Line, Length('Size = ') + 1, MaxInt), 0)
-      else if SameText(Line, 'Folder = +') then
+      else if SameText(Line, 'Folder = +') or
+        (StartsText('Attributes = ',Line) and StartsText('D',Trim(Copy(Line,14,MaxInt)))) then
         IsFolder := True;
     end;
     FinishBlock;
@@ -379,14 +380,19 @@ begin
 end;
 
 function TMHLZip.FindEntryIndex(const AFileName: string): Integer;
-var
-  I: Integer;
+var I: Integer; Key: string;
 begin
-  EnsureFileNames;
-  Result := -1;
-  for I := 0 to GetFileCount - 1 do
-    if SameText(FFileNames[I], AFileName) then
-      Exit(I);
+  EnsureFileNames; Result:=-1;
+  // Keep exact names first. The 7-Zip CLI returns Windows separators while
+  // INPX/ZIP usually use '/'; accept that alias only when it is unambiguous.
+  for I:=0 to GetFileCount-1 do if SameText(FFileNames[I],AFileName) then Exit(I);
+  Key:=StringReplace(AFileName,'\','/',[rfReplaceAll]);
+  for I:=0 to GetFileCount-1 do
+    if SameText(StringReplace(FFileNames[I],'\','/',[rfReplaceAll]),Key) then
+    begin
+      if Result>=0 then Exit(-1);
+      Result:=I;
+    end;
 end;
 
 procedure TMHLZip.CopyEntryToStream(const Index: Integer; const Destination: TStream);

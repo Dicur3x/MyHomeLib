@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.20'
+$release = '2.7.0_pre5.21'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -53,11 +53,11 @@ try {
     }
     $bookConverterDestination = Join-Path $toolsDestination 'bookconvert'
     [IO.Directory]::CreateDirectory($bookConverterDestination) | Out-Null
-    foreach ($name in @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')) {
+    foreach ($name in @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'legacy_inputs.py', 'fixed_layout.py', 'office_inputs.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools\bookconvert\$name") -Destination $bookConverterDestination
     }
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools\bookconvert\vendor') -Recurse -File |
-        Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'MISTUNE_LICENSE.txt' }) {
+        Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -like '*_LICENSE.txt' }) {
         $relative = $file.FullName.Substring((Join-Path $runtimeDirectory 'tools\bookconvert').Length + 1)
         $target = Join-Path $bookConverterDestination $relative
         [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null

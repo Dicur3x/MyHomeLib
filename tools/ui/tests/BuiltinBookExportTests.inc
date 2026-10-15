@@ -659,13 +659,12 @@ begin
       Target := OutputFolder('explicit-pdf-' + IntToStr(Ord(Mode)));
       RunExport(RawPDF, Mode, True, Target);
       Require(Length(TDirectory.GetFiles(Target)) = 0,
-        'Unsupported explicit PDF conversion published a bogus file');
+        'Invalid PDF conversion published a bogus file');
       Require((Capture.Messages.Count = 1) and
-        Capture.Messages.Text.Contains('FB2') and Capture.Messages.Text.Contains('EPUB') and
         Capture.Messages.Text.Contains('PDF'), 'Unsupported conversion lacks a useful explanation');
     end;
     RequireSourcesAndData;
-    Writeln('PASS ordinary PDF copying is unchanged and explicit FB2/EPUB export rejects unsupported sources without false files');
+    Writeln('PASS ordinary PDF copying is unchanged and explicit FB2/EPUB export rejects an invalid PDF without false files');
     for var MissingID in TArray<Integer>.Create(0, -DirectFB2) do
     begin
       Target := OutputFolder('missing-book-' + IntToStr(MissingID));

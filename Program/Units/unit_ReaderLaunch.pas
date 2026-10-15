@@ -152,7 +152,7 @@ begin
     LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False;
     LabelText.SetBounds(12,10,416,42); LabelText.WordWrap:=True; LabelText.Caption:=Ext.TrimLeft(['.'])+' · '+ReaderAvailability(Ext);
     List:=TListBox.Create(Dialog); List.Parent:=Dialog; List.SetBounds(12,58,416,132);
-    if CanBuiltin then Add('Встроенная читалка (экспериментально)','@builtin');
+    if CanBuiltin then Add('Встроенная читалка (beta)','@builtin');
     Reader:=Settings.Readers.Find(Ext);
     if Assigned(Reader) and (Reader.Path<>'') then
     begin

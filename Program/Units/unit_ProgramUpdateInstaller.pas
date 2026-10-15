@@ -38,7 +38,7 @@ procedure CleanProgramUpdate(const Job: string);
 function ProgramUpdatePlatform: string;
 procedure VerifyPreparedProgramUpdate(const Job, Tag, Platform: string);
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
-  const SecondaryArchive: string = ''; const AppPath: string = '');
+  const SecondaryArchive: string = ''; const AppPath: string = ''; const AdditionalArchives: TArray<string> = nil);
 function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Secondary: Boolean): Boolean;
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
   const Tag, Platform, Job: string): string;
@@ -67,7 +67,7 @@ begin
   if not Result then Exit;
   if ID = 'SQLite' then Exit(Name = 'sqlite3.dll');
   if ID='DocSharp' then Exit((Name='tools/doc/DocSharp.Binary.Doc.dll') or
-    (Name='tools/doc/DocSharp.Binary.Common.dll') or (Name='tools/doc/HomeLibDoc.exe') or
+    (Name='tools/doc/DocSharp.Binary.Common.dll') or (Name='tools/doc/DocSharp.Binary.Ppt.dll') or (Name='tools/doc/DocSharp.Binary.Xls.dll') or (Name='tools/doc/HomeLibDoc.exe') or
     (Name='tools/doc/DOC_RUNTIME.json') or (Name='tools/doc/DocSharp-MIT.txt') or
     (Name='tools/doc/b2xtranslator-BSD-3-Clause.txt') or (Name='tools/doc/HomeLibDoc-MIT.txt'));
   if ID='7-Zip' then Exit((Name='tools/7zip/7z.exe') or (Name='tools/7zip/7z.dll') or
@@ -136,6 +136,10 @@ begin
   begin
     if not FileExists(ExtractFilePath(FileName)+'HomeLibDoc.exe') or
       not SameText(Result,UpdateFileVersion(ExtractFilePath(FileName)+'DocSharp.Binary.Common.dll')) then Result:='';
+    if FileExists(ExtractFilePath(FileName)+'DocSharp.Binary.Ppt.dll') or
+      FileExists(ExtractFilePath(FileName)+'DocSharp.Binary.Xls.dll') then
+      for var Name in ['DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll'] do
+        if not SameText(Result,UpdateFileVersion(ExtractFilePath(FileName)+Name)) then Result:='';
   end;
   if (ID<>'DjVuLibre') or (Result<>'') or not FileExists(FileName) then Exit;
   Root:=nil;
@@ -278,6 +282,11 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
       for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','HomeLibDoc.exe',
         'DOC_RUNTIME.json','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
         RequireMember('tools/doc/'+Name);
+    if (ID='DocSharp') and (Names.ContainsKey('tools/doc/docsharp.binary.ppt.dll') or
+      Names.ContainsKey('tools/doc/docsharp.binary.xls.dll')) then
+    begin
+      RequireMember('tools/doc/DocSharp.Binary.Ppt.dll'); RequireMember('tools/doc/DocSharp.Binary.Xls.dll');
+    end;
     if ID='7-Zip' then
       for var Name in ['7z.exe','7z.dll','License.txt'] do RequireMember('tools/7zip/'+Name);
     if ID='DjVuLibre' then
@@ -470,8 +479,10 @@ begin
     else VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
     if Component='DocSharp' then
     begin
-      for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','HomeLibDoc.exe'] do
+      for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll','HomeLibDoc.exe'] do
       begin
+        if ((Name='DocSharp.Binary.Ppt.dll') or (Name='DocSharp.Binary.Xls.dll')) and
+          not FileExists(ChildPath(Stage,'tools/doc/'+Name)) then Continue;
         VerifyManagedAnyCPU(ChildPath(Stage,'tools/doc/'+Name));
         if Name='HomeLibDoc.exe' then
           VerifyUpdateExecutable(ChildPath(Stage,'tools/doc/'+Name),'',Architecture,True)
@@ -652,7 +663,7 @@ begin
 end;
 
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
-  const SecondaryArchive, AppPath: string);
+  const SecondaryArchive, AppPath: string; const AdditionalArchives: TArray<string>);
 var Stage, Raw, Source, Destination, Tools, RuntimePath: string; Names: TArray<string>;
   Manifest, Entry, Metadata, Hashes: TJSONObject; Files: TJSONArray;
   Zip: TZipFile; Bytes: TBytes; Log: TStringStream; Started: UInt64;
@@ -711,6 +722,14 @@ begin
       if SecondaryArchive='' then raise Exception.Create('Отсутствует второй пакет DocSharp.');
       AssertUpdatePath(SecondaryArchive);
       NuGetDLL(Archive,'DocSharp.Binary.Doc'); NuGetDLL(SecondaryArchive,'DocSharp.Binary.Common');
+      if Length(AdditionalArchives)=2 then
+      begin
+        AssertUpdatePath(AdditionalArchives[0]); AssertUpdatePath(AdditionalArchives[1]);
+        NuGetDLL(AdditionalArchives[0],'DocSharp.Binary.Ppt'); NuGetDLL(AdditionalArchives[1],'DocSharp.Binary.Xls');
+      end
+      else if FileExists(TPath.Combine(RuntimePath,'tools/doc/DocSharp.Binary.Ppt.dll')) or
+        FileExists(TPath.Combine(RuntimePath,'tools/doc/DocSharp.Binary.Xls.dll')) then
+        raise Exception.Create('Нужны все четыре согласованных пакета DocSharp: DOC, Common, PPT и XLS.');
       for var Name in ['HomeLibDoc.exe','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
         AddFile('tools/doc/'+Name,TPath.Combine(RuntimePath,'tools/doc/'+Name));
       Metadata:=TJSONObject.Create;

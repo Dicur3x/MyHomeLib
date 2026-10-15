@@ -7,31 +7,40 @@ uses System.SysUtils, System.Classes;
 // Source streams remain owned by the caller. Output is published only after a
 // complete conversion; an existing output file is never replaced.
 function IsBasicConversionSource(const Extension: string): Boolean;
+function IsConversionCandidate(const Extension: string): Boolean;
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
   const IsCanceled: TFunc<Boolean> = nil; const Title: string = '';
-  const Author: string = ''; const Language: string = '');
+  const Author: string = ''; const Language: string = ''; const ForReading: Boolean = False);
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats;
 
 function IsBasicConversionSource(const Extension: string): Boolean;
 begin
   Result:=Pos('|'+LowerCase(Extension).TrimLeft(['.'])+'|',
-    '|fb2|epub|fb3|txt|html|htm|xhtml|rtf|docx|odt|doc|dot|md|markdown|mobi|azw|azw3|prc|')>0;
+    '|fb2|epub|fb3|txt|text|faq|html|htm|xhtml|shtml|rtf|docx|odt|doc|dot|docm|dotx|dotm|ott|wps|wpd|ppt|pps|pot|pptx|pptm|ppsx|ppsm|potx|potm|xls|xlt|xlsx|xlsm|xltx|xltm|ods|ots|odp|otp|md|markdown|mobi|azw|azw3|prc|mht|mhtml|wri|pdb|tcr|chm|pdf|djvu|djv|dju|djm|djvm|')>0;
+end;
+
+function IsConversionCandidate(const Extension: string): Boolean;
+var Ext: string; Number: Int64;
+begin
+  Ext:=LowerCase(Extension).TrimLeft(['.']);
+  Result:=IsBasicConversionSource(Ext) or (Ext='fb') or (Ext='epup') or
+    ((Ext<>'') and TryStrToInt64(Ext,Number));
 end;
 
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
-  const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string);
+  const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean);
 var Work, InputName, OutputName, ReportName, Tool, Script, TargetTemporary: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
-  Extension, TargetExtension: string; Check: TProc;
+  Extension, TargetExtension, Actual: string; Check: TProc;
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
-  if not IsBasicConversionSource(Extension) or
+  if not IsConversionCandidate(Extension) or
      not ((TargetExtension='.fb2') or (TargetExtension='.epub')) then
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
   if FileExists(TargetFile) then raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
@@ -66,6 +75,12 @@ begin
       finally Input.Position:=SavedPosition; end;
     finally if not Assigned(Source) then Input.Free; end;
     Check;
+    Actual:=DetectReaderExtension(InputName);
+    if (Actual<>'') and IsBasicConversionSource(Actual) and not SameText(Actual,Extension) then
+    begin
+      TFile.Move(InputName,TPath.ChangeExtension(InputName,Actual));
+      InputName:=TPath.ChangeExtension(InputName,Actual); Extension:=Actual;
+    end;
     if IsDirectDOCFormat(Extension) then
     begin
       var DOCReader:=FindDirectDOCReader;
@@ -95,7 +110,9 @@ begin
     else
       try
         var Arguments:=TArray<string>.Create('-I','-B','-X','utf8',Script,InputName,OutputName,'--report',ReportName,
-          '--title',Title,'--author',Author,'--language',Language);
+          '--title',Title,'--author',Author,'--language',Language,
+          '--tools-root',TPath.Combine(AppPath,'tools'));
+        if ForReading then Arguments:=Arguments+TArray<string>.Create('--reading');
         if ((Extension='.html') or (Extension='.htm') or (Extension='.xhtml') or (Extension='.md') or (Extension='.markdown')) and
           SameText(ExtractFileExt(SourceFile),Extension) then
           Arguments:=Arguments+TArray<string>.Create('--resource-root',ExtractFilePath(TPath.GetFullPath(SourceFile)));

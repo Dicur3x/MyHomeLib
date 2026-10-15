@@ -24,7 +24,7 @@ uses
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
   unit_FB2MetadataRecovery, unit_WriteFb2Info,
-  unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas',
+  unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData,
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
   unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
@@ -558,7 +558,7 @@ begin
     Require(Selector.Items[6].SubItems[0]='0.21.0.0','Installed bundled DocSharp version missing');
     ChooseRow(Selector,6); var CopyKey: Word:=Ord('C');
     Selector.OnKeyDown(Selector,CopyKey,[ssCtrl]);
-    Require((CopyKey=0) and CopiedText.Contains('Чтение DOC · DocSharp') and
+    Require((CopyKey=0) and CopiedText.Contains('Чтение DOC, PPT и XLS · DocSharp') and
       CopiedText.Contains('0.21.0.0'),'Component purpose/library/version cannot be copied');
     Selector.PopupMenu.Items[1].Click;
     Require(CopiedText.StartsWith('Компонент'+#9) and CopiedText.Contains('HomeLib Ru') and
@@ -5370,6 +5370,7 @@ end;
 {$I DeletedFilterTests.inc}
 {$I PublisherSearchTests.inc}
 {$I Feedback20Tests.inc}
+{$I Feedback21Tests.inc}
 {$I MetadataArchiveCodecTests.inc}
 {$I PublisherColumnTests.inc}
 {$I AuthorFavoriteTests.inc}
@@ -5589,6 +5590,7 @@ begin
         TestCacheFolderPresets
       else if ParamStr(1) = 'metadata-archive-codecs' then
         TestMetadataArchiveCodecs
+      else if ParamStr(1) = 'feedback21' then TestFeedback21
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)
       else if ParamStr(1) = 'publisher-search' then

@@ -22,7 +22,7 @@ const
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
     (ID:'DjVuLibre'; Title:'Чтение DjVu'; URL:'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'7-Zip'; Title:'Распаковка архивов'; URL:'https://www.7-zip.org/download.html'; CheckKind:ccRaster; CheckOnly:False),
-    (ID:'DocSharp'; Title:'Чтение DOC'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False));
+    (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -59,6 +59,7 @@ function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRele
 function ParseSumatraReleases(const JSON: string; out Info: TProgramRelease): Boolean;
 function ParseRasterComponent(const Text, ID: string; out Info: TProgramRelease): Boolean;
 function ParseDocSharpVersions(const DocJSON, CommonJSON: string; out Info: TProgramRelease): Boolean;
+function ParseOfficeDocSharpVersions(const DocJSON, CommonJSON, PptJSON, XlsJSON: string; out Info: TProgramRelease): Boolean;
 function ComponentIDs: TArray<string>;
 function CheckedComponentIndices: TArray<Integer>;
 function ComponentTitle(Index: Integer): string;
@@ -129,6 +130,36 @@ begin
       'Изменения автора: '+Info.URL;
     Info.Changelog:=Info.History; Result:=True;
   finally Versions.Free; Doc.Free; Common.Free; end;
+end;
+
+function ParseOfficeDocSharpVersions(const DocJSON, CommonJSON, PptJSON, XlsJSON: string; out Info: TProgramRelease): Boolean;
+var Root: TJSONValue; Values: TJSONArray; Sets: TArray<TDictionary<string,Boolean>>;
+  Common: TJSONObject; Filtered: TJSONArray; Version: string; Index: Integer;
+begin
+  Result:=False; Info:=Default(TProgramRelease); SetLength(Sets,3);
+  try
+    for Index:=0 to 2 do
+    begin
+      Sets[Index]:=TDictionary<string,Boolean>.Create;
+      Root:=TJSONObject.ParseJSONValue(TArray<string>.Create(CommonJSON,PptJSON,XlsJSON)[Index]);
+      try
+        if not (Root is TJSONObject) or not TJSONObject(Root).TryGetValue<TJSONArray>('versions',Values) or (Values.Count>4096) then Exit;
+        for var Value in Values do if Value is TJSONString then Sets[Index].AddOrSetValue(Value.Value,True);
+      finally Root.Free; end;
+    end;
+    Common:=TJSONObject.Create; Filtered:=TJSONArray.Create; Common.AddPair('versions',Filtered);
+    try
+      for Version in Sets[0].Keys do if Sets[1].ContainsKey(Version) and Sets[2].ContainsKey(Version) then Filtered.Add(Version);
+      Result:=ParseDocSharpVersions(DocJSON,Common.ToJSON,Info);
+      if Result then
+      begin
+        Info.AdditionalURLs:=TArray<string>.Create(
+          'https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/'+Info.ComponentVersion+'/docsharp.binary.ppt.'+Info.ComponentVersion+'.nupkg',
+          'https://api.nuget.org/v3-flatcontainer/docsharp.binary.xls/'+Info.ComponentVersion+'/docsharp.binary.xls.'+Info.ComponentVersion+'.nupkg');
+        Info.History:=Info.History.Replace('DocSharp.Binary.Doc и DocSharp.Binary.Common','DocSharp.Binary.Doc, Common, Ppt и Xls'); Info.Changelog:=Info.History;
+      end;
+    finally Common.Free; end;
+  finally for var SetValue in Sets do SetValue.Free; end;
 end;
 
 procedure MergeVerifiedComponentPackages(var Current: TComponentReleases; const Published: TComponentReleases);
@@ -473,6 +504,14 @@ var I: Integer; DownloadPage, Changes, Folder: string; Response: IHTTPResponse; 
         (Response.ContentLength>UPDATE_MAX_ARCHIVE-Info.Size) then raise Exception.Create('Не удалось проверить второй пакет библиотеки.');
       Info.SecondarySize:=Response.ContentLength; Info.Size:=Info.Size+Info.SecondarySize;
     end;
+    SetLength(Info.AdditionalSizes,Length(Info.AdditionalURLs));
+    for var Index:=0 to High(Info.AdditionalURLs) do
+    begin
+      Response:=FetchHead(Info.AdditionalURLs[Index]); if Terminated then Abort;
+      if (Response.StatusCode<>200) or (Response.ContentLength<1) or
+        (Response.ContentLength>UPDATE_MAX_ARCHIVE-Info.Size) then raise Exception.Create('Не удалось проверить дополнительный пакет библиотеки.');
+      Info.AdditionalSizes[Index]:=Response.ContentLength; Inc(Info.Size,Response.ContentLength);
+    end;
   end;
   procedure AuthorNotes(const API: string; var Info: TProgramRelease);
   begin
@@ -545,8 +584,10 @@ begin
           begin
             DownloadPage:=FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json');
             Changes:=FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json');
-            if not ParseDocSharpVersions(DownloadPage,Changes,FReleases[I]) then
-              raise Exception.Create('Не удалось проверить стабильную версию обеих библиотек DocSharp.');
+            if not ParseOfficeDocSharpVersions(DownloadPage,Changes,
+              FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/index.json'),
+              FetchText('https://api.nuget.org/v3-flatcontainer/docsharp.binary.xls/index.json'),FReleases[I]) then
+              raise Exception.Create('Не удалось проверить согласованную версию всех четырёх библиотек DocSharp.');
             GetSize(FReleases[I]);
             AuthorNotes('https://api.github.com/repos/manfromarce/DocSharp/releases?per_page=30',FReleases[I]);
           end;

@@ -13,7 +13,7 @@ type
   public
     constructor Create(const Source: string);
     destructor Destroy; override;
-    function TemporaryName(const Destination: string): string;
+    function TemporaryName(const Destination: string; KeepExtension: Boolean = False): string;
     procedure Publish(const Temporary: string; var Destination: string; const TemporaryStamp: string = '');
   end;
 
@@ -557,9 +557,10 @@ begin
   inherited;
 end;
 
-function TBookCacheWrite.TemporaryName(const Destination: string): string;
+function TBookCacheWrite.TemporaryName(const Destination: string; KeepExtension: Boolean): string;
 begin
   Result:=Destination+'.pending-'+IntToStr(GetCurrentProcessId)+'-'+IntToStr(GetCurrentThreadId)+'-'+TGUID.NewGuid.ToString;
+  if KeepExtension then Result:=Result+ExtractFileExt(Destination);
   TMonitor.Enter(CacheGuard); try FPending:=FPending+[Result]; finally TMonitor.Exit(CacheGuard); end;
 end;
 

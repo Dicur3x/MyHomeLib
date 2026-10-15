@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][ValidateSet('Win32','Win64')][string]$Platform,
     [Parameter(Mandatory=$true)][ValidateSet('SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp')][string]$Component,
@@ -22,7 +22,7 @@ $files=@{
     SumatraPDF=@('Readers/SumatraPDF/SumatraPDF.exe','Readers/SumatraPDF/AUTHORS.txt',
         'Readers/SumatraPDF/COPYING.BSD.txt','Readers/SumatraPDF/COPYING.txt')
     '7-Zip'=@('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
-    DocSharp=@('tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll','tools/doc/HomeLibDoc.exe',
+    DocSharp=@('tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll','tools/doc/DocSharp.Binary.Ppt.dll','tools/doc/DocSharp.Binary.Xls.dll','tools/doc/HomeLibDoc.exe',
         'tools/doc/DOC_RUNTIME.json','tools/doc/DocSharp-MIT.txt','tools/doc/b2xtranslator-BSD-3-Clause.txt','tools/doc/HomeLibDoc-MIT.txt')
     DjVuLibre=@('tools/djvu/djvused.exe','tools/djvu/ddjvu.exe','tools/djvu/libdjvulibre.dll','tools/djvu/libjpeg.dll',
         'tools/djvu/libtiff.dll','tools/djvu/libz.dll','tools/djvu/COPYING.txt','tools/djvu/COPYRIGHT',

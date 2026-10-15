@@ -575,7 +575,7 @@ begin
       // Only reading formats; archive entry paths are never used as output paths.
       if ConversionOnly then
       begin
-        if IsBasicConversionSource(Extension) and not SameText(Extension,TargetExtension) then Candidates.Add(I);
+        if IsConversionCandidate(Extension) and not SameText(Extension,TargetExtension) then Candidates.Add(I);
         Continue;
       end;
       if (Extension = '.fb2') or (Extension = '.epub') or (Extension = '.pdf') or
@@ -768,7 +768,8 @@ begin
       Exit(PrepareDetectedReaderFile(Book.GetBookFileName,Book.GetBookFileName));
   end;
   // Reuse exact-entry extraction, cache identity and the archive chooser, but
-  // never prepare Office/Kindle or offer scans as conversion candidates.
+  // never prepare Office/Kindle. PDF/DjVu need a readable text layer, checked by
+  // the converter after exact extraction; filename extensions are not proof.
   Result:=PrepareReaderFileCore(Book,True,OnStage,False,True,TargetExtension);
   if Result<>'' then Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
 end;

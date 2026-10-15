@@ -202,26 +202,17 @@ begin
     Unchanged('KF8 warm adapter');
     Writeln('PASS actual KF8 warm adapter accepts a proved preseeded dependency despite input Touch with zero unpack stages and exact result bytes'); Flush(Output);
 
-    Tool:=FindReaderOffice;
-    if Tool<>'' then
-    begin
-      OfficeSource:=Root+'source.pptx'; TFile.WriteAllText(OfficeSource,'Private office cache probe',TEncoding.UTF8); Protect(OfficeSource);
-      Publish(OfficeSource,'.pptx',TFile.ReadAllBytes(OfficeSource),OfficeInput);
-      OfficeResult:=TPath.Combine(CacheRoot,'homelib-office-'+Copy(THashSHA2.GetHashString(OfficeInput),1,32)+'.pdf');
-      Require(GetFileAttributesEx(PChar(Tool),GetFileExInfoStandard,@ToolData),'Cannot inspect installed Office tool identity');
-      Input:=OpenCachedBookFile(OfficeInput);
-      try Stamp:='office-pdf-v2|'+BookCacheInputStamp(OfficeInput,OfficeSource)+'|'+Tool+'|'+
-          IntToStr(ToolData.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(ToolData.ftLastWriteTime.dwLowDateTime);
-        SeedResult(OfficeSource,OfficeResult,Stamp,TEncoding.UTF8.GetBytes('%PDF-1.4 private owned warm result'));
-      finally FreeAndNil(Input); end;
-      var OfficeHash:=THashSHA2.GetHashStringFromFile(OfficeResult); Stages.Clear;
-      Locked:=TFileStream.Create(OfficeResult,fmOpenRead or fmShareDenyWrite);
-      try Again:=PrepareOfficeReaderFile(OfficeInput,OfficeSource,procedure(Stage: string) begin Stages.Add(Stage); end);
-        Require((Stages.Count=1) and Stages[0].Contains('из кэша') and SameFileName(Again,OfficeResult) and
-          (THashSHA2.GetHashStringFromFile(Again)=OfficeHash),'Actual Office warm adapter launched conversion or rewrote its locked result');
-      finally FreeAndNil(Locked); end;
-      Writeln('PASS actual installed Office adapter reuses a protected preseeded warm result without launching LibreOffice'); Flush(Output);
-    end else begin Writeln('SKIP installed Office adapter: LibreOffice is absent; DOC/KF8/detected and shared identity gates remain mandatory'); Flush(Output); end;
+    Require(FindReaderOffice<>'','Bundled portable office interpreter is missing');
+    OfficeSource:=Root+'source.pptx';
+    TFile.Copy(Settings.AppPath+'metadata-archive-fixtures\portable-reader.pptx',OfficeSource,False); Protect(OfficeSource);
+    Publish(OfficeSource,'.pptx',TFile.ReadAllBytes(OfficeSource),OfficeInput);
+    OfficeResult:=PrepareOfficeReaderFile(OfficeInput,OfficeSource); var OfficeHash:=THashSHA2.GetHashStringFromFile(OfficeResult);
+    Locked:=TFileStream.Create(OfficeResult,fmOpenRead or fmShareDenyWrite);
+    try Stages.Clear; Again:=PrepareOfficeReaderFile(OfficeInput,OfficeSource,procedure(Stage: string) begin Stages.Add(Stage); end);
+      Require((Stages.Count=1) and Stages[0].Contains('из кэша') and SameFileName(Again,OfficeResult) and
+        (THashSHA2.GetHashStringFromFile(Again)=OfficeHash),'Portable Office warm adapter ran conversion or rewrote its locked result');
+    finally FreeAndNil(Locked); end;
+    Writeln('PASS portable Office adapter reuses a protected real warm result without starting an installed office suite'); Flush(Output);
     Unchanged('Complete pipeline cache gate');
     Writeln('PASS pipeline preparation preserves all physical originals, archive bytes, reader history, notes and active settings/profile'); Flush(Output);
   finally FreeAndNil(Locked); FreeAndNil(Input); Stages.Free; end;

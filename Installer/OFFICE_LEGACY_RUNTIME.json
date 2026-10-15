@@ -1,0 +1,221 @@
+{
+  "component": "Portable legacy Office reader",
+  "architecture": "x86_64 (runs from Win32 and Win64 HomeLib Ru on 64-bit Windows)",
+  "versions": {
+    "libwps": "0.4.14",
+    "libwpd": "0.10.3",
+    "librevenge": "0.0.6"
+  },
+  "packages": [
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libwps-0.4.14-2-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-libwps-0.4.14-2-any.pkg.tar.zst",
+      "sha256": "a67343e95a42680185e6f07dd0a197d6ad91db41dd452561459554e3e4d20dbf",
+      "bytes": 841040
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libwpd-0.10.3-3-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-libwpd-0.10.3-3-any.pkg.tar.zst",
+      "sha256": "f7e23fabf4ddf6ce6a424a1afdf35e930960271b8bff6327a4143e40974e3465",
+      "bytes": 402135
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-librevenge-0.0.6-1-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-librevenge-0.0.6-1-any.pkg.tar.zst",
+      "sha256": "695bd72092c0657d5ea823c0a4d06a19b18bc97ea6f9326cba3688621a251f94",
+      "bytes": 799208
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libc%2B%2B-23.1.3-1-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-libc++-23.1.3-1-any.pkg.tar.zst",
+      "sha256": "df3744b6bb6a39472d29424e0d45f573e750ee86058100b6d227e5294b98da39",
+      "bytes": 1963078
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-zlib-1.3.2-2-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-zlib-1.3.2-2-any.pkg.tar.zst",
+      "sha256": "96d8db2f2bf24c0d4e82b899d50a3497d97536a8bd38ce275401d0f2b9580b5e",
+      "bytes": 111651
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libunwind-23.1.3-1-any.pkg.tar.zst",
+      "name": "mingw-w64-clang-x86_64-libunwind-23.1.3-1-any.pkg.tar.zst",
+      "sha256": "6dc583bd260a65e36ac7fe3bcf6669848032ed5edf4308591a338a3c02c88241",
+      "bytes": 63334
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/sources/mingw-w64-libwpd-0.10.3-3.src.tar.zst",
+      "name": "mingw-w64-libwpd-0.10.3-3.src.tar.zst",
+      "sha256": "e0deac916cbb6502bc34899f5df97395616bc528463ea7204a220da353dc51d7",
+      "bytes": 537433
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/sources/mingw-w64-librevenge-0.0.6-1.src.tar.zst",
+      "name": "mingw-w64-librevenge-0.0.6-1.src.tar.zst",
+      "sha256": "60a1f4082d211e4f5f3de884e565d71562cdf008c22c22d2376bef72dc8e7944",
+      "bytes": 445231
+    },
+    {
+      "url": "https://mirror.msys2.org/mingw/sources/mingw-w64-libwps-0.4.14-2.src.tar.zst",
+      "name": "mingw-w64-libwps-0.4.14-2.src.tar.zst",
+      "sha256": "7bb61248317e457fad69172756f1e57a6945380755f0acbbb9ccc33469a03704",
+      "bytes": 720834
+    }
+  ],
+  "files": [
+    {
+      "package": 0,
+      "entry": "clang64/bin/libwps-0.4.dll",
+      "path": "libwps-0.4.dll",
+      "bytes": 2343424,
+      "sha256": "cddbd4370f123a21c6129e07cc27da7146f3390af00afd710f640b4097c9a9c1"
+    },
+    {
+      "package": 0,
+      "entry": "clang64/bin/wps2html.exe",
+      "path": "wps2html.exe",
+      "bytes": 69632,
+      "sha256": "c1d02a992cc7f60c467f1c4b045de671746e1c42dc50f9beae088f092bfbffe3"
+    },
+    {
+      "package": 0,
+      "entry": "clang64/share/licenses/libwps/COPYING.LGPL",
+      "path": "licenses/libwps/COPYING.LGPL",
+      "bytes": 26521,
+      "sha256": "592987e8510228d546540b84a22444bde98e48d03078d3b2eefcd889bec5ce8c"
+    },
+    {
+      "package": 0,
+      "entry": "clang64/share/licenses/libwps/COPYING.MPL",
+      "path": "licenses/libwps/COPYING.MPL",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "package": 1,
+      "entry": "clang64/bin/libwpd-0.10.dll",
+      "path": "libwpd-0.10.dll",
+      "bytes": 679424,
+      "sha256": "058ef0a235c9f9a15d2169af4513fee0b7696f129defaddb06ab61043dd1257d"
+    },
+    {
+      "package": 1,
+      "entry": "clang64/bin/wpd2html.exe",
+      "path": "wpd2html.exe",
+      "bytes": 45568,
+      "sha256": "aff2c1f93826ff43ec4766889e8bbec813cdcfc9c0c6b03492b44d4e876dc992"
+    },
+    {
+      "package": 1,
+      "entry": "clang64/share/licenses/libwpd/COPYING.LGPL",
+      "path": "licenses/libwpd/COPYING.LGPL",
+      "bytes": 26521,
+      "sha256": "592987e8510228d546540b84a22444bde98e48d03078d3b2eefcd889bec5ce8c"
+    },
+    {
+      "package": 1,
+      "entry": "clang64/share/licenses/libwpd/COPYING.MPL",
+      "path": "licenses/libwpd/COPYING.MPL",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "package": 2,
+      "entry": "clang64/bin/librevenge-0.0.dll",
+      "path": "librevenge-0.0.dll",
+      "bytes": 247808,
+      "sha256": "25d3bf38cc4632a22e037dd9c8872f4c5e9d649726e2ec43ba00f8a22093c8ac"
+    },
+    {
+      "package": 2,
+      "entry": "clang64/bin/librevenge-generators-0.0.dll",
+      "path": "librevenge-generators-0.0.dll",
+      "bytes": 461824,
+      "sha256": "1b22a127196d351328b98bbae3348ed2000c963d26bde96e8c425deb7bb5955d"
+    },
+    {
+      "package": 2,
+      "entry": "clang64/bin/librevenge-stream-0.0.dll",
+      "path": "librevenge-stream-0.0.dll",
+      "bytes": 133120,
+      "sha256": "98aa7be99248c594c92c70cf82f6d5e7e93b6cca912b47248b157a4c8c41e22c"
+    },
+    {
+      "package": 2,
+      "entry": "clang64/share/licenses/librevenge/COPYING.LGPL",
+      "path": "licenses/librevenge/COPYING.LGPL",
+      "bytes": 26521,
+      "sha256": "592987e8510228d546540b84a22444bde98e48d03078d3b2eefcd889bec5ce8c"
+    },
+    {
+      "package": 2,
+      "entry": "clang64/share/licenses/librevenge/COPYING.MPL",
+      "path": "licenses/librevenge/COPYING.MPL",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "package": 3,
+      "entry": "clang64/bin/libc++.dll",
+      "path": "libc++.dll",
+      "bytes": 1580544,
+      "sha256": "61948629d7c7e3274d4a242e62cbd5ce88919915fde347d256e1286a105a4afa"
+    },
+    {
+      "package": 3,
+      "entry": "clang64/share/licenses/libc++/LICENSE",
+      "path": "licenses/libc++/LICENSE",
+      "bytes": 16703,
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+    },
+    {
+      "package": 4,
+      "entry": "clang64/bin/zlib1.dll",
+      "path": "zlib1.dll",
+      "bytes": 131072,
+      "sha256": "94dd0a72d4da79e25294a91d1edf902d76eade7512d9218609a5fe43e3a7397a"
+    },
+    {
+      "package": 4,
+      "entry": "clang64/share/licenses/zlib/LICENSE",
+      "path": "licenses/zlib/LICENSE",
+      "bytes": 1002,
+      "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+    },
+    {
+      "package": 5,
+      "entry": "clang64/bin/libunwind.dll",
+      "path": "libunwind.dll",
+      "bytes": 59392,
+      "sha256": "3f2e409cdfb426bd380044ae60a865355634c60bba7ea87aa37a13b06b70bfe5"
+    },
+    {
+      "package": 5,
+      "entry": "clang64/share/licenses/libunwind/LICENSE",
+      "path": "licenses/libunwind/LICENSE",
+      "bytes": 16706,
+      "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"
+    },
+    {
+      "package": 6,
+      "entry": null,
+      "path": "sources/mingw-w64-libwpd-0.10.3-3.src.tar.zst",
+      "bytes": 537433,
+      "sha256": "e0deac916cbb6502bc34899f5df97395616bc528463ea7204a220da353dc51d7"
+    },
+    {
+      "package": 7,
+      "entry": null,
+      "path": "sources/mingw-w64-librevenge-0.0.6-1.src.tar.zst",
+      "bytes": 445231,
+      "sha256": "60a1f4082d211e4f5f3de884e565d71562cdf008c22c22d2376bef72dc8e7944"
+    },
+    {
+      "package": 8,
+      "entry": null,
+      "path": "sources/mingw-w64-libwps-0.4.14-2.src.tar.zst",
+      "bytes": 720834,
+      "sha256": "7bb61248317e457fad69172756f1e57a6945380755f0acbbb9ccc33469a03704"
+    }
+  ]
+}

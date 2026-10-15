@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.20';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.21';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -18,6 +18,7 @@ type
     URL: string;
     DownloadURL, SHA256: string;
     SecondaryURL: string; SecondarySize: Int64;
+    AdditionalURLs: TArray<string>; AdditionalSizes: TArray<Int64>;
     Notes, Changelog, History: string;
     PublishedAt: string;
     Size: Int64;
@@ -294,7 +295,7 @@ begin
 end;
 
 procedure TProgramDownloadThread.Execute;
-var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: string;
+var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: string; AdditionalArchives: TArray<string>; AdditionalTotal, Offset: Int64;
   procedure DownloadPart(const URL, Destination: string; Size, Offset: Int64);
   begin
     FPartSize:=Size; FPartOffset:=Offset;
@@ -315,21 +316,41 @@ begin
     if (FRelease.SecondaryURL<>'') and not IsOfficialComponentURL(FRelease.ComponentID,
       FRelease.ComponentVersion,FRelease.SecondaryURL,ProgramUpdatePlatform,True) then
       raise Exception.Create('Адрес второго пакета не принадлежит официальному источнику компонента.');
+    AdditionalTotal:=0;
+    if (Length(FRelease.AdditionalURLs)<>Length(FRelease.AdditionalSizes)) or (Length(FRelease.AdditionalURLs)>2) then
+      raise Exception.Create('Некорректный список пакетов компонента.');
+    for var I:=0 to High(FRelease.AdditionalURLs) do
+    begin
+      if (FRelease.ComponentID<>'DocSharp') or
+        (FRelease.AdditionalURLs[I]<>'https://api.nuget.org/v3-flatcontainer/docsharp.binary.'+
+          TArray<string>.Create('ppt','xls')[I]+'/'+FRelease.ComponentVersion+'/docsharp.binary.'+
+          TArray<string>.Create('ppt','xls')[I]+'.'+FRelease.ComponentVersion+'.nupkg') or
+        (FRelease.AdditionalSizes[I]<1) or (FRelease.AdditionalSizes[I]>UPDATE_MAX_ARCHIVE) then
+        raise Exception.Create('Адрес дополнительного пакета не принадлежит официальному источнику компонента.');
+      Inc(AdditionalTotal,FRelease.AdditionalSizes[I]);
+    end;
     if (FRelease.DownloadURL = '') or
        (not FRelease.OfficialComponent and not IsUpdateSHA256(FRelease.SHA256)) or
        (FRelease.Size <= 0) or (FRelease.Size > UPDATE_MAX_ARCHIVE) then
       raise Exception.Create('Для этого выпуска недоступно обновление внутри программы. Откройте страницу выпуска.');
     AssertUpdatePath(FJob); ForceDirectories(FJob);
     Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
-    if (FRelease.SecondarySize<0) or (FRelease.SecondarySize>=FRelease.Size) then
+    if (FRelease.SecondarySize<0) or (FRelease.SecondarySize+AdditionalTotal>=FRelease.Size) then
       raise Exception.Create('Некорректный размер составного обновления.');
-    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize,0);
+    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize-AdditionalTotal,0);
     SecondaryArchive:='';
     if FRelease.SecondaryURL<>'' then
     begin
       if FRelease.SecondarySize<1 then raise Exception.Create('Не подтверждён второй пакет библиотеки.');
       SecondaryArchive:=IncludeTrailingPathDelimiter(FJob)+'secondary.archive';
-      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize);
+      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize-AdditionalTotal);
+    end;
+    Offset:=FRelease.Size-AdditionalTotal; SetLength(AdditionalArchives,Length(FRelease.AdditionalURLs));
+    for var I:=0 to High(AdditionalArchives) do
+    begin
+      AdditionalArchives[I]:=IncludeTrailingPathDelimiter(FJob)+'additional-'+IntToStr(I)+'.archive';
+      DownloadPart(FRelease.AdditionalURLs[I],AdditionalArchives[I],FRelease.AdditionalSizes[I],Offset);
+      Inc(Offset,FRelease.AdditionalSizes[I]);
     end;
     PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
     if FRelease.OfficialComponent then
@@ -341,7 +362,7 @@ begin
         (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
         raise Exception.Create('Официальная контрольная сумма 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
-      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,ExtractFilePath(ParamStr(0)));
+      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,ExtractFilePath(ParamStr(0)),AdditionalArchives);
     end
     else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
       True, FRelease.ComponentID, FRelease.ComponentVersion);
