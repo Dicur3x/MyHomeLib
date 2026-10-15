@@ -5,6 +5,7 @@ var Form: TfrmSettings; Probe: TFCTModalProbe; SavedScripts: TScripts;
   SavedDefault, SavedMinutes, Value, Parsed, ExpectedDefault: Integer; SavedChecks, SavedTheme: Boolean;
   ScriptPath: string;
   SavedLastCheck: TDateTime;
+  TargetPPI, BasePPI, BaseWidth, BaseFontHeight: Integer;
 
   procedure DeleteRow(Index: Integer);
   begin
@@ -32,9 +33,24 @@ begin
       SetMHLTheme(CaseIndex = 1);
       Form := TfrmSettings.Create(nil);
       try
-        Form.LoadSetting; Form.ScaleForPPI(96 + CaseIndex * 48);
-        Form.Show; Form.tvSections.Select(Form.tvSections.Items[Form.tsInternet.PageIndex]);
+        Form.LoadSetting; Form.Show;
+        Form.tvSections.Select(Form.tvSections.Items[Form.tsInternet.PageIndex]);
         Application.ProcessMessages;
+        // Showing the tab and applying a VCL style can recreate its handle and
+        // restore the physical monitor DPI. Simulate DPI only after that work.
+        TargetPPI := 96 + CaseIndex * 48;
+        BasePPI := Form.edProgramInterval.Font.PixelsPerInch;
+        BaseWidth := Form.edProgramInterval.Width;
+        BaseFontHeight := Abs(Form.edProgramInterval.Font.Height);
+        Form.ScaleForPPI(TargetPPI);
+        Require((Form.Font.PixelsPerInch = TargetPPI) and
+          (Form.edProgramInterval.Font.PixelsPerInch = TargetPPI),
+          'Settings form and interval fonts did not adopt the requested scale');
+        Require(Abs(Form.edProgramInterval.Width - MulDiv(BaseWidth, TargetPPI, BasePPI)) <= 2,
+          'Settings interval geometry did not scale');
+        Require(Abs(Abs(Form.edProgramInterval.Font.Height) -
+          MulDiv(BaseFontHeight, TargetPPI, BasePPI)) <= 1,
+          'Settings interval font height did not scale');
         Require((Form.cbProgramInterval.ItemIndex = 8) and
           not Form.udProgramInterval.Thousands and
           TryStrToInt(Form.edProgramInterval.Text,Parsed) and (Parsed = Value),
@@ -46,7 +62,7 @@ begin
         Require(Settings.CheckUpdate and (Settings.ProgramUpdateMinutes = Value),
           'Custom update interval did not survive profile save/reload');
         Writeln('PASS settings custom update interval ',Value,
-          ' survives actual load/save/reload at ',Form.CurrentPPI,' DPI dark=',Ord(MHLThemeDark));
+          ' survives actual load/save/reload at ',96 + CaseIndex * 48,' DPI dark=',Ord(MHLThemeDark));
       finally FreeAndNil(Form); end;
     end;
 
@@ -84,14 +100,20 @@ begin
       procedure(Popup: TForm)
       var Editor: TfrmEditScript;
       begin
-        Editor := TfrmEditScript(Popup); Editor.ScaleForPPI(192);
+        Editor := TfrmEditScript(Popup);
+        Writeln('TRACE script edit scale'); Flush(Output);
+        Editor.ScaleForPPI(192);
+        Writeln('TRACE script edit values'); Flush(Output);
         Require((Editor.Title = 'Selected export') and (Editor.Params = 'third') and
           not Editor.Standalone,'Actual script editor loaded another row');
         Editor.Title := 'Выбранный экспорт ё'; Editor.Params := 'changed';
+        Writeln('TRACE script edit save'); Flush(Output);
         Editor.btnSaveClick(nil);
+        Writeln('TRACE script edit callback complete'); Flush(Output);
       end);
     try
       Form.btnEditScriptClick(nil);
+      Writeln('TRACE script edit modal returned'); Flush(Output);
       Require(Probe.Completed and (Form.lvScripts.Items.Count = 4) and
         (Form.lvScripts.Items[2].Caption = 'Выбранный экспорт ё') and
         (Form.lvScripts.Items[2].SubItems[1] = 'changed') and

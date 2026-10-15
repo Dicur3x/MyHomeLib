@@ -1067,13 +1067,18 @@ end;
 procedure TfrmSettings.EditScript(AItem: TListItem);
 var
   frmEditScript: TfrmEditScript;
-  nIndex: Integer;
+  nIndex, ItemIndex: Integer;
 begin
+  ItemIndex := -1;
+  if Assigned(AItem) then ItemIndex := AItem.Index;
   frmEditScript := TfrmEditScript.Create(Self);
   try
-    frmEditScript.Caption := IfThen(Assigned(AItem), rstrChangeScriptParams, rstrAddScript);
-    if Assigned(AItem) then
+    frmEditScript.Caption := IfThen(ItemIndex >= 0, rstrChangeScriptParams, rstrAddScript);
+    if ItemIndex >= 0 then
     begin
+      if ItemIndex >= lvScripts.Items.Count then
+        raise Exception.Create('Список скриптов изменился. Повторите редактирование.');
+      AItem := lvScripts.Items[ItemIndex];
       frmEditScript.Title := AItem.Caption;
       frmEditScript.Path := AItem.SubItems[0];
       frmEditScript.Params := AItem.SubItems[1];
@@ -1082,17 +1087,23 @@ begin
 
     if frmEditScript.ShowModal = mrOk then
     begin
-      if Assigned(AItem) then
+      // A DPI/style change may recreate the native list and its TListItems
+      // while the editor is modal. The disabled list keeps its row order.
+      if ItemIndex >= 0 then
       begin
+        if (ItemIndex >= lvScripts.Items.Count) or
+          (ItemIndex + 1 >= cbDefaultAction.Items.Count) then
+          raise Exception.Create('Список скриптов изменился. Повторите редактирование.');
         nIndex := cbDefaultAction.ItemIndex;
-        cbDefaultAction.Items[AItem.Index + 1] := frmEditScript.Title;
+        cbDefaultAction.Items[ItemIndex + 1] := frmEditScript.Title;
         cbDefaultAction.ItemIndex := nIndex;
       end
       else
         cbDefaultAction.Items.Add(frmEditScript.Title);
 
-      if Assigned(AItem) then
+      if ItemIndex >= 0 then
       begin
+        AItem := lvScripts.Items[ItemIndex];
         AItem.SubItems[0] := frmEditScript.Path;
         AItem.SubItems[1] := frmEditScript.Params;
       end
