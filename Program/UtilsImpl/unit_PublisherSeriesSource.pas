@@ -309,7 +309,7 @@ begin
 end;
 
 function TPublisherSeriesSource.OpenCatalogMetadata(const Book: TBookRecord; out Extension: string): TStream;
-var Path,Entry,CandidateExtension: string; Candidate: Integer;
+var Path,Entry,CandidateExtension: string; Candidate,MimeIndex: Integer; MimeStream: TStream; MimeBytes: TBytes;
 begin
   Extension:=LowerCase(Book.FileExt);
   if not IsMetadataContainer(Extension) then Exit(OpenDescriptor(Book,False));
@@ -322,17 +322,29 @@ begin
   begin Extension:='.fb3'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
   if FEntryIndex.ContainsKey('word/document.xml') and FEntryIndex.ContainsKey('[content_types].xml') then
   begin Extension:='.docx'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+  if FEntryIndex.ContainsKey('content.xml') and FEntryIndex.ContainsKey('meta.xml') and
+    FEntryIndex.TryGetValue('mimetype',MimeIndex) and (MimeIndex>=0) then
+  begin
+    if not Assigned(FNative) then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled);
+    MimeStream:=FNative.ReadEntry('mimetype',256);
+    try
+      SetLength(MimeBytes,MimeStream.Size);
+      if Length(MimeBytes)>0 then MimeStream.ReadBuffer(MimeBytes[0],Length(MimeBytes));
+      if Trim(TEncoding.UTF8.GetString(MimeBytes))='application/vnd.oasis.opendocument.text' then
+      begin Extension:='.odt'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+    finally MimeStream.Free; end;
+  end;
   Candidate:=-1;
   for var I:=0 to ArchiveCount-1 do
   begin
     CandidateExtension:=LowerCase(ExtractFileExt(ArchiveName(I)));
-    if (CandidateExtension<>'.fb2') and not IsMetadataPackage(CandidateExtension) then Continue;
+    if (CandidateExtension<>'.fb2') and (CandidateExtension<>'.fbd') and not IsMetadataPackage(CandidateExtension) then Continue;
     if Candidate>=0 then raise EMetadataAmbiguousBook.Create('В архиве несколько книг. Нельзя автоматически приписать их сведения одной записи каталога.');
     Candidate:=I; Entry:=ArchiveName(I); Extension:=CandidateExtension;
   end;
   if Candidate<0 then begin Extension:=''; Exit(nil); end;
   if not Assigned(FNative) then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled);
-  if Extension='.fb2' then Result:=FNative.ReadPrefix(Entry,16*1024*1024,
+  if (Extension='.fb2') or (Extension='.fbd') then Result:=FNative.ReadPrefix(Entry,16*1024*1024,
     function(Stream: TStream): Boolean begin Result:=PrefixComplete(Stream); end)
   else Result:=FNative.ReadEntry(Entry,64*1024*1024);
 end;

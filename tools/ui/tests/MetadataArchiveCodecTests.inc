@@ -64,18 +64,24 @@ begin
 
   Source:=TPublisherSeriesSource.Create(nil); Reader:=TFB2PublisherMetadataReader.Create;
   try
-    for var Name in TArray<string>.Create('single.zip','single.tar','single.fb2.gz','single.fb2.bz2','single.fb2.xz','renamed.zip') do
+    for var Name in TArray<string>.Create('single.zip','single.tar','single.fb2.gz','single.fb2.bz2','single.fb2.xz','renamed.zip','renamed-odt.zip','single-fbd.zip') do
     begin
       Book:=Default(TBookRecord); Book.CollectionRoot:=Folder; Book.FileName:=ChangeFileExt(Name,''); Book.FileExt:=ExtractFileExt(Name);
       Stream:=Source.OpenCatalogMetadata(Book,ActualExtension);
       try
         Require(Assigned(Stream),'Container metadata did not locate its single supported book: '+Name);
-        if ActualExtension='.epub' then Require(ReadPackageMetadata(Stream,ActualExtension,Metadata,ErrorText,True)=fmsComplete,ErrorText)
+        if IsMetadataPackage(ActualExtension) then Require(ReadPackageMetadata(Stream,ActualExtension,Metadata,ErrorText,True)=fmsComplete,ErrorText)
         else Require(Reader.ReadCatalogMetadata(Stream,Metadata,ErrorText,True)=fmsComplete,ErrorText);
         Require(Metadata.Publisher='Издательство Ёжик','Container metadata chose the wrong contents '+Name);
+        if Name='renamed-odt.zip' then Require(ActualExtension='.odt','Renamed ODT package was not identified by MIME type');
+        if Name='single-fbd.zip' then Require(ActualExtension='.fbd','Archived FBD description was not identified');
       finally Stream.Free; end;
       Writeln('PASS single-book metadata container ',Name,' detected=',ActualExtension);
     end;
+    Book.FileName:='renamed-ods'; Book.FileExt:='.zip';
+    Stream:=Source.OpenCatalogMetadata(Book,ActualExtension);
+    try Require(not Assigned(Stream),'Spreadsheet MIME was incorrectly treated as a supported ODT book'); finally Stream.Free; end;
+    Writeln('PASS metadata package MIME distinguishes text ODT from unsupported spreadsheets');
     Book.FileName:='ambiguous'; Book.FileExt:='.zip'; Rejected:=False;
     try Stream:=Source.OpenCatalogMetadata(Book,ActualExtension); Stream.Free;
     except on E: EMetadataAmbiguousBook do Rejected:=True; end;
