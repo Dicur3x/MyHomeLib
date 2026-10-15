@@ -1033,17 +1033,26 @@ end;
 
 procedure TSystemData_SQLite.SetExtra(const BookKey: TBookKey; extra: TBookExtra);
 const
-  SQL_UPDATE = 'UPDATE Books Set Rate = ?, Progress = ?, Review = ? WHERE BookID = ? AND DatabaseID = ? ';
+  SQL_UPDATE = 'UPDATE Books SET Rate = CASE WHEN ? = 0 THEN Rate ELSE ? END, '
+    + 'Progress = CASE WHEN ? = 0 THEN Progress ELSE ? END, '
+    + 'Review = CASE WHEN ? THEN ? ELSE Review END WHERE BookID = ? AND DatabaseID = ? ';
 var
   query: TSQLiteQuery;
 begin
+  // Imported rows are partial: old .mhlud stores rating, progress and review
+  // in separate sections. Match the catalog importer instead of clearing
+  // earlier imported values (or existing personal data) in the system copy.
+  if (extra.Rating = 0) and (extra.Progress = 0) and (extra.Review = '') then Exit;
   query := FDatabase.NewQuery(SQL_UPDATE);
   try
     query.SetParam(0, extra.Rating);
-    query.SetParam(1, extra.Progress);
-    query.SetBlobParam(2, extra.Review);
-    query.SetParam(3, BookKey.BookID);
-    query.SetParam(4, BookKey.DatabaseID);
+    query.SetParam(1, extra.Rating);
+    query.SetParam(2, extra.Progress);
+    query.SetParam(3, extra.Progress);
+    query.SetParam(4, extra.Review <> '');
+    query.SetBlobParam(5, extra.Review);
+    query.SetParam(6, BookKey.BookID);
+    query.SetParam(7, BookKey.DatabaseID);
     query.ExecSQL;
   finally
     FreeAndNil(query);

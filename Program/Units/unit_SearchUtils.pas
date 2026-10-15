@@ -32,6 +32,68 @@ uses
   unit_Globals,
   unit_Consts;
 
+function QualifySearchExpression(const Value, Field: string): string;
+var
+  I, Start: Integer;
+  Quote: Char;
+  IsOperator: Boolean;
+  Builder: TStringBuilder;
+begin
+  Builder := TStringBuilder.Create;
+  try
+    I := 1;
+    Quote := #0;
+    while I <= Length(Value) do
+    begin
+      if Quote <> #0 then
+      begin
+        Builder.Append(Value[I]);
+        if Value[I] = Quote then
+        begin
+          // SQL escapes either kind of quote by doubling it.
+          if (I < Length(Value)) and (Value[I + 1] = Quote) then
+          begin
+            Inc(I);
+            Builder.Append(Value[I]);
+          end
+          else Quote := #0;
+        end;
+        Inc(I);
+        Continue;
+      end;
+      if CharInSet(Value[I], [#34, #39]) then
+      begin
+        Quote := Value[I];
+        Builder.Append(Value[I]);
+        Inc(I);
+        Continue;
+      end;
+
+      IsOperator := (I = 1) or CharInSet(Value[I - 1], [' ', #9, #10, #13, '(']);
+      Start := I;
+      if IsOperator and CharInSet(Value[I], ['=', '<', '>']) then
+      begin
+        Inc(I);
+        if (I <= Length(Value)) and CharInSet(Value[I], ['=', '>']) then Inc(I);
+      end
+      else if IsOperator and SameText(Copy(Value, I, 4), 'LIKE') and
+        ((I + 4 > Length(Value)) or CharInSet(Value[I + 4], [' ', #9, #10, #13, #34, #39])) then
+        Inc(I, 4)
+      else IsOperator := False;
+
+      if IsOperator then
+      begin
+        Builder.Append(Field).Append(' ').Append(Copy(Value, Start, I - Start));
+        Continue;
+      end;
+      if CharInSet(Value[I], [#10, #13]) then Builder.Append(' ')
+      else Builder.Append(Value[I]);
+      Inc(I);
+    end;
+    Result := Builder.ToString;
+  finally Builder.Free; end;
+end;
+
 procedure AddToFilter(const Field: string; Value: string; UP: Boolean; var FilterString: string);
 var
   FixedField: string;
@@ -62,16 +124,10 @@ begin
     Value := StringReplace(StringReplace(Value,'Ё','Е',[rfReplaceAll]),'ё','е',[rfReplaceAll]);
   end;
 
-  Value := ' ' + Value; // this way the search for ' LIKE' and such is possible for the first expression as well
-  StrReplace(CRLF, ' ', Value);
-  StrReplace(LF, ' ', Value);
-  StrReplace(' LIKE ', ' ' + FixedField + #7 + 'LIKE ', Value);
-  StrReplace('(LIKE ', ' (' + FixedField + #7 + 'LIKE ', Value);
-  StrReplace(' =', ' ' + FixedField + #7 + '=', Value);
-  StrReplace(' <>', ' ' + FixedField + #7 + '<>', Value);
-  StrReplace(' <', ' ' + FixedField + #7 + '<', Value);
-  StrReplace(' >', ' ' + FixedField + #7 + '>', Value);
-  StrReplace(#7, ' ', Value);
+  // Qualify only expression operators. A title, author or path can itself
+  // contain " =", " >" or " LIKE "; rewriting a quoted value changes the
+  // requested text and can even produce invalid SQL.
+  Value := QualifySearchExpression(Value, FixedField);
 
   if FilterString <> '' then
     FilterString := FilterString + ' AND (' + Value + ')'
