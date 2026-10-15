@@ -159,6 +159,7 @@ begin
 
   xmlPresets := xmlDoc.createElement(PRESETS_ELEMENT);
   xmlDoc.appendChild(xmlPresets);
+  xmlPresets.appendChild(xmlDoc.createTextNode(sLineBreak));
 
   for i := 0 to Count - 1 do
   begin
@@ -166,6 +167,7 @@ begin
 
     xmlPreset := xmlDoc.createElement(PRESET_ELEMENT);
     xmlPreset.setAttribute(DISPLAYNAME_ATTRIBUTE, preset.DisplayName);
+    xmlPreset.appendChild(xmlDoc.createTextNode(sLineBreak));
 
     for presetField in preset do
     begin
@@ -187,10 +189,15 @@ begin
         At:=SplitAt+3;
       until False;
 
+      xmlPreset.appendChild(xmlDoc.createTextNode('    '));
       xmlPreset.appendChild(xmlField);
+      xmlPreset.appendChild(xmlDoc.createTextNode(sLineBreak));
     end;
 
+    xmlPreset.appendChild(xmlDoc.createTextNode('  '));
+    xmlPresets.appendChild(xmlDoc.createTextNode('  '));
     xmlPresets.appendChild(xmlPreset);
+    xmlPresets.appendChild(xmlDoc.createTextNode(sLineBreak));
   end;
 
   TMSXMLHelper.SaveToFile(xmlDoc,FileName,not SameText(ExtractFileExt(FileName),'.xml'));

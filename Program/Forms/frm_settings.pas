@@ -339,6 +339,7 @@ var CaptionLabel: TLabel; ClearButton: TButton; ReaderPanel: TPanel; FolderItem:
 begin
   inherited;
 
+  with lvScripts.Columns.Add do begin Caption := 'Режим'; Width := 130; end;
   // Do not persist this list as TTreeView.Items.NodeData in the DFM. That
   // opaque binary format is VCL-version-dependent and Delphi 13 cannot read
   // the stream written by the older IDE. The order is load-bearing:
@@ -765,6 +766,8 @@ begin
       Caption := Settings.Scripts[i].Title;
       SubItems.Add(Settings.Scripts[i].Path);
       SubItems.Add(Settings.Scripts[i].Params);
+      Data := Pointer(NativeInt(Ord(Settings.Scripts[i].Standalone)));
+      if Settings.Scripts[i].Standalone then SubItems.Add('Инструмент') else SubItems.Add('После экспорта');
     end;
 
     cbDefaultAction.Items.Add(Settings.Scripts[i].Title);
@@ -945,7 +948,8 @@ begin
   Scripts.Clear;
   for i := 0 to lvScripts.Items.Count - 1 do
   begin
-    Scripts.Add(lvScripts.Items[i].Caption, lvScripts.Items[i].SubItems[0], lvScripts.Items[i].SubItems[1]);
+    Scripts.Add(lvScripts.Items[i].Caption, lvScripts.Items[i].SubItems[0], lvScripts.Items[i].SubItems[1],
+      NativeInt(lvScripts.Items[i].Data) <> 0);
   end;
 end;
 
@@ -1073,6 +1077,7 @@ begin
       frmEditScript.Title := AItem.Caption;
       frmEditScript.Path := AItem.SubItems[0];
       frmEditScript.Params := AItem.SubItems[1];
+      frmEditScript.Standalone := NativeInt(AItem.Data) <> 0;
     end;
 
     if frmEditScript.ShowModal = mrOk then
@@ -1099,6 +1104,10 @@ begin
       end;
 
       AItem.Caption := frmEditScript.Title;
+      AItem.Data := Pointer(NativeInt(Ord(frmEditScript.Standalone)));
+      if AItem.SubItems.Count < 3 then AItem.SubItems.Add('');
+      if frmEditScript.Standalone then AItem.SubItems[2] := 'Инструмент'
+      else AItem.SubItems[2] := 'После экспорта';
     end;
 
   finally

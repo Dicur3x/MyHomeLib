@@ -13,6 +13,7 @@ uses
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
+  unit_Scripts, frm_edit_script, Vcl.ToolWin,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
   MHLButtonedEdit, unit_Columns,
   unit_SystemDatabase_SQLite,
@@ -5401,6 +5402,7 @@ end;
 {$I MetabibSizeComparisonTests.inc}
 {$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
 {$I NativeFolderPickerTests.inc}
+{$I Feedback22Tests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5416,6 +5418,7 @@ begin
   SetTextCodePage(Output, 65001);
   try
     RequireIsolatedRegression;
+    if ParamStr(1) = 'external-tool-probe' then begin RunExternalToolProbe; Halt(0); end;
     HandleReaderProbe;
     DirectBookID := 0;
     QueueBookID := 0;
@@ -5534,6 +5537,7 @@ begin
       else if ParamStr(1) = 'queue-load-zero' then PrepareQueuePersistenceStartup('zero');
       if ParamStr(1) = 'search-startup-layout' then PrepareSearchStartupLayout;
       Trace('main form');
+      if ParamStr(1) = 'feedback22' then PrepareFeedback22Scripts;
       Application.CreateForm(TfrmMain, frmMain);
       if ParamStr(1) = 'search-startup-layout' then TestSearchStartupLayout;
       TestHeaderMenuTags;
@@ -5592,6 +5596,7 @@ begin
       else if ParamStr(1) = 'metadata-archive-codecs' then
         TestMetadataArchiveCodecs
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
+      else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)
       else if ParamStr(1) = 'feedback21' then TestFeedback21
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)

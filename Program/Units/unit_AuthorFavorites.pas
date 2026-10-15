@@ -269,16 +269,9 @@ begin
         raise EAuthorFavorites.Create('Файл любимых авторов слишком велик. Он сохранён без изменений.');
     end;
   end;
-  // Reject redirected ancestors before creating/opening a private profile.
-  Path:=ExcludeTrailingPathDelimiter(ExtractFilePath(Path));
-  while Path<>'' do
-  begin
-    Attributes:=GetFileAttributes(PChar(Path));
-    if (Attributes<>INVALID_FILE_ATTRIBUTES) and (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
-      raise EAuthorFavorites.Create('Папка любимых авторов не должна быть ссылкой.');
-    if SameText(Path,ExcludeTrailingPathDelimiter(ExtractFilePath(Path))) then Break;
-    Path:=ExcludeTrailingPathDelimiter(ExtractFilePath(Path));
-  end;
+  // The user-selected profile may live below a junction, redirected Documents
+  // or a cloud folder. Those parents are valid locations, not favorite files.
+  // Keep checking the actual file and its private SQLite schema before writes.
 end;
 
 constructor TAFDatabase.Create(const FileName: string; ReadOnly, NewFile: Boolean);

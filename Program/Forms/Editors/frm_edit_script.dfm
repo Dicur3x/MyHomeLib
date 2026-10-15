@@ -1,9 +1,9 @@
-object frmEditScript: TfrmEditScript
+﻿object frmEditScript: TfrmEditScript
   Left = 0
   Top = 0
   BorderStyle = bsDialog
   Caption = #1055#1072#1088#1072#1084#1077#1090#1088#1099' '#1089#1082#1088#1080#1087#1090#1072
-  ClientHeight = 189
+  ClientHeight = 253
   ClientWidth = 346
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -39,7 +39,7 @@ object frmEditScript: TfrmEditScript
   end
   object pnButtons: TPanel
     Left = 0
-    Top = 148
+    Top = 212
     Width = 346
     Height = 41
     Align = alBottom
@@ -103,5 +103,22 @@ object frmEditScript: TfrmEditScript
     Caption = #1054#1073#1079#1086#1088'...'
     TabOrder = 2
     OnClick = edPathButtonClick
+  end
+  object cbStandalone: TCheckBox
+    Left = 8
+    Top = 148
+    Width = 330
+    Height = 21
+    Caption = 'Запускать без экспорта книг'
+    TabOrder = 5
+  end
+  object lblStandalone: TLabel
+    Left = 8
+    Top = 174
+    Width = 330
+    Height = 32
+    AutoSize = False
+    WordWrap = True
+    Caption = 'Для генератора INPX или своей программы. Запуск вручную с панели и из меню «Инструменты».'
   end
 end

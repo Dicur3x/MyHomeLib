@@ -111,6 +111,7 @@ type
 
     FTreeFontSize: Integer;
     FShortFontSize: Integer;
+    FAuthorInitials: Boolean;
     FLocale: string;
     FActivePage: Integer;
     FSplitters: TSplitters;
@@ -321,6 +322,7 @@ type
 
     property TreeFontSize: Integer read FTreeFontSize write FTreeFontSize;
     property ShortFontSize: Integer read FShortFontSize write FShortFontSize;
+    property AuthorInitials: Boolean read FAuthorInitials write FAuthorInitials;
     property ShowInfoPanel: Boolean read FShowInfoPanel write FShowInfoPanel;
     property ShowBookCover: Boolean read FShowBookCover write FShowBookCover;
     property ShowBookAnnotation: Boolean read FShowBookAnnotation write FShowBookAnnotation;
@@ -699,6 +701,7 @@ begin
 
     FTreeFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'FontSize', DEF_TREE_FONT_SIZE);
     FShortFontSize := iniFile.ReadInteger(INTERFACE_SECTION, 'ShortFontSize', DEF_SHORT_FONT_SIZE);
+    FAuthorInitials := iniFile.ReadBool(INTERFACE_SECTION, 'AuthorInitials', False);
     FActivePage := iniFile.ReadInteger(INTERFACE_SECTION, 'ActivePage', 0);
 
     FFormHeight := iniFile.ReadInteger(INTERFACE_SECTION, 'FormHeight', 850);
@@ -855,6 +858,7 @@ begin
     iniFile.WriteInteger(SYSTEM_SECTION, 'TXTEncoding', Ord(FTXTEncoding));
     iniFile.WriteInteger(INTERFACE_SECTION, 'FontSize', FTreeFontSize);
     iniFile.WriteInteger(INTERFACE_SECTION, 'ShortFontSize', FShortFontSize);
+    iniFile.WriteBool(INTERFACE_SECTION, 'AuthorInitials', FAuthorInitials);
     iniFile.WriteString(INTERFACE_SECTION, 'Locale', FLocale);
     iniFile.WriteInteger(INTERFACE_SECTION, 'ActivePage', FActivePage);
 
@@ -1227,7 +1231,8 @@ begin
             S := iniFile.ReadString(SCRIPTS_SECTION, sl[I], '');
             slHelper.DelimitedText := S;
             if slHelper.Count = 3 then
-              FScripts.Add(slHelper[0], slHelper[1], slHelper[2]);
+              FScripts.Add(slHelper[0], slHelper[1], slHelper[2],
+                iniFile.ReadBool('SCRIPT_OPTIONS', 'Standalone.' + sl[I], False));
           end;
         end;
       finally
@@ -1245,6 +1250,7 @@ var
   sl: TStringList;
 begin
   iniFile.EraseSection(SCRIPTS_SECTION);
+  iniFile.EraseSection('SCRIPT_OPTIONS');
 
   if FScripts.Count > 0 then
   begin
@@ -1258,6 +1264,8 @@ begin
         sl.Add(FScripts[I].Params);
 
         iniFile.WriteString(SCRIPTS_SECTION, Format('%s%u', [SCRIPT_KEY_PREFIX, I]), sl.DelimitedText);
+        if FScripts[I].Standalone then
+          iniFile.WriteBool('SCRIPT_OPTIONS', 'Standalone.' + Format('%s%u', [SCRIPT_KEY_PREFIX, I]), True);
       end;
     finally
       sl.Free;

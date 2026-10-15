@@ -28,6 +28,7 @@ type
     FPath: string;
     FParams: string;
     FTmpParams: string;
+    FStandalone: Boolean;
 
   protected
     procedure AssignTo(Dest: TPersistent); override;
@@ -39,6 +40,7 @@ type
     property Path: string read FPath write FPath;
     property Params: string read FParams write FParams;
     property TmpParams: string read FTmpParams write FTmpParams;
+    property Standalone: Boolean read FStandalone write FStandalone;
   end;
 
   TScripts = class(TCollection)
@@ -50,7 +52,7 @@ type
 
   public
     constructor Create;
-    procedure Add(const Title: string; const Path: string; const Params: string);
+    procedure Add(const Title: string; const Path: string; const Params: string; Standalone: Boolean = False);
 
     property Items[Index: Integer]: TScriptDesc read GetScript write SetScript; default;
   end;
@@ -77,6 +79,7 @@ begin
     Other.Title := Title;
     Other.Path := Path;
     Other.Params := Params;
+    Other.Standalone := Standalone;
   end
   else
     inherited AssignTo(Dest);
@@ -85,10 +88,19 @@ end;
 procedure TScriptDesc.Run;
 var
   AHInst: HINST;
-  P: string;
+  P, Directory: string;
 begin
   P := IfThen(TmpParams = '', Params, TmpParams);
-  AHInst := SimpleShellExecute(Application.Handle, Path, P, '');
+  if Standalone then
+  begin
+    // Parameters are already a user-authored command line. Quoting the entire
+    // string would collapse several arguments into one.
+    P := Params;
+    Directory := ExtractFilePath(ExpandFileName(Path));
+    AHInst := ShellAPI.ShellExecute(Application.Handle, 'open', PChar(Path),
+      PChar(P), PChar(Directory), SW_SHOWNORMAL);
+  end
+  else AHInst := SimpleShellExecute(Application.Handle, Path, P, '');
   TmpParams := '';
   if AHInst <= 32 then
     raise Exception.Create(SysErrorMessage(AHInst));
@@ -115,7 +127,7 @@ begin
   Result := TScriptDesc(inherited Add);
 end;
 
-procedure TScripts.Add(const Title, Path, Params: string);
+procedure TScripts.Add(const Title, Path, Params: string; Standalone: Boolean);
 var
   Script: TScriptDesc;
 begin
@@ -129,6 +141,7 @@ begin
       Script.Title := Title;
       Script.Path := Path;
       Script.Params := Params;
+      Script.Standalone := Standalone;
     except
       Script.Free;
       raise;

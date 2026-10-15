@@ -204,6 +204,9 @@ begin
     Preset.AddOrSetValue(SF_DELETED,BoolToStr(Settings.HideDeletedBooks));
     Preset.AddOrSetValue(SF_FAVORITE_AUTHORS,'False'); Preset.AddOrSetValue('Unknown preserved field',RawField);
     Source.Save(SourceXML); Source.Save(LegacyFile); Source.Save(LegacyCXML);
+    var ReadableXML:=TFile.ReadAllText(SourceXML,TEncoding.UTF8);
+    Require(ReadableXML.Contains('</Field>'+#13#10), 'Editable preset XML has no line break after a field');
+    Require(not ReadableXML.Contains('</Field><Field'), 'Editable preset fields share one line');
     for var FileName in TArray<string>.Create(SourceXML,LegacyFile,LegacyCXML) do
     begin
       Target.Clear; Target.Load(FileName);

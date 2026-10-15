@@ -102,6 +102,10 @@
 </dl>
 <p>The <span class="ui">Default:</span> drop-down list says which of the scripts (or "Standard", meaning none at all) runs when you press the <span class="ui">Send to device</span> button on the toolbar itself without opening its list; for more about that button see <a href="toolbar.html">Toolbar</a>.</p>
 
+<h2>Standalone tools without book export</h2>
+<p>Enable <span class="ui">Run without book export</span> in the script editor. The command appears under <span class="ui">Tools → External tools</span> and on a separate toolbar button, visible when at least one tool is configured. No book or export destination is required. Arguments are passed exactly as configured; the working directory is the program's folder. Existing scripts retain their export mode.</p>
+<p>You can use this for your online INPX generator. MetaBib, MariaDB and BusyBox are installed separately and are not bundled with HomeLib Ru. For a Python script, select the Python executable and put the quoted script path and arguments in Parameters. The supplied <code>MetabibCreator.sh</code> uses BusyBox ash, <code>metabib.exe</code> and archive utilities. Import the generated INPX through the usual collection creation or update command. Nothing runs automatically.</p>
+
 <h2>When scripts run</h2>
 <p>There are three equivalent ways to run the script you want:</p>
 <ul>

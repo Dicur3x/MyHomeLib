@@ -782,6 +782,8 @@ type
 
     procedure CreateCollectionMenu;
     procedure CreateScriptMenu;
+    procedure CreateExternalToolsMenu;
+    procedure ExternalToolClick(Sender: TObject);
     procedure UpdateConversionMenu(Sender: TObject);
     procedure SetColors;
     procedure ToggleApplicationTheme(Sender: TObject);
@@ -961,6 +963,9 @@ type
     FFavoriteWorker: TAuthorFavoriteRefreshThread;
     FBackgroundMessageWindow: HWND;
     FFavoriteQueue: TQueue<TAuthorFavoriteCollection>;
+    FExternalToolsMenu: TPopupMenu;
+    FExternalToolsItem: TMenuItem;
+    FExternalToolsButton: TToolButton;
     FFavoriteDescriptor: TAuthorFavoriteCollection;
     FFavoriteGeneration: Cardinal;
     FFavoriteDirtyCollections: TDictionary<Integer, Cardinal>;
@@ -999,6 +1004,7 @@ type
     procedure FavoriteStopClick(Sender: TObject);
     procedure FavoriteMenuClick(Sender: TObject);
     procedure FavoriteTransferClick(Sender: TObject);
+    procedure AuthorNameStyleClick(Sender: TObject);
     function AuthorSelectorIterator: IAuthorIterator;
     procedure FillCurrentAuthorBooks;
     procedure FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
@@ -2918,7 +2924,9 @@ var
   i: Integer;
   fb2Collection: Boolean;
   ExportItemCount: Integer;
+  ExportScriptCount: Integer;
 begin
+  CreateExternalToolsMenu;
   pmScripts.Items.Clear;
   pmiScripts.Clear;
   mmiScripts.Clear;
@@ -2960,7 +2968,10 @@ begin
   end;
 
   F := ExportItemCount;
-  if Settings.Scripts.Count > 0 then
+  ExportScriptCount := 0;
+  for i := 0 to Settings.Scripts.Count - 1 do
+    if not Settings.Scripts[i].Standalone then Inc(ExportScriptCount);
+  if ExportScriptCount > 0 then
   begin
     Item := TMenuItem.Create(pmScripts);
     Item.Caption := '-';
@@ -2973,12 +2984,13 @@ begin
 
   for i := 0 to Settings.Scripts.Count - 1 do
   begin
+    if Settings.Scripts[i].Standalone then Continue;
     Item := TMenuItem.Create(pmScripts);
     Item.Caption := Settings.Scripts[i].Title;
     Item.Tag := 901 + i;
     Item.OnClick := SendToDeviceExecute;
     Item.ImageIndex := 7;  // 'script' in CFileTypeOrder
-    pmScripts.Items.Insert(i + F, Item);
+    pmScripts.Items.Add(Item);
 
     ItemP := TMenuItem.Create(pmiScripts);
     ItemP.Caption := Settings.Scripts[i].Title;
@@ -3020,6 +3032,50 @@ begin
     mmiScripts.Visible := False;
     pmiScripts.Visible := False;
   end
+end;
+
+procedure TfrmMain.CreateExternalToolsMenu;
+var Item: TMenuItem; Count: Integer;
+begin
+  if not Assigned(FExternalToolsMenu) then
+  begin
+    FExternalToolsMenu := TPopupMenu.Create(Self); FExternalToolsMenu.Name := 'pmExternalTools';
+    FExternalToolsItem := TMenuItem.Create(Self); FExternalToolsItem.Name := 'miExternalTools';
+    FExternalToolsItem.Caption := 'Внешние инструменты'; miTools.Add(FExternalToolsItem);
+    FExternalToolsButton := TToolButton.Create(Self); FExternalToolsButton.Name := 'btnExternalTools';
+    FExternalToolsButton.Parent := tlbrMain; FExternalToolsButton.Style := tbsDropDown;
+    FExternalToolsButton.ImageIndex := tbtnSettings.ImageIndex;
+    FExternalToolsButton.Caption := 'Скрипты'; FExternalToolsButton.ShowHint := True;
+    FExternalToolsButton.Hint := 'Внешние инструменты: свои скрипты и программы';
+    FExternalToolsButton.DropdownMenu := FExternalToolsMenu; FExternalToolsButton.OnClick := ExternalToolClick;
+  end;
+  FExternalToolsMenu.Items.Clear; FExternalToolsItem.Clear; Count := 0;
+  for var I := 0 to Settings.Scripts.Count - 1 do
+    if Settings.Scripts[I].Standalone then
+    begin
+      Inc(Count);
+      Item := TMenuItem.Create(FExternalToolsMenu); Item.Caption := Settings.Scripts[I].Title;
+      Item.Tag := I; Item.OnClick := ExternalToolClick; FExternalToolsMenu.Items.Add(Item);
+      Item := TMenuItem.Create(FExternalToolsItem); Item.Caption := Settings.Scripts[I].Title;
+      Item.Tag := I; Item.OnClick := ExternalToolClick; FExternalToolsItem.Add(Item);
+    end;
+  Item := TMenuItem.Create(FExternalToolsItem); Item.Name := 'miExternalToolsSetup';
+  Item.Caption := 'Настроить скрипты…'; Item.OnClick := ChangeSettingsExecute; FExternalToolsItem.Add(Item);
+  FExternalToolsButton.Visible := Count > 0;
+end;
+
+procedure TfrmMain.ExternalToolClick(Sender: TObject);
+var Point: TPoint; Index: Integer;
+begin
+  if Sender = FExternalToolsButton then
+  begin
+    Point.X := 0; Point.Y := FExternalToolsButton.Height;
+    Point := FExternalToolsButton.ClientToScreen(Point);
+    FExternalToolsMenu.Popup(Point.X, Point.Y); Exit;
+  end;
+  Index := (Sender as TComponent).Tag;
+  if (Index < 0) or (Index >= Settings.Scripts.Count) or not Settings.Scripts[Index].Standalone then Exit;
+  Settings.Scripts[Index].Run;
 end;
 
 procedure TfrmMain.UpdateConversionMenu(Sender: TObject);
@@ -5362,6 +5418,11 @@ var
   DeviceShellItem: IShellItem;
   GroupData: PGroupData;
 begin
+  ScriptID := (Sender as TComponent).Tag - 901;
+  if (ScriptID >= 0) and (ScriptID < Settings.Scripts.Count) and Settings.Scripts[ScriptID].Standalone then
+  begin
+    Settings.Scripts[ScriptID].Run; Exit;
+  end;
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
   FillBookIdList(Tree, BookIDList);
@@ -8530,8 +8591,9 @@ procedure TfrmMain.FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtua
 var Data: PAuthorData; Count: Integer;
 begin
   if Assigned(FFavoriteOriginalGetText) then FFavoriteOriginalGetText(Sender, Node, Column, TextType, CellText);
-  if not Assigned(FFavoriteStore) then Exit;
   Data := Sender.GetNodeData(Node);
+  if Settings.AuthorInitials and Assigned(Data) then CellText := Data^.GetFullName(True);
+  if not Assigned(FFavoriteStore) then Exit;
   try
   if Assigned(Data) and FFavoriteStore.IsFavorite(Data^) and
     not FFavoriteDirtyCollections.ContainsKey(Settings.ActiveCollection) and
@@ -8546,6 +8608,20 @@ begin
     // a valid favorite key. A malformed row must not interrupt UI painting.
     on E: EAuthorFavorites do Exit;
   end;
+end;
+
+procedure TfrmMain.AuthorNameStyleClick(Sender: TObject);
+begin
+  Settings.AuthorInitials := not Settings.AuthorInitials;
+  for var Name in TArray<string>.Create('miAuthorInitials', 'miAuthorInitialsFavorite') do
+  begin
+    var Item := FindComponent(Name) as TMenuItem;
+    if Assigned(Item) then Item.Checked := Settings.AuthorInitials;
+  end;
+  // Only paint changes: IDs, ordering, exact author expressions and search
+  // continue to use the full names from the catalogue.
+  tvAuthors.Invalidate;
+  Settings.SaveSettings;
 end;
 
 function TfrmMain.IsFavoriteAuthorNode(Sender: TBaseVirtualTree; Node: PVirtualNode): Boolean;
@@ -8711,6 +8787,14 @@ begin
   Item := TMenuItem.Create(Self); Item.Name := 'miFavoriteSelectedAuthor';
   Item.Caption := 'Добавить автора в любимые'; Item.OnClick := FavoriteSelectedAuthorClick;
   pmAuthor.Items.Add(Item); FFavoriteContextMenu := Item;
+  for var I := 0 to 1 do
+  begin
+    Item := TMenuItem.Create(Self);
+    if I = 0 then Item.Name := 'miAuthorInitials' else Item.Name := 'miAuthorInitialsFavorite';
+    Item.Caption := 'Фамилия и инициалы в списке авторов';
+    Item.Checked := Settings.AuthorInitials; Item.OnClick := AuthorNameStyleClick;
+    if I = 0 then miView.Add(Item) else FFavoriteMenu.Items.Add(Item);
+  end;
   FFavoriteOriginalGetText := tvAuthors.OnGetText;
   tvAuthors.OnGetText := FavoriteAuthorGetText;
   FFavoriteOriginalBeforeCellPaint := tvAuthors.OnBeforeCellPaint;
@@ -9853,6 +9937,8 @@ begin
   frmSettings := TfrmSettings.Create(Application);
   try
     frmSettings.LoadSetting;
+    if (Sender is TComponent) and (TComponent(Sender).Name = 'miExternalToolsSetup') then
+      frmSettings.tvSections.Selected := frmSettings.tvSections.Items[5];
     frmSettings.ShowModal;
 
     Settings.SaveSettings;

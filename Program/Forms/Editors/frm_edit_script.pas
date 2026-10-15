@@ -35,6 +35,8 @@ type
     btnOk: TButton;
     btnCancel: TButton;
     btnBrowse: TButton;
+    cbStandalone: TCheckBox;
+    lblStandalone: TLabel;
     procedure btnSaveClick(Sender: TObject);
     procedure edPathButtonClick(Sender: TObject);
   private
@@ -44,12 +46,15 @@ type
     function GetParams: string;
     function GetPath: string;
     function GetTitle: string;
+    function GetStandalone: Boolean;
+    procedure SetStandalone(Value: Boolean);
   protected
     procedure DoCreate; override;
   public
     property Title: string read GetTitle write SetTitle;
     property Path: string read GetPath write SetPath;
     property Params: string read GetParams write SetParams;
+    property Standalone: Boolean read GetStandalone write SetStandalone;
   end;
 
 var
@@ -109,6 +114,12 @@ procedure TfrmEditScript.SetTitle(const Value: string);
 begin
   edTitle.Text := Value;
 end;
+
+function TfrmEditScript.GetStandalone: Boolean;
+begin Result := cbStandalone.Checked; end;
+
+procedure TfrmEditScript.SetStandalone(Value: Boolean);
+begin cbStandalone.Checked := Value; end;
 
 procedure TfrmEditScript.btnSaveClick(Sender: TObject);
 begin
