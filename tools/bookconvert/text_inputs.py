@@ -625,17 +625,30 @@ def read_rtf(book, data):
     fonts = {}; default_font = None
     charsets = {204: 'cp1251', 238: 'cp1250', 161: 'cp1253', 162: 'cp1254', 177: 'cp1255', 178: 'cp1256', 186: 'cp1257', 163: 'cp1258', 128: 'cp932', 129: 'cp949', 134: 'cp936', 136: 'cp950', 222: 'cp874'}
     paragraph = book.el('p'); book.body.append(paragraph); fallback = 0; buffer = bytearray(); node_count = 0
+    run_parent = run_style = run_target = None
+    run_parts = []
+    formatting = [('b', 'strong'), ('i', 'em'), ('s', 's'), ('u', 'u'), ('sup', 'sup'), ('sub', 'sub')]
     token = re.compile(r'([a-zA-Z]+)(-?\d+)? ?')
     destinations = {'fonttbl', 'colortbl', 'stylesheet', 'info', 'filetbl', 'listtable', 'listoverridetable', 'revtbl', 'rsidtbl', 'generator', 'header', 'headerl', 'headerr', 'footer', 'footerl', 'footerr', 'annotation', 'datastore', 'themedata', 'colorschememapping', 'fldinst', 'objdata', 'nonshppict'}
+    def finish_run():
+        if run_parts:
+            book.c.append_text(run_target, ''.join(run_parts)); run_parts.clear()
     def emit(value):
-        nonlocal node_count
+        nonlocal node_count, run_parent, run_style, run_target
         if state['skip'] or state['pict'] is not None or not value: return
-        target = paragraph; node_count += 1
+        node_count += 1
         if node_count > 500000: book.fail('RTF слишком сложен для конвертации.')
-        for prop, name in [('b', 'strong'), ('i', 'em'), ('s', 's'), ('u', 'u'), ('sup', 'sup'), ('sub', 'sub')]:
-            if state[prop]:
-                child = book.el(name); target.append(child); target = child
-        book.c.append_text(target, value)
+        style = tuple(state[prop] for prop, _ in formatting)
+        # Adjacent Unicode controls belong to one text run. In particular, a
+        # surrogate pair must reach XML as one value even inside bold/italic.
+        if run_parent is not paragraph or run_style != style:
+            finish_run()
+            target = paragraph
+            for (_, name), enabled in zip(formatting, style):
+                if enabled:
+                    child = book.el(name); target.append(child); target = child
+            run_parent, run_style, run_target = paragraph, style, target
+        run_parts.append(value)
     def flush():
         if buffer:
             try: emit(buffer.decode(state['cp']))
@@ -649,10 +662,10 @@ def read_rtf(book, data):
     while at < len(text):
         ch = text[at]; at += 1
         if ch == '{':
-            flush(); stack.append(state.copy())
+            flush(); fallback = 0; stack.append(state.copy())
             if len(stack) > 128: book.fail('Слишком глубокая структура RTF.')
         elif ch == '}':
-            flush()
+            flush(); fallback = 0
             if not stack: book.fail('Нарушена структура групп RTF.')
             parent = stack.pop()
             if state['pict'] is not None and state['pict'] is not parent['pict']:
@@ -660,7 +673,9 @@ def read_rtf(book, data):
                 if not state['skip']:
                     try: raw = bytes.fromhex(''.join(pic['hex'])) if pic['bin'] is None else pic['bin']
                     except ValueError: book.fail('Некорректное изображение RTF.')
+                    finish_run()
                     paragraph.append(book.image(raw))
+                    run_parent = None
             was_fonts = state['fonttable']; state = parent
             if was_fonts and not state['fonttable'] and default_font in fonts: state['cp'] = fonts[default_font]
             if not stack:
@@ -678,16 +693,20 @@ def read_rtf(book, data):
             match = token.match(text, at)
             if not match:
                 at += 1
+                if fallback: fallback -= 1; continue
                 if symbol == '*': flush(); state['skip'] = True
                 elif symbol in {'~', '_', '-'}:
-                    if fallback: fallback -= 1
-                    else: flush(); emit({'~': '\u00a0', '_': '\u2011', '-': '\u00ad'}[symbol])
+                    flush(); emit({'~': '\u00a0', '_': '\u2011', '-': '\u00ad'}[symbol])
                 continue
             flush(); at = match.end(); word = match[1]; arg = int(match[2]) if match[2] else None
             if word == 'bin':
                 if arg is None or arg < 0 or at + arg > len(text): book.fail('Оборванный двоичный блок RTF.')
-                if state['pict'] is not None: state['pict']['bin'] = text[at:at+arg].encode('latin1')
+                if fallback: fallback -= 1
+                elif state['pict'] is not None: state['pict']['bin'] = text[at:at+arg].encode('latin1')
                 at += arg; continue
+            # A fallback control word counts as one character, including its
+            # delimiter. It must neither render nor consume the following text.
+            if fallback: fallback -= 1; continue
             if word == 'fonttbl': state['skip'] = True; state['fonttable'] = True
             elif word == 'deff': default_font = arg
             elif word == 'f':
@@ -717,12 +736,14 @@ def read_rtf(book, data):
             elif word == 'outlinelevel' and arg is not None and 0 <= arg < 6:
                 paragraph.tag = '{' + book.c.XH + '}h' + str(arg + 1)
             elif word in {'par', 'page', 'sect', 'row'} and not state['skip'] and state['pict'] is None:
+                finish_run()
                 paragraph = book.el('p'); book.body.append(paragraph)
             elif word in {'line', 'tab', 'cell', 'emdash', 'endash', 'lquote', 'rquote', 'ldblquote', 'rdblquote', 'bullet'}:
-                if word == 'line' and not state['skip']: paragraph.append(book.el('br'))
+                if word == 'line' and not state['skip']:
+                    finish_run(); paragraph.append(book.el('br')); run_parent = None
                 else: emit({'tab': '\t', 'cell': '\t', 'emdash': '—', 'endash': '–', 'lquote': '‘', 'rquote': '’', 'ldblquote': '“', 'rdblquote': '”', 'bullet': '•'}.get(word, ''))
         elif ch not in '\r\n': char(ch)
-    flush()
+    flush(); finish_run()
     if stack: book.fail('RTF обрывается внутри группы.')
     book.warnings.add('Страничная вёрстка, таблицы и сложные поля RTF упрощаются до текста; основные выделения сохраняются.')
 

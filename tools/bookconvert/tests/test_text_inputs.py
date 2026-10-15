@@ -106,6 +106,34 @@ class TextInputs(unittest.TestCase):
         source = self.root/'book.odt'; odt(source); self.outputs(source, [TEXT, 'Точная сноска'], True, True, True)
     def test_fb3(self):
         source = self.root/'book.fb3'; fb3(source); self.outputs(source, [TEXT, 'Точная сноска', 'Подглавный текст.'], True, True, True)
+    def test_rtf_formatted_supplementary_unicode(self):
+        source = self.root/'жирный emoji.rtf'
+        source.write_bytes(br'{\rtf1\ansi\uc1 before {\b\i\u-10179?\u-8704?}\line after}')
+        self.outputs(source, ['before ', '😀', 'after'], rich=True)
+        with zipfile.ZipFile(self.root/(source.name+'.epub')) as archive:
+            body = c.xml(archive.read('OEBPS/book.xhtml'))
+            self.assertEqual(c.plain(c.first(body, 'body')), 'before 😀after')
+            self.assertTrue(any(c.tag(n) == 'strong' and c.plain(n) == '😀' for n in body.iter()))
+        output = c.xml((self.root/(source.name+'.fb2')).read_bytes())
+        self.assertEqual(c.plain(c.first(output, 'body')), 'before 😀after')
+        self.assertTrue(any(c.tag(n) == 'emphasis' and c.plain(n) == '😀' for n in output.iter()))
+    def test_rtf_unicode_fallback_controls_and_group_boundaries(self):
+        fallbacks = [br'\emdash ', br'\tab ', br'\bin3 xyz', br'\~', br'{', br'\uc2\u1040\emdash\~']
+        # Each case represents exactly АB; fallback commands and binary data
+        # are alternate ANSI text, while a new group terminates skipping.
+        for index, fallback in enumerate(fallbacks):
+            with self.subTest(fallback=fallback):
+                source = self.root/('fallback-'+str(index)+'.rtf')
+                if fallback == br'{': content = br'\u1040{B}'
+                elif fallback.startswith(br'\uc2'): content = fallback+b'B'
+                else: content = br'\u1040'+fallback+b'B'
+                source.write_bytes(br'{\rtf1\ansi\uc1 '+content+b'}')
+                self.outputs(source, ['АB'])
+                with zipfile.ZipFile(self.root/(source.name+'.epub')) as archive:
+                    body = c.first(c.xml(archive.read('OEBPS/book.xhtml')), 'body')
+                    self.assertEqual(c.plain(body), 'АB')
+                book = c.xml((self.root/(source.name+'.fb2')).read_bytes())
+                self.assertEqual(c.plain(c.first(book, 'body')), 'АB')
     def test_markdown(self):
         source = self.root/'book.md'; (self.root/'image.png').write_bytes(PNG)
         source.write_text('# Глава один\n\n'+TEXT+' **Жирный *курсив***[^1]\n\n![Иллюстрация](image.png)\n\n## Подглава\n\n> Цитата\n\n1. Первый\n2. Второй\n\n```python\nprint("Точный код")\n```\n\n# Глава два\n\n[^1]: Точная сноска\n',encoding='utf-8')

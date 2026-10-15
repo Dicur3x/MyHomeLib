@@ -113,8 +113,11 @@ begin
           '--title',Title,'--author',Author,'--language',Language,
           '--tools-root',TPath.Combine(AppPath,'tools'));
         if ForReading then Arguments:=Arguments+TArray<string>.Create('--reading');
-        if ((Extension='.html') or (Extension='.htm') or (Extension='.xhtml') or (Extension='.md') or (Extension='.markdown')) and
-          SameText(ExtractFileExt(SourceFile),Extension) then
+        // Signature detection normalizes HTM/XHTML/SHTML to HTML. Keep the
+        // original local document folder for its relative images nevertheless.
+        // Archive paths remain excluded: their adjacent files are not resources.
+        if (Pos('|'+Extension+'|','|.html|.htm|.xhtml|.shtml|.md|.markdown|')>0) and
+          (Pos('|'+LowerCase(ExtractFileExt(SourceFile))+'|','|.html|.htm|.xhtml|.shtml|.md|.markdown|')>0) then
           Arguments:=Arguments+TArray<string>.Create('--resource-root',ExtractFilePath(TPath.GetFullPath(SourceFile)));
         RunExternalToolToStream(Tool,Arguments,Log,
           function: Boolean begin Check; Result:=False; end,0,True,512*1024*1024);
