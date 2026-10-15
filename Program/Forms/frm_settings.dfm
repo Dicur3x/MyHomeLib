@@ -972,6 +972,7 @@ object frmSettings: TfrmSettings
           Max = 525600
           Position = 1440
           TabOrder = 9
+          Thousands = False
         end
         object cbProgramIntervalUnit: TComboBox
           Left = 281

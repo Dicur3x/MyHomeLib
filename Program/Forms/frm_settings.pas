@@ -1071,7 +1071,7 @@ var
 begin
   frmEditScript := TfrmEditScript.Create(Self);
   try
-    frmEditReader.Caption := IfThen(Assigned(AItem), rstrChangeScriptParams, rstrAddScript);
+    frmEditScript.Caption := IfThen(Assigned(AItem), rstrChangeScriptParams, rstrAddScript);
     if Assigned(AItem) then
     begin
       frmEditScript.Title := AItem.Caption;
@@ -1144,14 +1144,19 @@ begin
 end;
 
 procedure TfrmSettings.btnDeleteScriptClick(Sender: TObject);
+var RemovedIndex, DefaultIndex: Integer;
 begin
   if lvScripts.Selected = nil then
     Exit;
 
-  if cbDefaultAction.Items.Count > 1 then
+  RemovedIndex := lvScripts.Selected.Index + 1;
+  DefaultIndex := cbDefaultAction.ItemIndex;
+  if RemovedIndex < cbDefaultAction.Items.Count then
   begin
-    cbDefaultAction.Items.Delete(lvScripts.Selected.Index + 1);
-    cbDefaultAction.ItemIndex := 0;
+    cbDefaultAction.Items.Delete(RemovedIndex);
+    if DefaultIndex = RemovedIndex then DefaultIndex := 0
+    else if DefaultIndex > RemovedIndex then Dec(DefaultIndex);
+    cbDefaultAction.ItemIndex := DefaultIndex;
   end;
   lvScripts.DeleteSelected;
 end;
