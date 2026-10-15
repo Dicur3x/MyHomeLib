@@ -12,7 +12,7 @@ uses
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
-  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
+  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
   MHLButtonedEdit, unit_Columns,
   unit_SystemDatabase_SQLite,
@@ -5400,6 +5400,7 @@ end;
 {$I ReaderPipelineCacheTests.inc}
 {$I MetabibSizeComparisonTests.inc}
 {$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
+{$I NativeFolderPickerTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5590,6 +5591,7 @@ begin
         TestCacheFolderPresets
       else if ParamStr(1) = 'metadata-archive-codecs' then
         TestMetadataArchiveCodecs
+      else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback21' then TestFeedback21
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)

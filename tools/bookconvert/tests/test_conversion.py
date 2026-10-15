@@ -25,7 +25,9 @@ def shape(node, include_tail=False): return (node.tag, sorted(node.attrib.items(
 
 class ConversionTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix='HomeLibRu-conversion-test-'))
+        self.temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-conversion-test-')
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
         self.source = self.root/'source.fb2'; self.source.write_text(FB2.replace('{image}',base64.b64encode(PNG).decode()), encoding='utf-8')
         self.original = digest(self.source)
     def tearDown(self):

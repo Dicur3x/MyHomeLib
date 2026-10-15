@@ -236,6 +236,10 @@ end;
 procedure SetMHLTheme(Dark: Boolean);
 var I: Integer; WasDark: Boolean;
 begin
+  // Modern Shell dialogs own their painting, including the address/search bar.
+  // Leave them native in both themes; applying VCL's partial dialog skin breaks
+  // that bar. Set this once with the theme, not while a modal owner is in use.
+  TStyleManager.SystemHooks:=TStyleManager.SystemHooks-[shDialogs];
   WasDark:=DarkActive;
   if Dark=WasDark then Exit;
   if Dark then
