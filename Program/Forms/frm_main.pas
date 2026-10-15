@@ -5441,7 +5441,7 @@ var
         begin
           Data := Tree.GetNodeData(Node);
           if Assigned(Data) and (Data^.NodeType = ntBookInfo) and
-            (Node^.CheckState = csCheckedNormal) and Indices.TryGetValue(Key(Data^.BookKey), Index) and
+            not (vsFiltered in Node^.States) and (Node^.CheckState = csCheckedNormal) and Indices.TryGetValue(Key(Data^.BookKey), Index) and
             (Data^.LibID = BookIDList[Index].ExpectedLibID) and
             (ReaderBookPhysicalIdentity(Data^) = BookIDList[Index].ExpectedPhysicalIdentity) then
             Tree.CheckState[Node] := csUncheckedNormal;

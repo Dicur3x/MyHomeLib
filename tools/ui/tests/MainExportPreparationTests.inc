@@ -25,7 +25,7 @@ var
   SavedModalBegin: TNotifyEvent;
   SavedDevice, SavedTemplate: string;
   SavedPrompt, SavedChecked: Boolean;
-  ScriptIndex: Integer;
+  ScriptIndex, SavedModalLevel: Integer;
   FailureObserved: Boolean;
   CheckedKeys: TArray<Integer>;
 
@@ -75,6 +75,7 @@ begin
   SavedPrompt := Settings.PromptDevicePath;
   SavedChecked := Settings.SelectedIsChecked;
   SavedModalBegin := Application.OnModalBegin;
+  SavedModalLevel := Application.ModalLevel;
   Item := TMenuItem.Create(nil);
   Probe := TMainExportPreparationProbe.Create;
   ScriptIndex := Settings.Scripts.Count;
@@ -121,6 +122,10 @@ begin
     end;
   finally
     Application.OnModalBegin := SavedModalBegin;
+    // ModalStarted invokes OnModalBegin before ShowModal enters its protected
+    // body. Balance only the level introduced by this deliberate injection.
+    while Application.ModalLevel > SavedModalLevel do Application.ModalFinished;
+    Require(Application.ModalLevel = SavedModalLevel, 'Injected modal failure leaked its application level');
     while Settings.Scripts.Count > ScriptIndex do Settings.Scripts.Delete(Settings.Scripts.Count - 1);
     Settings.DeviceDir := SavedDevice;
     Settings.FolderTemplate := SavedTemplate;
