@@ -36,6 +36,10 @@ if defined NODE (
 
 if not exist "%RC%" echo // No catalogs present.> "%RC%"
 
+:: The dark theme is required even without Node or translation catalogs.
+:: Keep an existing catalog list, but repair old empty resource stubs too.
+findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLSTYLE "Resources\\Themes\\HomeLibRuDark.vsf">> "%RC%"
+
 "%BRCC%" -fo"%RES%" "%RC%"
 if errorlevel 1 (
     echo ERROR: brcc32 failed on "%RC%".
