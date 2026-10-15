@@ -1,0 +1,336 @@
+{
+  "scope": "final successful logs only; previous diagnostic attempts retained separately",
+  "platforms": {
+    "Win32": {
+      "collection_views_scenarios": 26,
+      "scenarios": [
+        {
+          "mode": "catalog-audit",
+          "result": "PASS",
+          "log": "native-catalog-audit-Win32.log",
+          "sha256": "82bacdf53e39b7f5890307ee27530933830ec889359d99fdaee8793bf7b240c7"
+        },
+        {
+          "mode": "settings-workflow-audit",
+          "result": "PASS",
+          "log": "native-settings-workflow-audit-Win32.log",
+          "sha256": "8df578306c59fc497273eb5a021d3c4c06668c26bed5e7fe606cd3ac05e0eaf8"
+        },
+        {
+          "mode": "export-preparation",
+          "result": "PASS",
+          "log": "native-export-preparation-Win32.log",
+          "sha256": "fa5530858398e3797f45742cbe73b1d8749974a4e26afc1d2f1064ec8890d2bc"
+        },
+        {
+          "mode": "reader-conversion-audit",
+          "result": "PASS",
+          "log": "native-reader-conversion-audit-Win32.log",
+          "sha256": "43e09222f350cb225510494668f6b5d1156fd9a20172c7716c2de2e6c93edd94"
+        },
+        {
+          "mode": "publisher-search",
+          "result": "PASS",
+          "log": "native-publisher-search-Win32.log",
+          "sha256": "95cb72330dc9c6eb26adf546222b6608a044a26721f8fdeaacb450c288370328"
+        },
+        {
+          "mode": "search-presets",
+          "result": "PASS",
+          "log": "native-search-presets-Win32.log",
+          "sha256": "477994172a29ed142a27b616f318431f2787ba65927bf9cb2ba0ffae72b21b90"
+        },
+        {
+          "mode": "search-preset-transfer",
+          "result": "PASS",
+          "log": "native-search-preset-transfer-Win32.log",
+          "sha256": "391ab1f4a83ec529599319a070c7d1ed2bcbfe2bc2ce881be1e3fa41c5288d5f"
+        },
+        {
+          "mode": "bulk-writes",
+          "result": "PASS",
+          "log": "native-bulk-writes-Win32.log",
+          "sha256": "4a787b954c11a64e91760ce2d95d1c601513782266f5cc5b408523cf297bbab2"
+        },
+        {
+          "mode": "reader-copy-identity",
+          "result": "PASS",
+          "log": "native-reader-copy-identity-Win32.log",
+          "sha256": "2a9cdb86d5bdbab2f619913d00e7fc67f16f031b76bacd037521fc876c8abcc8"
+        },
+        {
+          "mode": "ordinary-book-export-identity",
+          "result": "PASS",
+          "log": "native-ordinary-book-export-identity-Win32.log",
+          "sha256": "f832eebff6f0e540ad041844036304da8defd4bc56812f9b3d803ea7d65d1b34"
+        },
+        {
+          "mode": "column-filters",
+          "result": "PASS",
+          "log": "native-column-filters-Win32.log",
+          "sha256": "a8a10bebf26867845fe8dc58783520223b2e20921a2e91b0d372c272279b0186"
+        },
+        {
+          "mode": "list-performance",
+          "result": "PASS",
+          "log": "native-list-performance-Win32.log",
+          "sha256": "3b7eb9c32c88919659f2be7875b0be60fc2ba7eac1383042b51e94102b86e02f"
+        },
+        {
+          "mode": "catalog-sources-workflow",
+          "result": "PASS",
+          "log": "native-catalog-sources-workflow-Win32.log",
+          "sha256": "eda464551f9ffb132c309edddced681f05d7ae39a1044a584c9121794af7b9e9"
+        },
+        {
+          "mode": "collection-merge",
+          "result": "PASS",
+          "log": "native-collection-merge-Win32.log",
+          "sha256": "669b9223d8435318f0d558857fbed7d24726b37e00b2a82ec31b4113062e696b"
+        },
+        {
+          "mode": "builtin-reader",
+          "result": "PASS",
+          "log": "native-builtin-reader-Win32.log",
+          "sha256": "6ae888942e10e9e2edff826dd9530b74a95fd080091f525d93618051639862ec"
+        },
+        {
+          "mode": "book-gallery",
+          "result": "PASS",
+          "log": "native-book-gallery-Win32.log",
+          "sha256": "e4c8d42b837b45c90eb6a2c217348117823b07f1087c909ddad70b5f490e1932"
+        },
+        {
+          "mode": "book-information",
+          "result": "PASS",
+          "log": "native-book-information-Win32.log",
+          "sha256": "d2031887e3ad85f4c4e09585cb19b468d952251773ecd8a1becb22494d25cd19"
+        },
+        {
+          "mode": "queue-persistence",
+          "result": "PASS",
+          "log": "native-queue-persistence-Win32.log",
+          "sha256": "9630d0edfd65c826581ee01c9c6c635a22cd094fd85a78aa113a72486e30d102"
+        },
+        {
+          "mode": "program-update-ui",
+          "result": "PASS",
+          "log": "native-program-update-ui-Win32.log",
+          "sha256": "d54dc2980f90e9c68d83987e3d5f8c83323bed0867244ed92282fabe7f39c0d5"
+        },
+        {
+          "mode": "update-form-notifier",
+          "result": "PASS",
+          "log": "native-update-form-notifier-Win32.log",
+          "sha256": "c61bec8a1271583457c7905e97f2f9c79cccedfa7da0e8545d4066da331511d9"
+        },
+        {
+          "mode": "metadata-fill-ui",
+          "result": "PASS",
+          "log": "native-metadata-fill-ui-Win32.log",
+          "sha256": "7d4eaa6bc7db70fb1336cad795c3e1d96e827ba729a0b30c84c4a4b37926f3b5"
+        },
+        {
+          "mode": "metadata-fill-layout",
+          "result": "PASS",
+          "log": "native-metadata-fill-layout-Win32.log",
+          "sha256": "0ee08ebd439491a91e755ec47067086dc650fc4022e4a5bf609db7a3f3bcb354"
+        },
+        {
+          "mode": "collection-metadata-sync",
+          "result": "PASS",
+          "log": "native-collection-metadata-sync-Win32.log",
+          "sha256": "24a4b94bf72538bb0a198d10a7e7216143227c2d0a6fc0c854b8334179434349"
+        },
+        {
+          "mode": "publisher-metadata-index",
+          "result": "PASS",
+          "log": "native-publisher-metadata-index-Win32.log",
+          "sha256": "9ed5303bbd51d1edc21a30d99eb9a8ff12c72240fc40ddc54bf1edf9af3adeb3"
+        },
+        {
+          "mode": "export-cancel-interactive",
+          "result": "PASS",
+          "log": "native-export-cancel-interactive-Win32.log",
+          "sha256": "fd4fe9dbe52f1ecea4ad614f98e5bcaccaa613fdb7b1a1a8f5ee3d67bcceb39c"
+        },
+        {
+          "mode": "legacy-import-interactive",
+          "result": "PASS",
+          "log": "native-legacy-import-interactive-Win32.log",
+          "sha256": "88b0e368e49afa7045837a42e06701129c517f234b9c7a9209e1fb747d706569"
+        }
+      ],
+      "core_executables": 2,
+      "core_result": "PASS",
+      "core_log": "native-core-Win32.log",
+      "core_log_sha256": "4267c3b1cc9b2ec99cf718ff3db7a4fa45d72c9bf5703a67331bf5a739cdd656"
+    },
+    "Win64": {
+      "collection_views_scenarios": 26,
+      "scenarios": [
+        {
+          "mode": "catalog-audit",
+          "result": "PASS",
+          "log": "native-catalog-audit-Win64.log",
+          "sha256": "82bacdf53e39b7f5890307ee27530933830ec889359d99fdaee8793bf7b240c7"
+        },
+        {
+          "mode": "settings-workflow-audit",
+          "result": "PASS",
+          "log": "native-settings-workflow-audit-Win64.log",
+          "sha256": "8df578306c59fc497273eb5a021d3c4c06668c26bed5e7fe606cd3ac05e0eaf8"
+        },
+        {
+          "mode": "export-preparation",
+          "result": "PASS",
+          "log": "native-export-preparation-Win64.log",
+          "sha256": "fa5530858398e3797f45742cbe73b1d8749974a4e26afc1d2f1064ec8890d2bc"
+        },
+        {
+          "mode": "reader-conversion-audit",
+          "result": "PASS",
+          "log": "native-reader-conversion-audit-Win64.log",
+          "sha256": "43e09222f350cb225510494668f6b5d1156fd9a20172c7716c2de2e6c93edd94"
+        },
+        {
+          "mode": "publisher-search",
+          "result": "PASS",
+          "log": "native-publisher-search-Win64.log",
+          "sha256": "95cb72330dc9c6eb26adf546222b6608a044a26721f8fdeaacb450c288370328"
+        },
+        {
+          "mode": "search-presets",
+          "result": "PASS",
+          "log": "native-search-presets-Win64.log",
+          "sha256": "477994172a29ed142a27b616f318431f2787ba65927bf9cb2ba0ffae72b21b90"
+        },
+        {
+          "mode": "search-preset-transfer",
+          "result": "PASS",
+          "log": "native-search-preset-transfer-Win64.log",
+          "sha256": "391ab1f4a83ec529599319a070c7d1ed2bcbfe2bc2ce881be1e3fa41c5288d5f"
+        },
+        {
+          "mode": "bulk-writes",
+          "result": "PASS",
+          "log": "native-bulk-writes-Win64.log",
+          "sha256": "4a787b954c11a64e91760ce2d95d1c601513782266f5cc5b408523cf297bbab2"
+        },
+        {
+          "mode": "reader-copy-identity",
+          "result": "PASS",
+          "log": "native-reader-copy-identity-Win64.log",
+          "sha256": "2a9cdb86d5bdbab2f619913d00e7fc67f16f031b76bacd037521fc876c8abcc8"
+        },
+        {
+          "mode": "ordinary-book-export-identity",
+          "result": "PASS",
+          "log": "native-ordinary-book-export-identity-Win64.log",
+          "sha256": "ccd82ec042969a6d0dda056042422e6b00573b54b2a57ab3e3b8ec6f45a1344a"
+        },
+        {
+          "mode": "column-filters",
+          "result": "PASS",
+          "log": "native-column-filters-Win64.log",
+          "sha256": "a8a10bebf26867845fe8dc58783520223b2e20921a2e91b0d372c272279b0186"
+        },
+        {
+          "mode": "list-performance",
+          "result": "PASS",
+          "log": "native-list-performance-Win64.log",
+          "sha256": "666f8896afb944edfd06467a1d9a4b8ba60789a5c8ea760d1aa51acaa9ff456b"
+        },
+        {
+          "mode": "catalog-sources-workflow",
+          "result": "PASS",
+          "log": "native-catalog-sources-workflow-Win64.log",
+          "sha256": "eda464551f9ffb132c309edddced681f05d7ae39a1044a584c9121794af7b9e9"
+        },
+        {
+          "mode": "collection-merge",
+          "result": "PASS",
+          "log": "native-collection-merge-Win64.log",
+          "sha256": "d9a7def086373eafad2c98218857351261b657ca3f5e2383e5f3e44da34ff8a1"
+        },
+        {
+          "mode": "builtin-reader",
+          "result": "PASS",
+          "log": "native-builtin-reader-Win64.log",
+          "sha256": "25c46a47886b7b9b9545fd214d4eaf3b4653a8e24ab24da5f00ee961d9699c06"
+        },
+        {
+          "mode": "book-gallery",
+          "result": "PASS",
+          "log": "native-book-gallery-Win64.log",
+          "sha256": "e4c8d42b837b45c90eb6a2c217348117823b07f1087c909ddad70b5f490e1932"
+        },
+        {
+          "mode": "book-information",
+          "result": "PASS",
+          "log": "native-book-information-Win64.log",
+          "sha256": "d2031887e3ad85f4c4e09585cb19b468d952251773ecd8a1becb22494d25cd19"
+        },
+        {
+          "mode": "queue-persistence",
+          "result": "PASS",
+          "log": "native-queue-persistence-Win64.log",
+          "sha256": "cd981fcda2aceff39684cd20a2f08e5129b822557b637d15e6a841dc680d8717"
+        },
+        {
+          "mode": "program-update-ui",
+          "result": "PASS",
+          "log": "native-program-update-ui-Win64.log",
+          "sha256": "d54dc2980f90e9c68d83987e3d5f8c83323bed0867244ed92282fabe7f39c0d5"
+        },
+        {
+          "mode": "update-form-notifier",
+          "result": "PASS",
+          "log": "native-update-form-notifier-Win64.log",
+          "sha256": "624c9cfc9413ad20ab5e9f73133910244cdb67457b0463ea6514bed654b0a997"
+        },
+        {
+          "mode": "metadata-fill-ui",
+          "result": "PASS",
+          "log": "native-metadata-fill-ui-Win64.log",
+          "sha256": "1e1d315166e444716f2fb4720649a954b9e78253ed6bf403c53fa3484aa8ec96"
+        },
+        {
+          "mode": "metadata-fill-layout",
+          "result": "PASS",
+          "log": "native-metadata-fill-layout-Win64.log",
+          "sha256": "0ee08ebd439491a91e755ec47067086dc650fc4022e4a5bf609db7a3f3bcb354"
+        },
+        {
+          "mode": "collection-metadata-sync",
+          "result": "PASS",
+          "log": "native-collection-metadata-sync-Win64.log",
+          "sha256": "f6a3f61acf62446d70db669eab9b365c912dca2cb9614f7e0ce0130d4ea2cf6e"
+        },
+        {
+          "mode": "publisher-metadata-index",
+          "result": "PASS",
+          "log": "native-publisher-metadata-index-Win64.log",
+          "sha256": "9ed5303bbd51d1edc21a30d99eb9a8ff12c72240fc40ddc54bf1edf9af3adeb3"
+        },
+        {
+          "mode": "export-cancel-interactive",
+          "result": "PASS",
+          "log": "native-export-cancel-interactive-Win64.log",
+          "sha256": "fd4fe9dbe52f1ecea4ad614f98e5bcaccaa613fdb7b1a1a8f5ee3d67bcceb39c"
+        },
+        {
+          "mode": "legacy-import-interactive",
+          "result": "PASS",
+          "log": "native-legacy-import-interactive-Win64.log",
+          "sha256": "e6cd52b5426893284bd8fbc06c619a3a2ce8d8f807510d5306ed6d8f656fa5d8"
+        }
+      ],
+      "core_executables": 2,
+      "core_result": "PASS",
+      "core_log": "native-core-Win64.log",
+      "core_log_sha256": "4267c3b1cc9b2ec99cf718ff3db7a4fa45d72c9bf5703a67331bf5a739cdd656"
+    }
+  },
+  "successful_native_process_executions": 56
+}
