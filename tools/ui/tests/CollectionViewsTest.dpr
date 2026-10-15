@@ -10,7 +10,7 @@ uses
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
-  System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, Vcl.Imaging.pngimage,
+  System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
@@ -20,7 +20,7 @@ uses
   unit_ImportFBDThread, unit_ImportMetabibThread,
   unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats,
   unit_MetadataSyncTypes, unit_CollectionMetadataSync, frm_BookMetadataFill, unit_NCWParams,
-  unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_ReaderAnnotations,
+  unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_SevenZipMetadata, unit_PackageBookMetadata, unit_ReaderAnnotations, unit_ReaderNoteBooks,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
   unit_FB2MetadataRecovery, unit_WriteFb2Info,
@@ -5369,6 +5369,8 @@ end;
 {$I FilterCaptionTests.inc}
 {$I DeletedFilterTests.inc}
 {$I PublisherSearchTests.inc}
+{$I Feedback20Tests.inc}
+{$I MetadataArchiveCodecTests.inc}
 {$I PublisherColumnTests.inc}
 {$I AuthorFavoriteTests.inc}
 {$I AuthorFavoriteDaoTests.inc}
@@ -5585,6 +5587,10 @@ begin
         TestUnifiedDeletedFilter(One, OneID, TwoID)
       else if ParamStr(1) = 'cache-presets' then
         TestCacheFolderPresets
+      else if ParamStr(1) = 'metadata-archive-codecs' then
+        TestMetadataArchiveCodecs
+      else if ParamStr(1) = 'feedback20-main' then
+        TestFeedback20(One,Two,OneID,TwoID)
       else if ParamStr(1) = 'publisher-search' then
         TestPublisherSearch(One, OneID)
       else if ParamStr(1) = 'publisher-columns' then

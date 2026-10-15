@@ -599,7 +599,8 @@ begin
       for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
         Require(MetadataUiField(Form,Field).Checked=(Field in METADATA_SYNC_DEFAULT_FIELDS),
           'Metadata default field selection is incorrect');
-      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('увеличить'),
+      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('увеличиться') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('пустых описаний в каталоге'),
         'Annotation checkbox does not explain catalog size');
       Preview(Form); Require(MetadataUiButton(Form,'btnMetadataApply').Enabled,'Completed preview did not enable fill');
       Require(MLIReadCatalogData(CID)=DataBefore,'Actual metadata preview changed catalog data');
@@ -608,9 +609,18 @@ begin
         string(TLabel(Form.FindComponent('lblMetadataFillReason')).Caption).Contains('изменён'),
         'Changing fields retained a stale ready plan or started another scan');
       Preview(Form);
-      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('примерно') and
+      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('описаний: 2') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('Из файлов книг') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('пустых описаний в каталоге') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('примерно') and
         (TLabel(Form.FindComponent('lblMetadataCount5')).Caption='2'),
         'Annotation preview lost its actual missing count or byte estimate');
+      var Estimate:=TLabel(Form.FindComponent('lblMetadataAnnotationSize'));
+      var EstimateBounds:=Rect(0,0,Estimate.Width,0);
+      Form.Canvas.Font.Assign(Estimate.Font);
+      DrawTextW(Form.Canvas.Handle,PChar(string(Estimate.Caption)),Length(Estimate.Caption),EstimateBounds,
+        DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      Require(EstimateBounds.Height<=Estimate.Height,'Completed annotation estimate is clipped');
       Require(MLIReadCatalogData(CID)=DataBefore,'Opt-in annotation preview changed catalog data');
       Form.Close;
     finally Form.Free; end;

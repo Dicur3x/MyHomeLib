@@ -11,6 +11,7 @@ import argparse
 import base64
 import copy
 import hashlib
+import importlib.util
 from html.entities import name2codepoint
 import json
 import mimetypes
@@ -18,6 +19,8 @@ import os
 from pathlib import Path
 import posixpath
 import re
+import subprocess
+import sys
 import tempfile
 from urllib.parse import unquote, urlsplit
 import uuid
@@ -234,6 +237,7 @@ def validate_fb2_output(book):
         if value:
             if value in identities: raise ConversionError('В результате повторяется идентификатор FB2: ' + value)
             identities.add(value)
+    link_styles = {id(n) for link in book.iter('{' + FB + '}a') for n in link.iter('{' + FB + '}style')}
     for body in children(book, 'body'):
         for node in body.iter():
             name = tag(node)
@@ -250,7 +254,7 @@ def validate_fb2_output(book):
                 while parts and tag(parts[0]) in {'title', 'epigraph', 'image', 'annotation'}: parts.pop(0)
                 if any(tag(n) == 'section' for n in parts) and any(tag(n) != 'section' for n in parts):
                     raise ConversionError('В результате FB2 смешаны главы и абзацы.')
-            if name == 'style' and not node.get('name'): raise ConversionError('В результате FB2 у стиля отсутствует имя.')
+            if name == 'style' and id(node) not in link_styles and not node.get('name'): raise ConversionError('В результате FB2 у стиля отсутствует имя.')
             if name in {'a', 'image'}:
                 href = node.get('{' + XL + '}href', '')
                 if href.startswith('#') and href[1:] not in identities:
@@ -886,23 +890,99 @@ def epub_to_fb2(source, output, warnings):
                     image(package_path, item.get('href', ''))
         book.extend(binaries)
         normalize_fb2(book, preserved_bodies)
+        # FB2 styleLinkType deliberately has no attributes, unlike the same
+        # style element outside a link (namedStyleType).
+        for link in book.iter('{' + FB + '}a'):
+            for node in link.iter('{' + FB + '}style'): node.attrib.pop('name', None)
         output.write_bytes(serialized(book))
     finally:
         archive.close()
 
 
-def convert_book(source, destination):
+def text_to_book(source, output, warnings, target_extension, **metadata):
+    spec = importlib.util.spec_from_file_location('homelib_text_inputs', Path(__file__).with_name('text_inputs.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    # The CLI is launched with -I: load the adjacent, shipped module explicitly.
+    # Tests can import this file under an arbitrary module name too.
+    api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+    if target_extension == '.epub': module.to_epub(source, output, warnings, api, **metadata)
+    else:
+        with tempfile.TemporaryDirectory(prefix='homelib-text-') as directory:
+            intermediate = Path(directory) / 'reading.epub'
+            module.to_epub(source, intermediate, warnings, api, **metadata)
+            epub_to_fb2(intermediate, output, warnings)
+
+
+def kindle_epub(source, output):
+    """Keep KindleUnpack resources, repair its known EPUB 3 packaging omissions."""
+    archive = EpubArchive(source)
+    try:
+        container = xml(archive.read('META-INF/container.xml'))
+        roots = [n for n in container.iter() if tag(n) == 'rootfile']
+        if len(roots) != 1: raise ConversionError('В результате KindleUnpack нет однозначного описания EPUB.')
+        package_path = archive.resolve('container.xml', roots[0].get('full-path', ''))[0]
+        package = xml(archive.read(package_path))
+        changed = {}
+        for item in first(package, 'manifest'):
+            if item.get('media-type') != 'application/xhtml+xml': continue
+            part = archive.resolve(package_path, item.get('href', ''))[0]
+            document = xml(archive.read(part)); dirty = False
+            for node in document.iter():
+                if 'cid' in node.attrib: node.attrib.pop('cid'); dirty = True
+            if any(n.tag == '{http://www.w3.org/2000/svg}svg' for n in document.iter()):
+                properties = set(item.get('properties', '').split()); properties.add('svg')
+                item.set('properties', ' '.join(sorted(properties)))
+            if dirty: changed[part] = serialized(document)
+        changed[package_path] = serialized(package)
+        with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as result:
+            result.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+            for entry in archive.archive.infolist():
+                if entry.filename == 'mimetype': continue
+                result.writestr(entry.filename, changed.get(entry.filename, archive.read(entry.filename)))
+    finally:
+        archive.archive.close()
+
+
+def kindle_to_book(source, output, warnings, target_extension, **metadata):
+    with tempfile.TemporaryDirectory(prefix='homelib-kindle-convert-') as directory:
+        root = Path(directory); manifest = root / 'result.json'; work = root / 'unpack'
+        args = [sys.executable, '-I', '-B', str(Path(__file__).with_name('kindle_input.py')), str(source), str(manifest), str(work)]
+        try:
+            process = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90,
+                                     creationflags=0x08000000 if os.name == 'nt' else 0)
+        except subprocess.TimeoutExpired as error: raise ConversionError('Подготовка Kindle-книги превысила 90 секунд.') from error
+        if process.returncode:
+            detail = process.stdout.decode('utf-8', errors='replace')[-1500:]
+            raise ConversionError('Не удалось прочитать незашифрованную Kindle-книгу. ' + detail)
+        result = json.loads(manifest.read_text(encoding='utf-8')); path = Path(result['path']).resolve()
+        if not path.is_relative_to(work) or not path.is_file(): raise ConversionError('Некорректный результат KindleUnpack.')
+        if result['format'] == 'epub':
+            if target_extension == '.fb2': epub_to_fb2(path, output, warnings)
+            else: kindle_epub(path, output)
+        elif result['format'] == 'html':
+            metadata['resource_root'] = str(path.parent)
+            text_to_book(path, output, warnings, target_extension, **metadata)
+            warnings.add('Старый MOBI преобразован из HTML; Kindle-вёрстка и служебные сведения могут упрощаться.')
+        else: raise ConversionError('Неподдерживаемый результат KindleUnpack.')
+
+
+def convert_book(source, destination, **metadata):
     source, destination = Path(source).resolve(), Path(destination).absolute()
     if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
     if source.stat().st_size > MAX_FILE: raise ConversionError('Книга превышает предел конвертации (64 МБ).')
-    conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((source.suffix.lower(), destination.suffix.lower()))
-    if conversion is None: raise ConversionError('Пока доступны FB2 → EPUB и EPUB → FB2.')
+    extension, target_extension = source.suffix.lower(), destination.suffix.lower()
+    conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
+    text_input = extension in {'.txt', '.html', '.htm', '.xhtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown'} and target_extension in {'.epub', '.fb2'}
+    kindle_input = extension in {'.mobi', '.azw', '.azw3', '.prc'} and target_extension in {'.epub', '.fb2'}
+    if conversion is None and not text_input and not kindle_input: raise ConversionError('Этот формат пока не поддерживается конвертером FB2/EPUB.')
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)
     os.close(handle); temporary = Path(temporary_name); warnings = set()
     try:
-        conversion(source, temporary, warnings)
+        if kindle_input: kindle_to_book(source, temporary, warnings, target_extension, **metadata)
+        elif text_input: text_to_book(source, temporary, warnings, target_extension, **metadata)
+        else: conversion(source, temporary, warnings)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             with zipfile.ZipFile(temporary) as archive:
@@ -919,6 +999,8 @@ def convert_book(source, destination):
 def main():
     parser = argparse.ArgumentParser(description='HomeLib Ru — локальная конвертация книг')
     parser.add_argument('source'); parser.add_argument('destination'); parser.add_argument('--report')
+    parser.add_argument('--title', default=''); parser.add_argument('--author', default=''); parser.add_argument('--language', default='')
+    parser.add_argument('--resource-root')
     options = parser.parse_args()
     report = Path(options.report).absolute() if options.report else None
     if report is not None and (report.exists() or report.resolve() in {Path(options.source).resolve(), Path(options.destination).resolve()}):
@@ -931,12 +1013,13 @@ def main():
             with report.open('x', encoding='utf-8') as stream:
                 stream.write(text); stream.flush(); os.fsync(stream.fileno())
     try:
-        result = convert_book(options.source, options.destination)
+        result = convert_book(options.source, options.destination, title=options.title, author=options.author,
+                              language=options.language, resource_root=options.resource_root)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)
         return 0
-    except (ConversionError, OSError, zipfile.BadZipFile, RecursionError) as error:
+    except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError) as error:
         text = json.dumps({'error': str(error)}, ensure_ascii=False)
         try: publish_report(text)
         except OSError: pass

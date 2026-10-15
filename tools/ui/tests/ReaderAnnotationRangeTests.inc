@@ -154,7 +154,7 @@ begin
         HTML:=ReaderAnnotationsText(Notes,True,Style);
         Require((Occurrences(HTML,Notes[0].Text)=1) and (Occurrences(HTML,Notes[0].Quote)=1) and
           HTML.Contains('<h3>—</h3>'),'HTML repeats an optional title body, omits quote or invents a title');
-        Require(HTML.Contains('<small>'+Notes[0].Created+'</small>'),
+        Require(HTML.Contains('<small>'+ReaderAnnotationLocalTime(Notes[0].Created)+'</small>'),
           'Empty note location invented a leading separator before the HTML creation date');
         Require(HTML.Contains('padding:') and HTML.Contains('line-height:'),'HTML style has no layout geometry');
         var Geometry:=Copy(HTML,Pos('<style>',HTML),Pos('</style>',HTML)-Pos('<style>',HTML));
@@ -176,7 +176,7 @@ begin
           'DOCX repeats note body or loses its quote');
         Require(VarToStr(Document.selectSingleNode('//w:p[w:pPr/w:pStyle[@w:val="Heading2"]]/w:r/w:t').text)='—',
           'DOCX blank title is not a dash');
-        Require(VarToStr(Document.selectSingleNode('//w:p[w:pPr/w:pStyle[@w:val="Context"]]/w:r/w:t').text)=Notes[0].Created,
+        Require(VarToStr(Document.selectSingleNode('//w:p[w:pPr/w:pStyle[@w:val="Context"]]/w:r/w:t').text)=ReaderAnnotationLocalTime(Notes[0].Created),
           'Empty note location invented a leading separator before the DOCX creation date');
         var Margin:=VarToStr(Document.selectSingleNode('//w:sectPr/w:pgMar/@w:left').text);
         Require(not Layouts.ContainsKey('margin:'+Margin),'DOCX styles differ only in colour/font instead of page layout');
@@ -204,7 +204,7 @@ begin
         finally Document:=Unassigned; Zip.Free; Stream.Free; end;
       end;
       Require(Occurrences(ReaderAnnotationsText(Notes,False),Notes[0].Text)=1,'Plain export duplicates the body as a title');
-      Require(ReaderAnnotationsText(Notes,False).Contains(sLineBreak+Notes[0].Created+sLineBreak),
+      Require(ReaderAnnotationsText(Notes,False).Contains(sLineBreak+ReaderAnnotationLocalTime(Notes[0].Created)+sLineBreak),
         'Empty note location invented a leading separator in plain text export');
       SetLength(Notes,20);
       for var I:=0 to High(Notes) do

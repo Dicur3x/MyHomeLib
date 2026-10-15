@@ -56,7 +56,7 @@ uses System.SysUtils, System.Types, System.Math, Winapi.Windows, Vcl.Controls,
 
 const
   FieldNames: array[TMetadataSyncField] of string =
-    ('Издательство', 'Город издания', 'Год издания', 'ISBN', 'Переводчики', 'Аннотация');
+    ('Издательство', 'Город издания', 'Год издания', 'ISBN', 'Переводчики', 'Аннотации — описания книг');
 
 constructor TfrmBookMetadataFill.CreateForCollection(AOwner: TComponent; CollectionID: Integer);
 var Body: TScrollBox; Options, Footer: TPanel; Intro: TLabel; WorkArea: TRect;
@@ -78,7 +78,7 @@ var Body: TScrollBox; Options, Footer: TPanel; Intro: TLabel; WorkArea: TRect;
 begin
   inherited CreateNew(AOwner);
   FCollectionID:=CollectionID; Name:='frmBookMetadataFill';
-  Caption:='Сведения из FB2 — '+SystemDB.GetCollectionInfo(CollectionID).DisplayName;
+  Caption:='Сведения из книг — '+SystemDB.GetCollectionInfo(CollectionID).DisplayName;
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   Position:=poOwnerFormCenter; BorderStyle:=bsSizeable; ClientWidth:=740; ClientHeight:=620;
   Constraints.MinWidth:=708; Constraints.MinHeight:=440;
@@ -97,7 +97,7 @@ begin
     Options:=TPanel.Create(Self); Options.Parent:=Body; Options.BevelOuter:=bvNone;
     Options.SetBounds(0,0,ClientWidth,376); Options.Align:=alTop;
     Intro:=LabelAt(Options,'lblMetadataFillScope',
-      'Недостающие сведения берутся из местных FB2 и FB2 в ZIP. '+
+      'Недостающие сведения берутся из местных FB2, FB3, EPUB, DOCX и ODT, в том числе в ZIP/7z (PPMd). '+
       'Имеющиеся значения, файлы книг, заметки и прогресс чтения сохраняются.',12,10,716,48);
     Intro.Font.Style:=[fsBold];
     LabelAt(Options,'lblMetadataFillFields','Какие сведения заполнить',12,68,380,22);
@@ -114,7 +114,7 @@ begin
         'После проверки',424,94+Ord(Field)*27,304,24);
     end;
     FAnnotationNote:=LabelAt(Options,'lblMetadataAnnotationSize',
-      'Аннотации могут заметно увеличить каталог. Проверка покажет примерный объём выбранных текстов.',12,264,716,36);
+      'Описания берутся из файлов книг только для пустых описаний в каталоге. Проверка покажет количество и объём; каталог может заметно увеличиться.',12,264,716,36);
     FSummary:=LabelAt(Options,'lblMetadataFillSummary','',12,306,716,42);
     FComment:=LabelAt(Options,'lblMetadataFillProgress','',12,350,716,24);
     FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Body;
@@ -126,8 +126,8 @@ begin
     FReport.Margins.Left:=12; FReport.Margins.Right:=12; FReport.Margins.Bottom:=8;
     FReport.Lines.Text:='Выберите сведения и нажмите «1. Проверить книги». '+
       'Проверка не изменяет каталог. Заполнение доступно только после завершённой проверки.'+#13#10+
-      'Нужны местные файлы FB2 или ZIP с ними, указанные в каталоге. Одного списка INPX недостаточно. '+
-      'Другие форматы и недоступные файлы пропускаются.';
+      'Нужны местные FB2, FB3, EPUB, DOCX, ODT или архивы с ними, указанные в каталоге. Одного списка INPX недостаточно. '+
+      'Другие форматы пропускаются. Недоступные файлы и неоднозначные архивы перечисляются в отчёте.';
     FTimer:=TTimer.Create(Self); FTimer.Enabled:=False; FTimer.Interval:=50; FTimer.OnTimer:=PollWorker;
     OnCloseQuery:=FormCloseQuery;
   finally EnableAlign; end;
@@ -231,7 +231,7 @@ begin
   if Assigned(FWorker) then Exit;
   for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do FCounts[Field].Caption:='После проверки';
   FSummary.Caption:='';
-  FAnnotationNote.Caption:='Аннотации могут заметно увеличить каталог. Проверка покажет примерный объём выбранных текстов.';
+  FAnnotationNote.Caption:='Описания берутся из файлов книг только для пустых описаний в каталоге. Проверка покажет количество и объём; каталог может заметно увеличиться.';
   if SelectedFields=[] then InvalidatePlan('Выберите хотя бы один вид сведений.')
   else InvalidatePlan('Выбор изменён. Проверьте книги ещё раз.');
 end;
@@ -249,8 +249,9 @@ begin
     if Counts.AnnotationBytes<1024 then SizeText:=IntToStr(Counts.AnnotationBytes)+' байт'
     else if Counts.AnnotationBytes<1024*1024 then SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/1024.0)+' КБ'
     else SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/(1024.0*1024))+' МБ';
-    FAnnotationNote.Caption:='Текст выбранных аннотаций: примерно '+SizeText+
-      '. Каталог может увеличиться сильнее из-за служебных данных.';
+    FAnnotationNote.Caption:=Format('Из файлов книг будет добавлено описаний: %d, примерно %s текста. '+
+      'Только для пустых описаний в каталоге. База вырастет также из-за служебных данных.',
+      [Counts.FieldCounts[msfAnnotation],SizeText]);
   end;
 end;
 
@@ -331,6 +332,17 @@ begin
     else
     begin
       Preview:=TMetadataPreviewThread(FWorker); ShowCounts(Preview.Counts);
+      var Counts:=Preview.Counts;
+      if Counts.BooksFailed=0 then ReportLine('Ошибок чтения нет.',tsInfo)
+      else
+      begin
+        ReportLine('Причины ошибок чтения:',tsInfo);
+        for var Kind:=Low(TMetadataReadFailure) to High(TMetadataReadFailure) do
+          if Counts.ErrorCounts[Kind]>0 then
+            ReportLine(MetadataFailureName(Kind)+': '+IntToStr(Counts.ErrorCounts[Kind]),tsInfo);
+        ReportLine('Примеры (до 40 записей; итоговые счётчики учитывают все книги):',tsInfo);
+        for var Example in Counts.ErrorExamples do ReportLine(Example,tsError);
+      end;
       if ErrorText<>'' then FReason.Caption:='Проверка не завершена: '+ErrorText
       else if not Preview.Completed then FReason.Caption:='Проверка остановлена. Каталог не изменён. Повторите проверку.'
       else if SelectedFields<>FRequestedFields then FReason.Caption:='Выбор изменён. Проверьте книги ещё раз.'
@@ -338,7 +350,7 @@ begin
       begin
         FPlan:=Preview.TakePlan;
         if not Assigned(FPlan) or (FPlan.Counts.BooksPlanned=0) then
-          FReason.Caption:='Недостающих сведений для заполнения не найдено. Для проверки нужны доступные местные FB2.'
+          FReason.Caption:='Недостающих сведений для заполнения не найдено. Для проверки нужны доступные местные файлы поддерживаемых форматов.'
         else FReason.Caption:='Проверка завершена. Нажмите «2. Заполнить сведения».';
       end;
     end;

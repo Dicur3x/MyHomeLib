@@ -143,6 +143,28 @@ begin
       (ScopeLabel.Top+ScopeLabel.Height<=ScopeLabel.Parent.ClientHeight),
       'Persistent workflow or series scope goes outside the short-window footer');
     Writeln('PASS target-only series scope stays separate from source imports; state/check/add controls fit native DPI and short-window footer'); Flush(Output);
+    Dialog.ScaleForPPI(96); Dialog.Show; Dialog.Width:=Dialog.Constraints.MinWidth; Dialog.Height:=520;
+    Application.ProcessMessages;
+    Writeln('TRACE compact source width=',Dialog.Width,' min=',Dialog.Constraints.MinWidth,' font=',Dialog.Font.PixelsPerInch,' current=',Dialog.CurrentPPI); Flush(Output);
+    Require(Dialog.Width<MulDiv(976,Dialog.Font.PixelsPerInch,96),'Source dialog still prevents a compact width');
+    for var FooterItem in Dialog do if (FooterItem is TButton) and (TButton(FooterItem).Parent=ApplyButton.Parent) then
+    begin
+      var Button:=TButton(FooterItem);
+      Require((Button.Left>=0) and (Button.BoundsRect.Right<=Button.Parent.ClientWidth) and
+        (Button.Top>=0) and (Button.BoundsRect.Bottom<=Button.Parent.ClientHeight),'Compact source footer clips '+string(Button.Caption));
+      for var Other in Dialog do if (Other is TButton) and (Other<>Button) and (TButton(Other).Parent=Button.Parent) then
+      begin
+        var Overlap: TRect;
+        Require(not IntersectRect(Overlap,Button.BoundsRect,TButton(Other).BoundsRect),'Compact source footer buttons overlap');
+      end;
+    end;
+    var SavedClientWidth:=Dialog.ClientWidth; var SavedClientHeight:=Dialog.ClientHeight;
+    Dialog.Close; FreeAndNil(Dialog);
+    Dialog:=TfrmCatalogSources.CreateForCollection(frmMain,Target);
+    Require((Dialog.ClientWidth=SavedClientWidth) and (Dialog.ClientHeight=SavedClientHeight),
+      'Source dialog did not restore its own saved size');
+    Untouched('Source dialog geometry');
+    Writeln('PASS compact source dialog resizes without footer overlaps and restores saved size independently of collection/profile contents'); Flush(Output);
   finally
     Driver.Free; Dialog.Free; TwoDB.Free; OneDB.Free; TargetDB.Free;
     SourceTwo:=nil; SourceOne:=nil; Target:=nil;

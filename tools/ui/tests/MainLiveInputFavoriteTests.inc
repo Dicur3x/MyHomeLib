@@ -46,9 +46,10 @@ type
   TMLIMenuProgressProbe = class
   public
     Timer: TTimer;
-    ExpectedCaption, Failure: string;
+    ExpectedCaption, Failure, ChoiceExtension: string;
     Deadline: UInt64;
     procedure Tick(Sender: TObject);
+    function MessageReceived(const Text: string; Flags: Longint = MB_OK): Integer;
   end;
 
   TMLIPublisherProgressProbe = class
@@ -651,6 +652,13 @@ begin
   end;
 end;
 
+function TMLIMenuProgressProbe.MessageReceived(const Text: string; Flags: Longint): Integer;
+begin
+  if Text.StartsWith('Во время экспорта возникли ошибки') then Failure:=Text;
+  Writeln('TRACE conversion report ',Text.Replace(#13,' ').Replace(#10,' ')); Flush(Output);
+  Result:=IDOK;
+end;
+
 procedure TMLIMenuProgressProbe.Tick(Sender: TObject);
 var Form: TExportToDeviceProgressForm;
 begin
@@ -659,10 +667,26 @@ begin
     Timer.Enabled:=False; Require(False,'Actual converter menu progress did not finish within15seconds');
   end;
   for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I].Visible and (string(Screen.Forms[I].Caption)='Какую книгу конвертировать?') then
+    begin
+      var Choice:=Screen.Forms[I];
+      for var Component in Choice do if Component is TListBox then
+      begin
+        var Names:=TListBox(Component); var Found:=-1;
+        for var J:=0 to Names.Items.Count-1 do
+          if SameText(ExtractFileExt(Names.Items[J]),ChoiceExtension) then Found:=J;
+        if Found<0 then
+        begin Failure:='Conversion chooser lost the supported '+ChoiceExtension+' candidate'; Choice.ModalResult:=mrCancel; Exit; end;
+        Names.ItemIndex:=Found;
+      end;
+      Choice.ModalResult:=mrOk; Exit;
+    end;
+  for var I:=0 to Screen.FormCount-1 do
     if (Screen.Forms[I] is TExportToDeviceProgressForm) and
       (string(Screen.Forms[I].Caption)=ExpectedCaption) and Screen.Forms[I].Visible then
     begin
       Form:=TExportToDeviceProgressForm(Screen.Forms[I]);
+      if Assigned(Form.WorkerThread) then Form.WorkerThread.OnShowMessage:=MessageReceived;
       if Assigned(Form.WorkerThread) and Form.WorkerThread.Finished then
       begin
         if Form.WorkerThread.FatalException is Exception then
@@ -720,15 +744,30 @@ begin
     Require(frmMain.pmiScripts.Visible and frmMain.mmiScripts.Visible and
       frmMain.pmiScripts.Caption.Contains('Конвертировать') and (frmMain.pmiScripts.Count=2),
       'Zero-script raw collection hides the converter submenu');
-    MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.pmiScripts,854);
-    MenuEntry(frmMain.mmiScripts,850); MenuEntry(frmMain.mmiScripts,854);
+    // Source-dependent visibility is resolved when the actual menu opens.
     frmMain.pgControl.ActivePage:=frmMain.tsSearch; frmMain.pgControlChange(nil);
     Settings.TreeModes[PAGE_SEARCH]:=tmFlat; TBookColumnFilters.ForTree(frmMain.tvBooksSR).Clear;
     frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
     Settings.PromptDevicePath:=False; Settings.OverwriteFB2Info:=False;
     Settings.FolderTemplate:=''; Settings.FileNameTemplate:='%t';
-    for var Tag in TArray<Integer>.Create(850,854) do
+    for var Ext in TArray<string>.Create('.xls','.ppt','.pdf','.djvu') do
     begin
+      Book.FileExt:=Ext; Raw.UpdateBook(Book);
+      frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
+      frmMain.pmMain.OnPopup(frmMain.pmMain);
+      Require(not frmMain.pmiScripts.Visible and not frmMain.mmiScripts.Visible,
+        'Unsupported input offers conversion: '+Ext);
+    end;
+    Writeln('PASS conversion menu hides unsupported XLS PPT PDF DjVu inputs');
+    for var Tag in TArray<Integer>.Create(854,850) do
+    begin
+      Book.FileExt:='.fb2'; if Tag=850 then Book.FileExt:='.epub';
+      Raw.UpdateBook(Book);
+      frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
+      frmMain.pmMain.OnPopup(frmMain.pmMain);
+      MenuEntry(frmMain.pmiScripts,Tag); MenuEntry(frmMain.mmiScripts,Tag);
+      for var Entry in frmMain.pmiScripts do
+        if Entry.Tag=(1704-Tag) then Require(not Entry.Visible,'Same-format conversion is visible');
       Target:=TPath.Combine(Settings.AppPath,'converter-menu-out-'+IntToStr(Tag)); ForceDirectories(Target);
       Settings.DeviceDir:=Target;
       Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в FB2';
@@ -739,6 +778,7 @@ begin
       var Extension:='.fb2'; if Tag=854 then Extension:='.epub';
       var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
       Require(Length(Outputs)=1,'Actual converter menu did not produce exactly one '+Extension+' book');
+      if Tag=854 then TFile.Copy(Outputs[0],ChangeFileExt(SourceFile,'.epub'),False);
       var Document:=TReaderDocument.Create;
       try
         Document.Load(Outputs[0]);
@@ -750,6 +790,65 @@ begin
       Writeln('PASS zero-script raw collection actual context menu converts to ',Extension,
         ' with Unicode contents and unchanged source'); Flush(Output);
     end;
+    for var SourceName in TArray<string>.Create('convert-fb2.zip','convert-fb2.7z','convert-epub.zip') do
+    begin
+      TFile.Copy(Settings.AppPath+'metadata-archive-fixtures\'+SourceName,Settings.AppPath+SourceName,False);
+      Book.FileName:=ChangeFileExt(SourceName,''); Book.FileExt:=ExtractFileExt(SourceName);
+      Raw.UpdateBook(Book);
+      frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
+      frmMain.pmMain.OnPopup(frmMain.pmMain); MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.pmiScripts,854);
+      Target:=Settings.AppPath+'archive-out-'+SourceName; ForceDirectories(Target); Settings.DeviceDir:=Target;
+      var Tag:=854; var Extension:='.epub';
+      Probe.ChoiceExtension:='.fb2';
+      if SourceName='convert-epub.zip' then begin Tag:=850; Extension:='.fb2'; end;
+      if SourceName='convert-epub.zip' then Probe.ChoiceExtension:='.epub';
+      Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
+      Probe.Deadline:=GetTickCount64+15000; Probe.Timer.Enabled:=True;
+      MenuEntry(frmMain.pmiScripts,Tag).Click; Probe.Timer.Enabled:=False;
+      Require(Probe.Failure='','Archive converter failed: '+Probe.Failure);
+      var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
+      Require(Length(Outputs)=1,'Archive conversion did not detect the actual FB2/EPUB input');
+      var Document:=TReaderDocument.Create;
+      try Document.Load(Outputs[0]); Require(Document.PlainText.Contains('English'),'Archive conversion lost book text');
+      finally Document.Free; end;
+      Require(THashSHA2.GetHashStringFromFile(Settings.AppPath+SourceName)=
+        THashSHA2.GetHashStringFromFile(Settings.AppPath+'metadata-archive-fixtures\'+SourceName),'Archive conversion changed the original archive');
+      Writeln('PASS archive conversion ',SourceName,' selects supported contents, derives target and preserves source');
+    end;
+    for var SourceName in TArray<string>.Create('text-input.txt','text-input.html','text-input.rtf','text-input.docx','text-input.odt','text-input.doc','text-input.zip',
+      'text-input.fb3','text-input.md','kindle-1342.mobi','kindle-1342.azw3') do
+    begin
+      TFile.Copy(Settings.AppPath+'metadata-archive-fixtures\'+SourceName,Settings.AppPath+SourceName,False);
+      Book.FileName:=ChangeFileExt(SourceName,''); Book.FileExt:=ExtractFileExt(SourceName); Raw.UpdateBook(Book);
+      frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
+      frmMain.pmMain.OnPopup(frmMain.pmMain); MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.pmiScripts,854);
+      var SourceHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+SourceName);
+      Probe.ChoiceExtension:='.txt';
+      for var Tag in TArray<Integer>.Create(850,854) do
+      begin
+        var Extension:='.fb2'; if Tag=854 then Extension:='.epub';
+        Target:=Settings.AppPath+'text-out-'+SourceName+IntToStr(Tag); ForceDirectories(Target); Settings.DeviceDir:=Target;
+        Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
+        Probe.Deadline:=GetTickCount64+30000; Probe.Timer.Enabled:=True;
+        MenuEntry(frmMain.pmiScripts,Tag).Click; Probe.Timer.Enabled:=False;
+        Require(Probe.Failure='','Text converter worker failed: '+SourceName+' '+Probe.Failure);
+        var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
+        Require(Length(Outputs)=1,'Text converter did not publish one result: '+SourceName);
+        if SourceName.StartsWith('kindle-') then
+          Require(TFile.GetSize(Outputs[0])>100000,'Kindle converter published an unexpectedly empty book')
+        else
+        begin
+          var Document:=TReaderDocument.Create;
+          try Document.Load(Outputs[0]);
+            if SourceName<>'text-input.doc' then Require(Document.PlainText.Contains('English'),'Text converter lost Unicode/English contents: '+SourceName)
+            else Require(Length(Document.PlainText)>10,'DOC converter produced empty body');
+          finally Document.Free; end;
+        end;
+        Require(SourceHash=THashSHA2.GetHashStringFromFile(Settings.AppPath+SourceName),'Text converter changed source');
+        Writeln('PASS actual text conversion ',SourceName,' to ',Extension,' preserves contents and source'); Flush(Output);
+      end;
+    end;
+
   finally
     Probe.Timer.Enabled:=False; Probe.Timer.Free; Probe.Free;
     Settings.DeviceDir:=PreviousDevice; Settings.FolderTemplate:=PreviousFolderTemplate;

@@ -14,20 +14,22 @@ type
     FWorker: TThread;
     FBook: TBookRecord;
     FGeneration: Integer;
-    FPending, FClosing, FCover, FAnnotation, FMetadata: Boolean;
+    FPending, FClosing, FCover, FAnnotation, FMetadata, FLocalSource: Boolean;
     procedure Tick(Sender: TObject);
     procedure Completed(Sender: TObject);
   public
     constructor CreateFor(Owner: TComponent; Panel: TInfoPanel);
     destructor Destroy; override;
     procedure Cancel;
-    procedure Load(const Book: TBookRecord; Cover, Annotation, Metadata: Boolean);
+    procedure Load(const Book: TBookRecord; Cover, Annotation, Metadata: Boolean;
+      LocalSource: Boolean = True);
     function Busy: Boolean;
   end;
 
 implementation
 
-uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils;
+uses Winapi.Windows, Winapi.ActiveX, Vcl.Graphics, FictionBook_21, unit_FB2Utils,
+  unit_Interfaces, unit_ReaderCache, unit_Consts, System.Variants, dm_user;
 
 type
   TPreviewThread = class(TThread)
@@ -36,7 +38,7 @@ type
   public
     Book: TBookRecord;
     Generation: Integer;
-    NeedCover, NeedAnnotation, NeedMetadata: Boolean;
+    NeedCover, NeedAnnotation, NeedMetadata, LocalSource: Boolean;
     Annotation, MetadataXML, Status: string;
     HasDescriptor, CoverAssigned, DamagedTitle, TitleDiffers: Boolean;
     MetadataTitle: string;
@@ -48,19 +50,39 @@ destructor TPreviewThread.Destroy;
 begin Cover.Free; inherited; end;
 
 procedure TPreviewThread.Execute;
-var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT;
+var Stream: TStream; Document: IXMLFictionBook; HR: HRESULT; NeedFileAnnotation: Boolean;
+  User: ISystemData; Collection: IBookCollection; Stored: TBookRecord;
 begin
   HR:=CoInitializeEx(nil,COINIT_APARTMENTTHREADED);
   try
     try
       if Terminated then Exit;
-      if NeedCover then
+      if NeedAnnotation then
+      begin
+        Annotation:=Book.Annotation;
+        if (Trim(Annotation)='') and (Book.BookKey.BookID>0) then
+        try
+          User:=DMUser.GetSystemDBConnection;
+          Collection:=User.GetCollection(Book.BookKey.DatabaseID);
+          Collection.GetBookRecord(Book.BookKey,Stored,True);
+          if ReaderBookMatchesExpectedIdentity(Book.LibID,ReaderBookPhysicalIdentity(Book),Stored,
+            VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY))) then Annotation:=Stored.Annotation;
+        except
+          // A temporarily disconnected catalog must not prevent a local file
+          // preview. The captured book remains the identity of this request.
+        end;
+        Collection:=nil;
+        if Assigned(User) then User.ClearCollectionCache;
+        User:=nil;
+      end;
+      NeedFileAnnotation:=NeedAnnotation and (Trim(Annotation)='');
+      if LocalSource and NeedCover then
       begin
         Stream:=Book.GetBookPreviewCoverStream;
         try Cover:=CreateGraphicFromStream(Stream); finally Stream.Free; end;
       end;
       if Terminated then Exit;
-      if (NeedAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
+      if LocalSource and (NeedFileAnnotation or NeedMetadata or (NeedCover and not Assigned(Cover))) then
       begin
         Stream:=Book.GetBookDescriptorStream(False);
         if Assigned(Stream) then
@@ -76,7 +98,7 @@ begin
             not SameText(MetadataTitle,Trim(Book.Title));
           if NeedCover and not Assigned(Cover) then
             try Cover:=GetBookCover(Document); except end;
-          if NeedAnnotation then
+          if NeedFileAnnotation then
             try Annotation:=GetBookAnnotation(Document); except Annotation:=''; end;
           // COM nodes stay in the worker apartment. Only the small description
           // and a raster image are handed to the UI; the full FB2 is released here.
@@ -109,7 +131,9 @@ begin
       Status:='Не удалось прочитать дополнительные сведения из файла. Показаны данные каталога.';
     end;
   finally
-    Document:=nil;
+    Document:=nil; Collection:=nil;
+    if Assigned(User) then User.ClearCollectionCache;
+    User:=nil;
     if Succeeded(HR) then CoUninitialize;
   end;
 end;
@@ -135,9 +159,9 @@ begin
   if Assigned(FWorker) then FWorker.Terminate else FTimer.Enabled:=False;
 end;
 
-procedure TBookInfoPreview.Load(const Book: TBookRecord; Cover, Annotation, Metadata: Boolean);
+procedure TBookInfoPreview.Load(const Book: TBookRecord; Cover, Annotation, Metadata, LocalSource: Boolean);
 begin
-  Cancel; FBook:=Book; FCover:=Cover; FAnnotation:=Annotation; FMetadata:=Metadata;
+  Cancel; FBook:=Book; FCover:=Cover; FAnnotation:=Annotation; FMetadata:=Metadata; FLocalSource:=LocalSource;
   FPending:=Cover or Annotation or Metadata;
   if FPending then FPanel.SetPreviewStatus('Загрузка дополнительных сведений из файла…');
   FTimer.Enabled:=FPending or Assigned(FWorker);
@@ -160,6 +184,7 @@ begin
   Worker:=TPreviewThread.Create(True); FWorker:=Worker; Worker.FreeOnTerminate:=False;
   Worker.Book:=FBook; Worker.Generation:=FGeneration;
   Worker.NeedCover:=FCover; Worker.NeedAnnotation:=FAnnotation; Worker.NeedMetadata:=FMetadata;
+  Worker.LocalSource:=FLocalSource;
   Worker.OnTerminate:=Completed; Worker.Start;
 end;
 

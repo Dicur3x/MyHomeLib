@@ -4,13 +4,18 @@ interface
 
 uses
   System.Classes, System.SysUtils, System.Generics.Collections,
-  unit_Globals, unit_MHLArchiveHelpers;
+  unit_Globals, unit_MHLArchiveHelpers, unit_SevenZipMetadata, unit_FB2PublisherMetadataReader;
 
 type
+  EMetadataAmbiguousBook = class(EReadError);
   // One instance per indexing pass; ordinary book opening is unaffected.
   TPublisherSeriesSource = class
   private
     FArchive: TMHLZip;
+    FNative: TSevenZipMetadataArchive;
+    FNativeOnly: Boolean;
+    FPrefixReader: TFB2PublisherMetadataReader;
+    FOwnerThread: Cardinal;
     FArchivePath: string;
     FArchiveStamp: string;
     FArchiveIndexReady: Boolean;
@@ -23,6 +28,9 @@ type
     FIsCanceled: TFunc<Boolean>;
     FArchiveOpenCount: Integer;
     FBatchCount: Integer;
+    function ArchiveCount: Integer;
+    function ArchiveName(Index: Integer): string;
+    function PrefixComplete(Stream: TStream): Boolean;
     procedure ClearBatch;
     procedure OpenArchive(const Path: string);
     function PrepareBatch(const EntryName: string): Boolean;
@@ -31,6 +39,7 @@ type
     constructor Create(const IsCanceled: TFunc<Boolean>);
     destructor Destroy; override;
     function GetSourceKey(const Book: TBookRecord): string;
+    function OpenCatalogMetadata(const Book: TBookRecord; out Extension: string): TStream;
     function OpenDescriptor(const Book: TBookRecord;
       const AllowExternalDecoder: Boolean = True): TStream;
     // Hold the physical container unchanged while committing a metadata plan.
@@ -44,7 +53,7 @@ implementation
 
 uses
   Winapi.Windows, System.IOUtils, System.JSON, System.Hash,
-  unit_Settings, dm_user;
+  unit_Settings, unit_PackageBookMetadata, dm_user;
 
 function FileStamp(const Path: string): string;
 var
@@ -90,7 +99,7 @@ end;
 constructor TPublisherSeriesSource.Create(const IsCanceled: TFunc<Boolean>);
 begin
   inherited Create;
-  FIsCanceled := IsCanceled;
+  FIsCanceled := IsCanceled; FOwnerThread:=GetCurrentThreadId;
   FEntryIndex := TDictionary<string, Integer>.Create;
   FBatchFiles := TDictionary<string, string>.Create;
 end;
@@ -114,14 +123,14 @@ begin
   ClearBatch;
   FBatchFiles.Free;
   FEntryIndex.Free;
-  FArchive.Free;
+  FArchive.Free; FNative.Free; FPrefixReader.Free;
   inherited;
 end;
 
 function TPublisherSeriesSource.SourcePath(const Book: TBookRecord): string;
 begin
   Result := Book.GetBookFileName;
-  if Book.GetBookFormat in [bfFb2Archive, bfFbd] then
+  if Book.GetBookFormat in [bfFb2Archive, bfRawArchive, bfFbd] then
     Result := TPath.Combine(Settings.ReadPath, Result);
   Result := ExpandFileName(Result);
 end;
@@ -154,28 +163,46 @@ end;
 function MetadataEntryKey(const Name: string): string;
 begin Result := LowerCase(StringReplace(Name,'\','/',[rfReplaceAll])); end;
 
+function TPublisherSeriesSource.ArchiveCount: Integer;
+begin if FNativeOnly then Result:=FNative.Count else Result:=FArchive.FileCount; end;
+function TPublisherSeriesSource.ArchiveName(Index: Integer): string;
+begin if FNativeOnly then Result:=FNative.NameAt(Index) else Result:=FArchive.FileNameAt(Index); end;
+function TPublisherSeriesSource.PrefixComplete(Stream: TStream): Boolean;
+var Metadata: TFB2CatalogMetadata; ErrorText: string;
+begin
+  Result:=False;
+  // A codec may write on another thread. Do not use a COM SAX reader there;
+  // the bounded prefix still works and is parsed on our owning thread later.
+  if GetCurrentThreadId<>FOwnerThread then Exit;
+  if not Assigned(FPrefixReader) then FPrefixReader:=TFB2PublisherMetadataReader.Create;
+  Result:=FPrefixReader.ReadCatalogMetadata(Stream,Metadata,ErrorText,False,FIsCanceled)=fmsComplete;
+end;
+
 procedure TPublisherSeriesSource.OpenArchive(const Path: string);
 const MaxEntries = 200000; MaxNameChars = 8*1024*1024;
 var I, NameChars, Existing: Integer; Key, Stamp: string;
 begin
   Stamp := FileStamp(Path);
-  if Assigned(FArchive) and SameText(Path,FArchivePath) and (Stamp=FArchiveStamp) then
+  if (Assigned(FArchive) or Assigned(FNative)) and SameText(Path,FArchivePath) and (Stamp=FArchiveStamp) then
   begin
     if not FArchiveIndexReady then
       raise EReadError.Create('Список файлов архива слишком велик для чтения метаданных');
     Exit;
   end;
-  ClearBatch; FreeAndNil(FArchive); FEntryIndex.Clear;
+  ClearBatch; FreeAndNil(FArchive); FreeAndNil(FNative); FEntryIndex.Clear;
   FArchivePath:=Path; FArchiveStamp:=Stamp; FArchiveIndexReady:=False;
   FBatchDisabled:=False;
-  FArchive:=TMHLZip.Create(Path,True,False,FIsCanceled); Inc(FArchiveOpenCount);
-  if FArchive.FileCount>MaxEntries then
+  FNativeOnly:=not SameText(ExtractFileExt(Path),'.zip');
+  if FNativeOnly then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled)
+  else FArchive:=TMHLZip.Create(Path,True,False,FIsCanceled);
+  Inc(FArchiveOpenCount);
+  if ArchiveCount>MaxEntries then
     raise EReadError.Create('Список файлов архива слишком велик для чтения метаданных');
   NameChars:=0;
-  for I:=0 to FArchive.FileCount-1 do
+  for I:=0 to ArchiveCount-1 do
   begin
     if Assigned(FIsCanceled) and FIsCanceled() then raise EAbort.Create('Чтение отменено');
-    Key:=MetadataEntryKey(FArchive.FileNameAt(I)); Inc(NameChars,Length(Key));
+    Key:=MetadataEntryKey(ArchiveName(I)); Inc(NameChars,Length(Key));
     if NameChars>MaxNameChars then
       raise EReadError.Create('Имена файлов архива превышают предел чтения метаданных');
     if FEntryIndex.TryGetValue(Key,Existing) then
@@ -281,31 +308,67 @@ begin
   Result := TFileStream.Create(SourcePath(Book), fmOpenRead or fmShareDenyWrite);
 end;
 
+function TPublisherSeriesSource.OpenCatalogMetadata(const Book: TBookRecord; out Extension: string): TStream;
+var Path,Entry,CandidateExtension: string; Candidate: Integer;
+begin
+  Extension:=LowerCase(Book.FileExt);
+  if not IsMetadataContainer(Extension) then Exit(OpenDescriptor(Book,False));
+  Path:=SourcePath(Book); OpenArchive(Path);
+  // A packaged EPUB can itself have been named .zip. Inspect the package
+  // marker before treating its HTML resources as independent books.
+  if FEntryIndex.ContainsKey('meta-inf/container.xml') then
+  begin Extension:='.epub'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+  if FEntryIndex.ContainsKey('fb3/body.xml') and FEntryIndex.ContainsKey('fb3/description.xml') then
+  begin Extension:='.fb3'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+  if FEntryIndex.ContainsKey('word/document.xml') and FEntryIndex.ContainsKey('[content_types].xml') then
+  begin Extension:='.docx'; Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite)); end;
+  Candidate:=-1;
+  for var I:=0 to ArchiveCount-1 do
+  begin
+    CandidateExtension:=LowerCase(ExtractFileExt(ArchiveName(I)));
+    if (CandidateExtension<>'.fb2') and not IsMetadataPackage(CandidateExtension) then Continue;
+    if Candidate>=0 then raise EMetadataAmbiguousBook.Create('В архиве несколько книг. Нельзя автоматически приписать их сведения одной записи каталога.');
+    Candidate:=I; Entry:=ArchiveName(I); Extension:=CandidateExtension;
+  end;
+  if Candidate<0 then begin Extension:=''; Exit(nil); end;
+  if not Assigned(FNative) then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled);
+  if Extension='.fb2' then Result:=FNative.ReadPrefix(Entry,16*1024*1024,
+    function(Stream: TStream): Boolean begin Result:=PrefixComplete(Stream); end)
+  else Result:=FNative.ReadEntry(Entry,64*1024*1024);
+end;
+
 function TPublisherSeriesSource.OpenDescriptor(const Book: TBookRecord;
   const AllowExternalDecoder: Boolean): TStream;
 const MaxMetadataPrefix = 16*1024*1024;
 var
   Path, Entry: string;
-  Memory: TMemoryStream;
   EntryIndex: Integer;
 begin
   Result := nil;
   Path := SourcePath(Book);
+  if IsMetadataPackage(Book.FileExt) then
+  begin
+    if Book.GetBookFormat<>bfRawArchive then
+      Exit(TFileStream.Create(Path,fmOpenRead or fmShareDenyWrite));
+    OpenArchive(Path);
+    if not Assigned(FNative) then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled);
+    Exit(FNative.ReadEntry(Book.FileName+Book.FileExt,64*1024*1024));
+  end;
   if Book.GetBookFormat = bfFb2 then
     Exit(TFileStream.Create(Path, fmOpenRead or fmShareDenyWrite));
   if not (Book.GetBookFormat in [bfFb2Archive, bfFbd]) then
     Exit;
-  if not AllowExternalDecoder and IsSevenZipArchive(Path) then
-    raise ENotSupportedException.Create('Проверка сведений читает FB2 и ZIP без внешнего распаковщика');
   OpenArchive(Path);
   if Book.GetBookFormat = bfFbd then
   begin
-    if not FArchive.Find('*.fbd') then
-      Exit;
-    Entry := FArchive.LastName;
-    EntryIndex := FArchive.LastIndex;
-    if FArchive.FindNext then
-      raise EReadError.Create('В архиве несколько описаний FBD; книга не определена однозначно');
+    EntryIndex:=-1;
+    for var I:=0 to ArchiveCount-1 do
+      if SameText(ExtractFileExt(ArchiveName(I)),'.fbd') then
+      begin
+        if EntryIndex>=0 then raise EReadError.Create('В архиве несколько описаний FBD; книга не определена однозначно');
+        EntryIndex:=I; Entry:=ArchiveName(I);
+      end;
+    if EntryIndex<0 then Exit;
   end
   else
   begin
@@ -313,17 +376,13 @@ begin
     if not FEntryIndex.TryGetValue(MetadataEntryKey(Entry),EntryIndex) or (EntryIndex<0) then
       raise EReadError.Create('Файл книги не найден однозначно в архиве: '+Entry);
   end;
-  if FArchive.EntryUsesExternalDecoder(EntryIndex) then
+  if FNativeOnly or FArchive.EntryUsesExternalDecoder(EntryIndex) then
   begin
-    if not AllowExternalDecoder then
-      raise ENotSupportedException.Create('Этот ZIP требует внешнего распаковщика; сведения пропущены');
-    if IsSevenZipArchive(Path) and PrepareBatch(Entry) then
-      Exit(TFileStream.Create(FBatchFiles[LowerCase(Entry)], fmOpenRead or fmShareDenyWrite));
-    Memory := TMemoryStream.Create;
-    try
-      FArchive.ExtractBookPrefix(FArchive.FileNameAt(EntryIndex),EntryIndex,MaxMetadataPrefix,Memory);
-      Memory.Position := 0; Result := Memory;
-    except Memory.Free; raise; end;
+    // The bundled DLL decodes the exact entry into a bounded memory prefix.
+    // No per-book helper process, full-file extraction or temporary book copy.
+    if not Assigned(FNative) then FNative:=TSevenZipMetadataArchive.Create(Path,FIsCanceled);
+    Exit(FNative.ReadPrefix(Entry,MaxMetadataPrefix,
+      function(Stream: TStream): Boolean begin Result:=PrefixComplete(Stream); end));
   end
   else Result := FArchive.OpenEntryStream(EntryIndex);
 end;

@@ -68,12 +68,17 @@ type
     function Items(const BookID: string = ''): TArray<TReaderAnnotation>;
     function Put(const Note: TReaderAnnotation): string;
     procedure Remove(const ID: string);
+    procedure RemoveMany(const IDs: TArray<string>);
+    procedure RemoveAll(const BookID: string = '');
   end;
 
 function ReaderAnnotationsText(const Items: TArray<TReaderAnnotation>; HTML: Boolean; Style: Integer = 1): string;
 function ReaderAnnotationsDocx(const Items: TArray<TReaderAnnotation>; Style: Integer = 1): TBytes;
 function ReaderAnnotationHasRange(const Note: TReaderAnnotation): Boolean;
 function ReaderAnnotationDisplayTitle(const Note: TReaderAnnotation): string;
+// Shared formatter also supports reproducible exports with an explicit offset.
+function ReaderAnnotationTimeAtOffset(const Created, ZoneName: string; OffsetMinutes: Integer): string;
+function ReaderAnnotationLocalTime(const Created: string): string;
 
 implementation
 
@@ -88,11 +93,37 @@ begin
   if Note.Title.Trim='' then Result:='—' else Result:=Note.Title;
 end;
 
-function AnnotationContextText(const Note: TReaderAnnotation): string;
+function ReaderAnnotationTimeAtOffset(const Created, ZoneName: string; OffsetMinutes: Integer): string;
+var UTC: TDateTime; Minutes: Integer; Sign: string;
 begin
-  if Note.Place.Trim='' then Result:=Note.Created
-  else if Note.Created.Trim='' then Result:=Note.Place
-  else Result:=Note.Place+' · '+Note.Created;
+  Result:=Created; if not TryISO8601ToDate(Created,UTC,True) then Exit;
+  Minutes:=Abs(OffsetMinutes); Sign:='+'; if OffsetMinutes<0 then Sign:='-';
+  Result:=FormatDateTime('dd.mm.yyyy hh:nn',UTC+OffsetMinutes/MinsPerDay)+' · '+ZoneName+
+    Format(' (UTC%s%.2d:%.2d)',[Sign,Minutes div 60,Minutes mod 60]);
+end;
+
+function ReaderAnnotationLocalTime(const Created: string): string;
+var UTC, Local: TDateTime; Prefix: Integer; ZoneName: string;
+begin
+  Result:=Created;
+  // Use the local offset at the note's instant, including historical DST.
+  // Persisted UTC instants remain portable and are never rewritten for display.
+  if not TryISO8601ToDate(Created,UTC,True) then Exit;
+  Local:=TTimeZone.Local.ToLocalTime(UTC); ZoneName:=TTimeZone.Local.GetDisplayName(Local).Trim;
+  if ZoneName.StartsWith('(') then
+  begin Prefix:=Pos(')',ZoneName); if Prefix>0 then ZoneName:=Copy(ZoneName,Prefix+1,MaxInt).Trim; end;
+  if SameText(TTimeZone.Local.ID,'Russian Standard Time') or SameText(TTimeZone.Local.ID,'Europe/Moscow') then ZoneName:='Москва';
+  if ZoneName='' then ZoneName:=TTimeZone.Local.ID;
+  Result:=ReaderAnnotationTimeAtOffset(Created,ZoneName,Round((Local-UTC)*MinsPerDay));
+end;
+
+function AnnotationContextText(const Note: TReaderAnnotation): string;
+var Created: string;
+begin
+  Created:=ReaderAnnotationLocalTime(Note.Created);
+  if Note.Place.Trim='' then Result:=Created
+  else if Created.Trim='' then Result:=Note.Place
+  else Result:=Note.Place+' · '+Created;
 end;
 
 constructor TReaderAnnotationIndex.TBucket.Create;
@@ -406,15 +437,30 @@ begin
 end;
 
 procedure TReaderAnnotations.Remove(const ID: string);
-var Old: TArray<TReaderAnnotation>; At: Integer;
+begin RemoveMany(TArray<string>.Create(ID)); end;
+
+procedure TReaderAnnotations.RemoveMany(const IDs: TArray<string>);
+var Old, Kept: TArray<TReaderAnnotation>; Selected: TDictionary<string,Boolean>; Count: Integer;
 begin
-  At:=-1; for var I:=0 to High(FItems) do if FItems[I].ID=ID then begin At:=I; Break; end;
-  if At<0 then Exit;
-  Old:=Copy(FItems);
+  Selected:=TDictionary<string,Boolean>.Create;
   try
-    for var I:=At to High(FItems)-1 do FItems[I]:=FItems[I+1];
-    SetLength(FItems,Length(FItems)-1); Save;
-  except FItems:=Old; raise; end;
+    for var ID in IDs do if ID<>'' then Selected.TryAdd(ID,True);
+    SetLength(Kept,Length(FItems)); Count:=0;
+    for var Note in FItems do
+      if not Selected.ContainsKey(Note.ID) then begin Kept[Count]:=Note; Inc(Count); end;
+    if Count=Length(FItems) then Exit;
+    SetLength(Kept,Count); Old:=FItems;
+    try FItems:=Kept; Save; except FItems:=Old; raise; end;
+  finally Selected.Free; end;
+end;
+
+procedure TReaderAnnotations.RemoveAll(const BookID: string);
+var IDs: TArray<string>; Count: Integer;
+begin
+  SetLength(IDs,Length(FItems)); Count:=0;
+  for var Note in FItems do
+    if (BookID='') or (Note.BookID=BookID) then begin IDs[Count]:=Note.ID; Inc(Count); end;
+  SetLength(IDs,Count); RemoveMany(IDs);
 end;
 
 type

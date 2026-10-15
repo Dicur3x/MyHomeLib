@@ -20,7 +20,8 @@ type
     FPlan: TCollectionMergePlan;
     FList: TListView;
     FReport: TMemo;
-    FApply, FRefresh, FRoot, FIndexFile, FUp, FDown, FDisconnect, FLibrary, FPreview, FMetadataFill: TButton;
+    FApply, FRefresh, FRoot, FIndexFile, FUp, FDown, FDisconnect, FLibrary, FPreview, FMetadataFill,
+      FSaveReport, FClose, FSeriesButton: TButton;
     FDetails, FPolicyHelp, FSpace, FAllSources, FWorkflowTitle, FWorkflowDetails, FSeriesScope: TLabel;
     FPreviewRevision: Integer;
     FBusy, FSeriesLayoutBusy: Boolean;
@@ -29,6 +30,10 @@ type
     FChanged: Boolean;
     FMetadataChanged: Boolean;
     FLastReportFile: string;
+    FLayoutFile: string;
+    FHasShown: Boolean;
+    FNormalWidth96, FNormalHeight96: Integer;
+    procedure DoShow; override;
     function Button(ParentPanel: TPanel; const Caption: string; Left, Width: Integer;
       Handler: TNotifyEvent): TButton;
     procedure InvalidatePreview(const Reason: string = '');
@@ -83,7 +88,8 @@ implementation
 
 uses System.SysUtils, System.IOUtils, System.Variants, System.Types, Winapi.Windows, Vcl.Controls, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
-  frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math, frm_BookMetadataFill;
+  frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math, frm_BookMetadataFill,
+  System.IniFiles, unit_AtomicIniFile;
 
 procedure TSourceDialogForm.ScaleForPPI(NewPPI: Integer);
 var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;
@@ -106,12 +112,13 @@ begin
 end;
 
 constructor TfrmCatalogSources.CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
-var Panel, Footer: TPanel; LabelText: TLabel; B: TButton; Body: TScrollBox; WorkArea: TRect;
+var Panel, Footer: TPanel; LabelText: TLabel; B: TButton; Body: TScrollBox; WorkArea: TRect; Ini: TMemIniFile;
   function LabelAt(AParent: TPanel; const Text: string; X,Y,W,H: Integer): TLabel;
   begin
     Result:=TLabel.Create(Self); Result.Parent:=AParent; Result.AutoSize:=False;
     Result.SetBounds(X,Y,W,H); Result.WordWrap:=True; Result.Caption:=Text;
-    Result.Anchors:=[akLeft,akTop,akRight];
+    if W<200 then Result.Anchors:=[akLeft,akTop]
+    else Result.Anchors:=[akLeft,akTop,akRight];
   end;
 begin
   inherited CreateNew(AOwner);
@@ -120,7 +127,7 @@ begin
   PixelsPerInch:=96; Font.PixelsPerInch:=96;
   Font.Name:='Segoe UI'; Font.Size:=9; Position:=poOwnerFormCenter;
   BorderStyle:=bsSizeable; ClientWidth:=960; ClientHeight:=872;
-  Constraints.MinWidth:=976; Constraints.MinHeight:=460;
+  Constraints.MinWidth:=720; Constraints.MinHeight:=460;
   DisableAlign;
   try
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.SetBounds(0,ClientHeight-116,ClientWidth,116);
@@ -174,7 +181,7 @@ begin
   if SameText(VarToStr(FTarget.GetProperty(PROP_SOURCE_LIBRARY)),'librusec') then FTargetLibrary.ItemIndex:=2;
   if SameText(VarToStr(FTarget.GetProperty(PROP_SOURCE_LIBRARY)),'mixed') then FTargetLibrary.ItemIndex:=3;
   FTargetLibrary.OnChange:=PolicyChanged;
-  LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,20);
+  LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,30);
   FSpace:=LabelAt(Panel,'',12,142,936,52);
   Panel:=Footer;
   FWorkflowTitle:=LabelAt(Panel,'',12,6,184,36); FWorkflowTitle.Font.Style:=[fsBold];
@@ -186,15 +193,15 @@ begin
   FApply:=Button(Panel,'2. Добавить книги в коллекцию',276,252,Apply);
   FApply.Name:='btnApplySources'; FApply.Top:=48; FApply.Enabled:=False;
   FApply.Hint:='Доступно после проверки всех источников с текущими настройками.'; FApply.ShowHint:=True;
-  B:=Button(Panel,'Сохранить отчёт…',540,158,SaveReport); B.Top:=48;
+  B:=Button(Panel,'Сохранить отчёт…',540,158,SaveReport); B.Top:=48; FSaveReport:=B;
   B:=Button(Panel,'Объединить названия серий…',12,252,PreviewSeriesAliases); B.Top:=82;
-  B.Name:='btnSeriesNames'; B.Hint:='Проверяет серии уже добавленных книг текущей коллекции. Источники из списка не импортирует.'; B.ShowHint:=True;
+  B.Name:='btnSeriesNames'; B.Hint:='Проверяет серии уже добавленных книг текущей коллекции. Источники из списка не импортирует.'; B.ShowHint:=True; FSeriesButton:=B;
   FMetadataFill:=Button(Panel,'Заполнить сведения из книг…',276,252,FillBookMetadata); FMetadataFill.Top:=82;
   FMetadataFill.Name:='btnFillBookMetadata'; FMetadataFill.ShowHint:=True;
-  FMetadataFill.Hint:='Заполнить выбранные недостающие сведения уже добавленных местных FB2 этой коллекции. Проверка запускается только по вашей команде.';
+  FMetadataFill.Hint:='Заполнить выбранные недостающие сведения уже добавленных местных книг этой коллекции. Проверка запускается только по вашей команде.';
   FSeriesScope:=LabelAt(Panel,'Эти команды обрабатывают сведения уже добавленных книг. Источники не импортируют.',540,82,408,30);
   FSeriesScope.Name:='lblSeriesNamesScope';
-  B:=Button(Panel,'Закрыть',848,100,nil); B.Top:=48; B.Anchors:=[akTop,akRight]; B.ModalResult:=mrClose; B.Cancel:=True;
+  B:=Button(Panel,'Закрыть',848,100,nil); B.Top:=48; B.Anchors:=[akTop,akRight]; B.ModalResult:=mrClose; B.Cancel:=True; FClose:=B;
   FReport:=TMemo.Create(Self); FReport.Parent:=Body; FReport.Top:=MaxInt; FReport.Align:=alTop; FReport.Height:=156;
   FReport.AlignWithMargins:=True; FReport.Margins.Left:=12; FReport.Margins.Right:=12;
   FReport.Name:='mmSourcesReport'; FReport.ReadOnly:=True; FReport.ScrollBars:=ssVertical; FReport.WordWrap:=True;
@@ -207,26 +214,85 @@ begin
   UpdatePolicyHelp; RebuildList(0);
   SetWorkflowState(cwsNeedsPreview,'Сначала выберите режим повторных книг, затем нажмите «1. Проверить все источники».');
   ScaleForPPI(Screen.PixelsPerInch);
+  FLayoutFile:=Settings.DataPath+'catalog-sources-window.ini';
+  Ini:=TMemIniFile.Create(FLayoutFile,TEncoding.UTF8);
+  try
+    ClientWidth:=MulDiv(EnsureRange(Ini.ReadInteger('Window','ClientWidth96',860),704,4000),CurrentPPI,96);
+    ClientHeight:=MulDiv(EnsureRange(Ini.ReadInteger('Window','ClientHeight96',760),420,3000),CurrentPPI,96);
+  finally Ini.Free; end;
   WorkArea:=Monitor.WorkareaRect;
+  Width:=Min(Width,Max(Constraints.MinWidth,WorkArea.Width-24));
   Height:=Min(Height,Max(Constraints.MinHeight,WorkArea.Height-48));
+  FNormalWidth96:=MulDiv(ClientWidth,96,CurrentPPI); FNormalHeight96:=MulDiv(ClientHeight,96,CurrentPPI);
   LayoutSeriesScope;
 end;
 
 destructor TfrmCatalogSources.Destroy;
-begin FPlan.Free; inherited; end;
+var Ini: TMemIniFile;
+begin
+  if FHasShown and (FLayoutFile<>'') then
+  try
+    Ini:=TMemIniFile.Create(FLayoutFile,TEncoding.UTF8);
+    try
+      Ini.WriteInteger('Window','ClientWidth96',FNormalWidth96);
+      Ini.WriteInteger('Window','ClientHeight96',FNormalHeight96);
+      SaveMemIniFileAtomically(Ini);
+    finally Ini.Free; end;
+  except
+    // Window geometry is optional; a read-only profile keeps its old layout.
+  end;
+  FPlan.Free; inherited;
+end;
+
+procedure TfrmCatalogSources.DoShow;
+begin FHasShown:=True; inherited; LayoutSeriesScope; end;
 
 procedure TfrmCatalogSources.Resize;
 begin
   inherited; LayoutSeriesScope;
+  if FHasShown and (WindowState=wsNormal) and (CurrentPPI>0) then
+  begin FNormalWidth96:=MulDiv(ClientWidth,96,CurrentPPI); FNormalHeight96:=MulDiv(ClientHeight,96,CurrentPPI); end;
 end;
 
 procedure TfrmCatalogSources.LayoutSeriesScope;
-var R: TRect; PPI: Integer; Footer: TWinControl; Text: string;
+var R: TRect; PPI, Gap, ColumnWidth, RowHeight, HeaderHeight: Integer; Footer: TWinControl; Text: string;
 begin
-  if FSeriesLayoutBusy or not Assigned(FSeriesScope) then Exit;
+  if FSeriesLayoutBusy or not Assigned(FSeriesScope) or not Assigned(FClose) then Exit;
   FSeriesLayoutBusy:=True;
   try
     PPI:=Max(96,Font.PixelsPerInch); Footer:=FSeriesScope.Parent;
+    // VCL may rescale constraints again when a hidden runtime form is shown.
+    // Derive them from design units, never from previously scaled values.
+    Constraints.MinWidth:=MulDiv(720,PPI,96);
+    Constraints.MinHeight:=MulDiv(460,PPI,96);
+    FWorkflowDetails.Width:=Max(MulDiv(100,PPI,96),Footer.ClientWidth-FWorkflowDetails.Left-MulDiv(12,PPI,96));
+    Canvas.Font.Assign(FWorkflowDetails.Font); Text:=FWorkflowDetails.Caption;
+    R:=Rect(0,0,FWorkflowDetails.Width,0);
+    DrawTextW(Canvas.Handle,PChar(Text),Length(Text),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    FWorkflowDetails.Height:=Max(MulDiv(36,PPI,96),R.Height);
+    HeaderHeight:=Max(MulDiv(48,PPI,96),FWorkflowDetails.Top+FWorkflowDetails.Height+MulDiv(6,PPI,96));
+    if ClientWidth<MulDiv(950,PPI,96) then
+    begin
+      Gap:=MulDiv(12,PPI,96); RowHeight:=MulDiv(28,PPI,96);
+      ColumnWidth:=(Footer.ClientWidth-4*Gap) div 3;
+      FPreview.SetBounds(Gap,HeaderHeight,ColumnWidth,RowHeight);
+      FApply.SetBounds(2*Gap+ColumnWidth,FPreview.Top,ColumnWidth,RowHeight);
+      FSaveReport.SetBounds(3*Gap+2*ColumnWidth,FPreview.Top,ColumnWidth,RowHeight);
+      FSeriesButton.SetBounds(Gap,FPreview.Top+MulDiv(34,PPI,96),ColumnWidth,RowHeight);
+      FMetadataFill.SetBounds(FApply.Left,FSeriesButton.Top,ColumnWidth,RowHeight);
+      FClose.SetBounds(FSaveReport.Left,FSeriesButton.Top,ColumnWidth,RowHeight);
+      FSeriesScope.SetBounds(Gap,FSeriesButton.Top+MulDiv(34,PPI,96),Footer.ClientWidth-2*Gap,MulDiv(30,PPI,96));
+    end
+    else
+    begin
+      FPreview.SetBounds(MulDiv(12,PPI,96),HeaderHeight,MulDiv(252,PPI,96),MulDiv(28,PPI,96));
+      FApply.SetBounds(MulDiv(276,PPI,96),FPreview.Top,FPreview.Width,FPreview.Height);
+      FSaveReport.SetBounds(MulDiv(540,PPI,96),FPreview.Top,MulDiv(158,PPI,96),FPreview.Height);
+      FSeriesButton.SetBounds(FPreview.Left,FPreview.Top+MulDiv(34,PPI,96),FPreview.Width,FPreview.Height);
+      FMetadataFill.SetBounds(FApply.Left,FSeriesButton.Top,FPreview.Width,FPreview.Height);
+      FClose.SetBounds(Footer.ClientWidth-MulDiv(112,PPI,96),FPreview.Top,MulDiv(100,PPI,96),FPreview.Height);
+      FSeriesScope.SetBounds(MulDiv(540,PPI,96),FSeriesButton.Top,Footer.ClientWidth-MulDiv(552,PPI,96),MulDiv(30,PPI,96));
+    end;
     Canvas.Font.Assign(FSeriesScope.Font); Text:=FSeriesScope.Caption;
     R:=Rect(0,0,FSeriesScope.Width,0);
     DrawTextW(Canvas.Handle,PChar(Text),Length(Text),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
@@ -254,6 +320,7 @@ begin
     cwsFailed: FWorkflowTitle.Caption:='Операция не завершена';
   end;
   FWorkflowDetails.Caption:=Details;
+  LayoutSeriesScope;
   FPreview.Default:=not FBusy and (State<>cwsReady);
   FApply.Default:=not FBusy and (State=cwsReady) and FApply.Enabled;
 end;

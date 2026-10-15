@@ -30,6 +30,7 @@ type
     TFileOprecord = record
       SourceFile: string;
       SourceExtension: string;
+      BookTitle, BookAuthor, BookLanguage: string;
       TargetFile: string;
       TargetFolder: string;
       TempFile: string;
@@ -121,7 +122,7 @@ uses
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
   unit_WriteFb2Info,
-  unit_BookConversion, unit_ReaderCache, System.Variants;
+  unit_BookConversion, unit_BookCache, unit_ReaderCache, System.Variants;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -136,7 +137,7 @@ resourcestring
     'Подробности записаны в файл: %s';
   rstrExportWarnings = 'Экспорт завершён. Для некоторых элементов оформления есть примечания.' + CR +
     'Исходные книги сохранены. Подробности: %s';
-  rstrBasicFormatUnsupported = 'Экспорт в %s пока поддерживает исходные книги FB2 и EPUB. ' +
+  rstrBasicFormatUnsupported = 'Экспорт в %s поддерживает FB2, FB3, EPUB, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT и Kindle без DRM. ' +
     'Книга «%s» имеет формат %s; её исходный файл сохранён.';
 
 const
@@ -177,7 +178,7 @@ var
   FTargetFolder: string;
   FTargetFileName: string;
   FTargetFullFilePath: string;
-  FTempFileName: string;
+  FTempFileName, PreparedSource, SourceExtension: string;
 begin
   Result := False;
   FFileOprecord := Default(TFileOprecord);
@@ -205,11 +206,22 @@ begin
         'Её запись и заметки сохранены; экспорт пропущен.';
       Exit;
     end;
+    PreparedSource:=''; SourceExtension:=LowerCase(R.FileExt);
+    if FExplicitFormat and not FExtractOnly and IsReaderArchive(R.FileName+R.FileExt) then
+    begin
+      var TargetExtension:='.fb2'; if FExportMode=emEpub then TargetExtension:='.epub';
+      PreparedSource:=PrepareConversionSource(R,
+        procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension);
+      if PreparedSource='' then Abort;
+      SourceExtension:=LowerCase(ExtractFileExt(PreparedSource));
+    end;
     FBookFormat := R.GetBookFormat;
     FFileOprecord.FileName := R.FileName + R.FileExt;
-    FFileOprecord.SourceExtension := LowerCase(R.FileExt);
+    FFileOprecord.SourceExtension := SourceExtension;
+    FFileOprecord.BookTitle:=R.Title; FFileOprecord.BookAuthor:=TAuthorsHelper.GetList(R.Authors);
+    FFileOprecord.BookLanguage:=R.Lang;
     FConvertBasic := not FExtractOnly and (FExportMode in [emFB2, emEpub]) and
-      (SameText(R.FileExt, '.fb2') or SameText(R.FileExt, '.epub')) and
+      IsBasicConversionSource(SourceExtension) and
       (FExplicitFormat or (FExportMode = emEpub));
     if FExplicitFormat and not FExtractOnly and not FConvertBasic then
     begin
@@ -276,6 +288,7 @@ begin
     end;
 
     FFileOprecord.SourceFile := R.GetBookFileName;
+    if PreparedSource<>'' then FFileOprecord.SourceFile:=PreparedSource;
     FFileOprecord.FileName := FTargetFileName + R.FileExt;
 
     // For MTP: write to temp, then shell-copy to device
@@ -310,17 +323,19 @@ begin
 
       FFileOprecord.TempFile := TPath.Combine(FTempPath, FTempFileName);
 
-      FFileOprecord.Stream := R.GetBookStream;
+      if PreparedSource<>'' then FFileOprecord.Stream:=OpenCachedBookFile(PreparedSource)
+      else FFileOprecord.Stream := R.GetBookStream;
       if not Assigned(FFileOprecord.Stream) then
         raise Exception.Create('Не удалось извлечь исходную книгу из архива.');
 
-      if (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info then
+      if (PreparedSource='') and (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info then
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
 
     end;
 
     Result := True;
   except
+    on E: EAbort do begin Canceled:=True; FLastError:=E.Message; end;
     on E: Exception do
       FLastError := Format('PrepareFile exception: %s', [E.Message]);
   end;
@@ -475,7 +490,8 @@ begin
       ConvertBasicBook(FAppPath, FTempPath, FFileOprecord.SourceFile,
         FFileOprecord.SourceExtension, ActualOutputFile(FFileOprecord.TargetFile),
         FFileOprecord.Stream, Warnings,
-        function: Boolean begin Result := Canceled or Terminated; end);
+        function: Boolean begin Result := Canceled or Terminated; end,
+        FFileOprecord.BookTitle,FFileOprecord.BookAuthor,FFileOprecord.BookLanguage);
       FLastWarnings := Warnings.Text;
       Result := True;
     except

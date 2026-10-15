@@ -160,6 +160,11 @@ const
   SF_GENRE_CODES = 'GenreCodes';
   SF_ANNOTATION  = 'Annotation';
   SF_PUBLISHER   = 'Publisher';
+  SF_TRANSLATORS = 'Translators';
+  SF_CITY        = 'City';
+  SF_PUBYEAR     = 'PubYear';
+  SF_ISBN        = 'ISBN';
+  SF_WITH_NOTES  = 'WithReaderNotes';
   SF_FAVORITE_AUTHORS = 'FavoriteAuthorsOnly';
 
   SF_FILE        = 'File';

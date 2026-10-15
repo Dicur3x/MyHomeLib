@@ -76,7 +76,7 @@ uses
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
-  unit_AuthorFavorites, unit_AuthorFavoriteRefresh;
+  unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -782,6 +782,7 @@ type
 
     procedure CreateCollectionMenu;
     procedure CreateScriptMenu;
+    procedure UpdateConversionMenu(Sender: TObject);
     procedure SetColors;
     procedure ToggleApplicationTheme(Sender: TObject);
     procedure CreateAlphabetToolbar;
@@ -810,7 +811,7 @@ type
     procedure BookLocationExecute(Sender: TObject);
     procedure ChooseReaderExecute(Sender: TObject);
     procedure ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin: Boolean; ChooseReader: Boolean = False; ForceChoice: Boolean = False;
-      const ReaderPathOverride: string = ''; KeepKindlePreparation: Boolean = False);
+      const ReaderPathOverride: string = ''; KeepKindlePreparation: Boolean = False; FromNotes: Boolean = False);
     procedure OnSelectBookHandler(MoveForward: Boolean);
     procedure OnGetBookHandler(var BookRecord: TBookRecord);
     procedure OnUpdateBookHandler(const BookRecord: TBookRecord);
@@ -949,7 +950,10 @@ type
     FUpdatingDeletedControls: Boolean;
     FPublisherSearchEdit: TMHLButtonedEdit;
     FPublisherSearchLabel: TLabel;
+    FTranslatorSearchEdit, FCitySearchEdit, FPubYearSearchEdit, FISBNSearchEdit: TMHLButtonedEdit;
     FUpdatingSearchLayout: Boolean;
+    FNotesOnlySearchCheck: TCheckBox;
+    FReaderNotesAction: TAction;
 
     FSystemData: ISystemData;
     FInSetInfoPanelHeight: Boolean;
@@ -1015,6 +1019,9 @@ type
     function CatalogBookMatchesSaved(const Book: TBookRecord; Notify: Boolean = True): Boolean;
     function SearchPresetIndex(const Name: string): Integer;
     procedure CreatePublisherSearchField;
+    procedure BrowseAllReaderNotes(Sender: TObject);
+    procedure OpenReaderNote(const Note: TReaderAnnotation);
+    procedure RefreshNotesSearch;
     procedure UpdateSearchBookLayout;
     procedure SearchBookExpanded(Sender: TObject);
 
@@ -1116,7 +1123,7 @@ uses
   DateUtils,
   IOUtils,
   System.Hash,
-  unit_AtomicIniFile,
+  unit_AtomicIniFile, System.IniFiles,
   Character,
   unit_HelpTopics,
   unit_MHLHttpClient,
@@ -1140,7 +1147,7 @@ uses
   unit_MHL_strings,
   unit_Settings,
   unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
-  unit_ReaderDocument,
+  unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
   frm_BuiltinReader,
   dm_user,
   unit_Import,
@@ -1615,6 +1622,10 @@ begin
   edFKeyWords.Color := BGColor;
   edFAnnotation.Color := BGColor;
   if Assigned(FPublisherSearchEdit) then FPublisherSearchEdit.Color := BGColor;
+  if Assigned(FTranslatorSearchEdit) then FTranslatorSearchEdit.Color := BGColor;
+  if Assigned(FCitySearchEdit) then FCitySearchEdit.Color := BGColor;
+  if Assigned(FPubYearSearchEdit) then FPubYearSearchEdit.Color := BGColor;
+  if Assigned(FISBNSearchEdit) then FISBNSearchEdit.Color := BGColor;
 
   cbDate.Color := BGColor;
   cbLang.Color := BGColor;
@@ -1720,6 +1731,13 @@ begin
         Criteria.FavoriteAuthorsOnly := FSearchFavoriteCheck.Checked;
         Criteria.Series := edFSeries.Text;
         Criteria.Publisher := FPublisherSearchEdit.Text;
+        Criteria.Translators := FTranslatorSearchEdit.Text;
+        Criteria.City := FCitySearchEdit.Text;
+        Criteria.PubYear := FPubYearSearchEdit.Text;
+        Criteria.ISBN := FISBNSearchEdit.Text;
+        Criteria.NotesOnly:=FNotesOnlySearchCheck.Checked;
+        if Criteria.NotesOnly then Criteria.NoteBookIDs:=ReaderNoteBookIDs(FSystemData,
+          ResolveReaderSettingsFile(Settings.DataDir),FCollection.CollectionID);
         Criteria.Annotation := edFAnnotation.Text;
         Criteria.Genre := edFGenre.Hint;
         Criteria.Title := edFTitle.Text;
@@ -1779,6 +1797,11 @@ begin
   edFTitle.Text := '';
   edFSeries.Text := '';
   if Assigned(FPublisherSearchEdit) then FPublisherSearchEdit.Text := '';
+  if Assigned(FTranslatorSearchEdit) then FTranslatorSearchEdit.Text := '';
+  if Assigned(FCitySearchEdit) then FCitySearchEdit.Text := '';
+  if Assigned(FPubYearSearchEdit) then FPubYearSearchEdit.Text := '';
+  if Assigned(FISBNSearchEdit) then FISBNSearchEdit.Text := '';
+  if Assigned(FNotesOnlySearchCheck) then FNotesOnlySearchCheck.Checked:=False;
   edFGenre.Text := '';
   edFGenre.Hint := '';
   edFAnnotation.Text := '';
@@ -2901,6 +2924,9 @@ begin
 
   fb2Collection := Assigned(FCollection) and isFB2Collection(FCollection.CollectionCode);
 
+  pmMain.OnPopup:=UpdateConversionMenu; pmScripts.OnPopup:=UpdateConversionMenu;
+  miBook.OnClick:=UpdateConversionMenu;
+  pmiScripts.OnClick:=UpdateConversionMenu; mmiScripts.OnClick:=UpdateConversionMenu;
   pmiScripts.Caption := 'Конвертировать / сохранить';
   mmiScripts.Caption := pmiScripts.Caption;
   ExportItemCount := 0;
@@ -2993,6 +3019,48 @@ begin
     mmiScripts.Visible := False;
     pmiScripts.Visible := False;
   end
+end;
+
+procedure TfrmMain.UpdateConversionMenu(Sender: TObject);
+var Tree: TBookTree; Book: PBookRecord; SourceType: string;
+  procedure UpdateItems(Parent: TMenuItem; HideEmptyParent: Boolean);
+  var VisibleCount: Integer; Item: TMenuItem; Previous: TMenuItem;
+  begin
+    VisibleCount:=0; Previous:=nil;
+    for var I:=0 to Parent.Count-1 do
+    begin
+      Item:=Parent.Items[I];
+      if (Item.Tag>=850) and (Item.Tag<=856) then
+      begin
+        case Item.Tag of
+          850: Item.Visible:=(SourceType<>'fb2') and (IsBasicConversionSource(SourceType) or IsReaderArchive('book.'+SourceType));
+          854: Item.Visible:=(SourceType<>'epub') and (IsBasicConversionSource(SourceType) or IsReaderArchive('book.'+SourceType));
+        else Item.Visible:=SourceType='fb2'; end;
+      end;
+      if Item.Caption='-' then
+      begin
+        Item.Visible:=Assigned(Previous) and (Previous.Caption<>'-');
+        if Item.Visible then Previous:=Item;
+      end
+      else if Item.Visible then begin Inc(VisibleCount); Previous:=Item; end;
+    end;
+    if Assigned(Previous) and (Previous.Caption='-') then Previous.Visible:=False;
+    if HideEmptyParent then Parent.Visible:=VisibleCount>0;
+  end;
+begin
+  SourceType:='';
+  if Assigned(FCollection) and (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView,GenresView,SearchView,FavoritesView]) then
+  begin
+    GetActiveTree(Tree);
+    if Assigned(Tree) then
+    begin
+      // Inspect the selected row only: opening a menu never scans the library
+      // or starts extraction. The export worker validates every queued input.
+      Book:=Tree.GetNodeData(Tree.GetFirstSelected);
+      if Assigned(Book) and (Book^.NodeType=ntBookInfo) then SourceType:=Book^.GetFileType;
+    end;
+  end;
+  UpdateItems(pmiScripts,True); UpdateItems(mmiScripts,True); UpdateItems(pmScripts.Items,False);
 end;
 
 function TfrmMain.ShowNCWizard: Boolean;
@@ -3717,54 +3785,54 @@ var
   Ordered: TArray<TControl>;
   Control: TControl;
   Position: Integer;
+  TranslatorsLabel, CityLabel, YearLabel, ISBNLabel: TLabel;
+  procedure AddField(const Name, Caption, Hint: string; out Edit: TMHLButtonedEdit; out LabelControl: TLabel);
+  begin
+    LabelControl:=TLabel.Create(Self); LabelControl.Name:='lblSearch'+Name;
+    LabelControl.Parent:=Body; LabelControl.Caption:=Caption; LabelControl.Font.Assign(Label6.Font);
+    LabelControl.AutoSize:=True; LabelControl.Margins.Assign(Label6.Margins);
+    LabelControl.AlignWithMargins:=True; LabelControl.Align:=alTop;
+    Edit:=TMHLButtonedEdit.Create(Self); Edit.Name:='edF'+Name; Edit.Parent:=Body; Edit.Text:='';
+    Edit.Font.Assign(edFSeries.Font); Edit.Height:=edFSeries.Height; Edit.Margins.Assign(edFSeries.Margins);
+    Edit.AlignWithMargins:=True; Edit.Align:=alTop; Edit.ShowHint:=True; Edit.Hint:=Hint;
+    Edit.OnKeyDown:=PresetFieldKeyDown; Edit.OnRightButtonClick:=ShowExpressionEditor;
+    LabelControl.FocusControl:=Edit;
+  end;
 begin
-  Body := edFSeries.Parent;
-  Body.DisableAlign;
+  Body:=edFSeries.Parent; Body.DisableAlign;
   try
-    FPublisherSearchLabel := TLabel.Create(Self);
-    FPublisherSearchLabel.Name := 'lblSearchPublisher';
-    FPublisherSearchLabel.Parent := Body;
-    FPublisherSearchLabel.Caption := 'Издательство';
-    FPublisherSearchLabel.Font.Assign(Label6.Font);
-    FPublisherSearchLabel.AutoSize := True;
-    FPublisherSearchLabel.Margins.Assign(Label6.Margins);
-    FPublisherSearchLabel.AlignWithMargins := True;
-    FPublisherSearchLabel.Align := alTop;
-
-    FPublisherSearchEdit := TMHLButtonedEdit.Create(Self);
-    FPublisherSearchEdit.Name := 'edFPublisher';
-    FPublisherSearchEdit.Text := '';
-    FPublisherSearchEdit.Parent := Body;
-    FPublisherSearchEdit.Font.Assign(edFSeries.Font);
-    FPublisherSearchEdit.Height := edFSeries.Height;
-    FPublisherSearchEdit.Margins.Assign(edFSeries.Margins);
-    FPublisherSearchEdit.AlignWithMargins := True;
-    FPublisherSearchEdit.Align := alTop;
-    FPublisherSearchEdit.ShowHint := True;
-    FPublisherSearchEdit.Hint := 'Поиск по издательству, сохранённому в каталоге. Если INPX не содержит этих сведений, файлы книг автоматически не просматриваются.';
-    FPublisherSearchEdit.OnKeyDown := PresetFieldKeyDown;
-    FPublisherSearchEdit.OnRightButtonClick := ShowExpressionEditor;
-    FPublisherSearchLabel.FocusControl := FPublisherSearchEdit;
-    FPublisherSearchEdit.TabOrder := edFSeries.TabOrder + 1;
-    edFGenre.TabOrder := FPublisherSearchEdit.TabOrder + 1;
-    edFKeyWords.TabOrder := edFGenre.TabOrder + 1;
-    edFAnnotation.TabOrder := edFKeyWords.TabOrder + 1;
-
-    // Explicit reading order also makes aligned controls independent of DFM Top values.
-    Ordered := TArray<TControl>.Create(Label5, edFFullName, Label24, edFTitle,
-      cbCollapseMultiSeriesResults, Label6, edFSeries, FPublisherSearchLabel,
-      FPublisherSearchEdit, Label26, edFGenre, Label3, edFKeyWords, Label7, edFAnnotation);
-    Position := Body.Padding.Top;
+    AddField('Publisher','Издательство',
+      'Поиск по издательству, сохранённому в каталоге. Если INPX не содержит этих сведений, файлы книг автоматически не просматриваются.',
+      FPublisherSearchEdit,FPublisherSearchLabel);
+    AddField('Translators','Переводчики','Имя переводчика из сведений каталога.',FTranslatorSearchEdit,TranslatorsLabel);
+    AddField('City','Город издания','Город издания из сведений каталога.',FCitySearchEdit,CityLabel);
+    AddField('PubYear','Год издания','Например: 2020 или >= 2010 AND <= 2025. Это год издания, а не дата добавления.',FPubYearSearchEdit,YearLabel);
+    AddField('ISBN','ISBN','Полный ISBN или его часть. Пробелы и дефисы можно не вводить.',FISBNSearchEdit,ISBNLabel);
+    FNotesOnlySearchCheck:=TCheckBox.Create(Self); FNotesOnlySearchCheck.Name:='cbSearchWithNotes';
+    FNotesOnlySearchCheck.Parent:=Body; FNotesOnlySearchCheck.Caption:='Книги с заметками';
+    FNotesOnlySearchCheck.Font.Assign(cbCollapseMultiSeriesResults.Font);
+    FNotesOnlySearchCheck.Height:=cbCollapseMultiSeriesResults.Height;
+    FNotesOnlySearchCheck.AlignWithMargins:=True; FNotesOnlySearchCheck.Margins.Assign(cbCollapseMultiSeriesResults.Margins);
+    FNotesOnlySearchCheck.Align:=alTop;
+    Ordered:=TArray<TControl>.Create(Label5,edFFullName,Label24,edFTitle,
+      cbCollapseMultiSeriesResults,FNotesOnlySearchCheck,Label6,edFSeries,FPublisherSearchLabel,FPublisherSearchEdit,
+      TranslatorsLabel,FTranslatorSearchEdit,CityLabel,FCitySearchEdit,YearLabel,FPubYearSearchEdit,
+      ISBNLabel,FISBNSearchEdit,Label26,edFGenre,Label3,edFKeyWords,Label7,edFAnnotation);
+    Position:=Body.Padding.Top;
     for Control in Ordered do
     begin
-      Control.Top := Position;
-      Inc(Position, Control.Height);
-      if Control.AlignWithMargins then
-        Inc(Position, Control.Margins.Top + Control.Margins.Bottom);
+      Control.Top:=Position; Inc(Position,Control.Height);
+      if Control.AlignWithMargins then Inc(Position,Control.Margins.Top+Control.Margins.Bottom);
     end;
+    FPublisherSearchEdit.TabOrder:=edFSeries.TabOrder+1;
+    FTranslatorSearchEdit.TabOrder:=FPublisherSearchEdit.TabOrder+1;
+    FCitySearchEdit.TabOrder:=FTranslatorSearchEdit.TabOrder+1;
+    FPubYearSearchEdit.TabOrder:=FCitySearchEdit.TabOrder+1;
+    FISBNSearchEdit.TabOrder:=FPubYearSearchEdit.TabOrder+1;
+    edFGenre.TabOrder:=FISBNSearchEdit.TabOrder+1;
+    edFKeyWords.TabOrder:=edFGenre.TabOrder+1; edFAnnotation.TabOrder:=edFKeyWords.TabOrder+1;
   finally Body.EnableAlign; end;
-  ctpBook.OnExpand := SearchBookExpanded;
-  UpdateSearchBookLayout;
+  ctpBook.OnExpand:=SearchBookExpanded; UpdateSearchBookLayout;
 end;
 
 procedure TfrmMain.UpdateSearchBookLayout;
@@ -4191,8 +4259,12 @@ begin
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
   FMetadataFillAction.ActionList:=Actions; FMetadataFillAction.Category:='Коллекция';
   FMetadataFillAction.Caption:='Заполнить сведения из книг…';
-  FMetadataFillAction.Hint:='Из описаний местных FB2, только пустые поля каталога. Проверка запускается только по вашей команде.';
+  FMetadataFillAction.Hint:='Из метаданных местных книг, только пустые поля каталога. Проверка запускается только по вашей команде.';
   FMetadataFillAction.OnExecute:=FillBookMetadataExecute; FMetadataFillAction.OnUpdate:=FillBookMetadataUpdate;
+  FReaderNotesAction:=TAction.Create(Self); FReaderNotesAction.Name:='acAllReaderNotes';
+  FReaderNotesAction.ActionList:=Actions; FReaderNotesAction.Caption:='Заметки всех книг…';
+  FReaderNotesAction.OnExecute:=BrowseAllReaderNotes;
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Action:=FReaderNotesAction; miTools.Add(FilterMenu);
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miFillBookMetadata'; FilterMenu.Action:=FMetadataFillAction;
   miUpdateFromFile.Parent.Insert(miUpdateFromFile.MenuIndex+1,FilterMenu);
 
@@ -4886,7 +4958,7 @@ var
   Data: PBookRecord;
   Tree: TBookTree;
   InfoPanel: TInfoPanel;
-  isFBDDocument: Boolean;
+  isFBDDocument, LocalReadable: Boolean;
   StoredBookKey: PBookKey;
   BookCollection: IBookCollection;
   BookSeries: TBookSeries;
@@ -5000,9 +5072,9 @@ begin
       // Keep the rest of the panel usable for temporarily unavailable collections.
     end;
 
-    if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
-      FBookPreviews[Tree.Tag].Load(Data^, Settings.ShowBookCover,
-        Settings.ShowBookAnnotation, Settings.Fb2InfoPriority);
+    LocalReadable:=(bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^,False);
+    FBookPreviews[Tree.Tag].Load(Data^, LocalReadable and Settings.ShowBookCover,
+      Settings.ShowBookAnnotation, LocalReadable and Settings.Fb2InfoPriority,LocalReadable);
 
   end;
 
@@ -5532,8 +5604,44 @@ begin
   if Assigned(Data) and (Data^.NodeType=ntBookInfo) then ReadPreparedBook(Data^,False,True,True);
 end;
 
+procedure TfrmMain.BrowseAllReaderNotes(Sender: TObject);
+var Note: TReaderAnnotation;
+begin
+  try
+    if BrowseReaderNotes(Self,ResolveReaderSettingsFile(Settings.DataDir),Note) then OpenReaderNote(Note);
+  finally RefreshNotesSearch; end;
+end;
+
+procedure TfrmMain.RefreshNotesSearch;
+var Criteria: TBookSearchCriteria;
+begin
+  if not Assigned(FCollection) or not FHasAppliedSearch or not FSearchCriteria.NotesOnly then Exit;
+  Criteria:=FSearchCriteria;
+  Criteria.NoteBookIDs:=ReaderNoteBookIDs(FSystemData,ResolveReaderSettingsFile(Settings.DataDir),FCollection.CollectionID);
+  FSearchCriteria:=Criteria; Exclude(FLoadedBookViews,SearchView);
+  if ActiveView=SearchView then ApplySearchCriteria(Criteria);
+end;
+
+procedure TfrmMain.OpenReaderNote(const Note: TReaderAnnotation);
+var Book: TBookRecord; Ini: TMemIniFile; SettingsFile: string; Preferred: Integer;
+begin
+  Preferred:=-1; if Assigned(FCollection) then Preferred:=FCollection.CollectionID;
+  SettingsFile:=ResolveReaderSettingsFile(Settings.DataDir);
+  if not FindReaderNoteBook(FSystemData,SettingsFile,Note,Preferred,Book) then
+  begin
+    MHLShowInfo('Книга этой заметки не найдена в подключённых коллекциях. Сама заметка сохранена.'); Exit;
+  end;
+  if not Assigned(FCollection) or not CatalogBookAvailable(Book) then Exit;
+  Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8);
+  try
+    Ini.WriteInteger('Book.'+Note.BookID,'Position',Note.Position); SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  // This is a resolved catalog note, independent of the selected group row.
+  ReadPreparedBook(Book,True,False,False,'',False,True);
+end;
+
 procedure TfrmMain.ReadPreparedBook(const BookRecord: TBookRecord; UseBuiltin, ChooseReader, ForceChoice: Boolean;
-  const ReaderPathOverride: string; KeepKindlePreparation: Boolean);
+  const ReaderPathOverride: string; KeepKindlePreparation, FromNotes: Boolean);
 var
   BookFileName: string;
   BookFormat: TBookFormat;
@@ -5545,13 +5653,14 @@ var
   KindleReader: TReaderDesc;
   PrepareKindle, RequirePersonalProgress: Boolean;
   ReaderNamespace: string;
+  ReaderDownloads: TBookIdList;
 begin
   if not CatalogBookAvailable(BookRecord) then Exit;
   Assert(Assigned(FCollection));
 
   Assert(BookRecord.nodeType = ntBookInfo);
 
-  Snapshot := BookRecord; RequirePersonalProgress := ActiveView = FavoritesView;
+  Snapshot := BookRecord; RequirePersonalProgress := (ActiveView = FavoritesView) and not FromNotes;
   KindleReader := Settings.Readers.Find(BookRecord.FileExt);
   PrepareKindle := KeepKindlePreparation or UseBuiltin or ChooseReader or (Assigned(KindleReader) and
     SameText(ExtractFileName(KindleReader.Path),'SumatraPDF.exe'));
@@ -5569,7 +5678,11 @@ begin
     CollectionInfo := FSystemData.GetCollectionInfo(BookRecord.BookKey.DatabaseID);
     if isOnlineCollection(CollectionInfo.CollectionType) then
     begin
-      DownloadBooks(FCurrentBookOnly);
+      SetLength(ReaderDownloads,1); ReaderDownloads[0]:=Default(TBookIdStruct);
+      ReaderDownloads[0].BookKey:=Snapshot.BookKey; ReaderDownloads[0].HasExpectedIdentity:=True;
+      ReaderDownloads[0].ExpectedLibID:=Snapshot.LibID;
+      ReaderDownloads[0].ExpectedPhysicalIdentity:=ReaderBookPhysicalIdentity(Snapshot);
+      unit_ExportToDevice.DownloadBooks(ReaderDownloads);
       if not FileExists(BookFileName) then
         Exit; // The download already reported its failure or was cancelled.
     end;
@@ -5608,6 +5721,7 @@ begin
             MHLShowInfo('Этот формат пока не поддерживается встроенной читалкой. Выберите «Читать во внешней программе» в меню книги.');
             Exit;
           end;
+          RegisterReaderNoteBook(ResolveReaderSettingsFile(Settings.DataDir),Snapshot,ReaderNamespace);
           OpenBuiltinReader(Self, WorkFile, Snapshot.Title, ReaderHistoryName(Snapshot, ReaderNamespace),
             ResolveReaderSettingsFile(Settings.DataDir), Settings.AppPath + 'tools\pdfium\pdfium.dll',
             procedure(Progress: Integer)
@@ -5642,7 +5756,9 @@ begin
               end
               else if not (csDestroying in ComponentState) then
                 StatusMessage := 'Позиция сохранена в читалке. Карточка книги недоступна; прогресс каталога не обновлён.';
-            end);
+            end,
+            procedure(Note: TReaderAnnotation) begin OpenReaderNote(Note); end);
+          RefreshNotesSearch;
         end
         else if ExternalPath<>'' then
           PrepareExternalReaderFileInBackground(Self,ReaderBook,WorkFile,ReaderNamespace,
@@ -8618,6 +8734,11 @@ begin
     preset.AddOrSetValue(SF_TITLE, edFTitle.Text);
     preset.AddOrSetValue(SF_SERIES, edFSeries.Text);
     preset.AddOrSetValue(SF_PUBLISHER, FPublisherSearchEdit.Text);
+    preset.AddOrSetValue(SF_TRANSLATORS,FTranslatorSearchEdit.Text);
+    preset.AddOrSetValue(SF_CITY,FCitySearchEdit.Text);
+    preset.AddOrSetValue(SF_PUBYEAR,FPubYearSearchEdit.Text);
+    preset.AddOrSetValue(SF_ISBN,FISBNSearchEdit.Text);
+    preset.AddOrSetValue(SF_WITH_NOTES,BoolToStr(FNotesOnlySearchCheck.Checked));
     preset.AddOrSetValue(SF_GENRE_TITLE, edFGenre.Text);
     preset.AddOrSetValue(SF_GENRE_CODES, edFGenre.Hint);
     preset.AddOrSetValue(SF_ANNOTATION, edFAnnotation.Text);
@@ -10027,6 +10148,11 @@ begin
   if preset.TryGetValue(SF_TITLE, Value) then edFTitle.Text := Value;
   if preset.TryGetValue(SF_SERIES, Value) then edFSeries.Text := Value;
   if preset.TryGetValue(SF_PUBLISHER, Value) then FPublisherSearchEdit.Text := Value;
+  if preset.TryGetValue(SF_TRANSLATORS,Value) then FTranslatorSearchEdit.Text:=Value;
+  if preset.TryGetValue(SF_CITY,Value) then FCitySearchEdit.Text:=Value;
+  if preset.TryGetValue(SF_PUBYEAR,Value) then FPubYearSearchEdit.Text:=Value;
+  if preset.TryGetValue(SF_ISBN,Value) then FISBNSearchEdit.Text:=Value;
+  if preset.TryGetValue(SF_WITH_NOTES,Value) then FNotesOnlySearchCheck.Checked:=StrToBoolDef(Value,False);
   if preset.TryGetValue(SF_GENRE_TITLE, Value) then edFGenre.Text := Value;
   if preset.TryGetValue(SF_GENRE_CODES, Value) then edFGenre.Hint := Value;
   if preset.TryGetValue(SF_ANNOTATION, Value) then edFAnnotation.Text := Value;

@@ -1149,6 +1149,29 @@ begin
   end;
 end;
 
+function PrepareISBNQuery(const Value: string): string;
+var Text: string; Quoted: Boolean; Quote, C: Char;
+begin
+  Text:=Trim(AnsiUpperCase(Value)); Result:=''; if Text='' then Exit;
+  // Ordinary pasted ISBN is a literal, including any accidental punctuation.
+  // In an advanced expression normalize only literals, never operator spaces.
+  if not CharInSet(Text[1],['=','<','>','(']) and not Text.StartsWith('LIKE ') and
+    not Text.StartsWith('NOT ') then
+    Exit('LIKE '+QuotedStr('%'+Text.Replace('-','').Replace(' ','').Replace(#9,'').Replace(#160,'')+'%'));
+  Quoted:=False; Quote:=#0;
+  for C in Text do
+  begin
+    if not Quoted then
+    begin
+      if CharInSet(C,[#34,#39]) then begin Quoted:=True; Quote:=C; end;
+    end
+    else if C=Quote then Quoted:=False
+    else if CharInSet(C,['-',' ',#9,#160]) then Continue;
+    Result:=Result+C;
+  end;
+  Result:=PrepareQuery(Result,True);
+end;
+
 procedure TBookCollection_SQLite.TBookIteratorImpl.PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
 const
   SQL_START_STR = 'SELECT DISTINCT b.BookID ';
@@ -1189,6 +1212,12 @@ begin
       SQLRows := SQLRows + 'SELECT DISTINCT al.BookID FROM Author_List al ' +
         'INDEXED BY IXAuthorList_AuthorID_BookID WHERE al.AuthorID IN (' +
         SQLIntegerIDs(SearchCriteria.FavoriteAuthorIDs) + ')';
+    end;
+    if SearchCriteria.NotesOnly then
+    begin
+      if SQLRows<>'' then SQLRows:=SQLRows+' INTERSECT ';
+      SQLRows:=SQLRows+SQL_START_STR+'FROM Books b WHERE b.BookID IN ('+
+        SQLIntegerIDs(SearchCriteria.NoteBookIDs)+')';
     end;
     if SearchCriteria.RestrictBookIDs then
     begin
@@ -1233,7 +1262,19 @@ begin
     // Publisher is already stored metadata; do not read book files during search.
     // SQLite's native UPPER only maps ASCII, so use our Windows Unicode mapping.
     AddToFilter('MHL_UPPER(b.Publisher)', PrepareQuery(SearchCriteria.Publisher, True), False, FilterString);
+    AddToFilter('MHL_UPPER(b.Translators)', PrepareQuery(SearchCriteria.Translators, True), False, FilterString);
+    AddToFilter('MHL_UPPER(b.City)', PrepareQuery(SearchCriteria.City, True), False, FilterString);
+    AddToFilter('b.PubYear', PrepareQuery(SearchCriteria.PubYear, False, False), False, FilterString);
+    // ISBN punctuation is presentation, including non-breaking spaces. Keep
+    // the expression parser for exact matches and OR/AND as in other fields.
+    AddToFilter('MHL_UPPER(REPLACE(REPLACE(REPLACE(REPLACE(b.ISBN,''-'',''''),'' '',''''),CHAR(9),''''),CHAR(160),''''))',
+      PrepareISBNQuery(SearchCriteria.ISBN), False, FilterString);
     AddToFilter('b.SearchTitle', PrepareQuery(SearchCriteria.Title, True), False, FilterString);
+    if SearchCriteria.ExactTitle<>'' then
+    begin
+      if FilterString<>'' then FilterString:=FilterString+' AND ';
+      FilterString:=FilterString+'(b.SearchTitle='+QuotedStr(AnsiUpperCase(SearchCriteria.ExactTitle))+')';
+    end;
     AddToFilter('b.SearchFileName', PrepareQuery(SearchCriteria.FileName, True), False, FilterString);
     AddToFilter('b.SearchFolder', PrepareQuery(SearchCriteria.Folder, True), False, FilterString);
     AddToFilter('b.SearchExt', PrepareQuery(SearchCriteria.FileExt, True), False, FilterString);

@@ -15,14 +15,18 @@ $destinationDirectory = Join-Path $repositoryRoot "Program\Out\$outputName\tools
 
 # The converter shares the already bundled Python runtime. Ship only the
 # production script and its documentation, never fixtures or validation tools.
-foreach ($name in @('convert_book.py', 'LICENSE.txt', 'README.md')) {
+$converterFiles = @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')
+$converterFiles += @(Get-ChildItem -LiteralPath (Join-Path $sourceDirectory 'vendor') -Recurse -File |
+    Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'MISTUNE_LICENSE.txt' } |
+    ForEach-Object { $_.FullName.Substring($sourceDirectory.Length + 1) })
+foreach ($name in $converterFiles) {
     $sourcePath = Join-Path $sourceDirectory $name
     $destinationPath = Join-Path $destinationDirectory $name
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
         throw "Missing book converter source: $sourcePath"
     }
     if ($Copy) {
-        [IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $destinationPath)) | Out-Null
         [IO.File]::Copy($sourcePath, $destinationPath, $true)
     }
     if (-not (Test-Path -LiteralPath $destinationPath -PathType Leaf) -or

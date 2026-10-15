@@ -267,8 +267,8 @@ begin
     Book.Folder:='metadata-ppmd.zip'; Book.FileName:='inside'; DescriptorSource:=TPublisherSeriesSource.Create(nil);
     try Failed:=False;
       try var WrongStream:=DescriptorSource.OpenDescriptor(Book,False); WrongStream.Free;
-      except on E: ENotSupportedException do Failed:=True; end;
-      Require(Failed,'Metadata preview enabled an external/full-member decoder');
+      except on E: Exception do Failed:=True; end;
+      Require(Failed,'Invalid synthetic PPMd payload was accepted as complete metadata');
     finally DescriptorSource.Free; end;
     Trace('PPMd descriptor done; protected snapshot begin');
     var MissingBatch:=Provider.ReadMetadataBatch(0,100);
@@ -282,9 +282,17 @@ begin
       function: Boolean begin Result:=True; end,Updated)=mfrUnchanged,
       'Known-only metadata writer claimed a change or falsely failed');
     Require(Updated=[],'Known-only writer emitted updated fields'); ExpectSame('Known nonempty metadata');
-    ProtectedRows:=CatalogSnapshot(True); Trace('protected snapshot done'); Preview(METADATA_SYNC_DEFAULT_FIELDS);
+    ProtectedRows:=CatalogSnapshot(True); Trace('protected snapshot done');
+    // The catalog already has all selected values. A missing source must not
+    // be opened or reported as a failure solely to rediscover those values.
+    TFile.Move(Files[1],Files[1]+'.held');
+    try Preview(METADATA_SYNC_DEFAULT_FIELDS);
+    finally TFile.Move(Files[1]+'.held',Files[1]); end;
+    Writeln('PASS metadata preview skips complete selected fields without opening unavailable book sources');
     Require((Counts.BooksTotal=5) and (Counts.BooksChecked=5) and (Counts.BooksPlanned=2) and
       (Counts.BooksFailed=1) and (Counts.AnnotationBytes=0),'Default preview counts differ from actual missing fields');
+    Require((Length(Counts.ErrorExamples)=1) and Counts.ErrorExamples[0].Contains('#') and
+      (Counts.ErrorCounts[mrfInvalidMetadata]=1),'Metadata errors lost reason counters or source examples');
     for Field:=msfPublisher to msfTranslators do Require(Counts.FieldCounts[Field]=2,'Default field count incorrect');
     Require(Counts.FieldCounts[msfAnnotation]=0,'Annotation opted in implicitly'); BeforePersonal:=SBRExact(Personal);
     Trace('apply default begin');

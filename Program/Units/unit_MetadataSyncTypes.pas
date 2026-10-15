@@ -9,10 +9,14 @@ type
     msfTranslators, msfAnnotation);
   TMetadataSyncFields = set of TMetadataSyncField;
   TMetadataSyncFieldCounts = array[TMetadataSyncField] of Int64;
+  TMetadataReadFailure = (mrfUnavailable, mrfDecoder, mrfInvalidMetadata,
+    mrfSourceChanged, mrfLimit, mrfSourceRead, mrfAmbiguous);
   TMetadataSyncCounts = record
     BooksTotal, BooksChecked, BooksPlanned, BooksSkipped, BooksFailed: Int64;
     FieldCounts: TMetadataSyncFieldCounts;
-    AnnotationBytes: Int64;
+    AnnotationBytes, ArchiveOpens: Int64;
+    ErrorCounts: array[TMetadataReadFailure] of Int64;
+    ErrorExamples: TArray<string>; // First 40 only; counters include every error.
   end;
   TMetadataFillResult = (mfrUnchanged, mfrChanged, mfrIdentityChanged);
 
@@ -22,12 +26,40 @@ const
   METADATA_SYNC_MAX_RECORD_BYTES = 64 * 1024;
   METADATA_SYNC_MAX_ANNOTATION_BYTES = 64 * 1024;
 
+function MetadataFailureName(Kind: TMetadataReadFailure): string;
+
+function PendingMetadataFields(const Book: TBookRecord;
+  const Fields: TMetadataSyncFields): TMetadataSyncFields;
 function MissingMetadataFields(const Book, Values: TBookRecord;
   const Fields: TMetadataSyncFields): TMetadataSyncFields;
 
 implementation
 
 uses System.SysUtils;
+
+function MetadataFailureName(Kind: TMetadataReadFailure): string;
+begin
+  case Kind of
+    mrfUnavailable: Result:='Файл или архив недоступен';
+    mrfDecoder: Result:='Нужен другой способ распаковки или компонент';
+    mrfInvalidMetadata: Result:='Не удалось прочитать метаданные книги';
+    mrfSourceChanged: Result:='Источник изменился во время проверки';
+    mrfAmbiguous: Result:='Несколько книг в одной записи архива';
+    mrfLimit: Result:='Превышен предел размера метаданных';
+  else Result:='Ошибка чтения файла или архива'; end;
+end;
+
+function PendingMetadataFields(const Book: TBookRecord;
+  const Fields: TMetadataSyncFields): TMetadataSyncFields;
+begin
+  Result:=[];
+  if (msfPublisher in Fields) and (Trim(Book.Publisher)='') then Include(Result,msfPublisher);
+  if (msfCity in Fields) and (Trim(Book.City)='') then Include(Result,msfCity);
+  if (msfPubYear in Fields) and (Book.PubYear=0) then Include(Result,msfPubYear);
+  if (msfISBN in Fields) and (Trim(Book.ISBN)='') then Include(Result,msfISBN);
+  if (msfTranslators in Fields) and (Trim(Book.Translators)='') then Include(Result,msfTranslators);
+  if (msfAnnotation in Fields) and (Trim(Book.Annotation)='') then Include(Result,msfAnnotation);
+end;
 
 function MissingMetadataFields(const Book, Values: TBookRecord;
   const Fields: TMetadataSyncFields): TMetadataSyncFields;

@@ -6,7 +6,7 @@
 
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.JSON, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
-  Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
+  Vcl.Themes, Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
   unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
 
 type
@@ -1822,13 +1822,24 @@ begin
   try
     Reader.Show; Reader.OpenBook('contents-progress.fb2','Заметки GUI','note-dialog','note-dialog.ini','pdfium.dll'); WaitReady(Reader);
     Reader.AddBookmark;
+    Require(ReaderAnnotationTimeAtOffset('2026-12-31T23:45:00Z','Москва',180)=
+      '01.01.2027 02:45 · Москва (UTC+03:00)','Moscow timezone/year rollover failed');
+    Require(ReaderAnnotationTimeAtOffset('2026-10-15T05:18:02Z','UTC+2',120)=
+      '15.10.2026 07:18 · UTC+2 (UTC+02:00)','UTC+2 offset failed');
+    Require(ReaderAnnotationTimeAtOffset('2026-10-15T05:18:02Z','Иркутск',480)=
+      '15.10.2026 13:18 · Иркутск (UTC+08:00)','UTC+8 offset failed');
+    Require(ReaderAnnotationTimeAtOffset('2026-10-15T05:18:02Z','Катманду',345)=
+      '15.10.2026 11:03 · Катманду (UTC+05:45)','Fractional timezone failed');
+    Require(ReaderAnnotationTimeAtOffset('2026-10-15T01:00:00Z','UTC-3:30',-210)=
+      '14.10.2026 21:30 · UTC-3:30 (UTC-03:30)','Negative fractional timezone/day rollover failed');
+    Writeln('PASS note timestamps Moscow UTC+2 UTC+8 fractional and negative zones preserve date rollover');
     TThread.ForceQueue(nil,
       procedure
       begin
         var Manager:=Screen.ActiveForm;
         Require(string(Manager.Caption).StartsWith('Закладки и заметки'),'Notes manager missing');
         CheckNoteDialogButtons(Manager,760,510);
-        var Go:=NoteDialogButton(Manager,'Перейти'); Require(Go.Parent.Top+Go.Parent.Height=Manager.ClientHeight,'Manager actions are above note preview');
+        var Go:=NoteDialogButton(Manager,'Открыть книгу'); Require(Go.Parent.Top+Go.Parent.Height=Manager.ClientHeight,'Manager actions are above note preview');
         TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Manager,False,False); end);
         NoteDialogButton(Manager,'Добавить заметку…').OnClick(nil);
         TThread.ForceQueue(nil,procedure begin FillNoteDialogEditor(Manager,True,False); end);
@@ -1838,7 +1849,7 @@ begin
           var Formats,Styles: TComboBox; Tip: TLabel; R: TRect;
           begin
             var Exporter:=Screen.ActiveForm; Formats:=nil; Styles:=nil; Tip:=nil;
-            Require((Exporter.Caption='Оформление экспорта') and (Exporter.PopupParent=Manager),'Export dialog has incorrect nested ownership');
+            Require((Exporter.Caption='Экспорт заметок — оформление') and (Exporter.PopupParent=Manager),'Export dialog has incorrect nested ownership');
             for var C in Exporter do
             begin
               if C is TComboBox then if TComboBox(C).Items.Count=3 then Formats:=TComboBox(C) else Styles:=TComboBox(C);
@@ -1854,7 +1865,7 @@ begin
             Formats.ItemIndex:=1; Formats.OnChange(Formats); Require(Styles.Enabled and (Styles.Items.Count=4),'HTML styles unavailable');
             Exporter.ModalResult:=mrCancel;
           end);
-        NoteDialogButton(Manager,'Заметки этой книги…').OnClick(NoteDialogButton(Manager,'Заметки этой книги…'));
+        TMenuItem(Manager.FindComponent('ExportBookNotes')).OnClick(Manager.FindComponent('ExportBookNotes'));
         Manager.ModalResult:=mrCancel;
       end);
     NoteDialogButton(Reader,'Заметки').OnClick(nil); Reader.Close;
@@ -2241,6 +2252,7 @@ end;
 
 {$I ReaderAnnotationRangeTests.inc}
 {$I ReaderFeedback19Tests.inc}
+{$I ReaderExportPickerPreview.inc}
 
 var Doc: TReaderDocument; Form: TfrmBuiltinReader; Name, BeforeHash, Identity: string;
   Ini: TMemIniFile; Position, Progress: Integer; Watch: TStopwatch;
@@ -2252,9 +2264,12 @@ begin
   CoInitialize(nil);
   try
     Application.Initialize; RegressionExceptions:=TReaderRegressionExceptionHandler.Create; Application.OnException:=RegressionExceptions.Handle;
+    if FileExists(ExtractFilePath(ParamStr(0))+'export-picker-preview.flag') then
+    begin AuditExportPickerPreview; CoUninitialize; Halt(0); end;
     if ParamCount>0 then
     begin
-      if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
+      if ParamStr(1)='export-picker-preview' then AuditExportPickerPreview
+      else if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
       else if ParamStr(1)='reader-colors' then AuditReaderColorBox
       else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
       else if ParamStr(1)='footnotes' then AuditFootnotes

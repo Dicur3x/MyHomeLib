@@ -103,6 +103,7 @@ uses
   unit_CollectionSpace in 'Units\unit_CollectionSpace.pas',
   unit_CollectionMerge in 'Units\unit_CollectionMerge.pas',
   unit_MetadataSyncTypes in 'Units\unit_MetadataSyncTypes.pas',
+  unit_ReaderNoteBooks in 'Units\unit_ReaderNoteBooks.pas',
   unit_CollectionMetadataSync in 'UtilsImpl\unit_CollectionMetadataSync.pas',
   frm_BookMetadataFill in 'Forms\frm_BookMetadataFill.pas',
   frm_AuthorInformation in 'Forms\frm_AuthorInformation.pas',

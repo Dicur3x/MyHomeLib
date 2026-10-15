@@ -14,6 +14,8 @@ procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: T
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
   PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False);
+function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
+  const TargetExtension: string = ''): string;
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
 function ResolveReaderBook(const Collection: IBookCollection; const Book: TBookRecord): TBookRecord;
@@ -37,7 +39,7 @@ uses
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
   Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
-  unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates;
+  unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion;
 
 type TReaderThreadAccess = class(TThread);
 
@@ -47,7 +49,7 @@ begin
   Ext := LowerCase(ExtractFileExt(FileName));
   Result := (Ext = '.zip') or (Ext = '.7z') or (Ext = '.rar') or
     (Ext = '.cbz') or (Ext = '.cbr') or (Ext = '.cb7') or (Ext = '.tar') or
-    (Ext = '.gz') or (Ext = '.bz2') or (Ext = '.xz') or (Ext = '.cab') or (Ext = '.tgz') or (Ext = '.7zip');
+    (Ext = '.gz') or (Ext = '.gzip') or (Ext = '.fbz') or (Ext = '.bz2') or (Ext = '.xz') or (Ext = '.cab') or (Ext = '.tgz') or (Ext = '.7zip');
 end;
 
 function IsReaderContainer(const FileName: string): Boolean;
@@ -553,7 +555,7 @@ begin
     '|' + FileStamp(Settings.AppPath + 'tools\webp\libwebp.dll', False);
 end;
 
-function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>): string;
+function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string): string;
 var Archive: TMHLZip; Candidates: TList<Integer>; I, Entry: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
@@ -571,6 +573,11 @@ begin
     begin
       Extension := LowerCase(ExtractFileExt(Archive.FileNames[I]));
       // Only reading formats; archive entry paths are never used as output paths.
+      if ConversionOnly then
+      begin
+        if IsBasicConversionSource(Extension) and not SameText(Extension,TargetExtension) then Candidates.Add(I);
+        Continue;
+      end;
       if (Extension = '.fb2') or (Extension = '.epub') or (Extension = '.pdf') or
         (Extension = '.djvu') or (Extension = '.djv') or (Extension = '.mobi') or
         (Extension = '.azw') or (Extension = '.azw3') or (Extension = '.rtf') or
@@ -581,6 +588,8 @@ begin
         (Extension = '.pptx') or (Extension = '.md') or (Extension = '.fb3') or
         IsOfficeReaderFormat(Extension) then Candidates.Add(I);
     end;
+    if (Candidates.Count=0) and ConversionOnly then
+      raise ENotSupportedException.Create('В архиве нет книг поддерживаемых форматов для этого преобразования. Книга, уже имеющая формат результата, повторно не конвертируется.');
     if Candidates.Count = 0 then raise Exception.Create('В архиве не найдены книги подходящего для чтения формата.');
     Entry := Candidates[0];
     if Candidates.Count > 1 then
@@ -592,18 +601,21 @@ begin
       if Application.Terminated or TReaderThreadAccess(RequestingThread).Terminated then Exit;
       Dialog := TForm.CreateNew(nil);
       try
-        Dialog.Caption := 'Какую книгу открыть?'; Dialog.Position := poMainFormCenter;
+        Dialog.Caption := 'Какую книгу открыть?';
+        if ConversionOnly then Dialog.Caption:='Какую книгу конвертировать?'; Dialog.Position := poMainFormCenter;
         Dialog.ClientWidth := 620; Dialog.ClientHeight := 360;
         Dialog.Font.Name := 'Segoe UI'; Dialog.Font.Size := 9;
         Dialog.Constraints.MinWidth := 420; Dialog.Constraints.MinHeight := 240;
         LabelControl := TLabel.Create(Dialog); LabelControl.Parent := Dialog;
         LabelControl.SetBounds(12, 12, 590, 24); LabelControl.Caption := 'В архиве несколько книг. Выберите файл для чтения:';
+        if ConversionOnly then LabelControl.Caption:='Выберите текстовую книгу для конвертации:';
         Names := TListBox.Create(Dialog); Names.Parent := Dialog;
         Names.SetBounds(12, 40, 596, 266); Names.Anchors := [akLeft, akTop, akRight, akBottom];
         for var CandidateIndex in Candidates do Names.Items.Add(Archive.FileNames[CandidateIndex]); Names.ItemIndex := 0;
         OpenButton := TButton.Create(Dialog); OpenButton.Parent := Dialog;
         OpenButton.SetBounds(380, 318, 110, 30); OpenButton.Anchors := [akRight, akBottom];
         OpenButton.Caption := 'Открыть'; OpenButton.Default := True; OpenButton.ModalResult := mrOk;
+        if ConversionOnly then OpenButton.Caption:='Выбрать';
         CancelButton := TButton.Create(Dialog); CancelButton.Parent := Dialog;
         CancelButton.SetBounds(498, 318, 110, 30); CancelButton.Anchors := [akRight, akBottom];
         CancelButton.Caption := 'Отмена'; CancelButton.Cancel := True; CancelButton.ModalResult := mrCancel;
@@ -615,6 +627,8 @@ begin
       end);
       if Entry < 0 then Exit;
     end;
+    if ConversionOnly and ((Archive.FileSizes[Entry]<0) or (Archive.FileSizes[Entry]>64*1024*1024)) then
+      raise EReadError.Create('Книга в архиве превышает предел конвертации (64 МБ).');
     Member := Archive.FileNames[Entry]; Extension := LowerCase(ExtractFileExt(Member));
     Folder:=BookCachePath;
     if (Extension = FB2_EXTENSION) and ConvertImages then
@@ -651,7 +665,7 @@ begin
   finally Candidates.Free; Archive.Free; end;
 end;
 
-function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean): string;
+function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''): string;
 var Source, Folder, Stamp, StampFile, Temporary, TemporaryStamp: string;
   Format: TBookFormat; Stream, Converted: TStream; Target: TFileStream; ConvertImages: Boolean;
   Corrected: TBookRecord; Writer: TBookCacheWrite;
@@ -664,9 +678,9 @@ begin
   ConvertImages := Settings.ConvertWebPToPNG and not PreserveImages;
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
-    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive));
+    Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension));
   if OpenArchive and not IsReaderArchive(Book.FileName+Book.FileExt) then Exit(Source);
-  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage));
+  if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension));
   if not (Format in [bfFb2Archive, bfFbd, bfRawArchive]) and
     not ((Format = bfFb2) and ConvertImages) then Exit(Source);
 
@@ -684,7 +698,7 @@ begin
       begin
         RegisterBookCacheFile(Result,Source);
         if Assigned(OnStage) then OnStage('Открытие книги из кэша…');
-        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage);
+        if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
         Exit;
       end;
     except
@@ -723,7 +737,7 @@ begin
     Stream.Free;
     Writer.Free;
   end;
-  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage);
+  if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
 end;
 
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean;
@@ -742,6 +756,21 @@ begin
     if ConvertKindle then Result := PrepareKindleReflow(Result,Book.GetBookFileName,OnStage);
     if ConvertOffice then Result := PrepareOfficeReaderFile(Result,Book.GetBookFileName,OnStage);
   end;
+end;
+
+function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string>; const TargetExtension: string): string;
+var Actual: string;
+begin
+  if not (Book.GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) then
+  begin
+    Actual:=DetectReaderExtension(Book.GetBookFileName);
+    if (Actual='.epub') or (Actual='.fb2') then
+      Exit(PrepareDetectedReaderFile(Book.GetBookFileName,Book.GetBookFileName));
+  end;
+  // Reuse exact-entry extraction, cache identity and the archive chooser, but
+  // never prepare Office/Kindle or offer scans as conversion candidates.
+  Result:=PrepareReaderFileCore(Book,True,OnStage,False,True,TargetExtension);
+  if Result<>'' then Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
 end;
 
 type

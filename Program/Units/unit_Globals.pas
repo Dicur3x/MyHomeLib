@@ -301,6 +301,11 @@ type
   TBookSearchCriteria = record
     FullName: string;
     Publisher: string;
+    Translators, City, PubYear, ISBN: string;
+    // Internal indexed lookup for legacy note bindings; never a free SQL expression.
+    ExactTitle: string;
+    NotesOnly: Boolean;
+    NoteBookIDs: TArray<Integer>;
     // A captured set of catalog IDs, independent of later UI changes.
     FavoriteAuthorsOnly: Boolean;
     FavoriteAuthorIDs: TArray<Integer>;

@@ -141,6 +141,7 @@ type
     FPDFRects: TArray<TRectF>;
     FImageWidth, FImageHeight: Integer;
     FOnProgress: TProc<Integer>;
+    FRequestedNote: TReaderAnnotation;
     FBookmarks: TPopupMenu;
     procedure ReloadBookmarkMarkers;
     function BookmarkMarkerBounds: TRect;
@@ -347,12 +348,14 @@ function ResolveReaderSettingsFile(const DataDir: string): string;
 procedure ConfigureReaderColorBox(Box: TColorBox; SelectedColor: TColor);
 
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
-  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer> = nil);
+  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer> = nil;
+  const OnOpenNote: TProc<TReaderAnnotation> = nil);
+function BrowseReaderNotes(Owner: TComponent; const SettingsFile: string; out OpenNote: TReaderAnnotation): Boolean;
 
 implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes;
 
 type
   TReaderChapterSelector = class(TComboBox)
@@ -2140,7 +2143,7 @@ begin
   if FSearchWord.Checked then Flags:=Flags or FR_WHOLEWORD;
   Result:=SendMessage(FRichEdit.Handle,EM_FINDTEXTEXW,Flags,LPARAM(@Search));
 end;
-function EditReaderNote(Reader: TfrmBuiltinReader; var Note: TReaderAnnotation): Boolean;
+function EditReaderNote(Reader: TCustomForm; var Note: TReaderAnnotation): Boolean;
 var Dialog: TForm; Header, Footer, Body: TPanel; TitleBox: TEdit; TextBox, QuoteBox: TMemo; Button: TButton; LabelText: TLabel;
 begin
   Result:=False; Dialog:=TForm.CreateNew(Reader);
@@ -2177,87 +2180,164 @@ begin
   finally Dialog.Free; end;
 end;
 
+procedure ExportReaderAnnotationItems(Owner: TCustomForm; const Items: TArray<TReaderAnnotation>; const Scope: string); forward;
+
 type
   TReaderSavedDialog = class(TForm)
   private
     FReader: TfrmBuiltinReader;
+    FSettingsFile, FCurrentIdentity, FCurrentTitle: string;
     FStore: TReaderAnnotations;
     FNotes: TArray<TReaderAnnotation>;
     FList: TListView;
     FContext: TMemo;
+    FBooks: TComboBox;
+    FBookIDs: TStringList;
+    FAdd, FExport: TButton;
+    FExports: TPopupMenu;
+    FRequestedNote: TReaderAnnotation;
+    FUpdatingBooks: Boolean;
+    procedure BuildUI;
+    function SelectedBookID: string;
+    procedure RebuildBooks;
+    procedure BooksChanged(Sender: TObject);
     procedure Reload;
     procedure SelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure OpenSelected(Sender: TObject);
     procedure EditSelected(Sender: TObject);
     procedure DeleteSelected(Sender: TObject);
+    procedure DeleteAll(Sender: TObject);
     procedure AddSelected(Sender: TObject);
+    procedure ExportMenu(Sender: TObject);
     procedure ExportSelected(Sender: TObject);
   public
     constructor CreateFor(Reader: TfrmBuiltinReader);
+    constructor CreateProfile(AOwner: TComponent; const SettingsFile: string);
     destructor Destroy; override;
   end;
 
 constructor TReaderSavedDialog.CreateFor(Reader: TfrmBuiltinReader);
-var Row, Footer, Body: TPanel; Button: TButton;
-  procedure AddButton(const Text: string; Width, Tag: Integer; Handler: TNotifyEvent);
+begin
+  inherited CreateNew(Reader); FReader:=Reader; FSettingsFile:=Reader.FSettingsFile;
+  FCurrentIdentity:=Reader.FIdentity; FCurrentTitle:=Reader.FBookTitle; BuildUI;
+end;
+
+constructor TReaderSavedDialog.CreateProfile(AOwner: TComponent; const SettingsFile: string);
+begin inherited CreateNew(AOwner); FSettingsFile:=SettingsFile; BuildUI; end;
+
+procedure TReaderSavedDialog.BuildUI;
+var Row, Footer, Body, Scope: TPanel; Button: TButton; Item: TMenuItem;
+  procedure AddButton(const Name, Text: string; Width: Integer; Handler: TNotifyEvent);
   begin
-    Button:=TButton.Create(Self); Button.Parent:=Row; Button.Align:=alLeft; Button.Left:=MaxInt;
-    Button.Width:=Width; Button.Caption:=Text; Button.Tag:=Tag; Button.OnClick:=Handler;
+    Button:=TButton.Create(Self); Button.Name:=Name; Button.Parent:=Row; Button.Align:=alLeft; Button.Left:=MaxInt;
+    Button.Width:=Width; Button.Caption:=Text; Button.OnClick:=Handler;
   end;
 begin
-  inherited CreateNew(Reader); FReader:=Reader; FStore:=TReaderAnnotations.Create(Reader.FSettingsFile);
-  Caption:='Закладки и заметки — '+Reader.FBookTitle; Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
-  PopupMode:=pmExplicit; PopupParent:=Reader; ClientWidth:=760; ClientHeight:=510;
-  Constraints.MinWidth:=720; Constraints.MinHeight:=360; Font.Name:='Segoe UI'; Font.Size:=10;
+  FStore:=TReaderAnnotations.Create(FSettingsFile); FBookIDs:=TStringList.Create;
+  Caption:='Закладки и заметки'; Position:=poOwnerFormCenter; BorderStyle:=bsSizeable;
+  PopupMode:=pmExplicit;
+  if Assigned(FReader) then PopupParent:=FReader else if Owner is TCustomForm then PopupParent:=TCustomForm(Owner);
+  ClientWidth:=900; ClientHeight:=560; Constraints.MinWidth:=730; Constraints.MinHeight:=380;
+  Font.Name:='Segoe UI'; Font.Size:=10;
   Row:=TPanel.Create(Self); Row.Parent:=Self; Row.Align:=alTop; Row.Height:=38; Row.BevelOuter:=bvNone;
-  AddButton('Добавить заметку…',146,0,AddSelected); AddButton('Изменить…',106,0,EditSelected);
-  AddButton('Удалить',80,0,DeleteSelected); AddButton('Заметки этой книги…',188,0,ExportSelected);
-  Button.Hint:='Экспорт закладок и заметок только открытой книги'; Button.ShowHint:=True;
-  AddButton('Заметки всех книг…',184,1,ExportSelected);
-  Button.Hint:='Экспорт закладок и заметок из всех книг этого профиля'; Button.ShowHint:=True;
+  AddButton('NotesAdd','Добавить заметку…',146,AddSelected); FAdd:=Button;
+  AddButton('NotesEdit','Изменить…',106,EditSelected);
+  AddButton('NotesDelete','Удалить',80,DeleteSelected);
+  AddButton('NotesDeleteAll','Удалить все…',128,DeleteAll);
+  AddButton('NotesExport','Экспорт…',130,ExportMenu); FExport:=Button;
+  FExports:=TPopupMenu.Create(Self); FExports.Name:='NotesExportMenu';
+  Item:=TMenuItem.Create(Self); Item.Name:='ExportBookNotes';
+  Item.Caption:='Экспорт заметок выбранной книги…'; Item.Tag:=0; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
+  Item:=TMenuItem.Create(Self); Item.Name:='ExportAllNotes';
+  Item.Caption:='Экспорт заметок всех книг…'; Item.Tag:=1; Item.OnClick:=ExportSelected; FExports.Items.Add(Item);
+  Scope:=TPanel.Create(Self); Scope.Parent:=Self; Scope.Align:=alTop; Scope.Top:=Row.Height; Scope.Height:=36; Scope.BevelOuter:=bvNone;
+  FBooks:=TComboBox.Create(Self); FBooks.Name:='NotesBooks'; FBooks.Parent:=Scope; FBooks.SetBounds(8,4,ClientWidth-16,26);
+  FBooks.Anchors:=[akLeft,akTop,akRight]; FBooks.Style:=csDropDownList; FBooks.OnChange:=BooksChanged;
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom; Footer.Height:=42; Footer.BevelOuter:=bvNone;
-  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(514,6,128,30);
-  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Перейти'; Button.OnClick:=OpenSelected;
-  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(650,6,100,30);
+  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(ClientWidth-248,6,132,30);
+  Button.Anchors:=[akRight,akBottom]; Button.Caption:='Открыть книгу'; Button.OnClick:=OpenSelected;
+  Button:=TButton.Create(Self); Button.Parent:=Footer; Button.SetBounds(ClientWidth-108,6,100,30);
   Button.Anchors:=[akRight,akBottom]; Button.Caption:='Закрыть'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
   Body:=TPanel.Create(Self); Body.Parent:=Self; Body.Align:=alClient; Body.BevelOuter:=bvNone;
   FContext:=TMemo.Create(Self); FContext.Parent:=Body; FContext.Align:=alBottom; FContext.Height:=155;
   FContext.ReadOnly:=True; FContext.ScrollBars:=ssVertical;
-  FList:=TListView.Create(Self); FList.Parent:=Body; FList.Align:=alClient; FList.ViewStyle:=vsReport;
+  FList:=TListView.Create(Self); FList.Name:='NotesList'; FList.Parent:=Body; FList.Align:=alClient; FList.ViewStyle:=vsReport;
   FList.ReadOnly:=True; FList.RowSelect:=True; FList.HideSelection:=False;
-  with FList.Columns.Add do begin Caption:='Вид'; Width:=100; end;
-  with FList.Columns.Add do begin Caption:='Название'; Width:=450; end;
-  with FList.Columns.Add do begin Caption:='Место в книге'; Width:=180; end;
+  with FList.Columns.Add do begin Caption:='Вид'; Width:=80; end;
+  with FList.Columns.Add do begin Caption:='Название'; Width:=235; end;
+  with FList.Columns.Add do begin Caption:='Место в книге'; Width:=175; end;
+  with FList.Columns.Add do begin Caption:='Книга'; Width:=250; end;
+  with FList.Columns.Add do begin Caption:='Добавлено'; Width:=280; end;
   FList.OnSelectItem:=SelectItem; FList.OnDblClick:=OpenSelected;
+  RebuildBooks;
+  if FCurrentIdentity<>'' then FBooks.ItemIndex:=FBookIDs.IndexOf(FCurrentIdentity);
   Reload; ApplyMHLControlTheme(Self); ActiveControl:=FList;
 end;
 
 destructor TReaderSavedDialog.Destroy;
-begin FStore.Free; inherited; end;
+begin FBookIDs.Free; FStore.Free; inherited; end;
+
+function TReaderSavedDialog.SelectedBookID: string;
+begin
+  Result:='';
+  if (FBooks.ItemIndex>=0) and (FBooks.ItemIndex<FBookIDs.Count) then Result:=FBookIDs[FBooks.ItemIndex];
+end;
+
+procedure TReaderSavedDialog.RebuildBooks;
+var Titles: TStringList; Seen: TDictionary<string,Boolean>; Selected: string;
+begin
+  Selected:=SelectedBookID; FUpdatingBooks:=True;
+  Titles:=TStringList.Create; Seen:=TDictionary<string,Boolean>.Create;
+  try
+    Titles.NameValueSeparator:=#9; Titles.Sorted:=True;
+    if FCurrentIdentity<>'' then
+    begin Seen.Add(FCurrentIdentity,True); Titles.Add(FCurrentTitle.Replace(#9,' ') + #9 + FCurrentIdentity); end;
+    for var Note in FStore.Items do
+      if Seen.TryAdd(Note.BookID,True) then Titles.Add(Note.BookTitle.Replace(#9,' ')+#9+Note.BookID);
+    FBooks.Items.BeginUpdate;
+    try
+      FBooks.Clear; FBookIDs.Clear; FBooks.Items.Add('Заметки всех книг'); FBookIDs.Add('');
+      for var I:=0 to Titles.Count-1 do
+      begin FBooks.Items.Add(Titles.Names[I]); FBookIDs.Add(Titles.ValueFromIndex[I]); end;
+      FBooks.ItemIndex:=Max(0,FBookIDs.IndexOf(Selected));
+    finally FBooks.Items.EndUpdate; end;
+  finally Seen.Free; Titles.Free; FUpdatingBooks:=False; end;
+end;
+
+procedure TReaderSavedDialog.BooksChanged(Sender: TObject);
+begin if not FUpdatingBooks then Reload; end;
 
 procedure TReaderSavedDialog.Reload;
-var Ini: TMemIniFile; Row: TListItem; Section: string;
+var Ini: TMemIniFile; Row: TListItem; Section, Identity: string;
 begin
   FList.Items.BeginUpdate;
   try
-    FList.Clear; FNotes:=FStore.Items(FReader.FIdentity); FContext.Clear;
+    FList.Clear; Identity:=SelectedBookID; FNotes:=FStore.Items(Identity); FContext.Clear;
+    if Identity='' then Caption:='Закладки и заметки — заметки всех книг'
+    else Caption:='Закладки и заметки — '+FBooks.Text;
+    FAdd.Enabled:=Assigned(FReader) and (Identity=FCurrentIdentity);
     for var I:=0 to High(FNotes) do
     begin
       Row:=FList.Items.Add; Row.Caption:='Заметка'; Row.Data:=Pointer(NativeInt(I+1));
       Row.SubItems.Add(ReaderAnnotationDisplayTitle(FNotes[I])); Row.SubItems.Add(FNotes[I].Place);
+      Row.SubItems.Add(FNotes[I].BookTitle); Row.SubItems.Add(ReaderAnnotationLocalTime(FNotes[I].Created));
     end;
-    Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
-    try
-      Section:='Bookmarks.'+FReader.FIdentity;
-      for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
-      begin
-        Row:=FList.Items.Add; Row.Caption:='Закладка'; Row.Data:=Pointer(-NativeInt(I+1));
-        Row.SubItems.Add(Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&'));
-        var Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0);
-        if Assigned(FReader.FPDF) then Row.SubItems.Add('Страница '+IntToStr(Position+1))
-        else Row.SubItems.Add(IntToStr(Round(Position*100/Max(1,FReader.FLength)))+'%');
-      end;
-    finally Ini.Free; end;
+    if Assigned(FReader) and (Identity=FCurrentIdentity) then
+    begin
+      Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+      try
+        Section:='Bookmarks.'+FCurrentIdentity;
+        for var I:=0 to EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100)-1 do
+        begin
+          Row:=FList.Items.Add; Row.Caption:='Закладка'; Row.Data:=Pointer(-NativeInt(I+1));
+          Row.SubItems.Add(Ini.ReadString(Section,'Title'+IntToStr(I),'Закладка '+IntToStr(I+1)).Replace('&&','&'));
+          var Position:=Ini.ReadInteger(Section,'Position'+IntToStr(I),0);
+          if Assigned(FReader.FPDF) then Row.SubItems.Add('Страница '+IntToStr(Position+1))
+          else Row.SubItems.Add(IntToStr(Round(Position*100/Max(1,FReader.FLength)))+'%');
+          Row.SubItems.Add(FCurrentTitle); Row.SubItems.Add('');
+        end;
+      finally Ini.Free; end;
+    end;
     if FList.Items.Count>0 then FList.Items[0].Selected:=True;
   finally FList.Items.EndUpdate; end;
 end;
@@ -2268,7 +2348,7 @@ begin
   if not Selected then Exit; Index:=NativeInt(Item.Data)-1; FContext.Clear;
   if (Index>=0) and (Index<Length(FNotes)) then
   begin
-    FContext.Text:=FNotes[Index].Text;
+    FContext.Text:=FNotes[Index].Text+sLineBreak+sLineBreak+ReaderAnnotationLocalTime(FNotes[Index].Created);
     if FNotes[Index].Quote<>'' then FContext.Text:=FContext.Text+sLineBreak+sLineBreak+'Цитата: '+FNotes[Index].Quote;
   end
   else if NativeInt(Item.Data)<0 then FContext.Text:=FReader.BookmarkContext(-NativeInt(Item.Data)-1);
@@ -2278,7 +2358,12 @@ procedure TReaderSavedDialog.OpenSelected(Sender: TObject);
 var Index: Integer;
 begin
   if not Assigned(FList.Selected) then Exit; Index:=NativeInt(FList.Selected.Data);
-  if Index>0 then FReader.GoToPosition(FNotes[Index-1].Position) else FReader.GoToBookmark(-Index-1);
+  if Index>0 then
+  begin
+    if Assigned(FReader) and (FNotes[Index-1].BookID=FCurrentIdentity) then FReader.GoToPosition(FNotes[Index-1].Position)
+    else FRequestedNote:=FNotes[Index-1];
+  end
+  else if Assigned(FReader) then FReader.GoToBookmark(-Index-1);
   ModalResult:=mrOk;
 end;
 
@@ -2289,9 +2374,9 @@ begin
   if Index>0 then
   begin
     Note:=FNotes[Index-1];
-    while EditReaderNote(FReader,Note) do
+    while EditReaderNote(Self,Note) do
     begin
-      try FStore.Put(Note); FReader.ReloadAnnotations; Reload; Break;
+      try FStore.Put(Note); if Assigned(FReader) then FReader.ReloadAnnotations; Reload; Break;
       except on E: Exception do MessageDlg('Не удалось сохранить. Текст остаётся в редакторе.'+sLineBreak+E.Message,mtError,[mbOK],0); end;
     end;
   end
@@ -2314,7 +2399,7 @@ begin
   if not Assigned(FList.Selected) then Exit;
   if MessageDlg('Удалить выбранную запись?',mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
   Index:=NativeInt(FList.Selected.Data);
-  if Index>0 then begin FStore.Remove(FNotes[Index-1].ID); FReader.ReloadAnnotations; end
+  if Index>0 then begin FStore.Remove(FNotes[Index-1].ID); if Assigned(FReader) then FReader.ReloadAnnotations; end
   else
   begin
     Index:=-Index-1; Section:='Bookmarks.'+FReader.FIdentity; Ini:=TMemIniFile.Create(FReader.FSettingsFile,TEncoding.UTF8);
@@ -2332,16 +2417,58 @@ begin
       Ini.WriteInteger(Section,'Count',Max(0,Count-1)); SaveMemIniFileAtomically(Ini);
     finally Ini.Free; end;
   end;
-  FReader.ReloadBookmarkMarkers; FReader.RenderPage; Reload;
+  if Assigned(FReader) then begin FReader.ReloadBookmarkMarkers; FReader.RenderPage; end;
+  RebuildBooks; Reload;
 end;
 
 procedure TReaderSavedDialog.AddSelected(Sender: TObject);
 begin
-  FReader.NotesClick(Sender); FreeAndNil(FStore); FStore:=TReaderAnnotations.Create(FReader.FSettingsFile); Reload;
+  if not Assigned(FReader) then Exit;
+  FReader.NotesClick(Sender); FreeAndNil(FStore); FStore:=TReaderAnnotations.Create(FSettingsFile); RebuildBooks; Reload;
+end;
+
+procedure TReaderSavedDialog.DeleteAll(Sender: TObject);
+var Identity, Scope: string; Count: Integer;
+begin
+  Identity:=SelectedBookID; Count:=Length(FStore.Items(Identity));
+  if Count=0 then Exit;
+  if Identity='' then Scope:='из всех книг' else Scope:='книги «'+FBooks.Text+'»';
+  if MessageDlg(Format('Удалить все заметки %s? Записей: %d. Закладки сохранятся.',[Scope,Count]),mtConfirmation,[mbYes,mbNo],0)<>mrYes then Exit;
+  FStore.RemoveAll(Identity);
+  if Assigned(FReader) then FReader.ReloadAnnotations;
+  RebuildBooks; Reload;
+end;
+
+procedure TReaderSavedDialog.ExportMenu(Sender: TObject);
+var Point: TPoint;
+begin
+  FExports.Items[0].Enabled:=SelectedBookID<>'';
+  if Assigned(FReader) and (SelectedBookID=FCurrentIdentity) then
+    FExports.Items[0].Caption:='Экспорт закладок и заметок этой книги…'
+  else FExports.Items[0].Caption:='Экспорт заметок выбранной книги…';
+  Point:=FExport.ClientToScreen(System.Types.Point(0,FExport.Height)); FExports.Popup(Point.X,Point.Y);
 end;
 
 procedure TReaderSavedDialog.ExportSelected(Sender: TObject);
-begin FReader.ExportNotesClick(Sender); end;
+var Identity, Scope: string; AllBooks: Boolean;
+begin
+  AllBooks:=TComponent(Sender).Tag=1; Identity:=SelectedBookID;
+  if AllBooks then Identity:='';
+  if not AllBooks and Assigned(FReader) and (Identity=FCurrentIdentity) then
+  begin FReader.ExportNotesClick(Sender); Exit; end;
+  if AllBooks then Scope:='Заметки всех книг' else Scope:='Заметки книги: '+FBooks.Text;
+  ExportReaderAnnotationItems(Self,FStore.Items(Identity),Scope);
+end;
+
+function BrowseReaderNotes(Owner: TComponent; const SettingsFile: string; out OpenNote: TReaderAnnotation): Boolean;
+var Dialog: TReaderSavedDialog;
+begin
+  OpenNote:=Default(TReaderAnnotation); Dialog:=TReaderSavedDialog.CreateProfile(Owner,SettingsFile);
+  try
+    Result:=(Dialog.ShowModal=mrOk) and (Dialog.FRequestedNote.ID<>'');
+    if Result then OpenNote:=Dialog.FRequestedNote;
+  finally Dialog.Free; end;
+end;
 
 procedure TfrmBuiltinReader.NotesClick(Sender: TObject);
 begin
@@ -2603,7 +2730,10 @@ var Dialog: TReaderSavedDialog;
 begin
   if not FReady or (FSettingsFile='') then Exit;
   Dialog:=TReaderSavedDialog.CreateFor(Self);
-  try Dialog.ShowModal; finally Dialog.Free; end;
+  try
+    Dialog.ShowModal; FRequestedNote:=Dialog.FRequestedNote;
+  finally Dialog.Free; end;
+  if FRequestedNote.ID<>'' then ModalResult:=mrOk;
 end;
 
 function TfrmBuiltinReader.AnnotationItems(AllBooks: Boolean): TArray<TReaderAnnotation>;
@@ -2652,19 +2782,27 @@ begin
   if Styles is TComboBox then TComboBox(Styles).Enabled:=TComboBox(Sender).ItemIndex<>2;
 end;
 
-procedure TfrmBuiltinReader.ExportNotesClick(Sender: TObject);
-var Dialog: TSaveDialog; StyleDialog: TForm; Styles, Formats: TComboBox; Tip: TLabel; Button: TButton;
-  Text, Temporary, Extension, Scope: string; Style, FormatIndex: Integer; Items: TArray<TReaderAnnotation>; AllBooks: Boolean;
+type TReaderExportOptionsDialog = class(TForm)
+  procedure FormatChanged(Sender: TObject);
+end;
+
+procedure TReaderExportOptionsDialog.FormatChanged(Sender: TObject);
+var Styles: TComponent;
 begin
-  AllBooks:=(Sender is TComponent) and (TComponent(Sender).Tag=1);
-  Items:=AnnotationItems(AllBooks);
-  if Length(Items)=0 then begin MessageDlg('Нет закладок и заметок для экспорта.',mtInformation,[mbOK],0); Exit; end;
-  if AllBooks then Scope:='Из всех книг этого профиля' else Scope:='Из открытой книги: '+FBookTitle;
-  StyleDialog:=TForm.CreateNew(Self); Dialog:=TSaveDialog.Create(Self);
+  Styles:=FindComponent('ExportStyle');
+  if Styles is TComboBox then TComboBox(Styles).Enabled:=TComboBox(Sender).ItemIndex<>2;
+end;
+
+procedure ExportReaderAnnotationItems(Owner: TCustomForm; const Items: TArray<TReaderAnnotation>; const Scope: string);
+var Dialog: TFileSaveDialog; StyleDialog: TForm; Styles, Formats: TComboBox; Tip: TLabel; Button: TButton;
+  Text, Temporary, Extension, FilterName: string; Style, FormatIndex: Integer;
+begin
+  if Length(Items)=0 then begin MessageDlg('Нет записей для экспорта.',mtInformation,[mbOK],0); Exit; end;
+  StyleDialog:=TReaderExportOptionsDialog.CreateNew(Owner); Dialog:=TFileSaveDialog.Create(Owner);
   try
-    StyleDialog.Caption:='Оформление экспорта'; StyleDialog.Position:=poOwnerFormCenter;
+    StyleDialog.Caption:='Экспорт заметок — оформление'; StyleDialog.Position:=poOwnerFormCenter;
     StyleDialog.PopupMode:=pmExplicit;
-    if Assigned(Screen.ActiveCustomForm) then StyleDialog.PopupParent:=Screen.ActiveCustomForm else StyleDialog.PopupParent:=Self;
+    if Assigned(Screen.ActiveCustomForm) then StyleDialog.PopupParent:=Screen.ActiveCustomForm else StyleDialog.PopupParent:=Owner;
     StyleDialog.BorderStyle:=bsDialog; StyleDialog.ClientWidth:=410; StyleDialog.ClientHeight:=244;
     StyleDialog.Font.Name:='Segoe UI'; StyleDialog.Font.Size:=10;
     Tip:=TLabel.Create(StyleDialog); Tip.Parent:=StyleDialog; Tip.AutoSize:=False; Tip.SetBounds(12,12,386,74); Tip.WordWrap:=True;
@@ -2675,20 +2813,28 @@ begin
     Styles:=TComboBox.Create(StyleDialog); Styles.Name:='ExportStyle'; Styles.Parent:=StyleDialog; Styles.SetBounds(12,130,386,26);
     Styles.Style:=csDropDownList; Styles.Items.Add('Строгий — компактный отчёт с разделителями');
     Styles.Items.Add('Классический — книжные заголовки и цитаты'); Styles.Items.Add('Современный — карточки с полями');
-    Styles.Items.Add('Бумага — дневник с полями для размышлений'); Styles.ItemIndex:=1; Formats.OnChange:=ExportFormatChanged;
+    Styles.Items.Add('Бумага — дневник с полями для размышлений'); Styles.ItemIndex:=1; Formats.OnChange:=TReaderExportOptionsDialog(StyleDialog).FormatChanged;
     Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(166,198,112,30);
     Button.Caption:='Продолжить'; Button.ModalResult:=mrOk; Button.Default:=True;
     Button:=TButton.Create(StyleDialog); Button.Parent:=StyleDialog; Button.SetBounds(286,198,112,30);
     Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
     ApplyMHLControlTheme(StyleDialog);
     if StyleDialog.ShowModal<>mrOk then Exit; Style:=Styles.ItemIndex; FormatIndex:=Formats.ItemIndex;
-    Dialog.Title:='Экспорт закладок и заметок — '+Scope;
+    Dialog.Title:='Экспорт — '+Scope;
     case FormatIndex of
-      0: begin Dialog.Filter:='Документ Word DOCX|*.docx'; Extension:='docx'; end;
-      1: begin Dialog.Filter:='Оформленный документ HTML|*.html'; Extension:='html'; end;
-    else begin Dialog.Filter:='Текст UTF-8|*.txt'; Extension:='txt'; end; end;
-    Dialog.DefaultExt:=Extension; Dialog.Options:=Dialog.Options+[ofOverwritePrompt]; Dialog.FileName:='Закладки и заметки';
-    if not Dialog.Execute then Exit;
+      0: begin FilterName:='Документ Word (DOCX)'; Extension:='docx'; end;
+      1: begin FilterName:='Документ HTML'; Extension:='html'; end;
+    else begin FilterName:='Обычный текст UTF-8'; Extension:='txt'; end; end;
+    Dialog.DefaultExtension:=Extension; Dialog.Options:=Dialog.Options+[fdoOverWritePrompt,fdoPathMustExist,fdoStrictFileTypes];
+    with Dialog.FileTypes.Add do begin DisplayName:=FilterName; FileMask:='*.'+Extension; end;
+    Dialog.FileName:='Закладки и заметки';
+    // The Shell owns its file list. Do not apply a partial VCL skin to it.
+    // A modern native picker follows Windows and restores our hooks on cancel.
+    var SavedHooks:=TStyleManager.SystemHooks;
+    TStyleManager.SystemHooks:=SavedHooks-[shDialogs];
+    try
+      if not Dialog.Execute(Owner.Handle) then Exit;
+    finally TStyleManager.SystemHooks:=SavedHooks; end;
     Temporary:=Dialog.FileName+'.new-'+TGUID.NewGuid.ToString;
     try
       if FormatIndex=0 then TFile.WriteAllBytes(Temporary,ReaderAnnotationsDocx(Items,Style))
@@ -2696,9 +2842,17 @@ begin
       begin Text:=ReaderAnnotationsText(Items,FormatIndex=1,Style); TFile.WriteAllText(Temporary,Text,TEncoding.UTF8); end;
       if not MoveFileEx(PChar(Temporary),PChar(Dialog.FileName),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
     finally if TFile.Exists(Temporary) then TFile.Delete(Temporary); end;
-    FStatus.Caption:='Закладки и заметки экспортированы.';
     MessageDlg('Экспорт завершён. Записей: '+IntToStr(Length(Items))+sLineBreak+Dialog.FileName,mtInformation,[mbOK],0);
   finally Dialog.Free; StyleDialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.ExportNotesClick(Sender: TObject);
+var AllBooks: Boolean; Scope: string;
+begin
+  AllBooks:=(Sender is TComponent) and (TComponent(Sender).Tag=1);
+  if AllBooks then Scope:='Закладки и заметки всех книг'
+  else Scope:='Закладки и заметки этой книги: '+FBookTitle;
+  ExportReaderAnnotationItems(Self,AnnotationItems(AllBooks),Scope);
 end;
 
 procedure TfrmBuiltinReader.QuoteNoteClick(Sender: TObject);
@@ -3458,12 +3612,15 @@ procedure TfrmBuiltinReader.CloseReader(Sender: TObject; var Action: TCloseActio
 begin StopSearch; SaveSettings; end;
 
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
-  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer>);
-var Form: TfrmBuiltinReader;
+  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer>; const OnOpenNote: TProc<TReaderAnnotation>);
+var Form: TfrmBuiltinReader; Requested: TReaderAnnotation;
 begin
-  Form:=TfrmBuiltinReader.Create(Owner);
-  try Form.OpenBook(FileName,BookTitle,Identity,SettingsFile,PDFLibrary,OnProgress); Form.ShowModal;
+  Requested:=Default(TReaderAnnotation); Form:=TfrmBuiltinReader.Create(Owner);
+  try
+    Form.OpenBook(FileName,BookTitle,Identity,SettingsFile,PDFLibrary,OnProgress); Form.ShowModal;
+    Requested:=Form.FRequestedNote;
   finally Form.Free; end;
+  if (Requested.ID<>'') and Assigned(OnOpenNote) then OnOpenNote(Requested);
 end;
 
 end.

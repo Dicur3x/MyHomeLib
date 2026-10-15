@@ -76,10 +76,12 @@ function ApplyCollectionMetadata(const Collection: IBookCollection;
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Math,
+  System.Generics.Collections, System.Generics.Defaults, unit_PackageBookMetadata,
   unit_BookCache, unit_PublisherSeriesSource, unit_FB2PublisherMetadataReader,
   unit_MHLArchiveHelpers;
 
 const ChunkSize = 100;
+  PreviewChunkSize = 1000;
 
 type
   TPlannedMetadata = record
@@ -212,8 +214,9 @@ var Provider: IBookMetadataFillWriter; Plan: TCollectionMetadataPlan;
   Source: TPublisherSeriesSource; Reader: TFB2PublisherMetadataReader; Stream, Spool: TStream;
   FileStream: TFileStream; Books: TArray<TBookRecord>; Book: TBookRecord;
   Metadata: TFB2CatalogMetadata; Item: TPlannedMetadata; Field: TMetadataSyncField;
-  AfterID, Index: Integer; SourceKey, ErrorText, Line, FinalName: string;
+  AfterID, Index: Integer; SourceKey, ErrorText, Line, FinalName, MetadataExtension: string;
   Status: TFB2MetadataStatus; Bytes: TBytes; Complete, WritingPlan: Boolean;
+  FailureKind: TMetadataReadFailure; ExampleCount: Integer;
 begin
   Result := nil; Counts := Default(TMetadataSyncCounts);
   if not Assigned(Collection) or not Supports(Collection, IBookMetadataFillWriter, Provider) then
@@ -232,35 +235,49 @@ begin
     Reader := TFB2PublisherMetadataReader.Create; AfterID := 0;
     while not Cancelled(IsCanceled) do
     begin
-      Books := Provider.ReadMetadataBatch(AfterID, ChunkSize);
+      Books := Provider.ReadMetadataBatch(AfterID, PreviewChunkSize);
       if Length(Books) = 0 then begin Complete := True; Break; end;
+      AfterID:=Books[High(Books)].BookKey.BookID;
+      TArray.Sort<TBookRecord>(Books,TComparer<TBookRecord>.Construct(
+        function(const A,B: TBookRecord): Integer
+        begin
+          Result:=CompareText(A.Folder,B.Folder);
+          if Result=0 then Result:=CompareValue(A.BookKey.BookID,B.BookKey.BookID);
+        end));
       for Index := 0 to High(Books) do
       begin
         if Cancelled(IsCanceled) then Break;
-        Book := Books[Index]; AfterID := Book.BookKey.BookID;
+        Book := Books[Index];
         Inc(Counts.BooksChecked);
         if not (bpIsLocal in Book.BookProps) or (bpIsDeleted in Book.BookProps) or
-          not (Book.GetBookFormat in [bfFb2, bfFb2Archive]) or
-          ((Book.GetBookFormat = bfFb2Archive) and IsSevenZipArchive(Book.GetBookFileName)) then
+          (PendingMetadataFields(Book, Fields) = []) or
+          not ((Book.GetBookFormat in [bfFb2, bfFb2Archive, bfFbd]) or IsMetadataPackage(Book.FileExt) or IsMetadataContainer(Book.FileExt)) then
           Inc(Counts.BooksSkipped)
         else
         begin
           Source.SetUpcoming(Books, Index);
-          WritingPlan := False;
+          WritingPlan := False; FailureKind:=mrfSourceRead;
           try
             if not SameRoot(Book.CollectionRoot, Plan.CollectionRoot) then
               raise EReadError.Create('Папка коллекции изменилась во время проверки');
             SourceKey := Source.GetSourceKey(Book);
-            if SourceKey = '' then raise EReadError.Create('Исходный файл недоступен');
-            Stream := Source.OpenDescriptor(Book,False);
+            if SourceKey = '' then
+            begin FailureKind:=mrfUnavailable; raise EReadError.Create('Исходный файл недоступен'); end;
+            Stream := Source.OpenCatalogMetadata(Book,MetadataExtension);
             try
-              Status := Reader.ReadCatalogMetadata(Stream, Metadata, ErrorText,
+              FailureKind:=mrfInvalidMetadata;
+              Metadata:=Default(TFB2CatalogMetadata);
+              if not Assigned(Stream) then Status:=fmsComplete
+              else if IsMetadataPackage(MetadataExtension) then
+                Status:=ReadPackageMetadata(Stream,MetadataExtension,Metadata,ErrorText,msfAnnotation in Fields,IsCanceled)
+              else Status := Reader.ReadCatalogMetadata(Stream, Metadata, ErrorText,
                 msfAnnotation in Fields, IsCanceled);
             finally Stream.Free; end;
             if Status = fmsCanceled then Break;
             if Status <> fmsComplete then raise EReadError.Create(ErrorText);
             if SourceKey <> Source.GetSourceKey(Book) then
-              raise EReadError.Create('Файл книги изменился во время проверки');
+            begin FailureKind:=mrfSourceChanged; raise EReadError.Create('Файл книги изменился во время проверки'); end;
+            FailureKind:=mrfLimit;
             Item := Default(TPlannedMetadata); Item.Book := Book; Item.SourceKey := SourceKey;
             Item.Values.Publisher := Metadata.Publisher; Item.Values.City := Metadata.City;
             Item.Values.PubYear := Metadata.PubYear; Item.Values.ISBN := Metadata.ISBN;
@@ -295,7 +312,18 @@ begin
             on E: Exception do
             begin
               if WritingPlan then raise;
-              Inc(Counts.BooksFailed);
+              if E is ENotSupportedException then FailureKind:=mrfDecoder;
+              if E is EMetadataAmbiguousBook then FailureKind:=mrfAmbiguous;
+              if E is EFOpenError then FailureKind:=mrfUnavailable;
+              Inc(Counts.BooksFailed); Inc(Counts.ErrorCounts[FailureKind]);
+              ExampleCount:=Length(Counts.ErrorExamples);
+              if ExampleCount<40 then
+              begin
+                SetLength(Counts.ErrorExamples,ExampleCount+1);
+                Counts.ErrorExamples[ExampleCount]:=Format('#%d «%s»: %s. Источник: %s',[Book.BookKey.BookID,
+                  Copy(Book.Title,1,150),Copy(E.Message.Replace(#13,' ').Replace(#10,' '),1,800),
+                  Copy(Book.GetBookFileName,1,1024)]);
+              end;
             end;
           end;
         end;
@@ -305,6 +333,7 @@ begin
     if not Complete or Cancelled(IsCanceled) then Exit;
     if not SameRoot(Provider.MetadataCollectionRoot, Plan.CollectionRoot) then
       raise EReadError.Create('Папка коллекции изменилась; выполните новую проверку');
+    Counts.ArchiveOpens:=Source.ArchiveOpenCount;
     Plan.FHash := HashStream(Spool, IsCanceled); Plan.FCounts := Counts;
     FreeAndNil(Spool);
     FinalName := TPath.Combine(Plan.FDirectory, 'plan.jsonl');
@@ -446,12 +475,19 @@ begin
 end;
 
 procedure TMetadataPreviewThread.WorkFunction;
+var LastComment: UInt64;
 begin
+  LastComment:=0;
   FPlan := PreviewCollectionMetadata(FCollection, FFields, FCounts,
     function: Boolean begin Result := Canceled; end,
     procedure(Checked, Total: Int64)
     begin
       SetProgress(Integer(Min(Int64(99), Checked * 100 div Max(Int64(1), Total))));
+      if (LastComment=0) or (GetTickCount64-LastComment>=250) or (Checked=Total) then
+      begin
+        LastComment:=GetTickCount64;
+        SetComment(Format('Проверено книг: %d из %d',[Checked,Total]));
+      end;
     end);
   FCompleted := Assigned(FPlan); FOperationSuccess := FCompleted;
   if FCompleted then SetProgress(100);
