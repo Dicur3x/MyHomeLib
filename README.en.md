@@ -15,19 +15,15 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.19 / 2.7.0.1087**.
-[Release notes](RELEASE_NOTES_2.7.0_pre5.19.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.19.md) (in Russian).
-
-Next local build — **pre5.21 / 2.7.0.1089**:
-[changes](RELEASE_NOTES_2.7.0_pre5.21.md),
-[validation](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md) (in Russian).
+The current published release is **pre5.21 / 2.7.0.1089**.
+[Release notes](RELEASE_NOTES_2.7.0_pre5.21.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/SHA256.txt) | Archive checksums |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.21/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.21/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.21/SHA256.txt) | Archive checksums |
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
 Reading components are included: you do not need to install Delphi, Python
