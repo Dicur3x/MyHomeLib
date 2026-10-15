@@ -599,18 +599,17 @@ begin
       for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
         Require(MetadataUiField(Form,Field).Checked=(Field in METADATA_SYNC_DEFAULT_FIELDS),
           'Metadata default field selection is incorrect');
-      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('увеличиться') and
-        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('пустых описаний в каталоге'),
+      Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('увеличить') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('пустые описания в каталоге'),
         'Annotation checkbox does not explain catalog size');
       Preview(Form); Require(MetadataUiButton(Form,'btnMetadataApply').Enabled,'Completed preview did not enable fill');
       Require(MLIReadCatalogData(CID)=DataBefore,'Actual metadata preview changed catalog data');
       MetadataUiField(Form,msfAnnotation).Checked:=True;
-      Require(not MetadataUiButton(Form,'btnMetadataApply').Enabled and not Form.Busy and
-        string(TLabel(Form.FindComponent('lblMetadataFillReason')).Caption).Contains('изменён'),
-        'Changing fields retained a stale ready plan or started another scan');
-      Preview(Form);
+      Require(MetadataUiButton(Form,'btnMetadataApply').Enabled and not Form.Busy and
+        string(TLabel(Form.FindComponent('lblMetadataFillReason')).Caption).Contains('Повторно читать книги не нужно'),
+        'Changing fields discarded saved annotations or started another scan');
       Require(string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('описаний: 2') and
-        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('Из файлов книг') and
+        string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('без повторного чтения книг') and
         string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('пустых описаний в каталоге') and
         string(TLabel(Form.FindComponent('lblMetadataAnnotationSize')).Caption).Contains('примерно') and
         (TLabel(Form.FindComponent('lblMetadataCount5')).Caption='2'),
@@ -624,7 +623,7 @@ begin
       Require(MLIReadCatalogData(CID)=DataBefore,'Opt-in annotation preview changed catalog data');
       Form.Close;
     finally Form.Free; end;
-    Writeln('PASS actual metadata form defaults, explicit preview, annotation estimate and stale-plan invalidation perform no catalog writes'); Flush(Output);
+    Writeln('PASS actual metadata form defaults, explicit preview, annotation estimate and same-plan selection perform no catalog writes'); Flush(Output);
 
     Item:=TMenuItem(frmMain.FindComponent('miFillBookMetadata'));
     Require(Assigned(Item) and Item.Visible and Assigned(Item.Action),'Metadata fill command is not discoverable in Collection');

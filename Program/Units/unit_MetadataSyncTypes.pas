@@ -14,7 +14,7 @@ type
   TMetadataSyncCounts = record
     BooksTotal, BooksChecked, BooksPlanned, BooksSkipped, BooksFailed: Int64;
     FieldCounts: TMetadataSyncFieldCounts;
-    AnnotationBytes, ArchiveOpens: Int64;
+    AnnotationBytes, ArchiveOpens, BooksReused, FilesRead, AnnotationsOmitted, BooksStale: Int64;
     ErrorCounts: array[TMetadataReadFailure] of Int64;
     ErrorExamples: TArray<string>; // First 40 only; counters include every error.
   end;

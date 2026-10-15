@@ -102,9 +102,34 @@ begin
   try
     Require(Assigned(Plan) and (Counts.BooksChecked=1206) and (Counts.BooksPlanned=1206) and
       (Counts.BooksFailed=0),'Archive-grouped metadata batches lost or repeated catalog rows');
-    Require(Counts.ArchiveOpens<=6,'Archive-grouped scan reopened central directories for individual books');
+    Require(Counts.ArchiveOpens<=24,'Archive scan reopened central directories beyond one per worker and batch');
     Writeln('PASS 1206 interleaved archive records scanned exactly once with ',Counts.ArchiveOpens,' archive opens in ',GetTickCount64-Started,' ms');
   finally Plan.Free; Collection:=nil; end;
+  // Compare the complete uncached pipeline with equal-sized inputs. Library
+  // IDs differ solely to avoid saved-read hits in the second benchmark.
+  for var ArchiveName in TArray<string>.Create('ppmd.zip','ordinary.7z','solid.7z') do
+    for var Workers in TArray<Integer>.Create(1,4) do
+    begin
+      CID:=SystemDB.CreateCollection('Metadata benchmark '+ArchiveName+IntToStr(Workers),Folder,
+        Settings.AppPath+'bench-'+ArchiveName+IntToStr(Workers)+'.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+      Collection:=SystemDB.GetCollection(CID);
+      for var I:=0 to 239 do
+      begin
+        Book:=Default(TBookRecord); Book.NodeType:=ntBookInfo; Book.Title:='Benchmark '+IntToStr(I);
+        Book.FileName:='native-source'; Book.FileExt:='.fb2'; Book.Folder:=ArchiveName;
+        Book.LibID:='bench-'+IntToStr(Workers)+'-'+IntToStr(I); Include(Book.BookProps,bpIsLocal);
+        Collection.InsertBook(Book,False,False);
+      end;
+      Started:=GetTickCount64;
+      Plan:=PreviewCollectionMetadata(Collection,[msfPublisher],Counts,nil,nil,Workers);
+      try
+        Require(Assigned(Plan) and (Counts.BooksChecked=240) and (Counts.BooksPlanned=240) and
+          (Counts.BooksFailed=0) and (Counts.BooksReused=0) and (Counts.FilesRead=240),
+          'Uncached worker benchmark skipped books, reused saved reads or lost metadata');
+        Writeln('BENCH uncached metadata ',ArchiveName,' workers=',Workers,' books=240 elapsed_ms=',GetTickCount64-Started);
+      finally Plan.Free; Collection:=nil; end;
+    end;
+  Writeln('PASS bounded parallel metadata pipeline preserves all uncached PPMd/7z records');
   if FileExists(Folder+'real-samples.json') then
   begin
     Samples:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'real-samples.json',TEncoding.UTF8));

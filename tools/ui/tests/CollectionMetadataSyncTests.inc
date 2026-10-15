@@ -1,4 +1,95 @@
-﻿// Include after ReaderCopyIdentityTests/SystemBookRemapTests/AddBook.
+﻿procedure TestResumableMetadataScan;
+const BookCount=1200;
+var Root,CacheFile,FileName,XML,Key,BeforeHash: string; CID,I: Integer;
+  Collection: IBookCollection; Book: TBookRecord; Provider: IBookMetadataFillWriter;
+  Plan: TCollectionMetadataPlan; Counts,Applied: TMetadataSyncCounts;
+  Stop,Rejected: Boolean; DB: TSQLiteDatabase; Source: TPublisherSeriesSource;
+  FirstMS,ResumeMS,CachedMS,Started: UInt64;
+begin
+  Root:=Settings.AppPath+'resumable-metadata'+PathDelim; ForceDirectories(Root);
+  XML:='<?xml version="1.0" encoding="utf-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
+    '<description><title-info><book-title>Resume</book-title><annotation><p>Описание ё '+
+    StringOfChar('a',2048)+'</p></annotation></title-info><publish-info><publisher>Издатель Ёж</publisher>'+
+    '<city>Москва</city><year>2026</year><isbn>978-resume</isbn></publish-info></description><body><section><p>Text</p></section></body></FictionBook>';
+  CID:=SystemDB.CreateCollection('Resumable metadata',Root,Settings.AppPath+'resume-catalog.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(CID); Require(Supports(Collection,IBookMetadataFillWriter,Provider),'Resume fixture has no writer');
+  for I:=0 to BookCount-1 do
+  begin
+    FileName:='book-'+IntToStr(I); TFile.WriteAllText(Root+FileName+'.fb2',XML,TEncoding.UTF8);
+    Book:=Default(TBookRecord); Book.NodeType:=ntBookInfo; Book.CollectionRoot:=Root;
+    Book.Title:='Resume '+IntToStr(I); Book.FileName:=FileName; Book.FileExt:='.fb2';
+    Book.LibID:='resume-'+IntToStr(I); Include(Book.BookProps,bpIsLocal); Collection.InsertBook(Book,False,False);
+  end;
+  Stop:=False; Started:=GetTickCount64;
+  Plan:=PreviewCollectionMetadata(Collection,METADATA_SYNC_DEFAULT_FIELDS,Counts,
+    function: Boolean begin Result:=Stop; end,
+    procedure(Checked,Total: Int64) begin if Checked>=24 then Stop:=True; end);
+  Require(not Assigned(Plan),'Canceled metadata scan returned an applicable partial plan');
+  FirstMS:=GetTickCount64-Started;
+  CacheFile:=TPath.Combine(Settings.DataPath,'MetadataScan'+PathDelim+'reads-v1.sqlite');
+  Require(FileExists(CacheFile),'Canceled scan discarded its saved reads');
+  DB:=TSQLiteDatabase.CreateReadOnly(CacheFile);
+  try Require(DB.QuerySingleInt('SELECT COUNT(*) FROM Reads')>0,'Canceled scan saved no completed reads');
+  finally DB.Free; end;
+  Started:=GetTickCount64; Plan:=PreviewCollectionMetadata(Collection,METADATA_SYNC_DEFAULT_FIELDS,Counts);
+  ResumeMS:=GetTickCount64-Started;
+  try
+    Require(Assigned(Plan) and (Counts.BooksChecked=BookCount) and (Counts.BooksPlanned=BookCount) and
+      (Counts.BooksFailed=0) and (Counts.BooksReused>0) and (Counts.FilesRead>0) and (Counts.FilesRead+Counts.BooksReused=BookCount),
+      'Resume reread completed books, omitted rows or lost their metadata');
+    Require((Counts.AnnotationBytes=0) and (Plan.AvailableCounts.FieldCounts[msfAnnotation]=BookCount),
+      'Annotation opt-out lost cached descriptions or implicitly enabled catalogue storage');
+    Plan.SelectFields([msfAnnotation]);
+    Require((Plan.Counts.BooksPlanned=BookCount) and (Plan.Counts.AnnotationBytes>0),'Annotation selection requires another scan');
+    Require(ApplyCollectionMetadata(Collection,Plan,Applied) and (Applied.BooksPlanned=BookCount),
+      'Same-plan annotation Apply did not fill all descriptions');
+    Collection.GetBookRecord(CreateBookKey(1,CID),Book,True);
+    Require((Book.Publisher='') and Book.Annotation.Contains('Описание ё'),'Annotation selection wrote unchecked publication fields');
+    Plan.MarkSelectionApplied;
+    Require((Plan.Counts.BooksPlanned=0) and (Plan.AvailableCounts.FieldCounts[msfAnnotation]=0),
+      'Applied annotation selection remains pending');
+    Plan.SelectFields([msfPublisher]);
+    Require(ApplyCollectionMetadata(Collection,Plan,Applied) and (Applied.BooksPlanned=BookCount),
+      'Reselected plan lost unselected publication values');
+  finally Plan.Free; end;
+  Started:=GetTickCount64; Plan:=PreviewCollectionMetadata(Collection,[msfCity],Counts); CachedMS:=GetTickCount64-Started;
+  try Require(Assigned(Plan) and (Counts.FilesRead=0) and (Counts.BooksReused=BookCount) and
+      (Counts.ArchiveOpens=0),'Repeated metadata scan opened unchanged books'); finally Plan.Free; end;
+  // One changed source must not invalidate the other unchanged successful reads.
+  TFile.WriteAllText(Root+'book-0.fb2',XML.Replace('Москва','Санкт-Петербург'),TEncoding.UTF8);
+  Plan:=PreviewCollectionMetadata(Collection,[msfCity],Counts);
+  try Require(Assigned(Plan) and (Counts.FilesRead=1) and (Counts.BooksReused=BookCount-1),
+      'Changed-source invalidation reread the library or reused stale metadata'); finally Plan.Free; end;
+  Collection.GetBookRecord(CreateBookKey(2,CID),Book,True); Source:=TPublisherSeriesSource.Create(nil);
+  try Key:=Source.GetSourceKey(Book); finally Source.Free; end;
+  DB:=TSQLiteDatabase.Create(CacheFile);
+  try DB.ExecSQL('UPDATE Reads SET Payload=x''000102'' WHERE SourceKey=?',[Key]); finally DB.Free; end;
+  Plan:=PreviewCollectionMetadata(Collection,[msfCity],Counts);
+  try Require(Assigned(Plan) and (Counts.FilesRead=1) and (Counts.BooksReused=BookCount-1),
+      'Damaged saved row was trusted or prevented rereading its source'); finally Plan.Free; end;
+  Collection.GetBookRecord(CreateBookKey(1,CID),Book,True); Book.Annotation:=''; Collection.UpdateBook(Book);
+  TFile.WriteAllText(Root+'book-0.fb2',XML.Replace(StringOfChar('a',2048),StringOfChar(WideChar($044F),50000)),TEncoding.UTF8);
+  Plan:=PreviewCollectionMetadata(Collection,[msfCity],Counts);
+  try Require(Assigned(Plan) and (Counts.BooksFailed=0) and (Counts.BooksPlanned=BookCount) and
+      (Counts.AnnotationsOmitted=1),'Oversized optional annotation discarded other publication fields'); finally Plan.Free; end;
+  DB:=TSQLiteDatabase.Create(CacheFile);
+  try DB.ExecSQL('PRAGMA application_id=1234'); finally DB.Free; end;
+  BeforeHash:=THashSHA2.GetHashStringFromFile(CacheFile); Rejected:=False;
+  try Plan:=PreviewCollectionMetadata(Collection,[msfCity],Counts); Plan.Free;
+  except on E: EReadError do Rejected:=True; end;
+  Require(Rejected and (THashSHA2.GetHashStringFromFile(CacheFile)=BeforeHash),
+    'Unknown saved-read database was modified before ownership validation');
+  DB:=TSQLiteDatabase.Create(CacheFile);
+  try DB.ExecSQL('PRAGMA application_id=1212960082'); finally DB.Free; end;
+  Writeln('PASS resumable metadata scan preserves completed reads after cancellation and a fresh cache connection');
+  Writeln('PASS same-plan annotation selection never rereads books or writes unchecked fields');
+  Writeln('PASS metadata cache invalidates only changed/corrupt rows and protects unknown database ownership');
+  Writeln('BENCH resumable metadata ',BookCount,' books: interrupted=',FirstMS,' ms, resume=',ResumeMS,
+    ' ms, fully cached=',CachedMS,' ms; cached pass reads zero source files');
+end;
+
+// Include after ReaderCopyIdentityTests/SystemBookRemapTests/AddBook.
 // Requires unit_CollectionMetadataSync, unit_MetadataSyncTypes,
 // unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, System.Zip.
 // All books, sources, plans and private databases belong to this G-only fixture.
@@ -490,10 +581,17 @@ begin
       'Cancel changed more rows than its committed first chunk');
     Require(SBRExact(Personal)=BeforePersonal,'Chunk cancellation changed personal records');
     Writeln('PASS canceled preview writes nothing; cancellation retains exactly the first durable chunk');
+    Require(ApplyCollectionMetadata(Collection,Plan,Applied) and (Applied.BooksSkipped=100) and
+      (Applied.BooksStale=0) and (Applied.BooksPlanned=Plan.Counts.BooksPlanned-100),
+      'Resumed fill lost remaining books, rewrote completed values or confused them with stale identities');
+    Plan.MarkSelectionApplied;
+    Require(Plan.Counts.BooksPlanned=0,'Completed resumed fill still offers the finished selection');
+    Writeln('PASS resumed fill preserves its committed chunk and completes remaining fields from the same plan');
     for I:=0 to High(Files) do Require(THashSHA2.GetHashStringFromFile(Files[I])=Hashes[I], 'Metadata sync rewrote source book/archive');
   finally
     Trace('cleanup begin');
     Plan.Free; Reader.Free; Provider:=nil; Reopened:=nil;
     DB.Free; Personal.Free; Collection:=nil; User:=nil;
   end;
+  TestResumableMetadataScan;
 end;

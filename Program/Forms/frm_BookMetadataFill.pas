@@ -114,7 +114,7 @@ begin
         'После проверки',424,94+Ord(Field)*27,304,24);
     end;
     FAnnotationNote:=LabelAt(Options,'lblMetadataAnnotationSize',
-      'Описания берутся из файлов книг только для пустых описаний в каталоге. Проверка покажет количество и объём; каталог может заметно увеличиться.',12,264,716,36);
+      'Прочитанные сведения сохраняются для продолжения. Аннотации заполняют только пустые описания в каталоге и могут увеличить его. Выбор полей можно менять после проверки.',12,264,716,36);
     FSummary:=LabelAt(Options,'lblMetadataFillSummary','',12,306,716,42);
     FComment:=LabelAt(Options,'lblMetadataFillProgress','',12,350,716,24);
     FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Body;
@@ -127,7 +127,8 @@ begin
     FReport.Lines.Text:='Выберите сведения и нажмите «1. Проверить книги». '+
       'Проверка не изменяет каталог. Заполнение доступно только после завершённой проверки.'+#13#10+
       'Нужны местные FB2, FB3, EPUB, DOCX, ODT или архивы с ними, указанные в каталоге. Одного списка INPX недостаточно. '+
-      'Другие форматы пропускаются. Недоступные файлы и неоднозначные архивы перечисляются в отчёте.';
+      'Другие форматы пропускаются. Недоступные файлы и неоднозначные архивы перечисляются в отчёте.'+#13#10+
+      'Прочитанные сведения сохраняются между запусками. Повторная проверка использует их для неизменившихся файлов.';
     FTimer:=TTimer.Create(Self); FTimer.Enabled:=False; FTimer.Interval:=50; FTimer.OnTimer:=PollWorker;
     OnCloseQuery:=FormCloseQuery;
   finally EnableAlign; end;
@@ -229,29 +230,39 @@ end;
 procedure TfrmBookMetadataFill.OptionsChanged(Sender: TObject);
 begin
   if Assigned(FWorker) then Exit;
+  if Assigned(FPlan) then
+  begin
+    FRequestedFields:=SelectedFields; FPlan.SelectFields(FRequestedFields);
+    ShowCounts(FPlan.Counts); UpdateButtons;
+    if FRequestedFields=[] then FReason.Caption:='Выберите хотя бы один вид сведений.'
+    else FReason.Caption:='Выбор изменён. Повторно читать книги не нужно. Нажмите «2. Заполнить сведения».';
+    Exit;
+  end;
   for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do FCounts[Field].Caption:='После проверки';
   FSummary.Caption:='';
-  FAnnotationNote.Caption:='Описания берутся из файлов книг только для пустых описаний в каталоге. Проверка покажет количество и объём; каталог может заметно увеличиться.';
+  FAnnotationNote.Caption:='Прочитанные сведения сохраняются для продолжения. Аннотации заполняют только пустые описания в каталоге и могут увеличить его. Выбор полей можно менять после проверки.';
   if SelectedFields=[] then InvalidatePlan('Выберите хотя бы один вид сведений.')
   else InvalidatePlan('Выбор изменён. Проверьте книги ещё раз.');
 end;
 
 procedure TfrmBookMetadataFill.ShowCounts(const Counts: TMetadataSyncCounts);
-var SizeText: string;
+var SizeText: string; Available: TMetadataSyncCounts;
 begin
+  Available:=Counts; if Assigned(FPlan) then Available:=FPlan.AvailableCounts;
   for var Field:=Low(TMetadataSyncField) to High(TMetadataSyncField) do
     if Field in FRequestedFields then FCounts[Field].Caption:=IntToStr(Counts.FieldCounts[Field])
+    else if Assigned(FPlan) then FCounts[Field].Caption:=IntToStr(Available.FieldCounts[Field])+' (не выбрано)'
     else FCounts[Field].Caption:='Не выбрано';
   FSummary.Caption:=Format('Проверено книг: %d из %d. Есть недостающие сведения: %d. '+
     'Пропущено: %d; ошибки чтения: %d.',[Counts.BooksChecked,Counts.BooksTotal,Counts.BooksPlanned,Counts.BooksSkipped,Counts.BooksFailed]);
-  if msfAnnotation in FRequestedFields then
+  if Assigned(FPlan) or (msfAnnotation in FRequestedFields) then
   begin
-    if Counts.AnnotationBytes<1024 then SizeText:=IntToStr(Counts.AnnotationBytes)+' байт'
-    else if Counts.AnnotationBytes<1024*1024 then SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/1024.0)+' КБ'
-    else SizeText:=FormatFloat('0.0',Counts.AnnotationBytes/(1024.0*1024))+' МБ';
-    FAnnotationNote.Caption:=Format('Из файлов книг будет добавлено описаний: %d, примерно %s текста. '+
-      'Только для пустых описаний в каталоге. База вырастет также из-за служебных данных.',
-      [Counts.FieldCounts[msfAnnotation],SizeText]);
+    if Available.AnnotationBytes<1024 then SizeText:=IntToStr(Available.AnnotationBytes)+' байт'
+    else if Available.AnnotationBytes<1024*1024 then SizeText:=FormatFloat('0.0',Available.AnnotationBytes/1024.0)+' КБ'
+    else SizeText:=FormatFloat('0.0',Available.AnnotationBytes/(1024.0*1024))+' МБ';
+    FAnnotationNote.Caption:=Format('Доступно описаний: %d, примерно %s текста. Только для пустых описаний в каталоге. '+
+      'Аннотации можно выбрать без повторного чтения книг.',
+      [Available.FieldCounts[msfAnnotation],SizeText]);
   end;
 end;
 
@@ -324,15 +335,30 @@ begin
       Apply:=TMetadataApplyThread(FWorker);
       FSummary.Caption:=Format('Сохранено книг: %d. Пропущено: %d; ошибки: %d.',
         [Apply.BooksCommitted,Apply.BooksSkipped,Apply.BooksFailed]);
-      FreeAndNil(FPlan);
-      if ErrorText<>'' then FReason.Caption:='Заполнение не завершено: '+ErrorText
-      else if not Apply.Completed then FReason.Caption:='Обработка остановлена. Завершённые записи сохранены. Для продолжения повторите проверку.'
-      else FReason.Caption:='Заполнение завершено. Для новой проверки нажмите «1. Проверить книги».';
+      if Apply.Completed and (Apply.Counts.BooksStale=0) and (Apply.BooksFailed=0) then
+      begin
+        FPlan.MarkSelectionApplied; ShowCounts(FPlan.Counts);
+        FSummary.Caption:=Format('Сохранено книг: %d. Пропущено: %d; ошибки: %d.',
+          [Apply.BooksCommitted,Apply.BooksSkipped,Apply.BooksFailed]);
+      end;
+      if ErrorText<>'' then
+      begin FreeAndNil(FPlan); FReason.Caption:='Заполнение не завершено: '+ErrorText; end
+      else if not Apply.Completed then FReason.Caption:='Обработка остановлена. Завершённые записи сохранены. Нажмите «2. Заполнить сведения», чтобы продолжить.'
+      else if Apply.Counts.BooksStale>0 then
+        FReason.Caption:='Часть книг или источников изменилась. Повторите проверку: сохранённые сведения неизменившихся книг будут использованы снова.'
+      else FReason.Caption:='Заполнение завершено. Можно выбрать другие сведения без нового чтения книг.';
     end
     else
     begin
-      Preview:=TMetadataPreviewThread(FWorker); ShowCounts(Preview.Counts);
+      Preview:=TMetadataPreviewThread(FWorker);
+      if (ErrorText='') and Preview.Completed then FPlan:=Preview.TakePlan;
+      ShowCounts(Preview.Counts);
+      ReportLine(Format('Прочитано файлов: %d; использовано сохранённых сведений: %d.',
+        [Preview.Counts.FilesRead,Preview.Counts.BooksReused]),tsInfo);
       var Counts:=Preview.Counts;
+      if Counts.AnnotationsOmitted>0 then ReportLine(Format(
+        'Слишком большие аннотации пропущены: %d. Остальные сведения этих книг обработаны.',
+        [Counts.AnnotationsOmitted]),tsInfo);
       if Counts.BooksFailed=0 then ReportLine('Ошибок чтения нет.',tsInfo)
       else
       begin
@@ -344,11 +370,10 @@ begin
         for var Example in Counts.ErrorExamples do ReportLine(Example,tsError);
       end;
       if ErrorText<>'' then FReason.Caption:='Проверка не завершена: '+ErrorText
-      else if not Preview.Completed then FReason.Caption:='Проверка остановлена. Каталог не изменён. Повторите проверку.'
+      else if not Preview.Completed then FReason.Caption:='Проверка остановлена. Прочитанные сведения сохранены. Нажмите «1. Проверить книги», чтобы продолжить.'
       else if SelectedFields<>FRequestedFields then FReason.Caption:='Выбор изменён. Проверьте книги ещё раз.'
       else
       begin
-        FPlan:=Preview.TakePlan;
         if not Assigned(FPlan) or (FPlan.Counts.BooksPlanned=0) then
           FReason.Caption:='Недостающих сведений для заполнения не найдено. Для проверки нужны доступные местные файлы поддерживаемых форматов.'
         else FReason.Caption:='Проверка завершена. Нажмите «2. Заполнить сведения».';

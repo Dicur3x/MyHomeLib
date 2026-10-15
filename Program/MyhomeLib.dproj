@@ -80,6 +80,8 @@
         <DCCReference Include="Units\unit_CollectionSpace.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>
         <DCCReference Include="Units\unit_MetadataSyncTypes.pas"/>
+        <DCCReference Include="Units\unit_MetadataReadCache.pas"/>
+        <DCCReference Include="Units\unit_MetadataScanReader.pas"/>
         <DCCReference Include="Units\unit_ReaderNoteBooks.pas"/>
         <DCCReference Include="UtilsImpl\unit_CollectionMetadataSync.pas"/>
         <DCCReference Include="Forms\frm_BookMetadataFill.pas"/>
