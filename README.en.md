@@ -19,6 +19,10 @@ The current published release is **pre5.19 / 2.7.0.1087**.
 [Release notes](RELEASE_NOTES_2.7.0_pre5.19.md) ·
 [Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.19.md) (in Russian).
 
+Next local build — **pre5.21 / 2.7.0.1089**:
+[changes](RELEASE_NOTES_2.7.0_pre5.21.md),
+[validation](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md) (in Russian).
+
 | Archive | System |
 | --- | --- |
 | [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.19/HomeLibRu_x64.zip) | 64-bit Windows |
@@ -51,7 +55,8 @@ or a separate SQLite library to use the release.
   and 7z. Connect existing MyHomeLib catalogues.
 - Browse by author, book series, publisher series, genre and group.
   One book can belong to several series without duplicating its file.
-- Search by author, title, publisher, series, genre, keywords, annotation,
+- Search by author, translator, title, publisher, publication city/year, ISBN,
+  series, genre, keywords, annotation,
   filename, date, language and rating; use expressions and saved search presets.
 - Import and export presets as editable XML; legacy cxml/cxml2 files are supported.
   Import preserves existing presets and your current input.
@@ -59,17 +64,19 @@ or a separate SQLite library to use the release.
   search results belonging to several series.
   An optional Publisher column has its own filter.
 - Favourites, custom groups, ratings, reading progress, reviews and editable
-  descriptions. Export personal information separately from the catalogue.
+  descriptions. Export personal information and favourite authors separately from the catalogue.
 - Favourite authors: a saved list and new books after collection updates.
   Compact search and author-filter conditions; new books are marked seen explicitly.
 - INPX updates, multiple sources with separate folders and priorities,
   folder synchronisation, database maintenance and collection merging with a preview.
 - **Fill metadata from books…** fills selected empty publisher, publication city/year,
-  ISBN and translator fields from local FB2 files and FB2 in ordinary ZIPs.
+  ISBN and translator fields from local FB2/FBD, FB3, EPUB, DOCX and ODT, including
+  supported books in archives. Bundled 7-Zip handles PPMd ZIP and 7z.
   Open it from **Collection**, Sources, or the last page of a successfully completed
   local-collection wizard. Comparison and filling are separate actions; existing
   values stay unchanged. Annotation is off by default and can be enabled after
-  seeing its approximate text size. Other formats are skipped.
+  seeing its approximate text size. Fields are taken only when the book contains
+  them; the report explains read errors.
 - Download selected books from an online library, including a download queue.
 - Covers, annotations, an illustration gallery, author information and reviews
   when available from the source.
@@ -86,14 +93,17 @@ HTML/MHTML, Markdown, DOC/DOT/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and image
 DOC/DOT use bundled DocSharp to produce a cached DOCX, without LibreOffice.
 DOCX and ODT are read directly from XML. Unencrypted MOBI/AZW/AZW3/PRC support
 is limited to KF8 (format version 8); older variants may need an external reader.
-Some other office formats require an installed copy of LibreOffice.
+PPT/PPTX/ODP presentations, XLS/XLSX/ODS spreadsheets, their templates and WPS/WPD
+are adapted into a cached EPUB with text, tables and images. No installed office
+suite is required. WPS/WPD need 64-bit Windows in either HomeLib Ru build.
 
 - Light and dark themes; adjustable fonts, text width, colours and appearance.
 - A tree table of contents, in-book search, footnotes, bookmarks and saved reading position.
 - Select and copy FB2/EPUB/TXT text, and text from PDFs with a text layer.
 - Navigate with the progress bar; zoom PDFs and images by holding the mouse
   button or clicking again, with an adjustable zoom level.
-- Notes with quotations and positions; export notes for one book or all books
+- Named bookmarks with timestamps, notes with quotations and positions;
+  export records for one book or all books
   to TXT, HTML or DOCX, with a choice of styles.
 - A cache of prepared books: choose its folder and size limit, reuse files,
   clear it manually or on exit.
@@ -105,13 +115,16 @@ The `Readers` folder also includes **AlReader** and **SumatraPDF**.
 Choose an external reader from a book's context menu and configure it per file
 type. Existing reader assignments are preserved.
 
-The built-in reader remains experimental: complex EPUB/CSS layouts may differ
+The built-in reader is beta: complex EPUB/CSS layouts may differ
 from the original. Protected books are not decrypted; scans do not receive OCR.
 [Reader settings](Program/Help/en/set_readers.html).
 
 ### Export and sharing
 
-- Two separate actions: **FB2 → EPUB** and **EPUB → FB2**, including books in ZIP.
+- **FB2 ↔ EPUB**, plus FB3, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT, supported
+  Office/OpenDocument presentations and spreadsheets, WPS/WPD, unencrypted Kindle,
+  MHTML, CHM, PalmDoc/zTXT, TCR and Write → FB2 or EPUB, including supported books
+  in archives. PDF/DjVu need readable text; scans without text are rejected.
   Right-click a book and open its **Convert / save…** submenu, then choose FB2
   or EPUB. These commands do not need custom scripts.
   Originals stay unchanged and existing output files are not replaced. Input: up to 64 MB;
