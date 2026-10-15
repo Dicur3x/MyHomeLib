@@ -267,6 +267,9 @@ function run(executable, mode, subcase = "") {
       for (const name of fs.readdirSync(source)) {
         if (/\.py$/i.test(name)) fs.copyFileSync(path.join(source,name),path.join(target,name));
       }
+      fs.cpSync(path.join(source,'vendor'),path.join(target,'vendor'),{
+        recursive:true, filter:item=>!item.split(path.sep).includes('__pycache__') && !/\.pyc$/i.test(item)
+      });
     }
     if (mode === 'group-book-identity' || mode === 'ordinary-book-export-identity') {
       fs.cpSync(path.join(runtime,'tools/kindle/python'),path.join(folder,'tools/kindle/python'),{recursive:true});
