@@ -1050,6 +1050,8 @@ begin
     end;
 end;
 
+{$I ReaderFailureCleanupTests.inc}
+
 procedure TestFailedBuiltinReaderOwner;
 var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean; BeforeGDI, BeforeUSER: Cardinal;
   BaseControls, BaseWindows, Controls, Windows: TStringList;
@@ -1164,7 +1166,7 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
       Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),
         'Failed/canceled modal reader was not exercised');
     finally Driver.Timer.Free; Driver.Free; end;
-    for var Pump := 1 to 12 do begin Application.ProcessMessages; CheckSynchronize(2); end;
+    DrainFailedReaderIdleCleanup(Phase + '-round-' + IntToStr(I));
     Require(frmMain.Visible and frmMain.Enabled, 'Failed reader left main window hidden or disabled');
     Require(THashSHA2.GetHashStringFromFile(Source) = Hash, 'Reader failure changed its input');
     for var F := 0 to Screen.FormCount - 1 do
@@ -1181,6 +1183,8 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
     ReportDelta(Phase + '-round-' + IntToStr(I) + '-native-windows', Windows, BaseWindows);
     if EnforceBudget then
     begin
+      RequireFailedReaderHandleBaseline('main VCL controls', Controls, BaseControls);
+      RequireFailedReaderHandleBaseline('native windows', Windows, BaseWindows);
       Require(GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS) <= BeforeGDI + 4,
         'Failed main-owned readers leak drawing handles');
       Require(GetGuiResources(GetCurrentProcess, GR_USEROBJECTS) <= BeforeUSER + 4,
@@ -1194,6 +1198,7 @@ begin
   WasVisible := frmMain.Visible;
   try
     frmMain.Show; Application.ProcessMessages;
+    DrainFailedReaderIdleCleanup('before-cold-baseline');
     ColdGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
     ColdUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
     FormsBaseline := Screen.FormCount;
