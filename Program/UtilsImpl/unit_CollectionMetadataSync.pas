@@ -28,7 +28,16 @@ type
     property StorageFileName: string read FFileName;
   end;
 
-  TMetadataPreviewThread = class(TCollectionWorker)
+  TMetadataProgressWorker = class(TCollectionWorker)
+  private
+    FBooksChecked, FBooksTotal: Int64;
+  protected
+    procedure PublishBookProgress(Checked, Total: Int64);
+  public
+    procedure GetBookProgress(out Checked, Total: Int64);
+  end;
+
+  TMetadataPreviewThread = class(TMetadataProgressWorker)
   private
     FFields: TMetadataSyncFields;
     FPlan: TCollectionMetadataPlan;
@@ -44,7 +53,7 @@ type
     property Counts: TMetadataSyncCounts read FCounts;
   end;
 
-  TMetadataApplyThread = class(TCollectionWorker)
+  TMetadataApplyThread = class(TMetadataProgressWorker)
   private
     FPlan: TCollectionMetadataPlan; // Borrowed until the thread is joined.
     FCompleted: Boolean;
@@ -79,7 +88,7 @@ function ApplyCollectionMetadata(const Collection: IBookCollection;
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Math,
+uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Math, System.SyncObjs,
   System.Generics.Collections, System.Generics.Defaults, unit_PackageBookMetadata,
   unit_BookCache, unit_PublisherSeriesSource, unit_FB2PublisherMetadataReader,
   unit_MHLArchiveHelpers, unit_MetadataReadCache, unit_MetadataScanReader;
@@ -548,6 +557,18 @@ begin
   finally Source.Free; Lines.Free; Input.Free; end;
 end;
 
+procedure TMetadataProgressWorker.PublishBookProgress(Checked, Total: Int64);
+begin
+  TInterlocked.Exchange(FBooksTotal,Total);
+  TInterlocked.Exchange(FBooksChecked,Checked);
+end;
+
+procedure TMetadataProgressWorker.GetBookProgress(out Checked, Total: Int64);
+begin
+  Checked:=TInterlocked.CompareExchange(FBooksChecked,Int64(0),Int64(0));
+  Total:=TInterlocked.CompareExchange(FBooksTotal,Int64(0),Int64(0));
+end;
+
 constructor TMetadataPreviewThread.Create(CollectionID: Integer;
   const Fields: TMetadataSyncFields);
 begin inherited Create(CollectionID); FFields := Fields; end;
@@ -569,6 +590,7 @@ begin
     function: Boolean begin Result := Canceled; end,
     procedure(Checked, Total: Int64)
     begin
+      PublishBookProgress(Checked,Total);
       SetProgress(Integer(Min(Int64(99), Checked * 100 div Max(Int64(1), Total))));
       if (LastComment=0) or (GetTickCount64-LastComment>=250) or (Checked=Total) then
       begin
@@ -594,6 +616,7 @@ begin
       procedure(Checked, Total: Int64)
       begin
         FChangesCommitted := FCounts.BooksPlanned > 0;
+        PublishBookProgress(Checked,Total);
         SetProgress(Integer(Min(Int64(99), Checked * 100 div Max(Int64(1), Total))));
       end);
     FOperationSuccess := FCompleted;
