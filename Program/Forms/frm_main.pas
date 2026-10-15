@@ -5417,6 +5417,39 @@ var
   UseMTP: Boolean;
   DeviceShellItem: IShellItem;
   GroupData: PGroupData;
+
+  procedure ConsumeExportMarks;
+  var
+    Indices: TDictionary<UInt64, Integer>;
+    Node: PVirtualNode;
+    Data: PBookRecord;
+    Index: Integer;
+    function Key(const BookKey: TBookKey): UInt64;
+    begin
+      Result := (UInt64(Cardinal(BookKey.DatabaseID)) shl 32) or Cardinal(BookKey.BookID);
+    end;
+  begin
+    // Reuse the accepted identity snapshot. A modal destination picker can
+    // outlive a row refresh, so consume only marks still belonging to it.
+    Indices := TDictionary<UInt64, Integer>.Create;
+    try
+      for var I := 0 to High(BookIDList) do Indices.AddOrSetValue(Key(BookIDList[I].BookKey), I);
+      Tree.BeginUpdate;
+      try
+        Node := Tree.GetFirst;
+        while Assigned(Node) do
+        begin
+          Data := Tree.GetNodeData(Node);
+          if Assigned(Data) and (Data^.NodeType = ntBookInfo) and
+            (Node^.CheckState = csCheckedNormal) and Indices.TryGetValue(Key(Data^.BookKey), Index) and
+            (Data^.LibID = BookIDList[Index].ExpectedLibID) and
+            (ReaderBookPhysicalIdentity(Data^) = BookIDList[Index].ExpectedPhysicalIdentity) then
+            Tree.CheckState[Node] := csUncheckedNormal;
+          Node := Tree.GetNext(Node);
+        end;
+      finally Tree.EndUpdate; end;
+    finally Indices.Free; end;
+  end;
 begin
   ScriptID := (Sender as TComponent).Tag - 901;
   if (ScriptID >= 0) and (ScriptID < Settings.Scripts.Count) and Settings.Scripts[ScriptID].Standalone then
@@ -5502,10 +5535,8 @@ begin
     end;
   end;
 
-  // The destination is now accepted. Take the final identity snapshot and
-  // consume its marks at the same point at which export is handed off.
-  FillBookIdList(Tree, BookIDList);
-  if Length(BookIDList) = 0 then Exit;
+  // The destination is accepted; hand off the original guarded snapshot.
+  ConsumeExportMarks;
 
   try
     if ScriptID >= 0 then

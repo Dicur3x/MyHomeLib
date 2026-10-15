@@ -37,7 +37,7 @@ const visualRecords = process.argv.includes('--visual-records');
 if (visualRecords && viewsMode !== 'feedback21') throw new Error('Visual records inspection requires feedback21');
 const visualUpdate = process.argv.includes("--visual-update");
 if (visualUpdate && viewsMode !== "program-update-ui") throw new Error("Visual update inspection requires --views-mode=program-update-ui");
-if (visualUI && !["oct11-ui", "feedback22"].includes(viewsMode)) throw new Error("Visual inspection requires --views-mode=oct11-ui or feedback22");
+if (visualUI && !["oct11-ui", "feedback22", "settings-workflow-audit"].includes(viewsMode)) throw new Error("Visual inspection requires --views-mode=oct11-ui, feedback22 or settings-workflow-audit");
 if (visualCache && viewsMode !== "persistent-cache") throw new Error("Visual cache inspection requires --views-mode=persistent-cache");
 if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
   console.error("Usage: node native_collection_tests.js <runtime-dir> <GenreRegistryTest.exe> <MetabibImportTest.exe> <CollectionViewsTest.exe>");

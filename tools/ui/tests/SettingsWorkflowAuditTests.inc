@@ -155,6 +155,12 @@ begin
             'Profile reload changed the default command identity');
       end;
     Writeln('PASS settings delete boundaries cover no selection, Standard, first/middle/last default and every removed row with profile reload (20 combinations)');
+    if ParamStr(2) = 'visual' then
+    begin
+      Form.LoadSetting; SetMHLTheme(True);
+      Writeln('VISUAL isolated settings workflow at 192 DPI; close with Cancel'); Flush(Output);
+      Form.ShowModal;
+    end;
   finally
     Probe.Free; Form.Free;
     Settings.Scripts.Assign(SavedScripts); SavedScripts.Free;
