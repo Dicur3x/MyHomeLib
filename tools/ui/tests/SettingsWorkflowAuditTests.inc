@@ -4,6 +4,7 @@ procedure TestSettingsWorkflowAudit;
 var Form: TfrmSettings; Probe: TFCTModalProbe; SavedScripts: TScripts;
   SavedDefault, SavedMinutes, Value, Parsed, ExpectedDefault: Integer; SavedChecks, SavedTheme: Boolean;
   ScriptPath: string;
+  SavedLastCheck: TDateTime;
 
   procedure DeleteRow(Index: Integer);
   begin
@@ -16,6 +17,10 @@ begin
   SavedScripts := TScripts.Create; SavedScripts.Assign(Settings.Scripts);
   SavedDefault := Settings.DefaultScript; SavedMinutes := Settings.ProgramUpdateMinutes;
   SavedChecks := Settings.CheckUpdate; SavedTheme := MHLThemeDark;
+  SavedLastCheck := Settings.ProgramUpdateLastCheckUTC;
+  // Keep scheduler tests deterministic and prevent a real HTTP check while
+  // the optional visual inspection leaves this temporary form open.
+  Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
   Form := nil; Probe := nil;
   try
     // Reopen an interval large enough for Windows to insert a thousands
@@ -165,7 +170,8 @@ begin
     Probe.Free; Form.Free;
     Settings.Scripts.Assign(SavedScripts); SavedScripts.Free;
     Settings.DefaultScript := SavedDefault; Settings.ProgramUpdateMinutes := SavedMinutes;
-    Settings.CheckUpdate := SavedChecks; Settings.SaveSettings;
+    Settings.CheckUpdate := SavedChecks;
+    Settings.ProgramUpdateLastCheckUTC := SavedLastCheck; Settings.SaveSettings;
     SetMHLTheme(SavedTheme);
   end;
 end;
