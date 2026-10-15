@@ -10,10 +10,12 @@ type
   private
     FCollectionID: Integer;
     FPlan: TCollectionMetadataPlan;
-    FWorker: TCollectionWorker;
+    FWorker: TMetadataProgressWorker;
     FFields: array[TMetadataSyncField] of TCheckBox;
     FCounts: array[TMetadataSyncField] of TLabel;
-    FSummary, FReason, FComment, FAnnotationNote: TLabel;
+    FSummary, FReason, FComment, FAnnotationNote, FTimingInfo: TLabel;
+    FTiming: TMetadataTiming;
+    FTimingUpdatedAt: UInt64;
     FPreview, FApply, FStop, FClose: TButton;
     FProgress: TProgressBar;
     FReport: TMemo;
@@ -28,7 +30,8 @@ type
     procedure UpdateButtons;
     procedure InvalidatePlan(const Reason: string);
     procedure ShowCounts(const Counts: TMetadataSyncCounts);
-    procedure StartWorker(Worker: TCollectionWorker; Applying: Boolean);
+    procedure StartWorker(Worker: TMetadataProgressWorker; Applying: Boolean);
+    procedure UpdateTiming;
     procedure PreviewClick(Sender: TObject);
     procedure ApplyClick(Sender: TObject);
     procedure StopClick(Sender: TObject);
@@ -72,7 +75,7 @@ var Body: TScrollBox; Options, Footer: TPanel; Intro: TLabel; WorkArea: TRect;
   function ButtonAt(const Name, Text: string; X, W: Integer; Handler: TNotifyEvent): TButton;
   begin
     Result:=TButton.Create(Self); Result.Parent:=Footer; Result.Name:=Name;
-    Result.SetBounds(X,54,W,32); Result.Caption:=Text; Result.OnClick:=Handler;
+    Result.SetBounds(X,82,W,32); Result.Caption:=Text; Result.OnClick:=Handler;
   end;
 
 begin
@@ -85,8 +88,9 @@ begin
   DisableAlign;
   try
     Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.BevelOuter:=bvNone;
-    Footer.SetBounds(0,ClientHeight-98,ClientWidth,98); Footer.Align:=alBottom;
+    Footer.SetBounds(0,ClientHeight-126,ClientWidth,126); Footer.Align:=alBottom;
     FReason:=LabelAt(Footer,'lblMetadataFillReason','',12,8,716,38);
+    FTimingInfo:=LabelAt(Footer,'lblMetadataFillTiming','',12,48,716,26);
     FPreview:=ButtonAt('btnMetadataPreview','1. Проверить книги',12,184,PreviewClick);
     FApply:=ButtonAt('btnMetadataApply','2. Заполнить сведения',204,208,ApplyClick);
     FStop:=ButtonAt('btnMetadataStop','Остановить',420,128,StopClick);
@@ -195,10 +199,11 @@ begin
     for var I:=0 to High(Buttons) do
     begin
       if I=High(Buttons) then X:=Footer.ClientWidth-Margin-Widths[I];
-      Buttons[I].SetBounds(X,MulDiv(54,PPI,96),Widths[I],MulDiv(32,PPI,96));
+      Buttons[I].SetBounds(X,MulDiv(82,PPI,96),Widths[I],MulDiv(32,PPI,96));
       Inc(X,Widths[I]+Gap);
     end;
     FReason.SetBounds(Margin,MulDiv(8,PPI,96),Footer.ClientWidth-Margin*2,MulDiv(38,PPI,96));
+    FTimingInfo.SetBounds(Margin,MulDiv(48,PPI,96),Footer.ClientWidth-Margin*2,MulDiv(26,PPI,96));
   finally FLayoutBusy:=False; end;
 end;
 
@@ -266,13 +271,27 @@ begin
   end;
 end;
 
-procedure TfrmBookMetadataFill.StartWorker(Worker: TCollectionWorker; Applying: Boolean);
+procedure TfrmBookMetadataFill.StartWorker(Worker: TMetadataProgressWorker; Applying: Boolean);
 begin
   FWorker:=Worker; FApplying:=Applying; FProgress.Position:=0; FReport.Clear;
+  FComment.Caption:=''; FTiming.Reset(GetTickCount64); FTimingUpdatedAt:=0; UpdateTiming;
   FWorker.OnProgress:=ProgressChanged; FWorker.OnSetComment:=CommentChanged; FWorker.OnTeletype:=ReportLine;
   UpdateButtons; FTimer.Enabled:=True;
   try FWorker.Start;
-  except FTimer.Enabled:=False; FreeAndNil(FWorker); FApplying:=False; UpdateButtons; raise; end;
+  except FTimer.Enabled:=False; FreeAndNil(FWorker); FApplying:=False;
+    FTimingInfo.Caption:=FTiming.Description(GetTickCount64,False); UpdateButtons; raise; end;
+end;
+
+procedure TfrmBookMetadataFill.UpdateTiming;
+var NowMS: UInt64; Checked, Total: Int64;
+begin
+  if not Assigned(FWorker) then Exit;
+  NowMS:=GetTickCount64;
+  if not FWorker.Finished and (FTimingUpdatedAt<>0) and (NowMS-FTimingUpdatedAt<1000) then Exit;
+  FTimingUpdatedAt:=NowMS; FWorker.GetBookProgress(Checked,Total);
+  FTiming.Sample(Checked,Total,NowMS);
+  FTimingInfo.Caption:=FTiming.Description(NowMS,not FWorker.Finished and not FWorker.Canceled);
+  if FApplying and (Total>0) then FComment.Caption:=Format('Обработано книг: %d из %d',[Checked,Total]);
 end;
 
 procedure TfrmBookMetadataFill.PreviewClick(Sender: TObject);
@@ -325,7 +344,9 @@ end;
 procedure TfrmBookMetadataFill.PollWorker(Sender: TObject);
 var ErrorText: string; Preview: TMetadataPreviewThread; Apply: TMetadataApplyThread;
 begin
-  if FDestroying or not Assigned(FWorker) or not FWorker.Finished then Exit;
+  if FDestroying or not Assigned(FWorker) then Exit;
+  UpdateTiming;
+  if not FWorker.Finished then Exit;
   FTimer.Enabled:=False; FWorker.WaitFor; ErrorText:='';
   try
     FCommittedChanges:=FCommittedChanges or FWorker.CommittedChanges;

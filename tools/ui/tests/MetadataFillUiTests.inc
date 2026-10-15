@@ -363,6 +363,40 @@ begin
   Require(Assigned(Result) and Assigned(Result.OnClick),'Metadata form action is absent: '+Name);
 end;
 
+procedure TestMetadataTiming;
+var Timing: TMetadataTiming; Speed: Double; Remaining: Int64; Text: string;
+begin
+  Timing.Reset(0); Timing.Sample(0,1000,0); Timing.Sample(100,1000,5000);
+  Require(not Timing.TryEstimate(5000,Speed,Remaining),'ETA guesses from an early startup burst');
+  Timing.Reset(0); Timing.Sample(0,1000,0);
+  for var I:=1 to 10 do Timing.Sample(I*20,1000,I*1000);
+  Require(Timing.TryEstimate(10000,Speed,Remaining) and SameValue(Speed,20,0.001) and
+    (Remaining=40),'ETA does not use completed counts and elapsed monotonic time');
+  Require(not Timing.TryEstimate(20000,Speed,Remaining) and
+    Timing.Description(20000,True).Contains('уточняется'),'A stalled source keeps a false ETA');
+  Timing.Reset(0); Timing.Sample(0,100000,0);
+  for var I:=1 to 40 do
+    if I<=10 then Timing.Sample(I*1000,100000,I*1000)
+    else Timing.Sample(10000+(I-10)*20,100000,I*1000);
+  Require(Timing.TryEstimate(40000,Speed,Remaining) and SameValue(Speed,20,0.001) and
+    (Remaining=4470),'ETA retains the fast cache phase after thirty seconds of slower archive reads');
+  Timing.Sample(100000,100000,41000);
+  Require(not Timing.TryEstimate(41000,Speed,Remaining) and
+    Timing.Description(41000,True).Contains('Завершаем'),'ETA claims a countdown after all books were processed');
+  Timing.Reset(50000); Timing.Sample(0,2000000,50000);
+  for var I:=1 to 10 do Timing.Sample(I*20,2000000,50000+I*1000);
+  Text:=Timing.Description(60000,True);
+  Require(Text.Contains('книг/с') and Text.Contains('Осталось: примерно 27 ч'),
+    'Long ETA wraps at twenty-four hours or loses the approximate label');
+  Require(not Timing.Description(60000,False).Contains('Осталось'),
+    'Canceled or finished operation keeps its old countdown');
+  Timing.Reset(70000); Timing.Sample(0,0,70000);
+  Require(not Timing.TryEstimate(80000,Speed,Remaining),'Unknown totals divide by zero or produce an ETA');
+  Timing.Sample(100,1000,81000); Timing.Sample(10,1000,82000);
+  Require(not Timing.TryEstimate(82000,Speed,Remaining),'Restarted progress inherits the previous operation rate');
+  Writeln('PASS metadata ETA warmup, current speed, thirty-second adaptation, stalls, long durations and stage reset');
+end;
+
 procedure TestMetadataFillLayout(CID: Integer);
 var Form: TfrmBookMetadataFill; Bitmap: TBitmap; Png: TPngImage;
   OriginalTheme: Boolean; Before, Artifacts: string;
@@ -404,6 +438,9 @@ var Form: TfrmBookMetadataFill; Bitmap: TBitmap; Png: TPngImage;
       if I>0 then Require(Buttons[I-1].BoundsRect.Right<Buttons[I].Left,
         'Metadata footer buttons overlap at minimum width');
     end;
+    var Timing:=TLabel(Form.FindComponent('lblMetadataFillTiming'));
+    Require(Assigned(Timing) and (Timing.Parent=Footer) and
+      (Timing.BoundsRect.Bottom<Buttons[0].Top),'ETA is hidden in the scrolling body or overlaps buttons');
     CheckText(TLabel(Form.FindComponent('lblMetadataFillReason')),True);
     for var Component in Form do
     begin
@@ -441,6 +478,8 @@ begin
         Form:=TfrmBookMetadataFill.CreateForCollection(frmMain,CID);
         try
           Form.ScaleForPPI(PPI); Form.Show; Application.ProcessMessages;
+          TLabel(Form.FindComponent('lblMetadataFillTiming')).Caption:=
+            'Прошло: 123 ч 59 мин · 12345,6 книг/с · Осталось: примерно 999 ч 59 мин';
           Require(Form.Font.PixelsPerInch=PPI,'Metadata form did not adopt its requested native DPI');
           CheckWindow(PPI,False);
           Form.Width:=Form.Constraints.MinWidth; Form.Height:=Form.Constraints.MinHeight;
@@ -546,11 +585,18 @@ var CID: Integer; Collection: IBookCollection; IDs: array[0..2] of Integer;
 
   procedure Preview(Form: TfrmBookMetadataFill);
   begin
-    MetadataUiButton(Form,'btnMetadataPreview').Click; MetadataUiWait(Form);
+    MetadataUiButton(Form,'btnMetadataPreview').Click;
+    Require(Form.Busy and string(TLabel(Form.FindComponent('lblMetadataFillTiming')).Caption).Contains('Осталось'),
+      'Actual metadata preview does not show its initial time estimate state');
+    MetadataUiWait(Form);
+    Require(string(TLabel(Form.FindComponent('lblMetadataFillTiming')).Caption).Contains('Прошло:') and
+      not string(TLabel(Form.FindComponent('lblMetadataFillTiming')).Caption).Contains('Осталось'),
+      'Actual metadata preview retains its countdown after completion');
   end;
 
 begin
   RequireIsolatedRegression;
+  TestMetadataTiming;
   OriginalMode:=Settings.TreeModes[PAGE_SEARCH]; OriginalPage:=frmMain.pgControl.ActivePageIndex;
   Folder:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'metadata-fill-ui-fixture')); ForceDirectories(Folder);
   CID:=SystemDB.CreateCollection('Metadata UI native',Folder,'metadata-fill-ui.hlc2',
