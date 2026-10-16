@@ -14,13 +14,17 @@
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <DCC_Namespace>System;Xml;Data;Vcl;Vcl.Imaging;Vcl.Themes;Winapi;System.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..\..\Components\MHLComponents;..;..\Units;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <DCC_DcuOutput>Out\$(Platform)</DCC_DcuOutput>
+        <DCC_UnitSearchPath>..\Units;..\Forms;..\Forms\Editors;..\DataModules;..\ImportImpl;..\UtilsImpl;..\DwnldImpl;..\DAO;..\DAO\SQLite;..\DAO\SQLite\Lib;..\Wizards\NewCollection;..\Wizards\Base;..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_ResourcePath>..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_IncludePath>..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;$(DCC_IncludePath)</DCC_IncludePath>
+        <DCC_DcuOutput>Out\$(Platform)\ProgramUpdateInstallerTest-dcu</DCC_DcuOutput>
         <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
         <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_Assertions>true</DCC_Assertions>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
         <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
