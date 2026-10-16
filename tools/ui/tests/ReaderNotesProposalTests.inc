@@ -2,6 +2,72 @@
 // unit_ReaderAnnotations, unit_AtomicIniFile, System.JSON/IOUtils/Hash/Zip/
 // NetEncoding/Diagnostics/IniFiles, Vcl.Forms/StdCtrls/ComCtrls/ExtCtrls,
 // unit_MHLTheme.
+procedure RNPTrace(const Stage: string);
+begin Writeln('TRACE reader-notes ',Stage); Flush(Output); end;
+
+function RNPComponent(Form: TCustomForm; const Name: string; Kind: TComponentClass): TComponent;
+begin
+  Require(Assigned(Form),'Own note editor is not assigned: '+Name);
+  Result:=Form.FindComponent(Name);
+  Require(Assigned(Result),'Own note editor component missing: '+Name+' on '+Form.Name);
+  Require(Result.InheritsFrom(Kind),'Own note editor component has wrong type: '+Name);
+end;
+
+type
+  // An owned one-shot driver cannot outlive the modal call. Do not use the
+  // active form: VCL may still report the previous modal window during a
+  // queued callback. Wait for this process's visible, fully built editor.
+  TRNPModalAction = class
+  private
+    FTimer: TTimer;
+    FStarted: UInt64;
+    FAction: TProc<TCustomForm>;
+    FDone: Boolean;
+    procedure Tick(Sender: TObject);
+  public
+    constructor Create(const FixtureRoot: string; const Action: TProc<TCustomForm>);
+    destructor Destroy; override;
+    property Done: Boolean read FDone;
+  end;
+
+constructor TRNPModalAction.Create(const FixtureRoot: string; const Action: TProc<TCustomForm>);
+begin
+  inherited Create;
+  Require(DirectoryExists(FixtureRoot) and
+    TPath.GetFullPath(FixtureRoot).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes\',True),
+    'Modal note driver is restricted to this own fixture');
+  FAction:=Action; FStarted:=GetTickCount64;
+  FTimer:=TTimer.Create(nil); FTimer.Enabled:=False; FTimer.Interval:=10;
+  FTimer.OnTimer:=Tick; FTimer.Enabled:=True;
+end;
+
+destructor TRNPModalAction.Destroy;
+begin FTimer.Free; FAction:=nil; inherited; end;
+
+procedure TRNPModalAction.Tick(Sender: TObject);
+var Editor: TCustomForm; PID: DWORD;
+begin
+  Require(GetTickCount64-FStarted<5000,'Own modal note editor did not appear within 5 seconds');
+  Editor:=nil;
+  for var I:=0 to Screen.CustomFormCount-1 do
+  begin
+    var Candidate:=Screen.CustomForms[I];
+    if (Candidate.Name<>'ReaderNoteEditor') or not Candidate.Visible or not Candidate.HandleAllocated then Continue;
+    PID:=0; GetWindowThreadProcessId(Candidate.Handle,@PID);
+    if PID<>GetCurrentProcessId then Continue;
+    Require(not Assigned(Editor),'More than one own modal note editor is visible');
+    Editor:=Candidate;
+  end;
+  if not Assigned(Editor) then Exit;
+  FTimer.Enabled:=False; // Layout checks pump messages: never reenter Action.
+  RNPTrace('modal driver editor='+Editor.Name+' components='+IntToStr(Editor.ComponentCount));
+  RNPComponent(Editor,'NoteEditorText',TMemo);
+  RNPComponent(Editor,'NoteEditorSave',TButton);
+  RNPComponent(Editor,'NoteReload',TButton);
+  FAction(Editor); FDone:=True;
+  RNPTrace('modal driver action completed');
+end;
+
 procedure RNPCheckDialogLayout(Form: TCustomForm; Width, Height: Integer);
 var PreviousTheme: Boolean;
 begin
@@ -12,12 +78,14 @@ begin
       SetMHLTheme(Dark); ApplyMHLControlTheme(Form);
       for var DPI in TArray<Integer>.Create(96,144,192) do
       begin
+        RNPTrace('layout '+Form.Name+' dark='+BoolToStr(Dark,True)+' dpi='+IntToStr(DPI));
         Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(Width,DPI,96); Form.ClientHeight:=MulDiv(Height,DPI,96);
         Application.ProcessMessages;
         for var I:=0 to Form.ComponentCount-1 do
           if Form.Components[I] is TButton then
           begin
             var Button:=TButton(Form.Components[I]);
+            Require(Assigned(Button.Parent),'Own notes button has no parent: '+Button.Name);
             Require((Button.Left>=0) and (Button.Top>=0) and
               (Button.Left+Button.Width<=Button.Parent.ClientWidth) and
               (Button.Top+Button.Height<=Button.Parent.ClientHeight),
@@ -31,10 +99,10 @@ end;
 
 // Manual Computer Use entry point: the list remains open until Close/Esc,
 // followed by a live conflicted editor. Only one setup callback triggers the
-// initial conflict; no timer accepts, saves or closes either window.
+// initial conflict; the one-shot driver stops before manual inspection.
 procedure TestReaderNotesVisual(const Root: string);
 var Work, Profile, ID: string; Store, External: TReaderAnnotations;
-  Note, Latest: TReaderAnnotation; Dialog: TReaderSavedDialog;
+  Note, Latest: TReaderAnnotation; Dialog: TReaderSavedDialog; Driver: TRNPModalAction;
 begin
   Require(SameText(ExtractFileDrive(TPath.GetFullPath(Root)),'G:') and
     TPath.GetFullPath(Root).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes',True),
@@ -64,16 +132,14 @@ begin
     try External.Find(ID,Latest); Latest.Text:='Сохранённая версия из другого окна. Не затирать.'; External.Put(Latest);
     finally External.Free; end;
     Note.Text:='Мой несохранённый черновик. Проверить копию текста и перечитывание.';
-    TThread.ForceQueue(nil,
-      procedure
+    Driver:=TRNPModalAction.Create(Work,
+      procedure(Editor: TCustomForm)
       begin
-        var Editor:=Screen.ActiveCustomForm;
-        Require(Assigned(Editor) and (Editor.Name='ReaderNoteEditor'),'Own visual conflict editor missing');
-        TButton(Editor.FindComponent('NoteEditorSave')).Click;
+        TButton(RNPComponent(Editor,'NoteEditorSave',TButton)).Click;
       end);
-    EditAndSaveReaderNote(nil,Store,Note);
+    try EditAndSaveReaderNote(nil,Store,Note); finally Driver.Free; end;
   finally Store.Free; end;
-  Writeln('PASS reader-notes-visual closed_by_operator');
+  Writeln('PASS reader-notes-visual closed_by_operator'); Flush(Output);
 end;
 
 type
@@ -151,7 +217,7 @@ end;
 
 procedure TestReaderNotesProposals(const Root: string);
 var
-  Work, Profile, NotesFile, Hash, OriginalID, OtherID, Output: string;
+  Work, Profile, NotesFile, Hash, OriginalID, OtherID, ExportText: string;
   Store, Stale, External: TReaderAnnotations;
   Note, Original, Draft, Found: TReaderAnnotation;
   Bytes: TBytes;
@@ -163,6 +229,7 @@ var
   List: TListView;
   Ini: TMemIniFile;
   Confirm: TRNPConfirm;
+  Driver: TRNPModalAction;
   Items: TArray<TReaderAnnotation>;
   IDs: TStringList;
   Watch: TStopwatch;
@@ -226,12 +293,14 @@ var
   end;
 
 begin
+  RNPTrace('start');
   Require(SameText(ExtractFileDrive(TPath.GetFullPath(Root)),'G:') and
     TPath.GetFullPath(Root).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes',True),
     'Notes proposals tests require the explicitly isolated G: fixture root');
   Work:=TPath.Combine(Root,'native-'+TGUID.NewGuid.ToString); ForceDirectories(Work);
   Profile:=TPath.Combine(Work,'reader.ini'); NotesFile:=TPath.Combine(Work,'reader-notes.json');
   TFile.WriteAllText(Profile,'[Unrelated]'+sLineBreak+'Keep=Сохранено ё',TEncoding.UTF8);
+  RNPTrace('core fixture '+Profile);
   Store:=TReaderAnnotations.Create(Profile);
   try
     Original:=NewNote('','book-a','Книга Альфа','Начальная запись'); OriginalID:=Store.Put(Original);
@@ -244,32 +313,33 @@ begin
       Require(Rejected,'Parallel note save was not reported as a recoverable conflict');
       Require(THashSHA2.GetHashStringFromFile(NotesFile)=Hash,'Conflict overwrote another window revision');
       Require(Stale.Find(OriginalID,Found) and (Found.Text='Начальная запись'),'Conflict discarded the previous snapshot');
-      Stale.Reload; Require(Stale.Find(OriginalID,Found) and (Found.Text='Чужая запись'),'Explicit reload did not refresh the snapshot');
-      Bytes:=TFile.ReadAllBytes(NotesFile); TFile.WriteAllText(NotesFile,'{broken',TEncoding.UTF8);
+      RNPTrace('core conflict rejected; reload'); Stale.Reload; Require(Stale.Find(OriginalID,Found) and (Found.Text='Чужая запись'),'Explicit reload did not refresh the snapshot');
+      RNPTrace('core broken reload'); Bytes:=TFile.ReadAllBytes(NotesFile); TFile.WriteAllText(NotesFile,'{broken',TEncoding.UTF8);
       Rejected:=False; try Stale.Reload; except on E: Exception do Rejected:=True; end;
       Require(Rejected and Stale.Find(OriginalID,Found) and (Found.Text='Чужая запись'),'Failed reload lost the last good snapshot');
       TFile.WriteAllBytes(NotesFile,Bytes);
-      Output:=TPath.Combine(Work,'Копия черновика Ё.txt'); SaveReaderAnnotationDraft(Draft,Output);
-      Require(TFile.ReadAllText(Output,TEncoding.UTF8).Contains(Draft.Text),'Draft text copy lost Unicode/whitespace');
+      RNPTrace('core draft copy'); ExportText:=TPath.Combine(Work,'Копия черновика Ё.txt'); SaveReaderAnnotationDraft(Draft,ExportText);
+      Require(TFile.ReadAllText(ExportText,TEncoding.UTF8).Contains(Draft.Text),'Draft text copy lost Unicode/whitespace');
       Rejected:=False; try SaveReaderAnnotationDraft(Draft,NotesFile); except on E: Exception do Rejected:=True; end;
       Require(Rejected and (THashSHA2.GetHashStringFromFile(NotesFile)=Hash),'Draft export could replace the annotation store');
     finally External.Free; Stale.Free; end;
-    Store.Reload; Store.Find(OriginalID,Original); Draft:=Original;
-    TThread.ForceQueue(nil,
-      procedure
-      var Editor: TCustomForm; TextBox: TMemo; Save, ReloadButton: TButton; Foreign: TReaderAnnotations; Entry: TReaderAnnotation;
+    RNPTrace('core completed'); Store.Reload; Store.Find(OriginalID,Original); Draft:=Original;
+    RNPTrace('changed-note modal open');
+    Driver:=TRNPModalAction.Create(Work,
+      procedure(Editor: TCustomForm)
+      var TextBox: TMemo; Save, ReloadButton: TButton; Foreign: TReaderAnnotations; Entry: TReaderAnnotation;
       begin
-        Editor:=Screen.ActiveCustomForm; Require(Editor.Name='ReaderNoteEditor','Live note editor missing');
-        TextBox:=Editor.FindComponent('NoteEditorText') as TMemo; TextBox.Text:='  Мой черновик Ё ї 😀'+sLineBreak+'Сохранить пробелы  ';
+        RNPTrace('changed-note enter');
+        TextBox:=TMemo(RNPComponent(Editor,'NoteEditorText',TMemo)); TextBox.Text:='  Мой черновик Ё ї 😀'+sLineBreak+'Сохранить пробелы  ';
         Foreign:=TReaderAnnotations.Create(Profile);
         try Foreign.Find(OriginalID,Entry); Entry.Text:='Новая чужая версия'; Foreign.Put(Entry); finally Foreign.Free; end;
-        Save:=Editor.FindComponent('NoteEditorSave') as TButton; Save.Click;
+        Save:=TButton(RNPComponent(Editor,'NoteEditorSave',TButton)); RNPTrace('changed-note first save'); Save.Click;
         Require(Editor.Visible and not Save.Enabled,'Conflict closed the editor or allowed a blind retry');
         Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Conflict lost the live draft');
-        Require(TButton(Editor.FindComponent('NoteDraftCopy')).Visible,'Draft copy recovery action missing');
-        ReloadButton:=Editor.FindComponent('NoteReload') as TButton; ReloadButton.Click;
+        Require(TButton(RNPComponent(Editor,'NoteDraftCopy',TButton)).Visible,'Draft copy recovery action missing');
+        ReloadButton:=TButton(RNPComponent(Editor,'NoteReload',TButton)); RNPTrace('changed-note first reload'); ReloadButton.Click;
         Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Explicit reload replaced the draft');
-        Require(string(TMemo(Editor.FindComponent('NoteLatest')).Text).Contains('Новая чужая версия'),'Fresh version is not visible separately');
+        Require(string(TMemo(RNPComponent(Editor,'NoteLatest',TMemo)).Text).Contains('Новая чужая версия'),'Fresh version is not visible separately');
         Require(Save.Enabled and (Save.Caption='Сохранить новой заметкой'),'Changed note is not clearly saved as a new record');
         RNPCheckDialogLayout(Editor,650,720);
         Require(TextBox.Height>=48,'Conflict layout collapsed the live draft');
@@ -277,11 +347,15 @@ begin
         // conflict must again preserve the draft and create only one copy.
         Foreign:=TReaderAnnotations.Create(Profile);
         try Foreign.Find(OriginalID,Entry); Entry.Text:='Ещё более новая чужая версия'; Foreign.Put(Entry); finally Foreign.Free; end;
-        Save.Click; Require(not Save.Enabled and string(TextBox.Text).Contains('Мой черновик'),'Second conflict lost the draft or bypassed concurrency');
-        ReloadButton.Click;
-        Save.Click;
+        RNPTrace('changed-note second save'); Save.Click; Require(not Save.Enabled and string(TextBox.Text).Contains('Мой черновик'),'Second conflict lost the draft or bypassed concurrency');
+        RNPTrace('changed-note second reload'); ReloadButton.Click;
+        RNPTrace('changed-note recovered save'); Save.Click;
       end);
-    Require(EditAndSaveReaderNote(nil,Store,Draft),'Recovered draft did not save from its live editor');
+    try
+      Require(EditAndSaveReaderNote(nil,Store,Draft),'Recovered draft did not save from its live editor');
+      Require(Driver.Done,'Changed-note driver did not complete');
+    finally Driver.Free; end;
+    RNPTrace('changed-note modal returned');
     Require((Draft.ID<>'') and (Draft.ID<>OriginalID),'Recovered draft reused the other window note ID');
     Require(Store.Find(OriginalID,Found) and (Found.Text='Ещё более новая чужая версия'),'Recovery overwrote another window note');
     Require(Store.Find(Draft.ID,Found) and Found.Text.StartsWith('  Мой черновик'),'Saved copy lost its exact draft text');
@@ -290,31 +364,39 @@ begin
     for var RemoveCurrent in TArray<Boolean>.Create(False,True) do
     begin
       Store.Find(OriginalID,Draft);
-      TThread.ForceQueue(nil,
-        procedure
-        var Editor: TCustomForm; Foreign: TReaderAnnotations; Entry: TReaderAnnotation; Save: TButton;
+      RNPTrace('followup modal open remove_current='+BoolToStr(RemoveCurrent,True));
+      Driver:=TRNPModalAction.Create(Work,
+        procedure(Editor: TCustomForm)
+        var Foreign: TReaderAnnotations; Entry: TReaderAnnotation; Save, ReloadButton: TButton;
         begin
-          Editor:=Screen.ActiveCustomForm; TMemo(Editor.FindComponent('NoteEditorText')).Text:='Ещё один черновик';
+          RNPTrace('followup enter remove_current='+BoolToStr(RemoveCurrent,True));
+          TMemo(RNPComponent(Editor,'NoteEditorText',TMemo)).Text:='Ещё один черновик';
           Foreign:=TReaderAnnotations.Create(Profile);
           try
             if RemoveCurrent then Foreign.Remove(OriginalID)
             else begin Foreign.Find(OtherID,Entry); Entry.Text:='Не затирать другую заметку'; Foreign.Put(Entry); end;
           finally Foreign.Free; end;
-          Save:=Editor.FindComponent('NoteEditorSave') as TButton; Save.Click;
+          Save:=TButton(RNPComponent(Editor,'NoteEditorSave',TButton));
+          ReloadButton:=TButton(RNPComponent(Editor,'NoteReload',TButton));
+          RNPTrace('followup first save'); Save.Click;
           Require(not Save.Enabled,'Parallel unrelated change/deletion was not detected');
-          TButton(Editor.FindComponent('NoteReload')).Click;
+          RNPTrace('followup reload'); ReloadButton.Click;
           if RemoveCurrent then Require(Save.Caption='Сохранить новой заметкой','Deleted note was not recovered as a new record')
           else Require(Save.Caption='Сохранить','Unchanged current note unnecessarily requires replacement');
-          Save.Click;
+          RNPTrace('followup recovered save'); Save.Click;
         end);
-      Require(EditAndSaveReaderNote(nil,Store,Draft),'Unrelated/deleted-note recovery did not save');
+      try
+        Require(EditAndSaveReaderNote(nil,Store,Draft),'Unrelated/deleted-note recovery did not save');
+        Require(Driver.Done,'Followup note driver did not complete');
+      finally Driver.Free; end;
+      RNPTrace('followup modal returned');
       if RemoveCurrent then Require((Draft.ID<>OriginalID) and not Store.Find(OriginalID,Found),'Deleted original ID was reused')
       else Require(Draft.ID=OriginalID,'Unrelated changes replaced the current note identity');
       Require(Store.Find(OtherID,Found) and (Found.Text='Не затирать другую заметку'),'Recovery overwrote an unrelated note');
       Require(Length(Store.Items)=2,'Recovery duplicated or removed another record');
     end;
   finally Store.Free; end;
-  Writeln('PASS reader-note-conflict typed_conflict reload_preserves_snapshot live_draft fresh_version new_id atomic_txt_copy');
+  Writeln('PASS reader-note-conflict typed_conflict reload_preserves_snapshot live_draft fresh_version new_id atomic_txt_copy'); Flush(Output);
 
   Profile:=TPath.Combine(Work,'filter\reader.ini'); NotesFile:=TPath.Combine(Work,'filter\reader-notes.json');
   ForceDirectories(ExtractFilePath(Profile));
@@ -331,21 +413,21 @@ begin
     Bookmark('book-b','Книга Бета',0,'Скрытая закладка Бета','Другая цитата');
     SaveMemIniFileAtomically(Ini);
   finally Ini.Free; end;
-  Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile);
+  RNPTrace('filter dialog construct'); Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile);
   try
-    Dialog.Show; Application.ProcessMessages;
-    Search:=Dialog.FindComponent('NotesSearch') as TEdit; Books:=Dialog.FindComponent('NotesBooks') as TComboBox;
-    ShowNotes:=Dialog.FindComponent('NotesShowNotes') as TCheckBox;
-    ShowBookmarks:=Dialog.FindComponent('NotesShowBookmarks') as TCheckBox;
-    List:=Dialog.FindComponent('NotesList') as TListView;
+    RNPTrace('filter dialog show'); Dialog.Show; Application.ProcessMessages;
+    Search:=TEdit(RNPComponent(Dialog,'NotesSearch',TEdit)); Books:=TComboBox(RNPComponent(Dialog,'NotesBooks',TComboBox));
+    ShowNotes:=TCheckBox(RNPComponent(Dialog,'NotesShowNotes',TCheckBox));
+    ShowBookmarks:=TCheckBox(RNPComponent(Dialog,'NotesShowBookmarks',TCheckBox));
+    List:=TListView(RNPComponent(Dialog,'NotesList',TListView));
     Require(List.OwnerData,'Large notes list is not virtual');
     RNPCheckDialogLayout(Dialog,760,560);
     ExpectVisible(['book-a/note-a','book-b/note-b','book-a/note-c','book-c/note-d','book-a/0','book-a/1','book-b/0']);
-    Search.Text:='маЯК'; ExpectVisible(['book-a/note-a','book-a/0']);
-    Output:=ReaderAnnotationsText(Dialog.VisibleItems,False);
-    TFile.WriteAllText(TPath.Combine(Work,'filtered-export.txt'),Output,TEncoding.UTF8);
-    Require(Output.Contains('Маяк Ёж') and Output.Contains('Маяк закладка') and
-      not Output.Contains('Скрытая запись') and not Output.Contains('Еж без точек'),'Visible export contains hidden records');
+    RNPTrace('filter cases'); Search.Text:='маЯК'; ExpectVisible(['book-a/note-a','book-a/0']);
+    ExportText:=ReaderAnnotationsText(Dialog.VisibleItems,False);
+    TFile.WriteAllText(TPath.Combine(Work,'filtered-export.txt'),ExportText,TEncoding.UTF8);
+    Require(ExportText.Contains('Маяк Ёж') and ExportText.Contains('Маяк закладка') and
+      not ExportText.Contains('Скрытая запись') and not ExportText.Contains('Еж без точек'),'Visible export contains hidden records');
     TFile.WriteAllText(TPath.Combine(Work,'filtered-export.html'),ReaderAnnotationsText(Dialog.VisibleItems,True),TEncoding.UTF8);
     TFile.WriteAllBytes(TPath.Combine(Work,'filtered-export.docx'),ReaderAnnotationsDocx(Dialog.VisibleItems));
     Search.Text:='ЁЖ'; ExpectVisible(['book-a/note-a']);
@@ -364,10 +446,10 @@ begin
       Confirm.FixtureRoot:=Work; Confirm.ExpectedCount:=2;
       Confirm.ExpectedScope:='книга «Книга Альфа»; поиск «маяк»';
       Confirm.Started:=GetTickCount64; Confirm.Timer.Interval:=10; Confirm.Timer.OnTimer:=Confirm.Tick;
-      TButton(Dialog.FindComponent('NotesDeleteAll')).Click;
+      RNPTrace('filter delete shown'); TButton(RNPComponent(Dialog,'NotesDeleteAll',TButton)).Click;
       Require(Confirm.Confirmed,'Filtered destructive action skipped its own-fixture confirmation');
     finally Confirm.Timer.Free; Confirm.Free; end;
-    ExpectVisible([]); Search.Text:=''; ExpectVisible(['book-a/note-c','book-a/0']);
+    RNPTrace('filter delete returned'); ExpectVisible([]); Search.Text:=''; ExpectVisible(['book-a/note-c','book-a/0']);
     SelectBook('Все книги'); ExpectVisible(['book-b/note-b','book-a/note-c','book-c/note-d','book-a/0','book-b/0']);
     Store:=TReaderAnnotations.Create(Profile);
     try
@@ -383,25 +465,25 @@ begin
         (Ini.ReadInteger('Bookmarks.book-b','Count',0)=1),'Filtered bookmark deletion lost hidden fields/books');
     finally Ini.Free; end;
   finally Dialog.Free; end;
-  Writeln('PASS reader-note-filter exact_visible_ids unicode_case distinct_e_yo book_kind_clear pending_search_delete filtered_exports');
+  Writeln('PASS reader-note-filter exact_visible_ids unicode_case distinct_e_yo book_kind_clear pending_search_delete filtered_exports'); Flush(Output);
 
   Profile:=TPath.Combine(Work,'large\reader.ini'); NotesFile:=TPath.Combine(Work,'large\reader-notes.json');
-  ForceDirectories(ExtractFilePath(Profile)); SetLength(Items,10000);
+  RNPTrace('10k fixture generation'); ForceDirectories(ExtractFilePath(Profile)); SetLength(Items,10000);
   for var I:=0 to High(Items) do
     Items[I]:=NewNote('large-'+IntToStr(I),'book-'+IntToStr(I mod 100),
       'Большая книга '+IntToStr(I mod 100),'Обычная собственная запись '+IntToStr(I));
   Items[7777].Text:='Уникальная игла Ё — Україна 😀'; WriteFixture(NotesFile,Items); Items:=nil;
-  Hash:=THashSHA2.GetHashStringFromFile(NotesFile); Watch:=TStopwatch.StartNew;
+  RNPTrace('10k dialog construct'); Hash:=THashSHA2.GetHashStringFromFile(NotesFile); Watch:=TStopwatch.StartNew;
   Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile);
   try
     Dialog.Show; Application.ProcessMessages; OpenMS:=Watch.ElapsedMilliseconds;
-    Search:=Dialog.FindComponent('NotesSearch') as TEdit; List:=Dialog.FindComponent('NotesList') as TListView;
+    Search:=TEdit(RNPComponent(Dialog,'NotesSearch',TEdit)); List:=TListView(RNPComponent(Dialog,'NotesList',TListView));
     Require(List.OwnerData and (List.Items.Count=10000),'Own 10K notes fixture is not completely represented');
     Watch:=TStopwatch.StartNew; Search.Text:='УНИКАЛЬНАЯ ИГЛА Ё'; Items:=Dialog.VisibleItems; FilterMS:=Watch.ElapsedMilliseconds;
     Require((Length(Items)=1) and (Items[0].ID='large-7777'),'Own 10K filter lost the exact matching identity');
     Require(FilterMS<1500,'Own 10K filter blocks the UI for 1.5 seconds');
     Require(THashSHA2.GetHashStringFromFile(NotesFile)=Hash,'Large list viewing/filtering modified notes');
-    Writeln('PROFILE reader-notes-10k open_ms=',OpenMS,' filter_ms=',FilterMS,' records=10000 visible=1 source_unchanged=1');
+    Writeln('PROFILE reader-notes-10k open_ms=',OpenMS,' filter_ms=',FilterMS,' records=10000 visible=1 source_unchanged=1'); Flush(Output);
   finally Dialog.Free; end;
-  Writeln('PASS reader-notes-proposals');
+  Writeln('PASS reader-notes-proposals'); Flush(Output);
 end;
