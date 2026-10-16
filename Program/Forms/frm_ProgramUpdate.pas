@@ -49,6 +49,7 @@ type
     procedure PrimaryClick(Sender: TObject);
     procedure LaterClick(Sender: TObject);
     procedure PageClick(Sender: TObject);
+    procedure UpdateReleasePage;
     procedure DownloadCompleted(var Message: TMessage); message WM_PROGRAM_UPDATE_DOWNLOADED;
     procedure DownloadProgress(var Message: TMessage); message WM_PROGRAM_UPDATE_PROGRESS;
     procedure SaveReady;
@@ -89,6 +90,7 @@ type
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; virtual;
     function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
       const Job: string): TProgramDownloadThread; virtual;
+    procedure OpenReleasePage(const URL: string); virtual;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -178,7 +180,7 @@ begin
   FProgress.SetBounds(20, 404, 700, 18); FProgress.Max := 100;
   FPrimary := TButton.Create(Self); FPrimary.Parent := Self;
   FPrimary.SetBounds(20, 473, 420, 30); FPrimary.OnClick := PrimaryClick; FPrimary.Default := True;
-  FPage := TButton.Create(Self); FPage.Parent := Self;
+  FPage := TButton.Create(Self); FPage.Parent := Self; FPage.Name := 'UpdateReleasePage';
   FPage.SetBounds(460, 473, 125, 30); FPage.Caption := 'Открыть GitHub'; FPage.OnClick := PageClick;
   FLater := TButton.Create(Self); FLater.Parent := Self;
   FLater.SetBounds(605, 473, 115, 30); FLater.Caption := 'Позже'; FLater.OnClick := LaterClick;
@@ -471,6 +473,7 @@ begin
   if ReleaseInfo.ComponentID = '' then
   begin SelectRow(0); FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
+  UpdateReleasePage;
   FLater.Caption := 'Позже'; FLater.Enabled := True;
   if FRelease.History.Trim <> '' then DisplayNotes(FRelease.History)
   else DisplayNotes(FRelease.Changelog);
@@ -1072,11 +1075,28 @@ begin
   else Hide;
 end;
 
-procedure TfrmProgramUpdate.PageClick(Sender: TObject);
+procedure TfrmProgramUpdate.UpdateReleasePage;
 begin
-  if FSelectedRow>0 then FRelease.URL:=UPDATE_COMPONENTS[FSelectedRow-1].URL;
-  if FRelease.URL = '' then FRelease.URL := 'https://github.com/Dicur3x/MyHomeLib/releases';
-  ShellExecute(Handle, 'open', PChar(FRelease.URL), nil, nil, SW_SHOWNORMAL);
+  FRelease.URL := UpdateReleasePageURL(FRelease.ComponentID, FRelease.Tag, FRelease.URL);
+  FPage.Caption := UpdateReleasePageCaption(FRelease.ComponentID, FRelease.URL);
+end;
+
+procedure TfrmProgramUpdate.OpenReleasePage(const URL: string);
+begin
+  ShellExecute(Handle, 'open', PChar(URL), nil, nil, SW_SHOWNORMAL);
+end;
+
+procedure TfrmProgramUpdate.PageClick(Sender: TObject);
+var Component, URL: string;
+begin
+  Component := FRelease.ComponentID; URL := FRelease.URL;
+  // The selected component still has an author page when it has no update.
+  if (FSelectedRow > 0) and (Component <> 'batch') then
+  begin
+    Component := UPDATE_COMPONENTS[FSelectedRow - 1].ID;
+    if FRelease.ComponentID <> Component then URL := '';
+  end;
+  OpenReleasePage(UpdateReleasePageURL(Component, FRelease.Tag, URL));
 end;
 
 procedure TfrmProgramUpdate.DownloadProgress(var Message: TMessage);
@@ -1135,6 +1155,7 @@ begin
   end;
   if FReady then
   begin
+    UpdateReleasePage;
     FProgress.Position := 100; FPrimary.Caption := 'Установить и перезапустить';
     FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
     FStatus.Caption := 'Обновление скачано и проверено.' + sLineBreak +
@@ -1167,7 +1188,7 @@ begin
 end;
 
 function TfrmProgramUpdate.RestoreReady: Boolean;
-var Root, Journal: TJSONValue; FileName, Job, Tag, Digest, State, Notes, Component, Version: string; Comparison, I: Integer;
+var Root, Journal: TJSONValue; FileName, Job, Tag, Digest, State, Notes, Component, Version, SavedURL: string; Comparison, I: Integer;
 begin
   Result := False; FileName := IncludeTrailingPathDelimiter(FCache) + 'ready.json';
   if not FileExists(FileName) then Exit;
@@ -1230,9 +1251,9 @@ begin
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
     if FRelease.Size > 0 then
       FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
-    FRelease.URL := 'https://github.com/Dicur3x/MyHomeLib/releases/tag/' + Tag;
-    if Component = 'SQLite' then FRelease.URL := 'https://www.sqlite.org/changes.html';
-    if Component = 'SumatraPDF' then FRelease.URL := 'https://www.sumatrapdfreader.org/docs/Version-history';
+    SavedURL := ''; TJSONObject(Root).TryGetValue<string>('url', SavedURL);
+    FRelease.URL := UpdateReleasePageURL(Component, Tag, SavedURL);
+    UpdateReleasePage;
     FReady := True; FNeedsCheck := False; FProgress.Position := 100;
     if TJSONObject(Root).TryGetValue<string>('notes', Notes) then DisplayNotes(Notes);
     FStatus.Caption := 'Обновление ' + ReleaseTitle + ' готово к установке.' + sLineBreak +

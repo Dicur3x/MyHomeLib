@@ -63,6 +63,8 @@ function ParseOfficeDocSharpVersions(const DocJSON, CommonJSON, PptJSON, XlsJSON
 function ComponentIDs: TArray<string>;
 function CheckedComponentIndices: TArray<Integer>;
 function ComponentTitle(Index: Integer): string;
+function UpdateReleasePageURL(const Component, Tag, SavedURL: string): string;
+function UpdateReleasePageCaption(const Component, URL: string): string;
 procedure MergeVerifiedComponentPackages(var Current: TComponentReleases; const Published: TComponentReleases);
 procedure PreserveComponentHistory(var Current: TComponentReleases; const Previous: TComponentReleases);
 procedure LoadComponentHistory(const CacheFolder: string; var Releases: TComponentReleases);
@@ -92,6 +94,42 @@ end;
 
 function ComponentTitle(Index: Integer): string;
 begin Result:=UPDATE_COMPONENTS[Index].Title+' · '+UPDATE_COMPONENTS[Index].ID; end;
+
+function UpdateReleasePageURL(const Component, Tag, SavedURL: string): string;
+const ReleasesPage = 'https://github.com/Dicur3x/MyHomeLib/releases';
+  ReleasePrefix = ReleasesPage + '/tag/';
+var Info: TUpdateComponent;
+begin
+  // Cached UI state is not a source of arbitrary ShellExecute targets. Accept
+  // only the canonical pages emitted by our release/component parsers.
+  if (SavedURL = ReleasesPage) or (SavedURL.StartsWith(ReleasePrefix) and
+    TRegEx.IsMatch(Copy(SavedURL, Length(ReleasePrefix) + 1, MaxInt), '\A[A-Za-z0-9._-]{1,80}\z')) then
+    Exit(SavedURL);
+  for Info in UPDATE_COMPONENTS do
+    if ((Component = Info.ID) or (Component = 'batch')) and (SavedURL = Info.URL) then
+      Exit(Info.URL);
+  // A component-only batch tag is the first component's version, not an
+  // application release tag. Old caches have no page URL: use the release list.
+  if Component = 'batch' then Exit(ReleasesPage);
+  for Info in UPDATE_COMPONENTS do
+    if Component = Info.ID then Exit(Info.URL);
+  if (Component = '') and TRegEx.IsMatch(Tag, '\A[A-Za-z0-9._-]{1,80}\z') then
+    Exit(ReleasePrefix + Tag);
+  Result := ReleasesPage;
+end;
+
+function UpdateReleasePageCaption(const Component, URL: string): string;
+var Info: TUpdateComponent;
+begin
+  if Component = 'batch' then
+  begin
+    for Info in UPDATE_COMPONENTS do
+      if URL = Info.URL then Exit('Сайт автора: ' + Info.ID);
+    Exit('Выпуски HomeLib Ru');
+  end;
+  if Component <> '' then Result := 'Сайт автора'
+  else Result := 'Открыть GitHub';
+end;
 
 function ParseDocSharpVersions(const DocJSON, CommonJSON: string; out Info: TProgramRelease): Boolean;
 var Doc, Common: TJSONValue; DocItems, CommonItems: TJSONArray; Value: TJSONValue;

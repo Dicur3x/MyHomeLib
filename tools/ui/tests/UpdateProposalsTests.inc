@@ -34,6 +34,17 @@ type
     constructor CreateForHead(const HeadURL: string);
   end;
 
+  TUpdateRestorePageForm = class(TfrmProgramUpdate)
+  protected
+    procedure OpenReleasePage(const URL: string); override;
+    function CreateComponentWorker(Window: HWND): TComponentUpdateThread; override;
+    function CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
+      const Job: string): TProgramDownloadThread; override;
+  public
+    OpenedURL: string;
+    PageCalls: Integer;
+  end;
+
   TUpdateKeyboardProbe = class
   public
     PrimaryCalls: Integer;
@@ -97,6 +108,16 @@ function TUpdateProposalForm.CreateDownloadWorker(Window: HWND; const ReleaseInf
 begin
   raise Exception.Create('Controlled source fixture prohibits package downloads');
 end;
+
+procedure TUpdateRestorePageForm.OpenReleasePage(const URL: string);
+begin Inc(PageCalls); OpenedURL:=URL; end;
+
+function TUpdateRestorePageForm.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
+begin raise Exception.Create('Restore-page fixture prohibits source checks'); end;
+
+function TUpdateRestorePageForm.CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
+  const Job: string): TProgramDownloadThread;
+begin raise Exception.Create('Restore-page fixture prohibits downloads'); end;
 
 procedure TUpdateKeyboardProbe.PrimaryClicked(Sender: TObject);
 begin Inc(PrimaryCalls); end;
@@ -350,6 +371,140 @@ begin
   end;
 end;
 
+procedure TestUpdateReadyReleasePages;
+const ReleasesPage = 'https://github.com/Dicur3x/MyHomeLib/releases';
+  BatchTag = '9999.1.0';
+var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Version: TLabel;
+  CacheRoot, Cache, Job, Archive, Digest, ReadyFile, SavedLocal, AppHash, SQLiteHash: string;
+  Manifest, Entry, Ready: TJSONObject; Files, Bundle: TJSONArray; Zip: TZipFile;
+  HadLocal, Restored, SavedAppCheck, SavedCatalogCheck: Boolean; EmptyValue: Char;
+  LengthBefore: DWORD; OriginalForms, Cases: Integer;
+
+  procedure Payload(const Name: string);
+  var FileName: string;
+  begin
+    FileName:=TPath.Combine(Job,'payload/'+Name); ForceDirectories(ExtractFileDir(FileName));
+    // Restore reads metadata and verifies the archive hash. Installation, PE
+    // verification and process launch are deliberately outside this fixture.
+    TFile.WriteAllText(FileName,'Restore-only fixture bytes: '+Name,TEncoding.UTF8);
+    Entry:=TJSONObject.Create; Entry.AddPair('path',Name);
+    Entry.AddPair('sha256',UpdateSHA256(FileName)); Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(FileName)));
+    Files.AddElement(Entry);
+  end;
+
+  procedure RestorePage(const SourceURL, ExpectedURL, ExpectedCaption: string; IncludeURL: Boolean = True);
+  var ReadyHash: string;
+  begin
+    Ready:=TJSONObject.Create;
+    try
+      Ready.AddPair('job',Job); Ready.AddPair('tag',BatchTag); Ready.AddPair('sha256',Digest);
+      Ready.AddPair('component','batch'); Ready.AddPair('version','');
+      Ready.AddPair('size',TJSONNumber.Create(TFile.GetSize(Archive)));
+      Ready.AddPair('notes','Component-only restoration, no installation.');
+      if IncludeURL then Ready.AddPair('url',SourceURL);
+      TFile.WriteAllText(ReadyFile,Ready.ToJSON,TEncoding.UTF8);
+    finally Ready.Free; end;
+    ReadyHash:=THashSHA2.GetHashStringFromFile(ReadyFile);
+    Writeln('TRACE restored update page case=',Cases+1,' expected=',ExpectedURL); Flush(Output);
+    Dialog:=TUpdateRestorePageForm.Create(nil);
+    try
+      Require(Dialog.RestoreReady,'Component-only batch did not restore: '+SourceURL);
+      Page:=Dialog.FindComponent('UpdateReleasePage') as TButton;
+      Primary:=nil; List:=nil; Version:=nil;
+      for var Control in Dialog do
+      begin
+        if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
+        if Control is TListView then List:=TListView(Control);
+        if (Control is TLabel) and (TLabel(Control).Caption='Обновления компонентов HomeLib Ru') then Version:=TLabel(Control);
+      end;
+      Require(Assigned(Page) and Assigned(Primary) and Assigned(List) and Assigned(Version),
+        'Restored component batch lost its real page, ready action, list or batch title');
+      Require((Page.Caption=ExpectedCaption) and (Primary.Caption='Установить и перезапустить') and
+        Assigned(List.Selected) and (List.Selected.Index=0) and not List.Enabled,
+        'Restored batch has an ambiguous page caption, wrong selected row or non-ready action');
+      Page.Click;
+      Require((Dialog.PageCalls=1) and (Dialog.OpenedURL=ExpectedURL),
+        'Restored batch page click used the component version as a HomeLib release or accepted an unsafe URL: '+SourceURL);
+      Require(not Dialog.PendingInstall and not FileExists(TPath.Combine(Job,'request.json')) and
+        (THashSHA2.GetHashStringFromFile(ReadyFile)=ReadyHash),
+        'Restored page action requested installation or changed ready state');
+      Inc(Cases);
+    finally FreeAndNil(Dialog); end;
+  end;
+
+begin
+  RequireIsolatedRegression; OriginalForms:=Screen.FormCount; Cases:=0; Dialog:=nil;
+  AppHash:=THashSHA2.GetHashStringFromFile(ParamStr(0));
+  SQLiteHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll');
+  SavedLocal:=GetEnvironmentVariable('LOCALAPPDATA'); SetLastError(ERROR_SUCCESS);
+  LengthBefore:=Winapi.Windows.GetEnvironmentVariableW('LOCALAPPDATA',nil,0);
+  HadLocal:=(LengthBefore<>0) or (GetLastError<>ERROR_ENVVAR_NOT_FOUND);
+  CacheRoot:=TPath.Combine(Settings.AppPath,'restored-update-page-'+TGUID.NewGuid.ToString); ForceDirectories(CacheRoot);
+  if not SetEnvironmentVariableW('LOCALAPPDATA',PChar(CacheRoot)) then RaiseLastOSError;
+  SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
+  Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
+  try
+    Cache:=ProgramUpdateCache(Settings.AppPath); ForceDirectories(Cache);
+    Job:=TPath.Combine(Cache,'HomeLibRu-update-'+TGUID.NewGuid.ToString); ForceDirectories(Job);
+    Archive:=TPath.Combine(Job,'release.zip'); ReadyFile:=TPath.Combine(Cache,'ready.json');
+    Manifest:=TJSONObject.Create;
+    try
+      Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',BatchTag);
+      Manifest.AddPair('platform',ProgramUpdatePlatform); Manifest.AddPair('component','batch');
+      Bundle:=TJSONArray.Create; Manifest.AddPair('bundle',Bundle);
+      for var ID in TArray<string>.Create('SQLite','AlReader') do
+      begin
+        Entry:=TJSONObject.Create; Entry.AddPair('component',ID); Entry.AddPair('version',BatchTag);
+        Entry.AddPair('official',TJSONBool.Create(False)); Bundle.AddElement(Entry);
+      end;
+      Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
+      Payload('sqlite3.dll'); Payload('Readers/AlReader/AlReader2.exe');
+      TFile.WriteAllText(TPath.Combine(Job,'manifest.json'),Manifest.ToJSON,TEncoding.UTF8);
+    finally Manifest.Free; end;
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(Archive,zmWrite); Zip.Add(TPath.Combine(Job,'manifest.json'),UPDATE_MANIFEST);
+      Zip.Add(TPath.Combine(Job,'payload/sqlite3.dll'),'sqlite3.dll');
+      Zip.Add(TPath.Combine(Job,'payload/Readers/AlReader/AlReader2.exe'),'Readers/AlReader/AlReader2.exe');
+      Zip.Close;
+    finally Zip.Free; end;
+    Digest:=UpdateSHA256(Archive);
+    Require(PreparedComponentsNewer(Job,Settings.AppPath),'Component-only batch fixture is not newer than the installed copies');
+    for var Info in UPDATE_COMPONENTS do
+    begin
+      Require((UpdateReleasePageURL(Info.ID,BatchTag,'')=Info.URL) and
+        (UpdateReleasePageURL(Info.ID,BatchTag,'javascript:invalid')=Info.URL),
+        'Legacy or unsafe component page fallback is missing for '+Info.ID);
+      RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
+    end;
+    RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLib Ru');
+    RestorePage('',ReleasesPage,'Выпуски HomeLib Ru',False);
+    for var UnsafeURL in TArray<string>.Create('javascript:alert(1)','file:///C:/invalid.html',
+      'https://www.sqlite.org.evil.invalid/changes.html','https://www.sqlite.org@evil.invalid/changes.html',
+      'https://example.invalid/update','https://github.com/Dicur3x/MyHomeLib/releases/tag/../../invalid',
+      ReleasesPage+'/tag/2.7.0_pre5.99?redirect=invalid',ReleasesPage+'/tag/2.7.0_pre5.99'+#10,
+      'https://www.sqlite.org/changes.html'+#13#10) do
+      RestorePage(UnsafeURL,ReleasesPage,'Выпуски HomeLib Ru');
+    Require((UpdateReleasePageURL('','2.7.0_pre5.99','')=ReleasesPage+'/tag/2.7.0_pre5.99') and
+      (UpdateReleasePageURL('','../invalid','')=ReleasesPage),
+      'Old application page fallback lost a valid release or accepted an unsafe tag');
+    Require((UpdateSHA256(Archive)=Digest) and
+      (THashSHA2.GetHashStringFromFile(ParamStr(0))=AppHash) and
+      (THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll')=SQLiteHash),
+      'Restoring a component page changed staged or installed bytes');
+    Writeln('PASS restored component-only batch page uses saved canonical sources for all six components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
+    Flush(Output);
+  finally
+    Dialog.Free;
+    EmptyValue:=#0;
+    if not HadLocal then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',nil)
+    else if SavedLocal='' then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',@EmptyValue)
+    else Restored:=SetEnvironmentVariableW('LOCALAPPDATA',PChar(SavedLocal));
+    Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
+    Require(Restored and (Screen.FormCount=OriginalForms),'Restored-page fixture leaked a form or cache environment');
+  end;
+end;
+
 procedure TestUpdateSourceFailures;
 var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
   CheckButton, Primary: TButton; View: TListView; Status: TLabel; Notes: TUpdateNotesView;
@@ -398,7 +553,7 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
   end;
 
 begin
-  RequireIsolatedRegression; OriginalForms:=Screen.FormCount;
+  RequireIsolatedRegression; TestUpdateReadyReleasePages; OriginalForms:=Screen.FormCount;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
   Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
   SourceHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll');
