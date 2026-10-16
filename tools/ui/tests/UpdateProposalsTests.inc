@@ -294,12 +294,23 @@ begin
               NewInputButton:=TButton.Create(NewInput); NewInputButton.Parent:=NewInput;
               NewInputButton.Caption:='New input target';
               TUpdateKeyboardHost(Host).ThemeCallback:=procedure
-                begin NewInput.Show; NewInputButton.SetFocus; end;
+                begin
+                  NewInput.Show; NewInputButton.SetFocus;
+                  Require((GetForegroundWindow=NewInput.Handle) and NewInputButton.Focused and
+                    (Winapi.Windows.GetFocus=NewInputButton.Handle),
+                    'Theme callback did not establish its intended native input target');
+                  Writeln('TRACE callback input selected form=',NewInput.Handle,' control=',NewInputButton.Handle); Flush(Output);
+                end;
               SetMHLTheme(not Dark); Application.ProcessMessages;
               Require((GetForegroundWindow=NewInput.Handle) and NewInputButton.Focused and
                 (Winapi.Windows.GetFocus=NewInputButton.Handle),
                 'Theme focus restoration stole a newly shown callback input form');
-            finally NewInput.Free; end;
+              Require(Succeeded(UpdateProposalAccessibleObjectFromWindow(NewInputButton.Handle,
+                DWORD($FFFFFFFC),AccessibleID,Dispatch)),'New callback input lost native accessibility');
+              Accessible:=Dispatch; Require((Integer(Accessible.accState[0]) and 4)<>0,
+                'Deferred callback input lost its focused accessibility state');
+              Accessible:=Unassigned; Dispatch:=nil;
+            finally Accessible:=Unassigned; Dispatch:=nil; NewInput.Free; end;
             SetForegroundWindow(Host.Handle); SetActiveWindow(Host.Handle); View.SectionHeader(1).SetFocus;
             SetMHLTheme(Dark); Application.ProcessMessages;
             Require(View.SectionHeader(1).Focused,'Callback input fixture did not return to release navigation');

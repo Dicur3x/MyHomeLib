@@ -46,6 +46,7 @@ type
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   public
     constructor Capture;
+    function CallbackSelectedNewInput: Boolean;
     function CanRestore: Boolean;
     procedure Restore;
   end;
@@ -145,6 +146,21 @@ begin
       ' before_modal=',Ord(Previous.Modal),' now_modal=',Ord(fsModal in Previous.Form.FormState));
   Flush(Output);
 {$ENDIF}
+end;
+
+function TThemeFocusSnapshot.CallbackSelectedNewInput: Boolean;
+var Control: TWinControl; Form: TCustomForm; ProcessID, ThreadID: DWORD;
+begin
+  Result:=False;
+  if not FWasForeground or (Application.ModalLevel<>FModalLevel) then Exit;
+  Control:=FindControl(Winapi.Windows.GetFocus);
+  if not Assigned(Control) or (csDestroying in Control.ComponentState) or not Control.CanFocus then Exit;
+  Form:=GetParentForm(Control);
+  if not Assigned(Form) or (csDestroying in Form.ComponentState) or not Form.Visible or
+    not Form.HandleAllocated or (Screen.ActiveCustomForm<>Form) or not NewInputForm(Form) then Exit;
+  if GetForegroundWindow<>Form.Handle then Exit;
+  ProcessID:=0; ThreadID:=GetWindowThreadProcessId(Form.Handle,@ProcessID);
+  Result:=(ProcessID=GetCurrentProcessId) and (ThreadID=GetCurrentThreadId);
 end;
 
 function TThemeFocusSnapshot.CanRestore: Boolean;
@@ -438,7 +454,7 @@ begin
 end;
 
 procedure SetMHLTheme(Dark: Boolean);
-var I: Integer; WasDark: Boolean; Focus: TThemeFocusSnapshot;
+var I: Integer; WasDark: Boolean; Focus, CallbackFocus: TThemeFocusSnapshot;
 begin
   // Modern Shell dialogs own their painting, including the address/search bar.
   // Leave them native in both themes; applying VCL's partial dialog skin breaks
@@ -467,6 +483,16 @@ begin
     end;
   finally
     try
+      // A callback can intentionally show a new input form. VCL's later HWND
+      // recreation can steal that focus too: follow its proven native target,
+      // rather than merely abandoning the old target. Capture a new baseline
+      // so subsequent new dialogs, modality changes and deletion still cancel.
+      if Focus.CallbackSelectedNewInput then
+      begin
+        CallbackFocus:=TThemeFocusSnapshot.Capture;
+        Focus.Free; Focus:=CallbackFocus;
+        Focus.Trace('adopted callback input');
+      end;
       if not Assigned(ThemeFocusDispatcher) then ThemeFocusDispatcher:=TThemeFocusDispatcher.Create;
       ThemeFocusDispatcher.Queue(Focus); Focus:=nil;
     finally Focus.Free; end;
