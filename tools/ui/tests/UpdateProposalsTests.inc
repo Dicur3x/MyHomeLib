@@ -380,10 +380,17 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
   HadLocal, Restored, SavedAppCheck, SavedCatalogCheck: Boolean; EmptyValue: Char;
   LengthBefore: DWORD; OriginalForms, Cases: Integer;
 
-  procedure Payload(const Name: string);
-  var FileName: string;
+  function PayloadPath(const Name: string): string;
   begin
-    FileName:=TPath.Combine(Job,'payload/'+Name); ForceDirectories(ExtractFileDir(FileName));
+    Result:=TPath.Combine(TPath.Combine(Job,'payload'),StringReplace(Name,'/',PathDelim,[rfReplaceAll]));
+  end;
+
+  procedure Payload(const Name: string);
+  var FileName, ParentFolder: string;
+  begin
+    FileName:=PayloadPath(Name); ParentFolder:=ExtractFileDir(FileName); ForceDirectories(ParentFolder);
+    Require(DirectoryExists(ParentFolder),'Owned restore payload parent was not created: '+ParentFolder);
+    Writeln('TRACE restored payload path=',FileName); Flush(Output);
     // Restore reads metadata and verifies the archive hash. Installation, PE
     // verification and process launch are deliberately outside this fixture.
     TFile.WriteAllText(FileName,'Restore-only fixture bytes: '+Name,TEncoding.UTF8);
@@ -439,7 +446,7 @@ begin
   SavedLocal:=GetEnvironmentVariable('LOCALAPPDATA'); SetLastError(ERROR_SUCCESS);
   LengthBefore:=Winapi.Windows.GetEnvironmentVariableW('LOCALAPPDATA',nil,0);
   HadLocal:=(LengthBefore<>0) or (GetLastError<>ERROR_ENVVAR_NOT_FOUND);
-  CacheRoot:=TPath.Combine(Settings.AppPath,'restored-update-page-'+TGUID.NewGuid.ToString); ForceDirectories(CacheRoot);
+  CacheRoot:=TPath.Combine(Settings.AppPath,'rup-'+TGUID.NewGuid.ToString); ForceDirectories(CacheRoot);
   if not SetEnvironmentVariableW('LOCALAPPDATA',PChar(CacheRoot)) then RaiseLastOSError;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
   Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
@@ -464,8 +471,8 @@ begin
     Zip:=TZipFile.Create;
     try
       Zip.Open(Archive,zmWrite); Zip.Add(TPath.Combine(Job,'manifest.json'),UPDATE_MANIFEST);
-      Zip.Add(TPath.Combine(Job,'payload/sqlite3.dll'),'sqlite3.dll');
-      Zip.Add(TPath.Combine(Job,'payload/Readers/AlReader/AlReader2.exe'),'Readers/AlReader/AlReader2.exe');
+      Zip.Add(PayloadPath('sqlite3.dll'),'sqlite3.dll');
+      Zip.Add(PayloadPath('Readers/AlReader/AlReader2.exe'),'Readers/AlReader/AlReader2.exe');
       Zip.Close;
     finally Zip.Free; end;
     Digest:=UpdateSHA256(Archive);
@@ -495,13 +502,15 @@ begin
     Writeln('PASS restored component-only batch page uses saved canonical sources for all six components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
     Flush(Output);
   finally
-    Dialog.Free;
-    EmptyValue:=#0;
-    if not HadLocal then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',nil)
-    else if SavedLocal='' then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',@EmptyValue)
-    else Restored:=SetEnvironmentVariableW('LOCALAPPDATA',PChar(SavedLocal));
-    Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
-    Require(Restored and (Screen.FormCount=OriginalForms),'Restored-page fixture leaked a form or cache environment');
+    try FreeAndNil(Dialog);
+    finally
+      EmptyValue:=#0;
+      if not HadLocal then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',nil)
+      else if SavedLocal='' then Restored:=SetEnvironmentVariableW('LOCALAPPDATA',@EmptyValue)
+      else Restored:=SetEnvironmentVariableW('LOCALAPPDATA',PChar(SavedLocal));
+      Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
+      Require(Restored and (Screen.FormCount=OriginalForms),'Restored-page fixture leaked a form or cache environment');
+    end;
   end;
 end;
 
