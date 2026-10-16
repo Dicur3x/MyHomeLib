@@ -76,14 +76,25 @@ begin
   Writeln('PASS feedback20 metadata predicates Unicode, year range, normalized ISBN and intersections');
 
   ShowPage(PAGE_SEARCH); frmMain.DoClearFilter(False);
+  var QueryMode:=frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+  Require(Assigned(QueryMode) and (QueryMode.Mode=sqmText),'Fresh metadata search did not reset to ordinary text mode');
+  QueryMode.Mode:=sqmExpression;
   TMHLButtonedEdit(frmMain.FindComponent('edFTranslators')).Text:='="елкин Émile"';
-  TMHLButtonedEdit(frmMain.FindComponent('edFCity')).Text:='Санкт-Петербург';
+  TMHLButtonedEdit(frmMain.FindComponent('edFCity')).Text:='="Санкт-Петербург"';
   TMHLButtonedEdit(frmMain.FindComponent('edFPubYear')).Text:='>=2010 AND <=2020';
-  TMHLButtonedEdit(frmMain.FindComponent('edFISBN')).Text:='978500000001X';
+  TMHLButtonedEdit(frmMain.FindComponent('edFISBN')).Text:='="978500000001X"';
   frmMain.cbPresetName.Text:='Сведения 20'; frmMain.SaveSearchPreset(nil);
-  frmMain.DoClearFilter(False); frmMain.cbPresetName.Text:='Сведения 20'; frmMain.cbPresetNameSelect(nil);
-  Require(TMHLButtonedEdit(frmMain.FindComponent('edFCity')).Text='Санкт-Петербург','City preset lost text');
-  Require(TMHLButtonedEdit(frmMain.FindComponent('edFISBN')).Text='978500000001X','ISBN preset lost text');
+  var ReopenedPreset:=TSearchPresets.Create;
+  try
+    ReopenedPreset.Load(Settings.SystemFileName[sfPresets]);
+    Require(ReopenedPreset.GetPreset('Сведения 20').QueryMode=sqmExpression,
+      'Metadata preset lost its explicit query mode after compressed XML reopen');
+  finally ReopenedPreset.Free; end;
+  frmMain.DoClearFilter(False); Require(QueryMode.Mode=sqmText,'Metadata Clear retained expression mode');
+  frmMain.cbPresetName.Text:='Сведения 20'; frmMain.cbPresetNameSelect(nil);
+  Require(QueryMode.Mode=sqmExpression,'Metadata preset selection did not restore expression mode');
+  Require(TMHLButtonedEdit(frmMain.FindComponent('edFCity')).Text='="Санкт-Петербург"','City preset lost its explicit expression');
+  Require(TMHLButtonedEdit(frmMain.FindComponent('edFISBN')).Text='="978500000001X"','ISBN preset lost its explicit expression');
   frmMain.DoApplyFilter(nil); ExpectTitles(frmMain.tvBooksSR,['Metadata twenty A']);
   Require(Assigned(frmMain.FindComponent('cbSearchWithNotes')),'Books with notes checkbox missing');
   Writeln('PASS feedback20 actual search fields and presets apply the complete metadata expression');
