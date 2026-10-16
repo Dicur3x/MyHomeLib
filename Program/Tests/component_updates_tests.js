@@ -62,8 +62,10 @@ for(const [id,filename,version] of [['SQLite','sqlite-'+arch+'.zip','3.53.4'],['
 }
 }
 const ids=['SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp'];
+let redirectHead=false;const unexpected=[];
 const server=http.createServer((req,res)=>{
- assert.equal(req.url,'/head');assert.equal(req.method,'HEAD');
+ if(req.url!=='/head'||req.method!=='HEAD'){unexpected.push(req.method+' '+req.url);res.writeHead(404);res.end();return;}
+ if(redirectHead){res.writeHead(302,{'Location':'/forbidden-redirect'});res.end();return;}
  res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':'128'});res.end();
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -93,6 +95,10 @@ function healthy(rows,failed=''){
  assert.equal(rows[5].additional.length,failed==='DocSharp'||failed==='all'?0:2);
 }
 try{
+ for(const forbidden of ['http://localhost:80/head','https://127.0.0.1:80/head',
+  headURL.replace('/head','/head?foreign=1'),headURL.replace('/head','@evil.example/head'),
+  headURL.replace('127.0.0.1','127.0.0.1.evil.example')])run(['--component-check-fixture',forbidden,''],1);
+ pass('fixture transport rejects foreign hosts, credentials, alternate schemes and paths before making requests');
  const success=await fixture('');healthy(success.rows);
  assert(success.out.includes('https://www.alreader.com/'),'AlReader was silently skipped');
  assert.equal(success.rows[3].size,256);assert.equal(success.rows[5].size,512);
@@ -106,6 +112,11 @@ try{
  pass('unavailable package HEAD removes the whole incomplete DocSharp package set before it can enter installation');
  const retried=await fixture('');healthy(retried.rows);
  pass('retry replaces failed metadata and restores the direct package without inheriting the previous error');
+ redirectHead=true;
+ const redirected=await fixture('');
+ for(const i of [2,3,5]){assert(redirected.rows[i].error);assert.equal(redirected.rows[i].url,'');}
+ assert.deepEqual(unexpected,[]);
+ pass('direct loopback fixture refuses HEAD redirects and never requests any other host, port or path');
 }finally{await new Promise(resolve=>server.close(resolve));}
 if(live){
  const rows=first(['--official-check-details']);assert.deepEqual(rows.map(r=>r.id),ids);

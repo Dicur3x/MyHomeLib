@@ -16,19 +16,31 @@ type
     property Requests: TStringList read FRequests;
   end;
 
+function CreateComponentFixtureHTTP: THTTPClient;
+begin
+  Result:=THTTPClient.Create;
+  try
+    // Same RTL sentinel as unit_MHLHttpClient.DirectProxy. An empty host would
+    // auto-detect the real user's system proxy, even for this loopback fixture.
+    Result.ProxySettings:=TProxySettings.Create('direct',80,'','','http');
+    Result.HandleRedirects:=False;
+    Result.ConnectionTimeout:=1000; Result.ResponseTimeout:=2000;
+  except Result.Free; raise; end;
+end;
+
 constructor TComponentCheckFixtureWorker.Create(Window: HWND; const HeadURL, FailureID: string);
 var PortText: string; Slash, Port: Integer;
 begin
-  inherited Create(Window,THTTPClient.Create,'','');
+  inherited Create(Window,CreateComponentFixtureHTTP,'','');
   if not HeadURL.StartsWith('http://127.0.0.1:') then
     raise Exception.Create('Component fixture requires its owned loopback URL');
   PortText := Copy(HeadURL,18,MaxInt); Slash := Pos('/',PortText);
   if (Slash<2) or (Copy(PortText,Slash,MaxInt)<>'/head') or
-    not TryStrToInt(Copy(PortText,1,Slash-1),Port) or (Port<1) or (Port>65535) then
+    not TryStrToInt(Copy(PortText,1,Slash-1),Port) or (Port<1) or (Port>65535) or
+    (Copy(PortText,1,Slash-1)<>IntToStr(Port)) then
     raise Exception.Create('Component fixture refused a non-loopback transport');
   FHeadURL:=HeadURL; FFailureID:=FailureID;
-  FRequests:=TStringList.Create; FHeadHTTP:=THTTPClient.Create;
-  FHeadHTTP.ConnectionTimeout:=1000; FHeadHTTP.ResponseTimeout:=2000;
+  FRequests:=TStringList.Create; FHeadHTTP:=CreateComponentFixtureHTTP;
 end;
 
 destructor TComponentCheckFixtureWorker.Destroy;
