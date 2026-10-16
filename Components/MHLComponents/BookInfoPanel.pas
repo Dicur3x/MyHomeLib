@@ -197,8 +197,13 @@ type
   end;
 
   TInfoPreviewMemo = class(TMemo)
+  private
+    FPreviewText: string;
+    FPreviewTextKnown: Boolean;
   protected
     procedure WndProc(var Message: TMessage); override;
+  public
+    procedure SetPreviewText(const Value: string);
   end;
 
   TInfoDetailsButton = class(TButton)
@@ -274,7 +279,18 @@ end;
 
 procedure TInfoPreviewMemo.WndProc(var Message: TMessage);
 begin
+  if (Message.Msg=WM_SETTEXT) or (Message.Msg=CM_TEXTCHANGED) then FPreviewTextKnown:=False;
   if not DeferInfoPreviewPaint(Self, Message) then inherited;
+end;
+
+procedure TInfoPreviewMemo.SetPreviewText(const Value: string);
+begin
+  // Avoid querying the native edit for every book; external text changes and
+  // handle restoration invalidate the last value through the normal messages.
+  if FPreviewTextKnown and (FPreviewText=Value) then Exit;
+  if FPreviewTextKnown or (Text<>Value) then Text:=Value;
+  FPreviewText:=Value;
+  FPreviewTextKnown:=True;
 end;
 
 procedure TInfoDetailsButton.CMVisibleChanged(var Message: TMessage);
@@ -527,7 +543,8 @@ end;
 procedure TInfoPanel.ApplyInfoText(Control: TControl; const Value: string);
 begin
   // Use each public setter so its own text cache/notifications stay intact.
-  if Control is TMemo then
+  if Control is TInfoPreviewMemo then TInfoPreviewMemo(Control).SetPreviewText(Value)
+  else if Control is TMemo then
   begin
     if TMemo(Control).Text <> Value then TMemo(Control).Text := Value;
   end

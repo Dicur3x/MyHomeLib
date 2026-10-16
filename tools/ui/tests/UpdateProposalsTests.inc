@@ -427,8 +427,70 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
       Require(Assigned(Page) and Assigned(Primary) and Assigned(List) and Assigned(Version),
         'Restored component batch lost its real page, ready action, list or batch title');
       Require((Page.Caption=ExpectedCaption) and (Primary.Caption='Установить и перезапустить') and
-        Assigned(List.Selected) and (List.Selected.Index=0) and not List.Enabled,
+        Assigned(List.Selected) and (List.Selected.Index=0) and List.Enabled,
         'Restored batch has an ambiguous page caption, wrong selected row or non-ready action');
+      List.Items[1].Selected:=True;
+      Require(Assigned(List.Selected) and (List.Selected.Index=0) and (Primary.Caption='Установить и перезапустить'),
+        'Ready table changed its selected component or installation action');
+      // A real mouse click requires the native parent to be visible/focusable.
+      Dialog.Show; Dialog.BringToFront; Application.ProcessMessages;
+      var RowBounds:=List.Items[1].DisplayRect(drBounds);
+      var MousePoint:=MakeLParam(RowBounds.Left+8,(RowBounds.Top+RowBounds.Bottom) div 2);
+      PostMessage(List.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MousePoint);
+      PostMessage(List.Handle,WM_LBUTTONUP,0,MousePoint);
+      Application.ProcessMessages;
+      Require(Assigned(List.Selected) and (List.Selected.Index=0),
+        'Native mouse completion changed a ready component selection');
+      // Blank-space clicks can clear selection without a Selected=True event.
+      MousePoint:=MakeLParam(8,List.ClientHeight-8);
+      PostMessage(List.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MousePoint);
+      PostMessage(List.Handle,WM_LBUTTONUP,0,MousePoint);
+      Application.ProcessMessages;
+      Require(Assigned(List.Selected) and (List.Selected.Index=0),
+        'Blank native click cleared a ready component selection');
+      List.Perform(WM_KEYDOWN,VK_DOWN,0);
+      List.Perform(WM_CHAR,Ord('S'),0);
+      List.Perform(WM_KEYUP,VK_DOWN,0);
+      Require(Assigned(List.Selected) and (List.Selected.Index=0),
+        'Keyboard navigation changed a ready component selection');
+      if Cases=0 then
+      begin
+        var SavedTheme:=MHLThemeDark;
+        try
+          for var Dark in TArray<Boolean>.Create(False,True) do
+          begin
+            SetMHLTheme(Dark);
+            for var PPI in TArray<Integer>.Create(96,144,192) do
+            begin
+              Dialog.ScaleForPPI(PPI); Dialog.ClientWidth:=MulDiv(760,PPI,96);
+              Dialog.ClientHeight:=MulDiv(720,PPI,96);
+              Require(Dialog.Font.PixelsPerInch=PPI,'Ready updater font did not adopt requested DPI');
+              for var Zoom in TArray<Integer>.Create(90,100,130) do
+              begin
+                for var Component in Dialog do
+                  if Component is TUpdateNotesView then TUpdateNotesView(Component).ZoomPercent:=Zoom;
+                CheckUpdateComponentTable(Dialog,Format('restored-ready-ppi-%d-zoom-%d',[PPI,Zoom]));
+              end;
+              List.Items[1].Selected:=True;
+              Require(Assigned(List.Selected) and (List.Selected.Index=0) and not Dialog.PendingInstall,
+                'Theme/DPI change unlocked a ready download');
+              if (ParamStr(1)='release23-ready-visual') and (PPI=96) then
+              begin
+                Dialog.Caption:='Готовое обновление — изолированная проверка';
+                Primary.Enabled:=False; Page.Enabled:=False;
+                for var Control in Dialog do
+                  if (Control is TButton) and (TButton(Control).Caption='Позже') then
+                  begin
+                    TButton(Control).OnClick:=nil; TButton(Control).ModalResult:=mrCancel;
+                  end;
+                Dialog.Hide; Dialog.ModalResult:=mrNone; Dialog.ShowInTaskBar:=True; Dialog.ShowModal;
+                Primary.Enabled:=True; Page.Enabled:=True;
+              end;
+            end;
+          end;
+        finally Dialog.Hide; SetMHLTheme(SavedTheme); end;
+        Writeln('PASS ready updater native row colours and selection lock in both themes at 96 144 192 DPI');
+      end;
       Page.Click;
       Require((Dialog.PageCalls=1) and (Dialog.OpenedURL=ExpectedURL),
         'Restored batch page click used the component version as a HomeLib release or accepted an unsafe URL: '+SourceURL);

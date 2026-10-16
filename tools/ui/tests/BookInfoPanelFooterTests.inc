@@ -853,6 +853,17 @@ begin
           ApplyMHLControlTheme(Host);
           Host.Show;
           Application.ProcessMessages;
+          Panel.SetBookAnnotationText('Cached annotation ё');
+          Annotation.Text:='External native text';
+          Panel.SetBookAnnotationText('Cached annotation ё');
+          Require(Annotation.Text='Cached annotation ё','Annotation cache ignored external Text replacement');
+          Annotation.Lines.Text:='External line replacement';
+          Panel.SetBookAnnotationText('Cached annotation ё');
+          Require(Annotation.Text='Cached annotation ё','Annotation cache ignored external Lines replacement');
+          Annotation.Perform(CM_RECREATEWND,0,0);
+          Panel.SetBookAnnotationText('Cached annotation ё');
+          Require(Annotation.Text='Cached annotation ё','Annotation cache lost native handle restoration');
+          Writeln('PASS annotation text cache preserves external Text Lines and native handle restoration dark=',Ord(Dark),' dpi=',DPI);
           FillBook(1, False, False, False);
           CheckFooter('minimum-height/no annotation/no cover');
           CheckScroll('minimum-height/no annotation');
@@ -927,10 +938,21 @@ begin
           CheckRangeClamp;
           CheckFocusReachability;
           Profiles:=TObjectList<TInfoFooterMessageProbe>.Create(True);
-          InfoFooterHookControls(Panel,Profiles);
-          for Profile in Profiles do Profile.Active:=True;
-          TInfoFooterPanelAccess(Panel).LayoutProfile:=Probe.LayoutStage;
-          Probe.ActiveLayout:=True;
+          var ProfileMessages:=True;
+          {$IFDEF MHL_RELEASE_PERFORMANCE}
+          // Keep the original diagnostic run available as the "profile" subcase.
+          // Release measurements use native controls without test-only WndProc
+          // timers. The same 100 transitions, geometry checks and 5s guard run.
+          ProfileMessages:=ParamStr(2)='profile';
+          {$ENDIF}
+          if ProfileMessages then
+          begin
+            InfoFooterHookControls(Panel,Profiles);
+            for Profile in Profiles do Profile.Active:=True;
+            TInfoFooterPanelAccess(Panel).LayoutProfile:=Probe.LayoutStage;
+            Probe.ActiveLayout:=True;
+          end;
+          Writeln('PROFILE footer observation_hooks=',Ord(ProfileMessages));
           FillChar(FillTicks, SizeOf(FillTicks), 0);
           CheckTicks := 0; ScrollTicks := 0; TraceCycling := True;
           Writeln('TRACE footer cycling start dark=', Ord(Dark), ' dpi=', DPI);

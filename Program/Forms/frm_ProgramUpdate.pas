@@ -118,6 +118,37 @@ uses System.SysUtils, System.IOUtils, System.JSON, System.RegularExpressions, Sy
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache;
 
+type
+  TUpdateComponentsView = class(TListView)
+  protected
+    procedure WndProc(var Message: TMessage); override;
+  end;
+
+procedure TUpdateComponentsView.WndProc(var Message: TMessage);
+var Locked, BlockInput: Boolean;
+begin
+  Locked:=(Owner is TfrmProgramUpdate) and
+    (Assigned(TfrmProgramUpdate(Owner).FThread) or TfrmProgramUpdate(Owner).FReady);
+  // Keep theme painting, scrolling and Copy available while the chosen job is
+  // fixed. Do not start native mouse tracking: its final deselection can occur
+  // after both an OnSelectItem callback and a posted restoration message.
+  BlockInput:=False;
+  if Locked then
+    case Message.Msg of
+      WM_LBUTTONDOWN,WM_LBUTTONDBLCLK,WM_RBUTTONDOWN,WM_RBUTTONDBLCLK,WM_CHAR:
+        BlockInput:=True;
+      WM_KEYDOWN: BlockInput:=Message.WParam in
+        [VK_LEFT,VK_RIGHT,VK_UP,VK_DOWN,VK_HOME,VK_END,VK_PRIOR,VK_NEXT,VK_SPACE];
+    end;
+  if BlockInput then
+  begin
+    if CanFocus then SetFocus;
+    Message.Result:=0;
+    Exit;
+  end;
+  inherited;
+end;
+
 constructor TfrmProgramUpdate.Create(AOwner: TComponent);
 var HistoryFile: string; Menu: TPopupMenu; Entry: TMenuItem;
 begin
@@ -144,7 +175,7 @@ begin
     FHistorySelector.Items.Add(ComponentTitle(ComponentIndex));
   FHistorySelector.ItemIndex:=0; FHistorySelector.Visible:=False;
   FHistorySelector.OnChange:=HistoryComponentSelected;
-  FComponentsView:=TListView.Create(Self); FComponentsView.Parent:=Self;
+  FComponentsView:=TUpdateComponentsView.Create(Self); FComponentsView.Parent:=Self;
   FComponentsView.Name:='UpdateComponents'; FComponentsView.ViewStyle:=vsReport;
   FComponentsView.ReadOnly:=True; FComponentsView.RowSelect:=True;
   FComponentsView.HideSelection:=False; FComponentsView.MultiSelect:=False;
@@ -334,7 +365,7 @@ begin
     FComponentsView.Visible:=FTabs.TabIndex=0;
     FHistorySelector.Visible:=FTabs.TabIndex=1;
     FHistorySelector.SetBounds(Margin,TableTop,Width,ButtonHeight);
-    FHistorySelector.Enabled:=FComponentsView.Enabled;
+    FHistorySelector.Enabled:=not (Assigned(FThread) or FReady);
     Canvas.Font.Assign(Font); Bounds := Rect(0, 0, Width, 0);
     DrawText(Canvas.Handle, PChar(FStatus.Caption), Length(FStatus.Caption), Bounds,
       DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
@@ -567,6 +598,14 @@ end;
 procedure TfrmProgramUpdate.ComponentRowSelected(Sender: TObject; Item: TListItem; Selected: Boolean);
 begin
   if not Selected or FRefreshingComponents then Exit;
+  // Keep the native list enabled so VCL does not replace its theme colours.
+  // Restore the existing selection while downloading/ready, without changing
+  // the release, notes or install action. Copying the list remains available.
+  if Assigned(FThread) or FReady then
+  begin
+    SelectRow(FSelectedRow);
+    Exit;
+  end;
   FSelectedRow:=Item.Index; ComponentSelected(nil);
 end;
 
@@ -1047,7 +1086,6 @@ begin
     StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
   EnsureMessageWindow;
   FThread := CreateDownloadWorker(FMessageWindow, FQueue[FQueueIndex], FJob);
-  FComponentsView.Enabled := False;
   FComponentCheck.Enabled:=False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';
   Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
@@ -1164,7 +1202,6 @@ begin
   end
   else
   begin
-    FComponentsView.Enabled := True;
     FComponentCheck.Enabled:=True;
     FPrimary.Caption := 'Повторить загрузку'; FStatus.Caption := Error;
     DiscardJob; ClearQueueJobs;
@@ -1246,7 +1283,6 @@ begin
       FVersion.Caption := 'Текущая версия ' + Component + ': ' +
         ComponentInstalledVersion(Settings.AppPath, Component);
     end;
-    FComponentsView.Enabled := False;
     FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
     if FRelease.Size > 0 then

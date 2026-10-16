@@ -24,6 +24,35 @@ end;
 
 {$I ComponentCheckFixture.inc}
 
+procedure InstallWithLateLock(const Job, Target, Name: string; HoldMS: Integer);
+var Released: TThread; Held: THandle; Started: Boolean; LockFile: string;
+begin
+  if (HoldMS<1) or (HoldMS>10000) then raise Exception.Create('Invalid fixture lock duration');
+  if Name='journal' then LockFile:=TPath.Combine(Job,'journal.json')
+  else if Name='LICENSE' then LockFile:=TPath.Combine(Target,Name)
+  else raise Exception.Create('Unsupported fixture lock');
+  Guard(LockFile); Released:=nil; Held:=INVALID_HANDLE_VALUE; Started:=False;
+  try
+    InstallProgramUpdate(Job,Target,
+      procedure(const Text: string; Position, Total: Integer)
+      begin
+        if Started then Exit;
+        // The real installer has finished preflight and its first journal write.
+        Held:=CreateFile(PChar(LockFile),GENERIC_READ,FILE_SHARE_READ,nil,
+          OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+        if Held=INVALID_HANDLE_VALUE then RaiseLastOSError;
+        try
+          Released:=TThread.CreateAnonymousThread(procedure
+            begin Sleep(HoldMS); CloseHandle(Held); end);
+          Released.FreeOnTerminate:=False; Released.Start; Started:=True;
+        except CloseHandle(Held); Held:=INVALID_HANDLE_VALUE; raise; end;
+      end);
+    if not Started then raise Exception.Create('Late lock fixture never reached installation');
+  finally
+    if Assigned(Released) then begin Released.WaitFor; Released.Free; end;
+  end;
+end;
+
 var Mode, Job, Target, Archive, Digest, Tag: string; Files: TUpdateFiles;
   Comparison: Integer; Info: TProgramRelease; Thread: TProgramDownloadThread;
   Window: HWND; HTTP: THTTPClient; Msg: TMsg; Params: TJSONArray; I: Integer;
@@ -247,6 +276,11 @@ begin
       Files := PrepareProgramUpdate(Archive, Digest, Tag, ProgramUpdatePlatform, Job,
         ParamStr(6) <> '--fixture');
       Writeln('FILES ', Length(Files));
+    end
+    else if Mode = '--install-with-late-lock' then
+    begin
+      Guard(ParamStr(2)); Guard(ParamStr(3));
+      InstallWithLateLock(ParamStr(2),ParamStr(3),ParamStr(4),StrToInt(ParamStr(5)));
     end
     else if Mode = '--install' then
     begin

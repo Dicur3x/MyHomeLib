@@ -980,6 +980,7 @@ begin
   Font.Name := 'Segoe UI'; Font.Size := 9; DoubleBuffered := True;
   SearchPanel := TPanel.Create(Self); SearchPanel.Parent := Self; SearchPanel.Align := alTop;
   FSearchPanel := SearchPanel; FSearchPanel.Name := 'FilterSearchPanel';
+  SearchPanel.Caption := '';
   SearchPanel.Height := 130; SearchPanel.BevelOuter := bvNone;
   FSearch := TEdit.Create(Self); FSearch.Parent := SearchPanel; FSearch.SetBounds(12,10,ClientWidth-24,25);
   FSearch.Anchors := [akLeft,akTop,akRight];
@@ -1009,6 +1010,7 @@ begin
   Legend.Caption := 'Без выбора — все варианты. Список по загруженным книгам.';
   Footer := TPanel.Create(Self); Footer.Parent := Self; Footer.Align := alBottom;
   FFooter := Footer; Footer.Name := 'FilterFooter';
+  Footer.Caption := '';
   Footer.Height := 63; Footer.BevelOuter := bvNone;
   FCount := TLabel.Create(Self); FCount.Parent := Footer; FCount.AutoSize := False;
   FCount.Name := 'FilterOptionCount'; FCount.WordWrap := True;
@@ -1210,6 +1212,9 @@ begin
   FList.BeginUpdate;
   try
     FList.Clear; FFound.Clear;
+    if FNames.Count=0 then
+      FList.EmptyListMessage := 'Нет доступных вариантов. Загрузите книги или измените другие фильтры.'
+    else FList.EmptyListMessage := 'Ничего не найдено. Измените строку поиска.';
     for I := 0 to FNames.Count-1 do
     begin
       if FCase.Checked then Text := NormalizeYo(FNames[I]) else Text := FFolded[I];

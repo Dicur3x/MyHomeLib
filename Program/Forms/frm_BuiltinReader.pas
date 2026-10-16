@@ -1126,6 +1126,7 @@ begin
   FBookmarks:=TPopupMenu.Create(Self);
   FMissingFonts:=TStringList.Create;
   FFontOffer:=TPanel.Create(Self); FFontOffer.Name:='ReaderLanguageFonts'; FFontOffer.Parent:=Self; FFontOffer.Align:=alTop;
+  FFontOffer.Caption:='';
   FFontOffer.Height:=68; FFontOffer.BevelOuter:=bvNone; FFontOffer.Visible:=False;
   FFontOfferText:=TLabel.Create(Self); FFontOfferText.Parent:=FFontOffer;
   FFontOfferText.Align:=alClient; FFontOfferText.WordWrap:=True; FFontOfferText.Layout:=tlCenter;

@@ -78,7 +78,29 @@ function target() {
 const personal = ['myhomelib2.ini','Data/collections.db','presets.cxml2','uselocaldata','Readers/AlReader/$savevtut.ini','Readers/AlReader/options.ini','Readers/SumatraPDF/SumatraPDF-settings.txt'];
 const snapshot = (p, names) => names.map(n=>sha(read(path.join(p,n))));
 async function until(file) { for(let i=0;i<150;i++){if(fs.existsSync(file))return;await new Promise(r=>setTimeout(r,50));}throw Error('Timeout '+file); }
+function lateLockTests() {
+  for (const name of ['journal','LICENSE']) {
+    const prepared=prepare(archive()), destination=target();
+    const saved=snapshot(destination,personal);
+    const began=Date.now();
+    run(['--install-with-late-lock',prepared,destination,name,'500']);
+    assert(Date.now()-began>=400,'Native fixture did not hold its actual file');
+    assert.equal(json(path.join(prepared,'journal.json')).state,'installed');
+    assert.equal(read(path.join(destination,'LICENSE')).toString(),'new license');
+    assert.deepEqual(snapshot(destination,personal),saved);
+    pass('temporary late '+name+' lock releases and the real update completes');
+  }
+  const prepared=prepare(archive()), destination=target();
+  const names=['HomeLibRu.exe','LICENSE','NOTICE','sqlite3.dll',...personal];
+  const saved=snapshot(destination,names),began=Date.now();
+  run(['--install-with-late-lock',prepared,destination,'journal','3000'],1);
+  assert(Date.now()-began<6500,'Persistent lock retry did not remain bounded');
+  assert.equal(json(path.join(prepared,'journal.json')).state,'rolled-back');
+  assert.deepEqual(snapshot(destination,names),saved);
+  pass('late journal lock exceeds retry deadline and rolls back after release without changing profiles');
+}
 async function main() {
+  if(process.argv.includes('--locks-only')) { lateLockTests();console.log('PASS 3 late lock tests');return; }
   run(['--metadata']); pass('schedule, never, custom interval, backward clock and safe names');
   const versions={SQLite:fileVersion('sqlite3.dll'),AlReader:fileVersion('Readers/AlReader/AlReader2.exe'),
     SumatraPDF:fileVersion('Readers/SumatraPDF/SumatraPDF.exe')};
@@ -208,17 +230,23 @@ async function main() {
   const locker=cp.spawn(tester,['--holdfile',lockFile],{windowsHide:true});await until(lockFile+'.locked');
   run(['--install',locked,busy],1);assert.equal(read(path.join(busy,'LICENSE')).toString(),'old license');
   await new Promise(r=>locker.on('exit',r));run(['--install',locked,busy]);pass('busy DLL fails before replacement and can retry after reader exits');
+  lateLockTests();
   const outside=folder('outside'), linked=target();fs.symlinkSync(outside,path.join(linked,'Help'),'junction');
   run(['--install',prepare(zip),linked],1);assert.equal(fs.readdirSync(outside).length,0);pass('junction target is never written');
-  const restartJob=prepare(zip), restartTarget=target(), argv=['--probe','профиль пользователя','quoted value','C:\\путь с пробелом\\'];
+  // The real test application now imports SQLite through the converter/cache.
+  // Restart fixtures must contain a runnable DLL before and after replacement.
+  const restartZip=archive({runtimeComponents:true});
+  const restartJob=prepare(restartZip), restartTarget=target(), argv=['--probe','профиль пользователя','quoted value','C:\\путь с пробелом\\'];
+  fs.copyFileSync(path.join(path.dirname(helper),'sqlite3.dll'),path.join(restartTarget,'sqlite3.dll'));
   fs.copyFileSync(helper,path.join(restartJob,'HomeLibRuUpdater.exe'));
   const parent=cp.spawn(path.join(restartTarget,'HomeLibRu.exe'),['--parent','1500'],{windowsHide:true});await until(path.join(restartTarget,'parent-ready.txt'));
   const commandLine='"'+path.join(restartTarget,'HomeLibRu.exe')+'" '+argv.map(a=>'"'+a+'"').join(' ');
-  fs.writeFileSync(path.join(restartJob,'request.json'),JSON.stringify({target:restartTarget,pid:parent.pid,tag,sha256:sha(read(zip)),args:argv,commandLine}));
-  fs.copyFileSync(zip,path.join(restartJob,'release.zip'));
+  fs.writeFileSync(path.join(restartJob,'request.json'),JSON.stringify({target:restartTarget,pid:parent.pid,tag,sha256:sha(read(restartZip)),args:argv,commandLine}));
+  fs.copyFileSync(restartZip,path.join(restartJob,'release.zip'));
   await asyncRun(['--job',restartJob],0,path.join(restartJob,'HomeLibRuUpdater.exe'));await until(path.join(restartTarget,'probe.json'));
   assert.deepEqual(json(path.join(restartTarget,'probe.json')),argv.slice(1));pass('native helper waits for exit and restarts same Unicode/quoted profile arguments');
   const recoverJob=prepare(zip), recoverTarget=target();
+  fs.copyFileSync(path.join(path.dirname(helper),'sqlite3.dll'),path.join(recoverTarget,'sqlite3.dll'));
   fs.mkdirSync(path.join(recoverJob,'backup'));fs.copyFileSync(path.join(recoverTarget,'LICENSE'),path.join(recoverJob,'backup/LICENSE'));
   fs.writeFileSync(path.join(recoverTarget,'LICENSE'),'interrupted new version');
   fs.writeFileSync(path.join(recoverJob,'journal.json'),JSON.stringify({target:recoverTarget,state:'installing',files:[{path:'LICENSE',existed:true}]}));

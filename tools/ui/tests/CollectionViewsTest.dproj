@@ -31,11 +31,24 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
   <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
+  <!-- Measure production code generation without removing functional checks. -->
+  <PropertyGroup Condition="'$(Config)'=='Performance' or '$(Cfg_2)'!=''">
+    <Cfg_2>true</Cfg_2><CfgParent>Base</CfgParent><Base>true</Base>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Cfg_2)'!=''">
+    <DCC_Define>MHL_RELEASE_PERFORMANCE;$(DCC_Define)</DCC_Define>
+    <DCC_Optimize>true</DCC_Optimize>
+    <DCC_Inlining>on</DCC_Inlining>
+    <DCC_ExeOutput>Out\$(Platform)\Performance</DCC_ExeOutput>
+    <DCC_DcuOutput>Out\$(Platform)\Performance\dcu</DCC_DcuOutput>
+    <DCC_DependencyCheckOutputName>Out\$(Platform)\Performance\CollectionViewsTest.exe</DCC_DependencyCheckOutputName>
+  </PropertyGroup>
   <ItemGroup>
     <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
     <DCCReference Include="..\..\ui\tests\NativeRegressionGuard.pas"/>
     <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
     <BuildConfiguration Include="Release"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+    <BuildConfiguration Include="Performance"><Key>Cfg_2</Key><CfgParent>Base</CfgParent></BuildConfiguration>
   </ItemGroup>
   <ProjectExtensions><Borland.Personality>Delphi.Personality.12</Borland.Personality><Borland.ProjectType>Console</Borland.ProjectType><BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject></ProjectExtensions>
   <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>

@@ -207,7 +207,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1090'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1091'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -241,7 +241,7 @@ $sqliteManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer
 $sqlitePin = $sqliteManifest.$Platform.dll_sha256
 if ((Test-Path -LiteralPath $sqliteDestination -PathType Leaf) -and
     ((Get-FileHash -LiteralPath $sqliteDestination -Algorithm SHA256).Hash -ine $sqlitePin)) {
-    throw "SQLite не соответствует закреплённой версии $($sqliteManifest.version). Подготовьте официальный runtime через tools/sqlite/prepare_runtime.py --platform $Platform --copy."
+    throw "SQLite не соответствует закреплённой версии $($sqliteManifest.version). Подготовьте официальный runtime через scripts/prepare-sqlite-runtime.py --platform $Platform --copy."
 }
 Write-Host "[OK] SQLite $($sqliteManifest.version), official pinned SHA-256"
 

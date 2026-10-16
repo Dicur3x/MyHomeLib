@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.22'
+$release = '2.7.0_pre5.23'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -39,7 +39,17 @@ try {
     }
     $history = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'docs\releases') -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
         Sort-Object { [int]($_.BaseName.Split('.')[-1]) } -Descending |
-        Select-Object -First 8 | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 })
+        Select-Object -First 8 | ForEach-Object {
+            $entryTag = $_.BaseName.Substring('RELEASE_NOTES_'.Length)
+            $entryNotes = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+            if ($entryTag -notmatch '^2\.7\.0_pre5\.[0-9]+$' -or
+                $entryNotes -notmatch '\A# HomeLib Ru[^\r\n]*') {
+                throw "Unsupported local release-history heading: $($_.Name)"
+            }
+            # The native history viewer recognises complete release tags.
+            # Markdown display titles may include a build number instead.
+            [regex]::Replace($entryNotes, '\A# HomeLib Ru[^\r\n]*', ('# HomeLib Ru ' + $entryTag))
+        })
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'CHANGES.txt'),
         ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $payloadDirectory 'COMPONENTS.json')

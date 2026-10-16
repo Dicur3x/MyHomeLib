@@ -128,14 +128,14 @@ var DB: TSQLiteDatabase;
 begin
   DB:=TSQLiteDatabase.Create(Settings.AppPath+'sqlite-runtime-probe.db');
   try
-    Require(DB.QuerySingleString('SELECT sqlite_version()')='3.54.0','Unexpected packaged SQLite runtime');
+    Require(DB.QuerySingleString('SELECT sqlite_version()')='3.54.1','Unexpected packaged SQLite runtime');
     Require(DB.QuerySingleString('SELECT sqlite_source_id()')=
-      '2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcd5e3','SQLite source differs from pinned release');
+      '2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76','SQLite source differs from pinned release');
     DB.ExecSQL('CREATE VIRTUAL TABLE RuntimeSearch USING fts5(Text)');
     DB.ExecSQL('INSERT INTO RuntimeSearch VALUES (''книга поиск''),(''другой документ'')');
     Require(DB.QuerySingleInt('SELECT COUNT(*) FROM RuntimeSearch WHERE RuntimeSearch MATCH ''поиск''')=1,'Packaged FTS5 Unicode search failed');
     Require(DB.QuerySingleString('PRAGMA integrity_check')='ok','SQLite runtime fixture integrity failed');
-    Writeln('PASS packaged SQLite 3.54.0 source identity, FTS5 Unicode search and integrity');
+    Writeln('PASS packaged SQLite 3.54.1 source identity, FTS5 Unicode search and integrity');
   finally DB.Free; end;
 end;
 
@@ -329,6 +329,8 @@ begin
   Result.Caption:='Обновление HomeLib Ru — тестовые данные';
 end;
 
+{$I UpdateComponentTableTests.inc}
+
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
@@ -369,6 +371,10 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
     try
       for DPI in [96,144,192] do
       begin
+        // Each native harness subcase keeps the full workflow, cached notes
+        // and its original functional guard, then checks one requested DPI.
+        if ParamStr(2).StartsWith('layout-') and
+          (ParamStr(2)<>'layout-'+IntToStr(DPI)) then Continue;
         Form:=CreateTestProgramUpdate;
         try
           Form.Show; Application.ProcessMessages;
@@ -522,6 +528,9 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
     Writeln('PASS one-line update summaries combine all available components and manual failure remains visible');
   end;
 begin
+  if ParamStr(2).StartsWith('layout-') then
+    Require(MatchText(ParamStr(2),['layout-96','layout-144','layout-192']),
+      'Unknown update layout audit subcase');
   TestUpdateDefaults;
   CheckCycles;
   Configuration := TfrmSettings.Create(nil);
@@ -586,7 +595,7 @@ begin
     finally FeedRoot.Free; end;
     Writeln('PASS scalable component table keeps purpose, library name, installed and available versions; DocSharp checks stable pairs');
     ChooseRow(Selector, 1);
-    Require((Pos('3.54.0', NotesView.SectionHeader(0).Caption) > 0) and
+    Require((Pos('3.54.1', NotesView.SectionHeader(0).Caption) > 0) and
       ContainsText(Notes.Text,'исправлены'), 'Installed component changelog missing');
     Require(Primary.Caption = 'Проверить всё', 'Component check missing');
     ChooseRow(Selector, 0);
@@ -914,6 +923,7 @@ begin
     Require(Bytes.Caption = '', 'Unexpected automatic download');
     Primary.Click;
     Require(not Primary.Enabled and (Later.Caption = 'Отменить'), 'Download did not enter cancellable state');
+    CheckUpdateComponentTable(Popup,'downloading');
     Deadline := GetTickCount64 + 30000;
     repeat Application.ProcessMessages; Sleep(10);
     until Primary.Enabled or (GetTickCount64 > Deadline);
@@ -927,6 +937,7 @@ begin
       Writeln('PASS failed component download removes all stages and prevents partial installation'); Exit;
     end;
     Require(Primary.Caption = 'Установить и перезапустить', 'Download failed: ' + Popup.Caption + ' / ' + Primary.Caption);
+    CheckUpdateComponentTable(Popup,'downloaded-ready');
     Require((Bar.Position = 100) and (Pos('Скачано:', Bytes.Caption) = 1) and (Pos(' / ', Bytes.Caption) > 0), 'Download size or progress missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Download discarded changelog');
     Later.Click; Require(not Popup.Visible, 'Later did not hide ready update');
@@ -939,6 +950,7 @@ begin
   Popup := OwnedPopup;
   Require(Popup.RestoreReady, 'Ready update did not survive reopening'); Controls;
   Require(Primary.Caption = 'Установить и перезапустить', 'Restored update cannot install');
+  CheckUpdateComponentTable(Popup,'reopened-ready');
   ReadyFile := IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath)) + 'ready.json';
   Require(FileExists(ReadyFile), 'Ready download was lost');
   if Scenario='components' then
@@ -5422,6 +5434,7 @@ end;
 {$I InpStreamingTests.inc}
 {$I ReaderNotesProposalTests.inc}
 {$I UpdateProposalsTests.inc}
+{$I Release23UiTests.inc}
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
 
@@ -5772,6 +5785,8 @@ begin
       else if ParamStr(1) = 'temp-exit-cleanup' then
         TestExitReaderCleanup
       else if ParamStr(1) = 'update-form-notifier' then TestUpdateFormNotifier
+      else if ParamStr(1) = 'release23-filters' then TestRelease23Filters(frmMain.tvBooksA)
+      else if ParamStr(1) = 'release23-ready-visual' then TestUpdateReadyReleasePages
       else if ParamStr(1) = 'program-update-ui' then
         TestProgramUpdateUI
       else if ParamStr(1) = 'program-update-download' then

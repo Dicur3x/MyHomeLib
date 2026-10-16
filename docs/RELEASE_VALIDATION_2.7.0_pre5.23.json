@@ -1,0 +1,1789 @@
+{
+  "release": "2.7.0_pre5.23",
+  "file_version": "2.7.0.1091",
+  "generated_utc": "2026-10-16T20:32:29.331487+00:00",
+  "archives": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.zip",
+      "bytes": 55543978,
+      "sha256": "75999f45d0a74635e6635cf45c74dbd3a76c529f3694cd3d416a76bb4d8b59a8",
+      "manifest_files": 529
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu_x64.zip",
+      "bytes": 61056697,
+      "sha256": "64a43b68846348a3bf8b00737bdc6625123081a7896d5fe9157a7273cf68799d",
+      "manifest_files": 538
+    }
+  ],
+  "sqlite": {
+    "version": "3.54.1",
+    "date": "2026-10-16",
+    "source_id": "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76",
+    "download_page": "https://sqlite.org/download.html",
+    "Win32": {
+      "url": "https://www.sqlite.org/2026/sqlite-dll-win-x86-3540100.zip",
+      "sha3_256": "97cd8f207ec121e13d3af459e82834a214700659f307603d80814c6bdb19e2d2",
+      "machine": 332,
+      "dll_sha256": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2"
+    },
+    "Win64": {
+      "url": "https://www.sqlite.org/2026/sqlite-dll-win-x64-3540100.zip",
+      "sha3_256": "c2d09c8babb9399277055c057c97a53f1ffd7c5f11d0c1f2118ffdfa39f2daa4",
+      "machine": 34404,
+      "dll_sha256": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea"
+    }
+  },
+  "late_lock_validation": [
+    {
+      "platform": "Win32",
+      "stage": "baseline",
+      "expected_exit": 1,
+      "log": "late-locks-baseline-Win32.log",
+      "log_sha256": "2771871f7d93cbb82e32d596ea3b5570de551851b076ae8eaa9dbb92f87a7eea"
+    },
+    {
+      "platform": "Win32",
+      "stage": "fixed",
+      "expected_exit": 0,
+      "log": "late-locks-fixed-Win32.log",
+      "log_sha256": "4bed8bba72cf04ce85844da9ba65cc518a28b27be1ef2f8f7cba693478b9cf1a"
+    },
+    {
+      "platform": "Win64",
+      "stage": "fixed",
+      "expected_exit": 0,
+      "log": "late-locks-fixed-Win64.log",
+      "log_sha256": "4bed8bba72cf04ce85844da9ba65cc518a28b27be1ef2f8f7cba693478b9cf1a"
+    }
+  ],
+  "builds": [
+    {
+      "platform": "Win32",
+      "file": "HomeLibRu.exe",
+      "bytes": 10373120,
+      "modified": "2026-10-16T22:59:26.6004290+03:00",
+      "sha256": "93dddb1437b6eb8dc068fe7c80900ef1c373b2597e7056b11ede4b7b31dd3b37",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win32",
+      "file": "HomeLibRuUpdater.exe",
+      "bytes": 1870336,
+      "modified": "2026-10-16T21:23:50.7800625+03:00",
+      "sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Base"
+    },
+    {
+      "platform": "Win32",
+      "file": "MHLMcpServer.exe",
+      "bytes": 5713408,
+      "modified": "2026-10-16T17:58:56.4460486+03:00",
+      "sha256": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd",
+      "file_version": "1.0.0.0",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi IDE",
+      "reused_from": "validated pre5.22 unchanged source"
+    },
+    {
+      "platform": "Win32",
+      "file": "ProgramUpdateInstallerTest.exe",
+      "bytes": 5215232,
+      "modified": "2026-10-16T21:19:07.4896681+03:00",
+      "sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "file_version": "2.7.0.1078",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi IDE"
+    },
+    {
+      "platform": "Win32",
+      "file": "CollectionViewsTest.exe",
+      "bytes": 12499456,
+      "modified": "2026-10-16T22:51:41.5778360+03:00",
+      "sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Performance",
+      "optimization": true,
+      "inlining": true,
+      "assertions": true,
+      "range_checks": true,
+      "overflow_checks": true,
+      "footer_message_observers": false
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRu.exe",
+      "bytes": 15950848,
+      "modified": "2026-10-16T22:58:17.8765484+03:00",
+      "sha256": "4c23589362f738771a3aa7ee314a794f51351fdce71ecdbf198771c8eaba9fc1",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRuUpdater.exe",
+      "bytes": 2772480,
+      "modified": "2026-10-16T21:25:23.3297344+03:00",
+      "sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Base"
+    },
+    {
+      "platform": "Win64",
+      "file": "MHLMcpServer.exe",
+      "bytes": 8803840,
+      "modified": "2026-10-16T17:58:03.7060257+03:00",
+      "sha256": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385",
+      "file_version": "1.0.0.0",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi IDE",
+      "reused_from": "validated pre5.22 unchanged source"
+    },
+    {
+      "platform": "Win64",
+      "file": "ProgramUpdateInstallerTest.exe",
+      "bytes": 8033280,
+      "modified": "2026-10-16T21:21:51.0899032+03:00",
+      "sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "file_version": "2.7.0.1078",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi IDE"
+    },
+    {
+      "platform": "Win64",
+      "file": "CollectionViewsTest.exe",
+      "bytes": 18704384,
+      "modified": "2026-10-16T22:50:59.4798169+03:00",
+      "sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "file_version": "2.7.0.1091",
+      "product_version": "2.7.0_pre5.23",
+      "build_method": "Delphi IDE",
+      "configuration": "Performance",
+      "optimization": true,
+      "inlining": true,
+      "assertions": true,
+      "range_checks": true,
+      "overflow_checks": true,
+      "footer_message_observers": false
+    }
+  ],
+  "native_runs": [
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "filter-captions",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 6.375,
+      "log": "one-filter-captions-Win64-attempt001.log",
+      "executable_sha256": "94cf935667e25b56d3375e744d26ac1b0563d4d93c192a00d4fee0467853c81b",
+      "log_sha256": "b65fd93f54e04e1988586f6c18d7f0ccb89353137801a8f54c1b320ebce8a37f",
+      "completed_utc": "2026-10-16T15:47:26.436704+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 80.828,
+      "log": "one-release23-filters-Win64-attempt001.log",
+      "executable_sha256": "a33bd4cbe78e064427c4998207fc711316d1132c33056c3523c4ce03c7388c2a",
+      "log_sha256": "af15c034fdfe236e5e8bcc3ae4c4050f46948aa6b4a1d1b4dd757669cdc722c8",
+      "completed_utc": "2026-10-16T15:56:45.985705+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 7.469,
+      "log": "one-update-source-failures-Win64-attempt001.log",
+      "executable_sha256": "a33bd4cbe78e064427c4998207fc711316d1132c33056c3523c4ce03c7388c2a",
+      "log_sha256": "d89ff344d08ee02ebe074029edef2f696dc00be6d246d0be0c702d06f3313ac5",
+      "completed_utc": "2026-10-16T15:57:12.283858+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 7.953,
+      "log": "one-update-source-failures-Win32-attempt001.log",
+      "executable_sha256": "93adb8295865aa4aa82c67d67d356fc9ee419ad82e41f210281c87b61de1e65d",
+      "log_sha256": "40670a94e8d84b1568215ea8511b1d753e4848ce494d7a10b2a33d0a893d49c7",
+      "completed_utc": "2026-10-16T15:59:01.672666+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "core",
+      "mode": "core",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 6.281,
+      "log": "core-core-Win32-attempt001.log",
+      "executable_sha256": "93adb8295865aa4aa82c67d67d356fc9ee419ad82e41f210281c87b61de1e65d",
+      "log_sha256": "4267c3b1cc9b2ec99cf718ff3db7a4fa45d72c9bf5703a67331bf5a739cdd656",
+      "completed_utc": "2026-10-16T16:00:06.810122+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "core",
+      "mode": "core",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 6.328,
+      "log": "core-core-Win64-attempt001.log",
+      "executable_sha256": "a33bd4cbe78e064427c4998207fc711316d1132c33056c3523c4ce03c7388c2a",
+      "log_sha256": "4267c3b1cc9b2ec99cf718ff3db7a4fa45d72c9bf5703a67331bf5a739cdd656",
+      "completed_utc": "2026-10-16T16:00:36.464098+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 75.578,
+      "log": "one-update-source-failures-Win64-attempt002.log",
+      "executable_sha256": "6d288a7ae14c8c2cd307f82695b0a4656db3b406e81bd0dac79f6dc0a65be8d3",
+      "log_sha256": "e3807549282e657f0c12b26f3fba45abcf5964f00c8c474b31a327c7b193c032",
+      "completed_utc": "2026-10-16T16:04:27.180336+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 85.687,
+      "log": "one-update-source-failures-Win64-attempt003.log",
+      "executable_sha256": "21d37379d81ee5befcc256767d4a357a8557426182fdcc0db80ae9cfb79c7750",
+      "log_sha256": "e18be1a717b6f025a45e34f64dd77cb4ec4ed2c4b18c6d94d500a8b417d32a7b",
+      "completed_utc": "2026-10-16T16:08:35.717912+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 90.75,
+      "log": "one-release23-filters-Win32-attempt001.log",
+      "executable_sha256": "21799fed168d5b259ec6ff54d65f6adedf24ea2005f6ba15009815171fdca117",
+      "log_sha256": "9647a9458ead9599df1afbb5b4218300e250ea1a00976e5a14c0a8a164561072",
+      "completed_utc": "2026-10-16T16:16:16.071647+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 59.844,
+      "log": "one-update-source-failures-Win32-attempt002.log",
+      "executable_sha256": "21799fed168d5b259ec6ff54d65f6adedf24ea2005f6ba15009815171fdca117",
+      "log_sha256": "2e9c83d1d3924b7f588729514a26d04c771652de82add0f4b2fd6ca6d46ea2ba",
+      "completed_utc": "2026-10-16T16:19:37.385983+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 32.438,
+      "log": "one-program-update-ui-Win32-attempt001.log",
+      "executable_sha256": "21799fed168d5b259ec6ff54d65f6adedf24ea2005f6ba15009815171fdca117",
+      "log_sha256": "225c05dac1857779d66bed2ec713b37f23e971fc3a77f967546e939d7762ee73",
+      "completed_utc": "2026-10-16T16:20:10.052768+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 125.078,
+      "log": "one-release23-filters-Win32-attempt002.log",
+      "executable_sha256": "5e9d74a9c089d7cd92add976c83fdc0b160faf085fca7cf3741520bc70d2c931",
+      "log_sha256": "d60208421a7a880238dbf1e2c8999ce8306a4932d8c5823979e8acbcae3fb5b3",
+      "completed_utc": "2026-10-16T16:43:13.994974+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 2,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 90.203,
+      "log": "one-program-update-ui-Win32-attempt002.log",
+      "executable_sha256": "5e9d74a9c089d7cd92add976c83fdc0b160faf085fca7cf3741520bc70d2c931",
+      "log_sha256": "b18ccd17c1ad1b7a92318033dc23da4c7526be851e6498a5387e089d58afba8d",
+      "completed_utc": "2026-10-16T16:44:44.359185+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 90.187,
+      "log": "one-program-update-ui-Win32-attempt003.log",
+      "executable_sha256": "5e9d74a9c089d7cd92add976c83fdc0b160faf085fca7cf3741520bc70d2c931",
+      "log_sha256": "b45b5dc94f5b8ad90ad674b4e330435ecab1f23907c340cfa92fd2dd44cf2b4c",
+      "completed_utc": "2026-10-16T16:47:18.242815+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 4,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 105.266,
+      "log": "one-program-update-ui-Win32-attempt004.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "743f5ac3964703a910a5bf879208b6aa36817882ca46f490a9aa5be852309f88",
+      "completed_utc": "2026-10-16T17:23:18.968174+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 98.36,
+      "log": "one-release23-filters-Win32-attempt003.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "d4765796105c24cb25b04ed499571adcf1e3fbdae222610b83aba7880389b2a2",
+      "completed_utc": "2026-10-16T17:24:57.554424+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 15.594,
+      "log": "one-update-form-notifier-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "f839106476ddfc22e363c303d0e8f6707350a6d56899d40b09537110b312e54d",
+      "completed_utc": "2026-10-16T17:25:13.332697+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "column-filters",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 19.312,
+      "log": "one-column-filters-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "367dfc7171e2b45dd7f8257d61349babe2d371a928c90024ed486f7c964f7874",
+      "completed_utc": "2026-10-16T17:25:32.835531+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "metadata-book-columns",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 38.406,
+      "log": "one-metadata-book-columns-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "f2ee37df1e9815f009e7c5c41e81a1ec6cfdbfeb43b93ecbaa22a182c1fd3a2a",
+      "completed_utc": "2026-10-16T17:26:11.446817+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "settings-workflow-audit",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 26.797,
+      "log": "one-settings-workflow-audit-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "e711eeab1be9033c5e4e157d80a9e177d72ff0c3d5a848d6aa3987aae840b970",
+      "completed_utc": "2026-10-16T17:26:38.405635+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 0.859,
+      "log": "one-search-startup-layout-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "141f80de1f9fac58654c8d19c6a724ca8417daf7fe9ce80e258372046717ffed",
+      "completed_utc": "2026-10-16T17:26:39.439987+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 6.953,
+      "log": "one-search-startup-layout-Win32-attempt002.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "75f7d036b3908c079fe045689b5f29f4c8cd11b451bc9392e5d09c095f11ba43",
+      "completed_utc": "2026-10-16T17:29:01.988500+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 50.797,
+      "log": "one-main-toolbar-states-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "bf39a804558044fa4313d9a5fc352df081e3818ba72ea857009029076351309b",
+      "completed_utc": "2026-10-16T17:29:52.959652+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 79.125,
+      "log": "one-book-preview-layout-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "1bf5fa6030384f97fa294e8ed0c97070c936edea738eb592de286969410fc48a",
+      "completed_utc": "2026-10-16T17:31:12.255209+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 27.312,
+      "log": "one-refactor-audit-Win32-attempt001.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "df7340059a62a605e6248c94ce43d5df9e6dde1591f5c80ac42de19d95f20be8",
+      "completed_utc": "2026-10-16T17:31:39.743044+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 2,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 20.984,
+      "log": "one-refactor-audit-Win32-attempt002.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "b6966a9cd2ef472fb58bc519eced4f86be1464dfc55bf314d40f4603ac37c729",
+      "completed_utc": "2026-10-16T17:32:55.884408+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 22.157,
+      "log": "one-refactor-audit-Win32-attempt003.log",
+      "executable_sha256": "ca75f959391102309485515d560ade75a4f2046abe9a3b143406d775bb0971ca",
+      "log_sha256": "4d45dbe1f5844b0aad135d6ed2c48bf59df6cee204acf29fe43e73630a8d249b",
+      "completed_utc": "2026-10-16T17:33:31.151376+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 4,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 23.5,
+      "log": "one-refactor-audit-Win32-attempt004.log",
+      "executable_sha256": "76ee30c8b38742555aaa3b1a6e02e61b80d3aaa4d2c9deac70f3f90b352f66e5",
+      "log_sha256": "1c07c1d5249e7814fe4743d47408d4fbd288246ba4279bed1c24ba4a0e0eb00f",
+      "completed_utc": "2026-10-16T17:36:25.753105+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 5,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 24.203,
+      "log": "one-refactor-audit-Win32-attempt005.log",
+      "executable_sha256": "bcabb6353002bee3833017e6a43b439e85ce1c977ab0f4bda8ceb93cf4bf8a01",
+      "log_sha256": "72a93a525fcc9190e03140b3820b2ddfe1eb365f79ff9b2d291d86896ec6c3d6",
+      "completed_utc": "2026-10-16T17:38:02.166637+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 6,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 21.406,
+      "log": "one-refactor-audit-Win32-attempt006.log",
+      "executable_sha256": "00776c11cc91276d5eb3951a25a1ee32387ade17933e724829976e9907755116",
+      "log_sha256": "1a7504571e8e52a9eef864dfab38ca5ef7b3e9eb98c99753a831dcd79866e983",
+      "completed_utc": "2026-10-16T17:39:31.914452+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 7,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 20.343,
+      "log": "one-refactor-audit-Win32-attempt007.log",
+      "executable_sha256": "da5899993c07f56ceeeac7220ea2ba226e69f410b19a098201b5be4bb1a61d8d",
+      "log_sha256": "e11c61cdfaed1570d4a66c2c4247070b8b6eba2b20853724758be5316ccd7e72",
+      "completed_utc": "2026-10-16T17:42:19.566447+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 8,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 20.562,
+      "log": "one-refactor-audit-Win32-attempt008.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "487e518429bc307f8121c3f51e1d3694bb235819946c10d3cb6a7cb28207e60e",
+      "completed_utc": "2026-10-16T17:44:19.334606+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 125.5,
+      "log": "one-program-update-ui-Win32-attempt005.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "13f9f9c1f8350670d933db4ff28b183ec91f1af9254382f16609e7e77cdf5805",
+      "completed_utc": "2026-10-16T17:50:19.965007+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 4,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 131.609,
+      "log": "one-release23-filters-Win32-attempt004.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "a8376d69a22311b357c16edc14c834db5538e7658d0c0feb8bf9f709301ea9ba",
+      "completed_utc": "2026-10-16T17:52:31.814754+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 20.234,
+      "log": "one-update-form-notifier-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "eef8994b39db710ab4acaf66cc17e07c892097a0258e7dd86ee6c0669cb4d046",
+      "completed_utc": "2026-10-16T17:52:52.279608+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "column-filters",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 22.047,
+      "log": "one-column-filters-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "b828df2dfab8e423062c4af5a2dcc62d82157f2996bdb2e267172453cb88372a",
+      "completed_utc": "2026-10-16T17:53:14.554490+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "metadata-book-columns",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 36.546,
+      "log": "one-metadata-book-columns-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "089db0f586ca7c3542abfc697b434d800ae9f5b359a113ecfeadca723e7e9954",
+      "completed_utc": "2026-10-16T17:53:51.319754+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "settings-workflow-audit",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 42.797,
+      "log": "one-settings-workflow-audit-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "0ecc3c6aa1a5360e81499f43d8690e775fd0d530a491b3e2caf56efdef787384",
+      "completed_utc": "2026-10-16T17:54:34.353199+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.703,
+      "log": "one-search-startup-layout-Win32-attempt003.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "ebdd8e4203dd37763c52f1889ec8e2e0e5c34786adc7976c41e1ee47d58f877a",
+      "completed_utc": "2026-10-16T17:54:42.304762+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 52.171,
+      "log": "one-main-toolbar-states-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "092bb261591febdb7f99b009671c6e572775992838f3803eaa88796702471df0",
+      "completed_utc": "2026-10-16T17:55:34.698376+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 2,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 96.61,
+      "log": "one-book-preview-layout-Win32-attempt002.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "de8b6380584a25a9e2836b0474735050f41b9c2e9e3048ed4e1c1255a0eaa3dc",
+      "completed_utc": "2026-10-16T17:57:11.524601+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 97.922,
+      "log": "one-book-preview-layout-Win32-attempt003.log",
+      "executable_sha256": "f608781e65173acf9b00c870a2138c2c4fb487ebad9c6e72552e668005c74ba3",
+      "log_sha256": "26a28181bd971d157d3564fefc7073ba8ccf9ebe80d676c2fdf70eec911b7123",
+      "completed_utc": "2026-10-16T18:00:33.559620+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 4,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 96.609,
+      "log": "one-book-preview-layout-Win32-attempt004.log",
+      "executable_sha256": "cf45ad84d12b91f79e805f4c8720ec8dfaaf02142fa738acb22ff0ab79e0f0d8",
+      "log_sha256": "371362307b1d13467e4f5bbd641d4dd560136124bbccbd5a9e9b16ff8321fca9",
+      "completed_utc": "2026-10-16T18:03:34.734605+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 5,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 93.671,
+      "log": "one-book-preview-layout-Win32-attempt005.log",
+      "executable_sha256": "4520803de10857817d1f4cf7211892dc2fa174627a1b3f0c8e2077656d2cf618",
+      "log_sha256": "273933cf5913767ff8ef0a2a5e2a843441afb267242c08b346a53bbc5b0fd988",
+      "completed_utc": "2026-10-16T18:10:58.569889+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 6,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 106.703,
+      "log": "one-book-preview-layout-Win32-attempt006.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "bed2649fbf4f060bfc5319c7f901072b372207922e923880edea8b359e8528a7",
+      "completed_utc": "2026-10-16T18:46:47.883135+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 7,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 99.453,
+      "log": "one-book-preview-layout-Win32-attempt007.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "ce953605aafa0cbe6a57c540c459f6303e1cd492735c47eb9ea1cd10a78275a4",
+      "completed_utc": "2026-10-16T18:50:00.237241+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 9,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 20.297,
+      "log": "one-refactor-audit-Win32-attempt009.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "8be80f702248932f78131bd16c573c28cff838a16b78e95eaba1d84b241c49d1",
+      "completed_utc": "2026-10-16T18:50:20.798547+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 6,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 159.813,
+      "log": "one-program-update-ui-Win32-attempt006.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "3d421573566acd78ab75745406b64a710334739275cf68cf0ba1d83d128c9058",
+      "completed_utc": "2026-10-16T18:53:00.882136+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 205.578,
+      "log": "one-release23-filters-Win32-attempt005.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "50b3e90748ed1d3dbd61c0ef4385ec95dcb58eed4d00e736d391155baeec9bd8",
+      "completed_utc": "2026-10-16T18:56:26.807145+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 29.86,
+      "log": "one-update-form-notifier-Win32-attempt003.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "2ae3699f5cff70ff457aa41404278584836daad04cda9fd30045f62587031823",
+      "completed_utc": "2026-10-16T18:56:57.094503+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "column-filters",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 40.047,
+      "log": "one-column-filters-Win32-attempt003.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "f8bd92caa46f1c116b656b15d13a1e5091939b7715b57defaff52d9ad5b43ad8",
+      "completed_utc": "2026-10-16T18:57:37.473364+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "metadata-book-columns",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 52.766,
+      "log": "one-metadata-book-columns-Win32-attempt003.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "0f9b2ca16a657d4fdf65da7fdaa7efe5e44abe63bf0a6e07f554181520f6ee41",
+      "completed_utc": "2026-10-16T18:58:30.628760+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "settings-workflow-audit",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 65.078,
+      "log": "one-settings-workflow-audit-Win32-attempt003.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "9c8c9710b5c10dbfbd1743272a827e5bf2351ab3a9e24f2bad479c9e25b03595",
+      "completed_utc": "2026-10-16T18:59:36.284694+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 4,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 9.813,
+      "log": "one-search-startup-layout-Win32-attempt004.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "7963402c0ee7fc28aedd3d9cdd5d7e5ba6f26ef9cfee20f66d8c8d609f6b2447",
+      "completed_utc": "2026-10-16T18:59:46.430924+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 63.89,
+      "log": "one-main-toolbar-states-Win32-attempt003.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "64191aa981c01fb9106474c96e392e115ac68790270aaaf541ffbe9482729652",
+      "completed_utc": "2026-10-16T19:00:50.618171+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-ready-visual",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 199.109,
+      "log": "one-release23-ready-visual-Win32-attempt001.log",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log_sha256": "aae2a79b24ce46122fb9d09d6c77db060773dc9f9e7224c8090221b1e1153d02",
+      "completed_utc": "2026-10-16T19:09:53.115815+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 6.5,
+      "log": "one-update-source-failures-Win32-attempt003.log",
+      "executable_sha256": "4e7295c02ed621c3f8d4aff8609d9cc647a319369b3d74ab01b657a254d99969",
+      "log_sha256": "b9042cef27d8534d0071a4bc4a206e5e9c553021ddc8715f468f7d2e8bb409ad",
+      "completed_utc": "2026-10-16T19:22:54.729877+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 4,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 90.219,
+      "log": "one-update-source-failures-Win32-attempt004.log",
+      "executable_sha256": "4d5675d24c3c0550ff2900d59b3c28743bc5d4903249c4e516a54e707090cff7",
+      "log_sha256": "0c3080b787ccd643780bc942e0cec6f3e03a483e71b948f21d4dae8b600a76d8",
+      "completed_utc": "2026-10-16T19:31:25.079830+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 45.656,
+      "log": "one-update-source-failures-Win32-attempt005.log",
+      "executable_sha256": "5748ec047b7926ae22e66b0488dc6fdfeff024dce3d9eb4598b3efcf1fc0ef16",
+      "log_sha256": "7261291981944bdec412044c3a4eac6a91d6dd884ff7b06037593708ad86c95f",
+      "completed_utc": "2026-10-16T19:33:50.824467+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 4,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 40.265,
+      "log": "one-update-source-failures-Win64-attempt004.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "04e7c0f866e1d75802ef066360a08c845b050e68baaedff0fbb68f8d7de29693",
+      "completed_utc": "2026-10-16T19:35:32.168131+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 86.094,
+      "log": "one-book-preview-layout-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "9e771f4f00c67f3d609cb152fe6ef24cbe454feb0bc2dc014c64cd48c785d694",
+      "completed_utc": "2026-10-16T19:36:58.469510+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "refactor-audit",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 19.469,
+      "log": "one-refactor-audit-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "a454a39898e7102391a6e6b1b614e29aa5dba822a7af8f38c0c42f66465f2dee",
+      "completed_utc": "2026-10-16T19:37:18.128910+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 110.407,
+      "log": "one-program-update-ui-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "71b4b59c2ae2892433b6b842ca35f62a4604837ce6db10f6cfa09122a35ad452",
+      "completed_utc": "2026-10-16T19:39:08.728803+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "release23-filters",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 106.89,
+      "log": "one-release23-filters-Win64-attempt002.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "1c904102a327fb5781f4afe4fdb9e003d843dd78b0e32b379b980dfd00fcb2d7",
+      "completed_utc": "2026-10-16T19:40:55.863230+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 16.297,
+      "log": "one-update-form-notifier-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "2b7134b29c2a19a039b4de8621a6ea35cf67869383eeb7f03afed93957cef7b4",
+      "completed_utc": "2026-10-16T19:41:12.359957+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "column-filters",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 20.844,
+      "log": "one-column-filters-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "c208cdc13d0cd0b1dc2c35bdc6fb2edc64a2cf0e0c4910084bd4afa638e1382a",
+      "completed_utc": "2026-10-16T19:41:33.434483+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "metadata-book-columns",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 38.187,
+      "log": "one-metadata-book-columns-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "c69593b2739b9eba2597022998249900bb2f36f32cab43c3ba93d98f584ccdb4",
+      "completed_utc": "2026-10-16T19:42:11.822523+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "settings-workflow-audit",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 34.75,
+      "log": "one-settings-workflow-audit-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "be5f46f1c05fc401120ea072273456379552675d7a3ca91edf201cf20aeebd47",
+      "completed_utc": "2026-10-16T19:42:46.776906+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.656,
+      "log": "one-search-startup-layout-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "78f281e7feaa83a126c560a6fb5bcc17e3f6579f918d3e25fff5c19a7ce6786d",
+      "completed_utc": "2026-10-16T19:42:54.625064+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 54.609,
+      "log": "one-main-toolbar-states-Win64-attempt001.log",
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log_sha256": "7e25e73c324535ec0aba692a67b10b3440aa71f626a2b54c759be441ce3a60f7",
+      "completed_utc": "2026-10-16T19:43:49.438773+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-ready-visual",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 187.156,
+      "log": "one-release23-ready-visual-Win32-attempt002.log",
+      "executable_sha256": "5748ec047b7926ae22e66b0488dc6fdfeff024dce3d9eb4598b3efcf1fc0ef16",
+      "log_sha256": "9ef7ad6864a7ced51e49ebe0315aa490abe62ad5ba1ecf5e441fffceb421dfff",
+      "completed_utc": "2026-10-16T19:49:28.165389+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "release23-ready-visual",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 158.75,
+      "log": "one-release23-ready-visual-Win64-attempt001.log",
+      "executable_sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "log_sha256": "71c904e896f5d8d8824a364509ac5bdf6c7455628fd96941b2a32d4ba44ef94a",
+      "completed_utc": "2026-10-16T19:54:30.891133+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "release23-ready-visual",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 134.359,
+      "log": "one-release23-ready-visual-Win32-attempt003.log",
+      "executable_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "log_sha256": "ae1a9dd2a4e6c169ad82231cfd445020deab6784ef65ca9792ec59aa109f1c10",
+      "completed_utc": "2026-10-16T19:56:45.815161+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 6,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 54.75,
+      "log": "one-update-source-failures-Win32-attempt006.log",
+      "executable_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "log_sha256": "4fd577bc4758a5242a4daeaf1168c1f77a4bbed7d491c17f30df0c1ee46f7398",
+      "completed_utc": "2026-10-16T20:00:16.008586+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 51.938,
+      "log": "one-update-source-failures-Win64-attempt005.log",
+      "executable_sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "log_sha256": "cbecdbbb829e1b91ed2cf82260f28d87ec2eb472aa535d58cbc0ffc0f1fcc175",
+      "completed_utc": "2026-10-16T20:02:23.479629+00:00"
+    }
+  ],
+  "integration_runs": [
+    {
+      "platform": "Win32",
+      "mode": "component-parsers",
+      "exit_code": 0,
+      "seconds": 4.39,
+      "log": "component-parsers-Win32-001.log",
+      "log_sha256": "4b34d6a4d5e74203d8a5f52cf375cc7951aff309e6063ecd9ee946e8ea0adbfb",
+      "completed_utc": "2026-10-16T17:00:00.118267+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "official-sqlite",
+      "exit_code": 0,
+      "seconds": 1.188,
+      "log": "official-sqlite-Win32-001.log",
+      "log_sha256": "73b2e0724d828054b4267ef82d68bc5f8fe30f817901e39515017cf2d5565480",
+      "completed_utc": "2026-10-16T17:00:01.303026+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "installer",
+      "exit_code": 1,
+      "seconds": 59.734,
+      "log": "installer-Win32-001.log",
+      "log_sha256": "d19b320b3a4182007e580a0b32954c595a2276bcec80a19e3583f3da73da6e89",
+      "completed_utc": "2026-10-16T17:01:01.041853+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "component-parsers",
+      "exit_code": 0,
+      "seconds": 5.328,
+      "log": "component-parsers-Win32-002.log",
+      "log_sha256": "d7f516df8f823f4dd098243f665732f00a7353ae8c30009847df962db38b67a6",
+      "completed_utc": "2026-10-16T17:04:42.494294+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "official-sqlite",
+      "exit_code": 0,
+      "seconds": 1.328,
+      "log": "official-sqlite-Win32-002.log",
+      "log_sha256": "73b2e0724d828054b4267ef82d68bc5f8fe30f817901e39515017cf2d5565480",
+      "completed_utc": "2026-10-16T17:04:43.824908+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "installer",
+      "exit_code": 0,
+      "seconds": 69.797,
+      "log": "installer-Win32-002.log",
+      "log_sha256": "9df9c1bb7b9b7416a7f70f943af47892b3746dc0e62738cce1451b62c5ab640f",
+      "completed_utc": "2026-10-16T17:05:53.627089+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "component-parsers",
+      "exit_code": 0,
+      "seconds": 4.609,
+      "log": "component-parsers-Win64-001.log",
+      "log_sha256": "5165b0dd6421a1f284a83593101ad3c156abbcf9e5bbb615c64017259266862d",
+      "completed_utc": "2026-10-16T17:05:58.253531+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "official-sqlite",
+      "exit_code": 0,
+      "seconds": 1.187,
+      "log": "official-sqlite-Win64-001.log",
+      "log_sha256": "edd10cac9f052c5bd658fb839aa56dc062bfdd29192384abcd58977d23919339",
+      "completed_utc": "2026-10-16T17:05:59.451661+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "installer",
+      "exit_code": 0,
+      "seconds": 66.672,
+      "log": "installer-Win64-001.log",
+      "log_sha256": "7ae6c0300a0a77572a2b746b9e425a25242307c8106f41d0e2b7b232719111cc",
+      "completed_utc": "2026-10-16T17:07:06.142602+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "component-parsers",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 0,
+      "seconds": 7.422,
+      "log": "component-parsers-Win32-003.log",
+      "log_sha256": "b6fb448fb2fb7f2ced05e0f4bf17dc7a1e3f4e296ef41ca93b8b62cd766de24b",
+      "completed_utc": "2026-10-16T19:00:58.104708+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "official-sqlite",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 0,
+      "seconds": 1.64,
+      "log": "official-sqlite-Win32-003.log",
+      "log_sha256": "73b2e0724d828054b4267ef82d68bc5f8fe30f817901e39515017cf2d5565480",
+      "completed_utc": "2026-10-16T19:00:59.788256+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "installer",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 0,
+      "seconds": 93.188,
+      "log": "installer-Win32-003.log",
+      "log_sha256": "49210e428c5de8a70756ff5aefbd2178b69a9981ee5415b7d93e894315f932e8",
+      "completed_utc": "2026-10-16T19:02:33.016630+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 1,
+      "seconds": 17.375,
+      "log": "popup-Win32-001.log",
+      "log_sha256": "69e92f25354eccde58b180532c4ffe0f27f6944bc4b35250e0f8b25d1620b1da",
+      "completed_utc": "2026-10-16T19:02:50.446246+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 0,
+      "seconds": 9.469,
+      "log": "popup-Win32-short-001.log",
+      "log_sha256": "a5e4c8f2a75a41ac49e6d87389fee3555656c15428d6a08d3b7d6e3480ca1a0f",
+      "completed_utc": "2026-10-16T19:04:56.646035+00:00",
+      "temporary_directory": "C:\\HLRu-pre523-tests"
+    },
+    {
+      "platform": "Win32",
+      "mode": "batch-popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "exit_code": 0,
+      "seconds": 67.109,
+      "log": "batch-popup-Win32-short-001.log",
+      "log_sha256": "62d3f45e5caf274b66fb6954345d99c6205657ac0aa2b1b0bd16d1a9a2b28188",
+      "completed_utc": "2026-10-16T19:06:03.761799+00:00",
+      "temporary_directory": "C:\\HLRu-pre523-tests"
+    },
+    {
+      "platform": "Win32",
+      "mode": "popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "5748ec047b7926ae22e66b0488dc6fdfeff024dce3d9eb4598b3efcf1fc0ef16",
+      "exit_code": 0,
+      "seconds": 8.703,
+      "log": "popup-Win32-003.log",
+      "log_sha256": "68c914e9092d83fe62780d1e6c47d9433361663a23540c0764a5ee6878c819cd",
+      "completed_utc": "2026-10-16T19:33:59.677585+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "batch-popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "5748ec047b7926ae22e66b0488dc6fdfeff024dce3d9eb4598b3efcf1fc0ef16",
+      "exit_code": 0,
+      "seconds": 51.797,
+      "log": "batch-popup-Win32-002.log",
+      "log_sha256": "afd89109854099979136232fb753bc2618a25da946e6184e1cb78a40bd9036b5",
+      "completed_utc": "2026-10-16T19:34:51.498330+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "component-parsers",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "exit_code": 0,
+      "seconds": 4.672,
+      "log": "component-parsers-Win64-002.log",
+      "log_sha256": "d6d3af3fdccb6eab1a1d54f57d1a26631402f002bfbbd2f2c5dea2653f585298",
+      "completed_utc": "2026-10-16T19:43:54.149067+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "official-sqlite",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "exit_code": 0,
+      "seconds": 1.219,
+      "log": "official-sqlite-Win64-002.log",
+      "log_sha256": "edd10cac9f052c5bd658fb839aa56dc062bfdd29192384abcd58977d23919339",
+      "completed_utc": "2026-10-16T19:43:55.408639+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "installer",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "exit_code": 0,
+      "seconds": 73.75,
+      "log": "installer-Win64-002.log",
+      "log_sha256": "ea6d0c09a3609e44a591ca28cfdf438bd17d6d8c53909031c07c9c1fb410eb43",
+      "completed_utc": "2026-10-16T19:45:09.205545+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "popup",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "exit_code": 0,
+      "seconds": 12.359,
+      "log": "popup-Win64-001.log",
+      "log_sha256": "ac7f78c6cde20d22b4c3228d0aa2d8a37a4fb482f9b718f34974d8ea17c4a43c",
+      "completed_utc": "2026-10-16T19:45:21.571788+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "batch-popup",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "exit_code": 0,
+      "seconds": 47.859,
+      "log": "batch-popup-Win64-001.log",
+      "log_sha256": "9ee032a5d21b12380c5bfbe318b459db2325451b7e7680ffeeca5942d286a7d2",
+      "completed_utc": "2026-10-16T19:46:09.444737+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "exit_code": 0,
+      "seconds": 11.937,
+      "log": "popup-Win32-004.log",
+      "log_sha256": "e0ca417de2dd7d350f2dcff058e28070b77a334b01a792a68a1d01ee82ad01a0",
+      "completed_utc": "2026-10-16T20:00:28.132673+00:00"
+    },
+    {
+      "platform": "Win32",
+      "mode": "batch-popup",
+      "tester_sha256": "0401cb3d61a2ef601f00626ffefd5baa28d25e34a8f9e84eb8aac396dec1224f",
+      "updater_sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52",
+      "views_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "exit_code": 0,
+      "seconds": 62.937,
+      "log": "batch-popup-Win32-003.log",
+      "log_sha256": "ee85a311f80f2c22d53a2ec31c05d10ad39ad8033fc1a97762c57fbf2d922dd8",
+      "completed_utc": "2026-10-16T20:01:31.093683+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "popup",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "exit_code": 0,
+      "seconds": 9.922,
+      "log": "popup-Win64-002.log",
+      "log_sha256": "850cff985663ce4182e221a0ef5e52b2084ff3dd9e160a7f907b812c8a91e848",
+      "completed_utc": "2026-10-16T20:02:33.597135+00:00"
+    },
+    {
+      "platform": "Win64",
+      "mode": "batch-popup",
+      "tester_sha256": "605dff39b61a90892df4c18f11b236aba9f30cd6a435a34f1d948082309734b3",
+      "updater_sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3",
+      "views_sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "exit_code": 0,
+      "seconds": 33.672,
+      "log": "batch-popup-Win64-002.log",
+      "log_sha256": "c519944bc035797c774ab45adc0e2953deb6a9bf68f8f7b90836db7c51217471",
+      "completed_utc": "2026-10-16T20:03:07.300071+00:00"
+    }
+  ],
+  "release_installs": [
+    {
+      "platform": "Win32",
+      "exit_code": 0,
+      "seconds": 51.094,
+      "log": "real-release-install-Win32-final-canonical.log",
+      "log_sha256": "6faeb745da82574470538d2d582cc142ac1f69648ffe8707af707189582e769f"
+    },
+    {
+      "platform": "Win64",
+      "exit_code": 1,
+      "seconds": 48.875,
+      "log": "real-release-install-Win64-final-canonical.log",
+      "log_sha256": "2b8884dcd5a3c30e2cfca1adfc46d4cecfb2a9ab1442deb29818241100ee6511"
+    },
+    {
+      "platform": "Win64",
+      "exit_code": 0,
+      "seconds": 37.594,
+      "log": "real-release-install-Win64-final-retry.log",
+      "log_sha256": "cc8bc9b0394d3c78e6cc92d342551d0ede1fe0c753696c93b709d23bf5c1b192"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "3489a4603f11a5a9d857a2ee8b1b38389466f40675163568bdd3d45150899dee",
+      "exit_code": 1,
+      "seconds": 42.359,
+      "log": "real-release-install-Win32-validated-001.log",
+      "log_sha256": "2b8884dcd5a3c30e2cfca1adfc46d4cecfb2a9ab1442deb29818241100ee6511"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "3489a4603f11a5a9d857a2ee8b1b38389466f40675163568bdd3d45150899dee",
+      "exit_code": 1,
+      "seconds": 42.984,
+      "log": "real-release-install-Win32-validated-002.log",
+      "log_sha256": "2b8884dcd5a3c30e2cfca1adfc46d4cecfb2a9ab1442deb29818241100ee6511"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "3489a4603f11a5a9d857a2ee8b1b38389466f40675163568bdd3d45150899dee",
+      "exit_code": 1,
+      "seconds": 0.203,
+      "log": "real-release-install-Win32-validated-guard-1.log",
+      "log_sha256": "46d45c6b387bb95fceddd55d7fd68c1be07f0eb143509235ed677a63b96f74e8",
+      "scenario": "retry the exact prepared final archive after proven complete rollback"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "3489a4603f11a5a9d857a2ee8b1b38389466f40675163568bdd3d45150899dee",
+      "exit_code": 1,
+      "seconds": 1.469,
+      "log": "real-release-install-Win32-validated-guard-2.log",
+      "log_sha256": "bcf0843aa3ff1d97c8627f3dd03c0af791167afec0f48f410e079050f9d2a866",
+      "scenario": "retry the exact prepared final archive after proven complete rollback"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "faf8064e7bcbb3eed63efe3868c40de634212d2add4d25f713d27b2fda5ce7f5",
+      "exit_code": 0,
+      "seconds": 75.203,
+      "log": "real-release-install-Win32-publish-001.log",
+      "log_sha256": "97c500024c39be64aee3f2c401f0e437375562407b5a8c6b7d240ebf750012f7"
+    },
+    {
+      "platform": "Win64",
+      "archive_sha256": "c60bf4610591358b6c4b653da10cf7978f1fa8485193858c0ce57a6fe25b98a0",
+      "exit_code": 0,
+      "seconds": 56.094,
+      "log": "real-release-install-Win64-publish-001.log",
+      "log_sha256": "e36e3400b5e5062022966963ca5b68d753b6f612ff0c6fe8c7079d40b429df46"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "dc446a1c8514e9a274121b0a6259f41634fba1cc6e3e25a18dfffdc927db5bcf",
+      "exit_code": 0,
+      "seconds": 41.625,
+      "log": "real-release-install-Win32-publish-v2-001.log",
+      "log_sha256": "fb62b8a6a6bfd5cfa30c1b799120d38f7a5afd61d17980f183f63e7cdcdfc0cf"
+    },
+    {
+      "platform": "Win64",
+      "archive_sha256": "3b7df5b21936dd4ecd65a6004b8972eefbf07cf19489de234030280aa00d1505",
+      "exit_code": 0,
+      "seconds": 41.546,
+      "log": "real-release-install-Win64-publish-v2-001.log",
+      "log_sha256": "4c7c7f99727d59c97df09bd3a23dd4f87d864bf2b489cfb8ec824e4c40df17a4"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "104d4761085b0f0b3757b7cfe99e76083d98354802bf51f12de3a873eee16076",
+      "exit_code": 0,
+      "seconds": 44.422,
+      "log": "real-release-install-Win32-publish-v3-001.log",
+      "log_sha256": "801932c77d64246cb40a1b524998daa799554fc6dea0993028c0faf27e29aa98"
+    },
+    {
+      "platform": "Win64",
+      "archive_sha256": "19dc211e01d523b10da05aee42db36de996d33118f4a29fb1e0b14b97d8a11e6",
+      "exit_code": 0,
+      "seconds": 47.953,
+      "log": "real-release-install-Win64-publish-v3-001.log",
+      "log_sha256": "deef092f768a0b1348ab0a8bc41f1b0413f88703d37435e155efbc97d74060c7"
+    },
+    {
+      "platform": "Win32",
+      "archive_sha256": "75999f45d0a74635e6635cf45c74dbd3a76c529f3694cd3d416a76bb4d8b59a8",
+      "exit_code": 0,
+      "seconds": 39.25,
+      "log": "real-release-install-Win32-publish-v4-001.log",
+      "log_sha256": "674a3e4df2e31f118386cf27503200811bd0fc53c81ca7e42c951a063fc51036"
+    },
+    {
+      "platform": "Win64",
+      "archive_sha256": "64a43b68846348a3bf8b00737bdc6625123081a7896d5fe9157a7273cf68799d",
+      "exit_code": 0,
+      "seconds": 40.469,
+      "log": "real-release-install-Win64-publish-v4-001.log",
+      "log_sha256": "565f7a4943780ce04a1ec7bc52c8f32fb3c4a50a5231b90a679eb724bdb6a7fa"
+    }
+  ],
+  "manual_ui": [
+    {
+      "platform": "Win32",
+      "stage": "ready-update-before-native-mouse-fix",
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "observations": [
+        "Light and dark ready tables readable at 130%",
+        "Actual mouse click highlighted a different row despite frozen install action; follow-up fix and regression added",
+        "Closed both safe dialogs with Later; no fake installation requested"
+      ]
+    },
+    {
+      "platform": "Win32",
+      "stage": "ready-update-before-input-guard",
+      "completed_utc": "2026-10-16T19:49:48.446917+00:00",
+      "executable_sha256": "5748ec047b7926ae22e66b0488dc6fdfeff024dce3d9eb4598b3efcf1fc0ef16",
+      "observations": [
+        "Actual Sky click on SQLite and blank space left no selected row in the light ready list; deferred restoration did not cover native mouse tracking",
+        "Both themes readable at 130 percent; closed both with Later, no installation"
+      ]
+    },
+    {
+      "platform": "Win64",
+      "stage": "ready-update",
+      "completed_utc": "2026-10-16T19:54:15.308456+00:00",
+      "executable_sha256": "daccf40d5f9c610fc555bcbdacf551f10df9b88e48d54ad7a7db01be1bcded5f",
+      "observations": [
+        "Light and dark at 130 percent: actual Sky clicks on SQLite and blank space keep HomeLib Ru selected with readable rows",
+        "Down arrow does not move ready selection; right-click Copy list remains usable; closed both with Later and no installation"
+      ]
+    },
+    {
+      "platform": "Win32",
+      "stage": "ready-update",
+      "completed_utc": "2026-10-16T19:56:27.181365+00:00",
+      "executable_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "observations": [
+        "Light and dark at 130 percent: actual Sky clicks on SQLite and blank space preserve the HomeLib Ru selection; rows stay readable",
+        "Actual Down key in light theme also preserves the ready selection; both dialogs closed using Later, no installation"
+      ]
+    },
+    {
+      "platform": "Win32",
+      "stage": "packaged-main",
+      "completed_utc": "2026-10-16T20:20:11.838186+00:00",
+      "executable_sha256": "93dddb1437b6eb8dc068fe7c80900ef1c373b2597e7056b11ede4b7b31dd3b37",
+      "observations": [
+        "Verified package version 2.7.0.1091, actual book rows/card and right-side Windows theme offer; switched light to dark",
+        "Series and Genre filter layouts show real fixture options and no service panel captions; actual updater shows SQLite 3.54.1.0 and readable installed components",
+        "UI helper had a modal-target failure in the first same-name process; inspected a byte-identical uniquely named copy and then closed it normally"
+      ]
+    },
+    {
+      "platform": "Win64",
+      "stage": "packaged-main",
+      "completed_utc": "2026-10-16T20:24:53.554212+00:00",
+      "executable_sha256": "4c23589362f738771a3aa7ee314a794f51351fdce71ecdbf198771c8eaba9fc1",
+      "observations": [
+        "Verified version 2.7.0.1091, fixture book rows/card and right-side theme offer; light-to-dark switch works",
+        "Actual Collection filter has real MCP Fixture option and no layout panel names; canceled without applying",
+        "Actual dark updater shows SQLite 3.54.1.0 and readable component rows; closed with Later and then exited Main normally; byte-identical unique-name inspection copy"
+      ]
+    }
+  ],
+  "source_validation": {
+    "pascal_files": 14,
+    "local_links": 320
+  },
+  "protected_files": {
+    "C:\\Users\\cloud\\Desktop\\MyHomeLib\\HomeLibRu.exe": "0A9AB2F6C29032DAFDD804700DF6E94E1BDC6916A92E626D372DA0AF636A3945",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dpr": "5A073127445C1C34DBC3BE3D6E3A74390C3007816F3CAC93010F553F1B05F18C",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dproj": "D815AB4197F42A1D3DEEA98E1B8637B4EDA2FAAB69CE3197F8355BFD0496DD48",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer_SQL.rc": "500008615D6EEB334A5BDEE005268C59A7B5160147ED3BC23427DEF6804C5D0E",
+    "C:\\Users\\cloud\\HomeLibRu-build\\tools\\help\\build_nav.js": "DA7A65DC98DB6C42DA0C6C777F0C20B4DC2BA5280A4C3F35F2B65487F022B3FF"
+  },
+  "artifact_directory": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\pre523-checks",
+  "historical_artifacts": "G:\\HomeLibRu-sqlite-ui-pre5.23-2026-10-16",
+  "limitations": [
+    "Win32 and Win64 binaries tested on current Windows x64 host",
+    "96/144/192 form scaling on a 96-PPI monitor; physical monitor transitions not covered",
+    "Win32 footer strict 5000 ms/100 selection budget remains exceeded; Win64 final six cases passed in 4160–4693 ms; full geometry and source preservation complete; test assertion cleanup may emit a secondary VCL AV; no whole-application performance claim",
+    "G disk-full and Windows file access-denied attempts retained; transient lock fix tested separately; final archive installs passed on C"
+  ],
+  "footer_results": {
+    "Win32": {
+      "executable_sha256": "9375afb5c3cef184bb54e972ab3a8fdee774eb3927f4a063c4ebd9ae77863284",
+      "log": "one-book-preview-layout-Win32-attempt007.log",
+      "exit_code": 1,
+      "summaries": [
+        "GEOMETRY_SWEEP_COMPLETE fixed information footer cases=6 speed_budget_exceeded=3 strict_budget_ms=5000",
+        "PROFILE footer cycling summary dark=0 dpi=96 cycling_ms=7631; dark=0 dpi=144 cycling_ms=4779; dark=0 dpi=192 cycling_ms=4619; dark=1 dpi=96 cycling_ms=6342; dark=1 dpi=144 cycling_ms=5073; dark=1 dpi=192 cycling_ms=4506;"
+      ]
+    },
+    "Win64": {
+      "executable_sha256": "1a63230623a219163226462a07646a746a91b3635d20cdfdd4bc40ce71ab8222",
+      "log": "one-book-preview-layout-Win64-attempt001.log",
+      "exit_code": 0,
+      "summaries": [
+        "GEOMETRY_SWEEP_COMPLETE fixed information footer cases=6 speed_budget_exceeded=0 strict_budget_ms=5000",
+        "PROFILE footer cycling summary dark=0 dpi=96 cycling_ms=4251; dark=0 dpi=144 cycling_ms=4525; dark=0 dpi=192 cycling_ms=4259; dark=1 dpi=96 cycling_ms=4482; dark=1 dpi=144 cycling_ms=4693; dark=1 dpi=192 cycling_ms=4160;"
+      ]
+    }
+  },
+  "candidate_source_identity": [
+    {
+      "platform": "Win32",
+      "file": "HomeLibRu.exe",
+      "sha256": "93dddb1437b6eb8dc068fe7c80900ef1c373b2597e7056b11ede4b7b31dd3b37"
+    },
+    {
+      "platform": "Win32",
+      "file": "HomeLibRuUpdater.exe",
+      "sha256": "88d9990505c58a0440b20509d0192be861cdc4301415397751fa65e51f2a7f52"
+    },
+    {
+      "platform": "Win32",
+      "file": "MHLMcpServer.exe",
+      "sha256": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd"
+    },
+    {
+      "platform": "Win32",
+      "file": "sqlite3.dll",
+      "sha256": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2"
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRu.exe",
+      "sha256": "4c23589362f738771a3aa7ee314a794f51351fdce71ecdbf198771c8eaba9fc1"
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRuUpdater.exe",
+      "sha256": "038a71f5f410169f82d2645b967eb89784f635e5c246ddbc22aaa909b4030fd3"
+    },
+    {
+      "platform": "Win64",
+      "file": "MHLMcpServer.exe",
+      "sha256": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385"
+    },
+    {
+      "platform": "Win64",
+      "file": "sqlite3.dll",
+      "sha256": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea"
+    }
+  ],
+  "packaged_main_runs": [
+    {
+      "platform": "Win32",
+      "executable_sha256": "93dddb1437b6eb8dc068fe7c80900ef1c373b2597e7056b11ede4b7b31dd3b37",
+      "started_utc": "2026-10-16T20:13:48.549696+00:00",
+      "inspection_alias": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\pre523-checks\\release-smoke-publish-v3\\Win32\\HomeLibRuPre523Win32.exe",
+      "pid": 38364,
+      "exit_code": 0,
+      "closed_utc": "2026-10-16T20:20:11.327961+00:00"
+    },
+    {
+      "platform": "Win64",
+      "executable_sha256": "4c23589362f738771a3aa7ee314a794f51351fdce71ecdbf198771c8eaba9fc1",
+      "started_utc": "2026-10-16T20:20:12.602658+00:00",
+      "inspection_alias": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\pre523-checks\\release-smoke-publish-v3\\Win64\\HomeLibRuPre523Win64.exe",
+      "pid": 34128,
+      "exit_code": 0,
+      "closed_utc": "2026-10-16T20:24:53.063444+00:00"
+    }
+  ],
+  "local_history_contract": {
+    "production_pattern": "^(?:HomeLib Ru |SQLite |SumatraPDF |v)?[0-9]+\\.[0-9]+(?:\\.[0-9]+)*(?:_pre[0-9]+(?:\\.[0-9]+)*)?(?: — [0-9]{2}\\.[0-9]{2}\\.[0-9]{4})?$",
+    "archives": [
+      {
+        "platform": "Win32",
+        "headers": [
+          "HomeLib Ru 2.7.0_pre5.23",
+          "HomeLib Ru 2.7.0_pre5.22",
+          "HomeLib Ru 2.7.0_pre5.21",
+          "HomeLib Ru 2.7.0_pre5.20",
+          "HomeLib Ru 2.7.0_pre5.19",
+          "HomeLib Ru 2.7.0_pre5.18",
+          "HomeLib Ru 2.7.0_pre5.17",
+          "HomeLib Ru 2.7.0_pre5.16"
+        ],
+        "sha256": "35011c40cef893766981ffef3e7ae9c9ad71305ca0e30429a19fb9c505551317",
+        "body_unchanged": true
+      },
+      {
+        "platform": "Win64",
+        "headers": [
+          "HomeLib Ru 2.7.0_pre5.23",
+          "HomeLib Ru 2.7.0_pre5.22",
+          "HomeLib Ru 2.7.0_pre5.21",
+          "HomeLib Ru 2.7.0_pre5.20",
+          "HomeLib Ru 2.7.0_pre5.19",
+          "HomeLib Ru 2.7.0_pre5.18",
+          "HomeLib Ru 2.7.0_pre5.17",
+          "HomeLib Ru 2.7.0_pre5.16"
+        ],
+        "sha256": "35011c40cef893766981ffef3e7ae9c9ad71305ca0e30429a19fb9c505551317",
+        "body_unchanged": true
+      }
+    ]
+  },
+  "interrupted_manual_run": {
+    "platform": "Win32",
+    "executable_sha256": "93dddb1437b6eb8dc068fe7c80900ef1c373b2597e7056b11ede4b7b31dd3b37",
+    "started_utc": "2026-10-16T20:03:30.265031+00:00",
+    "pid": 15008,
+    "exit_code": 4294967295,
+    "closed_utc": "2026-10-16T20:13:47.676314+00:00"
+  },
+  "desktop_baseline_reconciliation": {
+    "path": "C:\\Users\\cloud\\Desktop\\MyHomeLib\\HomeLibRu.exe",
+    "historical_previous_phase_sha256": "04f0e1060855b6acf76dbf07544361f19b9af837eb6e3ba5e9c3f92d6558a06e",
+    "historical_baseline_matched": false,
+    "current_sha256": "0a9ab2f6c29032dafdd804700df6e94e1bdc6916a92e626d372da0af636a3945",
+    "published_pre522_executable_sha256": "0a9ab2f6c29032dafdd804700df6e94e1bdc6916a92e626d372da0af636a3945",
+    "published_pre522_archive_sha256": "b1f2ffa3069d69b8ae5362cd05a2f89954ef5e7a4f6c465a2961d710ef5004e0",
+    "verified_utc": "2026-10-16T20:31:37.430686+00:00",
+    "explanation": "Historical baseline belongs to an earlier phase. Current Desktop EXE matches the published pre5.22 Win64 archive exactly; not a pre5.23 test build. No claim of unchanged bytes across both phases."
+  }
+}

@@ -98,6 +98,9 @@ begin
   Cancel := Popup.FindComponent('CancelFilterButton') as TButton;
   Require(Assigned(Select) and Assigned(Clear) and Assigned(Reset) and
     Assigned(Apply) and Assigned(Cancel), 'List filter lacks its named actions');
+  for var Component in Popup do
+    if Component is TPanel then
+      Require(TPanel(Component).Caption='', 'Filter exposes a layout component name: '+Component.Name);
   Writeln('PROFILE filter layout requested_dpi=', DPI, ' current_ppi=', Popup.CurrentPPI,
     ' form_ppi=', Popup.PixelsPerInch, ' client=', Popup.ClientWidth, 'x', Popup.ClientHeight,
     ' select=', Select.Left, ',', Select.Top, ',', Select.Width, ',', Select.Height,

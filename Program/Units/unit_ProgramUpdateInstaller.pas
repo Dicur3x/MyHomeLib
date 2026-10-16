@@ -248,12 +248,30 @@ begin
   AssertUpdatePath(Result);
 end;
 
+function RetryUpdateFileOperation(const Operation: TFunc<Boolean>): Boolean;
+var Error: DWORD; Deadline: UInt64;
+begin
+  // File scans can briefly deny an atomic rename after preflight succeeded.
+  // Retry only sharing/access locks, with a fixed upper bound for each write.
+  Deadline:=GetTickCount64+2000;
+  repeat
+    if Operation() then Exit(True);
+    Error:=GetLastError;
+    if ((Error<>ERROR_ACCESS_DENIED) and (Error<>ERROR_SHARING_VIOLATION) and
+      (Error<>ERROR_LOCK_VIOLATION)) or (GetTickCount64>=Deadline) then Break;
+    Sleep(50);
+  until False;
+  SetLastError(Error);
+  Result:=False;
+end;
+
 procedure WriteJSON(const FileName: string; Value: TJSONObject);
 var Temp: string;
 begin
   Temp := FileName + '.new';
   TFile.WriteAllText(Temp, Value.ToJSON, TEncoding.UTF8);
-  if not MoveFileEx(PChar(Temp), PChar(FileName), MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+  if not RetryUpdateFileOperation(function: Boolean
+    begin Result:=MoveFileEx(PChar(Temp),PChar(FileName),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH); end) then
     RaiseLastOSError;
 end;
 
@@ -887,9 +905,11 @@ begin
         // An operation that failed before replacement must not overwrite an
         // unchanged locked DLL during rollback.
         if FileExists(Destination) and SameText(UpdateSHA256(Destination), UpdateSHA256(Backup)) then Continue;
-        if not CopyFile(PChar(Backup), PChar(Destination), False) then RaiseLastOSError;
+        if not RetryUpdateFileOperation(function: Boolean
+          begin Result:=CopyFile(PChar(Backup),PChar(Destination),False); end) then RaiseLastOSError;
       end
-      else if FileExists(Destination) and not DeleteFile(PChar(Destination)) then RaiseLastOSError;
+      else if FileExists(Destination) and not RetryUpdateFileOperation(function: Boolean
+        begin Result:=DeleteFile(PChar(Destination)); end) then RaiseLastOSError;
     end;
     Journal.RemovePair('state').Free; Journal.AddPair('state', 'rolled-back');
     WriteJSON(ChildPath(Job, 'journal.json'), Journal);
@@ -990,7 +1010,8 @@ begin
           if (I <> ERROR_FILE_EXISTS) and (I <> ERROR_ALREADY_EXISTS) then DeleteFile(PChar(Temporary));
           RaiseLastOSError(I);
         end;
-        if not MoveFileEx(PChar(Temporary), PChar(Destination), MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+        if not RetryUpdateFileOperation(function: Boolean
+          begin Result:=MoveFileEx(PChar(Temporary),PChar(Destination),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH); end) then
         begin I := GetLastError; DeleteFile(PChar(Temporary)); RaiseLastOSError(I); end;
         Inc(Applied);
         if (FailAfter >= 0) and (Applied >= FailAfter) then

@@ -4128,6 +4128,8 @@ end;
 procedure TfrmMain.UpdateThemeToolbar;
 var I, ButtonBottom, DesiredHeight: Integer;
 begin
+  // Measure native buttons only after their complete scaling pass.
+  if FUpdatingSearchLayout then Exit;
   if Assigned(tlbrMain) and tlbrMain.HandleAllocated then
   begin
     // Native image/style scaling can make a button taller than the scaled
@@ -4155,20 +4157,56 @@ begin
   UpdateFavoriteSearchLayout;
 end;
 
+procedure ResumeMainScaleAlignment(var Controls: TList<TWinControl>);
+  procedure Resume(Index: Integer);
+  begin
+    if Index>=Controls.Count then Exit;
+    // Parents settle their final bounds before deferred child alignment.
+    try Controls[Index].EnableAlign;
+    finally Resume(Index+1); end;
+  end;
+begin
+  if not Assigned(Controls) then Exit;
+  try Resume(0);
+  finally FreeAndNil(Controls); end;
+end;
+
+function SuspendMainScaleAlignment(Root: TWinControl): TList<TWinControl>;
+  procedure Suspend(Control: TWinControl);
+  begin
+    Result.Add(Control);
+    Control.DisableAlign;
+    for var I:=0 to Control.ControlCount-1 do
+      if Control.Controls[I] is TWinControl then Suspend(TWinControl(Control.Controls[I]));
+  end;
+begin
+  Result:=TList<TWinControl>.Create;
+  try Suspend(Root);
+  except ResumeMainScaleAlignment(Result); raise; end;
+end;
+
 procedure TfrmMain.ChangeScale(M, D: Integer; IsDpiChange: Boolean);
-var WasUpdating, WasSettingHeight: Boolean;
+var WasUpdating, WasSettingHeight: Boolean; ScaleControls: TList<TWinControl>;
 begin
   // Resize can run before VCL has scaled the child labels and edits. Keep
   // their category height intact until this complete scaling pass finishes.
+  ScaleControls:=nil;
   WasUpdating := FUpdatingSearchLayout;
   FUpdatingSearchLayout := True;
   WasSettingHeight := FInSetInfoPanelHeight;
   FInSetInfoPanelHeight := True;
-  if not WasUpdating then BatchInfoPanels(True);
-  try inherited ChangeScale(M, D, IsDpiChange);
+  if not WasUpdating then
+  begin
+    BatchInfoPanels(True);
+  end;
+  try
+    if not WasUpdating then ScaleControls:=SuspendMainScaleAlignment(Self);
+    inherited ChangeScale(M, D, IsDpiChange);
   finally
     try
-      if not WasUpdating then BatchInfoPanels(False);
+      if not WasUpdating then
+        try ResumeMainScaleAlignment(ScaleControls);
+        finally BatchInfoPanels(False); end;
     finally
       FInSetInfoPanelHeight := WasSettingHeight;
       FUpdatingSearchLayout := WasUpdating;
@@ -4176,6 +4214,7 @@ begin
   end;
   if not WasUpdating then
   begin
+    UpdateThemeToolbar;
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
@@ -4183,19 +4222,28 @@ begin
 end;
 
 procedure TfrmMain.ScaleForPPI(NewPPI: Integer);
-var WasUpdating, WasSettingHeight: Boolean;
+var WasUpdating, WasSettingHeight: Boolean; ScaleControls: TList<TWinControl>;
 begin
+  // Defer nested alignment until VCL has scaled all child bounds and fonts.
   // Explicit ScaleForPPI also restores anchors/fonts after ChangeScale.
   // Measure the final controls once, as with a monitor DPI transition.
+  ScaleControls:=nil;
   WasUpdating := FUpdatingSearchLayout;
   FUpdatingSearchLayout := True;
   WasSettingHeight := FInSetInfoPanelHeight;
   FInSetInfoPanelHeight := True;
-  if not WasUpdating then BatchInfoPanels(True);
-  try inherited ScaleForPPI(NewPPI);
+  if not WasUpdating then
+  begin
+    BatchInfoPanels(True);
+  end;
+  try
+    if not WasUpdating then ScaleControls:=SuspendMainScaleAlignment(Self);
+    inherited ScaleForPPI(NewPPI);
   finally
     try
-      if not WasUpdating then BatchInfoPanels(False);
+      if not WasUpdating then
+        try ResumeMainScaleAlignment(ScaleControls);
+        finally BatchInfoPanels(False); end;
     finally
       FInSetInfoPanelHeight := WasSettingHeight;
       FUpdatingSearchLayout := WasUpdating;
@@ -4203,6 +4251,7 @@ begin
   end;
   if not WasUpdating then
   begin
+    UpdateThemeToolbar;
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
