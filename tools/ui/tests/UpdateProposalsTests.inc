@@ -5,6 +5,9 @@ function UpdateProposalAccessibleObjectFromWindow(Window: HWND; ObjectID: DWORD;
   const IID: TGUID; out Accessible: IDispatch): HRESULT; stdcall;
   external 'oleacc.dll' name 'AccessibleObjectFromWindow';
 
+function UpdateProposalGetDpiForWindow(Window: HWND): UINT; stdcall;
+  external 'user32.dll' name 'GetDpiForWindow';
+
 type
   TUpdateProposalServer = class
   private
@@ -105,6 +108,38 @@ begin
   if Assigned(Callback) then Callback();
 end;
 
+procedure UpdateProposalAssertNotesFormat(View: TUpdateNotesView; VCLPPI: Integer; const Phase: string);
+var Body: TRichEdit; Format: TCharFormat2; Start, Selection, Numerator, Denominator, ExpectedTwips: Integer;
+  WindowDPI: UINT; ZoomSupported: Boolean;
+begin
+  for var I:=0 to View.SectionCount-1 do
+  begin
+    Body:=View.SectionNotes(I); Start:=Body.SelStart; Selection:=Body.SelLength;
+    try
+      Body.SelStart:=0; Body.SelLength:=1;
+      FillChar(Format,SizeOf(Format),0); Format.cbSize:=SizeOf(Format);
+      Body.Perform(EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Format));
+      Numerator:=0; Denominator:=0;
+      ZoomSupported:=Body.Perform(EM_GETZOOM,WPARAM(@Numerator),LPARAM(@Denominator))<>0;
+      WindowDPI:=UpdateProposalGetDpiForWindow(Body.Handle);
+      Writeln('TRACE update notes phase=',Phase,' theme=',Ord(MHLThemeDark),' section=',I,
+        ' VCLPPI=',VCLPPI,' FontPPI=',Body.Font.PixelsPerInch,' HWND_DPI=',WindowDPI,
+        ' yHeight_twips=',Format.yHeight,' ZoomPercent=',View.ZoomPercent,
+        ' EM_GETZOOM=',Ord(ZoomSupported),' numerator=',Numerator,' denominator=',Denominator); Flush(Output);
+      Require((Body.Font.PixelsPerInch=VCLPPI) and (WindowDPI>0),
+        'Release notes did not retain their VCL font DPI or a valid native DPI');
+      // RTF stores points, not simulated VCL pixels: 10 pt = 200 twips.
+      // The formatter rounds its half-point value before converting to twips.
+      ExpectedTwips:=MulDiv(20,View.ZoomPercent,100)*10;
+      Require(((Format.dwMask and CFM_SIZE)<>0) and (Format.yHeight=ExpectedTwips),
+        'Release notes lost their logical 10-point font and explicit text zoom');
+      Require(ZoomSupported and (((Numerator=0) and (Denominator=0)) or
+        ((Numerator>0) and (Denominator>0) and (Int64(Numerator)<64*Int64(Denominator)) and
+        (Int64(Denominator)<64*Int64(Numerator)))), 'Release notes expose an invalid native zoom ratio');
+    finally Body.SelStart:=Start; Body.SelLength:=Selection; end;
+  end;
+end;
+
 procedure TestUpdateKeyboardAccessibility;
 var Host: TForm; View: TUpdateNotesView; Primary: TButton; Probe: TUpdateKeyboardProbe;
   SavedTheme, SavedAppCheck, SavedCatalogCheck, SavedMainVisible: Boolean; Header: TButton; Location: TPoint; Notes: string;
@@ -140,6 +175,7 @@ begin
           View.Load(Notes); Host.Show; Application.ProcessMessages; Host.ScaleForPPI(PPI);
           Require((Host.Font.PixelsPerInch=PPI) and (View.SectionHeader(0).Font.PixelsPerInch=PPI),
             'Release headers did not adopt simulated VCL DPI');
+          UpdateProposalAssertNotesFormat(View,PPI,'scaled');
           Header:=View.SectionHeader(0);
           // Show/SetFocus alone can leave the VCL ActiveControl in a background
           // window (for example while the IDE owns a modal dialog). MSAA reports
@@ -201,10 +237,12 @@ begin
           View.Load(Notes+sLineBreak+'Updated notes.');
           Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
             'Reloading notes lost the focused release identity or its expanded state');
+          UpdateProposalAssertNotesFormat(View,PPI,'reloaded');
           View.ZoomPercent:=200;
           Require(View.SectionHeader(1).Focused and
             (View.SectionHeader(1).Height>MulDiv(30,PPI,96)),
             'Text zoom lost focus or clipped its release button');
+          UpdateProposalAssertNotesFormat(View,PPI,'text-zoom');
           ActiveFormName:='<nil>';
           if Assigned(Screen.ActiveCustomForm) then ActiveFormName:=Screen.ActiveCustomForm.ClassName+':'+Screen.ActiveCustomForm.Name;
           Writeln('TRACE update theme before theme=',Ord(MHLThemeDark),' expanded=',Ord(View.IsExpanded(1)),
@@ -226,10 +264,12 @@ begin
           Accessible:=Dispatch;
           Require((Integer(Accessible.accState[0]) and 4)<>0,
             'The themed release header lost its focused accessibility state');
+          UpdateProposalAssertNotesFormat(View,PPI,'themed');
           Accessible:=Unassigned; Dispatch:=nil;
           SetMHLTheme(Dark); Host.ScaleForPPI(96); Host.ScaleForPPI(PPI); Application.ProcessMessages;
           Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
             'Changing VCL scale lost the focused/expanded release');
+          UpdateProposalAssertNotesFormat(View,PPI,'scale-roundtrip');
           if not Dark and (PPI=96) then
           begin
             // A real theme callback can replace the focused control. The
