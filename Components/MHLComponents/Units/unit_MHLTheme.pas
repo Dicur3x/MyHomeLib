@@ -28,6 +28,18 @@ const DarkStyleName = 'Charcoal Dark Slate';
 var DarkActive: Boolean;
 
 type
+  TThemeFocusSnapshot = class(TComponent)
+  private
+    FControl: TWinControl;
+    FForm: TCustomForm;
+    FWasForeground: Boolean;
+  protected
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    constructor Capture;
+    procedure Restore;
+  end;
+
   TThemeToolbarPainter = class(TComponent)
   private
     FBar: TToolBar;
@@ -40,6 +52,43 @@ type
     constructor CreateFor(Bar: TToolBar);
     procedure Apply;
   end;
+
+constructor TThemeFocusSnapshot.Capture;
+begin
+  inherited Create(nil);
+  FControl:=FindControl(Winapi.Windows.GetFocus);
+  if not Assigned(FControl) then Exit;
+  FForm:=GetParentForm(FControl);
+  if not Assigned(FForm) then begin FControl:=nil; Exit; end;
+  FWasForeground:=GetForegroundWindow=FForm.Handle;
+  FControl.FreeNotification(Self); FForm.FreeNotification(Self);
+end;
+
+procedure TThemeFocusSnapshot.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  if Operation=opRemove then
+  begin
+    if AComponent=FControl then FControl:=nil;
+    if AComponent=FForm then FForm:=nil;
+  end;
+  inherited;
+end;
+
+procedure TThemeFocusSnapshot.Restore;
+begin
+  if not Assigned(FControl) or not Assigned(FForm) then Exit;
+  if (csDestroying in FControl.ComponentState) or (csDestroying in FForm.ComponentState) or
+    not FControl.CanFocus then Exit;
+  // A style switch recreates HWNDs. Retain the actual focused VCL component,
+  // including a focused release button, after all form theme callbacks finish.
+  // FreeNotification also covers a callback that removes/rebuilds that control.
+  if FWasForeground then
+  begin
+    SetForegroundWindow(FForm.Handle);
+    SetActiveWindow(FForm.Handle);
+  end;
+  FControl.SetFocus;
+end;
 
 constructor TThemeToolbarPainter.CreateFor(Bar: TToolBar);
 begin
@@ -234,7 +283,7 @@ begin
 end;
 
 procedure SetMHLTheme(Dark: Boolean);
-var I: Integer; WasDark: Boolean;
+var I: Integer; WasDark: Boolean; Focus: TThemeFocusSnapshot;
 begin
   // Modern Shell dialogs own their painting, including the address/search bar.
   // Leave them native in both themes; applying VCL's partial dialog skin breaks
@@ -249,15 +298,20 @@ begin
     if not MatchText(DarkStyleName,TStyleManager.StyleNames) then
       TStyleManager.LoadFromResource(HInstance,'MHL_DARK_STYLE','VCLSTYLE');
   end;
-  DarkActive:=Dark;
+  Focus:=TThemeFocusSnapshot.Capture;
   try
-    if Dark then TStyleManager.SetStyle(DarkStyleName) else TStyleManager.SetStyle('Windows');
-  except DarkActive:=WasDark; raise; end;
-  for I:=0 to Screen.FormCount-1 do
-  begin
-    ApplyMHLControlTheme(Screen.Forms[I]);
-    if Screen.Forms[I].HandleAllocated then
-      SendMessage(Screen.Forms[I].Handle,WM_MHL_APP_THEME,Ord(Dark),0);
+    DarkActive:=Dark;
+    try
+      if Dark then TStyleManager.SetStyle(DarkStyleName) else TStyleManager.SetStyle('Windows');
+    except DarkActive:=WasDark; raise; end;
+    for I:=0 to Screen.FormCount-1 do
+    begin
+      ApplyMHLControlTheme(Screen.Forms[I]);
+      if Screen.Forms[I].HandleAllocated then
+        SendMessage(Screen.Forms[I].Handle,WM_MHL_APP_THEME,Ord(Dark),0);
+    end;
+  finally
+    try Focus.Restore; finally Focus.Free; end;
   end;
 end;
 

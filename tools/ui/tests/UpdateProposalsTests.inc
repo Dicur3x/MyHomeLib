@@ -188,9 +188,22 @@ begin
           Require(View.SectionHeader(1).Focused and
             (View.SectionHeader(1).Height>MulDiv(30,PPI,96)),
             'Text zoom lost focus or clipped its release button');
+          Writeln('TRACE update theme before theme=',Ord(MHLThemeDark),' expanded=',Ord(View.IsExpanded(1)),
+            ' focused=',Ord(View.SectionHeader(1).Focused),' native_focus=',Winapi.Windows.GetFocus,
+            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle); Flush(Output);
           SetMHLTheme(not Dark); Application.ProcessMessages;
-          Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
-            'Switching theme lost the focused/expanded release');
+          Writeln('TRACE update theme after theme=',Ord(MHLThemeDark),' expanded=',Ord(View.IsExpanded(1)),
+            ' focused=',Ord(View.SectionHeader(1).Focused),' native_focus=',Winapi.Windows.GetFocus,
+            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle); Flush(Output);
+          Require(View.IsExpanded(1),'Switching theme changed the expanded release state');
+          Require(View.SectionHeader(1).Focused and (Winapi.Windows.GetFocus=View.SectionHeader(1).Handle),
+            'Switching theme lost the actual Windows focus of the release header');
+          Require(Succeeded(UpdateProposalAccessibleObjectFromWindow(View.SectionHeader(1).Handle,
+            DWORD($FFFFFFFC),AccessibleID,Dispatch)),'The themed release header lost its accessibility object');
+          Accessible:=Dispatch;
+          Require((Integer(Accessible.accState[0]) and 4)<>0,
+            'The themed release header lost its focused accessibility state');
+          Accessible:=Unassigned; Dispatch:=nil;
           SetMHLTheme(Dark); Host.ScaleForPPI(96); Host.ScaleForPPI(PPI);
           Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
             'Changing VCL scale lost the focused/expanded release');

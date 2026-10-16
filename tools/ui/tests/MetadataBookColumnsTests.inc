@@ -85,16 +85,19 @@ begin
 end;
 
 procedure MBCFill(Tree: TBookTree; const Collection: IBookCollection; const IDs: TArray<Integer>; GroupID: Integer);
-var Criteria: TBookSearchCriteria; Iterator: IBookIterator;
+var Criteria: TBookSearchCriteria; Iterator: IBookIterator; ExpectedIDs: string;
 begin
   TBookColumnFilters.ForTree(Tree).Clear; Tree.SortKeys:=nil; Tree.Header.SortColumn:=NoColumn;
   if Tree.Tag=PAGE_FAVORITES then Iterator:=SystemDB.GetBookIterator(GroupID,Collection.CollectionID)
   else
   begin
-    Criteria:=Default(TBookSearchCriteria); Criteria.RestrictBookIDs:=True;
+    Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1; Criteria.RestrictBookIDs:=True;
     Criteria.BookIDs:=Copy(IDs); Criteria.CollapseMultiSeriesResults:=True;
     Iterator:=Collection.Search(Criteria,False);
   end;
+  ExpectedIDs:=''; for var ID in IDs do ExpectedIDs:=ExpectedIDs+IntToStr(ID)+',';
+  Writeln('TRACE metadata fill tag=',Tree.Tag,' mode=',Ord(Settings.TreeModes[Tree.Tag]),
+    ' DAO_count=',Iterator.RecordCount,' expected_IDs=',ExpectedIDs); Flush(Output);
   frmMain.FillBooksTree(Tree,nil,Iterator,True,True,nil); Iterator:=nil;
 end;
 
@@ -112,11 +115,17 @@ begin
 end;
 
 procedure MBCAssertRows(Tree: TBookTree; const IDs: TArray<Integer>);
-var Node: PVirtualNode; Book: PBookRecord; Count: Integer; Text, Expected: string;
+var Node: PVirtualNode; Book: PBookRecord; Count: Integer; Text, Expected, ActualIDs: string;
 begin
-  Count:=0; Node:=Tree.GetFirst;
+  Count:=0; ActualIDs:=''; Node:=Tree.GetFirst;
   while Assigned(Node) do
-  begin Book:=Tree.GetNodeData(Node); if Book.NodeType=ntBookInfo then Inc(Count); Node:=Tree.GetNext(Node); end;
+  begin
+    Book:=Tree.GetNodeData(Node);
+    if Book.NodeType=ntBookInfo then begin Inc(Count); ActualIDs:=ActualIDs+IntToStr(Book.BookKey.BookID)+','; end;
+    Node:=Tree.GetNext(Node);
+  end;
+  Writeln('TRACE metadata rows tag=',Tree.Tag,' mode=',Ord(Settings.TreeModes[Tree.Tag]),
+    ' expected_count=4 actual_count=',Count,' actual_IDs=',ActualIDs); Flush(Output);
   Require(Count=4,'Metadata DAO/Main publication duplicated or lost rows');
   for var I:=0 to High(IDs) do
     for var Tag in MBCColumnTags do
