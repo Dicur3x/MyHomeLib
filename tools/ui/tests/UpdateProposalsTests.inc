@@ -227,7 +227,7 @@ begin
           Require((Integer(Accessible.accState[0]) and 4)<>0,
             'The themed release header lost its focused accessibility state');
           Accessible:=Unassigned; Dispatch:=nil;
-          SetMHLTheme(Dark); Host.ScaleForPPI(96); Host.ScaleForPPI(PPI);
+          SetMHLTheme(Dark); Host.ScaleForPPI(96); Host.ScaleForPPI(PPI); Application.ProcessMessages;
           Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
             'Changing VCL scale lost the focused/expanded release');
           if not Dark and (PPI=96) then
@@ -242,7 +242,8 @@ begin
             TUpdateKeyboardHost(Host).ThemeCallback:=procedure begin FreeAndNil(RemovedFocus); end;
             SetMHLTheme(not Dark); Application.ProcessMessages;
             Require(not Assigned(RemovedFocus),'Theme callback did not remove its focused control');
-            SetMHLTheme(Dark); View.SectionHeader(1).SetFocus;
+            SetMHLTheme(Dark); Application.ProcessMessages;
+            SetForegroundWindow(Host.Handle); SetActiveWindow(Host.Handle); View.SectionHeader(1).SetFocus;
             Require(View.SectionHeader(1).Focused,'Theme callback removal left release navigation unusable');
             Writeln('PASS update theme tolerates deletion of its formerly focused control in a real form callback'); Flush(Output);
             // A callback intentionally showing an existing hidden form must
@@ -260,16 +261,40 @@ begin
                 'Theme focus restoration stole a newly shown callback input form');
             finally NewInput.Free; end;
             SetForegroundWindow(Host.Handle); SetActiveWindow(Host.Handle); View.SectionHeader(1).SetFocus;
-            SetMHLTheme(Dark);
+            SetMHLTheme(Dark); Application.ProcessMessages;
             Require(View.SectionHeader(1).Focused,'Callback input fixture did not return to release navigation');
             Writeln('PASS update theme preserves a newly shown callback input form without restoring the old header'); Flush(Output);
+            // Two theme changes before the queue is pumped must retire the
+            // first snapshot and restore only the most recent input target.
+            View.SectionHeader(1).SetFocus; SetMHLTheme(not Dark);
+            View.SectionHeader(2).SetFocus; SetMHLTheme(Dark); Application.ProcessMessages;
+            Require((GetForegroundWindow=Host.Handle) and View.SectionHeader(2).Focused and
+              (Winapi.Windows.GetFocus=View.SectionHeader(2).Handle),
+              'An older queued theme snapshot overrode the latest focused release');
+            Require(Succeeded(UpdateProposalAccessibleObjectFromWindow(View.SectionHeader(2).Handle,
+              DWORD($FFFFFFFC),AccessibleID,Dispatch)),'Latest deferred release lost native accessibility');
+            Accessible:=Dispatch; Require((Integer(Accessible.accState[0]) and 4)<>0,
+              'Latest deferred release has no focused accessibility state');
+            Accessible:=Unassigned; Dispatch:=nil;
+            Writeln('PASS update theme coalesces rapid changes and preserves the latest native Windows and accessibility focus'); Flush(Output);
+            // Destruction after Queue, before its first barrier, must remove
+            // the weak control reference just as destruction inside callbacks.
+            RemovedFocus:=TButton.Create(Host); RemovedFocus.Parent:=Host;
+            RemovedFocus.Caption:='Pending snapshot deletion'; RemovedFocus.SetFocus;
+            SetMHLTheme(not Dark); FreeAndNil(RemovedFocus); Application.ProcessMessages;
+            SetMHLTheme(Dark); Application.ProcessMessages;
+            SetForegroundWindow(Host.Handle); SetActiveWindow(Host.Handle); View.SectionHeader(1).SetFocus;
+            Require((GetForegroundWindow=Host.Handle) and View.SectionHeader(1).Focused and
+              (Winapi.Windows.GetFocus=View.SectionHeader(1).Handle),
+              'Deleting a queued focus target broke later release navigation');
+            Writeln('PASS update theme tolerates deletion of a queued focus target before deferred delivery'); Flush(Output);
           end;
           Writeln('PASS update history native Tab Enter Space name state focus scroll reload theme=',Ord(Dark),' VCL_DPI=',PPI);
           Flush(Output);
         finally Accessible:=Unassigned; Dispatch:=nil; FreeAndNil(Host); end;
       end;
   finally
-    FreeAndNil(Host); FreeAndNil(Probe); SetMHLTheme(SavedTheme);
+    FreeAndNil(Host); FreeAndNil(Probe); SetMHLTheme(SavedTheme); Application.ProcessMessages;
     Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
     if not SavedMainVisible then frmMain.Hide;
   end;
@@ -438,7 +463,7 @@ begin
       CloseProbe:=TUpdateProposalVisualClose.Create; CloseProbe.Dialog:=Dialog;
       try
         Dialog.Caption:='История обновлений — изолированный ручной стенд';
-        Dialog.ShowInTaskBar:=stAlways;
+        Dialog.ShowInTaskBar:=True;
         Require(Dialog.StartCheckCycle(True),'Visual fixture cycle did not start');
         Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
         Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
@@ -456,6 +481,7 @@ begin
         Dialog.Constraints.MinWidth:=0; Dialog.Constraints.MinHeight:=0;
         Dialog.ClientWidth:=Min(1800,Screen.WorkAreaWidth-80);
         Dialog.ClientHeight:=Min(1000,Screen.WorkAreaHeight-80);
+        Dialog.Position:=poScreenCenter;
         Writeln('VISUAL update proposals theme=',Ord(Dark),' VCL_PPI=',Dialog.Font.PixelsPerInch,
           ' Tab Enter Space; Esc or Позже closes this fixture; next theme follows'); Flush(Output);
         Dialog.ShowModal;

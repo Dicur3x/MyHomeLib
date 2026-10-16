@@ -1686,8 +1686,9 @@ begin
   // must always detach from a reusable catalog key, never delete the card.
   // An unavailable catalog cannot establish identity. Keep the saved cards.
   Collection := nil;
-  if not FileExists(GetCollectionInfo(DatabaseID).DBFileName) then Exit;
-  try Collection := GetCollection(DatabaseID, False);
+  try
+    if not FileExists(GetCollectionInfo(DatabaseID).DBFileName) then Exit;
+    Collection := GetCollection(DatabaseID, False);
   except
     on E: EAbort do raise;
     on E: EOutOfMemory do raise;

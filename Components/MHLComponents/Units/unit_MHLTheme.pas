@@ -46,7 +46,25 @@ type
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   public
     constructor Capture;
+    function CanRestore: Boolean;
     procedure Restore;
+  end;
+
+  // One message-only task owner, independent of styled form HWNDs. Only the
+  // most recent theme snapshot survives; there is no per-form registry/timer.
+  TThemeFocusDispatcher = class
+  private
+    FWindow: HWND;
+    FPending: TThemeFocusSnapshot;
+    FGeneration: NativeUInt;
+    FPasses: Integer;
+    FLastForm, FLastControl: HWND;
+    procedure WndProc(var Message: TMessage);
+    procedure Post;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Queue(Focus: TThemeFocusSnapshot);
   end;
 
   TThemeToolbarPainter = class(TComponent)
@@ -61,6 +79,8 @@ type
     constructor CreateFor(Bar: TToolBar);
     procedure Apply;
   end;
+
+var ThemeFocusDispatcher: TThemeFocusDispatcher;
 
 constructor TThemeFocusSnapshot.Capture;
 var I: Integer;
@@ -127,30 +147,102 @@ begin
 {$ENDIF}
 end;
 
-procedure TThemeFocusSnapshot.Restore;
+function TThemeFocusSnapshot.CanRestore: Boolean;
+var Foreground: HWND; ProcessID, ThreadID: DWORD;
 begin
+  Result:=False;
   // A background form must never activate merely because its style changed.
   if not FWasForeground then begin Trace('skip background'); Exit; end;
   if not Assigned(FControl) or not Assigned(FForm) then begin Trace('skip removed control/form'); Exit; end;
   if (csDestroying in FControl.ComponentState) or (csDestroying in FForm.ComponentState) or
     not FControl.CanFocus then begin Trace('skip cannot focus'); Exit; end;
+  // Check the current input owner as well as the original one. The user may
+  // have selected another application while VCL processed its queued rebuild.
+  Foreground:=GetForegroundWindow; ProcessID:=0; ThreadID:=0;
+  if Foreground<>0 then ThreadID:=GetWindowThreadProcessId(Foreground,@ProcessID);
+  if (Foreground=0) or (ProcessID<>GetCurrentProcessId) or (ThreadID<>GetCurrentThreadId) then
+    begin Trace('skip foreign/no foreground PID='+IntToStr(ProcessID)+' thread='+IntToStr(ThreadID)); Exit; end;
   // Theme callbacks may intentionally open another form or a modal dialog.
   // Preserve that new input target rather than taking focus back from it.
   if Application.ModalLevel<>FModalLevel then begin Trace('skip changed modal level'); Exit; end;
   if NewInputForm(Screen.ActiveCustomForm) then begin Trace('skip new active input form'); Exit; end;
   for var I:=0 to Screen.FormCount-1 do
     if NewInputForm(Screen.Forms[I]) then begin Trace('skip newly visible/modal form'); Exit; end;
+  Result:=True;
+end;
+
+procedure TThemeFocusSnapshot.Restore;
+begin
+  if not CanRestore then Exit;
   // RecreateWnd can transiently activate an already existing form such as
-  // Main. That is not a callback opening a new input surface; permit restoring
-  // the original foreground form when no visibility/modal transition occurred.
-  // A style switch recreates HWNDs. Retain the actual focused VCL component,
-  // including a focused release button, after all form theme callbacks finish.
-  // FreeNotification also covers a callback that removes/rebuilds that control.
+  // Main. Restore only after its posted rebuilds have settled, retaining the
+  // actual VCL component rather than an obsolete native handle.
   Trace('restoring');
   SetForegroundWindow(FForm.Handle);
+  // Activation handlers are allowed to destroy a target or open a dialog.
+  if not CanRestore then Exit;
   SetActiveWindow(FForm.Handle);
+  if not CanRestore then Exit;
   FControl.SetFocus;
   Trace('restored');
+end;
+
+const WM_MHL_RESTORE_THEME_FOCUS = WM_APP + $43;
+
+constructor TThemeFocusDispatcher.Create;
+begin
+  inherited Create;
+  FWindow:=AllocateHWnd(WndProc);
+end;
+
+destructor TThemeFocusDispatcher.Destroy;
+begin
+  FreeAndNil(FPending);
+  if FWindow<>0 then DeallocateHWnd(FWindow);
+  inherited;
+end;
+
+procedure TThemeFocusDispatcher.Post;
+begin
+  if not PostMessage(FWindow,WM_MHL_RESTORE_THEME_FOCUS,WPARAM(FGeneration),0) then
+    FreeAndNil(FPending);
+end;
+
+procedure TThemeFocusDispatcher.Queue(Focus: TThemeFocusSnapshot);
+begin
+  FreeAndNil(FPending); FPending:=Focus; Inc(FGeneration);
+  FPasses:=0; FLastForm:=0; FLastControl:=0;
+  Post;
+end;
+
+procedure TThemeFocusDispatcher.WndProc(var Message: TMessage);
+const MaxPasses=4;
+var FormHandle, ControlHandle: HWND; Focus: TThemeFocusSnapshot;
+begin
+  if Message.Msg<>WM_MHL_RESTORE_THEME_FOCUS then
+  begin Message.Result:=DefWindowProc(FWindow,Message.Msg,Message.WParam,Message.LParam); Exit; end;
+  Message.Result:=0;
+  if (NativeUInt(Message.WParam)<>FGeneration) or not Assigned(FPending) then Exit;
+  if not FPending.CanRestore then begin FreeAndNil(FPending); Exit; end;
+  FormHandle:=0; ControlHandle:=0;
+  if FPending.FForm.HandleAllocated then FormHandle:=FPending.FForm.Handle;
+  if FPending.FControl.HandleAllocated then ControlHandle:=FPending.FControl.Handle;
+  Inc(FPasses);
+  // Style changes post form/control rebuilds. A private HWND survives them;
+  // two consecutive queue barriers with stable HWNDs avoid restoring to the
+  // old handles. Bound retries and never run Application.ProcessMessages here.
+  if (FPasses=1) or (FormHandle=0) or (ControlHandle=0) or
+    (FormHandle<>FLastForm) or (ControlHandle<>FLastControl) then
+  begin
+    FLastForm:=FormHandle; FLastControl:=ControlHandle;
+    FPending.Trace('waiting for stable handles pass='+IntToStr(FPasses)+
+      ' form='+IntToStr(NativeUInt(FormHandle))+' control='+IntToStr(NativeUInt(ControlHandle)));
+    if FPasses<MaxPasses then Post
+    else begin FPending.Trace('skip unstable handles'); FreeAndNil(FPending); end;
+    Exit;
+  end;
+  Focus:=FPending; FPending:=nil;
+  try Focus.Restore; finally Focus.Free; end;
 end;
 
 constructor TThemeToolbarPainter.CreateFor(Bar: TToolBar);
@@ -374,8 +466,14 @@ begin
         SendMessage(Screen.Forms[I].Handle,WM_MHL_APP_THEME,Ord(Dark),0);
     end;
   finally
-    try Focus.Restore; finally Focus.Free; end;
+    try
+      if not Assigned(ThemeFocusDispatcher) then ThemeFocusDispatcher:=TThemeFocusDispatcher.Create;
+      ThemeFocusDispatcher.Queue(Focus); Focus:=nil;
+    finally Focus.Free; end;
   end;
 end;
 
+initialization
+finalization
+  FreeAndNil(ThemeFocusDispatcher);
 end.
