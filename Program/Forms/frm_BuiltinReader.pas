@@ -2210,8 +2210,8 @@ type
     FText, FLatest, FQuote: TMemo;
     FRecovery: TPanel;
     FMessage, FDraftLabel: TLabel;
-    FSave, FReload: TButton;
-    FCopyAfterConflict, FSaved: Boolean;
+    FSave, FReload, FCopy: TButton;
+    FCopyAfterConflict, FSaved, FLayoutUpdating: Boolean;
     function Draft: TReaderAnnotation;
     procedure ShowRecovery(const Text: string);
     procedure UpdateDraftLayout;
@@ -2248,15 +2248,18 @@ begin
   Button:=TButton.Create(Self); Button.Name:='NoteEditorCancel'; Button.Parent:=Footer; Button.SetBounds(528,8,110,30);
   Button.Anchors:=[akRight,akBottom]; Button.Caption:='Отмена'; Button.ModalResult:=mrCancel; Button.Cancel:=True;
   Body:=TPanel.Create(Self); Body.Parent:=Self; Body.Align:=alClient; Body.BevelOuter:=bvNone;
-  FRecovery:=TPanel.Create(Self); FRecovery.Name:='NoteConflictActions'; FRecovery.Parent:=Body;
+  FRecovery:=TPanel.Create(Self); FRecovery.Name:='NoteConflictActions'; FRecovery.Caption:=''; FRecovery.Parent:=Body;
   FRecovery.Align:=alTop; FRecovery.Height:=114; FRecovery.BevelOuter:=bvNone; FRecovery.Visible:=False;
   FMessage:=TLabel.Create(Self); FMessage.Name:='NoteConflictMessage'; FMessage.Parent:=FRecovery;
-  FMessage.SetBounds(12,4,626,68); FMessage.AutoSize:=False; FMessage.WordWrap:=True; FMessage.Anchors:=[akLeft,akTop,akRight];
-  Button:=TButton.Create(Self); Button.Name:='NoteDraftCopy'; Button.Parent:=FRecovery;
-  Button.SetBounds(12,76,238,30); Button.Caption:='Сохранить копию текста…'; Button.OnClick:=CopyClick;
+  FMessage.SetBounds(12,8,626,68); FMessage.AutoSize:=False; FMessage.WordWrap:=True;
+  FMessage.Caption:=''; FMessage.ShowAccelChar:=False; FMessage.ShowHint:=True; FMessage.Anchors:=[akLeft,akTop];
+  FCopy:=TButton.Create(Self); FCopy.Name:='NoteDraftCopy'; FCopy.Parent:=FRecovery;
+  FCopy.SetBounds(12,76,238,30); FCopy.Caption:='Сохранить копию текста…'; FCopy.OnClick:=CopyClick;
   FReload:=TButton.Create(Self); FReload.Name:='NoteReload'; FReload.Parent:=FRecovery;
   FReload.SetBounds(258,76,182,30); FReload.Caption:='Перечитать записи'; FReload.OnClick:=ReloadClick;
-  FDraftLabel:=TLabel.Create(Self); FDraftLabel.Parent:=Body; FDraftLabel.AutoSize:=False; FDraftLabel.Align:=alTop;
+  FDraftLabel:=TLabel.Create(Self); FDraftLabel.Name:='NoteDraftLabel'; FDraftLabel.Parent:=Body;
+  FDraftLabel.AutoSize:=False; FDraftLabel.Align:=alTop; FDraftLabel.AlignWithMargins:=True;
+  FDraftLabel.Margins.SetBounds(12,4,12,4); FDraftLabel.ShowAccelChar:=False;
   FDraftLabel.Height:=24; FDraftLabel.Caption:='Ваши мысли — черновик остаётся здесь';
   FLatest:=TMemo.Create(Self); FLatest.Name:='NoteLatest'; FLatest.Parent:=Body; FLatest.Align:=alBottom;
   FLatest.Height:=120; FLatest.ReadOnly:=True; FLatest.ScrollBars:=ssVertical; FLatest.Visible:=False;
@@ -2264,27 +2267,58 @@ begin
   FQuote.Text:='Цитата: '+Note.Quote; FQuote.ReadOnly:=True; FQuote.ScrollBars:=ssVertical; FQuote.Visible:=Note.Quote<>'';
   FText:=TMemo.Create(Self); FText.Name:='NoteEditorText'; FText.Parent:=Body; FText.Align:=alClient; FText.ScrollBars:=ssVertical;
   FText.TextHint:='Ваши мысли об этом месте книги…'; FText.MaxLength:=16384; FText.Text:=Note.Text;
-  ApplyMHLControlTheme(Self); ActiveControl:=FText;
+  ApplyMHLControlTheme(Self); UpdateDraftLayout; ActiveControl:=FText;
 end;
 
 function TReaderNoteEditor.Draft: TReaderAnnotation;
 begin Result:=FNote; Result.Title:=Trim(FTitle.Text); Result.Text:=FText.Text; end;
 
 procedure TReaderNoteEditor.UpdateDraftLayout;
-var Available: Integer;
+var Available, TextWidth, MessageHeight, ButtonHeight, ButtonTop: Integer; Bounds: TRect; Body: TWinControl;
+  function S(Value: Integer): Integer;
+  begin
+    // The fixed-height draft label follows actual VCL scaling, including
+    // explicit ScaleForPPI while CurrentPPI still describes the monitor.
+    Result:=MulDiv(Value,FDraftLabel.Height,24);
+  end;
 begin
-  if csDestroying in ComponentState then Exit;
+  if (csDestroying in ComponentState) or FLayoutUpdating then Exit;
   if not Assigned(FText) or not Assigned(FLatest) or not Assigned(FDraftLabel) then Exit;
-  if not Assigned(FLatest.Parent) or not FLatest.Visible then Exit;
-  Available:=FLatest.Parent.ClientHeight-FDraftLabel.Height;
-  if Assigned(FRecovery) and FRecovery.Visible then Dec(Available,FRecovery.Height);
-  if Assigned(FQuote) and FQuote.Visible then Dec(Available,FQuote.Height);
-  // The saved revision can scroll. Reserve space for the editable draft even
-  // when the user shrinks a conflicted editor to its minimum window height.
-  // This label is scaled by VCL with the other controls; CurrentPPI can still
-  // describe the monitor during an explicit ScaleForPPI test or transition.
-  FLatest.Height:=Max(FDraftLabel.Height,
-    Min(FDraftLabel.Height*5,Available-MulDiv(64,FDraftLabel.Height,24)));
+  if not Assigned(FText.Parent) then Exit;
+  FLayoutUpdating:=True; Body:=FText.Parent; Body.DisableAlign; FRecovery.DisableAlign;
+  try
+    FDraftLabel.Margins.SetBounds(S(12),S(4),S(12),S(4));
+    if FRecovery.Visible then
+    begin
+      // Hidden panels can have a different anchor base. Derive every width
+      // from the current client area rather than stretching an old label.
+      FRecovery.Width:=Body.ClientWidth; FRecovery.Top:=0;
+      TextWidth:=Max(S(80),FRecovery.ClientWidth-2*S(12));
+      Canvas.Font.Assign(FMessage.Font); Bounds:=Rect(0,0,TextWidth,0);
+      DrawText(Canvas.Handle,PChar(FMessage.Caption),Length(FMessage.Caption),Bounds,
+        DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      MessageHeight:=Max(Canvas.TextHeight('Mg'),Bounds.Height);
+      FMessage.SetBounds(S(12),S(8),TextWidth,MessageHeight); FMessage.Hint:=FMessage.Caption;
+      ButtonHeight:=Max(S(30),Canvas.TextHeight('Mg')+S(12));
+      ButtonTop:=FMessage.Top+FMessage.Height+S(8);
+      FCopy.SetBounds(S(12),ButtonTop,S(238),ButtonHeight);
+      FReload.SetBounds(FCopy.Left+FCopy.Width+S(8),ButtonTop,S(182),ButtonHeight);
+      if FReload.Left+FReload.Width>FRecovery.ClientWidth-S(12) then
+        FReload.SetBounds(S(12),ButtonTop+ButtonHeight+S(8),S(182),ButtonHeight);
+      FRecovery.Height:=FReload.Top+FReload.Height+S(8);
+    end;
+    if FRecovery.Visible then FDraftLabel.Top:=FRecovery.Height+FDraftLabel.Margins.Top;
+    if FLatest.Visible then
+    begin
+      Available:=Body.ClientHeight-FDraftLabel.Height-FDraftLabel.Margins.Top-FDraftLabel.Margins.Bottom;
+      if FRecovery.Visible then Dec(Available,FRecovery.Height);
+      if FQuote.Visible then Dec(Available,FQuote.Height);
+      // Saved text can scroll; keep the live draft editable at minimum size.
+      FLatest.Height:=Max(S(24),Min(S(120),Available-S(64)));
+    end;
+  finally
+    FRecovery.EnableAlign; Body.EnableAlign; FLayoutUpdating:=False;
+  end;
 end;
 
 procedure TReaderNoteEditor.Resize;
@@ -2336,7 +2370,9 @@ begin
     with Dialog.FileTypes.Add do begin DisplayName:='Текст UTF-8 (*.txt)'; FileMask:='*.txt'; end;
     Dialog.FileName:='Черновик заметки.txt'; Dialog.Options:=Dialog.Options+[fdoOverWritePrompt,fdoPathMustExist,fdoStrictFileTypes];
     if Dialog.Execute(Handle) then
-      try SaveReaderAnnotationDraft(Draft,Dialog.FileName); FMessage.Caption:='Копия черновика сохранена: '+Dialog.FileName;
+      try
+        SaveReaderAnnotationDraft(Draft,Dialog.FileName);
+        ShowRecovery('Копия черновика сохранена: '+Dialog.FileName);
       except on E: Exception do ShowRecovery('Копия не сохранена. Черновик остаётся в полях.'+sLineBreak+E.Message); end;
   finally Dialog.Free; end;
 end;

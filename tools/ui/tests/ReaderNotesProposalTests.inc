@@ -68,6 +68,52 @@ begin
   RNPTrace('modal driver action completed');
 end;
 
+procedure RNPCheckRecoveryText(Form: TCustomForm; DPI: Integer);
+var Panel: TPanel; Message, DraftLabel: TLabel; CopyButton, ReloadButton: TButton;
+  Draft: TMemo; Measure: TBitmap; Bounds: TRect;
+  function S(Value: Integer): Integer;
+  begin Result:=MulDiv(Value,DPI,96); end;
+begin
+  Panel:=TPanel(RNPComponent(Form,'NoteConflictActions',TPanel));
+  Require(Panel.Caption='','Recovery panel displays its internal component name');
+  if not Panel.Visible then Exit;
+  Message:=TLabel(RNPComponent(Form,'NoteConflictMessage',TLabel));
+  DraftLabel:=TLabel(RNPComponent(Form,'NoteDraftLabel',TLabel));
+  CopyButton:=TButton(RNPComponent(Form,'NoteDraftCopy',TButton));
+  ReloadButton:=TButton(RNPComponent(Form,'NoteReload',TButton));
+  Draft:=TMemo(RNPComponent(Form,'NoteEditorText',TMemo));
+  Require((Message.Caption<>'') and (Message.Hint=Message.Caption),'Recovery status is empty or loses its full text');
+  Require(Message.WordWrap and not Message.AutoSize and not Message.ShowAccelChar,
+    'Conflict message must wrap and retain literal text');
+  Require((Message.Left>=S(12)) and (Message.Left+Message.Width<=Panel.ClientWidth-S(12)),
+    'Conflict text leaves the padded recovery client area');
+  Measure:=TBitmap.Create;
+  try
+    Measure.Canvas.Font.Assign(Message.Font); Bounds:=Rect(0,0,Message.Width,0);
+    DrawText(Measure.Canvas.Handle,PChar(Message.Caption),Length(Message.Caption),Bounds,
+      DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    Require((Bounds.Width<=Message.Width) and (Bounds.Height<=Message.Height),
+      'Conflict message is clipped at DPI '+IntToStr(DPI));
+    Require((CopyButton.Top>=Message.Top+Message.Height+S(8)) and
+      (ReloadButton.Top>=Message.Top+Message.Height+S(8)),
+      'Recovery buttons overlap the wrapped conflict message');
+    for var Button in TArray<TButton>.Create(CopyButton,ReloadButton) do
+    begin
+      Measure.Canvas.Font.Assign(Button.Font);
+      Require(Measure.Canvas.TextWidth(Button.Caption)+S(16)<=Button.Width,
+        'Recovery action caption is clipped: '+Button.Name);
+    end;
+  finally Measure.Free; end;
+  Require((DraftLabel.Left>=S(12)) and
+    (DraftLabel.Left+DraftLabel.Width<=DraftLabel.Parent.ClientWidth-S(12)),
+    'Draft label has no horizontal padding');
+  Require(DraftLabel.Top>=Panel.Top+Panel.Height+S(4),'Draft label overlaps recovery actions');
+  Require(Draft.Top>=DraftLabel.Top+DraftLabel.Height+S(4),'Draft input overlaps its label');
+  Require(Draft.Height>=S(48),'Recovery status collapsed the editable draft');
+  RNPTrace('recovery readable dpi='+IntToStr(DPI)+' message_width='+IntToStr(Message.Width)+
+    ' message_height='+IntToStr(Message.Height)+' draft_height='+IntToStr(Draft.Height));
+end;
+
 procedure RNPCheckDialogLayout(Form: TCustomForm; Width, Height: Integer; WindowBounds: Boolean = False);
 var PreviousTheme: Boolean; PreviousPPI, PreviousWidth, PreviousHeight: Integer;
 begin
@@ -97,6 +143,7 @@ begin
           end;
         if Form.Name='ReaderNoteEditor' then
         begin
+          RNPCheckRecoveryText(Form,DPI);
           var Latest:=TMemo(RNPComponent(Form,'NoteLatest',TMemo));
           if Latest.Visible then
           begin
@@ -417,6 +464,7 @@ begin
         Require(Editor.Visible and not Save.Enabled,'Conflict closed the editor or allowed a blind retry');
         Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Conflict lost the live draft');
         Require(TButton(RNPComponent(Editor,'NoteDraftCopy',TButton)).Visible,'Draft copy recovery action missing');
+        RNPCheckDialogLayout(Editor,470,430,True);
         ReloadButton:=TButton(RNPComponent(Editor,'NoteReload',TButton));
         SavedBytes:=TFile.ReadAllBytes(NotesFile); TFile.WriteAllText(NotesFile,'{broken',TEncoding.UTF8);
         try
