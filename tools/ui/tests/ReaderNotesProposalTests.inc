@@ -81,20 +81,72 @@ type
   public
     Timer: TTimer;
     Started: UInt64;
+    FixtureRoot, ExpectedScope: string;
+    ExpectedCount: Integer;
     Confirmed: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
-procedure TRNPConfirm.Tick(Sender: TObject);
+function RNPConfirmationChildText(Window: HWND; Value: LPARAM): BOOL; stdcall;
+var PID: DWORD; Buffer: array[0..8191] of Char; Count: Integer;
 begin
+  PID:=0; GetWindowThreadProcessId(Window,@PID);
+  if PID=GetCurrentProcessId then
+  begin
+    Count:=GetWindowText(Window,Buffer,Length(Buffer));
+    if Count>0 then TStrings(Pointer(Value)).Add(Copy(string(PChar(@Buffer[0])),1,Count));
+  end;
+  Result:=True;
+end;
+
+procedure TRNPConfirm.Tick(Sender: TObject);
+var Window, Next, YesButton: HWND; PID: DWORD; ClassName: array[0..255] of Char; Parts: TStringList;
+  function IsExpected(const Text: string): Boolean;
+  begin
+    Result:=Text.Contains(Format('Удалить только показанные записи? Записей: %d.',[ExpectedCount])) and
+      Text.Contains('Область: '+ExpectedScope+'.') and
+      Text.Contains('Скрытые поиском и другими фильтрами записи останутся.');
+  end;
+begin
+  Require((ExpectedCount=2) and DirectoryExists(FixtureRoot) and
+    TPath.GetFullPath(FixtureRoot).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes\',True),
+    'Automatic confirmation is restricted to this own notes fixture');
   Require(GetTickCount64-Started<5000,'Own notes fixture confirmation did not appear');
+  // TaskDialog is not a Screen.Forms entry. Match the current process and the
+  // complete fixture-specific message before accepting a native dialog.
+  Window:=GetTopWindow(0);
+  while Window<>0 do
+  begin
+    Next:=GetWindow(Window,GW_HWNDNEXT); PID:=0; GetWindowThreadProcessId(Window,@PID);
+    if (PID=GetCurrentProcessId) and IsWindowVisible(Window) and
+      (GetClassName(Window,ClassName,Length(ClassName))>0) and (string(PChar(@ClassName[0]))='#32770') then
+    begin
+      Parts:=TStringList.Create;
+      try
+        EnumChildWindows(Window,@RNPConfirmationChildText,LPARAM(Pointer(Parts)));
+        if IsExpected(Parts.Text) then
+        begin
+          Timer.Enabled:=False; Confirmed:=True; YesButton:=GetDlgItem(Window,IDYES);
+          if YesButton<>0 then PostMessage(YesButton,BM_CLICK,0,0)
+          else PostMessage(Window,WM_USER+102,IDYES,0); // TDM_CLICK_BUTTON
+          Exit;
+        end;
+      finally Parts.Free; end;
+    end;
+    Window:=Next;
+  end;
   for var I:=0 to Screen.FormCount-1 do
+  begin
+    if not Screen.Forms[I].Visible or not Screen.Forms[I].HandleAllocated then Continue;
+    PID:=0; GetWindowThreadProcessId(Screen.Forms[I].Handle,@PID);
+    if PID<>GetCurrentProcessId then Continue;
     for var J:=0 to Screen.Forms[I].ComponentCount-1 do
       if (Screen.Forms[I].Components[J] is TLabel) and
-        TLabel(Screen.Forms[I].Components[J]).Caption.StartsWith('Удалить только показанные записи?') then
+        IsExpected(TLabel(Screen.Forms[I].Components[J]).Caption) then
       begin
         Timer.Enabled:=False; Confirmed:=True; Screen.Forms[I].ModalResult:=mrYes; Exit;
       end;
+  end;
 end;
 
 procedure TestReaderNotesProposals(const Root: string);
@@ -309,6 +361,8 @@ begin
     List.Items[List.Items.Count-1].Selected:=True; Search.Text:='маяк';
     Confirm:=TRNPConfirm.Create; Confirm.Timer:=TTimer.Create(nil);
     try
+      Confirm.FixtureRoot:=Work; Confirm.ExpectedCount:=2;
+      Confirm.ExpectedScope:='книга «Книга Альфа»; поиск «маяк»';
       Confirm.Started:=GetTickCount64; Confirm.Timer.Interval:=10; Confirm.Timer.OnTimer:=Confirm.Tick;
       TButton(Dialog.FindComponent('NotesDeleteAll')).Click;
       Require(Confirm.Confirmed,'Filtered destructive action skipped its own-fixture confirmation');
