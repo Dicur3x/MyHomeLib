@@ -134,7 +134,10 @@ begin
     Latest.Title:='Скрытая запись'; Latest.Text:='Еж и отдельная мысль'; Store.Put(Latest);
     Writeln('PROFILE reader-notes-visual profile=',Profile); Flush(Output);
     Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile);
-    try Dialog.ShowModal; finally Dialog.Free; end;
+    try
+      Dialog.ShowInTaskBar:=stAlways; RNPTrace('visual list taskbar=always');
+      Dialog.ShowModal;
+    finally Dialog.Free; end;
     // Use a separate conflict fixture: the operator may freely delete/edit
     // every row in the first window without invalidating the second scenario.
     FreeAndNil(Store); Profile:=TPath.Combine(Work,'conflict\reader.ini');
@@ -151,6 +154,7 @@ begin
     Driver:=TRNPModalAction.Create(Work,
       procedure(Editor: TCustomForm)
       begin
+        TForm(Editor).ShowInTaskBar:=stAlways; RNPTrace('visual editor taskbar=always');
         TButton(RNPComponent(Editor,'NoteEditorSave',TButton)).Click;
       end);
     try EditAndSaveReaderNote(nil,Store,Note); finally Driver.Free; end;
