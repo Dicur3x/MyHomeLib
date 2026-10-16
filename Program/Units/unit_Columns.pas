@@ -108,6 +108,10 @@ rstrAuthor = 'Автор';
    rstrTitle = 'Название';
    rstrSeries = 'Серия';
    rstrPublisher = 'Издательство';
+   rstrTranslators = 'Переводчики';
+   rstrCity = 'Город издания';
+   rstrPubYear = 'Год издания';
+   rstrISBN = 'ISBN';
    rstrNO = '№';
    rstrSize = 'Размер';
    rstrRate = 'Моя оценка';
@@ -171,16 +175,33 @@ begin
         Options := Rez;
       end;
 
-    COL_PUBLISHER, COL_PUBLISHER_SERIES, COL_SERIES:
+    COL_PUBLISHER, COL_PUBLISHER_SERIES, COL_SERIES, COL_TRANSLATORS, COL_CITY, COL_ISBN:
       begin
         case Tag of
           COL_PUBLISHER: Caption := rstrPublisher;
           COL_PUBLISHER_SERIES: Caption := 'Книжная серия';
+          COL_TRANSLATORS: Caption := rstrTranslators;
+          COL_CITY: Caption := rstrCity;
+          COL_ISBN: Caption := rstrISBN;
         else Caption := rstrSeries;
         end;
         MaxWidth := 900;
         MinWidth := 30;
+        case Tag of
+          COL_TRANSLATORS: MinWidth := S(120);
+          COL_CITY: MinWidth := S(140);
+          COL_ISBN: MinWidth := S(100);
+        end;
         Alignment := taLeftJustify;
+        Options := Rez;
+      end;
+
+    COL_PUBYEAR:
+      begin
+        Caption := rstrPubYear;
+        MaxWidth := S(200);
+        MinWidth := S(115);
+        Alignment := taRightJustify;
         Options := Rez;
       end;
 
@@ -385,7 +406,7 @@ begin
               not TryStrToInt(slHelper[0], Tag) or
               not TryStrToInt(slHelper[1], Width) or
               not TryStrToInt(slHelper[2], Position) then Continue;
-            if not (((Tag >= COL_TITLE) and (Tag <= COL_PUBLISHER)) or
+            if not (((Tag >= COL_TITLE) and (Tag <= COL_ISBN)) or
               (Tag = COL_STATE)) or (Width < 0) or (Width > 65535) or
               (Position < 0) or (Position >= sl.Count) then Continue;
             Duplicate := False;

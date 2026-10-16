@@ -317,6 +317,14 @@ begin
       Result := TSeriesHelper.GetList(Data^.PublisherSeries);
     COL_PUBLISHER:
       Result := Data^.Publisher;
+    COL_TRANSLATORS:
+      Result := Data^.Translators;
+    COL_CITY:
+      Result := Data^.City;
+    COL_PUBYEAR:
+      Result := IfThen(Data^.PubYear = 0, '', IntToStr(Data^.PubYear));
+    COL_ISBN:
+      Result := Data^.ISBN;
     COL_NO:
       Result := IfThen(Data^.SeqNumber = 0, '', IntToStr(Data^.SeqNumber));
     COL_SIZE:
@@ -561,6 +569,10 @@ var
       COL_TITLE:   Result := CompareStr(Data1^.Title, Data2^.Title);
       COL_PUBLISHER_SERIES: Result := CompareStr(TSeriesHelper.GetList(Data1^.PublisherSeries),TSeriesHelper.GetList(Data2^.PublisherSeries));
       COL_PUBLISHER: Result := CompareStr(Data1^.Publisher, Data2^.Publisher);
+      COL_TRANSLATORS: Result := CompareStr(Data1^.Translators, Data2^.Translators);
+      COL_CITY: Result := CompareStr(Data1^.City, Data2^.City);
+      COL_PUBYEAR: Result := CompareInt(Data1^.PubYear, Data2^.PubYear);
+      COL_ISBN: Result := CompareStr(Data1^.ISBN, Data2^.ISBN);
       COL_SERIES:  Result := CompareStr(Data1^.Series, Data2^.Series);
       COL_NO:      Result := CompareSeqNumber(Number1, Number2);
       COL_SIZE:    Result := CompareInt(Data1^.Size, Data2^.Size);

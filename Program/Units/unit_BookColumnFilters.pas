@@ -160,11 +160,13 @@ begin
 end;
 
 const
-  ColumnTags: array[0..14] of Integer = (COL_AUTHOR, COL_TITLE, COL_SERIES,
+  ColumnTags: array[0..18] of Integer = (COL_AUTHOR, COL_TITLE, COL_SERIES,
     COL_PUBLISHER_SERIES_FILTER, COL_PUBLISHER,
+    COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN,
     COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE,
     COL_COLLECTION, COL_LANG, COL_LIBRATE, COL_LIBID);
-  ColumnNames: array[0..14] of string = ('Автор', 'Название', 'Серия', 'Книжная серия', 'Издательство', '№',
+  ColumnNames: array[0..18] of string = ('Автор', 'Название', 'Серия', 'Книжная серия', 'Издательство',
+    'Переводчики', 'Город издания', 'Год издания', 'ISBN', '№',
     'Жанр', 'Размер', 'Моя оценка', 'Добавлено', 'Тип', 'Коллекция',
     'Язык', 'Рейтинг библиотеки', 'ID в библиотеке');
 
@@ -241,6 +243,10 @@ begin
     COL_AUTHOR: Result := TAuthorsHelper.GetList(Book.Authors);
     COL_TITLE: Result := Book.Title;
     COL_PUBLISHER: Result := Book.Publisher;
+    COL_TRANSLATORS: Result := Book.Translators;
+    COL_CITY: Result := Book.City;
+    COL_PUBYEAR: if Book.PubYear <> 0 then Result := IntToStr(Book.PubYear);
+    COL_ISBN: Result := Book.ISBN;
     COL_SERIES: Result := Book.Series;
     COL_PUBLISHER_SERIES_FILTER:
       for Series in Book.PublisherSeries do Result := Result + Series.SeriesTitle + sLineBreak;
@@ -354,7 +360,10 @@ var Node: PVirtualNode; Book: PBookRecord; Genre: TGenreData; Series: TBookSerie
   procedure Add(const Value: string);
   var Key: string;
   begin
-    if (Value = '') or not Raw.TryAdd(Value,0) then Exit;
+    // Missing publication metadata is a useful exact selection, distinct from
+    // clearing a filter. The list editor gives this empty value a readable name.
+    if ((Value = '') and not (Tag in [COL_PUBLISHER,COL_TRANSLATORS,COL_CITY,COL_ISBN])) or
+      not Raw.TryAdd(Value,0) then Exit;
     // Keep spelling variants available when the user enables case matching.
     // Matching itself still folds case and e/yo unless explicitly requested.
     Key := Value;
@@ -412,7 +421,7 @@ begin
     end
     else if (C.Tag = COL_DATE) and (Length(Parts) = 4) and (Parts[0] = 'date') then
     begin C.Kind := 4; C.Mode := StrToIntDef(Parts[1],0); C.Lower := ISODate(Parts[2]); C.Upper := ISODate(Parts[3]); end
-    else if (C.Tag in [COL_SIZE,COL_NO,COL_RATE,COL_LIBRATE]) and (Length(Parts) >= 4) and (Parts[0] = 'num') then
+    else if (C.Tag in [COL_SIZE,COL_NO,COL_RATE,COL_LIBRATE,COL_PUBYEAR]) and (Length(Parts) >= 4) and (Parts[0] = 'num') then
     begin
       C.Kind := 3; C.Mode := StrToIntDef(Parts[1],0);
       if not TryStrToFloat(Parts[2],C.Lower,TFormatSettings.Invariant) or
@@ -491,11 +500,19 @@ begin
       end;
       3,4:
       begin
+        if C.Tag = COL_PUBYEAR then
+        begin
+          if C.Mode = 8 then begin if Book.PubYear <> 0 then Exit(False); Continue; end;
+          if C.Mode = 9 then begin if Book.PubYear = 0 then Exit(False); Continue; end;
+          // A missing year is not year zero in a range or inequality.
+          if Book.PubYear = 0 then Exit(False);
+        end;
         case C.Tag of
           COL_DATE: Number := DateOf(Book.Date);
           COL_SIZE: Number := Book.Size;
           COL_RATE: Number := Book.Rate;
           COL_LIBRATE: Number := Book.LibRate;
+          COL_PUBYEAR: Number := Book.PubYear;
         else
           if FTree.Tag = PAGE_PUBLISHER_SERIES then Number := Book.PublisherSeqNumber else Number := Book.SeqNumber;
         end;
@@ -631,14 +648,18 @@ begin
   Start := 175; FieldWidth := 145; Gap := 30; UnitWidth := 115;
   if Owner.ClientWidth < 500 then begin Start := 12; FieldWidth := 100; Gap := 28; UnitWidth := 74; end;
   Mode := TComboBox.Create(Owner); Mode.Parent := Parent;
+  Mode.Name := 'NumericFilterMode'+IntToStr(Tag);
   Mode.SetBounds(Start, Y, Parent.ClientWidth - Start - 12, 25); Mode.Anchors := [akLeft, akTop, akRight];
   Mode.Style := csDropDownList;
   Mode.Items.AddStrings(['Любое значение', 'Равно', 'Не меньше (≥)', 'Не больше (≤)',
     'Больше (>)', 'Меньше (<)', 'Между (включительно)', 'Не равно']); Mode.ItemIndex := 0;
+  if Tag = COL_PUBYEAR then Mode.Items.AddStrings(['Не указан', 'Указан']);
   FromValue := TEdit.Create(Owner); FromValue.Parent := Parent; FromValue.SetBounds(Start, Y + 32, FieldWidth, 25);
+  FromValue.Name := 'NumericFilterFrom'+IntToStr(Tag);
   BetweenLabel := TLabel.Create(Owner); BetweenLabel.Parent := Parent;
   BetweenLabel.SetBounds(Start + FieldWidth + 9, Y + 37, 18, 20); BetweenLabel.Caption := 'и';
   ToValue := TEdit.Create(Owner); ToValue.Parent := Parent; ToValue.SetBounds(Start + FieldWidth + Gap, Y + 32, FieldWidth, 25);
+  ToValue.Name := 'NumericFilterTo'+IntToStr(Tag);
   if Tag = COL_SIZE then
   begin
     Units := TComboBox.Create(Owner); Units.Parent := Parent; Units.SetBounds(Parent.ClientWidth - UnitWidth - 12, Y + 32, UnitWidth, 25);
@@ -647,7 +668,7 @@ begin
   Parts := Current.Split([';']); Factor := 1;
   if (Length(Parts) >= 4) and (Parts[0] = 'num') then
   begin
-    Mode.ItemIndex := EnsureRange(StrToIntDef(Parts[1], 0), 0, 7);
+    Mode.ItemIndex := EnsureRange(StrToIntDef(Parts[1], 0), 0, Mode.Items.Count-1);
     if Assigned(Units) then
     begin
       if Length(Parts) > 4 then Units.ItemIndex := EnsureRange(StrToIntDef(Parts[4], 0), 0, 3)
@@ -662,7 +683,7 @@ end;
 
 procedure TNumericFilterEditor.Changed(Sender: TObject);
 begin
-  FromValue.Enabled := Mode.ItemIndex > 0;
+  FromValue.Enabled := Mode.ItemIndex in [1..7];
   ToValue.Visible := Mode.ItemIndex = 6; BetweenLabel.Visible := ToValue.Visible;
   if Assigned(Units) then Units.Enabled := FromValue.Enabled;
 end;
@@ -677,10 +698,14 @@ var Lower, Upper, Factor: Extended; UnitIndex: Integer;
 begin
   Value := ''; Result := True;
   if Mode.ItemIndex = 0 then Exit;
+  if (ColumnTag = COL_PUBYEAR) and (Mode.ItemIndex in [8,9]) then
+  begin Value := 'num;'+IntToStr(Mode.ItemIndex)+';0;0;0'; Exit; end;
   if not ReadNumber(FromValue.Text, Lower) then Exit(False);
   Upper := Lower;
   if (Mode.ItemIndex = 6) and (not ReadNumber(ToValue.Text, Upper) or (Lower > Upper)) then Exit(False);
   if (ColumnTag = COL_SIZE) and ((Lower < 0) or (Upper < 0)) then Exit(False);
+  if (ColumnTag = COL_PUBYEAR) and ((Lower <= 0) or (Upper <= 0) or (Lower > MaxInt) or (Upper > MaxInt) or
+    (Frac(Lower) <> 0) or (Frac(Upper) <> 0)) then Exit(False);
   Factor := 1; UnitIndex := 0;
   if Assigned(Units) then begin UnitIndex := Units.ItemIndex; Factor := SizeUnits[UnitIndex]; end;
   Lower := Lower * Factor; Upper := Upper * Factor;
@@ -781,7 +806,7 @@ begin
         LabelControl.SetBounds(FieldLeft,Y+136,240,18); LabelControl.Caption:='Без выбора — все оценки';
         Inc(Y,128);
       end
-      else if Tag in [COL_SIZE, COL_NO] then
+      else if Tag in [COL_SIZE, COL_NO, COL_PUBYEAR] then
       begin
         Numeric := TNumericFilterEditor.Create(Dialog, Scroll, Tag, Y, Current);
         NumericEditors.Add(Tag, Numeric); Inc(Y, 32);
@@ -824,7 +849,7 @@ begin
         Edit.SetBounds(FieldLeft, Y, Scroll.ClientWidth - FieldLeft - 12, 25);
         Edit.Anchors := [akLeft, akTop, akRight]; Edit.Text := Current; Editors.Add(Tag, Edit);
       end;
-      if Tag in [COL_AUTHOR,COL_TITLE,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG,COL_LIBID] then
+      if Tag in [COL_AUTHOR,COL_TITLE,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_TRANSLATORS,COL_CITY,COL_ISBN,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG,COL_LIBID] then
       begin
         CaseCheck := TCheckBox.Create(Dialog); CaseCheck.Parent := Scroll;
         CaseCheck.SetBounds(FieldLeft,Y+29,220,22); CaseCheck.Caption := 'Учитывать регистр';
@@ -860,7 +885,7 @@ begin
       end;
       if not Valid then
       begin
-        Application.MessageBox('Введите число. Для диапазона начальное значение должно быть не больше конечного.',
+        Application.MessageBox('Введите число (для года — целое положительное). Для диапазона начальное значение должно быть не больше конечного.',
           'Числовой фильтр', MB_OK); Continue;
       end;
       for Tag in NumericValues.Keys do Filters.SetValue(Tag, NumericValues[Tag]);
@@ -1217,7 +1242,10 @@ end;
 
 procedure TListFilterEditor.ItemText(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
-begin CellText := FNames[FFound[Integer(Node.Index)]]; end;
+begin
+  CellText := FNames[FFound[Integer(Node.Index)]];
+  if CellText = '' then CellText := '(не указано)';
+end;
 
 procedure TListFilterEditor.ItemChecked(Sender: TBaseVirtualTree; Node: PVirtualNode);
 var Checked: Boolean; K: string;
@@ -1272,7 +1300,7 @@ end;
 
 function EditColumnWithFilters(Tree: TBookTree; Tag: Integer; Filters: TBookColumnFilters): Boolean;
 begin
-  if Tag in [COL_AUTHOR,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG] then
+  if Tag in [COL_AUTHOR,COL_SERIES,COL_PUBLISHER_SERIES,COL_PUBLISHER,COL_TRANSLATORS,COL_CITY,COL_GENRE,COL_TYPE,COL_COLLECTION,COL_LANG] then
     Result := EditListFilter(Tree,Tag,Filters)
   else Result := EditFilters(Tree,Tag,Filters);
 end;
