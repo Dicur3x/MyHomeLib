@@ -120,6 +120,17 @@ begin
           Require((Host.Font.PixelsPerInch=PPI) and (View.SectionHeader(0).Font.PixelsPerInch=PPI),
             'Release headers did not adopt simulated VCL DPI');
           Header:=View.SectionHeader(0);
+          // Show/SetFocus alone can leave the VCL ActiveControl in a background
+          // window (for example while the IDE owns a modal dialog). MSAA reports
+          // actual system focus, so activate this owned fixture before querying it.
+          Host.BringToFront;
+          Winapi.Windows.SetForegroundWindow(Host.Handle);
+          Winapi.Windows.SetActiveWindow(Host.Handle);
+          Header.SetFocus; Application.ProcessMessages;
+          Require((GetForegroundWindow=Host.Handle) and (GetActiveWindow=Host.Handle),
+            'Keyboard fixture could not become the foreground active window');
+          Require(Header.Focused and (Winapi.Windows.GetFocus=Header.Handle),
+            'Release header did not receive actual Windows keyboard focus');
           Require(Succeeded(UpdateProposalAccessibleObjectFromWindow(Header.Handle,DWORD($FFFFFFFC),AccessibleID,Dispatch)),
             'Release header exposes no native accessibility object');
           Accessible:=Dispatch;
@@ -129,7 +140,6 @@ begin
             'Release header lacks its native button role, accessible name, state or Tab stop');
           Require((ColorToRGB(Header.Font.Color)=ColorToRGB(MHLThemeText)) and
             (fsBold in Header.Font.Style),'Release header lost readable theme font');
-          Header.SetFocus;
           Require((Integer(Accessible.accState[0]) and 4)<>0,'Release header exposes no focused accessibility state');
           Accessible:=Unassigned; Dispatch:=nil;
           Host.Perform(CM_DIALOGKEY,VK_TAB,0);
