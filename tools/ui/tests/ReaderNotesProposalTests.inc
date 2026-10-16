@@ -265,11 +265,11 @@ begin
         try Foreign.Find(OriginalID,Entry); Entry.Text:='Новая чужая версия'; Foreign.Put(Entry); finally Foreign.Free; end;
         Save:=Editor.FindComponent('NoteEditorSave') as TButton; Save.Click;
         Require(Editor.Visible and not Save.Enabled,'Conflict closed the editor or allowed a blind retry');
-        Require(TextBox.Text.Contains('Мой черновик Ё ї 😀'),'Conflict lost the live draft');
+        Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Conflict lost the live draft');
         Require(TButton(Editor.FindComponent('NoteDraftCopy')).Visible,'Draft copy recovery action missing');
         ReloadButton:=Editor.FindComponent('NoteReload') as TButton; ReloadButton.Click;
-        Require(TextBox.Text.Contains('Мой черновик Ё ї 😀'),'Explicit reload replaced the draft');
-        Require(TMemo(Editor.FindComponent('NoteLatest')).Text.Contains('Новая чужая версия'),'Fresh version is not visible separately');
+        Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Explicit reload replaced the draft');
+        Require(string(TMemo(Editor.FindComponent('NoteLatest')).Text).Contains('Новая чужая версия'),'Fresh version is not visible separately');
         Require(Save.Enabled and (Save.Caption='Сохранить новой заметкой'),'Changed note is not clearly saved as a new record');
         RNPCheckDialogLayout(Editor,650,720);
         Require(TextBox.Height>=48,'Conflict layout collapsed the live draft');
@@ -277,7 +277,7 @@ begin
         // conflict must again preserve the draft and create only one copy.
         Foreign:=TReaderAnnotations.Create(Profile);
         try Foreign.Find(OriginalID,Entry); Entry.Text:='Ещё более новая чужая версия'; Foreign.Put(Entry); finally Foreign.Free; end;
-        Save.Click; Require(not Save.Enabled and TextBox.Text.Contains('Мой черновик'),'Second conflict lost the draft or bypassed concurrency');
+        Save.Click; Require(not Save.Enabled and string(TextBox.Text).Contains('Мой черновик'),'Second conflict lost the draft or bypassed concurrency');
         ReloadButton.Click;
         Save.Click;
       end);

@@ -2263,7 +2263,7 @@ begin
 end;
 
 function TReaderNoteEditor.Draft: TReaderAnnotation;
-begin Result:=FNote; Result.Title:=FTitle.Text.Trim; Result.Text:=FText.Text; end;
+begin Result:=FNote; Result.Title:=Trim(FTitle.Text); Result.Text:=FText.Text; end;
 
 procedure TReaderNoteEditor.ShowRecovery(const Text: string);
 begin
@@ -2575,7 +2575,7 @@ end;
 function TReaderSavedDialog.ScopeDescription: string;
 begin
   if SelectedBookID='' then Result:='все книги' else Result:='книга «'+FBooks.Text+'»';
-  if FSearch.Text.Trim<>'' then Result:=Result+'; поиск «'+FSearch.Text.Trim+'»';
+  if Trim(FSearch.Text)<>'' then Result:=Result+'; поиск «'+Trim(FSearch.Text)+'»';
   if not FShowNotes.Checked then Result:=Result+'; только закладки';
   if not FShowBookmarks.Checked then Result:=Result+'; только заметки';
 end;
