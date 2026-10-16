@@ -2464,6 +2464,7 @@ begin
   SearchRow:=TPanel.Create(Self); SearchRow.Parent:=Self; SearchRow.Align:=alTop; SearchRow.Top:=Row.Height+Scope.Height;
   SearchRow.Height:=38; SearchRow.BevelOuter:=bvNone;
   FSearch:=TEdit.Create(Self); FSearch.Name:='NotesSearch'; FSearch.Parent:=SearchRow;
+  FSearch.Text:=''; // Named VCL edits otherwise inherit their component name as text.
   FSearch.SetBounds(8,4,ClientWidth-120,28); FSearch.Anchors:=[akLeft,akTop,akRight];
   FSearch.TextHint:='Поиск по книге и тексту, цитате, названию и месту'; FSearch.ShowHint:=True;
   FSearch.Hint:='Фрагмент без учёта регистра. Буквы е и ё различаются. Идентификаторы записей не меняются.';

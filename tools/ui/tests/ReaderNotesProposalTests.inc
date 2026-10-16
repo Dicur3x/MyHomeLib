@@ -238,7 +238,7 @@ var
   function NewNote(const ID, BookID, BookTitle, Text: string): TReaderAnnotation;
   begin
     Result:=Default(TReaderAnnotation); Result.ID:=ID; Result.BookID:=BookID;
-    Result.BookTitle:=BookTitle; Result.Title:='Заголовок '+ID; Result.Text:=Text;
+    Result.BookTitle:=BookTitle; Result.Title:='Собственная заметка'; Result.Text:=Text;
     Result.Quote:='Цитата Україна'; Result.Place:='Страница 12'; Result.Position:=12;
     Result.Created:='2026-10-16T01:02:03Z';
   end;
@@ -264,7 +264,11 @@ var
   procedure ExpectVisible(const Expected: array of string);
   var Actual, Wanted: TStringList;
   begin
-    Items:=Dialog.VisibleItems; Actual:=TStringList.Create; Wanted:=TStringList.Create;
+    Items:=Dialog.VisibleItems;
+    RNPTrace(Format('filter query=%s notes=%s bookmarks=%s book_index=%d book=%s expected=%d actual=%d',
+      [QuotedStr(Search.Text),BoolToStr(ShowNotes.Checked,True),BoolToStr(ShowBookmarks.Checked,True),
+       Books.ItemIndex,QuotedStr(Books.Text),Length(Expected),Length(Items)]));
+    Actual:=TStringList.Create; Wanted:=TStringList.Create;
     try
       Actual.Sorted:=True; Wanted.Sorted:=True;
       for var Entry in Items do Actual.Add(Entry.BookID+'/'+Entry.ID);
@@ -421,6 +425,8 @@ begin
     ShowBookmarks:=TCheckBox(RNPComponent(Dialog,'NotesShowBookmarks',TCheckBox));
     List:=TListView(RNPComponent(Dialog,'NotesList',TListView));
     Require(List.OwnerData,'Large notes list is not virtual');
+    RNPTrace('filter initial query='+QuotedStr(Search.Text));
+    Require(Search.Text='','New notes manager must start with an empty search query');
     RNPCheckDialogLayout(Dialog,760,560);
     ExpectVisible(['book-a/note-a','book-b/note-b','book-a/note-c','book-c/note-d','book-a/0','book-a/1','book-b/0']);
     RNPTrace('filter cases'); Search.Text:='маЯК'; ExpectVisible(['book-a/note-a','book-a/0']);
