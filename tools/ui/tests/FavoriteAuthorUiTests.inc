@@ -237,6 +237,9 @@ begin
     ShowPage(PAGE_SEARCH); frmMain.DoClearFilter(False);
     SearchCheck.Checked := True; frmMain.edFTitle.Text := ''; frmMain.DoApplyFilter(nil); WaitForRefresh;
     ExpectTitles(frmMain.tvBooksSR, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
+    var QueryMode := frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+    Require(Assigned(QueryMode), 'Favorite search query-mode control is missing');
+    QueryMode.Mode := sqmExpression;
     frmMain.edFTitle.Text := '="Alpha ru"'; frmMain.DoApplyFilter(nil); WaitForRefresh;
     ExpectTitles(frmMain.tvBooksSR, ['Alpha ru']);
     frmMain.edFTitle.Text := ''; frmMain.DoApplyFilter(nil); WaitForRefresh;
@@ -245,6 +248,7 @@ begin
     frmMain.HideDeletedBooksExecute(nil);
     ExpectTitles(frmMain.tvBooksSR, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
     Require(frmMain.edFTitle.Text = 'This draft must not be searched', 'Favorite search reload consumed a draft title');
+    QueryMode.Mode := sqmText;
     SearchCheck.Checked := True; frmMain.edFTitle.Text := 'Alpha';
     frmMain.cbPresetName.Text := 'Любимые авторы — пресет'; frmMain.SaveSearchPreset(nil);
     var Presets := TSearchPresets.Create;

@@ -4,6 +4,7 @@
 procedure TestPublisherSearch(const One: IBookCollection; OneID: Integer);
 var
   Edit: TMHLButtonedEdit;
+  QueryMode: TSearchQueryModeControl;
   Menu: TMenuItem;
   IDs: array[0..5] of Integer;
   I, OriginalPPI: Integer;
@@ -119,6 +120,10 @@ begin
 
   ShowPage(PAGE_SEARCH);
   frmMain.DoClearFilter(False);
+  QueryMode := frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+  Require(Assigned(QueryMode) and (QueryMode.Mode = sqmText),
+    'Fresh publisher search did not reset to ordinary text mode');
+  QueryMode.Mode := sqmExpression;
   StartSQLiteProfile;
   Edit.Text := '="ёжИК press"';
   SaveSQLiteProfile(Settings.AppPath + 'publisher-search-typing.tsv');
@@ -134,10 +139,12 @@ begin
   frmMain.HideDeletedBooksExecute(nil);
   ExpectTitles(frmMain.tvBooksSR, ['Publisher Cyrillic FB2', 'Publisher Cyrillic EPUB']);
   Require(Edit.Text = 'Unapplied publisher draft', 'Deletion toggle erased or applied a publisher draft');
+  QueryMode.Mode := sqmText;
   frmMain.DoApplyFilter(nil);
   ExpectTitles(frmMain.tvBooksSR, []);
   Writeln('PASS publisher input waits for Apply and is part of the applied snapshot without consuming later drafts');
 
+  QueryMode.Mode := sqmExpression;
   Edit.Text := '="éLaN éditions"';
   frmMain.cbPresetName.Text := 'Издательство — точное';
   frmMain.SaveSearchPreset(nil);
@@ -145,14 +152,19 @@ begin
   Reopened := TSearchPresets.Create;
   try
     Reopened.Load(Settings.SystemFileName[sfPresets]);
+    Require(QueryMode.Mode = sqmExpression, 'Saving the publisher preset changed its query mode');
+    Require(Reopened.GetPreset('Издательство — точное').QueryMode = sqmExpression,
+      'Publisher preset lost its explicit query mode after compressed XML reopen');
     Require(Reopened.GetPreset('Издательство — точное').Items[SF_PUBLISHER] = Edit.Text,
       'Publisher preset lost its typed Unicode expression after compressed XML reopen');
   finally Reopened.Free; end;
   frmMain.DoClearFilter(False);
-  Require(Edit.Text = '', 'Clear did not reset the publisher condition');
+  Require((Edit.Text = '') and (QueryMode.Mode = sqmText),
+    'Clear did not reset the publisher condition and ordinary text mode');
   frmMain.cbPresetName.Text := 'Издательство — точное';
   frmMain.cbPresetNameSelect(nil);
-  Require(Edit.Text = '="éLaN éditions"', 'Selecting the publisher preset lost its expression');
+  Require((Edit.Text = '="éLaN éditions"') and (QueryMode.Mode = sqmExpression),
+    'Selecting the publisher preset lost its expression or explicit query mode');
   ExpectTitles(frmMain.tvBooksSR, []);
   frmMain.DoApplyFilter(nil);
   ExpectTitles(frmMain.tvBooksSR, ['Publisher accented DOCX']);

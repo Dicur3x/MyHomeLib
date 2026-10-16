@@ -632,6 +632,9 @@ begin
   try
     SelectCollection(CID); ShowPage(PAGE_SEARCH); Settings.TreeModes[PAGE_SEARCH]:=tmFlat;
     TBookColumnFilters.ForTree(frmMain.tvBooksSR).Clear; frmMain.DoClearFilter(False);
+    var QueryMode:=frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+    Require(Assigned(QueryMode),'Metadata UI search query-mode control is missing');
+    QueryMode.Mode:=sqmExpression;
     frmMain.edFTitle.Text:='="Metadata UI 0"'; frmMain.DoApplyFilter(nil);
     ExpectTitles(frmMain.tvBooksSR,['Metadata UI 0']);
     var PublisherEdit:=TMHLButtonedEdit(frmMain.FindComponent('edFPublisher'));

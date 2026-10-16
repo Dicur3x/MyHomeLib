@@ -984,6 +984,9 @@ begin
     ExpectPublishers(frmMain.tvBooksA,OldPublisher,2); AuthorFirst:=frmMain.tvBooksA.GetFirst;
     ShowPage(PAGE_SEARCH); frmMain.DoClearFilter(False);
     TBookColumnFilters.ForTree(frmMain.tvBooksSR).Clear;
+    var QueryMode:=frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+    Require(Assigned(QueryMode),'Publisher index search query-mode control is missing');
+    QueryMode.Mode:=sqmExpression;
     frmMain.edFTitle.Text:='="Cache index 0"'; frmMain.DoApplyFilter(nil);
     ExpectTitles(frmMain.tvBooksSR,['Cache index 0']); ExpectPublishers(frmMain.tvBooksSR,OldPublisher,1);
     Filters:=TBookColumnFilters.ForTree(frmMain.tvBooksSR);

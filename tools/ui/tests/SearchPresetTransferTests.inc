@@ -242,12 +242,16 @@ begin
         'Preset transfer fixture full author differs from the literal exact-author expression');
       Book.Publisher:='Издательство ё'; One.UpdateBook(Book);
     end;
-    // An untouched publisher must not silently constrain an ordinary title search.
+    // An untouched publisher must not silently constrain an explicit LIKE title search.
+    var QueryMode:=frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+    Require(Assigned(QueryMode),'Preset transfer search query-mode control is missing');
+    QueryMode.Mode:=sqmExpression;
     frmMain.edFFullName.Text:=''; frmMain.edFTitle.Text:='LIKE "PRESET IMPORT%"';
     Require(Publisher.Text='','Fixture setup unexpectedly filled the untouched publisher field');
-    Writeln('TRACE preset transfer untouched publisher ordinary title Apply'); Flush(Output);
+    Writeln('TRACE preset transfer untouched publisher explicit LIKE title Apply'); Flush(Output);
     frmMain.DoApplyFilter(nil); ExpectTitles(frmMain.tvBooksSR,['PRESET IMPORT 0','PRESET IMPORT 1','PRESET IMPORT 2']);
     frmMain.DoClearFilter(True);
+    Require(QueryMode.Mode=sqmText,'Clear retained the preset-transfer expression mode');
     frmMain.cbPresetName.Text:=Name; frmMain.edFFullName.Text:='Protected old author filter'; frmMain.edFTitle.Text:='Protected old title';
     frmMain.SaveSearchPreset(nil); Reopen;
     Require((Reopened.Count=1) and (Reopened.GetPreset(Name).Items[SF_PUBLISHER]=''),
@@ -273,6 +277,7 @@ begin
     Require(Reopened.GetPreset(Name+' (2)').Items['Unknown preserved field']=RawField,'Import dropped an unknown field');
     ExpectTitles(frmMain.tvBooksSR,[]); CheckProtected;
     SelectPreset(Name+' (2)');
+    Require(QueryMode.Mode=sqmLegacy,'Selecting an imported old preset did not restore legacy query mode');
     Require((frmMain.edFFullName.Text=LongAuthors) and (Publisher.Text='="Издательство ё"'),
       'Selecting an imported preset lost author/publisher criteria');
     ExpectTitles(frmMain.tvBooksSR,[]);
