@@ -655,11 +655,11 @@ begin
     'Больше (>)', 'Меньше (<)', 'Между (включительно)', 'Не равно']); Mode.ItemIndex := 0;
   if Tag = COL_PUBYEAR then Mode.Items.AddStrings(['Не указан', 'Указан']);
   FromValue := TEdit.Create(Owner); FromValue.Parent := Parent; FromValue.SetBounds(Start, Y + 32, FieldWidth, 25);
-  FromValue.Name := 'NumericFilterFrom'+IntToStr(Tag);
+  FromValue.Name := 'NumericFilterFrom'+IntToStr(Tag); FromValue.Text := '';
   BetweenLabel := TLabel.Create(Owner); BetweenLabel.Parent := Parent;
   BetweenLabel.SetBounds(Start + FieldWidth + 9, Y + 37, 18, 20); BetweenLabel.Caption := 'и';
   ToValue := TEdit.Create(Owner); ToValue.Parent := Parent; ToValue.SetBounds(Start + FieldWidth + Gap, Y + 32, FieldWidth, 25);
-  ToValue.Name := 'NumericFilterTo'+IntToStr(Tag);
+  ToValue.Name := 'NumericFilterTo'+IntToStr(Tag); ToValue.Text := '';
   if Tag = COL_SIZE then
   begin
     Units := TComboBox.Create(Owner); Units.Parent := Parent; Units.SetBounds(Parent.ClientWidth - UnitWidth - 12, Y + 32, UnitWidth, 25);

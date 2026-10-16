@@ -269,6 +269,8 @@ begin
           ToValue:=Popup.FindComponent('NumericFilterTo'+IntToStr(COL_PUBYEAR)) as TEdit;
           Require(Assigned(Mode) and Assigned(FromValue) and Assigned(ToValue) and (Mode.Items.Count=10),
             'Publication year lacks the standard numeric editor and missing/present choices');
+          Require((Mode.ItemIndex=0) and (FromValue.Text='') and (ToValue.Text=''),
+            'Unused numeric editor exposes component names instead of empty values');
           for var PPI in TArray<Integer>.Create(96,144,192) do
           begin
             Popup.ScaleForPPI(PPI); Require(Popup.Font.PixelsPerInch=PPI,'Numeric year editor lost VCL DPI');
