@@ -699,15 +699,9 @@ begin
 
     if FUseMTP then
     begin
-      case FExportMode of
-        emFB2Zip: TempFile := FFileOprecord.TargetFile + ZIP_EXTENSION;
-        emLrf:    TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.lrf');
-        emEpub:   TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.epub');
-        emPDF:    TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.pdf');
-        emMobi:   TempFile := ChangeFileExt(FFileOprecord.TargetFile, '.mobi');
-      else
-        TempFile := FFileOprecord.TargetFile;
-      end;
+      // Send the same actual artifact used by collision checks and results.
+      // TXT conversion writes .txt, while TargetFile retains the source .fb2.
+      TempFile := ActualOutputFile(FFileOprecord.TargetFile);
 
       if not FileExists(TempFile) then
       begin

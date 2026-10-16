@@ -139,6 +139,8 @@ begin
   if (Flags and $F) = MB_YESNO then Result := IDYES else Result := IDOK;
 end;
 
+{$I MTPTextExportTests.inc}
+
 procedure TestExportResultsAudit;
 var Root, Destination, SourceA, SourceB, SourceC, SourceD: string;
   HashA, HashB, HashC, HashD, SavedDevice, SavedFolder, SavedFile: string;
@@ -334,4 +336,5 @@ begin
     Settings.OverwriteFB2Info := SavedOverwrite; Settings.SelectedIsChecked := SavedSelected;
     Settings.ExportMode := SavedMode;
   end;
+  TestMTPTextExport;
 end;
