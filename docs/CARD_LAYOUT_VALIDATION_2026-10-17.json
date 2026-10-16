@@ -1,0 +1,820 @@
+{
+  "generated_utc": "2026-10-16T21:46:05.587919+00:00",
+  "base_commit": "2614feaf072c12418ea152fedff0f668947e925b",
+  "published": false,
+  "builds": {
+    "Win32": {
+      "main": {
+        "path": "C:\\Users\\cloud\\HomeLibRu-audit\\Program\\Out\\Bin\\HomeLibRu.exe",
+        "sha256": "2059d4e2cf957575b2f643b12b7bc7da726efd8e9494ad09746af74215675709",
+        "bytes": 10373632,
+        "machine": 332,
+        "modified_utc": "2026-10-16T21:41:52.181638+00:00",
+        "build_route": "Delphi 13 GUI"
+      },
+      "views": {
+        "path": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\Win32\\Performance\\CollectionViewsTest.exe",
+        "sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+        "bytes": 12507136,
+        "machine": 332,
+        "modified_utc": "2026-10-16T21:28:36.142168+00:00",
+        "build_route": "Delphi 13 GUI"
+      }
+    },
+    "Win64": {
+      "main": {
+        "path": "C:\\Users\\cloud\\HomeLibRu-audit\\Program\\Out\\Bin64\\HomeLibRu.exe",
+        "sha256": "771d9a7ce4558459d19011a6a0309055aa22bc7fa73213e7c6edd42b122e8ed7",
+        "bytes": 15952384,
+        "machine": 34404,
+        "modified_utc": "2026-10-16T21:41:17.940320+00:00",
+        "build_route": "Delphi 13 GUI"
+      },
+      "views": {
+        "path": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\Win64\\Performance\\CollectionViewsTest.exe",
+        "sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+        "bytes": 18716672,
+        "machine": 34404,
+        "modified_utc": "2026-10-16T21:25:00.811533+00:00",
+        "build_route": "Delphi 13 GUI"
+      }
+    }
+  },
+  "sources": {
+    "Components/MHLComponents/BookInfoPanel.pas": "c67eb4c592e71f45f73e4c5250a7d135fbd1ae16f25311387c146f887f5f6538",
+    "Program/Forms/frm_main.pas": "0943f487e2142807f0dd501985c3786532193d818045705b6d4cf384a2602bc7",
+    "tools/ui/tests/BookInfoPanelFooterTests.inc": "f00b94965fc5886261f80173eba2192532546b962fe9ea913a7977f25c4d2f66",
+    "tools/ui/tests/CompactBookViewsTests.inc": "c8be1f53a2cf42da6b5815d2333ced85a0c532c70d54e5f74735cc87e6dd883e",
+    "tools/ui/tests/CollectionViewsTest.dpr": "a7d14b87d27441ae252c0429c0836193fa999691b907ba262ff052fe32c36621",
+    "tools/ui/tests/native_collection_tests.js": "dbf1bf7cc720c26f05406f9c78a298627e78e0eab0ad4f066861f0d11f956f62"
+  },
+  "outcomes": [
+    {
+      "platform": "Win32",
+      "mode": "compact-book-views",
+      "exit_code": 0,
+      "log": "one-compact-book-views-Win32-attempt001.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win32",
+      "mode": "book-information",
+      "exit_code": 0,
+      "log": "one-book-information-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win32",
+      "mode": "book-gallery",
+      "exit_code": 0,
+      "log": "one-book-gallery-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win32",
+      "mode": "search-startup-layout",
+      "exit_code": 0,
+      "log": "one-search-startup-layout-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win32",
+      "mode": "main-toolbar-states",
+      "exit_code": 0,
+      "log": "one-main-toolbar-states-Win32-attempt001.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win32",
+      "mode": "book-preview-layout",
+      "exit_code": 1,
+      "log": "one-book-preview-layout-Win32-attempt005.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d"
+    },
+    {
+      "platform": "Win64",
+      "mode": "compact-book-views",
+      "exit_code": 0,
+      "log": "one-compact-book-views-Win64-attempt005.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    },
+    {
+      "platform": "Win64",
+      "mode": "book-information",
+      "exit_code": 0,
+      "log": "one-book-information-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    },
+    {
+      "platform": "Win64",
+      "mode": "book-gallery",
+      "exit_code": 0,
+      "log": "one-book-gallery-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    },
+    {
+      "platform": "Win64",
+      "mode": "search-startup-layout",
+      "exit_code": 0,
+      "log": "one-search-startup-layout-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    },
+    {
+      "platform": "Win64",
+      "mode": "main-toolbar-states",
+      "exit_code": 0,
+      "log": "one-main-toolbar-states-Win64-attempt001.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    },
+    {
+      "platform": "Win64",
+      "mode": "book-preview-layout",
+      "exit_code": 0,
+      "log": "one-book-preview-layout-Win64-attempt005.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da"
+    }
+  ],
+  "native_runs": [
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 49.844,
+      "log": "one-book-preview-layout-Win32-attempt001.log",
+      "executable_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "log_sha256": "407f6ccd096e355dfd2936da14402b78e3c80cc88c77619c841fe3c99f3b1ef8",
+      "completed_utc": "2026-10-16T20:43:44.658225+00:00",
+      "footer_times_ms": [
+        1160,
+        1249,
+        1199,
+        1261,
+        1269,
+        1417
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 0,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 50.109,
+      "log": "one-book-preview-layout-Win32-attempt002.log",
+      "executable_sha256": "c443dc966431cf9962d3820913117ba6d47176e7f2d853dc06acddc7f97040c0",
+      "log_sha256": "e0ea401965f070c0ff5413ecad6429c0a851f1860bdf384598b225e34e8c860c",
+      "completed_utc": "2026-10-16T20:44:56.884599+00:00",
+      "footer_times_ms": [
+        1207,
+        1219,
+        1218,
+        1340,
+        1271,
+        1408
+      ],
+      "observation_hooks": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 0,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 0.094,
+      "log": "one-book-preview-layout-Win64-attempt001.log",
+      "executable_sha256": "fc25ea7a60f14ce95cbd85a307fae7b4c884836e993cb79041782e2cb5da9626",
+      "log_sha256": "8b342398f5e77aa2bf3824b938d1036fdfcd278b828661dd51fbef7131fc183a",
+      "completed_utc": "2026-10-16T20:48:24.105719+00:00",
+      "footer_times_ms": [],
+      "observation_hooks": [],
+      "geometry_complete": false,
+      "final_viewport_size_passes": 0,
+      "source_profile_preserved": false,
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 2,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 13.75,
+      "log": "one-book-preview-layout-Win64-attempt002.log",
+      "executable_sha256": "fc25ea7a60f14ce95cbd85a307fae7b4c884836e993cb79041782e2cb5da9626",
+      "log_sha256": "edac422d2d13262eba5a06c607a8b39e181fcbc3b0bf43767652e6fb9771e891",
+      "completed_utc": "2026-10-16T20:48:47.118504+00:00",
+      "footer_times_ms": [],
+      "observation_hooks": [],
+      "geometry_complete": false,
+      "final_viewport_size_passes": 0,
+      "source_profile_preserved": false,
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 3,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 90.109,
+      "log": "one-book-preview-layout-Win64-attempt003.log",
+      "executable_sha256": "8d3323046e93dd79e5981ae79018f1135438c8e98e0ec9b96bdbd23a13aeb560",
+      "log_sha256": "2e84b75fe8affb22ca62d0eea227959d1f4c4c8bfd908261044370d1fe156333",
+      "completed_utc": "2026-10-16T20:51:57.113200+00:00",
+      "footer_times_ms": [
+        4213,
+        4186,
+        4056,
+        4598,
+        4474,
+        4460
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 111.39,
+      "log": "one-book-preview-layout-Win32-attempt003.log",
+      "executable_sha256": "065d49824cf0a7f18fa63eb38b2c182db518853033f31bb06485fbcb19c1b2c8",
+      "log_sha256": "cbb7aa46e7d13ab9218de43e72a44c222c0746fd84d66eb74fb1a53e3a0ee5a2",
+      "completed_utc": "2026-10-16T20:56:33.871087+00:00",
+      "footer_times_ms": [
+        5389,
+        5722,
+        5515,
+        5833,
+        6078,
+        5976
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.86,
+      "log": "one-book-information-Win32-attempt001.log",
+      "executable_sha256": "065d49824cf0a7f18fa63eb38b2c182db518853033f31bb06485fbcb19c1b2c8",
+      "log_sha256": "e33b67764d44a0602a85102cb945e86ac9ab6beee6ed15451b51b2d45c460ea7",
+      "completed_utc": "2026-10-16T20:56:41.929100+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-gallery",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.562,
+      "log": "one-book-gallery-Win32-attempt001.log",
+      "executable_sha256": "065d49824cf0a7f18fa63eb38b2c182db518853033f31bb06485fbcb19c1b2c8",
+      "log_sha256": "262445522c809935c5b7ebfcbff555c082793298db024e1a7e905f2a706828a9",
+      "completed_utc": "2026-10-16T20:56:50.686671+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.141,
+      "log": "one-search-startup-layout-Win32-attempt001.log",
+      "executable_sha256": "065d49824cf0a7f18fa63eb38b2c182db518853033f31bb06485fbcb19c1b2c8",
+      "log_sha256": "d4ef528ec403e22a4584379b7f53288682b68815859879498d4959a96be4060e",
+      "completed_utc": "2026-10-16T20:56:59.021488+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 4,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 92.734,
+      "log": "one-book-preview-layout-Win64-attempt004.log",
+      "executable_sha256": "bfc74507a8909999faf74e7776dd18d67ea208a6f4a709e951f5028e9accc433",
+      "log_sha256": "76237f3686d6d0f959741dd5456e2db3e955fd80bd7238a0c7529e24703769b8",
+      "completed_utc": "2026-10-16T20:58:31.987254+00:00",
+      "footer_times_ms": [
+        4366,
+        4188,
+        4295,
+        4677,
+        4609,
+        4492
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.688,
+      "log": "one-book-information-Win64-attempt001.log",
+      "executable_sha256": "bfc74507a8909999faf74e7776dd18d67ea208a6f4a709e951f5028e9accc433",
+      "log_sha256": "488a79e5d4ab0979c5ab2bdf13aba9d9d94c393ef92c370359159efdfd622b05",
+      "completed_utc": "2026-10-16T20:58:39.878895+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-gallery",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.812,
+      "log": "one-book-gallery-Win64-attempt001.log",
+      "executable_sha256": "bfc74507a8909999faf74e7776dd18d67ea208a6f4a709e951f5028e9accc433",
+      "log_sha256": "9ba87af82a66f02c069c17ef7e6b33d1963aaa38c485732d1190ae28e1050f49",
+      "completed_utc": "2026-10-16T20:58:47.915666+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.828,
+      "log": "one-search-startup-layout-Win64-attempt001.log",
+      "executable_sha256": "bfc74507a8909999faf74e7776dd18d67ea208a6f4a709e951f5028e9accc433",
+      "log_sha256": "35933db8c7b97a97138e6538a2411036ebcf3d2839efd09a71b992dc96eb50a8",
+      "completed_utc": "2026-10-16T20:58:55.971116+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 4,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 113.265,
+      "log": "one-book-preview-layout-Win32-attempt004.log",
+      "executable_sha256": "324019a33f9a651edc348a6fdcdd746b75ee172dd4cb1baa5161813efb915e42",
+      "log_sha256": "98cfc57353cec1bb8e959e88353b52d03d9511fa3500b00529fa68ab63e97925",
+      "completed_utc": "2026-10-16T21:01:46.820225+00:00",
+      "footer_times_ms": [
+        5388,
+        6401,
+        5671,
+        5780,
+        6165,
+        5709
+      ],
+      "observation_hooks": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 1,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 0.375,
+      "log": "one-compact-book-views-Win64-attempt001.log",
+      "executable_sha256": "ec336ffa8ee964504615c8c9b497126b4a799b132a13782207e68638a2c4d20d",
+      "log_sha256": "646aff007e21a3caad795d79143005132ae1ac7c85dcac60c44336082cd8741b",
+      "completed_utc": "2026-10-16T21:15:12.890508+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 2,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 7.703,
+      "log": "one-compact-book-views-Win64-attempt002.log",
+      "executable_sha256": "ec336ffa8ee964504615c8c9b497126b4a799b132a13782207e68638a2c4d20d",
+      "log_sha256": "f8dc2984d36d1835aab0b06e18a0a65b3b39e78061b8a074b5c39a821cf6c305",
+      "completed_utc": "2026-10-16T21:15:46.032520+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 3,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 13.875,
+      "log": "one-compact-book-views-Win64-attempt003.log",
+      "executable_sha256": "317dc65cc0b621d42f56a481992f957499f8cf28855588933dd5b97596c56dbe",
+      "log_sha256": "0ded80a5c88350214a5b6b22194c4e5dee8630957786f07f05c9d98e6cbf83fa",
+      "completed_utc": "2026-10-16T21:19:06.675358+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 4,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 17.61,
+      "log": "one-compact-book-views-Win64-attempt004.log",
+      "executable_sha256": "5998386b45a999aae94327b58367fdf7d7e3b9ab9f202320350491ab5d980c00",
+      "log_sha256": "677ce0aeba29f1ab81b3ab9ea024bbada7dbe0dd60b60430588cd61d30d3a892",
+      "completed_utc": "2026-10-16T21:22:00.395883+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 76.172,
+      "log": "one-compact-book-views-Win64-attempt005.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "938898084994e5881f2fc148f6527bbbe44004ca9f52e4ec9e71d1b5772bedf3",
+      "completed_utc": "2026-10-16T21:27:08.451499+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "compact-book-views",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 92.14,
+      "log": "one-compact-book-views-Win32-attempt001.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "b0242e2df11adb39b88feb842573814a14b3b96219613d9ccb78c63424211b44",
+      "completed_utc": "2026-10-16T21:31:11.568035+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.219,
+      "log": "one-book-information-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "a6897b82a6e86f98a607fc24e0a024c8800ef924e3334e4be16eb20e77e19bd4",
+      "completed_utc": "2026-10-16T21:31:19.981559+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-gallery",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.406,
+      "log": "one-book-gallery-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "cdbcc80031d49001833c7ff6182df5b6f5171b0e3045455be12be1a5f3fb2fb0",
+      "completed_utc": "2026-10-16T21:31:28.591369+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.328,
+      "log": "one-search-startup-layout-Win32-attempt002.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "986f84a180a732d18857faf65990d34e5129772d5e0fd46d51f7f520158a11e4",
+      "completed_utc": "2026-10-16T21:31:37.110152+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 58.969,
+      "log": "one-main-toolbar-states-Win32-attempt001.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "6162d17800cc4d6c2a136cb8f5d0bad08411cb67cd40e210594b8b7049f497fd",
+      "completed_utc": "2026-10-16T21:32:36.272480+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 5,
+      "exit_code": 1,
+      "success_marker": false,
+      "seconds": 110.75,
+      "log": "one-book-preview-layout-Win32-attempt005.log",
+      "executable_sha256": "8426777b579e9af9a5b70c854f322f81f16934f5fedc7d98bbbbf607bc77549d",
+      "log_sha256": "b3c577e1014f9c725f350d5f548f2a6afcabd67754be04df947d0d1c019eb7a6",
+      "completed_utc": "2026-10-16T21:34:27.216005+00:00",
+      "footer_times_ms": [
+        5566,
+        5823,
+        5274,
+        6039,
+        6133,
+        5562
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": true
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.812,
+      "log": "one-book-information-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "1b62bc129832337859cf438852d4b4783a5b953b92e6b8f624bac7bbc4f61c56",
+      "completed_utc": "2026-10-16T21:34:35.291557+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-gallery",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.687,
+      "log": "one-book-gallery-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "9174de25dfec6bd6fd760fd220d30ecb49431be2731d71a4711fcc0b1703fae6",
+      "completed_utc": "2026-10-16T21:34:43.187297+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "search-startup-layout",
+      "attempt": 2,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 7.718,
+      "log": "one-search-startup-layout-Win64-attempt002.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "8687bde2f538e6b09da653668d991b3bd2a4d10c7f9a29d30caedbd19bb112c7",
+      "completed_utc": "2026-10-16T21:34:51.112365+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 52.36,
+      "log": "one-main-toolbar-states-Win64-attempt001.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "48974f80c9ea2116ddad97e533e4e803a50ae7d3bea0c1e7a35dfbd8f59f8f27",
+      "completed_utc": "2026-10-16T21:35:43.680331+00:00",
+      "footer_times_ms": [],
+      "secondary_cleanup_av": false
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-preview-layout",
+      "attempt": 5,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 92.937,
+      "log": "one-book-preview-layout-Win64-attempt005.log",
+      "executable_sha256": "dd637a8b8729bb14b41e42ab5ee93a726160491e1ea639d118a18c2d282ff8da",
+      "log_sha256": "260817ecf6d82be7a03129ae3cf08c6ec3e6d1d8cc98dab2516d696e69bbc540",
+      "completed_utc": "2026-10-16T21:37:16.821628+00:00",
+      "footer_times_ms": [
+        4489,
+        4173,
+        4793,
+        4629,
+        4640,
+        4393
+      ],
+      "observation_hooks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "geometry_complete": true,
+      "final_viewport_size_passes": 6,
+      "source_profile_preserved": true,
+      "secondary_cleanup_av": false
+    }
+  ],
+  "manual": [
+    {
+      "platform": "Win32",
+      "executable_sha256": "2059d4e2cf957575b2f643b12b7bc7da726efd8e9494ad09746af74215675709",
+      "executable": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\card-performance-20261016\\manual-Win32\\HomeLibRuCardCheckWin32.exe",
+      "started_utc": "2026-10-16T21:42:06.819398+00:00",
+      "pid": 27388,
+      "exit_code": 0,
+      "closed_utc": "2026-10-16T21:43:02.689849+00:00"
+    },
+    {
+      "platform": "Win64",
+      "executable_sha256": "771d9a7ce4558459d19011a6a0309055aa22bc7fa73213e7c6edd42b122e8ed7",
+      "executable": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\card-performance-20261016\\manual-Win64\\HomeLibRuCardCheckWin64.exe",
+      "started_utc": "2026-10-16T21:43:03.492961+00:00",
+      "pid": 7124,
+      "exit_code": 0,
+      "closed_utc": "2026-10-16T21:44:18.613883+00:00"
+    }
+  ],
+  "manual_before_compact": {
+    "platform": "Win32",
+    "executable_sha256": "524608cbdb855a1e986dcc2c27a240056ed6a405348a1694de7ab9d5416bcd5f",
+    "executable": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\card-performance-20261016\\manual-Win32\\HomeLibRuCardCheckWin32.exe",
+    "started_utc": "2026-10-16T21:05:26.071733+00:00",
+    "pid": 29788,
+    "exit_code": 0,
+    "closed_utc": "2026-10-16T21:09:42.585443+00:00"
+  },
+  "source_validation": {
+    "pascal_files": 5,
+    "local_links": 325
+  },
+  "protected_sha256": {
+    "C:\\Users\\cloud\\Desktop\\MyHomeLib\\HomeLibRu.exe": "0A9AB2F6C29032DAFDD804700DF6E94E1BDC6916A92E626D372DA0AF636A3945",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dpr": "5A073127445C1C34DBC3BE3D6E3A74390C3007816F3CAC93010F553F1B05F18C",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dproj": "D815AB4197F42A1D3DEEA98E1B8637B4EDA2FAAB69CE3197F8355BFD0496DD48",
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer_SQL.rc": "500008615D6EEB334A5BDEE005268C59A7B5160147ED3BC23427DEF6804C5D0E",
+    "C:\\Users\\cloud\\HomeLibRu-build\\tools\\help\\build_nav.js": "DA7A65DC98DB6C42DA0C6C777F0C20B4DC2BA5280A4C3F35F2B65487F022B3FF"
+  },
+  "artifact_directory": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\card-performance-20261016",
+  "discarded_experiment": "Deferred scroll reset, Win32 EXE 324019a33f9a651edc348a6fdcdd746b75ee172dd4cb1baa5161813efb915e42: no demonstrated benefit; reverted before final builds",
+  "limitations": [
+    "Native x86/x64 processes tested on Windows x64; no separate x86 OS",
+    "Form scaling 96/144/192 on one monitor; no physical monitor transitions",
+    "Win32 5000 ms / 100 transition budget remains open; do not claim all performance checks passed",
+    "Some assertion failures produce a secondary VCL cleanup AV; successful functional runs do not establish a fix for that cleanup issue",
+    "Early compact fixture failures include hidden Main and counting the native header twice; retained as diagnostic attempts, not application fixes"
+  ],
+  "manual_scenarios": {
+    "Win32": [
+      "Light theme, 786 x 593 window: list retains complete rows alongside the information card",
+      "Dragged the information splitter upward; retained rows and accessible action",
+      "Information about book opened and closed; Main closed normally"
+    ],
+    "Win64": [
+      "800 x 600 window, light-to-dark theme offer at right works",
+      "Dragged information splitter upward in dark theme; complete rows and accessible action retained",
+      "Information about book opened and closed; Main closed normally"
+    ]
+  },
+  "final_footer_metrics": {
+    "Win32": [
+      5566,
+      5823,
+      5274,
+      6039,
+      6133,
+      5562
+    ],
+    "Win64": [
+      4489,
+      4173,
+      4793,
+      4629,
+      4640,
+      4393
+    ]
+  }
+}

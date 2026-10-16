@@ -15,6 +15,8 @@ type
     Active: Boolean;
     Counts, Ticks: array[0..7] of Int64;
     PaintCounts, PaintTicks: array[0..5] of Int64;
+    SizeBoundsChanges: Integer;
+    LastSizeBounds: TRect;
     constructor CreateFor(Control: TControl; const Description: string);
     destructor Destroy; override;
     procedure Dump;
@@ -45,7 +47,7 @@ begin
 end;
 
 procedure TInfoFooterMessageProbe.WindowMessage(var Message: TMessage);
-var Stage, PaintStage: Integer; Started, Elapsed: Int64;
+var Stage, PaintStage: Integer; Started, Elapsed: Int64; SizeBounds: TRect;
 begin
   if not Active then begin FPrevious(Message); Exit; end;
   case Message.Msg of
@@ -57,6 +59,16 @@ begin
     WM_PAINT, WM_ERASEBKGND, WM_NCPAINT: Stage:=5;
     WM_SETREDRAW: Stage:=6;
   else Stage:=7;
+  end;
+  if (Message.Msg=WM_SIZE) and (FControl is TWinControl) and
+    TWinControl(FControl).HandleAllocated then
+  begin
+    GetWindowRect(TWinControl(FControl).Handle,SizeBounds);
+    // VCL/style hooks can dispatch WM_SIZE twice for the same outer bounds.
+    // Count actual native extents, independently of duplicate notifications.
+    if (SizeBoundsChanges=0) or (SizeBounds.Width<>LastSizeBounds.Width) or
+      (SizeBounds.Height<>LastSizeBounds.Height) then Inc(SizeBoundsChanges);
+    LastSizeBounds:=SizeBounds;
   end;
   // Keep client paint (real invalidation versus supplied print/background DC)
   // separate from nonclient styled scrollbars and explicit print messages.
@@ -779,6 +791,49 @@ var
     CheckFooter('clear-only batch refill');
   end;
 
+  procedure CheckSingleViewportResize;
+  var Sizes: TInfoFooterMessageProbe; OldBounds: TRect;
+    OldFontSize, ShortWidth: Integer; OldCaption: string;
+  begin
+    OldBounds:=Panel.BoundsRect; OldFontSize:=Panel.Font.Size;
+    OldCaption:=Panel.DetailsButton.Caption;
+    try
+      Panel.Font.Size:=14;
+      Panel.SetBounds(OldBounds.Left,OldBounds.Top,MulDiv(460,DPI,96),MulDiv(460,DPI,96));
+      FillBook(23,True,True,True);
+      Panel.DetailsButton.Visible:=False;
+      Panel.DetailsButton.Caption:='Информация о выбранной книге';
+      Sizes:=TInfoFooterMessageProbe.CreateFor(Viewport,'batch viewport');
+      try
+        Sizes.Active:=True;
+        Panel.BeginUpdate;
+        try
+          Panel.ShowCover:=True;
+          Panel.DetailsButton.Visible:=True;
+        finally Panel.EndUpdate; end;
+        Sizes.Active:=False;
+        Require(Sizes.SizeBoundsChanges=1,
+          'Book batch resized the native viewport through intermediate cover/footer bounds: '+
+          IntToStr(Sizes.SizeBoundsChanges));
+      finally Sizes.Free; end;
+      CheckFooter('single final viewport resize');
+      Panel.DetailsButton.Caption:='Книга';
+      ShortWidth:=Panel.DetailsButton.Width;
+      Panel.DetailsButton.Caption:='Информация о выбранной книге';
+      Require(Panel.DetailsButton.Width>ShortWidth,
+        'Visible action caption changed without updating its reserved width');
+      CheckFooter('visible action caption changed without resize');
+      Require(Annotation.Text=LongAnnotation,
+        'Preparing final cover/footer bounds changed the retained annotation');
+      Writeln('PASS book batch applies one final native viewport size dark=',Ord(Dark),' dpi=',DPI);
+      Flush(Output);
+    finally
+      Panel.DetailsButton.Caption:=OldCaption;
+      Panel.Font.Size:=OldFontSize;
+      Panel.BoundsRect:=OldBounds;
+    end;
+  end;
+
   procedure WaitGallery;
   var Start: UInt64;
   begin
@@ -919,6 +974,7 @@ begin
           Require(Viewport.Height = VisibleHeight, 'Visible footer did not restore its exact reservation');
           CheckFooter('public visibility setter');
           CheckBatchedTextAndVisibility;
+          CheckSingleViewportResize;
           Panel.Height := MulDiv(150, DPI, 96);
           Panel.Width := MulDiv(790, DPI, 96);
           Panel.Gallery.PreviewSettingsFile := TPath.Combine(Root, 'gallery-window.ini');

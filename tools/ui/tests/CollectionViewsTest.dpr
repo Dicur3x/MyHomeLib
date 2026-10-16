@@ -5415,6 +5415,7 @@ end;
 {$I UpdateFormNotifierTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
+{$I CompactBookViewsTests.inc}
 {$I CollectionMetadataSyncTests.inc}
 {$I PublisherMetadataIndexTests.inc}
 {$I ReaderPipelineCacheTests.inc}
@@ -5746,6 +5747,7 @@ begin
       else if ParamStr(1) = 'reader-main-filter' then
         TestReaderMainWithColumnFilter
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
+      else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)

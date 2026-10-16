@@ -1054,6 +1054,7 @@ type
     procedure FillAllBooksTree;
     function CheckLibUpdates(Auto: Boolean): Boolean;
     procedure SetInfoPanelHeight(Height: Integer);
+    procedure BookViewResize(Sender: TObject);
     procedure BatchInfoPanels(Beginning: Boolean);
     procedure SetInfoPanelVisible(State: Boolean);
     procedure SetShowBookCover(State: Boolean);
@@ -4155,6 +4156,7 @@ begin
   UpdateThemeToolbar;
   UpdateSearchBookLayout;
   UpdateFavoriteSearchLayout;
+  BookViewResize(nil);
 end;
 
 procedure ResumeMainScaleAlignment(var Controls: TList<TWinControl>);
@@ -4218,6 +4220,7 @@ begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
+    BookViewResize(nil);
   end;
 end;
 
@@ -4255,6 +4258,7 @@ begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
     UpdateWindowsThemeOfferLayout;
+    BookViewResize(nil);
   end;
 end;
 
@@ -4482,6 +4486,12 @@ begin
   miUpdateFromFile.Parent.Insert(miUpdateFromFile.MenuIndex+1,FilterMenu);
 
   CreatePublisherSeriesView;
+  pnAuthorBooksView.OnResize:=BookViewResize;
+  pnSerieBooksView.OnResize:=BookViewResize;
+  pnGenreBooksView.OnResize:=BookViewResize;
+  pnSearchBooksView.OnResize:=BookViewResize;
+  pnGroupBooksView.OnResize:=BookViewResize;
+  TPanel(FPublisher.Info.Parent).OnResize:=BookViewResize;
 
   FrameTrees;
 
@@ -6257,7 +6267,16 @@ begin
       if Beginning then Panel.BeginUpdate else Panel.EndUpdate;
 end;
 
+procedure TfrmMain.BookViewResize(Sender: TObject);
+begin
+  if (csDestroying in ComponentState) or FUpdatingSearchLayout or
+    (WindowState=wsMinimized) or not Assigned(FPublisher) then Exit;
+  SetInfoPanelHeight(ipnlAuthors.Height);
+end;
+
 procedure TfrmMain.SetInfoPanelHeight(Height: Integer);
+var Info: TInfoPanel; Tree: TBookTree; Child: TControl;
+  Available, Spacing, I: Integer;
 begin
   // Every panel's OnResize calls back in here, so without the guard each
   // assignment below re-enters and changes the panels' bounds while their
@@ -6269,6 +6288,35 @@ begin
 
   FInSetInfoPanelHeight := True;
   try
+    Info:=nil; Tree:=nil;
+    if pgControl.ActivePage=tsByAuthor then begin Info:=ipnlAuthors; Tree:=tvBooksA; end
+    else if pgControl.ActivePage=tsBySerie then begin Info:=ipnlSeries; Tree:=tvBooksS; end
+    else if pgControl.ActivePage=tsByGenre then begin Info:=ipnlGenres; Tree:=tvBooksG; end
+    else if pgControl.ActivePage=tsSearch then begin Info:=ipnlSearch; Tree:=tvBooksSR; end
+    else if pgControl.ActivePage=tsByGroup then begin Info:=ipnlFavorites; Tree:=tvBooksF; end
+    else if Assigned(FPublisher) and (pgControl.ActivePage=FPublisher.Tab) then
+      begin Info:=FPublisher.Info; Tree:=FPublisher.Books; end;
+    if Assigned(Info) and Assigned(Info.Parent) and Info.Visible then
+    begin
+      // Reserve the header, three complete book rows and scrollbar where the
+      // available space permits, while respecting the info panel minimum
+      // after restoring a small window or dragging the shared info splitter.
+      // Use the active view: hidden tabs can still have their old client size.
+      Spacing:=MulDiv(GetSystemMetrics(SM_CYHSCROLL)+4,Max(1,Tree.Font.PixelsPerInch),96);
+      Available:=Info.Parent.ClientHeight-Tree.Header.Height-3*Tree.DefaultNodeHeight-Spacing;
+      if Info.AlignWithMargins then Dec(Available,Info.Margins.Top+Info.Margins.Bottom);
+      if Tree.AlignWithMargins then Dec(Available,Tree.Margins.Top+Tree.Margins.Bottom);
+      for I:=0 to Info.Parent.ControlCount-1 do
+      begin
+        Child:=Info.Parent.Controls[I];
+        if (Child<>Info) and Child.Visible and (Child.Align in [alTop,alBottom]) then
+        begin
+          Dec(Available,Child.Height);
+          if Child.AlignWithMargins then Dec(Available,Child.Margins.Top+Child.Margins.Bottom);
+        end;
+      end;
+      Height:=Max(Info.Constraints.MinHeight,Min(Height,Available));
+    end;
     ipnlAuthors.Height := Height;
     ipnlSeries.Height := Height;
     ipnlGenres.Height := Height;
@@ -6298,6 +6346,7 @@ begin
   GroupBookInfoSplitter.Visible := State;
   FPublisher.Info.Visible := State;
   FPublisher.InfoSplitter.Visible := State;
+  if State then BookViewResize(nil);
 end;
 
 procedure TfrmMain.SetShowBookCover(State: Boolean);
@@ -10163,6 +10212,7 @@ var
   ToolBuutonVisible: Boolean;
 begin
   UpdateActions;
+  BookViewResize(nil);
 
   FLastFoundBook := nil;
   FFirstFoundBook := nil;

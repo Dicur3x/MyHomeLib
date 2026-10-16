@@ -122,6 +122,9 @@ type
     procedure SuspendInfoRedraw;
     procedure RestoreInfoRedraw;
     procedure ProfileLayout(Stage: TInfoPanelLayoutStage; Starting: Boolean); inline;
+    function MeasureInfoText(Index: Integer; const Value: string; TextFont: TFont;
+      AvailableWidth: Integer = 0): TSize;
+    procedure PrepareViewportLayout(out FooterH, FooterW: Integer);
     procedure LayoutControls;
     procedure InfoPanelResize(Sender: TObject);
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
@@ -211,6 +214,7 @@ type
     FVisibilityPending, FFlushingVisibility: Boolean;
     procedure CMVisibleChanged(var Message: TMessage); message CM_VISIBLECHANGED;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+    procedure CMTextChanged(var Message: TMessage); message CM_TEXTCHANGED;
   public
     procedure FlushVisibility;
   end;
@@ -317,6 +321,13 @@ begin
 end;
 
 procedure TInfoDetailsButton.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  if (Owner is TInfoPanel) and not (csDestroying in Owner.ComponentState) then
+    TInfoPanel(Owner).LayoutControls;
+end;
+
+procedure TInfoDetailsButton.CMTextChanged(var Message: TMessage);
 begin
   inherited;
   if (Owner is TInfoPanel) and not (csDestroying in Owner.ComponentState) then
@@ -698,32 +709,69 @@ begin
   if Showing then LayoutControls;
 end;
 
+function TInfoPanel.MeasureInfoText(Index: Integer; const Value: string; TextFont: TFont;
+  AvailableWidth: Integer = 0): TSize;
+var Bounds: TRect;
+begin
+  with FTextMetrics[Index] do
+  begin
+    if Valid and (Width=AvailableWidth) and (Text=Value) and
+      InfoFontsEqual(Font,TextFont) then Exit(Size);
+    Valid:=False;
+    Canvas.Font.Assign(TextFont);
+    if AvailableWidth=0 then Result:=Canvas.TextExtent(Value)
+    else
+    begin
+      Bounds:=Rect(0,0,Max(1,AvailableWidth),0);
+      DrawText(Canvas.Handle,PChar(Value),Length(Value),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      Result:=TSize.Create(Bounds.Width,Bounds.Height);
+    end;
+    Width:=AvailableWidth; Text:=Value;
+    Font.Assign(TextFont); Size:=Result; Valid:=True;
+  end;
+end;
+
+procedure TInfoPanel.PrepareViewportLayout(out FooterH, FooterW: Integer);
+var LayoutPPI, Padding, Gap, ViewportBottom, CoverW: Integer;
+begin
+  FooterH:=0; FooterW:=0;
+  if not Assigned(Parent) or
+    (not Showing and not (csDesigning in ComponentState)) then Exit;
+  // Font.PixelsPerInch also follows ScaleForPPI when VCL CurrentPPI has not
+  // caught up during a resize notification. Measure the actual button font.
+  LayoutPPI := Max(1, Font.PixelsPerInch);
+  Padding := MulDiv(PanelPadding, LayoutPPI, 96);
+  Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
+  ViewportBottom := Padding;
+  if FDetailsButton.Visible then
+  begin
+    FooterH := Max(MulDiv(32, LayoutPPI, 96),
+      MeasureInfoText(0,'Wg',FDetailsButton.Font).cy + MulDiv(12, LayoutPPI, 96));
+    FooterW := Max(MulDiv(180, LayoutPPI, 96),
+      MeasureInfoText(1,FDetailsButton.Caption,FDetailsButton.Font).cx + MulDiv(24, LayoutPPI, 96));
+    Inc(ViewportBottom, FooterH + Gap);
+  end
+  else
+  begin
+    FooterH := 0;
+    FooterW := 0;
+  end;
+  // A tall, narrow preview must leave enough horizontal room for the full
+  // action caption. The image remains proportional inside its original-height
+  // container; only its available width is reduced when space is scarce.
+  CoverW := GetCoverWidth(Max(0, ClientHeight - FCover.Margins.Top - FCover.Margins.Bottom));
+  if FDetailsButton.Visible and FCover.Visible then
+    CoverW := Min(CoverW, Max(0, ClientWidth - FCover.Margins.Left - FCover.Margins.Right -
+      FInfoViewport.Margins.Left - FInfoViewport.Margins.Right - FooterW));
+  if FCover.Width <> CoverW then FCover.Width := CoverW;
+  if FInfoViewport.Margins.Bottom <> ViewportBottom then
+    FInfoViewport.Margins.Bottom := ViewportBottom;
+end;
+
 procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
-  LayoutPPI, FooterH, FooterW, Padding, ViewportBottom, CoverW: Integer;
-  function MeasureText(Index: Integer; const Value: string; TextFont: TFont;
-    AvailableWidth: Integer = 0): TSize;
-  var Bounds: TRect;
-  begin
-    with FTextMetrics[Index] do
-    begin
-      if Valid and (Width=AvailableWidth) and (Text=Value) and
-        InfoFontsEqual(Font,TextFont) then Exit(Size);
-      Valid:=False;
-      Canvas.Font.Assign(TextFont);
-      if AvailableWidth=0 then Result:=Canvas.TextExtent(Value)
-      else
-      begin
-        Bounds:=Rect(0,0,Max(1,AvailableWidth),0);
-        DrawText(Canvas.Handle,PChar(Value),Length(Value),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-        Result:=TSize.Create(Bounds.Width,Bounds.Height);
-      end;
-      Width:=AvailableWidth; Text:=Value;
-      Font.Assign(TextFont); Size:=Result; Valid:=True;
-    end;
-  end;
-
+  LayoutPPI, FooterH, FooterW, Padding: Integer;
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
@@ -805,35 +853,9 @@ begin
   try
     ProfileLayout(ipsFooter, True);
     try
-    // Font.PixelsPerInch also follows ScaleForPPI when VCL CurrentPPI has not
-    // caught up during a resize notification. Measure the actual button font.
+    PrepareViewportLayout(FooterH, FooterW);
     LayoutPPI := Max(1, Font.PixelsPerInch);
     Padding := MulDiv(PanelPadding, LayoutPPI, 96);
-    Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
-    ViewportBottom := Padding;
-    if FDetailsButton.Visible then
-    begin
-      FooterH := Max(MulDiv(32, LayoutPPI, 96),
-        MeasureText(0,'Wg',FDetailsButton.Font).cy + MulDiv(12, LayoutPPI, 96));
-      FooterW := Max(MulDiv(180, LayoutPPI, 96),
-        MeasureText(1,FDetailsButton.Caption,FDetailsButton.Font).cx + MulDiv(24, LayoutPPI, 96));
-      Inc(ViewportBottom, FooterH + Gap);
-    end
-    else
-    begin
-      FooterH := 0;
-      FooterW := 0;
-    end;
-    // A tall, narrow preview must leave enough horizontal room for the full
-    // action caption. The image remains proportional inside its original-height
-    // container; only its available width is reduced when space is scarce.
-    CoverW := GetCoverWidth(Max(0, ClientHeight - FCover.Margins.Top - FCover.Margins.Bottom));
-    if FDetailsButton.Visible and FCover.Visible then
-      CoverW := Min(CoverW, Max(0, ClientWidth - FCover.Margins.Left - FCover.Margins.Right -
-        FInfoViewport.Margins.Left - FInfoViewport.Margins.Right - FooterW));
-    if FCover.Width <> CoverW then FCover.Width := CoverW;
-    if FInfoViewport.Margins.Bottom <> ViewportBottom then
-      FInfoViewport.Margins.Bottom := ViewportBottom;
     if FDetailsButton.Visible then
       FDetailsButton.SetBounds(FInfoViewport.Left,
         Max(0, ClientHeight - Padding - FooterH),
@@ -860,13 +882,13 @@ begin
       UseMeasuredFont(FSerieLabel);
       UseMeasuredFont(FGenreLabel);
       UseMeasuredFont(FPublisherSerieLabel);
-      RowH := MeasureText(2,'Wg',FTitle.Font).cy + MulDiv(RowSpacing, LayoutPPI, 96);
+      RowH := MeasureInfoText(2,'Wg',FTitle.Font).cy + MulDiv(RowSpacing, LayoutPPI, 96);
       Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
       LblW := Max(MulDiv(LabelColumn, LayoutPPI, 96),
-        Max(MeasureText(3,FSerieLabel.Caption,FSerieLabel.Font).cx,
-          MeasureText(4,FGenreLabel.Caption,FGenreLabel.Font).cx) + Gap);
+        Max(MeasureInfoText(3,FSerieLabel.Caption,FSerieLabel.Font).cx,
+          MeasureInfoText(4,FGenreLabel.Caption,FGenreLabel.Font).cx) + Gap);
       if FPublisherSerieLabel.Visible then
-        LblW := Max(LblW, MeasureText(5,FPublisherSerieLabel.Caption,FPublisherSerieLabel.Font).cx + Gap);
+        LblW := Max(LblW, MeasureInfoText(5,FPublisherSerieLabel.Caption,FPublisherSerieLabel.Font).cx + Gap);
       LblW := Min(LblW, W);
 
       ProfileLayout(ipsLinkBounds, True);
@@ -890,7 +912,7 @@ begin
       end
       else if FPublisherSeries.Visible then
       begin
-        LinkH := Max(RowH, MeasureText(6,FPublisherSeries.Caption,FPublisherSeries.Font,
+        LinkH := Max(RowH, MeasureInfoText(6,FPublisherSeries.Caption,FPublisherSeries.Font,
           Max(1,W-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
         FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
@@ -905,14 +927,14 @@ begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(146,180,153) else Canvas.Font.Color:=$0063482E;
         UseMeasuredFont(FReadingSupport);
-        LinkH:=Max(RowH,MeasureText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,W)).cy); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+        LinkH:=Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,W)).cy); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(150,152,156) else Canvas.Font.Color:=clGrayText;
         UseMeasuredFont(FPreviewStatus);
-        LinkH:=Max(RowH,MeasureText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,W)).cy);
+        LinkH:=Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,W)).cy);
         FPreviewStatus.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FGallery.Visible then
@@ -1215,6 +1237,7 @@ begin
 end;
 
 procedure TInfoPanel.EndUpdate;
+var FooterH, FooterW: Integer;
 begin
   Assert(FUpdateCount > 0);
   if FUpdateCount > 1 then
@@ -1232,6 +1255,10 @@ begin
         ProfileLayout(ipsFlushTexts, True);
         try FlushInfoTexts(False);
         finally ProfileLayout(ipsFlushTexts, False); end;
+        // Resolve cover width and the footer reservation while alignment is
+        // still suspended. A new action must not first squeeze the viewport
+        // to the old cover width and then widen it again for its final caption.
+        PrepareViewportLayout(FooterH, FooterW);
       finally
         ProfileLayout(ipsRestoreAlign, True);
         try
