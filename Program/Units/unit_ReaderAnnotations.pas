@@ -5,6 +5,7 @@ interface
 uses System.SysUtils, System.Generics.Collections;
 
 type
+  EReaderAnnotationConflict = class(Exception);
   TReaderAnnotation = record
     ID, BookID, BookTitle, Title, Text, Quote, Place, Created: string;
     Position: Integer;
@@ -65,6 +66,8 @@ type
     procedure Save;
   public
     constructor Create(const SettingsFile: string);
+    procedure Reload;
+    function Find(const ID: string; out Note: TReaderAnnotation): Boolean;
     function Items(const BookID: string = ''): TArray<TReaderAnnotation>;
     function Put(const Note: TReaderAnnotation): string;
     procedure Remove(const ID: string);
@@ -76,6 +79,9 @@ function ReaderAnnotationsText(const Items: TArray<TReaderAnnotation>; HTML: Boo
 function ReaderAnnotationsDocx(const Items: TArray<TReaderAnnotation>; Style: Integer = 1): TBytes;
 function ReaderAnnotationHasRange(const Note: TReaderAnnotation): Boolean;
 function ReaderAnnotationDisplayTitle(const Note: TReaderAnnotation): string;
+function ReaderAnnotationsEqual(const A, B: TReaderAnnotation): Boolean;
+function ReaderAnnotationMatches(const Note: TReaderAnnotation; const Query: string): Boolean;
+procedure SaveReaderAnnotationDraft(const Note: TReaderAnnotation; const FileName: string);
 // Shared formatter also supports reproducible exports with an explicit offset.
 function ReaderAnnotationTimeAtOffset(const Created, ZoneName: string; OffsetMinutes: Integer): string;
 function ReaderAnnotationLocalTime(const Created: string): string;
@@ -83,7 +89,37 @@ function ReaderAnnotationLocalTime(const Created: string): string;
 implementation
 
 uses Winapi.Windows, System.Classes, System.IOUtils, System.JSON, System.DateUtils,
-  System.Generics.Defaults, System.NetEncoding, System.Hash, System.Zip;
+  System.Generics.Defaults, System.NetEncoding, System.Hash, System.Zip,
+  unit_AtomicIniFile;
+
+function ReaderAnnotationsEqual(const A, B: TReaderAnnotation): Boolean;
+begin
+  Result:=(A.ID=B.ID) and (A.BookID=B.BookID) and (A.BookTitle=B.BookTitle) and
+    (A.Title=B.Title) and (A.Text=B.Text) and (A.Quote=B.Quote) and (A.Place=B.Place) and
+    (A.Created=B.Created) and (A.Position=B.Position) and (A.RangeStart=B.RangeStart) and
+    (A.RangeEnd=B.RangeEnd) and (A.RangeIsPageText=B.RangeIsPageText);
+end;
+
+function ReaderAnnotationMatches(const Note: TReaderAnnotation; const Query: string): Boolean;
+var Needle: string;
+  function Has(const Value: string): Boolean;
+  begin Result:=Value.ToLower.Contains(Needle); end;
+begin
+  Needle:=Query.Trim.ToLower;
+  // Literal Unicode substring search; IDs are never searched or normalized.
+  // Case is ignored, while е and ё remain distinct letters.
+  Result:=(Needle='') or Has(Note.BookTitle) or Has(Note.Title) or
+    Has(Note.Text) or Has(Note.Quote) or Has(Note.Place);
+end;
+
+procedure SaveReaderAnnotationDraft(const Note: TReaderAnnotation; const FileName: string);
+var Stream: TStringStream;
+begin
+  if not SameText(ExtractFileExt(FileName),'.txt') then
+    raise Exception.Create('Для копии черновика выберите текстовый файл .txt.');
+  Stream:=TStringStream.Create(ReaderAnnotationsText(TArray<TReaderAnnotation>.Create(Note),False),TEncoding.UTF8);
+  try SaveStreamAtomically(Stream,FileName); finally Stream.Free; end;
+end;
 
 function ReaderAnnotationHasRange(const Note: TReaderAnnotation): Boolean;
 begin Result:=(Note.RangeStart>=0) and (Note.RangeEnd>Note.RangeStart); end;
@@ -279,6 +315,22 @@ begin
   FFileName:=TPath.Combine(ExtractFilePath(ExpandFileName(SettingsFile.Replace('/','\'))),'reader-notes.json'); Load;
 end;
 
+procedure TReaderAnnotations.Reload;
+var Fresh: TReaderAnnotations;
+begin
+  // Parse into an independent instance first. A broken/inaccessible revision
+  // cannot discard the caller's last good snapshot or a separate UI draft.
+  Fresh:=TReaderAnnotations.Create(FFileName);
+  try FItems:=Fresh.FItems; FLoadedHash:=Fresh.FLoadedHash; finally Fresh.Free; end;
+end;
+
+function TReaderAnnotations.Find(const ID: string; out Note: TReaderAnnotation): Boolean;
+begin
+  Note:=Default(TReaderAnnotation);
+  for var Entry in FItems do if Entry.ID=ID then begin Note:=Entry; Exit(True); end;
+  Result:=False;
+end;
+
 procedure TReaderAnnotations.Load;
 var JSON: TJSONValue; Obj, Row: TJSONObject; Rows: TJSONArray; Note: TReaderAnnotation;
   List: TList<TReaderAnnotation>; IDs: TDictionary<string,Boolean>; Bytes: TBytes;
@@ -353,9 +405,9 @@ begin
   if TFile.Exists(FFileName) then
   begin
     if (FLoadedHash='') or (THashSHA2.GetHashStringFromFile(FFileName)<>FLoadedHash) then
-      raise Exception.Create('Заметки были изменены в другом окне. Закройте и снова откройте список; исходный файл сохранён.');
+      raise EReaderAnnotationConflict.Create('Заметки были изменены в другом окне. Перечитайте записи или сохраните копию черновика; исходный файл сохранён.');
   end
-  else if FLoadedHash<>'' then raise Exception.Create('Файл заметок перемещён. Исходные записи в памяти сохранены.');
+  else if FLoadedHash<>'' then raise EReaderAnnotationConflict.Create('Файл заметок перемещён. Исходные записи в памяти сохранены.');
   JSON:=TJSONObject.Create; Temporary:=FFileName+'.new-'+TGUID.NewGuid.ToString;
   try
     JSON.AddPair('version',TJSONNumber.Create(1)); Rows:=TJSONArray.Create; JSON.AddPair('notes',Rows);
