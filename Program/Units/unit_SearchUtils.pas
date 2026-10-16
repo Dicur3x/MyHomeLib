@@ -19,8 +19,12 @@ unit unit_SearchUtils;
 
 interface
 
+uses unit_Globals;
+
 procedure AddToFilter(const Field: string; Value: string; UP: Boolean; var FilterString: string);
 function PrepareQuery(S: string; UP: Boolean; ConverToFull: Boolean = True): string;
+function PrepareSearchQuery(const S: string; UP: Boolean;
+  Mode: TSearchQueryMode; ConvertToFull: Boolean = True): string;
 
 procedure AddToWhere(var Where: string; const Filter: string);
 
@@ -29,8 +33,23 @@ implementation
 uses
   StrUtils,
   SysUtils,
-  unit_Globals,
   unit_Consts;
+
+function PrepareSearchQuery(const S: string; UP: Boolean;
+  Mode: TSearchQueryMode; ConvertToFull: Boolean = True): string;
+var Text: string;
+begin
+  if Mode = sqmLegacy then Exit(PrepareQuery(S, UP, ConvertToFull));
+  Text := Trim(S);
+  if Text = '' then Exit('');
+  if UP then Text := AnsiUpperCase(Text);
+  if Mode = sqmExpression then Exit(Text);
+  if not ConvertToFull then Exit('=' + QuotedStr(Text));
+  // Escape LIKE metacharacters before quoting the SQL literal. The explicit
+  // escape character also keeps Windows path backslashes literal.
+  Text := Text.Replace('!', '!!').Replace('%', '!%').Replace('_', '!_');
+  Result := 'LIKE ' + QuotedStr('%' + Text + '%') + ' ESCAPE ''!''';
+end;
 
 function QualifySearchExpression(const Value, Field: string): string;
 var

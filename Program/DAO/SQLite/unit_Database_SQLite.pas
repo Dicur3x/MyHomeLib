@@ -1149,13 +1149,16 @@ begin
   end;
 end;
 
-function PrepareISBNQuery(const Value: string): string;
+function PrepareISBNQuery(const Value: string; Mode: TSearchQueryMode): string;
 var Text: string; Quoted: Boolean; Quote, C: Char;
 begin
   Text:=Trim(AnsiUpperCase(Value)); Result:=''; if Text='' then Exit;
+  if Mode=sqmText then
+    Exit(PrepareSearchQuery(Text.Replace('-','').Replace(' ','').Replace(#9,'').Replace(#160,''),
+      True,Mode));
   // Ordinary pasted ISBN is a literal, including any accidental punctuation.
   // In an advanced expression normalize only literals, never operator spaces.
-  if not CharInSet(Text[1],['=','<','>','(']) and not Text.StartsWith('LIKE ') and
+  if (Mode=sqmLegacy) and not CharInSet(Text[1],['=','<','>','(']) and not Text.StartsWith('LIKE ') and
     not Text.StartsWith('NOT ') then
     Exit('LIKE '+QuotedStr('%'+Text.Replace('-','').Replace(' ','').Replace(#9,'').Replace(#160,'')+'%'));
   Quoted:=False; Quote:=#0;
@@ -1169,7 +1172,7 @@ begin
     else if CharInSet(C,['-',' ',#9,#160]) then Continue;
     Result:=Result+C;
   end;
-  Result:=PrepareQuery(Result,True);
+  Result:=PrepareSearchQuery(Result,True,Mode);
 end;
 
 procedure TBookCollection_SQLite.TBookIteratorImpl.PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
@@ -1194,7 +1197,7 @@ begin
     if SearchCriteria.FullName <> '' then
     begin
       AddToFilter('a.SearchName ',
-      PrepareQuery(SearchCriteria.FullName, True),
+      PrepareSearchQuery(SearchCriteria.FullName, True, SearchCriteria.QueryMode),
         False, FilterString);
       if FilterString <> '' then
       begin
@@ -1229,7 +1232,7 @@ begin
     FilterString := '';
     if SearchCriteria.Series <> '' then
     begin
-      AddToFilter('s.SearchSeriesTitle', PrepareQuery(SearchCriteria.Series, True), False, FilterString);
+      AddToFilter('s.SearchSeriesTitle', PrepareSearchQuery(SearchCriteria.Series, True, SearchCriteria.QueryMode), False, FilterString);
       SeriesFilterString := FilterString;
 
       if FilterString <> '' then
@@ -1258,29 +1261,29 @@ begin
     end;
 
     FilterString := '';
-    AddToFilter('b.SearchAnnotation', PrepareQuery(SearchCriteria.Annotation, True), False, FilterString);
+    AddToFilter('b.SearchAnnotation', PrepareSearchQuery(SearchCriteria.Annotation, True, SearchCriteria.QueryMode), False, FilterString);
     // Publisher is already stored metadata; do not read book files during search.
     // SQLite's native UPPER only maps ASCII, so use our Windows Unicode mapping.
-    AddToFilter('MHL_UPPER(b.Publisher)', PrepareQuery(SearchCriteria.Publisher, True), False, FilterString);
-    AddToFilter('MHL_UPPER(b.Translators)', PrepareQuery(SearchCriteria.Translators, True), False, FilterString);
-    AddToFilter('MHL_UPPER(b.City)', PrepareQuery(SearchCriteria.City, True), False, FilterString);
+    AddToFilter('MHL_UPPER(b.Publisher)', PrepareSearchQuery(SearchCriteria.Publisher, True, SearchCriteria.QueryMode), False, FilterString);
+    AddToFilter('MHL_UPPER(b.Translators)', PrepareSearchQuery(SearchCriteria.Translators, True, SearchCriteria.QueryMode), False, FilterString);
+    AddToFilter('MHL_UPPER(b.City)', PrepareSearchQuery(SearchCriteria.City, True, SearchCriteria.QueryMode), False, FilterString);
     AddToFilter('b.PubYear', PrepareQuery(SearchCriteria.PubYear, False, False), False, FilterString);
     // ISBN punctuation is presentation, including non-breaking spaces. Keep
     // the expression parser for exact matches and OR/AND as in other fields.
     AddToFilter('MHL_UPPER(REPLACE(REPLACE(REPLACE(REPLACE(b.ISBN,''-'',''''),'' '',''''),CHAR(9),''''),CHAR(160),''''))',
-      PrepareISBNQuery(SearchCriteria.ISBN), False, FilterString);
-    AddToFilter('b.SearchTitle', PrepareQuery(SearchCriteria.Title, True), False, FilterString);
+      PrepareISBNQuery(SearchCriteria.ISBN, SearchCriteria.QueryMode), False, FilterString);
+    AddToFilter('b.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, FilterString);
     if SearchCriteria.ExactTitle<>'' then
     begin
       if FilterString<>'' then FilterString:=FilterString+' AND ';
       FilterString:=FilterString+'(b.SearchTitle='+QuotedStr(AnsiUpperCase(SearchCriteria.ExactTitle))+')';
     end;
-    AddToFilter('b.SearchFileName', PrepareQuery(SearchCriteria.FileName, True), False, FilterString);
-    AddToFilter('b.SearchFolder', PrepareQuery(SearchCriteria.Folder, True), False, FilterString);
-    AddToFilter('b.SearchExt', PrepareQuery(SearchCriteria.FileExt, True), False, FilterString);
+    AddToFilter('b.SearchFileName', PrepareSearchQuery(SearchCriteria.FileName, True, SearchCriteria.QueryMode), False, FilterString);
+    AddToFilter('b.SearchFolder', PrepareSearchQuery(SearchCriteria.Folder, True, SearchCriteria.QueryMode), False, FilterString);
+    AddToFilter('b.SearchExt', PrepareSearchQuery(SearchCriteria.FileExt, True, SearchCriteria.QueryMode), False, FilterString);
     AddToFilter('b.SearchLang', PrepareQuery(SearchCriteria.Lang, True, False), False, FilterString);
     AddToFilter('b.LibRate', PrepareQuery(SearchCriteria.LibRate, False, False), False, FilterString);
-    AddToFilter('b.SearchKeyWords', PrepareQuery(SearchCriteria.KeyWord, True), False, FilterString);
+    AddToFilter('b.SearchKeyWords', PrepareSearchQuery(SearchCriteria.KeyWord, True, SearchCriteria.QueryMode), False, FilterString);
     if SearchCriteria.DateIdx = -1 then
       AddToFilter('b.UpdateDate', PrepareQuery(SearchCriteria.DateText, False), False, FilterString)
     else

@@ -97,6 +97,7 @@ uses
   IOUtils,
   ComCtrls,
   Generics.Collections,
+  unit_InpLineReader,
   unit_LibrarySourceID,
   unit_MHLArchiveHelpers,
   unit_Consts,
@@ -383,18 +384,18 @@ procedure TImportInpxThreadBase.Import(const INPXFileName: string; CheckFiles: B
 type
   TInpEntry = record
     Name: string;
-    Size: Integer;
+    Size, Index: Integer;
   end;
 var
   CollectionRoot: string;
-  BookList: TStringList;
   i: Integer;
   j: Integer;
   R: TBookRecord;
   filesProcessed: Integer;
   CurrentFile: string;
   IsOnline: Boolean;
-  inpStream: TMemoryStream;
+  Reader: TInpLineReader;
+  InputLine: string;
   StructureInfo: string;
   header: TINPXHeader;
   strVersion: string;
@@ -405,6 +406,7 @@ var
   EntryCount: Integer;
   TotalBytes: Int64;
   BytesDone: Int64;
+  ProgressValue: Int64;
   Params: TStringList;
   Cache: TImportCache;
   ImportedBooks: TDictionary<string, Integer>;
@@ -434,7 +436,7 @@ begin
   SetLength(FFields, 0);
   FUseStoredFolder := False;
   Zip := nil;
-  inpStream := nil;
+  Reader := nil;
   Params := nil;
   Cache := nil;
   ImportedBooks := nil;
@@ -446,7 +448,8 @@ begin
     Cache := TImportCache.Create;
     ImportedBooks := TDictionary<string, Integer>.Create;
     ArchiveEntries := TDictionary<string, Integer>.Create;
-    Zip := TMHLZip.Create(INPXFileName, True);
+    Zip := TMHLZip.Create(INPXFileName, True, False,
+      function: Boolean begin Result := Canceled; end);
     SetLength(IndexNames, Zip.FileCount);
     for i := 0 to Zip.FileCount - 1 do
       IndexNames[i] := Zip.FileNames[i];
@@ -490,6 +493,7 @@ begin
         Continue;
 
       InpEntries[EntryCount].Name := CurrentFile;
+      InpEntries[EntryCount].Index := i;
       InpEntries[EntryCount].Size := Zip.FileSizes[i];
       Inc(TotalBytes, InpEntries[EntryCount].Size);
       Inc(EntryCount);
@@ -510,26 +514,20 @@ begin
 
       Teletype(Format(rstrProcessingFile, [CurrentFile]), tsInfo);
 
-      BookList := TStringList.Create;
       try
+        try
         // Multi-series rows for one physical archive are emitted into the same
         // .inp member. Reuse the dictionary for every member but do not retain
         // millions of path strings for the entire import (important for x86).
         ImportedBooks.Clear;
         ArchiveEntries.Clear;
-        try
-          inpStream := TMemoryStream.Create;
-          Zip.ExtractToStream(CurrentFile, inpStream);
-          inpStream.Seek(0, soBeginning);
-          BookList.LoadFromStream(inpStream, TEncoding.UTF8);
-        finally
-          FreeAndNil(inpStream);
-        end;
-
-        for j := 0 to BookList.Count - 1 do
+        Reader := TInpLineReader.Create(Zip, InpEntries[i].Index, Settings.TempPath,
+          function: Boolean begin Result := Canceled; end);
+        while not Canceled and Reader.ReadLine(InputLine) do
         begin
+          j := Reader.LineNumber;
           try
-            ParseData(BookList[j], IsOnline, R, Params);
+            ParseData(InputLine, IsOnline, R, Params);
             // Numeric source IDs collide in combined Librusec/Flibusta INPX.
             // Scope only such indexes; ordinary and existing FLibrary IDs keep
             // their historical values for groups, ratings and read progress.
@@ -610,10 +608,10 @@ begin
 
           except
             on E: EConvertError do
-              Teletype(Format(rstrErrorInpStructure, [CurrentFile, j + 1]), tsError);
+              Teletype(Format(rstrErrorInpStructure, [CurrentFile, j]), tsError);
             on E: EDBError do
             begin
-              Teletype(Format(rstrDBErrorInp, [CurrentFile, j + 1]), tsError);
+              Teletype(Format(rstrDBErrorInp, [CurrentFile, j]), tsError);
               // A malformed source row can be skipped, but a database failure
               // means the transaction itself is no longer trustworthy.
               raise;
@@ -630,8 +628,13 @@ begin
           // в коллекции, иначе стоит на месте. SetProgress сам отсекает вызовы
           // Synchronize, пока целое число процентов не изменилось.
           if TotalBytes > 0 then
-            SetProgress(Integer(
-              (BytesDone + Round(InpEntries[i].Size * ((j + 1) / BookList.Count))) * 100 div TotalBytes));
+          begin
+            ProgressValue := (BytesDone + Reader.BytePosition) * 100 div TotalBytes;
+            // StreamReader reads ahead. Do not show completion until the last
+            // buffered row has actually passed the importer.
+            if ProgressValue >= 100 then ProgressValue := 99;
+            SetProgress(Integer(ProgressValue));
+          end;
 
           if (j mod ProcessedItemThreshold) = 0 then
           begin
@@ -641,13 +644,15 @@ begin
               Break;
           end;
         end;
-      finally
-        FreeAndNil(BookList);
-      end;
+        except
+          on E: EAbort do if not Canceled then raise;
+        end;
+      finally FreeAndNil(Reader); end;
 
       Inc(BytesDone, InpEntries[i].Size);
       if Canceled then
         Break;
+      if TotalBytes > 0 then SetProgress(Integer(BytesDone * 100 div TotalBytes));
     end;
 
     if Canceled then
@@ -680,7 +685,7 @@ begin
     end;
   finally
     FreeAndNil(Zip);
-    FreeAndNil(inpStream);
+    FreeAndNil(Reader);
     FreeAndNil(ArchiveEntries);
     FreeAndNil(ImportedBooks);
     FreeAndNil(Cache);

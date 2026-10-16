@@ -22,18 +22,22 @@ interface
 uses
   msxml,
   ComObj,
-  Generics.Collections;
+  Generics.Collections,
+  unit_Globals;
 
 type
   TSearchPreset = class(TDictionary<string, string>)
   strict private
     FDisplayName: string;
+    function GetQueryMode: TSearchQueryMode;
+    procedure SetQueryMode(Value: TSearchQueryMode);
 
   public
     constructor Create(const DisplayName: string);
     destructor Destroy; override;
 
     property DisplayName: string read FDisplayName;
+    property QueryMode: TSearchQueryMode read GetQueryMode write SetQueryMode;
   end;
 
   TSearchPresets = class(TObjectList<TSearchPreset>)
@@ -64,6 +68,7 @@ resourcestring
   rstrInvalidPresetName = 'Неверное название пресета';
 
 const
+  QUERY_MODE_FIELD = 'QueryMode';
   PRESETS_ELEMENT = 'Presets';
   PRESET_ELEMENT = 'Preset';
   FIELD_ELEMENT = 'Field';
@@ -74,6 +79,23 @@ constructor TSearchPreset.Create(const DisplayName: string);
 begin
   inherited Create;
   FDisplayName := DisplayName;
+end;
+
+function TSearchPreset.GetQueryMode: TSearchQueryMode;
+var Value: string;
+begin
+  Result := sqmLegacy;
+  if not TryGetValue(QUERY_MODE_FIELD, Value) then Exit;
+  if SameText(Value, 'text') then Result := sqmText
+  else if SameText(Value, 'expression') then Result := sqmExpression
+  else if not SameText(Value, 'legacy') then
+    raise EConvertError.Create('Неизвестный режим поиска в пресете «' + DisplayName + '».');
+end;
+
+procedure TSearchPreset.SetQueryMode(Value: TSearchQueryMode);
+const Names: array[TSearchQueryMode] of string = ('legacy', 'text', 'expression');
+begin
+  AddOrSetValue(QUERY_MODE_FIELD, Names[Value]);
 end;
 
 destructor TSearchPreset.Destroy;
@@ -110,6 +132,8 @@ var
   xmlDoc: IXMLDOMDocument; xmlPresets, xmlFields: IXMLDOMNodeList;
   xmlPreset, xmlField, Attribute: IXMLDOMNode; Preset: TSearchPreset;
   Candidate: TSearchPresets; Name, Key: string; Prepared: TArray<TSearchPreset>;
+  HasQueryMode: Boolean;
+  ValidatedMode: TSearchQueryMode;
 begin
   xmlDoc:=TMSXMLHelper.LoadFromFile(FileName,not SameText(ExtractFileExt(FileName),'.xml'),True);
   if not Assigned(xmlDoc.documentElement) or (xmlDoc.documentElement.nodeName<>PRESETS_ELEMENT) then
@@ -123,7 +147,7 @@ begin
       Attribute:=xmlPreset.attributes.getNamedItem(DISPLAYNAME_ATTRIBUTE);
       if not Assigned(Attribute) or (Trim(Attribute.text)='') then
         raise EArgumentException.Create('В файле пресетов отсутствует название пресета.');
-      Name:=Attribute.text; Preset:=Candidate.GetPreset(Name);
+      Name:=Attribute.text; Preset:=Candidate.GetPreset(Name); HasQueryMode:=False;
       xmlFields:=xmlPreset.selectNodes(FIELD_ELEMENT); xmlField:=xmlFields.nextNode;
       while Assigned(xmlField) do
       begin
@@ -131,8 +155,14 @@ begin
         if not Assigned(Attribute) or (Trim(Attribute.text)='') then
           raise EArgumentException.Create('В пресете «'+Name+'» отсутствует название поля.');
         Key:=Attribute.text; Preset.AddOrSetValue(Key,xmlField.text);
+        if Key=QUERY_MODE_FIELD then HasQueryMode:=True;
         xmlField:=xmlFields.nextNode;
       end;
+      // Importing a legacy preset over a modern one still restores the legacy
+      // interpretation; absent mode must not inherit the destination's mode.
+      if not HasQueryMode then Preset.Remove(QUERY_MODE_FIELD);
+      // An unsupported future mode must not silently change query meaning.
+      ValidatedMode := Preset.QueryMode;
       xmlPreset:=xmlPresets.nextNode;
     end;
     // All parsing/validation and required list allocation precede publication.

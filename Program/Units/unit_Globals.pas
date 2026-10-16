@@ -298,7 +298,11 @@ type
     Options: TVTColumnOptions;
   end;
 
+  // Zero retains the historical query interpretation for old callers/presets.
+  TSearchQueryMode = (sqmLegacy, sqmText, sqmExpression);
+
   TBookSearchCriteria = record
+    QueryMode: TSearchQueryMode;
     FullName: string;
     Publisher: string;
     Translators, City, PubYear, ISBN: string;
