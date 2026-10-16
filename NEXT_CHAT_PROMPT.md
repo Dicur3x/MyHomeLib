@@ -19,7 +19,9 @@
 - [Проверка выпуска](docs/RELEASE_VALIDATION_2.7.0_pre5.22.md).
 - [История выпусков](docs/releases/README.md).
 
-Публикация pre5.22 ещё выполняется; локальные архивы проверены и готовы.
+pre5.22 опубликована и подтверждена публичной проверкой как latest:
+https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.22
+Все три вложения совпали по SHA-256; master содержит очистку корня репозитория.
 Артефакты: G:/HomeLibRu-refactor-pre5.22-2026-10-16.
 Рабочий checkout C:/Users/cloud/HomeLibRu-audit, ветка codex/complete-app-audit.
 Program/Out/Bin и Bin64 направлены в собственную runtime-папку на G.

@@ -117,5 +117,42 @@
       "fixture_log_sha256": "3f8e40638dd462367e3d7a85add32b7a8481d7763a9df4ce3f2283a36431c21e",
       "result": "Manual Sky inspection: actual packaged Main, six-book disposable catalog, authors/book list/info pane visible, version 2.7.0.1090; closed normally."
     }
-  ]
+  ],
+  "publication": {
+    "verified_utc": "2026-10-16T15:17:26.509812+00:00",
+    "release_url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.22",
+    "tag": "2.7.0_pre5.22",
+    "published_utc": "2026-10-16T15:16:39Z",
+    "public_latest": true,
+    "assets": [
+      {
+        "name": "HomeLibRu.zip",
+        "size": 55543144,
+        "digest": "sha256:4da3bdcf29fe5fb118041847ed23a7be5845ba44df5c31d3e3d49d65d118db03",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.22/HomeLibRu.zip"
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "size": 61056476,
+        "digest": "sha256:b1f2ffa3069d69b8ae5362cd05a2f89954ef5e7a4f6c465a2961d710ef5004e0",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.22/HomeLibRu_x64.zip"
+      },
+      {
+        "name": "SHA256.txt",
+        "size": 166,
+        "digest": "sha256:3a6a39eaaa8e44d47cf7ebb9b89a286a632e780f35c4007b3b4a68929a43f1dc",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.22/SHA256.txt"
+      }
+    ],
+    "root_release_notes": 0,
+    "archived_release_notes": 22,
+    "legacy_update_feed": [
+      "2.7.0.1090",
+      "HomeLib Ru 2.7.0 pre5.22",
+      "https://github.com/Dicur3x/MyHomeLib/releases/latest"
+    ]
+  }
 }
