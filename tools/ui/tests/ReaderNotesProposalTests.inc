@@ -165,7 +165,7 @@ type
     Started: UInt64;
     FixtureRoot, ExpectedScope: string;
     ExpectedCount: Integer;
-    Confirmed: Boolean;
+    Confirmed, FirstTick: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -193,6 +193,12 @@ begin
   Require((ExpectedCount=2) and DirectoryExists(FixtureRoot) and
     TPath.GetFullPath(FixtureRoot).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes\',True),
     'Automatic confirmation is restricted to this own notes fixture');
+  if not FirstTick then
+  begin
+    FirstTick:=True;
+    RNPTrace('confirmation first_tick elapsed_ms='+IntToStr(GetTickCount64-Started)+
+      ' latest_common_dialogs='+BoolToStr(Vcl.Dialogs.UseLatestCommonDialogs,True));
+  end;
   Require(GetTickCount64-Started<5000,'Own notes fixture confirmation did not appear');
   // TaskDialog is not a Screen.Forms entry. Match the current process and the
   // complete fixture-specific message before accepting a native dialog.
@@ -208,6 +214,8 @@ begin
         EnumChildWindows(Window,@RNPConfirmationChildText,LPARAM(Pointer(Parts)));
         if IsExpected(Parts.Text) then
         begin
+          RNPTrace('confirmation exact native match expected_count='+IntToStr(ExpectedCount)+
+            ' elapsed_ms='+IntToStr(GetTickCount64-Started));
           Timer.Enabled:=False; Confirmed:=True; YesButton:=GetDlgItem(Window,IDYES);
           if YesButton<>0 then PostMessage(YesButton,BM_CLICK,0,0)
           else PostMessage(Window,WM_USER+102,IDYES,0); // TDM_CLICK_BUTTON
@@ -226,6 +234,8 @@ begin
       if (Screen.Forms[I].Components[J] is TLabel) and
         IsExpected(TLabel(Screen.Forms[I].Components[J]).Caption) then
       begin
+        RNPTrace('confirmation exact VCL match expected_count='+IntToStr(ExpectedCount)+
+          ' elapsed_ms='+IntToStr(GetTickCount64-Started));
         Timer.Enabled:=False; Confirmed:=True; Screen.Forms[I].ModalResult:=mrYes; Exit;
       end;
   end;
@@ -237,7 +247,7 @@ var
   Store, Stale, External: TReaderAnnotations;
   Note, Original, Draft, Found: TReaderAnnotation;
   Bytes: TBytes;
-  Rejected: Boolean;
+  Rejected, PreviousCommonDialogs: Boolean;
   Dialog: TReaderSavedDialog;
   Search: TEdit;
   Books: TComboBox;
@@ -519,14 +529,25 @@ begin
     Search.Text:=''; ExpectVisible(['book-a/note-a','book-a/note-c','book-a/0','book-a/1']);
     // Select a row that will be hidden, then delete while debounce is pending.
     List.Items[List.Items.Count-1].Selected:=True; Search.Text:='маяк';
-    Confirm:=TRNPConfirm.Create; Confirm.Timer:=TTimer.Create(nil);
+    Confirm:=TRNPConfirm.Create; Confirm.Timer:=TTimer.Create(nil); Confirm.Timer.Enabled:=False;
+    PreviousCommonDialogs:=Vcl.Dialogs.UseLatestCommonDialogs;
     try
+      // TaskDialog's DirectUI does not expose its content via GetWindowText.
+      // For this one own-fixture call use the actual VCL MessageDlg backend,
+      // retaining the full message, exact count/scope checks and real Yes/No.
+      Vcl.Dialogs.UseLatestCommonDialogs:=False;
       Confirm.FixtureRoot:=Work; Confirm.ExpectedCount:=2;
       Confirm.ExpectedScope:='книга «Книга Альфа»; поиск «маяк»';
       Confirm.Started:=GetTickCount64; Confirm.Timer.Interval:=10; Confirm.Timer.OnTimer:=Confirm.Tick;
-      RNPTrace('filter delete shown'); TButton(RNPComponent(Dialog,'NotesDeleteAll',TButton)).Click;
+      Confirm.Timer.Enabled:=True;
+      RNPTrace('filter delete shown strict_count=2 scope='+Confirm.ExpectedScope+' backend=VCL');
+      TButton(RNPComponent(Dialog,'NotesDeleteAll',TButton)).Click;
       Require(Confirm.Confirmed,'Filtered destructive action skipped its own-fixture confirmation');
-    finally Confirm.Timer.Free; Confirm.Free; end;
+    finally
+      Confirm.Timer.Enabled:=False; Confirm.Timer.Free; Confirm.Free;
+      Vcl.Dialogs.UseLatestCommonDialogs:=PreviousCommonDialogs;
+    end;
+    Require(Vcl.Dialogs.UseLatestCommonDialogs=PreviousCommonDialogs,'Own confirmation changed the process dialog backend');
     RNPTrace('filter delete returned'); ExpectVisible([]); Search.Text:=''; ExpectVisible(['book-a/note-c','book-a/0']);
     SelectBook('Все книги'); ExpectVisible(['book-b/note-b','book-a/note-c','book-c/note-d','book-a/0','book-b/0']);
     Store:=TReaderAnnotations.Create(Profile);
