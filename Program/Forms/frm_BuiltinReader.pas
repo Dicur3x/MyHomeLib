@@ -2445,6 +2445,20 @@ begin
   finally List.Free; Sections.Free; Ini.Free; end;
 end;
 
+function ReaderBookmarkMatches(Ini: TMemIniFile; const Note: TReaderAnnotation;
+  ExpectedCount: Integer = -1): Boolean;
+var Section: string; Count, Index: Integer;
+begin
+  Result:=False; Section:='Bookmarks.'+Note.BookID;
+  Count:=EnsureRange(Ini.ReadInteger(Section,'Count',0),0,100);
+  if (ExpectedCount>=0) and (Count<>ExpectedCount) then Exit;
+  if not TryStrToInt(Note.ID,Index) then Exit;
+  if (Index<0) or (Index>=Count) then Exit;
+  Result:=(Ini.ReadInteger(Section,'Position'+Note.ID,-1)=Note.Position) and
+    (Ini.ReadString(Section,'Title'+Note.ID,'Закладка '+IntToStr(Index+1)).Replace('&&','&')=Note.Title) and
+    (Ini.ReadString(Section,'Created'+Note.ID,'')=Note.Created);
+end;
+
 function ReaderBookmarkRemoval(const SettingsFile: string;
   const Notes: TArray<TReaderAnnotation>): TMemIniFile;
 var Selected, Books: TDictionary<string,Boolean>; Section, Key: string; Count, Index, Kept: Integer;
@@ -2456,11 +2470,7 @@ begin
     try
       for var Note in Notes do
       begin
-        Section:='Bookmarks.'+Note.BookID; Count:=EnsureRange(Result.ReadInteger(Section,'Count',0),0,100);
-        if not TryStrToInt(Note.ID,Index) or (Index<0) or (Index>=Count) or
-          (Result.ReadInteger(Section,'Position'+Note.ID,-1)<>Note.Position) or
-          (Result.ReadString(Section,'Title'+Note.ID,'Закладка '+IntToStr(Index+1)).Replace('&&','&')<>Note.Title) or
-          (Result.ReadString(Section,'Created'+Note.ID,'')<>Note.Created) then
+        if not ReaderBookmarkMatches(Result,Note) then
           raise EReaderAnnotationConflict.Create('Закладки изменились в другом окне. Перечитайте список перед удалением.');
         Selected.TryAdd(Note.BookID+#9+Note.ID,True); Books.TryAdd(Note.BookID,True);
       end;
@@ -2765,7 +2775,7 @@ begin
 end;
 
 procedure TReaderSavedDialog.EditSelected(Sender: TObject);
-var Index: Integer; Note: TReaderAnnotation; Ini: TMemIniFile; Title: string;
+var Index, BookmarkCount: Integer; Note: TReaderAnnotation; Ini: TMemIniFile; Title: string;
 begin
   if FSearchTimer.Enabled then begin FlushSearch; Exit; end;
   if not Assigned(FList.Selected) then Exit; Index:=RowValue(FList.Selected); if Index=0 then Exit;
@@ -2777,14 +2787,25 @@ begin
   end
   else
   begin
-    Title:=FList.Selected.SubItems[0];
+    // Bookmark IDs are positional. Capture the displayed binding before the
+    // modal editor, then validate it against the same fresh INI we will save.
+    Note:=FBookmarkRows[-Index-1]; Title:=Note.Title; BookmarkCount:=0;
+    for var Saved in FBookmarkRows do if Saved.BookID=Note.BookID then Inc(BookmarkCount);
     if not InputQuery('Название закладки','Название:',Title) or (Title.Trim='') then Exit;
-    Note:=FBookmarkRows[-Index-1];
-    Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
     try
-      Ini.WriteString('Bookmarks.'+Note.BookID,'Title'+Note.ID,Copy(Title.Trim,1,256).Replace('&','&&'));
-      SaveMemIniFileAtomically(Ini);
-    finally Ini.Free; end;
+      Ini:=TMemIniFile.Create(FSettingsFile,TEncoding.UTF8);
+      try
+        if not ReaderBookmarkMatches(Ini,Note,BookmarkCount) then
+          raise EReaderAnnotationConflict.Create('Закладки изменились в другом окне. Перечитайте список перед переименованием.');
+        Ini.WriteString('Bookmarks.'+Note.BookID,'Title'+Note.ID,Copy(Title.Trim,1,256).Replace('&','&&'));
+        SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    except
+      on E: EReaderAnnotationConflict do
+      begin MessageDlg(E.Message,mtWarning,[mbOK],0); Exit; end;
+      on E: Exception do
+      begin MessageDlg('Не удалось переименовать закладку.'+sLineBreak+E.Message,mtError,[mbOK],0); Exit; end;
+    end;
     Reload;
   end;
 end;

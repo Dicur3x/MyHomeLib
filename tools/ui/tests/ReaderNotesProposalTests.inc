@@ -292,6 +292,161 @@ begin
   end;
 end;
 
+type
+  TRNPBookmarkRenameDriver = class
+  private
+    FTimer: TTimer;
+    FStarted: UInt64;
+    FRoot, FOldTitle, FNewTitle: string;
+    FBeforeAccept: TProc;
+    FCancel, FExpectConflict: Boolean;
+    procedure Tick(Sender: TObject);
+  public
+    SawInput, SawConflict: Boolean;
+    constructor Create(const Root, OldTitle, NewTitle: string; Cancel, ExpectConflict: Boolean;
+      const BeforeAccept: TProc = nil);
+    destructor Destroy; override;
+  end;
+
+constructor TRNPBookmarkRenameDriver.Create(const Root, OldTitle, NewTitle: string;
+  Cancel, ExpectConflict: Boolean; const BeforeAccept: TProc);
+begin
+  inherited Create;
+  Require(DirectoryExists(Root) and
+    TPath.GetFullPath(Root).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes\',True),
+    'Bookmark rename driver requires its own fixed fixture root');
+  FRoot:=Root; FOldTitle:=OldTitle; FNewTitle:=NewTitle; FCancel:=Cancel;
+  FExpectConflict:=ExpectConflict; FBeforeAccept:=BeforeAccept; FStarted:=GetTickCount64;
+  FTimer:=TTimer.Create(nil); FTimer.Enabled:=False; FTimer.Interval:=10;
+  FTimer.OnTimer:=Tick; FTimer.Enabled:=True;
+end;
+
+destructor TRNPBookmarkRenameDriver.Destroy;
+begin FTimer.Free; FBeforeAccept:=nil; inherited; end;
+
+procedure TRNPBookmarkRenameDriver.Tick(Sender: TObject);
+const ConflictText='Закладки изменились в другом окне. Перечитайте список перед переименованием.';
+var PID: DWORD; Form: TForm;
+begin
+  Require(DirectoryExists(FRoot),'Own bookmark fixture disappeared');
+  Require(GetTickCount64-FStarted<5000,'Expected own bookmark rename dialog did not appear');
+  for var I:=0 to Screen.FormCount-1 do
+  begin
+    Form:=Screen.Forms[I];
+    if not Form.Visible or not Form.HandleAllocated then Continue;
+    PID:=0; GetWindowThreadProcessId(Form.Handle,@PID); if PID<>GetCurrentProcessId then Continue;
+    if not SawInput and (Form.Caption='Название закладки') then
+    begin
+      for var J:=0 to Form.ComponentCount-1 do
+        if (Form.Components[J] is TCustomEdit) and (TCustomEdit(Form.Components[J]).Text=FOldTitle) then
+        begin
+          FTimer.Enabled:=False; SawInput:=True;
+          if Assigned(FBeforeAccept) then FBeforeAccept;
+          TCustomEdit(Form.Components[J]).Text:=FNewTitle;
+          RNPTrace('bookmark rename exact own input cancel='+BoolToStr(FCancel,True));
+          if FCancel then Form.ModalResult:=mrCancel else Form.ModalResult:=mrOk;
+          FTimer.Enabled:=FExpectConflict; Exit;
+        end;
+    end
+    else if SawInput and FExpectConflict and (Form.ClassName='TMessageForm') then
+      for var J:=0 to Form.ComponentCount-1 do
+        if (Form.Components[J] is TLabel) and (TLabel(Form.Components[J]).Caption=ConflictText) then
+        begin
+          FTimer.Enabled:=False; SawConflict:=True;
+          RNPTrace('bookmark rename exact own conflict; fresh INI must remain unchanged');
+          Form.ModalResult:=mrOk; Exit;
+        end;
+  end;
+end;
+
+procedure RNPTestBookmarkRename(const Root: string);
+const Section='Bookmarks.rename-own-book';
+var Work, Profile, BeforeHash, FreshHash: string; Ini: TMemIniFile; Dialog: TReaderSavedDialog;
+  List: TListView; Driver: TRNPBookmarkRenameDriver; PreviousDialogs: Boolean;
+begin
+  Require(TPath.GetFullPath(Root).StartsWith('G:\HomeLibRu-proposals-2026-10-16\reader-notes\',True),
+    'Bookmark rename regression requires its own fixed fixture root');
+  Work:=TPath.Combine(Root,'bookmark-rename'); ForceDirectories(Work);
+  Profile:=TPath.Combine(Work,'reader.ini'); Ini:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+  try
+    Ini.WriteString('Book.rename-own-book','Title','Собственный стенд A/B/C');
+    Ini.WriteString('Unrelated','Keep','Не менять ё'); Ini.WriteInteger(Section,'Count',3);
+    for var I:=0 to 2 do
+    begin
+      var Suffix:=IntToStr(I); var Letter:=Char(Ord('A')+I);
+      Ini.WriteString(Section,'Title'+Suffix,'Своя '+Letter);
+      Ini.WriteInteger(Section,'Position'+Suffix,100+I); Ini.WriteInteger(Section,'EndPosition'+Suffix,200+I);
+      Ini.WriteString(Section,'Created'+Suffix,'2026-10-16T01:02:0'+Suffix+'Z');
+      Ini.WriteString(Section,'Place'+Suffix,'Глава '+Suffix); Ini.WriteBool(Section,'PageText'+Suffix,I=1);
+      Ini.WriteString(Section,'PageQuote'+Suffix,TNetEncoding.Base64.EncodeBytesToString(
+        TEncoding.UTF8.GetBytes('Точная цитата '+Letter+' ё')).Replace(#13,'').Replace(#10,''));
+    end;
+    SaveMemIniFileAtomically(Ini);
+  finally Ini.Free; end;
+  BeforeHash:=THashSHA2.GetHashStringFromFile(Profile);
+  Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile); PreviousDialogs:=Vcl.Dialogs.UseLatestCommonDialogs;
+  try
+    Vcl.Dialogs.UseLatestCommonDialogs:=False; Dialog.Show; Application.ProcessMessages;
+    List:=TListView(RNPComponent(Dialog,'NotesList',TListView)); Require(List.Items.Count=3,'Own A/B/C bookmarks missing');
+    List.Items[1].Selected:=True; List.Items[1].Focused:=True;
+    Driver:=TRNPBookmarkRenameDriver.Create(Work,'Своя B','Отменённое имя',True,False);
+    try
+      TButton(RNPComponent(Dialog,'NotesEdit',TButton)).Click;
+      Require(Driver.SawInput,'Bookmark cancel did not open the actual title editor');
+    finally Driver.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(Profile)=BeforeHash,'Canceled rename changed the own bookmark file');
+    Driver:=TRNPBookmarkRenameDriver.Create(Work,'Своя B','Не должно попасть в C',False,True,
+      procedure
+      var Fresh: TMemIniFile;
+      begin
+        Fresh:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+        try
+          Require((Fresh.ReadInteger(Section,'Count',0)=3) and
+            (Fresh.ReadString(Section,'Title0','')='Своя A') and
+            (Fresh.ReadString(Section,'Title1','')='Своя B') and
+            (Fresh.ReadString(Section,'Title2','')='Своя C'),'Unexpected own A/B/C fixture before shift');
+          // A disappears in another window while the actual input dialog is
+          // open. Old index 1 now belongs to C, not to the selected B.
+          for var Index:=0 to 1 do
+            for var Key in TArray<string>.Create('Title','Position','EndPosition','PageQuote','Created','Place','PageText') do
+              Fresh.WriteString(Section,Key+IntToStr(Index),Fresh.ReadString(Section,Key+IntToStr(Index+1),''));
+          for var Key in TArray<string>.Create('Title','Position','EndPosition','PageQuote','Created','Place','PageText') do
+            Fresh.DeleteKey(Section,Key+'2');
+          Fresh.WriteInteger(Section,'Count',2); SaveMemIniFileAtomically(Fresh);
+        finally Fresh.Free; end;
+        FreshHash:=THashSHA2.GetHashStringFromFile(Profile);
+      end);
+    try
+      TButton(RNPComponent(Dialog,'NotesEdit',TButton)).Click;
+      Require(Driver.SawInput and Driver.SawConflict,'Stale positional rename did not explain the conflict');
+    finally Driver.Free; end;
+    Require((FreshHash<>'') and (THashSHA2.GetHashStringFromFile(Profile)=FreshHash),
+      'Stale rename changed fresh B/C data after the external shift');
+    TButton(RNPComponent(Dialog,'NotesRefresh',TButton)).Click;
+    Require(List.Items.Count=2,'Explicit refresh did not load the fresh B/C list');
+    List.Items[0].Selected:=True; List.Items[0].Focused:=True;
+    Driver:=TRNPBookmarkRenameDriver.Create(Work,'Своя B','Новое имя & Ё',False,False);
+    try
+      TButton(RNPComponent(Dialog,'NotesEdit',TButton)).Click;
+      Require(Driver.SawInput,'Ordinary rename did not open the actual title editor');
+    finally Driver.Free; end;
+    Ini:=TMemIniFile.Create(Profile,TEncoding.UTF8);
+    try
+      Require((Ini.ReadInteger(Section,'Count',0)=2) and (Ini.ReadString(Section,'Title0','')='Новое имя && Ё') and
+        (Ini.ReadString(Section,'Title1','')='Своя C'),'Ordinary rename changed the wrong bookmark title/count');
+      Require((Ini.ReadInteger(Section,'Position0',0)=101) and (Ini.ReadInteger(Section,'EndPosition0',0)=201) and
+        (Ini.ReadString(Section,'Created0','')='2026-10-16T01:02:01Z') and
+        (Ini.ReadInteger(Section,'Position1',0)=102) and (Ini.ReadInteger(Section,'EndPosition1',0)=202) and
+        (Ini.ReadString('Unrelated','Keep','')='Не менять ё'),'Rename changed bookmark identity or unrelated settings');
+      Require((Ini.ReadString(Section,'Place0','')='Глава 1') and Ini.ReadBool(Section,'PageText0',False) and
+        (TEncoding.UTF8.GetString(TNetEncoding.Base64.DecodeStringToBytes(Ini.ReadString(Section,'PageQuote0','')))='Точная цитата B ё'),
+        'Rename lost the saved quote/place/page-text fields');
+    finally Ini.Free; end;
+    Require(not TFile.Exists(TPath.Combine(Work,'reader-notes.json')),'Bookmark rename unexpectedly wrote the notes store');
+  finally Vcl.Dialogs.UseLatestCommonDialogs:=PreviousDialogs; Dialog.Free; end;
+  Writeln('PASS reader-bookmark-rename stale_shift_rejected cancel_preserves normal_unicode_rename'); Flush(Output);
+end;
+
 procedure TestReaderNotesProposals(const Root: string);
 var
   Work, Profile, NotesFile, Hash, OriginalID, OtherID, ExportText: string;
@@ -617,6 +772,7 @@ begin
     finally Ini.Free; end;
   finally Dialog.Free; end;
   Writeln('PASS reader-note-filter exact_visible_ids unicode_case distinct_e_yo book_kind_clear pending_search_delete filtered_exports'); Flush(Output);
+  RNPTestBookmarkRename(Work);
 
   Profile:=TPath.Combine(Work,'large\reader.ini'); NotesFile:=TPath.Combine(Work,'large\reader-notes.json');
   RNPTrace('10k fixture generation'); ForceDirectories(ExtractFilePath(Profile)); SetLength(Items,10000);
