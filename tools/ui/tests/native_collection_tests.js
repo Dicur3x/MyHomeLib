@@ -156,7 +156,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
-  if (mode === "refactor-audit") return ["PASS refactor import rolls back", "PASS refactor batched notes", "PASS refactor legacy converter cancellation", "PASS refactor ZIP collision", "PASS refactor preliminary download cancellation", "PASS refactor incomplete link markup", "PASS refactor full Main DPI pass"];
+  if (mode === "refactor-audit") return ["PASS refactor import rolls back", "PASS refactor bulk catalog restore", "PASS refactor batched notes", "PASS refactor legacy converter cancellation", "PASS refactor ZIP collision", "PASS refactor preliminary download cancellation", "PASS refactor incomplete link markup", "PASS refactor full Main DPI pass"];
   if (mode === "search-startup-layout") return ["PASS header menu keeps column IDs", ...requiredViews[mode], "TRACE main cleanup complete"];
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
