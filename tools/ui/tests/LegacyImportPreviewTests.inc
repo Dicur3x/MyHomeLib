@@ -34,8 +34,12 @@ begin
         'Unresolved preview exposed partial data');
       Dialog := TfrmLegacyUserDataPreview.CreatePreview(nil, Preview, SystemDB);
       try
-        Require(not Dialog.ImportButton.Enabled, 'Unresolved import button is enabled');
+        Require(not Dialog.ImportButton.Enabled and not Assigned(Dialog.MappingList.Selected) and
+          (Dialog.TargetEdit.ItemIndex = -1) and (Dialog.TargetEdit.Text = '') and not Dialog.TargetEdit.Enabled,
+          'Unselected unresolved preview exposes an invented target or enabled import');
         Dialog.Show; Application.ProcessMessages;
+        Require((Dialog.TargetEdit.Text = '') and not Dialog.ImportButton.Enabled,
+          'Showing the preview restored a component name as its target');
         Dialog.MappingList.Items[0].Selected := True;
         Dialog.TargetEdit.Text := 'Явно выбранная группа ё';
         Dialog.TargetEdit.OnChange(Dialog.TargetEdit);
@@ -57,6 +61,17 @@ begin
         Dialog.ModalResult := mrCancel; Dialog.Hide;
       finally Dialog.Free; end;
       Require((Data.Extras.Count = 1) and (Data.Groups.Count = 0), 'Canceled preview exposed staged data');
+      Dialog := TfrmLegacyUserDataPreview.CreatePreview(nil, Preview, SystemDB);
+      try
+        Require(Dialog.ImportButton.Enabled and Preview.Ready and
+          not Assigned(Dialog.MappingList.Selected) and (Dialog.TargetEdit.Text = ''),
+          'Reopening ready mappings invented a target or lost their ready state');
+        Dialog.Show; Application.ProcessMessages;
+        Dialog.MappingList.Items[0].Selected := True;
+        Require(Dialog.TargetEdit.Enabled and (Dialog.TargetEdit.Text = 'Явно выбранная группа ё'),
+          'Selecting a saved mapping did not restore its explicit target');
+        Dialog.Hide;
+      finally Dialog.Free; end;
       Preview.AppendTo(Data);
       Require((Data.Extras.Count = 4) and (Data.Groups.Count = 3) and
         (Data.Groups[0].Count = 2) and (Data.Groups[2].GroupName = 'Явно выбранная группа ё') and
@@ -98,6 +113,7 @@ begin
     finally Preview.Free; end;
     Require(SystemDB.GetDataRevision = BeforeRevision, 'Preview-only scenarios changed the system DB');
   finally Data.Free; end;
+  Writeln('PASS proposal legacy target editor starts empty until row selection and restores explicitly saved mappings');
   Writeln('PASS proposal legacy preview counts, explicit ambiguous mappings, cancel, stale-source rejection and 1500-row virtual editor');
 end;
 

@@ -90,7 +90,9 @@ begin
   LabelText.AutoSize := False; LabelText.Height := 36; LabelText.WordWrap := True;
   FTarget := TComboBox.Create(Self); FTarget.Name := 'LegacyImportGroupTarget';
   FTarget.Parent := Editor; FTarget.Align := alTop; FTarget.Style := csDropDown;
-  FTarget.OnChange := TargetChanged; FTarget.Enabled := Preview.MappingCount > 0;
+  FTarget.ItemIndex := -1; FTarget.Text := ''; FTarget.Enabled := False;
+  FTarget.Hint := 'Выберите строку в списке, затем выберите или введите название группы.';
+  FTarget.ShowHint := True;
   Names := TStringList.Create;
   try
     Names.Sorted := True; Names.Duplicates := dupIgnore; Names.CaseSensitive := True;
@@ -102,6 +104,10 @@ begin
     end;
     FTarget.Items.Assign(Names);
   finally Names.Free; end;
+  // VCL may initialize editable text from the component Name. An unselected
+  // mapping must show no invented target, including after filling its items.
+  FTarget.ItemIndex := -1; FTarget.Text := '';
+  FTarget.OnChange := TargetChanged;
   FList := TListView.Create(Self); FList.Name := 'LegacyImportGroupMappings';
   FList.Parent := Self; FList.Align := alClient; FList.ViewStyle := vsReport;
   FList.ReadOnly := True; FList.RowSelect := True; FList.HideSelection := False;
