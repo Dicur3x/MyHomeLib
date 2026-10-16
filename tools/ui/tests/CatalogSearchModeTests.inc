@@ -8,6 +8,15 @@ var
   Control: TSearchQueryModeControl;
   FileName, BeforeHash: string;
   CountBefore, A, B, C, Books, Authors, Series: Integer;
+  procedure AddModeBook(const Title: string; Year: Integer);
+  var ID: Integer; Value: TBookRecord;
+  begin
+    ID := AddBook(One, Title, 'Query modes', 'ru', '', '0.1');
+    One.GetBookRecord(CreateBookKey(ID, One.CollectionID), Value, True);
+    Value.PubYear := Year;
+    Value.LibRate := 4;
+    One.UpdateBook(Value);
+  end;
   function Count(const Query: string; Mode: TSearchQueryMode): Integer;
   begin
     Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
@@ -24,9 +33,9 @@ begin
   Control := TSearchQueryModeControl(frmMain.FindComponent('SearchQueryModeControl'));
   Require(Assigned(Control) and (Control.Mode = sqmText), 'Fresh Main search must use ordinary text');
   One.GetStatistics(Authors, CountBefore, Series);
-  AddBook(One, 'Proposal I LIKE SQL 100% _ "quotes" O''Reilly != ё', 'Query modes', 'ru', '', '0.1');
-  AddBook(One, 'Proposal ordinary title', 'Query modes', 'ru', '', '0.1');
-  AddBook(One, 'Proposal ёлка', 'Query modes', 'ru', '', '0.1');
+  AddModeBook('Proposal I LIKE SQL 100% _ "quotes" O''Reilly != ё', 2024);
+  AddModeBook('Proposal ordinary title', 2023);
+  AddModeBook('Proposal ёлка', 0);
   Require(Count('I LIKE SQL', sqmText) = 1, 'Ordinary LIKE text became syntax');
   Require(Count('%', sqmText) = 1, 'Ordinary percent became a wildcard');
   Require(Count('_', sqmText) = 1, 'Ordinary underscore became a wildcard');
@@ -40,13 +49,16 @@ begin
     'Default legacy mode changed old expression meaning');
   Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
   Criteria.Title := 'Proposal'; Criteria.QueryMode := sqmText;
-  Criteria.Lang := '="ru"'; Criteria.LibRate := '>= 0'; Criteria.PubYear := '>= 0';
+  Criteria.Lang := '="ru"'; Criteria.LibRate := '>= 4'; Criteria.PubYear := '>= 2020';
   Iterator := One.Search(Criteria, False); A := Iterator.RecordCount; Iterator := nil;
   Criteria.Title := 'LIKE "%Proposal%"'; Criteria.QueryMode := sqmExpression;
   Iterator := One.Search(Criteria, False); B := Iterator.RecordCount; Iterator := nil;
   Criteria.QueryMode := sqmLegacy;
   Iterator := One.Search(Criteria, False); C := Iterator.RecordCount; Iterator := nil;
-  Require((A = 3) and (A = B) and (B = C), 'Query mode unexpectedly changed numeric/year/language rules');
+  // An unknown publication year is SQL NULL, not zero; only the two books
+  // with explicit years satisfy this condition in every mode.
+  Require((A = 2) and (A = B) and (B = C), Format(
+    'Query mode unexpectedly changed numeric/year/language rules: text=%d expression=%d legacy=%d', [A, B, C]));
   One.GetStatistics(Authors, Books, Series);
   Require(Books = CountBefore + 3, 'Read-only query modes changed the catalog');
 

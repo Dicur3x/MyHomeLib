@@ -62,6 +62,7 @@ var
   Builder: TStringBuilder;
 
   procedure RunImport(const Path: string; CancelRows, ExpectSuccess: Boolean);
+  var ErrorText: string;
   begin
     Worker := TImportInpxThread.Create(CollectionID, Path, gtFb2);
     Probe := TInpStreamingProbe.Create;
@@ -69,14 +70,19 @@ var
       Probe.Worker := Worker; Probe.CancelAfterRows := CancelRows;
       Worker.OnSetComment := Probe.Comment;
       Worker.Start; Worker.WaitFor;
+      ErrorText := '';
+      if Assigned(Worker.FatalException) then
+        ErrorText := Exception(Worker.FatalException).ClassName + ': ' + Exception(Worker.FatalException).Message;
       if ExpectSuccess then
         Require(not Assigned(Worker.FatalException) and Worker.Success and Worker.CommittedChanges,
-          'Actual streaming import failed to commit')
+          'Actual streaming import failed to commit: ' + ErrorText)
       else
         Require(not Worker.Success and not Worker.CommittedChanges,
           'Failed or canceled streaming import committed changes');
       if CancelRows then Require(Probe.CanceledAfterRows and Worker.Canceled,
-        'Cancellation did not occur after actual inserted rows');
+        'Cancellation did not occur after actual inserted rows')
+      else if not ExpectSuccess then
+        Require(UpperCase(ErrorText).Contains('CRC'), 'Corrupt fixture failed for a different reason: ' + ErrorText);
     finally Worker.Free; Probe.Free; end;
   end;
 
@@ -103,14 +109,18 @@ begin
   try
     for var I := 0 to 3 do
     begin
+      Writeln('TRACE proposal INP encoding case=', I, ' codepage=', Encodings[I].CodePage, ' stage=write-zip'); Flush(Output);
       CPSWriteZip(FileName, 'sample.inp', Text, Encodings[I], I <> 0);
+      Writeln('TRACE proposal INP encoding case=', I, ' stage=open-archive'); Flush(Output);
       Archive := TMHLZip.Create(FileName, True);
       try
         Memory := TMemoryStream.Create;
         try
           Archive.ExtractToStream(0, Memory); Memory.Position := 0;
+          Writeln('TRACE proposal INP encoding case=', I, ' stage=old-string-list bytes=', Memory.Size); Flush(Output);
           OldLines.LoadFromStream(Memory, TEncoding.UTF8);
         finally Memory.Free; end;
+        Writeln('TRACE proposal INP encoding case=', I, ' stage=new-reader'); Flush(Output);
         Reader := TInpLineReader.Create(Archive, 0, TempPath);
         try
           NewLines.Clear;
@@ -124,6 +134,7 @@ begin
             'Streaming encoding/newline semantics differ from actual previous TStringList');
           Require(Reader.SpoolFileName = '', 'Tiny INP unexpectedly spooled to disk');
         finally Reader.Free; end;
+        Writeln('TRACE proposal INP encoding case=', I, ' stage=cancel-reader'); Flush(Output);
         Canceled := False;
         Reader := TInpLineReader.Create(Archive, 0, TempPath,
           function: Boolean begin Result := Canceled; end);
@@ -149,6 +160,7 @@ begin
   CPSWriteZip(FileName, 'sample.inp', CPSBookRow(1, 'Первая серия', 2) + #13#10 +
     CPSBookRow(2, 'Третья серия', 4) + #10 + CPSBookRow(1, 'Вторая серия', 3), TEncoding.UTF8, True);
   BeforeHash := THashSHA2.GetHashStringFromFile(FileName);
+  Writeln('TRACE proposal INP stage=actual-nonadjacent-series'); Flush(Output);
   RunImport(FileName, False, True);
   Collection.GetStatistics(ExpectedAuthors, ExpectedBooks, ExpectedSeries);
   Require(ExpectedBooks = 3, 'Nonadjacent series produced duplicate physical books');
@@ -164,6 +176,7 @@ begin
     for var I := 3 to 202 do Builder.Append(CPSBookRow(I, 'Canceled series', I)).AppendLine;
     CPSWriteZip(Settings.AppPath + 'inp-cancel.inpx', 'sample.inp', Builder.ToString, TEncoding.UTF8, False);
   finally Builder.Free; end;
+  Writeln('TRACE proposal INP stage=actual-cancel'); Flush(Output);
   RunImport(Settings.AppPath + 'inp-cancel.inpx', True, False);
   CheckRollback;
 
@@ -176,6 +189,7 @@ begin
     if (Data[I] = $50) and (Data[I+1] = $4B) and (Data[I+2] = $01) and (Data[I+3] = $02) then
     begin Data[I+16] := Data[I+16] xor 1; Break; end;
   TFile.WriteAllBytes(Settings.AppPath + 'inp-corrupt.inpx', Data); Data := nil;
+  Writeln('TRACE proposal INP stage=actual-corrupt-crc'); Flush(Output);
   RunImport(Settings.AppPath + 'inp-corrupt.inpx', False, False);
   CheckRollback;
   Writeln('PASS proposal actual INP worker preserves nonadjacent series, cancels after inserted rows and rolls back corrupted CRC');
