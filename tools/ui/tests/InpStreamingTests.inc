@@ -114,12 +114,23 @@ begin
       Writeln('TRACE proposal INP encoding case=', I, ' stage=open-archive'); Flush(Output);
       Archive := TMHLZip.Create(FileName, True);
       try
-        Memory := TMemoryStream.Create;
-        try
-          Archive.ExtractToStream(0, Memory); Memory.Position := 0;
-          Writeln('TRACE proposal INP encoding case=', I, ' stage=old-string-list bytes=', Memory.Size); Flush(Output);
-          OldLines.LoadFromStream(Memory, TEncoding.UTF8);
-        finally Memory.Free; end;
+        if I < 2 then
+        begin
+          Memory := TMemoryStream.Create;
+          try
+            Archive.ExtractToStream(0, Memory); Memory.Position := 0;
+            Writeln('TRACE proposal INP encoding case=', I, ' stage=old-string-list bytes=', Memory.Size); Flush(Output);
+            OldLines.LoadFromStream(Memory, TEncoding.UTF8);
+          finally Memory.Free; end;
+        end
+        else
+        begin
+          // The old production importer explicitly forced UTF-8 and rejects
+          // these UTF-16 payloads. Their independent oracle is the exact
+          // original Unicode text, not a claim of prior UTF-16 support.
+          Writeln('TRACE proposal INP encoding case=', I, ' stage=exact-unicode-oracle'); Flush(Output);
+          OldLines.Text := Text;
+        end;
         Writeln('TRACE proposal INP encoding case=', I, ' stage=new-reader'); Flush(Output);
         Reader := TInpLineReader.Create(Archive, 0, TempPath);
         try
@@ -147,7 +158,7 @@ begin
       finally Archive.Free; end;
     end;
   finally NewLines.Free; OldLines.Free; end;
-  Writeln('PASS proposal INP reader matches prior UTF8/BOM/UTF16LE/BE, CR/LF/CRLF, empty rows and final no-LF lines');
+  Writeln('PASS proposal INP reader matches legacy UTF8 and exact UTF16LE/BE Unicode, CR/LF/CRLF, empty rows and final no-LF lines');
 
   CollectionID := SystemDB.CreateCollection('INP streaming proposals', Settings.AppPath,
     'inp-proposals.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
