@@ -3879,8 +3879,9 @@ end;
 procedure TfrmMain.CreateSearchPanelAdapter;
 begin
   FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
-  FSearchMode.TabOrder := 0;
-  SearchParams.TabOrder := 1;
+  // Keep fresh keyboard input in Author; the mode remains in the Tab sequence.
+  SearchParams.TabOrder := 0;
+  FSearchMode.TabOrder := 1;
   pnSearchControl.TabOrder := 2;
   FSearchFields := Default(TBookSearchControls);
   FSearchFields.Author := edFFullName;

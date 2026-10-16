@@ -115,7 +115,8 @@ end;
 // before any explicit scaling, category collapse/expand, focus or scroll command.
 procedure TestSearchStartupLayout;
 var Viewport, ParentClient, Intersection, LabelBounds, InputBounds, HeaderBounds: TRect;
-  Parent, InitialFocus: TWinControl; InitialPPI, UserScroll: Integer;
+  Parent, InitialFocus: TWinControl; InitialPPI, UserScroll, TabSteps: Integer;
+  QueryMode: TSearchQueryModeControl;
 
   function FullyInside(const Bounds, Container: TRect): Boolean;
   begin
@@ -163,6 +164,31 @@ begin
     (frmMain.ctpOther.TabOrder=2),'Search keyboard order differs from its visible category order');
   Require(frmMain.ActiveControl=frmMain.edFFullName,'Fresh Search did not naturally focus its first Author input');
   Writeln('PASS search startup first category header, Author label and input are fully visible without scaling or scrolling'); Flush(Output);
+
+  // Only AFTER the unmodified startup oracle, traverse the actual VCL Tab
+  // sequence. The new mode must remain reachable without taking initial input.
+  QueryMode:=frmMain.FindComponent('SearchQueryModeControl') as TSearchQueryModeControl;
+  Require(Assigned(QueryMode) and (QueryMode.Parent=frmMain.pnSearchView) and
+    (frmMain.SearchParams.TabOrder<QueryMode.TabOrder) and QueryMode.Combo.TabStop and QueryMode.Combo.CanFocus,
+    'Search query mode is missing from the keyboard order after the text fields');
+  InitialFocus:=frmMain.ActiveControl;
+  try
+    for TabSteps:=1 to 128 do
+    begin
+      frmMain.Perform(CM_DIALOGKEY,VK_TAB,0); Application.ProcessMessages;
+      if frmMain.ActiveControl=QueryMode.Combo then Break;
+      if frmMain.ActiveControl=InitialFocus then Break;
+    end;
+    Require(frmMain.ActiveControl=QueryMode.Combo,'Tab cannot reach Search query mode from the initial Author input');
+    frmMain.Perform(CM_DIALOGKEY,VK_TAB,0); Application.ProcessMessages;
+    Require((frmMain.ActiveControl<>QueryMode.Combo) and (QueryMode.Mode=sqmText),
+      'Search query mode trapped Tab focus or changed mode merely through navigation');
+    Require(SLSOtherPreferences=SLSProtectedPreferences,'Search mode Tab navigation changed unrelated preferences');
+    Writeln('PASS search startup naturally focuses Author and keeps query mode reachable and escapable by Tab steps=',TabSteps); Flush(Output);
+  finally
+    frmMain.ActiveControl:=InitialFocus; Application.ProcessMessages;
+    frmMain.SearchParams.VertScrollBar.Position:=0;
+  end;
 
   // Only AFTER the unmodified startup oracle, emulate deliberate lower-field
   // focus and scrolling. The ordinary view refresh must not force either back.
