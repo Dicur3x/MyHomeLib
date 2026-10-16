@@ -141,10 +141,10 @@ begin
           Require((Location.Y>=0) and (Location.Y+Header.Height<=View.ClientHeight),
             'Tab focus left its collapsed release header outside the viewport');
           Host.Perform(CM_DIALOGKEY,VK_RETURN,0);
-          Require(View.IsExpanded(1) and Header.Focused and Header.Caption.Contains('развёрнуто'),
+          Require(View.IsExpanded(1) and Header.Focused and string(Header.Caption).Contains('развёрнуто'),
             'Enter failed to expand once or lost header focus');
           Header.Perform(WM_KEYDOWN,VK_SPACE,0); Header.Perform(WM_KEYUP,VK_SPACE,0);
-          Require(not View.IsExpanded(1) and Header.Focused and Header.Caption.Contains('свёрнуто'),
+          Require(not View.IsExpanded(1) and Header.Focused and string(Header.Caption).Contains('свёрнуто'),
             'Space failed to collapse once or lost header focus');
           Host.Perform(CM_DIALOGKEY,VK_TAB,0);
           Require(View.SectionHeader(2).Focused,'Tab entered the invisible collapsed release body');
@@ -218,8 +218,8 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
 
   procedure SafeStatus;
   begin
-    Require(not Status.Caption.Contains('<html>') and not Status.Caption.Contains('secret') and
-      not Status.Caption.Contains('C:\proxy') and (Length(Status.Caption)<1200),
+    Require(not string(Status.Caption).Contains('<html>') and not string(Status.Caption).Contains('secret') and
+      not string(Status.Caption).Contains('C:\proxy') and (Length(Status.Caption)<1200),
       'Ordinary update UI exposed raw or unbounded transport details');
   end;
 
@@ -237,7 +237,7 @@ begin
   try
     Server:=TUpdateProposalServer.Create; Dialog:=TUpdateProposalForm.CreateForHead(Server.HeadURL); Controls;
     Dialog.FailureID:='all'; CheckButton.Click; WaitCheck;
-    Require(Dialog.Visible and Primary.Enabled and Status.Caption.Contains('Не удалось проверить'),
+    Require(Dialog.Visible and Primary.Enabled and string(Status.Caption).Contains('Не удалось проверить'),
       'Manual unavailable sources were silent or left Retry disabled');
     for var I in CheckedComponentIndices do
       Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable source is falsely current');
@@ -248,15 +248,15 @@ begin
     Require((View.Items[1].SubItems[2]='Есть обновление') and
       (View.Items[2].SubItems[2]='Версия не подтверждена') and
       (View.Items[3].SubItems[2]='Не удалось проверить') and
-      Status.Caption.Contains('SumatraPDF') and Status.Caption.Contains('AlReader'),
+      string(Status.Caption).Contains('SumatraPDF') and string(Status.Caption).Contains('AlReader'),
       'Partial source failure hid independent updates or misreported unverified AlReader');
     SafeStatus; SelectRow(3);
-    Require((Primary.Caption='Повторить проверку') and Status.Caption.Contains('SumatraPDF'),
+    Require((Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
       'Selecting a failed source lost its explanation or its Retry action');
     View.PopupMenu.OnPopup(View.PopupMenu);
     Require(View.PopupMenu.Items[2].Enabled,'Failed source has no explicit diagnostic copy action');
     View.PopupMenu.Items[2].Click;
-    Require(Clipboard.AsText.Contains('Fixture HTTP 503') and (Length(Clipboard.AsText)<4600),
+    Require(string(Clipboard.AsText).Contains('Fixture HTTP 503') and (Length(Clipboard.AsText)<4600),
       'Explicit Copy error omitted bounded diagnostics');
     Writeln('PASS update sources partial failure retains independent direct updates and selected error diagnostics without changing installed files');
 
@@ -264,12 +264,12 @@ begin
     Require((Dialog.WorkerCalls=Calls+1) and (View.Items[3].SubItems[2]='Есть обновление') and
       not Dialog.PendingInstall,'Retry downloaded stale packages instead of rechecking the selected source');
     SelectRow(3);
-    Require(Status.Caption.Contains('SumatraPDF') and not Status.Caption.Contains('Не удалось проверить'),
+    Require(string(Status.Caption).Contains('SumatraPDF') and not string(Status.Caption).Contains('Не удалось проверить'),
       'Recovered source retained the preceding error');
-    Require(Notes.PrimaryNotes.Text.Contains('Owned Sumatra changes.'),'Recovered source lost author changes');
+    Require(string(Notes.PrimaryNotes.Text).Contains('Owned Sumatra changes.'),'Recovered source lost author changes');
     SelectRow(2);
     Require((Primary.Caption='Повторить проверку') and
-      (Status.Caption.Contains('Установленная') or Status.Caption.Contains('установленная')),'AlReader notice does not explain the existing reader');
+      (string(Status.Caption).Contains('Установленная') or string(Status.Caption).Contains('установленная')),'AlReader notice does not explain the existing reader');
     Writeln('PASS update sources Retry performs a new production check clears recovered errors and retains AlReader verification');
 
     Dialog.Hide; Dialog.FailureID:='all';
