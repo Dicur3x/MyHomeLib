@@ -32,6 +32,7 @@ type
   TWorker = class(TThread)
   strict private
     FFinished: Integer;
+    FExecuting: Integer;
     FCancel: Integer;
     FComInitialized: Boolean;
 
@@ -233,7 +234,10 @@ end;
 procedure TWorker.Cancel;
 begin
   SetCanceled(True);
-  Terminate;
+  // RTL can skip Execute entirely when Terminate precedes the first thread
+  // entry. Let a pending worker enter, acknowledge cancellation and publish
+  // Finished; only an executing worker can safely receive Terminate.
+  if TInterlocked.CompareExchange(FExecuting, 0, 0) <> 0 then Terminate;
 end;
 
 function TWorker.GetCanceled: Boolean;
@@ -274,6 +278,7 @@ end;
 
 procedure TWorker.Execute;
 begin
+  TInterlocked.Exchange(FExecuting, 1);
   FProgressEngine := nil;
   try
     Initialize;
@@ -285,7 +290,7 @@ begin
 
       try
         OpenProgress;
-        WorkFunction;
+        if not Canceled then WorkFunction;
       finally
         CloseProgress;
       end;
@@ -304,6 +309,7 @@ begin
         TInterlocked.Exchange(FFinished, 1);
         Synchronize(DoCloseProgress);
       end;
+      TInterlocked.Exchange(FExecuting, 0);
     end;
   end;
 end;

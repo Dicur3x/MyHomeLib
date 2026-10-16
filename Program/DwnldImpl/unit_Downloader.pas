@@ -60,8 +60,12 @@ type
 
     FNewURL: string;
     FNoProgress: boolean;
-    Canceled: boolean;
+    FCancel: Integer;
+    FOnCanceled: TFunc<Boolean>;
+    function GetCanceled: Boolean;
+    property Canceled: Boolean read GetCanceled;
 
+  private
     FStartDate: TDateTime;
     FIgnoreErrors: boolean;
 
@@ -97,6 +101,7 @@ type
 
     property OnProgress: TProgressEvent read FOnSetProgress write FOnSetProgress;
     property OnSetComment: TSetCommentEvent read FOnSetComment write FOnSetComment;
+    property OnCanceled: TFunc<Boolean> read FOnCanceled write FOnCanceled;
   end;
 
 implementation
@@ -338,14 +343,13 @@ var
   ElapsedTime: Cardinal;
   Speed: string;
 begin
-  if FNoProgress then
-    Exit;
-
   if Canceled then
   begin
     AAbort := True;
     Exit;
   end;
+
+  if FNoProgress then Exit;
 
   if (AContentLength > 0) and Assigned(FOnSetProgress) then
     FOnSetProgress(AReadCount * 100 div AContentLength, -1);
@@ -581,6 +585,7 @@ var
   Response: IHTTPResponse;
 begin
   Result := False;
+  if Canceled then Exit;
   Response := nil;
 
   URL := Uri;
@@ -608,7 +613,7 @@ begin
           Response := FHTTPClient.Post(URL, FParams, FResponse);
         end;
     end;
-    Result := True;
+    Result := not Canceled;
   except
     on E: ENetHTTPClientException do
       if Canceled then
@@ -637,7 +642,13 @@ end;
 
 procedure TDownloader.Stop;
 begin
-  Canceled := True;
+  InterlockedExchange(FCancel, 1);
+end;
+
+function TDownloader.GetCanceled: Boolean;
+begin
+  Result := (InterlockedCompareExchange(FCancel, 0, 0) <> 0) or
+    (Assigned(FOnCanceled) and FOnCanceled());
 end;
 
 end.

@@ -17,7 +17,7 @@ uses
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
   unit_SearchQueryModeControl, unit_LegacyUserDataPreview, frm_LegacyUserDataPreview, unit_InpLineReader,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
-  MHLButtonedEdit, unit_Columns,
+  MHLButtonedEdit, MHLLinkLabel, unit_Columns,
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,
@@ -5423,6 +5423,7 @@ end;
 {$I ReaderNotesProposalTests.inc}
 {$I UpdateProposalsTests.inc}
 {$I MetadataBookColumnsTests.inc}
+{$I RefactorAuditTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5439,6 +5440,8 @@ begin
   try
     RequireIsolatedRegression;
     if ParamStr(1) = 'external-tool-probe' then begin RunExternalToolProbe; Halt(0); end;
+    if (ParamStr(1)='refactor-slow-converter') or (ParamStr(1)='refactor-slow-leaf') then
+    begin RefactorSlowConverter; Halt(0); end;
     HandleReaderProbe;
     DirectBookID := 0;
     QueueBookID := 0;
@@ -5636,6 +5639,7 @@ begin
       else if ParamStr(1) = 'catalog-audit' then TestCatalogAudit(One, Two, OneID, TwoID)
       else if ParamStr(1) = 'export-preparation' then TestMainExportPreparation(False)
       else if ParamStr(1) = 'legacy-import-interactive' then TestMainLegacyImportWorkflow(One, OneID)
+      else if ParamStr(1) = 'refactor-audit' then TestRefactorAudit
       else if ParamStr(1) = 'export-cancel-interactive' then TestMainExportPreparation(True)
       else if ParamStr(1) = 'native-folder-picker' then TestNativeFolderPicker
       else if ParamStr(1) = 'feedback22' then TestFeedback22(One, OneID)

@@ -628,7 +628,7 @@ var
   const
     FinalAnnotation='Итоговая мысль ё 😀'+#13#10+'Вторая строка.';
     FinalAuthor='<a href="101">Итоговый автор ё</a>';
-  var I, OldAuthorHeight, OldAuthorWidth: Integer; Author: TWinControl; Items: TListView; Text, ActualAuthor, ActualAnnotation, LongAuthor: string;
+  var I, OldAuthorHeight, OldAuthorWidth, FinalAuthorHeight: Integer; Author: TWinControl; Items: TListView; Text, ActualAuthor, ActualAnnotation, LongAuthor: string;
     XMLStream: TStringStream; XMLBook: IXMLFictionBook;
     procedure TraceText(const LabelText, Actual, Expected: string);
     var K: Integer; ActualHex, ExpectedHex: string;
@@ -710,9 +710,17 @@ var
     CheckFinalNativePaint;
     // Reuse the same wrapping width while changing only the exact link text.
     // A width-only height cache would incorrectly retain the single-line row.
+    FinalAuthorHeight:=Author.Height;
+    Panel.BeginUpdate;
+    try
+      Panel.SetBookInfo('Same-width full-row baseline',
+        '<a href="101">'+StringOfChar('W',500)+'</a>',
+        '<a href="201">Новая серия</a>','<a href="sf">Фантастика</a>');
+    finally Panel.EndUpdate; end;
     OldAuthorHeight:=Author.Height; OldAuthorWidth:=Author.Width;
+    Require(OldAuthorWidth=Content.ClientWidth,'Same-width cache baseline must fill its available row');
     LongAuthor:='';
-    for I:=1 to 16 do LongAuthor:=LongAuthor+'Автор ё ';
+    for I:=1 to 200 do LongAuthor:=LongAuthor+'Автор ё ';
     Panel.BeginUpdate;
     try
       Panel.SetBookInfo('Same-width link cache change',
@@ -720,13 +728,15 @@ var
         '<a href="201">Новая серия</a>','<a href="sf">Фантастика</a>');
     finally Panel.EndUpdate; end;
     CheckFooter('same-width changed author caption');
+    Writeln('TRACE footer same-width author old=',OldAuthorWidth,'x',OldAuthorHeight,
+      ' new=',Author.Width,'x',Author.Height,' client=',Content.ClientWidth);
     Require((Author.Width=OldAuthorWidth) and (Author.Height>OldAuthorHeight),
       'Changed author text reused a stale height at the same wrapping width');
     Panel.BeginUpdate;
     try Panel.SetBookInfo('Итоговое название',FinalAuthor,
       '<a href="201">Новая серия</a>','<a href="sf">Фантастика</a>');
     finally Panel.EndUpdate; end;
-    Require(Author.Height=OldAuthorHeight,
+    Require(Author.Height=FinalAuthorHeight,
       'Restoring author text did not restore its exact native row height');
     CheckFooter('same-width author caption restored');
 

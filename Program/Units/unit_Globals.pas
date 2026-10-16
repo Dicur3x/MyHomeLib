@@ -308,6 +308,7 @@ type
     Translators, City, PubYear, ISBN: string;
     // Internal indexed lookup for legacy note bindings; never a free SQL expression.
     ExactTitle: string;
+    ExactTitles, LibraryIDs: TArray<string>;
     NotesOnly: Boolean;
     NoteBookIDs: TArray<Integer>;
     // A captured set of catalog IDs, independent of later UI changes.
@@ -445,7 +446,7 @@ type
   // Тот же запуск, но возвращает и код завершения процесса: внешние конвертеры
   // сигнализируют об ошибке именно им (например, fb2pdf.cmd -> 1, если нет Java)
   function ExecAndWait(const FileName, Params: string; const WinState: word;
-    out ExitCode: Cardinal): Boolean; overload;
+    out ExitCode: Cardinal; const IsCanceled: TFunc<Boolean> = nil): Boolean; overload;
 
   function CleanExtension(const Ext: string): string;
   function c_GetTempPath: String;
@@ -1667,14 +1668,21 @@ begin
 end;
 
 function ExecAndWait(const FileName, Params: string; const WinState: word;
-  out ExitCode: Cardinal): Boolean;
+  out ExitCode: Cardinal; const IsCanceled: TFunc<Boolean>): Boolean;
 var
   StartInfo: TStartupInfo;
   ProcInfo: TProcessInformation;
   ApplicationName: string;
   CmdLine: string;
+  Job: THandle;
+  Limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION;
+  Flags, WaitResult: DWORD;
+  Started: UInt64;
 begin
+  Result := False;
   ExitCode := 0;
+  if Assigned(IsCanceled) and IsCanceled() then
+  begin ExitCode := ERROR_CANCELLED; Exit; end;
   if SameText(ExtractFileExt(FileName), '.cmd') or
      SameText(ExtractFileExt(FileName), '.bat') then
   begin
@@ -1700,32 +1708,59 @@ begin
     wShowWindow := WinState;
   end;
 
-  Result := CreateProcess(
-    PChar(ApplicationName),
-    PChar(CmdLine),
-    nil,
-    nil,
-    False,
-    CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS,
-    nil,
-    PChar(ExtractFilePath(FileName)),
-    StartInfo,
-    ProcInfo
-  );
-
-  if Result then
+  Job := 0;
+  Flags := CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS;
+  if Assigned(IsCanceled) then
   begin
-    WaitForSingleObject(ProcInfo.hProcess, INFINITE);
-    // Запуск удался - это еще не успех: конвертер мог завершиться с ошибкой
-    if not GetExitCodeProcess(ProcInfo.hProcess, ExitCode) then
-    begin
-      ExitCode := Cardinal(-1);
-      Result := False;
-    end
-    else
+    Job := CreateJobObject(nil, nil);
+    if Job = 0 then RaiseLastOSError;
+    FillChar(Limits, SizeOf(Limits), 0);
+    Limits.BasicLimitInformation.LimitFlags := JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if not SetInformationJobObject(Job, JobObjectExtendedLimitInformation,
+      @Limits, SizeOf(Limits)) then
+    begin CloseHandle(Job); RaiseLastOSError; end;
+    Flags := CREATE_NO_WINDOW or CREATE_SUSPENDED or NORMAL_PRIORITY_CLASS;
+  end;
+  try
+    UniqueString(CmdLine);
+    if not CreateProcess(PChar(ApplicationName), PChar(CmdLine), nil, nil,
+      False, Flags, nil, PChar(ExtractFilePath(FileName)), StartInfo, ProcInfo) then
+    begin ExitCode := GetLastError; Exit; end;
+    try
+      if Job <> 0 then
+      begin
+        if not AssignProcessToJobObject(Job, ProcInfo.hProcess) then
+        begin TerminateProcess(ProcInfo.hProcess, ERROR_CANCELLED); RaiseLastOSError; end;
+        if ResumeThread(ProcInfo.hThread) = DWORD(-1) then RaiseLastOSError;
+      end;
+      Started := GetTickCount64;
+      repeat
+        if Assigned(IsCanceled) then
+        begin
+          if IsCanceled() then
+          begin ExitCode := ERROR_CANCELLED; Exit; end;
+          if GetTickCount64 - Started >= 30 * 60 * 1000 then
+          begin ExitCode := ERROR_TIMEOUT; Exit; end;
+        end;
+        WaitResult := WaitForSingleObject(ProcInfo.hProcess, 50);
+        if WaitResult = WAIT_FAILED then RaiseLastOSError;
+      until WaitResult = WAIT_OBJECT_0;
+      if not GetExitCodeProcess(ProcInfo.hProcess, ExitCode) then
+      begin ExitCode := GetLastError; Exit; end;
       Result := ExitCode = 0;
-    CloseHandle(ProcInfo.hProcess);
-    CloseHandle(ProcInfo.hThread);
+    finally
+      if Job <> 0 then
+      begin
+        // Kill descendants before returning so they cannot recreate a partial
+        // output after the export worker has cleaned it up.
+        TerminateJobObject(Job, ERROR_CANCELLED);
+        WaitForSingleObject(ProcInfo.hProcess, 5000);
+      end;
+      CloseHandle(ProcInfo.hProcess);
+      CloseHandle(ProcInfo.hThread);
+    end;
+  finally
+    if Job <> 0 then CloseHandle(Job);
   end;
 end;
 

@@ -54,8 +54,16 @@ type
     Caption: string;
     Font: TFont;
     Window: HWND;
-    PPI, RowHeight, NextSlot: Integer;
+    PPI, RowHeight, NextSlot, NaturalWidth: Integer;
     Widths, Heights: array[0..1] of Integer;
+  end;
+
+  TInfoTextMetrics = record
+    Valid: Boolean;
+    Text: string;
+    Font: TFont;
+    Width: Integer;
+    Size: TSize;
   end;
 
   TInfoPanel = class(TPanel)
@@ -89,7 +97,9 @@ type
     FUpdateCount: Integer;
     FRedrawSuspended: Boolean;
     FRedrawWindow: HWND;
+    FRedrawMemoWindow: HWND;
     FLinkMetrics: array[0..3] of TInfoLinkMetrics;
+    FTextMetrics: array[0..8] of TInfoTextMetrics;
     FLayoutProfile: TInfoPanelLayoutProfileEvent;
     FPendingTexts: TDictionary<TControl, string>;
 
@@ -108,13 +118,14 @@ type
     procedure ApplyInfoText(Control: TControl; const Value: string);
     procedure SetInfoText(Control: TControl; const Value: string);
     function InfoText(Control: TControl): string;
-    procedure FlushInfoTexts;
+    procedure FlushInfoTexts(MemosOnly: Boolean);
     procedure SuspendInfoRedraw;
     procedure RestoreInfoRedraw;
     procedure ProfileLayout(Stage: TInfoPanelLayoutStage; Starting: Boolean); inline;
     procedure LayoutControls;
     procedure InfoPanelResize(Sender: TObject);
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+    procedure CMShowingChanged(var Message: TMessage); message CM_SHOWINGCHANGED;
 
   protected
     procedure CreateWnd; override;
@@ -316,6 +327,8 @@ begin
   FPendingTexts := TDictionary<TControl, string>.Create;
   for I := Low(FLinkMetrics) to High(FLinkMetrics) do
     FLinkMetrics[I].Font := TFont.Create;
+  for I := Low(FTextMetrics) to High(FTextMetrics) do
+    FTextMetrics[I].Font := TFont.Create;
 
   FMenu := TPopupMenu.Create(Self);
   Item := TMenuItem.Create(Self);
@@ -508,6 +521,7 @@ begin
   inherited;
   FPendingTexts.Free;
   for I := Low(FLinkMetrics) to High(FLinkMetrics) do FLinkMetrics[I].Font.Free;
+  for I := Low(FTextMetrics) to High(FTextMetrics) do FTextMetrics[I].Font.Free;
 end;
 
 procedure TInfoPanel.ApplyInfoText(Control: TControl; const Value: string);
@@ -527,7 +541,10 @@ begin
   end
   else raise EArgumentException.Create('Unsupported book-preview text control');
   if Control = FAnnotation then
-  begin FAnnotation.SelStart := 0; FAnnotation.SelLength := 0; end;
+    if FAnnotation.HandleAllocated then
+      // SelStart=0 temporarily selects the entire old range before SelLength
+      // clears it. Reset both ends together, without a second selection pass.
+      SendMessage(FAnnotation.Handle, EM_SETSEL, 0, 0);
 end;
 
 procedure TInfoPanel.SetInfoText(Control: TControl; const Value: string);
@@ -545,11 +562,12 @@ begin
   else raise EArgumentException.Create('Unsupported book-preview text control');
 end;
 
-procedure TInfoPanel.FlushInfoTexts;
+procedure TInfoPanel.FlushInfoTexts(MemosOnly: Boolean);
 var Item: TPair<TControl, string>;
 begin
-  for Item in FPendingTexts do ApplyInfoText(Item.Key, Item.Value);
-  FPendingTexts.Clear;
+  for Item in FPendingTexts do
+    if (Item.Key is TMemo) = MemosOnly then ApplyInfoText(Item.Key, Item.Value);
+  if MemosOnly then FPendingTexts.Clear;
 end;
 
 procedure TInfoPanel.ProfileLayout(Stage: TInfoPanelLayoutStage; Starting: Boolean);
@@ -562,8 +580,14 @@ begin
   FRedrawSuspended := HandleAllocated and IsWindowVisible(Handle);
   if not FRedrawSuspended then Exit;
   FRedrawWindow := Handle;
-  // Suspending each descendant is measurably more expensive on Windows than
-  // the existing outer-panel batch. Keep the native redraw scope unchanged.
+  FRedrawMemoWindow := 0;
+  if FAnnotation.HandleAllocated and IsWindowVisible(FAnnotation.Handle) then
+  begin
+    FRedrawMemoWindow := FAnnotation.Handle;
+    SendMessage(FRedrawMemoWindow, WM_SETREDRAW, 0, 0);
+  end;
+  // The native memo needs its own redraw lock; leave the other descendants
+  // under the single outer-panel lock.
   SendMessage(FRedrawWindow, WM_SETREDRAW, 0, 0);
 end;
 
@@ -571,6 +595,13 @@ procedure TInfoPanel.RestoreInfoRedraw;
 var RequestedVisible: Boolean;
 begin
   if not FRedrawSuspended then Exit;
+  if (FRedrawMemoWindow <> 0) and FAnnotation.HandleAllocated and
+    (FAnnotation.Handle = FRedrawMemoWindow) then
+  begin
+    SendMessage(FRedrawMemoWindow, WM_SETREDRAW, 1, 0);
+    if not FAnnotation.Showing then ShowWindow(FRedrawMemoWindow, SW_HIDE);
+  end;
+  FRedrawMemoWindow := 0;
   FRedrawSuspended := False;
   if HandleAllocated and (Handle = FRedrawWindow) then
   begin
@@ -586,7 +617,6 @@ end;
 procedure TInfoPanel.SetBookAnnotationText(const Value: string);
 begin
   SetInfoText(FAnnotation,Value); FAnnotation.Visible:=not FInfoPriority;
-  FAnnotation.SelStart:=0; FAnnotation.SelLength:=0;
 end;
 
 procedure TInfoPanel.SetReadingSupport(const Value: string);
@@ -640,24 +670,51 @@ end;
 
 procedure TInfoPanel.CMFontChanged(var Message: TMessage);
 begin
+  for var I:=Low(FTextMetrics) to High(FTextMetrics) do FTextMetrics[I].Valid:=False;
   inherited;
   LayoutControls;
 end;
 
+procedure TInfoPanel.CMShowingChanged(var Message: TMessage);
+begin
+  inherited;
+  if Showing then LayoutControls;
+end;
+
 procedure TInfoPanel.LayoutControls;
 var
-  RowH, LinkH, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
+  RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
   LayoutPPI, FooterH, FooterW, Padding, ViewportBottom, CoverW: Integer;
-  TextRect: TRect;
+  function MeasureText(Index: Integer; const Value: string; TextFont: TFont;
+    AvailableWidth: Integer = 0): TSize;
+  var Bounds: TRect;
+  begin
+    with FTextMetrics[Index] do
+    begin
+      if Valid and (Width=AvailableWidth) and (Text=Value) and
+        InfoFontsEqual(Font,TextFont) then Exit(Size);
+      Valid:=False;
+      Canvas.Font.Assign(TextFont);
+      if AvailableWidth=0 then Result:=Canvas.TextExtent(Value)
+      else
+      begin
+        Bounds:=Rect(0,0,Max(1,AvailableWidth),0);
+        DrawText(Canvas.Handle,PChar(Value),Length(Value),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+        Result:=TSize.Create(Bounds.Width,Bounds.Height);
+      end;
+      Width:=AvailableWidth; Text:=Value;
+      Font.Assign(TextFont); Size:=Result; Valid:=True;
+    end;
+  end;
 
-  function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer): Integer;
+  function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
     Index, Slot: Integer;
     NativeWindow: HWND;
     CurrentCaption: string;
   begin
-    Result := RowH;
+    Result := RowH; LinkWidth:=Max(0,AvailableWidth);
     if not HandleAllocated or (AvailableWidth <= 0) then Exit;
     CurrentCaption := Link.Caption;
     if CurrentCaption = '' then Exit;
@@ -687,8 +744,19 @@ var
         PPI := LayoutPPI; RowHeight := RowH; Dark := MHLThemeDark;
         VisualStyle := Link.UseVisualStyle; Font.Assign(Link.Font);
         Widths[0] := -1; Widths[1] := -1; NextSlot := 0;
+        NaturalWidth:=0;
+        IdealSize:=Default(TSize);
+        // SysLink measures entities, bidirectional text and fallback fonts.
+        // Its returned cx is the actual space needed under this wide limit.
+        SendMessage(NativeWindow,LM_GETIDEALSIZE,32767,LPARAM(@IdealSize));
+        if IdealSize.cx>0 then NaturalWidth:=IdealSize.cx+MulDiv(2,LayoutPPI,96);
         Valid := True;
       end;
+      // Short links need only their text width. Keeping that native window
+      // stable avoids a full SysLink reflow when the cover/scrollbar changes.
+      // Long links still receive every available pixel and wrap normally.
+      if NaturalWidth>0 then AvailableWidth:=Min(AvailableWidth,NaturalWidth);
+      LinkWidth:=AvailableWidth;
       for Slot := 0 to 1 do
         if Widths[Slot] = AvailableWidth then Exit(Heights[Slot]);
       IdealSize.cx := 0; IdealSize.cy := 0;
@@ -709,6 +777,9 @@ begin
   if (csDestroying in ComponentState) or (FUpdateCount > 0) or FUpdatingLayout or not Assigned(FFb2Info) or
     not Assigned(FDetailsButton) or not Assigned(Parent) then
     Exit;
+  // Hidden tabs retain their book/font state; measure their final viewport
+  // when VCL shows them, instead of laying out all six tabs on every DPI pass.
+  if not Showing and not (csDesigning in ComponentState) then Exit;
 
   // Reading client bounds may create child windows and trigger OnResize.
   // Keep the guard set through those reads and scrollbar-related realignment.
@@ -725,11 +796,10 @@ begin
     ViewportBottom := Padding;
     if FDetailsButton.Visible then
     begin
-      Canvas.Font.Assign(FDetailsButton.Font);
       FooterH := Max(MulDiv(32, LayoutPPI, 96),
-        Canvas.TextHeight('Wg') + MulDiv(12, LayoutPPI, 96));
+        MeasureText(0,'Wg',FDetailsButton.Font).cy + MulDiv(12, LayoutPPI, 96));
       FooterW := Max(MulDiv(180, LayoutPPI, 96),
-        Canvas.TextWidth(FDetailsButton.Caption) + MulDiv(24, LayoutPPI, 96));
+        MeasureText(1,FDetailsButton.Caption,FDetailsButton.Font).cx + MulDiv(24, LayoutPPI, 96));
       Inc(ViewportBottom, FooterH + Gap);
     end
     else
@@ -773,12 +843,13 @@ begin
       UseMeasuredFont(FSerieLabel);
       UseMeasuredFont(FGenreLabel);
       UseMeasuredFont(FPublisherSerieLabel);
-      RowH := Canvas.TextHeight('Wg') + MulDiv(RowSpacing, LayoutPPI, 96);
+      RowH := MeasureText(2,'Wg',FTitle.Font).cy + MulDiv(RowSpacing, LayoutPPI, 96);
       Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
       LblW := Max(MulDiv(LabelColumn, LayoutPPI, 96),
-        Max(Canvas.TextWidth(FSerieLabel.Caption), Canvas.TextWidth(FGenreLabel.Caption)) + Gap);
+        Max(MeasureText(3,FSerieLabel.Caption,FSerieLabel.Font).cx,
+          MeasureText(4,FGenreLabel.Caption,FGenreLabel.Font).cx) + Gap);
       if FPublisherSerieLabel.Visible then
-        LblW := Max(LblW, Canvas.TextWidth(FPublisherSerieLabel.Caption) + Gap);
+        LblW := Max(LblW, MeasureText(5,FPublisherSerieLabel.Caption,FPublisherSerieLabel.Font).cx + Gap);
       LblW := Min(LblW, W);
 
       ProfileLayout(ipsLinkBounds, True);
@@ -786,51 +857,45 @@ begin
       Y := 0;
       FTitle.SetBounds(0, Y, W, RowH);
       Inc(Y, RowH);
-      LinkH := LinkHeight(FAuthors, W);
-      FAuthors.SetBounds(0, Y, W, LinkH);
+      LinkH := LinkHeight(FAuthors, W, LinkW);
+      FAuthors.SetBounds(0, Y, LinkW, LinkH);
       Inc(Y, LinkH);
-      LinkH := LinkHeight(FSeries, W - LblW);
+      LinkH := LinkHeight(FSeries, W - LblW, LinkW);
       FSerieLabel.SetBounds(0, Y, LblW, RowH);
-      FSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+      FSeries.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH);
       if FPublisherSeriesLinks.Visible then
       begin
-        LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW);
+        LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW, LinkW);
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
-        FPublisherSeriesLinks.SetBounds(LblW, Y, W - LblW, LinkH);
+        FPublisherSeriesLinks.SetBounds(LblW, Y, LinkW, LinkH);
         Inc(Y, LinkH);
       end
       else if FPublisherSeries.Visible then
       begin
-        Canvas.Font := FPublisherSeries.Font;
-        TextRect := Rect(0, 0, Max(1, W - LblW), 0);
-        DrawText(Canvas.Handle, PChar(FPublisherSeries.Caption), Length(FPublisherSeries.Caption),
-          TextRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-        LinkH := Max(RowH, TextRect.Height + MulDiv(RowSpacing, LayoutPPI, 96));
+        LinkH := Max(RowH, MeasureText(6,FPublisherSeries.Caption,FPublisherSeries.Font,
+          Max(1,W-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
         FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
         Inc(Y, LinkH);
       end;
-      LinkH := LinkHeight(FGenres, W - LblW);
+      LinkH := LinkHeight(FGenres, W - LblW, LinkW);
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
-      FGenres.SetBounds(LblW, Y, W - LblW, LinkH);
+      FGenres.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH + Gap);
       if FReadingSupport.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(146,180,153) else Canvas.Font.Color:=$0063482E;
-        UseMeasuredFont(FReadingSupport); TextRect:=Rect(0,0,Max(1,W),0);
-        DrawText(Canvas.Handle,PChar(FReadingSupport.Caption),Length(FReadingSupport.Caption),TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-        LinkH:=Max(RowH,TextRect.Height); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+        UseMeasuredFont(FReadingSupport);
+        LinkH:=Max(RowH,MeasureText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,W)).cy); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(150,152,156) else Canvas.Font.Color:=clGrayText;
-        UseMeasuredFont(FPreviewStatus); TextRect:=Rect(0,0,Max(1,W),0);
-        DrawText(Canvas.Handle,PChar(FPreviewStatus.Caption),Length(FPreviewStatus.Caption),
-          TextRect,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
-        LinkH:=Max(RowH,TextRect.Height);
+        UseMeasuredFont(FPreviewStatus);
+        LinkH:=Max(RowH,MeasureText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,W)).cy);
         FPreviewStatus.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FGallery.Visible then
@@ -878,8 +943,11 @@ end;
 
 procedure TInfoPanel.ChangeScale(M, D: Integer; isDpiChange: Boolean);
 begin
-  inherited;
-  LayoutControls;
+  // Child fonts, scrollbars and anchors must all reach their final DPI before
+  // measuring SysLink wrapping. Nested batches share the same final layout.
+  BeginUpdate;
+  try inherited;
+  finally EndUpdate; end;
 end;
 
 procedure TInfoPanel.OnAnnotationClicked(Sender: TObject);
@@ -1145,7 +1213,7 @@ begin
       // rebuild three identical native SysLinks through an intermediate blank.
       try
         ProfileLayout(ipsFlushTexts, True);
-        try FlushInfoTexts;
+        try FlushInfoTexts(False);
         finally ProfileLayout(ipsFlushTexts, False); end;
       finally
         ProfileLayout(ipsRestoreAlign, True);
@@ -1165,6 +1233,11 @@ begin
       end;
     finally Dec(FUpdateCount); end;
     LayoutControls;
+    // Reflow the final annotation once at its final width, rather than at the
+    // previous book's bounds and again while resizing the memo.
+    ProfileLayout(ipsFlushTexts, True);
+    try FlushInfoTexts(True);
+    finally ProfileLayout(ipsFlushTexts, False); end;
   finally
     ProfileLayout(ipsRestoreRedraw, True);
     try RestoreInfoRedraw;

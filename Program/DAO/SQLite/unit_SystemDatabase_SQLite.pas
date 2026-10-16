@@ -31,7 +31,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -167,6 +167,8 @@ type
     procedure BeginDataUpdate;
     procedure EndDataUpdate(Commit: Boolean);
     procedure ImportUserData(data: TUserData);
+    procedure ImportLegacyUserData(CollectionID: Integer; Data: TUserData;
+      const Notify: TGUIUpdateExtraProc);
 
     procedure ChangeBookSeriesID(const OldSeriesID: Integer; const NewSeriesID: Integer; const DatabaseID: Integer);
 
@@ -1940,6 +1942,88 @@ begin
     if Commit then FDatabase.Commit
     else if FDatabase.InTransaction then FDatabase.Rollback;
   finally FDatabase.EndQueryBatch; end;
+end;
+
+procedure TSystemData_SQLite.ImportLegacyUserData(CollectionID: Integer; Data: TUserData;
+  const Notify: TGUIUpdateExtraProc);
+var Catalog: IBookCollection; CatalogFile: string; Query: TSQLiteQuery;
+  Extra: TBookExtra; Group: TBookGroup; GroupBook: TGroupBook;
+  Key: TBookKey; Book: TBookRecord; I: Integer;
+  Notifications: TList<TPair<TBookKey,TBookExtra>>;
+  Notification: TPair<TBookKey,TBookExtra>; OldGroupIDs: TArray<Integer>;
+  function Resolve(Info: TBookInfo; out BookKey: TBookKey): Boolean;
+  var Q: TSQLiteQuery;
+  begin
+    if Info.LibID='' then
+      Q:=FDatabase.NewQuery('SELECT BookID FROM LegacyImportCatalog.Books WHERE BookID=?',[Info.BookID])
+    else Q:=FDatabase.NewQuery('SELECT BookID FROM LegacyImportCatalog.Books WHERE LibID=?',[Info.LibID]);
+    try
+      Q.Open; Result:=not Q.Eof and (Q.FieldAsInt(0)>0);
+      if Result then BookKey:=CreateBookKey(Q.FieldAsInt(0),CollectionID);
+    finally Q.Free; end;
+  end;
+begin
+  if not Assigned(Data) then raise EArgumentNilException.Create('Data');
+  if FDatabase.InTransaction then
+    raise EInvalidOperation.Create('Другая операция меняет данные; повторите импорт позже.');
+  CatalogFile:=GetCollectionInfo(CollectionID).DBFileName;
+  if not FileExists(CatalogFile) then raise EFileNotFoundException.Create(CatalogFile);
+  Catalog:=GetCollection(CollectionID,False);
+  Notifications:=TList<TPair<TBookKey,TBookExtra>>.Create;
+  try
+    SetLength(OldGroupIDs,Data.Groups.Count);
+    for I:=0 to Data.Groups.Count-1 do OldGroupIDs[I]:=Data.Groups[I].GroupID;
+    // One SQLite connection owns both writes and the commit. Separate
+    // catalog/system transactions leave partial imports on the second error.
+    FDatabase.ExecSQL('ATTACH DATABASE ? AS LegacyImportCatalog',[CatalogFile]);
+    try
+      FDatabase.Start('', 'IMMEDIATE');
+      FDatabase.BeginQueryBatch;
+      try
+        try
+          for Extra in Data.Extras do
+            if Resolve(Extra,Key) then
+            begin
+              if (Extra.Rating<>0) or (Extra.Progress<>0) or (Extra.Review<>'') then
+              begin
+                Query:=FDatabase.NewQuery('UPDATE LegacyImportCatalog.Books SET '+
+                  'Rate=CASE WHEN ?=0 THEN Rate ELSE ? END, '+
+                  'Progress=CASE WHEN ?=0 THEN Progress ELSE ? END, '+
+                  'Review=CASE WHEN ? THEN ? ELSE Review END WHERE BookID=?');
+                try
+                  Query.SetParam(0,Extra.Rating); Query.SetParam(1,Extra.Rating);
+                  Query.SetParam(2,Extra.Progress); Query.SetParam(3,Extra.Progress);
+                  Query.SetParam(4,Extra.Review<>''); Query.SetBlobParam(5,Trim(Extra.Review));
+                  Query.SetParam(6,Key.BookID); Query.ExecSQL;
+                finally Query.Free; end;
+              end;
+              SetExtra(Key,Extra);
+              Notifications.Add(TPair<TBookKey,TBookExtra>.Create(Key,Extra));
+            end;
+          ImportUserData(Data);
+          for Group in Data.Groups do
+            for GroupBook in Group do
+              if Resolve(GroupBook,Key) then
+              begin
+                Catalog.GetBookRecord(Key,Book,True);
+                Query:=FDatabase.NewQuery('SELECT Rate,Progress,Review FROM LegacyImportCatalog.Books WHERE BookID=?',[Key.BookID]);
+                try
+                  Query.Open; Book.Rate:=Query.FieldAsInt(0); Book.Progress:=Query.FieldAsInt(1);
+                  Book.Review:=Query.FieldAsBlobString(2);
+                finally Query.Free; end;
+                AddBookToGroup(Key,Group.GroupID,Book);
+              end;
+          FDatabase.Commit;
+        except
+          if FDatabase.InTransaction then FDatabase.Rollback;
+          for I:=0 to Data.Groups.Count-1 do Data.Groups[I].GroupID:=OldGroupIDs[I];
+          raise;
+        end;
+      finally FDatabase.EndQueryBatch; end;
+    finally FDatabase.ExecSQL('DETACH DATABASE LegacyImportCatalog'); end;
+    if Assigned(Notify) then
+      for Notification in Notifications do Notify(Notification.Key,Notification.Value);
+  finally Notifications.Free; end;
 end;
 
 procedure TSystemData_SQLite.ImportUserData(data: TUserData);

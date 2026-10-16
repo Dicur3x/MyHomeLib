@@ -33,6 +33,7 @@ type
       SourceExtension: string;
       BookTitle, BookAuthor, BookLanguage: string;
       TargetFile: string;
+      CreatedOutputFile: string;
       TargetFolder: string;
       TempFile: string;
       FileName: string;
@@ -376,7 +377,12 @@ procedure TExportToDeviceThread.ExportToZip;
 var
   archiver: TMHLZip;
   ZipFile: string;
+  Creating: Boolean;
 begin
+  Creating := False;
+  archiver := nil;
+  ZipFile := '';
+  try
   try
     ZipFile := FFileOprecord.TargetFile + ZIP_EXTENSION;
     if FileExists(ZipFile) then
@@ -389,12 +395,19 @@ begin
         Inc(Counter);
       until not FileExists(ZipFile);
     end;
+    Creating := True;
     archiver := TMHLZip.Create(ZipFile, False);
     FFileOprecord.Stream.Seek(0, soFromBeginning);
     archiver.AddFromStream(FFileOprecord.FileName, FFileOprecord.Stream);
   finally
     FreeAndNil(archiver);
   end;
+  except
+    // Only this newly selected output belongs to this attempt.
+    if Creating then SysUtils.DeleteFile(ZipFile);
+    raise;
+  end;
+  FFileOprecord.CreatedOutputFile := ZipFile;
 end;
 
 procedure TExportToDeviceThread.SetDeviceDir(const Value: string);
@@ -424,6 +437,7 @@ var
 begin
   Result := False;
   TempFileCreated := False;
+  OutputPath := '';
   FConverterExitCode := 0;
   try
     if FFileOprecord.Stream <> nil then
@@ -484,6 +498,8 @@ begin
       FLastError := Format('CallExternalConverter exception: %s', [E.Message]);
   end;
 
+  if not Result and (OutputPath <> '') then SysUtils.DeleteFile(OutputPath);
+
   // Промежуточный файл нужен только конвертеру - не оставляем его в $tmp (#59)
   if TempFileCreated and FileExists(FFileOprecord.TempFile) then
     DeleteFile(FFileOprecord.TempFile);
@@ -491,6 +507,9 @@ end;
 
 function TExportToDeviceThread.ActualOutputFile(const FileName: string): string;
 begin
+  if (FileName = FFileOprecord.TargetFile) and
+    (FFileOprecord.CreatedOutputFile <> '') then
+    Exit(FFileOprecord.CreatedOutputFile);
   Result := FileName;
   if FConvertBasic then
   begin
@@ -770,7 +789,8 @@ var
   params: string;
 begin
   params := Format('-i "%s" -o "%s"', [InpFile, ChangeFileExt(OutFile, '.lrf')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emLrf), params, SW_HIDE, FConverterExitCode);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emLrf), params, SW_HIDE, FConverterExitCode,
+    function: Boolean begin Result := Canceled or Terminated; end);
 end;
 
 function TExportToDeviceThread.fb2PDF(const InpFile: string; const OutFile: string): Boolean;
@@ -778,7 +798,8 @@ var
   params: string;
 begin
   params := Format('"%s" "%s"', [InpFile, ChangeFileExt(OutFile, '.pdf')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emPDF), params, SW_HIDE, FConverterExitCode);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emPDF), params, SW_HIDE, FConverterExitCode,
+    function: Boolean begin Result := Canceled or Terminated; end);
 end;
 
 function TExportToDeviceThread.fb2Mobi(const InpFile: string; const OutFile: string): Boolean;
@@ -786,7 +807,8 @@ var
   params: string;
 begin
   params := Format('"%s" "%s" -nc -cl -us -nt', [InpFile, ChangeFileExt(OutFile, '.mobi')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emMobi), params, SW_HIDE, FConverterExitCode);
+  Result := ExecAndWait(GetConverterPath(FAppPath, emMobi), params, SW_HIDE, FConverterExitCode,
+    function: Boolean begin Result := Canceled or Terminated; end);
 end;
 
 procedure TExportToDeviceThread.Initialize;

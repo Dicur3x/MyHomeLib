@@ -150,6 +150,12 @@ type
     extra: TBookExtra
   );
 
+  IAtomicLegacyUserDataImporter = interface
+    ['{BD4F580E-E305-41C1-A252-CE42717A7493}']
+    procedure ImportLegacyUserData(CollectionID: Integer; Data: TUserData;
+      const Notify: TGUIUpdateExtraProc);
+  end;
+
   IBookCollection = interface;
 
   ISystemData = interface

@@ -1054,6 +1054,7 @@ type
     procedure FillAllBooksTree;
     function CheckLibUpdates(Auto: Boolean): Boolean;
     procedure SetInfoPanelHeight(Height: Integer);
+    procedure BatchInfoPanels(Beginning: Boolean);
     procedure SetInfoPanelVisible(State: Boolean);
     procedure SetShowBookCover(State: Boolean);
     procedure SetShowBookAnnotation(State: Boolean);
@@ -4155,14 +4156,24 @@ begin
 end;
 
 procedure TfrmMain.ChangeScale(M, D: Integer; IsDpiChange: Boolean);
-var WasUpdating: Boolean;
+var WasUpdating, WasSettingHeight: Boolean;
 begin
   // Resize can run before VCL has scaled the child labels and edits. Keep
   // their category height intact until this complete scaling pass finishes.
   WasUpdating := FUpdatingSearchLayout;
   FUpdatingSearchLayout := True;
+  WasSettingHeight := FInSetInfoPanelHeight;
+  FInSetInfoPanelHeight := True;
+  if not WasUpdating then BatchInfoPanels(True);
   try inherited ChangeScale(M, D, IsDpiChange);
-  finally FUpdatingSearchLayout := WasUpdating; end;
+  finally
+    try
+      if not WasUpdating then BatchInfoPanels(False);
+    finally
+      FInSetInfoPanelHeight := WasSettingHeight;
+      FUpdatingSearchLayout := WasUpdating;
+    end;
+  end;
   if not WasUpdating then
   begin
     UpdateSearchBookLayout;
@@ -4172,14 +4183,24 @@ begin
 end;
 
 procedure TfrmMain.ScaleForPPI(NewPPI: Integer);
-var WasUpdating: Boolean;
+var WasUpdating, WasSettingHeight: Boolean;
 begin
   // Explicit ScaleForPPI also restores anchors/fonts after ChangeScale.
   // Measure the final controls once, as with a monitor DPI transition.
   WasUpdating := FUpdatingSearchLayout;
   FUpdatingSearchLayout := True;
+  WasSettingHeight := FInSetInfoPanelHeight;
+  FInSetInfoPanelHeight := True;
+  if not WasUpdating then BatchInfoPanels(True);
   try inherited ScaleForPPI(NewPPI);
-  finally FUpdatingSearchLayout := WasUpdating; end;
+  finally
+    try
+      if not WasUpdating then BatchInfoPanels(False);
+    finally
+      FInSetInfoPanelHeight := WasSettingHeight;
+      FUpdatingSearchLayout := WasUpdating;
+    end;
+  end;
   if not WasUpdating then
   begin
     UpdateSearchBookLayout;
@@ -6175,6 +6196,16 @@ procedure TfrmMain.ShowBookDelete(Sender: TObject);
 begin
   acBookDelete.Visible := IsPrivate or IsOnline;
   acCollectionSyncFiles.Visible := IsPrivate or IsOnline;
+end;
+
+procedure TfrmMain.BatchInfoPanels(Beginning: Boolean);
+var Panels: TArray<TInfoPanel>; Panel: TInfoPanel;
+begin
+  Panels := [ipnlAuthors, ipnlSeries, ipnlGenres, ipnlSearch, ipnlFavorites];
+  if Assigned(FPublisher) then Panels := Panels + [FPublisher.Info];
+  for Panel in Panels do
+    if Assigned(Panel) then
+      if Beginning then Panel.BeginUpdate else Panel.EndUpdate;
 end;
 
 procedure TfrmMain.SetInfoPanelHeight(Height: Integer);

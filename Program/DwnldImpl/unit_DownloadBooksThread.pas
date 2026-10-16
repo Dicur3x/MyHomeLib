@@ -85,13 +85,15 @@ var
   Res: integer;
   FSystemDB: ISystemData;
 begin
+  if Canceled or Terminated then Exit;
   FSystemDB := DMUser.GetSystemDBConnection;
   try
-    Canceled := False;
     FIgnoreErrors := False;
 
     FDownloader := TDownloader.Create;
     try
+      FDownloader.OnCanceled :=
+        function: Boolean begin Result := Canceled or Terminated; end;
       FDownloader.OnSetComment := SetComment2;
       FDownloader.OnProgress := SetProgress2;
 
@@ -100,6 +102,7 @@ begin
 
       for i := 0 to totalBooks - 1 do
       begin
+        if Canceled or Terminated then Break;
         SetComment2(rstrConnecting, '');
 
         FBookIdList[i].Res := FDownloader.Download(FSystemDB, FBookIdList[i].BookKey, @FBookIdList[i]);

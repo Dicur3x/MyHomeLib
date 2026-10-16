@@ -130,7 +130,7 @@ begin
         begin
           if CharInSet(Caption[LookAhead], ['a', 'A']) then
           begin
-            while (Caption[LookAhead] <> '>') and (LookAhead <= Last) do
+            while (LookAhead <= Last) and (Caption[LookAhead] <> '>') do
               Inc(LookAhead);
 
             if LookAhead > Last then
@@ -155,7 +155,7 @@ begin
         end
         else
         begin
-          if (Caption[LookAhead] = '/') and
+          if (LookAhead + 2 <= Last) and (Caption[LookAhead] = '/') and
              (CharInSet(Caption[LookAhead + 1], ['a', 'A'])) and
              (Caption[LookAhead + 2] = '>') then
           begin

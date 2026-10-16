@@ -62,6 +62,7 @@ var Ini: TMemIniFile; BoundCID, BoundID: Integer; Section: string;
   begin
     Result:=False;
     try
+      if not FileExists(User.GetCollectionInfo(CID).DBFileName) then Exit;
       Collection:=User.GetCollection(CID); Namespace:=NamespaceFor(Collection);
       if UseBinding and (CID=BoundCID) and (BoundID>0) then
       begin
@@ -117,72 +118,86 @@ end;
 
 function ReaderNoteBookIDs(const User: ISystemData; const SettingsFile: string;
   CollectionID: Integer): TArray<Integer>;
+const BatchSize = 128;
 var Store: TReaderAnnotations; Ini: TMemIniFile; Notes: TArray<TReaderAnnotation>;
   Pending: TDictionary<string,TReaderAnnotation>; Candidates, Found: TDictionary<Integer,Boolean>;
+  Lookups: TDictionary<string,Boolean>; Values: TArray<string>; IDs: TArray<Integer>;
   Collection: IBookCollection; Iterator: IBookIterator; Criteria: TBookSearchCriteria;
-  Book: TBookRecord; Identity, Section, Namespace: string; Note: TReaderAnnotation; CID, ID: Integer;
+  Book: TBookRecord; Identity, Section, Namespace, Value: string;
+  Note: TReaderAnnotation; CID, ID, Offset, Kind: Integer;
+  procedure Collect;
+  begin
+    Iterator:=Collection.Search(Criteria,False);
+    while Iterator.Next(Book) do
+    begin
+      Identity:=ReaderNoteIdentity(ReaderHistoryName(Book,Namespace));
+      if Pending.ContainsKey(Identity) then
+      begin Found.TryAdd(Book.BookKey.BookID,True); Pending.Remove(Identity); end;
+    end;
+    Iterator:=nil;
+  end;
+  procedure ResetCriteria;
+  begin
+    Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
+    Criteria.CollapseMultiSeriesResults:=True;
+  end;
 begin
   Result:=nil; if not Assigned(User) then Exit;
-  Store:=nil; Ini:=nil; Pending:=nil; Candidates:=nil; Found:=nil;
+  // GetCollection opens SQLite with CREATE. A disconnected catalog is never
+  // a reason to create a new empty file while looking for existing notes.
+  if not FileExists(User.GetCollectionInfo(CollectionID).DBFileName) then Exit;
+  Store:=nil; Ini:=nil; Pending:=nil; Candidates:=nil; Found:=nil; Lookups:=nil;
   try
     Store:=TReaderAnnotations.Create(SettingsFile); Notes:=Store.Items;
     if Length(Notes)=0 then Exit;
     Ini:=TMemIniFile.Create(SettingsFile,TEncoding.UTF8);
     Pending:=TDictionary<string,TReaderAnnotation>.Create;
     Candidates:=TDictionary<Integer,Boolean>.Create; Found:=TDictionary<Integer,Boolean>.Create;
-    Notes:=Store.Items; Collection:=User.GetCollection(CollectionID); Namespace:=NamespaceFor(Collection);
+    Lookups:=TDictionary<string,Boolean>.Create;
+    Collection:=User.GetCollection(CollectionID); Namespace:=NamespaceFor(Collection);
     for Note in Notes do
     begin
       Pending.TryAdd(Note.BookID,Note); Section:='Book.'+Note.BookID;
       CID:=Ini.ReadInteger(Section,'CollectionID',-1); ID:=Ini.ReadInteger(Section,'CatalogBookID',-1);
       if (CID=CollectionID) and (ID>0) then Candidates.TryAdd(ID,True);
     end;
-    if Candidates.Count>0 then
+    IDs:=Candidates.Keys.ToArray; Offset:=0;
+    while Offset<Length(IDs) do
     begin
-      Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
-      Criteria.RestrictBookIDs:=True; Criteria.BookIDs:=Candidates.Keys.ToArray;
-      Criteria.CollapseMultiSeriesResults:=True; Iterator:=Collection.Search(Criteria,False);
-      while Iterator.Next(Book) do
+      ResetCriteria; Criteria.RestrictBookIDs:=True;
+      Criteria.BookIDs:=Copy(IDs,Offset,BatchSize); Collect;
+      Inc(Offset,BatchSize);
+    end;
+    // First resolve stable library IDs after reimport, then legacy titles.
+    // Deduplicate and bound every indexed query; never query once per note.
+    for Kind:=0 to 1 do
+    begin
+      Lookups.Clear;
+      for Note in Pending.Values do
       begin
-        Identity:=ReaderNoteIdentity(ReaderHistoryName(Book,Namespace));
-        if Pending.ContainsKey(Identity) then
-        begin Found.TryAdd(Book.BookKey.BookID,True); Pending.Remove(Identity); end;
+        if Kind=0 then
+        begin
+          Section:='Book.'+Note.BookID;
+          if Ini.ReadInteger(Section,'CollectionID',-1)<>CollectionID then Continue;
+          Value:=Ini.ReadString(Section,'LibID','');
+        end
+        else Value:=AnsiUpperCase(Note.BookTitle);
+        if Value<>'' then Lookups.TryAdd(Value,True);
       end;
-    end;
-    // Reimports may replace numeric catalog IDs and rename titles while
-    // retaining the stable library identity. Resolve only unmatched bindings.
-    Candidates.Clear;
-    for Note in Pending.Values do
-    begin
-      Section:='Book.'+Note.BookID;
-      if Ini.ReadInteger(Section,'CollectionID',-1)<>CollectionID then Continue;
-      ID:=Collection.ResolveBookID(Ini.ReadString(Section,'LibID',''),
-        Ini.ReadInteger(Section,'CatalogBookID',-1));
-      if ID>0 then Candidates.TryAdd(ID,True);
-    end;
-    if Candidates.Count>0 then
-    begin
-      Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
-      Criteria.RestrictBookIDs:=True; Criteria.BookIDs:=Candidates.Keys.ToArray;
-      Criteria.CollapseMultiSeriesResults:=True; Iterator:=Collection.Search(Criteria,False);
-      while Iterator.Next(Book) do
+      Values:=Lookups.Keys.ToArray; Offset:=0;
+      while Offset<Length(Values) do
       begin
-        Identity:=ReaderNoteIdentity(ReaderHistoryName(Book,Namespace));
-        if Pending.ContainsKey(Identity) then
-        begin Found.TryAdd(Book.BookKey.BookID,True); Pending.Remove(Identity); end;
+        ResetCriteria;
+        if Kind=0 then Criteria.LibraryIDs:=Copy(Values,Offset,BatchSize)
+        else Criteria.ExactTitles:=Copy(Values,Offset,BatchSize);
+        Collect; Inc(Offset,BatchSize);
       end;
-    end;
-    for Note in Pending.Values do
-    begin
-      if Note.BookTitle='' then Continue;
-      Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
-      Criteria.ExactTitle:=Note.BookTitle; Criteria.CollapseMultiSeriesResults:=True;
-      Iterator:=Collection.Search(Criteria,False);
-      while Iterator.Next(Book) do
-        if Matches(Book,Note.BookID,Namespace) then Found.TryAdd(Book.BookKey.BookID,True);
     end;
     Result:=Found.Keys.ToArray;
-  finally Found.Free; Candidates.Free; Pending.Free; Ini.Free; Store.Free; end;
+  finally
+    Iterator:=nil; Lookups.Free; Found.Free; Candidates.Free;
+    Pending.Free; Ini.Free; Store.Free;
+  end;
 end;
 
 end.

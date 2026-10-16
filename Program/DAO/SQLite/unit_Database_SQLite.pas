@@ -1188,6 +1188,7 @@ var
   MemoFields: string;
   MatchID: TGUID;
   MatchQuery: TSQLiteQuery;
+  LookupValue, LookupSQL: string;
 begin
   SQLRows := '';
   SeriesFilterString := '';
@@ -1277,6 +1278,28 @@ begin
     begin
       if FilterString<>'' then FilterString:=FilterString+' AND ';
       FilterString:=FilterString+'(b.SearchTitle='+QuotedStr(AnsiUpperCase(SearchCriteria.ExactTitle))+')';
+    end;
+    if Length(SearchCriteria.ExactTitles)>0 then
+    begin
+      LookupSQL := '';
+      for LookupValue in SearchCriteria.ExactTitles do
+      begin
+        if LookupSQL<>'' then LookupSQL:=LookupSQL+',';
+        LookupSQL:=LookupSQL+QuotedStr(AnsiUpperCase(LookupValue));
+      end;
+      if FilterString<>'' then FilterString:=FilterString+' AND ';
+      FilterString:=FilterString+'(b.SearchTitle IN ('+LookupSQL+'))';
+    end;
+    if Length(SearchCriteria.LibraryIDs)>0 then
+    begin
+      LookupSQL := '';
+      for LookupValue in SearchCriteria.LibraryIDs do
+      begin
+        if LookupSQL<>'' then LookupSQL:=LookupSQL+',';
+        LookupSQL:=LookupSQL+QuotedStr(LookupValue);
+      end;
+      if FilterString<>'' then FilterString:=FilterString+' AND ';
+      FilterString:=FilterString+'(b.LibID IN ('+LookupSQL+'))';
     end;
     AddToFilter('b.SearchFileName', PrepareSearchQuery(SearchCriteria.FileName, True, SearchCriteria.QueryMode), False, FilterString);
     AddToFilter('b.SearchFolder', PrepareSearchQuery(SearchCriteria.Folder, True, SearchCriteria.QueryMode), False, FilterString);
@@ -2068,104 +2091,12 @@ begin
 end;
 
 procedure TBookCollection_SQLite.ImportUserData(data: TUserData; guiUpdateCallback: TGUIUpdateExtraProc);
-var
-  extra: TBookExtra;
-  group: TBookGroup;
-  groupBook: TGroupBook;
-  Sql: string;
-  query: TSQLiteQuery;
-  BookKey: TBookKey;
-
-  function GetBookKey(bookInfo: TBookInfo; out BookKey: TBookKey): Boolean;
-  const
-    SQL_BY_BOOKID = 'SELECT b.BookID FROM Books b WHERE b.BookID = ?';
-    SQL_BY_LIBID = 'SELECT b.BookID FROM Books b WHERE b.LibID = ?';
-  var
-    query: TSQLiteQuery;
-    BookID: Integer;
-  begin
-    query := FDatabase.NewQuery(IfThen(bookInfo.LibID = '', SQL_BY_BOOKID, SQL_BY_LIBID));
-    try
-      if bookInfo.LibID = '' then
-        query.SetParam(0, bookInfo.BookID)
-      else
-        query.SetParam(0, bookInfo.LibID);
-      query.Open;
-      if query.Eof then
-        BookID := 0
-      else
-        BookID := query.FieldAsInt(0);
-    finally
-      query.Free;
-    end;
-
-    Result := BookID > 0;
-    if Result then
-    begin
-      BookKey := CreateBookKey(BookID, CollectionID);
-    end;
-  end;
-
+var Importer: IAtomicLegacyUserDataImporter;
 begin
   Assert(Assigned(data));
-
-  for extra in data.Extras do
-  begin
-    Sql := '';
-    if GetBookKey(extra, BookKey) then
-    begin
-      if extra.Rating <> 0 then
-        Sql := 'Rate = :NewRate ';
-
-      if extra.Progress <> 0 then
-      begin
-        if Sql <> '' then
-          Sql := Sql + ', ';
-        Sql := Sql + 'Progress = :NewProgress ';
-      end;
-
-      if Sql <> '' then
-      begin
-        Sql := 'UPDATE Books SET ' + Sql + ' WHERE BookID = :BookID ';
-
-        query := FDatabase.NewQuery(Sql);
-        try
-          if extra.Rating <> 0 then
-            query.SetParam(':NewRate', extra.Rating);
-
-          if extra.Progress <> 0 then
-            query.SetParam(':NewProgress', extra.Progress);
-
-          query.SetParam(':BookID', BookKey.BookID);
-
-          query.ExecSQL;
-        finally
-          query.Free;
-        end;
-      end;
-
-      if extra.Review <> '' then
-        SetReview(BookKey, extra.Review);
-
-      FSystemData.SetExtra(BookKey, extra);
-
-      if Assigned(guiUpdateCallback) then
-        guiUpdateCallback(BookKey, extra);
-    end;
-  end;
-
-  FSystemData.ImportUserData(data);
-
-  for group in data.Groups do
-  begin
-    for groupBook in group do
-    begin
-      if GetBookKey(groupBook, BookKey) then
-      begin
-        AddBookToGroup(BookKey, group.GroupID);
-      end;
-    end;
-  end;
+  if not Supports(FSystemData, IAtomicLegacyUserDataImporter, Importer) then
+    raise ENotSupportedException.Create('Хранилище не поддерживает безопасный импорт пользовательских данных.');
+  Importer.ImportLegacyUserData(CollectionID, data, guiUpdateCallback);
 end;
 
 procedure TBookCollection_SQLite.ExportUserData(data: TUserData);
