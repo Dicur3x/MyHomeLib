@@ -724,7 +724,10 @@ type
     FInvisible: Boolean;
     FThemeToolbar: TToolBar;
     FThemeButton: TToolButton;
-    FWindowsThemeOffer: TPanel;
+    FWindowsThemeOffer, FWindowsThemeOfferContent: TPanel;
+    FWindowsThemeOfferText: TLabel;
+    FWindowsThemeOfferApply, FWindowsThemeOfferDismiss: TButton;
+    FUpdatingWindowsThemeOfferLayout: Boolean;
     FLoadedBookViews: set of TView;
     FPendingLangFilters: array[TView] of Integer;
     FPendingAuthorBookID: Integer;
@@ -746,6 +749,8 @@ type
     FLocales: TArray<TLocaleInfo>;
     FOPDSForm: TfrmOPDS;
     procedure UpdateThemeToolbar;
+    procedure UpdateWindowsThemeOfferLayout;
+    procedure WindowsThemeOfferResize(Sender: TObject);
     procedure WindowsThemeOfferAccept(Sender: TObject);
     procedure WindowsThemeOfferDismiss(Sender: TObject);
     procedure WMSettingChange(var Message: TMessage); message WM_SETTINGCHANGE;
@@ -4162,6 +4167,7 @@ begin
   begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
+    UpdateWindowsThemeOfferLayout;
   end;
 end;
 
@@ -4178,11 +4184,51 @@ begin
   begin
     UpdateSearchBookLayout;
     UpdateFavoriteSearchLayout;
+    UpdateWindowsThemeOfferLayout;
   end;
 end;
 
+procedure TfrmMain.UpdateWindowsThemeOfferLayout;
+var PPI, Padding, Gap, AvailableWidth, TextWidth, ApplyWidth, DismissWidth,
+  ButtonHeight, RowHeight, ContentWidth: Integer; TextBounds: TRect;
+begin
+  if FUpdatingSearchLayout or FUpdatingWindowsThemeOfferLayout or
+    not Assigned(FWindowsThemeOfferText) then Exit;
+  FUpdatingWindowsThemeOfferLayout:=True;
+  try
+    // Explicit VCL scaling updates the final child font before the monitor PPI.
+    PPI:=FWindowsThemeOfferText.Font.PixelsPerInch;
+    Padding:=MulDiv(12,PPI,96); Gap:=MulDiv(8,PPI,96);
+    AvailableWidth:=Max(1,FWindowsThemeOffer.ClientWidth-2*Padding);
+    FWindowsThemeOfferText.Canvas.Font.Assign(FWindowsThemeOfferText.Font);
+    ApplyWidth:=Max(MulDiv(144,PPI,96),
+      FWindowsThemeOfferText.Canvas.TextWidth(FWindowsThemeOfferApply.Caption)+2*Padding);
+    DismissWidth:=MulDiv(32,PPI,96);
+    ButtonHeight:=Max(MulDiv(30,PPI,96),
+      FWindowsThemeOfferText.Canvas.TextHeight('Mg')+MulDiv(12,PPI,96));
+    TextWidth:=Min(FWindowsThemeOfferText.Canvas.TextWidth(FWindowsThemeOfferText.Caption),
+      Max(1,AvailableWidth-ApplyWidth-DismissWidth-2*Gap));
+    TextBounds:=Rect(0,0,TextWidth,0);
+    DrawText(FWindowsThemeOfferText.Canvas.Handle,PChar(FWindowsThemeOfferText.Caption),-1,
+      TextBounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    RowHeight:=Max(ButtonHeight,TextBounds.Height);
+    ContentWidth:=TextWidth+ApplyWidth+DismissWidth+2*Gap;
+    FWindowsThemeOffer.Height:=Max(MulDiv(42,PPI,96),RowHeight+2*Gap);
+    FWindowsThemeOfferContent.SetBounds(FWindowsThemeOffer.ClientWidth-Padding-ContentWidth,
+      (FWindowsThemeOffer.ClientHeight-RowHeight) div 2,ContentWidth,RowHeight);
+    FWindowsThemeOfferText.SetBounds(0,0,TextWidth,RowHeight);
+    FWindowsThemeOfferApply.SetBounds(TextWidth+Gap,(RowHeight-ButtonHeight) div 2,ApplyWidth,ButtonHeight);
+    FWindowsThemeOfferDismiss.SetBounds(TextWidth+Gap+ApplyWidth+Gap,
+      (RowHeight-ButtonHeight) div 2,DismissWidth,ButtonHeight);
+  finally FUpdatingWindowsThemeOfferLayout:=False; end;
+end;
+
+procedure TfrmMain.WindowsThemeOfferResize(Sender: TObject);
+begin
+  UpdateWindowsThemeOfferLayout;
+end;
+
 procedure TfrmMain.UpdateWindowsThemeOffer(WindowsDark: Boolean);
-var Text: TLabel; Button: TButton;
 begin
   if not WindowsDark then Settings.WindowsDarkThemeOfferDismissed:=False;
   if not MHLShouldOfferWindowsDarkTheme(WindowsDark,Settings.DarkTheme,Settings.WindowsDarkThemeOfferDismissed) then
@@ -4196,18 +4242,26 @@ begin
     FWindowsThemeOffer.Parent:=Self; FWindowsThemeOffer.BevelOuter:=bvNone; FWindowsThemeOffer.Caption:='';
     FWindowsThemeOffer.Height:=MulDiv(42,CurrentPPI,96);
     FWindowsThemeOffer.Top:=tlbrMain.BoundsRect.Bottom+1; FWindowsThemeOffer.Align:=alTop;
-    Button:=TButton.Create(Self); Button.Parent:=FWindowsThemeOffer; Button.Name:='btnDismissWindowsTheme';
-    Button.Align:=alRight; Button.Width:=MulDiv(32,CurrentPPI,96); Button.Caption:='×';
-    Button.Hint:='Больше не предлагать для текущей темы Windows'; Button.ShowHint:=True;
-    Button.OnClick:=WindowsThemeOfferDismiss;
-    Button:=TButton.Create(Self); Button.Parent:=FWindowsThemeOffer; Button.Name:='btnApplyWindowsTheme';
-    Button.Align:=alRight; Button.Width:=MulDiv(144,CurrentPPI,96); Button.Caption:='Включить тёмную тему';
-    Button.OnClick:=WindowsThemeOfferAccept;
-    Text:=TLabel.Create(Self); Text.Parent:=FWindowsThemeOffer; Text.Align:=alClient;
-    Text.Layout:=tlCenter; Text.WordWrap:=True; Text.AlignWithMargins:=True;
-    Text.Margins.Left:=MulDiv(12,CurrentPPI,96);
-    Text.Caption:='В Windows выбрана тёмная тема. Включить её и в HomeLib Ru?';
+    FWindowsThemeOffer.OnResize:=WindowsThemeOfferResize;
+    FWindowsThemeOfferContent:=TPanel.Create(Self);
+    FWindowsThemeOfferContent.Name:='pnWindowsThemeOfferContent';
+    FWindowsThemeOfferContent.Parent:=FWindowsThemeOffer;
+    FWindowsThemeOfferContent.BevelOuter:=bvNone; FWindowsThemeOfferContent.Caption:='';
+    FWindowsThemeOfferDismiss:=TButton.Create(Self);
+    FWindowsThemeOfferDismiss.Parent:=FWindowsThemeOfferContent;
+    FWindowsThemeOfferDismiss.Name:='btnDismissWindowsTheme'; FWindowsThemeOfferDismiss.Caption:='×';
+    FWindowsThemeOfferDismiss.Hint:='Больше не предлагать для текущей темы Windows';
+    FWindowsThemeOfferDismiss.ShowHint:=True; FWindowsThemeOfferDismiss.OnClick:=WindowsThemeOfferDismiss;
+    FWindowsThemeOfferApply:=TButton.Create(Self); FWindowsThemeOfferApply.Parent:=FWindowsThemeOfferContent;
+    FWindowsThemeOfferApply.Name:='btnApplyWindowsTheme'; FWindowsThemeOfferApply.Caption:='Включить тёмную тему';
+    FWindowsThemeOfferApply.OnClick:=WindowsThemeOfferAccept;
+    FWindowsThemeOfferText:=TLabel.Create(Self); FWindowsThemeOfferText.Parent:=FWindowsThemeOfferContent;
+    FWindowsThemeOfferText.Name:='lblWindowsThemeOffer'; FWindowsThemeOfferText.AutoSize:=False;
+    FWindowsThemeOfferText.Layout:=tlCenter; FWindowsThemeOfferText.WordWrap:=True;
+    FWindowsThemeOfferText.ShowAccelChar:=False;
+    FWindowsThemeOfferText.Caption:='В Windows выбрана тёмная тема. Включить её и в HomeLib Ru?';
   end;
+  UpdateWindowsThemeOfferLayout;
   FWindowsThemeOffer.Visible:=True;
 end;
 

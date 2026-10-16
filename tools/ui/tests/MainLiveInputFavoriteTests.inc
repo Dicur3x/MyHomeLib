@@ -1223,10 +1223,66 @@ procedure TestMainThemeToolbarStates;
 var Bar, ForwardBar: TToolBar; Button, ForwardButton, ThemeButton: TToolButton;
   Forward: TMLIToolbarForwardProbe; Bitmap: TBitmap; Png: TPngImage;
   Native: TMLIToolbarNativeProbe;
-  OriginalTheme, OriginalDown, OriginalEnabled: Boolean; OriginalAction: TBasicAction;
+  OriginalTheme, OriginalDown, OriginalEnabled, OriginalOfferDismissed: Boolean; OriginalAction: TBasicAction;
   OriginalPPI, OriginalWidth, OriginalHeight: Integer;
   MainStyles, ForwardStyles: TStyleElements; SavedDraw, SavedButtonDraw: TMethod;
   CatalogBefore, Artifacts: string;
+
+  procedure CheckWindowsThemeOffer(PPI: Integer);
+  var Offer, Content: TPanel; Text: TLabel; Apply, Dismiss: TButton;
+    Gap, Padding: Integer; TextBounds: TRect; Capture: TBitmap;
+  begin
+    Require(not MHLThemeDark,'Theme suggestion geometry must use the light application theme');
+    Settings.WindowsDarkThemeOfferDismissed:=False;
+    for var LogicalWidth in TArray<Integer>.Create(1200,800) do
+    begin
+      frmMain.Width:=MulDiv(LogicalWidth,PPI,96);
+      frmMain.UpdateWindowsThemeOffer(True); Application.ProcessMessages;
+      Offer:=TPanel(frmMain.FindComponent('pnWindowsThemeOffer'));
+      Content:=TPanel(frmMain.FindComponent('pnWindowsThemeOfferContent'));
+      Text:=TLabel(frmMain.FindComponent('lblWindowsThemeOffer'));
+      Apply:=TButton(frmMain.FindComponent('btnApplyWindowsTheme'));
+      Dismiss:=TButton(frmMain.FindComponent('btnDismissWindowsTheme'));
+      Gap:=MulDiv(8,PPI,96); Padding:=MulDiv(12,PPI,96);
+      Require(Offer.Visible and (Content.Parent=Offer) and (Text.Parent=Content) and
+        (Apply.Parent=Content) and (Dismiss.Parent=Content),'Theme suggestion is not one visible action group');
+      Require((Content.Left>=0) and (Content.BoundsRect.Right=Offer.ClientWidth-Padding) and
+        (Content.Top>=0) and (Content.BoundsRect.Bottom<=Offer.ClientHeight),
+        'Theme suggestion group is clipped or no longer aligned to the right');
+      Require((Text.Left=0) and (Apply.Left-Text.BoundsRect.Right=Gap) and
+        (Dismiss.Left-Apply.BoundsRect.Right=Gap) and (Dismiss.BoundsRect.Right=Content.ClientWidth),
+        'Theme suggestion text and buttons are separated or overlap');
+      if LogicalWidth=1200 then Require(Content.Left>MulDiv(100,PPI,96),
+        'Theme suggestion still begins at the left edge of a wide window');
+      Text.Canvas.Font.Assign(Text.Font); TextBounds:=Rect(0,0,Text.Width,0);
+      DrawText(Text.Canvas.Handle,PChar(Text.Caption),-1,TextBounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      Require((Text.Height>=TextBounds.Height) and
+        (Apply.Width>=Text.Canvas.TextWidth(Apply.Caption)+2*Padding) and
+        (Apply.Top>=0) and (Apply.BoundsRect.Bottom<=Content.ClientHeight) and
+        (Dismiss.Top>=0) and (Dismiss.BoundsRect.Bottom<=Content.ClientHeight),
+        'Theme suggestion caption or button text is clipped after window or DPI changes');
+      Capture:=TBitmap.Create;
+      try
+        Capture.PixelFormat:=pf32bit; Capture.SetSize(Offer.ClientWidth,Offer.ClientHeight);
+        Capture.Canvas.Lock;
+        try Offer.PaintTo(Capture.Canvas.Handle,0,0); finally Capture.Canvas.Unlock; end;
+        Png.Assign(Capture); Png.SaveToFile(TPath.Combine(Artifacts,
+          'theme-offer-'+IntToStr(PPI)+'-'+IntToStr(LogicalWidth)+'.png'));
+      finally Capture.Free; end;
+      Writeln('PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=',PPI,
+        ' logical_width=',LogicalWidth); Flush(Output);
+    end;
+    Dismiss.Click; frmMain.UpdateWindowsThemeOffer(True);
+    Require(Settings.WindowsDarkThemeOfferDismissed and not Offer.Visible,
+      'Grouped theme suggestion lost its dismissal behavior');
+    frmMain.UpdateWindowsThemeOffer(False); frmMain.UpdateWindowsThemeOffer(True);
+    Require(Offer.Visible,'Grouped theme suggestion did not return for a new Windows dark-theme cycle');
+    Apply.Click; Application.ProcessMessages;
+    Require(MHLThemeDark and Settings.DarkTheme and not Offer.Visible,
+      'Grouped theme suggestion did not apply the dark application theme');
+    ThemeButton.OnClick(ThemeButton); Application.ProcessMessages;
+    Require(not MHLThemeDark,'Grouped suggestion fixture did not restore the light theme');
+  end;
 
   procedure CheckNativePair;
   var R: TRect; IdleColor, ActiveColor, ActiveLine: TColor;
@@ -1327,6 +1383,7 @@ var Bar, ForwardBar: TToolBar; Button, ForwardButton, ThemeButton: TToolButton;
 begin
   RequireIsolatedRegression;
   OriginalTheme:=MHLThemeDark; OriginalPPI:=frmMain.Font.PixelsPerInch;
+  OriginalOfferDismissed:=Settings.WindowsDarkThemeOfferDismissed;
   OriginalWidth:=frmMain.Width; OriginalHeight:=frmMain.Height;
   CatalogBefore:=MLIReadCatalogData(Settings.ActiveCollection);
   Bar:=frmMain.tlbrMain; Button:=frmMain.tbtnShowDeleted; ThemeButton:=nil;
@@ -1352,6 +1409,7 @@ begin
     begin
       frmMain.ScaleForPPI(PPI); frmMain.FormAfterMonitorDpiChanged(nil,frmMain.CurrentPPI,PPI);
       Require(Bar.Font.PixelsPerInch=PPI,'Toolbar did not adopt the requested native DPI');
+      CheckWindowsThemeOffer(PPI);
       ThemeButton.OnClick(ThemeButton);
       Require(MHLThemeDark and (Bar.StyleElements=[]) and (ForwardBar.StyleElements=[]),
         'Dark toolbar still applies the stock VCL raised button style');
@@ -1398,6 +1456,10 @@ begin
     frmMain.ScaleForPPI(OriginalPPI); frmMain.FormAfterMonitorDpiChanged(nil,frmMain.CurrentPPI,OriginalPPI);
     frmMain.Width:=OriginalWidth; frmMain.Height:=OriginalHeight;
     if MHLThemeDark<>OriginalTheme then ThemeButton.OnClick(ThemeButton);
+    Settings.WindowsDarkThemeOfferDismissed:=OriginalOfferDismissed;
+    frmMain.UpdateWindowsThemeOffer(False);
+    Settings.WindowsDarkThemeOfferDismissed:=OriginalOfferDismissed;
+    Settings.SaveSettings;
   end;
   Require((frmMain.Font.PixelsPerInch=OriginalPPI) and (frmMain.Width=OriginalWidth) and
     (frmMain.Height=OriginalHeight) and (MHLThemeDark=OriginalTheme),'Toolbar fixture did not restore Main DPI, dimensions and theme');

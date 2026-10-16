@@ -335,17 +335,31 @@ begin
     CheckProtected;
     Writeln('PASS malformed long/NUL author names keep ordinary rendering and selection usable without changing profile or catalogs');
 
+    Writeln('TRACE favorite DPI sweep before search page'); Flush(Output);
     ShowPage(PAGE_SEARCH); OriginalPPI := frmMain.CurrentPPI;
+    Writeln('TRACE favorite DPI sweep search page ready ppi=',OriginalPPI); Flush(Output);
     for var DPI in TArray<Integer>.Create(96, 144, 192) do
     begin
-      frmMain.ScaleForPPI(DPI); frmMain.FormAfterMonitorDpiChanged(nil, OriginalPPI, DPI);
-      Application.ProcessMessages; CheckInlineLayout;
+      Writeln('TRACE favorite DPI before ScaleForPPI ppi=',DPI,' tick_ms=',GetTickCount64); Flush(Output);
+      frmMain.ScaleForPPI(DPI);
+      Writeln('TRACE favorite DPI after ScaleForPPI ppi=',DPI,' tick_ms=',GetTickCount64); Flush(Output);
+      frmMain.FormAfterMonitorDpiChanged(nil, OriginalPPI, DPI);
+      Writeln('TRACE favorite DPI after monitor callback ppi=',DPI); Flush(Output);
+      Application.ProcessMessages;
+      Writeln('TRACE favorite DPI after messages ppi=',DPI); Flush(Output);
+      CheckInlineLayout;
       SearchHeight := frmMain.ctpBook.Height; SearchWidth := frmMain.ctpBook.Width;
+      Writeln('TRACE favorite DPI before toggle ppi=',DPI); Flush(Output);
       SearchCheck.Checked := not SearchCheck.Checked; Application.ProcessMessages;
+      Writeln('TRACE favorite DPI after toggle ppi=',DPI); Flush(Output);
       Require((frmMain.ctpBook.Height = SearchHeight) and (frmMain.ctpBook.Width = SearchWidth),
         'Favorite checkbox enlarged search at DPI ' + IntToStr(DPI));
     end;
-    frmMain.ScaleForPPI(96); frmMain.FormAfterMonitorDpiChanged(nil, OriginalPPI, 96); Application.ProcessMessages;
+    Writeln('TRACE favorite DPI sweep before restore tick_ms=',GetTickCount64); Flush(Output);
+    frmMain.ScaleForPPI(96);
+    Writeln('TRACE favorite DPI after restore scale tick_ms=',GetTickCount64); Flush(Output);
+    frmMain.FormAfterMonitorDpiChanged(nil, OriginalPPI, 96); Application.ProcessMessages;
+    Writeln('TRACE favorite DPI sweep before protected data check'); Flush(Output);
     CheckProtected;
     Writeln('PASS inline favorite condition fits actual 100%, 150%, 200% DPI without covering expression controls or expanding search');
     Flush(Output);
