@@ -107,7 +107,7 @@ end;
 
 procedure TestUpdateKeyboardAccessibility;
 var Host: TForm; View: TUpdateNotesView; Primary: TButton; Probe: TUpdateKeyboardProbe;
-  SavedTheme, SavedAppCheck, SavedCatalogCheck: Boolean; Header: TButton; Location: TPoint; Notes: string;
+  SavedTheme, SavedAppCheck, SavedCatalogCheck, SavedMainVisible: Boolean; Header: TButton; Location: TPoint; Notes: string;
   Accessible: OleVariant; Dispatch: IDispatch; AccessibleID: TGUID;
   FirstActivation: Boolean; ForegroundDeadline: UInt64; RemovedFocus: TButton;
   ActiveFormName: string;
@@ -116,6 +116,7 @@ begin
   RequireIsolatedRegression; SavedTheme:=MHLThemeDark;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
   Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
+  SavedMainVisible:=frmMain.Visible; frmMain.Show; Application.ProcessMessages;
   Probe:=TUpdateKeyboardProbe.Create; Host:=nil; FirstActivation:=True;
   Accessible:=Unassigned; Dispatch:=nil;
   AccessibleID:=StringToGUID('{618736E0-3C3D-11CF-810C-00AA00389B71}');
@@ -270,6 +271,7 @@ begin
   finally
     FreeAndNil(Host); FreeAndNil(Probe); SetMHLTheme(SavedTheme);
     Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
+    if not SavedMainVisible then frmMain.Hide;
   end;
 end;
 
@@ -436,6 +438,7 @@ begin
       CloseProbe:=TUpdateProposalVisualClose.Create; CloseProbe.Dialog:=Dialog;
       try
         Dialog.Caption:='История обновлений — изолированный ручной стенд';
+        Dialog.ShowInTaskBar:=stAlways;
         Require(Dialog.StartCheckCycle(True),'Visual fixture cycle did not start');
         Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
         Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');

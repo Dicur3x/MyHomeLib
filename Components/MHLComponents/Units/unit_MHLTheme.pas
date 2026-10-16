@@ -41,6 +41,7 @@ type
     FModalLevel: Integer;
     FForms: TArray<TThemeFormState>;
     function NewInputForm(Form: TCustomForm): Boolean;
+    procedure Trace(const Reason: string);
   protected
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   public
@@ -80,6 +81,7 @@ begin
     FForms[I].Modal:=fsModal in Screen.Forms[I].FormState;
     Screen.Forms[I].FreeNotification(Self);
   end;
+  Trace('captured');
 end;
 
 procedure TThemeFocusSnapshot.Notification(AComponent: TComponent; Operation: TOperation);
@@ -105,28 +107,50 @@ begin
   Result:=Form.Visible or (fsModal in Form.FormState);
 end;
 
+procedure TThemeFocusSnapshot.Trace(const Reason: string);
+{$IFDEF MHL_SQL_PROFILE}
+var SourceName, ActiveName: string;
+{$ENDIF}
+begin
+{$IFDEF MHL_SQL_PROFILE}
+  SourceName:='<nil>'; ActiveName:='<nil>';
+  if Assigned(FForm) then SourceName:=FForm.ClassName+':'+FForm.Name;
+  if Assigned(Screen.ActiveCustomForm) then ActiveName:=Screen.ActiveCustomForm.ClassName+':'+Screen.ActiveCustomForm.Name;
+  Writeln('TRACE theme focus ',Reason,' source=',SourceName,' active=',ActiveName,
+    ' was_foreground=',Ord(FWasForeground),' modal_before=',FModalLevel,' modal_now=',Application.ModalLevel,
+    ' foreground=',GetForegroundWindow,' native_focus=',Winapi.Windows.GetFocus);
+  for var Previous in FForms do if Assigned(Previous.Form) then
+    Writeln('TRACE theme form ',Previous.Form.ClassName,':',Previous.Form.Name,
+      ' before_visible=',Ord(Previous.Visible),' now_visible=',Ord(Previous.Form.Visible),
+      ' before_modal=',Ord(Previous.Modal),' now_modal=',Ord(fsModal in Previous.Form.FormState));
+  Flush(Output);
+{$ENDIF}
+end;
+
 procedure TThemeFocusSnapshot.Restore;
 begin
   // A background form must never activate merely because its style changed.
-  if not FWasForeground then Exit;
-  if not Assigned(FControl) or not Assigned(FForm) then Exit;
+  if not FWasForeground then begin Trace('skip background'); Exit; end;
+  if not Assigned(FControl) or not Assigned(FForm) then begin Trace('skip removed control/form'); Exit; end;
   if (csDestroying in FControl.ComponentState) or (csDestroying in FForm.ComponentState) or
-    not FControl.CanFocus then Exit;
+    not FControl.CanFocus then begin Trace('skip cannot focus'); Exit; end;
   // Theme callbacks may intentionally open another form or a modal dialog.
   // Preserve that new input target rather than taking focus back from it.
-  if Application.ModalLevel<>FModalLevel then Exit;
-  if NewInputForm(Screen.ActiveCustomForm) then Exit;
+  if Application.ModalLevel<>FModalLevel then begin Trace('skip changed modal level'); Exit; end;
+  if NewInputForm(Screen.ActiveCustomForm) then begin Trace('skip new active input form'); Exit; end;
   for var I:=0 to Screen.FormCount-1 do
-    if NewInputForm(Screen.Forms[I]) then Exit;
+    if NewInputForm(Screen.Forms[I]) then begin Trace('skip newly visible/modal form'); Exit; end;
   // RecreateWnd can transiently activate an already existing form such as
   // Main. That is not a callback opening a new input surface; permit restoring
   // the original foreground form when no visibility/modal transition occurred.
   // A style switch recreates HWNDs. Retain the actual focused VCL component,
   // including a focused release button, after all form theme callbacks finish.
   // FreeNotification also covers a callback that removes/rebuilds that control.
+  Trace('restoring');
   SetForegroundWindow(FForm.Handle);
   SetActiveWindow(FForm.Handle);
   FControl.SetFocus;
+  Trace('restored');
 end;
 
 constructor TThemeToolbarPainter.CreateFor(Bar: TToolBar);
