@@ -37,6 +37,13 @@ type
     procedure PrimaryClicked(Sender: TObject);
   end;
 
+  TUpdateKeyboardHost = class(TForm)
+  private
+    procedure AppThemeChanged(var Message: TMessage); message WM_MHL_APP_THEME;
+  public
+    ThemeCallback: TProc;
+  end;
+
 constructor TUpdateProposalServer.Create;
 begin
   inherited;
@@ -91,11 +98,18 @@ end;
 procedure TUpdateKeyboardProbe.PrimaryClicked(Sender: TObject);
 begin Inc(PrimaryCalls); end;
 
+procedure TUpdateKeyboardHost.AppThemeChanged(var Message: TMessage);
+var Callback: TProc;
+begin
+  Callback:=ThemeCallback; ThemeCallback:=nil;
+  if Assigned(Callback) then Callback();
+end;
+
 procedure TestUpdateKeyboardAccessibility;
 var Host: TForm; View: TUpdateNotesView; Primary: TButton; Probe: TUpdateKeyboardProbe;
   SavedTheme, SavedAppCheck, SavedCatalogCheck: Boolean; Header: TButton; Location: TPoint; Notes: string;
   Accessible: OleVariant; Dispatch: IDispatch; AccessibleID: TGUID;
-  FirstActivation: Boolean; ForegroundDeadline: UInt64;
+  FirstActivation: Boolean; ForegroundDeadline: UInt64; RemovedFocus: TButton;
 begin
   RequireIsolatedRegression; SavedTheme:=MHLThemeDark;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
@@ -107,7 +121,7 @@ begin
     for var Dark in TArray<Boolean>.Create(False,True) do
       for var PPI in TArray<Integer>.Create(96,144,192) do
       begin
-        SetMHLTheme(Dark); Host:=TForm.CreateNew(nil);
+        SetMHLTheme(Dark); Host:=TUpdateKeyboardHost.CreateNew(nil);
         try
           Host.Caption:='HomeLib Ru update keyboard fixture PID '+IntToStr(GetCurrentProcessId)+
             ' theme='+IntToStr(Ord(Dark))+' PPI='+IntToStr(PPI);
@@ -207,6 +221,22 @@ begin
           SetMHLTheme(Dark); Host.ScaleForPPI(96); Host.ScaleForPPI(PPI);
           Require(View.SectionHeader(1).Focused and View.IsExpanded(1),
             'Changing VCL scale lost the focused/expanded release');
+          if not Dark and (PPI=96) then
+          begin
+            // A real theme callback can replace the focused control. The
+            // production focus snapshot must observe its deletion, not retain
+            // a dangling component pointer across that callback.
+            RemovedFocus:=TButton.Create(Host); RemovedFocus.Parent:=Host;
+            RemovedFocus.SetBounds(0,0,120,28); RemovedFocus.Caption:='Temporary focused control';
+            RemovedFocus.SetFocus;
+            Require(Winapi.Windows.GetFocus=RemovedFocus.Handle,'Focused-control lifetime fixture did not receive focus');
+            TUpdateKeyboardHost(Host).ThemeCallback:=procedure begin FreeAndNil(RemovedFocus); end;
+            SetMHLTheme(not Dark); Application.ProcessMessages;
+            Require(not Assigned(RemovedFocus),'Theme callback did not remove its focused control');
+            SetMHLTheme(Dark); View.SectionHeader(1).SetFocus;
+            Require(View.SectionHeader(1).Focused,'Theme callback removal left release navigation unusable');
+            Writeln('PASS update theme tolerates deletion of its formerly focused control in a real form callback'); Flush(Output);
+          end;
           Writeln('PASS update history native Tab Enter Space name state focus scroll reload theme=',Ord(Dark),' VCL_DPI=',PPI);
           Flush(Output);
         finally Accessible:=Unassigned; Dispatch:=nil; FreeAndNil(Host); end;

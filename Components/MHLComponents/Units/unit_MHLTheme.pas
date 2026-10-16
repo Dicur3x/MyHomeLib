@@ -33,6 +33,7 @@ type
     FControl: TWinControl;
     FForm: TCustomForm;
     FWasForeground: Boolean;
+    FModalLevel: Integer;
   protected
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   public
@@ -61,6 +62,7 @@ begin
   FForm:=GetParentForm(FControl);
   if not Assigned(FForm) then begin FControl:=nil; Exit; end;
   FWasForeground:=GetForegroundWindow=FForm.Handle;
+  FModalLevel:=Application.ModalLevel;
   FControl.FreeNotification(Self); FForm.FreeNotification(Self);
 end;
 
@@ -76,17 +78,20 @@ end;
 
 procedure TThemeFocusSnapshot.Restore;
 begin
+  // A background form must never activate merely because its style changed.
+  if not FWasForeground then Exit;
   if not Assigned(FControl) or not Assigned(FForm) then Exit;
   if (csDestroying in FControl.ComponentState) or (csDestroying in FForm.ComponentState) or
     not FControl.CanFocus then Exit;
+  // Theme callbacks may intentionally open another form or a modal dialog.
+  // Preserve that new input target rather than taking focus back from it.
+  if Application.ModalLevel<>FModalLevel then Exit;
+  if Assigned(Screen.ActiveCustomForm) and (Screen.ActiveCustomForm<>FForm) then Exit;
   // A style switch recreates HWNDs. Retain the actual focused VCL component,
   // including a focused release button, after all form theme callbacks finish.
   // FreeNotification also covers a callback that removes/rebuilds that control.
-  if FWasForeground then
-  begin
-    SetForegroundWindow(FForm.Handle);
-    SetActiveWindow(FForm.Handle);
-  end;
+  SetForegroundWindow(FForm.Handle);
+  SetActiveWindow(FForm.Handle);
   FControl.SetFocus;
 end;
 
