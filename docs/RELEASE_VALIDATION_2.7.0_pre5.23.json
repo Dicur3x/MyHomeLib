@@ -1785,5 +1785,42 @@
     "published_pre522_archive_sha256": "b1f2ffa3069d69b8ae5362cd05a2f89954ef5e7a4f6c465a2961d710ef5004e0",
     "verified_utc": "2026-10-16T20:31:37.430686+00:00",
     "explanation": "Historical baseline belongs to an earlier phase. Current Desktop EXE matches the published pre5.22 Win64 archive exactly; not a pre5.23 test build. No claim of unchanged bytes across both phases."
+  },
+  "publication": {
+    "verified_utc": "2026-10-16T20:35:50.994899+00:00",
+    "release_url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.23",
+    "tag": "2.7.0_pre5.23",
+    "published_utc": "2026-10-16T20:35:45Z",
+    "public_latest": true,
+    "assets": [
+      {
+        "name": "HomeLibRu.zip",
+        "size": 55543978,
+        "digest": "sha256:75999f45d0a74635e6635cf45c74dbd3a76c529f3694cd3d416a76bb4d8b59a8",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.23/HomeLibRu.zip"
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "size": 61056697,
+        "digest": "sha256:64a43b68846348a3bf8b00737bdc6625123081a7896d5fe9157a7273cf68799d",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.23/HomeLibRu_x64.zip"
+      },
+      {
+        "name": "SHA256.txt",
+        "size": 166,
+        "digest": "sha256:efbd75981095e33225368788023920f1ce315ca8946e3a93f97620485f77fa65",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.23/SHA256.txt"
+      }
+    ],
+    "root_release_notes": 0,
+    "archived_release_notes": 23,
+    "legacy_update_feed": [
+      "2.7.0.1091",
+      "HomeLib Ru 2.7.0 pre5.23",
+      "https://github.com/Dicur3x/MyHomeLib/releases/latest"
+    ]
   }
 }

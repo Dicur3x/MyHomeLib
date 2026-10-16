@@ -113,3 +113,11 @@ Win32/Win64 запускались на Windows x64. Масштабы формы
 [Хеши сборок, все попытки и ручные осмотры](RELEASE_VALIDATION_2.7.0_pre5.23.json) ·
 [Изменения](releases/RELEASE_NOTES_2.7.0_pre5.23.md) ·
 [Предыдущий полный аудит/рефакторинг](REFACTOR_VALIDATION_2026-10-16.md).
+
+## Публикация
+
+[Выпуск pre5.23](https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.23) опубликован 2026-10-16T20:35:45Z.
+Публичный API без авторизации подтверждает его как latest. Размеры и SHA-256
+обоих ZIP и SHA256.txt совпали с локальными; публичный SHA256.txt также скачан
+и сравнен побайтно. В корне master нет RELEASE_NOTES; все 23 записи лежат
+в docs/releases. Старый update-feed согласован с 2.7.0.1091.
