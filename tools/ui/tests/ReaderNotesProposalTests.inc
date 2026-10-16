@@ -68,18 +68,22 @@ begin
   RNPTrace('modal driver action completed');
 end;
 
-procedure RNPCheckDialogLayout(Form: TCustomForm; Width, Height: Integer);
-var PreviousTheme: Boolean;
+procedure RNPCheckDialogLayout(Form: TCustomForm; Width, Height: Integer; WindowBounds: Boolean = False);
+var PreviousTheme: Boolean; PreviousPPI, PreviousWidth, PreviousHeight: Integer;
 begin
-  PreviousTheme:=MHLThemeDark;
+  PreviousTheme:=MHLThemeDark; PreviousPPI:=Form.CurrentPPI;
+  PreviousWidth:=Form.ClientWidth; PreviousHeight:=Form.ClientHeight;
   try
     for var Dark in TArray<Boolean>.Create(False,True) do
     begin
       SetMHLTheme(Dark); ApplyMHLControlTheme(Form);
       for var DPI in TArray<Integer>.Create(96,144,192) do
       begin
-        RNPTrace('layout '+Form.Name+' dark='+BoolToStr(Dark,True)+' dpi='+IntToStr(DPI));
-        Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(Width,DPI,96); Form.ClientHeight:=MulDiv(Height,DPI,96);
+        RNPTrace('layout '+Form.Name+' dark='+BoolToStr(Dark,True)+' dpi='+IntToStr(DPI)+
+          ' width='+IntToStr(Width)+' height='+IntToStr(Height)+' window_bounds='+BoolToStr(WindowBounds,True));
+        Form.ScaleForPPI(DPI);
+        if WindowBounds then begin Form.Width:=MulDiv(Width,DPI,96); Form.Height:=MulDiv(Height,DPI,96); end
+        else begin Form.ClientWidth:=MulDiv(Width,DPI,96); Form.ClientHeight:=MulDiv(Height,DPI,96); end;
         Application.ProcessMessages;
         for var I:=0 to Form.ComponentCount-1 do
           if Form.Components[I] is TButton then
@@ -91,10 +95,22 @@ begin
               (Button.Top+Button.Height<=Button.Parent.ClientHeight),
               'Notes action clipped at DPI '+IntToStr(DPI)+': '+Button.Name);
           end;
+        if Form.Name='ReaderNoteEditor' then
+        begin
+          var Latest:=TMemo(RNPComponent(Form,'NoteLatest',TMemo));
+          if Latest.Visible then
+          begin
+            Require(TMemo(RNPComponent(Form,'NoteEditorText',TMemo)).Height>=MulDiv(48,DPI,96),
+              'Minimum conflicted note editor collapsed the editable draft at DPI '+IntToStr(DPI));
+            Require(Latest.Height>=MulDiv(24,DPI,96),'Saved revision has no readable scrollable row');
+          end;
+        end;
       end;
     end;
-    Form.ScaleForPPI(96); Form.ClientWidth:=Width; Form.ClientHeight:=Height;
-  finally SetMHLTheme(PreviousTheme); ApplyMHLControlTheme(Form); end;
+  finally
+    Form.ScaleForPPI(PreviousPPI); Form.ClientWidth:=PreviousWidth; Form.ClientHeight:=PreviousHeight;
+    SetMHLTheme(PreviousTheme); ApplyMHLControlTheme(Form);
+  end;
 end;
 
 // Manual Computer Use entry point: the list remains open until Close/Esc,
@@ -278,6 +294,34 @@ var
     finally Wanted.Free; Actual.Free; end;
   end;
 
+  procedure ExpectSnapshotKeepsSelection;
+  var SelectedIndex, TopIndex: Integer; Lock: THandle;
+  begin
+    Require(List.Items.Count>1,'Own selection fixture must contain multiple visible rows');
+    SelectedIndex:=List.Items.Count-1;
+    List.Items[SelectedIndex].Selected:=True; List.Items[SelectedIndex].Focused:=True;
+    List.Items[SelectedIndex].MakeVisible(False); Application.ProcessMessages;
+    Require(Assigned(List.Selected) and (List.Selected.Index=SelectedIndex),'Own list selection setup failed');
+    Require(Assigned(List.TopItem),'Own list has no scroll origin'); TopIndex:=List.TopItem.Index;
+    // Snapshot export is entirely in memory, including at 10K notes. A real
+    // exclusive handle proves it does not reopen/parse the source document.
+    Lock:=CreateFile(PChar(NotesFile),GENERIC_READ,0,nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+    Require(Lock<>INVALID_HANDLE_VALUE,'Cannot lock the own snapshot fixture');
+    try
+      for var I:=1 to 3 do
+      begin
+        Items:=Dialog.VisibleItems;
+        Require(Assigned(List.Selected) and (List.Selected.Index=SelectedIndex),
+          'Reading/exporting an unchanged notes snapshot changed the selected identity');
+        Require(Assigned(List.TopItem) and (List.TopItem.Index=TopIndex),
+          'Reading/exporting an unchanged notes snapshot changed the scroll position');
+        Require(Length(Items)=List.Items.Count,'Unchanged snapshot changed its visible count');
+      end;
+    finally CloseHandle(Lock); end;
+    RNPTrace('unchanged snapshot keeps selection='+IntToStr(SelectedIndex)+' top='+IntToStr(TopIndex)+
+      ' count='+IntToStr(Length(Items))+' source_locked=1');
+  end;
+
   procedure SelectBook(const Title: string);
   begin
     Books.ItemIndex:=Books.Items.IndexOf(Title); Require(Books.ItemIndex>=0,'Own fixture book missing');
@@ -332,20 +376,47 @@ begin
     Driver:=TRNPModalAction.Create(Work,
       procedure(Editor: TCustomForm)
       var TextBox: TMemo; Save, ReloadButton: TButton; Foreign: TReaderAnnotations; Entry: TReaderAnnotation;
+        Lock: THandle; SavedBytes: TBytes; BeforeHash: string; WorkArea: TRect;
       begin
         RNPTrace('changed-note enter');
         TextBox:=TMemo(RNPComponent(Editor,'NoteEditorText',TMemo)); TextBox.Text:='  Мой черновик Ё ї 😀'+sLineBreak+'Сохранить пробелы  ';
+        Save:=TButton(RNPComponent(Editor,'NoteEditorSave',TButton));
+        BeforeHash:=THashSHA2.GetHashStringFromFile(NotesFile);
+        Lock:=CreateFile(PChar(NotesFile+'.lock'),GENERIC_READ or GENERIC_WRITE,0,nil,OPEN_ALWAYS,
+          FILE_ATTRIBUTE_TEMPORARY or FILE_FLAG_DELETE_ON_CLOSE,0);
+        Require(Lock<>INVALID_HANDLE_VALUE,'Cannot hold the own annotation writer lock');
+        try
+          WorkArea:=Editor.Monitor.WorkareaRect;
+          Editor.Left:=WorkArea.Right-80; Editor.Top:=WorkArea.Bottom-80;
+          WorkArea:=Editor.Monitor.WorkareaRect;
+          RNPTrace('changed-note locked save'); Save.Click;
+          Require(Editor.Visible and Save.Enabled,'Transient write failure closed the editor or blocked retry');
+          Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Transient write failure lost the draft');
+          Require(THashSHA2.GetHashStringFromFile(NotesFile)=BeforeHash,'Failed save modified the own source document');
+          Require((Editor.Left>=WorkArea.Left) and (Editor.Top>=WorkArea.Top) and
+            (Editor.Left+Editor.Width<=WorkArea.Right) and (Editor.Top+Editor.Height<=WorkArea.Bottom),
+            'Recovery expansion left editor actions outside the monitor work area');
+        finally CloseHandle(Lock); end;
         Foreign:=TReaderAnnotations.Create(Profile);
         try Foreign.Find(OriginalID,Entry); Entry.Text:='Новая чужая версия'; Foreign.Put(Entry); finally Foreign.Free; end;
         Save:=TButton(RNPComponent(Editor,'NoteEditorSave',TButton)); RNPTrace('changed-note first save'); Save.Click;
         Require(Editor.Visible and not Save.Enabled,'Conflict closed the editor or allowed a blind retry');
         Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Conflict lost the live draft');
         Require(TButton(RNPComponent(Editor,'NoteDraftCopy',TButton)).Visible,'Draft copy recovery action missing');
-        ReloadButton:=TButton(RNPComponent(Editor,'NoteReload',TButton)); RNPTrace('changed-note first reload'); ReloadButton.Click;
+        ReloadButton:=TButton(RNPComponent(Editor,'NoteReload',TButton));
+        SavedBytes:=TFile.ReadAllBytes(NotesFile); TFile.WriteAllText(NotesFile,'{broken',TEncoding.UTF8);
+        try
+          RNPTrace('changed-note failed reload'); ReloadButton.Click;
+          Require(not Save.Enabled,'Failed explicit reload allowed a blind save');
+          Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Failed live reload replaced the draft');
+          Require(TFile.ReadAllText(NotesFile,TEncoding.UTF8)='{broken','Failed reload rewrote the malformed revision');
+        finally TFile.WriteAllBytes(NotesFile,SavedBytes); end;
+        RNPTrace('changed-note first reload'); ReloadButton.Click;
         Require(string(TextBox.Text).Contains('Мой черновик Ё ї 😀'),'Explicit reload replaced the draft');
         Require(string(TMemo(RNPComponent(Editor,'NoteLatest',TMemo)).Text).Contains('Новая чужая версия'),'Fresh version is not visible separately');
         Require(Save.Enabled and (Save.Caption='Сохранить новой заметкой'),'Changed note is not clearly saved as a new record');
         RNPCheckDialogLayout(Editor,650,720);
+        RNPCheckDialogLayout(Editor,470,430,True);
         Require(TextBox.Height>=48,'Conflict layout collapsed the live draft');
         // Another writer can race even after an explicit reload. A second
         // conflict must again preserve the draft and create only one copy.
@@ -429,6 +500,7 @@ begin
     Require(Search.Text='','New notes manager must start with an empty search query');
     RNPCheckDialogLayout(Dialog,760,560);
     ExpectVisible(['book-a/note-a','book-b/note-b','book-a/note-c','book-c/note-d','book-a/0','book-a/1','book-b/0']);
+    ExpectSnapshotKeepsSelection;
     RNPTrace('filter cases'); Search.Text:='маЯК'; ExpectVisible(['book-a/note-a','book-a/0']);
     ExportText:=ReaderAnnotationsText(Dialog.VisibleItems,False);
     TFile.WriteAllText(TPath.Combine(Work,'filtered-export.txt'),ExportText,TEncoding.UTF8);
@@ -485,6 +557,7 @@ begin
     Dialog.Show; Application.ProcessMessages; OpenMS:=Watch.ElapsedMilliseconds;
     Search:=TEdit(RNPComponent(Dialog,'NotesSearch',TEdit)); List:=TListView(RNPComponent(Dialog,'NotesList',TListView));
     Require(List.OwnerData and (List.Items.Count=10000),'Own 10K notes fixture is not completely represented');
+    ExpectSnapshotKeepsSelection;
     Watch:=TStopwatch.StartNew; Search.Text:='УНИКАЛЬНАЯ ИГЛА Ё'; Items:=Dialog.VisibleItems; FilterMS:=Watch.ElapsedMilliseconds;
     Require((Length(Items)=1) and (Items[0].ID='large-7777'),'Own 10K filter lost the exact matching identity');
     Require(FilterMS<1500,'Own 10K filter blocks the UI for 1.5 seconds');

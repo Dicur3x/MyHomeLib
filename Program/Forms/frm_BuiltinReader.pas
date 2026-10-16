@@ -2209,16 +2209,21 @@ type
     FTitle: TEdit;
     FText, FLatest, FQuote: TMemo;
     FRecovery: TPanel;
-    FMessage: TLabel;
+    FMessage, FDraftLabel: TLabel;
     FSave, FReload: TButton;
     FCopyAfterConflict, FSaved: Boolean;
     function Draft: TReaderAnnotation;
     procedure ShowRecovery(const Text: string);
+    procedure UpdateDraftLayout;
     procedure SaveClick(Sender: TObject);
     procedure CopyClick(Sender: TObject);
     procedure ReloadClick(Sender: TObject);
     procedure ConfirmClose(Sender: TObject; var CanClose: Boolean);
+  protected
+    procedure Resize; override;
+    procedure ChangeScale(M,D: Integer; IsDpiChange: Boolean); override;
   public
+    procedure ScaleForPPI(NewPPI: Integer); override;
     constructor CreateFor(Reader: TCustomForm; Store: TReaderAnnotations; const Note: TReaderAnnotation);
   end;
 
@@ -2251,8 +2256,8 @@ begin
   Button.SetBounds(12,76,238,30); Button.Caption:='Сохранить копию текста…'; Button.OnClick:=CopyClick;
   FReload:=TButton.Create(Self); FReload.Name:='NoteReload'; FReload.Parent:=FRecovery;
   FReload.SetBounds(258,76,182,30); FReload.Caption:='Перечитать записи'; FReload.OnClick:=ReloadClick;
-  LabelText:=TLabel.Create(Self); LabelText.Parent:=Body; LabelText.AutoSize:=False; LabelText.Align:=alTop;
-  LabelText.Height:=24; LabelText.Caption:='Ваши мысли — черновик остаётся здесь';
+  FDraftLabel:=TLabel.Create(Self); FDraftLabel.Parent:=Body; FDraftLabel.AutoSize:=False; FDraftLabel.Align:=alTop;
+  FDraftLabel.Height:=24; FDraftLabel.Caption:='Ваши мысли — черновик остаётся здесь';
   FLatest:=TMemo.Create(Self); FLatest.Name:='NoteLatest'; FLatest.Parent:=Body; FLatest.Align:=alBottom;
   FLatest.Height:=120; FLatest.ReadOnly:=True; FLatest.ScrollBars:=ssVertical; FLatest.Visible:=False;
   FQuote:=TMemo.Create(Self); FQuote.Parent:=Body; FQuote.Align:=alBottom; FQuote.Height:=80;
@@ -2265,13 +2270,43 @@ end;
 function TReaderNoteEditor.Draft: TReaderAnnotation;
 begin Result:=FNote; Result.Title:=Trim(FTitle.Text); Result.Text:=FText.Text; end;
 
+procedure TReaderNoteEditor.UpdateDraftLayout;
+var Available: Integer;
+begin
+  if csDestroying in ComponentState then Exit;
+  if not Assigned(FText) or not Assigned(FLatest) or not Assigned(FDraftLabel) then Exit;
+  if not Assigned(FLatest.Parent) or not FLatest.Visible then Exit;
+  Available:=FLatest.Parent.ClientHeight-FDraftLabel.Height;
+  if Assigned(FRecovery) and FRecovery.Visible then Dec(Available,FRecovery.Height);
+  if Assigned(FQuote) and FQuote.Visible then Dec(Available,FQuote.Height);
+  // The saved revision can scroll. Reserve space for the editable draft even
+  // when the user shrinks a conflicted editor to its minimum window height.
+  // This label is scaled by VCL with the other controls; CurrentPPI can still
+  // describe the monitor during an explicit ScaleForPPI test or transition.
+  FLatest.Height:=Max(FDraftLabel.Height,
+    Min(FDraftLabel.Height*5,Available-MulDiv(64,FDraftLabel.Height,24)));
+end;
+
+procedure TReaderNoteEditor.Resize;
+begin inherited; UpdateDraftLayout; end;
+
+procedure TReaderNoteEditor.ChangeScale(M,D: Integer; IsDpiChange: Boolean);
+begin inherited; UpdateDraftLayout; end;
+
+procedure TReaderNoteEditor.ScaleForPPI(NewPPI: Integer);
+begin inherited; UpdateDraftLayout; end;
+
 procedure TReaderNoteEditor.ShowRecovery(const Text: string);
+var Work: TRect;
 begin
   FMessage.Caption:=Text; FRecovery.Visible:=True;
   // The quote remains in FNote and its text copy. Give the live draft and
   // read-only saved revision room on short/high-DPI monitors.
-  FQuote.Visible:=False;
-  Height:=Min(Max(Height,MulDiv(720,CurrentPPI,96)),Monitor.WorkareaRect.Height-20);
+  FQuote.Visible:=False; Work:=Monitor.WorkareaRect;
+  Height:=Min(Max(Height,MulDiv(720,FDraftLabel.Height,24)),Work.Height-20);
+  SetBounds(EnsureRange(Left,Work.Left,Max(Work.Left,Work.Right-Width)),
+    EnsureRange(Top,Work.Top,Max(Work.Top,Work.Bottom-Height)),Width,Height);
+  UpdateDraftLayout;
 end;
 
 procedure TReaderNoteEditor.SaveClick(Sender: TObject);
@@ -2544,7 +2579,7 @@ procedure TReaderSavedDialog.BooksChanged(Sender: TObject);
 begin if not FUpdatingBooks then Reload; end;
 
 procedure TReaderSavedDialog.KindChanged(Sender: TObject);
-begin FlushSearch; end;
+begin FSearchTimer.Enabled:=False; ApplyFilter; end;
 
 procedure TReaderSavedDialog.SearchChanged(Sender: TObject);
 begin
@@ -2565,7 +2600,12 @@ begin
 end;
 
 procedure TReaderSavedDialog.FlushSearch;
-begin FSearchTimer.Enabled:=False; ApplyFilter; end;
+begin
+  // Reading/exporting an unchanged snapshot must keep the selected row and
+  // scroll position. Rebuild only when a new text query is pending.
+  if not FSearchTimer.Enabled then Exit;
+  FSearchTimer.Enabled:=False; ApplyFilter;
+end;
 
 function TReaderSavedDialog.RowValue(Item: TListItem): Integer;
 begin
