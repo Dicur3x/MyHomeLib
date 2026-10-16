@@ -95,11 +95,13 @@ procedure TestUpdateKeyboardAccessibility;
 var Host: TForm; View: TUpdateNotesView; Primary: TButton; Probe: TUpdateKeyboardProbe;
   SavedTheme, SavedAppCheck, SavedCatalogCheck: Boolean; Header: TButton; Location: TPoint; Notes: string;
   Accessible: OleVariant; Dispatch: IDispatch; AccessibleID: TGUID;
+  FirstActivation: Boolean; ForegroundDeadline: UInt64;
 begin
   RequireIsolatedRegression; SavedTheme:=MHLThemeDark;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
   Settings.CheckUpdate:=False; Settings.CheckExternalLibUpdate:=False;
-  Probe:=TUpdateKeyboardProbe.Create; Host:=nil;
+  Probe:=TUpdateKeyboardProbe.Create; Host:=nil; FirstActivation:=True;
+  Accessible:=Unassigned; Dispatch:=nil;
   AccessibleID:=StringToGUID('{618736E0-3C3D-11CF-810C-00AA00389B71}');
   try
     for var Dark in TArray<Boolean>.Create(False,True) do
@@ -107,7 +109,9 @@ begin
       begin
         SetMHLTheme(Dark); Host:=TForm.CreateNew(nil);
         try
-          Host.Caption:='Update keyboard fixture'; Host.ClientWidth:=620; Host.ClientHeight:=420;
+          Host.Caption:='HomeLib Ru update keyboard fixture PID '+IntToStr(GetCurrentProcessId)+
+            ' theme='+IntToStr(Ord(Dark))+' PPI='+IntToStr(PPI);
+          Host.ClientWidth:=620; Host.ClientHeight:=420;
           Primary:=TButton.Create(Host); Primary.Parent:=Host; Primary.Align:=alBottom;
           Primary.Caption:='Do not activate while a release header has focus';
           Primary.Default:=True; Primary.OnClick:=Probe.PrimaryClicked;
@@ -126,6 +130,20 @@ begin
           Host.BringToFront;
           Winapi.Windows.SetForegroundWindow(Host.Handle);
           Winapi.Windows.SetActiveWindow(Host.Handle);
+          if FirstActivation then
+          begin
+            // A background wrapper cannot bypass the Windows foreground lock.
+            // Give the operator time to activate only this named test window.
+            Writeln('READY update keyboard fixture: ',Host.Caption,
+              '; activate this window within 45 seconds; keep it foreground until PASS');
+            Flush(Output); ForegroundDeadline:=GetTickCount64+45000;
+            repeat
+              Application.ProcessMessages; CheckSynchronize(0);
+              if (GetForegroundWindow=Host.Handle) and (GetActiveWindow=Host.Handle) then Break;
+              TThread.Sleep(10);
+            until GetTickCount64>=ForegroundDeadline;
+            FirstActivation:=False;
+          end;
           Header.SetFocus; Application.ProcessMessages;
           Require((GetForegroundWindow=Host.Handle) and (GetActiveWindow=Host.Handle),
             'Keyboard fixture could not become the foreground active window');
@@ -181,7 +199,7 @@ begin
         finally Accessible:=Unassigned; Dispatch:=nil; FreeAndNil(Host); end;
       end;
   finally
-    Host.Free; Probe.Free; SetMHLTheme(SavedTheme);
+    FreeAndNil(Host); FreeAndNil(Probe); SetMHLTheme(SavedTheme);
     Settings.CheckUpdate:=SavedAppCheck; Settings.CheckExternalLibUpdate:=SavedCatalogCheck;
   end;
 end;
