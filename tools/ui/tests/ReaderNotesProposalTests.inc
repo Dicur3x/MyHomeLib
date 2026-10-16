@@ -135,7 +135,7 @@ begin
     Writeln('PROFILE reader-notes-visual profile=',Profile); Flush(Output);
     Dialog:=TReaderSavedDialog.CreateProfile(nil,Profile);
     try
-      Dialog.ShowInTaskBar:=stAlways; RNPTrace('visual list taskbar=always');
+      Dialog.ShowInTaskBar:=True; RNPTrace('visual list taskbar=True');
       Dialog.ShowModal;
     finally Dialog.Free; end;
     // Use a separate conflict fixture: the operator may freely delete/edit
@@ -154,7 +154,7 @@ begin
     Driver:=TRNPModalAction.Create(Work,
       procedure(Editor: TCustomForm)
       begin
-        TForm(Editor).ShowInTaskBar:=stAlways; RNPTrace('visual editor taskbar=always');
+        TForm(Editor).ShowInTaskBar:=True; RNPTrace('visual editor taskbar=True');
         TButton(RNPComponent(Editor,'NoteEditorSave',TButton)).Click;
       end);
     try EditAndSaveReaderNote(nil,Store,Note); finally Driver.Free; end;
