@@ -220,7 +220,7 @@ var
 
   procedure CheckFooter(const Scenario: string; Click: Boolean = True);
   var
-    Button: TButton;
+    Button, GalleryButton: TButton;
     Ancestor: TWinControl;
     ButtonRect, ClipRect, CaptionRect: TRect;
     CaptionHeight: Integer;
@@ -236,6 +236,18 @@ var
     Context := Format('%s dark=%d dpi=%d client=%dx%d font=%d scroll=%d',
       [Scenario, Ord(Dark), DPI, Panel.ClientWidth, Panel.ClientHeight,
        Panel.Font.Size, Viewport.VertScrollBar.Position]);
+    if Panel.Gallery.Visible then
+    begin
+      GalleryButton:=TButton(Panel.Gallery.FindComponent('GalleryToggle'));
+      Require(Assigned(GalleryButton),Context+': gallery action missing');
+      Bitmap.Canvas.Font.Assign(GalleryButton.Font);
+      Require((GalleryButton.Font.PixelsPerInch=Panel.Font.PixelsPerInch) and
+        (GalleryButton.Height>=MulDiv(28,DPI,96)) and
+        (GalleryButton.Height>=Bitmap.Canvas.TextHeight('Wg')+MulDiv(8,DPI,96)) and
+        (GalleryButton.Width>=Min(Panel.Gallery.ClientWidth,MulDiv(220,DPI,96))) and
+        (GalleryButton.BoundsRect.Bottom<=Panel.Gallery.ClientHeight),
+        Context+': gallery button retained monitor dimensions or clipped its scaled caption');
+    end;
     Require(Button.Visible and Button.Enabled and IsWindowVisible(Button.Handle),
       Context + ': information action is not visibly enabled');
     Require(IsWindowVisible(Viewport.Handle) and IsWindowVisible(Content.Handle),

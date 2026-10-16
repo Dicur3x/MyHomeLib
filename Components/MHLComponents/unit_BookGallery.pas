@@ -4,7 +4,7 @@ interface
 
 uses
   System.Classes, System.SysUtils, System.Generics.Collections,
-  unit_MHLOperationStatus, Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.ExtCtrls, Vcl.StdCtrls, Vcl.Graphics;
+  unit_MHLOperationStatus, Winapi.Windows, Winapi.Messages, Vcl.Forms, Vcl.Controls, Vcl.ExtCtrls, Vcl.StdCtrls, Vcl.Graphics;
 
 type
   TGalleryPicture = class
@@ -50,6 +50,7 @@ type
     procedure ResetImages;
     procedure CancelLoad;
     procedure UpdateLayout;
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure SetTitle(const Value: string);
     function GetImageCount: Integer;
     function GetLoading: Boolean;
@@ -419,25 +420,35 @@ begin
 end;
 
 procedure TBookGallery.UpdateLayout;
-var I, HeaderH, StripH, ThumbW, Gap: Integer;
+var I, HeaderH, StripH, ThumbW, Gap, LayoutPPI: Integer;
 begin
   if not Assigned(FToggle) or not Assigned(Parent) then Exit;
-  HeaderH := MulDiv(28, CurrentPPI, 96);
-  StripH := MulDiv(172, CurrentPPI, 96);
-  ThumbW := MulDiv(120, CurrentPPI, 96);
-  Gap := MulDiv(10, CurrentPPI, 96);
-  FToggle.SetBounds(0, 0, Min(Width, MulDiv(220, CurrentPPI, 96)), HeaderH);
+  // Embedded controls can retain monitor CurrentPPI during a parent scaling
+  // pass. Measure the completed native button font, as the book panel does.
+  LayoutPPI := Max(1,FToggle.Font.PixelsPerInch);
+  Canvas.Font.Assign(FToggle.Font);
+  HeaderH := Max(MulDiv(28, LayoutPPI, 96),Canvas.TextHeight('Wg')+MulDiv(12,LayoutPPI,96));
+  StripH := MulDiv(172, LayoutPPI, 96);
+  ThumbW := MulDiv(120, LayoutPPI, 96);
+  Gap := MulDiv(10, LayoutPPI, 96);
+  FToggle.SetBounds(0, 0, Min(Width, MulDiv(220, LayoutPPI, 96)), HeaderH);
   if FExpanded then
   begin
-    if (FImages.Count = 0) and not Loading then StripH := MulDiv(65, CurrentPPI, 96);
+    if (FImages.Count = 0) and not Loading then StripH := MulDiv(65, LayoutPPI, 96);
     FStrip.SetBounds(0, HeaderH + Gap, Width, StripH);
     for I := 0 to FImages.Count - 1 do
-      FImages[I].SetBounds(I * (ThumbW + Gap), 0, ThumbW, StripH - MulDiv(24, CurrentPPI, 96));
-    FStatus.SetBounds(FImages.Count * (ThumbW + Gap), 0, Max(180, Width - Gap), StripH - Gap);
+      FImages[I].SetBounds(I * (ThumbW + Gap), 0, ThumbW, StripH - MulDiv(24, LayoutPPI, 96));
+    FStatus.SetBounds(FImages.Count * (ThumbW + Gap), 0, Max(MulDiv(180,LayoutPPI,96), Width - Gap), StripH - Gap);
     Height := HeaderH + Gap + StripH;
   end
   else Height := HeaderH;
   if Assigned(FOnLayout) then FOnLayout(Self);
+end;
+
+procedure TBookGallery.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  UpdateLayout;
 end;
 
 procedure TBookGallery.Resize;
