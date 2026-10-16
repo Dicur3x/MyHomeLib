@@ -137,6 +137,14 @@ begin
         COL_PUBYEAR: if MBCYears[I]<>0 then Expected:=IntToStr(MBCYears[I]);
       end;
       Text:='sentinel'; Tree.OnGetText(Tree,MBCNode(Tree,IDs[I]),MBCColumn(Tree,Tag),ttNormal,Text);
+      if Text<>Expected then
+      begin
+        Book:=Tree.GetNodeData(MBCNode(Tree,IDs[I]));
+        Writeln('TRACE metadata cell mismatch view=',Tree.Tag,' mode=',Ord(Settings.TreeModes[Tree.Tag]),
+          ' BookID=',IDs[I],' column=',Tag,' expected=[',Expected,'] actual=[',Text,']',
+          ' row_publisher=[',Book.Publisher,'] row_translators=[',Book.Translators,'] row_city=[',Book.City,
+          '] row_year=',Book.PubYear,' row_ISBN=[',Book.ISBN,']'); Flush(Output);
+      end;
       Require(Text=Expected,'Metadata column displays another field or a zero placeholder: '+IntToStr(Tag));
     end;
 end;
@@ -310,6 +318,188 @@ begin
   finally Filters.Clear; Filters.Apply(False); SetMHLTheme(SavedTheme); end;
 end;
 
+function MBCNewGroup(const User: ISystemData; const Name: string): Integer;
+var Groups: IGroupIterator; Group: TGroupData;
+begin
+  Require(User.AddGroup(Name),'Metadata DAO group fixture was not created');
+  Result:=MHL_INVALID_ID; Groups:=User.GetGroupIterator;
+  while Groups.Next(Group) do if Group.Text=Name then Result:=Group.GroupID;
+  Require(Result<>MHL_INVALID_ID,'Metadata DAO group fixture is absent');
+end;
+
+procedure MBCRequirePersonal(const Actual, Expected: TBookRecord);
+begin
+  Require((Actual.Title=Expected.Title) and (Actual.LibID=Expected.LibID) and
+    (Actual.BookKey.DatabaseID=Expected.BookKey.DatabaseID) and (Actual.Size=Expected.Size) and
+    (Actual.InsideNo=Expected.InsideNo) and (Actual.Annotation=Expected.Annotation) and
+    (Actual.Review=Expected.Review) and (Actual.Rate=Expected.Rate) and
+    (Actual.Progress=Expected.Progress) and (Actual.KeyWords=Expected.KeyWords) and
+    (ReaderBookPhysicalIdentity(Actual)=ReaderBookPhysicalIdentity(Expected)),
+    'Publication projection changed the historical personal card or physical identity');
+end;
+
+procedure MBCRequirePublication(const Actual, Expected: TBookRecord);
+begin
+  Require((Actual.Publisher=Expected.Publisher) and (Actual.Translators=Expected.Translators) and
+    (Actual.City=Expected.City) and (Actual.PubYear=Expected.PubYear) and (Actual.ISBN=Expected.ISBN),
+    'Group publication projection does not match the current catalog');
+end;
+
+procedure MBCAssertFreshGroup(const Collection: IBookCollection; ID, GroupID: Integer);
+var Delta: IBookMergeMetadataDeltaUpdater; Before, Changed, OriginalPersonal, Saved, Actual: TBookRecord;
+  Iterator: IBookIterator; Found, Updated: Boolean; Count: Integer; Revision: string;
+
+  procedure UpdateSource(const OldValue, NewValue: TBookRecord);
+  begin
+    Collection.BeginBulkOperation;
+    try Delta.UpdateBookMetadataDelta(OldValue,NewValue,False); Collection.EndBulkOperation(True);
+    except Collection.EndBulkOperation(False); raise; end;
+  end;
+
+begin
+  Require(Supports(Collection,IBookMergeMetadataDeltaUpdater,Delta),'Metadata delta interface is absent');
+  Collection.GetBookRecord(CreateBookKey(ID,Collection.CollectionID),Before,True);
+  OriginalPersonal.Clear; SystemDB.GetBookRecord(Before.BookKey,OriginalPersonal);
+  SystemDB.SetAnnotation(Before.BookKey,'Личная аннотация: сохранять ё 中文');
+  SystemDB.SetReview(Before.BookKey,'Мой отзыв о книге'); SystemDB.SetRate(Before.BookKey,4);
+  SystemDB.SetProgress(Before.BookKey,37); Saved.Clear; SystemDB.GetBookRecord(Before.BookKey,Saved);
+  Changed:=Before; Changed.Publisher:='Новый издатель после сканирования'; Changed.Translators:='Новый переводчик ё';
+  Changed.City:='Новый город 中文'; Changed.PubYear:=2026; Changed.ISBN:='scan-ISBN-2026';
+  Changed.Annotation:='Каталожная аннотация должна остаться отдельно от личной'; Updated:=False;
+  try
+    UpdateSource(Before,Changed); Updated:=True;
+    Iterator:=SystemDB.GetBookIterator(GroupID,Collection.CollectionID);
+    Require(Iterator.RecordCount=4,'Fresh group projection changed the existing strict row count');
+    Revision:=SystemDB.GetDataRevision; Count:=0; Found:=False;
+    while Iterator.Next(Actual) do
+    begin
+      Inc(Count);
+      if Actual.BookKey.BookID=ID then
+      begin Found:=True; MBCRequirePublication(Actual,Changed); MBCRequirePersonal(Actual,Saved); end;
+    end;
+    Iterator:=nil;
+    Require(Found and (Count=4),'Fresh group projection lost an existing card');
+    Actual.Clear; SystemDB.GetBookRecord(Before.BookKey,Actual); MBCRequirePersonal(Actual,Saved);
+    Require(SystemDB.GetDataRevision=Revision,'Reading publication metadata wrote to personal cards');
+    Writeln('PASS metadata groups read current catalog after metadata delta without replacing personal annotation review rating progress or identity');
+  finally
+    Iterator:=nil;
+    if Updated then UpdateSource(Changed,Before);
+    SystemDB.UpdateBook(OriginalPersonal);
+  end;
+end;
+
+procedure MBCAssertGroupGuardsAndBatches;
+const GuardIDs: array[0..3] of string = ('','0','replaced-original','missing-original');
+var User: ISystemData; Collection: IBookCollection; DB: TSQLiteDatabase; Query: TSQLiteQuery;
+  Root, UserFile, CatalogFile, OfflineFile, ProfileFile, Revision: string;
+  CID, GroupID, OfflineGroup, BatchGroup, Count, Index, Searches: Integer;
+  SavedCards: array[0..3] of TBookRecord; Book, Actual, Empty, OfflineSaved: TBookRecord;
+  Iterator: IBookIterator; ExpectedOrder, ActualOrder: TList<Integer>; Lines: TStringList;
+  Fields: TArray<string>; Started, Elapsed: UInt64; SavedHideDeleted, Moved: Boolean;
+begin
+  Root:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'metadata-group-projection'));
+  ForceDirectories(Root); UserFile:=Root+'user.dbs2'; CatalogFile:=Root+'catalog.hlc2';
+  OfflineFile:=CatalogFile+'.offline'; ProfileFile:=Root+'publication-batches.tsv';
+  Require(not FileExists(UserFile) and not FileExists(CatalogFile),'Use a fresh metadata DAO fixture runtime');
+  User:=nil; Collection:=nil; DB:=nil; Query:=nil; Iterator:=nil;
+  ExpectedOrder:=TList<Integer>.Create; ActualOrder:=TList<Integer>.Create; Lines:=TStringList.Create;
+  SavedHideDeleted:=Settings.HideDeletedBooks; Settings.HideDeletedBooks:=False; Moved:=False;
+  try
+    TSystemData_SQLite.CreateSystemTables(UserFile); User:=TSystemData_SQLite.Create(UserFile);
+    CID:=User.CreateCollection('Metadata group projection',Root,CatalogFile,
+      CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst'); Collection:=User.GetCollection(CID);
+    GroupID:=MBCNewGroup(User,'Publication identity guards');
+    for var I:=0 to High(SavedCards) do
+    begin
+      Book.Clear; Book.Title:='Foreign catalog '+IntToStr(I); Book.FileName:='foreign-'+IntToStr(I);
+      Book.FileExt:='.fb2'; Book.Date:=EncodeDate(2020,1,1); Book.Size:=100;
+      Book.LibID:=GuardIDs[I]; if I=2 then Book.LibID:='foreign-replacement';
+      Book.Publisher:='FOREIGN'; Book.Translators:='FOREIGN'; Book.City:='FOREIGN'; Book.PubYear:=1999; Book.ISBN:='FOREIGN';
+      if I<3 then Index:=Collection.InsertBook(Book,False,False) else Index:=999999;
+      Book.Clear; Book.BookKey:=CreateBookKey(Index,CID); Book.Title:='Saved guard '+IntToStr(I);
+      Book.LibID:=GuardIDs[I]; Book.FileName:='personal-'+IntToStr(I); Book.FileExt:='.fb2';
+      Book.Annotation:='Личная аннотация '+IntToStr(I); Book.Review:='Личный отзыв '+IntToStr(I);
+      Book.Rate:=4; Book.Progress:=37; Book.KeyWords:='личный ключ ё';
+      User.AddBookToGroup(Book.BookKey,GroupID,Book);
+      SavedCards[I].Clear; User.GetBookRecord(Book.BookKey,SavedCards[I]);
+    end;
+    Empty.Clear; Iterator:=User.GetBookIterator(GroupID,CID);
+    Require(Iterator.RecordCount=4,'Identity guards changed saved group membership'); Count:=0;
+    while Iterator.Next(Actual) do
+    begin
+      Inc(Count); Index:=-1;
+      for var I:=0 to High(SavedCards) do if Actual.Title=SavedCards[I].Title then Index:=I;
+      Require(Index>=0,'Identity guard returned another card');
+      MBCRequirePublication(Actual,Empty); MBCRequirePersonal(Actual,SavedCards[Index]);
+      if Index>=2 then Require(Actual.BookKey.BookID<0,'Missing or replaced stable ID was not safely detached');
+    end;
+    Iterator:=nil; Require(Count=4,'Identity guards lost saved cards');
+    Writeln('PASS metadata groups keep empty zero replaced and missing LibID publication fields blank and preserve personal cards');
+
+    Book.Clear; Book.Title:='Saved unavailable catalog'; Book.LibID:='offline-stable';
+    Book.FileName:='offline-personal'; Book.FileExt:='.fb2'; Book.Annotation:='Личная офлайн аннотация';
+    Book.Publisher:='OFFLINE catalog'; Index:=Collection.InsertBook(Book,False,False);
+    Collection.GetBookRecord(CreateBookKey(Index,CID),Book,True);
+    OfflineGroup:=MBCNewGroup(User,'Publication unavailable catalog'); User.AddBookToGroup(Book.BookKey,OfflineGroup,Book);
+    OfflineSaved.Clear; User.GetBookRecord(Book.BookKey,OfflineSaved);
+    User.ClearCollectionCache; Collection:=nil; TFile.Move(CatalogFile,OfflineFile); Moved:=True;
+    try
+      Iterator:=User.GetBookIterator(OfflineGroup,CID); Require(Iterator.RecordCount=1,'Offline group count changed');
+      Require(Iterator.Next(Actual),'Offline publication projection lost its saved card');
+      MBCRequirePersonal(Actual,OfflineSaved); MBCRequirePublication(Actual,Empty);
+      Require(not Iterator.Next(Actual),'Offline publication projection duplicated its card'); Iterator:=nil;
+      Require(not FileExists(CatalogFile),'Optional group metadata created a missing catalog file');
+    finally Iterator:=nil; User.ClearCollectionCache; TFile.Move(OfflineFile,CatalogFile); Moved:=False; end;
+    Writeln('PASS metadata groups return saved cards from an unavailable catalog without creating its missing file');
+
+    Collection:=User.GetCollection(CID); BatchGroup:=MBCNewGroup(User,'Publication bounded batch');
+    for var I:=1 to 129 do
+    begin
+      Book.Clear; Book.Title:='Batch card '+IntToStr(I); Book.LibID:='publication-batch-'+IntToStr(I);
+      Book.FileName:=Book.LibID; Book.FileExt:='.fb2'; Book.Publisher:='Batch publisher'; Book.Size:=100;
+      Index:=Collection.InsertBook(Book,False,False);
+      Collection.AddBookToGroup(CreateBookKey(Index,CID),BatchGroup);
+    end;
+    // Capture the established iterator order, without imposing a new SQL sort.
+    DB:=TSQLiteDatabase.CreateReadOnly(UserFile);
+    Query:=DB.NewQuery('SELECT b.BookID FROM BookGroups bg INNER JOIN Books b ON bg.BookID=b.BookID AND bg.DatabaseID=b.DatabaseID '+
+      'WHERE bg.GroupID=? AND bg.DatabaseID=?');
+    Query.SetParam(0,BatchGroup); Query.SetParam(1,CID); Query.Open;
+    while not Query.Eof do begin ExpectedOrder.Add(Query.FieldAsInt(0)); Query.Next; end;
+    FreeAndNil(Query); FreeAndNil(DB);
+    Iterator:=User.GetBookIterator(BatchGroup,CID); Require(Iterator.RecordCount=129,'Batch group count changed');
+    Revision:=User.GetDataRevision; Started:=GetTickCount64; StartSQLiteProfile;
+    try
+      while Iterator.Next(Actual) do
+      begin
+        Require(Actual.Publisher='Batch publisher','A batch boundary lost current publication metadata');
+        ActualOrder.Add(Actual.BookKey.BookID);
+      end;
+      SaveSQLiteProfile(ProfileFile);
+    finally StopSQLiteProfile; end;
+    Elapsed:=GetTickCount64-Started; Iterator:=nil;
+    Require((ExpectedOrder.Count=129) and (ActualOrder.Count=129),'Batch iterator lost or duplicated a card');
+    for var I:=0 to ExpectedOrder.Count-1 do Require(ExpectedOrder[I]=ActualOrder[I],'Batch projection changed group order');
+    Require(User.GetDataRevision=Revision,'Batch projection wrote personal cards');
+    Lines.LoadFromFile(ProfileFile,TEncoding.UTF8); Searches:=0;
+    for var Line in Lines do
+    begin
+      Fields:=Line.Split([#9]);
+      if (Length(Fields)>=5) and (Fields[1]='prepare') and
+        Fields[4].StartsWith('INSERT INTO temp.MHLGenreMatches SELECT ') then Inc(Searches,StrToInt(Fields[2]));
+    end;
+    Writeln('PROFILE metadata group cards=',ActualOrder.Count,' batch=128 catalog_searches=',Searches,' elapsed_ms=',Elapsed);
+    Require(Searches=2,'Publication projection performs catalog queries per card instead of bounded batches');
+    Writeln('PASS metadata groups project 129 cards in two catalog searches preserving count order and read-only personal data'); Flush(Output);
+  finally
+    StopSQLiteProfile; Query.Free; DB.Free; Iterator:=nil;
+    if Assigned(User) then User.ClearCollectionCache; Collection:=nil;
+    if Moved and FileExists(OfflineFile) then TFile.Move(OfflineFile,CatalogFile);
+    User:=nil; Lines.Free; ActualOrder.Free; ExpectedOrder.Free; Settings.HideDeletedBooks:=SavedHideDeleted;
+  end;
+end;
+
 procedure TestMetadataBookColumns(const Collection: IBookCollection);
 const Sections: array[0..5] of string = (SECTION_A_FLAT,SECTION_S_FLAT,SECTION_G_FLAT,
   SECTION_F_FLAT,SECTION_SR_FLAT,SECTION_PUBLISHER_S_FLAT);
@@ -336,6 +526,8 @@ begin
     end;
     Writeln('PASS metadata columns actual header menus expose four new IDs once and preserve default layouts');
     MBCFixtures(Collection,IDs,GroupID);
+    MBCAssertFreshGroup(Collection,IDs[0],GroupID);
+    MBCAssertGroupGuardsAndBatches;
     Reopened:=TBookCollection_SQLite.Create(SystemDB.GetCollectionInfo(Collection.CollectionID),SystemDB);
     for var I:=0 to High(Trees) do
     begin

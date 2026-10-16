@@ -47,8 +47,11 @@ type
       FUser: TSystemData_SQLite;
       FBooks: TSQLiteQuery;
       FCount: TSQLiteQuery;
+      FBatch: TArray<TBookRecord>;
+      FBatchIndex: Integer;
 
       procedure PrepareData(const GroupID: Integer; const DatabaseID: Integer);
+      procedure LoadBatch;
     end;
 
     TGroupIteratorImpl = class(TInterfacedObject, IGroupIterator)
@@ -247,6 +250,7 @@ end;
 
 destructor TSystemData_SQLite.TBookIteratorImpl.Destroy;
 begin
+  FBatch:=nil;
   FreeAndNil(FBooks);
   FreeAndNil(FCount);
 
@@ -254,20 +258,72 @@ begin
 end;
 
 function TSystemData_SQLite.TBookIteratorImpl.Next(out BookRecord: TBookRecord): Boolean;
-var
-  bookID: Integer;
-  databaseID: Integer;
 begin
-  Result := not FBooks.Eof;
-
+  if FBatchIndex>=Length(FBatch) then LoadBatch;
+  Result:=FBatchIndex<Length(FBatch);
   if Result then
   begin
-    bookID := FBooks.FieldAsInt(0);
-    databaseID := FBooks.FieldAsInt(1);
-
-    FUser.GetBookRecord(CreateBookKey(bookID, databaseID), BookRecord);
-    FBooks.Next;
+    BookRecord:=FBatch[FBatchIndex]; Inc(FBatchIndex);
   end;
+end;
+
+procedure TSystemData_SQLite.TBookIteratorImpl.LoadBatch;
+const BatchSize=128;
+var IDs: TObjectDictionary<Integer,TList<Integer>>; Pair: TPair<Integer,TList<Integer>>;
+  List: TList<Integer>; Count, I: Integer; Collection: IBookCollection;
+  Iterator: IBookIterator; Criteria: TBookSearchCriteria; Current: TBookRecord; Info: TCollectionInfo;
+begin
+  FBatch:=nil; FBatchIndex:=0; SetLength(FBatch,BatchSize); Count:=0;
+  IDs:=TObjectDictionary<Integer,TList<Integer>>.Create([doOwnsValues]);
+  try
+    // Preserve the personal iterator's count/order and bound both memory and
+    // catalog work. No catalog query is added for each individual saved card.
+    while (Count<BatchSize) and not FBooks.Eof do
+    begin
+      FBatch[Count].Clear;
+      FUser.GetBookRecord(CreateBookKey(FBooks.FieldAsInt(0),FBooks.FieldAsInt(1)),FBatch[Count]);
+      if (FBatch[Count].BookKey.BookID>0) and (FBatch[Count].LibID<>'') and
+        (FBatch[Count].LibID<>'0') then
+      begin
+        if not IDs.TryGetValue(FBatch[Count].BookKey.DatabaseID,List) then
+        begin List:=TList<Integer>.Create; IDs.Add(FBatch[Count].BookKey.DatabaseID,List); end;
+        List.Add(FBatch[Count].BookKey.BookID);
+      end;
+      Inc(Count); FBooks.Next;
+    end;
+    SetLength(FBatch,Count);
+    for Pair in IDs do
+    begin
+      Collection:=nil; Iterator:=nil;
+      try
+        Info:=FUser.GetCollectionInfo(Pair.Key);
+        if not FileExists(Info.DBFileName) then Continue;
+        Collection:=(FUser as ISystemData).GetCollection(Pair.Key,False);
+        Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1;
+        Criteria.RestrictBookIDs:=True; Criteria.BookIDs:=Pair.Value.ToArray;
+        Criteria.CollapseMultiSeriesResults:=True;
+        Iterator:=Collection.Search(Criteria,False);
+        while Iterator.Next(Current) do
+          for I:=0 to High(FBatch) do
+            if (FBatch[I].BookKey.DatabaseID=Pair.Key) and
+              (FBatch[I].BookKey.BookID=Current.BookKey.BookID) and
+              (FBatch[I].LibID<>'') and (FBatch[I].LibID=Current.LibID) then
+            begin
+              // Only current publication metadata is projected. Saved personal
+              // annotation/review/rating/progress and physical identity remain
+              // exactly the historical card, including missing/replaced books.
+              FBatch[I].Publisher:=Current.Publisher; FBatch[I].Translators:=Current.Translators;
+              FBatch[I].City:=Current.City; FBatch[I].PubYear:=Current.PubYear; FBatch[I].ISBN:=Current.ISBN;
+            end;
+      except
+        on E: EAbort do raise;
+        on E: EOutOfMemory do raise;
+        // An unavailable catalog must not prevent reading its saved cards.
+        on E: Exception do begin end;
+      end;
+      Iterator:=nil; Collection:=nil;
+    end;
+  finally IDs.Free; end;
 end;
 
 function TSystemData_SQLite.TBookIteratorImpl.RecordCount: Integer;
@@ -1630,8 +1686,13 @@ begin
   // must always detach from a reusable catalog key, never delete the card.
   // An unavailable catalog cannot establish identity. Keep the saved cards.
   Collection := nil;
+  if not FileExists(GetCollectionInfo(DatabaseID).DBFileName) then Exit;
   try Collection := GetCollection(DatabaseID, False);
-  except Exit; end;
+  except
+    on E: EAbort do raise;
+    on E: EOutOfMemory do raise;
+    on E: Exception do Exit;
+  end;
   if not Assigned(Collection) then Exit;
 
   Items := TList<TRemapItem>.Create;
