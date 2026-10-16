@@ -18,6 +18,12 @@ begin
     if Tree.Header.Columns[I].Tag=Tag then Exit(I);
 end;
 
+procedure MBCRefreshMenu;
+begin
+  Require(Assigned(frmMain.pmHeaders.OnPopup),'Main header menu has no actual popup callback');
+  frmMain.pmHeaders.OnPopup(frmMain.pmHeaders);
+end;
+
 function MBCMenu(Tag: Integer): TMenuItem;
 var Count: Integer;
 begin
@@ -44,9 +50,9 @@ begin
     Found:=False;
     for var FilterTag in Tree.HeaderFilterTags do if FilterTag=Tag then Found:=True;
     Require(Found,'Metadata header has no standard filter affordance: '+IntToStr(Tag));
-    frmMain.pmHeadersPopup(nil); Item:=MBCMenu(Tag);
+    MBCRefreshMenu; Item:=MBCMenu(Tag);
     if MBCColumn(Tree,Tag)<0 then Item.OnClick(Item);
-    frmMain.pmHeadersPopup(nil);
+    MBCRefreshMenu;
     Require(Item.Checked and (MBCColumn(Tree,Tag)>=0),
       'Metadata column menu did not reflect its visible state');
   end;
@@ -204,7 +210,7 @@ begin
   Index:=MBCColumn(Tree,COL_PUBYEAR); Tree.Header.Columns[Index].Position:=1;
   Tree.Header.Columns[Index].Width:=137; Position:=Tree.Header.Columns[Index].Position;
   Width:=Tree.Header.Columns[Index].Width;
-  frmMain.pmHeadersPopup(nil); Item:=MBCMenu(COL_ISBN); Item.OnClick(Item); // Saves every actual Main view.
+  MBCRefreshMenu; Item:=MBCMenu(COL_ISBN); Item.OnClick(Item); // Saves every actual Main view.
   Require(not Item.Checked and (MBCColumn(Tree,COL_ISBN)<0),'Metadata column did not hide through the standard menu');
   Reloaded:=TColumns.Create(Settings.SystemFileName[sfColumnsStore]); Saved:=TColumns.Create(Settings.AppPath+'metadata-column-roundtrip.ini');
   try
@@ -222,7 +228,7 @@ begin
     Saved.GetColumns(Tree.Header.Columns); Saved.Save(Section); FreeAndNil(Saved);
     Saved:=TColumns.Create(Settings.AppPath+'metadata-column-roundtrip.ini'); Saved.Load(Section,Mode);
     Require(Saved.Count=Reloaded.Count,'Second fresh layout store duplicated or removed metadata IDs');
-    frmMain.pmHeadersPopup(nil); Require(not MBCMenu(COL_ISBN).Checked and MBCMenu(COL_PUBYEAR).Checked,
+    MBCRefreshMenu; Require(not MBCMenu(COL_ISBN).Checked and MBCMenu(COL_PUBYEAR).Checked,
       'Actual header popup checkmarks disagree with the restored metadata layout');
     Item:=MBCMenu(COL_ISBN); Item.OnClick(Item);
   finally Saved.Free; Reloaded.Free; end;
@@ -376,7 +382,7 @@ begin
       if (Item.Tag>=COL_TITLE) and (Item.Tag<=COL_ISBN) and
         not (Item.Tag in [COL_TITLE,COL_PUBLISHER,COL_TRANSLATORS,COL_CITY,COL_PUBYEAR,COL_ISBN]) and
         (MBCColumn(Tree,Item.Tag)>=0) then
-      begin frmMain.pmHeadersPopup(nil); Item.OnClick(Item); end;
+      begin MBCRefreshMenu; Item.OnClick(Item); end;
     Tree.Header.Columns[MBCColumn(Tree,COL_TITLE)].Width:=180;
     for var I:=0 to High(MBCColumnTags) do
     begin
