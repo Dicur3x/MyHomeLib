@@ -186,6 +186,9 @@ var
   TraceCycling: Boolean;
   FillTicks: array[0..6] of Int64;
   PhaseStart, NowTicks, CheckTicks, ScrollTicks: Int64;
+  CyclingMS: Int64;
+  CompletedCases, SlowCases: Integer;
+  PerformanceSummary, SlowSummary: string;
 
   procedure FillPhase(Stage: Integer);
   begin
@@ -765,7 +768,8 @@ var
 
 begin
   RequireIsolatedRegression;
-  TraceCycling := False;
+  TraceCycling := False; CompletedCases := 0; SlowCases := 0;
+  PerformanceSummary := ''; SlowSummary := '';
   Require(TPath.GetFullPath(Settings.AppPath).StartsWith('G:\', True), 'Footer gate must stay in private G');
   Root := TPath.Combine(Settings.AppPath, 'book-preview-layout-' + TGUID.NewGuid.ToString);
   ForceDirectories(Root);
@@ -934,8 +938,17 @@ begin
           Probe.DumpLayout;
           Flush(Output);
           FreeAndNil(Profiles);
-          Require(Started.ElapsedMilliseconds < 5000, 'Footer layout made 100 book selections unexpectedly slow: ' +
-            IntToStr(Started.ElapsedMilliseconds) + ' ms');
+          CyclingMS := Started.ElapsedMilliseconds;
+          PerformanceSummary := PerformanceSummary + Format(' dark=%d dpi=%d cycling_ms=%d;',
+            [Ord(Dark), DPI, CyclingMS]);
+          // Preserve the original strict <5000 ms predicate, but defer only
+          // its failure until every theme/DPI geometry scenario has finished.
+          if CyclingMS >= 5000 then
+          begin
+            Inc(SlowCases);
+            SlowSummary := SlowSummary + Format(' dark=%d dpi=%d: %d ms;',
+              [Ord(Dark), DPI, CyclingMS]);
+          end;
           CheckFooter('after fast selection cycle');
           Panel.Clear;
           Require(not Panel.DetailsButton.Visible and (Viewport.VertScrollBar.Position = 0),
@@ -948,8 +961,10 @@ begin
             Png.Assign(Snapshot);
             Png.SaveToFile(TPath.Combine(Root, Format('footer-dark-%d-dpi-%d.png', [Ord(Dark), DPI])));
           finally Png.Free; Snapshot.Free; end;
+          Inc(CompletedCases);
           Writeln('PASS fixed information footer dark=', Ord(Dark), ' dpi=', DPI,
-            ' clicks=', Probe.Clicks, ' cycling_ms=', Started.ElapsedMilliseconds);
+            ' clicks=', Probe.Clicks, ' cycling_ms=', CyclingMS,
+            ' geometry_only=1 speed_budget_exceeded=', Ord(CyclingMS >= 5000));
           Flush(Output);
         finally
           Profiles.Free;
@@ -980,4 +995,12 @@ begin
       Writeln('TRACE footer restore theme complete'); Flush(Output);
     finally Bitmap.Free; end;
   end;
+  // This marker appears only after the complete strict geometry/profile
+  // sweep and teardown. An early assertion cannot be mistaken for six cases.
+  Require(CompletedCases = 6, 'Footer geometry sweep did not complete all six theme/DPI cases');
+  Writeln('GEOMETRY_SWEEP_COMPLETE fixed information footer cases=', CompletedCases,
+    ' speed_budget_exceeded=', SlowCases, ' strict_budget_ms=5000');
+  Writeln('PROFILE footer cycling summary', PerformanceSummary);
+  Flush(Output);
+  Require(SlowCases = 0, 'Footer layout made 100 book selections unexpectedly slow: ' + SlowSummary);
 end;
