@@ -34,4 +34,4 @@
 
 **Скачать:** `HomeLibRu.zip` — x86, `HomeLibRu_x64.zip` — x64. Каждый архив содержит полный комплект программы и компонентов. Отдельно компоненты скачивать не нужно. `SHA256.txt` содержит контрольные суммы.
 
-[Все форматы и ограничения](tools/bookconvert/README.md) · [Проверки выпуска](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md)
+[Все форматы и ограничения](../../tools/bookconvert/README.md) · [Проверки выпуска](../../docs/RELEASE_VALIDATION_2.7.0_pre5.21.md)

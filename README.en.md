@@ -16,7 +16,7 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 ## Download and run
 
 The current published release is **pre5.21 / 2.7.0.1089**.
-[Release notes](RELEASE_NOTES_2.7.0_pre5.21.md) ·
+[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.21.md) · [Release history](docs/releases/README.md) ·
 [Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md) (in Russian).
 
 | Archive | System |

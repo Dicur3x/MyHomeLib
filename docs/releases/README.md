@@ -1,0 +1,27 @@
+# История выпусков HomeLib Ru
+
+Последние выпуски перечислены первыми. Имена исторических файлов сохранены; ссылки ведут на полные заметки соответствующего выпуска.
+
+[О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
+
+- [HomeLib Ru pre5.21 — 2.7.0.1089](RELEASE_NOTES_2.7.0_pre5.21.md)
+- [HomeLib Ru 2.7.0_pre5.20](RELEASE_NOTES_2.7.0_pre5.20.md)
+- [HomeLib Ru 2.7.0_pre5.19](RELEASE_NOTES_2.7.0_pre5.19.md)
+- [HomeLib Ru 2.7.0_pre5.18](RELEASE_NOTES_2.7.0_pre5.18.md)
+- [HomeLib Ru 2.7.0_pre5.17](RELEASE_NOTES_2.7.0_pre5.17.md)
+- [HomeLib Ru 2.7.0 pre5.16](RELEASE_NOTES_2.7.0_pre5.16.md)
+- [HomeLib Ru 2.7.0 pre5.15](RELEASE_NOTES_2.7.0_pre5.15.md)
+- [HomeLib Ru 2.7.0 pre5.14](RELEASE_NOTES_2.7.0_pre5.14.md)
+- [HomeLib Ru 2.7.0 pre5.13](RELEASE_NOTES_2.7.0_pre5.13.md)
+- [HomeLib Ru 2.7.0 pre5.12](RELEASE_NOTES_2.7.0_pre5.12.md)
+- [HomeLib Ru 2.7.0 pre5.11](RELEASE_NOTES_2.7.0_pre5.11.md)
+- [HomeLib Ru 2.7.0_pre5.10](RELEASE_NOTES_2.7.0_pre5.10.md)
+- [HomeLib Ru 2.7.0_pre5.09](RELEASE_NOTES_2.7.0_pre5.09.md)
+- [HomeLib Ru 2.7.0_pre5.08](RELEASE_NOTES_2.7.0_pre5.08.md)
+- [HomeLib Ru 2.7.0 pre5.07](RELEASE_NOTES_2.7.0_pre5.07.md)
+- [HomeLib Ru 2.7.0 pre5.06](RELEASE_NOTES_2.7.0_pre5.06.md)
+- [HomeLib Ru 2.7.0_pre5.05](RELEASE_NOTES_2.7.0_pre5.05.md)
+- [HomeLib Ru 2.7.0_pre5.04](RELEASE_NOTES_2.7.0_pre5.04.md)
+- [HomeLib Ru 2.7.0_pre5.03](RELEASE_NOTES_2.7.0_pre5.03.md)
+- [HomeLib Ru 2.7.0_pre5.02](RELEASE_NOTES_2.7.0_pre5.02.md)
+- [HomeLib Ru 2.7.0_pre5.01](RELEASE_NOTES_2.7.0_pre5.01.md)

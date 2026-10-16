@@ -16,7 +16,7 @@ HomeLib Ru е програма за Windows за подреждане, нами�
 ## Изтегляне и стартиране
 
 Текущото публикувано издание е **pre5.21 / 2.7.0.1089**.
-[Промени](RELEASE_NOTES_2.7.0_pre5.21.md) ·
+[Промени](docs/releases/RELEASE_NOTES_2.7.0_pre5.21.md) · [История на изданията](docs/releases/README.md) ·
 [Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md) (на руски).
 
 | Архив | Система |

@@ -17,7 +17,7 @@ HomeLib Ru — программа для Windows, которая помогае�
 ## Скачать и запустить
 
 Текущий опубликованный выпуск — **pre5.21 / 2.7.0.1089**.
-[Изменения](RELEASE_NOTES_2.7.0_pre5.21.md) ·
+[Изменения](docs/releases/RELEASE_NOTES_2.7.0_pre5.21.md) · [История выпусков](docs/releases/README.md) ·
 [Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.21.md).
 
 | Архив | Для какой системы |

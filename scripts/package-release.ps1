@@ -37,7 +37,7 @@ try {
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
-    $history = @(Get-ChildItem -LiteralPath $repositoryRoot -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
+    $history = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'docs\releases') -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
         Sort-Object { [int]($_.BaseName.Split('.')[-1]) } -Descending |
         Select-Object -First 8 | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 })
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'CHANGES.txt'),
