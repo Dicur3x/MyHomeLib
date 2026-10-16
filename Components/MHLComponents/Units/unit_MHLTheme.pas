@@ -28,12 +28,19 @@ const DarkStyleName = 'Charcoal Dark Slate';
 var DarkActive: Boolean;
 
 type
+  TThemeFormState = record
+    Form: TCustomForm;
+    Visible, Modal: Boolean;
+  end;
+
   TThemeFocusSnapshot = class(TComponent)
   private
     FControl: TWinControl;
     FForm: TCustomForm;
     FWasForeground: Boolean;
     FModalLevel: Integer;
+    FForms: TArray<TThemeFormState>;
+    function NewInputForm(Form: TCustomForm): Boolean;
   protected
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   public
@@ -55,6 +62,7 @@ type
   end;
 
 constructor TThemeFocusSnapshot.Capture;
+var I: Integer;
 begin
   inherited Create(nil);
   FControl:=FindControl(Winapi.Windows.GetFocus);
@@ -64,6 +72,14 @@ begin
   FWasForeground:=GetForegroundWindow=FForm.Handle;
   FModalLevel:=Application.ModalLevel;
   FControl.FreeNotification(Self); FForm.FreeNotification(Self);
+  SetLength(FForms,Screen.FormCount);
+  for I:=0 to High(FForms) do
+  begin
+    FForms[I].Form:=Screen.Forms[I];
+    FForms[I].Visible:=Screen.Forms[I].Visible;
+    FForms[I].Modal:=fsModal in Screen.Forms[I].FormState;
+    Screen.Forms[I].FreeNotification(Self);
+  end;
 end;
 
 procedure TThemeFocusSnapshot.Notification(AComponent: TComponent; Operation: TOperation);
@@ -72,8 +88,21 @@ begin
   begin
     if AComponent=FControl then FControl:=nil;
     if AComponent=FForm then FForm:=nil;
+    for var I:=0 to High(FForms) do
+      if AComponent=FForms[I].Form then FForms[I].Form:=nil;
   end;
   inherited;
+end;
+
+function TThemeFocusSnapshot.NewInputForm(Form: TCustomForm): Boolean;
+begin
+  Result:=False;
+  if not Assigned(Form) or (Form=FForm) then Exit;
+  for var Previous in FForms do
+    if Previous.Form=Form then
+      Exit((not Previous.Visible and Form.Visible) or
+        (not Previous.Modal and (fsModal in Form.FormState)));
+  Result:=Form.Visible or (fsModal in Form.FormState);
 end;
 
 procedure TThemeFocusSnapshot.Restore;
@@ -86,7 +115,12 @@ begin
   // Theme callbacks may intentionally open another form or a modal dialog.
   // Preserve that new input target rather than taking focus back from it.
   if Application.ModalLevel<>FModalLevel then Exit;
-  if Assigned(Screen.ActiveCustomForm) and (Screen.ActiveCustomForm<>FForm) then Exit;
+  if NewInputForm(Screen.ActiveCustomForm) then Exit;
+  for var I:=0 to Screen.FormCount-1 do
+    if NewInputForm(Screen.Forms[I]) then Exit;
+  // RecreateWnd can transiently activate an already existing form such as
+  // Main. That is not a callback opening a new input surface; permit restoring
+  // the original foreground form when no visibility/modal transition occurred.
   // A style switch recreates HWNDs. Retain the actual focused VCL component,
   // including a focused release button, after all form theme callbacks finish.
   // FreeNotification also covers a callback that removes/rebuilds that control.

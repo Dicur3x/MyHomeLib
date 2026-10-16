@@ -97,7 +97,7 @@ begin
   end;
   ExpectedIDs:=''; for var ID in IDs do ExpectedIDs:=ExpectedIDs+IntToStr(ID)+',';
   Writeln('TRACE metadata fill tag=',Tree.Tag,' mode=',Ord(Settings.TreeModes[Tree.Tag]),
-    ' DAO_count=',Iterator.RecordCount,' expected_IDs=',ExpectedIDs); Flush(Output);
+    ' expected_IDs=',ExpectedIDs); Flush(Output);
   frmMain.FillBooksTree(Tree,nil,Iterator,True,True,nil); Iterator:=nil;
 end;
 

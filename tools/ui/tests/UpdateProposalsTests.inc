@@ -110,6 +110,8 @@ var Host: TForm; View: TUpdateNotesView; Primary: TButton; Probe: TUpdateKeyboar
   SavedTheme, SavedAppCheck, SavedCatalogCheck: Boolean; Header: TButton; Location: TPoint; Notes: string;
   Accessible: OleVariant; Dispatch: IDispatch; AccessibleID: TGUID;
   FirstActivation: Boolean; ForegroundDeadline: UInt64; RemovedFocus: TButton;
+  ActiveFormName: string;
+  NewInput: TForm; NewInputButton: TButton;
 begin
   RequireIsolatedRegression; SavedTheme:=MHLThemeDark;
   SavedAppCheck:=Settings.CheckUpdate; SavedCatalogCheck:=Settings.CheckExternalLibUpdate;
@@ -202,13 +204,19 @@ begin
           Require(View.SectionHeader(1).Focused and
             (View.SectionHeader(1).Height>MulDiv(30,PPI,96)),
             'Text zoom lost focus or clipped its release button');
+          ActiveFormName:='<nil>';
+          if Assigned(Screen.ActiveCustomForm) then ActiveFormName:=Screen.ActiveCustomForm.ClassName+':'+Screen.ActiveCustomForm.Name;
           Writeln('TRACE update theme before theme=',Ord(MHLThemeDark),' expanded=',Ord(View.IsExpanded(1)),
             ' focused=',Ord(View.SectionHeader(1).Focused),' native_focus=',Winapi.Windows.GetFocus,
-            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle); Flush(Output);
+            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle,
+            ' active_form=',ActiveFormName,' host_visible=',Ord(Host.Visible),' can_focus=',Ord(View.SectionHeader(1).CanFocus)); Flush(Output);
           SetMHLTheme(not Dark); Application.ProcessMessages;
+          ActiveFormName:='<nil>';
+          if Assigned(Screen.ActiveCustomForm) then ActiveFormName:=Screen.ActiveCustomForm.ClassName+':'+Screen.ActiveCustomForm.Name;
           Writeln('TRACE update theme after theme=',Ord(MHLThemeDark),' expanded=',Ord(View.IsExpanded(1)),
             ' focused=',Ord(View.SectionHeader(1).Focused),' native_focus=',Winapi.Windows.GetFocus,
-            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle); Flush(Output);
+            ' header=',View.SectionHeader(1).Handle,' foreground=',GetForegroundWindow,' host=',Host.Handle,
+            ' active_form=',ActiveFormName,' host_visible=',Ord(Host.Visible),' can_focus=',Ord(View.SectionHeader(1).CanFocus)); Flush(Output);
           Require(View.IsExpanded(1),'Switching theme changed the expanded release state');
           Require(View.SectionHeader(1).Focused and (Winapi.Windows.GetFocus=View.SectionHeader(1).Handle),
             'Switching theme lost the actual Windows focus of the release header');
@@ -236,6 +244,24 @@ begin
             SetMHLTheme(Dark); View.SectionHeader(1).SetFocus;
             Require(View.SectionHeader(1).Focused,'Theme callback removal left release navigation unusable');
             Writeln('PASS update theme tolerates deletion of its formerly focused control in a real form callback'); Flush(Output);
+            // A callback intentionally showing an existing hidden form must
+            // keep that new input target instead of returning to this header.
+            NewInput:=TForm.CreateNew(nil);
+            try
+              NewInput.Caption:='Owned theme callback input fixture';
+              NewInputButton:=TButton.Create(NewInput); NewInputButton.Parent:=NewInput;
+              NewInputButton.Caption:='New input target';
+              TUpdateKeyboardHost(Host).ThemeCallback:=procedure
+                begin NewInput.Show; NewInputButton.SetFocus; end;
+              SetMHLTheme(not Dark); Application.ProcessMessages;
+              Require((GetForegroundWindow=NewInput.Handle) and NewInputButton.Focused and
+                (Winapi.Windows.GetFocus=NewInputButton.Handle),
+                'Theme focus restoration stole a newly shown callback input form');
+            finally NewInput.Free; end;
+            SetForegroundWindow(Host.Handle); SetActiveWindow(Host.Handle); View.SectionHeader(1).SetFocus;
+            SetMHLTheme(Dark);
+            Require(View.SectionHeader(1).Focused,'Callback input fixture did not return to release navigation');
+            Writeln('PASS update theme preserves a newly shown callback input form without restoring the old header'); Flush(Output);
           end;
           Writeln('PASS update history native Tab Enter Space name state focus scroll reload theme=',Ord(Dark),' VCL_DPI=',PPI);
           Flush(Output);
