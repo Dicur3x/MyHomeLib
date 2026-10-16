@@ -3,7 +3,7 @@ procedure TestRefactorTransactions;
 var Root, NewGroup, FailureSQL: string; CID, ID, Calls: Integer;
   Collection: IBookCollection; Books: array[0..1] of TBookRecord;
   Book: TBookRecord; Data: TUserData; DB, CatalogDB: TSQLiteDatabase;
-  Failed: Boolean; Revision: string;
+  Failed: Boolean; Revision: string; Restorer: ICatalogUserDataRestorer;
 begin
   RequireIsolatedRegression;
   Root:=IncludeTrailingPathDelimiter(Settings.AppPath+'refactor-import-'+TGUID.NewGuid.ToString);
@@ -64,6 +64,22 @@ begin
       Require((Book.Rate=4+I) and (Book.Progress=80+I) and (Book.Review='Imported review ё'),
         'Successful atomic import lost partial fields');
     end;
+    Require(Supports(Collection,ICatalogUserDataRestorer,Restorer),'Catalog restore interface is missing');
+    CatalogDB.ExecSQL('UPDATE Books SET Rate=2 WHERE BookID=?',[Books[0].BookKey.BookID]);
+    DB.ExecSQL('CREATE TRIGGER OwnBulkRestoreAbort BEFORE UPDATE ON Books BEGIN SELECT RAISE(ABORT,''bulk restore touched system cards''); END');
+    try
+      Revision:=SystemDB.GetDataRevision;
+      Collection.BeginBulkOperation;
+      try
+        Restorer.RestoreCatalogUserData(Data);
+        Collection.GetBookRecord(Books[0].BookKey,Book,True);
+        Require((Book.Rate=4) and (Book.Progress=80) and (Book.Review='Imported review ё'),
+          'Bulk restore did not use its existing catalog transaction');
+      finally Collection.EndBulkOperation(False); end;
+      Require((CatalogDB.QuerySingleInt('SELECT Rate FROM Books WHERE BookID=?',[Books[0].BookKey.BookID])=2) and
+        (SystemDB.GetDataRevision=Revision),'Canceled bulk restore changed durable catalog or personal data');
+      Writeln('PASS refactor bulk catalog restore rolls back without touching system cards before remapping');
+    finally DB.ExecSQL('DROP TRIGGER OwnBulkRestoreAbort'); Restorer:=nil; end;
     Data.Extras.Clear; Data.Groups.Clear;
     Data.Extras.AddExtra(Books[0].BookKey.BookID,Books[0].LibID,0,0,'');
     CatalogDB.ExecSQL('CREATE TRIGGER OwnNoopAbort BEFORE UPDATE ON Books BEGIN SELECT RAISE(ABORT,''empty import wrote catalog''); END');

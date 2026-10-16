@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
   strict private type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
@@ -266,6 +266,7 @@ type
     procedure UpdateProperies;
 
     procedure ImportUserData(data: TUserData; guiUpdateCallback: TGUIUpdateExtraProc);
+    procedure RestoreCatalogUserData(Data: TUserData);
     procedure ExportUserData(data: TUserData);
 
     function CheckFileInCollection(const FileName: string; const FullNameSearch: Boolean; const ZipFolder: Boolean): Boolean;
@@ -2097,6 +2098,31 @@ begin
   if not Supports(FSystemData, IAtomicLegacyUserDataImporter, Importer) then
     raise ENotSupportedException.Create('Хранилище не поддерживает безопасный импорт пользовательских данных.');
   Importer.ImportLegacyUserData(CollectionID, data, guiUpdateCallback);
+end;
+
+procedure TBookCollection_SQLite.RestoreCatalogUserData(Data: TUserData);
+var Extra: TBookExtra; Query: TSQLiteQuery; Identity: string;
+begin
+  if not Assigned(Data) then raise EArgumentNilException.Create('Data');
+  if not InBulkOperation then
+    raise EInvalidOperation.Create('Восстановление требует активного обновления каталога.');
+  for Extra in Data.Extras do
+    if (Extra.Rating<>0) or (Extra.Progress<>0) or (Extra.Review<>'') then
+    begin
+      if Extra.LibID='' then Identity:='BookID' else Identity:='LibID';
+      Query:=FDatabase.NewQuery('UPDATE Books SET '+
+        'Rate=CASE WHEN ?=0 THEN Rate ELSE ? END, '+
+        'Progress=CASE WHEN ?=0 THEN Progress ELSE ? END, '+
+        'Review=CASE WHEN ? THEN ? ELSE Review END '+
+        'WHERE BookID>0 AND BookID=(SELECT BookID FROM Books WHERE '+Identity+'=? LIMIT 1)');
+      try
+        Query.SetParam(0,Extra.Rating); Query.SetParam(1,Extra.Rating);
+        Query.SetParam(2,Extra.Progress); Query.SetParam(3,Extra.Progress);
+        Query.SetParam(4,Extra.Review<>''); Query.SetBlobParam(5,Trim(Extra.Review));
+        if Extra.LibID='' then Query.SetParam(6,Extra.BookID) else Query.SetParam(6,Extra.LibID);
+        Query.ExecSQL;
+      finally Query.Free; end;
+    end;
 end;
 
 procedure TBookCollection_SQLite.ExportUserData(data: TUserData);

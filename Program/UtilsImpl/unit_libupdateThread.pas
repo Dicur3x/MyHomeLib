@@ -143,6 +143,16 @@ rstrDownloadProgress = 'Загружено: %u%% из %u байт';
    rstrMbDatasetAlwaysFull = 'Каталог metabib всегда импортируется полностью.';
 
 
+procedure RestoreCatalogUserData(const Collection: IBookCollection; Data: TUserData);
+var Restorer: ICatalogUserDataRestorer;
+begin
+  if not Supports(Collection,ICatalogUserDataRestorer,Restorer) then
+    raise ENotSupportedException.Create('Коллекция не поддерживает восстановление внутри обновления.');
+  // Do not reopen the catalog on the system connection while its bulk write
+  // transaction owns it. Existing system cards/groups are remapped after commit.
+  Restorer.RestoreCatalogUserData(Data);
+end;
+
 // Обновление одной коллекции из одного файла списков.
 // Файл AFileName не удаляется — о нем заботится вызывающий.
 function TCollectionUpdateThreadBase.UpdateCollection(const AFileName: string;
@@ -183,7 +193,7 @@ begin
       if AFull then
       begin
         Teletype(Format(rstrRestoreUserData, [ADisplayName]), tsInfo);
-        Collection.ImportUserData(UserDataBackup, nil);
+        RestoreCatalogUserData(Collection,UserDataBackup);
       end;
     finally
       FreeAndNil(UserDataBackup);
@@ -461,7 +471,7 @@ begin
         end;
 
         Teletype(Format(rstrRestoreUserData, [FDisplayName]), tsInfo);
-        Collection.ImportUserData(UserDataBackup, nil);
+        RestoreCatalogUserData(Collection,UserDataBackup);
       finally
         FreeAndNil(UserDataBackup);
       end;

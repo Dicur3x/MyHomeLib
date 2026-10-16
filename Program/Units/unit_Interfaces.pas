@@ -156,6 +156,13 @@ type
       const Notify: TGUIUpdateExtraProc);
   end;
 
+  ICatalogUserDataRestorer = interface
+    ['{113CC454-D8BB-4395-9EFA-AFB3D15FD112}']
+    // Restore the existing catalog transaction only. Its caller remaps the
+    // unchanged system cards/groups after committing a full catalog update.
+    procedure RestoreCatalogUserData(Data: TUserData);
+  end;
+
   IBookCollection = interface;
 
   ISystemData = interface

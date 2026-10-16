@@ -877,7 +877,13 @@ begin
       finally UserData.Free; end;
     end;
     Mapped.Save(TPath.Combine(BackupFolder, 'merged-groups.cxml2'));
-    FTarget.ImportUserData(Mapped, nil);
+    // This operation already owns the catalog/system transactions. Mapped
+    // contains only groups with resolved target BookIDs; the legacy file
+    // importer would try to start a second cross-database transaction here.
+    FSystem.ImportUserData(Mapped);
+    for Group in Mapped.Groups do
+      for GroupBook in Group do
+        FTarget.AddBookToGroup(CreateBookKey(GroupBook.BookID,FTarget.CollectionID),Group.GroupID);
       if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
       TFile.WriteAllText(TPath.Combine(BackupFolder, 'status.txt'), 'Сохранение: при аварийном завершении проверьте обе резервные копии.', TEncoding.UTF8);
       RecordSQLiteProfile('merge','phase','merge-groups',PhaseStarted);
