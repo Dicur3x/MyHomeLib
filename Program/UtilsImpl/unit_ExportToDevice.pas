@@ -19,7 +19,8 @@ uses
   Dialogs,
   Windows,
   ShlObj,
-  unit_Globals;
+  unit_Globals,
+  unit_BookExportResults;
 
 procedure ExportToDevice(
   const DeviceDir: string;
@@ -30,9 +31,22 @@ procedure ExportToDevice(
   const ADeviceShellItem: IShellItem = nil;
   const AUseMTP: Boolean = False;
   const ExplicitFormat: Boolean = False
-  );
+  ); overload;
+
+procedure ExportToDevice(
+  const DeviceDir: string;
+  const IdList: TBookIdList;
+  const Mode: TExportMode;
+  const ExtractOnly: Boolean;
+  out ProcessedFiles: string;
+  out Results: TBookExportResults;
+  const ADeviceShellItem: IShellItem = nil;
+  const AUseMTP: Boolean = False;
+  const ExplicitFormat: Boolean = False
+  ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
+function DownloadBooksForExport(const IdList: TBookIdList): Boolean;
 
 implementation
 
@@ -66,6 +80,23 @@ procedure ExportToDevice(
   const AUseMTP: Boolean;
   const ExplicitFormat: Boolean
   );
+var Ignored: TBookExportResults;
+begin
+  ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
+    ADeviceShellItem, AUseMTP, ExplicitFormat);
+end;
+
+procedure ExportToDevice(
+  const DeviceDir: string;
+  const IdList: TBookIdList;
+  const Mode: TExportMode;
+  const ExtractOnly: Boolean;
+  out ProcessedFiles: string;
+  out Results: TBookExportResults;
+  const ADeviceShellItem: IShellItem;
+  const AUseMTP: Boolean;
+  const ExplicitFormat: Boolean
+  );
 var
   worker: TExportToDeviceThread;
   frmProgress: TExportToDeviceProgressForm;
@@ -73,6 +104,7 @@ var
   ConverterPath: string;
 begin
   ProcessedFiles := '';
+  Results := PendingBookExportResults(IdList);
   // FB2/EPUB используют встроенный конвертер. Старые режимы LRF/PDF/MOBI
   // по-прежнему проверяют наличие своего внешнего инструмента до запуска.
   if not ExtractOnly then
@@ -113,20 +145,34 @@ begin
         frmProgress.Caption := rstrSendToDevice;
       frmProgress.WorkerThread := worker;
       frmProgress.ShowModal;
-      ProcessedFiles := worker.ProcessedFiles;
     finally
       frmProgress.Free;
     end;
+    ProcessedFiles := worker.ProcessedFiles;
+    if Assigned(worker.FatalException) then
+    begin
+      if worker.FatalException is Exception then
+        raise Exception.Create('Экспорт остановлен: ' + Exception(worker.FatalException).Message)
+      else raise Exception.Create('Экспорт остановлен из-за ошибки обработки.');
+    end;
   finally
-    worker.Free;
+    try
+      Results := worker.Results;
+    finally worker.Free; end;
   end;
 end;
 
 procedure DownloadBooks(const IdList: TBookIdList);
+begin
+  DownloadBooksForExport(IdList);
+end;
+
+function DownloadBooksForExport(const IdList: TBookIdList): Boolean;
 var
   worker: TDownloadBooksThread;
   frmProgress: TDownloadProgressForm;
 begin
+  Result := False;
   worker := TDownloadBooksThread.Create;
   try
     worker.BookIdList := IdList;
@@ -138,6 +184,7 @@ begin
     finally
       frmProgress.Free;
     end;
+    Result := not worker.Canceled and not Assigned(worker.FatalException);
   finally
     worker.Free;
   end;

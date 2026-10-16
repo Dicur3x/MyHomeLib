@@ -65,6 +65,7 @@ uses
   MHLSimplePanel,
   BookTreeView,
   unit_SearchPresets,
+  unit_SearchQueryModeControl, unit_BookSearchPanel,
   MHLButtonedEdit,
   unit_UserData,
   unit_treeController,
@@ -943,6 +944,8 @@ type
 
     FDownloadsReady, FDownloadsLoadFailed: Boolean;
     FPresets: TSearchPresets;
+    FSearchMode: TSearchQueryModeControl;
+    FSearchFields: TBookSearchControls;
     FPresetTransferMenu: TPopupMenu;
     FPresetTransferButton: TButton;
     FPresetImportItem, FPresetExportItem, FPresetExportAllItem: TMenuItem;
@@ -1026,6 +1029,7 @@ type
     function CatalogBookMatchesSaved(const Book: TBookRecord; Notify: Boolean = True): Boolean;
     function SearchPresetIndex(const Name: string): Integer;
     procedure CreatePublisherSearchField;
+    procedure CreateSearchPanelAdapter;
     procedure BrowseAllReaderNotes(Sender: TObject);
     procedure OpenReaderNote(const Note: TReaderAnnotation);
     procedure RefreshNotesSearch;
@@ -1166,12 +1170,14 @@ uses
   unit_Utils,
   ShlObj,
   unit_ExportToDevice,
+  unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
   unit_Helpers,
   unit_Errors,
   unit_Logger,
   frm_NewCollectionWizard,
   frm_editor,
   unit_SearchUtils,
+  frm_LegacyUserDataPreview,
   unit_WriteFb2Info,
   frm_ConverToFBD,
   unit_Lib_Updates,
@@ -1430,6 +1436,7 @@ begin
     for Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG, tvBooksF, tvBooksSR, FPublisher.Books) do
     begin
       Tree.HeaderFilterTags := TArray<Integer>.Create(COL_AUTHOR, COL_TITLE, COL_SERIES, COL_PUBLISHER_SERIES, COL_PUBLISHER,
+        COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN,
         COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE, COL_COLLECTION, COL_LANG,
         COL_LIBRATE, COL_LIBID);
       Tree.Header.Height := Max(Tree.Header.Height, MulDiv(24, Tree.CurrentPPI, 96));
@@ -1723,46 +1730,16 @@ var
   Criteria: TBookSearchCriteria;
 begin
   if not Assigned(FCollection) or FInvisible or FBookListLoading then Exit;
-  Criteria := Default(TBookSearchCriteria);
   SavedCursor := Screen.Cursor;
   Screen.Cursor := crSQLWait;
   try
     StatusMessage := rstrCreatingFilter;
     try
-      Exclude(FLoadedBookViews, SearchView);
-      tvBooksSR.Clear;
-      ClearLabels(tvBooksSR.Tag, True);
-
       try
-        Criteria.FullName := edFFullName.Text;
-        Criteria.FavoriteAuthorsOnly := FSearchFavoriteCheck.Checked;
-        Criteria.Series := edFSeries.Text;
-        Criteria.Publisher := FPublisherSearchEdit.Text;
-        Criteria.Translators := FTranslatorSearchEdit.Text;
-        Criteria.City := FCitySearchEdit.Text;
-        Criteria.PubYear := FPubYearSearchEdit.Text;
-        Criteria.ISBN := FISBNSearchEdit.Text;
-        Criteria.NotesOnly:=FNotesOnlySearchCheck.Checked;
+        Criteria := ReadBookSearchPanel(FSearchFields, FSearchMode.Mode,
+          Settings.HideDeletedBooks);
         if Criteria.NotesOnly then Criteria.NoteBookIDs:=ReaderNoteBookIDs(FSystemData,
           ResolveReaderSettingsFile(Settings.DataDir),FCollection.CollectionID);
-        Criteria.Annotation := edFAnnotation.Text;
-        Criteria.Genre := edFGenre.Hint;
-        Criteria.Title := edFTitle.Text;
-        Criteria.FileName := edFFile.Text;
-        Criteria.Folder := edFFolder.Text;
-        Criteria.FileExt := edFExt.Text;
-        Criteria.Lang := cbLang.Text;
-        Criteria.Keyword := edFKeyWords.Text;
-        Criteria.DownloadedIdx := cbDownloaded.ItemIndex;
-        Criteria.Deleted := Settings.HideDeletedBooks;
-        Criteria.LibRate := cbLibRate.Text;
-        Criteria.Readed := cbReaded.Checked;
-        Criteria.CollapseMultiSeriesResults :=
-          cbCollapseMultiSeriesResults.Checked;
-
-        Criteria.DateIdx := cbDate.ItemIndex;
-        if Criteria.DateIdx= -1 then
-          Criteria.DateText := cbDate.Text;
 
         Assert(Assigned(FCollection));
 
@@ -1792,6 +1769,7 @@ end;
 
 procedure TfrmMain.DoClearFilter(KeepPreset: boolean);
 begin
+  if Assigned(FSearchMode) then FSearchMode.Reset;
   FFavoriteSearchPending := False;
   if Assigned(FSearchFavoriteCheck) then FSearchFavoriteCheck.Checked := False;
   FHasAppliedSearch := False;
@@ -3898,6 +3876,37 @@ begin
   ctpBook.OnExpand:=SearchBookExpanded; UpdateSearchBookLayout;
 end;
 
+procedure TfrmMain.CreateSearchPanelAdapter;
+begin
+  FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
+  FSearchMode.TabOrder := 0;
+  SearchParams.TabOrder := 1;
+  pnSearchControl.TabOrder := 2;
+  FSearchFields := Default(TBookSearchControls);
+  FSearchFields.Author := edFFullName;
+  FSearchFields.Series := edFSeries;
+  FSearchFields.Publisher := FPublisherSearchEdit;
+  FSearchFields.Translators := FTranslatorSearchEdit;
+  FSearchFields.City := FCitySearchEdit;
+  FSearchFields.PubYear := FPubYearSearchEdit;
+  FSearchFields.ISBN := FISBNSearchEdit;
+  FSearchFields.Annotation := edFAnnotation;
+  FSearchFields.Genre := edFGenre;
+  FSearchFields.Title := edFTitle;
+  FSearchFields.FileName := edFFile;
+  FSearchFields.Folder := edFFolder;
+  FSearchFields.FileExt := edFExt;
+  FSearchFields.Keyword := edFKeyWords;
+  FSearchFields.Language := cbLang;
+  FSearchFields.Downloaded := cbDownloaded;
+  FSearchFields.LibRate := cbLibRate;
+  FSearchFields.AddedDate := cbDate;
+  FSearchFields.FavoriteAuthors := FSearchFavoriteCheck;
+  FSearchFields.NotesOnly := FNotesOnlySearchCheck;
+  FSearchFields.Readed := cbReaded;
+  FSearchFields.CollapseSeries := cbCollapseMultiSeriesResults;
+end;
+
 procedure TfrmMain.UpdateSearchBookLayout;
 var
   Body: TWinControl;
@@ -4313,6 +4322,22 @@ begin
   FilterMenu.Name := 'miColumnPublisher'; FilterMenu.Caption := 'Издательство';
   FilterMenu.Tag := COL_PUBLISHER; FilterMenu.OnClick := HeaderPopupItemClick;
   pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnTranslators'; FilterMenu.Caption := 'Переводчики';
+  FilterMenu.Tag := COL_TRANSLATORS; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnCity'; FilterMenu.Caption := 'Город издания';
+  FilterMenu.Tag := COL_CITY; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnPubYear'; FilterMenu.Caption := 'Год издания';
+  FilterMenu.Tag := COL_PUBYEAR; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miColumnISBN'; FilterMenu.Caption := 'ISBN';
+  FilterMenu.Tag := COL_ISBN; FilterMenu.OnClick := HeaderPopupItemClick;
+  pmHeaders.Items.Add(FilterMenu);
 
   FilterMenu := TMenuItem.Create(Self);
   FilterMenu.Caption := 'Источники и объединение коллекции...';
@@ -4348,6 +4373,7 @@ begin
   InitFormFileds;
   CreatePublisherSearchField;
   CreateFavoriteAuthorControls;
+  CreateSearchPanelAdapter;
   cbDeleted.OnClick := SearchDeletedClick;
   cbDeleted.ShowHint := True;
   cbDeleted.Hint := 'Общий режим с кнопкой «Скрыть удалённые книги». Обновляет применённый поиск, не применяя изменения в других полях.';
@@ -5369,33 +5395,14 @@ begin
 end;
 
 procedure TfrmMain.FillBookIdList(const Tree: TBookTree; var BookIDList: TBookIdList; const Uncheck: Boolean);
-var
-  i, Skipped: Integer;
-  Node: PVirtualNode;
-  Data: PBookRecord;
+var Skipped: Integer;
 begin
-  i := 0; Skipped := 0; SetLength(BookIDList, 0);
-  Node := Tree.GetFirst;
-  while Assigned(Node) do
-  begin
-    Data := Tree.GetNodeData(Node);
-    Assert(Assigned(Data));
-    if IsSelectedBookNode(Node, Data) then
-    begin
-      if (Tree = tvBooksF) and not CatalogBookMatchesSaved(Data^, False) then Inc(Skipped)
-      else
-      begin
-        SetLength(BookIDList, i + 1); BookIDList[i] := Default(TBookIdStruct);
-        BookIDList[i].BookKey := Data^.BookKey;
-        BookIDList[i].HasExpectedIdentity := True;
-        BookIDList[i].ExpectedLibID := Data^.LibID;
-        BookIDList[i].ExpectedPhysicalIdentity := ReaderBookPhysicalIdentity(Data^);
-        Inc(i);
-        if Uncheck then Tree.CheckState[Node] := csUncheckedNormal;
-      end;
-    end;
-    Node := Tree.GetNext(Node);
-  end;
+  BookIDList := BuildBookSelectionSnapshot(Tree,
+    function(Node: PVirtualNode; Book: PBookRecord): Boolean
+    begin Result := IsSelectedBookNode(Node, Book); end,
+    function(const Book: TBookRecord): Boolean
+    begin Result := (Tree <> tvBooksF) or CatalogBookMatchesSaved(Book, False); end,
+    Uncheck, Skipped);
   if Skipped > 0 then MHLShowInfo(Format('Пропущено книг из группы: %d. ' +
     'Они больше не совпадают с каталогом. Записи и заметки сохранены; ' +
     'экспорт и скачивание для них не выполняются.', [Skipped]));
@@ -5405,57 +5412,25 @@ procedure TfrmMain.SendToDeviceExecute(Sender: TObject);
 var
   AFolder: string;
   SaveFolderTemplate: string;
-  TMPParams: string;
   ScriptID: Integer;
   BookIDList: TBookIdList;
+  Results: TBookExportResults;
+  Plan: TBookExportScriptPlan;
   Files: string;
-  p: Integer;
-  S: string;
   Tree: TBookTree;
   ExportMode: TExportMode;
-  ExplicitFormat: Boolean;
+  ExplicitFormat, ExternalScript: Boolean;
   UseMTP: Boolean;
   DeviceShellItem: IShellItem;
   GroupData: PGroupData;
-
-  procedure ConsumeExportMarks;
-  var
-    Indices: TDictionary<UInt64, Integer>;
-    Node: PVirtualNode;
-    Data: PBookRecord;
-    Index: Integer;
-    function Key(const BookKey: TBookKey): UInt64;
-    begin
-      Result := (UInt64(Cardinal(BookKey.DatabaseID)) shl 32) or Cardinal(BookKey.BookID);
-    end;
-  begin
-    // Reuse the accepted identity snapshot. A modal destination picker can
-    // outlive a row refresh, so consume only marks still belonging to it.
-    Indices := TDictionary<UInt64, Integer>.Create;
-    try
-      for var I := 0 to High(BookIDList) do Indices.AddOrSetValue(Key(BookIDList[I].BookKey), I);
-      Tree.BeginUpdate;
-      try
-        Node := Tree.GetFirst;
-        while Assigned(Node) do
-        begin
-          Data := Tree.GetNodeData(Node);
-          if Assigned(Data) and (Data^.NodeType = ntBookInfo) and
-            not (vsFiltered in Node^.States) and (Node^.CheckState = csCheckedNormal) and Indices.TryGetValue(Key(Data^.BookKey), Index) and
-            (Data^.LibID = BookIDList[Index].ExpectedLibID) and
-            (ReaderBookPhysicalIdentity(Data^) = BookIDList[Index].ExpectedPhysicalIdentity) then
-            Tree.CheckState[Node] := csUncheckedNormal;
-          Node := Tree.GetNext(Node);
-        end;
-      finally Tree.EndUpdate; end;
-    finally Indices.Free; end;
-  end;
 begin
   ScriptID := (Sender as TComponent).Tag - 901;
   if (ScriptID >= 0) and (ScriptID < Settings.Scripts.Count) and Settings.Scripts[ScriptID].Standalone then
   begin
     Settings.Scripts[ScriptID].Run; Exit;
   end;
+  if ScriptID >= Settings.Scripts.Count then
+    raise EArgumentException.Create('Команда экспорта больше не существует. Откройте меню повторно.');
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
   // Keep the selection while the destination dialog can still be canceled.
@@ -5490,22 +5465,8 @@ begin
   ScriptID := (Sender as TComponent).Tag;
   ExplicitFormat := (ScriptID = 850) or (ScriptID = 854);
 
-  if ExplicitFormat or isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed then
-  begin
-    case ScriptID of
-      850: ExportMode := emFB2;
-      851: ExportMode := emFB2Zip;
-      852: ExportMode := emLrf;
-      853: ExportMode := emTxt;
-      854: ExportMode := emEpub;
-      855: ExportMode := emPDF;
-      856: ExportMode := emMobi;
-    else
-      ExportMode := Settings.ExportMode;
-    end
-  end
-  else
-    ExportMode := emFB2;
+  ExportMode := ResolveBookExportMode(ScriptID, Settings.ExportMode,
+    isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed);
 
   if ScriptID = 799 then
   begin
@@ -5535,58 +5496,50 @@ begin
     end;
   end;
 
-  // The destination is accepted; hand off the original guarded snapshot.
-  ConsumeExportMarks;
-
+  Results := nil;
+  ExternalScript := (ScriptID >= 0) and (Settings.Scripts[ScriptID].Path <> '%COPY%');
   try
     if ScriptID >= 0 then
     begin
-      TMPParams := Settings.Scripts[ScriptID].Params;
-      if Pos('%NFT%', Settings.Scripts[ScriptID].Params) <> 0 then
-      begin
-        Settings.FolderTemplate := '';
-        StrReplace('%NFT%', '', TMPParams);
-      end;
-
-      if Pos('%TMP%', Settings.Scripts[ScriptID].Params) <> 0 then
-        StrReplace('%TMP%', Settings.TempPath, TMPParams);
-
-      if Pos('%DEST%', Settings.Scripts[ScriptID].Params) <> 0 then
-        StrReplace('%DEST%', AFolder, TMPParams);
-
-      if Pos('%FOLDER ', Settings.Scripts[ScriptID].Params) <> 0 then
-      begin
-        StrReplace('%FOLDER ', '', TMPParams);
-        p := Pos('%', TMPParams);
-        S := Copy(TMPParams, 1, p - 1);
-        AFolder := S;
-        Delete(TMPParams, 1, p);
-      end;
-
-      if (Settings.Scripts[ScriptID].Path = '%COPY%') and (Trim(TMPParams) <> '') then
-        AFolder := Trim(TMPParams);
-
-      Settings.Scripts[ScriptID].TMPParams := TMPParams;
+      Plan := PrepareBookExportScript(Settings.Scripts[ScriptID].Path,
+        Settings.Scripts[ScriptID].Params, AFolder, Settings.TempPath, SaveFolderTemplate);
+      AFolder := Plan.Destination;
+      Settings.FolderTemplate := Plan.FolderTemplate;
     end;
 
-    if isOnlineCollection(FCollection.CollectionCode) then
-      unit_ExportToDevice.DownloadBooks(BookIDList);
-
-    if (ScriptID >= 0) and (Settings.Scripts[ScriptID].Path <> '%COPY%') then
+    if isOnlineCollection(FCollection.CollectionCode) and
+      not unit_ExportToDevice.DownloadBooksForExport(BookIDList) then
     begin
-      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True, Files, DeviceShellItem, UseMTP);
-      if Pos('%FILENAME%', Settings.Scripts[ScriptID].Params) <> 0 then
+      StatusMessage := 'Подготовка экспорта отменена. Отметки книг сохранены.';
+      Exit;
+    end;
+
+    if ExternalScript then
+    begin
+      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True,
+        Files, Results, DeviceShellItem, UseMTP);
+      if not AllBooksPreparedForScript(Results) then
       begin
-        StrReplace('%FILENAME%', Files, TMPParams);
-        Settings.Scripts[ScriptID].TMPParams := TMPParams;
+        StatusMessage := 'Инструмент не запущен: подготовлены не все книги. Отметки сохранены.';
+        Exit;
       end;
+      Settings.Scripts[ScriptID].TMPParams := StringReplace(Plan.Parameters,
+        '%FILENAME%', Files, [rfReplaceAll]);
       Settings.Scripts[ScriptID].Run;
+      StatusMessage := 'Внешний инструмент запущен. Отметки сохранены; итог работы проверьте в инструменте.';
     end
     else
-      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False, Files, DeviceShellItem, UseMTP, ExplicitFormat);
-
+    begin
+      unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False,
+        Files, Results, DeviceShellItem, UseMTP, ExplicitFormat);
+      StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
+        [SuccessfulBookExportCount(Results), Length(BookIDList)]);
+    end;
   finally
+    if not ExternalScript then ApplySuccessfulExportMarks(Tree, Results);
     Settings.FolderTemplate := SaveFolderTemplate;
+    if (ScriptID >= 0) and (ScriptID < Settings.Scripts.Count) then
+      Settings.Scripts[ScriptID].TMPParams := '';
   end;
 end;
 
@@ -8086,6 +8039,9 @@ var
   treeView: TVirtualStringTree;
   Node: PVirtualNode;
   Data: PAuthorData;
+  Expression, AuthorCondition: string;
+  QueryMode: TSearchQueryMode;
+  Added: Boolean;
 begin
   case ActiveView of
     AuthorsView:
@@ -8106,14 +8062,36 @@ begin
   end;
 
   Node := treeView.GetFirstSelected;
+  if not Assigned(Node) then Exit;
+  Expression := Edit.Text;
+  QueryMode := sqmLegacy;
+  if Assigned(FSearchMode) then QueryMode := FSearchMode.Mode;
+  if Trim(Expression) <> '' then
+  begin
+    if QueryMode = sqmText then
+      Expression := PrepareSearchQuery(Expression, False, sqmText)
+    else if QueryMode = sqmLegacy then
+      Expression := PrepareQuery(Expression, True);
+    Expression := '(' + Expression + ')';
+  end
+  else Expression := '';
+  Added := False;
   while Assigned(Node) do
   begin
     Data := treeView.GetNodeData(Node);
-    if Edit.Text = '' then
-      Edit.Text := Format('="%s"', [Data^.GetFullName])
-    else
-      Edit.Text := Format('%s OR%s="%s"', [Edit.Text, CRLF, Data^.GetFullName]);
+    if Assigned(Data) then
+    begin
+      AuthorCondition := '="' + StringReplace(Data^.GetFullName, '"', '""', [rfReplaceAll]) + '"';
+      if Expression = '' then Expression := AuthorCondition
+      else Expression := Expression + ' OR' + CRLF + AuthorCondition;
+      Added := True;
+    end;
     Node := treeView.GetNextSelected(Node);
+  end;
+  if Added then
+  begin
+    Edit.Text := Expression;
+    if Assigned(FSearchMode) then FSearchMode.Mode := sqmExpression;
   end;
 end;
 
@@ -8899,6 +8877,7 @@ begin
     end;
     preset := Candidate.GetPreset(presetName);
     preset.Clear;
+    FSearchMode.SavePreset(preset);
 
     preset.AddOrSetValue(SF_AUTHORS, edFFullName.Text);
     preset.AddOrSetValue(SF_FAVORITE_AUTHORS, BoolToStr(FSearchFavoriteCheck.Checked));
@@ -10037,7 +10016,8 @@ begin
     end;
   end;
   for i := 0 to pmHeaders.Items.Count-1 do
-    if pmHeaders.Items[i].Tag in [COL_PUBLISHER_SERIES, COL_PUBLISHER] then
+    if pmHeaders.Items[i].Tag in [COL_PUBLISHER_SERIES, COL_PUBLISHER,
+      COL_TRANSLATORS, COL_CITY, COL_PUBYEAR, COL_ISBN] then
       for var J := 0 to Tree.Header.Columns.Count-1 do
         if Tree.Header.Columns[J].Tag = pmHeaders.Items[i].Tag then pmHeaders.Items[i].Checked := True;
   pmHeaders.Items[9].Visible := True;
@@ -10212,7 +10192,11 @@ begin
     Data := TUserData.Create;
     try
       if SameText(ExtractFileExt(FileName), '.mhlud') then
-        LoadOldUserData(FileName, Data)
+      begin
+        Screen.Cursor := SavedCursor;
+        if not ShowLegacyUserDataImportPreview(FileName, Data, FSystemData, Self) then Exit;
+        Screen.Cursor := crHourGlass;
+      end
       else
         Data.Load(FileName);
       OnImportUserDataHandler(Data);
@@ -10328,6 +10312,7 @@ begin
   DoClearFilter(True);
   cbPresetName.ItemIndex := PresetIndex;
   preset := FPresets.GetPreset(cbPresetName.Items[PresetIndex]);
+  FSearchMode.LoadPreset(preset);
 
   if preset.TryGetValue(SF_AUTHORS, Value) then edFFullName.Text := Value;
   if preset.TryGetValue(SF_FAVORITE_AUTHORS, Value) then

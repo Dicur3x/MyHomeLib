@@ -22,7 +22,8 @@ uses
   unit_globals,
   Dialogs,
   unit_Templater,
-  unit_Interfaces;
+  unit_Interfaces,
+  unit_BookExportResults;
 
 type
   TExportToDeviceThread = class(TWorker)
@@ -54,6 +55,7 @@ type
 
     FBookFormat: TBookFormat;
     FBookIdList: TBookIdList;
+    FResults: TBookExportResults;
     FTemplater: TTemplater;
     FExportMode: TExportMode;
     FExtractOnly: boolean;
@@ -81,6 +83,8 @@ type
     function ActualOutputFile(const FileName: string): string;
     function ConvertBasicFile: Boolean;
     procedure RemoveConversionTempFolder;
+    procedure SetBookIdList(const Value: TBookIdList);
+    function GetResults: TBookExportResults;
 
   strict private
     function PrepareFile(const BookKey: TBookKey; Expected: PBookIdStruct = nil): Boolean;
@@ -95,7 +99,8 @@ type
   public
     constructor Create;
 
-    property BookIdList: TBookIdList read FBookIdList write FBookIdList;
+    property BookIdList: TBookIdList read FBookIdList write SetBookIdList;
+    property Results: TBookExportResults read GetResults;
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property UseMTP: Boolean read FUseMTP write FUseMTP;
     property MarshalStream: IStream write FMarshalStream;
@@ -169,6 +174,19 @@ begin
   FTXTEncoding := FSettings.TXTEncoding;
 
   FMaxTempPathLength := MaxPathLength - Length(FTempPath);
+end;
+
+procedure TExportToDeviceThread.SetBookIdList(const Value: TBookIdList);
+begin
+  FBookIdList := Copy(Value);
+  FResults := PendingBookExportResults(FBookIdList);
+  FProcessedFiles := '';
+end;
+
+function TExportToDeviceThread.GetResults: TBookExportResults;
+begin
+  // Callers read the snapshot after the modal form has joined its worker.
+  Result := Copy(FResults);
 end;
 
 function TExportToDeviceThread.PrepareFile(const BookKey: TBookKey; Expected: PBookIdStruct): Boolean;
@@ -334,6 +352,18 @@ begin
 
     end;
 
+    if FExtractOnly and not Assigned(FFileOprecord.Stream) then
+    begin
+      if not FileExists(FFileOprecord.SourceFile) then
+      begin
+        FLastError := Format('Не найден исходный файл книги «%s».', [FFileOprecord.SourceFile]);
+        Exit;
+      end;
+      // Raw files are handed to scripts by path. Existence alone does not
+      // prove that this batch can read them (for example, an exclusive lock).
+      var ReadProbe := TFileStream.Create(FFileOprecord.SourceFile, fmOpenRead or fmShareDenyNone);
+      ReadProbe.Free;
+    end;
     Result := True;
   except
     on E: EAbort do begin Canceled:=True; FLastError:=E.Message; end;
@@ -816,9 +846,11 @@ begin
       totalBooks := Length(FBookIdList);
       for i := 0 to totalBooks - 1 do
       begin
-        if Canceled then
+        if Canceled or Terminated then
           Break;
 
+        FResults[i].State := besFailed;
+        FResults[i].ErrorText := 'Обработка книги прервана до получения результата.';
         Res := PrepareFile(FBookIdList[i].BookKey, @FBookIdList[i]);
         if Res then
         begin
@@ -854,12 +886,29 @@ begin
 
           if Res then
           begin
-            if i = 0 then
-              FProcessedFiles := FFileOprecord.SourceFile;
-
             if not FExtractOnly Then Res := SendFileToDevice;
           end;
         end;
+
+        // A successful copy remains successful if Cancel arrives immediately
+        // afterwards. Preparation alone never acknowledges an external script.
+        if Res then
+        begin
+          if FExtractOnly then
+          begin
+            FResults[i].State := besPrepared;
+            FResults[i].OutputFile := FFileOprecord.SourceFile;
+          end
+          else
+          begin
+            FResults[i].State := besSucceeded;
+            FResults[i].OutputFile := ActualOutputFile(FFileOprecord.TargetFile);
+          end;
+          if FProcessedFiles = '' then FProcessedFiles := FFileOprecord.SourceFile;
+        end
+        else if Canceled or Terminated then FResults[i].State := besCanceled
+        else FResults[i].State := besFailed;
+        FResults[i].ErrorText := FLastError;
 
         if FFileOprecord.Stream <> nil then
           FreeAndNil(FFileOprecord.Stream);

@@ -118,6 +118,7 @@ begin
       Require(Probe.Seen and FailureObserved, 'Export preparation did not reach its real failure before worker Start');
       Require(Settings.FolderTemplate = 'Сохранённый шаблон ё\%a',
         'Failed export permanently changed the saved folder template');
+      RequireMarks;
       Writeln('PASS Main failed NFT export restores the saved folder template before worker Start');
     end;
   finally

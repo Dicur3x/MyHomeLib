@@ -54,6 +54,13 @@
         <DCCReference Include="Units\unit_SeriesAliases.pas"/>
         <DCCReference Include="Units\unit_BookMetadataCache.pas"/>
         <DCCReference Include="Units\unit_BookCache.pas"/>
+        <DCCReference Include="Units\unit_BookExportPlan.pas"/>
+        <DCCReference Include="Units\unit_BookExportResults.pas"/>
+        <DCCReference Include="Units\unit_BookExportSelection.pas"/>
+        <DCCReference Include="Units\unit_BookSearchPanel.pas"/>
+        <DCCReference Include="Units\unit_SearchQueryModeControl.pas"/>
+        <DCCReference Include="Units\unit_LegacyUserDataPreview.pas"/>
+        <DCCReference Include="Forms\frm_LegacyUserDataPreview.pas"/>
         <DCCReference Include="..\Components\MHLComponents\unit_MHLOperationStatus.pas"/>
         <DCCReference Include="Units\unit_ReaderCSS.pas"/>
         <DCCReference Include="Units\unit_ReaderAnnotations.pas"/>
@@ -162,6 +169,7 @@
         </DCCReference>
         <DCCReference Include="ImportImpl\unit_ImportFB2ThreadBase.pas"/>
         <DCCReference Include="ImportImpl\unit_ImportInpxThread.pas"/>
+        <DCCReference Include="ImportImpl\unit_InpLineReader.pas"/>
         <DCCReference Include="ImportImpl\unit_ImportMetabibThread.pas"/>
         <DCCReference Include="ImportImpl\unit_ExportMetabibThread.pas"/>
         <DCCReference Include="ImportImpl\unit_Export.pas"/>

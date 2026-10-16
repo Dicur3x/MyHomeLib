@@ -7,13 +7,15 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
+  unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
+  unit_SearchQueryModeControl, unit_LegacyUserDataPreview, frm_LegacyUserDataPreview, unit_InpLineReader,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
   MHLButtonedEdit, unit_Columns,
   unit_SystemDatabase_SQLite,
@@ -954,7 +956,7 @@ var
   I: Integer;
   ColumnHandler: TMethod;
 begin
-  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 8,
+  Require(frmMain.pmHeaders.Items.Count = Length(Expected) + 12,
     'Wrong header menu structure');
   ColumnHandler := TMethod(frmMain.pmHeaders.Items[0].OnClick);
   for I := Low(Expected) to High(Expected) do
@@ -5413,6 +5415,14 @@ end;
 {$I MainLegacyImportWorkflowTests.inc}
 {$I SettingsWorkflowAuditTests.inc}
 {$I ReaderConversionAuditTests.inc}
+{$I ExportResultsAuditTests.inc}
+{$I CatalogSearchModeTests.inc}
+{$I AuthorDisplaySettingTests.inc}
+{$I LegacyImportPreviewTests.inc}
+{$I InpStreamingTests.inc}
+{$I ReaderNotesProposalTests.inc}
+{$I UpdateProposalsTests.inc}
+{$I MetadataBookColumnsTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5605,6 +5615,21 @@ begin
         TestCacheFolderPresets
       else if ParamStr(1) = 'metadata-archive-codecs' then
         TestMetadataArchiveCodecs
+      else if ParamStr(1) = 'main-search-proposals-visual' then TestMainSearchProposalsVisual(One)
+      else if ParamStr(1) = 'catalog-proposals-visual' then TestCatalogProposalsVisual
+      else if ParamStr(1) = 'reader-notes-visual' then TestReaderNotesVisual('G:\HomeLibRu-proposals-2026-10-16\reader-notes')
+      else if ParamStr(1) = 'update-proposals-visual' then TestUpdateProposalsVisual
+      else if ParamStr(1) = 'export-results-audit' then TestExportResultsAudit
+      else if ParamStr(1) = 'search-query-modes' then TestCatalogSearchModes(One)
+      else if ParamStr(1) = 'author-display-setting' then TestAuthorDisplaySetting
+      else if ParamStr(1) = 'metadata-book-columns' then TestMetadataBookColumns(One)
+      else if ParamStr(1) = 'metadata-book-columns-visual' then TestMetadataBookColumnsVisual(One)
+      else if ParamStr(1) = 'legacy-import-preview' then TestLegacyImportPreviewProposals
+      else if ParamStr(1) = 'inp-streaming' then TestInpStreamingProposals
+      else if ParamStr(1) = 'inp-streaming-memory' then TestInpStreamingMemory
+      else if ParamStr(1) = 'reader-notes-proposals' then TestReaderNotesProposals('G:\HomeLibRu-proposals-2026-10-16\reader-notes')
+      else if ParamStr(1) = 'update-keyboard-accessibility' then TestUpdateKeyboardAccessibility
+      else if ParamStr(1) = 'update-source-failures' then TestUpdateSourceFailures
       else if ParamStr(1) = 'reader-conversion-audit' then
         TestReaderConversionAudit(Settings.AppPath + 'reader-conversion-audit', Settings.AppPath)
       else if ParamStr(1) = 'settings-workflow-audit' then TestSettingsWorkflowAudit
