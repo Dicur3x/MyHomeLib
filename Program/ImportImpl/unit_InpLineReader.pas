@@ -77,7 +77,7 @@ begin
   if Archive.FileSizes[Index] > INP_DISK_THRESHOLD then
   begin
     if not ForceDirectories(TempPath) then
-      raise EFCreateError.Create('Не удалось создать временную папку импорта.');
+      raise EFCreateError.CreateFmt('Не удалось создать временную папку импорта: %s', [TempPath]);
     FTempFile := TPath.Combine(TempPath, 'homelib-inp-' + TGUID.NewGuid.ToString + '.tmp');
     FInput := TFileStream.Create(FTempFile, fmCreate);
   end
