@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{569A77EB-2A6B-4230-A34E-75160FF6FBB0}</ProjectGuid>
         <MainSource>HomeLibRuUpdater.dpr</MainSource>
@@ -11,8 +11,8 @@
         <VerInfo_MajorVer>2</VerInfo_MajorVer>
         <VerInfo_MinorVer>7</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1089</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.21;FileVersion=2.7.0.1089;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_Build>1090</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.22;FileVersion=2.7.0.1090;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>

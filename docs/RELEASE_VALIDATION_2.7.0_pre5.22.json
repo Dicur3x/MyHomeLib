@@ -1,0 +1,121 @@
+{
+  "release": "2.7.0_pre5.22",
+  "file_version": "2.7.0.1090",
+  "generated_utc": "2026-10-16T15:06:10.961050+00:00",
+  "builds": [
+    {
+      "platform": "Win32",
+      "file": "HomeLibRu.exe",
+      "bytes": 10370048,
+      "modified": "2026-10-16T17:54:12.0101131+03:00",
+      "sha256": "20deb5af2850aaf842ad48f9bea0b5f7177661b49719ad078b5e0d1c5a62f0cf",
+      "file_version": "2.7.0.1090",
+      "product_version": "2.7.0_pre5.22"
+    },
+    {
+      "platform": "Win32",
+      "file": "HomeLibRuUpdater.exe",
+      "bytes": 1868288,
+      "modified": "2026-10-16T17:55:49.7645371+03:00",
+      "sha256": "47e352c73aff4647277ac9b8b146791a210e1f7b151ac7ecf91e4b5f09b014dc",
+      "file_version": "2.7.0.1090",
+      "product_version": "2.7.0_pre5.22"
+    },
+    {
+      "platform": "Win32",
+      "file": "MHLMcpServer.exe",
+      "bytes": 5713408,
+      "modified": "2026-10-16T17:58:56.4460486+03:00",
+      "sha256": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd",
+      "file_version": "1.0.0.0",
+      "product_version": "2.7.0_pre5.11"
+    },
+    {
+      "platform": "Win32",
+      "file": "ProgramUpdateInstallerTest.exe",
+      "bytes": 5210624,
+      "modified": "2026-10-16T18:01:10.0470365+03:00",
+      "sha256": "bfbd911ad4302bf1790ab8ef2a8d64f32b1c823d7b10fd9f9dcac2a15e674cf7"
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRu.exe",
+      "bytes": 15945728,
+      "modified": "2026-10-16T17:53:36.7398012+03:00",
+      "sha256": "0a9ab2f6c29032dafdd804700df6e94e1bdc6916a92e626d372da0af636a3945",
+      "file_version": "2.7.0.1090",
+      "product_version": "2.7.0_pre5.22"
+    },
+    {
+      "platform": "Win64",
+      "file": "HomeLibRuUpdater.exe",
+      "bytes": 2768896,
+      "modified": "2026-10-16T17:56:31.5703030+03:00",
+      "sha256": "e038e61a32e9f535c888bdf402677881622a4510a2a337e1ba12a408cd427a60",
+      "file_version": "2.7.0.1090",
+      "product_version": "2.7.0_pre5.22"
+    },
+    {
+      "platform": "Win64",
+      "file": "MHLMcpServer.exe",
+      "bytes": 8803840,
+      "modified": "2026-10-16T17:58:03.7060257+03:00",
+      "sha256": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385",
+      "file_version": "1.0.0.0",
+      "product_version": "2.7.0_pre5.11"
+    },
+    {
+      "platform": "Win64",
+      "file": "ProgramUpdateInstallerTest.exe",
+      "bytes": 8026624,
+      "modified": "2026-10-16T18:02:17.1847968+03:00",
+      "sha256": "03d7b78989879aee48594c14f7e979291e5869369daf06ec68efc367baab0020"
+    }
+  ],
+  "archives": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.zip",
+      "bytes": 55543144,
+      "sha256": "4da3bdcf29fe5fb118041847ed23a7be5845ba44df5c31d3e3d49d65d118db03"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu_x64.zip",
+      "bytes": 61056476,
+      "sha256": "b1f2ffa3069d69b8ae5362cd05a2f89954ef5e7a4f6c465a2961d710ef5004e0"
+    }
+  ],
+  "actual_release_install_tests": [
+    {
+      "platform": "Win32",
+      "log": "real-release-install-Win32.log",
+      "log_sha256": "79959f91bb647acc05326c284e61f54bcec5e6bbe5b8cad3d2e47d86f25040ca",
+      "result": "PASS Win32: actual ZIP CRC, 529 manifest files, installation over previous release, 19 profile/library files preserved"
+    },
+    {
+      "platform": "Win64",
+      "log": "real-release-install-Win64.log",
+      "log_sha256": "20dd49c215e58cbb134be9cea678fe9e11b22bbfa84c44b3ada54a1e922f1901",
+      "result": "PASS Win64: actual ZIP CRC, 538 manifest files, installation over previous release, 19 profile/library files preserved"
+    }
+  ],
+  "source_validation": {
+    "pascal_files": 69,
+    "local_links": 283
+  },
+  "packaged_startup_smoke": [
+    {
+      "platform": "Win32",
+      "executable_sha256": "20deb5af2850aaf842ad48f9bea0b5f7177661b49719ad078b5e0d1c5a62f0cf",
+      "fixture_log_sha256": "6414841c1706702d70ada8c8f1cc324318a8de7acdf94555628a23edf671b4e2",
+      "result": "Manual Sky inspection: actual packaged Main, six-book disposable catalog, authors/book list/info pane visible, version 2.7.0.1090; closed normally."
+    },
+    {
+      "platform": "Win64",
+      "executable_sha256": "0a9ab2f6c29032dafdd804700df6e94e1bdc6916a92e626d372da0af636a3945",
+      "fixture_log_sha256": "3f8e40638dd462367e3d7a85add32b7a8481d7763a9df4ce3f2283a36431c21e",
+      "result": "Manual Sky inspection: actual packaged Main, six-book disposable catalog, authors/book list/info pane visible, version 2.7.0.1090; closed normally."
+    }
+  ]
+}
