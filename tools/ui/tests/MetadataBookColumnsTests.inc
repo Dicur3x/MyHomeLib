@@ -20,8 +20,9 @@ end;
 
 procedure MBCRefreshMenu;
 begin
-  Require(Assigned(frmMain.pmHeaders.OnPopup),'Main header menu has no actual popup callback');
-  frmMain.pmHeaders.OnPopup(frmMain.pmHeaders);
+  // Main refreshes its private SetHeaderPopUp through the public tab event.
+  // Every caller already selected its actual page with MBCActivate.
+  frmMain.pgControlChange(nil);
 end;
 
 function MBCMenu(Tag: Integer): TMenuItem;
