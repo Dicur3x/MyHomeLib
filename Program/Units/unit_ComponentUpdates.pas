@@ -528,8 +528,8 @@ begin
           begin
             DownloadPage:=FetchText('https://www.alreader.com/');
             if not DownloadPage.Contains('AlReader2.Win32') then
-              raise Exception.Create('На официальном сайте сейчас нет доступного выпуска AlReader для Windows. Установленная читалка продолжает работать.');
-            raise Exception.Create('Официальный Windows-архив найден, но автор не опубликовал проверяемую версию.');
+              FReleases[I].ComponentWarning := 'Официальный сайт доступен, но Windows-выпуск не найден. Установленная читалка продолжает работать.'
+            else FReleases[I].ComponentWarning := 'Автор не указал версию Windows-выпуска. Автоустановка недоступна; установленная читалка продолжает работать.';
           end;
         ccSQLite:
           begin
@@ -595,8 +595,16 @@ begin
     except
       on E: Exception do
       begin
-        FReleases[I].DownloadURL := '';
-        FReleases[I].ComponentError := ComponentIDs[I] + ': ' + E.Message;
+        FReleases[I].DownloadURL := ''; FReleases[I].SecondaryURL := '';
+        FReleases[I].AdditionalURLs := nil; FReleases[I].AdditionalSizes := nil;
+        FReleases[I].Size := 0; FReleases[I].SecondarySize := 0;
+        FReleases[I].SHA256 := ''; FReleases[I].SourceSHA3 := '';
+        FReleases[I].OfficialComponent := False; FReleases[I].ComponentWarning := '';
+        FReleases[I].ComponentError := 'Не удалось проверить ' + ComponentIDs[I] +
+          '. Повторите проверку или откройте сайт автора. Установленные файлы не изменены.';
+        // Transport exceptions can contain server HTML or private proxy paths.
+        // Keep bounded diagnostics for an explicit Copy error command only.
+        FReleases[I].ComponentErrorDetails := Copy(E.ClassName + ': ' + E.Message,1,4096);
       end;
     end;
     if Terminated then Exit;

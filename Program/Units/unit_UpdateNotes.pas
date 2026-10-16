@@ -20,7 +20,7 @@ type
 
   TUpdateNotesSection = record
     Panel: TPanel;
-    Header: TLabel;
+    Header: TButton;
     Body: TRichEdit;
     Title, Notes: string;
     Expanded: Boolean;
@@ -39,6 +39,7 @@ type
     procedure EndDisplayUpdate;
     procedure SetZoomPercent(Value: Integer);
     procedure Toggle(Sender: TObject);
+    procedure HeaderFocused(Sender: TObject);
     procedure LayoutSections;
   protected
     procedure Resize; override;
@@ -49,7 +50,7 @@ type
     procedure Load(const Notes: string);
     procedure ApplyTheme;
     function SectionCount: Integer;
-    function SectionHeader(Index: Integer): TLabel;
+    function SectionHeader(Index: Integer): TButton;
     function SectionNotes(Index: Integer): TRichEdit;
     function IsExpanded(Index: Integer): Boolean;
     procedure SetExpanded(Index: Integer; Value: Boolean);
@@ -398,7 +399,7 @@ end;
 function TUpdateNotesView.SectionCount: Integer;
 begin Result := Length(FSections); end;
 
-function TUpdateNotesView.SectionHeader(Index: Integer): TLabel;
+function TUpdateNotesView.SectionHeader(Index: Integer): TButton;
 begin Result := FSections[Index].Header; end;
 
 function TUpdateNotesView.SectionNotes(Index: Integer): TRichEdit;
@@ -411,10 +412,13 @@ procedure TUpdateNotesView.SetExpanded(Index: Integer; Value: Boolean);
 begin
   if (Index < 0) or (Index >= Length(FSections)) then Exit;
   if FSections[Index].Expanded = Value then Exit;
+  if not Value and FSections[Index].Body.Focused then
+    FSections[Index].Header.SetFocus;
   BeginDisplayUpdate;
   try
   FSections[Index].Expanded := Value;
   finally EndDisplayUpdate; end;
+  if FSections[Index].Header.Focused then HeaderFocused(FSections[Index].Header);
 end;
 
 procedure TUpdateNotesView.Toggle(Sender: TObject);
@@ -425,6 +429,17 @@ begin
     SetExpanded(Index, not FSections[Index].Expanded);
 end;
 
+procedure TUpdateNotesView.HeaderFocused(Sender: TObject);
+var Header: TButton; Top, Bottom: Integer;
+begin
+  Header := TButton(Sender);
+  Top := Header.Parent.Top + Header.Top;
+  Bottom := Top + Header.Height;
+  if Top < 0 then VertScrollBar.Position := VertScrollBar.Position + Top
+  else if Bottom > ClientHeight then
+    VertScrollBar.Position := VertScrollBar.Position + Bottom - ClientHeight;
+end;
+
 procedure TUpdateNotesView.Resize;
 begin
   inherited;
@@ -432,18 +447,19 @@ begin
 end;
 
 procedure TUpdateNotesView.LayoutSections;
-var I, Top, Width, Height, HeaderHeight, Padding, Pass: Integer;
+var I, Top, Width, Height, HeaderHeight, Padding, Pass, LayoutPPI: Integer;
+  Measure: Vcl.Graphics.TBitmap; Bounds: TRect;
 begin
   if FLoading or FLayouting then Exit;
-  FLayouting := True;
+  FLayouting := True; Measure := Vcl.Graphics.TBitmap.Create;
   try
     // A single scrollbar covers every expanded release. Reflow once more if
     // adding that scrollbar changes the available width; never recurse.
     for Pass := 1 to 2 do
     begin
     Top := -VertScrollBar.Position; Width := ClientWidth;
-    HeaderHeight := MulDiv(MulDiv(34, FZoomPercent, 100), CurrentPPI, 96);
-    Padding := MulDiv(8, CurrentPPI, 96);
+    LayoutPPI := Font.PixelsPerInch; if LayoutPPI <= 0 then LayoutPPI := CurrentPPI;
+    Padding := MulDiv(8, LayoutPPI, 96);
     for I := 0 to High(FSections) do
     begin
       FSections[I].Panel.Width := Width;
@@ -451,12 +467,26 @@ begin
       FSections[I].Body.Visible := FSections[I].Expanded;
       if FSections[I].Expanded then
         FSections[I].BodyHeight := TUpdateNotesEdit(FSections[I].Body).MeasureHeight;
+      if FSections[I].Expanded then
+      begin
+        FSections[I].Header.Caption := '▾  ' + FSections[I].Title + ' (развёрнуто)';
+        FSections[I].Header.Hint := 'Enter или пробел — свернуть этот выпуск.';
+      end
+      else
+      begin
+        FSections[I].Header.Caption := '▸  ' + FSections[I].Title + ' (свёрнуто)';
+        FSections[I].Header.Hint := 'Enter или пробел — развернуть этот выпуск.';
+      end;
+      Measure.Canvas.Font.Assign(FSections[I].Header.Font);
+      Bounds := Rect(0,0,Max(1,Width-2*Padding-MulDiv(24,LayoutPPI,96)),0);
+      DrawText(Measure.Canvas.Handle,PChar(FSections[I].Header.Caption),
+        Length(FSections[I].Header.Caption),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+      HeaderHeight := Max(MulDiv(MulDiv(34,FZoomPercent,100),LayoutPPI,96),
+        Bounds.Height + MulDiv(16,LayoutPPI,96));
       Height := HeaderHeight;
       if FSections[I].Expanded then Inc(Height, FSections[I].BodyHeight);
       FSections[I].Panel.SetBounds(0, Top, Width, Height);
       FSections[I].Header.SetBounds(Padding, 0, Max(0, Width - 2 * Padding), HeaderHeight - 1);
-      if FSections[I].Expanded then FSections[I].Header.Caption := '▾  ' + FSections[I].Title
-      else FSections[I].Header.Caption := '▸  ' + FSections[I].Title;
       FSections[I].Body.SetBounds(Padding, HeaderHeight, Max(0, Width - 2 * Padding),
         FSections[I].BodyHeight);
       FSections[I].Body.Visible := FSections[I].Expanded;
@@ -465,12 +495,13 @@ begin
     VertScrollBar.Range := Max(0, Top + VertScrollBar.Position);
     if ClientWidth = Width then Break;
     end;
-  finally FLayouting := False; end;
+  finally Measure.Free; FLayouting := False; end;
 end;
 
 procedure TUpdateNotesView.Load(const Notes: string);
 var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
-  I: Integer; Separator: TBevel;
+  I, J, FocusedSection, RestoreSection: Integer; FocusedTitle: string; Separator: TBevel;
+  OldTitles: TArray<string>; OldExpanded: TArray<Boolean>;
   procedure SaveSection;
   begin
     if (Title = '') and (Body.Trim = '') then Exit;
@@ -479,6 +510,13 @@ var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
   end;
 begin
   if (FLastNotes = Notes) and (Length(FSections) > 0) then Exit;
+  FocusedSection := -1; FocusedTitle := '';
+  SetLength(OldTitles,Length(FSections)); SetLength(OldExpanded,Length(FSections));
+  for I := 0 to High(FSections) do
+  begin OldTitles[I]:=FSections[I].Title; OldExpanded[I]:=FSections[I].Expanded; end;
+  for I := 0 to High(FSections) do
+    if FSections[I].Header.Focused or FSections[I].Body.Focused then
+    begin FocusedSection := I; FocusedTitle := FSections[I].Title; Break; end;
   Lines := TStringList.Create; Titles := TStringList.Create; Bodies := TStringList.Create;
   BeginDisplayUpdate;
   try
@@ -508,6 +546,8 @@ begin
       FSections[I].Title := Titles[I];
       FSections[I].Notes := Bodies[I];
       FSections[I].Expanded := I = 0;
+      for J := 0 to High(OldTitles) do
+        if OldTitles[J]=Titles[I] then begin FSections[I].Expanded:=OldExpanded[J]; Break; end;
       FSections[I].Panel := TPanel.Create(Self);
       FSections[I].Panel.Parent := Self;
       FSections[I].Panel.BevelOuter := bvNone;
@@ -515,10 +555,15 @@ begin
       // Release panels may be many screens high; only buffer the viewport.
       FSections[I].Panel.ParentDoubleBuffered := False;
       FSections[I].Panel.DoubleBuffered := False;
-      FSections[I].Header := TLabel.Create(FSections[I].Panel);
+      FSections[I].Panel.TabOrder := I;
+      FSections[I].Header := TButton.Create(FSections[I].Panel);
+      FSections[I].Header.Name := 'UpdateReleaseHeader' + IntToStr(I);
       FSections[I].Header.Parent := FSections[I].Panel;
-      FSections[I].Header.AutoSize := False;
-      FSections[I].Header.Layout := tlCenter;
+      FSections[I].Header.TabOrder := 0;
+      FSections[I].Header.TabStop := True;
+      FSections[I].Header.WordWrap := True;
+      FSections[I].Header.ShowHint := True;
+      FSections[I].Header.OnEnter := HeaderFocused;
       FSections[I].Header.Font.Name := 'Segoe UI';
       FSections[I].Header.Font.Size := MulDiv(12, FZoomPercent, 100);
       FSections[I].Header.Font.Style := [fsBold];
@@ -532,6 +577,7 @@ begin
       else FSections[I].Body := TUpdateNotesEdit.Create(FSections[I].Panel);
       TUpdateNotesEdit(FSections[I].Body).FView := Self;
       FSections[I].Body.Parent := FSections[I].Panel;
+      FSections[I].Body.TabOrder := 1;
       FSections[I].Body.ReadOnly := True;
       FSections[I].Body.MaxLength := 400000;
       FSections[I].Body.BorderStyle := bsNone;
@@ -547,6 +593,14 @@ begin
   finally
     EndDisplayUpdate;
     Lines.Free; Titles.Free; Bodies.Free;
+  end;
+  if (FocusedSection >= 0) and (Length(FSections) > 0) then
+  begin
+    RestoreSection := Min(FocusedSection,High(FSections));
+    for I := 0 to High(FSections) do
+      if FSections[I].Title = FocusedTitle then begin RestoreSection := I; Break; end;
+    if FSections[RestoreSection].Header.CanFocus then
+      FSections[RestoreSection].Header.SetFocus;
   end;
 end;
 

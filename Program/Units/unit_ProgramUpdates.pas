@@ -24,6 +24,7 @@ type
     Size: Int64;
     ComponentID, ComponentVersion: string;
     SourceSHA3, ComponentError: string;
+    ComponentWarning, ComponentErrorDetails: string;
     OfficialComponent, CheckOnly: Boolean;
     AuthorVersion: string;
   end;

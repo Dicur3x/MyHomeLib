@@ -22,14 +22,18 @@ begin
   AssertUpdatePath(Full);
 end;
 
+{$I ComponentCheckFixture.inc}
+
 var Mode, Job, Target, Archive, Digest, Tag: string; Files: TUpdateFiles;
   Comparison: Integer; Info: TProgramRelease; Thread: TProgramDownloadThread;
   Window: HWND; HTTP: THTTPClient; Msg: TMsg; Params: TJSONArray; I: Integer;
   Lock: TFileStream; Components: TComponentReleases;
   ComponentThread: TComponentUpdateThread;
   Jobs: TArray<string>;
+  Detail: TJSONObject; URLList: TJSONArray; FixtureWorker: TComponentCheckFixtureWorker;
   ConversionWarnings: TStringList; ConversionChecks: Integer; ConversionStream: TMemoryStream;
 begin
+  SetTextCodePage(Output,CP_UTF8); SetTextCodePage(ErrOutput,CP_UTF8);
   try
     Mode := ParamStr(1);
     if Mode = 'program-update-download' then
@@ -159,11 +163,19 @@ begin
         Writeln(Params.ToJSON);
       finally Params.Free; end;
     end
-    else if Mode = '--official-check' then
+    else if (Mode = '--official-check') or (Mode='--official-check-details') or (Mode='--component-check-fixture') then
     begin
-      HTTP := THTTPClient.Create;
-      HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');
-      ComponentThread := TComponentUpdateThread.Create(0, HTTP, '');
+      if Mode='--component-check-fixture' then
+      begin
+        FixtureWorker:=TComponentCheckFixtureWorker.Create(0,ParamStr(2),ParamStr(3));
+        ComponentThread:=FixtureWorker;
+      end
+      else
+      begin
+        HTTP := THTTPClient.Create;
+        HTTP.ProxySettings := TProxySettings.Create('direct', 80, '', '', 'http');
+        ComponentThread := TComponentUpdateThread.Create(0, HTTP, '');
+      end;
       try
         ComponentThread.Start; ComponentThread.WaitFor;
         if not ComponentThread.Successful then raise Exception.Create(ComponentThread.ErrorText);
@@ -172,11 +184,29 @@ begin
         try
           for I := 0 to High(Components) do
           begin
-            Params.Add(Components[I].ComponentID); Params.Add(Components[I].ComponentVersion);
-            Params.Add(Components[I].DownloadURL); Params.Add(Components[I].Size);
-            Params.Add(Components[I].ComponentError);
+            if Mode='--official-check' then
+            begin
+              Params.Add(Components[I].ComponentID); Params.Add(Components[I].ComponentVersion);
+              Params.Add(Components[I].DownloadURL); Params.Add(Components[I].Size);
+              Params.Add(Components[I].ComponentError);
+            end
+            else
+            begin
+              Detail:=TJSONObject.Create; Params.AddElement(Detail);
+              Detail.AddPair('id',Components[I].ComponentID); Detail.AddPair('version',Components[I].ComponentVersion);
+              Detail.AddPair('url',Components[I].DownloadURL); Detail.AddPair('secondary',Components[I].SecondaryURL);
+              Detail.AddPair('size',TJSONNumber.Create(Components[I].Size));
+              Detail.AddPair('error',Components[I].ComponentError); Detail.AddPair('warning',Components[I].ComponentWarning);
+              Detail.AddPair('details',Components[I].ComponentErrorDetails);
+              Detail.AddPair('official',TJSONBool.Create(Components[I].OfficialComponent));
+              Detail.AddPair('checkOnly',TJSONBool.Create(Components[I].CheckOnly));
+              URLList:=TJSONArray.Create; Detail.AddPair('additional',URLList);
+              for var URL in Components[I].AdditionalURLs do URLList.Add(URL);
+            end;
           end;
           Writeln(Params.ToJSON);
+          if Mode='--component-check-fixture' then
+            Writeln('REQUESTS ',FixtureWorker.Requests.Text.Replace(sLineBreak,' | '));
         finally Params.Free; end;
       finally ComponentThread.Free; end;
     end

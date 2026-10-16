@@ -1,25 +1,38 @@
 'use strict';
-// Exercises the production component parsers, SHA3, publisher checks and installers
-// against tiny metadata fixtures and official archives, in an isolated TEMP root.
+// Offline by default: production parsers and controlled author checks only.
+// --live-check explicitly opts into public metadata requests (no downloads).
+// --install-fixtures opts into the separate historical archive installer checks.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),cp=require('node:child_process');
-const crypto=require('node:crypto'),assert=require('node:assert/strict');
-const [exeArg,officialArg]=process.argv.slice(2),exe=path.resolve(exeArg),official=path.resolve(officialArg);
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'HomeLibRu-update-test-components-'));
+const crypto=require('node:crypto'),assert=require('node:assert/strict'),http=require('node:http');
+const args=process.argv.slice(2),[exeArg,officialArg]=args.filter(a=>!a.startsWith('--'));
+assert(exeArg,'Usage: node component_updates_tests.js <ProgramUpdateInstallerTest.exe> [official-fixture-dir] [--live-check] [--install-fixtures] [--work-dir=dir]');
+const exe=path.resolve(exeArg),official=officialArg?path.resolve(officialArg):null;
+const live=args.includes('--live-check'),install=args.includes('--install-fixtures');
+const workArg=args.find(a=>a.startsWith('--work-dir='));
+const workDir=workArg?path.resolve(workArg.slice('--work-dir='.length)):os.tmpdir();
+fs.mkdirSync(workDir,{recursive:true});
+const root=fs.mkdtempSync(path.join(workDir,'HomeLibRu-update-test-components-'));
+const childEnv={...process.env,TEMP:workDir,TMP:workDir};
 const bytes=fs.readFileSync(exe),platform=bytes.readUInt16LE(bytes.readUInt32LE(0x3c)+4)===0x8664?'Win64':'Win32';
 const arch=platform==='Win64'?'x64':'x86';let count=0;
-function run(args,expected=0){const r=cp.spawnSync(exe,args,{encoding:'utf8',windowsHide:true,timeout:35000});assert.ifError(r.error);assert.equal(r.status,expected,r.stdout+r.stderr);return r.stdout;}
+function run(args,expected=0){const r=cp.spawnSync(exe,args,{encoding:'utf8',windowsHide:true,timeout:120000,env:childEnv});assert.ifError(r.error);assert.equal(r.status,expected,r.stdout+r.stderr);return r.stdout;}
 function first(args){return JSON.parse(run(args).split('\n')[0]);}
 function pass(s){++count;console.log('PASS '+s);}
 for(const size of [0,1,3,135,136,137,271,272,273,1024*1024+1]){
   const data=crypto.randomBytes(size),file=path.join(root,'vector-'+size);fs.writeFileSync(file,data);
   assert.equal(run(['--sha3',file]).split(/\r?\n/)[0],crypto.createHash('sha3-256').update(data).digest('hex'));
 }pass('SHA3-256 agrees with independent implementation across rate boundaries and streaming');
-const sqlite=first(['--sqlite-parse',path.join(official,'sqlite-download.html'),path.join(official,'sqlite-changes.html'),'3.53.3']);
+async function main(){
+const sqliteDownload=path.join(root,'sqlite-download.html'),sqliteChanges=path.join(root,'sqlite-changes.html');
+fs.writeFileSync(sqliteDownload,`PRODUCT,3.53.4,2026/sqlite-dll-win-${arch}-3530400.zip,1234567,${'a'.repeat(64)}`);
+fs.writeFileSync(sqliteChanges,'<h3>2026-07-24 (3.53.4)</h3><ul><li>Owned fix.</li></ul><h3>2026-06-01 (3.53.3)</h3><p>Older release.</p>');
+if(install&&official){fs.copyFileSync(path.join(official,'sqlite-download.html'),sqliteDownload);fs.copyFileSync(path.join(official,'sqlite-changes.html'),sqliteChanges);}
+const sqlite=first(['--sqlite-parse',sqliteDownload,sqliteChanges,'3.53.3']);
 assert.equal(sqlite[0],'3.53.4');assert.match(sqlite[1],new RegExp('/sqlite-dll-win-'+arch+'-3530400\\.zip$'));
 assert.equal(sqlite[2].length,64);assert(sqlite[3]>1000000);assert.match(sqlite[4],/^3\.53\.4 \u2014 24\.07\.2026\r?$/m);assert.doesNotMatch(sqlite[4],/^3\.53\.3(?: \u2014 [^\r\n]+)?\r?$/m);
 pass('official SQLite metadata chooses running architecture and combines only missed changelog');
 const badHTML=path.join(root,'bad.html');fs.writeFileSync(badHTML,'PRODUCT,3.53.4,https://evil.example/sqlite.zip,123,'+'a'.repeat(64));
-run(['--sqlite-parse',badHTML,path.join(official,'sqlite-changes.html')],1);pass('SQLite parser refuses foreign or malformed archives');
+run(['--sqlite-parse',badHTML,sqliteChanges],1);pass('SQLite parser refuses foreign or malformed archives');
 const sumatraJSON=path.join(root,'sumatra.json');
 fs.writeFileSync(sumatraJSON,JSON.stringify([{tag_name:'3.7',prerelease:true,body:'unstable'},
   {tag_name:'3.5.2rel',body:'older'},{tag_name:'3.6.1rel',body:'Bugfixes.'},
@@ -29,6 +42,8 @@ assert.equal(sumatra[0],'3.6.1');assert.match(sumatra[1],new RegExp('/SumatraPDF
 assert.match(sumatra[4],/Bugfixes/);assert.doesNotMatch(sumatra[4],/older|unstable|hidden/);
 assert.match(sumatra[5],/Bugfixes[\s\S]*older/);
 pass('Sumatra parser chooses stable official archive and excludes drafts and prereleases');
+if(install){
+assert(official,'--install-fixtures requires an official archive fixture directory');
 for(const [id,filename,version] of [['SQLite','sqlite-'+arch+'.zip','3.53.4'],['SumatraPDF','sumatra-'+arch+'.zip','3.6.1']]){
   const job=path.join(root,'HomeLibRu-update-'+id),target=path.join(root,'target-'+id);fs.mkdirSync(target);
   fs.writeFileSync(path.join(target,'myhomelib2.ini'),'personal');fs.writeFileSync(path.join(target,'HomeLibRu.exe'),bytes);
@@ -45,23 +60,63 @@ for(const [id,filename,version] of [['SQLite','sqlite-'+arch+'.zip','3.53.4'],['
   assert.equal(fs.readFileSync(path.join(target,'Readers/SumatraPDF/SumatraPDF-settings.txt'),'utf8'),'history');
   assert.deepEqual(fs.readFileSync(path.join(target,'HomeLibRu.exe')),bytes);pass('official '+id+' archive verifies identity and installs without changing application or history');
 }
-const checked=first(['--official-check']);assert.equal(checked[0],'SQLite');assert(checked[2].startsWith('https://www.sqlite.org/'));assert.equal(checked[4],'');
-assert.deepEqual(checked.slice(5,10),['AlReader','','',0,'']);
-assert.equal(checked[10],'SumatraPDF');assert(checked[12].startsWith('https://www.sumatrapdfreader.org/'));assert(checked[13]>0);assert.equal(checked[14],'');
-pass('real official checks query SQLite and SumatraPDF while skipping AlReader');
-assert.equal(checked.length,30);
-assert.equal(checked[15],'DjVuLibre');assert.match(checked[16],/^3\.5\.\d+$/);
-assert(checked[17].startsWith('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'));
-assert.equal(checked[18],0);assert.equal(checked[19],'');
-assert.equal(checked[20],'7-Zip');assert.match(checked[21],/^\d{2}\.\d{2}$/);
-assert.equal(checked[22],'https://www.7-zip.org/download.html');
-assert.equal(checked[23],0);assert.equal(checked[24],'');
-pass('real DjVuLibre Windows and 7-Zip checks report versions separately from installation');
-assert.equal(checked[25],'DocSharp');
-assert.match(checked[26],/^\d+\.\d+\.\d+$/);
-assert.equal(checked[27],'https://github.com/manfromarce/DocSharp/releases');
-assert.equal(checked[28],0);assert.equal(checked[29],'');
-pass('real DocSharp check reports the latest stable version shared by both bundled assemblies');
+}
+const ids=['SQLite','AlReader','SumatraPDF','DjVuLibre','7-Zip','DocSharp'];
+const server=http.createServer((req,res)=>{
+ assert.equal(req.url,'/head');assert.equal(req.method,'HEAD');
+ res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':'128'});res.end();
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const headURL=`http://127.0.0.1:${server.address().port}/head`;
+function fixture(failure){return new Promise((resolve,reject)=>{
+ const child=cp.spawn(exe,['--component-check-fixture',headURL,failure],{windowsHide:true,env:childEnv});let out='',err='';
+ const timeout=setTimeout(()=>{child.kill();reject(Error('Controlled component check timed out'));},15000);
+ child.stdout.on('data',b=>out+=b.toString('utf8'));child.stderr.on('data',b=>err+=b.toString('utf8'));
+ child.on('error',reject);child.on('close',code=>{clearTimeout(timeout);try{assert.equal(code,0,out+err);resolve({rows:JSON.parse(out.split(/\r?\n/)[0]),out});}catch(e){reject(e);}});
+});}
+function healthy(rows,failed=''){
+ assert.deepEqual(rows.map(r=>r.id),ids);
+ for(const row of rows){
+  if(row.id===failed || failed==='all'){
+   assert(row.error,row.id);assert.equal(row.url,'');assert.equal(row.warning,'');
+   assert(row.details.length<=4096);assert(row.details.includes('Fixture HTTP 503'));
+   assert(!row.error.includes('<html>')&&!row.error.includes('secret'),row.error);continue;
+  }
+  if(row.id==='AlReader'){
+   assert.equal(row.url,'');assert.equal(row.error,'');assert(row.warning);assert.equal(row.size,0);continue;
+  }
+  assert.equal(row.error,'',row.id+': '+row.error);assert.equal(row.warning,'');
+  assert.equal(row.official,true,row.id);assert.equal(row.checkOnly,false,row.id);assert(row.size>0,row.id);
+  run(['--official-url',row.id,row.version,row.url]);
+  if(row.secondary)run(['--official-url',row.id,row.version,row.secondary,'secondary']);
+ }
+ assert.equal(rows[5].additional.length,failed==='DocSharp'||failed==='all'?0:2);
+}
+try{
+ const success=await fixture('');healthy(success.rows);
+ assert(success.out.includes('https://www.alreader.com/'),'AlReader was silently skipped');
+ assert.equal(success.rows[3].size,256);assert.equal(success.rows[5].size,512);
+ pass('controlled official checks include AlReader and offer architecture-matched direct DjVu, 7-Zip and all four DocSharp packages');
+ const unavailable=await fixture('all');healthy(unavailable.rows,'all');
+ pass('unavailable author sources retain six bounded errors without stale install URLs or raw server details in messages');
+ const partial=await fixture('SumatraPDF');healthy(partial.rows,'SumatraPDF');
+ pass('one unavailable author does not remove independent verified component updates');
+ const incomplete=await fixture('DocSharp-head');healthy(incomplete.rows,'DocSharp');
+ assert.equal(incomplete.rows[5].secondary,'');assert.equal(incomplete.rows[5].size,0);assert.equal(incomplete.rows[5].official,false);
+ pass('unavailable package HEAD removes the whole incomplete DocSharp package set before it can enter installation');
+ const retried=await fixture('');healthy(retried.rows);
+ pass('retry replaces failed metadata and restores the direct package without inheriting the previous error');
+}finally{await new Promise(resolve=>server.close(resolve));}
+if(live){
+ const rows=first(['--official-check-details']);assert.deepEqual(rows.map(r=>r.id),ids);
+ for(const row of rows){
+  if(row.error){assert.equal(row.url,'');console.log('LIVE unavailable '+row.id+': '+row.error);continue;}
+  if(row.warning){assert.equal(row.id,'AlReader');assert.equal(row.url,'');console.log('LIVE unverified AlReader: '+row.warning);continue;}
+  assert(row.official&&!row.checkOnly&&row.size>0,row.id);run(['--official-url',row.id,row.version,row.url]);
+  if(row.secondary)run(['--official-url',row.id,row.version,row.secondary,'secondary']);
+ }
+ pass('opt-in live metadata reports current direct author packages and explicit unavailable or unverified sources');
+}
 const raster=path.join(root,'raster.json');
 fs.writeFileSync(raster,JSON.stringify({tag_name:'26.04',body:'Official release.',draft:false,prerelease:false}));
 assert.equal(first(['--raster-parse',raster,'7-Zip'])[0],'26.04');
@@ -73,3 +128,5 @@ assert.equal(first(['--raster-parse',raster,'DjVuLibre'])[0],'3.5.29');
 fs.writeFileSync(raster,'/projects/djvu/files/DjVuLibre/3.5.99/');run(['--raster-parse',raster,'DjVuLibre'],1);
 pass('raster checks reject drafts, prereleases, malformed versions and source-only DjVu releases');
 console.log('PASS TOTAL '+count+' ('+platform+'); isolated fixtures: '+root);
+}
+main().catch(error=>{console.error('FAIL',error);process.exitCode=1;});

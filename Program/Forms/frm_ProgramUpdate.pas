@@ -30,7 +30,7 @@ type
     FComponentCheck: TButton;
     FComponentAutomatic: Boolean;
     FComponentExplicit: Boolean;
-    FComponentError: string;
+    FComponentError, FComponentErrorDetails: string;
     FComponentNotified: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
     FApplicationRelease: TProgramRelease;
     FApplicationStatus, FApplicationHistory: string;
@@ -62,6 +62,7 @@ type
     procedure SelectRow(Value: Integer);
     procedure ComponentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure CopyComponents(Sender: TObject);
+    procedure ComponentMenuPopup(Sender: TObject);
     procedure ComponentCheckClick(Sender: TObject);
     procedure ComponentsChecked(var Message: TMessage); message WM_COMPONENT_UPDATE_CHECKED;
     procedure UpdateComponentList;
@@ -77,6 +78,7 @@ type
     procedure SaveViewPreferences;
     function AvailableUpdates: TArray<TProgramRelease>;
     function AvailableSummary: string;
+    function ComponentCheckSummary: string;
     procedure UpdateSummary;
     procedure FinishCheckCycle;
     procedure StartQueuedDownload;
@@ -152,9 +154,10 @@ begin
   FComponentsView.OnSelectItem:=ComponentRowSelected;
   FComponentsView.OnKeyDown:=ComponentKeyDown;
   FComponentsView.OnDblClick:=OpenChanges;
-  Menu:=TPopupMenu.Create(Self); FComponentsView.PopupMenu:=Menu;
+  Menu:=TPopupMenu.Create(Self); FComponentsView.PopupMenu:=Menu; Menu.OnPopup:=ComponentMenuPopup;
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать строку'; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать список'; Entry.Tag:=1; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
+  Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать сведения об ошибке'; Entry.Tag:=2; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   HistoryFile := Settings.AppPath + 'COMPONENTS.json';
   try
     if FileExists(HistoryFile) then
@@ -523,6 +526,7 @@ begin
       if Version = '' then Version := 'не установлен';
       State:='Не проверено'; Available:='—';
       if (FComponents[I].ComponentError<>'') or (FComponentError<>'') then State:='Не удалось проверить'
+      else if FComponents[I].ComponentWarning<>'' then State:='Версия не подтверждена'
       else if FComponents[I].DownloadURL<>'' then
       begin
         Available:=FComponents[I].ComponentVersion;
@@ -569,11 +573,31 @@ begin
   begin CopyComponents(nil); Key:=0; end;
 end;
 
+procedure TfrmProgramUpdate.ComponentMenuPopup(Sender: TObject);
+begin
+  for var Entry in FComponentsView.PopupMenu.Items do
+    if Entry.Tag=2 then
+      Entry.Enabled:=(FSelectedRow>0) and
+        ((FComponents[FSelectedRow-1].ComponentError<>'') or (FComponentError<>''));
+end;
+
 procedure TfrmProgramUpdate.CopyComponents(Sender: TObject);
 var Text: string; I, First, Last, Attempt: Integer;
 begin
   Text:=''; First:=FSelectedRow; Last:=First;
-  if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=1) then
+  if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=2) then
+  begin
+    if FSelectedRow<=0 then Exit;
+    Text:=ComponentTitle(FSelectedRow-1)+sLineBreak;
+    if FComponents[FSelectedRow-1].ComponentError<>'' then
+      Text:=Text+FComponents[FSelectedRow-1].ComponentError+sLineBreak+
+        Copy(FComponents[FSelectedRow-1].ComponentErrorDetails,1,4096)
+    else if FComponentError<>'' then
+      Text:=Text+FComponentError+sLineBreak+Copy(FComponentErrorDetails,1,4096)
+    else Exit;
+    Last:=First-1;
+  end
+  else if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=1) then
   begin
     First:=0; Last:=FComponentsView.Items.Count-1;
     for I:=0 to FComponentsView.Columns.Count-1 do
@@ -638,12 +662,12 @@ begin
     FStatus.Caption := 'Источник: официальный сайт автора компонента.' + sLineBreak;
     if FComponents[I].ComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponents[I].ComponentError
     else if FComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponentError
+    else if FComponents[I].ComponentWarning<>'' then FStatus.Caption:=FStatus.Caption+FComponents[I].ComponentWarning
     else if FComponents[I].DownloadURL <> '' then
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
-    if UPDATE_COMPONENTS[I].CheckKind=ccBundled then
-      if (FComponents[I].DownloadURL='') and (FComponents[I].ComponentError='') and (FComponentError='') then
-        FStatus.Caption:='Проверяется официальный выпуск AlReader для Windows.';
+    if (FComponents[I].ComponentError<>'') or (FComponentError<>'') or
+      (FComponents[I].ComponentWarning<>'') then FPrimary.Caption:='Повторить проверку';
     if FComponents[I].CheckOnly then
       FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
@@ -678,15 +702,49 @@ begin
   if Result <> '' then Result := 'Есть обновления для ' + Result;
 end;
 
+function TfrmProgramUpdate.ComponentCheckSummary: string;
+var Failed, Unverified: string;
+begin
+  Failed:=''; Unverified:=''; Result:='';
+  for var I in CheckedComponentIndices do
+  begin
+    if FComponents[I].ComponentError<>'' then
+    begin
+      if Failed<>'' then Failed:=Failed+', ';
+      Failed:=Failed+ComponentIDs[I];
+    end
+    else if FComponents[I].ComponentWarning<>'' then
+    begin
+      if Unverified<>'' then Unverified:=Unverified+', ';
+      Unverified:=Unverified+ComponentIDs[I];
+    end;
+  end;
+  if FComponentError<>'' then Result:=FComponentError
+  else if Failed<>'' then Result:='Не удалось проверить: '+Failed+'.';
+  if Unverified<>'' then
+  begin
+    if Result<>'' then Result:=Result+' ';
+    Result:=Result+'Версия не подтверждена: '+Unverified+'.';
+  end;
+  if Result<>'' then Result:=Result+' Выберите строку для подробностей или повторите проверку.';
+end;
+
 procedure TfrmProgramUpdate.UpdateSummary;
 var Summary: string;
 begin
   UpdateComponentList;
   if FReady or Assigned(FThread) or ((FSelectedRow > 0) and FRelease.CheckOnly) then Exit;
+  // A selected failed/unverified source retains its explanation and Retry action,
+  // even while another independent component has an installable update.
+  if (FSelectedRow>0) and ((FComponents[FSelectedRow-1].ComponentError<>'') or
+    (FComponents[FSelectedRow-1].ComponentWarning<>'') or (FComponentError<>'')) then Exit;
   Summary := AvailableSummary;
   if Summary <> '' then
   begin
-    FStatus.Caption := Summary; FNeedsCheck := False;
+    FStatus.Caption := Summary;
+    if ComponentCheckSummary<>'' then FStatus.Caption:=FStatus.Caption+sLineBreak+ComponentCheckSummary;
+    if FApplicationFailed then FStatus.Caption:=FStatus.Caption+sLineBreak+'HomeLib Ru не удалось проверить. Повторите проверку.';
+    FNeedsCheck := False;
     if Length(AvailableUpdates) > 1 then FPrimary.Caption := 'Скачать все обновления'
     else FPrimary.Caption := 'Скачать обновление';
     FPrimary.Enabled := not FCheckingCycle;
@@ -748,14 +806,18 @@ begin
         begin SelectRow(CheckedComponentIndices[J] + 1); Break; end;
     ComponentSelected(nil); UpdateSummary; Present;
   end
-  else if not FCycleAutomatic then
+  else
   begin
-    SelectRow(0); ComponentSelected(nil); FStatus.Caption := FApplicationStatus;
-    if FComponentError <> '' then FStatus.Caption := FStatus.Caption + ' ' + FComponentError
-    else for J in CheckedComponentIndices do
-      if FComponents[J].ComponentError <> '' then
-        FStatus.Caption := FStatus.Caption + ' Не удалось проверить ' + ComponentIDs[J] + '.';
-    FPrimary.Enabled := True; FPrimary.Caption := 'Проверить ещё раз'; Present;
+    if not FCycleAutomatic then SelectRow(0);
+    ComponentSelected(nil);
+    if FSelectedRow=0 then
+    begin
+      FStatus.Caption := FApplicationStatus;
+      if ComponentCheckSummary<>'' then FStatus.Caption:=FStatus.Caption+sLineBreak+ComponentCheckSummary;
+      FPrimary.Caption := 'Проверить ещё раз';
+    end;
+    FPrimary.Enabled := True; LayoutWindow;
+    if not FCycleAutomatic then Present;
   end;
 end;
 
@@ -797,7 +859,7 @@ end;
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 begin
   if Assigned(FComponentThread) then Exit;
-  FComponentAutomatic := Automatic; FComponentError := '';
+  FComponentAutomatic := Automatic; FComponentError := ''; FComponentErrorDetails:='';
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
   FComponentCheck.Enabled := False;
@@ -833,10 +895,18 @@ begin
     FComponents := Updated;
     SaveComponentHistory(FCache, FComponents);
   end
-  else FComponentError := Error;
+  else
+  begin
+    FComponentError := 'Проверка компонентов не завершена. Повторите проверку.';
+    FComponentErrorDetails := Copy(Error,1,4096);
+  end;
   if not Successful then
     for I in CheckedComponentIndices do
-    begin FComponents[I].DownloadURL:=''; FComponents[I].ComponentError:=Error; end;
+    begin
+      FComponents[I].DownloadURL:=''; FComponents[I].ComponentWarning:='';
+      FComponents[I].ComponentError:=FComponentError;
+      FComponents[I].ComponentErrorDetails:=FComponentErrorDetails;
+    end;
   FComponentCheck.Enabled := True; UpdateComponentList;
   if FCheckingCycle then
   begin FComponentsPending := False; FinishCheckCycle; Exit; end;
@@ -844,9 +914,10 @@ begin
   begin FComponentExplicit := False; Exit; end;
   if FComponentExplicit and not FComponentAutomatic and (FSelectedRow = 0) then
   begin
-    Errors := 0; for I := 0 to High(FComponents) do if FComponents[I].ComponentError <> '' then Inc(Errors);
+    Errors := 0; for I := 0 to High(FComponents) do
+      if (FComponents[I].ComponentError <> '') or (FComponents[I].ComponentWarning<>'') then Inc(Errors);
     if Successful and (Errors > 0) then
-      FStatus.Caption := 'Некоторые компоненты не удалось проверить. Выберите их в списке, чтобы увидеть подробности.'
+      FStatus.Caption := ComponentCheckSummary
     else if Successful then FStatus.Caption := 'Компоненты проверены. Выберите компонент в списке, чтобы увидеть версию и изменения.'
     else FStatus.Caption := FComponentError;
     Present;
@@ -948,6 +1019,7 @@ begin
   end;
   if Assigned(FThread) then Exit;
   if FCheckingCycle then Exit;
+  if FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   FQueue := AvailableUpdates;
   if (Length(FQueue) = 0) and not FNeedsCheck and (FRelease.Tag <> '') then
