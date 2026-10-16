@@ -173,10 +173,13 @@ begin
   BeforeHash := THashSHA2.GetHashStringFromFile(FileName);
   Writeln('TRACE proposal INP stage=actual-nonadjacent-series'); Flush(Output);
   RunImport(FileName, False, True);
+  Writeln('TRACE proposal INP stage=verify-nonadjacent-series'); Flush(Output);
   Collection.GetStatistics(ExpectedAuthors, ExpectedBooks, ExpectedSeries);
   Require(ExpectedBooks = 3, 'Nonadjacent series produced duplicate physical books');
   DB := TSQLiteDatabase.CreateReadOnly(SystemDB.GetCollectionInfo(CollectionID).DBFileName);
-  try First := DB.QuerySingleInt('SELECT BookID FROM Books WHERE LibID=?', ['1']);
+  // A one-character untyped constant becomes Char in array of const; this API
+  // deliberately binds Unicode strings, so keep the fixture ID typed string.
+  try First := DB.QuerySingleInt('SELECT BookID FROM Books WHERE LibID=?', [string('1')]);
   finally DB.Free; end;
   Require((First > 0) and (Length(Collection.GetBookSeries(CreateBookKey(First, CollectionID))) = 2),
     'Nonadjacent repeated row lost a series membership');
