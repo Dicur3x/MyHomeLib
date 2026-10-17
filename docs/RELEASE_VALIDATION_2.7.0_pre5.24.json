@@ -2443,5 +2443,47 @@
     "0 ms cache readings are below GetTickCount64 resolution, not zero execution cost",
     "Expected benchmark failures and initial fixture/build mismatches retained; failed VCL assertions may trigger a secondary cleanup AV, which is not claimed fixed",
     "No whole-service performance claim; listed workloads only"
-  ]
+  ],
+  "publication": {
+    "verified_utc": "2026-10-17T07:42:43.412472+00:00",
+    "release_url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.24",
+    "id": 415658615,
+    "tag": "2.7.0_pre5.24",
+    "draft": false,
+    "target_commitish": "cb1cc6aad8ea5a46efd72ca27762036ae4675290",
+    "assets": [
+      {
+        "name": "HomeLibRu.zip",
+        "size": 55547858,
+        "digest": "sha256:0fe2a28c896353c74c64a48074ae4d45110f6fae3c604b6784bfdba3edcec300",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.24/HomeLibRu.zip"
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "size": 61063435,
+        "digest": "sha256:74b85927864fa6e5ba567b7039a1765686e901e2b713eb44e5130107d00776fd",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.24/HomeLibRu_x64.zip"
+      },
+      {
+        "name": "SHA256.txt",
+        "size": 166,
+        "digest": "sha256:3b13d21e729c586324e11b9a93fbefd74421632bc8a34e9187c62aa2bfb4f5e9",
+        "state": "uploaded",
+        "browser_download_url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.24/SHA256.txt"
+      }
+    ],
+    "public_latest": true,
+    "published_utc": "2026-10-17T07:42:42Z",
+    "source_tag_commit": "cb1cc6aad8ea5a46efd72ca27762036ae4675290",
+    "root_release_notes": 0,
+    "archived_release_notes": 24,
+    "legacy_update_feed": [
+      "2.7.0.1092",
+      "HomeLib Ru 2.7.0 pre5.24",
+      "https://github.com/Dicur3x/MyHomeLib/releases/latest"
+    ],
+    "public_checksum_bytes_verified": true
+  }
 }
