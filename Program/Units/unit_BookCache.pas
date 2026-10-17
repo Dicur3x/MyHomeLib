@@ -56,7 +56,13 @@ type
     Used, WriteRevision: UInt64;
     Temporary, Retired: Boolean;
   end;
+  TCacheInputDigest = record
+    Readers: Integer;
+    Size: Int64;
+    Hash: string;
+  end;
   TCacheReadStream = class(TFileStream)
+  private FIdentityName: string; FIdentityRegistered: Boolean;
   public destructor Destroy; override;
   end;
   TCacheMigration = class(TThread)
@@ -74,6 +80,7 @@ var CacheGuard: TObject; SessionCachePath, LegacyRoot: string;
   IndexReady, Closing, CacheRetired: Boolean; IndexBytes: Int64; MaintenanceWaiters: Integer;
   CacheIndex: TDictionary<string,TCacheEntry>;
   ReaderPins: TDictionary<string,UInt64>; Writers: TList<TBookCacheWrite>;
+  InputDigests: TDictionary<string,TCacheInputDigest>;
 procedure StartCacheMigration; forward;
 procedure StartMaintenance; forward;
 
@@ -438,7 +445,7 @@ begin
 end;
 
 function OpenCachedBookFile(const FileName: string): TStream;
-var Name: string;
+var Name: string; Input: TCacheReadStream; Digest: TCacheInputDigest;
 begin
   BookCachePath; if not BookCacheIndexReady then RefreshBookCache(True);
   TMonitor.Enter(CacheGuard);
@@ -446,14 +453,33 @@ begin
     Name:=ExistingBookCacheFile(FileName);
     if ManagedFile(Name) then
     begin
-      Result:=TCacheReadStream.Create(Name,fmOpenRead or fmShareDenyWrite);
+      Input:=TCacheReadStream.Create(Name,fmOpenRead or fmShareDenyWrite);
+      try
+        // Track only handles which actually deny writes/deletion. An entry's
+        // lifetime is exactly the overlapping lifetime of these read locks.
+        Input.FIdentityName:=Name;
+        if not InputDigests.TryGetValue(Name,Digest) then Digest:=Default(TCacheInputDigest);
+        Inc(Digest.Readers); InputDigests.AddOrSetValue(Name,Digest);
+        Input.FIdentityRegistered:=True;
+        Result:=Input;
+      except Input.Free; raise; end;
       Touch(Name); UpdateIndex(Name); TrimBookCache(Name);
     end else Result:=TFileStream.Create(Name,fmOpenRead or fmShareDenyWrite);
   finally TMonitor.Exit(CacheGuard); end;
 end;
 
 destructor TCacheReadStream.Destroy;
-begin inherited; TrimBookCache; end;
+var Digest: TCacheInputDigest;
+begin
+  TMonitor.Enter(CacheGuard);
+  try
+    if FIdentityRegistered and InputDigests.TryGetValue(FIdentityName,Digest) then
+      if Digest.Readers=1 then InputDigests.Remove(FIdentityName)
+      else begin Dec(Digest.Readers); InputDigests.AddOrSetValue(FIdentityName,Digest); end;
+  finally TMonitor.Exit(CacheGuard); end;
+  inherited;
+  TrimBookCache;
+end;
 
 function BookCacheSource(const FileName: string): string;
 var Entry: TCacheEntry; Name: string;
@@ -471,6 +497,7 @@ const MaxPayload = 64*1024*1024; MaxSidecar = 1024*1024;
 var Name, Original, Origin: string; Data: TWin32FileAttributeData;
   Dependency, OriginBytes, Buffer: TBytes; Stream: TFileStream;
   Hash, DependencyHash: THashSHA2; ReadCount: Integer;
+  Digest: TCacheInputDigest; PayloadHash: string;
   function Sidecar(const Suffix: string; out Bytes: TBytes): Boolean;
   var Input: TFileStream;
   begin
@@ -502,17 +529,39 @@ begin
     Stream:=TFileStream.Create(Name,fmOpenRead or fmShareDenyWrite);
     try
       if (Stream.Size<0) or (Stream.Size>MaxPayload) then Exit;
-      Hash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); SetLength(Buffer,65536);
-      repeat
-        if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
-        ReadCount:=Stream.Read(Buffer[0],Length(Buffer));
-        if ReadCount>0 then begin SetLength(Buffer,ReadCount); Hash.Update(Buffer); end;
-      until ReadCount=0;
+      if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+      // Origin/dependency sidecars were re-read above. Reuse only payload
+      // bytes protected continuously by the tracked readers and this local
+      // deny-write handle, including a concurrent last-reader release.
+      PayloadHash:='';
+      TMonitor.Enter(CacheGuard);
+      try
+        if InputDigests.TryGetValue(Name,Digest) and (Digest.Readers>0) and
+          (Digest.Size=Stream.Size) then PayloadHash:=Digest.Hash;
+      finally TMonitor.Exit(CacheGuard); end;
+      if PayloadHash='' then
+      begin
+        Hash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); SetLength(Buffer,65536);
+        repeat
+          if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
+          ReadCount:=Stream.Read(Buffer[0],Length(Buffer));
+          if ReadCount>0 then begin SetLength(Buffer,ReadCount); Hash.Update(Buffer); end;
+        until ReadCount=0;
+        PayloadHash:=Hash.HashAsString;
+        TMonitor.Enter(CacheGuard);
+        try
+          if InputDigests.TryGetValue(Name,Digest) and (Digest.Readers>0) then
+          begin
+            Digest.Size:=Stream.Size; Digest.Hash:=PayloadHash;
+            InputDigests.AddOrSetValue(Name,Digest);
+          end;
+        finally TMonitor.Exit(CacheGuard); end;
+      end;
       // Dependency metadata proves origin; the payload hash also catches a
       // same-size replacement which left its old dependency sidecar intact.
       DependencyHash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); DependencyHash.Update(Dependency);
       Result:='prepared-input-v1|'+LowerCase(Name)+'|'+LowerCase(Original)+'|'+
-        IntToStr(Stream.Size)+'|'+DependencyHash.HashAsString+'|'+Hash.HashAsString;
+        IntToStr(Stream.Size)+'|'+DependencyHash.HashAsString+'|'+PayloadHash;
     finally Stream.Free; end;
   except
     on E: EAbort do raise;
@@ -812,9 +861,10 @@ initialization
   CacheIndex:=TDictionary<string,TCacheEntry>.Create(TIStringComparer.Ordinal);
   ReaderPins:=TDictionary<string,UInt64>.Create(TIStringComparer.Ordinal);
   Writers:=TList<TBookCacheWrite>.Create;
+  InputDigests:=TDictionary<string,TCacheInputDigest>.Create(TIStringComparer.Ordinal);
 finalization
   Closing:=True;
   if Assigned(Migration) then begin Migration.Terminate; Migration.WaitFor; Migration.Free; end;
   if Assigned(Maintenance) then begin Maintenance.Terminate; Maintenance.WaitFor; Maintenance.Free; end;
-  Writers.Free; CacheIndex.Free; PendingRoots.Free; RootHistory.Free; ReaderPins.Free; CacheGuard.Free;
+  InputDigests.Free; Writers.Free; CacheIndex.Free; PendingRoots.Free; RootHistory.Free; ReaderPins.Free; CacheGuard.Free;
 end.

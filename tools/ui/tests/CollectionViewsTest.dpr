@@ -4671,6 +4671,7 @@ var I, BookCount, SeriesCount: Integer; Started: UInt64; Node: PVirtualNode;
   Data: PBookRecord; Languages: TComboBox; CancelButton: TButton; Component: TComponent;
   Profile: TProfileBooks; DB: TSQLiteDatabase; PaintProbe: TLoadingPaintProbe;
   Filters: TBookColumnFilters; Column: TVirtualTreeColumn; Polls: Integer; Factory: TFunc<IBookIterator>;
+  OptionNames: TStringList; ColdOptionsMS, WarmOptionsMS: UInt64;
   procedure CheckIdleActions(Probe: TActionScanProbe; Expected: Boolean; const Context: string);
   begin
     frmMain.UpdateBookAction(frmMain.acBookSetRate1);
@@ -4716,7 +4717,21 @@ begin
     Writeln('PROFILE 120 column widths, 50000 loaded books ms=',GetTickCount64-Started);
     Require(GetTickCount64-Started<1500,'Resizing traverses the complete book list');
     Filters := TBookColumnFilters.ForTree(frmMain.tvBooksSR);
+    OptionNames:=TStringList.Create;
+    try
+      Started:=GetTickCount64; Filters.GetOptions(COL_SERIES,OptionNames);
+      ColdOptionsMS:=GetTickCount64-Started;
+      Require(OptionNames.Count=5000,'Series options lost distinct values from 50000 books');
+      Started:=GetTickCount64;
+      for I:=1 to 100 do Filters.GetOptions(COL_SERIES,OptionNames);
+      WarmOptionsMS:=GetTickCount64-Started;
+      Require(OptionNames.Count=5000,'Cached series options lost distinct values');
+      Writeln('PROFILE series options 50000 books cold_ms=',ColdOptionsMS,
+        ' cached_100_ms=',WarmOptionsMS,' options=',OptionNames.Count);
+    finally OptionNames.Free; end;
+    Started:=GetTickCount64;
     Filters.SetValue(COL_TITLE,'000001'); Require(Filters.Apply=1,'Single result profile failed');
+    Writeln('PROFILE title filter 50000 books ms=',GetTickCount64-Started);
     Started := GetTickCount64;
     for I := 1 to 120 do Column.Width := 220+(I mod 80);
     Writeln('PROFILE 120 column widths, one visible / 50000 loaded ms=',GetTickCount64-Started);
@@ -5419,6 +5434,7 @@ end;
 {$I CollectionMetadataSyncTests.inc}
 {$I PublisherMetadataIndexTests.inc}
 {$I ReaderPipelineCacheTests.inc}
+{$I ReaderCachePerformanceTests.inc}
 {$I MetabibSizeComparisonTests.inc}
 {$I ..\..\..\Program\Tests\cache_folder_presets_test.inc}
 {$I NativeFolderPickerTests.inc}
@@ -5748,6 +5764,7 @@ begin
         TestReaderMainWithColumnFilter
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
       else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
+      else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
