@@ -644,7 +644,8 @@ begin
       end;
       if FComponentsPending or Assigned(FComponentThread) then
         State:='Проверяется…';
-      Row(I+1,ComponentTitle(I),Version,Available,State);
+      Row(I+1,ComponentTitle(I),ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version),
+        ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Available),State);
     end;
     SelectRow(FSelectedRow);
   finally
@@ -763,7 +764,7 @@ begin
   end;
   Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
   FPage.Caption := 'Сайт автора';
-  FVersion.Caption := ComponentTitle(I) + ': ' + Version;
+  FVersion.Caption := ComponentTitle(I) + ': ' + ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version);
   if Version = '' then FVersion.Caption := ComponentTitle(I) + ': не установлен';
   if ComponentNewer(FComponents[I], Version) then
   begin
@@ -1409,7 +1410,7 @@ begin
     begin
       FPage.Caption := 'Сайт автора';
       FVersion.Caption := 'Текущая версия ' + Component + ': ' +
-        InstalledVersion(Component);
+        ComponentDisplayVersion(Component,InstalledVersion(Component));
     end;
     FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);

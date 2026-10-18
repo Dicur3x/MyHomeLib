@@ -32,10 +32,16 @@ type
     FSections: array of TUpdateNotesSection;
     FSpareSections: array of TUpdateNotesSection;
     FPrimaryNotes: TRichEdit;
+    FMore: TButton;
+    FHistoryTitles, FHistoryBodies: TArray<string>;
+    FShownLimit: Integer;
+    FAppending: Boolean;
     FLoading, FLayouting, FRedrawDisabled: Boolean;
     FLastNotes: string;
     FZoomPercent: Integer;
     FOnZoomChanged: TNotifyEvent;
+    procedure ShowMore(Sender: TObject);
+    procedure MoreFocused(Sender: TObject);
     procedure BeginDisplayUpdate;
     procedure EndDisplayUpdate;
     procedure SetZoomPercent(Value: Integer);
@@ -131,7 +137,7 @@ end;
 
 function IsReleaseHeading(const Text: string): Boolean;
 begin
-  Result := TRegEx.IsMatch(Text, '^(?:HomeLib Ru |SQLite |SumatraPDF |v)?[0-9]+\.[0-9]+(?:\.[0-9]+)*(?:_pre[0-9]+(?:\.[0-9]+)*)?(?: — [0-9]{2}\.[0-9]{2}\.[0-9]{4})?$');
+  Result := TRegEx.IsMatch(Text, '^(?:HomeLib Ru |SQLite |SumatraPDF |DjVuLibre |v)?[0-9]+\.[0-9]+(?:\.[0-9]+)*(?:_pre[0-9]+(?:\.[0-9]+)*)?(?: — [0-9]{2}\.[0-9]{2}\.[0-9]{4})?$');
 end;
 
 function RTFText(const Text: string): string;
@@ -252,11 +258,17 @@ end;
 constructor TUpdateNotesView.Create(AOwner: TComponent);
 begin
   inherited;
-  FZoomPercent := 100;
+  FZoomPercent := 100; FShownLimit := 3;
   Color := clWindow;
   DoubleBuffered := True;
   HorzScrollBar.Visible := False;
   VertScrollBar.Tracking := True;
+  FMore := TButton.Create(Self); FMore.Name := 'UpdateNotesMore';
+  FMore.Parent := Self; FMore.Visible := False; FMore.TabStop := False;
+  FMore.Caption := 'Показать ещё 3'; FMore.WordWrap := True;
+  FMore.Font.Name := 'Segoe UI'; FMore.Font.Size := 12;
+  FMore.ShowHint := True; FMore.Hint := 'Показать следующие выпуски из истории изменений.';
+  FMore.OnClick := ShowMore; FMore.OnEnter := MoreFocused;
   FPrimaryNotes := TUpdateNotesEdit.Create(Self);
   TUpdateNotesEdit(FPrimaryNotes).FView := Self;
   FPrimaryNotes.Parent := Self;
@@ -281,6 +293,7 @@ var I: Integer; Background: TColor; Format: TCharFormat2;
 begin
   if MHLThemeDark then Background := RGB(30,31,34) else Background := clWindow;
   Color := Background;
+  if Assigned(FMore) then FMore.Font.Color := MHLThemeText;
   // RichEdit font changes can allocate its native window. Wait until this
   // dynamically created view has been attached to its parent form.
   if Parent = nil then Exit;
@@ -396,6 +409,7 @@ begin
   BeginDisplayUpdate;
   try
     FZoomPercent := Value;
+    FMore.Font.Size := MulDiv(12, Value, 100);
     for I := 0 to High(FSections) do
     begin
       Start := FSections[I].Body.SelStart; Selection := FSections[I].Body.SelLength;
@@ -440,6 +454,23 @@ begin
   Index := TControl(Sender).Tag;
   if (Index >= 0) and (Index < Length(FSections)) then
     SetExpanded(Index, not FSections[Index].Expanded);
+end;
+
+procedure TUpdateNotesView.MoreFocused(Sender: TObject);
+begin ScrollInView(FMore); end;
+
+procedure TUpdateNotesView.ShowMore(Sender: TObject);
+var FirstNew: Integer; FollowFocus: Boolean;
+begin
+  if FAppending or (Length(FSections)>=Length(FHistoryTitles)) then Exit;
+  FirstNew := Length(FSections); FollowFocus := FMore.Focused;
+  FShownLimit := Min(Length(FHistoryTitles), FirstNew + 3);
+  FAppending := True;
+  try Load(FLastNotes); finally FAppending := False; end;
+  // Continue keyboard navigation at the newly added releases, including the
+  // final batch where the More button disappears.
+  if FollowFocus and (FirstNew<Length(FSections)) and FSections[FirstNew].Header.CanFocus then
+    FSections[FirstNew].Header.SetFocus;
 end;
 
 procedure TUpdateNotesView.HeaderFocused(Sender: TObject);
@@ -511,6 +542,12 @@ begin
       FSections[I].Body.Visible := FSections[I].Expanded;
       Inc(Top, Height);
     end;
+    if Assigned(FMore) and FMore.Visible then
+    begin
+      FMore.SetBounds(Padding, Top + Padding, Max(1,Width-2*Padding),
+        MulDiv(MulDiv(38,FZoomPercent,100),LayoutPPI,96));
+      Inc(Top,FMore.Height+2*Padding);
+    end;
     VertScrollBar.Range := Max(0, Top + VertScrollBar.Position);
     if ClientWidth = Width then Break;
     end;
@@ -519,9 +556,9 @@ end;
 
 procedure TUpdateNotesView.Load(const Notes: string);
 var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
-  I, J, FocusedSection, RestoreSection, SpareIndex: Integer; FocusedTitle: string; Separator: TBevel;
+  I, J, FocusedSection, RestoreSection, SpareIndex, VisibleCount: Integer; FocusedTitle: string; Separator: TBevel;
   OldTitles: TArray<string>; OldExpanded: TArray<Boolean>;
-  ReloadBody, NewControls: Boolean;
+  ReloadBody, NewControls, MoreHadFocus, KeepCount: Boolean;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
   procedure SaveSection;
   begin
@@ -530,7 +567,8 @@ var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
     Titles.Add(Title); Bodies.Add(Body.Trim); Title := ''; Body := '';
   end;
 begin
-  if (FLastNotes = Notes) and (Length(FSections) > 0) then Exit;
+  if not FAppending and (FLastNotes = Notes) and (Length(FSections) > 0) then Exit;
+  MoreHadFocus := FMore.Focused;
   FocusedSection := -1; FocusedTitle := '';
   SetLength(OldTitles,Length(FSections)); SetLength(OldExpanded,Length(FSections));
   for I := 0 to High(FSections) do
@@ -542,6 +580,12 @@ begin
   BeginDisplayUpdate;
   try
     {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
+    if FAppending then
+    begin
+      for I:=0 to High(FHistoryTitles) do begin Titles.Add(FHistoryTitles[I]); Bodies.Add(FHistoryBodies[I]); end;
+    end
+    else
+    begin
     Lines.Text := AdjustLineBreaks(Notes);
     Title := ''; Body := '';
     for Line in Lines do
@@ -557,12 +601,23 @@ begin
     SaveSection;
     if Titles.Count = 0 then
     begin Titles.Add('Список изменений'); Bodies.Add('История ещё не получена. Нажмите кнопку проверки обновлений.'); end;
+    KeepCount := (Length(FHistoryTitles)>0) and (FHistoryTitles[0]=Titles[0]);
+    if not KeepCount then
+    begin
+      FShownLimit:=3;
+      if FocusedTitle<>'' then
+      begin J:=Titles.IndexOf(FocusedTitle); if J>=0 then FShownLimit:=Max(3,J+1); end;
+    end;
+    SetLength(FHistoryTitles,Titles.Count); SetLength(FHistoryBodies,Bodies.Count);
+    for I:=0 to Titles.Count-1 do begin FHistoryTitles[I]:=Titles[I]; FHistoryBodies[I]:=Bodies[I]; end;
+    end;
+    VisibleCount := Min(FShownLimit,Titles.Count);
     {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesParseMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
     // Reuse native controls while switching components. Reparenting the first
     // RichEdit and recreating every header also recreates their native windows.
     // Keep inactive tail controls for another component with a longer history.
     // The pool is bounded by the largest history shown in this view.
-    for I := Titles.Count to High(FSections) do
+    for I := VisibleCount to High(FSections) do
     begin
       FSections[I].Panel.Visible := False;
       FSections[I].Header.Name := '';
@@ -570,10 +625,10 @@ begin
       SetLength(FSpareSections, SpareIndex + 1);
       FSpareSections[SpareIndex] := FSections[I];
     end;
-    SetLength(FSections, Titles.Count);
+    SetLength(FSections, VisibleCount);
     NewControls := False;
-    if VertScrollBar.Position <> 0 then VertScrollBar.Position := 0;
-    for I := 0 to Titles.Count - 1 do
+    if not FAppending and (VertScrollBar.Position <> 0) then VertScrollBar.Position := 0;
+    for I := 0 to VisibleCount - 1 do
     begin
       if (FSections[I].Panel = nil) and (Length(FSpareSections) > 0) then
       begin
@@ -647,12 +702,21 @@ begin
       {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesFormatMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
     end;
     FLastNotes := Notes;
+    FMore.Caption := 'Показать ещё ' + IntToStr(Min(3,Titles.Count-VisibleCount));
+    FMore.TabOrder := VisibleCount; FMore.TabStop := Titles.Count>VisibleCount;
+    FMore.Visible := FMore.TabStop;
     if NewControls then ApplyTheme;
     {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesThemeMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
   finally
     EndDisplayUpdate;
     {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesLayoutMS,GetTickCount64-ProfileStarted);{$ENDIF}
     Lines.Free; Titles.Free; Bodies.Free;
+  end;
+  if not FAppending and MoreHadFocus then
+  begin
+    if FMore.Visible and FMore.CanFocus then FMore.SetFocus
+    else if (Length(FSections)>0) and FSections[High(FSections)].Header.CanFocus then
+      FSections[High(FSections)].Header.SetFocus;
   end;
   if (FocusedSection >= 0) and (Length(FSections) > 0) then
   begin

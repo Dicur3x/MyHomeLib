@@ -191,7 +191,11 @@ begin
           Notes:='2.7.0_pre5.99'+sLineBreak+StringOfChar('x',100)+sLineBreak;
           for var I:=1 to 25 do Notes:=Notes+'Long owned history line '+IntToStr(I)+sLineBreak;
           Notes:=Notes+'2.7.0_pre5.98'+sLineBreak+'Older owned release.'+sLineBreak+
-            '2.7.0_pre5.97'+sLineBreak+'Oldest owned release.';
+            '2.7.0_pre5.97'+sLineBreak+'Third owned release.'+sLineBreak+
+            '2.7.0_pre5.96'+sLineBreak+'Fourth owned release.'+sLineBreak+
+            '2.7.0_pre5.95'+sLineBreak+'Fifth owned release.'+sLineBreak+
+            '2.7.0_pre5.94'+sLineBreak+'Sixth owned release.'+sLineBreak+
+            '2.7.0_pre5.93'+sLineBreak+'Final owned release.';
           View.Load(Notes); Host.Show; Application.ProcessMessages; Host.ScaleForPPI(PPI);
           Require((Host.Font.PixelsPerInch=PPI) and (View.SectionHeader(0).Font.PixelsPerInch=PPI),
             'Release headers did not adopt simulated VCL DPI');
@@ -360,6 +364,24 @@ begin
               'Deleting a queued focus target broke later release navigation');
             Writeln('PASS update theme tolerates deletion of a queued focus target before deferred delivery'); Flush(Output);
           end;
+          var More:=View.FindComponent('UpdateNotesMore') as TButton;
+          Require((View.SectionCount=3) and More.Visible,'Keyboard history eagerly loaded older releases');
+          View.SetExpanded(2,False); View.SectionHeader(2).SetFocus;
+          Host.Perform(CM_DIALOGKEY,VK_TAB,0);
+          Require(More.Focused and (Winapi.Windows.GetFocus=More.Handle),'Tab cannot reach history paging');
+          Require(Succeeded(UpdateProposalAccessibleObjectFromWindow(More.Handle,DWORD($FFFFFFFC),AccessibleID,Dispatch)),
+            'History paging exposes no native accessibility object');
+          Accessible:=Dispatch;
+          Require((Integer(Accessible.accRole[0])=$2B) and string(Accessible.accName[0]).Contains('Показать ещё 3'),
+            'History paging lacks an accessible button name or role');
+          Accessible:=Unassigned; Dispatch:=nil;
+          Host.Perform(CM_DIALOGKEY,VK_RETURN,0);
+          Require((View.SectionCount=6) and View.SectionHeader(3).Focused and (Probe.PrimaryCalls=0),
+            'Enter on history paging failed to append three, lost focus or triggered the primary action');
+          More.SetFocus; More.Perform(WM_KEYDOWN,VK_SPACE,0); More.Perform(WM_KEYUP,VK_SPACE,0);
+          Require((View.SectionCount=7) and not More.Visible and View.SectionHeader(6).Focused and (Probe.PrimaryCalls=0),
+            'Space on final history paging left a hidden focus target or triggered the primary action');
+          Writeln('PASS update history paging native Tab Enter Space MSAA and final-batch focus');
           Writeln('PASS update history native Tab Enter Space name state focus scroll reload theme=',Ord(Dark),' VCL_DPI=',PPI);
           Flush(Output);
         finally Accessible:=Unassigned; Dispatch:=nil; FreeAndNil(Host); end;

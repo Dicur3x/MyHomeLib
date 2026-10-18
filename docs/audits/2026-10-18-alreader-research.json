@@ -1,0 +1,39 @@
+{
+  "checked_utc": "2026-10-18T10:07:38.988040+00:00",
+  "scope": "Research only. No AlReader check policy, URL, bundled binary or reader preference changed.",
+  "findings": [
+    {
+      "finding": "Both alreader.com and www.alreader.com return HTTP 200 with a short landing page and an APK link; no Windows release metadata or download links.",
+      "source": "https://alreader.com/"
+    },
+    {
+      "finding": "Former downloads.php?lang=ru returns HTTP 404. Direct historical ru/en ZIP checks timed out; their current availability and identity were not established.",
+      "source": "https://www.alreader.com/downloads.php?lang=ru"
+    },
+    {
+      "finding": "The Chocolatey packaging repository uses version 2.5 and the same historical author-hosted English ZIP, rather than an independently maintained reader or download mirror.",
+      "source": "https://github.com/nett00n/Alreader2_chocolatey"
+    },
+    {
+      "finding": "PJCreation/AlreaderXPro is an Android APK localisation, with Smali and AndroidManifest.xml; it is not a Windows AlReader2 source fork.",
+      "source": "https://github.com/PJCreation/AlreaderXPro"
+    },
+    {
+      "finding": "LagranRn/ALReader is an unrelated Java reader.",
+      "source": "https://github.com/LagranRn/ALReader"
+    },
+    {
+      "finding": "00svd00/AlReaderXSync is an Android library synchronisation utility, not a Windows reading engine.",
+      "source": "https://github.com/00svd00/AlReaderXSync"
+    },
+    {
+      "finding": "GitHub name search including forks returned 12 repositories; none established an active Windows AlReader2 fork. This is a bounded search result, not proof that none exists.",
+      "source": "https://api.github.com/search/repositories?q=alreader+fork:true+in:name"
+    },
+    {
+      "finding": "An indexed AlReaderX author forum header mentions Windows builds, but a direct current header read returned HTTP 403. No current Windows version or verified package was established.",
+      "source": "https://4pda.to/forum/index.php?showtopic=945616"
+    }
+  ],
+  "recommendation_unapplied": "Keep the bundled verified AlReader2 working. Treat its Windows version as bundled, with repair through the verified HomeLib Ru archive. Consider stopping independent AlReader author-site version polling until an authoritative Windows feed/package can be verified. Do not switch to Android localisation repositories or repack mirrors."
+}

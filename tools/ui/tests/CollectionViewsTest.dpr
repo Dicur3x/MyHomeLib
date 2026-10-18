@@ -9,7 +9,7 @@
 uses
   NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
-  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes,
+  VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
@@ -569,11 +569,11 @@ begin
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
       Require(Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].ID) and
         Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].Title),'Purpose or library name missing');
-    Require(Selector.Items[6].SubItems[0]='0.21.0.0','Installed bundled DocSharp version missing');
+    Require(Selector.Items[6].SubItems[0]='0.21.0','Installed bundled DocSharp version missing');
     ChooseRow(Selector,6); var CopyKey: Word:=Ord('C');
     Selector.OnKeyDown(Selector,CopyKey,[ssCtrl]);
     Require((CopyKey=0) and CopiedText.Contains('Чтение DOC, PPT и XLS · DocSharp') and
-      CopiedText.Contains('0.21.0.0'),'Component purpose/library/version cannot be copied');
+      CopiedText.Contains('0.21.0'),'Component purpose/library/version cannot be copied');
     Selector.PopupMenu.Items[1].Click;
     Require(CopiedText.StartsWith('Компонент'+#9) and CopiedText.Contains('HomeLib Ru') and
       CopiedText.Contains('DocSharp'),'Entire component list cannot be copied');
@@ -1182,7 +1182,9 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
       Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),
         'Failed/canceled modal reader was not exercised');
     finally Driver.Timer.Free; Driver.Free; end;
-    DrainFailedReaderIdleCleanup(Phase + '-round-' + IntToStr(I));
+    if EnforceBudget then
+      DrainFailedReaderIdleCleanup(Phase + '-round-' + IntToStr(I),BeforeGDI+4,BeforeUSER+4)
+    else DrainFailedReaderIdleCleanup(Phase + '-round-' + IntToStr(I));
     Require(frmMain.Visible and frmMain.Enabled, 'Failed reader left main window hidden or disabled');
     Require(THashSHA2.GetHashStringFromFile(Source) = Hash, 'Reader failure changed its input');
     for var F := 0 to Screen.FormCount - 1 do
@@ -1238,8 +1240,22 @@ begin
     // Preserve the original eight loops, then independently probe another
     // twenty-four complete lifecycles. The original +4 budget applies after
     // EVERY measured close, rather than only to the final sample.
-    for var I := 0 to 7 do ExerciseRound(I, 'original', True);
-    for var I := 0 to 23 do ExerciseRound(I, 'stress', True);
+    if ParamStr(1)='reader-resource-idle' then
+    begin
+      // Independent control: no reader is created or closed during these samples.
+      for var I:=0 to 99 do
+      begin
+        DrainFailedReaderIdleCleanup('idle-control-'+IntToStr(I));
+        Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Idle control drawing resources drifted without a reader');
+        Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Idle control USER resources drifted without a reader');
+      end;
+      Writeln('PASS reader resource idle control retains the same +4 budgets without repeated reader lifecycles');
+    end
+    else
+    begin
+      for var I := 0 to 7 do ExerciseRound(I, 'original', True);
+      for var I := 0 to 23 do ExerciseRound(I, 'stress', True);
+    end;
     GdiFlush;
     Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Failed main-owned readers leak drawing handles');
     Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Failed main-owned readers leak window handles');
@@ -1247,7 +1263,8 @@ begin
     if not WasVisible then frmMain.Hide;
     Windows.Free; Controls.Free; BaseWindows.Free; BaseControls.Free;
   end;
-  Writeln('PASS 32 steady-state failed/canceled reader lifecycles preserve the original +4 budgets after two reported cold paths');
+  if ParamStr(1)<>'reader-resource-idle' then
+    Writeln('PASS 32 steady-state failed/canceled reader lifecycles preserve the original +4 budgets after two reported cold paths');
   Writeln('PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs');
 end;
 
@@ -5457,6 +5474,7 @@ end;
 {$I Release23UiTests.inc}
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
+{$I Post525UpdateTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5620,6 +5638,8 @@ begin
       end;
       if ParamStr(1) = 'search-startup-layout' then
         Trace('fresh Search startup already checked before other Main actions')
+      else if ParamStr(1) = 'post525-update' then
+        TestPost525UpdateDetails
       else if ParamStr(1) = 'oct11-ui' then
         TestOctoberElevenUI
       else if ParamStr(1) = 'builtin-export' then
@@ -5740,7 +5760,7 @@ begin
         TestLooseArchiveReading
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
-      else if ParamStr(1) = 'builtin-reader' then
+      else if (ParamStr(1) = 'builtin-reader') or (ParamStr(1)='reader-resource-idle') then
         TestBuiltinReaderIntegration(One)
       else if ParamStr(1) = 'main-preview' then
       begin

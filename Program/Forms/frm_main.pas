@@ -907,6 +907,7 @@ type
     FBookActionVersion: UInt64;
     FBookActionCached, FBookActionAvailable: Boolean;
     FProgramUpdateTimer: TTimer;
+    procedure EnsureProgramUpdateForm;
     procedure ProgramUpdateSchedule(Sender: TObject);
     procedure RestartForProgramUpdate(Sender: TObject);
   private
@@ -3377,16 +3378,22 @@ begin
   end;
 end;
 
+procedure TfrmMain.EnsureProgramUpdateForm;
+begin
+  if Assigned(FProgramUpdateForm) then Exit;
+  FProgramUpdateForm := TfrmProgramUpdate.Create(Self);
+  FProgramUpdateForm.OnRestart := RestartForProgramUpdate;
+  FProgramUpdateForm.OnCheck := CheckUpdatesExecute;
+end;
+
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
 begin
   if Assigned(Sender) then FAutoCheck := False;
   if Assigned(FProgramUpdateThread) then
     Exit;
-  if Assigned(FProgramUpdateForm) then
-  begin
-    if not FProgramUpdateForm.StartCheckCycle(FAutoCheck) then Exit;
-    FProgramUpdateForm.CheckComponents(FAutoCheck);
-  end;
+  EnsureProgramUpdateForm;
+  if not FProgramUpdateForm.StartCheckCycle(FAutoCheck) then Exit;
+  FProgramUpdateForm.CheckComponents(FAutoCheck);
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
   Settings.SaveSettings;
   EnsureBackgroundMessageWindow;
@@ -4557,10 +4564,13 @@ begin
   FProgramUpdateTimer.Interval := 30000;
   FProgramUpdateTimer.OnTimer := ProgramUpdateSchedule;
   FProgramUpdateTimer.Enabled := True;
-  FProgramUpdateForm := TfrmProgramUpdate.Create(Self);
-  FProgramUpdateForm.OnRestart := RestartForProgramUpdate;
-  FProgramUpdateForm.OnCheck := CheckUpdatesExecute;
-  if FProgramUpdateForm.RestoreReady then FProgramUpdateForm.Show;
+  // Keep the ordinary startup free of hidden release-note rendering and
+  // component executable scans. Pending updates and recovery retain priority.
+  if FileExists(IncludeTrailingPathDelimiter(ProgramUpdateCache(Settings.AppPath))+'ready.json') then
+  begin
+    EnsureProgramUpdateForm;
+    if FProgramUpdateForm.RestoreReady then FProgramUpdateForm.Show;
+  end;
 
 end;
 

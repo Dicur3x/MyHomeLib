@@ -1,8 +1,10 @@
 ﻿// Failure/cancel lifecycle helpers. Requires Require, Vcl.Forms,
 // System.Classes, System.SysUtils, System.Math and Winapi.Windows.
-procedure DrainFailedReaderIdleCleanup(const Stage: string);
+procedure DrainFailedReaderIdleCleanup(const Stage: string; AllowedGDI: Cardinal = 0; AllowedUSER: Cardinal = 0);
 const
-  IdleMilliseconds = 500;
+  MinimumIdleMilliseconds = 500;
+  StableMilliseconds = 250;
+  MaximumIdleMilliseconds = 5000;
 var
   Started, ChangedAt, SampledAt: UInt64;
   BeforeUSER, BeforeGDI, CurrentUSER, CurrentGDI, PreviousUSER, PreviousGDI,
@@ -16,7 +18,7 @@ begin
   MinimumGDI := BeforeGDI; MaximumGDI := BeforeGDI;
   Started := GetTickCount64; ChangedAt := Started; Changes := 0;
   repeat
-    // Match the standalone reader lifecycle test's real idle interval.
+    // Let pending native cleanup run before sampling the original budgets.
     // ProcessMessages/CheckSynchronize alone can return immediately and leave
     // timed cleanup from RichEdit, COM or VCL pending at the resource sample.
     Sleep(10); Application.ProcessMessages; CheckSynchronize(2); GdiFlush;
@@ -30,7 +32,11 @@ begin
     MaximumUSER := Max(MaximumUSER, CurrentUSER);
     MinimumGDI := Min(MinimumGDI, CurrentGDI);
     MaximumGDI := Max(MaximumGDI, CurrentGDI);
-  until SampledAt - Started >= IdleMilliseconds;
+  until (SampledAt - Started >= MinimumIdleMilliseconds) and
+    (((SampledAt - ChangedAt >= StableMilliseconds) and
+      ((AllowedGDI=0) or (CurrentGDI<=AllowedGDI)) and
+      ((AllowedUSER=0) or (CurrentUSER<=AllowedUSER))) or
+     (SampledAt - Started >= MaximumIdleMilliseconds));
   Writeln('PROFILE failed reader idle stage=', Stage,
     ' elapsed_ms=', SampledAt - Started, ' stable_ms=', SampledAt - ChangedAt,
     ' sample_changes=', Changes,
@@ -39,9 +45,9 @@ begin
     ' gdi_before=', BeforeGDI, ' gdi_after=', CurrentGDI,
     ' gdi_min=', MinimumGDI, ' gdi_max=', MaximumGDI);
   Flush(Output);
-  // Normal painting/timers can keep USER/GDI moving even before a reader is
-  // opened. Sample after the same bounded idle interval as the standalone
-  // test; the caller retains its original +4 limits and exact HWND/VCL checks.
+  // A no-reader control showed timed resources retiring after the old 500ms
+  // sample. Wait for a bounded quiet interval, retaining the original +4
+  // budgets and exact HWND/VCL ownership assertions in every measured cycle.
 end;
 
 procedure RequireFailedReaderHandleBaseline(const Stage: string;

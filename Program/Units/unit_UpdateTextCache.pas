@@ -12,7 +12,7 @@ function CachedUpdateText(HTTP: THTTPClient; const URL, CacheFolder: string;
 implementation
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.JSON, System.Hash,
-  System.Net.URLClient, Winapi.Windows;
+  System.Net.URLClient, Winapi.Windows, unit_AtomicIniFile;
 
 function ReadUpdateHistory(const FileName: string; MaxBytes: Int64): string;
 var Stream: TFileStream; Bytes: TBytes;
@@ -32,16 +32,14 @@ begin
 end;
 
 procedure WriteUpdateHistory(const FileName, Text: string);
-var Temporary: string;
+var Stream: TStringStream;
 begin
   if Text.Trim = '' then Exit; // A failed/empty response must not erase history.
   try
     if ReadUpdateHistory(FileName, 20000000) = Text then Exit;
     ForceDirectories(ExtractFilePath(FileName));
-    Temporary := FileName + '.new';
-    TFile.WriteAllText(Temporary, Text, TEncoding.UTF8);
-    if not MoveFileEx(PChar(Temporary), PChar(FileName),
-      MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then RaiseLastOSError;
+    Stream := TStringStream.Create(Text, TEncoding.UTF8);
+    try SaveStreamAtomically(Stream, FileName); finally Stream.Free; end;
   except
     // A read-only or full cache must never turn a successful check into an error.
   end;

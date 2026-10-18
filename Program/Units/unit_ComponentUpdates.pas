@@ -51,6 +51,8 @@ type
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
   out Releases: TComponentReleases; RequireAssets: Boolean = True): Boolean;
+function ComponentDisplayVersion(const ID, Version: string): string;
+function ParseDjVuHistory(const News, WindowsFiles: string; var Info: TProgramRelease): Boolean;
 function ComponentInstalledVersion(const AppPath, ID: string): string;
 function ComponentNewer(const ReleaseInfo: TProgramRelease; const Installed: string): Boolean;
 function ComponentArchiveName(const ID, Platform: string): string;
@@ -239,7 +241,12 @@ begin
   for I in CheckedComponentIndices do
   begin
     Text := ReadUpdateHistory(IncludeTrailingPathDelimiter(CacheFolder) + 'notes-' + ComponentIDs[I] + '.txt');
-    if Text.Trim <> '' then Releases[I].History := Copy(Text, 1, 324000);
+    if Text.Trim <> '' then
+    begin
+      Releases[I].History := Copy(Text, 1, 324000);
+      if (ComponentIDs[I]='DjVuLibre') and Text.Contains('NEW IN VERSION ') then
+        ParseDjVuHistory(Text,'',Releases[I]);
+    end;
   end;
 end;
 
@@ -402,6 +409,77 @@ begin
   Result := 'HomeLibRu-' + ID + '-' + Platform + '.zip';
 end;
 
+function ComponentDisplayVersion(const ID, Version: string): string;
+var Parts: TArray<string>; Count, Minimum, Major, Minor, Comparison: Integer;
+begin
+  Result:=Version;
+  // Presentation only; validation and comparisons retain the fixed-file version.
+  if not CompareComponentVersions(Version,Version,Comparison) then Exit;
+  Parts:=Version.Split(['.']); Count:=Length(Parts);
+  if ID='7-Zip' then
+  begin
+    for var I:=2 to Count-1 do if StrToInt(Parts[I])<>0 then Exit;
+    Major:=StrToInt(Parts[0]); Minor:=StrToInt(Parts[1]);
+    if Minor<=99 then Result:=Format('%d.%.2d',[Major,Minor]);
+    Exit;
+  end;
+  if ID='SumatraPDF' then Minimum:=2
+  else if (ID='SQLite') or (ID='DocSharp') or (ID='DjVuLibre') then Minimum:=3
+  else Exit;
+  while (Count>Minimum) and (StrToInt(Parts[Count-1])=0) do Dec(Count);
+  if Count=Length(Parts) then Exit;
+  Result:=Parts[0];
+  for var I:=1 to Count-1 do Result:=Result+'.'+Parts[I];
+end;
+
+function ParseDjVuHistory(const News, WindowsFiles: string; var Info: TProgramRelease): Boolean;
+var Dates, Seen: TDictionary<string,string>; History: TJSONArray; Entry: TJSONObject;
+  Row, Link, Stamp, Section: TMatch; Version, Date, Body, Text, Published: string;
+  Comparison, Year, Month, Day: Integer; ValidDate: TDateTime;
+begin
+  Result:=False;
+  if (Info.ComponentID<>'DjVuLibre') or
+    not CompareComponentVersions(Info.ComponentVersion,Info.ComponentVersion,Comparison) then Exit;
+  Dates:=TDictionary<string,string>.Create; Seen:=TDictionary<string,string>.Create;
+  History:=TJSONArray.Create;
+  try
+    // NEWS has no dates. Label SourceForge's Windows-package dates explicitly,
+    // rather than substituting the source-code or DjView release date.
+    for Row in TRegEx.Matches(WindowsFiles,'(?is)<tr\b[^>]*>.*?</tr>') do
+    begin
+      Link:=TRegEx.Match(Row.Value,'/projects/djvu/files/DjVuLibre_Windows/(3\.5\.[0-9]+)(?:\+|%2[bB])[0-9.]+/');
+      Stamp:=TRegEx.Match(Row.Value,'(?is)headers="files_date_h"[^>]*>\s*<abbr\b[^>]*title="([0-9]{4})-([0-9]{2})-([0-9]{2})[^"]*"');
+      if not Link.Success or not Stamp.Success then Continue;
+      if not TryStrToInt(Stamp.Groups[1].Value,Year) or
+        not TryStrToInt(Stamp.Groups[2].Value,Month) or not TryStrToInt(Stamp.Groups[3].Value,Day) or
+        not TryEncodeDate(Year,Month,Day,ValidDate) then Continue;
+      Date:=FormatDateTime('yyyy-mm-dd',ValidDate); Version:=Link.Groups[1].Value;
+      if not Dates.ContainsKey(Version) or (Dates[Version]<Date) then Dates.AddOrSetValue(Version,Date);
+    end;
+    Text:=''; Published:=Info.PublishedAt;
+    for Section in TRegEx.Matches(News,'(?ms)^NEW IN VERSION ([0-9]+\.[0-9]+\.[0-9]+)[ \t]*\r?\n[-=]+[ \t]*\r?\n(.*?)(?=^NEW IN VERSION |\z)') do
+    begin
+      Version:=Section.Groups[1].Value;
+      if not CompareComponentVersions(Version,Info.ComponentVersion,Comparison) or
+        (Comparison>0) or Seen.ContainsKey(Version) then Continue;
+      Seen.Add(Version,''); Body:=Section.Groups[2].Value.Trim;
+      if Body='' then Continue;
+      Date:=''; Dates.TryGetValue(Version,Date);
+      if Date<>'' then Body:='Дата Windows-пакета в каталоге SourceForge: '+
+        Copy(Date,9,2)+'.'+Copy(Date,6,2)+'.'+Copy(Date,1,4)+'.'+sLineBreak+sLineBreak+Body
+      else Body:='Дата Windows-пакета не опубликована в каталоге SourceForge.'+sLineBreak+sLineBreak+Body;
+      if Comparison=0 then Published:=Date;
+      Entry:=TJSONObject.Create; Entry.AddPair('version',Version); Entry.AddPair('date',Date); Entry.AddPair('notes',Body);
+      History.AddElement(Entry);
+      Text:=Text+ReleaseNotesHeading('DjVuLibre '+Version,Date)+sLineBreak+Body+sLineBreak+sLineBreak;
+      if (History.Count>=100) or (Length(Text)>120000) then Break;
+    end;
+    if History.Count=0 then Exit;
+    Info.Notes:=History.ToJSON; Info.History:=Text.Trim; Info.Changelog:=Info.History;
+    Info.PublishedAt:=Published; Result:=True;
+  finally History.Free; Seen.Free; Dates.Free; end;
+end;
+
 function ComponentInstalledVersion(const AppPath, ID: string): string;
 begin
   Result:=InstalledComponentVersion(AppPath,ID);
@@ -526,7 +604,7 @@ begin
 end;
 
 procedure TComponentUpdateThread.Execute;
-var I: Integer; DownloadPage, Changes, Folder: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
+var I: Integer; DownloadPage, Changes, Folder, WindowsFiles: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
   procedure GetSize(var Info: TProgramRelease);
   begin
     Response:=FetchHead(Info.DownloadURL);
@@ -593,6 +671,7 @@ begin
             if UPDATE_COMPONENTS[I].ID='DjVuLibre' then
             begin
               Changes:=FetchText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/');
+              WindowsFiles:=Changes;
               if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) then
                 raise Exception.Create('Не удалось прочитать Windows-версию DjVuLibre.');
               Match:=TRegEx.Match(Changes,'/projects/djvu/files/DjVuLibre_Windows/'+
@@ -607,8 +686,7 @@ begin
               FReleases[I].SecondaryURL:='https://master.dl.sourceforge.net/project/djvu/DjVuLibre/'+FReleases[I].ComponentVersion+'/djvulibre-'+FReleases[I].ComponentVersion+'.tar.gz?viasf=1';
               FReleases[I].OfficialComponent:=True; FReleases[I].CheckOnly:=False; GetSize(FReleases[I]);
               Changes:=FetchText('https://sourceforge.net/p/djvu/djvulibre-git/ci/master/tree/NEWS?format=raw');
-              Match:=TRegEx.Match(Changes,'(?is)NEW IN VERSION '+FReleases[I].ComponentVersion.Replace('.','\.')+'\s*(.*)');
-              if Match.Success then begin FReleases[I].History:=Copy(Match.Value,1,120000); FReleases[I].Changelog:=FReleases[I].History; end;
+              ParseDjVuHistory(Changes,WindowsFiles,FReleases[I]);
             end
             else
             begin
