@@ -1583,5 +1583,40 @@
     "Both architectures were executed on this Windows x64 machine; no separate physical Windows x86 installation was tested.",
     "Final-version reruns cover five affected native modes per architecture, not a second execution of the entire 54-mode audit after changing only the version.",
     "Installer tests use synthetic personal data. Raw logs, fixture manifests and final release archives remain as local evidence. Disposable fixture copies and new integration roots were removed after success; paths and hashes are recorded."
-  ]
+  ],
+  "publication": {
+    "mode": "public",
+    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.25",
+    "release_id": 416304740,
+    "tag": "2.7.0_pre5.25",
+    "source_commit": "efc507bdf8974d0aa56b060afdd867a19cce3628",
+    "draft": false,
+    "prerelease": false,
+    "published_at": "2026-10-18T07:38:04Z",
+    "assets": [
+      {
+        "name": "HomeLibRu.zip",
+        "bytes": 55553617,
+        "sha256": "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+        "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.25/HomeLibRu.zip",
+        "public_download_verified": true
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "bytes": 61070180,
+        "sha256": "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+        "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.25/HomeLibRu_x64.zip",
+        "public_download_verified": true
+      },
+      {
+        "name": "SHA256.txt",
+        "bytes": 166,
+        "sha256": "8859dfbd318e24e03590138959d3991722d641e5342b78cdd86b64c91fa5efe8",
+        "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.25/SHA256.txt",
+        "public_download_verified": true
+      }
+    ],
+    "checked_utc": "2026-10-18T07:38:29.893964+00:00",
+    "latest_confirmed": true
+  }
 }
