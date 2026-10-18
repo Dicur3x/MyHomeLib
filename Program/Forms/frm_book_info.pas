@@ -85,8 +85,12 @@ type
     FAuthorTab: TTabSheet;
     FAuthorInformation: TAuthorInformationPanel;
     FReviewReadOnly, FAnnotationReadOnly: Boolean;
+    FInfoNotify, FFileNotify: TWndMethod;
     procedure FinishDownload(Sender: TObject);
     procedure PageChanged(Sender: TObject);
+    procedure InfoNotify(var Message: TMessage);
+    procedure FileNotify(var Message: TMessage);
+    function DrawInfoGroup(var Message: TMessage; List: TListView): Boolean;
     function GetReview: string;
     procedure SetReview(const Value: string);
     function GetAnnotation: string;
@@ -139,7 +143,7 @@ uses
   StrUtils,
   unit_MHLHelpers,
   unit_FB2Utils,
-  unit_Localization;
+  unit_Localization, Winapi.CommCtrl, unit_MHLTheme;
 
 
 {$R *.dfm}
@@ -168,6 +172,11 @@ begin
   tsReview.Caption := 'Отзывы';
   lvFileInfo.ShowColumnHeaders := False;
   lvInfo.ShowColumnHeaders := False;
+  lvInfo.StyleElements := []; lvFileInfo.StyleElements := [];
+  if MHLThemeDark then
+  begin ApplyMHLControlTheme(lvInfo); ApplyMHLControlTheme(lvFileInfo); end;
+  FInfoNotify := tsInfo.WindowProc; tsInfo.WindowProc := InfoNotify;
+  FFileNotify := tsFileInfo.WindowProc; tsFileInfo.WindowProc := FileNotify;
   FReviewChanged := False;
 
 end;
@@ -207,6 +216,8 @@ end;
 
 destructor TfrmBookDetails.Destroy;
 begin
+  if Assigned(FInfoNotify) then tsInfo.WindowProc := FInfoNotify;
+  if Assigned(FFileNotify) then tsFileInfo.WindowProc := FFileNotify;
   // The worker owns its lists and HTTP client; it never retains the form.
   // Detaching the callback makes closing during a request immediate and safe.
   if Assigned(FWorker) then
@@ -250,6 +261,57 @@ begin
   end;
   mmReview.ReadOnly := FReviewReadOnly; mmoAnnotation.ReadOnly := FAnnotationReadOnly;
   btnLoadReview.Enabled := True; btnClearReview.Enabled := True;
+end;
+
+function TfrmBookDetails.DrawInfoGroup(var Message: TMessage; List: TListView): Boolean;
+var Draw: PNMLVCustomDraw; Bounds: TRect; Group: TListGroup; I, Saved: Integer;
+  Background: HBRUSH;
+begin
+  Result := False;
+  if not MHLThemeDark or (Message.Msg <> WM_NOTIFY) then Exit;
+  Draw := PNMLVCustomDraw(Message.LParam);
+  if (Draw = nil) or (Draw.nmcd.hdr.code <> NM_CUSTOMDRAW) or
+    (Draw.nmcd.hdr.hwndFrom <> List.Handle) or
+    (Draw.nmcd.dwDrawStage <> CDDS_PREPAINT) or (Draw.dwItemType <> LVCDI_GROUP) then Exit;
+  Group := nil;
+  for I := 0 to List.Groups.Count - 1 do
+    if List.Groups[I].GroupID = Integer(Draw.nmcd.dwItemSpec) then begin Group := List.Groups[I]; Break; end;
+  if Group = nil then Exit;
+  // Group captions retain native light-theme blue under a VCL dark style.
+  // Draw just the header; native item rendering and accessibility stay intact.
+  Bounds := Rect(0,LVGGR_HEADER,0,0);
+  if SendMessage(List.Handle,LVM_GETGROUPRECT,Group.GroupID,LPARAM(@Bounds))=0 then Exit;
+  Saved := SaveDC(Draw.nmcd.hdc);
+  Background := CreateSolidBrush(ColorToRGB(List.Color));
+  try
+    FillRect(Draw.nmcd.hdc, Bounds, Background);
+    SelectObject(Draw.nmcd.hdc, List.Font.Handle);
+    SetTextColor(Draw.nmcd.hdc, ColorToRGB(MHLThemeLink)); SetBkMode(Draw.nmcd.hdc, TRANSPARENT);
+    InflateRect(Bounds, -MulDiv(6,List.CurrentPPI,96), 0);
+    DrawText(Draw.nmcd.hdc, PChar(Group.Header), Length(Group.Header), Bounds,
+      DT_SINGLELINE or DT_VCENTER or DT_END_ELLIPSIS or DT_NOPREFIX);
+  finally DeleteObject(Background); RestoreDC(Draw.nmcd.hdc, Saved); end;
+  Message.Result := CDRF_SKIPDEFAULT; Result := True;
+end;
+
+procedure TfrmBookDetails.InfoNotify(var Message: TMessage);
+begin
+  if DrawInfoGroup(Message,lvInfo) then Exit;
+  FInfoNotify(Message);
+  if MHLThemeDark and (Message.Msg=WM_NOTIFY) and
+    (PNMHdr(Message.LParam)^.code=NM_CUSTOMDRAW) and
+    (PNMLVCustomDraw(Message.LParam)^.nmcd.dwDrawStage=CDDS_PREPAINT) then
+    Message.Result := Message.Result or CDRF_NOTIFYITEMDRAW;
+end;
+
+procedure TfrmBookDetails.FileNotify(var Message: TMessage);
+begin
+  if DrawInfoGroup(Message,lvFileInfo) then Exit;
+  FFileNotify(Message);
+  if MHLThemeDark and (Message.Msg=WM_NOTIFY) and
+    (PNMHdr(Message.LParam)^.code=NM_CUSTOMDRAW) and
+    (PNMLVCustomDraw(Message.LParam)^.nmcd.dwDrawStage=CDDS_PREPAINT) then
+    Message.Result := Message.Result or CDRF_NOTIFYITEMDRAW;
 end;
 
 procedure TfrmBookDetails.FormShow(Sender: TObject);

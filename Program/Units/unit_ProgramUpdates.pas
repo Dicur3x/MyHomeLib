@@ -34,7 +34,7 @@ type
     FHTTP: THTTPClient;
     FWindow: HWND;
     FRelease: TProgramRelease;
-    FJob, FError: string;
+    FJob, FError, FRuntimePath: string;
     FSuccessful: Boolean;
     FProgress: Integer;
     FPartSize, FPartOffset: Int64;
@@ -51,6 +51,7 @@ type
     property ErrorText: string read FError;
     property Progress: Integer read FProgress;
     property ReleaseInfo: TProgramRelease read FRelease;
+    property RuntimePath: string read FRuntimePath write FRuntimePath;
   end;
 
   // The form owns this thread. Results are read only after WaitFor; the
@@ -264,6 +265,7 @@ begin
   inherited Create(True);
   FreeOnTerminate := False;
   FWindow := AWindow; FHTTP := AHTTP; FRelease := ReleaseInfo; FJob := Job;
+  FRuntimePath:=ExtractFilePath(ParamStr(0));
   FHTTP.UserAgent := 'HomeLib Ru';
   FHTTP.ConnectionTimeout := 10000; FHTTP.ResponseTimeout := 15000;
   FHTTP.OnReceiveData := ReceiveData;
@@ -363,7 +365,7 @@ begin
         (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
         raise Exception.Create('Официальная контрольная сумма 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
-      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,ExtractFilePath(ParamStr(0)),AdditionalArchives);
+      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives);
     end
     else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
       True, FRelease.ComponentID, FRelease.ComponentVersion);

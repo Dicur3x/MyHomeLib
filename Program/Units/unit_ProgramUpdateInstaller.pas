@@ -30,6 +30,8 @@ function UpdateFileVersion(const FileName: string): string;
 function CompareComponentVersions(const Left, Right: string; out Comparison: Integer): Boolean;
 function ComponentFileName(const ID: string): string;
 function InstalledComponentVersion(const AppPath, ID: string): string;
+function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
+function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress = nil; FailAfter: Integer = -1);
@@ -158,6 +160,37 @@ begin
       end;
     except Result:=''; end;
   finally Root.Free; end;
+end;
+
+function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
+var Names: TArray<string>; Name, FullName: string;
+begin
+  Result:=True;
+  try
+    if InstalledComponentVersion(AppPath,ID)='' then Exit;
+    if ID='SQLite' then Names:=TArray<string>.Create('sqlite3.dll')
+    else if ID='AlReader' then Names:=TArray<string>.Create('Readers/AlReader/AlReader2.exe')
+    else if ID='SumatraPDF' then Names:=TArray<string>.Create('Readers/SumatraPDF/SumatraPDF.exe')
+    else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/7za.exe','tools/7zip/License.txt')
+    else if ID='DocSharp' then Names:=TArray<string>.Create('tools/doc/HomeLibDoc.exe',
+      'tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll',
+      'tools/doc/DocSharp.Binary.Ppt.dll','tools/doc/DocSharp.Binary.Xls.dll',
+      'tools/doc/DocSharp-MIT.txt','tools/doc/b2xtranslator-BSD-3-Clause.txt','tools/doc/HomeLibDoc-MIT.txt')
+    else if ID='DjVuLibre' then Names:=TArray<string>.Create('tools/djvu/HomeLibDjvu.exe',
+      'tools/djvu/ddjvu.exe','tools/djvu/djvused.exe','tools/djvu/libdjvulibre.dll',
+      'tools/djvu/libjpeg.dll','tools/djvu/libtiff.dll','tools/djvu/libz.dll',
+      'tools/djvu/COPYING.txt','tools/djvu/COPYRIGHT','tools/djvu/IJG-README.txt',
+      'tools/djvu/LIBTIFF-COPYRIGHT.txt','tools/djvu/ZLIB-README.txt')
+    else Exit;
+    for Name in Names do
+    begin
+      FullName:=TPath.Combine(AppPath,Name);
+      if not FileExists(FullName) or (TFile.GetSize(FullName)=0) then Exit;
+    end;
+    if (ID='7-Zip') and not SameText(UpdateFileVersion(TPath.Combine(AppPath,'tools/7zip/7z.exe')),
+      UpdateFileVersion(TPath.Combine(AppPath,'tools/7zip/7z.dll'))) then Exit;
+    Result:=False;
+  except Result:=True; end;
 end;
 
 function ProgramUpdatePlatform: string;
@@ -881,6 +914,39 @@ begin
   finally Manifest.Free; end;
 end;
 
+function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
+var Manifest: TJSONObject; Info: TUpdateFile; Found: Boolean; Zip: TZipFile; Bytes: TBytes; PackedHash: THashSHA2;
+begin
+  if not IsUpdateSHA256(ExpectedSHA256) or
+    not SameText(UpdateSHA256(ChildPath(Job,'release.zip')),ExpectedSHA256) then
+    raise Exception.Create('Архив восстановления повреждён. Повторите загрузку.');
+  VerifyPreparedProgramUpdate(Job,Tag,Platform);
+  Manifest:=ReadJSON(ChildPath(Job,'manifest.json'));
+  try
+    Found:=False;
+    for Info in ManifestFiles(Manifest) do
+      if Info.Name='HomeLibRuUpdater.exe' then
+      begin
+        Result:=ChildPath(ChildPath(Job,'payload'),Info.Name);
+        if (TFile.GetSize(Result)<>Info.Size) or not SameText(UpdateSHA256(Result),Info.SHA256) then
+          raise Exception.Create('Файл механизма обновления повреждён. Повторите загрузку.');
+        Found:=True; Break;
+      end;
+    if not Found then raise Exception.Create('Нужно скачать полный комплект HomeLib Ru для восстановления механизма обновления.');
+    // Bind executable bytes to the verified download, not just to editable
+    // extracted metadata. A loose or modified staged helper is never run.
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(ChildPath(Job,'release.zip'),zmRead);
+      Zip.Read('HomeLibRuUpdater.exe',Bytes);
+      PackedHash:=THashSHA2.Create(THashSHA2.TSHA2Version.SHA256); PackedHash.Update(Bytes);
+      if not SameText(PackedHash.HashAsString,UpdateSHA256(Result)) then
+        raise Exception.Create('Механизм обновления не совпадает с проверенным архивом.');
+    finally Zip.Free; end;
+    VerifyUpdateExecutable(Result,Tag,Platform);
+  finally Manifest.Free; end;
+end;
+
 procedure RollbackProgramUpdate(const Job, Target: string);
 var Journal: TJSONObject; Files: TJSONArray; Value: TJSONValue;
   Name, OriginalTarget, Destination, Backup, State: string; Existed: Boolean; I: Integer;
@@ -948,7 +1014,7 @@ begin
   begin
     ComponentPath := ComponentFileName(ComponentID);
     for I := 0 to High(Files) do
-      if (Files[I].Name = ComponentPath) and
+      if (Files[I].Name = ComponentPath) and not ComponentNeedsRepair(Target,ComponentID) and
          CompareComponentVersions(InstalledComponentVersion(Target,ComponentID),
            InstalledComponentVersion(ChildPath(Job,'payload'),ComponentID), Comparison) and
          (Comparison > 0) then

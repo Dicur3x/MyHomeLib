@@ -165,6 +165,16 @@ begin
     begin Guard(ParamStr(2)); Writeln(UpdateSHA3(ParamStr(2))); end
     else if Mode = '--signature' then
     begin VerifySumatraSignature(ParamStr(2)); end
+    else if Mode='--component-needs-repair' then
+    begin
+      Guard(ParamStr(2));
+      Writeln(Ord(ComponentNeedsRepair(ParamStr(2),ParamStr(3))));
+    end
+    else if Mode='--prepared-helper' then
+    begin
+      Guard(ParamStr(2));
+      Writeln(PreparedProgramUpdateHelper(ParamStr(2),ParamStr(3),ProgramUpdatePlatform,ParamStr(4)));
+    end
     else if Mode = '--official-prepare' then
     begin
       Guard(ParamStr(2)); Guard(ParamStr(3));

@@ -24,12 +24,13 @@ type
     Body: TRichEdit;
     Title, Notes: string;
     Expanded: Boolean;
-    BodyHeight: Integer;
+    BodyHeight, MeasuredWidth, MeasuredPPI, LoadedZoomPercent: Integer;
   end;
 
   TUpdateNotesView = class(TScrollBox)
   private
     FSections: array of TUpdateNotesSection;
+    FSpareSections: array of TUpdateNotesSection;
     FPrimaryNotes: TRichEdit;
     FLoading, FLayouting, FRedrawDisabled: Boolean;
     FLastNotes: string;
@@ -62,6 +63,11 @@ type
 
 function SQLiteNotesToMarkdown(const HTML: string): string;
 procedure LoadUpdateNotes(Control: TRichEdit; const Notes: string; ZoomPercent: Integer = 100);
+
+{$IFDEF MHL_RELEASE_PERFORMANCE}
+var UpdateNotesParseMS, UpdateNotesControlsMS, UpdateNotesFormatMS,
+    UpdateNotesThemeMS, UpdateNotesLayoutMS: UInt64;
+{$ENDIF}
 
 implementation
 
@@ -285,6 +291,12 @@ begin
     FSections[I].Header.Font.Color := MHLThemeText;
     if FSections[I].Body <> FPrimaryNotes then ThemeBody(FSections[I].Body);
   end;
+  for I := 0 to High(FSpareSections) do
+  begin
+    FSpareSections[I].Panel.Color := MHLThemeBackground;
+    FSpareSections[I].Header.Font.Color := MHLThemeText;
+    ThemeBody(FSpareSections[I].Body);
+  end;
   Invalidate;
 end;
 
@@ -390,6 +402,7 @@ begin
       FSections[I].Body.Font.Size := MulDiv(10, Value, 100);
       FSections[I].Header.Font.Size := MulDiv(12, Value, 100);
       LoadUpdateNotes(FSections[I].Body, FSections[I].Notes, Value);
+      FSections[I].LoadedZoomPercent := Value; FSections[I].BodyHeight := 0;
       FSections[I].Body.SelStart := Start; FSections[I].Body.SelLength := Selection;
     end;
   finally EndDisplayUpdate; end;
@@ -465,8 +478,14 @@ begin
       FSections[I].Panel.Width := Width;
       FSections[I].Body.Width := Max(1, Width - 2 * Padding);
       FSections[I].Body.Visible := FSections[I].Expanded;
-      if FSections[I].Expanded then
+      if FSections[I].Expanded and ((FSections[I].BodyHeight = 0) or
+        (FSections[I].MeasuredWidth <> FSections[I].Body.ClientWidth) or
+        (FSections[I].MeasuredPPI <> LayoutPPI)) then
+      begin
         FSections[I].BodyHeight := TUpdateNotesEdit(FSections[I].Body).MeasureHeight;
+        FSections[I].MeasuredWidth := FSections[I].Body.ClientWidth;
+        FSections[I].MeasuredPPI := LayoutPPI;
+      end;
       if FSections[I].Expanded then
       begin
         FSections[I].Header.Caption := '▾  ' + FSections[I].Title + ' (развёрнуто)';
@@ -500,8 +519,10 @@ end;
 
 procedure TUpdateNotesView.Load(const Notes: string);
 var Lines, Titles, Bodies: TStringList; Line, Title, Body, Text: string;
-  I, J, FocusedSection, RestoreSection: Integer; FocusedTitle: string; Separator: TBevel;
+  I, J, FocusedSection, RestoreSection, SpareIndex: Integer; FocusedTitle: string; Separator: TBevel;
   OldTitles: TArray<string>; OldExpanded: TArray<Boolean>;
+  ReloadBody, NewControls: Boolean;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
   procedure SaveSection;
   begin
     if (Title = '') and (Body.Trim = '') then Exit;
@@ -520,6 +541,7 @@ begin
   Lines := TStringList.Create; Titles := TStringList.Create; Bodies := TStringList.Create;
   BeginDisplayUpdate;
   try
+    {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
     Lines.Text := AdjustLineBreaks(Notes);
     Title := ''; Body := '';
     for Line in Lines do
@@ -535,19 +557,40 @@ begin
     SaveSection;
     if Titles.Count = 0 then
     begin Titles.Add('Список изменений'); Bodies.Add('История ещё не получена. Нажмите кнопку проверки обновлений.'); end;
-    // Keep the first editor stable for selection/copying and regression probes.
-    FPrimaryNotes.Parent := Self;
-    FPrimaryNotes.Visible := False;
-    for I := 0 to High(FSections) do FSections[I].Panel.Free;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesParseMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
+    // Reuse native controls while switching components. Reparenting the first
+    // RichEdit and recreating every header also recreates their native windows.
+    // Keep inactive tail controls for another component with a longer history.
+    // The pool is bounded by the largest history shown in this view.
+    for I := Titles.Count to High(FSections) do
+    begin
+      FSections[I].Panel.Visible := False;
+      FSections[I].Header.Name := '';
+      SpareIndex := Length(FSpareSections);
+      SetLength(FSpareSections, SpareIndex + 1);
+      FSpareSections[SpareIndex] := FSections[I];
+    end;
     SetLength(FSections, Titles.Count);
-    VertScrollBar.Position := 0;
+    NewControls := False;
+    if VertScrollBar.Position <> 0 then VertScrollBar.Position := 0;
     for I := 0 to Titles.Count - 1 do
     begin
+      if (FSections[I].Panel = nil) and (Length(FSpareSections) > 0) then
+      begin
+        SpareIndex := High(FSpareSections);
+        FSections[I] := FSpareSections[SpareIndex];
+        SetLength(FSpareSections, SpareIndex);
+      end;
+      ReloadBody := (FSections[I].Panel = nil) or (FSections[I].Notes <> Bodies[I]) or
+        (FSections[I].LoadedZoomPercent <> FZoomPercent);
       FSections[I].Title := Titles[I];
       FSections[I].Notes := Bodies[I];
       FSections[I].Expanded := I = 0;
       for J := 0 to High(OldTitles) do
         if OldTitles[J]=Titles[I] then begin FSections[I].Expanded:=OldExpanded[J]; Break; end;
+      if FSections[I].Panel = nil then
+      begin
+      NewControls := True;
       FSections[I].Panel := TPanel.Create(Self);
       FSections[I].Panel.Parent := Self;
       FSections[I].Panel.BevelOuter := bvNone;
@@ -586,12 +629,29 @@ begin
       FSections[I].Body.Font.Name := 'Segoe UI';
       FSections[I].Body.Font.Size := MulDiv(10, FZoomPercent, 100);
       FSections[I].Body.Width := Max(0, ClientWidth - 16);
-      LoadUpdateNotes(FSections[I].Body, Bodies[I], FZoomPercent);
+      end;
+      FSections[I].Panel.TabOrder := I;
+      FSections[I].Panel.Visible := True;
+      FSections[I].Header.Name := 'UpdateReleaseHeader' + IntToStr(I);
+      FSections[I].Header.Tag := I;
+      FSections[I].Header.Font.Size := MulDiv(12, FZoomPercent, 100);
+      FSections[I].Body.Font.Size := MulDiv(10, FZoomPercent, 100);
+      {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesControlsMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
+      if ReloadBody then
+      begin
+        FSections[I].Body.Width := Max(1, ClientWidth - 2 * MulDiv(8, CurrentPPI, 96));
+        LoadUpdateNotes(FSections[I].Body, Bodies[I], FZoomPercent);
+        FSections[I].LoadedZoomPercent := FZoomPercent;
+        FSections[I].BodyHeight := 0;
+      end;
+      {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesFormatMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
     end;
     FLastNotes := Notes;
-    ApplyTheme;
+    if NewControls then ApplyTheme;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesThemeMS,GetTickCount64-ProfileStarted); ProfileStarted:=GetTickCount64;{$ENDIF}
   finally
     EndDisplayUpdate;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(UpdateNotesLayoutMS,GetTickCount64-ProfileStarted);{$ENDIF}
     Lines.Free; Titles.Free; Bodies.Free;
   end;
   if (FocusedSection >= 0) and (Length(FSections) > 0) then

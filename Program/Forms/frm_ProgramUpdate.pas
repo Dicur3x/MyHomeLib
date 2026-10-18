@@ -6,6 +6,11 @@ uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.Controls,
   Winapi.Windows, Winapi.Messages, unit_ProgramUpdates, unit_ComponentUpdates, unit_UpdateNotes, unit_MHLTheme;
 
 type
+{$IFDEF MHL_RELEASE_PERFORMANCE}
+  TProgramUpdateProfile = record
+    Selections, SelectionMS, NotesMS, RowsMS, LayoutMS, ChangesMS, ReleaseMS: UInt64;
+  end;
+{$ENDIF}
   TfrmProgramUpdate = class(TForm)
   private
     FStatus, FVersion, FBytes: TLabel;
@@ -13,7 +18,7 @@ type
     FProgress: TProgressBar;
     FPrimary, FLater, FPage: TButton;
     FZoomOut, FZoomReset, FZoomIn: TButton;
-    FUIUpdateCount, FNormalWidth, FNormalHeight: Integer;
+    FUIUpdateCount, FNormalWidth, FNormalHeight, FSelectionDepth: Integer;
     FUIRedraw, FPresentPending: Boolean;
     FThread: TProgramDownloadThread;
     FComponentThread: TComponentUpdateThread;
@@ -33,6 +38,8 @@ type
     FComponentError, FComponentErrorDetails: string;
     FComponentNotified: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
     FApplicationRelease: TProgramRelease;
+    FInstalledVersions: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
+    FRepairComponents: string;
     FApplicationStatus, FApplicationHistory: string;
     FApplicationVerified, FApplicationFailed: Boolean;
     FCheckingCycle, FAppPending, FComponentsPending, FCycleAutomatic: Boolean;
@@ -77,14 +84,18 @@ type
     procedure ZoomChanged(Sender: TObject);
     procedure LoadViewPreferences;
     procedure SaveViewPreferences;
+    function HasApplicationDownload: Boolean;
     function AvailableUpdates: TArray<TProgramRelease>;
     function AvailableSummary: string;
     function ComponentCheckSummary: string;
     procedure UpdateSummary;
     procedure FinishCheckCycle;
+    procedure RefreshInstalledComponents;
+    function InstalledVersion(const ID: string): string;
     procedure StartQueuedDownload;
     procedure ClearQueueJobs;
   protected
+    function InstallationHelperSource: string;
     procedure Resize; override;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     function CreateComponentWorker(Window: HWND): TComponentUpdateThread; virtual;
@@ -110,6 +121,10 @@ type
     property OnCheck: TNotifyEvent read FCheck write FCheck;
     property OnRestart: TNotifyEvent read FRestart write FRestart;
   end;
+
+{$IFDEF MHL_RELEASE_PERFORMANCE}
+var ProgramUpdateProfile: TProgramUpdateProfile;
+{$ENDIF}
 
 implementation
 
@@ -199,7 +214,7 @@ begin
   FComponentCheck := TButton.Create(Self); FComponentCheck.Parent := Self;
   FComponentCheck.SetBounds(500, 47, 220, 27); FComponentCheck.Caption := 'Проверить всё';
   FComponentCheck.OnClick := ComponentCheckClick;
-  UpdateComponentList; SelectRow(0);
+  RefreshInstalledComponents; UpdateComponentList; SelectRow(0);
   FStatus.SetBounds(20, 88, 700, 60); FStatus.AutoSize := False; FStatus.WordWrap := True;
   FNotes := TUpdateNotesView.Create(Self); FNotes.Parent := Self;
   FNotes.SetBounds(20, 155, 700, 238);
@@ -314,6 +329,9 @@ end;
 
 procedure TfrmProgramUpdate.Present;
 begin
+  // Row selection already belongs to this window. Repeated activation can
+  // wait on foreground restrictions and disrupt a newly focused child.
+  if FSelectionDepth>0 then Exit;
   if FUIUpdateCount > 0 then begin FPresentPending := True; Exit; end;
   if not Visible then Show;
   BringToFront;
@@ -345,10 +363,12 @@ var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHei
   TextHeight, ButtonHeight, TopHeight, TabsTop, TableTop, PageWidth, LaterWidth, FooterHeight,
   BytesHeight, TransferHeight: Integer;
   Bounds: TRect;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
   function S(Value: Integer): Integer;
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
 begin
   if not Assigned(FZoomIn) then Exit;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   DisableAlign;
   try
     Margin := S(12); Gap := S(8); Width := ClientWidth - 2 * Margin;
@@ -425,7 +445,10 @@ begin
       FNormalWidth := MulDiv(ClientWidth, 96, CurrentPPI);
       FNormalHeight := MulDiv(ClientHeight, 96, CurrentPPI);
     end;
-  finally EnableAlign; end;
+  finally
+    EnableAlign;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(ProgramUpdateProfile.LayoutMS,GetTickCount64-ProfileStarted);{$ENDIF}
+  end;
 end;
 
 procedure TfrmProgramUpdate.ViewTabChanged(Sender: TObject);
@@ -494,7 +517,9 @@ begin
 end;
 
 procedure TfrmProgramUpdate.SetRelease(const ReleaseInfo: TProgramRelease);
+{$IFDEF MHL_RELEASE_PERFORMANCE}var ProfileStarted: UInt64;{$ENDIF}
 begin
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   BeginUIUpdate;
   try
   if ReleaseInfo.ComponentID = '' then
@@ -520,7 +545,10 @@ begin
   end;
   UpdateSummary;
   Present;
-  finally EndUIUpdate; end;
+  finally
+    EndUIUpdate;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(ProgramUpdateProfile.ReleaseMS,GetTickCount64-ProfileStarted);{$ENDIF}
+  end;
 end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
@@ -530,24 +558,64 @@ begin
   else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + FRelease.ComponentVersion, FRelease.PublishedAt);
 end;
 
+procedure TfrmProgramUpdate.RefreshInstalledComponents;
+begin
+  FRepairComponents:='';
+  for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+  begin
+    FInstalledVersions[I]:=ComponentInstalledVersion(Settings.AppPath,UPDATE_COMPONENTS[I].ID);
+    if ComponentNeedsRepair(Settings.AppPath,UPDATE_COMPONENTS[I].ID) then
+    begin
+      FInstalledVersions[I]:='';
+      if FRepairComponents<>'' then FRepairComponents:=FRepairComponents+', ';
+      FRepairComponents:=FRepairComponents+UPDATE_COMPONENTS[I].ID;
+    end;
+  end;
+  if UpdateFileVersion(Settings.AppPath+'HomeLibRuUpdater.exe')='' then
+  begin
+    if FRepairComponents<>'' then FRepairComponents:=FRepairComponents+', ';
+    FRepairComponents:=FRepairComponents+'механизм обновления';
+  end;
+end;
+
+function TfrmProgramUpdate.InstalledVersion(const ID: string): string;
+begin
+  Result:='';
+  for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+    if UPDATE_COMPONENTS[I].ID=ID then Exit(FInstalledVersions[I]);
+end;
+
 procedure TfrmProgramUpdate.UpdateComponentList;
-var I, Comparison: Integer; Version, Available, State: string; Item: TListItem;
+var I, Comparison: Integer; Version, Available, State: string; Item: TListItem; Updating: Boolean;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
+  procedure BeginRows;
+  begin
+    if not Updating then begin FComponentsView.Items.BeginUpdate; Updating:=True; end;
+  end;
+  procedure Cell(Index: Integer; const Text: string);
+  begin
+    if Item.SubItems[Index]<>Text then begin BeginRows; Item.SubItems[Index]:=Text; end;
+  end;
   procedure Row(Index: Integer; const Caption, Installed, Latest, Status: string);
   begin
-    Item:=FComponentsView.Items[Index]; Item.Caption:=Caption;
-    while Item.SubItems.Count<3 do Item.SubItems.Add('');
-    Item.SubItems[0]:=Installed; Item.SubItems[1]:=Latest; Item.SubItems[2]:=Status;
+    Item:=FComponentsView.Items[Index];
+    if Item.Caption<>Caption then begin BeginRows; Item.Caption:=Caption; end;
+    while Item.SubItems.Count<3 do begin BeginRows; Item.SubItems.Add(''); end;
+    Cell(0,Installed); Cell(1,Latest); Cell(2,Status);
   end;
 begin
-  FRefreshingComponents:=True;
-  FComponentsView.Items.BeginUpdate;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
+  FRefreshingComponents:=True; Updating:=False;
   try
     // Keep row objects alive while their native selection notification is
     // being handled. Refreshing versions must not recreate the selected item.
+    if FComponentsView.Items.Count<>Length(UPDATE_COMPONENTS)+1 then BeginRows;
     while FComponentsView.Items.Count<Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Add;
     while FComponentsView.Items.Count>Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Delete(FComponentsView.Items.Count-1);
     Available:=FApplicationRelease.Tag; State:='Не проверено';
-    if Available<>'' then State:='Есть обновление'
+    if Available<>'' then
+      if not HasApplicationDownload then State:='Нет проверенного архива'
+      else if FRepairComponents<>'' then State:='Восстановление компонентов' else State:='Есть обновление'
     else if FApplicationVerified then
     begin Available:=PROGRAM_RELEASE_VERSION; State:='Актуально'; end
     else if FApplicationFailed then State:='Не удалось проверить';
@@ -556,7 +624,7 @@ begin
     Row(0,'HomeLib Ru',PROGRAM_RELEASE_VERSION,Available,State);
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     begin
-      Version := ComponentInstalledVersion(Settings.AppPath, UPDATE_COMPONENTS[I].ID);
+      Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
       if Version = '' then Version := 'не установлен';
       State:='Не проверено'; Available:='—';
       if (FComponents[I].ComponentError<>'') or (FComponentError<>'') then State:='Не удалось проверить'
@@ -564,7 +632,7 @@ begin
       else if FComponents[I].DownloadURL<>'' then
       begin
         Available:=FComponents[I].ComponentVersion;
-        if ComponentNewer(FComponents[I],ComponentInstalledVersion(Settings.AppPath,UPDATE_COMPONENTS[I].ID)) then
+        if ComponentNewer(FComponents[I],InstalledVersion(UPDATE_COMPONENTS[I].ID)) then
           if FComponents[I].CheckOnly then State:='Нет Windows-архива' else State:='Есть обновление'
         else State:='Актуально';
       end;
@@ -579,7 +647,11 @@ begin
       Row(I+1,ComponentTitle(I),Version,Available,State);
     end;
     SelectRow(FSelectedRow);
-  finally FComponentsView.Items.EndUpdate; FRefreshingComponents:=False; end;
+  finally
+    if Updating then FComponentsView.Items.EndUpdate;
+    FRefreshingComponents:=False;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(ProgramUpdateProfile.RowsMS,GetTickCount64-ProfileStarted);{$ENDIF}
+  end;
 end;
 
 procedure TfrmProgramUpdate.SelectRow(Value: Integer);
@@ -587,11 +659,11 @@ var Refreshing: Boolean;
 begin
   if FComponentsView.Items.Count=0 then Exit;
   FSelectedRow:=EnsureRange(Value,0,FComponentsView.Items.Count-1);
-  FHistorySelector.ItemIndex:=FSelectedRow;
+  if FHistorySelector.ItemIndex<>FSelectedRow then FHistorySelector.ItemIndex:=FSelectedRow;
   Refreshing:=FRefreshingComponents; FRefreshingComponents:=True;
   try
-    FComponentsView.Items[FSelectedRow].Selected:=True;
-    FComponentsView.Items[FSelectedRow].Focused:=True;
+    if not FComponentsView.Items[FSelectedRow].Selected then FComponentsView.Items[FSelectedRow].Selected:=True;
+    if not FComponentsView.Items[FSelectedRow].Focused then FComponentsView.Items[FSelectedRow].Focused:=True;
   finally FRefreshingComponents:=Refreshing; end;
 end;
 
@@ -606,6 +678,7 @@ begin
     SelectRow(FSelectedRow);
     Exit;
   end;
+  if FSelectedRow=Item.Index then Exit;
   FSelectedRow:=Item.Index; ComponentSelected(nil);
 end;
 
@@ -667,9 +740,11 @@ end;
 
 procedure TfrmProgramUpdate.ComponentSelected(Sender: TObject);
 var I: Integer; Version: string;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted, ChangesStarted: UInt64;{$ENDIF}
 begin
   if Assigned(FThread) or FReady then Exit;
-  BeginUIUpdate;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
+  Inc(FSelectionDepth); BeginUIUpdate;
   try
   I := FSelectedRow - 1;
   if I < 0 then
@@ -686,13 +761,15 @@ begin
     UpdateSummary;
     Exit;
   end;
-  Version := ComponentInstalledVersion(Settings.AppPath, UPDATE_COMPONENTS[I].ID);
+  Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
   FPage.Caption := 'Сайт автора';
   FVersion.Caption := ComponentTitle(I) + ': ' + Version;
   if Version = '' then FVersion.Caption := ComponentTitle(I) + ': не установлен';
   if ComponentNewer(FComponents[I], Version) then
   begin
+    {$IFDEF MHL_RELEASE_PERFORMANCE}ChangesStarted:=GetTickCount64;{$ENDIF}
     FComponents[I].Changelog := ComponentChanges(FComponents[I], Version);
+    {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(ProgramUpdateProfile.ChangesMS,GetTickCount64-ChangesStarted);{$ENDIF}
     SetRelease(FComponents[I]);
   end
   else
@@ -714,17 +791,30 @@ begin
       FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
   UpdateSummary;
-  finally EndUIUpdate; end;
+  finally
+    try EndUIUpdate; finally Dec(FSelectionDepth); end;
+    {$IFDEF MHL_RELEASE_PERFORMANCE}
+    Inc(ProgramUpdateProfile.Selections); Inc(ProgramUpdateProfile.SelectionMS,GetTickCount64-ProfileStarted);
+    {$ENDIF}
+  end;
+end;
+
+function TfrmProgramUpdate.HasApplicationDownload: Boolean;
+begin
+  Result:=(FApplicationRelease.Tag<>'') and (FApplicationRelease.DownloadURL<>'') and
+    IsUpdateSHA256(FApplicationRelease.SHA256) and
+    (FApplicationRelease.Size>0) and (FApplicationRelease.Size<=UPDATE_MAX_ARCHIVE);
 end;
 
 function TfrmProgramUpdate.AvailableUpdates: TArray<TProgramRelease>;
 var I, Count: Integer;
 begin
   Result := nil;
-  if FApplicationRelease.Tag <> '' then
+  // An unavailable application archive must not cancel independent packages.
+  if HasApplicationDownload then
   begin SetLength(Result, 1); Result[0] := FApplicationRelease; end;
   for I in CheckedComponentIndices do
-    if not FComponents[I].CheckOnly and ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[I])) then
+    if not FComponents[I].CheckOnly and ComponentNewer(FComponents[I], InstalledVersion(ComponentIDs[I])) then
     begin
       Count := Length(Result); SetLength(Result, Count + 1); Result[Count] := FComponents[I];
     end;
@@ -742,6 +832,8 @@ begin
     Result := Result + Name;
   end;
   if Result <> '' then Result := 'Есть обновления для ' + Result;
+  if HasApplicationDownload and (FRepairComponents<>'') then
+    Result:='Будут восстановлены отсутствующие файлы: '+FRepairComponents+'.';
 end;
 
 function TfrmProgramUpdate.ComponentCheckSummary: string;
@@ -776,10 +868,13 @@ var Summary: string;
 begin
   UpdateComponentList;
   if FReady or Assigned(FThread) or ((FSelectedRow > 0) and FRelease.CheckOnly) then Exit;
-  // A selected failed/unverified source retains its explanation and Retry action,
-  // even while another independent component has an installable update.
+  // A healthy installed component keeps its failed-source Retry action.
+  // Missing local files can instead be restored from a verified app package;
+  // the source failure remains visible in the summary and component table.
   if (FSelectedRow>0) and ((FComponents[FSelectedRow-1].ComponentError<>'') or
-    (FComponents[FSelectedRow-1].ComponentWarning<>'') or (FComponentError<>'')) then Exit;
+    (FComponents[FSelectedRow-1].ComponentWarning<>'') or (FComponentError<>'')) and
+    not (HasApplicationDownload and
+      (InstalledVersion(UPDATE_COMPONENTS[FSelectedRow-1].ID)='')) then Exit;
   Summary := AvailableSummary;
   if Summary <> '' then
   begin
@@ -789,6 +884,7 @@ begin
     FNeedsCheck := False;
     if Length(AvailableUpdates) > 1 then FPrimary.Caption := 'Скачать все обновления'
     else FPrimary.Caption := 'Скачать обновление';
+    if HasApplicationDownload and (FRepairComponents<>'') then FPrimary.Caption:='Скачать и восстановить';
     FPrimary.Enabled := not FCheckingCycle;
   end;
 end;
@@ -799,6 +895,7 @@ begin
   Result := False;
   if FCheckingCycle or Assigned(FThread) then Exit;
   if FReady then begin if not Automatic then Present; Exit; end;
+  RefreshInstalledComponents;
   FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
   FApplicationRelease := Default(TProgramRelease);
   FApplicationVerified:=False; FApplicationFailed:=False;
@@ -819,7 +916,9 @@ begin
   begin
     RememberHistory(ReleaseInfo);
     FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
-    if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and (Comparison > 0) then
+    if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
+      ((Comparison>0) or ((Comparison=0) and (FRepairComponents<>'') and
+      (ReleaseInfo.DownloadURL<>'') and IsUpdateSHA256(ReleaseInfo.SHA256) and (ReleaseInfo.Size>0))) then
       FApplicationRelease := ReleaseInfo;
   end
   else FApplicationStatus := Error;
@@ -836,15 +935,15 @@ begin
   UpdateComponentList;
   HasComponentUpdate := False;
   for J in CheckedComponentIndices do
-    if ComponentNewer(FComponents[J], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[J])) then
+    if ComponentNewer(FComponents[J], InstalledVersion(ComponentIDs[J])) then
       HasComponentUpdate := True;
-  if (Length(AvailableUpdates) > 0) or HasComponentUpdate then
+  if (FApplicationRelease.Tag <> '') or (Length(AvailableUpdates) > 0) or HasComponentUpdate then
   begin
     SelectRow(0);
     if FApplicationRelease.Tag = '' then
       for J := 0 to High(CheckedComponentIndices) do
         if ComponentNewer(FComponents[CheckedComponentIndices[J]],
-          ComponentInstalledVersion(Settings.AppPath, ComponentIDs[CheckedComponentIndices[J]])) then
+          InstalledVersion(ComponentIDs[CheckedComponentIndices[J]])) then
         begin SelectRow(CheckedComponentIndices[J] + 1); Break; end;
     ComponentSelected(nil); UpdateSummary; Present;
   end
@@ -901,6 +1000,7 @@ end;
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 begin
   if Assigned(FComponentThread) then Exit;
+  if not FCheckingCycle then RefreshInstalledComponents;
   FComponentAutomatic := Automatic; FComponentError := ''; FComponentErrorDetails:='';
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
@@ -971,11 +1071,11 @@ begin
     for J := 0 to High(CheckedComponentIndices) do
     begin
       I := CheckedComponentIndices[J];
-      if ComponentNewer(FComponents[I], ComponentInstalledVersion(Settings.AppPath, ComponentIDs[I])) and
+      if ComponentNewer(FComponents[I], InstalledVersion(ComponentIDs[I])) and
          (FComponentNotified[I] <> FComponents[I].ComponentVersion) then
       begin
         FComponentNotified[I] := FComponents[I].ComponentVersion;
-        SelectRow(I + 1); ComponentSelected(nil); Break;
+        SelectRow(I + 1); ComponentSelected(nil); Present; Break;
       end;
     end;
   UpdateSummary;
@@ -984,6 +1084,7 @@ end;
 
 procedure TfrmProgramUpdate.DisplayNotes(const Notes: string);
 var Text: string;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
 begin
   Text := Notes;
   if FSelectedRow = 0 then
@@ -991,7 +1092,9 @@ begin
     if Text.Trim = '' then Text := FApplicationHistory;
     if Text.Trim <> '' then FApplicationHistory := Text;
   end;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   FNotes.Load(Text);
+  {$IFDEF MHL_RELEASE_PERFORMANCE}Inc(ProgramUpdateProfile.NotesMS,GetTickCount64-ProfileStarted);{$ENDIF}
 end;
 
 procedure TfrmProgramUpdate.RememberHistory(const ReleaseInfo: TProgramRelease);
@@ -1051,10 +1154,23 @@ begin
 end;
 
 procedure TfrmProgramUpdate.PrimaryClick(Sender: TObject);
-var ReleaseInfo: TProgramRelease;
+var ReleaseInfo: TProgramRelease; PreviousRepair: string;
 begin
   if FReady then
   begin
+    if not FRecovery and (FRelease.ComponentID <> '') and
+      (UpdateFileVersion(Settings.AppPath + 'HomeLibRuUpdater.exe') = '') then
+    begin
+      // The helper can disappear after a component was downloaded, or before
+      // reopening its ready cache. Recheck for the verified application bundle
+      // while the main process is still running; no installation has started.
+      FReady := False; FNeedsCheck := True; FPendingInstall := False;
+      DiscardJob; ClearQueueJobs; FRelease := Default(TProgramRelease);
+      try TFile.Delete(IncludeTrailingPathDelimiter(FCache) + 'ready.json'); except end;
+      FComponentCheck.Enabled := True; FBytes.Caption := '';
+      ComponentCheckClick(nil);
+      Exit;
+    end;
     FPendingInstall := True;
     if Assigned(FRestart) then FRestart(Self);
     Exit;
@@ -1063,6 +1179,10 @@ begin
   if FCheckingCycle then Exit;
   if FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
+  PreviousRepair:=FRepairComponents; RefreshInstalledComponents;
+  if (FRepairComponents<>'') and (FRepairComponents<>PreviousRepair) and
+    (FApplicationRelease.Tag='') then
+  begin FNeedsCheck:=True; ComponentCheckClick(nil); Exit; end;
   FQueue := AvailableUpdates;
   if (Length(FQueue) = 0) and not FNeedsCheck and (FRelease.Tag <> '') then
   begin SetLength(FQueue, 1); FQueue[0] := FRelease; end;
@@ -1086,6 +1206,10 @@ begin
     StringReplace(StringReplace(GUIDToString(ID), '{', '', []), '}', '', []);
   EnsureMessageWindow;
   FThread := CreateDownloadWorker(FMessageWindow, FQueue[FQueueIndex], FJob);
+  // A verified application payload supplies missing unpackers, wrappers and
+  // licences before any files in the installed application are changed.
+  if (FQueueIndex>0) and (Length(FQueueJobs)>0) and (FQueue[0].ComponentID='') then
+    FThread.RuntimePath:=IncludeTrailingPathDelimiter(FQueueJobs[0])+'payload';
   FComponentCheck.Enabled:=False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';
   Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
@@ -1247,13 +1371,17 @@ begin
       Comparison := 0; if PreparedComponentsNewer(Job, Settings.AppPath) then Comparison := 1;
     end
     else if Component = '' then
-    begin if not CompareReleaseTags(Tag, PROGRAM_RELEASE_VERSION, Comparison) then Exit; end
+    begin
+      if not CompareReleaseTags(Tag, PROGRAM_RELEASE_VERSION, Comparison) then Exit;
+      RefreshInstalledComponents;
+      if (Comparison=0) and (FRepairComponents<>'') then Comparison:=1;
+    end
     else
     begin
       if (ComponentFileName(Component) = '') or not CompareComponentVersions(Version, Version, Comparison) or
          not TRegEx.IsMatch(Tag, '^[A-Za-z0-9._-]{1,80}$') then Exit;
-      if ComponentInstalledVersion(Settings.AppPath, Component) = '' then Comparison := 1
-      else if not CompareComponentVersions(Version, ComponentInstalledVersion(Settings.AppPath, Component), Comparison) then Exit;
+      if InstalledVersion(Component) = '' then Comparison := 1
+      else if not CompareComponentVersions(Version, InstalledVersion(Component), Comparison) then Exit;
     end;
     AssertUpdatePath(Job);
     if (Component = '') and (Comparison <= 0) and PreparedComponentsNewer(Job, Settings.AppPath) then
@@ -1281,7 +1409,7 @@ begin
     begin
       FPage.Caption := 'Сайт автора';
       FVersion.Caption := 'Текущая версия ' + Component + ': ' +
-        ComponentInstalledVersion(Settings.AppPath, Component);
+        InstalledVersion(Component);
     end;
     FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
@@ -1307,8 +1435,19 @@ begin
   LayoutWindow;
 end;
 
+function TfrmProgramUpdate.InstallationHelperSource: string;
+begin
+  // Application packages carry the matching installer implementation. An older
+  // installed helper must not retain the bug that this application fixes.
+  if FRelease.ComponentID = '' then
+    Exit(PreparedProgramUpdateHelper(FJob,FRelease.Tag,ProgramUpdatePlatform,FRelease.SHA256));
+  Result := Settings.AppPath + 'HomeLibRuUpdater.exe';
+  if UpdateFileVersion(Result) = '' then
+    raise Exception.Create('Не найден механизм обновления. Выполните проверку и восстановление HomeLib Ru.');
+end;
+
 function TfrmProgramUpdate.LaunchInstallation: Boolean;
-var Root: TJSONObject; Helper, Parameters: string; Code: HINST;
+var Root: TJSONObject; Helper, Parameters, SourceHelper: string; Code: HINST;
   I: Integer; Args: TJSONArray;
 begin
   Result := False;
@@ -1316,7 +1455,10 @@ begin
     AssertUpdatePath(FJob); AssertUpdatePath(Settings.AppPath);
     Helper := IncludeTrailingPathDelimiter(FJob) + 'HomeLibRuUpdater.exe';
     if not FRecovery or not FileExists(Helper) then
-      if not Winapi.Windows.CopyFile(PChar(Settings.AppPath + 'HomeLibRuUpdater.exe'), PChar(Helper), False) then RaiseLastOSError;
+    begin
+      SourceHelper := InstallationHelperSource;
+      if not Winapi.Windows.CopyFile(PChar(SourceHelper),PChar(Helper),False) then RaiseLastOSError;
+    end;
     Root := TJSONObject.Create;
     try
       Root.AddPair('target', ExcludeTrailingPathDelimiter(Settings.AppPath));

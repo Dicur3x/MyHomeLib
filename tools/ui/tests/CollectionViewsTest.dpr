@@ -464,6 +464,8 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect');
       Cycle.Hide;
       App := Current; App.Tag := '2.7.0_pre5.999'; App.DownloadURL := 'http://127.0.0.1/application.zip';
+      // Metadata-only cycle fixture; this case never starts a download.
+      App.SHA256 := StringOfChar('a',64); App.Size := 1024;
       Require(Cycle.StartCheckCycle(True), 'Combined cycle did not start');
       Cycle.ApplicationChecked(App, True, '');
       Require(not Cycle.Visible, 'Application response opened before component check completed');
@@ -5428,6 +5430,7 @@ end;
 {$I CatalogSourcesWorkflowTests.inc}
 {$I MainLiveInputFavoriteTests.inc}
 {$I UpdateFormNotifierTests.inc}
+{$I UpdateRepairTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I CompactBookViewsTests.inc}
@@ -5764,6 +5767,7 @@ begin
         TestReaderMainWithColumnFilter
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
       else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
+      else if ParamStr(1) = 'update-repair' then TestUpdateRepair
       else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
