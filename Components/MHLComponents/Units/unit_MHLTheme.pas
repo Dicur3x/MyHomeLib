@@ -413,7 +413,10 @@ begin
     SetMHLControlFontColor(Control, MHLThemeText);
     TControlAccess(Control).Font.Quality:=fqClearTypeNatural;
   end;
-  if (Control is TCustomEdit) or (Control is TCustomListBox) or (Control is TCustomComboBox) then
+  // Apply the final tree background once. A temporary panel colour would
+  // trigger another native colour change on every style/handle notification.
+  if (Control is TCustomEdit) or (Control is TCustomListBox) or
+    (Control is TCustomComboBox) or (Control is TCustomVirtualStringTree) then
   begin
     if DarkActive then TControlAccess(Control).Color:=RGB(30,31,34)
     else TControlAccess(Control).Color:=clWindow;

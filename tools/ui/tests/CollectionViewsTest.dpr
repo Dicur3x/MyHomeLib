@@ -1045,7 +1045,7 @@ end;
 
 type
   TFailedBuiltinReadDriver = class(TBuiltinReadDriver)
-    CancelDuringLoad, ObservedFailure: Boolean;
+    CancelDuringLoad, ObservedFailure, ObservedCancellation, WarmUI: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -1056,7 +1056,24 @@ begin
     if Screen.Forms[I] is TfrmBuiltinReader then
     begin
       var Reader:=TfrmBuiltinReader(Screen.Forms[I]);
+      // A timer can run while the modal form is still being constructed.
+      // Exercise an actual visible modal window, as a user closing it would.
+      if not Reader.HandleAllocated or not Reader.Visible or
+        not IsWindowVisible(Reader.Handle) or (Application.ModalLevel=0) then Exit;
       if not CancelDuringLoad and not Reader.LoadFinished then Exit;
+      if WarmUI then
+      begin
+        // Both reported cold paths must paint before the baseline is sampled.
+        // Synchronous paint does not deliver the loader's queued completion.
+        Require(RedrawWindow(Reader.Handle,nil,0,RDW_INVALIDATE or RDW_UPDATENOW or
+          RDW_ALLCHILDREN or RDW_FRAME),'Cold modal reader did not paint');
+        WarmUI:=False;
+      end;
+      if CancelDuringLoad then
+      begin
+        Require(not Reader.LoadFinished,'Cancellation test missed the active loader');
+        ObservedCancellation:=True;
+      end;
       if not CancelDuringLoad then
       begin
         Require(not Reader.Ready,'Malformed FB2 opened successfully');
@@ -1173,13 +1190,13 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
       '</p></section></body></FictionBook>', TEncoding.UTF8);
     Hash := THashSHA2.GetHashStringFromFile(Source); Driver := TFailedBuiltinReadDriver.Create;
     try
-      Driver.CancelDuringLoad := I mod 2 <> 0;
+      Driver.CancelDuringLoad := I mod 2 <> 0; Driver.WarmUI := Phase='cold';
       Driver.Timer := TTimer.Create(nil); Driver.Timer.Interval := 1; Driver.Timer.OnTimer := Driver.Tick;
       Driver.Started := GetTickCount64; Driver.Timer.Enabled := True;
       // Exercise the same real main-owned modal path for both first-use and measured cycles.
       OpenBuiltinReader(frmMain, Source, 'Failure cleanup', Prefix + IntToStr(I),
         Settings.DataDir + 'failed-modal.ini', Settings.AppPath + 'tools\pdfium\pdfium.dll');
-      Require(Driver.Finished and (Driver.CancelDuringLoad or Driver.ObservedFailure),
+      Require(Driver.Finished and (Driver.ObservedCancellation or Driver.ObservedFailure),
         'Failed/canceled modal reader was not exercised');
     finally Driver.Timer.Free; Driver.Free; end;
     if EnforceBudget then
@@ -1225,8 +1242,8 @@ begin
     Writeln('PROFILE failed reader cold baseline gdi=', ColdGDI, ' user=', ColdUSER,
       ' forms=', FormsBaseline, ' allocated_main_controls=', ColdControlCount,
       ' owned_native_windows=', ColdWindowCount); Flush(Output);
-    // First exercise BOTH distinct lifecycles before sampling steady-state.
-    // Report the cold delta openly: its non-window source is not established.
+    // First show and paint BOTH distinct lifecycles before sampling steady-state.
+    // Report the complete first-use delta instead of treating it as a leak.
     // These two cycles retain every input, enabled-main and orphan-form guard.
     ExerciseRound(0, 'cold', False); ExerciseRound(1, 'cold', False);
     BeforeGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);

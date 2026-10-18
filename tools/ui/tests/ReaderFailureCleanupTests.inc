@@ -19,9 +19,10 @@ begin
   Started := GetTickCount64; ChangedAt := Started; Changes := 0;
   repeat
     // Let pending native cleanup run before sampling the original budgets.
-    // ProcessMessages/CheckSynchronize alone can return immediately and leave
-    // timed cleanup from RichEdit, COM or VCL pending at the resource sample.
-    Sleep(10); Application.ProcessMessages; CheckSynchronize(2); GdiFlush;
+    // ProcessMessages does not perform the VCL Idle phase. Run that phase
+    // explicitly without using HandleMessage, which can block on an empty queue.
+    Sleep(10); Application.ProcessMessages; Application.DoApplicationIdle;
+    CheckSynchronize(2); GdiFlush;
     CurrentUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
     CurrentGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
     SampledAt := GetTickCount64;

@@ -422,7 +422,7 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
   end;
 
   procedure RestorePage(const SourceURL, ExpectedURL, ExpectedCaption: string; IncludeURL: Boolean = True);
-  var ReadyHash: string;
+  var ReadyHash: string; StartedCase, ConstructedAt, RestoredAt: UInt64;
   begin
     Ready:=TJSONObject.Create;
     try
@@ -435,9 +435,11 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
     finally Ready.Free; end;
     ReadyHash:=THashSHA2.GetHashStringFromFile(ReadyFile);
     Writeln('TRACE restored update page case=',Cases+1,' expected=',ExpectedURL); Flush(Output);
-    Dialog:=TUpdateRestorePageForm.Create(nil);
+    StartedCase:=GetTickCount64;
+    Dialog:=TUpdateRestorePageForm.Create(nil); ConstructedAt:=GetTickCount64; RestoredAt:=ConstructedAt;
     try
       Require(Dialog.RestoreReady,'Component-only batch did not restore: '+SourceURL);
+      RestoredAt:=GetTickCount64;
       Page:=Dialog.FindComponent('UpdateReleasePage') as TButton;
       Primary:=nil; List:=nil; Version:=nil;
       for var Control in Dialog do
@@ -520,7 +522,11 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
         (THashSHA2.GetHashStringFromFile(ReadyFile)=ReadyHash),
         'Restored page action requested installation or changed ready state');
       Inc(Cases);
-    finally FreeAndNil(Dialog); end;
+    finally
+      FreeAndNil(Dialog);
+      Writeln('PROFILE restored page case=',Cases,' construct_ms=',ConstructedAt-StartedCase,
+        ' restore_ms=',RestoredAt-ConstructedAt,' total_ms=',GetTickCount64-StartedCase); Flush(Output);
+    end;
   end;
 
 begin

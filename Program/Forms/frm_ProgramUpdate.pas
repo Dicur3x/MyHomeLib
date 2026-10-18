@@ -543,7 +543,8 @@ begin
     FPrimary.Caption:='Проверить у автора';
     FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Официальный Windows-архив пока не удалось подтвердить.';
   end;
-  UpdateSummary;
+  // A cached row selection updates its summary once in ComponentSelected.
+  if FSelectionDepth=0 then UpdateSummary;
   Present;
   finally
     EndUIUpdate;
@@ -867,7 +868,9 @@ end;
 procedure TfrmProgramUpdate.UpdateSummary;
 var Summary: string;
 begin
-  UpdateComponentList;
+  // Selecting a cached row changes no installed/available versions or states.
+  // Check/download callbacks still refresh the inventory outside this scope.
+  if FSelectionDepth=0 then UpdateComponentList;
   if FReady or Assigned(FThread) or ((FSelectedRow > 0) and FRelease.CheckOnly) then Exit;
   // A healthy installed component keeps its failed-source Retry action.
   // Missing local files can instead be restored from a verified app package;

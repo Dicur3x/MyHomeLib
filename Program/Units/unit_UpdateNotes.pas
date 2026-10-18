@@ -577,9 +577,9 @@ begin
     if FSections[I].Header.Focused or FSections[I].Body.Focused then
     begin FocusedSection := I; FocusedTitle := FSections[I].Title; Break; end;
   Lines := TStringList.Create; Titles := TStringList.Create; Bodies := TStringList.Create;
+  {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   BeginDisplayUpdate;
   try
-    {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
     if FAppending then
     begin
       for I:=0 to High(FHistoryTitles) do begin Titles.Add(FHistoryTitles[I]); Bodies.Add(FHistoryBodies[I]); end;

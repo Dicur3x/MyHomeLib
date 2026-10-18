@@ -4177,7 +4177,12 @@ procedure ResumeMainScaleAlignment(var Controls: TList<TWinControl>);
 begin
   if not Assigned(Controls) then Exit;
   try Resume(0);
-  finally FreeAndNil(Controls); end;
+  finally
+    try
+      // Keep descendants locked until every final alignment has completed.
+      for var I:=Controls.Count-1 downto 0 do Controls[I].UnlockDrawing;
+    finally FreeAndNil(Controls); end;
+  end;
 end;
 
 function SuspendMainScaleAlignment(Root: TWinControl): TList<TWinControl>;
@@ -4185,6 +4190,8 @@ function SuspendMainScaleAlignment(Root: TWinControl): TList<TWinControl>;
   begin
     Result.Add(Control);
     Control.DisableAlign;
+    // VCL retains this lock across native handle recreation during DPI changes.
+    Control.LockDrawing;
     for var I:=0 to Control.ControlCount-1 do
       if Control.Controls[I] is TWinControl then Suspend(TWinControl(Control.Controls[I]));
   end;

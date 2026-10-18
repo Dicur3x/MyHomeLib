@@ -348,3 +348,9 @@ Win32 `favorite-ui` и annotation-части `filter-captions` выполняю�
 180 секунд и 240 секунд на annotation-подслучай; все условия геометрии и данных
 сохранены. Это не бюджет быстродействия. Старые таймауты 90 секунд и фактические
 задержки масштабирования сохраняются в отчёте; лимит панели книги не менялся.
+
+The failed-reader lifecycle driver waits for a visible modal HWND before closing it.
+Both reported cold paths paint synchronously before the steady-state baseline;
+measured cancellation also asserts that the loader has not finished. Cleanup
+performs the nonblocking VCL Idle phase. The original +4 USER/GDI budgets,
+32 measured cycles, exact native HWND/Main VCL identities and source hashes remain enforced.
