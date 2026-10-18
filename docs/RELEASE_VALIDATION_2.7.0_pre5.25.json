@@ -1,0 +1,1587 @@
+{
+  "release": "2.7.0_pre5.25",
+  "build": "2.7.0.1093",
+  "audit_date": "2026-10-18",
+  "prepared_utc": "2026-10-18T07:32:47.004477+00:00",
+  "implementation_commit": "9d3ae6c9",
+  "base_audit": {
+    "path": "audits/2026-10-18.json",
+    "sha256": "9f58543f7466e9496e15dff3bfe20e96f0b23699e27cbbc277044a00d9d222fd",
+    "modes_per_architecture": 54,
+    "scope": "Broad functional audit before the version increment; actual executable identities and later scoped reruns are preserved in that report."
+  },
+  "changes_since_audit": "Only the application release constant, version resources/project metadata, release documentation and packaging/feed version were changed.",
+  "builds": [
+    {
+      "platform": "Win32",
+      "path": "Program/Out/Bin/HomeLibRu.exe",
+      "bytes": 10401280,
+      "sha256": "159df6d3907bc1fba15300121a52cd56fcd9a7819de8572cc93dc966dd40b7e9",
+      "modified_utc": "2026-10-18T07:04:41.6200259Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win32",
+      "path": "Program/Out/Bin/HomeLibRuUpdater.exe",
+      "bytes": 1874944,
+      "sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "modified_utc": "2026-10-18T07:05:29.2502369Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win32",
+      "path": "Program/Tests/Out/Win32/ProgramUpdateInstallerTest.exe",
+      "bytes": 5238272,
+      "sha256": "588d9a1b9bf837d4ec24895cf74fe5d59ad64cfedf57369e1e9980307efcd00e",
+      "modified_utc": "2026-10-18T07:26:36.7624027Z",
+      "file_version": "2.7.0.1078",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win32",
+      "path": "tools/ui/tests/Out/Win32/Performance/CollectionViewsTest.exe",
+      "bytes": 12576768,
+      "sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "modified_utc": "2026-10-18T07:08:55.7824819Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win64",
+      "path": "Program/Out/Bin64/HomeLibRu.exe",
+      "bytes": 15995904,
+      "sha256": "bfa56c9f76ce9017cfc570999f34f897687c42a4a78a8118883ede2a89fca6f5",
+      "modified_utc": "2026-10-18T07:03:44.2321066Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win64",
+      "path": "Program/Out/Bin64/HomeLibRuUpdater.exe",
+      "bytes": 2778112,
+      "sha256": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+      "modified_utc": "2026-10-18T07:05:52.1666866Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win64",
+      "path": "Program/Tests/Out/Win64/ProgramUpdateInstallerTest.exe",
+      "bytes": 8070656,
+      "sha256": "a777b615988077d3dfac15f79cfe45f17f422ea0ff430d4f2df0ec0166a095c0",
+      "modified_utc": "2026-10-18T07:27:33.0397876Z",
+      "file_version": "2.7.0.1078",
+      "product_version": "2.7.0_pre5.11",
+      "build_method": "Delphi 13 GUI Build"
+    },
+    {
+      "platform": "Win64",
+      "path": "tools/ui/tests/Out/Win64/Performance/CollectionViewsTest.exe",
+      "bytes": 18816512,
+      "sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "modified_utc": "2026-10-18T07:07:52.7656487Z",
+      "file_version": "2.7.0.1093",
+      "product_version": "2.7.0_pre5.25",
+      "build_method": "Delphi 13 GUI Build"
+    }
+  ],
+  "archives": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.zip",
+      "bytes": 55553617,
+      "sha256": "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+      "manifest_files": 529,
+      "crc": "PASS",
+      "all_member_hashes": "PASS",
+      "exact_runtime_binaries": {
+        "HomeLibRu.exe": "159df6d3907bc1fba15300121a52cd56fcd9a7819de8572cc93dc966dd40b7e9",
+        "HomeLibRuUpdater.exe": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+        "MHLMcpServer.exe": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd",
+        "sqlite3.dll": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2"
+      },
+      "history": [
+        "2.7.0_pre5.25",
+        "2.7.0_pre5.24",
+        "2.7.0_pre5.23",
+        "2.7.0_pre5.22",
+        "2.7.0_pre5.21",
+        "2.7.0_pre5.20",
+        "2.7.0_pre5.19",
+        "2.7.0_pre5.18"
+      ],
+      "excluded_personal_data": "PASS"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu_x64.zip",
+      "bytes": 61070180,
+      "sha256": "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+      "manifest_files": 538,
+      "crc": "PASS",
+      "all_member_hashes": "PASS",
+      "exact_runtime_binaries": {
+        "HomeLibRu.exe": "bfa56c9f76ce9017cfc570999f34f897687c42a4a78a8118883ede2a89fca6f5",
+        "HomeLibRuUpdater.exe": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+        "MHLMcpServer.exe": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385",
+        "sqlite3.dll": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea"
+      },
+      "history": [
+        "2.7.0_pre5.25",
+        "2.7.0_pre5.24",
+        "2.7.0_pre5.23",
+        "2.7.0_pre5.22",
+        "2.7.0_pre5.21",
+        "2.7.0_pre5.20",
+        "2.7.0_pre5.19",
+        "2.7.0_pre5.18"
+      ],
+      "excluded_personal_data": "PASS"
+    }
+  ],
+  "final_version_native_runs": [
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 119.063,
+      "log": "one-program-update-ui-Win32-attempt001.log",
+      "executable_sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "log_sha256": "61daef69a695426427488712bb6d82d7f42f4161c2cef2f29645930499f612df",
+      "completed_utc": "2026-10-18T07:18:05.032282+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 32.25,
+      "log": "one-update-form-notifier-Win32-attempt001.log",
+      "executable_sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "log_sha256": "ec47de55e479960bb75a1d05722423b53d56b551b9ad2f513d0c8017a21d395d",
+      "completed_utc": "2026-10-18T07:18:37.925223+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 59.063,
+      "log": "one-update-source-failures-Win32-attempt001.log",
+      "executable_sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "log_sha256": "9a2bb86cfbeb0c581089b023648279d6875ce7caab545d13a856207a64a99d59",
+      "completed_utc": "2026-10-18T07:19:38.331825+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "update-repair",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 81.062,
+      "log": "one-update-repair-Win32-attempt001.log",
+      "executable_sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "log_sha256": "0813a5f28fc2df1f002477172cbc0f20ab578c7e018261ab44e848b3dcb99389",
+      "completed_utc": "2026-10-18T07:21:00.559159+00:00"
+    },
+    {
+      "platform": "Win32",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 12.469,
+      "log": "one-book-information-Win32-attempt001.log",
+      "executable_sha256": "b9b771ded483106b58e04817a1cb700249d3c366d9900a96650a0a3062b97142",
+      "log_sha256": "d2031887e3ad85f4c4e09585cb19b468d952251773ecd8a1becb22494d25cd19",
+      "completed_utc": "2026-10-18T07:21:13.556530+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "program-update-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 110.125,
+      "log": "one-program-update-ui-Win64-attempt001.log",
+      "executable_sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "log_sha256": "4577a377005692c27953602bb2044fab80612fca24424c90ba66613dfe74d756",
+      "completed_utc": "2026-10-18T07:23:04.076122+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-form-notifier",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 18.25,
+      "log": "one-update-form-notifier-Win64-attempt001.log",
+      "executable_sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "log_sha256": "410a5f8a416c7f4f4cfdd7d5e5bc8a0171049d59e12b7d7fd8e912f1b9e06654",
+      "completed_utc": "2026-10-18T07:23:22.699078+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-source-failures",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 31.485,
+      "log": "one-update-source-failures-Win64-attempt001.log",
+      "executable_sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "log_sha256": "5be8cd46ccbb80b67c86c7fb9b58792e11d3ce05540f1635e7d3b2d52225f233",
+      "completed_utc": "2026-10-18T07:23:55.249073+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "update-repair",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 54.593,
+      "log": "one-update-repair-Win64-attempt001.log",
+      "executable_sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "log_sha256": "6621b86c621190c89cdefc55ce7d054738d88f87f3423f4ceaa090943b4ce145",
+      "completed_utc": "2026-10-18T07:24:50.643655+00:00"
+    },
+    {
+      "platform": "Win64",
+      "stage": "one",
+      "mode": "book-information",
+      "attempt": 1,
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 8.562,
+      "log": "one-book-information-Win64-attempt001.log",
+      "executable_sha256": "d4b0f9af22a97d0125e5df2a039c1ec74165228d3ba9c1cbeb5638cf69d672ba",
+      "log_sha256": "d2031887e3ad85f4c4e09585cb19b468d952251773ecd8a1becb22494d25cd19",
+      "completed_utc": "2026-10-18T07:24:59.491757+00:00"
+    }
+  ],
+  "integration_runs": [
+    {
+      "kind": "prepare-fixtures",
+      "platform": "Win32",
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 3.297,
+      "log": "prepare-fixtures-Win32-101338.log",
+      "log_sha256": "7e8a4e65381ae8648df8790c891e577b721b5992392454c6bf172513f7f5f531"
+    },
+    {
+      "kind": "real-release-install",
+      "platform": "Win32",
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 122.063,
+      "log": "real-release-install-Win32-101342.log",
+      "log_sha256": "bca41acabcd38223a35387210c5b1f518cd40217165923dd3c7afb4828df7162"
+    },
+    {
+      "kind": "missing-components",
+      "platform": "Win32",
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 347.172,
+      "log": "missing-components-Win32-101654.log",
+      "log_sha256": "b56106dec6fe1180080672eaf1c115f45ea7b78aafe6530012a962b1b83a91db"
+    },
+    {
+      "kind": "real-release-install",
+      "platform": "Win64",
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 59.297,
+      "log": "real-release-install-Win64-102249.log",
+      "log_sha256": "5c5705999326d9a8c616c6c6fa5f3e180fef22092c314140aa31276217d4a91c"
+    },
+    {
+      "kind": "missing-components",
+      "platform": "Win64",
+      "exit_code": 0,
+      "success_marker": true,
+      "seconds": 173.328,
+      "log": "missing-components-Win64-102350.log",
+      "log_sha256": "1b7a6f7ad07bec7f1665868b73389598cd524a6c74603f866ae372f332992e71"
+    }
+  ],
+  "component_repair_runs": [
+    {
+      "path": "tools\\ui\\tests\\Out\\pre525-checks\\repair-installer\\component-repair-Win32-HomeLibRu-update-test-repair-gxubjuqb.json",
+      "sha256": "ce0c5914216399eb23c229ad76d68e901bf495dc273c74650f67476e50650356",
+      "result": {
+        "platform": "Win32",
+        "release": "2.7.0_pre5.25",
+        "root": "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb",
+        "tester_sha256": "4aba7d08c4536c107bf0580b774816366dd29e4737d50513ebf22fb156211ee0",
+        "archive_sha256": "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+        "completed_components": [
+          "7-Zip",
+          "DocSharp",
+          "DjVuLibre",
+          "AlReader",
+          "SumatraPDF",
+          "SQLite"
+        ],
+        "preservation_cases": [
+          "complete independently installed newer 7-Zip is preserved",
+          "incomplete newer 7-Zip is repaired as one complete distribution component"
+        ],
+        "preservation_only": false,
+        "personal_files": {
+          "myhomelib2.ini": "1ea21b0ed75884676c72921a9ad563d4035da4a7cc3415cdaed11703738cfa28",
+          "Data/collections.db": "0bcb15cd77d27fc556215ac451e3e0817e01cf0157ab535e5767c7bdb4be87a2",
+          "Data/personal.sqlite": "8939d404d957186ce3159c205db9423db48736de33725293b36c75adb0683825",
+          "Data/library-a.hlc2": "9c979c1d241c122b8c2ee147716997f6aec52f86d061fcbf2129df0b99a2ca7a",
+          "Data/library-b.hlc2": "21da7c4dfdec6745ab23ae2ddd1637c747046d9da9d4f61cb2047b61ee6d41f3",
+          "Data/groups.db": "2a1c20fef8aec4db08322541c875337f10134f43eaa1d582afdb6a1942a5bf5b",
+          "Data/notes.json": "ece93113d9740f5f59d2c6db7aaea32616bff1b9224f1da31d1c2710e6aa1c9f",
+          "Data/bookmarks.json": "24d7a9dfeba38875cd6a6dea8bc76cd187a83e9f85e2d075a2d279746c592af0",
+          "Data/favorites.json": "2f6be9e8d9e211f4eb5adc75e4d2ac63f24aea0168a16da01e3bb784e9fcfbd6",
+          "Data/ratings.json": "bf441d4cfe7341f2f39ca3894cc983804ab37fa65551a275b0ef4c100d703414",
+          "Data/reviews.json": "5f2e845efa7e14a9b19188da82683928b88c90cbd45a51316d380623d26ff2ea",
+          "Data/progress.json": "23d9fafb4f4f5dfb335d862936438d65b9d03a467f25d3c4f439eb58bb325951",
+          "Data/queue.json": "ff272d9a6172e2a00012f4b2ef26c2736199fd9ca206673a5a25e69617a63a3c",
+          "Data/history.json": "8180960e093529c8b9f6b69e1906bde21f48465d7b36726c3633676959b2b935",
+          "presets.cxml2": "e543812253b9f2eec7a6fc3664707d117e2220b638bf7d53c7e58e1c1bbb9434",
+          "uselocaldata": "89c58002bbce6eb45e298e71185b71178eaa16d6d20fc59472ae939aba98589f",
+          "Readers/AlReader/$savevtut.ini": "260c73a629ab40604958f4c35f9dca2b8971b65f22b7939616d36a84fd1fd33a",
+          "Readers/AlReader/options.ini": "d3043b76033a519a228796cd318074a274d0c0ceaaf9e4504f6f6d04e6d90aa8",
+          "Readers/SumatraPDF/SumatraPDF-settings.txt": "8a611bcbef79dbdc8f01237a8211223e28699a770287a427e8cd5d4c9c9620fe"
+        },
+        "native_calls": [
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-001.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-002.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-003.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-004.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-005.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-006.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-007.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-008.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "2.7.0_pre5.25",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-009.log",
+            "log_sha256": "dfd754cfdb89bdf067861169fa2b708e2cf94cdc71e3cacdec0b504108b3a86b"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "2.7.0_pre5.25",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-010.log",
+            "log_sha256": "5a148111a579b01ec7ff12db10792927b12aeb3fe8098d8ffb68b510efe2af80"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "2.7.0_pre5.25",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-011.log",
+            "log_sha256": "a0b17878cb3fcea84d82e83aedbac8c6b2ba204bed4867c5ebabd6d7d2035917"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "2.7.0_pre5.25",
+              "0000000000000000000000000000000000000000000000000000000000000000"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-012.log",
+            "log_sha256": "de696557c83a18162378ea9fb20c20f924d6e2a785471b67fb324f0782bae2bf"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "2.7.0_pre5.25",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-013.log",
+            "log_sha256": "dfd754cfdb89bdf067861169fa2b708e2cf94cdc71e3cacdec0b504108b3a86b"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-0",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-014.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-015.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-016.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-1"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-017.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-1",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-018.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-019.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-020.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-2"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-021.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-2",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-022.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-023.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-024.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-3"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-025.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-3",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-026.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-027.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-028.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-4"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-029.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-4",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-030.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-031.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-032.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-5"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-033.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\job-5",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-034.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-035.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-036.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\newer-complete"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-037.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\newer-complete",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-038.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-039.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-040.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\release.zip",
+              "d7ad7da34b15da4ee44ece6330c451ce7088c933436d915ca606e50fa255eb1b",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\newer-incomplete"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-041.log",
+            "log_sha256": "c5f980ecc7cddd6d6bc5f9a9d7a18585fdfadaf68f56c32b453ad5027d5c89e2"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\newer-incomplete",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-042.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-gxubjuqb\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-gxubjuqb-043.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          }
+        ]
+      }
+    },
+    {
+      "path": "tools\\ui\\tests\\Out\\pre525-checks\\repair-installer\\component-repair-Win64-HomeLibRu-update-test-repair-2qx9vd7e.json",
+      "sha256": "22aa5f1475259dc210e7eb30698b40fdcf58c7e867eed660e9b6df9f0a977eb4",
+      "result": {
+        "platform": "Win64",
+        "release": "2.7.0_pre5.25",
+        "root": "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e",
+        "tester_sha256": "3acbb4620c035cd9450a57deb1db917c947284d9c42fbe6051a63d4e887db970",
+        "archive_sha256": "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+        "completed_components": [
+          "7-Zip",
+          "DocSharp",
+          "DjVuLibre",
+          "AlReader",
+          "SumatraPDF",
+          "SQLite"
+        ],
+        "preservation_cases": [
+          "complete independently installed newer 7-Zip is preserved",
+          "incomplete newer 7-Zip is repaired as one complete distribution component"
+        ],
+        "preservation_only": false,
+        "personal_files": {
+          "myhomelib2.ini": "1ea21b0ed75884676c72921a9ad563d4035da4a7cc3415cdaed11703738cfa28",
+          "Data/collections.db": "0bcb15cd77d27fc556215ac451e3e0817e01cf0157ab535e5767c7bdb4be87a2",
+          "Data/personal.sqlite": "8939d404d957186ce3159c205db9423db48736de33725293b36c75adb0683825",
+          "Data/library-a.hlc2": "9c979c1d241c122b8c2ee147716997f6aec52f86d061fcbf2129df0b99a2ca7a",
+          "Data/library-b.hlc2": "21da7c4dfdec6745ab23ae2ddd1637c747046d9da9d4f61cb2047b61ee6d41f3",
+          "Data/groups.db": "2a1c20fef8aec4db08322541c875337f10134f43eaa1d582afdb6a1942a5bf5b",
+          "Data/notes.json": "ece93113d9740f5f59d2c6db7aaea32616bff1b9224f1da31d1c2710e6aa1c9f",
+          "Data/bookmarks.json": "24d7a9dfeba38875cd6a6dea8bc76cd187a83e9f85e2d075a2d279746c592af0",
+          "Data/favorites.json": "2f6be9e8d9e211f4eb5adc75e4d2ac63f24aea0168a16da01e3bb784e9fcfbd6",
+          "Data/ratings.json": "bf441d4cfe7341f2f39ca3894cc983804ab37fa65551a275b0ef4c100d703414",
+          "Data/reviews.json": "5f2e845efa7e14a9b19188da82683928b88c90cbd45a51316d380623d26ff2ea",
+          "Data/progress.json": "23d9fafb4f4f5dfb335d862936438d65b9d03a467f25d3c4f439eb58bb325951",
+          "Data/queue.json": "ff272d9a6172e2a00012f4b2ef26c2736199fd9ca206673a5a25e69617a63a3c",
+          "Data/history.json": "8180960e093529c8b9f6b69e1906bde21f48465d7b36726c3633676959b2b935",
+          "presets.cxml2": "e543812253b9f2eec7a6fc3664707d117e2220b638bf7d53c7e58e1c1bbb9434",
+          "uselocaldata": "89c58002bbce6eb45e298e71185b71178eaa16d6d20fc59472ae939aba98589f",
+          "Readers/AlReader/$savevtut.ini": "260c73a629ab40604958f4c35f9dca2b8971b65f22b7939616d36a84fd1fd33a",
+          "Readers/AlReader/options.ini": "d3043b76033a519a228796cd318074a274d0c0ceaaf9e4504f6f6d04e6d90aa8",
+          "Readers/SumatraPDF/SumatraPDF-settings.txt": "8a611bcbef79dbdc8f01237a8211223e28699a770287a427e8cd5d4c9c9620fe"
+        },
+        "native_calls": [
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-001.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-002.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-003.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-004.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-005.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-006.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-007.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-008.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "2.7.0_pre5.25",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-009.log",
+            "log_sha256": "4f222f818a9e8b04ddb8a7a4f8140321f0d2843ef17c4cb1bb9a7b94d7a302d8"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "2.7.0_pre5.25",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-010.log",
+            "log_sha256": "5a148111a579b01ec7ff12db10792927b12aeb3fe8098d8ffb68b510efe2af80"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "2.7.0_pre5.25",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-011.log",
+            "log_sha256": "a0b17878cb3fcea84d82e83aedbac8c6b2ba204bed4867c5ebabd6d7d2035917"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "2.7.0_pre5.25",
+              "0000000000000000000000000000000000000000000000000000000000000000"
+            ],
+            "exit_code": 1,
+            "expected_exit_code": 1,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-012.log",
+            "log_sha256": "de696557c83a18162378ea9fb20c20f924d6e2a785471b67fb324f0782bae2bf"
+          },
+          {
+            "arguments": [
+              "--prepared-helper",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "2.7.0_pre5.25",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-013.log",
+            "log_sha256": "4f222f818a9e8b04ddb8a7a4f8140321f0d2843ef17c4cb1bb9a7b94d7a302d8"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-0",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-014.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-015.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-016.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-1"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-017.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-1",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-018.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DocSharp"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-019.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-020.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-2"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-021.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-2",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-022.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "DjVuLibre"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-023.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-024.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-3"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-025.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-3",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-026.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "AlReader"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-027.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-028.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-4"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-029.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-4",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-030.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SumatraPDF"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-031.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-032.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-5"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-033.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\job-5",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-034.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "SQLite"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-035.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-036.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\newer-complete"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-037.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\newer-complete",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-038.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-039.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-040.log",
+            "log_sha256": "539c5f78622d19fedf1e82cc2558bcdd2fe0781ed05afb131aac132c9f5d24c8"
+          },
+          {
+            "arguments": [
+              "--prepare",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\release.zip",
+              "0f53a246c67a70373d712e049d9f6216ac703f41d0c516941d8b142202dccdbc",
+              "2.7.0_pre5.25",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\newer-incomplete"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-041.log",
+            "log_sha256": "8ad87ae3d9a7bcb6472686e9d693f86c50414042ca0d4070d13227731ee322e5"
+          },
+          {
+            "arguments": [
+              "--install",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\newer-incomplete",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-042.log",
+            "log_sha256": "d938fa189912f8776c3deb31a6bec42f403f57b9c8e3ed936bdb076caf6bd61c"
+          },
+          {
+            "arguments": [
+              "--component-needs-repair",
+              "C:\\HA25\\release-tests-owned\\HomeLibRu-update-test-repair-2qx9vd7e\\installation",
+              "7-Zip"
+            ],
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "log": "HomeLibRu-update-test-repair-2qx9vd7e-043.log",
+            "log_sha256": "5664049f05fc0406a651fdee67045ca756d265b1fd5ffff4c103481a20098996"
+          }
+        ]
+      }
+    }
+  ],
+  "final_installer_and_parser_suites": [
+    {
+      "kind": "installer",
+      "platform": "Win32",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 86.609,
+      "log": "installer-Win32-attempt002.log",
+      "log_sha256": "8fff515cd53c589b2cb991722b13970eaa5a77b83ac041724315c84a69e95b0c",
+      "tester_sha256": "588d9a1b9bf837d4ec24895cf74fe5d59ad64cfedf57369e1e9980307efcd00e",
+      "helper_sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "script_sha256": "77d64037ed01ae60acd0b19fce053f00105dbe79b0aa70cc114e4645fecb0139",
+      "completed_utc": "2026-10-18T07:28:30.910642+00:00"
+    },
+    {
+      "kind": "component-parsers",
+      "platform": "Win32",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 3.953,
+      "log": "component-parsers-Win32-attempt001.log",
+      "log_sha256": "910df477350496b600fab191bf3f4915287ff920a6d45e12c767ca0b877ba347",
+      "tester_sha256": "588d9a1b9bf837d4ec24895cf74fe5d59ad64cfedf57369e1e9980307efcd00e",
+      "helper_sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "script_sha256": "d8665b6ee2545a221dcea446706ed68aef2a24347bc62f36f91a76992679ed13",
+      "completed_utc": "2026-10-18T07:28:34.903539+00:00"
+    },
+    {
+      "kind": "installer",
+      "platform": "Win64",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 73.734,
+      "log": "installer-Win64-attempt001.log",
+      "log_sha256": "255d5c1b6ce9abd01362881f42987037f83dcc29389f96ab1cd0d0df2f81be5c",
+      "tester_sha256": "a777b615988077d3dfac15f79cfe45f17f422ea0ff430d4f2df0ec0166a095c0",
+      "helper_sha256": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+      "script_sha256": "77d64037ed01ae60acd0b19fce053f00105dbe79b0aa70cc114e4645fecb0139",
+      "completed_utc": "2026-10-18T07:29:35.096379+00:00"
+    },
+    {
+      "kind": "component-parsers",
+      "platform": "Win64",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 3.516,
+      "log": "component-parsers-Win64-attempt001.log",
+      "log_sha256": "fa1f840ae7c924e26265322c769c828a97c7c8becdcecee6305320db4d5f1754",
+      "tester_sha256": "a777b615988077d3dfac15f79cfe45f17f422ea0ff430d4f2df0ec0166a095c0",
+      "helper_sha256": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+      "script_sha256": "d8665b6ee2545a221dcea446706ed68aef2a24347bc62f36f91a76992679ed13",
+      "completed_utc": "2026-10-18T07:29:38.660817+00:00"
+    }
+  ],
+  "installer_attempts": [
+    {
+      "kind": "installer",
+      "platform": "Win32",
+      "attempt": 1,
+      "exit_code": 1,
+      "seconds": 36.485,
+      "log": "installer-Win32-attempt001.log",
+      "log_sha256": "9774895c9db4c0f51e2eed64cbd364971a9d9cf7b51b7831fff7226e1dc19a6a",
+      "tester_sha256": "4aba7d08c4536c107bf0580b774816366dd29e4737d50513ebf22fb156211ee0",
+      "helper_sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "script_sha256": "77d64037ed01ae60acd0b19fce053f00105dbe79b0aa70cc114e4645fecb0139",
+      "completed_utc": "2026-10-18T07:23:55.454474+00:00"
+    },
+    {
+      "kind": "installer",
+      "platform": "Win32",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 86.609,
+      "log": "installer-Win32-attempt002.log",
+      "log_sha256": "8fff515cd53c589b2cb991722b13970eaa5a77b83ac041724315c84a69e95b0c",
+      "tester_sha256": "588d9a1b9bf837d4ec24895cf74fe5d59ad64cfedf57369e1e9980307efcd00e",
+      "helper_sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "script_sha256": "77d64037ed01ae60acd0b19fce053f00105dbe79b0aa70cc114e4645fecb0139",
+      "completed_utc": "2026-10-18T07:28:30.910642+00:00"
+    },
+    {
+      "kind": "component-parsers",
+      "platform": "Win32",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 3.953,
+      "log": "component-parsers-Win32-attempt001.log",
+      "log_sha256": "910df477350496b600fab191bf3f4915287ff920a6d45e12c767ca0b877ba347",
+      "tester_sha256": "588d9a1b9bf837d4ec24895cf74fe5d59ad64cfedf57369e1e9980307efcd00e",
+      "helper_sha256": "f2d911fbaaf1d3ce6b888e1e989f9c309630ebf8adc17e6972fd4359fb549073",
+      "script_sha256": "d8665b6ee2545a221dcea446706ed68aef2a24347bc62f36f91a76992679ed13",
+      "completed_utc": "2026-10-18T07:28:34.903539+00:00"
+    },
+    {
+      "kind": "installer",
+      "platform": "Win64",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 73.734,
+      "log": "installer-Win64-attempt001.log",
+      "log_sha256": "255d5c1b6ce9abd01362881f42987037f83dcc29389f96ab1cd0d0df2f81be5c",
+      "tester_sha256": "a777b615988077d3dfac15f79cfe45f17f422ea0ff430d4f2df0ec0166a095c0",
+      "helper_sha256": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+      "script_sha256": "77d64037ed01ae60acd0b19fce053f00105dbe79b0aa70cc114e4645fecb0139",
+      "completed_utc": "2026-10-18T07:29:35.096379+00:00"
+    },
+    {
+      "kind": "component-parsers",
+      "platform": "Win64",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 3.516,
+      "log": "component-parsers-Win64-attempt001.log",
+      "log_sha256": "fa1f840ae7c924e26265322c769c828a97c7c8becdcecee6305320db4d5f1754",
+      "tester_sha256": "a777b615988077d3dfac15f79cfe45f17f422ea0ff430d4f2df0ec0166a095c0",
+      "helper_sha256": "44da94c25ba75092823d5484b7494536075b13021efd43da1037606052adf464",
+      "script_sha256": "d8665b6ee2545a221dcea446706ed68aef2a24347bc62f36f91a76992679ed13",
+      "completed_utc": "2026-10-18T07:29:38.660817+00:00"
+    }
+  ],
+  "new_temporary_file_cleanup": [
+    {
+      "path": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\pre525-checks\\repair-fixtures\\Win32",
+      "bytes": 56845139
+    },
+    {
+      "path": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\pre525-checks\\repair-fixtures\\Win64",
+      "bytes": 62587638
+    },
+    {
+      "path": "C:\\HA25\\release-tests-owned",
+      "bytes": 79
+    },
+    {
+      "path": "D:\\HomeLibRu-release-pre5.25-20261018",
+      "bytes": 79
+    }
+  ],
+  "protected_files": {
+    "C:\\Users\\cloud\\Desktop\\MyHomeLib\\HomeLibRu.exe": {
+      "sha256": "4c23589362f738771a3aa7ee314a794f51351fdce71ecdbf198771c8eaba9fc1",
+      "unchanged": true
+    },
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dpr": {
+      "sha256": "5a073127445c1c34dbc3be3d6e3a74390c3007816f3cac93010f553f1b05f18c",
+      "unchanged": true
+    },
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer.dproj": {
+      "sha256": "d815ab4197f42a1d3deea98e1b8637b4eda2faab69ce3197f8355bfd0496dd48",
+      "unchanged": true
+    },
+    "C:\\Users\\cloud\\HomeLibRu-build\\Utils\\MHLMcpServer\\MHLMcpServer_SQL.rc": {
+      "sha256": "500008615d6eeb334a5bdee005268c59a7b5160147ed3bc23427def6804c5d0e",
+      "unchanged": true
+    },
+    "C:\\Users\\cloud\\HomeLibRu-build\\tools\\help\\build_nav.js": {
+      "sha256": "da7a65dc98db6c42da0c6c777f0c20b4dc2ba5280a4c3f35f2b65487f022b3ff",
+      "unchanged": true
+    }
+  },
+  "environment_events": [
+    "The old Delphi session displayed error 1400 and was restarted before the final GUI builds.",
+    "The first x64 packaging attempt ran out of space on C:. The packager removed its own incomplete staging tree; the successful retry used G: for staging.",
+    "Bulk and single-file cleanup of old C: audit deployments was rejected by the tool policy. Those old deployments were not removed through another mechanism.",
+    "A new-deployment cleanup guard initially encountered the library-created _myhomelib cache and stopped without deleting it. The cleanup now skips non-test names and removes only newly created, validated synthetic deployment roots after success.",
+    "The successful Win32 upgrade test ran on D:. Subsequent integration deployments used a fresh C: test root and were cleaned after success. The initial D: deployment was also removed after verifying its owned marker, archive hash and installed journal.",
+    "The first legacy installer-suite attempt used a tester compiled with the old application release constant; its feed-history assertion correctly detected the mismatch. The tester was rebuilt in Delphi for each architecture and the suite rerun without changing an assertion."
+  ],
+  "limitations": [
+    "Both architectures were executed on this Windows x64 machine; no separate physical Windows x86 installation was tested.",
+    "Final-version reruns cover five affected native modes per architecture, not a second execution of the entire 54-mode audit after changing only the version.",
+    "Installer tests use synthetic personal data. Raw logs, fixture manifests and final release archives remain as local evidence. Disposable fixture copies and new integration roots were removed after success; paths and hashes are recorded."
+  ]
+}

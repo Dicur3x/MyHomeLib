@@ -4,6 +4,7 @@
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
+- [HomeLib Ru pre5.25 — 2.7.0.1093](RELEASE_NOTES_2.7.0_pre5.25.md)
 - [HomeLib Ru pre5.24 — 2.7.0.1092](RELEASE_NOTES_2.7.0_pre5.24.md)
 - [HomeLib Ru pre5.23 — 2.7.0.1091](RELEASE_NOTES_2.7.0_pre5.23.md)
 - [HomeLib Ru pre5.22 — 2.7.0.1090](RELEASE_NOTES_2.7.0_pre5.22.md)
