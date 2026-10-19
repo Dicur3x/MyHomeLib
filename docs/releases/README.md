@@ -4,7 +4,7 @@
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
-- [Кандидат HomeLib Ru pre5.26 — 2.7.0.1094, не опубликован](RELEASE_NOTES_2.7.0_pre5.26.md)
+- [HomeLib Ru pre5.26 — 2.7.0.1094](RELEASE_NOTES_2.7.0_pre5.26.md)
 - [HomeLib Ru pre5.25 — 2.7.0.1093](RELEASE_NOTES_2.7.0_pre5.25.md)
 - [HomeLib Ru pre5.24 — 2.7.0.1092](RELEASE_NOTES_2.7.0_pre5.24.md)
 - [HomeLib Ru pre5.23 — 2.7.0.1091](RELEASE_NOTES_2.7.0_pre5.23.md)

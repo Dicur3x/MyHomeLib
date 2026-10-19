@@ -3128,5 +3128,6 @@
       }
     ]
   },
-  "footer_ab_conclusion": "All six geometry cases completed in each run, same EXE and original strict 5000 ms gate, message observation hooks disabled. Complete descendant LockDrawing is slower in every case; rejected and not applied to production."
+  "footer_ab_conclusion": "All six geometry cases completed in each run, same EXE and original strict 5000 ms gate, message observation hooks disabled. Complete descendant LockDrawing is slower in every case; rejected and not applied to production.",
+  "superseded_by": "2026-10-20-pre526-final.json"
 }
