@@ -1228,6 +1228,51 @@ var Bar, ForwardBar: TToolBar; Button, ForwardButton, ThemeButton: TToolButton;
   MainStyles, ForwardStyles: TStyleElements; SavedDraw, SavedButtonDraw: TMethod;
   CatalogBefore, Artifacts: string;
 
+  procedure CheckColumnResetOrder;
+    procedure Check(Tree: TBookTree; LanguageLabel: TLabel; Combo: TComboBox);
+    var Filters: TBookColumnFilters; SavedValue: string; Reset: TButton;
+    begin
+      Filters:=TBookColumnFilters.ForTree(Tree); SavedValue:=Filters.Value(COL_TITLE);
+      try
+        // Showing after hiding must reinsert the action before the language
+        // group, including after the parent was scaled or resized while hidden.
+        for var Pass:=1 to 2 do
+        begin
+          Filters.SetValue(COL_TITLE,''); frmMain.SetBookListTotals(Tree,0,0);
+          Filters.SetValue(COL_TITLE,'fixture'); frmMain.SetBookListTotals(Tree,0,0);
+          Reset:=nil;
+          for var I:=0 to Combo.Parent.ControlCount-1 do
+            if (Combo.Parent.Controls[I] is TButton) and
+              Assigned(TButton(Combo.Parent.Controls[I]).OnClick) then
+              Reset:=TButton(Combo.Parent.Controls[I]);
+          Require(Assigned(Reset) and Reset.Visible,'Column reset action is absent');
+          Require((Reset.BoundsRect.Right<=LanguageLabel.Left) and
+            (LanguageLabel.BoundsRect.Right<=Combo.Left),
+            'Column reset action splits the language label and selector');
+        end;
+      finally
+        Filters.SetValue(COL_TITLE,SavedValue); frmMain.SetBookListTotals(Tree,0,0);
+      end;
+    end;
+  begin
+    Check(frmMain.tvBooksA,frmMain.lblLang,frmMain.cbLangSelectA);
+    Check(frmMain.tvBooksS,frmMain.lbl1,frmMain.cbLangSelectS);
+    Check(frmMain.tvBooksG,frmMain.lbl2,frmMain.cbLangSelectG);
+    Check(frmMain.tvBooksF,frmMain.lbl3,frmMain.cbLangSelectF);
+    for var Component in frmMain do
+      if Component is TPublisherSeriesView then
+      begin
+        var View:=TPublisherSeriesView(Component);
+        for var I:=0 to View.Language.Parent.ControlCount-1 do
+          if (View.Language.Parent.Controls[I] is TLabel) and
+            (View.Language.Parent.Controls[I]<>View.Total) and
+            (View.Language.Parent.Controls[I]<>View.Title) then
+            Check(View.Books,TLabel(View.Language.Parent.Controls[I]),View.Language);
+      end;
+    Writeln('PASS reset action precedes language label and selector across book tabs dpi=',
+      frmMain.Font.PixelsPerInch,' dark=',Ord(MHLThemeDark)); Flush(Output);
+  end;
+
   procedure CheckWindowsThemeOffer(PPI: Integer);
   var Offer, Content: TPanel; Text: TLabel; Apply, Dismiss: TButton;
     Gap, Padding: Integer; TextBounds: TRect; Capture: TBitmap;
@@ -1410,7 +1455,9 @@ begin
       frmMain.ScaleForPPI(PPI); frmMain.FormAfterMonitorDpiChanged(nil,frmMain.CurrentPPI,PPI);
       Require(Bar.Font.PixelsPerInch=PPI,'Toolbar did not adopt the requested native DPI');
       CheckWindowsThemeOffer(PPI);
+      CheckColumnResetOrder;
       ThemeButton.OnClick(ThemeButton);
+      CheckColumnResetOrder;
       Require(MHLThemeDark and (Bar.StyleElements=[]) and (ForwardBar.StyleElements=[]),
         'Dark toolbar still applies the stock VCL raised button style');
       Require(Assigned(Bar.OnCustomDraw) and Assigned(Bar.OnCustomDrawButton),

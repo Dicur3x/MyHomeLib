@@ -194,8 +194,17 @@ implementation
 uses unit_MHLTheme;
 
 type
-  TInfoPreviewViewport = class(TScrollBox)
+  TInfoPreviewContent = class(TPanel)
   protected
+    procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+  end;
+
+  TInfoPreviewViewport = class(TScrollBox)
+  private
+    FWheelRemainder: Integer;
+  protected
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+      MousePos: TPoint): Boolean; override;
     procedure WndProc(var Message: TMessage); override;
   end;
 
@@ -276,13 +285,69 @@ begin
   // (including frame/children), so the actual final style is painted normally.
 end;
 
+procedure TInfoPreviewContent.AlignControls(AControl: TControl; var Rect: TRect);
+begin
+  // All direct children use explicit bounds from LayoutControls, including
+  // wrapping links and the current detail view. Reapplying automatic anchors
+  // to those same siblings on each native size/text change is redundant.
+end;
+
+function TInfoPreviewViewport.DoMouseWheel(Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint): Boolean;
+var Lines: Cardinal; Step, Delta: Integer;
+begin
+  if (ssCtrl in Shift) or (ssShift in Shift) or
+    (VertScrollBar.Range <= ClientHeight) then
+    Exit(inherited DoMouseWheel(Shift, WheelDelta, MousePos));
+  // AutoScroll is deliberately disabled: the panel supplies its own range.
+  // TScrollBox's automatic wheel handling does not cover that arrangement.
+  Lines := 3;
+  SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, @Lines, 0);
+  if Lines = WHEEL_PAGESCROLL then Step := ClientHeight
+  else Step := Integer(Min(Lines,100)) * Max(1, Abs(Font.Height));
+  Inc(FWheelRemainder, WheelDelta * Step);
+  Delta := FWheelRemainder div WHEEL_DELTA;
+  FWheelRemainder := FWheelRemainder mod WHEEL_DELTA;
+  VertScrollBar.Position := VertScrollBar.Position - Delta;
+  Result := True;
+end;
+
 procedure TInfoPreviewViewport.WndProc(var Message: TMessage);
 begin
   if not DeferInfoPreviewPaint(Self, Message) then inherited;
 end;
 
 procedure TInfoPreviewMemo.WndProc(var Message: TMessage);
+var Scroll: TScrollInfo; Delta: SmallInt; BeforeLine: LRESULT;
 begin
+  if (Message.Msg = WM_MOUSEWHEEL) and
+    (Message.WParam and (MK_CONTROL or MK_SHIFT) = 0) then
+  begin
+    Scroll := Default(TScrollInfo);
+    Scroll.cbSize := SizeOf(Scroll);
+    Scroll.fMask := SIF_RANGE or SIF_PAGE or SIF_POS;
+    Delta := SmallInt(HiWord(Message.WParam));
+    if GetScrollInfo(Handle, SB_VERT, Scroll) and
+      (((Delta > 0) and (Scroll.nPos > Scroll.nMin)) or
+       ((Delta < 0) and (Scroll.nPos < Scroll.nMax - Integer(Scroll.nPage) + 1))) then
+    begin
+      // Scroll the native edit under the pointer without moving keyboard
+      // focus away from the book list. At its edge, bubble to the viewport.
+      BeforeLine := Perform(EM_GETFIRSTVISIBLELINE,0,0);
+      DefaultHandler(Message);
+      if (Perform(EM_GETFIRSTVISIBLELINE,0,0) <> BeforeLine) or
+        (Abs(Integer(Delta)) < WHEEL_DELTA) then
+      begin
+        Message.Result := 1;
+        Exit;
+      end;
+    end;
+    if Assigned(Parent) and (Parent.Parent is TInfoPreviewViewport) then
+    begin
+      Message.Result := Parent.Parent.Perform(WM_MOUSEWHEEL,Message.WParam,Message.LParam);
+      Exit;
+    end;
+  end;
   if (Message.Msg=WM_SETTEXT) or (Message.Msg=CM_TEXTCHANGED) then FPreviewTextKnown:=False;
   if not DeferInfoPreviewPaint(Self, Message) then inherited;
 end;
@@ -341,8 +406,13 @@ begin
 end;
 
 procedure TInfoPanel.CopyToClipboard(Sender: TObject);
+var Item: TListItem;
 begin
-  Clipboard.AsText := FFb2Info.Selected.SubItems[0];
+  Item := FFb2Info.Selected;
+  // The context menu and its shortcut can also be invoked over empty space.
+  if not Assigned(Item) then Exit;
+  if Item.SubItems.Count = 0 then Exit;
+  Clipboard.AsText := Item.SubItems[0];
 end;
 
 constructor TInfoPanel.Create(AOwner: TComponent);
@@ -368,12 +438,13 @@ begin
 
   BevelOuter := bvNone;
 
-  // Keep the aligned children away from the panel edge. Margins are honoured
-  // by TWinControl.AlignControls and do not require a third-party panel.
+  // The outer cover and viewport share one explicit layout. Changing an
+  // alLeft cover from inside an alClient resize can otherwise leave the
+  // viewport at the old cover edge until another realignment occurs.
   FCover := TImage.Create(Self);
   FCover.Parent := Self;
   FCover.SetBounds(0, 0, GetCoverWidth(200), 200);
-  FCover.Align := alLeft;
+  FCover.Align := alNone;
   FCover.AlignWithMargins := True;
   FCover.Margins.SetBounds(PanelPadding, PanelPadding, 0, PanelPadding);
   FCover.Center := True;
@@ -382,7 +453,7 @@ begin
 
   FInfoViewport := TInfoPreviewViewport.Create(Self);
   FInfoViewport.Parent := Self;
-  FInfoViewport.Align := alClient;
+  FInfoViewport.Align := alNone;
   // This private viewport has one explicitly laid-out content panel and no
   // horizontal scrolling. Set its final logical extent in LayoutControls;
   // automatic range scans otherwise repaint styled scrollbars twice even
@@ -395,7 +466,7 @@ begin
   FInfoViewport.HorzScrollBar.Visible := False;
   FInfoViewport.VertScrollBar.Tracking := True;
   FInfoViewport.VertScrollBar.Smooth := True;
-  FInfoPanel := TPanel.Create(Self);
+  FInfoPanel := TInfoPreviewContent.Create(Self);
   FInfoPanel.Parent := FInfoViewport;
   FInfoPanel.Align := alTop;
   FInfoPanel.Height := 200;
@@ -679,10 +750,10 @@ end;
 
 procedure TInfoPanel.Resize;
 begin
-  if Assigned(FCover) then
-    FCover.Width := GetCoverWidth(FCover.Height);
-  LayoutControls;
   inherited;
+  // OnResize may clamp the shared splitter height. Read the resulting client
+  // size, never the cover height left over from the previous alignment pass.
+  LayoutControls;
 end;
 
 procedure TInfoPanel.CreateWnd;
@@ -732,7 +803,7 @@ begin
 end;
 
 procedure TInfoPanel.PrepareViewportLayout(out FooterH, FooterW: Integer);
-var LayoutPPI, Padding, Gap, ViewportBottom, CoverW: Integer;
+var LayoutPPI, Padding, Gap, ViewportBottom, CoverW, InfoLeft: Integer;
 begin
   FooterH:=0; FooterW:=0;
   if not Assigned(Parent) or
@@ -763,9 +834,14 @@ begin
   if FDetailsButton.Visible and FCover.Visible then
     CoverW := Min(CoverW, Max(0, ClientWidth - FCover.Margins.Left - FCover.Margins.Right -
       FInfoViewport.Margins.Left - FInfoViewport.Margins.Right - FooterW));
-  if FCover.Width <> CoverW then FCover.Width := CoverW;
-  if FInfoViewport.Margins.Bottom <> ViewportBottom then
-    FInfoViewport.Margins.Bottom := ViewportBottom;
+  FCover.SetBounds(FCover.Margins.Left, FCover.Margins.Top, CoverW,
+    Max(0, ClientHeight - FCover.Margins.Top - FCover.Margins.Bottom));
+  InfoLeft := FInfoViewport.Margins.Left;
+  if FCover.Visible then Inc(InfoLeft, FCover.BoundsRect.Right + FCover.Margins.Right);
+  FInfoViewport.Margins.Bottom := ViewportBottom;
+  FInfoViewport.SetBounds(InfoLeft, FInfoViewport.Margins.Top,
+    Max(0, ClientWidth - InfoLeft - FInfoViewport.Margins.Right),
+    Max(0, ClientHeight - FInfoViewport.Margins.Top - ViewportBottom));
 end;
 
 procedure TInfoPanel.LayoutControls;

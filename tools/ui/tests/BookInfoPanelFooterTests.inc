@@ -198,9 +198,18 @@ var
   TraceCycling: Boolean;
   FillTicks: array[0..6] of Int64;
   PhaseStart, NowTicks, CheckTicks, ScrollTicks: Int64;
-  CyclingMS: Int64;
+  CyclingMS, ThreadCPUStart, ThreadCPUEnd: Int64;
   CompletedCases, SlowCases: Integer;
   PerformanceSummary, SlowSummary: string;
+
+  function FooterThreadCPUMS: Int64;
+  var Created, Exited, Kernel, User: TFileTime;
+  begin
+    Result:=-1;
+    if GetThreadTimes(GetCurrentThread,Created,Exited,Kernel,User) then
+      Result:=Int64(((UInt64(Kernel.dwHighDateTime) shl 32) or Kernel.dwLowDateTime)+
+        ((UInt64(User.dwHighDateTime) shl 32) or User.dwLowDateTime)) div 10000;
+  end;
 
   procedure FillPhase(Stage: Integer);
   begin
@@ -285,6 +294,10 @@ var
           (Detail.Top+Detail.Height<=Content.ClientHeight),
           Context+': visible detail view kept stale deferred bounds');
     end;
+    if Cover.Visible then
+      Require((Viewport.Left >= Cover.BoundsRect.Right + Viewport.Margins.Left) and
+        (Cover.Height = Max(0, Panel.ClientHeight - Cover.Margins.Top - Cover.Margins.Bottom)),
+        Context + ': cover and metadata overlap or retain the previous height');
     Require(Button.Parent = Panel, Context + ': action still scrolls with metadata');
     Require(GetWindowRect(Button.Handle, ButtonRect), Context + ': native button rectangle missing');
     Ancestor := Button.Parent;
@@ -405,6 +418,58 @@ var
       CheckFooter(Scenario + ' scrolling');
       GetWindowRect(Panel.DetailsButton.Handle, FooterRect);
       Require(EqualRect(BeforeScrollRect, FooterRect), Scenario + ': scrolling moved the action');
+    end;
+  end;
+
+  procedure CheckResizeAndWheel;
+  var OldBounds: TRect; Height, Line, Position: Integer; R: TRect; P: TPoint;
+    Wheel: LPARAM; Scroll: TScrollInfo;
+  begin
+    OldBounds := Panel.BoundsRect;
+    try
+      for Height in TArray<Integer>.Create(460,150,310,180,440,230,150,460,230) do
+      begin
+        Panel.Height := MulDiv(Height,DPI,96);
+        Application.ProcessMessages;
+        CheckFooter('repeated splitter resize',False);
+      end;
+      Panel.Height := MulDiv(150,DPI,96);
+      Viewport.VertScrollBar.Position := 0;
+      P := Viewport.ClientToScreen(Point(2,2));
+      Wheel := MakeLParam(Word(P.X),Word(P.Y));
+      Viewport.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+      Require(Viewport.VertScrollBar.Position > 0,'Wheel does not scroll the explicit metadata range');
+      Viewport.Perform(WM_MOUSEWHEEL,WPARAM($00780000),Wheel);
+      Require(Viewport.VertScrollBar.Position = 0,'Wheel does not return metadata to its top');
+      Annotation.Perform(EM_LINESCROLL,0,-MaxInt);
+      Line := Annotation.Perform(EM_GETFIRSTVISIBLELINE,0,0);
+      GetWindowRect(Panel.DetailsButton.Handle,R);
+      P := Annotation.ClientToScreen(Point(4,4));
+      Wheel := MakeLParam(Word(P.X),Word(P.Y));
+      Annotation.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+      Require(Annotation.Perform(EM_GETFIRSTVISIBLELINE,0,0)>Line,
+        'Wheel over an unfocused annotation cannot scroll its overflowing text');
+      Annotation.Perform(WM_VSCROLL,SB_BOTTOM,0);
+      Viewport.VertScrollBar.Position := 0;
+      Scroll:=Default(TScrollInfo); Scroll.cbSize:=SizeOf(Scroll); Scroll.fMask:=SIF_ALL;
+      GetScrollInfo(Annotation.Handle,SB_VERT,Scroll);
+      Writeln('TRACE annotation edge pos=',Scroll.nPos,' max=',Scroll.nMax,' page=',Scroll.nPage,
+        ' first=',Annotation.Perform(EM_GETFIRSTVISIBLELINE,0,0),
+        ' outer_range=',Viewport.VertScrollBar.Range,' outer_height=',Viewport.ClientHeight); Flush(Output);
+      Annotation.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+      Writeln('TRACE annotation edge after first=',Annotation.Perform(EM_GETFIRSTVISIBLELINE,0,0),
+        ' outer_pos=',Viewport.VertScrollBar.Position); Flush(Output);
+      Require(Viewport.VertScrollBar.Position>0,'Annotation wheel at its edge does not reach metadata scrollbar');
+      Position := Viewport.VertScrollBar.Position;
+      Annotation.Perform(WM_MOUSEWHEEL,WPARAM($00780000),Wheel);
+      Require((Annotation.Perform(EM_GETFIRSTVISIBLELINE,0,0)>=0) and
+        (Viewport.VertScrollBar.Position<=Position),'Wheel up lost its scroll direction');
+      GetWindowRect(Panel.DetailsButton.Handle,FooterRect);
+      Require(EqualRect(R,FooterRect),'Wheel scrolling moved the fixed information action');
+      Writeln('PASS repeated splitter resize and wheel over metadata/unfocused annotation dark=',Ord(Dark),' dpi=',DPI);
+    finally
+      Panel.BoundsRect := OldBounds;
+      Viewport.VertScrollBar.Position := 0;
     end;
   end;
 
@@ -689,6 +754,20 @@ var
       if Content.Controls[I] is TListView then Items:=TListView(Content.Controls[I]);
     end;
     Require(Assigned(Author) and Assigned(Items),'Batch test lacks actual author/structured controls');
+    // Calling the existing context-menu command over empty information must
+    // be harmless, including a row without an optional value subitem.
+    Items.Selected:=nil;
+    Require(Assigned(Items.PopupMenu) and (Items.PopupMenu.Items.Count>0) and
+      Assigned(Items.PopupMenu.Items[0].OnClick),'Information copy command missing');
+    Items.PopupMenu.Items[0].OnClick(Items.PopupMenu.Items[0]);
+    var EmptyValue:=Items.Items.Add;
+    try
+      EmptyValue.Caption:='Value absent'; EmptyValue.Selected:=True;
+      Require(Items.Selected=EmptyValue,'Missing-value copy regression lacks an actual selected row');
+      Items.PopupMenu.Items[0].OnClick(Items.PopupMenu.Items[0]);
+    finally EmptyValue.Delete; end;
+    Writeln('PASS information copy safely handles empty selection and missing value');
+    Flush(Output);
     Require(WindowText(Author)='<a href="101">Автор ё</a>',
       'Bounded native text helper changed the existing unbatched author markup');
     Panel.SetBookInfo('Unbatched UTF16 control',
@@ -942,6 +1021,7 @@ begin
           FillBook(3, True, False, True);
           CheckFooter('long annotation/cover');
           CheckScroll('long annotation/cover');
+          CheckResizeAndWheel;
           Panel.Width := MulDiv(460, DPI, 96);
           CheckFooter('narrow preview');
           Panel.InfoPriority := True;
@@ -1013,6 +1093,7 @@ begin
           CheckTicks := 0; ScrollTicks := 0; TraceCycling := True;
           Writeln('TRACE footer cycling start dark=', Ord(Dark), ' dpi=', DPI);
           Flush(Output);
+          ThreadCPUStart:=FooterThreadCPUMS;
           Started := TStopwatch.StartNew;
           for J := 1 to 100 do
           begin
@@ -1027,6 +1108,10 @@ begin
             if (J = 1) or (J mod 25 = 0) then TraceCycle(J);
           end;
           Started.Stop;
+          ThreadCPUEnd:=FooterThreadCPUMS;
+          if (ThreadCPUStart>=0) and (ThreadCPUEnd>=ThreadCPUStart) then
+            Writeln('PROFILE footer UI thread dark=',Ord(Dark),' dpi=',DPI,
+              ' cpu_ms=',ThreadCPUEnd-ThreadCPUStart,' wall_ms=',Started.ElapsedMilliseconds);
           TraceCycling := False;
           for Profile in Profiles do Profile.Active:=False;
           Probe.ActiveLayout:=False;

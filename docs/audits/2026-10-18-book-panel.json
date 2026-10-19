@@ -1,0 +1,925 @@
+{
+  "recorded_utc": "2026-10-19T21:07:14.035047+00:00",
+  "status": "Panel resize, wheel, filter-action order and six-case performance checks pass on x86/x64. Release remains unpublished; wider release gates are separate.",
+  "base_commit": "9cec4c91",
+  "production_changes": [
+    "Guard missing selected row/value before copying information to the clipboard.",
+    "Compute cover and viewport bounds together from final panel client size, after the shared OnResize callback.",
+    "Scroll the explicit metadata range with the system wheel preference; scroll the unfocused native memo and forward wheel at its edge.",
+    "Skip redundant content-child automatic alignment; all direct children retain explicit measured layout.",
+    "Insert the reset-column-filters action before the complete right-aligned language/total group, including when shown again."
+  ],
+  "test_changes": [
+    "Native empty-selection/missing-value copy regressions.",
+    "Repeated splitter-height transitions with non-overlap and final cover-height assertions.",
+    "Native wheel scrolling over metadata and an unfocused annotation, including the bottom edge and fixed footer.",
+    "Reset/language order after repeated hiding/showing in all language-bearing book tabs at 96/144/192 PPI and both themes.",
+    "Original 100-selection loop and <5000ms predicate preserved, with UI-thread CPU measured separately.",
+    "Failure paths flush output and exit with code 1 without running unit finalizers while live VCL timers remain."
+  ],
+  "ordinary_app_archives": "Existing candidate archives predate the new clipboard guard and must be rebuilt after final source changes.",
+  "experiments": [
+    {
+      "name": "footer-manual-ab",
+      "description": "Manual content alignment; no stable gain",
+      "records": [
+        {
+          "manual_layout": false,
+          "exit_code": 1,
+          "exe_sha256": "4085664304bdc3791ad6242de9c1040f83c72b5cf577e2b3d704384bd50b4967",
+          "log": "footer-manual-ab-0-live-001.log",
+          "log_sha256": "db1e4d1ea0b0e7717493564aebd57c88741f83c6cda1fc3a75b985fde31367b5",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 7366
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 7712
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 7037
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 8387
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 7443
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 8124
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:19:20.820642+00:00",
+          "thread_cpu": [],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 0
+        },
+        {
+          "manual_layout": true,
+          "exit_code": 1,
+          "exe_sha256": "4085664304bdc3791ad6242de9c1040f83c72b5cf577e2b3d704384bd50b4967",
+          "log": "footer-manual-ab-1-live-001.log",
+          "log_sha256": "2a39e5535afc2bd6df89ab561fd2aa00c8bb5b50a89e69c07c55e3c1286994e2",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 7452
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 7954
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 6559
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 8450
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 7579
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 1638
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:21:39.815917+00:00",
+          "thread_cpu": [],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 0
+        }
+      ]
+    },
+    {
+      "name": "footer-memo-ab",
+      "description": "Clear replaced long annotation before resizing; no stable gain",
+      "records": [
+        {
+          "memo_prepare": false,
+          "exit_code": 1,
+          "exe_sha256": "4736386ee9b55d660a77e6cab48c785c589b0adafcc04d8103390d83b79f41ee",
+          "log": "footer-memo-ab-0-live-001.log",
+          "log_sha256": "abc1cfa501c14af465d946044036ae2ad3a4c6103eaee17caef5e29c36c740e8",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 7038
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 5673
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 5394
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 5962
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 5773
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 6066
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:26:21.306901+00:00",
+          "thread_cpu": [],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 0
+        },
+        {
+          "memo_prepare": true,
+          "exit_code": 1,
+          "exe_sha256": "4736386ee9b55d660a77e6cab48c785c589b0adafcc04d8103390d83b79f41ee",
+          "log": "footer-memo-ab-1-live-001.log",
+          "log_sha256": "34f2e7b4951f1576348e4d1f465b3b4625936503cd1a124e1929f5dbd8c10250",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 5880
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 6238
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 5654
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 5520
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 6221
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 6022
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:28:17.795119+00:00",
+          "thread_cpu": [],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 0
+        }
+      ]
+    },
+    {
+      "name": "footer-position-ab",
+      "description": "Coalesce native position redraw on content, viewport, memo; promising first four cases, remaining noisy",
+      "records": [
+        {
+          "coalesced_positions": false,
+          "exit_code": 1,
+          "exe_sha256": "49fdd5b11dece0f0e2826eead0bbc0bc5170bf7cff60b6ddaaa65c525be40d1c",
+          "log": "footer-position-ab-0-live-001.log",
+          "log_sha256": "e14001bfec7cff96c7635374a4f3e2e22c17f20e3eef8a0efffbdf14a6a15006",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 9092
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 6109
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 8806
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 6991
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 6736
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 7618
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:42:41.425750+00:00",
+          "thread_cpu": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cpu_ms": 2140,
+              "wall_ms": 9092
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cpu_ms": 1922,
+              "wall_ms": 6109
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cpu_ms": 2250,
+              "wall_ms": 8806
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cpu_ms": 2094,
+              "wall_ms": 6991
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cpu_ms": 2422,
+              "wall_ms": 6736
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cpu_ms": 2610,
+              "wall_ms": 7618
+            }
+          ],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 6
+        },
+        {
+          "coalesced_positions": true,
+          "exit_code": 1,
+          "exe_sha256": "49fdd5b11dece0f0e2826eead0bbc0bc5170bf7cff60b6ddaaa65c525be40d1c",
+          "log": "footer-position-ab-1-live-001.log",
+          "log_sha256": "07bc4259ab7eb2ec3f4e548f6a36e55e10e3d5a6d5495972bb3aca408a7dae9d",
+          "cases": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cycling_ms": 5514
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cycling_ms": 5807
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cycling_ms": 5297
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cycling_ms": 5825
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cycling_ms": 9072
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cycling_ms": 11092
+            }
+          ],
+          "all_six_geometry_cases_completed": true,
+          "completed_utc": "2026-10-18T17:45:21.236026+00:00",
+          "thread_cpu": [
+            {
+              "dark": 0,
+              "dpi": 96,
+              "cpu_ms": 2031,
+              "wall_ms": 5514
+            },
+            {
+              "dark": 0,
+              "dpi": 144,
+              "cpu_ms": 2422,
+              "wall_ms": 5807
+            },
+            {
+              "dark": 0,
+              "dpi": 192,
+              "cpu_ms": 1718,
+              "wall_ms": 5297
+            },
+            {
+              "dark": 1,
+              "dpi": 96,
+              "cpu_ms": 2125,
+              "wall_ms": 5825
+            },
+            {
+              "dark": 1,
+              "dpi": 144,
+              "cpu_ms": 2609,
+              "wall_ms": 9072
+            },
+            {
+              "dark": 1,
+              "dpi": 192,
+              "cpu_ms": 2546,
+              "wall_ms": 11092
+            }
+          ],
+          "source_profile_hash_guard_passed": true,
+          "empty_information_copy_cases": 6
+        }
+      ]
+    }
+  ],
+  "deep_profile": {
+    "diagnostic_only": true,
+    "memo_prepare": false,
+    "executable_sha256": "f0cf723b1e33810f9c1706c4b418c4dfd6a85ceff23ed4db574ff71256e03f81",
+    "exit_code": 1,
+    "log": "footer-deep-live-001.log",
+    "log_sha256": "6ee282ed0b7e5ceb21a3aab6917a5d4b54486dd7cbdeb444ffba8aeedf5f4e53",
+    "completed_utc": "2026-10-18T17:37:49.399437+00:00",
+    "all_six_geometry_cases_completed": true,
+    "thread_cpu": [
+      {
+        "dark": 0,
+        "dpi": 96,
+        "cpu_ms": 2438,
+        "wall_ms": 8277
+      },
+      {
+        "dark": 0,
+        "dpi": 144,
+        "cpu_ms": 2094,
+        "wall_ms": 7639
+      },
+      {
+        "dark": 0,
+        "dpi": 192,
+        "cpu_ms": 2171,
+        "wall_ms": 8228
+      },
+      {
+        "dark": 1,
+        "dpi": 96,
+        "cpu_ms": 2343,
+        "wall_ms": 8173
+      },
+      {
+        "dark": 1,
+        "dpi": 144,
+        "cpu_ms": 2234,
+        "wall_ms": 7560
+      },
+      {
+        "dark": 1,
+        "dpi": 192,
+        "cpu_ms": 2516,
+        "wall_ms": 7963
+      }
+    ],
+    "stage_samples": [
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 227
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 367
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 767
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 544
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 595
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 351
+      },
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 215
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 373
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 700
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 444
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 528
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 303
+      },
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 232
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 381
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 786
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 497
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 558
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 338
+      },
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 248
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 414
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 727
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 542
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 609
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 333
+      },
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 202
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 371
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 705
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 446
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 541
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 284
+      },
+      {
+        "stage": "content_height",
+        "count": 100,
+        "ms": 200
+      },
+      {
+        "stage": "scroll_range",
+        "count": 100,
+        "ms": 386
+      },
+      {
+        "stage": "memo_bounds",
+        "count": 100,
+        "ms": 717
+      },
+      {
+        "stage": "list_bounds",
+        "count": 100,
+        "ms": 0
+      },
+      {
+        "stage": "root_align",
+        "count": 100,
+        "ms": 522
+      },
+      {
+        "stage": "viewport_align",
+        "count": 100,
+        "ms": 561
+      },
+      {
+        "stage": "content_align",
+        "count": 100,
+        "ms": 282
+      }
+    ],
+    "empty_information_copy_cases": 6
+  },
+  "caution": "Earlier wall-time comparisons were affected by variable background CPU load. Final records are acceptance measurements, not a controlled speedup percentage. Only the explicit-layout alignment change was retained; other speculative paint/font experiments were rejected.",
+  "pending": [
+    "Rebuild the ordinary application binaries and archives from these final sources; earlier archives do not contain these changes.",
+    "Complete the separately documented remaining release audit/integration gates before publication."
+  ],
+  "sources": {
+    "panel": "602074b763ee1791192316f7532eab9706793e7be2a409efffce654a45e55e14",
+    "main": "11d3b17e00bffc96868ced143f54c8ba53355fb24ef89cd904da464125ae224e",
+    "native_fixture": "181a11d2a28f17b269081974134246283738f2c2becbc31b4ffe0ce4985b03dc",
+    "toolbar_fixture": "c45446a6d18948e8774631d87f5e450c6a6f99984e9a00d2d39df327b6552703",
+    "native_driver": "7f42e7584ddfbe50757dd7908cec643ad22f0ab2d5dd8667c5feba4f4fba1bde"
+  },
+  "native_fixtures": "Fresh isolated runtimes removed by the existing wrapper finalizer. Prior explicitly rejected cleanup targets were not retried.",
+  "earlier_alignment_diagnostics": {
+    "footer-fonts-paired.json": {
+      "diagnostic_only": "light96 only, A/B/B/A; NOT full six-theme/PPI acceptance",
+      "exit_code": 1,
+      "all_four_blocks_completed": true,
+      "measurements": [
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2063,
+          "wall_ms": 5579,
+          "direct_fonts": false
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2078,
+          "wall_ms": 6825,
+          "direct_fonts": true
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2094,
+          "wall_ms": 5275,
+          "direct_fonts": true
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2297,
+          "wall_ms": 5316,
+          "direct_fonts": false
+        }
+      ],
+      "exe_sha256": "7eb31c2199513e02e058c1d5c5a5c31727ccfa82ea8e6bb90483edba4bb9e0b9",
+      "log": "footer-fonts-paired-live-001.log",
+      "log_sha256": "1e69b61bccb777746e25ee5a52b4b7de4dfb1f3e13196e068b95e4ba63ab8cda",
+      "secondary_failure": false,
+      "completed_utc": "2026-10-18T18:21:33.502927+00:00"
+    },
+    "footer-noalign-paired.json": {
+      "diagnostic_only": "light96 only, A/B/B/A; NOT full six-theme/PPI acceptance",
+      "exit_code": 1,
+      "all_four_blocks_completed": true,
+      "measurements": [
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2391,
+          "wall_ms": 7722,
+          "skip_alignment": false
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2204,
+          "wall_ms": 7717,
+          "skip_alignment": true
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 1938,
+          "wall_ms": 6736,
+          "skip_alignment": true
+        },
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 2250,
+          "wall_ms": 7569,
+          "skip_alignment": false
+        }
+      ],
+      "exe_sha256": "d5c0fb03b84db77c9ac6264d211ab7a05a0121f122cba0dca521edbf5cb7bfbe",
+      "log": "footer-noalign-paired-live-001.log",
+      "log_sha256": "b4ffec697fc0bb3a434e79f51c9d0a2525e71a64a3d3a3a653e582c2dda2be7a",
+      "secondary_failure": false,
+      "completed_utc": "2026-10-18T18:24:26.107288+00:00"
+    },
+    "footer-noalign-full-Win32-1.json": {
+      "private_candidate": true,
+      "platform": "Win32",
+      "skip_alignment": true,
+      "exit_code": 0,
+      "all_six_geometry_cases_completed": true,
+      "measurements": [
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 1781,
+          "wall_ms": 3086
+        },
+        {
+          "dark": 0,
+          "dpi": 144,
+          "cpu_ms": 1515,
+          "wall_ms": 2610
+        },
+        {
+          "dark": 0,
+          "dpi": 192,
+          "cpu_ms": 1562,
+          "wall_ms": 2989
+        },
+        {
+          "dark": 1,
+          "dpi": 96,
+          "cpu_ms": 1766,
+          "wall_ms": 2855
+        },
+        {
+          "dark": 1,
+          "dpi": 144,
+          "cpu_ms": 1766,
+          "wall_ms": 2814
+        },
+        {
+          "dark": 1,
+          "dpi": 192,
+          "cpu_ms": 1844,
+          "wall_ms": 4703
+        }
+      ],
+      "empty_copy_cases": 6,
+      "source_profile_preserved": true,
+      "exe_sha256": "034de46932e0d617b9d7702724d77c9d42ea4a3e169e35b82f70be1a4f9bdc11",
+      "log": "footer-noalign-full-Win32-1-live-001.log",
+      "log_sha256": "a61a984b87bc9b1214b7cbe9168723f590bfb4345ffca0c58a5ed4aaf1e4f065",
+      "secondary_failure": false,
+      "completed_utc": "2026-10-19T20:49:26.825832+00:00"
+    }
+  },
+  "panel_ui_followup": [
+    {
+      "platform": "Win32",
+      "mode": "book-preview-layout",
+      "exit_code": 0,
+      "all_six_geometry_cases_completed": true,
+      "measurements": [
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 1797,
+          "wall_ms": 3193
+        },
+        {
+          "dark": 0,
+          "dpi": 144,
+          "cpu_ms": 1812,
+          "wall_ms": 3355
+        },
+        {
+          "dark": 0,
+          "dpi": 192,
+          "cpu_ms": 1907,
+          "wall_ms": 3420
+        },
+        {
+          "dark": 1,
+          "dpi": 96,
+          "cpu_ms": 1969,
+          "wall_ms": 3849
+        },
+        {
+          "dark": 1,
+          "dpi": 144,
+          "cpu_ms": 1937,
+          "wall_ms": 3439
+        },
+        {
+          "dark": 1,
+          "dpi": 192,
+          "cpu_ms": 2172,
+          "wall_ms": 4089
+        }
+      ],
+      "resize_wheel_cases": 6,
+      "empty_copy_cases": 6,
+      "source_profile_preserved": true,
+      "exe_sha256": "8f63b6356b01f40b9e490633291cb56593897b042ecea04bd02e41fe22a230e9",
+      "log": "panel-fixes-Win32-book-preview-layout-004.log",
+      "log_sha256": "bee07022e189c58183f0c24a14320be4ddd876b977ab88635e18289c239c98a0",
+      "completed_utc": "2026-10-19T21:01:30.009880+00:00",
+      "filter_order_theme_dpi_cases": 0,
+      "secondary_failure": false
+    },
+    {
+      "platform": "Win32",
+      "mode": "main-toolbar-states",
+      "exit_code": 0,
+      "all_six_geometry_cases_completed": false,
+      "measurements": [],
+      "resize_wheel_cases": 0,
+      "empty_copy_cases": 0,
+      "exe_sha256": "8f63b6356b01f40b9e490633291cb56593897b042ecea04bd02e41fe22a230e9",
+      "log": "panel-fixes-Win32-main-toolbar-states-001.log",
+      "log_sha256": "979b27a21ebc3eeb2e4499fd4e9d263d795ff9e714d7d7c534b073e578b2ebb9",
+      "completed_utc": "2026-10-19T21:02:29.256191+00:00",
+      "filter_order_theme_dpi_cases": 6,
+      "secondary_failure": false
+    },
+    {
+      "platform": "Win64",
+      "mode": "book-preview-layout",
+      "exit_code": 0,
+      "all_six_geometry_cases_completed": true,
+      "measurements": [
+        {
+          "dark": 0,
+          "dpi": 96,
+          "cpu_ms": 1062,
+          "wall_ms": 3243
+        },
+        {
+          "dark": 0,
+          "dpi": 144,
+          "cpu_ms": 1047,
+          "wall_ms": 2758
+        },
+        {
+          "dark": 0,
+          "dpi": 192,
+          "cpu_ms": 1157,
+          "wall_ms": 2617
+        },
+        {
+          "dark": 1,
+          "dpi": 96,
+          "cpu_ms": 1000,
+          "wall_ms": 2965
+        },
+        {
+          "dark": 1,
+          "dpi": 144,
+          "cpu_ms": 1203,
+          "wall_ms": 4094
+        },
+        {
+          "dark": 1,
+          "dpi": 192,
+          "cpu_ms": 1079,
+          "wall_ms": 2406
+        }
+      ],
+      "resize_wheel_cases": 6,
+      "empty_copy_cases": 6,
+      "source_profile_preserved": true,
+      "exe_sha256": "5fffeb9c85a6f53a8d0f6c88de884537acd62f8f193967bc43225d81bd57f66e",
+      "log": "panel-fixes-Win64-book-preview-layout-001.log",
+      "log_sha256": "3761dd3da65f3bc66698c1c6b1d463d6dcf19a1c080184b17cee3ee85881a986",
+      "completed_utc": "2026-10-19T21:05:36.299191+00:00",
+      "filter_order_theme_dpi_cases": 0,
+      "secondary_failure": false
+    },
+    {
+      "platform": "Win64",
+      "mode": "main-toolbar-states",
+      "exit_code": 0,
+      "all_six_geometry_cases_completed": false,
+      "measurements": [],
+      "resize_wheel_cases": 0,
+      "empty_copy_cases": 0,
+      "exe_sha256": "5fffeb9c85a6f53a8d0f6c88de884537acd62f8f193967bc43225d81bd57f66e",
+      "log": "panel-fixes-Win64-main-toolbar-states-001.log",
+      "log_sha256": "aed1efd71a13803f8583dbc9cc7477367dd2f79a5449d041ecd256db72223542",
+      "completed_utc": "2026-10-19T21:06:57.910521+00:00",
+      "filter_order_theme_dpi_cases": 6,
+      "secondary_failure": false
+    }
+  ]
+}

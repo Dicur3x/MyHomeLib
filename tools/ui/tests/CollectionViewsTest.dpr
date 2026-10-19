@@ -50,7 +50,8 @@ begin
   Writeln('FAIL VCL ', E.ClassName, ': ', E.Message);
   Writeln('TRACE exception RVA ', IntToHex(NativeUInt(ExceptAddr) - NativeUInt(HInstance), 8));
   Flush(Output);
-  Halt(1);
+  // Live VCL timers must not run unit finalizers after a failed assertion.
+  Winapi.Windows.ExitProcess(1);
 end;
 
 procedure Require(Condition: Boolean; const Message: string);
@@ -5932,7 +5933,8 @@ begin
     begin
       Writeln('FAIL ', E.ClassName, ': ', E.Message);
       Writeln('TRACE exception RVA ', IntToHex(NativeUInt(ExceptAddr) - NativeUInt(HInstance), 8));
-      Halt(1);
+      Flush(Output);
+      Winapi.Windows.ExitProcess(1);
     end;
   end;
 end.

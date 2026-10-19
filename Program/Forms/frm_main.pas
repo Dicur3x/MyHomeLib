@@ -9922,12 +9922,23 @@ begin
     if not Assigned(Button) then
     begin
       Button := TButton.Create(Self); FColumnReset[Tree.Tag] := Button;
+      Button.Visible := False;
       Button.Parent := TotalLabel.Parent; Button.Caption := 'Сбросить фильтры столбцов';
       Button.Width := MulDiv(176,Tree.CurrentPPI,96); Button.Height := MulDiv(24,Tree.CurrentPPI,96);
-      Button.Left := Max(0,TotalLabel.Left-Button.Width-8); Button.Align := alRight;
+      Button.Left := -Button.Width; Button.Align := alRight;
       Button.Margins.Right := 8; Button.AlignWithMargins := True; Button.OnClick := ResetColumnFiltersClick;
     end;
-    Button.Visible := Filters.Count > 0;
+    if (Filters.Count > 0) and not Button.Visible then
+    begin
+      // Insert before the complete right-aligned language/total group. Using
+      // TotalLabel.Left puts the action between the language label and combo.
+      Button.Parent.DisableAlign;
+      try
+        Button.Left := -Button.Width;
+        Button.Visible := True;
+      finally Button.Parent.EnableAlign; end;
+    end
+    else Button.Visible := Filters.Count > 0;
   end;
 
   if TBookColumnFilters.ForTree(Tree).Count > 0 then
