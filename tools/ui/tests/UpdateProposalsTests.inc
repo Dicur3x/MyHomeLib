@@ -609,7 +609,17 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
   CheckButton, Primary: TButton; View: TListView; Status: TLabel; Notes: TUpdateNotesView;
   Deadline: UInt64; Current: TProgramRelease; CacheRoot, SavedLocal: string;
   HadLocal, Restored, SavedAppCheck, SavedCatalogCheck: Boolean; EmptyValue: Char; LengthBefore: DWORD;
-  SourceHash: string; OriginalForms, Calls: Integer;
+  SourceHash, CopiedDiagnostic: string; OriginalForms, Calls: Integer;
+
+  function ReadDiagnosticClipboard: string;
+  var Attempt: Integer;
+  begin
+    for Attempt:=0 to 49 do
+      try Result:=Clipboard.AsText; Exit;
+      except on E: EClipboardException do
+        if Attempt=49 then raise else Sleep(10);
+      end;
+  end;
 
   procedure Controls;
   begin
@@ -684,7 +694,8 @@ begin
     View.PopupMenu.OnPopup(View.PopupMenu);
     Require(View.PopupMenu.Items[2].Enabled,'Failed source has no explicit diagnostic copy action');
     View.PopupMenu.Items[2].Click;
-    Require(string(Clipboard.AsText).Contains('Fixture HTTP 503') and (Length(Clipboard.AsText)<4600),
+    CopiedDiagnostic:=ReadDiagnosticClipboard;
+    Require(CopiedDiagnostic.Contains('Fixture HTTP 503') and (Length(CopiedDiagnostic)<4600),
       'Explicit Copy error omitted bounded diagnostics');
     Writeln('PASS update sources partial failure retains independent direct updates and selected error diagnostics without changing installed files');
 

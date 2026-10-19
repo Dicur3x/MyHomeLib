@@ -1211,7 +1211,7 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
     GdiFlush;
     Writeln('PROFILE failed reader phase=', Phase, ' round=', I,
       ' gdi=', GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS),
-      ' user=', GetGuiResources(GetCurrentProcess, GR_USEROBJECTS), ' forms=', Screen.FormCount);
+      ' user=', ReaderApplicationUSERCount, ' forms=', Screen.FormCount);
     Flush(Output);
     Controls.Clear; Windows.Clear;
     CaptureMainControls(frmMain, 'frmMain', Controls); CaptureWindows(Windows);
@@ -1223,7 +1223,7 @@ var Source, Hash: string; Driver: TFailedBuiltinReadDriver; WasVisible: Boolean;
       RequireFailedReaderHandleBaseline('native windows', Windows, BaseWindows);
       Require(GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS) <= BeforeGDI + 4,
         'Failed main-owned readers leak drawing handles');
-      Require(GetGuiResources(GetCurrentProcess, GR_USEROBJECTS) <= BeforeUSER + 4,
+      Require(ReaderApplicationUSERCount <= BeforeUSER + 4,
         'Failed main-owned readers leak window handles');
     end;
   end;
@@ -1236,7 +1236,7 @@ begin
     frmMain.Show; Application.ProcessMessages;
     DrainFailedReaderIdleCleanup('before-cold-baseline');
     ColdGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
-    ColdUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
+    ColdUSER := ReaderApplicationUSERCount;
     FormsBaseline := Screen.FormCount;
     CaptureMainControls(frmMain, 'frmMain', BaseControls); CaptureWindows(BaseWindows);
     ColdControlCount := BaseControls.Count; ColdWindowCount := BaseWindows.Count;
@@ -1248,7 +1248,7 @@ begin
     // These two cycles retain every input, enabled-main and orphan-form guard.
     ExerciseRound(0, 'cold', False); ExerciseRound(1, 'cold', False);
     BeforeGDI := GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS);
-    BeforeUSER := GetGuiResources(GetCurrentProcess, GR_USEROBJECTS);
+    BeforeUSER := ReaderApplicationUSERCount;
     Writeln('PROFILE failed reader steady-state baseline gdi=', BeforeGDI, ' user=', BeforeUSER,
       ' cold_gdi_delta=', Int64(BeforeGDI) - ColdGDI,
       ' cold_user_delta=', Int64(BeforeUSER) - ColdUSER,
@@ -1258,6 +1258,7 @@ begin
     // Preserve the original eight loops, then independently probe another
     // twenty-four complete lifecycles. The original +4 budget applies after
     // EVERY measured close, rather than only to the final sample.
+    // Windows-worker default HIMCs are reported separately; see ReaderApplicationUSERCount.
     if ParamStr(1)='reader-resource-idle' then
     begin
       // Independent control: no reader is created or closed during these samples.
@@ -1265,7 +1266,7 @@ begin
       begin
         DrainFailedReaderIdleCleanup('idle-control-'+IntToStr(I));
         Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Idle control drawing resources drifted without a reader');
-        Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Idle control USER resources drifted without a reader');
+        Require(ReaderApplicationUSERCount<=BeforeUSER+4,'Idle control USER resources drifted without a reader');
       end;
       Writeln('PASS reader resource idle control retains the same +4 budgets without repeated reader lifecycles');
     end
@@ -1276,13 +1277,13 @@ begin
     end;
     GdiFlush;
     Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BeforeGDI+4,'Failed main-owned readers leak drawing handles');
-    Require(GetGuiResources(GetCurrentProcess,GR_USEROBJECTS)<=BeforeUSER+4,'Failed main-owned readers leak window handles');
+    Require(ReaderApplicationUSERCount<=BeforeUSER+4,'Failed main-owned readers leak window handles');
   finally
     if not WasVisible then frmMain.Hide;
     Windows.Free; Controls.Free; BaseWindows.Free; BaseControls.Free;
   end;
   if ParamStr(1)<>'reader-resource-idle' then
-    Writeln('PASS 32 steady-state failed/canceled reader lifecycles preserve the original +4 budgets after two reported cold paths');
+    Writeln('PASS 32 steady-state failed/canceled reader lifecycles preserve +4 application budgets with Windows worker input contexts reported separately');
   Writeln('PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs');
 end;
 
