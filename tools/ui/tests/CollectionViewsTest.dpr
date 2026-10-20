@@ -5497,6 +5497,7 @@ end;
 {$I RefactorAuditTests.inc}
 {$I Post525UpdateTests.inc}
 {$I StartupDeferredTests.inc}
+{$I BookViewSessionTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5533,6 +5534,7 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
       if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
@@ -5612,6 +5614,12 @@ begin
       Two.SetProperty(PROP_GENRES_LANG_FILTER, 1);
       Settings.ActiveCollection := OneID;
       Settings.ActivePage := PAGE_AUTHORS;
+      if ParamStr(1) = 'view-sessions' then
+      begin
+        Require(Settings.RestoreBookViews = rbvAsk, 'Restore must default to asking');
+        Settings.RestoreBookViews := rbvAutomatic;
+        for I := 0 to 6 do Settings.TreeModes[I] := tmFlat;
+      end;
       if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'startup-deferred-publisher') then
       begin
         Settings.ActivePage := PAGE_PUBLISHER_SERIES;
@@ -5672,6 +5680,8 @@ begin
         Require(Settings.ActiveCollection = OneID, 'Startup fallback selected the wrong collection');
         Writeln('PASS deferred startup keeps saved book, view and collection fallback');
       end
+      else if ParamStr(1) = 'view-sessions' then
+        TestBookViewSessions(OneID, TwoID)
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails
       else if ParamStr(1) = 'oct11-ui' then

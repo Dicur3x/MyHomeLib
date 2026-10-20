@@ -46,7 +46,7 @@ uses
   unit_ProgramUpdates,
   frm_ProgramUpdate,
   frm_OPDS,
-  unit_Interfaces, unit_StartupCatalog,
+  unit_Interfaces, unit_StartupCatalog, unit_BookViewSessions,
   XMLIntf,
   XMLDoc,
   pngimage,
@@ -937,6 +937,10 @@ type
 
     FColumnReset: array[0..6] of TButton;
     FSortSettings: array [0 .. 6] of TSortSetting;
+    FBookViewSessions: TBookViewSessions;
+    FBookViewSessionCollection: Integer;
+    FBookViewsRestoreAsked, FBookViewsRestoreAccepted: Boolean;
+    FBookViewRestoreMode: Integer;
 
     FLastFoundBook: PVirtualNode;
     FFirstFoundBook: PVirtualNode;
@@ -1074,6 +1078,11 @@ type
     procedure SetShowBookAnnotation(State: Boolean);
     procedure SetColumns;
     procedure SaveColumns;
+    procedure SaveBookViewSession;
+    procedure RestoreBookViewSession;
+    procedure SyncBookViewSort(Tree: TBookTree);
+    procedure BookViewRestoreDialogShow(Sender: TObject);
+    procedure ClearFilteredBookFocus(Tree: TBookTree);
     procedure SetHeaderPopUp;
     procedure DownloadBooks(CurrentBookOnly: boolean = False);
     function CheckActiveDownloads: Boolean;
@@ -1465,6 +1474,7 @@ begin
         COL_NO, COL_GENRE, COL_SIZE, COL_RATE, COL_DATE, COL_TYPE, COL_COLLECTION, COL_LANG,
         COL_LIBRATE, COL_LIBID);
       Tree.Header.Height := Max(Tree.Header.Height, MulDiv(24, Tree.CurrentPPI, 96));
+      SyncBookViewSort(Tree);
     end;
 
 
@@ -2157,6 +2167,8 @@ procedure TfrmMain.CloseCollection;
 var
   FCursor: TCursor; I: Integer;
 begin
+  SaveBookViewSession;
+  FBookViewSessionCollection := 0;
   for I:=Low(FBookPreviews) to High(FBookPreviews) do
     if Assigned(FBookPreviews[I]) then FBookPreviews[I].Cancel;
   FStaleSelectors := [];
@@ -2398,6 +2410,7 @@ begin
     // Genre and seeded group names live in the databases, so they do not
     // follow a change of interface language on their own. Bring them into
     // line here, before the trees are built from them below.
+    RestoreBookViewSession;
     SyncGenreLanguage;
     SyncSystemGroupNames;
 
@@ -4650,6 +4663,8 @@ begin
   FStartupMenuEnabled := nil;
   FStatusProgressBar.Style := pbstNormal; ShowStatusProgress := False;
   StatusMessage := rstrReadyMessage;
+  for var Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG,
+    tvBooksSR, tvBooksF, FPublisher.Books) do ClearFilteredBookFocus(Tree);
   if Assigned(FCollection) then CheckFavoriteCollection;
 end;
 
@@ -4823,6 +4838,7 @@ begin
   SavePositions;
   SaveMainFormSettings;
   Settings.SaveSettings;
+  FreeAndNil(FBookViewSessions);
 
   FreeAndNil(FController);
   FreeAndNil(FDMThread);
@@ -4900,6 +4916,7 @@ end;
 procedure TfrmMain.SaveMainFormSettings;
 begin
   SaveColumns;
+  SaveBookViewSession;
 
   UpdatePositions;
 
@@ -4928,6 +4945,119 @@ begin
     Settings.FormLeft := Left;
   end;
 
+end;
+
+procedure TfrmMain.ClearFilteredBookFocus(Tree: TBookTree);
+begin
+  // Returning focus from a modal/cancel button can make VCL focus the first
+  // row even when filters hide every book. Never offer actions on that row.
+  if Assigned(Tree.FocusedNode) and Tree.IsEffectivelyFiltered[Tree.FocusedNode] then
+  begin
+    Tree.ClearSelection; Tree.FocusedNode := nil;
+    RefreshBookInfo(Tree);
+  end;
+end;
+
+procedure TfrmMain.SyncBookViewSort(Tree: TBookTree);
+begin
+  UpdateBookViewSortHeader(Tree, Settings.TreeModes[Tree.Tag] = tmFlat);
+  FSortSettings[Tree.Tag].Column := Tree.Header.SortColumn;
+  FSortSettings[Tree.Tag].Direction := Tree.Header.SortDirection;
+end;
+
+procedure TfrmMain.SaveBookViewSession;
+begin
+  if not Assigned(FBookViewSessions) or (FBookViewSessionCollection <= 0) then Exit;
+  try
+    for var Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG,
+      tvBooksSR, tvBooksF, FPublisher.Books) do
+      FBookViewSessions.Capture(FBookViewSessionCollection, Tree);
+    FBookViewSessions.Save;
+  except
+    on E: Exception do MHLShowError('Не удалось сохранить сортировки и фильтры.' + sLineBreak + E.Message);
+  end;
+end;
+
+procedure TfrmMain.BookViewRestoreDialogShow(Sender: TObject);
+var Dialog: TForm; Bounds: TRect;
+begin
+  Dialog := TForm(Sender);
+  Bounds := Monitor.WorkareaRect;
+  // Center after VCL has applied the monitor DPI and sized the message.
+  Dialog.SetBounds(Bounds.Left + (Bounds.Width - Dialog.Width) div 2,
+    Bounds.Top + (Bounds.Height - Dialog.Height) div 2, Dialog.Width, Dialog.Height);
+end;
+
+procedure TfrmMain.RestoreBookViewSession;
+var Restore: Boolean; Dialog: TForm; Remember: TCheckBox;
+  ButtonTop, ExtraHeight, Choice: Integer;
+begin
+  // InitCollection runs after the first paint in the production startup.
+  // Reading this small configuration never requests rows from any tab.
+  if not Assigned(FBookViewSessions) then
+  begin
+    FBookViewSessions := TBookViewSessions.Create(Settings.WorkPath + 'book-views.ini');
+    FBookViewRestoreMode := Ord(Settings.RestoreBookViews);
+  end;
+  Restore := FBookViewRestoreMode = Ord(rbvAutomatic);
+  if (FBookViewRestoreMode = Ord(rbvAsk)) and
+    FBookViewSessions.HasSettings(FCollection.CollectionID) then
+  begin
+    if not FBookViewsRestoreAsked then
+    begin
+      Dialog := CreateMessageDialog('Восстановить сортировки и фильтры из прошлой сессии?',
+        mtConfirmation, [mbYes, mbNo]);
+      try
+        Dialog.Caption := 'Сортировки и фильтры';
+        Dialog.Position := poDesigned;
+        for var Component in Dialog do
+          if Component is TButton then
+            case TButton(Component).ModalResult of
+              mrYes: TButton(Component).Caption := 'Да';
+              mrNo: TButton(Component).Caption := 'Нет';
+            end;
+        ButtonTop := Dialog.ClientHeight;
+        for var Component in Dialog do
+          if Component is TButton then ButtonTop := Min(ButtonTop, TButton(Component).Top);
+        ExtraHeight := MulDiv(28, Dialog.CurrentPPI, 96);
+        Remember := TCheckBox.Create(Dialog); Remember.Parent := Dialog;
+        Remember.Name := 'cbRememberBookViews'; Remember.Caption := 'Больше не спрашивать';
+        Remember.Hint := 'Запомнить выбранный ответ для следующих запусков'; Remember.ShowHint := True;
+        Remember.SetBounds(MulDiv(12, Dialog.CurrentPPI, 96), ButtonTop,
+          Dialog.ClientWidth - MulDiv(24, Dialog.CurrentPPI, 96), MulDiv(21, Dialog.CurrentPPI, 96));
+        Remember.Anchors := [akLeft, akTop, akRight];
+        for var Component in Dialog do
+          if Component is TButton then
+          begin
+            TButton(Component).Anchors := [akLeft, akTop];
+            TButton(Component).Top := TButton(Component).Top + ExtraHeight;
+          end;
+        Dialog.ClientHeight := Dialog.ClientHeight + ExtraHeight;
+        if MHLThemeDark then ApplyMHLControlTheme(Dialog);
+        Dialog.OnShow := BookViewRestoreDialogShow;
+        Choice := Dialog.ShowModal;
+        FBookViewsRestoreAccepted := Choice = mrYes;
+        FBookViewsRestoreAsked := True;
+        if Remember.Checked and (Choice in [mrYes, mrNo]) then
+        begin
+          if FBookViewsRestoreAccepted then Settings.RestoreBookViews := rbvAutomatic
+          else Settings.RestoreBookViews := rbvNever;
+          Settings.SaveSettings;
+        end;
+      finally Dialog.Free; end;
+    end;
+    Restore := FBookViewsRestoreAccepted;
+  end;
+  for var Tree in TArray<TBookTree>.Create(tvBooksA, tvBooksS, tvBooksG,
+    tvBooksSR, tvBooksF, FPublisher.Books) do
+  begin
+    if Restore then FBookViewSessions.Restore(FCollection.CollectionID, Tree)
+    else
+    begin Tree.SortKeys := nil; TBookColumnFilters.ForTree(Tree).Clear; end;
+    SyncBookViewSort(Tree);
+    SetBookListTotals(Tree, 0, 0);
+  end;
+  FBookViewSessionCollection := FCollection.CollectionID;
 end;
 
 procedure TfrmMain.ClearBookSorting(Sender: TObject);
@@ -6943,6 +7073,7 @@ begin
     Dec(FBookInfoUpdateCount);
   end;
   if FBookListCancelled then StatusMessage := 'Загрузка списка отменена';
+  ClearFilteredBookFocus(Tree);
   RefreshBookInfo(Tree);
 end;
 
@@ -10173,6 +10304,7 @@ begin
     FBookListCancel.Visible:=False; ShowStatusProgress:=False;
     Screen.Cursor:=SavedCursor; FBookListLoading:=False; Dec(FBookInfoUpdateCount);
   end;
+  ClearFilteredBookFocus(Tree);
   RefreshBookInfo(Tree);
   if FBookListCancelled then StatusMessage:='Фильтрация отменена; сохранён предыдущий результат';
 end;

@@ -83,6 +83,7 @@
         <DCCReference Include="Units\unit_ReaderRichEdit.pas"/>
         <DCCReference Include="Forms\frm_BuiltinReader.pas"/>
         <DCCReference Include="Units\unit_BookColumnFilters.pas"/>
+        <DCCReference Include="Units\unit_BookViewSessions.pas"/>
         <DCCReference Include="Units\unit_CatalogSources.pas"/>
         <DCCReference Include="Units\unit_CollectionSpace.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>

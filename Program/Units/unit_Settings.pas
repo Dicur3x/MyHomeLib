@@ -81,6 +81,8 @@ const
   BASE_LOCALE_NAME = 'Русский';
 
 type
+  TRestoreBookViews = (rbvAutomatic, rbvAsk, rbvNever);
+
   TMHLSettings = class
   private
     FAppPath: string;
@@ -95,6 +97,7 @@ type
     FGroupExportDir: string;
 
     FActiveCollection: Integer;
+    FRestoreBookViews: TRestoreBookViews;
     FDoCheckUpdate: Boolean;
     FBookCacheLimitMB: Integer;
     FBookCacheDirectory, FBookCachePreviousPath: string;
@@ -292,6 +295,7 @@ type
     property SystemFileName[fileType: TMHLSystemFile]: string read GetSystemFileName;
 
     property SettingsFileName: string read GetSettingsFileName;
+    property RestoreBookViews: TRestoreBookViews read FRestoreBookViews write FRestoreBookViews;
 
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property DevicePath: string read GetDevicePath;
@@ -666,6 +670,11 @@ begin
     FGroupExportDir := iniFile.ReadString(PATH_SECTION, 'GroupExport', '');
 
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
+    case iniFile.ReadInteger(INTERFACE_SECTION, 'RestoreBookViews', 1) of
+      0: FRestoreBookViews := rbvAutomatic;
+      2: FRestoreBookViews := rbvNever;
+    else FRestoreBookViews := rbvAsk;
+    end;
     FDoCheckUpdate := iniFile.ReadBool(SYSTEM_SECTION, 'CheckUpdates', True);
     FBookCachePreviousPath := iniFile.ReadString(SYSTEM_SECTION, 'BookCachePreviousPath', '');
     FBookCacheDirectory := iniFile.ReadString(SYSTEM_SECTION, 'BookCacheDirectory', '');
@@ -842,6 +851,7 @@ begin
     iniFile.WriteString(PATH_SECTION, 'GroupExport', FGroupExportDir);
 
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
+    iniFile.WriteInteger(INTERFACE_SECTION, 'RestoreBookViews', Ord(FRestoreBookViews));
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckUpdates', FDoCheckUpdate);
     iniFile.WriteString(SYSTEM_SECTION, 'BookCachePreviousPath', FBookCachePreviousPath);
     iniFile.WriteString(SYSTEM_SECTION, 'BookCacheDirectory', FBookCacheDirectory);

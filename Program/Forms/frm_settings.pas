@@ -246,6 +246,7 @@ type
     procedure btnResetClick(Sender: TObject);
 
   private
+    FRestoreBookViews: TComboBox;
     FUseBuiltinReader: TCheckBox;
     FCachePage: TTabSheet;
     FCacheLimit, FCacheDirectory, FCacheResolved: TEdit;
@@ -474,6 +475,32 @@ begin
   CaptionLabel.Caption := 'Обновления HomeLib Ru и компонентов проверяются на GitHub. ' +
     'Поля сервера относятся только к каталогам книг. Старый сервер закрыт; ' +
     'оставьте поля пустыми или укажите свой совместимый сервер. INPX можно подключать из файла.';
+
+  var SessionPage := TTabSheet.Create(Self);
+  SessionPage.Name := 'tsBookViewSessions';
+  SessionPage.PageControl := pcSetPages; SessionPage.TabVisible := False;
+  tvSections.Items.Add(nil, 'Списки книг');
+  CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := SessionPage;
+  CaptionLabel.Align := alTop; CaptionLabel.AutoSize := False;
+  CaptionLabel.AlignWithMargins := True; CaptionLabel.Margins.SetBounds(12,12,12,8);
+  CaptionLabel.Height := MulDiv(24,CurrentPPI,96);
+  CaptionLabel.Caption := 'Восстановление при запуске';
+  FRestoreBookViews := TComboBox.Create(Self); FRestoreBookViews.Parent := SessionPage;
+  FRestoreBookViews.Name := 'cbRestoreBookViews'; FRestoreBookViews.Style := csDropDownList;
+  FRestoreBookViews.Top := MaxInt; FRestoreBookViews.Align := alTop;
+  FRestoreBookViews.AlignWithMargins := True; FRestoreBookViews.Margins.SetBounds(12,0,12,12);
+  FRestoreBookViews.Items.Add('Восстанавливать автоматически');
+  FRestoreBookViews.Items.Add('Спрашивать при запуске');
+  FRestoreBookViews.Items.Add('Не восстанавливать');
+  FRestoreBookViews.ItemIndex := Ord(Settings.RestoreBookViews);
+  CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := SessionPage;
+  CaptionLabel.Top := MaxInt; CaptionLabel.Align := alTop; CaptionLabel.AutoSize := False;
+  CaptionLabel.AlignWithMargins := True; CaptionLabel.Margins.SetBounds(12,0,12,8);
+  CaptionLabel.Height := MulDiv(140,CurrentPPI,96); CaptionLabel.WordWrap := True;
+  CaptionLabel.Caption := 'Порядок сортировки и фильтры столбцов запоминаются отдельно ' +
+    'для каждой вкладки и коллекции.' + sLineBreak + sLineBreak +
+    'Выбранный режим применяется со следующего запуска. Восстановленные фильтры ' +
+    'можно отключить кнопкой «Сбросить фильтры столбцов» над списком книг.';
 end;
 
 procedure TfrmSettings.LayoutCacheControls(TargetPPI: Integer);
@@ -776,6 +803,7 @@ begin
 
   cbShowSubGenreBooks.Checked := Settings.ShowSubGenreBooks;
   cbMinimizeToTray.Checked := Settings.MinimizeToTray;
+  FRestoreBookViews.ItemIndex := Ord(Settings.RestoreBookViews);
   cbAutoStartDwnld.Checked := Settings.AutoStartDwnld;
   cbAllowMixedCollections.Checked := Settings.AllowMixed;
   cbDeleteDeleted.Checked := Settings.DeleteDeleted;
@@ -905,6 +933,8 @@ begin
 
   Settings.ShowSubGenreBooks := cbShowSubGenreBooks.Checked;
   Settings.MinimizeToTray := cbMinimizeToTray.Checked;
+  if FRestoreBookViews.ItemIndex in [0..2] then
+    Settings.RestoreBookViews := TRestoreBookViews(FRestoreBookViews.ItemIndex);
   Settings.AutoStartDwnld := cbAutoStartDwnld.Checked;
   Settings.AllowMixed := cbAllowMixedCollections.Checked;
   Settings.DeleteDeleted := cbDeleteDeleted.Checked;

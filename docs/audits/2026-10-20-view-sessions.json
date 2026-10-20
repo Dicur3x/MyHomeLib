@@ -1,0 +1,400 @@
+{
+  "date_utc": "2026-10-20T14:13:23.691828+00:00",
+  "base_commit": "9321dbbd8712780b926868dd107a307ac8a9aaf0",
+  "purpose": "Per-tab and per-collection book sort/filter persistence; ask by default and remember the chosen answer; local builds only",
+  "behavior": {
+    "default": "Ask after the main window is visible, only when saved active sorting/filtering exists",
+    "settings_section": "Списки книг",
+    "choices": [
+      "Automatic restore",
+      "Ask on startup",
+      "Do not restore"
+    ],
+    "remember_checkbox": "Больше не спрашивать; checked Yes persists automatic restore, checked No persists no restore; unchecked answers retain Ask",
+    "scope": "Six book views in each collection; up to three stable column sort keys, directions and complete column-filter conditions",
+    "storage": "book-views.ini under Settings.WorkPath; atomic UTF-8 configuration writes"
+  },
+  "source_sha256": {
+    "Program/Forms/frm_main.pas": "57b085bae16e5f7841f2669fcf62f95e63e214607490b25b5a7d8742e00d6c70",
+    "Program/Forms/frm_settings.pas": "7d7dc3c2de8d754edfe31203ed4d3fbb80c0aabb6094278eb25e5de07bbfbc22",
+    "Program/Units/unit_Settings.pas": "925c987694eaa43c3cca39299e6dfcbbf46917581d8da8c6dfaa02ad728148e7",
+    "Program/Units/unit_BookViewSessions.pas": "5465c6c2decfaa091fcb72a41525e448fa5606572d0290a604fde3a73aedb2f6",
+    "Program/HomeLibRu.dpr": "ae1512526c2c3eee6a7cd8630f3377314137a0d6ec82b6b9e604c7162e80142f",
+    "Program/MyhomeLib.dproj": "2250e49ff3c8c9d15d6d897a36c7881c4534f43ef09b4da82f5b46aa6ee44c04",
+    "tools/ui/tests/CollectionViewsTest.dpr": "ba636b7e88b6a754c3d959fab17df6ef6822468675a5e256927b8a42e37d6eaf",
+    "tools/ui/tests/BookViewSessionTests.inc": "17d5e1b375d2d56813556574c8a5418a7aa4d2bd80933f2b7da7afca70173c10",
+    "tools/ui/tests/SearchStartupLayoutTests.inc": "356fb9ea6a73d83bfd67dd00198182028d730ccc273bf62b328d5242024e36dd",
+    "tools/ui/tests/native_collection_tests.js": "d4e08bdc9a622059a709ca181f033492a78abe991a516cc0b041486148518963"
+  },
+  "validation": {
+    "final_session_tests": {
+      "Win32": {
+        "test_executable_sha256": "c11fe8f1fd470526776f571627c26f77425ce03975ae022d4b75c6ff7c027b55",
+        "log": "Win32-view-sessions-3.log",
+        "log_sha256": "30dd56f430a3e45eefba1692e026539e69378f21a3e51529559e925a94a4531a",
+        "child_main_visible_samples": [
+          {
+            "mode": "auto",
+            "milliseconds": 2407
+          },
+          {
+            "mode": "ask-yes",
+            "milliseconds": 2453
+          },
+          {
+            "mode": "ask-no",
+            "milliseconds": 2235
+          },
+          {
+            "mode": "never",
+            "milliseconds": 2282
+          },
+          {
+            "mode": "ask-remember-yes",
+            "milliseconds": 2359
+          },
+          {
+            "mode": "auto",
+            "milliseconds": 2375
+          },
+          {
+            "mode": "ask-remember-no",
+            "milliseconds": 2937
+          },
+          {
+            "mode": "never",
+            "milliseconds": 2250
+          }
+        ]
+      },
+      "Win64": {
+        "test_executable_sha256": "992b3176886417c6d6a8a6e4b0e1c4b7a30686b9d5e0e835f2152652d748c0d9",
+        "log": "Win64-view-sessions-10.log",
+        "log_sha256": "b1f6c00b6f56d5ff0fd9f9b7e417da886d11ed0199f3a075576ffc36a39c8fe5",
+        "child_main_visible_samples": [
+          {
+            "mode": "auto",
+            "milliseconds": 6781
+          },
+          {
+            "mode": "ask-yes",
+            "milliseconds": 6454
+          },
+          {
+            "mode": "ask-no",
+            "milliseconds": 2390
+          },
+          {
+            "mode": "never",
+            "milliseconds": 2641
+          },
+          {
+            "mode": "ask-remember-yes",
+            "milliseconds": 2609
+          },
+          {
+            "mode": "auto",
+            "milliseconds": 2343
+          },
+          {
+            "mode": "ask-remember-no",
+            "milliseconds": 2313
+          },
+          {
+            "mode": "never",
+            "milliseconds": 2953
+          }
+        ]
+      }
+    },
+    "successful_distinct_architecture_scenario_pairs": 20,
+    "checks": [
+      {
+        "arch": "Win32",
+        "mode": "column-filters",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 18.438,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-column-filters-1.log",
+        "passed": true,
+        "log_sha256": "a8a10bebf26867845fe8dc58783520223b2e20921a2e91b0d372c272279b0186"
+      },
+      {
+        "arch": "Win32",
+        "mode": "language-isolation",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 4.454,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-language-isolation-1.log",
+        "passed": true,
+        "log_sha256": "7fdaa41344115b6e8c2543f52f52014362ba24002f5ddf0ff08e85a30c787cfa"
+      },
+      {
+        "arch": "Win32",
+        "mode": "metadata-book-columns",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 28.89,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-metadata-book-columns-1.log",
+        "passed": true,
+        "log_sha256": "db8f111db0d35a20bd328782a13d491c7245f3d88845195eba5ff1be5b592eae"
+      },
+      {
+        "arch": "Win32",
+        "mode": "search-startup-layout",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 4.125,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-search-startup-layout-1.log",
+        "passed": true,
+        "log_sha256": "fdd274c4c6f9a5873666669cdbf065b5edd8481611c84d7d35066ed22f662b57"
+      },
+      {
+        "arch": "Win32",
+        "mode": "settings-workflow-audit",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 29.516,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-settings-workflow-audit-1.log",
+        "passed": true,
+        "log_sha256": "e88f133cc1513909efa4845b6416ec5e385800b22ca41b6fdcb6e7ef27373c58"
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 6.375,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-startup-deferred-1.log",
+        "passed": true,
+        "log_sha256": "13192816ee3413bc6eb294ef5d926fb2383d7911f81d4f443dc138683d8240fd"
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-close",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 3.734,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-startup-deferred-close-1.log",
+        "passed": true,
+        "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-fallback",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 4.906,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-startup-deferred-fallback-1.log",
+        "passed": true,
+        "log_sha256": "4c7666f1d332f2d4abd4fcf52c4af83d6cd5d7e6ecbf5b82b57ee69bdee32318"
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-publisher",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 5.422,
+        "exe_sha256": "1e88277287099bca73a713c3df048e0e9122ff924a16d2babedd2f9bdd59d1c0",
+        "log": "Win32-startup-deferred-publisher-1.log",
+        "passed": true,
+        "log_sha256": "e27cf82bf6804ca9497b980af24dd486009c1ec72d58947fa33754b5ccbe73b6"
+      },
+      {
+        "arch": "Win32",
+        "mode": "view-sessions",
+        "attempt": 3,
+        "exit_code": 0,
+        "seconds": 46.844,
+        "exe_sha256": "c11fe8f1fd470526776f571627c26f77425ce03975ae022d4b75c6ff7c027b55",
+        "log": "Win32-view-sessions-3.log",
+        "passed": true,
+        "log_sha256": "30dd56f430a3e45eefba1692e026539e69378f21a3e51529559e925a94a4531a"
+      },
+      {
+        "arch": "Win64",
+        "mode": "column-filters",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 18.469,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-column-filters-1.log",
+        "passed": true,
+        "log_sha256": "a8a10bebf26867845fe8dc58783520223b2e20921a2e91b0d372c272279b0186"
+      },
+      {
+        "arch": "Win64",
+        "mode": "language-isolation",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 10.422,
+        "exe_sha256": "4b282a6da88dba7c7adeda5677d90bdf2080cf701aa8eb8168ec0cc95237baaf",
+        "log": "Win64-language-isolation-1.log",
+        "passed": true,
+        "log_sha256": "7fdaa41344115b6e8c2543f52f52014362ba24002f5ddf0ff08e85a30c787cfa"
+      },
+      {
+        "arch": "Win64",
+        "mode": "metadata-book-columns",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 35.469,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-metadata-book-columns-1.log",
+        "passed": true,
+        "log_sha256": "a4cd195b8bf63d2a38cd097f2bd9864a0501adc94f62752bda0d08f73ed0ca49"
+      },
+      {
+        "arch": "Win64",
+        "mode": "search-startup-layout",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 14.421,
+        "exe_sha256": "4b282a6da88dba7c7adeda5677d90bdf2080cf701aa8eb8168ec0cc95237baaf",
+        "log": "Win64-search-startup-layout-2.log",
+        "passed": true,
+        "log_sha256": "fdd274c4c6f9a5873666669cdbf065b5edd8481611c84d7d35066ed22f662b57"
+      },
+      {
+        "arch": "Win64",
+        "mode": "settings-workflow-audit",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 37.297,
+        "exe_sha256": "4b282a6da88dba7c7adeda5677d90bdf2080cf701aa8eb8168ec0cc95237baaf",
+        "log": "Win64-settings-workflow-audit-1.log",
+        "passed": true,
+        "log_sha256": "9d50aaaef138ff1e38b18cfbd41ca535381aa3e04ce36b14db7868937887e15f"
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 4.672,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-startup-deferred-1.log",
+        "passed": true,
+        "log_sha256": "13192816ee3413bc6eb294ef5d926fb2383d7911f81d4f443dc138683d8240fd"
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-close",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 3.875,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-startup-deferred-close-1.log",
+        "passed": true,
+        "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-fallback",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 6.015,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-startup-deferred-fallback-1.log",
+        "passed": true,
+        "log_sha256": "4c7666f1d332f2d4abd4fcf52c4af83d6cd5d7e6ecbf5b82b57ee69bdee32318"
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-publisher",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 5.094,
+        "exe_sha256": "3eb5d34ad5f40ea8209dc9d61d9262dbcfedbd5fe8124ef0b04b93aa70615742",
+        "log": "Win64-startup-deferred-publisher-1.log",
+        "passed": true,
+        "log_sha256": "e27cf82bf6804ca9497b980af24dd486009c1ec72d58947fa33754b5ccbe73b6"
+      },
+      {
+        "arch": "Win64",
+        "mode": "view-sessions",
+        "attempt": 10,
+        "exit_code": 0,
+        "seconds": 90.703,
+        "exe_sha256": "992b3176886417c6d6a8a6e4b0e1c4b7a30686b9d5e0e835f2152652d748c0d9",
+        "log": "Win64-view-sessions-10.log",
+        "passed": true,
+        "log_sha256": "b1f6c00b6f56d5ff0fd9f9b7e417da886d11ed0199f3a075576ffc36a39c8fe5"
+      }
+    ],
+    "scope_note": "The companion startup/filter/settings scenarios passed before the final prompt wording/default/remember-checkbox amendment; the complete view-sessions suite was rebuilt and rerun afterward on both architectures. Exact executable hashes are recorded for each check.",
+    "restart_cases": [
+      "Automatic restoration",
+      "Ask Yes without remembering",
+      "Ask No without remembering",
+      "Restore disabled",
+      "Remember Yes followed by another automatic process restart",
+      "Remember No followed by another disabled process restart"
+    ],
+    "other_assertions": [
+      "Session file held with deny sharing until Main was visible and still had no book rows",
+      "No inactive Search rows loaded during restoration",
+      "All six tab states and separate collection states round-trip without mixing",
+      "Unicode and multiline exact selections, case sensitivity, numeric/date ranges and favorite-author flag survive",
+      "Grouped/flat rebuilding preserves stable sort keys and header mapping",
+      "Filter and sort resets persist to disk",
+      "Damaged configuration and invalid preference do not prevent startup",
+      "Prompt centered after DPI layout; checkbox and buttons do not overlap or exceed client bounds",
+      "All three settings choices persist"
+    ],
+    "startup_measurement_limit": "Native child samples are diagnostics of Main construction on tiny private fixtures. They exclude process pre-entry and are not a cold-start benchmark or a promise of a fixed launch time."
+  },
+  "local_release_binaries": {
+    "Win32": {
+      "path": "Program/Out/Bin/HomeLibRu.exe",
+      "bytes": 10469888,
+      "sha256": "d0c449aabc126a0598baf83a9dbaab24ca2116afb228047e547a7e2fc3a8fd55",
+      "pe_machine": "0x14c",
+      "configuration": "Release",
+      "build_method": "Delphi 13 IDE full Build; Success observed"
+    },
+    "Win64": {
+      "path": "Program/Out/Bin64/HomeLibRu.exe",
+      "bytes": 16108544,
+      "sha256": "654e1f063aa06379ae53e73158a6346cde5dc7c864ea715a47cac4da9676f067",
+      "pe_machine": "0x8664",
+      "configuration": "Release",
+      "build_method": "Delphi 13 IDE full Build; Success observed"
+    }
+  },
+  "visual_inspection": {
+    "application": "Actual newly built x64 HomeLibRu.exe in private tiny fixture",
+    "verified": [
+      "Centered restore question with Russian Yes/No and unchecked remember checkbox",
+      "Keyboard Shift+Tab and Space reach/toggle the remember checkbox",
+      "Checked Yes writes preference 0 and the Settings page displays automatic restoration",
+      "Settings section Списки книг and its explanation fit the existing window",
+      "Restored sort indicators and filter reset work in the normal application"
+    ],
+    "previous_feature_pass": "Actual earlier x64 Release also verified empty filtered results and reset revealing all three fixture books"
+  },
+  "validation_repairs": [
+    "Centered message after final monitor/DPI layout",
+    "Cleared focus when restored filters hide the focused row",
+    "Registered the new unit in the main DPR/DPROJ",
+    "Shortened settings sidebar caption to avoid clipping",
+    "Started the modal test timeout after Main construction, not before it",
+    "Replaced a test-only hardcoded G: location with the existing isolated-profile guard"
+  ],
+  "cleanup": {
+    "wrapper_created_fixtures": "Automatically cleaned by the native wrapper unless explicitly retained for GUI inspection",
+    "retained_gui_fixture": "tools/ui/tests/Out/view-sessions-20261020/temp/HomeLibRu-native-YvoodV",
+    "retained_gui_fixture_bytes": 44781279,
+    "removal_status": "Automatic approval review rejected the verified, marker-checked recursive cleanup with blocked by policy. No alternate deletion method was attempted.",
+    "running_test_programs": false
+  },
+  "publication": "No version bump, push or GitHub release performed for this request"
+}

@@ -106,6 +106,7 @@ uses
   unit_ReaderRichEdit in 'Units\unit_ReaderRichEdit.pas',
   frm_BuiltinReader in 'Forms\frm_BuiltinReader.pas',
   unit_BookColumnFilters in 'Units\unit_BookColumnFilters.pas',
+  unit_BookViewSessions in 'Units\unit_BookViewSessions.pas',
   unit_CatalogSources in 'Units\unit_CatalogSources.pas',
   unit_CollectionSpace in 'Units\unit_CollectionSpace.pas',
   unit_CollectionMerge in 'Units\unit_CollectionMerge.pas',

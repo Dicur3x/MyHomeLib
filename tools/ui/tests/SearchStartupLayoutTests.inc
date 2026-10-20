@@ -15,7 +15,8 @@ end;
 procedure PrepareSearchStartupLayout;
 begin
   RequireIsolatedRegression;
-  Require(Settings.AppPath.StartsWith('G:\',True),'Search startup fixture must use its private G profile');
+  Require(SameFileName(ExtractFilePath(Settings.SettingsFileName), Settings.AppPath),
+    'Search startup fixture must use its isolated local profile');
   SLSProtectedPreferences:=SLSOtherPreferences;
   SLSOriginalDialogs:=Vcl.Dialogs.UseLatestCommonDialogs;
   Settings.ActivePage:=PAGE_SEARCH;
