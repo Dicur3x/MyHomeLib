@@ -1,0 +1,215 @@
+{
+  "release": "2.7.0_pre5.29",
+  "build": "2.7.0.1097",
+  "status": "validated-ready-to-publish",
+  "verified_utc": "2026-10-20T20:22:07.036692+00:00",
+  "feature_commits": [
+    "e49f3c7b",
+    "35695d08"
+  ],
+  "functional_validation": [
+    "2026-10-20-toolbar-search-followup.json",
+    "2026-10-20-first-book-list-performance.json"
+  ],
+  "unchanged_functional_sources": {
+    "Program/Forms/frm_main.pas": "b9d3e081a6c2128ef6a6d3191f388a3d21ffbac58d953b3995ad416c76f458cd",
+    "Program/Units/unit_BookSearchPanel.pas": "b2983d849e0c0e1825daf2e27893c72a873c992532373fe8718fff15f3f4c910",
+    "Program/Units/unit_StartupCatalog.pas": "59b00c824adfbea8c731565ce9147a3562f297bf641ced56efc71b9b31d32e25",
+    "Program/DAO/SQLite/Lib/SQLiteWrap.pas": "06937d50da8a16afd298d8668e5336e9f82c279b8866d1dd4d7bc4983c0a3a46",
+    "Program/DAO/SQLite/unit_Database_SQLite.pas": "c3dc21df8c2d9e6a55e416f57c3dc614103f1caf2bcfe8ff9785073a5355bc38",
+    "tools/ui/tests/CollectionViewsTest.dpr": "f917ef09816351117a86202928a7bd4b5ad483d25dcd22e192003cb09b407a9f",
+    "tools/ui/tests/FirstBookListTests.inc": "373f3ba7b2133ad849534d22f3748c27ddd5d3f8a30b37158c89fa527c6ae1a1",
+    "tools/ui/tests/StartupDeferredTests.inc": "35e17d43fcb20b066e49b708b38166fff83eaca55032ec0c3d41ee39f54588a8",
+    "tools/ui/tests/native_collection_tests.js": "6973b8b361fced9324464d0a36ecb5b05b796b9e1aa8bbc63d90b12a7a3ec2ea"
+  },
+  "changed_project_metadata": "Only release/build version definitions and release materials changed after functional validation",
+  "versions": [
+    {
+      "platform": "Bin",
+      "name": "HomeLibRu.exe",
+      "fileVersion": "2.7.0.1097",
+      "productVersion": "2.7.0_pre5.29"
+    },
+    {
+      "platform": "Bin",
+      "name": "HomeLibRuUpdater.exe",
+      "fileVersion": "2.7.0.1097",
+      "productVersion": "2.7.0_pre5.29"
+    },
+    {
+      "platform": "Bin64",
+      "name": "HomeLibRu.exe",
+      "fileVersion": "2.7.0.1097",
+      "productVersion": "2.7.0_pre5.29"
+    },
+    {
+      "platform": "Bin64",
+      "name": "HomeLibRuUpdater.exe",
+      "fileVersion": "2.7.0.1097",
+      "productVersion": "2.7.0_pre5.29"
+    }
+  ],
+  "builds": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.exe",
+      "size": 10474496,
+      "sha256": "cc6f22dd7a1320aa0226aa3135cb196800c9bcae70de8365b15482c2c72589fd",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win32",
+      "name": "HomeLibRuUpdater.exe",
+      "size": 1874944,
+      "sha256": "722ad510962f8ba053bf174caac92179b0064f0eaa36e3eb7953b7c3e8318db2",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Base"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu.exe",
+      "size": 16113664,
+      "sha256": "c93573107b0e6eaa78c67062a9c85d4b4aec1ea6d724bd7c2cbd52e8e7844299",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRuUpdater.exe",
+      "size": 2778112,
+      "sha256": "765c550d2dc08f88b1dd740c83c5d98ffa9fd7b4c3c53a36901e2954bda113da",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Base"
+    }
+  ],
+  "archives": {
+    "checked_utc": "2026-10-20T20:17:08.898972+00:00",
+    "archives": [
+      {
+        "platform": "Win32",
+        "name": "HomeLibRu.zip",
+        "size": 55581238,
+        "sha256": "ec1564a2355d928580cd23baa5a452e081feb89645849e01219467263b2380e6",
+        "manifest_files": 529,
+        "crc": "passed",
+        "all_manifest_hashes": "passed",
+        "binary_hashes": {
+          "HomeLibRu.exe": "cc6f22dd7a1320aa0226aa3135cb196800c9bcae70de8365b15482c2c72589fd",
+          "HomeLibRuUpdater.exe": "722ad510962f8ba053bf174caac92179b0064f0eaa36e3eb7953b7c3e8318db2",
+          "MHLMcpServer.exe": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd",
+          "sqlite3.dll": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2"
+        },
+        "alreader_unchanged_sha256": "a975618b056918e8c0aad7303d07d9c1adcb4fba7573eea2e8ad71ce7ead5697",
+        "history_tags": [
+          "2.7.0_pre5.29",
+          "2.7.0_pre5.28",
+          "2.7.0_pre5.27",
+          "2.7.0_pre5.26",
+          "2.7.0_pre5.25",
+          "2.7.0_pre5.24",
+          "2.7.0_pre5.23",
+          "2.7.0_pre5.22"
+        ]
+      },
+      {
+        "platform": "Win64",
+        "name": "HomeLibRu_x64.zip",
+        "size": 61106895,
+        "sha256": "3fd5eb6fc641fb277d2680c18b365a671436429ebfe6558c65d769a67081f9ec",
+        "manifest_files": 538,
+        "crc": "passed",
+        "all_manifest_hashes": "passed",
+        "binary_hashes": {
+          "HomeLibRu.exe": "c93573107b0e6eaa78c67062a9c85d4b4aec1ea6d724bd7c2cbd52e8e7844299",
+          "HomeLibRuUpdater.exe": "765c550d2dc08f88b1dd740c83c5d98ffa9fd7b4c3c53a36901e2954bda113da",
+          "MHLMcpServer.exe": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385",
+          "sqlite3.dll": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea"
+        },
+        "alreader_unchanged_sha256": "a975618b056918e8c0aad7303d07d9c1adcb4fba7573eea2e8ad71ce7ead5697",
+        "history_tags": [
+          "2.7.0_pre5.29",
+          "2.7.0_pre5.28",
+          "2.7.0_pre5.27",
+          "2.7.0_pre5.26",
+          "2.7.0_pre5.25",
+          "2.7.0_pre5.24",
+          "2.7.0_pre5.23",
+          "2.7.0_pre5.22"
+        ]
+      }
+    ]
+  },
+  "installation": [
+    {
+      "platform": "Win32",
+      "exit_code": 0,
+      "seconds": 41.657,
+      "archive_sha256": "ec1564a2355d928580cd23baa5a452e081feb89645849e01219467263b2380e6",
+      "installer_sha256": "eca79d9a9dffd2dd909556dbdb070c9f7c955e196d823ba79255ec2d762fcfea",
+      "log": "integration-Win32.log",
+      "log_sha256": "2c63d840f5f1b7b3b392499530c8ddca6016c3eb1503e3e3ba3b624b67b75da1",
+      "success": true
+    },
+    {
+      "platform": "Win64",
+      "exit_code": 0,
+      "seconds": 43.797,
+      "archive_sha256": "3fd5eb6fc641fb277d2680c18b365a671436429ebfe6558c65d769a67081f9ec",
+      "installer_sha256": "500d06a09459bb5599eec088535b07e5e7b10f0897c7815a1493c6b342885913",
+      "log": "integration-Win64.log",
+      "log_sha256": "7dfb856fe7f5bb87aa029db94587c881a8e18728c1dc06fa2bf7df3012b705d3",
+      "success": true
+    }
+  ],
+  "smoke": [
+    {
+      "platform": "Win32",
+      "success": true,
+      "method": "Computer Use via @oai/sky; actual unpacked ZIP program, synthetic MCP fixture",
+      "exe_sha256": "cc6f22dd7a1320aa0226aa3135cb196800c9bcae70de8365b15482c2c72589fd",
+      "observations": [
+        "Main window and author book list rendered",
+        "Status bar shows 2.7.0.1097",
+        "Settings toolbar button opened Settings dialog",
+        "Dialog cancelled; application closed normally; PID no longer present"
+      ],
+      "pid": 37892,
+      "limits": "Short interactive smoke, no measured cold-start timing or complete UI audit"
+    },
+    {
+      "platform": "Win64",
+      "success": true,
+      "method": "Computer Use via @oai/sky; actual unpacked ZIP program, synthetic MCP fixture",
+      "exe_sha256": "c93573107b0e6eaa78c67062a9c85d4b4aec1ea6d724bd7c2cbd52e8e7844299",
+      "observations": [
+        "Main window and author book list rendered",
+        "Status bar shows 2.7.0.1097",
+        "Settings toolbar button opened Settings dialog",
+        "Dialog cancelled; application closed normally; PID no longer present"
+      ],
+      "pid": 40760,
+      "limits": "Short interactive smoke, no measured cold-start timing or complete UI audit"
+    }
+  ],
+  "cleanup": {
+    "status": "blocked-by-automatic-execution-review",
+    "reason": "blocked by policy",
+    "action": "Native PowerShell Remove-Item -LiteralPath on newly created pre529-publish/temp/Win32 and Win64, recursively, after resolved path and ownership checks",
+    "remaining_bytes": 1073024300,
+    "attempts": 1,
+    "retries": "None; no alternative deletion",
+    "paths": [
+      "tools/ui/tests/Out/pre529-publish/temp/Win32",
+      "tools/ui/tests/Out/pre529-publish/temp/Win64"
+    ],
+    "published": false
+  },
+  "limits": [
+    "Disposable synthetic catalogue. First request on a new connection and new list; Windows disk cache is warm from fixture creation, not a cold-disk user-library timing.",
+    "Search gains are smaller than the removal of per-book SQL in author/series views. Absolute timings vary with CPU, other apps, result count and selected sort.",
+    "SQL profiling overhead applies to query-only profiles; actual_tree and actual Apply measurements run after StopSQLiteProfile.",
+    "Deferred startup, publisher language replay and per-tab restoration passed unchanged time guards. No new startup migrations, indexes, file scans or network work.",
+    "Not a claim that every broad catalogue search is instantaneous or that the entire application has no remaining bugs."
+  ]
+}
