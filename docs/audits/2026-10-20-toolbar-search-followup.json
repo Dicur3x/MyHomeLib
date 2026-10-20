@@ -1,0 +1,512 @@
+{
+  "date": "2026-10-20",
+  "base_commit": "2267ffd0491673c3c0616b719f5fb29438884ba2",
+  "scope": "Local follow-up fixes after pre5.28; no GitHub release or installed profile changes",
+  "fixes": [
+    "Restore individual native toolbar command states after startup-time handle recreation; retain restrictions on the Downloads tab.",
+    "Replay captured startup book rows when restoring the language filter, including publisher series; do not start a second database reader.",
+    "Skip the first identical Apply after the global deletion checkbox already refreshed Search. Changed criteria and later Apply still query.",
+    "Explain an empty favorite-author set in the search status and clarify that author text is optional and book favorites are separate."
+  ],
+  "reproductions": {
+    "toolbar": {
+      "log": "Win64-startup-deferred-5.log",
+      "exe_sha256": "2a53c18764db46d0f39ba207d28671dde3d0039ff7b8d07e00c0e4ffb69ca858",
+      "failure": "tbtnSettings enabled=0 action=1 native=0 after toolbar handle recreation during startup"
+    },
+    "publisher": {
+      "log": "Win32-startup-deferred-publisher-4.log",
+      "failure": "Second book reader was started to restore language; startup did not complete within the unchanged 15-second guard."
+    },
+    "favorite_author_feedback": "User confirmed the historical empty result was caused by the remaining last-month date condition; clearing it found the books."
+  },
+  "verification": {
+    "Win32": [
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-publisher",
+        "attempt": 6,
+        "exit_code": 0,
+        "seconds": 15.375,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-startup-deferred-publisher-6.log",
+        "passed": true,
+        "log_sha256": "bbf2f4ffb3b36f6d9295f98caccc30454f358418dbfd2d05c464947a15c427df",
+        "pass_markers": [
+          "PASS publisher startup restores its language from one database snapshot",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS saved publisher page starts with visible cover and information panel",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ],
+        "fixture_background_load_ms": 2656
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred",
+        "attempt": 9,
+        "exit_code": 0,
+        "seconds": 16.984,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-startup-deferred-9.log",
+        "passed": true,
+        "log_sha256": "1ec081f8f0bd8b7ec9e19882229856d902daaa892ada2e7ea0a1b58873018d16",
+        "pass_markers": [
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-fallback",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 16.156,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-startup-deferred-fallback-1.log",
+        "passed": true,
+        "log_sha256": "cbe9ce8e14b4b3acd2de680bd5a139d1b91d3e2fb457b43e2de11bb73a60931e",
+        "pass_markers": [
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "startup-deferred-close",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 10.437,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-startup-deferred-close-2.log",
+        "passed": true,
+        "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869",
+        "pass_markers": [
+          "PASS actual Main closes during background startup without callbacks into freed controls"
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "deleted-filter",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 38.687,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-deleted-filter-2.log",
+        "passed": true,
+        "log_sha256": "8507fb1f3acd095033ebd8e5eb92e9899a5dd43fd446604155c41e4fda2be4aa",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS fresh search and tree-mode changes never load the whole catalog",
+          "PASS search and group count/rows hide six deleted books and restore all twenty without data writes",
+          "PASS deletion toggle uses only the applied snapshot, preserves drafts and keeps an applied empty result empty",
+          "PASS saved true/false deletion conditions synchronize the shared mode without autoapplying presets",
+          "PASS visible groups refresh immediately and hidden search refreshes lazily without losing draft or language",
+          "PASS collection changes discard prior applied searches while retaining the shared deletion mode",
+          "PASS legacy presets inherit the shared mode after reopen, and original books, user data, groups and history survive every mode change"
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "favorite-ui",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 49.156,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-favorite-ui-2.log",
+        "passed": true,
+        "log_sha256": "1cc9c3d1f645e65489ffd8e6feeacbac9669d8b261db066ba826d704be349bdf",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS favorite baseline, independent author selector and unchanged books, groups, positions and notes",
+          "PASS favorite search intersects explicit criteria, preserves drafts and reopens presets without automatic queries",
+          "PASS known commits refresh cached new-book IDs across collection switches and only explicit action marks them viewed",
+          "PASS favorite removal refreshes loaded filters, re-add preserves baseline, cancellation retains complete profile data",
+          "PASS malformed long/NUL author names keep ordinary rendering and selection usable without changing profile or catalogs",
+          "PASS inline favorite condition fits actual 100%, 150%, 200% DPI without covering expression controls or expanding search"
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "view-sessions",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 160.453,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-view-sessions-1.log",
+        "passed": true,
+        "log_sha256": "d8bd6dc65fb7dab31e796f16a55c82773d9d0a09899e79a32e813ec71f8b46cd",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child auto",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-yes",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-no",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child never",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-remember-yes",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child auto",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-remember-no",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child never",
+          "PASS default author selection and saved book",
+          "PASS view sessions isolate all six tabs and collections",
+          "PASS actual process restart restores automatically, asks yes/no after paint, disables restore and persists reset",
+          "PASS restore prompt remembers affirmative and negative choices across another process restart",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS malformed view configuration is ignored without eager book loading",
+          "PASS view session settings persist all choices and reject invalid preference"
+        ],
+        "first_window_samples_ms": [
+          {
+            "mode": "auto",
+            "milliseconds": 12359
+          },
+          {
+            "mode": "ask-yes",
+            "milliseconds": 8625
+          },
+          {
+            "mode": "ask-no",
+            "milliseconds": 9047
+          },
+          {
+            "mode": "never",
+            "milliseconds": 8890
+          },
+          {
+            "mode": "ask-remember-yes",
+            "milliseconds": 9515
+          },
+          {
+            "mode": "auto",
+            "milliseconds": 8969
+          },
+          {
+            "mode": "ask-remember-no",
+            "milliseconds": 9937
+          },
+          {
+            "mode": "never",
+            "milliseconds": 8594
+          }
+        ]
+      },
+      {
+        "arch": "Win32",
+        "mode": "main-toolbar-states",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 120.016,
+        "exe_sha256": "80b6a055ee7ce97379d3849d20240a135702f3fe50365cc4ea84b1dfcb655aed",
+        "log": "Win32-main-toolbar-states-1.log",
+        "passed": true,
+        "log_sha256": "3c67e2dc4be9520d1248c80093c2f80e655b74d455a2235044bfbbd29f61b01a",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=96 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=96 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=96 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=96 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=96",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=144 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=144 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=144 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=144 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=144",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=192 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=192 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=192 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=192 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=192",
+          "PASS Main toolbar state matrix restores original theme, DPI and window without catalog changes",
+          "PASS actual Main three-row font and DPI growth restores automatic options without catalog or personal card changes"
+        ]
+      }
+    ],
+    "Win64": [
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-publisher",
+        "attempt": 3,
+        "exit_code": 0,
+        "seconds": 14.75,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-startup-deferred-publisher-3.log",
+        "passed": true,
+        "log_sha256": "d29a80e5de4496c64698d3cecf5f8e0be88b6caab626d736df327ffff2b57da1",
+        "pass_markers": [
+          "PASS publisher startup restores its language from one database snapshot",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS saved publisher page starts with visible cover and information panel",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ],
+        "fixture_background_load_ms": 2296
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred",
+        "attempt": 10,
+        "exit_code": 0,
+        "seconds": 14.063,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-startup-deferred-10.log",
+        "passed": true,
+        "log_sha256": "77998145769e764fbac5cd92cd68435f047ff44495536796c69d8aab19fc3afb",
+        "pass_markers": [
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-fallback",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 15.484,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-startup-deferred-fallback-1.log",
+        "passed": true,
+        "log_sha256": "de9ade9c16a273324fe395d815b858e4f2f363cae437e912e82e811d5900766b",
+        "pass_markers": [
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS deferred startup workers cancel, preserve errors and free before Start",
+          "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+          "PASS deferred startup keeps saved book, view and collection fallback"
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "startup-deferred-close",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 12.625,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-startup-deferred-close-1.log",
+        "passed": true,
+        "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869",
+        "pass_markers": [
+          "PASS actual Main closes during background startup without callbacks into freed controls"
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "deleted-filter",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 39.562,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-deleted-filter-2.log",
+        "passed": true,
+        "log_sha256": "8507fb1f3acd095033ebd8e5eb92e9899a5dd43fd446604155c41e4fda2be4aa",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS fresh search and tree-mode changes never load the whole catalog",
+          "PASS search and group count/rows hide six deleted books and restore all twenty without data writes",
+          "PASS deletion toggle uses only the applied snapshot, preserves drafts and keeps an applied empty result empty",
+          "PASS saved true/false deletion conditions synchronize the shared mode without autoapplying presets",
+          "PASS visible groups refresh immediately and hidden search refreshes lazily without losing draft or language",
+          "PASS collection changes discard prior applied searches while retaining the shared deletion mode",
+          "PASS legacy presets inherit the shared mode after reopen, and original books, user data, groups and history survive every mode change"
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "favorite-ui",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 41.766,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-favorite-ui-2.log",
+        "passed": true,
+        "log_sha256": "03d01e40cfe41f95fe49be27390bd02c1f08dc0f40d75f273ff390fd3182b3f9",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS favorite baseline, independent author selector and unchanged books, groups, positions and notes",
+          "PASS favorite search intersects explicit criteria, preserves drafts and reopens presets without automatic queries",
+          "PASS known commits refresh cached new-book IDs across collection switches and only explicit action marks them viewed",
+          "PASS favorite removal refreshes loaded filters, re-add preserves baseline, cancellation retains complete profile data",
+          "PASS malformed long/NUL author names keep ordinary rendering and selection usable without changing profile or catalogs",
+          "PASS inline favorite condition fits actual 100%, 150%, 200% DPI without covering expression controls or expanding search"
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "view-sessions",
+        "attempt": 2,
+        "exit_code": 0,
+        "seconds": 121.937,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-view-sessions-2.log",
+        "passed": true,
+        "log_sha256": "4f2886e1a0cb34f5315350e6d47412bfc190b010671f0ef3925d858f4a722e84",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child auto",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-yes",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-no",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child never",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-remember-yes",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child auto",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child ask-remember-no",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS view session child never",
+          "PASS default author selection and saved book",
+          "PASS view sessions isolate all six tabs and collections",
+          "PASS actual process restart restores automatically, asks yes/no after paint, disables restore and persists reset",
+          "PASS restore prompt remembers affirmative and negative choices across another process restart",
+          "PASS actual Main appears before catalogue and restores controls after background load",
+          "PASS malformed view configuration is ignored without eager book loading",
+          "PASS view session settings persist all choices and reject invalid preference"
+        ],
+        "first_window_samples_ms": [
+          {
+            "mode": "auto",
+            "milliseconds": 6109
+          },
+          {
+            "mode": "ask-yes",
+            "milliseconds": 6329
+          },
+          {
+            "mode": "ask-no",
+            "milliseconds": 6063
+          },
+          {
+            "mode": "never",
+            "milliseconds": 6641
+          },
+          {
+            "mode": "ask-remember-yes",
+            "milliseconds": 5860
+          },
+          {
+            "mode": "auto",
+            "milliseconds": 6125
+          },
+          {
+            "mode": "ask-remember-no",
+            "milliseconds": 6297
+          },
+          {
+            "mode": "never",
+            "milliseconds": 6172
+          }
+        ]
+      },
+      {
+        "arch": "Win64",
+        "mode": "main-toolbar-states",
+        "attempt": 1,
+        "exit_code": 0,
+        "seconds": 86.985,
+        "exe_sha256": "18a1cff67af0cb1cbfe209b9d727423d16883b5d59dc487e1167ec90d18cebe5",
+        "log": "Win64-main-toolbar-states-1.log",
+        "passed": true,
+        "log_sha256": "99d1ccf32da1f320215bf77e523580e618005bf5090c1cae341798ce6fd87b21",
+        "pass_markers": [
+          "PASS header menu keeps column IDs separate from separator and default action",
+          "PASS default author selection and saved book",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=96 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=96 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=96 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=96 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=96",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=144 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=144 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=144 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=144 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=144",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=192 logical_width=1200",
+          "PASS Windows theme suggestion grouped at right with adjacent unclipped text and actions dpi=192 logical_width=800",
+          "PASS reset action precedes language label and selector across book tabs dpi=192 dark=0",
+          "PASS reset action precedes language label and selector across book tabs dpi=192 dark=1",
+          "PASS actual Main toolbar normal/checked/disabled/hover/pressed pixels and light callback/style restoration dpi=192",
+          "PASS Main toolbar state matrix restores original theme, DPI and window without catalog changes",
+          "PASS actual Main three-row font and DPI growth restores automatic options without catalog or personal card changes"
+        ]
+      }
+    ]
+  },
+  "release_builds": {
+    "Win32": {
+      "file": "Program/Out/Bin/HomeLibRu.exe",
+      "sha256": "060ea4061d528aad6059a5ac9fa76fe904cdeed3323b9feda82f6bacfdb0a3f1",
+      "version": "2.7.0.1096",
+      "configuration": "Release",
+      "compiler": "Delphi 13 GUI Build",
+      "build_seconds": 15.0,
+      "pe_check": "Correct architecture, CommonControls 6, PerMonitorV2"
+    },
+    "Win64": {
+      "file": "Program/Out/Bin64/HomeLibRu.exe",
+      "sha256": "a9946cdc377075ec6f6ca253612172760193da1c5a05d9da75c5ea8b5959e6f6",
+      "version": "2.7.0.1096",
+      "configuration": "Release",
+      "compiler": "Delphi 13 GUI Build",
+      "build_seconds": 18.2,
+      "pe_check": "Correct architecture, CommonControls 6, PerMonitorV2"
+    }
+  },
+  "source_sha256": {
+    "Program/Forms/frm_main.pas": "b9d3e081a6c2128ef6a6d3191f388a3d21ffbac58d953b3995ad416c76f458cd",
+    "Program/Units/unit_BookSearchPanel.pas": "b2983d849e0c0e1825daf2e27893c72a873c992532373fe8718fff15f3f4c910",
+    "Program/Units/unit_StartupCatalog.pas": "59b00c824adfbea8c731565ce9147a3562f297bf641ced56efc71b9b31d32e25",
+    "tools/ui/tests/CollectionViewsTest.dpr": "f607c460e3a1c6feffbf7630b43822299beddaae35eba625d7d525632cf60639",
+    "tools/ui/tests/DeletedFilterTests.inc": "382ab4d14177ea4a171f648340591d458928e192c9ce747d7c86d0fa82fadd1c",
+    "tools/ui/tests/FavoriteAuthorUiTests.inc": "59acab339bdae63807b219d64a148cf3a9050df63fab45fbb205059d76a94771",
+    "tools/ui/tests/StartupDeferredTests.inc": "75ff554629dd47165f72c3642f2beff23b2e799d2364356a077347f6c16312f1",
+    "tools/ui/tests/native_collection_tests.js": "f9e47c42d0312967a7887bcf2573f848db7fa4fec6fc9cee2aca9682b05c4d91"
+  },
+  "limits": [
+    "Native scenarios use tiny isolated fixtures. Absolute launch timings are not representative of a quiet machine: CPU utilization was observed at 100% during this run.",
+    "The session-suite wrapper now permits 180 seconds for eight fresh child processes. Each child guard and the 15-second deferred-load guard are unchanged.",
+    "The SQL assertion counts the row SELECT separately from its count-query preparation.",
+    "No image-free export feature or ALReader update was implemented in this follow-up."
+  ],
+  "cleanup": {
+    "normal_runs": "Fresh marked temporary fixtures removed by their runner.",
+    "remaining_folder": "tools/ui/tests/Out/feedback528-20261020/temp/HomeLibRu-native-jDA1KD",
+    "remaining_bytes": 30402164,
+    "reason": "Native PowerShell recursive deletion was rejected before execution: blocked by policy. No alternative deletion was attempted.",
+    "protected_untracked_files": "Four existing local test/probe files were left untouched."
+  }
+}

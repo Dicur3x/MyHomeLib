@@ -727,10 +727,13 @@ type
     FStartupCatalog: TStartupCatalogLoader;
     FStartupBooks: TStartupBooksLoader;
     FStartupData: TStartupCatalogData;
-    FStartupBookRows: IBookIterator;
+    FStartupBookRows: TStartupBookRows;
     FStartupMenuEnabled: TArray<Boolean>;
+    FStartupMainButtons, FStartupEditButtons: TArray<Boolean>;
     procedure StartupTick(Sender: TObject);
     procedure FinishInitialLoading;
+    procedure UpdateBookToolbarForView;
+    function SearchCompletionMessage: string;
     procedure StopInitialLoading;
   private
     FInvisible: Boolean;
@@ -974,6 +977,7 @@ type
 
     FSearchCriteria: TBookSearchCriteria;
     FHasAppliedSearch: Boolean;
+    FSearchDeletionJustRefreshed: Boolean;
     FUpdatingDeletedControls: Boolean;
     FPublisherSearchEdit: TMHLButtonedEdit;
     FPublisherSearchLabel: TLabel;
@@ -1788,6 +1792,14 @@ begin
           Exit;
         end;
         StatusMessage := rstrApplyingFilter;
+        // The deletion checkbox already refreshes the applied search. Consume
+        // only that immediate duplicate Apply; later Apply still refreshes it.
+        if FSearchDeletionJustRefreshed then
+        begin
+          FSearchDeletionJustRefreshed := False;
+          if FHasAppliedSearch and (SearchView in FLoadedBookViews) and
+            not FBookListCancelled and SameBookSearchCriteria(Criteria, FSearchCriteria) then Exit;
+        end;
         ApplySearchCriteria(Criteria);
       except
         on E: Exception do
@@ -1795,7 +1807,7 @@ begin
       end;
     finally
       if FFavoriteSearchPending then StatusMessage := 'Подготовка любимых авторов...'
-      else StatusMessage := rstrReadyMessage;
+      else StatusMessage := SearchCompletionMessage;
     end;
   finally
     Screen.Cursor := SavedCursor;
@@ -1804,6 +1816,7 @@ end;
 
 procedure TfrmMain.DoClearFilter(KeepPreset: boolean);
 begin
+  FSearchDeletionJustRefreshed := False;
   if Assigned(FSearchMode) then FSearchMode.Reset;
   FFavoriteSearchPending := False;
   if Assigned(FSearchFavoriteCheck) then FSearchFavoriteCheck.Checked := False;
@@ -2199,6 +2212,7 @@ begin
 
     FLoadedBookViews := [];
     FHasAppliedSearch := False;
+    FSearchDeletionJustRefreshed := False;
     FFavoriteSearchPending := False;
     FOnlyNewFavoriteBooks := False;
     FFavoriteDescriptor := Default(TAuthorFavoriteCollection);
@@ -2370,6 +2384,7 @@ begin
     FSearchCriteria := EmptySearchCriteria;
     FSearchCriteria.Deleted := Settings.HideDeletedBooks;
     FHasAppliedSearch := False;
+    FSearchDeletionJustRefreshed := False;
 
     CloseCollection;
 
@@ -4636,6 +4651,11 @@ begin
 end;
 
 procedure TfrmMain.StartInitialCollectionLoad;
+  procedure RememberButtons(Bar: TToolBar; out States: TArray<Boolean>);
+  begin
+    SetLength(States, Bar.ButtonCount);
+    for var I := 0 to Bar.ButtonCount - 1 do States[I] := Bar.Buttons[I].Enabled;
+  end;
 begin
   if not FStartupLoading or Assigned(FStartupTimer) then Exit;
   SetLength(FStartupMenuEnabled, MainMenu.Items.Count);
@@ -4644,6 +4664,8 @@ begin
     FStartupMenuEnabled[I] := MainMenu.Items[I].Enabled;
     MainMenu.Items[I].Enabled := False;
   end;
+  RememberButtons(tlbrMain, FStartupMainButtons);
+  RememberButtons(tlbrEdit, FStartupEditButtons);
   pgControl.Enabled := False; tlbrMain.Enabled := False; tlbrEdit.Enabled := False;
   StatusMessage := 'Открытие коллекции…';
   FStatusProgressBar.Style := pbstMarquee;
@@ -4654,10 +4676,24 @@ begin
 end;
 
 procedure TfrmMain.FinishInitialLoading;
+  procedure RestoreButtons(Bar: TToolBar; var States: TArray<Boolean>);
+  begin
+    // Handle recreation while the bar is disabled also disables its commands.
+    // Restore action state, including commands whose actions never update Enabled.
+    for var I := 0 to Bar.ButtonCount - 1 do
+      if Bar.Buttons[I].Action is TCustomAction then
+        Bar.Buttons[I].Enabled := TCustomAction(Bar.Buttons[I].Action).Enabled
+      else if I < Length(States) then Bar.Buttons[I].Enabled := States[I];
+    States := nil;
+  end;
 begin
   FStartupLoading := False;
+  FreeAndNil(FStartupBookRows);
   if Assigned(FStartupTimer) then FStartupTimer.Enabled := False;
   pgControl.Enabled := True; tlbrMain.Enabled := True; tlbrEdit.Enabled := True;
+  RestoreButtons(tlbrMain, FStartupMainButtons);
+  RestoreButtons(tlbrEdit, FStartupEditButtons);
+  UpdateBookToolbarForView;
   for var I := 0 to Min(High(FStartupMenuEnabled), MainMenu.Items.Count-1) do
     MainMenu.Items[I].Enabled := FStartupMenuEnabled[I];
   FStartupMenuEnabled := nil;
@@ -4675,7 +4711,7 @@ begin
   begin FStartupCatalog.Terminate; FreeAndNil(FStartupCatalog); end;
   if Assigned(FStartupBooks) then
   begin FStartupBooks.Terminate; FreeAndNil(FStartupBooks); end;
-  FStartupBookRows := nil;
+  FreeAndNil(FStartupBookRows);
   FreeAndNil(FStartupData);
 end;
 
@@ -4718,6 +4754,7 @@ begin
         if not FStartupBooks.Finished then Exit;
         FStartupBooks.WaitFor;
         Failure := FStartupBooks.Error;
+        FreeAndNil(FStartupBookRows);
         FStartupBookRows := FStartupBooks.TakeRows;
         FreeAndNil(FStartupBooks);
         if Failure <> '' then raise Exception.Create(Failure);
@@ -6301,6 +6338,7 @@ begin
     FSearchCriteria.Deleted := Value;
     if FFavoriteSearchPending then FFavoritePendingCriteria.Deleted := Value;
     if not Changed then Exit;
+    FSearchDeletionJustRefreshed := False;
 
     FLoadedBookViews := FLoadedBookViews -
       [AuthorsView, SeriesView, GenresView, PublisherSeriesView, FavoritesView, SearchView];
@@ -6310,6 +6348,8 @@ begin
     begin
       Screen.Cursor := crHourGlass;
       EnsureActiveBookViewLoaded;
+      FSearchDeletionJustRefreshed := (ActiveView = SearchView) and
+        FHasAppliedSearch and (SearchView in FLoadedBookViews) and not FBookListCancelled;
     end;
   finally
     FUpdatingDeletedControls := False;
@@ -7048,7 +7088,7 @@ begin
   try
     try
       if Assigned(FStartupBookRows) then
-      begin Iterator := FStartupBookRows; FStartupBookRows := nil; end
+        Iterator := FStartupBookRows.NewIterator
       else Iterator := Factory();
       FillBooksTreeCore(Tree, LangSelector, Iterator, ShowAuth, ShowSer, SelectedID);
     except
@@ -8900,7 +8940,8 @@ begin
             Exclude(FLoadedBookViews, SearchView);
           end;
           EnsureActiveBookViewLoaded;
-          StatusMessage := rstrReadyMessage;
+          if ActiveView = SearchView then StatusMessage := SearchCompletionMessage
+          else StatusMessage := rstrReadyMessage;
         end;
       end;
     end
@@ -9268,7 +9309,7 @@ begin
   FSearchFavoriteCheck.Parent := edFFullName;
   FSearchFavoriteCheck.Caption := '';
   FSearchFavoriteCheck.ShowHint := True;
-  FSearchFavoriteCheck.Hint := 'Только книги любимых авторов. Синий значок автора отмечает выбранное условие; поиск запускается кнопкой «Применить».';
+  FSearchFavoriteCheck.Hint := 'Все книги авторов, отмеченных сердечком на вкладке «Авторы». Поле автора можно оставить пустым. Поиск запускается кнопкой «Применить». Избранные книги — отдельный список.';
   FSearchFavoriteCheck.OnClick := SearchFavoriteClick;
   TFavoriteEditAccess(edFFullName).OnResize := SearchFavoriteEditResize;
   UpdateFavoriteSearchLayout;
@@ -9334,8 +9375,19 @@ begin
   UpdateFavoriteControls;
 end;
 
+function TfrmMain.SearchCompletionMessage: string;
+begin
+  Result := rstrReadyMessage;
+  if not FHasAppliedSearch or FBookListCancelled or not FSearchCriteria.FavoriteAuthorsOnly or
+    (Length(FSearchCriteria.FavoriteAuthorIDs) <> 0) then Exit;
+  if Length(FavoriteStore.Entries) = 0 then
+    Result := 'Нет любимых авторов. Отметьте их сердечком на вкладке «Авторы».'
+  else Result := 'В этой коллекции любимые авторы не найдены.';
+end;
+
 procedure TfrmMain.ApplySearchCriteria(const Criteria: TBookSearchCriteria; SelectedID: PBookKey);
 begin
+  FSearchDeletionJustRefreshed := False;
   Exclude(FLoadedBookViews, SearchView);
   tvBooksSR.Clear;
   ClearLabels(PAGE_SEARCH, True);
@@ -10547,9 +10599,19 @@ begin
   pmHeaders.Items[9].Visible := True;
 end;
 
+procedure TfrmMain.UpdateBookToolbarForView;
+var ToolBuutonVisible: Boolean;
+begin
+  ToolBuutonVisible := (ActiveView <> DownloadView);
+  BtnFav_add.Enabled := ToolBuutonVisible;
+  tbSelectAll.Enabled := ToolBuutonVisible;
+  tbCollapse.Enabled := ToolBuutonVisible;
+  tbtnRead.Enabled := ToolBuutonVisible and acBookRead.Enabled;
+  tbSendToDevice.Enabled := ToolBuutonVisible;
+  btnSwitchTreeMode.Enabled := not (ActiveView in [SeriesView, PublisherSeriesView, DownloadView]);
+end;
+
 procedure TfrmMain.pgControlChange(Sender: TObject);
-var
-  ToolBuutonVisible: Boolean;
 begin
   UpdateActions;
   BookViewResize(nil);
@@ -10558,16 +10620,7 @@ begin
   FFirstFoundBook := nil;
 
   EnsureActiveBookViewLoaded;
-
-  ToolBuutonVisible := (ActiveView <> DownloadView);
-
-  BtnFav_add.Enabled := ToolBuutonVisible;
-  tbSelectAll.Enabled := ToolBuutonVisible;
-  tbCollapse.Enabled := ToolBuutonVisible;
-  tbtnRead.Enabled := ToolBuutonVisible;
-
-  tbSendToDevice.Enabled := ToolBuutonVisible;
-  btnSwitchTreeMode.Enabled := not (ActiveView in [SeriesView, PublisherSeriesView, DownloadView]);
+  UpdateBookToolbarForView;
   miGoToAuthor.Visible := ActiveView in [SeriesView, PublisherSeriesView, GenresView, SearchView, FavoritesView];
 
   case ActiveView of

@@ -198,6 +198,23 @@ begin
   frmMain.HideDeletedBooksExecute(nil);
   CheckMode(True);
   ExpectCount(frmMain.tvBooksSR, 14);
+  StartSQLiteProfile;
+  frmMain.DoApplyFilter(nil);
+  SaveSQLiteProfile(Settings.AppPath + 'deleted-filter-immediate-apply.tsv'); StopSQLiteProfile;
+  {$IFDEF MHL_SQL_PROFILE}
+  Require(not TFile.ReadAllText(Settings.AppPath + 'deleted-filter-immediate-apply.tsv').Contains('MHLGenreMatches'),
+    'Apply repeated the complete search already refreshed by the deletion checkbox');
+  {$ENDIF}
+  ExpectCount(frmMain.tvBooksSR, 14);
+  // A later Apply remains an explicit refresh, even with identical conditions.
+  StartSQLiteProfile;
+  frmMain.DoApplyFilter(nil);
+  SaveSQLiteProfile(Settings.AppPath + 'deleted-filter-later-apply.tsv'); StopSQLiteProfile;
+  {$IFDEF MHL_SQL_PROFILE}
+  Require(TFile.ReadAllText(Settings.AppPath + 'deleted-filter-later-apply.tsv').Contains('MHLGenreMatches'),
+    'A later Apply no longer refreshes matching catalog data');
+  {$ENDIF}
+  ExpectCount(frmMain.tvBooksSR, 14);
   CheckGroupIterator(INVALID_COLLECTION_ID, 14);
   CheckGroupIterator(OneID, 14);
   CheckGroupIterator(TwoID, 0);

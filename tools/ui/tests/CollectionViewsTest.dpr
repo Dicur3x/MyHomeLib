@@ -5522,7 +5522,8 @@ begin
     RestartBookID := 0;
     Trace('application bootstrap');
     Application.Initialize;
-    if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') then
+    if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') or
+      ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') then
       Application.MainFormOnTaskbar := True;
     ExceptionHandler := TRegressionExceptionHandler.Create;
     Application.OnException := ExceptionHandler.HandleException;

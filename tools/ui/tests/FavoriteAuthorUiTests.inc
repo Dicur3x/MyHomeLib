@@ -200,6 +200,8 @@ begin
     SearchCheck.Checked := True; frmMain.DoApplyFilter(nil); WaitForRefresh;
     ExpectTitles(frmMain.tvBooksSR, []);
     Require(not FileExists(ProfileFile), 'Applying an empty favorite set created profile data or broadened the query');
+    Require(frmMain.StatusMessage.Contains('сердечком'),
+      'Empty favorite-author search does not explain how to select authors');
     frmMain.DoClearFilter(False);
 
     ShowPage(PAGE_AUTHORS); SelectAuthor('Alpha');

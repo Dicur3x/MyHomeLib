@@ -44,17 +44,28 @@ type
     property Error: string read FError;
   end;
 
+  // One immutable capture can build both the initial list and its restored
+  // language view. Iterators share the array but keep independent positions.
+  TStartupBookRows = class
+  private
+    FRows: TArray<TBookRecord>;
+  public
+    constructor Create(const Source: IBookIterator; const Cancel: TFunc<Boolean>);
+    function NewIterator: IBookIterator;
+  end;
+
   TStartupBooksLoader = class(TThread)
   private
     FFactory: TFunc<IBookIterator>;
-    FRows: IBookIterator;
+    FRows: TStartupBookRows;
     FError: string;
     function Cancelled: Boolean;
   protected
     procedure Execute; override;
   public
     constructor Create(const Factory: TFunc<IBookIterator>);
-    function TakeRows: IBookIterator;
+    destructor Destroy; override;
+    function TakeRows: TStartupBookRows;
     property Error: string read FError;
   end;
 
@@ -157,13 +168,39 @@ begin
   end;
 end;
 
+constructor TStartupBookRows.Create(const Source: IBookIterator; const Cancel: TFunc<Boolean>);
+var Rows: TList<TBookRecord>; Book: TBookRecord;
+begin
+  inherited Create;
+  Rows := TList<TBookRecord>.Create;
+  try
+    while Source.Next(Book) do
+    begin
+      if Cancel() then Abort;
+      Rows.Add(Book);
+    end;
+    if Cancel() then Abort;
+    FRows := Rows.ToArray;
+  finally Rows.Free; end;
+end;
+
+function TStartupBookRows.NewIterator: IBookIterator;
+begin Result := TRecordArrayIterator<TBookRecord>.Create(FRows); end;
+
 constructor TStartupBooksLoader.Create(const Factory: TFunc<IBookIterator>);
 begin inherited Create(True); FFactory := Factory; end;
+
+destructor TStartupBooksLoader.Destroy;
+begin
+  Terminate;
+  inherited;
+  FRows.Free;
+end;
 
 function TStartupBooksLoader.Cancelled: Boolean;
 begin Result := Terminated; end;
 
-function TStartupBooksLoader.TakeRows: IBookIterator;
+function TStartupBooksLoader.TakeRows: TStartupBookRows;
 begin Result := FRows; FRows := nil; end;
 
 procedure TStartupBooksLoader.Execute;
@@ -172,7 +209,7 @@ begin
   try
     try
       if Cancelled then Abort;
-      FRows := TRecordArrayIterator<TBookRecord>.Capture(FFactory(),
+      FRows := TStartupBookRows.Create(FFactory(),
         function: Boolean begin Result := Cancelled; end);
     except on E: Exception do FError := E.Message; end;
   finally SQLiteCancelCallback := nil; FFactory := nil; end;

@@ -91,6 +91,17 @@ begin
     Require(Catalog.Finished, 'Invalid startup database did not finish');
     Require(Catalog.Error <> '', 'Startup reader lost its database error');
   finally Catalog.Free; end;
+  var Sample := Default(TBookRecord); Sample.Title := 'Replay row';
+  var Snapshot := TStartupBookRows.Create(TRecordArrayIterator<TBookRecord>.Create(
+    TArray<TBookRecord>.Create(Sample)), function: Boolean begin Result := False; end);
+  var FirstPass := Snapshot.NewIterator;
+  var SecondPass := Snapshot.NewIterator;
+  Snapshot.Free;
+  Require(FirstPass.Next(Sample) and (Sample.Title = 'Replay row'),
+    'Startup rows were freed while a list still uses them');
+  Require(not FirstPass.Next(Sample), 'Startup first iterator did not finish');
+  Require(SecondPass.Next(Sample) and (Sample.Title = 'Replay row') and not SecondPass.Next(Sample),
+    'Startup language restoration did not receive independent row positions');
   Writeln('PASS deferred startup workers cancel, preserve errors and free before Start');
 end;
 
@@ -104,19 +115,59 @@ begin
   frmMain.Update;
   // Real Application.Run performs idle action updates. ProcessMessages alone
   // would miss an action dereferencing the not-yet-open collection.
+  if ParamStr(1) = 'startup-deferred-publisher' then StartSQLiteProfile;
+  frmMain.StartInitialCollectionLoad;
+  // A native toolbar may be recreated during first-show/DPI/layout work while
+  // its parent is disabled. Its command state must recover after startup.
+  frmMain.tlbrMain.Perform(CM_RECREATEWND, 0, 0);
+  frmMain.tlbrEdit.Perform(CM_RECREATEWND, 0, 0);
   for var I := 0 to frmMain.Actions.ActionCount - 1 do
     frmMain.Actions.Actions[I].Update;
-  frmMain.StartInitialCollectionLoad;
   Key := Default(TWMKey); Key.CharCode := Ord('F'); Handled := False;
   frmMain.FormShortCut(Key, Handled);
   Require(Handled, 'A shortcut can change the collection during background startup');
   Started := GetTickCount64;
   while frmMain.StartupLoading and (GetTickCount64 - Started < 15000) do
-  begin Application.HandleMessage; end;
+  begin
+    for var I := 0 to frmMain.Actions.ActionCount - 1 do frmMain.Actions.Actions[I].Update;
+    Application.HandleMessage;
+  end;
+  if ParamStr(1) = 'startup-deferred-publisher' then
+  begin
+    SaveSQLiteProfile(Settings.AppPath + 'startup-publisher-queries.tsv'); StopSQLiteProfile;
+    {$IFDEF MHL_SQL_PROFILE}
+    var Queries := 0;
+    for var Line in TFile.ReadAllLines(Settings.AppPath + 'startup-publisher-queries.tsv') do
+      if Line.Contains('SELECT b.BookID, sl.SeqNumber FROM PublisherSeries_List sl') then
+      begin
+        var Fields := Line.Split([#9]);
+        if (Length(Fields) >= 5) and (Fields[1] = 'prepare') and
+          Fields[4].StartsWith('SELECT b.BookID, sl.SeqNumber FROM PublisherSeries_List sl') then
+          Inc(Queries, StrToInt(Fields[2]));
+      end;
+    Require(Queries = 1, 'Restoring the publisher language query count: ' + IntToStr(Queries));
+    {$ENDIF}
+    Writeln('PASS publisher startup restores its language from one database snapshot');
+  end;
+  Writeln('TRACE deferred load ms=', GetTickCount64 - Started);
   Require(not frmMain.StartupLoading, 'Deferred catalogue loading did not complete');
   Require(frmMain.pgControl.Enabled and frmMain.tlbrMain.Enabled,
     'Startup did not restore the main controls');
   Require(not frmMain.ShowStatusProgress, 'Startup left its progress visible');
+  for var Button in TArray<TToolButton>.Create(frmMain.tbtnSettings, frmMain.tbtnHelp,
+    frmMain.tbtnRus, frmMain.tbtnEng, frmMain.tbtnShowCover) do
+  begin
+    var NativeButton := Default(TTBButton);
+    Require(SendMessage(frmMain.tlbrMain.Handle, TB_GETBUTTON, Button.Index,
+      LPARAM(@NativeButton)) <> 0, 'Toolbar button missing: ' + Button.Name);
+    Writeln('STARTUP BUTTON ', Button.Name, ' enabled=', Ord(Button.Enabled),
+      ' action=', Ord(TAction(Button.Action).Enabled), ' native=', NativeButton.fsState);
+    Require(Button.Enabled and TAction(Button.Action).Enabled and
+      ((NativeButton.fsState and TBSTATE_ENABLED) <> 0),
+      'Startup left a toolbar command disabled: ' + Button.Name);
+  end;
+  Require(frmMain.tbSelectAll.Enabled and frmMain.tbSendToDevice.Enabled,
+    'Startup left non-action book commands disabled');
   Writeln('PASS actual Main appears before catalogue and restores controls after background load');
 end;
 
