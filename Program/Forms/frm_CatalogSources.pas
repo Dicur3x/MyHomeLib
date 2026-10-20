@@ -374,11 +374,11 @@ end;
 
 procedure TfrmCatalogSources.UpdateSpaceEstimate;
 var Source: TCatalogSource; One, Growth: TCollectionSpaceEstimate;
-  FileName, TargetFile: string; Metadata, NewSnapshots, Temporary, Existing: Int64;
+  FileName, TargetFile, SystemFile: string; NewSnapshots, Temporary, Existing: Int64;
 begin
   if not Assigned(FSpace) then Exit;
   Growth:=Default(TCollectionSpaceEstimate); Growth.Known:=True;
-  Metadata:=0; NewSnapshots:=0; Temporary:=0;
+  NewSnapshots:=0; Temporary:=0;
   for Source in FSources do
   begin
     One:=Default(TCollectionSpaceEstimate);
@@ -398,7 +398,6 @@ begin
     except on Error: Exception do One:=Default(TCollectionSpaceEstimate); end;
     Growth.Known:=Growth.Known and One.Known;
     Inc(Growth.LowBytes,One.LowBytes); Inc(Growth.HighBytes,One.HighBytes);
-    Inc(Metadata,One.HighBytes);
   end;
   if Assigned(FPlan) and (FPlan.Total>0) then
   begin
@@ -410,7 +409,13 @@ begin
   Inc(Growth.LowBytes,NewSnapshots); Inc(Growth.HighBytes,NewSnapshots);
   TargetFile:=Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
   Existing:=0; if FileExists(TargetFile) then Existing:=TFile.GetSize(TargetFile);
-  Temporary:=Existing+Metadata+Growth.HighBytes;
+  // Reserve only the destination and personal-store snapshots. Source
+  // catalogs are read-only and are no longer copied into each merge backup.
+  Temporary:=Existing+Growth.HighBytes;
+  if FileExists(TargetFile+'-wal') then Inc(Temporary,TFile.GetSize(TargetFile+'-wal'));
+  SystemFile:=Settings.SystemFileName[sfSystemDB];
+  if FileExists(SystemFile) then Inc(Temporary,TFile.GetSize(SystemFile));
+  if FileExists(SystemFile+'-wal') then Inc(Temporary,TFile.GetSize(SystemFile+'-wal'));
   FSpace.Caption:=CollectionSpaceText(Growth,Temporary,CollectionDiskFree(Settings.DataPath))+#13#10+
     'Оценка приблизительная. Архивы книг остаются в исходных папках; уже импортированные книги учитываются после проверки.';
 end;

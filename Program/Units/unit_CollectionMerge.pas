@@ -606,14 +606,14 @@ begin
   TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
   Backup(TargetFile, 'destination.hlc2', 'Резервная копия текущей коллекции');
   Backup(Settings.SystemFileName[sfSystemDB], 'system.hlc2', 'Резервная копия групп и настроек');
-  for I := 0 to High(FSources) do
-    Backup(FSources[I].DatabaseFile, Format('source-%d.hlc2', [I+1]), 'Резервная копия: ' + FSources[I].Name);
+  // Sources are read-only inputs to this operation. Copying every source DB
+  // again wastes gigabytes and cannot help roll back the two stores we change.
   TFile.Copy(FFullReportFile,TPath.Combine(BackupFolder, 'preview.txt'),False);
   Manifest := TStringList.Create;
   try
     Manifest.Add('Назначение: ' + TargetFile);
     Manifest.Add('Группы и настройки: ' + Settings.SystemFileName[sfSystemDB]);
-    for I := 0 to High(FSources) do Manifest.Add(Format('source-%d.hlc2: %s | %s',
+    for I := 0 to High(FSources) do Manifest.Add(Format('Источник %d (не изменяется): %s | %s',
       [I+1, FSources[I].Name, FSources[I].DatabaseFile]));
     Manifest.Add('Исходные книги не изменяются. Копии SQLite включают данные из WAL.');
     Manifest.SaveToFile(TPath.Combine(BackupFolder, 'restore-paths.txt'), TEncoding.UTF8);

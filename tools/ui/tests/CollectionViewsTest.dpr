@@ -3084,8 +3084,22 @@ procedure TestMergeArchiveResolution; forward;
 procedure TestCollectionMerge;
 var High, Low, Target: IBookCollection; HighID, LowID, TargetID, A, B, C, ExistingID, ID: Integer;
   Sources: TMergeSources; Plan: TCollectionMergePlan; Book, Existing, Probe: TBookRecord;
-  Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup, OriginalReview: string;
+  Series: TBookSeries; Iterator: IBookIterator; Count, CancelCalls: Integer; Backup, OriginalReview, HighRevision, LowRevision: string;
   DB: TSQLiteDatabase;
+
+  function SourceBytes(const Collection: IBookCollection): string;
+  var Name: string; Input: TFileStream;
+  begin
+    Result:=''; Name:=Settings.ExpandCollectionFileName(VarToStr(Collection.GetProperty(PROP_DATAFILE)));
+    for var Suffix in ['', '-wal'] do
+      if FileExists(Name+Suffix) then
+      begin
+        Input:=TFileStream.Create(Name+Suffix,fmOpenRead or fmShareDenyNone);
+        try
+          Result:=Result+Suffix+':'+THashSHA2.GetHashString(Input)+';';
+        finally Input.Free; end;
+      end;
+  end;
 
   procedure Locate(const Collection: IBookCollection; BookID: Integer;
     const Folder, FileName, LibID: string);
@@ -3160,7 +3174,14 @@ begin
     Require(Plan.Report.Text.Contains('Источник High: новых записей 0; уже подключено 0; сопоставленных копий 1.') and
       Plan.Report.Text.Contains('Источник Low: новых записей 1; уже подключено 0; сопоставленных копий 1.'),
       'Initial source summary does not distinguish physical matches: '+Plan.Report.Text);
+    HighRevision:=SourceBytes(High); LowRevision:=SourceBytes(Low);
     Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
+    Require((SourceBytes(High)=HighRevision) and (SourceBytes(Low)=LowRevision),
+      'Merge changed source database or WAL bytes');
+    Require(FileExists(Backup+'\destination.hlc2') and FileExists(Backup+'\system.hlc2') and
+      not FileExists(Backup+'\source-1.hlc2') and not FileExists(Backup+'\source-2.hlc2'),
+      'Merge omitted a changed-store backup or copied immutable source databases');
+    Writeln('PASS merge backups cover destination and personal data without duplicating immutable source catalogs');
     Require((Plan.ReadCacheBooks=0) or (Plan.ReadCacheHits>0),'Prepared merge snapshot did not read matching existing books');
     Writeln('PROFILE merge read_snapshot_books=',Plan.ReadCacheBooks,' hits=',Plan.ReadCacheHits,' source_lookups=',Plan.SourceLookupCount);
     ID := SourceBookMapping(Target,Sources[0],A); Require(ID=ExistingID, 'Merge changed existing BookID');
