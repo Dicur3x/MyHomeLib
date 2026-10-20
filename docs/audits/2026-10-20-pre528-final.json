@@ -1,0 +1,231 @@
+{
+  "release": "2.7.0_pre5.28",
+  "build": "2.7.0.1096",
+  "status": "validated-ready-to-publish",
+  "verified_utc": "2026-10-20T15:01:47.432490+00:00",
+  "feature_commit": "5b09fd22",
+  "feature_validation": "2026-10-20-view-sessions.json",
+  "unchanged_feature_and_test_sources": {
+    "Program/Forms/frm_main.pas": "57b085bae16e5f7841f2669fcf62f95e63e214607490b25b5a7d8742e00d6c70",
+    "Program/Forms/frm_settings.pas": "7d7dc3c2de8d754edfe31203ed4d3fbb80c0aabb6094278eb25e5de07bbfbc22",
+    "Program/Units/unit_Settings.pas": "925c987694eaa43c3cca39299e6dfcbbf46917581d8da8c6dfaa02ad728148e7",
+    "Program/Units/unit_BookViewSessions.pas": "5465c6c2decfaa091fcb72a41525e448fa5606572d0290a604fde3a73aedb2f6",
+    "Program/HomeLibRu.dpr": "ae1512526c2c3eee6a7cd8630f3377314137a0d6ec82b6b9e604c7162e80142f",
+    "tools/ui/tests/CollectionViewsTest.dpr": "ba636b7e88b6a754c3d959fab17df6ef6822468675a5e256927b8a42e37d6eaf",
+    "tools/ui/tests/BookViewSessionTests.inc": "17d5e1b375d2d56813556574c8a5418a7aa4d2bd80933f2b7da7afca70173c10",
+    "tools/ui/tests/SearchStartupLayoutTests.inc": "356fb9ea6a73d83bfd67dd00198182028d730ccc273bf62b328d5242024e36dd",
+    "tools/ui/tests/native_collection_tests.js": "d4e08bdc9a622059a709ca181f033492a78abe991a516cc0b041486148518963"
+  },
+  "changed_project_metadata": "Only release/build version definitions changed after the feature validation",
+  "versions": [
+    {
+      "platform": "Bin",
+      "name": "HomeLibRu.exe",
+      "fileVersion": "2.7.0.1096",
+      "productVersion": "2.7.0_pre5.28"
+    },
+    {
+      "platform": "Bin",
+      "name": "HomeLibRuUpdater.exe",
+      "fileVersion": "2.7.0.1096",
+      "productVersion": "2.7.0_pre5.28"
+    },
+    {
+      "platform": "Bin64",
+      "name": "HomeLibRu.exe",
+      "fileVersion": "2.7.0.1096",
+      "productVersion": "2.7.0_pre5.28"
+    },
+    {
+      "platform": "Bin64",
+      "name": "HomeLibRuUpdater.exe",
+      "fileVersion": "2.7.0.1096",
+      "productVersion": "2.7.0_pre5.28"
+    }
+  ],
+  "builds": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.exe",
+      "size": 10469888,
+      "sha256": "302f3e99484e07d08f8787e23c028abd3445390e1e1a475f13678b7f93760a1a",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win32",
+      "name": "HomeLibRuUpdater.exe",
+      "size": 1874944,
+      "sha256": "31ea3b0a8bdcaf16da1701756e30c51b9c7c4761a49a118bc01cc1db07bbf6f9",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Base"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu.exe",
+      "size": 16108544,
+      "sha256": "f9b95c7d31f960dd8a2a5d040d71fa840c35374cdcff2a0e12ba98e97e0dec1f",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Release"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRuUpdater.exe",
+      "size": 2778112,
+      "sha256": "fe27e9cd67515024e477cf26a6fe97d6107884bc4ba5439cd9db595b5ce78d61",
+      "method": "Delphi 13 GUI full Build",
+      "configuration": "Base"
+    }
+  ],
+  "archives": {
+    "checked_utc": "2026-10-20T14:51:28.091871+00:00",
+    "archives": [
+      {
+        "platform": "Win32",
+        "name": "HomeLibRu.zip",
+        "size": 55576916,
+        "sha256": "d24beafb9f3ad2f1ae5aa96d5b9deaae641bdf3701e0837d2edbcb9488f546c3",
+        "manifest_files": 529,
+        "crc": "passed",
+        "all_manifest_hashes": "passed",
+        "binary_hashes": {
+          "HomeLibRu.exe": "302f3e99484e07d08f8787e23c028abd3445390e1e1a475f13678b7f93760a1a",
+          "HomeLibRuUpdater.exe": "31ea3b0a8bdcaf16da1701756e30c51b9c7c4761a49a118bc01cc1db07bbf6f9",
+          "MHLMcpServer.exe": "da0bf4a56d50d755220600660bdb69826e919f9bbcbdcadf7e49df8abaa7f5dd",
+          "sqlite3.dll": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2"
+        },
+        "alreader_unchanged_sha256": "a975618b056918e8c0aad7303d07d9c1adcb4fba7573eea2e8ad71ce7ead5697",
+        "history_tags": [
+          "2.7.0_pre5.28",
+          "2.7.0_pre5.27",
+          "2.7.0_pre5.26",
+          "2.7.0_pre5.25",
+          "2.7.0_pre5.24",
+          "2.7.0_pre5.23",
+          "2.7.0_pre5.22",
+          "2.7.0_pre5.21"
+        ],
+        "compared_with_previous_release_changed_files": [
+          "CHANGES.txt",
+          "HomeLibRu.exe",
+          "HomeLibRu.update.json",
+          "HomeLibRuUpdater.exe"
+        ]
+      },
+      {
+        "platform": "Win64",
+        "name": "HomeLibRu_x64.zip",
+        "size": 61104367,
+        "sha256": "c319af48a8f46e1a954a57eeb4ef88e0af64468fb9a6647ff07024578c4735dd",
+        "manifest_files": 538,
+        "crc": "passed",
+        "all_manifest_hashes": "passed",
+        "binary_hashes": {
+          "HomeLibRu.exe": "f9b95c7d31f960dd8a2a5d040d71fa840c35374cdcff2a0e12ba98e97e0dec1f",
+          "HomeLibRuUpdater.exe": "fe27e9cd67515024e477cf26a6fe97d6107884bc4ba5439cd9db595b5ce78d61",
+          "MHLMcpServer.exe": "4306c826b70c4958998fde678b0bf876ba9f4aa3b65ad3aa09d379ee19670385",
+          "sqlite3.dll": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea"
+        },
+        "alreader_unchanged_sha256": "a975618b056918e8c0aad7303d07d9c1adcb4fba7573eea2e8ad71ce7ead5697",
+        "history_tags": [
+          "2.7.0_pre5.28",
+          "2.7.0_pre5.27",
+          "2.7.0_pre5.26",
+          "2.7.0_pre5.25",
+          "2.7.0_pre5.24",
+          "2.7.0_pre5.23",
+          "2.7.0_pre5.22",
+          "2.7.0_pre5.21"
+        ],
+        "compared_with_previous_release_changed_files": [
+          "CHANGES.txt",
+          "HomeLibRu.exe",
+          "HomeLibRu.update.json",
+          "HomeLibRuUpdater.exe"
+        ]
+      }
+    ]
+  },
+  "integration": [
+    {
+      "platform": "Win32",
+      "exit_code": 0,
+      "seconds": 39.719,
+      "archive_sha256": "d24beafb9f3ad2f1ae5aa96d5b9deaae641bdf3701e0837d2edbcb9488f546c3",
+      "installer_sha256": "eca79d9a9dffd2dd909556dbdb070c9f7c955e196d823ba79255ec2d762fcfea",
+      "log": "integration-Win32.log",
+      "log_sha256": "1c71c61e833f648ac8acbd5f3ad3c7768310aa21bb3dfa55960c08271e1b6195",
+      "success": true
+    },
+    {
+      "platform": "Win64",
+      "exit_code": 0,
+      "seconds": 36.766,
+      "archive_sha256": "c319af48a8f46e1a954a57eeb4ef88e0af64468fb9a6647ff07024578c4735dd",
+      "installer_sha256": "500d06a09459bb5599eec088535b07e5e7b10f0897c7815a1493c6b342885913",
+      "log": "integration-Win64.log",
+      "log_sha256": "b583028ae97270abd44bbe84950a38e76cdb863079eb14a9230b68be4fad5700",
+      "success": true
+    }
+  ],
+  "root_session_preservation": [
+    {
+      "platform": "Win32",
+      "exit_code": 0,
+      "root_session_sha256": "a9ecee3e812fff2e20974f75e95c295ed19e28519684f6f2097100050bc0491f",
+      "log_sha256": "948149c1045c8a553f32a93d9d4c46488030af4fe7d212c4ace81d27a5259604",
+      "success": true
+    },
+    {
+      "platform": "Win64",
+      "exit_code": 0,
+      "root_session_sha256": "a9ecee3e812fff2e20974f75e95c295ed19e28519684f6f2097100050bc0491f",
+      "log_sha256": "8668ca1736d5a1020fe9b5fc52e4817367e136df1c74e22f9aa73c9bc0869121",
+      "success": true
+    }
+  ],
+  "live_gui_smoke": [
+    {
+      "platform": "Win32",
+      "exe_sha256": "302f3e99484e07d08f8787e23c028abd3445390e1e1a475f13678b7f93760a1a",
+      "normal_launch": true,
+      "synthetic_collection_loaded": true,
+      "centered_prompt_after_main_visible": true,
+      "checkbox_initially_unchecked": true,
+      "checked_answer": "Yes",
+      "persisted_restore_mode": 0,
+      "profile_sha256": "4132eb463cf94f6f4dc6e07d7029d42a1bd25802bac5a200134978262f1abc24",
+      "closed_normally": true
+    },
+    {
+      "platform": "Win64",
+      "exe_sha256": "f9b95c7d31f960dd8a2a5d040d71fa840c35374cdcff2a0e12ba98e97e0dec1f",
+      "normal_launch": true,
+      "synthetic_collection_loaded": true,
+      "centered_prompt_after_main_visible": true,
+      "checkbox_initially_unchecked": true,
+      "checked_answer": "No",
+      "persisted_restore_mode": 2,
+      "profile_sha256": "4c537e8ef515e0cbc25d2d6874bcee137ee4cbfb1a6a3b52a87e0d79747c6c6e",
+      "closed_normally": true
+    }
+  ],
+  "setup_notes": [
+    "Restored dangling Kindle build-cache junctions from the SHA-verified previous public ZIP; restored pinned font build sources. Distribution components remain unchanged.",
+    "Initial x86 GUI smoke reused opaque installer-preservation sentinels, including invalid preset XML, and exposed no targetable window. Stopped only the owned test processes and used the already unpacked clean ZIP with a valid synthetic profile. Both final ordinary GUI launches and restore choices passed without application source changes.",
+    "Root-session installer probe first lacked its required isolated TEMP environment and was refused. Retried inside its original owned TEMP with a freshly prepared installer job on both architectures."
+  ],
+  "limitations": [
+    "The 20 architecture/scenario pairs were run before release packaging and are recorded in the linked feature audit. Final session tests include the final checkbox/default behavior; broader companion cases predate that small amendment. Functional/test sources are byte-identical here.",
+    "No new complete-program audit or cold-start benchmark is claimed.",
+    "Prior retained temporary directories and policy-denied cleanup paths are outside this release work."
+  ],
+  "outstanding": [],
+  "temporary_cleanup": {
+    "status": "rejected-before-execution",
+    "reason": "blocked by policy",
+    "path": "tools/ui/tests/Out/pre528-publish/temp",
+    "retained_bytes": 1549500458,
+    "retried": false
+  }
+}

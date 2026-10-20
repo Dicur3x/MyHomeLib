@@ -16,15 +16,15 @@ HomeLib Ru — программа для Windows, которая помогае�
 
 ## Скачать и запустить
 
-Текущий опубликованный выпуск — **pre5.27 / 2.7.0.1095**.
-[Изменения](docs/releases/RELEASE_NOTES_2.7.0_pre5.27.md) · [История выпусков](docs/releases/README.md) ·
-[Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.27.md).
+Текущий опубликованный выпуск — **pre5.28 / 2.7.0.1096**.
+[Изменения](docs/releases/RELEASE_NOTES_2.7.0_pre5.28.md) · [История выпусков](docs/releases/README.md) ·
+[Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.28.md).
 
 | Архив | Для какой системы |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.27/HomeLibRu_x64.zip) | 64-разрядная Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.27/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.27/SHA256.txt) | Контрольные суммы архивов |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.28/HomeLibRu_x64.zip) | 64-разрядная Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.28/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.28/SHA256.txt) | Контрольные суммы архивов |
 
 Требуется **Windows 10 или новее**. Книги скачиваются отдельно и в поставку
 не входят. Компоненты чтения уже включены: устанавливать Delphi, Python
