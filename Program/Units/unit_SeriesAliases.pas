@@ -44,7 +44,8 @@ type
   end;
 implementation
 uses System.SysUtils, System.IOUtils, System.Variants, Vcl.ComCtrls, SQLiteWrap,
-  unit_Settings, unit_Consts, unit_Globals, dm_user;
+  unit_Settings, unit_Consts, unit_Globals, dm_user,
+  System.Generics.Defaults, unit_SeriesAliasMatching;
 
 constructor TSeriesAliasPlan.Create(const Collection: IBookCollection; const SystemData: ISystemData);
 begin
@@ -68,63 +69,98 @@ begin
 end;
 procedure TSeriesAliasPlan.Preview(const Canceled: TMergeCanceled);
 var DB: TSQLiteDatabase; Query: TSQLiteQuery; Pair: TSeriesAliasPair;
-  SavedCancel: TSQLiteCancelCallback;
+  SavedCancel: TSQLiteCancelCallback; Candidates: TList<TSeriesAliasCandidate>;
+  Parents: TArray<Integer>; First, Last, I, J, A, B: Integer; Namespace: string;
+  function RootOf(Index: Integer): Integer;
+  begin
+    Result:=Index;
+    while Parents[Result]<>Result do Result:=Parents[Result];
+  end;
+  procedure CheckCanceled;
+  begin if Assigned(Canceled) and Canceled() then Abort; end;
 begin
-  FReady := False; FPairs.Clear; FReport.Clear;
-  if Assigned(Canceled) and Canceled() then Abort;
+  FReady:=False; FPairs.Clear; FReport.Clear; CheckCanceled;
   if isOnlineCollection(FCollection.CollectionCode) then
     raise Exception.Create('Объединение серий доступно для локального каталога.');
-  FCatalogRevision := FCollection.GetCatalogRevision; FSystemRevision := FSystem.GetDataRevision;
-  DB := TSQLiteDatabase.CreateReadOnly(Settings.ExpandCollectionFileName(
+  FCatalogRevision:=FCollection.GetCatalogRevision; FSystemRevision:=FSystem.GetDataRevision;
+  Namespace:=VarToStr(FCollection.GetProperty(PROP_SOURCE_LIBRARY));
+  DB:=TSQLiteDatabase.CreateReadOnly(Settings.ExpandCollectionFileName(
     VarToStr(FCollection.GetProperty(PROP_DATAFILE))));
-  SavedCancel := SQLiteCancelCallback; FQueryCanceled := Canceled; FQueryAborted := False;
-  SQLiteCancelCallback := QueryCanceled;
+  Candidates:=TList<TSeriesAliasCandidate>.Create;
+  SavedCancel:=SQLiteCancelCallback; FQueryCanceled:=Canceled; FQueryAborted:=False;
+  SQLiteCancelCallback:=QueryCanceled;
   try
-    // The extended INPX uses [a] / [[a]] for author cycles. Only an exact
-    // untagged name with a shared catalog author is a verified alias here.
-    // Publisher [p] and mixed [m] labels are deliberately different kinds.
-    Query := DB.NewQuery(
-      'SELECT tagged.SeriesID, plain.SeriesID, tagged.SeriesTitle, plain.SeriesTitle ' +
-      'FROM Series tagged JOIN Series plain ON plain.SeriesTitle = RTRIM(CASE ' +
-      'WHEN LOWER(SUBSTR(tagged.SeriesTitle,-5))=''[[a]]'' THEN SUBSTR(tagged.SeriesTitle,1,LENGTH(tagged.SeriesTitle)-5) ' +
-      'ELSE SUBSTR(tagged.SeriesTitle,1,LENGTH(tagged.SeriesTitle)-3) END) COLLATE MHL_SYSTEM_NOCASE ' +
-      'WHERE (LOWER(SUBSTR(tagged.SeriesTitle,-3))=''[a]'' OR LOWER(SUBSTR(tagged.SeriesTitle,-5))=''[[a]]'') ' +
-      'AND EXISTS(SELECT 1 FROM Series_List x JOIN Author_List a ON a.BookID=x.BookID ' +
-      'JOIN Author_List b ON b.AuthorID=a.AuthorID JOIN Series_List y ON y.BookID=b.BookID ' +
-      'WHERE x.SeriesID=tagged.SeriesID AND y.SeriesID=plain.SeriesID) ORDER BY plain.SeriesTitle');
     try
+      Query:=DB.NewQuery('SELECT SeriesID,SeriesTitle FROM Series');
       try
-      Query.Open;
-      while not Query.Eof do
+        Query.Open;
+        while not Query.Eof do
+        begin
+          CheckCanceled;
+          Candidates.Add(SeriesAliasCandidate(Query.FieldAsInt(0),Query.FieldAsString(1)));
+          Query.Next;
+        end;
+      finally Query.Free; end;
+      Candidates.Sort(TComparer<TSeriesAliasCandidate>.Construct(
+        function(const Left, Right: TSeriesAliasCandidate): Integer
+        begin
+          Result:=CompareStr(Left.Key,Right.Key);
+          if Result=0 then Result:=Left.Rank-Right.Rank;
+          if Result=0 then Result:=Left.ID-Right.ID;
+        end));
+      First:=0;
+      while First<Candidates.Count do
       begin
-        if Assigned(Canceled) and Canceled() then Abort;
-        Pair.OldID := Query.FieldAsInt(0); Pair.NewID := Query.FieldAsInt(1);
-        Pair.OldTitle := Query.FieldAsString(2); Pair.NewTitle := Query.FieldAsString(3);
-        FPairs.Add(Pair); Query.Next;
+        CheckCanceled; Last:=First+1;
+        while (Last<Candidates.Count) and (Candidates[Last].Key=Candidates[First].Key) do Inc(Last);
+        SetLength(Parents,Last-First);
+        for I:=0 to High(Parents) do Parents[I]:=I;
+        for I:=0 to High(Parents) do
+          for J:=I+1 to High(Parents) do
+          begin
+            A:=RootOf(I); B:=RootOf(J); if A=B then Continue;
+            // Keep the established author-cycle rule. Publisher/mixed labels
+            // and bracket variants require actual overlap of catalog books.
+            if (((Candidates[First+I].Tag='a') or (Candidates[First+J].Tag='a')) and
+              CharInSet(Candidates[First+I].Tag,[#0,'a']) and
+              CharInSet(Candidates[First+J].Tag,[#0,'a']) and
+              SeriesHaveSameAuthor(DB,Candidates[First+I].ID,Candidates[First+J].ID)) or
+              SeriesHaveSameBook(DB,Candidates[First+I].ID,Candidates[First+J].ID,Namespace,Canceled) then
+            begin
+              if A<B then Parents[B]:=A else Parents[A]:=B;
+            end;
+          end;
+        for I:=0 to High(Parents) do
+        begin
+          A:=RootOf(I); if A=I then Continue;
+          Pair.OldID:=Candidates[First+I].ID; Pair.NewID:=Candidates[First+A].ID;
+          Pair.OldTitle:=Candidates[First+I].Title; Pair.NewTitle:=Candidates[First+A].Title;
+          FPairs.Add(Pair);
+        end;
+        First:=Last;
       end;
-      except
-        on E: ESQLiteException do
-          if FQueryAborted then Abort else raise;
-      end;
-    finally Query.Free; end;
+    except
+      on E: ESQLiteException do if FQueryAborted then Abort else raise;
+    end;
   finally
-    SQLiteCancelCallback := SavedCancel; FQueryCanceled := nil; DB.Free;
+    SQLiteCancelCallback:=SavedCancel; FQueryCanceled:=nil; Candidates.Free; DB.Free;
   end;
-  if Assigned(Canceled) and Canceled() then Abort;
-  FReport.Add(Format('Найдено пар авторских серий: %d.',[Count]));
+  CheckCanceled;
+  FReport.Add(Format('Найдено пар названий серий: %d.',[Count]));
   FReport.Add('Проверка ничего не изменила. Для применения нажмите «Объединить найденные серии».');
-  FReport.Add('Совпадают название без метки [a] и хотя бы один автор. Издательские [p] и смешанные [m] серии сохраняются отдельно.');
+  FReport.Add('Для меток [p], [m] и разных скобок «Межавторского цикла» проверено совпадение книг: общий библиотечный ID либо название с автором, языком и форматом.');
+  FReport.Add('Для авторских меток [a] также учитывается совпадение автора при одинаковом названии серии. Разные циклы без подтверждения остаются отдельно.');
   FReport.Add('Книги обеих серий будут в одном списке. Все файлы, издания, оценки, прогресс чтения и группы сохраняются.');
-  FReport.Add('Это объединение названий серий; выбор копий книг задаётся отдельно режимом объединения источников.');
+  FReport.Add('Это объединение названий серий. Копии книг не удаляются; для выбора одной записи требуется отдельная проверка дублей книг.');
   FReport.Add('Повторное подключение INPX не требуется. Перед применением создаются резервные копии.');
   FReport.Add('');
   for Pair in FPairs do
   begin
-    if FReport.Count >= 1006 then Break;
+    if FReport.Count>=1007 then Break;
     FReport.Add(Pair.OldTitle+' → '+Pair.NewTitle);
   end;
-  if Count > 1000 then FReport.Add('В предпросмотре показаны первые 1000 пар. Полный список будет сохранён вместе с резервной копией.');
-  CheckRevision; FReady := True;
+  if Count>1000 then FReport.Add('В предпросмотре показаны первые 1000 пар. Полный список будет сохранён вместе с резервной копией.');
+  CheckRevision; FReady:=True;
 end;
 procedure TSeriesAliasPlan.Apply(const BackupFolder: string; const Progress: TMergeStageProgress;
   const Canceled: TMergeCanceled);

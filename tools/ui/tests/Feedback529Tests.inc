@@ -83,4 +83,5 @@ begin
     Require(Worker.Done and (Worker.Error<>''),'Statistics worker did not publish a read-only open failure');
   finally Worker.Free; end;
   Writeln('PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close');
+  TestFeedback529Series;
 end;

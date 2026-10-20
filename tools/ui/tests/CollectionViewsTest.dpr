@@ -3357,6 +3357,7 @@ begin
   Form.ScaleForPPI(96);
 end;
 
+{$I Feedback529SeriesTests.inc}
 {$I Feedback529JXLTests.inc}
 {$I Feedback529Tests.inc}
 
