@@ -90,3 +90,60 @@ begin
   finally Plan.Free; C:=nil; end;
   Writeln('PASS feedback529 verified publisher/mixed/bracket and transitive series aliases; unrelated cycles, formats, library collisions, personal cards, backup and cancellation');
 end;
+
+procedure TestFeedback529DesktopSeries(const SourceFile: string);
+const Scope='50156,151808,17477,115731,41621,182951,28371,91943,38402,112363,181825,17588,144422';
+var Source: TSQLiteDatabase; Query, Authors: TSQLiteQuery; C: IBookCollection;
+  ID, OriginalID, AddedID: Integer; Book: TBookRecord; Plan: TSeriesAliasPlan;
+  Mapped: TDictionary<Integer,Integer>;
+begin
+  // Read only the reported series. All reconstructed rows and every write are
+  // in the isolated fixture: never register or open the user's catalog RW.
+  Source:=TSQLiteDatabase.CreateReadOnly(SourceFile); Query:=nil; Authors:=nil;
+  Mapped:=TDictionary<Integer,Integer>.Create;
+  try
+    Require(Source.QuerySingleInt('PRAGMA query_only')=1,'Desktop source is not read-only');
+    Require(Source.QuerySingleInt('SELECT COUNT(*) FROM Series WHERE SeriesID IN ('+Scope+')')=13,
+      'Reported desktop series no longer match the read-only regression scope');
+    ID:=SystemDB.CreateCollection('Read-only feedback529 sample',Settings.AppPath,
+      'feedback529-desktop-sample.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    C:=SystemDB.GetCollection(ID); C.SetProperty(PROP_SOURCE_LIBRARY,'flibusta');
+    Query:=Source.NewQuery('SELECT s.SeriesTitle,b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.Folder,b.FileName,b.BookSize '+
+      'FROM Series s JOIN Series_List l ON l.SeriesID=s.SeriesID JOIN Books b ON b.BookID=l.BookID '+
+      'WHERE s.SeriesID IN ('+Scope+') ORDER BY b.BookID,s.SeriesID');
+    Authors:=Source.NewQuery('SELECT a.LastName,a.FirstName,a.MiddleName FROM Author_List l '+
+      'JOIN Authors a ON a.AuthorID=l.AuthorID WHERE l.BookID=? ORDER BY l.AuthorID');
+    C.BeginBulkOperation;
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        OriginalID:=Query.FieldAsInt(1);
+        if not Mapped.TryGetValue(OriginalID,AddedID) then
+        begin
+          Book:=Default(TBookRecord); Book.LibID:=Query.FieldAsString(2);
+          Book.Title:=Query.FieldAsString(3); Book.Lang:=Query.FieldAsString(4);
+          Book.FileExt:=Query.FieldAsString(5); Book.Folder:=Query.FieldAsString(6);
+          Book.FileName:=Query.FieldAsString(7); Book.Size:=Query.FieldAsInt(8);
+          Book.Series:=Query.FieldAsString(0);
+          Authors.Reset; Authors.SetParam(0,OriginalID); Authors.Open;
+          while not Authors.Eof do
+          begin
+            TAuthorsHelper.Add(Book.Authors,Authors.FieldAsString(0),Authors.FieldAsString(1),Authors.FieldAsString(2));
+            Authors.Next;
+          end;
+          Authors.Reset; AddedID:=C.InsertBook(Book,False,False); Mapped.Add(OriginalID,AddedID);
+        end
+        else C.AddBookSeries(AddedID,Query.FieldAsString(0),0);
+        Query.Next;
+      end;
+      C.EndBulkOperation(True);
+    except if C.InBulkOperation then C.EndBulkOperation(False); raise; end;
+    Plan:=TSeriesAliasPlan.Create(C,SystemDB);
+    try
+      Plan.Preview(nil); Writeln(Plan.Report.Text);
+      Require(Plan.Count=7,'Reported desktop series aliases were not all recognized: '+IntToStr(Plan.Count));
+    finally Plan.Free; end;
+    Writeln('PASS feedback529 actual desktop series reconstructed in an isolated fixture from a read-only connection; seven reported aliases recognized, no real records changed');
+  finally Authors.Free; Query.Free; C:=nil; Mapped.Free; Source.Free; end;
+end;

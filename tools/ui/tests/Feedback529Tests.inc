@@ -73,6 +73,10 @@ begin
       Require((Detail.Top>=Form.lvInfo.Top+Form.lvInfo.Height) and
         (Detail.Top+Detail.Height<=Form.btnClose.Top),'Statistics details overlap list or close button');
     end;
+    if GetEnvironmentVariable('HLRU_FEEDBACK529_VISUAL')='1' then
+    begin
+      Form.ScaleForPPI(96); Form.Hide; Form.ShowModal;
+    end;
     Form.LoadCollectionInfo(Collection); Form.Hide;
     Watch:=TStopwatch.StartNew; FreeAndNil(Form);
     Require(Watch.ElapsedMilliseconds<1000,'Early statistics close waited for an uncancelled query');
@@ -84,4 +88,6 @@ begin
   finally Worker.Free; end;
   Writeln('PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close');
   TestFeedback529Series;
+  if GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG')<>'' then
+    TestFeedback529DesktopSeries(GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG'));
 end;
