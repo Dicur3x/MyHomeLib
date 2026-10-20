@@ -242,6 +242,7 @@ uses
   unit_Database_Abstract in 'DAO\unit_Database_Abstract.pas',
   unit_SystemDatabase_Abstract in 'DAO\unit_SystemDatabase_Abstract.pas',
   unit_BookInfoPreview in 'Units\unit_BookInfoPreview.pas',
+  unit_StartupCatalog in 'Units\unit_StartupCatalog.pas',
   unit_treeController in 'Units\unit_treeController.pas',
   unit_MHLHttpClient in 'Units\unit_MHLHttpClient.pas',
   unit_FileMutex in 'Units\unit_FileMutex.pas',
@@ -285,13 +286,14 @@ begin
     Application.CreateForm(TdmImages, dmImages);
     dmImages.ApplyThemeIcons;
 
+    TfrmMain.DeferInitialCollection := True;
     Application.CreateForm(TfrmMain, frmMain);
-    Application.CreateForm(TfrmGenreTree, frmGenreTree);
 
     frmSplash.Hide;
   finally
     frmSplash.Free;
   end;
 
+  frmMain.StartInitialCollectionLoad;
   Application.Run;
 end.

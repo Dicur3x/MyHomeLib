@@ -300,11 +300,9 @@ type
     FPreserveSeriesOnUpdate: Boolean;
     FBulkSavedCacheSize: Integer;
     FSourceDisplayNames: TStringList;
-    FPreferredSourceNames: TDictionary<Integer,string>;
     FSourceGenres: Boolean;
     FCatalogLookup, FCatalogWrite, FCatalogCopyWrite, FCatalogOriginalCopyWrite, FCatalogPreferredWrite: TSQLiteQuery;
-    procedure LoadPreferredSourceNames;
-    function BookDisplaySource(const LibID: string; const DefaultName: string; BookID: Integer = 0): string;
+    function BookDisplaySource(const LibID: string; const DefaultName: string): string;
 
     procedure InternalLoadGenres;
     procedure InternalUpdateField(const BookID: Integer; const UpdateSQL: string; const NewValue: string);
@@ -757,25 +755,9 @@ begin
   inherited Destroy;
 end;
 
-procedure TBookCollection_SQLite.LoadPreferredSourceNames;
-var Query: TSQLiteQuery;
-begin
-  if Assigned(FPreferredSourceNames) then Exit;
-  FPreferredSourceNames := TDictionary<Integer,string>.Create;
-  Query := FDatabase.NewQuery('SELECT BookID,SourceName FROM CatalogPreferredSource');
-  try
-    Query.Open;
-    while not Query.Eof do
-    begin FPreferredSourceNames.AddOrSetValue(Query.FieldAsInt(0), Query.FieldAsString(1)); Query.Next; end;
-  finally Query.Free; end;
-end;
-
-function TBookCollection_SQLite.BookDisplaySource(const LibID: string; const DefaultName: string; BookID: Integer): string;
+function TBookCollection_SQLite.BookDisplaySource(const LibID: string; const DefaultName: string): string;
 var JSON, Item: TJSONValue; Values: TJSONArray; Obj: TJSONObject; ID: string;
 begin
-  Result := DefaultName;
-  LoadPreferredSourceNames;
-  if FPreferredSourceNames.TryGetValue(BookID, Result) then Exit;
   Result := DefaultName;
   if Copy(LibID, 1, 7) <> 'merged:' then Exit;
   if not Assigned(FSourceDisplayNames) then
@@ -860,7 +842,10 @@ begin
         BookRecord.PubYear := FBooks.FieldAsInt(23);
       BookRecord.ISBN := FBooks.FieldAsString(24);
       BookRecord.CollectionRoot := FCollectionRoot;
-      BookRecord.CollectionName := FCollection.BookDisplaySource(BookRecord.LibID, FCollectionName, BookID);
+      // Resolve only sources belonging to the returned rows. Eagerly caching
+      // this table used to load millions of unrelated names at the first book.
+      if not FBooks.FieldIsNull(26) then BookRecord.CollectionName := FBooks.FieldAsString(26)
+      else BookRecord.CollectionName := FCollection.BookDisplaySource(BookRecord.LibID, FCollectionName);
 
       while not FAuthors.Eof and (FAuthors.FieldAsInt(0) = BookID) do
       begin
@@ -910,10 +895,10 @@ begin
 
     if FExpandSearchSeries then
     begin
-      BookRecord.SeriesID := FBooks.FieldAsInt(26);
-      if FBooks.FieldIsNull(26) then BookRecord.SeriesID := NO_SERIES_ID;
-      BookRecord.SeqNumber := FBooks.FieldAsInt(27);
-      BookRecord.Series := FBooks.FieldAsString(28);
+      BookRecord.SeriesID := FBooks.FieldAsInt(27);
+      if FBooks.FieldIsNull(27) then BookRecord.SeriesID := NO_SERIES_ID;
+      BookRecord.SeqNumber := FBooks.FieldAsInt(28);
+      BookRecord.Series := FBooks.FieldAsString(29);
     end
     else if FMode = bmBySeries then
     begin
@@ -1099,8 +1084,9 @@ begin
       'b.IsDeleted, b.IsLocal, b.UpdateDate, b.Lang, b.LibRate, ' +
       'b.KeyWords, b.Rate, b.Progress, ' + MemoFields +
       'b.Translators, b.Publisher, b.City, b.PubYear, b.ISBN, ' +
-      's.SeriesTitle ' +
-      'FROM Books b LEFT JOIN Series s ON s.SeriesID = b.SeriesID ' +
+      's.SeriesTitle, preferred.SourceName ' +
+      'FROM Books b LEFT JOIN CatalogPreferredSource preferred ON preferred.BookID=b.BookID ' +
+      'LEFT JOIN Series s ON s.SeriesID = b.SeriesID ' +
       'WHERE b.BookID IN (' + MatchedBooksSQL + ') ORDER BY b.BookID';
 
     SQLAuthors :=
@@ -1364,10 +1350,11 @@ begin
     SQLRows := 'SELECT b.BookID,b.Title,b.Folder,b.FileName,b.Ext,b.InsideNo,' +
       'b.SeriesID,b.SeqNumber,b.BookSize,b.LibID,b.IsDeleted,b.IsLocal,b.UpdateDate,b.Lang,b.LibRate,' +
       'b.KeyWords,b.Rate,b.Progress,' + MemoFields +
-      'b.Translators,b.Publisher,b.City,b.PubYear,b.ISBN,primaryseries.SeriesTitle ';
+      'b.Translators,b.Publisher,b.City,b.PubYear,b.ISBN,primaryseries.SeriesTitle,preferred.SourceName ';
     if FExpandSearchSeries then
       SQLRows := SQLRows + ',sl.SeriesID,sl.SeqNumber,s.SeriesTitle ';
-    SQLRows := SQLRows + 'FROM Books b LEFT JOIN Series primaryseries ON primaryseries.SeriesID=b.SeriesID ';
+    SQLRows := SQLRows + 'FROM Books b LEFT JOIN CatalogPreferredSource preferred ON preferred.BookID=b.BookID ' +
+      'LEFT JOIN Series primaryseries ON primaryseries.SeriesID=b.SeriesID ';
     if FExpandSearchSeries then
       SQLRows := SQLRows + 'LEFT JOIN Series_List sl ON sl.BookID=b.BookID LEFT JOIN Series s ON s.SeriesID=sl.SeriesID ';
     SQLRows := SQLRows + 'WHERE b.BookID IN (' + MatchedBooksSQL + ') ';
@@ -1473,7 +1460,7 @@ var
   SQLRows: string;
   SQLCount: string;
   NeedBookJoin: Boolean;
-  NeedAuthorListJoin: Boolean;
+  BookWhere: string;
 
   procedure SetParams(query: TSQLiteQuery; const Mode: TAuthorIteratorMode);
   begin
@@ -1521,16 +1508,16 @@ begin
     amFullFilter:
       begin
         NeedBookJoin := FCollection.GetHideDeleted or FCollection.GetShowLocalOnly;
-        NeedAuthorListJoin := NeedBookJoin;
+        BookWhere := '';
 
         if FRestrictAuthorIDs then
           AddToWhere(Where, 'a.AuthorID IN (' + SQLIntegerIDs(FRestrictedAuthorIDs) + ')');
 
         if FCollection.GetHideDeleted then
-          AddToWhere(Where, ' b.IsDeleted = :IsDeleted ');
+          AddToWhere(BookWhere, ' b.IsDeleted = :IsDeleted ');
 
         if FCollection.GetShowLocalOnly then
-          AddToWhere(Where, ' b.IsLocal = :IsLocal ');
+          AddToWhere(BookWhere, ' b.IsLocal = :IsLocal ');
 
         if FCollection.GetAuthorFilterType = ALPHA_FILTER_NON_ALPHA then
         begin
@@ -1549,28 +1536,20 @@ begin
           );
         end;
 
-        if NeedAuthorListJoin then
-        begin
-          if FRestrictAuthorIDs then
-            FromList := 'Authors a JOIN Author_List al INDEXED BY IXAuthorList_AuthorID_BookID ' +
-              'ON al.AuthorID=a.AuthorID JOIN Books b ON b.BookID=al.BookID '
-          else
-            FromList := 'Author_List al INNER JOIN Books b ON al.BookID = b.BookID INNER JOIN Authors a ON a.AuthorID = al.AuthorID ';
-          SQLRows := 'SELECT DISTINCT a.AuthorID FROM ' + FromList + Where;
-          SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
-          SQLRows := 'SELECT DISTINCT a.AuthorID, a.LastName, a.FirstName, a.MiddleName FROM ' + FromList + Where + ' ORDER BY a.LastName, a.FirstName, a.MiddleName ';
-        end
+        FromList := 'Authors a ';
+        // Start with the filtered names and stop at the first eligible book.
+        // A DISTINCT join otherwise expands every author's entire bibliography.
+        if NeedBookJoin then
+          AddToWhere(Where, 'EXISTS (SELECT 1 FROM Author_List al ' +
+            'INNER JOIN Books b ON b.BookID=al.BookID ' +
+            BookWhere + ' AND al.AuthorID=a.AuthorID)')
         else
-        begin
-          FromList := 'Authors a ';
-          // Keep unused names out of the browser without restoring the large
-          // DISTINCT join. amAll still includes them for author editing.
           AddToWhere(Where,
-            'EXISTS (SELECT 1 FROM Author_List al WHERE al.AuthorID = a.AuthorID)');
-          SQLRows := 'SELECT a.AuthorID FROM ' + FromList + Where;
-          SQLCount := 'SELECT COUNT(*) FROM (' + SQLRows + ') ROWS ';
-          SQLRows := 'SELECT a.AuthorID, a.LastName, a.FirstName, a.MiddleName FROM ' + FromList + Where + ' ORDER BY a.LastName, a.FirstName, a.MiddleName ';
-        end;
+            'EXISTS (SELECT 1 FROM Author_List al WHERE al.AuthorID=a.AuthorID)');
+        SQLCount := 'SELECT COUNT(*) FROM ' + FromList + Where;
+        SQLRows := 'SELECT a.AuthorID, a.LastName, a.FirstName, a.MiddleName FROM ' +
+          FromList + Where + ' ORDER BY a.LastName, a.FirstName, a.MiddleName ';
+
 
       end;
 
@@ -1980,7 +1959,7 @@ end;
 destructor TBookCollection_SQLite.Destroy;
 begin
   FreeAndNil(FSourceDisplayNames);
-  FreeAndNil(FPreferredSourceNames); FreeAndNil(FCatalogPreferredWrite);
+  FreeAndNil(FCatalogPreferredWrite);
   FreeAndNil(FCatalogLookup); FreeAndNil(FCatalogWrite);
   FreeAndNil(FCatalogCopyWrite); FreeAndNil(FCatalogOriginalCopyWrite);
   FreeAndNil(FDatabase);
@@ -2872,9 +2851,9 @@ const
     'b.SeriesID, b.SeqNumber, b.BookSize, b.LibID, ' +
     'b.IsDeleted, b.IsLocal, b.UpdateDate, b.Lang, b.LibRate, ' +
     'b.KeyWords, b.Rate, b.Progress, b.Review, b.Annotation, ' +
-    'b.Translators, b.Publisher, b.City, b.PubYear, b.ISBN ' +
-    'FROM Books b ' +
-    'WHERE BookID = ?';
+    'b.Translators, b.Publisher, b.City, b.PubYear, b.ISBN, preferred.SourceName ' +
+    'FROM Books b LEFT JOIN CatalogPreferredSource preferred ON preferred.BookID=b.BookID ' +
+    'WHERE b.BookID = ?';
 var
   Table: TSQLiteQuery;
   SavedKey: TBookKey;
@@ -2926,7 +2905,8 @@ begin
       BookRecord.Rate := Table.FieldAsInt(15);
       BookRecord.Progress := Table.FieldAsInt(16);
       BookRecord.CollectionRoot := CollectionRoot;
-      BookRecord.CollectionName := BookDisplaySource(BookRecord.LibID, VarToStr(GetProperty(PROP_DISPLAYNAME)), SavedKey.BookID);
+      if not Table.FieldIsNull(24) then BookRecord.CollectionName := Table.FieldAsString(24)
+      else BookRecord.CollectionName := BookDisplaySource(BookRecord.LibID, VarToStr(GetProperty(PROP_DISPLAYNAME)));
 
       BookRecord.Translators := Table.FieldAsString(19);
       BookRecord.Publisher := Table.FieldAsString(20);
@@ -3413,7 +3393,6 @@ end;
 procedure TBookCollection_SQLite.RestoreCollectionBackup(const FileName: string);
 begin
   FDatabase.RestoreFrom(FileName);
-  FreeAndNil(FPreferredSourceNames);
   InternalLoadGenres;
 end;
 
@@ -3440,7 +3419,6 @@ end;
 
 procedure TBookCollection_SQLite.SetCatalogBookPreferredSource(const BookKey: TBookKey; const SourceName: string);
 begin
-  LoadPreferredSourceNames;
   if not Assigned(FCatalogPreferredWrite) then
     FCatalogPreferredWrite := FDatabase.NewQuery('INSERT INTO CatalogPreferredSource(BookID,SourceName) VALUES(?,?) '+
       'ON CONFLICT(BookID) DO UPDATE SET SourceName=excluded.SourceName '+
@@ -3448,7 +3426,6 @@ begin
   FCatalogPreferredWrite.Reset; FCatalogPreferredWrite.SetParam(0,BookKey.BookID);
   FCatalogPreferredWrite.SetParam(1,SourceName);
   try FCatalogPreferredWrite.Open; finally FCatalogPreferredWrite.Reset; end;
-  FPreferredSourceNames.AddOrSetValue(BookKey.BookID,SourceName);
 end;
 
 procedure TBookCollection_SQLite.SetCatalogBookCopy(const SourceKey, SourceName: string;
@@ -4174,7 +4151,6 @@ end;
 procedure TBookCollection_SQLite.EndBulkOperation(Commit: Boolean = True);
 begin
   Assert(FDatabase.InTransaction);
-  FreeAndNil(FPreferredSourceNames);
 
   try
     if Commit then
@@ -4276,7 +4252,6 @@ begin
   FDatabase.ExecSQL('DELETE FROM CatalogSourceBooks');
   FDatabase.ExecSQL('DELETE FROM CatalogBookCopies');
   FDatabase.ExecSQL('DELETE FROM CatalogPreferredSource');
-  FreeAndNil(FPreferredSourceNames);
   for TableName in TABLE_NAMES do
     FDatabase.ExecSQL(Format(SQL_TRUNCATE, [TableName]));
 

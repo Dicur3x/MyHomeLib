@@ -319,6 +319,7 @@
         <DCCReference Include="DAO\unit_Database_Abstract.pas"/>
         <DCCReference Include="DAO\unit_SystemDatabase_Abstract.pas"/>
         <DCCReference Include="Units\unit_BookInfoPreview.pas"/>
+        <DCCReference Include="Units\unit_StartupCatalog.pas"/>
         <DCCReference Include="Units\unit_treeController.pas"/>
         <DCCReference Include="Units\unit_MHLHttpClient.pas"/>
         <DCCReference Include="Units\unit_FileMutex.pas"/>

@@ -46,7 +46,7 @@ uses
   unit_ProgramUpdates,
   frm_ProgramUpdate,
   frm_OPDS,
-  unit_Interfaces,
+  unit_Interfaces, unit_StartupCatalog,
   XMLIntf,
   XMLDoc,
   pngimage,
@@ -721,6 +721,18 @@ type
     FCurrentBookOnly: Boolean;
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FMetadataFillAction: TAction;
+    FStartupLoading: Boolean;
+    FStartupStep: Integer;
+    FStartupTimer: TTimer;
+    FStartupCatalog: TStartupCatalogLoader;
+    FStartupBooks: TStartupBooksLoader;
+    FStartupData: TStartupCatalogData;
+    FStartupBookRows: IBookIterator;
+    FStartupMenuEnabled: TArray<Boolean>;
+    procedure StartupTick(Sender: TObject);
+    procedure FinishInitialLoading;
+    procedure StopInitialLoading;
+  private
     FInvisible: Boolean;
     FThemeToolbar: TToolBar;
     FThemeButton: TToolButton;
@@ -1123,6 +1135,11 @@ type
     procedure ClearDataFolder;
     property ActiveView: TView read GetActiveView;
 
+    // The executable defers catalogue work; embedded callers may initialize synchronously.
+  public
+    class var DeferInitialCollection: Boolean;
+    procedure StartInitialCollectionLoad;
+    property StartupLoading: Boolean read FStartupLoading;
     property ShowStatusProgress: Boolean read GetShowStatusProgress write SetShowStatusProgress;
     property StatusMessage: string read GetStatusMessage write SetStatusMessage;
     property StatusProgress: Integer read GetStatusProgress write SetStatusProgress;
@@ -1866,7 +1883,12 @@ begin
   WasInvisible := FInvisible;
   FInvisible := True;
   try
-    FillSeriesTree(FPublisher.SeriesTree,
+    if Assigned(FStartupData) and Assigned(FStartupData.PublisherSeries) then
+    begin
+      FillSeriesTree(FPublisher.SeriesTree, FStartupData.PublisherSeries, FLastPublisherSeriesID);
+      FStartupData.PublisherSeries := nil;
+    end
+    else FillSeriesTree(FPublisher.SeriesTree,
       FCollection.GetPublisherSeriesIterator(Trim(FPublisher.Search.Text)), FLastPublisherSeriesID);
     FPublisherListLoaded := True;
     Exclude(FLoadedBookViews, PublisherSeriesView);
@@ -2368,7 +2390,8 @@ begin
       Exit;
     end;
 
-    FCollection := FSystemData.GetCollection(Settings.ActiveCollection);
+    if Assigned(FStartupData) then FCollection := FStartupData.Collection
+    else FCollection := FSystemData.GetCollection(Settings.ActiveCollection);
 
     Assert(Assigned(FCollection));
 
@@ -2411,7 +2434,13 @@ begin
     FCollection.SetShowLocalOnly(IsOnline and Settings.ShowLocalOnly);
     SetHideDeletedMode(Settings.HideDeletedBooks, False);
 
-    FCollection.GetStatistics(Acount, Scount, GCount);
+    if Assigned(FStartupData) then
+    begin
+      Acount := FStartupData.AuthorCount;
+      Scount := FStartupData.BookCount;
+      GCount := FStartupData.SeriesCount;
+    end
+    else FCollection.GetStatistics(Acount, Scount, GCount);
 
     FSA := FCollection.GetProperty(PROP_LAST_AUTHOR);
     if FSA = '' then
@@ -2705,6 +2734,9 @@ var AlphaChar: Char; APos, SPos: Integer;
     Result:=Button.Left+Button.Width;
   end;
 begin
+  for var Bar in TArray<TToolBar>.Create(tbarAuthorsRus, tbarAuthorsEng, tbarSeriesRus, tbarSeriesEng) do
+    Bar.DisableAlign;
+  try
   Prepare(tbarAuthorsRus); Prepare(tbarAuthorsEng);
   Prepare(tbarSeriesRus); Prepare(tbarSeriesEng);
   APos:=0; SPos:=0;
@@ -2718,6 +2750,10 @@ begin
   begin
     APos:=AddLetter(tbarAuthorsEng,AlphaChar,OnSetAuthorFilter,APos);
     SPos:=AddLetter(tbarSeriesEng,AlphaChar,OnSetSerieFilter,SPos);
+  end;
+  finally
+    for var Bar in TArray<TToolBar>.Create(tbarAuthorsRus, tbarAuthorsEng, tbarSeriesRus, tbarSeriesEng) do
+      Bar.EnableAlign;
   end;
 end;
 
@@ -3423,6 +3459,7 @@ end;
 
 procedure TfrmMain.tmrCheckUpdatesTimer(Sender: TObject);
 begin
+  if FStartupLoading then Exit;
   if not frmMain.Active then
     Exit;
 
@@ -3449,6 +3486,7 @@ end;
 
 procedure TfrmMain.ProgramUpdateSchedule(Sender: TObject);
 begin
+  if FStartupLoading then Exit;
   if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) and
      ProgramUpdateDue(Settings.ProgramUpdateLastCheckUTC, TTimeZone.Local.ToUniversalTime(Now),
        Settings.ProgramUpdateMinutes) then
@@ -3608,7 +3646,7 @@ begin
   begin
     FStatusProgressBar.Position := Value;
     if StatusBar.Visible and ShowStatusProgress then
-      StatusBar.Repaint;
+      StatusBar.Invalidate;
   end;
 end;
 
@@ -4395,6 +4433,7 @@ var
   WindowsDark: Boolean;
   I: Integer;
 begin
+  FStartupLoading := DeferInitialCollection;
   OnShortCut := FormShortCut;
   FSystemData := SystemDB;
   OPDSMenu := TMenuItem.Create(Self);
@@ -4540,11 +4579,12 @@ begin
 
   UpdateSplashScreen(rstrMainLoadingCollection);
 
-  InitCollection;
+  if not FStartupLoading then
+  begin
+    InitCollection;
+    LoadDownloadsList;
+  end;
 
-  LoadDownloadsList;
-
-  SetFormState;
 
   UpdateSplashScreen(rstrStarting);
   // A small toolbar aligned to the right keeps the theme switch at the edge,
@@ -4567,6 +4607,7 @@ begin
   if Settings.DarkTheme then FThemeButton.Hint:='Переключить на светлую тему'
   else FThemeButton.Hint:='Переключить на тёмную тему';
   if TryMHLWindowsDarkTheme(WindowsDark) then UpdateWindowsThemeOffer(WindowsDark);
+  SetFormState;
   FProgramUpdateTimer := TTimer.Create(Self);
   FProgramUpdateTimer.Interval := 30000;
   FProgramUpdateTimer.OnTimer := ProgramUpdateSchedule;
@@ -4581,8 +4622,118 @@ begin
 
 end;
 
+procedure TfrmMain.StartInitialCollectionLoad;
+begin
+  if not FStartupLoading or Assigned(FStartupTimer) then Exit;
+  SetLength(FStartupMenuEnabled, MainMenu.Items.Count);
+  for var I := 0 to MainMenu.Items.Count-1 do
+  begin
+    FStartupMenuEnabled[I] := MainMenu.Items[I].Enabled;
+    MainMenu.Items[I].Enabled := False;
+  end;
+  pgControl.Enabled := False; tlbrMain.Enabled := False; tlbrEdit.Enabled := False;
+  StatusMessage := 'Открытие коллекции…';
+  FStatusProgressBar.Style := pbstMarquee;
+  ShowStatusProgress := True;
+  FStartupTimer := TTimer.Create(Self);
+  FStartupTimer.Interval := 20;
+  FStartupTimer.OnTimer := StartupTick;
+end;
+
+procedure TfrmMain.FinishInitialLoading;
+begin
+  FStartupLoading := False;
+  if Assigned(FStartupTimer) then FStartupTimer.Enabled := False;
+  pgControl.Enabled := True; tlbrMain.Enabled := True; tlbrEdit.Enabled := True;
+  for var I := 0 to Min(High(FStartupMenuEnabled), MainMenu.Items.Count-1) do
+    MainMenu.Items[I].Enabled := FStartupMenuEnabled[I];
+  FStartupMenuEnabled := nil;
+  FStatusProgressBar.Style := pbstNormal; ShowStatusProgress := False;
+  StatusMessage := rstrReadyMessage;
+  if Assigned(FCollection) then CheckFavoriteCollection;
+end;
+
+procedure TfrmMain.StopInitialLoading;
+begin
+  FreeAndNil(FStartupTimer);
+  if Assigned(FStartupCatalog) then
+  begin FStartupCatalog.Terminate; FreeAndNil(FStartupCatalog); end;
+  if Assigned(FStartupBooks) then
+  begin FStartupBooks.Terminate; FreeAndNil(FStartupBooks); end;
+  FStartupBookRows := nil;
+  FreeAndNil(FStartupData);
+end;
+
+procedure TfrmMain.StartupTick(Sender: TObject);
+var Failure: string;
+begin
+  // No data is opened from FormCreate. WM_TIMER runs after the first window paint.
+  FStartupTimer.Enabled := False;
+  try
+    try
+      if FStartupStep = 0 then
+      begin
+        if not Assigned(frmGenreTree) then
+          Application.CreateForm(TfrmGenreTree, frmGenreTree);
+        FStartupCatalog := TStartupCatalogLoader.Create(Settings.SystemFileName[sfSystemDB],
+          Settings.ActiveCollection, Settings.HideDeletedBooks, Settings.ShowLocalOnly,
+          ActiveView = PublisherSeriesView);
+        FStartupCatalog.Start; FStartupStep := 1;
+      end
+      else if FStartupStep = 1 then
+      begin
+        if not FStartupCatalog.Finished then Exit;
+        FStartupCatalog.WaitFor;
+        Failure := FStartupCatalog.Error;
+        FStartupData := FStartupCatalog.TakeData;
+        FreeAndNil(FStartupCatalog);
+        if Failure <> '' then raise Exception.Create(Failure);
+        if not Assigned(FStartupData.Collection) then
+        begin
+          FreeAndNil(FStartupData); FinishInitialLoading;
+          InitCollection; LoadDownloadsList; Exit;
+        end;
+        try InitCollection; finally FreeAndNil(FStartupData); end;
+        LoadDownloadsList;
+        FStartupStep := 2;
+        if not Assigned(FStartupBooks) then FinishInitialLoading;
+      end
+      else if Assigned(FStartupBooks) then
+      begin
+        if not FStartupBooks.Finished then Exit;
+        FStartupBooks.WaitFor;
+        Failure := FStartupBooks.Error;
+        FStartupBookRows := FStartupBooks.TakeRows;
+        FreeAndNil(FStartupBooks);
+        if Failure <> '' then raise Exception.Create(Failure);
+        Exclude(FLoadedBookViews, ActiveView);
+        EnsureActiveBookViewLoaded;
+        if not Assigned(FStartupBooks) then
+        begin FinishInitialLoading; StatusMessage := 'Готово'; end;
+      end;
+    except
+      on E: Exception do
+      begin
+        StopInitialLoading;
+        FinishInitialLoading;
+        StatusMessage := 'Не удалось открыть коллекцию: ' + E.Message;
+        MHLShowError(StatusMessage);
+      end;
+    end;
+  finally
+    if Assigned(FStartupTimer) and FStartupLoading then FStartupTimer.Enabled := True;
+  end;
+end;
+
 procedure TfrmMain.FormShortCut(var Msg: TWMKey; var Handled: Boolean);
 begin
+  if FStartupLoading then
+  begin
+    // Prevent actions from changing the view or collection underneath a loader.
+    // Alt+F4 remains available to close the window during startup.
+    Handled := not ((Msg.CharCode = VK_F4) and (GetKeyState(VK_MENU) < 0));
+    Exit;
+  end;
   // Ctrl+A is also the global "mark all books" shortcut. Text editing takes
   // precedence while an edit control has focus, matching standard Windows
   // behaviour without removing the existing shortcut from the book list.
@@ -4637,6 +4788,7 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
+  StopInitialLoading;
   StopFavoriteRefresh(True);
   if Assigned(FProgramUpdateThread) then
   begin
@@ -6191,7 +6343,12 @@ begin
 
   FCollection.SetSeriesFilterType(Result);
 
-  FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
+  if Assigned(FStartupData) and Assigned(FStartupData.Series) then
+  begin
+    FillSeriesTree(tvSeries, FStartupData.Series, FLastSeriesID);
+    FStartupData.Series := nil;
+  end
+  else FillSeriesTree(tvSeries, FCollection.GetSeriesIterator(smFullFilter), FLastSeriesID);
 
   if (Result = ALPHA_FILTER_ALL) or (Result = ALPHA_FILTER_NON_ALPHA) then
   begin
@@ -6547,7 +6704,7 @@ begin
       end;
   end;
 
-  if FBookListCancelled then Exit;
+  if FBookListCancelled or Assigned(FStartupBooks) then Exit;
   Include(FLoadedBookViews, View);
 
   // A root genre has not built a language list until the explicit Show action.
@@ -6734,6 +6891,15 @@ procedure TfrmMain.FillBooksTree(const Tree: TBookTree; const LangSelector: TCom
   const Factory: TFunc<IBookIterator>; ShowAuth, ShowSer: Boolean; SelectedID: PBookKey);
 var Iterator: IBookIterator; SavedCursor: TCursor;
 begin
+  if FStartupLoading and not Assigned(FStartupBookRows) then
+  begin
+    if not Assigned(FStartupBooks) then
+    begin
+      FStartupBooks := TStartupBooksLoader.Create(Factory);
+      FStartupBooks.Start;
+    end;
+    Exit;
+  end;
   if FBookListLoading then Exit;
   FBookListLoading := True;
   FBookListCancelled := False;
@@ -6751,7 +6917,9 @@ begin
   SQLiteCancelCallback := PollBookListCancel;
   try
     try
-      Iterator := Factory();
+      if Assigned(FStartupBookRows) then
+      begin Iterator := FStartupBookRows; FStartupBookRows := nil; end
+      else Iterator := Factory();
       FillBooksTreeCore(Tree, LangSelector, Iterator, ShowAuth, ShowSer, SelectedID);
     except
       on E: Exception do
@@ -8018,7 +8186,12 @@ end;
 
 function TfrmMain.UpdateEditAction(Action: TAction): Boolean;
 begin
-  Assert(Assigned(FCollection));
+  if not Assigned(FCollection) then
+  begin
+    Action.Enabled := False;
+    Action.Visible := False;
+    Exit(False);
+  end;
   Result := isPrivateCollection(FCollection.CollectionCode);
 
   if Result then
@@ -8485,6 +8658,7 @@ end;
 
 procedure TfrmMain.CheckFavoriteCollection;
 begin
+  if FStartupLoading then Exit;
   if not Assigned(FCollection) or not Assigned(FFavoriteQueue) then Exit;
   if not Assigned(FFavoriteStore) then
   begin
@@ -8765,7 +8939,13 @@ function TfrmMain.AuthorSelectorIterator: IAuthorIterator;
 var View: IAuthorFavoriteCollectionView; IDs: TArray<Integer>;
 begin
   if not Assigned(FFavoriteListCheck) or not FFavoriteListCheck.Checked then
+  begin
+    if Assigned(FStartupData) and Assigned(FStartupData.Authors) then
+    begin
+      Result := FStartupData.Authors; FStartupData.Authors := nil; Exit;
+    end;
     Exit(FCollection.GetAuthorIterator(amFullFilter));
+  end;
   if not Supports(FCollection, IAuthorFavoriteCollectionView, View) then
     raise EAuthorFavorites.Create('Любимые авторы недоступны для этого типа каталога.');
   FFavoriteDescriptor := FavoriteDescriptor(FCollection);

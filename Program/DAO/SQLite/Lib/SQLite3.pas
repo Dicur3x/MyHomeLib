@@ -213,6 +213,11 @@ procedure SQLite3_BusyTimeout(
   msTimeOut: Integer
   ); cdecl; external SQLiteDLL name 'sqlite3_busy_timeout';
 
+type
+  TSQLiteBusyCallback = function(UserData: Pointer; Attempts: Integer): Integer; cdecl;
+function SQLite3_BusyHandler(db: TSQLite3DB; Callback: TSQLiteBusyCallback;
+  UserData: Pointer): Integer; cdecl; external SQLiteDLL name 'sqlite3_busy_handler';
+
 function SQLite3_Changes(
   db: TSQLite3DB
   ): Integer; cdecl; external SQLiteDLL name 'sqlite3_changes';

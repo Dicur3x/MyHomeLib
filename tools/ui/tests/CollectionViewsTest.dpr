@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  unit_StartupCatalog, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
@@ -257,9 +257,11 @@ begin
     Driver.Timer := TTimer.Create(nil); Driver.Timer.Enabled := False;
     Driver.Timer.Interval := 100; Driver.Timer.OnTimer := Driver.Tick;
     Driver.Timer.Enabled := True;
+    TfrmMain.DeferInitialCollection := True;
     Application.CreateForm(TfrmMain, frmMain);
-    Application.CreateForm(TfrmGenreTree, frmGenreTree);
+    if not Assigned(frmGenreTree) then Application.CreateForm(TfrmGenreTree, frmGenreTree);
     frmSplash.Hide;
+    frmMain.StartInitialCollectionLoad;
     Started := GetTickCount64;
     if ParamStr(1) <> 'first-run-cancel' then Application.ProcessMessages;
     while not Driver.Finished and (GetTickCount64 - Started < 10000) do
@@ -5494,6 +5496,7 @@ end;
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
 {$I Post525UpdateTests.inc}
+{$I StartupDeferredTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5581,7 +5584,7 @@ begin
           RestartBookID := AddOnlineBook(Online, 'Online restart', '900004');
         end;
       end;
-      if (ParamStr(1) = 'publisher-selection') or (ParamStr(1) = 'publisher-startup') then
+      if (ParamStr(1) = 'publisher-selection') or (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'startup-deferred-publisher') then
       begin
         TSeriesHelper.Add(PublisherSeries, 0, 'Fixture publisher', 1, False);
         One.SetBookPublisherSeries(CreateBookKey(FirstBook, OneID), PublisherSeries);
@@ -5609,7 +5612,7 @@ begin
       Two.SetProperty(PROP_GENRES_LANG_FILTER, 1);
       Settings.ActiveCollection := OneID;
       Settings.ActivePage := PAGE_AUTHORS;
-      if ParamStr(1) = 'publisher-startup' then
+      if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'startup-deferred-publisher') then
       begin
         Settings.ActivePage := PAGE_PUBLISHER_SERIES;
         Settings.ShowInfoPanel := True;
@@ -5631,13 +5634,18 @@ begin
       if ParamStr(1) = 'search-startup-layout' then PrepareSearchStartupLayout;
       Trace('main form');
       if ParamStr(1) = 'feedback22' then PrepareFeedback22Scripts;
+      if ParamStr(1).StartsWith('startup-deferred') then TfrmMain.DeferInitialCollection := True;
+      if ParamStr(1) = 'startup-deferred-fallback' then Settings.ActiveCollection := 999999;
       Application.CreateForm(TfrmMain, frmMain);
+      if ParamStr(1) = 'startup-deferred-close' then
+      begin TestDeferredStartupEarlyClose; Halt(0); end;
+      if ParamStr(1).StartsWith('startup-deferred') then CompleteDeferredStartup;
       if ParamStr(1) = 'search-startup-layout' then TestSearchStartupLayout;
       TestHeaderMenuTags;
       Trace('genre form');
-      Application.CreateForm(TfrmGenreTree, frmGenreTree);
+      if not Assigned(frmGenreTree) then Application.CreateForm(TfrmGenreTree, frmGenreTree);
       Trace('initial selection checks');
-      if ParamStr(1) = 'publisher-startup' then
+      if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'startup-deferred-publisher') then
       begin
         Require(frmMain.pgControl.ActivePage = PublisherView.Tab, 'Saved publisher page was not restored');
         ExpectTitles(PublisherView.Books, ['Alpha ru']);
@@ -5657,6 +5665,13 @@ begin
       end;
       if ParamStr(1) = 'search-startup-layout' then
         Trace('fresh Search startup already checked before other Main actions')
+      else if ParamStr(1).StartsWith('startup-deferred') then
+      begin
+        TestStartupWorkerLifecycle;
+        TestPreferredSourceRows;
+        Require(Settings.ActiveCollection = OneID, 'Startup fallback selected the wrong collection');
+        Writeln('PASS deferred startup keeps saved book, view and collection fallback');
+      end
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails
       else if ParamStr(1) = 'oct11-ui' then
@@ -5761,7 +5776,7 @@ begin
         TestPublisherSelection(OneID, TwoID, LastBook)
       else if ParamStr(1) = 'publisher-links' then
         TestPublisherLinks(One, OneID, TwoID)
-      else if ParamStr(1) = 'publisher-startup' then
+      else if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'startup-deferred-publisher') then
       begin
         frmMain.pgControl.ActivePage := PublisherView.Tab;
         frmMain.pgControlChange(nil);

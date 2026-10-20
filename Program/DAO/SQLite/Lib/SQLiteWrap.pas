@@ -42,6 +42,8 @@ type
   private
     FDB: TSQLite3DB;
     FProfileName: string;
+    FBusyTimeout: Integer;
+    FBusyStarted: UInt64;
     FQueryBatchDepth: Integer;
     FStatementGeneration: Integer;
     FIdleStatements: TDictionary<string, TSQLiteStmt>;
@@ -279,6 +281,24 @@ begin
     if Assigned(SQLiteCancelCallback) and SQLiteCancelCallback() then Result := 1;
   except
     Result := 1;
+  end;
+end;
+
+function CancelBusy(UserData: Pointer; Attempts: Integer): Integer; cdecl;
+var Database: TSQLiteDatabase; Elapsed: UInt64;
+begin
+  Result := 0;
+  try
+    Database := TSQLiteDatabase(UserData);
+    if Attempts = 0 then Database.FBusyStarted := GetTickCount64;
+    if Assigned(SQLiteCancelCallback) and SQLiteCancelCallback() then Exit;
+    Elapsed := GetTickCount64 - Database.FBusyStarted;
+    if Elapsed >= UInt64(Database.FBusyTimeout) then Exit;
+    Sleep(Min(25, Database.FBusyTimeout - Integer(Elapsed)));
+    Result := 1;
+  except
+    // Exceptions must never cross SQLite's C callback boundary.
+    Result := 0;
   end;
 end;
 
@@ -668,7 +688,13 @@ end;
 
 procedure TSQLiteDatabase.SetTimeout(Value: Integer);
 begin
-  SQLite3_BusyTimeout(FDB, Value);
+  FBusyTimeout := Max(0, Value);
+  // A startup worker must also cancel while another connection holds a lock.
+  // The progress handler alone is not called inside SQLite's busy wait.
+  if Assigned(SQLiteCancelCallback) then
+    SQLite3_BusyHandler(FDB, CancelBusy, Self)
+  else
+    SQLite3_BusyTimeout(FDB, FBusyTimeout);
 end;
 
 function TSQLiteDatabase.Version: string;
