@@ -1,5 +1,17 @@
 # Как собрать HomeLib Ru в `exe`
 
+## Сборка pre5.27 / 1095 — 20 октября 2026 года
+
+Main Release, Updater и CollectionViewsTest Performance собраны через Delphi GUI
+для x86/x64. Фоновую загрузку каталога проверяют режимы `startup-deferred`,
+`startup-deferred-publisher`, `startup-deferred-fallback`, `startup-deferred-close`,
+`first-run` и `first-run-cancel`. До первой отрисовки главное окно не открывает
+коллекцию и не создаёт скрытый выбор жанров; фоновые соединения не разделяются
+с основным потоком. При закрытии производители отменяются и завершаются до
+освобождения окон.
+
+[Проверки и ограничения выпуска](docs/RELEASE_VALIDATION_2.7.0_pre5.27.md).
+
 ## Сборка pre5.24 / 1092 — 17 октября 2026 года
 
 Main Release, Updater и нативные тесты пересобраны через Delphi GUI для x86/x64.
