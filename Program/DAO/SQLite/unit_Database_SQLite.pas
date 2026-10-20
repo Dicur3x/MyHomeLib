@@ -64,6 +64,12 @@ type
       FExpandSearchSeries: Boolean;
       FMatchedViewID: string;
       FLastStreamBook: TBookRecord;
+      FSelectedSeriesID: Integer;
+      FSelectedSeriesTitle: string;
+      FHasLastDate: Boolean;
+      FLastDateText: string;
+      FLastDateValue: TDateTime;
+      FStreamAuthors: TDictionary<Integer, TAuthorData>;
 
       procedure PrepareData(const Mode: TBookIteratorMode; const FilterValue: PFilterValue; const SearchCriteria: TBookSearchCriteria);
       procedure PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
@@ -726,6 +732,7 @@ begin
     PrepareData(Mode, FilterValue, SearchCriteria);
   if Assigned(FAuthors) then
   begin
+    FStreamAuthors := TDictionary<Integer, TAuthorData>.Create;
     FPublisherSeries := FCollection.FDatabase.NewQuery(
       'SELECT sl.BookID,s.SeriesID,s.SeriesTitle,sl.SeqNumber FROM PublisherSeries_List sl ' +
       'JOIN PublisherSeries s ON s.SeriesID=sl.SeriesID ' +
@@ -746,6 +753,7 @@ begin
   FreeAndNil(FGenres);
   FreeAndNil(FPublisherSeries);
   FreeAndNil(FCount);
+  FreeAndNil(FStreamAuthors);
   if FMatchedViewID <> '' then FCollection.FDatabase.ExecSQL(
     'DELETE FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID));
   finally
@@ -787,6 +795,9 @@ var
   BookID: Integer;
   Genre: TGenreData;
   GenreCount: Integer;
+  DateText: string;
+  Author: TAuthorData;
+  AuthorID, AuthorCount: Integer;
 begin
   Result := not FBooks.Eof;
 
@@ -797,7 +808,7 @@ begin
     // The genre page may contain tens of thousands of books. Its iterator uses
     // three ordered result sets (books, authors and genres), avoiding several
     // new SQLite queries for every individual book.
-    if (FMode in [bmAll, bmByGenre, bmByGenreRecursive, bmSearch]) then
+    if Assigned(FAuthors) then
     begin
       if FExpandSearchSeries and (FLastStreamBook.BookKey.BookID = BookID) then
         BookRecord := FLastStreamBook
@@ -822,7 +833,16 @@ begin
         Include(BookRecord.BookProps, bpIsDeleted);
       if FBooks.FieldAsBoolean(11) then
         Include(BookRecord.BookProps, bpIsLocal);
-      BookRecord.Date := FBooks.FieldAsDateTime(12);
+      // INPX dates commonly repeat across adjacent rows. Keep the existing
+      // parser and its validation, but do not parse the same date per book.
+      DateText := FBooks.FieldAsString(12);
+      if not FHasLastDate or (DateText <> FLastDateText) then
+      begin
+        FLastDateValue := FBooks.FieldAsDateTime(12);
+        FLastDateText := DateText;
+        FHasLastDate := True;
+      end;
+      BookRecord.Date := FLastDateValue;
       BookRecord.Lang := FBooks.FieldAsString(13);
       BookRecord.LibRate := FBooks.FieldAsInt(14);
       BookRecord.KeyWords := FBooks.FieldAsString(15);
@@ -849,13 +869,22 @@ begin
 
       while not FAuthors.Eof and (FAuthors.FieldAsInt(0) = BookID) do
       begin
-        TAuthorsHelper.Add(
-          BookRecord.Authors,
-          FAuthors.FieldAsString(2),
-          FAuthors.FieldAsString(3),
-          FAuthors.FieldAsString(4),
-          FAuthors.FieldAsInt(1)
-        );
+        AuthorID := FAuthors.FieldAsInt(1);
+        if not FStreamAuthors.TryGetValue(AuthorID, Author) then
+        begin
+          Author := Default(TAuthorData);
+          Author.AuthorID := AuthorID;
+          Author.LastName := FAuthors.FieldAsString(2);
+          Author.FirstName := FAuthors.FieldAsString(3);
+          Author.MiddleName := FAuthors.FieldAsString(4);
+          // Scope and bound this cache to one live iterator. Reopened views
+          // always read current names; huge catalogues cannot grow it forever.
+          if FStreamAuthors.Count >= 8192 then FStreamAuthors.Clear;
+          FStreamAuthors.Add(AuthorID, Author);
+        end;
+        AuthorCount := Length(BookRecord.Authors);
+        SetLength(BookRecord.Authors, AuthorCount + 1);
+        BookRecord.Authors[AuthorCount] := Author;
         FAuthors.Next;
       end;
 
@@ -891,7 +920,7 @@ begin
     end;
 
     if FMode = bmByPublisherSeries then
-      BookRecord.PublisherSeqNumber := FBooks.FieldAsInt(1);
+      BookRecord.PublisherSeqNumber := FBooks.FieldAsInt(27);
 
     if FExpandSearchSeries then
     begin
@@ -902,24 +931,10 @@ begin
     end
     else if FMode = bmBySeries then
     begin
-      // A book has one physical record but can be reached through any linked
-      // series. Use the selected relationship for sorting/display in this view;
-      // editing reloads the canonical record by BookKey.
-      if FBooks.FieldIsNull(1) then
-      begin
-        BookRecord.SeriesID := NO_SERIES_ID;
-        BookRecord.Series := '';
-        BookRecord.SeqNumber := 0
-      end
-      else
-      begin
-        BookRecord.SeriesID := FBooks.FieldAsInt(1);
-        BookRecord.Series := FCollection.GetSeriesTitle(BookRecord.SeriesID);
-        if FBooks.FieldIsNull(2) then
-          BookRecord.SeqNumber := 0
-        else
-          BookRecord.SeqNumber := FBooks.FieldAsInt(2);
-      end;
+      // Display the selected relationship; the primary card remains unchanged.
+      BookRecord.SeriesID := FSelectedSeriesID;
+      BookRecord.Series := FSelectedSeriesTitle;
+      BookRecord.SeqNumber := FBooks.FieldAsInt(27);
     end;
     FBooks.Next;
   end;
@@ -946,7 +961,7 @@ var
   SQLAuthors: string;
   SQLGenres: string;
   MatchedBooksSQL: string;
-  MemoFields: string;
+  MemoFields, RelationFields, RelationJoin: string;
   MatchQuery: TSQLiteQuery;
   MatchID: TGUID;
 
@@ -1055,7 +1070,7 @@ begin
   end;
 
   SQLRows := SQLRows + Where;
-  if Mode in [bmAll, bmByGenre, bmByGenreRecursive] then
+  if Mode in [bmAll, bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries, bmByPublisherSeries] then
   begin
     MatchedBooksSQL := SQLRows;
     if Mode <> bmAll then
@@ -1070,6 +1085,21 @@ begin
       MatchedBooksSQL := 'SELECT BookID FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
     end;
     SQLCount := 'SELECT COUNT(*) FROM (' + MatchedBooksSQL + ') ROWS ';
+    RelationFields := '';
+    RelationJoin := '';
+    if Mode in [bmBySeries, bmByPublisherSeries] then
+    begin
+      RelationFields := ',selected.SeqNumber';
+      if Mode = bmBySeries then
+      begin
+        FSelectedSeriesID := FilterValue^.ValueInt;
+        FSelectedSeriesTitle := FCollection.GetSeriesTitle(FSelectedSeriesID);
+        RelationJoin := 'JOIN Series_List selected ON selected.BookID=b.BookID AND selected.SeriesID=';
+      end
+      else
+        RelationJoin := 'JOIN PublisherSeries_List selected ON selected.BookID=b.BookID AND selected.SeriesID=';
+      RelationJoin := RelationJoin + IntToStr(FilterValue^.ValueInt) + ' ';
+    end;
 
     if FLoadMemos then
       MemoFields := 'b.Review, b.Annotation, '
@@ -1084,9 +1114,9 @@ begin
       'b.IsDeleted, b.IsLocal, b.UpdateDate, b.Lang, b.LibRate, ' +
       'b.KeyWords, b.Rate, b.Progress, ' + MemoFields +
       'b.Translators, b.Publisher, b.City, b.PubYear, b.ISBN, ' +
-      's.SeriesTitle, preferred.SourceName ' +
+      's.SeriesTitle, preferred.SourceName' + RelationFields + ' ' +
       'FROM Books b LEFT JOIN CatalogPreferredSource preferred ON preferred.BookID=b.BookID ' +
-      'LEFT JOIN Series s ON s.SeriesID = b.SeriesID ' +
+      'LEFT JOIN Series s ON s.SeriesID = b.SeriesID ' + RelationJoin +
       'WHERE b.BookID IN (' + MatchedBooksSQL + ') ORDER BY b.BookID';
 
     SQLAuthors :=
@@ -1118,7 +1148,7 @@ begin
     if FMatchedViewID = '' then SetParams(FBooks, Mode);
     FBooks.Open;
 
-    if Mode in [bmAll, bmByGenre, bmByGenreRecursive] then
+    if Mode in [bmAll, bmByGenre, bmByGenreRecursive, bmByAuthor, bmBySeries, bmByPublisherSeries] then
     begin
       FAuthors := FCollection.FDatabase.NewQuery(SQLAuthors);
       if FMatchedViewID = '' then SetParams(FAuthors, Mode);
@@ -1374,8 +1404,10 @@ begin
   SQLCount := 'SELECT COUNT(*) FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
   if FExpandSearchSeries then
   begin
-    SQLCount := 'SELECT COUNT(*) FROM Books b LEFT JOIN Series_List sl ON sl.BookID=b.BookID ' +
-      'LEFT JOIN Series s ON s.SeriesID=sl.SeriesID WHERE b.BookID IN (' + MatchedBooksSQL + ')';
+    SQLCount := 'SELECT COUNT(*) FROM temp.MHLGenreMatches m LEFT JOIN Series_List sl ON sl.BookID=m.BookID ';
+    if SeriesFilterString <> '' then
+      SQLCount := SQLCount + 'LEFT JOIN Series s ON s.SeriesID=sl.SeriesID ';
+    SQLCount := SQLCount + 'WHERE m.ViewID=' + QuotedStr(FMatchedViewID);
     if SeriesFilterString <> '' then SQLCount := SQLCount + ' AND (' + SeriesFilterString + ')';
   end;
   FCount := FCollection.FDatabase.NewQuery(SQLCount);

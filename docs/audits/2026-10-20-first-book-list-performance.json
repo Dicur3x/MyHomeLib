@@ -1,0 +1,272 @@
+{
+  "date": "2026-10-20",
+  "base_commit": "e49f3c7bd923b749b136a4c9dd94478d0dc52756",
+  "scope": "First book-list reads, including the first Search Apply with only hide-deleted enabled",
+  "build_method": "Delphi 13 IDE full Build; Performance native tests and Release application; Win32 and Win64",
+  "publication": "Local changes and builds only; version remains 2.7.0.1096; no tag, push or GitHub release",
+  "changes": [
+    "Use ordered metadata streams for author, series and publisher-series lists instead of individual card/source/metadata queries for each book",
+    "Keep selected secondary and publisher series positions; preserve canonical book cards",
+    "Bound repeated author-name reuse to 8192 entries per live iterator; no persistent result cache",
+    "Reuse the existing validated date parser when adjacent records share a date",
+    "Count expanded search membership without redundant Books/Series joins",
+    "Decode SQLite UTF-8 fields directly; preserve NULL, empty, numeric, long and Unicode values"
+  ],
+  "tests": {
+    "Win32": {
+      "binary_sha256": "b81878bcd63856ae689193f0ac8ffcb5702a66d5e371d75ca7ecac09a8c48ab6",
+      "passed": 11,
+      "results": [
+        {
+          "mode": "first-book-list",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-first-book-list-2.log",
+          "log_sha256": "d10ebd5ae318d4aa7f8d588bd88e7be2ba85a403a2e2adf30c3de3656e0963bc"
+        },
+        {
+          "mode": "startup-deferred-publisher",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-startup-deferred-publisher-8.log",
+          "log_sha256": "530a1cd28082827c63b2798a9733fbef95c5e37a16a61cbf5a848a183866af8f"
+        },
+        {
+          "mode": "list-performance",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-list-performance-2.log",
+          "log_sha256": "e946702323f7dd1e4f90889ad4917e18ed52f9d7d7f8842bf3bf0de1f116be8a"
+        },
+        {
+          "mode": "deleted-filter",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-deleted-filter-4.log",
+          "log_sha256": "8507fb1f3acd095033ebd8e5eb92e9899a5dd43fd446604155c41e4fda2be4aa"
+        },
+        {
+          "mode": "favorite-ui",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-favorite-ui-4.log",
+          "log_sha256": "f23292a4dfe9f9942328c77cf1101dc81ee5ed18d24150a5415b928880dd7080"
+        },
+        {
+          "mode": "adjacent-series",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-adjacent-series-2.log",
+          "log_sha256": "2cacad1179b225fc76af70d2187fe2bf017f5a91b867f4367c6ff7f11996b684"
+        },
+        {
+          "mode": "startup-deferred",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-startup-deferred-16.log",
+          "log_sha256": "0d14ef388617c81286e887cfa38503bc83b3bab71f9e3fdff07f4fc2f632b00c"
+        },
+        {
+          "mode": "startup-deferred-close",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-startup-deferred-close-4.log",
+          "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+        },
+        {
+          "mode": "view-sessions",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-view-sessions-3.log",
+          "log_sha256": "c8e4ae9def4b6f0b5faf3cf877f40b53e21c5d25abde29a8c9c2e3c7aa64f424"
+        },
+        {
+          "mode": "metadata-book-columns",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-metadata-book-columns-1.log",
+          "log_sha256": "0a34a6bed0b5863ea852b047a123a0e8d7b05778a602c84f00b66a0d3f1a7fd3"
+        },
+        {
+          "mode": "query-batch",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win32-query-batch-1.log",
+          "log_sha256": "83e9cb8289a4b1fa3de108d13cbd7af65e7ef8d033b16895d60f85e3123e0c46"
+        }
+      ],
+      "first_list_profiles": [
+        "PROFILE first-list query=0 prepare_ms=78 total_ms=656 rows=54000",
+        "PROFILE first-list query=0 prepared_statements=7",
+        "PROFILE first-list actual tree query=0 total_ms=1063",
+        "PROFILE first-list query=1 prepare_ms=62 total_ms=719 rows=60000",
+        "PROFILE first-list query=1 prepared_statements=7",
+        "PROFILE first-list actual tree query=1 total_ms=1235",
+        "PROFILE first-list query=2 prepare_ms=78 total_ms=890 rows=60000",
+        "PROFILE first-list query=2 prepared_statements=7",
+        "PROFILE first-list actual tree query=2 total_ms=1469",
+        "PROFILE first-list query=3 prepare_ms=78 total_ms=672 rows=54000",
+        "PROFILE first-list query=3 prepared_statements=7",
+        "PROFILE first-list actual tree query=3 total_ms=1125",
+        "PROFILE first-list query=4 prepare_ms=156 total_ms=750 rows=54000",
+        "PROFILE first-list query=4 prepared_statements=8",
+        "PROFILE first-list actual tree query=4 total_ms=1141",
+        "PROFILE first-list query=5 prepare_ms=156 total_ms=781 rows=54000",
+        "PROFILE first-list query=5 prepared_statements=7",
+        "PROFILE first-list actual tree query=5 total_ms=1047",
+        "PROFILE first-list query=6 prepare_ms=31 total_ms=109 rows=6000",
+        "PROFILE first-list query=6 prepared_statements=8",
+        "PROFILE first-list actual tree query=6 total_ms=203",
+        "PROFILE first-list query=7 prepare_ms=0 total_ms=109 rows=6000",
+        "PROFILE first-list query=7 prepared_statements=7",
+        "PROFILE first-list actual tree query=7 total_ms=140",
+        "PROFILE first-list actual empty-fields hide-deleted Apply ms=1562 rows=54000"
+      ],
+      "empty_fields_hide_deleted_apply_ms": 1562
+    },
+    "Win64": {
+      "binary_sha256": "433c57ff94dcd03f33b22dd152f242a9644f3709a151bb0377923da616934c1f",
+      "passed": 11,
+      "results": [
+        {
+          "mode": "first-book-list",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-first-book-list-12.log",
+          "log_sha256": "82500dc725d32821b90e0e413f51805c298519d5d2f4b5c19332b9b92f6d6580"
+        },
+        {
+          "mode": "startup-deferred-publisher",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-startup-deferred-publisher-6.log",
+          "log_sha256": "d5b37e49625cc3262e841818b34744fe27e5a10432628de643609bcd38eaf11e"
+        },
+        {
+          "mode": "list-performance",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-list-performance-4.log",
+          "log_sha256": "f23e5a40980f16b65b4efaf3f0e874071291990d45ac2e8bb54b2bec9c4cb018"
+        },
+        {
+          "mode": "deleted-filter",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-deleted-filter-5.log",
+          "log_sha256": "8507fb1f3acd095033ebd8e5eb92e9899a5dd43fd446604155c41e4fda2be4aa"
+        },
+        {
+          "mode": "favorite-ui",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-favorite-ui-4.log",
+          "log_sha256": "bb0348c28fe04dbc4030ebf3a43d741acecc11b724ec24927f49a13f3894b705"
+        },
+        {
+          "mode": "adjacent-series",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-adjacent-series-2.log",
+          "log_sha256": "2cacad1179b225fc76af70d2187fe2bf017f5a91b867f4367c6ff7f11996b684"
+        },
+        {
+          "mode": "startup-deferred",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-startup-deferred-17.log",
+          "log_sha256": "4886881b82bbe7f1a8c042e8f1fb57c3fcd6171c1fe713b9398a2acc12e00e1e"
+        },
+        {
+          "mode": "startup-deferred-close",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-startup-deferred-close-2.log",
+          "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+        },
+        {
+          "mode": "view-sessions",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-view-sessions-3.log",
+          "log_sha256": "0774c31033be32fac739420a79915da46bb0812724ea86b6e485608e21d78106"
+        },
+        {
+          "mode": "metadata-book-columns",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-metadata-book-columns-1.log",
+          "log_sha256": "2f28251eacc8d5a23864a4b91e0bcf654a9801efcf3023469e64c27e93322520"
+        },
+        {
+          "mode": "query-batch",
+          "passed": true,
+          "log": "tools/ui/tests/Out/feedback528-20261020/Win64-query-batch-1.log",
+          "log_sha256": "83e9cb8289a4b1fa3de108d13cbd7af65e7ef8d033b16895d60f85e3123e0c46"
+        }
+      ],
+      "first_list_profiles": [
+        "PROFILE first-list query=0 prepare_ms=79 total_ms=735 rows=54000",
+        "PROFILE first-list query=0 prepared_statements=7",
+        "PROFILE first-list actual tree query=0 total_ms=1250",
+        "PROFILE first-list query=1 prepare_ms=63 total_ms=719 rows=60000",
+        "PROFILE first-list query=1 prepared_statements=7",
+        "PROFILE first-list actual tree query=1 total_ms=922",
+        "PROFILE first-list query=2 prepare_ms=78 total_ms=812 rows=60000",
+        "PROFILE first-list query=2 prepared_statements=7",
+        "PROFILE first-list actual tree query=2 total_ms=906",
+        "PROFILE first-list query=3 prepare_ms=63 total_ms=750 rows=54000",
+        "PROFILE first-list query=3 prepared_statements=7",
+        "PROFILE first-list actual tree query=3 total_ms=656",
+        "PROFILE first-list query=4 prepare_ms=141 total_ms=734 rows=54000",
+        "PROFILE first-list query=4 prepared_statements=8",
+        "PROFILE first-list actual tree query=4 total_ms=656",
+        "PROFILE first-list query=5 prepare_ms=125 total_ms=797 rows=54000",
+        "PROFILE first-list query=5 prepared_statements=7",
+        "PROFILE first-list actual tree query=5 total_ms=640",
+        "PROFILE first-list query=6 prepare_ms=16 total_ms=94 rows=6000",
+        "PROFILE first-list query=6 prepared_statements=8",
+        "PROFILE first-list actual tree query=6 total_ms=125",
+        "PROFILE first-list query=7 prepare_ms=0 total_ms=78 rows=6000",
+        "PROFILE first-list query=7 prepared_statements=7",
+        "PROFILE first-list actual tree query=7 total_ms=110",
+        "PROFILE first-list actual empty-fields hide-deleted Apply ms=547 rows=54000"
+      ],
+      "empty_fields_hide_deleted_apply_ms": 547
+    }
+  },
+  "release_builds": {
+    "Win32": {
+      "path": "Program/Out/Bin/HomeLibRu.exe",
+      "bytes": 10474496,
+      "sha256": "20de35f05aec699a6535897b344becb08d3664d882f2e62ea3b70880dcdd931f",
+      "version": "2.7.0.1096",
+      "metadata_check": "scripts/check-executable.ps1: architecture, version, HomeLib Ru metadata, CommonControls 6, PerMonitorV2 passed"
+    },
+    "Win64": {
+      "path": "Program/Out/Bin64/HomeLibRu.exe",
+      "bytes": 16113664,
+      "sha256": "4efa55cbf3508a14addf4b71ea5b205e54c129665d1f5d007932ce0f7befa737",
+      "version": "2.7.0.1096",
+      "metadata_check": "scripts/check-executable.ps1: architecture, version, HomeLib Ru metadata, CommonControls 6, PerMonitorV2 passed"
+    }
+  },
+  "sources": {
+    "Program/DAO/SQLite/Lib/SQLiteWrap.pas": "06937d50da8a16afd298d8668e5336e9f82c279b8866d1dd4d7bc4983c0a3a46",
+    "Program/DAO/SQLite/unit_Database_SQLite.pas": "c3dc21df8c2d9e6a55e416f57c3dc614103f1caf2bcfe8ff9785073a5355bc38",
+    "tools/ui/tests/CollectionViewsTest.dpr": "f917ef09816351117a86202928a7bd4b5ad483d25dcd22e192003cb09b407a9f",
+    "tools/ui/tests/FirstBookListTests.inc": "373f3ba7b2133ad849534d22f3748c27ddd5d3f8a30b37158c89fa527c6ae1a1",
+    "tools/ui/tests/StartupDeferredTests.inc": "35e17d43fcb20b066e49b708b38166fff83eaca55032ec0c3d41ee39f54588a8",
+    "tools/ui/tests/native_collection_tests.js": "6973b8b361fced9324464d0a36ecb5b05b796b9e1aa8bbc63d90b12a7a3ec2ea"
+  },
+  "baseline": {
+    "log": "tools/ui/tests/Out/feedback528-20261020/Win64-first-book-list-6.log",
+    "log_sha256": "bf7ccff84e0600d70bff02f63af04f7aaf1db71d649a4d4f8f51d1db04e4cf19",
+    "test_binary_sha256": "ccffeea8bea07840f27f6f9ec06c8fbda0b711e51cecfa7e115468d72127988d",
+    "actual_tree_ms": {
+      "0": 1047,
+      "1": 1187,
+      "2": 1204,
+      "3": 6766,
+      "4": 7047,
+      "5": 6813
+    },
+    "queries": {
+      "0": "compact search hiding deleted",
+      "1": "compact search including deleted",
+      "2": "expanded series search hiding deleted",
+      "3": "author list",
+      "4": "series list",
+      "5": "publisher-series list"
+    },
+    "physical_books": 60000,
+    "nondeleted_books": 54000
+  },
+  "limits": [
+    "Disposable synthetic catalogue. First request on a new connection and new list; Windows disk cache is warm from fixture creation, not a cold-disk user-library timing.",
+    "Search gains are smaller than the removal of per-book SQL in author/series views. Absolute timings vary with CPU, other apps, result count and selected sort.",
+    "SQL profiling overhead applies to query-only profiles; actual_tree and actual Apply measurements run after StopSQLiteProfile.",
+    "Deferred startup, publisher language replay and per-tab restoration passed unchanged time guards. No new startup migrations, indexes, file scans or network work.",
+    "Not a claim that every broad catalogue search is instantaneous or that the entire application has no remaining bugs."
+  ],
+  "cleanup": "Every fixture created during this task was removed by the native runner. Only the previously blocked HomeLibRu-native-jDA1KD directory remains; no retry or alternate removal was attempted. Working user library and Desktop install were not modified."
+}

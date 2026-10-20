@@ -137,15 +137,20 @@ begin
     SaveSQLiteProfile(Settings.AppPath + 'startup-publisher-queries.tsv'); StopSQLiteProfile;
     {$IFDEF MHL_SQL_PROFILE}
     var Queries := 0;
+    var Memberships := 0;
     for var Line in TFile.ReadAllLines(Settings.AppPath + 'startup-publisher-queries.tsv') do
-      if Line.Contains('SELECT b.BookID, sl.SeqNumber FROM PublisherSeries_List sl') then
-      begin
-        var Fields := Line.Split([#9]);
-        if (Length(Fields) >= 5) and (Fields[1] = 'prepare') and
-          Fields[4].StartsWith('SELECT b.BookID, sl.SeqNumber FROM PublisherSeries_List sl') then
-          Inc(Queries, StrToInt(Fields[2]));
-      end;
-    Require(Queries = 1, 'Restoring the publisher language query count: ' + IntToStr(Queries));
+    begin
+      var Fields := Line.Split([#9]);
+      if (Length(Fields) < 5) or (Fields[1] <> 'prepare') then Continue;
+      if Fields[4].StartsWith('INSERT INTO temp.MHLGenreMatches ') and
+        Fields[4].Contains('SELECT b.BookID, sl.SeqNumber FROM PublisherSeries_List sl') then
+        Inc(Memberships, StrToInt(Fields[2]));
+      if Fields[4].StartsWith('SELECT b.BookID, ') and
+        Fields[4].Contains('JOIN PublisherSeries_List selected ') then
+        Inc(Queries, StrToInt(Fields[2]));
+    end;
+    Require((Queries = 1) and (Memberships = 1), 'Restoring publisher language queried rows/membership ' +
+      IntToStr(Queries) + '/' + IntToStr(Memberships));
     {$ENDIF}
     Writeln('PASS publisher startup restores its language from one database snapshot');
   end;

@@ -5498,6 +5498,7 @@ end;
 {$I Post525UpdateTests.inc}
 {$I StartupDeferredTests.inc}
 {$I BookViewSessionTests.inc}
+{$I FirstBookListTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5824,6 +5825,8 @@ begin
         TestCollectionMerge
       else if ParamStr(1) = 'book-preview' then
         TestAsyncBookPreview
+      else if ParamStr(1) = 'first-book-list' then
+        TestFirstBookList
       else if ParamStr(1) = 'list-performance' then
         TestListPerformance
       else if ParamStr(1) = 'reader-filter' then

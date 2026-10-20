@@ -920,7 +920,9 @@ end;
 
 function TSQLiteQuery.GetFields(const I: Integer): string;
 begin
-  Result := string(UTF8String(Sqlite3_ColumnText(FStmt, i)));
+  // Decode directly from SQLite's owned UTF-8 buffer; an intermediate
+  // UTF8String otherwise allocates and copies every text field in the list.
+  Result := UTF8ToString(Sqlite3_ColumnText(FStmt, i));
 end;
 
 function TSQLiteQuery.GetFieldIndex(const FieldName: string): Integer;
