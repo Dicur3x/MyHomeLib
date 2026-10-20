@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  unit_StartupCatalog, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
@@ -3357,6 +3357,9 @@ begin
   Form.ScaleForPPI(96);
 end;
 
+{$I Feedback529JXLTests.inc}
+{$I Feedback529Tests.inc}
+
 procedure TestCatalogSources;
 var Sources, Loaded: TCatalogSources; Target, SourceCollection: IBookCollection;
   ID, I: Integer; Refresh: TCatalogRefreshWorker; Worker: TCatalogMergeWorker;
@@ -3415,12 +3418,12 @@ begin
   Require(Count=2,'Multi-source collection lost books'); Iterator := nil;
   Statistics := TfrmStat.Create(nil);
   try
-    Statistics.LoadCollectionInfo(Target);
+    Statistics.LoadCollectionInfo(Target); WaitCollectionStatistics(Statistics);
     Require((Statistics.lvInfo.Items[5].SubItems[0]='2') and
       (Statistics.lvInfo.Groups.Count=3), 'Statistics duplicate multi-series books or hide sources');
     Require(Statistics.lvInfo.Items[8].SubItems[0].StartsWith('1 связанных записей;') and
       Statistics.lvInfo.Items[9].SubItems[0].StartsWith('1 связанных записей;'), 'Source record count incorrect');
-    Statistics.LoadCollectionInfo(Target);
+    Statistics.LoadCollectionInfo(Target); WaitCollectionStatistics(Statistics);
     Require(Statistics.lvInfo.Items.Count=11, 'Repeated statistics load duplicates source rows');
   finally Statistics.Free; end;
   Writeln('PASS statistics count book records once and show linked supplemental sources');
@@ -5851,6 +5854,7 @@ begin
       begin
         TestMainLiveLocateInput(One, OneID); TestFavoriteAuthorAffordances(One, OneID); TestLoadedListThemeMetrics;
       end
+      else if ParamStr(1) = 'feedback529' then TestFeedback529ReaderAndStatistics(One)
       else if ParamStr(1) = 'reader-chapters' then
         TestReaderChapterTitles
       else if ParamStr(1) = 'metadata-prefix-bounds' then

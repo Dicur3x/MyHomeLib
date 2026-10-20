@@ -545,7 +545,7 @@ end;
 function SourceStamp(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean): string;
 var Dependency: string;
 begin
-  Result := 'reader-cache-v1|' + FileStamp(Source, True) + '|' +
+  Result := 'reader-cache-v2|' + FileStamp(Source, True) + '|' +
     Book.FileName + Book.FileExt + '|' + IntToStr(Book.InsideNo) + '|' +
     BoolToStr(ConvertImages, True) + '|' + PROGRAM_RELEASE_VERSION;
   if SameText(ExtractFileExt(Source), '.7z') then

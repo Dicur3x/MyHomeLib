@@ -493,6 +493,23 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       else if not C.IsDigit and not C.IsWhiteSpace and not CharInSet(C,['-',':','.', '(',')']) then Exit;
     Result:=Letters>=6;
   end;
+  function HeadingText(const N: IXMLDOMNode): string;
+  var Child: IXMLDOMNode; J: Integer; Part: string; Block: Boolean;
+  begin
+    // DOM .text concatenates adjacent FB2 paragraphs without separators in
+    // minified books: <p>1</p><p>Бекас</p> becomes "1Бекас". Preserve inline
+    // emphasis and only introduce boundaries for actual block elements.
+    if N.nodeType in [NODE_TEXT,NODE_CDATA_SECTION] then Exit(N.text);
+    Result:='';
+    for J:=0 to N.childNodes.length-1 do
+    begin
+      Child:=N.childNodes.item[J]; Part:=HeadingText(Child);
+      Block:=MatchText(LocalName(Child),['p','br','empty-line','div']);
+      if Block and (Result<>'') then Result:=Result+' ';
+      Result:=Result+Part;
+      if Block then Result:=Result+' ';
+    end;
+  end;
   procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False; StyledContainer: Boolean = False; InheritedFontPercent: Integer = 100);
   var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle: string; Link: TReaderFootnoteLink;
     StyleNode, StyleValue, Ancestor, Previous: IXMLDOMNode; Bytes: TBytes;
@@ -560,7 +577,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     IsBlock:=IsTitle or InferredHeading or (Name='subtitle') or (Name='epigraph') or
       (Name='poem') or (Name='cite') or (Name='blockquote') or (Name='text-author') or (Name='code');
     StyleIndex:=-1;
-    if IsTitle then begin Paragraph; Chapter(N.text,HeadingLevel-1); FBody.Append('{\pard\qc\b\sa160\sb200 '); end;
+    if IsTitle then begin Paragraph; Chapter(HeadingText(N),HeadingLevel-1); FBody.Append('{\pard\qc\b\sa160\sb200 '); end;
     if IsParagraph and not IsTitle and not InsideTitle then
       if Name='v' then FBody.Append('\pard\ql\fi0\li360\sa40 ')
       else if Name='text-author' then FBody.Append('\pard\qr\fi0\sa120 ')

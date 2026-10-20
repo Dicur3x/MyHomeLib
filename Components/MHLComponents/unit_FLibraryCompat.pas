@@ -1,4 +1,4 @@
-(* ****************************************************************************
+﻿(* ****************************************************************************
   Compatibility with the space-saving FLibrary torrent layout.
 
   The layout stores book texts in 7z archives and keeps covers/illustrations in
@@ -329,12 +329,10 @@ begin
   end;
 end;
 
-function ConvertJpegXL(const Bytes: TBytes;
-  const PreferredFileName: string): TBytes;
+function ConvertJpegXL(const Bytes: TBytes): TBytes;
 var
   Decoder: string;
   InputFile: string;
-  OutputExtension: string;
   OutputFile: string;
   Sink: TMemoryStream;
 begin
@@ -343,12 +341,11 @@ begin
     raise EMHLExternalToolError.Create(
       'Для восстановления иллюстраций нужен tools\jpeg-xl\djxl.exe.');
 
-  if SameText(ExtractFileExt(PreferredFileName), '.png') then
-    OutputExtension := '.png'
-  else
-    OutputExtension := '.jpg';
+  // Numeric FLibrary image IDs do not identify the original image format.
+  // JPEG discards alpha: black ink encoded entirely in alpha becomes a solid
+  // black rectangle. Decode to lossless PNG for FB2, EPUB and cover previews.
   InputFile := NewTemporaryFileName('.jxl');
-  OutputFile := NewTemporaryFileName(OutputExtension);
+  OutputFile := NewTemporaryFileName('.png');
   try
     TFile.WriteAllBytes(InputFile, Bytes);
     Sink := TMemoryStream.Create;
@@ -419,7 +416,6 @@ function ExtractFLibraryBookCover(const ContainerFileName,
 var
   ArchiveName: string;
   Bytes: TBytes;
-  PreferredName: string;
 begin
   Result := nil;
   if not IsSevenZipArchive(ContainerFileName) then
@@ -428,9 +424,7 @@ begin
   // FB2 covers are normally stored in covers\<archive>.zip under the book's
   // base name.  Prefer this explicit cover for every supported book format.
   ArchiveName := FindSiblingArchive(ContainerFileName, 'covers');
-  if TryExtractExternalImage(ArchiveName, BookBaseName(BookEntryName), Bytes) then
-    PreferredName := 'cover.png'
-  else
+  if not TryExtractExternalImage(ArchiveName, BookBaseName(BookEntryName), Bytes) then
   begin
     // FLibrary moves an EPUB cover to image number zero before generating its
     // image index.  Reading this one side-archive member avoids unpacking and
@@ -441,11 +435,10 @@ begin
     if not TryExtractExternalImage(ArchiveName,
       BookBaseName(BookEntryName) + '/0', Bytes) then
       Exit;
-    PreferredName := 'cover.png';
   end;
 
   if IsJpegXL(Bytes) then
-    Bytes := ConvertJpegXL(Bytes, PreferredName);
+    Bytes := ConvertJpegXL(Bytes);
   if ImageMediaType(Bytes) = 'application/octet-stream' then
     Exit;
   Result := BytesToStream(Bytes);
@@ -465,22 +458,16 @@ begin
   Result := 'application/octet-stream';
 end;
 
-procedure MakeImagesReaderCompatible(Images: TExternalBookImages;
-  const PreferredNames: TDictionary<string, string> = nil);
+procedure MakeImagesReaderCompatible(Images: TExternalBookImages);
 var
   I: Integer;
   Item: TExternalBookImage;
-  PreferredName: string;
 begin
   for I := 0 to Images.Count - 1 do
     if IsJpegXL(Images[I].Data) then
     begin
       Item := Images[I];
-      PreferredName := Item.Name;
-      if Assigned(PreferredNames) and
-        not PreferredNames.TryGetValue(Item.Name, PreferredName) then
-        PreferredName := Item.Name;
-      Item.Data := ConvertJpegXL(Item.Data, PreferredName);
+      Item.Data := ConvertJpegXL(Item.Data);
       Images[I] := Item;
     end;
 end;
@@ -693,7 +680,6 @@ var
   Output: TMemoryStream;
   OutputFile: string;
   OutputName: string;
-  PreferredNames: TDictionary<string, string>;
   Stream: TMemoryStream;
   TargetImages: TDictionary<string, TExternalBookImage>;
   Zip: TZipFile;
@@ -715,7 +701,6 @@ begin
   Archive := nil;
   Zip := nil;
   ImageTargets := TDictionary<Integer, string>.Create;
-  PreferredNames := TDictionary<string, string>.Create;
   TargetImages := TDictionary<string, TExternalBookImage>.Create;
   AddedNames := TDictionary<string, Byte>.Create;
   try
@@ -731,17 +716,7 @@ begin
     end;
     LoadEpubImageIndex(Archive, Names, ExtractedRoot, ImageTargets);
 
-    for I := 0 to Images.Count - 1 do
-    begin
-      if Images[I].IsCover then
-        ImageNo := -1
-      else
-        ImageNo := StrToIntDef(Images[I].Name, MaxInt);
-      if not ImageTargets.TryGetValue(ImageNo, OutputName) then
-        Continue;
-      PreferredNames.AddOrSetValue(Images[I].Name, OutputName);
-    end;
-    MakeImagesReaderCompatible(Images, PreferredNames);
+    MakeImagesReaderCompatible(Images);
     for I := 0 to Images.Count - 1 do
     begin
       if Images[I].IsCover then
@@ -850,7 +825,6 @@ begin
   finally
     AddedNames.Free;
     TargetImages.Free;
-    PreferredNames.Free;
     ImageTargets.Free;
     Zip.Free;
     Archive.Free;
