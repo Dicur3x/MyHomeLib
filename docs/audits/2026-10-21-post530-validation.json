@@ -422,5 +422,19 @@
     "consecutive_goal_turns_with_same_gate": 3,
     "independent_functional_work_complete": true,
     "outstanding_required_proof": "Measured first title search on real merged catalogue, including hide-deleted; actual collection must remain unchanged."
+  },
+  "resumed_blocking_audit": {
+    "verified_at_utc": "2026-10-21T19:41:53.282248+00:00",
+    "condition": "Final real-catalogue timings must wait for confirmed completion of user VM workloads. Both VM processes are still live; the user status question remains unanswered.",
+    "live_process_ids": [
+      13712,
+      45984
+    ],
+    "consecutive_resumed_goal_turns_with_same_gate": 3,
+    "previous_goal_turn_classification": "progress: latest standalone x86/x64 EXEs verified, default confirmation and dark theme checked, fresh profiles removed; real-schema benchmark collation support validated without searches",
+    "current_goal_turn_classification": "verified wait: polled both live process handles and verified current EXE hashes match final audit",
+    "independent_work_complete": true,
+    "required_remaining_evidence": "Measured title search «привет» on real merged catalogue with and without hide-deleted, using read-only guarded benchmark on x86/x64. No real search timings yet.",
+    "next_action_after_gate": "Confirm workload completion or observe both VM processes terminal; then run tools/title_search_readonly_benchmark.py with --vm-work-complete using each matching Python/DLL architecture and compare complete result hashes."
   }
 }
