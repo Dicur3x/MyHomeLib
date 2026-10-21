@@ -140,7 +140,11 @@
     "manual_restart_required": true,
     "reason": "Revo pending deletion includes Embarcadero/Studio/37.0/bin and two BPL files; do not install into that path before restart.",
     "user_will_restart_and_report": true,
-    "community_license_registration": "manual user step; never record credentials/key"
+    "community_license_registration": "manual user step; never record credentials/key",
+    "last_boot_observed": "2026-10-17T09:17:07.5+03:00",
+    "pending_delphi_deletion_still_present": true,
+    "installation_started": false,
+    "restart_report_still_pending": true
   },
   "remaining": [
     "Install and register Delphi CE after restart; configure Windows x86/x64.",
@@ -152,5 +156,67 @@
     "docs/audits/2026-10-21-post530-validation.json",
     "docs/audits/2026-10-21-all-favorite-authors.json"
   ],
-  "published_new_application_release": false
+  "published_new_application_release": false,
+  "completion_audit_utc": "2026-10-21T21:33:24.497340+00:00",
+  "completion_audit": {
+    "updater_independent_results": {
+      "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
+      "source": [
+        "Program/Units/unit_ComponentUpdates.pas:StartComponent/CheckComponent/TryGetRelease/Execute",
+        "Program/Forms/frm_ProgramUpdate.pas:ComponentProgress"
+      ],
+      "native_evidence": "Feedback531Tests.inc:TestFeedback531 verifies ready download action while another component remains gated, queued request does not restart check, and close joins workers; post530 passed on both architectures in 2026-10-21-post530-validation.json"
+    },
+    "first_title_search": {
+      "state": "not complete: latest production helper not compiled or run in VCL",
+      "proof": "Saved production code, 313 literal-oracle query cases on each actual shipped SQLite DLL, readonly source timings and exact cross-architecture ID/metadata equality",
+      "missing": [
+        "Current Delphi native builds/tests x86 and x64",
+        "Current main EXEs and fresh-profile UI smoke",
+        "CPU-instrumented confirmation of x86 no-hide outlier"
+      ]
+    },
+    "alreader_fixed_source": {
+      "state": "fixed release exists, exact one asset independently revalidated through live GitHub API",
+      "tag": "optional-alreader-2.5.1009.25",
+      "asset": "AlReader-2.5.1009.25.zip",
+      "size": 4739366,
+      "sha256": "20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab",
+      "application_release_pre530_assets": [
+        "HomeLibRu.zip",
+        "HomeLibRu_x64.zip",
+        "SHA256.txt"
+      ],
+      "native_evidence": "TestFeedback531 verifies pinned archive manifest for both host architectures; optional-components verifies preserve user profile and reject foreign URLs"
+    },
+    "optional_sevenzip": {
+      "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
+      "native_evidence": [
+        "Feedback531Tests.inc:TestFirstUseSevenZip531: native ordinary ZIP independent and typed first-use callback for missing 7-Zip",
+        "Feedback531Tests.inc:TestFeedback531: no previous unpacker needed for official first install, corrupted bootstrap rejected, absent component notifications off",
+        "UpdateRepairTests.inc: missing optional component independent of application repair",
+        "OptionalComponentsTests.inc: rollback and minimal application update preserve installed optional files"
+      ]
+    },
+    "sevenzip_2605": {
+      "state": "current prepared runtime files verified",
+      "manifest": "Installer/RASTER_RUNTIME.json",
+      "architectures": [
+        "Win32",
+        "Win64"
+      ],
+      "files_per_architecture": [
+        "7z.exe",
+        "7z.dll",
+        "License.txt"
+      ],
+      "all_six_hashes_match_manifest": true
+    },
+    "cross_cutting": {
+      "fast_deferred_startup": "Prior x86/x64 native startup-deferred and startup-deferred-close tests passed; must rerun against newest compiled source. No schema/index/startup changes in literal-title patch.",
+      "builds": "Current main EXEs predate newest title-search patch and are not claimed as final deliverables.",
+      "user_data": "Latest real catalogue access was read-only with deny-write lease and source invariants checked. Literal semantic probes are memory-only; native fresh fixtures removed.",
+      "cleanup": "No new archives or catalogue copies created during resumed work. Deliberately retained one verified 302 MiB Delphi web installer for authorized CE installation. Previously policy-blocked test-fixture removals not retried. Four unrelated untracked startup-probe files untouched."
+    }
+  }
 }
