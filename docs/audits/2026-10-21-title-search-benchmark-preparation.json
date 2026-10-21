@@ -1,0 +1,17 @@
+{
+  "script": "tools/title_search_readonly_benchmark.py",
+  "self_test_architectures": [
+    32,
+    64
+  ],
+  "checks": [
+    "old/new matching IDs and full metadata stream hashes equal, with and without deleted records",
+    "main database write rejected",
+    "source fixture SHA256 unchanged",
+    "new fixture directory removed automatically"
+  ],
+  "real_catalogue_run": false,
+  "waiting_for": "Confirmed end of user virtual-machine workload",
+  "source_protection": "Windows deny-write lease; reject journal companions; sqlite3_open_v2 READONLY URI immutable; temp match table in memory",
+  "measurement_limits": "SQL match/materialization and ordered metadata streams; fresh SQLite connections share OS cache; no VCL rendering claim"
+}

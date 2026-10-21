@@ -65,3 +65,10 @@ https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25
 Не трогать четыре чужих local-файла в tools/ui/tests:
 `MyhomeLib.dres`, `StartupProbe.local.dpr`, `StartupProbe.local.dproj`,
 `native_resource_probe.local.js`. Не останавливать виртуальные машины.
+
+Подготовлен tools/title_search_readonly_benchmark.py: отдельный read-only замер
+до/после для штатных DLL x86/x64, с загрузкой метаданных и сверкой хешей
+всех результатов. Самопроверка прошла на обеих архитектурах; реальные
+замеры не запускались. Требует подтверждённого окончания работы ВМ.
+Исходная база защищена от записи Windows handle, журналов рядом быть
+не должно, временная таблица только в памяти. SQL-время не выдавать за UI.
