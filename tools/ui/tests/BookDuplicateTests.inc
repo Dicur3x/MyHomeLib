@@ -310,6 +310,8 @@ begin
   Plan:=NewPlan; Folder:=TPath.Combine(Settings.AppPath,'duplicate-completed-backup');
   try
     Plan.Apply(Folder);
+    Require(ReadCollectionBackupInfo(Folder).HasCreatedAt and
+      (ReadCollectionBackupInfo(Folder).Operation=cboBooks),'Duplicate backup did not record its creation operation/date');
     Require(Plan.Committed and (Plan.Removed=1) and not Plan.Ready,'Consolidation did not publish durable completion');
     Require((Value('SELECT count(*) FROM Books')='2') and
       (Value('SELECT count(*) FROM Books WHERE BookID='+IntToStr(B))='1') and

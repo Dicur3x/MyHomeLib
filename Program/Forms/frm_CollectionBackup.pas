@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, unit_CollectionBackup, frm_CatalogSources;
+uses System.Classes, System.Generics.Collections, Vcl.Forms, Vcl.StdCtrls, unit_CollectionBackup, frm_CatalogSources;
 
 type
   TfrmCollectionBackup = class(TSourceDialogForm)
@@ -10,6 +10,7 @@ type
     FPlan: TCollectionBackupPlan;
     FList: TListBox;
     FFolderPaths: TStringList;
+    FFolderDates: TList<TDateTime>;
     FReport: TMemo;
     FName, FRoot: TEdit;
     FCheck, FRestore: TButton;
@@ -103,11 +104,11 @@ begin
   PixelsPerInch:=96; Font.PixelsPerInch:=96; Font.Name:='Segoe UI'; Font.Size:=9;
   BorderStyle:=bsSizeable; ClientWidth:=760; ClientHeight:=570;
   Constraints.MinWidth:=700; Constraints.MinHeight:=520; FNewID:=INVALID_COLLECTION_ID;
-  FFolderPaths:=TStringList.Create;
+  FFolderPaths:=TStringList.Create; FFolderDates:=TList<TDateTime>.Create;
   Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Height:=210; Top.Align:=alTop; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
   LabelText.SetBounds(12,10,736,42); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
-  LabelText.Caption:='Выберите резервную копию объединения книг или названий серий. Будет создана отдельная коллекция; текущее состояние сохранится.';
+  LabelText.Caption:='Копия будет восстановлена в этой программе и открыта. Исходная коллекция останется в меню «Коллекция», чтобы к ней можно было вернуться.';
   FList:=TListBox.Create(Self); FList.Parent:=Top; FList.Name:='lbCollectionBackups';
   FList.SetBounds(12,58,736,108); FList.Anchors:=[akLeft,akTop,akRight]; FList.OnClick:=Selected;
   B:=TButton.Create(Self); B.Parent:=Top; B.SetBounds(12,174,210,28);
@@ -122,7 +123,7 @@ begin
   FRoot:=TEdit.Create(Self); FRoot.Parent:=Bottom; FRoot.Name:='edRestoredBooksRoot';
   FRoot.SetBounds(156,44,592,26); FRoot.Anchors:=[akLeft,akTop,akRight];
   FRestore:=TButton.Create(Self); FRestore.Parent:=Bottom; FRestore.Name:='btnRestoreBackup';
-  FRestore.SetBounds(12,96,440,30); FRestore.Caption:='Восстановить отдельной коллекцией'; FRestore.OnClick:=Restore;
+  FRestore.SetBounds(12,96,440,30); FRestore.Caption:='Восстановить и открыть в HomeLib Ru'; FRestore.OnClick:=Restore;
   B:=TButton.Create(Self); B.Parent:=Bottom; B.SetBounds(638,96,110,30);
   B.Anchors:=[akTop,akRight]; B.Caption:='Закрыть'; B.Cancel:=True; B.ModalResult:=mrCancel;
   FReport:=TMemo.Create(Self); FReport.Parent:=Self; FReport.Align:=alClient;
@@ -136,31 +137,45 @@ begin
         if FileExists(TPath.Combine(Folder,'destination.hlc2')) and FileExists(TPath.Combine(Folder,'system.hlc2')) then Folders.Add(Folder);
     Folders.Sort;
     for var I:=Folders.Count-1 downto 0 do
-    begin FFolderPaths.Add(Folders[I]); FList.Items.Add(ExtractFileName(Folders[I])); end;
+      AddFolder(Folders[I]);
   finally Folders.Free; end;
   if FList.Items.Count>0 then FList.ItemIndex:=0;
   Selected(nil); ScaleForPPI(Screen.PixelsPerInch);
 end;
 
 destructor TfrmCollectionBackup.Destroy;
-begin FPlan.Free; FFolderPaths.Free; inherited; end;
+begin FPlan.Free; FFolderPaths.Free; FFolderDates.Free; inherited; end;
 
 procedure TfrmCollectionBackup.Selected(Sender: TObject);
+var Info: TCollectionBackupInfo;
 begin
   FreeAndNil(FPlan); FRestore.Enabled:=False; FName.Enabled:=False; FRoot.Enabled:=False;
   FName.Clear; FRoot.Clear;
   FCheck.Enabled:=FList.ItemIndex>=0;
-  if FList.ItemIndex>=0 then FReport.Lines.Text:='Выбрана копия: '+FFolderPaths[FList.ItemIndex]+sLineBreak+
-    'Нажмите «Проверить резервную копию», чтобы увидеть её содержимое и условия восстановления.'
+  if FList.ItemIndex>=0 then
+  begin
+    Info:=ReadCollectionBackupInfo(FFolderPaths[FList.ItemIndex]);
+    FReport.Lines.Text:='Дата и время: '+CollectionBackupDateText(Info)+sLineBreak+
+      'Операция: '+CollectionBackupOperationText(Info.Operation)+sLineBreak+
+      'Выбрана копия: '+FFolderPaths[FList.ItemIndex]+sLineBreak+
+      'Нажмите «Проверить резервную копию», чтобы увидеть её содержимое и условия восстановления.';
+  end
   else FReport.Lines.Text:='В стандартной папке нет резервных копий. Можно выбрать restore-paths.txt в другой папке.';
 end;
 
 procedure TfrmCollectionBackup.AddFolder(const Folder: string);
-var I: Integer;
+var I: Integer; Info: TCollectionBackupInfo; Date: TDateTime;
 begin
   I:=FFolderPaths.IndexOf(TPath.GetFullPath(Folder));
   if I<0 then
-  begin I:=FFolderPaths.Add(TPath.GetFullPath(Folder)); FList.Items.Add(ExtractFileName(FFolderPaths[I])); end;
+  begin
+    Info:=ReadCollectionBackupInfo(Folder); Date:=0;
+    if Info.HasCreatedAt then Date:=Info.CreatedAt;
+    I:=0;
+    while (I<FFolderDates.Count) and (FFolderDates[I]>=Date) do Inc(I);
+    FFolderPaths.Insert(I,TPath.GetFullPath(Folder)); FFolderDates.Insert(I,Date);
+    FList.Items.Insert(I,CollectionBackupDateText(Info,False)+' — '+CollectionBackupOperationText(Info.Operation));
+  end;
   FList.ItemIndex:=I; Selected(nil);
 end;
 
@@ -184,7 +199,7 @@ begin
   Worker:=TSnapshotWorker.Create(FPlan,'','',False);
   try
     RunSnapshotWorker(Self,Worker);
-    if Worker.FError<>'' then FReport.Lines.Text:=Worker.FError
+    if Worker.FError<>'' then FReport.Lines.Add(Worker.FError)
     else if FPlan.Ready then
     begin
       FReport.Lines.Assign(FPlan.Report); FRoot.Text:=FPlan.Root; N:=0;

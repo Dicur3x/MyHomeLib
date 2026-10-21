@@ -633,5 +633,47 @@
       "tools/ui/tests/Out/feedback529-20261021/temp/HomeLibRu-native-startup-htYqHt"
     ],
     "reason_returned": "blocked by policy"
-  }
+  },
+  "backup_description_checks": [
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 17,
+      "exit_code": 0,
+      "seconds": 11.734,
+      "exe_sha256": "ac85b6d644b1cbbd8dc7d77810b50899af6e801847c110b2164d249e90e238d3",
+      "log": "Win32-feedback529-17.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "collection-merge",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 6.187,
+      "exe_sha256": "ac85b6d644b1cbbd8dc7d77810b50899af6e801847c110b2164d249e90e238d3",
+      "log": "Win32-collection-merge-5.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 28,
+      "exit_code": 0,
+      "seconds": 11.156,
+      "exe_sha256": "d214f2a41688d0ca0961ec03dd4f982387158c15ad8367bfa6d0a9939411c9c2",
+      "log": "Win64-feedback529-28.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "collection-merge",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 5.844,
+      "exe_sha256": "d214f2a41688d0ca0961ec03dd4f982387158c15ad8367bfa6d0a9939411c9c2",
+      "log": "Win64-collection-merge-6.log",
+      "passed": true
+    }
+  ]
 }

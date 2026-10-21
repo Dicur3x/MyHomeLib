@@ -64,6 +64,8 @@ begin
       (Scalar('SELECT COUNT(*) FROM Series WHERE SeriesTitle=''Академия для всех[p]''')=1),
       'Series preview changed catalog records');
     Backup:=Settings.AppPath+'feedback529-series-backup'; Plan.Apply(Backup,nil,nil);
+    Require(ReadCollectionBackupInfo(Backup).HasCreatedAt and
+      (ReadCollectionBackupInfo(Backup).Operation=cboSeries),'Series backup did not record its creation operation/date');
     Require((Scalar('SELECT COUNT(*) FROM Books')=BeforeCount) and
       FileExists(Backup+'\destination.hlc2') and FileExists(Backup+'\system.hlc2'),
       'Series merge removed books or omitted backup');

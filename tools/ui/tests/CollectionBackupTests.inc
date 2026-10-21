@@ -1,4 +1,57 @@
-﻿procedure TestCollectionBackupRestore;
+﻿procedure TestCollectionBackupDescriptions;
+var Folder, Moved, Legacy, Unknown, Hash, ExpectedDate: string;
+  Info: TCollectionBackupInfo; Dialog: TfrmCollectionBackup; List: TListBox; Report: TMemo;
+begin
+  Folder:=TPath.Combine(Settings.AppPath,'metadata-original'); ForceDirectories(Folder);
+  WriteCollectionBackupInfo(Folder,cboBooks);
+  Info:=ReadCollectionBackupInfo(Folder);
+  Require(Info.HasCreatedAt and not Info.DateFromFolderName and
+    (Info.Operation=cboBooks) and (Abs(Info.CreatedAt-Now)<10/SecsPerDay),
+    'New backup description lost UTC/local creation time or operation');
+  Require(TFile.ReadAllText(TPath.Combine(Folder,'backup-info.json'),TEncoding.UTF8).Contains('Z"'),
+    'Backup creation time does not include an explicit UTC timezone');
+  ExpectedDate:=CollectionBackupDateText(Info,False);
+  Moved:=TPath.Combine(Settings.AppPath,'merge-19990101-000000-renamed');
+  TDirectory.Move(Folder,Moved); Info:=ReadCollectionBackupInfo(Moved);
+  Require((Info.Operation=cboBooks) and not Info.DateFromFolderName and
+    (CollectionBackupDateText(Info,False)=ExpectedDate),
+    'Renamed backup replaced recorded metadata with its new folder name');
+  Legacy:=TPath.Combine(Settings.AppPath,'series-20261020-234104-legacy'); ForceDirectories(Legacy);
+  TFile.WriteAllText(TPath.Combine(Legacy,'backup-info.json'),'{invalid metadata',TEncoding.UTF8);
+  Hash:=THashSHA2.GetHashStringFromFile(TPath.Combine(Legacy,'backup-info.json'));
+  Info:=ReadCollectionBackupInfo(Legacy);
+  Require(Info.HasCreatedAt and Info.DateFromFolderName and (Info.Operation=cboSeries) and
+    (CollectionBackupDateText(Info,False)='20.10.2026 23:41:04') and
+    CollectionBackupDateText(Info).Contains('из имени папки'),
+    'Legacy/corrupt description did not preserve explicitly marked folder date and operation');
+  Require(THashSHA2.GetHashStringFromFile(TPath.Combine(Legacy,'backup-info.json'))=Hash,
+    'Reading backup metadata rewrote the existing description');
+  Info:=ReadCollectionBackupInfo(TPath.Combine(Settings.AppPath,'books-20260230-250000-invalid'));
+  Require(not Info.HasCreatedAt,'Invalid legacy date/time was displayed as a real creation date');
+  Info:=ReadCollectionBackupInfo(TPath.Combine(Settings.AppPath,'merge-20260101-010203-legacy'));
+  Require(Info.HasCreatedAt and (Info.Operation=cboCollections),'Legacy collection operation lost');
+  Unknown:=TPath.Combine(Settings.AppPath,'undated-backup'); ForceDirectories(Unknown);
+  TFile.WriteAllText(TPath.Combine(Unknown,'restore-paths.txt'),'Old description',TEncoding.UTF8);
+  Info:=ReadCollectionBackupInfo(Unknown);
+  Require(not Info.HasCreatedAt and (Info.Operation=cboUnknown),
+    'Unknown backup invented its creation date from current filesystem timestamps');
+  Dialog:=TfrmCollectionBackup.Create(nil);
+  try
+    Dialog.AddFolder(Unknown); Dialog.AddFolder(Legacy); Dialog.AddFolder(Moved);
+    List:=Dialog.FindComponent('lbCollectionBackups') as TListBox;
+    Report:=Dialog.FindComponent('mmBackupPreview') as TMemo;
+    Require((List.ItemIndex=0) and List.Items[0].Contains(ExpectedDate) and
+      List.Items[0].Contains('Объединение повторных книг') and
+      (Pos('Дата и время: '+ExpectedDate,Report.Text)>0) and
+      (Pos('Операция: Объединение повторных книг',Report.Text)>0),
+      'Restore list/selection omitted backup metadata or failed newest-first order');
+    Require((Dialog.FindComponent('btnRestoreBackup') as TButton).Caption='Восстановить и открыть в HomeLib Ru',
+      'Restore action does not explain that the collection opens in this program');
+  finally Dialog.Free; end;
+  Writeln('PASS backup descriptions preserve UTC time and operation after renaming; legacy dates, corrupt metadata and newest-first UI checked');
+end;
+
+procedure TestCollectionBackupRestore;
 var ID, OtherID, B, OtherBook, NewID, GroupID, Calls: Integer;
   C, Other, Restored: IBookCollection; Book: TBookRecord; Plan: TCollectionBackupPlan;
   Folder, FileName, Dest, SysFile, Stamp, Extra, MovedRoot, RacePath: string; DB: TSQLiteDatabase; Failed: Boolean;
@@ -41,6 +94,7 @@ begin
     DB.ExecSQL('UPDATE Groups SET Notes=X''0B00A1'' WHERE GroupID=?',[FAVORITES_GROUP_ID]);
   finally DB.Free; end;
   Folder:=TPath.Combine(Settings.AppPath,'snapshot-backup'); ForceDirectories(Folder);
+  WriteCollectionBackupInfo(Folder,cboCollections);
   BackupCollectionFile(FileName,TPath.Combine(Folder,'destination.hlc2'));
   BackupCollectionFile(SysFile,TPath.Combine(Folder,'system.hlc2'));
   Extra:=ReadValue('SELECT hex(ExtraInfo) FROM Books WHERE DatabaseID='+IntToStr(ID));
@@ -58,6 +112,9 @@ begin
   try
     Plan.Preview;
     Require(Plan.Ready and Plan.Report.Text.Contains('Записей книг: 1'),'Backup preview lost the saved state');
+    Require(Plan.Report.Text.Contains('Дата и время: ') and
+      Plan.Report.Text.Contains('Операция: Объединение коллекций') and
+      not Plan.Report.Text.Contains('Дата и время не сохранены'),'Validated backup preview lost its creation metadata');
     Require(SystemDB.GetDataRevision=Stamp,'Read-only backup preview changed current system data');
     Dest:=TPath.Combine(Settings.DataPath,'snapshot-restored.hlc2');
     MovedRoot:=TPath.Combine(Settings.AppPath,'moved-books'); Plan.Root:=MovedRoot;

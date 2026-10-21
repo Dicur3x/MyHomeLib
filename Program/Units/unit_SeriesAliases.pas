@@ -45,7 +45,7 @@ type
 implementation
 uses System.SysUtils, System.IOUtils, System.Variants, Vcl.ComCtrls, SQLiteWrap,
   unit_Settings, unit_Consts, unit_Globals, dm_user,
-  System.Generics.Defaults, unit_SeriesAliasMatching;
+  System.Generics.Defaults, unit_SeriesAliasMatching, unit_CollectionBackup;
 
 constructor TSeriesAliasPlan.Create(const Collection: IBookCollection; const SystemData: ISystemData);
 begin
@@ -184,6 +184,7 @@ begin
   CheckRevision; CheckCanceled;
   if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
   ForceDirectories(BackupFolder);
+  WriteCollectionBackupInfo(BackupFolder,cboSeries);
   TargetFile := Settings.ExpandCollectionFileName(VarToStr(FCollection.GetProperty(PROP_DATAFILE)));
   SystemFile := Settings.SystemFileName[sfSystemDB];
   Backup(TargetFile,'destination.hlc2','Резервная копия коллекции');

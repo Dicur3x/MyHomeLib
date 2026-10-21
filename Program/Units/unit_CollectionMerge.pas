@@ -70,7 +70,7 @@ procedure BackupCollectionFile(const SourceFile, BackupFile: string);
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Hash, System.Variants, System.Math, System.DateUtils,
-  unit_Consts, unit_Settings, unit_UserData, SQLiteWrap, dm_user, unit_LibrarySourceID, SQLiteProfile;
+  unit_Consts, unit_Settings, unit_UserData, SQLiteWrap, dm_user, unit_LibrarySourceID, SQLiteProfile, unit_CollectionBackup;
 
 function BookLibraryIdentity(const Book: TBookRecord; const LibraryNamespace: string): string;
 var ID, Namespace, OriginalID: string; C: Char; P: Integer;
@@ -603,6 +603,7 @@ begin
   if Assigned(Canceled) and Canceled() then raise EAbort.Create('Объединение отменено.');
   if DirectoryExists(BackupFolder) then raise Exception.Create('Для резервной копии требуется новая папка.');
   ForceDirectories(BackupFolder);
+  WriteCollectionBackupInfo(BackupFolder,cboCollections);
   TargetFile := Settings.ExpandCollectionFileName(VarToStr(FTarget.GetProperty(PROP_DATAFILE)));
   Backup(TargetFile, 'destination.hlc2', 'Резервная копия текущей коллекции');
   Backup(Settings.SystemFileName[sfSystemDB], 'system.hlc2', 'Резервная копия групп и настроек');

@@ -116,6 +116,7 @@ begin
   finally Worker.Free; end;
   Writeln('PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close');
   TestFeedback529Series;
+  TestCollectionBackupDescriptions;
   TestCollectionBackupRestore;
   TestSyncFolderExportSettings;
   TestBookDuplicatePreview;

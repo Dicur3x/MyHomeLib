@@ -3176,6 +3176,8 @@ begin
       'Initial source summary does not distinguish physical matches: '+Plan.Report.Text);
     HighRevision:=SourceBytes(High); LowRevision:=SourceBytes(Low);
     Backup := Settings.AppPath + 'merge-backup'; Plan.Apply(Backup);
+    Require(ReadCollectionBackupInfo(Backup).HasCreatedAt and
+      (ReadCollectionBackupInfo(Backup).Operation=cboCollections),'Merge backup did not record its creation operation/date');
     Require((SourceBytes(High)=HighRevision) and (SourceBytes(Low)=LowRevision),
       'Merge changed source database or WAL bytes');
     Require(FileExists(Backup+'\destination.hlc2') and FileExists(Backup+'\system.hlc2') and

@@ -52,7 +52,7 @@ implementation
 
 uses System.IniFiles, System.IOUtils, System.StrUtils, System.Hash, Winapi.Windows,
   unit_CollectionSpace, unit_LibrarySourceID,
-  unit_ReaderCache, unit_ReaderNoteBooks, unit_ReaderAnnotations, unit_Consts;
+  unit_ReaderCache, unit_ReaderNoteBooks, unit_ReaderAnnotations, unit_Consts, unit_CollectionBackup;
 
 function DuplicateCandidateKey(const Book: TBookRecord; const LibraryNamespace: string): string;
 var ID, Namespace, Original: string; Depth, P: Integer; Nonzero: Boolean;
@@ -478,6 +478,7 @@ begin
     // current backup without invoking backup on a source write transaction.
     ForceDirectories(ExtractFileDir(Folder));
     if not CreateDirectory(PChar(Folder),nil) then RaiseLastOSError;
+    WriteCollectionBackupInfo(Folder,cboBooks);
     Backup(FFile,TPath.Combine(Folder,'destination.hlc2'),'Резервная копия коллекции');
     Backup(FSystemFile,TPath.Combine(Folder,'system.hlc2'),'Резервная копия личных данных');
     Manifest:=TStringList.Create;
