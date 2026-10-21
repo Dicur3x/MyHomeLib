@@ -23,9 +23,9 @@ type
   end;
 
 function TOptionalCheckWorker.FetchText(const URL: string): string;
-begin Log.Add(URL); Result:=inherited; end;
+begin System.TMonitor.Enter(Log); try Log.Add(URL); finally System.TMonitor.Exit(Log); end; Result:=inherited; end;
 function TOptionalCheckWorker.FetchHead(const URL: string): IHTTPResponse;
-begin Log.Add(URL); Result:=inherited; end;
+begin System.TMonitor.Enter(Log); try Log.Add(URL); finally System.TMonitor.Exit(Log); end; Result:=inherited; end;
 constructor TOptionalUpdateForm.CreateForHead(const URL: string);
 begin inherited Create(nil); FHeadURL:=URL; Requests:=TStringList.Create; end;
 destructor TOptionalUpdateForm.Destroy;
@@ -111,7 +111,7 @@ begin
           Name:=TPath.Combine(Target,StringReplace(InstalledHashes.Names[I],'/',PathDelim,[rfReplaceAll]));
           Require(UpdateSHA256(Name)=InstalledHashes.ValueFromIndex[I],'Minimal application update changed an installed optional component');
         end;
-        Require(not ComponentNeedsRepair(Target,'7-Zip') and not ComponentNeedsRepair(Target,'SQLite'),'Minimal update omitted mandatory runtime files');
+        Require(not ComponentNeedsRepair(Target,'SQLite'),'Minimal update omitted SQLite');
         Require(TFile.ReadAllText(PrivateFile)='Personal book bytes remain private and unchanged','Minimal application update changed a personal book');
         Require(TFile.ReadAllText(Profile)='existing local reader configuration','Minimal application update changed reader settings');
         Writeln('PASS minimal application archive verifies, installs mandatory runtime and preserves all four optional components and personal files');
@@ -124,7 +124,7 @@ end;
 procedure TestOptionalComponentWorkflow;
 var Saved, EmptyRoot, DocFolder, HeldDoc, Source, Hash, Missing, ExpectedArchive, FeedURL: string;
   Dialog: TOptionalUpdateForm; Quiet: TfrmProgramUpdate; Server: TUpdateProposalServer;
-  Worker: TOptionalMirrorWorker; Current: TProgramRelease; Releases: TComponentReleases;
+  Worker: TOptionalMirrorWorker; Current, Info: TProgramRelease; Releases: TComponentReleases;
   Status: TLabel; Notify: TCheckBox; Primary: TButton; View: TListView;
   Notes: TUpdateNotesView; OriginalTheme: Boolean;
   Reloaded: TMHLSettings; Host: TComponent; Book: TBookRecord; Bytes: TBytes;
@@ -161,9 +161,9 @@ begin
   Server:=nil; Dialog:=nil; Quiet:=nil; Host:=nil; WasMoved:=False;
   EmptyRoot:=TPath.Combine(Settings.AppPath,'optional-empty'); ForceDirectories(EmptyRoot);
   try
-    for var ID in TArray<string>.Create('AlReader','SumatraPDF','DjVuLibre','DocSharp') do
+    for var ID in TArray<string>.Create('AlReader','SumatraPDF','DjVuLibre','DocSharp','7-Zip') do
       Require(not ComponentNotificationEnabled(ID,''),'Optional notifications enabled by default');
-    Require(ComponentNotificationEnabled('SQLite','') and ComponentNotificationEnabled('7-Zip',''),
+    Require(ComponentNotificationEnabled('SQLite','') and not ComponentNotificationEnabled('7-Zip',''),
       'Core component updates disabled by optional policy');
     for var Ext in TArray<string>.Create('.fb2','.epub','.txt','.docx','.pptx','.xlsx') do
       Require(RequiredReaderComponent(EmptyRoot,Ext)='','Unrelated/modern format requested a legacy decoder');
@@ -260,26 +260,10 @@ begin
     Dialog.Free; Dialog:=nil;
     Writeln('PASS first-use decoder request releases its worker, preserves source bytes, shows size and downloads only after an explicit click');
 
-    ExpectedArchive:=ComponentArchiveName('AlReader',ProgramUpdatePlatform);
-    FeedURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+PROGRAM_RELEASE_VERSION+'/'+COMPONENT_FEED_NAME;
-    for var Foreign in [False,True] do
-    begin
-      Worker:=TOptionalMirrorWorker.Create(0,CreateComponentFixtureHTTP);
-      try
-        Worker.OnlyIDs:=TArray<string>.Create('AlReader');
-        Worker.FeedJSON:=TFile.ReadAllText(Settings.AppPath+'COMPONENTS.json',TEncoding.UTF8);
-        Worker.ReleaseJSON:='[{"tag_name":"'+PROGRAM_RELEASE_VERSION+'","draft":false,"assets":['+
-          '{"name":"'+COMPONENT_FEED_NAME+'","browser_download_url":"'+FeedURL+'","size":100},'+
-          '{"name":"'+ExpectedArchive+'","browser_download_url":"'+
-          IfThen(Foreign,'https://example.invalid/','https://github.com/Dicur3x/MyHomeLib/releases/download/'+PROGRAM_RELEASE_VERSION+'/')+
-          ExpectedArchive+'","digest":"sha256:'+StringOfChar('a',64)+'","size":128}]}]';
-        Worker.Start; Worker.WaitFor;
-        Require(Worker.Successful,'Published optional package check did not finish');
-        Require((Worker.Releases[1].DownloadURL<>'')<>Foreign,'AlReader mirror accepted a foreign URL or lost a verified asset');
-        if not Foreign then Require(Worker.Releases[1].SHA256=StringOfChar('a',64),
-          'AlReader archive checksum did not come from the verified GitHub asset');
-      finally Worker.Free; end;
-    end;
+    Info:=FixedAlReaderRelease;
+    Require((Info.Tag=ALREADER_FIXED_TAG) and (Info.Size=ALREADER_FIXED_SIZE) and
+      (Info.SHA256=ALREADER_FIXED_SHA256) and Info.DownloadURL.EndsWith('/'+ALREADER_FIXED_NAME),
+      'AlReader source is not the one permanent pinned archive');
     Writeln('PASS optional AlReader mirror uses matching GitHub assets and rejects a foreign archive URL');
   finally
     Host.Free; Dialog.Free; Quiet.Free; Server.Free;

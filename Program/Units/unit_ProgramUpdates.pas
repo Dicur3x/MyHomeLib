@@ -17,7 +17,7 @@ type
     Tag: string;
     URL: string;
     DownloadURL, SHA256: string;
-    SecondaryURL: string; SecondarySize: Int64;
+    SecondaryURL, SecondarySHA256: string; SecondarySize: Int64;
     AdditionalURLs: TArray<string>; AdditionalSizes: TArray<Int64>;
     Notes, Changelog, History: string;
     PublishedAt: string;
@@ -364,6 +364,10 @@ begin
       if (FRelease.ComponentID='7-Zip') and
         (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
         raise Exception.Create('Официальная контрольная сумма 7-Zip не совпадает.');
+      if (FRelease.ComponentID='7-Zip') and (SecondaryArchive<>'') and
+        (not IsUpdateSHA256(FRelease.SecondarySHA256) or
+         not SameText(UpdateSHA256(SecondaryArchive),FRelease.SecondarySHA256)) then
+        raise Exception.Create('Официальная контрольная сумма распаковщика 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
       PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives);
     end

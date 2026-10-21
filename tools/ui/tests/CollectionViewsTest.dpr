@@ -5579,6 +5579,7 @@ end;
 {$I StartupDeferredTests.inc}
 {$I BookViewSessionTests.inc}
 {$I FirstBookListTests.inc}
+{$I Feedback531Tests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5764,6 +5765,8 @@ begin
       end
       else if ParamStr(1) = 'view-sessions' then
         TestBookViewSessions(OneID, TwoID)
+      else if ParamStr(1) = 'minimal-first-install' then TestMinimalFirstInstall531
+      else if ParamStr(1) = 'post530' then TestFeedback531
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails

@@ -3469,6 +3469,7 @@ begin
   if (csDestroying in ComponentState) or Application.Terminated then Exit;
   if ID='DjVuLibre' then Reason:='Для чтения DjVu нужна библиотека DjVuLibre.'
   else if ID='DocSharp' then Reason:='Для чтения старого офисного формата нужна библиотека DocSharp.'
+  else if ID='7-Zip' then Reason:='Для чтения этого сжатого архива нужен 7-Zip. Обычные ZIP и FB2 работают без него.'
   else Reason:='Внешнюю читалку '+ID+' можно установить отдельно.';
   EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason);
 end;
@@ -6088,7 +6089,8 @@ begin
     if ExternalScript then
     begin
       unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, True,
-        Files, Results, DeviceShellItem, UseMTP);
+        Files, Results, DeviceShellItem, UseMTP,False,
+        procedure(ID: string) begin RequestOptionalComponent(ID); end);
       if not AllBooksPreparedForScript(Results) then
       begin
         StatusMessage := 'Инструмент не запущен: подготовлены не все книги. Отметки сохранены.';
@@ -6102,7 +6104,8 @@ begin
     else
     begin
       unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False,
-        Files, Results, DeviceShellItem, UseMTP, ExplicitFormat);
+        Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
+        procedure(ID: string) begin RequestOptionalComponent(ID); end);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;

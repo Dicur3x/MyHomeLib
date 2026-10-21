@@ -819,6 +819,7 @@ begin
           end,OpenArchive,ConvertKindle,ConvertOffice);
       except
         on E: EAbort do FResult := '';
+        on E: EMHLComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
         on E: EReaderComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
         on E: Exception do FError := E.Message;
       end;
@@ -887,7 +888,16 @@ begin
   Free;
   if (Required<>'') and Assigned(Missing) and not Application.Terminated then begin Missing(Required); Exit; end;
   if ErrorText <> '' then raise Exception.Create(ErrorText);
-  if (WorkFile <> '') and Assigned(Ready) and not Application.Terminated then Ready(WorkFile);
+  if (WorkFile <> '') and Assigned(Ready) and not Application.Terminated then
+    try Ready(WorkFile);
+    except
+      // Comic/inner archives may first need a decoder while constructing the
+      // reader, after preparation has already released its background worker.
+      on E: EMHLComponentRequired do
+        if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
+      on E: EReaderComponentRequired do
+        if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
+    end;
 end;
 
 procedure CancelReaderPreparations(Owner: TComponent);

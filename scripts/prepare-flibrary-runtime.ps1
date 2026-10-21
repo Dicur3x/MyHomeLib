@@ -10,11 +10,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$sevenZipVersion = '26.02'
-$sevenZipBootstrapUrl = 'https://github.com/ip7z/7zip/releases/download/26.02/7zr.exe'
-$sevenZipBootstrapSha256 = '56B8CC9F4971CEF253644FAFE54063ED7FDCA551D4DEE0F8C6BAA81B855ACD72'
-$sevenZipExtraUrl = 'https://github.com/ip7z/7zip/releases/download/26.02/7z2602-extra.7z'
-$sevenZipExtraSha256 = '081DF9E9311DFD9C9E0E98C1C80180B99BB51E4CB24156B5F3057FE3C259D70A'
+$sevenZipVersion = '26.05'
+$sevenZipBootstrapUrl = 'https://github.com/ip7z/7zip/releases/download/26.05/7zr.exe'
+$sevenZipBootstrapSha256 = '9BF582B894DFA665F852D7E9112B02290A1C303C2D95A21FCDC41FFCB03143B7'
+$sevenZipExtraUrl = 'https://github.com/ip7z/7zip/releases/download/26.05/7z2605-extra.7z'
+$sevenZipExtraSha256 = 'F27A8F103C84785026EDCBA1F67FAF1357225DF9D19DDB0B7760D55947141BC7'
 
 $jpegXlVersion = '0.12.0'
 $jpegXlRuntime = if ($Platform -eq 'Win32') {

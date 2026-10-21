@@ -1,0 +1,43 @@
+{
+  "release": "https://github.com/ip7z/7zip/releases/tag/26.05",
+  "assets": [
+    {
+      "name": "7zr.exe",
+      "sha256": "9bf582b894dfa665f852d7e9112b02290a1c303c2d95a21fcdc41ffcb03143b7",
+      "size": 602624,
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7zr.exe"
+    },
+    {
+      "name": "7z2605.exe",
+      "sha256": "6435a470fe7c4769962dbed8a60c641ee21401c833ced06077c80e33e7845a5e",
+      "size": 1362132,
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605.exe"
+    },
+    {
+      "name": "7z2605-x64.exe",
+      "sha256": "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0",
+      "size": 1663506,
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.exe"
+    },
+    {
+      "name": "7z2605-extra.7z",
+      "sha256": "f27a8f103c84785026edcba1f67faf1357225df9d19ddb0b7760d55947141bc7",
+      "size": 1763900,
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-extra.7z"
+    }
+  ],
+  "files": {
+    "Win32": {
+      "7z.exe": "c3598543c41918b5c94dafb9dd724c16c9a217d36b5ee530e3bc10c9f12aca6c",
+      "7z.dll": "1c57100cc237db626259f68fe91c5a632a5128e0e01bab1452baa1104ff84311",
+      "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d",
+      "7za.exe": "357929ec748d00728c64dd2e7aa0069258f40847c1410014bb60d22eb9ec75d5"
+    },
+    "Win64": {
+      "7z.exe": "94205cfc054dd3bbeb978905bc619a65b3f04e9e73bb2717841110b6f46d962e",
+      "7z.dll": "78bf6b668d75801e3aa180b4ccb16e6d8395fba80dec8a065055bb6f8dfabb82",
+      "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d",
+      "7za.exe": "7ddf0a3bc451e166679296be630d6f0573eb386159c04184761c43020c484291"
+    }
+  }
+}

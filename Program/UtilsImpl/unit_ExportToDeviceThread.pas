@@ -68,7 +68,7 @@ type
     FUseMTP: Boolean;
     FMarshalStream: IStream;
     FDeviceShellItem: IShellItem;
-    FLastError: string;
+    FLastError, FRequiredComponent: string;
     FConverterExitCode: Cardinal;
 
     FMaxTempPathLength: Integer;
@@ -106,6 +106,7 @@ type
     property UseMTP: Boolean read FUseMTP write FUseMTP;
     property MarshalStream: IStream write FMarshalStream;
     property ProcessedFiles: string read FProcessedFiles;
+    property RequiredComponent: string read FRequiredComponent;
     property ExportMode: TExportMode read FExportMode write FExportMode;
     property ExtractOnly: boolean write FExtractOnly;
     property ExplicitFormat: Boolean read FExplicitFormat write FExplicitFormat;
@@ -128,7 +129,7 @@ uses
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
   unit_WriteFb2Info,
-  unit_BookConversion, unit_BookCache, unit_ReaderCache, System.Variants;
+  unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, System.Variants;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -367,6 +368,7 @@ begin
     end;
     Result := True;
   except
+    on E: EMHLComponentRequired do begin Canceled:=True; FRequiredComponent:=E.ComponentID; FLastError:=E.Message; end;
     on E: EAbort do begin Canceled:=True; FLastError:=E.Message; end;
     on E: Exception do
       FLastError := Format('PrepareFile exception: %s', [E.Message]);
@@ -789,7 +791,7 @@ var
   params: string;
 begin
   params := Format('-i "%s" -o "%s"', [InpFile, ChangeFileExt(OutFile, '.lrf')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emLrf), params, SW_HIDE, FConverterExitCode,
+  Result := unit_Globals.ExecAndWait(GetConverterPath(FAppPath, emLrf), params, SW_HIDE, FConverterExitCode,
     function: Boolean begin Result := Canceled or Terminated; end);
 end;
 
@@ -798,7 +800,7 @@ var
   params: string;
 begin
   params := Format('"%s" "%s"', [InpFile, ChangeFileExt(OutFile, '.pdf')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emPDF), params, SW_HIDE, FConverterExitCode,
+  Result := unit_Globals.ExecAndWait(GetConverterPath(FAppPath, emPDF), params, SW_HIDE, FConverterExitCode,
     function: Boolean begin Result := Canceled or Terminated; end);
 end;
 
@@ -807,7 +809,7 @@ var
   params: string;
 begin
   params := Format('"%s" "%s" -nc -cl -us -nt', [InpFile, ChangeFileExt(OutFile, '.mobi')]);
-  Result := ExecAndWait(GetConverterPath(FAppPath, emMobi), params, SW_HIDE, FConverterExitCode,
+  Result := unit_Globals.ExecAndWait(GetConverterPath(FAppPath, emMobi), params, SW_HIDE, FConverterExitCode,
     function: Boolean begin Result := Canceled or Terminated; end);
 end;
 

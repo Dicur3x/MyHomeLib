@@ -177,7 +177,7 @@ begin
   if Assigned(FIsCanceled) and FIsCanceled() then raise EAbort.Create('Чтение отменено');
   FIndex:=TDictionary<string,Integer>.Create;
   DLL:=FindExternalTool('7z.dll','7zip');
-  if DLL='' then raise ENotSupportedException.Create('Для чтения сжатых метаданных нужен компонент 7-Zip (7z.dll). Обновите его в программе.');
+  if DLL='' then raise EMHLComponentRequired.Create('7-Zip','Для чтения сжатых метаданных нужен 7-Zip. Его можно скачать в окне обновлений HomeLib Ru.');
   FModule:=LoadLibraryEx(PChar(TPath.GetFullPath(DLL)),0,SafeDLLSearchFlags);
   if FModule=0 then RaiseLastOSError;
   @CreateArchive:=GetProcAddress(FModule,'CreateObject');

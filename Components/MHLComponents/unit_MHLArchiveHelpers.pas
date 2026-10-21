@@ -139,18 +139,16 @@ begin
   RequiresFullDecoder:=SameText(ExtractFileExt(FArchiveFileName),'.rar') or
     SameText(ExtractFileExt(FArchiveFileName),'.cbr') or
     SameText(ExtractFileExt(FArchiveFileName),'.cab');
-  if (FSevenZipTool = '') and RequiresFullDecoder then
-    FSevenZipTool := FindExternalTool('7z.exe', '7zip');
+  if FSevenZipTool = '' then
+  begin
+    FSevenZipTool:=FindExternalTool('7z.exe','7zip');
+    if (FSevenZipTool<>'') and not FileExists(ExtractFilePath(FSevenZipTool)+'7z.dll') then FSevenZipTool:='';
+  end;
   if (FSevenZipTool = '') and not RequiresFullDecoder then
     FSevenZipTool := FindExternalTool('7za.exe', '7zip');
-  if FSevenZipTool = '' then
-    FSevenZipTool := FindExternalTool('7z.exe', '7zip');
-  if FSevenZipTool = '' then
-    if RequiresFullDecoder then
-      raise EMHLExternalToolError.Create('Для распаковки RAR и CAB нужен установленный 7-Zip или полный tools\7zip\7zz.exe.');
-  if FSevenZipTool = '' then
-    raise EMHLExternalToolError.Create(
-      'Для чтения 7z и ZIP с PPMd нужен tools\7zip\7za.exe или установленный 7-Zip.');
+  if FSevenZipTool='' then
+    raise EMHLComponentRequired.Create('7-Zip',
+      'Для чтения этого архива нужен 7-Zip. Его можно бесплатно скачать в окне обновлений HomeLib Ru.');
 end;
 
 function TMHLZip.EntryNeedsExternalDecoder(const Index: Integer): Boolean;

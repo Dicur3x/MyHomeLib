@@ -47,6 +47,8 @@ begin
         'INSERT INTO Books(BookID,LibID,Title,SeriesID,SeqNumber,UpdateDate,Lang,Folder,FileName,InsideNo,Ext,BookSize,IsDeleted,Translators,Publisher,City,PubYear,ISBN,Review) ' +
         'SELECT x,CAST(x AS TEXT),printf(''Книга %06d'',x),1,x,''2026-10-01'',''ru'',''archive.zip'',CAST(x AS TEXT),x,''.fb2'',12345,x%10=0,' +
         '''Переводчик'',''Издатель'',''Москва'',2020,''978-1-23'',CASE WHEN x=1 THEN ''Личный отзыв'' ELSE NULL END FROM n');
+      DB.ExecSQL('UPDATE Books SET Title=''Привет'' WHERE BookID IN (1,10)');
+      DB.ExecSQL('UPDATE Books SET Title=''Привет 100%_ ''''quoted'''''' WHERE BookID=2');
       DB.ExecSQL('UPDATE Books SET UpdateDate=''2024-02-29 12:34:56'' WHERE BookID=2');
       DB.ExecSQL('INSERT INTO Author_List(BookID,AuthorID) SELECT BookID,1 FROM Books');
       DB.ExecSQL('INSERT INTO Author_List(BookID,AuthorID) SELECT BookID,2 FROM Books WHERE BookID%5=0');
@@ -123,6 +125,22 @@ begin
       Factory, True, True, nil);
     Writeln('PROFILE first-list actual tree query=',Kind,' total_ms=',GetTickCount64-Started); Flush(Output);
   end;
+  Criteria:=Default(TBookSearchCriteria); Criteria.DateIdx:=-1; Criteria.Deleted:=True;
+  Criteria.QueryMode:=sqmText; Criteria.Title:='привет'; Criteria.CollapseMultiSeriesResults:=True;
+  for var SearchKind:=0 to 3 do
+  begin
+    if SearchKind=1 then Criteria.Deleted:=False;
+    if SearchKind=2 then begin Criteria.Deleted:=True; Criteria.Title:='100%_ ''quoted'''; end;
+    if SearchKind=3 then begin Criteria.Title:=''; Criteria.ExactTitle:='Привет'; end;
+    Iterator:=Collection.Search(Criteria,False); Seen:=0;
+    while Iterator.Next(Book) do begin Inc(Seen); Require(Book.Title.Contains('Привет'),'Title scan returned an unrelated book'); end;
+    Expected:=2; if SearchKind=1 then Expected:=3 else if SearchKind>=2 then Expected:=1;
+    Count:=Iterator.RecordCount;
+    Writeln('PROFILE title case=',SearchKind,' seen=',Seen,' count=',Count,' expected=',Expected);
+    Require((Seen=Expected) and (Count=Expected),'Title + deleted/literal/exact search changed results');
+    Iterator:=nil;
+  end;
+  Writeln('PASS first-list title prefilter preserves Cyrillic literal percent underscore quotes exact title and hidden deleted');
   LoadMemos := True;
   Criteria.CollapseMultiSeriesResults := True;
   for Kind := 3 to 5 do

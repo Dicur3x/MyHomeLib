@@ -678,15 +678,16 @@ begin
     Require(Dialog.Visible and Primary.Enabled and string(Status.Caption).Contains('Не удалось проверить'),
       'Manual unavailable sources were silent or left Retry disabled');
     for var I in CheckedComponentIndices do
+      if UPDATE_COMPONENTS[I].ID<>'AlReader' then
       Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable source is falsely current');
     SafeStatus;
     Writeln('PASS update sources unavailable manual check names failures keeps Retry available and hides raw server details');
 
     Dialog.FailureID:='SumatraPDF'; CheckButton.Click; WaitCheck;
     Require((View.Items[1].SubItems[2]='Есть обновление') and
-      (View.Items[2].SubItems[2]='Версия не подтверждена') and
+      (View.Items[2].SubItems[2]='Актуально') and
       (View.Items[3].SubItems[2]='Не удалось проверить') and
-      string(Status.Caption).Contains('SumatraPDF') and string(Status.Caption).Contains('AlReader'),
+      string(Status.Caption).Contains('SumatraPDF'),
       'Partial source failure hid independent updates or misreported unverified AlReader');
     SafeStatus; SelectRow(3);
     Require((Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
@@ -707,8 +708,8 @@ begin
       'Recovered source retained the preceding error');
     Require(string(Notes.PrimaryNotes.Text).Contains('Owned Sumatra changes.'),'Recovered source lost author changes');
     SelectRow(2);
-    Require((Primary.Caption='Повторить проверку') and
-      (string(Status.Caption).Contains('Установленная') or string(Status.Caption).Contains('установленная')),'AlReader notice does not explain the existing reader');
+    Require((View.Items[2].SubItems[2]='Актуально') and
+      string(Status.Caption).Contains('проверенный пакет HomeLib Ru'), 'AlReader source is not identified as the fixed project archive');
     Writeln('PASS update sources Retry performs a new production check clears recovered errors and retains AlReader verification');
 
     Dialog.Hide; Dialog.FailureID:='all';

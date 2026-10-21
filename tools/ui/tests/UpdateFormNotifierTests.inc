@@ -105,7 +105,7 @@ begin
   inherited;
   Requested:=TEvent.Create(nil,True,False,''); Released:=TEvent.Create(nil,True,False,'');
   Originals:=TStringList.Create; TransportTrace:=TStringList.Create; Payload:=TEncoding.UTF8.GetBytes(StringOfChar('x',65536));
-  HTTP:=TIdHTTPServer.Create(nil); HTTP.KeepAlive:=False; HTTP.MaxConnections:=2;
+  HTTP:=TIdHTTPServer.Create(nil); HTTP.KeepAlive:=False; HTTP.MaxConnections:=12;
   HTTP.OnCommandGet:=Command; HTTP.OnCommandOther:=Command;
   HTTP.Bindings.Clear;
   with HTTP.Bindings.Add do begin IP:='127.0.0.1'; Port:=0; end;
@@ -122,8 +122,11 @@ end;
 
 function TUFNServer.TextURL(const Official: string): string;
 begin
-  if Originals.Count>=64 then raise Exception.Create('Updater fixture exceeded its bounded request log');
-  Originals.Add(Official);
+  System.TMonitor.Enter(Originals);
+  try
+    if Originals.Count>=64 then raise Exception.Create('Updater fixture exceeded its bounded request log');
+    Originals.Add(Official);
+  finally System.TMonitor.Exit(Originals); end;
   if Official=PROGRAM_RELEASES_API then Exit(URL+'empty-releases');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json' then Exit(URL+'doc-index');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json' then Exit(URL+'common-index');
@@ -140,8 +143,11 @@ end;
 
 function TUFNServer.HeadURL(const Official: string): string;
 begin
-  if Originals.Count>=64 then raise Exception.Create('Updater fixture exceeded its bounded request log');
-  Originals.Add(Official);
+  System.TMonitor.Enter(Originals);
+  try
+    if Originals.Count>=64 then raise Exception.Create('Updater fixture exceeded its bounded request log');
+    Originals.Add(Official);
+  finally System.TMonitor.Exit(Originals); end;
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/0.99.0/docsharp.binary.doc.0.99.0.nupkg' then Exit(URL+'head-doc');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/0.99.0/docsharp.binary.common.0.99.0.nupkg' then Exit(URL+'head-common');
   if (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/0.99.0/docsharp.binary.ppt.0.99.0.nupkg') or
@@ -189,13 +195,19 @@ function TUFNComponentWorker.FetchText(const URL: string): string;
 begin
   try
     Result:=inherited FetchText(FServer.TextURL(URL));
+    System.TMonitor.Enter(FServer.TransportTrace);
+    try
     if FServer.TransportTrace.Count<64 then
       FServer.TransportTrace.Add('GET '+URL+' chars='+IntToStr(Length(Result))+' body='+Copy(Result,1,200));
+    finally System.TMonitor.Exit(FServer.TransportTrace); end;
   except
     on E: Exception do
     begin
+      System.TMonitor.Enter(FServer.TransportTrace);
+      try
       if FServer.TransportTrace.Count<64 then
         FServer.TransportTrace.Add('GET '+URL+' '+E.ClassName+': '+Copy(E.Message,1,300));
+    finally System.TMonitor.Exit(FServer.TransportTrace); end;
       raise;
     end;
   end;
@@ -205,13 +217,19 @@ function TUFNComponentWorker.FetchHead(const URL: string): IHTTPResponse;
 begin
   try
     Result:=inherited FetchHead(FServer.HeadURL(URL));
+    System.TMonitor.Enter(FServer.TransportTrace);
+    try
     if FServer.TransportTrace.Count<64 then
       FServer.TransportTrace.Add('HEAD '+URL+' status='+IntToStr(Result.StatusCode)+' bytes='+IntToStr(Result.ContentLength));
+    finally System.TMonitor.Exit(FServer.TransportTrace); end;
   except
     on E: Exception do
     begin
+      System.TMonitor.Enter(FServer.TransportTrace);
+      try
       if FServer.TransportTrace.Count<64 then
         FServer.TransportTrace.Add('HEAD '+URL+' '+E.ClassName+': '+Copy(E.Message,1,300));
+    finally System.TMonitor.Exit(FServer.TransportTrace); end;
       raise;
     end;
   end;
@@ -430,6 +448,7 @@ begin
     Dialog.CheckComponents(False); Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
     Server.Released.SetEvent; PumpCheck;
     for var I in CheckedComponentIndices do
+      if UPDATE_COMPONENTS[I].ID<>'AlReader' then
       Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable author response falsely marked its component checked');
     Writeln('PASS updater component check actual failures release checking state after form HWND recreation'); Flush(Output);
     CloseForm;

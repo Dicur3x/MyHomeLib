@@ -53,7 +53,8 @@ procedure TComponentCheckFixtureWorker.CheckSource(const URL: string);
 var ID: string;
 begin
   if Terminated then Abort;
-  FRequests.Add(URL);
+  System.TMonitor.Enter(FRequests);
+  try FRequests.Add(URL); finally System.TMonitor.Exit(FRequests); end;
   if URL.Contains('sqlite.org/') then ID:='SQLite'
   else if URL.Contains('alreader.com/') then ID:='AlReader'
   else if URL.Contains('sumatrapdf') then ID:='SumatraPDF'
@@ -111,5 +112,6 @@ end;
 function TComponentCheckFixtureWorker.FetchHead(const URL: string): IHTTPResponse;
 begin
   CheckSource(URL);
-  Result:=FHeadHTTP.Head(FHeadURL);
+  System.TMonitor.Enter(FHeadHTTP);
+  try Result:=FHeadHTTP.Head(FHeadURL); finally System.TMonitor.Exit(FHeadHTTP); end;
 end;

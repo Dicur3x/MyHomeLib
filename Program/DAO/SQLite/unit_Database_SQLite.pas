@@ -1197,7 +1197,7 @@ const
   SQL_START_STR = 'SELECT DISTINCT b.BookID ';
   DT_FORMAT = 'yyyy-mm-dd';
 var
-  FilterString: string;
+  FilterString, TitleFilterString: string;
   SeriesFilterString: string;
   SQLRows: string;
   SQLCount: string;
@@ -1278,7 +1278,30 @@ begin
       SQLRows := SQLRows + FilterString;
     end;
 
+    TitleFilterString:='';
+    AddToFilter('titlematch.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, TitleFilterString);
+    if SearchCriteria.ExactTitle<>'' then
+    begin
+      if TitleFilterString<>'' then TitleFilterString:=TitleFilterString+' AND ';
+      TitleFilterString:=TitleFilterString+'(titlematch.SearchTitle='+QuotedStr(AnsiUpperCase(SearchCriteria.ExactTitle))+')';
+    end;
+    if Length(SearchCriteria.ExactTitles)>0 then
+    begin
+      LookupSQL := '';
+      for LookupValue in SearchCriteria.ExactTitles do
+      begin
+        if LookupSQL<>'' then LookupSQL:=LookupSQL+',';
+        LookupSQL:=LookupSQL+QuotedStr(AnsiUpperCase(LookupValue));
+      end;
+      if TitleFilterString<>'' then TitleFilterString:=TitleFilterString+' AND ';
+      TitleFilterString:=TitleFilterString+'(titlematch.SearchTitle IN ('+LookupSQL+'))';
+    end;
     FilterString := '';
+    // Search the existing narrow title index first. Combining a leading-wildcard
+    // title with IsDeleted otherwise makes SQLite walk every wide Books row.
+    // The IN boundary keeps the title-only scan covering, then checks only hits.
+    if TitleFilterString<>'' then
+      FilterString:='b.BookID IN (SELECT titlematch.BookID FROM Books titlematch WHERE '+TitleFilterString+')';
     AddToFilter('b.SearchAnnotation', PrepareSearchQuery(SearchCriteria.Annotation, True, SearchCriteria.QueryMode), False, FilterString);
     // Publisher is already stored metadata; do not read book files during search.
     // SQLite's native UPPER only maps ASCII, so use our Windows Unicode mapping.
@@ -1290,23 +1313,6 @@ begin
     // the expression parser for exact matches and OR/AND as in other fields.
     AddToFilter('MHL_UPPER(REPLACE(REPLACE(REPLACE(REPLACE(b.ISBN,''-'',''''),'' '',''''),CHAR(9),''''),CHAR(160),''''))',
       PrepareISBNQuery(SearchCriteria.ISBN, SearchCriteria.QueryMode), False, FilterString);
-    AddToFilter('b.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, FilterString);
-    if SearchCriteria.ExactTitle<>'' then
-    begin
-      if FilterString<>'' then FilterString:=FilterString+' AND ';
-      FilterString:=FilterString+'(b.SearchTitle='+QuotedStr(AnsiUpperCase(SearchCriteria.ExactTitle))+')';
-    end;
-    if Length(SearchCriteria.ExactTitles)>0 then
-    begin
-      LookupSQL := '';
-      for LookupValue in SearchCriteria.ExactTitles do
-      begin
-        if LookupSQL<>'' then LookupSQL:=LookupSQL+',';
-        LookupSQL:=LookupSQL+QuotedStr(AnsiUpperCase(LookupValue));
-      end;
-      if FilterString<>'' then FilterString:=FilterString+' AND ';
-      FilterString:=FilterString+'(b.SearchTitle IN ('+LookupSQL+'))';
-    end;
     if Length(SearchCriteria.LibraryIDs)>0 then
     begin
       LookupSQL := '';

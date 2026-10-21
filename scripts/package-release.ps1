@@ -61,17 +61,21 @@ try {
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
     foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-        if ($directory.Name -notin @('fonts', 'bookconvert', 'doc', 'djvu') -or
-            ($Full -and $directory.Name -in @('doc', 'djvu'))) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+        if ($directory.Name -notin @('fonts', 'bookconvert', 'doc', 'djvu', '7zip') -or
+            ($Full -and $directory.Name -in @('doc', 'djvu', '7zip'))) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
     }
     if (-not $Full) {
         # Our small format bridges also serve images/Office XML and are part
         # of the core. Optional third-party decoder DLLs are downloaded later.
-        foreach ($entry in @('doc/HomeLibDoc.exe', 'doc/HomeLibDoc-MIT.txt', 'djvu/HomeLibDjvu.exe')) {
+        foreach ($entry in @('doc/HomeLibDoc.exe', 'doc/HomeLibDoc-MIT.txt', 'doc/DocSharp-MIT.txt', 'doc/b2xtranslator-BSD-3-Clause.txt',
+            'djvu/HomeLibDjvu.exe', 'djvu/COPYING.txt', 'djvu/COPYRIGHT', 'djvu/IJG-README.txt', 'djvu/LIBTIFF-COPYRIGHT.txt', 'djvu/ZLIB-README.txt')) {
             $target = Join-Path $toolsDestination $entry
             [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
             Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools/$entry") -Destination $target
         }
+    }
+    if (-not $Full) {
+        Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'tools/djvu/HomeLibDjvu-source') -Destination (Join-Path $toolsDestination 'djvu') -Recurse
     }
     $bookConverterDestination = Join-Path $toolsDestination 'bookconvert'
     [IO.Directory]::CreateDirectory($bookConverterDestination) | Out-Null
@@ -109,6 +113,14 @@ try {
             'Russian_1251_hyphen_(Alan).pdb', 'Russian_EnUS_hyphen_(Alan).pdb',
             'Russian_hyphen_(Alan).pdb', 'UNRAR.DLL')
         SumatraPDF = @('SumatraPDF.exe', 'AUTHORS.txt', 'COPYING.BSD.txt', 'COPYING.txt')
+    }
+    if (-not $Full) {
+        # Keep the small licence/source notices when a reader is installed later.
+        $readerNotices = Join-Path $payloadDirectory 'Readers/SumatraPDF'
+        [IO.Directory]::CreateDirectory($readerNotices) | Out-Null
+        foreach ($name in @('AUTHORS.txt', 'COPYING.BSD.txt', 'COPYING.txt')) {
+            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "Readers/SumatraPDF/$name") -Destination $readerNotices
+        }
     }
     foreach ($reader in $(if ($Full) { $readerFiles.Keys } else { @() })) {
         $destination = Join-Path $payloadDirectory "Readers\$reader"

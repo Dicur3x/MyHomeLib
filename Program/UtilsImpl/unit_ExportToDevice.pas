@@ -14,7 +14,7 @@ unit unit_ExportToDevice;
 interface
 
 uses
-  Controls,
+  Controls, System.SysUtils,
   Forms,
   Dialogs,
   Windows,
@@ -30,7 +30,8 @@ procedure ExportToDevice(
   out ProcessedFiles: string;
   const ADeviceShellItem: IShellItem = nil;
   const AUseMTP: Boolean = False;
-  const ExplicitFormat: Boolean = False
+  const ExplicitFormat: Boolean = False;
+  const OnMissingComponent: TProc<string> = nil
   ); overload;
 
 procedure ExportToDevice(
@@ -42,7 +43,8 @@ procedure ExportToDevice(
   out Results: TBookExportResults;
   const ADeviceShellItem: IShellItem = nil;
   const AUseMTP: Boolean = False;
-  const ExplicitFormat: Boolean = False
+  const ExplicitFormat: Boolean = False;
+  const OnMissingComponent: TProc<string> = nil
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -52,7 +54,6 @@ implementation
 
 uses
   ActiveX,
-  SysUtils,
   dm_user,
   unit_Consts,
   unit_Errors,
@@ -78,12 +79,13 @@ procedure ExportToDevice(
   out ProcessedFiles: string;
   const ADeviceShellItem: IShellItem;
   const AUseMTP: Boolean;
-  const ExplicitFormat: Boolean
+  const ExplicitFormat: Boolean;
+  const OnMissingComponent: TProc<string>
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
-    ADeviceShellItem, AUseMTP, ExplicitFormat);
+    ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent);
 end;
 
 procedure ExportToDevice(
@@ -95,15 +97,16 @@ procedure ExportToDevice(
   out Results: TBookExportResults;
   const ADeviceShellItem: IShellItem;
   const AUseMTP: Boolean;
-  const ExplicitFormat: Boolean
+  const ExplicitFormat: Boolean;
+  const OnMissingComponent: TProc<string>
   );
 var
   worker: TExportToDeviceThread;
   frmProgress: TExportToDeviceProgressForm;
   MarshalStream: IStream;
-  ConverterPath: string;
+  ConverterPath, Required: string;
 begin
-  ProcessedFiles := '';
+  ProcessedFiles := ''; Required:='';
   Results := PendingBookExportResults(IdList);
   // FB2/EPUB используют встроенный конвертер. Старые режимы LRF/PDF/MOBI
   // по-прежнему проверяют наличие своего внешнего инструмента до запуска.
@@ -148,7 +151,7 @@ begin
     finally
       frmProgress.Free;
     end;
-    ProcessedFiles := worker.ProcessedFiles;
+    ProcessedFiles := worker.ProcessedFiles; Required:=worker.RequiredComponent;
     if Assigned(worker.FatalException) then
     begin
       if worker.FatalException is Exception then
@@ -160,6 +163,7 @@ begin
       Results := worker.Results;
     finally worker.Free; end;
   end;
+  if (Required<>'') and Assigned(OnMissingComponent) then OnMissingComponent(Required);
 end;
 
 procedure DownloadBooks(const IdList: TBookIdList);

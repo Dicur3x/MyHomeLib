@@ -15,6 +15,12 @@ uses
 
 type
   EMHLExternalToolError = class(Exception);
+  EMHLComponentRequired = class(EMHLExternalToolError)
+  private FComponentID: string;
+  public
+    constructor Create(const ID, Reason: string);
+    property ComponentID: string read FComponentID;
+  end;
 
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
@@ -30,6 +36,9 @@ implementation
 uses
   Winapi.Windows,
   System.IOUtils;
+
+constructor EMHLComponentRequired.Create(const ID, Reason: string);
+begin inherited Create(Reason); FComponentID:=ID; end;
 
 function QuoteCommandLineArgument(const Value: string): string;
 var

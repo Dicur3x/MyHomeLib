@@ -108,6 +108,7 @@ begin
   Display('SumatraPDF','3.6.1.0','3.6.1'); Display('SumatraPDF','3.6.0.0','3.6');
   Display('SumatraPDF','3.6.1.2','3.6.1.2'); Display('DocSharp','0.21.0.0','0.21.0');
   Display('7-Zip','26.4.0.0','26.04'); Display('7-Zip','26.04','26.04');
+  Display('7-Zip','26.5.0.0','26.05');
   Display('7-Zip','26.4.0.1','26.4.0.1'); Display('7-Zip','bad','bad');
   Display('7-Zip','26.65536.0.0','26.65536.0.0');
   Display('AlReader','2.5.1009.25','2.5.1009.25');
@@ -142,7 +143,7 @@ begin
         Require(Assigned(Notes) and Assigned(Selector),'Updater controls absent');
         Require(Selector.Items[1].SubItems[0]='3.54.1','SQLite table still has file-version zeros');
         Require(Selector.Items[3].SubItems[0]='3.6.1','Sumatra table still has file-version zeros');
-        Require(Selector.Items[5].SubItems[0]='26.04','7-Zip table lost leading zero');
+        Require(Selector.Items[5].SubItems[0]='26.05','7-Zip table lost leading zero');
         Components:=Default(TComponentReleases); Components[3]:=Info;
         Popup.ComponentsReceived(Components,True,'');
         Selector.Items[4].Selected:=True; Selector.ItemFocused:=Selector.Items[4];

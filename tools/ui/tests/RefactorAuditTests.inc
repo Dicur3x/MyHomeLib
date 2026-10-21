@@ -174,7 +174,7 @@ procedure TestRefactorConverterCancel;
 var PIDFile: string; Started: TStopwatch; ExitCode: Cardinal; Process: THandle; PID: DWORD; Success: Boolean;
 begin
   PIDFile:=Settings.AppPath+'own-converter-'+TGUID.NewGuid.ToString+'.pid'; Started:=TStopwatch.StartNew;
-  Success:=ExecAndWait(ParamStr(0),'refactor-slow-converter "'+PIDFile+'"',SW_HIDE,ExitCode,
+  Success:=unit_Globals.ExecAndWait(ParamStr(0),'refactor-slow-converter "'+PIDFile+'"',SW_HIDE,ExitCode,
     function: Boolean begin Result:=FileExists(PIDFile+'.leaf') or (Started.ElapsedMilliseconds>3000); end);
   Started.Stop;
   Require(not Success and (ExitCode=ERROR_CANCELLED) and (Started.ElapsedMilliseconds<4000),

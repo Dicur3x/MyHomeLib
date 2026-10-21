@@ -27,6 +27,9 @@ type
     procedure MessageWindowProc(var Message: TMessage);
   private
     FComponents: TComponentReleases;
+    FComponentWaiting: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of Boolean;
+    procedure ComponentProgress(var Message: TMessage);
+  private
     FComponentsView: TListView;
     FTabs: TTabControl;
     FHistorySelector: TComboBox;
@@ -36,6 +39,7 @@ type
     FNotifyOptional: TCheckBox;
     FChangingNotification: Boolean;
     FRequestedComponent, FRequestReason: string;
+    FRequestedCheckPending: Boolean;
     FComponentAutomatic: Boolean;
     FComponentExplicit: Boolean;
     FComponentError, FComponentErrorDetails: string;
@@ -134,7 +138,7 @@ var ProgramUpdateProfile: TProgramUpdateProfile;
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
+uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache;
@@ -203,7 +207,7 @@ begin
   FComponentsView.DoubleBuffered:=True;
   FComponentsView.Columns.Add.Caption:='Компонент';
   FComponentsView.Columns.Add.Caption:='Установлено';
-  FComponentsView.Columns.Add.Caption:='У автора';
+  FComponentsView.Columns.Add.Caption:='Доступно';
   FComponentsView.Columns.Add.Caption:='Состояние';
   FComponentsView.OnSelectItem:=ComponentRowSelected;
   FComponentsView.OnKeyDown:=ComponentKeyDown;
@@ -290,7 +294,7 @@ begin
   if FMessageWindow <> 0 then
   begin
     while PeekMessage(Message, FMessageWindow, WM_PROGRAM_UPDATE_DOWNLOADED,
-      WM_COMPONENT_UPDATE_CHECKED, PM_REMOVE) do ;
+      WM_COMPONENT_UPDATE_PROGRESS, PM_REMOVE) do ;
     DeallocateHWnd(FMessageWindow); FMessageWindow := 0;
   end;
   // Keep a verified ready update when installation is postponed or the app exits.
@@ -693,7 +697,7 @@ begin
         if (State='Актуально') and CompareComponentVersions(Available,Version,Comparison) and
           (Comparison>0) then State:='Нет Windows-архива';
       end;
-      if FComponentsPending or Assigned(FComponentThread) then
+      if FComponentWaiting[I] then
         State:='Проверяется…';
       Row(I+1,ComponentTitle(I),ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version),
         ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Available),State);
@@ -815,7 +819,7 @@ begin
     Exit;
   end;
   Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
-  FPage.Caption := 'Сайт автора';
+  FPage.Caption:=UpdateReleasePageCaption(UPDATE_COMPONENTS[I].ID,FComponents[I].URL);
   FVersion.Caption := ComponentTitle(I) + ': ' + ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version);
   if Version = '' then FVersion.Caption := ComponentTitle(I) + ': не установлен';
   if ComponentNewer(FComponents[I], Version) then
@@ -837,7 +841,7 @@ begin
   else
   begin
     FRelease := Default(TProgramRelease); FNeedsCheck := True;
-    FProgress.Position := 0; FBytes.Caption := ''; FPrimary.Enabled := not Assigned(FComponentThread);
+    FProgress.Position := 0; FBytes.Caption := ''; FPrimary.Enabled := not FComponentWaiting[I];
     FPrimary.Caption := 'Проверить всё';
     DisplayNotes(FComponents[I].History);
     if not FComponents[I].OfficialComponent and FComponents[I].URL.StartsWith(
@@ -855,6 +859,8 @@ begin
     if FComponents[I].CheckOnly then
       FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
+  if FComponentWaiting[I] then
+  begin FPrimary.Enabled:=False; FStatus.Caption:='Проверяется '+UPDATE_COMPONENTS[I].ID+'…'; end;
   UpdateSummary;
   finally
     try EndUIUpdate; finally Dec(FSelectionDepth); end;
@@ -1004,6 +1010,9 @@ begin
   if not FCheckingCycle or FAppPending or FComponentsPending then Exit;
   FCheckingCycle := False;
   FComponentCheck.Enabled:=True;
+  if FRequestedCheckPending then
+  begin FRequestedCheckPending:=False; CheckComponents(False); Exit; end;
+  if Assigned(FThread) or FReady then begin UpdateComponentList; Exit; end;
   UpdateComponentList;
   HasComponentUpdate := False;
   for J in CheckedComponentIndices do
@@ -1058,6 +1067,7 @@ procedure TfrmProgramUpdate.MessageWindowProc(var Message: TMessage);
 begin
   case Message.Msg of
     WM_COMPONENT_UPDATE_CHECKED: ComponentsChecked(Message);
+    WM_COMPONENT_UPDATE_PROGRESS: ComponentProgress(Message);
     WM_PROGRAM_UPDATE_DOWNLOADED: DownloadCompleted(Message);
     WM_PROGRAM_UPDATE_PROGRESS: DownloadProgress(Message);
   else Message.Result := DefWindowProc(FMessageWindow, Message.Msg, Message.WParam, Message.LParam);
@@ -1081,9 +1091,19 @@ begin
   Index:=-1;
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
   if (Index<0) or not IsOptionalComponent(ID) then Exit;
-  if Assigned(FThread) or FReady or FCheckingCycle or Assigned(FComponentThread) then begin Present; Exit; end;
-  FRequestedComponent:=ID; FRequestReason:=Reason; FCycleAutomatic:=False;
-  FApplicationRelease:=Default(TProgramRelease); FNeedsCheck:=True; FComponentExplicit:=True;
+  if (ID='DjVuLibre') and ComponentNeedsRepair(Settings.AppPath,'7-Zip') then
+  begin
+    RequestComponent('7-Zip','Для распаковки библиотеки DjVuLibre сначала нужен 7-Zip. После его установки снова откройте книгу DjVu.');
+    Exit;
+  end;
+  if Assigned(FThread) or FReady then begin Present; Exit; end;
+  FRequestedComponent:=ID; FRequestReason:=Reason;
+  if FCheckingCycle or Assigned(FComponentThread) then
+  begin
+    FRequestedCheckPending:=True; SelectRow(Index+1); ComponentSelected(nil); Present; Exit;
+  end;
+  FCycleAutomatic:=False; FApplicationRelease:=Default(TProgramRelease);
+  FNeedsCheck:=True; FComponentExplicit:=True;
   SelectRow(Index+1); CheckComponents(False);
   FStatus.Caption:=Reason+sLineBreak+'Проверяем доступность и размер загрузки…'; LayoutWindow; Present;
 end;
@@ -1104,6 +1124,9 @@ begin
       if MayNotifyComponent(I) then IDs:=IDs+TArray<string>.Create(UPDATE_COMPONENTS[I].ID);
     FComponentThread.OnlyIDs:=IDs;
   end;
+  for var I:=Low(FComponentWaiting) to High(FComponentWaiting) do
+    FComponentWaiting[I]:=(Length(FComponentThread.OnlyIDs)=0) or
+      (System.StrUtils.IndexText(UPDATE_COMPONENTS[I].ID,FComponentThread.OnlyIDs)>=0);
   FComponentCheck.Enabled := False;
   UpdateComponentList;
   if (FSelectedRow > 0) and not Assigned(FThread) and not FReady then
@@ -1113,14 +1136,38 @@ begin
   FComponentThread.Start;
 end;
 
-procedure TfrmProgramUpdate.ComponentsChecked(var Message: TMessage);
-var Successful: Boolean; Releases: TComponentReleases; Error: string;
+procedure TfrmProgramUpdate.ComponentProgress(var Message: TMessage);
+var I: Integer; Updated: TComponentReleases; Info: TProgramRelease;
 begin
-  Message.Result := 0; if not Assigned(FComponentThread) then Exit;
-  FComponentThread.WaitFor; Successful := FComponentThread.Successful;
-  Releases := FComponentThread.Releases; Error := FComponentThread.ErrorText;
+  Message.Result:=0;
+  if not Assigned(FComponentThread) or (Message.WParam<>WPARAM(FComponentThread)) then Exit;
+  I:=Message.LParam;
+  if not FComponentThread.TryGetRelease(I,Info) then Exit;
+  Updated:=FComponents; Updated[I]:=Info;
+  PreserveComponentHistory(Updated,FComponents); FComponents[I]:=Updated[I];
+  FComponentWaiting[I]:=False;
+  BeginUIUpdate;
+  try
+    UpdateComponentList;
+    if FSelectedRow=I+1 then ComponentSelected(nil);
+  finally EndUIUpdate; end;
+end;
+
+procedure TfrmProgramUpdate.ComponentsChecked(var Message: TMessage);
+var Successful: Boolean; Releases: TComponentReleases; Error: string; Info: TProgramRelease;
+begin
+  Message.Result:=0;
+  if not Assigned(FComponentThread) or (Message.WParam<>WPARAM(FComponentThread)) then Exit;
+  FComponentThread.WaitFor; Successful:=FComponentThread.Successful;
+  Releases:=FComponents;
+  for var I:=Low(Releases) to High(Releases) do
+  begin
+    if FComponentThread.TryGetRelease(I,Info) then Releases[I]:=Info;
+    FComponentWaiting[I]:=False;
+  end;
+  Error:=FComponentThread.ErrorText;
   FreeAndNil(FComponentThread);
-  ComponentsReceived(Releases, Successful, Error);
+  ComponentsReceived(Releases,Successful,Error);
 end;
 
 procedure TfrmProgramUpdate.ComponentsReceived(const Releases: TComponentReleases;
@@ -1150,6 +1197,8 @@ begin
       FComponents[I].ComponentErrorDetails:=FComponentErrorDetails;
     end;
   FComponentCheck.Enabled := True; UpdateComponentList;
+  if FRequestedCheckPending and not FCheckingCycle then
+  begin FRequestedCheckPending:=False; CheckComponents(False); Exit; end;
   if FCheckingCycle then
   begin FComponentsPending := False; FinishCheckCycle; Exit; end;
   if Assigned(FThread) or FReady then
@@ -1282,7 +1331,8 @@ begin
     Exit;
   end;
   if Assigned(FThread) then Exit;
-  if FCheckingCycle then Exit;
+  if FCheckingCycle and ((FSelectedRow=0) or FNeedsCheck or
+    FComponentWaiting[FSelectedRow-1]) then Exit;
   if FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   if FRelease.CheckOnly and not FNeedsCheck then begin ComponentCheckClick(nil); Exit; end;
   PreviousRepair:=FRepairComponents; RefreshInstalledComponents;
@@ -1302,6 +1352,7 @@ begin
   end;
   for ReleaseInfo in FQueue do
     if ReleaseInfo.DownloadURL = '' then begin PageClick(nil); Exit; end;
+  FRequestedCheckPending:=False; // The requested component is already verified and chosen.
   DiscardJob; ClearQueueJobs; FQueueIndex := 0; FQueueBytes := 0; FQueueTotal := 0;
   for ReleaseInfo in FQueue do Inc(FQueueTotal, ReleaseInfo.Size);
   StartQueuedDownload;

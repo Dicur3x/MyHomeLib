@@ -261,7 +261,7 @@ begin
     Require(Dialog.StartCheckCycle(False),'Repair check did not start');
     Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
     Require(Primary.Enabled and (Primary.Caption='Скачать и восстановить') and
-      string(Status.Caption).Contains('7-Zip') and not string(Status.Caption).Contains('DjVuLibre') and
+      not string(Status.Caption).Contains('7-Zip') and not string(Status.Caption).Contains('DjVuLibre') and
       not string(Status.Caption).Contains('DocSharp'),
       'Same-release repair was hidden or lacked an explanation');
     Require(View.Items[0].SubItems[2]='Восстановление компонентов','Repair row falsely says current');
@@ -322,22 +322,18 @@ begin
       if Primary.Enabled and (Primary.Caption='Повторить загрузку') then
         raise Exception.Create('Repair queue failed: '+string(Status.Caption));
     until Primary.Enabled and (Primary.Caption='Установить и перезапустить');
-    Require((Server.Requests=2) and (Server.Failure=''),'Repair queue lost a package or used an unexpected source');
+    Require((Server.Requests=1) and (Server.Failure=''),'Application repair downloaded an unused optional component or used an unexpected source');
     for var Name in Names do Require(not FileExists(Settings.AppPath+Name),'Preparation modified installed files before installation');
-    Writeln('PASS same-release repair downloads minimal verified application and required 7-Zip without forcing optional DOC packages');
+    Writeln('PASS same-release repair downloads minimal verified application without forcing optional archive or DOC components');
     Require(not FileExists(Reader),'Author repair changed installed files before installation');
     Cache:=ProgramUpdateCache(Settings.AppPath);
     Ready:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Cache,'ready.json'),TEncoding.UTF8));
     try Job:=TJSONObject(Ready).GetValue<string>('job'); Digest:=TJSONObject(Ready).GetValue<string>('sha256'); finally Ready.Free; end;
     Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Job,'manifest.json'),TEncoding.UTF8));
     try
-      // The root represents the application. Only component descriptors are
-      // children of bundle; their payload files also appear in the root list.
-      var Bundle:=TJSONObject(Root).GetValue<TJSONArray>('bundle');
-      Require((TJSONObject(Root).GetValue<string>('component','')='') and (Bundle.Count=1),
-        'Repair bundle lost the app or a prepared component');
-      Require(TJSONObject(Bundle.Items[0]).GetValue<string>('component')='7-Zip',
-        'Repair bundle has different component identities');
+      var Bundle:=TJSONObject(Root).GetValue('bundle') as TJSONArray;
+      Require((TJSONObject(Root).GetValue<string>('component','')='') and not Assigned(Bundle),
+        'Application repair unexpectedly queued an absent optional component');
     finally Root.Free; end;
     Require(not FileExists(TPath.Combine(Job,'payload/Readers/AlReader/AlReader2.exe')),
       'Minimal repair forced a missing optional reader back into the payload');

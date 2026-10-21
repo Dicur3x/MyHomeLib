@@ -15,10 +15,15 @@ type
 
 const
   WM_COMPONENT_UPDATE_CHECKED = WM_APP + $0504;
+  WM_COMPONENT_UPDATE_PROGRESS = WM_APP + $0505;
+  ALREADER_FIXED_TAG = 'optional-alreader-2.5.1009.25';
+  ALREADER_FIXED_NAME = 'AlReader-2.5.1009.25.zip';
+  ALREADER_FIXED_SHA256 = '20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab';
+  ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   UPDATE_COMPONENTS: array[0..5] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
-    (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://alreader.com'; CheckKind:ccBundled; CheckOnly:False),
+    (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
     (ID:'DjVuLibre'; Title:'Чтение DjVu'; URL:'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'7-Zip'; Title:'Распаковка архивов'; URL:'https://www.7-zip.org/download.html'; CheckKind:ccRaster; CheckOnly:False),
@@ -29,13 +34,17 @@ type
   TComponentUpdateThread = class(TThread)
   private
     FHTTP: THTTPClient;
+    FClients: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of THTTPClient;
+    FCompleted: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of Integer;
+    procedure CheckComponent(I: Integer);
+    function StartComponent(I: Integer): TThread;
+  private
     FWindow: HWND;
     FSuccessful: Boolean;
     FError, FURL, FCacheFolder: string;
     FReleases: TComponentReleases;
     FLimit: Int64;
     FOnlyIDs: TArray<string>;
-    function PublishedPackages: TComponentReleases;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -46,6 +55,7 @@ type
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const URL: string = PROGRAM_RELEASES_API; const CacheFolder: string = '');
     destructor Destroy; override;
+    function TryGetRelease(Index: Integer; out Info: TProgramRelease): Boolean;
     property Successful: Boolean read FSuccessful;
     property ErrorText: string read FError;
     property Releases: TComponentReleases read FReleases;
@@ -63,6 +73,8 @@ type
     constructor Create(const ID: string);
     property ComponentID: string read FComponentID;
   end;
+
+function FixedAlReaderRelease: TProgramRelease;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
   out Releases: TComponentReleases; RequireAssets: Boolean = True): Boolean;
@@ -93,8 +105,26 @@ uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
   unit_UpdateNotes, unit_UpdateTextCache;
 
+// Each probe owns its HTTP session. Never share WinHTTP handles across workers.
+threadvar ComponentProbeHTTP: THTTPClient;
+
+function FixedAlReaderRelease: TProgramRelease;
+begin
+  Result:=Default(TProgramRelease); Result.ComponentID:='AlReader';
+  Result.Tag:=ALREADER_FIXED_TAG; Result.ComponentVersion:='2.5.1009.25';
+  Result.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG;
+  Result.DownloadURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+ALREADER_FIXED_NAME;
+  Result.SHA256:=ALREADER_FIXED_SHA256; Result.Size:=ALREADER_FIXED_SIZE;
+  Result.History:=ReleaseNotesHeading(Result.ComponentVersion,'')+sLineBreak+
+    'Сохранённый Windows-выпуск AlReader. Это прежняя версия, а не новый выпуск автора.'+sLineBreak+
+    'Один постоянный архив HomeLib Ru на GitHub, одинаковый для x86 и x64. '+
+    'Контрольная сумма зафиксирована в программе. С каждым выпуском HomeLib Ru архив заново не публикуется.'+sLineBreak+
+    'AlReader свободен для некоммерческого использования; условия автора сохранены в readme.txt.';
+  Result.Changelog:=Result.History;
+end;
+
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp'); end;
+begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -175,6 +205,7 @@ begin
       if URL = Info.URL then Exit('Сайт автора: ' + Info.ID);
     Exit('Выпуски HomeLib Ru');
   end;
+  if Component='AlReader' then Exit('Постоянный архив AlReader');
   if Component <> '' then Result := 'Сайт автора'
   else Result := 'Открыть GitHub';
 end;
@@ -422,6 +453,7 @@ begin
 {$ELSE}
       Suffix:='';
 {$ENDIF}
+      Assets:=nil;
       Name:='7z'+Tag.Replace('.','')+Suffix+'.exe';
       if TJSONObject(Root).TryGetValue<TJSONArray>('assets',Assets) then
         for Asset in Assets do
@@ -432,6 +464,18 @@ begin
             IsUpdateSHA256(Copy(Digest,8,MaxInt)) and TJSONObject(Asset).TryGetValue<Int64>('size',Info.Size) and
             (Info.Size>0) and (Info.Size<=UPDATE_MAX_ARCHIVE) then
           begin Info.DownloadURL:=URL; Info.SHA256:=Copy(Digest,8,MaxInt); Info.CheckOnly:=False; Info.OfficialComponent:=True; end;
+      // A portable installation may have no extractor yet. The author's small
+      // standalone decoder extracts the installer without running the installer.
+      if Assigned(Assets) then
+        for Asset in Assets do
+          if (Asset is TJSONObject) and Asset.TryGetValue<string>('name',Notes) and (Notes='7zr.exe') and
+            Asset.TryGetValue<string>('browser_download_url',URL) and
+            (URL='https://github.com/ip7z/7zip/releases/download/'+Tag+'/7zr.exe') and
+            Asset.TryGetValue<string>('digest',Digest) and Digest.StartsWith('sha256:') and
+            IsUpdateSHA256(Copy(Digest,8,MaxInt)) and Asset.TryGetValue<Int64>('size',Info.SecondarySize) and
+            (Info.SecondarySize>0) and (Info.SecondarySize<=4*1024*1024) then
+          begin Info.SecondaryURL:=URL; Info.SecondarySHA256:=Copy(Digest,8,MaxInt); Break; end;
+      if Info.SecondaryURL<>'' then Inc(Info.Size,Info.SecondarySize);
     finally Root.Free; end;
   end
   else if ID='DjVuLibre' then
@@ -628,10 +672,24 @@ begin
   FCacheFolder := CacheFolder;
   FHTTP.UserAgent := 'HomeLib Ru'; FHTTP.ConnectionTimeout := 4000; FHTTP.ResponseTimeout := 6000;
   FHTTP.OnReceiveData := ReceiveData; FLimit := 8 * 1024 * 1024;
+  for var I:=Low(FClients) to High(FClients) do
+  begin
+    FClients[I]:=THTTPClient.Create;
+    FClients[I].ProxySettings:=FHTTP.ProxySettings;
+    FClients[I].HandleRedirects:=FHTTP.HandleRedirects;
+    FClients[I].UserAgent:=FHTTP.UserAgent;
+    FClients[I].ConnectionTimeout:=FHTTP.ConnectionTimeout;
+    FClients[I].ResponseTimeout:=FHTTP.ResponseTimeout;
+    FClients[I].OnReceiveData:=ReceiveData;
+  end;
 end;
 
 destructor TComponentUpdateThread.Destroy;
-begin inherited; FHTTP.Free; end;
+begin
+  inherited;
+  for var Client in FClients do Client.Free;
+  FHTTP.Free;
+end;
 
 procedure TComponentUpdateThread.ReceiveData(const Sender: TObject;
   AContentLength, AReadCount: Int64; var AAbort: Boolean);
@@ -640,58 +698,21 @@ begin AAbort := Terminated or (AContentLength > FLimit) or (AReadCount > FLimit)
 function TComponentUpdateThread.FetchText(const URL: string): string;
 begin
   if Terminated then Abort;
-  Result := CachedUpdateText(FHTTP, URL, FCacheFolder, FLimit);
+  if Assigned(ComponentProbeHTTP) then
+    Result:=CachedUpdateText(ComponentProbeHTTP,URL,FCacheFolder,FLimit)
+  else Result:=CachedUpdateText(FHTTP,URL,FCacheFolder,FLimit);
   if Terminated then Abort;
 end;
 
 function TComponentUpdateThread.FetchHead(const URL: string): IHTTPResponse;
 begin
-  Result := FHTTP.Head(URL);
+  if Terminated then Abort;
+  if Assigned(ComponentProbeHTTP) then Result:=ComponentProbeHTTP.Head(URL)
+  else Result:=FHTTP.Head(URL);
 end;
 
-function TComponentUpdateThread.PublishedPackages: TComponentReleases;
-var Root: TJSONValue; Items, Assets: TJSONArray; Item, Asset: TJSONValue;
-  Tag, Name, URL, BestTag, AssetsText, FeedURL, Text: string;
-  Draft: Boolean; Comparison: Integer; Size: Int64;
-begin
-  Result:=Default(TComponentReleases);
-  if FURL='' then Exit;
-  BestTag:=''; FeedURL:=''; AssetsText:='';
-  Root:=TJSONObject.ParseJSONValue(FetchText(FURL));
-  try
-    if not (Root is TJSONArray) or (TJSONArray(Root).Count>100) then Exit;
-    Items:=TJSONArray(Root);
-    for Item in Items do
-    begin
-      if not (Item is TJSONObject) or not Item.TryGetValue<string>('tag_name',Tag) or
-        not CompareReleaseTags(Tag,Tag,Comparison) or
-        not Item.TryGetValue<Boolean>('draft',Draft) or Draft or
-        not Item.TryGetValue<TJSONArray>('assets',Assets) then Continue;
-      if (BestTag<>'') and CompareReleaseTags(Tag,BestTag,Comparison) and (Comparison<=0) then Continue;
-      for Asset in Assets do
-        if (Asset is TJSONObject) and Asset.TryGetValue<string>('name',Name) and (Name=COMPONENT_FEED_NAME) and
-          Asset.TryGetValue<string>('browser_download_url',URL) and
-          (URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/'+COMPONENT_FEED_NAME) and
-          Asset.TryGetValue<Int64>('size',Size) and (Size>0) and (Size<=1024*1024) then
-        begin BestTag:=Tag; FeedURL:=URL; AssetsText:=Assets.ToJSON; Break; end;
-    end;
-  finally Root.Free; end;
-  if FeedURL='' then Exit;
-  Text:=FetchText(FeedURL);
-  if Length(Text)>1024*1024 then Exit;
-  // Missing core archives are allowed in an optional-only feed. The parser
-  // still accepts download URLs/hashes/sizes only from matching GitHub assets.
-  if not ParseComponentFeed(Text,BestTag,AssetsText,Result,False) then Result:=Default(TComponentReleases);
-end;
-
-procedure TComponentUpdateThread.Execute;
-var I: Integer; DownloadPage, Changes, Folder, WindowsFiles: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
-  Published: TComponentReleases; PublishedLoaded: Boolean;
-  procedure LoadPublished;
-  begin
-    if PublishedLoaded then Exit; PublishedLoaded:=True;
-    try Published:=PublishedPackages; except Published:=Default(TComponentReleases); end;
-  end;
+procedure TComponentUpdateThread.CheckComponent(I: Integer);
+var DownloadPage, Changes, Folder, WindowsFiles: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
   procedure GetSize(var Info: TProgramRelease);
   begin
     Response:=FetchHead(Info.DownloadURL);
@@ -718,27 +739,20 @@ var I: Integer; DownloadPage, Changes, Folder, WindowsFiles: string; Response: I
   end;
   procedure AuthorNotes(const API: string; var Info: TProgramRelease);
   begin
-    if ParseSumatraReleases(FetchText(API),NotesInfo) then
-    begin Info.History:=NotesInfo.History; Info.Notes:=NotesInfo.Notes; Info.Changelog:=NotesInfo.Changelog; end;
+    try
+      if ParseSumatraReleases(FetchText(API),NotesInfo) then
+      begin Info.History:=NotesInfo.History; Info.Notes:=NotesInfo.Notes; Info.Changelog:=NotesInfo.Changelog; end;
+    except on E: EAbort do raise; on E: Exception do ; end;
   end;
 begin
-  PublishedLoaded:=False; Published:=Default(TComponentReleases);
-  for I in CheckedComponentIndices do
-  begin
-    FReleases[I].ComponentID := ComponentIDs[I];
-    if (Length(FOnlyIDs)>0) and (IndexText(ComponentIDs[I],FOnlyIDs)<0) then Continue;
+  FReleases[I].ComponentID:=UPDATE_COMPONENTS[I].ID;
+  if Terminated then Exit;
     try
       case UPDATE_COMPONENTS[I].CheckKind of
         ccBundled:
-          begin
-            LoadPublished;
-            if Published[I].DownloadURL<>'' then
-            begin FReleases[I]:=Published[I]; Continue; end;
-            DownloadPage:=FetchText('https://www.alreader.com/');
-            if not DownloadPage.Contains('AlReader2.Win32') then
-              FReleases[I].ComponentWarning := 'Официальный сайт доступен, но Windows-выпуск не найден. Установленная читалка продолжает работать.'
-            else FReleases[I].ComponentWarning := 'Автор не указал версию Windows-выпуска. Автоустановка недоступна; установленная читалка продолжает работать.';
-          end;
+          // Version and bytes are fixed, not guessed from the unavailable site.
+          // Availability is checked by the actual bounded download on user request.
+          FReleases[I]:=FixedAlReaderRelease;
         ccSQLite:
           begin
             DownloadPage := FetchText('https://www.sqlite.org/download.html');
@@ -815,16 +829,55 @@ begin
         FReleases[I].ComponentErrorDetails := Copy(E.ClassName + ': ' + E.Message,1,4096);
       end;
     end;
-    if IsOptionalComponent(ComponentIDs[I]) and (FReleases[I].DownloadURL='') then
-    begin
-      LoadPublished;
-      if Published[I].DownloadURL<>'' then FReleases[I]:=Published[I];
-    end;
-    if Terminated then Exit;
-  end;
   if Terminated then Exit;
-  FSuccessful := True;
-  if not Terminated then PostMessage(FWindow, WM_COMPONENT_UPDATE_CHECKED, 0, 0);
+  // Publish only immutable, complete slots; Interlocked supplies the memory barrier.
+  InterlockedExchange(FCompleted[I],1);
+  PostMessage(FWindow,WM_COMPONENT_UPDATE_PROGRESS,WPARAM(Self),I);
+end;
+
+function TComponentUpdateThread.TryGetRelease(Index: Integer; out Info: TProgramRelease): Boolean;
+begin
+  Result:=(Index>=Low(FCompleted)) and (Index<=High(FCompleted));
+  if Result then Result:=InterlockedCompareExchange(FCompleted[Index],1,1)=1;
+  if Result then Info:=FReleases[Index];
+end;
+
+function TComponentUpdateThread.StartComponent(I: Integer): TThread;
+begin
+  Result:=TThread.CreateAnonymousThread(
+    procedure
+    begin
+      ComponentProbeHTTP:=FClients[I];
+      try CheckComponent(I); finally ComponentProbeHTTP:=nil; end;
+    end);
+  Result.FreeOnTerminate:=False;
+  Result.Start;
+end;
+
+procedure TComponentUpdateThread.Execute;
+var Workers: TArray<TThread>; I: Integer;
+begin
+  SetLength(Workers,Length(UPDATE_COMPONENTS));
+  try
+    try
+      for I in CheckedComponentIndices do
+        if not Terminated and ((Length(FOnlyIDs)=0) or
+          (IndexText(UPDATE_COMPONENTS[I].ID,FOnlyIDs)>=0)) then
+          Workers[I]:=StartComponent(I);
+    finally
+      for var Worker in Workers do
+        if Assigned(Worker) then begin Worker.WaitFor; Worker.Free; end;
+    end;
+    if not Terminated then
+      for I in CheckedComponentIndices do
+        if ((Length(FOnlyIDs)=0) or (IndexText(UPDATE_COMPONENTS[I].ID,FOnlyIDs)>=0)) and
+          (InterlockedCompareExchange(FCompleted[I],1,1)<>1) then
+          raise Exception.Create('Проверка '+UPDATE_COMPONENTS[I].ID+' не завершилась.');
+    FSuccessful:=not Terminated;
+  except
+    on E: Exception do FError:=Copy(E.ClassName+': '+E.Message,1,4096);
+  end;
+  if not Terminated then PostMessage(FWindow,WM_COMPONENT_UPDATE_CHECKED,WPARAM(Self),0);
 end;
 
 end.

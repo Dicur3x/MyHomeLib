@@ -25,22 +25,22 @@
     }
   },
   "sevenzip": {
-    "version": "26.04",
+    "version": "26.05",
     "Win64": {
-      "url": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604-x64.exe",
-      "sha256": "d54bf805f9f3704d1e8db2fa3498ae7ef2df0312b40b558e7c71c734430a665d",
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.exe",
+      "sha256": "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0",
       "files": {
-        "7z.exe": "95fff19b73eff77c87c0d7bd32822e43fb90dd2932459f962eb532d8dfb6ba53",
-        "7z.dll": "899cd73d7fc60e1c1c35c7de0f5bed3dc69bfe2cecbd48014d868a347970a0b1",
+        "7z.exe": "94205cfc054dd3bbeb978905bc619a65b3f04e9e73bb2717841110b6f46d962e",
+        "7z.dll": "78bf6b668d75801e3aa180b4ccb16e6d8395fba80dec8a065055bb6f8dfabb82",
         "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d"
       }
     },
     "Win32": {
-      "url": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604.exe",
-      "sha256": "39bf65045153fc26c42fa9fe47afd8cd1b11671c7f11d031e738c9a13960c009",
+      "url": "https://github.com/ip7z/7zip/releases/download/26.05/7z2605.exe",
+      "sha256": "6435a470fe7c4769962dbed8a60c641ee21401c833ced06077c80e33e7845a5e",
       "files": {
-        "7z.exe": "684955b4978fdbace051ffd55edab90d180b7cb4d208f943998866727d8d6c13",
-        "7z.dll": "4a796dd5993c7e1188da7610f0d81972cb21b82f28a7c9fb24015ec46b2c0308",
+        "7z.exe": "c3598543c41918b5c94dafb9dd724c16c9a217d36b5ee530e3bc10c9f12aca6c",
+        "7z.dll": "1c57100cc237db626259f68fe91c5a632a5128e0e01bab1452baa1104ff84311",
         "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d"
       }
     }

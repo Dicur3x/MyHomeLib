@@ -171,7 +171,7 @@ begin
     if ID='SQLite' then Names:=TArray<string>.Create('sqlite3.dll')
     else if ID='AlReader' then Names:=TArray<string>.Create('Readers/AlReader/AlReader2.exe')
     else if ID='SumatraPDF' then Names:=TArray<string>.Create('Readers/SumatraPDF/SumatraPDF.exe')
-    else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/7za.exe','tools/7zip/License.txt')
+    else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
     else if ID='DocSharp' then Names:=TArray<string>.Create('tools/doc/HomeLibDoc.exe',
       'tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll',
       'tools/doc/DocSharp.Binary.Ppt.dll','tools/doc/DocSharp.Binary.Xls.dll',
@@ -726,7 +726,8 @@ begin
   if ID='7-Zip' then
   begin
     if Platform='Win64' then Suffix:='-x64' else Suffix:='';
-    Exit(not Secondary and (URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7z'+Version.Replace('.','')+Suffix+'.exe'));
+    if Secondary then Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7zr.exe');
+    Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7z'+Version.Replace('.','')+Suffix+'.exe');
   end;
   if ID='DocSharp' then
   begin
@@ -823,7 +824,13 @@ begin
     else
     begin
       Tools:=TPath.Combine(RuntimePath,'tools/7zip/7z.exe');
-      if not FileExists(Tools) then raise Exception.Create('В комплекте программы отсутствует распаковщик 7-Zip.');
+      if (ID='7-Zip') and (SecondaryArchive<>'') then
+      begin
+        AssertUpdatePath(SecondaryArchive);
+        Tools:=ChildPath(Job,'7zr.exe'); TFile.Copy(SecondaryArchive,Tools,False);
+      end;
+      if not FileExists(Tools) then
+        raise Exception.Create('Для подготовки этого компонента сначала скачайте 7-Zip в окне обновлений.');
       Raw:=ChildPath(Job,'official-files'); ForceDirectories(Raw);
       if ID='7-Zip' then Names:=TArray<string>.Create('7z.exe','7z.dll','License.txt')
       else Names:=TArray<string>.Create('ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll','COPYING.txt');
@@ -890,12 +897,17 @@ begin
     Root := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Bytes)) as TJSONObject;
     if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) or
        not Root.TryGetValue<string>('release', Value) or (Value <> Tag) or
-       not Root.TryGetValue<string>('platform', Value) or (Value <> Platform) then
+       not Root.TryGetValue<string>('platform', Value) or
+       ((Value<>Platform) and not ((ComponentID='AlReader') and (Value='AnyWindows'))) then
       raise Exception.Create('Манифест обновления не подходит этой версии программы.');
     Component := ''; Root.TryGetValue<string>('component', Component);
     if Component <> ComponentID then raise Exception.Create('В архиве находится другое обновление.');
     if (ComponentID <> '') and (not Root.TryGetValue<string>('version', Value) or
        (Value <> ComponentVersion)) then raise Exception.Create('В архиве находится другая версия компонента.');
+    // Only the x86 AlReader payload is shared across host architectures.
+    if (ComponentID='AlReader') and (Value=ComponentVersion) and
+      (Root.GetValue<string>('platform')='AnyWindows') then
+    begin Root.RemovePair('platform').Free; Root.AddPair('platform',Platform); end;
     Result := ManifestFiles(Root);
     if Length(Result) + 1 <> Zip.FileCount then
       raise Exception.Create('Содержимое архива не совпадает с манифестом.');

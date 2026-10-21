@@ -1,0 +1,19 @@
+{
+  "source": "desktop merged catalogue, read-only; no timings while virtual machines run",
+  "queries": {
+    "before": {
+      "sql": "SELECT DISTINCT b.BookID FROM Books b WHERE b.SearchTitle LIKE '%ПРИВЕТ%' AND b.IsDeleted=0",
+      "plan": [
+        "SEARCH b USING INDEX IXBooks_IsDeleted (IsDeleted=?)"
+      ]
+    },
+    "after": {
+      "sql": "SELECT DISTINCT b.BookID FROM Books b WHERE b.BookID IN (SELECT titlematch.BookID FROM Books titlematch WHERE titlematch.SearchTitle LIKE '%ПРИВЕТ%') AND b.IsDeleted=0",
+      "plan": [
+        "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=? AND IsDeleted=?)",
+        "LIST SUBQUERY 1",
+        "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+      ]
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "archive": "AlReader-2.5.1009.25.zip",
+  "tag": "optional-alreader-2.5.1009.25",
+  "version": "2.5.1009.25",
+  "size": 4739366,
+  "sha256": "20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab",
+  "files": [
+    {
+      "path": "Readers/AlReader/AlReader2.exe",
+      "size": 2510848,
+      "sha256": "a975618b056918e8c0aad7303d07d9c1adcb4fba7573eea2e8ad71ce7ead5697"
+    },
+    {
+      "path": "Readers/AlReader/$savevtut.ini",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "Readers/AlReader/AlDictionary.aldict",
+      "size": 3259107,
+      "sha256": "931fed5d6579255e2e2fee846fdf34427896d92facc845f2d129e63118192502"
+    },
+    {
+      "path": "Readers/AlReader/UNRAR.DLL",
+      "size": 157696,
+      "sha256": "c27cc071ca6893ec496f50d0910de0e6772e2f8e6ce37fec066bfeccb99c06e9"
+    },
+    {
+      "path": "Readers/AlReader/readme.txt",
+      "size": 418,
+      "sha256": "c738703c7ab5f0f2d721a66b4a1266924aed9b94cae23b0274733e2e603d2acf"
+    },
+    {
+      "path": "Readers/AlReader/book_new0.m2.bmp",
+      "size": 737336,
+      "sha256": "8c23ca12e10f567f5f720268c5a422cfd54377585ed04feb7a2da7f813c3e571"
+    },
+    {
+      "path": "Readers/AlReader/book_new1.m2.bmp",
+      "size": 737336,
+      "sha256": "f10568a872350d90ef676c4a6fc4f5f7402b720a49ae03a1564b3c07345fd643"
+    },
+    {
+      "path": "Readers/AlReader/book_white.m2.bmp",
+      "size": 737336,
+      "sha256": "dc3af160428a4031bef77c35d6157f5b2e86266ed01367b08a05708e99cde21b"
+    },
+    {
+      "path": "Readers/AlReader/DefaultTexture.BMP",
+      "size": 12342,
+      "sha256": "38b3b023344b1a5af4ba12c204bc4926122ad50933ddf814dfca2af20b9da549"
+    },
+    {
+      "path": "Readers/AlReader/DefaultTextureBlack.BMP",
+      "size": 12342,
+      "sha256": "425fbdb1280812e4abbbda566c3dfe4e22f4a1b42a54e4cc3a0cf1d9caef1688"
+    },
+    {
+      "path": "Readers/AlReader/English_US_hyphen_(Alan).pdb",
+      "size": 134362,
+      "sha256": "4dd1c1c9ed91263762d9835355c73b1fdb945245f10b8409936e6280fc403fa2"
+    },
+    {
+      "path": "Readers/AlReader/fon_white.m1.bmp",
+      "size": 37940,
+      "sha256": "fe0f514f600a09fffc4c230f38c08c077160ffaec3aadadf59db8d284de89b0c"
+    },
+    {
+      "path": "Readers/AlReader/Russian_1251_hyphen_(Alan).pdb",
+      "size": 62970,
+      "sha256": "a4a5304a377f7ec284ced13ac37e49bfcad37b32d62556cade93a82329f68415"
+    },
+    {
+      "path": "Readers/AlReader/Russian_EnUS_hyphen_(Alan).pdb",
+      "size": 196722,
+      "sha256": "ba4a9ef93843f472d9305279f6c412b167c85959d169a17bb3679037bc4aaf00"
+    },
+    {
+      "path": "Readers/AlReader/Russian_hyphen_(Alan).pdb",
+      "size": 62970,
+      "sha256": "a4a5304a377f7ec284ced13ac37e49bfcad37b32d62556cade93a82329f68415"
+    }
+  ],
+  "published": {
+    "release_id": 419821258,
+    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25",
+    "asset_count": 1,
+    "github_digest_matches": true
+  }
+}
