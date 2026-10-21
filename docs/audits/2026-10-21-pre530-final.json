@@ -643,6 +643,10 @@
       "paths": [
         "tools/ui/tests/Out/pre530-publish/candidate-before-reader-caption",
         "tools/ui/tests/Out/pre530-publish/candidate-before-reader-spread"
+      ],
+      "additional_files_blocked": [
+        "tools/ui/tests/Out/pre530-publish/book-appearance/HomeLibRu.zip",
+        "tools/ui/tests/Out/pre530-publish/book-appearance/HomeLibRu_x64.zip"
       ]
     },
     "user_collections_backups_and_disks_E_G": "untouched"

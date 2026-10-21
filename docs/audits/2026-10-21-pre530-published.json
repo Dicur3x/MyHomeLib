@@ -1,0 +1,97 @@
+{
+  "tag": "2.7.0_pre5.30",
+  "commit": "719fdc1baebc0efbd5b9acd0450bdaed37bd4988",
+  "release_id": 419698778,
+  "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.30",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "verified_utc": "2026-10-21T15:15:10.096259+00:00",
+  "assets": [
+    {
+      "name": "HomeLibRu-AlReader-Win32.zip",
+      "size": 4851212,
+      "sha256": "ad9675e64cbd48180c0eb29fbd61863242d0376186c15256f179a1788c1b7114",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-AlReader-Win32.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-AlReader-Win64.zip",
+      "size": 4851212,
+      "sha256": "a1250c933e23f91b0e19b9b57e2aeb1479fd3dbbf9b755167c5b8d71de6003d6",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-AlReader-Win64.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-DjVuLibre-Win32.zip",
+      "size": 4577915,
+      "sha256": "fd35bfc220957c2a817079b3dedd3bd7f6e1a2adcf9b00b79bec805e9e46147f",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-DjVuLibre-Win32.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-DjVuLibre-Win64.zip",
+      "size": 4577915,
+      "sha256": "354a1e03e4a6ffaaf4ecd3f27172b6e4dbef1747b5f38ed472aed7e0bdac355f",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-DjVuLibre-Win64.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-DocSharp-Win32.zip",
+      "size": 410608,
+      "sha256": "3239899b3d0cd6ac251e8322eb591784c33935aa5e8a4fa4a82cac2121269421",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-DocSharp-Win32.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-DocSharp-Win64.zip",
+      "size": 410608,
+      "sha256": "fdf9aacbe65da3569af46360ad8acfb642c0c885f5fa070e6d93175d73eac527",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-DocSharp-Win64.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-SumatraPDF-Win32.zip",
+      "size": 9979688,
+      "sha256": "75217e85043cc3fc314396413175f3c44e5f9b7da7fa158e196fc413afa25633",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-SumatraPDF-Win32.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu-SumatraPDF-Win64.zip",
+      "size": 10687205,
+      "sha256": "c4470b506a0e02ecaca147d2b84afd9f166fd605e2457c75a80f36ef08aaa7cc",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu-SumatraPDF-Win64.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu.components.json",
+      "size": 9015,
+      "sha256": "84b3e6bce5259761eb3eed159b3be43ef1b4bc098ed253e59ae8844b30555528",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu.components.json",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu.zip",
+      "size": 31905883,
+      "sha256": "c7e366650738f94ab771be3e77468040f45ee209c97cf8a19c96368e2f86ddb1",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "HomeLibRu_x64.zip",
+      "size": 36750490,
+      "sha256": "a7c5dfc838d16428de05cf97c7649d63e678a6918c3ac44585ba52f893cb722a",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/HomeLibRu_x64.zip",
+      "public_download_verified": true
+    },
+    {
+      "name": "SHA256.txt",
+      "size": 1033,
+      "sha256": "f628f7927241d84b96d80f74d5746d0f7461f519c6bbe3e48cc00dbd12428231",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.30/SHA256.txt",
+      "public_download_verified": true
+    }
+  ],
+  "downloads_saved_to_disk": false
+}
