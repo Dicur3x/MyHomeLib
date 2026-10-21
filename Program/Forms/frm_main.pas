@@ -1037,6 +1037,8 @@ type
     procedure FavoriteStopClick(Sender: TObject);
     procedure FavoriteMenuClick(Sender: TObject);
     procedure FavoriteTransferClick(Sender: TObject);
+    procedure FavoriteManageClick(Sender: TObject);
+    procedure FavoriteMembershipChanged;
     procedure AuthorNameStyleClick(Sender: TObject);
     function AuthorSelectorIterator: IAuthorIterator;
     procedure FillCurrentAuthorBooks;
@@ -1201,7 +1203,7 @@ uses
   unit_Settings,
   unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
   unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
-  frm_BuiltinReader,
+  frm_BuiltinReader, frm_AuthorFavorites,
   dm_user,
   unit_Import,
   unit_IndexPublisherSeriesThread, frm_BookMetadataFill,
@@ -9143,6 +9145,11 @@ begin
   Enabled := not FavoriteStore.IsFavorite(Author);
   StopFavoriteRefresh(True);
   FavoriteStore.SetFavorite(Author.LastName, Author.FirstName, Author.MiddleName, Enabled);
+  FavoriteMembershipChanged;
+end;
+
+procedure TfrmMain.FavoriteMembershipChanged;
+begin
   PublishFavoriteFilterKeys;
   FOnlyNewFavoriteBooks := False;
   CheckFavoriteCollection;
@@ -9232,6 +9239,22 @@ begin
       StatusMessage:='Любимые авторы импортированы. Имеющийся список сохранён.';
     finally Data.Free; end;
   end;
+end;
+
+procedure TfrmMain.FavoriteManageClick(Sender: TObject);
+var Form: TfrmAuthorFavorites; Changed: Boolean;
+begin
+  StopFavoriteRefresh(True);
+  FavoriteStore.Reload;
+  Form:=TfrmAuthorFavorites.Create(Self);
+  try
+    Form.Load(FavoriteStore);
+    Form.ScaleForPPI(PixelsPerInch);
+    Form.ShowModal;
+    Changed:=Form.Changed;
+  finally Form.Free; end;
+  if Changed then FavoriteMembershipChanged
+  else begin CheckFavoriteCollection; UpdateFavoriteControls; end;
 end;
 
 function TfrmMain.AuthorSelectorIterator: IAuthorIterator;
@@ -9464,6 +9487,9 @@ begin
   FFavoriteAuthorHeart.ShowHint := True; FFavoriteAuthorHeart.OnClick := FavoriteSelectedAuthorClick;
 
   FFavoriteMenu := TPopupMenu.Create(Self); FFavoriteMenu.Name := 'pmFavoriteAuthors';
+  Item:=TMenuItem.Create(Self); Item.Name:='miAllFavoriteAuthors';
+  Item.Caption:='Все любимые авторы…'; Item.OnClick:=FavoriteManageClick;
+  FFavoriteMenu.Items.Add(Item);
   for var I := 0 to 3 do
   begin
     Item := TMenuItem.Create(Self);

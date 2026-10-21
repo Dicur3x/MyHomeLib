@@ -31,7 +31,7 @@ uses
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
   unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
-  frm_AuthorInformation, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
+  frm_AuthorInformation, frm_AuthorFavorites, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
   frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,

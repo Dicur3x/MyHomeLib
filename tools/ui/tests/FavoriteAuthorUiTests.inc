@@ -1,5 +1,86 @@
 ﻿// Native main-form favorite authors regression. Extra uses: unit_ReaderAnnotations.
-// All catalogs, profile files and books must be an isolated G: fixture.
+// All catalogs, profile files and books belong to a guarded disposable profile.
+type
+  TAllFavoriteAuthorsProbe = class
+  public
+    Timer: TTimer;
+    Stage, ExpectedCount: Integer;
+    Profile, CancelHash: string;
+    Deadline: UInt64;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TAllFavoriteAuthorsProbe.Tick(Sender: TObject);
+var Form: TfrmAuthorFavorites; List: TListView; Search: TEdit; Remove, Button: TButton;
+  Dialog: TCustomForm;
+begin
+  Require(GetTickCount64<Deadline,'All-favorite authors modal probe timed out at stage '+IntToStr(Stage));
+  if Stage=-1 then Exit;
+  if Stage in [1,3] then
+  begin
+    Dialog:=Screen.ActiveCustomForm;
+    if not Assigned(Dialog) or (Dialog is TfrmAuthorFavorites) or (Dialog=frmMain) then Exit;
+    for var I:=0 to Dialog.ComponentCount-1 do
+      if Dialog.Components[I] is TButton then
+      begin
+        Button:=TButton(Dialog.Components[I]);
+        if ((Stage=1) and (Button.ModalResult=mrNo)) or ((Stage=3) and (Button.ModalResult=mrYes)) then
+        begin Inc(Stage); Button.Click; Exit; end;
+      end;
+    Exit;
+  end;
+  Form:=nil;
+  for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I] is TfrmAuthorFavorites then Form:=TfrmAuthorFavorites(Screen.Forms[I]);
+  if not Assigned(Form) or not Form.Visible or not (fsModal in Form.FormState) then Exit;
+  List:=Form.FindComponent('lvAllFavoriteAuthors') as TListView;
+  Search:=Form.FindComponent('edAllFavoriteAuthorsSearch') as TEdit;
+  Remove:=Form.FindComponent('btnRemoveFavoriteAuthors') as TButton;
+  if Stage=0 then
+  begin
+    Stage:=-1;
+    Require(List.Items.Count=ExpectedCount,Format('Global manager omits absent authors: %d, expected %d',
+      [List.Items.Count,ExpectedCount]));
+    Require(not Remove.Enabled,'Global manager allows removal without selection');
+    for var DPI in TArray<Integer>.Create(96,144,192) do
+    begin
+      Form.ScaleForPPI(DPI);
+      Require(Form.ClientWidth=MulDiv(760,DPI,96),'Favorite manager window did not scale with its controls');
+      Require((List.Top>=Search.Top+Search.Height) and
+        (List.Top+List.Height<Remove.Top) and (Remove.Left+Remove.Width<Form.ClientWidth),
+        'All-favorite authors controls overlap at DPI '+IntToStr(DPI));
+    end;
+    Search.Text:='Васильев';
+    Require(List.Items.Count=2,'Global manager cannot find both spellings of absent author');
+    var Bitmap:=Form.GetFormImage;
+    var Png:=TPngImage.Create;
+    try
+      Png.Assign(Bitmap); Png.SaveToFile(Settings.AppPath+'all-favorite-authors.png');
+    finally Png.Free; Bitmap.Free; end;
+    CancelHash:=THashSHA2.GetHashStringFromFile(Profile);
+    Stage:=0;
+  end;
+  if Stage in [0,2] then
+  begin
+    if Stage=2 then
+      Require((List.Items.Count=2) and (THashSHA2.GetHashStringFromFile(Profile)=CancelHash),
+        'Cancel confirmation changed favorite membership or profile');
+    for var Item in List.Items do
+      Item.Selected:=Item.Caption='Васильев [#168147] Андрей Александрович';
+    Require((List.SelCount=1) and Remove.Enabled,'Absent old author spelling cannot be selected for removal');
+    Inc(Stage); Remove.Click; Exit;
+  end;
+  if Stage in [4,5] then
+  begin
+    Search.Text:='Васильев';
+    Require((List.Items.Count=1) and (List.Items[0].Caption='Васильев Андрей Александрович [#168147]'),
+      'Global manager removed the wrong identity or did not persist removal');
+    if Stage=4 then Require(Form.Changed,'Global manager did not publish membership changes');
+    Inc(Stage); Timer.Enabled:=False;
+    TButton(Form.FindComponent('btnCloseFavoriteAuthors')).Click;
+  end;
+end;
+
 procedure TestFavoriteAuthorUI(const One: IBookCollection; OneID, TwoID: Integer);
 var
   SearchCheck, ListCheck: TCheckBox;
@@ -10,6 +91,7 @@ var
   BookHash, ReaderHash, NotesHash, CatalogBefore, OtherBefore, UserBefore: string;
   NewID, ExistingID, OriginalPPI, SearchHeight, SearchWidth: Integer;
   OriginalInfo: Boolean;
+  OriginalCommonDialogs: Boolean;
 
   function DumpTables(const FileName: string; const Tables: array of string): string;
   var DB: TSQLiteDatabase; Columns, Rows: TSQLiteQuery; Projection, Name, Value: string;
@@ -364,6 +446,30 @@ begin
     Writeln('TRACE favorite DPI sweep before protected data check'); Flush(Output);
     CheckProtected;
     Writeln('PASS inline favorite condition fits actual 100%, 150%, 200% DPI without covering expression controls or expanding search');
+    Store.SetFavorite('Васильев [#168147]','Андрей','Александрович',True);
+    Store.SetFavorite('Васильев','Андрей','Александрович [#168147]',True);
+    var AllAuthors:=frmMain.FindComponent('miAllFavoriteAuthors') as TMenuItem;
+    Require(Assigned(AllAuthors) and Assigned(AllAuthors.OnClick),'Global favorite manager is not reachable from actual menu');
+    var Probe:=TAllFavoriteAuthorsProbe.Create;
+    Probe.Timer:=TTimer.Create(nil); Probe.Timer.Enabled:=False; Probe.Timer.Interval:=20;
+    Probe.Timer.OnTimer:=Probe.Tick; Probe.ExpectedCount:=Length(Store.Entries);
+    Probe.Profile:=ProfileFile; Probe.Deadline:=GetTickCount64+30000;
+    // Exercise the ordinary VCL confirmation branch, which exposes buttons to
+    // this in-process form probe; the native TaskDialog is not a Screen form.
+    OriginalCommonDialogs:=UseLatestCommonDialogs; UseLatestCommonDialogs:=False;
+    try
+      Probe.Timer.Enabled:=True; AllAuthors.OnClick(AllAuthors);
+      Require(Probe.Stage=5,'All-favorite manager did not complete cancel/confirm workflow');
+      WaitForRefresh;
+      Probe.Timer.Enabled:=True; AllAuthors.OnClick(AllAuthors);
+      Require(Probe.Stage=6,'All-favorite manager could not reopen persisted list');
+      Store.Reload;
+      Require(not Store.IsFavorite('Васильев [#168147]','Андрей','Александрович') and
+        Store.IsFavorite('Васильев','Андрей','Александрович [#168147]'),
+        'Global favorite UI removed another spelling');
+      WaitForRefresh; CheckProtected;
+      Writeln('PASS all favorite authors actual menu includes absent names, filters, DPI, cancel, exact-key removal and reopen without changing books');
+    finally UseLatestCommonDialogs:=OriginalCommonDialogs; Probe.Timer.Free; Probe.Free; end;
     Flush(Output);
   finally
     Store.Free; Settings.ShowInfoPanel := OriginalInfo;

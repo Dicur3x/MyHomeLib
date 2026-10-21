@@ -1,0 +1,90 @@
+{
+  "date_utc": "2026-10-21T19:24:13.350354+00:00",
+  "issue": "Favorite authors absent from current collection, including old spellings after field-layout changes, cannot be removed using current author selector",
+  "fix": "Global searchable manager, explicit persisted-key batch removal with confirmation; reuse ordinary favorite refresh after closing manager",
+  "entry_point": "Authors tab > menu next to favorite toggle > Все любимые авторы…",
+  "safety": [
+    "no fuzzy automatic merging of names",
+    "remove only selected favorite identities; all collections cascades updated in one transaction",
+    "invalid batch rejected before any writes",
+    "original books, catalogues, personal cards, notes and positions unchanged",
+    "no eager profile read or collection search during startup"
+  ],
+  "passed": [
+    {
+      "arch": "Win32",
+      "mode": "author-favorites",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.281,
+      "exe_sha256": "66ae100b2e1e9358b305c6d6cceb145a693824ffeb69d27b101d87e1cd8f256a",
+      "log": "Win32-author-favorites-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "favorite-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 23.86,
+      "exe_sha256": "66ae100b2e1e9358b305c6d6cceb145a693824ffeb69d27b101d87e1cd8f256a",
+      "log": "Win32-favorite-ui-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 19,
+      "exit_code": 0,
+      "seconds": 6.75,
+      "exe_sha256": "66ae100b2e1e9358b305c6d6cceb145a693824ffeb69d27b101d87e1cd8f256a",
+      "log": "Win32-startup-deferred-19.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "author-favorites",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 6.562,
+      "exe_sha256": "3da0a19f529b829e4a8f495611489cedfb52d93031316272c00eed488cd5c86b",
+      "log": "Win64-author-favorites-3.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "favorite-ui",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 19.86,
+      "exe_sha256": "3da0a19f529b829e4a8f495611489cedfb52d93031316272c00eed488cd5c86b",
+      "log": "Win64-favorite-ui-4.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 21,
+      "exit_code": 0,
+      "seconds": 6.187,
+      "exe_sha256": "3da0a19f529b829e4a8f495611489cedfb52d93031316272c00eed488cd5c86b",
+      "log": "Win64-startup-deferred-21.log",
+      "passed": true
+    }
+  ],
+  "gui_builds": "Delphi Release x86 and x64 successful; version remains unpublished pre5.30",
+  "artifacts": {
+    "Win32": {
+      "main_exe_sha256": "c4232dfcb772863c284b1a2030753e8019db05f0f9136ae81dcf2c56cd128c60",
+      "screenshot_sha256": "b6061f70ea364bdb644f1a70ff4ec0654ffe3b58c063e2ef2464becb197a011f"
+    },
+    "Win64": {
+      "main_exe_sha256": "e0edf1cef141d685f12ad6a3698679911cb34a6713d940c2d8078d89f192cf61",
+      "screenshot_sha256": "94cf75d5feeb3b1e6bce17bf3ed902f2d8961f1e943866d9efa7a8edb45ad63f"
+    }
+  },
+  "confirmation_test_limit": "Native UI probe uses VCL confirmation branch (UseLatestCommonDialogs=False); restored after test. Standard native TaskDialog not a Screen form.",
+  "visual_review": "Both 200% screenshots inspected. Found and fixed missing runtime form-size scaling by sharing existing source-dialog base; DPI window-width assertion added.",
+  "cleanup": "All fresh native/benchmark fixtures removed automatically. Only small deliberate visual test artifacts and logs retained. No new archives. Prior policy-blocked fixture removal not retried.",
+  "remaining_goal": "Real title search timings still await confirmation user VM workloads ended; no real catalogue timing claimed."
+}

@@ -1,5 +1,5 @@
 ﻿// Native backend fixture; extra uses: unit_AuthorFavorites.
-// Test files and sources are private G: fixtures. No live profile or GUI.
+// Test files and sources belong to the guarded disposable profile.
 
 procedure AFRRawExecute(Database: TSQLite3DB; const SQL: string);
 var Statement: TSQLiteStmt; Tail: PUTF8Char; Value: UTF8String; Code: Integer;
@@ -138,8 +138,7 @@ var Folder, Catalogue, Profile, KingKey, MartinKey, Hash, SourceHash, ProtectedF
   Before: UInt64; Worker: TThread; Locked, Released: TEvent; LockFailure: string;
   Unknown, Corrupt, Tampered, ReadonlyFile, Nested, CachedProfile: string;
 begin
-  Require(SameText(ExtractFileDrive(Settings.AppPath),'G:') and
-    SameText(ExtractFileDrive(Settings.DataPath),'G:'),'Favorite tests require isolated G: application and profile');
+  RequireIsolatedRegression;
   Folder:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'author-favorite-fixture-'+TGUID.NewGuid.ToString));
   ForceDirectories(Folder); Catalogue:=Folder+'catalogue.sqlite'; Profile:=Folder+AUTHOR_FAVORITES_FILE_NAME;
   ProtectedFile:=Folder+'settings-notes-history-books-sentinel.txt';
@@ -331,7 +330,20 @@ begin
     Store.Reload;
     Require(Store.IsFavorite('Новый','Первый','') and Store.IsFavorite('Новый','Второй',''),
       'Independent stale favorite instances lost concurrent additions');
-    Store.SetFavorite('Кинг','Стивен','',False);
+    Store.SetFavorite('Васильев [#168147]','Андрей','Александрович',True);
+    Store.SetFavorite('Васильев','Андрей','Александрович [#168147]',True);
+    Require(Store.RemoveFavorites([KingKey,AuthorFavoriteKey('Васильев [#168147]','Андрей','Александрович')]),
+      'Global favorite removal did not remove selected persisted identities');
+    Require(not Store.IsFavorite('Васильев [#168147]','Андрей','Александрович') and
+      Store.IsFavorite('Васильев','Андрей','Александрович [#168147]'),
+      'Removing absent old spelling also removed the other author identity');
+    Require((Length(Store.BoundAuthorIDs(7))=1) and (Length(Store.BoundAuthorIDs(8))=1),
+      'Global removal did not cascade bindings across collections');
+    Hash:=THashSHA2.GetHashStringFromFile(Profile); Rejected:=False;
+    try Store.RemoveFavorites([MartinKey,'invalid-key']);
+    except on E: EAuthorFavorites do Rejected:=True; end;
+    Require(Rejected and Store.IsFavorite('Мартин','Джордж','Р.Р.') and
+      (THashSHA2.GetHashStringFromFile(Profile)=Hash),'Invalid bulk removal was not rejected atomically');
     Require(not Store.IsFavorite('Кинг','Стивен','') and Store.IsFavorite('Мартин','Джордж','Р.Р.'),
       'Removing favorite changed another author');
     Store.SetFavorite('Кинг','Стивен','',True); Store.RefreshCollection(Collection);

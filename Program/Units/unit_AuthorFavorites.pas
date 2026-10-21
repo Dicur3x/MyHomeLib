@@ -50,6 +50,7 @@ type
     destructor Destroy; override;
     procedure Reload;
     procedure SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
+    function RemoveFavorites(const AuthorKeys: TArray<string>): Boolean;
     procedure ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>);
     function IsFavorite(const LastName, FirstName, MiddleName: string): Boolean; overload;
     function IsFavorite(const Author: TAuthorData): Boolean; overload;
@@ -607,31 +608,57 @@ begin
   Database.Execute('UPDATE Collections SET NewCount=?,UpdatedUTC=? WHERE CID=?',[NewBooks,UTCStamp,CID]);
 end;
 
-procedure TAuthorFavorites.SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
-var Database: TAFDatabase; Lock: TFileMutex; Key: string; Query: TAFQuery;
+function TAuthorFavorites.RemoveFavorites(const AuthorKeys: TArray<string>): Boolean;
+var Database: TAFDatabase; Lock: TFileMutex; Key: string; Query: TAFQuery; C: Char;
 begin
-  Key:=AuthorFavoriteKey(LastName,FirstName,MiddleName);
-  if Key='' then raise EAuthorFavorites.Create('Сначала выберите автора.');
-  if not Enabled and not FileExists(FFileName) then Exit;
+  Result:=False;
+  if Length(AuthorKeys)>AF_MAX_FAVORITES then raise EAuthorFavorites.Create('Слишком много выбранных авторов.');
+  for Key in AuthorKeys do
+  begin
+    if Length(Key)<>64 then raise EAuthorFavorites.Create('Некорректная запись любимого автора.');
+    for C in Key do
+      if not CharInSet(C,['0'..'9','a'..'f']) then raise EAuthorFavorites.Create('Некорректная запись любимого автора.');
+  end;
+  if (Length(AuthorKeys)=0) or not FileExists(FFileName) then Exit;
   Database:=OpenWriteProfile(FFileName,Lock);
   try
     Database.Execute('BEGIN IMMEDIATE');
     try
-      if Enabled then
+      for Key in AuthorKeys do
       begin
+        // Use the persisted identity: an absent author's old field layout can
+        // no longer be reconstructed by choosing a row in the current catalog.
+        Database.Execute('DELETE FROM FavoriteAuthors WHERE AuthorKey=?',[Key]);
+        Result:=(Database.Number('SELECT changes()')<>0) or Result;
+      end;
+      if Result then
+      begin
+        Query:=TAFQuery.Create(Database,'SELECT CID FROM Collections',[]);
+        try while Query.Next do UpdateCounts(Database,Query.Number(0)); finally Query.Free; end;
+      end;
+      Database.Execute('COMMIT');
+    except Database.Rollback; raise; end;
+  finally Database.Free; Lock.Free; end;
+  Reload;
+end;
+
+procedure TAuthorFavorites.SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
+var Database: TAFDatabase; Lock: TFileMutex; Key: string;
+begin
+  Key:=AuthorFavoriteKey(LastName,FirstName,MiddleName);
+  if Key='' then raise EAuthorFavorites.Create('Сначала выберите автора.');
+  if not Enabled then
+  begin RemoveFavorites([Key]); Exit; end;
+  Database:=OpenWriteProfile(FFileName,Lock);
+  try
+    Database.Execute('BEGIN IMMEDIATE');
+    try
         if Database.Number('SELECT EXISTS(SELECT 1 FROM FavoriteAuthors WHERE AuthorKey=?)',[Key])=0 then
         begin
           if Database.Number('SELECT COUNT(*) FROM FavoriteAuthors')>=AF_MAX_FAVORITES then
             raise EAuthorFavorites.Create('Достигнут предел списка любимых авторов.');
           Database.Execute('INSERT INTO FavoriteAuthors VALUES(?,?,?,?,?)',[Key,Trim(LastName),Trim(FirstName),Trim(MiddleName),UTCStamp]);
         end;
-      end
-      else
-      begin
-        Database.Execute('DELETE FROM FavoriteAuthors WHERE AuthorKey=?',[Key]);
-        Query:=TAFQuery.Create(Database,'SELECT CID FROM Collections',[]);
-        try while Query.Next do UpdateCounts(Database,Query.Number(0)); finally Query.Free; end;
-      end;
       Database.Execute('COMMIT');
     except Database.Rollback; raise; end;
   finally Database.Free; Lock.Free; end;

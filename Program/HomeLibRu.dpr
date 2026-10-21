@@ -123,6 +123,7 @@ uses
   frm_CatalogSources in 'Forms\frm_CatalogSources.pas',
   frm_CollectionBackup in 'Forms\frm_CollectionBackup.pas',
   frm_BookDuplicates in 'Forms\frm_BookDuplicates.pas',
+  frm_AuthorFavorites in 'Forms\frm_AuthorFavorites.pas',
   frm_main in 'Forms\frm_main.pas' {frmMain},
   dm_user in 'DataModules\dm_user.pas' {DMUser: TDataModule},
   unit_MHLTheme,

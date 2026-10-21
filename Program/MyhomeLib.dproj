@@ -100,6 +100,7 @@
         <DCCReference Include="Forms\frm_CatalogSources.pas"/>
         <DCCReference Include="Forms\frm_CollectionBackup.pas"/>
         <DCCReference Include="Forms\frm_BookDuplicates.pas"/>
+        <DCCReference Include="Forms\frm_AuthorFavorites.pas"/>
         <DCCReference Include="Forms\frm_main.pas">
             <Form>frmMain</Form>
         </DCCReference>
