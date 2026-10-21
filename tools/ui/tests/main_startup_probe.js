@@ -9,6 +9,7 @@ if (!runtimeArg || !fixtureArg || !(/^[0-6]$/.test(pageArg) || pageArg === 'firs
   throw new Error("Usage: node main_startup_probe.js <runtime> <CollectionViewsTest.exe> [saved page 0..6 or first-run]");
 const runtime = fs.realpathSync(runtimeArg), fixture = fs.realpathSync(fixtureArg);
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-startup-"));
+require('../../test_temp_root')(folder, 'HomeLibRu-native-startup-');
 for (const entry of fs.readdirSync(runtime, {withFileTypes: true})) {
   if (entry.isFile() && (/\.(dll|glst)$/i.test(entry.name) || entry.name === "HomeLibRu.exe"))
     fs.copyFileSync(path.join(runtime, entry.name), path.join(folder, entry.name));

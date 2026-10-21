@@ -5,6 +5,7 @@ const cp = require('node:child_process'), crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const [testerArg, previousArg, candidateArg, python = 'python', expectedRelease = '2.7.0_pre5.18'] = process.argv.slice(2);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'HomeLibRu-update-test-real-release-'));
+require('../../tools/test_temp_root')(root, 'HomeLibRu-update-test-real-release-');
 const installation = path.join(root, 'installation'), job = path.join(root, 'job');
 const archive = path.join(root, 'release.zip'), unpacked = path.join(root, 'unpacked');
 const tester = fs.realpathSync(testerArg);

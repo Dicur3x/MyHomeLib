@@ -7,6 +7,7 @@ const assert = require('node:assert/strict'), http = require('node:http');
 const [testArg, helperArg, python = 'python'] = process.argv.slice(2);
 const tester = path.resolve(testArg), helper = path.resolve(helperArg);
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'HomeLibRu-update-test-'));
+require('../../tools/test_temp_root')(root, 'HomeLibRu-update-test-');
 const platform = fs.readFileSync(tester).readUInt16LE(fs.readFileSync(tester).readUInt32LE(0x3c)+4) === 0x8664 ? 'Win64' : 'Win32';
 const tag = '2.7.0_pre5.11'; let count = 0, number = 0, server;
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');

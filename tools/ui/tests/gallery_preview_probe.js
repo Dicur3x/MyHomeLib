@@ -6,6 +6,7 @@ if (!['book-gallery', 'column-filters', 'catalog-sources-ui', 'book-information'
 if (!runtimeArg || !fixtureArg) throw new Error("Usage: node gallery_preview_probe.js <runtime> <CollectionViewsTest.exe>");
 const runtime = fs.realpathSync(runtimeArg), fixture = fs.realpathSync(fixtureArg);
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-gallery-"));
+require('../../test_temp_root')(folder, 'HomeLibRu-native-gallery-');
 for (const entry of fs.readdirSync(runtime, {withFileTypes: true})) {
   if (entry.isFile() && /\.(dll|glst)$/i.test(entry.name)) fs.copyFileSync(path.join(runtime, entry.name), path.join(folder, entry.name));
   if (entry.isDirectory() && ["Icons", "tools"].includes(entry.name)) fs.cpSync(path.join(runtime, entry.name), path.join(folder, entry.name), {recursive: true});
