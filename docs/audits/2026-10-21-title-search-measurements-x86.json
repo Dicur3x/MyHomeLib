@@ -1,0 +1,486 @@
+{
+  "bits": 32,
+  "source": "C:\\Users\\cloud\\Desktop\\MyHomeLib\\Data\\flibusta_all_local_2026-10-02.hlc2",
+  "source_open_mode": "readonly immutable with deny-write lease",
+  "dll_sha256": "bcdd589d95be8ff0fe38e3e610ed585d8bf6393ad69224e7ef6adbbb9bf913e2",
+  "limitation": "Fresh SQLite connections, shared OS cache; includes Python metadata hashing/collation callbacks; not UI timing.",
+  "results": [
+    {
+      "variant": "before",
+      "hide_deleted": true,
+      "match_seconds": 11.18108830001438,
+      "metadata_seconds": 0.40726360003463924,
+      "total_seconds": 11.58835190004902,
+      "matched": {
+        "rows": 528,
+        "sha256": "317517bb40c93711565f177c992c1fa6185a848cd6e77a5bf5108e35a29fdff9"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 579,
+          "sha256": "6c864d43052ab5c7487feea7f2527c8443c82a4eb2e71cfce448ff4345b4dd74"
+        },
+        "books": {
+          "rows": 528,
+          "sha256": "85ecb7f95aad8feb55e1828f12ea0f07f288ee81eb60903da22094fc6dc1ab18"
+        },
+        "authors": {
+          "rows": 588,
+          "sha256": "0f7b7df06e19b5d7a0c50aa59201e978d39ca7b53ee6503e92c30e63cc134d8b"
+        },
+        "genres": {
+          "rows": 895,
+          "sha256": "788a9aeb9038ebd8762603450fbf66063c97a48a19966e5bd947aa1dd30a5a7e"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "f5803accd8d06c65cdb6141bf4598a6154046d085f864a2dd3c9b4b91b2663cd"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "f73de52b2c966fd6aea54f465ab310a746956a08cd40db53187cca2470ecd578"
+        }
+      },
+      "plan": [
+        [
+          4,
+          0,
+          219,
+          "SEARCH b USING INDEX IXBooks_IsDeleted (IsDeleted=?)"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.1773067000322044,
+        "books": 0.1256561999907717,
+        "authors": 0.05777680000755936,
+        "genres": 0.029263800010085106,
+        "count_expanded": 0.0007095999899320304,
+        "count_compact": 6.859999848529696e-05
+      },
+      "default_list_seconds": 11.446145200054161,
+      "sqlite": "3.54.1",
+      "repeat": 1
+    },
+    {
+      "variant": "after",
+      "hide_deleted": true,
+      "match_seconds": 2.0777051000040956,
+      "metadata_seconds": 0.5690176999778487,
+      "total_seconds": 2.6467227999819443,
+      "matched": {
+        "rows": 528,
+        "sha256": "317517bb40c93711565f177c992c1fa6185a848cd6e77a5bf5108e35a29fdff9"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 579,
+          "sha256": "6c864d43052ab5c7487feea7f2527c8443c82a4eb2e71cfce448ff4345b4dd74"
+        },
+        "books": {
+          "rows": 528,
+          "sha256": "85ecb7f95aad8feb55e1828f12ea0f07f288ee81eb60903da22094fc6dc1ab18"
+        },
+        "authors": {
+          "rows": 588,
+          "sha256": "0f7b7df06e19b5d7a0c50aa59201e978d39ca7b53ee6503e92c30e63cc134d8b"
+        },
+        "genres": {
+          "rows": 895,
+          "sha256": "788a9aeb9038ebd8762603450fbf66063c97a48a19966e5bd947aa1dd30a5a7e"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "f5803accd8d06c65cdb6141bf4598a6154046d085f864a2dd3c9b4b91b2663cd"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "f73de52b2c966fd6aea54f465ab310a746956a08cd40db53187cca2470ecd578"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          91,
+          "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=? AND IsDeleted=?)"
+        ],
+        [
+          7,
+          0,
+          0,
+          "LIST SUBQUERY 1"
+        ],
+        [
+          9,
+          7,
+          217,
+          "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.344644500000868,
+        "books": 0.13294559996575117,
+        "authors": 0.053685299993958324,
+        "genres": 0.027335999999195337,
+        "count_expanded": 0.0007514000171795487,
+        "count_compact": 0.00042799999937415123
+      },
+      "default_list_seconds": 2.504122300015297,
+      "sqlite": "3.54.1",
+      "repeat": 1
+    },
+    {
+      "variant": "before",
+      "hide_deleted": false,
+      "match_seconds": 6.8205520999617875,
+      "metadata_seconds": 0.8783187000080943,
+      "total_seconds": 7.698870799969882,
+      "matched": {
+        "rows": 586,
+        "sha256": "f51259c529bc17012e57aaef740aa844c5a6e7e405ac51cb9e43bb165821a044"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 639,
+          "sha256": "4fd36c67e4f1b296ad9686ba18e9a2c13e17ec93fa8386468084c23e094bebdd"
+        },
+        "books": {
+          "rows": 586,
+          "sha256": "3f73a2eff7de0523f362ba1f0295f16183c5f512f5aa7ca89ca34d8ff7418f31"
+        },
+        "authors": {
+          "rows": 650,
+          "sha256": "3625e2bd7c29ccaf3cd3f68c77a119e3b67266a5376f4730a958ff51d4b0674a"
+        },
+        "genres": {
+          "rows": 1016,
+          "sha256": "6fa38c69aacfffa5d81bd8f69c8be64707f81c2c1bd64e27c7d5bce18f942959"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "631804811e99a9678e73eac0889b43663203c48c04ebeb7c978dc08ba8a5a55e"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "41e7952248c9f74740c99a13700b15abc9c34ab1b876de109b1097a7885c3e83"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          217,
+          "SCAN b USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.4975300999940373,
+        "books": 0.1723196999519132,
+        "authors": 0.0788697000243701,
+        "genres": 0.11413250002078712,
+        "count_expanded": 0.007365600031334907,
+        "count_compact": 0.0002916999510489404
+      },
+      "default_list_seconds": 7.518450000032317,
+      "sqlite": "3.54.1",
+      "repeat": 1
+    },
+    {
+      "variant": "after",
+      "hide_deleted": false,
+      "match_seconds": 2.246475600055419,
+      "metadata_seconds": 0.47327660000883043,
+      "total_seconds": 2.7197522000642493,
+      "matched": {
+        "rows": 586,
+        "sha256": "f51259c529bc17012e57aaef740aa844c5a6e7e405ac51cb9e43bb165821a044"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 639,
+          "sha256": "4fd36c67e4f1b296ad9686ba18e9a2c13e17ec93fa8386468084c23e094bebdd"
+        },
+        "books": {
+          "rows": 586,
+          "sha256": "3f73a2eff7de0523f362ba1f0295f16183c5f512f5aa7ca89ca34d8ff7418f31"
+        },
+        "authors": {
+          "rows": 650,
+          "sha256": "3625e2bd7c29ccaf3cd3f68c77a119e3b67266a5376f4730a958ff51d4b0674a"
+        },
+        "genres": {
+          "rows": 1016,
+          "sha256": "6fa38c69aacfffa5d81bd8f69c8be64707f81c2c1bd64e27c7d5bce18f942959"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "631804811e99a9678e73eac0889b43663203c48c04ebeb7c978dc08ba8a5a55e"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "41e7952248c9f74740c99a13700b15abc9c34ab1b876de109b1097a7885c3e83"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          217,
+          "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.2322386999730952,
+        "books": 0.08778180001536384,
+        "authors": 0.10112490004394203,
+        "genres": 0.02692239999305457,
+        "count_expanded": 0.0013278999831527472,
+        "count_compact": 9.6399977337569e-05
+      },
+      "default_list_seconds": 2.6080895000486635,
+      "sqlite": "3.54.1",
+      "repeat": 1
+    },
+    {
+      "variant": "after",
+      "hide_deleted": true,
+      "match_seconds": 1.814944599987939,
+      "metadata_seconds": 0.335103599994909,
+      "total_seconds": 2.150048199982848,
+      "matched": {
+        "rows": 528,
+        "sha256": "317517bb40c93711565f177c992c1fa6185a848cd6e77a5bf5108e35a29fdff9"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 579,
+          "sha256": "6c864d43052ab5c7487feea7f2527c8443c82a4eb2e71cfce448ff4345b4dd74"
+        },
+        "books": {
+          "rows": 528,
+          "sha256": "85ecb7f95aad8feb55e1828f12ea0f07f288ee81eb60903da22094fc6dc1ab18"
+        },
+        "authors": {
+          "rows": 588,
+          "sha256": "0f7b7df06e19b5d7a0c50aa59201e978d39ca7b53ee6503e92c30e63cc134d8b"
+        },
+        "genres": {
+          "rows": 895,
+          "sha256": "788a9aeb9038ebd8762603450fbf66063c97a48a19966e5bd947aa1dd30a5a7e"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "f5803accd8d06c65cdb6141bf4598a6154046d085f864a2dd3c9b4b91b2663cd"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "f73de52b2c966fd6aea54f465ab310a746956a08cd40db53187cca2470ecd578"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          91,
+          "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=? AND IsDeleted=?)"
+        ],
+        [
+          7,
+          0,
+          0,
+          "LIST SUBQUERY 1"
+        ],
+        [
+          9,
+          7,
+          217,
+          "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.1507215999881737,
+        "books": 0.08305030001793057,
+        "authors": 0.060460599954240024,
+        "genres": 0.03319059999193996,
+        "count_expanded": 0.0015968999941833317,
+        "count_compact": 0.00018099998123943806
+      },
+      "default_list_seconds": 2.060914299916476,
+      "sqlite": "3.54.1",
+      "repeat": 2
+    },
+    {
+      "variant": "before",
+      "hide_deleted": true,
+      "match_seconds": 12.74787419999484,
+      "metadata_seconds": 0.27349220000905916,
+      "total_seconds": 13.021366400003899,
+      "matched": {
+        "rows": 528,
+        "sha256": "317517bb40c93711565f177c992c1fa6185a848cd6e77a5bf5108e35a29fdff9"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 579,
+          "sha256": "6c864d43052ab5c7487feea7f2527c8443c82a4eb2e71cfce448ff4345b4dd74"
+        },
+        "books": {
+          "rows": 528,
+          "sha256": "85ecb7f95aad8feb55e1828f12ea0f07f288ee81eb60903da22094fc6dc1ab18"
+        },
+        "authors": {
+          "rows": 588,
+          "sha256": "0f7b7df06e19b5d7a0c50aa59201e978d39ca7b53ee6503e92c30e63cc134d8b"
+        },
+        "genres": {
+          "rows": 895,
+          "sha256": "788a9aeb9038ebd8762603450fbf66063c97a48a19966e5bd947aa1dd30a5a7e"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "f5803accd8d06c65cdb6141bf4598a6154046d085f864a2dd3c9b4b91b2663cd"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "f73de52b2c966fd6aea54f465ab310a746956a08cd40db53187cca2470ecd578"
+        }
+      },
+      "plan": [
+        [
+          4,
+          0,
+          219,
+          "SEARCH b USING INDEX IXBooks_IsDeleted (IsDeleted=?)"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.1548225999576971,
+        "books": 0.05248889996437356,
+        "authors": 0.024559799989219755,
+        "genres": 0.02160759997786954,
+        "count_expanded": 0.0011428999714553356,
+        "count_compact": 0.00018309999722987413
+      },
+      "default_list_seconds": 12.950007099891081,
+      "sqlite": "3.54.1",
+      "repeat": 2
+    },
+    {
+      "variant": "after",
+      "hide_deleted": false,
+      "match_seconds": 4.814599800040014,
+      "metadata_seconds": 0.49844580003991723,
+      "total_seconds": 5.313045600079931,
+      "matched": {
+        "rows": 586,
+        "sha256": "f51259c529bc17012e57aaef740aa844c5a6e7e405ac51cb9e43bb165821a044"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 639,
+          "sha256": "4fd36c67e4f1b296ad9686ba18e9a2c13e17ec93fa8386468084c23e094bebdd"
+        },
+        "books": {
+          "rows": 586,
+          "sha256": "3f73a2eff7de0523f362ba1f0295f16183c5f512f5aa7ca89ca34d8ff7418f31"
+        },
+        "authors": {
+          "rows": 650,
+          "sha256": "3625e2bd7c29ccaf3cd3f68c77a119e3b67266a5376f4730a958ff51d4b0674a"
+        },
+        "genres": {
+          "rows": 1016,
+          "sha256": "6fa38c69aacfffa5d81bd8f69c8be64707f81c2c1bd64e27c7d5bce18f942959"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "631804811e99a9678e73eac0889b43663203c48c04ebeb7c978dc08ba8a5a55e"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "41e7952248c9f74740c99a13700b15abc9c34ab1b876de109b1097a7885c3e83"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          217,
+          "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.230856699985452,
+        "books": 0.13102069997694343,
+        "authors": 0.05814149999059737,
+        "genres": 0.06317869998747483,
+        "count_expanded": 0.0014295000000856817,
+        "count_compact": 0.00013429997488856316
+      },
+      "default_list_seconds": 5.168206200003624,
+      "sqlite": "3.54.1",
+      "repeat": 2
+    },
+    {
+      "variant": "before",
+      "hide_deleted": false,
+      "match_seconds": 3.815143000043463,
+      "metadata_seconds": 0.2003386999713257,
+      "total_seconds": 4.015481700014789,
+      "matched": {
+        "rows": 586,
+        "sha256": "f51259c529bc17012e57aaef740aa844c5a6e7e405ac51cb9e43bb165821a044"
+      },
+      "streams": {
+        "books_expanded": {
+          "rows": 639,
+          "sha256": "4fd36c67e4f1b296ad9686ba18e9a2c13e17ec93fa8386468084c23e094bebdd"
+        },
+        "books": {
+          "rows": 586,
+          "sha256": "3f73a2eff7de0523f362ba1f0295f16183c5f512f5aa7ca89ca34d8ff7418f31"
+        },
+        "authors": {
+          "rows": 650,
+          "sha256": "3625e2bd7c29ccaf3cd3f68c77a119e3b67266a5376f4730a958ff51d4b0674a"
+        },
+        "genres": {
+          "rows": 1016,
+          "sha256": "6fa38c69aacfffa5d81bd8f69c8be64707f81c2c1bd64e27c7d5bce18f942959"
+        },
+        "count_expanded": {
+          "rows": 1,
+          "sha256": "631804811e99a9678e73eac0889b43663203c48c04ebeb7c978dc08ba8a5a55e"
+        },
+        "count_compact": {
+          "rows": 1,
+          "sha256": "41e7952248c9f74740c99a13700b15abc9c34ab1b876de109b1097a7885c3e83"
+        }
+      },
+      "plan": [
+        [
+          3,
+          0,
+          217,
+          "SCAN b USING COVERING INDEX IXBooks_SearchTitle"
+        ]
+      ],
+      "stream_seconds": {
+        "books_expanded": 0.09320130001287907,
+        "books": 0.04507369996281341,
+        "authors": 0.03332600003341213,
+        "genres": 0.021885299996938556,
+        "count_expanded": 0.0012309000012464821,
+        "count_compact": 0.00017010001465678215
+      },
+      "default_list_seconds": 3.964786500087939,
+      "sqlite": "3.54.1",
+      "repeat": 2
+    }
+  ],
+  "verified_at_utc": "2026-10-21T20:51:44.121928+00:00",
+  "source_size_and_write_timestamp_unchanged": true,
+  "journal_companions_absent_after": true,
+  "production_scope": "Ordinary title mode including е/ё matching, hide-deleted and no-hide variants; full expanded and compact book rows plus authors, genres, both counts. Expanded books read first.",
+  "vm_gate": "Both user VM processes observed terminated before timings; no VMs stopped by agent."
+}

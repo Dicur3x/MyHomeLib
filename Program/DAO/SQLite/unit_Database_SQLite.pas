@@ -1192,12 +1192,35 @@ begin
   Result:=PrepareSearchQuery(Result,True,Mode);
 end;
 
+function PrepareTitleTextFilter(const Value: string): string;
+var Text: string; Pattern: TStringBuilder; C: Char;
+begin
+  Text:=Trim(AnsiUpperCase(Value));
+  if Text='' then Exit('');
+  Pattern:=TStringBuilder.Create;
+  try
+    Pattern.Append('*');
+    for C in Text do
+      case C of
+        // SearchTitle is already uppercase. Match both spellings without
+        // allocating two REPLACE results for every title in the collection.
+        'Е','Ё': Pattern.Append('[ЕЁ]');
+        '*': Pattern.Append('[*]');
+        '?': Pattern.Append('[?]');
+        '[': Pattern.Append('[[]');
+      else Pattern.Append(C);
+      end;
+    Pattern.Append('*');
+    Result:='(titlematch.SearchTitle GLOB '+QuotedStr(Pattern.ToString)+')';
+  finally Pattern.Free; end;
+end;
+
 procedure TBookCollection_SQLite.TBookIteratorImpl.PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
 const
   SQL_START_STR = 'SELECT DISTINCT b.BookID ';
   DT_FORMAT = 'yyyy-mm-dd';
 var
-  FilterString, TitleFilterString: string;
+  FilterString, TitleFilterString, TitleBoundaryFilter: string;
   SeriesFilterString: string;
   SQLRows: string;
   SQLCount: string;
@@ -1209,6 +1232,7 @@ var
 begin
   SQLRows := '';
   SeriesFilterString := '';
+  TitleBoundaryFilter := '';
 
   try
     FilterString := '';
@@ -1279,7 +1303,10 @@ begin
     end;
 
     TitleFilterString:='';
-    AddToFilter('titlematch.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, TitleFilterString);
+    if SearchCriteria.QueryMode=sqmText then
+      TitleFilterString:=PrepareTitleTextFilter(SearchCriteria.Title)
+    else
+      AddToFilter('titlematch.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, TitleFilterString);
     if SearchCriteria.ExactTitle<>'' then
     begin
       if TitleFilterString<>'' then TitleFilterString:=TitleFilterString+' AND ';
@@ -1301,7 +1328,10 @@ begin
     // title with IsDeleted otherwise makes SQLite walk every wide Books row.
     // The IN boundary keeps the title-only scan covering, then checks only hits.
     if TitleFilterString<>'' then
+    begin
       FilterString:='b.BookID IN (SELECT titlematch.BookID FROM Books titlematch WHERE '+TitleFilterString+')';
+      TitleBoundaryFilter:=FilterString;
+    end;
     AddToFilter('b.SearchAnnotation', PrepareSearchQuery(SearchCriteria.Annotation, True, SearchCriteria.QueryMode), False, FilterString);
     // Publisher is already stored metadata; do not read book files during search.
     // SQLite's native UPPER only maps ASCII, so use our Windows Unicode mapping.
@@ -1358,7 +1388,13 @@ begin
     begin
       if SQLRows <> '' then
         SQLRows := SQLRows + ' INTERSECT ';
-      SQLRows := SQLRows + SQL_START_STR + ' FROM Books b WHERE ' + FilterString;
+      // Title-only ordinary searches can stay entirely within the covering
+      // title index; additional book predicates still use the ID boundary.
+      if (SearchCriteria.QueryMode=sqmText) and (TitleBoundaryFilter<>'') and
+        (FilterString=TitleBoundaryFilter) then
+        SQLRows:=SQLRows+'SELECT DISTINCT titlematch.BookID FROM Books titlematch WHERE '+TitleFilterString
+      else
+        SQLRows := SQLRows + SQL_START_STR + ' FROM Books b WHERE ' + FilterString;
     end;
   except
     on E: Exception do

@@ -1,0 +1,156 @@
+{
+  "date_utc": "2026-10-21T21:28:37.660643+00:00",
+  "status": "incomplete: native Delphi builds and final application checks pending",
+  "change": "Ordinary title search over existing uppercase SearchTitle: escaped literal GLOB with e/yo character class, covering title-only query, existing matched-ID boundary for extra predicates. Expression/legacy modes unchanged. No startup/schema/index additions.",
+  "source_sha256": {
+    "Program/DAO/SQLite/unit_Database_SQLite.pas": "dcc4416d77e48ec8efb389d757be0d623543835612837d0fceff3dca032eb2c2",
+    "tools/ui/tests/CatalogSearchModeTests.inc": "954a14410270caaa3ffabdebb9d45a49d16a983c5680c50fda3c4ae6bea19b61",
+    "tools/title_search_readonly_benchmark.py": "391d58acfa4add2d4df71ad1291989b9c5f8ede1f7082824603cfd8998a32d12"
+  },
+  "sql_only_verification": {
+    "architectures": [
+      32,
+      64
+    ],
+    "shipped_dlls": true,
+    "literal_queries": 313,
+    "fixture_titles": 317,
+    "literal_comparisons_per_architecture": 99221,
+    "literal_oracle_and_old_new_sql_equal": true,
+    "readonly_write_rejected": true,
+    "readonly_fixture_hash_unchanged": true,
+    "fresh_fixture_removed": true,
+    "in_memory_literal_fixture_created_no_disk_files": true
+  },
+  "real_catalogue": {
+    "books": 1856990,
+    "read_only": true,
+    "cross_architecture_all_result_and_metadata_hashes_equal": true,
+    "reports": {
+      "x86": {
+        "file": "docs/audits/2026-10-21-title-search-measurements-x86.json",
+        "sha256": "37c3a15fb00351151c94287d070dffac4007033da6be54d6e00bff1bfc2f3df7",
+        "timings": [
+          {
+            "hide_deleted": true,
+            "before": {
+              "runs": 2,
+              "match_seconds": [
+                11.18108830001438,
+                12.74787419999484
+              ],
+              "median_match_seconds": 11.96448125000461,
+              "median_default_list_sql_seconds": 12.198076149972621
+            },
+            "after": {
+              "runs": 2,
+              "match_seconds": [
+                2.0777051000040956,
+                1.814944599987939
+              ],
+              "median_match_seconds": 1.9463248499960173,
+              "median_default_list_sql_seconds": 2.2825182999658864
+            }
+          },
+          {
+            "hide_deleted": false,
+            "before": {
+              "runs": 2,
+              "match_seconds": [
+                6.8205520999617875,
+                3.815143000043463
+              ],
+              "median_match_seconds": 5.317847550002625,
+              "median_default_list_sql_seconds": 5.741618250060128
+            },
+            "after": {
+              "runs": 2,
+              "match_seconds": [
+                2.246475600055419,
+                4.814599800040014
+              ],
+              "median_match_seconds": 3.5305377000477165,
+              "median_default_list_sql_seconds": 3.8881478500261437
+            }
+          }
+        ]
+      },
+      "x64": {
+        "file": "docs/audits/2026-10-21-title-search-measurements-x64.json",
+        "sha256": "0257c900d78bbf9739233e6a4213909730a3ea53c611986712b886e118c821fd",
+        "timings": [
+          {
+            "hide_deleted": true,
+            "before": {
+              "runs": 2,
+              "match_seconds": [
+                8.12588449998293,
+                7.755273099988699
+              ],
+              "median_match_seconds": 7.940578799985815,
+              "median_default_list_sql_seconds": 8.853651249955874
+            },
+            "after": {
+              "runs": 2,
+              "match_seconds": [
+                2.0113995000137947,
+                2.1750249000033364
+              ],
+              "median_match_seconds": 2.0932122000085656,
+              "median_default_list_sql_seconds": 2.5744467000185978
+            }
+          },
+          {
+            "hide_deleted": false,
+            "before": {
+              "runs": 2,
+              "match_seconds": [
+                5.2501394000137225,
+                5.644231499987654
+              ],
+              "median_match_seconds": 5.447185450000688,
+              "median_default_list_sql_seconds": 5.881259149959078
+            },
+            "after": {
+              "runs": 2,
+              "match_seconds": [
+                2.426751899998635,
+                1.9942579999915324
+              ],
+              "median_match_seconds": 2.2105049499950837,
+              "median_default_list_sql_seconds": 2.757394749962259
+            }
+          }
+        ]
+      }
+    },
+    "limitations": [
+      "Fresh SQLite connections with shared OS cache; not cold-cache or VCL/UI timings.",
+      "Python streaming/hash/collation callback costs included.",
+      "x86 without hide-deleted had an after-query wall-time outlier; CPU-instrumented confirmation remains pending.",
+      "Preliminary title-index reports omitted normalization/expanded series and must not be used for application speed claims."
+    ]
+  },
+  "build_gate": {
+    "commercial_delphi_uninstalled": true,
+    "community_installer": "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/RADStudio_13_0_esd_3601D8E02.exe",
+    "installer_bytes": 316778560,
+    "installer_sha256": "BBDE58AA0582B2D43736160DCBF3124BF8C690EB2179894631ED5DDDC2EA2635",
+    "installer_signature": "Valid: Idera, Inc.",
+    "manual_restart_required": true,
+    "reason": "Revo pending deletion includes Embarcadero/Studio/37.0/bin and two BPL files; do not install into that path before restart.",
+    "user_will_restart_and_report": true,
+    "community_license_registration": "manual user step; never record credentials/key"
+  },
+  "remaining": [
+    "Install and register Delphi CE after restart; configure Windows x86/x64.",
+    "Build native tests through Delphi GUI and run changed search plus affected integration/startup checks on both architectures.",
+    "Build current main EXEs through Delphi GUI and smoke them in disposable profiles.",
+    "Resolve remaining x86 timing outlier with paired CPU-instrumented samples, then final requirement audit and cleanup."
+  ],
+  "other_goal_evidence": [
+    "docs/audits/2026-10-21-post530-validation.json",
+    "docs/audits/2026-10-21-all-favorite-authors.json"
+  ],
+  "published_new_application_release": false
+}

@@ -33,19 +33,28 @@ begin
   Control := TSearchQueryModeControl(frmMain.FindComponent('SearchQueryModeControl'));
   Require(Assigned(Control) and (Control.Mode = sqmText), 'Fresh Main search must use ordinary text');
   One.GetStatistics(Authors, CountBefore, Series);
-  AddModeBook('Proposal I LIKE SQL 100% _ "quotes" O''Reilly != ё', 2024);
+  AddModeBook('Proposal I LIKE SQL 100% _ "quotes" O''Reilly != ё *? [abc] ] ^ titlematch. 😀', 2024);
   AddModeBook('Proposal ordinary title', 2023);
   AddModeBook('Proposal ёлка', 0);
+  AddModeBook('Proposal елка', 0);
   Require(Count('I LIKE SQL', sqmText) = 1, 'Ordinary LIKE text became syntax');
   Require(Count('%', sqmText) = 1, 'Ordinary percent became a wildcard');
   Require(Count('_', sqmText) = 1, 'Ordinary underscore became a wildcard');
   Require(Count('"quotes"', sqmText) = 1, 'Ordinary quotes became SQL syntax');
   Require(Count('O''Reilly !=', sqmText) = 1, 'Ordinary apostrophe or equality text became SQL');
   Require(Count('foo'' OR 1=1 --', sqmText) = 0, 'Ordinary text changed SQL meaning');
-  Require(Count('Proposal елка', sqmText) = 1, 'Ordinary Unicode e/yo matching changed');
-  Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmExpression) = 2,
+  Require(Count('  proposal ЕЛКА  ', sqmText) = 2, 'Ordinary Unicode e/yo or trim matching changed');
+  Require(Count('Proposal ёлка', sqmText) = 2, 'Ordinary yo query lost plain-e spelling');
+  Require(Count('*?', sqmText) = 1, 'Ordinary glob star/question became wildcards');
+  Require(Count('[abc]', sqmText) = 1, 'Ordinary brackets became a character class');
+  Require(Count('[other]', sqmText) = 0, 'Ordinary bracket expression matched unrelated titles');
+  Require(Count(']', sqmText) = 1, 'Closing bracket lost its literal meaning');
+  Require(Count('^', sqmText) = 1, 'Caret lost its literal meaning');
+  Require(Count('titlematch.', sqmText) = 1, 'Title-only optimization rewrote text resembling an alias');
+  Require(Count('😀', sqmText) = 1, 'Title pattern split a Unicode surrogate pair');
+  Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmExpression) = 3,
     'Explicit expression mode lost OR/exact conditions');
-  Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmLegacy) = 2,
+  Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmLegacy) = 3,
     'Default legacy mode changed old expression meaning');
   Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
   Criteria.Title := 'Proposal'; Criteria.QueryMode := sqmText;
@@ -60,7 +69,7 @@ begin
   Require((A = 2) and (A = B) and (B = C), Format(
     'Query mode unexpectedly changed numeric/year/language rules: text=%d expression=%d legacy=%d', [A, B, C]));
   One.GetStatistics(Authors, Books, Series);
-  Require(Books = CountBefore + 3, 'Read-only query modes changed the catalog');
+  Require(Books = CountBefore + 4, 'Read-only query modes changed the catalog');
 
   FileName := Settings.AppPath + 'proposal-search-modes.xml';
   Presets := TSearchPresets.Create; Reloaded := TSearchPresets.Create;

@@ -9,6 +9,7 @@ and is opened READONLY + immutable. Only the in-memory match table is writable.
 import argparse
 import ctypes
 import hashlib
+import itertools
 import json
 import pathlib
 import sqlite3
@@ -33,6 +34,11 @@ FIELDS = ('b.BookID,b.Title,b.Folder,b.FileName,b.Ext,b.InsideNo,'
           'b.Translators,b.Publisher,b.City,b.PubYear,b.ISBN,'
           'primaryseries.SeriesTitle,preferred.SourceName')
 STREAMS = {
+    'books_expanded': 'SELECT ' + FIELDS + ',sl.SeriesID,sl.SeqNumber,s.SeriesTitle '
+             'FROM Books b LEFT JOIN CatalogPreferredSource preferred ON preferred.BookID=b.BookID '
+             'LEFT JOIN Series primaryseries ON primaryseries.SeriesID=b.SeriesID '
+             'LEFT JOIN Series_List sl ON sl.BookID=b.BookID LEFT JOIN Series s ON s.SeriesID=sl.SeriesID '
+             'WHERE b.BookID IN (' + MATCHED + ') ORDER BY b.BookID,sl.IsPrimary DESC,sl.OrdNum,sl.SeriesID',
     'books': 'SELECT ' + FIELDS + ' FROM Books b LEFT JOIN CatalogPreferredSource '
              'preferred ON preferred.BookID=b.BookID LEFT JOIN Series primaryseries '
              'ON primaryseries.SeriesID=b.SeriesID WHERE b.BookID IN (' + MATCHED +
@@ -43,6 +49,9 @@ STREAMS = {
                ') ORDER BY al.BookID,a.LastName,a.FirstName,a.MiddleName',
     'genres': 'SELECT gl.BookID,gl.GenreCode FROM Genre_List gl WHERE gl.BookID IN (' +
               MATCHED + ') ORDER BY gl.BookID,gl.GenreCode',
+    'count_expanded': 'SELECT COUNT(*) FROM temp.MHLGenreMatches m '
+                      "LEFT JOIN Series_List sl ON sl.BookID=m.BookID WHERE m.ViewID='probe'",
+    'count_compact': 'SELECT COUNT(*) FROM temp.MHLGenreMatches WHERE ViewID=\'probe\'',
 }
 
 
@@ -127,10 +136,14 @@ def readonly(file, library):
 
 
 def match_sql(after, hide_deleted):
-    predicate = "b.SearchTitle LIKE '%ПРИВЕТ%'"
+    # The production ordinary mode historically normalizes е/ё on every row.
+    predicate = "REPLACE(REPLACE(b.SearchTitle,'Ё','Е'),'ё','е') LIKE '%ПРИВЕТ%' ESCAPE '!'"
     if after:
+        title = "titlematch.SearchTitle GLOB '*ПРИВ[ЕЁ]Т*'"
+        if not hide_deleted:
+            return 'SELECT DISTINCT titlematch.BookID FROM Books titlematch WHERE ' + title
         predicate = ("b.BookID IN (SELECT titlematch.BookID FROM Books titlematch "
-                     "WHERE titlematch.SearchTitle LIKE '%ПРИВЕТ%')")
+                     'WHERE ' + title + ')')
     if hide_deleted:
         predicate += ' AND b.IsDeleted=0'
     return 'SELECT DISTINCT b.BookID FROM Books b WHERE ' + predicate
@@ -141,21 +154,69 @@ def run_one(file, library, after, hide_deleted):
         db.execute(MATCH_TABLE).close()
         sql = match_sql(after, hide_deleted)
         plan = list(db.execute('EXPLAIN QUERY PLAN ' + sql))
+        cpu_start = time.process_time()
         start = time.perf_counter()
         db.execute("INSERT INTO temp.MHLGenreMatches SELECT 'probe',BookID FROM (" + sql + ')').close()
         match_seconds = time.perf_counter() - start
+        match_cpu_seconds = time.process_time() - cpu_start
         start = time.perf_counter()
         matched = digest(db.execute(MATCHED + ' ORDER BY BookID'))
-        streams = {name: digest(db.execute(query)) for name, query in STREAMS.items()}
+        streams, stream_seconds = {}, {}
+        for name, query in STREAMS.items():
+            stream_start = time.perf_counter()
+            streams[name] = digest(db.execute(query))
+            stream_seconds[name] = time.perf_counter() - stream_start
         metadata_seconds = time.perf_counter() - start
         return {'variant': 'after' if after else 'before', 'hide_deleted': hide_deleted,
                 'match_seconds': match_seconds, 'metadata_seconds': metadata_seconds,
+                'match_cpu_seconds': match_cpu_seconds,
                 'total_seconds': match_seconds + metadata_seconds,
                 'matched': matched, 'streams': streams, 'plan': plan,
+                'stream_seconds': stream_seconds,
+                'default_list_seconds': match_seconds + sum(stream_seconds[x] for x in
+                    ('books_expanded', 'authors', 'genres', 'count_expanded')),
                 'sqlite': scalar(db, 'SELECT sqlite_version()')}
 
 
+def literal_pattern_self_test(library):
+    """Compare SQL engines against a literal substring oracle, in memory only.
+
+    This verifies SQLite pattern semantics, not the uncompiled Delphi helper.
+    The native search-query-modes suite must additionally verify production SQL.
+    """
+    def quote(value):
+        return "'" + value.replace("'", "''") + "'"
+
+    def glob(value):
+        escapes = {'Е': '[ЕЁ]', 'Ё': '[ЕЁ]', '*': '[*]', '?': '[?]', '[': '[[]'}
+        return '*' + ''.join(escapes.get(char, char) for char in value) + '*'
+
+    tokens = ['А', 'Е', 'Ё', '*', '?', '[', ']', '^', '!', '%', '_',
+              "'", '"', ' ', '😀', '\\', '-']
+    queries = sorted(set(tokens + [''.join(pair) for pair in itertools.product(tokens, repeat=2)] +
+                         ['[abc]', '[]]', '[[', ']*?', 'ПРИВЕТ', 'ПРИВЁТ', 'ЕЁЕ', 'TITLEMATCH.']))
+    titles = ['PREFIX' + value + 'SUFFIX' for value in queries] + ['ПРИВЕТ', 'ПРИВЁТ', 'ПРИВЕТ', '']
+    with closing(SQLiteDLL(':memory:', library)) as db:
+        db.execute('CREATE TABLE Books(BookID INTEGER PRIMARY KEY,SearchTitle)').close()
+        db.executemany('INSERT INTO Books VALUES(?,?)', enumerate(titles, 1))
+        for needle in queries:
+            normalized = needle.replace('Ё', 'Е')
+            pattern = normalized.replace('!', '!!').replace('%', '!%').replace('_', '!_')
+            before = ('REPLACE(SearchTitle,' + quote('Ё') + ',' + quote('Е') + ') LIKE ' +
+                      quote('%' + pattern + '%') + ' ESCAPE ' + quote('!'))
+            after = 'SearchTitle GLOB ' + quote(glob(needle))
+            expected = [number for number, title in enumerate(titles, 1)
+                        if normalized in title.replace('Ё', 'Е')]
+            for predicate in (before, after):
+                actual = [row[0] for row in db.execute(
+                    'SELECT BookID FROM Books WHERE ' + predicate + ' ORDER BY BookID')]
+                assert actual == expected, (needle, predicate, actual, expected)
+    return {'queries': len(queries), 'titles': len(titles),
+            'comparisons': len(queries) * len(titles), 'passed': True}
+
+
 def self_test(library):
+    literal_patterns = literal_pattern_self_test(library)
     with tempfile.TemporaryDirectory(prefix='HomeLibRu-title-readonly-') as folder:
         file = pathlib.Path(folder) / 'fixture.hlc2'
         with closing(sqlite3.connect(file)) as db:
@@ -171,13 +232,14 @@ def self_test(library):
             db.create_collation('MHL_SYSTEM_NOCASE', lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
             for table, columns in {
                 'CatalogPreferredSource': 'BookID,SourceName', 'Series': 'SeriesID,SeriesTitle',
+                'Series_List': 'BookID,SeriesID,SeqNumber,IsPrimary,OrdNum',
                 'Author_List': 'BookID,AuthorID',
                 'Authors': 'AuthorID,LastName COLLATE MHL_SYSTEM_NOCASE,FirstName,MiddleName',
                 'Genre_List': 'BookID,GenreCode',
             }.items():
                 db.execute('CREATE TABLE ' + table + '(' + columns + ')')
             db.executemany('INSERT INTO Books(BookID,Title,SearchTitle,IsDeleted) VALUES(?,?,?,?)',
-                           [(1, 'Привет', 'ПРИВЕТ', 0), (2, 'С приветом', 'С ПРИВЕТОМ', 1),
+                           [(1, 'Привет', 'ПРИВЕТ', 0), (2, 'С привётом', 'С ПРИВЁТОМ', 1),
                             (3, 'Другое', 'ДРУГОЕ', 0)])
             db.execute("INSERT INTO CatalogPreferredSource VALUES(1,'source')")
             db.execute("INSERT INTO Authors VALUES(1,'Автор','','')")
@@ -203,6 +265,7 @@ def self_test(library):
                     raise AssertionError('Write to source was accepted.')
         assert hashlib.sha256(file.read_bytes()).hexdigest() == original
     return {'self_test': 'passed', 'bits': struct.calcsize('P') * 8,
+            'literal_patterns': literal_patterns,
             'source_write_rejected': True, 'source_hash_unchanged': True,
             'fixture_removed': not file.exists()}
 
