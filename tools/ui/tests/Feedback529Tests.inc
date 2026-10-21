@@ -88,6 +88,7 @@ begin
   finally Worker.Free; end;
   Writeln('PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close');
   TestFeedback529Series;
+  TestCollectionBackupRestore;
   if GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG')<>'' then
     TestFeedback529DesktopSeries(GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG'));
 end;

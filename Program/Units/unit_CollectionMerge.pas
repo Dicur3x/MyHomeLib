@@ -613,6 +613,7 @@ begin
   try
     Manifest.Add('Назначение: ' + TargetFile);
     Manifest.Add('Группы и настройки: ' + Settings.SystemFileName[sfSystemDB]);
+    Manifest.Add('Папка книг: ' + Settings.ExpandCollectionRoot(VarToStr(FTarget.GetProperty(PROP_ROOTFOLDER))));
     for I := 0 to High(FSources) do Manifest.Add(Format('Источник %d (не изменяется): %s | %s',
       [I+1, FSources[I].Name, FSources[I].DatabaseFile]));
     Manifest.Add('Исходные книги не изменяются. Копии SQLite включают данные из WAL.');

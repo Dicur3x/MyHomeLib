@@ -898,6 +898,7 @@ type
     procedure OnSetControlsStateHandler(State: Boolean);
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
+    procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
     procedure ResetColumnFiltersClick(Sender: TObject);
     procedure ClearBookSorting(Sender: TObject);
@@ -1222,7 +1223,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4177,6 +4178,25 @@ begin
   FOPDSForm.BringToFront;
 end;
 
+procedure TfrmMain.RestoreCollectionSnapshot(Sender: TObject);
+var Dialog: TfrmCollectionBackup; RestoredID: Integer; WasBusy: Boolean;
+begin
+  if FFormBusy then Exit;
+  WasBusy:=FFormBusy; FFormBusy:=True; RestoredID:=INVALID_COLLECTION_ID;
+  try
+    Dialog:=TfrmCollectionBackup.Create(Self);
+    try
+      if Dialog.ShowModal=mrOk then RestoredID:=Dialog.NewCollectionID;
+    finally Dialog.Free; end;
+  finally FFormBusy:=WasBusy; end;
+  if RestoredID>0 then
+  begin
+    Settings.ActiveCollection:=RestoredID;
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(RestoredID));
+    InitCollection;
+  end;
+end;
+
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged: Boolean; CollectionID: Integer;
 begin
@@ -4553,6 +4573,10 @@ begin
   FilterMenu.Caption := 'Источники и объединение коллекции...';
   FilterMenu.OnClick := ShowCatalogSources;
   N2.Insert(3, FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
+  FilterMenu.Caption:='Восстановить из резервной копии…';
+  FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
+
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
   FMetadataFillAction.ActionList:=Actions; FMetadataFillAction.Category:='Коллекция';

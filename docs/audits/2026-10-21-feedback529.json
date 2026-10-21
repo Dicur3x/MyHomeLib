@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-21",
+  "branch": "codex/complete-app-audit",
+  "published": false,
+  "scope": "Reader illustrations and headings; asynchronous statistics; verified series aliases; immutable-source backups; restore as a new collection",
+  "checks": [
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 9,
+      "exit_code": 0,
+      "seconds": 58.719,
+      "exe_sha256": "f5a719b2804c8d009e10507896525589ee10f80325b53455f990b5d6f03366c4",
+      "log": "Win32-feedback529-9.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "collection-merge",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 8.297,
+      "exe_sha256": "f5a719b2804c8d009e10507896525589ee10f80325b53455f990b5d6f03366c4",
+      "log": "Win32-collection-merge-3.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "catalog-sources",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 8.937,
+      "exe_sha256": "f5a719b2804c8d009e10507896525589ee10f80325b53455f990b5d6f03366c4",
+      "log": "Win32-catalog-sources-6.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 11,
+      "exit_code": 0,
+      "seconds": 55.125,
+      "exe_sha256": "d7087e9aea10399781f80a4a2b29b65521f65cc3ba350bc4bb27359ebe407d28",
+      "log": "Win64-feedback529-11.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "collection-merge",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 8.172,
+      "exe_sha256": "d7087e9aea10399781f80a4a2b29b65521f65cc3ba350bc4bb27359ebe407d28",
+      "log": "Win64-collection-merge-4.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "catalog-sources",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 9.016,
+      "exe_sha256": "d7087e9aea10399781f80a4a2b29b65521f65cc3ba350bc4bb27359ebe407d28",
+      "log": "Win64-catalog-sources-5.log",
+      "passed": true
+    }
+  ],
+  "manual": [
+    "Restoration window inspected on Win32 and Win64 after 96/144/192/96 layout transitions",
+    "Win32 memo wheel scroll inspected",
+    "Real desktop series sampled read-only and reconstructed in isolated fixtures on both architectures"
+  ],
+  "limitations": [
+    "No real catalog changes were applied",
+    "Book duplicate review/consolidation and sync-folder export remain unfinished",
+    "Final full-application builds, startup and resource regressions remain pending"
+  ],
+  "evidenceNotes": [
+    "Fresh EXE alone can include a stale IDE editor buffer; new test markers and geometry measurements were required",
+    "One UI visual run exposed accumulated window sizing that earlier relative-layout assertions missed; the complete round-trip dimensions are now asserted",
+    "Early failed EXE and run entries remain in the local runs.json history"
+  ]
+}

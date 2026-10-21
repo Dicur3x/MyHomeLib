@@ -27,11 +27,12 @@ uses
   SQLiteWrap,
   unit_UserData,
   unit_Interfaces,
+  unit_CollectionBackup,
   unit_Globals,
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -166,6 +167,9 @@ type
     procedure EndMetadataRootGuard;
     procedure BeginDataUpdate;
     procedure EndDataUpdate(Commit: Boolean);
+    function RegisterSnapshotCollection(const CatalogFile, DisplayName, Root, SourceRoot: string;
+      Source: TSQLiteDatabase; SourceID: Integer;
+      const Canceled: TSnapshotCanceled): Integer;
     procedure ImportUserData(data: TUserData);
     procedure ImportLegacyUserData(CollectionID: Integer; Data: TUserData;
       const Notify: TGUIUpdateExtraProc);
@@ -2024,6 +2028,135 @@ begin
     if Assigned(Notify) then
       for Notification in Notifications do Notify(Notification.Key,Notification.Value);
   finally Notifications.Free; end;
+end;
+
+function TSystemData_SQLite.RegisterSnapshotCollection(const CatalogFile, DisplayName, Root, SourceRoot: string;
+  Source: TSQLiteDatabase; SourceID: Integer; const Canceled: TSnapshotCanceled): Integer;
+const
+  Columns='BookID,DatabaseID,LibID,Title,SeriesID,SeqNumber,UpdateDate,LibRate,Lang,Folder,FileName,'+
+    'InsideNo,Ext,BookSize,IsLocal,IsDeleted,KeyWords,Rate,Progress,Annotation,Review,ExtraInfo';
+var Q, Insert: TSQLiteQuery; Groups, ExtraGroups: TDictionary<Integer,Integer>; GroupID, NewID, I, N: Integer;
+  GroupName, RestoredName, StoredRoot, Folder, Prefix: string; Blob: TStream;
+  procedure CheckCanceled;
+  begin if Assigned(Canceled) and Canceled() then Abort; end;
+  function HistoricalGroup: Integer;
+  var WriteGroup: TSQLiteQuery;
+  begin
+    RestoredName:=GroupName; N:=0;
+    while True do
+    begin
+      CheckCanceled;
+      Result:=FDatabase.QuerySingleInt('SELECT GroupID FROM Groups WHERE GroupName=? AND AllowDelete=1 '+
+        'AND hex(Notes)=? AND (Notes IS NULL)=?',[RestoredName,Q.FieldAsString(4),Q.FieldIsNull(3)]);
+      if Result<>0 then Exit;
+      if FDatabase.QuerySingleInt('SELECT count(*) FROM Groups WHERE GroupName=?',[RestoredName])=0 then Break;
+      Inc(N); RestoredName:=GroupName+' (восстановлено '+IntToStr(N)+')';
+    end;
+    WriteGroup:=FDatabase.NewQuery('INSERT INTO Groups(GroupName,AllowDelete,Notes) VALUES(?,1,?)');
+    try
+      WriteGroup.SetParam(0,RestoredName);
+      if Q.FieldIsNull(3) then WriteGroup.SetNullParam(1)
+      else begin Blob:=Q.FieldAsBlob(3); try WriteGroup.SetBlobParam(1,Blob); finally Blob.Free; end; end;
+      WriteGroup.ExecSQL; Result:=FDatabase.LastInsertRowID;
+    finally WriteGroup.Free; end;
+  end;
+begin
+  if not Assigned(Source) or (SourceID<=0) then raise EArgumentException.Create('Нет исходной коллекции.');
+  if FDatabase.InTransaction then raise EInvalidOperation.Create('Другая операция меняет данные. Повторите позже.');
+  CheckCanceled; Result:=INVALID_COLLECTION_ID;
+  Groups:=TDictionary<Integer,Integer>.Create; ExtraGroups:=nil;
+  try
+    ExtraGroups:=TDictionary<Integer,Integer>.Create;
+    FDatabase.Start('', 'IMMEDIATE'); FDatabase.BeginQueryBatch;
+    try
+    try
+      // Registration and every personal row commit together. No existing
+      // collection, book card or group note is overwritten.
+      Result:=RegisterCollection(CatalogFile,DisplayName,Root);
+      StoredRoot:=Source.QuerySingleString('SELECT RootFolder FROM Bases WHERE DatabaseID=?',[SourceID]);
+      Q:=Source.NewQuery('SELECT '+Columns+' FROM Books WHERE DatabaseID=?',[SourceID]);
+      try
+        Insert:=FDatabase.NewQuery('INSERT INTO Books('+Columns+') VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        try
+          Q.Open;
+          while not Q.Eof do
+          begin
+            CheckCanceled; Insert.Reset;
+            for I:=0 to 21 do
+              if I=1 then Insert.SetParam(I,Result)
+              else if Q.FieldIsNull(I) then Insert.SetNullParam(I)
+              else if (I=9) and not SameFileName(Root,SourceRoot) then
+              begin
+                Folder:=Q.FieldAsString(I); Prefix:=IncludeTrailingPathDelimiter(SourceRoot);
+                if SameFileName(ExcludeTrailingPathDelimiter(Folder),ExcludeTrailingPathDelimiter(SourceRoot)) then Folder:=Root
+                else
+                begin
+                if not Folder.StartsWith(Prefix,True) and not TPath.IsPathRooted(StoredRoot) then
+                  Prefix:=IncludeTrailingPathDelimiter(StoredRoot);
+                if Folder.StartsWith(Prefix,True) then Folder:=TPath.Combine(Root,Copy(Folder,Length(Prefix)+1,MaxInt));
+                end;
+                Insert.SetParam(I,Folder);
+              end
+              else if I>=19 then
+              begin
+                Blob:=Q.FieldAsBlob(I);
+                try Insert.SetBlobParam(I,Blob); finally Blob.Free; end;
+              end
+              else if I in [0,4,5,7,11,13,14,15,17,18] then Insert.SetParam(I,Q.FieldAsInt(I))
+              else Insert.SetParam(I,Q.FieldAsString(I));
+            Insert.ExecSQL; Q.Next;
+          end;
+        finally Insert.Free; end;
+      finally Q.Free; end;
+      Q:=Source.NewQuery('SELECT GroupID,GroupName,AllowDelete,Notes,hex(Notes) FROM Groups '+
+        'WHERE GroupID IN (SELECT GroupID FROM BookGroups WHERE DatabaseID=?)',[SourceID]);
+      try
+        Q.Open;
+        while not Q.Eof do
+        begin
+          CheckCanceled; GroupID:=Q.FieldAsInt(0); GroupName:=Q.FieldAsString(1);
+          if not Q.FieldAsBoolean(2) then
+          begin
+            NewID:=FDatabase.QuerySingleInt('SELECT GroupID FROM Groups WHERE GroupID=? AND AllowDelete=0',[GroupID]);
+            if NewID=0 then raise Exception.Create('Не найдена системная группа резервной копии.');
+            // Keep the built-in membership (e.g. favourites), and keep changed
+            // historical notes in an additional named group without replacing
+            // the current global notes shared by other collections.
+            if not Q.FieldIsNull(3) and (Q.FieldAsString(4)<>'') and
+              (FDatabase.QuerySingleString('SELECT hex(Notes) FROM Groups WHERE GroupID=?',[NewID])<>Q.FieldAsString(4)) then
+              ExtraGroups.Add(GroupID,HistoricalGroup);
+          end
+          else NewID:=HistoricalGroup;
+          Groups.Add(GroupID,NewID); Q.Next;
+        end;
+      finally Q.Free; end;
+      Q:=Source.NewQuery('SELECT BookID,GroupID FROM BookGroups WHERE DatabaseID=?',[SourceID]);
+      try
+        Insert:=FDatabase.NewQuery('INSERT INTO BookGroups(BookID,DatabaseID,GroupID) VALUES(?,?,?)');
+        try
+          Q.Open;
+          while not Q.Eof do
+          begin
+            CheckCanceled;
+            if not Groups.TryGetValue(Q.FieldAsInt(1),NewID) then raise Exception.Create('Повреждена связь книги с группой.');
+            Insert.Reset; Insert.SetParam(0,Q.FieldAsInt(0)); Insert.SetParam(1,Result); Insert.SetParam(2,NewID);
+            Insert.ExecSQL;
+            if ExtraGroups.TryGetValue(Q.FieldAsInt(1),NewID) then
+            begin
+              Insert.Reset; Insert.SetParam(0,Q.FieldAsInt(0)); Insert.SetParam(1,Result); Insert.SetParam(2,NewID);
+              Insert.ExecSQL;
+            end;
+            Q.Next;
+          end;
+        finally Insert.Free; end;
+      finally Q.Free; end;
+      CheckCanceled; FDatabase.Commit;
+    except
+      if FDatabase.InTransaction then FDatabase.Rollback;
+      raise;
+    end;
+    finally FDatabase.EndQueryBatch; end;
+  finally ExtraGroups.Free; Groups.Free; end;
 end;
 
 procedure TSystemData_SQLite.ImportUserData(data: TUserData);

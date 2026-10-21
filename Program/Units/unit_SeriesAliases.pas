@@ -189,7 +189,8 @@ begin
   Backup(TargetFile,'destination.hlc2','Резервная копия коллекции');
   Backup(SystemFile,'system.hlc2','Резервная копия групп');
   TFile.WriteAllText(TPath.Combine(BackupFolder,'restore-paths.txt'),
-    'Коллекция: '+TargetFile+#13#10+'Группы и настройки: '+SystemFile,TEncoding.UTF8);
+    'Коллекция: '+TargetFile+#13#10+'Группы и настройки: '+SystemFile+#13#10+
+    'Папка книг: '+Settings.ExpandCollectionRoot(VarToStr(FCollection.GetProperty(PROP_ROOTFOLDER))),TEncoding.UTF8);
   ReportFile := TStreamWriter.Create(TPath.Combine(BackupFolder,'series.txt'),False,TEncoding.UTF8);
   try
     ReportFile.WriteLine(FReport.Text);

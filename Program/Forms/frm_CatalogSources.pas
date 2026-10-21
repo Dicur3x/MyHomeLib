@@ -9,6 +9,8 @@ type
   TCatalogWorkflowState = (cwsNeedsPreview, cwsChecking, cwsReady, cwsApplying, cwsDone, cwsFailed);
 
   TSourceDialogForm = class(TForm)
+  private
+    FLayoutPPI: Integer;
   public
     procedure ScaleForPPI(NewPPI: Integer); override;
   end;
@@ -94,7 +96,11 @@ uses System.SysUtils, System.IOUtils, System.Variants, System.Types, Winapi.Wind
 procedure TSourceDialogForm.ScaleForPPI(NewPPI: Integer);
 var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;
 begin
-  OldPPI:=CurrentPPI;
+  // CurrentPPI describes the native window's monitor, which may remain at 96
+  // during explicit layout scaling. Remember the last applied layout scale so
+  // 96 -> 144 -> 192 does not multiply the window size by 1.5 and then by 2.
+  OldPPI:=FLayoutPPI;
+  if OldPPI=0 then OldPPI:=96;
   if (OldPPI<=0) or (NewPPI<=0) or (OldPPI=NewPPI) then
   begin inherited; Exit; end;
   // Runtime forms have no streamed design size. Scale the window as well as
@@ -103,6 +109,7 @@ begin
   NewHeight:=MulDiv(ClientHeight,NewPPI,OldPPI);
   MinWidth:=MulDiv(Constraints.MinWidth,NewPPI,OldPPI);
   MinHeight:=MulDiv(Constraints.MinHeight,NewPPI,OldPPI);
+  FLayoutPPI:=NewPPI;
   DisableAlign;
   try
     inherited;
