@@ -73,11 +73,114 @@
   "limitations": [
     "No real catalog changes were applied",
     "Book duplicate review/consolidation and sync-folder export remain unfinished",
-    "Final full-application builds, startup and resource regressions remain pending"
+    "Final full-application builds, startup and resource regressions remain pending",
+    "Full conversion matrix not credited: old local fixture kit lacks PDF and newer codec samples. Separate menu-layout subcase and actual export-results matrix passed; original full conversion test retained."
   ],
   "evidenceNotes": [
     "Fresh EXE alone can include a stale IDE editor buffer; new test markers and geometry measurements were required",
     "One UI visual run exposed accumulated window sizing that earlier relative-layout assertions missed; the complete round-trip dimensions are now asserted",
     "Early failed EXE and run entries remain in the local runs.json history"
+  ],
+  "sync_export_checks": [
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 10,
+      "exit_code": 0,
+      "seconds": 10.75,
+      "exe_sha256": "6cea356b0fd8a989889d405a08d98bd7c33f3926009ea6bb68fac4c12bfba315",
+      "log": "Win32-feedback529-10.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "conversion-menu-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 9.343,
+      "exe_sha256": "6cea356b0fd8a989889d405a08d98bd7c33f3926009ea6bb68fac4c12bfba315",
+      "log": "Win32-conversion-menu-layout-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "export-results-audit",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 13.282,
+      "exe_sha256": "6cea356b0fd8a989889d405a08d98bd7c33f3926009ea6bb68fac4c12bfba315",
+      "log": "Win32-export-results-audit-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "export-preparation",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 6.594,
+      "exe_sha256": "6cea356b0fd8a989889d405a08d98bd7c33f3926009ea6bb68fac4c12bfba315",
+      "log": "Win32-export-preparation-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "export-cancel-interactive",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 112.531,
+      "exe_sha256": "6cea356b0fd8a989889d405a08d98bd7c33f3926009ea6bb68fac4c12bfba315",
+      "log": "Win32-export-cancel-interactive-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 18,
+      "exit_code": 0,
+      "seconds": 9.718,
+      "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
+      "log": "Win64-feedback529-18.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "conversion-menu-layout",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 9.0,
+      "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
+      "log": "Win64-conversion-menu-layout-3.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "export-results-audit",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 12.218,
+      "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
+      "log": "Win64-export-results-audit-3.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "export-preparation",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 5.828,
+      "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
+      "log": "Win64-export-preparation-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "export-cancel-interactive",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 107.171,
+      "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
+      "log": "Win64-export-cancel-interactive-1.log",
+      "passed": true
+    }
   ]
 }

@@ -71,7 +71,8 @@ type
 function GetFileName(key: TMHLFileName; out FileName: string): Boolean;
 
 function GetFolderName(Handle: Integer; const Caption: string; var strFolder: string): Boolean;
-function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem): Boolean;
+function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem;
+  FilesystemOnly: Boolean = False): Boolean;
 function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string): Boolean;
 function ResolveOrCreateShellSubfolder(const Root: IShellItem; const RelPath: string): IShellItem;
 function IsShellPath(const Path: string): Boolean;
@@ -421,12 +422,14 @@ begin
   end;
 end;
 
-function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem): Boolean;
+function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem;
+  FilesystemOnly: Boolean): Boolean;
 var
   Dialog: IFileOpenDialog;
   Options: Cardinal;
   InitFolder: IShellItem;
   DisplayName: PWideChar;
+  NameResult: HRESULT;
 begin
   Result := False;
   ShellItem := nil;
@@ -435,7 +438,8 @@ begin
   begin
     Dialog.SetTitle(PChar(Caption));
     Dialog.GetOptions(Options);
-    Dialog.SetOptions((Options or FOS_PICKFOLDERS) and not FOS_FORCEFILESYSTEM); // allow non-filesystem (MTP)
+    if FilesystemOnly then Dialog.SetOptions(Options or FOS_PICKFOLDERS or FOS_FORCEFILESYSTEM)
+    else Dialog.SetOptions((Options or FOS_PICKFOLDERS) and not FOS_FORCEFILESYSTEM); // allow non-filesystem (MTP)
 
     if (strFolder <> '') and Succeeded(SHCreateItemFromParsingName(PChar(strFolder), nil, IShellItem, InitFolder)) then
       Dialog.SetFolder(InitFolder);
@@ -444,11 +448,13 @@ begin
     begin
       if Succeeded(Dialog.GetResult(ShellItem)) then
       begin
-        Result := True;
-        if Succeeded(ShellItem.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, DisplayName)) then
+        if FilesystemOnly then NameResult:=ShellItem.GetDisplayName(SIGDN_FILESYSPATH,DisplayName)
+        else NameResult:=ShellItem.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING,DisplayName);
+        if Succeeded(NameResult) then
         begin
           strFolder := DisplayName;
           CoTaskMemFree(DisplayName);
+          Result := strFolder <> '';
         end;
       end;
     end;

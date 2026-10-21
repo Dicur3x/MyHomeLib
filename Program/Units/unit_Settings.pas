@@ -95,6 +95,7 @@ type
 
     FDeviceDir: string;
     FGroupExportDir: string;
+    FSyncExportDir: string;
 
     FActiveCollection: Integer;
     FRestoreBookViews: TRestoreBookViews;
@@ -300,6 +301,7 @@ type
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property DevicePath: string read GetDevicePath;
     property GroupExportDir: string read FGroupExportDir write FGroupExportDir;
+    property SyncExportDir: string read FSyncExportDir write FSyncExportDir;
 
     property ReadDir: string read FReadDir write SetReadDir;
     property ReadPath: string read GetReadPath;
@@ -668,6 +670,7 @@ begin
     ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
     FGroupExportDir := iniFile.ReadString(PATH_SECTION, 'GroupExport', '');
+    FSyncExportDir := iniFile.ReadString(PATH_SECTION, 'SyncExport', '');
 
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     case iniFile.ReadInteger(INTERFACE_SECTION, 'RestoreBookViews', 1) of
@@ -849,6 +852,7 @@ begin
     iniFile.WriteString(PATH_SECTION, 'Read', FReadDir);
     iniFile.WriteString(PATH_SECTION, 'Update', FUpdateDir);
     iniFile.WriteString(PATH_SECTION, 'GroupExport', FGroupExportDir);
+    iniFile.WriteString(PATH_SECTION, 'SyncExport', FSyncExportDir);
 
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteInteger(INTERFACE_SECTION, 'RestoreBookViews', Ord(FRestoreBookViews));

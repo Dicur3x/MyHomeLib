@@ -742,7 +742,7 @@ begin
     try Item.Tag:=RawCID; frmMain.miActiveCollectionClick(Item); finally Item.Free; end;
     Settings.AllowMixed:=False;
     Require(frmMain.pmiScripts.Visible and frmMain.mmiScripts.Visible and
-      frmMain.pmiScripts.Caption.Contains('Конвертировать') and (frmMain.pmiScripts.Count=2),
+      frmMain.pmiScripts.Caption.Contains('Конвертировать') and (frmMain.pmiScripts.Count=3),
       'Zero-script raw collection hides the converter submenu');
     // Source-dependent visibility is resolved when the actual menu opens.
     frmMain.pgControl.ActivePage:=frmMain.tsSearch; frmMain.pgControlChange(nil);
@@ -755,8 +755,12 @@ begin
       Book.FileExt:=Ext; Raw.UpdateBook(Book);
       frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
       frmMain.pmMain.OnPopup(frmMain.pmMain);
-      Require(not frmMain.pmiScripts.Visible and not frmMain.mmiScripts.Visible,
-        'Unsupported input offers conversion: '+Ext);
+      for var Parent in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts) do
+        for var I:=0 to Parent.Count-1 do
+          if (Parent.Items[I].Tag=850) or (Parent.Items[I].Tag=854) then
+            Require(not Parent.Items[I].Visible,'Unsupported input offers conversion: '+Ext)
+          else if Parent.Items[I].Tag=795 then
+            Require(Parent.Items[I].Visible,'Unsupported conversion input hides ordinary sync-folder copying');
     end;
     Writeln('PASS conversion menu hides unsupported LIT LRF inputs');
     for var Ext in TArray<string>.Create('.pdf','.djvu','.mht','.chm','.pdb','.wri','.tcr','.123456',
@@ -768,6 +772,11 @@ begin
       frmMain.pmMain.OnPopup(frmMain.pmMain); MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.pmiScripts,854);
     end;
     Writeln('PASS conversion menu offers new text containers and deferred PDF/DjVu text-layer validation');
+    if ParamStr(2)='layout' then
+    begin
+      Writeln('PASS conversion menu layout retains sync copying and rejects unsupported converter commands');
+      Exit;
+    end;
     for var Tag in TArray<Integer>.Create(854,850) do
     begin
       Book.FileExt:='.fb2'; if Tag=850 then Book.FileExt:='.epub';

@@ -27,9 +27,9 @@ begin
   RequireIsolatedRegression;
   Root:=IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'mtp-txt-'+TGUID.NewGuid.ToString));
   TempRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(Settings.TempPath));
-  Require(TPath.GetFullPath(Root).StartsWith('G:\',True) and
+  Require(TPath.GetFullPath(Root).StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)),True) and
     TempRoot.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)),True),
-    'MTP TXT surrogate must stay inside its owned G runtime');
+    'MTP TXT surrogate must stay inside its marked executable-owned runtime');
   ForceDirectories(Root); ForceDirectories(TempRoot);
   SourceFile:=Root+'source.fb2'; ArchiveFile:=Root+'source.zip';
   Document:='<?xml version="1.0" encoding="utf-8"?>'+sLineBreak+

@@ -3018,6 +3018,15 @@ begin
     end;
   end;
 
+  Item:=TMenuItem.Create(pmScripts); Item.Caption:='В папку синхронизации…';
+  Item.Tag:=795; Item.OnClick:=SendToDeviceExecute;
+  Item.Hint:='Сохранить отмеченные книги в локальную папку Dropbox, OneDrive или другой программы синхронизации. Формат — из настроек экспорта.';
+  pmScripts.Items.Add(Item); Inc(ExportItemCount);
+  ItemP:=TMenuItem.Create(pmiScripts); ItemP.Caption:=Item.Caption;
+  ItemP.Tag:=Item.Tag; ItemP.Hint:=Item.Hint; ItemP.OnClick:=SendToDeviceExecute; pmiScripts.Add(ItemP);
+  ItemM:=TMenuItem.Create(MainMenu); ItemM.Caption:=Item.Caption;
+  ItemM.Tag:=Item.Tag; ItemM.Hint:=Item.Hint; ItemM.OnClick:=SendToDeviceExecute; mmiScripts.Add(ItemM);
+
   F := ExportItemCount;
   ExportScriptCount := 0;
   for i := 0 to Settings.Scripts.Count - 1 do
@@ -5926,8 +5935,9 @@ begin
   end;
   if ScriptID >= Settings.Scripts.Count then
     raise EArgumentException.Create('Команда экспорта больше не существует. Откройте меню повторно.');
-  Assert(Assigned(FCollection));
+  if not Assigned(FCollection) then Exit;
   GetActiveTree(Tree);
+  if not Assigned(Tree) then Exit;
   // Keep the selection while the destination dialog can still be canceled.
   FillBookIdList(Tree, BookIDList, False);
 
@@ -5963,7 +5973,22 @@ begin
   ExportMode := ResolveBookExportMode(ScriptID, Settings.ExportMode,
     isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed);
 
-  if ScriptID = 799 then
+  if ScriptID = 795 then
+  begin
+    AFolder:=Settings.SyncExportDir;
+    if not GetFolderShellItem(Handle,'Папка синхронизации — Dropbox, OneDrive или другая локальная папка',
+      AFolder,DeviceShellItem,True) then Exit;
+    if IsShellPath(AFolder) or not TPath.IsPathRooted(AFolder) or not DirectoryExists(AFolder) then
+    begin
+      MHLShowError('Выберите обычную папку на диске, которую синхронизирует ваша программа.');
+      Exit;
+    end;
+    // The normal profile save persists this preference. A folder export must
+    // not depend on rewriting every setting before it can start.
+    Settings.SyncExportDir:=AFolder;
+    Dec(ScriptID,901);
+  end
+  else if ScriptID = 799 then
   begin
     if FLastDeviceDir = '' then
       FLastDeviceDir := Settings.DeviceDir;

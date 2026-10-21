@@ -23,7 +23,7 @@ var
   Item: TMenuItem;
   Probe: TMainExportPreparationProbe;
   SavedModalBegin: TNotifyEvent;
-  SavedDevice, SavedTemplate: string;
+  SavedDevice, SavedTemplate, SavedSync, ChosenDevice: string;
   SavedPrompt, SavedChecked: Boolean;
   ScriptIndex, SavedModalLevel: Integer;
   FailureObserved: Boolean;
@@ -71,6 +71,7 @@ var
 begin
   ShowPage(PAGE_AUTHORS);
   SavedDevice := Settings.DeviceDir;
+  SavedSync := Settings.SyncExportDir;
   SavedTemplate := Settings.FolderTemplate;
   SavedPrompt := Settings.PromptDevicePath;
   SavedChecked := Settings.SelectedIsChecked;
@@ -81,7 +82,7 @@ begin
   ScriptIndex := Settings.Scripts.Count;
   try
     Settings.DeviceDir := Settings.AppPath + 'Назначение экспорта ё';
-    ForceDirectories(Settings.DeviceDir);
+    ForceDirectories(Settings.DeviceDir); ChosenDevice:=Settings.DeviceDir;
     Settings.FolderTemplate := 'Сохранённый шаблон ё\%a';
     Settings.SelectedIsChecked := False;
     MarkAndSnapshot;
@@ -89,7 +90,7 @@ begin
     begin
       frmMain.Show;
       Application.ProcessMessages;
-      for var Tag in TArray<Integer>.Create(799, 850) do
+      for var Tag in TArray<Integer>.Create(795,799,850) do
       begin
         Settings.PromptDevicePath := True;
         Item.Tag := Tag;
@@ -99,6 +100,8 @@ begin
         RequireMarks;
         Require(Settings.FolderTemplate = 'Сохранённый шаблон ё\%a',
           'Cancel changed the saved export folder template');
+        Require((Settings.SyncExportDir=SavedSync) and (Settings.DeviceDir=ChosenDevice),
+          'Canceled sync picker changed a remembered destination');
         Writeln('PASS Main export destination cancel preserves marked books tag=', Tag);
         Flush(Output);
       end;
@@ -129,6 +132,7 @@ begin
     Require(Application.ModalLevel = SavedModalLevel, 'Injected modal failure leaked its application level');
     while Settings.Scripts.Count > ScriptIndex do Settings.Scripts.Delete(Settings.Scripts.Count - 1);
     Settings.DeviceDir := SavedDevice;
+    Settings.SyncExportDir := SavedSync;
     Settings.FolderTemplate := SavedTemplate;
     Settings.PromptDevicePath := SavedPrompt;
     Settings.SelectedIsChecked := SavedChecked;

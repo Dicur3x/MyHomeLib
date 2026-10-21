@@ -1,5 +1,5 @@
 ﻿// Actual Main -> modal form -> production worker -> guarded mark application.
-// All files and rows belong to this process's isolated G: runtime.
+// All files and rows belong to this process's isolated native runtime.
 type
   TExportResultsProbe = class
   public
@@ -273,7 +273,9 @@ var Root, Destination, SourceA, SourceB, SourceC, SourceD: string;
 
 begin
   RequireIsolatedRegression;
-  Require(ExpandFileName(Settings.AppPath).StartsWith('G:\', True), 'Export results must use the owned G fixture');
+  Require(SameFileName(ExcludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)),
+    ExcludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))),
+    'Export results must use the marked executable-owned runtime');
   Plan := PrepareBookExportScript('tool.exe', '--book "%FILENAME%" %FOLDER G:\Own ё% %NFT%',
     'G:\Default', 'G:\Temp\', 'original');
   Require((Plan.Destination = 'G:\Own ё') and (Plan.FolderTemplate = '') and

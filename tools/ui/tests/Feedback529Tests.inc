@@ -1,4 +1,32 @@
-﻿procedure WaitCollectionStatistics(Form: TfrmStat);
+﻿procedure TestSyncFolderExportSettings;
+var Saved, Device, Destination: string; Reloaded: TMHLSettings; Count: Integer;
+begin
+  Saved:=Settings.SyncExportDir; Device:=Settings.DeviceDir;
+  Destination:=TPath.Combine(Settings.AppPath,'Mock sync folder ё'); ForceDirectories(Destination);
+  try
+    Settings.SyncExportDir:=Destination; Settings.SaveSettings;
+    Reloaded:=TMHLSettings.Create;
+    try
+      Reloaded.LoadSettings;
+      Require((Reloaded.SyncExportDir=Destination) and (Reloaded.DeviceDir=Device),
+        'Sync export folder did not survive settings reload independently of the device folder');
+    finally Reloaded.Free; end;
+    for var Menu in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts,frmMain.pmScripts.Items) do
+    begin
+      Count:=0;
+      for var I:=0 to Menu.Count-1 do
+        if Menu.Items[I].Tag=795 then
+        begin
+          Inc(Count); Require(Assigned(Menu.Items[I].OnClick) and Menu.Items[I].Visible,
+            'Sync folder command is not available in a book export menu');
+        end;
+      Require(Count=1,'Sync export menu lost or duplicated its dedicated command');
+    end;
+  finally Settings.SyncExportDir:=Saved; Settings.SaveSettings; end;
+  Writeln('PASS sync export destination persists independently of device settings and is available in all book export menus');
+end;
+
+procedure WaitCollectionStatistics(Form: TfrmStat);
 var Watch: TStopwatch;
 begin
   Watch:=TStopwatch.StartNew;
@@ -89,6 +117,7 @@ begin
   Writeln('PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close');
   TestFeedback529Series;
   TestCollectionBackupRestore;
+  TestSyncFolderExportSettings;
   if GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG')<>'' then
     TestFeedback529DesktopSeries(GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG'));
 end;
