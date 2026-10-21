@@ -1,0 +1,28 @@
+{
+  "release": "2.7.0_pre5.30",
+  "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.30",
+  "verified_utc": "2026-10-21T16:04:51.581871+00:00",
+  "removed_component_archives": 8,
+  "removed_component_feed": true,
+  "main_archives_unchanged": true,
+  "assets": [
+    {
+      "name": "HomeLibRu.zip",
+      "size": 31905883,
+      "sha256": "c7e366650738f94ab771be3e77468040f45ee209c97cf8a19c96368e2f86ddb1"
+    },
+    {
+      "name": "HomeLibRu_x64.zip",
+      "size": 36750490,
+      "sha256": "a7c5dfc838d16428de05cf97c7649d63e678a6918c3ac44585ba52f893cb722a"
+    },
+    {
+      "name": "SHA256.txt",
+      "size": 166,
+      "sha256": "e6b038a1a1db5c907220d35ccb15535a190fbbd9ab7bd74678f5067ce6fb8253"
+    }
+  ],
+  "checksum_public_download_verified": true,
+  "description_updated": true,
+  "reason": "Owner requested author-hosted downloads only; remove unintended component mirror"
+}
