@@ -18,6 +18,7 @@ function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<s
   const TargetExtension: string = ''): string;
 function IsReaderArchive(const FileName: string): Boolean;
 procedure CancelReaderPreparations(Owner: TComponent);
+function ReaderPreparationsPending(Owner: TComponent): Boolean;
 function ResolveReaderBook(const Collection: IBookCollection; const Book: TBookRecord): TBookRecord;
 function ReaderBookPhysicalIdentity(const Book: TBookRecord): string;
 function ReaderBookMatchesExpectedIdentity(const ExpectedLibID, ExpectedPhysicalIdentity: string;
@@ -885,6 +886,13 @@ var I: Integer;
 begin
   for I := Owner.ComponentCount-1 downto 0 do
     if Owner.Components[I] is TReaderPreparation then Owner.Components[I].Free;
+end;
+
+function ReaderPreparationsPending(Owner: TComponent): Boolean;
+begin
+  Result:=False; if not Assigned(Owner) then Exit;
+  for var Component in Owner do
+    if Component is TReaderPreparation then Exit(True);
 end;
 
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;

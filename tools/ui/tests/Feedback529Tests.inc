@@ -118,6 +118,8 @@ begin
   TestFeedback529Series;
   TestCollectionBackupRestore;
   TestSyncFolderExportSettings;
+  TestBookDuplicatePreview;
+  TestBookDuplicateApply;
   if GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG')<>'' then
     TestFeedback529DesktopSeries(GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG'));
 end;

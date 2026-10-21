@@ -899,6 +899,8 @@ type
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
+    procedure ShowBookDuplicates(Sender: TObject);
+    procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
     procedure ResetColumnFiltersClick(Sender: TObject);
     procedure ClearBookSorting(Sender: TObject);
@@ -1223,7 +1225,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4187,6 +4189,42 @@ begin
   FOPDSForm.BringToFront;
 end;
 
+procedure TfrmMain.CheckBookDuplicateApply(Sender: TObject);
+begin
+  if Assigned(FDMThread) or ReaderPreparationsPending(Self) then
+  begin
+    MessageDlg('Дождитесь завершения загрузки и подготовки книг перед объединением.',mtInformation,[mbOK],0); Abort;
+  end;
+  for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I] is TfrmBuiltinReader then
+    begin
+      MessageDlg('Закройте встроенную читалку перед объединением записей книг.',mtInformation,[mbOK],0); Abort;
+    end;
+end;
+
+procedure TfrmMain.ShowBookDuplicates(Sender: TObject);
+var Dialog: TfrmBookDuplicates; Changed: Boolean;
+begin
+  if not Assigned(FCollection) or FFormBusy or FBookListLoading then Exit;
+  if isOnlineCollection(FCollection.CollectionCode) then
+  begin
+    MessageDlg('Поиск повторов доступен для локальной коллекции.',mtInformation,[mbOK],0); Exit;
+  end;
+  FFormBusy:=True; Changed:=False;
+  try
+    Dialog:=TfrmBookDuplicates.CreateForCollection(Self,FCollection);
+    try
+      Dialog.OnBeforeApply:=CheckBookDuplicateApply;
+      Dialog.ShowModal; Changed:=Dialog.CatalogChanged;
+    finally Dialog.Free; end;
+  finally FFormBusy:=False; end;
+  if Changed then
+  begin
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(FCollection.CollectionID));
+    FCollection:=FSystemData.GetCollection(Settings.ActiveCollection,True); InitCollection;
+  end;
+end;
+
 procedure TfrmMain.RestoreCollectionSnapshot(Sender: TObject);
 var Dialog: TfrmCollectionBackup; RestoredID: Integer; WasBusy: Boolean;
 begin
@@ -4585,6 +4623,8 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miBookDuplicates';
+  FilterMenu.Caption:='Повторные записи книг…'; FilterMenu.OnClick:=ShowBookDuplicates; N2.Insert(5,FilterMenu);
 
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';

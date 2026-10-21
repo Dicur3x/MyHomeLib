@@ -68,7 +68,9 @@
   "manual": [
     "Restoration window inspected on Win32 and Win64 after 96/144/192/96 layout transitions",
     "Win32 memo wheel scroll inspected",
-    "Real desktop series sampled read-only and reconstructed in isolated fixtures on both architectures"
+    "Real desktop series sampled read-only and reconstructed in isolated fixtures on both architectures",
+    "Duplicate dialog inspected on x86/x64 after 96/144/192/96 scale roundtrip; truncated personal marker fixed and persistent preferred ID/star verified",
+    "Native duplicate scan button executed successfully on x64; no catalog writes during scanning"
   ],
   "limitations": [
     "No real catalog changes were applied",
@@ -180,6 +182,28 @@
       "seconds": 107.171,
       "exe_sha256": "57338f0fe36c0eed7073778b9a60d17f951cc7a19fb917c1cc8cf700de5907e8",
       "log": "Win64-export-cancel-interactive-1.log",
+      "passed": true
+    }
+  ],
+  "duplicate_checks": [
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 12,
+      "exit_code": 0,
+      "seconds": 114.344,
+      "exe_sha256": "8e0215206ea5eb22ba021a66461ffb8cc0bc4917d6cbaa528705bef0b65d8494",
+      "log": "Win32-feedback529-12.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 24,
+      "exit_code": 0,
+      "seconds": 101.094,
+      "exe_sha256": "3e88d9975ca41db3cc3c069f3b3cddad35611d1eb1d5426a862fd6ec327ed781",
+      "log": "Win64-feedback529-24.log",
       "passed": true
     }
   ]
