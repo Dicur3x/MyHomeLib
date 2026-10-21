@@ -2,19 +2,20 @@
 
 interface
 
-uses System.Classes, unit_Globals;
+uses System.Classes, System.SysUtils, unit_Globals;
 
 function FindArchiveManager: string;
 procedure OpenInArchiveManager(const FileName: string);
 procedure ShowBookLocation(Owner: TComponent; const Book: TBookRecord);
 function ChooseBookReader(Owner: TComponent; const FileName, OriginalExtension: string;
-  out Builtin: Boolean; out ReaderPath: string; ForceChoice: Boolean = False): Boolean;
+  out Builtin: Boolean; out ReaderPath: string; ForceChoice: Boolean = False;
+  const OnInstallComponent: TProc<string> = nil): Boolean;
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.IniFiles, System.Win.Registry,
+uses System.IOUtils, System.IniFiles, System.Win.Registry,
   Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Clipbrd,
-  unit_ReaderFormats, unit_ReaderOffice, unit_Settings, unit_Readers, unit_Helpers, unit_ReaderCache, dm_user;
+  unit_ReaderFormats, unit_ReaderOffice, unit_Settings, unit_Readers, unit_Helpers, unit_ReaderCache, unit_ComponentUpdates, dm_user;
 
 function FindArchiveManager: string;
 const Roots: array[0..1] of HKEY = (HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE);
@@ -118,7 +119,8 @@ begin
 end;
 
 function ChooseBookReader(Owner: TComponent; const FileName, OriginalExtension: string;
-  out Builtin: Boolean; out ReaderPath: string; ForceChoice: Boolean): Boolean;
+  out Builtin: Boolean; out ReaderPath: string; ForceChoice: Boolean;
+  const OnInstallComponent: TProc<string>): Boolean;
 var Dialog: TForm; List: TListBox; Remember: TCheckBox; LabelText: TLabel; B: TButton;
   Ini: TMemIniFile; Paths: TStringList; Choice, Ext, Path, PreferenceKey: string;
   Reader: TReaderDesc; CanBuiltin, ValidKey, HasLetter: Boolean; I: Integer; Ch: Char;
@@ -127,7 +129,8 @@ var Dialog: TForm; List: TListBox; Remember: TCheckBox; LabelText: TLabel; B: TB
 begin
   Result:=False; Builtin:=False; ReaderPath:='';
   Ext:=LowerCase(ExtractFileExt(FileName)); CanBuiltin:=IsBuiltinReaderFormat(Ext);
-  if IsOfficeReaderFormat(Ext) then CanBuiltin:=OfficeReaderAvailable(Ext);
+  if IsOfficeReaderFormat(Ext) then CanBuiltin:=OfficeReaderAvailable(Ext) or
+    (Assigned(OnInstallComponent) and (RequiredReaderComponent(Settings.AppPath,Ext)<>''));
   PreferenceKey:=LowerCase(OriginalExtension);
   ValidKey:=(Length(PreferenceKey)>=2) and (Length(PreferenceKey)<=11) and PreferenceKey.StartsWith('.');
   HasLetter:=False;
@@ -160,9 +163,17 @@ begin
       if FileExists(Path) then Add(ExtractFileName(Path)+' — настроено для этого типа',Path);
     end;
     if Pos('|'+Ext+'|','|.fb2|.doc|.docx|.rtf|.txt|.htm|.html|')>0 then
-    begin Path:=Settings.AppPath+'Readers\AlReader\AlReader2.exe'; if FileExists(Path) then Add('AlReader',Path); end;
+    begin
+      Path:=Settings.AppPath+'Readers\AlReader\AlReader2.exe';
+      if FileExists(Path) then Add('AlReader',Path)
+      else if Assigned(OnInstallComponent) then Add('Установить AlReader…','@install:AlReader');
+    end;
     if Pos('|'+Ext+'|','|.pdf|.epub|.mobi|.azw|.azw3|.prc|.djvu|.djv|.xps|.oxps|.chm|.cbr|.cbz|.cb7|.jpg|.jpeg|.png|.gif|.tif|.tiff|.webp|')>0 then
-    begin Path:=Settings.AppPath+'Readers\SumatraPDF\SumatraPDF.exe'; if FileExists(Path) then Add('SumatraPDF',Path); end;
+    begin
+      Path:=Settings.AppPath+'Readers\SumatraPDF\SumatraPDF.exe';
+      if FileExists(Path) then Add('SumatraPDF',Path)
+      else if Assigned(OnInstallComponent) then Add('Установить SumatraPDF…','@install:SumatraPDF');
+    end;
     Add('Программа по умолчанию для этого типа','@configured');
     List.ItemIndex:=0;
     for I:=0 to Paths.Count-1 do if Paths[I]=Choice then List.ItemIndex:=I;
@@ -172,7 +183,10 @@ begin
     B:=TButton.Create(Dialog); B.Parent:=Dialog; B.SetBounds(324,246,104,28); B.Caption:='Отмена'; B.Cancel:=True; B.ModalResult:=mrCancel;
     Dialog.ScaleForPPI(Screen.PixelsPerInch);
     if (Dialog.ShowModal<>mrOk) or (List.ItemIndex<0) then Exit;
-    Choice:=Paths[List.ItemIndex]; Builtin:=Choice='@builtin';
+    Choice:=Paths[List.ItemIndex];
+    if Choice.StartsWith('@install:') and Assigned(OnInstallComponent) then
+    begin OnInstallComponent(Copy(Choice,Length('@install:')+1,MaxInt)); Exit(False); end;
+    Builtin:=Choice='@builtin';
     if (Choice<>'@builtin') and (Choice<>'@configured') then ReaderPath:=Choice;
     if Remember.Checked then Ini.WriteString('OpenWith',PreferenceKey,Choice)
     else Ini.DeleteKey('OpenWith',PreferenceKey);

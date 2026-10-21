@@ -261,7 +261,8 @@ begin
     Require(Dialog.StartCheckCycle(False),'Repair check did not start');
     Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
     Require(Primary.Enabled and (Primary.Caption='Скачать и восстановить') and
-      string(Status.Caption).Contains('7-Zip') and string(Status.Caption).Contains('DjVuLibre'),
+      string(Status.Caption).Contains('7-Zip') and not string(Status.Caption).Contains('DjVuLibre') and
+      not string(Status.Caption).Contains('DocSharp'),
       'Same-release repair was hidden or lacked an explanation');
     Require(View.Items[0].SubItems[2]='Восстановление компонентов','Repair row falsely says current');
     if Assigned(Dialog.ActiveControl) then
@@ -299,7 +300,8 @@ begin
     RestoreInputs(True); TestUnavailableApplicationArchive(Releases[4]);
     for var I:=0 to High(Names) do TFile.Move(Settings.AppPath+Names[I],Settings.AppPath+Names[I]+'.repair-held');
     // A file disappears after the first check, and its author is unavailable.
-    // A fresh check must still offer repair even on the failed author's row.
+    // Missing optional readers must not turn their unavailable author row
+    // into a full-application repair action; required runtime repair stays on HomeLib Ru.
     Reader:=Settings.AppPath+'Readers/AlReader/AlReader2.exe';
     ReaderHash:=THashSHA2.GetHashStringFromFile(Reader); TFile.Move(Reader,Reader+'.repair-held');
     Releases[1].ComponentID:='AlReader'; Releases[1].ComponentError:='Сайт автора недоступен. Повторите проверку.';
@@ -307,9 +309,12 @@ begin
     Require(Dialog.StartCheckCycle(False),'Second repair check did not refresh its local inventory');
     Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
     View.Items[2].Selected:=True; View.OnSelectItem(View,View.Items[2],True);
-    Require(Primary.Enabled and (Primary.Caption='Скачать и восстановить') and
-      string(Status.Caption).Contains('AlReader') and (View.Items[2].SubItems[2]='Не удалось проверить'),
-      'Unavailable author hid verified bundle repair or lost its error explanation');
+    Require(Primary.Enabled and (Primary.Caption='Повторить проверку') and
+      string(Status.Caption).Contains(Releases[1].ComponentError) and
+      View.Items[2].Caption.Contains('AlReader') and (View.Items[2].SubItems[2]='Не удалось проверить'),
+      'Missing optional reader forced full-application repair or lost its author error');
+    View.Items[0].Selected:=True; View.OnSelectItem(View,View.Items[0],True);
+    Require(Primary.Caption='Скачать и восстановить','Required runtime repair disappeared from the application row');
     Primary.Click; Deadline:=GetTickCount64+120000;
     repeat
       Application.ProcessMessages; CheckSynchronize(0); TThread.Sleep(1);
@@ -317,9 +322,9 @@ begin
       if Primary.Enabled and (Primary.Caption='Повторить загрузку') then
         raise Exception.Create('Repair queue failed: '+string(Status.Caption));
     until Primary.Enabled and (Primary.Caption='Установить и перезапустить');
-    Require((Server.Requests=6) and (Server.Failure=''),'Repair queue lost a package or used an unexpected source');
+    Require((Server.Requests=2) and (Server.Failure=''),'Repair queue lost a package or used an unexpected source');
     for var Name in Names do Require(not FileExists(Settings.AppPath+Name),'Preparation modified installed files before installation');
-    Writeln('PASS same-release repair downloads full verified bundle and stages 7-Zip plus four DOC packages with absent installed bootstraps');
+    Writeln('PASS same-release repair downloads minimal verified application and required 7-Zip without forcing optional DOC packages');
     Require(not FileExists(Reader),'Author repair changed installed files before installation');
     Cache:=ProgramUpdateCache(Settings.AppPath);
     Ready:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Cache,'ready.json'),TEncoding.UTF8));
@@ -329,15 +334,14 @@ begin
       // The root represents the application. Only component descriptors are
       // children of bundle; their payload files also appear in the root list.
       var Bundle:=TJSONObject(Root).GetValue<TJSONArray>('bundle');
-      Require((TJSONObject(Root).GetValue<string>('component','')='') and (Bundle.Count=2),
+      Require((TJSONObject(Root).GetValue<string>('component','')='') and (Bundle.Count=1),
         'Repair bundle lost the app or a prepared component');
-      Require((TJSONObject(Bundle.Items[0]).GetValue<string>('component')='7-Zip') and
-        (TJSONObject(Bundle.Items[1]).GetValue<string>('component')='DocSharp'),
+      Require(TJSONObject(Bundle.Items[0]).GetValue<string>('component')='7-Zip',
         'Repair bundle has different component identities');
     finally Root.Free; end;
-    Require(THashSHA2.GetHashStringFromFile(TPath.Combine(Job,'payload/Readers/AlReader/AlReader2.exe'))=ReaderHash,
-      'Verified app bundle did not restore its missing AlReader');
-    Writeln('PASS unavailable author does not block repair of missing AlReader from verified application bundle');
+    Require(not FileExists(TPath.Combine(Job,'payload/Readers/AlReader/AlReader2.exe')),
+      'Minimal repair forced a missing optional reader back into the payload');
+    Writeln('PASS unavailable optional reader author does not force installation or block required runtime repair');
     Helper:=PreparedProgramUpdateHelper(Job,PROGRAM_RELEASE_VERSION,ProgramUpdatePlatform,Digest);
     Require(SameFileName(Dialog.HelperSource,Helper),'Repair did not choose its verified staged installer');
     TFile.Copy(Settings.AppPath+Names[High(Names)]+'.repair-held',Settings.AppPath+Names[High(Names)]);

@@ -5521,6 +5521,7 @@ end;
 {$I InpStreamingTests.inc}
 {$I ReaderNotesProposalTests.inc}
 {$I UpdateProposalsTests.inc}
+{$I OptionalComponentsTests.inc}
 {$I Release23UiTests.inc}
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
@@ -5713,6 +5714,7 @@ begin
       end
       else if ParamStr(1) = 'view-sessions' then
         TestBookViewSessions(OneID, TwoID)
+      else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails
       else if ParamStr(1) = 'oct11-ui' then

@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, System.Net.HttpClient, Winapi.Windows, Winapi.Messages,
+uses System.Classes, System.SysUtils, System.Net.HttpClient, Winapi.Windows, Winapi.Messages,
   unit_ProgramUpdates;
 
 type
@@ -34,6 +34,8 @@ type
     FError, FURL, FCacheFolder: string;
     FReleases: TComponentReleases;
     FLimit: Int64;
+    FOnlyIDs: TArray<string>;
+    function PublishedPackages: TComponentReleases;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -47,6 +49,19 @@ type
     property Successful: Boolean read FSuccessful;
     property ErrorText: string read FError;
     property Releases: TComponentReleases read FReleases;
+    property OnlyIDs: TArray<string> read FOnlyIDs write FOnlyIDs;
+  end;
+
+function IsOptionalComponent(const ID: string): Boolean;
+function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
+function SetComponentNotification(const ID, Choices: string; Enabled: Boolean): string;
+function RequiredReaderComponent(const AppPath, Extension: string): string;
+type
+  EReaderComponentRequired = class(Exception)
+  private FComponentID: string;
+  public
+    constructor Create(const ID: string);
+    property ComponentID: string read FComponentID;
   end;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
@@ -74,9 +89,40 @@ procedure SaveComponentHistory(const CacheFolder: string; const Releases: TCompo
 
 implementation
 
-uses System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils,
+uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
   unit_UpdateNotes, unit_UpdateTextCache;
+
+function IsOptionalComponent(const ID: string): Boolean;
+begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp'); end;
+
+function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
+begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
+
+function SetComponentNotification(const ID, Choices: string; Enabled: Boolean): string;
+var Selected: TStringList;
+begin
+  Result:=Choices; if not IsOptionalComponent(ID) then Exit;
+  Selected:=TStringList.Create;
+  try
+    Selected.StrictDelimiter:=True; Selected.Delimiter:=','; Selected.DelimitedText:=Choices;
+    for var I:=Selected.Count-1 downto 0 do if SameText(Selected[I],ID) then Selected.Delete(I);
+    if Enabled then Selected.Add(ID);
+    Result:=Selected.DelimitedText;
+  finally Selected.Free; end;
+end;
+
+function RequiredReaderComponent(const AppPath, Extension: string): string;
+var Ext: string;
+begin
+  Result:=''; Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
+  if ((Ext='.djvu') or (Ext='.djv')) and ComponentNeedsRepair(AppPath,'DjVuLibre') then Exit('DjVuLibre');
+  if (Pos('|'+Ext+'|','|.doc|.dot|.ppt|.pps|.pot|.xls|.xlt|')>0) and
+    ComponentNeedsRepair(AppPath,'DocSharp') then Result:='DocSharp';
+end;
+
+constructor EReaderComponentRequired.Create(const ID: string);
+begin inherited Create('Для чтения этой книги нужен компонент '+ID+'. Его можно скачать в HomeLib Ru.'); FComponentID:=ID; end;
 
 function ComponentIDs: TArray<string>;
 var I: Integer;
@@ -603,8 +649,49 @@ begin
   Result := FHTTP.Head(URL);
 end;
 
+function TComponentUpdateThread.PublishedPackages: TComponentReleases;
+var Root: TJSONValue; Items, Assets: TJSONArray; Item, Asset: TJSONValue;
+  Tag, Name, URL, BestTag, AssetsText, FeedURL, Text: string;
+  Draft: Boolean; Comparison: Integer; Size: Int64;
+begin
+  Result:=Default(TComponentReleases);
+  if FURL='' then Exit;
+  BestTag:=''; FeedURL:=''; AssetsText:='';
+  Root:=TJSONObject.ParseJSONValue(FetchText(FURL));
+  try
+    if not (Root is TJSONArray) or (TJSONArray(Root).Count>100) then Exit;
+    Items:=TJSONArray(Root);
+    for Item in Items do
+    begin
+      if not (Item is TJSONObject) or not Item.TryGetValue<string>('tag_name',Tag) or
+        not CompareReleaseTags(Tag,Tag,Comparison) or
+        not Item.TryGetValue<Boolean>('draft',Draft) or Draft or
+        not Item.TryGetValue<TJSONArray>('assets',Assets) then Continue;
+      if (BestTag<>'') and CompareReleaseTags(Tag,BestTag,Comparison) and (Comparison<=0) then Continue;
+      for Asset in Assets do
+        if (Asset is TJSONObject) and Asset.TryGetValue<string>('name',Name) and (Name=COMPONENT_FEED_NAME) and
+          Asset.TryGetValue<string>('browser_download_url',URL) and
+          (URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/'+COMPONENT_FEED_NAME) and
+          Asset.TryGetValue<Int64>('size',Size) and (Size>0) and (Size<=1024*1024) then
+        begin BestTag:=Tag; FeedURL:=URL; AssetsText:=Assets.ToJSON; Break; end;
+    end;
+  finally Root.Free; end;
+  if FeedURL='' then Exit;
+  Text:=FetchText(FeedURL);
+  if Length(Text)>1024*1024 then Exit;
+  // Missing core archives are allowed in an optional-only feed. The parser
+  // still accepts download URLs/hashes/sizes only from matching GitHub assets.
+  if not ParseComponentFeed(Text,BestTag,AssetsText,Result,False) then Result:=Default(TComponentReleases);
+end;
+
 procedure TComponentUpdateThread.Execute;
 var I: Integer; DownloadPage, Changes, Folder, WindowsFiles: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
+  Published: TComponentReleases; PublishedLoaded: Boolean;
+  procedure LoadPublished;
+  begin
+    if PublishedLoaded then Exit; PublishedLoaded:=True;
+    try Published:=PublishedPackages; except Published:=Default(TComponentReleases); end;
+  end;
   procedure GetSize(var Info: TProgramRelease);
   begin
     Response:=FetchHead(Info.DownloadURL);
@@ -635,13 +722,18 @@ var I: Integer; DownloadPage, Changes, Folder, WindowsFiles: string; Response: I
     begin Info.History:=NotesInfo.History; Info.Notes:=NotesInfo.Notes; Info.Changelog:=NotesInfo.Changelog; end;
   end;
 begin
+  PublishedLoaded:=False; Published:=Default(TComponentReleases);
   for I in CheckedComponentIndices do
   begin
     FReleases[I].ComponentID := ComponentIDs[I];
+    if (Length(FOnlyIDs)>0) and (IndexText(ComponentIDs[I],FOnlyIDs)<0) then Continue;
     try
       case UPDATE_COMPONENTS[I].CheckKind of
         ccBundled:
           begin
+            LoadPublished;
+            if Published[I].DownloadURL<>'' then
+            begin FReleases[I]:=Published[I]; Continue; end;
             DownloadPage:=FetchText('https://www.alreader.com/');
             if not DownloadPage.Contains('AlReader2.Win32') then
               FReleases[I].ComponentWarning := 'Официальный сайт доступен, но Windows-выпуск не найден. Установленная читалка продолжает работать.'
@@ -722,6 +814,11 @@ begin
         // Keep bounded diagnostics for an explicit Copy error command only.
         FReleases[I].ComponentErrorDetails := Copy(E.ClassName + ': ' + E.Message,1,4096);
       end;
+    end;
+    if IsOptionalComponent(ComponentIDs[I]) and (FReleases[I].DownloadURL='') then
+    begin
+      LoadPublished;
+      if Published[I].DownloadURL<>'' then FReleases[I]:=Published[I];
     end;
     if Terminated then Exit;
   end;

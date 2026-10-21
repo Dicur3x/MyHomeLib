@@ -1,0 +1,325 @@
+{
+  "date": "2026-10-21",
+  "branch": "codex/complete-app-audit",
+  "published": false,
+  "release_version_unchanged": "2.7.0_pre5.29",
+  "file_version": "2.7.0.1097",
+  "scope": "Minimal default distribution; opt-in optional reader updates; explicit first-use decoder installation; verified own GitHub AlReader mirror; backup descriptions in the rebuilt main application; automatic cleanup of fresh test profiles",
+  "binaries": [
+    {
+      "platform": "Win32",
+      "name": "HomeLibRu.exe",
+      "configuration": "Release",
+      "size": 10639360,
+      "sha256": "05b3f8cb85f8e1e4079e02991574249e98858ad6a9dd73fffce8018ad3f24755",
+      "built_via": "Delphi IDE"
+    },
+    {
+      "platform": "Win32",
+      "name": "HomeLibRuUpdater.exe",
+      "configuration": "Base",
+      "size": 1875456,
+      "sha256": "ff03af39082f4e9cd577faf254749dd1abc31e2871cd6de28b7c9175b298b90d",
+      "built_via": "Delphi IDE"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRu.exe",
+      "configuration": "Release",
+      "size": 16361472,
+      "sha256": "883a7fb5b51b60709fffc73c06eaeac35829da3ee2b1e68de9cedd242fb749fa",
+      "built_via": "Delphi IDE"
+    },
+    {
+      "platform": "Win64",
+      "name": "HomeLibRuUpdater.exe",
+      "configuration": "Base",
+      "size": 2778624,
+      "sha256": "f042689b67551aece729bebd1d86b15bc544afca0bb1a12f1f441abf22dd494e",
+      "built_via": "Delphi IDE"
+    }
+  ],
+  "checks": [
+    {
+      "arch": "Win32",
+      "mode": "optional-components",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 37.875,
+      "exe_sha256": "9114333d39a0acdd71c85f30a91b012696dd47a6de31311bd687447ba1777299",
+      "log": "Win32-optional-components-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "post525-update",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 19.172,
+      "exe_sha256": "9114333d39a0acdd71c85f30a91b012696dd47a6de31311bd687447ba1777299",
+      "log": "Win32-post525-update-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-source-failures",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 49.562,
+      "exe_sha256": "9114333d39a0acdd71c85f30a91b012696dd47a6de31311bd687447ba1777299",
+      "log": "Win32-update-source-failures-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-form-notifier",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 18.36,
+      "exe_sha256": "9114333d39a0acdd71c85f30a91b012696dd47a6de31311bd687447ba1777299",
+      "log": "Win32-update-form-notifier-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-repair",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 55.563,
+      "exe_sha256": "c4223894ca40b94aed6c30f8d75a5581211a0f0be9a28cdb559e34c7ad0f24d6",
+      "log": "Win32-update-repair-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 7.766,
+      "exe_sha256": "c4223894ca40b94aed6c30f8d75a5581211a0f0be9a28cdb559e34c7ad0f24d6",
+      "log": "Win32-startup-deferred-5.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "builtin-reader",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 89.282,
+      "exe_sha256": "9114333d39a0acdd71c85f30a91b012696dd47a6de31311bd687447ba1777299",
+      "log": "Win32-builtin-reader-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "optional-components",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 73.438,
+      "exe_sha256": "c1fefded0cee4a6dc7b472e3797e47a8cbc3af2c36fa6ddcbd9b85dcb2a2ea2a",
+      "log": "Win64-optional-components-6.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "post525-update",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 15.297,
+      "exe_sha256": "1c1c1ad1b53e1f52699503ee4cf1eb0c97db59b595d935b98690c718d63262d9",
+      "log": "Win64-post525-update-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-source-failures",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 53.484,
+      "exe_sha256": "1c1c1ad1b53e1f52699503ee4cf1eb0c97db59b595d935b98690c718d63262d9",
+      "log": "Win64-update-source-failures-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-form-notifier",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 15.562,
+      "exe_sha256": "05e70dc5ee9df1333df89bd50d946330f06d9ea3a3a844fc190c5df9194b9636",
+      "log": "Win64-update-form-notifier-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-repair",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 45.813,
+      "exe_sha256": "0c0f3c9d21bc9ecf192339e379f5c160dc8e3305af786fab806a5e0fc3a616cb",
+      "log": "Win64-update-repair-3.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 5.531,
+      "exe_sha256": "0c0f3c9d21bc9ecf192339e379f5c160dc8e3305af786fab806a5e0fc3a616cb",
+      "log": "Win64-startup-deferred-5.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "builtin-reader",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 90.437,
+      "exe_sha256": "0c0f3c9d21bc9ecf192339e379f5c160dc8e3305af786fab806a5e0fc3a616cb",
+      "log": "Win64-builtin-reader-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "optional-components-with-minimal",
+      "log": "Win32-optional-components-2.log",
+      "passed": true,
+      "qualification": "Native exit 0 and all required markers were validated by the wrapper. Parent batch was stopped while this check continued, to defer subsequent speed measurements until the user's VMs finished; its duration and exact test binary hash were not recorded. Only a test-caption assertion was changed in the subsequent rebuild."
+    }
+  ],
+  "assets": [
+    {
+      "name": "HomeLibRu-AlReader-Win32.zip",
+      "size": 4851212,
+      "sha256": "db773942b4ee81d641cd4463f6aee3544fd70aadecf6ccdd3d2dfe57acd761ae"
+    },
+    {
+      "name": "HomeLibRu-AlReader-Win64.zip",
+      "size": 4851212,
+      "sha256": "ddc101c17417787a799d5c0ac928c51b4afbc260b1eb9c5b872bdd001bc59b62"
+    },
+    {
+      "name": "HomeLibRu-DjVuLibre-Win32.zip",
+      "size": 4577913,
+      "sha256": "e6865acbecf36774f76f79033fbfd72f06560ffd04d27b53d20f8d4e2457c926"
+    },
+    {
+      "name": "HomeLibRu-DjVuLibre-Win64.zip",
+      "size": 4577912,
+      "sha256": "4cd53d3920f805ffa3bcda5a7f06a4920c63845d7ddf1aa76c7d5f458f84cb18"
+    },
+    {
+      "name": "HomeLibRu-DocSharp-Win32.zip",
+      "size": 410609,
+      "sha256": "1df92062b5e10f5e9bb17ad9a5deadcbf00922ccffc3a6cca37b0f192713547c"
+    },
+    {
+      "name": "HomeLibRu-DocSharp-Win64.zip",
+      "size": 410609,
+      "sha256": "04ad499077214e69dc5e4248645fb4a16d1e1eac3e03cc22cfe1cb15c68beb38"
+    },
+    {
+      "name": "HomeLibRu-SumatraPDF-Win32.zip",
+      "size": 9979688,
+      "sha256": "1dcbd0549980b1de58b5f9647034c7ce06dde77880299d019c6912320fa76f8c"
+    },
+    {
+      "name": "HomeLibRu-SumatraPDF-Win64.zip",
+      "size": 10687205,
+      "sha256": "a921e534b8afe60265f8afb7793d07ece01093e9a555eab27ab53f9729b75a8f"
+    },
+    {
+      "name": "HomeLibRu.components.json",
+      "size": 9015,
+      "sha256": "84b3e6bce5259761eb3eed159b3be43ef1b4bc098ed253e59ae8844b30555528"
+    },
+    {
+      "name": "HomeLibRu.zip",
+      "size": 31888939,
+      "sha256": "9ddd62bd1b9622825e56dbda091780393747df9feaf9c708ee899143d7ab8b76"
+    },
+    {
+      "name": "HomeLibRu_x64.zip",
+      "size": 36725116,
+      "sha256": "8e4db87940614d2a7658784107c42d37043a30c98da3fa0b993bc743a0d9739c"
+    }
+  ],
+  "desktop_installation": {
+    "operation": "Install locally tested optional-component development build",
+    "created_utc": "2026-10-21T09:42:00.2534131Z",
+    "installation": "C:\\Users\\cloud\\Desktop\\MyHomeLib",
+    "backup": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\feedback529-20261021\\desktop-optional-20261021T094158Z-da7eb8eb",
+    "platform": "Win64",
+    "release": "2.7.0_pre5.29",
+    "published": false,
+    "files": [
+      {
+        "name": "HomeLibRu.exe",
+        "previous_sha256": "c473f729ad97f3f9c728867f5ae98affb02ec4869e1efad3a18aae7fcb7662d2",
+        "installed_sha256": "883a7fb5b51b60709fffc73c06eaeac35829da3ee2b1e68de9cedd242fb749fa",
+        "size": 16361472
+      },
+      {
+        "name": "HomeLibRuUpdater.exe",
+        "previous_sha256": "765c550d2dc08f88b1dd740c83c5d98ffa9fd7b4c3c53a36901e2954bda113da",
+        "installed_sha256": "f042689b67551aece729bebd1d86b15bc544afca0bb1a12f1f441abf22dd494e",
+        "size": 2778624
+      },
+      {
+        "name": "HomeLibRu.update.json",
+        "previous_sha256": "c3d569078fe9b48ec87ff44b222ac13b4417073db7c10b80423473693947e091",
+        "installed_sha256": "da4a7025a6271cd62f8bbe47f12847fa7ea68b1fb638ff33e2be56be7f7dad71",
+        "size": 79945
+      }
+    ],
+    "other_root_files_unchanged": 24,
+    "catalog_copied": false
+  },
+  "manual_checks": [
+    {
+      "platform": "Win32",
+      "distribution": "minimal",
+      "restored_publisher_page_and_language": true,
+      "normal_exit_code": 0,
+      "owned_source_and_profile_cleaned": true
+    },
+    {
+      "platform": "Win64",
+      "distribution": "minimal",
+      "restored_publisher_page_and_language": true,
+      "normal_exit_code": 0,
+      "owned_source_and_profile_cleaned": true
+    },
+    {
+      "platform": "Win64",
+      "distribution": "existing Desktop installation",
+      "real_collection_opened": true,
+      "sort_restore_answer": "Yes for this session; do-not-ask unchanged",
+      "backup_list_dates_operations_and_same_app_explanation_inspected": true,
+      "backup_restore_applied": false
+    }
+  ],
+  "performance": {
+    "budget_ms_per_100_selections": 5000,
+    "Win32_ms": 4735,
+    "Win64_ms": 4703,
+    "first_busy_Win64_ms": 8172,
+    "busy_run_qualification": "Two user QEMU VMs occupied CPU at 100%; rerun only after they finished, as requested. Budget unchanged."
+  },
+  "cleanup": {
+    "default": "Fresh test profiles now clean on process exit, including observed failed and normal smoke exits",
+    "remaining_new_profile_directories": 0,
+    "retained": "Two minimal archives, eight optional component packages, small logs/repair inputs and an EXE-only Desktop rollback; no user catalog backup created",
+    "prior_deletion_blocks": "Not retried or bypassed; user reported manual cleanup"
+  },
+  "limitations": [
+    "Optional mirror assets are local candidates; real release-asset download will become available only after a separate authorized publication.",
+    "Optional installation uses the existing restart flow; user must reopen the book afterward.",
+    "Existing full installations retain their optional components; the Desktop update did not remove them.",
+    "Manual cold startup wall-clock time was not measured. Native order tests verify Main appears before catalog loading.",
+    "Initial x86 smoke input failed twice with foreground window did not report a process id; own process was stopped and cleaned. Fresh Computer Use session and subsequent x86/x64 normal-close smoke checks passed.",
+    "The repair test originally expected the component name inside the old full-repair status text; updated to require the exact author error and the correct selected component row.",
+    "No new merge, duplicate consolidation, backup restore or cloud synchronization was applied to the user collection."
+  ]
+}

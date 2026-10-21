@@ -73,8 +73,8 @@ begin
     (Name='tools/doc/DOC_RUNTIME.json') or (Name='tools/doc/DocSharp-MIT.txt') or
     (Name='tools/doc/b2xtranslator-BSD-3-Clause.txt') or (Name='tools/doc/HomeLibDoc-MIT.txt'));
   if ID='7-Zip' then Exit((Name='tools/7zip/7z.exe') or (Name='tools/7zip/7z.dll') or
-    (Name='tools/7zip/License.txt'));
-  if ID='DjVuLibre' then Exit((Name='tools/djvu/ddjvu.exe') or (Name='tools/djvu/djvused.exe') or
+    (Name='tools/7zip/License.txt') or (Name='tools/7zip/7za.exe'));
+  if ID='DjVuLibre' then Exit((Name='tools/djvu/HomeLibDjvu.exe') or (Name='tools/djvu/ddjvu.exe') or (Name='tools/djvu/djvused.exe') or
     (Name='tools/djvu/libdjvulibre.dll') or (Name='tools/djvu/libjpeg.dll') or
     (Name='tools/djvu/libtiff.dll') or (Name='tools/djvu/libz.dll') or
     (Name='tools/djvu/COPYING.txt') or (Name='tools/djvu/COPYRIGHT') or

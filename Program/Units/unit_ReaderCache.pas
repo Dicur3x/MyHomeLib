@@ -13,7 +13,7 @@ procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: T
   const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean = False);
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil);
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
   const TargetExtension: string = ''): string;
 function IsReaderArchive(const FileName: string): Boolean;
@@ -40,7 +40,7 @@ uses
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
   Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
-  unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion;
+  unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion, unit_ComponentUpdates;
 
 type TReaderThreadAccess = class(TThread);
 
@@ -755,7 +755,12 @@ begin
         if Assigned(Find(ExtractFileExt(Result))) then
           ConvertKindle := SameText(ExtractFileName(Find(ExtractFileExt(Result)).Path),'SumatraPDF.exe');
     if ConvertKindle then Result := PrepareKindleReflow(Result,Book.GetBookFileName,OnStage);
-    if ConvertOffice then Result := PrepareOfficeReaderFile(Result,Book.GetBookFileName,OnStage);
+    if ConvertOffice then
+    begin
+      var Required:=RequiredReaderComponent(Settings.AppPath,ExtractFileExt(Result));
+      if Required<>'' then raise EReaderComponentRequired.Create(Required);
+      Result := PrepareOfficeReaderFile(Result,Book.GetBookFileName,OnStage);
+    end;
   end;
 end;
 
@@ -782,23 +787,24 @@ type
     FTimer: TTimer;
     FStatus: TMHLOperationStatus;
     FLock: TCriticalSection;
-    FStage, FResult, FError: string;
+    FStage, FResult, FError, FRequiredComponent: string;
+    FOnMissingComponent: TProc<string>;
     FReady: TProc<string>;
     procedure Tick(Sender: TObject);
   public
     constructor CreateTask(Owner: TComponent; const Book: TBookRecord;
-      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean);
+      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
     constructor CreateExternalTask(Owner: TComponent; const Book: TBookRecord;
       const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
     destructor Destroy; override;
   end;
 
 constructor TReaderPreparation.CreateTask(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
 var Snapshot: TBookRecord;
 begin
   inherited Create(Owner);
-  Snapshot := Book; FReady := OnReady; FLock := TCriticalSection.Create;
+  Snapshot := Book; FReady := OnReady; FOnMissingComponent:=OnMissingComponent; FLock := TCriticalSection.Create;
   FStage := 'Подготовка книги для чтения…'; FStatus := TMHLOperationStatus.Create(FStage);
   FWorker := TThread.CreateAnonymousThread(
     procedure
@@ -813,6 +819,7 @@ begin
           end,OpenArchive,ConvertKindle,ConvertOffice);
       except
         on E: EAbort do FResult := '';
+        on E: EReaderComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
         on E: Exception do FError := E.Message;
       end;
     end);
@@ -866,7 +873,7 @@ begin
 end;
 
 procedure TReaderPreparation.Tick(Sender: TObject);
-var Stage, ErrorText: string; Ready: TProc<string>; WorkFile: string;
+var Stage, ErrorText, Required: string; Ready, Missing: TProc<string>; WorkFile: string;
 begin
   FLock.Enter;
   try Stage := FStage; finally FLock.Leave; end;
@@ -874,9 +881,11 @@ begin
   if WaitForSingleObject(FWorker.Handle,0) <> WAIT_OBJECT_0 then Exit;
   FTimer.Enabled := False;
   Ready := FReady; FReady := nil; WorkFile := FResult; ErrorText := FError;
+  Required:=FRequiredComponent; Missing:=FOnMissingComponent; FOnMissingComponent:=nil;
   // The callback can run a modal reader or destroy its owner. Release the
   // worker and hint first so neither can survive reading or be freed twice.
   Free;
+  if (Required<>'') and Assigned(Missing) and not Application.Terminated then begin Missing(Required); Exit; end;
   if ErrorText <> '' then raise Exception.Create(ErrorText);
   if (WorkFile <> '') and Assigned(Ready) and not Application.Terminated then Ready(WorkFile);
 end;
@@ -896,12 +905,12 @@ begin
 end;
 
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
 var Component: TComponent;
 begin
   // A double click while preparing must not start duplicate decompression.
   for Component in Owner do if Component is TReaderPreparation then Exit;
-  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice);
+  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice,OnMissingComponent);
 end;
 
 end.

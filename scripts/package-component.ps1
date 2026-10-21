@@ -8,7 +8,8 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-if (-not $TestFixture) { throw 'Separate component release archives are retired. This builder is only for isolated legacy installer tests; pass -TestFixture explicitly.' }
+# Explicitly requested optional packages use the same strict file whitelist as
+# the installer; no working reader profiles are copied.
 $repositoryRoot=Split-Path -Parent $PSScriptRoot
 $runtime=Join-Path $repositoryRoot $(if($Platform -eq 'Win32'){'Program\Out\Bin'}else{'Program\Out\Bin64'})
 $files=@{
@@ -21,10 +22,10 @@ $files=@{
         'Readers/AlReader/Russian_EnUS_hyphen_(Alan).pdb','Readers/AlReader/Russian_hyphen_(Alan).pdb')
     SumatraPDF=@('Readers/SumatraPDF/SumatraPDF.exe','Readers/SumatraPDF/AUTHORS.txt',
         'Readers/SumatraPDF/COPYING.BSD.txt','Readers/SumatraPDF/COPYING.txt')
-    '7-Zip'=@('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
+    '7-Zip'=@('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/7za.exe','tools/7zip/License.txt')
     DocSharp=@('tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll','tools/doc/DocSharp.Binary.Ppt.dll','tools/doc/DocSharp.Binary.Xls.dll','tools/doc/HomeLibDoc.exe',
         'tools/doc/DOC_RUNTIME.json','tools/doc/DocSharp-MIT.txt','tools/doc/b2xtranslator-BSD-3-Clause.txt','tools/doc/HomeLibDoc-MIT.txt')
-    DjVuLibre=@('tools/djvu/djvused.exe','tools/djvu/ddjvu.exe','tools/djvu/libdjvulibre.dll','tools/djvu/libjpeg.dll',
+    DjVuLibre=@('tools/djvu/HomeLibDjvu.exe','tools/djvu/djvused.exe','tools/djvu/ddjvu.exe','tools/djvu/libdjvulibre.dll','tools/djvu/libjpeg.dll',
         'tools/djvu/libtiff.dll','tools/djvu/libz.dll','tools/djvu/COPYING.txt','tools/djvu/COPYRIGHT',
         'tools/djvu/IJG-README.txt','tools/djvu/LIBTIFF-COPYRIGHT.txt','tools/djvu/ZLIB-README.txt','tools/djvu/RUNTIME.json')
 }

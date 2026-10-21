@@ -1,10 +1,11 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Win32', 'Win64')]
     [string]$Platform,
 
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [switch]$Full
 )
 
 Set-StrictMode -Version Latest
@@ -14,6 +15,7 @@ $release = '2.7.0_pre5.29'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
+if ($Full) { $archiveName = $archiveName.Replace('.zip', '_full.zip') }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot "Installer\Out\$release"
 }
@@ -59,7 +61,17 @@ try {
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
     foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-        if ($directory.Name -notin @('fonts', 'bookconvert')) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+        if ($directory.Name -notin @('fonts', 'bookconvert', 'doc', 'djvu') -or
+            ($Full -and $directory.Name -in @('doc', 'djvu'))) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+    }
+    if (-not $Full) {
+        # Our small format bridges also serve images/Office XML and are part
+        # of the core. Optional third-party decoder DLLs are downloaded later.
+        foreach ($entry in @('doc/HomeLibDoc.exe', 'doc/HomeLibDoc-MIT.txt', 'djvu/HomeLibDjvu.exe')) {
+            $target = Join-Path $toolsDestination $entry
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools/$entry") -Destination $target
+        }
     }
     $bookConverterDestination = Join-Path $toolsDestination 'bookconvert'
     [IO.Directory]::CreateDirectory($bookConverterDestination) | Out-Null
@@ -77,14 +89,15 @@ try {
     $fontDestination = Join-Path $toolsDestination 'fonts'
     $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($font in $fontManifest.files) {
-        if ($font.path -match '^(ptserif|ptsans)/' -or
+        if ($Full -and ($font.path -match '^(ptserif|ptsans)/' -or
             $font.path -match '^noto/(NotoSerif|NotoSans)-(Regular|Bold|Italic|BoldItalic)\.ttf$' -or
-            $font.path -match '(OFL|LICENSE).*\.(txt|md)$') {
+            $font.path -match '(OFL|LICENSE).*\.(txt|md)$')) {
             $target = Join-Path $fontDestination $font.path
             [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
             Copy-Item -LiteralPath (Join-Path $fontSource $font.path) -Destination $target
         }
     }
+    [IO.Directory]::CreateDirectory($fontDestination) | Out-Null
     Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
     # Readers can save reading history alongside their executables. Ship only
     # their distribution files, never a recursively copied working profile.
@@ -97,7 +110,7 @@ try {
             'Russian_hyphen_(Alan).pdb', 'UNRAR.DLL')
         SumatraPDF = @('SumatraPDF.exe', 'AUTHORS.txt', 'COPYING.BSD.txt', 'COPYING.txt')
     }
-    foreach ($reader in $readerFiles.Keys) {
+    foreach ($reader in $(if ($Full) { $readerFiles.Keys } else { @() })) {
         $destination = Join-Path $payloadDirectory "Readers\$reader"
         [System.IO.Directory]::CreateDirectory($destination) | Out-Null
         foreach ($name in $readerFiles[$reader]) {
@@ -106,7 +119,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\HomeLibRu.url') -Destination $payloadDirectory
     $converter = Join-Path $runtimeDirectory 'converters\fb2lrf'
-    if (Test-Path -LiteralPath $converter -PathType Container) {
+    if ($Full -and (Test-Path -LiteralPath $converter -PathType Container)) {
         $converterDestination = Join-Path $payloadDirectory 'converters'
         [System.IO.Directory]::CreateDirectory($converterDestination) | Out-Null
         Copy-Item -LiteralPath $converter -Destination $converterDestination -Recurse
@@ -119,7 +132,8 @@ try {
             sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }
     })
-    $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform; files = $manifestFiles }
+    $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform;
+        distribution = $(if ($Full) { 'full' } else { 'minimal' }); files = $manifestFiles }
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
         ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 

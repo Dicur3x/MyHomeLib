@@ -124,6 +124,7 @@ function TUFNServer.TextURL(const Official: string): string;
 begin
   if Originals.Count>=64 then raise Exception.Create('Updater fixture exceeded its bounded request log');
   Originals.Add(Official);
+  if Official=PROGRAM_RELEASES_API then Exit(URL+'empty-releases');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.doc/index.json' then Exit(URL+'doc-index');
   if Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/index.json' then Exit(URL+'common-index');
   if (Official='https://api.nuget.org/v3-flatcontainer/docsharp.binary.ppt/index.json') or
@@ -166,7 +167,7 @@ begin
   begin Response.ResponseNo:=503; Response.ContentText:='Owned unavailable author response'; end
   else if (Request.Document='/doc-index') or (Request.Document='/common-index') then
   begin Response.ContentType:='application/json; charset=utf-8'; Response.ContentText:='{"versions":["0.99.0"]}'; end
-  else if Request.Document='/notes' then
+  else if (Request.Document='/notes') or (Request.Document='/empty-releases') then
   begin Response.ContentType:='application/json'; Response.ContentText:='[]'; end
   else if (Request.Document='/head-doc') or (Request.Document='/head-common') then
   begin Response.ContentType:='application/octet-stream'; Response.ContentText:=StringOfChar('n',64); Response.ContentLength:=64; end

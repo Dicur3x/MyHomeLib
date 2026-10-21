@@ -926,6 +926,7 @@ type
     FBookActionCached, FBookActionAvailable: Boolean;
     FProgramUpdateTimer: TTimer;
     procedure EnsureProgramUpdateForm;
+    procedure RequestOptionalComponent(const ID: string);
     procedure ProgramUpdateSchedule(Sender: TObject);
     procedure RestartForProgramUpdate(Sender: TObject);
   private
@@ -1225,7 +1226,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -3460,6 +3461,16 @@ begin
   FProgramUpdateForm := TfrmProgramUpdate.Create(Self);
   FProgramUpdateForm.OnRestart := RestartForProgramUpdate;
   FProgramUpdateForm.OnCheck := CheckUpdatesExecute;
+end;
+
+procedure TfrmMain.RequestOptionalComponent(const ID: string);
+var Reason: string;
+begin
+  if (csDestroying in ComponentState) or Application.Terminated then Exit;
+  if ID='DjVuLibre' then Reason:='Для чтения DjVu нужна библиотека DjVuLibre.'
+  else if ID='DocSharp' then Reason:='Для чтения старого офисного формата нужна библиотека DocSharp.'
+  else Reason:='Внешнюю читалку '+ID+' можно установить отдельно.';
+  EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason);
 end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
@@ -6277,7 +6288,7 @@ var
   Snapshot: TBookRecord;
   KindleReader: TReaderDesc;
   PrepareKindle, RequirePersonalProgress: Boolean;
-  ReaderNamespace: string;
+  ReaderNamespace, RequiredComponent: string;
   ReaderDownloads: TBookIdList;
 begin
   if not CatalogBookAvailable(BookRecord) then Exit;
@@ -6313,6 +6324,11 @@ begin
     end;
   end;
 
+  if UseBuiltin and not ChooseReader then
+  begin
+    RequiredComponent:=RequiredReaderComponent(Settings.AppPath,ReaderBook.FileExt);
+    if RequiredComponent<>'' then begin RequestOptionalComponent(RequiredComponent); Exit; end;
+  end;
   PrepareReaderFileInBackground(Self, ReaderBook, UseBuiltin or ChooseReader,
     procedure(WorkFile: string)
     var ChosenBuiltin, RewriteFB2: Boolean; ExternalPath: string;
@@ -6323,13 +6339,19 @@ begin
         PinReaderCacheFile(WorkFile);
 
         ChosenBuiltin:=UseBuiltin; ExternalPath:=ReaderPathOverride;
-        if ChooseReader and not ChooseBookReader(Self,WorkFile,Snapshot.FileExt,ChosenBuiltin,ExternalPath,ForceChoice) then Exit;
+        if ChooseReader and not ChooseBookReader(Self,WorkFile,Snapshot.FileExt,ChosenBuiltin,ExternalPath,ForceChoice,
+          procedure(ID: string) begin RequestOptionalComponent(ID); end) then Exit;
         if ChooseReader and not ChosenBuiltin then
         begin
           // The first preparation preserves originals for the reader choice.
           // Apply the external reader's WebP compatibility policy afterwards.
           ReadPreparedBook(Snapshot,False,False,False,ExternalPath,PrepareKindle);
           Exit;
+        end;
+        if ChosenBuiltin then
+        begin
+          RequiredComponent:=RequiredReaderComponent(Settings.AppPath,ExtractFileExt(WorkFile));
+          if RequiredComponent<>'' then begin RequestOptionalComponent(RequiredComponent); Exit; end;
         end;
         RewriteFB2:=not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat=bfFb2);
 
@@ -6405,7 +6427,8 @@ begin
       finally
         TrimBookCache;
       end;
-    end, False, PrepareKindle, UseBuiltin);
+    end, False, PrepareKindle, UseBuiltin,
+    procedure(ID: string) begin RequestOptionalComponent(ID); end);
 end;
 
 procedure TfrmMain.SetHideDeletedMode(Value: Boolean; RefreshCurrent: Boolean);

@@ -104,6 +104,7 @@ type
     FBookCacheDirectory, FBookCachePreviousPath: string;
     FClearBookCacheOnExit: Boolean;
     FProgramUpdateMinutes: Integer;
+    FOptionalComponentUpdates: string;
     FProgramUpdateLastCheckUTC: TDateTime;
     FCheckExternalLibUpdate: Boolean;
     FPromptDevicePath: Boolean;
@@ -308,6 +309,7 @@ type
 
     property ActiveCollection: Integer read FActiveCollection write FActiveCollection;
     property CheckUpdate: Boolean read FDoCheckUpdate write FDoCheckUpdate;
+    property OptionalComponentUpdates: string read FOptionalComponentUpdates write FOptionalComponentUpdates;
     property ProgramUpdateMinutes: Integer read FProgramUpdateMinutes write FProgramUpdateMinutes;
     property ProgramUpdateLastCheckUTC: TDateTime read FProgramUpdateLastCheckUTC write FProgramUpdateLastCheckUTC;
     property CheckExternalLibUpdate: Boolean read FCheckExternalLibUpdate write FCheckExternalLibUpdate;
@@ -684,6 +686,7 @@ begin
     FBookCacheLimitMB := iniFile.ReadInteger(SYSTEM_SECTION, 'BookCacheLimitMB', 5120);
     if (FBookCacheLimitMB<1) or (FBookCacheLimitMB>1048576) then FBookCacheLimitMB:=5120;
     FClearBookCacheOnExit := iniFile.ReadBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', True);
+    FOptionalComponentUpdates := iniFile.ReadString(SYSTEM_SECTION, 'OptionalComponentUpdates', '');
     FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 4320);
     if (FProgramUpdateMinutes < 1) or (FProgramUpdateMinutes > 525600) then FProgramUpdateMinutes := 4320;
     FProgramUpdateLastCheckUTC := iniFile.ReadDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', 0);
@@ -861,6 +864,7 @@ begin
     iniFile.WriteString(SYSTEM_SECTION, 'BookCacheDirectory', FBookCacheDirectory);
     iniFile.WriteInteger(SYSTEM_SECTION, 'BookCacheLimitMB', FBookCacheLimitMB);
     iniFile.WriteBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', FClearBookCacheOnExit);
+    iniFile.WriteString(SYSTEM_SECTION, 'OptionalComponentUpdates', FOptionalComponentUpdates);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', FProgramUpdateMinutes);
     iniFile.WriteDateTime(SYSTEM_SECTION, 'ProgramUpdateLastCheckUTC', FProgramUpdateLastCheckUTC);
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', FCheckExternalLibUpdate);
