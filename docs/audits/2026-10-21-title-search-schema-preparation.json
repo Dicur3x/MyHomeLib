@@ -1,0 +1,321 @@
+{
+  "purpose": "Prepare final measurement against actual merged schema without executing or timing searches",
+  "results": {
+    "x86": {
+      "self_test": {
+        "self_test": "passed",
+        "bits": 32,
+        "source_write_rejected": true,
+        "source_hash_unchanged": true,
+        "fixture_removed": true
+      },
+      "schema_plan_check": {
+        "bits": 32,
+        "plan_only": true,
+        "catalogue_search_executed": false,
+        "source": "C:\\Users\\cloud\\Desktop\\MyHomeLib\\Data\\flibusta_all_local_2026-10-02.hlc2",
+        "plans": {
+          "books": [
+            [
+              5,
+              0,
+              92,
+              "SEARCH b USING INTEGER PRIMARY KEY (rowid=?)"
+            ],
+            [
+              9,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              11,
+              9,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ],
+            [
+              25,
+              0,
+              46,
+              "SEARCH preferred USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+            ],
+            [
+              30,
+              0,
+              43,
+              "SEARCH primaryseries USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+            ]
+          ],
+          "authors": [
+            [
+              4,
+              0,
+              94,
+              "SEARCH al USING COVERING INDEX sqlite_autoindex_Author_List_1 (BookID=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              10,
+              8,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ],
+            [
+              25,
+              0,
+              44,
+              "SEARCH a USING INTEGER PRIMARY KEY (rowid=?)"
+            ],
+            [
+              44,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 3 TERMS OF ORDER BY"
+            ]
+          ],
+          "genres": [
+            [
+              3,
+              0,
+              94,
+              "SEARCH gl USING COVERING INDEX sqlite_autoindex_Genre_List_1 (BookID=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ]
+          ],
+          "match_after_False_hide_False": [
+            [
+              3,
+              0,
+              217,
+              "SCAN b USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ],
+          "match_after_False_hide_True": [
+            [
+              4,
+              0,
+              219,
+              "SEARCH b USING INDEX IXBooks_IsDeleted (IsDeleted=?)"
+            ]
+          ],
+          "match_after_True_hide_False": [
+            [
+              3,
+              0,
+              91,
+              "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              217,
+              "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ],
+          "match_after_True_hide_True": [
+            [
+              3,
+              0,
+              91,
+              "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=? AND IsDeleted=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              217,
+              "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ]
+        }
+      }
+    },
+    "x64": {
+      "self_test": {
+        "self_test": "passed",
+        "bits": 64,
+        "source_write_rejected": true,
+        "source_hash_unchanged": true,
+        "fixture_removed": true
+      },
+      "schema_plan_check": {
+        "bits": 64,
+        "plan_only": true,
+        "catalogue_search_executed": false,
+        "source": "C:\\Users\\cloud\\Desktop\\MyHomeLib\\Data\\flibusta_all_local_2026-10-02.hlc2",
+        "plans": {
+          "books": [
+            [
+              5,
+              0,
+              92,
+              "SEARCH b USING INTEGER PRIMARY KEY (rowid=?)"
+            ],
+            [
+              9,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              11,
+              9,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ],
+            [
+              25,
+              0,
+              46,
+              "SEARCH preferred USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+            ],
+            [
+              30,
+              0,
+              43,
+              "SEARCH primaryseries USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+            ]
+          ],
+          "authors": [
+            [
+              4,
+              0,
+              94,
+              "SEARCH al USING COVERING INDEX sqlite_autoindex_Author_List_1 (BookID=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              10,
+              8,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ],
+            [
+              25,
+              0,
+              44,
+              "SEARCH a USING INTEGER PRIMARY KEY (rowid=?)"
+            ],
+            [
+              44,
+              0,
+              0,
+              "USE TEMP B-TREE FOR LAST 3 TERMS OF ORDER BY"
+            ]
+          ],
+          "genres": [
+            [
+              3,
+              0,
+              94,
+              "SEARCH gl USING COVERING INDEX sqlite_autoindex_Genre_List_1 (BookID=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              56,
+              "SEARCH temp.MHLGenreMatches USING PRIMARY KEY (ViewID=?)"
+            ]
+          ],
+          "match_after_False_hide_False": [
+            [
+              3,
+              0,
+              217,
+              "SCAN b USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ],
+          "match_after_False_hide_True": [
+            [
+              4,
+              0,
+              219,
+              "SEARCH b USING INDEX IXBooks_IsDeleted (IsDeleted=?)"
+            ]
+          ],
+          "match_after_True_hide_False": [
+            [
+              3,
+              0,
+              91,
+              "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              217,
+              "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ],
+          "match_after_True_hide_True": [
+            [
+              3,
+              0,
+              91,
+              "SEARCH b USING COVERING INDEX IXBooks_BookID_IsDeleted_IsLocal (BookID=? AND IsDeleted=?)"
+            ],
+            [
+              7,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              9,
+              7,
+              217,
+              "SCAN titlematch USING COVERING INDEX IXBooks_SearchTitle"
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "collation": "Same CompareStringW(LOCALE_USER_DEFAULT, flags) UTF-16 callbacks as SQLite3UDF.pas; flags 0 and NORM_IGNORECASE",
+  "limits": "No search results or elapsed catalogue timings; EXPLAIN QUERY PLAN only. Final timing still requires confirmation user VM workloads have ended."
+}

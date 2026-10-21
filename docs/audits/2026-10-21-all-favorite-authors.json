@@ -83,8 +83,34 @@
       "screenshot_sha256": "94cf75d5feeb3b1e6bce17bf3ed902f2d8961f1e943866d9efa7a8edb45ad63f"
     }
   },
-  "confirmation_test_limit": "Native UI probe uses VCL confirmation branch (UseLatestCommonDialogs=False); restored after test. Standard native TaskDialog not a Screen form.",
+  "confirmation_test_limit": "Native UI probe uses VCL confirmation branch (UseLatestCommonDialogs=False); restored after test. Standard native TaskDialog not a Screen form. Actual standalone x86 EXE additionally passed native default confirmation Cancel and Yes through Computer Use in its temporary profile.",
   "visual_review": "Both 200% screenshots inspected. Found and fixed missing runtime form-size scaling by sharing existing source-dialog base; DPI window-width assertion added.",
   "cleanup": "All fresh native/benchmark fixtures removed automatically. Only small deliberate visual test artifacts and logs retained. No new archives. Prior policy-blocked fixture removal not retried.",
-  "remaining_goal": "Real title search timings still await confirmation user VM workloads ended; no real catalogue timing claimed."
+  "remaining_goal": "Real title search timings still await confirmation user VM workloads ended; no real catalogue timing claimed.",
+  "standalone_final": [
+    {
+      "arch": "Win32",
+      "exe_sha256": "c4232dfcb772863c284b1a2030753e8019db05f0f9136ae81dcf2c56cd128c60",
+      "main_window": true,
+      "manager_opened_from_actual_menu": true,
+      "theme": "light",
+      "native_default_confirmation_cancel_and_confirm": true,
+      "normal_close_exit_code": 0,
+      "app_pid_during_run": 47056,
+      "fresh_profile_and_extracted_payload_removed": true,
+      "extra_archives_created": false
+    },
+    {
+      "arch": "Win64",
+      "exe_sha256": "e0edf1cef141d685f12ad6a3698679911cb34a6713d940c2d8078d89f192cf61",
+      "main_window": true,
+      "manager_opened_from_actual_menu": true,
+      "theme": "dark after live theme switch",
+      "native_default_confirmation_cancel_and_confirm": false,
+      "normal_close_exit_code": 0,
+      "app_pid_during_run": 45216,
+      "fresh_profile_and_extracted_payload_removed": true,
+      "extra_archives_created": false
+    }
+  ]
 }

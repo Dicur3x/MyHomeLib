@@ -1,7 +1,8 @@
 """Compare the changed title-search SQL using the shipped x86/x64 SQLite DLL.
 
 This measures matching and metadata reads, not VCL rendering or cold OS caches.
-Real-catalogue runs require --vm-work-complete, a prior confirmed workload gate.
+Real-catalogue timings require --vm-work-complete, a confirmed workload gate.
+The separate --plan-only check prepares queries without running searches.
 The source is held with a Windows deny-write lease, has no journal companions,
 and is opened READONLY + immutable. Only the in-memory match table is writable.
 """
@@ -43,6 +44,29 @@ STREAMS = {
     'genres': 'SELECT gl.BookID,gl.GenreCode FROM Genre_List gl WHERE gl.BookID IN (' +
               MATCHED + ') ORDER BY gl.BookID,gl.GenreCode',
 }
+
+
+def system_collations(db):
+    """Match SQLite3UDF.pas: aligned UTF-16 and Windows user-locale comparison."""
+    pointer, integer = ctypes.c_void_p, ctypes.c_int
+    compare = ctypes.WinDLL('kernel32', use_last_error=True).CompareStringW
+    compare.argtypes = [ctypes.c_uint32, ctypes.c_uint32, pointer, integer, pointer, integer]
+    compare.restype = integer
+    callback_type = ctypes.CFUNCTYPE(integer, pointer, integer, pointer, integer, pointer)
+    db.api.sqlite3_create_collation.argtypes = [pointer, ctypes.c_char_p, integer, pointer, callback_type]
+    db.api.sqlite3_create_collation.restype = integer
+    callbacks, errors = [], []
+    for name, flags in ((b'MHL_SYSTEM', 0), (b'MHL_SYSTEM_NOCASE', 1)):
+        def collate(context, size_a, a, size_b, b, flags=flags):
+            result = compare(0x400, flags, a, size_a // 2, b, size_b // 2)
+            if not result:
+                errors.append(ctypes.get_last_error())
+                return 0
+            return result - 2
+        callback = callback_type(collate)
+        db.check(db.api.sqlite3_create_collation(db.handle, name, 8, None, callback))
+        callbacks.append(callback)
+    return callbacks, errors
 
 
 @contextmanager
@@ -89,11 +113,15 @@ def readonly(file, library):
         db.check(db.api.sqlite3_open_v2(uri, ctypes.byref(db.handle), 1 | 0x40, None))
         if db.api.sqlite3_db_readonly(db.handle, b'main') != 1:
             raise RuntimeError('Main database is not read-only.')
+        # Keep callbacks alive through sqlite3_close, including failed queries.
+        callbacks, collation_errors = system_collations(db)
         db.execute('PRAGMA temp_store=MEMORY').close()
         bits = struct.calcsize('P') * 8
         db.execute('PRAGMA cache_size=' + ('-65536' if bits == 64 else '-32768')).close()
         db.execute('PRAGMA mmap_size=' + ('268435456' if bits == 64 else '67108864')).close()
         yield db
+        if collation_errors:
+            raise RuntimeError('Windows collation failed: ' + str(collation_errors))
     finally:
         db.close()
 
@@ -140,9 +168,11 @@ def self_test(library):
             db.execute('CREATE INDEX IXBooks_SearchTitle ON Books(SearchTitle,BookID)')
             db.execute('CREATE INDEX IXBooks_IsDeleted ON Books(IsDeleted)')
             db.execute('CREATE INDEX IXBooks_BookID_IsDeleted_IsLocal ON Books(BookID,IsDeleted,IsLocal)')
+            db.create_collation('MHL_SYSTEM_NOCASE', lambda a, b: (a.casefold() > b.casefold()) - (a.casefold() < b.casefold()))
             for table, columns in {
                 'CatalogPreferredSource': 'BookID,SourceName', 'Series': 'SeriesID,SeriesTitle',
-                'Author_List': 'BookID,AuthorID', 'Authors': 'AuthorID,LastName,FirstName,MiddleName',
+                'Author_List': 'BookID,AuthorID',
+                'Authors': 'AuthorID,LastName COLLATE MHL_SYSTEM_NOCASE,FirstName,MiddleName',
                 'Genre_List': 'BookID,GenreCode',
             }.items():
                 db.execute('CREATE TABLE ' + table + '(' + columns + ')')
@@ -163,6 +193,8 @@ def self_test(library):
                 assert before['streams'] == after['streams']
                 assert after['matched']['rows'] == (1 if hide else 2)
             with readonly(file, library) as db:
+                assert scalar(db, "SELECT 'Автор'='автор' COLLATE MHL_SYSTEM_NOCASE") == 1
+                assert scalar(db, "SELECT 'Автор'='автор' COLLATE MHL_SYSTEM") == 0
                 try:
                     db.execute('DELETE FROM main.Books').close()
                 except RuntimeError as error:
@@ -180,6 +212,7 @@ def main():
     parser.add_argument('--self-test', action='store_true')
     parser.add_argument('--catalogue', type=pathlib.Path)
     parser.add_argument('--vm-work-complete', action='store_true')
+    parser.add_argument('--plan-only', action='store_true', help='Check real schema without running or timing searches.')
     parser.add_argument('--repeats', type=int, default=2, choices=range(1, 5))
     args = parser.parse_args()
     bits = struct.calcsize('P') * 8
@@ -187,9 +220,20 @@ def main():
     if args.self_test:
         print(json.dumps(self_test(library), ensure_ascii=False))
         return
-    if not args.catalogue or not args.vm_work_complete:
-        parser.error('Use --self-test, or supply --catalogue after confirming --vm-work-complete.')
+    if not args.catalogue or not (args.plan_only or args.vm_work_complete):
+        parser.error('Use --self-test, or --catalogue with --plan-only; timings require --vm-work-complete.')
     file = args.catalogue.resolve(strict=True)
+    if args.plan_only:
+        with stable_source(file), readonly(file, library) as db:
+            db.execute(MATCH_TABLE).close()
+            queries = dict(STREAMS)
+            for after in (False, True):
+                for hide in (False, True):
+                    queries[f'match_after_{after}_hide_{hide}'] = match_sql(after, hide)
+            plans = {name: list(db.execute('EXPLAIN QUERY PLAN ' + sql)) for name, sql in queries.items()}
+        print(json.dumps({'bits': bits, 'plan_only': True, 'catalogue_search_executed': False,
+                          'source': str(file), 'plans': plans}, ensure_ascii=False))
+        return
     results = []
     with stable_source(file):
         expected = {}
@@ -206,7 +250,7 @@ def main():
                     print(json.dumps({'progress': result}, ensure_ascii=False), flush=True)
     print(json.dumps({'bits': bits, 'source': str(file), 'source_open_mode': 'readonly immutable with deny-write lease',
                       'dll_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
-                      'limitation': 'Fresh SQLite connections, shared OS cache; SQL stages only, not UI timing.',
+                      'limitation': 'Fresh SQLite connections, shared OS cache; includes Python metadata hashing/collation callbacks; not UI timing.',
                       'results': results}, ensure_ascii=False))
 
 
