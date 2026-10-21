@@ -52,6 +52,7 @@
         <DCCReference Include="Units\unit_ReaderCache.pas"/>
         <DCCReference Include="Units\unit_ReaderKindle.pas"/>
         <DCCReference Include="Units\unit_SeriesAliases.pas"/>
+        <DCCReference Include="Units\unit_SeriesAliasMatching.pas"/>
         <DCCReference Include="Units\unit_BookMetadataCache.pas"/>
         <DCCReference Include="Units\unit_BookCache.pas"/>
         <DCCReference Include="Units\unit_BookExportPlan.pas"/>
@@ -87,6 +88,8 @@
         <DCCReference Include="Units\unit_CatalogSources.pas"/>
         <DCCReference Include="Units\unit_CollectionSpace.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>
+        <DCCReference Include="Units\unit_CollectionBackup.pas"/>
+        <DCCReference Include="Units\unit_BookDuplicates.pas"/>
         <DCCReference Include="Units\unit_MetadataSyncTypes.pas"/>
         <DCCReference Include="Units\unit_MetadataReadCache.pas"/>
         <DCCReference Include="Units\unit_MetadataScanReader.pas"/>
@@ -95,6 +98,8 @@
         <DCCReference Include="Forms\frm_BookMetadataFill.pas"/>
         <DCCReference Include="Forms\frm_AuthorInformation.pas"/>
         <DCCReference Include="Forms\frm_CatalogSources.pas"/>
+        <DCCReference Include="Forms\frm_CollectionBackup.pas"/>
+        <DCCReference Include="Forms\frm_BookDuplicates.pas"/>
         <DCCReference Include="Forms\frm_main.pas">
             <Form>frmMain</Form>
         </DCCReference>

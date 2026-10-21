@@ -23,7 +23,7 @@ type
     FCID, FGroupCount, FScanned: Integer;
     FReady, FCommitted: Boolean;
     FRemoved: Integer;
-    FBaseDigest: string;
+    FBaseDigest, FTitle: string;
     FCanceled: TMergeCanceled;
     function QueryCanceled: Boolean;
     procedure LoadPersonalProtection;
@@ -155,6 +155,7 @@ begin
     if not SameFileName(ExcludeTrailingPathDelimiter(TPath.GetFullPath(StoredRoot)),
       ExcludeTrailingPathDelimiter(TPath.GetFullPath(FRoot))) then
       raise EInvalidOperation.Create('Папка книг изменилась. Откройте окно повторов заново.');
+    FTitle:=DB.QuerySingleString('SELECT BaseName FROM Bases WHERE DatabaseID=?',[FCID]);
     if FBaseDigest='' then FBaseDigest:=DuplicateQueryDigest(DB,'SELECT * FROM Bases WHERE DatabaseID=?',[FCID]);
     Q:=DB.NewQuery('SELECT BookID FROM Books WHERE DatabaseID=? UNION SELECT BookID FROM BookGroups WHERE DatabaseID=?');
     try
@@ -210,6 +211,9 @@ begin
     // bounded on x86; the user's catalog and its indexes remain read-only.
     FStage:=TSQLiteDatabase.Create(''); FStage.ExecSQL('PRAGMA cache_size=-4096');
     FStage.ExecSQL('CREATE TABLE Candidates(BookID INTEGER PRIMARY KEY,Identity TEXT NOT NULL)');
+    // Reject changed paths and unreadable personal data before scanning a
+    // large catalog. Apply rechecks the same data under writer reservations.
+    LoadPersonalProtection; Check;
     FStage.Start; FStage.BeginQueryBatch;
     Q:=FSource.NewQuery('SELECT BookID,LibID,Title,Lang,Ext,BookSize,IsDeleted,Folder FROM Books ORDER BY BookID');
     try
@@ -238,7 +242,7 @@ begin
     FStage.ExecSQL('CREATE TABLE DuplicateGroups(GroupID INTEGER PRIMARY KEY,Identity TEXT UNIQUE,Count INTEGER,KeepID INTEGER,Selected INTEGER DEFAULT 0)');
     FStage.ExecSQL('INSERT INTO DuplicateGroups(Identity,Count,KeepID) SELECT Identity,count(*),min(BookID) FROM Candidates GROUP BY Identity HAVING count(*)>1 ORDER BY min(BookID)');
     FGroupCount:=FStage.QuerySingleInt('SELECT count(*) FROM DuplicateGroups');
-    LoadPersonalProtection; Check; FReady:=True;
+    Check; FReady:=True;
     if Assigned(Progress) then Progress(FScanned,FScanned);
   except
     FreeAndNil(FSource); FreeAndNil(FStage); FGroupCount:=0; raise;
@@ -334,7 +338,7 @@ var Catalog, Personal: TSQLiteDatabase; GroupsQuery, Map: TSQLiteQuery;
   ReaderHandle, NotesLock: THandle; CreatedReader: Boolean;
   GroupID, KeepID, LoseID, Total, Done: Integer; Values: TArray<TDuplicateBook>;
   BeforeCount, Required, FreeBytes: Int64; Previous: TSQLiteCancelCallback;
-  Manifest: TStringList; Folder: string; Writer: TStreamWriter;
+  Manifest: TStringList; Folder, PreferredSource: string; Writer: TStreamWriter;
   procedure Check;
   begin if QueryCanceled then Abort; end;
   procedure Stage(const Text: string; Current, Count: Integer);
@@ -357,16 +361,45 @@ var Catalog, Personal: TSQLiteDatabase; GroupsQuery, Map: TSQLiteQuery;
       end);
     finally Source.Free; end;
   end;
-  procedure PreserveFile(BookID: Integer);
+  function PreserveFile(BookID: Integer): string;
+  var Q: TSQLiteQuery; Primary, CopyBook: TBookRecord; Identity: string; Found: Boolean;
   begin
-    // Capture each primary location when it is not already a recorded copy.
-    // No file existence probe, extraction, moving or deletion is performed.
-    Catalog.ExecSQL('INSERT INTO CatalogBookCopies(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '+
-      'SELECT ?,BookID,?,?,Folder,FileName,Ext,InsideNo,BookSize,LibID FROM Books b WHERE BookID=? AND NOT EXISTS '+
-      '(SELECT 1 FROM CatalogBookCopies c WHERE c.BookID=b.BookID AND c.Root=? COLLATE BINARY '+
-      'AND c.Folder IS b.Folder COLLATE BINARY AND c.FileName IS b.FileName COLLATE BINARY '+
-      'AND c.Ext IS b.Ext COLLATE BINARY AND c.InsideNo IS b.InsideNo)',
-      ['dedupe-base:'+IntToStr(FCID)+':'+IntToStr(BookID),ExtractFileName(FFile),FRoot,BookID,FRoot]);
+    Result:=Catalog.QuerySingleString('SELECT SourceName FROM CatalogPreferredSource WHERE BookID=?',[BookID]);
+    if Result='' then Result:=FTitle;
+    Q:=Catalog.NewQuery('SELECT Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=?',[BookID]);
+    try
+      Q.Open; if Q.Eof then raise EInvalidOperation.Create('Основная запись исчезла из каталога.');
+      Primary:=Default(TBookRecord); Primary.CollectionRoot:=FRoot;
+      Primary.Folder:=Q.FieldAsString(0); Primary.FileName:=Q.FieldAsString(1);
+      Primary.FileExt:=Q.FieldAsString(2); Primary.InsideNo:=Q.FieldAsInt(3);
+    finally Q.Free; end;
+    Identity:=ReaderBookPhysicalIdentity(Primary); Found:=False;
+    Q:=Catalog.NewQuery('SELECT Root,Folder,FileName,Ext,InsideNo,SourceName FROM CatalogBookCopies WHERE BookID=? '+
+      'ORDER BY (SourceName=? COLLATE BINARY) DESC,SourceKey',[BookID,Result]);
+    try
+      Q.Open;
+      while not Q.Eof do
+      begin
+        CopyBook:=Default(TBookRecord); CopyBook.CollectionRoot:=Q.FieldAsString(0);
+        CopyBook.Folder:=Q.FieldAsString(1); CopyBook.FileName:=Q.FieldAsString(2);
+        CopyBook.FileExt:=Q.FieldAsString(3); CopyBook.InsideNo:=Q.FieldAsInt(4);
+        if ((Identity<>'') and (Identity=ReaderBookPhysicalIdentity(CopyBook))) or
+          ((CopyBook.CollectionRoot=Primary.CollectionRoot) and (CopyBook.Folder=Primary.Folder) and
+           (CopyBook.FileName=Primary.FileName) and (CopyBook.FileExt=Primary.FileExt) and
+           (CopyBook.InsideNo=Primary.InsideNo)) then
+        begin
+          Found:=True; if Q.FieldAsString(5)<>'' then Result:=Q.FieldAsString(5);
+          Break;
+        end;
+        Q.Next;
+      end;
+    finally Q.Free; end;
+    // Compare paths as metadata only, including absolute/relative equivalents.
+    // No existence probe, archive extraction, move or deletion is performed.
+    if not Found then Catalog.ExecSQL('INSERT INTO CatalogBookCopies '+
+      '(SourceKey,BookID,SourceName,Root,Folder,FileName,Ext,InsideNo,BookSize,LibID) '+
+      'SELECT ?,BookID,?,?,Folder,FileName,Ext,InsideNo,BookSize,LibID FROM Books WHERE BookID=?',
+      ['dedupe-base:'+IntToStr(FCID)+':'+IntToStr(BookID),Result,FRoot,BookID]);
   end;
 begin
   if not FReady or (SelectedCount=0) then
@@ -478,7 +511,9 @@ begin
       while not Map.Eof do
       begin
         Check; LoseID:=Map.FieldAsInt(0); KeepID:=Map.FieldAsInt(1);
-        PreserveFile(KeepID); PreserveFile(LoseID);
+        PreferredSource:=PreserveFile(KeepID); PreserveFile(LoseID);
+        Catalog.ExecSQL('INSERT INTO CatalogPreferredSource(BookID,SourceName) VALUES(?,?) '+
+          'ON CONFLICT(BookID) DO UPDATE SET SourceName=excluded.SourceName',[KeepID,PreferredSource]);
         Catalog.ExecSQL('INSERT OR IGNORE INTO Author_List(BookID,AuthorID) SELECT ?,AuthorID FROM Author_List WHERE BookID=?',[KeepID,LoseID]);
         Catalog.ExecSQL('INSERT OR IGNORE INTO Genre_List(BookID,GenreCode) SELECT ?,GenreCode FROM Genre_List WHERE BookID=?',[KeepID,LoseID]);
         Catalog.ExecSQL('INSERT OR IGNORE INTO Series_List(BookID,SeriesID,SeqNumber,IsPrimary,OrdNum) '+

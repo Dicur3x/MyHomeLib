@@ -165,6 +165,7 @@ begin
     'Останутся выбранные предпочтительные записи. Пути ко всем копиям, связи с источниками и сериями сохранятся. Файлы книг не удаляются.'+#13#10+#13#10+
     'Записи с личными данными и историей чтения защищены. Перед изменениями будет создана резервная копия:'+#13#10+'%s',
     [FPlan.SelectedCount,FPlan.SelectedRemovedCount,BackupFolder]),mtConfirmation,[mbYes,mbNo],0,mbNo)<>mrYes then Exit;
+  if Assigned(FBeforeApply) then FBeforeApply(Self);
   Worker:=TDuplicateScanWorker.Create(FPlan); Worker.FApply:=True; Worker.FBackup:=BackupFolder;
   Progress:=TImportProgressFormEx.Create(Self);
   try
@@ -178,7 +179,11 @@ begin
       FDetails.Lines.Text:=Format('Объединение сохранено. Убрано повторных записей: %d.'+#13#10+
         'Файлы книг и личные данные сохранены.'+#13#10+'Резервная копия: %s'+#13#10+
         'Доступ к ней: Коллекция → Восстановить из резервной копии.',[FPlan.Removed,BackupFolder])
-    else FDetails.Lines.Text:=Worker.FError+#13#10+'Чтобы продолжить, выполните поиск повторов заново.';
+    else
+    begin
+      FDetails.Lines.Text:=Worker.FError+#13#10+'Чтобы продолжить, выполните поиск повторов заново.';
+      if DirectoryExists(BackupFolder) then FDetails.Lines.Add('Папка резервной копии: '+BackupFolder);
+    end;
   finally Progress.Free; Worker.Free; UpdateStatus; end;
 end;
 

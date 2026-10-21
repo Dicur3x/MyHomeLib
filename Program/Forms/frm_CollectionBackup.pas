@@ -148,6 +148,7 @@ begin FPlan.Free; FFolderPaths.Free; inherited; end;
 procedure TfrmCollectionBackup.Selected(Sender: TObject);
 begin
   FreeAndNil(FPlan); FRestore.Enabled:=False; FName.Enabled:=False; FRoot.Enabled:=False;
+  FName.Clear; FRoot.Clear;
   FCheck.Enabled:=FList.ItemIndex>=0;
   if FList.ItemIndex>=0 then FReport.Lines.Text:='Выбрана копия: '+FFolderPaths[FList.ItemIndex]+sLineBreak+
     'Нажмите «Проверить резервную копию», чтобы увидеть её содержимое и условия восстановления.'

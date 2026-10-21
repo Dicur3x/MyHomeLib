@@ -120,6 +120,9 @@ begin
   TestSyncFolderExportSettings;
   TestBookDuplicatePreview;
   TestBookDuplicateApply;
+  TestBookDuplicateLargePreview;
+  if GetEnvironmentVariable('HLRU_DUPLICATE_READONLY_CATALOG')<>'' then
+    TestBookDuplicateReadOnlyCatalog(GetEnvironmentVariable('HLRU_DUPLICATE_READONLY_CATALOG'));
   if GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG')<>'' then
     TestFeedback529DesktopSeries(GetEnvironmentVariable('HLRU_FEEDBACK529_CATALOG'));
 end;

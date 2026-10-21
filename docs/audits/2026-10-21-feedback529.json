@@ -2,7 +2,7 @@
   "date": "2026-10-21",
   "branch": "codex/complete-app-audit",
   "published": false,
-  "scope": "Reader illustrations and headings; asynchronous statistics; verified series aliases; immutable-source backups; restore as a new collection",
+  "scope": "Reader illustrations/headings; asynchronous statistics; verified series aliases; recoverable backups; explicit duplicate-book consolidation preserving files and personal owners; remembered local sync-folder export",
   "checks": [
     {
       "arch": "Win32",
@@ -73,10 +73,11 @@
     "Native duplicate scan button executed successfully on x64; no catalog writes during scanning"
   ],
   "limitations": [
-    "No real catalog changes were applied",
-    "Book duplicate review/consolidation and sync-folder export remain unfinished",
-    "Final full-application builds, startup and resource regressions remain pending",
-    "Full conversion matrix not credited: old local fixture kit lacks PDF and newer codec samples. Separate menu-layout subcase and actual export-results matrix passed; original full conversion test retained."
+    "Restoration creates a separate collection; it does not overwrite the current catalog or other collections.",
+    "Reader INI/annotation files are retained in new duplicate-operation backups. History, bookmarks and reader notes are not automatically rebound to the restored collection ID; the current reader stores are left intact.",
+    "Full conversion matrix not credited: old local fixture kit lacks PDF and newer codec samples. Original test retained; relevant reader/JXL, export preparation/results, menu and cancellation scenarios passed.",
+    "Cloud-service network synchronization was not tested. Export writes to a chosen local sync folder managed by the installed cloud client.",
+    "No exact cold-start latency was recorded for the manual main-EXE smoke. Deferred-startup tests verify that the main window appears before catalog loading; no new startup scan was introduced."
   ],
   "evidenceNotes": [
     "Fresh EXE alone can include a stale IDE editor buffer; new test markers and geometry measurements were required",
@@ -189,22 +190,448 @@
     {
       "arch": "Win32",
       "mode": "feedback529",
-      "attempt": 12,
+      "attempt": 15,
       "exit_code": 0,
-      "seconds": 114.344,
-      "exe_sha256": "8e0215206ea5eb22ba021a66461ffb8cc0bc4917d6cbaa528705bef0b65d8494",
-      "log": "Win32-feedback529-12.log",
+      "seconds": 31.313,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-feedback529-15.log",
       "passed": true
     },
     {
       "arch": "Win64",
       "mode": "feedback529",
-      "attempt": 24,
+      "attempt": 26,
       "exit_code": 0,
-      "seconds": 101.094,
-      "exe_sha256": "3e88d9975ca41db3cc3c069f3b3cddad35611d1eb1d5426a862fd6ec327ed781",
-      "log": "Win64-feedback529-24.log",
+      "seconds": 22.984,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-feedback529-26.log",
       "passed": true
     }
-  ]
+  ],
+  "duplicate_scale_checks": [
+    {
+      "arch": "Win32",
+      "scope": "synthetic",
+      "rows": 100000,
+      "groups": 50000,
+      "milliseconds": 401,
+      "sampled_private_growth_bytes": 9621504,
+      "writes_to_desktop_catalog": false
+    },
+    {
+      "arch": "Win32",
+      "scope": "desktop-read-only",
+      "rows": 1856990,
+      "groups": 580220,
+      "milliseconds": 9555,
+      "sampled_private_growth_bytes": 9502720,
+      "writes_to_desktop_catalog": false
+    },
+    {
+      "arch": "Win64",
+      "scope": "synthetic",
+      "rows": 100000,
+      "groups": 50000,
+      "milliseconds": 283,
+      "sampled_private_growth_bytes": 10113024,
+      "writes_to_desktop_catalog": false
+    },
+    {
+      "arch": "Win64",
+      "scope": "desktop-read-only",
+      "rows": 1856990,
+      "groups": 580220,
+      "milliseconds": 7451,
+      "sampled_private_growth_bytes": 10121216,
+      "writes_to_desktop_catalog": false
+    }
+  ],
+  "duplicate_additional_checks": [
+    "Reader INI writer lock rejects Apply before mutations",
+    "Annotation writer lock rejects Apply before mutations",
+    "Absolute and root-relative copy paths resolve to the same physical identity without filesystem probes",
+    "Preferred source label follows the explicitly chosen physical copy",
+    "Source mappings resolve both original source keys to the surviving BookID",
+    "Invalid root rejected before scanning source rows",
+    "Mid-scan cancellation releases source snapshot and callback"
+  ],
+  "completion_status": "Implemented and verified on x86/x64; no new release published and no changes applied to the desktop catalog",
+  "final_regression_checks": [
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 16,
+      "exit_code": 0,
+      "seconds": 11.703,
+      "exe_sha256": "41c851770acd49c4e3fb5f6c986ae5a04b13a883a0fa7cc389d7bc5cc7ce6942",
+      "log": "Win32-feedback529-16.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "collection-merge",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 9.407,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-collection-merge-4.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "catalog-sources",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 10.266,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-catalog-sources-7.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 9.64,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-startup-deferred-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred-publisher",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.031,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-startup-deferred-publisher-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred-fallback",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 11.313,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-startup-deferred-fallback-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred-close",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.625,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-startup-deferred-close-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 49.985,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-main-toolbar-states-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "book-gallery",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.938,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-book-gallery-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "reader-resource-idle",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 86.922,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-reader-resource-idle-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "first-book-list",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 35.578,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-first-book-list-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "export-results-audit",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 13.828,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-export-results-audit-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "post525-update",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 19.218,
+      "exe_sha256": "f63d87182b71784224b570340338de30e1cc0ef400b3197689def7506c5a0c40",
+      "log": "Win32-post525-update-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "book-preview-layout",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 74.875,
+      "exe_sha256": "41c851770acd49c4e3fb5f6c986ae5a04b13a883a0fa7cc389d7bc5cc7ce6942",
+      "log": "Win32-book-preview-layout-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "builtin-reader",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 75.39,
+      "exe_sha256": "41c851770acd49c4e3fb5f6c986ae5a04b13a883a0fa7cc389d7bc5cc7ce6942",
+      "log": "Win32-builtin-reader-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 27,
+      "exit_code": 0,
+      "seconds": 10.594,
+      "exe_sha256": "a357abe29dd998c4cf69aa4274c123566cbf01d66ea25def02df9e77c0b57791",
+      "log": "Win64-feedback529-27.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "collection-merge",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 7.812,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-collection-merge-5.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "catalog-sources",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 8.781,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-catalog-sources-6.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.328,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-startup-deferred-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred-publisher",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 8.907,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-startup-deferred-publisher-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred-fallback",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 7.969,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-startup-deferred-fallback-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred-close",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 7.25,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-startup-deferred-close-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "main-toolbar-states",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 44.156,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-main-toolbar-states-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "book-gallery",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 9.734,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-book-gallery-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "reader-resource-idle",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 83.266,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-reader-resource-idle-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "first-book-list",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 29.11,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-first-book-list-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "export-results-audit",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 14.437,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-export-results-audit-4.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "post525-update",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 24.046,
+      "exe_sha256": "cc7c84b0f70193a9134ca1826a33ec54d95d162928dd42d49c842a281ffcbadf",
+      "log": "Win64-post525-update-1.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "book-preview-layout",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 62.859,
+      "exe_sha256": "a357abe29dd998c4cf69aa4274c123566cbf01d66ea25def02df9e77c0b57791",
+      "log": "Win64-book-preview-layout-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "builtin-reader",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 73.625,
+      "exe_sha256": "a357abe29dd998c4cf69aa4274c123566cbf01d66ea25def02df9e77c0b57791",
+      "log": "Win64-builtin-reader-1.log",
+      "passed": true
+    }
+  ],
+  "main_application_builds": [
+    {
+      "arch": "Win32",
+      "configuration": "Release",
+      "sha256": "4c4c05f62dde0eeb5a7f2c13a85ffa2579d17dd9c859da3afdc868bd3315c181",
+      "bytes": 10611712,
+      "compile_via": "Delphi GUI full build"
+    },
+    {
+      "arch": "Win64",
+      "configuration": "Release",
+      "sha256": "c473f729ad97f3f9c728867f5ae98affb02ec4869e1efad3a18aae7fcb7662d2",
+      "bytes": 16318976,
+      "compile_via": "Delphi GUI full build"
+    }
+  ],
+  "main_application_smoke": {
+    "architectures": [
+      "Win32",
+      "Win64"
+    ],
+    "process_exit_codes": [
+      0,
+      0
+    ],
+    "scenarios": [
+      "Actual Release EXE starts with isolated profile and restored publisher page/language",
+      "Native toolbar and cover/information footer enabled",
+      "Duplicate dialog and explicit scan in x86 main EXE",
+      "Restore dialog in x64 main EXE"
+    ],
+    "qualification": "Manual runs preceded the final one-line empty restore-field fix. Both final Release EXEs were rebuilt successfully; the new constructor empty-field assertion passed on both final native test EXEs."
+  },
+  "final_ui_fix": "Restore name/root fields cleared on construction and selection change; no component names or stale preview values before successful validation.",
+  "resource_checks": [
+    {
+      "arch": "Win32",
+      "steady_state_lifecycles": 32,
+      "cold_lifecycles": 2,
+      "original_application_budget": 4,
+      "exact_vcl_and_owned_native_window_sets": true,
+      "evidence": [
+        "PROFILE failed reader cold baseline gdi=448 user=143 forms=3 allocated_main_controls=32 owned_native_windows=51",
+        "PROFILE failed reader steady-state baseline gdi=442 user=142 cold_gdi_delta=-6 cold_user_delta=-1 cold_main_controls=32 current_main_controls=32 cold_native_windows=51 current_native_windows=51",
+        "PROFILE failed reader phase=stress round=23 gdi=442 user=141 forms=3"
+      ],
+      "log": "Win32-builtin-reader-1.log"
+    },
+    {
+      "arch": "Win64",
+      "steady_state_lifecycles": 32,
+      "cold_lifecycles": 2,
+      "original_application_budget": 4,
+      "exact_vcl_and_owned_native_window_sets": true,
+      "evidence": [
+        "PROFILE failed reader cold baseline gdi=448 user=143 forms=3 allocated_main_controls=32 owned_native_windows=51",
+        "PROFILE failed reader steady-state baseline gdi=446 user=143 cold_gdi_delta=-2 cold_user_delta=0 cold_main_controls=32 current_main_controls=32 cold_native_windows=51 current_native_windows=51",
+        "PROFILE failed reader phase=stress round=23 gdi=442 user=141 forms=3"
+      ],
+      "log": "Win64-builtin-reader-1.log"
+    }
+  ],
+  "retained_failure_notes": [
+    "Win32 reader-resource-idle attempt 1 drifted without repeated reader lifecycles while Computer Use/IDE activity was interleaved. Cause not proven. Quiet idle rerun and subsequent full 32-cycle reader run passed without changing budgets. Failed log retained.",
+    "The initial Win64 footer test rejected a stale G-drive-only harness restriction. Replaced it with existing isolated-marker plus executable-owned path checks; full light/dark/DPI/resize sweep subsequently passed on both architectures.",
+    "Early fixture/build failures and all reruns remain in the local runs.json history; a passed subset is not presented as a full conversion-matrix pass."
+  ],
+  "cleanup_status": {
+    "status": "Automatic policy review rejected deletion; no alternative deletion attempted",
+    "retained_owned_smoke_profile_bytes": 471473655,
+    "paths": [
+      "tools/ui/tests/Out/feedback529-20261021/temp/HomeLibRu-native-startup-XaQ3LQ",
+      "tools/ui/tests/Out/feedback529-20261021/temp/HomeLibRu-native-startup-htYqHt"
+    ],
+    "reason_returned": "blocked by policy"
+  }
 }

@@ -926,7 +926,9 @@ begin
   RequireIsolatedRegression;
   TraceCycling := False; CompletedCases := 0; SlowCases := 0;
   PerformanceSummary := ''; SlowSummary := '';
-  Require(TPath.GetFullPath(Settings.AppPath).StartsWith('G:\', True), 'Footer gate must stay in private G');
+  Require(SameFileName(ExcludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)),
+    ExcludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))),
+    'Footer gate must use the marked executable-owned runtime');
   Root := TPath.Combine(Settings.AppPath, 'book-preview-layout-' + TGUID.NewGuid.ToString);
   ForceDirectories(Root);
   SourceFile := TPath.Combine(Root, 'preview-source.fb2');

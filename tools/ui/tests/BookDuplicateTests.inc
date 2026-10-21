@@ -116,6 +116,81 @@ begin
   Writeln('PASS duplicate preview: scoped identity, snapshot, personal protection, explicit choice, paging, cancellation and read-only catalog');
 end;
 
+type
+  TDuplicateMemoryCounters = record
+    Size, Faults: DWORD;
+    PeakWorkingSet, WorkingSet, PeakPagedPool, PagedPool, PeakNonpagedPool,
+      NonpagedPool, Pagefile, PeakPagefile, PrivateUsage: NativeUInt;
+  end;
+
+function DuplicateProcessMemoryInfo(Process: THandle; var Counters: TDuplicateMemoryCounters;
+  Size: DWORD): LongBool; stdcall; external 'psapi.dll' name 'GetProcessMemoryInfo';
+
+function DuplicatePrivateBytes: Int64;
+var Counters: TDuplicateMemoryCounters;
+begin
+  Counters:=Default(TDuplicateMemoryCounters); Counters.Size:=SizeOf(Counters);
+  if not DuplicateProcessMemoryInfo(GetCurrentProcess,Counters,SizeOf(Counters)) then RaiseLastOSError;
+  Result:=Counters.PrivateUsage;
+end;
+
+procedure DuplicateFixtureTriggersOff(Context: TSQLite3Context; Count: Integer; Args: TSQLite3Value); cdecl;
+begin SQLite3_Result_Int(Context,0); end;
+
+procedure TestBookDuplicateLargePreview;
+var C: IBookCollection; CID: Integer; Name, ReaderFile, Before: string;
+  DB: TSQLiteDatabase; Plan: TBookDuplicatePlan; Watch: TStopwatch;
+  Baseline, Peak: Int64; Page: TArray<TDuplicateGroup>; Cancel, Failed: Boolean;
+begin
+  CID:=SystemDB.CreateCollection('Large duplicate preview',Settings.AppPath,'duplicates-large.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+  C:=SystemDB.GetCollection(CID);
+  Name:=Settings.ExpandCollectionFileName(VarToStr(C.GetProperty(PROP_DATAFILE)));
+  DB:=TSQLiteDatabase.Create(Name);
+  try
+    // Synthetic source-only records need no generated search or series data.
+    DB.AddFunction('MHL_TRIGGERS_ON',0,DuplicateFixtureTriggersOff);
+    DB.AddFunction('MHL_SERIES_TRIGGERS_ON',0,DuplicateFixtureTriggersOff);
+    DB.ExecSQL('WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100000) '+
+      'INSERT INTO Books(LibID,Title,UpdateDate,FileName,InsideNo,Lang,Ext,BookSize) '+
+      'SELECT ''flibusta:''||((x+1)/2),''Candidate ''||((x+1)/2),''2026-10-21'',''file''||x,0,''ru'',''.fb2'',100 FROM n');
+  finally DB.Free; end;
+  ReaderFile:=TPath.Combine(Settings.AppPath,'large-duplicate-reader\reader.ini'); ForceDirectories(ExtractFilePath(ReaderFile));
+  Before:=THashSHA2.GetHashStringFromFile(Name);
+  Plan:=TBookDuplicatePlan.Create(Name,Settings.AppPath,'mixed',Settings.SystemFileName[sfSystemDB],ReaderFile,CID,Settings.WorkPath);
+  try
+    Baseline:=DuplicatePrivateBytes; Peak:=Baseline; Watch:=TStopwatch.StartNew;
+    Plan.Preview(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
+    Watch.Stop; Peak:=Max(Peak,DuplicatePrivateBytes);
+    Require(Plan.Ready and (Plan.Scanned=100000) and (Plan.GroupCount=50000),
+      'Large duplicate preview dropped or repeated candidate pairs');
+    Page:=Plan.Groups(49950,50);
+    Require((Length(Page)=50) and (Page[49].KeepID=99999) and (Plan.SelectedCount=0),
+      'Large duplicate paging loaded the wrong rows or preselected changes');
+    Require(Peak-Baseline<64*Int64(1024)*1024,'Duplicate scan exceeded the 64 MiB growth allowance for 100000 records');
+    Require(Watch.ElapsedMilliseconds<60000,'Duplicate scan took more than a minute on the synthetic 100000-record fixture');
+    Writeln('PROFILE duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
+      ' ms=',Watch.ElapsedMilliseconds,' private_growth_bytes=',Peak-Baseline);
+    Cancel:=False; Failed:=False;
+    try
+      Plan.Preview(function: Boolean begin Result:=Cancel; end,
+        procedure(Current,Total: Integer) begin if Current>=4096 then Cancel:=True; end);
+    except on E: Exception do if Cancel then Failed:=True else raise; end;
+    Require(Failed and not Plan.Ready and not Assigned(SQLiteCancelCallback),
+      'Mid-scan cancellation retained a ready plan or a thread callback');
+    Require(THashSHA2.GetHashStringFromFile(Name)=Before,'Large read-only scan changed the source database');
+  finally Plan.Free; end;
+  // Path mismatches must be rejected before the first source record is read.
+  Plan:=TBookDuplicatePlan.Create(Name,TPath.Combine(Settings.AppPath,'changed-root'),'mixed',
+    Settings.SystemFileName[sfSystemDB],ReaderFile,CID,Settings.WorkPath);
+  try
+    Failed:=False;
+    try Plan.Preview; except on E: EInvalidOperation do Failed:=True; end;
+    Require(Failed and not Plan.Ready and (Plan.Scanned=0),'Changed root was not rejected before a large catalog scan');
+  finally Plan.Free; end;
+  Writeln('PASS duplicate large preview: 100000 rows, bounded private memory, paging, early root guard and mid-scan cancellation');
+end;
+
 procedure TestBookDuplicateApply;
 var C, Restored: IBookCollection; CID, A, B, Other, GroupID, RestoredID: Integer;
   Book: TBookRecord; Series: TBookSeries; Plan: TBookDuplicatePlan; Backup: TCollectionBackupPlan;
@@ -153,6 +228,13 @@ begin
   C.SetCatalogBookCopy('source_a:file','Source A',Book); C.SetCatalogBookID('source_a:file',A);
   C.GetBookRecord(CreateBookKey(B,CID),Book,True); FileB:=Book.GetBookFileName;
   TFile.WriteAllText(FileB,'SOURCE B preferred unchanged file',TEncoding.UTF8);
+  C.SetCatalogBookCopy('source_b:file','Source B',Book);
+  // Equivalent primary paths must not create another physical copy.
+  DB:=TSQLiteDatabase.Create(Name);
+  try
+    DB.AddFunction('MHL_TRIGGERS_ON',0,DuplicateFixtureTriggersOff);
+    DB.ExecSQL('UPDATE Books SET Folder=? WHERE BookID=?',[TPath.Combine(Book.CollectionRoot,Book.Folder),B]);
+  finally DB.Free; end;
   C.SetCatalogBookID('source_b:file',B); C.SetRate(Book.BookKey,4); C.SetProgress(Book.BookKey,38);
   SystemDB.AddBookToGroup(Book.BookKey,FAVORITES_GROUP_ID,Book);
   Series:=nil; TSeriesHelper.Add(Series,0,'Publisher A',2,False);
@@ -192,6 +274,25 @@ begin
     Require(Value('SELECT count(*) FROM Series_List WHERE BookID='+IntToStr(B))='1',
       'Canceled consolidation retained copied series memberships');
   finally Plan.Free; end;
+  // The note writer and reader.ini writer use different locks.
+  for var LockNotes in [False,True] do
+  begin
+    TFile.WriteAllText(ReaderFile,'[Reader]'+#13#10+'FontSize=20',TEncoding.UTF8);
+    Plan:=NewPlan;
+    try
+      var LockFile:=ReaderFile;
+      if LockNotes then LockFile:=TPath.Combine(ExtractFilePath(ReaderFile),'reader-notes.json.lock');
+      var Handle:=CreateFile(PChar(LockFile),GENERIC_READ or GENERIC_WRITE,0,nil,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,0);
+      Require(Handle<>INVALID_HANDLE_VALUE,'Could not create fixture reader writer lock');
+      try
+        Failed:=False;
+        try Plan.Apply(TPath.Combine(Settings.AppPath,'duplicate-writer-conflict-'+BoolToStr(LockNotes,True)));
+        except on E: EInvalidOperation do Failed:=True; end;
+        Require(Failed and not Plan.Committed and (Value('SELECT count(*) FROM Books')='3'),
+          'Concurrent reader writer did not prevent consolidation');
+      finally CloseHandle(Handle); end;
+    finally Plan.Free; end;
+  end;
   // A new personal card arriving after preview is also a hard conflict.
   Plan:=NewPlan;
   try
@@ -217,7 +318,11 @@ begin
     Require(Value('SELECT count(*) FROM CatalogSourceBooks WHERE BookID='+IntToStr(B))='2',
       'Consolidation lost future INPX source mappings');
     Require(Value('SELECT count(*) FROM CatalogBookCopies WHERE BookID='+IntToStr(B))='2',
-      'Consolidation lost a physical copy location');
+      'Consolidation lost a physical copy location or duplicated an equivalent path');
+    Require(Value('SELECT SourceName FROM CatalogPreferredSource WHERE BookID='+IntToStr(B))='Source B',
+      'Preferred source label does not match the chosen physical copy');
+    Require((C.GetCatalogBookID('source_a:file')=B) and (C.GetCatalogBookID('source_b:file')=B),
+      'Future source refresh cannot resolve the consolidated record');
     Require((Value('SELECT count(*) FROM Series_List WHERE BookID='+IntToStr(B))='2') and
       (Value('SELECT count(*) FROM PublisherSeries_List WHERE BookID='+IntToStr(B))='2') and
       (Value('SELECT count(*) FROM Author_List WHERE BookID='+IntToStr(B))='2'),
@@ -244,4 +349,43 @@ begin
     finally DB.Free; end;
   finally Backup.Free; end;
   Writeln('PASS duplicate apply: preferred ID, raw personal cards, source links, all copies and relations, stale preview, rollback, files and recoverable backup');
+end;
+
+// Optional audit of an explicitly supplied catalog. No collection DAO and no
+// Apply call are used: catalog, registration and reader files are read-only.
+procedure TestBookDuplicateReadOnlyCatalog(const CatalogFile: string);
+var Registration, Catalog: TSQLiteDatabase; Plan: TBookDuplicatePlan;
+  SystemFile, WorkRoot, Root, Namespace, ReaderFile: string; CID: Integer;
+  Watch: TStopwatch; Baseline, Peak: Int64;
+begin
+  SystemFile:=TPath.Combine(ExtractFilePath(CatalogFile),'user.dbs2');
+  WorkRoot:=ExtractFileDir(ExcludeTrailingPathDelimiter(ExtractFilePath(CatalogFile)));
+  ReaderFile:=TPath.Combine(ExtractFilePath(CatalogFile),'reader.ini');
+  CID:=StrToInt(GetEnvironmentVariable('HLRU_DUPLICATE_READONLY_CID'));
+  Registration:=TSQLiteDatabase.CreateReadOnly(SystemFile);
+  try
+    Require(Registration.QuerySingleInt('PRAGMA query_only')=1,'Read-only audit registration is writable');
+    Root:=Registration.QuerySingleString('SELECT RootFolder FROM Bases WHERE DatabaseID=?',[CID]);
+    if not TPath.IsPathRooted(Root) then Root:=TPath.Combine(WorkRoot,Root);
+  finally Registration.Free; end;
+  Catalog:=TSQLiteDatabase.CreateReadOnly(CatalogFile);
+  try
+    Require(Catalog.QuerySingleInt('PRAGMA query_only')=1,'Read-only audit catalog is writable');
+    Namespace:=Catalog.QuerySingleString('SELECT SettingValue FROM Settings WHERE SettingID=?',[PROP_SOURCE_LIBRARY]);
+  finally Catalog.Free; end;
+  Plan:=TBookDuplicatePlan.Create(CatalogFile,Root,Namespace,SystemFile,ReaderFile,CID,WorkRoot);
+  try
+    Baseline:=DuplicatePrivateBytes; Peak:=Baseline; Watch:=TStopwatch.StartNew;
+    Plan.Preview(nil,procedure(Current,Total: Integer) begin Peak:=Max(Peak,DuplicatePrivateBytes); end);
+    Watch.Stop; Peak:=Max(Peak,DuplicatePrivateBytes);
+    Require(Plan.Ready and (Plan.SelectedCount=0) and not Plan.Committed,'Read-only preview changed catalog state');
+    if Plan.GroupCount>0 then
+    begin
+      Require(Length(Plan.Groups(0,50))>0,'Large catalog first page is empty');
+      Require(Length(Plan.Groups(((Plan.GroupCount-1) div 50)*50,50))>0,'Large catalog last page is empty');
+    end;
+    Writeln('PROFILE readonly duplicate scan rows=',Plan.Scanned,' groups=',Plan.GroupCount,
+      ' ms=',Watch.ElapsedMilliseconds,' sampled_private_growth_bytes=',Peak-Baseline);
+    Writeln('PASS read-only catalog duplicate preview; no selected groups and no Apply');
+  finally Plan.Free; end;
 end;

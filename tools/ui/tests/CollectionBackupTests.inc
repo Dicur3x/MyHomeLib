@@ -119,6 +119,9 @@ begin
   finally Plan.Free; end;
   Dialog:=TfrmCollectionBackup.Create(nil);
   try
+    Require(((Dialog.FindComponent('edRestoredCollectionName') as TEdit).Text='') and
+      ((Dialog.FindComponent('edRestoredBooksRoot') as TEdit).Text=''),
+      'Restore fields display component names before a validated preview');
     Dialog.AddFolder(Folder); Dialog.Show; Application.ProcessMessages;
     Button:=Dialog.FindComponent('btnRestoreBackup') as TButton;
     Require(not Button.Enabled,'Restoration is enabled before preview');
