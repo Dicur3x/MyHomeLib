@@ -53,7 +53,7 @@ implementation
 
 uses
   Winapi.Windows, System.IOUtils, System.JSON, System.Hash,
-  unit_Settings, unit_PackageBookMetadata, dm_user;
+  unit_Settings, unit_PackageBookMetadata, dm_user, unit_MHLExternalTools;
 
 function FileStamp(const Path: string): string;
 var
@@ -292,6 +292,7 @@ begin
   except
     on E: EOutOfMemory do raise;
     on E: EAccessViolation do raise;
+    on E: EMHLComponentRequired do raise;
     on E: Exception do
     begin
       ClearBatch;

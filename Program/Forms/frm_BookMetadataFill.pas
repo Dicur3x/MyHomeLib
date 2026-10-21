@@ -9,6 +9,7 @@ type
   TfrmBookMetadataFill = class(TForm)
   private
     FCollectionID: Integer;
+    FRequiredComponent: string;
     FPlan: TCollectionMetadataPlan;
     FWorker: TMetadataProgressWorker;
     FFields: array[TMetadataSyncField] of TCheckBox;
@@ -48,14 +49,17 @@ type
     property CollectionID: Integer read FCollectionID;
     property CommittedChanges: Boolean read FCommittedChanges;
     property Busy: Boolean read GetBusy;
+    property RequiredComponent: string read FRequiredComponent;
   end;
 
-function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean;
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean; overload;
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer;
+  out RequiredComponent: string): Boolean; overload;
 
 implementation
 
 uses System.SysUtils, System.Types, System.Math, Winapi.Windows, Vcl.Controls,
-  Vcl.Graphics, unit_MHLTheme, dm_user;
+  Vcl.Graphics, unit_MHLTheme, dm_user, unit_MHLExternalTools;
 
 const
   FieldNames: array[TMetadataSyncField] of string =
@@ -351,6 +355,11 @@ begin
   try
     FCommittedChanges:=FCommittedChanges or FWorker.CommittedChanges;
     if FWorker.FatalException is Exception then ErrorText:=Exception(FWorker.FatalException).Message;
+    if FWorker.FatalException is EMHLComponentRequired then
+    begin
+      FRequiredComponent:=EMHLComponentRequired(FWorker.FatalException).ComponentID;
+      FCloseWhenReady:=True;
+    end;
     if FApplying then
     begin
       Apply:=TMetadataApplyThread(FWorker);
@@ -405,12 +414,20 @@ begin
   if FCloseWhenReady then Close;
 end;
 
-function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean;
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer;
+  out RequiredComponent: string): Boolean;
 var Dialog: TfrmBookMetadataFill;
 begin
-  Dialog:=TfrmBookMetadataFill.CreateForCollection(AOwner,CollectionID);
-  try Dialog.ShowModal; Result:=Dialog.CommittedChanges;
+  RequiredComponent:=''; Dialog:=TfrmBookMetadataFill.CreateForCollection(AOwner,CollectionID);
+  try Dialog.ShowModal; Result:=Dialog.CommittedChanges; RequiredComponent:=Dialog.RequiredComponent;
   finally Dialog.Free; end;
+end;
+
+function FillMissingBookMetadata(AOwner: TComponent; CollectionID: Integer): Boolean;
+var Required: string;
+begin
+  Result:=FillMissingBookMetadata(AOwner,CollectionID,Required);
+  if Required<>'' then raise EMHLComponentRequired.Create(Required,'Для чтения сжатых сведений нужен '+Required+'.');
 end;
 
 end.

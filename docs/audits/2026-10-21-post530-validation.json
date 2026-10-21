@@ -1,7 +1,17 @@
 {
   "date": "2026-10-21",
-  "state": "functional fixes, GUI builds and packaged smoke passed on x86/x64; final real-catalogue timings pending VM completion",
+  "state": "28 architecture/scenario cases passed; metadata first-use handoff and both final main EXEs verified; final real-catalogue timings pending VM completion",
   "tests": [
+    {
+      "arch": "Win32",
+      "mode": "collection-metadata-sync",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 10.391,
+      "exe_sha256": "0bae3cfdb3dad6bc7404f48d04807e268e885f991f947646751216ee4030e236",
+      "log": "Win32-collection-metadata-sync-1.log",
+      "passed": true
+    },
     {
       "arch": "Win32",
       "mode": "export-preparation",
@@ -10,6 +20,16 @@
       "seconds": 4.765,
       "exe_sha256": "888eafdd174168fc393cd84d2cf002bc02341777db010d707fcf6f9ae72387c1",
       "log": "Win32-export-preparation-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "metadata-fill-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 20.781,
+      "exe_sha256": "0bae3cfdb3dad6bc7404f48d04807e268e885f991f947646751216ee4030e236",
+      "log": "Win32-metadata-fill-ui-1.log",
       "passed": true
     },
     {
@@ -45,11 +65,21 @@
     {
       "arch": "Win32",
       "mode": "post530",
-      "attempt": 3,
+      "attempt": 4,
       "exit_code": 0,
-      "seconds": 41.14,
-      "exe_sha256": "a17af6324e2874333833d0283e284fb298ad92f94a1f13dc6351844fe159c086",
-      "log": "Win32-post530-3.log",
+      "seconds": 39.047,
+      "exe_sha256": "0bae3cfdb3dad6bc7404f48d04807e268e885f991f947646751216ee4030e236",
+      "log": "Win32-post530-4.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "publisher-metadata-index",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 4.813,
+      "exe_sha256": "0bae3cfdb3dad6bc7404f48d04807e268e885f991f947646751216ee4030e236",
+      "log": "Win32-publisher-metadata-index-1.log",
       "passed": true
     },
     {
@@ -65,11 +95,11 @@
     {
       "arch": "Win32",
       "mode": "startup-deferred",
-      "attempt": 16,
+      "attempt": 18,
       "exit_code": 0,
-      "seconds": 6.985,
-      "exe_sha256": "888eafdd174168fc393cd84d2cf002bc02341777db010d707fcf6f9ae72387c1",
-      "log": "Win32-startup-deferred-16.log",
+      "seconds": 6.656,
+      "exe_sha256": "0bae3cfdb3dad6bc7404f48d04807e268e885f991f947646751216ee4030e236",
+      "log": "Win32-startup-deferred-18.log",
       "passed": true
     },
     {
@@ -114,12 +144,32 @@
     },
     {
       "arch": "Win64",
+      "mode": "collection-metadata-sync",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 10.781,
+      "exe_sha256": "eaaff02b894a2ff49ef77d94ea1b8897bda3340c9ee446f1aeb614293c404933",
+      "log": "Win64-collection-metadata-sync-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
       "mode": "export-preparation",
       "attempt": 2,
       "exit_code": 0,
       "seconds": 4.516,
       "exe_sha256": "2d76fcdf97562115eb501173066d6ac8a4c20bf51a8bdb02fd8023d2ffd6de77",
       "log": "Win64-export-preparation-2.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "metadata-fill-ui",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 22.547,
+      "exe_sha256": "eaaff02b894a2ff49ef77d94ea1b8897bda3340c9ee446f1aeb614293c404933",
+      "log": "Win64-metadata-fill-ui-1.log",
       "passed": true
     },
     {
@@ -155,11 +205,21 @@
     {
       "arch": "Win64",
       "mode": "post530",
-      "attempt": 5,
+      "attempt": 6,
       "exit_code": 0,
-      "seconds": 37.328,
-      "exe_sha256": "a04fe302fa8dddb42a0b23d8c0a29a140e9212ba4ccfcfb961d39a2751fa6728",
-      "log": "Win64-post530-5.log",
+      "seconds": 32.578,
+      "exe_sha256": "7e4692d626ec590eb7e1d093262b413d1580d4ab0fa33672c59efa734b026b90",
+      "log": "Win64-post530-6.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "publisher-metadata-index",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 4.797,
+      "exe_sha256": "eaaff02b894a2ff49ef77d94ea1b8897bda3340c9ee446f1aeb614293c404933",
+      "log": "Win64-publisher-metadata-index-1.log",
       "passed": true
     },
     {
@@ -175,11 +235,11 @@
     {
       "arch": "Win64",
       "mode": "startup-deferred",
-      "attempt": 17,
+      "attempt": 19,
       "exit_code": 0,
-      "seconds": 9.406,
-      "exe_sha256": "2d76fcdf97562115eb501173066d6ac8a4c20bf51a8bdb02fd8023d2ffd6de77",
-      "log": "Win64-startup-deferred-17.log",
+      "seconds": 5.782,
+      "exe_sha256": "eaaff02b894a2ff49ef77d94ea1b8897bda3340c9ee446f1aeb614293c404933",
+      "log": "Win64-startup-deferred-19.log",
       "passed": true
     },
     {
@@ -245,8 +305,8 @@
     {
       "arch": "Win32",
       "name": "HomeLibRu.exe",
-      "bytes": 10678272,
-      "sha256": "9d1ce6897eab77b3d6aa18b3d473a4c2e543380ec72804c709a359bdae2809be",
+      "bytes": 10679296,
+      "sha256": "fade39c0d85a46f6aa33c16f65b740ef90f8664b0b974c641736729b148034b5",
       "build_method": "Delphi 13 GUI; main Release, helper Base (project-wide build settings)"
     },
     {
@@ -259,8 +319,8 @@
     {
       "arch": "Win64",
       "name": "HomeLibRu.exe",
-      "bytes": 16419328,
-      "sha256": "5ec2fbf95515bd30d7a754c0e1f5d73a38387c8cbbf1ae4bf0b343644324ec6b",
+      "bytes": 16420352,
+      "sha256": "aa147313ee885d8e37abb01f9b875cecbbc7db26dfccacb6d6fe83fcf837448c",
       "build_method": "Delphi 13 GUI; main Release, helper Base (project-wide build settings)"
     },
     {
@@ -278,7 +338,8 @@
       "sha256": "2010b8d5fb666d48f52e1f4482a106ee90645280c3dc1b32221d0366c1f62138",
       "files": 475,
       "public": false,
-      "release_version_unchanged": "2.7.0_pre5.30"
+      "release_version_unchanged": "2.7.0_pre5.30",
+      "status": "verified packaging fixture before additional metadata handoff fix; not a current deliverable; use final_builds for current EXE hashes"
     },
     "Win64": {
       "path": "tools/ui/tests/Out/post530-work/candidate/HomeLibRu_x64.zip",
@@ -286,7 +347,8 @@
       "sha256": "7bd2778c3d96387ee0f99e581a5df064cc67d595025f548c916e964d8e8080dc",
       "files": 484,
       "public": false,
-      "release_version_unchanged": "2.7.0_pre5.30"
+      "release_version_unchanged": "2.7.0_pre5.30",
+      "status": "verified packaging fixture before additional metadata handoff fix; not a current deliverable; use final_builds for current EXE hashes"
     }
   },
   "standalone_smoke": [
@@ -318,6 +380,36 @@
   "performance_limit": "Real merged collection accessed read-only for EXPLAIN only. No final timing claims while two user virtual machines are running. Functional 60000-book fixtures are not the real collection.",
   "cleanup": "Fresh native test profiles and standalone smoke profiles removed automatically. Manual deletion of 65.20 MiB newly created repair fixtures was rejected by automatic approval review (blocked by policy; no detailed reason); retained and not retried. Intended final archives and fixed AlReader asset retained.",
   "pending": [
-    "Final title-search timing on real merged collection after user virtual-machine workload finishes. No real performance claim yet."
+    "Real merged catalogue timing for title «привет», with and without hide-deleted, after user virtual-machine workload ends. Current VM processes remain live; user clarification pending.",
+    "If a public application release is requested, bump version and package the current final binaries then; existing public pre5.30 assets were not replaced."
+  ],
+  "metadata_first_use": {
+    "missing_decoder": "7-Zip",
+    "pipeline_joins_children_before_typed_handoff": true,
+    "publisher_index_stops_without_per_book_damage_reports": true,
+    "scan_form_closes_before_caller_request": true,
+    "source_hash_and_catalogue_fields_preserved": true,
+    "prior_committed_changes_returned_separately_from_dependency": true,
+    "legacy_test_guard": "G-drive-only check replaced with existing marker, profile-name and local-data validation; no G drive access"
+  },
+  "standalone_smoke_final": [
+    {
+      "arch": "Win32",
+      "exe_sha256": "fade39c0d85a46f6aa33c16f65b740ef90f8664b0b974c641736729b148034b5",
+      "payload": "previous verified minimal payload with latest main EXE substituted; no new ZIP created",
+      "main_window_confirmed": true,
+      "exit_code": 0,
+      "normal_close": true,
+      "profile_and_extracted_source_removed": true
+    },
+    {
+      "arch": "Win64",
+      "exe_sha256": "aa147313ee885d8e37abb01f9b875cecbbc7db26dfccacb6d6fe83fcf837448c",
+      "payload": "previous verified minimal payload with latest main EXE substituted; no new ZIP created",
+      "main_window_confirmed": true,
+      "exit_code": 0,
+      "normal_close": true,
+      "profile_and_extracted_source_removed": true
+    }
   ]
 }

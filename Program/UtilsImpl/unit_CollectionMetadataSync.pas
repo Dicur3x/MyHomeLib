@@ -91,7 +91,7 @@ implementation
 uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Math, System.SyncObjs,
   System.Generics.Collections, System.Generics.Defaults, unit_PackageBookMetadata,
   unit_BookCache, unit_PublisherSeriesSource, unit_FB2PublisherMetadataReader,
-  unit_MHLArchiveHelpers, unit_MetadataReadCache, unit_MetadataScanReader;
+  unit_MHLArchiveHelpers, unit_MetadataReadCache, unit_MetadataScanReader, unit_MHLExternalTools;
 
 const ChunkSize = 100;
   PreviewChunkSize = 1000;
@@ -300,6 +300,7 @@ begin
         except
           on E: EOutOfMemory do raise;
           on E: EAccessViolation do raise;
+          on E: EMHLComponentRequired do raise;
           on E: Exception do begin Readings[Index].ErrorText:=E.Message; Continue; end;
         end;
         if Readings[Index].SourceKey='' then

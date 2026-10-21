@@ -39,6 +39,65 @@ begin
   raise Exception.Create('F531_DOWNLOAD_OBSERVED');
 end;
 
+procedure TestMetadataFirstUse531;
+var CID: Integer; Collection: IBookCollection; Book: TBookRecord;
+  Plan: TCollectionMetadataPlan; Counts: TMetadataSyncCounts;
+  Preview: TMetadataPreviewThread; Indexer: TIndexPublisherSeriesThread;
+  Form: TfrmBookMetadataFill; BeforeHash: string; Rejected: Boolean; Started: UInt64;
+  procedure WaitForWorker(Worker: TWorker);
+  var Began: UInt64;
+  begin
+    Began:=GetTickCount64;
+    while not Worker.Finished do
+    begin Application.ProcessMessages; CheckSynchronize(1); Sleep(5);
+      Require(GetTickCount64-Began<10000,'Missing decoder left its metadata worker running'); end;
+    Worker.WaitFor;
+  end;
+begin
+  CID:=SystemDB.CreateCollection('Metadata dependency',Settings.AppPath,'metadata-sevenzip.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
+  Collection:=SystemDB.GetCollection(CID);
+  for var I:=1 to 16 do
+  begin
+    Book:=Default(TBookRecord); Book.NodeType:=ntBookInfo; Book.CollectionRoot:=Settings.AppPath;
+    Book.Title:='Dependency '+IntToStr(I); Book.FileName:='book-'+IntToStr(I); Book.FileExt:='.fb2';
+    Book.Folder:='needs-sevenzip.7z'; Book.LibID:='dependency-'+IntToStr(I); Book.Size:=100;
+    Book.BookProps:=[bpIsLocal]; Collection.InsertBook(Book,False,False);
+  end;
+  BeforeHash:=UpdateSHA256(Settings.AppPath+'needs-sevenzip.7z'); Plan:=nil; Rejected:=False;
+  try
+    try Plan:=PreviewCollectionMetadata(Collection,[msfPublisher],Counts);
+    except on E: EMHLComponentRequired do Rejected:=E.ComponentID='7-Zip'; end;
+    Require(Rejected and not Assigned(Plan),'Metadata scan turned a missing decoder into repeated book errors');
+  finally Plan.Free; end;
+  Preview:=TMetadataPreviewThread.Create(CID,[msfPublisher]);
+  try
+    Preview.Start; WaitForWorker(Preview);
+    Require((Preview.FatalException is EMHLComponentRequired) and not Preview.Completed,
+      'Metadata preview lost its typed dependency while joining child readers');
+  finally Preview.Free; end;
+  Indexer:=TIndexPublisherSeriesThread.Create(CID,True);
+  try
+    Indexer.Start; WaitForWorker(Indexer);
+    Require((Indexer.FatalException is EMHLComponentRequired) and (Indexer.FailedCount=0),
+      'Publisher-series scan continued reporting every book as damaged');
+  finally Indexer.Free; end;
+  Form:=TfrmBookMetadataFill.CreateForCollection(Application,CID);
+  try
+    Form.Show; TButton(Form.FindComponent('btnMetadataPreview')).Click; Started:=GetTickCount64;
+    while Form.Busy do
+    begin Application.ProcessMessages; CheckSynchronize(1); Sleep(5);
+      Require(GetTickCount64-Started<10000,'Metadata dialog did not release its missing decoder worker'); end;
+    Require((Form.RequiredComponent='7-Zip') and not Form.Visible,
+      'Metadata dialog did not close before handing its dependency back to the caller');
+  finally Form.Free; end;
+  Collection.GetBookRecord(CreateBookKey(1,CID),Book,True);
+  Require((Book.Title='Dependency 1') and (Book.Publisher='') and
+    (UpdateSHA256(Settings.AppPath+'needs-sevenzip.7z')=BeforeHash),
+    'Missing metadata component changed the catalogue or source archive');
+  Writeln('PASS post530 metadata dependency stops readers and indexing once and releases the modal scan before first-use handoff');
+end;
+
 procedure TestFirstUseSevenZip531;
 var SavedPath, SavedPF, SavedPF32, Tools, Held, Source, Hash, Missing: string;
   Host: TComponent; Book: TBookRecord; Ready: Boolean; Started: UInt64;
@@ -91,6 +150,7 @@ begin
     while ReaderPreparationsPending(Host) do
     begin Application.ProcessMessages; CheckSynchronize(1); Sleep(5); Require(GetTickCount64-Started<5000,'Late decoder preparation remained pending'); end;
     Require(Ready and (Missing='7-Zip'),'Reader construction lost the first-use decoder prompt');
+    TestMetadataFirstUse531;
 
   finally
     Host.Free;

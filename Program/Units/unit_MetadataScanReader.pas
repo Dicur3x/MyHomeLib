@@ -22,13 +22,13 @@ procedure ReadMetadataScanBatch(const Books: TArray<TBookRecord>;
 implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.Classes, System.SyncObjs, System.Math,
-  unit_PublisherSeriesSource, unit_PackageBookMetadata;
+  unit_PublisherSeriesSource, unit_PackageBookMetadata, unit_MHLExternalTools;
 
 procedure ReadMetadataScanBatch(const Books: TArray<TBookRecord>;
   var Results: TArray<TMetadataScanRead>; const IsCanceled: TFunc<Boolean>;
   out ArchiveOpens: Integer; WorkerLimit: Integer; const Progress: TProc<Integer>);
 var Threads: TArray<TThread>; Handles: TArray<THandle>; NextIndex, Stop, OpenCount, Completed: Integer;
-  Count, I, Jobs: Integer; FatalMessage: string; Guard: TObject;
+  Count, I, Jobs: Integer; FatalMessage, RequiredComponent: string; Guard: TObject;
   Values: TArray<TMetadataScanRead>; CancelCheck: TFunc<Boolean>; ReadJobs: TProc;
 
 
@@ -38,7 +38,7 @@ begin
   for I:=0 to High(Values) do if not Values[I].Ready and (Values[I].SourceKey<>'') then Inc(Jobs);
   if Jobs=0 then Exit;
   Count:=Min(Jobs,Max(1,Min(Min(4,WorkerLimit),Integer(TThread.ProcessorCount))));
-  NextIndex:=0; Stop:=0; OpenCount:=0; Completed:=0; FatalMessage:=''; Guard:=TObject.Create;
+  NextIndex:=0; Stop:=0; OpenCount:=0; Completed:=0; FatalMessage:=''; RequiredComponent:=''; Guard:=TObject.Create;
   CancelCheck:=function: Boolean begin Result:=TInterlocked.CompareExchange(Stop,0,0)<>0; end;
   ReadJobs:=procedure
   var Source: TPublisherSeriesSource; Reader: TFB2PublisherMetadataReader;
@@ -78,6 +78,7 @@ begin
         except
           on E: EOutOfMemory do raise;
           on E: EAccessViolation do raise;
+          on E: EMHLComponentRequired do raise;
           on E: EAbort do begin Values[Index].Canceled:=True; Break; end;
           on E: Exception do
           begin
@@ -106,7 +107,12 @@ begin
           except on E: Exception do
           begin
             TMonitor.Enter(Guard);
-            try if FatalMessage='' then FatalMessage:=E.ClassName+': '+E.Message;
+            try
+              if FatalMessage='' then
+              begin
+                FatalMessage:=E.ClassName+': '+E.Message;
+                if E is EMHLComponentRequired then RequiredComponent:=EMHLComponentRequired(E).ComponentID;
+              end;
             finally TMonitor.Exit(Guard); end;
             TInterlocked.Exchange(Stop,1);
           end; end;
@@ -121,6 +127,7 @@ begin
         WAIT_TIMEOUT: ;
       else RaiseLastOSError; end;
     until False;
+    if RequiredComponent<>'' then raise EMHLComponentRequired.Create(RequiredComponent,FatalMessage);
     if FatalMessage<>'' then raise EReadError.Create(FatalMessage);
     ArchiveOpens:=OpenCount;
   finally

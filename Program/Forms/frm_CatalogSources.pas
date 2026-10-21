@@ -44,6 +44,7 @@ type
     FChanged: Boolean;
     FMetadataChanged: Boolean;
     FDuplicatesRequested: Boolean;
+    FRequiredComponent: string;
     FLastReportFile: string;
     FLayoutFile: string;
     FHasShown: Boolean;
@@ -85,6 +86,7 @@ type
     property CatalogChanged: Boolean read FChanged;
     property MetadataChanged: Boolean read FMetadataChanged;
     property DuplicatesRequested: Boolean read FDuplicatesRequested;
+    property RequiredComponent: string read FRequiredComponent;
   end;
 
 type
@@ -771,7 +773,7 @@ var Changed: Boolean;
 begin
   if FBusy then Exit;
   FBusy:=True; Changed:=False; UpdateSelection;
-  try Changed:=FillMissingBookMetadata(Self,FTarget.CollectionID);
+  try Changed:=FillMissingBookMetadata(Self,FTarget.CollectionID,FRequiredComponent);
   finally FBusy:=False; UpdateSelection; end;
   if Changed then
   begin
@@ -779,6 +781,7 @@ begin
     InvalidatePreview('Недостающие сведения книг текущей коллекции заполнены.');
     UpdateSpaceEstimate;
   end;
+  if FRequiredComponent<>'' then ModalResult:=mrOk;
 end;
 
 constructor TfrmSeriesAliasReview.CreateFor(SourceDialog: TfrmCatalogSources);

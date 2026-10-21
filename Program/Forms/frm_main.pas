@@ -1225,7 +1225,7 @@ uses
   unit_Lib_Updates,
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
-  unit_MHLArchiveHelpers,
+  unit_MHLArchiveHelpers, unit_MHLExternalTools,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates;
 
 type
@@ -2011,7 +2011,9 @@ var
   ProgressForm: TImportProgressFormEx;
   IndexedCID: Integer;
   ChangesCommitted: Boolean;
+  Required: string;
 begin
+  Required:='';
   if not Assigned(FCollection) or FFormBusy then Exit;
   IndexedCID := FCollection.CollectionID;
   ChangesCommitted := False;
@@ -2032,7 +2034,9 @@ begin
     end;
     Worker.WaitFor;
     ChangesCommitted := Worker.CommittedChanges;
-    if Assigned(Worker.FatalException) then
+    if Worker.FatalException is EMHLComponentRequired then
+      Required:=EMHLComponentRequired(Worker.FatalException).ComponentID
+    else if Assigned(Worker.FatalException) then
       MHLShowError(Exception(Worker.FatalException).Message);
   finally
     if Worker.Finished then
@@ -2048,6 +2052,7 @@ begin
       RefreshBookMetadataViews(IndexedCID);
     end;
   end;
+  if Required<>'' then RequestOptionalComponent(Required);
 end;
 
 procedure TfrmMain.RefreshBookMetadataViews(const CollectionID: Integer);
@@ -2060,16 +2065,18 @@ begin
 end;
 
 procedure TfrmMain.FillBookMetadataExecute(Sender: TObject);
-var CollectionID: Integer; Changed: Boolean;
+var CollectionID: Integer; Changed: Boolean; Required: string;
 begin
+  Required:='';
   if not Assigned(FCollection) or FFormBusy then Exit;
   CollectionID:=FCollection.CollectionID; Changed:=False; UpdatePositions;
   FFormBusy:=True;
-  try Changed:=FillMissingBookMetadata(Self,CollectionID);
+  try Changed:=FillMissingBookMetadata(Self,CollectionID,Required);
   finally
     FFormBusy:=False;
     if Changed then RefreshBookMetadataViews(CollectionID);
   end;
+  if Required<>'' then RequestOptionalComponent(Required);
 end;
 
 procedure TfrmMain.FillBookMetadataUpdate(Sender: TObject);
@@ -3195,6 +3202,7 @@ var
   WizardResult, CreatedCollectionID: Integer;
   ImportCommitted, MetadataRequested, MetadataChanged, WasBusy: Boolean;
   CreatedCollectionInfo: TCollectionInfo;
+  Required: string;
 begin
   Result := False;
   frmNCWizard := TNewCollectionWizard.Create(Application);
@@ -3232,11 +3240,13 @@ begin
           (Trim(CreatedCollectionInfo.RootFolder) <> '') and DirectoryExists(CreatedCollectionInfo.RootFolder) then
         begin
           MetadataChanged := False; WasBusy := FFormBusy; FFormBusy := True;
-          try MetadataChanged := FillMissingBookMetadata(Self, CreatedCollectionID);
+          Required:='';
+          try MetadataChanged := FillMissingBookMetadata(Self, CreatedCollectionID,Required);
           finally
             FFormBusy := WasBusy;
             if MetadataChanged then RefreshBookMetadataViews(CreatedCollectionID);
           end;
+          if Required<>'' then RequestOptionalComponent(Required);
         end;
       end;
     end
@@ -4258,6 +4268,7 @@ end;
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
+  Required: string;
 begin
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -4268,7 +4279,7 @@ begin
   CollectionID:=FCollection.CollectionID;
   Dialog := TfrmCatalogSources.CreateForCollection(Self,FCollection);
   try Dialog.ShowModal; Changed := Dialog.CatalogChanged; MetadataChanged:=Dialog.MetadataChanged;
-    DuplicatesRequested:=Dialog.DuplicatesRequested;
+    DuplicatesRequested:=Dialog.DuplicatesRequested; Required:=Dialog.RequiredComponent;
   finally Dialog.Free; end;
   if Changed then
   begin
@@ -4277,7 +4288,8 @@ begin
     InitCollection;
   end
   else if MetadataChanged then RefreshBookMetadataViews(CollectionID);
-  if DuplicatesRequested then ShowBookDuplicates(Sender);
+  if Required<>'' then RequestOptionalComponent(Required)
+  else if DuplicatesRequested then ShowBookDuplicates(Sender);
 end;
 
 procedure TfrmMain.UpdateThemeToolbar;

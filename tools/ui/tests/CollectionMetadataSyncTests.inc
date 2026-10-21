@@ -253,7 +253,7 @@ var User: ISystemData; Collection, Reopened: IBookCollection;
 begin
   TraceCount:=0; SnapshotCount:=0;
   Trace('start');
-  Require(SameText(Copy(ExpandFileName(Settings.AppPath),1,3),'G:\'),'Metadata sync requires isolated G runtime');
+  RequireIsolatedRegression;
   WorkRoot := IncludeTrailingPathDelimiter(TPath.Combine(Settings.AppPath,'metadata-sync-'+TGUID.NewGuid.ToString));
   ForceDirectories(WorkRoot); UserFile:=WorkRoot+'personal.dbs2';
   TSystemData_SQLite.CreateSystemTables(UserFile); User:=TSystemData_SQLite.Create(UserFile);

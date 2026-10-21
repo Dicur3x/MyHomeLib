@@ -59,7 +59,7 @@ uses
   System.Math,
   System.IOUtils,
   unit_FB2Utils,
-  unit_Interfaces;
+  unit_Interfaces, unit_MHLExternalTools;
 
 resourcestring
   rstrIndexPublisherSeriesProgress = 'Проверено книг: %u из %u';
@@ -180,6 +180,7 @@ begin
   except
     on E: EOutOfMemory do raise;
     on E: EAccessViolation do raise;
+    on E: EMHLComponentRequired do begin Teletype(E.Message,tsWarning); raise; end;
     on E: Exception do
     begin
       Series := nil;
