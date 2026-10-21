@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
+  unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
@@ -3523,6 +3523,44 @@ begin
     Require(Assigned(Scroll),'Sources cannot scroll in a short window');
     Dialog.Height:=Dialog.Constraints.MinHeight; Application.ProcessMessages;
     Require(Scroll.VertScrollBar.Range>Scroll.ClientHeight,'Short source window hides content without scrolling');
+    var OldTheme:=MHLThemeDark;
+    try
+      for var Dark in [False,True] do
+      begin
+        SetMHLTheme(Dark);
+        for var PPI in [96,144,192] do
+        begin
+          Dialog.ScaleForPPI(PPI); Dialog.Show;
+          Dialog.Width:=Dialog.Constraints.MinWidth; Dialog.Height:=Dialog.Constraints.MinHeight;
+          Application.ProcessMessages;
+          var SpaceLabel:=Dialog.FindComponent('lblSourceSpace') as TLabel;
+          Dialog.Canvas.Font.Assign(SpaceLabel.Font);
+          var Text:=string(SpaceLabel.Caption); var Bounds:=Rect(0,0,SpaceLabel.Width,0);
+          DrawTextW(Dialog.Canvas.Handle,PChar(Text),Length(Text),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+          Require((Bounds.Height<=SpaceLabel.Height) and
+            (SpaceLabel.Top+SpaceLabel.Height<=SpaceLabel.Parent.ClientHeight),'Source estimate text is clipped');
+          var Footer:=FeedbackButton(Dialog,'1. Проверить все источники').Parent;
+          var FooterTop:=Footer.Top; var List:=Dialog.FindComponent('lvCatalogSources') as TListView;
+          var SelectedIndex:=List.ItemIndex;
+          Scroll.VertScrollBar.Position:=0;
+          var Point:=Scroll.ClientToScreen(System.Types.Point(10,10));
+          var Wheel:=LPARAM(MakeLParam(SmallInt(Point.X),SmallInt(Point.Y)));
+          Scroll.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+          Require(Scroll.VertScrollBar.Position>0,'Source body ignores downward wheel');
+          Scroll.Perform(WM_MOUSEWHEEL,WPARAM($00780000),Wheel);
+          Require(Scroll.VertScrollBar.Position=0,'Source body ignores upward wheel');
+          Dialog.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+          Require(Scroll.VertScrollBar.Position>0,'Source form does not route wheel over its body');
+          for var WheelStep:=1 to 100 do Scroll.Perform(WM_MOUSEWHEEL,WPARAM($FF880000),Wheel);
+          var Report:=Dialog.FindComponent('mmSourcesReport') as TMemo;
+          Require((Report.Top+Report.Height<=Scroll.ClientHeight+1) and
+            (Report.Top<Scroll.ClientHeight),'Source report is unreachable with wheel');
+          Require((Footer.Top=FooterTop) and (List.ItemIndex=SelectedIndex),'Wheel moved persistent actions or source selection');
+          Scroll.VertScrollBar.Position:=0;
+        end;
+      end;
+    finally SetMHLTheme(OldTheme); Dialog.Hide; end;
+    Writeln('PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI');
   finally Dialog.Free; end;
   Writeln('PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll');
   if ParamStr(1)='catalog-sources-ui' then

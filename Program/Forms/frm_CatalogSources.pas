@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
+uses System.Classes, System.Types, Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, Vcl.ExtCtrls,
   unit_Interfaces, unit_CatalogSources, unit_CollectionMerge, unit_WorkerThread, unit_SeriesAliases;
 
 type
@@ -15,9 +15,21 @@ type
     procedure ScaleForPPI(NewPPI: Integer); override;
   end;
 
+  TSourceScrollBox = class(TScrollBox)
+  private
+    FWheelRemainder: Integer;
+  protected
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
+  public
+    function ScrollWheel(WheelDelta: Integer): Boolean;
+  end;
+
   TfrmCatalogSources = class(TSourceDialogForm)
   private
     FTarget: IBookCollection;
+    FBody: TSourceScrollBox;
+    FHeader, FActions, FOptions: TPanel;
+    FIntroTitle, FIntroHelp, FTargetLabel, FLibraryHelp: TLabel;
     FSources: TCatalogSources;
     FPlan: TCollectionMergePlan;
     FList: TListView;
@@ -54,6 +66,8 @@ type
     procedure Preview(Sender: TObject);
     procedure Apply(Sender: TObject);
     procedure LayoutSeriesScope;
+    procedure LayoutBodyText;
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
     procedure Resize; override;
     procedure PreviewSeriesAliases(Sender: TObject);
     procedure FillBookMetadata(Sender: TObject);
@@ -88,10 +102,36 @@ type
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.Variants, System.Types, Winapi.Windows, Vcl.Controls, Vcl.Graphics,
+uses System.SysUtils, System.IOUtils, System.Variants, Winapi.Windows, Vcl.Graphics,
   Vcl.Dialogs, Vcl.FileCtrl, unit_Consts, unit_Settings, unit_Globals,
   frm_ImportProgressFormEx, unit_BookCache, dm_user, unit_CollectionSpace, System.Math, frm_BookMetadataFill,
   System.IniFiles, unit_AtomicIniFile;
+
+function TSourceScrollBox.ScrollWheel(WheelDelta: Integer): Boolean;
+var Lines: Cardinal; Step, Delta: Integer;
+begin
+  Result:=VertScrollBar.Range>ClientHeight;
+  if not Result then Exit;
+  Lines:=3; SystemParametersInfo(SPI_GETWHEELSCROLLLINES,0,@Lines,0);
+  if Lines=WHEEL_PAGESCROLL then Step:=ClientHeight
+  else Step:=Integer(Min(Lines,100))*Max(1,Abs(Font.Height));
+  Inc(FWheelRemainder,WheelDelta*Step);
+  Delta:=FWheelRemainder div WHEEL_DELTA; FWheelRemainder:=FWheelRemainder mod WHEEL_DELTA;
+  VertScrollBar.Position:=VertScrollBar.Position-Delta;
+end;
+
+function TSourceScrollBox.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+begin
+  if (Shift*[ssCtrl,ssShift]=[]) and ScrollWheel(WheelDelta) then Exit(True);
+  Result:=inherited;
+end;
+
+function TfrmCatalogSources.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+begin
+  if Assigned(FBody) and (Shift*[ssCtrl,ssShift]=[]) and
+    FBody.ClientRect.Contains(FBody.ScreenToClient(MousePos)) and FBody.ScrollWheel(WheelDelta) then Exit(True);
+  Result:=inherited;
+end;
 
 procedure TSourceDialogForm.ScaleForPPI(NewPPI: Integer);
 var OldPPI, NewWidth, NewHeight, MinWidth, MinHeight: Integer;
@@ -139,12 +179,15 @@ begin
   try
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.SetBounds(0,ClientHeight-116,ClientWidth,116);
   Footer.Align:=alBottom; Footer.BevelOuter:=bvNone;
-  Body:=TScrollBox.Create(Self); Body.Parent:=Self; Body.Align:=alClient;
+  FBody:=TSourceScrollBox.Create(Self); Body:=FBody; Body.Parent:=Self; Body.Align:=alClient;
+  Body.Name:='sbCatalogSources';
   Body.BorderStyle:=bsNone; Body.HorzScrollBar.Visible:=False;
   Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,0,ClientWidth,108); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  FHeader:=Panel;
   LabelText:=LabelAt(Panel,'Добавить книги в текущую коллекцию',12,9,936,22);
+  FIntroTitle:=LabelText;
   LabelText.Font.Style:=[fsBold]; LabelText.Font.Size:=11;
-  LabelAt(Panel,'INPX — список книг; папка книг — место, где лежат сами файлы и архивы. Можно подключить несколько библиотек, включая смешанные каталоги Флибусты и Либрусека.',12,36,936,34);
+  FIntroHelp:=LabelAt(Panel,'INPX — список книг; папка книг — место, где лежат сами файлы и архивы. Можно подключить несколько библиотек, включая смешанные каталоги Флибусты и Либрусека.',12,36,936,34);
   FAllSources:=LabelAt(Panel,'',12,76,936,28); FAllSources.Font.Style:=[fsBold];
   FList:=TListView.Create(Self); FList.Parent:=Body; FList.SetBounds(0,76,ClientWidth,166); FList.Align:=alTop;
   FList.Name:='lvCatalogSources'; FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True;
@@ -157,6 +200,7 @@ begin
   FList.Columns.Add.Caption:='Состояние'; FList.Columns[4].Width:=150;
   FList.OnSelectItem:=Selected;
   Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,242,ClientWidth,158); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  FActions:=Panel;
   Button(Panel,'Добавить INPX…',12,148,AddINPX);
   Button(Panel,'Добавить коллекцию…',166,182,AddCollection);
   FUp:=Button(Panel,'↑',366,38,MoveSource); FUp.Tag:=-1;
@@ -170,6 +214,7 @@ begin
   FRefresh.Hint:='Перечитывает выбранный INPX в отдельный каталог источника. Текущая коллекция пока не меняется.'; FRefresh.ShowHint:=True;
   FDetails:=LabelAt(Panel,'',12,118,936,36);
   Panel:=TPanel.Create(Self); Panel.Parent:=Body; Panel.SetBounds(0,400,ClientWidth,198); Panel.Align:=alTop; Panel.BevelOuter:=bvNone;
+  FOptions:=Panel;
   LabelAt(Panel,'Повторные книги:',12,10,142,20);
   FPolicy:=TComboBox.Create(Self); FPolicy.Parent:=Panel; FPolicy.Style:=csDropDownList;
   FPolicy.Name:='cbMergeDuplicatePolicy'; FPolicy.SetBounds(158,6,790,26); FPolicy.Anchors:=[akLeft,akTop,akRight];
@@ -178,7 +223,7 @@ begin
   FPolicy.Items.Add('Одна запись — предпочитать меньший файл');
   FPolicy.ItemIndex:=0; FPolicy.OnChange:=PolicyChanged;
   FPolicyHelp:=LabelAt(Panel,'',158,36,790,42);
-  LabelAt(Panel,'Текущая коллекция:',12,86,142,20);
+  FTargetLabel:=LabelAt(Panel,'Текущая коллекция:',12,86,142,20);
   FTargetLibrary:=TComboBox.Create(Self); FTargetLibrary.Parent:=Panel; FTargetLibrary.Style:=csDropDownList;
   FTargetLibrary.Name:='cbMergeLibrary'; FTargetLibrary.SetBounds(158,82,342,26);
   FTargetLibrary.Items.Add('Определять библиотеку по каждой книге');
@@ -188,8 +233,9 @@ begin
   if SameText(VarToStr(FTarget.GetProperty(PROP_SOURCE_LIBRARY)),'librusec') then FTargetLibrary.ItemIndex:=2;
   if SameText(VarToStr(FTarget.GetProperty(PROP_SOURCE_LIBRARY)),'mixed') then FTargetLibrary.ItemIndex:=3;
   FTargetLibrary.OnChange:=PolicyChanged;
-  LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,30);
+  FLibraryHelp:=LabelAt(Panel,'Если происхождение номера книги неизвестно, разные копии остаются отдельными.',158,112,790,30);
   FSpace:=LabelAt(Panel,'',12,142,936,52);
+  FSpace.Name:='lblSourceSpace';
   Panel:=Footer;
   FWorkflowTitle:=LabelAt(Panel,'',12,6,184,36); FWorkflowTitle.Font.Style:=[fsBold];
   FWorkflowTitle.Name:='lblSourceWorkflowState'; FWorkflowTitle.Anchors:=[akLeft,akTop];
@@ -305,7 +351,41 @@ begin
     DrawTextW(Canvas.Handle,PChar(Text),Length(Text),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     FSeriesScope.Height:=Max(MulDiv(30,PPI,96),R.Height);
     Footer.Height:=Max(MulDiv(116,PPI,96),FSeriesScope.Top+FSeriesScope.Height+MulDiv(4,PPI,96));
+    LayoutBodyText;
   finally FSeriesLayoutBusy:=False; end;
+end;
+
+procedure TfrmCatalogSources.LayoutBodyText;
+var PPI, SavedPosition: Integer;
+  procedure Fit(LabelControl: TLabel; Minimum: Integer);
+  var R: TRect; Text: string;
+  begin
+    Canvas.Font.Assign(LabelControl.Font); Text:=LabelControl.Caption;
+    R:=Rect(0,0,LabelControl.Width,0);
+    DrawTextW(Canvas.Handle,PChar(Text),Length(Text),R,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    LabelControl.Height:=Max(MulDiv(Minimum,PPI,96),R.Height);
+  end;
+begin
+  if not Assigned(FBody) or not Assigned(FSpace) or not Assigned(FIntroTitle) then Exit;
+  PPI:=Max(96,Font.PixelsPerInch); SavedPosition:=FBody.VertScrollBar.Position;
+  FBody.DisableAlign;
+  try
+    // Reflow from design heights rather than growing on every resize. Keep
+    // enough height in each aligned section for the actual wrapped text.
+    Fit(FIntroTitle,22);
+    FIntroHelp.Top:=FIntroTitle.Top+FIntroTitle.Height+MulDiv(6,PPI,96); Fit(FIntroHelp,34);
+    FAllSources.Top:=FIntroHelp.Top+FIntroHelp.Height+MulDiv(6,PPI,96); Fit(FAllSources,28);
+    FHeader.Height:=FAllSources.Top+FAllSources.Height+MulDiv(4,PPI,96);
+    Fit(FDetails,36); FActions.Height:=FDetails.Top+FDetails.Height+MulDiv(4,PPI,96);
+    Fit(FPolicyHelp,42);
+    FTargetLabel.Top:=Max(MulDiv(86,PPI,96),FPolicyHelp.Top+FPolicyHelp.Height+MulDiv(8,PPI,96)); Fit(FTargetLabel,20);
+    FTargetLibrary.Top:=FTargetLabel.Top-MulDiv(4,PPI,96);
+    FLibraryHelp.Top:=Max(FTargetLibrary.Top+FTargetLibrary.Height,FTargetLabel.Top+FTargetLabel.Height)+MulDiv(4,PPI,96);
+    Fit(FLibraryHelp,30);
+    FSpace.Top:=FLibraryHelp.Top+FLibraryHelp.Height+MulDiv(4,PPI,96); Fit(FSpace,52);
+    FOptions.Height:=FSpace.Top+FSpace.Height+MulDiv(10,PPI,96);
+  finally FBody.EnableAlign; end;
+  FBody.VertScrollBar.Position:=SavedPosition;
 end;
 
 function TfrmCatalogSources.Button(ParentPanel: TPanel; const Caption: string; Left, Width: Integer;
@@ -425,6 +505,7 @@ begin
   if FileExists(SystemFile+'-wal') then Inc(Temporary,TFile.GetSize(SystemFile+'-wal'));
   FSpace.Caption:=CollectionSpaceText(Growth,Temporary,CollectionDiskFree(Settings.DataPath))+#13#10+
     'Оценка приблизительная. Архивы книг остаются в исходных папках; уже импортированные книги учитываются после проверки.';
+  LayoutSeriesScope;
 end;
 
 procedure TfrmCatalogSources.UpdateSelection;

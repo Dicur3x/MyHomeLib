@@ -87,6 +87,9 @@ begin
       GroupsList:=Dialog.FindComponent('lvDuplicateGroups') as TListView;
       CopiesList:=Dialog.FindComponent('lvDuplicateCopies') as TListView;
       Require((GroupsList.Items.Count=1) and (CopiesList.Items.Count=2),'Duplicate window did not render the chosen page and copies');
+      Require((CopiesList.Columns.Count=6) and (CopiesList.Columns[4].Caption='Источник / файл') and
+        (CopiesList.Columns[5].Caption='Автор') and CopiesList.Items[0].SubItems[1].Contains('КБ'),
+        'Duplicate comparison hides source, author or readable size');
       CopiesList.Items[1].Selected:=True;
       Prefer:=Dialog.FindComponent('btnPreferDuplicateCopy') as TButton;
       Prefer.OnClick(Prefer);
@@ -105,6 +108,7 @@ begin
           (SelectGroup.Top+SelectGroup.Height<=SelectGroup.Parent.ClientHeight),
           'Duplicate layout clips copy controls at '+IntToStr(PPI));
       end;
+      CheckSourceDialogLayout(Dialog);
       Require((Dialog.ClientWidth=1040) and (Dialog.ClientHeight=640),'Duplicate dialog scale did not return to its original dimensions');
       if GetEnvironmentVariable('HLRU_FEEDBACK529_VISUAL')='duplicates' then begin Dialog.Hide; Dialog.ShowModal; end;
     finally Dialog.Free; end;
