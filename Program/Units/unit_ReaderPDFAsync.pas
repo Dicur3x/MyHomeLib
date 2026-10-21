@@ -21,7 +21,7 @@ type
     FLock: TObject;
     FBytes: Int64;
     FAge: UInt64;
-    FVisiblePage: Integer;
+    FVisiblePage, FVisibleFirst, FVisibleCount: Integer;
     function CachedPage(Index: Integer; out Page: TPDFPreparedPage; Visible: Boolean = False): Boolean;
   public
     constructor Create(const LibraryFile, FileName: string);
@@ -29,6 +29,7 @@ type
     function AsyncPages: Boolean; override;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); override;
     function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; override;
+    procedure SetVisibleRange(First, Count: Integer); override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
   end;
 
@@ -65,6 +66,21 @@ begin
   finally TMonitor.Exit(FLock); end;
 end;
 
+procedure TReaderPDFAsync.SetVisibleRange(First, Count: Integer);
+var Page: TPDFPreparedPage;
+begin
+  TMonitor.Enter(FLock);
+  try
+    FVisibleFirst:=Max(0,First); FVisibleCount:=EnsureRange(Count,1,2);
+    // Refit buffers retained from a magnified single-page view before loading
+    // its neighbour. The displayed composite remains valid while reloading.
+    if FVisibleCount=2 then
+      for var I:=FVisibleFirst to FVisibleFirst+1 do
+        if FPages.TryGetValue(I,Page) and (Page.Edge>3200) then
+        begin Dec(FBytes,Length(Page.Pixels)); FPages.Remove(I); end;
+  finally TMonitor.Exit(FLock); end;
+end;
+
 function TReaderPDFAsync.IsPageCached(Index, MinEdge: Integer): Boolean;
 var Page: TPDFPreparedPage;
 begin
@@ -79,13 +95,16 @@ var Page, Visible, Old: TPDFPreparedPage; Pair: TPair<Integer,TPDFPreparedPage>;
   Protected, Oldest: Integer; Stamp: UInt64;
 begin
   RenderEdge:=EnsureRange(RenderEdge,200,4000);
+  TMonitor.Enter(FLock);
+  try if FVisibleCount=2 then RenderEdge:=Min(RenderEdge,3200);
+  finally TMonitor.Exit(FLock); end;
   if CachedPage(Index,Page) and (Page.Edge>=RenderEdge) then Exit;
   if not Assigned(FWorker) then FWorker:=TReaderPDFWorker.Create(FFileName);
   Page:=Default(TPDFPreparedPage);
   FWorker.RenderPage(Index,Page.Pixels,Page.Width,Page.Height,RenderEdge); Page.Edge:=RenderEdge;
   TMonitor.Enter(FLock);
   try
-    Protected:=FVisiblePage;
+    Protected:=FVisiblePage; if FVisibleCount>0 then Protected:=FVisibleFirst;
     if Prefetch and (Protected<>Index) and FPages.TryGetValue(Protected,Visible) and
       (Int64(Length(Visible.Pixels))+Length(Page.Pixels)>Budget) then Exit;
     if FPages.TryGetValue(Index,Old) then begin Dec(FBytes,Length(Old.Pixels)); FPages.Remove(Index); end;
@@ -94,7 +113,8 @@ begin
     begin
       Oldest:=-1; Stamp:=High(UInt64);
       for Pair in FPages do
-        if (Pair.Key<>Protected) and (Pair.Value.Used<Stamp) then
+        if (Pair.Key<>Protected) and
+          ((FVisibleCount=0) or (Pair.Key<FVisibleFirst) or (Pair.Key>=FVisibleFirst+FVisibleCount)) and (Pair.Value.Used<Stamp) then
         begin Oldest:=Pair.Key; Stamp:=Pair.Value.Used; end;
       if Oldest<0 then Break;
       Old:=FPages[Oldest]; Dec(FBytes,Length(Old.Pixels)); FPages.Remove(Oldest);

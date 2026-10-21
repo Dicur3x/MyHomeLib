@@ -11,14 +11,14 @@ type
   private
     FEdit: TRichEdit;
     FOle: IInterface;
-    FStart, FLength: Integer;
+    FStart, FLength, FOffsetX: Integer;
     FReady: Boolean;
     function CharacterPoint(Index: Integer): TPoint;
   public
     constructor Create(Owner: TComponent; Parent: TWinControl);
     destructor Destroy; override;
     procedure Clear;
-    procedure Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect);
+    procedure Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect; OffsetX: Integer = 0);
     function CharacterAt(X,Y: Integer): Integer;
     function Rectangles(Start, Finish: Integer): TArray<TRect>;
     property Ready: Boolean read FReady;
@@ -43,9 +43,9 @@ destructor TReaderPageSelection.Destroy;
 begin FOle:=nil; FEdit.Free; inherited; end;
 
 procedure TReaderPageSelection.Clear;
-begin FReady:=False; FStart:=0; FLength:=0; FEdit.Clear; end;
+begin FReady:=False; FStart:=0; FLength:=0; FOffsetX:=0; FEdit.Clear; end;
 
-procedure TReaderPageSelection.Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect);
+procedure TReaderPageSelection.Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect; OffsetX: Integer);
 var Stream: TMemoryStream; Bounds: TRect; Scroll: TPoint;
   Paragraph: TParaFormat2; Selection: TCharRange; Previous: string;
 begin
@@ -80,7 +80,7 @@ begin
     SendMessage(FEdit.Handle,EM_SETZOOM,DPI,Max(1,FEdit.Font.PixelsPerInch));
     Bounds:=Content; SendMessage(FEdit.Handle,EM_SETRECT,0,LPARAM(@Bounds));
     Scroll:=Point(0,0); SendMessage(FEdit.Handle,EM_SETSCROLLPOS,0,LPARAM(@Scroll));
-    FStart:=Start; FLength:=Min(Count,ReaderTextLength(FEdit)); FReady:=True;
+    FOffsetX:=OffsetX; FStart:=Start; FLength:=Min(Count,ReaderTextLength(FEdit)); FReady:=True;
   finally Stream.Free; end;
 end;
 
@@ -94,7 +94,7 @@ function TReaderPageSelection.CharacterAt(X,Y: Integer): Integer;
 var P: TPoint; Index: Integer;
 begin
   Result:=-1; if not FReady then Exit;
-  P:=Point(EnsureRange(X,0,Max(0,FEdit.ClientWidth-1)),EnsureRange(Y,0,Max(0,FEdit.ClientHeight-1)));
+  P:=Point(EnsureRange(X-FOffsetX,0,Max(0,FEdit.ClientWidth-1)),EnsureRange(Y,0,Max(0,FEdit.ClientHeight-1)));
   Index:=SendMessage(FEdit.Handle,EM_CHARFROMPOS,0,LPARAM(@P));
   if (Index<0) or (Index>FLength) then Exit;
   Result:=FStart+ReaderCharacterStart(FEdit,Index);
@@ -127,7 +127,7 @@ begin
       if NextLine>=0 then Next:=CharacterPoint(NextLine)
       else Next:=Point(P.X,P.Y+Max(12,MulDiv(FEdit.Font.Size,96,60)));
       R:=Rect(Min(P.X,Q.X),P.Y,Max(P.X,Q.X),Max(P.Y+12,Next.Y));
-      if (R.Width>0) and (R.Top<FEdit.ClientHeight) then Boxes.Add(R);
+      if (R.Width>0) and (R.Top<FEdit.ClientHeight) then begin OffsetRect(R,FOffsetX,0); Boxes.Add(R); end;
       Inc(Line);
     end;
     Result:=Boxes.ToArray;

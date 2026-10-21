@@ -22,7 +22,7 @@ type
     FFileName: string;
     FPageCache: TDictionary<Integer,TReaderRasterPage>;
     FCacheLock: TObject;
-    FVisiblePage: Integer;
+    FVisiblePage, FVisibleFirst, FVisibleCount: Integer;
     FCacheBytes, FCacheClock: Int64;
     FTiff, FDjvu: Boolean;
     FSourceStream: TStream;
@@ -35,6 +35,7 @@ type
     function AsyncPages: Boolean; override;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); override;
     function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; override;
+    procedure SetVisibleRange(First, Count: Integer); override;
     function PageSize(Index: Integer): TPoint; override;
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; override;
     function Chapters: TArray<TPDFChapter>; override;
@@ -151,6 +152,21 @@ begin
   finally TMonitor.Exit(FCacheLock); end;
 end;
 
+procedure TReaderRaster.SetVisibleRange(First, Count: Integer);
+var Page: TReaderRasterPage;
+begin
+  TMonitor.Enter(FCacheLock);
+  try
+    FVisibleFirst:=Max(0,First); FVisibleCount:=EnsureRange(Count,1,2);
+    // Refit buffers retained from a magnified single-page view before loading
+    // its neighbour. The displayed composite remains valid while reloading.
+    if FVisibleCount=2 then
+      for var I:=FVisibleFirst to FVisibleFirst+1 do
+        if FPageCache.TryGetValue(I,Page) and (Page.RenderEdge>3200) then
+        begin Dec(FCacheBytes,Length(Page.Pixels)); FPageCache.Remove(I); end;
+  finally TMonitor.Exit(FCacheLock); end;
+end;
+
 function TReaderRaster.IsPageCached(Index, MinEdge: Integer): Boolean;
 var Page: TReaderRasterPage;
 begin
@@ -170,11 +186,14 @@ var Page, Visible, Old: TReaderRasterPage; Pair: TPair<Integer,TReaderRasterPage
   Oldest, Protected: Integer; Stamp: Int64;
 begin
   RenderEdge:=EnsureRange(RenderEdge,200,4000);
+  TMonitor.Enter(FCacheLock);
+  try if FVisibleCount=2 then RenderEdge:=Min(RenderEdge,3200);
+  finally TMonitor.Exit(FCacheLock); end;
   if CachedPage(Index,Page) and (Page.RenderEdge>=RenderEdge) then Exit;
   Page:=DecodePage(Index,RenderEdge);
   TMonitor.Enter(FCacheLock);
   try
-    Protected:=FVisiblePage;
+    Protected:=FVisiblePage; if FVisibleCount>0 then Protected:=FVisibleFirst;
     // A very large neighbour must not evict the page currently being read.
     if Prefetch and (Protected<>Index) and FPageCache.TryGetValue(Protected,Visible) and
       (Int64(Length(Visible.Pixels))+Length(Page.Pixels)>Budget) then Exit;
@@ -185,7 +204,8 @@ begin
     begin
       Oldest:=-1; Stamp:=High(Int64);
       for Pair in FPageCache do
-        if (Pair.Key<>Protected) and (Pair.Value.Used<Stamp) then
+        if (Pair.Key<>Protected) and
+          ((FVisibleCount=0) or (Pair.Key<FVisibleFirst) or (Pair.Key>=FVisibleFirst+FVisibleCount)) and (Pair.Value.Used<Stamp) then
         begin Oldest:=Pair.Key; Stamp:=Pair.Value.Used; end;
       if Oldest<0 then Break;
       Old:=FPageCache[Oldest]; Dec(FCacheBytes,Length(Old.Pixels)); FPageCache.Remove(Oldest);
@@ -204,7 +224,7 @@ var Stream, Converted, PageStream: TStream; Adapter: IStream;
   I,A,NativeWidth,NativeHeight: Integer;
 begin
   Result:=Default(TReaderRasterPage);
-  Result.RenderEdge:=4000; // Other raster formats retain their source resolution.
+  Result.RenderEdge:=RenderEdge;
   if (Index<0) or (Index>=FPageCount) then raise ERangeError.Create('Номер страницы вне диапазона.');
   if (GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated then Abort;
   if Assigned(FNativeDjvu) then
@@ -242,9 +262,10 @@ begin
     OleCheck(Frame.GetSize(W,H));
     if (W=0) or (H=0) or (W>100000) or (H>100000) then raise Exception.Create('Некорректный размер изображения страницы.');
     Source:=Frame;
-    if UInt64(W)*H>16000000 then
+    if (Max(W,H)>Cardinal(RenderEdge)) or (UInt64(W)*H>16000000) then
     begin
-      Scale:=Sqrt(16000000.0/(Double(W)*H)); W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
+      // Two visible pages must fit together in the bounded raster cache.
+      Scale:=Min(RenderEdge/Double(Max(W,H)),Sqrt(16000000.0/(Double(W)*H))); W:=Max(1,Trunc(W*Scale)); H:=Max(1,Trunc(H*Scale));
       OleCheck(Factory.CreateBitmapScaler(Scaler));
       OleCheck(Scaler.Initialize(Frame,W,H,WICBitmapInterpolationModeFant)); Source:=Scaler;
     end;

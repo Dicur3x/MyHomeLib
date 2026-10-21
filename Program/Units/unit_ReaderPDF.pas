@@ -51,6 +51,7 @@ type
     function AsyncPages: Boolean; virtual;
     procedure PreparePage(Index: Integer; Prefetch: Boolean = False; RenderEdge: Integer = 4000); virtual;
     function IsPageCached(Index: Integer; MinEdge: Integer = 0): Boolean; virtual;
+    procedure SetVisibleRange(First, Count: Integer); virtual;
     procedure RenderPixels(Index, Width, Height: Integer; Pixels: Pointer);
     function Render(Index, Width, Height: Integer; Night: Boolean = False): TBitmap; virtual;
     function Chapters: TArray<TPDFChapter>; virtual;
@@ -181,6 +182,11 @@ begin Result:=False; end;
 
 procedure TReaderPDF.PreparePage(Index: Integer; Prefetch: Boolean; RenderEdge: Integer);
 begin end;
+
+procedure TReaderPDF.SetVisibleRange(First, Count: Integer);
+begin
+  // Direct PDFium rendering does not evict prepared source pages.
+end;
 
 function TReaderPDF.IsPageCached(Index, MinEdge: Integer): Boolean;
 begin Result:=True; end;

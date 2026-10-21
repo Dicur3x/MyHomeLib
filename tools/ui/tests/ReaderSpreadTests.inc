@@ -1,0 +1,176 @@
+﻿procedure TestReaderSpread;
+var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
+  First, Last, Saved, RightInk, LeftInk: Integer; BaselineGDI, BaselineUSER: Cardinal; Image: TBitmap;
+  procedure CheckFixed(const Source, Kind: string);
+  var BookHash: string; Watch: TStopwatch;
+    Scale: Double; X,Y,EndX: Integer; Draft: TReaderAnnotation;
+  begin
+    BookHash:=THashSHA2.GetHashStringFromFile(Source);
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.OpenBook(Source,Kind,Kind,Settings.AppPath+Kind+'-spread.ini',Settings.AppPath+'tools\pdfium\pdfium.dll');
+      Reader.Show; Reader.SetBounds(40,40,1200,740);
+      Watch:=TStopwatch.StartNew;
+      while (not Reader.Ready or Reader.PageLoading) and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(Reader.Ready and not Reader.PageLoading,Kind+' initial load failed: '+Reader.ReaderStatus.Caption);
+      Reader.SetPageLayout(rplDouble); Reader.SetInspectionPercent(300);
+      Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(not Reader.PageLoading,Kind+' spread did not finish decoding');
+      Require((Reader.VisiblePageCount=2) and (Reader.TextPosition=0) and (Reader.PageTurn=rptSpread),Kind+' default spread differs');
+      if Kind='PDF' then
+      begin
+        Require(Reader.PageText.Contains('Spread page 1') and Reader.PageText.Contains('Spread page 2'),'PDF spread omits a page text layer');
+        begin
+          Scale:=Reader.PageRasterSize.Y/750;
+          X:=Reader.PDFPan.X+Round(500*Scale)+MulDiv(24,Reader.CurrentPPI,96)+Round(52*Scale);
+          EndX:=X+Round(74*Scale);
+          Y:=Reader.PDFPan.Y+Round(62*Scale);
+          Reader.ReadingSurface.Perform(WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(X,Y));
+          Reader.ReadingSurface.Perform(WM_MOUSEMOVE,MK_LBUTTON,MakeLParam(EndX,Y));
+          Reader.ReadingSurface.Perform(WM_LBUTTONUP,0,MakeLParam(EndX,Y));
+          Require(Reader.PDFSelectedText.Contains('Spread'),'Right PDF page cannot select text');
+          Draft:=Reader.AnnotationDraft(Reader.PDFSelectedText);
+          Require((Draft.Position=1) and Draft.RangeIsPageText,'Right PDF quote was attached to the left page');
+          Reader.FindText('Spread page 2'); Watch:=TStopwatch.StartNew;
+          while Reader.SearchRunning and (Watch.ElapsedMilliseconds<10000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+          Require((Reader.TextPosition=0) and not Reader.SearchRunning,'Search cannot highlight the visible right page');
+        end;
+      end;
+      Reader.NextPage; Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require((not Reader.PageLoading) and (Reader.TextPosition=2),Kind+' does not turn by a pair: '+IntToStr(Reader.TextPosition)+' '+Reader.ReaderStatus.Caption);
+      Reader.PreviousPage; Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(Reader.TextPosition=0,Kind+' previous pair differs');
+      Reader.SetPageTurn(rptSliding); Reader.NextPage; Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require((not Reader.PageLoading) and (Reader.TextPosition=1),Kind+' does not slide the right page to the left');
+      Reader.PreviousPage; Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(Reader.TextPosition=0,Kind+' previous sliding page differs');
+      Reader.GoToPosition(Reader.TextLength-1); Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Reader.NextPage; Require(Reader.TextPosition=Reader.TextLength-1,Kind+' odd final page repeats');
+      Reader.SetTheme(4); Require(Reader.TextPosition=Reader.TextLength-1,Kind+' theme loses the visible page');
+      Reader.Close;
+    finally Reader.Free; end;
+    Require(THashSHA2.GetHashStringFromFile(Source)=BookHash,Kind+' source was modified');
+    Writeln('PASS '+Kind+' pair and sliding spread, async cache, odd ending and protected source');
+  end;
+  function Normalized(const Value: string): string;
+  begin Result:=Value.Replace(#$FFFC,'').Replace(#13#10,#10).Replace(#13,#10).Replace(#10,#13#10).Trim; end;
+  procedure Settle;
+  var Watch: TStopwatch;
+  begin
+    Watch:=TStopwatch.StartNew;
+    repeat Application.ProcessMessages; CheckSynchronize(5); Sleep(10);
+    until (Watch.ElapsedMilliseconds>250) and Reader.Ready and not Reader.PageLoading or (Watch.ElapsedMilliseconds>10000);
+    Require(Reader.Ready and not Reader.PageLoading,'Spread reader failed to load: '+Reader.ReaderStatus.Caption);
+  end;
+  procedure CheckText(const Extension: string);
+  var First, PairEnd: Integer;
+  begin
+    Reader:=TfrmBuiltinReader.Create(nil);
+    try
+      Reader.Show; Reader.SetBounds(40,40,1200,740);
+      Reader.OpenBook(Settings.AppPath+'reader-spread.'+Extension,Extension,Extension,Settings.AppPath+Extension+'-spread.ini',''); Settle;
+      Reader.SetPageLayout(rplDouble); Reader.SetPageTurn(rptSpread); First:=Reader.TextPosition;
+      var Text:=Reader.PageText; Reader.NextPage; PairEnd:=Reader.TextPosition;
+      Require((PairEnd>First) and (Text=Normalized(Reader.BookText.Substring(First,PairEnd-First))),Extension+' spread loses continuous text');
+      Reader.PreviousPage; Require(Reader.TextPosition=First,Extension+' previous spread changed');
+      Reader.SetPageTurn(rptSliding); Reader.NextPage;
+      Require((Reader.TextPosition>First) and (Reader.TextPosition<PairEnd),Extension+' sliding step differs');
+      Reader.Close;
+    finally Reader.Free; end;
+    Writeln('PASS '+Extension+' text spread shares continuous pair and sliding navigation');
+  end;
+  procedure Capture;
+  begin
+    Image.SetSize(Reader.ReadingSurface.ClientWidth,Reader.ReadingSurface.ClientHeight);
+    Reader.ReadingSurface.PaintTo(Image.Canvas.Handle,0,0);
+  end;
+  function Ink(Left, Right: Integer; SelectionOnly: Boolean): Integer;
+  var Color, Background: TColor;
+  begin
+    Result:=0; Background:=ColorToRGB(Reader.PageBackground);
+    for var Y:=30 to Image.Height-30 do
+      for var X:=Left to Right do
+      begin
+        Color:=ColorToRGB(Image.Canvas.Pixels[X,Y]);
+        if SelectionOnly then
+        begin if (GetBValue(Color)>GetRValue(Color)+15) and (GetBValue(Color)>GetGValue(Color)+5) then Inc(Result); end
+        else if Color<>Background then Inc(Result);
+      end;
+  end;
+begin
+  FileName:=Settings.AppPath+'reader-spread.fb2'; Profile:=Settings.AppPath+'reader-spread.ini';
+  XML:='<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><description><title-info>'+
+    '<book-title>Разворот</book-title></title-info></description><body><section><title><p>Разворот</p></title>';
+  for var I:=1 to 260 do XML:=XML+'<p>'+IntToStr(I)+'. Текст двух страниц: ё, ї, ў. '+
+    'Последовательность абзацев, выделение и закладки сохраняются при перелистывании.'+
+    IfThen(I=1,'<a l:href="#note1" type="note">1</a>','')+'</p>';
+  XML:=XML+'</section></body><body name="notes"><section id="note1"><title><p>1</p></title>'+
+    '<p>Сноска разворота.</p></section></body></FictionBook>';
+  TFile.WriteAllText(FileName,XML,TEncoding.UTF8); Original:=THashSHA2.GetHashStringFromFile(FileName);
+  Reader:=TfrmBuiltinReader.Create(nil); Image:=TBitmap.Create;
+  try
+    Reader.OpenBook(FileName,'Разворот','spread',Profile,'pdfium.dll'); Reader.Show; Settle;
+    Reader.SetBounds(40,40,1200,740); Settle; Reader.SetShowFootnotes(False);
+    Reader.SetPageLayout(rplDouble); Reader.GoToPosition(0); Settle;
+    Require(Reader.VisiblePageCount=2,'Explicit spread did not show two pages');
+    Capture; LeftInk:=Ink(60,Image.Width div 2-50,False); RightInk:=Ink(Image.Width div 2+60,Image.Width-50,False);
+    Require((LeftInk>100) and (RightInk>100),'Spread does not draw text on both pages');
+    First:=Reader.TextPosition; Page:=Reader.PageText; Reader.NextPage; Last:=Reader.TextPosition;
+    Require((Last>First) and (Page=Normalized(Reader.BookText.Substring(First,Last-First))),
+      'Spread navigation skips or repeats text');
+    Reader.PreviousPage; Require(Reader.TextPosition=First,'Previous spread lost its start');
+    Reader.SelectText(First+(Last-First)*3 div 4,45); Capture;
+    Require((Reader.SelectedText<>'') and (Ink(Image.Width div 2+60,Image.Width-50,True)>50),
+      'Selection on the right page is missing or drawn on the left');
+    Reader.SetPageTurn(rptSliding); Reader.GoToPosition(0); Reader.NextPage;
+    Require((Reader.TextPosition>0) and (Reader.TextPosition<Last),'Text spread does not slide by a single page');
+    First:=Reader.TextPosition; Reader.NextPage; Reader.PreviousPage;
+    Require(Reader.TextPosition=First,'Text sliding previous page lost its boundary');
+    Reader.SetPageTurn(rptSpread); Reader.GoToPosition(0);
+    for var I:=1 to 4 do
+    begin
+      First:=Reader.TextPosition; Page:=Reader.PageText; Reader.NextPage; Last:=Reader.TextPosition;
+      Require(Page=Normalized(Reader.BookText.Substring(First,Last-First)),'Later spread lost source text');
+    end;
+    Saved:=Reader.TextPosition; Reader.AddBookmark('Разворот');
+    Reader.SetPageLayout(rplSingle); Require((Reader.TextPosition=Saved) and (Reader.VisiblePageCount=1),'Single-page switch changed position');
+    Reader.SetPageLayout(rplAutomatic); Settle;
+    Require((Reader.VisiblePageCount=2) and (Reader.TextPosition=Saved),'Automatic wide spread changed position');
+    Reader.Width:=700; Settle;
+    Require((Reader.VisiblePageCount=1) and (Reader.TextPosition=Saved),'Automatic narrow window lost its position');
+    Reader.Width:=1200; Settle; Require(Reader.VisiblePageCount=2,'Automatic spread did not return');
+    Reader.NextPage; Reader.GoToBookmark(0); Require(Reader.TextPosition=Saved,'Bookmark moved after reflow');
+    Reader.GoToPosition(0); Reader.SetShowFootnotes(True); Settle;
+    Require(Reader.VisibleFootnotes.Contains('Сноска разворота'),'Spread lost a visible footnote');
+    Reader.SetPageLayout(rplDouble); Reader.GoToPosition(Saved); Reader.Close;
+  finally Reader.Free; Image.Free; end;
+  Reader:=TfrmBuiltinReader.Create(nil);
+  try
+    Reader.OpenBook(FileName,'Разворот','spread',Profile,'pdfium.dll'); Reader.Show; Settle;
+    Require((Reader.PageLayout=rplDouble) and (Reader.TextPosition=Saved),'Spread mode or position did not survive reopening');
+    Reader.GoToPosition(Reader.TextLength-1); First:=Reader.TextPosition; Reader.NextPage;
+    Require((Reader.TextPosition=First) and (Reader.ReadingProgress=1),'Last spread repeats the ending');
+    Reader.Close;
+  finally Reader.Free; end;
+  Require(THashSHA2.GetHashStringFromFile(FileName)=Original,'Spread modified the source book');
+  CheckFixed(Settings.AppPath+'reader-spread.pdf','PDF');
+  CheckFixed(Settings.AppPath+'reader-spread.cbz','CBZ');
+  CheckFixed(Settings.AppPath+'reader-spread.tiff','TIFF');
+  CheckFixed(Settings.AppPath+'reader-spread.djvu','DjVu');
+  CheckText('txt'); CheckText('rtf'); CheckText('epub');
+  DrainFailedReaderIdleCleanup('spread-warm');
+  BaselineGDI:=GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS); BaselineUSER:=ReaderApplicationUSERCount;
+  for var I:=1 to 3 do CheckText('txt');
+  CheckFixed(Settings.AppPath+'reader-spread.cbz','CBZ repeat');
+  DrainFailedReaderIdleCleanup('spread-repeated',BaselineGDI+4,BaselineUSER+4);
+  Require(GetGuiResources(GetCurrentProcess,GR_GDIOBJECTS)<=BaselineGDI+4,'Spread readers leak GDI resources');
+  Require(ReaderApplicationUSERCount<=BaselineUSER+4,'Spread readers leak USER resources');
+  Writeln('PASS repeated two-page readers retain the original +4 GDI/USER resource budgets');
+  Writeln('PASS reader spread draws both pages, preserves continuous text, right-page selection, navigation, adaptive resize, footnotes, bookmarks and saved mode');
+end;

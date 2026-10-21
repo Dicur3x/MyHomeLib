@@ -5548,6 +5548,8 @@ end;
 {$I UpdateRepairTests.inc}
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
+{$I ReaderSpreadTests.inc}
+{$I UpdateMountTests.inc}
 {$I CompactBookViewsTests.inc}
 {$I CollectionMetadataSyncTests.inc}
 {$I PublisherMetadataIndexTests.inc}
@@ -5917,6 +5919,8 @@ begin
       else if ParamStr(1) = 'update-repair' then TestUpdateRepair
       else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
+      else if ParamStr(1) = 'update-mounts' then TestUpdateMountedVolume
+      else if ParamStr(1) = 'reader-spread' then TestReaderSpread
       else if ParamStr(1) = 'metadata-fill-layout' then TestMetadataFillLayout(OneID)
       else if ParamStr(1) = 'metadata-fill-ui' then TestMetadataFillUI(OneID)
       else if ParamStr(1) = 'collection-metadata-sync' then TestCollectionMetadataSync

@@ -254,31 +254,59 @@ begin
     Result := SameText(Name, 'Readers/AlReader/$savevtut.ini');
 end;
 
-procedure AssertUpdatePath(const Path: string);
-var Current, Parent: string; Attributes: DWORD;
+function UpdateVolumeMount(const Path: string): Boolean;
+var Data: TWin32FindData; Find: THandle; Volume: array[0..63] of Char; ID: TGUID;
+  Name: string;
 begin
-  Current := ExcludeTrailingPathDelimiter(TPath.GetFullPath(Path));
-  if Length(Current) <= 3 then
+  Result:=False;
+  Find:=FindFirstFile(PChar(Path),Data);
+  if Find=INVALID_HANDLE_VALUE then Exit;
+  try
+    if (Data.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY=0) or
+      (Data.dwReserved0<>$A0000003) then Exit; // IO_REPARSE_TAG_MOUNT_POINT
+  finally Winapi.Windows.FindClose(Find); end;
+  if not GetVolumeNameForVolumeMountPoint(PChar(IncludeTrailingPathDelimiter(Path)),Volume,Length(Volume)) then Exit;
+  Name:=Volume;
+  if (Length(Name)<>49) or not Name.StartsWith('\\?\Volume{',True) or not Name.EndsWith('}\') then Exit;
+  try ID:=StringToGUID(Copy(Name,11,38)); Result:=True;
+  except on E: EConvertError do Result:=False; end;
+end;
+
+procedure AssertUpdatePathBelow(const Path, Boundary: string);
+var Current, Parent, Root: string; Attributes: DWORD; BelowRoot: Boolean;
+begin
+  Current:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Path));
+  Root:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Boundary));
+  if Length(Current)<=3 then
     raise Exception.Create('Нельзя обновлять корневую папку диска.');
   repeat
-    Attributes := GetFileAttributes(PChar(Current));
-    if (Attributes <> INVALID_FILE_ATTRIBUTES) and
-       ((Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0) then
-      raise Exception.Create('Папка обновления содержит ссылку: ' + Current);
-    Parent := ExtractFileDir(Current);
-    if (Parent = Current) or (Length(Parent) < 3) then Break;
-    Current := Parent;
+    Attributes:=GetFileAttributes(PChar(Current));
+    if (Attributes<>INVALID_FILE_ATTRIBUTES) and (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
+    begin
+      BelowRoot:=Current.StartsWith(IncludeTrailingPathDelimiter(Root),True);
+      // A real volume mounted above the installation is a normal disk path.
+      // Descendants in the managed payload/target must never redirect writes
+      // or recursive cleanup, even when they point at another whole volume.
+      if BelowRoot or not UpdateVolumeMount(Current) then
+        raise Exception.Create('Папка обновления содержит ссылку: '+Current);
+    end;
+    Parent:=ExtractFileDir(Current);
+    if (Parent=Current) or (Length(Parent)<3) then Break;
+    Current:=Parent;
   until False;
 end;
+
+procedure AssertUpdatePath(const Path: string);
+begin AssertUpdatePathBelow(Path,Path); end;
 
 function ChildPath(const Root, Name: string): string;
 var Prefix: string;
 begin
-  Prefix := IncludeTrailingPathDelimiter(TPath.GetFullPath(Root));
-  Result := TPath.GetFullPath(Prefix + StringReplace(Name, '/', PathDelim, [rfReplaceAll]));
-  if not Result.StartsWith(Prefix, True) then
-    raise Exception.Create('Недопустимый путь в обновлении: ' + Name);
-  AssertUpdatePath(Result);
+  Prefix:=IncludeTrailingPathDelimiter(TPath.GetFullPath(Root));
+  Result:=TPath.GetFullPath(Prefix+StringReplace(Name,'/',PathDelim,[rfReplaceAll]));
+  if not Result.StartsWith(Prefix,True) then
+    raise Exception.Create('Недопустимый путь в обновлении: '+Name);
+  AssertUpdatePathBelow(Result,Root);
 end;
 
 function RetryUpdateFileOperation(const Operation: TFunc<Boolean>): Boolean;
@@ -1097,9 +1125,9 @@ var Root, Current: string;
   procedure RemoveOwnedDirectory(const Directory: string);
   var Item: string;
   begin
-    AssertUpdatePath(Directory);
+    AssertUpdatePathBelow(Directory,ExtractFileDir(Root));
     for Item in TDirectory.GetFiles(Directory) do
-    begin AssertUpdatePath(Item); if not DeleteFile(PChar(Item)) then RaiseLastOSError; end;
+    begin AssertUpdatePathBelow(Item,ExtractFileDir(Root)); if not DeleteFile(PChar(Item)) then RaiseLastOSError; end;
     for Item in TDirectory.GetDirectories(Directory) do RemoveOwnedDirectory(Item);
     if not RemoveDir(Directory) then RaiseLastOSError;
   end;
