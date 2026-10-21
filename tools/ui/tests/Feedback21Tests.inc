@@ -223,7 +223,7 @@ begin
   if (ParamStr(2)='visual') and FileExists(Settings.AppPath+'metadata-archive-fixtures\visual-fixed.epub') then Source:=Settings.AppPath+'metadata-archive-fixtures\visual-fixed.epub';
   Reader:=TfrmBuiltinReader.Create(nil);
   try
-    Require(string(Reader.Caption).Contains('(beta)'),'Reader still has an experimental caption');
+    Require(string(Reader.Caption)='HomeLib Ru — Читалка','Reader caption differs');
     Reader.Show; Reader.OpenBook(Source,'Записи 21','feedback21-reader',Profile,'pdfium.dll'); WaitReady(Reader);
     if ParamStr(2)='visual' then Reader.SetBounds(400,150,1100,760);
     Reader.SetShowFootnotes(False); Snapshot:=Reader.PageText;
