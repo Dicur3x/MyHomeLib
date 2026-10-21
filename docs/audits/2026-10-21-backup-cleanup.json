@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-21",
+  "branch": "codex/complete-app-audit",
+  "published": false,
+  "release_version_unchanged": "2.7.0_pre5.29",
+  "file_version": "2.7.0.1097",
+  "scope": "Refresh and explicit batch deletion of collection backup snapshots",
+  "behavior": [
+    "Refresh button and activation reread the filesystem and retain existing browsed folders.",
+    "Missing folders disappear; incomplete backup sets remain visible with an explicit label.",
+    "Ctrl/Shift selection, exact selected-row preview, and a separate permanent-deletion review.",
+    "Review includes every path, creation time, operation, and combined file size; Cancel is default.",
+    "Only known flat snapshot files are removable; unknown files, reparse paths, nested directories, readonly or locked files are refused.",
+    "The entire selected set is planned and locked before mutation; exact object identities and inventory are rechecked.",
+    "Deletion uses the original held handles, never recursive path-based removal.",
+    "No eager catalog/network load was introduced in startup."
+  ],
+  "tests": [
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 33,
+      "exit_code": 0,
+      "seconds": 34.828,
+      "exe_sha256": "633766b1e7fd3b5bb63bdca79bf4d9452e34ac973c99e811a3d3fd790008ab44",
+      "log": "Win64-feedback529-33.log",
+      "passed": true
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 11.625,
+      "exe_sha256": "633766b1e7fd3b5bb63bdca79bf4d9452e34ac973c99e811a3d3fd790008ab44",
+      "log": "Win64-startup-deferred-7.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 19,
+      "exit_code": 0,
+      "seconds": 39.485,
+      "exe_sha256": "c7d87cd48c1f0410b39d53c0f6ec085ae66a01320175d66a20e238047acb6e1f",
+      "log": "Win32-feedback529-19.log",
+      "passed": true
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 10.11,
+      "exe_sha256": "c7d87cd48c1f0410b39d53c0f6ec085ae66a01320175d66a20e238047acb6e1f",
+      "log": "Win32-startup-deferred-7.log",
+      "passed": true
+    }
+  ],
+  "coverage": [
+    "Refresh after external removal, completed and unfinished backups, multiselection and caret mismatch.",
+    "Real confirmation form: both selected full paths, default Cancel, cancellation preserves both snapshots.",
+    "Real worker deletes exactly the two confirmed synthetic snapshots and preserves unselected data.",
+    "Batch validation, identity/rename checks, inventory mutation, locked files, foreign personal file and junction refusal.",
+    "Both themes and 96/144/192 DPI including minimum dialog width.",
+    "Existing feedback529 restore, duplicate preview/apply/rollback, series, reader and sync-export checks.",
+    "Deferred-startup regression scenario; suite duration is not cold-start latency."
+  ],
+  "main_binaries": [
+    {
+      "platform": "Win32",
+      "configuration": "Release",
+      "built_via": "Delphi IDE",
+      "size": 10654720,
+      "sha256": "0e4da4a06c259585060c84af620b639dad17c2e175cbeeaf5868a1bfe6e52b86"
+    },
+    {
+      "platform": "Win64",
+      "configuration": "Release",
+      "built_via": "Delphi IDE",
+      "size": 16385536,
+      "sha256": "a4ebc6786efe854766084b261aec7be0363937f84577d796f5bba8c4010064c2"
+    }
+  ],
+  "user_data": {
+    "real_backups_deleted": false,
+    "real_collections_modified": false,
+    "initially_present_collection_backup_directories": 5,
+    "directory": "C:\\Users\\cloud\\Desktop\\MyHomeLib\\Data\\Backups",
+    "note": "Old collection backups physically remained here; installation backups previously cleaned on G: were a different set."
+  },
+  "temporary_profiles": {
+    "root": "C:\\Users\\cloud\\hlru-optional-tests",
+    "remaining": [
+      "owned-test-root.marker"
+    ]
+  },
+  "limitations": [
+    "Explicit manual cleanup, no automatic retention policy.",
+    "Size is calculated on deletion review, not for every list row.",
+    "An OS error after deletion begins can leave a partial set; the dialog reports this and refreshes.",
+    "Real user snapshots were only inspected; all deletion tests used owned synthetic fixtures.",
+    "Existing optional-components verification main ZIPs predate this change and must be repackaged before publication."
+  ],
+  "desktop_installation": {
+    "updated": false,
+    "reason": "Waiting for the open Desktop HomeLib Ru to close normally"
+  }
+}

@@ -118,6 +118,7 @@ begin
   TestFeedback529Series;
   TestCollectionBackupDescriptions;
   TestCollectionBackupRestore;
+  TestCollectionBackupCleanup;
   TestSyncFolderExportSettings;
   TestBookDuplicatePreview;
   TestBookDuplicateApply;

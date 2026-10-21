@@ -131,7 +131,7 @@ const requiredViews = {"optional-components": ["PASS optional packages verify ac
   "reader-compatibility": ["PASS plain FB2 reader preserves ordinary paths", "PASS stable reader cache survives reimport", "PASS reader cache hit avoids source extraction"],
   "read-folder-cleanup": ["PASS manual reader cleanup", "PASS custom reading folder is cleared", "PASS reader cleanup does not follow"],
   "book-gallery": ["PASS gallery loads lazily in background", "PASS illustration preview arrows work and resized window position persists", "PASS changing books cancels old gallery", "PASS EPUB gallery leaves source unchanged"],
-  "feedback529": ["PASS feedback529 block chapter boundaries", "PASS feedback529 asynchronous statistics", "PASS feedback529 JPEG XL alpha", "PASS feedback529 verified publisher/mixed/bracket", "PASS snapshot restore creates an isolated catalog", "PASS sync export destination persists", "PASS duplicate preview: scoped identity", "PASS duplicate apply: preferred ID", "PASS duplicate large preview: 100000 rows", "PASS backup descriptions preserve UTC time and operation"],
+  "feedback529": ["PASS feedback529 block chapter boundaries", "PASS feedback529 asynchronous statistics", "PASS feedback529 JPEG XL alpha", "PASS feedback529 verified publisher/mixed/bracket", "PASS snapshot restore creates an isolated catalog", "PASS sync export destination persists", "PASS duplicate preview: scoped identity", "PASS duplicate apply: preferred ID", "PASS duplicate large preview: 100000 rows", "PASS backup descriptions preserve UTC time and operation", "PASS backup cleanup pins exact folders", "PASS backup cleanup refreshes missing rows"],
   "catalog-sources": ["PASS multiple INPX sources keep separate roots", "PASS statistics count book records once", "PASS all sources participate without multiselect"],
   "book-information": ["PASS common book information loads real FLibrary biographies", "PASS review parser preserves Russian text"],
   "collection-merge": ["PASS safe merge previews", "PASS optional copy merging verifies origin", "PASS merge preview reuses sparse target user snapshot"],
@@ -388,6 +388,19 @@ function run(executable, mode, subcase = "") {
       console.log(`NATIVE input_sha256=${require("crypto").createHash("sha256").update(fs.readFileSync(source)).digest("hex")}`);
     }
     if (mode === 'book-information') require('./book_information_fixture')(runtime, folder);
+    if (mode === 'feedback529') {
+      const target = path.join(folder, 'backup-cleanup-link-target');
+      for (const part of ['', 'nested-backup']) {
+        const root = path.join(target, part); fs.mkdirSync(root, {recursive:true});
+        fs.writeFileSync(path.join(root, 'restore-paths.txt'), 'isolated linked backup');
+        fs.writeFileSync(path.join(root, 'destination.hlc2'), 'live target sentinel');
+        fs.writeFileSync(path.join(root, 'system.hlc2'), 'personal target sentinel');
+      }
+      fs.symlinkSync(target, path.join(folder, 'backup-cleanup-linked'), 'junction');
+      const fileLink = path.join(folder, 'backup-cleanup-file-link'); fs.mkdirSync(fileLink);
+      fs.writeFileSync(path.join(fileLink, 'restore-paths.txt'), 'isolated reparse file');
+      fs.symlinkSync(target, path.join(fileLink, 'destination.hlc2'), 'junction');
+    }
     if (mode === "read-folder-cleanup") {
       const reading = path.join(folder, "junction-reading"), target = path.join(folder, "junction-target");
       fs.mkdirSync(reading); fs.mkdirSync(target);

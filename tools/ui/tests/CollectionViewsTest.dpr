@@ -3383,6 +3383,7 @@ end;
 {$I Feedback529SeriesTests.inc}
 {$I Feedback529JXLTests.inc}
 {$I CollectionBackupTests.inc}
+{$I CollectionBackupCleanupTests.inc}
 {$I BookDuplicateTests.inc}
 {$I Feedback529Tests.inc}
 
