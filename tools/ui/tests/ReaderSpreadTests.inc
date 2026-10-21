@@ -1,6 +1,40 @@
 ﻿procedure TestReaderSpread;
 var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
   First, Last, Saved, RightInk, LeftInk: Integer; BaselineGDI, BaselineUSER: Cardinal; Image: TBitmap;
+  procedure CheckAppearance(const Kind: string);
+  var Bitmap: TBitmap; Stream: TBytesStream; FlatHash, Text: string;
+    Position: Integer; Size: TPoint; Watch: TStopwatch;
+    function Snapshot: string;
+    begin
+      Bitmap.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+      Reader.ReadingSurface.PaintTo(Bitmap.Canvas.Handle,0,0);
+      Stream.Clear; Bitmap.SaveToStream(Stream);
+      Stream.Position:=0; Result:=THashSHA2.GetHashString(Stream);
+    end;
+  begin
+    Bitmap:=TBitmap.Create; Stream:=TBytesStream.Create;
+    try
+      Position:=Reader.TextPosition;
+      for var Theme in [0,1,4] do
+      begin
+        Reader.SetTheme(Theme); Watch:=TStopwatch.StartNew;
+        while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do
+        begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+        Require(not Reader.PageLoading,Kind+' appearance theme did not finish');
+        Reader.SetPageAppearance(rpaFlat); FlatHash:=Snapshot;
+        Size:=Reader.PageRasterSize; Text:=Reader.PageText;
+        Reader.SetPageAppearance(rpaBook);
+        Require(Snapshot<>FlatHash,Kind+' book decoration is invisible');
+        Require((Reader.TextPosition=Position) and (Reader.PageText=Text) and
+          (Reader.PageRasterSize=Size) and not Reader.PageLoading,
+          Kind+' decoration changed content, coordinates or triggered a reload');
+        Reader.SetPageAppearance(rpaFlat);
+        Require(Snapshot=FlatHash,Kind+' flat appearance did not restore exact pixels');
+      end;
+      Reader.SetTheme(0); Reader.SetPageAppearance(rpaBook);
+      Writeln('PASS '+Kind+' reversible book shadows in light, paper and dark themes without reflow or reload');
+    finally Stream.Free; Bitmap.Free; end;
+  end;
   procedure CheckFixed(const Source, Kind: string);
   var BookHash: string; Watch: TStopwatch;
     Scale: Double; X,Y,EndX: Integer; Draft: TReaderAnnotation;
@@ -18,6 +52,7 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
       while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
       Require(not Reader.PageLoading,Kind+' spread did not finish decoding');
       Require((Reader.VisiblePageCount=2) and (Reader.TextPosition=0) and (Reader.PageTurn=rptSpread),Kind+' default spread differs');
+      CheckAppearance(Kind);
       if Kind='PDF' then
       begin
         Require(Reader.PageText.Contains('Spread page 1') and Reader.PageText.Contains('Spread page 2'),'PDF spread omits a page text layer');
@@ -121,6 +156,7 @@ begin
     Require(Reader.VisiblePageCount=2,'Explicit spread did not show two pages');
     Capture; LeftInk:=Ink(60,Image.Width div 2-50,False); RightInk:=Ink(Image.Width div 2+60,Image.Width-50,False);
     Require((LeftInk>100) and (RightInk>100),'Spread does not draw text on both pages');
+    CheckAppearance('FB2');
     First:=Reader.TextPosition; Page:=Reader.PageText; Reader.NextPage; Last:=Reader.TextPosition;
     Require((Last>First) and (Page=Normalized(Reader.BookText.Substring(First,Last-First))),
       'Spread navigation skips or repeats text');
@@ -153,7 +189,7 @@ begin
   Reader:=TfrmBuiltinReader.Create(nil);
   try
     Reader.OpenBook(FileName,'Разворот','spread',Profile,'pdfium.dll'); Reader.Show; Settle;
-    Require((Reader.PageLayout=rplDouble) and (Reader.TextPosition=Saved),'Spread mode or position did not survive reopening');
+    Require((Reader.PageLayout=rplDouble) and (Reader.PageAppearance=rpaBook) and (Reader.TextPosition=Saved),'Spread mode, appearance or position did not survive reopening');
     Reader.GoToPosition(Reader.TextLength-1); First:=Reader.TextPosition; Reader.NextPage;
     Require((Reader.TextPosition=First) and (Reader.ReadingProgress=1),'Last spread repeats the ending');
     Reader.Close;

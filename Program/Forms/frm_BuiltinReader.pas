@@ -11,6 +11,7 @@ type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
   TReaderPageLayout = (rplSingle, rplDouble, rplAutomatic);
   TReaderPageTurn = (rptSpread, rptSliding);
+  TReaderPageAppearance = (rpaFlat, rpaBook);
   TReaderPDFPageView = record
     Page: Integer;
     Size: TPoint;
@@ -104,6 +105,7 @@ type
     FSecondPageSelection: TReaderPageSelection;
     FPageLayout: TReaderPageLayout;
     FPageTurn: TReaderPageTurn;
+    FPageAppearance: TReaderPageAppearance;
     FSpreadLoading: Boolean;
     FSpreadBreaks: TArray<Integer>;
     FTextSelecting, FInspectionHold, FSelectionEnabled: Boolean;
@@ -187,6 +189,7 @@ type
     procedure RenderPDFPages;
     function PDFViewRectangles(Page: Integer; const Rectangles: TArray<TRectF>): TArray<TRect>;
     procedure PaintPage(Canvas: TCanvas);
+    procedure PaintPageDecoration(Canvas: TCanvas);
     procedure ResizePage(Sender: TObject);
     procedure ScheduleResize(Sender: TObject);
     procedure KeyReader(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -288,6 +291,7 @@ type
     procedure SetMaxTextWidth(Value: Integer);
     procedure SetPageLayout(Value: TReaderPageLayout);
     procedure SetPageTurn(Value: TReaderPageTurn);
+    procedure SetPageAppearance(Value: TReaderPageAppearance);
     procedure SetShowFootnotes(Value: Boolean);
     procedure SetBookFormatting(Value: Boolean);
     procedure SetDecorativeInitials(Value: Boolean);
@@ -361,6 +365,7 @@ type
     property MaxTextWidth: Integer read FMaxTextWidth;
     property PageLayout: TReaderPageLayout read FPageLayout;
     property PageTurn: TReaderPageTurn read FPageTurn;
+    property PageAppearance: TReaderPageAppearance read FPageAppearance;
     property VisiblePageCount: Integer read TextPageCount;
     property InspectionHold: Boolean read FInspectionHold;
     property SelectionEnabled: Boolean read FSelectionEnabled;
@@ -1502,6 +1507,12 @@ begin
   FPageTurn:=Value; InvalidateLayout;
 end;
 
+procedure TfrmBuiltinReader.SetPageAppearance(Value: TReaderPageAppearance);
+begin
+  if FPageAppearance=Value then Exit;
+  FPageAppearance:=Value; FSurface.Invalidate;
+end;
+
 procedure TfrmBuiltinReader.SetPageLayout(Value: TReaderPageLayout);
 begin
   if FPageLayout=Value then Exit;
@@ -1809,6 +1820,69 @@ begin
   FProgressLine.Invalidate; FSurface.Invalidate; PrefetchNextPage;
 end;
 
+procedure TfrmBuiltinReader.PaintPageDecoration(Canvas: TCanvas);
+var Bounds: TRect; Count, Width, Edge, Shadow, Spine, SavedDC: Integer;
+  Blend: TBlendFunction;
+  procedure Tint(const Area: TRect; Opacity: Integer; Light: Boolean = False);
+  var Clip: TRect;
+  begin
+    if not IntersectRect(Clip,Area,FSurface.ClientRect) or (Opacity<=0) then Exit;
+    if Light then FSelectionTint.Canvas.Brush.Color:=clWhite else FSelectionTint.Canvas.Brush.Color:=clBlack;
+    FSelectionTint.Canvas.FillRect(Rect(0,0,1,1));
+    Blend.SourceConstantAlpha:=Byte(EnsureRange(Opacity,0,255));
+    Winapi.Windows.AlphaBlend(Canvas.Handle,Clip.Left,Clip.Top,Clip.Width,Clip.Height,
+      FSelectionTint.Canvas.Handle,0,0,1,1,Blend);
+  end;
+begin
+  if (FPageAppearance<>rpaBook) or FBitmap.Empty then Exit;
+  // Decoration is painted over the finished surface only. It neither reflows
+  // text nor changes page coordinates, PDF caches, selection or source pixels.
+  Blend.BlendOp:=AC_SRC_OVER; Blend.BlendFlags:=0; Blend.AlphaFormat:=0;
+  Shadow:=Max(3,MulDiv(6,CurrentPPI,96));
+  SavedDC:=SaveDC(Canvas.Handle);
+  try
+    IntersectClipRect(Canvas.Handle,0,0,FSurface.Width,FSurface.Height);
+    if Assigned(FPDF) then Count:=Length(FPDFPageViews) else Count:=TextPageCount;
+    Width:=TextPageWidth;
+    for var I:=0 to Count-1 do
+    begin
+      if Assigned(FPDF) then
+      begin
+        Bounds:=FPDFPageViews[I].Bounds; OffsetRect(Bounds,FPan.X,FPan.Y);
+        Edge:=Max(2,Min(MulDiv(12,CurrentPPI,96),Bounds.Width div 60));
+      end
+      else
+      begin
+        Bounds:=Rect(I*(Width+TextPageGap),0,I*(Width+TextPageGap)+Width,FBitmap.Height);
+        InflateRect(Bounds,-Shadow,-Shadow);
+        Edge:=Max(2,Min(MulDiv(18,CurrentPPI,96),MulDiv(Max(2,FMargin-8),CurrentPPI,96)));
+      end;
+      if (Bounds.Width<4) or (Bounds.Height<4) then Continue;
+      for var N:=Shadow downto 1 do
+      begin
+        Tint(Rect(Bounds.Left+N,Bounds.Bottom+N-1,Bounds.Right+N,Bounds.Bottom+N),
+          (Shadow-N+1)*4);
+        Tint(Rect(Bounds.Right+N-1,Bounds.Top+N,Bounds.Right+N,Bounds.Bottom+N),
+          (Shadow-N+1)*4);
+      end;
+      // Soft outer curve; the stronger inner curve suggests a bound spine.
+      for var N:=0 to Edge-1 do
+      begin
+        Spine:=0;
+        if Count=2 then Spine:=Round(44*Sqr(1-N/Edge));
+        Tint(Rect(Bounds.Left+N,Bounds.Top,Bounds.Left+N+1,Bounds.Bottom),
+          Round(16*Sqr(1-N/Edge))+IfThen((Count=2) and (I=1),Spine,0));
+        Tint(Rect(Bounds.Right-N-1,Bounds.Top,Bounds.Right-N,Bounds.Bottom),
+          Round(16*Sqr(1-N/Edge))+IfThen((Count=2) and (I=0),Spine,0));
+      end;
+      Tint(Rect(Bounds.Left,Bounds.Top,Bounds.Right,Bounds.Top+1),48,FNight);
+      Tint(Rect(Bounds.Left,Bounds.Bottom-1,Bounds.Right,Bounds.Bottom),48,FNight);
+      // A thin reflected edge distinguishes paper from the shadow in dark themes.
+      Tint(Rect(Bounds.Left+1,Bounds.Top+1,Bounds.Right-1,Bounds.Top+2),25,True);
+    end;
+  finally RestoreDC(Canvas.Handle,SavedDC); end;
+end;
+
 procedure TfrmBuiltinReader.PaintPage(Canvas: TCanvas);
 var R: TRectF; Box: TRect; Size: TPoint; Boxes: TList<TRect>;
 begin
@@ -1818,7 +1892,7 @@ begin
     begin
       if Assigned(FPDF) then
       begin
-        Canvas.Draw(FPan.X,FPan.Y,FBitmap); PaintAnnotations(Canvas);
+        Canvas.Draw(FPan.X,FPan.Y,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas);
         if Length(FPDFSelectionRects)>0 then
         begin
           Boxes:=TList<TRect>.Create;
@@ -1829,7 +1903,7 @@ begin
             PaintSelection(Canvas,ScreenBoxes);
           finally Boxes.Free; end;
         end;
-      end else begin Canvas.Draw(0,0,FBitmap); PaintAnnotations(Canvas); PaintSelection(Canvas,FTextSelectionRects); end;
+      end else begin Canvas.Draw(0,0,FBitmap); PaintPageDecoration(Canvas); PaintAnnotations(Canvas); PaintSelection(Canvas,FTextSelectionRects); end;
       PaintBookmarkMarker(Canvas);
     end
   else
@@ -3819,7 +3893,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.StyleClick(Sender: TObject);
-var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox: TComboBox; FontNames: TStringList; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox; TitleBox, SubtitleBox: TColorBox; I: Integer;
+var Dialog: TForm; FontBox, SizeBox, SpacingBox, MarginBox, WidthBox, ZoomBox, InitialBox, LayoutBox, TurnBox, AppearanceBox: TComboBox; FontNames: TStringList; LabelText: TLabel; Button: TButton; FormattingBox, NotesBox, InitialCheck, HoldCheck, SelectionCheck: TCheckBox; TitleBox, SubtitleBox: TColorBox; I: Integer;
   procedure AddLabel(const Text: string; Top: Integer);
   begin LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.SetBounds(16,Top,100,22); LabelText.Caption:=Text; end;
   function Choice(Top: Integer): TComboBox;
@@ -3830,7 +3904,7 @@ begin
     Dialog:=TForm.CreateNew(Self);
     try
       Dialog.Caption:='Вид страниц'; Dialog.BorderStyle:=bsDialog; Dialog.Position:=poOwnerFormCenter;
-      Dialog.ClientWidth:=350; Dialog.ClientHeight:=278; Dialog.Font.Assign(Font);
+      Dialog.ClientWidth:=350; Dialog.ClientHeight:=316; Dialog.Font.Assign(Font);
       AddLabel('Приближение, %',20); ZoomBox:=Choice(16);
       for I:=12 to 30 do ZoomBox.Items.Add(IntToStr(I*10));
       ZoomBox.ItemIndex:=ZoomBox.Items.IndexOf(IntToStr(FInspectionPercent));
@@ -3839,16 +3913,18 @@ begin
       LayoutBox.ItemIndex:=Ord(FPageLayout);
       AddLabel('Перелистывать',96); TurnBox:=Choice(92); TurnBox.Name:='cbReaderPageTurn';
       TurnBox.Items.Text:='Парами страниц'+#13+'Со сдвигом на одну'; TurnBox.ItemIndex:=Ord(FPageTurn);
-      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,128,318,32);
+      AddLabel('Стиль страниц',134); AppearanceBox:=Choice(130); AppearanceBox.Name:='cbReaderPageAppearance';
+      AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
+      LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,166,318,32);
       LabelText.WordWrap:=True; LabelText.Caption:='Для сканов и комиксов. На странице с текстом мышь выделяет текст для копирования.';
-      HoldCheck:=TCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog; HoldCheck.SetBounds(16,164,320,28);
+      HoldCheck:=TCheckBox.Create(Dialog); HoldCheck.Parent:=Dialog; HoldCheck.SetBounds(16,202,320,28);
       HoldCheck.Caption:='Приближение при удержании'; HoldCheck.Checked:=FInspectionHold;
       HoldCheck.ShowHint:=True; HoldCheck.Hint:='Отпускание кнопки возвращает прежний масштаб. Без галочки возвращает повторный щелчок.';
-      SelectionCheck:=TCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,194,320,28);
+      SelectionCheck:=TCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,232,320,28);
       SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-      Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,240,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
-      Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,240,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
-      if Dialog.ShowModal=mrOk then begin SetInspectionPercent(StrToIntDef(ZoomBox.Text,150)); SetInspectionHold(HoldCheck.Checked); SetSelectionEnabled(SelectionCheck.Checked); FPageTurn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1)); SetPageLayout(TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2))); InvalidateLayout; end;
+      Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,278,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
+      Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,278,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
+      if Dialog.ShowModal=mrOk then begin SetInspectionPercent(StrToIntDef(ZoomBox.Text,150)); SetInspectionHold(HoldCheck.Checked); SetSelectionEnabled(SelectionCheck.Checked); SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1))); FPageTurn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1)); SetPageLayout(TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2))); InvalidateLayout; end;
     finally Dialog.Free; end;
     Exit;
   end;
@@ -3895,14 +3971,17 @@ begin
     SubtitleBox.Style:=TitleBox.Style; SubtitleBox.Selected:=FHeadingColors[Ord(FNight),1];
     ConfigureReaderColorBox(TitleBox,FHeadingColors[Ord(FNight),0]);
     ConfigureReaderColorBox(SubtitleBox,FHeadingColors[Ord(FNight),1]);
-    LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False; LabelText.SetBounds(16,468,318,34); LabelText.WordWrap:=True;
+    AddLabel('Стиль страниц',472); AppearanceBox:=Choice(468); AppearanceBox.Name:='cbReaderPageAppearance';
+    AppearanceBox.Items.Text:='Плоские страницы'+#13+'Объёмная книга'; AppearanceBox.ItemIndex:=Ord(FPageAppearance);
     SelectionCheck:=TCheckBox.Create(Dialog); SelectionCheck.Parent:=Dialog; SelectionCheck.SetBounds(16,432,320,28);
     SelectionCheck.Caption:='Выделять текст мышью'; SelectionCheck.Checked:=FSelectionEnabled;
-    LabelText.Caption:='Цвета сохраняются для каждой темы. В тёмной теме слишком тёмные оттенки подсветляются.';
+    TitleBox.ShowHint:=True; TitleBox.Hint:='Цвета сохраняются для каждой темы. В тёмной теме слишком тёмные оттенки подсветляются.';
+    SubtitleBox.ShowHint:=True; SubtitleBox.Hint:=TitleBox.Hint;
     Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(156,511,86,26); Button.Caption:='Применить'; Button.Default:=True; Button.ModalResult:=mrOk;
     Button:=TButton.Create(Dialog); Button.Parent:=Dialog; Button.SetBounds(248,511,86,26); Button.Caption:='Отмена'; Button.Cancel:=True; Button.ModalResult:=mrCancel;
     if Dialog.ShowModal=mrOk then
     begin
+      SetPageAppearance(TReaderPageAppearance(EnsureRange(AppearanceBox.ItemIndex,0,1)));
       FPageLayout:=TReaderPageLayout(EnsureRange(LayoutBox.ItemIndex,0,2));
       FPageTurn:=TReaderPageTurn(EnsureRange(TurnBox.ItemIndex,0,1));
       FBookFormatting:=FormattingBox.Checked; FShowFootnotes:=NotesBox.Checked; SetSelectionEnabled(SelectionCheck.Checked);
@@ -4182,6 +4261,7 @@ begin
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
       FPageLayout:=TReaderPageLayout(EnsureRange(Ini.ReadInteger('Reader','PageLayout',0),0,2));
       FPageTurn:=TReaderPageTurn(EnsureRange(Ini.ReadInteger('Reader','PageTurn',0),0,1));
+      FPageAppearance:=TReaderPageAppearance(EnsureRange(Ini.ReadInteger('Reader','PageAppearance',0),0,1));
       FMaxTextWidth:=Ini.ReadInteger('Reader','MaxTextWidth',960);
       if FMaxTextWidth<>0 then FMaxTextWidth:=EnsureRange(FMaxTextWidth,320,1600);
       FBookFormatting:=Ini.ReadBool('Reader','BookFormatting',True);
@@ -4253,6 +4333,7 @@ begin
     for I:=0 to 1 do for J:=0 to 1 do Ini.WriteInteger('Reader',Format('HeadingColor%d_%d',[I,J]),FHeadingColors[I,J]);
     Ini.WriteInteger('Reader','PageLayout',Ord(FPageLayout));
     Ini.WriteInteger('Reader','PageTurn',Ord(FPageTurn));
+    Ini.WriteInteger('Reader','PageAppearance',Ord(FPageAppearance));
     Ini.WriteInteger('Reader','MaxTextWidth',FMaxTextWidth);
     Ini.WriteInteger('Reader','InspectionPercent',FInspectionPercent);
     Ini.WriteBool('Reader','InspectionHold',FInspectionHold);
