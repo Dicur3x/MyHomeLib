@@ -411,5 +411,16 @@
       "normal_close": true,
       "profile_and_extracted_source_removed": true
     }
-  ]
+  ],
+  "blocking_audit": {
+    "verified_at_utc": "2026-10-21T18:33:15.620386+00:00",
+    "condition": "User requested waiting for virtual-machine workload completion before final performance timings. Both VM processes remain live; their workload completion is not inferable from process lifetime. User status question is pending.",
+    "live_process_ids": [
+      13712,
+      45984
+    ],
+    "consecutive_goal_turns_with_same_gate": 3,
+    "independent_functional_work_complete": true,
+    "outstanding_required_proof": "Measured first title search on real merged catalogue, including hide-deleted; actual collection must remain unchanged."
+  }
 }
