@@ -3,18 +3,18 @@
   "license": "MIT",
   "sources": {
     "Utils/HomeLibPDF/HomeLibPDF.dpr": "f3485054c0ba6d78aa3d89b917c9b4862b097a17d3451a92a9b89da55804a370",
-    "Program/Units/unit_ReaderPDF.pas": "b33eac2f3541da7d7e024e23429ede3ae5dea164f1ec198a1ebdc3fbeb4ac58d",
+    "Program/Units/unit_ReaderPDF.pas": "9f74a820c81a473a02ca48c9718884b6c063c8875eb76875aadcc6b3233a075b",
     "Program/Units/unit_PDFProtocol.pas": "5f94806c7f91fe65111ee9242a4aa919927e5b1e04149c4686198f71b1a48df9",
     "Utils/HomeLibPDF/HomeLibPDF.dproj": "58fdcfe6e5c77338be14f7a0099f766f76154ef96f18b6e2ffeae6cf91e8c8ed"
   },
   "Win32": {
     "path": "tools/pdfium/HomeLibPDF.exe",
-    "sha256": "4728bfea9a3cbcc71f13733c3f1d30d0f871d4c0f2982cfb2929187290cc3494",
+    "sha256": "69d89940956a16f50fab01da0622a5b9ee17f34bc90f0ac96fe4f85cf95b9b4e",
     "bytes": 1202176
   },
   "Win64": {
     "path": "tools/pdfium/HomeLibPDF.exe",
-    "sha256": "4213dc9c8b00b4242df91f7c3ab3b747f0f36c1a3cdfae575bb9f62885068bc1",
+    "sha256": "d6f53398e6a2e7cc39f3fc496ee25c7a69161bb0bcfa74e46a8bd99c55296ea0",
     "bytes": 1969152
   }
 }

@@ -1,0 +1,650 @@
+{
+  "release": "2.7.0_pre5.30",
+  "build": "2.7.0.1098",
+  "verified_utc": "2026-10-21T15:03:59.390271+00:00",
+  "build_method": "Delphi 13 GUI; main Release, updater Base, PDF helper Release; native tests Performance",
+  "builds": [
+    {
+      "Path": "Program/Out/Bin/HomeLibRu.exe",
+      "FileVersion": "2.7.0.1098",
+      "ProductVersion": "2.7.0_pre5.30",
+      "Size": 10672128,
+      "SHA256": "63b7bc264933ffe33accdce1330dfc58b752e28ecc4aed2c7a9bd2a690d75f67"
+    },
+    {
+      "Path": "Program/Out/Bin/HomeLibRuUpdater.exe",
+      "FileVersion": "2.7.0.1098",
+      "ProductVersion": "2.7.0_pre5.30",
+      "Size": 1875968,
+      "SHA256": "28a9c7511e2358498f922480c8c12ddd009d47d04b4005f4e968cc3f6af454a2"
+    },
+    {
+      "Path": "Program/Out/Bin64/HomeLibRu.exe",
+      "FileVersion": "2.7.0.1098",
+      "ProductVersion": "2.7.0_pre5.30",
+      "Size": 16411648,
+      "SHA256": "53b0c6d77967572f4099563b1e5d92ab2123f2d886312c2c6125bdd5b709dddc"
+    },
+    {
+      "Path": "Program/Out/Bin64/HomeLibRuUpdater.exe",
+      "FileVersion": "2.7.0.1098",
+      "ProductVersion": "2.7.0_pre5.30",
+      "Size": 2779648,
+      "SHA256": "f69cf3c81587b6629d1091d624ee7511ba6c9a3324b8a3011653bdda6ba0e0d3"
+    }
+  ],
+  "pdf_worker_pin": {
+    "component": "HomeLib Ru isolated PDF renderer",
+    "license": "MIT",
+    "sources": {
+      "Utils/HomeLibPDF/HomeLibPDF.dpr": "f3485054c0ba6d78aa3d89b917c9b4862b097a17d3451a92a9b89da55804a370",
+      "Program/Units/unit_ReaderPDF.pas": "9f74a820c81a473a02ca48c9718884b6c063c8875eb76875aadcc6b3233a075b",
+      "Program/Units/unit_PDFProtocol.pas": "5f94806c7f91fe65111ee9242a4aa919927e5b1e04149c4686198f71b1a48df9",
+      "Utils/HomeLibPDF/HomeLibPDF.dproj": "58fdcfe6e5c77338be14f7a0099f766f76154ef96f18b6e2ffeae6cf91e8c8ed"
+    },
+    "Win32": {
+      "path": "tools/pdfium/HomeLibPDF.exe",
+      "sha256": "69d89940956a16f50fab01da0622a5b9ee17f34bc90f0ac96fe4f85cf95b9b4e",
+      "bytes": 1202176
+    },
+    "Win64": {
+      "path": "tools/pdfium/HomeLibPDF.exe",
+      "sha256": "d6f53398e6a2e7cc39f3fc496ee25c7a69161bb0bcfa74e46a8bd99c55296ea0",
+      "bytes": 1969152
+    }
+  },
+  "assets": {
+    "release": "2.7.0_pre5.30",
+    "verified_utc": "2026-10-21T14:52:14.920344+00:00",
+    "assets": [
+      {
+        "name": "HomeLibRu-AlReader-Win32.zip",
+        "size": 4851212,
+        "sha256": "ad9675e64cbd48180c0eb29fbd61863242d0376186c15256f179a1788c1b7114",
+        "platform": "Win32",
+        "manifest_files": 15,
+        "component": "AlReader",
+        "version": "2.5.1009.25"
+      },
+      {
+        "name": "HomeLibRu-AlReader-Win64.zip",
+        "size": 4851212,
+        "sha256": "a1250c933e23f91b0e19b9b57e2aeb1479fd3dbbf9b755167c5b8d71de6003d6",
+        "platform": "Win64",
+        "manifest_files": 15,
+        "component": "AlReader",
+        "version": "2.5.1009.25"
+      },
+      {
+        "name": "HomeLibRu-DjVuLibre-Win32.zip",
+        "size": 4577915,
+        "sha256": "fd35bfc220957c2a817079b3dedd3bd7f6e1a2adcf9b00b79bec805e9e46147f",
+        "platform": "Win32",
+        "manifest_files": 14,
+        "component": "DjVuLibre",
+        "version": "3.5.29"
+      },
+      {
+        "name": "HomeLibRu-DjVuLibre-Win64.zip",
+        "size": 4577915,
+        "sha256": "354a1e03e4a6ffaaf4ecd3f27172b6e4dbef1747b5f38ed472aed7e0bdac355f",
+        "platform": "Win64",
+        "manifest_files": 14,
+        "component": "DjVuLibre",
+        "version": "3.5.29"
+      },
+      {
+        "name": "HomeLibRu-DocSharp-Win32.zip",
+        "size": 410608,
+        "sha256": "3239899b3d0cd6ac251e8322eb591784c33935aa5e8a4fa4a82cac2121269421",
+        "platform": "Win32",
+        "manifest_files": 9,
+        "component": "DocSharp",
+        "version": "0.21.0.0"
+      },
+      {
+        "name": "HomeLibRu-DocSharp-Win64.zip",
+        "size": 410608,
+        "sha256": "fdf9aacbe65da3569af46360ad8acfb642c0c885f5fa070e6d93175d73eac527",
+        "platform": "Win64",
+        "manifest_files": 9,
+        "component": "DocSharp",
+        "version": "0.21.0.0"
+      },
+      {
+        "name": "HomeLibRu-SumatraPDF-Win32.zip",
+        "size": 9979688,
+        "sha256": "75217e85043cc3fc314396413175f3c44e5f9b7da7fa158e196fc413afa25633",
+        "platform": "Win32",
+        "manifest_files": 4,
+        "component": "SumatraPDF",
+        "version": "3.6.1.0"
+      },
+      {
+        "name": "HomeLibRu-SumatraPDF-Win64.zip",
+        "size": 10687205,
+        "sha256": "c4470b506a0e02ecaca147d2b84afd9f166fd605e2457c75a80f36ef08aaa7cc",
+        "platform": "Win64",
+        "manifest_files": 4,
+        "component": "SumatraPDF",
+        "version": "3.6.1.0"
+      },
+      {
+        "name": "HomeLibRu.components.json",
+        "size": 9015,
+        "sha256": "84b3e6bce5259761eb3eed159b3be43ef1b4bc098ed253e59ae8844b30555528"
+      },
+      {
+        "name": "HomeLibRu.zip",
+        "size": 31905883,
+        "sha256": "c7e366650738f94ab771be3e77468040f45ee209c97cf8a19c96368e2f86ddb1",
+        "platform": "Win32",
+        "manifest_files": 464
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "size": 36750490,
+        "sha256": "a7c5dfc838d16428de05cf97c7649d63e678a6918c3ac44585ba52f893cb722a",
+        "platform": "Win64",
+        "manifest_files": 473
+      }
+    ],
+    "crc": true,
+    "safe_unique_paths": true,
+    "complete_manifests": true,
+    "all_file_hashes": true,
+    "main_pe_architectures": true,
+    "exact_built_executables": true,
+    "changes_history": 8
+  },
+  "native_scenarios": [
+    {
+      "arch": "Win32",
+      "mode": "reader-spread",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 109.234,
+      "exe_sha256": "9b544e17c351096055434053b6a631ecebe958ddf5501e17c781641a8fec3406",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-reader-spread-3.log",
+      "log_sha256": "edea6cba2ccd3ca4f2f6f5f13b264da19e8f717f8ccd2e1ac7ea19717c14368f",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS FB2 reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS PDF reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS PDF pair and sliding spread, async cache, odd ending and protected source",
+        "PASS CBZ reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS CBZ pair and sliding spread, async cache, odd ending and protected source",
+        "PASS TIFF reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS TIFF pair and sliding spread, async cache, odd ending and protected source",
+        "PASS DjVu reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS DjVu pair and sliding spread, async cache, odd ending and protected source",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS rtf text spread shares continuous pair and sliding navigation",
+        "PASS epub text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS CBZ repeat reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS CBZ repeat pair and sliding spread, async cache, odd ending and protected source",
+        "PASS repeated two-page readers retain the original +4 GDI/USER resource budgets",
+        "PASS reader spread draws both pages, preserves continuous text, right-page selection, navigation, adaptive resize, footnotes, bookmarks and saved mode",
+        "PASS native view scenario reader-spread; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 14,
+      "exit_code": 0,
+      "seconds": 16.922,
+      "exe_sha256": "9b544e17c351096055434053b6a631ecebe958ddf5501e17c781641a8fec3406",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-startup-deferred-14.log",
+      "log_sha256": "ca3890ce617124532e994c0970e141207ad29956d409c8e160352695540092cd",
+      "assertions": [
+        "PASS actual Main appears before catalogue and restores controls after background load",
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS deferred startup workers cancel, preserve errors and free before Start",
+        "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+        "PASS deferred startup keeps saved book, view and collection fallback",
+        "PASS native view scenario startup-deferred; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred-close",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 16.031,
+      "exe_sha256": "9b544e17c351096055434053b6a631ecebe958ddf5501e17c781641a8fec3406",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-startup-deferred-close-5.log",
+      "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869",
+      "assertions": [
+        "PASS actual Main closes during background startup without callbacks into freed controls",
+        "PASS native view scenario startup-deferred-close; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "feedback529",
+      "attempt": 22,
+      "exit_code": 0,
+      "seconds": 47.234,
+      "exe_sha256": "ebf1a111322e19e9d30ab9cf6abd2a755a267ad8265162990574684d4c90e479",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-feedback529-22.log",
+      "log_sha256": "88e729b5c6b32681a8c6c7bf6e4612df9d48fc1e135fa5971ee54576a1793118",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS feedback529 block chapter boundaries, inline labels and transparent palette pixels",
+        "PASS feedback529 JPEG XL alpha through actual 7z/side ZIP, native reader pixels and old cache invalidation",
+        "PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close",
+        "PASS feedback529 verified publisher/mixed/bracket and transitive series aliases; unrelated cycles, formats, library collisions, personal cards, backup and cancellation",
+        "PASS backup descriptions preserve UTC time and operation after renaming; legacy dates, corrupt metadata and newest-first UI checked",
+        "PASS snapshot restore creates an isolated catalog, preserves raw cards and group notes, rolls back failures and cancellation",
+        "PASS backup cleanup pins exact folders, sizes flat files, rejects changed batches, locks, foreign files and directory/file reparse points",
+        "PASS backup cleanup refreshes missing rows, shows unfinished copies, defaults to cancel and deletes only confirmed selection at both themes and 96/144/192 DPI",
+        "PASS sync export destination persists independently of device settings and is available in all book export menus",
+        "PASS duplicate preview: scoped identity, snapshot, personal protection, explicit choice, paging, cancellation and read-only catalog",
+        "PASS duplicate apply: preferred ID, raw personal cards, source links, all copies and relations, stale preview, rollback, files and recoverable backup",
+        "PASS duplicate large preview: 100000 rows, bounded private memory, paging, early root guard and mid-scan cancellation",
+        "PASS native view scenario feedback529; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "catalog-sources",
+      "attempt": 10,
+      "exit_code": 0,
+      "seconds": 48.89,
+      "exe_sha256": "ebf1a111322e19e9d30ab9cf6abd2a755a267ad8265162990574684d4c90e479",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-catalog-sources-10.log",
+      "log_sha256": "e390e22db44fa628f7f4f25b596682fd208664083ff3b5e65af47387e2343d60",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS approximate disk estimates use uncompressed catalog metadata, preserve inputs, handle unknown/corrupt/overflow sizes and show available space",
+        "PASS statistics count book records once and show linked supplemental sources",
+        "PASS series aliases preview and apply across background workers",
+        "PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI",
+        "PASS duplicate review is available beside series merging and navigation does not change the catalog",
+        "PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll",
+        "PASS multiple INPX sources keep separate roots and IDs, persist priority, refresh independently and merge in worker",
+        "PASS native view scenario catalog-sources; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-mounts",
+      "attempt": 1,
+      "exit_code": 0,
+      "seconds": 11.906,
+      "exe_sha256": "ebf1a111322e19e9d30ab9cf6abd2a755a267ad8265162990574684d4c90e479",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-update-mounts-1.log",
+      "log_sha256": "8ab3ccf96cc02fa9b6248f3031b7fa3ae85946726b6d87f61627adc5cb350694",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS real volume-GUID mount accepts update preparation, install, rollback and cleanup while preserving profile data",
+        "PASS mounted-volume descendants remain rejected during target writes and recursive cleanup; ordinary junctions remain rejected",
+        "PASS native view scenario update-mounts; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "builtin-reader",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 137.859,
+      "exe_sha256": "ebf1a111322e19e9d30ab9cf6abd2a755a267ad8265162990574684d4c90e479",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-builtin-reader-3.log",
+      "log_sha256": "765922861212bc12d23059f164c8dbed343b2cc96b02dc61dd18460398a118c6",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS reader default checkbox, editor locks, persistence, preserved paths and explicit external command",
+        "PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings",
+        "PASS 32 steady-state failed/canceled reader lifecycles preserve +4 application budgets with Windows worker input contexts reported separately",
+        "PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs",
+        "PASS native view scenario builtin-reader; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "optional-components",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 39.953,
+      "exe_sha256": "d658f0a6095ec42f9dcc44b7c650e2e033fff116e0ebf4527c8606fdf7096022",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-optional-components-4.log",
+      "log_sha256": "492ca70ca99693c7760aa16248a6f0cbeb81204651e0ddc90a97afd632911e52",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS minimal application archive verifies, installs mandatory runtime and preserves all four optional components and personal files",
+        "PASS optional packages verify actual binary identities and hashes, install all four components, roll back injected failures and preserve personal files",
+        "PASS optional updates are opt-in, persist independently, stay quiet and skip unused component network requests",
+        "PASS first-use decoder request releases its worker, preserves source bytes, shows size and downloads only after an explicit click",
+        "PASS optional AlReader mirror uses matching GitHub assets and rejects a foreign archive URL",
+        "PASS native view scenario optional-components; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-repair",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 40.61,
+      "exe_sha256": "d658f0a6095ec42f9dcc44b7c650e2e033fff116e0ebf4527c8606fdf7096022",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win32-update-repair-3.log",
+      "log_sha256": "c56722cf59c9b31ce508c622aa220353feab4e8ca4f6fc7ff2d20c4cbded3951",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS updater component selection respects the 5000ms budget for 100 changes",
+        "PASS application-only web release remains visible and opens its own release page",
+        "PASS unavailable application archive does not block an independent component download or open its web page",
+        "PASS same-release repair downloads minimal verified application and required 7-Zip without forcing optional DOC packages",
+        "PASS unavailable optional reader author does not force installation or block required runtime repair",
+        "PASS application repair uses the verified matching installer even when an installed helper exists",
+        "PASS missing updater fallback is bound to exact archive bytes and rejects changed helpers or source digests",
+        "PASS same-version ready repair survives reopening with a missing updater and preserves readable controls in two themes and three DPI settings",
+        "PASS cached component with a vanished updater requests full repair before restart and preserves installed files",
+        "PASS native view scenario update-repair; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "reader-spread",
+      "attempt": 8,
+      "exit_code": 0,
+      "seconds": 82.453,
+      "exe_sha256": "528418b4e5c233d289562649a2f7c6762ff22b99cd0c0a40c0b7fc89a7f442ff",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-reader-spread-8.log",
+      "log_sha256": "8985a783abda53b03aefef1d1ba8cd54328b813f910236e96e43fbbae54c429d",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS FB2 reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS PDF reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS PDF pair and sliding spread, async cache, odd ending and protected source",
+        "PASS CBZ reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS CBZ pair and sliding spread, async cache, odd ending and protected source",
+        "PASS TIFF reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS TIFF pair and sliding spread, async cache, odd ending and protected source",
+        "PASS DjVu reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS DjVu pair and sliding spread, async cache, odd ending and protected source",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS rtf text spread shares continuous pair and sliding navigation",
+        "PASS epub text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS txt text spread shares continuous pair and sliding navigation",
+        "PASS CBZ repeat reversible book shadows in light, paper and dark themes without reflow or reload",
+        "PASS CBZ repeat pair and sliding spread, async cache, odd ending and protected source",
+        "PASS repeated two-page readers retain the original +4 GDI/USER resource budgets",
+        "PASS reader spread draws both pages, preserves continuous text, right-page selection, navigation, adaptive resize, footnotes, bookmarks and saved mode",
+        "PASS native view scenario reader-spread; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 15,
+      "exit_code": 0,
+      "seconds": 17.266,
+      "exe_sha256": "528418b4e5c233d289562649a2f7c6762ff22b99cd0c0a40c0b7fc89a7f442ff",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-startup-deferred-15.log",
+      "log_sha256": "7e0dd90eb88d604a7544b98c21e11ac957133a02521c7bbdcc23c5e4e4995eb8",
+      "assertions": [
+        "PASS actual Main appears before catalogue and restores controls after background load",
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS deferred startup workers cancel, preserve errors and free before Start",
+        "PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows",
+        "PASS deferred startup keeps saved book, view and collection fallback",
+        "PASS native view scenario startup-deferred; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred-close",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 14.421,
+      "exe_sha256": "528418b4e5c233d289562649a2f7c6762ff22b99cd0c0a40c0b7fc89a7f442ff",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-startup-deferred-close-5.log",
+      "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869",
+      "assertions": [
+        "PASS actual Main closes during background startup without callbacks into freed controls",
+        "PASS native view scenario startup-deferred-close; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "feedback529",
+      "attempt": 36,
+      "exit_code": 0,
+      "seconds": 36.156,
+      "exe_sha256": "1623114bbd68876942c17cb6a98c2248917d23e8d1602f91a4e7651a2b9d5882",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-feedback529-36.log",
+      "log_sha256": "6d4e38656f8b601ebf3f6caa910c1e8f296693572f6f2922eb27da75e97a6241",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS feedback529 block chapter boundaries, inline labels and transparent palette pixels",
+        "PASS feedback529 JPEG XL alpha through actual 7z/side ZIP, native reader pixels and old cache invalidation",
+        "PASS feedback529 asynchronous statistics, exact counts, full text, DPI and early close",
+        "PASS feedback529 verified publisher/mixed/bracket and transitive series aliases; unrelated cycles, formats, library collisions, personal cards, backup and cancellation",
+        "PASS backup descriptions preserve UTC time and operation after renaming; legacy dates, corrupt metadata and newest-first UI checked",
+        "PASS snapshot restore creates an isolated catalog, preserves raw cards and group notes, rolls back failures and cancellation",
+        "PASS backup cleanup pins exact folders, sizes flat files, rejects changed batches, locks, foreign files and directory/file reparse points",
+        "PASS backup cleanup refreshes missing rows, shows unfinished copies, defaults to cancel and deletes only confirmed selection at both themes and 96/144/192 DPI",
+        "PASS sync export destination persists independently of device settings and is available in all book export menus",
+        "PASS duplicate preview: scoped identity, snapshot, personal protection, explicit choice, paging, cancellation and read-only catalog",
+        "PASS duplicate apply: preferred ID, raw personal cards, source links, all copies and relations, stale preview, rollback, files and recoverable backup",
+        "PASS duplicate large preview: 100000 rows, bounded private memory, paging, early root guard and mid-scan cancellation",
+        "PASS native view scenario feedback529; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "catalog-sources",
+      "attempt": 9,
+      "exit_code": 0,
+      "seconds": 30.765,
+      "exe_sha256": "1623114bbd68876942c17cb6a98c2248917d23e8d1602f91a4e7651a2b9d5882",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-catalog-sources-9.log",
+      "log_sha256": "e36882cda0c4c801f869dfaa88a6da04add2043ba9717a4501fac228634059e6",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS approximate disk estimates use uncompressed catalog metadata, preserve inputs, handle unknown/corrupt/overflow sizes and show available space",
+        "PASS statistics count book records once and show linked supplemental sources",
+        "PASS series aliases preview and apply across background workers",
+        "PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI",
+        "PASS duplicate review is available beside series merging and navigation does not change the catalog",
+        "PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll",
+        "PASS multiple INPX sources keep separate roots and IDs, persist priority, refresh independently and merge in worker",
+        "PASS native view scenario catalog-sources; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-mounts",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 8.407,
+      "exe_sha256": "bfa450a8c191258c061a55a762b52384a80ebd2c85ee86d72b14c10d569e36a9",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-update-mounts-2.log",
+      "log_sha256": "8ab3ccf96cc02fa9b6248f3031b7fa3ae85946726b6d87f61627adc5cb350694",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS real volume-GUID mount accepts update preparation, install, rollback and cleanup while preserving profile data",
+        "PASS mounted-volume descendants remain rejected during target writes and recursive cleanup; ordinary junctions remain rejected",
+        "PASS native view scenario update-mounts; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "builtin-reader",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 122.906,
+      "exe_sha256": "1623114bbd68876942c17cb6a98c2248917d23e8d1602f91a4e7651a2b9d5882",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-builtin-reader-3.log",
+      "log_sha256": "2f2b6f6b897bc08822c2d0d5307aaf20884956d886365be2d65d4c0c9d732a65",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS reader default checkbox, editor locks, persistence, preserved paths and explicit external command",
+        "PASS main built-in reader action opens selected book, saves progress and preserves source and external-reader settings",
+        "PASS 32 steady-state failed/canceled reader lifecycles preserve +4 application budgets with Windows worker input contexts reported separately",
+        "PASS malformed and canceled readers return to enabled visible main window, release handles and preserve inputs",
+        "PASS native view scenario builtin-reader; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "optional-components",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 42.781,
+      "exe_sha256": "950c2db2ddc1e570b90b89af70cb121ffb865cc1e60dd989874a7c0289b25a37",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-optional-components-7.log",
+      "log_sha256": "1e5d25ad3acf8579ae3a7c7628363348efd3eb056c387c03685877919d2cf435",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS minimal application archive verifies, installs mandatory runtime and preserves all four optional components and personal files",
+        "PASS optional packages verify actual binary identities and hashes, install all four components, roll back injected failures and preserve personal files",
+        "PASS optional updates are opt-in, persist independently, stay quiet and skip unused component network requests",
+        "PASS first-use decoder request releases its worker, preserves source bytes, shows size and downloads only after an explicit click",
+        "PASS optional AlReader mirror uses matching GitHub assets and rejects a foreign archive URL",
+        "PASS native view scenario optional-components; only temporary fixtures used"
+      ]
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-repair",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 39.422,
+      "exe_sha256": "950c2db2ddc1e570b90b89af70cb121ffb865cc1e60dd989874a7c0289b25a37",
+      "passed": true,
+      "log_file": "tools/ui/tests/Out/feedback529-20261021/Win64-update-repair-4.log",
+      "log_sha256": "a791f7185c19223fa4b483803064a4ea072cc584cb1fb8930db13ee3025b2f08",
+      "assertions": [
+        "PASS header menu keeps column IDs separate from separator and default action",
+        "PASS default author selection and saved book",
+        "PASS updater component selection respects the 5000ms budget for 100 changes",
+        "PASS application-only web release remains visible and opens its own release page",
+        "PASS unavailable application archive does not block an independent component download or open its web page",
+        "PASS same-release repair downloads minimal verified application and required 7-Zip without forcing optional DOC packages",
+        "PASS unavailable optional reader author does not force installation or block required runtime repair",
+        "PASS application repair uses the verified matching installer even when an installed helper exists",
+        "PASS missing updater fallback is bound to exact archive bytes and rejects changed helpers or source digests",
+        "PASS same-version ready repair survives reopening with a missing updater and preserves readable controls in two themes and three DPI settings",
+        "PASS cached component with a vanished updater requests full repair before restart and preserves installed files",
+        "PASS native view scenario update-repair; only temporary fixtures used"
+      ]
+    }
+  ],
+  "actual_archive_installation": [
+    {
+      "arch": "Win32",
+      "passed": true,
+      "candidate_sha256": "c7e366650738f94ab771be3e77468040f45ee209c97cf8a19c96368e2f86ddb1"
+    },
+    {
+      "arch": "Win64",
+      "passed": true,
+      "candidate_sha256": "a7c5dfc838d16428de05cf97c7649d63e678a6918c3ac44585ba52f893cb722a"
+    }
+  ],
+  "installer_test_provenance": [
+    {
+      "arch": "Win32",
+      "test_exe_sha256": "8323107c34bfe635410845deef582fe882f0cc8e61999ecf9711f555d63311af",
+      "log_sha256": "db948484e9525fe7bb9636e8390dda76311e4f1944255b99683e2377fa9bf7e1"
+    },
+    {
+      "arch": "Win64",
+      "test_exe_sha256": "c451c20b9b6bf5eb95e2fedaf4c6f416f606fea64eb1c85c64ca6eeff37050b5",
+      "log_sha256": "147a5ff65a7d9aa94cdf3384347e794c3b1342f813bf35b808acf4e399cb443f"
+    }
+  ],
+  "packaged_application_smoke": [
+    {
+      "arch": "Win32",
+      "exe_source": "final release ZIP",
+      "normal_exit": 0,
+      "temporary_profiles_cleaned": true,
+      "observations": [
+        "main window and first search list",
+        "built-in reader without beta caption",
+        "View appearance choice",
+        "two-page book appearance"
+      ],
+      "log_sha256": "a40271eb39d793482d6625c97adc512d1011f791a1704435204e1ab66212ef63"
+    },
+    {
+      "arch": "Win64",
+      "exe_source": "final release ZIP",
+      "normal_exit": 0,
+      "temporary_profiles_cleaned": true,
+      "observations": [
+        "main window and first search list",
+        "built-in reader without beta caption",
+        "View appearance choice",
+        "two-page book appearance"
+      ],
+      "log_sha256": "7782dbedb30e31e55b87a6a21911ae3427f6a9658dd1e4c949fd9f519d2bc82b"
+    }
+  ],
+  "limits": [
+    "Native scenario durations are complete test durations, not startup measurements. Two user-owned virtual machines were still active; no cold-start speed result is claimed.",
+    "The x64 catalog, source dialog and long reader lifecycle suites preceded the isolated mounted-volume and page-appearance additions; exact native executable hashes are retained per run.",
+    "The full old Office conversion fixture matrix was not counted: feedback21 lacked an existing portable Office sample.",
+    "The earlier 90-second outer reader-spread watchdog timed out under concurrent packaging and VM load; the outer budget was aligned with the 180-second reader suite, without relaxing page-load assertions. Repeated final-format tests passed.",
+    "Only synthetic owned collections were mutated. Physical book files and the real desktop collection were not consolidated or deleted.",
+    "The page-appearance effect is static shading; no animated page curl is claimed.",
+    "Older installed versions rejecting a real mounted volume require one manual archive update to receive the new guard."
+  ],
+  "historical_audits": [
+    "2026-10-21-feedback529.json",
+    "2026-10-21-catalog-reader.md",
+    "2026-10-21-optional-components.json",
+    "2026-10-21-backup-cleanup.json"
+  ],
+  "cleanup": {
+    "fresh_native_and_archive_smoke_profiles": "automatically removed, normal and failed runs",
+    "intermediate_archive_directories": {
+      "status": "deletion rejected by automatic policy; no retry",
+      "paths": [
+        "tools/ui/tests/Out/pre530-publish/candidate-before-reader-caption",
+        "tools/ui/tests/Out/pre530-publish/candidate-before-reader-spread"
+      ]
+    },
+    "user_collections_backups_and_disks_E_G": "untouched"
+  }
+}
