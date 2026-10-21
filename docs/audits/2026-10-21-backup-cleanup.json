@@ -103,7 +103,25 @@
     "Existing optional-components verification main ZIPs predate this change and must be repackaged before publication."
   ],
   "desktop_installation": {
-    "updated": false,
-    "reason": "Waiting for the open Desktop HomeLib Ru to close normally"
+    "updated": true,
+    "utc": "2026-10-21T11:20:08.879876+00:00",
+    "directory": "C:\\Users\\cloud\\Desktop\\MyHomeLib",
+    "main_sha256": "a4ebc6786efe854766084b261aec7be0363937f84577d796f5bba8c4010064c2",
+    "manifest_sha256": "6505685c099259c5d4757569366ddcfb93630544078ba695556db5e5e6f8d3df",
+    "other_root_files_unchanged": 25,
+    "data_copied": false,
+    "previous_main_preserved_in": {
+      "archive": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\optional-components-verified-20261021\\HomeLibRu_x64.zip",
+      "member": "HomeLibRu.exe",
+      "sha256": "883a7fb5b51b60709fffc73c06eaeac35829da3ee2b1e68de9cedd242fb749fa"
+    },
+    "previous_manifest": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\feedback529-20261021\\desktop-before-backup-cleanup.update.json"
+  },
+  "desktop_ui_check": {
+    "launched": true,
+    "main_window_visible": true,
+    "session_restore_prompt_visible": true,
+    "backup_dialog_manual_check_completed": false,
+    "limitation": "Computer Use exposes the owned session-restore modal outside its targetable main-window bounds; mouse input was refused and Return did not dismiss it. Dialog left for user; native backup tests passed on both architectures."
   }
 }
