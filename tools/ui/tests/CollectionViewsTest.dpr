@@ -3561,6 +3561,15 @@ begin
       end;
     finally SetMHLTheme(OldTheme); Dialog.Hide; end;
     Writeln('PASS source text reflows and wheel reaches the report in short windows at both themes and 96/144/192 DPI');
+    Require(not Dialog.DuplicatesRequested,'Source window starts with a duplicate action pending');
+    var DuplicateCatalog:=Settings.ExpandCollectionFileName(VarToStr(Target.GetProperty(PROP_DATAFILE)));
+    var DuplicateHash:=THashSHA2.GetHashStringFromFile(DuplicateCatalog);
+    FeedbackButton(Dialog,'Объединить повторы книг').Click;
+    Require(Dialog.DuplicatesRequested and (Dialog.ModalResult=mrOk),
+      'Source window cannot hand off to the duplicate review');
+    Require(THashSHA2.GetHashStringFromFile(DuplicateCatalog)=DuplicateHash,
+      'Opening duplicate review from sources modified the catalog');
+    Writeln('PASS duplicate review is available beside series merging and navigation does not change the catalog');
   finally Dialog.Free; end;
   Writeln('PASS all sources participate without multiselect; independent series review shows zero result; source labels/buttons fit 100/150/200 percent and short windows scroll');
   if ParamStr(1)='catalog-sources-ui' then

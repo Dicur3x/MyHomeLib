@@ -4256,7 +4256,7 @@ begin
 end;
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
-var Dialog: TfrmCatalogSources; Changed, MetadataChanged: Boolean; CollectionID: Integer;
+var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
 begin
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
@@ -4267,6 +4267,7 @@ begin
   CollectionID:=FCollection.CollectionID;
   Dialog := TfrmCatalogSources.CreateForCollection(Self,FCollection);
   try Dialog.ShowModal; Changed := Dialog.CatalogChanged; MetadataChanged:=Dialog.MetadataChanged;
+    DuplicatesRequested:=Dialog.DuplicatesRequested;
   finally Dialog.Free; end;
   if Changed then
   begin
@@ -4275,6 +4276,7 @@ begin
     InitCollection;
   end
   else if MetadataChanged then RefreshBookMetadataViews(CollectionID);
+  if DuplicatesRequested then ShowBookDuplicates(Sender);
 end;
 
 procedure TfrmMain.UpdateThemeToolbar;
@@ -4634,8 +4636,6 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
-  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miBookDuplicates';
-  FilterMenu.Caption:='Повторные записи книг…'; FilterMenu.OnClick:=ShowBookDuplicates; N2.Insert(5,FilterMenu);
 
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
