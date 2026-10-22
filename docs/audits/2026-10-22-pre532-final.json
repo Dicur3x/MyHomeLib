@@ -1,0 +1,190 @@
+{
+  "release": "2.7.0_pre5.32",
+  "version": "2.7.0.1100",
+  "source_changes_before_version_bump": "4fecbf8d",
+  "native_build_method": "Delphi 13 Community Edition GUI",
+  "python_regressions_per_architecture": 74,
+  "catalogue_modified": false,
+  "book_archives_copied": false,
+  "optional_components_in_release_assets": false,
+  "final_release_checks_pending": false,
+  "paged_conversion": [
+    {
+      "platform": "Win32",
+      "target": ".fb2",
+      "before_ms": 353969,
+      "after_ms": 196203,
+      "text_length": 1383904,
+      "pictures": 104,
+      "pages": 655,
+      "opened": true,
+      "cancel_without_partial_output": true
+    },
+    {
+      "platform": "Win32",
+      "target": ".epub",
+      "before_ms": 327609,
+      "after_ms": 186172,
+      "text_length": 1383904,
+      "pictures": 104,
+      "pages": 655,
+      "opened": true,
+      "cancel_without_partial_output": true
+    },
+    {
+      "platform": "Win64",
+      "target": ".fb2",
+      "before_ms": 331922,
+      "after_ms": 190656,
+      "text_length": 1383904,
+      "pictures": 104,
+      "pages": 655,
+      "opened": true,
+      "cancel_without_partial_output": true
+    },
+    {
+      "platform": "Win64",
+      "target": ".epub",
+      "before_ms": 311688,
+      "after_ms": 175734,
+      "text_length": 1383904,
+      "pictures": 104,
+      "pages": 655,
+      "opened": true,
+      "cancel_without_partial_output": true
+    }
+  ],
+  "native_executables": {
+    "Win32/HomeLibRu.exe": {
+      "size": 10696704,
+      "sha256": "7ac7d63f5311994303009af9cd8822591f1770f3ab716496050d4ea906e6c62b"
+    },
+    "Win32/HomeLibRuUpdater.exe": {
+      "size": 1878016,
+      "sha256": "51189bbfb09f3473c317fea90eb97836176fc1da59c66fd6160c62aa18c5ab1d"
+    },
+    "Win64/HomeLibRu.exe": {
+      "size": 16453120,
+      "sha256": "fa60f767ab626ca147d1dab62653d349e39ac73fe1cf7932413d2d595944311a"
+    },
+    "Win64/HomeLibRuUpdater.exe": {
+      "size": 2783232,
+      "sha256": "65cd585871397909bdf74ec72d7280bf54c797cbcb9a5991924193a22c3e3fbe"
+    }
+  },
+  "archives": {
+    "HomeLibRu.zip": {
+      "size": 28940314,
+      "sha256": "bccd612dbc105349e315f89304b2eead124907abfb545f9e896da8a7c91c242f"
+    },
+    "HomeLibRu_x64.zip": {
+      "size": 33080278,
+      "sha256": "b4a89f51d7db08ee34d76c9e45802b92b67572798508a59a6275e85be29db432"
+    },
+    "SHA256.txt": {
+      "size": 164,
+      "sha256": "670b8b32f254819a095a9902cd9e20b5310544d0b7d8ff70fe30351660267b9a"
+    }
+  },
+  "final_release_checks": {
+    "Win32": {
+      "minimal-first-install": {
+        "archive_sha256": "bccd612dbc105349e315f89304b2eead124907abfb545f9e896da8a7c91c242f",
+        "manifest_files": 459,
+        "all_member_hashes_verified": true,
+        "converter_matches_source": true,
+        "native_architectures_verified": true,
+        "temporary_payloads_removed": true,
+        "native_exit": 0,
+        "pass_markers": 4
+      },
+      "update-repair": {
+        "archive_sha256": "bccd612dbc105349e315f89304b2eead124907abfb545f9e896da8a7c91c242f",
+        "manifest_files": 459,
+        "all_member_hashes_verified": true,
+        "converter_matches_source": true,
+        "native_architectures_verified": true,
+        "temporary_payloads_removed": true,
+        "native_exit": 0,
+        "pass_markers": 12,
+        "100_selections_ms": 4031
+      },
+      "search-query-modes": {
+        "passed": true,
+        "log_sha256": "b9facc6d1cb582ab68796ab32f0e1f7df9ce280484a328a4dd1c40754a9a1407"
+      },
+      "startup-deferred": {
+        "passed": true,
+        "log_sha256": "997fdb2ac3d50fe2c320631f2ed9caad5a589d85c739f394432aef4821b832df"
+      },
+      "update-source-failures": {
+        "passed": true,
+        "log_sha256": "c452ca0085b3ea62f41c4e38b20693a73aa2dde1fa22917bb4f3c03c96fa411d"
+      },
+      "post525-update": {
+        "passed": true,
+        "log_sha256": "9b17912273e19c078df01c18db5423d8022e06213ce82bc9c9e85e4f8669ce77"
+      },
+      "exact_zip_gui_launch": {
+        "archive_sha256": "bccd612dbc105349e315f89304b2eead124907abfb545f9e896da8a7c91c242f",
+        "exit_code": 0,
+        "lifetime_seconds": 22.875,
+        "temporary_profile_removed": true,
+        "visible_version": "2.7.0.1100",
+        "synthetic_catalogue_visible": true
+      }
+    },
+    "Win64": {
+      "minimal-first-install": {
+        "archive_sha256": "b4a89f51d7db08ee34d76c9e45802b92b67572798508a59a6275e85be29db432",
+        "manifest_files": 460,
+        "all_member_hashes_verified": true,
+        "converter_matches_source": true,
+        "native_architectures_verified": true,
+        "temporary_payloads_removed": true,
+        "native_exit": 0,
+        "pass_markers": 4
+      },
+      "update-repair": {
+        "archive_sha256": "b4a89f51d7db08ee34d76c9e45802b92b67572798508a59a6275e85be29db432",
+        "manifest_files": 460,
+        "all_member_hashes_verified": true,
+        "converter_matches_source": true,
+        "native_architectures_verified": true,
+        "temporary_payloads_removed": true,
+        "native_exit": 0,
+        "pass_markers": 12,
+        "100_selections_ms": 3140
+      },
+      "search-query-modes": {
+        "passed": true,
+        "log_sha256": "b9facc6d1cb582ab68796ab32f0e1f7df9ce280484a328a4dd1c40754a9a1407"
+      },
+      "startup-deferred": {
+        "passed": true,
+        "log_sha256": "39ae0175f909660149047c55936cfc0d011c8865fcd01b0e6e921b81ef12421d"
+      },
+      "update-source-failures": {
+        "passed": true,
+        "log_sha256": "5f212ef4e0a23e1df29b15be6748a47b17d92f0f3dd6005ffdbda18a629364d2"
+      },
+      "post525-update": {
+        "passed": true,
+        "log_sha256": "9b17912273e19c078df01c18db5423d8022e06213ce82bc9c9e85e4f8669ce77"
+      },
+      "exact_zip_gui_launch": {
+        "archive_sha256": "b4a89f51d7db08ee34d76c9e45802b92b67572798508a59a6275e85be29db432",
+        "exit_code": 0,
+        "lifetime_seconds": 39.141,
+        "temporary_profile_removed": true,
+        "visible_version": "2.7.0.1100",
+        "synthetic_catalogue_visible": true
+      }
+    }
+  },
+  "unaccepted_preliminary_attempts": [
+    "Repair fixture staging omitted the new JPEG XL tree and WebP license files; the complete installed-inventory fixture was corrected without weakening native assertions.",
+    "One x86 speed attempt with concurrent native suites took 5828 ms for 100 selections and failed the unchanged 5000 ms gate. The separate final run passed; only final successful reports are counted.",
+    "The new ZIP GUI harness initially used a temporary directory prefix rejected by the native fixture guard. Its owned isolated prefix and local app-data environment were corrected; both final launches passed."
+  ]
+}

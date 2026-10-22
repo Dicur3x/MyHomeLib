@@ -296,6 +296,8 @@ function run(executable, mode, subcase = "") {
       for (const name of ['HomeLibRu.components.json',...['AlReader','SumatraPDF','DjVuLibre','DocSharp'].map(id=>'HomeLibRu-'+id+'-'+(architecture===0x8664?'Win64':'Win32')+'.zip')]) fs.copyFileSync(path.join(src,name),path.join(dst,name));
     }
     if (mode==='update-repair' || mode==='minimal-first-install') {
+      // Repair starts with the complete installed inventory, including new optional codecs.
+      if (mode==='update-repair') for (const name of ['jpeg-xl','webp']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
       const arg=process.argv.find(a=>a.startsWith('--repair-fixtures='));
       if(!arg) throw new Error('update-repair requires owned archive fixtures via --repair-fixtures=dir');
       const src=path.resolve(arg.slice('--repair-fixtures='.length)),dst=path.join(folder,'repair-fixtures');

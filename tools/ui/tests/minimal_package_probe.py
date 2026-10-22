@@ -30,17 +30,22 @@ def main():
     parser.add_argument('--node', required=True)
     parser.add_argument('--native-exe', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--archive', type=Path, help='Verify this exact final archive instead of making a disposable one')
+    parser.add_argument('--scenario', choices=['minimal-first-install','update-repair'], default='minimal-first-install')
     options = parser.parse_args()
     runtime = ROOT/'Program/Out'/('Bin' if options.platform == 'Win32' else 'Bin64')
     report = {'platform':options.platform, 'temporary_payloads_removed':False}
     with tempfile.TemporaryDirectory(prefix='HomeLibRu-minimal-package-probe-') as temporary:
         folder = Path(temporary)
-        packaged = subprocess.run([shutil.which('pwsh'), '-NoProfile', '-File',
-            str(ROOT/'scripts/package-release.ps1'), '-Platform', options.platform,
-            '-OutputDirectory', str(folder/'archives')], cwd=ROOT, capture_output=True, text=True, timeout=240)
-        if packaged.returncode:
-            raise RuntimeError(packaged.stdout + packaged.stderr)
-        archive = folder/'archives'/('HomeLibRu.zip' if options.platform == 'Win32' else 'HomeLibRu_x64.zip')
+        if options.archive:
+            archive=options.archive.resolve()
+        else:
+            packaged = subprocess.run([shutil.which('pwsh'), '-NoProfile', '-File',
+                str(ROOT/'scripts/package-release.ps1'), '-Platform', options.platform,
+                '-OutputDirectory', str(folder/'archives')], cwd=ROOT, capture_output=True, text=True, timeout=240)
+            if packaged.returncode:
+                raise RuntimeError(packaged.stdout + packaged.stderr)
+            archive = folder/'archives'/('HomeLibRu.zip' if options.platform == 'Win32' else 'HomeLibRu_x64.zip')
         with zipfile.ZipFile(archive) as package:
             assert package.testzip() is None
             names = set(package.namelist())
@@ -61,12 +66,12 @@ def main():
             report.update({'archive_bytes':archive.stat().st_size, 'manifest_files':len(manifest['files']),
                            'all_member_hashes_verified':True, 'optional_binaries_absent':forbidden,
                            'converter_matches_source':True, 'native_architectures_verified':True,
-                           'published':False})
+                           'archive_sha256':sha(archive.read_bytes()),'scenario':options.scenario,'published':False})
         fixtures = folder/'fixtures'
         subprocess.run([sys.executable, '-B', str(ROOT/'tools/ui/tests/prepare_update_repair_fixtures.py'),
             str(archive), str(runtime), str(fixtures), '--sha256', sha(archive.read_bytes())], cwd=ROOT, check=True)
         tested = subprocess.run([options.node, str(ROOT/'tools/ui/tests/native_collection_tests.js'),
-            str(runtime), '-', '-', str(options.native_exe.resolve()), '--views-mode=minimal-first-install',
+            str(runtime), '-', '-', str(options.native_exe.resolve()), '--views-mode='+options.scenario,
             '--repair-fixtures='+str(fixtures)], cwd=ROOT, capture_output=True, text=True, timeout=180)
         report['native_minimal_install_exit'] = tested.returncode
         report['native_minimal_install_output'] = tested.stdout + tested.stderr
@@ -75,7 +80,7 @@ def main():
             raise RuntimeError(report['native_minimal_install_output'])
     report['temporary_payloads_removed'] = True
     options.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-    print('PASS fresh minimal package: ' + options.platform + '; hashes, exclusions, architecture and actual first-use installation; probe payloads removed')
+    print('PASS minimal package: ' + options.platform + '; hashes, exclusions, architecture and '+options.scenario+'; probe payloads removed')
 
 
 if __name__ == '__main__':
