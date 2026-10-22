@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import unquote, urlsplit
 import uuid
 import xml.etree.ElementTree as ET
@@ -1044,6 +1045,30 @@ def convert_book(source, destination, **metadata):
         if temporary.exists(): temporary.unlink()
 
 
+def _write_progress(path, text):
+    """Best-effort telemetry: a short Windows sharing lock cannot lose a book."""
+    handle, temporary_name = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(handle, 'w', encoding='utf-8') as stream:
+            stream.write(text)
+        for attempt in range(3):
+            try:
+                os.replace(temporary, path)
+                return True
+            except PermissionError as error:
+                if getattr(error, 'winerror', None) not in {5, 32, 33}: raise
+                if attempt < 2: time.sleep(.01)
+        # Leave the last complete record; the next page can advance it. The
+        # parent's inactivity deadline remains effective if no records arrive.
+        return False
+    finally:
+        try: temporary.unlink(missing_ok=True)
+        except PermissionError as error:
+            if getattr(error, 'winerror', None) not in {5, 32, 33}: raise
+            # Only this private temporary may remain for the parent's cleanup.
+
+
 def main():
     parser = argparse.ArgumentParser(description='HomeLib Ru — локальная конвертация книг')
     parser.add_argument('source'); parser.add_argument('destination'); parser.add_argument('--report')
@@ -1074,14 +1099,7 @@ def main():
                             'completed': completed, 'total': total})
         # The parent owns a private operation directory. Atomic replacement
         # avoids a partially read record while the native worker polls it.
-        handle, temporary_name = tempfile.mkstemp(prefix=progress_path.name + '.', dir=progress_path.parent)
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(handle, 'w', encoding='utf-8') as stream:
-                stream.write(value)
-            os.replace(temporary, progress_path)
-        finally:
-            if temporary.exists(): temporary.unlink()
+        _write_progress(progress_path, value)
     report = Path(options.report).absolute() if options.report else None
     if report is not None and (report.exists() or report.resolve() in {Path(options.source).resolve(), Path(options.destination).resolve()}):
         print(json.dumps({'error': 'Файл отчёта уже существует или совпадает с книгой.'}, ensure_ascii=False))

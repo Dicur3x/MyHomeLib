@@ -294,30 +294,42 @@ def sexpressions(text, fail):
     return roots
 
 
-def ppm(data, fail):
-    at = 0; fields = []
+_PPM_FIELD = re.compile(br'\s*(?:#[^\r\n]*(?:\r?\n)|([^\s#]+))')
+
+
+def ppm_page(data, fail, offset=0):
+    """Read one exact P6 frame, without scanning pixels for the next header."""
+    at = offset; fields = []
     while len(fields) < 4:
-        match = re.match(br'\s*(?:#[^\r\n]*(?:\r?\n)|([^\s#]+))', data[at:])
+        match = _PPM_FIELD.match(data, at, min(len(data), offset + 1024))
         if not match: fail('Некорректный растр DjVu.')
-        at += match.end()
+        at = match.end()
         if match[1]: fields.append(match[1])
     if fields[0] != b'P6' or fields[3] != b'255': fail('Неподдерживаемый растр DjVu.')
+    if not all(value.isdigit() for value in fields[1:3]): fail('Некорректный размер растра DjVu.')
     width, height = int(fields[1]), int(fields[2])
     if not 0 < width <= 1600 or not 0 < height <= 1600: fail('Слишком большой растр DjVu.')
     if data[at:at + 2] == b'\r\n': at += 2
     elif data[at:at + 1].isspace(): at += 1
     else: fail('Оборван заголовок растра DjVu.')
-    if len(data) - at != width * height * 3: fail('Оборван растр DjVu.')
-    return data[at:], width, height
+    end = at + width * height * 3
+    if end > len(data): fail('Оборван растр DjVu.')
+    return data[at:end], width, height, end
+
+
+def ppm(data, fail):
+    rgb, width, height, end = ppm_page(data, fail)
+    if end != len(data): fail('Лишние данные после растра DjVu.')
+    return rgb, width, height
 
 
 def read_djvu(book, tools):
     used, renderer = tools / 'djvu' / 'djvused.exe', tools / 'djvu' / 'ddjvu.exe'
     if not used.is_file() or not renderer.is_file(): book.fail('Не найден встроенный DjVuLibre.')
-    def run(args, limit):
+    def run(args, limit, timeout=40):
         with tempfile.TemporaryFile() as out:
-            try: result = subprocess.run([str(a) for a in args], stdout=out, stderr=subprocess.PIPE, timeout=40, creationflags=0x08000000)
-            except subprocess.TimeoutExpired: book.fail('Чтение страницы DjVu превысило 40 секунд.')
+            try: result = subprocess.run([str(a) for a in args], stdout=out, stderr=subprocess.PIPE, timeout=timeout, creationflags=0x08000000)
+            except subprocess.TimeoutExpired: book.fail(f'Чтение страниц DjVu превысило допустимое время ({timeout} с).')
             if result.returncode: book.fail('DjVuLibre не смог прочитать документ: ' + result.stderr.decode('utf-8', errors='replace')[-500:])
             if out.tell() > limit: book.fail('Текст или растр DjVu превышает предел конвертации.')
             out.seek(0); return out.read()
@@ -331,11 +343,21 @@ def read_djvu(book, tools):
             book.fail('Не удалось определить размер страницы DjVu.')
         return tuple(map(int, match.groups()))
     letters = 0
-    for i in range(count):
-        raw = run([used, '-n', '-u', '-e', f'select {i + 1}; print-txt', book.source], book.c.MAX_FILE).decode('utf-8-sig')
-        roots = sexpressions(raw, book.fail); lines = []
-        if roots and len(roots[0]) >= 5 and roots[0][0] == 'page':
-            page = roots[0]; pw, ph = page[3], page[4]
+    # Reopening a large document and its shared dictionaries for every page
+    # costs much more than decoding four pages in one invocation. Keep batches
+    # small: at most four 1600x1600 RGB frames (under 31 MB), never a whole book.
+    for first in range(0, count, 4):
+        last = min(count, first + 4); batch_size = last - first
+        script = '; '.join(f'select {number}; print-txt' for number in range(first + 1, last + 1))
+        raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE).decode('utf-8-sig')
+        roots = sexpressions(raw, book.fail)
+        if len(roots) != batch_size or any(len(page) < 5 or page[0] != 'page' for page in roots):
+            book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
+        raster = run([renderer, '-format=ppm', f'-page={first + 1}-{last}', '-size=1600x1600', book.source],
+                     batch_size * (1600 * 1600 * 3 + 1024), timeout=40 * batch_size)
+        offset = 0
+        for i, page in enumerate(roots, first):
+            lines = []; pw, ph = page[3], page[4]
             # DjVuLibre can expose an empty OCR page as (page 0 0 0 0).
             # The image still has valid dimensions; use its geometry so the
             # normal no-text/scan check reports the limitation without a crash.
@@ -353,12 +375,10 @@ def read_djvu(book, tools):
                 else:
                     for child in node[5:]: collect(child)
             collect(page)
-        else:
-            pw, ph = page_size(i + 1)
-        raster = run([renderer, '-format=ppm', '-page=' + str(i + 1), '-size=1600x1600', book.source], 1600 * 1600 * 3 + 1024)
-        rgb, w, h = ppm(raster, book.fail)
-        letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
-        book.progress('pages', i + 1, count)
+            rgb, w, h, offset = ppm_page(raster, book.fail, offset)
+            letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
+            book.progress('pages', i + 1, count)
+        if offset != len(raster): book.fail('Число растровых страниц DjVu не совпало с запрошенным.')
     if letters < 20: book.fail('В DjVu нет пригодного для чтения текста. Сканы без текстового слоя не конвертируются.')
     book.warnings.add('Текстовый слой DjVu обычно получен OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
 

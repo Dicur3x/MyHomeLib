@@ -1,6 +1,7 @@
 """New containers and fixed-page conversion: actual engines, not mocked output."""
 from pathlib import Path
 import base64
+import ctypes
 import hashlib
 import importlib.util
 import os
@@ -140,6 +141,21 @@ class LegacyFixed(unittest.TestCase):
         self.assertTrue(fixed.readable('Обычный распознанный текст.'))
         self.assertFalse(fixed.readable('\ue001\ufffd \ue002\ufffd ????'))
 
+    def test_djvu_batch_frames_use_exact_sizes_and_preserve_header_like_pixels(self):
+        # Whitespace and an apparent P6 header inside pixels are image bytes.
+        first = b'\n\r P6\n255\n\0\xff'
+        second = b'\r\n\0\x11\x22\x33'
+        data = b'P6\n# first\n4 1\n255\n' + first + b'P6\r\n2 1\r\n255\r\n' + second
+        rgb, width, height, offset = fixed.ppm_page(data, self.fail)
+        self.assertEqual((rgb, width, height), (first, 4, 1))
+        rgb, width, height, end = fixed.ppm_page(data, self.fail, offset)
+        self.assertEqual((rgb, width, height, end), (second, 2, 1, len(data)))
+        with self.assertRaises(AssertionError): fixed.ppm(data, self.fail)
+        with self.assertRaises(AssertionError): fixed.ppm_page(data[:-1], self.fail, offset)
+        with self.assertRaises(AssertionError): fixed.ppm_page(data, self.fail, end)
+        for header in [b'P6\n-1 2\n255\n', b'P6\n1601 1\n255\n', b'P6\n#'+b'x'*1024+b'\n1 1\n255\n']:
+            with self.assertRaises(AssertionError): fixed.ppm_page(header+b'\0'*6, self.fail)
+
     def test_sparse_invalid_ocr_codes_remain_visible_without_bypassing_quality(self):
         source = self.root/'source.pdf'; source.write_bytes(pdf_fixture())
         warnings = set(); book = text_inputs.Book(c, source, warnings)
@@ -194,6 +210,26 @@ class LegacyFixed(unittest.TestCase):
             self.assertFalse(output.exists())
         self.assertEqual(source.read_text(), 'Complete original text.')
         self.assertEqual(foreign.read_text(), 'Keep me.')
+
+    @unittest.skipUnless(os.name == 'nt', 'actual Windows sharing semantics')
+    def test_progress_sharing_lock_preserves_last_record_and_recovers(self):
+        progress=self.root/'progress.json'; progress.write_text('{"sequence":1}',encoding='utf-8')
+        api=ctypes.WinDLL('kernel32',use_last_error=True)
+        api.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p,
+                                 ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p]
+        api.CreateFileW.restype=ctypes.c_void_p
+        api.CloseHandle.argtypes=[ctypes.c_void_p]; api.CloseHandle.restype=ctypes.c_int
+        # An unrelated reader omits FILE_SHARE_DELETE, reproducing a real
+        # rename denial. Book conversion must not fail just for telemetry.
+        handle=api.CreateFileW(str(progress),0x80000000,1|2,None,3,0x80,None)
+        self.assertNotEqual(handle,ctypes.c_void_p(-1).value)
+        try:
+            self.assertFalse(c._write_progress(progress,'{"sequence":2}'))
+            self.assertEqual(json.loads(progress.read_text()),{'sequence':1})
+            self.assertFalse(list(self.root.glob('progress.json.*')))
+        finally: api.CloseHandle(handle)
+        self.assertTrue(c._write_progress(progress,'{"sequence":3}'))
+        self.assertEqual(json.loads(progress.read_text()),{'sequence':3})
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_ocr_layer_allowed_and_scan_rejected(self):
         report, text, _ = self.convert('.pdf', pdf_fixture(ocr=True)); self.assertIn('First readable', text)
