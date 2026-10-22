@@ -15,19 +15,20 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.29 / 2.7.0.1097**.
-[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.29.md) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.29.md) (in Russian).
+The current published release is **pre5.31 / 2.7.0.1099**.
+[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.31.md) · [Release history](docs/releases/README.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.31.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.29/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.29/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.29/SHA256.txt) | Archive checksums |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/SHA256.txt) | Archive checksums |
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
-Reading components are included: you do not need to install Delphi, Python
-or a separate SQLite library to use the release.
+The core reader and its required runtime are included. External readers and
+additional decoders are offered when needed. You do not need to install Delphi,
+Python or a separate SQLite library.
 
 1. Extract the entire archive to a folder you can write to.
 2. Run **HomeLibRu.exe**.
@@ -67,7 +68,7 @@ or a separate SQLite library to use the release.
   folder synchronisation, database maintenance and collection merging with a preview.
 - **Fill metadata from books…** fills selected empty publisher, publication city/year,
   ISBN and translator fields from local FB2/FBD, FB3, EPUB, DOCX and ODT, including
-  supported books in archives. Bundled 7-Zip handles PPMd ZIP and 7z.
+  supported books in archives. 7-Zip is offered on demand for PPMd ZIP and 7z.
   Open it from **Collection**, Sources, or the last page of a successfully completed
   local-collection wizard. Comparison and filling are separate actions; existing
   values stay unchanged. Annotation is off by default and can be enabled after
@@ -86,7 +87,7 @@ or a separate SQLite library to use the release.
 
 The built-in reader is enabled by default. It opens FB2, FB3, EPUB, TXT, RTF,
 HTML/MHTML, Markdown, DOC/DOT/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and images.
-DOC/DOT use bundled DocSharp to produce a cached DOCX, without LibreOffice.
+DOC/DOT use DocSharp, installed on demand, to produce a cached DOCX, without LibreOffice.
 DOCX and ODT are read directly from XML. Unencrypted MOBI/AZW/AZW3/PRC support
 is limited to KF8 (format version 8); older variants may need an external reader.
 PPT/PPTX/ODP presentations, XLS/XLSX/ODS spreadsheets, their templates and WPS/WPD
@@ -103,15 +104,15 @@ suite is required. WPS/WPD need 64-bit Windows in either HomeLib Ru build.
   to TXT, HTML or DOCX, with a choice of styles.
 - A cache of prepared books: choose its folder and size limit, reuse files,
   clear it manually or on exit.
-- Four bundled font families: PT Serif, PT Sans, Noto Serif and Noto Sans.
+- Four available font families: PT Serif, PT Sans, Noto Serif, Noto Sans.
   Missing fonts for other scripts are offered with a download size and
   downloaded only when you choose to do so.
 
-The `Readers` folder also includes **AlReader** and **SumatraPDF**.
+**AlReader** and **SumatraPDF** can be installed separately into `Readers`.
 Choose an external reader from a book's context menu and configure it per file
 type. Existing reader assignments are preserved.
 
-The built-in reader is beta: complex EPUB/CSS layouts may differ
+The built-in reader is enabled by default: complex EPUB/CSS layouts may differ
 from the original. Protected books are not decrypted; scans do not receive OCR.
 [Reader settings](Program/Help/en/set_readers.html).
 
@@ -172,9 +173,10 @@ reports that your version is current or that checking failed.
 
 You start downloads and installation from the update window.
 The application displays changes, prepares the files and restarts.
-SQLite, AlReader, SumatraPDF, DjVuLibre, 7-Zip and DocSharp are checked using
+SQLite, SumatraPDF, DjVuLibre, 7-Zip and DocSharp are checked using
 their authors' official resources. If a compatible release cannot be confirmed,
-the window reports this. Separate component packages are not published in HomeLib Ru Releases.
+the window reports this. AlReader is available from one permanent verified archive.
+Component archives are not duplicated with each HomeLib Ru release.
 
 Before migrating from MyHomeLib or updating manually, close the application
 and back up your profile and `.hlc2` collection files. Extract the new ZIP to
