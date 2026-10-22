@@ -1,0 +1,448 @@
+{
+  "verified_utc": "2026-10-22T05:28:31.450952+00:00",
+  "status": "Complete: 22 current native scenarios and both actual main EXE smoke checks passed; cleanup limitation recorded.",
+  "native_binaries": {
+    "Win32": {
+      "file": "tools/ui/tests/Out/Win32/Performance/CollectionViewsTest.exe",
+      "bytes": 13155840,
+      "sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "build_configuration": "Performance",
+      "errors": 0,
+      "warnings": 67,
+      "compiler": "Delphi 13 Community Edition 37.0.60542.8024",
+      "build_method": "Delphi GUI Shift+F9"
+    },
+    "Win64": {
+      "file": "tools/ui/tests/Out/Win64/Performance/CollectionViewsTest.exe",
+      "bytes": 19634688,
+      "sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "build_configuration": "Performance",
+      "errors": 0,
+      "warnings": 65,
+      "compiler": "Delphi 13 Community Edition 37.0.60542.8024",
+      "build_method": "Delphi GUI Shift+F9"
+    }
+  },
+  "source_sha256": {
+    "Program/DAO/SQLite/unit_Database_SQLite.pas": "dcc4416d77e48ec8efb389d757be0d623543835612837d0fceff3dca032eb2c2",
+    "tools/ui/tests/CatalogSearchModeTests.inc": "954a14410270caaa3ffabdebb9d45a49d16a983c5680c50fda3c4ae6bea19b61",
+    "tools/title_search_readonly_benchmark.py": "391d58acfa4add2d4df71ad1291989b9c5f8ede1f7082824603cfd8998a32d12"
+  },
+  "scenarios": [
+    {
+      "arch": "Win32",
+      "mode": "search-query-modes",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 3.922,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-search-query-modes-2.log",
+      "passed": true,
+      "log_sha256": "37d603deecf7d9ae8afc607ee952b608fed5cffaa1eedc2ff348095ac2358b0b"
+    },
+    {
+      "arch": "Win32",
+      "mode": "first-book-list",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 20.046,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-first-book-list-3.log",
+      "passed": true,
+      "log_sha256": "d9e87db2e57051312cacd9b571ba0cc57f4effcd61242a78af62bb8d2f45f14c"
+    },
+    {
+      "arch": "Win32",
+      "mode": "post530",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 50.984,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-post530-5.log",
+      "passed": true,
+      "log_sha256": "46ea33cad570f83e93e83c48002445d4ce0ad87db2ed231de0b18bd56c5bb8e4"
+    },
+    {
+      "arch": "Win32",
+      "mode": "favorite-ui",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 12.266,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-favorite-ui-2.log",
+      "passed": true,
+      "log_sha256": "ef4a0a2daa1e6ffb9a65e5074fe0258b508b93ea8b19783a95fe3e1c5c227e18"
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred",
+      "attempt": 20,
+      "exit_code": 0,
+      "seconds": 4.438,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-startup-deferred-20.log",
+      "passed": true,
+      "log_sha256": "28a17de27330a89416a796334d4a363bb380f375ead646e535b372989cbdf273"
+    },
+    {
+      "arch": "Win32",
+      "mode": "startup-deferred-close",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 3.844,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-startup-deferred-close-7.log",
+      "passed": true,
+      "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-source-failures",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 35.031,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-update-source-failures-3.log",
+      "passed": true,
+      "log_sha256": "1652a02566f89bc26aa2c3109f9ca8975c1193e13c40824f13a21a689be5802c"
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-form-notifier",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 12.797,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-update-form-notifier-3.log",
+      "passed": true,
+      "log_sha256": "c0bbb1fbbbb2831aaf77d649ef61e9009b2282aae96dde4044607f6ad321ba67"
+    },
+    {
+      "arch": "Win32",
+      "mode": "optional-components",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 37.203,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-optional-components-6.log",
+      "passed": true,
+      "log_sha256": "85f3178c514e403c5e2b4c10b706ac8807f97a4dd2dd00b739543e11b5c8ce54"
+    },
+    {
+      "arch": "Win32",
+      "mode": "minimal-first-install",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 12.546,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-minimal-first-install-2.log",
+      "passed": true,
+      "log_sha256": "87f5cf5715d8aaaee3588edb531fa9df58b0e6d0ceb5355e13adfe1a1d2a4318"
+    },
+    {
+      "arch": "Win32",
+      "mode": "update-repair",
+      "attempt": 8,
+      "exit_code": 0,
+      "seconds": 23.797,
+      "exe_sha256": "e8e9a340d399ea6d912c1635e0cf82de8b5eb3398e195eef6425326d5ff4ab7c",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win32-update-repair-8.log",
+      "passed": true,
+      "log_sha256": "04f4a17525801fcf716849c9de0e81139b9f1095a68af56205e7f905b67e9e95"
+    },
+    {
+      "arch": "Win64",
+      "mode": "search-query-modes",
+      "attempt": 2,
+      "exit_code": 0,
+      "seconds": 11.812,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-search-query-modes-2.log",
+      "passed": true,
+      "log_sha256": "37d603deecf7d9ae8afc607ee952b608fed5cffaa1eedc2ff348095ac2358b0b"
+    },
+    {
+      "arch": "Win64",
+      "mode": "first-book-list",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 14.484,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-first-book-list-3.log",
+      "passed": true,
+      "log_sha256": "dd0bbecd6639be53e71c0d333f5bb9cfa5f032a8f687e0ffc4796ef7f0ae7d3f"
+    },
+    {
+      "arch": "Win64",
+      "mode": "post530",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 18.703,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-post530-7.log",
+      "passed": true,
+      "log_sha256": "dc5198f5504b03761c6cae5d1a6eb26554a9068b61e4de313e10052fa70e8947"
+    },
+    {
+      "arch": "Win64",
+      "mode": "favorite-ui",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 7.5,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-favorite-ui-5.log",
+      "passed": true,
+      "log_sha256": "116f3114cca28bb6a219266768f65e6c30fa14487e85d6c8cce9817d7d0b8d52"
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred",
+      "attempt": 22,
+      "exit_code": 0,
+      "seconds": 3.062,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-startup-deferred-22.log",
+      "passed": true,
+      "log_sha256": "60445132e4f171136b9aa600ba7b76200aaa2760bf226b71d0e0482d3058cfa9"
+    },
+    {
+      "arch": "Win64",
+      "mode": "startup-deferred-close",
+      "attempt": 7,
+      "exit_code": 0,
+      "seconds": 2.609,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-startup-deferred-close-7.log",
+      "passed": true,
+      "log_sha256": "a95e442056e309d224d12adcf96e91011a2087c7139792b188027fbd238ac869"
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-source-failures",
+      "attempt": 4,
+      "exit_code": 0,
+      "seconds": 16.187,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-update-source-failures-4.log",
+      "passed": true,
+      "log_sha256": "d44aabfc3bf6d57d0c9b4a0378bbf1416fd02dcdb29b04602c9e8fa76a7a869f"
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-form-notifier",
+      "attempt": 5,
+      "exit_code": 0,
+      "seconds": 11.922,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-update-form-notifier-5.log",
+      "passed": true,
+      "log_sha256": "396f2b52af349abff68507e67e8dc99e6dbf22fb05dc84f04123a40f6a353891"
+    },
+    {
+      "arch": "Win64",
+      "mode": "optional-components",
+      "attempt": 11,
+      "exit_code": 0,
+      "seconds": 37.937,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-optional-components-11.log",
+      "passed": true,
+      "log_sha256": "78acb3f05f3bab9a9b8f46447e9191fdc1c76b4c9a6632311b30bacee2064d74"
+    },
+    {
+      "arch": "Win64",
+      "mode": "minimal-first-install",
+      "attempt": 3,
+      "exit_code": 0,
+      "seconds": 12.766,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-minimal-first-install-3.log",
+      "passed": true,
+      "log_sha256": "87f5cf5715d8aaaee3588edb531fa9df58b0e6d0ceb5355e13adfe1a1d2a4318"
+    },
+    {
+      "arch": "Win64",
+      "mode": "update-repair",
+      "attempt": 6,
+      "exit_code": 0,
+      "seconds": 22.234,
+      "exe_sha256": "ce062e1fd80c680ed333f895ef97f57f3d61a925aad96277d39188495394f328",
+      "log": "tools/ui/tests/Out/feedback529-20261021/Win64-update-repair-6.log",
+      "passed": true,
+      "log_sha256": "863321ae289940a697b96354e05427a835280dc496424279d0c6e6aa43734f22"
+    }
+  ],
+  "actual_fixture_tree_timing": {
+    "Win32": {
+      "fixture_books": 60000,
+      "hide_deleted_apply_ms": 1234,
+      "shown_rows": 54000,
+      "actual_user_catalogue": false
+    },
+    "Win64": {
+      "fixture_books": 60000,
+      "hide_deleted_apply_ms": 438,
+      "shown_rows": 54000,
+      "actual_user_catalogue": false
+    }
+  },
+  "fixture_setup_failures_resolved": [
+    {
+      "arch": "Win64",
+      "mode": "optional-components",
+      "attempt": 9,
+      "reason": "Runner pointed at minimal application fixtures without component manifest. Native test did not start.",
+      "production_changed": false
+    },
+    {
+      "arch": "Win64",
+      "mode": "optional-components",
+      "attempt": 10,
+      "reason": "Historical pre5.29 archives correctly rejected by the current pre5.30 release guard.",
+      "production_changed": false
+    },
+    {
+      "resolution": "Reuse existing pre5.30 component fixtures and current minimum application fixtures through separate runner paths; no new archives or downloads."
+    }
+  ],
+  "live_github_verification": {
+    "alreader_tag": "optional-alreader-2.5.1009.25",
+    "asset_count": 1,
+    "asset": "AlReader-2.5.1009.25.zip",
+    "bytes": 4739366,
+    "digest": "sha256:20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab",
+    "application_pre530_assets": [
+      "HomeLibRu.zip",
+      "HomeLibRu_x64.zip",
+      "SHA256.txt"
+    ],
+    "new_assets_published": false
+  },
+  "cleanup": {
+    "failed_setup_profile_removed": true,
+    "fresh_profiles_auto_removed": true,
+    "owned_wrong_delphi_installer_removed_bytes": 316778560,
+    "previously_policy_blocked_deletions_retried": false,
+    "unrelated_four_startup_probe_files_untouched": true,
+    "standalone_profiles_and_extracted_sources_removed": 4,
+    "correct_ce_installer_duplicate_removed": false,
+    "intermediate_dcu_directories_removed": false,
+    "automatic_approval_review_rejected_cleanup": {
+      "reason": "blocked by policy; no detailed reason provided",
+      "paths": [
+        "Program/Out/Units",
+        "Program/Out/Units64",
+        "tools/ui/tests/Out/Win32/Performance/dcu",
+        "tools/ui/tests/Out/Win64/Performance/dcu",
+        "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/7c1ba2_RADStudio_13_CE.exe"
+      ],
+      "operation_not_started": true,
+      "retried": false
+    },
+    "intentional_retained": [
+      "Current main and native test EXEs and compact verification reports",
+      "Small CE licensing recovery backup outside repository",
+      "One permanent AlReader distribution asset"
+    ],
+    "new_application_archives_created": false
+  },
+  "real_catalogue_sql_timing_reports": [
+    "docs/audits/2026-10-22-title-search-confirmation-x86.json",
+    "docs/audits/2026-10-22-title-search-confirmation-x64.json"
+  ],
+  "main_builds": {
+    "Win32": {
+      "file": "Program/Out/Bin/HomeLibRu.exe",
+      "bytes": 10676224,
+      "sha256": "dcf9a1a84420762e1c9337b1fc94d5ca1713253f0acd41e2e4282a3bbe794469",
+      "file_version": "2.7.0.1098",
+      "product_version": "2.7.0_pre5.30",
+      "configuration": "Release",
+      "build_method": "Delphi 13 Community Edition GUI Shift+F9",
+      "errors": 0,
+      "warnings": 14,
+      "hints": 333,
+      "compiled_lines": 139893
+    },
+    "Win64": {
+      "file": "Program/Out/Bin64/HomeLibRu.exe",
+      "bytes": 16425984,
+      "sha256": "6afc702cc27bf366ffc2bce5e0e49ae7450d05413d6d37d3bf64fb6de3195153",
+      "file_version": "2.7.0.1098",
+      "product_version": "2.7.0_pre5.30",
+      "configuration": "Release",
+      "build_method": "Delphi 13 Community Edition GUI Shift+F9",
+      "errors": 0,
+      "warnings": 16,
+      "hints": 336,
+      "compiled_lines": 139893
+    }
+  },
+  "standalone_smoke": [
+    {
+      "arch": "Win32",
+      "exe_sha256": "dcf9a1a84420762e1c9337b1fc94d5ca1713253f0acd41e2e4282a3bbe794469",
+      "main_window_confirmed": true,
+      "title_query": "Alpha",
+      "expected_titles": [
+        "Alpha uk",
+        "Alpha ru",
+        "Alpha extra uk"
+      ],
+      "actual_result_count": 3,
+      "visible_toolbar_and_resources_checked": true,
+      "saved_search_tab_restored": true,
+      "exit_code": 0,
+      "normal_close": true,
+      "temporary_profile_removed": true,
+      "extracted_source_removed": true,
+      "payload": "Previous verified minimal payload with current main EXE substituted; no new ZIP or user catalogue copy."
+    },
+    {
+      "arch": "Win64",
+      "exe_sha256": "6afc702cc27bf366ffc2bce5e0e49ae7450d05413d6d37d3bf64fb6de3195153",
+      "main_window_confirmed": true,
+      "title_query": "Alpha",
+      "expected_titles": [
+        "Alpha uk",
+        "Alpha ru",
+        "Alpha extra uk"
+      ],
+      "actual_result_count": 3,
+      "visible_toolbar_and_resources_checked": true,
+      "saved_search_tab_restored": true,
+      "exit_code": 0,
+      "normal_close": true,
+      "temporary_profile_removed": true,
+      "extracted_source_removed": true,
+      "payload": "Previous verified minimal payload with current main EXE substituted; no new ZIP or user catalogue copy."
+    }
+  ],
+  "resources": {
+    "gui_res_layout_changed_only": true,
+    "all_12_resource_payloads_and_headers_compared_equal": true,
+    "canonical_tracked_res_bytes_restored": true
+  },
+  "sevenzip_2605_runtime": {
+    "both_architectures": true,
+    "all_six_files_sha256_match_manifest": true
+  },
+  "user_data": {
+    "real_catalogue_diagnostic_access": "read-only immutable connection plus deny-write lease during benchmark",
+    "catalogue_bytes": 4333084672,
+    "catalogue_last_write_utc": "2026-10-21T17:48:31.190489+00:00",
+    "catalogue_copied": false,
+    "catalogue_modified": false
+  },
+  "completion_audit": {
+    "updater_independent_results": "Passed on both current native builds: ready component action while another probe is gated, failure handling, pending check reuse and orderly close.",
+    "first_title_search": "Latest production helper compiled and passed on both architectures: literal/legacy/expression semantics, Cyrillic and metacharacters, exact IDs, extra predicates and hide-deleted. Read-only real-catalogue paired SQL benchmark recorded separately.",
+    "alreader_fixed_source": "One independently verified fixed release asset; pinned URL, size and SHA256; native component checks passed on both architectures.",
+    "optional_sevenzip": "Both current native builds passed ordinary ZIP without external decoder, typed first-use request, cancellation, no existing unpacker first install, repair and rollback preservation.",
+    "sevenzip_2605": "Official pinned installer/bootstrap sources checked by post530 and first-install scenarios; six staged runtime file hashes match manifest.",
+    "fast_startup": "startup-deferred and startup-deferred-close passed on both current native builds. Both actual main applications opened the saved Search tab and closed normally. No new schema/index/startup work.",
+    "favorite_authors": "Global favorites UI regression passed on both architectures, including authors absent from current collection.",
+    "publication": "No new public application release published; current private EXEs prepared. Existing minimum ZIPs remain older packaging fixtures, not claimed as current deliverables.",
+    "cleanup": "All newly created test profiles and smoke payloads cleaned automatically. Obsolete wrong installer previously removed (316778560 bytes). Final DCU/duplicate installer deletion blocked by automatic approval review; not retried."
+  }
+}

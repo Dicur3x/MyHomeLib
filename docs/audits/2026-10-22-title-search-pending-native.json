@@ -1,6 +1,6 @@
 {
   "date_utc": "2026-10-21T21:28:37.660643+00:00",
-  "status": "incomplete: native Delphi builds and final application checks pending",
+  "status": "Resolved: current native builds and actual main EXE UI checks passed; see final native audit.",
   "change": "Ordinary title search over existing uppercase SearchTitle: escaped literal GLOB with e/yo character class, covering title-only query, existing matched-ID boundary for extra predicates. Expression/legacy modes unchanged. No startup/schema/index additions.",
   "source_sha256": {
     "Program/DAO/SQLite/unit_Database_SQLite.pas": "dcc4416d77e48ec8efb389d757be0d623543835612837d0fceff3dca032eb2c2",
@@ -200,16 +200,16 @@
     "pending_delphi_deletion_still_present": false,
     "previous_generic_installer_was_wrong_package": true,
     "previous_generic_core_rejected_already_registered_ce_license": true,
-    "community_license_registration": "User registered successfully in License Manager; no credentials or key recorded. IDE startup not yet verified.",
+    "community_license_registration": "Verified Delphi 13 Community Edition IDE startup and successful GUI compilation for Win32/Win64; no key or credentials recorded.",
     "community_installer": "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/7c1ba2_RADStudio_13_CE.exe",
     "official_installer_url": "https://altd.embarcadero.com/download/radstudio/13.0/7c1ba2_RADStudio_13_CE.exe",
     "installer_bytes": 328347704,
     "installer_sha256": "7C1BA279B4570C5F8845533775595228C41B3C1A862F77DFF4575A4D0209FE75",
     "installer_signature": "Valid: Idera, Inc.",
     "installation_started": true,
-    "installation_completed": false,
-    "current_gate": "Correct CE Setup relaunched after official license-storage reset. User asked whether to remove the existing edition and was instructed to do so; manual import of saved valid CE slip requested. Waiting for setup outcome; Win32/Win64 compiler installation not yet verified.",
-    "previous_generic_installer_retained_until_ce_install_complete": true,
+    "installation_completed": true,
+    "current_gate": "Resolved: CE Windows platforms installed, both native and main projects built through GUI and checked.",
+    "previous_generic_installer_retained_until_ce_install_complete": false,
     "correct_ce_installer_matches_user_download": true,
     "correct_ce_installer_installed_core_version": "37.0.60542.8024",
     "fresh_correct_core_startup_after_ce_registration": "failed: License Manager reopened even with explicit -pDelphi and no old IDE process; not fixed by restart/personality argument",
@@ -226,79 +226,30 @@
       "active_dot_entries_and_reg_files_after_move": 0,
       "valid_ce_slip_copy_prepared_for_official_import": true,
       "recovery_backs_up_existing_licenses_only_no_key_credentials_or_license_data_in_repository": true
-    }
+    },
+    "previous_generic_installer_removed_bytes": 316778560
   },
-  "remaining": [
-    "Finish correct official Delphi CE reinstallation after licensing reset; import saved CE license manually and install Windows x86/x64.",
-    "Build native tests through Delphi GUI and run changed search plus affected integration/startup checks on both architectures.",
-    "Build current main EXEs through Delphi GUI and smoke them in disposable profiles.",
-    "Final requirement audit and cleanup, including obsolete task-owned generic installer."
-  ],
+  "remaining": [],
   "other_goal_evidence": [
     "docs/audits/2026-10-21-post530-validation.json",
     "docs/audits/2026-10-21-all-favorite-authors.json"
   ],
   "published_new_application_release": false,
-  "completion_audit_utc": "2026-10-22T04:30:00.871210+00:00",
+  "completion_audit_utc": "2026-10-22T05:28:31.450952+00:00",
   "completion_audit": {
-    "updater_independent_results": {
-      "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
-      "source": [
-        "Program/Units/unit_ComponentUpdates.pas:StartComponent/CheckComponent/TryGetRelease/Execute",
-        "Program/Forms/frm_ProgramUpdate.pas:ComponentProgress"
-      ],
-      "native_evidence": "Feedback531Tests.inc:TestFeedback531 verifies ready download action while another component remains gated, queued request does not restart check, and close joins workers; post530 passed on both architectures in 2026-10-21-post530-validation.json"
-    },
-    "first_title_search": {
-      "state": "not complete: latest production helper not compiled or run in VCL",
-      "proof": "Saved production code, 313 literal-oracle query cases on each actual shipped SQLite DLL, readonly source timings and exact cross-architecture ID/metadata equality",
-      "missing": [
-        "Current Delphi native builds/tests x86 and x64",
-        "Current main EXEs and fresh-profile UI smoke"
-      ],
-      "cpu_confirmation": "Three paired repeats per architecture; identical old/new and cross-architecture IDs and metadata. Earlier x86 no-hide outlier not reproduced."
-    },
-    "alreader_fixed_source": {
-      "state": "fixed release exists, exact one asset independently revalidated through live GitHub API",
-      "tag": "optional-alreader-2.5.1009.25",
-      "asset": "AlReader-2.5.1009.25.zip",
-      "size": 4739366,
-      "sha256": "20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab",
-      "application_release_pre530_assets": [
-        "HomeLibRu.zip",
-        "HomeLibRu_x64.zip",
-        "SHA256.txt"
-      ],
-      "native_evidence": "TestFeedback531 verifies pinned archive manifest for both host architectures; optional-components verifies preserve user profile and reject foreign URLs"
-    },
-    "optional_sevenzip": {
-      "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
-      "native_evidence": [
-        "Feedback531Tests.inc:TestFirstUseSevenZip531: native ordinary ZIP independent and typed first-use callback for missing 7-Zip",
-        "Feedback531Tests.inc:TestFeedback531: no previous unpacker needed for official first install, corrupted bootstrap rejected, absent component notifications off",
-        "UpdateRepairTests.inc: missing optional component independent of application repair",
-        "OptionalComponentsTests.inc: rollback and minimal application update preserve installed optional files"
-      ]
-    },
-    "sevenzip_2605": {
-      "state": "current prepared runtime files verified",
-      "manifest": "Installer/RASTER_RUNTIME.json",
-      "architectures": [
-        "Win32",
-        "Win64"
-      ],
-      "files_per_architecture": [
-        "7z.exe",
-        "7z.dll",
-        "License.txt"
-      ],
-      "all_six_hashes_match_manifest": true
-    },
-    "cross_cutting": {
-      "fast_deferred_startup": "Prior x86/x64 native startup-deferred and startup-deferred-close tests passed; must rerun against newest compiled source. No schema/index/startup changes in literal-title patch.",
-      "builds": "Current main EXEs predate newest title-search patch and are not claimed as final deliverables.",
-      "user_data": "Latest real catalogue access was read-only with deny-write lease and source invariants checked. Literal semantic probes are memory-only; native fresh fixtures removed.",
-      "cleanup": "No new application archives or catalogue copies. New small benchmark JSON reports retained as evidence. Correct signed CE installer downloaded after user supplied official email link; obsolete generic installer to be removed after successful installation. Previously policy-blocked fixture removals not retried; four unrelated startup-probe files untouched."
-    }
+    "updater_independent_results": "Passed on both current native builds: ready component action while another probe is gated, failure handling, pending check reuse and orderly close.",
+    "first_title_search": "Latest production helper compiled and passed on both architectures: literal/legacy/expression semantics, Cyrillic and metacharacters, exact IDs, extra predicates and hide-deleted. Read-only real-catalogue paired SQL benchmark recorded separately.",
+    "alreader_fixed_source": "One independently verified fixed release asset; pinned URL, size and SHA256; native component checks passed on both architectures.",
+    "optional_sevenzip": "Both current native builds passed ordinary ZIP without external decoder, typed first-use request, cancellation, no existing unpacker first install, repair and rollback preservation.",
+    "sevenzip_2605": "Official pinned installer/bootstrap sources checked by post530 and first-install scenarios; six staged runtime file hashes match manifest.",
+    "fast_startup": "startup-deferred and startup-deferred-close passed on both current native builds. Both actual main applications opened the saved Search tab and closed normally. No new schema/index/startup work.",
+    "favorite_authors": "Global favorites UI regression passed on both architectures, including authors absent from current collection.",
+    "publication": "No new public application release published; current private EXEs prepared. Existing minimum ZIPs remain older packaging fixtures, not claimed as current deliverables.",
+    "cleanup": "All newly created test profiles and smoke payloads cleaned automatically. Obsolete wrong installer previously removed (316778560 bytes). Final DCU/duplicate installer deletion blocked by automatic approval review; not retried."
+  },
+  "resolved_utc": "2026-10-22T05:28:31.450952+00:00",
+  "final_evidence": {
+    "file": "docs/audits/2026-10-22-post530-final-native.json",
+    "sha256": "35dcee89f034afdb66403c746ad64d4465c2e0667a32bb5712120a16ca2e2600"
   }
 }
