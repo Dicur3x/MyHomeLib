@@ -90,7 +90,7 @@ uses
   GIFImg,
   jpeg,
   pngimage,
-  unit_WebPCompat, unit_ImageBounds, unit_FB2MetadataRecovery, System.RegularExpressions,
+  unit_WebPCompat, unit_ImageBounds, unit_FB2MetadataRecovery, unit_MHLExternalTools, System.RegularExpressions,
   System.NetEncoding, System.Math, Xml.XMLDoc, Xml.XMLIntf;
 
 
@@ -319,7 +319,8 @@ begin
     try
       Converted := ConvertWebPStreamToPNG(ImageStream);
     except
-      Exit;
+      on E: EMHLComponentRequired do raise;
+      on E: Exception do Exit;
     end;
     if Assigned(Converted) then
       GraphicStream := Converted

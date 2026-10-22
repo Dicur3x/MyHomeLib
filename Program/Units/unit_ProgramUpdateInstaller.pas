@@ -60,11 +60,18 @@ begin
   if ID = 'DjVuLibre' then Result := 'tools/djvu/djvused.exe';
   if ID = '7-Zip' then Result := 'tools/7zip/7z.exe';
   if ID = 'DocSharp' then Result := 'tools/doc/DocSharp.Binary.Doc.dll';
+  if ID = 'JPEG XL' then Result := 'tools/jpeg-xl/djxl.exe';
+  if ID = 'WebP' then Result := 'tools/webp/libwebp.dll';
 end;
 
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if ID='JPEG XL' then Exit((Name='tools/jpeg-xl/djxl.exe') or
+    (Name='tools/jpeg-xl/RUNTIME.json') or
+    TRegEx.IsMatch(Name,'\Atools/jpeg-xl/licenses/LICENSE\.[A-Za-z0-9._-]{1,64}\z'));
+  if ID='WebP' then Exit((Name='tools/webp/libwebp.dll') or (Name='tools/webp/RUNTIME.json') or
+    (Name='tools/webp/COPYING.txt') or (Name='tools/webp/PATENTS.txt') or (Name='tools/webp/AUTHORS.txt'));
   Result := SafeUpdateName(Name);
   if not Result then Exit;
   if ID = 'SQLite' then Exit(Name = 'sqlite3.dll');
@@ -134,6 +141,40 @@ var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
 begin
   FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
   Result:=UpdateFileVersion(FileName);
+  if (ID='JPEG XL') or (ID='WebP') then
+  begin
+    Result:=''; if not FileExists(FileName) then Exit;
+    Root:=nil;
+    try
+      try
+        MetadataFile:=ExtractFilePath(FileName)+'RUNTIME.json';
+        if FileExists(MetadataFile) and (TFile.GetSize(MetadataFile)<=65536) then
+        begin
+          Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(MetadataFile,TEncoding.UTF8));
+          if (Root is TJSONObject) and Root.TryGetValue<string>('component',Hash) and (Hash=ID) and
+            Root.TryGetValue<TJSONObject>('codec',Metadata) and Metadata.TryGetValue<string>('version',Version) and
+            CompareComponentVersions(Version,Version,Comparison) and Metadata.TryGetValue<TJSONObject>('files',Hashes) then
+          begin
+            HashValue:=Hashes.GetValue(ExtractFileName(FileName));
+            if (HashValue is TJSONString) and IsUpdateSHA256(HashValue.Value) and
+              SameText(UpdateSHA256(FileName),HashValue.Value) then Exit(Version);
+          end;
+        end;
+        // Older full distributions did not carry a codec descriptor. Recognize
+        // only the exact previously shipped binaries, without starting an EXE
+        // or loading a DLL merely to populate the update window.
+        Hash:=UpdateSHA256(FileName);
+{$IFDEF WIN64}
+        if (ID='JPEG XL') and SameText(Hash,'6970ce73de51e046b39bd5f28fc7bc5da64e9f6505c11194319f43d8849d2bf4') then Result:='0.12.0';
+        if (ID='WebP') and SameText(Hash,'21b5076aa61ba7c049c7da37656b3e743f0207b6f0fec64e98589025a044b6bf') then Result:='1.6.0';
+{$ELSE}
+        if (ID='JPEG XL') and SameText(Hash,'ce031db2a11536654ae2a7b08920783b9a1a3813f74c45e18df89c39723cc172') then Result:='0.12.0';
+        if (ID='WebP') and SameText(Hash,'afbf76daf9ee8a4faf9eee375694587f49aece0cb03b444341a9e9085a4a17d7') then Result:='1.6.0';
+{$ENDIF}
+      except Result:=''; end;
+    finally Root.Free; end;
+    Exit;
+  end;
   if ID='DocSharp' then
   begin
     if not FileExists(ExtractFilePath(FileName)+'HomeLibDoc.exe') or
@@ -172,6 +213,8 @@ begin
     else if ID='AlReader' then Names:=TArray<string>.Create('Readers/AlReader/AlReader2.exe')
     else if ID='SumatraPDF' then Names:=TArray<string>.Create('Readers/SumatraPDF/SumatraPDF.exe')
     else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
+    else if ID='JPEG XL' then Names:=TArray<string>.Create('tools/jpeg-xl/djxl.exe','tools/jpeg-xl/licenses/LICENSE.libjxl')
+    else if ID='WebP' then Names:=TArray<string>.Create('tools/webp/libwebp.dll','tools/webp/COPYING.txt','tools/webp/PATENTS.txt','tools/webp/AUTHORS.txt')
     else if ID='DocSharp' then Names:=TArray<string>.Create('tools/doc/HomeLibDoc.exe',
       'tools/doc/DocSharp.Binary.Doc.dll','tools/doc/DocSharp.Binary.Common.dll',
       'tools/doc/DocSharp.Binary.Ppt.dll','tools/doc/DocSharp.Binary.Xls.dll',
@@ -368,6 +411,10 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
     end;
     if ID='7-Zip' then
       for var Name in ['7z.exe','7z.dll','License.txt'] do RequireMember('tools/7zip/'+Name);
+    if ID='JPEG XL' then
+      for var Name in ['djxl.exe','RUNTIME.json','licenses/LICENSE.libjxl'] do RequireMember('tools/jpeg-xl/'+Name);
+    if ID='WebP' then
+      for var Name in ['libwebp.dll','RUNTIME.json','COPYING.txt','PATENTS.txt','AUTHORS.txt'] do RequireMember('tools/webp/'+Name);
     if ID='DjVuLibre' then
     begin
       for var Name in ['ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll',
@@ -381,7 +428,7 @@ begin
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 6) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 8) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -397,7 +444,7 @@ begin
   try
     if Assigned(Bundle) then
     begin
-      if (Bundle.Count < 1) or (Bundle.Count > 6) then raise Exception.Create('Некорректный пакет компонентов.');
+      if (Bundle.Count < 1) or (Bundle.Count > 8) then raise Exception.Create('Некорректный пакет компонентов.');
       for Part in Bundle do
       begin
         if not (Part is TJSONObject) or not TJSONObject(Part).TryGetValue<string>('component', Version) or
@@ -547,7 +594,13 @@ begin
     Architecture := Platform;
     // AlReader's Windows edition is a 32-bit application in both distributions.
     if (Component='AlReader') or (Component='DocSharp') or (Component='DjVuLibre') then Architecture:='Win32';
-    if Component='DjVuLibre' then
+    if (Component='JPEG XL') or (Component='WebP') then
+    begin
+      VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
+      if InstalledComponentVersion(Stage,Component)<>Version then
+        raise Exception.Create('Версия или контрольная сумма декодера изображений не совпадает с описанием пакета.');
+    end
+    else if Component='DjVuLibre' then
     begin
       VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
@@ -584,7 +637,7 @@ var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
   Files: TDictionary<string, TUpdateFile>; Info: TUpdateFile; JobName, Stage, Component, ReleaseTag: string;
   Zip: TZipFile; HasApplication: Boolean; Values: TUpdateFiles;
 begin
-  if (Length(Jobs) < 2) or (Length(Jobs) > 7) or DirectoryExists(Job) then
+  if (Length(Jobs) < 2) or (Length(Jobs) > 9) or DirectoryExists(Job) then
     raise Exception.Create('Некорректный набор подготовленных обновлений.');
   AssertUpdatePath(Job); ForceDirectories(Job); Stage := ChildPath(Job, 'payload');
   Manifest := TJSONObject.Create; Files := TDictionary<string, TUpdateFile>.Create;
@@ -729,6 +782,11 @@ begin
     if Secondary then Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7zr.exe');
     Exit(URL='https://github.com/ip7z/7zip/releases/download/'+Version+'/7z'+Version.Replace('.','')+Suffix+'.exe');
   end;
+  if ID='JPEG XL' then
+  begin
+    if Platform='Win64' then Suffix:='x64' else Suffix:='x86';
+    Exit(not Secondary and (URL='https://github.com/libjxl/libjxl/releases/download/v'+Version+'/jxl-'+Suffix+'-windows-static.zip'));
+  end;
   if ID='DocSharp' then
   begin
     if Secondary then Suffix:='common' else Suffix:='doc';
@@ -787,7 +845,7 @@ var Stage, Raw, Source, Destination, Tools, RuntimePath: string; Names: TArray<s
 begin
   if (ID='SQLite') or (ID='SumatraPDF') then
   begin PrepareOfficialSimpleComponent(Archive,Job,ID,Version,Platform); Exit; end;
-  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') then
+  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') and (ID<>'JPEG XL') then
     raise Exception.Create('Не найден официальный Windows-пакет этого компонента.');
   AssertUpdatePath(Archive); AssertUpdatePath(Job); Stage:=ChildPath(Job,'payload');
   if DirectoryExists(Stage) then raise Exception.Create('Папка обновления уже занята.');
@@ -797,7 +855,36 @@ begin
     Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',Version); Manifest.AddPair('platform',Platform);
     Manifest.AddPair('component',ID); Manifest.AddPair('version',Version); Manifest.AddPair('official',TJSONBool.Create(True));
     Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
-    if ID='DocSharp' then
+    if ID='JPEG XL' then
+    begin
+      if Platform='Win64' then Raw:='x64-windows-static/' else Raw:='x86-windows-static/';
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Archive,zmRead);
+        if Zip.FileCount>4000 then raise Exception.Create('Слишком много файлов в пакете JPEG XL.');
+        for var I:=0 to Zip.FileCount-1 do
+        begin
+          Source:=Zip.FileNames[I];
+          if Source=Raw+'bin/djxl.exe' then Source:='tools/jpeg-xl/djxl.exe'
+          else if Source.StartsWith(Raw+'licenses/LICENSE.') then
+            Source:='tools/jpeg-xl/licenses/'+Copy(Source,Length(Raw+'licenses/')+1,MaxInt)
+          else Continue;
+          if not SafeComponentFile(ID,Source) or (Zip.FileInfo[I].UncompressedSize>128*1024*1024) then
+            raise Exception.Create('Неподдерживаемый файл в пакете JPEG XL.');
+          Destination:=ChildPath(Stage,Source); ForceDirectories(ExtractFileDir(Destination));
+          Zip.Read(I,Bytes); TFile.WriteAllBytes(Destination,Bytes); Bytes:=nil; AddFile(Source,Destination);
+        end;
+      finally Zip.Free; end;
+      Metadata:=TJSONObject.Create; Entry:=TJSONObject.Create; Hashes:=TJSONObject.Create;
+      try
+        Metadata.AddPair('component',ID); Metadata.AddPair('codec',Entry);
+        Entry.AddPair('version',Version); Entry.AddPair('files',Hashes);
+        Hashes.AddPair('djxl.exe',UpdateSHA256(ChildPath(Stage,'tools/jpeg-xl/djxl.exe')));
+        WriteJSON(ChildPath(Stage,'tools/jpeg-xl/RUNTIME.json'),Metadata);
+      finally Metadata.Free; end;
+      AddFile('tools/jpeg-xl/RUNTIME.json',ChildPath(Stage,'tools/jpeg-xl/RUNTIME.json'));
+    end
+    else if ID='DocSharp' then
     begin
       if SecondaryArchive='' then raise Exception.Create('Отсутствует второй пакет DocSharp.');
       AssertUpdatePath(SecondaryArchive);
@@ -1024,7 +1111,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..5] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp');
+const ComponentNames: array[0..7] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

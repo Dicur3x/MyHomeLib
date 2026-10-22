@@ -41,7 +41,7 @@ type
   public
     Document: TReaderDocument;
     Pages: TReaderPDF;
-    Error: string;
+    Error, RequiredComponent: string;
     constructor Create(const FileName: string; RasterEdge: Integer = 4000);
     destructor Destroy; override;
   end;
@@ -116,6 +116,7 @@ type
     FOleCallback: IInterface;
     FBitmap: TBitmap;
     FDocument: TReaderDocument;
+    FRequiredComponent: string;
     FStyleRanges: TArray<TReaderStyledRange>;
     FPDF: TReaderPDF;
     FLoadStatus: TMHLOperationStatus;
@@ -340,6 +341,7 @@ type
     function PageRasterSize: TPoint;
     function PageBackground: TColor;
     property Ready: Boolean read FReady;
+    property RequiredComponent: string read FRequiredComponent;
     property LoadFinished: Boolean read FLoadFinished;
     property ReaderStatus: TLabel read FStatus;
     property ReadingSurface: TReaderSurface read FSurface;
@@ -435,7 +437,7 @@ procedure ConfigureReaderColorBox(Box: TColorBox; SelectedColor: TColor);
 
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
   SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer> = nil;
-  const OnOpenNote: TProc<TReaderAnnotation> = nil);
+  const OnOpenNote: TProc<TReaderAnnotation> = nil; const OnMissingComponent: TProc<string> = nil);
 function BrowseReaderNotes(Owner: TComponent; const SettingsFile: string; out OpenNote: TReaderAnnotation): Boolean;
 function CreateReaderNotesDialog(Owner: TComponent; const SettingsFile: string): TCustomForm;
 function EditAndSaveReaderNote(Owner: TCustomForm; Store: TReaderAnnotations;
@@ -444,7 +446,7 @@ function EditAndSaveReaderNote(Owner: TCustomForm; Store: TReaderAnnotations;
 implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools;
 
 type
   TReaderChapterSelector = class(TComboBox)
@@ -670,7 +672,10 @@ begin
         Document:=TReaderDocument.Create;
         Document.Load(FFileName,function: Boolean begin Result:=Terminated; end);
       end;
-    except on E: Exception do Error:=E.Message; end;
+    except
+      on E: EMHLComponentRequired do begin Error:=E.Message; RequiredComponent:=E.ComponentID; end;
+      on E: Exception do Error:=E.Message;
+    end;
   finally if Succeeded(HR) then CoUninitialize; end;
 end;
 
@@ -1265,6 +1270,7 @@ procedure TfrmBuiltinReader.OpenBook(const FileName, BookTitle, Identity, Settin
   const OnProgress: TProc<Integer>);
 var Stream: TFileStream; Chapter: TPDFChapter;
 begin
+  FRequiredComponent := '';
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
@@ -1301,6 +1307,11 @@ var C: TReaderChapter; Chapter: TPDFChapter; SavedPage: Integer;
 begin
   if FClosing then Exit;
   FLoadFinished:=True; FreeAndNil(FLoadStatus);
+  if FLoader.RequiredComponent<>'' then
+  begin
+    FRequiredComponent:=FLoader.RequiredComponent; FStatus.Caption:=FLoader.Error;
+    ModalResult:=mrCancel; Close; Exit;
+  end;
   if FLoader.Error<>'' then
   begin FStatus.Caption:=FLoader.Error; FSurface.Invalidate; Exit; end;
   try
@@ -4362,14 +4373,23 @@ procedure TfrmBuiltinReader.CloseReader(Sender: TObject; var Action: TCloseActio
 begin StopSearch; SaveSettings; end;
 
 procedure OpenBuiltinReader(Owner: TComponent; const FileName, BookTitle, Identity,
-  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer>; const OnOpenNote: TProc<TReaderAnnotation>);
-var Form: TfrmBuiltinReader; Requested: TReaderAnnotation;
+  SettingsFile, PDFLibrary: string; const OnProgress: TProc<Integer>; const OnOpenNote: TProc<TReaderAnnotation>;
+  const OnMissingComponent: TProc<string>);
+var Form: TfrmBuiltinReader; Requested: TReaderAnnotation; Required: string;
 begin
   Requested:=Default(TReaderAnnotation); Form:=TfrmBuiltinReader.Create(Owner);
   try
     Form.OpenBook(FileName,BookTitle,Identity,SettingsFile,PDFLibrary,OnProgress); Form.ShowModal;
-    Requested:=Form.FRequestedNote;
+    Requested:=Form.FRequestedNote; Required:=Form.RequiredComponent;
   finally Form.Free; end;
+  // Release the reader, its worker and the loaded document before opening an
+  // optional-component dialog. No modal prompt originates from a worker.
+  if Required<>'' then
+  begin
+    if Assigned(OnMissingComponent) then OnMissingComponent(Required)
+    else raise EMHLComponentRequired.Create(Required,'Для иллюстраций этой книги нужен компонент '+Required+'.');
+    Exit;
+  end;
   if (Requested.ID<>'') and Assigned(OnOpenNote) then OnOpenNote(Requested);
 end;
 

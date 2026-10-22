@@ -6,7 +6,7 @@ uses System.Classes, System.SysUtils, System.Net.HttpClient, Winapi.Windows, Win
   unit_ProgramUpdates;
 
 type
-  TComponentCheckKind = (ccBundled, ccSQLite, ccSumatra, ccRaster, ccDocSharp);
+  TComponentCheckKind = (ccBundled, ccSQLite, ccSumatra, ccRaster, ccDocSharp, ccJPEGXL, ccWebP);
   TUpdateComponent = record
     ID, Title, URL: string;
     CheckKind: TComponentCheckKind;
@@ -21,13 +21,15 @@ const
   ALREADER_FIXED_SHA256 = '20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab';
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
-  UPDATE_COMPONENTS: array[0..5] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..7] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
     (ID:'DjVuLibre'; Title:'Чтение DjVu'; URL:'https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'7-Zip'; Title:'Распаковка архивов'; URL:'https://www.7-zip.org/download.html'; CheckKind:ccRaster; CheckOnly:False),
-    (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False));
+    (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False),
+    (ID:'JPEG XL'; Title:'Иллюстрации JPEG XL'; URL:'https://github.com/libjxl/libjxl/releases'; CheckKind:ccJPEGXL; CheckOnly:False),
+    (ID:'WebP'; Title:'Иллюстрации WebP'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccWebP; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -87,6 +89,7 @@ function ComponentChanges(const Info: TProgramRelease; const Installed: string):
 function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRelease): Boolean;
 function ParseSumatraReleases(const JSON: string; out Info: TProgramRelease): Boolean;
 function ParseRasterComponent(const Text, ID: string; out Info: TProgramRelease): Boolean;
+function ParseImageComponent(const Text, ID: string; out Info: TProgramRelease): Boolean;
 function ParseDocSharpVersions(const DocJSON, CommonJSON: string; out Info: TProgramRelease): Boolean;
 function ParseOfficeDocSharpVersions(const DocJSON, CommonJSON, PptJSON, XlsJSON: string; out Info: TProgramRelease): Boolean;
 function ComponentIDs: TArray<string>;
@@ -124,7 +127,7 @@ begin
 end;
 
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip'); end;
+begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -201,11 +204,14 @@ var Info: TUpdateComponent;
 begin
   if Component = 'batch' then
   begin
+    if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
+      Exit('Постоянные компоненты HomeLib Ru');
     for Info in UPDATE_COMPONENTS do
       if URL = Info.URL then Exit('Сайт автора: ' + Info.ID);
     Exit('Выпуски HomeLib Ru');
   end;
   if Component='AlReader' then Exit('Постоянный архив AlReader');
+  if Component='WebP' then Exit('Постоянный архив WebP');
   if Component <> '' then Result := 'Сайт автора'
   else Result := 'Открыть GitHub';
 end;
@@ -494,6 +500,71 @@ begin
   Info.Changelog:=Info.History; Result:=True;
 end;
 
+function ParseImageComponent(const Text, ID: string; out Info: TProgramRelease): Boolean;
+var Root: TJSONValue; Assets: TJSONArray; Asset: TJSONValue;
+  Tag, Name, Expected, URL, Digest, Version, Suffix, Prefix: string;
+  Size: Int64; Comparison: Integer; Flag: Boolean; Match: TMatch;
+begin
+  Result:=False; Info:=Default(TProgramRelease); Info.ComponentID:=ID;
+  if (ID<>'JPEG XL') and (ID<>'WebP') then Exit;
+  Root:=TJSONObject.ParseJSONValue(Text);
+  try
+    if not (Root is TJSONObject) or not Root.TryGetValue<string>('tag_name',Tag) or
+      not Root.TryGetValue<TJSONArray>('assets',Assets) then Exit;
+    Flag:=False; Root.TryGetValue<Boolean>('draft',Flag); if Flag then Exit;
+    Flag:=False; Root.TryGetValue<Boolean>('prerelease',Flag); if Flag then Exit;
+    if ID='JPEG XL' then
+    begin
+      if not TRegEx.IsMatch(Tag,'\Av[0-9]+\.[0-9]+\.[0-9]+\z') then Exit;
+      Version:=Copy(Tag,2,MaxInt);
+      if ProgramUpdatePlatform='Win64' then Suffix:='x64' else Suffix:='x86';
+      Expected:='jxl-'+Suffix+'-windows-static.zip';
+      Prefix:='https://github.com/libjxl/libjxl/releases/download/'+Tag+'/';
+    end
+    else
+    begin
+      if Tag<>ALREADER_FIXED_TAG then Exit;
+      Expected:=''; Prefix:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/';
+    end;
+    for Asset in Assets do
+    begin
+      if not (Asset is TJSONObject) or not Asset.TryGetValue<string>('name',Name) then Continue;
+      if ID='JPEG XL' then begin if Name<>Expected then Continue; end
+      else
+      begin
+        Match:=TRegEx.Match(Name,'\AWebP-([0-9]+\.[0-9]+\.[0-9]+)-'+ProgramUpdatePlatform+'\.zip\z');
+        if not Match.Success then Continue;
+        Version:=Match.Groups[1].Value;
+        if (Info.ComponentVersion<>'') and
+          (not CompareComponentVersions(Version,Info.ComponentVersion,Comparison) or (Comparison<=0)) then Continue;
+      end;
+      if not CompareComponentVersions(Version,Version,Comparison) or
+        not Asset.TryGetValue<string>('browser_download_url',URL) or (URL<>Prefix+Name) or
+        not Asset.TryGetValue<string>('digest',Digest) or not Digest.StartsWith('sha256:') or
+        not IsUpdateSHA256(Copy(Digest,8,MaxInt)) or not Asset.TryGetValue<Int64>('size',Size) or
+        (Size<=0) or (Size>UPDATE_MAX_ARCHIVE) then Continue;
+      Info.ComponentVersion:=Version; Info.Tag:=Tag; Info.DownloadURL:=URL;
+      Info.SHA256:=Copy(Digest,8,MaxInt); Info.Size:=Size;
+    end;
+    if Info.DownloadURL='' then Exit;
+    if ID='JPEG XL' then
+    begin
+      Info.OfficialComponent:=True; Info.URL:='https://github.com/libjxl/libjxl/releases';
+      Root.TryGetValue<string>('body',Info.History);
+      Info.History:='Готовый декодер djxl из официального Windows-пакета libjxl. '+
+        'Скачивается только при необходимости в изображениях JPEG XL.'+sLineBreak+Copy(Info.History,1,12000);
+    end
+    else
+    begin
+      Info.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG;
+      Info.History:='Готовая сборка HomeLib Ru из официальных исходников libwebp '+Info.ComponentVersion+'. '+
+        'Пользователю компилятор не требуется. Исходники и порядок сборки указаны в отдельном выпуске компонентов.'+sLineBreak+
+        'Обновляется независимо от HomeLib Ru; один архив для каждой разрядности, без повторной публикации с программой.';
+    end;
+    Info.Changelog:=Info.History; Result:=True;
+  finally Root.Free; end;
+end;
+
 function ComponentArchiveName(const ID, Platform: string): string;
 begin
   Result := 'HomeLibRu-' + ID + '-' + Platform + '.zip';
@@ -749,6 +820,14 @@ begin
   if Terminated then Exit;
     try
       case UPDATE_COMPONENTS[I].CheckKind of
+        ccJPEGXL, ccWebP:
+          begin
+            if UPDATE_COMPONENTS[I].CheckKind=ccJPEGXL then
+              Changes:=FetchText('https://api.github.com/repos/libjxl/libjxl/releases/latest')
+            else Changes:=FetchText('https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/'+ALREADER_FIXED_TAG);
+            if not ParseImageComponent(Changes,ComponentIDs[I],FReleases[I]) then
+              raise Exception.Create('Не удалось подтвердить пакет изображений, разрядность или контрольную сумму.');
+          end;
         ccBundled:
           // Version and bytes are fixed, not guessed from the unavailable site.
           // Availability is checked by the actual bounded download on user request.

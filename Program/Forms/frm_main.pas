@@ -6421,7 +6421,8 @@ begin
               else if not (csDestroying in ComponentState) then
                 StatusMessage := 'Позиция сохранена в читалке. Карточка книги недоступна; прогресс каталога не обновлён.';
             end,
-            procedure(Note: TReaderAnnotation) begin OpenReaderNote(Note); end);
+            procedure(Note: TReaderAnnotation) begin OpenReaderNote(Note); end,
+            procedure(ID: string) begin RequestOptionalComponent(ID); end);
           RefreshNotesSearch;
         end
         else if ExternalPath<>'' then

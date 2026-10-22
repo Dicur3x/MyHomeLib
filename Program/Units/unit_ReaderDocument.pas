@@ -66,7 +66,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS;
+  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -427,6 +427,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         CSS.Add(Text);
       except
         on E: EAbort do raise;
+        on Error: EMHLComponentRequired do raise;
         on Error: Exception do if Warnings.Count<20 then Warnings.Add('Оформление EPUB: '+Error.Message);
       end;
     end;
@@ -540,6 +541,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           if J=1 then NoteTarget:=CurrentPath+'#'+Binary
           else NoteTarget:=ZipPath(CurrentPath,Copy(Ref,1,J-1))+'#'+Binary;
         except
+          on Error: EMHLComponentRequired do raise;
           on Error: Exception do if Warnings.Count<20 then Warnings.Add('Сноска: '+Error.Message);
         end;
       end;
@@ -640,6 +642,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         Picture(Bytes);
       except
         on E: EAbort do raise;
+        on E: EMHLComponentRequired do raise;
         on E: Exception do begin Inc(FSkippedImages); if Warnings.Count<20 then Warnings.Add('Изображение: '+E.Message); end;
       end;
     end;
@@ -767,6 +770,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
           Picture(Bytes);
         except
           on Error: EAbort do raise;
+          on Error: EMHLComponentRequired do raise;
           on Error: Exception do begin Inc(FSkippedImages); if Warnings.Count<20 then Warnings.Add('Изображение: '+Error.Message); end;
         end;
       end;
@@ -880,6 +884,7 @@ begin
           if Assigned(Node) then StoreNote(NoteLink.Target,Trim(NoteText(Node)));
           except
             on Error: EAbort do raise;
+            on Error: EMHLComponentRequired do raise;
             on Error: Exception do if Warnings.Count<20 then Warnings.Add('Сноска: '+Error.Message);
           end;
         end;
@@ -889,6 +894,7 @@ begin
       ReadDocument(Data);
       try Document:=XMLDocument(Data);
       except
+        on Error: EMHLComponentRequired do raise;
         on Error: Exception do
         begin
           if (E<>'.html') and (E<>'.htm') and (E<>'.shtml') then raise;

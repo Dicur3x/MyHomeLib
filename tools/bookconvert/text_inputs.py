@@ -39,7 +39,7 @@ def decode(data, encoding=None):
 
 
 class Book:
-    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None, tools_root=None, reading=False):
+    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None, tools_root=None, reading=False, progress=None):
         self.c, self.source, self.warnings = api, source, warnings
         self.title, self.author, self.language = title or source.stem, author, language or 'und'
         self.body = self.el('body')
@@ -48,6 +48,7 @@ class Book:
         self.tools_root = Path(tools_root).resolve() if tools_root else Path(__file__).resolve().parent.parent
         self.total = 0
         self.reading = reading
+        self.progress = progress or (lambda stage, completed, total: None)
 
     def el(self, name, text=None, **attrs):
         return self.c.element(self.c.XH, name, text, **attrs)
@@ -782,4 +783,5 @@ def to_epub(source, output, warnings, api, input_extension=None, **metadata):
         elif extension == '.rtf': read_rtf(book, data)
         elif extension in {'.md', '.markdown'}: read_markdown(book, data)
         else: book.fail('Этот текстовый формат пока не поддерживается.')
+    book.progress('finalizing', 0, 0)
     book.finish(output)

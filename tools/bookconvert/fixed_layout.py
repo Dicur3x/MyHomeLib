@@ -75,6 +75,14 @@ def illustration_regions(rgb, width, height, lines, page_width, page_height):
         for x in (width // 30, width - 1 - width // 30):
             at = (y * width + x) * 3; corners.append(rgb[at:at + 3])
     paper = [statistics.median(p[k] for p in corners) for k in range(3)]
+    # Classify channels in the interpreter's native byte operations. OR the
+    # 0/1 bytes as integers (there are no carries) to get one flag per pixel.
+    # This preserves the exact >48 threshold, including fractional medians.
+    channels = [rgb[k::3].translate(bytes(int(abs(value - paper[k]) > 48)
+                                        for value in range(256))) for k in range(3)]
+    dark = (int.from_bytes(channels[0], 'little') |
+            int.from_bytes(channels[1], 'little') |
+            int.from_bytes(channels[2], 'little')).to_bytes(width * height, 'little')
     ink = bytearray(gw * gh); total_ink = 0
     for gy in range(gh):
         for gx in range(gw):
@@ -82,9 +90,7 @@ def illustration_regions(rgb, width, height, lines, page_width, page_height):
             if mask[pos]: continue
             count = 0
             for y in range(gy * cell, min(height, (gy + 1) * cell), 2):
-                for x in range(gx * cell, min(width, (gx + 1) * cell), 2):
-                    at = (y * width + x) * 3
-                    if max(abs(rgb[at + k] - paper[k]) for k in range(3)) > 48: count += 1
+                count += dark[y * width + gx * cell:y * width + min(width, (gx + 1) * cell):2].count(1)
             if count >= 2: ink[pos] = 1; total_ink += 1
     regions = []
     for pos in range(len(ink)):
@@ -119,6 +125,15 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
     lines = [n for n in lines if n['text'].strip()]
     text = '\n'.join(n['text'] for n in lines)
     if text.strip() and not readable(text): book.fail(f'На странице {number} непригодный текстовый слой. Проверьте распознавание или кодировку PDF/DjVu.')
+    # A sparse bad OCR glyph must not invalidate XML for the entire book.
+    # Keep its position AND original code visible, rather than guessing a
+    # letter or silently removing it. Apply the quality gate above first.
+    invalid = {ch for ch in text if (ord(ch) < 32 and ch not in '\t\r\n') or ord(ch) in {0xfffe, 0xffff}}
+    if invalid:
+        replacements = {ch: f'[OCR U+{ord(ch):04X}]' for ch in invalid}
+        lines = [{**line, 'text': ''.join(replacements.get(ch, ch) for ch in line['text'])} for line in lines]
+        book.warnings.add(f'Страница {number}: нечитаемые символы исходного текстового слоя помечены ' +
+                          ', '.join(replacements[ch] for ch in sorted(invalid)) + '. Сверьте эти места с оригиналом.')
     regions, ink = illustration_regions(rgb, width, height, lines, page_width, page_height)
     if not text.strip():
         if ink < .002: return 0
@@ -227,6 +242,7 @@ def read_pdf(book, tools):
         try:
             count = api.FPDF_GetPageCount(document)
             if not 0 < count <= 5000: book.fail('Недопустимое число страниц PDF (предел 5000).')
+            book.progress('pages', 0, count)
             letters = 0
             for i in range(count):
                 page = api.FPDF_LoadPage(document, i)
@@ -238,6 +254,7 @@ def read_pdf(book, tools):
                         book.warnings.add('В PDF встречаются символы без пригодного Unicode-соответствия; они отмечены знаком �. Проверьте эти места в оригинале.')
                     book.warnings.add('Текстовый слой PDF может содержать результат OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
                 finally: api.FPDF_ClosePage(page)
+                book.progress('pages', i + 1, count)
             if letters < 20: book.fail('В PDF нет пригодного для чтения текста. Сканы без текстового слоя не конвертируются.')
         finally: api.FPDF_CloseDocument(document)
     finally: api.FPDF_DestroyLibrary()
@@ -306,12 +323,23 @@ def read_djvu(book, tools):
             out.seek(0); return out.read()
     count = int(run([used, '-n', '-e', 'n', book.source], 1024).decode('utf-8-sig').strip())
     if not 0 < count <= 5000: book.fail('Недопустимое число страниц DjVu (предел 5000).')
+    book.progress('pages', 0, count)
+    def page_size(number):
+        size = run([used, '-n', '-e', f'select {number}; size', book.source], 1024).decode('utf-8-sig')
+        match = re.search(r'width=(\d+)\s+height=(\d+)', size)
+        if not match or any(int(value) <= 0 for value in match.groups()):
+            book.fail('Не удалось определить размер страницы DjVu.')
+        return tuple(map(int, match.groups()))
     letters = 0
     for i in range(count):
         raw = run([used, '-n', '-u', '-e', f'select {i + 1}; print-txt', book.source], book.c.MAX_FILE).decode('utf-8-sig')
         roots = sexpressions(raw, book.fail); lines = []
         if roots and len(roots[0]) >= 5 and roots[0][0] == 'page':
             page = roots[0]; pw, ph = page[3], page[4]
+            # DjVuLibre can expose an empty OCR page as (page 0 0 0 0).
+            # The image still has valid dimensions; use its geometry so the
+            # normal no-text/scan check reports the limitation without a crash.
+            if pw <= 0 or ph <= 0: pw, ph = page_size(i + 1)
             def collect(node):
                 if not isinstance(node, list) or len(node) < 5: return
                 if node[0] == 'line':
@@ -326,13 +354,11 @@ def read_djvu(book, tools):
                     for child in node[5:]: collect(child)
             collect(page)
         else:
-            size = run([used, '-n', '-e', f'select {i + 1}; size', book.source], 1024).decode('utf-8-sig')
-            match = re.search(r'width=(\d+) height=(\d+)', size)
-            if not match: book.fail('Не удалось определить размер страницы DjVu.')
-            pw, ph = map(int, match.groups())
+            pw, ph = page_size(i + 1)
         raster = run([renderer, '-format=ppm', '-page=' + str(i + 1), '-size=1600x1600', book.source], 1600 * 1600 * 3 + 1024)
         rgb, w, h = ppm(raster, book.fail)
         letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
+        book.progress('pages', i + 1, count)
     if letters < 20: book.fail('В DjVu нет пригодного для чтения текста. Сканы без текстового слоя не конвертируются.')
     book.warnings.add('Текстовый слой DjVu обычно получен OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
 

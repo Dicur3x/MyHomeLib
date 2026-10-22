@@ -70,6 +70,7 @@ type
     FDeviceShellItem: IShellItem;
     FLastError, FRequiredComponent: string;
     FConverterExitCode: Cardinal;
+    FCurrentBookIndex: Integer;
 
     FMaxTempPathLength: Integer;
 
@@ -543,7 +544,20 @@ begin
         FFileOprecord.SourceExtension, ActualOutputFile(FFileOprecord.TargetFile),
         FFileOprecord.Stream, Warnings,
         function: Boolean begin Result := Canceled or Terminated; end,
-        FFileOprecord.BookTitle,FFileOprecord.BookAuthor,FFileOprecord.BookLanguage);
+        FFileOprecord.BookTitle,FFileOprecord.BookAuthor,FFileOprecord.BookLanguage,False,
+        procedure(Percent, Completed, Total: Integer; const Stage: string)
+        var DisplayPercent: Integer;
+        begin
+          DisplayPercent:=Percent; if DisplayPercent>99 then DisplayPercent:=99;
+          if Length(FBookIdList)>0 then
+            SetProgress((FCurrentBookIndex*100+DisplayPercent) div Length(FBookIdList));
+          if Stage='pages' then
+            SetComment(Format('Книга %d/%d · стр. %d/%d (%d%%)',
+              [FCurrentBookIndex+1,Length(FBookIdList),Completed,Total,Percent]))
+          else if Stage='finalizing' then SetComment(Format('Сборка книги (%d%%)…',[Percent]))
+          else if Stage='complete' then SetComment('Запись книги…')
+          else SetComment('Подготовка к конвертации…');
+        end);
       FLastWarnings := Warnings.Text;
       Result := True;
     except
@@ -864,6 +878,7 @@ begin
       totalBooks := Length(FBookIdList);
       for i := 0 to totalBooks - 1 do
       begin
+        FCurrentBookIndex:=i;
         if Canceled or Terminated then
           Break;
 

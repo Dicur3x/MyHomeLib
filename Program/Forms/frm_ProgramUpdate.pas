@@ -432,7 +432,7 @@ begin
     if FComponentsView.HandleAllocated and (FComponentsView.Items.Count>0) then
     begin
       Bounds:=FComponentsView.Items[0].DisplayRect(drBounds);
-      TableHeight:=Max(TableHeight,Bounds.Top+Bounds.Height*Min(FComponentsView.Items.Count,8)+S(8));
+      TableHeight:=Max(TableHeight,Bounds.Top+Bounds.Height*Min(FComponentsView.Items.Count,Length(UPDATE_COMPONENTS)+1)+S(8));
     end;
     // When a small window also shows transfer progress, let the component
     // list scroll rather than painting details over the footer controls.

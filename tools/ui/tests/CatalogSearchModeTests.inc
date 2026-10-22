@@ -15,7 +15,26 @@ var
     One.GetBookRecord(CreateBookKey(ID, One.CollectionID), Value, True);
     Value.PubYear := Year;
     Value.LibRate := 4;
+    if Year = 2024 then
+    begin Value.FileName := 'путь ЁЛКА *? [abc] 100% _ O''Reilly 😀'; Value.FileExt := '.fb2'; end
+    else if Year = 2023 then
+    begin Value.FileName := 'ordinary_file'; Value.FileExt := '.pdf'; end
+    else
+    begin Value.FileName := Copy(Title, 10, MaxInt); Value.FileExt := '.epub'; end;
     One.UpdateBook(Value);
+  end;
+  function CountFile(const Name, Ext: string; Mode: TSearchQueryMode): Integer;
+  begin
+    Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
+    if Mode = sqmText then Criteria.Title := 'Proposal'
+    else Criteria.Title := 'LIKE "%Proposal%"';
+    Criteria.FileName := Name; Criteria.FileExt := Ext;
+    Criteria.QueryMode := Mode; Criteria.CollapseMultiSeriesResults := True;
+    Iterator := One.Search(Criteria, False);
+    Result := Iterator.RecordCount;
+    while Iterator.Next(Book) do Require(Book.BookKey.DatabaseID = One.CollectionID,
+      'File filter crossed a collection boundary');
+    Iterator := nil;
   end;
   function Count(const Query: string; Mode: TSearchQueryMode): Integer;
   begin
@@ -52,6 +71,19 @@ begin
   Require(Count('^', sqmText) = 1, 'Caret lost its literal meaning');
   Require(Count('titlematch.', sqmText) = 1, 'Title-only optimization rewrote text resembling an alias');
   Require(Count('😀', sqmText) = 1, 'Title pattern split a Unicode surrogate pair');
+  Require(CountFile('елка', '', sqmText) = 3, 'File-name index lost e/yo equivalence');
+  Require(CountFile('  ЁЛКА  ', '.FB2', sqmText) = 1, 'Combined ordinary file filters lost trim/case/e-yo matching');
+  Require(CountFile('*?', '', sqmText) = 1, 'File-name glob symbols became wildcards');
+  Require(CountFile('[abc]', '', sqmText) = 1, 'File-name brackets became a character class');
+  Require(CountFile('[other]', '', sqmText) = 0, 'File-name bracket pattern matched unrelated names');
+  Require(CountFile('100% _ O''Reilly', '', sqmText) = 1, 'File-name SQL metacharacters lost literal meaning');
+  Require(CountFile('😀', '', sqmText) = 1, 'File-name pattern split a Unicode surrogate pair');
+  Require(CountFile('foo'' OR 1=1 --', '', sqmText) = 0, 'File-name text changed SQL meaning');
+  Require(CountFile('', '.pDf', sqmText) = 1, 'Extension filter lost case-insensitive matching');
+  Require(CountFile('', '*', sqmText) = 0, 'Ordinary extension wildcard became syntax');
+  Require(CountFile('', '%', sqmText) = 0, 'Ordinary extension percent became a wildcard');
+  Require(CountFile('', '=".pdf" OR =".epub"', sqmExpression) = 3, 'Expression extension OR changed');
+  Require(CountFile('', '=".pdf" OR =".epub"', sqmLegacy) = 3, 'Legacy extension OR changed');
   Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmExpression) = 3,
     'Explicit expression mode lost OR/exact conditions');
   Require(Count('="Proposal ordinary title" OR ="Proposal ёлка"', sqmLegacy) = 3,
@@ -101,4 +133,5 @@ begin
     Control.Reset;
   finally Reloaded.Free; Presets.Free; end;
   Writeln('PASS proposal search modes literal SQL metacharacters, Unicode, explicit OR, numeric invariants and old/new preset round-trips');
+  Writeln('PASS indexed ordinary file-name and extension filters preserve literals, combined criteria and legacy expressions');
 end;

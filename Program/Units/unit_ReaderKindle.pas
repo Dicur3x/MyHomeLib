@@ -7,7 +7,7 @@ function PrepareKindleReflow(const SourceFile, OriginalSource: string;
 
 implementation
 uses System.Classes, System.IOUtils, System.Hash, Winapi.Windows,
-  unit_BookCache, unit_MHLExternalTools, dm_user;
+  unit_BookCache, unit_MHLExternalTools, unit_BookConversion, dm_user;
 
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>): string;
@@ -20,7 +20,7 @@ var Input: TStream; Header: TBytes; Offset, Version: Cardinal;
 begin
   Result := SourceFile;
   if not (SameText(ExtractFileExt(SourceFile),'.azw3') or SameText(ExtractFileExt(SourceFile),'.azw') or
-    SameText(ExtractFileExt(SourceFile),'.mobi')) then Exit;
+    SameText(ExtractFileExt(SourceFile),'.mobi') or SameText(ExtractFileExt(SourceFile),'.prc')) then Exit;
   Input := OpenCachedBookFile(SourceFile);
   try
     if Input.Size < 86 then Exit;
@@ -29,7 +29,7 @@ begin
     Offset := BigEndian(78); if UInt64(Offset)+40 > UInt64(Input.Size) then Exit;
     Input.Position := Offset; SetLength(Header,40); Input.ReadBuffer(Header[0],40);
     if TEncoding.ASCII.GetString(Header,16,4) <> 'MOBI' then Exit;
-    Version := BigEndian(36); if Version <> 8 then Exit;
+    Version := BigEndian(36);
     if (Header[12] <> 0) or (Header[13] <> 0) then
       raise Exception.Create('Эта книга Kindle защищена шифрованием. Для неё требуется совместимая читалка.');
     Tool := Settings.AppPath+'tools\kindle\python\python.exe';
@@ -37,7 +37,7 @@ begin
     if not FileExists(Tool) or not FileExists(Script) then
       raise Exception.Create('Не найден компонент чтения Kindle. Проверьте комплектность папки программы.');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-    ResultStamp := 'kindleunpack-bf0ca6e-v2|'+BookCacheInputStamp(SourceFile,OriginalSource);
+    ResultStamp := 'kindleunpack-bf0ca6e-v3|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+
       Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile := Result+'.source';
@@ -48,9 +48,12 @@ begin
     Writer := TBookCacheWrite.Create(OriginalSource); Log := TStringStream.Create('',TEncoding.UTF8);
     Work := TPath.Combine(Settings.TempDir,'homelib-kindle-'+TGUID.NewGuid.ToString);
     try
-      Temporary := Writer.TemporaryName(Result); TemporaryStamp := Writer.TemporaryName(StampFile);
+      Temporary := Writer.TemporaryName(Result,True); TemporaryStamp := Writer.TemporaryName(StampFile);
       Started := GetTickCount64;
-      RunExternalToolToStream(Tool,['-I','-B',Script,SourceFile,Temporary,Work],Log,
+      if Version <> 8 then
+        ConvertBasicBook(Settings.AppPath,Settings.TempDir,SourceFile,ExtractFileExt(SourceFile),Temporary,nil,nil,
+          function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,'','','',True)
+      else RunExternalToolToStream(Tool,['-I','-B',Script,SourceFile,Temporary,Work],Log,
         function: Boolean
         begin
           Result := False;

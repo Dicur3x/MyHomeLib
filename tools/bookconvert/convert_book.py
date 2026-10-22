@@ -767,6 +767,16 @@ def epub_to_fb2(source, output, warnings):
                     append_text(result, child.tail)
                 return [result]
             if name in {'script', 'style'}: return []
+            if name == 'table' and any(tag(child) == 'table' for child in node.iter() if child is not node):
+                # FB2 cannot nest a table inside a cell. Keep the complete row /
+                # cell reading order as ordinary blocks, including every ID,
+                # link, image and inline emphasis, rather than dropping a book.
+                linear = copy.deepcopy(node)
+                for part in linear.iter():
+                    if tag(part) in {'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'}:
+                        part.tag = '{' + XH + '}div'
+                warnings.add('Вложенные таблицы представлены последовательными блоками FB2. Текст, изображения и ссылки сохранены; расположение строк и столбцов изменилось.')
+                return convert(linear, path)
             if name in {'tbody', 'thead', 'tfoot'}:
                 return [mapped for child in node for mapped in convert(child, path)]
             if name == 'svg':
@@ -814,6 +824,9 @@ def epub_to_fb2(source, output, warnings):
                         else:
                             for mapped in convert(child, path): result.append(mapped)
                             append_text(result, child.tail)
+                if mapped_name == 'cite' and any(tag(child) not in {'p', 'poem', 'empty-line', 'subtitle', 'table', 'text-author'} for child in result):
+                    result.tag = '{' + FB + '}section'
+                    warnings.add('Сложная цитата EPUB представлена разделом FB2. Текст, подзаголовки и ссылки сохранены; оформление отступов может отличаться.')
             elif name in {'ul', 'ol'}:
                 warnings.add('Списки EPUB записаны отдельными абзацами с сохранением нумерации.')
                 result = element(FB, 'section')
@@ -1019,6 +1032,9 @@ def convert_book(source, destination, **metadata):
         if destination.suffix.lower() == '.epub':
             with zipfile.ZipFile(temporary) as archive:
                 if archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
+                for name in archive.namelist():
+                    if name.lower().endswith(('.xhtml', '.opf', '.ncx', '.xml')):
+                        xml(archive.read(name))
         else: validate_fb2_output(xml(temporary.read_bytes()))
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
@@ -1034,8 +1050,38 @@ def main():
     parser.add_argument('--title', default=''); parser.add_argument('--author', default=''); parser.add_argument('--language', default='')
     parser.add_argument('--resource-root')
     parser.add_argument('--tools-root')
+    parser.add_argument('--progress-file', help='Internal bounded page-progress channel')
     parser.add_argument('--reading', action='store_true', help='Internal reading view with visible placeholders for unsupported office objects')
     options = parser.parse_args()
+    progress_path = Path(options.progress_file).absolute() if options.progress_file else None
+    if progress_path is not None and (progress_path.exists() or progress_path.resolve() in {
+            Path(options.source).resolve(), Path(options.destination).resolve(),
+            Path(options.report).resolve() if options.report else None}):
+        print(json.dumps({'error': 'Файл прогресса уже существует или совпадает с книгой или отчётом.'}, ensure_ascii=False))
+        return 1
+    progress_sequence = 0
+    progress_pages = (0, 0)
+    def progress(stage, completed, total):
+        nonlocal progress_sequence, progress_pages
+        if progress_path is None:
+            return
+        if stage == 'pages':
+            progress_pages = (completed, total)
+        elif stage == 'finalizing':
+            completed, total = progress_pages
+        progress_sequence += 1
+        value = json.dumps({'sequence': progress_sequence, 'stage': stage,
+                            'completed': completed, 'total': total})
+        # The parent owns a private operation directory. Atomic replacement
+        # avoids a partially read record while the native worker polls it.
+        handle, temporary_name = tempfile.mkstemp(prefix=progress_path.name + '.', dir=progress_path.parent)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(handle, 'w', encoding='utf-8') as stream:
+                stream.write(value)
+            os.replace(temporary, progress_path)
+        finally:
+            if temporary.exists(): temporary.unlink()
     report = Path(options.report).absolute() if options.report else None
     if report is not None and (report.exists() or report.resolve() in {Path(options.source).resolve(), Path(options.destination).resolve()}):
         print(json.dumps({'error': 'Файл отчёта уже существует или совпадает с книгой.'}, ensure_ascii=False))
@@ -1048,7 +1094,8 @@ def main():
                 stream.write(text); stream.flush(); os.fsync(stream.fileno())
     try:
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
-                              language=options.language, resource_root=options.resource_root, tools_root=options.tools_root, reading=options.reading)
+                              language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
+                              reading=options.reading, progress=progress)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)

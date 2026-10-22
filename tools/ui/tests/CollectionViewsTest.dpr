@@ -12,7 +12,7 @@ uses
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
   unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
-  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
+  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
   unit_SearchQueryModeControl, unit_LegacyUserDataPreview, frm_LegacyUserDataPreview, unit_InpLineReader,
@@ -5580,6 +5580,7 @@ end;
 {$I BookViewSessionTests.inc}
 {$I FirstBookListTests.inc}
 {$I Feedback531Tests.inc}
+{$I Feedback532Tests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5767,6 +5768,10 @@ begin
         TestBookViewSessions(OneID, TwoID)
       else if ParamStr(1) = 'minimal-first-install' then TestMinimalFirstInstall531
       else if ParamStr(1) = 'post530' then TestFeedback531
+      else if ParamStr(1) = 'image-components' then TestImageComponents(One)
+      else if ParamStr(1) = 'catalogue-formats' then TestCatalogueFormats
+      else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
+      else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails

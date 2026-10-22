@@ -70,6 +70,40 @@ class ConversionTests(unittest.TestCase):
             nav=ET.fromstring(z.read('OEBPS/nav.xhtml')); toc=next(n for n in nav.iter() if c.tag(n)=='nav'); ol=c.first(toc,'ol')
             self.assertEqual([c.plain(c.first(li,'a')) for li in ol], ['Первая глава','Вторая глава','6'])
             self.assertEqual(c.plain(c.first(c.first(ol[0],'ol')[0],'a')), 'Подглава')
+    def test_nested_tables_keep_text_images_and_anchor_targets_with_warning(self):
+        epub = self.generic(first='''<h1 id="back">Nested layout</h1>
+          <table id="outer"><tr id="row"><td id="cell">OuterBefore
+          <table id="inner"><tr><td><strong>InnerWords</strong><img src="image.png"/></td></tr></table>
+          OuterAfter</td><td>NextCell</td></tr></table>
+          <p><a href="#outer">outer</a><a href="#row">row</a><a href="#cell">cell</a><a href="#inner">inner</a></p>''')
+        before = digest(epub); output = self.root/'nested.fb2'
+        report = c.convert_book(epub, output); self.validate_fb2(output)
+        book = ET.parse(output).getroot(); body = c.first(book, 'body'); text = ''.join(body.itertext())
+        words = ['OuterBefore', 'InnerWords', 'OuterAfter', 'NextCell']
+        self.assertEqual([text.count(word) for word in words], [1]*len(words))
+        self.assertEqual([text.index(word) for word in words], sorted(text.index(word) for word in words))
+        ids = {n.get('id') for n in book.iter() if n.get('id')}
+        for link in book.iter('{'+c.FB+'}a'):
+            self.assertIn(link.get('{'+c.XL+'}href').removeprefix('#'), ids)
+        self.assertTrue(any(base64.b64decode(c.plain(n)) == PNG for n in c.children(book, 'binary')))
+        self.assertTrue(any('Вложенные таблицы' in warning for warning in report['warnings']))
+        self.assertEqual(digest(epub), before)
+
+    def test_complex_quotation_keeps_headings_links_images_and_text_with_warning(self):
+        epub = self.generic(first='''<h1 id="back">Before quote</h1><blockquote id="quote"><div>
+          <h2 id="quote-heading">QuotationHeading</h2><p>QuotationWords <strong>BoldWords</strong>
+          <img src="image.png"/><a href="#quote-heading">return</a></p>
+          <blockquote><p>InnerQuotation</p></blockquote></div></blockquote><p>AfterQuotation</p>''')
+        output = self.root/'quote.fb2'; report = c.convert_book(epub, output); self.validate_fb2(output)
+        book = ET.parse(output).getroot(); text = ''.join(c.first(book,'body').itertext())
+        for word in ['QuotationHeading','QuotationWords','BoldWords','InnerQuotation','AfterQuotation']:
+            self.assertEqual(text.count(word), 1)
+        ids = {n.get('id') for n in book.iter() if n.get('id')}
+        for link in book.iter('{'+c.FB+'}a'):
+            self.assertIn(link.get('{'+c.XL+'}href').removeprefix('#'), ids)
+        self.assertTrue(any(base64.b64decode(c.plain(n)) == PNG for n in c.children(book,'binary')))
+        self.assertTrue(any('Сложная цитата' in warning for warning in report['warnings']))
+
     def test_generic_links_notes_and_metadata(self):
         epub=self.generic(); before=digest(epub); fb2=self.root/'generic.fb2'; c.convert_book(epub,fb2)
         self.validate_fb2(fb2); self.assertEqual(digest(epub),before)

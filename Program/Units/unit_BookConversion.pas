@@ -4,6 +4,9 @@ interface
 
 uses System.SysUtils, System.Classes;
 
+type
+  TBookConversionProgress = reference to procedure(Percent, Completed, Total: Integer; const Stage: string);
+
 // Source streams remain owned by the caller. Output is published only after a
 // complete conversion; an existing output file is never replaced.
 function IsBasicConversionSource(const Extension: string): Boolean;
@@ -11,7 +14,8 @@ function IsConversionCandidate(const Extension: string): Boolean;
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
   const IsCanceled: TFunc<Boolean> = nil; const Title: string = '';
-  const Author: string = ''; const Language: string = ''; const ForReading: Boolean = False);
+  const Author: string = ''; const Language: string = ''; const ForReading: Boolean = False;
+  const OnProgress: TBookConversionProgress = nil);
 
 implementation
 
@@ -33,11 +37,14 @@ end;
 
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
-  const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean);
-var Work, InputName, OutputName, ReportName, Tool, Script, TargetTemporary: string;
+  const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean;
+  const OnProgress: TBookConversionProgress);
+var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
-  Started, DOCStarted: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
-  Extension, TargetExtension, Actual: string; Check: TProc;
+  Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
+  Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
+  Paged, Finalizing: Boolean; LastSequence, CompletedPages, PageTotal, LastPercent: Integer;
+
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
   if not IsConversionCandidate(Extension) or
@@ -54,15 +61,75 @@ begin
   InputName:=TPath.Combine(Work,'source'+Extension);
   OutputName:=TPath.Combine(Work,'result'+TargetExtension);
   ReportName:=TPath.Combine(Work,'report.json');
+  ProgressName:=TPath.Combine(Work,'progress.json');
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
-  Started:=GetTickCount64;
+  Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
+  Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0;
+  ReadProgress:=procedure
+  var Value: TJSONValue; Sequence, Completed, Total, Percent: Integer; Stage: string; Advanced: Boolean;
+    Handle: THandle; Data: TBytes; Size, Read: DWORD;
+  begin
+    if GetTickCount64-LastPoll<250 then Exit;
+    LastPoll:=GetTickCount64; Advanced:=False; Value:=nil; Stage:=''; Percent:=LastPercent;
+    try
+      try
+        // Allow the writer to atomically replace its record while this handle
+        // reads the previous complete snapshot. TFile.ReadAllText denies that
+        // replacement on Windows and could randomly fail a long conversion.
+        Handle:=CreateFile(PChar(ProgressName),GENERIC_READ,
+          FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+        if Handle=INVALID_HANDLE_VALUE then Exit;
+        try
+          Size:=GetFileSize(Handle,nil); if (Size=0) or (Size>1024) then Exit;
+          SetLength(Data,Size);
+          if not ReadFile(Handle,Data[0],Size,Read,nil) or (Read<>Size) then Exit;
+        finally CloseHandle(Handle); end;
+        Value:=TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Data));
+        if not (Value is TJSONObject) or not Value.TryGetValue<Integer>('sequence',Sequence) or
+          (Sequence<=LastSequence) or not Value.TryGetValue<string>('stage',Stage) or
+          not Value.TryGetValue<Integer>('completed',Completed) or not Value.TryGetValue<Integer>('total',Total) then Exit;
+        if (Stage='pages') and not Finalizing and (Total>0) and (Total<=5000) and
+          ((PageTotal=0) or (PageTotal=Total)) and (Completed>=CompletedPages) and (Completed<=Total) then
+        begin
+          Advanced:=(PageTotal=0) or (Completed>CompletedPages);
+          PageTotal:=Total; CompletedPages:=Completed; Percent:=Completed*95 div Total;
+        end
+        else if (Stage='finalizing') and not Finalizing and
+          (not Paged or ((Total>0) and (Total<=5000) and (Completed=Total) and
+            ((PageTotal=0) or (PageTotal=Total)) and (Completed>=CompletedPages))) then
+        begin
+          Finalizing:=True; Advanced:=True; Percent:=97;
+          if Paged then begin PageTotal:=Total; CompletedPages:=Completed; end;
+        end;
+        LastSequence:=Sequence;
+      except
+        // A transient sharing failure or an incomplete/invalid progress record
+        // must neither fail the book nor renew its inactivity deadline.
+        Advanced:=False;
+      end;
+    finally Value.Free; end;
+    if Advanced then
+    begin
+      LastAdvance:=GetTickCount64; LastPercent:=Percent;
+      if Assigned(OnProgress) then OnProgress(Percent,CompletedPages,PageTotal,Stage);
+    end;
+  end;
   Check:=procedure
     begin
       if Assigned(IsCanceled) and IsCanceled() then raise EAbort.Create('Конвертация отменена.');
-      if GetTickCount64-Started>180000 then
+      ReadProgress;
+      if Paged then
+      begin
+        if GetTickCount64-LastAdvance>180000 then
+          raise Exception.Create('Конвертация не продвигается более трёх минут. Исходная книга сохранена; неполный результат не записан.');
+        if GetTickCount64-Started>21600000 then
+          raise Exception.Create('Конвертация превысила шесть часов. Исходная книга сохранена; неполный результат не записан.');
+      end
+      else if GetTickCount64-Started>180000 then
         raise Exception.Create('Конвертация превысила допустимое время. Исходная книга сохранена.');
     end;
   try
+    if Assigned(OnProgress) then OnProgress(0,0,0,'preparing');
     Check;
     Input:=Source;
     if not Assigned(Input) then Input:=TFileStream.Create(SourceFile,fmOpenRead or fmShareDenyWrite);
@@ -81,6 +148,7 @@ begin
       TFile.Move(InputName,TPath.ChangeExtension(InputName,Actual));
       InputName:=TPath.ChangeExtension(InputName,Actual); Extension:=Actual;
     end;
+    Paged:=Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|')>0;
     if IsDirectDOCFormat(Extension) then
     begin
       var DOCReader:=FindDirectDOCReader;
@@ -109,7 +177,7 @@ begin
     if Extension=TargetExtension then TFile.Copy(InputName,OutputName,False)
     else
       try
-        var Arguments:=TArray<string>.Create('-I','-B','-X','utf8',Script,InputName,OutputName,'--report',ReportName,
+        var Arguments:=TArray<string>.Create('-I','-B','-X','utf8',Script,InputName,OutputName,'--report',ReportName,'--progress-file',ProgressName,
           '--title',Title,'--author',Author,'--language',Language,
           '--tools-root',TPath.Combine(AppPath,'tools'));
         if ForReading then Arguments:=Arguments+TArray<string>.Create('--reading');
@@ -157,7 +225,9 @@ begin
     Check;
     if not MoveFile(PChar(TargetTemporary),PChar(TargetFile)) then RaiseLastOSError;
     TargetTemporary:='';
+    if Assigned(OnProgress) then OnProgress(100,CompletedPages,PageTotal,'complete');
   finally
+    Check:=nil; ReadProgress:=nil;
     if (TargetTemporary<>'') and FileExists(TargetTemporary) then TFile.Delete(TargetTemporary);
     Log.Free;
     if Work.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempRoot)),True) and

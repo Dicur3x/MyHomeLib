@@ -572,7 +572,9 @@ begin
       Require((UpdateReleasePageURL(Info.ID,BatchTag,'')=Info.URL) and
         (UpdateReleasePageURL(Info.ID,BatchTag,'javascript:invalid')=Info.URL),
         'Legacy or unsafe component page fallback is missing for '+Info.ID);
-      RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
+      if (Info.ID='AlReader') or (Info.ID='WebP') then
+        RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLib Ru')
+      else RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
     end;
     RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLib Ru');
     RestorePage('',ReleasesPage,'Выпуски HomeLib Ru',False);
@@ -589,7 +591,7 @@ begin
       (THashSHA2.GetHashStringFromFile(ParamStr(0))=AppHash) and
       (THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll')=SQLiteHash),
       'Restoring a component page changed staged or installed bytes');
-    Writeln('PASS restored component-only batch page uses saved canonical sources for all six components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
+    Writeln('PASS restored component-only batch page uses saved canonical sources for all components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
     Flush(Output);
   finally
     try FreeAndNil(Dialog);

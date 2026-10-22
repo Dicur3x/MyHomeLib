@@ -4,6 +4,9 @@ import base64
 import hashlib
 import importlib.util
 import os
+import json
+import subprocess
+import sys
 import struct
 import tempfile
 import unittest
@@ -17,10 +20,11 @@ def module(name):
     spec = importlib.util.spec_from_file_location(name, ROOT / (name + '.py'))
     value = importlib.util.module_from_spec(spec); spec.loader.exec_module(value); return value
 c, legacy, fixed = module('convert_book'), module('legacy_inputs'), module('fixed_layout')
+text_inputs = module('text_inputs')
 TOOLS = Path(os.environ.get('HOMELIB_TEST_TOOLS', ROOT.parents[1] / 'Program/Out/Bin64/tools'))
 
 
-def pdf_fixture(text=True, ocr=False):
+def pdf_fixture(text=True, ocr=False, pages=1):
     # Tiny independent PDF writer for a deterministic text/illustration fixture.
     content = b'q 90 0 0 65 40 170 cm /Im Do Q\n'
     if text:
@@ -32,11 +36,16 @@ def pdf_fixture(text=True, ocr=False):
                b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
                b'<< /Length ' + str(len(content)).encode() + b' >>\nstream\n' + content + b'endstream',
                b'<< /Type /XObject /Subtype /Image /Width 20 /Height 20 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ' + str(len(zlib.compress(rgb))).encode() + b' >>\nstream\n' + zlib.compress(rgb) + b'\nendstream']
+    if not 1 <= pages <= 20: raise ValueError('Fixture page count')
+    for _ in range(pages - 1): objects.append(objects[2])
+    kids = [3] + list(range(7, len(objects) + 1))
+    objects[1] = b'<< /Type /Pages /Kids [' + b' '.join(str(i).encode() + b' 0 R' for i in kids) + b'] /Count ' + str(pages).encode() + b' >>'
     result = bytearray(b'%PDF-1.4\n'); offsets = [0]
     for i, obj in enumerate(objects, 1): offsets.append(len(result)); result.extend(str(i).encode() + b' 0 obj\n' + obj + b'\nendobj\n')
-    xref = len(result); result.extend(b'xref\n0 7\n0000000000 65535 f \n')
+    size = len(objects) + 1
+    xref = len(result); result.extend(f'xref\n0 {size}\n0000000000 65535 f \n'.encode())
     for offset in offsets[1:]: result.extend(f'{offset:010} 00000 n \n'.encode())
-    result.extend(f'trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF'.encode()); return bytes(result)
+    result.extend(f'trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF'.encode()); return bytes(result)
 
 
 def pdb_fixture(text, compressed=False, kind=b'TEXtREAd'):
@@ -130,11 +139,61 @@ class LegacyFixed(unittest.TestCase):
         self.assertEqual([n['text'] for n in fixed.order_lines(lines)], ['Header'] + [f'L{n}' for n in range(5)] + [f'R{n}' for n in range(5)])
         self.assertTrue(fixed.readable('Обычный распознанный текст.'))
         self.assertFalse(fixed.readable('\ue001\ufffd \ue002\ufffd ????'))
+
+    def test_sparse_invalid_ocr_codes_remain_visible_without_bypassing_quality(self):
+        source = self.root/'source.pdf'; source.write_bytes(pdf_fixture())
+        warnings = set(); book = text_inputs.Book(c, source, warnings)
+        text = 'Complete readable OCR paragraph preserving all words. ' * 10 + 'A\x11B\x10C'
+        fixed.emit_page(book, 137, [{'text':text, 'box':(0,0,100,100)}], b'\xff'*300, 10,10,100,100)
+        visible = ''.join(book.body.itertext())
+        self.assertIn('A[OCR U+0011]B[OCR U+0010]C', visible)
+        self.assertTrue(any('137' in warning and 'U+0011' in warning for warning in warnings))
+        ET.fromstring(ET.tostring(book.body))
+        bad = text_inputs.Book(c, source, set())
+        with self.assertRaisesRegex(c.ConversionError, 'непригодный'):
+            fixed.emit_page(bad, 2, [{'text':'\x11'*100+'letters', 'box':(0,0,100,100)}], b'\xff'*300,10,10,100,100)
+
+    def test_generated_epub_xml_is_validated_before_publication(self):
+        source = self.root/'control.txt'; source.write_text('Readable text with invalid XML \x11.',encoding='utf-8')
+        output = self.root/'invalid.epub'
+        with self.assertRaises(c.ConversionError): c.convert_book(source, output)
+        self.assertFalse(output.exists())
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_actual_pdfium_text_and_illustration(self):
         report, text, images = self.convert('.123456', pdf_fixture(), '.fb2')
         self.assertIn('First readable paragraph', text); self.assertIn('Last paragraph preserves', text); self.assertGreaterEqual(len(images), 1)
         self.assertTrue(any('OCR' in w for w in report['warnings']))
+
+    @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
+    def test_actual_pdf_page_progress_and_atomic_cli_record(self):
+        source = self.root / 'pages.pdf'; source.write_bytes(pdf_fixture())
+        events = []
+        c.convert_book(source, self.root/'direct.epub', tools_root=TOOLS,
+                       progress=lambda *values: events.append(values))
+        self.assertEqual(events, [('pages', 0, 1), ('pages', 1, 1), ('finalizing', 0, 0)])
+        progress = self.root/'progress.json'; result = self.root/'cli.fb2'
+        process = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'convert_book.py'),
+                                  str(source), str(result), '--tools-root', str(TOOLS),
+                                  '--progress-file', str(progress)], capture_output=True, timeout=30)
+        self.assertEqual(process.returncode, 0, process.stdout)
+        record = json.loads(progress.read_text(encoding='utf-8'))
+        self.assertEqual(record, {'sequence': 3, 'stage':'finalizing', 'completed':1, 'total':1})
+        self.assertTrue(result.exists())
+        self.assertFalse(list(self.root.glob('progress.json.*')))
+
+    def test_cli_progress_never_replaces_source_report_or_foreign_file(self):
+        source = self.root/'source.txt'; source.write_text('Complete original text.', encoding='utf-8')
+        foreign = self.root/'foreign.json'; foreign.write_text('Keep me.', encoding='utf-8')
+        for number, (progress, extras) in enumerate([(source, []), (foreign, []),
+                (self.root/'report.json', ['--report', str(self.root/'report.json')])]):
+            output = self.root/f'output-{number}.epub'
+            result = subprocess.run([sys.executable, '-I', '-B', str(ROOT/'convert_book.py'),
+                str(source), str(output), '--progress-file', str(progress), *extras],
+                capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+        self.assertEqual(source.read_text(), 'Complete original text.')
+        self.assertEqual(foreign.read_text(), 'Keep me.')
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
     def test_ocr_layer_allowed_and_scan_rejected(self):
         report, text, _ = self.convert('.pdf', pdf_fixture(ocr=True)); self.assertIn('First readable', text)

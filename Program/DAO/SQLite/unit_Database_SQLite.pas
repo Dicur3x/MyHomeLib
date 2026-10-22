@@ -1192,7 +1192,7 @@ begin
   Result:=PrepareSearchQuery(Result,True,Mode);
 end;
 
-function PrepareTitleTextFilter(const Value: string): string;
+function PrepareLiteralTextFilter(const Column, Value: string): string;
 var Text: string; Pattern: TStringBuilder; C: Char;
 begin
   Text:=Trim(AnsiUpperCase(Value));
@@ -1202,7 +1202,7 @@ begin
     Pattern.Append('*');
     for C in Text do
       case C of
-        // SearchTitle is already uppercase. Match both spellings without
+        // Normalized search columns are already uppercase. Match both spellings without
         // allocating two REPLACE results for every title in the collection.
         'Е','Ё': Pattern.Append('[ЕЁ]');
         '*': Pattern.Append('[*]');
@@ -1211,7 +1211,7 @@ begin
       else Pattern.Append(C);
       end;
     Pattern.Append('*');
-    Result:='(titlematch.SearchTitle GLOB '+QuotedStr(Pattern.ToString)+')';
+    Result:='('+Column+' GLOB '+QuotedStr(Pattern.ToString)+')';
   finally Pattern.Free; end;
 end;
 
@@ -1304,7 +1304,7 @@ begin
 
     TitleFilterString:='';
     if SearchCriteria.QueryMode=sqmText then
-      TitleFilterString:=PrepareTitleTextFilter(SearchCriteria.Title)
+      TitleFilterString:=PrepareLiteralTextFilter('titlematch.SearchTitle',SearchCriteria.Title)
     else
       AddToFilter('titlematch.SearchTitle', PrepareSearchQuery(SearchCriteria.Title, True, SearchCriteria.QueryMode), False, TitleFilterString);
     if SearchCriteria.ExactTitle<>'' then
@@ -1354,9 +1354,21 @@ begin
       if FilterString<>'' then FilterString:=FilterString+' AND ';
       FilterString:=FilterString+'(b.LibID IN ('+LookupSQL+'))';
     end;
-    AddToFilter('b.SearchFileName', PrepareSearchQuery(SearchCriteria.FileName, True, SearchCriteria.QueryMode), False, FilterString);
+    if (SearchCriteria.QueryMode=sqmText) and (Trim(SearchCriteria.FileName)<>'') then
+    begin
+      if FilterString<>'' then FilterString:=FilterString+' AND ';
+      FilterString:=FilterString+'b.BookID IN (SELECT fieldmatch.BookID FROM Books fieldmatch WHERE '+
+        PrepareLiteralTextFilter('fieldmatch.SearchFileName',SearchCriteria.FileName)+')';
+    end
+    else AddToFilter('b.SearchFileName', PrepareSearchQuery(SearchCriteria.FileName, True, SearchCriteria.QueryMode), False, FilterString);
     AddToFilter('b.SearchFolder', PrepareSearchQuery(SearchCriteria.Folder, True, SearchCriteria.QueryMode), False, FilterString);
-    AddToFilter('b.SearchExt', PrepareSearchQuery(SearchCriteria.FileExt, True, SearchCriteria.QueryMode), False, FilterString);
+    if (SearchCriteria.QueryMode=sqmText) and (Trim(SearchCriteria.FileExt)<>'') then
+    begin
+      if FilterString<>'' then FilterString:=FilterString+' AND ';
+      FilterString:=FilterString+'b.BookID IN (SELECT fieldmatch.BookID FROM Books fieldmatch WHERE '+
+        PrepareLiteralTextFilter('fieldmatch.SearchExt',SearchCriteria.FileExt)+')';
+    end
+    else AddToFilter('b.SearchExt', PrepareSearchQuery(SearchCriteria.FileExt, True, SearchCriteria.QueryMode), False, FilterString);
     AddToFilter('b.SearchLang', PrepareQuery(SearchCriteria.Lang, True, False), False, FilterString);
     AddToFilter('b.LibRate', PrepareQuery(SearchCriteria.LibRate, False, False), False, FilterString);
     AddToFilter('b.SearchKeyWords', PrepareSearchQuery(SearchCriteria.KeyWord, True, SearchCriteria.QueryMode), False, FilterString);

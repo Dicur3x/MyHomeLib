@@ -59,6 +59,7 @@ type
     FOnSetComment: TSetCommentEvent;
 
     FNewURL: string;
+    FReusableBookResponse: Boolean;
     FNoProgress: boolean;
     FCancel: Integer;
     FOnCanceled: TFunc<Boolean>;
@@ -74,6 +75,7 @@ type
 
     function AddParam(const Name: string; const Value: string): boolean;
     function Query(Kind: TQueryKind; const Uri: string): boolean;
+    function HasCompleteBookResponse: Boolean;
     function CheckRedirect(): boolean;
     function CheckResponce(): boolean;
     function IsDownloadedFileValid(const FileName: string): Boolean;
@@ -122,6 +124,7 @@ uses
   unit_MHLArchiveHelpers,
   unit_MHLHttpClient,
   System.Variants,
+  System.Zip,
   unit_ReaderCache;
 
 resourcestring
@@ -329,10 +332,16 @@ end;
 procedure TDownloader.HTTPRedirect(const Sender: TObject; const ARequest: IHTTPRequest; const AResponse: IHTTPResponse; ARedirections: Integer; var AAllow: Boolean);
 var
   RedirectURL: string;
+  RedirectURI: TURI;
 begin
   RedirectURL := AResponse.HeaderValue['Location'];
-  if EndsText(FB2ZIP_EXTENSION, RedirectURL) then
-    FNewURL := RedirectURL
+  if RedirectURL.StartsWith('//') then
+    RedirectURL:=ARequest.URL.Scheme+':'+RedirectURL
+  else RedirectURL:=TURI.PathRelativeToAbs(RedirectURL,ARequest.URL);
+  RedirectURI:=TURI.Create(RedirectURL);
+  if EndsText(FB2ZIP_EXTENSION, RedirectURI.Path) and
+    (SameText(RedirectURI.Scheme,'http') or SameText(RedirectURI.Scheme,'https')) then
+    FNewURL := RedirectURI.ToString
   else
     FNewURL := '';
   AAllow := True;
@@ -375,6 +384,7 @@ var
 begin
   Result := False;
   FNewURL := '';
+  FReusableBookResponse := False;
   ConstParams := nil;
   FParams := nil;
   FResponse := nil;
@@ -580,6 +590,33 @@ begin
   Application.MessageBox(PChar(FErrorMessage), PChar(rstrDownloadError));
 end;
 
+function TDownloader.HasCompleteBookResponse: Boolean;
+var Saved, Count: Int64; Head, Tail: TBytes; Header, Ending: string;
+begin
+  Result:=False;
+  if not Assigned(FResponse) or (FResponse.Size=0) then Exit;
+  Saved:=FResponse.Position;
+  try
+    FResponse.Position:=0;
+    // Opening the central directory needs the complete ZIP, but does not
+    // decompress it a second time. CHECK still performs the normal validation
+    // before publishing any downloaded file.
+    try
+      if TZipFile.IsValid(FResponse) then Exit(True);
+    except on E: Exception do ; end;
+    Count:=FResponse.Size; if Count>512 then Count:=512;
+    SetLength(Head,Integer(Count)); SetLength(Tail,Integer(Count));
+    FResponse.Position:=0; FResponse.ReadBuffer(Head[0],Integer(Count));
+    FResponse.Position:=FResponse.Size-Count; FResponse.ReadBuffer(Tail[0],Integer(Count));
+    if (Length(Head)>=2) and (Head[0]=$FF) and (Head[1]=$FE) then
+    begin Header:=TEncoding.Unicode.GetString(Head); Ending:=TEncoding.Unicode.GetString(Tail); end
+    else if (Length(Head)>=2) and (Head[0]=$FE) and (Head[1]=$FF) then
+    begin Header:=TEncoding.BigEndianUnicode.GetString(Head); Ending:=TEncoding.BigEndianUnicode.GetString(Tail); end
+    else begin Header:=TEncoding.UTF8.GetString(Head); Ending:=TEncoding.UTF8.GetString(Tail); end;
+    Result:=ContainsText(Header,'<FictionBook') and ContainsText(Ending,'</FictionBook>');
+  finally FResponse.Position:=Saved; end;
+end;
+
 function TDownloader.Query(Kind: TQueryKind; const Uri: string): boolean;
 var
   Response: IHTTPResponse;
@@ -588,8 +625,17 @@ begin
   if Canceled then Exit;
   Response := nil;
 
+  // Old scripts explicitly fetch a redirect result after POST. WinHTTP may
+  // already have followed that redirect, or the server may now return the
+  // complete book directly. Keep those bytes for CHECK instead of downloading
+  // the same book again or issuing GET with an empty result URL. Literal GET
+  // commands and intermediate HTML/login responses retain their semantics.
+  if (Kind=qkGet) and SameText(Trim(Uri),'%RESURL%') and FReusableBookResponse then Exit(True);
+
   URL := Uri;
   StrReplace('%RESURL%', FNewURL, URL);
+  if URL.Trim='' then Exit;
+  FReusableBookResponse:=False;
 
   // Connection scenarios may issue several HTTP commands. Each response must
   // replace the previous one instead of being appended to the same stream.
@@ -614,6 +660,8 @@ begin
         end;
     end;
     Result := not Canceled;
+    if Result and Assigned(Response) and (Response.StatusCode>=200) and (Response.StatusCode<300) then
+      FReusableBookResponse:=HasCompleteBookResponse;
   except
     on E: ENetHTTPClientException do
       if Canceled then

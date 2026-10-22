@@ -61,8 +61,8 @@ try {
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
     foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-        if ($directory.Name -notin @('fonts', 'bookconvert', 'doc', 'djvu', '7zip') -or
-            ($Full -and $directory.Name -in @('doc', 'djvu', '7zip'))) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
+        if ($directory.Name -notin @('fonts', 'bookconvert', 'doc', 'djvu', '7zip', 'jpeg-xl', 'webp') -or
+            ($Full -and $directory.Name -in @('doc', 'djvu', '7zip', 'jpeg-xl', 'webp'))) { Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse }
     }
     if (-not $Full) {
         # Our small format bridges also serve images/Office XML and are part

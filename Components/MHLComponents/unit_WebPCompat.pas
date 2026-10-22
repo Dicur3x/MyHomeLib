@@ -97,8 +97,8 @@ begin
     DecoderPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
       'tools\webp\libwebp.dll');
     if not FileExists(DecoderPath) then
-      raise EMHLExternalToolError.Create(
-        'Для преобразования WebP в PNG нужен tools\webp\libwebp.dll из архива HomeLib Ru.');
+      raise EMHLComponentRequired.Create('WebP',
+        'Для иллюстраций этой книги нужен декодер WebP. Его можно скачать в окне обновлений HomeLib Ru.');
     DecoderModule := LoadLibraryEx(PChar(DecoderPath), 0,
       LOAD_WITH_ALTERED_SEARCH_PATH);
     if DecoderModule = 0 then
@@ -140,7 +140,7 @@ begin
   DecoderLock.Acquire;
   try
     if WebPGetDecoderVersion() < $010600 then
-      raise EMHLExternalToolError.Create('Для преобразования WebP нужен libwebp 1.6.0 или новее.');
+      raise EMHLComponentRequired.Create('WebP','Для преобразования WebP нужен libwebp 1.6.0 или новее.');
     if WebPGetInfo(@Bytes[0], Length(Bytes), Width, Height) = 0 then
       raise EMHLExternalToolError.Create('Не удалось прочитать изображение WebP.');
     if (Width <= 0) or (Height <= 0) or

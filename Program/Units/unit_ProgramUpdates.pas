@@ -361,9 +361,9 @@ begin
       if (FRelease.ComponentID = 'SQLite') and
          (not IsUpdateSHA256(FRelease.SourceSHA3) or not SameText(UpdateSHA3(Archive), FRelease.SourceSHA3)) then
         raise Exception.Create('Официальная контрольная сумма SQLite не совпадает.');
-      if (FRelease.ComponentID='7-Zip') and
+      if ((FRelease.ComponentID='7-Zip') or (FRelease.ComponentID='JPEG XL')) and
         (not IsUpdateSHA256(FRelease.SHA256) or not SameText(UpdateSHA256(Archive),FRelease.SHA256)) then
-        raise Exception.Create('Официальная контрольная сумма 7-Zip не совпадает.');
+        raise Exception.Create('Официальная контрольная сумма компонента не совпадает.');
       if (FRelease.ComponentID='7-Zip') and (SecondaryArchive<>'') and
         (not IsUpdateSHA256(FRelease.SecondarySHA256) or
          not SameText(UpdateSHA256(SecondaryArchive),FRelease.SecondarySHA256)) then

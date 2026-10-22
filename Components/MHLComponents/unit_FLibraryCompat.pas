@@ -338,8 +338,8 @@ var
 begin
   Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
   if Decoder = '' then
-    raise EMHLExternalToolError.Create(
-      'Для восстановления иллюстраций нужен tools\jpeg-xl\djxl.exe.');
+    raise EMHLComponentRequired.Create('JPEG XL',
+      'Для иллюстраций этой книги нужен декодер JPEG XL. Его можно скачать в окне обновлений HomeLib Ru.');
 
   // Numeric FLibrary image IDs do not identify the original image format.
   // JPEG discards alpha: black ink encoded entirely in alpha becomes a solid
