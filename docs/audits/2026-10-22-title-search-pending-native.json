@@ -208,11 +208,28 @@
     "installer_signature": "Valid: Idera, Inc.",
     "installation_started": true,
     "installation_completed": false,
-    "current_gate": "Correct CE Setup launched but elevated window is not exposed to Computer Use. User requested to finish it manually, selecting Win32 and Win64.",
-    "previous_generic_installer_retained_until_ce_install_complete": true
+    "current_gate": "Correct CE Setup relaunched after official license-storage reset. User asked whether to remove the existing edition and was instructed to do so; manual import of saved valid CE slip requested. Waiting for setup outcome; Win32/Win64 compiler installation not yet verified.",
+    "previous_generic_installer_retained_until_ce_install_complete": true,
+    "correct_ce_installer_matches_user_download": true,
+    "correct_ce_installer_installed_core_version": "37.0.60542.8024",
+    "fresh_correct_core_startup_after_ce_registration": "failed: License Manager reopened even with explicit -pDelphi and no old IDE process; not fixed by restart/personality argument",
+    "same_windows_account_for_setup_and_ide_verified": true,
+    "official_recovery_guidance": "https://docwiki.embarcadero.com/Support/ja/%E3%80%8C%E6%9C%89%E5%8A%B9%E3%81%AA%E3%83%A9%E3%82%A4%E3%82%BB%E3%83%B3%E3%82%B9%E6%83%85%E5%A0%B1%E3%81%8C%E8%A6%8B%E3%81%A4%E3%81%8B%E3%82%8A%E3%81%BE%E3%81%9B%E3%82%93%E3%80%8D%E3%82%A8%E3%83%A9%E3%83%BC%E3%81%8C%E5%87%BA%E3%81%A6%E8%A3%BD%E5%93%81%E7%99%BB%E9%8C%B2%E3%81%8C%E5%AE%8C%E4%BA%86%E3%81%97%E3%81%AA%E3%81%84",
+    "license_recovery": {
+      "original_license_bytes_modified": false,
+      "recovery_folder_outside_repository": "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/license-recovery-20261022",
+      "initial_three_small_snapshot_copies_verified": true,
+      "old_license_storage_moved_instead_of_deleted": true,
+      "privileged_file_operation_confirmed_manually_by_user": true,
+      "preserved_files": 16,
+      "preserved_bytes": 82645,
+      "active_dot_entries_and_reg_files_after_move": 0,
+      "valid_ce_slip_copy_prepared_for_official_import": true,
+      "recovery_backs_up_existing_licenses_only_no_key_credentials_or_license_data_in_repository": true
+    }
   },
   "remaining": [
-    "Finish correct official Delphi CE installation and open IDE; configure Windows x86/x64.",
+    "Finish correct official Delphi CE reinstallation after licensing reset; import saved CE license manually and install Windows x86/x64.",
     "Build native tests through Delphi GUI and run changed search plus affected integration/startup checks on both architectures.",
     "Build current main EXEs through Delphi GUI and smoke them in disposable profiles.",
     "Final requirement audit and cleanup, including obsolete task-owned generic installer."
@@ -222,7 +239,7 @@
     "docs/audits/2026-10-21-all-favorite-authors.json"
   ],
   "published_new_application_release": false,
-  "completion_audit_utc": "2026-10-22T04:04:53.331840+00:00",
+  "completion_audit_utc": "2026-10-22T04:30:00.871210+00:00",
   "completion_audit": {
     "updater_independent_results": {
       "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
