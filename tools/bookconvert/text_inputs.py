@@ -56,6 +56,9 @@ class Book:
     def fail(self, message):
         raise self.c.ConversionError(message)
 
+    def require(self, component, message):
+        raise self.c.ComponentRequired(component, message)
+
     def image(self, data, mime=''):
         if len(data) > 16 * 1024 * 1024:
             self.fail('Изображение превышает 16 МБ.')
@@ -538,12 +541,26 @@ def read_docx(book):
     finally: p.z.close()
 
 
-def read_odt(book):
+def read_odt(book, legacy=False):
     p = Package(book); c = book.c
     try:
         manifest = p.xml('META-INF/manifest.xml', True)
         if manifest is not None and any(c.tag(n) == 'encryption-data' for n in manifest.iter()): book.fail('Зашифрованный ODT не поддерживается.')
         root = p.xml('content.xml'); sr = p.xml('styles.xml', True); meta = p.xml('meta.xml', True)
+        if legacy:
+            namespaces={f'http://openoffice.org/2000/{name}':value for name,value in
+                        [('office',O),('style',S),('text',T),('drawing',DRAW),('table','urn:oasis:names:tc:opendocument:xmlns:table:1.0')]}
+            namespaces['http://www.w3.org/1999/XSL/Format']=F
+            def mapped(name):
+                if name.startswith('{'):
+                    uri,local=name[1:].split('}',1)
+                    return '{'+namespaces.get(uri,uri)+'}'+local
+                return name
+            for tree in [root,sr,meta]:
+                if tree is not None:
+                    for node in tree.iter():
+                        node.tag=mapped(node.tag)
+                        node.attrib={mapped(key):value for key,value in node.attrib.items()}
         if meta is not None:
             for n in meta.iter():
                 if n.tag == '{' + c.DC + '}title' and c.plain(n): book.title = c.plain(n)
@@ -612,10 +629,76 @@ def read_odt(book):
                         child = book.el(mapped); inner.append(child); inner = child
                 fill(n, inner); c.append_text(out, n.tail)
         text = root.find('{' + O + '}body/{' + O + '}text'); notes = []
+        if text is None and legacy:text=root.find('{'+O+'}body')
         if text is None: book.fail('В ODT нет основного текста.')
         fill(text, book.body); book.body.extend(notes)
         book.warnings.add('Страничная вёрстка, колонтитулы и шрифты ODT заменены оформлением электронной книги.')
     finally: p.z.close()
+
+
+def read_abw(book):
+    c=book.c;root=c.xml(book.source.read_bytes())
+    if c.tag(root)!='abiword':book.fail('Файл не является документом AbiWord.')
+    styles={node.get('name'):node for parent in root if c.tag(parent)=='styles' for node in parent}
+    assets={node.get('name'):node for parent in root if c.tag(parent)=='data' for node in parent}
+    for parent in root:
+        if c.tag(parent)=='metadata':
+            for node in parent:
+                key=node.get('key','');value=c.plain(node)
+                if key=='dc.title' and value:book.title=value
+                elif key=='dc.creator' and value and not book.author:book.author=value
+                elif key=='dc.language' and value:book.language=value
+    def properties(node):
+        values={};style=styles.get(node.get('style'));seen=set()
+        while style is not None and id(style) not in seen:
+            seen.add(id(style))
+            for field in style.get('props','').split(';'):
+                key,sep,value=field.partition(':')
+                if sep:values.setdefault(key.strip(),value.strip())
+            style=styles.get(style.get('basedon'))
+        for field in node.get('props','').split(';'):
+            key,sep,value=field.partition(':')
+            if sep:values[key.strip()]=value.strip()
+        return values
+    def fill(src,out):
+        c.append_text(out,src.text)
+        for node in src:
+            name=c.tag(node);target=out
+            if name in {'section','p','table','cell','footnote','endnote'}:
+                tag='p' if name=='p' else 'section' if name in {'section','footnote','endnote'} else 'div'
+                style=node.get('style','')
+                heading=re.fullmatch(r'Heading\s*([1-6])',style,re.I)
+                if name=='p' and heading:tag='h'+heading[1]
+                target=book.el(tag);out.append(target)
+                if node.get('listid'):
+                    target.text='• ';book.warnings.add('Нумерация списков AbiWord заменена маркерами; текст пунктов сохранён.')
+            elif name=='image':
+                resource=assets.get(node.get('dataid'))
+                if resource is None:book.fail('В AbiWord отсутствует встроенное изображение.')
+                payload=''.join(resource.itertext())
+                if resource.get('base64','yes')=='yes':
+                    try:data=base64.b64decode(re.sub(r'\s+','',payload),validate=True)
+                    except ValueError:book.fail('Повреждены данные изображения AbiWord.')
+                else:data=payload.encode('utf-8')
+                out.append(book.image(data));c.append_text(out,node.tail);continue
+            elif name in {'br','break'}:
+                out.append(book.el('br'));c.append_text(out,node.tail);continue
+            elif name=='a':
+                target=book.el('a');out.append(target);href=node.get('{'+XL+'}href',node.get('href',''))
+                if href.startswith('#') or urlsplit(href).scheme in {'https','http','mailto'}:target.set('href',href)
+            elif name=='bookmark':
+                if node.get('name'):out.append(book.el('span',id=node.get('name')))
+            elif name in {'math','embed','object'}:book.fail('Встроенный объект AbiWord требует отдельного преобразования; неполная книга не сохранена.')
+            elif name not in {'c','field'}:book.warnings.add('AbiWord: упрощён элемент '+name+'. Его текст сохранён.')
+            values=properties(node)
+            for key,test,tag in [('font-weight',lambda v:v in {'bold','700','800','900'},'strong'),('font-style',lambda v:v=='italic','em'),('text-decoration',lambda v:'underline' in v,'u')]:
+                if test(values.get(key,'')):
+                    child=book.el(tag);target.append(child);target=child
+            fill(node,target);c.append_text(out,node.tail)
+    sections=[node for node in root if c.tag(node)=='section']
+    if not sections:book.fail('В AbiWord нет основного текста.')
+    for node in sections:fill(node,book.body)
+    book.warnings.add('AbiWord: текст, основные выделения, ссылки и встроенные изображения сохранены; страничная вёрстка адаптирована.')
 
 
 def read_rtf(book, data):
@@ -751,16 +834,19 @@ def read_rtf(book, data):
 
 def to_epub(source, output, warnings, api, input_extension=None, **metadata):
     book = Book(api, source, warnings, **metadata)
+    book.work_root = output.parent
     extension = input_extension or source.suffix.lower()
     if extension == '.docx': read_docx(book)
     elif extension == '.odt': read_odt(book)
+    elif extension == '.sxw': read_odt(book,legacy=True)
+    elif extension == '.abw': read_abw(book)
     elif extension == '.fb3': read_fb3(book)
-    elif extension in {'.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd'}:
+    elif extension in {'.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd'}:
         import importlib.util
         spec = importlib.util.spec_from_file_location('homelib_office_inputs', Path(__file__).with_name('office_inputs.py'))
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         module.read(book, extension, Package, read_docx, read_odt, read_html)
-    elif extension in {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm'}:
+    elif extension in {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.lit', '.lrf', '.rb'}:
         import importlib.util
         spec = importlib.util.spec_from_file_location('homelib_legacy_inputs', Path(__file__).with_name('legacy_inputs.py'))
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
@@ -768,6 +854,16 @@ def to_epub(source, output, warnings, api, input_extension=None, **metadata):
     elif extension in {'.pdf', '.djvu', '.djv', '.dju', '.djvm', '.djm'}:
         import importlib.util
         spec = importlib.util.spec_from_file_location('homelib_fixed_layout', Path(__file__).with_name('fixed_layout.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book, extension)
+    elif extension == '.xps':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_xps_input', Path(__file__).with_name('xps_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book)
+    elif extension in {'.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7'}:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_image_input', Path(__file__).with_name('image_input.py'))
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         module.read(book, extension)
     else:

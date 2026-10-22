@@ -30,14 +30,12 @@ begin
     Input.Position := Offset; SetLength(Header,40); Input.ReadBuffer(Header[0],40);
     if TEncoding.ASCII.GetString(Header,16,4) <> 'MOBI' then Exit;
     Version := BigEndian(36);
-    if (Header[12] <> 0) or (Header[13] <> 0) then
-      raise Exception.Create('Эта книга Kindle защищена шифрованием. Для неё требуется совместимая читалка.');
     Tool := Settings.AppPath+'tools\kindle\python\python.exe';
     Script := Settings.AppPath+'tools\kindle\convert_kf8.py';
     if not FileExists(Tool) or not FileExists(Script) then
       raise Exception.Create('Не найден компонент чтения Kindle. Проверьте комплектность папки программы.');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
-    ResultStamp := 'kindleunpack-bf0ca6e-v3|'+BookCacheInputStamp(SourceFile,OriginalSource);
+    ResultStamp := 'kindleunpack-bf0ca6e-v4|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+
       Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile := Result+'.source';
@@ -50,7 +48,7 @@ begin
     try
       Temporary := Writer.TemporaryName(Result,True); TemporaryStamp := Writer.TemporaryName(StampFile);
       Started := GetTickCount64;
-      if Version <> 8 then
+      if (Version <> 8) or (Header[12]<>0) or (Header[13]<>0) then
         ConvertBasicBook(Settings.AppPath,Settings.TempDir,SourceFile,ExtractFileExt(SourceFile),Temporary,nil,nil,
           function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,'','','',True)
       else RunExternalToolToStream(Tool,['-I','-B',Script,SourceFile,Temporary,Work],Log,
@@ -75,6 +73,9 @@ begin
       end;
       Log.Free; Writer.Free;
     end;
-  finally Input.Free; end;
+  finally
+    if FileExists(Result) then PinReaderCacheFile(Result);
+    Input.Free;
+  end;
 end;
 end.

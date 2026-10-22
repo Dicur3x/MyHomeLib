@@ -3151,7 +3151,7 @@ begin
 end;
 
 procedure TfrmMain.UpdateConversionMenu(Sender: TObject);
-var Tree: TBookTree; Book: PBookRecord; SourceType: string;
+var Tree: TBookTree; Book: PBookRecord; SourceType: string; HasBook: Boolean;
   procedure UpdateItems(Parent: TMenuItem; HideEmptyParent: Boolean);
   var VisibleCount: Integer; Item: TMenuItem; Previous: TMenuItem;
   begin
@@ -3162,8 +3162,7 @@ var Tree: TBookTree; Book: PBookRecord; SourceType: string;
       if (Item.Tag>=850) and (Item.Tag<=856) then
       begin
         case Item.Tag of
-          850: Item.Visible:=(SourceType<>'fb2') and (IsConversionCandidate(SourceType) or IsReaderArchive('book.'+SourceType));
-          854: Item.Visible:=(SourceType<>'epub') and (IsConversionCandidate(SourceType) or IsReaderArchive('book.'+SourceType));
+          850,854: Item.Visible:=HasBook;
         else Item.Visible:=SourceType='fb2'; end;
       end;
       if Item.Caption='-' then
@@ -3177,7 +3176,7 @@ var Tree: TBookTree; Book: PBookRecord; SourceType: string;
     if HideEmptyParent then Parent.Visible:=VisibleCount>0;
   end;
 begin
-  SourceType:='';
+  SourceType:=''; HasBook:=False;
   if Assigned(FCollection) and (ActiveView in [AuthorsView,SeriesView,PublisherSeriesView,GenresView,SearchView,FavoritesView]) then
   begin
     GetActiveTree(Tree);
@@ -3188,10 +3187,10 @@ begin
       Book:=Tree.GetNodeData(Tree.GetFirstSelected);
       if Assigned(Book) and (Book^.NodeType=ntBookInfo) then
       begin
-        SourceType:=Book^.GetFileType;
-        // Numeric extensions are deliberately not presented as ordinary file
-        // types. Conversion may inspect their content in its background job.
-        if IsConversionCandidate(Book^.FileExt) then SourceType:=LowerCase(Book^.FileExt).TrimLeft(['.']);
+        HasBook:=True;
+        // The original suffix controls the optional FB2-only scripts, while
+        // built-in conversion validates actual content in its background job.
+        SourceType:=LowerCase(Book^.FileExt).TrimLeft(['.']);
       end;
     end;
   end;
@@ -4566,7 +4565,7 @@ begin
   FReadBuiltinAction := TAction.Create(Self);
   FReadBuiltinAction.Name := 'acReadBuiltin';
   FReadBuiltinAction.ActionList := Actions;
-  FReadBuiltinAction.Caption := 'Читать во встроенной читалке (тестовая)';
+  FReadBuiltinAction.Caption := 'Читать во встроенной читалке';
   FReadBuiltinAction.ShortCut := ShortCut(Ord('R'), [ssCtrl, ssAlt]);
   FReadBuiltinAction.ImageIndex := 12;
   FReadBuiltinAction.OnExecute := ReadBuiltinExecute;
@@ -6179,11 +6178,9 @@ begin
   if not Assigned(Tree) then Exit;
   Data := Tree.GetNodeData(Tree.GetFirstSelected);
   if Assigned(Data) and (Data^.nodeType=ntBookInfo) and CatalogBookAvailable(Data^, False) then
-    FReadBuiltinAction.Enabled:=IsBuiltinReaderFormat(Data^.FileExt) or
-      (IsOfficeReaderFormat(Data^.FileExt) and OfficeReaderAvailable(Data^.FileExt)) or
-      IsReaderArchive(Data^.FileName+Data^.FileExt) or
-      (Pos('|'+LowerCase(Data^.FileExt)+'|','|.mobi|.azw|.azw3|.prc|.fb|.original_fb2|.xml|')>0) or
-      (Data^.GetFileType='Некорректный тип') or (Data^.GetFileType='Без расширения');
+    // A catalogue suffix can be arbitrary. The preparation worker detects the
+    // real payload and reports an unsupported/corrupt format after inspection.
+    FReadBuiltinAction.Enabled:=True;
 end;
 
 procedure TfrmMain.ReadBuiltinExecute(Sender: TObject);
@@ -6341,11 +6338,6 @@ begin
     end;
   end;
 
-  if UseBuiltin and not ChooseReader then
-  begin
-    RequiredComponent:=RequiredReaderComponent(Settings.AppPath,ReaderBook.FileExt);
-    if RequiredComponent<>'' then begin RequestOptionalComponent(RequiredComponent); Exit; end;
-  end;
   PrepareReaderFileInBackground(Self, ReaderBook, UseBuiltin or ChooseReader,
     procedure(WorkFile: string)
     var ChosenBuiltin, RewriteFB2: Boolean; ExternalPath: string;
@@ -6374,7 +6366,7 @@ begin
 
         if ChosenBuiltin then
         begin
-          if IsOfficeReaderFormat(ExtractFileExt(WorkFile)) then
+          if IsOfficeReaderFormat(ExtractFileExt(WorkFile)) or IsLegacyReaderFormat(ExtractFileExt(WorkFile)) then
           begin
             // The choice precedes conversion, so external Office opening stays immediate.
             ReadPreparedBook(Snapshot,True);

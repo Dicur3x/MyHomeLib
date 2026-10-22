@@ -3,14 +3,49 @@ from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
 from pathlib import Path
+import json
 import posixpath
 import re
 import struct
 import subprocess
+import sys
+import tempfile
 from urllib.parse import unquote, urljoin, urlsplit
 import zlib
+import zipfile
 
-SUPPORTED = {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm'}
+SUPPORTED = {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.lit', '.lrf', '.rb'}
+
+
+def read_lit_lrf(book, read_html):
+    helper=Path(__file__).with_name('legacy_helper.py')
+    native=book.tools_root/'bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll'
+    with tempfile.TemporaryDirectory(prefix='legacy-',dir=book.work_root) as directory:
+        target=Path(directory)/'reading.zip'
+        try:
+            result=subprocess.run([sys.executable,'-I','-B','-X','utf8',str(helper),str(book.source),str(target),
+                                   '--native-library',str(native)],capture_output=True,timeout=90,creationflags=0x08000000)
+        except subprocess.TimeoutExpired:book.fail('Чтение старого книжного формата превысило 90 секунд.')
+        if result.returncode or not target.is_file():
+            book.fail('Не удалось прочитать LIT/LRF: '+result.stderr.decode('utf-8',errors='replace')[-1200:])
+        with zipfile.ZipFile(target) as package:
+            entries=package.infolist()
+            if len(entries)>20002 or len({entry.filename for entry in entries})!=len(entries) or \
+                    any(entry.file_size>book.c.MAX_FILE for entry in entries) or sum(entry.file_size for entry in entries)>book.c.MAX_TOTAL:
+                book.fail('Подготовленный LIT/LRF превышает предел конвертации.')
+            metadata=json.loads(package.read('metadata.json'))
+            for value in metadata.get('warnings',[]):book.warnings.add(str(value))
+            if book.title==book.source.stem and metadata.get('title'):book.title=metadata['title']
+            if not book.author:book.author=metadata.get('creator','')
+            if book.language=='und':book.language=metadata.get('language','und')
+            original=book.local_image
+            def image(href):
+                if href.startswith('data:'):return original(href)
+                if href not in package.namelist():book.fail('В LIT/LRF отсутствует изображение: '+href[:160])
+                return book.image(package.read(href))
+            book.local_image=image
+            try:read_html(book,package.read('book.html'))
+            finally:book.local_image=original
 
 
 def paragraphs(book, text):
@@ -60,15 +95,15 @@ def read_pdb(book, data):
     if kind == b'TEXtREAd':
         if len(header) < 16: book.fail('Оборван заголовок PalmDoc.')
         compression, _, length, nrecords, _ = struct.unpack('>HHIHH', header[:12])
-        if compression not in (1, 2): book.fail('Неподдерживаемое сжатие PalmDoc.')
+        if compression not in (1, 2, 258): book.fail('Неподдерживаемое сжатие PalmDoc.')
         if length > book.c.MAX_FILE or nrecords == 0 or nrecords >= len(records): book.fail('Некорректная длина PalmDoc.')
         chunks = []
         for record in records[1:1 + nrecords]:
             chunks.append(record if compression == 1 else palmdoc(record, book.fail))
             if sum(map(len, chunks)) > book.c.MAX_FILE: book.fail('Текст PalmDoc превышает 64 МБ.')
         text = b''.join(chunks)
-        if len(text) < length: book.fail('Текст PalmDoc обрывается до заявленного конца.')
-        text = text[:length]
+        if len(text) != length:
+            book.warnings.add('В заголовке PalmDoc указана неточная длина текста. Перенесены все целые текстовые записи; проверьте окончание по оригиналу.')
     elif kind == b'zTXTGPlm':
         if len(header) < 14: book.fail('Оборван заголовок zTXT.')
         nrecords = int.from_bytes(header[2:4], 'big'); length = int.from_bytes(header[4:8], 'big')
@@ -159,7 +194,7 @@ class Contents(HTMLParser):
 
 def read_chm(book, read_html, decode):
     tool = book.tools_root / '7zip' / '7z.exe'
-    if not tool.is_file(): book.fail('Не найден встроенный 7-Zip для чтения CHM.')
+    if not tool.is_file(): book.require('7-Zip', 'Для чтения CHM нужен компонент 7-Zip.')
     def run(args, limit):
         # The enclosing native job limits CPU time/memory and kills child tools
         # on cancellation. No disk extraction, executable content or HTML engine.
@@ -233,7 +268,8 @@ def read_chm(book, read_html, decode):
 
 
 def read(book, extension, read_html, decode):
-    if extension == '.chm': read_chm(book, read_html, decode)
+    if extension in {'.lit','.lrf','.rb'}:read_lit_lrf(book,read_html)
+    elif extension == '.chm': read_chm(book, read_html, decode)
     else:
         data = book.source.read_bytes()
         if extension in {'.mht', '.mhtml'}: read_mhtml(book, data, read_html)

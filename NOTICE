@@ -37,7 +37,7 @@ directly to the reader. Its complete source is in tools/djvu/HomeLibDjvu-source
 and Utils/HomeLibDjvu in the repository. It performs no OCR. The IJG JPEG, libtiff and zlib notices accompany their original DLLs.
 Exact official download URLs and checksums are in Installer/RASTER_RUNTIME.json.
 
-The private full 7-Zip 26.04 command-line decoder and DLL are included for RAR
+The private full 7-Zip 26.05 command-line decoder and DLL are included for RAR
 comic archives. They are unmodified, with their original License.txt in
 tools/7zip. This includes LGPL/BSD components and the unRAR restriction;
 see that file and https://www.7-zip.org/license.txt for details.
@@ -58,3 +58,17 @@ WPS and WordPerfect use the unmodified libwps/libwpd/librevenge command-line
 readers on 64-bit Windows (MPL-2.0). Their matching source packages, licenses,
 MSYS2 clang64 runtime notices and package hashes accompany tools/office.
 See Installer/OFFICE_LEGACY_RUNTIME.json and OfficeLegacy-NOTICE.txt.
+
+
+The standalone legacy-book helper is separate GPL-3.0 software adapted from
+calibre and DeDRM_tools. Its matching sources, source pins, native build script
+and license notices are in tools/bookconvert and scripts/prepare-legacy-runtime.py
+in the HomeLib Ru source repository. Distributions carry its Python sources,
+GPL/LGPL notices and SOURCE.json beside the helper. LZX uses libmspack
+(LGPL-2.1); the D3DES core is public domain, with OpenCLit substitution tables
+(GPL-2.0-or-later). See tools/bookconvert/THIRD_PARTY.md for exact attribution.
+
+The HA CPY/ASC decoder is an Apache-2.0 adaptation of unarc-rs; its pinned
+source attribution and full license are in tools/bookconvert/vendor/ha.
+HomeLibXps is original MIT code using Windows WPF; its sources and build
+script are Utils/HomeLibXps and scripts/prepare-xps-runtime.ps1.

@@ -39,7 +39,7 @@ uses
   System.IOUtils, System.Hash, System.Variants, System.Math, unit_FileMutex, unit_LibrarySourceID,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, System.SyncObjs, unit_MHLOperationStatus,
-  Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
+  Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_ReaderLegacy, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
   unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion, unit_ComponentUpdates;
 
 type TReaderThreadAccess = class(TThread);
@@ -557,10 +557,11 @@ begin
 end;
 
 function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string): string;
-var Archive: TMHLZip; Candidates: TList<Integer>; I, Entry: Integer;
+var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry, ImagePages: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
+  OnlyImages: Boolean;
 begin
   RequestingThread := TThread.CurrentThread;
   if Assigned(OnStage) then OnStage('Просмотр содержимого архива…');
@@ -568,15 +569,27 @@ begin
   Archive := TMHLZip.Create(Source, True, False,
     function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,
     not SameText(ExtractFileExt(Source),'.zip'));
-  Candidates := TList<Integer>.Create;
+  Candidates := TList<Integer>.Create; Nested:=TList<Integer>.Create; Unknown:=TList<Integer>.Create;
   try
+    ImagePages:=0; OnlyImages:=True;
     for I := 0 to Archive.FileCount - 1 do
     begin
       Extension := LowerCase(ExtractFileExt(Archive.FileNames[I]));
-      // Only reading formats; archive entry paths are never used as output paths.
+      if Archive.FileSizes[I]>0 then
+        if Pos('|'+Extension+'|','|.jpg|.jpeg|.png|.gif|.bmp|.tif|.tiff|.webp|')>0 then Inc(ImagePages)
+        else if not SameText(ExtractFileName(Archive.FileNames[I]),'ComicInfo.xml') and
+          not SameText(ExtractFileName(Archive.FileNames[I]),'.DS_Store') and
+          not SameText(ExtractFileName(Archive.FileNames[I]),'Thumbs.db') then OnlyImages:=False;
+      // Archive entry paths are never used as output paths. Container layers
+      // and ambiguous names are resolved after extracting one chosen member.
+      if IsReaderContainer(Archive.FileNames[I]) then begin Nested.Add(I); Continue; end;
+      if (Archive.FileSizes[I]>0) and (Archive.FileSizes[I]<=64*1024*1024) and
+        (Pos('|'+Extension+'|','|.fbd|.exe|.com|.dll|.msi|.bat|.cmd|.ps1|.js|.css|.ttf|.otf|.woff|.woff2|.mp3|.wav|.ogg|.m4b|.mp4|.torrent|.apk|')=0) and
+        (not ConversionOnly or not SameText(Extension,TargetExtension)) then Unknown.Add(I);
       if ConversionOnly then
       begin
-        if IsConversionCandidate(Extension) and not SameText(Extension,TargetExtension) then Candidates.Add(I);
+        if IsBasicConversionSource(Extension) and not SameText(Extension,TargetExtension) and
+          (Pos('|'+Extension+'|','|.jpg|.jpeg|.png|.gif|.bmp|.tif|.tiff|.webp|')=0) then Candidates.Add(I);
         Continue;
       end;
       if (Extension = '.fb2') or (Extension = '.epub') or (Extension = '.pdf') or
@@ -587,8 +600,35 @@ begin
         (Extension = '.odt') or (Extension = '.chm') or (Extension = '.mht') or
         (Extension = '.mhtml') or (Extension = '.wri') or (Extension = '.ppt') or
         (Extension = '.pptx') or (Extension = '.md') or (Extension = '.fb3') or
-        IsOfficeReaderFormat(Extension) then Candidates.Add(I);
+        IsLegacyReaderFormat(Extension) or (Extension='.prc') or IsOfficeReaderFormat(Extension) then Candidates.Add(I);
     end;
+    // An image-only archive is one book. Keep every page instead of asking
+    // the reader to choose a single image and silently omitting the others.
+    if OnlyImages and (ImagePages>0) then
+    begin
+      Extension:=DetectReaderExtension(Source);
+      if Extension='.zip' then Extension:='.cbz'
+      else if Extension='.rar' then Extension:='.cbr'
+      else if Extension='.7z' then Extension:='.cb7' else Extension:='';
+      if Extension<>'' then
+      begin
+        Stamp:='comic-v1|'+SourceStamp(Book,Source,False);
+        Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-comic-'+Copy(THashSHA2.GetHashString(Stamp),1,32)+Extension));
+        if FileExists(Result) and FileExists(Result+'.source') and (TFile.ReadAllText(Result+'.source',TEncoding.UTF8)=Stamp) then
+        begin RegisterBookCacheFile(Result,Book.GetBookFileName);Exit;end;
+        ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(Book.GetBookFileName);
+        try
+          Temporary:=Writer.TemporaryName(Result);StampFile:=Writer.TemporaryName(Result+'.source');
+          TFile.Copy(Source,Temporary,True);TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
+          Writer.Publish(Temporary,Result,StampFile);
+        finally Writer.Free;end;
+        Exit;
+      end;
+    end;
+    if Candidates.Count=0 then
+      for I in Nested do Candidates.Add(I);
+    if Candidates.Count=0 then
+      for I in Unknown do Candidates.Add(I);
     if (Candidates.Count=0) and ConversionOnly then
       raise ENotSupportedException.Create('В архиве нет книг поддерживаемых форматов для этого преобразования. Книга, уже имеющая формат результата, повторно не конвертируется.');
     if Candidates.Count = 0 then raise Exception.Create('В архиве не найдены книги подходящего для чтения формата.');
@@ -663,13 +703,13 @@ begin
       TFile.WriteAllText(StampFile,Stamp,TEncoding.UTF8);
       Writer.Publish(Temporary,Result,StampFile);
     finally Converted.Free; Writer.Free; end;
-  finally Candidates.Free; Archive.Free; end;
+  finally Unknown.Free; Nested.Free; Candidates.Free; Archive.Free; end;
 end;
 
 function PrepareReaderFileCore(const Book: TBookRecord; const PreserveImages: Boolean; const OnStage: TProc<string>; OpenArchive: Boolean; ConversionOnly: Boolean = False; const TargetExtension: string = ''): string;
 var Source, Folder, Stamp, StampFile, Temporary, TemporaryStamp: string;
   Format: TBookFormat; Stream, Converted: TStream; Target: TFileStream; ConvertImages: Boolean;
-  Corrected: TBookRecord; Writer: TBookCacheWrite;
+  Corrected: TBookRecord; Writer: TBookCacheWrite; Actual: string;
 begin
   Source := Book.GetBookFileName;
   Format := Book.GetBookFormat;
@@ -680,6 +720,16 @@ begin
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
     Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension));
+  if not OpenArchive and (Format in [bfRaw,bfFb2]) then
+  begin
+    Actual:=DetectReaderExtension(Source);
+    if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
+    begin
+      Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension));
+      Exit(Source);
+    end;
+  end;
   if OpenArchive and not IsReaderArchive(Book.FileName+Book.FileExt) then Exit(Source);
   if not OpenArchive and (Format in [bfRaw,bfFbd]) and IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book, Source, ConvertImages,OnStage,ConversionOnly,TargetExtension));
   if not (Format in [bfFb2Archive, bfFbd, bfRawArchive]) and
@@ -741,13 +791,28 @@ begin
   if not OpenArchive and IsReaderContainer(Result) then Result := PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
 end;
 
+function ResolvePreparedPayload(const Book: TBookRecord; const FileName: string;
+  ConvertImages, ConversionOnly: Boolean; const OnStage: TProc<string>; const TargetExtension: string): string;
+begin
+  Result:=FileName;
+  for var Depth:=0 to 7 do
+  begin
+    if Result='' then Exit;
+    Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
+    if not IsReaderContainer(Result) then Exit;
+    Result:=PrepareLooseArchive(Book,Result,ConvertImages,OnStage,ConversionOnly,TargetExtension);
+  end;
+  raise Exception.Create('Слишком много вложенных архивов книги (более восьми).');
+end;
+
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean;
   const OnStage: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean): string;
 begin
   Result := PrepareReaderFileCore(Book,PreserveImages,OnStage,OpenArchive);
   if (Result <> '') and not OpenArchive then
   begin
-    Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
+    Result:=ResolvePreparedPayload(Book,Result,Settings.ConvertWebPToPNG and not PreserveImages,False,OnStage,'');
+    if Result='' then Exit;
     // The archive's extension can differ from its selected readable member.
     // Preserve a custom Kindle reader, but prepare KF8 for Sumatra as well.
     if not ConvertKindle then
@@ -759,6 +824,7 @@ begin
     begin
       var Required:=RequiredReaderComponent(Settings.AppPath,ExtractFileExt(Result));
       if Required<>'' then raise EReaderComponentRequired.Create(Required);
+      Result := PrepareLegacyReaderFile(Result,Book.GetBookFileName,OnStage);
       Result := PrepareOfficeReaderFile(Result,Book.GetBookFileName,OnStage);
     end;
   end;
@@ -777,7 +843,7 @@ begin
   // never prepare Office/Kindle. PDF/DjVu need a readable text layer, checked by
   // the converter after exact extraction; filename extensions are not proof.
   Result:=PrepareReaderFileCore(Book,True,OnStage,False,True,TargetExtension);
-  if Result<>'' then Result:=PrepareDetectedReaderFile(Result,Book.GetBookFileName);
+  if Result<>'' then Result:=ResolvePreparedPayload(Book,Result,False,True,OnStage,TargetExtension);
 end;
 
 type

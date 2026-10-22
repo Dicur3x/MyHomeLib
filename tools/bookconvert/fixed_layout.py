@@ -124,7 +124,17 @@ def illustration_regions(rgb, width, height, lines, page_width, page_height):
 def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
     lines = [n for n in lines if n['text'].strip()]
     text = '\n'.join(n['text'] for n in lines)
-    if text.strip() and not readable(text): book.fail(f'На странице {number} непригодный текстовый слой. Проверьте распознавание или кодировку PDF/DjVu.')
+    # A missing or unusable OCR layer is not a reason to discard a readable
+    # page. Preserve the complete rendered page, never fabricate searchable
+    # text or keep a misleading fragment of the broken character map.
+    if not text.strip() or not readable(text):
+        section=book.el('section',id='page-'+str(number));book.body.append(section)
+        section.append(book.el('h2','Страница '+str(number)))
+        image=book.image(png(rgb,width,height));image.set('alt','Страница '+str(number))
+        paragraph=book.el('p');paragraph.append(image);section.append(paragraph)
+        book.fixed_image_pages=getattr(book,'fixed_image_pages',0)+1
+        book.warnings.add('Страницы без пригодного текстового слоя сохранены целиком как изображения (до 1600 пикселей по большей стороне). Поиск и изменение размера текста на этих страницах недоступны; для текста требуется OCR.')
+        return 0
     # A sparse bad OCR glyph must not invalidate XML for the entire book.
     # Keep its position AND original code visible, rather than guessing a
     # letter or silently removing it. Apply the quality gate above first.
@@ -135,11 +145,6 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
         book.warnings.add(f'Страница {number}: нечитаемые символы исходного текстового слоя помечены ' +
                           ', '.join(replacements[ch] for ch in sorted(invalid)) + '. Сверьте эти места с оригиналом.')
     regions, ink = illustration_regions(rgb, width, height, lines, page_width, page_height)
-    if not text.strip():
-        if ink < .002: return 0
-        # Do not silently turn a missing OCR page in the middle into a picture.
-        if number != 1: book.fail(f'На странице {number} есть изображение, но нет пригодного текста. Это может быть нераспознанный скан. Конвертация остановлена, чтобы не потерять текст.')
-        regions = [(0, 0, width, height)]
     section = book.el('section', id='page-' + str(number)); book.body.append(section)
     events = [(n['box'][1], 'text', n) for n in order_lines(lines)]
     # Reading order is decided by columns, so place each illustration before the
@@ -255,7 +260,7 @@ def read_pdf(book, tools):
                     book.warnings.add('Текстовый слой PDF может содержать результат OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
                 finally: api.FPDF_ClosePage(page)
                 book.progress('pages', i + 1, count)
-            if letters < 20: book.fail('В PDF нет пригодного для чтения текста. Сканы без текстового слоя не конвертируются.')
+            if letters < 20 and not getattr(book,'fixed_image_pages',0): book.fail('В PDF нет текста или изображений для конвертации.')
         finally: api.FPDF_CloseDocument(document)
     finally: api.FPDF_DestroyLibrary()
 
@@ -379,7 +384,7 @@ def read_djvu(book, tools):
             letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
             book.progress('pages', i + 1, count)
         if offset != len(raster): book.fail('Число растровых страниц DjVu не совпало с запрошенным.')
-    if letters < 20: book.fail('В DjVu нет пригодного для чтения текста. Сканы без текстового слоя не конвертируются.')
+    if letters < 20 and not getattr(book,'fixed_image_pages',0): book.fail('В DjVu нет текста или изображений для конвертации.')
     book.warnings.add('Текстовый слой DjVu обычно получен OCR. Возможны ошибки распознавания; сверьте важные цитаты с оригиналом.')
 
 

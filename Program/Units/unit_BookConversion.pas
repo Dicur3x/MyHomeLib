@@ -10,7 +10,6 @@ type
 // Source streams remain owned by the caller. Output is published only after a
 // complete conversion; an existing output file is never replaced.
 function IsBasicConversionSource(const Extension: string): Boolean;
-function IsConversionCandidate(const Extension: string): Boolean;
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
   const IsCanceled: TFunc<Boolean> = nil; const Title: string = '';
@@ -24,15 +23,7 @@ uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_Re
 function IsBasicConversionSource(const Extension: string): Boolean;
 begin
   Result:=Pos('|'+LowerCase(Extension).TrimLeft(['.'])+'|',
-    '|fb2|epub|fb3|txt|text|faq|html|htm|xhtml|shtml|rtf|docx|odt|doc|dot|docm|dotx|dotm|ott|wps|wpd|ppt|pps|pot|pptx|pptm|ppsx|ppsm|potx|potm|xls|xlt|xlsx|xlsm|xltx|xltm|ods|ots|odp|otp|md|markdown|mobi|azw|azw3|prc|mht|mhtml|wri|pdb|tcr|chm|pdf|djvu|djv|dju|djm|djvm|')>0;
-end;
-
-function IsConversionCandidate(const Extension: string): Boolean;
-var Ext: string; Number: Int64;
-begin
-  Ext:=LowerCase(Extension).TrimLeft(['.']);
-  Result:=IsBasicConversionSource(Ext) or (Ext='fb') or (Ext='epup') or
-    ((Ext<>'') and TryStrToInt64(Ext,Number));
+    '|fb2|epub|fb3|txt|text|faq|html|htm|xhtml|shtml|rtf|docx|odt|doc|dot|docm|dotx|dotm|ott|wps|wpd|ppt|pps|pot|pptx|pptm|ppsx|ppsm|potx|potm|xls|xlt|xlsx|xlsm|xltx|xltm|ods|ots|odp|otp|md|markdown|mobi|azw|azw3|prc|mht|mhtml|wri|pdb|tcr|chm|lit|lrf|rb|abw|sxw|ha|xps|jpg|jpeg|png|gif|bmp|tif|tiff|webp|cbz|cbr|cb7|pdf|djvu|djv|dju|djm|djvm|')>0;
 end;
 
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
@@ -43,12 +34,11 @@ var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetT
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
-  Paged, Finalizing: Boolean; LastSequence, CompletedPages, PageTotal, LastPercent: Integer;
+  Paged, Finalizing: Boolean; LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages: Integer;
 
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
-  if not IsConversionCandidate(Extension) or
-     not ((TargetExtension='.fb2') or (TargetExtension='.epub')) then
+  if not ((TargetExtension='.fb2') or (TargetExtension='.epub')) then
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
   if FileExists(TargetFile) then raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
   if Assigned(Warnings) then Warnings.Clear;
@@ -64,7 +54,7 @@ begin
   ProgressName:=TPath.Combine(Work,'progress.json');
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
   Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
-  Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0;
+  Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0; RenderedPages:=0;
   ReadProgress:=procedure
   var Value: TJSONValue; Sequence, Completed, Total, Percent: Integer; Stage: string; Advanced: Boolean;
     Handle: THandle; Data: TBytes; Size, Read: DWORD;
@@ -88,11 +78,18 @@ begin
         if not (Value is TJSONObject) or not Value.TryGetValue<Integer>('sequence',Sequence) or
           (Sequence<=LastSequence) or not Value.TryGetValue<string>('stage',Stage) or
           not Value.TryGetValue<Integer>('completed',Completed) or not Value.TryGetValue<Integer>('total',Total) then Exit;
-        if (Stage='pages') and not Finalizing and (Total>0) and (Total<=5000) and
+        if (Stage='rendering') and (Pos('|'+Extension+'|','|.xps|.bmp|.tif|.tiff|')>0) and not Finalizing and (Total>0) and (Total<=5000) and
+          ((PageTotal=0) or (PageTotal=Total)) and (Completed>RenderedPages) and (Completed<=Total) then
+        begin
+          Advanced:=True; PageTotal:=Total; RenderedPages:=Completed; Percent:=Completed*90 div Total;
+        end
+        else if (Stage='pages') and not Finalizing and (Total>0) and (Total<=5000) and
           ((PageTotal=0) or (PageTotal=Total)) and (Completed>=CompletedPages) and (Completed<=Total) then
         begin
           Advanced:=(PageTotal=0) or (Completed>CompletedPages);
-          PageTotal:=Total; CompletedPages:=Completed; Percent:=Completed*95 div Total;
+          PageTotal:=Total; CompletedPages:=Completed;
+          if Pos('|'+Extension+'|','|.xps|.bmp|.tif|.tiff|')>0 then Percent:=90+Completed*5 div Total
+          else Percent:=Completed*95 div Total;
         end
         else if (Stage='finalizing') and not Finalizing and
           (not Paged or ((Total>0) and (Total<=5000) and (Completed=Total) and
@@ -148,11 +145,11 @@ begin
       TFile.Move(InputName,TPath.ChangeExtension(InputName,Actual));
       InputName:=TPath.ChangeExtension(InputName,Actual); Extension:=Actual;
     end;
-    Paged:=Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|')>0;
+    Paged:=Pos('|'+Extension+'|','|.pdf|.djvu|.djv|.dju|.djm|.djvm|.xps|.cbz|.cbr|.cb7|.tif|.tiff|.bmp|')>0;
     if IsDirectDOCFormat(Extension) then
     begin
       var DOCReader:=FindDirectDOCReader;
-      if DOCReader='' then raise Exception.Create('Не найден встроенный компонент DocSharp для DOC. Проверьте полный пакет программы.');
+      if DOCReader='' then raise EMHLComponentRequired.Create('DocSharp','Для этого DOC нужен компонент DocSharp.');
       var DOCXName:=TPath.Combine(Work,'prepared.docx'); DOCStarted:=GetTickCount64;
       try
         RunExternalToolToStream(DOCReader,[InputName,DOCXName],Log,
@@ -174,9 +171,9 @@ begin
       if not FileExists(DOCXName) then raise Exception.Create('Компонент DocSharp не смог прочитать этот DOC.');
       InputName:=DOCXName; Extension:='.docx'; Log.Clear;
     end;
-    if Extension=TargetExtension then TFile.Copy(InputName,OutputName,False)
-    else
-      try
+    // The Python same-format path validates and copies the exact bytes. Do
+    // not publish an unchecked source merely because its suffix matches.
+    try
         var Arguments:=TArray<string>.Create('-I','-B','-X','utf8',Script,InputName,OutputName,'--report',ReportName,'--progress-file',ProgressName,
           '--title',Title,'--author',Author,'--language',Language,
           '--tools-root',TPath.Combine(AppPath,'tools'));
@@ -196,6 +193,12 @@ begin
           begin
             Report:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ReportName,TEncoding.UTF8));
             try
+              if (Report is TJSONObject) and (TJSONObject(Report).GetValue('required_component')<>nil) then
+              begin
+                var Required:=TJSONObject(Report).GetValue('required_component').Value;
+                if (Required='DocSharp') or (Required='7-Zip') or (Required='WebP') or (Required='DjVuLibre') then
+                  raise EMHLComponentRequired.Create(Required,'Для этой книги нужен компонент '+Required+'.');
+              end;
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('error')<>nil) then
                 raise Exception.Create(TJSONObject(Report).GetValue('error').Value);
             finally Report.Free; end;

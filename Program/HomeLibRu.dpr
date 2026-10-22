@@ -73,6 +73,7 @@ uses
   unit_ReaderDOC in 'Units\unit_ReaderDOC.pas',
   unit_ReaderCache in 'Units\unit_ReaderCache.pas',
   unit_ReaderKindle in 'Units\unit_ReaderKindle.pas',
+  unit_ReaderLegacy in 'Units\unit_ReaderLegacy.pas',
   unit_SeriesAliases in 'Units\unit_SeriesAliases.pas',
   unit_SeriesAliasMatching in 'Units\unit_SeriesAliasMatching.pas',
   unit_BookMetadataCache in 'Units\unit_BookMetadataCache.pas',

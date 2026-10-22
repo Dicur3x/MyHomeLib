@@ -15,15 +15,15 @@ HomeLib Ru — програма для Windows, яка допомагає збе
 
 ## Завантаження й запуск
 
-Поточний опублікований випуск — **pre5.31 / 2.7.0.1099**.
-[Зміни](docs/releases/RELEASE_NOTES_2.7.0_pre5.31.md) · [Історія випусків](docs/releases/README.md) ·
-[Перевірки й обмеження](docs/RELEASE_VALIDATION_2.7.0_pre5.31.md) (російською).
+Поточний опублікований випуск — **pre5.33 / 2.7.0.1101**.
+[Зміни](docs/releases/RELEASE_NOTES_2.7.0_pre5.33.md) · [Історія випусків](docs/releases/README.md) ·
+[Перевірки й обмеження](docs/RELEASE_VALIDATION_2.7.0_pre5.33.md) (російською).
 
 | Архів | Для якої системи |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu_x64.zip) | 64-бітна Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu.zip) | 32-бітна Windows; також працює на 64-бітній |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/SHA256.txt) | Контрольні суми архівів |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu_x64.zip) | 64-бітна Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu.zip) | 32-бітна Windows; також працює на 64-бітній |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/SHA256.txt) | Контрольні суми архівів |
 
 Потрібна **Windows 10 або новіша**. Книги завантажуються окремо й до комплекту
 не входять. Основна читалка й необхідні їй засоби входять до комплекту;

@@ -15,15 +15,15 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.31 / 2.7.0.1099**.
-[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.31.md) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.31.md) (in Russian).
+The current published release is **pre5.33 / 2.7.0.1101**.
+[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.33.md) · [Release history](docs/releases/README.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.33.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/SHA256.txt) | Archive checksums |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/SHA256.txt) | Archive checksums |
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
 The core reader and its required runtime are included. External readers and

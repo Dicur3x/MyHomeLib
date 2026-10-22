@@ -139,7 +139,9 @@ begin
     if CharInSet(Ch,['a'..'z']) then HasLetter:=True
     else if not CharInSet(Ch,['0'..'9']) then ValidKey:=False;
   end;
-  if not ValidKey or not HasLetter then PreferenceKey:=Ext;
+  if not ValidKey or not HasLetter or
+    (not SameText(PreferenceKey,Ext) and not ((Ext='.epub') and
+      (Pos('|'+PreferenceKey+'|','|.mobi|.azw|.azw3|.prc|')>0))) then PreferenceKey:=Ext;
   if (Ext='.exe') or (Ext='.com') or (Ext='.msi') or (Ext='.bat') or (Ext='.cmd') or (Ext='.ps1') or (Ext='.apk') then
     raise Exception.Create('Этот файл не является книгой: '+Ext);
   // Automatic reading is governed by the global setting. Manual menu choices

@@ -256,7 +256,7 @@ function run(executable, mode, subcase = "") {
       const inventory=process.argv.find(a=>a.startsWith('--catalogue-inventory='));
       const python=process.argv.find(a=>a.startsWith('--catalogue-python='));
       if(!inventory||!python)throw Error('Catalogue audit requires explicit inventory JSON and Python runtime');
-      for(const name of ['webp','jpeg-xl','pdfium','djvu','7zip','kindle','bookconvert']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+      for(const name of ['webp','jpeg-xl','pdfium','djvu','7zip','kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
       const select=process.argv.find(a=>a.startsWith('--catalogue-select='));
       cp.execFileSync(python.slice('--catalogue-python='.length),[path.resolve(__dirname,'../../diagnostics/prepare_catalogue_examples.py'),inventory.slice('--catalogue-inventory='.length),folder,...(select?[select.slice('--catalogue-select='.length)]:[])],{stdio:'pipe',windowsHide:true});
     }
@@ -394,6 +394,10 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
       for (const name of ['pdfium','djvu','7zip']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
     }
+    if (mode === 'conversion-menu' && subcase !== 'layout') {
+      const fixtures=cp.spawnSync(process.env.HLRU_PYTHON||'python',[path.join(__dirname,'prepare_converter_menu_fixtures.py'),folder,runtime],{encoding:'utf8',windowsHide:true,timeout:45000});
+      if(fixtures.status!==0) throw new Error('Cannot prepare converter menu fixtures: '+fixtures.stdout+fixtures.stderr);
+    }
     if (mode === 'reader-conversion-audit') {
       fs.cpSync(path.join(runtime,'tools/kindle/python'),path.join(folder,'tools/kindle/python'),{recursive:true});
       const source = path.resolve(__dirname, '../../bookconvert');
@@ -496,7 +500,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='catalogue-formats' ? 3600000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {
       const screenshot = path.join(folder, "all-favorite-authors.png");
@@ -511,7 +515,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       if(!rows.length || rows.some(r=>r.read!=='ok'||r['.fb2']!=='ok'||r['.epub']!=='ok')) throw Error('A selected supported catalogue book failed reading or conversion; inspect its per-book report');
     }
     const expectedPasses = mode === 'conversion-menu' && subcase === 'layout'
-      ? ['PASS conversion menu hides unsupported LIT LRF inputs', 'PASS conversion menu offers new text containers', 'PASS conversion menu layout retains sync copying']
+      ? ['PASS conversion menu accepts legacy and unknown suffixes', 'PASS conversion menu offers new text containers', 'PASS conversion menu layout retains sync copying']
       : mode === "filter-captions" && subcase
       ? filterCaptionPasses(subcase)
       : mode === "group-book-identity" && subcase

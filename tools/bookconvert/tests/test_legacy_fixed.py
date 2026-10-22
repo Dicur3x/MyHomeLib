@@ -166,8 +166,10 @@ class LegacyFixed(unittest.TestCase):
         self.assertTrue(any('137' in warning and 'U+0011' in warning for warning in warnings))
         ET.fromstring(ET.tostring(book.body))
         bad = text_inputs.Book(c, source, set())
-        with self.assertRaisesRegex(c.ConversionError, 'непригодный'):
-            fixed.emit_page(bad, 2, [{'text':'\x11'*100+'letters', 'box':(0,0,100,100)}], b'\xff'*300,10,10,100,100)
+        fixed.emit_page(bad, 2, [{'text':'\x11'*100+'letters', 'box':(0,0,100,100)}], b'\xff'*300,10,10,100,100)
+        self.assertEqual(''.join(bad.body.itertext()),'Страница 2')
+        self.assertEqual(len(bad.resources),1)
+        self.assertTrue(any('OCR' in warning for warning in bad.warnings))
 
     def test_generated_epub_xml_is_validated_before_publication(self):
         source = self.root/'control.txt'; source.write_text('Readable text with invalid XML \x11.',encoding='utf-8')
@@ -231,12 +233,16 @@ class LegacyFixed(unittest.TestCase):
         self.assertTrue(c._write_progress(progress,'{"sequence":3}'))
         self.assertEqual(json.loads(progress.read_text()),{'sequence':3})
     @unittest.skipUnless(os.name == 'nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'bundled Windows PDFium')
-    def test_ocr_layer_allowed_and_scan_rejected(self):
+    def test_ocr_layer_and_image_only_pages_preserved(self):
         report, text, _ = self.convert('.pdf', pdf_fixture(ocr=True)); self.assertIn('First readable', text)
         self.assertTrue(any('OCR' in w for w in report['warnings']))
         source = self.root / 'scan.pdf'; source.write_bytes(pdf_fixture(text=False))
-        with self.assertRaisesRegex(c.ConversionError, 'Сканы'): c.convert_book(source, self.root / 'scan.epub', tools_root=TOOLS)
-        self.assertFalse((self.root / 'scan.epub').exists())
+        report=c.convert_book(source, self.root / 'scan.epub', tools_root=TOOLS)
+        with zipfile.ZipFile(self.root/'scan.epub') as archive:
+            body=ET.fromstring(archive.read('OEBPS/book.xhtml'))
+            self.assertEqual(len([n for n in body.iter() if c.tag(n)=='img']),1)
+            self.assertIn('Страница 1',''.join(body.itertext()))
+        self.assertTrue(any('OCR' in w and 'изображения' in w for w in report['warnings']))
 
 
 if __name__ == '__main__': unittest.main()

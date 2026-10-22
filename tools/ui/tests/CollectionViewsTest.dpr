@@ -1549,6 +1549,11 @@ begin
   ChooseMember(0, False);
   Require(PrepareReaderFile(Book) = '', 'Cancelled archive picker opened a file');
   WriteArchive(['unsafe.exe', 'another.zip'], ['Never execute', 'Not a nested-book scan']);
+  Prepared:=PrepareReaderFile(Book);
+  Require(SameText(ExtractFileExt(Prepared),'.txt') and
+    (TFile.ReadAllText(Prepared,TEncoding.UTF8)='Not a nested-book scan'),
+    'Text with a wrong archive suffix was not detected inside the outer archive');
+  WriteArchive(['unsafe.exe', 'style.css'], ['Never execute', 'Not a book']);
   Failed := False;
   try PrepareReaderFile(Book); except on E: Exception do Failed := Pos('не найдены книги', E.Message) > 0; end;
   Require(Failed, 'Archive without readable members was accepted');

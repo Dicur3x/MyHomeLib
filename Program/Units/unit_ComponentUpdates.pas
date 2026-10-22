@@ -149,6 +149,8 @@ function RequiredReaderComponent(const AppPath, Extension: string): string;
 var Ext: string;
 begin
   Result:=''; Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
+  if (Pos('|'+Ext+'|','|.chm|.cbr|.cb7|')>0) and ComponentNeedsRepair(AppPath,'7-Zip') then Exit('7-Zip');
+  if (Ext='.webp') and ComponentNeedsRepair(AppPath,'WebP') then Exit('WebP');
   if ((Ext='.djvu') or (Ext='.djv')) and ComponentNeedsRepair(AppPath,'DjVuLibre') then Exit('DjVuLibre');
   if (Pos('|'+Ext+'|','|.doc|.dot|.ppt|.pps|.pot|.xls|.xlt|')>0) and
     ComponentNeedsRepair(AppPath,'DocSharp') then Result:='DocSharp';

@@ -17,10 +17,12 @@ def prepare(inventory, profile, selection=""):
     destination.mkdir()
     report = json.loads(inventory.read_text(encoding="utf-8"))
     examples, unavailable = [], []
-    meaningful = set("fb2 epub pdf djvu djv doc docx txt rtf mobi azw azw3 prc chm htm html odt pdb mht wri ppt jpg jpeg png gif tif tiff cbr cbz zip rar 7z gz tgz faq fb epup dju".split())
+    meaningful = set("fb2 epub pdf djvu djv doc docx txt rtf mobi azw azw3 prc chm lit lrf rb abw sxw htm html odt pdb mht wri ppt jpg jpeg png gif tif tiff cbr cbz zip rar 7z gz tgz faq fb epup dju".split())
     selected = set(selection.split(',')) if selection else set()
     for kind in report["formats"]:
         extension = kind["extension"]
+        if selected and extension not in selected and not any('id:'+str(e['id']) in selected for e in kind['examples']):
+            continue
         count = 0
         for candidate in kind["examples"]:
             if selected and extension not in selected and 'id:' + str(candidate['id']) not in selected:
@@ -64,7 +66,7 @@ def prepare(inventory, profile, selection=""):
                 break
             if count >= (2 if extension.lstrip(".") in meaningful else 1):
                 break
-        if count == 0 and kind["live_records"]:
+        if count == 0:
             unavailable.append({"extension": extension, "reason": "No accessible non-empty bounded example"})
     if not examples:
         raise RuntimeError("No accessible examples were prepared; an empty audit is not a successful test")

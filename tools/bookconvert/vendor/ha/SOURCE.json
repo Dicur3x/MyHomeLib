@@ -1,0 +1,19 @@
+{
+  "project": "unarc-rs",
+  "repository": "https://github.com/mkrueger/unarc-rs",
+  "commit": "b017fed390a8021faa198d0c842c95d13ecbaf6d",
+  "license": "Apache-2.0",
+  "source_sha256": {
+    "crates/unarc-rs/src/ha/asc.rs": "1cf26e832584eb4708a3ba619138edf5789958427a0267e58a5a0341d93eb360",
+    "crates/unarc-rs/src/ha/acoder.rs": "36fc3c048e5f0be0e42311d84b11d18bc5561ec97514a553c9f4331fac34b1f9",
+    "crates/unarc-rs/src/ha/header.rs": "0e558d0196a8619a6671e686f3c217f40f27c2e30cd4a37c1c25409a87781de7"
+  },
+  "modifications": [
+    "Bounded Python CPY/ASC decoder without filesystem extraction.",
+    "Escape-weight cutoff clamps to one when the remaining weight does not exceed its step, verified against original HA and real member CRC32."
+  ],
+  "algorithm_reference": {
+    "url": "https://distfiles.macports.org/ha/ha0999.tgz",
+    "sha256": "641417d256f645c92fe1ee042b9c133b5173d33d540af99ed4932f7d79a30228"
+  }
+}

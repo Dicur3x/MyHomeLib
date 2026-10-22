@@ -144,10 +144,84 @@ class TextInputs(unittest.TestCase):
         source.write_bytes(('{\\rtf1\\ansi\\ansicpg1251\\uc1 {\\fonttbl{\\f0 Times;}}\\outlinelevel0 Глава один\\par '+rtf_unicode(TEXT)+' {\\b\\i Жирный курсив} \\{скобки\\}\\par {\\pict\\pngblip '+PNG.hex()+'}\\par Конец}').encode('cp1251'))
         self.outputs(source, [TEXT, 'Жирный курсив', '{скобки}', 'Конец'], True, True)
     def test_bad_inputs_publish_nothing(self):
-        for ext, content in [('.rtf', b'{\\rtf1 {broken'), ('.docx', b'not zip'), ('.odt', b'not zip'), ('.html', b'<p><img src="../secret.png">')]:
+        for ext, content in [('.rtf', b'{\\rtf1 {broken'), ('.docx', b'PK\x03\x04\x00broken'), ('.odt', b'PK\x03\x04\x00broken'), ('.html', b'<p><img src="../secret.png">')]:
             source = self.root/('bad' + ext); source.write_bytes(content); output = self.root/('bad' + ext + '.fb2')
             with self.assertRaises((c.ConversionError, zipfile.BadZipFile)): c.convert_book(source, output)
             self.assertFalse(output.exists()); self.assertFalse(list(self.root.glob('.homelib-convert-*')))
+
+    def test_project_and_proprietary_containers_are_never_plain_text(self):
+        cases=[(b'SQLite format 3\0stub','.sqlite'),(b'ICEContainer 1.0!'+b'\0'*16,'.ibk'),
+               (b'CoolReader 3 Cache File v3.03.09','.cr3'),(b'\rJAP-Frame-Set1\x01\0\0','.jap'),
+               (b'ASMJS[::]64[::]0[::]<html><p>Code is not a book</p></html>','.sm'),
+               (b'b1:as v:0.4 n:1 t:1','.b1'),(b'\0'*60+b'.rgoCERI'+b'\0'*10,'.rgo')]
+        for index,(data,expected) in enumerate(cases):
+            with self.subTest(format=expected):
+                source=self.root/f'proprietary-{index}.wrong.pdf';source.write_bytes(data)
+                self.assertEqual(c.detect_input(source),expected)
+                for target in ['.fb2','.epub']:
+                    output=self.root/(source.name+target)
+                    with self.assertRaises(c.ConversionError):c.convert_book(source,output)
+                    self.assertFalse(output.exists())
+                self.assertEqual(source.read_bytes(),data)
+
+    def test_compound_detection_beyond_prefix_and_cyclic_chain(self):
+        directory,fat_sector=256,257
+        data=bytearray((fat_sector+4)*512);data[:8]=bytes.fromhex('d0cf11e0a1b11ae1')
+        data[28:32]=b'\xfe\xff\x09\0'
+        def put(at,value):struct.pack_into('<I',data,at,value)
+        put(44,3);put(48,directory);put(68,0xfffffffe)
+        for at in range(76,512,4):put(at,0xffffffff)
+        for index in range(3):put(76+index*4,fat_sector+index)
+        offset=(directory+1)*512;chain=(fat_sector+3)*512+(directory%128)*4
+        put(chain,0xfffffffe)
+        for name,expected in [('WordDocument','.doc'),('PowerPoint Document','.ppt'),('Workbook','.xls')]:
+            encoded=(name+'\0').encode('utf-16-le');data[offset:offset+64]=b'\0'*64
+            data[offset:offset+len(encoded)]=encoded;struct.pack_into('<H',data,offset+64,len(encoded));data[offset+66]=2
+            source=self.root/'far-office.wrong.pdf';source.write_bytes(data)
+            self.assertEqual(c.detect_input(source),expected)
+        data[offset+66]=0;put(chain,directory);source.write_bytes(data)
+        self.assertEqual(c.detect_input(source),'.ole')
+        output=self.root/'cycle.epub'
+        with self.assertRaises(c.ConversionError):c.convert_book(source,output)
+        self.assertFalse(output.exists())
+
+    def test_wrong_extension_is_content_driven_for_text_html_and_docx(self):
+        original=self.root/'fixture.docx';docx(original)
+        inputs=[('docx',original.read_bytes(),'.docx','Точная сноска'),
+                ('plain','Полный обычный текст. Финальная строка.'.encode('utf-8'),'.txt','Финальная строка.'),
+                ('html','<p>Начало <b>Жирное слово</b>.</p><p>Конец книги.</p>'.encode('utf-8'),'.html','Жирное слово')]
+        for kind,data,detected,expected in inputs:
+            for extension in ['.unknown','.dic','.epab','.fb2','.zip','.pdf','.приключение','']:
+                with self.subTest(kind=kind,extension=extension):
+                    source=self.root/(kind+extension);source.write_bytes(data)
+                    self.assertEqual(c.detect_input(source),detected)
+                    for target in ['.fb2','.epub']:
+                        output=self.root/(kind+extension+target+'.out'+target)
+                        c.convert_book(source,output)
+                        if target=='.fb2':tree=c.xml(output.read_bytes())
+                        else:
+                            with zipfile.ZipFile(output) as package:tree=c.xml(package.read('OEBPS/book.xhtml'))
+                        self.assertIn(expected,''.join(tree.itertext()))
+                    self.assertEqual(source.read_bytes(),data)
+    def test_stored_zip_with_pdf_member_is_not_a_pdf(self):
+        source=self.root/'renamed.book'
+        with zipfile.ZipFile(source,'w',zipfile.ZIP_STORED) as archive:
+            archive.writestr('book.pdf',b'%PDF-1.4 embedded member')
+            archive.writestr('text.txt',b'Complete ordinary text.')
+        self.assertEqual(c.detect_input(source),'.zip')
+
+    def test_abw_text_emphasis_links_images_and_body_boundary(self):
+        source=self.root/'renamed.pdf'
+        source.write_text('<abiword xmlns="http://www.abisource.com/awml.dtd" xmlns:xlink="http://www.w3.org/1999/xlink">'
+            '<metadata><m key="dc.title">Название</m></metadata><history>Do not insert history</history>'
+            '<styles><s name="Strong" props="font-weight:bold"/></styles><section>'
+            '<p style="Heading 1">Глава</p><p>Точный <c style="Strong">жирный текст</c> и конец.</p>'
+            '<p><bookmark name="destination"/><a xlink:href="#destination">Ссылка</a><image dataid="pic"/></p>'
+            '</section><data><d name="pic" base64="yes">'+base64.b64encode(PNG).decode()+'</d></data></abiword>',encoding='utf-8')
+        self.outputs(source,['Точный жирный текст и конец.','Ссылка'],image=True)
+        tree=c.xml((self.root/(source.name+'.fb2')).read_bytes())
+        self.assertNotIn('Do not insert history',''.join(tree.itertext()))
+        self.assertTrue(any(c.tag(n)=='strong' and c.plain(n)=='жирный текст' for n in tree.iter()))
     def test_missing_docx_note_and_external_image(self):
         for text in ['<w:footnoteReference w:id="99"/>', '<w:object/>']:
             source = self.root/'bad.docx'
@@ -197,13 +271,13 @@ class TextInputs(unittest.TestCase):
         if checker and java:
             result=subprocess.run([java,'-jar',checker,str(output)],capture_output=True,timeout=30,creationflags=0x08000000)
             self.assertEqual(result.returncode,0,(result.stdout+result.stderr).decode(errors='replace'))
-    def test_kindle_encryption_rejected_before_unpacking(self):
+    def test_invalid_encrypted_kindle_publishes_nothing(self):
         import struct
         data=bytearray(126); data[60:68]=b'BOOKMOBI'; data[78:82]=struct.pack('>I',86)
         data[102:106]=b'MOBI'; data[98:100]=b'\x00\x01'
         source=self.root/'protected.azw'; source.write_bytes(data); output=self.root/'protected.fb2'
         with self.assertRaises(c.ConversionError) as error: c.convert_book(source,output)
-        self.assertIn('Encrypted Kindle',str(error.exception)); self.assertEqual(source.read_bytes(),data)
+        self.assertIn('Invalid Palm record table',str(error.exception)); self.assertEqual(source.read_bytes(),data)
         self.assertFalse(output.exists()); self.assertFalse(list(self.root.glob('.homelib-convert-*')))
 
 

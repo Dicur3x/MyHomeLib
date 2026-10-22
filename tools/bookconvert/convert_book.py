@@ -45,6 +45,12 @@ class ConversionError(ValueError):
     pass
 
 
+class ComponentRequired(ConversionError):
+    def __init__(self, component, message):
+        super().__init__(message)
+        self.component = component
+
+
 def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
@@ -921,7 +927,7 @@ def text_to_book(source, output, warnings, target_extension, **metadata):
     api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
     if target_extension == '.epub': module.to_epub(source, output, warnings, api, **metadata)
     else:
-        with tempfile.TemporaryDirectory(prefix='homelib-text-') as directory:
+        with tempfile.TemporaryDirectory(prefix='homelib-text-',dir=output.parent) as directory:
             intermediate = Path(directory) / 'reading.epub'
             module.to_epub(source, intermediate, warnings, api, **metadata)
             epub_to_fb2(intermediate, output, warnings)
@@ -958,17 +964,21 @@ def kindle_epub(source, output):
 
 
 def kindle_to_book(source, output, warnings, target_extension, **metadata):
-    with tempfile.TemporaryDirectory(prefix='homelib-kindle-convert-') as directory:
+    with tempfile.TemporaryDirectory(prefix='homelib-kindle-convert-',dir=output.parent) as directory:
         root = Path(directory); manifest = root / 'result.json'; work = root / 'unpack'
         args = [sys.executable, '-I', '-B', str(Path(__file__).with_name('kindle_input.py')), str(source), str(manifest), str(work)]
+        tools_root=Path(metadata.get('tools_root') or Path(__file__).resolve().parent.parent)
+        args.append(str(tools_root/'bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll'))
+        args.append(str(tools_root/'kindle'))
         try:
             process = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90,
                                      creationflags=0x08000000 if os.name == 'nt' else 0)
         except subprocess.TimeoutExpired as error: raise ConversionError('Подготовка Kindle-книги превысила 90 секунд.') from error
         if process.returncode:
             detail = process.stdout.decode('utf-8', errors='replace')[-1500:]
-            raise ConversionError('Не удалось прочитать незашифрованную Kindle-книгу. ' + detail)
+            raise ConversionError('Не удалось подготовить книгу Kindle. ' + detail)
         result = json.loads(manifest.read_text(encoding='utf-8')); path = Path(result['path']).resolve()
+        for warning in result.get('warnings',[]):warnings.add(str(warning))
         if not path.is_relative_to(work) or not path.is_file(): raise ConversionError('Некорректный результат KindleUnpack.')
         if result['format'] == 'epub':
             if target_extension == '.fb2': epub_to_fb2(path, output, warnings)
@@ -980,18 +990,75 @@ def kindle_to_book(source, output, warnings, target_extension, **metadata):
         else: raise ConversionError('Неподдерживаемый результат KindleUnpack.')
 
 
+def detect_compound_office(source, header):
+    """Inspect only the bounded CFB directory chain, including far directories."""
+    import struct
+    if len(header) < 512 or header[28:30] != b'\xfe\xff' or header[30:32] not in (b'\x09\0', b'\x0c\0'):
+        return '.ole'
+    sector_size = 1 << header[30]; entries = sector_size // 4
+    u32 = lambda data, at: struct.unpack_from('<I', data, at)[0]
+    count, directory, difat, difat_count = (u32(header, at) for at in (44, 48, 68, 72))
+    if not 0 < count <= 4096 or difat_count > 32: return '.ole'
+    with source.open('rb') as stream:
+        size = source.stat().st_size
+        def sector(index):
+            offset = (index + 1) * sector_size
+            if index >= 0xfffffffa or offset + sector_size > size: return b''
+            stream.seek(offset); return stream.read(sector_size)
+        fat = [u32(header, at) for at in range(76, 512, 4) if u32(header, at) < 0xfffffffa][:count]
+        visited = set()
+        while len(fat) < count:
+            if difat in visited or len(visited) >= 32: return '.ole'
+            visited.add(difat); data = sector(difat)
+            if not data: return '.ole'
+            fat.extend(u32(data, at) for at in range(0, sector_size - 4, 4) if u32(data, at) < 0xfffffffa)
+            fat = fat[:count]; difat = u32(data, sector_size - 4)
+        visited.clear()
+        while directory < 0xfffffffa and len(visited) < 256:
+            if directory in visited: return '.ole'
+            visited.add(directory); data = sector(directory)
+            if not data: return '.ole'
+            for at in range(0, sector_size, 128):
+                length = int.from_bytes(data[at+64:at+66], 'little')
+                if data[at+66] == 2 and 2 <= length <= 64 and length % 2 == 0:
+                    try: name = data[at:at+length-2].decode('utf-16-le').casefold()
+                    except UnicodeError: return '.ole'
+                    match = {'worddocument': '.doc', 'powerpoint document': '.ppt', 'workbook': '.xls', 'book': '.xls'}.get(name)
+                    if match: return match
+            index, offset = divmod(directory, entries)
+            if index >= len(fat): return '.ole'
+            data = sector(fat[index])
+            if not data: return '.ole'
+            directory = u32(data, offset * 4)
+    return '.ole'
+
+
 def detect_input(source):
     """Bounded signature inspection, also for numeric/mistyped extensions."""
     with source.open('rb') as stream: prefix = stream.read(131072)
-    if b'%PDF-' in prefix[:1024]: return '.pdf'
     if prefix.startswith(b'AT&TFORM'): return '.djvu'
+    for signature, extension in [(b'SQLite format 3\0', '.sqlite'), (b'ICEContainer 1.0', '.ibk'),
+                                  (b'CoolReader 3 Cache File ', '.cr3'), (b'\rJAP-Frame-Set1', '.jap'),
+                                  (b'ASMJS[::]', '.sm'), (b'b1:as', '.b1')]:
+        if prefix.startswith(signature): return extension
+    if len(prefix)>=21 and prefix[:2]==b'HA' and 0<int.from_bytes(prefix[2:4],'little')<=20000 and prefix[4]>>4<=2 and prefix[4]&15 in {0,1,2,14,15}: return '.ha'
+    if prefix.startswith(b'\x89PNG\r\n\x1a\n'): return '.png'
+    if prefix.startswith(b'\xff\xd8'): return '.jpg'
+    if prefix.startswith(b'GIF8'): return '.gif'
+    if prefix.startswith(b'BM'): return '.bmp'
+    if prefix.startswith((b'II*\0',b'MM\0*')): return '.tif'
+    if prefix.startswith(b'RIFF') and prefix[8:12] == b'WEBP': return '.webp'
+    if prefix.startswith(b'Rar!'): return '.cbr'
+    if prefix.startswith(b'7z\xbc\xaf\x27\x1c') and source.suffix.lower() == '.cb7': return '.cb7'
     if prefix.startswith(b'ITSF'): return '.chm'
     if prefix.startswith(b'ITOLITLS'): return '.lit'
     if prefix.startswith(b'L\0R\0F\0\0\0'): return '.lrf'
+    if prefix.startswith(b'\xb0\x0c\xb0\x0c\x02\x00NUVO'):return '.rb'
     if prefix.startswith(b'!!8-Bit!!'): return '.tcr'
     if prefix[:2] in (b'1\xbe', b'2\xbe'): return '.wri'
     if prefix.startswith(b'{\\rtf'): return '.rtf'
     if len(prefix) >= 78:
+        if prefix[60:68] == b'.rgoCERI': return '.rgo'
         if prefix[60:68] == b'BOOKMOBI': return '.mobi'
         if prefix[60:68] in (b'TEXtREAd', b'zTXTGPlm', b'SDocSilX', b'PNRdPPrs'): return '.pdb'
     if prefix.startswith(b'PK'):
@@ -1002,12 +1069,40 @@ def detect_input(source):
                 if marker in names: return extension
             if 'mimetype' in names and archive.getinfo('mimetype').file_size < 1024:
                 mime = archive.read('mimetype')
+                if mime==b'application/vnd.sun.xml.writer':return '.sxw'
                 for name, extension in [('text', '.odt'), ('spreadsheet', '.ods'), ('presentation', '.odp'), ('text-template', '.ott'), ('spreadsheet-template', '.ots'), ('presentation-template', '.otp')]:
                     if mime == ('application/vnd.oasis.opendocument.' + name).encode('ascii'): return extension
-    probe = prefix.replace(b'\0', b'')
+            if 'content.xml' in names:
+                with archive.open('content.xml') as stream:content_prefix=stream.read(8192)
+                if b'urn:oasis:names:tc:opendocument:xmlns:office:1.0' in content_prefix:return '.odt'
+                if b'http://openoffice.org/2000/office' in content_prefix:return '.sxw'
+            if any(name.lower().endswith('.fdseq') for name in names): return '.xps'
+            page_names = [name for name in names if not name.endswith('/')]
+            if page_names and any(Path(name).suffix.lower() in {'.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'} for name in page_names) and all(
+                Path(name).suffix.lower() in {'.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp'} or
+                posixpath.basename(name).lower() in {'comicinfo.xml','.ds_store','thumbs.db'} for name in page_names): return '.cbz'
+        return '.zip'
+    if prefix.startswith(b'MZ'):return '.exe'
+    if prefix.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):return detect_compound_office(source, prefix)
+    if b'%PDF-' in prefix[:1024]:return '.pdf'
+    if prefix[:2] in (b'\xff\xfe', b'\xfe\xff'):
+        try: probe = prefix[:len(prefix)&~1].decode('utf-16').encode('utf-8')
+        except UnicodeError: probe = b''
+    else: probe = prefix.removeprefix(b'\xef\xbb\xbf')
     if re.search(br'<(?:\w+:)?FictionBook\b', probe, re.I): return '.fb2'
+    if re.search(br'<(?:\w+:)?abiword\b',probe,re.I):return '.abw'
     if re.search(br'^MIME-Version:', probe, re.M | re.I) and re.search(br'multipart/|text/html', probe, re.I): return '.mht'
-    if re.search(br'<html\b|<!DOCTYPE\s+html', probe, re.I): return '.html'
+    if re.search(br'<html\b|<!DOCTYPE\s+html|<(?:body|p|div|section|h[1-6])(?:\s|>)', probe, re.I): return '.html'
+    if source.suffix.lower() in {'.html','.htm','.xhtml','.shtml'} and probe.lstrip().startswith(b'<'):
+        return '.html'
+    if probe.lstrip().startswith(b'<'):return '.xml'
+    if prefix[:2] in (b'\xff\xfe',b'\xfe\xff'):
+        try:text=prefix[:len(prefix)&~1].decode('utf-16')
+        except UnicodeError:text=''
+    else:text=prefix.decode('utf-8-sig',errors='replace')
+    if text.strip() and not any(ord(char)<32 and char not in '\t\r\n\f' or ord(char)==127 for char in text):
+        extension=source.suffix.lower()
+        return extension if extension in {'.txt','.text','.faq','.md','.markdown','.html','.htm','.xhtml','.shtml'} else '.txt'
     return source.suffix.lower()
 
 
@@ -1018,15 +1113,48 @@ def convert_book(source, destination, **metadata):
     if source.stat().st_size > MAX_FILE: raise ConversionError('Книга превышает предел конвертации (64 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
-    text_input = extension in {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown',
-                               '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
+    text_input = extension in {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown', '.abw', '.sxw',
+                               '.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.lit', '.lrf', '.rb', '.xps', '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
     kindle_input = extension in {'.mobi', '.azw', '.azw3', '.prc'} and target_extension in {'.epub', '.fb2'}
-    if conversion is None and not text_input and not kindle_input: raise ConversionError('Этот формат пока не поддерживается конвертером FB2/EPUB.')
+    same_format=extension==target_extension and extension in {'.fb2','.epub'}
+    ha_input = extension == '.ha' and target_extension in {'.fb2','.epub'}
+    if conversion is None and not text_input and not kindle_input and not same_format and not ha_input:
+        explanation = {
+            '.sqlite': 'Это база данных или проект редактора. Для книги нужен исходный текст либо экспорт из создавшей её программы.',
+            '.ibk': 'Это собственный контейнер ICE Book Reader. Сначала экспортируйте книгу из ICE Book Reader.',
+            '.cr3': 'Это кэш CoolReader. Для открытия нужен исходный файл книги.',
+            '.jap': 'Набор рамок JAP требует связанных изображений или исходной книги.',
+            '.sm': 'Это исходник интерактивной истории AXMA. Для сохранения переходов и условий нужен её проигрыватель.',
+            '.b1': 'Это архив B1. Сначала извлеките из него файл книги.',
+            '.rgo': 'Для старого формата RepliGo пока требуется его просмотрщик или экспорт в PDF.',
+            '.ole': 'В контейнере Office не найден поддерживаемый документ. Возможно, файл повреждён.'
+        }.get(extension, 'Этот формат пока не поддерживается конвертером FB2/EPUB.')
+        raise ConversionError(explanation)
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)
     os.close(handle); temporary = Path(temporary_name); warnings = set()
     try:
-        if kindle_input: kindle_to_book(source, temporary, warnings, target_extension, **metadata)
+        if same_format:
+            if extension=='.fb2':
+                book=xml(source.read_bytes())
+                if book.tag!='{'+FB+'}FictionBook' or first(book,'body') is None:
+                    raise ConversionError('В исходном FB2 отсутствует читаемая книга.')
+                validate_fb2_output(book)
+            else:
+                with zipfile.ZipFile(source) as archive:
+                    entries=archive.infolist()
+                    if len(entries)>MAX_ENTRIES or sum(e.file_size for e in entries)>MAX_TOTAL or any(e.file_size>MAX_FILE for e in entries):
+                        raise ConversionError('EPUB превышает предел конвертации.')
+                    if archive.testzip() is not None:raise ConversionError('Повреждён исходный EPUB.')
+                    container=xml(archive.read('META-INF/container.xml'))
+                    if tag(container)!='container':raise ConversionError('Некорректный контейнер EPUB.')
+            # A correctly detected target format needs no lossy round trip.
+            temporary.write_bytes(source.read_bytes())
+        elif ha_input:
+            spec=importlib.util.spec_from_file_location('homelib_ha',Path(__file__).with_name('ha_input.py'))
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            module.convert(source,temporary,warnings,target_extension,convert_book,detect_input,**metadata)
+        elif kindle_input: kindle_to_book(source, temporary, warnings, target_extension, **metadata)
         elif text_input: text_to_book(source, temporary, warnings, target_extension, input_extension=extension, **metadata)
         else: conversion(source, temporary, warnings)
         # Ensure the generated artifact is readable before publishing its name.
@@ -1119,7 +1247,9 @@ def main():
         print(text)
         return 0
     except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError) as error:
-        text = json.dumps({'error': str(error)}, ensure_ascii=False)
+        details = {'error': str(error)}
+        if isinstance(error, ComponentRequired): details['required_component'] = error.component
+        text = json.dumps(details, ensure_ascii=False)
         try: publish_report(text)
         except OSError: pass
         print(text)

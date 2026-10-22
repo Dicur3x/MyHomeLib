@@ -33,6 +33,15 @@ class ConversionTests(unittest.TestCase):
     def tearDown(self):
         self.assertEqual(digest(self.source), self.original)
         self.assertFalse(list(self.root.glob('.homelib-convert-*')))
+    def test_already_target_format_is_validated_and_copied_without_rewriting(self):
+        target=self.root/'same.fb2';c.convert_book(self.source,target)
+        self.assertEqual(target.read_bytes(),self.source.read_bytes())
+        epub=self.generic();target=self.root/'same.epub';c.convert_book(epub,target)
+        self.assertEqual(target.read_bytes(),epub.read_bytes())
+        # Content still wins over an apparently matching target suffix.
+        disguised=self.root/'actually-fb2.epub';disguised.write_bytes(self.source.read_bytes())
+        converted=self.root/'actual.epub';c.convert_book(disguised,converted)
+        with zipfile.ZipFile(converted) as archive:self.assertIsNone(archive.testzip())
     def validate_fb2(self, path):
         schema = os.environ.get('HOMELIB_TEST_FB2_SCHEMA')
         if schema:

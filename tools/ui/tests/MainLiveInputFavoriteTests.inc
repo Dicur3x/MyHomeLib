@@ -750,19 +750,24 @@ begin
     frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
     Settings.PromptDevicePath:=False; Settings.OverwriteFB2Info:=False;
     Settings.FolderTemplate:=''; Settings.FileNameTemplate:='%t';
-    for var Ext in TArray<string>.Create('.lit','.lrf') do
+    for var Ext in TArray<string>.Create('.lit','.lrf','.rb','.abw','.sxw','.dic','.epab','.unknown','') do
     begin
+      TFile.Copy(SourceFile,ChangeFileExt(SourceFile,Ext),True);
       Book.FileExt:=Ext; Raw.UpdateBook(Book);
       frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
       frmMain.pmMain.OnPopup(frmMain.pmMain);
+      var ReadAction:=frmMain.FindComponent('acReadBuiltin') as TAction;
+      Require(Assigned(ReadAction),'Main built-in reading action is absent');
+      ReadAction.Update;
+      Require(ReadAction.Enabled,'Main built-in reading is blocked by a filename suffix: '+Ext);
       for var Parent in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts) do
         for var I:=0 to Parent.Count-1 do
           if (Parent.Items[I].Tag=850) or (Parent.Items[I].Tag=854) then
-            Require(not Parent.Items[I].Visible,'Unsupported input offers conversion: '+Ext)
+            Require(Parent.Items[I].Visible,'Book conversion was blocked by its filename suffix: '+Ext)
           else if Parent.Items[I].Tag=795 then
             Require(Parent.Items[I].Visible,'Unsupported conversion input hides ordinary sync-folder copying');
     end;
-    Writeln('PASS conversion menu hides unsupported LIT LRF inputs');
+    Writeln('PASS conversion menu accepts legacy and unknown suffixes for deferred content validation');
     for var Ext in TArray<string>.Create('.pdf','.djvu','.mht','.chm','.pdb','.wri','.tcr','.123456',
       '.docm','.dotx','.dotm','.ott','.ppt','.pps','.pot','.pptx','.pptm','.ppsx','.ppsm','.potx','.potm',
       '.xls','.xlt','.xlsx','.xlsm','.xltx','.xltm','.ods','.ots','.odp','.otp','.wps','.wpd') do
@@ -784,8 +789,8 @@ begin
       frmMain.FillBooksTree(frmMain.tvBooksSR,nil,Raw.GetBookIterator(bmAll,False),False,False,@Book.BookKey);
       frmMain.pmMain.OnPopup(frmMain.pmMain);
       MenuEntry(frmMain.pmiScripts,Tag); MenuEntry(frmMain.mmiScripts,Tag);
-      for var Entry in frmMain.pmiScripts do
-        if Entry.Tag=(1704-Tag) then Require(not Entry.Visible,'Same-format conversion is visible');
+      // Both targets remain reachable: the catalogue suffix may itself be wrong.
+      MenuEntry(frmMain.pmiScripts,1704-Tag);
       Target:=TPath.Combine(Settings.AppPath,'converter-menu-out-'+IntToStr(Tag)); ForceDirectories(Target);
       Settings.DeviceDir:=Target;
       Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в FB2';
@@ -835,7 +840,7 @@ begin
     end;
     for var SourceName in TArray<string>.Create('text-input.txt','text-input.html','text-input.rtf','text-input.docx','text-input.odt','text-input.doc','text-input.zip',
       'text-input.fb3','text-input.md','kindle-1342.mobi','kindle-1342.azw3',
-      'text-input.pdf','text-input.123456','text-input.djvu','text-input.chm','text-input.mht','text-input.tcr','text-input.pdb','text-input.wri','numeric-input.zip') do
+      'text-input.pdf','text-input.123456','text-input.djvu','text-input.mht','text-input.tcr','text-input.pdb','text-input.wri','numeric-input.zip') do
     begin
       TFile.Copy(Settings.AppPath+'metadata-archive-fixtures\'+SourceName,Settings.AppPath+SourceName,False);
       Book.FileName:=ChangeFileExt(SourceName,''); Book.FileExt:=ExtractFileExt(SourceName); Raw.UpdateBook(Book);

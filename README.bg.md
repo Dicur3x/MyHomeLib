@@ -15,15 +15,15 @@ HomeLib Ru е програма за Windows за подреждане, нами�
 
 ## Изтегляне и стартиране
 
-Текущото публикувано издание е **pre5.31 / 2.7.0.1099**.
-[Промени](docs/releases/RELEASE_NOTES_2.7.0_pre5.31.md) · [История на изданията](docs/releases/README.md) ·
-[Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.31.md) (на руски).
+Текущото публикувано издание е **pre5.33 / 2.7.0.1101**.
+[Промени](docs/releases/RELEASE_NOTES_2.7.0_pre5.33.md) · [История на изданията](docs/releases/README.md) ·
+[Проверки и ограничения](docs/RELEASE_VALIDATION_2.7.0_pre5.33.md) (на руски).
 
 | Архив | Система |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu_x64.zip) | 64-битов Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu.zip) | 32-битов Windows; работи и на 64-битов |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/SHA256.txt) | Контролни суми на архивите |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu_x64.zip) | 64-битов Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu.zip) | 32-битов Windows; работи и на 64-битов |
+| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/SHA256.txt) | Контролни суми на архивите |
 
 Изисква се **Windows 10 или по-нова версия**. Книгите се изтеглят отделно
 и не са включени. Основният четец и необходимите му средства са в комплекта;

@@ -1,0 +1,119 @@
+{
+  "project": "calibre",
+  "url": "https://github.com/kovidgoyal/calibre",
+  "commit": "1c1b407d76e23d4a1294d61bf73d915f247e3b83",
+  "license": "GPL-3.0-only",
+  "purpose": "Standalone, read-only legacy-decoder process; no calibre installation.",
+  "modifications": [
+    "Imports redirected to a local read-only compatibility layer.",
+    "Only LRFDocument and LIT binary-HTML/manifest decoder retained.",
+    "Bounded decompression replaces unbounded zlib.",
+    "Read-only LRF metadata adapter and bounded native ABI added; unused complete-calibre application imports excluded.",
+    "Only TextBlock and Styles retained from the LRF HTML renderer.",
+    "LRF objects are parsed in isolated bounded streams; duplicate IDs, overlaps, truncated streams and total decoded size are checked.",
+    "XML uses a narrow ElementTree/html5lib adapter, with no external entity loading.",
+    "Rocket eBook index and compressed HTML chunks are decoded in memory with bounds and resource validation."
+  ],
+  "files": [
+    {
+      "path": "src/calibre/ebooks/lrf/tags.py",
+      "sha256": "1b3c5126c91ed08c7de68b3324c6853e6098c63552478c7e4b7ac3e6c17adfa8"
+    },
+    {
+      "path": "src/calibre/ebooks/lrf/objects.py",
+      "sha256": "3d88dd18666f9682b78ea2c1058c515c82f42b43ed4911035d254899b291ab55"
+    },
+    {
+      "path": "src/calibre/ebooks/lrf/lrfparser.py",
+      "sha256": "5dd0dcfcbd5eda06b3510edf2f518536b62c2b687fcc58ff49cdaeccf78ae81a"
+    },
+    {
+      "path": "src/calibre/ebooks/lit/reader.py",
+      "sha256": "ed3f3dd3c67d2056748b44a6733d55a01b655ed980f9764172ae11d0b42ebe74"
+    },
+    {
+      "path": "src/calibre/ebooks/lit/maps/html.py",
+      "sha256": "5000ca6c4e7a1d1ff15ecf9ce06983ac5413d120d6b8fbef76c2fe0d44e1fde5"
+    },
+    {
+      "path": "src/calibre/ebooks/lit/maps/opf.py",
+      "sha256": "1d52a3b3242c662b68e9db79290bf3a0e99ab5604f144a9f5cdf28fe2061ad7e"
+    },
+    {
+      "path": "src/calibre/ebooks/lrf/input.py",
+      "sha256": "c8379c70a636548ce44dbb43ecbbdd6aef5265190a2ddf02a660f099ef57d129"
+    },
+    {
+      "path": "src/calibre/utils/lzx/lzxd.c",
+      "sha256": "6f4033add49323da0a3eb551f3feb3308e4f1f01a3aa8afbb9ccbfc8a69b197c"
+    },
+    {
+      "path": "src/calibre/utils/lzx/lzxd.h",
+      "sha256": "41ec8e32138e9b2f8892372d698ba526ae0bbe99ce1699a14162bf2860be4c35"
+    },
+    {
+      "path": "src/calibre/utils/lzx/mspack.h",
+      "sha256": "f85dbf19c936aa85982b54c17412f64778717c5681a548aa3096de8a0a93daca"
+    },
+    {
+      "path": "src/calibre/utils/lzx/system.h",
+      "sha256": "9ea1efbb5d4e4466db907d384b1e420f428b7e535adf5a6d42a298b0e1c6ebfd"
+    },
+    {
+      "path": "src/calibre/utils/msdes/des.c",
+      "sha256": "7e4486daff8aa0a863c5cce9689e131b7f0588e99cffd4303f2a619dad07794b"
+    },
+    {
+      "path": "src/calibre/utils/msdes/d3des.h",
+      "sha256": "ab4c8377d35194364a7fde55f358b673008482f5927da86c9a80baa596d93caa"
+    },
+    {
+      "path": "src/calibre/utils/msdes/spr.h",
+      "sha256": "593bdfad85585e26948cba11aca806d77bd4c10e254273189420b930b5389956"
+    },
+    {
+      "path": "src/calibre/ebooks/lit/mssha1.py",
+      "sha256": "f0f0a8dfb3810d68d555fae0d471174ca2fdfc77f6a04ebde93d44830d1c7b4e"
+    },
+    {
+      "path": "src/calibre/ebooks/rb/reader.py",
+      "sha256": "0d58229f239986b092f1c7d85fb560efb6ec7c5c04269ba19f420a4a2171b696"
+    },
+    {
+      "path": "src/calibre/ebooks/rb/__init__.py",
+      "sha256": "34d0ae0d7dc325e5b37bb469a786b01e4455dfde90ba72923a5727ffcacef7c2"
+    },
+    {
+      "path": "src/calibre/ebooks/lrf/meta.py",
+      "sha256": "b07cf5c0419e3cccd9369a4e057caa15656d8e63306b7853219ae8d59da99b43"
+    }
+  ],
+  "additional_sources": [
+    {
+      "project": "DeDRM_tools",
+      "url": "https://github.com/noDRM/DeDRM_tools",
+      "commit": "7379b453199ed1ba91bf3a4ce4875d5ed3c309a9",
+      "license": "GPL-3.0-only",
+      "files": [
+        {
+          "path": "DeDRM_plugin/mobidedrm.py",
+          "sha256": "afa7199582ac63a7d0187c48c9ba99fd87fd4895c1230061533dd049ce286c6f"
+        },
+        {
+          "path": "DeDRM_plugin/alfcrypto.py",
+          "sha256": "7658af6b1285e4ff619b4f8b7a300b8e311a10bfc98b77cf26340967140e3910"
+        }
+      ],
+      "modifications": [
+        "Only default/container-key decoding retained; no device/account data, external-key discovery or plugin installation.",
+        "PC1 adapted to a bounded native memory-only ABI; only a private file copy is altered."
+      ]
+    }
+  ],
+  "native_licenses": {
+    "lzxd.c/lzxd.h/mspack.h/system.h": "LGPL-2.1-or-later (libmspack)",
+    "des.c/d3des.h": "public-domain D3DES core (Richard Outerbridge)",
+    "spr.h": "GPL-2.0-or-later OpenCLit LIT-specific substitution tables (Dan A. Jackson, 2002)",
+    "bridge.c": "GPL-3.0-only local ABI plus attributed PC1 adaptation"
+  }
+}

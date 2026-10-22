@@ -105,6 +105,105 @@ begin
       Screen.Forms[I].ModalResult:=mrOk;
 end;
 
+procedure TestSpecialFormatDetection;
+var Source, Expected, Name, Pair: string; At: Integer;
+begin
+  RequireIsolatedRegression;
+  for Pair in TArray<string>.Create('.sqlite|SQLite format 3'+#0+'.stub',
+    '.ibk|ICEContainer 1.0!'+StringOfChar(#0,16),'.cr3|CoolReader 3 Cache File v3.03.09',
+    '.jap|'+#13+'JAP-Frame-Set1'+#1#0#0,'.sm|ASMJS[::]64[::]0[::]html',
+    '.b1|b1:as v:0.4 n:1 t:1','.rgo|'+StringOfChar(#0,60)+'.rgoCERI'+StringOfChar(#0,10)) do
+  begin
+    At:=Pos('|',Pair);Expected:=Copy(Pair,1,At-1);Source:=Copy(Pair,At+1,MaxInt);
+    Name:=Settings.AppPath+'special-'+Expected+'.unknown';TFile.WriteAllBytes(Name,TEncoding.ANSI.GetBytes(Source));
+    Require(DetectReaderExtension(Name)=Expected,'Special format was mistaken for ordinary text: '+Expected);
+  end;
+  Writeln('PASS special container and project signatures ignore misleading filenames');Flush(Output);
+end;
+
+procedure TestCompoundContentDetection;
+const SectorBytes=512;DirectorySector=256;FATSector=257;
+var Data, NameBytes: TBytes; FileName: string; DirectoryOffset, FATOffset: Integer;
+  procedure Put32(Offset: Integer; Value: Cardinal);
+  begin for var I:=0 to 3 do Data[Offset+I]:=Byte(Value shr (I*8));end;
+begin
+  RequireIsolatedRegression;SetLength(Data,(FATSector+4)*SectorBytes);
+  Data[0]:=$D0;Data[1]:=$CF;Data[2]:=$11;Data[3]:=$E0;Data[4]:=$A1;Data[5]:=$B1;Data[6]:=$1A;Data[7]:=$E1;
+  Data[26]:=3;Data[28]:=$FE;Data[29]:=$FF;Data[30]:=9;
+  Put32(44,3);Put32(48,DirectorySector);Put32(68,$FFFFFFFE);
+  for var I:=0 to 108 do Put32(76+I*4,$FFFFFFFF);
+  for var I:=0 to 2 do Put32(76+I*4,FATSector+I);
+  DirectoryOffset:=(DirectorySector+1)*SectorBytes;
+  FATOffset:=(FATSector+3)*SectorBytes;Put32(FATOffset+(DirectorySector mod 128)*4,$FFFFFFFE);
+  NameBytes:=TEncoding.Unicode.GetBytes('WordDocument'+#0);
+  Move(NameBytes[0],Data[DirectoryOffset],Length(NameBytes));Data[DirectoryOffset+64]:=Length(NameBytes);Data[DirectoryOffset+66]:=2;
+  FileName:=Settings.AppPath+'compound-wrong.unknown';TFile.WriteAllBytes(FileName,Data);
+  Require(DetectReaderExtension(FileName)='.doc','Compound directory beyond 128 KB was not inspected');
+  Data[DirectoryOffset+66]:=0;Put32(FATOffset+(DirectorySector mod 128)*4,DirectorySector);
+  FileName:=Settings.AppPath+'compound-cycle.unknown';TFile.WriteAllBytes(FileName,Data);
+  Require(DetectReaderExtension(FileName)='','Cyclic compound directory was not bounded');
+  Writeln('PASS compound format detection follows a bounded far directory and rejects a cyclic directory');Flush(Output);
+end;
+
+procedure TestContentDrivenBookNames;
+const Text='Проверка полного текста — ё, ї, ў. Последняя строка книги.';
+var Book: TBookRecord; Source, Prepared, Expected, OriginalHash, Folder: string;
+  Document: TReaderDocument; Count: Integer;
+begin
+  RequireIsolatedRegression; Count:=0;
+  TestSpecialFormatDetection;
+  TestCompoundContentDetection;
+  Folder:=Settings.AppPath+'content-driven-names';ForceDirectories(Folder);
+  Book.Clear;Book.NodeType:=ntBookInfo;Book.BookKey:=CreateBookKey(533,900533);
+  Book.CollectionRoot:=IncludeTrailingPathDelimiter(Folder);Book.Title:='Wrong filename audit';
+  for var Kind in ['text','html','fb2'] do
+  begin
+    Expected:=Text;
+    if Kind='html' then Expected:='<p>'+Text+'</p>'
+    else if Kind='fb2' then Expected:='<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>'+Text+'</p></section></body></FictionBook>';
+    for var Extension in ['.unknown','.dic','.317294','.pdf','.zip','.docx','.prc','.fb2','.приключение',''] do
+    begin
+      Book.FileName:=Kind+'-wrong';Book.FileExt:=Extension;
+      Source:=Book.GetBookFileName;TFile.WriteAllText(Source,Expected,TEncoding.UTF8);
+      OriginalHash:=UpdateSHA256(Source);
+      Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
+      Require(ExtractFileExt(Prepared)<>'.unknown','Unknown filename blocked content detection');
+      Document:=TReaderDocument.Create;
+      try
+        Document.Load(Prepared);
+        Require(Document.PlainText.Contains(Text),'Wrong filename lost actual book text: '+Kind+Extension);
+      finally Document.Free;end;
+      Require(UpdateSHA256(Source)=OriginalHash,'Content detection changed the original file');
+      Inc(Count);TFile.Delete(Source);
+    end;
+  end;
+  Writeln('PASS content-driven actual reader preparation preserves text across wrong suffixes cases=',Count);Flush(Output);
+end;
+
+procedure TestConverterInputValidation;
+var Source, Target, Decoder, Held: string; Rejected, Missing: Boolean;
+begin
+  RequireIsolatedRegression;Source:=Settings.AppPath+'same-format-source.fb2';Target:=Settings.AppPath+'same-format-output.fb2';
+  TFile.WriteAllText(Source,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section><p>Exact original text.</p></section></body></FictionBook>',TEncoding.UTF8);
+  ConvertBasicBook(Settings.AppPath,Settings.TempDir,Source,'.fb2',Target,nil,nil);
+  Require(UpdateSHA256(Source)=UpdateSHA256(Target),'Same-format conversion changed original bytes');TFile.Delete(Target);
+  TFile.WriteAllText(Source,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"/>',TEncoding.UTF8);
+  Rejected:=False;
+  try ConvertBasicBook(Settings.AppPath,Settings.TempDir,Source,'.fb2',Target,nil,nil);
+  except on E: Exception do Rejected:=True;end;
+  Require(Rejected and not FileExists(Target),'Same-format conversion published an invalid source');
+  Source:=Settings.AppPath+'missing-decoder.webp';Target:=Settings.AppPath+'missing-decoder.epub';
+  TFile.WriteAllBytes(Source,TNetEncoding.Base64.DecodeStringToBytes('UklGRjoAAABXRUJQVlA4TC4AAAAvAUAAEB8gJCBTshFGEAsmkcyfsFtIQBgm+79GFggQkqQ4sh4Eqt45foAQ0f8I'));
+  Decoder:=Settings.AppPath+'tools\webp\libwebp.dll';Held:=Decoder+'.held';TFile.Move(Decoder,Held);
+  try
+    Missing:=False;
+    try ConvertBasicBook(Settings.AppPath,Settings.TempDir,Source,'.webp',Target,nil,nil);
+    except on E: EMHLComponentRequired do Missing:=E.ComponentID='WebP';end;
+    Require(Missing and not FileExists(Target),'Nested converter dependency did not request its optional component');
+  finally TFile.Move(Held,Decoder);end;
+  Writeln('PASS converter validates exact copies and requests missing nested components without publishing partial books');Flush(Output);
+end;
+
 procedure TestCatalogueFormats;
 var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONObject;
   FileName, Extension, Prepared, Source, OutputName, Hash, ErrorText: string;
@@ -115,6 +214,8 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   ProgressRows: TJSONArray;
 begin
   RequireIsolatedRegression;
+  TestContentDrivenBookNames;
+  TestConverterInputValidation;
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'catalogue-examples/examples.json',TEncoding.UTF8));
   Results:=TJSONArray.Create; Warnings:=TStringList.Create; Count:=0;
   Timer:=TTimer.Create(nil); Chooser:=T532ArchiveChooser.Create;
@@ -129,6 +230,11 @@ begin
       Row.AddPair('id',TJSONNumber.Create(Item.GetValue<Integer>('id')));
       FileName:=TPath.Combine(Settings.AppPath,'catalogue-examples\'+Item.GetValue<string>('name'));
       Hash:=UpdateSHA256(FileName); Require(SameText(Hash,Item.GetValue<string>('sha256')),'Audit example changed before reading');
+      if (Extension='.cbz') or (Extension='.cbr') then
+      begin
+        // A renamed comic must keep all its pages through ordinary preparation.
+        TFile.Copy(FileName,FileName+'.wrong.pdf',False);FileName:=FileName+'.wrong.pdf';
+      end;
       Book.Clear; Book.NodeType:=ntBookInfo; Book.BookKey:=CreateBookKey(Count,900532);
       Book.CollectionRoot:=ExtractFilePath(FileName); Book.FileName:=TPath.GetFileNameWithoutExtension(FileName);
       Book.FileExt:=ExtractFileExt(FileName); Book.Title:='Catalogue format audit';
@@ -160,10 +266,10 @@ begin
         Started:=GetTickCount64; OutputName:=Settings.AppPath+'catalogue-result-'+IntToStr(Count)+Target;
         try
           Source:=PrepareConversionSource(Book,nil,Target);
-          if not IsConversionCandidate(ExtractFileExt(Source)) then Row.AddPair(Target,'unsupported')
+          if not IsBasicConversionSource(ExtractFileExt(Source)) then Row.AddPair(Target,'unsupported')
           else
           begin
-            if (Item.GetValue<Integer>('id')=777324) and (Target='.fb2') then
+            if (Item.GetValue<Integer>('id')=767324) and (Target='.fb2') then
             begin
               CancelConversion:=False; WasCanceled:=False;
               try

@@ -130,7 +130,7 @@ uses
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
   unit_WriteFb2Info,
-  unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, System.Variants;
+  unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, unit_ComponentUpdates, System.Variants;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -228,13 +228,16 @@ begin
       Exit;
     end;
     PreparedSource:=''; SourceExtension:=LowerCase(R.FileExt);
-    if FExplicitFormat and not FExtractOnly and IsReaderArchive(R.FileName+R.FileExt) then
+    if FExplicitFormat and not FExtractOnly then
     begin
       var TargetExtension:='.fb2'; if FExportMode=emEpub then TargetExtension:='.epub';
       PreparedSource:=PrepareConversionSource(R,
         procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension);
       if PreparedSource='' then Abort;
       SourceExtension:=LowerCase(ExtractFileExt(PreparedSource));
+      var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
+      if Required<>'' then raise EMHLComponentRequired.Create(Required,
+        'Для конвертации этой книги нужен компонент '+Required+'. Его можно скачать в HomeLib Ru.');
     end;
     FBookFormat := R.GetBookFormat;
     FFileOprecord.FileName := R.FileName + R.FileExt;
@@ -242,8 +245,8 @@ begin
     FFileOprecord.BookTitle:=R.Title; FFileOprecord.BookAuthor:=TAuthorsHelper.GetList(R.Authors);
     FFileOprecord.BookLanguage:=R.Lang;
     FConvertBasic := not FExtractOnly and (FExportMode in [emFB2, emEpub]) and
-      IsConversionCandidate(SourceExtension) and
       (FExplicitFormat or ((FExportMode = emEpub) and
+        IsBasicConversionSource(SourceExtension) and
         (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0)));
     if FExplicitFormat and not FExtractOnly and not FConvertBasic then
     begin

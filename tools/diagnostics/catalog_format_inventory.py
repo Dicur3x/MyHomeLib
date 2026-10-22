@@ -35,9 +35,8 @@ def inventory(catalogue, root):
         ):
             ext = (ext or "").lower()
             counts[ext] += 1
-            if deleted:
-                continue
-            live[ext] += 1
+            if not deleted:
+                live[ext] += 1
             heap = candidates.setdefault(ext, [])
             # A dozen small examples per extension keep the audit bounded, while
             # allowing fallback if a particular archive is missing or corrupt.
@@ -47,7 +46,7 @@ def inventory(catalogue, root):
             # Prefer ordinary ZIP/plain originals for bounded standalone samples.
             # FLibrary's stripped 7z rows often report a placeholder size of 1.
             archive_rank = 1 if str(folder or '').lower().endswith('.7z') else 0
-            row = (-archive_rank, -rank, book_id, folder or "", name or "", inside, int(size or 0))
+            row = (-bool(deleted), -archive_rank, -rank, book_id, folder or "", name or "", inside, int(size or 0))
             if len(heap) < 12:
                 heapq.heappush(heap, row)
             elif row > heap[0]:
@@ -56,7 +55,7 @@ def inventory(catalogue, root):
         roots = list(dict.fromkeys([str(root)] + [s["root"] for s in sources]))
         for ext, count in counts.most_common():
             examples = []
-            for _, _, book_id, folder, name, inside, size in sorted(candidates.get(ext, []), reverse=True):
+            for deleted_rank, _, _, book_id, folder, name, inside, size in sorted(candidates.get(ext, []), reverse=True):
                 paths = []
                 for base in roots:
                     archive = pathlib.Path(base) / folder
@@ -65,7 +64,7 @@ def inventory(catalogue, root):
                         paths.append({"path": str(archive), "member": name + ext})
                     elif plain.is_file():
                         paths.append({"path": str(plain), "member": ""})
-                examples.append({"id": book_id, "size": size, "folder": folder,
+                examples.append({"id": book_id, "size": size, "deleted": bool(deleted_rank), "folder": folder,
                                  "name": name, "inside": inside, "available": paths})
             result.append({"extension": ext, "records": count, "live_records": live[ext], "examples": examples})
         after = catalogue.stat()

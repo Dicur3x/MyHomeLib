@@ -30,14 +30,35 @@ OFFICE = {'.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm',
 
 def rasterize_image(book, data):
     """Decode legacy Office pictures using bounded Windows GDI+, never Office."""
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('homelib_image_decoder',Path(__file__).with_name('image_input.py'))
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.decode_webp(book,data)
+    if data.startswith((b'BM',b'II*\0',b'MM\0*')):
+        import zipfile
+        tool=book.tools_root/'xps/HomeLibXps.exe'
+        if not tool.is_file(): book.fail('Не найден встроенный компонент изображений Windows.')
+        with tempfile.TemporaryDirectory(prefix='homelib-picture-',dir=getattr(book,'work_root',None)) as directory:
+            source=Path(directory)/'image.bin';target=Path(directory)/'pages.zip';source.write_bytes(data)
+            try:
+                process=subprocess.run([str(tool),'--image-pages',str(source),str(target)],capture_output=True,timeout=30,
+                                       creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            except subprocess.TimeoutExpired: book.fail('Чтение встроенного изображения превысило 30 секунд.')
+            if process.returncode or not target.is_file():book.fail('Не удалось прочитать встроенное изображение Windows.')
+            with zipfile.ZipFile(target) as archive:
+                entries=archive.infolist()
+                if len(entries)!=1:book.fail('Встроенный TIFF содержит несколько страниц. Для их полного переноса откройте TIFF отдельной книгой.')
+                if entries[0].file_size>16*1024*1024:book.fail('Встроенное изображение превышает 16 МБ.')
+                return archive.read(entries[0])
     legacy = (data.startswith((b'BM', b'II*\0', b'MM\0*', b'\xd7\xcd\xc6\x9a')) or
               data[:4] in {b'\x01\0\x09\0', b'\x02\0\x09\0'} or
               (data[:4] == b'\x01\0\0\0' and data[40:44] == b' EMF'))
     if not legacy:
         book.fail('Неподдерживаемое изображение документа. Поддерживаются PNG, JPEG, GIF, BMP, TIFF, EMF и WMF.')
     tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
-    if not tool.is_file(): book.fail('Не найден комплектный компонент преобразования офисных изображений.')
-    with tempfile.TemporaryDirectory(prefix='homelib-image-') as work:
+    if not tool.is_file(): book.require('DocSharp', 'Для этого офисного изображения нужен компонент DocSharp.')
+    with tempfile.TemporaryDirectory(prefix='homelib-image-',dir=getattr(book,'work_root',None)) as work:
         source = Path(work) / 'picture.bin'; target = Path(work) / 'picture.png'
         source.write_bytes(data)
         try:
@@ -311,21 +332,21 @@ def read_open_document(book, package, presentation):
 
 def read(book, extension, package_factory, read_docx, read_odt, read_html):
     original = book.source
-    if extension in {'.ppt', '.pps', '.pot', '.xls', '.xlt', '.wps', '.wpd'}:
+    if extension in {'.doc', '.dot', '.ppt', '.pps', '.pot', '.xls', '.xlt', '.wps', '.wpd'}:
         if extension in {'.wps', '.wpd'}:
             tool = book.tools_root / 'office' / ('wps2html.exe' if extension == '.wps' else 'wpd2html.exe')
             args = [str(tool), str(original)]; suffix = '.html'
         else:
             tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
-            suffix = '.pptx' if extension in {'.ppt', '.pps', '.pot'} else '.xlsx'
-        if not tool.is_file(): book.fail('Не найден комплектный компонент чтения ' + extension + '. Проверьте полный архив программы.')
+            suffix = '.docx' if extension in {'.doc','.dot'} else '.pptx' if extension in {'.ppt', '.pps', '.pot'} else '.xlsx'
+        if not tool.is_file(): book.require('DocSharp', 'Для чтения ' + extension + ' нужен компонент DocSharp.')
         if extension in {'.wps', '.wpd'}:
             if os.name == 'nt' and not ('64' in os.environ.get('PROCESSOR_ARCHITEW6432', '') or '64' in os.environ.get('PROCESSOR_ARCHITECTURE', '')):
                 book.fail('Комплектный читатель WPS/WPD требует 64-разрядную Windows.')
             for dll in ['libwps-0.4.dll', 'libwpd-0.10.dll', 'librevenge-0.0.dll', 'librevenge-stream-0.0.dll',
                         'librevenge-generators-0.0.dll', 'libc++.dll', 'libunwind.dll', 'zlib1.dll']:
                 if not (tool.parent / dll).is_file(): book.fail('Неполный комплект чтения WPS/WPD: ' + dll)
-        with tempfile.TemporaryDirectory(prefix='homelib-office-') as work:
+        with tempfile.TemporaryDirectory(prefix='homelib-office-', dir=book.work_root) as work:
             prepared = Path(work) / ('prepared' + suffix)
             args = args if suffix == '.html' else [str(tool), str(original), str(prepared)]
             try:
@@ -350,7 +371,8 @@ def read(book, extension, package_factory, read_docx, read_odt, read_html):
                 else:
                     if not prepared.is_file() or prepared.stat().st_size > book.c.MAX_FILE: book.fail('Компонент создал неполный или слишком большой документ.')
                     book.source = prepared
-                    read(book, suffix, package_factory, read_docx, read_odt, read_html)
+                    if suffix == '.docx': read_docx(book)
+                    else: read(book, suffix, package_factory, read_docx, read_odt, read_html)
             except subprocess.TimeoutExpired: book.fail('Чтение офисного документа превысило 30 секунд.')
             finally: book.source = original
         return
