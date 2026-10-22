@@ -28,136 +28,201 @@
     "cross_architecture_all_result_and_metadata_hashes_equal": true,
     "reports": {
       "x86": {
-        "file": "docs/audits/2026-10-21-title-search-measurements-x86.json",
-        "sha256": "37c3a15fb00351151c94287d070dffac4007033da6be54d6e00bff1bfc2f3df7",
+        "file": "docs/audits/2026-10-22-title-search-confirmation-x86.json",
+        "sha256": "277acea1f1b673915bf88db406cc2d66de010811665e9ddab2425e32e3c52d1f",
         "timings": [
           {
             "hide_deleted": true,
             "before": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                11.18108830001438,
-                12.74787419999484
+                20.26345510000101,
+                1.9217686000010872,
+                1.9658796999992774
               ],
-              "median_match_seconds": 11.96448125000461,
-              "median_default_list_sql_seconds": 12.198076149972621
+              "match_cpu_seconds": [
+                4.75,
+                1.921875,
+                1.96875
+              ],
+              "median_match_seconds": 1.9658796999992774,
+              "median_match_cpu_seconds": 1.96875,
+              "median_default_list_sql_seconds": 2.037555999995675
             },
             "after": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                2.0777051000040956,
-                1.814944599987939
+                3.8686644999997952,
+                0.4472120000009454,
+                0.4376154999990831
               ],
-              "median_match_seconds": 1.9463248499960173,
-              "median_default_list_sql_seconds": 2.2825182999658864
+              "match_cpu_seconds": [
+                0.90625,
+                0.453125,
+                0.4375
+              ],
+              "median_match_seconds": 0.4472120000009454,
+              "median_match_cpu_seconds": 0.453125,
+              "median_default_list_sql_seconds": 0.5238733000041975
             }
           },
           {
             "hide_deleted": false,
             "before": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                6.8205520999617875,
-                3.815143000043463
+                1.2559297999996488,
+                1.293635699999868,
+                1.3448992999983602
               ],
-              "median_match_seconds": 5.317847550002625,
-              "median_default_list_sql_seconds": 5.741618250060128
+              "match_cpu_seconds": [
+                1.265625,
+                1.296875,
+                1.3125
+              ],
+              "median_match_seconds": 1.293635699999868,
+              "median_match_cpu_seconds": 1.296875,
+              "median_default_list_sql_seconds": 1.3845833999985189
             },
             "after": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                2.246475600055419,
-                4.814599800040014
+                0.4260362000004534,
+                0.4308419999997568,
+                0.45234809999965364
               ],
-              "median_match_seconds": 3.5305377000477165,
-              "median_default_list_sql_seconds": 3.8881478500261437
+              "match_cpu_seconds": [
+                0.4375,
+                0.4375,
+                0.453125
+              ],
+              "median_match_seconds": 0.4308419999997568,
+              "median_match_cpu_seconds": 0.4375,
+              "median_default_list_sql_seconds": 0.5127478999984305
             }
           }
-        ]
+        ],
+        "source_metadata_unchanged": true
       },
       "x64": {
-        "file": "docs/audits/2026-10-21-title-search-measurements-x64.json",
-        "sha256": "0257c900d78bbf9739233e6a4213909730a3ea53c611986712b886e118c821fd",
+        "file": "docs/audits/2026-10-22-title-search-confirmation-x64.json",
+        "sha256": "0bdf1826b826bd4e27e2c7fb05411af850f128398b0d1f4ffd609c9e88477f5e",
         "timings": [
           {
             "hide_deleted": true,
             "before": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                8.12588449998293,
-                7.755273099988699
+                1.583590300000651,
+                1.5481792999999016,
+                1.547490299999481
               ],
-              "median_match_seconds": 7.940578799985815,
-              "median_default_list_sql_seconds": 8.853651249955874
+              "match_cpu_seconds": [
+                1.578125,
+                1.546875,
+                1.546875
+              ],
+              "median_match_seconds": 1.5481792999999016,
+              "median_match_cpu_seconds": 1.546875,
+              "median_default_list_sql_seconds": 1.5958537999995315
             },
             "after": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                2.0113995000137947,
-                2.1750249000033364
+                0.3802102999998169,
+                0.38065349999851605,
+                0.3809172999990551
               ],
-              "median_match_seconds": 2.0932122000085656,
-              "median_default_list_sql_seconds": 2.5744467000185978
+              "match_cpu_seconds": [
+                0.390625,
+                0.390625,
+                0.375
+              ],
+              "median_match_seconds": 0.38065349999851605,
+              "median_match_cpu_seconds": 0.390625,
+              "median_default_list_sql_seconds": 0.42929580000054557
             }
           },
           {
             "hide_deleted": false,
             "before": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                5.2501394000137225,
-                5.644231499987654
+                1.0006616000009672,
+                1.0149901999993745,
+                1.0000385000003007
               ],
-              "median_match_seconds": 5.447185450000688,
-              "median_default_list_sql_seconds": 5.881259149959078
+              "match_cpu_seconds": [
+                1.0,
+                1.015625,
+                1.0
+              ],
+              "median_match_seconds": 1.0006616000009672,
+              "median_match_cpu_seconds": 1.0,
+              "median_default_list_sql_seconds": 1.0543635999983962
             },
             "after": {
-              "runs": 2,
+              "runs": 3,
               "match_seconds": [
-                2.426751899998635,
-                1.9942579999915324
+                0.381929900000614,
+                0.387743600000249,
+                0.3764219000004232
               ],
-              "median_match_seconds": 2.2105049499950837,
-              "median_default_list_sql_seconds": 2.757394749962259
+              "match_cpu_seconds": [
+                0.375,
+                0.375,
+                0.375
+              ],
+              "median_match_seconds": 0.381929900000614,
+              "median_match_cpu_seconds": 0.375,
+              "median_default_list_sql_seconds": 0.4349523999990197
             }
           }
-        ]
+        ],
+        "source_metadata_unchanged": true
       }
     },
     "limitations": [
-      "Fresh SQLite connections with shared OS cache; not cold-cache or VCL/UI timings.",
-      "Python streaming/hash/collation callback costs included.",
-      "x86 without hide-deleted had an after-query wall-time outlier; CPU-instrumented confirmation remains pending.",
+      "Fresh SQLite connections with shared OS cache; not fair cold-cache or VCL/UI timings.",
+      "Python streaming/hash/collation callback costs included; process CPU recorded for title matching.",
+      "First x86 before and after samples include substantial waiting/warmup; comparisons must not claim cold-cache improvement from that ordering.",
+      "The earlier x86 no-hide after-query outlier was not reproduced in three CPU-instrumented paired repeats.",
       "Preliminary title-index reports omitted normalization/expanded series and must not be used for application speed claims."
-    ]
+    ],
+    "previous_reports": {
+      "x86": "docs/audits/2026-10-21-title-search-measurements-x86.json",
+      "x64": "docs/audits/2026-10-21-title-search-measurements-x64.json"
+    }
   },
   "build_gate": {
-    "commercial_delphi_uninstalled": true,
-    "community_installer": "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/RADStudio_13_0_esd_3601D8E02.exe",
-    "installer_bytes": 316778560,
-    "installer_sha256": "BBDE58AA0582B2D43736160DCBF3124BF8C690EB2179894631ED5DDDC2EA2635",
+    "commercial_delphi_uninstalled_by_user": true,
+    "last_boot_observed": "2026-10-22T02:30:38.5+03:00",
+    "pending_delphi_deletion_still_present": false,
+    "previous_generic_installer_was_wrong_package": true,
+    "previous_generic_core_rejected_already_registered_ce_license": true,
+    "community_license_registration": "User registered successfully in License Manager; no credentials or key recorded. IDE startup not yet verified.",
+    "community_installer": "C:/Users/cloud/Downloads/HomeLibRu-Delphi-CE-install/7c1ba2_RADStudio_13_CE.exe",
+    "official_installer_url": "https://altd.embarcadero.com/download/radstudio/13.0/7c1ba2_RADStudio_13_CE.exe",
+    "installer_bytes": 328347704,
+    "installer_sha256": "7C1BA279B4570C5F8845533775595228C41B3C1A862F77DFF4575A4D0209FE75",
     "installer_signature": "Valid: Idera, Inc.",
-    "manual_restart_required": true,
-    "reason": "Revo pending deletion includes Embarcadero/Studio/37.0/bin and two BPL files; do not install into that path before restart.",
-    "user_will_restart_and_report": true,
-    "community_license_registration": "manual user step; never record credentials/key",
-    "last_boot_observed": "2026-10-17T09:17:07.5+03:00",
-    "pending_delphi_deletion_still_present": true,
-    "installation_started": false,
-    "restart_report_still_pending": true
+    "installation_started": true,
+    "installation_completed": false,
+    "current_gate": "Correct CE Setup launched but elevated window is not exposed to Computer Use. User requested to finish it manually, selecting Win32 and Win64.",
+    "previous_generic_installer_retained_until_ce_install_complete": true
   },
   "remaining": [
-    "Install and register Delphi CE after restart; configure Windows x86/x64.",
+    "Finish correct official Delphi CE installation and open IDE; configure Windows x86/x64.",
     "Build native tests through Delphi GUI and run changed search plus affected integration/startup checks on both architectures.",
     "Build current main EXEs through Delphi GUI and smoke them in disposable profiles.",
-    "Resolve remaining x86 timing outlier with paired CPU-instrumented samples, then final requirement audit and cleanup."
+    "Final requirement audit and cleanup, including obsolete task-owned generic installer."
   ],
   "other_goal_evidence": [
     "docs/audits/2026-10-21-post530-validation.json",
     "docs/audits/2026-10-21-all-favorite-authors.json"
   ],
   "published_new_application_release": false,
-  "completion_audit_utc": "2026-10-21T21:33:24.497340+00:00",
+  "completion_audit_utc": "2026-10-22T04:04:53.331840+00:00",
   "completion_audit": {
     "updater_independent_results": {
       "state": "implementation and prior x86/x64 native evidence inspected; final-build regression pending",
@@ -172,9 +237,9 @@
       "proof": "Saved production code, 313 literal-oracle query cases on each actual shipped SQLite DLL, readonly source timings and exact cross-architecture ID/metadata equality",
       "missing": [
         "Current Delphi native builds/tests x86 and x64",
-        "Current main EXEs and fresh-profile UI smoke",
-        "CPU-instrumented confirmation of x86 no-hide outlier"
-      ]
+        "Current main EXEs and fresh-profile UI smoke"
+      ],
+      "cpu_confirmation": "Three paired repeats per architecture; identical old/new and cross-architecture IDs and metadata. Earlier x86 no-hide outlier not reproduced."
     },
     "alreader_fixed_source": {
       "state": "fixed release exists, exact one asset independently revalidated through live GitHub API",
@@ -216,7 +281,7 @@
       "fast_deferred_startup": "Prior x86/x64 native startup-deferred and startup-deferred-close tests passed; must rerun against newest compiled source. No schema/index/startup changes in literal-title patch.",
       "builds": "Current main EXEs predate newest title-search patch and are not claimed as final deliverables.",
       "user_data": "Latest real catalogue access was read-only with deny-write lease and source invariants checked. Literal semantic probes are memory-only; native fresh fixtures removed.",
-      "cleanup": "No new archives or catalogue copies created during resumed work. Deliberately retained one verified 302 MiB Delphi web installer for authorized CE installation. Previously policy-blocked test-fixture removals not retried. Four unrelated untracked startup-probe files untouched."
+      "cleanup": "No new application archives or catalogue copies. New small benchmark JSON reports retained as evidence. Correct signed CE installer downloaded after user supplied official email link; obsolete generic installer to be removed after successful installation. Previously policy-blocked fixture removals not retried; four unrelated startup-probe files untouched."
     }
   }
 }
