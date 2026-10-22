@@ -1,0 +1,41 @@
+{
+  "tag": "2.7.0_pre5.31",
+  "release_id": 420474759,
+  "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/2.7.0_pre5.31",
+  "source_commit": "4fbcdfbed0e024e98b917de426b536e0a247bcd6",
+  "verified_utc": "2026-10-22T08:40:22.190439+00:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "release_notes_exact": true,
+  "assets": [
+    {
+      "name": "HomeLibRu.zip",
+      "size": 30547600,
+      "sha256": "2163e881627f56dcf0354cea317a2a206611cdd1dd90931abaa3a125c76e2c39",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu.zip",
+      "public_download_verified": true,
+      "saved_to_disk": false
+    },
+    {
+      "name": "HomeLibRu_x64.zip",
+      "size": 34987752,
+      "sha256": "8cdf18bc8a369b2d2a88dc39f831ce0e981ca66e2052c551d03754d0b3dd9bbd",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/HomeLibRu_x64.zip",
+      "public_download_verified": true,
+      "saved_to_disk": false
+    },
+    {
+      "name": "SHA256.txt",
+      "size": 166,
+      "sha256": "d3dc6aa259b59e2608ff3f6bffd31db8c2f4716329786709900216b53e3bb6eb",
+      "url": "https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.31/SHA256.txt",
+      "public_download_verified": true,
+      "saved_to_disk": false
+    }
+  ],
+  "public_downloads_saved_to_disk": false,
+  "validation": "docs/audits/2026-10-22-pre531-final.json",
+  "fresh_test_profiles_and_extractions_removed": true,
+  "optional_component_archives_published_with_application": false
+}
