@@ -71,6 +71,68 @@ class ImageInput(unittest.TestCase):
         for extension in ['.epub','.fb2']:
             self.assertEqual(self.images(source,extension),[pages[1],pages[2],pages[0]])
 
+    def test_comic_expands_all_tiff_frames_in_page_order(self):
+        source=self.root/'frames.cbz'
+        first=fixed.png(bytes([30,60,90])*4,2,2)
+        last=fixed.png(bytes([90,60,30])*4,2,2)
+        with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('10.png',last)
+            archive.writestr('2.tiff',tiff())
+            archive.writestr('1.png',first)
+        for extension in ['.fb2','.epub']:
+            pictures=self.images(source,extension)
+            self.assertEqual([middle_pixel(p) for p in pictures],
+                             [(30,60,90),(32,80,176),(176,48,32),(90,60,30)])
+            self.assertEqual([pictures[0],pictures[-1]],[first,last])
+        self.assertFalse(list(self.root.glob('homelib-*')))
+
+    def test_corrupt_later_tiff_frame_does_not_publish_partial_book(self):
+        source=self.root/'damaged.cbz'
+        damaged=bytearray(tiff())
+        struct.pack_into('<I',damaged,8+2+10*12,len(damaged)+4096)
+        with zipfile.ZipFile(source,'w') as archive:
+            archive.writestr('1.tif',damaged)
+        for extension in ['.fb2','.epub']:
+            output=self.root/('failed'+extension)
+            with self.assertRaises(c.ConversionError):
+                c.convert_book(source,output,tools_root=TOOLS)
+            self.assertFalse(output.exists())
+        self.assertFalse(list(self.root.glob('homelib-*')))
+
+    def test_large_multipage_tiff_inside_comic_keeps_all_frames(self):
+        source=self.root/'large-frames.cbz'
+        with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
+            with archive.open('1.tiff','w') as entry:
+                entry.write(tiff())
+                # Valid TIFF padding exceeds the old single-picture limit.
+                for _ in range(17):entry.write(b'\0'*(1024*1024))
+        for extension in ['.fb2','.epub']:
+            pictures=self.images(source,extension)
+            self.assertEqual([middle_pixel(p) for p in pictures],[(32,80,176),(176,48,32)])
+        self.assertFalse(list(self.root.glob('homelib-*')))
+        with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('wrong-name.tiff',fixed.png(bytes([30,60,90])*4,2,2))
+        self.assertEqual([middle_pixel(p) for p in self.images(source,'.epub')],[(30,60,90)])
+        with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
+            with archive.open('1.png','w') as entry:
+                entry.write(fixed.png(bytes([30,60,90])*4,2,2))
+                for _ in range(17):entry.write(b'\0'*(1024*1024))
+        output=self.root/'oversized.epub'
+        with self.assertRaises(c.ConversionError):c.convert_book(source,output,tools_root=TOOLS)
+        self.assertFalse(output.exists())
+        self.assertFalse(list(self.root.glob('homelib-*')))
+
+    def test_large_tiff_passes_image_limit_without_relaxing_text_limit(self):
+        source=self.root/'large.unknown'
+        with source.open('wb') as stream:
+            stream.write(tiff());stream.truncate(65*1024*1024)
+        self.assertEqual(len(self.images(source,'.epub')),2)
+        source.write_bytes(b'plain text')
+        with source.open('ab') as stream:stream.truncate(65*1024*1024)
+        with self.assertRaises(c.ConversionError):
+            c.convert_book(source,self.root/'rejected.epub',tools_root=TOOLS)
+        self.assertFalse((self.root/'rejected.epub').exists())
+
     def test_webp_uses_actual_native_decoder_and_retains_alpha(self):
         source=self.root/'image.webp'
         source.write_bytes(base64.b64decode('UklGRjoAAABXRUJQVlA4TC4AAAAvAUAAEB8gJCBTshFGEAsmkcyfsFtIQBgm+79GFggQkqQ4sh4Eqt45foAQ0f8I'))

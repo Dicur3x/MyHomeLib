@@ -33,7 +33,7 @@ begin
     Tool := Settings.AppPath+'tools\kindle\python\python.exe';
     Script := Settings.AppPath+'tools\kindle\convert_kf8.py';
     if not FileExists(Tool) or not FileExists(Script) then
-      raise Exception.Create('Не найден компонент чтения Kindle. Проверьте комплектность папки программы.');
+      raise EMHLComponentRequired.Create('BookConverter','Для этой книги нужен модуль BookConverter.');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
     ResultStamp := 'kindleunpack-bf0ca6e-v4|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+

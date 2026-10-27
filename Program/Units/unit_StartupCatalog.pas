@@ -31,6 +31,7 @@ type
     FFileName: string;
     FCollectionID: Integer;
     FHideDeleted, FLocalOnly, FLoadPublisher: Boolean;
+    FLoadAuthors, FLoadSeries: Boolean;
     FData: TStartupCatalogData;
     FError: string;
     function Cancelled: Boolean;
@@ -38,7 +39,8 @@ type
     procedure Execute; override;
   public
     constructor Create(const FileName: string; CollectionID: Integer;
-      HideDeleted, LocalOnly, LoadPublisher: Boolean);
+      HideDeleted, LocalOnly, LoadPublisher: Boolean;
+      LoadAuthors: Boolean = True; LoadSeries: Boolean = True);
     destructor Destroy; override;
     function TakeData: TStartupCatalogData;
     property Error: string read FError;
@@ -103,11 +105,12 @@ begin
 end;
 
 constructor TStartupCatalogLoader.Create(const FileName: string; CollectionID: Integer;
-  HideDeleted, LocalOnly, LoadPublisher: Boolean);
+  HideDeleted, LocalOnly, LoadPublisher, LoadAuthors, LoadSeries: Boolean);
 begin
   inherited Create(True);
   FFileName := FileName; FCollectionID := CollectionID;
   FHideDeleted := HideDeleted; FLocalOnly := LocalOnly; FLoadPublisher := LoadPublisher;
+  FLoadAuthors := LoadAuthors; FLoadSeries := LoadSeries;
 end;
 
 destructor TStartupCatalogLoader.Destroy;
@@ -153,10 +156,12 @@ begin
         if FData.BookCount > 500 then SeriesFilter := 'А' else SeriesFilter := ALPHA_FILTER_ALL;
       FData.Collection.SetAuthorFilterType(LetterFilter(AuthorFilter));
       FData.Collection.SetSeriesFilterType(LetterFilter(SeriesFilter));
-      FData.Authors := TRecordArrayIterator<TAuthorData>.Capture(FData.Collection.GetAuthorIterator(amFullFilter),
-        function: Boolean begin Result := Cancelled; end);
-      FData.Series := TRecordArrayIterator<TSeriesData>.Capture(FData.Collection.GetSeriesIterator(smFullFilter),
-        function: Boolean begin Result := Cancelled; end);
+      if FLoadAuthors then
+        FData.Authors := TRecordArrayIterator<TAuthorData>.Capture(FData.Collection.GetAuthorIterator(amFullFilter),
+          function: Boolean begin Result := Cancelled; end);
+      if FLoadSeries then
+        FData.Series := TRecordArrayIterator<TSeriesData>.Capture(FData.Collection.GetSeriesIterator(smFullFilter),
+          function: Boolean begin Result := Cancelled; end);
       if FLoadPublisher then
         FData.PublisherSeries := TRecordArrayIterator<TSeriesData>.Capture(FData.Collection.GetPublisherSeriesIterator(''),
           function: Boolean begin Result := Cancelled; end);

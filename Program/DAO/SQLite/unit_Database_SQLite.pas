@@ -31,6 +31,10 @@ uses
 type
   TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
   strict private type
+    TStreamAuthor = record
+      Data: TAuthorData;
+      NullNames: Byte;
+    end;
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
     public
       constructor Create(
@@ -58,19 +62,26 @@ type
       FCollectionID: Integer; // Active collection's ID at the time the iterator was created
       FCollectionRoot: string;
       FCollectionName: string;
+      FLastSourcePrefix, FLastSourceName: string;
       FLoadMemos: Boolean;
       FMode: TBookIteratorMode;
       FQueryBatchStarted: Boolean;
       FExpandSearchSeries: Boolean;
       FMatchedViewID: string;
+      FDirectVisibleSearch: Boolean;
       FLastStreamBook: TBookRecord;
       FSelectedSeriesID: Integer;
       FSelectedSeriesTitle: string;
       FHasLastDate: Boolean;
       FLastDateText: string;
       FLastDateValue: TDateTime;
-      FStreamAuthors: TDictionary<Integer, TAuthorData>;
+      FStreamAuthors: TDictionary<Integer, TStreamAuthor>;
+      FAllStreamAuthors: Boolean;
+      FStreamAuthorNullNames: TArray<Byte>;
+      FRepeatedBookFields: array[0..26] of TSQLiteTextCache;
+      FRepeatedGenre, FRepeatedPublisherSeries: TSQLiteTextCache;
 
+      function TryLoadAllAuthors: Boolean;
       procedure PrepareData(const Mode: TBookIteratorMode; const FilterValue: PFilterValue; const SearchCriteria: TBookSearchCriteria);
       procedure PrepareSearchData(const SearchCriteria: TBookSearchCriteria);
     end;
@@ -333,6 +344,7 @@ type
 implementation
 
 uses
+  {$IFDEF MHL_SQL_PROFILE}SQLiteProfile,{$ENDIF}
   Windows,
   Character,
   Generics.Collections,
@@ -732,7 +744,18 @@ begin
     PrepareData(Mode, FilterValue, SearchCriteria);
   if Assigned(FAuthors) then
   begin
-    FStreamAuthors := TDictionary<Integer, TAuthorData>.Create;
+    FStreamAuthors := TDictionary<Integer, TStreamAuthor>.Create;
+    SetLength(FStreamAuthorNullNames, 8);
+    if ((Mode = bmAll) or FDirectVisibleSearch) and not FBooks.Eof and TryLoadAllAuthors then
+    begin
+      // The full list reuses author names across millions of relationships.
+      // Read each bounded name once and scan only the covering link index.
+      FreeAndNil(FAuthors);
+      FAuthors := FCollection.FDatabase.NewQuery(
+        'SELECT BookID,AuthorID FROM Author_List ORDER BY BookID,AuthorID');
+      FAuthors.Open;
+      FAllStreamAuthors := True;
+    end;
     FPublisherSeries := FCollection.FDatabase.NewQuery(
       'SELECT sl.BookID,s.SeriesID,s.SeriesTitle,sl.SeqNumber FROM PublisherSeries_List sl ' +
       'JOIN PublisherSeries s ON s.SeriesID=sl.SeriesID ' +
@@ -740,6 +763,55 @@ begin
       'ORDER BY sl.BookID,sl.OrdNum,s.SeriesID');
     FPublisherSeries.Open;
   end;
+end;
+
+function TBookCollection_SQLite.TBookIteratorImpl.TryLoadAllAuthors: Boolean;
+const
+  MaxAuthors = 262144;
+  MaxNameBytes = 16 * 1024 * 1024;
+var
+  Query: TSQLiteQuery;
+  Author: TStreamAuthor;
+  AuthorKey: Int64;
+begin
+  Result := False;
+  // Bound both row and text storage before allocating Unicode names. Large
+  // or unusual catalogues retain the existing joined stream and small cache.
+  Query := FCollection.FDatabase.NewQuery(
+    'SELECT COUNT(*),SUM(COALESCE(length(CAST(LastName AS BLOB)),0)+' +
+    'COALESCE(length(CAST(FirstName AS BLOB)),0)+' +
+    'COALESCE(length(CAST(MiddleName AS BLOB)),0)) FROM Authors');
+  try
+    Query.Open;
+    if (Query.FieldAsInt(0) > MaxAuthors) or
+      (Query.FieldAsInt(1) > MaxNameBytes) then Exit;
+  finally Query.Free; end;
+  Query := FCollection.FDatabase.NewQuery(
+    'SELECT AuthorID,LastName,FirstName,MiddleName FROM Authors');
+  try
+    Query.Open;
+    while not Query.Eof do
+    begin
+      AuthorKey := Query.FieldAsInt(0);
+      if (AuthorKey < Low(Integer)) or (AuthorKey > High(Integer)) then
+      begin
+        // An unrelated out-of-range ID must not break a previously readable
+        // list merely because this optimization also examined unused authors.
+        FStreamAuthors.Clear;
+        Exit;
+      end;
+      Author := Default(TStreamAuthor);
+      Author.Data.AuthorID := Integer(AuthorKey);
+      Author.Data.LastName := Query.FieldAsString(1);
+      Author.Data.FirstName := Query.FieldAsString(2);
+      Author.Data.MiddleName := Query.FieldAsString(3);
+      Author.NullNames := Ord(Query.FieldIsNull(1)) or
+        (Ord(Query.FieldIsNull(2)) shl 1) or (Ord(Query.FieldIsNull(3)) shl 2);
+      FStreamAuthors.Add(Author.Data.AuthorID, Author);
+      Query.Next;
+    end;
+    Result := True;
+  finally Query.Free; end;
 end;
 
 destructor TBookCollection_SQLite.TBookIteratorImpl.Destroy;
@@ -767,7 +839,7 @@ function TBookCollection_SQLite.BookDisplaySource(const LibID: string; const Def
 var JSON, Item: TJSONValue; Values: TJSONArray; Obj: TJSONObject; ID: string;
 begin
   Result := DefaultName;
-  if Copy(LibID, 1, 7) <> 'merged:' then Exit;
+  if not LibID.StartsWith('merged:') then Exit;
   if not Assigned(FSourceDisplayNames) then
   begin
     FSourceDisplayNames := TStringList.Create;
@@ -796,14 +868,43 @@ var
   Genre: TGenreData;
   GenreCount: Integer;
   DateText: string;
-  Author: TAuthorData;
-  AuthorID, AuthorCount: Integer;
+  Author: TStreamAuthor;
+  AuthorID, AuthorCount, AuthorPosition: Integer;
+  {$IFDEF MHL_SQL_PROFILE}
+  SampleStarted: Int64;
+  procedure SampleMark(const Name: string);
+  begin
+    if SampleStarted=0 then Exit;
+    RecordSQLiteProfile('iterator-sample','phase',Name,SampleStarted);
+    SampleStarted:=SQLiteIteratorProfileClock;
+  end;
+  {$ENDIF}
+
+  function CompareAuthors(const Left, Right: TAuthorData; LeftNull, RightNull: Byte): Integer;
+    function CompareName(const LeftName, RightName: string; NullMask: Byte): Integer;
+    begin
+      if (LeftNull and NullMask) <> (RightNull and NullMask) then
+        Exit(Ord((RightNull and NullMask) <> 0) - Ord((LeftNull and NullMask) <> 0));
+      Result := CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE,
+        PWideChar(LeftName), Length(LeftName), PWideChar(RightName), Length(RightName)) - CSTR_EQUAL;
+    end;
+  begin
+    Result := CompareName(Left.LastName, Right.LastName, 1);
+    if Result = 0 then Result := CompareName(Left.FirstName, Right.FirstName, 2);
+    if Result = 0 then Result := CompareName(Left.MiddleName, Right.MiddleName, 4);
+  end;
 begin
   Result := not FBooks.Eof;
 
   if Result then
   begin
     BookID := FBooks.FieldAsInt(0);
+    {$IFDEF MHL_SQL_PROFILE}
+    // Diagnose approximately one row in 512; no per-SQL-step timers.
+    // Everything in this conditional is absent from ordinary Release builds.
+    SampleStarted:=0;
+    if (BookID and 511)=17 then SampleStarted:=SQLiteIteratorProfileClock;
+    {$ENDIF}
 
     // The genre page may contain tens of thousands of books. Its iterator uses
     // three ordered result sets (books, authors and genres), avoiding several
@@ -817,15 +918,15 @@ begin
       BookRecord.Clear;
       BookRecord.BookKey := CreateBookKey(BookID, FCollectionID);
       BookRecord.Title := FBooks.FieldAsString(1);
-      BookRecord.Folder := FBooks.FieldAsString(2);
+      BookRecord.Folder := FBooks.FieldAsSharedString(2, FRepeatedBookFields[2]);
       BookRecord.FileName := FBooks.FieldAsString(3);
-      BookRecord.FileExt := FBooks.FieldAsString(4);
+      BookRecord.FileExt := FBooks.FieldAsSharedString(4, FRepeatedBookFields[4]);
       BookRecord.InsideNo := FBooks.FieldAsInt(5);
       if not FBooks.FieldIsNull(6) then
       begin
         BookRecord.SeriesID := FBooks.FieldAsInt(6);
         BookRecord.SeqNumber := FBooks.FieldAsInt(7);
-        BookRecord.Series := FBooks.FieldAsString(25);
+        BookRecord.Series := FBooks.FieldAsSharedString(25, FRepeatedBookFields[25]);
       end;
       BookRecord.Size := FBooks.FieldAsInt(8);
       BookRecord.LibID := FBooks.FieldAsString(9);
@@ -835,7 +936,7 @@ begin
         Include(BookRecord.BookProps, bpIsLocal);
       // INPX dates commonly repeat across adjacent rows. Keep the existing
       // parser and its validation, but do not parse the same date per book.
-      DateText := FBooks.FieldAsString(12);
+      DateText := FBooks.FieldAsSharedString(12, FRepeatedBookFields[12]);
       if not FHasLastDate or (DateText <> FLastDateText) then
       begin
         FLastDateValue := FBooks.FieldAsDateTime(12);
@@ -843,9 +944,9 @@ begin
         FHasLastDate := True;
       end;
       BookRecord.Date := FLastDateValue;
-      BookRecord.Lang := FBooks.FieldAsString(13);
+      BookRecord.Lang := FBooks.FieldAsSharedString(13, FRepeatedBookFields[13]);
       BookRecord.LibRate := FBooks.FieldAsInt(14);
-      BookRecord.KeyWords := FBooks.FieldAsString(15);
+      BookRecord.KeyWords := FBooks.FieldAsSharedString(15, FRepeatedBookFields[15]);
       BookRecord.Rate := FBooks.FieldAsInt(16);
       BookRecord.Progress := FBooks.FieldAsInt(17);
       if not FBooks.FieldIsNull(18) then
@@ -855,28 +956,51 @@ begin
         BookRecord.Review := FBooks.FieldAsBlobString(18);
         BookRecord.Annotation := FBooks.FieldAsString(19);
       end;
-      BookRecord.Translators := FBooks.FieldAsString(20);
-      BookRecord.Publisher := FBooks.FieldAsString(21);
-      BookRecord.City := FBooks.FieldAsString(22);
+      BookRecord.Translators := FBooks.FieldAsSharedString(20, FRepeatedBookFields[20]);
+      BookRecord.Publisher := FBooks.FieldAsSharedString(21, FRepeatedBookFields[21]);
+      BookRecord.City := FBooks.FieldAsSharedString(22, FRepeatedBookFields[22]);
       if not FBooks.FieldIsNull(23) then
         BookRecord.PubYear := FBooks.FieldAsInt(23);
       BookRecord.ISBN := FBooks.FieldAsString(24);
+      {$IFDEF MHL_SQL_PROFILE}SampleMark('book fields');{$ENDIF}
       BookRecord.CollectionRoot := FCollectionRoot;
       // Resolve only sources belonging to the returned rows. Eagerly caching
       // this table used to load millions of unrelated names at the first book.
-      if not FBooks.FieldIsNull(26) then BookRecord.CollectionName := FBooks.FieldAsString(26)
-      else BookRecord.CollectionName := FCollection.BookDisplaySource(BookRecord.LibID, FCollectionName);
+      if not FBooks.FieldIsNull(26) then BookRecord.CollectionName := FBooks.FieldAsSharedString(26, FRepeatedBookFields[26])
+      else if (FLastSourcePrefix <> '') and BookRecord.LibID.StartsWith(FLastSourcePrefix) then
+        BookRecord.CollectionName := FLastSourceName
+      else
+      begin
+        BookRecord.CollectionName := FCollection.BookDisplaySource(BookRecord.LibID, FCollectionName);
+        // Reuse only within this iterator. Independent lists keep independent
+        // names, and reopening after source edits reads the current mapping.
+        if (Length(BookRecord.LibID) >= 45) and BookRecord.LibID.StartsWith('merged:') then
+        begin
+          FLastSourcePrefix := Copy(BookRecord.LibID, 1, 45);
+          FLastSourceName := BookRecord.CollectionName;
+        end;
+      end;
 
+      {$IFDEF MHL_SQL_PROFILE}SampleMark('source name');{$ENDIF}
+      // Ordered metadata may also contain deleted books omitted by FBooks.
+      // Advance each stream to the current visible ID without another Books join.
+      while not FAuthors.Eof and (FAuthors.FieldAsInt(0) < BookID) do
+        FAuthors.Next;
       while not FAuthors.Eof and (FAuthors.FieldAsInt(0) = BookID) do
       begin
         AuthorID := FAuthors.FieldAsInt(1);
         if not FStreamAuthors.TryGetValue(AuthorID, Author) then
         begin
-          Author := Default(TAuthorData);
-          Author.AuthorID := AuthorID;
-          Author.LastName := FAuthors.FieldAsString(2);
-          Author.FirstName := FAuthors.FieldAsString(3);
-          Author.MiddleName := FAuthors.FieldAsString(4);
+          // Match the former INNER JOIN when a damaged catalogue contains a
+          // dangling link. Never manufacture an empty author from that ID.
+          if FAllStreamAuthors then begin FAuthors.Next; Continue; end;
+          Author := Default(TStreamAuthor);
+          Author.Data.AuthorID := AuthorID;
+          Author.Data.LastName := FAuthors.FieldAsString(2);
+          Author.Data.FirstName := FAuthors.FieldAsString(3);
+          Author.Data.MiddleName := FAuthors.FieldAsString(4);
+          Author.NullNames := Ord(FAuthors.FieldIsNull(2)) or
+            (Ord(FAuthors.FieldIsNull(3)) shl 1) or (Ord(FAuthors.FieldIsNull(4)) shl 2);
           // Scope and bound this cache to one live iterator. Reopened views
           // always read current names; huge catalogues cannot grow it forever.
           if FStreamAuthors.Count >= 8192 then FStreamAuthors.Clear;
@@ -884,24 +1008,42 @@ begin
         end;
         AuthorCount := Length(BookRecord.Authors);
         SetLength(BookRecord.Authors, AuthorCount + 1);
-        BookRecord.Authors[AuthorCount] := Author;
+        if AuthorCount = Length(FStreamAuthorNullNames) then
+          SetLength(FStreamAuthorNullNames, AuthorCount * 2);
+        // Most books have one author. Sort only actual coauthors, using the
+        // same Windows collation and NULL-first rules as the former SQL sort.
+        AuthorPosition := AuthorCount;
+        while (AuthorPosition > 0) and
+          (CompareAuthors(Author.Data, BookRecord.Authors[AuthorPosition - 1],
+            Author.NullNames, FStreamAuthorNullNames[AuthorPosition - 1]) < 0) do
+        begin
+          BookRecord.Authors[AuthorPosition] := BookRecord.Authors[AuthorPosition - 1];
+          FStreamAuthorNullNames[AuthorPosition] := FStreamAuthorNullNames[AuthorPosition - 1];
+          Dec(AuthorPosition);
+        end;
+        BookRecord.Authors[AuthorPosition] := Author.Data;
+        FStreamAuthorNullNames[AuthorPosition] := Author.NullNames;
         FAuthors.Next;
       end;
 
+      {$IFDEF MHL_SQL_PROFILE}SampleMark('authors');{$ENDIF}
+      while not FGenres.Eof and (FGenres.FieldAsInt(0) < BookID) do
+        FGenres.Next;
       while not FGenres.Eof and (FGenres.FieldAsInt(0) = BookID) do
       begin
-        FCollection.GetGenre(FGenres.FieldAsString(1), Genre);
+        FCollection.GetGenre(FGenres.FieldAsSharedString(1, FRepeatedGenre), Genre);
         GenreCount := Length(BookRecord.Genres);
         SetLength(BookRecord.Genres, GenreCount + 1);
         BookRecord.Genres[GenreCount] := Genre;
         FGenres.Next;
       end;
+      {$IFDEF MHL_SQL_PROFILE}SampleMark('genres');{$ENDIF}
       while not FPublisherSeries.Eof and (FPublisherSeries.FieldAsInt(0) < BookID) do
         FPublisherSeries.Next;
       while not FPublisherSeries.Eof and (FPublisherSeries.FieldAsInt(0) = BookID) do
       begin
         TSeriesHelper.Add(BookRecord.PublisherSeries, FPublisherSeries.FieldAsInt(1),
-          FPublisherSeries.FieldAsString(2), FPublisherSeries.FieldAsInt(3), False);
+          FPublisherSeries.FieldAsSharedString(2, FRepeatedPublisherSeries), FPublisherSeries.FieldAsInt(3), False);
         FPublisherSeries.Next;
       end;
       BookRecord.PublisherSeriesKnown := True;
@@ -910,6 +1052,7 @@ begin
           BookRecord.Genres[0].GenreCode
         );
       if FExpandSearchSeries then FLastStreamBook := BookRecord;
+      {$IFDEF MHL_SQL_PROFILE}SampleMark('publisher and root genre');{$ENDIF}
       end;
     end
     else
@@ -937,6 +1080,7 @@ begin
       BookRecord.SeqNumber := FBooks.FieldAsInt(27);
     end;
     FBooks.Next;
+    {$IFDEF MHL_SQL_PROFILE}SampleMark('next book');{$ENDIF}
   end;
 end;
 
@@ -1123,7 +1267,7 @@ begin
       'SELECT al.BookID, a.AuthorID, a.LastName, a.FirstName, a.MiddleName ' +
       'FROM Author_List al INNER JOIN Authors a ON a.AuthorID = al.AuthorID ' +
       'WHERE al.BookID IN (' + MatchedBooksSQL + ') ' +
-      'ORDER BY al.BookID, a.LastName, a.FirstName, a.MiddleName';
+      'ORDER BY al.BookID, al.AuthorID';
 
     SQLGenres :=
       'SELECT gl.BookID, gl.GenreCode FROM Genre_List gl ' +
@@ -1390,6 +1534,10 @@ begin
       2: AddToFilter('b.IsLocal ', '= 0', False, FilterString);
     end;
 
+    // The ordinary "all non-deleted books" view does not need a second copy
+    // of every matching ID. Keep more selective/compound searches materialized.
+    FDirectVisibleSearch:=SearchCriteria.Deleted and (SQLRows='') and
+      (FilterString='') and not SearchCriteria.Readed;
     if SearchCriteria.Deleted then
       AddToFilter('b.IsDeleted ', '= 0', False, FilterString);
 
@@ -1423,12 +1571,16 @@ begin
   begin
     // An unrestricted search can return the whole library. Read its metadata
     // in ordered streams instead of opening several new queries for every book.
-    CreateGUID(MatchID);
-    FMatchedViewID := GUIDToString(MatchID);
-    MatchQuery := FCollection.FDatabase.NewQuery('INSERT INTO temp.MHLGenreMatches SELECT ' +
-      QuotedStr(FMatchedViewID) + ', BookID FROM (' + SQLRows + ')');
-    try MatchQuery.Open; finally MatchQuery.Free; end;
-    MatchedBooksSQL := 'SELECT BookID FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
+    MatchedBooksSQL:='';
+    if not FDirectVisibleSearch then
+    begin
+      CreateGUID(MatchID);
+      FMatchedViewID := GUIDToString(MatchID);
+      MatchQuery := FCollection.FDatabase.NewQuery('INSERT INTO temp.MHLGenreMatches SELECT ' +
+        QuotedStr(FMatchedViewID) + ', BookID FROM (' + SQLRows + ')');
+      try MatchQuery.Open; finally MatchQuery.Free; end;
+      MatchedBooksSQL := 'SELECT BookID FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
+    end;
     if FLoadMemos then MemoFields := 'b.Review, b.Annotation, '
     else MemoFields := 'CASE WHEN b.Review IS NULL THEN NULL ELSE 1 END, NULL, ';
     SQLRows := 'SELECT b.BookID,b.Title,b.Folder,b.FileName,b.Ext,b.InsideNo,' +
@@ -1441,22 +1593,43 @@ begin
       'LEFT JOIN Series primaryseries ON primaryseries.SeriesID=b.SeriesID ';
     if FExpandSearchSeries then
       SQLRows := SQLRows + 'LEFT JOIN Series_List sl ON sl.BookID=b.BookID LEFT JOIN Series s ON s.SeriesID=sl.SeriesID ';
-    SQLRows := SQLRows + 'WHERE b.BookID IN (' + MatchedBooksSQL + ') ';
+    if FDirectVisibleSearch then SQLRows:=SQLRows+'WHERE b.IsDeleted=0 '
+    else SQLRows := SQLRows + 'WHERE b.BookID IN (' + MatchedBooksSQL + ') ';
     if FExpandSearchSeries and (SeriesFilterString <> '') then
       SQLRows := SQLRows + 'AND (' + SeriesFilterString + ') ';
     SQLRows := SQLRows + 'ORDER BY b.BookID';
     if FExpandSearchSeries then SQLRows := SQLRows + ',sl.IsPrimary DESC,sl.OrdNum,sl.SeriesID';
+    if FDirectVisibleSearch then
+    begin
+      // Books already determines visibility. Scan the ordered relationship
+      // indexes once, skipping omitted IDs in Next rather than joining Books
+      // again for every author and genre of the complete catalogue.
+      FAuthors:=FCollection.FDatabase.NewQuery(
+        'SELECT al.BookID,a.AuthorID,a.LastName,a.FirstName,a.MiddleName FROM Author_List al ' +
+        'JOIN Authors a ON a.AuthorID=al.AuthorID ORDER BY al.BookID,al.AuthorID');
+      FGenres:=FCollection.FDatabase.NewQuery(
+        'SELECT gl.BookID,gl.GenreCode FROM Genre_List gl ORDER BY gl.BookID,gl.GenreCode');
+    end
+    else
+    begin
     FAuthors := FCollection.FDatabase.NewQuery(
       'SELECT al.BookID,a.AuthorID,a.LastName,a.FirstName,a.MiddleName FROM Author_List al ' +
       'JOIN Authors a ON a.AuthorID=al.AuthorID WHERE al.BookID IN (' + MatchedBooksSQL +
-      ') ORDER BY al.BookID,a.LastName,a.FirstName,a.MiddleName');
+      ') ORDER BY al.BookID,al.AuthorID');
     FGenres := FCollection.FDatabase.NewQuery('SELECT gl.BookID,gl.GenreCode FROM Genre_List gl ' +
       'WHERE gl.BookID IN (' + MatchedBooksSQL + ') ORDER BY gl.BookID,gl.GenreCode');
+    end;
   end;
 
   // Counts do not need full book metadata or an ordered result set.
   SQLCount := 'SELECT COUNT(*) FROM temp.MHLGenreMatches WHERE ViewID=' + QuotedStr(FMatchedViewID);
-  if FExpandSearchSeries then
+  if FDirectVisibleSearch then
+  begin
+    SQLCount:='SELECT COUNT(*) FROM Books b ';
+    if FExpandSearchSeries then SQLCount:=SQLCount+'LEFT JOIN Series_List sl ON sl.BookID=b.BookID ';
+    SQLCount:=SQLCount+'WHERE b.IsDeleted=0';
+  end
+  else if FExpandSearchSeries then
   begin
     SQLCount := 'SELECT COUNT(*) FROM temp.MHLGenreMatches m LEFT JOIN Series_List sl ON sl.BookID=m.BookID ';
     if SeriesFilterString <> '' then

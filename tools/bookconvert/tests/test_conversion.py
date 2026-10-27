@@ -207,6 +207,39 @@ class ConversionTests(unittest.TestCase):
         data=('<?xml version="1.0" encoding="windows-1251"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "https://invalid.example/xhtml.dtd"><html xmlns="'+c.XH+'"><body><p>Текст&nbsp;&copy; конец</p></body></html>').encode('cp1251')
         self.assertEqual(c.plain(c.xhtml(data)),'Текст\u00a0© конец')
         with self.assertRaises(c.ConversionError): c.xhtml(b'<!DOCTYPE html [<!ENTITY mine "x">]><html>&mine;</html>')
+    def test_legacy_epub_reexport_keeps_bytes_and_validates_named_entities(self):
+        source = self.generic()
+        with zipfile.ZipFile(source) as archive:
+            original = {n: archive.read(n) for n in archive.namelist()}
+        original['OPS/chapter.xml'] = original.pop('OPS/chapter.xhtml')
+        original['OPS/package.opf'] = original['OPS/package.opf'].replace(b'chapter.xhtml', b'chapter.xml')
+        content = ('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" '
+                   '"https://invalid.example/never-fetch.dtd"><html xmlns="'+c.XH+
+                   '"><body><p>Полный текст&nbsp;&copy; и конец</p></body></html>')
+        for index, encoding in enumerate(('utf-8', 'windows-1251', 'utf-16')):
+            with self.subTest(encoding=encoding):
+                chapter = ('<?xml version="1.0" encoding="'+encoding+'"?>'+content).encode(encoding)
+                entries = dict(original, **{'OPS/chapter.xml': chapter})
+                with zipfile.ZipFile(source, 'w') as archive:
+                    for name, data in entries.items(): archive.writestr(name, data)
+                before = source.read_bytes(); target = self.root / ('legacy-'+str(index)+'.epub')
+                c.convert_book(source, target)
+                self.assertEqual(target.read_bytes(), before)
+                repaired = self.root / ('kindle-legacy-'+str(index)+'.epub')
+                c.kindle_epub(source, repaired)
+                with zipfile.ZipFile(repaired) as archive:
+                    self.assertEqual(archive.read('OPS/chapter.xml'), chapter)
+                self.assertEqual(source.read_bytes(), before)
+        for index, chapter in enumerate((content.replace('&nbsp;', '&unknown;'),
+                '<!DOCTYPE html [<!ENTITY a "replacement">]><html xmlns="'+c.XH+'"><body><p>&a;</p></body></html>',
+                content.replace('</p>', '</broken>'))):
+            entries = dict(original, **{'OPS/chapter.xml': chapter.encode('utf-8')})
+            with zipfile.ZipFile(source, 'w') as archive:
+                for name, data in entries.items(): archive.writestr(name, data)
+            target = self.root / ('invalid-legacy-'+str(index)+'.epub'); before = source.read_bytes()
+            with self.assertRaises(c.ConversionError): c.convert_book(source, target)
+            self.assertFalse(target.exists()); self.assertEqual(source.read_bytes(), before)
+
     def test_generated_chapter_ids_do_not_collide_with_source_ids(self):
         text=self.source.read_text(encoding='utf-8').replace('<section id="one">','<section id="chapter-1">').replace('<section id="two">','<section>')
         source=self.root/'ids.fb2'; source.write_text(text,encoding='utf-8'); output=self.root/'ids.epub'

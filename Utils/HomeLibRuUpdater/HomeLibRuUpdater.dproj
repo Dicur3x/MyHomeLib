@@ -11,8 +11,8 @@
         <VerInfo_MajorVer>2</VerInfo_MajorVer>
         <VerInfo_MinorVer>7</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1101</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLib Ru update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.33;FileVersion=2.7.0.1101;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_Build>1102</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLib update helper;ProductName=HomeLib Ru;ProductVersion=2.7.0_pre5.34;FileVersion=2.7.0.1102;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
@@ -26,6 +26,8 @@
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_Assertions>true</DCC_Assertions>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
         <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>

@@ -31,7 +31,9 @@ procedure ExportToDevice(
   const ADeviceShellItem: IShellItem = nil;
   const AUseMTP: Boolean = False;
   const ExplicitFormat: Boolean = False;
-  const OnMissingComponent: TProc<string> = nil
+  const OnMissingComponent: TProc<string> = nil;
+  const ImageQuality: string = 'ask';
+  const KeepSourceFormat: Boolean = False
   ); overload;
 
 procedure ExportToDevice(
@@ -44,7 +46,9 @@ procedure ExportToDevice(
   const ADeviceShellItem: IShellItem = nil;
   const AUseMTP: Boolean = False;
   const ExplicitFormat: Boolean = False;
-  const OnMissingComponent: TProc<string> = nil
+  const OnMissingComponent: TProc<string> = nil;
+  const ImageQuality: string = 'ask';
+  const KeepSourceFormat: Boolean = False
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -63,7 +67,7 @@ uses
   frm_DownloadProgressForm;
 
 resourcestring
-  rstrSendToDevice = 'Отправить на устройство';
+  rstrSendToDevice = 'Сохранение книг';
   rstrExportAsFormat = 'Экспорт в %s';
   rstrDownloadingBooks = 'Скачивание книг';
   rstrConverterNotFound = 'Не установлен конвертер для выбранного формата:' + CRLF +
@@ -80,12 +84,14 @@ procedure ExportToDevice(
   const ADeviceShellItem: IShellItem;
   const AUseMTP: Boolean;
   const ExplicitFormat: Boolean;
-  const OnMissingComponent: TProc<string>
+  const OnMissingComponent: TProc<string>;
+  const ImageQuality: string;
+  const KeepSourceFormat: Boolean
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
-    ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent);
+    ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality, KeepSourceFormat);
 end;
 
 procedure ExportToDevice(
@@ -98,7 +104,9 @@ procedure ExportToDevice(
   const ADeviceShellItem: IShellItem;
   const AUseMTP: Boolean;
   const ExplicitFormat: Boolean;
-  const OnMissingComponent: TProc<string>
+  const OnMissingComponent: TProc<string>;
+  const ImageQuality: string;
+  const KeepSourceFormat: Boolean
   );
 var
   worker: TExportToDeviceThread;
@@ -128,6 +136,8 @@ begin
     worker.ExtractOnly := ExtractOnly;
     worker.UseMTP := AUseMTP;
     worker.ExplicitFormat := ExplicitFormat;
+    worker.ShowImageQualityChoice := not ExtractOnly and (Mode in [emFB2, emFB2Zip, emEpub]);
+    worker.ImageQuality:=ImageQuality; worker.KeepSourceFormat:=KeepSourceFormat;
 
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin
@@ -139,10 +149,12 @@ begin
     try
       if ExplicitFormat then
       begin
-        if Mode = emEpub then
-          frmProgress.Caption := Format(rstrExportAsFormat, ['EPUB'])
-        else
-          frmProgress.Caption := Format(rstrExportAsFormat, ['FB2']);
+        case Mode of
+          emFB2: ConverterPath:='FB2'; emFB2Zip: ConverterPath:='FB2 в ZIP';
+          emEpub: ConverterPath:='EPUB'; emTxt: ConverterPath:='TXT';
+          emLrf: ConverterPath:='LRF'; emPDF: ConverterPath:='PDF'; emMobi: ConverterPath:='MOBI';
+        end;
+        frmProgress.Caption := Format(rstrExportAsFormat,[ConverterPath]);
       end
       else
         frmProgress.Caption := rstrSendToDevice;

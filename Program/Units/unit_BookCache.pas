@@ -81,6 +81,7 @@ var CacheGuard: TObject; SessionCachePath, LegacyRoot: string;
   CacheIndex: TDictionary<string,TCacheEntry>;
   ReaderPins: TDictionary<string,UInt64>; Writers: TList<TBookCacheWrite>;
   InputDigests: TDictionary<string,TCacheInputDigest>;
+  NextAgeSweep: UInt64; LastAgePolicy: TBookCachePolicy; LastAgeDays: Integer;
 procedure StartCacheMigration; forward;
 procedure StartMaintenance; forward;
 
@@ -300,6 +301,7 @@ begin
             RetiredIndex:=CacheIndex; CacheIndex:=Replacement; Replacement:=nil;
             TInterlocked.Exchange(IndexBytes,Total); IndexReady:=True; LastRefresh:=GetTickCount64;
             CacheRetired:=False; for Entry in CacheIndex.Values do if Entry.Retired then begin CacheRetired:=True; Break; end;
+            NextAgeSweep:=0;
           finally TMonitor.Exit(CacheGuard); end;
         finally Replacement.Free; RetiredIndex.Free; end;
         TrimBookCache; Exit;
@@ -384,21 +386,33 @@ begin
 end;
 
 procedure TrimBookCache(const KeepFile: string);
-var List: TList<TCacheEntry>; Entry: TCacheEntry; Total, Limit: Int64; PinUntil: UInt64;
-  Removed, MirrorRemoved: Boolean;
+var List: TList<TCacheEntry>; Entry: TCacheEntry; Total, Limit: Int64; PinUntil, NowStamp, Cutoff, AgeSpan: UInt64;
+  Removed, MirrorRemoved, BySize, ByAge, SweepAge: Boolean; Time: TFileTime;
 begin
   if Closing then Exit;
   TMonitor.Enter(CacheGuard);
   try
     if not IndexReady then Exit;
+    BySize:=Settings.BookCachePolicy in [bcpSize,bcpSizeAndAge];
+    ByAge:=Settings.BookCachePolicy in [bcpAge,bcpSizeAndAge];
+    SweepAge:=ByAge and ((NextAgeSweep=0) or (GetTickCount64>=NextAgeSweep) or
+      (LastAgePolicy<>Settings.BookCachePolicy) or (LastAgeDays<>Settings.BookCacheKeepDays));
     Limit:=Int64(Settings.BookCacheLimitMB)*1024*1024;
-    if (IndexBytes<=Limit) and not CacheRetired then Exit;
+    if (not BySize or (IndexBytes<=Limit)) and not CacheRetired and not SweepAge then Exit;
+    Cutoff:=0;
+    if ByAge then
+    begin
+      GetSystemTimeAsFileTime(Time); NowStamp:=UInt64(Time.dwHighDateTime) shl 32 or Time.dwLowDateTime;
+      AgeSpan:=UInt64(Settings.BookCacheKeepDays)*86400*10000000;
+      if NowStamp>AgeSpan then Cutoff:=NowStamp-AgeSpan;
+      NextAgeSweep:=GetTickCount64+60000; LastAgePolicy:=Settings.BookCachePolicy; LastAgeDays:=Settings.BookCacheKeepDays;
+    end;
     List:=LogicalEntries;
     try
       Total:=0; CacheRetired:=False; for Entry in List do
       begin Inc(Total,Entry.Size); if Entry.Retired then CacheRetired:=True; end;
       Limit:=Int64(Settings.BookCacheLimitMB)*1024*1024;
-      if Total<=Limit then
+      if (not BySize or (Total<=Limit)) and not ByAge then
       begin
         Removed:=False; for Entry in List do if Entry.Retired then begin Removed:=True; Break; end;
         if not Removed then Exit;
@@ -409,7 +423,7 @@ begin
       for Entry in List do
         if not Entry.Temporary and not SameFileName(Entry.Name,KeepFile) and
           ((Entry.Mirror='') or not SameFileName(Entry.Mirror,KeepFile)) and
-          ((Total>Limit) or Entry.Retired) then
+          ((BySize and (Total>Limit)) or (ByAge and (Entry.Used<Cutoff)) or Entry.Retired) then
           if (Entry.Retired or not ReaderPins.TryGetValue(Entry.Name,PinUntil) or (GetTickCount64>=PinUntil)) and
             ((Entry.Mirror='') or Entry.Retired or not ReaderPins.TryGetValue(Entry.Mirror,PinUntil) or (GetTickCount64>=PinUntil)) then
           begin

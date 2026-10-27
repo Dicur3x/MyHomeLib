@@ -1,5 +1,29 @@
 # Additional converter dependencies
 
+## IBK interoperability
+
+`ibk_input.py` and `ibk_crypto.py` are independent bounded readers for ordinary
+ICEContainer books. Public format tables are reproducible with
+`generate_ibk_tables.py`; no personal registration identity or private read
+profile is distributed in these tables or the converter sources.
+
+Some ordinary IBK files need read data from the original ICE Book Reader
+Russian 9.6.5 distribution. This optional component is downloaded only on
+request from the BestFree mirror and pinned by archive and individual-file
+SHA-256 values. The complete unchanged original archive and original
+`License.txt` are retained in `tools/ibk`. The Russian edition's author limits
+its use to citizens of the former USSR and noncommercial use. This component
+is not bundled or relicensed as part of HomeLib Ru.
+
+Only `Rus.key` read data, the original license and unchanged distribution ZIP
+are retained. The ICE reader EXE is not extracted, installed, loaded or executed.
+The original installer is not executed by IBK preparation.
+The extraction tool is **innoextract 1.9**, downloaded from its author's site
+with a pinned checksum and used only in the temporary update job. Its source
+and licenses are available at https://constexpr.org/innoextract/ . The reader
+uses only the exact verified original package data and does not search for or
+modify personal registration or activation files.
+
 Markdown uses **Mistune 3.3.4**, distributed unmodified in `vendor/mistune` under
 BSD-3-Clause. Copyright (c) 2014, Hsiaoming Yang. The complete license is in
 [vendor/MISTUNE_LICENSE.txt](vendor/MISTUNE_LICENSE.txt).

@@ -136,6 +136,8 @@ begin
   if (Official='https://www.sqlite.org/download.html') or (Official='https://www.sqlite.org/changes.html') or
     (Official='https://www.alreader.com/') or
     (Official='https://api.github.com/repos/sumatrapdfreader/sumatrapdf/releases?per_page=30') or
+    (Official='https://api.github.com/repos/libjxl/libjxl/releases/latest') or
+    (Official='https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/'+ALREADER_FIXED_TAG) or
     (Official='https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/') or
     (Official='https://api.github.com/repos/ip7z/7zip/releases/latest') then Exit(URL+'unavailable');
   Failure:='Updater fixture refused an unexpected official route: '+Official; raise Exception.Create(Failure);
@@ -352,7 +354,7 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
       Require(GetTickCount64-Started<10000,'Actual updater component completion was lost');
     end;
     Require((Probe.Checked=1) and (Probe.Destroyed>0) and (Server.CreatedWorkers=Server.FreedWorkers) and
-      (Server.Failure=''),'Actual component worker did not finish through its surviving notifier');
+      (Server.Failure=''),'Actual component worker did not finish through its surviving notifier: '+Server.Failure);
   end;
 
   procedure TraceComponentResult;
@@ -368,9 +370,9 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
     end;
     for var I:=0 to Min(Server.Originals.Count-1,31) do Writeln('TRACE updater official ',I,' ',Server.Originals[I]);
     for var I:=0 to Min(Server.TransportTrace.Count-1,31) do Writeln('TRACE updater transport ',I,' ',Server.TransportTrace[I]);
-    if View.Items.Count=Length(UPDATE_COMPONENTS)+1 then
+    if View.Items.Count>6 then
     begin
-      View.Selected:=View.Items[Length(UPDATE_COMPONENTS)];
+      View.Selected:=View.Items[6];
       Writeln('TRACE updater selected Doc status=',Copy(string(Status.Caption),1,700));
     end;
     Flush(Output);
@@ -438,7 +440,7 @@ begin
     Dialog.CheckComponents(False); Require(not CheckButton.Enabled,'Actual component worker did not start');
     Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
     Server.Released.SetEvent; PumpCheck; TraceComponentResult;
-    Require((View.Items.Count=Length(UPDATE_COMPONENTS)+1) and (View.Items[6].SubItems[1]='0.99.0') and
+    Require((View.Items.Count=9) and (View.Items[6].SubItems[1]='0.99.0') and
       (View.Items[6].SubItems[2]<>'Не удалось проверить'),
       'Actual successful DocSharp metadata check did not reach its form');
     Writeln('PASS updater component check actual success survives form HWND recreation with owned loopback transport'); Flush(Output);
@@ -448,7 +450,7 @@ begin
     Dialog.CheckComponents(False); Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
     Server.Released.SetEvent; PumpCheck;
     for var I in CheckedComponentIndices do
-      if UPDATE_COMPONENTS[I].ID<>'AlReader' then
+      if (I<8) and (UPDATE_COMPONENTS[I].ID<>'AlReader') then
       Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable author response falsely marked its component checked');
     Writeln('PASS updater component check actual failures release checking state after form HWND recreation'); Flush(Output);
     CloseForm;

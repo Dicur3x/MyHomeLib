@@ -44,7 +44,7 @@ uses
 {$IFDEF USE_FASTMM5}
   FastMM5,
 {$ENDIF}
-  Forms,
+  Forms, System.SysUtils,
   IMouse,
   unit_StaticTip in '..\Components\MHLComponents\unit_StaticTip.pas',
   files_list in '..\Components\MHLComponents\files_list.pas',
@@ -78,6 +78,9 @@ uses
   unit_SeriesAliasMatching in 'Units\unit_SeriesAliasMatching.pas',
   unit_BookMetadataCache in 'Units\unit_BookMetadataCache.pas',
   unit_BookCache in 'Units\unit_BookCache.pas',
+  unit_Diagnostics in 'Units\unit_Diagnostics.pas',
+  unit_ExportImageQuality in 'Units\unit_ExportImageQuality.pas',
+  unit_BookSendOptions in 'Units\unit_BookSendOptions.pas',
   unit_BookExportPlan in 'Units\unit_BookExportPlan.pas',
   unit_BookExportResults in 'Units\unit_BookExportResults.pas',
   unit_BookExportSelection in 'Units\unit_BookExportSelection.pas',
@@ -106,7 +109,11 @@ uses
   unit_DjvuProtocol in 'Units\unit_DjvuProtocol.pas',
   unit_ReaderDjvuNative in 'Units\unit_ReaderDjvuNative.pas',
   unit_ReaderRichEdit in 'Units\unit_ReaderRichEdit.pas',
+  unit_ReaderPalette in 'Units\unit_ReaderPalette.pas',
+  unit_ReaderSession in 'Units\unit_ReaderSession.pas',
+  unit_ReaderSessionRunner in 'Units\unit_ReaderSessionRunner.pas',
   frm_BuiltinReader in 'Forms\frm_BuiltinReader.pas',
+  frm_StoryReader in 'Forms\frm_StoryReader.pas',
   unit_BookColumnFilters in 'Units\unit_BookColumnFilters.pas',
   unit_BookViewSessions in 'Units\unit_BookViewSessions.pas',
   unit_CatalogSources in 'Units\unit_CatalogSources.pas',
@@ -136,6 +143,7 @@ uses
   unit_ComponentUpdates in 'Units\unit_ComponentUpdates.pas',
   unit_UpdateAuthenticity in 'Units\unit_UpdateAuthenticity.pas',
   unit_ProgramUpdateInstaller in 'Units\unit_ProgramUpdateInstaller.pas',
+  unit_IBKRuntime in 'Units\unit_IBKRuntime.pas',
   frm_ProgramUpdate in 'Forms\frm_ProgramUpdate.pas',
   frm_settings in 'Forms\frm_settings.pas' {frmSettings},
   frm_OPDS in 'Forms\frm_OPDS.pas',
@@ -266,6 +274,8 @@ uses
 
 begin
   Application.Initialize;
+  InitializeDiagnostics;
+  try
 
   // Must run before any form is constructed, so that every resourcestring and
   // every DFM property is read through the hook. ResolveMHLPaths is used
@@ -304,4 +314,7 @@ begin
 
   frmMain.StartInitialCollectionLoad;
   Application.Run;
+  except
+    on E: Exception do begin LogDiagnosticError('startup-or-main-loop',E); raise; end;
+  end;
 end.

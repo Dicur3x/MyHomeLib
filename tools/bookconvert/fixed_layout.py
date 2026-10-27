@@ -128,12 +128,9 @@ def emit_page(book, number, lines, rgb, width, height, page_width, page_height):
     # page. Preserve the complete rendered page, never fabricate searchable
     # text or keep a misleading fragment of the broken character map.
     if not text.strip() or not readable(text):
-        section=book.el('section',id='page-'+str(number));book.body.append(section)
-        section.append(book.el('h2','Страница '+str(number)))
-        image=book.image(png(rgb,width,height));image.set('alt','Страница '+str(number))
-        paragraph=book.el('p');paragraph.append(image);section.append(paragraph)
+        book.scan_page(png(rgb,width,height),number,getattr(book,'page_count',number))
         book.fixed_image_pages=getattr(book,'fixed_image_pages',0)+1
-        book.warnings.add('Страницы без пригодного текстового слоя сохранены целиком как изображения (до 1600 пикселей по большей стороне). Поиск и изменение размера текста на этих страницах недоступны; для текста требуется OCR.')
+        book.warnings.add('Страницы без пригодного текстового слоя сохранены изображениями. Поиск и изменение размера текста на этих страницах недоступны; для текста требуется OCR.')
         return 0
     # A sparse bad OCR glyph must not invalidate XML for the entire book.
     # Keep its position AND original code visible, rather than guessing a
@@ -190,7 +187,7 @@ class PDF:
         for name, (result, args) in signatures.items():
             function = getattr(self.dll, name); function.restype = result; function.argtypes = args; setattr(self, name, function)
 
-    def page(self, page, fail):
+    def page(self, page, fail, spread_detail=False):
         width, height = self.FPDF_GetPageWidth(page), self.FPDF_GetPageHeight(page)
         if not 0 < width < 100000 or not 0 < height < 100000: fail('Некорректные размеры страницы PDF.')
         text = self.FPDFText_LoadPage(page)
@@ -221,7 +218,8 @@ class PDF:
                 if not ch.isspace(): boxes.append(box); weights.append(self.FPDFText_GetFontWeight(text, i))
             flush()
         finally: self.FPDFText_ClosePage(text)
-        scale = min(2, 1600 / max(width, height)); w, h = max(1, round(width * scale)), max(1, round(height * scale))
+        edge=3200 if spread_detail and width>height*1.10 else 1600
+        scale = min(2, edge / max(width, height)); w, h = max(1, round(width * scale)), max(1, round(height * scale))
         bitmap = self.FPDFBitmap_Create(w, h, 0)
         if not bitmap: fail('Недостаточно памяти для иллюстраций PDF.')
         try:
@@ -239,6 +237,8 @@ class PDF:
 
 
 def read_pdf(book, tools):
+    if not (tools / 'pdfium' / 'pdfium.dll').is_file():
+        book.require('PDFium', 'Для этой книги нужен модуль чтения PDF.')
     api = PDF(tools, book.fail); api.FPDF_InitLibrary()
     try:
         data = book.source.read_bytes(); buffer = C.create_string_buffer(data)
@@ -247,13 +247,14 @@ def read_pdf(book, tools):
         try:
             count = api.FPDF_GetPageCount(document)
             if not 0 < count <= 5000: book.fail('Недопустимое число страниц PDF (предел 5000).')
+            book.page_count=count
             book.progress('pages', 0, count)
             letters = 0
             for i in range(count):
                 page = api.FPDF_LoadPage(document, i)
                 if not page: book.fail(f'Не удалось открыть страницу PDF {i + 1}.')
                 try:
-                    lines, rgb, w, h, pw, ph, hidden = api.page(page, book.fail)
+                    lines, rgb, w, h, pw, ph, hidden = api.page(page, book.fail, bool(getattr(book,'image_export',None)))
                     letters += emit_page(book, i + 1, lines, rgb, w, h, pw, ph)
                     if any('\ufffd' in line['text'] for line in lines):
                         book.warnings.add('В PDF встречаются символы без пригодного Unicode-соответствия; они отмечены знаком �. Проверьте эти места в оригинале.')
@@ -313,7 +314,7 @@ def ppm_page(data, fail, offset=0):
     if fields[0] != b'P6' or fields[3] != b'255': fail('Неподдерживаемый растр DjVu.')
     if not all(value.isdigit() for value in fields[1:3]): fail('Некорректный размер растра DjVu.')
     width, height = int(fields[1]), int(fields[2])
-    if not 0 < width <= 1600 or not 0 < height <= 1600: fail('Слишком большой растр DjVu.')
+    if not 0 < width <= 3200 or not 0 < height <= 1600: fail('Слишком большой растр DjVu.')
     if data[at:at + 2] == b'\r\n': at += 2
     elif data[at:at + 1].isspace(): at += 1
     else: fail('Оборван заголовок растра DjVu.')
@@ -330,43 +331,56 @@ def ppm(data, fail):
 
 def read_djvu(book, tools):
     used, renderer = tools / 'djvu' / 'djvused.exe', tools / 'djvu' / 'ddjvu.exe'
-    if not used.is_file() or not renderer.is_file(): book.fail('Не найден встроенный DjVuLibre.')
-    def run(args, limit, timeout=40):
+    if not used.is_file() or not renderer.is_file():
+        book.require('DjVuLibre', 'Для этой книги нужен модуль чтения DjVu.')
+    def run(args, limit, timeout=40, step='сведения о книге'):
         with tempfile.TemporaryFile() as out:
             try: result = subprocess.run([str(a) for a in args], stdout=out, stderr=subprocess.PIPE, timeout=timeout, creationflags=0x08000000)
-            except subprocess.TimeoutExpired: book.fail(f'Чтение страниц DjVu превысило допустимое время ({timeout} с).')
+            except subprocess.TimeoutExpired: book.fail(f'Чтение DjVu: {step} — превышено допустимое время ({timeout} с).')
             if result.returncode: book.fail('DjVuLibre не смог прочитать документ: ' + result.stderr.decode('utf-8', errors='replace')[-500:])
             if out.tell() > limit: book.fail('Текст или растр DjVu превышает предел конвертации.')
             out.seek(0); return out.read()
     count = int(run([used, '-n', '-e', 'n', book.source], 1024).decode('utf-8-sig').strip())
     if not 0 < count <= 5000: book.fail('Недопустимое число страниц DjVu (предел 5000).')
+    book.page_count=count
     book.progress('pages', 0, count)
-    def page_size(number):
-        size = run([used, '-n', '-e', f'select {number}; size', book.source], 1024).decode('utf-8-sig')
-        match = re.search(r'width=(\d+)\s+height=(\d+)', size)
-        if not match or any(int(value) <= 0 for value in match.groups()):
-            book.fail('Не удалось определить размер страницы DjVu.')
-        return tuple(map(int, match.groups()))
     letters = 0
     # Reopening a large document and its shared dictionaries for every page
     # costs much more than decoding four pages in one invocation. Keep batches
-    # small: at most four 1600x1600 RGB frames (under 31 MB), never a whole book.
+    # small: at most four frames. Wide export scans retain enough pixels for
+    # splitting into two readable pages; ordinary reading keeps its old size.
+    raster_width=3200 if getattr(book,'image_export',None) else 1600
     for first in range(0, count, 4):
         last = min(count, first + 4); batch_size = last - first
         script = '; '.join(f'select {number}; print-txt' for number in range(first + 1, last + 1))
-        raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE).decode('utf-8-sig')
+        # Both text and pixels decode a batch of up to four pages. Give text
+        # the same per-page budget as the raster, within the native idle limit.
+        raw = run([used, '-n', '-u', '-e', script, book.source], book.c.MAX_FILE,
+                  timeout=40*batch_size,step=f'текст сканов {first+1}–{last}').decode('utf-8-sig')
         roots = sexpressions(raw, book.fail)
         if len(roots) != batch_size or any(len(page) < 5 or page[0] != 'page' for page in roots):
             book.fail('Число текстовых страниц DjVu не совпало с запрошенным. Конвертация остановлена, чтобы не перепутать страницы.')
-        raster = run([renderer, '-format=ppm', f'-page={first + 1}-{last}', '-size=1600x1600', book.source],
-                     batch_size * (1600 * 1600 * 3 + 1024), timeout=40 * batch_size)
+        # Empty OCR pages report zero geometry. Query only those pages, once
+        # per batch, rather than reopening the full document for every scan.
+        missing = [i for i, page in enumerate(roots, first + 1) if page[3] <= 0 or page[4] <= 0]
+        geometry = {}
+        if missing:
+            script = '; '.join(f'select {number}; size' for number in missing)
+            sizes = run([used, '-n', '-e', script, book.source], 1024*len(missing),
+                        timeout=40*len(missing),step=f'размеры сканов {missing[0]}–{missing[-1]}').decode('utf-8-sig')
+            values = re.findall(r'width=(\d+)\s+height=(\d+)', sizes)
+            if len(values) != len(missing) or any(int(value) <= 0 for pair in values for value in pair):
+                book.fail('Не удалось определить размеры страниц DjVu.')
+            geometry = dict(zip(missing, (tuple(map(int, pair)) for pair in values)))
+        raster = run([renderer, '-format=ppm', f'-page={first + 1}-{last}', f'-size={raster_width}x1600', book.source],
+                     batch_size * (raster_width * 1600 * 3 + 1024), timeout=40 * batch_size,step=f'изображения сканов {first+1}–{last}')
         offset = 0
         for i, page in enumerate(roots, first):
             lines = []; pw, ph = page[3], page[4]
             # DjVuLibre can expose an empty OCR page as (page 0 0 0 0).
             # The image still has valid dimensions; use its geometry so the
             # normal no-text/scan check reports the limitation without a crash.
-            if pw <= 0 or ph <= 0: pw, ph = page_size(i + 1)
+            if pw <= 0 or ph <= 0: pw, ph = geometry[i + 1]
             def collect(node):
                 if not isinstance(node, list) or len(node) < 5: return
                 if node[0] == 'line':

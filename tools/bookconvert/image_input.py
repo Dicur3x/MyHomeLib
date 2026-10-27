@@ -3,6 +3,7 @@ from pathlib import Path
 import importlib.util
 import posixpath
 import re
+import struct
 import subprocess
 import tempfile
 import zipfile
@@ -15,11 +16,8 @@ def module(name):
     value = importlib.util.module_from_spec(spec); spec.loader.exec_module(value); return value
 
 
-def page(book, data, number):
-    section = book.el('section', id='page-' + str(number)); book.body.append(section)
-    section.append(book.el('h2', 'Страница ' + str(number)))
-    paragraph = book.el('p'); section.append(paragraph)
-    picture = book.image(data); picture.set('alt', 'Страница ' + str(number)); paragraph.append(picture)
+def page(book, data, number, total=0):
+    book.scan_page(data,number,total)
 
 
 def decode_webp(book, data):
@@ -47,12 +45,29 @@ def decode_webp(book, data):
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width.value,height.value,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
 
 
+def tiff_pages(book, source, report_rendering=True):
+    try:
+        prepared=module('tiff_jpeg').pages(source,book.c.MAX_TOTAL)
+        if prepared is not None:
+            total,pictures=prepared
+            for number,data in enumerate(pictures,1):yield number,total,data,'.jpg'
+            return
+    except (ValueError,KeyError,struct.error) as error:book.fail('Не удалось прочитать TIFF: '+str(error))
+    for number,total,data in module('xps_input').rendered_pages(book,source,True,report_rendering):
+        yield number,total,data,'.png'
+
+
 def read(book, extension):
-    if extension in {'.tif','.tiff','.bmp'}:
+    if extension in {'.tif','.tiff'}:
+        for number,total,data,_suffix in tiff_pages(book,book.source):
+            page(book,data,number,total);book.progress('pages',number,total)
+        book.warnings.add('Все страницы TIFF сохранены изображениями с исходными размерами; JPEG внутри TIFF переносится без повторного сжатия. OCR не выполняется; текстовый поиск и изменение размера букв недоступны.')
+        return
+    if extension=='.bmp':
         module('xps_input').read(book, image_pages=True)
         return
     if extension in IMAGES:
-        page(book, book.source.read_bytes(), 1)
+        page(book, book.source.read_bytes(), 1, 1)
     else:
         names = []; archive = None
         try:
@@ -67,8 +82,8 @@ def read(book, extension):
                     name = entry.filename
                     if name in sizes: book.fail('В комиксе повторяются имена страниц.')
                     sizes[name] = entry.file_size
-                def get(name):
-                    if not 0 < sizes[name] <= 16 * 1024 * 1024: book.fail('Страница комикса превышает 16 МБ или пуста.')
+                def get(name, maximum=16 * 1024 * 1024):
+                    if not 0 < sizes[name] <= maximum: book.fail('Страница комикса превышает допустимый размер или пуста.')
                     return archive.read(name)
                 names = list(sizes)
             else:
@@ -91,9 +106,9 @@ def read(book, extension):
                     name = properties['Path']; size = int(properties.get('Size','0')); total += size
                     if name in sizes or size < 0 or total > book.c.MAX_TOTAL or len(sizes) >= 20000: book.fail('Некорректный или слишком большой архив комикса.')
                     sizes[name] = size
-                def get(name):
-                    if not 0 < sizes[name] <= 16*1024*1024: book.fail('Страница комикса превышает 16 МБ или пуста.')
-                    data = run(['e','-so','-spd','--',str(book.source),name],16*1024*1024)
+                def get(name, maximum=16 * 1024 * 1024):
+                    if not 0 < sizes[name] <= maximum: book.fail('Страница комикса превышает допустимый размер или пуста.')
+                    data = run(['e','-so','-spd','--',str(book.source),name],maximum)
                     if len(data) != sizes[name]: book.fail('Неполная страница комикса.')
                     return data
                 names = list(sizes)
@@ -108,10 +123,31 @@ def read(book, extension):
             if not pages or len(pages) > 5000: book.fail('В комиксе нет страниц или их слишком много.')
             def order(value):
                 return [int(piece) if piece.isdigit() else piece.casefold() for piece in re.split(r'(\d+)',value)]
-            for number, name in enumerate(sorted(pages,key=order),1):
-                if Path(name).suffix.lower() in {'.tif','.tiff'}:
-                    book.fail('Многостраничный TIFF внутри комикса нужно сначала открыть отдельной книгой; страницы не будут удалены молча.')
-                page(book,get(name),number);book.progress('pages',number,len(pages))
+            with tempfile.TemporaryDirectory(prefix='homelib-comic-frames-',dir=book.work_root) as directory:
+                expanded=[];prepared_bytes=0;root=Path(directory)
+                for index,name in enumerate(sorted(pages,key=order)):
+                    if Path(name).suffix.lower() in {'.tif','.tiff'}:
+                        # A multipage TIFF is a container of pages. Its source
+                        # limit matches a standalone TIFF; each decoded page
+                        # still passes the usual picture/resource bounds.
+                        data=get(name,book.c.MAX_TOTAL)
+                        if len(data)>16*1024*1024 and data[:4] not in (b'II*\0',b'MM\0*'):
+                            book.fail('Отдельное изображение комикса превышает 16 МБ; увеличенный предел предусмотрен для многостраничного TIFF.')
+                        source=root/('source-'+str(index)+'.tif');source.write_bytes(data)
+                        del data
+                        for frame,_total,data,suffix in tiff_pages(book,source,False):
+                            prepared_bytes+=len(data)
+                            if prepared_bytes>book.c.MAX_TOTAL or len(expanded)>=5000:book.fail('Подготовленные страницы комикса превышают предел чтения.')
+                            target=root/(str(index)+'-'+str(frame)+suffix);target.write_bytes(data)
+                            expanded.append((target,None))
+                        source.unlink()
+                    else:
+                        prepared_bytes+=sizes[name]
+                        if prepared_bytes>book.c.MAX_TOTAL or len(expanded)>=5000:book.fail('Подготовленные страницы комикса превышают предел чтения.')
+                        expanded.append((None,name))
+                for number,(prepared,name) in enumerate(expanded,1):
+                    page(book,prepared.read_bytes() if prepared is not None else get(name),number,len(expanded))
+                    book.progress('pages',number,len(expanded))
         finally:
             if archive is not None: archive.close()
     book.warnings.add('Страницы книги сохранены изображениями в исходном порядке. OCR не выполняется; текстовый поиск и изменение размера букв недоступны.')

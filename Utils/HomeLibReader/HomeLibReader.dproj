@@ -1,0 +1,40 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{4AB0861E-C452-4782-ACD2-780A153EB237}</ProjectGuid>
+    <MainSource>HomeLibReader.dpr</MainSource>
+    <ProjectVersion>20.3</ProjectVersion>
+    <ProjectName>HomeLibReader</ProjectName>
+    <SanitizedProjectName>HomeLibReader</SanitizedProjectName>
+    <Base>true</Base>
+    <Config Condition="'$(Config)'==''">Release</Config>
+    <Platform Condition="'$(Platform)'==''">Win64</Platform>
+    <TargetedPlatforms>3</TargetedPlatforms>
+    <AppType>Application</AppType><FrameworkType>VCL</FrameworkType>
+    <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+    <VerInfo_Locale>1049</VerInfo_Locale>
+    <VerInfo_MajorVer>2</VerInfo_MajorVer><VerInfo_MinorVer>7</VerInfo_MinorVer>
+    <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>1102</VerInfo_Build>
+    <VerInfo_Keys>FileDescription=HomeLib Reader;ProductName=HomeLib Reader;ProductVersion=2.7.0_pre5.34;FileVersion=2.7.0.1102;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
+    <DCC_UnitSearchPath>..\..\Program\Units;..\..\Program\Forms;..\..\Program\Forms\Editors;..\..\Program\DataModules;..\..\Program\ImportImpl;..\..\Program\UtilsImpl;..\..\Program\DwnldImpl;..\..\Program\DAO;..\..\Program\DAO\SQLite;..\..\Program\DAO\SQLite\Lib;..\..\Program\Wizards\NewCollection;..\..\Program\Wizards\Base;..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_ResourcePath>..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
+    <DCC_IncludePath>..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>
+    <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UnitAlias>WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;$(DCC_UnitAlias)</DCC_UnitAlias>
+    <DCC_ExeOutput>Out\$(Platform)</DCC_ExeOutput>
+    <DCC_DcuOutput>Out\$(Platform)\dcu</DCC_DcuOutput>
+    <DCC_DependencyCheckOutputName>Out\$(Platform)\HomeLibReader.exe</DCC_DependencyCheckOutputName>
+    <DCC_Assertions>true</DCC_Assertions><DCC_RangeChecking>true</DCC_RangeChecking>
+    <DCC_OverflowChecking>true</DCC_OverflowChecking><DCC_Optimize>true</DCC_Optimize>
+    <DCC_DebugInformation>0</DCC_DebugInformation><DCC_MapFile>3</DCC_MapFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''"><Base>true</Base></PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''"><Cfg_1>true</Cfg_1><CfgParent>Base</CfgParent><Base>true</Base></PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource></DelphiCompile>
+    <BuildConfiguration Include="Base"><Key>Base</Key></BuildConfiguration>
+    <BuildConfiguration Include="Release"><Key>Cfg_1</Key><CfgParent>Base</CfgParent></BuildConfiguration>
+  </ItemGroup>
+  <ProjectExtensions><Borland.Personality>Delphi.Personality.12</Borland.Personality><Borland.ProjectType>Application</Borland.ProjectType><BorlandProject><Platforms><Platform value="Win32">True</Platform><Platform value="Win64">True</Platform></Platforms></BorlandProject></ProjectExtensions>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+  <PropertyGroup><PreBuildEvent>call &quot;$(PROJECTDIR)\..\..\Program\embed_lang.cmd&quot; &quot;$(BDS)&quot;</PreBuildEvent></PropertyGroup>
+</Project>

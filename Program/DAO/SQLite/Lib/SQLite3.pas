@@ -519,7 +519,7 @@ function SQLiteErrorStr(SQLiteErrorCode: Integer): string;
 //function SQLite3_ColumnDeclType(hStmt: TSqliteStmt; ColNum: integer): PAnsiChar; cdecl; external SQLiteDLL name 'sqlite3_column_decltype';
 //function SQLite3_DataCount(hStmt: TSqliteStmt): integer; cdecl; external SQLiteDLL name 'sqlite3_data_count';
 //function SQLite3_ColumnInt(hStmt: TSqliteStmt; ColNum: integer): integer; cdecl; external SQLiteDLL name 'sqlite3_column_int';
-//function SQLite3_ColumnType(hStmt: TSqliteStmt; ColNum: integer): integer; cdecl; external SQLiteDLL name 'sqlite3_column_type';
+function SQLite3_ColumnType(hStmt: TSqliteStmt; ColNum: integer): integer; cdecl; external SQLiteDLL name 'sqlite3_column_type';
 //function SQLite3_bind_int(hStmt: TSqLiteStmt; ParamNum: integer; Data: integer): Integer; cdecl; external SQLiteDLL name 'sqlite3_bind_int';
 //function sqlite3_enable_shared_cache(Value: integer): integer; cdecl; external SQLiteDLL name 'sqlite3_enable_shared_cache';
 //function SQLiteFieldType(SQLiteFieldTypeCode: Integer): string;

@@ -99,7 +99,7 @@ begin
   if Canceled then Abort;
   try
   Tool:=FindExternalTool('HomeLibPDF.exe','pdfium');
-  if Tool='' then raise Exception.Create('В комплекте программы отсутствует декодер PDF.');
+  if Tool='' then raise EMHLComponentRequired.Create('PDFium','Для этой книги нужен модуль PDFium.');
   CreateGUID(GUID); MapName:='Local\HomeLibRu-PDF-'+GUIDToString(GUID);
   FMapping:=CreateFileMapping(INVALID_HANDLE_VALUE,nil,PAGE_READWRITE,0,PDF_BUFFER_BYTES,PChar(MapName));
   if FMapping=0 then RaiseLastOSError;

@@ -31,17 +31,17 @@ def fixture(path, extra=''):
             z.writestr(str(index) + '.fpage', '<FixedPage xmlns="' + NS + '" Width="300" Height="400" xml:lang="en-US"><Path Fill="' + color + '" Data="M 20,20 L 280,20 280,380 20,380 Z"/>' + extra + '</FixedPage>')
 
 
-def middle_pixel(png):
+def middle_pixel(png, first_row=False):
     at = 8; compressed = bytearray()
     while at < len(png):
         size = int.from_bytes(png[at:at+4], 'big'); kind = png[at+4:at+8]; data = png[at+8:at+8+size]
         if kind == b'IHDR': width,height,depth,color,*_ = struct.unpack('>IIBBBBB',data)
         elif kind == b'IDAT': compressed.extend(data)
         at += size + 12
-    if depth != 8 or color not in {2,6}: raise AssertionError('Unexpected native PNG layout')
-    bpp = 4 if color == 6 else 3; stride = width*bpp
+    if depth != 8 or color not in {0,2,4,6}: raise AssertionError('Unexpected native PNG layout')
+    bpp = {0:1,2:3,4:2,6:4}[color]; stride = width*bpp
     data = zlib.decompress(compressed); previous = bytearray(stride)
-    for y in range(height//2+1):
+    for y in range(1 if first_row else height//2+1):
         method = data[y*(stride+1)]; row = bytearray(data[y*(stride+1)+1:(y+1)*(stride+1)])
         for x in range(stride):
             a = row[x-bpp] if x >= bpp else 0; b = previous[x]; upper_left = previous[x-bpp] if x >= bpp else 0
@@ -53,6 +53,7 @@ def middle_pixel(png):
                 row[x] = (row[x]+[a,b,upper_left][distances.index(min(distances))])&255
             elif method != 0: raise AssertionError('Unexpected PNG filter')
         previous = row
+    if color in {0,4}:return (previous[(width//2)*bpp],)*3
     return tuple(previous[(width//2)*bpp:(width//2)*bpp+3])
 
 

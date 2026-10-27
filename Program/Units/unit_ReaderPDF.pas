@@ -72,7 +72,7 @@ type
 
 implementation
 
-uses System.Math, System.Generics.Collections;
+uses System.Math, System.Generics.Collections, unit_MHLExternalTools;
 
 type
   // The pinned bblanchon non-V8/non-XFA runtime exports the C ABI on Win32.
@@ -133,7 +133,7 @@ procedure LoadPDFLibrary(const FileName: string);
 begin
   if Module<>0 then Exit;
   Module:=LoadLibraryEx(PChar(ExpandFileName(FileName)),0,LOAD_WITH_ALTERED_SEARCH_PATH);
-  if Module=0 then raise Exception.Create('Компонент PDFium не найден. PDF можно открыть внешней читалкой.');
+  if Module=0 then raise EMHLComponentRequired.Create('PDFium','Для чтения PDF нужен модуль PDFium.');
   try
     Entry(InitLibrary,'FPDF_InitLibrary'); Entry(DestroyLibrary,'FPDF_DestroyLibrary');
     Entry(LoadCustom,'FPDF_LoadCustomDocument'); Entry(CloseDocument,'FPDF_CloseDocument');

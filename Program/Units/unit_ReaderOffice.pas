@@ -58,6 +58,8 @@ var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
   end;
   procedure AddStamp(const FileName: string);
   begin
+    if not FileExists(FileName) then
+      raise EMHLComponentRequired.Create('BookConverter','Модуль подготовки документов неполон. Его можно восстановить в окне компонентов.');
     if not GetFileAttributesEx(PChar(FileName),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
     Stamp:=Stamp+'|'+FileName+'|'+IntToStr(Attributes.nFileSizeHigh)+':'+IntToStr(Attributes.nFileSizeLow)+'|'+
       IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
@@ -66,18 +68,23 @@ begin
   Result:=SourceFile; if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
   if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,OnStage,IsCanceled));
   CheckCanceled;
+  if FindReaderOffice='' then raise EMHLComponentRequired.Create('BookConverter','Для этого документа нужен модуль конвертации.');
   if not OfficeReaderAvailable(ExtractFileExt(SourceFile)) then
   begin
     if Pos('|'+LowerCase(ExtractFileExt(SourceFile)).TrimLeft(['.'])+'|','|wps|wpd|')>0 then
-      raise Exception.Create('Не найден комплектный компонент WPS/WPD либо используется 32-разрядная Windows. Проверьте полный архив HomeLib Ru.');
-    raise Exception.Create('Не найден комплектный компонент чтения этого формата. Проверьте полный архив HomeLib Ru.');
+    begin
+      var SystemInfo: TSystemInfo; GetNativeSystemInfo(SystemInfo);
+      if SystemInfo.wProcessorArchitecture<>PROCESSOR_ARCHITECTURE_AMD64 then
+        raise Exception.Create('Чтение WPS/WPD пока требует 64-разрядную Windows.');
+    end;
+    raise EMHLComponentRequired.Create('BookConverter','Модуль подготовки документов неполон. Его можно восстановить в окне компонентов.');
   end;
   Input:=OpenCachedBookFile(SourceFile);
   try
     if Input.Size>64*1024*1024 then raise Exception.Create('Офисный документ превышает предел читалки (64 МБ).');
     Stamp:='office-reflow-v1|'+BookCacheInputStamp(SourceFile,OriginalSource);
     for Dependency in ['tools\bookconvert\office_inputs.py','tools\bookconvert\convert_book.py',
-      'tools\bookconvert\text_inputs.py','tools\doc\DOC_RUNTIME.json'] do
+      'tools\bookconvert\text_inputs.py'] do
       AddStamp(TPath.Combine(Settings.AppPath,Dependency));
     if Pos('|'+LowerCase(ExtractFileExt(SourceFile)).TrimLeft(['.'])+'|','|wps|wpd|')>0 then
       AddStamp(TPath.Combine(Settings.AppPath,'tools\office\RUNTIME.json'));

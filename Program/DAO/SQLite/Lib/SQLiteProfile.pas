@@ -6,10 +6,12 @@ uses System.SysUtils;
 
 // Compiled only for isolated benchmarks. The distributed program has no
 // profile storage, timer or locking overhead; user preferences cannot enable it.
-procedure StartSQLiteProfile;
+procedure StartSQLiteProfile(IncludeSteps: Boolean = True; IncludeIteratorSamples: Boolean = False);
 procedure SaveSQLiteProfile(const FileName: string);
 procedure StopSQLiteProfile;
 function SQLiteProfileClock: Int64; {$IFNDEF MHL_SQL_PROFILE}inline;{$ENDIF}
+function SQLiteStepProfileClock: Int64; {$IFNDEF MHL_SQL_PROFILE}inline;{$ENDIF}
+function SQLiteIteratorProfileClock: Int64; {$IFNDEF MHL_SQL_PROFILE}inline;{$ENDIF}
 procedure RecordSQLiteProfile(const Database, Operation, SQL: string; Started: Int64); {$IFNDEF MHL_SQL_PROFILE}inline;{$ENDIF}
 
 implementation
@@ -26,11 +28,12 @@ type
 
 var
   Active: Boolean;
+  CaptureSteps, CaptureIteratorSamples: Boolean;
   Frequency: Int64;
   Guard: TObject;
   Entries: TObjectDictionary<string,TProfileEntry>;
 
-procedure StartSQLiteProfile;
+procedure StartSQLiteProfile(IncludeSteps, IncludeIteratorSamples: Boolean);
 begin
   TMonitor.Enter(Guard);
   try
@@ -38,6 +41,8 @@ begin
     if Entries = nil then Entries := TObjectDictionary<string,TProfileEntry>.Create([doOwnsValues]);
     Entries.Clear;
     QueryPerformanceFrequency(Frequency);
+    CaptureSteps := IncludeSteps;
+    CaptureIteratorSamples := IncludeIteratorSamples;
     Active := Frequency > 0;
   finally TMonitor.Exit(Guard); end;
 end;
@@ -52,6 +57,18 @@ function SQLiteProfileClock: Int64;
 begin
   Result := 0;
   if Active then QueryPerformanceCounter(Result);
+end;
+
+function SQLiteStepProfileClock: Int64;
+begin
+  Result := 0;
+  if Active and CaptureSteps then QueryPerformanceCounter(Result);
+end;
+
+function SQLiteIteratorProfileClock: Int64;
+begin
+  Result := 0;
+  if Active and CaptureIteratorSamples then QueryPerformanceCounter(Result);
 end;
 
 procedure RecordSQLiteProfile(const Database, Operation, SQL: string; Started: Int64);
@@ -114,10 +131,12 @@ finalization
   Entries.Free;
   Guard.Free;
 {$ELSE}
-procedure StartSQLiteProfile; begin end;
+procedure StartSQLiteProfile(IncludeSteps, IncludeIteratorSamples: Boolean); begin end;
 procedure StopSQLiteProfile; begin end;
 procedure SaveSQLiteProfile(const FileName: string); begin end;
 function SQLiteProfileClock: Int64; begin Result:=0; end;
+function SQLiteStepProfileClock: Int64; begin Result:=0; end;
+function SQLiteIteratorProfileClock: Int64; begin Result:=0; end;
 procedure RecordSQLiteProfile(const Database, Operation, SQL: string; Started: Int64); begin end;
 {$ENDIF}
 end.

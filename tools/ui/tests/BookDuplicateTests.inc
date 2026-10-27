@@ -120,6 +120,70 @@ begin
   Writeln('PASS duplicate preview: scoped identity, snapshot, personal protection, explicit choice, paging, cancellation and read-only catalog');
 end;
 
+procedure TestBookDuplicateSourcePreference;
+var C: IBookCollection; DB: TSQLiteDatabase; Plan: TBookDuplicatePlan;
+  CID, Preferred, PersonalPreferred, ManualID, ManualGroup, BookmarkID, Calls: Integer;
+  Name, ReaderFile, Before: string; Failed: Boolean;
+  BookmarkBook: TBookRecord; Ini: TMemIniFile;
+  function AddCopy(const Identity, SourceID: string; Rate: Integer = 0): Integer;
+  begin
+    Result:=AddBook(C,'Книга '+Identity,'Автор','ru','','');
+    DB.ExecSQL('UPDATE Books SET LibID=?,Rate=? WHERE BookID=?',
+      [IfThen(SourceID='','flibusta:'+Identity,'merged:'+SourceID+':flibusta:'+Identity),Rate,Result]);
+  end;
+begin
+  CID:=SystemDB.CreateCollection('Base source',Settings.AppPath,'source-duplicates.hlc2',
+    CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+  C:=SystemDB.GetCollection(CID);
+  C.SetProperty(PROP_CATALOG_SOURCES,'[{"id":"preferred","name":"Источник ''Б''"}]');
+  Name:=Settings.ExpandCollectionFileName(VarToStr(C.GetProperty(PROP_DATAFILE)));
+  DB:=TSQLiteDatabase.Create(Name);
+  try
+    AddCopy('1',''); Preferred:=AddCopy('1','preferred');
+    AddCopy('2','preferred'); AddCopy('2','preferred');
+    AddCopy('3',''); AddCopy('3','preferred'); AddCopy('3','preferred');
+    AddCopy('4','',5); AddCopy('4','preferred');
+    AddCopy('5',''); PersonalPreferred:=AddCopy('5','preferred',5);
+    AddCopy('6','unknown'); AddCopy('6','preferred');
+    ManualID:=AddCopy('7',''); AddCopy('7','preferred');
+    BookmarkID:=AddCopy('8',''); AddCopy('8','preferred');
+  finally DB.Free; end;
+  ReaderFile:=TPath.Combine(Settings.AppPath,'source-duplicate-reader\reader.ini');
+  ForceDirectories(ExtractFilePath(ReaderFile));
+  C.GetBookRecord(CreateBookKey(BookmarkID,CID),BookmarkBook,False);
+  Ini:=TMemIniFile.Create(ReaderFile,TEncoding.UTF8);
+  try
+    Ini.WriteString('Bookmarks.'+ReaderNoteIdentity(ReaderHistoryName(BookmarkBook,'mixed')),'Positions','0');
+    Ini.UpdateFile;
+  finally Ini.Free; end;
+  Before:=THashSHA2.GetHashStringFromFile(Name);
+  Plan:=TBookDuplicatePlan.Create(Name,Settings.AppPath,'mixed',Settings.SystemFileName[sfSystemDB],ReaderFile,CID,Settings.WorkPath);
+  try
+    Plan.Preview; Require(Plan.GroupCount=8,'Source preference fixture lost candidate groups');
+    Require(Length(Plan.Sources)=2,'Source preference includes an unknown source or loses the base');
+    ManualGroup:=0;
+    for var Group in Plan.Groups(0,50) do
+      if Group.KeepID=ManualID then ManualGroup:=Group.ID;
+    Require(ManualGroup<>0,'Missing manual source group'); Plan.Choose(ManualGroup,ManualID,True);
+    Require(Plan.SelectSource('Источник ''Б''')=2,'Source rule accepted an ambiguous, same-source, unknown or protected group');
+    Require(Plan.SelectedCount=3,'Source rule replaced manual selections');
+    for var Group in Plan.Groups(0,50) do
+      if Group.Selected then
+        Require((Group.KeepID=Preferred) or (Group.KeepID=PersonalPreferred) or
+          ((Group.ID=ManualGroup) and (Group.KeepID=ManualID)), 'Source rule kept the wrong copy');
+    Require(Plan.SelectSource('Источник ''Б''')=0,'Repeating source selection replaced existing choices');
+    Plan.ClearSelection; Require(Plan.SelectedCount=0,'Clear selection left marked groups');
+    Calls:=0; Failed:=False;
+    try Plan.SelectSource('Источник ''Б''',function: Boolean begin Inc(Calls); Result:=True; end);
+    except on E: EAbort do Failed:=True; end;
+    Require(Failed and (Calls>0) and (Plan.SelectedCount=0) and not Assigned(SQLiteCancelCallback),
+      'Canceled source preference changed choices or retained its cancellation callback');
+    Require(Plan.SelectSource('Источник ''Б''')=3,'Source preference failed to restart after cancellation');
+    Require(THashSHA2.GetHashStringFromFile(Name)=Before,'Source selection modified the source catalog');
+  finally Plan.Free; end;
+  Writeln('PASS duplicate source preference: bulk choice, unique preferred copy, same-source and unknown exclusions, protected data, manual choices, cancellation and read-only catalog');
+end;
+
 type
   TDuplicateMemoryCounters = record
     Size, Faults: DWORD;

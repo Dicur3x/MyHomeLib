@@ -82,6 +82,8 @@ function MHLShowError(
 
 implementation
 
+uses unit_Diagnostics;
+
 function MHLShowInfo(const InfoMessage: string; Buttons: TMsgDlgButtons ): Integer;
 begin
   Result := MessageDlg(InfoMessage, mtInformation, Buttons, 0);
@@ -104,6 +106,7 @@ end;
 
 function MHLShowError(const ErrorMessage: string; Buttons: TMsgDlgButtons ): Integer;
 begin
+  LogDiagnosticMessage('message-dialog',ErrorMessage);
   Result := MessageDlg(ErrorMessage, mtError, Buttons, 0);
 end;
 

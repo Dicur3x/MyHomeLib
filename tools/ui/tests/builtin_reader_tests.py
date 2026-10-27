@@ -10,12 +10,13 @@ p.add_argument('--epub-fixtures',type=pathlib.Path,help='Five read-only selected
 p.add_argument('--formatting-book',type=pathlib.Path,help='Optional read-only real FB2 fixture for formatting checks')
 p.add_argument('--feedback-pdf',type=pathlib.Path,help='Read-only scanned PDF fixture for cache checks')
 p.add_argument('--selection-fixtures',type=pathlib.Path,help='Read-only selected FB2 EPUB TXT fixtures')
+p.add_argument('--illustrated-book',type=pathlib.Path,help='Read-only restored Anthropoesthetics fixture for the reported illustration/paragraph')
 p.add_argument('--doc-fixtures',type=pathlib.Path,help='Read-only DOC plus independently checked text')
 p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','text-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -54,6 +55,12 @@ try:
         (root/'basic-fonts.txt').write_text('Русский ё English Українська ї є ґ Беларуская ў',encoding='utf-8')
         (root/'existing-fonts.txt').write_text('Հայերեն ընթերցում։',encoding='utf-8')
         (root/'optional-fonts.txt').write_text(('বাংলা বই পড়া। '+ 'পড়ার জন্য বইয়ের লেখা। '*15+'\n')*100,encoding='utf-8')
+    if a.case=='illustrated-selection':
+        from illustrated_selection_fixture import prepare
+        prepare(root)
+        if a.illustrated_book:
+            assert a.illustrated_book.is_file() and a.illustrated_book.stat().st_size < 64*1024*1024
+            shutil.copy2(a.illustrated_book,root/'illustrated-selection-real.fb2')
     if a.case=='reader-note-ui':
         (root/'contents-progress.fb2').write_text('<FictionBook><body><section><title><p>Заметки</p></title><p>Текст книги для заметки.</p></section></body></FictionBook>',encoding='utf-8')
     if a.case=='footnotes':
@@ -347,6 +354,10 @@ try:
         assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'
     if a.case=='text-selection':
         assert 'PASS real FB2 EPUB TXT and emoji quotes' in r.stdout, 'Stale binary omitted actual selection checks'
+    if a.case=='illustrated-selection':
+        assert 'PASS illustrated mouse selection matches painted text' in r.stdout, 'Stale binary omitted illustrated selection checks'
+        if a.illustrated_book:
+            assert 'PASS actual Anthropoesthetics paragraph mouse selection' in r.stdout, 'Actual reported book was not checked'
     if a.case=='selection-geometry':
         assert 'PASS failed reader loads close cleanly' in r.stdout and 'PASS text selection matches visible continued' in r.stdout, 'Stale binary omitted selection geometry/error cleanup checks'
     if a.case=='doc-reader':

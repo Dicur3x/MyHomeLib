@@ -92,6 +92,13 @@ def read_pdb(book, data):
         book.fail('Некорректные границы записей PDB.')
     records = [data[a:b] for a, b in zip(offsets, offsets[1:])]
     header = records[0]
+    if kind == b'SDocSilX':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_isilo', Path(__file__).with_name('isilo_input.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.read(book, records, legacy_decode, paragraphs)
+        return
     if kind == b'TEXtREAd':
         if len(header) < 16: book.fail('Оборван заголовок PalmDoc.')
         compression, _, length, nrecords, _ = struct.unpack('>HHIHH', header[:12])

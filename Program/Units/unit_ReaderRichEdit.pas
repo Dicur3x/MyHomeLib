@@ -7,7 +7,7 @@ uses Winapi.Windows, System.Classes, Vcl.ComCtrls;
 procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
 procedure ReaderSaveRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
 
-function AttachReaderPictures(Edit: TRichEdit): IInterface;
+function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean = False): IInterface;
 function ReaderPictureCount(Edit: TRichEdit): Integer;
 function ReaderTextLength(Edit: TRichEdit): Integer;
 function ReaderTextRange(Edit: TRichEdit; Start, Count: Integer): string;
@@ -43,6 +43,10 @@ type
   end;
 
   TReaderOleCallback = class(TInterfacedObject, IReaderOleCallback)
+  private
+    FAllowMetafileSnapshots: Boolean;
+  public
+    constructor Create(AllowMetafileSnapshots: Boolean);
     function GetNewStorage(out Storage: IStorage): HResult; stdcall;
     function GetInPlaceContext(out Frame: IOleInPlaceFrame; out Document: IOleInPlaceUIWindow;
       var Info: TOleInPlaceFrameInfo): HResult; stdcall;
@@ -57,6 +61,9 @@ type
     function GetContextMenu(Selection: Word; const OleObject: IOleObject;
       var Range: TCharRange; out Menu: HMENU): HResult; stdcall;
   end;
+
+constructor TReaderOleCallback.Create(AllowMetafileSnapshots: Boolean);
+begin inherited Create; FAllowMetafileSnapshots:=AllowMetafileSnapshots; end;
 
 function TReaderOleCallback.GetNewStorage(out Storage: IStorage): HResult;
 var Bytes: ILockBytes;
@@ -75,9 +82,13 @@ function TReaderOleCallback.ShowContainerUI(Show: BOOL): HResult;
 begin Result:=S_OK; end;
 function TReaderOleCallback.QueryInsertObject(const ID: TGUID; const Storage: IStorage; Position: Longint): HResult;
 const STATIC_DIB: TGUID = '{00000316-0000-0000-C000-000000000046}';
+  STATIC_METAFILE: TGUID = '{00000315-0000-0000-C000-000000000046}';
 begin
-  // Read-only raster pictures only. Arbitrary OLE servers are never activated.
-  if IsEqualGUID(ID,STATIC_DIB) then Result:=S_OK else Result:=E_ACCESSDENIED;
+  // Streamed RichEdit snapshots represent our DIBs as static metafiles.
+  // Only the private hit-test clone accepts this passive snapshot class;
+  // the original document keeps its raster-only callback. No OLE servers.
+  if IsEqualGUID(ID,STATIC_DIB) or (FAllowMetafileSnapshots and IsEqualGUID(ID,STATIC_METAFILE)) then
+    Result:=S_OK else Result:=E_ACCESSDENIED;
 end;
 function TReaderOleCallback.DeleteObject(const OleObject: IOleObject): HResult;
 begin Result:=S_OK; end;
@@ -144,10 +155,10 @@ begin
   finally SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Saved)); end;
 end;
 
-function AttachReaderPictures(Edit: TRichEdit): IInterface;
+function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean): IInterface;
 var Callback: IReaderOleCallback;
 begin
-  Callback:=TReaderOleCallback.Create;
+  Callback:=TReaderOleCallback.Create(AllowMetafileSnapshots);
   if SendMessage(Edit.Handle,EM_SETOLECALLBACK,0,LPARAM(Pointer(Callback)))=0 then
     raise Exception.Create('Не удалось включить изображения в читалке.');
   Result:=Callback;

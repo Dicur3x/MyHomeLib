@@ -47,6 +47,7 @@ const
   DEF_BG_COLOR = clWhite;
 
 type
+  TBookCachePolicy = (bcpSize, bcpAge, bcpSizeAndAge);
   TMHLSystemFile = (
     sfSystemDB,
     sfGenresFB2,
@@ -75,6 +76,9 @@ type
   end;
 
 function ResolveMHLPaths: TMHLPathInfo;
+// A standalone host chooses its profile before constructing DMUser. The
+// catalogue keeps its existing path resolution unless this is explicitly set.
+procedure ConfigureMHLHostProfile(const WorkDir, IniFileName, DbsFileName: string);
 
 const
   DEFAULT_LOCALE = 'ru';
@@ -101,6 +105,8 @@ type
     FRestoreBookViews: TRestoreBookViews;
     FDoCheckUpdate: Boolean;
     FBookCacheLimitMB: Integer;
+    FBookCachePolicy: TBookCachePolicy;
+    FBookCacheKeepDays: Integer;
     FBookCacheDirectory, FBookCachePreviousPath: string;
     FClearBookCacheOnExit: Boolean;
     FProgramUpdateMinutes: Integer;
@@ -124,6 +130,7 @@ type
     FWindowState: Integer;
     FFormWidth: Integer;
     FFormHeight: Integer;
+    FExportImageQualityWidth, FExportImageQualityHeight: Integer;
     FInfoPanelHeight: Integer;
 
     FBookSRCollapsed: Boolean;
@@ -285,6 +292,8 @@ type
     property TempDir: string read FTempDir write FTempDir;
     property TempPath: string read MHLGetTempPath;
     property BookCacheLimitMB: Integer read FBookCacheLimitMB write FBookCacheLimitMB;
+    property BookCachePolicy: TBookCachePolicy read FBookCachePolicy write FBookCachePolicy;
+    property BookCacheKeepDays: Integer read FBookCacheKeepDays write FBookCacheKeepDays;
     property BookCachePreviousPath: string read FBookCachePreviousPath write FBookCachePreviousPath;
     property BookCacheDirectory: string read FBookCacheDirectory write FBookCacheDirectory;
     property ClearBookCacheOnExit: Boolean read FClearBookCacheOnExit write FClearBookCacheOnExit;
@@ -393,6 +402,8 @@ type
     property WindowState: Integer read FWindowState write FWindowState;
     property FormWidth: Integer read FFormWidth write FFormWidth;
     property FormHeight: Integer read FFormHeight write FFormHeight;
+    property ExportImageQualityWidth: Integer read FExportImageQualityWidth write FExportImageQualityWidth;
+    property ExportImageQualityHeight: Integer read FExportImageQualityHeight write FExportImageQualityHeight;
     property FormTop: Integer read FFormTop write FFormTop;
     property FormLeft: Integer read FFormLeft write FFormLeft;
 
@@ -479,6 +490,19 @@ const
   INITIAL_DIRS_SECTION = 'InitialDirs';
 
 
+var
+  HostProfileDirectory, HostIniName, HostDbsName: string;
+
+procedure ConfigureMHLHostProfile(const WorkDir, IniFileName, DbsFileName: string);
+begin
+  if not TPath.IsPathRooted(WorkDir) or (IniFileName='') or (DbsFileName='') or
+    (ExtractFileName(IniFileName)<>IniFileName) or (ExtractFileName(DbsFileName)<>DbsFileName) or
+    (ExtractFileExt(IniFileName)<>'.ini') or (ExtractFileExt(DbsFileName)<>'.dbs2') then
+    raise EArgumentException.Create('Некорректная папка или имя профиля приложения.');
+  HostProfileDirectory:=TPath.GetFullPath(WorkDir);
+  HostIniName:=IniFileName; HostDbsName:=DbsFileName;
+end;
+
 function ResolveMHLPaths: TMHLPathInfo;
 const
   STR_USELOCALDATA = 'uselocaldata';
@@ -491,6 +515,13 @@ var
   DBFileName: string;
 begin
   Result.AppPath := ExtractFilePath(Application.ExeName);
+  if HostProfileDirectory<>'' then
+  begin
+    Result.WorkDir:=HostProfileDirectory;
+    Result.IniFileName:=HostIniName; Result.DbsFileName:=HostDbsName;
+    Result.UseLocalTemp:=False;
+    Exit;
+  end;
   GlobalAppDataDir := GetSpecialPath(CSIDL_APPDATA) + APPDATA_DIR_NAME;
 
   Result.DbsFileName := SYSTEM_DATABASE_FILENAME;
@@ -547,13 +578,15 @@ begin
   FIniFileName := Paths.IniFileName;
   FDataDir := WorkPath + DATA_DIR_NAME;
 
-  if Paths.IniFileName <> SETTINGS_FILE_NAME then
+  if (HostProfileDirectory='') and (Paths.IniFileName <> SETTINGS_FILE_NAME) then
   begin
     if FileExists(WorkPath + SETTINGS_FILE_NAME) and not FileExists(WorkPath + FIniFileName) then
       unit_globals.CopyFile(WorkPath + SETTINGS_FILE_NAME, WorkPath + FIniFileName);
   end;
 
-  if Paths.UseLocalTemp then
+  if HostProfileDirectory<>'' then
+    FTempDir:=TPath.Combine(HostProfileDirectory,'Temp')
+  else if Paths.UseLocalTemp then
     FTempDir := FAppPath + TEMP_DIR_NAME
   else
     FTempDir := c_GetTempPath + TEMP_FOLDER_NAME;
@@ -685,6 +718,8 @@ begin
     FBookCacheDirectory := iniFile.ReadString(SYSTEM_SECTION, 'BookCacheDirectory', '');
     FBookCacheLimitMB := iniFile.ReadInteger(SYSTEM_SECTION, 'BookCacheLimitMB', 5120);
     if (FBookCacheLimitMB<1) or (FBookCacheLimitMB>1048576) then FBookCacheLimitMB:=5120;
+    FBookCachePolicy:=TBookCachePolicy(EnsureRange(iniFile.ReadInteger(SYSTEM_SECTION,'BookCachePolicy',0),0,2));
+    FBookCacheKeepDays:=EnsureRange(iniFile.ReadInteger(SYSTEM_SECTION,'BookCacheKeepDays',7),1,3650);
     FClearBookCacheOnExit := iniFile.ReadBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', True);
     FOptionalComponentUpdates := iniFile.ReadString(SYSTEM_SECTION, 'OptionalComponentUpdates', '');
     FProgramUpdateMinutes := iniFile.ReadInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', 4320);
@@ -721,6 +756,8 @@ begin
 
     FFormHeight := iniFile.ReadInteger(INTERFACE_SECTION, 'FormHeight', 850);
     FFormWidth := iniFile.ReadInteger(INTERFACE_SECTION, 'FormWidth', 1000);
+    FExportImageQualityWidth:=iniFile.ReadInteger(INTERFACE_SECTION,'ExportImageQualityWidth',0);
+    FExportImageQualityHeight:=iniFile.ReadInteger(INTERFACE_SECTION,'ExportImageQualityHeight',0);
     FFormTop := iniFile.ReadInteger(INTERFACE_SECTION, 'FormTop', 0);
     FFormLeft := iniFile.ReadInteger(INTERFACE_SECTION, 'FormLeft', 0);
 
@@ -863,6 +900,8 @@ begin
     iniFile.WriteString(SYSTEM_SECTION, 'BookCachePreviousPath', FBookCachePreviousPath);
     iniFile.WriteString(SYSTEM_SECTION, 'BookCacheDirectory', FBookCacheDirectory);
     iniFile.WriteInteger(SYSTEM_SECTION, 'BookCacheLimitMB', FBookCacheLimitMB);
+    iniFile.WriteInteger(SYSTEM_SECTION, 'BookCachePolicy', Ord(FBookCachePolicy));
+    iniFile.WriteInteger(SYSTEM_SECTION, 'BookCacheKeepDays', FBookCacheKeepDays);
     iniFile.WriteBool(SYSTEM_SECTION, 'ClearBookCacheOnExit', FClearBookCacheOnExit);
     iniFile.WriteString(SYSTEM_SECTION, 'OptionalComponentUpdates', FOptionalComponentUpdates);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ProgramUpdateMinutes', FProgramUpdateMinutes);
@@ -884,6 +923,8 @@ begin
 
     iniFile.WriteInteger(INTERFACE_SECTION, 'FormHeight', FFormHeight);
     iniFile.WriteInteger(INTERFACE_SECTION, 'FormWidth', FFormWidth);
+    iniFile.WriteInteger(INTERFACE_SECTION,'ExportImageQualityWidth',FExportImageQualityWidth);
+    iniFile.WriteInteger(INTERFACE_SECTION,'ExportImageQualityHeight',FExportImageQualityHeight);
     iniFile.WriteInteger(INTERFACE_SECTION, 'FormTop', FFormTop);
     iniFile.WriteInteger(INTERFACE_SECTION, 'FormLeft', FFormLeft);
 

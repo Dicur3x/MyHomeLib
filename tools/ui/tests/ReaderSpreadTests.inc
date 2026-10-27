@@ -2,8 +2,41 @@
 var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
   First, Last, Saved, RightInk, LeftInk: Integer; BaselineGDI, BaselineUSER: Cardinal; Image: TBitmap;
   procedure CheckAppearance(const Kind: string);
-  var Bitmap: TBitmap; Stream: TBytesStream; FlatHash, Text: string;
-    Position: Integer; Size: TPoint; Watch: TStopwatch;
+  var Bitmap, Flat: TBitmap; Stream: TBytesStream; FlatHash, Text: string;
+    Position, Changed: Integer; Size: TPoint; Watch: TStopwatch; AppDark: Boolean;
+    A,B: PRGBQuad; Menu: TMainMenu; Item: TMenuItem; Info: TMenuItemInfo;
+    procedure CheckMenuPainting;
+    var MenuImage: TBitmap; ItemBounds: TRect; Matches, Count: Integer;
+      NativeItem: TMenuItemInfo; Draw: TDrawItemStruct;
+    begin
+      Require(GetMenu(Reader.Handle)=Reader.Menu.Handle,'Reader uses a different native menu');
+      Require(GetMenuItemRect(Reader.Handle,Reader.Menu.Handle,0,ItemBounds),
+        'Cannot locate the visible reader menu');
+      NativeItem:=Default(TMenuItemInfo); NativeItem.cbSize:=SizeOf(NativeItem);
+      NativeItem.fMask:=MIIM_ID;
+      Require(GetMenuItemInfo(Reader.Menu.Handle,0,True,NativeItem),'Cannot find the native menu command');
+      MenuImage:=TBitmap.Create;
+      try
+        MenuImage.SetSize(ItemBounds.Width,ItemBounds.Height);
+        MenuImage.Canvas.Brush.Color:=clFuchsia; MenuImage.Canvas.FillRect(MenuImage.Canvas.ClipRect);
+        Draw:=Default(TDrawItemStruct); Draw.CtlType:=ODT_MENU;
+        Draw.itemID:=NativeItem.wID; Draw.itemAction:=ODA_DRAWENTIRE;
+        Draw.hwndItem:=Reader.Menu.Handle; Draw.hDC:=MenuImage.Canvas.Handle;
+        Draw.rcItem:=Rect(0,0,MenuImage.Width,MenuImage.Height);
+        // Exercise Windows' owner-draw notification through the real form.
+        // WM_PRINT/PrintWindow do not render its themed non-client menu.
+        Reader.Perform(WM_DRAWITEM,0,LPARAM(@Draw));
+        Matches:=0; Count:=0;
+        for var Y:=2 to MenuImage.Height-3 do
+          for var X:=2 to MenuImage.Width-3 do
+          begin
+            Inc(Count);
+            if ColorToRGB(MenuImage.Canvas.Pixels[X,Y])=ColorToRGB(Reader.Color) then Inc(Matches);
+          end;
+        Require((Count>0) and (Matches>Count div 2),
+          Format('Reader native menu draw notification ignored the palette: %d of %d pixels match',[Matches,Count]));
+      finally MenuImage.Free; end;
+    end;
     function Snapshot: string;
     begin
       Bitmap.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
@@ -12,19 +45,63 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
       Stream.Position:=0; Result:=THashSHA2.GetHashString(Stream);
     end;
   begin
-    Bitmap:=TBitmap.Create; Stream:=TBytesStream.Create;
+    Bitmap:=TBitmap.Create; Bitmap.PixelFormat:=pf32bit; Flat:=TBitmap.Create;
+    Stream:=TBytesStream.Create; AppDark:=MHLThemeDark;
     try
+      if not Assigned(Reader.Menu) then
+      begin
+        Menu:=TMainMenu.Create(Reader); Item:=TMenuItem.Create(Menu);
+        Item.Caption:='Файл'; Menu.Items.Add(Item);
+        Item:=TMenuItem.Create(Menu); Item.Caption:='Открыть'; Menu.Items[0].Add(Item);
+        Reader.Menu:=Menu; Reader.RefreshWindowTheme;
+      end;
       Position:=Reader.TextPosition;
-      for var Theme in [0,1,4] do
+      for var Theme in [0,1,2,3,4,5] do
       begin
         Reader.SetTheme(Theme); Watch:=TStopwatch.StartNew;
         while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do
         begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
         Require(not Reader.PageLoading,Kind+' appearance theme did not finish');
+        Require(MHLThemeDark=AppDark,Kind+' reader palette changed the catalogue theme');
+        var SelectedPaper:=Reader.PageBackground;
+        Reader.Perform(WM_APP+$42,Ord(not AppDark),0);
+        Require(Reader.PageBackground=SelectedPaper,
+          Kind+' catalogue theme message replaced the chosen reading palette');
+        Info:=Default(TMenuItemInfo); Info.cbSize:=SizeOf(Info); Info.fMask:=MIIM_FTYPE;
+        Require(GetMenuItemInfo(Reader.Menu.Handle,0,True,Info) and
+          (Info.fType and MFT_OWNERDRAW<>0) and Reader.Menu.OwnerDraw and
+          Assigned(Reader.Menu.Items[0].OnDrawItem),
+          Format('%s native menu ignored the reader palette painter (flags=%x owner=%s draw=%s)',
+            [Kind,Info.fType,BoolToStr(Reader.Menu.OwnerDraw,True),
+             BoolToStr(Assigned(Reader.Menu.Items[0].OnDrawItem),True)]));
+        if Kind='FB2' then CheckMenuPainting;
+        Require((TPanel(Reader.FindComponent('ReaderToolbar')).Color=Reader.Color) and
+          (TPanel(Reader.FindComponent('ReaderFooter')).Color=Reader.Color) and
+          (TComboBox(Reader.FindComponent('ReaderThemeSelector')).Color=Reader.Color) and
+          (Reader.ReaderStatus.Font.Color=Reader.Font.Color),
+          Kind+' selected theme did not reach the complete reader window');
+        Require((TPanel(Reader.FindComponent('ReaderToolbar')).Caption='') and
+          (TPanel(Reader.FindComponent('ReaderFooter')).Caption=''),
+          Kind+' reader displays an internal panel name');
         Reader.SetPageAppearance(rpaFlat); FlatHash:=Snapshot;
+        Flat.Assign(Bitmap); Flat.PixelFormat:=pf32bit;
         Size:=Reader.PageRasterSize; Text:=Reader.PageText;
         Reader.SetPageAppearance(rpaBook);
         Require(Snapshot<>FlatHash,Kind+' book decoration is invisible');
+        Changed:=0;
+        for var Y:=0 to Bitmap.Height-1 do
+        begin
+          A:=Flat.ScanLine[Y]; B:=Bitmap.ScanLine[Y];
+          for var X:=0 to Bitmap.Width-1 do
+          begin
+            if Abs(Integer(A.rgbRed)-B.rgbRed)+Abs(Integer(A.rgbGreen)-B.rgbGreen)+
+              Abs(Integer(A.rgbBlue)-B.rgbBlue)>=24 then Inc(Changed);
+            Inc(A); Inc(B);
+          end;
+        end;
+        Require(Changed>Bitmap.Width*Bitmap.Height div 100,
+          Format('%s theme %d book edges affect %d of %d visible pixels (raster %dx%d)',
+            [Kind,Theme,Changed,Bitmap.Width*Bitmap.Height,Size.X,Size.Y]));
         Require((Reader.TextPosition=Position) and (Reader.PageText=Text) and
           (Reader.PageRasterSize=Size) and not Reader.PageLoading,
           Kind+' decoration changed content, coordinates or triggered a reload');
@@ -32,8 +109,8 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
         Require(Snapshot=FlatHash,Kind+' flat appearance did not restore exact pixels');
       end;
       Reader.SetTheme(0); Reader.SetPageAppearance(rpaBook);
-      Writeln('PASS '+Kind+' reversible book shadows in light, paper and dark themes without reflow or reload');
-    finally Stream.Free; Bitmap.Free; end;
+      Writeln('PASS '+Kind+' visible reversible book edges and complete window palette across all six themes without reflow or catalogue changes');
+    finally Stream.Free; Flat.Free; Bitmap.Free; end;
   end;
   procedure CheckFixed(const Source, Kind: string);
   var BookHash: string; Watch: TStopwatch;
@@ -53,6 +130,13 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
       Require(not Reader.PageLoading,Kind+' spread did not finish decoding');
       Require((Reader.VisiblePageCount=2) and (Reader.TextPosition=0) and (Reader.PageTurn=rptSpread),Kind+' default spread differs');
       CheckAppearance(Kind);
+      Reader.SetPageLayout(rplSingle); Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(not Reader.PageLoading,Kind+' single page did not finish decoding');
+      CheckAppearance(Kind+' single page');
+      Reader.SetPageLayout(rplDouble); Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(not Reader.PageLoading,Kind+' spread did not return after appearance check');
       if Kind='PDF' then
       begin
         Require(Reader.PageText.Contains('Spread page 1') and Reader.PageText.Contains('Spread page 2'),'PDF spread omits a page text layer');
@@ -157,6 +241,8 @@ begin
     Capture; LeftInk:=Ink(60,Image.Width div 2-50,False); RightInk:=Ink(Image.Width div 2+60,Image.Width-50,False);
     Require((LeftInk>100) and (RightInk>100),'Spread does not draw text on both pages');
     CheckAppearance('FB2');
+    Reader.SetPageLayout(rplSingle); Settle; CheckAppearance('FB2 single page');
+    Reader.SetPageLayout(rplDouble); Settle;
     First:=Reader.TextPosition; Page:=Reader.PageText; Reader.NextPage; Last:=Reader.TextPosition;
     Require((Last>First) and (Page=Normalized(Reader.BookText.Substring(First,Last-First))),
       'Spread navigation skips or repeats text');

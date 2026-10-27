@@ -36,7 +36,7 @@ begin
   FEdit.StyleElements:=[]; FEdit.BorderStyle:=bsNone; FEdit.ScrollBars:=ssNone;
   FEdit.ReadOnly:=True; FEdit.WordWrap:=True;
   SendMessage(FEdit.Handle,EM_SETUNDOLIMIT,0,0);
-  FOle:=AttachReaderPictures(FEdit);
+  FOle:=AttachReaderPictures(FEdit,True);
 end;
 
 destructor TReaderPageSelection.Destroy;
@@ -47,7 +47,7 @@ begin FReady:=False; FStart:=0; FLength:=0; FOffsetX:=0; FEdit.Clear; end;
 
 procedure TReaderPageSelection.Prepare(Source: TRichEdit; Start, Count, Width, Height, DPI: Integer; const Content: TRect; OffsetX: Integer);
 var Stream: TMemoryStream; Bounds: TRect; Scroll: TPoint;
-  Paragraph: TParaFormat2; Selection: TCharRange; Previous: string;
+  Paragraph: TParaFormat2; Selection: TCharRange; Previous, Continuation: string; Lookahead, I: Integer;
 begin
   FReady:=False;
   if (Count<=0) or (Count>262144) then Exit;
@@ -55,7 +55,12 @@ begin
   try
     // Keep a bounded continuation after the page. Otherwise the clone treats
     // the last visible line as the end of its paragraph and stops justifying it.
-    ReaderSaveRTFRange(Source,Stream,Start,Count+4096); Stream.Position:=0;
+    Continuation:=ReaderTextRange(Source,Start+Count,4096); Lookahead:=Length(Continuation);
+    for I:=1 to Length(Continuation) do
+      if CharInSet(Continuation[I],[#13,#10]) then begin Lookahead:=I; Break; end
+      else if Continuation[I]=#$FFFC then begin Lookahead:=I-1; Break; end;
+    // Keep only the neighbouring paragraph, not thousands of off-page objects.
+    ReaderSaveRTFRange(Source,Stream,Start,Count+Lookahead); Stream.Position:=0;
     FEdit.SetBounds(0,0,Width,Height);
     ReaderLoadRTF(FEdit,Stream);
     if Start>0 then

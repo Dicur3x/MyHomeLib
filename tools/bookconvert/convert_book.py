@@ -55,9 +55,9 @@ def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
 
-def xml(data):
-    if len(data) > MAX_FILE:
-        raise ConversionError('Файл превышает предел конвертации (64 МБ).')
+def xml(data, maximum=MAX_FILE):
+    if len(data) > maximum:
+        raise ConversionError('Файл превышает предел конвертации ('+str(maximum//1024//1024)+' МБ).')
     # ElementTree never fetches external entities. Reject internal entities too.
     probe = data.replace(b'\x00', b'')  # UTF-16/32 declarations must not bypass the gate.
     if re.search(br'<!\s*ENTITY\b|<!\s*DOCTYPE\b[^>]*\[', probe, re.I):
@@ -305,8 +305,8 @@ class EpubArchive:
         self.archive.close()
 
 
-def fb2_to_epub(source, output, warnings):
-    book = xml(Path(source).read_bytes())
+def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
+    book = xml(Path(source).read_bytes(),maximum)
     if book.tag != '{' + FB + '}FictionBook':
         raise ConversionError('Файл не является книгой FB2.')
     description = first(book, 'description')
@@ -946,7 +946,7 @@ def kindle_epub(source, output):
         for item in first(package, 'manifest'):
             if item.get('media-type') != 'application/xhtml+xml': continue
             part = archive.resolve(package_path, item.get('href', ''))[0]
-            document = xml(archive.read(part)); dirty = False
+            document = xhtml(archive.read(part)); dirty = False
             for node in document.iter():
                 if 'cid' in node.attrib: node.attrib.pop('cid'); dirty = True
             if any(n.tag == '{http://www.w3.org/2000/svg}svg' for n in document.iter()):
@@ -1037,10 +1037,16 @@ def detect_input(source):
     """Bounded signature inspection, also for numeric/mistyped extensions."""
     with source.open('rb') as stream: prefix = stream.read(131072)
     if prefix.startswith(b'AT&TFORM'): return '.djvu'
-    for signature, extension in [(b'SQLite format 3\0', '.sqlite'), (b'ICEContainer 1.0', '.ibk'),
+    if prefix.startswith(b'SQLite format 3\0'):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_jutoh_input', Path(__file__).with_name('jutoh_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        return '.jutoh' if module.matches(source) else '.sqlite'
+    for signature, extension in [(b'ICEContainer 1.0', '.ibk'),
                                   (b'CoolReader 3 Cache File ', '.cr3'), (b'\rJAP-Frame-Set1', '.jap'),
                                   (b'ASMJS[::]', '.sm'), (b'b1:as', '.b1')]:
         if prefix.startswith(signature): return extension
+    if prefix.startswith(b'\xef\xbb\xbfASMJS[::]'): return '.sm'
     if len(prefix)>=21 and prefix[:2]==b'HA' and 0<int.from_bytes(prefix[2:4],'little')<=20000 and prefix[4]>>4<=2 and prefix[4]&15 in {0,1,2,14,15}: return '.ha'
     if prefix.startswith(b'\x89PNG\r\n\x1a\n'): return '.png'
     if prefix.startswith(b'\xff\xd8'): return '.jpg'
@@ -1067,6 +1073,7 @@ def detect_input(source):
             names = set(archive.namelist())
             for marker, extension in [('META-INF/container.xml', '.epub'), ('word/document.xml', '.docx'), ('ppt/presentation.xml', '.pptx'), ('xl/workbook.xml', '.xlsx'), ('fb3/body.xml', '.fb3')]:
                 if marker in names: return extension
+            if 'Index/Document.iwa' in names or 'Index.zip' in names: return '.pages'
             if 'mimetype' in names and archive.getinfo('mimetype').file_size < 1024:
                 mime = archive.read('mimetype')
                 if mime==b'application/vnd.sun.xml.writer':return '.sxw'
@@ -1107,39 +1114,69 @@ def detect_input(source):
 
 
 def convert_book(source, destination, **metadata):
+    image_quality = metadata.pop('image_quality', 'original')
+    image_options = metadata.pop('image_options', None)
+    image_choice = metadata.pop('image_choice', None)
+    scan_layout = metadata.pop('scan_layout', 'keep')
+    scan_exclude = metadata.pop('scan_exclude', '')
+    if scan_layout not in {'keep','split','auto'}: raise ConversionError('Неизвестный режим страниц сканов.')
+    if metadata.get('reading'): image_quality = 'original'
+    elif scan_layout!='keep' and image_quality=='original': image_quality='high'
     source, destination = Path(source).resolve(), Path(destination).absolute()
     if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
-    if source.stat().st_size > MAX_FILE: raise ConversionError('Книга превышает предел конвертации (64 МБ).')
+    if source.stat().st_size > MAX_TOTAL:
+        raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if image_quality == 'none' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+        raise ConversionError('Этот формат преобразуется как сканы: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
+    image_export = None
+    if image_quality!='original' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+        image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,
+                      'options':image_options,'choice':image_choice,'handled':False}
+        metadata['image_export']=image_export
+    large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
+    large_images = large_images or (extension in {'.fb2','.epub'} and image_quality!='original')
+    limit = MAX_TOTAL if large_images else MAX_FILE
+    if source.stat().st_size > limit: raise ConversionError('Книга превышает предел конвертации ('+str(limit//1024//1024)+' МБ).')
     conversion = {('.fb2', '.epub'): fb2_to_epub, ('.epub', '.fb2'): epub_to_fb2}.get((extension, target_extension))
     text_input = extension in {'.txt', '.text', '.faq', '.html', '.htm', '.xhtml', '.shtml', '.rtf', '.docx', '.odt', '.fb3', '.md', '.markdown', '.abw', '.sxw',
-                               '.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.lit', '.lrf', '.rb', '.xps', '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
+                               '.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd', '.mht', '.mhtml', '.wri', '.pdb', '.ibk', '.rgo', '.jutoh', '.pages', '.tcr', '.chm', '.lit', '.lrf', '.rb', '.xps', '.jpg','.jpeg','.png','.gif','.bmp','.tif','.tiff','.webp','.cbz','.cbr','.cb7', '.pdf', '.djvu', '.djv', '.dju', '.djm', '.djvm'} and target_extension in {'.epub', '.fb2'}
     kindle_input = extension in {'.mobi', '.azw', '.azw3', '.prc'} and target_extension in {'.epub', '.fb2'}
     same_format=extension==target_extension and extension in {'.fb2','.epub'}
     ha_input = extension == '.ha' and target_extension in {'.fb2','.epub'}
-    if conversion is None and not text_input and not kindle_input and not same_format and not ha_input:
+    cr3_input = extension == '.cr3' and target_extension in {'.fb2','.epub'}
+    b1_input = extension == '.b1' and target_extension in {'.fb2','.epub'}
+    if conversion is None and not text_input and not kindle_input and not same_format and not ha_input and not cr3_input and not b1_input:
         explanation = {
             '.sqlite': 'Это база данных или проект редактора. Для книги нужен исходный текст либо экспорт из создавшей её программы.',
-            '.ibk': 'Это собственный контейнер ICE Book Reader. Сначала экспортируйте книгу из ICE Book Reader.',
-            '.cr3': 'Это кэш CoolReader. Для открытия нужен исходный файл книги.',
             '.jap': 'Набор рамок JAP требует связанных изображений или исходной книги.',
-            '.sm': 'Это исходник интерактивной истории AXMA. Для сохранения переходов и условий нужен её проигрыватель.',
-            '.b1': 'Это архив B1. Сначала извлеките из него файл книги.',
+            '.sm': 'Это интерактивная книга: текст зависит от выбранных ответов. Откройте её во встроенной читалке и нажмите «Сохранить пройденную ветку…», чтобы получить FB2 или EPUB с показанным текстом и ответами. Другие ветки остаются в исходной книге.',
             '.rgo': 'Для старого формата RepliGo пока требуется его просмотрщик или экспорт в PDF.',
             '.ole': 'В контейнере Office не найден поддерживаемый документ. Возможно, файл повреждён.'
         }.get(extension, 'Этот формат пока не поддерживается конвертером FB2/EPUB.')
         raise ConversionError(explanation)
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)
-    os.close(handle); temporary = Path(temporary_name); warnings = set()
+    os.close(handle); temporary = Path(temporary_name); warnings = set(); text_only_source = None
     try:
+        if image_quality == 'none' and extension in {'.fb2','.epub'}:
+            spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+            api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+            text_only_source = tempfile.TemporaryDirectory(prefix='homelib-text-source-',dir=destination.parent)
+            prepared = Path(text_only_source.name)/('source'+extension)
+            try: removed = module.without_images(api,source,prepared,extension)
+            except module.NoTextContent as error: raise ConversionError(str(error)) from error
+            source = prepared
+            if removed: warnings.add('Книга сохранена без изображений и обложки. Исходная книга сохранена.')
         if same_format:
             if extension=='.fb2':
-                book=xml(source.read_bytes())
+                book=xml(source.read_bytes(),limit)
                 if book.tag!='{'+FB+'}FictionBook' or first(book,'body') is None:
                     raise ConversionError('В исходном FB2 отсутствует читаемая книга.')
                 validate_fb2_output(book)
+                del book
             else:
                 with zipfile.ZipFile(source) as archive:
                     entries=archive.infolist()
@@ -1150,27 +1187,67 @@ def convert_book(source, destination, **metadata):
                     if tag(container)!='container':raise ConversionError('Некорректный контейнер EPUB.')
             # A correctly detected target format needs no lossy round trip.
             temporary.write_bytes(source.read_bytes())
+        elif b1_input:
+            spec=importlib.util.spec_from_file_location('homelib_b1',Path(__file__).with_name('b1_input.py'))
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            api=type('ConversionAPI',(),{name:value for name,value in globals().items() if not name.startswith('__')})
+            options=dict(metadata,image_quality=image_quality,image_options=image_options,image_choice=image_choice,
+                         scan_layout=scan_layout,scan_exclude=scan_exclude)
+            module.convert(api,source,temporary,target_extension,warnings,options)
+        elif cr3_input:
+            spec=importlib.util.spec_from_file_location('homelib_cr3',Path(__file__).with_name('cr3_input.py'))
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            api=type('ConversionAPI',(),{name:value for name,value in globals().items() if not name.startswith('__')})
+            module.convert(api,source,temporary,target_extension,warnings)
         elif ha_input:
             spec=importlib.util.spec_from_file_location('homelib_ha',Path(__file__).with_name('ha_input.py'))
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             module.convert(source,temporary,warnings,target_extension,convert_book,detect_input,**metadata)
         elif kindle_input: kindle_to_book(source, temporary, warnings, target_extension, **metadata)
-        elif text_input: text_to_book(source, temporary, warnings, target_extension, input_extension=extension, **metadata)
+        elif text_input: text_to_book(source, temporary, warnings, target_extension, input_extension=extension,
+                                      **dict(metadata, omit_images=image_quality == 'none'))
+        elif conversion is fb2_to_epub:
+            fb2_to_epub(source,temporary,warnings,maximum=limit)
         else: conversion(source, temporary, warnings)
+        if image_quality != 'original' and text_only_source is None and not b1_input and not (image_export and image_export['handled']):
+            spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+            api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+            module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
+                         metadata.get('progress') or (lambda *_: None), image_options, image_choice, warnings)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
-            with zipfile.ZipFile(temporary) as archive:
-                if archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
-                for name in archive.namelist():
-                    if name.lower().endswith(('.xhtml', '.opf', '.ncx', '.xml')):
-                        xml(archive.read(name))
-        else: validate_fb2_output(xml(temporary.read_bytes()))
+            archive = EpubArchive(temporary)
+            try:
+                if archive.archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
+                # EPUB 2 chapters may be named .xml. Their manifest media type,
+                # rather than the suffix alone, identifies legacy XHTML/DTD entities.
+                container = xml(archive.read('META-INF/container.xml'))
+                xhtml_parts = set()
+                for rootfile in (n for n in container.iter() if tag(n) == 'rootfile'):
+                    package_path = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
+                    package = xml(archive.read(package_path))
+                    manifest = first(package, 'manifest')
+                    if manifest is None: raise ConversionError('В EPUB отсутствует каталог ресурсов.')
+                    for item in manifest:
+                        if item.get('media-type') == 'application/xhtml+xml':
+                            path = archive.resolve(package_path, item.get('href', ''))[0]
+                            if path not in archive.names: raise ConversionError('В EPUB отсутствует глава книги.')
+                            xhtml_parts.add(path)
+                for name in archive.names:
+                    if name in xhtml_parts or name.lower().endswith(('.xhtml', '.opf', '.ncx', '.xml')):
+                        parser = xhtml if name in xhtml_parts or name.lower().endswith('.xhtml') else xml
+                        parser(archive.read(name))
+            finally:
+                archive.close()
+        else: validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL))
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
         else: os.link(temporary, destination); temporary.unlink()
         return {'output': str(destination), 'warnings': sorted(warnings), 'size': destination.stat().st_size}
     finally:
         if temporary.exists(): temporary.unlink()
+        if text_only_source is not None: text_only_source.cleanup()
 
 
 def _write_progress(path, text):
@@ -1203,6 +1280,11 @@ def main():
     parser.add_argument('--title', default=''); parser.add_argument('--author', default=''); parser.add_argument('--language', default='')
     parser.add_argument('--resource-root')
     parser.add_argument('--tools-root')
+    parser.add_argument('--image-quality', choices=['original','high','balanced','economy','none','ask'], default='original')
+    parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
+    parser.add_argument('--scan-exclude', default='')
+    parser.add_argument('--image-options', help='Internal image size estimate channel')
+    parser.add_argument('--image-choice', help='Internal export quality choice channel')
     parser.add_argument('--progress-file', help='Internal bounded page-progress channel')
     parser.add_argument('--reading', action='store_true', help='Internal reading view with visible placeholders for unsupported office objects')
     options = parser.parse_args()
@@ -1241,7 +1323,8 @@ def main():
     try:
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
-                              reading=options.reading, progress=progress)
+                              reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
+                              image_options=options.image_options, image_choice=options.image_choice)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)

@@ -108,7 +108,10 @@ begin
   Require(not DirectoryExists(Held),'Dependency fixture would replace an existing directory');
   SavedPath:=GetEnvironmentVariable('PATH'); SavedPF:=GetEnvironmentVariable('ProgramFiles');
   SavedPF32:=GetEnvironmentVariable('ProgramFiles(x86)');
-  Source:=TPath.Combine(Settings.AppPath,'needs-sevenzip.7z'); TFile.WriteAllText(Source,'Owned archive requiring a decoder');
+  Source:=TPath.Combine(Settings.AppPath,'needs-sevenzip.7z');
+  // Content detection must see an archive, not ordinary text mislabeled .7z.
+  TFile.WriteAllBytes(Source,TBytes.Create($37,$7A,$BC,$AF,$27,$1C,$00,$04,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0));
   Hash:=UpdateSHA256(Source); Host:=nil;
   TDirectory.Move(Tools,Held);
   try

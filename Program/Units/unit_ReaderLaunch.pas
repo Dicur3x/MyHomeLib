@@ -15,7 +15,7 @@ implementation
 
 uses System.IOUtils, System.IniFiles, System.Win.Registry,
   Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Clipbrd,
-  unit_ReaderFormats, unit_ReaderOffice, unit_Settings, unit_Readers, unit_Helpers, unit_ReaderCache, unit_ComponentUpdates, dm_user;
+  unit_ReaderFormats, unit_ReaderOffice, unit_Settings, unit_Readers, unit_Helpers, unit_ReaderCache, unit_ComponentUpdates, unit_MHLTheme, dm_user;
 
 function FindArchiveManager: string;
 const Roots: array[0..1] of HKEY = (HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE);
@@ -157,7 +157,7 @@ begin
     LabelText:=TLabel.Create(Dialog); LabelText.Parent:=Dialog; LabelText.AutoSize:=False;
     LabelText.SetBounds(12,10,416,42); LabelText.WordWrap:=True; LabelText.Caption:=Ext.TrimLeft(['.'])+' · '+ReaderAvailability(Ext);
     List:=TListBox.Create(Dialog); List.Parent:=Dialog; List.SetBounds(12,58,416,132);
-    if CanBuiltin then Add('Встроенная читалка','@builtin');
+    if CanBuiltin then Add('HomeLib Reader','@builtin');
     Reader:=Settings.Readers.Find(Ext);
     if Assigned(Reader) and (Reader.Path<>'') then
     begin
@@ -184,6 +184,7 @@ begin
     B:=TButton.Create(Dialog); B.Parent:=Dialog; B.SetBounds(212,246,104,28); B.Caption:='Открыть'; B.Default:=True; B.ModalResult:=mrOk;
     B:=TButton.Create(Dialog); B.Parent:=Dialog; B.SetBounds(324,246,104,28); B.Caption:='Отмена'; B.Cancel:=True; B.ModalResult:=mrCancel;
     Dialog.ScaleForPPI(Screen.PixelsPerInch);
+    ApplyMHLControlTheme(Dialog);
     if (Dialog.ShowModal<>mrOk) or (List.ItemIndex<0) then Exit;
     Choice:=Paths[List.ItemIndex];
     if Choice.StartsWith('@install:') and Assigned(OnInstallComponent) then

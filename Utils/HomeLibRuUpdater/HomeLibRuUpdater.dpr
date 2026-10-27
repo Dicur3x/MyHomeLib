@@ -21,10 +21,10 @@ begin
   Result := '"' + StringReplace(Value, '"', '', [rfReplaceAll]) + '"';
 end;
 
-procedure Restart(const Target: string; Args: TJSONArray; const OriginalCommandLine: string);
+procedure Restart(const Target, ApplicationName: string; Args: TJSONArray; const OriginalCommandLine: string);
 var Command: string; Arg: TJSONValue; Startup: TStartupInfo; Process: TProcessInformation;
 begin
-  Command := QuoteArgument(IncludeTrailingPathDelimiter(Target) + 'HomeLibRu.exe');
+  Command := QuoteArgument(IncludeTrailingPathDelimiter(Target) + ApplicationName);
   for Arg in Args do
   begin
     if not (Arg is TJSONString) then raise Exception.Create('Повреждены параметры запуска.');
@@ -33,12 +33,12 @@ begin
   // Reuse original quoting verbatim; the executable path remains explicit.
   if OriginalCommandLine <> '' then Command := OriginalCommandLine;
   UniqueString(Command); Startup := Default(TStartupInfo); Startup.cb := SizeOf(Startup);
-  if not CreateProcess(PChar(IncludeTrailingPathDelimiter(Target) + 'HomeLibRu.exe'), PChar(Command),
+  if not CreateProcess(PChar(IncludeTrailingPathDelimiter(Target) + ApplicationName), PChar(Command),
     nil, nil, False, 0, nil, PChar(Target), Startup, Process) then RaiseLastOSError;
   CloseHandle(Process.hThread); CloseHandle(Process.hProcess);
 end;
 
-var Job, Target, Tag, Digest, ParentImage, Error, Cache, OriginalCommandLine: string;
+var Job, Target, Tag, Digest, ParentImage, Error, Cache, OriginalCommandLine, ApplicationName: string;
   Root: TJSONValue; Request: TJSONObject; Args: TJSONArray;
   PID, Length: Cardinal; Parent: THandle; CanRestart, Recover: Boolean;
 begin
@@ -59,6 +59,9 @@ begin
        not Request.TryGetValue<TJSONArray>('args', Args) then
       raise Exception.Create('Повреждены параметры обновления.');
     Target := TPath.GetFullPath(Target); AssertUpdatePath(Target);
+    ApplicationName:='HomeLibRu.exe'; Request.TryGetValue<string>('application',ApplicationName);
+    if (ApplicationName<>'HomeLibRu.exe') and (ApplicationName<>'HomeLibReader.exe') then
+      raise Exception.Create('Недопустимое приложение для обновления.');
     OriginalCommandLine := ''; Request.TryGetValue<string>('commandLine', OriginalCommandLine);
     Recover := False; Request.TryGetValue<Boolean>('recover', Recover);
     Parent := OpenProcess(SYNCHRONIZE or PROCESS_QUERY_LIMITED_INFORMATION, False, PID);
@@ -69,7 +72,7 @@ begin
       if QueryFullProcessImageName(Parent, 0, PChar(ParentImage), Length) then
       begin
         SetLength(ParentImage, Length);
-        if not SameText(ParentImage, IncludeTrailingPathDelimiter(Target) + 'HomeLibRu.exe') then
+        if not SameText(ParentImage, IncludeTrailingPathDelimiter(Target) + ApplicationName) then
           raise Exception.Create('Обновление запущено для другого экземпляра программы.');
       end
       else if WaitForSingleObject(Parent, 0) <> WAIT_OBJECT_0 then RaiseLastOSError;
@@ -80,7 +83,7 @@ begin
     if Recover then
     begin
       RollbackProgramUpdate(Job, Target);
-      Restart(Target, Args, OriginalCommandLine);
+      Restart(Target, ApplicationName, Args, OriginalCommandLine);
       Root.Free; Halt(0);
     end;
     if not SameText(UpdateSHA256(IncludeTrailingPathDelimiter(Job) + 'release.zip'), Digest) then
@@ -90,7 +93,7 @@ begin
     Cache := ExtractFileDir(Job);
     TFile.WriteAllText(IncludeTrailingPathDelimiter(Cache) + 'result.txt',
       'Установлена версия ' + Tag + '.', TEncoding.UTF8);
-    Restart(Target, Args, OriginalCommandLine);
+    Restart(Target, ApplicationName, Args, OriginalCommandLine);
   except
     on E: Exception do
     begin
@@ -98,7 +101,7 @@ begin
         'Резервная копия и журнал сохранены в:' + sLineBreak + Job;
       MessageBox(0, PChar(Error), 'HomeLib Ru', MB_OK or MB_ICONERROR);
       if CanRestart and Assigned(Args) then
-        try Restart(Target, Args, OriginalCommandLine); except end;
+        try Restart(Target, ApplicationName, Args, OriginalCommandLine); except end;
       Root.Free; Halt(1);
     end;
   end;

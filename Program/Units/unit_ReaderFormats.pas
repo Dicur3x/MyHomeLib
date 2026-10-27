@@ -12,7 +12,7 @@ function IsLegacyReaderFormat(const Extension: string): Boolean;
 implementation
 
 uses System.SysUtils, System.Classes, System.IOUtils, System.Zip, System.Hash, System.Math,
-  System.StrUtils, System.RegularExpressions, System.Generics.Collections, System.SyncObjs, Winapi.Windows, unit_BookCache, unit_ReaderOffice;
+  System.StrUtils, System.RegularExpressions, System.Generics.Collections, System.SyncObjs, Winapi.Windows, SQLiteWrap, unit_BookCache, unit_ReaderOffice;
 
 var FormatCache: TDictionary<string,string>; FormatCacheLock: TCriticalSection;
 
@@ -21,32 +21,27 @@ begin Result:=Pos('|'+LowerCase(Extension).TrimLeft(['.'])+'|',Values)>0; end;
 
 function IsLegacyReaderFormat(const Extension: string): Boolean;
 begin
-  Result:=InList(Extension,'|chm|lit|lrf|pdb|tcr|rb|abw|sxw|xps|ha|');
+  Result:=InList(Extension,'|fb2|chm|lit|lrf|pdb|ibk|rgo|jutoh|pages|cr3|b1|tcr|rb|abw|sxw|xps|oxps|ha|tif|tiff|cbz|cbr|cb7|');
 end;
 
 function IsBuiltinReaderFormat(const Extension: string): Boolean;
 begin
-  Result:=IsLegacyReaderFormat(Extension) or InList(Extension,'|fb2|fb3|epub|pdf|txt|rtf|html|htm|xhtml|shtml|mht|mhtml|docx|odt|md|markdown|faq|wri|jpg|jpeg|png|gif|bmp|webp|tif|tiff|cbz|cbr|cb7|djvu|djv|dju|djm|djvm|');
+  Result:=IsLegacyReaderFormat(Extension) or InList(Extension,'|sm|fb2|fb3|epub|pdf|txt|rtf|html|htm|xhtml|shtml|mht|mhtml|docx|odt|md|markdown|faq|wri|jpg|jpeg|png|gif|bmp|webp|tif|tiff|cbz|cbr|cb7|djvu|djv|dju|djm|djvm|');
 end;
 
 function ReaderAvailability(const Extension: string): string;
 begin
+  if InList(Extension,'|sm|') then Exit('Интерактивная книга: выбор ответов и сохранение пройденной ветки во встроенной читалке');
   if IsBuiltinReaderFormat(Extension) then Exit('Можно читать во встроенной читалке');
   if InList(Extension,'|mobi|azw|azw3|prc|') then Exit('Встроенная читалка: после подготовки книги');
-  if InList(Extension,'|djvu|djv|dju|djm|djvm|xps|oxps|chm|cbz|cbr|cb7|epub|pdf|') then Exit('Для чтения используйте SumatraPDF');
   if InList(Extension,'|doc|dot|') then Exit('Можно читать во встроенной читалке');
   if IsOfficeReaderFormat(Extension) then Exit('Можно читать во встроенной читалке (адаптация документа)');
-  if InList(Extension,'|rgo|') then Exit('RepliGo: нужен просмотрщик этого старого формата');
-  if InList(Extension,'|ibk|') then Exit('ICE Book Reader: собственный формат библиотеки');
   if InList(Extension,'|sqlite|db|') then Exit('База данных каталога: тексты книг хранятся отдельно');
-  if InList(Extension,'|jutoh|') then Exit('Проект редактора Jutoh: используйте экспорт книги из Jutoh');
-  if InList(Extension,'|cr3|') then Exit('Кэш CoolReader: для открытия нужен исходный файл книги');
   if InList(Extension,'|jap|') then Exit('Набор рамок JAP: нужны связанные изображения или исходная книга');
-  if InList(Extension,'|sm|') then Exit('Исходник интерактивной истории AXMA: требуется её проигрыватель');
-  if InList(Extension,'|b1|') then Exit('Архив B1: сначала извлеките файл книги');
   if InList(Extension,'|zip|rar|7z|7zip|cab|tar|gz|gzip|bz2|xz|tgz|') then Exit('Архив: книга выбирается после распаковки');
   if InList(Extension,'|mp3|wav|ogg|m4b|') then Exit('Аудиофайл: открыть аудиоплеером');
-  if InList(Extension,'|exe|com|msi|bat|cmd|ps1|apk|torrent|') then Exit('Этот файл не является форматом для чтения');
+  if InList(Extension,'|apk|') then Exit('Пакет Android: можно выбрать вложенную книгу, если она есть');
+  if InList(Extension,'|exe|com|msi|bat|cmd|ps1|torrent|') then Exit('Этот файл не является форматом для чтения');
   Result:='Формат будет проверен по содержимому при открытии';
 end;
 
@@ -112,6 +107,40 @@ begin
   finally Input.Free;Visited.Free;FAT.Free;end;
 end;
 
+function DetectSQLiteBook(const FileName: string): string;
+var Database: TSQLiteDatabase;
+begin
+  Result:='.sqlite';
+  // Never load a catalogue to detect a book, and never create a sidecar file.
+  if TFile.GetSize(FileName)>64*1024*1024 then Exit;
+  Database:=nil;
+  try
+    try
+      Database:=TSQLiteDatabase.CreateReadOnly(FileName); Database.SetTimeout(0);
+      Database.ExecSQL('PRAGMA trusted_schema = OFF');
+      if Database.QuerySingleInt('SELECT COUNT(*) FROM sqlite_master WHERE '+
+        'name IN (''ProjectObjects'',''ProjectIndex'',''ProjectVariables'') AND type=''table'' '+
+        'AND UPPER(sql) NOT LIKE ''%VIRTUAL%''')<>3 then Exit;
+      if Database.QuerySingleString('SELECT hex(substr(Data,1,14)) FROM ProjectIndex '+
+        'WHERE DataType=''Index'' LIMIT 1')='0A00000070697869652D75746638' then Result:='.jutoh';
+    except
+      // Damaged SQLite and unrelated editor databases remain unsupported.
+      Result:='.sqlite';
+    end;
+  finally Database.Free; end;
+end;
+
+// Signatures contain ASCII markers mixed with arbitrary binary bytes. Decoding
+// the whole prefix through the Windows ANSI page can reject a valid UTF-8
+// book (or a binary image) before its signature is inspected.
+function ReaderSignatureBytes(const Bytes: TBytes; Offset, Count: Integer): string;
+begin
+  Count:=Min(Count,Length(Bytes)-Offset);
+  if Count<=0 then Exit('');
+  SetLength(Result,Count);
+  for var I:=0 to Count-1 do Result[I+1]:=Char(Bytes[Offset+I]);
+end;
+
 function DetectReaderExtensionCore(const FileName: string): string;
 var Stream: TFileStream; Bytes: TBytes; Prefix, Wide: string; Zip: TZipFile; N: Integer;
   function TextFormat: string;
@@ -151,17 +180,16 @@ begin
     if (Length(Bytes)>=2) and (Bytes[0]=$FF) and (Bytes[1]=$D8) then Exit('.jpg');
     Result:=TextFormat; Exit;
   end;
-  Prefix:=TEncoding.ANSI.GetString(Bytes,0,Min(Length(Bytes),4096));
+  Prefix:=ReaderSignatureBytes(Bytes,0,4096);
   if Copy(Prefix,1,8)='AT&TFORM' then Exit('.djvu');
   if Copy(Prefix,1,16)='SQLite format 3'+#0 then
-  begin
-    if SameText(ExtractFileExt(FileName),'.jutoh') then Exit('.jutoh');
-    Exit('.sqlite');
-  end;
+    Exit(DetectSQLiteBook(FileName));
   if Copy(Prefix,1,16)='ICEContainer 1.0' then Exit('.ibk');
   if Prefix.StartsWith('CoolReader 3 Cache File ') then Exit('.cr3');
   if Prefix.StartsWith(#13+'JAP-Frame-Set1') then Exit('.jap');
   if Prefix.StartsWith('ASMJS[::]') then Exit('.sm');
+  if (Length(Bytes)>=12) and (Bytes[0]=$EF) and (Bytes[1]=$BB) and (Bytes[2]=$BF) and
+    (ReaderSignatureBytes(Bytes,3,9)='ASMJS[::]') then Exit('.sm');
   if Copy(Prefix,1,5)='b1:as' then Exit('.b1');
   if (Length(Bytes)>=21) and (Copy(Prefix,1,2)='HA') and (Bytes[2]+Cardinal(Bytes[3])*256>0) and (Bytes[2]+Cardinal(Bytes[3])*256<=20000) and (Bytes[4] shr 4<=2) and ((Bytes[4] and 15) in [0,1,2,14,15]) then Exit('.ha');
   if Copy(Prefix,1,4)='ITSF' then Exit('.chm');
@@ -187,12 +215,14 @@ begin
         if Zip.IndexOf('ppt/presentation.xml')>=0 then Exit('.pptx');
         if Zip.IndexOf('xl/workbook.xml')>=0 then Exit('.xlsx');
         if Zip.IndexOf('fb3/body.xml')>=0 then Exit('.fb3');
+        // The converter validates the Pages document graph, never a preview.
+        if (Zip.IndexOf('Index/Document.iwa')>=0) or (Zip.IndexOf('Index.zip')>=0) then Exit('.pages');
         if Zip.IndexOf('content.xml')>=0 then
         begin
           N:=Zip.IndexOf('mimetype');
           if (N>=0) and (Zip.FileInfo[N].UncompressedSize<1024) then
           begin
-            Zip.Read(N,Bytes); Wide:=TEncoding.ASCII.GetString(Bytes);
+            Zip.Read(N,Bytes); Wide:=ReaderSignatureBytes(Bytes,0,Length(Bytes));
             if Wide='application/vnd.sun.xml.writer' then Exit('.sxw');
             if Wide='application/vnd.oasis.opendocument.text' then Exit('.odt');
             if Wide='application/vnd.oasis.opendocument.presentation' then Exit('.odp');
@@ -210,7 +240,7 @@ begin
   if (Bytes[0]=$1F) and (Bytes[1]=$8B) then Exit('.gz');
   if Copy(Prefix,1,3)='BZh' then Exit('.bz2');
   if (Length(Bytes)>=6) and (Bytes[0]=$FD) and (Copy(Prefix,2,5)='7zXZ'+#0) then Exit('.xz');
-  if (Length(Bytes)>=262) and (TEncoding.ASCII.GetString(Bytes,257,5)='ustar') then Exit('.tar');
+  if (Length(Bytes)>=262) and (ReaderSignatureBytes(Bytes,257,5)='ustar') then Exit('.tar');
   if (Length(Bytes)>=14) and (Copy(Prefix,1,2)='BM') then Exit('.bmp');
   if Copy(Prefix,1,3)='ID3' then Exit('.mp3');
   if Copy(Prefix,1,4)='OggS' then Exit('.ogg');
@@ -224,7 +254,7 @@ begin
   // Palm Database stores the MOBI type/creator at byte 60, independent of the filename.
   if Length(Bytes)>=68 then
   begin
-    Wide:=TEncoding.ASCII.GetString(Bytes,60,8);
+    Wide:=ReaderSignatureBytes(Bytes,60,8);
     if Wide='BOOKMOBI' then Exit('.mobi');
     if Wide='.rgoCERI' then Exit('.rgo');
     if (Wide='TEXtREAd') or (Wide='zTXTGPlm') or (Wide='SDocSilX') or (Wide='PNRdPPrs') then Exit('.pdb');
@@ -285,8 +315,9 @@ begin
     Extension:=DetectReaderExtension(InputName);
     if (Extension='') or SameText(Extension,ExtractFileExt(InputName)) then
     begin KeepResult:=True; Exit; end;
-    // Comic containers retain their dedicated reader identity.
-    if (Extension='.zip') and InList(ExtractFileExt(InputName),'|cbz|fb3|epub|docx|odt|odp|ods|pptx|xlsx|apk|') then
+    // Native document containers retain their dedicated reader identity.
+    // APK is a generic ZIP bundle: inspect embedded books without launching it.
+    if (Extension='.zip') and InList(ExtractFileExt(InputName),'|cbz|fb3|epub|docx|odt|odp|ods|pptx|xlsx|') then
     begin KeepResult:=True; Exit; end;
     if (Extension='.rar') and SameText(ExtractFileExt(InputName),'.cbr') then
     begin KeepResult:=True; Exit; end;

@@ -1,4 +1,4 @@
-object frmMain: TfrmMain
+﻿object frmMain: TfrmMain
   Left = 0
   Top = 0
   HelpContext = 2
@@ -243,7 +243,11 @@ object frmMain: TfrmMain
     HelpContext = 1
     ActivePage = tsByAuthor
     Align = alClient
+    DoubleBuffered = True
+    OwnerDraw = True
+    TabHeight = 28
     TabOrder = 2
+    OnDrawTab = DrawNavigationTab
     OnChange = pgControlChange
     ExplicitWidth = 772
     ExplicitHeight = 652
@@ -600,16 +604,271 @@ object frmMain: TfrmMain
         Top = 3
         Width = 764
         Height = 29
+        Constraints.MinHeight = 28
         AutoSize = True
+        ButtonHeight = 24
+        ButtonWidth = 20
+        ShowCaptions = True
+        List = True
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -12
+        Font.Name = 'Segoe UI'
+        Font.Style = [fsBold]
+        Font.Quality = fqClearTypeNatural
+        ParentFont = False
         Caption = 'tbarAuthorsRus'
         DrawingStyle = dsGradient
-        HotImages = ilAlphabetActive
-        Images = ilAlphabetNormal
         ParentColor = True
         TabOrder = 0
         Transparent = True
         Wrapable = False
         ExplicitWidth = 750
+        object tbarAuthorsRusLetter00: TToolButton
+          Left = 0
+          Top = 0
+          Caption = #42
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter01: TToolButton
+          Left = 20
+          Top = 0
+          Caption = #35
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter02: TToolButton
+          Left = 40
+          Top = 0
+          Caption = #1040
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter03: TToolButton
+          Left = 60
+          Top = 0
+          Caption = #1041
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter04: TToolButton
+          Left = 80
+          Top = 0
+          Caption = #1042
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter05: TToolButton
+          Left = 100
+          Top = 0
+          Caption = #1043
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter06: TToolButton
+          Left = 120
+          Top = 0
+          Caption = #1044
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter07: TToolButton
+          Left = 140
+          Top = 0
+          Caption = #1045
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter08: TToolButton
+          Left = 160
+          Top = 0
+          Caption = #1025
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter09: TToolButton
+          Left = 180
+          Top = 0
+          Caption = #1046
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter10: TToolButton
+          Left = 200
+          Top = 0
+          Caption = #1047
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter11: TToolButton
+          Left = 220
+          Top = 0
+          Caption = #1048
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter12: TToolButton
+          Left = 240
+          Top = 0
+          Caption = #1049
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter13: TToolButton
+          Left = 260
+          Top = 0
+          Caption = #1050
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter14: TToolButton
+          Left = 280
+          Top = 0
+          Caption = #1051
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter15: TToolButton
+          Left = 300
+          Top = 0
+          Caption = #1052
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter16: TToolButton
+          Left = 320
+          Top = 0
+          Caption = #1053
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter17: TToolButton
+          Left = 340
+          Top = 0
+          Caption = #1054
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter18: TToolButton
+          Left = 360
+          Top = 0
+          Caption = #1055
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter19: TToolButton
+          Left = 380
+          Top = 0
+          Caption = #1056
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter20: TToolButton
+          Left = 400
+          Top = 0
+          Caption = #1057
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter21: TToolButton
+          Left = 420
+          Top = 0
+          Caption = #1058
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter22: TToolButton
+          Left = 440
+          Top = 0
+          Caption = #1059
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter23: TToolButton
+          Left = 460
+          Top = 0
+          Caption = #1060
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter24: TToolButton
+          Left = 480
+          Top = 0
+          Caption = #1061
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter25: TToolButton
+          Left = 500
+          Top = 0
+          Caption = #1062
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter26: TToolButton
+          Left = 520
+          Top = 0
+          Caption = #1063
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter27: TToolButton
+          Left = 540
+          Top = 0
+          Caption = #1064
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter28: TToolButton
+          Left = 560
+          Top = 0
+          Caption = #1065
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter29: TToolButton
+          Left = 580
+          Top = 0
+          Caption = #1066
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter30: TToolButton
+          Left = 600
+          Top = 0
+          Caption = #1067
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter31: TToolButton
+          Left = 620
+          Top = 0
+          Caption = #1068
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter32: TToolButton
+          Left = 640
+          Top = 0
+          Caption = #1069
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter33: TToolButton
+          Left = 660
+          Top = 0
+          Caption = #1070
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsRusLetter34: TToolButton
+          Left = 680
+          Top = 0
+          Caption = #1071
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
       end
       object tbarAuthorsEng: TToolBar
         AlignWithMargins = True
@@ -617,16 +876,222 @@ object frmMain: TfrmMain
         Top = 38
         Width = 764
         Height = 29
+        Constraints.MinHeight = 28
         AutoSize = True
+        ButtonHeight = 24
+        ButtonWidth = 20
+        ShowCaptions = True
+        List = True
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -12
+        Font.Name = 'Segoe UI'
+        Font.Style = [fsBold]
+        Font.Quality = fqClearTypeNatural
+        ParentFont = False
         Caption = 'tbarAuthorFilter1'
         DrawingStyle = dsGradient
-        HotImages = ilAlphabetActive
-        Images = ilAlphabetNormal
         ParentColor = True
         TabOrder = 1
         Transparent = True
         Wrapable = False
         ExplicitWidth = 750
+        object tbarAuthorsEngLetter00: TToolButton
+          Left = 0
+          Top = 0
+          Caption = #42
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter01: TToolButton
+          Left = 20
+          Top = 0
+          Caption = #35
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter02: TToolButton
+          Left = 40
+          Top = 0
+          Caption = #65
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter03: TToolButton
+          Left = 60
+          Top = 0
+          Caption = #66
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter04: TToolButton
+          Left = 80
+          Top = 0
+          Caption = #67
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter05: TToolButton
+          Left = 100
+          Top = 0
+          Caption = #68
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter06: TToolButton
+          Left = 120
+          Top = 0
+          Caption = #69
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter07: TToolButton
+          Left = 140
+          Top = 0
+          Caption = #70
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter08: TToolButton
+          Left = 160
+          Top = 0
+          Caption = #71
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter09: TToolButton
+          Left = 180
+          Top = 0
+          Caption = #72
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter10: TToolButton
+          Left = 200
+          Top = 0
+          Caption = #73
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter11: TToolButton
+          Left = 220
+          Top = 0
+          Caption = #74
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter12: TToolButton
+          Left = 240
+          Top = 0
+          Caption = #75
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter13: TToolButton
+          Left = 260
+          Top = 0
+          Caption = #76
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter14: TToolButton
+          Left = 280
+          Top = 0
+          Caption = #77
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter15: TToolButton
+          Left = 300
+          Top = 0
+          Caption = #78
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter16: TToolButton
+          Left = 320
+          Top = 0
+          Caption = #79
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter17: TToolButton
+          Left = 340
+          Top = 0
+          Caption = #80
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter18: TToolButton
+          Left = 360
+          Top = 0
+          Caption = #81
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter19: TToolButton
+          Left = 380
+          Top = 0
+          Caption = #82
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter20: TToolButton
+          Left = 400
+          Top = 0
+          Caption = #83
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter21: TToolButton
+          Left = 420
+          Top = 0
+          Caption = #84
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter22: TToolButton
+          Left = 440
+          Top = 0
+          Caption = #85
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter23: TToolButton
+          Left = 460
+          Top = 0
+          Caption = #86
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter24: TToolButton
+          Left = 480
+          Top = 0
+          Caption = #87
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter25: TToolButton
+          Left = 500
+          Top = 0
+          Caption = #88
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter26: TToolButton
+          Left = 520
+          Top = 0
+          Caption = #89
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
+        object tbarAuthorsEngLetter27: TToolButton
+          Left = 540
+          Top = 0
+          Caption = #90
+          ImageIndex = -1
+          OnClick = OnSetAuthorFilter
+        end
       end
     end
     object tsBySerie: TTabSheet
@@ -987,16 +1452,222 @@ object frmMain: TfrmMain
         Top = 38
         Width = 764
         Height = 29
+        Constraints.MinHeight = 28
         AutoSize = True
+        ButtonHeight = 24
+        ButtonWidth = 20
+        ShowCaptions = True
+        List = True
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -12
+        Font.Name = 'Segoe UI'
+        Font.Style = [fsBold]
+        Font.Quality = fqClearTypeNatural
+        ParentFont = False
         Caption = 'tbarAuthorFilter1'
         DrawingStyle = dsGradient
-        HotImages = ilAlphabetActive
-        Images = ilAlphabetNormal
         ParentColor = True
         TabOrder = 2
         Transparent = True
         Wrapable = False
         ExplicitWidth = 772
+        object tbarSeriesEngLetter00: TToolButton
+          Left = 0
+          Top = 0
+          Caption = #42
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter01: TToolButton
+          Left = 20
+          Top = 0
+          Caption = #35
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter02: TToolButton
+          Left = 40
+          Top = 0
+          Caption = #65
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter03: TToolButton
+          Left = 60
+          Top = 0
+          Caption = #66
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter04: TToolButton
+          Left = 80
+          Top = 0
+          Caption = #67
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter05: TToolButton
+          Left = 100
+          Top = 0
+          Caption = #68
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter06: TToolButton
+          Left = 120
+          Top = 0
+          Caption = #69
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter07: TToolButton
+          Left = 140
+          Top = 0
+          Caption = #70
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter08: TToolButton
+          Left = 160
+          Top = 0
+          Caption = #71
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter09: TToolButton
+          Left = 180
+          Top = 0
+          Caption = #72
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter10: TToolButton
+          Left = 200
+          Top = 0
+          Caption = #73
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter11: TToolButton
+          Left = 220
+          Top = 0
+          Caption = #74
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter12: TToolButton
+          Left = 240
+          Top = 0
+          Caption = #75
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter13: TToolButton
+          Left = 260
+          Top = 0
+          Caption = #76
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter14: TToolButton
+          Left = 280
+          Top = 0
+          Caption = #77
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter15: TToolButton
+          Left = 300
+          Top = 0
+          Caption = #78
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter16: TToolButton
+          Left = 320
+          Top = 0
+          Caption = #79
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter17: TToolButton
+          Left = 340
+          Top = 0
+          Caption = #80
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter18: TToolButton
+          Left = 360
+          Top = 0
+          Caption = #81
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter19: TToolButton
+          Left = 380
+          Top = 0
+          Caption = #82
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter20: TToolButton
+          Left = 400
+          Top = 0
+          Caption = #83
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter21: TToolButton
+          Left = 420
+          Top = 0
+          Caption = #84
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter22: TToolButton
+          Left = 440
+          Top = 0
+          Caption = #85
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter23: TToolButton
+          Left = 460
+          Top = 0
+          Caption = #86
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter24: TToolButton
+          Left = 480
+          Top = 0
+          Caption = #87
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter25: TToolButton
+          Left = 500
+          Top = 0
+          Caption = #88
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter26: TToolButton
+          Left = 520
+          Top = 0
+          Caption = #89
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesEngLetter27: TToolButton
+          Left = 540
+          Top = 0
+          Caption = #90
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
       end
       object tbarSeriesRus: TToolBar
         AlignWithMargins = True
@@ -1004,16 +1675,271 @@ object frmMain: TfrmMain
         Top = 3
         Width = 764
         Height = 29
+        Constraints.MinHeight = 28
         AutoSize = True
+        ButtonHeight = 24
+        ButtonWidth = 20
+        ShowCaptions = True
+        List = True
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -12
+        Font.Name = 'Segoe UI'
+        Font.Style = [fsBold]
+        Font.Quality = fqClearTypeNatural
+        ParentFont = False
         Caption = 'tbarAuthorFilter1'
         DrawingStyle = dsGradient
-        HotImages = ilAlphabetActive
-        Images = ilAlphabetNormal
         ParentColor = True
         TabOrder = 3
         Transparent = True
         Wrapable = False
         ExplicitWidth = 772
+        object tbarSeriesRusLetter00: TToolButton
+          Left = 0
+          Top = 0
+          Caption = #42
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter01: TToolButton
+          Left = 20
+          Top = 0
+          Caption = #35
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter02: TToolButton
+          Left = 40
+          Top = 0
+          Caption = #1040
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter03: TToolButton
+          Left = 60
+          Top = 0
+          Caption = #1041
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter04: TToolButton
+          Left = 80
+          Top = 0
+          Caption = #1042
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter05: TToolButton
+          Left = 100
+          Top = 0
+          Caption = #1043
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter06: TToolButton
+          Left = 120
+          Top = 0
+          Caption = #1044
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter07: TToolButton
+          Left = 140
+          Top = 0
+          Caption = #1045
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter08: TToolButton
+          Left = 160
+          Top = 0
+          Caption = #1025
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter09: TToolButton
+          Left = 180
+          Top = 0
+          Caption = #1046
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter10: TToolButton
+          Left = 200
+          Top = 0
+          Caption = #1047
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter11: TToolButton
+          Left = 220
+          Top = 0
+          Caption = #1048
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter12: TToolButton
+          Left = 240
+          Top = 0
+          Caption = #1049
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter13: TToolButton
+          Left = 260
+          Top = 0
+          Caption = #1050
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter14: TToolButton
+          Left = 280
+          Top = 0
+          Caption = #1051
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter15: TToolButton
+          Left = 300
+          Top = 0
+          Caption = #1052
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter16: TToolButton
+          Left = 320
+          Top = 0
+          Caption = #1053
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter17: TToolButton
+          Left = 340
+          Top = 0
+          Caption = #1054
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter18: TToolButton
+          Left = 360
+          Top = 0
+          Caption = #1055
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter19: TToolButton
+          Left = 380
+          Top = 0
+          Caption = #1056
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter20: TToolButton
+          Left = 400
+          Top = 0
+          Caption = #1057
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter21: TToolButton
+          Left = 420
+          Top = 0
+          Caption = #1058
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter22: TToolButton
+          Left = 440
+          Top = 0
+          Caption = #1059
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter23: TToolButton
+          Left = 460
+          Top = 0
+          Caption = #1060
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter24: TToolButton
+          Left = 480
+          Top = 0
+          Caption = #1061
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter25: TToolButton
+          Left = 500
+          Top = 0
+          Caption = #1062
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter26: TToolButton
+          Left = 520
+          Top = 0
+          Caption = #1063
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter27: TToolButton
+          Left = 540
+          Top = 0
+          Caption = #1064
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter28: TToolButton
+          Left = 560
+          Top = 0
+          Caption = #1065
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter29: TToolButton
+          Left = 580
+          Top = 0
+          Caption = #1066
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter30: TToolButton
+          Left = 600
+          Top = 0
+          Caption = #1067
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter31: TToolButton
+          Left = 620
+          Top = 0
+          Caption = #1068
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter32: TToolButton
+          Left = 640
+          Top = 0
+          Caption = #1069
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter33: TToolButton
+          Left = 660
+          Top = 0
+          Caption = #1070
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
+        object tbarSeriesRusLetter34: TToolButton
+          Left = 680
+          Top = 0
+          Caption = #1071
+          ImageIndex = -1
+          OnClick = OnSetSerieFilter
+        end
       end
     end
     object tsByGenre: TTabSheet
@@ -3778,16 +4704,6 @@ object frmMain: TfrmMain
   object BalloonHint1: TBalloonHint
     Left = 456
     Top = 240
-  end
-  object ilAlphabetNormal: TImageList
-    DrawingStyle = dsTransparent
-    Left = 576
-    Top = 320
-  end
-  object ilAlphabetActive: TImageList
-    DrawingStyle = dsTransparent
-    Left = 672
-    Top = 320
   end
   object Actions: TActionList
     Images = dmImages.vilMenu

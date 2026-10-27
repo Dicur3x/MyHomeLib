@@ -18,151 +18,69 @@ uses
   unit_globals;
 
 type
-
-   TFb2ToText = class
-   private
-     function ProceedString(const FS: string; const TagStart: string; const TagEnd: string): string;
-     procedure ClearString(var FS:String);
-     function GetEncoding(const S: string):TEncoding;
-     function ConvertEncoding(ResEncoding: TTXTEncoding):TEncoding;
+  TFb2ToText = class
+  private
+    function ConvertEncoding(ResEncoding: TTXTEncoding): TEncoding;
   public
     procedure Convert(const FileOut: string; ResEncoding: TTXTEncoding; Stream: TStream);
   end;
 
 implementation
 
-
-uses
-  StrUtils;
-
-procedure TFb2ToText.ClearString(var FS:String);
-  procedure DelTags(TagStart, TagEnd: string);
-  var
-    p1, p2: integer;
-  begin
-    repeat
-      p1 := pos(TagStart, FS);
-      if p1 <> 0 then
-      begin
-        p2 := PosEx(TagEnd, FS, p1);
-        Delete(FS, p1, p2 - p1 + Length(TagEnd));
-      end;
-    until p1 = 0;
-  end;
-
-begin
-  FS := ReplaceStr(FS,'<strong>','');
-  FS := ReplaceStr(FS,'</strong>','');
-  FS := ReplaceStr(FS,'<i>','');
-  FS := ReplaceStr(FS,'</i>','');
-  FS := ReplaceStr(FS,'<emphasis>','');
-  FS := ReplaceStr(FS,'</emphasis>','');
-  FS := ReplaceStr(FS,'<stanza>','');
-  FS := ReplaceStr(FS,'</stanza>','');
-  FS := ReplaceStr(FS,'<poem>','');
-  FS := ReplaceStr(FS,'</poem>','');
-  FS := ReplaceStr(FS,'<v>','');
-  FS := ReplaceStr(FS,'</v>','');
-  FS := ReplaceStr(FS,'<code>','');
-  FS := ReplaceStr(FS,'</code>','');
-
-  DelTags('<a ','a>');
-  DelTags('<image ','/>');
-
-end;
+uses Winapi.ActiveX, Winapi.MSXML, System.Win.ComObj;
 
 procedure TFb2ToText.Convert(const FileOut: string; ResEncoding: TTXTEncoding; Stream: TStream);
-var
-  i: integer;
-  S : string;
-  SLIn, SlOut: TStringList;
-  tmpStr: string;
+var Document: IXMLDOMDocument3; Bodies: IXMLDOMNodeList; Input: IStream; Lines: TStringList;
+  SavedPosition: Int64; Temporary: string; COMInitialized: Boolean;
+  procedure Visit(const Node: IXMLDOMNode);
+  var Child: IXMLDOMNode; Name: string;
+  begin
+    if not Assigned(Node) then Exit;
+    Name:=LowerCase(Node.baseName);
+    if (Name='p') or (Name='v') or (Name='subtitle') or (Name='text-author') or
+      (Name='td') or (Name='th') then
+    begin Lines.Add(Node.text); Exit; end;
+    if Name='empty-line' then begin Lines.Add(''); Exit; end;
+    Child:=Node.firstChild;
+    while Assigned(Child) do begin Visit(Child); Child:=Child.nextSibling; end;
+  end;
 begin
+  if not Assigned(Stream) then raise EArgumentNilException.Create('Stream');
+  if FileExists(FileOut) then raise EInOutError.Create('Файл результата уже существует: '+FileOut);
+  SavedPosition:=Stream.Position; Lines:=TStringList.Create; Temporary:='';
+  COMInitialized:=Succeeded(CoInitializeEx(nil,COINIT_APARTMENTTHREADED));
   try
-    SlIn := TStringList.Create;
-    SlOut := TStringList.Create;
-
-    Stream.Seek(0, soFromBeginning);
-    SlIn.LoadFromStream(Stream);
-    Stream.Seek(0, soFromBeginning);
-    SlIn.LoadFromStream(Stream, GetEncoding(SLIn[0]));
-
-
-    i := 0;
-    while (pos('<body',SlIn[i]) = 0) do inc(i);
-
-    inc(i);
-
-    while (pos('</body>',SlIn[i]) = 0) do
-    begin
-      S := SlIn[i];
-
-      if (pos('</section>',S) <> 0)  or
-         (pos('</title>',S)   <> 0)  or
-         (pos('<empty-line',S)<> 0)   or
-         (pos('<subtitle>',S) <> 0)
-      then
-        SLOut.Add('');
-
-      ClearString(S);
-
-      tmpStr := ProceedString(S,'<subtitle>','</subtitle>');
-      if tmpStr <> '' then SLOut.Add(tmpStr);
-
-      tmpStr := ProceedString(S,'<p>','</p>');
-      if tmpStr <> '' then SLOut.Add(tmpStr);
-
-      inc(i);
-    end;
-    SlOut.SaveToFile(FileOut, ConvertEncoding(ResEncoding));
+    Stream.Position:=0;
+    Document:=CreateOleObject('Msxml2.DOMDocument.6.0') as IXMLDOMDocument3;
+    Document.async:=False; Document.validateOnParse:=False; Document.resolveExternals:=False;
+    Document.preserveWhiteSpace:=True; Document.setProperty('ProhibitDTD',True);
+    // MSXML reads the declared XML encoding directly from the byte stream.
+    // Paragraphs and inline text do not depend on physical source line breaks.
+    Input:=TStreamAdapter.Create(Stream,soReference) as IStream;
+    if not Document.load(Input) then raise EReadError.Create('Не удалось прочитать FB2: '+Trim(Document.parseError.reason));
+    Bodies:=Document.selectNodes('/*[local-name()="FictionBook"]/*[local-name()="body"]');
+    for var I:=0 to Bodies.length-1 do Visit(Bodies.item[I]);
+    if Trim(Lines.Text)='' then raise EReadError.Create('В книге нет распознанного текста для TXT. Для сканов сначала нужно распознавание текста.');
+    Temporary:=FileOut+'.homelib-new-'+TGUID.NewGuid.ToString;
+    Lines.SaveToFile(Temporary,ConvertEncoding(ResEncoding));
+    if not MoveFile(PChar(Temporary),PChar(FileOut)) then RaiseLastOSError;
+    Temporary:='';
   finally
-    FreeAndNil(SlIn);
-    FreeAndNil(SlOut);
+    Bodies:=nil; Input:=nil; Document:=nil;
+    if COMInitialized then CoUninitialize;
+    if (Temporary<>'') and FileExists(Temporary) then SysUtils.DeleteFile(Temporary);
+    Stream.Position:=SavedPosition; Lines.Free;
   end;
 end;
 
 function TFb2ToText.ConvertEncoding(ResEncoding: TTXTEncoding): TEncoding;
 begin
   case ResEncoding of
-    enUTF8: Result := TEncoding.UTF8;
-    en1251: Result := TEncoding.ANSI;
-    enUnicode: Result := TEncoding.Unicode;
-  else
-    Result := TEncoding.ASCII;
+    enUTF8: Result:=TEncoding.UTF8;
+    en1251: Result:=TEncoding.ANSI;
+    enUnicode: Result:=TEncoding.Unicode;
+  else Result:=TEncoding.ASCII;
   end;
 end;
-
-function TFb2ToText.GetEncoding(const S: string):TEncoding;
-begin
-  if Pos('windows-1251', AnsiLowerCase(S)) <> 0 then
-    Result := TEncoding.ANSI
-  else if Pos('unicode', AnsiLowerCase(S)) <> 0 then
-    Result := TEncoding.Unicode
-  else
-    // utf-8 или неизвестная кодировка: по умолчанию XML считается UTF-8
-    Result := TEncoding.UTF8;
-end;
-
-function TFb2ToText.ProceedString(const FS: string; const TagStart: string; const TagEnd: string): string;
-var
- p1, p2: Integer;
- L: Integer;
- US: string;
- OS: string;
-begin
-  L := Length(TagStart);
-  p1 := Pos(TagStart, FS);
-  US := FS;
-  Result := '';
-  while p1 <> 0 do
-  begin
-    p2 := Pos(TagEnd, US);
-    OS := Copy(US,p1 + L, p2 - p1 - L);
-    Result := Result + OS;
-    Delete(US, 1, p2 + 3);
-    p1 := Pos(TagStart, US);
-  end;
-end;
-
 
 end.

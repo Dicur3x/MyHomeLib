@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.33';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.34';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -36,6 +36,7 @@ type
     FRelease: TProgramRelease;
     FJob, FError, FRuntimePath: string;
     FSuccessful: Boolean;
+    FMetadataDownload: Boolean;
     FProgress: Integer;
     FPartSize, FPartOffset: Int64;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
@@ -43,6 +44,8 @@ type
   protected
     procedure Execute; override;
     function FetchDownload(const URL: string; Content: TStream): IHTTPResponse; virtual;
+    function FetchMirrorText(const URL: string): string;
+    function FetchMirrorRelease(out Info: TProgramRelease): Boolean; virtual;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const ReleaseInfo: TProgramRelease; const Job: string);
@@ -84,9 +87,9 @@ function ProgramUpdateCache(const AppPath: string): string;
 implementation
 
 uses
-  System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils,
+  System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils, System.Net.URLClient,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateAuthenticity, unit_UpdateTextCache;
+  unit_UpdateAuthenticity, unit_UpdateTextCache, unit_ComponentUpdates;
 
 type
   TReleaseNumbers = array[0..4] of Integer;
@@ -281,6 +284,11 @@ procedure TProgramDownloadThread.ReceiveData(const Sender: TObject;
   AContentLength, AReadCount: Int64; var AAbort: Boolean);
 var Percent: Integer;
 begin
+  if FMetadataDownload then
+  begin
+    AAbort:=Terminated or (AContentLength>1024*1024) or (AReadCount>1024*1024);
+    Exit;
+  end;
   AAbort := Terminated or (AReadCount > FPartSize) or
     ((AContentLength > 0) and (AContentLength <> FPartSize));
   if AAbort then Exit;
@@ -292,9 +300,41 @@ begin
   end;
 end;
 
+function TProgramDownloadThread.FetchMirrorText(const URL: string): string;
+var Stream: TMemoryStream; Response: IHTTPResponse; Bytes: TBytes;
+begin
+  if Terminated then Abort;
+  Stream:=TMemoryStream.Create; FMetadataDownload:=True;
+  try
+    Response:=FetchDownload(URL,Stream);
+    if Terminated then Abort;
+    if (Response.StatusCode<>200) or (Stream.Size<1) or (Stream.Size>1024*1024) then
+      raise Exception.Create('Не удалось проверить запасной источник компонента.');
+    SetLength(Bytes,Stream.Size); Stream.Position:=0; Stream.ReadBuffer(Bytes[0],Length(Bytes));
+    Result:=TEncoding.UTF8.GetString(Bytes);
+  finally FMetadataDownload:=False; Stream.Free; end;
+end;
+
+function TProgramDownloadThread.FetchMirrorRelease(out Info: TProgramRelease): Boolean;
+var Metadata, URL: string;
+begin
+  Result:=False; Info:=Default(TProgramRelease);
+  Metadata:=FetchMirrorText(COMPONENT_MIRROR_API);
+  if FRelease.ComponentID='IBK' then Exit(ParseIBKMirror(Metadata,FRelease.ComponentVersion,Info));
+  URL:=ComponentMirrorFeedURL(Metadata);
+  if URL<>'' then Result:=ParseComponentMirror(Metadata,FetchMirrorText(URL),
+    FRelease.ComponentID,FRelease.ComponentVersion,Info);
+end;
+
 function TProgramDownloadThread.FetchDownload(const URL: string; Content: TStream): IHTTPResponse;
 begin
-  Result := FHTTP.Get(URL, Content);
+  // The publisher mirror uses expiring links and checks their referring page.
+  // This header is confined to the already allowlisted original IBK archive.
+  if (FRelease.ComponentID='IBK') and IsOfficialComponentURL('IBK',
+    FRelease.ComponentVersion,URL,ProgramUpdatePlatform,False) then
+    Result:=FHTTP.Get(URL,Content,[TNameValuePair.Create('Referer',
+      'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php')])
+  else Result := FHTTP.Get(URL, Content);
 end;
 
 procedure TProgramDownloadThread.Execute;
@@ -309,6 +349,24 @@ var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: str
         raise Exception.Create('Не удалось полностью скачать обновление. Попробуйте позже.');
       FlushFileBuffers(Stream.Handle);
     finally Stream.Free; end;
+  end;
+  procedure DownloadArchives;
+  begin
+    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize-AdditionalTotal,0);
+    SecondaryArchive:='';
+    if FRelease.SecondaryURL<>'' then
+    begin
+      if FRelease.SecondarySize<1 then raise Exception.Create('Не подтверждён второй пакет библиотеки.');
+      SecondaryArchive:=IncludeTrailingPathDelimiter(FJob)+'secondary.archive';
+      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize-AdditionalTotal);
+    end;
+    Offset:=FRelease.Size-AdditionalTotal; SetLength(AdditionalArchives,Length(FRelease.AdditionalURLs));
+    for var I:=0 to High(AdditionalArchives) do
+    begin
+      AdditionalArchives[I]:=IncludeTrailingPathDelimiter(FJob)+'additional-'+IntToStr(I)+'.archive';
+      DownloadPart(FRelease.AdditionalURLs[I],AdditionalArchives[I],FRelease.AdditionalSizes[I],Offset);
+      Inc(Offset,FRelease.AdditionalSizes[I]);
+    end;
   end;
 begin
   try
@@ -340,20 +398,24 @@ begin
     Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
     if (FRelease.SecondarySize<0) or (FRelease.SecondarySize+AdditionalTotal>=FRelease.Size) then
       raise Exception.Create('Некорректный размер составного обновления.');
-    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize-AdditionalTotal,0);
-    SecondaryArchive:='';
-    if FRelease.SecondaryURL<>'' then
-    begin
-      if FRelease.SecondarySize<1 then raise Exception.Create('Не подтверждён второй пакет библиотеки.');
-      SecondaryArchive:=IncludeTrailingPathDelimiter(FJob)+'secondary.archive';
-      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize-AdditionalTotal);
-    end;
-    Offset:=FRelease.Size-AdditionalTotal; SetLength(AdditionalArchives,Length(FRelease.AdditionalURLs));
-    for var I:=0 to High(AdditionalArchives) do
-    begin
-      AdditionalArchives[I]:=IncludeTrailingPathDelimiter(FJob)+'additional-'+IntToStr(I)+'.archive';
-      DownloadPart(FRelease.AdditionalURLs[I],AdditionalArchives[I],FRelease.AdditionalSizes[I],Offset);
-      Inc(Offset,FRelease.AdditionalSizes[I]);
+    try
+      DownloadArchives;
+    except
+      on E: EAbort do raise;
+      on E: Exception do
+      begin
+        if Terminated then Abort;
+        if not FRelease.OfficialComponent or (FRelease.ComponentID='') then raise;
+        var Mirror: TProgramRelease; var Available:=False;
+        try Available:=FetchMirrorRelease(Mirror);
+        except on E: EAbort do raise; on E: Exception do Available:=False; end;
+        if not Available then raise;
+        // Only transfer failures use the mirror. Digest or package validation
+        // failures below remain errors and never gain an automatic second try.
+        FRelease:=Mirror; SecondaryArchive:=''; AdditionalArchives:=nil; AdditionalTotal:=0;
+        FProgress:=0;
+        DownloadArchives;
+      end;
     end;
     PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
     if FRelease.OfficialComponent then

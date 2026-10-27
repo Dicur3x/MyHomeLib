@@ -2250,6 +2250,7 @@ begin
   Require(BeforeHash=THashSHA2.GetHashStringFromFile('formatting-real.fb2'),'Large book source was rewritten');
 end;
 
+{$I ReaderIllustratedSelectionTests.inc}
 {$I ReaderAnnotationRangeTests.inc}
 {$I ReaderFeedback19Tests.inc}
 {$I ReaderExportPickerPreview.inc}
@@ -2277,6 +2278,7 @@ begin
       else if ParamStr(1)='real-epub' then AuditRealEPUB
       else if ParamStr(1)='doc-reader' then AuditDirectDOC
       else if ParamStr(1)='text-selection' then AuditRealTextSelection
+      else if ParamStr(1)='illustrated-selection' then AuditIllustratedTextSelection
       else if ParamStr(1)='selection-geometry' then begin AuditFailedReaderCleanup; AuditSelectionGeometry; end
       else if ParamStr(1)='selection-contrast' then AuditSelectionContrast
       else if ParamStr(1)='unspaced-history' then AuditUnspacedHistory

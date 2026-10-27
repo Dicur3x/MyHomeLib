@@ -1029,6 +1029,11 @@ end;
 
 class function TAuthorsHelper.GetList(const Authors: TBookAuthors): string;
 begin
+  // Avoid a generic conversion callback in the overwhelmingly common cases.
+  case Length(Authors) of
+    0: Exit('');
+    1: Exit(Authors[0].GetFullName);
+  end;
   Result := TArrayUtils.Join<TAuthorData>(
     Authors,
     ', ',
@@ -1133,6 +1138,10 @@ end;
 
 class function TGenresHelper.GetList(const Genres: TBookGenres): string;
 begin
+  case Length(Genres) of
+    0: Exit('');
+    1: Exit(Genres[0].GenreAlias);
+  end;
   Result := TArrayUtils.Join<TGenreData>(
     Genres,
     ' / ',

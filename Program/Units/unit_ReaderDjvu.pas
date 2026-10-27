@@ -18,7 +18,7 @@ begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; en
 function Decoder(const Name: string): string;
 begin
   Result:=FindExternalTool(Name,'djvu');
-  if Result='' then raise Exception.Create('Для просмотра DjVu нужен комплект tools\djvu из архива программы.');
+  if Result='' then raise EMHLComponentRequired.Create('DjVuLibre','Для этой книги нужен модуль DjVuLibre.');
 end;
 
 procedure RunDjvu(const Tool: string; const Args: array of string; Output: TStream);

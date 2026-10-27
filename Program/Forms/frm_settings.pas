@@ -255,7 +255,9 @@ type
     FCacheLocationInfo, FCacheDirectoryLabel, FCacheResolvedLabel: TLabel;
     FCacheLayoutLocked: Boolean;
     FCacheLayoutPPI: Integer;
-    FCacheUnit: TComboBox;
+    FCacheUnit, FCachePolicy: TComboBox;
+    FCacheDays: TEdit;
+    FCacheDaysLabel: TLabel;
     FCacheExit: TCheckBox;
     FCacheUsage: TLabel;
     FCacheTimer: TTimer;
@@ -270,6 +272,7 @@ type
     procedure ClearCacheClick(Sender: TObject);
     procedure CacheTransferClick(Sender: TObject);
     function CacheLimitMB(out Value: Integer): Boolean;
+    procedure CachePolicyChanged(Sender: TObject);
     procedure SetPanelFontColor(Value: Graphics.TColor);
 
     procedure ResetDevicesTab;
@@ -367,7 +370,7 @@ begin
   ReaderPanel.Align:=alTop;
   FUseBuiltinReader:=TCheckBox.Create(Self); FUseBuiltinReader.Parent:=ReaderPanel;
   FUseBuiltinReader.Name:='cbUseBuiltinReaderByDefault'; FUseBuiltinReader.SetBounds(6,2,420,24);
-  FUseBuiltinReader.Caption:='Открывать во встроенной читалке';
+  FUseBuiltinReader.Caption:='Открывать в HomeLib Reader';
   FUseBuiltinReader.Checked:=Settings.UseBuiltinReaderByDefault;
   FUseBuiltinReader.OnClick:=ReaderModeChanged;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=ReaderPanel; CaptionLabel.AutoSize:=False;
@@ -380,16 +383,28 @@ begin
   FCachePage.Caption:='Кэш книг';
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
   CaptionLabel.SetBounds(12,14,410,44); CaptionLabel.AutoSize:=False; CaptionLabel.WordWrap:=True;
-  CaptionLabel.Caption:='Кэш ускоряет повторное открытие книг. При заполнении удаляются давно неиспользованные записи.';
+  CaptionLabel.Caption:='Кэш ускоряет повторное открытие книг. Можно ограничить его объём, срок хранения или оба параметра.';
   FCacheUsage:=TLabel.Create(Self); FCacheUsage.Parent:=FCachePage;
-  FCacheUsage.Name:='lblBookCacheUsage'; FCacheUsage.SetBounds(12,76,405,22);
+  FCacheUsage.Name:='lblBookCacheUsage'; FCacheUsage.SetBounds(12,65,410,36);
+  FCacheUsage.AutoSize:=False; FCacheUsage.WordWrap:=True; FCacheUsage.Anchors:=[akLeft,akTop,akRight];
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
-  CaptionLabel.SetBounds(12,112,210,20); CaptionLabel.Caption:='Максимальный объём кэша:';
+  CaptionLabel.SetBounds(12,112,130,20); CaptionLabel.Caption:='Ограничение:';
+  FCachePolicy:=TComboBox.Create(Self); FCachePolicy.Parent:=FCachePage;
+  FCachePolicy.Name:='cbBookCachePolicy'; FCachePolicy.Style:=csDropDownList;
+  FCachePolicy.SetBounds(154,106,268,24);
+  FCachePolicy.Items.Add('По объёму'); FCachePolicy.Items.Add('По сроку хранения');
+  FCachePolicy.Items.Add('По объёму и сроку'); FCachePolicy.OnChange:=CachePolicyChanged;
   FCacheLimit:=TEdit.Create(Self); FCacheLimit.Parent:=FCachePage; FCacheLimit.Name:='edBookCacheLimit';
   FCacheLimit.SetBounds(12,140,130,24);
   FCacheUnit:=TComboBox.Create(Self); FCacheUnit.Parent:=FCachePage; FCacheUnit.Name:='cbBookCacheUnit';
   FCacheUnit.Style:=csDropDownList; FCacheUnit.SetBounds(154,140,80,24);
   FCacheUnit.Items.Add('МБ'); FCacheUnit.Items.Add('ГБ'); FCacheUnit.ItemIndex:=1;
+  FCacheDays:=TEdit.Create(Self); FCacheDays.Parent:=FCachePage; FCacheDays.Name:='edBookCacheDays';
+  FCacheDays.SetBounds(250,140,72,24); FCacheDays.Text:='7';
+  FCacheDaysLabel:=TLabel.Create(Self); FCacheDaysLabel.Parent:=FCachePage;
+  FCacheDaysLabel.SetBounds(330,143,80,20); FCacheDaysLabel.Caption:='дней';
+  CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=FCachePage;
+  CaptionLabel.SetBounds(12,166,410,16); CaptionLabel.Caption:='Срок считается после последнего открытия книги.';
   FCacheExit:=TCheckBox.Create(Self); FCacheExit.Parent:=FCachePage;
   FCacheExit.Name:='cbClearBookCacheOnExit'; FCacheExit.SetBounds(12,185,410,24);
   FCacheExit.Caption:='Очищать кэш при каждом выходе из программы';
@@ -592,6 +607,8 @@ end;
 
 procedure TfrmSettings.LoadCacheSettings;
 begin
+  FCachePolicy.ItemIndex:=Ord(Settings.BookCachePolicy);
+  FCacheDays.Text:=IntToStr(Settings.BookCacheKeepDays); CachePolicyChanged(nil);
   if Settings.BookCacheLimitMB mod 1024=0 then
   begin FCacheUnit.ItemIndex:=1; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB div 1024); end
   else begin FCacheUnit.ItemIndex:=0; FCacheLimit.Text:=IntToStr(Settings.BookCacheLimitMB); end;
@@ -672,7 +689,9 @@ end;
 
 procedure TfrmSettings.CacheUsageUpdate(Sender: TObject);
 begin
-  FCacheUsage.Caption:='Занято: '+BookCacheSizeText(BookCacheUsage)+' (лимит '+BookCacheSizeText(Int64(Settings.BookCacheLimitMB)*1024*1024)+')';
+  FCacheUsage.Caption:='Занято: '+BookCacheSizeText(BookCacheUsage);
+  if Settings.BookCachePolicy<>bcpAge then FCacheUsage.Caption:=FCacheUsage.Caption+' · до '+BookCacheSizeText(Int64(Settings.BookCacheLimitMB)*1024*1024);
+  if Settings.BookCachePolicy<>bcpSize then FCacheUsage.Caption:=FCacheUsage.Caption+' · '+IntToStr(Settings.BookCacheKeepDays)+' дн.';
   if BookCacheMigrationBusy then FCacheUsage.Caption:=FCacheUsage.Caption+' · перенос…';
   if Assigned(FindComponent('btnCacheTransfer')) then
   begin
@@ -692,6 +711,12 @@ end;
 
 procedure TfrmSettings.ClearCacheClick(Sender: TObject);
 begin ClearBookCache; CacheUsageUpdate(nil); end;
+
+procedure TfrmSettings.CachePolicyChanged(Sender: TObject);
+begin
+  FCacheLimit.Enabled:=FCachePolicy.ItemIndex<>1; FCacheUnit.Enabled:=FCacheLimit.Enabled;
+  FCacheDays.Enabled:=FCachePolicy.ItemIndex<>0; FCacheDaysLabel.Enabled:=FCacheDays.Enabled;
+end;
 
 function TfrmSettings.CacheLimitMB(out Value: Integer): Boolean;
 var Number: Double; Text: string;
@@ -844,6 +869,8 @@ procedure TfrmSettings.SaveSettings;
 var Limit: Integer;
 begin
   if CacheLimitMB(Limit) then Settings.BookCacheLimitMB:=Limit;
+  if FCachePolicy.ItemIndex in [0,1,2] then Settings.BookCachePolicy:=TBookCachePolicy(FCachePolicy.ItemIndex);
+  if TryStrToInt(Trim(FCacheDays.Text),Limit) and (Limit>=1) and (Limit<=3650) then Settings.BookCacheKeepDays:=Limit;
   ChangeBookCacheDirectory(Trim(FCacheDirectory.Text));
   Settings.ClearBookCacheOnExit:=FCacheExit.Checked; TrimBookCache;
   Settings.PromptDevicePath := cbPromptPath.Checked;
@@ -992,10 +1019,16 @@ end;
 procedure TfrmSettings.SaveSettingsClick(Sender: TObject);
 var IntervalValue, Multiplier, CacheValue: Integer;
 begin
-  if not CacheLimitMB(CacheValue) then
+  if (FCachePolicy.ItemIndex<>1) and not CacheLimitMB(CacheValue) then
   begin
     ShowMessage('Укажите объём кэша от 1 МБ до 1024 ГБ.');
     tvSections.Select(tvSections.Items[FCachePage.PageIndex]); FocusControl(FCacheLimit); Exit;
+  end;
+  if (FCachePolicy.ItemIndex<>0) and
+    (not TryStrToInt(Trim(FCacheDays.Text),CacheValue) or (CacheValue<1) or (CacheValue>3650)) then
+  begin
+    ShowMessage('Укажите срок хранения кэша от 1 до 3650 дней.');
+    tvSections.Select(tvSections.Items[FCachePage.PageIndex]); FocusControl(FCacheDays); Exit;
   end;
   if (Trim(FCacheDirectory.Text)<>'') and not TPath.IsPathRooted(Trim(FCacheDirectory.Text)) then
   begin ShowMessage('Укажите полный путь к папке кэша.'); FocusControl(FCacheDirectory); Exit; end;

@@ -11,8 +11,8 @@ uses
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
-  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
-  unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
+  unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
+  unit_MHLHttpClient, unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
   unit_SearchQueryModeControl, unit_LegacyUserDataPreview, frm_LegacyUserDataPreview, unit_InpLineReader,
@@ -21,19 +21,22 @@ uses
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,
-  unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats,
+  unit_ReaderPalette, unit_ReaderLaunch, unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats, unit_ReaderLegacy, unit_ReaderSession, unit_ReaderSessionRunner,
   unit_MetadataSyncTypes, unit_CollectionMetadataSync, frm_BookMetadataFill, unit_NCWParams,
   unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_SevenZipMetadata, unit_PackageBookMetadata, unit_ReaderAnnotations, unit_ReaderNoteBooks,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
   IdHTTPServer, IdCustomHTTPServer, IdContext,
   unit_FB2MetadataRecovery, unit_WriteFb2Info,
   unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData,
+  unit_Diagnostics in '..\..\..\Program\Units\unit_Diagnostics.pas',
+  unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
+  unit_BookSendOptions in '..\..\..\Program\Units\unit_BookSendOptions.pas',
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
   unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
   frm_AuthorInformation, frm_AuthorFavorites, frm_book_info, frm_statistic, unit_ReviewParser, frm_BuiltinReader,
   dm_user, dm_Images, frm_splash, frm_main, frm_genre_tree, unit_PublisherSeriesView,
-  frm_ProgramUpdate, frm_settings, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller,
+  frm_ProgramUpdate, frm_settings, frm_ReaderCacheSettings, frm_ReaderHost, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_UpdateAuthenticity, unit_IBKRuntime,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex;
@@ -336,7 +339,7 @@ end;
 
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
-  ComponentID, SQLiteArch: string; NotesView: TUpdateNotesView;
+  ComponentID, SQLiteArch, SavedOptional: string; NotesView: TUpdateNotesView;
   I, HeightBefore, BodyBefore, SavedWidth, SavedHeight: Integer; Notes, PreviousEditor: TRichEdit;
   Primary: TButton; Version, Bytes: TLabel; Selector, ReloadedSelector: TListView;
   Previous, Failed: TComponentReleases; Cache: string; Reloaded: TfrmProgramUpdate;
@@ -396,7 +399,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
           Require(Assigned(View) and Assigned(Body) and Assigned(Button),'Component layout controls missing');
           Require((Body.Top>=View.Top+View.Height) and (Body.Top+Body.Height<=Button.Top) and
             (Button.Top+Button.Height<=Form.ClientHeight),'Component table/status/details/buttons overlap at '+IntToStr(DPI));
-          Require(View.Items[High(UPDATE_COMPONENTS)+1].DisplayRect(drBounds).Bottom<=View.ClientHeight,
+          Require(View.Items[View.Items.Count-1].DisplayRect(drBounds).Bottom<=View.ClientHeight,
             'Last component does not fit at '+IntToStr(DPI));
           SetMHLTheme(True); Application.ProcessMessages;
           Require((ColorToRGB(View.Color)=RGB(30,31,34)) and
@@ -464,7 +467,7 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
       Require(not Cycle.Visible, 'Component response opened before application check completed');
       Cycle.ApplicationChecked(Current, True, '');
       Require(Cycle.Visible and (Selector.Selected.Index = 1), 'Component-only update did not select SQLite');
-      Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect');
+      Require(StatusText(Cycle) = 'Есть обновления для SQLite и SumatraPDF', 'Two-component summary incorrect: '+StatusText(Cycle));
       Cycle.Hide;
       App := Current; App.Tag := '2.7.0_pre5.999'; App.DownloadURL := 'http://127.0.0.1/application.zip';
       // Metadata-only cycle fixture; this case never starts a download.
@@ -505,12 +508,14 @@ var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: 
         'Batch summary overwrote check-only action');
       Cycle.Hide;
       CycleComponents:=Default(TComponentReleases);
-      Require(ParseDocSharpVersions('{"versions":["0.99.0"]}','{"versions":["0.99.0"]}',CycleComponents[5]),
-        'DOC available-version fixture failed');
+      Require(ParseOfficeDocSharpVersions('{"versions":["0.99.0"]}','{"versions":["0.99.0"]}',
+        '{"versions":["0.99.0"]}','{"versions":["0.99.0"]}',CycleComponents[5]),
+        'DOC four-package available-version fixture failed');
       Require(Cycle.StartCheckCycle(True),'DOC-only check cycle failed');
       Cycle.ApplicationChecked(Current,True,''); Cycle.ComponentsReceived(CycleComponents,True,'');
       Require(Cycle.Visible and (Selector.Selected.Index=6) and (Primary.Caption='Скачать обновление') and
-        (StatusText(Cycle)='Есть обновления для DocSharp'),'Official DOC pair does not offer automatic installation');
+        StatusText(Cycle).Contains('DocSharp') and StatusText(Cycle).Contains('0.99.0'),
+        'Official DOC module action incorrect: selected='+IntToStr(Selector.Selected.Index)+' primary='+Primary.Caption+' status='+StatusText(Cycle));
       Require(Selector.Items[6].SubItems[1]='0.99.0','DOC available version missing from table');
       Cycle.Hide;
       Require(Cycle.StartCheckCycle(False),'DOC failed refresh did not start');
@@ -537,6 +542,11 @@ begin
     Require(MatchText(ParamStr(2),['layout-96','layout-144','layout-192']),
       'Unknown update layout audit subcase');
   TestUpdateDefaults;
+  SavedOptional:=Settings.OptionalComponentUpdates;
+  // Automatic summary cases explicitly opt in; the default-off policy is
+  // independently exercised by OptionalComponentsTests.
+  Settings.OptionalComponentUpdates:='SumatraPDF,DjVuLibre,DocSharp'; Settings.SaveSettings;
+  try
   CheckCycles;
   Configuration := TfrmSettings.Create(nil);
   try
@@ -566,10 +576,10 @@ begin
     end;
     Require(Assigned(Notes) and Assigned(Primary) and Assigned(Version) and Assigned(Bytes), 'Popup controls incomplete');
     Require(Pos(PROGRAM_RELEASE_VERSION, Version.Caption) > 0, 'Installed version missing');
-    Require(Assigned(Selector) and (Selector.Items.Count=Length(UPDATE_COMPONENTS)+1), 'Registered component rows missing');
+    Require(Assigned(Selector) and (Selector.Items.Count=9), 'Expected core and classic component rows; unused published modules must stay hidden');
     Require((Selector.Columns.Count=4) and (Selector.Columns[1].Caption='Установлено') and
-      (Selector.Columns[2].Caption='У автора'),'Installed/available component columns missing');
-    for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      (Selector.Columns[2].Caption='Доступно'),'Installed/available component columns missing');
+    for I:=0 to 7 do
       Require(Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].ID) and
         Selector.Items[I+1].Caption.Contains(UPDATE_COMPONENTS[I].Title),'Purpose or library name missing');
     Require(Selector.Items[6].SubItems[0]='0.21.0','Installed bundled DocSharp version missing');
@@ -604,23 +614,24 @@ begin
       ContainsText(Notes.Text,'исправлены'), 'Installed component changelog missing');
     Require(Primary.Caption = 'Проверить всё', 'Component check missing');
     ChooseRow(Selector, 0);
-    ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.12';
+    ReleaseInfo := Default(TProgramRelease); ReleaseInfo.Tag := '2.7.0_pre5.999';
     // GitHub and bundled Markdown may use Unix line breaks; the Windows memo
     // must retain separate heading and bullet lines when displaying them.
-    ReleaseInfo.Changelog := '2.7.0_pre5.12' + #10 + 'Новые изменения' + #10#10 + '- Первый пункт';
+    ReleaseInfo.Changelog := '2.7.0_pre5.999' + #10 + 'Новые изменения' + #10#10 + '- Первый пункт';
     ReleaseInfo.History := ReleaseInfo.Changelog + sLineBreak + PROGRAM_RELEASE_VERSION;
-    ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.12/HomeLibRu.zip';
+    ReleaseInfo.DownloadURL := 'https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.999/HomeLibRu.zip';
+    ReleaseInfo.SHA256:=StringOfChar('a',64); ReleaseInfo.Size:=1024; // Metadata only; never downloaded.
     Popup.SetRelease(ReleaseInfo);
     Require(Primary.Enabled and (Primary.Caption = 'Скачать обновление'), 'New release download button missing');
     Require(Pos('Новые изменения', Notes.Text) > 0, 'Changelog missing');
-    Require((Notes.Lines.Count >= 3) and (Pos('2.7.0_pre5.12', NotesView.SectionHeader(0).Caption) > 0) and
+    Require((Notes.Lines.Count >= 3) and (Pos('2.7.0_pre5.999', NotesView.SectionHeader(0).Caption) > 0) and
       (Notes.Lines[0] = 'Новые изменения') and (Pos('Первый пункт', Notes.Lines[2]) > 0),
       'Unix changelog line breaks collapsed in Windows memo');
     Require((NotesView.SectionCount = 2) and not NotesView.IsExpanded(1) and
       (Pos(PROGRAM_RELEASE_VERSION, NotesView.SectionHeader(1).Caption) > 0),
       'New update hides installed-version history');
     ReleaseInfo.History := '';
-    ReleaseInfo.Changelog := '2.7.0_pre5.12' + #10 + '## Исправления' + #10 +
+    ReleaseInfo.Changelog := '2.7.0_pre5.999' + #10 + '## Исправления' + #10 +
       '- **Переходы** по ссылкам' + #10 + '  - Дочерний пункт' + #10#10 +
       '2.7.0_pre5.11' + #10 + 'Текст {\rtf1} и кириллица ← ↔';
     Popup.SetRelease(ReleaseInfo);
@@ -696,7 +707,7 @@ begin
     ReleaseInfo.ComponentID := ''; ReleaseInfo.PublishedAt := '';
     Writeln('PASS dates and shared formatting cover application and every component');
 
-    ReleaseInfo.History := '2.7.0_pre5.12' + sLineBreak;
+    ReleaseInfo.History := '2.7.0_pre5.999' + sLineBreak;
     for I := 1 to 100 do ReleaseInfo.History := ReleaseInfo.History +
       '- Строка ' + IntToStr(I) + ' длинного журнала изменений' + sLineBreak;
     ReleaseInfo.History := ReleaseInfo.History + '2.7.0_pre5.11' + sLineBreak + '- Старый выпуск';
@@ -843,6 +854,7 @@ begin
       Popup.Show; Application.Run;
     end;
   finally Popup.Free; end;
+  finally Settings.OptionalComponentUpdates:=SavedOptional; Settings.SaveSettings; end;
 end;
 
 procedure TestProgramUpdateDownload;
@@ -4966,6 +4978,8 @@ begin
       frmMain.Show; Application.Run; Exit;
     end;
 
+    // Exercise cancellation after partially filling the ordinary flat list.
+    Settings.TreeModes[PAGE_SEARCH] := tmFlat;
     CancelButton := nil;
     for Component in frmMain do
       if (Component is TButton) and (Component.Name = 'BookListCancel') then CancelButton := TButton(Component);
@@ -5538,6 +5552,7 @@ end;
 {$I FavoriteAuthorUiTests.inc}
 {$I ReaderCopyIdentityTests.inc}
 {$I ReaderMainFilterTests.inc}
+{$I ReaderSmallFb2Tests.inc}
 {$I ReaderChapterTitlesTests.inc}
 {$I MetadataPrefixBoundsTests.inc}
 {$I ReaderExternalNameTests.inc}
@@ -5577,6 +5592,13 @@ end;
 {$I ReaderNotesProposalTests.inc}
 {$I UpdateProposalsTests.inc}
 {$I OptionalComponentsTests.inc}
+{$I ReaderComponentsTests.inc}
+{$I ReaderCacheSettingsTests.inc}
+{$I ReaderSessionTests.inc}
+{$I ReaderHostSessionTests.inc}
+{$I ReaderOpenChoiceTests.inc}
+{$I SQLiteMappingTests.inc}
+{$I ReaderSessionProcessTests.inc}
 {$I Release23UiTests.inc}
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
@@ -5584,8 +5606,15 @@ end;
 {$I StartupDeferredTests.inc}
 {$I BookViewSessionTests.inc}
 {$I FirstBookListTests.inc}
+{$I DisplayLabelBenchmark.inc}
+{$I BookOutputResetBenchmark.inc}
+{$I CataloguePerformanceTests.inc}
 {$I Feedback531Tests.inc}
 {$I Feedback532Tests.inc}
+{$I DiagnosticsCacheTests.inc}
+{$I UnifiedBookSendTests.inc}
+{$I IBKComponentTests.inc}
+{$I ComponentMirrorTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5601,6 +5630,7 @@ begin
   SetTextCodePage(Output, 65001);
   try
     RequireIsolatedRegression;
+    if ParamStr(1).StartsWith('--session=') then begin RunNativeReaderSessionChild; Halt(0); end;
     if ParamStr(1) = 'external-tool-probe' then begin RunExternalToolProbe; Halt(0); end;
     if (ParamStr(1)='refactor-slow-converter') or (ParamStr(1)='refactor-slow-leaf') then
     begin RefactorSlowConverter; Halt(0); end;
@@ -5609,6 +5639,8 @@ begin
     QueueBookID := 0;
     RestartBookID := 0;
     Trace('application bootstrap');
+    if (ParamStr(1)='catalogue-performance') or (ParamStr(1)='query-batch') then
+      Writeln('TRACE cache-clear symbol RVA ',IntToHex(NativeUInt(@unit_BookCache.ClearBookCache)-NativeUInt(HInstance),8));
     Application.Initialize;
     if (ParamStr(1) = 'publisher-startup') or (ParamStr(1) = 'cancel-interactive') or
       ParamStr(1).StartsWith('startup-deferred') or (ParamStr(1) = 'view-session-reopen') then
@@ -5625,11 +5657,27 @@ begin
       DMUser.Init;
       if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
       if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
+      if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;
+      if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
       if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; TestSchemaReopenSafety; TestMetadataDeltaSafety; Halt(0); end;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
+      if ParamStr(1) = 'catalogue-performance' then
+      begin
+        BenchmarkActualCatalogue;
+        // Halt finalizes units before Application destroys its owned forms.
+        // Close our live Main/cache session while its dependencies still exist.
+        Trace('catalogue orderly cleanup Main'); FreeAndNil(frmMain);
+        Trace('catalogue orderly cleanup images'); FreeAndNil(dmImages);
+        Trace('catalogue orderly cleanup user'); FreeAndNil(DMUser);
+        Trace('catalogue orderly cleanup splash'); FreeAndNil(frmSplash);
+        Application.OnException:=nil;
+        ExceptionHandler.Free;
+        Trace('catalogue orderly cleanup complete');
+        Halt(0);
+      end;
       if ParamStr(1) = 'merge-scale' then begin BenchmarkMergeScale; Halt(0); end;
       if ParamStr(1) = 'existing-merge' then begin BenchmarkExistingMerge; Halt(0); end;
       if (ParamStr(1) = 'first-run') or (ParamStr(1) = 'first-run-cancel') then
@@ -5775,8 +5823,19 @@ begin
       else if ParamStr(1) = 'post530' then TestFeedback531
       else if ParamStr(1) = 'image-components' then TestImageComponents(One)
       else if ParamStr(1) = 'catalogue-formats' then TestCatalogueFormats
+      else if ParamStr(1) = 'ibk-components' then begin TestIBKComponent; TestCatalogueFormats; end
+      else if ParamStr(1) = 'ibk-download-live' then TestIBKLiveDownload
+      else if ParamStr(1) = 'component-mirrors' then TestComponentMirrors
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
+      else if ParamStr(1) = 'reader-components' then TestReaderComponents
+      else if ParamStr(1) = 'reader-cache-settings' then TestStandaloneReaderCacheSettings
+      else if ParamStr(1) = 'reader-session-context' then TestReaderSessionContext
+      else if ParamStr(1) = 'reader-session-process' then TestReaderSessionProcess
+      else if ParamStr(1) = 'sqlite-mapping' then TestSQLiteMapping
+      else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
+      else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
+      else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails
@@ -5921,12 +5980,19 @@ begin
         TestAsyncBookPreview
       else if ParamStr(1) = 'first-book-list' then
         TestFirstBookList
+      else if ParamStr(1) = 'first-book-list-large' then
+        TestFirstBookList(True)
+      else if ParamStr(1) = 'unified-send' then TestUnifiedBookSending
+      else if ParamStr(1) = 'image-quality-dialog' then
+        TestImageQualityDialog
       else if ParamStr(1) = 'list-performance' then
         TestListPerformance
       else if ParamStr(1) = 'reader-filter' then
         TestReaderWithColumnFilter
       else if ParamStr(1) = 'reader-main-filter' then
         TestReaderMainWithColumnFilter
+      else if ParamStr(1) = 'reader-small-fb2' then
+        TestMainSmallFB2Opening
       else if ParamStr(1) = 'catalog-sources-workflow' then TestCatalogSourcesWorkflow
       else if ParamStr(1) = 'compact-book-views' then TestCompactBookViews
       else if ParamStr(1) = 'update-repair' then TestUpdateRepair
@@ -5947,6 +6013,14 @@ begin
       begin
         TestMainLiveLocateInput(One, OneID); TestFavoriteAuthorAffordances(One, OneID); TestLoadedListThemeMetrics;
       end
+      else if ParamStr(1) = 'flibrary-quality' then TestFLibraryQualityExport(One)
+      else if ParamStr(1) = 'duplicate-source' then
+      begin
+        TestBookDuplicateSourcePreference;
+        TestBookDuplicatePreview;
+        TestBookDuplicateApply;
+        TestBookDuplicateLargePreview;
+      end
       else if ParamStr(1) = 'feedback529' then TestFeedback529ReaderAndStatistics(One)
       else if ParamStr(1) = 'reader-chapters' then
         TestReaderChapterTitles
@@ -5956,6 +6030,7 @@ begin
         TestExternalReaderNames
       else if ParamStr(1) = 'cancel-interactive' then
         TestInteractiveCancel
+      else if ParamStr(1) = 'diagnostics-cache-age' then TestDiagnosticsAndCacheAge(One)
       else if ParamStr(1) = 'persistent-cache' then
         TestPersistentCache
       else if ParamStr(1) = 'audit-new' then

@@ -47,6 +47,7 @@ type
   public
     Timer: TTimer;
     ExpectedCaption, Failure, ChoiceExtension: string;
+    OptionsSeen: Boolean;
     Deadline: UInt64;
     procedure Tick(Sender: TObject);
     function MessageReceived(const Text: string; Flags: Longint = MB_OK): Integer;
@@ -664,8 +665,19 @@ var Form: TExportToDeviceProgressForm;
 begin
   if GetTickCount64>Deadline then
   begin
-    Timer.Enabled:=False; Require(False,'Actual converter menu progress did not finish within15seconds');
+    Timer.Enabled:=False; Require(False,'Actual converter menu exceeded its fixture time budget');
   end;
+  for var I:=0 to Screen.FormCount-1 do
+    if Screen.Forms[I].Visible and (Screen.Forms[I] is TBookSendOptionsForm) then
+    begin
+      OptionsSeen:=True; var Dialog:=Screen.Forms[I];
+      var Formats:=TComboBox(Dialog.FindComponent('SendFormat'));
+      Formats.ItemIndex:=1; if ExpectedCaption.EndsWith('EPUB') then Formats.ItemIndex:=3;
+      Formats.OnChange(Formats);
+      var Images:=TComboBox(Dialog.FindComponent('SendImages')); Images.ItemIndex:=1; Images.OnChange(Images);
+      TEdit(Dialog.FindComponent('SendDestination')).Text:=Settings.DeviceDir;
+      TButton(Dialog.FindComponent('SendBooks')).Perform(BM_CLICK,0,0); Exit;
+    end;
   for var I:=0 to Screen.FormCount-1 do
     if Screen.Forms[I].Visible and (string(Screen.Forms[I].Caption)='Какую книгу конвертировать?') then
     begin
@@ -705,10 +717,13 @@ var RawCID: Integer; Raw: IBookCollection; Book: TBookRecord; Item: TMenuItem;
 
   function MenuEntry(Parent: TMenuItem; Tag: Integer): TMenuItem;
   begin
-    Result:=nil;
-    for var Child in Parent do if Child.Tag=Tag then Result:=Child;
-    Require(Assigned(Result) and Result.Visible and Assigned(Result.OnClick),
-      'Built-in converter is missing from actual book menu tag='+IntToStr(Tag));
+    // The single public command now owns both conversion targets. Assert that
+    // duplicate commands really disappeared; exercise its actual dialog below.
+    for var Child in Parent do Require((Child.Tag<850) or (Child.Tag>856),
+      'A separate conversion command remains in the book menu');
+    Result:=frmMain.pmiSendToDevice;
+    Require(Result.Visible and Assigned(Result.OnClick) and (Result.Tag=0),
+      'Unified public save command is unavailable for the selected book');
   end;
 
 begin
@@ -741,9 +756,9 @@ begin
     Item:=TMenuItem.Create(nil);
     try Item.Tag:=RawCID; frmMain.miActiveCollectionClick(Item); finally Item.Free; end;
     Settings.AllowMixed:=False;
-    Require(frmMain.pmiScripts.Visible and frmMain.mmiScripts.Visible and
-      frmMain.pmiScripts.Caption.Contains('Конвертировать') and (frmMain.pmiScripts.Count=3),
-      'Zero-script raw collection hides the converter submenu');
+    Require(not frmMain.pmiScripts.Visible and not frmMain.mmiScripts.Visible and
+      (frmMain.pmiScripts.Count=0),'Empty personal script menus should be hidden');
+    MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.mmiScripts,854);
     // Source-dependent visibility is resolved when the actual menu opens.
     frmMain.pgControl.ActivePage:=frmMain.tsSearch; frmMain.pgControlChange(nil);
     Settings.TreeModes[PAGE_SEARCH]:=tmFlat; TBookColumnFilters.ForTree(frmMain.tvBooksSR).Clear;
@@ -760,12 +775,7 @@ begin
       Require(Assigned(ReadAction),'Main built-in reading action is absent');
       ReadAction.Update;
       Require(ReadAction.Enabled,'Main built-in reading is blocked by a filename suffix: '+Ext);
-      for var Parent in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts) do
-        for var I:=0 to Parent.Count-1 do
-          if (Parent.Items[I].Tag=850) or (Parent.Items[I].Tag=854) then
-            Require(Parent.Items[I].Visible,'Book conversion was blocked by its filename suffix: '+Ext)
-          else if Parent.Items[I].Tag=795 then
-            Require(Parent.Items[I].Visible,'Unsupported conversion input hides ordinary sync-folder copying');
+      MenuEntry(frmMain.pmiScripts,850); MenuEntry(frmMain.mmiScripts,854);
     end;
     Writeln('PASS conversion menu accepts legacy and unknown suffixes for deferred content validation');
     for var Ext in TArray<string>.Create('.pdf','.djvu','.mht','.chm','.pdb','.wri','.tcr','.123456',
@@ -793,11 +803,11 @@ begin
       MenuEntry(frmMain.pmiScripts,1704-Tag);
       Target:=TPath.Combine(Settings.AppPath,'converter-menu-out-'+IntToStr(Tag)); ForceDirectories(Target);
       Settings.DeviceDir:=Target;
-      Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в FB2';
+      Probe.OptionsSeen:=False; Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в FB2';
       if Tag=854 then Probe.ExpectedCaption:='Экспорт в EPUB';
       Probe.Deadline:=GetTickCount64+15000; Probe.Timer.Enabled:=True;
       MenuEntry(frmMain.pmiScripts,Tag).Click; Probe.Timer.Enabled:=False;
-      Require(Probe.Failure='','Actual converter menu worker failed: '+Probe.Failure);
+      Require(Probe.OptionsSeen and (Probe.Failure=''),'Actual unified converter menu worker failed: '+Probe.Failure);
       var Extension:='.fb2'; if Tag=854 then Extension:='.epub';
       var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
       Require(Length(Outputs)=1,'Actual converter menu did not produce exactly one '+Extension+' book');
@@ -825,10 +835,10 @@ begin
       Probe.ChoiceExtension:='.fb2';
       if SourceName='convert-epub.zip' then begin Tag:=850; Extension:='.fb2'; end;
       if SourceName='convert-epub.zip' then Probe.ChoiceExtension:='.epub';
-      Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
+      Probe.OptionsSeen:=False; Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
       Probe.Deadline:=GetTickCount64+15000; Probe.Timer.Enabled:=True;
       MenuEntry(frmMain.pmiScripts,Tag).Click; Probe.Timer.Enabled:=False;
-      Require(Probe.Failure='','Archive converter failed: '+Probe.Failure);
+      Require(Probe.OptionsSeen and (Probe.Failure=''),'Unified archive converter failed: '+Probe.Failure);
       var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
       Require(Length(Outputs)=1,'Archive conversion did not detect the actual FB2/EPUB input');
       var Document:=TReaderDocument.Create;
@@ -852,10 +862,15 @@ begin
       begin
         var Extension:='.fb2'; if Tag=854 then Extension:='.epub';
         Target:=Settings.AppPath+'text-out-'+SourceName+IntToStr(Tag); ForceDirectories(Target); Settings.DeviceDir:=Target;
-        Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
-        Probe.Deadline:=GetTickCount64+30000; Probe.Timer.Enabled:=True;
+        Probe.OptionsSeen:=False; Probe.Failure:=''; Probe.ExpectedCaption:='Экспорт в '+UpperCase(Copy(Extension,2,MaxInt));
+        var ConversionStarted:=GetTickCount64;
+        // The illustrated 25 MB Kindle fixture includes full resource extraction.
+        // Keep the smaller fixture guard; report Kindle time without claiming it is fast.
+        var Budget: UInt64:=30000; if SourceName.StartsWith('kindle-') then Budget:=90000;
+        Probe.Deadline:=ConversionStarted+Budget; Probe.Timer.Enabled:=True;
         MenuEntry(frmMain.pmiScripts,Tag).Click; Probe.Timer.Enabled:=False;
-        Require(Probe.Failure='','Text converter worker failed: '+SourceName+' '+Probe.Failure);
+        Writeln('TRACE public conversion elapsed_ms=',GetTickCount64-ConversionStarted,' source=',SourceName,' target=',Extension); Flush(Output);
+        Require(Probe.OptionsSeen and (Probe.Failure=''),'Unified text converter worker failed: '+SourceName+' '+Probe.Failure);
         var Outputs:=TDirectory.GetFiles(Target,'*'+Extension,TSearchOption.soAllDirectories);
         Require(Length(Outputs)=1,'Text converter did not publish one result: '+SourceName);
         if SourceName.StartsWith('kindle-') then

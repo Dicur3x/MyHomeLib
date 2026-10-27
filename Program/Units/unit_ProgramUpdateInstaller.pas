@@ -45,16 +45,22 @@ function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Second
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
   const Tag, Platform, Job: string): string;
 function PreparedComponentsNewer(const Job, AppPath: string): Boolean;
+function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
 implementation
 
 uses System.IOUtils, System.Hash, System.JSON, System.Zip,
-  System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools;
+  System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
+  unit_IBKRuntime;
 
 function ComponentFileName(const ID: string): string;
 begin
   Result := '';
   if ID = 'SQLite' then Result := 'sqlite3.dll';
+  if ID = 'HomeLibReader' then Result := 'HomeLibReader.exe';
+  if ID = 'PDFium' then Result := 'tools/pdfium/pdfium.dll';
+  if ID = 'BookConverter' then Result := 'tools/kindle/python/python.exe';
+  if ID = 'IBK' then Result := 'tools/ibk/Rus.key';
   if ID = 'AlReader' then Result := 'Readers/AlReader/AlReader2.exe';
   if ID = 'SumatraPDF' then Result := 'Readers/SumatraPDF/SumatraPDF.exe';
   if ID = 'DjVuLibre' then Result := 'tools/djvu/djvused.exe';
@@ -67,6 +73,38 @@ end;
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if ID='IBK' then
+  begin
+    for var FileName in IBK_FILES do if Name='tools/ibk/'+FileName then Exit(True);
+    Exit(False);
+  end;
+  if ID='HomeLibReader' then Exit((Name='HomeLibReader.exe') or (Name='HomeLibRuUpdater.exe') or
+    (Name='HomeLibReader-LICENSE.txt') or (Name='sqlite3.dll') or (Name='libzstd.dll') or (Name='NOTICE') or
+    (Name='tools/fonts/manifest.json') or
+    (Name='tools/doc/HomeLibDoc.exe') or
+    (Name='tools/doc/HomeLibDoc-MIT.txt') or
+    (Name='tools/doc/DocSharp-MIT.txt') or
+    (Name='tools/doc/b2xtranslator-BSD-3-Clause.txt') or
+    (Name='tools/djvu/HomeLibDjvu.exe') or
+    (Name='tools/djvu/COPYING.txt') or
+    (Name='tools/djvu/COPYRIGHT') or
+    (Name='tools/djvu/IJG-README.txt') or
+    (Name='tools/djvu/LIBTIFF-COPYRIGHT.txt') or
+    (Name='tools/djvu/ZLIB-README.txt') or
+    (Name='tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dpr') or
+    (Name='tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dproj') or
+    (Name='tools/djvu/HomeLibDjvu-source/LICENSE') or
+    (Name='tools/djvu/HomeLibDjvu-source/README.md') or
+    (Name='tools/djvu/HomeLibDjvu-source/unit_DjvuProtocol.pas'));
+  if ID='PDFium' then Exit(SafeUpdateName(Name) and Name.StartsWith('tools/pdfium/') and
+    ((Name='tools/pdfium/pdfium.dll') or (Name='tools/pdfium/HomeLibPDF.exe') or
+     (Name='tools/pdfium/RUNTIME.json') or (Name='tools/pdfium/WORKER_RUNTIME.json') or
+     (Name='tools/pdfium/HomeLibPDF-LICENSE.txt') or (Name='tools/pdfium/LICENSE') or
+     (Name='tools/pdfium/NOTICE.txt') or (Name='tools/pdfium/VERSION') or
+     (Name='tools/pdfium/args.gn') or Name.StartsWith('tools/pdfium/licenses/')));
+  if ID='BookConverter' then Exit(SafeUpdateName(Name) and
+    (Name.StartsWith('tools/bookconvert/') or Name.StartsWith('tools/kindle/') or Name.StartsWith('tools/office/') or
+     (Name='tools/xps/HomeLibXps.exe') or (Name='tools/xps/HomeLibXps-MIT.txt') or (Name='tools/xps/RUNTIME.json')));
   if ID='JPEG XL' then Exit((Name='tools/jpeg-xl/djxl.exe') or
     (Name='tools/jpeg-xl/RUNTIME.json') or
     TRegEx.IsMatch(Name,'\Atools/jpeg-xl/licenses/LICENSE\.[A-Za-z0-9._-]{1,64}\z'));
@@ -141,6 +179,40 @@ var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
 begin
   FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
   Result:=UpdateFileVersion(FileName);
+  if ID='IBK' then
+  begin
+    if IBKRuntimeAvailable(AppPath) then Result:=IBK_VERSION else Result:='';
+    Exit;
+  end;
+  if (ID='PDFium') or (ID='BookConverter') then
+  begin
+    Result:=''; Root:=nil;
+    try
+      try
+        if ID='PDFium' then MetadataFile:=ExtractFilePath(FileName)+'RUNTIME.json'
+        else MetadataFile:=IncludeTrailingPathDelimiter(AppPath)+'tools/bookconvert/COMPONENT.json';
+        if not FileExists(MetadataFile) or (TFile.GetSize(MetadataFile)>65536) then Exit;
+        Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(MetadataFile,TEncoding.UTF8));
+        if not (Root is TJSONObject) or not Root.TryGetValue<string>('version',Version) or
+          not CompareComponentVersions(Version,Version,Comparison) then Exit;
+        if ID='PDFium' then
+        begin
+          if not Root.TryGetValue<TJSONObject>(ProgramUpdatePlatform,Metadata) or
+            not Metadata.TryGetValue<string>('dll_sha256',Hash) then Exit;
+        end
+        else if not Root.TryGetValue<string>('pythonSha256',Hash) then Exit;
+        if not FileExists(FileName) or not IsUpdateSHA256(Hash) or not SameText(UpdateSHA256(FileName),Hash) then Exit;
+        if ID='BookConverter' then
+        begin
+          if not Root.TryGetValue<string>('converterSha256',Hash) then Exit;
+          MetadataFile:=IncludeTrailingPathDelimiter(AppPath)+'tools/bookconvert/convert_book.py';
+          if not FileExists(MetadataFile) or not IsUpdateSHA256(Hash) or not SameText(UpdateSHA256(MetadataFile),Hash) then Exit;
+        end;
+        Result:=Version;
+      except Result:=''; end;
+    finally Root.Free; end;
+    Exit;
+  end;
   if (ID='JPEG XL') or (ID='WebP') then
   begin
     Result:=''; if not FileExists(FileName) then Exit;
@@ -209,7 +281,14 @@ begin
   Result:=True;
   try
     if InstalledComponentVersion(AppPath,ID)='' then Exit;
-    if ID='SQLite' then Names:=TArray<string>.Create('sqlite3.dll')
+    if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
+      'HomeLibReader-LICENSE.txt','sqlite3.dll','libzstd.dll','NOTICE')
+    else if ID='PDFium' then Names:=TArray<string>.Create('tools/pdfium/pdfium.dll','tools/pdfium/HomeLibPDF.exe',
+      'tools/pdfium/RUNTIME.json','tools/pdfium/WORKER_RUNTIME.json','tools/pdfium/LICENSE','tools/pdfium/HomeLibPDF-LICENSE.txt')
+    else if ID='BookConverter' then Names:=TArray<string>.Create('tools/kindle/python/python.exe',
+      'tools/bookconvert/convert_book.py','tools/bookconvert/COMPONENT.json')
+    else if ID='IBK' then Names:=TArray<string>.Create('tools/ibk/Rus.key','tools/ibk/License.txt','tools/ibk/ICEBookReader-original.zip')
+    else if ID='SQLite' then Names:=TArray<string>.Create('sqlite3.dll')
     else if ID='AlReader' then Names:=TArray<string>.Create('Readers/AlReader/AlReader2.exe')
     else if ID='SumatraPDF' then Names:=TArray<string>.Create('Readers/SumatraPDF/SumatraPDF.exe')
     else if ID='7-Zip' then Names:=TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt')
@@ -282,7 +361,8 @@ begin
   end;
   Lower := LowerCase(Name);
   if Length(Parts) = 1 then
-    Result := (Lower = 'homelibru.exe') or (Lower = 'homelibruupdater.exe') or
+    Result := (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or
+      (Lower = 'homelibreader-license.txt') or (Lower = 'homelibruupdater.exe') or
       (Lower = 'mhlmcpserver.exe') or (Lower = 'sqlite3.dll') or
       (Lower = 'libzstd.dll') or (Lower = 'license') or (Lower = 'notice') or
       (Lower = 'homelibru.url') or (Lower = 'changes.txt') or (Lower = 'components.json') or Lower.EndsWith('.glst')
@@ -400,6 +480,19 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   end;
   procedure RequireComponentMembers(const ID, Version: string);
   begin
+    if ID='HomeLibReader' then
+      for var Name in ['HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','sqlite3.dll','libzstd.dll','NOTICE'] do
+        RequireMember(Name);
+    if ID='PDFium' then
+      for var Name in ['pdfium.dll','HomeLibPDF.exe','RUNTIME.json','WORKER_RUNTIME.json','LICENSE','HomeLibPDF-LICENSE.txt'] do
+        RequireMember('tools/pdfium/'+Name);
+    if ID='BookConverter' then
+    begin
+      RequireMember('tools/kindle/python/python.exe');
+      RequireMember('tools/bookconvert/convert_book.py'); RequireMember('tools/bookconvert/COMPONENT.json');
+    end;
+    if ID='IBK' then
+      for var Name in IBK_FILES do RequireMember('tools/ibk/'+Name);
     if ID='DocSharp' then
       for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','HomeLibDoc.exe',
         'DOC_RUNTIME.json','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
@@ -428,7 +521,7 @@ begin
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 8) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 12) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -444,7 +537,7 @@ begin
   try
     if Assigned(Bundle) then
     begin
-      if (Bundle.Count < 1) or (Bundle.Count > 8) then raise Exception.Create('Некорректный пакет компонентов.');
+      if (Bundle.Count < 1) or (Bundle.Count > 12) then raise Exception.Create('Некорректный пакет компонентов.');
       for Part in Bundle do
       begin
         if not (Part is TJSONObject) or not TJSONObject(Part).TryGetValue<string>('component', Version) or
@@ -593,8 +686,20 @@ begin
       raise Exception.Create('Некорректное описание компонента.');
     Architecture := Platform;
     // AlReader's Windows edition is a 32-bit application in both distributions.
-    if (Component='AlReader') or (Component='DocSharp') or (Component='DjVuLibre') then Architecture:='Win32';
-    if (Component='JPEG XL') or (Component='WebP') then
+    if (Component='AlReader') or (Component='DocSharp') or (Component='DjVuLibre') or (Component='IBK') then Architecture:='Win32';
+    if Component='IBK' then
+    begin
+      if InstalledComponentVersion(Stage,Component)<>Version then
+        raise Exception.Create('Не совпала версия или контрольная сумма данных IBK.');
+    end
+    else if (Component='PDFium') or (Component='BookConverter') then
+    begin
+      VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
+      if InstalledComponentVersion(Stage,Component)<>Version then
+        raise Exception.Create('Версия или контрольная сумма модуля не совпадает с описанием пакета.');
+      if Component='PDFium' then VerifyUpdateExecutable(ChildPath(Stage,'tools/pdfium/HomeLibPDF.exe'),'',Architecture,True);
+    end
+    else if (Component='JPEG XL') or (Component='WebP') then
     begin
       VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
@@ -609,6 +714,9 @@ begin
         VerifyUpdateExecutable(ChildPath(Stage,'tools/djvu/'+Name),'',Architecture,True);
     end
     else VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
+    if Component='HomeLibReader' then
+      for var Name in ['HomeLibRuUpdater.exe','sqlite3.dll','libzstd.dll'] do
+        VerifyUpdateExecutable(ChildPath(Stage,Name),'',Architecture,True);
     if Component='DocSharp' then
     begin
       for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll','HomeLibDoc.exe'] do
@@ -716,6 +824,20 @@ begin
   finally Manifest.Free; end;
 end;
 
+function PreparedIncludesComponent(const Job, Component: string): Boolean;
+var Manifest: TJSONObject; Bundle: TJSONArray; Part: TJSONValue; ID: string;
+begin
+  Result:=False; Manifest:=ReadJSON(ChildPath(Job,'manifest.json'));
+  try
+    ManifestFiles(Manifest);
+    if Manifest.TryGetValue<string>('component',ID) and (ID=Component) then Exit(True);
+    if Manifest.TryGetValue<TJSONArray>('bundle',Bundle) then
+      for Part in Bundle do
+        if (Part is TJSONObject) and TJSONObject(Part).TryGetValue<string>('component',ID) and
+          (ID=Component) then Exit(True);
+  finally Manifest.Free; end;
+end;
+
 procedure PrepareOfficialSimpleComponent(const Archive, Job, ID, Version, Platform: string);
 var Zip: TZipFile; I, Selected: Integer; Name, Stage, Destination: string; Bytes: TBytes;
   Manifest, Entry: TJSONObject; Files: TJSONArray;
@@ -766,6 +888,12 @@ var Suffix: string;
 begin
   Result:=False;
   if not TRegEx.IsMatch(Version,'^[0-9]+\.[0-9]+(?:\.[0-9]+){0,2}$') then Exit;
+  if ID='IBK' then
+  begin
+    if Version<>IBK_VERSION then Exit;
+    if Secondary then Exit((URL=IBK_EXTRACTOR_URL) or (URL=IBK_MIRROR_PREFIX+IBK_EXTRACTOR_MIRROR_NAME));
+    Exit(IsIBKPackageURL(URL) or (URL=IBK_MIRROR_PREFIX+IBK_MIRROR_NAME));
+  end;
   if ID='SQLite' then
   begin
     if Platform='Win64' then Suffix:='x64' else Suffix:='x86';
@@ -845,7 +973,7 @@ var Stage, Raw, Source, Destination, Tools, RuntimePath: string; Names: TArray<s
 begin
   if (ID='SQLite') or (ID='SumatraPDF') then
   begin PrepareOfficialSimpleComponent(Archive,Job,ID,Version,Platform); Exit; end;
-  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') and (ID<>'JPEG XL') then
+  if (ID<>'7-Zip') and (ID<>'DocSharp') and (ID<>'DjVuLibre') and (ID<>'JPEG XL') and (ID<>'IBK') then
     raise Exception.Create('Не найден официальный Windows-пакет этого компонента.');
   AssertUpdatePath(Archive); AssertUpdatePath(Job); Stage:=ChildPath(Job,'payload');
   if DirectoryExists(Stage) then raise Exception.Create('Папка обновления уже занята.');
@@ -855,7 +983,45 @@ begin
     Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',Version); Manifest.AddPair('platform',Platform);
     Manifest.AddPair('component',ID); Manifest.AddPair('version',Version); Manifest.AddPair('official',TJSONBool.Create(True));
     Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
-    if ID='JPEG XL' then
+    if ID='IBK' then
+    begin
+      // Preserve the complete, unchanged original distribution. Only the
+      // independently verified read data are used; ICE itself is never run.
+      if (Version<>IBK_VERSION) or not SameText(UpdateSHA256(Archive),IBK_PACKAGE_SHA256) or
+        (SecondaryArchive='') then raise Exception.Create('Не совпал исходный пакет IBK.');
+      AssertUpdatePath(SecondaryArchive);
+      if not SameText(UpdateSHA256(SecondaryArchive),IBK_EXTRACTOR_SHA256) then
+        raise Exception.Create('Не совпал исходный пакет распаковщика IBK.');
+      Raw:=ChildPath(Job,'ibk-extract'); ForceDirectories(Raw);
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Archive,zmRead);
+        if (Zip.FileCount<>1) or (Zip.FileNames[0]<>'ICE Book Reader Rus.exe') or
+          (Zip.FileInfo[0].UncompressedSize<>6444144) then
+          raise Exception.Create('Неожиданное содержимое исходного пакета IBK.');
+        Zip.Read(0,Bytes); Source:=ChildPath(Raw,'original-installer.exe'); TFile.WriteAllBytes(Source,Bytes);
+      finally Zip.Free; end;
+      if not SameText(UpdateSHA256(Source),IBK_INSTALLER_SHA256) then
+        raise Exception.Create('Не совпала контрольная сумма исходного установщика IBK.');
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(SecondaryArchive,zmRead);
+        var Index:=Zip.IndexOf('innoextract.exe');
+        if (Index<0) or (Zip.FileCount>30) or (Zip.FileInfo[Index].UncompressedSize<>1218560) then
+          raise Exception.Create('В исходном пакете отсутствует распаковщик IBK.');
+        Zip.Read(Index,Bytes); Tools:=ChildPath(Raw,'innoextract.exe'); TFile.WriteAllBytes(Tools,Bytes);
+      finally Zip.Free; end;
+      if not SameText(UpdateSHA256(Tools),IBK_EXTRACTOR_EXE_SHA256) then
+        raise Exception.Create('Не совпала контрольная сумма распаковщика IBK.');
+      RunBounded(Tools,['--silent','--output-dir',ChildPath(Raw,'data'),
+        '-I','app\Rus.key','-I','app\License.txt',Source]);
+      for var Name in ['Rus.key','License.txt'] do
+        AddFile('tools/ibk/'+Name,ChildPath(Raw,'data/app/'+Name));
+      AddFile('tools/ibk/ICEBookReader-original.zip',Archive);
+      Bytes:=nil;
+      if not IBKRuntimeAvailable(Stage) then raise Exception.Create('Данные IBK не прошли итоговую проверку.');
+    end
+    else if ID='JPEG XL' then
     begin
       if Platform='Win64' then Raw:='x64-windows-static/' else Raw:='x86-windows-static/';
       Zip:=TZipFile.Create;
@@ -1111,15 +1277,15 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..7] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP');
+const ComponentNames: array[0..11] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
 begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
-  if not FileExists(ChildPath(Target, 'HomeLibRu.exe')) then
-    raise Exception.Create('В выбранной папке нет HomeLib Ru.');
+  if not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
+    raise Exception.Create('В выбранной папке нет HomeLib Ru или HomeLib Reader.');
   if FileExists(ChildPath(Job, 'journal.json')) then
   begin
     Journal := ReadJSON(ChildPath(Job, 'journal.json'));
@@ -1155,7 +1321,7 @@ begin
   end;
   // Update the main EXE last. The earlier EXE remains available during copying.
   for I := 0 to High(Files) do
-    if SameText(Files[I].Name, 'HomeLibRu.exe') then
+    if SameText(Files[I].Name, 'HomeLibRu.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') then
     begin Info := Files[High(Files)]; Files[High(Files)] := Files[I]; Files[I] := Info; Break; end;
   // Preflight every destination and back up every original before changing any.
   for Info in Files do

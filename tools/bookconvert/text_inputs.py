@@ -39,7 +39,7 @@ def decode(data, encoding=None):
 
 
 class Book:
-    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None, tools_root=None, reading=False, progress=None):
+    def __init__(self, api, source, warnings, title='', author='', language='', resource_root=None, tools_root=None, reading=False, progress=None, image_export=None, omit_images=False):
         self.c, self.source, self.warnings = api, source, warnings
         self.title, self.author, self.language = title or source.stem, author, language or 'und'
         self.body = self.el('body')
@@ -48,7 +48,24 @@ class Book:
         self.tools_root = Path(tools_root).resolve() if tools_root else Path(__file__).resolve().parent.parent
         self.total = 0
         self.reading = reading
+        self.omit_images = bool(omit_images) and not reading
         self.progress = progress or (lambda stage, completed, total: None)
+        self.image_export = image_export if not reading else None
+        self.scan_export = None
+
+    def scan_page(self, data, number, total=0):
+        if self.image_export:
+            if self.scan_export is None:
+                import importlib.util
+                spec=importlib.util.spec_from_file_location('homelib_scan_export',Path(__file__).with_name('scan_export.py'))
+                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                self.scan_export=module.ScanExport(self,self.image_export)
+            self.scan_export.add(data,number,total)
+            return
+        section=self.el('section',id='page-'+str(number));self.body.append(section)
+        section.append(self.el('h2','Страница '+str(number)))
+        paragraph=self.el('p');section.append(paragraph)
+        picture=self.image(data);picture.set('alt','Страница '+str(number));paragraph.append(picture)
 
     def el(self, name, text=None, **attrs):
         return self.c.element(self.c.XH, name, text, **attrs)
@@ -111,6 +128,7 @@ class Book:
         return self.image(path.read_bytes())
 
     def finish(self, output):
+        if self.scan_export is not None: self.scan_export.finish()
         c = self.c
         if not c.plain(self.body) and not any(c.tag(n) == 'img' for n in self.body.iter()):
             self.fail('В документе нет текста или изображений для конвертации.')
@@ -841,6 +859,26 @@ def to_epub(source, output, warnings, api, input_extension=None, **metadata):
     elif extension == '.sxw': read_odt(book,legacy=True)
     elif extension == '.abw': read_abw(book)
     elif extension == '.fb3': read_fb3(book)
+    elif extension == '.ibk':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_ibk_input', Path(__file__).with_name('ibk_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book)
+    elif extension == '.rgo':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_rgo_input', Path(__file__).with_name('rgo_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book, source.read_bytes())
+    elif extension == '.jutoh':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_jutoh_input', Path(__file__).with_name('jutoh_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book)
+    elif extension == '.pages':
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('homelib_pages_input', Path(__file__).with_name('pages_input.py'))
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.read(book)
     elif extension in {'.doc', '.dot', '.docm', '.dotx', '.dotm', '.ppt', '.pps', '.pot', '.pptx', '.pptm', '.ppsx', '.ppsm', '.potx', '.potm', '.xls', '.xlt', '.xlsx', '.xlsm', '.xltx', '.xltm', '.ods', '.ots', '.odp', '.otp', '.ott', '.wps', '.wpd'}:
         import importlib.util
         spec = importlib.util.spec_from_file_location('homelib_office_inputs', Path(__file__).with_name('office_inputs.py'))

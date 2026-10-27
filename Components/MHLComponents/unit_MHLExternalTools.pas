@@ -23,6 +23,7 @@ type
   end;
 
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
+function QuoteCommandLineArgument(const Value: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
   const IsCanceled: TFunc<Boolean> = nil; const PrefixBytes: Integer = 0;

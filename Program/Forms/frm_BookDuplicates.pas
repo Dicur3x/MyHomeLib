@@ -11,7 +11,8 @@ type
     FPlan: TBookDuplicatePlan;
     FGroups, FCopies: TListView;
     FDetails: TMemo;
-    FSearch, FPrevious, FNext, FKeep, FApply: TButton;
+    FSearch, FPrevious, FNext, FKeep, FApply, FSelectSource, FClearSelection: TButton;
+    FSource: TComboBox;
     FUseGroup: TCheckBox;
     FStatus: TLabel;
     FPage: TArray<TDuplicateGroup>;
@@ -27,6 +28,9 @@ type
     procedure MarkGroup(Sender: TObject);
     procedure ApplySelected(Sender: TObject);
     procedure UpdateStatus;
+    procedure SelectSource(Sender: TObject);
+    procedure ClearSelection(Sender: TObject);
+    procedure LoadSources;
   public
     constructor CreateForCollection(AOwner: TComponent; const Collection: IBookCollection);
     destructor Destroy; override;
@@ -49,6 +53,8 @@ type
     FError: string;
     FApply: Boolean;
     FBackup: string;
+    FSourceName: string;
+    FSelected: Integer;
   protected
     procedure WorkFunction; override;
   public
@@ -62,7 +68,12 @@ procedure TDuplicateScanWorker.WorkFunction;
 begin
   try
     SetProgressHint(pbstMarquee); SetComment('Поиск повторных записей книг…');
-    if FApply then
+    if FSourceName<>'' then
+    begin
+      SetComment('Выбор повторов по предпочтительному источнику…');
+      FSelected:=FPlan.SelectSource(FSourceName,function: Boolean begin Result:=Canceled; end);
+    end
+    else if FApply then
       FPlan.Apply(FBackup,function: Boolean begin Result:=Canceled; end,
         procedure(const Stage: string; Current,Total: Integer)
         begin
@@ -92,7 +103,7 @@ begin
     Settings.ExpandCollectionRoot(VarToStr(Collection.GetProperty(PROP_ROOTFOLDER))),
     VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)),Settings.SystemFileName[sfSystemDB],
     ResolveReaderSettingsFile(Settings.DataDir),Collection.CollectionID,Settings.WorkPath);
-  Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Align:=alTop; Top.Height:=116; Top.BevelOuter:=bvNone;
+  Top:=TPanel.Create(Self); Top.Parent:=Self; Top.Align:=alTop; Top.Height:=198; Top.BevelOuter:=bvNone;
   LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False;
   LabelText.SetBounds(12,10,1016,54); LabelText.Anchors:=[akLeft,akTop,akRight]; LabelText.WordWrap:=True;
   LabelText.Caption:='1. Найдите повторы и выберите книгу слева. 2. Справа сравните копии и укажите основную запись. 3. Отметьте книгу для объединения и нажмите кнопку внизу.'+#13#10+
@@ -101,6 +112,19 @@ begin
   FSearch.SetBounds(12,76,220,30); FSearch.Caption:='1. Найти повторы'; FSearch.OnClick:=Scan;
   FStatus:=TLabel.Create(Self); FStatus.Parent:=Top; FStatus.AutoSize:=False;
   FStatus.SetBounds(248,78,780,34); FStatus.Anchors:=[akLeft,akTop,akRight]; FStatus.WordWrap:=True;
+  LabelText:=TLabel.Create(Self); LabelText.Parent:=Top;
+  LabelText.SetBounds(12,122,180,20); LabelText.Caption:='Предпочтительный источник:';
+  FSource:=TComboBox.Create(Self); FSource.Parent:=Top; FSource.Name:='cbDuplicatePreferredSource';
+  FSource.Style:=csDropDownList; FSource.SetBounds(204,118,400,26); FSource.Anchors:=[akLeft,akTop,akRight];
+  FSelectSource:=TButton.Create(Self); FSelectSource.Parent:=Top; FSelectSource.Name:='btnSelectDuplicateSource';
+  FSelectSource.Caption:='Отметить по источнику'; FSelectSource.SetBounds(616,116,220,30);
+  FSelectSource.Anchors:=[akTop,akRight]; FSelectSource.OnClick:=SelectSource;
+  FClearSelection:=TButton.Create(Self); FClearSelection.Parent:=Top; FClearSelection.Name:='btnClearDuplicateSelection';
+  FClearSelection.Caption:='Снять все отметки'; FClearSelection.SetBounds(848,116,180,30);
+  FClearSelection.Anchors:=[akTop,akRight]; FClearSelection.OnClick:=ClearSelection;
+  LabelText:=TLabel.Create(Self); LabelText.Parent:=Top; LabelText.AutoSize:=False; LabelText.WordWrap:=True;
+  LabelText.SetBounds(12,154,1016,40); LabelText.Anchors:=[akLeft,akTop,akRight];
+  LabelText.Caption:='Массово отмечаются группы с одной копией из выбранного источника. Повторы внутри одного источника, неизвестные источники и конфликты личных данных пропускаются. Уже отмеченные группы сохраняют ваш выбор.';
   Bottom:=TPanel.Create(Self); Bottom.Parent:=Self; Bottom.Align:=alBottom; Bottom.Height:=52; Bottom.BevelOuter:=bvNone;
   FPrevious:=TButton.Create(Self); FPrevious.Parent:=Bottom; FPrevious.Name:='btnPreviousDuplicatePage';
   FPrevious.SetBounds(12,10,140,30); FPrevious.Caption:='Предыдущие 50'; FPrevious.OnClick:=ChangePage;
@@ -155,6 +179,9 @@ begin
   FKeep.Enabled:=Assigned(FCopies.Selected) and Assigned(FGroups.Selected);
   FUseGroup.Enabled:=Assigned(FGroups.Selected);
   FApply.Enabled:=FPlan.Ready and (FPlan.SelectedCount>0);
+  FSource.Enabled:=FPlan.Ready and (FSource.Items.Count>0);
+  FSelectSource.Enabled:=FSource.Enabled and (FSource.ItemIndex>=0);
+  FClearSelection.Enabled:=FApply.Enabled;
   if FPlan.Ready then FStatus.Caption:=Format('Найдено книг с повторами: %d · Показаны %d–%d'+#13#10+'Для объединения отмечено: %d. Без галочки книга не изменится.',
     [FPlan.GroupCount,Ord(FPlan.GroupCount>0)*(FOffset+1),FOffset+Length(FPage),FPlan.SelectedCount])
   else FStatus.Caption:='Поиск ещё не выполнен';
@@ -180,7 +207,7 @@ begin
     Progress.ShowModal; Worker.WaitFor;
     FChanged:=FChanged or FPlan.Committed;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
-    FOffset:=0; RenderPage;
+    FOffset:=0; LoadSources; RenderPage;
     if FPlan.Committed then
       FDetails.Lines.Text:=Format('Объединение сохранено. Убрано повторных записей: %d.'+#13#10+
         'Файлы книг и личные данные сохранены.'+#13#10+'Резервная копия: %s'+#13#10+
@@ -203,14 +230,49 @@ begin
     Progress.CloseOnTimer:=True; Progress.Timer.Interval:=1; Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self;
     Progress.ShowModal; Worker.WaitFor;
     if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
-    FOffset:=0; RenderPage;
+    FOffset:=0; LoadSources; RenderPage;
     if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError;
   finally Progress.Free; Worker.Free; FSearch.Enabled:=True; end;
 end;
 
+procedure TfrmBookDuplicates.LoadSources;
+begin
+  FSource.Items.BeginUpdate;
+  try
+    FSource.Items.Clear;
+    for var Name in FPlan.Sources do FSource.Items.Add(Name);
+    if FSource.Items.Count>0 then FSource.ItemIndex:=0;
+  finally FSource.Items.EndUpdate; end;
+end;
+
+procedure TfrmBookDuplicates.SelectSource(Sender: TObject);
+var Worker: TDuplicateScanWorker; Progress: TImportProgressFormEx;
+begin
+  if not FPlan.Ready or (FSource.ItemIndex<0) then Exit;
+  Worker:=TDuplicateScanWorker.Create(FPlan); Worker.FSourceName:=FSource.Text;
+  Progress:=TImportProgressFormEx.Create(Self);
+  try
+    Progress.Caption:='Выбор повторных записей по источнику'; Progress.WorkerThread:=Worker;
+    Progress.CloseOnTimer:=True; Progress.Timer.Interval:=1;
+    Progress.PopupMode:=pmExplicit; Progress.PopupParent:=Self;
+    Progress.ShowModal; Worker.WaitFor;
+    if Assigned(Worker.FatalException) then raise Exception.Create(Exception(Worker.FatalException).Message);
+    RenderPage;
+    if Worker.FError<>'' then FDetails.Lines.Text:=Worker.FError
+    else FDetails.Lines.Text:=Format('Добавлено групп для объединения: %d.'+#13#10+
+      'Предпочтительный источник: %s.'+#13#10+
+      'Каталог ещё не изменён. Проверьте выбор и нажмите «Объединить выбранные группы…».'+#13#10+
+      'Пропущенные группы можно проверить вручную.',[Worker.FSelected,Worker.FSourceName]);
+  finally Progress.Free; Worker.Free; UpdateStatus; end;
+end;
+
+procedure TfrmBookDuplicates.ClearSelection(Sender: TObject);
+begin FPlan.ClearSelection; RenderPage; end;
+
 procedure TfrmBookDuplicates.RenderPage;
 var Item: TListItem;
 begin
+  if FPlan.Ready and (FSource.Items.Count=0) then LoadSources;
   FUpdating:=True; FGroups.Items.BeginUpdate;
   try
     FGroups.Items.Clear; FCopies.Items.Clear; FBooks:=nil; FPage:=nil; FUseGroup.Checked:=False;

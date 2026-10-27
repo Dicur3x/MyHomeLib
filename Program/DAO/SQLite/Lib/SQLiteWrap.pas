@@ -36,6 +36,10 @@ type
   ESQLiteException = class(Exception);
 
   TSQLiteQuery = class;
+  TSQLiteTextCache = record
+    Bytes: UTF8String;
+    Value: string;
+  end;
 
   {: @abstract(Class for handling SQLite database)}
   TSQLiteDatabase = class(TObject)
@@ -195,6 +199,7 @@ type
     //
     function FieldIsNull(I: Integer): Boolean; inline;
     function FieldAsString(I: Integer): string;
+    function FieldAsSharedString(I: Integer; var Cache: TSQLiteTextCache): string;
     function FieldAsInt(I: Integer): Int64; inline;
     function FieldAsBoolean(I: Integer): Boolean;
     function FieldAsDateTime(I: Integer): TDateTime;
@@ -352,6 +357,9 @@ end;
 constructor TSQLiteDatabase.Create(const FileName: string);
 var
   s: string;
+{$IFDEF MHL_SQL_PROFILE}
+  ProfileMmap: Int64;
+{$ENDIF}
 begin
   inherited Create;
   FDB := nil;
@@ -375,12 +383,24 @@ begin
     ExecSQL('PRAGMA temp_store = MEMORY');
 {$IFDEF WIN64}
     ExecSQL('PRAGMA cache_size = -65536');
-    QuerySingleInt('PRAGMA mmap_size = 268435456');
+    // A 64-bit process can map the large read window without reserving a
+    // second heap copy. Win32 retains its small address-space limit below.
+    QuerySingleInt('PRAGMA mmap_size = 2147418112');
 {$ELSE}
     // Several open collections otherwise reserve too much of the 2-GiB Win32
     // address space. This keeps the locality win without destabilising imports.
     ExecSQL('PRAGMA cache_size = -32768');
     QuerySingleInt('PRAGMA mmap_size = 67108864');
+{$ENDIF}
+
+{$IFDEF MHL_SQL_PROFILE}
+    // Controlled diagnostic only; ordinary release binaries ignore this variable.
+    if TryStrToInt64(GetEnvironmentVariable('HLRU_SQL_MMAP_BYTES'),ProfileMmap) and
+      (ProfileMmap>=0) and (ProfileMmap<=2147418112) then
+    begin
+      ProfileMmap:=QuerySingleInt('PRAGMA mmap_size = '+IntToStr(ProfileMmap));
+      Writeln('PROFILE mmap_bytes=',ProfileMmap);
+    end;
 {$ENDIF}
 
     RegisterSystemCollateAndFunc;
@@ -943,12 +963,32 @@ end;
 
 function TSQLiteQuery.FieldIsNull(I: Integer): Boolean;
 begin
-  Result := SQLite3_ColumnText(FStmt, i) = nil;
+  // A NULL test must not allocate a decimal string for integer columns.
+  Result := SQLite3_ColumnType(FStmt, i) = SQLITE_NULL;
 end;
 
 function TSQLiteQuery.FieldAsString(I: Integer): string;
 begin
   Result := GetFields(I);
+end;
+
+function TSQLiteQuery.FieldAsSharedString(I: Integer; var Cache: TSQLiteTextCache): string;
+var Buffer: PAnsiChar; Count: Integer;
+begin
+  Buffer := SQLite3_ColumnText(FStmt, I);
+  Count := SQLite3_ColumnBytes(FStmt, I);
+  if Count = 0 then
+  begin Cache.Bytes := ''; Cache.Value := ''; Exit(''); end;
+  // A previous-value cache is useful for folders, language, publisher and
+  // series repeated over adjacent books. Keep exceptional large values uncached.
+  if Count > 65536 then Exit(GetFields(I));
+  if (Count <> Length(Cache.Bytes)) or
+    not CompareMem(Buffer, PAnsiChar(Cache.Bytes), Count) then
+  begin
+    SetString(Cache.Bytes, Buffer, Count);
+    Cache.Value := UTF8ToString(Buffer);
+  end;
+  Result := Cache.Value;
 end;
 
 function TSQLiteQuery.FieldAsInt(I: Integer): Int64;
@@ -967,8 +1007,29 @@ end;
 function TSQLiteQuery.FieldAsDateTime(I: Integer): TDateTime;
 var
   StringVal: string;
+  Position, Year, Month, Day: Integer;
+  Digits: Boolean;
 begin
   StringVal := FieldAsString(I);
+  // INPX normally stores an ISO date without time. Decode its fixed digits
+  // directly instead of invoking the general locale/time parser for each row.
+  // Keep that parser for all other forms and for its original error handling.
+  if (Length(StringVal) = 10) and (StringVal[5] = '-') and (StringVal[8] = '-') then
+  begin
+    Digits := True;
+    for Position := 1 to 10 do
+      if (Position <> 5) and (Position <> 8) then
+        if (StringVal[Position] < '0') or (StringVal[Position] > '9') then
+        begin Digits := False; Break; end;
+    if Digits then
+    begin
+      Year := (Ord(StringVal[1])-48)*1000 + (Ord(StringVal[2])-48)*100 +
+        (Ord(StringVal[3])-48)*10 + Ord(StringVal[4])-48;
+      Month := (Ord(StringVal[6])-48)*10 + Ord(StringVal[7])-48;
+      Day := (Ord(StringVal[9])-48)*10 + Ord(StringVal[10])-48;
+      if (Year >= 1000) and TryEncodeDate(Year, Month, Day, Result) then Exit;
+    end;
+  end;
   Result := StrToDateTime(StringVal, SQLite_FormatSettings);
 end;
 
@@ -1020,7 +1081,7 @@ end;
 function TSQLiteQuery.ProfiledStep: Integer;
 var Started: Int64;
 begin
-  Started := SQLiteProfileClock;
+  Started := SQLiteStepProfileClock;
   Result := SQLite3_Step(FStmt);
   RecordSQLiteProfile(FDatabase.FProfileName,'step',FSQL,Started);
 end;

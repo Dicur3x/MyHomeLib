@@ -56,7 +56,7 @@ var Input: TStream; Writer: TBookCacheWrite; Log: TStringStream; Zip: TZipFile;
 begin
   Result:=SourceFile; if not IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit;
   CheckCanceled; Tool:=FindDirectDOCReader;
-  if Tool='' then raise Exception.Create('Не найден встроенный компонент чтения DOC. Проверьте полный пакет программы.');
+  if Tool='' then raise EMHLComponentRequired.Create('DocSharp','Для этой книги нужен модуль DocSharp.');
   Input:=OpenCachedBookFile(SourceFile);
   try
     if (Input.Size<512) or (Input.Size>64*1024*1024) then

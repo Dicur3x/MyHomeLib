@@ -99,7 +99,7 @@ begin
   if Canceled then Abort;
   try
   Tool:=FindExternalTool('HomeLibDjvu.exe','djvu');
-  if Tool='' then raise Exception.Create('В комплекте программы отсутствует декодер DjVu.');
+  if Tool='' then raise EMHLComponentRequired.Create('DjVuLibre','Для этой книги нужен модуль DjVuLibre.');
   CreateGUID(GUID); MapName:='Local\HomeLibRu-Djvu-'+GUIDToString(GUID);
   FMapping:=CreateFileMapping(INVALID_HANDLE_VALUE,nil,PAGE_READWRITE,0,DJVU_BUFFER_BYTES,PChar(MapName));
   if FMapping=0 then RaiseLastOSError;

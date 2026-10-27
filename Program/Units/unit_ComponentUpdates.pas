@@ -6,7 +6,7 @@ uses System.Classes, System.SysUtils, System.Net.HttpClient, Winapi.Windows, Win
   unit_ProgramUpdates;
 
 type
-  TComponentCheckKind = (ccBundled, ccSQLite, ccSumatra, ccRaster, ccDocSharp, ccJPEGXL, ccWebP);
+  TComponentCheckKind = (ccBundled, ccSQLite, ccSumatra, ccRaster, ccDocSharp, ccJPEGXL, ccWebP, ccPublished, ccIBK);
   TUpdateComponent = record
     ID, Title, URL: string;
     CheckKind: TComponentCheckKind;
@@ -21,7 +21,8 @@ const
   ALREADER_FIXED_SHA256 = '20b3563c3af8e26f7cedb1d20106fe570cb4e169ab121e467b71b3541dfb88ab';
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
-  UPDATE_COMPONENTS: array[0..7] of TUpdateComponent = (
+  COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
+  UPDATE_COMPONENTS: array[0..11] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -29,7 +30,11 @@ const
     (ID:'7-Zip'; Title:'Распаковка архивов'; URL:'https://www.7-zip.org/download.html'; CheckKind:ccRaster; CheckOnly:False),
     (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False),
     (ID:'JPEG XL'; Title:'Иллюстрации JPEG XL'; URL:'https://github.com/libjxl/libjxl/releases'; CheckKind:ccJPEGXL; CheckOnly:False),
-    (ID:'WebP'; Title:'Иллюстрации WebP'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccWebP; CheckOnly:False));
+    (ID:'WebP'; Title:'Иллюстрации WebP'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccWebP; CheckOnly:False),
+    (ID:'HomeLibReader'; Title:'HomeLib Reader'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'PDFium'; Title:'Чтение PDF'; URL:'https://github.com/bblanchon/pdfium-binaries/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'BookConverter'; Title:'Подготовка и конвертация книг'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -53,6 +58,7 @@ type
     procedure Execute; override;
     function FetchText(const URL: string): string; virtual;
     function FetchHead(const URL: string): IHTTPResponse; virtual;
+    function FetchMirrorRelease(const ID, Version: string; out Info: TProgramRelease): Boolean; virtual;
   public
     constructor Create(AWindow: HWND; AHTTP: THTTPClient;
       const URL: string = PROGRAM_RELEASES_API; const CacheFolder: string = '');
@@ -79,12 +85,16 @@ type
 function FixedAlReaderRelease: TProgramRelease;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
-  out Releases: TComponentReleases; RequireAssets: Boolean = True): Boolean;
+  out Releases: TComponentReleases; RequireAssets: Boolean = True; AllowPartial: Boolean = False): Boolean;
 function ComponentDisplayVersion(const ID, Version: string): string;
 function ParseDjVuHistory(const News, WindowsFiles: string; var Info: TProgramRelease): Boolean;
 function ComponentInstalledVersion(const AppPath, ID: string): string;
 function ComponentNewer(const ReleaseInfo: TProgramRelease; const Installed: string): Boolean;
 function ComponentArchiveName(const ID, Platform: string): string;
+function ComponentVersionedArchiveName(const ID, Version, Platform: string): string;
+function ParseIBKMirror(const Metadata, Version: string; out Info: TProgramRelease): Boolean;
+function ComponentMirrorFeedURL(const Metadata: string): string;
+function ParseComponentMirror(const Metadata, Feed, ID, Version: string; out Info: TProgramRelease): Boolean;
 function ComponentChanges(const Info: TProgramRelease; const Installed: string): string;
 function ParseSQLiteDownload(const HTML, Changes: string; out Info: TProgramRelease): Boolean;
 function ParseSumatraReleases(const JSON: string; out Info: TProgramRelease): Boolean;
@@ -106,7 +116,7 @@ implementation
 
 uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateNotes, unit_UpdateTextCache;
+  unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime;
 
 // Each probe owns its HTTP session. Never share WinHTTP handles across workers.
 threadvar ComponentProbeHTTP: THTTPClient;
@@ -127,7 +137,7 @@ begin
 end;
 
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP'); end;
+begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -150,6 +160,7 @@ var Ext: string;
 begin
   Result:=''; Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
   if (Pos('|'+Ext+'|','|.chm|.cbr|.cb7|')>0) and ComponentNeedsRepair(AppPath,'7-Zip') then Exit('7-Zip');
+  if (Ext='.pdf') and ComponentNeedsRepair(AppPath,'PDFium') then Exit('PDFium');
   if (Ext='.webp') and ComponentNeedsRepair(AppPath,'WebP') then Exit('WebP');
   if ((Ext='.djvu') or (Ext='.djv')) and ComponentNeedsRepair(AppPath,'DjVuLibre') then Exit('DjVuLibre');
   if (Pos('|'+Ext+'|','|.doc|.dot|.ppt|.pps|.pot|.xls|.xlt|')>0) and
@@ -157,7 +168,7 @@ begin
 end;
 
 constructor EReaderComponentRequired.Create(const ID: string);
-begin inherited Create('Для чтения этой книги нужен компонент '+ID+'. Его можно скачать в HomeLib Ru.'); FComponentID:=ID; end;
+begin inherited Create('Для чтения этой книги нужен компонент '+ID+'. Его можно скачать в окне компонентов.'); FComponentID:=ID; end;
 
 function ComponentIDs: TArray<string>;
 var I: Integer;
@@ -206,6 +217,9 @@ var Info: TUpdateComponent;
 begin
   if Component = 'batch' then
   begin
+    if URL='https://github.com/Dicur3x/MyHomeLib/releases' then Exit('Выпуски HomeLib Ru');
+    if URL='https://www.bestfree.ru/soft/office/bookreader-en-downloader.php' then
+      Exit('Источник исходного пакета ICE Reader');
     if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
       Exit('Постоянные компоненты HomeLib Ru');
     for Info in UPDATE_COMPONENTS do
@@ -214,6 +228,11 @@ begin
   end;
   if Component='AlReader' then Exit('Постоянный архив AlReader');
   if Component='WebP' then Exit('Постоянный архив WebP');
+  if Component='HomeLibReader' then Exit('Выпуски HomeLib Reader');
+  if Component='BookConverter' then Exit('Выпуски модуля конвертации');
+  if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
+    Exit('Компоненты на GitHub');
+  if Component='IBK' then Exit('Источник исходного пакета ICE Reader');
   if Component <> '' then Result := 'Сайт автора'
   else Result := 'Открыть GitHub';
 end;
@@ -572,6 +591,11 @@ begin
   Result := 'HomeLibRu-' + ID + '-' + Platform + '.zip';
 end;
 
+function ComponentVersionedArchiveName(const ID, Version, Platform: string): string;
+begin
+  Result := 'HomeLibRu-' + ID.Replace(' ', '') + '-' + Version + '-' + Platform + '.zip';
+end;
+
 function ComponentDisplayVersion(const ID, Version: string): string;
 var Parts: TArray<string>; Count, Minimum, Major, Minor, Comparison: Integer;
 begin
@@ -675,7 +699,7 @@ begin
 end;
 
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
-  out Releases: TComponentReleases; RequireAssets: Boolean): Boolean;
+  out Releases: TComponentReleases; RequireAssets, AllowPartial: Boolean): Boolean;
 var Root, AssetsRoot: TJSONValue; Items, History, Assets: TJSONArray;
   Value, Entry, Asset: TJSONValue; Obj: TJSONObject; ID, Version, Platform, Notes, Name, URL, Digest, Date: string;
   Format, I, Comparison: Integer; Info: TProgramRelease;
@@ -722,6 +746,11 @@ begin
       end;
       // Asset location, checksum and size come from GitHub, not the feed body.
       Name := ComponentArchiveName(ID, Platform);
+      if Obj.TryGetValue<string>('archive', Digest) then
+      begin
+        if Digest <> ComponentVersionedArchiveName(ID,Version,Platform) then Exit;
+        Name := Digest;
+      end;
       for Asset in Assets do
         if (Asset is TJSONObject) and TJSONObject(Asset).TryGetValue<string>('name', Digest) and
            (Digest = Name) and TJSONObject(Asset).TryGetValue<string>('browser_download_url', URL) and
@@ -736,6 +765,7 @@ begin
       Info.Changelog := Info.History.Trim; Releases[I] := Info;
     end;
     Result := Found[0] and Found[1] and Found[2];
+    if AllowPartial then for var Present in Found do Result:=Result or Present;
   finally Root.Free; AssetsRoot.Free; end;
 end;
 
@@ -784,6 +814,17 @@ begin
   else Result:=FHTTP.Head(URL);
 end;
 
+function TComponentUpdateThread.FetchMirrorRelease(const ID, Version: string; out Info: TProgramRelease): Boolean;
+var Metadata, URL: string;
+begin
+  Result:=False; Info:=Default(TProgramRelease);
+  if Terminated then Abort;
+  Metadata:=FetchText(COMPONENT_MIRROR_API);
+  if ID='IBK' then Exit(ParseIBKMirror(Metadata,Version,Info));
+  URL:=ComponentMirrorFeedURL(Metadata);
+  if URL<>'' then Result:=ParseComponentMirror(Metadata,FetchText(URL),ID,Version,Info);
+end;
+
 procedure TComponentUpdateThread.CheckComponent(I: Integer);
 var DownloadPage, Changes, Folder, WindowsFiles: string; Response: IHTTPResponse; Match: TMatch; NotesInfo: TProgramRelease;
   procedure GetSize(var Info: TProgramRelease);
@@ -822,6 +863,25 @@ begin
   if Terminated then Exit;
     try
       case UPDATE_COMPONENTS[I].CheckKind of
+        ccIBK:
+          begin
+            FReleases[I].DownloadURL:=IBKPackageURL(FetchText(IBK_PACKAGE_PAGE+'?homelib='+IntToStr(GetTickCount64)));
+            if FReleases[I].DownloadURL='' then
+              raise Exception.Create('Не удалось найти проверенный исходный пакет IBK.');
+            FReleases[I].ComponentVersion:=IBK_VERSION; FReleases[I].Tag:=IBK_VERSION;
+            FReleases[I].URL:=IBK_PACKAGE_PAGE; FReleases[I].OfficialComponent:=True;
+            FReleases[I].SHA256:=IBK_PACKAGE_SHA256;
+            FReleases[I].SecondaryURL:=IBK_EXTRACTOR_URL;
+            FReleases[I].SecondarySHA256:=IBK_EXTRACTOR_SHA256;
+            FReleases[I].SecondarySize:=IBK_EXTRACTOR_SIZE;
+            FReleases[I].Size:=IBK_PACKAGE_SIZE+IBK_EXTRACTOR_SIZE;
+            FReleases[I].History:='Данные чтения обычных книг IBK из исходного пакета ICE Book Reader Russian 9.6.5.'+sLineBreak+
+              'Исходный пакет скачивается с BestFree и проверяется по зафиксированной контрольной сумме. Установщик ICE не запускается.'+sLineBreak+
+              'По условиям автора Russian Edition предназначена для граждан стран бывшего СССР и некоммерческого использования. '+
+              'Исходный дистрибутив и полный License.txt сохраняются в tools/ibk.'+sLineBreak+
+              'Для распаковки однократно скачивается innoextract 1.9 с сайта его автора; после подготовки он удаляется вместе с временными файлами обновления.';
+            FReleases[I].Changelog:=FReleases[I].History;
+          end;
         ccJPEGXL, ccWebP:
           begin
             if UPDATE_COMPONENTS[I].CheckKind=ccJPEGXL then
@@ -829,6 +889,59 @@ begin
             else Changes:=FetchText('https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/'+ALREADER_FIXED_TAG);
             if not ParseImageComponent(Changes,ComponentIDs[I],FReleases[I]) then
               raise Exception.Create('Не удалось подтвердить пакет изображений, разрядность или контрольную сумму.');
+          end;
+        ccPublished:
+          begin
+            // HomeLib modules have a permanent component feed. Retain the
+            // earlier per-release discovery path for existing distributions.
+            var Permanent: TProgramRelease;
+            var HasPermanent:=False;
+            try HasPermanent:=FetchMirrorRelease(ComponentIDs[I],'',Permanent);
+            except on E: EAbort do raise; on E: Exception do HasPermanent:=False; end;
+            if HasPermanent then
+            begin
+              Permanent.ComponentWarning:=''; FReleases[I]:=Permanent;
+            end
+            else
+            begin
+            var ReleaseRoot:=TJSONObject.ParseJSONValue(FetchText(FURL));
+            try
+              if not (ReleaseRoot is TJSONArray) then raise Exception.Create('Некорректный список выпусков.');
+              var Found:=False;
+              for var Entry in TJSONArray(ReleaseRoot) do
+              begin
+                if not (Entry is TJSONObject) then Continue;
+                var Draft:=True; var Tag: string; var Assets: TJSONArray;
+                if not Entry.TryGetValue<Boolean>('draft',Draft) or Draft or
+                  not Entry.TryGetValue<string>('tag_name',Tag) or
+                  not Entry.TryGetValue<TJSONArray>('assets',Assets) then Continue;
+                if not TRegEx.IsMatch(Tag,'^[A-Za-z0-9._-]{1,80}$') then Continue;
+                // Old application/component releases usually have no archive
+                // for this module. Do not fetch each unrelated feed in turn.
+                var HasPackage:=False;
+                for var Asset in Assets do
+                  if (Asset is TJSONObject) and
+                    (Asset.GetValue<string>('name','')=ComponentArchiveName(UPDATE_COMPONENTS[I].ID,ProgramUpdatePlatform)) then
+                  begin HasPackage:=True; Break; end;
+                if not HasPackage then Continue;
+                for var Asset in Assets do
+                begin
+                  var Name, URL: string; var Size: Int64;
+                  if not (Asset is TJSONObject) or not Asset.TryGetValue<string>('name',Name) or
+                    (Name<>COMPONENT_FEED_NAME) or not Asset.TryGetValue<string>('browser_download_url',URL) or
+                    (URL<>'https://github.com/Dicur3x/MyHomeLib/releases/download/'+Tag+'/'+COMPONENT_FEED_NAME) or
+                    not Asset.TryGetValue<Int64>('size',Size) or (Size<1) or (Size>1024*1024) then Continue;
+                  var Published: TComponentReleases;
+                  if ParseComponentFeed(FetchText(URL),Tag,Assets.ToJSON,Published,True,True) and
+                    (Published[I].DownloadURL<>'') then
+                  begin FReleases[I]:=Published[I]; Found:=True; Break; end;
+                end;
+                if Found then Break;
+                if Terminated then Abort;
+              end;
+              if not Found then raise Exception.Create('Пакет этого компонента ещё не опубликован.');
+            finally ReleaseRoot.Free; end;
+            end;
           end;
         ccBundled:
           // Version and bytes are fixed, not guessed from the unavailable site.
@@ -898,6 +1011,18 @@ begin
     except
       on E: Exception do
       begin
+        var Mirror: TProgramRelease;
+        var Available:=False;
+        if not Terminated then
+          try Available:=FetchMirrorRelease(ComponentIDs[I],FReleases[I].ComponentVersion,Mirror);
+          except on E: Exception do Available:=False; end;
+        if Available then
+        begin
+          FReleases[I]:=Mirror;
+          FReleases[I].ComponentWarning:='Сайт автора недоступен. Доступна запасная копия HomeLib Ru на GitHub, версия '+Mirror.ComponentVersion+'.';
+        end
+        else
+        begin
         FReleases[I].DownloadURL := ''; FReleases[I].SecondaryURL := '';
         FReleases[I].AdditionalURLs := nil; FReleases[I].AdditionalSizes := nil;
         FReleases[I].Size := 0; FReleases[I].SecondarySize := 0;
@@ -908,6 +1033,7 @@ begin
         // Transport exceptions can contain server HTML or private proxy paths.
         // Keep bounded diagnostics for an explicit Copy error command only.
         FReleases[I].ComponentErrorDetails := Copy(E.ClassName + ': ' + E.Message,1,4096);
+        end;
       end;
     end;
   if Terminated then Exit;
@@ -959,6 +1085,81 @@ begin
     on E: Exception do FError:=Copy(E.ClassName+': '+E.Message,1,4096);
   end;
   if not Terminated then PostMessage(FWindow,WM_COMPONENT_UPDATE_CHECKED,WPARAM(Self),0);
+end;
+
+function ParseIBKMirror(const Metadata, Version: string; out Info: TProgramRelease): Boolean;
+var Root: TJSONValue; Assets: TJSONArray; Draft, Main, Extractor: Boolean; Size: Int64;
+  Name, URL, Digest: string;
+begin
+  Result:=False; Info:=Default(TProgramRelease); Root:=nil; Main:=False; Extractor:=False;
+  if (Length(Metadata)>1024*1024) or ((Version<>'') and (Version<>IBK_VERSION)) then Exit;
+  try
+    Root:=TJSONObject.ParseJSONValue(Metadata);
+    if not (Root is TJSONObject) or not Root.TryGetValue<Boolean>('draft',Draft) or Draft or
+      (Root.GetValue<string>('tag_name','')<>ALREADER_FIXED_TAG) or
+      not Root.TryGetValue<TJSONArray>('assets',Assets) or (Assets.Count>256) then Exit;
+    for var Asset in Assets do
+    begin
+      if not (Asset is TJSONObject) or not Asset.TryGetValue<string>('name',Name) or
+        not Asset.TryGetValue<string>('browser_download_url',URL) or (URL<>IBK_MIRROR_PREFIX+Name) or
+        not Asset.TryGetValue<string>('digest',Digest) or not Asset.TryGetValue<Int64>('size',Size) then Continue;
+      if (Name=IBK_MIRROR_NAME) and (Size=IBK_PACKAGE_SIZE) and
+        SameText(Digest,'sha256:'+IBK_PACKAGE_SHA256) then Main:=True;
+      if (Name=IBK_EXTRACTOR_MIRROR_NAME) and (Size=IBK_EXTRACTOR_SIZE) and
+        SameText(Digest,'sha256:'+IBK_EXTRACTOR_SHA256) then Extractor:=True;
+    end;
+    if not Main or not Extractor then Exit;
+    Info.ComponentID:='IBK'; Info.ComponentVersion:=IBK_VERSION; Info.Tag:=IBK_VERSION;
+    Info.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG;
+    Info.DownloadURL:=IBK_MIRROR_PREFIX+IBK_MIRROR_NAME; Info.SHA256:=IBK_PACKAGE_SHA256;
+    Info.SecondaryURL:=IBK_MIRROR_PREFIX+IBK_EXTRACTOR_MIRROR_NAME;
+    Info.SecondarySHA256:=IBK_EXTRACTOR_SHA256; Info.SecondarySize:=IBK_EXTRACTOR_SIZE;
+    Info.Size:=IBK_PACKAGE_SIZE+IBK_EXTRACTOR_SIZE; Info.OfficialComponent:=True;
+    Info.ComponentWarning:='Запасная копия исходного пакета IBK 9.6.5. Дистрибутив автора сохранён без изменений.';
+    Info.History:='Данные для чтения IBK в HomeLib Reader. ICE Book Reader не устанавливается и не запускается.'+sLineBreak+
+      'Загружается полный неизменённый дистрибутив; данные извлекаются локально. Контрольные суммы обоих оригинальных архивов зафиксированы в программе.'+sLineBreak+
+      'Условия ICE Graphics для Russian Edition: граждане стран бывшего СССР, некоммерческое использование. Полный License.txt сохраняется вместе с оригиналом.';
+    Info.Changelog:=Info.History; Result:=True;
+  finally Root.Free; end;
+end;
+
+function ComponentMirrorFeedURL(const Metadata: string): string;
+var Root: TJSONValue; Assets: TJSONArray; Draft: Boolean; Name, URL: string; Size: Int64;
+begin
+  Result := ''; Root := nil;
+  if Length(Metadata)>1024*1024 then Exit;
+  try
+    Root:=TJSONObject.ParseJSONValue(Metadata);
+    if not (Root is TJSONObject) or
+      not Root.TryGetValue<Boolean>('draft',Draft) or Draft or
+      (Root.GetValue<string>('tag_name','')<>ALREADER_FIXED_TAG) or
+      not Root.TryGetValue<TJSONArray>('assets',Assets) or (Assets.Count>256) then Exit;
+    for var Asset in Assets do
+      if (Asset is TJSONObject) and Asset.TryGetValue<string>('name',Name) and
+        (Name=COMPONENT_FEED_NAME) and Asset.TryGetValue<Int64>('size',Size) and
+        (Size>0) and (Size<=1024*1024) and Asset.TryGetValue<string>('browser_download_url',URL) and
+        (URL='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+COMPONENT_FEED_NAME) then
+        Exit(URL);
+  finally Root.Free; end;
+end;
+
+function ParseComponentMirror(const Metadata, Feed, ID, Version: string; out Info: TProgramRelease): Boolean;
+var Root: TJSONValue; Assets: TJSONArray; Published: TComponentReleases; Comparison, Index: Integer;
+begin
+  Result:=False; Info:=Default(TProgramRelease); Root:=nil;
+  if (Length(Feed)>1024*1024) or (ComponentMirrorFeedURL(Metadata)='') then Exit;
+  try
+    Root:=TJSONObject.ParseJSONValue(Metadata);
+    if not Root.TryGetValue<TJSONArray>('assets',Assets) or
+      not ParseComponentFeed(Feed,ALREADER_FIXED_TAG,Assets.ToJSON,Published,True,True) then Exit;
+    Index:=IndexText(ID,ComponentIDs);
+    if (Index<0) or (Published[Index].DownloadURL='') or
+      ((Version<>'') and (not CompareComponentVersions(Version,Published[Index].ComponentVersion,Comparison) or
+        (Comparison<>0))) then Exit;
+    Info:=Published[Index];
+    Info.ComponentWarning:='Используется запасной пакет HomeLib Ru на GitHub. Версия: '+Info.ComponentVersion+'.';
+    Result:=True;
+  finally Root.Free; end;
 end;
 
 end.

@@ -12,7 +12,7 @@ type
     VisibleMS, BeforeVisibleIdleMS, LoadingIdleMS, PagingIdleMS: Int64;
     InitialPosition, MaxPreparations, MaxBusyPreviews: Integer;
     LastStatus: string;
-    Title, Failure, TextHash: string;
+    Title, Failure, TextHash, ReportFile, RunID: string;
     constructor Create;
     destructor Destroy; override;
     procedure UpdateAllActions;
@@ -68,67 +68,46 @@ begin
   VisibleMS:=-1; BeforeVisibleIdleMS:=0; LoadingIdleMS:=0; PagingIdleMS:=0;
   InitialPosition:=-1; MaxPreparations:=0; MaxBusyPreviews:=0; LastStatus:='';
   PageIndex:=0; Started:=GetTickCount64; PageStarted:=0;
+  RunID:=TGUID.NewGuid.ToString;
+  ReportFile:=TPath.Combine(Settings.AppPath,'reader-test-'+RunID+'.ini');
+  SetEnvironmentVariable('HLRU_SESSION_TEST_MODE','render');
+  SetEnvironmentVariable('HLRU_READER_TEST_RUN',PChar(RunID));
+  SetEnvironmentVariable('HLRU_READER_TEST_REPORT',PChar(ReportFile));
   Timer.Enabled:=True;
 end;
 
 procedure TRMFMainReaderDriver.Tick(Sender: TObject);
-var Reader: TfrmBuiltinReader; Elapsed, BeforeIdle: Int64;
-  Preparations, BusyPreviews, Readers: Integer;
+var Report: TMemIniFile; Preparations, BusyPreviews, Readers: Integer; Pending: Boolean;
 begin
   if not Active then Exit;
-  Reader:=nil;
-  for var I:=0 to Screen.FormCount-1 do
-    if (Screen.Forms[I] is TfrmBuiltinReader) and Screen.Forms[I].Visible then
-    begin Reader:=TfrmBuiltinReader(Screen.Forms[I]); Break; end;
   try
     RMFTaskCounts(Preparations,BusyPreviews,Readers);
     MaxPreparations:=Max(MaxPreparations,Preparations); MaxBusyPreviews:=Max(MaxBusyPreviews,BusyPreviews);
-    if Assigned(Reader) and (VisibleMS<0) then
-    begin
-      VisibleMS:=GetTickCount64-Started;
-      Writeln('PROFILE actual Main reader visible_ms=',VisibleMS,' preparations=',Preparations,
-        ' busy_previews=',BusyPreviews,' load_finished=',Ord(Reader.LoadFinished),
-        ' ready=',Ord(Reader.Ready),' bounds=',Reader.Left,',',Reader.Top,',',Reader.Width,',',Reader.Height);
-      Flush(Output);
-    end;
-    if Assigned(Reader) and (Reader.ReaderStatus.Caption<>LastStatus) then
-    begin
-      LastStatus:=Reader.ReaderStatus.Caption;
-      Writeln('PROFILE actual Main reader status_ms=',GetTickCount64-Started,' status=',LastStatus,
-        ' load_finished=',Ord(Reader.LoadFinished),' ready=',Ord(Reader.Ready)); Flush(Output);
-    end;
-    BeforeIdle:=IdleMS;
     UpdateAllActions;
-    if not Assigned(Reader) then Inc(BeforeVisibleIdleMS,IdleMS-BeforeIdle)
-    else if PageIndex=0 then Inc(LoadingIdleMS,IdleMS-BeforeIdle)
-    else Inc(PagingIdleMS,IdleMS-BeforeIdle);
-    Require(GetTickCount64-Started<20000,'Actual Main reader exceeded native opening/paging deadline');
-    if not Assigned(Reader) then Exit;
-    Require(string(Reader.Caption).Contains(Title),'Actual Main action opened a different selected book');
-    Require(not string(Reader.ReaderStatus.Caption).StartsWith('Не удалось'),'Actual Main reader failed: '+Reader.ReaderStatus.Caption);
-    if not Reader.Ready or Reader.PageLoading then Exit;
-    if PageIndex=0 then
-    begin
-      OpenMS:=GetTickCount64-Started;
-      InitialPosition:=Reader.TextPosition;
-      Require(InitialPosition=0,'Actual Main filter trial did not open the identical initial text position');
-      Require(Reader.BookText.Length>10000,'Actual Main reader has no large FB2 body');
-      TextHash:=THashSHA2.GetHashString(Reader.BookText);
-      PageIndex:=1; PageStarted:=GetTickCount64; Reader.NextPage; Exit;
-    end;
-    Elapsed:=GetTickCount64-PageStarted;
-    MaxPageMS:=Max(MaxPageMS,Elapsed); Inc(TotalPageMS,Elapsed);
-    Require(Elapsed<1500,'Actual Main reader page turn blocks for seconds');
-    if PageIndex<5 then
-    begin Inc(PageIndex); PageStarted:=GetTickCount64; Reader.NextPage; Exit; end;
-    Require(Reader.Visible,'Actual Main paging hid/closed the reader');
-    Active:=False; Finished:=True; Timer.Enabled:=False; Reader.Close;
+    Require(GetTickCount64-Started<20000,'Independent Main reader exceeded opening/paging deadline');
+    if not FileExists(ReportFile) then Exit;
+    Report:=TMemIniFile.Create(ReportFile,TEncoding.UTF8);
+    try
+      if Report.ReadString('Reader','run','')<>RunID then Exit;
+      Failure:=Report.ReadString('Reader','error','');
+      Require(Failure='',Failure);
+      Require(Report.ReadInteger('Reader','pid',0)<>Integer(GetCurrentProcessId),
+        'Main reader remained inside the catalogue process');
+      Require(Report.ReadString('Reader','caption','').Contains(Title),'Main opened a different selected book');
+      TextHash:=Report.ReadString('Reader','hash','');
+      InitialPosition:=Report.ReadInteger('Reader','position',-1);
+      PageIndex:=Report.ReadInteger('Reader','pages',0);
+      OpenMS:=Report.ReadInteger('Reader','open_ms',-1); VisibleMS:=Report.ReadInteger('Reader','visible_ms',-1);
+      MaxPageMS:=Report.ReadInteger('Reader','max_page_ms',0); TotalPageMS:=Report.ReadInteger('Reader','total_page_ms',0);
+    finally Report.Free; end;
+    Pending:=False;
+    for var I:=0 to frmMain.ComponentCount-1 do
+      if frmMain.Components[I].ClassName='TReaderSessionRunner' then Pending:=True;
+    if Pending then Exit; // Progress callback and source lease must finish too.
+    Active:=False; Finished:=True; Timer.Enabled:=False;
   except
     on E: Exception do
-    begin
-      Failure:=E.ClassName+': '+E.Message; Active:=False; Finished:=True; Timer.Enabled:=False;
-      if Assigned(Reader) then Reader.Close;
-    end;
+    begin Failure:=E.ClassName+': '+E.Message; Active:=False; Finished:=True; Timer.Enabled:=False; end;
   end;
 end;
 

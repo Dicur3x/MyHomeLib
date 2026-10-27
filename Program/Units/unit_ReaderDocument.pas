@@ -14,6 +14,7 @@ type
   TReaderPicture = record
     Bytes: TBytes;
     Width, Height: Integer;
+    Monochrome: Boolean;
   end;
 
   TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize);
@@ -66,7 +67,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
+  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -330,7 +331,13 @@ begin
     if not Assigned(Graphic) or (Graphic.Width<=0) or (Graphic.Height<=0) then
       raise Exception.Create('Неподдерживаемое изображение.');
     if Int64(Graphic.Width)*Graphic.Height>64000000 then raise Exception.Create('Слишком большое изображение.');
-    Scale:=Min(1.0,1024.0/Max(Graphic.Width,Graphic.Height));
+    Item.Monochrome:=(Length(Bytes)>=33) and (Bytes[0]=$89) and
+      (Bytes[1]=Ord('P')) and (Bytes[2]=Ord('N')) and (Bytes[3]=Ord('G')) and
+      (Bytes[24]=1) and (Bytes[25]=0);
+    if Item.Monochrome then
+      Scale:=Min(1.0,4096.0/Max(Graphic.Width,Graphic.Height))
+    else
+      Scale:=Min(1.0,1024.0/Max(Graphic.Width,Graphic.Height));
     Item.Bytes:=Bytes;
     Item.Width:=Max(1,Round(Graphic.Width*Scale));
     Item.Height:=Max(1,Round(Graphic.Height*Scale));
@@ -982,6 +989,7 @@ var Body: string; Match: TMatch; Item: TReaderPicture; Headers: TList<UTF8String
   At, Start, I, Y, Pitch, DIBSize, GoalW, GoalH, Index: Integer;
   Total: Int64; Scale: Double; Header: UTF8String;
   Stream: TStream; Graphic: TGraphic; Bitmap: TBitmap; Info: TBitmapInfoHeader;
+  MonoColors: array[0..1] of TRGBQuad;
   procedure AppendASCII(const Value: string);
   var K: Integer;
   begin
@@ -1006,8 +1014,16 @@ begin
     for Match in TRegEx.Matches(Body,'\{\\mhlimage (\d+)\}') do
     begin
       Item:=FPictures[StrToInt(Match.Groups[1].Value)];
-      Pitch:=((Item.Width*3+3) div 4)*4;
-      DIBSize:=SizeOf(Info)+Pitch*Item.Height;
+      if Item.Monochrome then
+      begin
+        Pitch:=((Item.Width+31) div 32)*4;
+        DIBSize:=SizeOf(Info)+SizeOf(MonoColors)+Pitch*Item.Height;
+      end
+      else
+      begin
+        Pitch:=((Item.Width*3+3) div 4)*4;
+        DIBSize:=SizeOf(Info)+Pitch*Item.Height;
+      end;
       Scale:=Min(1.0,Min(Max(16,MaxPictureWidth)/Item.Width,Max(16,MaxPictureHeight)/Item.Height));
       GoalW:=Max(1,Round(Item.Width*15*Scale)); GoalH:=Max(1,Round(Item.Height*15*Scale));
       Header:=UTF8String('{\pict\dibitmap0\picw'+IntToStr(Item.Width)+'\pich'+IntToStr(Item.Height)+
@@ -1027,13 +1043,36 @@ begin
       try
         Graphic:=CreateGraphicFromStream(Stream);
         if not Assigned(Graphic) then raise Exception.Create('Не удалось прочитать изображение.');
-        Bitmap.PixelFormat:=pf24bit; Bitmap.SetSize(Item.Width,Item.Height);
+        if Graphic is TJPEGImage then
+        begin
+          // Decode at the nearest JPEG scale that still covers the existing
+          // display bitmap. Keep original compressed bytes for later reflow.
+          if (Graphic.Width>=Item.Width*8) and (Graphic.Height>=Item.Height*8) then TJPEGImage(Graphic).Scale:=jsEighth
+          else if (Graphic.Width>=Item.Width*4) and (Graphic.Height>=Item.Height*4) then TJPEGImage(Graphic).Scale:=jsQuarter
+          else if (Graphic.Width>=Item.Width*2) and (Graphic.Height>=Item.Height*2) then TJPEGImage(Graphic).Scale:=jsHalf;
+        end;
+        if Item.Monochrome then Bitmap.PixelFormat:=pf1bit
+        else Bitmap.PixelFormat:=pf24bit;
+        Bitmap.SetSize(Item.Width,Item.Height);
         Bitmap.Canvas.Brush.Color:=clWhite; Bitmap.Canvas.FillRect(Rect(0,0,Item.Width,Item.Height));
         Bitmap.Canvas.StretchDraw(Rect(0,0,Item.Width,Item.Height),Graphic);
         FillChar(Info,SizeOf(Info),0); Info.biSize:=SizeOf(Info); Info.biWidth:=Item.Width;
-        Info.biHeight:=Item.Height; Info.biPlanes:=1; Info.biBitCount:=24; Info.biCompression:=BI_RGB;
-        Pitch:=((Item.Width*3+3) div 4)*4; Info.biSizeImage:=Pitch*Item.Height;
+        Info.biHeight:=Item.Height; Info.biPlanes:=1; Info.biCompression:=BI_RGB;
+        if Item.Monochrome then
+        begin
+          Info.biBitCount:=1; Info.biClrUsed:=2;
+          Pitch:=((Item.Width+31) div 32)*4;
+          if GetDIBColorTable(Bitmap.Canvas.Handle,0,2,MonoColors)<>2 then
+            raise Exception.Create('Не удалось прочитать палитру чёрно-белого изображения.');
+        end
+        else
+        begin
+          Info.biBitCount:=24;
+          Pitch:=((Item.Width*3+3) div 4)*4;
+        end;
+        Info.biSizeImage:=Pitch*Item.Height;
         AppendBytes(Info,SizeOf(Info));
+        if Item.Monochrome then AppendBytes(MonoColors,SizeOf(MonoColors));
         for Y:=Item.Height-1 downto 0 do AppendBytes(Bitmap.ScanLine[Y]^,Pitch);
       finally Bitmap.Free; Graphic.Free; Stream.Free; end;
       AppendASCII('}'); Start:=Match.Index+Match.Length;

@@ -21,6 +21,8 @@ def prepare(inventory, profile, selection=""):
     selected = set(selection.split(',')) if selection else set()
     for kind in report["formats"]:
         extension = kind["extension"]
+        explicit_ids = {'id:' + str(e['id']) for e in kind['examples']} & selected
+        limit = 256 * 1024 * 1024 if extension in {'.tif', '.tiff'} else 16 * 1024 * 1024
         if selected and extension not in selected and not any('id:'+str(e['id']) in selected for e in kind['examples']):
             continue
         count = 0
@@ -31,6 +33,10 @@ def prepare(inventory, profile, selection=""):
             # member size below is authoritative and still enforces our bound.
             for location in candidate["available"]:
                 source = pathlib.Path(location["path"])
+                if not source.is_file() and source.suffix.lower() == '.zip' and not source.name.startswith('f.'):
+                    renamed = source.with_name('f.' + source.name)
+                    if renamed.is_file():
+                        source = renamed
                 before = source.stat()
                 try:
                     if location["member"]:
@@ -42,11 +48,11 @@ def prepare(inventory, profile, selection=""):
                                     continue
                                 member = matches[0]
                             entry = archive.getinfo(member)
-                            if entry.file_size <= 0 or entry.file_size > 16 * 1024 * 1024:
+                            if entry.file_size <= 0 or entry.file_size > limit:
                                 continue
                             data = archive.read(entry)
                     else:
-                        if before.st_size > 16 * 1024 * 1024:
+                        if before.st_size > limit:
                             continue
                         data = source.read_bytes()
                     after = source.stat()
@@ -64,7 +70,7 @@ def prepare(inventory, profile, selection=""):
                                  "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
                 count += 1
                 break
-            if count >= (2 if extension.lstrip(".") in meaningful else 1):
+            if not explicit_ids and count >= (2 if extension.lstrip(".") in meaningful else 1):
                 break
         if count == 0:
             unavailable.append({"extension": extension, "reason": "No accessible non-empty bounded example"})

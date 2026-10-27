@@ -15,10 +15,13 @@ $destinationDirectory = Join-Path $repositoryRoot "Program\Out\$outputName\tools
 
 # The converter shares the already bundled Python runtime. Ship only the
 # production script and its documentation, never fixtures or validation tools.
-$converterFiles = @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'legacy_inputs.py', 'legacy_helper.py', 'fixed_layout.py', 'office_inputs.py', 'xps_input.py', 'image_input.py', 'ha_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')
+$converterFiles = @('convert_book.py', 'text_inputs.py', 'kindle_input.py', 'legacy_inputs.py', 'legacy_helper.py', 'rgo_input.py', 'isilo_input.py', 'isilo_image.py', 'jutoh_input.py', 'pages_input.py', 'cr3_input.py', 'b1_input.py', 'fixed_layout.py', 'office_inputs.py', 'xps_input.py', 'image_input.py', 'tiff_jpeg.py', 'image_quality.py', 'scan_export.py', 'ha_input.py', 'LICENSE.txt', 'README.md', 'THIRD_PARTY.md')
 $converterFiles += @(Get-ChildItem -LiteralPath (Join-Path $sourceDirectory 'vendor') -Recurse -File |
     Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'SOURCE.json' -or $_.Name -like '*_LICENSE.txt' } |
     ForEach-Object { $_.FullName.Substring($sourceDirectory.Length + 1) })
+$converterFiles += @('sm_input.py', 'sm_runtime.js', 'sm_reader.py', 'sm_resources.py', 'js_runtime.py')
+$converterFiles += 'rgo_outline.py'
+$converterFiles += @('ibk_input.py', 'ibk_crypto.py', 'ibk_parameters.json', 'ibk_tables.bin')
 foreach ($name in $converterFiles) {
     $sourcePath = Join-Path $sourceDirectory $name
     $destinationPath = Join-Path $destinationDirectory $name

@@ -8,7 +8,10 @@ param(
 
     [switch]$Copy,
 
-    [switch]$Force
+    [switch]$Force,
+
+    # Validate only files shipped by the catalogue-only distribution.
+    [switch]$CoreOnly
 )
 
 Set-StrictMode -Version Latest
@@ -207,7 +210,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1101'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1102'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -284,6 +287,13 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
     $zstdDestination,
+    (Join-Path $outputDirectory 'tools\fonts\manifest.json'),
+    (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
+    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
+    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\HomeLibDjvu.dpr')
+)
+if (-not $CoreOnly) {
+    $requiredRuntimeFiles += @(
     $sevenZipDestination,
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
     $jpegXlDestination,
@@ -302,7 +312,8 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.txt'),
     (Join-Path $outputDirectory 'Readers\SumatraPDF\COPYING.BSD.txt'),
     (Join-Path $outputDirectory 'Readers\SumatraPDF\AUTHORS.txt')
-)
+    )
+}
 foreach ($requiredFile in $requiredRuntimeFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "Неполная сборка: отсутствует '$requiredFile'. Соберите проекты по порядку из BUILDING.md."
@@ -315,36 +326,39 @@ Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -E
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
 Assert-Architecture -Path $zstdDestination -Expected $Platform
-Assert-Architecture -Path $sevenZipDestination -Expected $Platform
-Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
-Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform
-# DjVuLibre is a separate persistent x86 decoder process on both platforms, with its own
-# x86 dependencies. None of these DLLs is loaded into HomeLib Ru.
-foreach ($djvuName in @('HomeLibDjvu.exe','ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll')) {
-    Assert-Architecture -Path (Join-Path $outputDirectory "tools\djvu\$djvuName") -Expected 'Win32'
+if (-not $CoreOnly) {
+    Assert-Architecture -Path $sevenZipDestination -Expected $Platform
+    Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
+    Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform
+    # DjVuLibre is a separate persistent x86 decoder process on both platforms, with its own
+    # x86 dependencies. None of these DLLs is loaded into HomeLib Ru.
+    foreach ($djvuName in @('HomeLibDjvu.exe','ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll')) {
+        Assert-Architecture -Path (Join-Path $outputDirectory "tools\djvu\$djvuName") -Expected 'Win32'
+    }
+    & (Join-Path $PSScriptRoot 'prepare-raster-runtime.ps1') -Platform $Platform | Out-Host
+    & (Join-Path $PSScriptRoot 'prepare-reader-fonts.ps1') -Platform $Platform -Copy:$Copy | Out-Host
+    # The official static djxl build must match the package architecture so the
+    # Win32 distribution also restores JPEG XL images on 32-bit Windows.
+    Assert-Architecture -Path $jpegXlDestination -Expected $Platform
+    Assert-Architecture -Path $webpDestination -Expected $Platform
+    Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll') -Expected $Platform
+    & (Join-Path $PSScriptRoot 'prepare-pdf-worker.ps1') -Platform $Platform | Out-Host
+    & (Join-Path $PSScriptRoot 'prepare-doc-runtime.ps1') -Platform $Platform | Out-Host
+    Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\HomeLibPDF.exe') -Expected $Platform
+    & (Join-Path $PSScriptRoot 'prepare-kindle-runtime.ps1') -Platform $Platform | Out-Host
+    Assert-Architecture -Path (Join-Path $outputDirectory 'tools\kindle\python\python.exe') -Expected $Platform
+    & (Join-Path $PSScriptRoot 'prepare-book-converter.ps1') -Platform $Platform -Copy:$Copy | Out-Host
+    & (Join-Path $PSScriptRoot 'prepare-office-runtime.ps1') -Platform $Platform -Copy:$Copy | Out-Host
+    $pdfiumManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\PDFIUM_RUNTIME.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ((Get-FileHash -LiteralPath (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll')).Hash -ine $pdfiumManifest.$Platform.dll_sha256) {
+        throw 'PDFium runtime differs from Installer/PDFIUM_RUNTIME.json. Run scripts/prepare-pdfium.ps1.'
+    }
+    # AlReader is distributed as one Win32 portable executable for both packages;
+    # SumatraPDF must match the HomeLib Ru package architecture.
+    Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
+    Assert-Architecture -Path $sumatraDestination -Expected $Platform
+
 }
-& (Join-Path $PSScriptRoot 'prepare-raster-runtime.ps1') -Platform $Platform | Out-Host
-& (Join-Path $PSScriptRoot 'prepare-reader-fonts.ps1') -Platform $Platform -Copy:$Copy | Out-Host
-# The official static djxl build must match the package architecture so the
-# Win32 distribution also restores JPEG XL images on 32-bit Windows.
-Assert-Architecture -Path $jpegXlDestination -Expected $Platform
-Assert-Architecture -Path $webpDestination -Expected $Platform
-Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll') -Expected $Platform
-& (Join-Path $PSScriptRoot 'prepare-pdf-worker.ps1') -Platform $Platform | Out-Host
-& (Join-Path $PSScriptRoot 'prepare-doc-runtime.ps1') -Platform $Platform | Out-Host
-Assert-Architecture -Path (Join-Path $outputDirectory 'tools\pdfium\HomeLibPDF.exe') -Expected $Platform
-& (Join-Path $PSScriptRoot 'prepare-kindle-runtime.ps1') -Platform $Platform | Out-Host
-Assert-Architecture -Path (Join-Path $outputDirectory 'tools\kindle\python\python.exe') -Expected $Platform
-& (Join-Path $PSScriptRoot 'prepare-book-converter.ps1') -Platform $Platform -Copy:$Copy | Out-Host
-& (Join-Path $PSScriptRoot 'prepare-office-runtime.ps1') -Platform $Platform -Copy:$Copy | Out-Host
-$pdfiumManifest = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\PDFIUM_RUNTIME.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ((Get-FileHash -LiteralPath (Join-Path $outputDirectory 'tools\pdfium\pdfium.dll')).Hash -ine $pdfiumManifest.$Platform.dll_sha256) {
-    throw 'PDFium runtime differs from Installer/PDFIUM_RUNTIME.json. Run scripts/prepare-pdfium.ps1.'
-}
-# AlReader is distributed as one Win32 portable executable for both packages;
-# SumatraPDF must match the HomeLib Ru package architecture.
-Assert-Architecture -Path $alReaderDestination -Expected 'Win32'
-Assert-Architecture -Path $sumatraDestination -Expected $Platform
 
 $genreSourceDirectory = Join-Path $repositoryRoot 'Installer\GenreLists'
 foreach ($genreFile in Get-ChildItem -LiteralPath $genreSourceDirectory -Filter '*.glst' -File) {
@@ -358,8 +372,10 @@ Write-FileHash -Path $sqliteDestination
 Write-FileHash -Path $zstdDestination
 Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
-Write-FileHash -Path $sevenZipDestination
-Write-FileHash -Path $jpegXlDestination
-Write-FileHash -Path $webpDestination
-Write-FileHash -Path $alReaderDestination
-Write-FileHash -Path $sumatraDestination
+if (-not $CoreOnly) {
+    Write-FileHash -Path $sevenZipDestination
+    Write-FileHash -Path $jpegXlDestination
+    Write-FileHash -Path $webpDestination
+    Write-FileHash -Path $alReaderDestination
+    Write-FileHash -Path $sumatraDestination
+}

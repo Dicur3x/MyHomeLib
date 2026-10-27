@@ -574,6 +574,10 @@ begin
         'Legacy or unsafe component page fallback is missing for '+Info.ID);
       if (Info.ID='AlReader') or (Info.ID='WebP') then
         RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLib Ru')
+      else if (Info.ID='HomeLibReader') or (Info.ID='BookConverter') then
+        RestorePage(Info.URL,Info.URL,'Выпуски HomeLib Ru')
+      else if Info.ID='IBK' then
+        RestorePage(Info.URL,Info.URL,'Источник исходного пакета ICE Reader')
       else RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
     end;
     RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLib Ru');
@@ -650,10 +654,17 @@ var Dialog: TUpdateProposalForm; Server: TUpdateProposalServer;
     until CheckButton.Enabled;
   end;
 
-  procedure SelectRow(Index: Integer);
+  function ComponentRow(const ID: string): TListItem;
   begin
-    View.Items[Index].Selected:=True;
-    View.OnSelectItem(View,View.Items[Index],True);
+    Result:=nil;
+    for var Item in View.Items do
+      if Item.Caption.EndsWith(' · '+ID) then Exit(Item);
+    Require(Assigned(Result),'Expected visible update component is absent: '+ID);
+  end;
+  procedure SelectComponent(const ID: string);
+  begin
+    var Item:=ComponentRow(ID); Item.Selected:=True;
+    View.OnSelectItem(View,Item,True);
   end;
 
   procedure SafeStatus;
@@ -676,22 +687,23 @@ begin
   Server:=nil; Dialog:=nil;
   try
     Server:=TUpdateProposalServer.Create; Dialog:=TUpdateProposalForm.CreateForHead(Server.HeadURL); Controls;
-    Dialog.FailureID:='all'; CheckButton.Click; WaitCheck;
+    // Optional sources stay hidden until a book explicitly needs them.
+    Dialog.FailureID:='all'; Dialog.RequestComponent('SumatraPDF','Owned first-use source failure fixture.'); WaitCheck;
+    CheckButton.Click; WaitCheck;
     Require(Dialog.Visible and Primary.Enabled and string(Status.Caption).Contains('Не удалось проверить'),
       'Manual unavailable sources were silent or left Retry disabled');
-    for var I in CheckedComponentIndices do
-      if UPDATE_COMPONENTS[I].ID<>'AlReader' then
-      Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable source is falsely current');
+    for var Item in View.Items do
+      if (Item.Caption<>'HomeLib Ru') and not Item.Caption.EndsWith(' · AlReader') then
+        Require(Item.SubItems[2]='Не удалось проверить','Unavailable source is falsely current: '+Item.Caption);
     SafeStatus;
     Writeln('PASS update sources unavailable manual check names failures keeps Retry available and hides raw server details');
 
     Dialog.FailureID:='SumatraPDF'; CheckButton.Click; WaitCheck;
-    Require((View.Items[1].SubItems[2]='Есть обновление') and
-      (View.Items[2].SubItems[2]='Актуально') and
-      (View.Items[3].SubItems[2]='Не удалось проверить') and
+    Require((ComponentRow('SQLite').SubItems[2]='Есть обновление') and
+      (ComponentRow('SumatraPDF').SubItems[2]='Не удалось проверить') and
       string(Status.Caption).Contains('SumatraPDF'),
       'Partial source failure hid independent updates or misreported unverified AlReader');
-    SafeStatus; SelectRow(3);
+    SafeStatus; SelectComponent('SumatraPDF');
     Require((Primary.Caption='Повторить проверку') and string(Status.Caption).Contains('SumatraPDF'),
       'Selecting a failed source lost its explanation or its Retry action');
     View.PopupMenu.OnPopup(View.PopupMenu);
@@ -703,15 +715,15 @@ begin
     Writeln('PASS update sources partial failure retains independent direct updates and selected error diagnostics without changing installed files');
 
     Calls:=Dialog.WorkerCalls; Dialog.FailureID:=''; Primary.Click; WaitCheck;
-    Require((Dialog.WorkerCalls=Calls+1) and (View.Items[3].SubItems[2]='Есть обновление') and
+    Require((Dialog.WorkerCalls=Calls+1) and (ComponentRow('SumatraPDF').SubItems[2]='Есть обновление') and
       not Dialog.PendingInstall,'Retry downloaded stale packages instead of rechecking the selected source');
-    SelectRow(3);
+    SelectComponent('SumatraPDF');
     Require(string(Status.Caption).Contains('SumatraPDF') and not string(Status.Caption).Contains('Не удалось проверить'),
       'Recovered source retained the preceding error');
     Require(string(Notes.PrimaryNotes.Text).Contains('Owned Sumatra changes.'),'Recovered source lost author changes');
-    SelectRow(2);
-    Require((View.Items[2].SubItems[2]='Актуально') and
-      string(Status.Caption).Contains('проверенный пакет HomeLib Ru'), 'AlReader source is not identified as the fixed project archive');
+    var FixedReader:=FixedAlReaderRelease;
+    Require((FixedReader.ComponentID='AlReader') and (FixedReader.DownloadURL<>'') and
+      FixedReader.History.Contains('постоянный архив'),'AlReader lost its explicit fixed archive provenance');
     Writeln('PASS update sources Retry performs a new production check clears recovered errors and retains AlReader verification');
 
     Dialog.Hide; Dialog.FailureID:='all';

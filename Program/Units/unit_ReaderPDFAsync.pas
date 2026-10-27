@@ -35,14 +35,14 @@ type
 
 implementation
 
-uses Winapi.Windows, System.Math;
+uses Winapi.Windows, System.Math, unit_MHLExternalTools;
 
 type TBitmap = Vcl.Graphics.TBitmap;
 
 constructor TReaderPDFAsync.Create(const LibraryFile, FileName: string);
 begin
   inherited Create(LibraryFile,FileName);
-  if not PDFWorkerAvailable then raise Exception.Create('В комплекте программы отсутствует HomeLibPDF.exe.');
+  if not PDFWorkerAvailable then raise EMHLComponentRequired.Create('PDFium','Для чтения PDF нужен модуль PDFium.');
   FFileName:=FileName; FVisiblePage:=-1; FLock:=TObject.Create;
   FPages:=TDictionary<Integer,TPDFPreparedPage>.Create;
 end;

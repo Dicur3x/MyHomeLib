@@ -34,6 +34,9 @@ type
     procedure Preview(const Canceled: TMergeCanceled = nil; const Progress: TMergeProgress = nil);
     function Groups(Offset, Limit: Integer): TArray<TDuplicateGroup>;
     function Books(GroupID: Integer): TArray<TDuplicateBook>;
+    function Sources: TArray<string>;
+    function SelectSource(const SourceName: string; const Canceled: TMergeCanceled = nil): Integer;
+    procedure ClearSelection;
     procedure Choose(GroupID, KeepID: Integer; Selected: Boolean);
     procedure Apply(const BackupFolder: string; const Canceled: TMergeCanceled = nil;
       const Progress: TMergeStageProgress = nil);
@@ -50,7 +53,7 @@ function DuplicateCandidateKey(const Book: TBookRecord; const LibraryNamespace: 
 
 implementation
 
-uses System.IniFiles, System.IOUtils, System.StrUtils, System.Hash, Winapi.Windows,
+uses System.IniFiles, System.IOUtils, System.StrUtils, System.Hash, System.JSON, Winapi.Windows,
   unit_CollectionSpace, unit_LibrarySourceID,
   unit_ReaderCache, unit_ReaderNoteBooks, unit_ReaderAnnotations, unit_Consts, unit_CollectionBackup;
 
@@ -197,10 +200,15 @@ begin
 end;
 
 procedure TBookDuplicatePlan.Preview(const Canceled: TMergeCanceled; const Progress: TMergeProgress);
-var Q, Insert: TSQLiteQuery; Book: TBookRecord; Key: string; Previous: TSQLiteCancelCallback;
+var Q, Insert, Protected, ReaderKey: TSQLiteQuery; Book: TBookRecord;
+  Key, SourceName, SourceID: string; Previous: TSQLiteCancelCallback;
+  SourceNames: TDictionary<string,string>; JSON: TJSONValue;
+  ProtectedBook, HasReaderKeys: Boolean; Separator: Integer;
   procedure Check;
   begin if Assigned(Canceled) and Canceled() then Abort; end;
 begin
+  SourceNames:=TDictionary<string,string>.Create;
+  try
   FReady:=False; FGroupCount:=0; FScanned:=0; FBaseDigest:=''; FreeAndNil(FSource); FreeAndNil(FStage);
   Check;
   Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
@@ -210,25 +218,64 @@ begin
     // SQLite owns and removes this unnamed temporary database. Memory is
     // bounded on x86; the user's catalog and its indexes remain read-only.
     FStage:=TSQLiteDatabase.Create(''); FStage.ExecSQL('PRAGMA cache_size=-4096');
-    FStage.ExecSQL('CREATE TABLE Candidates(BookID INTEGER PRIMARY KEY,Identity TEXT NOT NULL)');
+    FStage.ExecSQL('CREATE TABLE Candidates(BookID INTEGER PRIMARY KEY,Identity TEXT NOT NULL,SourceName TEXT NOT NULL,Protected INTEGER NOT NULL)');
     // Reject changed paths and unreadable personal data before scanning a
     // large catalog. Apply rechecks the same data under writer reservations.
     LoadPersonalProtection; Check;
-    FStage.Start; FStage.BeginQueryBatch;
-    Q:=FSource.NewQuery('SELECT BookID,LibID,Title,Lang,Ext,BookSize,IsDeleted,Folder FROM Books ORDER BY BookID');
+    JSON:=TJSONObject.ParseJSONValue(FSource.QuerySingleString(
+      'SELECT SettingValue FROM Settings WHERE SettingID=?',[PROP_CATALOG_SOURCES]));
     try
-      Insert:=FStage.NewQuery('INSERT INTO Candidates VALUES(?,?)');
+      if Assigned(JSON) and not (JSON is TJSONArray) then
+        raise EInvalidOperation.Create('Не удалось прочитать источники коллекции.');
+      if JSON is TJSONArray then
+        for var Item in TJSONArray(JSON) do
+          if Item is TJSONObject then
+            SourceNames.AddOrSetValue(TJSONObject(Item).GetValue<string>('id',''),
+              TJSONObject(Item).GetValue<string>('name',''));
+    finally JSON.Free; end;
+    HasReaderKeys:=FStage.QuerySingleInt('SELECT EXISTS(SELECT 1 FROM ReaderKeys)')<>0;
+    Protected:=FStage.NewQuery('SELECT BookID FROM ProtectedBooks ORDER BY BookID');
+    ReaderKey:=nil;
+    try
+    Protected.Open;
+    ReaderKey:=FStage.NewQuery('SELECT EXISTS(SELECT 1 FROM ReaderKeys WHERE Identity=?)');
+    FStage.Start; FStage.BeginQueryBatch;
+    Q:=FSource.NewQuery('SELECT b.BookID,b.LibID,b.Title,b.Lang,b.Ext,b.BookSize,b.IsDeleted,b.Folder,'+
+      'b.FileName,b.InsideNo,b.Rate,b.Progress,length(CAST(b.Review AS BLOB)),p.SourceName '+
+      'FROM Books b LEFT JOIN CatalogPreferredSource p ON p.BookID=b.BookID ORDER BY b.BookID');
+    try
+      Insert:=FStage.NewQuery('INSERT INTO Candidates VALUES(?,?,?,?)');
       try
         Q.Open;
         while not Q.Eof do
         begin
-          Book:=Default(TBookRecord); Book.LibID:=Q.FieldAsString(1); Book.Title:=Q.FieldAsString(2);
+          Book:=Default(TBookRecord); Book.BookKey:=CreateBookKey(Q.FieldAsInt(0),FCID);
+          Book.LibID:=Q.FieldAsString(1); Book.Title:=Q.FieldAsString(2);
           Book.Lang:=Q.FieldAsString(3); Book.FileExt:=Q.FieldAsString(4); Book.Size:=Q.FieldAsInt(5);
           Book.Folder:=Q.FieldAsString(7); if Q.FieldAsInt(6)<>0 then Include(Book.BookProps,bpIsDeleted);
           Key:=DuplicateCandidateKey(Book,FNamespace);
           if Key<>'' then
           begin
-            Insert.Reset; Insert.SetParam(0,Q.FieldAsInt(0)); Insert.SetParam(1,Key); Insert.ExecSQL; Insert.Reset;
+            SourceName:=Q.FieldAsString(13);
+            if SourceName='' then
+              if Book.LibID.StartsWith('merged:') then
+              begin
+                Separator:=PosEx(':',Book.LibID,8);
+                SourceID:=Copy(Book.LibID,8,Separator-8);
+                if (Separator<=8) or not SourceNames.TryGetValue(SourceID,SourceName) then SourceName:='';
+              end
+              else SourceName:=FTitle;
+            while not Protected.Eof and (Protected.FieldAsInt(0)<Q.FieldAsInt(0)) do Protected.Next;
+            ProtectedBook:=(not Protected.Eof and (Protected.FieldAsInt(0)=Q.FieldAsInt(0))) or
+              (Q.FieldAsInt(10)<>0) or (Q.FieldAsInt(11)<>0) or (Q.FieldAsInt(12)>0);
+            if HasReaderKeys and not ProtectedBook then
+            begin
+              Book.CollectionRoot:=FRoot; Book.FileName:=Q.FieldAsString(8); Book.InsideNo:=Q.FieldAsInt(9);
+              ReaderKey.Reset; ReaderKey.SetParam(0,ReaderNoteIdentity(ReaderHistoryName(Book,FNamespace)));
+              ReaderKey.Open; ProtectedBook:=ReaderKey.FieldAsInt(0)<>0; ReaderKey.Reset;
+            end;
+            Insert.Reset; Insert.SetParam(0,Q.FieldAsInt(0)); Insert.SetParam(1,Key);
+            Insert.SetParam(2,SourceName); Insert.SetParam(3,ProtectedBook); Insert.ExecSQL; Insert.Reset;
           end;
           Inc(FScanned);
           if FScanned mod 4096=0 then
@@ -237,6 +284,7 @@ begin
         end;
       finally Insert.Free; end;
     finally Q.Free; FStage.EndQueryBatch; end;
+    finally ReaderKey.Free; Protected.Free; end;
     Check; FStage.Commit;
     FStage.ExecSQL('CREATE INDEX CandidateIdentity ON Candidates(Identity,BookID)'); Check;
     FStage.ExecSQL('CREATE TABLE DuplicateGroups(GroupID INTEGER PRIMARY KEY,Identity TEXT UNIQUE,Count INTEGER,KeepID INTEGER,Selected INTEGER DEFAULT 0)');
@@ -248,6 +296,59 @@ begin
     FreeAndNil(FSource); FreeAndNil(FStage); FGroupCount:=0; raise;
   end;
   finally SQLiteCancelCallback:=Previous; FCanceled:=nil; end;
+  finally SourceNames.Free; end;
+end;
+
+function TBookDuplicatePlan.Sources: TArray<string>;
+var Q: TSQLiteQuery; Names: TList<string>;
+begin
+  if not FReady then Exit(nil);
+  Names:=TList<string>.Create;
+  try
+    Q:=FStage.NewQuery('SELECT DISTINCT c.SourceName FROM Candidates c JOIN DuplicateGroups g USING(Identity) '+
+      'WHERE c.SourceName<>'''' ORDER BY c.SourceName');
+    try
+      Q.Open;
+      while not Q.Eof do begin Names.Add(Q.FieldAsString(0)); Q.Next; end;
+    finally Q.Free; end;
+    Result:=Names.ToArray;
+  finally Names.Free; end;
+end;
+
+function TBookDuplicatePlan.SelectSource(const SourceName: string; const Canceled: TMergeCanceled): Integer;
+var Previous: TSQLiteCancelCallback;
+begin
+  if not FReady then raise EInvalidOperation.Create('Сначала выполните поиск повторов.');
+  if SourceName='' then raise EArgumentException.Create('Выберите предпочтительный источник.');
+  Previous:=SQLiteCancelCallback; FCanceled:=Canceled; SQLiteCancelCallback:=QueryCanceled;
+  try
+    if QueryCanceled then Abort;
+    FStage.Start;
+    try
+      FStage.ExecSQL('DROP TABLE IF EXISTS SourceChoices');
+      // Only a unique preferred copy in a group spanning known sources can be
+      // chosen automatically. Preserve manual selections and all protected rows.
+      FStage.ExecSQL('CREATE TEMP TABLE SourceChoices(GroupID INTEGER PRIMARY KEY,KeepID INTEGER NOT NULL)');
+      FStage.ExecSQL('INSERT INTO SourceChoices '+
+        'SELECT g.GroupID,min(CASE WHEN c.SourceName=? COLLATE BINARY THEN c.BookID END) FROM DuplicateGroups g '+
+        'JOIN Candidates c USING(Identity) WHERE g.Selected=0 AND g.Count<=1000 '+
+        'GROUP BY g.GroupID HAVING '+
+        'sum(c.SourceName=? COLLATE BINARY)=1 AND '+
+        'sum(c.SourceName='''')=0 AND count(DISTINCT c.SourceName)>1 AND '+
+        'sum(c.Protected<>0 AND c.SourceName<>? COLLATE BINARY)=0', [SourceName,SourceName,SourceName]);
+      Result:=FStage.QuerySingleInt('SELECT count(*) FROM SourceChoices');
+      FStage.ExecSQL('UPDATE DuplicateGroups SET KeepID=(SELECT KeepID FROM SourceChoices s '+
+        'WHERE s.GroupID=DuplicateGroups.GroupID),Selected=1 '+
+        'WHERE GroupID IN (SELECT GroupID FROM SourceChoices)');
+      if QueryCanceled then Abort;
+      FStage.Commit;
+    except FStage.Rollback; raise; end;
+  finally SQLiteCancelCallback:=Previous; FCanceled:=nil; end;
+end;
+
+procedure TBookDuplicatePlan.ClearSelection;
+begin
+  if FReady then FStage.ExecSQL('UPDATE DuplicateGroups SET Selected=0 WHERE Selected<>0');
 end;
 
 function TBookDuplicatePlan.Groups(Offset, Limit: Integer): TArray<TDuplicateGroup>;

@@ -503,22 +503,29 @@ end;
 
 function FormatName;
 begin
-  Result := LastName;
-
-  if FirstName <> '' then
+  // The common full name needs one concatenation/allocation, rather than
+  // building and then immediately replacing an intermediate two-part name.
+  if not onlyInitials and (FirstName <> '') and (MiddleName <> '') then
+    Result := LastName + ' ' + FirstName + ' ' + MiddleName
+  else
   begin
-    if onlyInitials then
-      Result := Result + ' ' + FirstName[1] + '.'
-    else
-      Result := Result + ' ' + FirstName;
-  end;
+    Result := LastName;
 
-  if MiddleName <> '' then
-  begin
-    if onlyInitials then
-      Result := Result + ' ' + MiddleName[1] + '.'
-    else
-      Result := Result + ' ' + MiddleName;
+    if FirstName <> '' then
+    begin
+      if onlyInitials then
+        Result := Result + ' ' + FirstName[1] + '.'
+      else
+        Result := Result + ' ' + FirstName;
+    end;
+
+    if MiddleName <> '' then
+    begin
+      if onlyInitials then
+        Result := Result + ' ' + MiddleName[1] + '.'
+      else
+        Result := Result + ' ' + MiddleName;
+    end;
   end;
 
   if nickName <> '' then

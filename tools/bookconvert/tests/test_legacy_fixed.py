@@ -5,12 +5,14 @@ import ctypes
 import hashlib
 import importlib.util
 import os
+import re
 import json
 import subprocess
 import sys
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
@@ -103,7 +105,7 @@ class LegacyFixed(unittest.TestCase):
 
     def test_pdb_other_container_not_misidentified(self):
         source = self.root / 'isilo.pdb'; source.write_bytes(pdb_fixture(b'private data', kind=b'SDocSilX'))
-        with self.assertRaisesRegex(c.ConversionError, 'SDocSilX'): c.convert_book(source, self.root / 'unsupported.fb2')
+        with self.assertRaisesRegex(c.ConversionError, 'iSilo 3'): c.convert_book(source, self.root / 'unsupported.fb2')
         self.assertFalse((self.root / 'unsupported.fb2').exists())
     def test_tcr_dictionary_and_renamed_signature(self):
         text = 'Первая строка.\nПоследняя строка.'.encode('cp1251')
@@ -155,6 +157,39 @@ class LegacyFixed(unittest.TestCase):
         with self.assertRaises(AssertionError): fixed.ppm_page(data, self.fail, end)
         for header in [b'P6\n-1 2\n255\n', b'P6\n1601 1\n255\n', b'P6\n#'+b'x'*1024+b'\n1 1\n255\n']:
             with self.assertRaises(AssertionError): fixed.ppm_page(header+b'\0'*6, self.fail)
+
+    def test_djvu_empty_ocr_geometry_preserves_page_order_and_rejects_missing_sizes(self):
+        source=self.root/'empty-ocr.djvu'; source.write_bytes(b'fixture')
+        book=text_inputs.Book(c,source,set(),tools_root=TOOLS)
+        # Real DjVuLibre returns zero-sized OCR pages even when the scan exists.
+        # Mix those with valid geometry; every external response must map back
+        # to the original page, including a final incomplete batch.
+        calls=[]; malformed=False
+        def run(args,stdout,stderr,timeout,creationflags):
+            script=args[args.index('-e')+1] if '-e' in args else ''
+            if script=='n': data=b'5'
+            elif 'print-txt' in script:
+                numbers=[int(v) for v in re.findall(r'select (\d+)',script)]
+                data='\n'.join('(page 0 0 0 0 "")' if n!=2 else '(page 0 0 22 32 "")' for n in numbers).encode()
+            elif 'size' in script:
+                numbers=[int(v) for v in re.findall(r'select (\d+)',script)]
+                calls.append(numbers)
+                data='\n'.join(f'width={20+n} height={30+n}' for n in (numbers[:-1] if malformed else numbers)).encode()
+            else:
+                count=1 if '-page=5-5' in args else 4
+                data=(b'P6\n1 1\n255\n'+b'\xff'*3)*count
+            stdout.write(data)
+            return subprocess.CompletedProcess(args,0,b'',b'')
+        emitted=[]
+        def emit(book,number,lines,rgb,w,h,pw,ph):
+            emitted.append((number,pw,ph));book.fixed_image_pages=number;return 0
+        with patch.object(fixed.subprocess,'run',side_effect=run),patch.object(fixed,'emit_page',side_effect=emit):
+            fixed.read_djvu(book,TOOLS)
+            self.assertEqual(emitted,[(1,21,31),(2,22,32),(3,23,33),(4,24,34),(5,25,35)])
+            self.assertEqual(calls,[[1,3,4],[5]])
+            malformed=True
+            with self.assertRaisesRegex(c.ConversionError,'размеры страниц'):
+                fixed.read_djvu(book,TOOLS)
 
     def test_sparse_invalid_ocr_codes_remain_visible_without_bypassing_quality(self):
         source = self.root/'source.pdf'; source.write_bytes(pdf_fixture())

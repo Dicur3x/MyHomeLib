@@ -38,7 +38,7 @@ def rasterize_image(book, data):
     if data.startswith((b'BM',b'II*\0',b'MM\0*')):
         import zipfile
         tool=book.tools_root/'xps/HomeLibXps.exe'
-        if not tool.is_file(): book.fail('Не найден встроенный компонент изображений Windows.')
+        if not tool.is_file(): book.require('BookConverter', 'Модуль подготовки изображений неполон. Его нужно восстановить.')
         with tempfile.TemporaryDirectory(prefix='homelib-picture-',dir=getattr(book,'work_root',None)) as directory:
             source=Path(directory)/'image.bin';target=Path(directory)/'pages.zip';source.write_bytes(data)
             try:
@@ -339,13 +339,16 @@ def read(book, extension, package_factory, read_docx, read_odt, read_html):
         else:
             tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
             suffix = '.docx' if extension in {'.doc','.dot'} else '.pptx' if extension in {'.ppt', '.pps', '.pot'} else '.xlsx'
-        if not tool.is_file(): book.require('DocSharp', 'Для чтения ' + extension + ' нужен компонент DocSharp.')
+        if not tool.is_file():
+            component = 'BookConverter' if extension in {'.wps', '.wpd'} else 'DocSharp'
+            book.require(component, 'Для чтения ' + extension + ' нужен компонент ' + component + '.')
         if extension in {'.wps', '.wpd'}:
             if os.name == 'nt' and not ('64' in os.environ.get('PROCESSOR_ARCHITEW6432', '') or '64' in os.environ.get('PROCESSOR_ARCHITECTURE', '')):
                 book.fail('Комплектный читатель WPS/WPD требует 64-разрядную Windows.')
             for dll in ['libwps-0.4.dll', 'libwpd-0.10.dll', 'librevenge-0.0.dll', 'librevenge-stream-0.0.dll',
                         'librevenge-generators-0.0.dll', 'libc++.dll', 'libunwind.dll', 'zlib1.dll']:
-                if not (tool.parent / dll).is_file(): book.fail('Неполный комплект чтения WPS/WPD: ' + dll)
+                if not (tool.parent / dll).is_file():
+                    book.require('BookConverter', 'Неполный комплект чтения WPS/WPD: ' + dll)
         with tempfile.TemporaryDirectory(prefix='homelib-office-', dir=book.work_root) as work:
             prepared = Path(work) / ('prepared' + suffix)
             args = args if suffix == '.html' else [str(tool), str(original), str(prepared)]

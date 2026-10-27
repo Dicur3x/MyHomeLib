@@ -275,8 +275,8 @@ begin
     Started:=GetTickCount64;
     for var I:=0 to 99 do
     begin
-      View.Items[I mod 7].Selected:=True;
-      View.OnSelectItem(View,View.Items[I mod 7],True);
+      View.Items[I mod View.Items.Count].Selected:=True;
+      View.OnSelectItem(View,View.Items[I mod View.Items.Count],True);
     end;
     SelectionMS:=GetTickCount64-Started;
     Writeln('PROFILE updater 100 cached component selections ms=',SelectionMS);
@@ -308,11 +308,9 @@ begin
     Releases[1].ComponentErrorDetails:='Owned author HTTP 503 fixture';
     Require(Dialog.StartCheckCycle(False),'Second repair check did not refresh its local inventory');
     Dialog.ApplicationChecked(Current,True,''); Dialog.ComponentsReceived(Releases,True,'');
-    View.Items[2].Selected:=True; View.OnSelectItem(View,View.Items[2],True);
-    Require(Primary.Enabled and (Primary.Caption='Повторить проверку') and
-      string(Status.Caption).Contains(Releases[1].ComponentError) and
-      View.Items[2].Caption.Contains('AlReader') and (View.Items[2].SubItems[2]='Не удалось проверить'),
-      'Missing optional reader forced full-application repair or lost its author error');
+    for var Item in View.Items do
+      Require(not Item.Caption.Contains('AlReader'),
+        'Missing unrequested optional reader was shown after its author check failed');
     View.Items[0].Selected:=True; View.OnSelectItem(View,View.Items[0],True);
     Require(Primary.Caption='Скачать и восстановить','Required runtime repair disappeared from the application row');
     Primary.Click; Deadline:=GetTickCount64+120000;

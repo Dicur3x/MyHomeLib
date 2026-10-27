@@ -56,11 +56,13 @@ type
 
     FBookFormat: TBookFormat;
     FBookIdList: TBookIdList;
+    FStandaloneBooks: TArray<TBookRecord>;
     FResults: TBookExportResults;
     FTemplater: TTemplater;
     FExportMode: TExportMode;
     FExtractOnly: boolean;
     FExplicitFormat: Boolean;
+    FKeepSourceFormat: Boolean;
     FConvertBasic: Boolean;
     FLastWarnings: string;
     FProcessedFiles: string;
@@ -71,6 +73,8 @@ type
     FLastError, FRequiredComponent: string;
     FConverterExitCode: Cardinal;
     FCurrentBookIndex: Integer;
+    FShowImageQualityChoice: Boolean;
+    FImageQuality: string;
 
     FMaxTempPathLength: Integer;
 
@@ -86,6 +90,7 @@ type
     function ConvertBasicFile: Boolean;
     procedure RemoveConversionTempFolder;
     procedure SetBookIdList(const Value: TBookIdList);
+    procedure SetStandaloneBooks(const Value: TArray<TBookRecord>);
     function GetResults: TBookExportResults;
 
   strict private
@@ -102,6 +107,7 @@ type
     constructor Create;
 
     property BookIdList: TBookIdList read FBookIdList write SetBookIdList;
+    property StandaloneBooks: TArray<TBookRecord> write SetStandaloneBooks;
     property Results: TBookExportResults read GetResults;
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property UseMTP: Boolean read FUseMTP write FUseMTP;
@@ -111,6 +117,9 @@ type
     property ExportMode: TExportMode read FExportMode write FExportMode;
     property ExtractOnly: boolean write FExtractOnly;
     property ExplicitFormat: Boolean read FExplicitFormat write FExplicitFormat;
+    property ShowImageQualityChoice: Boolean write FShowImageQualityChoice;
+    property KeepSourceFormat: Boolean read FKeepSourceFormat write FKeepSourceFormat;
+    property ImageQuality: string read FImageQuality write FImageQuality;
   end;
 
 // Полный путь к внешнему конвертеру, необходимому для режима Mode.
@@ -130,7 +139,8 @@ uses
   unit_MHLHelpers,
   unit_MHLArchiveHelpers,
   unit_WriteFb2Info,
-  unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, unit_ComponentUpdates, System.Variants;
+  unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, unit_ComponentUpdates, System.Variants, unit_Diagnostics,
+  unit_ExportImageQuality;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -181,9 +191,23 @@ end;
 
 procedure TExportToDeviceThread.SetBookIdList(const Value: TBookIdList);
 begin
+  FStandaloneBooks:=nil;
   FBookIdList := Copy(Value);
   FResults := PendingBookExportResults(FBookIdList);
   FProcessedFiles := '';
+end;
+
+procedure TExportToDeviceThread.SetStandaloneBooks(const Value: TArray<TBookRecord>);
+var IDs: TBookIdList;
+begin
+  SetLength(IDs,Length(Value));
+  for var I:=0 to High(IDs) do
+  begin IDs[I]:=Default(TBookIdStruct); IDs[I].BookKey:=CreateBookKey(I+1,0); end;
+  SetBookIdList(IDs);
+  FStandaloneBooks:=Copy(Value);
+  // Local files carry their own metadata. Never rewrite it with an empty
+  // catalogue card or derive target subfolders from catalogue preferences.
+  FOverwriteFB2Info:=False; FFolderTemplate:=''; FFileNameTemplate:='%t';
 end;
 
 function TExportToDeviceThread.GetResults: TBookExportResults;
@@ -200,12 +224,14 @@ var
   FTargetFileName: string;
   FTargetFullFilePath: string;
   FTempFileName, PreparedSource, SourceExtension: string;
+  ProcessSourceImages: Boolean;
 begin
   Result := False;
   FFileOprecord := Default(TFileOprecord);
   FLastError := '';
   FLastWarnings := '';
   FConvertBasic := False;
+  if FKeepSourceFormat then FExportMode:=emFB2;
   // A retained user card can refer to a book absent from a newer catalogue.
   // Its negative ID is not a catalogue row and must never be guessed/reused.
   if BookKey.BookID <= 0 then
@@ -216,9 +242,18 @@ begin
     Exit;
   end;
   try
-    Collection := FSystemData.GetCollection(BookKey.DatabaseID);
-    Collection.GetBookRecord(BookKey, R, False);
-    if Assigned(Expected) and Expected^.HasExpectedIdentity and
+    if Length(FStandaloneBooks)>0 then
+    begin
+      if (FCurrentBookIndex<0) or (FCurrentBookIndex>=Length(FStandaloneBooks)) then
+        raise EInvalidOperation.Create('Неверный индекс открытого файла.');
+      R:=FStandaloneBooks[FCurrentBookIndex];
+    end
+    else
+    begin
+      Collection := FSystemData.GetCollection(BookKey.DatabaseID);
+      Collection.GetBookRecord(BookKey, R, False);
+    end;
+    if (Length(FStandaloneBooks)=0) and Assigned(Expected) and Expected^.HasExpectedIdentity and
       not ReaderBookMatchesExpectedIdentity(Expected^.ExpectedLibID, Expected^.ExpectedPhysicalIdentity,
         R, VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY))) then
     begin
@@ -228,13 +263,29 @@ begin
       Exit;
     end;
     PreparedSource:=''; SourceExtension:=LowerCase(R.FileExt);
-    if FExplicitFormat and not FExtractOnly then
+    ProcessSourceImages:=FKeepSourceFormat and (FImageQuality<>'original');
+    if (FExplicitFormat or ProcessSourceImages) and not FExtractOnly then
     begin
       var TargetExtension:='.fb2'; if FExportMode=emEpub then TargetExtension:='.epub';
+      if FKeepSourceFormat then TargetExtension:='';
       PreparedSource:=PrepareConversionSource(R,
-        procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension);
+        procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension,
+        not (FShowImageQualityChoice and SameText(FImageQuality,'none')));
       if PreparedSource='' then Abort;
       SourceExtension:=LowerCase(ExtractFileExt(PreparedSource));
+      if FKeepSourceFormat then
+      begin
+        if SourceExtension='.epub' then FExportMode:=emEpub
+        else if (SourceExtension='.txt') and SameText(R.FileExt,'.txt') then
+        begin
+          // Plain TXT has no embedded pictures. Keep its bytes and encoding;
+          // the batch's image preference still applies to subsequent books.
+          ProcessSourceImages:=False; PreparedSource:='';
+        end
+        else if SourceExtension<>'.fb2' then
+          raise Exception.Create('Изменение изображений с сохранением формата '+UpperCase(SourceExtension)+
+            ' пока недоступно. Выберите «Как есть» для отправки как есть или явно выберите FB2/EPUB.');
+      end;
       var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
       if Required<>'' then raise EMHLComponentRequired.Create(Required,
         'Для конвертации этой книги нужен компонент '+Required+'. Его можно скачать в HomeLib Ru.');
@@ -244,8 +295,8 @@ begin
     FFileOprecord.SourceExtension := SourceExtension;
     FFileOprecord.BookTitle:=R.Title; FFileOprecord.BookAuthor:=TAuthorsHelper.GetList(R.Authors);
     FFileOprecord.BookLanguage:=R.Lang;
-    FConvertBasic := not FExtractOnly and (FExportMode in [emFB2, emEpub]) and
-      (FExplicitFormat or ((FExportMode = emEpub) and
+    FConvertBasic := not FExtractOnly and
+      (FExplicitFormat or ProcessSourceImages or ((FExportMode = emEpub) and
         IsBasicConversionSource(SourceExtension) and
         (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0)));
     if FExplicitFormat and not FExtractOnly and not FConvertBasic then
@@ -353,7 +404,7 @@ begin
       if not Assigned(FFileOprecord.Stream) then
         raise Exception.Create('Не удалось извлечь исходную книгу из архива.');
 
-      if (PreparedSource='') and (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info then
+      if (PreparedSource='') and (FBookFormat in [bfFb2, bfFb2Archive]) and FOverwriteFB2Info and not FKeepSourceFormat then
         WriteFb2InfoToStream(R, FFileOprecord.Stream);
 
     end;
@@ -519,8 +570,15 @@ begin
   Result := FileName;
   if FConvertBasic then
   begin
-    if FExportMode = emEpub then Result := ChangeFileExt(FileName, '.epub')
-    else Result := ChangeFileExt(FileName, '.fb2');
+    case FExportMode of
+      emEpub: Result:=ChangeFileExt(FileName,'.epub');
+      emFB2: Result:=ChangeFileExt(FileName,'.fb2');
+      emFB2Zip: Result:=ChangeFileExt(FileName,'.fb2.zip');
+      emTxt: Result:=ChangeFileExt(FileName,'.txt');
+      emLrf: Result:=ChangeFileExt(FileName,'.lrf');
+      emPDF: Result:=ChangeFileExt(FileName,'.pdf');
+      emMobi: Result:=ChangeFileExt(FileName,'.mobi');
+    end;
     Exit;
   end;
   // Raw books use the original-copy branch. Its extension must also be used
@@ -538,13 +596,31 @@ end;
 function TExportToDeviceThread.ConvertBasicFile: Boolean;
 var
   Warnings: TStringList;
+  Quality, ConversionTarget, OriginalTemp: string;
+  OriginalStream: TStream;
+  OriginalSource: string;
 begin
   Result := False;
+  Quality:='original';
+  if FShowImageQualityChoice then
+  begin
+    Quality:=FImageQuality; if Quality='' then Quality:='ask';
+  end;
+  ConversionTarget:=ActualOutputFile(FFileOprecord.TargetFile);
+  if not (FExportMode in [emFB2,emEpub]) then
+  begin
+    if FFileOprecord.ConversionTempFolder='' then
+    begin
+      FFileOprecord.ConversionTempFolder:=TPath.Combine(FTempPath,'homelib-export-'+TGUID.NewGuid.ToString);
+      ForceDirectories(FFileOprecord.ConversionTempFolder);
+    end;
+    ConversionTarget:=TPath.Combine(FFileOprecord.ConversionTempFolder,'prepared.fb2');
+  end;
   Warnings := TStringList.Create;
   try
     try
       ConvertBasicBook(FAppPath, FTempPath, FFileOprecord.SourceFile,
-        FFileOprecord.SourceExtension, ActualOutputFile(FFileOprecord.TargetFile),
+        FFileOprecord.SourceExtension, ConversionTarget,
         FFileOprecord.Stream, Warnings,
         function: Boolean begin Result := Canceled or Terminated; end,
         FFileOprecord.BookTitle,FFileOprecord.BookAuthor,FFileOprecord.BookLanguage,False,
@@ -557,19 +633,69 @@ begin
           if Stage='pages' then
             SetComment(Format('Книга %d/%d · стр. %d/%d (%d%%)',
               [FCurrentBookIndex+1,Length(FBookIdList),Completed,Total,Percent]))
+          else if (Stage='image-estimates') or (Stage='scan-estimates') then SetComment('Оценка размера книги для выбора изображений…')
+          else if (Stage='optimizing-images') or (Stage='scan-images') then SetComment('Сжатие изображений для экспорта…')
           else if Stage='finalizing' then SetComment(Format('Сборка книги (%d%%)…',[Percent]))
           else if Stage='complete' then SetComment('Запись книги…')
           else SetComment('Подготовка к конвертации…');
+        end,Quality,
+        function(const Options: TBookImageQualityOptions): string
+        var Selected: string; ApplyToAll: Boolean;
+        begin
+          Selected:='';
+          Synchronize(procedure
+            begin
+              if Canceled or Terminated then Exit;
+              Selected:=ChooseExportImageQuality(FFileOprecord.BookTitle,Options,Length(FBookIdList)>1,ApplyToAll);
+              if ApplyToAll then FImageQuality:=Selected;
+            end);
+          Result:=Selected;
         end);
       FLastWarnings := Warnings.Text;
       Result := True;
+      if not (FExportMode in [emFB2,emEpub]) then
+      begin
+        if Canceled or Terminated then Abort;
+        OriginalStream:=FFileOprecord.Stream; OriginalSource:=FFileOprecord.SourceFile;
+        OriginalTemp:=FFileOprecord.TempFile;
+        FFileOprecord.TempFile:=TPath.Combine(FFileOprecord.ConversionTempFolder,'legacy-input.fb2');
+        FFileOprecord.Stream:=TFileStream.Create(ConversionTarget,fmOpenRead or fmShareDenyWrite);
+        FFileOprecord.SourceFile:=ConversionTarget;
+        try
+          if FExportMode=emFB2Zip then
+          begin
+            var OutputPath:=ActualOutputFile(FFileOprecord.TargetFile);
+            var ArchivePath:=OutputPath+'.homelib-new-'+TGUID.NewGuid.ToString;
+            try
+              var Archive:=TMHLZip.Create(ArchivePath,False);
+              try Archive.AddFromStream(ChangeFileExt(ExtractFileName(FFileOprecord.TargetFile),'.fb2'),FFileOprecord.Stream);
+              finally Archive.Free; end;
+              if not MoveFile(PChar(ArchivePath),PChar(OutputPath)) then RaiseLastOSError;
+            finally if FileExists(ArchivePath) then SysUtils.DeleteFile(ArchivePath); end;
+          end
+          else if FExportMode=emTxt then
+            unit_globals.ConvertToTxt(FFileOprecord.TargetFile,FTXTEncoding,FFileOprecord.Stream)
+          else Result:=CallExternalConverter;
+        finally
+          FFileOprecord.Stream.Free; FFileOprecord.Stream:=OriginalStream;
+          FFileOprecord.SourceFile:=OriginalSource; FFileOprecord.TempFile:=OriginalTemp;
+        end;
+      end;
+      if Result and not FileExists(ActualOutputFile(FFileOprecord.TargetFile)) then
+        raise EInOutError.Create('Конвертер не создал итоговый файл книги.');
     except
       on E: EAbort do
       begin
+        Result:=False;
         Canceled := True;
         FLastError := E.Message;
       end;
-      on E: Exception do FLastError := E.Message;
+      on E: Exception do
+      begin
+        Result:=False;
+        LogDiagnosticError('book-export',E,FFileOprecord.SourceExtension);
+        FLastError := E.Message;
+      end;
     end;
   finally
     Warnings.Free;
@@ -833,8 +959,11 @@ end;
 procedure TExportToDeviceThread.Initialize;
 begin
   inherited Initialize;
-  FSystemData := DMUser.GetSystemDBConnection;
-  Assert(Assigned(FSystemData));
+  if Length(FStandaloneBooks)=0 then
+  begin
+    FSystemData := DMUser.GetSystemDBConnection;
+    Assert(Assigned(FSystemData));
+  end;
   FTemplater := TTemplater.Create;
 
   if FUseMTP and Assigned(FMarshalStream) then
@@ -854,7 +983,7 @@ procedure TExportToDeviceThread.Uninitialize;
 begin
   FDeviceShellItem := nil;
   FTemplater.Free;
-  FSystemData.ClearCollectionCache;
+  if Assigned(FSystemData) then FSystemData.ClearCollectionCache;
   inherited Uninitialize;
 end;
 

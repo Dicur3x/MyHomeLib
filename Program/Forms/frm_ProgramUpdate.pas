@@ -40,6 +40,12 @@ type
     FChangingNotification: Boolean;
     FRequestedComponent, FRequestReason: string;
     FRequestedCheckPending: Boolean;
+    FReaderOnly: Boolean;
+    FRowIDs: TArray<Integer>;
+    function ComponentAllowed(Index: Integer): Boolean;
+    function RowVisible(Value: Integer): Boolean;
+    function ViewIndex(Value: Integer): Integer;
+  private
     FComponentAutomatic: Boolean;
     FComponentExplicit: Boolean;
     FComponentError, FComponentErrorDetails: string;
@@ -120,12 +126,14 @@ type
     procedure CheckFailed(const Error: string);
     procedure RememberHistory(const ReleaseInfo: TProgramRelease);
     procedure CheckComponents(Automatic: Boolean);
+    procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string);
     function StartCheckCycle(Automatic: Boolean): Boolean;
     procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
     procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string);
     function RestoreReady: Boolean;
     function LaunchInstallation: Boolean;
+    function WillInstallComponent(const ID: string): Boolean;
     procedure CancelInstallation;
     property PendingInstall: Boolean read FPendingInstall;
     property OnCheck: TNotifyEvent read FCheck write FCheck;
@@ -493,7 +501,7 @@ procedure TfrmProgramUpdate.HistoryComponentSelected(Sender: TObject);
 begin
   if FRefreshingComponents or (FHistorySelector.ItemIndex<0) then Exit;
   FRequestedComponent:=''; FRequestReason:='';
-  SelectRow(FHistorySelector.ItemIndex); ComponentSelected(nil);
+  SelectRow(FRowIDs[FHistorySelector.ItemIndex]); ComponentSelected(nil);
 end;
 
 procedure TfrmProgramUpdate.ZoomClick(Sender: TObject);
@@ -601,9 +609,9 @@ end;
 
 function TfrmProgramUpdate.MayNotifyComponent(Index: Integer): Boolean;
 begin
-  Result:=not IsOptionalComponent(UPDATE_COMPONENTS[Index].ID) or
+  Result:=ComponentAllowed(Index) and (not IsOptionalComponent(UPDATE_COMPONENTS[Index].ID) or
     ((InstalledVersion(UPDATE_COMPONENTS[Index].ID)<>'') and
-     ComponentNotificationEnabled(UPDATE_COMPONENTS[Index].ID,Settings.OptionalComponentUpdates));
+     ComponentNotificationEnabled(UPDATE_COMPONENTS[Index].ID,Settings.OptionalComponentUpdates)));
 end;
 
 procedure TfrmProgramUpdate.RefreshInstalledComponents;
@@ -624,7 +632,7 @@ begin
       end;
     end;
   end;
-  if UpdateFileVersion(Settings.AppPath+'HomeLibRuUpdater.exe')='' then
+  if not FReaderOnly and (UpdateFileVersion(Settings.AppPath+'HomeLibRuUpdater.exe')='') then
   begin
     if FRepairComponents<>'' then FRepairComponents:=FRepairComponents+', ';
     FRepairComponents:=FRepairComponents+'механизм обновления';
@@ -638,8 +646,44 @@ begin
     if UPDATE_COMPONENTS[I].ID=ID then Exit(FInstalledVersions[I]);
 end;
 
+function TfrmProgramUpdate.ComponentAllowed(Index: Integer): Boolean;
+begin
+  Result:=(Index>=Low(UPDATE_COMPONENTS)) and (Index<=High(UPDATE_COMPONENTS));
+  if Result and FReaderOnly then
+    Result:=(UPDATE_COMPONENTS[Index].ID<>'SQLite') and (UPDATE_COMPONENTS[Index].ID<>'AlReader') and
+      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF');
+end;
+
+function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;
+begin
+  if Value=0 then Exit(not FReaderOnly);
+  if not ComponentAllowed(Value-1) then Exit(False);
+  if FReaderOnly and (UPDATE_COMPONENTS[Value-1].ID='HomeLibReader') then Exit(True);
+  Result:=True;
+  // Format modules appear after installation or an explicit first-use
+  // request, regardless of whether the optional reader itself is installed.
+  if FReaderOnly or IsOptionalComponent(UPDATE_COMPONENTS[Value-1].ID) then
+    Result:=(InstalledVersion(UPDATE_COMPONENTS[Value-1].ID)<>'') or
+      (FRequestedComponent=UPDATE_COMPONENTS[Value-1].ID);
+end;
+
+function TfrmProgramUpdate.ViewIndex(Value: Integer): Integer;
+begin
+  Result:=-1;
+  for var I:=0 to High(FRowIDs) do if FRowIDs[I]=Value then Exit(I);
+end;
+
+procedure TfrmProgramUpdate.UseReaderComponents;
+begin
+  if Assigned(FComponentThread) or Assigned(FThread) then
+    raise Exception.Create('Нельзя менять список компонентов во время загрузки.');
+  FReaderOnly:=True; Caption:='Компоненты HomeLib Reader';
+  RefreshInstalledComponents; UpdateComponentList; ComponentSelected(nil);
+end;
+
 procedure TfrmProgramUpdate.UpdateComponentList;
-var I, Comparison: Integer; Version, Available, State: string; Item: TListItem; Updating: Boolean;
+var I, Comparison: Integer; Rows: TArray<Integer>; Changed: Boolean;
+  Version, Available, State: string; Item: TListItem; Updating: Boolean;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted: UInt64;{$ENDIF}
   procedure BeginRows;
   begin
@@ -651,7 +695,8 @@ var I, Comparison: Integer; Version, Available, State: string; Item: TListItem; 
   end;
   procedure Row(Index: Integer; const Caption, Installed, Latest, Status: string);
   begin
-    Item:=FComponentsView.Items[Index];
+    var VisibleIndex:=ViewIndex(Index); if VisibleIndex<0 then Exit;
+    Item:=FComponentsView.Items[VisibleIndex];
     if Item.Caption<>Caption then begin BeginRows; Item.Caption:=Caption; end;
     while Item.SubItems.Count<3 do begin BeginRows; Item.SubItems.Add(''); end;
     Cell(0,Installed); Cell(1,Latest); Cell(2,Status);
@@ -662,9 +707,20 @@ begin
   try
     // Keep row objects alive while their native selection notification is
     // being handled. Refreshing versions must not recreate the selected item.
-    if FComponentsView.Items.Count<>Length(UPDATE_COMPONENTS)+1 then BeginRows;
-    while FComponentsView.Items.Count<Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Add;
-    while FComponentsView.Items.Count>Length(UPDATE_COMPONENTS)+1 do FComponentsView.Items.Delete(FComponentsView.Items.Count-1);
+    Rows:=nil;
+    for I:=0 to Length(UPDATE_COMPONENTS) do if RowVisible(I) then Rows:=Rows+[I];
+    Changed:=Length(Rows)<>Length(FRowIDs);
+    if not Changed then for I:=0 to High(Rows) do if Rows[I]<>FRowIDs[I] then Changed:=True;
+    if Changed then
+    begin
+      BeginRows; FComponentsView.Items.Clear; FHistorySelector.Items.Clear; FRowIDs:=Rows;
+      for var Logical in FRowIDs do
+      begin
+        FComponentsView.Items.Add;
+        if Logical=0 then FHistorySelector.Items.Add('HomeLib Ru')
+        else FHistorySelector.Items.Add(ComponentTitle(Logical-1));
+      end;
+    end;
     Available:=FApplicationRelease.Tag; State:='Не проверено';
     if Available<>'' then
       if not HasApplicationDownload then State:='Нет проверенного архива'
@@ -681,11 +737,12 @@ begin
       if Version = '' then Version := 'не установлен';
       State:='Не проверено'; Available:='—';
       if (FComponents[I].ComponentError<>'') or (FComponentError<>'') then State:='Не удалось проверить'
-      else if FComponents[I].ComponentWarning<>'' then State:='Версия не подтверждена'
+      else if (FComponents[I].ComponentWarning<>'') and (FComponents[I].DownloadURL='') then State:='Версия не подтверждена'
       else if FComponents[I].DownloadURL<>'' then
       begin
         Available:=FComponents[I].ComponentVersion;
-        if ComponentNewer(FComponents[I],InstalledVersion(UPDATE_COMPONENTS[I].ID)) then
+        if FComponents[I].ComponentWarning<>'' then State:='Запасная копия'
+        else if ComponentNewer(FComponents[I],InstalledVersion(UPDATE_COMPONENTS[I].ID)) then
           if FComponents[I].CheckOnly then State:='Нет Windows-архива'
           else if (Version='') and IsOptionalComponent(UPDATE_COMPONENTS[I].ID) then State:='Можно установить'
           else State:='Есть обновление'
@@ -711,15 +768,16 @@ begin
 end;
 
 procedure TfrmProgramUpdate.SelectRow(Value: Integer);
-var Refreshing: Boolean;
+var Refreshing: Boolean; Position: Integer;
 begin
-  if FComponentsView.Items.Count=0 then Exit;
-  FSelectedRow:=EnsureRange(Value,0,FComponentsView.Items.Count-1);
-  if FHistorySelector.ItemIndex<>FSelectedRow then FHistorySelector.ItemIndex:=FSelectedRow;
+  if Length(FRowIDs)=0 then begin FSelectedRow:=0; Exit; end;
+  Position:=ViewIndex(Value); if Position<0 then Position:=0;
+  FSelectedRow:=FRowIDs[Position];
+  if FHistorySelector.ItemIndex<>Position then FHistorySelector.ItemIndex:=Position;
   Refreshing:=FRefreshingComponents; FRefreshingComponents:=True;
   try
-    if not FComponentsView.Items[FSelectedRow].Selected then FComponentsView.Items[FSelectedRow].Selected:=True;
-    if not FComponentsView.Items[FSelectedRow].Focused then FComponentsView.Items[FSelectedRow].Focused:=True;
+    if not FComponentsView.Items[Position].Selected then FComponentsView.Items[Position].Selected:=True;
+    if not FComponentsView.Items[Position].Focused then FComponentsView.Items[Position].Focused:=True;
   finally FRefreshingComponents:=Refreshing; end;
 end;
 
@@ -734,9 +792,10 @@ begin
     SelectRow(FSelectedRow);
     Exit;
   end;
-  if FSelectedRow=Item.Index then Exit;
+  if (Item.Index<0) or (Item.Index>High(FRowIDs)) then Exit;
+  if FSelectedRow=FRowIDs[Item.Index] then Exit;
   FRequestedComponent:=''; FRequestReason:='';
-  FSelectedRow:=Item.Index; ComponentSelected(nil);
+  FSelectedRow:=FRowIDs[Item.Index]; ComponentSelected(nil);
 end;
 
 procedure TfrmProgramUpdate.ComponentKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -756,7 +815,7 @@ end;
 procedure TfrmProgramUpdate.CopyComponents(Sender: TObject);
 var Text: string; I, First, Last, Attempt: Integer;
 begin
-  Text:=''; First:=FSelectedRow; Last:=First;
+  Text:=''; First:=ViewIndex(FSelectedRow); Last:=First;
   if (Sender is TMenuItem) and (TMenuItem(Sender).Tag=2) then
   begin
     if FSelectedRow<=0 then Exit;
@@ -831,11 +890,12 @@ begin
     if (Version='') and IsOptionalComponent(UPDATE_COMPONENTS[I].ID) and not FComponents[I].CheckOnly then
     begin
       FPrimary.Caption:='Скачать компонент';
-      FStatus.Caption:=Format('Для установки %s нужно скачать %.1f МБ.',
-        [UPDATE_COMPONENTS[I].ID,FComponents[I].Size/1048576]);
+      FStatus.Caption:=Format('Для установки «%s» нужно скачать %.1f МБ.',
+        [UPDATE_COMPONENTS[I].Title,FComponents[I].Size/1048576]);
       if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
         FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption+sLineBreak+
-          'После установки перезапустите HomeLib Ru и откройте книгу ещё раз.';
+          IfThen(FReaderOnly,'После установки читалка перезапустится и откроет эту книгу.',
+            'После установки программа перезапустится.');
     end;
   end
   else
@@ -844,7 +904,8 @@ begin
     FProgress.Position := 0; FBytes.Caption := ''; FPrimary.Enabled := not FComponentWaiting[I];
     FPrimary.Caption := 'Проверить всё';
     DisplayNotes(FComponents[I].History);
-    if not FComponents[I].OfficialComponent and FComponents[I].URL.StartsWith(
+    if (UPDATE_COMPONENTS[I].CheckKind=ccPublished) or
+      FComponents[I].URL.StartsWith(
       'https://github.com/Dicur3x/MyHomeLib/releases/tag/') then
       FStatus.Caption:='Источник: проверенный пакет HomeLib Ru на GitHub.'+sLineBreak
     else FStatus.Caption := 'Источник: официальный сайт автора компонента.' + sLineBreak;
@@ -854,11 +915,15 @@ begin
     else if FComponents[I].DownloadURL <> '' then
       FStatus.Caption := FStatus.Caption + 'Обновлений нет. Установлена актуальная версия.'
     else FStatus.Caption := FStatus.Caption + 'Нажмите «Проверить всё», чтобы узнать о новой версии.';
+    if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
+      FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption;
     if (FComponents[I].ComponentError<>'') or (FComponentError<>'') or
       (FComponents[I].ComponentWarning<>'') then FPrimary.Caption:='Повторить проверку';
     if FComponents[I].CheckOnly then
       FStatus.Caption:=FStatus.Caption+sLineBreak+'Проверяется официальный Windows-выпуск автора.';
   end;
+  if (FComponents[I].ComponentWarning<>'') and not string(FStatus.Caption).Contains(FComponents[I].ComponentWarning) then
+    FStatus.Caption:=FStatus.Caption+sLineBreak+FComponents[I].ComponentWarning;
   if FComponentWaiting[I] then
   begin FPrimary.Enabled:=False; FStatus.Caption:='Проверяется '+UPDATE_COMPONENTS[I].ID+'…'; end;
   UpdateSummary;
@@ -882,10 +947,10 @@ var I, Count: Integer;
 begin
   Result := nil;
   // An unavailable application archive must not cancel independent packages.
-  if HasApplicationDownload then
+  if not FReaderOnly and HasApplicationDownload then
   begin SetLength(Result, 1); Result[0] := FApplicationRelease; end;
   for I in CheckedComponentIndices do
-    if not FComponents[I].CheckOnly and
+    if ComponentAllowed(I) and RowVisible(I+1) and not FComponents[I].CheckOnly and
       (not IsOptionalComponent(ComponentIDs[I]) or
        ((InstalledVersion(ComponentIDs[I])<>'') and (not FCycleAutomatic or MayNotifyComponent(I)))) and
       ComponentNewer(FComponents[I], InstalledVersion(ComponentIDs[I])) then
@@ -1090,14 +1155,14 @@ var Index: Integer;
 begin
   Index:=-1;
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
-  if (Index<0) or not IsOptionalComponent(ID) then Exit;
+  if (Index<0) or not ComponentAllowed(Index) or not IsOptionalComponent(ID) then Exit;
   if (ID='DjVuLibre') and ComponentNeedsRepair(Settings.AppPath,'7-Zip') then
   begin
     RequestComponent('7-Zip','Для распаковки библиотеки DjVuLibre сначала нужен 7-Zip. После его установки снова откройте книгу DjVu.');
     Exit;
   end;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
-  FRequestedComponent:=ID; FRequestReason:=Reason;
+  FRequestedComponent:=ID; FRequestReason:=Reason; UpdateComponentList;
   if FCheckingCycle or Assigned(FComponentThread) then
   begin
     FRequestedCheckPending:=True; SelectRow(Index+1); ComponentSelected(nil); Present; Exit;
@@ -1117,11 +1182,13 @@ begin
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
   if FRequestedComponent<>'' then FComponentThread.OnlyIDs:=TArray<string>.Create(FRequestedComponent)
-  else if Automatic then
+  else
   begin
     IDs:=nil;
     for var I in CheckedComponentIndices do
-      if MayNotifyComponent(I) then IDs:=IDs+TArray<string>.Create(UPDATE_COMPONENTS[I].ID);
+      if ComponentAllowed(I) and RowVisible(I+1) and (not Automatic or MayNotifyComponent(I)) then
+        IDs:=IDs+TArray<string>.Create(UPDATE_COMPONENTS[I].ID);
+    if Length(IDs)=0 then IDs:=TArray<string>.Create('#none');
     FComponentThread.OnlyIDs:=IDs;
   end;
   for var I:=Low(FComponentWaiting) to High(FComponentWaiting) do
@@ -1622,6 +1689,7 @@ begin
     Root := TJSONObject.Create;
     try
       Root.AddPair('target', ExcludeTrailingPathDelimiter(Settings.AppPath));
+      Root.AddPair('application', ExtractFileName(ParamStr(0)));
       Root.AddPair('pid', TJSONNumber.Create(GetCurrentProcessId));
       Root.AddPair('tag', FRelease.Tag); Root.AddPair('sha256', FRelease.SHA256);
       Root.AddPair('commandLine', string(GetCommandLine));
@@ -1642,6 +1710,11 @@ begin
       FPendingInstall := False; Show; BringToFront;
     end;
   end;
+end;
+
+function TfrmProgramUpdate.WillInstallComponent(const ID: string): Boolean;
+begin
+  Result:=FPendingInstall and FReady and not FRecovery and PreparedIncludesComponent(FJob,ID);
 end;
 
 procedure TfrmProgramUpdate.CancelInstallation;

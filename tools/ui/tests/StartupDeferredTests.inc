@@ -159,6 +159,10 @@ begin
   Require(frmMain.pgControl.Enabled and frmMain.tlbrMain.Enabled,
     'Startup did not restore the main controls');
   Require(not frmMain.ShowStatusProgress, 'Startup left its progress visible');
+  if frmMain.pgControl.ActivePage = frmMain.tsByAuthor then
+    Require(frmMain.tvSeries.TotalCount = 0, 'Startup eagerly built the hidden series selector');
+  if frmMain.pgControl.ActivePage <> frmMain.tsByAuthor then
+    Require(frmMain.tvAuthors.TotalCount = 0, 'Startup eagerly built the hidden author selector');
   for var Button in TArray<TToolButton>.Create(frmMain.tbtnSettings, frmMain.tbtnHelp,
     frmMain.tbtnRus, frmMain.tbtnEng, frmMain.tbtnShowCover) do
   begin
@@ -173,6 +177,15 @@ begin
   end;
   Require(frmMain.tbSelectAll.Enabled and frmMain.tbSendToDevice.Enabled,
     'Startup left non-action book commands disabled');
+  if frmMain.pgControl.ActivePage = frmMain.tsByAuthor then
+  begin
+    ShowPage(PAGE_SERIES);
+    ExpectTitles(frmMain.tvBooksS, ['Alpha uk']);
+    Require(frmMain.cbLangSelectS.Text = 'uk', 'First deferred series visit lost its saved language');
+    ShowPage(PAGE_AUTHORS);
+    ExpectTitles(frmMain.tvBooksA, ['Alpha uk', 'Alpha ru', 'Alpha extra uk']);
+    Writeln('PASS startup lazy selectors restore their saved selection and language on first visit');
+  end;
   Writeln('PASS actual Main appears before catalogue and restores controls after background load');
 end;
 
@@ -182,7 +195,7 @@ begin
   Require(frmMain.StartupLoading and (frmMain.tvBooksA.TotalCount = 0),
     'Early-close main eagerly loaded the catalogue');
   frmMain.StartInitialCollectionLoad;
-  // The catalogue thread starts at the first timer event.
+  // The catalogue may already be read, but its results are applied by the timer.
   Started := GetTickCount64;
   while GetTickCount64 - Started < 25 do begin Application.ProcessMessages; Sleep(1); end;
   Started := GetTickCount64;
@@ -239,4 +252,54 @@ begin
   Collection.EndBulkOperation(False);
   CheckRows('');
   Writeln('PASS preferred sources preserve empty Unicode fallback rollback and expanded search rows');
+  // Adjacent merged books reuse a name, then cross another source, malformed
+  // IDs and an ordinary book. Renaming a source must invalidate that reuse.
+  CID := SystemDB.CreateCollection('Merged source names', Settings.AppPath,
+    'merged-source-names.hlc2', CT_EXTERNAL_LOCAL_FB, Settings.AppPath + 'genres_fb2.glst');
+  Collection := SystemDB.GetCollection(CID);
+  var SourceA := '{11111111-1111-1111-1111-111111111111}';
+  var SourceB := '{22222222-2222-2222-2222-222222222222}';
+  var SourceMissing := '{33333333-3333-3333-3333-333333333333}';
+  var SourceIDs := TArray<string>.Create('merged:' + SourceA + ':1',
+    'merged:' + SourceA + ':2', 'merged:' + SourceB + ':3',
+    'merged:' + SourceA + ':4', 'merged:' + SourceMissing + ':5',
+    'merged:{short}', 'plain:7', 'merged:' + SourceA + ':8');
+  var Keys: TArray<TBookKey>;
+  SetLength(Keys, Length(SourceIDs));
+  for var N := 0 to High(SourceIDs) do
+  begin
+    ID := AddBook(Collection, 'Merged row ' + IntToStr(N), 'Автор', 'ru', '', '0.1');
+    Keys[N] := CreateBookKey(ID, CID);
+    var Stored: TBookRecord;
+    Collection.GetBookRecord(Keys[N], Stored, False);
+    Stored.LibID := SourceIDs[N]; Collection.UpdateBook(Stored);
+  end;
+  Collection.SetCatalogBookPreferredSource(Keys[1], '');
+  for var Rename := 0 to 1 do
+  begin
+    var NameA := 'Источник ё ' + IntToStr(Rename);
+    Collection.SetProperty(PROP_CATALOG_SOURCES, '[{"id":"' + SourceA +
+      '","name":"' + NameA + '"},{"id":"' + SourceB + '","name":"Источник Б"}]');
+    var ExpectedNames := TArray<string>.Create(NameA, '', 'Источник Б', NameA,
+      'Дополнительный источник', 'Дополнительный источник', 'Merged source names', NameA);
+    for var N := 0 to High(Keys) do
+    begin
+      var Stored: TBookRecord;
+      Collection.GetBookRecord(Keys[N], Stored, False);
+      Require(Stored.CollectionName = ExpectedNames[N],
+        'Merged source fallback changed or a renamed source reused its old name');
+    end;
+    var Rows := Collection.GetBookIterator(bmAll, False);
+    var Nested := Collection.GetBookIterator(bmAll, False);
+    for var N := 0 to High(Keys) do
+    begin
+      var Stored: TBookRecord;
+      Require(Rows.Next(Stored) and Stored.BookKey.IsSameAs(Keys[N]) and
+        (Stored.CollectionName = ExpectedNames[N]), 'Merged iterator reused the wrong source name');
+      Require(Nested.Next(Stored) and (Stored.CollectionName = ExpectedNames[N]),
+        'Nested merged iterator changed another list source name');
+    end;
+    Rows := nil; Nested := nil;
+  end;
+  Writeln('PASS merged source names reuse safely across IDs, nested iterators, explicit empty names and source renaming');
 end;

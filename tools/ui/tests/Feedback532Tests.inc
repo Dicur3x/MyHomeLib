@@ -95,18 +95,32 @@ end;
 
 type
   T532ArchiveChooser = class
+    RequestedMember, SelectionError: string;
+    SelectionCount: Integer;
     procedure Tick(Sender: TObject);
   end;
 
 procedure T532ArchiveChooser.Tick(Sender: TObject);
 begin
   for var I:=0 to Screen.FormCount-1 do
-    if Screen.Forms[I].Visible and (Screen.Forms[I].Caption='Какую книгу открыть?') then
-      Screen.Forms[I].ModalResult:=mrOk;
+    if Screen.Forms[I].Visible and ((Screen.Forms[I].Caption='Какую книгу открыть?') or
+      (Screen.Forms[I].Caption='Какую книгу конвертировать?')) then
+    begin
+      if RequestedMember<>'' then
+        for var Component in Screen.Forms[I] do
+          if Component is TListBox then
+          begin
+            TListBox(Component).ItemIndex:=TListBox(Component).Items.IndexOf(RequestedMember);
+            if TListBox(Component).ItemIndex<0 then SelectionError:='Requested archive member is absent: '+RequestedMember;
+          end;
+      Inc(SelectionCount);
+      if SelectionError='' then Screen.Forms[I].ModalResult:=mrOk
+      else Screen.Forms[I].ModalResult:=mrCancel;
+    end;
 end;
 
 procedure TestSpecialFormatDetection;
-var Source, Expected, Name, Pair: string; At: Integer;
+var Source, Expected, Name, Pair: string; At: Integer; ProjectDB: TSQLiteDatabase;
 begin
   RequireIsolatedRegression;
   for Pair in TArray<string>.Create('.sqlite|SQLite format 3'+#0+'.stub',
@@ -118,6 +132,23 @@ begin
     Name:=Settings.AppPath+'special-'+Expected+'.unknown';TFile.WriteAllBytes(Name,TEncoding.ANSI.GetBytes(Source));
     Require(DetectReaderExtension(Name)=Expected,'Special format was mistaken for ordinary text: '+Expected);
   end;
+  Name:=Settings.AppPath+'saved-jutoh.wrong.pdf';
+  ProjectDB:=TSQLiteDatabase.Create(Name);
+  try
+    ProjectDB.ExecSQL('CREATE TABLE ProjectObjects(Id TEXT,ParentId TEXT,Data BLOB)');
+    ProjectDB.ExecSQL('CREATE TABLE ProjectVariables(Id TEXT)');
+    ProjectDB.ExecSQL('CREATE TABLE ProjectIndex(DataType TEXT,Data BLOB)');
+    ProjectDB.ExecSQL('INSERT INTO ProjectIndex VALUES(''Index'',X''0A00000070697869652D75746638'')');
+  finally ProjectDB.Free; end;
+  Source:=UpdateSHA256(Name);
+  Require(DetectReaderExtension(Name)='.jutoh','Jutoh schema under a false extension was not detected');
+  Require(IsBuiltinReaderFormat('.jutoh') and IsBasicConversionSource('.jutoh'),'Jutoh missing from reading or conversion');
+  Require(Source=UpdateSHA256(Name),'Jutoh detection changed its source project');
+  Require(not FileExists(Name+'-journal'),'Read-only Jutoh detection created a journal');
+  Name:=Settings.AppPath+'ordinary-database.jutoh';
+  ProjectDB:=TSQLiteDatabase.Create(Name);
+  try ProjectDB.ExecSQL('CREATE TABLE Books(Id INTEGER)'); finally ProjectDB.Free; end;
+  Require(DetectReaderExtension(Name)='.sqlite','An ordinary catalogue with a Jutoh suffix was accepted as a book');
   Writeln('PASS special container and project signatures ignore misleading filenames');Flush(Output);
 end;
 
@@ -204,10 +235,44 @@ begin
   Writeln('PASS converter validates exact copies and requests missing nested components without publishing partial books');Flush(Output);
 end;
 
+procedure TestMonochromeReaderPictures;
+const
+  Picture='iVBORw0KGgoAAAANSUhEUgAAAAcAAAADAQAAAAB3uChoAAAADklEQVR4nGOwZ7Bk+AkAAuUBciXe+80AAAAASUVORK5CYII=';
+  Expected: array[0..2] of Byte=($3F,$39,$F9);
+var Source: string; Doc: TReaderDocument; RTF: UTF8String;
+  Info: TBitmapInfoHeader; Colors: array[0..1] of TRGBQuad;
+  At, X, Y, ColorIndex: Integer; Pixel: Byte;
+begin
+  Source:=Settings.AppPath+'monochrome-reader.fb2';
+  TFile.WriteAllText(Source,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><body><section><p>Black and white text glyphs</p><image l:href="#mono"/></section></body><binary id="mono" content-type="image/png">'+Picture+'</binary></FictionBook>',TEncoding.UTF8);
+  Doc:=TReaderDocument.Create;
+  try
+    Doc.Load(Source); RTF:=Doc.RTF(960,1000);
+    At:=Pos(UTF8String('\bin60 '),RTF);
+    Require(At>0,'Monochrome reader picture expanded into a 24-bit DIB');
+    Inc(At,Length('\bin60 '));
+    Move(RTF[At],Info,SizeOf(Info)); Inc(At,SizeOf(Info));
+    Require((Info.biBitCount=1) and (Info.biWidth=7) and (Info.biHeight=3) and
+      (Info.biClrUsed=2) and (Info.biSizeImage=12),'Incorrect monochrome DIB layout');
+    Move(RTF[At],Colors,SizeOf(Colors)); Inc(At,SizeOf(Colors));
+    for Y:=0 to 2 do
+      for X:=0 to 6 do
+      begin
+        ColorIndex:=(Byte(RTF[At+(2-Y)*4]) shr (7-X)) and 1;
+        if (Expected[Y] and ($80 shr X))<>0 then Pixel:=255 else Pixel:=0;
+        Require((Colors[ColorIndex].rgbRed=Pixel) and (Colors[ColorIndex].rgbGreen=Pixel) and
+          (Colors[ColorIndex].rgbBlue=Pixel),'Monochrome glyph colors or scanlines changed');
+      end;
+    Require(Doc.ImageCount=1,'Monochrome picture disappeared from the reader document');
+  finally Doc.Free; end;
+  Writeln('PASS monochrome reader DIB preserves every pixel and palette at one bit per pixel'); Flush(Output);
+end;
+
 procedure TestCatalogueFormats;
 var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONObject;
-  FileName, Extension, Prepared, Source, OutputName, Hash, ErrorText: string;
-  Book: TBookRecord; Reader: TfrmBuiltinReader; Document: TReaderDocument;
+  FileName, Extension, Prepared, OriginalPrepared, Source, OutputName, Hash, ErrorText, Member: string;
+  Members: TArray<string>;
+  Book, ConvertedBook: TBookRecord; Reader: TfrmBuiltinReader; Document: TReaderDocument;
   Started: UInt64; Warnings: TStringList; Timer: TTimer; Chooser: T532ArchiveChooser;
   Count: Integer;
   LastProgress, Updates, TotalPages: Integer; CancelConversion, WasCanceled: Boolean;
@@ -216,6 +281,7 @@ begin
   RequireIsolatedRegression;
   TestContentDrivenBookNames;
   TestConverterInputValidation;
+  TestMonochromeReaderPictures;
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'catalogue-examples/examples.json',TEncoding.UTF8));
   Results:=TJSONArray.Create; Warnings:=TStringList.Create; Count:=0;
   Timer:=TTimer.Create(nil); Chooser:=T532ArchiveChooser.Create;
@@ -225,14 +291,21 @@ begin
     Require(Items.Count>0,'The catalogue audit must contain at least one real book');
     for Item in Items do
     begin
+      Members:=TArray<string>.Create('');
+      if Item.GetValue<Integer>('id')=710610 then
+        Members:=TArray<string>.Create('assets/artofwar.epub','assets/fiverings.epub');
+      for Member in Members do
+      begin
+      Chooser.RequestedMember:=Member; Chooser.SelectionError:=''; Chooser.SelectionCount:=0;
       Inc(Count); Row:=TJSONObject.Create; Results.AddElement(Row);
+      if Member<>'' then Row.AddPair('archive_member',Member);
       Extension:=Item.GetValue<string>('extension'); Row.AddPair('extension',Extension);
       Row.AddPair('id',TJSONNumber.Create(Item.GetValue<Integer>('id')));
       FileName:=TPath.Combine(Settings.AppPath,'catalogue-examples\'+Item.GetValue<string>('name'));
       Hash:=UpdateSHA256(FileName); Require(SameText(Hash,Item.GetValue<string>('sha256')),'Audit example changed before reading');
-      if (Extension='.cbz') or (Extension='.cbr') then
+      if (Extension='.cbz') or (Extension='.cbr') or (Extension='.pages') or (Extension='.cr3') or (Extension='.b1') then
       begin
-        // A renamed comic must keep all its pages through ordinary preparation.
+        // A false extension must retain the complete book through ordinary preparation.
         TFile.Copy(FileName,FileName+'.wrong.pdf',False);FileName:=FileName+'.wrong.pdf';
       end;
       Book.Clear; Book.NodeType:=ntBookInfo; Book.BookKey:=CreateBookKey(Count,900532);
@@ -241,7 +314,24 @@ begin
       Prepared:=''; Started:=GetTickCount64; ErrorText:='';
       try
         Prepared:=PrepareReaderFile(Book,True,nil,False,True,True);
+        OriginalPrepared:=Prepared;
+        if Member<>'' then
+        begin
+          Require((Chooser.SelectionError='') and (Chooser.SelectionCount>0),'The actual APK archive picker did not select the requested EPUB: '+Chooser.SelectionError);
+          if Member='assets/artofwar.epub' then
+            Require(SameText(UpdateSHA256(Prepared),'a8e1e627070dcdd9121bd3ffb8c4f9c29f0988e37c36a4cf5aeba8055f02cc01'),'APK selection changed Art of War bytes')
+          else
+            Require(SameText(UpdateSHA256(Prepared),'03c8e22e0d1fd60369e9c09e771d570659b706fcc862ee7f6d0d42989fa517b8'),'APK selection changed Five Rings bytes');
+          Row.AddPair('archive_selection','exact EPUB bytes');
+        end;
         Row.AddPair('detected',ExtractFileExt(Prepared));
+        if Item.GetValue<Integer>('id')=748625 then
+        begin
+          Require(SameText(ExtractFileExt(Prepared),'.pdf'),'B1 PDF opening was unnecessarily converted to reflow text');
+          Require(SameText(UpdateSHA256(Prepared),'2f639b72de568e9bb17325506b3b6c65c877c828dd6245a277f7797581b1d323'),
+            'B1 handoff changed the original archived PDF');
+          Row.AddPair('original_pdf_handoff','exact bytes');
+        end;
         if not ReaderSupportsReflow(Prepared) and not SameText(ExtractFileExt(Prepared),'.pdf') then
           Row.AddPair('read','unsupported')
         else
@@ -266,6 +356,9 @@ begin
         Started:=GetTickCount64; OutputName:=Settings.AppPath+'catalogue-result-'+IntToStr(Count)+Target;
         try
           Source:=PrepareConversionSource(Book,nil,Target);
+          Require(Chooser.SelectionError='',Chooser.SelectionError);
+          if Member<>'' then
+            Require(UpdateSHA256(Source)=UpdateSHA256(OriginalPrepared),'Bundle export selected an HTML preview or a different EPUB');
           if not IsBasicConversionSource(ExtractFileExt(Source)) then Row.AddPair(Target,'unsupported')
           else
           begin
@@ -305,7 +398,16 @@ begin
             Row.AddPair(Target+'_progress_updates',TJSONNumber.Create(Updates));
             Row.AddPair(Target+'_pages',TJSONNumber.Create(TotalPages));
             Document:=TReaderDocument.Create;
-            try Document.Load(OutputName); Require(Document.PlainText.Trim<>'','Conversion produced no readable text');
+            try
+              // Verify results through the same preparation used by an actual
+              // Open Book action, including image-heavy FB2 above the DOM limit.
+              ConvertedBook.Clear; ConvertedBook.NodeType:=ntBookInfo;
+              ConvertedBook.BookKey:=CreateBookKey(Count+500000,900532);
+              ConvertedBook.CollectionRoot:=ExtractFilePath(OutputName);
+              ConvertedBook.FileName:=TPath.GetFileNameWithoutExtension(OutputName);
+              ConvertedBook.FileExt:=ExtractFileExt(OutputName); ConvertedBook.Title:='Converted audit';
+              Prepared:=PrepareReaderFile(ConvertedBook,True,nil,False,True,True);
+              Document.Load(Prepared); Require(Document.PlainText.Trim<>'','Conversion produced no readable text');
               Row.AddPair(Target,'ok'); Row.AddPair(Target+'_length',TJSONNumber.Create(Length(Document.PlainText)));
               Row.AddPair(Target+'_pictures',TJSONNumber.Create(Document.ImageCount));
             finally Document.Free; end;
@@ -319,6 +421,7 @@ begin
       TFile.WriteAllText(Settings.AppPath+'catalogue-format-results.json',Results.ToJSON,TEncoding.UTF8);
       Writeln('AUDIT catalogue format ',Extension,' example=',Count,' read=',Row.GetValue<string>('read'),
         ' fb2=',Row.Values['.fb2'].Value,' epub=',Row.Values['.epub'].Value); Flush(Output);
+      end;
     end;
     Writeln('PASS catalogue-formats audit completed examples=',Count,'; inspect per-book outcomes');
   finally Timer.Free; Chooser.Free; Warnings.Free; Results.Free; Root.Free; end;
