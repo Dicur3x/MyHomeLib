@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from verify_update_archive import version
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -75,7 +76,15 @@ def main():
             expected_machine = 0x14c if options.platform == 'Win32' else 0x8664
             for name in ['HomeLibRu.exe','HomeLibRuUpdater.exe']:
                 assert machine(package.read(name)) == expected_machine
+            identities = {}
+            for name in ('HomeLibRu.exe', 'HomeLibRuUpdater.exe'):
+                binary = folder/name
+                binary.write_bytes(package.read(name))
+                identities[name] = version(binary)
+                assert identities[name]['product'] == manifest['release'], identities
+            assert identities['HomeLibRu.exe']['file'] == identities['HomeLibRuUpdater.exe']['file'], identities
             report.update({'archive_bytes':archive.stat().st_size, 'manifest_files':len(manifest['files']),
+                           'release_executable_identities':identities,
                            'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe'],
                            'catalogue_only_payload_verified':True, 'native_format_adapters_absent':True, 'native_architectures_verified':True,
                            'archive_sha256':sha(archive.read_bytes()),
