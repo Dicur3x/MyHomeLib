@@ -8,6 +8,7 @@
 
 uses
   frm_MCPSetup,
+  unit_CatalogComponents, unit_MetabibReader,
   unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
@@ -5625,6 +5626,7 @@ end;
 {$I ComponentMirrorTests.inc}
 {$I PublishedComponentTests.inc}
 {$I MCPModuleTests.inc}
+{$I ZstdModuleTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5841,6 +5843,7 @@ begin
       else if ParamStr(1) = 'component-mirrors' then TestComponentMirrors
       else if ParamStr(1) = 'published-components' then TestPublishedComponents
       else if ParamStr(1) = 'optional-mcp' then TestOptionalMCPModule
+      else if ParamStr(1) = 'optional-zstd' then TestOptionalZstdModule
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents

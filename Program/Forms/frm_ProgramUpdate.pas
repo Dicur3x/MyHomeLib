@@ -41,6 +41,7 @@ type
     FRequestedComponent, FRequestReason: string;
     FRequestedCheckPending: Boolean;
     FReaderOnly: Boolean;
+    FOperationComponent: string;
     FCompactForm: TForm;
     FCompactStatus: TMemo;
     FCompactHeader, FCompactBytes: TLabel;
@@ -137,6 +138,7 @@ type
     procedure CheckComponents(Automatic: Boolean);
     procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
+    function InstallComponentForOperation(const ID, Reason: string): Boolean;
     procedure UseFullWindow;
     function StartCheckCycle(Automatic: Boolean): Boolean;
     procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
@@ -669,7 +671,8 @@ begin
   Result:=(Index>=Low(UPDATE_COMPONENTS)) and (Index<=High(UPDATE_COMPONENTS));
   if Result and FReaderOnly then
     Result:=(UPDATE_COMPONENTS[Index].ID<>'SQLite') and (UPDATE_COMPONENTS[Index].ID<>'AlReader') and
-      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF') and (UPDATE_COMPONENTS[Index].ID<>'MHLMcpServer');
+      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF') and (UPDATE_COMPONENTS[Index].ID<>'MHLMcpServer') and
+      (UPDATE_COMPONENTS[Index].ID<>'Zstandard');
 end;
 
 function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;
@@ -912,8 +915,9 @@ begin
         [UPDATE_COMPONENTS[I].Title,FComponents[I].Size/1048576]);
       if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
         FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption+sLineBreak+
-          IfThen(FReaderOnly,'После установки читалка перезапустится и откроет эту книгу.',
-            'После установки программа перезапустится.');
+          IfThen(FOperationComponent<>'','После установки продолжится выбранная операция.',
+            IfThen(FReaderOnly,'После установки читалка перезапустится и откроет эту книгу.',
+              'После установки программа перезапустится.'));
     end;
   end
   else
@@ -1230,13 +1234,44 @@ end;
 
 procedure TfrmProgramUpdate.CompactLater(Sender: TObject);
 begin
+  if FOperationComponent<>'' then
+  begin
+    if Assigned(FThread) then FThread.Terminate;
+    FCompactForm.ModalResult:=mrCancel; Exit;
+  end;
   LaterClick(Sender);
   if Assigned(FThread) then SyncCompactPrompt else FCompactForm.Hide;
 end;
 
 procedure TfrmProgramUpdate.CompactClose(Sender: TObject; var Action: TCloseAction);
 begin
+  if FOperationComponent<>'' then
+  begin
+    if FCompactForm.ModalResult<>mrOk then CompactLater(Sender);
+    Action:=caHide; Exit;
+  end;
   LaterClick(Sender); Action:=caHide;
+end;
+
+function TfrmProgramUpdate.InstallComponentForOperation(const ID, Reason: string): Boolean;
+begin
+  // Only the catalogue decoder is installed in a running process. Executables
+  // and already loaded libraries keep the normal restart transaction.
+  if (ID<>'Zstandard') or (GetModuleHandle(PChar(Settings.AppPath+'libzstd.dll'))<>0) then
+    raise Exception.Create('Для установки этого компонента требуется перезапуск программы.');
+  if Assigned(FThread) or Assigned(FComponentThread) or FReady then
+    raise Exception.Create('Дождитесь завершения предыдущей операции обновления.');
+  Result:=False; FOperationComponent:=ID;
+  try
+    RequestComponent(ID,Reason,True);
+    FCompactForm.Hide;
+    Result:=FCompactForm.ShowModal=mrOk;
+  finally
+    if Assigned(FThread) then begin FThread.Terminate; FreeAndNil(FThread); end;
+    // This operation never writes the ordinary updater's ready.json and cannot
+    // replace or discard a separately prepared application update.
+    FReady:=False; DiscardJob; ClearQueueJobs; FOperationComponent:='';
+  end;
 end;
 
 procedure TfrmProgramUpdate.UseFullWindow;
@@ -1480,6 +1515,21 @@ var ReleaseInfo: TProgramRelease; PreviousRepair: string;
 begin
   if FReady then
   begin
+    if FOperationComponent<>'' then
+    begin
+      try
+        if (FRelease.ComponentID<>FOperationComponent) or FRecovery then
+          raise Exception.Create('Подготовлен другой компонент. Повторите загрузку.');
+        VerifyPreparedProgramUpdate(FJob,FRelease.Tag,ProgramUpdatePlatform);
+        InstallProgramUpdate(FJob,Settings.AppPath);
+        if ComponentNeedsRepair(Settings.AppPath,FOperationComponent) then
+          raise Exception.Create('Не удалось подтвердить установленную библиотеку.');
+        FReady:=False; DiscardJob; RefreshInstalledComponents;
+        FCompactForm.ModalResult:=mrOk;
+      except on E: Exception do
+      begin FStatus.Caption:='Не удалось установить библиотеку: '+E.Message; LayoutWindow; end; end;
+      Exit;
+    end;
     if not FRecovery and (FRelease.ComponentID <> '') and
       (UpdateFileVersion(Settings.AppPath + 'HomeLibRuUpdater.exe') = '') then
     begin
@@ -1638,7 +1688,7 @@ begin
       end;
     except on E: Exception do begin FReady := False; Error := E.Message; end; end;
   end;
-  if FReady then
+  if FReady and (FOperationComponent='') then
   begin
     try SaveReady;
     except on E: Exception do begin FReady := False; Error := E.Message; end; end;
@@ -1650,6 +1700,11 @@ begin
     FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
     FStatus.Caption := 'Обновление скачано и проверено.' + sLineBreak +
       'Для установки HomeLib Ru закроется и запустится снова.';
+    if FOperationComponent<>'' then
+    begin
+      FPrimary.Caption:='Установить библиотеку';
+      FStatus.Caption:='Библиотека скачана и проверена. После установки выбранная операция продолжится без перезапуска.';
+    end;
     Present;
   end
   else

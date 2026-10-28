@@ -285,11 +285,11 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
     (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
-    $zstdDestination,
     (Join-Path $outputDirectory 'tools\fonts\manifest.json')
 )
 if (-not $CoreOnly) {
     $requiredRuntimeFiles += @(
+    $zstdDestination,
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
     (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
@@ -323,8 +323,8 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -Expected $Platform
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
-Assert-Architecture -Path $zstdDestination -Expected $Platform
 if (-not $CoreOnly) {
+    Assert-Architecture -Path $zstdDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
     Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
     Assert-Architecture -Path $sevenZipDestination -Expected $Platform
@@ -369,7 +369,7 @@ Write-Host ''
 Write-Host 'Проверенные файлы:'
 Write-FileHash -Path $exePath
 Write-FileHash -Path $sqliteDestination
-Write-FileHash -Path $zstdDestination
+if (-not $CoreOnly) { Write-FileHash -Path $zstdDestination }
 Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
 if (-not $CoreOnly) {
     Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')

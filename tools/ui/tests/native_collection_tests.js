@@ -75,10 +75,12 @@ modes.push('ibk-download-live');
 modes.push('component-mirrors', 'reader-portable');
 if (process.env.HOMELIB_PUBLISHED_COMPONENT_PACKAGES || viewsMode === 'published-components') modes.push('published-components');
 if (process.env.HOMELIB_MCP_COMPONENT_PACKAGES || viewsMode === 'optional-mcp') modes.push('optional-mcp');
+if (process.env.HOMELIB_ZSTD_COMPONENT_PACKAGES || viewsMode === 'optional-zstd') modes.push('optional-zstd');
 modes.push('webp-live');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   'optional-mcp': ['PASS optional MCP setup preserves default custom Unicode profiles', 'PASS optional MCP is hidden until requested', 'PASS optional MCP actual package verifies architecture version restricted files'],
+  'optional-zstd': ['PASS optional Zstandard real compact download cancel tamper install without restart', 'PASS optional Zstandard newly installed official decoder reads actual Metabib'],
   'published-components': ['PASS published component manifest prepare verify install HomeLibReader', 'PASS published component manifest prepare verify install BookConverter', 'PASS published component manifest prepare verify install PDFium'],
   'component-mirrors': ['PASS component mirror source and real download fallback preserve exact version architecture and bytes', 'PASS component mirror native UI shows exact fallback version and GitHub source', 'PASS IBK mirror preserves unchanged complete original distributions'],
   'ibk-download-live': ['PASS IBK live native source check and updater download preserve pinned identities and prepare complete original data'],
@@ -264,6 +266,7 @@ function copyDllTree(source, target) {
 function stage(folder, executable, mode = '') {
   fs.copyFileSync(executable, path.join(folder, path.basename(executable)));
   for (const name of ["sqlite3.dll", "libzstd.dll", "libeay32.dll", "ssleay32.dll", "homelib_webp.dll"]) {
+    if (mode==='optional-zstd' && name==='libzstd.dll') continue;
     const src = path.join(runtime, name);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(folder, name));
   }

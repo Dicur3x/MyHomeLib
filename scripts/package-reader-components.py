@@ -79,6 +79,10 @@ def package(repo, platform, component, tag, converter_version, output):
         ).encode("utf-8")
         for name in ("HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll", "NOTICE"):
             payload[name] = (runtime / name).read_bytes()
+        # Legacy component clients require libzstd.dll in Reader bundles. Keep
+        # that compatibility until the separate minimal-Reader feed transition,
+        # and reproduce the official BSD licence alongside the binary.
+        payload["NOTICE"] += b"\n\nZstandard\n" + (repo / "Program/Resources/zstd/LICENSE").read_bytes()
         # NOTICE is already accepted by older component installers.
         payload["NOTICE"] += b"\n\n" + reader_note
         payload["tools/fonts/manifest.json"] = (runtime / "tools/fonts/manifest.json").read_bytes()

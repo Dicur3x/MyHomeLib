@@ -50,6 +50,7 @@ uses
   frm_ImportProgressFormEx,
   unit_libupdateThread,
   unit_MetabibReader,
+  unit_CatalogComponents,
   frm_info_popup,
   frm_search,
   frm_main,
@@ -157,6 +158,8 @@ begin
 
   if not AskUpdateFile(FileName, Full) then
     Exit;
+
+  if not EnsureCatalogReaderComponent(Application,FileName) then Exit;
 
   CollectionInfo := DMUser.GetSystemDBConnection.GetCollectionInfo(CollectionID);
 

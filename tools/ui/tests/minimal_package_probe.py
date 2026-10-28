@@ -59,7 +59,7 @@ def main():
                 'tools/office/', 'tools/xps/', 'tools/pdfium/',
                 'tools/7zip/', 'tools/webp/', 'tools/jpeg-xl/', 'tools/doc/', 'tools/djvu/')
             core_tools = {'tools/fonts/manifest.json'}
-            forbidden = [name for name in names if name in ('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url') or
+            forbidden = [name for name in names if name in ('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll') or
                 name.startswith(forbidden_prefixes) or (name.startswith('tools/') and name not in core_tools)]
             assert not forbidden, forbidden
             manifest = json.loads(package.read('HomeLibRu.update.json'))
@@ -69,14 +69,14 @@ def main():
             for entry in manifest['files']:
                 data = package.read(entry['path'])
                 assert len(data) == entry['size'] and sha(data) == entry['sha256'], entry['path']
-            for name in ('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'libzstd.dll',
+            for name in ('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll',
                          'LICENSE', 'NOTICE', 'COMPONENTS.json', *core_tools):
                 assert name in names, 'Required catalogue file missing: ' + name
             expected_machine = 0x14c if options.platform == 'Win32' else 0x8664
             for name in ['HomeLibRu.exe','HomeLibRuUpdater.exe']:
                 assert machine(package.read(name)) == expected_machine
             report.update({'archive_bytes':archive.stat().st_size, 'manifest_files':len(manifest['files']),
-                           'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe'],
+                           'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe','MHLMcpServer.exe','HomeLibRu.url','libzstd.dll'],
                            'catalogue_only_payload_verified':True, 'native_format_adapters_absent':True, 'native_architectures_verified':True,
                            'archive_sha256':sha(archive.read_bytes()),
                            'scenario':'package-only' if options.package_only else options.scenario,'published':False,

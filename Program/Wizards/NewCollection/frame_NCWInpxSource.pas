@@ -79,6 +79,7 @@ uses
   IOUtils,
   unit_Settings,
   dm_user,
+  unit_CatalogComponents,
   unit_Helpers,
   IniFiles;
 
@@ -244,6 +245,7 @@ begin
   if FPParams^.Operation = otMetabib then
   begin
     FPParams^.INPXFile := edINPXPath.Text;
+    if CheckData and not EnsureCatalogReaderComponent(Self,FPParams^.INPXFile) then Exit(False);
     Exit(True);
   end;
 

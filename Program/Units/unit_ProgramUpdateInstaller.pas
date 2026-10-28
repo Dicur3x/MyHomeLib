@@ -56,7 +56,7 @@ implementation
 
 uses System.IOUtils, System.Hash, System.Zip,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
-  unit_IBKRuntime, unit_ReaderAdapters;
+  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime;
 
 function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
@@ -84,6 +84,7 @@ begin
   if ID = 'SQLite' then Result := 'sqlite3.dll';
   if ID = 'HomeLibReader' then Result := 'HomeLibReader.exe';
   if ID = 'MHLMcpServer' then Result := 'MHLMcpServer.exe';
+  if ID = 'Zstandard' then Result := 'libzstd.dll';
   if ID = 'PDFium' then Result := 'tools/pdfium/pdfium.dll';
   if ID = 'BookConverter' then Result := 'tools/kindle/python/python.exe';
   if ID = 'IBK' then Result := 'tools/ibk/Rus.key';
@@ -99,6 +100,8 @@ end;
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if ID='Zstandard' then Exit((Name='libzstd.dll') or
+    (Name='tools/zstd/RUNTIME.json') or (Name='tools/zstd/LICENSE'));
   if ID='MHLMcpServer' then Exit((Name='MHLMcpServer.exe') or
     (Name='MHLMcpServer-LICENSE.txt') or (Name='MHLMcpServer-README.txt'));
   if (ID='DocSharp') or (ID='DjVuLibre') then
@@ -209,6 +212,7 @@ var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
 begin
   FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
   Result:=UpdateFileVersion(FileName);
+  if ID='Zstandard' then Exit(ZstdRuntimeVersion(AppPath));
   if ID='IBK' then
   begin
     if IBKRuntimeAvailable(AppPath) then Result:=IBK_VERSION else Result:='';
@@ -314,6 +318,12 @@ begin
     if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
       'HomeLibReader-LICENSE.txt','sqlite3.dll','libzstd.dll','NOTICE')
     else if ID='MHLMcpServer' then Names:=TArray<string>.Create('MHLMcpServer.exe')
+    else if ID='Zstandard' then
+    begin
+      Names:=TArray<string>.Create('libzstd.dll');
+      if FileExists(TPath.Combine(AppPath,'tools/zstd/RUNTIME.json')) then
+        Names:=Names+TArray<string>.Create('tools/zstd/RUNTIME.json','tools/zstd/LICENSE');
+    end
     else if ID='PDFium' then Names:=TArray<string>.Create('tools/pdfium/pdfium.dll','tools/pdfium/HomeLibPDF.exe',
       'tools/pdfium/RUNTIME.json','tools/pdfium/WORKER_RUNTIME.json','tools/pdfium/LICENSE','tools/pdfium/HomeLibPDF-LICENSE.txt')
     else if ID='BookConverter' then Names:=TArray<string>.Create('tools/kindle/python/python.exe',
@@ -512,6 +522,8 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   end;
   procedure RequireComponentMembers(const ID, Version: string);
   begin
+    if ID='Zstandard' then
+      for var Name in ['libzstd.dll','tools/zstd/RUNTIME.json','tools/zstd/LICENSE'] do RequireMember(Name);
     if ID='MHLMcpServer' then
       for var Name in ['MHLMcpServer-LICENSE.txt','MHLMcpServer-README.txt'] do RequireMember(Name);
     if ID='HomeLibReader' then
@@ -555,7 +567,7 @@ begin
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 12) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 14) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -726,7 +738,7 @@ begin
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Не совпала версия или контрольная сумма данных IBK.');
     end
-    else if (Component='PDFium') or (Component='BookConverter') then
+    else if (Component='PDFium') or (Component='BookConverter') or (Component='Zstandard') then
     begin
       VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
@@ -1381,7 +1393,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..12] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer');
+const ComponentNames: array[0..13] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

@@ -33,10 +33,16 @@ $stagingRoot = Join-Path $temporaryDirectory ('homelibru-package-' + [guid]::New
 $payloadDirectory = Join-Path $stagingRoot 'payload'
 [System.IO.Directory]::CreateDirectory($payloadDirectory) | Out-Null
 try {
-    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'libzstd.dll', 'LICENSE', 'NOTICE')) {
+    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
     }
-    if ($Full) { Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'MHLMcpServer.exe') -Destination $payloadDirectory }
+    if ($Full) {
+        foreach ($name in @('MHLMcpServer.exe', 'libzstd.dll')) {
+            Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
+        }
+        $zstdLicence = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'Program\Resources\zstd\LICENSE'))
+        [System.IO.File]::AppendAllText((Join-Path $payloadDirectory 'NOTICE'), "`n`nZstandard`n" + $zstdLicence)
+    }
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
@@ -152,7 +158,7 @@ try {
             foreach ($entry in $archive.Entries) {
                 if (($entry.FullName.StartsWith('tools/') -and $entry.FullName -ne 'tools/fonts/manifest.json') -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
-                    $entry.FullName -in @('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url')) {
+                    $entry.FullName -in @('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll')) {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"
                 }
             }
