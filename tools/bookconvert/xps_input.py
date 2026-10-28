@@ -12,7 +12,7 @@ def rendered_pages(book, source=None, image_pages=False, report_rendering=True):
     kind = 'изображения' if image_pages else 'XPS'
     tool = book.tools_root / 'xps' / 'HomeLibXps.exe'
     if not tool.is_file():
-        book.require('BookConverter', 'Модуль подготовки XPS и изображений неполон. Его нужно восстановить.')
+        book.require('XPS', 'Для чтения XPS нужен модуль чтения XPS (HomeLibXps).')
     with tempfile.TemporaryDirectory(prefix='homelib-xps-', dir=book.work_root) as directory:
         pages = Path(directory) / 'pages.zip'
         log = Path(directory) / 'render.log'

@@ -14,7 +14,7 @@ implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
   unit_BookCache, unit_MHLExternalTools, unit_Settings, unit_ReaderDOC,
-  unit_BookConversion, dm_user;
+  unit_BookConversion, unit_FormatComponents, dm_user;
 
 function IsOfficeReaderFormat(const Extension: string): Boolean;
 begin
@@ -24,9 +24,9 @@ end;
 
 function FindReaderOffice: string;
 begin
-  // A private, bundled interpreter is shared with Kindle and ebook export.
+  // The private interpreter is shared by processing; format decoders are separate.
   // Never discover, start or require an installed office application.
-  Result:=TPath.Combine(Settings.AppPath,'tools\kindle\python\python.exe');
+  Result:=FindBookProcessingPython(Settings.AppPath);
   if not FileExists(Result) then Result:='';
   if not FileExists(TPath.Combine(Settings.AppPath,'tools\bookconvert\office_inputs.py')) then Result:='';
 end;
@@ -56,10 +56,10 @@ var Input: TStream; Writer: TBookCacheWrite; Zip: TZipFile;
     if (Assigned(IsCanceled) and IsCanceled()) or
       ((GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated) then Abort;
   end;
-  procedure AddStamp(const FileName: string);
+  procedure AddStamp(const FileName: string; const Component: string = 'BookProcessing');
   begin
     if not FileExists(FileName) then
-      raise EMHLComponentRequired.Create('BookConverter','Модуль подготовки документов неполон. Его можно восстановить в окне компонентов.');
+      raise EMHLComponentRequired.Create(Component,'Для подготовки документа нужен компонент '+Component+'.');
     if not GetFileAttributesEx(PChar(FileName),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
     Stamp:=Stamp+'|'+FileName+'|'+IntToStr(Attributes.nFileSizeHigh)+':'+IntToStr(Attributes.nFileSizeLow)+'|'+
       IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
@@ -68,7 +68,7 @@ begin
   Result:=SourceFile; if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
   if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,OnStage,IsCanceled));
   CheckCanceled;
-  if FindReaderOffice='' then raise EMHLComponentRequired.Create('BookConverter','Для этого документа нужен модуль конвертации.');
+  if FindReaderOffice='' then raise EMHLComponentRequired.Create('BookProcessing','Для подготовки этого документа нужна общая обработка книг.');
   if not OfficeReaderAvailable(ExtractFileExt(SourceFile)) then
   begin
     if Pos('|'+LowerCase(ExtractFileExt(SourceFile)).TrimLeft(['.'])+'|','|wps|wpd|')>0 then
@@ -77,7 +77,7 @@ begin
       if SystemInfo.wProcessorArchitecture<>PROCESSOR_ARCHITECTURE_AMD64 then
         raise Exception.Create('Чтение WPS/WPD пока требует 64-разрядную Windows.');
     end;
-    raise EMHLComponentRequired.Create('BookConverter','Модуль подготовки документов неполон. Его можно восстановить в окне компонентов.');
+    raise EMHLComponentRequired.Create('LegacyOffice','Для чтения WPS/WPD нужен модуль libwps/libwpd.');
   end;
   Input:=OpenCachedBookFile(SourceFile);
   try
@@ -87,7 +87,7 @@ begin
       'tools\bookconvert\text_inputs.py'] do
       AddStamp(TPath.Combine(Settings.AppPath,Dependency));
     if Pos('|'+LowerCase(ExtractFileExt(SourceFile)).TrimLeft(['.'])+'|','|wps|wpd|')>0 then
-      AddStamp(TPath.Combine(Settings.AppPath,'tools\office\RUNTIME.json'));
+      AddStamp(TPath.Combine(Settings.AppPath,'tools\office\RUNTIME.json'),'LegacyOffice');
     Result:=ExistingBookCacheFile(TPath.Combine(BookCachePath,
       'homelib-office-'+Copy(THashSHA2.GetHashString(SourceFile),1,32)+'.epub'));
     StampFile:=Result+'.source';

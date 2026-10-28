@@ -33,7 +33,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
   Source: TStream; const IsCanceled: TFunc<Boolean>): Boolean;
@@ -198,18 +198,18 @@ begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
   end;
-  Tool:=TPath.Combine(AppPath,'tools\kindle\python\python.exe');
+  Tool:=FindBookProcessingPython(AppPath);
   Script:=TPath.Combine(AppPath,'tools\bookconvert\convert_book.py');
-  if not FileExists(Tool) or not FileExists(Script) then
-    raise EMHLComponentRequired.Create('BookConverter','Для создания '+UpperCase(TargetExtension.TrimLeft(['.']))+
-      ' нужен общий модуль конвертации HomeLib Ru (BookConverter).');
+  if not ModularBookProcessingAvailable(AppPath) then
+    raise EMHLComponentRequired.Create('BookProcessing','Для создания '+UpperCase(TargetExtension.TrimLeft(['.']))+
+      ' нужна общая обработка FB2/EPUB. Дополнительные декодеры других форматов в неё не входят.');
   if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
     if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
       (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
-      raise EMHLComponentRequired.Create('BookConverter',
-        'Для выбранной обработки изображений нужно обновить общий конвертер HomeLib Ru (BookConverter).');
+      raise EMHLComponentRequired.Create('BookProcessing',
+        'Для выбранной обработки изображений нужно обновить общую обработку FB2/EPUB.');
   end;
   Work:=TPath.Combine(TPath.GetFullPath(TempRoot),'homelib-convert-'+TGUID.NewGuid.ToString);
   ForceDirectories(Work);
@@ -448,9 +448,11 @@ begin
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('required_component')<>nil) then
               begin
                 var Required:=TJSONObject(Report).GetValue('required_component').Value;
+                if Required='BookConverter' then Required:='BookProcessing';
                 if (Required='DocSharp') or (Required='7-Zip') or (Required='WebP') or
-                  (Required='JPEG XL') or (Required='DjVuLibre') or (Required='PDFium') or (Required='BookConverter') or (Required='IBK') then
-                  raise EMHLComponentRequired.Create(Required,'Для этой книги нужен компонент '+Required+'.');
+                  (Required='JPEG XL') or (Required='DjVuLibre') or (Required='PDFium') or IsFormatComponent(Required) or (Required='IBK') then
+                  raise EMHLComponentRequired.Create(Required,TJSONObject(Report).GetValue<string>('error',
+                    'Для этой книги нужен компонент '+Required+'.'));
               end;
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('error')<>nil) then
                 raise Exception.Create(TJSONObject(Report).GetValue('error').Value);

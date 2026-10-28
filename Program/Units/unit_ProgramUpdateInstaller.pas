@@ -56,7 +56,7 @@ implementation
 
 uses System.IOUtils, System.Hash, System.Zip,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
-  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime;
+  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents;
 
 function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
@@ -80,6 +80,7 @@ end;
 
 function ComponentFileName(const ID: string): string;
 begin
+  if IsFormatComponent(ID) then Exit(FormatComponentFile(ID));
   Result := '';
   if ID = 'SQLite' then Result := 'sqlite3.dll';
   if ID = 'HomeLibReader' then Result := 'HomeLibReader.exe';
@@ -100,6 +101,7 @@ end;
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if IsFormatComponent(ID) then Exit(SafeUpdateName(Name) and SafeFormatComponentFile(ID,Name));
   if ID='Zstandard' then Exit((Name='libzstd.dll') or
     (Name='tools/zstd/RUNTIME.json') or (Name='tools/zstd/LICENSE'));
   if ID='MHLMcpServer' then Exit((Name='MHLMcpServer.exe') or
@@ -212,6 +214,7 @@ var Root: TJSONValue; Metadata, Hashes: TJSONObject; HashValue: TJSONValue;
 begin
   FileName:=IncludeTrailingPathDelimiter(AppPath)+StringReplace(ComponentFileName(ID),'/',PathDelim,[rfReplaceAll]);
   Result:=UpdateFileVersion(FileName);
+  if IsFormatComponent(ID) then Exit(FormatComponentVersion(AppPath,ID));
   if ID='Zstandard' then Exit(ZstdRuntimeVersion(AppPath));
   if ID='IBK' then
   begin
@@ -310,11 +313,17 @@ begin
 end;
 
 function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
-var Names: TArray<string>; Name, FullName: string;
+var Names: TArray<string>; Name, FullName, Version: string; Comparison: Integer;
 begin
+  if IsFormatComponent(ID) then Exit(FormatComponentVersion(AppPath,ID)='');
   Result:=True;
   try
-    if InstalledComponentVersion(AppPath,ID)='' then Exit;
+    Version:=InstalledComponentVersion(AppPath,ID);
+    if Version='' then Exit;
+    // An older Reader still requests the former all-format converter. Update
+    // it on first use so catalogue launches obey the new dependency layout.
+    if (ID='HomeLibReader') and
+      (not CompareComponentVersions(Version,'2.7.0.1105',Comparison) or (Comparison<0)) then Exit;
     if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
       'HomeLibReader-LICENSE.txt','sqlite3.dll','libzstd.dll','NOTICE')
     else if ID='MHLMcpServer' then Names:=TArray<string>.Create('MHLMcpServer.exe')
@@ -522,6 +531,11 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   end;
   procedure RequireComponentMembers(const ID, Version: string);
   begin
+    if IsFormatComponent(ID) then
+    begin
+      RequireMember(FormatComponentDescriptor(ID));
+      for var Name in FormatComponentRequiredFiles(ID) do RequireMember(Name);
+    end;
     if ID='Zstandard' then
       for var Name in ['libzstd.dll','tools/zstd/RUNTIME.json','tools/zstd/LICENSE'] do RequireMember(Name);
     if ID='MHLMcpServer' then
@@ -567,7 +581,7 @@ begin
   Bundle := nil; Root.TryGetValue<TJSONArray>('bundle', Bundle);
   if Component = 'batch' then
   begin
-    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 14) then
+    if not Assigned(Bundle) or (Bundle.Count < 1) or (Bundle.Count > 20) then
       raise Exception.Create('Некорректный пакет компонентов.');
   end
   else if (Component <> '') and ((ComponentFileName(Component) = '') or
@@ -733,7 +747,15 @@ begin
     Architecture := Platform;
     // AlReader's Windows edition is a 32-bit application in both distributions.
     if (Component='AlReader') or (Component='DocSharp') or (Component='DjVuLibre') or (Component='IBK') then Architecture:='Win32';
-    if Component='IBK' then
+    if IsFormatComponent(Component) then
+    begin
+      if Component='LegacyOffice' then Architecture:='Win64';
+      if Component<>'Kindle' then
+        VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
+      if InstalledComponentVersion(Stage,Component)<>Version then
+        raise Exception.Create('Версия или контрольная сумма модуля '+Component+' не совпадает с описанием пакета.');
+    end
+    else if Component='IBK' then
     begin
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Не совпала версия или контрольная сумма данных IBK.');
@@ -1393,7 +1415,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..13] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard');
+const ComponentNames: array[0..19] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

@@ -51,6 +51,26 @@ class ComponentRequired(ConversionError):
         self.component = component
 
 
+def optional_component_id(component, tools_root=None):
+    """Keep old full-converter clients compatible; new packages name dependencies."""
+    root = Path(tools_root or Path(__file__).resolve().parent.parent)
+    try:
+        modern = (root/'bookconvert/MODULAR_API.txt').read_text('ascii').strip() == '1'
+    except (OSError, UnicodeError):
+        modern = False
+    if not modern and component in {'ImageProcessing', 'XPS', 'LegacyOffice', 'Kindle', 'LegacyBooks'}:
+        return 'BookConverter'
+    return component
+
+
+def image_processor_path(tools_root):
+    root = Path(tools_root)
+    current = root/'images/HomeLibImages.exe'
+    # Existing installations may retain the former shared helper. Reuse it;
+    # new downloads put image processing in its own component and directory.
+    return current if current.is_file() else root/'xps/HomeLibXps.exe'
+
+
 def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
@@ -986,6 +1006,18 @@ def kindle_to_book(source, output, warnings, target_extension, **metadata):
         root = Path(directory); manifest = root / 'result.json'; work = root / 'unpack'
         args = [sys.executable, '-I', '-B', str(Path(__file__).with_name('kindle_input.py')), str(source), str(manifest), str(work)]
         tools_root=Path(metadata.get('tools_root') or Path(__file__).resolve().parent.parent)
+        if not (tools_root/'kindle/convert_kf8.py').is_file() or not (tools_root/'kindle/lib/kindleunpack.py').is_file():
+            raise ComponentRequired(optional_component_id('Kindle', tools_root),
+                                    'Для чтения этой книги нужен модуль KindleUnpack (MOBI/AZW/KF8).')
+        with source.open('rb') as stream:
+            header=stream.read(86)
+            if len(header)==86 and header[60:68]==b'BOOKMOBI':
+                offset=int.from_bytes(header[78:82],'big')
+                if offset+40<=source.stat().st_size:
+                    stream.seek(offset); record=stream.read(40)
+                    if record[12:14]!=b'\0\0' and not (tools_root/'bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll').is_file():
+                        raise ComponentRequired(optional_component_id('LegacyBooks',tools_root),
+                            'Для этого старого варианта Mobipocket нужен дополнительный кодек calibre.')
         args.append(str(tools_root/'bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll'))
         args.append(str(tools_root/'kindle'))
         try:

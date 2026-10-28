@@ -85,7 +85,7 @@ implementation
 
 uses System.IOUtils, System.JSON, System.Hash, System.Math, System.Generics.Collections,
   Vcl.Dialogs, unit_MHLExternalTools, unit_MHLTheme, unit_BookConversion,
-  unit_ExportImageQuality, unit_Diagnostics;
+  unit_ExportImageQuality, unit_Diagnostics, unit_FormatComponents;
 
 constructor TStoryWorker.Create(const AppPath, SourceFile, Work, Container, Member, ResourceRoot: string);
 begin
@@ -105,7 +105,7 @@ begin
         '--source',FSource,'--workspace',FWork));
       if FContainer<>'' then Arguments.AddRange(TArray<string>.Create('--container',FContainer,'--member',FMember));
       if FResourceRoot<>'' then Arguments.AddRange(TArray<string>.Create('--resource-root',FResourceRoot));
-      RunExternalToolToStream(TPath.Combine(FAppPath,'tools\kindle\python\python.exe'),
+      RunExternalToolToStream(FindBookProcessingPython(FAppPath),
         Arguments.ToArray,Log,
         function: Boolean begin Result:=Terminated; end,0,True,384*1024*1024);
     except on E: Exception do
@@ -142,9 +142,9 @@ constructor TfrmStoryReader.CreateStory(AOwner: TComponent; const AppPath, Sourc
 var Footer, Buttons: TPanel; Button: TButton;
 begin
   inherited CreateNew(AOwner);
-  if not FileExists(TPath.Combine(AppPath,'tools\kindle\python\python.exe')) or
+  if (FindBookProcessingPython(AppPath)='') or
     not FileExists(TPath.Combine(AppPath,'tools\bookconvert\sm_reader.py')) then
-    raise EMHLComponentRequired.Create('BookConverter','Для интерактивной книги нужен модуль подготовки книг.');
+    raise EMHLComponentRequired.Create('BookProcessing','Для интерактивной книги нужна общая среда обработки книг.');
   FAppPath:=AppPath; FSource:=SourceFile; FBookTitle:=BookTitle; FIdentity:=Identity;
   FSettingsFile:=SettingsFile; FPDFLibrary:=PDFLibrary; FReceived:=-1; FWaiting:=True;
   Font.Name:='Segoe UI'; Font.Size:=9; Caption:='HomeLib Ru — '+BookTitle+' — Интерактивная книга';

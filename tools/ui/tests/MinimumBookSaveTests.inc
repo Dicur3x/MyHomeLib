@@ -186,7 +186,7 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
     Require(UpdateSHA256(Source)=Before,'Minimal save modified the source book');
     if Missing then
     begin
-      Require(Required='BookConverter','A genuine conversion/image edit did not report its missing module');
+      Require(Required='BookProcessing','A genuine conversion/image edit did not report its missing module');
       Require(Length(TDirectory.GetFiles(Options.Folder,'*'))=0,'Missing conversion module published a file');
       Require(Probe.Messages.Count=0,'Missing module was shown as an export failure before its install prompt');
     end

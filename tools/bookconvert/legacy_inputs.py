@@ -20,6 +20,8 @@ SUPPORTED = {'.mht', '.mhtml', '.wri', '.pdb', '.tcr', '.chm', '.lit', '.lrf', '
 def read_lit_lrf(book, read_html):
     helper=Path(__file__).with_name('legacy_helper.py')
     native=book.tools_root/'bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll'
+    if not native.is_file():
+        book.require('LegacyBooks', 'Для чтения LIT/LRF нужен модуль старых книжных форматов (calibre).')
     with tempfile.TemporaryDirectory(prefix='legacy-',dir=book.work_root) as directory:
         target=Path(directory)/'reading.zip'
         try:

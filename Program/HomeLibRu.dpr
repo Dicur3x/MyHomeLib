@@ -45,6 +45,10 @@ uses
   FastMM5,
 {$ENDIF}
   Forms, System.SysUtils,
+  unit_FormatComponents in 'Units\unit_FormatComponents.pas',
+  unit_ZstdRuntime in 'Units\unit_ZstdRuntime.pas',
+  unit_CatalogComponents in 'Units\unit_CatalogComponents.pas',
+  frm_MCPSetup in 'Forms\frm_MCPSetup.pas',
   IMouse,
   unit_StaticTip in '..\Components\MHLComponents\unit_StaticTip.pas',
   files_list in '..\Components\MHLComponents\files_list.pas',

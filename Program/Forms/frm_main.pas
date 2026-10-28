@@ -3432,6 +3432,8 @@ begin
   if ID='HomeLibReader' then Reason:='HomeLib Reader — отдельная лёгкая читалка с темами, разворотами, закладками и заметками. '+
     'FB2, EPUB и текст доступны сразу; модули для других форматов предлагаются при открытии книги. После установки выбранная книга откроется автоматически.'
   else if ID='BookConverter' then Reason:='Для подготовки и конвертации этой книги нужен модуль обработки форматов.'
+  else if (ID='BookProcessing') or (ID='ImageProcessing') or (ID='Kindle') or
+    (ID='LegacyBooks') or (ID='LegacyOffice') or (ID='XPS') then Reason:=ComponentPurpose(ID)
   else if ID='PDFium' then Reason:='Для чтения PDF нужен модуль PDFium.'
   else if ID='JPEG XL' then Reason:='Для восстановления иллюстраций этой книги нужен декодер JPEG XL.'
   else if ID='WebP' then Reason:='Для иллюстраций этой книги нужен декодер WebP.'

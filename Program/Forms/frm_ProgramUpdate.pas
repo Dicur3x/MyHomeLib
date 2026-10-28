@@ -1285,6 +1285,10 @@ end;
 procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
 var Index: Integer;
 begin
+  // Old saved operations may still name the former all-format bundle. New
+  // clients must never turn that into a fresh monolithic download.
+  if ID='BookConverter' then
+  begin RequestComponent('BookProcessing',Reason,Compact); Exit; end;
   Index:=-1;
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
   if (Index<0) or not ComponentAllowed(Index) or not IsOptionalComponent(ID) then Exit;
@@ -1875,7 +1879,8 @@ end;
 
 function TfrmProgramUpdate.WillInstallComponent(const ID: string): Boolean;
 begin
-  Result:=FPendingInstall and FReady and not FRecovery and PreparedIncludesComponent(FJob,ID);
+  Result:=FPendingInstall and FReady and not FRecovery and
+    (PreparedIncludesComponent(FJob,ID) or ((ID='BookConverter') and PreparedIncludesComponent(FJob,'BookProcessing')));
 end;
 
 procedure TfrmProgramUpdate.CancelInstallation;

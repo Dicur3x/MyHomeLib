@@ -29,12 +29,13 @@ class MissingComponents(unittest.TestCase):
 
     def book(self):
         class Book:
+            c = converter
             tools_root = self.tools
             work_root = self.root
             source = self.root / 'source'
 
             def require(self, component, message):
-                raise converter.ComponentRequired(component, message)
+                raise converter.ComponentRequired(converter.optional_component_id(component, self.tools_root), message)
 
             def fail(self, message):
                 raise converter.ConversionError(message)
@@ -58,6 +59,16 @@ class MissingComponents(unittest.TestCase):
                                      ('.xls', 'DocSharp'), ('.wps', 'BookConverter'), ('.wpd', 'BookConverter')):
             with self.subTest(extension=extension):
                 self.check(component, lambda: office.read(self.book(), extension, None, None, None, None))
+
+    def test_modular_processing_requests_each_real_dependency(self):
+        marker=self.tools/'bookconvert/MODULAR_API.txt'
+        marker.parent.mkdir();marker.write_text('1\n',encoding='ascii')
+        self.check('XPS',lambda: next(self.module('xps_input').rendered_pages(self.book())))
+        office=self.module('office_inputs')
+        for extension in ('.wps','.wpd'):
+            self.check('LegacyOffice',lambda: office.read(self.book(),extension,None,None,None,None))
+        self.check('LegacyBooks',lambda: self.module('legacy_inputs').read_lit_lrf(self.book(),None))
+        self.check('Kindle',lambda: converter.kindle_to_book(self.root/'source.mobi',self.root/'result.epub',set(),'.epub',tools_root=self.tools))
 
     def test_pdf_and_djvu_cli_report_module_without_creating_output(self):
         for suffix, header, component in (('.pdf', b'%PDF-1.4\n', 'PDFium'),

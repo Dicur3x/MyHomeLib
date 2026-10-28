@@ -40,7 +40,7 @@ begin
   try
     Request.AddPair('target',ExcludeTrailingPathDelimiter(Settings.AppPath));
     Request.AddPair('pid',TJSONNumber.Create(GetCurrentProcessId));
-    Request.AddPair('tag','2.7.0_pre5.35');
+    Request.AddPair('tag',ALREADER_FIXED_TAG);
     Request.AddPair('sha256',UpdateSHA256(TPath.Combine(Job,'release.zip')));
     Request.AddPair('commandLine',string(GetCommandLine));
     Request.AddPair('recover',TJSONBool.Create(False));
@@ -90,15 +90,22 @@ begin
     ExceptionHandler:=TSaveModuleExceptionHandler.Create; ExceptionHandler.Report:=Report;
     Application.OnException:=ExceptionHandler.Handle;
     Application.CreateForm(TDMUser,DMUser); DMUser.Init;
-    TraceStep('component='+InstalledComponentVersion(Settings.AppPath,'BookConverter'));
+    TraceStep('processing='+InstalledComponentVersion(Settings.AppPath,'BookProcessing'));
     try
-      if InstalledComponentVersion(Settings.AppPath,'BookConverter')='2.7.0.1103' then
+      if InstalledComponentVersion(Settings.AppPath,'BookProcessing')='2.7.0.1105' then
       begin
         // Production always has a main host/catalogue, even when its launcher
         // is hidden. A bare console child must recreate that VCL prerequisite.
         Application.CreateForm(TForm,ReviewParent); ReviewParent.Caption:='Save restart review';
         Require(FileExists(Settings.AppPath+'tools/bookconvert/SAVE_OPTIONS_API.txt'),
           'Actual installer lost Save As capability marker');
+        for var Unrelated in ['images','pdfium','djvu'] do
+          Require(not DirectoryExists(Settings.AppPath+'tools/'+Unrelated),
+            'Base processing installed an unrelated decoder: '+Unrelated);
+        Require(not FileExists(Settings.AppPath+'tools/kindle/COMPONENT.json') and
+          not FileExists(Settings.AppPath+'tools/office/COMPONENT.json') and
+          not FileExists(Settings.AppPath+'tools/xps/COMPONENT.json'),
+          'Base processing installed unrelated format component identities');
         Require(TakeBookSaveContinuation(Settings.SettingsFileName,Plan),
           'Actual restarted process did not receive its pending save');
         TraceStep('continuation taken');
@@ -118,7 +125,7 @@ begin
         Require(not TakeBookSaveContinuation(Settings.SettingsFileName,Plan),'Restart plan was consumed twice');
         Require(not DirectoryExists(Settings.AppPath+'module-output'),'Restored review wrote output before confirmation');
         Require(UpdateSHA256(Source)=SourceHash,'Download/install/restart changed source book');
-        TFile.WriteAllText(Report,'PASS compact converter 1102 to 1103 download actual installer restart restored review cancel and unchanged source'+
+        TFile.WriteAllText(Report,'PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'+
           sLineBreak+IntToStr(GetCurrentProcessId),TEncoding.UTF8);
         Exit;
       end;
@@ -133,11 +140,11 @@ begin
       StoreBookSaveContinuation(Settings.SettingsFileName,'BookConverter',Options,nil,Source);
       Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'save-module-fixture/fixture.json',TEncoding.UTF8)) as TJSONObject;
       try
-        Info:=Default(TProgramRelease); Info.ComponentID:='BookConverter';
-        Info.ComponentVersion:='2.7.0.1103'; Info.Tag:='2.7.0_pre5.35';
-        Info.DownloadURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+Info.Tag+'/HomeLibRu-BookConverter-test.zip';
+        Info:=Default(TProgramRelease); Info.ComponentID:='BookProcessing';
+        Info.ComponentVersion:='2.7.0.1105'; Info.Tag:=ALREADER_FIXED_TAG;
+        Info.DownloadURL:=Root.GetValue<string>('url');
         Info.SHA256:=Root.GetValue<string>('sha256'); Info.Size:=Root.GetValue<Int64>('size');
-        Package:=Settings.AppPath+'save-module-fixture/HomeLibRu-BookConverter-'+ProgramUpdatePlatform+'.zip';
+        Package:=Settings.AppPath+'save-module-fixture/'+Root.GetValue<string>('name');
       finally Root.Free; end;
       Head:=TUpdateProposalServer.Create; Server:=TRepairServer.Create;
       Dialog:=TSaveModuleUpdateForm.CreateForHead(Head.HeadURL); Dialog.Server:=Server;
@@ -149,7 +156,7 @@ begin
           'Compact module check did not complete');
         Releases:=Default(TComponentReleases);
         for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
-          if UPDATE_COMPONENTS[I].ID='BookConverter' then Releases[I]:=Info;
+          if UPDATE_COMPONENTS[I].ID='BookProcessing' then Releases[I]:=Info;
         Dialog.ComponentsReceived(Releases,True,''); Application.ProcessMessages;
         Small:=Dialog.FindComponent('OptionalComponentPrompt') as TForm;
         Require(Assigned(Small) and Small.Visible and not Dialog.Visible,'Real module operation exposed the full updater');

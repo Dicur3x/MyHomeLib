@@ -208,7 +208,8 @@ begin
       if (Number(Root,'owner',1,High(Cardinal))<>GetCurrentProcessId) or
         (Text(Root,'owner_stamp',64)<>ProcessStamp(GetCurrentProcess)) then Exit;
       var Required:=Text(Root,'component',128);
-      if (Required<>InstallingComponent) and not ((Required='DjVuLibre') and (InstallingComponent='7-Zip')) then Exit;
+      if (Required<>InstallingComponent) and not ((Required='DjVuLibre') and (InstallingComponent='7-Zip')) and
+        not ((Required='BookConverter') and (InstallingComponent='BookProcessing')) then Exit;
       Token:=Text(Root,'token',64);
     finally Root.Free; end;
   finally Reader.Free; end;

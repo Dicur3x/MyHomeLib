@@ -76,9 +76,11 @@ modes.push('component-mirrors', 'reader-portable');
 if (process.env.HOMELIB_PUBLISHED_COMPONENT_PACKAGES || viewsMode === 'published-components') modes.push('published-components');
 if (process.env.HOMELIB_MCP_COMPONENT_PACKAGES || viewsMode === 'optional-mcp') modes.push('optional-mcp');
 if (process.env.HOMELIB_ZSTD_COMPONENT_PACKAGES || viewsMode === 'optional-zstd') modes.push('optional-zstd');
+if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'format-components') modes.push('format-components');
 modes.push('webp-live');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  'format-components': ['PASS independent format base converts FB2 to EPUB without Kindle Office XPS', 'PASS independent format component prepare verify install BookProcessing', 'PASS independent format component prepare verify install ImageProcessing', 'PASS independent format component prepare verify install Kindle', 'PASS independent format component prepare verify install LegacyBooks', 'PASS independent format component prepare verify install LegacyOffice', 'PASS independent format component prepare verify install XPS'],
   'optional-mcp': ['PASS optional MCP setup preserves default custom Unicode profiles', 'PASS optional MCP is hidden until requested', 'PASS optional MCP actual package verifies architecture version restricted files'],
   'optional-zstd': ['PASS optional Zstandard real compact download cancel tamper install without restart', 'PASS optional Zstandard newly installed official decoder reads actual Metabib'],
   'published-components': ['PASS published component manifest prepare verify install HomeLibReader', 'PASS published component manifest prepare verify install BookConverter', 'PASS published component manifest prepare verify install PDFium'],
@@ -201,7 +203,7 @@ function requiredPasses(executable, mode) {
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
   if (mode==='book-output-reset') return ['PASS diagnostic out reset preserves every established field and retained nested arrays','RESETBENCH trial=6','PASS diagnostic managed out record reset comparison completed'];
   if (mode==='display-labels') return ['PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058','iterations=2000000 trials=7','before_cycles=','LABELBENCH phase=2 trial=6','PASS diagnostic display labels same-process alternating comparison preserves all values'];
-  if (mode==='save-module-restart') return ['PASS compact converter 1102 to 1103 download actual installer restart restored review cancel and unchanged source'];
+  if (mode==='save-module-restart') return ['PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
   if (mode==='reader-story') return ['PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene','PASS native SM false suffix, real controls, conditional branch, Unicode input, FB2 EPUB route export, verified resume, existing target and cancellation cleanup'];
   if (mode==='save-host-resume') return ['PASS actual reader host consumes restarted Save As once, restores options over visible book, cancels without output and preserves source'];
   if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub FB2 EPUB PDF DjVu scan-PDF scan-DjVu','PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
@@ -266,7 +268,7 @@ function copyDllTree(source, target) {
 function stage(folder, executable, mode = '') {
   fs.copyFileSync(executable, path.join(folder, path.basename(executable)));
   for (const name of ["sqlite3.dll", "libzstd.dll", "libeay32.dll", "ssleay32.dll", "homelib_webp.dll"]) {
-    if (mode==='optional-zstd' && name==='libzstd.dll') continue;
+    if (['optional-zstd','reader-components'].includes(mode) && name==='libzstd.dll') continue;
     const src = path.join(runtime, name);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(folder, name));
   }
@@ -397,7 +399,13 @@ function run(executable, mode, subcase = "") {
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
     }
-    if (['reader-story','unified-send','save-planning'].includes(mode)) for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+    if (mode==='reader-story') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+    if (['unified-send','save-planning'].includes(mode)) {
+      const packages=process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES;
+      if(!packages || !process.env.HLRU_PYTHON) throw Error('Save checks require the actual independent format packages and HLRU_PYTHON');
+      const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_format_runtime_fixture.py'),packages,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing'],{encoding:'utf8',windowsHide:true,timeout:120000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      if(staged.status!==0) throw Error('Independent format fixture failed: '+staged.stdout+staged.stderr);
+    }
     if (['save-planning'].includes(mode)) {
       for (const name of ['pdfium','djvu']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
       const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',[path.join(__dirname,'prepare_save_mixed_fixtures.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:45000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});

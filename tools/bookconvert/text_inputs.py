@@ -55,13 +55,18 @@ class Book:
 
     def scan_page(self, data, number, total=0):
         if self.image_export:
-            if self.scan_export is None:
-                import importlib.util
-                spec=importlib.util.spec_from_file_location('homelib_scan_export',Path(__file__).with_name('scan_export.py'))
-                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-                self.scan_export=module.ScanExport(self,self.image_export)
-            self.scan_export.add(data,number,total)
-            return
+            if self.image_export['profile'] in {'original','high'} and self.image_export.get('layout','keep')=='keep':
+                # The PDF/DjVu renderer has already produced the page image.
+                # Keeping it untouched requires no separate image processor.
+                self.image_export['handled']=True
+            else:
+                if self.scan_export is None:
+                    import importlib.util
+                    spec=importlib.util.spec_from_file_location('homelib_scan_export',Path(__file__).with_name('scan_export.py'))
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    self.scan_export=module.ScanExport(self,self.image_export)
+                self.scan_export.add(data,number,total)
+                return
         section=self.el('section',id='page-'+str(number));self.body.append(section)
         section.append(self.el('h2','Страница '+str(number)))
         paragraph=self.el('p');section.append(paragraph)
@@ -74,7 +79,7 @@ class Book:
         raise self.c.ConversionError(message)
 
     def require(self, component, message):
-        raise self.c.ComponentRequired(component, message)
+        raise self.c.ComponentRequired(self.c.optional_component_id(component, self.tools_root), message)
 
     def image(self, data, mime=''):
         if len(data) > 16 * 1024 * 1024:

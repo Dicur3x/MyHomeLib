@@ -99,11 +99,11 @@ begin
     finally Dialog.Free; end;
     // A reader installed for native FB2/EPUB must not expose unrelated DOC
     // or DjVu modules. This fixture is a versioned PE, never executed.
-    for var Name in ['HomeLibReader.exe','HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','NOTICE'] do
+    for var Name in ['HomeLibReader.exe','HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','libzstd.dll','NOTICE'] do
       Require(not FileExists(Settings.AppPath+Name),'Owned core marker would replace a fixture file');
     try
       TFile.Copy(ParamStr(0),Settings.AppPath+'HomeLibReader.exe');
-      for var Name in ['HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','NOTICE'] do
+      for var Name in ['HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','libzstd.dll','NOTICE'] do
         TFile.WriteAllText(Settings.AppPath+Name,'Owned complete reader inventory marker; never executed');
       Require(not ComponentNeedsRepair(Settings.AppPath,'HomeLibReader'),
         'Owned reader inventory fixture is incomplete');
@@ -114,7 +114,7 @@ begin
           'Installing native FB2 reader exposed unrelated optional modules');
       finally Dialog.Free; end;
     finally
-      for var Name in ['HomeLibReader.exe','HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','NOTICE'] do
+      for var Name in ['HomeLibReader.exe','HomeLibRuUpdater.exe','HomeLibReader-LICENSE.txt','libzstd.dll','NOTICE'] do
         if FileExists(Settings.AppPath+Name) then TFile.Delete(Settings.AppPath+Name);
     end;
   finally
@@ -184,7 +184,7 @@ begin
       if IsOfficeReaderFormat(Ext) then PrepareOfficeReaderFile(LegacyFile,LegacyFile)
       else PrepareLegacyReaderFile(LegacyFile,LegacyFile);
     except on E: EMHLComponentRequired do Missing:=E.ComponentID; end;
-    Require(Missing='BookConverter','Rare/Office format did not request its converter module: '+Ext);
+    Require(Missing='BookProcessing','Rare/Office format did not request its shared processing module: '+Ext);
   end;
   LegacyFile:=TPath.Combine(Settings.AppPath,'missing-prepare.pdf');
   TFile.WriteAllText(LegacyFile,'%PDF-1.4'+sLineBreak+'Owned dependency probe'); Missing:='';
@@ -210,12 +210,13 @@ begin
   LegacyFile:=TPath.Combine(Settings.AppPath,'missing-converter.docm'); Missing:='';
   try PrepareOfficeReaderFile(LegacyFile,LegacyFile);
   except on E: EMHLComponentRequired do Missing:=E.ComponentID; end;
-  Require(Missing='BookConverter','Partial Office module did not offer repair');
+  Require(Missing='BookProcessing','Partial Office module did not offer repair');
   // A decoder may first be needed while constructing the reading view, after
   // extraction has finished. Each request must survive release of that worker.
   LegacyFile:=TPath.Combine(Settings.AppPath,'native-module-handoff.fb2');
   TFile.WriteAllText(LegacyFile,'<?xml version="1.0" encoding="utf-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Owned module handoff</book-title><lang>ru</lang></title-info></description><body><section><p>Native text</p></section></body></FictionBook>',TEncoding.UTF8);
-  for var ID in TArray<string>.Create('PDFium','DjVuLibre','DocSharp','7-Zip','WebP','JPEG XL','BookConverter') do
+  for var ID in TArray<string>.Create('PDFium','DjVuLibre','DocSharp','7-Zip','WebP','JPEG XL',
+    'BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS') do
   begin
     Missing:=''; PreparationOwner:=TComponent.Create(nil);
     try
@@ -234,7 +235,7 @@ begin
       Require(Missing=ID,'Reading view lost its first-use decoder request: '+ID);
     finally PreparationOwner.Free; end;
   end;
-  for var RequestedID in TArray<string>.Create('PDFium','BookConverter') do
+  for var RequestedID in TArray<string>.Create('PDFium','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS') do
   begin
   Dialog:=TReaderModuleForm.Create(nil); Dialog.RequestedID:=RequestedID;
   try

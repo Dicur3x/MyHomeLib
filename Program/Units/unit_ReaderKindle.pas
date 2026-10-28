@@ -7,7 +7,7 @@ function PrepareKindleReflow(const SourceFile, OriginalSource: string;
 
 implementation
 uses System.Classes, System.IOUtils, System.Hash, Winapi.Windows,
-  unit_BookCache, unit_MHLExternalTools, unit_BookConversion, dm_user;
+  unit_BookCache, unit_MHLExternalTools, unit_BookConversion, unit_FormatComponents, dm_user;
 
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>): string;
@@ -30,10 +30,12 @@ begin
     Input.Position := Offset; SetLength(Header,40); Input.ReadBuffer(Header[0],40);
     if TEncoding.ASCII.GetString(Header,16,4) <> 'MOBI' then Exit;
     Version := BigEndian(36);
-    Tool := Settings.AppPath+'tools\kindle\python\python.exe';
+    Tool := FindBookProcessingPython(Settings.AppPath);
     Script := Settings.AppPath+'tools\kindle\convert_kf8.py';
-    if not FileExists(Tool) or not FileExists(Script) then
-      raise EMHLComponentRequired.Create('BookConverter','Для этой книги нужен модуль BookConverter.');
+    if Tool='' then
+      raise EMHLComponentRequired.Create('BookProcessing','Для подготовки этой книги нужна общая среда обработки книг.');
+    if not FileExists(Script) then
+      raise EMHLComponentRequired.Create('Kindle','Для этой книги нужен модуль KindleUnpack (MOBI/AZW/KF8).');
     if not GetFileAttributesEx(PChar(SourceFile),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
     ResultStamp := 'kindleunpack-bf0ca6e-v4|'+BookCacheInputStamp(SourceFile,OriginalSource);
     Result := ExistingBookCacheFile(TPath.Combine(BookCachePath,'homelib-kindle-'+

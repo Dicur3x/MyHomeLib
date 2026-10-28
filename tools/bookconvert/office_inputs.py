@@ -37,8 +37,8 @@ def rasterize_image(book, data):
         return module.decode_webp(book,data)
     if data.startswith((b'BM',b'II*\0',b'MM\0*')):
         import zipfile
-        tool=book.tools_root/'xps/HomeLibXps.exe'
-        if not tool.is_file(): book.require('BookConverter', 'Модуль подготовки изображений неполон. Его нужно восстановить.')
+        tool=book.c.image_processor_path(book.tools_root)
+        if not tool.is_file(): book.require('ImageProcessing', 'Для подготовки этих изображений нужен модуль HomeLib Images.')
         with tempfile.TemporaryDirectory(prefix='homelib-picture-',dir=getattr(book,'work_root',None)) as directory:
             source=Path(directory)/'image.bin';target=Path(directory)/'pages.zip';source.write_bytes(data)
             try:
@@ -340,7 +340,7 @@ def read(book, extension, package_factory, read_docx, read_odt, read_html):
             tool = book.tools_root / 'doc' / 'HomeLibDoc.exe'
             suffix = '.docx' if extension in {'.doc','.dot'} else '.pptx' if extension in {'.ppt', '.pps', '.pot'} else '.xlsx'
         if not tool.is_file():
-            component = 'BookConverter' if extension in {'.wps', '.wpd'} else 'DocSharp'
+            component = 'LegacyOffice' if extension in {'.wps', '.wpd'} else 'DocSharp'
             book.require(component, 'Для чтения ' + extension + ' нужен компонент ' + component + '.')
         if extension in {'.wps', '.wpd'}:
             if os.name == 'nt' and not ('64' in os.environ.get('PROCESSOR_ARCHITEW6432', '') or '64' in os.environ.get('PROCESSOR_ARCHITECTURE', '')):
@@ -348,7 +348,7 @@ def read(book, extension, package_factory, read_docx, read_odt, read_html):
             for dll in ['libwps-0.4.dll', 'libwpd-0.10.dll', 'librevenge-0.0.dll', 'librevenge-stream-0.0.dll',
                         'librevenge-generators-0.0.dll', 'libc++.dll', 'libunwind.dll', 'zlib1.dll']:
                 if not (tool.parent / dll).is_file():
-                    book.require('BookConverter', 'Неполный комплект чтения WPS/WPD: ' + dll)
+                    book.require('LegacyOffice', 'Неполный комплект чтения WPS/WPD: ' + dll)
         with tempfile.TemporaryDirectory(prefix='homelib-office-', dir=book.work_root) as work:
             prepared = Path(work) / ('prepared' + suffix)
             args = args if suffix == '.html' else [str(tool), str(original), str(prepared)]

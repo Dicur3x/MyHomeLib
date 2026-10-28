@@ -8,14 +8,19 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Windows;
+#if !HOMELIB_IMAGES_ONLY
 using System.Windows.Documents;
+#endif
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+#if !HOMELIB_IMAGES_ONLY
 using System.Windows.Xps.Packaging;
+#endif
 
 internal static class HomeLibXps
 {
     private const long MaxInput = 64L * 1024 * 1024, MaxTotal = 256L * 1024 * 1024;
+#if !HOMELIB_IMAGES_ONLY
     private const string XpsNamespace = "http://schemas.microsoft.com/xps/2005/06";
     private static readonly HashSet<string> StructureNodes = new HashSet<string>((
         "DocumentStructure DocumentStructure.Outline DocumentOutline OutlineEntry " +
@@ -35,16 +40,27 @@ internal static class HomeLibXps
         "FixedPage.NavigateUri Canvas.NavigateUri Path.NavigateUri Glyphs.NavigateUri " +
         "FixedPage.LinkTargets LinkTarget").Split(new char[] {' '}, StringSplitOptions.RemoveEmptyEntries));
 
+#endif
     [STAThread]
     private static int Main(string[] args)
     {
         string output = null; bool ownsOutput = false;
         try
         {
-            if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("HomeLibXps 1; Windows XPS/.NET Framework"); return 0; }
+            if (args.Length == 1 && args[0] == "--version") {
+#if HOMELIB_IMAGES_ONLY
+                Console.WriteLine("HomeLibImages 1; image processing/.NET Framework");
+#else
+                Console.WriteLine("HomeLibXps 1; Windows XPS/.NET Framework");
+#endif
+                return 0;
+            }
             if (args.Length == 3 && args[0] == "--image-pages") return ImagePages(args[1], args[2]);
             if (args.Length == 4 && args[0] == "--export-images") return ExportImages(args[1], args[2], args[3]);
             if (args.Length == 5 && args[0] == "--scan-images") return ScanImages(args[1], args[2], args[3], args[4]);
+#if HOMELIB_IMAGES_ONLY
+            throw new ArgumentException("Expected image processing command. XPS reading is a separate component.");
+#else
             if (args.Length != 2) throw new ArgumentException("Expected XPS and a new page ZIP.");
             string input = Path.GetFullPath(args[0]); output = Path.GetFullPath(args[1]);
             if (String.Equals(input, output, StringComparison.OrdinalIgnoreCase) || File.Exists(output)) throw new IOException("Output must be new.");
@@ -94,6 +110,7 @@ internal static class HomeLibXps
                 }
             }
             return 0;
+#endif
         }
         catch (Exception error)
         {
@@ -532,6 +549,7 @@ internal static class HomeLibXps
         return seen.Count;
     }
 
+#if !HOMELIB_IMAGES_ONLY
     private static void Validate(string path)
     {
         var fixedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -585,4 +603,5 @@ internal static class HomeLibXps
             }
         }
     }
+#endif
 }

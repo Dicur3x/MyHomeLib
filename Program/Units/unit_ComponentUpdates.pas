@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..13] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..19] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -36,7 +36,13 @@ const
     (ID:'BookConverter'; Title:'Подготовка и конвертация книг'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False),
     (ID:'MHLMcpServer'; Title:'Подключение AI-ассистента'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'Zstandard'; Title:'Каталоги Metabib в Zstandard'; URL:'https://github.com/facebook/zstd/releases'; CheckKind:ccPublished; CheckOnly:False));
+    (ID:'Zstandard'; Title:'Каталоги Metabib в Zstandard'; URL:'https://github.com/facebook/zstd/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'BookProcessing'; Title:'Общая обработка FB2/EPUB'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'ImageProcessing'; Title:'Обработка изображений'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'Kindle'; Title:'Чтение MOBI/AZW/KF8'; URL:'https://github.com/kevinhendricks/KindleUnpack'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'LegacyBooks'; Title:'Кодеки старых книжных форматов'; URL:'https://github.com/kovidgoyal/calibre'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'LegacyOffice'; Title:'Чтение WPS/WPD'; URL:'https://sourceforge.net/projects/libwps/'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'XPS'; Title:'Чтение XPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -120,7 +126,7 @@ implementation
 
 uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime, unit_ReaderAdapters;
+  unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime, unit_ReaderAdapters, unit_FormatComponents;
 
 // Each probe owns its HTTP session. Never share WinHTTP handles across workers.
 threadvar ComponentProbeHTTP: THTTPClient;
@@ -141,7 +147,7 @@ begin
 end;
 
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK') or (ID='MHLMcpServer') or (ID='Zstandard'); end;
+begin Result:=IsFormatComponent(ID) or (ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK') or (ID='MHLMcpServer') or (ID='Zstandard'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -187,6 +193,12 @@ begin inherited Create('Для чтения этой книги нужен ко�
 
 function ComponentPurpose(const ID: string): string;
 begin
+  if ID='BookProcessing' then Exit('Общая обработка FB2/EPUB и текстов. Декодеры Kindle, Office, XPS, PDF и DjVu в этот компонент не входят.');
+  if ID='ImageProcessing' then Exit('HomeLib Images — сжатие иллюстраций, оценка размера и обработка сканов. Без модуля чтения XPS.');
+  if ID='Kindle' then Exit('KindleUnpack — чтение и подготовка MOBI/AZW/KF8.');
+  if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
+  if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');
+  if ID='XPS' then Exit('HomeLibXps — чтение страниц документов XPS.');
   if ID='PDFium' then Exit('PDFium — модуль чтения страниц PDF, в том числе для преобразования в FB2/EPUB.');
   if ID='DocSharp' then Exit('DocSharp — модуль чтения DOC, PPT и XLS, в том числе для преобразования в FB2/EPUB.');
   if ID='DjVuLibre' then Exit('DjVuLibre — модуль чтения страниц DjVu, в том числе для преобразования в FB2/EPUB.');

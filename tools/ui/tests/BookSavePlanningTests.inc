@@ -225,7 +225,7 @@ begin
   Thread:=TBookSendEstimateThread.Create([Books[0]],Choice,Settings.AppPath+'no-converter\',Settings.TempPath);
   try
     WaitForEstimate;
-    Require((Items[0].RequiredComponent='BookConverter') and (Items[0].ErrorText<>''),
+    Require((Items[0].RequiredComponent='BookProcessing') and (Items[0].ErrorText<>''),
       'Unavailable size module was presented as a successful estimate');
   finally Thread.Free; end;
   Thread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);

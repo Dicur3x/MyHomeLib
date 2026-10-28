@@ -353,8 +353,11 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
     if small and profile != 'ask': return
     if sum(map(len, pictures)) > api.MAX_TOTAL or len(pictures) > 5000:
         raise api.ConversionError('Изображения превышают предел экспорта.')
-    tool = Path(tools_root or Path(__file__).resolve().parents[1])/'xps/HomeLibXps.exe'
-    if not small and not tool.is_file(): raise api.ComponentRequired('BookConverter', 'Модуль обработки изображений неполон. Его нужно восстановить.')
+    runtime_root = Path(tools_root or Path(__file__).resolve().parents[1])
+    tool = api.image_processor_path(runtime_root)
+    if not small and not tool.is_file():
+        raise api.ComponentRequired(api.optional_component_id('ImageProcessing', runtime_root),
+                                    'Для сжатия изображений нужен модуль обработки изображений HomeLib Images.')
     with tempfile.TemporaryDirectory(prefix='homelib-image-quality-', dir=book.parent) as temporary:
         directory = Path(temporary); samples = None; sample_indices = []
         if profile == 'ask':

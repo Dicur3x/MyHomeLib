@@ -13,7 +13,7 @@ function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
-  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_MHLArchiveHelpers, unit_MHLExternalTools, dm_user;
+  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, dm_user;
 
 function PrepareB1ReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
@@ -31,10 +31,10 @@ begin
         raise Exception.Create('Извлечение книги из B1 превысило три минуты. Исходный архив сохранён.');
     end;
   if Canceled() then Abort;
-  Python:=Settings.AppPath+'tools\kindle\python\python.exe';
+  Python:=FindBookProcessingPython(Settings.AppPath);
   Script:=Settings.AppPath+'tools\bookconvert\b1_input.py';
   if not FileExists(Python) or not FileExists(Script) then
-    raise EMHLComponentRequired.Create('BookConverter','Для этой книги нужен модуль BookConverter.');
+    raise EMHLComponentRequired.Create('BookProcessing','Для подготовки этой книги нужна общая обработка книг.');
   Input:=OpenCachedBookFile(SourceFile);
   try
     if Input.Size>64*1024*1024 then raise Exception.Create('Архив B1 превышает предел чтения (64 МБ).');
@@ -114,9 +114,8 @@ begin
     finally Archive.Free; end;
     if not HasTIFF then Exit;
   end;
-  if not FileExists(Settings.AppPath+'tools\kindle\python\python.exe') or
-    not FileExists(Settings.AppPath+'tools\bookconvert\convert_book.py') then
-    raise EMHLComponentRequired.Create('BookConverter','Для этой книги нужен модуль подготовки и конвертации книг.');
+  if not ModularBookProcessingAvailable(Settings.AppPath) then
+    raise EMHLComponentRequired.Create('BookProcessing','Для этой книги нужна общая обработка книг; декодер формата устанавливается отдельно.');
   Input:=OpenCachedBookFile(SourceFile);
   try
     MaxInput:=64*1024*1024;
@@ -126,20 +125,21 @@ begin
     Dependencies:=TStringList.Create;
     try
       for Dependency in ['convert_book.py','text_inputs.py','legacy_inputs.py','legacy_helper.py','rgo_input.py','rgo_outline.py','isilo_input.py','isilo_image.py','ibk_input.py','ibk_crypto.py','ibk_parameters.json','ibk_tables.bin','jutoh_input.py','pages_input.py', 'cr3_input.py', 'b1_input.py','xps_input.py','image_input.py','tiff_jpeg.py','office_inputs.py','kindle_input.py','fixed_layout.py','ha_input.py'] do
-        Dependencies.Add(Settings.AppPath+'tools\bookconvert\'+Dependency);
+        if FileExists(Settings.AppPath+'tools\bookconvert\'+Dependency) then
+          Dependencies.Add(Settings.AppPath+'tools\bookconvert\'+Dependency);
       if Extension='.ibk' then
         for Dependency in ['ibk\Rus.key'] do
           if FileExists(Settings.AppPath+'tools\'+Dependency) then Dependencies.Add(Settings.AppPath+'tools\'+Dependency);
       if DirectoryExists(Settings.AppPath+'tools\bookconvert\vendor\calibre_legacy') then
         for Dependency in TDirectory.GetFiles(Settings.AppPath+'tools\bookconvert\vendor\calibre_legacy','*',TSearchOption.soAllDirectories) do
           if SameText(ExtractFileExt(Dependency),'.py') or SameText(ExtractFileExt(Dependency),'.dll') then Dependencies.Add(Dependency);
-      for Dependency in ['xps\HomeLibXps.exe','webp\libwebp.dll','doc\HomeLibDoc.exe'] do
+      for Dependency in ['images\HomeLibImages.exe','xps\HomeLibXps.exe','webp\libwebp.dll','doc\HomeLibDoc.exe'] do
         if FileExists(Settings.AppPath+'tools\'+Dependency) then Dependencies.Add(Settings.AppPath+'tools\'+Dependency);
       Dependencies.Sort;
       for Dependency in Dependencies do
       begin
         if not FileExists(Dependency) then
-          raise EMHLComponentRequired.Create('BookConverter','Модуль подготовки книг неполон. Его можно восстановить в окне компонентов.');
+          raise EMHLComponentRequired.Create('BookProcessing','Модуль общей обработки книг неполон.');
         if not GetFileAttributesEx(PChar(Dependency),GetFileExInfoStandard,@Attributes) then RaiseLastOSError;
         Stamp:=Stamp+'|'+Dependency+'|'+IntToStr(Attributes.nFileSizeHigh)+':'+IntToStr(Attributes.nFileSizeLow)+'|'+
           IntToStr(Attributes.ftLastWriteTime.dwHighDateTime)+':'+IntToStr(Attributes.ftLastWriteTime.dwLowDateTime);
