@@ -5,21 +5,71 @@
       "id": "SQLite",
       "platform": "Win32",
       "version": "3.54.1.0",
+      "archive": "HomeLibRu-SQLite-3.54.1.0-Win32.zip",
       "history": [
         {
           "version": "3.54.1.0",
-          "date": "2026-10-16",
-          "notes": "Официальная SQLite 3.54.1 для Windows. Исправлены ошибки 3.54.0, включая возможное переполнение буфера в 32-разрядной сборке. Оба архива проверены по SHA3-256 автора.\nЖурнал автора: https://sqlite.org/changes.html"
-        },
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://www.sqlite.org/download.html. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
+        }
+      ]
+    },
+    {
+      "id": "SumatraPDF",
+      "platform": "Win32",
+      "version": "3.6.1.0",
+      "archive": "HomeLibRu-SumatraPDF-3.6.1.0-Win32.zip",
+      "history": [
         {
-          "version": "3.54.0.0",
-          "date": "2026-10-09",
-          "notes": "Официальная SQLite 3.54.0 для Windows. Обновлён механизм блокировок Windows и исправлены ошибки. Бинарные файлы проверены по контрольным суммам автора.\nЖурнал автора: https://sqlite.org/changes.html"
-        },
+          "version": "3.6.1.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://www.sumatrapdfreader.org/download-free-pdf-viewer. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
+        }
+      ]
+    },
+    {
+      "id": "DjVuLibre",
+      "platform": "Win32",
+      "version": "3.5.29",
+      "archive": "HomeLibRu-DjVuLibre-3.5.29-Win32.zip",
+      "history": [
         {
-          "version": "3.53.4.0",
-          "date": "2026-07-24",
-          "notes": "Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"
+          "version": "3.5.29",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
+        }
+      ]
+    },
+    {
+      "id": "7-Zip",
+      "platform": "Win32",
+      "version": "26.5.0.0",
+      "archive": "HomeLibRu-7-Zip-26.5.0.0-Win32.zip",
+      "history": [
+        {
+          "version": "26.5.0.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/ip7z/7zip/releases. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
+        }
+      ]
+    },
+    {
+      "id": "DocSharp",
+      "platform": "Win32",
+      "version": "0.21.0.0",
+      "archive": "HomeLibRu-DocSharp-0.21.0.0-Win32.zip",
+      "history": [
+        {
+          "version": "0.21.0.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/manfromarce/DocSharp. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
+        }
+      ]
+    },
+    {
+      "id": "JPEG XL",
+      "platform": "Win32",
+      "version": "0.12.0",
+      "archive": "HomeLibRu-JPEGXL-0.12.0-Win32.zip",
+      "history": [
+        {
+          "version": "0.12.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/libjxl/libjxl/releases/tag/v0.12.0. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
@@ -27,55 +77,11 @@
       "id": "SQLite",
       "platform": "Win64",
       "version": "3.54.1.0",
+      "archive": "HomeLibRu-SQLite-3.54.1.0-Win64.zip",
       "history": [
         {
           "version": "3.54.1.0",
-          "date": "2026-10-16",
-          "notes": "Официальная SQLite 3.54.1 для Windows. Исправлены ошибки 3.54.0, включая возможное переполнение буфера в 32-разрядной сборке. Оба архива проверены по SHA3-256 автора.\nЖурнал автора: https://sqlite.org/changes.html"
-        },
-        {
-          "version": "3.54.0.0",
-          "date": "2026-10-09",
-          "notes": "Официальная SQLite 3.54.0 для Windows. Обновлён механизм блокировок Windows и исправлены ошибки. Бинарные файлы проверены по контрольным суммам автора.\nЖурнал автора: https://sqlite.org/changes.html"
-        },
-        {
-          "version": "3.53.4.0",
-          "date": "2026-07-24",
-          "notes": "Исправлены ошибки ветки SQLite 3.53. Используется официальная библиотека для Windows.\nЖурнал автора: https://www.sqlite.org/changes.html"
-        }
-      ]
-    },
-    {
-      "id": "AlReader",
-      "platform": "Win32",
-      "version": "2.5.1009.25",
-      "history": [
-        {
-          "version": "2.5.1009.25",
-          "notes": "Внешняя Windows-читалка AlReader2. Подтверждённого журнала изменений этой старой сборки нет. Более новую официальную Windows-сборку на 6 октября 2026 года подтвердить не удалось. Настройки и история чтения сохраняются при обновлении."
-        }
-      ]
-    },
-    {
-      "id": "AlReader",
-      "platform": "Win64",
-      "version": "2.5.1009.25",
-      "history": [
-        {
-          "version": "2.5.1009.25",
-          "notes": "Внешняя Windows-читалка AlReader2. Подтверждённого журнала изменений этой старой сборки нет. Более новую официальную Windows-сборку на 6 октября 2026 года подтвердить не удалось. Настройки и история чтения сохраняются при обновлении."
-        }
-      ]
-    },
-    {
-      "id": "SumatraPDF",
-      "platform": "Win32",
-      "version": "3.6.1.0",
-      "history": [
-        {
-          "version": "3.6.1.0",
-          "date": "2026-04-06",
-          "notes": "Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://www.sqlite.org/download.html. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
@@ -83,35 +89,11 @@
       "id": "SumatraPDF",
       "platform": "Win64",
       "version": "3.6.1.0",
+      "archive": "HomeLibRu-SumatraPDF-3.6.1.0-Win64.zip",
       "history": [
         {
           "version": "3.6.1.0",
-          "date": "2026-04-06",
-          "notes": "Исправления ошибок. Это всё, что автор указал для версии 3.6.1.\nЖурнал автора: https://www.sumatrapdfreader.org/docs/Version-history#3.6.1"
-        }
-      ]
-    },
-    {
-      "id": "DjVuLibre",
-      "platform": "Win32",
-      "version": "3.5.29",
-      "installed_sha256": "cde02834971268ea99f04ed1a9c5bfcd284dcbb368d6073d02c00b67321fe644",
-      "history": [
-        {
-          "version": "3.5.29",
-          "notes": "Инструменты чтения страниц DjVu без OCR. Проверка готовых Windows-сборок на сайте автора; новые версии компонента выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru."
-        }
-      ]
-    },
-    {
-      "id": "7-Zip",
-      "platform": "Win32",
-      "version": "26.05",
-      "history": [
-        {
-          "version": "26.05",
-          "date": "2026-10-21",
-          "notes": "7-Zip 26.05: улучшена распаковка Z и Mach-O; исправлены ошибки и уязвимости. Необязательный компонент: скачивается с официального GitHub автора при необходимости."
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://www.sumatrapdfreader.org/download-free-pdf-viewer. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
@@ -119,69 +101,35 @@
       "id": "DjVuLibre",
       "platform": "Win64",
       "version": "3.5.29",
-      "installed_sha256": "cde02834971268ea99f04ed1a9c5bfcd284dcbb368d6073d02c00b67321fe644",
+      "archive": "HomeLibRu-DjVuLibre-3.5.29-Win64.zip",
       "history": [
         {
           "version": "3.5.29",
-          "notes": "Инструменты чтения страниц DjVu без OCR. Проверка готовых Windows-сборок на сайте автора; новые версии компонента выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru."
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
     {
       "id": "7-Zip",
       "platform": "Win64",
-      "version": "26.05",
+      "version": "26.5.0.0",
+      "archive": "HomeLibRu-7-Zip-26.5.0.0-Win64.zip",
       "history": [
         {
-          "version": "26.05",
-          "date": "2026-10-21",
-          "notes": "7-Zip 26.05: улучшена распаковка Z и Mach-O; исправлены ошибки и уязвимости. Необязательный компонент: скачивается с официального GitHub автора при необходимости."
-        }
-      ]
-    },
-    {
-      "id": "DocSharp",
-      "platform": "Win32",
-      "version": "0.21.0",
-      "history": [
-        {
-          "version": "0.21.0",
-          "date": "2026-08-11",
-          "notes": "Чтение DOC, PPT и XLS без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc, Common, Ppt и Xls (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
+          "version": "26.5.0.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/ip7z/7zip/releases. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
     {
       "id": "DocSharp",
       "platform": "Win64",
-      "version": "0.21.0",
+      "version": "0.21.0.0",
+      "archive": "HomeLibRu-DocSharp-0.21.0.0-Win64.zip",
       "history": [
         {
-          "version": "0.21.0",
-          "date": "2026-08-11",
-          "notes": "Чтение DOC, PPT и XLS без установленного офисного пакета. В комплект входят DocSharp.Binary.Doc, Common, Ppt и Xls (MIT и BSD-3-Clause). Версия проверяется в официальном каталоге NuGet. Новые версии библиотеки выпускаются независимо от HomeLib Ru. Совместимые пакеты устанавливаются обновлятором отдельно от HomeLib Ru.\nИзменения автора: https://github.com/manfromarce/DocSharp/releases"
-        }
-      ]
-    },
-    {
-      "id": "JPEG XL",
-      "platform": "Win32",
-      "version": "0.12.0",
-      "history": [
-        {
-          "version": "0.12.0",
-          "notes": "Необязательные иллюстрации JPEG XL. Официальный djxl из пакета libjxl x86/x64; скачивание по необходимости и отдельная проверка новых выпусков автора."
-        }
-      ]
-    },
-    {
-      "id": "WebP",
-      "platform": "Win32",
-      "version": "1.6.0",
-      "history": [
-        {
-          "version": "1.6.0",
-          "notes": "Необязательные иллюстрации WebP. Готовая сборка HomeLib Ru из официальных исходников libwebp; отдельный постоянный архив x86/x64 рядом с AlReader. Сборка на компьютере пользователя не нужна."
+          "version": "0.21.0.0",
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/manfromarce/DocSharp. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
@@ -189,21 +137,291 @@
       "id": "JPEG XL",
       "platform": "Win64",
       "version": "0.12.0",
+      "archive": "HomeLibRu-JPEGXL-0.12.0-Win64.zip",
       "history": [
         {
           "version": "0.12.0",
-          "notes": "Необязательные иллюстрации JPEG XL. Официальный djxl из пакета libjxl x86/x64; скачивание по необходимости и отдельная проверка новых выпусков автора."
+          "notes": "Запасная копия проверенного компонента. Источник автора: https://github.com/libjxl/libjxl/releases/tag/v0.12.0. Лицензии сохранены в архиве; это зеркало, а не новая сборка автора."
         }
       ]
     },
     {
-      "id": "WebP",
-      "platform": "Win64",
-      "version": "1.6.0",
+      "id": "HomeLibReader",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
       "history": [
         {
-          "version": "1.6.0",
-          "notes": "Необязательные иллюстрации WebP. Готовая сборка HomeLib Ru из официальных исходников libwebp; отдельный постоянный архив x86/x64 рядом с AlReader. Сборка на компьютере пользователя не нужна."
+          "version": "2.7.0.1105",
+          "date": "2026-10-28",
+          "notes": "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
+        }
+      ],
+      "archive": "HomeLibRu-HomeLibReader-2.7.0.1105-Win32.zip"
+    },
+    {
+      "id": "PDFium",
+      "platform": "Win32",
+      "version": "157.0.8086.0",
+      "history": [
+        {
+          "version": "157.0.8086.0",
+          "date": "2026-10-27",
+          "notes": "Модуль чтения PDF: библиотека PDFium и отдельный обработчик страниц. Лицензии и сведения об исходниках включены."
+        }
+      ],
+      "archive": "HomeLibRu-PDFium-157.0.8086.0-Win32.zip"
+    },
+    {
+      "id": "BookConverter",
+      "platform": "Win32",
+      "version": "2.7.0.1103",
+      "history": [
+        {
+          "version": "2.7.0.1103",
+          "date": "2026-10-28",
+          "notes": "Обновлена оценка размеров FB2/EPUB и обработка изображений и сканов при сохранении. Поддерживает новое окно «Сохранить как…»; необходимые модули чтения исходного формата устанавливаются отдельно."
+        },
+        {
+          "version": "2.7.0.1102",
+          "date": "2026-10-27",
+          "notes": "Подготовка и конвертация книг, включая Kindle, старые Office и редкие форматы. PDF, DjVu и декодеры иллюстраций устанавливаются отдельно по необходимости."
+        }
+      ],
+      "archive": "HomeLibRu-BookConverter-2.7.0.1103-Win32.zip"
+    },
+    {
+      "id": "HomeLibReader",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "date": "2026-10-28",
+          "notes": "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
+        }
+      ],
+      "archive": "HomeLibRu-HomeLibReader-2.7.0.1105-Win64.zip"
+    },
+    {
+      "id": "PDFium",
+      "platform": "Win64",
+      "version": "157.0.8086.0",
+      "history": [
+        {
+          "version": "157.0.8086.0",
+          "date": "2026-10-27",
+          "notes": "Модуль чтения PDF: библиотека PDFium и отдельный обработчик страниц. Лицензии и сведения об исходниках включены."
+        }
+      ],
+      "archive": "HomeLibRu-PDFium-157.0.8086.0-Win64.zip"
+    },
+    {
+      "id": "BookConverter",
+      "platform": "Win64",
+      "version": "2.7.0.1103",
+      "history": [
+        {
+          "version": "2.7.0.1103",
+          "date": "2026-10-28",
+          "notes": "Обновлена оценка размеров FB2/EPUB и обработка изображений и сканов при сохранении. Поддерживает новое окно «Сохранить как…»; необходимые модули чтения исходного формата устанавливаются отдельно."
+        },
+        {
+          "version": "2.7.0.1102",
+          "date": "2026-10-27",
+          "notes": "Подготовка и конвертация книг, включая Kindle, старые Office и редкие форматы. PDF, DjVu и декодеры иллюстраций устанавливаются отдельно по необходимости."
+        }
+      ],
+      "archive": "HomeLibRu-BookConverter-2.7.0.1103-Win64.zip"
+    },
+    {
+      "id": "BookProcessing",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-BookProcessing-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu."
+        }
+      ]
+    },
+    {
+      "id": "ImageProcessing",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-ImageProcessing-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
+        }
+      ]
+    },
+    {
+      "id": "Kindle",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-Kindle-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
+        }
+      ]
+    },
+    {
+      "id": "LegacyBooks",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-LegacyBooks-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
+        }
+      ]
+    },
+    {
+      "id": "LegacyOffice",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-LegacyOffice-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
+        }
+      ]
+    },
+    {
+      "id": "XPS",
+      "platform": "Win32",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-XPS-2.7.0.1105-Win32.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
+        }
+      ]
+    },
+    {
+      "id": "BookProcessing",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-BookProcessing-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu."
+        }
+      ]
+    },
+    {
+      "id": "ImageProcessing",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-ImageProcessing-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
+        }
+      ]
+    },
+    {
+      "id": "Kindle",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-Kindle-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
+        }
+      ]
+    },
+    {
+      "id": "LegacyBooks",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-LegacyBooks-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
+        }
+      ]
+    },
+    {
+      "id": "LegacyOffice",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-LegacyOffice-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
+        }
+      ]
+    },
+    {
+      "id": "XPS",
+      "platform": "Win64",
+      "version": "2.7.0.1105",
+      "archive": "HomeLibRu-XPS-2.7.0.1105-Win64.zip",
+      "history": [
+        {
+          "version": "2.7.0.1105",
+          "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
+        }
+      ]
+    },
+    {
+      "id": "MHLMcpServer",
+      "platform": "Win32",
+      "version": "1.0.0.0",
+      "archive": "HomeLibRu-MHLMcpServer-1.0.0.0-Win32.zip",
+      "history": [
+        {
+          "version": "1.0.0.0",
+          "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
+        }
+      ]
+    },
+    {
+      "id": "MHLMcpServer",
+      "platform": "Win64",
+      "version": "1.0.0.0",
+      "archive": "HomeLibRu-MHLMcpServer-1.0.0.0-Win64.zip",
+      "history": [
+        {
+          "version": "1.0.0.0",
+          "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
+        }
+      ]
+    },
+    {
+      "id": "Zstandard",
+      "platform": "Win32",
+      "version": "1.5.7",
+      "archive": "HomeLibRu-Zstandard-1.5.7-Win32.zip",
+      "history": [
+        {
+          "version": "1.5.7",
+          "notes": "Официальная библиотека Zstandard для открытия каталогов Metabib .jsonl.zst. Установка только по запросу."
+        }
+      ]
+    },
+    {
+      "id": "Zstandard",
+      "platform": "Win64",
+      "version": "1.5.7",
+      "archive": "HomeLibRu-Zstandard-1.5.7-Win64.zip",
+      "history": [
+        {
+          "version": "1.5.7",
+          "notes": "Официальная библиотека Zstandard для открытия каталогов Metabib .jsonl.zst. Установка только по запросу."
         }
       ]
     }

@@ -180,6 +180,12 @@ begin
 end;
 
 procedure TestUpdateRepair;
+const
+  // This fixture stages the classic installed inventory whose missing helper
+  // files are exercised below. New format modules have separate real-package
+  // installation tests and must not turn an absent module into a repair need.
+  RepairInventory: array[0..7] of string = ('SQLite','AlReader','SumatraPDF',
+    'DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP');
 var Server: TRepairServer; Dialog: TRepairForm; Current: TProgramRelease;
   Releases: TComponentReleases; Index: TJSONObject; Root, Ready: TJSONValue;
   Primary: TButton; View: TListView; Status: TLabel; Notes: TUpdateNotesView;
@@ -225,7 +231,7 @@ begin
   SourceHash:=THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll');
   try
     Require(Assigned(Index) and (Index.GetValue<string>('tag')=PROGRAM_RELEASE_VERSION),'Repair fixture release differs from compiled release');
-    for var ID in ComponentIDs do Require(not ComponentNeedsRepair(Settings.AppPath,ID),'Repair baseline incomplete: '+ID);
+    for var ID in RepairInventory do Require(not ComponentNeedsRepair(Settings.AppPath,ID),'Repair baseline incomplete: '+ID);
     for var I:=0 to High(Names) do
     begin
       Hashes[I]:=THashSHA2.GetHashStringFromFile(Settings.AppPath+Names[I]);
@@ -356,7 +362,7 @@ begin
     Require(Rejected,'A helper from an unverified source archive was accepted');
     Writeln('PASS missing updater fallback is bound to exact archive bytes and rejects changed helpers or source digests');
     FreeAndNil(Dialog); RestoreInputs(False);
-    for var ID in ComponentIDs do Require(not ComponentNeedsRepair(Settings.AppPath,ID),'Restored component input changed: '+ID);
+    for var ID in RepairInventory do Require(not ComponentNeedsRepair(Settings.AppPath,ID),'Restored component input changed: '+ID);
     Dialog:=TRepairForm.CreateForServer(Server); Controls;
     Require(Dialog.RestoreReady,'Same-release ready repair was discarded when only updater helper was absent');
     for var Dark in [False,True] do
