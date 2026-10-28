@@ -284,13 +284,13 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'NOTICE'),
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
-    (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
     $zstdDestination,
     (Join-Path $outputDirectory 'tools\fonts\manifest.json')
 )
 if (-not $CoreOnly) {
     $requiredRuntimeFiles += @(
+    (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
     (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
     (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\HomeLibDjvu.dpr'),
@@ -321,12 +321,12 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 }
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
-Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -Expected $Platform
 Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
-Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
 Assert-Architecture -Path $zstdDestination -Expected $Platform
 if (-not $CoreOnly) {
+    Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
+    Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
     Assert-Architecture -Path $sevenZipDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform
@@ -371,8 +371,8 @@ Write-FileHash -Path $exePath
 Write-FileHash -Path $sqliteDestination
 Write-FileHash -Path $zstdDestination
 Write-FileHash -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll')
-Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
 if (-not $CoreOnly) {
+    Write-FileHash -Path (Join-Path $outputDirectory 'MHLMcpServer.exe')
     Write-FileHash -Path $sevenZipDestination
     Write-FileHash -Path $jpegXlDestination
     Write-FileHash -Path $webpDestination

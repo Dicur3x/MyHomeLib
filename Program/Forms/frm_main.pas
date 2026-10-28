@@ -45,6 +45,7 @@ uses
   unit_Globals,
   unit_ProgramUpdates,
   frm_ProgramUpdate,
+  frm_MCPSetup,
   frm_OPDS,
   unit_Interfaces, unit_StartupCatalog, unit_BookViewSessions,
   XMLIntf,
@@ -941,6 +942,7 @@ type
     FProgramUpdateTimer: TTimer;
     procedure EnsureProgramUpdateForm;
     procedure RequestOptionalComponent(const ID: string);
+    procedure MCPSetupExecute(Sender: TObject);
     procedure ProgramUpdateSchedule(Sender: TObject);
     procedure RestartForProgramUpdate(Sender: TObject);
   private
@@ -3436,8 +3438,18 @@ begin
   else if ID='DjVuLibre' then Reason:='Для чтения DjVu нужна библиотека DjVuLibre.'
   else if ID='DocSharp' then Reason:='Для чтения старого офисного формата нужна библиотека DocSharp.'
   else if ID='7-Zip' then Reason:='Для чтения этого сжатого архива нужен 7-Zip. Обычные ZIP и FB2 работают без него.'
+  else if ID='MHLMcpServer' then Reason:='Установить модуль подключения AI-ассистента? После установки откройте «Инструменты → Подключить AI-ассистента…», чтобы скопировать настройки.'
   else Reason:='Внешнюю читалку '+ID+' можно установить отдельно.';
   EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason,True);
+end;
+
+procedure TfrmMain.MCPSetupExecute(Sender: TObject);
+var Dialog: TfrmMCPSetup;
+begin
+  if ComponentNeedsRepair(Settings.AppPath,'MHLMcpServer') then
+  begin RequestOptionalComponent('MHLMcpServer'); Exit; end;
+  Dialog:=TfrmMCPSetup.CreateForProfile(Self,Settings.AppPath+'MHLMcpServer.exe',Settings.SystemFileName[sfSystemDB]);
+  try Dialog.ShowModal; finally Dialog.Free; end;
 end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
@@ -4540,6 +4552,9 @@ begin
   OPDSMenu.Caption := 'Каталог для читалки (OPDS)...';
   OPDSMenu.OnClick := ShowOPDS;
   miTools.Insert(0, OPDSMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miMCPSetup';
+  FilterMenu.Caption:='Подключить AI-ассистента…'; FilterMenu.OnClick:=MCPSetupExecute;
+  miTools.Add(FilterMenu);
   FReadBuiltinAction := TAction.Create(Self);
   FReadBuiltinAction.Name := 'acReadBuiltin';
   FReadBuiltinAction.ActionList := Actions;

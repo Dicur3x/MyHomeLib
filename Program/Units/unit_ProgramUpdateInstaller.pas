@@ -83,6 +83,7 @@ begin
   Result := '';
   if ID = 'SQLite' then Result := 'sqlite3.dll';
   if ID = 'HomeLibReader' then Result := 'HomeLibReader.exe';
+  if ID = 'MHLMcpServer' then Result := 'MHLMcpServer.exe';
   if ID = 'PDFium' then Result := 'tools/pdfium/pdfium.dll';
   if ID = 'BookConverter' then Result := 'tools/kindle/python/python.exe';
   if ID = 'IBK' then Result := 'tools/ibk/Rus.key';
@@ -98,6 +99,8 @@ end;
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if ID='MHLMcpServer' then Exit((Name='MHLMcpServer.exe') or
+    (Name='MHLMcpServer-LICENSE.txt') or (Name='MHLMcpServer-README.txt'));
   if (ID='DocSharp') or (ID='DjVuLibre') then
     for var AdapterName in ReaderAdapterFiles(ID) do if Name=AdapterName then Exit(True);
   if ID='IBK' then
@@ -310,6 +313,7 @@ begin
     if InstalledComponentVersion(AppPath,ID)='' then Exit;
     if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
       'HomeLibReader-LICENSE.txt','sqlite3.dll','libzstd.dll','NOTICE')
+    else if ID='MHLMcpServer' then Names:=TArray<string>.Create('MHLMcpServer.exe')
     else if ID='PDFium' then Names:=TArray<string>.Create('tools/pdfium/pdfium.dll','tools/pdfium/HomeLibPDF.exe',
       'tools/pdfium/RUNTIME.json','tools/pdfium/WORKER_RUNTIME.json','tools/pdfium/LICENSE','tools/pdfium/HomeLibPDF-LICENSE.txt')
     else if ID='BookConverter' then Names:=TArray<string>.Create('tools/kindle/python/python.exe',
@@ -390,7 +394,8 @@ begin
   if Length(Parts) = 1 then
     Result := (Lower = 'homelibru.exe') or (Lower = 'homelibreader.exe') or
       (Lower = 'homelibreader-license.txt') or (Lower = 'homelibruupdater.exe') or
-      (Lower = 'mhlmcpserver.exe') or (Lower = 'sqlite3.dll') or
+      (Lower = 'mhlmcpserver.exe') or (Lower = 'mhlmcpserver-license.txt') or
+      (Lower = 'mhlmcpserver-readme.txt') or (Lower = 'sqlite3.dll') or
       (Lower = 'libzstd.dll') or (Lower = 'license') or (Lower = 'notice') or
       (Lower = 'homelibru.url') or (Lower = 'changes.txt') or (Lower = 'components.json') or Lower.EndsWith('.glst')
   else
@@ -507,6 +512,8 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
   end;
   procedure RequireComponentMembers(const ID, Version: string);
   begin
+    if ID='MHLMcpServer' then
+      for var Name in ['MHLMcpServer-LICENSE.txt','MHLMcpServer-README.txt'] do RequireMember(Name);
     if ID='HomeLibReader' then
       for var Name in ['HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','sqlite3.dll','libzstd.dll','NOTICE'] do
         RequireMember(Name);
@@ -1374,7 +1381,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..11] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK');
+const ComponentNames: array[0..12] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

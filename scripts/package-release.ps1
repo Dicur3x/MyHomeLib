@@ -33,9 +33,10 @@ $stagingRoot = Join-Path $temporaryDirectory ('homelibru-package-' + [guid]::New
 $payloadDirectory = Join-Path $stagingRoot 'payload'
 [System.IO.Directory]::CreateDirectory($payloadDirectory) | Out-Null
 try {
-    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'MHLMcpServer.exe', 'sqlite3.dll', 'libzstd.dll', 'LICENSE', 'NOTICE')) {
+    foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'libzstd.dll', 'LICENSE', 'NOTICE')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $name) -Destination $payloadDirectory
     }
+    if ($Full) { Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'MHLMcpServer.exe') -Destination $payloadDirectory }
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
@@ -119,7 +120,7 @@ try {
             Copy-Item -LiteralPath (Join-Path $runtimeDirectory "Readers\$reader\$name") -Destination $destination
         }
     }
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\HomeLibRu.url') -Destination $payloadDirectory
+    if ($Full) { Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\HomeLibRu.url') -Destination $payloadDirectory }
     $converter = Join-Path $runtimeDirectory 'converters\fb2lrf'
     if ($Full -and (Test-Path -LiteralPath $converter -PathType Container)) {
         $converterDestination = Join-Path $payloadDirectory 'converters'
@@ -151,7 +152,7 @@ try {
             foreach ($entry in $archive.Entries) {
                 if (($entry.FullName.StartsWith('tools/') -and $entry.FullName -ne 'tools/fonts/manifest.json') -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
-                    $entry.FullName -eq 'HomeLibReader.exe') {
+                    $entry.FullName -in @('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url')) {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"
                 }
             }

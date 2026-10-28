@@ -669,7 +669,7 @@ begin
   Result:=(Index>=Low(UPDATE_COMPONENTS)) and (Index<=High(UPDATE_COMPONENTS));
   if Result and FReaderOnly then
     Result:=(UPDATE_COMPONENTS[Index].ID<>'SQLite') and (UPDATE_COMPONENTS[Index].ID<>'AlReader') and
-      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF');
+      (UPDATE_COMPONENTS[Index].ID<>'SumatraPDF') and (UPDATE_COMPONENTS[Index].ID<>'MHLMcpServer');
 end;
 
 function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;

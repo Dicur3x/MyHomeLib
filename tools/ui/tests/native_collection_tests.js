@@ -74,9 +74,11 @@ modes.push('ibk-components');
 modes.push('ibk-download-live');
 modes.push('component-mirrors', 'reader-portable');
 if (process.env.HOMELIB_PUBLISHED_COMPONENT_PACKAGES || viewsMode === 'published-components') modes.push('published-components');
+if (process.env.HOMELIB_MCP_COMPONENT_PACKAGES || viewsMode === 'optional-mcp') modes.push('optional-mcp');
 modes.push('webp-live');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  'optional-mcp': ['PASS optional MCP setup preserves default custom Unicode profiles', 'PASS optional MCP is hidden until requested', 'PASS optional MCP actual package verifies architecture version restricted files'],
   'published-components': ['PASS published component manifest prepare verify install HomeLibReader', 'PASS published component manifest prepare verify install BookConverter', 'PASS published component manifest prepare verify install PDFium'],
   'component-mirrors': ['PASS component mirror source and real download fallback preserve exact version architecture and bytes', 'PASS component mirror native UI shows exact fallback version and GitHub source', 'PASS IBK mirror preserves unchanged complete original distributions'],
   'ibk-download-live': ['PASS IBK live native source check and updater download preserve pinned identities and prepare complete original data'],
@@ -644,6 +646,49 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
+    if (mode === 'optional-mcp') {
+      const hash = filename => require('node:crypto').createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
+      const protectedFiles = [];
+      function collect(dir) {
+        for (const entry of fs.readdirSync(dir, {withFileTypes:true})) {
+          const file = path.join(dir, entry.name);
+          if (entry.isDirectory()) collect(file);
+          else if (/\.(ini|dbs|dbs2|hlc2|fb2)$/i.test(entry.name)) protectedFiles.push(file);
+        }
+      }
+      collect(folder);
+      const before = protectedFiles.map(hash);
+      // Portable catalogue distributions no longer need this marker. The
+      // optional server must resolve the same profile without one as well.
+      fs.renameSync(path.join(folder,'uselocaldata'),path.join(folder,'mcp-portable-marker-stored'));
+      try {
+      const messages = [
+        {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'HomeLibRu optional module check',version:'1'}}},
+        {jsonrpc:'2.0', method:'notifications/initialized'},
+        {jsonrpc:'2.0', id:2, method:'tools/list'},
+        {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'list_collections',arguments:{}}}
+      ];
+      const server = cp.spawnSync(path.join(folder,'MHLMcpServer.exe'), [], {
+        cwd:folder, windowsHide:true, timeout:20000, encoding:'utf8',
+        env:{...process.env,LOCALAPPDATA:path.join(folder,'LocalAppData'),APPDATA:path.join(folder,'Roaming')},
+        input:messages.map(message=>JSON.stringify(message)).join('\n')+'\n', maxBuffer:1024*1024
+      });
+      if (server.error) throw server.error;
+      if (server.status!==0) throw Error('Installed MCP server failed: '+server.stdout+server.stderr);
+      const replies=server.stdout.trim().split(/\r?\n/).map(line=>JSON.parse(line));
+      if (replies.length!==3 || replies.some(reply=>reply.error)) throw Error('MCP protocol returned invalid replies');
+      const tools=replies.find(reply=>reply.id===2)?.result?.tools;
+      if (!Array.isArray(tools) || !tools.some(tool=>tool.name==='search_books')) throw Error('MCP catalogue tools missing');
+      const result=replies.find(reply=>reply.id===3)?.result;
+      if (result?.isError) throw Error('MCP collection query failed: '+JSON.stringify(result));
+      const collections=JSON.parse(result.content[0].text).collections;
+      if (!Array.isArray(collections) || collections.length<2) throw Error('MCP did not read native fixture collections');
+      if (JSON.stringify(before)!==JSON.stringify(protectedFiles.map(hash))) throw Error('MCP changed catalogue, profile or book data');
+      console.log('PASS installed optional MCP stdio initialize tools and actual collection query preserve private files');
+      } finally {
+        fs.renameSync(path.join(folder,'mcp-portable-marker-stored'),path.join(folder,'uselocaldata'));
+      }
+    }
     if (mode==='ibk-components' || (mode==='catalogue-formats' && process.argv.includes('--catalogue-expect-success'))) {
       const rows=JSON.parse(fs.readFileSync(path.join(folder,'catalogue-format-results.json'),'utf8').replace(/^\uFEFF/,''));
       if(!rows.length || rows.some(r=>r.read!=='ok'||r['.fb2']!=='ok'||r['.epub']!=='ok')) throw Error('A selected supported catalogue book failed reading or conversion; inspect its per-book report');

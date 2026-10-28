@@ -59,7 +59,7 @@ def main():
                 'tools/office/', 'tools/xps/', 'tools/pdfium/',
                 'tools/7zip/', 'tools/webp/', 'tools/jpeg-xl/', 'tools/doc/', 'tools/djvu/')
             core_tools = {'tools/fonts/manifest.json'}
-            forbidden = [name for name in names if name == 'HomeLibReader.exe' or
+            forbidden = [name for name in names if name in ('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url') or
                 name.startswith(forbidden_prefixes) or (name.startswith('tools/') and name not in core_tools)]
             assert not forbidden, forbidden
             manifest = json.loads(package.read('HomeLibRu.update.json'))

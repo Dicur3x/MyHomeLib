@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..11] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..12] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -34,7 +34,8 @@ const
     (ID:'HomeLibReader'; Title:'HomeLib Reader'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'PDFium'; Title:'Чтение PDF'; URL:'https://github.com/bblanchon/pdfium-binaries/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'BookConverter'; Title:'Подготовка и конвертация книг'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False));
+    (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False),
+    (ID:'MHLMcpServer'; Title:'Подключение AI-ассистента'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -139,7 +140,7 @@ begin
 end;
 
 function IsOptionalComponent(const ID: string): Boolean;
-begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK'); end;
+begin Result:=(ID='AlReader') or (ID='SumatraPDF') or (ID='DjVuLibre') or (ID='DocSharp') or (ID='7-Zip') or (ID='JPEG XL') or (ID='WebP') or (ID='HomeLibReader') or (ID='PDFium') or (ID='BookConverter') or (ID='IBK') or (ID='MHLMcpServer'); end;
 
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 begin Result:=not IsOptionalComponent(ID) or (IndexText(ID,Choices.Split([',']))>=0); end;
@@ -193,6 +194,7 @@ begin
   if ID='WebP' then Exit('WebP (libwebp) — чтение иллюстраций WebP для показа и сохранения книги.');
   if ID='7-Zip' then Exit('7-Zip — распаковка книг и вспомогательных компонентов из архивов.');
   if ID='IBK' then Exit('Данные ICE Book Reader — чтение книг IBK во встроенной читалке и конвертере.');
+  if ID='MHLMcpServer' then Exit('MCP-сервер HomeLib Ru — поиск в коллекциях и чтение текста книг из выбранного AI-приложения. Для обычной работы каталога он не нужен.');
   Result:='';
 end;
 
