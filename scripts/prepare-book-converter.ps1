@@ -20,7 +20,7 @@ $converterFiles += @(Get-ChildItem -LiteralPath (Join-Path $sourceDirectory 'ven
     Where-Object { $_.Extension -eq '.py' -or $_.Name -eq 'py.typed' -or $_.Name -eq 'SOURCE.json' -or $_.Name -like '*_LICENSE.txt' } |
     ForEach-Object { $_.FullName.Substring($sourceDirectory.Length + 1) })
 $converterFiles += @('sm_input.py', 'sm_runtime.js', 'sm_reader.py', 'sm_resources.py', 'js_runtime.py')
-$converterFiles += 'rgo_outline.py'
+$converterFiles += @('rgo_outline.py', 'SAVE_OPTIONS_API.txt')
 $converterFiles += @('ibk_input.py', 'ibk_crypto.py', 'ibk_parameters.json', 'ibk_tables.bin')
 foreach ($name in $converterFiles) {
     $sourcePath = Join-Path $sourceDirectory $name

@@ -1,6 +1,74 @@
 ﻿procedure TestReaderSpread;
 var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
   First, Last, Saved, RightInk, LeftInk: Integer; BaselineGDI, BaselineUSER: Cardinal; Image: TBitmap;
+  procedure CheckHiddenInterface(const Kind: string);
+  var Toolbar, Footer, Search: TPanel; Restore, HideButton, FullButton: TButton;
+    Bounds, OriginalBounds: TRect; Position: Integer; Key: Word; Menu: TMainMenu; Started: UInt64;
+  begin
+    Toolbar:=Reader.FindComponent('ReaderToolbar') as TPanel;
+    Footer:=Reader.FindComponent('ReaderFooter') as TPanel;
+    Search:=Reader.FindComponent('ReaderSearchPanel') as TPanel;
+    Restore:=Reader.FindComponent('ReaderShowInterface') as TButton;
+    HideButton:=Reader.FindComponent('ReaderHideInterface') as TButton;
+    FullButton:=Reader.FindComponent('ReaderFullScreen') as TButton;
+    Menu:=Reader.Menu; Position:=Reader.TextPosition; OriginalBounds:=Reader.BoundsRect;
+    Require(Reader.WindowState=wsNormal,Kind+' interface test must start in a normal window');
+    Reader.SetBounds(OriginalBounds.Left,OriginalBounds.Top,640,400); Application.ProcessMessages;
+    Bounds:=Reader.BoundsRect;
+    for var ByButton in [False,True] do
+    begin
+      Search.Visible:=ByButton;
+      HideButton.Click;
+      Application.ProcessMessages;
+      Require(Reader.InterfaceHidden and not Reader.FullScreenMode and
+        (Reader.WindowState=wsNormal) and (Reader.BoundsRect=Bounds) and
+        (Reader.BorderStyle=bsSizeable) and (GetMenu(Reader.Handle)=0) and
+        not Toolbar.Visible and not Footer.Visible and not Search.Visible and Restore.Visible,
+        Kind+' hiding interface changed the small window or left reader panels visible');
+      Require(Reader.ReadingSurface.Top=Restore.Top+Restore.Height,
+        Kind+' hidden interface leaves an empty toolbar gap above the book');
+      if not ByButton then
+      begin
+        Reader.SetBounds(Bounds.Left+7,Bounds.Top+5,Bounds.Width+31,Bounds.Height+19);
+        Application.ProcessMessages; Bounds:=Reader.BoundsRect;
+      end;
+      if ByButton then begin Key:=VK_ESCAPE; Reader.OnKeyDown(Reader,Key,[]); end
+      else Restore.Click;
+      Application.ProcessMessages;
+      Require(not Reader.InterfaceHidden and not Reader.FullScreenMode and
+        (Reader.WindowState=wsNormal) and (Reader.BorderStyle=bsSizeable) and (Reader.Menu=Menu) and
+        (GetMenu(Reader.Handle)=Menu.Handle) and Toolbar.Visible and Footer.Visible and
+        (Search.Visible=ByButton) and not Restore.Visible and (Reader.BoundsRect=Bounds),
+        Kind+' showing interface lost menu search or the resized small window');
+      Require(Reader.TextPosition=Position,Kind+' interface visibility changed the reading position');
+      Search.Visible:=False;
+    end;
+    FullButton.Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and not Reader.InterfaceHidden and
+      (Reader.BorderStyle=bsNone) and Toolbar.Visible and Footer.Visible and (Reader.Menu=Menu),
+      Kind+' separate full screen command unexpectedly hid the interface');
+    HideButton.Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and Reader.InterfaceHidden and not Toolbar.Visible,
+      Kind+' full screen and hidden interface cannot be combined');
+    Restore.Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and not Reader.InterfaceHidden and Toolbar.Visible,
+      Kind+' showing interface unexpectedly exited full screen');
+    Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
+    Require((Key=0) and not Reader.FullScreenMode and not Reader.InterfaceHidden and
+      (Reader.BorderStyle=bsSizeable) and (Reader.BoundsRect=Bounds),
+      Kind+' F11 did not restore the original small window');
+    HideButton.Click; FullButton.Click; Application.ProcessMessages;
+    Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
+    Require(Reader.InterfaceHidden and not Reader.FullScreenMode and (Reader.BoundsRect=Bounds),
+      Kind+' exiting full screen changed independent hidden interface state');
+    Restore.Click; Reader.BoundsRect:=OriginalBounds;
+    Started:=GetTickCount64;
+    while Reader.PageLoading and (GetTickCount64-Started<20000) do
+    begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+    Require(not Reader.PageLoading,Kind+' interface modes did not finish restoring the reading view');
+    Writeln('PASS '+Kind+' interface button hides all chrome and restores from top button or Escape without losing reading state');
+    Writeln('PASS '+Kind+' small-window interface visibility and full screen are independent, resizable and reversible');
+  end;
   procedure CheckAppearance(const Kind: string);
   var Bitmap, Flat: TBitmap; Stream: TBytesStream; FlatHash, Text: string;
     Position, Changed: Integer; Size: TPoint; Watch: TStopwatch; AppDark: Boolean;
@@ -109,8 +177,46 @@ var Reader: TfrmBuiltinReader; FileName, Profile, XML, Original, Page: string;
         Require(Snapshot=FlatHash,Kind+' flat appearance did not restore exact pixels');
       end;
       Reader.SetTheme(0); Reader.SetPageAppearance(rpaBook);
+      if not Kind.Contains('single page') then CheckHiddenInterface(Kind);
       Writeln('PASS '+Kind+' visible reversible book edges and complete window palette across all six themes without reflow or catalogue changes');
     finally Stream.Free; Flat.Free; Bitmap.Free; end;
+  end;
+  procedure CheckBookThickness(const Kind: string);
+  var Early, Late: TBitmap; Position, LeftChanges, RightChanges: Integer;
+    Watch: TStopwatch;
+    procedure CaptureAt(Fraction: Double; Target: TBitmap);
+    begin
+      Reader.SeekProgress(Fraction); Watch:=TStopwatch.StartNew;
+      while Reader.PageLoading and (Watch.ElapsedMilliseconds<20000) do
+      begin Application.ProcessMessages; CheckSynchronize(5); Sleep(10); end;
+      Require(not Reader.PageLoading,Kind+' progress preview did not finish');
+      Target.SetSize(Reader.ReadingSurface.Width,Reader.ReadingSurface.Height);
+      Reader.ReadingSurface.PaintTo(Target.Canvas.Handle,0,0);
+    end;
+  begin
+    Position:=Reader.TextPosition; Early:=TBitmap.Create; Late:=TBitmap.Create;
+    try
+      Reader.SetTheme(1); Reader.SetPageAppearance(rpaBook);
+      CaptureAt(0.05,Early); CaptureAt(0.90,Late);
+      LeftChanges:=0; RightChanges:=0;
+      for var Y:=30 to Early.Height-50 do
+        for var X:=2 to 28 do
+        begin
+          if Early.Canvas.Pixels[X,Y]<>Late.Canvas.Pixels[X,Y] then Inc(LeftChanges);
+          if Early.Canvas.Pixels[Early.Width-1-X,Y]<>Late.Canvas.Pixels[Late.Width-1-X,Y] then Inc(RightChanges);
+        end;
+      Require((LeftChanges>Early.Height) and (RightChanges>Early.Height),
+        Format('%s book thickness does not move between outer page blocks (%d / %d)',[Kind,LeftChanges,RightChanges]));
+      // Repainting a volume should remain a cheap overlay, without reloading
+      // or repaginating the source on every frame.
+      Watch:=TStopwatch.StartNew;
+      for var I:=1 to 20 do Reader.ReadingSurface.PaintTo(Late.Canvas.Handle,0,0);
+      Require(Watch.ElapsedMilliseconds<3000,Kind+' book decoration repaints too slowly');
+      Writeln(Format('PASS %s page-block thickness follows reading progress; 20 repaints %d ms',
+        [Kind,Watch.ElapsedMilliseconds]));
+    finally
+      Reader.GoToPosition(Position); Reader.SetTheme(0); Early.Free; Late.Free;
+    end;
   end;
   procedure CheckFixed(const Source, Kind: string);
   var BookHash: string; Watch: TStopwatch;
@@ -240,8 +346,8 @@ begin
     Require(Reader.VisiblePageCount=2,'Explicit spread did not show two pages');
     Capture; LeftInk:=Ink(60,Image.Width div 2-50,False); RightInk:=Ink(Image.Width div 2+60,Image.Width-50,False);
     Require((LeftInk>100) and (RightInk>100),'Spread does not draw text on both pages');
-    CheckAppearance('FB2');
-    Reader.SetPageLayout(rplSingle); Settle; CheckAppearance('FB2 single page');
+    CheckAppearance('FB2'); CheckBookThickness('FB2 spread');
+    Reader.SetPageLayout(rplSingle); Settle; CheckAppearance('FB2 single page'); CheckBookThickness('FB2 single page');
     Reader.SetPageLayout(rplDouble); Settle;
     First:=Reader.TextPosition; Page:=Reader.PageText; Reader.NextPage; Last:=Reader.TextPosition;
     Require((Last>First) and (Page=Normalized(Reader.BookText.Substring(First,Last-First))),

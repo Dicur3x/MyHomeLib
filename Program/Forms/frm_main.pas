@@ -77,7 +77,8 @@ uses
   dm_Images, VirtualTrees.BaseAncestorVCL, VirtualTrees.BaseTree,
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
-  unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession;
+  unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
+  unit_BookSaveContinuation;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -724,6 +725,8 @@ type
     FCurrentBookOnly: Boolean;
     FPendingReaderSession: TReaderSessionRequest;
     FPendingReaderSaved: Boolean;
+    FSaveContinuation: TBookSaveContinuation;
+    FResumingSave: Boolean;
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FMetadataFillAction: TAction;
     FStartupLoading: Boolean;
@@ -735,6 +738,7 @@ type
     FStartupBookRows: TStartupBookRows;
     FStartupMenuEnabled: TArray<Boolean>;
     FStartupMainButtons, FStartupEditButtons: TArray<Boolean>;
+    procedure ResumeBookSave(var Message: TMessage); message WM_RESUME_BOOK_SAVE;
     procedure OpenCatalogueReader(const Resolved, Snapshot: TBookRecord;
       const LibraryNamespace: string; RequirePersonal: Boolean);
     procedure RunCatalogueReader(const Request: TReaderSessionRequest; const Snapshot: TBookRecord;
@@ -3433,7 +3437,7 @@ begin
   else if ID='DocSharp' then Reason:='Для чтения старого офисного формата нужна библиотека DocSharp.'
   else if ID='7-Zip' then Reason:='Для чтения этого сжатого архива нужен 7-Zip. Обычные ZIP и FB2 работают без него.'
   else Reason:='Внешнюю читалку '+ID+' можно установить отдельно.';
-  EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason);
+  EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponent(ID,Reason,True);
 end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
@@ -3442,6 +3446,7 @@ begin
   if Assigned(FProgramUpdateThread) then
     Exit;
   EnsureProgramUpdateForm;
+  if Assigned(Sender) then FProgramUpdateForm.UseFullWindow;
   if not FProgramUpdateForm.StartCheckCycle(FAutoCheck) then Exit;
   FProgramUpdateForm.CheckComponents(FAutoCheck);
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);
@@ -4796,6 +4801,12 @@ begin
     tvBooksSR, tvBooksF, FPublisher.Books) do ClearFilteredBookFocus(Tree);
   if Assigned(FCollection) then CheckFavoriteCollection;
   ResumePendingCatalogueReader;
+  try
+    if TakeBookSaveContinuation(Settings.SettingsFileName,FSaveContinuation) then
+      PostMessage(Handle,WM_RESUME_BOOK_SAVE,0,0);
+  except
+    on E: Exception do begin LogDiagnosticError('save-resume-load',E); MHLShowError(E.Message); end;
+  end;
 end;
 
 procedure TfrmMain.StopInitialLoading;
@@ -5991,9 +6002,11 @@ var
   Files: string;
   Tree: TBookTree;
   ExportMode: TExportMode;
-  ExplicitFormat, ExternalScript, KeepSourceFormat: Boolean;
+  ExplicitFormat, ExternalScript, KeepSourceFormat, KeepFB2EPUB, ZipEachBook: Boolean;
   SendOptions: TBookSendOptions;
-  ImageQuality: string;
+  SaveBooks: TArray<TBookRecord>;
+  ImageQuality, Required: string;
+  UnifiedSave: Boolean;
   UseMTP: Boolean;
   DeviceShellItem: IShellItem;
   GroupData: PGroupData;
@@ -6010,6 +6023,7 @@ begin
   if not Assigned(Tree) then Exit;
   // Keep the selection while the destination dialog can still be canceled.
   FillBookIdList(Tree, BookIDList, False);
+  if FResumingSave then BookIDList:=Copy(FSaveContinuation.Books);
 
   UseMTP := False;
 
@@ -6038,20 +6052,60 @@ begin
   AFolder := Settings.DeviceDir;
   SaveFolderTemplate := Settings.FolderTemplate;
   ScriptID := (Sender as TComponent).Tag;
+  UnifiedSave:=(ScriptID=0) or (ScriptID=795) or (ScriptID=799);
+  Required:='';
   ExplicitFormat := (ScriptID = 850) or (ScriptID = 854);
-  ImageQuality:='ask'; KeepSourceFormat:=False;
+  ImageQuality:='ask'; KeepSourceFormat:=False; KeepFB2EPUB:=False; ZipEachBook:=False;
 
   ExportMode := ResolveBookExportMode(ScriptID, Settings.ExportMode,
     isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed);
 
-  if (ScriptID=0) or (ScriptID=795) or (ScriptID=799) then
+  if UnifiedSave then
   begin
     if ScriptID=795 then AFolder:=Settings.SyncExportDir
     else if FLastDeviceDir<>'' then AFolder:=FLastDeviceDir;
-    if not ChooseBookSendOptions(Length(BookIDList),AFolder,Settings.ExportMode,SendOptions) then Exit;
+    SetLength(SaveBooks,Length(BookIDList));
+    for var I:=0 to High(BookIDList) do
+    begin
+      SaveBooks[I]:=Default(TBookRecord); SaveBooks[I].BookKey:=BookIDList[I].BookKey;
+      SaveBooks[I].Title:='Недоступная книга';
+      if BookIDList[I].BookKey.BookID<=0 then Continue;
+      try
+        var BookCollection:=FSystemData.GetCollection(BookIDList[I].BookKey.DatabaseID);
+        var Snapshot:=Default(TBookRecord);
+        if not Assigned(BookCollection) then Continue;
+        BookCollection.GetBookRecord(BookIDList[I].BookKey,Snapshot,False);
+        if BookIDList[I].HasExpectedIdentity and not ReaderBookMatchesExpectedIdentity(
+          BookIDList[I].ExpectedLibID,BookIDList[I].ExpectedPhysicalIdentity,Snapshot,
+          VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY))) then Continue;
+        SaveBooks[I]:=Snapshot;
+        BookIDList[I].HasExpectedIdentity:=True;
+        BookIDList[I].ExpectedLibID:=Snapshot.LibID;
+        BookIDList[I].ExpectedPhysicalIdentity:=ReaderBookPhysicalIdentity(Snapshot);
+      except
+        // The worker reports each unavailable/stale row and preserves its
+        // selection. Never estimate a different book that reused the ID.
+      end;
+    end;
+    var Initial: PBookSendOptions:=nil;
+    if FResumingSave then Initial:=@FSaveContinuation.Options;
+    if not ChooseBookSendOptions(Length(BookIDList),AFolder,Settings.ExportMode,SendOptions,True,SaveBooks,Initial) then
+    begin
+      if SendOptions.RequiredComponent<>'' then
+      begin
+        var Remaining: TBookIdList; SetLength(Remaining,Length(BookIDList)); var Count:=0;
+        for var Entry in BookIDList do if Entry.HasExpectedIdentity then
+        begin Remaining[Count]:=Entry; Inc(Count); end;
+        SetLength(Remaining,Count);
+        if Count>0 then StoreBookSaveContinuation(Settings.SettingsFileName,SendOptions.RequiredComponent,SendOptions,Remaining);
+        RequestOptionalComponent(SendOptions.RequiredComponent);
+      end;
+      Exit;
+    end;
     AFolder:=SendOptions.Folder; DeviceShellItem:=SendOptions.ShellItem;
     UseMTP:=SendOptions.UseMTP; ExplicitFormat:=SendOptions.ExplicitFormat;
     KeepSourceFormat:=SendOptions.KeepSourceFormat;
+    KeepFB2EPUB:=SendOptions.KeepFB2EPUB; ZipEachBook:=SendOptions.ZipEachBook;
     ExportMode:=SendOptions.Mode; ImageQuality:=SendOptions.ImageQuality;
     if (ScriptID=795) and not UseMTP then Settings.SyncExportDir:=AFolder;
     FLastDeviceDir:=AFolder; ScriptID:=SendOptions.ScriptIndex;
@@ -6111,9 +6165,11 @@ begin
     end
     else
     begin
+      if UnifiedSave then Settings.FolderTemplate:=SendOptions.FolderTemplate;
       unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False,
         Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
-        procedure(ID: string) begin RequestOptionalComponent(ID); end, ImageQuality, KeepSourceFormat);
+        procedure(ID: string) begin Required:=ID; end, ImageQuality,
+        KeepSourceFormat, KeepFB2EPUB, ZipEachBook);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;
@@ -6122,6 +6178,37 @@ begin
     Settings.FolderTemplate := SaveFolderTemplate;
     if (ScriptID >= 0) and (ScriptID < Settings.Scripts.Count) then
       Settings.Scripts[ScriptID].TMPParams := '';
+  end;
+  if Required<>'' then
+  begin
+    if UnifiedSave then
+    begin
+      var Remaining: TBookIdList; SetLength(Remaining,Length(Results)); var Count:=0;
+      for var Item in Results do
+        if (Item.State<>besSucceeded) and Item.Book.HasExpectedIdentity then
+        begin Remaining[Count]:=Item.Book; Inc(Count); end;
+      SetLength(Remaining,Count);
+      if Count>0 then StoreBookSaveContinuation(Settings.SettingsFileName,Required,SendOptions,Remaining);
+    end;
+    RequestOptionalComponent(Required);
+  end;
+end;
+
+procedure TfrmMain.ResumeBookSave(var Message: TMessage);
+var Command: TComponent; Token: string;
+begin
+  if (FSaveContinuation.Token='') or Application.Terminated or (csDestroying in ComponentState) then Exit;
+  Token:=FSaveContinuation.Token;
+  Command:=TComponent.Create(nil); FResumingSave:=True;
+  try
+    try
+      if FSaveContinuation.SourceFile<>'' then
+        raise Exception.Create('Этот план относится к отдельному файлу. Откройте его в читалке и повторите сохранение.');
+      Command.Tag:=795; SendToDeviceExecute(Command);
+    except on E: Exception do begin LogDiagnosticError('save-resume',E); MHLShowError(E.Message); end; end;
+  finally
+    Command.Free; FResumingSave:=False; FSaveContinuation:=Default(TBookSaveContinuation);
+    ClearBookSaveContinuation(Settings.SettingsFileName,Token);
   end;
 end;
 

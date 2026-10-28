@@ -13,8 +13,8 @@
     <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     <VerInfo_Locale>1049</VerInfo_Locale>
     <VerInfo_MajorVer>2</VerInfo_MajorVer><VerInfo_MinorVer>7</VerInfo_MinorVer>
-    <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>1102</VerInfo_Build>
-    <VerInfo_Keys>FileDescription=HomeLib Reader;ProductName=HomeLib Reader;ProductVersion=2.7.0_pre5.34;FileVersion=2.7.0.1102;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
+    <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>1103</VerInfo_Build>
+    <VerInfo_Keys>FileDescription=HomeLib Reader;ProductName=HomeLib Reader;ProductVersion=2.7.0_pre5.35;FileVersion=2.7.0.1103;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
     <DCC_UnitSearchPath>..\..\Program\Units;..\..\Program\Forms;..\..\Program\Forms\Editors;..\..\Program\DataModules;..\..\Program\ImportImpl;..\..\Program\UtilsImpl;..\..\Program\DwnldImpl;..\..\Program\DAO;..\..\Program\DAO\SQLite;..\..\Program\DAO\SQLite\Lib;..\..\Program\Wizards\NewCollection;..\..\Program\Wizards\Base;..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     <DCC_ResourcePath>..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
     <DCC_IncludePath>..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>

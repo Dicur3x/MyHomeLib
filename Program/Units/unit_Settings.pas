@@ -115,6 +115,8 @@ type
     FCheckExternalLibUpdate: Boolean;
     FPromptDevicePath: Boolean;
     FFolderTemplate: string;
+    FSaveAsFolderTemplate: string;
+    FSaveAsUseSubfolders: Boolean;
     FFileNameTemplate: string;
     FExportMode: TExportMode;
     FRemoveSquareBrackets: Boolean;
@@ -324,6 +326,8 @@ type
     property CheckExternalLibUpdate: Boolean read FCheckExternalLibUpdate write FCheckExternalLibUpdate;
     property PromptDevicePath: Boolean read FPromptDevicePath write FPromptDevicePath;
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
+    property SaveAsFolderTemplate: string read FSaveAsFolderTemplate write FSaveAsFolderTemplate;
+    property SaveAsUseSubfolders: Boolean read FSaveAsUseSubfolders write FSaveAsUseSubfolders;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
 
     property BookHeaderTemplate: string read FFBDBookHeaderTemplate write FFBDBookHeaderTemplate;
@@ -505,12 +509,10 @@ end;
 
 function ResolveMHLPaths: TMHLPathInfo;
 const
-  STR_USELOCALDATA = 'uselocaldata';
   STR_USELOCALTEMP = 'uselocaltemp';
   STR_USERDBS = 'user';
 var
-  GlobalAppDataDir: string;
-  UseLocalData, UserDatabase: Boolean;
+  UserDatabase: Boolean;
   I: Integer;
   DBFileName: string;
 begin
@@ -522,21 +524,16 @@ begin
     Result.UseLocalTemp:=False;
     Exit;
   end;
-  GlobalAppDataDir := GetSpecialPath(CSIDL_APPDATA) + APPDATA_DIR_NAME;
 
   Result.DbsFileName := SYSTEM_DATABASE_FILENAME;
   Result.IniFileName := SETTINGS_FILE_NAME;
   Result.UseLocalTemp := False;
 
-  UseLocalData := False;
   UserDatabase := False;
   DBFileName := '';
 
   for I := 1 to ParamCount do
   begin
-    if not UseLocalData then
-      UseLocalData := (LowerCase(ParamStr(I)) = STR_USELOCALDATA);
-
     if not Result.UseLocalTemp then
       Result.UseLocalTemp := (LowerCase(ParamStr(I)) = STR_USELOCALTEMP);
 
@@ -547,13 +544,12 @@ begin
     end;
   end;
 
-  UseLocalData := UseLocalData or FileExists(Result.AppPath + STR_USELOCALDATA)
-    or not DirectoryExists(GlobalAppDataDir);
   Result.UseLocalTemp := Result.UseLocalTemp
     or FileExists(Result.AppPath + STR_USELOCALTEMP);
 
-  Result.WorkDir := IfThen(UseLocalData,
-    ExcludeTrailingPathDelimiter(Result.AppPath), GlobalAppDataDir);
+  // Archive distributions are portable by default. An unrelated old AppData
+  // directory must not change their profile when the marker is absent.
+  Result.WorkDir := ExcludeTrailingPathDelimiter(Result.AppPath);
 
   if UserDatabase then
   begin
@@ -730,6 +726,8 @@ begin
     // %fc (выбранный автор), а не %f (первый автор книги) - иначе книги
     // в соавторстве раскладываются по чужим папкам (#59)
     FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
+    FSaveAsFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FFolderTemplate);
+    FSaveAsUseSubfolders := iniFile.ReadBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FFolderTemplate<>'');
     FFileNameTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FileNameTemplate', DEF_FILE_NAME_TEMPLATE);
     FRemoveSquareBrackets := iniFile.ReadBool(SYSTEM_SECTION, 'RemoveSquareBrackets', DEF_REMOVE_SQUARE_BRACKETS);
 
@@ -909,6 +907,8 @@ begin
     iniFile.WriteBool(SYSTEM_SECTION, 'CheckLibrusecUpdates', FCheckExternalLibUpdate);
     iniFile.WriteBool(SYSTEM_SECTION, 'PromptDevicePath', FPromptDevicePath);
     iniFile.WriteString(SYSTEM_SECTION, 'FolderTemplate', FFolderTemplate);
+    iniFile.WriteString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FSaveAsFolderTemplate);
+    iniFile.WriteBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FSaveAsUseSubfolders);
     iniFile.WriteString(SYSTEM_SECTION, 'FileNameTemplate', FFileNameTemplate);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ExpFormat', Ord(FExportMode));
     iniFile.WriteBool(SYSTEM_SECTION, 'RemoveSquareBrackets', FRemoveSquareBrackets);

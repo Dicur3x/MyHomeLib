@@ -1,4 +1,22 @@
-﻿procedure TestImageComponents(const Collection: IBookCollection);
+﻿procedure TestWebPLiveUpdate;
+var Worker: TComponentUpdateThread; Info: TProgramRelease;
+begin
+  RequireIsolatedRegression;
+  Worker:=TComponentUpdateThread.Create(0,THTTPClient.Create);
+  try
+    Worker.OnlyIDs:=TArray<string>.Create('WebP');
+    Worker.Start; Worker.WaitFor;
+    Require(Worker.Successful,'WebP update worker failed: '+Worker.ErrorText);
+    Require(Worker.TryGetRelease(7,Info),'WebP update result was not published');
+    Require((Info.ComponentError='') and (Info.DownloadURL<>'') and
+      (Info.ComponentVersion='1.6.0') and (Info.Size>0) and IsUpdateSHA256(Info.SHA256),
+      'Actual WebP endpoint failed: '+Info.ComponentError+' '+Info.ComponentErrorDetails);
+    Writeln('PASS live WebP update check '+ProgramUpdatePlatform+' version='+Info.ComponentVersion+
+      ' bytes='+IntToStr(Info.Size)+' sha256='+Info.SHA256);
+  finally Worker.Free; end;
+end;
+
+procedure TestImageComponents(const Collection: IBookCollection);
 const WebPSample='UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
 var Info: TProgramRelease; Target, Job, FileName, Held, JSON, Arch, Prefix, SavedPath: string;
   Zip: TZipFile; Files: TUpdateFiles; Missing, Rejected: Boolean; Data: TBytes;

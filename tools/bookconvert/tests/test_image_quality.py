@@ -133,6 +133,73 @@ class ImageQuality(unittest.TestCase):
             c.convert_book(self.source,output,tools_root=TOOLS,**metadata)
             self.assertEqual(self.pictures(output),[self.picture]);self.assert_clean()
 
+    def test_reading_ignores_export_scan_layout(self):
+        picture=fixed.png(bytes([240,240,240])*1501*900,1501,900)
+        source=self.root/'reading-spread.png'; source.write_bytes(picture)
+        output=self.root/'reading-spread.epub'
+        c.convert_book(source,output,tools_root=TOOLS,reading=True,image_quality='economy',
+                       scan_layout='split',scan_exclude='1')
+        self.assertEqual(self.pictures(output),[picture]); self.assert_clean()
+
+    def test_original_choice_and_zip_estimates_keep_full_resolution(self):
+        for extension in ('.fb2','.epub'):
+            options=self.root/'original-options.json'; choice=self.root/'original-choice.txt'
+            captured=[]; failure=[]
+            def choose():
+                try:
+                    value=wait_options(options,30,'No original/ZIP estimate')
+                    self.assertIn('original',value['sizes'])
+                    self.assertEqual(set(value['zip_sizes']),{'original','high','balanced','economy','none'})
+                    self.assertEqual(value['zip_sizes']['none'],0)  # This source is a scan.
+                    self.assertGreater(value['sizes']['original'],0)
+                    self.assertGreater(value['zip_sizes']['original'],0)
+                    captured.append(value); choice.write_text('original',encoding='utf-8')
+                except BaseException as error:
+                    failure.append(error); choice.write_text('cancel',encoding='utf-8')
+            thread=threading.Thread(target=choose); thread.start()
+            output=self.root/('original-choice'+extension)
+            try:c.convert_book(self.source,output,tools_root=TOOLS,image_quality='ask',image_options=options,image_choice=choice)
+            finally:thread.join(31)
+            self.assertFalse(thread.is_alive()); self.assertFalse(failure,failure)
+            self.assertEqual(self.pictures(output),[self.picture])
+            packed=output.with_suffix(extension+'.zip')
+            with zipfile.ZipFile(packed,'w',compression=zipfile.ZIP_DEFLATED) as archive:archive.write(output,output.name)
+            estimate=captured[0]['zip_sizes']['original']; actual=packed.stat().st_size
+            self.assertLess(abs(actual-estimate),max(8192,actual*.10))
+            options.unlink(); choice.unlink(); self.assert_clean()
+
+    @unittest.skipUnless(os.name=='nt' and (TOOLS/'pdfium/pdfium.dll').is_file(), 'Windows PDFium')
+    def test_pdf_spread_original_estimate_matches_default_rendering(self):
+        drawing=b'0.96 0.96 0.96 rg 0 0 1000 500 re f 0 0 0 rg '+b' '.join(
+            f'{x} {y} 8 3 re f'.encode('ascii') for y in range(30,470,15) for x in range(20,980,15))
+        objects=[b'<< /Type /Catalog /Pages 2 0 R >>',
+            b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1000 500] /Resources << >> /Contents 4 0 R >>',
+            b'<< /Length '+str(len(drawing)).encode('ascii')+b' >>\nstream\n'+drawing+b'\nendstream']
+        data=b'%PDF-1.4\n'; offsets=[0]
+        for number,obj in enumerate(objects,1):
+            offsets.append(len(data)); data+=f'{number} 0 obj\n'.encode('ascii')+obj+b'\nendobj\n'
+        xref=len(data); data+=b'xref\n0 5\n0000000000 65535 f \n'
+        data+=b''.join(f'{offset:010d} 00000 n \n'.encode('ascii') for offset in offsets[1:])
+        data+=b'trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n'+str(xref).encode('ascii')+b'\n%%EOF\n'
+        source=self.root/'scan-spread.pdf'; source.write_bytes(data)
+        ordinary=self.root/'scan-default.fb2'; c.convert_book(source,ordinary,tools_root=TOOLS)
+        options=self.root/'pdf-options.json'; choice=self.root/'pdf-choice.txt'; captured=[]; failure=[]
+        def choose():
+            try:
+                value=wait_options(options,30,'No PDF original-quality estimate')
+                self.assertTrue(value['scan_pages']); captured.append(value)
+                choice.write_text('original',encoding='utf-8')
+            except BaseException as error:
+                failure.append(error); choice.write_text('cancel',encoding='utf-8')
+        thread=threading.Thread(target=choose); thread.start(); output=self.root/'scan-estimated.fb2'
+        try:c.convert_book(source,output,tools_root=TOOLS,image_quality='ask',image_options=options,image_choice=choice)
+        finally:thread.join(31)
+        self.assertFalse(thread.is_alive()); self.assertFalse(failure,failure)
+        self.assertEqual(self.pictures(ordinary),self.pictures(output))
+        self.assertLess(abs(output.stat().st_size-captured[0]['sizes']['original']),max(8192,output.stat().st_size*.10))
+        self.assertEqual(source.read_bytes(),data); self.assert_clean()
+
     def test_illustrated_fb2_and_epub_offer_quality_preserve_text_cover_and_gif(self):
         # A flowing book, not a scan: two illustrations, a separate GIF,
         # cover metadata and paragraphs around the images must all survive.
@@ -299,7 +366,7 @@ class ImageQuality(unittest.TestCase):
                 value=wait_options(options,30,'No early scan choice')
                 self.assertTrue(value['scan_pages']);self.assertEqual(value['images'],40)
                 self.assertEqual(value['sampled'],9);self.assertLess(max(pages,default=0),10)
-                self.assertEqual(set(value['split_sizes']),{'high','balanced','economy','none'})
+                self.assertEqual(set(value['split_sizes']),{'original','high','balanced','economy','none'})
                 self.assertEqual(value['sizes']['none'],0)  # Scans are the book's pages, not optional artwork.
                 choice.write_text('economy|split|except=1,40',encoding='utf-8')
             except BaseException as error:

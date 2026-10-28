@@ -13,6 +13,8 @@ type
     ImageCount, SampleCount: Integer;
     TargetFormat: string;
     ScanPages, FirstSamples: Boolean;
+    // Layout: keep / split / auto. Quality: original / balanced / economy / none.
+    OutputBytes, ZipOutputBytes: array[0..2,0..3] of Int64;
   end;
   TBookImageQualityChooser = reference to function(const Options: TBookImageQualityOptions): string;
 
@@ -21,6 +23,7 @@ type
 function IsBasicConversionSource(const Extension: string): Boolean;
 function IsValidScanPageExclusions(const Value: string): Boolean;
 function TryReadBookImageQualityOptions(const FileName: string; out Options: TBookImageQualityOptions): Boolean;
+
 procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
   const IsCanceled: TFunc<Boolean> = nil; const Title: string = '';
@@ -31,6 +34,42 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats;
+
+function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
+  Source: TStream; const IsCanceled: TFunc<Boolean>): Boolean;
+var Input: TStream; Writer: TFileStream; SavedPosition: Int64;
+  Temporary: string; Buffer: TBytes; Count: Integer;
+begin
+  Result:=False;
+  if not SameText(SourceExtension,ExtractFileExt(TargetFile)) or
+    not ((SourceExtension='.fb2') or (SourceExtension='.epub')) or
+    not FileExists(SourceFile) or not SameText(DetectReaderExtension(SourceFile),SourceExtension) then Exit;
+  if Assigned(IsCanceled) and IsCanceled() then Abort;
+  Input:=Source;
+  if not Assigned(Input) then Input:=TFileStream.Create(SourceFile,fmOpenRead or fmShareDenyWrite);
+  SavedPosition:=Input.Position;
+  Temporary:=TargetFile+'.homelib-new-'+TGUID.NewGuid.ToString;
+  try
+    Input.Position:=0; SetLength(Buffer,256*1024);
+    Writer:=TFileStream.Create(Temporary,fmCreate);
+    try
+      repeat
+        if Assigned(IsCanceled) and IsCanceled() then Abort;
+        Count:=Input.Read(Buffer[0],Length(Buffer));
+        if Count>0 then Writer.WriteBuffer(Buffer[0],Count);
+      until Count=0;
+      if Writer.Size=0 then raise EReadError.Create('Исходная книга пуста.');
+      if not FlushFileBuffers(Writer.Handle) then RaiseLastOSError;
+    finally Writer.Free; end;
+    if Assigned(IsCanceled) and IsCanceled() then Abort;
+    if not MoveFile(PChar(Temporary),PChar(TargetFile)) then RaiseLastOSError;
+    Temporary:=''; Result:=True;
+  finally
+    if Assigned(Source) then Input.Position:=SavedPosition else Input.Free;
+    if Temporary<>'' then System.SysUtils.DeleteFile(Temporary);
+  end;
+end;
+
 
 function IsValidScanPageExclusions(const Value: string): Boolean;
 var Parts: TArray<string>; First, Last: Integer;
@@ -57,6 +96,8 @@ end;
 // False means the atomically published snapshot is temporarily unavailable.
 // A complete but invalid snapshot raises; retries never extend the idle limit.
 function TryReadBookImageQualityOptions(const FileName: string; out Options: TBookImageQualityOptions): Boolean;
+const LayoutKeys: array[0..2] of string = ('sizes','split_sizes','auto_sizes');
+  QualityKeys: array[0..3] of string = ('original','balanced','economy','none');
 var Handle: THandle; Size: Int64; Data: TBytes; ReadCount, ErrorCode: DWORD;
   Choices: TJSONValue; Text: string;
 begin
@@ -114,6 +155,13 @@ begin
        not Choices.TryGetValue<Int64>('auto_sizes.economy',Options.AutoEconomyBytes) or
        (Options.AutoHighBytes<=0) or (Options.AutoBalancedBytes<=0) or (Options.AutoEconomyBytes<=0)) then
       raise Exception.Create('Некорректная оценка автоматического разделения разворотов.');
+    for var Layout:=0 to 2 do for var Quality:=0 to 3 do
+    begin
+      Choices.TryGetValue<Int64>(LayoutKeys[Layout]+'.'+QualityKeys[Quality],Options.OutputBytes[Layout,Quality]);
+      Choices.TryGetValue<Int64>('zip_'+LayoutKeys[Layout]+'.'+QualityKeys[Quality],Options.ZipOutputBytes[Layout,Quality]);
+      if (Options.OutputBytes[Layout,Quality]<0) or (Options.ZipOutputBytes[Layout,Quality]<0) then
+        raise Exception.Create('Некорректная оценка размера копии книги.');
+    end;
     Result:=True;
   finally Choices.Free; end;
 end;
@@ -144,10 +192,25 @@ begin
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
   if FileExists(TargetFile) then raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
   if Assigned(Warnings) then Warnings.Clear;
+  if not ForReading and (QualityProfile='original') and (ScanLayout='keep') and
+    CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled) then
+  begin
+    if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
+    Exit;
+  end;
   Tool:=TPath.Combine(AppPath,'tools\kindle\python\python.exe');
   Script:=TPath.Combine(AppPath,'tools\bookconvert\convert_book.py');
   if not FileExists(Tool) or not FileExists(Script) then
-    raise EMHLComponentRequired.Create('BookConverter','Для подготовки этой книги нужен модуль конвертации.');
+    raise EMHLComponentRequired.Create('BookConverter','Для создания '+UpperCase(TargetExtension.TrimLeft(['.']))+
+      ' нужен общий модуль конвертации HomeLib Ru (BookConverter).');
+  if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
+  begin
+    var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
+    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
+      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
+      raise EMHLComponentRequired.Create('BookConverter',
+        'Для выбранной обработки изображений нужно обновить общий конвертер HomeLib Ru (BookConverter).');
+  end;
   Work:=TPath.Combine(TPath.GetFullPath(TempRoot),'homelib-convert-'+TGUID.NewGuid.ToString);
   ForceDirectories(Work);
   InputName:=TPath.Combine(Work,'source'+Extension);
@@ -271,7 +334,7 @@ begin
             raise Exception.Create('Некорректные параметры разделения сканов.');
           if (CheckedChoice='none') and ((Options.NoImagesBytes<=0) or (Length(ChoiceParts)<>1)) then
             raise Exception.Create('В этой книге изображения содержат сами страницы; сначала нужно распознать текст.');
-          if (CheckedChoice<>'high') and (CheckedChoice<>'balanced') and (CheckedChoice<>'economy') and (CheckedChoice<>'none') then
+          if (CheckedChoice<>'original') and (CheckedChoice<>'high') and (CheckedChoice<>'balanced') and (CheckedChoice<>'economy') and (CheckedChoice<>'none') then
             raise Exception.Create('Неизвестное качество изображений.');
           TFile.WriteAllText(ImageChoiceName+'.new',Choice,TEncoding.UTF8);
           TFile.Move(ImageChoiceName+'.new',ImageChoiceName);

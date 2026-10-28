@@ -2073,6 +2073,26 @@ begin
       // Registration and every personal row commit together. No existing
       // collection, book card or group note is overwritten.
       Result:=RegisterCollection(CatalogFile,DisplayName,Root);
+      // Keep the source/update settings with a restored or compressed clone.
+      // Its new name, file and root come from the explicit registration above.
+      Q:=Source.NewQuery('SELECT DataVersion,LibUser,LibPassword,Notes,CreationDate,URL,ConnectionScript '+
+        'FROM Bases WHERE DatabaseID=?',[SourceID]);
+      try
+        Q.Open;
+        if Q.Eof then raise Exception.Create('Не найдены настройки исходной коллекции.');
+        Insert:=FDatabase.NewQuery('UPDATE Bases SET DataVersion=?,LibUser=?,LibPassword=?,Notes=?,CreationDate=?,URL=?,ConnectionScript=? '+
+          'WHERE DatabaseID=?');
+        try
+          for I:=0 to 6 do
+            if Q.FieldIsNull(I) then Insert.SetNullParam(I)
+            else if I in [3,6] then
+            begin Blob:=Q.FieldAsBlob(I); try Insert.SetBlobParam(I,Blob); finally Blob.Free; end; end
+            else if I=0 then Insert.SetParam(I,Q.FieldAsInt(I))
+            else if I=4 then Insert.SetParam(I,Q.FieldAsDouble(I))
+            else Insert.SetParam(I,Q.FieldAsString(I));
+          Insert.SetParam(7,Result); Insert.ExecSQL;
+        finally Insert.Free; end;
+      finally Q.Free; end;
       StoredRoot:=Source.QuerySingleString('SELECT RootFolder FROM Bases WHERE DatabaseID=?',[SourceID]);
       Q:=Source.NewQuery('SELECT '+Columns+' FROM Books WHERE DatabaseID=?',[SourceID]);
       try

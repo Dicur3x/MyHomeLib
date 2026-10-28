@@ -9,7 +9,7 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.34';
+  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.35';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -19,6 +19,7 @@ type
     DownloadURL, SHA256: string;
     SecondaryURL, SecondarySHA256: string; SecondarySize: Int64;
     AdditionalURLs: TArray<string>; AdditionalSizes: TArray<Int64>;
+    ReaderAdapterSize: Int64;
     Notes, Changelog, History: string;
     PublishedAt: string;
     Size: Int64;
@@ -89,7 +90,7 @@ implementation
 uses
   System.SysUtils, System.JSON, System.RegularExpressions, System.IOUtils, System.Net.URLClient,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateAuthenticity, unit_UpdateTextCache, unit_ComponentUpdates;
+  unit_UpdateAuthenticity, unit_UpdateTextCache, unit_ComponentUpdates, unit_ReaderAdapters;
 
 type
   TReleaseNumbers = array[0..4] of Integer;
@@ -338,7 +339,8 @@ begin
 end;
 
 procedure TProgramDownloadThread.Execute;
-var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: string; AdditionalArchives: TArray<string>; AdditionalTotal, Offset: Int64;
+var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive, AdapterArchive, AdapterPath: string;
+  Adapter: TReaderAdapterPackage; AdditionalArchives: TArray<string>; AdditionalTotal, Offset: Int64;
   procedure DownloadPart(const URL, Destination: string; Size, Offset: Int64);
   begin
     FPartSize:=Size; FPartOffset:=Offset;
@@ -352,25 +354,34 @@ var Response: IHTTPResponse; Stream: TFileStream; Archive, SecondaryArchive: str
   end;
   procedure DownloadArchives;
   begin
-    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize-AdditionalTotal,0);
+    DownloadPart(FRelease.DownloadURL,Archive,FRelease.Size-FRelease.SecondarySize-AdditionalTotal-FRelease.ReaderAdapterSize,0);
     SecondaryArchive:='';
     if FRelease.SecondaryURL<>'' then
     begin
       if FRelease.SecondarySize<1 then raise Exception.Create('Не подтверждён второй пакет библиотеки.');
       SecondaryArchive:=IncludeTrailingPathDelimiter(FJob)+'secondary.archive';
-      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize-AdditionalTotal);
+      DownloadPart(FRelease.SecondaryURL,SecondaryArchive,FRelease.SecondarySize,FRelease.Size-FRelease.SecondarySize-AdditionalTotal-FRelease.ReaderAdapterSize);
     end;
-    Offset:=FRelease.Size-AdditionalTotal; SetLength(AdditionalArchives,Length(FRelease.AdditionalURLs));
+    Offset:=FRelease.Size-AdditionalTotal-FRelease.ReaderAdapterSize; SetLength(AdditionalArchives,Length(FRelease.AdditionalURLs));
     for var I:=0 to High(AdditionalArchives) do
     begin
       AdditionalArchives[I]:=IncludeTrailingPathDelimiter(FJob)+'additional-'+IntToStr(I)+'.archive';
       DownloadPart(FRelease.AdditionalURLs[I],AdditionalArchives[I],FRelease.AdditionalSizes[I],Offset);
       Inc(Offset,FRelease.AdditionalSizes[I]);
     end;
+    AdapterArchive:='';
+    if FRelease.ReaderAdapterSize>0 then
+    begin
+      if not ReaderAdapterPackage(FRelease.ComponentID,Adapter) or
+        (Adapter.Size<>FRelease.ReaderAdapterSize) then raise Exception.Create('Некорректный размер модуля чтения.');
+      AdapterArchive:=IncludeTrailingPathDelimiter(FJob)+'native-adapter.zip';
+      DownloadPart(ReaderAdapterURL(Adapter),AdapterArchive,Adapter.Size,FRelease.Size-Adapter.Size);
+    end;
   end;
 begin
   try
     if Terminated then Abort;
+    ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
     if FRelease.OfficialComponent and not IsOfficialComponentURL(FRelease.ComponentID,
       FRelease.ComponentVersion,FRelease.DownloadURL,ProgramUpdatePlatform,False) then
       raise Exception.Create('Адрес обновления не принадлежит официальному источнику компонента.');
@@ -396,7 +407,8 @@ begin
       raise Exception.Create('Для этого выпуска недоступно обновление внутри программы. Откройте страницу выпуска.');
     AssertUpdatePath(FJob); ForceDirectories(FJob);
     Archive := IncludeTrailingPathDelimiter(FJob) + 'release.zip';
-    if (FRelease.SecondarySize<0) or (FRelease.SecondarySize+AdditionalTotal>=FRelease.Size) then
+    if (FRelease.SecondarySize<0) or (FRelease.ReaderAdapterSize<0) or
+      (FRelease.SecondarySize+AdditionalTotal+FRelease.ReaderAdapterSize>=FRelease.Size) then
       raise Exception.Create('Некорректный размер составного обновления.');
     try
       DownloadArchives;
@@ -413,11 +425,14 @@ begin
         // Only transfer failures use the mirror. Digest or package validation
         // failures below remain errors and never gain an automatic second try.
         FRelease:=Mirror; SecondaryArchive:=''; AdditionalArchives:=nil; AdditionalTotal:=0;
+        ConfigureReaderAdapterDownload(FRelease,FRuntimePath);
         FProgress:=0;
         DownloadArchives;
       end;
     end;
     PostMessage(FWindow, WM_PROGRAM_UPDATE_PROGRESS, 95, LPARAM(FRelease.Size));
+    AdapterPath:='';
+    if AdapterArchive<>'' then AdapterPath:=ExtractReaderAdapter(AdapterArchive,FJob,FRelease.ComponentID);
     if FRelease.OfficialComponent then
     begin
       if (FRelease.ComponentID = 'SQLite') and
@@ -431,10 +446,11 @@ begin
          not SameText(UpdateSHA256(SecondaryArchive),FRelease.SecondarySHA256)) then
         raise Exception.Create('Официальная контрольная сумма распаковщика 7-Zip не совпадает.');
       FRelease.SHA256 := UpdateSHA256(Archive);
-      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives);
+      PrepareOfficialComponent(Archive, FJob, FRelease.ComponentID, FRelease.ComponentVersion, ProgramUpdatePlatform,SecondaryArchive,FRuntimePath,AdditionalArchives,AdapterPath);
     end
     else PrepareProgramUpdate(Archive, FRelease.SHA256, FRelease.Tag, ProgramUpdatePlatform, FJob,
       True, FRelease.ComponentID, FRelease.ComponentVersion);
+    if AdapterPath<>'' then MergePreparedReaderAdapter(FJob,FRelease.ComponentID,AdapterPath);
     if Terminated then Abort;
     FSuccessful := True;
   except

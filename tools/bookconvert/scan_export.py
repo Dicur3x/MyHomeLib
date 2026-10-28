@@ -1,4 +1,5 @@
 """Bounded scan export: choose once, split before resizing, encode small batches (MIT)."""
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -65,12 +66,20 @@ class ScanExport:
         def size(pages):
             return sum(4*((len(data)+2)//3) if target=='.fb2' else len(zlib.compress(data)) for data in pages)
         sizes = {layout: {p: max(1,4096+round(sum(size(pages) for pages in encoded[p])*total/len(pictures))+total*160)
-                          for p in self.codec.PROFILES} for layout,encoded in estimates.items()}
+                          for p in self.codec.SCAN_PROFILES} for layout,encoded in estimates.items()}
         for values in sizes.values(): values['none'] = 0  # Page pictures contain the book itself.
+        zip_sizes = {layout: {p: max(1,512+4096+round(sum(
+            sum(self.codec.deflated_size(base64.b64encode(data)) if target=='.fb2'
+                else len(zlib.compress(data)) for data in pages)
+            for pages in encoded[p])*total/len(pictures))+total*160)
+            for p in self.codec.SCAN_PROFILES} for layout,encoded in estimates.items()}
+        for values in zip_sizes.values(): values['none'] = 0
         options, choice = Path(self.context['options']), Path(self.context['choice'])
         if options.exists() or choice.exists(): self.book.fail('Канал выбора качества уже занят.')
         payload = {'format':target[1:].upper(),'images':total,'sampled':len(pictures),
-                   'sizes':sizes['keep'],'split_sizes':sizes['split'],'auto_sizes':sizes['auto'],'scan_pages':True,'first_samples':True}
+                   'sizes':sizes['keep'],'split_sizes':sizes['split'],'auto_sizes':sizes['auto'],
+                   'zip_sizes':zip_sizes['keep'],'zip_split_sizes':zip_sizes['split'],'zip_auto_sizes':zip_sizes['auto'],
+                   'scan_pages':True,'first_samples':True}
         staging = options.with_suffix('.new'); staging.write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8'); staging.rename(options)
         started=time.monotonic()
         while not choice.is_file():
@@ -80,7 +89,7 @@ class ScanExport:
         value=choice.read_text(encoding='utf-8-sig').strip()
         if value=='cancel': self.book.fail('Экспорт отменён.')
         parts=value.split('|')
-        if len(parts)>3 or parts[0] not in self.codec.PROFILES or (len(parts)>=2 and parts[1] not in ('split','auto')) or (len(parts)==3 and not parts[2].startswith('except=')):
+        if len(parts)>3 or parts[0] not in self.codec.SCAN_PROFILES or (len(parts)>=2 and parts[1] not in ('split','auto')) or (len(parts)==3 and not parts[2].startswith('except=')):
             self.book.fail('Некорректный выбор обработки сканов.')
         self.profile=parts[0]; self.layout=parts[1] if len(parts)>=2 else 'keep'; self.chosen=True
         try: self.excluded=excluded_pages(parts[2][7:] if len(parts)==3 else '')
@@ -115,7 +124,7 @@ class ScanExport:
 
     def finish(self):
         self.flush(True)
-        self.book.warnings.add('Сканы сжаты небольшими порциями: '+{'high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим'}[self.profile]+'. Исходная книга сохранена.')
+        self.book.warnings.add('Сканы обработаны небольшими порциями: '+{'original':'исходное разрешение изображений','high':'высокое качество','balanced':'сбалансированный режим','economy':'экономный режим'}[self.profile]+'. Исходная книга сохранена.')
         if self.layout=='split':
             self.book.warnings.add('Горизонтальные сканы разворотов разделены по центру: сначала левая, затем правая страница. Вертикальные страницы сохранены целиком.')
         elif self.layout=='auto':

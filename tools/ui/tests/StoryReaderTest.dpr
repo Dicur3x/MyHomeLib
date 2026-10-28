@@ -6,8 +6,8 @@
 
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
   System.Hash, System.Diagnostics, System.Generics.Collections, System.NetEncoding, System.Zip, Winapi.Windows,
-  Winapi.ActiveX, Vcl.Forms, Vcl.Controls, Vcl.ExtCtrls, Vcl.StdCtrls, frm_StoryReader, unit_ReaderFormats,
-  unit_ReaderDocument, dm_user;
+  Winapi.ActiveX, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls, frm_StoryReader, unit_ReaderFormats,
+  unit_ReaderDocument, frm_BuiltinReader, Vcl.Menus, dm_user;
 
 procedure Require(Value: Boolean; const MessageText: string);
 begin if not Value then raise Exception.Create(MessageText); end;
@@ -90,6 +90,55 @@ begin
   until Form.Ready;
 end;
 
+procedure CheckStoryInterface(Form: TfrmStoryReader);
+var Reader: TfrmBuiltinReader; Key: Word; Bounds: TRect; Text: string;
+  OriginalMenu, Menu: TMainMenu; Item: TMenuItem;
+begin
+  Reader:=nil;
+  for var I:=0 to Form.ComponentCount-1 do
+    if Form.Components[I] is TfrmBuiltinReader then Reader:=TfrmBuiltinReader(Form.Components[I]);
+  Require(Assigned(Reader),'Story has no embedded reading view');
+  OriginalMenu:=Form.Menu; Menu:=TMainMenu.Create(Form); Item:=TMenuItem.Create(Menu);
+  Item.Caption:='Файл'; Menu.Items.Add(Item); Form.Menu:=Menu;
+  Bounds:=Form.BoundsRect; Text:=Form.BookText;
+  try
+    for var ByButton in [False,True] do
+    begin
+      TButton(Reader.FindComponent('ReaderHideInterface')).Click;
+      Application.ProcessMessages;
+      Require(Reader.InterfaceHidden and not Reader.FullScreenMode and
+        (Form.BorderStyle=bsSizeable) and (Form.BoundsRect=Bounds) and (GetMenu(Form.Handle)=0),
+        'Story hide interface changed its window size or left its menu visible');
+      for var I:=0 to Form.ControlCount-1 do
+        Require((Form.Controls[I]=Reader) or not Form.Controls[I].Visible,
+          'Story fullscreen left outer controls visible');
+      if ByButton then begin Key:=VK_ESCAPE; Form.OnKeyDown(Form,Key,[]); end
+      else TButton(Reader.FindComponent('ReaderShowInterface')).Click;
+      Application.ProcessMessages; WaitReady(Form);
+      Require(not Reader.InterfaceHidden and (Form.BorderStyle=bsSizeable) and
+        (Form.BoundsRect=Bounds) and (GetMenu(Form.Handle)=Menu.Handle) and Form.Choices.Visible,
+        'Story fullscreen did not restore its outer window and answer controls');
+      Require(Form.BookText=Text,'Story interface visibility changed the selected scene');
+    end;
+    TButton(Reader.FindComponent('ReaderFullScreen')).Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and not Reader.InterfaceHidden and
+      (Form.BorderStyle=bsNone) and Form.Choices.Visible and (Form.Menu=Menu),
+      'Story separate full screen command hid answers or failed to affect its outer window');
+    TButton(Reader.FindComponent('ReaderHideInterface')).Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and Reader.InterfaceHidden and not Form.Choices.Showing,
+      Format('Story modes 535-v2: full=%s hidden=%s answersShowing=%s',
+        [BoolToStr(Reader.FullScreenMode,True),BoolToStr(Reader.InterfaceHidden,True),BoolToStr(Form.Choices.Showing,True)]));
+    TButton(Reader.FindComponent('ReaderShowInterface')).Click; Application.ProcessMessages;
+    Require(Reader.FullScreenMode and not Reader.InterfaceHidden and Form.Choices.Visible,
+      'Story showing interface unexpectedly exited full screen');
+    Key:=VK_F11; Form.OnKeyDown(Form,Key,[]); Application.ProcessMessages;
+    Require((Key=0) and not Reader.FullScreenMode and (Form.BorderStyle=bsSizeable) and
+      (Form.BoundsRect=Bounds) and Form.Choices.Visible and (Form.BookText=Text),
+      'Story F11 failed to restore its original window and scene');
+  finally Form.Menu:=OriginalMenu; Menu.Free; end;
+  Writeln('PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene'); Flush(Output);
+end;
+
 procedure Select(Form: TfrmStoryReader; const LabelText: string; const Text: string = '');
 var Index: Integer;
 begin
@@ -162,6 +211,7 @@ begin
         Form.Show; WaitReady(Form); Work:=Form.WorkDirectory; Progress:=Form.ProgressFile;
         Require(Pos('Начало истории',Form.BookText)>0,'Native SM Start text missing');
         Require(Form.PictureCount=2,'Native SM background and inline image missing from original archive');
+        CheckStoryInterface(Form);
         LargeImages:=Form.FindComponent('cbStoryLargeIllustrations') as TCheckBox;
         Require(Assigned(LargeImages) and LargeImages.Enabled and not LargeImages.Checked,
           'Native SM large illustration control unavailable');

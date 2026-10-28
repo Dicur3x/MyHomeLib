@@ -8,6 +8,8 @@ uses System.Classes, System.SysUtils, unit_Globals, unit_BookSendOptions,
 function FileBook(const FileName: string): TBookRecord;
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
   out RequiredComponent: string): TBookExportResults;
+function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
+  out RequiredComponent: string): TBookExportResults;
 
 implementation
 
@@ -36,16 +38,23 @@ end;
 
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
   out RequiredComponent: string): TBookExportResults;
+begin Result:=SaveFileBooks([Book],Options,RequiredComponent); end;
+
+function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
+  out RequiredComponent: string): TBookExportResults;
 var Worker: TExportToDeviceThread; Progress: TExportToDeviceProgressForm;
   Marshalled: IStream;
 begin
   RequiredComponent:='';
   Worker:=TExportToDeviceThread.Create;
   try
-    Worker.StandaloneBooks:=[Book];
+    Worker.StandaloneBooks:=Books;
     Worker.DeviceDir:=Options.Folder; Worker.ExportMode:=Options.Mode;
     Worker.ExplicitFormat:=Options.ExplicitFormat; Worker.ExtractOnly:=False;
     Worker.KeepSourceFormat:=Options.KeepSourceFormat;
+    Worker.KeepFB2EPUB:=Options.KeepFB2EPUB; Worker.ZipEachBook:=Options.ZipEachBook;
+    if Options.FileNameTemplate<>'' then Worker.FileNameTemplate:=Options.FileNameTemplate;
+    Worker.FolderTemplate:=Options.FolderTemplate;
     Worker.ImageQuality:=Options.ImageQuality; Worker.ShowImageQualityChoice:=True;
     Worker.UseMTP:=Options.UseMTP;
     if Options.UseMTP and Assigned(Options.ShellItem) then

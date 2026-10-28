@@ -255,9 +255,11 @@ begin
 end;
 
 
+{$I ReaderAdapterFirstUseTests.inc}
+
 procedure TestMinimalFirstInstall531;
-var Fixture, MainJob, Runtime, Job, Package, PrivateFile: string;
-  Index: TJSONObject; Files: TUpdateFiles; Zip: TZipFile; PrivateHash: string;
+var Fixture, MainJob, Runtime, Job, PrivateFile: string;
+  Index: TJSONObject; Files: TUpdateFiles; PrivateHash: string;
 begin
   RequireIsolatedRegression;
   Fixture:=TPath.Combine(Settings.AppPath,'repair-fixtures');
@@ -269,8 +271,9 @@ begin
     Runtime:=TPath.Combine(MainJob,'payload');
     for var ID in ['AlReader','SumatraPDF','7-Zip','DjVuLibre','DocSharp'] do
       Require(not FileExists(TPath.Combine(Runtime,ComponentFileName(ID))), 'Minimal archive includes optional runtime: '+ID);
-    Require(FileExists(TPath.Combine(Runtime,'tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dpr')),
-      'Minimal DjVu bridge lost its matching source');
+    Require(not DirectoryExists(TPath.Combine(Runtime,'tools/doc')) and
+      not DirectoryExists(TPath.Combine(Runtime,'tools/djvu')),
+      'Minimal catalogue still includes optional DOC or DjVu adapters');
     PrivateFile:=TPath.Combine(TPath.Combine(Runtime,'Data'),'private-first-use.txt'); ForceDirectories(ExtractFileDir(PrivateFile));
     TFile.WriteAllText(PrivateFile,'Owned private file must survive first component installation'); PrivateHash:=UpdateSHA256(PrivateFile);
     Job:=TPath.combine(Settings.AppPath,'HomeLibRu-update-minimum-sevenzip'); ForceDirectories(Job);
@@ -279,27 +282,12 @@ begin
       InstallProgramUpdate(Job,Runtime);
       Require(not ComponentNeedsRepair(Runtime,'7-Zip'),'Portable 7-Zip is incomplete after installation');
     finally CleanProgramUpdate(Job); end;
-    Job:=TPath.Combine(Settings.AppPath,'HomeLibRu-update-minimum-doc'); ForceDirectories(Job);
-    try
-      PrepareOfficialComponent(TPath.Combine(Fixture,'doc.nupkg'),Job,'DocSharp',Index.GetValue<string>('doc_version'),ProgramUpdatePlatform,
-        TPath.Combine(Fixture,'common.nupkg'),Runtime,TArray<string>.Create(TPath.Combine(Fixture,'ppt.nupkg'),TPath.Combine(Fixture,'xls.nupkg')));
-      InstallProgramUpdate(Job,Runtime);
-      Require(not ComponentNeedsRepair(Runtime,'DocSharp'),'First-use DocSharp is incomplete in the actual minimal archive');
-    finally CleanProgramUpdate(Job); end;
-    Package:=TPath.Combine(Settings.AppPath,'minimum-djvu-controlled.zip'); Zip:=TZipFile.Create;
-    try
-      Zip.Open(Package,zmWrite);
-      for var Name in ['ddjvu.exe','djvused.exe','libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll','COPYING.txt'] do
-        Zip.Add(TPath.Combine(Settings.AppPath,'tools/djvu/'+Name),Name);
-      Zip.Close;
-    finally Zip.Free; end;
-    Job:=TPath.Combine(Settings.AppPath,'HomeLibRu-update-minimum-djvu'); ForceDirectories(Job);
-    try
-      PrepareOfficialComponent(Package,Job,'DjVuLibre','3.5.29',ProgramUpdatePlatform,
-        TPath.Combine(Settings.AppPath,'tools/djvu/djvulibre-3.5.29.tar.gz'),Runtime);
-      InstallProgramUpdate(Job,Runtime);
-      Require(not ComponentNeedsRepair(Runtime,'DjVuLibre'),'First-use DjVuLibre is incomplete in the actual minimal archive');
-    finally CleanProgramUpdate(Job); end;
+    TestFirstUseReaderAdapter(Fixture,Runtime,Index,'DocSharp',False,True);
+    TestFirstUseReaderAdapter(Fixture,Runtime,Index,'DocSharp',True,False);
+    TestFirstUseReaderAdapter(Fixture,Runtime,Index,'DocSharp',False,False);
+    TestFirstUseReaderAdapter(Fixture,Runtime,Index,'DjVuLibre',False,False);
+    Require(FileExists(TPath.Combine(Runtime,'tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dpr')),
+      'Optional DjVu install lost the matching bridge source');
     Require(UpdateSHA256(PrivateFile)=PrivateHash,'First-use component installation changed a private file');
     Writeln('PASS minimal first install verifies actual archive, excludes optional binaries and installs 7-Zip DocSharp DjVuLibre with preserved private files');
   finally Index.Free; CleanProgramUpdate(MainJob); end;

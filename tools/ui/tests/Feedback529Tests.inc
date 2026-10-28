@@ -11,6 +11,9 @@ begin
       Require((Reloaded.SyncExportDir=Destination) and (Reloaded.DeviceDir=Device),
         'Sync export folder did not survive settings reload independently of the device folder');
     finally Reloaded.Free; end;
+    // Save As now owns conversion and destinations. The two custom-script
+    // submenus intentionally contain only user scripts; the toolbar popup
+    // retains the explicit synchronisation-folder shortcut.
     for var Menu in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts,frmMain.pmScripts.Items) do
     begin
       Count:=0;
@@ -20,8 +23,13 @@ begin
           Inc(Count); Require(Assigned(Menu.Items[I].OnClick) and Menu.Items[I].Visible,
             'Sync folder command is not available in a book export menu');
         end;
-      Require(Count=1,'Sync export menu lost or duplicated its dedicated command');
+      if Menu=frmMain.pmScripts.Items then
+        Require(Count=1,'Sync toolbar export shortcut missing or duplicated')
+      else Require(Count=0,'Built-in sync export leaked into custom scripts');
     end;
+    Require((frmMain.pmiSendToDevice.Tag=0) and Assigned(frmMain.pmiSendToDevice.OnClick) and
+      (Pos('Сохранить как',frmMain.pmiSendToDevice.Caption)>0),
+      'Public Save As destination command is not available');
   finally Settings.SyncExportDir:=Saved; Settings.SaveSettings; end;
   Writeln('PASS sync export destination persists independently of device settings and is available in all book export menus');
 end;

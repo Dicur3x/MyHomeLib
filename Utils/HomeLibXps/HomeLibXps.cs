@@ -389,7 +389,7 @@ internal static class HomeLibXps
 
     private static int ScanImages(string source, string destination, string profile, string layout)
     {
-        if(profile!="high" && profile!="balanced" && profile!="economy" && profile!="estimate")
+        if(profile!="original" && profile!="high" && profile!="balanced" && profile!="economy" && profile!="estimate")
             throw new ArgumentException("Unknown scan quality.");
         if(layout!="keep" && layout!="split" && layout!="auto") throw new ArgumentException("Unknown scan layout.");
         string input=Path.GetFullPath(source),output=Path.GetFullPath(destination); bool owns=false;
@@ -435,9 +435,9 @@ internal static class HomeLibXps
                                 page=new CroppedBitmap(frame,new Int32Rect(left,0,size,height)); data=ScanPng(page,originalFrame);
                             }
                             byte[] previous=data;
-                            foreach(string choice in new string[]{"high","balanced","economy"})
+                            foreach(string choice in new string[]{"original","high","balanced","economy"})
                             {
-                                byte[] encoded=keepMetadata ? data : ExportImage(data,page,choice);
+                                byte[] encoded=(choice=="original" || keepMetadata) ? data : ExportImage(data,page,choice);
                                 if(previous.Length<encoded.Length) encoded=previous;
                                 previous=encoded;
                                 if(encoded.Length>16*1024*1024) throw new IOException("Encoded scan page exceeds 16 MB.");

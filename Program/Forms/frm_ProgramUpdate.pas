@@ -41,7 +41,16 @@ type
     FRequestedComponent, FRequestReason: string;
     FRequestedCheckPending: Boolean;
     FReaderOnly: Boolean;
+    FCompactForm: TForm;
+    FCompactStatus: TMemo;
+    FCompactHeader, FCompactBytes: TLabel;
+    FCompactProgress: TProgressBar;
+    FCompactPrimary, FCompactLater: TButton;
     FRowIDs: TArray<Integer>;
+    procedure CreateCompactPrompt;
+    procedure SyncCompactPrompt;
+    procedure CompactLater(Sender: TObject);
+    procedure CompactClose(Sender: TObject; var Action: TCloseAction);
     function ComponentAllowed(Index: Integer): Boolean;
     function RowVisible(Value: Integer): Boolean;
     function ViewIndex(Value: Integer): Integer;
@@ -127,7 +136,8 @@ type
     procedure RememberHistory(const ReleaseInfo: TProgramRelease);
     procedure CheckComponents(Automatic: Boolean);
     procedure UseReaderComponents;
-    procedure RequestComponent(const ID, Reason: string);
+    procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
+    procedure UseFullWindow;
     function StartCheckCycle(Automatic: Boolean): Boolean;
     procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
     procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string);
@@ -149,7 +159,7 @@ implementation
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
-  unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache;
+  unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation;
 
 type
   TUpdateComponentsView = class(TListView)
@@ -314,6 +324,7 @@ end;
 procedure TfrmProgramUpdate.AppThemeChanged(var Message: TMessage);
 begin
   if csDestroying in ComponentState then Exit;
+  if Assigned(FCompactForm) then ApplyMHLControlTheme(FCompactForm);
   if Assigned(FNotes) then FNotes.ApplyTheme;
   if Assigned(FComponentsView) then
   begin
@@ -354,6 +365,12 @@ begin
   // wait on foreground restrictions and disrupt a newly focused child.
   if FSelectionDepth>0 then Exit;
   if FUIUpdateCount > 0 then begin FPresentPending := True; Exit; end;
+  if Assigned(FCompactForm) then
+  begin
+    SyncCompactPrompt;
+    if not FCompactForm.Visible then FCompactForm.Show;
+    FCompactForm.BringToFront; Exit;
+  end;
   if not Visible then Show;
   BringToFront;
 end;
@@ -389,6 +406,7 @@ var Margin, Gap, Width, ButtonTop, NotesTop, NotesBottom, StatusHeight, TableHei
   begin Result := MulDiv(Value, CurrentPPI, 96); end;
 begin
   if not Assigned(FZoomIn) then Exit;
+  if Assigned(FCompactForm) then begin SyncCompactPrompt; Exit; end;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   DisableAlign;
   try
@@ -1150,19 +1168,101 @@ begin
   Result := TProgramDownloadThread.Create(Window, CreateHTTPClientGlobal, ReleaseInfo, Job);
 end;
 
-procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string);
+procedure TfrmProgramUpdate.CreateCompactPrompt;
+begin
+  if Assigned(FCompactForm) then Exit;
+  Hide;
+  FCompactForm:=TForm.CreateNew(Self); FCompactForm.Name:='OptionalComponentPrompt';
+  FCompactForm.Caption:='Установка компонента'; FCompactForm.Position:=poMainFormCenter;
+  FCompactForm.Font.Name:='Segoe UI'; FCompactForm.Font.Size:=9;
+  FCompactForm.ClientWidth:=560; FCompactForm.ClientHeight:=306;
+  FCompactForm.BorderStyle:=bsSizeable;
+  FCompactForm.Constraints.MinWidth:=480+FCompactForm.Width-FCompactForm.ClientWidth;
+  FCompactForm.Constraints.MinHeight:=280+FCompactForm.Height-FCompactForm.ClientHeight;
+  FCompactForm.OnClose:=CompactClose;
+  FCompactHeader:=TLabel.Create(FCompactForm); FCompactHeader.Parent:=FCompactForm;
+  FCompactHeader.Name:='ComponentPromptTitle'; FCompactHeader.AutoSize:=False;
+  FCompactHeader.WordWrap:=True; FCompactHeader.ShowAccelChar:=False;
+  FCompactHeader.SetBounds(16,12,528,38); FCompactHeader.Anchors:=[akLeft,akTop,akRight];
+  FCompactStatus:=TMemo.Create(FCompactForm); FCompactStatus.Parent:=FCompactForm;
+  FCompactStatus.Name:='ComponentPromptReason'; FCompactStatus.ReadOnly:=True;
+  FCompactStatus.BorderStyle:=bsNone; FCompactStatus.ScrollBars:=ssVertical;
+  FCompactStatus.SetBounds(16,56,528,146); FCompactStatus.Anchors:=[akLeft,akTop,akRight,akBottom];
+  FCompactProgress:=TProgressBar.Create(FCompactForm); FCompactProgress.Parent:=FCompactForm;
+  FCompactProgress.Name:='ComponentPromptProgress';
+  FCompactProgress.SetBounds(16,212,528,18); FCompactProgress.Anchors:=[akLeft,akRight,akBottom];
+  FCompactBytes:=TLabel.Create(FCompactForm); FCompactBytes.Parent:=FCompactForm;
+  FCompactBytes.Name:='ComponentPromptBytes';
+  FCompactBytes.AutoSize:=False; FCompactBytes.ShowAccelChar:=False;
+  FCompactBytes.SetBounds(16,234,528,18); FCompactBytes.Anchors:=[akLeft,akRight,akBottom];
+  FCompactPrimary:=TButton.Create(FCompactForm); FCompactPrimary.Parent:=FCompactForm;
+  FCompactPrimary.Name:='ComponentPromptDownload'; FCompactPrimary.Default:=True;
+  FCompactPrimary.SetBounds(16,266,386,28); FCompactPrimary.Anchors:=[akLeft,akRight,akBottom];
+  FCompactPrimary.OnClick:=PrimaryClick;
+  FCompactLater:=TButton.Create(FCompactForm); FCompactLater.Parent:=FCompactForm;
+  FCompactLater.Name:='ComponentPromptCancel'; FCompactLater.Cancel:=True;
+  FCompactLater.SetBounds(416,266,128,28); FCompactLater.Anchors:=[akRight,akBottom];
+  FCompactLater.OnClick:=CompactLater;
+  FCompactForm.ScaleForPPI(CurrentPPI); ApplyMHLControlTheme(FCompactForm);
+end;
+
+procedure TfrmProgramUpdate.SyncCompactPrompt;
+var Text: string;
+begin
+  if not Assigned(FCompactForm) then Exit;
+  FCompactHeader.Caption:=FVersion.Caption;
+  Text:=FStatus.Caption;
+  if (FRequestReason<>'') and (Pos(FRequestReason,Text)=0) then Text:=FRequestReason+sLineBreak+Text;
+  if Trim(FCompactStatus.Text)<>Trim(Text) then FCompactStatus.Text:=Text;
+  FCompactBytes.Caption:=FBytes.Caption;
+  if FCompactBytes.Caption='' then
+    if (FRelease.Size>0) and (FRelease.DownloadURL<>'') then
+    begin
+      if FRelease.Size>=1048576 then FCompactBytes.Caption:=Format('Нужно скачать: %.1f МБ',[FRelease.Size/1048576])
+      else FCompactBytes.Caption:=Format('Нужно скачать: %.1f КБ',[FRelease.Size/1024]);
+    end
+    else FCompactBytes.Caption:='Размер загрузки пока неизвестен.';
+  FCompactProgress.Visible:=Assigned(FThread) or FReady or (FBytes.Caption<>'');
+  FCompactProgress.Position:=FProgress.Position;
+  FCompactPrimary.Caption:=FPrimary.Caption; FCompactPrimary.Enabled:=FPrimary.Enabled;
+  FCompactLater.Caption:='Отмена'; FCompactLater.Enabled:=FLater.Enabled;
+end;
+
+procedure TfrmProgramUpdate.CompactLater(Sender: TObject);
+begin
+  LaterClick(Sender);
+  if Assigned(FThread) then SyncCompactPrompt else FCompactForm.Hide;
+end;
+
+procedure TfrmProgramUpdate.CompactClose(Sender: TObject; var Action: TCloseAction);
+begin
+  LaterClick(Sender); Action:=caHide;
+end;
+
+procedure TfrmProgramUpdate.UseFullWindow;
+begin
+  FreeAndNil(FCompactForm);
+  FCompactStatus:=nil; FCompactHeader:=nil; FCompactBytes:=nil;
+  FCompactProgress:=nil; FCompactPrimary:=nil; FCompactLater:=nil;
+  LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
 var Index: Integer;
 begin
   Index:=-1;
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
   if (Index<0) or not ComponentAllowed(Index) or not IsOptionalComponent(ID) then Exit;
+  if Compact then CreateCompactPrompt else UseFullWindow;
   if (ID='DjVuLibre') and ComponentNeedsRepair(Settings.AppPath,'7-Zip') then
   begin
-    RequestComponent('7-Zip','Для распаковки библиотеки DjVuLibre сначала нужен 7-Zip. После его установки снова откройте книгу DjVu.');
+    RequestComponent('7-Zip','Для распаковки библиотеки DjVuLibre сначала нужен 7-Zip. После его установки снова откройте книгу DjVu.',Compact);
     Exit;
   end;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
-  FRequestedComponent:=ID; FRequestReason:=Reason; UpdateComponentList;
+  FRequestedComponent:=ID; FRequestReason:=ComponentPurpose(ID);
+  if (FRequestReason<>'') and (Reason<>'') then FRequestReason:=FRequestReason+sLineBreak;
+  FRequestReason:=FRequestReason+Reason; UpdateComponentList;
   if FCheckingCycle or Assigned(FComponentThread) then
   begin
     FRequestedCheckPending:=True; SelectRow(Index+1); ComponentSelected(nil); Present; Exit;
@@ -1170,7 +1270,7 @@ begin
   FCycleAutomatic:=False; FApplicationRelease:=Default(TProgramRelease);
   FNeedsCheck:=True; FComponentExplicit:=True;
   SelectRow(Index+1); CheckComponents(False);
-  FStatus.Caption:=Reason+sLineBreak+'Проверяем доступность и размер загрузки…'; LayoutWindow; Present;
+  FStatus.Caption:=FRequestReason+sLineBreak+'Проверяем доступность и размер загрузки…'; LayoutWindow; Present;
 end;
 
 procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
@@ -1502,6 +1602,7 @@ begin
     FStatus.Caption := 'Загрузка ' + Name + '…';
   end;
   FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [Downloaded / 1048576, FQueueTotal / 1048576]);
+  SyncCompactPrompt;
 end;
 
 procedure TfrmProgramUpdate.DownloadCompleted(var Message: TMessage);
@@ -1679,6 +1780,9 @@ var Root: TJSONObject; Helper, Parameters, SourceHelper: string; Code: HINST;
 begin
   Result := False;
   try
+    if not IsProgramUpdateApplicationName(ExtractFileName(ParamStr(0))) then
+      raise Exception.Create('Файл программы переименован: '+ExtractFileName(ParamStr(0))+'. '+
+        'Для встроенного обновления верните имя HomeLibRu.exe или HomeLibReader.exe.');
     AssertUpdatePath(FJob); AssertUpdatePath(Settings.AppPath);
     Helper := IncludeTrailingPathDelimiter(FJob) + 'HomeLibRuUpdater.exe';
     if not FRecovery or not FileExists(Helper) then
@@ -1700,6 +1804,7 @@ begin
       TFile.WriteAllText(IncludeTrailingPathDelimiter(FJob) + 'request.json', Root.ToJSON, TEncoding.UTF8);
     finally Root.Free; end;
     Parameters := '--job "' + FJob + '"';
+    ArmBookSaveContinuation(Settings.SettingsFileName,FRequestedComponent);
     Code := ShellExecute(Handle, 'open', PChar(Helper), PChar(Parameters), PChar(FJob), SW_HIDE);
     if NativeInt(Code) <= 32 then raise Exception.Create('Не удалось запустить механизм обновления.');
     Result := True;
@@ -1707,7 +1812,8 @@ begin
     on E: Exception do
     begin
       FStatus.Caption := 'Не удалось начать установку: ' + E.Message;
-      FPendingInstall := False; Show; BringToFront;
+      DisarmBookSaveContinuation(Settings.SettingsFileName);
+      FPendingInstall := False; Present;
     end;
   end;
 end;

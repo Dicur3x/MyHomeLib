@@ -4,7 +4,7 @@
 // to a recursive copy/delete operation. The journal is written before changes.
 interface
 
-uses System.SysUtils, System.Classes;
+uses System.SysUtils, System.Classes, System.JSON;
 
 const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
@@ -21,6 +21,8 @@ type
 
 function UpdateSHA256(const FileName: string): string;
 function IsUpdateSHA256(const Value: string): Boolean;
+function IsProgramUpdateApplicationName(const Value: string): Boolean;
+function ReadProgramUpdateApplication(const Request: TJSONObject): string;
 function SafeUpdateName(const Name: string): Boolean;
 procedure AssertUpdatePath(const Path: string);
 function PrepareProgramUpdate(const Archive, SHA256, Tag, Platform, Job: string;
@@ -40,7 +42,10 @@ procedure CleanProgramUpdate(const Job: string);
 function ProgramUpdatePlatform: string;
 procedure VerifyPreparedProgramUpdate(const Job, Tag, Platform: string);
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
-  const SecondaryArchive: string = ''; const AppPath: string = ''; const AdditionalArchives: TArray<string> = nil);
+  const SecondaryArchive: string = ''; const AppPath: string = ''; const AdditionalArchives: TArray<string> = nil;
+  const AdapterPath: string = '');
+function ExtractReaderAdapter(const Archive, Job, ID: string): string;
+procedure MergePreparedReaderAdapter(const Job, ID, AdapterPath: string);
 function IsOfficialComponentURL(const ID, Version, URL, Platform: string; Secondary: Boolean): Boolean;
 function CombinePreparedProgramUpdates(const Jobs: TArray<string>;
   const Tag, Platform, Job: string): string;
@@ -49,9 +54,29 @@ function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.Hash, System.JSON, System.Zip,
+uses System.IOUtils, System.Hash, System.Zip,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
-  unit_IBKRuntime;
+  unit_IBKRuntime, unit_ReaderAdapters;
+
+function IsProgramUpdateApplicationName(const Value: string): Boolean;
+begin
+  // Windows filenames are case insensitive. Keep the two application names
+  // explicit: accepting an arbitrary renamed EXE could restart an old binary.
+  Result:=SameText(Value,'HomeLibRu.exe') or SameText(Value,'HomeLibReader.exe');
+end;
+
+function ReadProgramUpdateApplication(const Request: TJSONObject): string;
+var Value: TJSONValue;
+begin
+  Value:=Request.GetValue('application');
+  // Releases before the standalone Reader supplied no application field.
+  // TryGetValue has an out parameter and clears a preassigned default.
+  if Value=nil then Result:='HomeLibRu.exe'
+  else if Value is TJSONString then Result:=Value.Value
+  else raise Exception.Create('Повреждено имя приложения для обновления.');
+  if not IsProgramUpdateApplicationName(Result) then
+    raise Exception.Create('Недопустимое приложение для обновления.'+sLineBreak+'Имя файла: '+Result);
+end;
 
 function ComponentFileName(const ID: string): string;
 begin
@@ -73,6 +98,8 @@ end;
 function SafeComponentFile(const ID, Name: string): Boolean;
 var Base: string;
 begin
+  if (ID='DocSharp') or (ID='DjVuLibre') then
+    for var AdapterName in ReaderAdapterFiles(ID) do if Name=AdapterName then Exit(True);
   if ID='IBK' then
   begin
     for var FileName in IBK_FILES do if Name='tools/ibk/'+FileName then Exit(True);
@@ -928,9 +955,67 @@ begin
   end;
 end;
 
+function ExtractReaderAdapter(const Archive, Job, ID: string): string;
+var Package: TReaderAdapterPackage; Zip: TZipFile; Bytes: TBytes; Index: Integer;
+  Names: TArray<string>; Destination: string;
+begin
+  AssertUpdatePath(Archive); AssertUpdatePath(Job);
+  if not ReaderAdapterPackage(ID,Package) or (TFile.GetSize(Archive)<>Package.Size) or
+    not SameText(UpdateSHA256(Archive),Package.SHA256) then
+    raise Exception.Create('Не совпала контрольная сумма вспомогательного модуля чтения.');
+  Result:=ChildPath(Job,'native-adapter');
+  if DirectoryExists(Result) then raise Exception.Create('Папка модуля чтения уже занята.');
+  Names:=ReaderAdapterFiles(ID); Zip:=TZipFile.Create;
+  try
+    Zip.Open(Archive,zmRead);
+    if Zip.FileCount<>Length(Names) then raise Exception.Create('Некорректный состав модуля чтения.');
+    for var Name in Names do
+    begin
+      Index:=Zip.IndexOf(Name);
+      if (Index<0) or not SafeComponentFile(ID,Name) or
+        (Zip.FileInfo[Index].UncompressedSize<1) or (Zip.FileInfo[Index].UncompressedSize>2*1024*1024) then
+        raise Exception.Create('В модуле чтения отсутствует нужный файл: '+Name);
+      Zip.Read(Index,Bytes); Destination:=ChildPath(Result,Name);
+      ForceDirectories(ExtractFileDir(Destination)); TFile.WriteAllBytes(Destination,Bytes);
+    end;
+  finally Zip.Free; end;
+end;
+
+procedure MergePreparedReaderAdapter(const Job, ID, AdapterPath: string);
+var Root: TJSONObject; Files: TJSONArray; Entry: TJSONObject; Stage, Source, Destination: string;
+begin
+  if AdapterPath='' then Exit;
+  AssertUpdatePath(Job); AssertUpdatePath(AdapterPath);
+  if not SameFileName(AdapterPath,ChildPath(Job,'native-adapter')) then
+    raise Exception.Create('Некорректная папка модуля чтения.');
+  Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ChildPath(Job,'manifest.json'),TEncoding.UTF8)) as TJSONObject;
+  try
+    if not Assigned(Root) or (Root.GetValue<string>('component','')<>ID) or
+      not Root.TryGetValue<TJSONArray>('files',Files) then
+      raise Exception.Create('Подготовлен другой компонент.');
+    Stage:=ChildPath(Job,'payload');
+    for var Name in ReaderAdapterFiles(ID) do
+    begin
+      Source:=ChildPath(AdapterPath,Name); Destination:=ChildPath(Stage,Name);
+      ForceDirectories(ExtractFileDir(Destination)); TFile.Copy(Source,Destination,True);
+      Entry:=nil;
+      for var Value in Files do
+        if Value.GetValue<string>('path','')=Name then begin Entry:=TJSONObject(Value); Break; end;
+      if not Assigned(Entry) then
+      begin Entry:=TJSONObject.Create; Entry.AddPair('path',Name); Files.AddElement(Entry); end;
+      Entry.RemovePair('size').Free; Entry.RemovePair('sha256').Free;
+      Entry.AddPair('size',TJSONNumber.Create(TFile.GetSize(Destination)));
+      Entry.AddPair('sha256',UpdateSHA256(Destination));
+    end;
+    ManifestFiles(Root);
+    VerifyPreparedProgramUpdateIdentity(Root,Stage,Root.GetValue<string>('release'),Root.GetValue<string>('platform'));
+    WriteJSON(ChildPath(Job,'manifest.json'),Root);
+  finally Root.Free; end;
+end;
+
 procedure PrepareOfficialComponent(const Archive, Job, ID, Version, Platform: string;
-  const SecondaryArchive, AppPath: string; const AdditionalArchives: TArray<string>);
-var Stage, Raw, Source, Destination, Tools, RuntimePath: string; Names: TArray<string>;
+  const SecondaryArchive, AppPath: string; const AdditionalArchives: TArray<string>; const AdapterPath: string);
+var Stage, Raw, Source, Destination, Tools, RuntimePath, AdapterRuntime: string; Names: TArray<string>;
   Manifest, Entry, Metadata, Hashes: TJSONObject; Files: TJSONArray;
   Zip: TZipFile; Bytes: TBytes; Log: TStringStream; Started: UInt64;
   procedure AddFile(const Name, SourceFile: string);
@@ -978,6 +1063,14 @@ begin
   AssertUpdatePath(Archive); AssertUpdatePath(Job); Stage:=ChildPath(Job,'payload');
   if DirectoryExists(Stage) then raise Exception.Create('Папка обновления уже занята.');
   RuntimePath:=AppPath; if RuntimePath='' then RuntimePath:=ExtractFilePath(ParamStr(0));
+  AdapterRuntime:=RuntimePath;
+  if AdapterPath<>'' then
+  begin
+    AssertUpdatePath(AdapterPath);
+    if not SameFileName(AdapterPath,ChildPath(Job,'native-adapter')) then
+      raise Exception.Create('Некорректная папка модуля чтения.');
+    AdapterRuntime:=AdapterPath;
+  end;
   Manifest:=TJSONObject.Create;
   try
     Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',Version); Manifest.AddPair('platform',Platform);
@@ -1063,8 +1156,8 @@ begin
       else if FileExists(TPath.Combine(RuntimePath,'tools/doc/DocSharp.Binary.Ppt.dll')) or
         FileExists(TPath.Combine(RuntimePath,'tools/doc/DocSharp.Binary.Xls.dll')) then
         raise Exception.Create('Нужны все четыре согласованных пакета DocSharp: DOC, Common, PPT и XLS.');
-      for var Name in ['HomeLibDoc.exe','DocSharp-MIT.txt','b2xtranslator-BSD-3-Clause.txt','HomeLibDoc-MIT.txt'] do
-        AddFile('tools/doc/'+Name,TPath.Combine(RuntimePath,'tools/doc/'+Name));
+      for var Name in ReaderAdapterFiles(ID) do
+        AddFile(Name,TPath.Combine(AdapterRuntime,Name));
       Metadata:=TJSONObject.Create;
       try
         Metadata.AddPair('version',Version); Metadata.AddPair('upstream','https://github.com/manfromarce/DocSharp');
@@ -1096,8 +1189,8 @@ begin
         else AddFile('tools/djvu/'+Name,ChildPath(Raw,Name));
       if ID='DjVuLibre' then
       begin
-        for var Name in ['COPYRIGHT','IJG-README.txt','LIBTIFF-COPYRIGHT.txt','ZLIB-README.txt'] do
-          AddFile('tools/djvu/'+Name,TPath.Combine(RuntimePath,'tools/djvu/'+Name));
+        for var Name in ReaderAdapterFiles(ID) do
+          if Name<>'tools/djvu/COPYING.txt' then AddFile(Name,TPath.Combine(AdapterRuntime,Name));
         if SecondaryArchive='' then raise Exception.Create('Нет соответствующего исходного кода DjVuLibre.');
         AssertUpdatePath(SecondaryArchive);
         AddFile('tools/djvu/djvulibre-'+Version+'.tar.gz',SecondaryArchive);
@@ -1111,7 +1204,7 @@ begin
         var Probe:=ChildPath(Job,'decoder-probe'); ForceDirectories(Probe);
         for var Name in ['libdjvulibre.dll','libjpeg.dll','libtiff.dll','libz.dll'] do
           TFile.Copy(ChildPath(Stage,'tools/djvu/'+Name),ChildPath(Probe,Name),False);
-        TFile.Copy(TPath.Combine(RuntimePath,'tools/djvu/HomeLibDjvu.exe'),ChildPath(Probe,'HomeLibDjvu.exe'),False);
+        TFile.Copy(TPath.Combine(AdapterRuntime,'tools/djvu/HomeLibDjvu.exe'),ChildPath(Probe,'HomeLibDjvu.exe'),False);
         RunBounded(ChildPath(Probe,'HomeLibDjvu.exe'),['--self-test']);
       end;
     end;

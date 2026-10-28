@@ -31,6 +31,9 @@ uses
   unit_Diagnostics in '..\..\..\Program\Units\unit_Diagnostics.pas',
   unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
   unit_BookSendOptions in '..\..\..\Program\Units\unit_BookSendOptions.pas',
+  unit_BookSavePolicy in '..\..\..\Program\Units\unit_BookSavePolicy.pas',
+  unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup,
+  unit_FileBooks in '..\..\..\Program\Units\unit_FileBooks.pas',
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
   unit_AuthorFavoriteRefresh in '..\..\..\Program\Units\unit_AuthorFavoriteRefresh.pas',
@@ -5613,6 +5616,10 @@ end;
 {$I Feedback532Tests.inc}
 {$I DiagnosticsCacheTests.inc}
 {$I UnifiedBookSendTests.inc}
+{$I MinimumBookSaveTests.inc}
+{$I BookSavePlanningTests.inc}
+{$I ReaderPortableStartupTests.inc}
+{$I BookSaveModuleRestartTests.inc}
 {$I IBKComponentTests.inc}
 {$I ComponentMirrorTests.inc}
 
@@ -5630,6 +5637,8 @@ begin
   SetTextCodePage(Output, 65001);
   try
     RequireIsolatedRegression;
+    if ParamStr(1)='save-plan-producer' then begin WriteBookSavePlanChild; Halt(0); end;
+    if ParamStr(1)='save-module-restart-child' then begin RunSaveModuleRestartChild; Halt(0); end;
     if ParamStr(1).StartsWith('--session=') then begin RunNativeReaderSessionChild; Halt(0); end;
     if ParamStr(1) = 'external-tool-probe' then begin RunExternalToolProbe; Halt(0); end;
     if (ParamStr(1)='refactor-slow-converter') or (ParamStr(1)='refactor-slow-leaf') then
@@ -5822,6 +5831,7 @@ begin
       else if ParamStr(1) = 'minimal-first-install' then TestMinimalFirstInstall531
       else if ParamStr(1) = 'post530' then TestFeedback531
       else if ParamStr(1) = 'image-components' then TestImageComponents(One)
+      else if ParamStr(1) = 'webp-live' then TestWebPLiveUpdate
       else if ParamStr(1) = 'catalogue-formats' then TestCatalogueFormats
       else if ParamStr(1) = 'ibk-components' then begin TestIBKComponent; TestCatalogueFormats; end
       else if ParamStr(1) = 'ibk-download-live' then TestIBKLiveDownload
@@ -5835,6 +5845,7 @@ begin
       else if ParamStr(1) = 'sqlite-mapping' then TestSQLiteMapping
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
+      else if ParamStr(1) = 'save-host-resume' then TestReaderSaveHostResume
       else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
       else if ParamStr(1) = 'post525-update' then
@@ -5982,6 +5993,10 @@ begin
         TestFirstBookList
       else if ParamStr(1) = 'first-book-list-large' then
         TestFirstBookList(True)
+      else if ParamStr(1) = 'minimum-save' then TestMinimumBookSaving
+      else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
+      else if ParamStr(1) = 'reader-portable' then TestReaderPortableStartup
+      else if ParamStr(1) = 'save-module-restart' then TestSaveModuleRestart
       else if ParamStr(1) = 'unified-send' then TestUnifiedBookSending
       else if ParamStr(1) = 'image-quality-dialog' then
         TestImageQualityDialog

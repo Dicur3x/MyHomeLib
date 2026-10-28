@@ -55,29 +55,23 @@ def package(repo, platform, component, tag, converter_version, output):
         reader = repo / f"Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe"
         payload = {"HomeLibReader.exe": reader.read_bytes(),
                    "HomeLibReader-LICENSE.txt": (repo / "LICENSE").read_bytes()}
+        # Do not ship the marker inside the shared component ZIP: installing
+        # the reader beside a catalogue must not switch that catalogue's mode.
+        reader_note = (
+            "HomeLib Reader\n\n"
+            "Читалка портативная по умолчанию. Файл uselocaldata создавать не нужно.\n"
+            "Настройки, заметки, история и кэш по умолчанию будут храниться рядом с программой в Data.\n"
+            "Также можно запустить HomeLibReader.exe uselocaldata или с параметром --portable.\n\n"
+            "При запуске из каталогизатора используется явно переданная им папка профиля.\n"
+            "Существующие данные автоматически между папками не переносятся.\n"
+            "Декодеры дополнительных форматов устанавливаются только при необходимости.\n"
+        ).encode("utf-8")
         for name in ("HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll", "NOTICE"):
             payload[name] = (runtime / name).read_bytes()
+        # NOTICE is already accepted by older component installers.
+        payload["NOTICE"] += b"\n\n" + reader_note
         payload["tools/fonts/manifest.json"] = (runtime / "tools/fonts/manifest.json").read_bytes()
-        # Native HomeLib adapters bootstrap the separately downloaded author
-        # libraries. No third-party decoder or Python engine belongs in core.
-        for name in (
-            'tools/doc/HomeLibDoc.exe',
-            'tools/doc/HomeLibDoc-MIT.txt',
-            'tools/doc/DocSharp-MIT.txt',
-            'tools/doc/b2xtranslator-BSD-3-Clause.txt',
-            'tools/djvu/HomeLibDjvu.exe',
-            'tools/djvu/COPYING.txt',
-            'tools/djvu/COPYRIGHT',
-            'tools/djvu/IJG-README.txt',
-            'tools/djvu/LIBTIFF-COPYRIGHT.txt',
-            'tools/djvu/ZLIB-README.txt',
-            'tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dpr',
-            'tools/djvu/HomeLibDjvu-source/HomeLibDjvu.dproj',
-            'tools/djvu/HomeLibDjvu-source/LICENSE',
-            'tools/djvu/HomeLibDjvu-source/README.md',
-            'tools/djvu/HomeLibDjvu-source/unit_DjvuProtocol.pas',
-        ):
-            payload[name] = (runtime / name).read_bytes()
+        # Native format adapters are optional, just like their author libraries.
 
         version = file_version(reader)
         for name in ("HomeLibReader.exe", "HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll"):
@@ -134,7 +128,7 @@ def package(repo, platform, component, tag, converter_version, output):
         if archive.testzip() is not None:
             raise ValueError("Component ZIP failed CRC verification")
     return {"id": component, "platform": platform, "version": version,
-            "history": [{"version": version, "date": "2026-10-25", "notes": notes}]}, {
+            "history": [{"version": version, "date": "2026-10-28", "notes": notes}]}, {
             "component": component, "platform": platform, "version": version, "archive": str(destination),
             "size": destination.stat().st_size, "sha256": digest(destination.read_bytes()), "files": len(manifest["files"])}
 
@@ -143,7 +137,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=pathlib.Path)
     parser.add_argument("--release", required=True)
-    parser.add_argument("--converter-version", default="2.7.0.1102")
+    parser.add_argument("--converter-version", default="2.7.0.1103")
     parser.add_argument("--platform", choices=("Win32", "Win64"), action="append")
     parser.add_argument("--component", choices=("HomeLibReader", "PDFium", "BookConverter"), action="append")
     args = parser.parse_args()

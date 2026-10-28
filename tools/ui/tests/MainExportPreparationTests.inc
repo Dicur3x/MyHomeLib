@@ -90,6 +90,9 @@ begin
     begin
       frmMain.Show;
       Application.ProcessMessages;
+      // Cancellation must stop before any worker can read or write a book.
+      // Checking marks alone could also pass after an unrelated export error.
+      Application.OnModalBegin := Probe.ModalBegin;
       for var Tag in TArray<Integer>.Create(795,799,850) do
       begin
         Settings.PromptDevicePath := True;
@@ -97,6 +100,7 @@ begin
         Writeln('VISUAL export preparation: cancel destination, tag=', Tag);
         Flush(Output);
         frmMain.SendToDeviceExecute(Item);
+        Require(not Probe.Seen,'Canceled destination started an export worker');
         RequireMarks;
         Require(Settings.FolderTemplate = 'Сохранённый шаблон ё\%a',
           'Cancel changed the saved export folder template');

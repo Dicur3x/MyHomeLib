@@ -12,11 +12,28 @@ import zipfile
 import zlib
 
 PROFILES = ('high', 'balanced', 'economy')
+SCAN_PROFILES = ('original', *PROFILES)
 OMITTED_IMAGE = '[Изображение не включено в эту копию]'
 
 
 class NoTextContent(ValueError):
     pass
+
+
+def deflated_size(source):
+    """Count raw ZIP deflate bytes without a second full-size temporary file."""
+    encoder = zlib.compressobj(6, zlib.DEFLATED, -15)
+    count = 0
+    if isinstance(source, (bytes, bytearray)):
+        blocks = (source[at:at+256*1024] for at in range(0,len(source),256*1024))
+        for block in blocks: count += len(encoder.compress(block))
+    else:
+        with Path(source).open('rb') as stream:
+            while True:
+                block = stream.read(256*1024)
+                if not block: break
+                count += len(encoder.compress(block))
+    return count + len(encoder.flush())
 
 
 def remove_nodes(root, predicate, replacement=None):
@@ -251,7 +268,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None):
     if process.returncode or not output.is_file():
         detail = '\n'.join(s for s in log.read_bytes()[-1800:].decode('utf-8', errors='replace').splitlines() if not s.startswith('IMAGE '))
         raise api.ConversionError('Не удалось подготовить изображения для экспорта. '+detail)
-    profiles = PROFILES if profile == 'estimate' else (profile,)
+    profiles = (SCAN_PROFILES if layout else PROFILES) if profile == 'estimate' else (profile,)
     with zipfile.ZipFile(output) as archive:
         if layout:
             allowed = {f'{p}/{i:05d}-{half}' for p in profiles for i in range(len(pictures)) for half in (0,1)}
@@ -319,7 +336,9 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         # formatting whitespace as text that will survive image re-encoding.
         texts = [node.text for node in identities]
         for node in identities: node.text = None
-        overhead = len(api.serialized(root))
+        stripped = api.serialized(root)
+        overhead = len(stripped)
+        zip_overhead = deflated_size(stripped)
         for node,text in zip(identities,texts): node.text = text
         del texts
     else:
@@ -359,15 +378,29 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             for data in pictures:
                 nearest = min(range(len(sample_indices)), key=lambda n: abs(len(data)-len(pictures[sample_indices[n]])))
                 weights[nearest] += 1
-            sizes = {}
+            sizes = {'original': book.stat().st_size}
+            # Includes a small allowance for UTF-8 member names and ZIP headers.
+            # All are estimates, not a promise of byte-identical final lengths.
+            zip_sizes = {'original': 512 + deflated_size(book)}
             for p in PROFILES:
                 costs = [4*((len(data)+2)//3) if target_extension == '.fb2' else len(zlib.compress(data)) for data in samples[p]]
                 sizes[p] = book.stat().st_size if small else max(1, overhead + sum(a*b for a,b in zip(costs,weights)))
+                if small:
+                    zip_sizes[p] = zip_sizes['original']
+                elif target_extension == '.fb2':
+                    packed = [deflated_size(base64.b64encode(data)) for data in samples[p]]
+                    zip_sizes[p] = max(1,512+zip_overhead+sum(a*b for a,b in zip(packed,weights)))
+                else:
+                    # EPUB already deflates each member. The outer archive
+                    # usually has little additional image compression to do.
+                    zip_sizes[p] = max(1,512+round(sizes[p]*
+                        max(.5,min(1.05,zip_sizes['original']/max(1,sizes['original'])))))
             sizes['none'] = text_only_size
+            zip_sizes['none'] = 512+deflated_size(candidate) if text_only_size else 0
             options = Path(options_file); choice = Path(choice_file)
             if options.exists() or choice.exists(): raise api.ConversionError('Канал выбора качества уже занят.')
             payload = json.dumps({'format': target_extension[1:].upper(), 'images': len(pictures) or removed,
-                                  'sampled': len(sample_indices), 'sizes': sizes}, ensure_ascii=False)
+                                  'sampled': len(sample_indices), 'sizes': sizes, 'zip_sizes': zip_sizes}, ensure_ascii=False)
             pending = options.with_suffix('.new'); pending.write_text(payload, encoding='utf-8'); pending.rename(options)
             started = time.monotonic()
             while not choice.is_file():
@@ -376,6 +409,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             if choice.stat().st_size > 32: raise api.ConversionError('Некорректный выбор качества.')
             profile = choice.read_text(encoding='utf-8-sig').strip()
             if profile == 'cancel': raise api.ConversionError('Экспорт отменён.')
+            if profile == 'original': return
             if profile == 'none':
                 if not text_only_size: raise api.ConversionError('Нельзя удалить изображения: в книге нет отдельного текста.')
                 candidate.replace(book)

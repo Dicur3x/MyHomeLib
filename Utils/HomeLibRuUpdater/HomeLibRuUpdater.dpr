@@ -59,9 +59,7 @@ begin
        not Request.TryGetValue<TJSONArray>('args', Args) then
       raise Exception.Create('Повреждены параметры обновления.');
     Target := TPath.GetFullPath(Target); AssertUpdatePath(Target);
-    ApplicationName:='HomeLibRu.exe'; Request.TryGetValue<string>('application',ApplicationName);
-    if (ApplicationName<>'HomeLibRu.exe') and (ApplicationName<>'HomeLibReader.exe') then
-      raise Exception.Create('Недопустимое приложение для обновления.');
+    ApplicationName:=ReadProgramUpdateApplication(Request);
     OriginalCommandLine := ''; Request.TryGetValue<string>('commandLine', OriginalCommandLine);
     Recover := False; Request.TryGetValue<Boolean>('recover', Recover);
     Parent := OpenProcess(SYNCHRONIZE or PROCESS_QUERY_LIMITED_INFORMATION, False, PID);

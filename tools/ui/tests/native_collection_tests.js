@@ -50,7 +50,7 @@ if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
 const runtime = fs.realpathSync(runtimeArg);
 const focusedViews = viewsMode !== null || process.argv.includes('--download-scenarios-only');
 const tests = [genreArg, importArg, viewsArg].map((p,i) => i<2 && p==='-' && focusedViews ? null : fs.realpathSync(p));
-const names = ["GenreRegistryTest.exe", "MetabibImportTest.exe", "CollectionViewsTest.exe"];
+const names = ["GenreRegistryTest.exe", "MetabibImportTest.exe", viewsMode==='reader-story' ? "StoryReaderTest.exe" : "CollectionViewsTest.exe"];
 function machine(file) {
   const data = fs.readFileSync(file);
   if (data.length < 64 || data.toString("ascii", 0, 2) !== "MZ") throw new Error(`Invalid PE file: ${file}`);
@@ -72,8 +72,9 @@ modes.push('reader-small-fb2', 'reader-session-process');
 modes.push('duplicate-source');
 modes.push('ibk-components');
 modes.push('ibk-download-live');
-modes.push('component-mirrors');
-if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+modes.push('component-mirrors', 'reader-portable');
+modes.push('webp-live');
+if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   'component-mirrors': ['PASS component mirror source and real download fallback preserve exact version architecture and bytes', 'PASS component mirror native UI shows exact fallback version and GitHub source', 'PASS IBK mirror preserves unchanged complete original distributions'],
   'ibk-download-live': ['PASS IBK live native source check and updater download preserve pinned identities and prepare complete original data'],
@@ -190,8 +191,15 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
+  if (mode==='webp-live') return ['PASS live WebP update check'];
+  if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
   if (mode==='book-output-reset') return ['PASS diagnostic out reset preserves every established field and retained nested arrays','RESETBENCH trial=6','PASS diagnostic managed out record reset comparison completed'];
   if (mode==='display-labels') return ['PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058','iterations=2000000 trials=7','before_cycles=','LABELBENCH phase=2 trial=6','PASS diagnostic display labels same-process alternating comparison preserves all values'];
+  if (mode==='save-module-restart') return ['PASS compact converter 1102 to 1103 download actual installer restart restored review cancel and unchanged source'];
+  if (mode==='reader-story') return ['PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene','PASS native SM false suffix, real controls, conditional branch, Unicode input, FB2 EPUB route export, verified resume, existing target and cancellation cleanup'];
+  if (mode==='save-host-resume') return ['PASS actual reader host consumes restarted Save As once, restores options over visible book, cancels without output and preserves source'];
+  if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub FB2 EPUB PDF DjVu scan-PDF scan-DjVu','PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
+  if (mode==='minimum-save') return ['PASS minimum save byte-exact FB2 EPUB and native ZIP without converter or 7-Zip; real changes report one missing-module request'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return ['ACTUAL startup ui_fixture=1','PASS streamed alphabet theme=1 ppi=192','PASS tree text and headers fit theme=1 ppi=192','PASS streamed alphabets preserve exact letters order geometry and real author series filter actions','PASS actual catalogue startup phase profile completed','TRACE catalogue orderly cleanup complete'];
@@ -249,27 +257,29 @@ function copyDllTree(source, target) {
     else if (entry.isFile() && /\.dll$/i.test(entry.name)) fs.copyFileSync(src, dst);
   }
 }
-function stage(folder, executable) {
+function stage(folder, executable, mode = '') {
   fs.copyFileSync(executable, path.join(folder, path.basename(executable)));
   for (const name of ["sqlite3.dll", "libzstd.dll", "libeay32.dll", "ssleay32.dll", "homelib_webp.dll"]) {
     const src = path.join(runtime, name);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(folder, name));
   }
   const archiveDll = path.join(runtime,'tools/7zip/7z.dll');
-  if (fs.existsSync(archiveDll)) {
+  if (!['minimum-save','save-module-restart'].includes(mode) && fs.existsSync(archiveDll)) {
     fs.mkdirSync(path.join(folder,'tools/7zip'),{recursive:true});
     fs.copyFileSync(archiveDll,path.join(folder,'tools/7zip/7z.dll'));
   }
   const decoder = path.join(runtime, "tools", "webp", "libwebp.dll");
-  if (!fs.existsSync(decoder) || machine(decoder) !== architecture) throw new Error("WebP decoder is absent or has the wrong architecture.");
-  const decoderDir = path.join(folder, "tools", "webp");
-  fs.mkdirSync(decoderDir, { recursive: true });
-  fs.copyFileSync(decoder, path.join(decoderDir, "libwebp.dll"));
+  if (!['minimum-save','save-module-restart'].includes(mode)) {
+    if (!fs.existsSync(decoder) || machine(decoder) !== architecture) throw new Error("WebP decoder is absent or has the wrong architecture.");
+    const decoderDir = path.join(folder, "tools", "webp");
+    fs.mkdirSync(decoderDir, { recursive: true });
+    fs.copyFileSync(decoder, path.join(decoderDir, "libwebp.dll"));
+  }
   // Icons and bundled genres contain no personal profiles or library databases.
   if (fs.existsSync(path.join(runtime, "Icons"))) copyDllTree(path.join(runtime, "Icons"), path.join(folder, "Icons"));
   for (const name of fs.readdirSync(runtime)) if (/^genres[^\\/]*\.glst$/i.test(name)) fs.copyFileSync(path.join(runtime, name), path.join(folder, name));
   // The DOC component uses managed AnyCPU assemblies, all bundled and isolated.
-  if (fs.existsSync(path.join(runtime, 'tools', 'doc'))) fs.cpSync(path.join(runtime, 'tools', 'doc'), path.join(folder, 'tools', 'doc'), {recursive:true});
+  if (!['minimum-save','save-module-restart'].includes(mode) && fs.existsSync(path.join(runtime, 'tools', 'doc'))) fs.cpSync(path.join(runtime, 'tools', 'doc'), path.join(folder, 'tools', 'doc'), {recursive:true});
   fs.writeFileSync(path.join(folder, "uselocaldata"), "");
   fs.copyFileSync(path.resolve(__dirname, '../../../Installer/Components.json'), path.join(folder, 'COMPONENTS.json'));
   fs.writeFileSync(path.join(folder, "uselocaltemp"), "");
@@ -304,7 +314,7 @@ function run(executable, mode, subcase = "") {
   let performanceSnapshot=null;
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
-    stage(folder, executable);
+    stage(folder, executable, mode);
     if (['reader-small-fb2','reader-main-filter'].includes(mode)) {
       fs.copyFileSync(executable,path.join(folder,'HomeLibReader.exe'));
       for (const [source,name] of [
@@ -372,7 +382,20 @@ function run(executable, mode, subcase = "") {
       const platform=architecture===0x8664?'Win64':'Win32';
       fs.copyFileSync(path.join(__dirname,'../../../Installer/Out/optional-codecs-20261022','WebP-1.6.0-'+platform+'.zip'),path.join(folder,'WebP-1.6.0-'+platform+'.zip'));
     }
-    if (mode==='unified-send') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+    if (mode==='save-module-restart') {
+      const old=process.argv.find(a=>a.startsWith('--save-old-converter='));
+      if(!old) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
+      const python=process.env.HLRU_PYTHON; if(!python) throw Error('HLRU_PYTHON is required to prepare the private candidate');
+      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
+      if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
+      fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
+    }
+    if (['reader-story','unified-send','save-planning'].includes(mode)) for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+    if (['save-planning'].includes(mode)) {
+      for (const name of ['pdfium','djvu']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
+      const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',[path.join(__dirname,'prepare_save_mixed_fixtures.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:45000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      if(made.status!==0) throw new Error('Cannot prepare real mixed Save As documents: '+made.stdout+made.stderr);
+    }
     if (mode === 'feedback529' || mode === 'flibrary-quality') {
       fs.mkdirSync(path.join(folder,'tools/jpeg-xl'),{recursive:true});
       fs.copyFileSync(path.join(runtime,'tools/jpeg-xl/djxl.exe'),path.join(folder,'tools/jpeg-xl/djxl.exe'));
@@ -411,7 +434,10 @@ function run(executable, mode, subcase = "") {
       if(index.platform!==(architecture===0x8664?'Win64':'Win32')) throw new Error('Repair archive fixtures have a different architecture');
       fs.mkdirSync(dst);fs.copyFileSync(path.join(src,'fixtures.json'),path.join(dst,'fixtures.json'));
       const crypto=require('node:crypto');
-      for(const name of ['application.zip','sevenzip.zip','doc.nupkg','common.nupkg','ppt.nupkg','xls.nupkg']) {
+      const names=['application.zip','sevenzip.zip','doc.nupkg','common.nupkg','ppt.nupkg','xls.nupkg'];
+      if(mode==='minimal-first-install') names.push(index.DocSharp_adapter,index.DjVuLibre_adapter,'djvu.zip','djvu-source.tar.gz');
+      for(const name of names) {
+        if(typeof name!=='string'||path.basename(name)!==name) throw Error('Invalid repair fixture member');
         const bytes=fs.readFileSync(path.join(src,name));
         if(crypto.createHash('sha256').update(bytes).digest('hex')!==index.files[name]) throw new Error('Changed repair fixture: '+name);
         fs.writeFileSync(path.join(dst,name),bytes);
@@ -606,7 +632,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
-    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='unified-send' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords, maxBuffer: 2 * 1024 * 1024 });
+    const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {
       const screenshot = path.join(folder, "all-favorite-authors.png");
@@ -644,6 +670,13 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       if (require('crypto').createHash('sha256').update(fs.readFileSync(source)).digest('hex')!==hash) throw new Error('Readonly reader input was changed: '+source);
     }
   } finally {
+    if(mode==='save-module-restart') {
+      const report=path.join(folder,'save-module-result.txt');
+      if(fs.existsSync(report)) fs.copyFileSync(report,path.join(__dirname,'Out','pre535-'+(architecture===0x8664?'Win64':'Win32')+'-save-module-result.txt'));
+      const debug={root:folder,files:{}};
+      const collect=(dir)=>{for(const item of fs.readdirSync(dir,{withFileTypes:true})){const file=path.join(dir,item.name);if(item.isDirectory()&&!['tools','Icons','save-module-fixture'].includes(item.name))collect(file);else if(item.isFile()&&/^(save-module-.*\.txt|request\.json|journal\.json|result\.txt|.*pending-save.*)$/.test(item.name)&&fs.statSync(file).size<65536)debug.files[path.relative(folder,file)]=fs.readFileSync(file,'utf8');}};
+      collect(folder);fs.writeFileSync(path.join(__dirname,'Out','pre535-'+(architecture===0x8664?'Win64':'Win32')+'-save-module-debug.json'),JSON.stringify(debug,null,2));
+    }
     if(mode==='catalogue-performance') {
       for(const name of ['actual-startup-profile.tsv','actual-book-list-profile.tsv']) {
         const file=path.join(folder,name);
@@ -671,6 +704,10 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
 // Native geometry assertions and explicit speed budgets remain unchanged.
 // No subcase marker is optional: all fourteen are required by the default suite.
 function runView(mode) {
+  if (mode==='save-module-restart') {
+    for (const application of ['HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);
+    return;
+  }
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui-legacy')) return run(tests[2],mode,'ui-legacy');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return run(tests[2],mode,'ui');
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup-late')) return run(tests[2],mode,'startup-late');

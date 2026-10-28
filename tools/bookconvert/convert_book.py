@@ -1120,8 +1120,10 @@ def convert_book(source, destination, **metadata):
     scan_layout = metadata.pop('scan_layout', 'keep')
     scan_exclude = metadata.pop('scan_exclude', '')
     if scan_layout not in {'keep','split','auto'}: raise ConversionError('Неизвестный режим страниц сканов.')
-    if metadata.get('reading'): image_quality = 'original'
-    elif scan_layout!='keep' and image_quality=='original': image_quality='high'
+    if metadata.get('reading'):
+        image_quality = 'original'
+        scan_layout = 'keep'
+        scan_exclude = ''
     source, destination = Path(source).resolve(), Path(destination).absolute()
     if source == destination.resolve(): raise ConversionError('Исходная книга и результат должны быть разными файлами.')
     if destination.exists(): raise ConversionError('Файл результата уже существует. Выберите другое имя.')
@@ -1131,7 +1133,10 @@ def convert_book(source, destination, **metadata):
     if image_quality == 'none' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         raise ConversionError('Этот формат преобразуется как сканы: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
     image_export = None
-    if image_quality!='original' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
+    # PDF/DjVu use the same scan rendering detail for estimation and final
+    # export, including the original-quality choice. Reading has its own path.
+    scanned_document = extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm'}
+    if not metadata.get('reading') and (image_quality!='original' or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,
                       'options':image_options,'choice':image_choice,'handled':False}
         metadata['image_export']=image_export

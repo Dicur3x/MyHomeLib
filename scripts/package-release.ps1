@@ -11,7 +11,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.34'
+$release = '2.7.0_pre5.35'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -60,8 +60,8 @@ try {
     }
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
-    # Native adapters and fonts metadata belong to the catalogue core.
-    # Conversion engines and third-party decoders are downloaded on first use.
+    # Only fonts metadata is needed by the minimal catalogue. Native format
+    # adapters are downloaded with their optional DOC/DjVu libraries.
     if ($Full) {
         foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
             if ($directory.Name -notin @('fonts', 'bookconvert')) {
@@ -86,17 +86,6 @@ try {
             [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
             Copy-Item -LiteralPath (Join-Path $runtimeDirectory "$legacyNative/$name") -Destination $target
         }
-    }
-    if (-not $Full) {
-        # These small HomeLib adapters bootstrap author packages on first use.
-        # Decoder DLLs, Python and all conversion engines remain optional.
-        foreach ($entry in @('doc/HomeLibDoc.exe', 'doc/HomeLibDoc-MIT.txt', 'doc/DocSharp-MIT.txt', 'doc/b2xtranslator-BSD-3-Clause.txt',
-            'djvu/HomeLibDjvu.exe', 'djvu/COPYING.txt', 'djvu/COPYRIGHT', 'djvu/IJG-README.txt', 'djvu/LIBTIFF-COPYRIGHT.txt', 'djvu/ZLIB-README.txt')) {
-            $target = Join-Path $toolsDestination $entry
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-            Copy-Item -LiteralPath (Join-Path $runtimeDirectory "tools/$entry") -Destination $target
-        }
-        Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'tools/djvu/HomeLibDjvu-source') -Destination (Join-Path $toolsDestination 'djvu') -Recurse
     }
     $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
     $fontDestination = Join-Path $toolsDestination 'fonts'
@@ -160,11 +149,7 @@ try {
     try {
         if (-not $Full) {
             foreach ($entry in $archive.Entries) {
-                if (($entry.FullName.StartsWith('tools/') -and $entry.FullName -notin @('tools/fonts/manifest.json',
-                    'tools/doc/HomeLibDoc.exe', 'tools/doc/HomeLibDoc-MIT.txt', 'tools/doc/DocSharp-MIT.txt', 'tools/doc/b2xtranslator-BSD-3-Clause.txt',
-                    'tools/djvu/HomeLibDjvu.exe', 'tools/djvu/COPYING.txt', 'tools/djvu/COPYRIGHT', 'tools/djvu/IJG-README.txt',
-                    'tools/djvu/LIBTIFF-COPYRIGHT.txt', 'tools/djvu/ZLIB-README.txt') -and
-                    -not $entry.FullName.StartsWith('tools/djvu/HomeLibDjvu-source/')) -or
+                if (($entry.FullName.StartsWith('tools/') -and $entry.FullName -ne 'tools/fonts/manifest.json') -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
                     $entry.FullName -eq 'HomeLibReader.exe') {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"

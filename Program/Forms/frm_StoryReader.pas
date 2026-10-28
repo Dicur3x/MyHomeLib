@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, System.Classes, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
+uses System.SysUtils, System.Classes, Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Menus,
   Vcl.ExtCtrls, frm_BuiltinReader;
 
 type
@@ -27,6 +27,10 @@ type
     FWorker: TStoryWorker;
     FExporter: TStoryExporter;
     FReader: TfrmBuiltinReader;
+    FFullScreenPlacement: TWindowPlacement;
+    FFullScreenBorder: TFormBorderStyle;
+    FInterfaceMenu: TMainMenu;
+    FInterfaceControls: TArray<TControl>;
     FTimer: TTimer;
     FStatus, FHelp: TLabel;
     FImages: TCheckBox;
@@ -46,6 +50,9 @@ type
     procedure ExportFinished(Sender: TObject);
     procedure PublishCommand(const Command: string; Action: Integer = 0; const Text: string = ''; HasInput: Boolean = False);
     procedure ReleaseScene;
+    procedure ReaderInterfaceChanged(Sender: TObject);
+    procedure ReaderFullScreenChanged(Sender: TObject);
+    procedure InterfaceKey(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure ShowFailure(const MessageText: string);
     procedure SaveProgress;
     function GetReady: Boolean;
@@ -76,7 +83,7 @@ procedure OpenInteractiveStory(Owner: TComponent; const AppPath, SourceFile, Boo
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash, System.Math, System.Generics.Collections,
+uses System.IOUtils, System.JSON, System.Hash, System.Math, System.Generics.Collections,
   Vcl.Dialogs, unit_MHLExternalTools, unit_MHLTheme, unit_BookConversion,
   unit_ExportImageQuality, unit_Diagnostics;
 
@@ -141,6 +148,7 @@ begin
   FAppPath:=AppPath; FSource:=SourceFile; FBookTitle:=BookTitle; FIdentity:=Identity;
   FSettingsFile:=SettingsFile; FPDFLibrary:=PDFLibrary; FReceived:=-1; FWaiting:=True;
   Font.Name:='Segoe UI'; Font.Size:=9; Caption:='HomeLib Ru — '+BookTitle+' — Интерактивная книга';
+  KeyPreview:=True; OnKeyDown:=InterfaceKey;
   Position:=poOwnerFormCenter; ClientWidth:=960; ClientHeight:=760;
   Constraints.MinWidth:=680; Constraints.MinHeight:=520;
   if AOwner is TCustomForm then begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
@@ -194,11 +202,67 @@ end;
 procedure TfrmStoryReader.ReleaseScene;
 begin
   if not Assigned(FReader) then Exit;
+  if FReader.InterfaceHidden then FReader.ToggleInterface;
+  if FReader.FullScreenMode then FReader.ToggleFullScreen;
   // Save the reader's normal preferences using the outer window bounds;
   // never write an embedded child's (0,0) placement to reader.ini.
   FReader.Hide; FReader.Parent:=nil;
   FReader.SetBounds(Left,Top,Width,Height); FReader.Close;
   FreeAndNil(FReader);
+end;
+
+procedure TfrmStoryReader.ReaderInterfaceChanged(Sender: TObject);
+begin
+  DisableAlign;
+  try
+    if FReader.InterfaceHidden then
+    begin
+      FInterfaceMenu:=Menu; Menu:=nil;
+      FInterfaceControls:=nil;
+      // Also remember nested answer controls. Recreating the outer window for
+      // full screen must not make a previously visible child show through.
+      for var I:=0 to ComponentCount-1 do
+        if (Components[I] is TControl) and (Components[I]<>FReader) then
+        begin
+          var Control:=TControl(Components[I]);
+          if Control.Visible then
+          begin FInterfaceControls:=FInterfaceControls+[Control]; Control.Visible:=False; end;
+        end;
+    end
+    else
+    begin
+      Menu:=FInterfaceMenu; FInterfaceMenu:=nil;
+      for var Control in FInterfaceControls do Control.Visible:=True;
+      FInterfaceControls:=nil;
+    end;
+  finally EnableAlign; end;
+end;
+
+procedure TfrmStoryReader.ReaderFullScreenChanged(Sender: TObject);
+begin
+  if FReader.FullScreenMode then
+  begin
+    FFullScreenPlacement:=Default(TWindowPlacement); FFullScreenPlacement.length:=SizeOf(FFullScreenPlacement);
+    if not GetWindowPlacement(Handle,@FFullScreenPlacement) then RaiseLastOSError;
+    FFullScreenBorder:=BorderStyle;
+    BorderStyle:=bsNone; WindowState:=wsMaximized;
+  end
+  else
+  begin
+    WindowState:=wsNormal; BorderStyle:=FFullScreenBorder;
+    if not SetWindowPlacement(Handle,@FFullScreenPlacement) then RaiseLastOSError;
+  end;
+end;
+
+procedure TfrmStoryReader.InterfaceKey(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if not Assigned(FReader) then Exit;
+  if (Key=VK_F11) and (Shift=[]) then
+  begin FReader.ToggleFullScreen; Key:=0; end
+  else if (Key=VK_ESCAPE) and FReader.InterfaceHidden then
+  begin FReader.ToggleInterface; Key:=0; end
+  else if (Key=VK_ESCAPE) and FReader.FullScreenMode then
+  begin FReader.ToggleFullScreen; Key:=0; end;
 end;
 
 destructor TfrmStoryReader.Destroy;
@@ -346,6 +410,8 @@ begin
     begin
       ReleaseScene; FViewHash:=View;
       FReader:=TfrmBuiltinReader.Create(Self);
+      FReader.OnInterfaceModeChanged:=ReaderInterfaceChanged;
+      FReader.OnFullScreenModeChanged:=ReaderFullScreenChanged;
       ImagesClick(nil);
       FReader.OpenBook(TPath.Combine(FWork,Scene),FBookTitle,FIdentity+':SM:'+View,FSettingsFile,FPDFLibrary);
     end;

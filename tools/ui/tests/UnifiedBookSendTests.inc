@@ -4,7 +4,9 @@ type
     Timer: TTimer;
     FormatIndex, ImageIndex, Dialogs, QualityDialogs: Integer;
     CancelOptions, CancelQuality, ShellSurrogate: Boolean;
-    Destination, Failure: string;
+    VerifyInitial: Boolean;
+    Initial: TBookSendOptions;
+    Destination, Failure, FolderMask: string;
     Deadline: UInt64;
     SavedModal, SavedShow: TNotifyEvent;
     SavedClose: unit_Events.TProgressCloseEvent;
@@ -68,13 +70,49 @@ begin
       Inc(Dialogs);
       var Formats:=TComboBox(Dialog.FindComponent('SendFormat'));
       var Images:=TComboBox(Dialog.FindComponent('SendImages'));
+      if VerifyInitial then
+      begin
+        Require(TEdit(Dialog.FindComponent('SendDestination')).Text=Initial.Folder,'Restored save destination was replaced');
+        Require(TEdit(Dialog.FindComponent('SaveNameTemplate')).Text=Initial.FileNameTemplate,'Restored filename mask was lost');
+        Require(TCheckBox(Dialog.FindComponent('SaveSubfolders')).Checked and
+          (TEdit(Dialog.FindComponent('SaveFolderTemplate')).Text=Initial.FolderTemplate),'Restored subfolders were lost');
+        Require(TCheckBox(Dialog.FindComponent('SendZIP')).Checked and (Images.ItemIndex=2),'Restored ZIP or image choice was lost');
+        Require((TComboBox(Dialog.FindComponent('SaveScanLayout')).ItemIndex=1) and
+          (TEdit(Dialog.FindComponent('SaveScanExceptions')).Text='1,9-10'),'Restored scan layout or exclusions were lost');
+        if Initial.KeepFB2EPUB then
+          Require((Pos('FB2',Formats.Text)>0) and (Pos('EPUB',Formats.Text)>0),'Restored mixed source policy was lost')
+        else Require(Formats.Text='Преобразовать в EPUB','Restored EPUB conversion policy was lost');
+        Require(string(TLabel(Dialog.FindComponent('SaveNamePreview')).Caption).Contains(Initial.Folder),
+          'Save example omits the actual destination path');
+        Dialog.ModalResult:=mrCancel; Exit;
+      end;
       Require(Assigned(Formats) and Assigned(Images),'Unified send controls are missing');
-      if FormatIndex>=0 then Formats.ItemIndex:=FormatIndex
-      else Require(Formats.ItemIndex>7,'Saved personal script was not preselected in the unified dialog');
+      Require(Images.Items.Count=4,'Save As must have exactly four image modes');
+      for var Caption in Formats.Items do
+        Require(not Caption.StartsWith('TXT') and not Caption.Contains('внешний конвертер') and
+          not Caption.StartsWith('Сценарий:'),'Legacy formats/scripts leaked into the Save As selector');
+      Formats.ItemIndex:=0;
+      if FormatIndex in [1,2] then
+      begin
+        var Index:=Formats.Items.IndexOf('Преобразовать в FB2');
+        if Index>=0 then Formats.ItemIndex:=Index
+        else Require(Formats.Items[0]='Оставить FB2','Missing FB2 save policy');
+      end
+      else if FormatIndex=3 then
+      begin
+        var Index:=Formats.Items.IndexOf('Преобразовать в EPUB');
+        if Index>=0 then Formats.ItemIndex:=Index
+        else Require(Formats.Items[0]='Оставить EPUB','Missing EPUB save policy');
+      end;
       Formats.OnChange(Formats);
+      var ZIPControl:=TCheckBox(Dialog.FindComponent('SendZIP')); ZIPControl.Checked:=FormatIndex=2;
       Images.ItemIndex:=ImageIndex; Images.OnChange(Images);
-      Require(Images.Enabled=(FormatIndex in [0,1,2,3]),'Image processing disagrees with selected format');
+      Require(Images.Enabled,'Mixed FB2/EPUB image processing is unexpectedly disabled');
+      Require(Assigned(Dialog.FindComponent('SaveNameTemplate')) and Assigned(Dialog.FindComponent('SaveNamePreview')),
+        'Filename template and example are not visible in Save As');
       TEdit(Dialog.FindComponent('SendDestination')).Text:=Destination;
+      TCheckBox(Dialog.FindComponent('SaveSubfolders')).Checked:=FolderMask<>'';
+      if FolderMask<>'' then TEdit(Dialog.FindComponent('SaveFolderTemplate')).Text:=FolderMask;
       if CancelOptions then Dialog.ModalResult:=mrCancel
       else TButton(Dialog.FindComponent('SendBooks')).Perform(BM_CLICK,0,0);
       Exit;
@@ -105,7 +143,9 @@ var Dialog: TBookSendOptionsForm; SavedDark: Boolean;
     begin
       var Control:=Parent.Controls[I]; if not Control.Visible then Continue;
       Require((Control.Left>=0) and (Control.Top>=0) and
-        (Control.Left+Control.Width<=Parent.ClientWidth) and (Control.Top+Control.Height<=Parent.ClientHeight),
+        (Control.Left+Control.Width<=Parent.ClientWidth) and
+        ((Control.Top+Control.Height<=Parent.ClientHeight) or
+          ((Parent is TScrollBox) and (Control.Top+Control.Height<=TScrollBox(Parent).VertScrollBar.Range))),
         'Unified save control exceeds its parent: '+Control.ClassName);
       if Control is TLabel then
       begin
@@ -132,7 +172,7 @@ begin
       SetMHLTheme(Dark); Dialog:=TBookSendOptionsForm.Create(Application);
       try
         Dialog.ScaleForPPI(PPI); Dialog.Show; Application.ProcessMessages;
-        for var FormatIndex:=0 to 7 do for var ImageIndex:=0 to 4 do
+        for var FormatIndex:=0 to TComboBox(Dialog.FindComponent('SendFormat')).Items.Count-1 do for var ImageIndex:=0 to 3 do
         begin
           var Formats:=TComboBox(Dialog.FindComponent('SendFormat')); Formats.ItemIndex:=FormatIndex; Formats.OnChange(Formats);
           var Images:=TComboBox(Dialog.FindComponent('SendImages')); Images.ItemIndex:=ImageIndex; Images.OnChange(Images);
@@ -193,7 +233,7 @@ end;
 procedure TestUnifiedBookSending;
 const Text='Обычная иллюстрированная книга. Ёж, Україна, 中文.';
   Note='[Изображение не включено в эту копию]';
-var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDevice: string;
+var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDevice, SavedSync: string;
   Collection: IBookCollection; Book: TBookRecord; CID, PreviousCID: Integer;
   Books: array[0..1] of TBookRecord; Hashes: array[0..1] of string;
   Probe: TUnifiedSendProbe; Menu: TMenuItem; SavedSelected, SavedRewrite, SavedPrompt: Boolean;
@@ -263,8 +303,8 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
       end;
       Require((Length(Outputs)=2) and (SuccessfulBookExportCount(Probe.Results)=2),
         'Unified send failed: '+Probe.Messages.Text);
-      if ImageIndex=0 then Require(Probe.QualityDialogs=1,'Apply-to-all did not cover the mixed-format batch')
-      else Require(Probe.QualityDialogs=0,'A preset unexpectedly opened another chooser');
+      Require(Probe.QualityDialogs=0,'The four explicit image modes opened an extra chooser');
+      Require(Settings.SyncExportDir=Probe.Destination,'The accepted destination was not remembered');
       for var I:=0 to High(Probe.Results) do
       begin
         var Item:=Probe.Results[I]; Target:=Item.OutputFile;
@@ -276,7 +316,7 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
           3: ExpectedExt:='.epub'; 4: ExpectedExt:='.txt'; end;
         Require(SameText(ExtractFileExt(Target),ExpectedExt),'Unified send silently changed the requested format');
         if ExactCopy then Require(UpdateSHA256(Target)=UpdateSHA256(Book.GetBookFileName),'As-is sending changed the original bytes');
-        if (FormatIndex=0) and (ImageIndex in [2,3]) then
+        if (FormatIndex=0) and (ImageIndex in [1,2]) then
           Require(TFile.GetSize(Target)<TFile.GetSize(Book.GetBookFileName),Format('Image compression did not reduce %s: %d >= %d',[Book.FileExt,TFile.GetSize(Target),TFile.GetSize(Book.GetBookFileName)]));
         if FormatIndex=2 then
         begin
@@ -310,7 +350,7 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
     begin
       SelectBooks; Probe.Destination:=Root+Name; ForceDirectories(Probe.Destination);
       Settings.DeviceDir:=Probe.Destination; Probe.FormatIndex:=FormatIndex;
-      Probe.ImageIndex:=4; if FormatIndex=4 then Probe.ImageIndex:=1;
+      Probe.ImageIndex:=3;
       Probe.Dialogs:=0; Probe.QualityDialogs:=0; Probe.Results:=nil; Probe.Worker:=nil;
       Probe.CancelOptions:=False; Probe.CancelQuality:=False; Probe.ShellSurrogate:=False;
       Probe.Messages.Clear; Probe.Failure:=''; Probe.Deadline:=GetTickCount64+180000; Probe.Timer.Enabled:=True;
@@ -347,15 +387,18 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
         Require(SameText(ExtractFileExt(Item.OutputFile),'.txt') and (UpdateSHA256(Item.OutputFile)=TextHash),
           'Plain TXT was converted or had its encoding changed by the image preference');
       Book.FileExt:='.png'; Collection.UpdateBook(Book); FileName:=Root+'source.png'; TFile.Copy(ImageFile,FileName,False);
-      var ImageHash:=UpdateSHA256(FileName); Start('unsupported-preserve-png',0);
-      Partial(Books[1].BookKey.BookID,'.PNG');
+      var ImageHash:=UpdateSHA256(FileName); Start('original-png-noop',0);
+      Require(SuccessfulBookExportCount(Probe.Results)=2,'Keeping PNG requested an image conversion');
+      for var Item in Probe.Results do if Item.Book.BookKey.BookID=Books[1].BookKey.BookID then
+        Require(SameText(ExtractFileExt(Item.OutputFile),'.png') and (UpdateSHA256(Item.OutputFile)=ImageHash),
+          'Keeping PNG changed its bytes or extension');
       Require(UpdateSHA256(FileName)=ImageHash,'Unsupported original-format image processing changed its source');
       Collection.UpdateBook(SavedBook);
       TFile.WriteAllText(SourceFB2,SavedXML.Replace('<p>'+Text+'</p>',''),TEncoding.UTF8);
-      var ScanHash:=UpdateSHA256(SourceFB2); Start('txt-no-text-failure',4);
-      Partial(Books[0].BookKey.BookID,'нет распознанного текста');
-      Require(UpdateSHA256(SourceFB2)=ScanHash,'A failed final TXT stage changed the original FB2');
-      Writeln('PASS unified send original TXT stays byte-exact, unsupported PNG retains format and mark, failed final TXT never reports success'); Flush(Output);
+      var ScanHash:=UpdateSHA256(SourceFB2); Start('no-images-no-text-failure',0);
+      Partial(Books[0].BookKey.BookID,'нет отдельного текста');
+      Require(UpdateSHA256(SourceFB2)=ScanHash,'Failed removal of scanned pages changed the original FB2');
+      Writeln('PASS unified send original TXT stays byte-exact, original PNG stays byte-exact, scan-only textless copy is rejected'); Flush(Output);
     finally
       Collection.UpdateBook(SavedBook); TFile.WriteAllText(SourceFB2,SavedXML,TEncoding.UTF8);
     end;
@@ -364,7 +407,7 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
 
 begin
   RequireIsolatedRegression; TestUnifiedSendLayout; PreviousCID:=Settings.ActiveCollection;
-  SavedDevice:=Settings.DeviceDir; SavedFolder:=Settings.FolderTemplate; SavedFile:=Settings.FileNameTemplate;
+  SavedDevice:=Settings.DeviceDir; SavedSync:=Settings.SyncExportDir; SavedFolder:=Settings.FolderTemplate; SavedFile:=Settings.FileNameTemplate;
   SavedSelected:=Settings.SelectedIsChecked; SavedRewrite:=Settings.OverwriteFB2Info;
   SavedPrompt:=Settings.PromptDevicePath; SavedMode:=Settings.ExportMode; SavedEncoding:=Settings.TXTEncoding; SavedScript:=Settings.DefaultScript; ScriptCount:=Settings.Scripts.Count;
   Root:=IncludeTrailingPathDelimiter(Settings.AppPath+'unified-send-'+TGUID.NewGuid.ToString); ForceDirectories(Root);
@@ -415,30 +458,27 @@ begin
     Require(frmMain.pmiSendToDevice.Tag=0,'Public context send still resolves to an old conversion command');
     for var Parent in TArray<TMenuItem>.Create(frmMain.pmiScripts,frmMain.mmiScripts,frmMain.pmScripts.Items) do
       for var Item in Parent do Require((Item.Tag<850) or (Item.Tag>856),'Duplicate built-in conversion remains in a menu');
-    Run('cancel-options',0,1,False,False,True);
-    Run('source-as-is',0,1,False,True);
-    Run('source-no-images',0,4,True,False);
-    for var Quality in [2,3] do Run('source-compressed-'+IntToStr(Quality),0,Quality,False,False);
-    Run('fb2-original-images',1,1,False,False);
-    Run('epub-original-images',3,1,False,False);
-    Run('fb2-compressed',1,2,False,False);
-    Run('epub-compressed',3,3,False,False);
-    Run('fb2-no-images',1,4,True,False);
-    Run('epub-no-images',3,4,True,False);
-    Run('zip-no-images',2,4,True,False);
-    Run('text',4,1,True,False);
-    Run('ask-once-mixed',0,0,True,False);
-    Run('cancel-quality',0,0,False,False,False,True);
-    Run('shell-source-no-images',0,4,True,False,False,False,True);
+    Run('cancel-options',0,0,False,False,True);
+    Run('source-as-is',0,0,False,True);
+    Run('source-no-images',0,3,True,False);
+    for var Quality in [1,2] do Run('source-compressed-'+IntToStr(Quality),0,Quality,False,False);
+    Run('fb2-original-images',1,0,False,False);
+    Run('epub-original-images',3,0,False,False);
+    Run('fb2-compressed',1,1,False,False);
+    Run('epub-compressed',3,2,False,False);
+    Run('fb2-no-images',1,3,True,False);
+    Run('epub-no-images',3,3,True,False);
+    Run('zip-no-images',2,3,True,False);
+    Run('shell-source-no-images',0,3,True,False,False,False,True);
     SourceVariants;
     Settings.Scripts.Add('Unified own copy script','%COPY%','%NFT%'); Settings.DefaultScript:=Settings.Scripts.Count;
-    Run('personal-default',-1,1,False,False);
+    Run('personal-default-does-not-replace-format',-1,0,False,True);
     Writeln('PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery');
   finally
     while Settings.Scripts.Count>ScriptCount do Settings.Scripts.Delete(Settings.Scripts.Count-1); Settings.DefaultScript:=SavedScript;
     Application.OnModalBegin:=Probe.SavedModal; Probe.Timer.Free; Probe.Messages.Free; Probe.Free;
     Menu.Tag:=PreviousCID; frmMain.miActiveCollectionClick(Menu); Menu.Free;
-    Settings.DeviceDir:=SavedDevice; Settings.FolderTemplate:=SavedFolder; Settings.FileNameTemplate:=SavedFile;
+    Settings.DeviceDir:=SavedDevice; Settings.SyncExportDir:=SavedSync; Settings.FolderTemplate:=SavedFolder; Settings.FileNameTemplate:=SavedFile;
     Settings.SelectedIsChecked:=SavedSelected; Settings.OverwriteFB2Info:=SavedRewrite;
     Settings.PromptDevicePath:=SavedPrompt; Settings.ExportMode:=SavedMode; Settings.TXTEncoding:=SavedEncoding;
     if COMInitialized then CoUninitialize;

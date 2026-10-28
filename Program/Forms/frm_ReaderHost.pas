@@ -2,8 +2,8 @@
 
 interface
 
-uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.Controls, Vcl.Menus, Vcl.StdCtrls,
-  Vcl.ExtCtrls, unit_Globals, frm_ProgramUpdate, unit_ReaderSession;
+uses System.Classes, System.SysUtils, Winapi.Messages, Vcl.Forms, Vcl.Controls, Vcl.Menus, Vcl.StdCtrls,
+  Vcl.ExtCtrls, unit_Globals, frm_ProgramUpdate, unit_ReaderSession, unit_BookSaveContinuation;
 
 type
   TfrmReaderHost = class(TForm)
@@ -21,7 +21,10 @@ type
     FSession: TReaderSessionRequest;
     FSessionReply: TReaderSessionReply;
     FSessionLease: TReaderSessionLease;
-    FRestarting: Boolean;
+    FRestarting, FDirectLaunch: Boolean;
+    FSaveContinuation: TBookSaveContinuation;
+    FResumingSave: Boolean;
+    procedure ResumeBookSave(var Message: TMessage); message WM_RESUME_BOOK_SAVE;
     procedure BeginSession(const RequestFile: string);
     procedure SendSessionState(const State: string; const ErrorText: string = '');
     procedure FinishSession(const State: string);
@@ -123,6 +126,8 @@ begin
   FStatus.Caption:='Недавние книги — двойной щелчок для открытия.';
   InstallMenu(Self); ApplyMHLControlTheme(Self);
   FTimer:=TTimer.Create(Self); FTimer.Interval:=150; FTimer.OnTimer:=Tick;
+  try TakeBookSaveContinuation(Settings.SettingsFileName,FSaveContinuation);
+  except on E: Exception do begin LogDiagnosticError('reader-save-resume-load',E); FStatus.Caption:=E.Message; end; end;
 end;
 
 destructor TfrmReaderHost.Destroy;
@@ -194,6 +199,8 @@ end;
 
 procedure TfrmReaderHost.OpenInitialFile(const FileName: string);
 begin
+  if (FileName<>'') or (FNextFile<>'') or (FNextSession<>'') then
+  begin FDirectLaunch:=True; Application.ShowMainForm:=False; end;
   // The updater preserves the original command line, which may name a book
   // opened before the one that requested a component. Resume that pending
   // book first; explicit Open commands during ordinary use still replace it.
@@ -202,6 +209,8 @@ end;
 
 procedure TfrmReaderHost.OpenInitialSession(const RequestFile: string);
 begin
+  if (RequestFile<>'') or (FNextSession<>'') then
+  begin FDirectLaunch:=True; Application.ShowMainForm:=False; end;
   if (FNextFile='') and (FNextSession='') and (RequestFile<>'') then
     FNextSession:=TPath.GetFullPath(RequestFile);
 end;
@@ -264,14 +273,44 @@ var Options: TBookSendOptions; Results: TBookExportResults; Required: string;
 begin
   if FPreparing or (FCurrentFile='') or (FExportBook.FileName='') then Exit;
   try
-    if not ChooseBookSendOptions(1,Settings.SyncExportDir,emEpub,Options,False) then Exit;
+    var Initial: PBookSendOptions:=nil; if FResumingSave then Initial:=@FSaveContinuation.Options;
+    if not ChooseBookSendOptions(1,Settings.SyncExportDir,emEpub,Options,False,[FExportBook],Initial) then
+    begin
+      if Options.RequiredComponent<>'' then
+      begin
+        StoreBookSaveContinuation(Settings.SettingsFileName,Options.RequiredComponent,Options,nil,FCurrentFile);
+        EnsureUpdates; FUpdates.RequestComponent(Options.RequiredComponent,
+          'Для оценки размера нужен дополнительный модуль. После установки вернёмся к сохранению книги.',True);
+      end;
+      Exit;
+    end;
     Results:=SaveFileBook(FExportBook,Options,Required);
-    if Required<>'' then MissingComponent(Required)
+    if Required<>'' then
+    begin
+      StoreBookSaveContinuation(Settings.SettingsFileName,Required,Options,nil,FCurrentFile);
+      EnsureUpdates;
+      FUpdates.RequestComponent(Required,'Для выбранного сохранения нужен дополнительный модуль. '+
+        'После установки и перезапуска вернёмся к этим параметрам сохранения.',True);
+    end
     else if (Length(Results)>0) and (Results[0].State=besSucceeded) then
       FStatus.Caption:='Сохранено: '+Results[0].OutputFile;
   except
     on E: Exception do
     begin LogDiagnosticError('reader-save-file',E); MessageDlg(E.Message,mtError,[mbOK],0); end;
+  end;
+end;
+
+procedure TfrmReaderHost.ResumeBookSave(var Message: TMessage);
+var Token: string;
+begin
+  if (FSaveContinuation.Token='') or not Assigned(FView) or FPreparing or FExitRequested then Exit;
+  if not SameFileName(FSaveContinuation.SourceFile,FCurrentFile) then Exit;
+  Token:=FSaveContinuation.Token; FResumingSave:=True;
+  try SaveClick(nil);
+  finally
+    FResumingSave:=False; FSaveContinuation:=Default(TBookSaveContinuation);
+    try ClearBookSaveContinuation(Settings.SettingsFileName,Token);
+    except on E: Exception do LogDiagnosticError('reader-save-resume-clear',E); end;
   end;
 end;
 
@@ -310,6 +349,7 @@ end;
 procedure TfrmReaderHost.ComponentsClick(Sender: TObject);
 begin
   EnsureUpdates;
+  FUpdates.UseFullWindow;
   FUpdates.CheckComponents(False); FUpdates.Show;
 end;
 
@@ -326,7 +366,7 @@ begin
   FPendingComponent:=ID; FStatus.Caption:='Для этой книги нужен компонент «'+Title+'».';
   FSessionReply.RequiredComponent:=ID; SendSessionState('component_required');
   EnsureUpdates;
-  FUpdates.RequestComponent(ID,FStatus.Caption);
+  FUpdates.RequestComponent(ID,FStatus.Caption,True);
 end;
 
 procedure TfrmReaderHost.Tick(Sender: TObject);
@@ -428,6 +468,7 @@ begin
     // The book is the visible application while reading. Keeping the empty
     // launcher as its taskbar owner gives Alt+Tab/preview the wrong window.
     Hide;
+    if FSaveContinuation.Token<>'' then PostMessage(Handle,WM_RESUME_BOOK_SAVE,0,0);
     FView.ShowModal;
     if FView is TfrmBuiltinReader then
     begin
@@ -446,10 +487,14 @@ begin
   finally
     FreeAndNil(FView); ExportInput.Free; ViewInput.Free; FDisplaying:=False;
     if FExitRequested then Close
-    else if WasVisible then Show;
+    else if WasVisible and not FDirectLaunch then Show;
   end;
   if Required<>'' then MissingComponent(Required)
-  else if not FRestarting then FinishSession('closed');
+  else if not FRestarting then
+  begin
+    FinishSession('closed');
+    if FDirectLaunch and (FNextFile='') and (FNextSession='') then Close;
+  end;
 end;
 
 procedure TfrmReaderHost.RememberFile(const FileName: string);

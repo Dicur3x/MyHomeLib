@@ -33,7 +33,9 @@ procedure ExportToDevice(
   const ExplicitFormat: Boolean = False;
   const OnMissingComponent: TProc<string> = nil;
   const ImageQuality: string = 'ask';
-  const KeepSourceFormat: Boolean = False
+  const KeepSourceFormat: Boolean = False;
+  const KeepFB2EPUB: Boolean = False;
+  const ZipEachBook: Boolean = False
   ); overload;
 
 procedure ExportToDevice(
@@ -48,7 +50,9 @@ procedure ExportToDevice(
   const ExplicitFormat: Boolean = False;
   const OnMissingComponent: TProc<string> = nil;
   const ImageQuality: string = 'ask';
-  const KeepSourceFormat: Boolean = False
+  const KeepSourceFormat: Boolean = False;
+  const KeepFB2EPUB: Boolean = False;
+  const ZipEachBook: Boolean = False
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -86,12 +90,15 @@ procedure ExportToDevice(
   const ExplicitFormat: Boolean;
   const OnMissingComponent: TProc<string>;
   const ImageQuality: string;
-  const KeepSourceFormat: Boolean
+  const KeepSourceFormat: Boolean;
+  const KeepFB2EPUB: Boolean;
+  const ZipEachBook: Boolean
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
-    ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality, KeepSourceFormat);
+    ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality,
+    KeepSourceFormat, KeepFB2EPUB, ZipEachBook);
 end;
 
 procedure ExportToDevice(
@@ -106,7 +113,9 @@ procedure ExportToDevice(
   const ExplicitFormat: Boolean;
   const OnMissingComponent: TProc<string>;
   const ImageQuality: string;
-  const KeepSourceFormat: Boolean
+  const KeepSourceFormat: Boolean;
+  const KeepFB2EPUB: Boolean;
+  const ZipEachBook: Boolean
   );
 var
   worker: TExportToDeviceThread;
@@ -136,8 +145,9 @@ begin
     worker.ExtractOnly := ExtractOnly;
     worker.UseMTP := AUseMTP;
     worker.ExplicitFormat := ExplicitFormat;
-    worker.ShowImageQualityChoice := not ExtractOnly and (Mode in [emFB2, emFB2Zip, emEpub]);
+    worker.ShowImageQualityChoice := not ExtractOnly and (Mode in [emFB2, emFB2Zip, emEpub, emEpubZip]);
     worker.ImageQuality:=ImageQuality; worker.KeepSourceFormat:=KeepSourceFormat;
+    worker.KeepFB2EPUB:=KeepFB2EPUB; worker.ZipEachBook:=ZipEachBook;
 
     if AUseMTP and Assigned(ADeviceShellItem) then
     begin
@@ -152,6 +162,7 @@ begin
         case Mode of
           emFB2: ConverterPath:='FB2'; emFB2Zip: ConverterPath:='FB2 в ZIP';
           emEpub: ConverterPath:='EPUB'; emTxt: ConverterPath:='TXT';
+          emEpubZip: ConverterPath:='EPUB в ZIP';
           emLrf: ConverterPath:='LRF'; emPDF: ConverterPath:='PDF'; emMobi: ConverterPath:='MOBI';
         end;
         frmProgress.Caption := Format(rstrExportAsFormat,[ConverterPath]);

@@ -210,7 +210,7 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 }
 
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1102'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1103'
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -287,13 +287,13 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
     $zstdDestination,
-    (Join-Path $outputDirectory 'tools\fonts\manifest.json'),
-    (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
-    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
-    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\HomeLibDjvu.dpr')
+    (Join-Path $outputDirectory 'tools\fonts\manifest.json')
 )
 if (-not $CoreOnly) {
     $requiredRuntimeFiles += @(
+    (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),
+    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu.exe'),
+    (Join-Path $outputDirectory 'tools\djvu\HomeLibDjvu-source\HomeLibDjvu.dpr'),
     $sevenZipDestination,
     (Join-Path $outputDirectory 'tools\7zip\License.txt'),
     $jpegXlDestination,

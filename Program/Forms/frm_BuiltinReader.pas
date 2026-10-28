@@ -64,6 +64,10 @@ type
     FSearch: TEdit;
     FThemes: TComboBox;
     FFitButton: TButton;
+    FInterfaceReturn: TButton;
+    FInterfaceMenu: TMainMenu;
+    FInterfaceSearch: Boolean;
+    FOnInterfaceModeChanged: TNotifyEvent;
     FPDFSelecting, FPDFPageHasText: Boolean;
     FPDFSelectionAnchor, FPDFSelectionEnd: Integer;
     FPDFSelectionPage: Integer;
@@ -130,7 +134,7 @@ type
     FPageStatus: TMHLOperationStatus;
     FPages: TList<Integer>;
     FPage, FNext, FLength, FFontSize, FZoom, FWheel: Integer;
-    FNight, FFullScreen, FReady, FClosing, FLoadFinished, FReadingMoved, FWheelControl: Boolean;
+    FNight, FFullScreen, FInterfaceHidden, FReady, FClosing, FLoadFinished, FReadingMoved, FWheelControl: Boolean;
     FBookFormatting, FShowFootnotes, FDecorativeInitials, FTypographyDirty: Boolean;
     FInitialsMode: TReaderInitialsMode;
     FHeadingColors: array[0..1,0..1] of TColor;
@@ -139,7 +143,10 @@ type
     FFootnotesMemo: TMemo;
     FIdentity, FSettingsFile, FFileName, FBookTitle: string;
     FNormalBounds, FRestoredBounds: TRect;
-    FBeforeFullScreenState: TWindowState;
+    FFullScreenPlacement: TWindowPlacement;
+    FFullScreenBorder: TFormBorderStyle;
+    FOnFullScreenModeChanged: TNotifyEvent;
+    FFullScreenButton: TButton;
     FPan, FDrag: TPoint;
     FInspect: Boolean;
     FInspectZoom: Integer;
@@ -210,6 +217,7 @@ type
     procedure SmallerClick(Sender: TObject);
     procedure NightClick(Sender: TObject);
     procedure FullScreenClick(Sender: TObject);
+    procedure InterfaceClick(Sender: TObject);
     procedure BookmarkClick(Sender: TObject);
     procedure BookmarkSaveClick(Sender: TObject);
     procedure BookmarkOpenClick(Sender: TObject);
@@ -295,6 +303,12 @@ type
     procedure SetPageTurn(Value: TReaderPageTurn);
     procedure SetPageAppearance(Value: TReaderPageAppearance);
     procedure RefreshWindowTheme;
+    procedure ToggleInterface;
+    property InterfaceHidden: Boolean read FInterfaceHidden;
+    procedure ToggleFullScreen;
+    property FullScreenMode: Boolean read FFullScreen;
+    property OnFullScreenModeChanged: TNotifyEvent read FOnFullScreenModeChanged write FOnFullScreenModeChanged;
+    property OnInterfaceModeChanged: TNotifyEvent read FOnInterfaceModeChanged write FOnInterfaceModeChanged;
     procedure ApplyWindowPalette(Form: TCustomForm);
     procedure SetShowFootnotes(Value: Boolean);
     procedure SetBookFormatting(Value: Boolean);
@@ -1077,7 +1091,7 @@ begin
   MakeButton('✎',NotesClick,34);
   MakeButton('Закладки и заметки',NotesManageClick,154);
   MakeButton('Вид',StyleClick,50);
-  MakeButton('Поиск',SearchClick,50); MakeButton('F11',FullScreenClick,50);
+  MakeButton('Поиск',SearchClick,50);
   FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
   FChapterPath.Parent:=FTop; FChapterPath.Align:=alBottom; FChapterPath.AutoSize:=False;
   FChapterPath.Height:=22; FChapterPath.Margins.SetBounds(12,0,12,0); FChapterPath.AlignWithMargins:=True;
@@ -1085,6 +1099,15 @@ begin
   FChapterPath.Font.Name:='Segoe UI'; FChapterPath.Font.Size:=9; FChapterPath.ShowHint:=True;
   FChapterPath.Hint:='Текущая глава и её разделы';
   ContentsRow:=TPanel.Create(Self); ContentsRow.Parent:=FTop; ContentsRow.Align:=alClient; ContentsRow.BevelOuter:=bvNone;
+  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=ContentsRow; Button.Align:=alRight;
+  Button.Name:='ReaderHideInterface'; Button.Width:=132; Button.Caption:='Скрыть интерфейс';
+  Button.OnClick:=InterfaceClick; Button.TabStop:=False;
+  Button.Hint:='Скрыть меню и панели, сохранив размер окна'; Button.ShowHint:=True;
+  FFullScreenButton:=TReaderPaletteButton.Create(Self); FFullScreenButton.Parent:=ContentsRow;
+  FFullScreenButton.Align:=alRight; FFullScreenButton.Name:='ReaderFullScreen';
+  FFullScreenButton.Width:=36; FFullScreenButton.Caption:='⛶';
+  FFullScreenButton.OnClick:=FullScreenClick; FFullScreenButton.TabStop:=False;
+  FFullScreenButton.Hint:='На весь экран / В окне (F11)'; FFullScreenButton.ShowHint:=True;
   FContentsButton:=TReaderPaletteButton.Create(Self); FContentsButton.Parent:=ContentsRow; FContentsButton.Align:=alLeft;
   FContentsButton.Width:=36; FContentsButton.Caption:='☰'; FContentsButton.Hint:='Оглавление (Ctrl+T)';
   FContentsButton.ShowHint:=True; FContentsButton.Enabled:=False; FContentsButton.OnClick:=ContentsClick;
@@ -1094,7 +1117,7 @@ begin
   FBottom:=TPanel.Create(Self); FBottom.Parent:=Self; FBottom.Align:=alBottom; FBottom.Height:=40; FBottom.BevelOuter:=bvNone;
   FBottom.Name:='ReaderFooter'; FBottom.Caption:='';
   FStatus:=TLabel.Create(Self); FStatus.Parent:=FBottom; FStatus.Align:=alClient; FStatus.Layout:=tlCenter; FStatus.Alignment:=taCenter;
-  FStatus.Caption:='Колесо — страницы · Ctrl+колесо — размер · F11 — весь экран · Ctrl+F — поиск';
+  FStatus.Caption:='Колесо — страницы · Ctrl+колесо — размер · F11 — полный экран · Ctrl+F — поиск';
   FProgressLine:=TReaderProgress.Create(Self); FProgressLine.Parent:=FBottom; FProgressLine.Align:=alBottom;
   FProgressLine.Height:=14; FProgressLine.OnPaint:=PaintProgress; FProgressLine.Cursor:=crHandPoint;
   FProgressLine.Hint:='Щёлкните или перетащите, чтобы перейти к нужному месту книги'; FProgressLine.ShowHint:=True;
@@ -1113,7 +1136,7 @@ begin
   FFootnotesMemo.Font.Name:='Segoe UI'; FFootnotesMemo.Font.Size:=10;
   FFootnotesMemo.Font.Quality:=fqClearTypeNatural;
   FFootnotesMemo.StyleElements:=FFootnotesMemo.StyleElements-[seClient,seFont];
-  FSearchPanel:=TPanel.Create(Self); FSearchPanel.Parent:=Self; FSearchPanel.Align:=alTop; FSearchPanel.Height:=98; FSearchPanel.Visible:=False;
+  FSearchPanel:=TPanel.Create(Self); FSearchPanel.Name:='ReaderSearchPanel'; FSearchPanel.Parent:=Self; FSearchPanel.Align:=alTop; FSearchPanel.Height:=98; FSearchPanel.Visible:=False;
   SearchRow:=TPanel.Create(Self); SearchRow.Parent:=FSearchPanel; SearchRow.Align:=alTop; SearchRow.Height:=32; SearchRow.BevelOuter:=bvNone;
   SearchButton('×',28,SearchCloseClick);
   FSearch:=TEdit.Create(Self); FSearch.Parent:=SearchRow; FSearch.Align:=alClient; FSearch.TextHint:='Найти… Enter / Shift+Enter'; FSearch.OnKeyDown:=SearchKey;
@@ -1185,6 +1208,12 @@ begin
   FFontDownload.Width:=100; FFontDownload.Caption:='Скачать'; FFontDownload.OnClick:=DownloadFontsClick;
   var LaterFont:=TReaderPaletteButton.Create(Self); LaterFont.Parent:=FFontOffer; LaterFont.Align:=alRight;
   LaterFont.Width:=80; LaterFont.Caption:='Позже'; LaterFont.OnClick:=DismissFontsClick;
+  FInterfaceReturn:=TReaderPaletteButton.Create(Self); FInterfaceReturn.Parent:=Self;
+  FInterfaceReturn.Name:='ReaderShowInterface'; FInterfaceReturn.Align:=alTop;
+  FInterfaceReturn.Height:=20; FInterfaceReturn.Caption:='Показать интерфейс';
+  FInterfaceReturn.Font.Size:=8; FInterfaceReturn.TabStop:=False;
+  FInterfaceReturn.Visible:=False; FInterfaceReturn.OnClick:=InterfaceClick;
+  FInterfaceReturn.Hint:='Вернуть меню и панели читалки'; FInterfaceReturn.ShowHint:=True;
   OnKeyDown:=KeyReader; OnResize:=ScheduleResize; OnClose:=CloseReader;
   RefreshWindowTheme;
 end;
@@ -1196,7 +1225,6 @@ begin
   Button.Left:=MaxInt; Button.Width:=Width; Button.Caption:=Caption; Button.OnClick:=Action;
   Button.TabStop:=False;
   if Caption='Ночь' then begin Button.Hint:='Ночной фон текста / инверсия страниц PDF'; Button.ShowHint:=True; end;
-  if Caption='F11' then begin Button.Hint:='На весь экран / вернуть окно'; Button.ShowHint:=True; end;
   if Caption='✎' then begin Button.Name:='ReaderAddNote'; Button.Hint:='Добавить заметку с выделенной цитатой (Ctrl+M)'; Button.ShowHint:=True; end;
   if Caption='🔖︎' then
   begin Button.Name:='ReaderAddBookmark'; Button.Font.Name:='Segoe UI Symbol'; Button.Font.Size:=13;
@@ -1228,7 +1256,7 @@ begin
       'Они сохранятся для следующих книг. Сейчас используется доступный шрифт Windows.';
   finally Languages.Free; end;
   FFontOffer.Color:=ThemeBackground; FFontOfferText.Font.Color:=ThemeText;
-  FFontOffer.Visible:=FMissingFonts.Count>0;
+  FFontOffer.Visible:=(FMissingFonts.Count>0) and not FInterfaceHidden;
 end;
 
 procedure TfrmBuiltinReader.DownloadFontsClick(Sender: TObject);
@@ -1863,9 +1891,12 @@ begin
 end;
 
 procedure TfrmBuiltinReader.PaintPageDecoration(Canvas: TCanvas);
-var Pages: array[0..1] of TRect; Book, Gap, Bounds: TRect;
-  Count, Width, Edge, Shadow, SavedDC, Middle, Curve, Opacity: Integer;
-  Blend: TBlendFunction; Reflow: Boolean;
+var Pages: array[0..1] of TRect; Book, Bounds: TRect;
+  Count, Width, Inset, MaximumDepth, Shadow, SavedDC, Middle, Curve, Opacity: Integer;
+  LeftDepth, RightDepth: Integer; Progress: Double;
+  Blend: TBlendFunction; Reflow: Boolean; Desk, Cover, PaperEdge: TColor;
+  function Px(Value: Integer): Integer;
+  begin Result:=Max(1,MulDiv(Value,CurrentPPI,96)); end;
   procedure Tint(const Area: TRect; Alpha: Integer; Light: Boolean = False);
   var Clip: TRect;
   begin
@@ -1876,94 +1907,174 @@ var Pages: array[0..1] of TRect; Book, Gap, Bounds: TRect;
     Winapi.Windows.AlphaBlend(Canvas.Handle,Clip.Left,Clip.Top,Clip.Width,Clip.Height,
       FSelectionTint.Canvas.Handle,0,0,1,1,Blend);
   end;
+  procedure LeafBlock(Index, Depth, Direction: Integer);
+  var Top, Bottom, Line: array[0..8] of TPoint;
+    Shape: array[0..17] of TPoint;
+    Face: array[0..3] of TPoint; R: TRect;
+    Bend, VerticalDepth, Layers, X, Y, Outside: Integer; Ratio, Sag: Double;
+    function Shifted(const P: TPoint; Fraction, Layer: Double; Extra: Integer = 0): TPoint;
+    var Horizontal, Vertical: Double;
+    begin
+      if Count=1 then
+      begin
+        Horizontal:=-LeftDepth*(1-Fraction)+RightDepth*Fraction;
+        Vertical:=(Max(1,Min(Px(10),LeftDepth*2 div 3+1))*(1-Fraction)+
+          Max(1,Min(Px(10),RightDepth*2 div 3+1))*Fraction);
+        Horizontal:=Horizontal+Extra*(2*Fraction-1);
+      end
+      else begin Horizontal:=Direction*(Depth+Extra); Vertical:=VerticalDepth; end;
+      Result:=Point(P.X+Round(Horizontal*Layer),P.Y+Round((Vertical+Extra)*Layer));
+    end;
+  begin
+    R:=Pages[Index]; Bend:=0;
+    if Reflow then Bend:=Px(6);
+    VerticalDepth:=Max(1,Min(Px(10),Depth*2 div 3+1));
+    for var J:=0 to 8 do
+    begin
+      Ratio:=J/8;
+      // The paper rises away from the binding and falls into its fold.
+      // Only the existing blank margins are shaped; content is never warped.
+      if Count=2 then
+        if Index=0 then Sag:=Sqr(Ratio) else Sag:=Sqr(1-Ratio)
+      else Sag:=Sqr(1-Ratio);
+      X:=R.Left+Round(R.Width*Ratio);
+      Top[J]:=Point(X,R.Top+Round(Bend*Sag));
+      Bottom[J]:=Point(X,R.Bottom+Round(Bend*Sag));
+    end;
+    if Reflow and ((Count=2) or (Direction<0)) then
+    begin
+      Canvas.Pen.Style:=psClear; Canvas.Brush.Color:=Desk;
+      Shape[0]:=Point(R.Left,0); Shape[1]:=Point(R.Right,0);
+      for var J:=0 to 8 do Shape[J+2]:=Top[8-J];
+      Canvas.Polygon(Slice(Shape,11));
+      Shape[0]:=Point(R.Left,FSurface.Height); Shape[1]:=Point(R.Right,FSurface.Height);
+      for var J:=0 to 8 do Shape[J+2]:=Bottom[8-J];
+      Canvas.Polygon(Slice(Shape,11));
+    end;
+    // A single-page block is a continuous wedge: it must not be painted
+    // twice with two intersecting bottom edges.
+    if (Count=2) or (Direction<0) then
+    begin
+      for var J:=0 to 8 do
+      begin
+        Shape[J]:=Bottom[J]; Shape[17-J]:=Shifted(Bottom[J],J/8,1,Px(3));
+      end;
+      Canvas.Pen.Style:=psSolid; Canvas.Pen.Color:=Cover; Canvas.Brush.Color:=Cover;
+      Canvas.Polygon(Shape);
+      Canvas.Brush.Color:=PaperEdge; Canvas.Pen.Color:=PaperEdge;
+      for var J:=0 to 8 do Shape[17-J]:=Shifted(Bottom[J],J/8,1);
+      Canvas.Polygon(Shape);
+      Layers:=VerticalDepth;
+      if Count=1 then Layers:=Max(1,Min(Px(10),Max(LeftDepth,RightDepth)*2 div 3+1));
+      for var Layer:=Layers downto 1 do
+      begin
+        for var J:=0 to 8 do Line[J]:=Shifted(Bottom[J],J/8,Layer/Layers);
+        Canvas.Pen.Color:=ReaderBlendColor(PaperEdge,Cover,IfThen(Layer mod 2=0,56,20));
+        Canvas.Polyline(Line);
+      end;
+    end;
+    Canvas.Pen.Style:=psSolid; Canvas.Pen.Color:=Cover; Canvas.Brush.Color:=Cover;
+    Outside:=R.Left; if Direction>0 then Outside:=R.Right;
+    Face[0]:=Point(Outside,R.Top+Px(2)); Face[1]:=Point(Outside,R.Bottom);
+    Face[2]:=Point(Outside+Direction*(Depth+Px(2)),R.Bottom+VerticalDepth+Px(3));
+    Face[3]:=Point(Outside+Direction*(Depth+Px(2)),R.Top+VerticalDepth+Px(2));
+    Canvas.Polygon(Face);
+    Canvas.Brush.Color:=PaperEdge; Canvas.Pen.Color:=PaperEdge;
+    Face[2]:=Point(Outside+Direction*Depth,R.Bottom+VerticalDepth);
+    Face[3]:=Point(Outside+Direction*Depth,R.Top+VerticalDepth+Px(2));
+    Canvas.Polygon(Face);
+    for var Layer:=1 to Depth do
+    begin
+      X:=Outside+Direction*Layer; Y:=MulDiv(VerticalDepth,Layer,Max(1,Depth));
+      Canvas.Pen.Color:=ReaderBlendColor(PaperEdge,Cover,IfThen(Layer mod 3=0,52,12));
+      Canvas.MoveTo(X,R.Top+Y+Px(2)); Canvas.LineTo(X,R.Bottom+Y);
+    end;
+    Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,clWhite,IfThen(FNight,13,25));
+    Canvas.Polyline(Top);
+    Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,Cover,40); Canvas.Polyline(Bottom);
+  end;
 begin
   if (FPageAppearance<>rpaBook) or FBitmap.Empty then Exit;
-  // Decoration touches the finished canvas only: text, hit testing, raster
-  // caches and source pixels retain their exact original coordinates.
+  // Paint after the finished raster. Text selection, images, pagination and
+  // cached source pixels keep their original coordinates in both appearances.
   Blend.BlendOp:=AC_SRC_OVER; Blend.BlendFlags:=0; Blend.AlphaFormat:=0;
-  Reflow:=not Assigned(FPDF);
-  Shadow:=Max(4,MulDiv(7,CurrentPPI,96)); Width:=TextPageWidth;
+  Reflow:=not Assigned(FPDF); Shadow:=Px(5); Width:=TextPageWidth;
   if Reflow then Count:=TextPageCount else Count:=Min(2,Length(FPDFPageViews));
   if Count=0 then Exit;
+  Inset:=Max(Px(3),Min(Px(22),MulDiv(FMargin,CurrentPPI,96)-Px(6)));
+  MaximumDepth:=Min(Px(16),Max(Px(2),Inset-Shadow));
+  Progress:=EnsureRange(ReadingProgress,0.0,1.0);
+  LeftDepth:=Max(Px(1),Round(MaximumDepth*Progress));
+  RightDepth:=Max(Px(1),MaximumDepth-LeftDepth);
+  Middle:=(FSurface.Width-1) div 2;
   for var I:=0 to Count-1 do
     if Reflow then
     begin
-      Pages[I]:=Rect(I*(Width+TextPageGap),Shadow,I*(Width+TextPageGap)+Width,FBitmap.Height-Shadow);
-      if I=0 then Inc(Pages[I].Left,Shadow);
-      if I=Count-1 then Dec(Pages[I].Right,Shadow);
+      Pages[I]:=Rect(I*(Width+TextPageGap),Px(5),I*(Width+TextPageGap)+Width,FBitmap.Height-Px(18));
+      if I=0 then Inc(Pages[I].Left,Inset);
+      if I=Count-1 then Dec(Pages[I].Right,Inset);
+      if Count=2 then
+        if I=0 then Pages[I].Right:=Middle else Pages[I].Left:=Middle;
     end
     else
     begin Pages[I]:=FPDFPageViews[I].Bounds; OffsetRect(Pages[I],FPan.X,FPan.Y); end;
   Book:=Pages[0]; if Count=2 then UnionRect(Book,Book,Pages[1]);
+  Desk:=ReaderBlendColor(ThemeBackground,clBlack,IfThen(FNight,82,100));
+  Cover:=ReaderBlendColor(ThemeBackground,RGB(38,33,27),IfThen(FNight,70,180));
+  PaperEdge:=ReaderBlendColor(ThemeBackground,ThemeText,IfThen(FNight,32,46));
   SavedDC:=SaveDC(Canvas.Handle);
   try
     IntersectClipRect(Canvas.Handle,0,0,FSurface.Width,FSurface.Height);
     if Reflow then
     begin
-      // One continuous volume, rather than two individually framed panels.
-      Canvas.Brush.Color:=ReaderBlendColor(ThemeBackground,clBlack,100);
+      Canvas.Brush.Color:=Desk;
       Canvas.FillRect(Rect(0,0,FSurface.Width,Book.Top));
-      Canvas.FillRect(Rect(0,Book.Bottom,FSurface.Width,FSurface.Height));
-      Canvas.FillRect(Rect(0,Book.Top,Book.Left,Book.Bottom));
-      Canvas.FillRect(Rect(Book.Right,Book.Top,FSurface.Width,Book.Bottom));
-      if Count=2 then
-      begin
-        Gap:=Rect(Pages[0].Right,Book.Top,Pages[1].Left,Book.Bottom);
-        Canvas.Brush.Color:=ThemeBackground; Canvas.FillRect(Gap);
-      end;
+      Canvas.FillRect(Rect(0,Book.Bottom+Px(6),FSurface.Width,FSurface.Height));
+      Canvas.FillRect(Rect(0,Book.Top,Book.Left,FSurface.Height));
+      Canvas.FillRect(Rect(Book.Right,Book.Top,FSurface.Width,FSurface.Height));
     end;
     for var N:=Shadow downto 1 do
     begin
-      Tint(Rect(Book.Left+N,Book.Bottom+N-1,Book.Right+N,Book.Bottom+N),(Shadow-N+1)*8);
-      Tint(Rect(Book.Right+N-1,Book.Top+N,Book.Right+N,Book.Bottom+N),(Shadow-N+1)*6);
+      Tint(Rect(Book.Left-LeftDepth+N,Book.Bottom+Px(10)+N-1,
+        Book.Right+RightDepth+N,Book.Bottom+Px(10)+N),(Shadow-N+1)*6);
+      Tint(Rect(Book.Right+RightDepth+N-1,Book.Top+Px(8),
+        Book.Right+RightDepth+N,Book.Bottom+Px(12)),(Shadow-N+1)*5);
     end;
-    if not Reflow then
-    begin
-      // A dark raster/PDF page cannot cast a visible shadow onto a dark
-      // desk. The muted cover sits outside the complete volume instead of
-      // adding a bright bevel inside each scanned page.
-      if FNight then Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,ThemeText,38)
-      else Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,clBlack,100);
-      Canvas.Brush.Style:=bsClear;
-      for var N:=1 to Max(3,Shadow-2) do
-      begin Bounds:=Book; InflateRect(Bounds,N,N); Canvas.Rectangle(Bounds); end;
-      Canvas.Brush.Style:=bsSolid;
-    end;
-    Edge:=Max(4,Min(MulDiv(20,CurrentPPI,96),Book.Width div 24));
-    for var N:=0 to Edge-1 do
-    begin
-      Opacity:=Round(23*Sqr(1-N/Edge));
-      Tint(Rect(Book.Left+N,Book.Top,Book.Left+N+1,Book.Bottom),Opacity);
-      Tint(Rect(Book.Right-N-1,Book.Top,Book.Right-N,Book.Bottom),Opacity);
-    end;
+    LeafBlock(0,LeftDepth,-1);
+    if Count=2 then LeafBlock(1,RightDepth,1)
+    else LeafBlock(0,RightDepth,1);
+    Curve:=Max(Px(12),Min(Px(48),TextPageGap div 2+MulDiv(Max(4,FMargin-8),CurrentPPI,96)));
     if Count=2 then
     begin
       Middle:=(Pages[0].Right+Pages[1].Left) div 2;
-      Curve:=Max(12,Min(MulDiv(40,CurrentPPI,96),TextPageGap div 2+MulDiv(Max(4,FMargin-10),CurrentPPI,96)));
-      // The inner paper falls into a shared dark binding. Highlights stay
-      // faint even on black paper, avoiding the old chrome-like white bevel.
+      if not Reflow then
+      begin
+        Canvas.Brush.Color:=Cover;
+        Canvas.FillRect(Rect(Pages[0].Right,Book.Top+Px(3),Pages[1].Left,Book.Bottom+Px(8)));
+      end;
       for var N:=0 to Curve-1 do
       begin
-        Opacity:=Round(125*Sqr(1-N/Curve));
-        Tint(Rect(Middle-N-1,Book.Top,Middle-N,Book.Bottom),Opacity);
-        Tint(Rect(Middle+N,Book.Top,Middle+N+1,Book.Bottom),Opacity);
+        Opacity:=Round(145*Sqr(1-N/Curve));
+        Tint(Rect(Middle-N-1,Book.Top+Px(6),Middle-N,Book.Bottom+Px(6)),Opacity);
+        Tint(Rect(Middle+N,Book.Top+Px(6),Middle+N+1,Book.Bottom+Px(6)),Opacity);
       end;
-      Tint(Rect(Middle-1,Book.Top,Middle+1,Book.Bottom),90);
-      for var Side:=0 to 1 do
-        for var N:=0 to Edge-1 do
-          Tint(Rect(Middle+(Side*2-1)*(Curve+N),Book.Top,Middle+(Side*2-1)*(Curve+N)+1,Book.Bottom),
-            Round(IfThen(FNight,5,12)*Sqr(1-N/Edge)),True);
-    end;
-    // Fine outer leaf edges and a small stack below the whole spread.
-    Tint(Rect(Book.Left,Book.Top,Book.Right,Book.Top+1),IfThen(FNight,12,20),True);
-    for var I:=0 to Count-1 do
+      Tint(Rect(Middle-1,Book.Top+Px(6),Middle+1,Book.Bottom+Px(8)),95);
+    end
+    else
     begin
-      Bounds:=Pages[I];
-      for var N:=1 to 3 do
+      // A visible binding remains in one-page mode as well.
+      for var N:=0 to Curve-1 do
+        Tint(Rect(Book.Left+N,Book.Top+Px(6),Book.Left+N+1,Book.Bottom),
+          Round(100*Sqr(1-N/Curve)));
+    end;
+    for var Side:=0 to 1 do
+    begin
+      if Side=0 then Bounds:=Pages[0] else Bounds:=Pages[Count-1];
+      for var N:=0 to Px(16)-1 do
       begin
-        Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,ThemeText,IfThen(FNight,24,55)-N*5);
-        Canvas.MoveTo(Bounds.Left+N,Bounds.Bottom+N*2-1);
-        Canvas.LineTo(Bounds.Right-N,Bounds.Bottom+N*2-1);
+        Opacity:=Round(22*Sqr(1-N/Px(16)));
+        if Side=0 then Tint(Rect(Bounds.Left+N,Bounds.Top+Px(5),Bounds.Left+N+1,Bounds.Bottom),Opacity)
+        else Tint(Rect(Bounds.Right-N-1,Bounds.Top+Px(5),Bounds.Right-N,Bounds.Bottom),Opacity);
       end;
     end;
   finally RestoreDC(Canvas.Handle,SavedDC); end;
@@ -3797,7 +3908,9 @@ end;
 
 procedure TfrmBuiltinReader.SearchClick(Sender: TObject);
 begin
-  FSearchPanel.Visible:=not FSearchPanel.Visible;
+  if FInterfaceHidden then
+  begin InterfaceClick(nil); FSearchPanel.Visible:=True; end
+  else FSearchPanel.Visible:=not FSearchPanel.Visible;
   if FSearchPanel.Visible then FSearch.SetFocus else begin StopSearch; FSurface.SetFocus; end;
 end;
 
@@ -4293,24 +4406,72 @@ begin
   if Sender<>FChapters then FSurface.SetFocus;
 end;
 
+procedure TfrmBuiltinReader.InterfaceClick(Sender: TObject);
+begin
+  DisableAlign;
+  try
+    if not FInterfaceHidden then
+    begin
+      FInterfaceHidden:=True;
+      FInterfaceMenu:=Menu; Menu:=nil;
+      FInterfaceSearch:=FSearchPanel.Visible;
+      FTop.Visible:=False; FBottom.Visible:=False;
+      FSearchPanel.Visible:=False; FFontOffer.Visible:=False;
+      FInterfaceReturn.Visible:=True;
+    end
+    else
+    begin
+      Menu:=FInterfaceMenu; FInterfaceMenu:=nil;
+      FTop.Visible:=True; FBottom.Visible:=True;
+      FSearchPanel.Visible:=FInterfaceSearch;
+      FFontOffer.Visible:=(FMissingFonts.Count>0) and not FFontOfferDeclined;
+      FInterfaceReturn.Visible:=False; FInterfaceHidden:=False;
+    end;
+  finally EnableAlign; end;
+  if Assigned(FOnInterfaceModeChanged) then FOnInterfaceModeChanged(Self);
+  RefreshWindowTheme; FSurface.SetFocus;
+end;
+
 procedure TfrmBuiltinReader.FullScreenClick(Sender: TObject);
 begin
   if not FFullScreen then
   begin
-    FBeforeFullScreenState:=WindowState;
-    if WindowState=wsNormal then FNormalBounds:=BoundsRect else FNormalBounds:=FRestoredBounds;
-    BorderStyle:=bsNone; WindowState:=wsMaximized;
+    if not Assigned(FOnFullScreenModeChanged) then
+    begin
+      FFullScreenPlacement:=Default(TWindowPlacement);
+      FFullScreenPlacement.length:=SizeOf(FFullScreenPlacement);
+      if not GetWindowPlacement(Handle,@FFullScreenPlacement) then RaiseLastOSError;
+      FFullScreenBorder:=BorderStyle;
+      if WindowState=wsNormal then FNormalBounds:=BoundsRect else FNormalBounds:=FRestoredBounds;
+    end;
+    FFullScreen:=True;
+    if not Assigned(FOnFullScreenModeChanged) then
+    begin BorderStyle:=bsNone; WindowState:=wsMaximized; end;
+    FFullScreenButton.Hint:='Вернуться к обычному окну (F11)';
   end
   else
   begin
-    WindowState:=wsNormal; BorderStyle:=bsSizeable; BoundsRect:=FNormalBounds;
-    WindowState:=FBeforeFullScreenState;
+    if not Assigned(FOnFullScreenModeChanged) then
+    begin
+      WindowState:=wsNormal; BorderStyle:=FFullScreenBorder;
+      if not SetWindowPlacement(Handle,@FFullScreenPlacement) then RaiseLastOSError;
+    end;
+    FFullScreen:=False; FFullScreenButton.Hint:='На весь экран (F11)';
   end;
-  FFullScreen:=not FFullScreen; FSurface.SetFocus;
+  if Assigned(FOnFullScreenModeChanged) then FOnFullScreenModeChanged(Self);
+  RefreshWindowTheme; FSurface.SetFocus;
 end;
+
+procedure TfrmBuiltinReader.ToggleInterface;
+begin InterfaceClick(nil); end;
+
+procedure TfrmBuiltinReader.ToggleFullScreen;
+begin FullScreenClick(nil); end;
 
 procedure TfrmBuiltinReader.KeyReader(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
+  if (Key=VK_F11) and (Shift=[]) then
+  begin FullScreenClick(nil); Key:=0; Exit; end;
   if (ssCtrl in Shift) and (Key=Ord('C')) and (ActiveControl=FSurface) then
   begin
     if ssShift in Shift then CopyAllClick(nil) else CopyTextClick(nil); Key:=0; Exit;
@@ -4333,8 +4494,8 @@ begin
     VK_END: NavigateTo(Max(0,FLength-1));
     VK_ADD,VK_OEM_PLUS: ChangeSize(1);
     VK_SUBTRACT,VK_OEM_MINUS: ChangeSize(-1);
-    VK_F11: FullScreenClick(nil);
-    VK_ESCAPE: if FFullScreen then FullScreenClick(nil) else Close;
+    VK_ESCAPE: if FInterfaceHidden then InterfaceClick(nil)
+      else if FFullScreen then FullScreenClick(nil) else Close;
   else Exit;
   end;
   Key:=0;

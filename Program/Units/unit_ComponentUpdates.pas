@@ -74,6 +74,8 @@ function IsOptionalComponent(const ID: string): Boolean;
 function ComponentNotificationEnabled(const ID, Choices: string): Boolean;
 function SetComponentNotification(const ID, Choices: string; Enabled: Boolean): string;
 function RequiredReaderComponent(const AppPath, Extension: string): string;
+function ComponentPurpose(const ID: string): string;
+procedure ConfigureReaderAdapterDownload(var Info: TProgramRelease; const AppPath: string);
 type
   EReaderComponentRequired = class(Exception)
   private FComponentID: string;
@@ -116,7 +118,7 @@ implementation
 
 uses System.JSON, System.RegularExpressions, System.IOUtils, System.StrUtils,
   System.Hash, System.Generics.Collections, System.Generics.Defaults, unit_ProgramUpdateInstaller,
-  unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime;
+  unit_UpdateNotes, unit_UpdateTextCache, unit_IBKRuntime, unit_ReaderAdapters;
 
 // Each probe owns its HTTP session. Never share WinHTTP handles across workers.
 threadvar ComponentProbeHTTP: THTTPClient;
@@ -155,6 +157,17 @@ begin
   finally Selected.Free; end;
 end;
 
+procedure ConfigureReaderAdapterDownload(var Info: TProgramRelease; const AppPath: string);
+var Package: TReaderAdapterPackage;
+begin
+  if (Info.ReaderAdapterSize<0) or (Info.ReaderAdapterSize>Info.Size) then
+    raise EArgumentException.Create('Некорректный размер вспомогательного модуля.');
+  Dec(Info.Size,Info.ReaderAdapterSize); Info.ReaderAdapterSize:=0;
+  if (Info.DownloadURL<>'') and not Info.CheckOnly and (Info.Size>0) and
+    ReaderAdapterPackage(Info.ComponentID,Package) and ReaderAdapterRequired(AppPath,Info.ComponentID) then
+  begin Info.ReaderAdapterSize:=Package.Size; Inc(Info.Size,Package.Size); end;
+end;
+
 function RequiredReaderComponent(const AppPath, Extension: string): string;
 var Ext: string;
 begin
@@ -168,7 +181,20 @@ begin
 end;
 
 constructor EReaderComponentRequired.Create(const ID: string);
-begin inherited Create('Для чтения этой книги нужен компонент '+ID+'. Его можно скачать в окне компонентов.'); FComponentID:=ID; end;
+begin inherited Create('Для чтения этой книги нужен компонент '+ID+'. '+ComponentPurpose(ID)); FComponentID:=ID; end;
+
+function ComponentPurpose(const ID: string): string;
+begin
+  if ID='PDFium' then Exit('PDFium — модуль чтения страниц PDF, в том числе для преобразования в FB2/EPUB.');
+  if ID='DocSharp' then Exit('DocSharp — модуль чтения DOC, PPT и XLS, в том числе для преобразования в FB2/EPUB.');
+  if ID='DjVuLibre' then Exit('DjVuLibre — модуль чтения страниц DjVu, в том числе для преобразования в FB2/EPUB.');
+  if ID='BookConverter' then Exit('Конвертер HomeLib Ru (BookConverter) — общий модуль создания FB2/EPUB и обработки изображений.');
+  if ID='JPEG XL' then Exit('JPEG XL (libjxl) — восстановление иллюстраций JPEG XL для чтения и сохранения книги.');
+  if ID='WebP' then Exit('WebP (libwebp) — чтение иллюстраций WebP для показа и сохранения книги.');
+  if ID='7-Zip' then Exit('7-Zip — распаковка книг и вспомогательных компонентов из архивов.');
+  if ID='IBK' then Exit('Данные ICE Book Reader — чтение книг IBK во встроенной читалке и конвертере.');
+  Result:='';
+end;
 
 function ComponentIDs: TArray<string>;
 var I: Integer;
@@ -1037,6 +1063,7 @@ begin
       end;
     end;
   if Terminated then Exit;
+  ConfigureReaderAdapterDownload(FReleases[I],ExtractFilePath(ParamStr(0)));
   // Publish only immutable, complete slots; Interlocked supplies the memory barrier.
   InterlockedExchange(FCompleted[I],1);
   PostMessage(FWindow,WM_COMPONENT_UPDATE_PROGRESS,WPARAM(Self),I);

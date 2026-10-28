@@ -8,6 +8,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import struct
 import zipfile
@@ -31,6 +32,7 @@ def main():
     parser.add_argument('runtime', type=Path)
     parser.add_argument('output', type=Path)
     parser.add_argument('--sha256', required=True)
+    parser.add_argument('--adapters', type=Path, help='Pinned optional native adapter ZIP directory')
     args = parser.parse_args()
     if sha(args.archive).lower() != args.sha256.lower():
         parser.error('Release ZIP differs from its independently supplied SHA-256')
@@ -63,6 +65,21 @@ def main():
                           'lib/net462/' + assembly + '.dll')
         info[kind + '_url'] = ('https://api.nuget.org/v3-flatcontainer/' + assembly.lower() +
                               '/' + doc + '/' + assembly.lower() + '.' + doc + '.nupkg')
+    if args.adapters:
+        repo = Path(__file__).resolve().parents[3]
+        pins = (repo/'Program/Units/ReaderAdapterPackages.inc').read_text('utf-8-sig')
+        for component, name, digest, size in re.findall(
+                r"ID:'([^']+)'; Name:'([^']+)'; SHA256:'([0-9a-f]{64})'; Size:([0-9]+)", pins):
+            source = args.adapters/name
+            if source.stat().st_size != int(size) or sha(source) != digest:
+                parser.error('Native adapter does not match its production pin: '+name)
+            shutil.copyfile(source, args.output/name)
+            info[component+'_adapter'] = name
+        with zipfile.ZipFile(args.output/'djvu.zip', 'w', zipfile.ZIP_DEFLATED) as package:
+            for name in ['ddjvu.exe', 'djvused.exe', 'libdjvulibre.dll', 'libjpeg.dll',
+                         'libtiff.dll', 'libz.dll', 'COPYING.txt']:
+                package.write(args.runtime/'tools/djvu'/name, name)
+        shutil.copyfile(args.runtime/'tools/djvu/djvulibre-3.5.29.tar.gz', args.output/'djvu-source.tar.gz')
     info['files'] = {path.name: sha(path) for path in args.output.iterdir() if path.is_file()}
     (args.output / 'fixtures.json').write_text(json.dumps(info, indent=2) + '\n', encoding='utf-8')
     print('PASS prepared offline repair fixtures:', platform, manifest['release'])
