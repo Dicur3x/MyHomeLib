@@ -24,6 +24,32 @@ def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def shape(node, include_tail=False): return (node.tag, sorted(node.attrib.items()), node.text, node.tail if include_tail else None, [shape(n,True) for n in node])
 
 class ConversionTests(unittest.TestCase):
+    def test_fb2_jpeg_aliases_and_mislabeled_images_keep_bytes(self):
+        jpeg = base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwC/RRRXwx9uf//Z')
+        cases = [('image/jpg', jpeg, 'image/jpeg', '.jpg'),
+                 (' IMAGE/PJPEG ; legacy=yes ', jpeg, 'image/jpeg', '.jpg'),
+                 ('image/png', jpeg, 'image/jpeg', '.jpg'),
+                 ('image/jpg', PNG, 'image/png', '.png'),
+                 ('application/octet-stream', PNG, 'image/png', '.png')]
+        for index, (declared, image, expected, suffix) in enumerate(cases):
+            with self.subTest(declared=declared, expected=expected):
+                source = self.root/f'alias-{index}.fb2'
+                source.write_text(FB2.replace('image/png', declared).replace('{image}', base64.b64encode(image).decode()), encoding='utf-8')
+                original = source.read_bytes()
+                output = self.root/f'alias-{index}.epub'
+                c.convert_book(source, output)
+                self.assertEqual(source.read_bytes(), original)
+                with zipfile.ZipFile(output) as archive:
+                    package = c.xml(archive.read('OEBPS/package.opf'))
+                    images = [n for n in package.iter() if n.get('media-type', '').startswith('image/')]
+                    self.assertEqual(len(images), 2)
+                    for item in images:
+                        self.assertEqual(item.get('media-type'), expected)
+                        self.assertTrue(item.get('href').endswith(suffix))
+                        self.assertEqual(archive.read('OEBPS/'+item.get('href')), image)
+        with self.assertRaises(c.ConversionError):
+            c.fb2_image_type(b'unknown data', 'image/not-supported')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-conversion-test-')
         self.addCleanup(self.temporary.cleanup)

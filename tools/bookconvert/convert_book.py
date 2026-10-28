@@ -305,6 +305,27 @@ class EpubArchive:
         self.archive.close()
 
 
+def fb2_image_type(data, declared):
+    # Real-world FB2 files use aliases and sometimes a wrong MIME declaration.
+    # Keep the original image bytes; EPUB requires canonical media types.
+    mime = declared.split(';', 1)[0].strip().lower()
+    mime = {'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg',
+            'image/x-png': 'image/png'}.get(mime, mime)
+    if data.startswith(b'\xff\xd8\xff'):
+        mime = 'image/jpeg'
+    elif data.startswith(b'\x89PNG\r\n\x1a\n'):
+        mime = 'image/png'
+    elif data.startswith((b'GIF87a', b'GIF89a')):
+        mime = 'image/gif'
+    elif data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        mime = 'image/webp'
+    extension = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+                 'image/svg+xml': '.svg', 'image/webp': '.webp'}.get(mime)
+    if extension is None:
+        raise ConversionError('Изображение FB2 имеет неподдерживаемый тип: ' + declared)
+    return mime, extension
+
+
 def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
     book = xml(Path(source).read_bytes(),maximum)
     if book.tag != '{' + FB + '}FictionBook':
@@ -336,10 +357,7 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
             data = base64.b64decode(re.sub(r'\s+', '', plain(binary)), validate=True)
         except ValueError as error:
             raise ConversionError('Повреждено изображение FB2: ' + identity) from error
-        mime = binary.get('content-type', 'application/octet-stream')
-        extension = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/svg+xml': '.svg', 'image/webp': '.webp'}.get(mime)
-        if extension is None:
-            raise ConversionError('Изображение FB2 имеет неподдерживаемый тип: ' + mime)
+        mime, extension = fb2_image_type(data, binary.get('content-type', 'application/octet-stream'))
         filename = f'images/image-{index + 1}{extension}'
         resources[filename] = (data, mime)
         image_files[identity] = filename

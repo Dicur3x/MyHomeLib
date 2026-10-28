@@ -11,7 +11,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.36'
+$release = '2.7.0_pre5.37'
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -43,6 +43,8 @@ try {
         $zstdLicence = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot 'Program\Resources\zstd\LICENSE'))
         [System.IO.File]::AppendAllText((Join-Path $payloadDirectory 'NOTICE'), "`n`nZstandard`n" + $zstdLicence)
     }
+    & (Join-Path $PSScriptRoot 'check-release-identity.ps1') -RuntimeDirectory $payloadDirectory `
+        -Release $release -Version '2.7.0.1105' -Platform $Platform
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
     }
