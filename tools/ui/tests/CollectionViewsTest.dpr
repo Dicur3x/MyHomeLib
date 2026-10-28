@@ -5622,6 +5622,7 @@ end;
 {$I BookSaveModuleRestartTests.inc}
 {$I IBKComponentTests.inc}
 {$I ComponentMirrorTests.inc}
+{$I PublishedComponentTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5836,6 +5837,7 @@ begin
       else if ParamStr(1) = 'ibk-components' then begin TestIBKComponent; TestCatalogueFormats; end
       else if ParamStr(1) = 'ibk-download-live' then TestIBKLiveDownload
       else if ParamStr(1) = 'component-mirrors' then TestComponentMirrors
+      else if ParamStr(1) = 'published-components' then TestPublishedComponents
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents

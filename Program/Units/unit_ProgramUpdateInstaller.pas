@@ -1241,11 +1241,15 @@ begin
       raise Exception.Create('В архиве нет манифеста обновления. Скачайте выпуск вручную.');
     Zip.Read(Index, Bytes);
     Root := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Bytes)) as TJSONObject;
-    if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) or
-       not Root.TryGetValue<string>('release', Value) or (Value <> Tag) or
-       not Root.TryGetValue<string>('platform', Value) or
+    Component:=ComponentID; if Component='' then Component:='HomeLib Ru';
+    if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) then
+      raise Exception.Create('Неизвестный формат манифеста обновления.');
+    if not Root.TryGetValue<string>('release', Value) or (Value <> Tag) then
+      raise Exception.Create('Пакет обновления относится к другому выпуску. Ожидается: '+Tag+
+        '. Компонент: '+Component+'. Повторите проверку обновлений.');
+    if not Root.TryGetValue<string>('platform', Value) or
        ((Value<>Platform) and not ((ComponentID='AlReader') and (Value='AnyWindows'))) then
-      raise Exception.Create('Манифест обновления не подходит этой версии программы.');
+      raise Exception.Create('Разрядность пакета обновления не подходит программе. Ожидается: '+Platform+'.');
     Component := ''; Root.TryGetValue<string>('component', Component);
     if Component <> ComponentID then raise Exception.Create('В архиве находится другое обновление.');
     if (ComponentID <> '') and (not Root.TryGetValue<string>('version', Value) or

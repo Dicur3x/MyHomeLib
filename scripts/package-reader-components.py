@@ -13,6 +13,16 @@ import re
 import struct
 import zipfile
 
+COMPONENT_RELEASE_TAG = "optional-alreader-2.5.1009.25"
+
+
+def publication_tag(value):
+    # Clients compare the manifest to the release hosting the component feed,
+    # not to the HomeLib Ru release which built the executable.
+    if value != COMPONENT_RELEASE_TAG:
+        raise ValueError("Reader components must target their permanent component release: " + COMPONENT_RELEASE_TAG)
+    return value
+
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -50,6 +60,7 @@ def file_version(path):
 
 
 def package(repo, platform, component, tag, converter_version, output):
+    publication_tag(tag)
     runtime = repo / "Program/Out" / ("Bin" if platform == "Win32" else "Bin64")
     if component == "HomeLibReader":
         reader = repo / f"Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe"
@@ -136,13 +147,16 @@ def package(repo, platform, component, tag, converter_version, output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=pathlib.Path)
-    parser.add_argument("--release", required=True)
+    parser.add_argument("--release", default=COMPONENT_RELEASE_TAG,
+                        help="GitHub publication tag (not the application version)")
     parser.add_argument("--converter-version", default="2.7.0.1103")
     parser.add_argument("--platform", choices=("Win32", "Win64"), action="append")
     parser.add_argument("--component", choices=("HomeLibReader", "PDFium", "BookConverter"), action="append")
     args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", args.release):
-        parser.error("Invalid release tag")
+    try:
+        publication_tag(args.release)
+    except ValueError as error:
+        parser.error(str(error))
     feed, report = [], []
     repo = pathlib.Path(__file__).resolve().parents[1]
     for platform in args.platform or ("Win32", "Win64"):
