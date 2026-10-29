@@ -3,7 +3,7 @@ object MHLWizardBase: TMHLWizardBase
   Top = 0
   HelpContext = 136
   BorderStyle = bsDialog
-  Caption = 'HomeLib Ru - '#1052#1072#1089#1090#1077#1088
+  Caption = 'HomeLibre - '#1052#1072#1089#1090#1077#1088
   ClientHeight = 394
   ClientWidth = 520
   Color = clBtnFace

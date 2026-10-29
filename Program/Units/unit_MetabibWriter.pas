@@ -182,7 +182,7 @@ begin
       .AddPair('record_schema', 'metabib.dataset_record/1').AddPair('library', LibraryName)
       .AddPair('created', DateToISO8601(CreatedUTC, True))
       .AddPair('records', TJSONNumber.Create(RecordCount))
-      .AddPair('generator', TJSONObject.Create.AddPair('name', 'HomeLib Ru').AddPair('version', GeneratorVersion))
+      .AddPair('generator', TJSONObject.Create.AddPair('name', 'HomeLibre').AddPair('version', GeneratorVersion))
       .AddPair('normalization', TJSONObject.Create.AddPair('model', 'myhomelib.catalog-snapshot/1'))
       .AddPair('ordering', TJSONObject.Create.AddPair('mode', 'archive_entry').AddPair('direction', 'ascending'))
       .AddPair('processing', TJSONObject.Create.AddPair('parse_fb2', TJSONBool.Create(False))

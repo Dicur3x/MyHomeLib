@@ -19,8 +19,8 @@ def package(output, platform):
     version = helper.file_version(executable)
     payload = {'MHLMcpServer.exe': binary, 'MHLMcpServer-LICENSE.txt': (REPO/'LICENSE').read_bytes(),
                'MHLMcpServer-README.txt': (
-                   'MCP-сервер HomeLib Ru\n\n'
-                   'Необязательный модуль подключения AI-приложения к коллекциям HomeLib Ru.\n'
+                   'MCP-сервер HomeLibre\n\n'
+                   'Необязательный модуль подключения AI-приложения к коллекциям HomeLibre.\n'
                    'Установите рядом с HomeLibRu.exe; используется общая sqlite3.dll соответствующей разрядности.\n'
                    'В каталогизаторе откройте «Инструменты → Подключить AI-ассистента…» и скопируйте настройки.\n'
                    'Сам каталогизатор сервер не запускает. Его запускает настроенное вами AI-приложение.\n'

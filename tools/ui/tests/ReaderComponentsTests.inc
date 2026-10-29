@@ -82,7 +82,7 @@ begin
         if IsOptionalComponent(Component.ID) then
           Require(not ContainsID(Component.ID),
             'FB2 catalogue displays an absent optional component: '+Component.ID);
-      Require(View.Items.Count=2,'FB2 baseline must contain only HomeLib Ru and SQLite');
+      Require(View.Items.Count=2,'FB2 baseline must contain only HomeLibre and SQLite');
       Require(ContainsID('SQLite'),'Catalogue lost its mandatory database component');
       Dialog.RequestedID:='PDFium';
       Dialog.RequestComponent('PDFium','Owned catalogue conversion needs PDF support.');
@@ -245,10 +245,10 @@ begin
     History:=Dialog.FindComponent('UpdateHistoryComponent') as TComboBox;
     Require(Assigned(View) and Assigned(Primary) and Assigned(History),'Reader component controls missing');
     for var Item in View.Items do
-      Require((Item.Caption<>'HomeLib Ru') and not Item.Caption.Contains('SQLite') and
+      Require((Item.Caption<>'HomeLibre') and not Item.Caption.Contains('SQLite') and
         not Item.Caption.Contains('AlReader') and not Item.Caption.Contains('SumatraPDF'),
         'Catalogue/external-reader component leaked into standalone view');
-    Require((History.Items.IndexOf('HomeLib Ru')<0),'Catalogue release leaked into reader history');
+    Require((History.Items.IndexOf('HomeLibre')<0),'Catalogue release leaked into reader history');
     Dialog.RequestComponent(RequestedID,'Для этой книги нужен дополнительный модуль.');
     Started:=GetTickCount64; PDFRow:=nil;
     repeat

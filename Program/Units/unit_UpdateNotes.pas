@@ -137,7 +137,7 @@ end;
 
 function IsReleaseHeading(const Text: string): Boolean;
 begin
-  Result := TRegEx.IsMatch(Text, '^(?:HomeLib Ru |SQLite |SumatraPDF |DjVuLibre |v)?[0-9]+\.[0-9]+(?:\.[0-9]+)*(?:_pre[0-9]+(?:\.[0-9]+)*)?(?: — [0-9]{2}\.[0-9]{2}\.[0-9]{4})?$');
+  Result := TRegEx.IsMatch(Text, '^(?:(?:HomeLibre|HomeLib(?: Ru)?) |SQLite |SumatraPDF |DjVuLibre |v)?[0-9]+\.[0-9]+(?:\.[0-9]+)*(?:_pre[0-9]+(?:\.[0-9]+)*| beta [1-9][0-9]*| release)?(?: — [0-9]{2}\.[0-9]{2}\.[0-9]{4})?$');
 end;
 
 function RTFText(const Text: string): string;

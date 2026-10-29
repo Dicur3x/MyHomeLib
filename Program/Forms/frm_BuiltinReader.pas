@@ -1067,7 +1067,7 @@ begin
   StyleName:='Windows'; StyleElements:=[];
   if AOwner is TCustomForm then
   begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
-  Caption:='HomeLib Ru — Читалка';
+  Caption:='HomeLibre — Читалка';
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
   Constraints.MinWidth:=640; Constraints.MinHeight:=360;
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;
@@ -1324,7 +1324,7 @@ begin
   FMissingFonts.Clear; FFontOfferDeclined:=False; FFontsDownloading:=False; FFontOffer.Visible:=False;
   FFileName:=FileName; FIdentity:=Copy(THashSHA2.GetHashString(Identity),1,40);
   FSettingsFile:=SettingsFile; FOnProgress:=OnProgress; FBookTitle:=BookTitle;
-  Caption:='HomeLib Ru — '+BookTitle+' — Читалка';
+  Caption:='HomeLibre — '+BookTitle+' — Читалка';
   RestoreSettings;
   RefreshWindowTheme;
   ReloadAnnotations;

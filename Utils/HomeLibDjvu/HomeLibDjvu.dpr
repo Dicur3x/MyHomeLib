@@ -163,7 +163,7 @@ begin
   Bind(SetRows,'ddjvu_format_set_row_order'); Bind(SetY,'ddjvu_format_set_y_direction');
   Bind(PageRender,'ddjvu_page_render'); Bind(MessagePeek,'ddjvu_message_peek');
   Bind(MessagePop,'ddjvu_message_pop'); Bind(CacheSize,'ddjvu_cache_set_size');
-  Context:=ContextCreate('HomeLib Ru'); if Context=nil then raise Exception.Create('Не удалось создать декодер DjVu.');
+  Context:=ContextCreate('HomeLibre'); if Context=nil then raise Exception.Create('Не удалось создать декодер DjVu.');
   CacheSize(Context,32*1024*1024);
   Masks[0]:=$00FF0000; Masks[1]:=$0000FF00; Masks[2]:=$000000FF; Masks[3]:=$FF000000;
   Format:=FormatCreate(3,4,@Masks[0]); if Format=nil then raise Exception.Create('Не удалось создать формат страницы DjVu.');

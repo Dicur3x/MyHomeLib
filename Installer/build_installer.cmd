@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 set "PATH=%SystemRoot%\System32;%PATH%"
 
-:: HomeLib Ru Installer Build Script
+:: HomeLibre Installer Build Script
 
 set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%SCRIPT_DIR%.."

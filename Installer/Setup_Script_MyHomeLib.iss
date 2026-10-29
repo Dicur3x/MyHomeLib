@@ -1,6 +1,6 @@
 ; ****************************************************************************
 ;
-; InnoSetup script for HomeLib Ru (Win32)
+; InnoSetup script for HomeLibre (Win32)
 ;
 ; Copyright: ©2008-2026 Oleksiy Penkov (aka Koreec)
 ;
@@ -19,7 +19,7 @@
 #define protected Minor
 #define protected Revision
 #define protected Build
-#define protected MyAppName = 'HomeLib Ru'
+#define protected MyAppName = 'HomeLibre'
 #define protected AppExeName = 'HomeLibRu.exe'
 #define ReleaseVersion = '2.7.0_pre5.12'
 #define protected FullSourcePath = SourceFolder + AppExeName

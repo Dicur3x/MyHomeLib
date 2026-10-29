@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reading books — HomeLib Ru Help</title>
+<title>Reading books — HomeLibre Help</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
 <nav id="toc">
 <!-- TOC:BEGIN -->
-<p class="nav-title"><a href="index.html">HomeLib Ru Help</a></p>
+<p class="nav-title"><a href="index.html">HomeLibre Help</a></p>
 <p class="nav-section">Introduction</p>
 <ul>
-<li><a href="about.html">About HomeLib Ru</a></li>
+<li><a href="about.html">About HomeLibre</a></li>
 <li><a href="terms.html">Key terms</a></li>
 <li><a href="faq.html">FAQ</a></li>
 <li><a href="donate.html">Supporting development</a></li>
@@ -90,11 +90,11 @@
 <main id="content">
 <h1>Reading books</h1>
 <!-- BODY:BEGIN -->
-<p>HomeLib Ru offers a built-in reader alongside AlReader and SumatraPDF. Double-click opens supported books in the built-in reader by default. You can change this in File types settings or choose an explicit internal/external command in the context menu.</p>
+<p>HomeLibre offers a built-in reader alongside AlReader and SumatraPDF. Double-click opens supported books in the built-in reader by default. You can change this in File types settings or choose an explicit internal/external command in the context menu.</p>
 
 <h2>How the program is chosen</h2>
 <p>When the built-in default is disabled or the format is unsupported, the program looks up the external reader assigned to it in the <a href="set_readers.html">File types and readers</a> list. If a reader is configured for the extension, that is the one that starts; if not, the file is opened by whatever program Windows itself has associated with that extension (the ordinary file association).</p>
-<p>The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. Their assignments can be changed in Settings. For a supported book inside an ordinary archive, HomeLib Ru prepares the book before starting the selected reader. Use <span class="ui">View archive contents</span> to inspect an archive in your archive program, or <span class="ui">Where is this book stored?</span> to locate its source in the collection.</p>
+<p>The <code>Readers</code> folder contains AlReader and the open-source SumatraPDF. Their assignments can be changed in Settings. For a supported book inside an ordinary archive, HomeLibre prepares the book before starting the selected reader. Use <span class="ui">View archive contents</span> to inspect an archive in your archive program, or <span class="ui">Where is this book stored?</span> to locate its source in the collection.</p>
 <p>The built-in reader offers six colour themes, typography settings, bookmarks, full screen, page turning with the mouse wheel, and text search with next/previous matches and highlighting. Kindle files require preparation; Office documents use bundled components without an installed office suite. Presentations and spreadsheets retain text, tables and images in a reflowed reading view; WPS/WPD require 64-bit Windows.</p>
 <p>PDF, DjVu, CBR/CBZ/CB7, multipage TIFF and supported images are displayed as pages. Click a page to magnify it, then move the mouse to inspect details; click again or press Esc to return. Ctrl+drag also moves an enlarged page. PDF search uses the existing text layer. Image pages, comics and DjVu currently have no text search. OCR is not performed.</p>
 
@@ -102,7 +102,7 @@
 <p>In <span class="ui">View</span>, choose one page, two pages, or an automatic spread based on window width. This applies to text books, PDF, DjVu, TIFF and comics. Spreads turn by pairs by default; sliding by one moves the right page to the left. The setting is saved and changing the layout preserves the reading position. Choose the Book appearance for soft page shadows and spine shading, or keep flat pages. Appearance is saved separately from the page layout.</p>
 <h2>What happens when a book is opened</h2>
 <p>A book extracted from an archive is stored in the managed cache and reused while its source remains unchanged. Cache settings let you choose a folder and size limit, view its current usage, and clear it. Changing the folder moves the existing cache; reaching the limit removes old entries that are not in use. Clearing on exit is enabled by default and can be disabled to retain the cache between sessions. Preparation progress is shown near the pointer and in the reader.</p>
-<p>If the book belongs to an online collection and has not been downloaded yet, HomeLib Ru fetches that one book first (a brief intermediate progress window); if the download fails, the book is not opened.</p>
+<p>If the book belongs to an online collection and has not been downloaded yet, HomeLibre fetches that one book first (a brief intermediate progress window); if the download fails, the book is not opened.</p>
 
 <p class="note">If the <span class="ui">Overwrite the FB2 header</span> option is switched on in the settings, opening an unpacked FB2 file of a private collection for reading immediately rewrites the author, title, genre and series inside that very file with the values from the catalog — this happens to the file sitting in the collection folder, not to a temporary copy. The same option and the same code govern the rewriting of the header when books are sent to a device; see <a href="editing.html">Editing book descriptions</a> and <a href="export_device.html">Sending books to a device</a>.</p>
 

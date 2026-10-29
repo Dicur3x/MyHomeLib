@@ -18,7 +18,7 @@ COMPONENT_RELEASE_TAG = "optional-alreader-2.5.1009.25"
 
 def publication_tag(value):
     # Clients compare the manifest to the release hosting the component feed,
-    # not to the HomeLib Ru release which built the executable.
+    # not to the HomeLibre release which built the executable.
     if value != COMPONENT_RELEASE_TAG:
         raise ValueError("Reader components must target their permanent component release: " + COMPONENT_RELEASE_TAG)
     return value
@@ -69,7 +69,7 @@ def package(repo, platform, component, tag, converter_version, output):
         # Do not ship the marker inside the shared component ZIP: installing
         # the reader beside a catalogue must not switch that catalogue's mode.
         reader_note = (
-            "HomeLib Reader\n\n"
+            "HomeLibre Reader\n\n"
             "Читалка портативная по умолчанию. Файл uselocaldata создавать не нужно.\n"
             "Настройки, заметки, история и кэш по умолчанию будут храниться рядом с программой в Data.\n"
             "Также можно запустить HomeLibReader.exe uselocaldata или с параметром --portable.\n\n"

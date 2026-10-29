@@ -43,8 +43,8 @@ begin
   SysDBFileName := DMUser.Settings.SystemFileName[sfSystemDB];
   if not FileExists(SysDBFileName) then
     raise EMcpToolError.Create('system_db_missing',
-      Format('Системная база данных HomeLib Ru не найдена по адресу: %s. ' +
-        'Запустите HomeLib Ru хотя бы один раз, чтобы её создать.',
+      Format('Системная база данных HomeLibre не найдена по адресу: %s. ' +
+        'Запустите HomeLibre хотя бы один раз, чтобы её создать.',
         [SysDBFileName]));
 
   DMUser.Init;
@@ -65,7 +65,7 @@ begin
           if E.Message.ToLower.Contains('locked') or
              E.Message.ToLower.Contains('busy') then
             raise EMcpToolError.Create('collection_busy',
-              'Коллекция занята — возможно, HomeLib Ru импортирует книги.');
+              'Коллекция занята — возможно, HomeLibre импортирует книги.');
           raise;
         end;
       end;
@@ -572,7 +572,7 @@ procedure RegisterLibraryTools(Server: TMcpServer);
 begin
   Server.RegisterTool(
     'list_collections',
-    'Список всех зарегистрированных коллекций HomeLib Ru.',
+    'Список всех зарегистрированных коллекций HomeLibre.',
     TJSONObject.ParseJSONValue('{"type":"object","properties":{}}') as TJSONObject,
     Guarded(ListCollections));
 

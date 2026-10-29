@@ -22,7 +22,7 @@ The bundled Kindle compatibility helper is separate third-party software:
 KindleUnpack, commit bf0ca6ece4e73494625e7950be3e259b6260774c,
 https://github.com/kevinhendricks/KindleUnpack, GPL-3.0. Its complete unmodified
 library source and licence accompany each binary distribution in tools/kindle.
-The HomeLib Ru wrapper is tools/kindle/convert_kf8.py. It invokes KindleUnpack
+The HomeLibre wrapper is tools/kindle/convert_kf8.py. It invokes KindleUnpack
 in a separate private Python process and does not alter the original book.
 
 The private CPython 3.13.16 embedded runtime and its licence are included in
@@ -31,7 +31,7 @@ URLs and checksums are recorded in Installer/KINDLE_RUNTIME.json in the source.
 
 The separate DjVu page renderer uses the unmodified DjVuLibre 3.5.29 Windows
 decoder library and command-line tools, GPL-2.0-or-later. Their complete matching source archive,
-copyright notice and licence accompany the binaries in tools/djvu. HomeLib Ru
+copyright notice and licence accompany the binaries in tools/djvu. HomeLibre
 runs HomeLibDjvu as a private persistent process, passing finished pixels
 directly to the reader. Its complete source is in tools/djvu/HomeLibDjvu-source
 and Utils/HomeLibDjvu in the repository. It performs no OCR. The IJG JPEG, libtiff and zlib notices accompany their original DLLs.
@@ -44,7 +44,7 @@ see that file and https://www.7-zip.org/license.txt for details.
 
 The embedded dark VCL interface uses the unmodified Charcoal Dark Slate
 redistributable style supplied with Embarcadero RAD Studio 13. This style is
-separate from the MIT-licensed HomeLib Ru source code.
+separate from the MIT-licensed HomeLibre source code.
 
 The separate binary Office reader uses DocSharp.Binary.Doc, Common, Ppt and Xls
 0.21.0, by manfromarce, under the MIT licence. It includes code from
@@ -63,7 +63,7 @@ See Installer/OFFICE_LEGACY_RUNTIME.json and OfficeLegacy-NOTICE.txt.
 The standalone legacy-book helper is separate GPL-3.0 software adapted from
 calibre and DeDRM_tools. Its matching sources, source pins, native build script
 and license notices are in tools/bookconvert and scripts/prepare-legacy-runtime.py
-in the HomeLib Ru source repository. Distributions carry its Python sources,
+in the HomeLibre source repository. Distributions carry its Python sources,
 GPL/LGPL notices and SOURCE.json beside the helper. LZX uses libmspack
 (LGPL-2.1); the D3DES core is public domain, with OpenCLit substitution tables
 (GPL-2.0-or-later). See tools/bookconvert/THIRD_PARTY.md for exact attribution.

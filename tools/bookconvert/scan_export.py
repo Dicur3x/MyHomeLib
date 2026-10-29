@@ -32,7 +32,7 @@ class ScanExport:
         try: self.excluded=excluded_pages(context.get('exclude',''))
         except ValueError as error: book.fail(str(error))
         self.tool = book.c.image_processor_path(book.tools_root)
-        if not self.tool.is_file(): book.require('ImageProcessing', 'Для обработки сканов нужен модуль HomeLib Images.')
+        if not self.tool.is_file(): book.require('ImageProcessing', 'Для обработки сканов нужен модуль HomeLibre Images.')
         context['handled'] = True
 
     def add(self, data, number, total):

@@ -45,7 +45,7 @@ begin
       (Pos('Дата и время: '+ExpectedDate,Report.Text)>0) and
       (Pos('Операция: Объединение повторных книг',Report.Text)>0),
       'Restore list/selection omitted backup metadata or failed newest-first order');
-    Require((Dialog.FindComponent('btnRestoreBackup') as TButton).Caption='Восстановить и открыть в HomeLib Ru',
+    Require((Dialog.FindComponent('btnRestoreBackup') as TButton).Caption='Восстановить и открыть в HomeLibre',
       'Restore action does not explain that the collection opens in this program');
   finally Dialog.Free; end;
   Writeln('PASS backup descriptions preserve UTC time and operation after renaming; legacy dates, corrupt metadata and newest-first UI checked');

@@ -96,7 +96,7 @@ constructor TfrmReaderHost.Create(AOwner: TComponent);
 var Intro: TLabel; OpenButton: TButton; Ini: TMemIniFile; Value: string;
 begin
   inherited CreateNew(AOwner);
-  Name:='ReaderHost'; Caption:='HomeLib Reader'; Position:=poScreenCenter;
+  Name:='ReaderHost'; Caption:='HomeLibre Reader'; Position:=poScreenCenter;
   Font.Name:='Segoe UI'; Font.Size:=10; ClientWidth:=720; ClientHeight:=430;
   Constraints.MinWidth:=520; Constraints.MinHeight:=350;
   OnCloseQuery:=HostCloseQuery;
@@ -497,7 +497,7 @@ begin
         begin FSessionReply.HasProgress:=True; FSessionReply.Progress:=Progress; SendSessionState('displaying'); end);
     end;
     TForm(FView).PopupMode:=pmNone; TForm(FView).PopupParent:=nil;
-    FView.Caption:='HomeLib Reader — '+FBook.Title;
+    FView.Caption:='HomeLibre Reader — '+FBook.Title;
     InstallMenu(TForm(FView));
     SendSessionState('displaying');
     // The book is the visible application while reading. Keeping the empty

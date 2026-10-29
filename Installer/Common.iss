@@ -1,5 +1,5 @@
 ﻿; ****************************************************************************
-; InnoSetup script for HomeLib Ru
+; InnoSetup script for HomeLibre
 ;
 ; Copyright: ©2008-2026 Oleksiy Penkov (aka Koreec)
 ;
@@ -115,16 +115,16 @@ Ukrainian.LocaleCode=uk
 Bulgarian.LocaleCode=bg
 
 ; user who chose another language. Russian help lives at the root of Help\
-Russian.HelpShortcut=Справка HomeLib Ru
-English.HelpShortcut=HomeLib Ru Help
-Ukrainian.HelpShortcut=Довідка HomeLib Ru
-Bulgarian.HelpShortcut=Помощ за HomeLib Ru
+Russian.HelpShortcut=Справка HomeLibre
+English.HelpShortcut=HomeLibre Help
+Ukrainian.HelpShortcut=Довідка HomeLibre
+Bulgarian.HelpShortcut=Помощ за HomeLibre
 Russian.HelpIndex=Help\index.html
-; translated -- HomeLib Ru is a name, not a phrase.
-Russian.WebsiteShortcut=Сайт HomeLib Ru
-English.WebsiteShortcut=HomeLib Ru website
-Ukrainian.WebsiteShortcut=Сайт HomeLib Ru
-Bulgarian.WebsiteShortcut=Уебсайт на HomeLib Ru
+; translated -- HomeLibre is a name, not a phrase.
+Russian.WebsiteShortcut=Сайт HomeLibre
+English.WebsiteShortcut=HomeLibre website
+Ukrainian.WebsiteShortcut=Сайт HomeLibre
+Bulgarian.WebsiteShortcut=Уебсайт на HomeLibre
 
 English.HelpIndex=Help\en\index.html
 Ukrainian.HelpIndex=Help\uk\index.html

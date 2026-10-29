@@ -42,7 +42,7 @@
       Height = 29
       Align = alTop
       Alignment = taCenter
-      Caption = 'HomeLib Ru'
+      Caption = 'HomeLibre'
       Font.Charset = DEFAULT_CHARSET
       Font.Color = clBlue
       Font.Height = -24

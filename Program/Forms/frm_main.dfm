@@ -3,7 +3,7 @@
   Top = 0
   HelpContext = 2
   ActiveControl = edLocateAuthor
-  Caption = 'HomeLib Ru'
+  Caption = 'HomeLibre'
   ClientHeight = 772
   ClientWidth = 792
   Color = clBtnFace
@@ -4650,8 +4650,8 @@
     end
   end
   object TrayIcon: TTrayIcon
-    Hint = 'HomeLib Ru'
-    BalloonHint = 'HomeLib Ru'
+    Hint = 'HomeLibre'
+    BalloonHint = 'HomeLibre'
     PopupMenu = pmTray
     OnDblClick = TrayIconDblClick
     Left = 456

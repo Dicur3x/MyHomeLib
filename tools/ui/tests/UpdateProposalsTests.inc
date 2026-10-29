@@ -181,7 +181,7 @@ begin
       begin
         SetMHLTheme(Dark); Host:=TUpdateKeyboardHost.CreateNew(nil);
         try
-          Host.Caption:='HomeLib Ru update keyboard fixture PID '+IntToStr(GetCurrentProcessId)+
+          Host.Caption:='HomeLibre update keyboard fixture PID '+IntToStr(GetCurrentProcessId)+
             ' theme='+IntToStr(Ord(Dark))+' PPI='+IntToStr(PPI);
           Host.ClientWidth:=620; Host.ClientHeight:=420;
           Primary:=TButton.Create(Host); Primary.Parent:=Host; Primary.Align:=alBottom;
@@ -446,7 +446,7 @@ var Dialog: TUpdateRestorePageForm; Page, Primary: TButton; List: TListView; Ver
       begin
         if (Control is TButton) and TButton(Control).Default then Primary:=TButton(Control);
         if Control is TListView then List:=TListView(Control);
-        if (Control is TLabel) and (TLabel(Control).Caption='Обновления компонентов HomeLib Ru') then Version:=TLabel(Control);
+        if (Control is TLabel) and (TLabel(Control).Caption='Обновления компонентов HomeLibre') then Version:=TLabel(Control);
       end;
       Require(Assigned(Page) and Assigned(Primary) and Assigned(List) and Assigned(Version),
         'Restored component batch lost its real page, ready action, list or batch title');
@@ -573,21 +573,21 @@ begin
         (UpdateReleasePageURL(Info.ID,BatchTag,'javascript:invalid')=Info.URL),
         'Legacy or unsafe component page fallback is missing for '+Info.ID);
       if (Info.ID='AlReader') or (Info.ID='WebP') then
-        RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLib Ru')
+        RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLibre')
       else if (Info.ID='HomeLibReader') or (Info.ID='BookConverter') then
-        RestorePage(Info.URL,Info.URL,'Выпуски HomeLib Ru')
+        RestorePage(Info.URL,Info.URL,'Выпуски HomeLibre')
       else if Info.ID='IBK' then
         RestorePage(Info.URL,Info.URL,'Источник исходного пакета ICE Reader')
       else RestorePage(Info.URL,Info.URL,'Сайт автора: '+Info.ID);
     end;
-    RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLib Ru');
-    RestorePage('',ReleasesPage,'Выпуски HomeLib Ru',False);
+    RestorePage(ReleasesPage+'/tag/2.7.0_pre5.99',ReleasesPage+'/tag/2.7.0_pre5.99','Выпуски HomeLibre');
+    RestorePage('',ReleasesPage,'Выпуски HomeLibre',False);
     for var UnsafeURL in TArray<string>.Create('javascript:alert(1)','file:///C:/invalid.html',
       'https://www.sqlite.org.evil.invalid/changes.html','https://www.sqlite.org@evil.invalid/changes.html',
       'https://example.invalid/update','https://github.com/Dicur3x/MyHomeLib/releases/tag/../../invalid',
       ReleasesPage+'/tag/2.7.0_pre5.99?redirect=invalid',ReleasesPage+'/tag/2.7.0_pre5.99'+#10,
       'https://www.sqlite.org/changes.html'+#13#10) do
-      RestorePage(UnsafeURL,ReleasesPage,'Выпуски HomeLib Ru');
+      RestorePage(UnsafeURL,ReleasesPage,'Выпуски HomeLibre');
     Require((UpdateReleasePageURL('','2.7.0_pre5.99','')=ReleasesPage+'/tag/2.7.0_pre5.99') and
       (UpdateReleasePageURL('','../invalid','')=ReleasesPage),
       'Old application page fallback lost a valid release or accepted an unsafe tag');
@@ -693,7 +693,7 @@ begin
     Require(Dialog.Visible and Primary.Enabled and string(Status.Caption).Contains('Не удалось проверить'),
       'Manual unavailable sources were silent or left Retry disabled');
     for var Item in View.Items do
-      if (Item.Caption<>'HomeLib Ru') and not Item.Caption.EndsWith(' · AlReader') then
+      if (Item.Caption<>'HomeLibre') and not Item.Caption.EndsWith(' · AlReader') then
         Require(Item.SubItems[2]='Не удалось проверить','Unavailable source is falsely current: '+Item.Caption);
     SafeStatus;
     Writeln('PASS update sources unavailable manual check names failures keeps Retry available and hides raw server details');

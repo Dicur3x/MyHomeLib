@@ -1,4 +1,4 @@
-﻿{ HomeLib Ru. Original project copyright (C) 2008-2026 Oleksiy Penkov.
+﻿{ HomeLibre. Original project copyright (C) 2008-2026 Oleksiy Penkov.
   A manually started, read-only OPDS 1.2 catalog for one local collection. }
 unit unit_OPDSServer;
 
@@ -185,7 +185,7 @@ begin
     '<id>urn:homelibru:collection:' + IntToStr(FCollection.ID) + ':' +
     OPDSXmlEscape(Route) + '</id><title>' + OPDSXmlEscape(Title) +
     '</title><updated>' + FUpdated + '</updated>' +
-    '<author><name>HomeLib Ru</name></author>' +
+    '<author><name>HomeLibre</name></author>' +
     Link('self', FPrefix + Route, Kind) + Link('start', FPrefix, NAV_TYPE) +
     Link('search', FPrefix + '/search.xml', 'application/opensearchdescription+xml');
 end;
@@ -411,7 +411,7 @@ begin
     begin
       Body := '<?xml version="1.0" encoding="utf-8"?>' +
         '<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">' +
-        '<ShortName>HomeLib Ru</ShortName><Description>Поиск по названию и автору</Description>' +
+        '<ShortName>HomeLibre</ShortName><Description>Поиск по названию и автору</Description>' +
         '<InputEncoding>UTF-8</InputEncoding><Url type="' + BOOK_TYPE + '" template="' +
         OPDSXmlEscape(CatalogURL(AContext.Connection.Socket.Binding.IP) +
         '/books?q={searchTerms}') + '"/></OpenSearchDescription>';

@@ -38,7 +38,7 @@ var LabelControl: TLabel; Button: TButton;
   end;
 begin
   inherited CreateNew(AOwner);
-  Name:='ReaderCacheSettings'; Caption:='Кэш книг — HomeLib Reader';
+  Name:='ReaderCacheSettings'; Caption:='Кэш книг — HomeLibre Reader';
   Position:=poOwnerFormCenter; Font.Name:='Segoe UI'; Font.Size:=10;
   ClientWidth:=560; ClientHeight:=480; Constraints.MinWidth:=530; Constraints.MinHeight:=Height;
   LabelAt('Подготовленные файлы ускоряют повторное открытие книг. Выберите, когда их очищать.',20,44);

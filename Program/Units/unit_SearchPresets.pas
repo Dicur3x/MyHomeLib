@@ -137,7 +137,7 @@ var
 begin
   xmlDoc:=TMSXMLHelper.LoadFromFile(FileName,not SameText(ExtractFileExt(FileName),'.xml'),True);
   if not Assigned(xmlDoc.documentElement) or (xmlDoc.documentElement.nodeName<>PRESETS_ELEMENT) then
-    raise EArgumentException.Create('Файл не содержит пресеты поиска HomeLib Ru.');
+    raise EArgumentException.Create('Файл не содержит пресеты поиска HomeLibre.');
   Candidate:=Clone;
   try
     xmlPresets:=xmlDoc.selectNodes('/'+PRESETS_ELEMENT+'/'+PRESET_ELEMENT);

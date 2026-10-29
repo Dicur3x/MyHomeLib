@@ -38,7 +38,7 @@ def rasterize_image(book, data):
     if data.startswith((b'BM',b'II*\0',b'MM\0*')):
         import zipfile
         tool=book.c.image_processor_path(book.tools_root)
-        if not tool.is_file(): book.require('ImageProcessing', 'Для подготовки этих изображений нужен модуль HomeLib Images.')
+        if not tool.is_file(): book.require('ImageProcessing', 'Для подготовки этих изображений нужен модуль HomeLibre Images.')
         with tempfile.TemporaryDirectory(prefix='homelib-picture-',dir=getattr(book,'work_root',None)) as directory:
             source=Path(directory)/'image.bin';target=Path(directory)/'pages.zip';source.write_bytes(data)
             try:

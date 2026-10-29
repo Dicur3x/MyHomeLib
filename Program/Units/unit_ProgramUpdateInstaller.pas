@@ -1282,7 +1282,7 @@ begin
       raise Exception.Create('В архиве нет манифеста обновления. Скачайте выпуск вручную.');
     Zip.Read(Index, Bytes);
     Root := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Bytes)) as TJSONObject;
-    Component:=ComponentID; if Component='' then Component:='HomeLib Ru';
+    Component:=ComponentID; if Component='' then Component:='HomeLibre';
     if (Root = nil) or not Root.TryGetValue<Integer>('format', Format) or (Format <> 1) then
       raise Exception.Create('Неизвестный формат манифеста обновления.');
     if not Root.TryGetValue<string>('release', Value) or (Value <> Tag) then
@@ -1363,7 +1363,7 @@ begin
           raise Exception.Create('Файл механизма обновления повреждён. Повторите загрузку.');
         Found:=True; Break;
       end;
-    if not Found then raise Exception.Create('Нужно скачать полный комплект HomeLib Ru для восстановления механизма обновления.');
+    if not Found then raise Exception.Create('Нужно скачать полный комплект HomeLibre для восстановления механизма обновления.');
     // Bind executable bytes to the verified download, not just to editable
     // extracted metadata. A loose or modified staged helper is never run.
     Zip:=TZipFile.Create;
@@ -1423,7 +1423,7 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
 begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
   if not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
-    raise Exception.Create('В выбранной папке нет HomeLib Ru или HomeLib Reader.');
+    raise Exception.Create('В выбранной папке нет HomeLibre или HomeLibre Reader.');
   if FileExists(ChildPath(Job, 'journal.json')) then
   begin
     Journal := ReadJSON(ChildPath(Job, 'journal.json'));
@@ -1494,7 +1494,7 @@ begin
       begin
         Destination := ChildPath(Target, Info.Name); Existed := FileExists(Destination);
         if Info.Skip or (Info.KeepExisting and Existed) then Continue;
-        if Assigned(Progress) then Progress('Обновление HomeLib Ru', Applied, Length(Files));
+        if Assigned(Progress) then Progress('Обновление HomeLibre', Applied, Length(Files));
         Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
         Entry.AddPair('existed', TJSONBool.Create(Existed)); List.AddElement(Entry);
         WriteJSON(ChildPath(Job, 'journal.json'), Journal);

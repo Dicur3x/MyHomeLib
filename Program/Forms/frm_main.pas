@@ -1273,9 +1273,9 @@ rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверь�
    rstrNotForExtension = 'Операция недоступна для файлов с расширением %s';
    rstrUnableDeleteBuiltinGroupError = 'Нельзя удалить встроенную группу!';
    rstrCheckingUpdates = 'Проверка обновлений...';
-   rstrProgramLatestVersion = 'У вас установлена актуальная версия HomeLib Ru.';
+   rstrProgramLatestVersion = 'У вас установлена актуальная версия HomeLibre.';
    rstrProgramUpdateCheckFailed = 'Не удалось проверить наличие обновлений. Попробуйте позже.';
-   rstrProgramReleaseAvailable = 'Доступна новая версия HomeLib Ru: %s.' + CRLF + CRLF +
+   rstrProgramReleaseAvailable = 'Доступна новая версия HomeLibre: %s.' + CRLF + CRLF +
      'Открыть страницу релиза, чтобы скачать обновление?';
    rstrGroupAlreadyExists = 'Группа с таким именем уже существует!';
    rstrAdding2GroupMessage = 'Добавляем книги в группу...';
@@ -1286,7 +1286,7 @@ rstrFileNotFoundMsg = 'Файл %s не найден!' + CRLF + 'Проверь�
    rstrHintTree = 'Переключиться в режим "Дерево"';
    rstrShuttingDown = 'отключаемся';
    rstrNeedDBUpgrade = 'Вы успешно обновили приложение. Для нормальной работы необходимо обновить структуру таблиц БД. Сделать это прямо сейчас?';
-   rstrFirstRun = 'HomeLib Ru - первый запуск';
+   rstrFirstRun = 'HomeLibre - первый запуск';
 // rstrToConvertChangeTab = 'Для конвертации книги перейдите на другую страницу.';
    rstrCollectionFileNotFound = 'Файл коллекции не найден.' + CRLF + 'Невозможно запустить программу.';
    // rstrStartCollectionUpdate = 'Доступно обновление коллекций.' + CRLF + 'Начать обновление?';
@@ -2488,7 +2488,7 @@ begin
 
     if (not LoadLastCollection)or (not FSystemData.HasCollections) then
     begin
-      frmMain.Caption := 'HomeLib Ru';
+      frmMain.Caption := 'HomeLibre';
       Screen.Cursor := SavedCursor;
 
       if not ShowNCWizard then
@@ -2510,7 +2510,7 @@ begin
     SyncGenreLanguage;
     SyncSystemGroupNames;
 
-    frmMain.Caption := 'HomeLib Ru - ' + FCollection.CollectionDisplayName;
+    frmMain.Caption := 'HomeLibre - ' + FCollection.CollectionDisplayName;
 
     CollectionType := FCollection.CollectionCode;
     IsPrivate := isPrivateCollection(CollectionType);
@@ -3429,7 +3429,7 @@ procedure TfrmMain.RequestOptionalComponent(const ID: string);
 var Reason: string;
 begin
   if (csDestroying in ComponentState) or Application.Terminated then Exit;
-  if ID='HomeLibReader' then Reason:='HomeLib Reader — отдельная лёгкая читалка с темами, разворотами, закладками и заметками. '+
+  if ID='HomeLibReader' then Reason:='HomeLibre Reader — отдельная лёгкая читалка с темами, разворотами, закладками и заметками. '+
     'FB2, EPUB и текст доступны сразу; модули для других форматов предлагаются при открытии книги. После установки выбранная книга откроется автоматически.'
   else if ID='BookConverter' then Reason:='Для подготовки и конвертации этой книги нужен модуль обработки форматов.'
   else if (ID='BookProcessing') or (ID='ImageProcessing') or (ID='Kindle') or
@@ -4243,7 +4243,7 @@ begin
   if not Assigned(FCollection) then Exit;
   if isOnlineCollection(FCollection.CollectionCode) then
   begin
-    Application.MessageBox('Источники и объединение доступны для локальных коллекций.', 'HomeLib Ru', MB_OK or MB_ICONINFORMATION);
+    Application.MessageBox('Источники и объединение доступны для локальных коллекций.', 'HomeLibre', MB_OK or MB_ICONINFORMATION);
     Exit;
   end;
   CollectionID:=FCollection.CollectionID;
@@ -4476,7 +4476,7 @@ begin
     FWindowsThemeOfferText.Name:='lblWindowsThemeOffer'; FWindowsThemeOfferText.AutoSize:=False;
     FWindowsThemeOfferText.Layout:=tlCenter; FWindowsThemeOfferText.WordWrap:=True;
     FWindowsThemeOfferText.ShowAccelChar:=False;
-    FWindowsThemeOfferText.Caption:='В Windows выбрана тёмная тема. Включить её и в HomeLib Ru?';
+    FWindowsThemeOfferText.Caption:='В Windows выбрана тёмная тема. Включить её и в HomeLibre?';
   end;
   UpdateWindowsThemeOfferLayout;
   FWindowsThemeOffer.Visible:=True;
@@ -4560,7 +4560,7 @@ begin
   FReadBuiltinAction := TAction.Create(Self);
   FReadBuiltinAction.Name := 'acReadBuiltin';
   FReadBuiltinAction.ActionList := Actions;
-  FReadBuiltinAction.Caption := 'Читать в HomeLib Reader';
+  FReadBuiltinAction.Caption := 'Читать в HomeLibre Reader';
   FReadBuiltinAction.ShortCut := ShortCut(Ord('R'), [ssCtrl, ssAlt]);
   FReadBuiltinAction.ImageIndex := 12;
   FReadBuiltinAction.OnExecute := ReadBuiltinExecute;

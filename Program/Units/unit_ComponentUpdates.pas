@@ -31,7 +31,7 @@ const
     (ID:'DocSharp'; Title:'Чтение DOC, PPT и XLS'; URL:'https://github.com/manfromarce/DocSharp/releases'; CheckKind:ccDocSharp; CheckOnly:False),
     (ID:'JPEG XL'; Title:'Иллюстрации JPEG XL'; URL:'https://github.com/libjxl/libjxl/releases'; CheckKind:ccJPEGXL; CheckOnly:False),
     (ID:'WebP'; Title:'Иллюстрации WebP'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccWebP; CheckOnly:False),
-    (ID:'HomeLibReader'; Title:'HomeLib Reader'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'HomeLibReader'; Title:'HomeLibre Reader'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'PDFium'; Title:'Чтение PDF'; URL:'https://github.com/bblanchon/pdfium-binaries/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'BookConverter'; Title:'Подготовка и конвертация книг'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False),
@@ -142,8 +142,8 @@ begin
   Result.SHA256:=ALREADER_FIXED_SHA256; Result.Size:=ALREADER_FIXED_SIZE;
   Result.History:=ReleaseNotesHeading(Result.ComponentVersion,'')+sLineBreak+
     'Сохранённый Windows-выпуск AlReader. Это прежняя версия, а не новый выпуск автора.'+sLineBreak+
-    'Один постоянный архив HomeLib Ru на GitHub, одинаковый для x86 и x64. '+
-    'Контрольная сумма зафиксирована в программе. С каждым выпуском HomeLib Ru архив заново не публикуется.'+sLineBreak+
+    'Один постоянный архив HomeLibre на GitHub, одинаковый для x86 и x64. '+
+    'Контрольная сумма зафиксирована в программе. С каждым выпуском HomeLibre архив заново не публикуется.'+sLineBreak+
     'AlReader свободен для некоммерческого использования; условия автора сохранены в readme.txt.';
   Result.Changelog:=Result.History;
 end;
@@ -195,20 +195,20 @@ begin inherited Create('Для чтения этой книги нужен ко�
 
 function ComponentPurpose(const ID: string): string;
 begin
-  if ID='HomeLibReader' then Exit('Без дополнительных модулей HomeLib Reader открывает:'+sLineBreak+
+  if ID='HomeLibReader' then Exit('Без дополнительных модулей HomeLibre Reader открывает:'+sLineBreak+
     'FB2, EPUB, FB3;'+sLineBreak+'DOCX, ODT;'+sLineBreak+
     'TXT, RTF, HTML, MHTML и текст Markdown;'+sLineBreak+
     'JPG, PNG, GIF, BMP и CBZ с такими изображениями.'+sLineBreak+sLineBreak+
-    'Это собственные обработчики HomeLib Reader. Они обновляются вместе с читалкой.'+sLineBreak+
+    'Это собственные обработчики HomeLibre Reader. Они обновляются вместе с читалкой.'+sLineBreak+
     'PDF, DjVu, старые DOC/PPT/XLS и другие дополнительные форматы используют отдельные модули. '+
     'Программа предложит нужный модуль при открытии. Подготовка очень больших FB2 и особых вариантов файлов тоже может потребовать модуль.'+sLineBreak+
     'Внешние библиотеки, например PDFium, DjVuLibre и DocSharp, обновляются отдельно в окне «Компоненты».');
-  if ID='BookProcessing' then Exit('HomeLib Books — подготовка книг для чтения и преобразование в FB2 или EPUB.'+sLineBreak+
+  if ID='BookProcessing' then Exit('HomeLibre Books — подготовка книг для чтения и преобразование в FB2 или EPUB.'+sLineBreak+
     'Обрабатывает:'+sLineBreak+'FB2, EPUB;'+sLineBreak+'TXT, HTML, RTF, DOCX, ODT, FB3 и другие текстовые документы.'+sLineBreak+
     'Для MOBI/AZW, CHM, LIT/LRF и других сложных форматов это общая часть обработки. '+
     'Если нужен отдельный декодер формата, программа предложит его дополнительно. '+
     'PDFium, DjVuLibre, DocSharp и декодеры Kindle в этот пакет не входят.');
-  if ID='ImageProcessing' then Exit('HomeLib Images — обработка изображений книги:'+sLineBreak+
+  if ID='ImageProcessing' then Exit('HomeLibre Images — обработка изображений книги:'+sLineBreak+
     'сжатие иллюстраций и перевод в чёрно-белый вид;'+sLineBreak+
     'оценка размера сохраняемой копии;'+sLineBreak+'подготовка и разделение сканированных разворотов.'+sLineBreak+
     'Модули чтения PDF, DjVu и XPS устанавливаются отдельно, только для соответствующей книги.');
@@ -219,12 +219,12 @@ begin
   if ID='PDFium' then Exit('PDFium — модуль чтения страниц PDF, в том числе для преобразования в FB2/EPUB.');
   if ID='DocSharp' then Exit('DocSharp — модуль чтения DOC, PPT и XLS, в том числе для преобразования в FB2/EPUB.');
   if ID='DjVuLibre' then Exit('DjVuLibre — модуль чтения страниц DjVu, в том числе для преобразования в FB2/EPUB.');
-  if ID='BookConverter' then Exit('Конвертер HomeLib Ru (BookConverter) — общий модуль создания FB2/EPUB и обработки изображений.');
+  if ID='BookConverter' then Exit('Конвертер HomeLibre (BookConverter) — общий модуль создания FB2/EPUB и обработки изображений.');
   if ID='JPEG XL' then Exit('JPEG XL (libjxl) — восстановление иллюстраций JPEG XL для чтения и сохранения книги.');
   if ID='WebP' then Exit('WebP (libwebp) — чтение иллюстраций WebP для показа и сохранения книги.');
   if ID='7-Zip' then Exit('7-Zip — распаковка книг и вспомогательных компонентов из архивов.');
   if ID='IBK' then Exit('Данные ICE Book Reader — чтение книг IBK во встроенной читалке и конвертере.');
-  if ID='MHLMcpServer' then Exit('MCP-сервер HomeLib Ru — поиск в коллекциях и чтение текста книг из выбранного AI-приложения. Для обычной работы каталога он не нужен.');
+  if ID='MHLMcpServer' then Exit('MCP-сервер HomeLibre — поиск в коллекциях и чтение текста книг из выбранного AI-приложения. Для обычной работы каталога он не нужен.');
   if ID='Zstandard' then Exit('Zstandard (libzstd) — открытие сжатого каталога Metabib .jsonl.zst. Для обычного INPX и чтения книг библиотека не нужна.');
   Result:='';
 end;
@@ -276,18 +276,18 @@ var Info: TUpdateComponent;
 begin
   if Component = 'batch' then
   begin
-    if URL='https://github.com/Dicur3x/MyHomeLib/releases' then Exit('Выпуски HomeLib Ru');
+    if URL='https://github.com/Dicur3x/MyHomeLib/releases' then Exit('Выпуски HomeLibre');
     if URL='https://www.bestfree.ru/soft/office/bookreader-en-downloader.php' then
       Exit('Источник исходного пакета ICE Reader');
     if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
-      Exit('Постоянные компоненты HomeLib Ru');
+      Exit('Постоянные компоненты HomeLibre');
     for Info in UPDATE_COMPONENTS do
       if URL = Info.URL then Exit('Сайт автора: ' + Info.ID);
-    Exit('Выпуски HomeLib Ru');
+    Exit('Выпуски HomeLibre');
   end;
   if Component='AlReader' then Exit('Постоянный архив AlReader');
   if Component='WebP' then Exit('Постоянный архив WebP');
-  if Component='HomeLibReader' then Exit('Выпуски HomeLib Reader');
+  if Component='HomeLibReader' then Exit('Выпуски HomeLibre Reader');
   if Component='BookConverter' then Exit('Выпуски модуля конвертации');
   if URL='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG then
     Exit('Компоненты на GitHub');
@@ -328,7 +328,7 @@ begin
     Info.SecondaryURL:='https://api.nuget.org/v3-flatcontainer/docsharp.binary.common/'+Info.ComponentVersion+'/docsharp.binary.common.'+Info.ComponentVersion+'.nupkg';
     Info.History:=ReleaseNotesHeading(Info.ComponentVersion,'')+sLineBreak+
       'Версия DocSharp.Binary.Doc и DocSharp.Binary.Common проверена в официальном каталоге NuGet.'+sLineBreak+
-      'Новые версии библиотеки выпускаются независимо от HomeLib Ru.'+sLineBreak+
+      'Новые версии библиотеки выпускаются независимо от HomeLibre.'+sLineBreak+
       'Обновление скачивается непосредственно из официального каталога NuGet.'+sLineBreak+
       'Изменения автора: '+Info.URL;
     Info.Changelog:=Info.History; Result:=True;
@@ -637,9 +637,9 @@ begin
     else
     begin
       Info.URL:='https://github.com/Dicur3x/MyHomeLib/releases/tag/'+ALREADER_FIXED_TAG;
-      Info.History:='Готовая сборка HomeLib Ru из официальных исходников libwebp '+Info.ComponentVersion+'. '+
+      Info.History:='Готовая сборка HomeLibre из официальных исходников libwebp '+Info.ComponentVersion+'. '+
         'Пользователю компилятор не требуется. Исходники и порядок сборки указаны в отдельном выпуске компонентов.'+sLineBreak+
-        'Обновляется независимо от HomeLib Ru; один архив для каждой разрядности, без повторной публикации с программой.';
+        'Обновляется независимо от HomeLibre; один архив для каждой разрядности, без повторной публикации с программой.';
     end;
     Info.Changelog:=Info.History; Result:=True;
   finally Root.Free; end;
@@ -784,7 +784,7 @@ begin
          not Obj.TryGetValue<TJSONArray>('history', History) or
          (History.Count < 1) or (History.Count > 100) then Exit;
       I := 0; while (I <= High(ComponentIDs)) and (ComponentIDs[I] <> ID) do Inc(I);
-      // A later HomeLib Ru may describe additional components. Older builds
+      // A later HomeLibre may describe additional components. Older builds
       // can still read their known entries; unknown IDs never gain installers.
       if I>High(UPDATE_COMPONENTS) then Continue;
       if Found[I] then Exit;
@@ -832,7 +832,7 @@ constructor TComponentUpdateThread.Create(AWindow: HWND; AHTTP: THTTPClient; con
 begin
   inherited Create(True); FreeOnTerminate := False; FHTTP := AHTTP; FWindow := AWindow; FURL := URL;
   FCacheFolder := CacheFolder;
-  FHTTP.UserAgent := 'HomeLib Ru'; FHTTP.ConnectionTimeout := 4000; FHTTP.ResponseTimeout := 6000;
+  FHTTP.UserAgent := 'HomeLibre'; FHTTP.ConnectionTimeout := 4000; FHTTP.ResponseTimeout := 6000;
   FHTTP.OnReceiveData := ReceiveData; FLimit := 8 * 1024 * 1024;
   for var I:=Low(FClients) to High(FClients) do
   begin
@@ -1035,7 +1035,7 @@ begin
                 if not FetchMirrorRelease('DjVuLibre','',ReadyPackage) then
                   raise Exception.Create('Не найден проверенный готовый ZIP библиотеки DjVuLibre. Повторите проверку.');
                 FReleases[I]:=ReadyPackage;
-                FReleases[I].ComponentWarning:='Готовый пакет DjVuLibre с зеркала HomeLib Ru на GitHub. '+
+                FReleases[I].ComponentWarning:='Готовый пакет DjVuLibre с зеркала HomeLibre на GitHub. '+
                   'Дополнительная установка 7-Zip не требуется; лицензии и исходники включены.';
               end
               else
@@ -1090,7 +1090,7 @@ begin
         if Available then
         begin
           FReleases[I]:=Mirror;
-          FReleases[I].ComponentWarning:='Сайт автора недоступен. Доступна запасная копия HomeLib Ru на GitHub, версия '+Mirror.ComponentVersion+'.';
+          FReleases[I].ComponentWarning:='Сайт автора недоступен. Доступна запасная копия HomeLibre на GitHub, версия '+Mirror.ComponentVersion+'.';
         end
         else
         begin
@@ -1188,7 +1188,7 @@ begin
     Info.SecondarySHA256:=IBK_EXTRACTOR_SHA256; Info.SecondarySize:=IBK_EXTRACTOR_SIZE;
     Info.Size:=IBK_PACKAGE_SIZE+IBK_EXTRACTOR_SIZE; Info.OfficialComponent:=True;
     Info.ComponentWarning:='Запасная копия исходного пакета IBK 9.6.5. Дистрибутив автора сохранён без изменений.';
-    Info.History:='Данные для чтения IBK в HomeLib Reader. ICE Book Reader не устанавливается и не запускается.'+sLineBreak+
+    Info.History:='Данные для чтения IBK в HomeLibre Reader. ICE Book Reader не устанавливается и не запускается.'+sLineBreak+
       'Загружается полный неизменённый дистрибутив; данные извлекаются локально. Контрольные суммы обоих оригинальных архивов зафиксированы в программе.'+sLineBreak+
       'Условия ICE Graphics для Russian Edition: граждане стран бывшего СССР, некоммерческое использование. Полный License.txt сохраняется вместе с оригиналом.';
     Info.Changelog:=Info.History; Result:=True;
@@ -1229,7 +1229,7 @@ begin
       ((Version<>'') and (not CompareComponentVersions(Version,Published[Index].ComponentVersion,Comparison) or
         (Comparison<>0))) then Exit;
     Info:=Published[Index];
-    Info.ComponentWarning:='Используется запасной пакет HomeLib Ru на GitHub. Версия: '+Info.ComponentVersion+'.';
+    Info.ComponentWarning:='Используется запасной пакет HomeLibre на GitHub. Версия: '+Info.ComponentVersion+'.';
     Result:=True;
   finally Root.Free; end;
 end;

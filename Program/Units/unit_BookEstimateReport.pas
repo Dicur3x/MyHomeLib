@@ -59,7 +59,7 @@ var Text: TStringBuilder; Entry: TBookSaveEstimateItem; Layout, Errors: Integer;
 begin
   Text:=TStringBuilder.Create;
   try
-    Text.AppendLine('HomeLib — оценка размера книг');
+    Text.AppendLine('HomeLibre — оценка размера книг');
     Text.AppendLine(FormatDateTime('dd.mm.yyyy hh:nn:ss',Now));
     Text.AppendLine('Это оценка размера, а не результат сохранения. Неудачная оценка не означает, что сохранить книгу невозможно.');
     Text.AppendLine('Выбрано: '+QualityNames[EnsureRange(Quality,0,3)]);

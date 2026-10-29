@@ -18,7 +18,7 @@ foreach ($name in @('HomeLibRu.exe', 'HomeLibRuUpdater.exe')) {
     }
     if ($info.OriginalFilename -cne $name -or
         $info.InternalName -cne [IO.Path]::GetFileNameWithoutExtension($name) -or
-        $info.ProductName -cne 'HomeLib Ru') {
+        $info.ProductName -cne 'HomeLibre') {
         throw "Incorrect release executable identity: $file"
     }
     $stream = [IO.File]::OpenRead($file)

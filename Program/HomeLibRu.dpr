@@ -297,7 +297,7 @@ begin
   end;
 
   Application.MainFormOnTaskbar := True;
-  Application.Title := 'HomeLib Ru';
+  Application.Title := 'HomeLibre';
   // Choose the persisted style before constructing any window. A late switch
   // recreates all VCL handles and exposes the initial light frame at startup.
   Application.CreateForm(TDMUser, DMUser);

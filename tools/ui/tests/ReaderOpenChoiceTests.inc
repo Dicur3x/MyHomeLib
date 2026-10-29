@@ -31,7 +31,7 @@ begin
       if Dialog.Controls[I] is TCheckBox then Remember:=TCheckBox(Dialog.Controls[I]);
     end;
     Require(Assigned(List) and Assigned(Remember),'Open-book choice controls are missing');
-    Require((List.Items.Count>0) and (List.Items[0]='HomeLib Reader'),
+    Require((List.Items.Count>0) and (List.Items[0]='HomeLibre Reader'),
       'Open-book choice lost the available reader');
     Require(List.Font.Color=MHLThemeText,'Open-book choice list text is unreadable');
     if MHLThemeDark then Require(List.Color=RGB(30,31,34),'Dark catalogue choice list is white')
@@ -69,7 +69,7 @@ begin
           Driver.Timer.Enabled:=False;
           Require(Driver.Error='',Driver.Error);
           Require(Driver.Seen and (Accepted=Confirm),'Reader choice ignored accept or cancel');
-          if Confirm then Require(Builtin and (Path=''),'Reader choice did not choose HomeLib Reader');
+          if Confirm then Require(Builtin and (Path=''),'Reader choice did not choose HomeLibre Reader');
           Ini:=TMemIniFile.Create(Settings.DataDir+'reader.ini',TEncoding.UTF8);
           try Choice:=Ini.ReadString('OpenWith','.fb2',''); finally Ini.Free; end;
           if Confirm then Require(Choice='@builtin','Reader choice was not remembered')

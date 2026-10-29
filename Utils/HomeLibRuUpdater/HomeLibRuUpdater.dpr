@@ -75,7 +75,7 @@ begin
       end
       else if WaitForSingleObject(Parent, 0) <> WAIT_OBJECT_0 then RaiseLastOSError;
       if WaitForSingleObject(Parent, 120000) <> WAIT_OBJECT_0 then
-        raise Exception.Create('HomeLib Ru не закрылась. Обновление отложено.');
+        raise Exception.Create('HomeLibre не закрылась. Обновление отложено.');
     finally CloseHandle(Parent); end;
     CanRestart := True;
     if Recover then
@@ -97,7 +97,7 @@ begin
     begin
       Error := 'Обновление не установлено.' + sLineBreak + E.Message + sLineBreak +
         'Резервная копия и журнал сохранены в:' + sLineBreak + Job;
-      MessageBox(0, PChar(Error), 'HomeLib Ru', MB_OK or MB_ICONERROR);
+      MessageBox(0, PChar(Error), 'HomeLibre', MB_OK or MB_ICONERROR);
       if CanRestart and Assigned(Args) then
         try Restart(Target, ApplicationName, Args, OriginalCommandLine); except end;
       Root.Free; Halt(1);

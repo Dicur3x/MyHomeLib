@@ -57,7 +57,7 @@ if ([System.IO.Path]::GetFileName($resolvedPath) -ine 'HomeLibRu.exe') {
     throw "The distributed application must be named HomeLibRu.exe: $resolvedPath"
 }
 $expectedFields = @{
-    ProductName = 'HomeLib Ru'
+    ProductName = 'HomeLibre'
     InternalName = 'HomeLibRu'
     OriginalFilename = 'HomeLibRu.exe'
     LegalCopyright = 'Copyright (c) 2008-2026 Oleksiy Penkov'

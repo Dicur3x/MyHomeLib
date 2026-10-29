@@ -147,7 +147,7 @@ begin
     raise EMHLComponentRequired.Create('BookProcessing','Для интерактивной книги нужна общая среда обработки книг.');
   FAppPath:=AppPath; FSource:=SourceFile; FBookTitle:=BookTitle; FIdentity:=Identity;
   FSettingsFile:=SettingsFile; FPDFLibrary:=PDFLibrary; FReceived:=-1; FWaiting:=True;
-  Font.Name:='Segoe UI'; Font.Size:=9; Caption:='HomeLib Ru — '+BookTitle+' — Интерактивная книга';
+  Font.Name:='Segoe UI'; Font.Size:=9; Caption:='HomeLibre — '+BookTitle+' — Интерактивная книга';
   KeyPreview:=True; OnKeyDown:=InterfaceKey;
   Position:=poOwnerFormCenter; ClientWidth:=960; ClientHeight:=760;
   Constraints.MinWidth:=680; Constraints.MinHeight:=520;

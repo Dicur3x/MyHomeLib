@@ -227,7 +227,7 @@ begin
                 RectF.Y := CardRect.Y + S(36);
                 RectF.Width  := CardRect.Width - S(CContentLeft) * 2;
                 RectF.Height := S(52);
-                Graphics.DrawString('HomeLib Ru', -1, Font, RectF, SF, SolidBrush);
+                Graphics.DrawString('HomeLibre', -1, Font, RectF, SF, SolidBrush);
               finally
                 SolidBrush.Free;
               end;

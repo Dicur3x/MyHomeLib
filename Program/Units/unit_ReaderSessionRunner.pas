@@ -71,7 +71,7 @@ begin
   inherited Create(Owner);
   FRequest:=Request; FExecutable:=TPath.GetFullPath(Executable);
   FOnReply:=OnReply;
-  if not FileExists(FExecutable) then raise EFileNotFoundException.Create('Не найдена HomeLib Reader.');
+  if not FileExists(FExecutable) then raise EFileNotFoundException.Create('Не найдена HomeLibre Reader.');
   // This also registers a cache reader, so explicit cache cleanup cannot
   // retire the original input while a component helper restarts the reader.
   FSource:=OpenCachedBookFile(Request.SourceFile);

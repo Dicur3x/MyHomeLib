@@ -357,7 +357,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
     tool = api.image_processor_path(runtime_root)
     if not small and not tool.is_file():
         raise api.ComponentRequired(api.optional_component_id('ImageProcessing', runtime_root),
-                                    'Для сжатия изображений нужен модуль обработки изображений HomeLib Images.')
+                                    'Для сжатия изображений нужен модуль обработки изображений HomeLibre Images.')
     with tempfile.TemporaryDirectory(prefix='homelib-image-quality-', dir=book.parent) as temporary:
         directory = Path(temporary); samples = None; sample_indices = []
         if profile == 'ask':

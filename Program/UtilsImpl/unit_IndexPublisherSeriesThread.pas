@@ -1,5 +1,5 @@
 ﻿(*
-  HomeLib Ru, based on MyHomeLib
+  HomeLibre, based on MyHomeLib
   Copyright (C) 2008-2026 Oleksiy Penkov (aka Koreec)
 *)
 
@@ -95,7 +95,7 @@ begin
   if FErrorLog = nil then
   begin
     FErrorLog := TStreamWriter.Create(FErrorLogFileName, False, TEncoding.UTF8);
-    FErrorLog.WriteLine('HomeLib Ru — заполнение издательств и книжных серий');
+    FErrorLog.WriteLine('HomeLibre — заполнение издательств и книжных серий');
     FErrorLog.WriteLine(Format('Коллекция: %s (%d)',
       [BookRecord.CollectionName, FCollectionID]));
     FErrorLog.WriteLine(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now));

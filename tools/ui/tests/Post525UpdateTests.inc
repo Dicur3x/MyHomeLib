@@ -78,6 +78,14 @@ begin
           string(View.SectionNotes(0).Text).Contains('Other component.'),'Component switch retained another history');
         View.Load(Text); Require((View.SectionCount=3) and More.Visible,
           'Switching back eagerly recreated the complete history');
+        View.Load('HomeLibre 3.0 release'+sLineBreak+'Stable notes.'+sLineBreak+
+          'HomeLibre 3.0 beta 1'+sLineBreak+'Beta notes.'+sLineBreak+
+          'HomeLib Ru 2.7.0_pre5.37'+sLineBreak+'Legacy notes.');
+        Require((View.SectionCount=3) and not More.Visible and
+          string(View.SectionHeader(0).Caption).Contains('HomeLibre 3.0 release') and
+          string(View.SectionNotes(1).Text).Contains('Beta notes.') and
+          string(View.SectionNotes(2).Text).Contains('Legacy notes.'),
+          'HomeLibre beta/release headings lost sections or previous HomeLib Ru history');
       finally Host.Free; end;
     end;
   finally SetMHLTheme(SavedTheme); end;

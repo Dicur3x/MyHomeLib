@@ -120,7 +120,7 @@ begin
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ManifestPath,TEncoding.UTF8));
   HTTP:=THTTPClient.Create; Transfer:=TFontTransfer.Create; Transfer.Canceled:=Canceled;
   try
-    HTTP.UserAgent:='HomeLib Ru'; HTTP.ConnectionTimeout:=4000; HTTP.ResponseTimeout:=6000;
+    HTTP.UserAgent:='HomeLibre'; HTTP.ConnectionTimeout:=4000; HTTP.ResponseTimeout:=6000;
     HTTP.OnReceiveData:=Transfer.Receive;
     if not (Root is TJSONObject) or not TJSONObject(Root).TryGetValue<TJSONArray>('files',Files) then Exit;
     for Value in Files do

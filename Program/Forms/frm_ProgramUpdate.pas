@@ -210,7 +210,7 @@ constructor TfrmProgramUpdate.Create(AOwner: TComponent);
 var HistoryFile: string; Menu: TPopupMenu; Entry: TMenuItem;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'Обновление HomeLib Ru'; BorderStyle := bsSizeable;
+  Caption := 'Обновление HomeLibre'; BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMinimize, biMaximize];
   Position := poMainFormCenter; ClientWidth := 960; ClientHeight := 760;
   Constraints.MinWidth := 760; Constraints.MinHeight := 560;
@@ -227,7 +227,7 @@ begin
   FTabs.OnChange:=ViewTabChanged;
   FHistorySelector:=TComboBox.Create(Self); FHistorySelector.Parent:=Self;
   FHistorySelector.Name:='UpdateHistoryComponent'; FHistorySelector.Style:=csDropDownList;
-  FHistorySelector.Items.Add('HomeLib Ru');
+  FHistorySelector.Items.Add('HomeLibre');
   for var ComponentIndex:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     FHistorySelector.Items.Add(ComponentTitle(ComponentIndex));
   FHistorySelector.ItemIndex:=0; FHistorySelector.Visible:=False;
@@ -623,8 +623,8 @@ end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
 begin
-  if FRelease.ComponentID = 'batch' then Exit('компонентов HomeLib Ru');
-  if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLib Ru ' + FRelease.Tag, FRelease.PublishedAt)
+  if FRelease.ComponentID = 'batch' then Exit('компонентов HomeLibre');
+  if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLibre ' + FRelease.Tag, FRelease.PublishedAt)
   else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + FRelease.ComponentVersion, FRelease.PublishedAt);
 end;
 
@@ -710,7 +710,7 @@ procedure TfrmProgramUpdate.UseReaderComponents;
 begin
   if Assigned(FComponentThread) or Assigned(FThread) then
     raise Exception.Create('Нельзя менять список компонентов во время загрузки.');
-  FReaderOnly:=True; Caption:='Компоненты HomeLib Reader';
+  FReaderOnly:=True; Caption:='Компоненты HomeLibre Reader';
   RefreshInstalledComponents; UpdateComponentList; ComponentSelected(nil);
 end;
 
@@ -750,7 +750,7 @@ begin
       for var Logical in FRowIDs do
       begin
         FComponentsView.Items.Add;
-        if Logical=0 then FHistorySelector.Items.Add('HomeLib Ru')
+        if Logical=0 then FHistorySelector.Items.Add('HomeLibre')
         else FHistorySelector.Items.Add(ComponentTitle(Logical-1));
       end;
     end;
@@ -763,7 +763,7 @@ begin
     else if FApplicationFailed then State:='Не удалось проверить';
     if FAppPending then State:='Проверяется…';
     if Available='' then Available:='—';
-    Row(0,'HomeLib Ru',PROGRAM_RELEASE_VERSION,Available,State);
+    Row(0,'HomeLibre',PROGRAM_RELEASE_VERSION,Available,State);
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     begin
       Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
@@ -942,7 +942,7 @@ begin
     if (UPDATE_COMPONENTS[I].CheckKind=ccPublished) or
       FComponents[I].URL.StartsWith(
       'https://github.com/Dicur3x/MyHomeLib/releases/tag/') then
-      FStatus.Caption:='Источник: проверенный пакет HomeLib Ru на GitHub.'+sLineBreak
+      FStatus.Caption:='Источник: проверенный пакет HomeLibre на GitHub.'+sLineBreak
     else FStatus.Caption := 'Источник: официальный сайт автора компонента.' + sLineBreak;
     if FComponents[I].ComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponents[I].ComponentError
     else if FComponentError <> '' then FStatus.Caption := FStatus.Caption + FComponentError
@@ -1000,7 +1000,7 @@ begin
   Releases := AvailableUpdates; Result := '';
   for I := 0 to High(Releases) do
   begin
-    Name := Releases[I].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+    Name := Releases[I].ComponentID; if Name = '' then Name := 'HomeLibre';
     if I > 0 then
       if I = High(Releases) then Result := Result + ' и ' else Result := Result + ', ';
     Result := Result + Name;
@@ -1057,7 +1057,7 @@ begin
   begin
     FStatus.Caption := Summary;
     if ComponentCheckSummary<>'' then FStatus.Caption:=FStatus.Caption+sLineBreak+ComponentCheckSummary;
-    if FApplicationFailed then FStatus.Caption:=FStatus.Caption+sLineBreak+'HomeLib Ru не удалось проверить. Повторите проверку.';
+    if FApplicationFailed then FStatus.Caption:=FStatus.Caption+sLineBreak+'HomeLibre не удалось проверить. Повторите проверку.';
     FNeedsCheck := False;
     if Length(AvailableUpdates) > 1 then FPrimary.Caption := 'Скачать все обновления'
     else FPrimary.Caption := 'Скачать обновление';
@@ -1093,7 +1093,7 @@ begin
   if Successful then
   begin
     RememberHistory(ReleaseInfo);
-    FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
+    FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
     if CompareReleaseTags(ReleaseInfo.Tag, PROGRAM_RELEASE_VERSION, Comparison) and
       ((Comparison>0) or ((Comparison=0) and (FRepairComponents<>'') and
       (ReleaseInfo.DownloadURL<>'') and IsUpdateSHA256(ReleaseInfo.SHA256) and (ReleaseInfo.Size>0))) then
@@ -1556,7 +1556,7 @@ begin
   try
   FApplicationRelease := Default(TProgramRelease);
   if ReleaseInfo.History.Trim <> '' then FApplicationHistory := ReleaseInfo.History;
-  FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
+  FApplicationStatus := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
   FApplicationVerified:=True; FApplicationFailed:=False;
   UpdateComponentList;
   if FSelectedRow > 0 then Exit;
@@ -1564,7 +1564,7 @@ begin
   FRelease := Default(TProgramRelease);
   FNeedsCheck := True;
   DisplayNotes(ReleaseInfo.History);
-  FStatus.Caption := 'Обновлений нет. У вас установлена последняя версия HomeLib Ru.';
+  FStatus.Caption := 'Обновлений нет. У вас установлена последняя версия HomeLibre.';
   FPrimary.Caption := 'Проверить ещё раз'; FPrimary.Enabled := True; FLater.Caption := 'Закрыть';
   Present;
   finally EndUIUpdate; end;
@@ -1662,7 +1662,7 @@ begin
     FThread.RuntimePath:=IncludeTrailingPathDelimiter(FQueueJobs[0])+'payload';
   FComponentCheck.Enabled:=False;
   FPrimary.Enabled := False; FPrimary.Caption := 'Загрузка…';
-  Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+  Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLibre';
   FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + Name + '…';
   if FQueueTotal > 0 then FProgress.Position := Integer(FQueueBytes * 100 div FQueueTotal);
   FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(FQueueBytes),ComponentDownloadSize(FQueueTotal)]);
@@ -1721,7 +1721,7 @@ begin
   if Message.WParam >= 95 then FStatus.Caption := 'Проверка и подготовка обновления…'
   else
   begin
-    Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
+    Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLibre';
     FStatus.Caption := 'Загрузка ' + Name + '…';
   end;
   FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(Downloaded),ComponentDownloadSize(FQueueTotal)]);
@@ -1772,7 +1772,7 @@ begin
     FProgress.Position := 100; FPrimary.Caption := 'Установить и перезапустить';
     FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(FRelease.Size),ComponentDownloadSize(FRelease.Size)]);
     FStatus.Caption := 'Обновление скачано и проверено.' + sLineBreak +
-      'Для установки HomeLib Ru закроется и запустится снова.';
+      'Для установки HomeLibre закроется и запустится снова.';
     if FOperationComponent<>'' then
     begin
       FPrimary.Caption:='Установить библиотеку';
@@ -1860,7 +1860,7 @@ begin
     SelectRow(0);
     for I := 0 to High(CheckedComponentIndices) do
       if Component = ComponentIDs[CheckedComponentIndices[I]] then SelectRow(CheckedComponentIndices[I] + 1);
-    if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLib Ru'
+    if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLibre'
     else if Component <> '' then
     begin
       FPage.Caption := 'Сайт автора';
@@ -1881,7 +1881,7 @@ begin
     FPrimary.Caption := 'Установить и перезапустить'; Result := True;
     if FRecovery then
     begin
-      FStatus.Caption := 'Установка была прервана. Можно восстановить предыдущую версию и перезапустить HomeLib Ru.';
+      FStatus.Caption := 'Установка была прервана. Можно восстановить предыдущую версию и перезапустить HomeLibre.';
       FPrimary.Caption := 'Восстановить и перезапустить';
     end;
   except
@@ -1899,7 +1899,7 @@ begin
     Exit(PreparedProgramUpdateHelper(FJob,FRelease.Tag,ProgramUpdatePlatform,FRelease.SHA256));
   Result := Settings.AppPath + 'HomeLibRuUpdater.exe';
   if UpdateFileVersion(Result) = '' then
-    raise Exception.Create('Не найден механизм обновления. Выполните проверку и восстановление HomeLib Ru.');
+    raise Exception.Create('Не найден механизм обновления. Выполните проверку и восстановление HomeLibre.');
 end;
 
 function TfrmProgramUpdate.LaunchInstallation: Boolean;

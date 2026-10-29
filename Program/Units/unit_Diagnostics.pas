@@ -172,7 +172,7 @@ begin
   Zip:=TZipFile.Create;
   try
     Zip.Open(Stage,zmWrite);
-    Info:=TStringStream.Create('HomeLib Ru '+ProgramVersion+sLineBreak+TOSVersion.ToString+sLineBreak+
+    Info:=TStringStream.Create('HomeLibre '+ProgramVersion+sLineBreak+TOSVersion.ToString+sLineBreak+
       {$IFDEF WIN64}'x64'+{$ELSE}'x86'+{$ENDIF}sLineBreak+'Logs: last 7 days; 2 MiB maximum per day.'+sLineBreak,TEncoding.UTF8);
     try Zip.Add(Info,'HomeLibRu-info.txt'); finally Info.Free; end;
     if SafeDirectory and (FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibRu-*.log'),faAnyFile,Search)=0) then

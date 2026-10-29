@@ -1,4 +1,4 @@
-﻿{ HomeLib Ru. Original project copyright (C) 2008-2026 Oleksiy Penkov. }
+﻿{ HomeLibre. Original project copyright (C) 2008-2026 Oleksiy Penkov. }
 unit frm_OPDS;
 
 interface
@@ -61,7 +61,7 @@ begin
   TextLabel.AutoSize := False;
   TextLabel.WordWrap := True;
   TextLabel.Caption := 'Добавьте адрес каталога в читалку, чтобы искать и скачивать книги. ' +
-    'Компьютер и HomeLib Ru должны оставаться включёнными.';
+    'Компьютер и HomeLibre должны оставаться включёнными.';
   FLAN := TCheckBox.Create(Self);
   FLAN.Parent := Self;
   FLAN.SetBounds(16, 91, 490, 24);

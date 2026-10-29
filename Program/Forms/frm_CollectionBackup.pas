@@ -155,7 +155,7 @@ begin
   FRoot:=TEdit.Create(Self); FRoot.Parent:=Bottom; FRoot.Name:='edRestoredBooksRoot';
   FRoot.SetBounds(156,44,592,26); FRoot.Anchors:=[akLeft,akTop,akRight];
   FRestore:=TButton.Create(Self); FRestore.Parent:=Bottom; FRestore.Name:='btnRestoreBackup';
-  FRestore.SetBounds(12,96,440,30); FRestore.Caption:='Восстановить и открыть в HomeLib Ru'; FRestore.OnClick:=Restore;
+  FRestore.SetBounds(12,96,440,30); FRestore.Caption:='Восстановить и открыть в HomeLibre'; FRestore.OnClick:=Restore;
   B:=TButton.Create(Self); B.Parent:=Bottom; B.SetBounds(638,96,110,30);
   B.Anchors:=[akTop,akRight]; B.Caption:='Закрыть'; B.Cancel:=True; B.ModalResult:=mrCancel;
   FReport:=TMemo.Create(Self); FReport.Parent:=Self; FReport.Align:=alClient;

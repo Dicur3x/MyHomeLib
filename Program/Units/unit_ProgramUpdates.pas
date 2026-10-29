@@ -270,7 +270,7 @@ begin
   FreeOnTerminate := False;
   FWindow := AWindow; FHTTP := AHTTP; FRelease := ReleaseInfo; FJob := Job;
   FRuntimePath:=ExtractFilePath(ParamStr(0));
-  FHTTP.UserAgent := 'HomeLib Ru';
+  FHTTP.UserAgent := 'HomeLibre';
   FHTTP.ConnectionTimeout := 10000; FHTTP.ResponseTimeout := 15000;
   FHTTP.OnReceiveData := ReceiveData;
 end;
@@ -469,7 +469,7 @@ begin
   FURL := AURL;
   FCacheFolder := CacheFolder;
   FHTTP := AHTTP;
-  FHTTP.UserAgent := 'HomeLib Ru';
+  FHTTP.UserAgent := 'HomeLibre';
   FHTTP.ConnectionTimeout := 4000;
   FHTTP.ResponseTimeout := 6000;
   FHTTP.OnReceiveData := ReceiveData;

@@ -370,7 +370,7 @@ begin
   ReaderPanel.Align:=alTop;
   FUseBuiltinReader:=TCheckBox.Create(Self); FUseBuiltinReader.Parent:=ReaderPanel;
   FUseBuiltinReader.Name:='cbUseBuiltinReaderByDefault'; FUseBuiltinReader.SetBounds(6,2,420,24);
-  FUseBuiltinReader.Caption:='Открывать в HomeLib Reader';
+  FUseBuiltinReader.Caption:='Открывать в HomeLibre Reader';
   FUseBuiltinReader.Checked:=Settings.UseBuiltinReaderByDefault;
   FUseBuiltinReader.OnClick:=ReaderModeChanged;
   CaptionLabel:=TLabel.Create(Self); CaptionLabel.Parent:=ReaderPanel; CaptionLabel.AutoSize:=False;
@@ -487,7 +487,7 @@ begin
   CaptionLabel := TLabel.Create(Self); CaptionLabel.Parent := tsInternet;
   CaptionLabel.Align := alBottom; CaptionLabel.AutoSize := False; CaptionLabel.Height := MulDiv(70,CurrentPPI,96);
   CaptionLabel.AlignWithMargins := True; CaptionLabel.WordWrap := True;
-  CaptionLabel.Caption := 'Обновления HomeLib Ru и компонентов проверяются на GitHub. ' +
+  CaptionLabel.Caption := 'Обновления HomeLibre и компонентов проверяются на GitHub. ' +
     'Поля сервера относятся только к каталогам книг. Старый сервер закрыт; ' +
     'оставьте поля пустыми или укажите свой совместимый сервер. INPX можно подключать из файла.';
 

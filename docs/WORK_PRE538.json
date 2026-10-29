@@ -3,11 +3,11 @@
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
-    "title": "HomeLib задачи после pre5.37",
+    "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
     "verification": "Read back renamed HomeLib Page: 52 native blocks, 18 verified checked/struck-through items. Version numbering and branding pending; unrelated content preserved. Current native preparation/metadata item moved to completed.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "Read back HomeLib Page after guarded completion update: 52 native blocks, 19 checked/struck-through completed items. Complete estimate failure list moved into completed items. Cache/diagnostics and public branding/version migration remain queued; unrelated content preserved."
+    "last_check": "Page title and naming task updated to the user-confirmed HomeLibre / HomeLibre Reader, next release 3.0 beta 1. Native branding/history checks now passed; final package/version migration remains pending."
   },
   "order": [
     "archive_opening",
@@ -533,15 +533,37 @@
         "First-party component version display consistent in catalogue and standalone Reader",
         "No loss of identity, architecture, integrity or compatibility checks during version parser migration"
       ],
-      "sequencing": "Finish current source-preparation verification first; perform version migration before final packaging and publish, never bump labels without tested binaries.",
+      "sequencing": "Public HomeLibre branding is applied and native UI/history verified. Keep the numeric/public 3.x migration and actual old-release upgrade gate before final publication; do not claim new-version EXEs from source labels alone.",
       "confirmed_next_public_version": "3.0 beta 1",
       "confirmation": "User explicitly clarified and approved three numeric parts after stable release; no further version-format question needed."
     },
     "product_name": {
-      "status": "queued_with_version_migration",
-      "confirmed_public_name": "HomeLib",
-      "requested": "Remove Ru from the product name in UI and release-facing branding.",
-      "compatibility": "Retain compatibility with old installations, data paths, updater identities and already installed modules; changing branding must not invalidate manifests or lose user data."
+      "status": "source_branding_and_native_ui_verified_x86_x64_pending_final_3x_release",
+      "confirmed_public_name": "HomeLibre",
+      "requested": "Use HomeLibre starting with 3.0 beta 1. User reaffirmed HomeLibre after discussing HomeLib/LibreOffice associations; no further naming question is pending.",
+      "compatibility": "Retain compatibility with old installations, data paths, updater identities and already installed modules; changing branding must not invalidate manifests or lose user data.",
+      "confirmed_reader_name": "HomeLibre Reader",
+      "implementation": "Public catalogue/reader UI, help in four locales, main README, current developer-document headings, first-party component descriptions, wrapper diagnostics and version-resource source display names changed. Historical release notes and original copyright are retained. Release history recognises new HomeLibre beta/release headings and prior HomeLib Ru headings.",
+      "verification": {
+        "native": [
+          "Win32",
+          "Win64"
+        ],
+        "scenarios": [
+          "reader-open-choice",
+          "reader-components",
+          "post525-update"
+        ],
+        "source_report": "tools/ui/tests/Out/pre538-homelibre-branding-20261029-source-r2.json",
+        "native_report": "tools/ui/tests/Out/pre538-homelibre-branding-20261029-native-r1.json",
+        "source_scope": "278 branding-only files including 220 help files, plus separately checked history-parser change and its native regression. Developer-document introductions subsequently changed without rewriting their historical journals. Python/PowerShell syntax and XML project/manifest parse passed.",
+        "documents_sha256": {
+          "BUILDING.md": "cfbde7c757970a6524520010702c4e398b1be9bc0fc5704e11b2e01743d9d3ee",
+          "ROADMAP.md": "afbe1c9c9ccd56fb811a813988915c205ff2eb2b08c1a955c2849fdce47c7b34"
+        },
+        "cleanup": "Native runner verified its new profiles removed under G:/HomeLibRu-build-cache. No large package payloads created for this direction."
+      },
+      "remaining": "Main application/Reader/updater final 3.0 beta 1 resources, generated distributions and actual upgrade from published pre5.x still require final version-migration/package checks. Existing source/runtime UI checks do not prove those gates."
     },
     "telegram_reporter": {
       "status": "separate_user_requested_task_created",

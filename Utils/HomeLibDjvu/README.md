@@ -1,8 +1,8 @@
 # HomeLibDjvu
 
-Private persistent DjVu renderer for HomeLib Ru, GPL-2.0-or-later.
+Private persistent DjVu renderer for HomeLibre, GPL-2.0-or-later.
 Build `HomeLibDjvu.dproj` in RAD Studio, Release / Windows 32-bit. The same
-helper runs beside either Win32 or Win64 HomeLib Ru; the official 32-bit
+helper runs beside either Win32 or Win64 HomeLibre; the official 32-bit
 DjVuLibre library is never loaded into the main application.
 
 One document stays open per reader. Three decoded page handles and a 32 MiB
