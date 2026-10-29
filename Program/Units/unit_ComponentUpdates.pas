@@ -37,7 +37,7 @@ const
     (ID:'IBK'; Title:'Данные чтения IBK'; URL:'https://www.bestfree.ru/soft/office/bookreader-en-downloader.php'; CheckKind:ccIBK; CheckOnly:False),
     (ID:'MHLMcpServer'; Title:'Подключение AI-ассистента'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'Zstandard'; Title:'Каталоги Metabib в Zstandard'; URL:'https://github.com/facebook/zstd/releases'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'BookProcessing'; Title:'Общая обработка FB2/EPUB'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'BookProcessing'; Title:'Подготовка и преобразование книг'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'ImageProcessing'; Title:'Обработка изображений'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'Kindle'; Title:'Чтение MOBI/AZW/KF8'; URL:'https://github.com/kevinhendricks/KindleUnpack'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'LegacyBooks'; Title:'Кодеки старых книжных форматов'; URL:'https://github.com/kovidgoyal/calibre'; CheckKind:ccPublished; CheckOnly:False),
@@ -193,8 +193,23 @@ begin inherited Create('Для чтения этой книги нужен ко�
 
 function ComponentPurpose(const ID: string): string;
 begin
-  if ID='BookProcessing' then Exit('Общая обработка FB2/EPUB и текстов. Декодеры Kindle, Office, XPS, PDF и DjVu в этот компонент не входят.');
-  if ID='ImageProcessing' then Exit('HomeLib Images — сжатие иллюстраций, оценка размера и обработка сканов. Без модуля чтения XPS.');
+  if ID='HomeLibReader' then Exit('Без дополнительных модулей HomeLib Reader открывает:'+sLineBreak+
+    'FB2, EPUB, FB3;'+sLineBreak+'DOCX, ODT;'+sLineBreak+
+    'TXT, RTF, HTML, MHTML и текст Markdown;'+sLineBreak+
+    'JPG, PNG, GIF, BMP и CBZ с такими изображениями.'+sLineBreak+sLineBreak+
+    'Это собственные обработчики HomeLib Reader. Они обновляются вместе с читалкой.'+sLineBreak+
+    'PDF, DjVu, старые DOC/PPT/XLS и другие дополнительные форматы используют отдельные модули. '+
+    'Программа предложит нужный модуль при открытии. Подготовка очень больших FB2 и особых вариантов файлов тоже может потребовать модуль.'+sLineBreak+
+    'Внешние библиотеки, например PDFium, DjVuLibre и DocSharp, обновляются отдельно в окне «Компоненты».');
+  if ID='BookProcessing' then Exit('HomeLib Books — подготовка книг для чтения и преобразование в FB2 или EPUB.'+sLineBreak+
+    'Обрабатывает:'+sLineBreak+'FB2, EPUB;'+sLineBreak+'TXT, HTML, RTF, DOCX, ODT, FB3 и другие текстовые документы.'+sLineBreak+
+    'Для MOBI/AZW, CHM, LIT/LRF и других сложных форматов это общая часть обработки. '+
+    'Если нужен отдельный декодер формата, программа предложит его дополнительно. '+
+    'PDFium, DjVuLibre, DocSharp и декодеры Kindle в этот пакет не входят.');
+  if ID='ImageProcessing' then Exit('HomeLib Images — обработка изображений книги:'+sLineBreak+
+    'сжатие иллюстраций и перевод в чёрно-белый вид;'+sLineBreak+
+    'оценка размера сохраняемой копии;'+sLineBreak+'подготовка и разделение сканированных разворотов.'+sLineBreak+
+    'Модули чтения PDF, DjVu и XPS устанавливаются отдельно, только для соответствующей книги.');
   if ID='Kindle' then Exit('KindleUnpack — чтение и подготовка MOBI/AZW/KF8.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
   if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');

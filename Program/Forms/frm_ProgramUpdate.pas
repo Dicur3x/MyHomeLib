@@ -163,6 +163,13 @@ uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.Regul
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation;
 
+function ComponentDownloadSize(Bytes: Int64): string;
+begin
+  if Bytes>=1048576 then Result:=Format('%.1f МБ',[Bytes/1048576])
+  else if Bytes>=1024 then Result:=Format('%.1f КБ',[Bytes/1024])
+  else Result:=IntToStr(Bytes)+' Б';
+end;
+
 type
   TUpdateComponentsView = class(TListView)
   protected
@@ -911,8 +918,8 @@ begin
     if (Version='') and IsOptionalComponent(UPDATE_COMPONENTS[I].ID) and not FComponents[I].CheckOnly then
     begin
       FPrimary.Caption:='Скачать компонент';
-      FStatus.Caption:=Format('Для установки «%s» нужно скачать %.1f МБ.',
-        [UPDATE_COMPONENTS[I].Title,FComponents[I].Size/1048576]);
+      FStatus.Caption:=Format('Для установки «%s» нужно скачать %s.',
+        [UPDATE_COMPONENTS[I].Title,ComponentDownloadSize(FComponents[I].Size)]);
       if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
         FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption+sLineBreak+
           IfThen(FOperationComponent<>'','После установки продолжится выбранная операция.',
@@ -1222,8 +1229,7 @@ begin
   if FCompactBytes.Caption='' then
     if (FRelease.Size>0) and (FRelease.DownloadURL<>'') then
     begin
-      if FRelease.Size>=1048576 then FCompactBytes.Caption:=Format('Нужно скачать: %.1f МБ',[FRelease.Size/1048576])
-      else FCompactBytes.Caption:=Format('Нужно скачать: %.1f КБ',[FRelease.Size/1024]);
+      FCompactBytes.Caption:='Нужно скачать: '+ComponentDownloadSize(FRelease.Size);
     end
     else FCompactBytes.Caption:='Размер загрузки пока неизвестен.';
   FCompactProgress.Visible:=Assigned(FThread) or FReady or (FBytes.Caption<>'');
@@ -1283,7 +1289,7 @@ begin
 end;
 
 procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
-var Index: Integer;
+var Index: Integer; Purpose: string;
 begin
   // Old saved operations may still name the former all-format bundle. New
   // clients must never turn that into a fresh monolithic download.
@@ -1299,9 +1305,15 @@ begin
     Exit;
   end;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
-  FRequestedComponent:=ID; FRequestReason:=ComponentPurpose(ID);
-  if (FRequestReason<>'') and (Reason<>'') then FRequestReason:=FRequestReason+sLineBreak;
-  FRequestReason:=FRequestReason+Reason; UpdateComponentList;
+  FRequestedComponent:=ID; Purpose:=ComponentPurpose(ID); FRequestReason:=Trim(Reason);
+  // Callers may already supply the purpose, or include it in a decoder error.
+  // Compare normalized line endings and keep their operation-specific context.
+  if (Purpose<>'') and not FRequestReason.Replace(#13,'').Contains(Purpose.Replace(#13,'')) then
+  begin
+    if FRequestReason<>'' then FRequestReason:=Purpose+sLineBreak+FRequestReason
+    else FRequestReason:=Purpose;
+  end;
+  UpdateComponentList;
   if FCheckingCycle or Assigned(FComponentThread) then
   begin
     FRequestedCheckPending:=True; SelectRow(Index+1); ComponentSelected(nil); Present; Exit;
@@ -1596,7 +1608,7 @@ begin
   Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
   FLater.Caption := 'Отменить'; FStatus.Caption := 'Загрузка ' + Name + '…';
   if FQueueTotal > 0 then FProgress.Position := Integer(FQueueBytes * 100 div FQueueTotal);
-  FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FQueueBytes / 1048576, FQueueTotal / 1048576]);
+  FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(FQueueBytes),ComponentDownloadSize(FQueueTotal)]);
   LayoutWindow;
   FThread.Start;
 end;
@@ -1655,7 +1667,7 @@ begin
     Name := FQueue[FQueueIndex].ComponentID; if Name = '' then Name := 'HomeLib Ru';
     FStatus.Caption := 'Загрузка ' + Name + '…';
   end;
-  FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [Downloaded / 1048576, FQueueTotal / 1048576]);
+  FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(Downloaded),ComponentDownloadSize(FQueueTotal)]);
   SyncCompactPrompt;
 end;
 
@@ -1701,7 +1713,7 @@ begin
   begin
     UpdateReleasePage;
     FProgress.Position := 100; FPrimary.Caption := 'Установить и перезапустить';
-    FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
+    FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(FRelease.Size),ComponentDownloadSize(FRelease.Size)]);
     FStatus.Caption := 'Обновление скачано и проверено.' + sLineBreak +
       'Для установки HomeLib Ru закроется и запустится снова.';
     if FOperationComponent<>'' then
@@ -1801,7 +1813,7 @@ begin
     FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
     if FRelease.Size > 0 then
-      FBytes.Caption := Format('Скачано: %.1f / %.1f МБ', [FRelease.Size / 1048576, FRelease.Size / 1048576]);
+      FBytes.Caption := Format('Скачано: %s / %s', [ComponentDownloadSize(FRelease.Size),ComponentDownloadSize(FRelease.Size)]);
     SavedURL := ''; TJSONObject(Root).TryGetValue<string>('url', SavedURL);
     FRelease.URL := UpdateReleasePageURL(Component, Tag, SavedURL);
     UpdateReleasePage;

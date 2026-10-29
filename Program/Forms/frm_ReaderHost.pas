@@ -35,6 +35,7 @@ type
     procedure SaveClick(Sender: TObject);
     procedure ExitClick(Sender: TObject);
     procedure ComponentsClick(Sender: TObject);
+    procedure FormatsClick(Sender: TObject);
     procedure CacheSettingsClick(Sender: TObject);
     procedure EnsureUpdates;
     procedure RestartForUpdate(Sender: TObject);
@@ -64,7 +65,7 @@ uses System.IOUtils, System.IniFiles, System.Math, Vcl.Dialogs,
   unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_BookCache,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
-  frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings;
+  frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
@@ -173,9 +174,34 @@ begin
   SettingsMenu:=TMenuItem.Create(Menu); SettingsMenu.Caption:='Настройки'; Menu.Items.Add(SettingsMenu);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Кэш книг…'; Item.OnClick:=CacheSettingsClick;
   SettingsMenu.Add(Item);
+  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderFormatsHelp'; Item.Caption:='Форматы чтения…'; Item.OnClick:=FormatsClick;
+  SettingsMenu.Add(Item);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Компоненты…'; Item.OnClick:=ComponentsClick;
   Menu.Items.Add(Item); Form.Menu:=Menu;
   if Form is TfrmBuiltinReader then TfrmBuiltinReader(Form).RefreshWindowTheme;
+end;
+
+procedure TfrmReaderHost.FormatsClick(Sender: TObject);
+var Dialog: TForm; Text: TMemo; CloseButton: TButton;
+begin
+  Dialog:=TForm.CreateNew(Self);
+  try
+    Dialog.Name:='ReaderFormatsDialog'; Dialog.Caption:='Форматы и обновления читалки';
+    Dialog.Position:=poMainFormCenter; Dialog.Font.Assign(Font);
+    Dialog.ClientWidth:=650; Dialog.ClientHeight:=420;
+    Dialog.Constraints.MinWidth:=460; Dialog.Constraints.MinHeight:=300;
+    Text:=TMemo.Create(Dialog); Text.Parent:=Dialog; Text.Name:='ReaderFormatsText';
+    Text.ReadOnly:=True; Text.ScrollBars:=ssVertical; Text.WordWrap:=True;
+    Text.SetBounds(16,16,618,340); Text.Anchors:=[akLeft,akTop,akRight,akBottom];
+    Text.Text:=ComponentPurpose('HomeLibReader');
+    CloseButton:=TReaderPaletteButton.Create(Dialog); CloseButton.Parent:=Dialog; CloseButton.Caption:='Закрыть';
+    CloseButton.SetBounds(524,372,110,30); CloseButton.Anchors:=[akRight,akBottom];
+    CloseButton.Default:=True; CloseButton.Cancel:=True; CloseButton.ModalResult:=mrOk;
+    Dialog.ScaleForPPI(CurrentPPI);
+    if FView is TfrmBuiltinReader then TfrmBuiltinReader(FView).ApplyWindowPalette(Dialog)
+    else ApplyMHLControlTheme(Dialog);
+    Dialog.ShowModal;
+  finally Dialog.Free; end;
 end;
 
 procedure TfrmReaderHost.OpenClick(Sender: TObject);

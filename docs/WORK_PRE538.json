@@ -14,8 +14,10 @@
     }
   },
   "component_installation": {
-    "status": "next",
-    "remaining": ["Remove duplicate purpose paragraphs in compact prompts", "Use consistent nonzero units for small download sizes", "Explain native FB2/EPUB/DOCX handlers and that they update with Reader", "Explain actual BookProcessing role and per-format extra modules", "Avoid asking for private 7-Zip before installing DjVu when a verified ready package or suitable existing unpacker is available", "Plan all known required modules for the selected operation together, without unrelated format modules", "Investigate safe operation continuation and avoid needless application restart where possible"]
+    "status": "in_progress",
+    "verified": ["Compact prompts contain the purpose once even when passed again by the caller or in a multiline operation reason", "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter", "Reader Settings has scrollable formats help naming native handlers and update ownership", "BookProcessing and ImageProcessing purposes describe their actual roles and separate format modules"],
+    "verification": {"platforms": ["Win32", "Win64"], "scenarios": ["component-prompt-feedback", "reader-components"], "help_layout": "light/dark at 96/144/192 DPI; active reading view supplies its own palette", "cleanup": "New isolated native test profiles removed by the wrapper"},
+    "remaining": ["Avoid asking for private 7-Zip before installing DjVu when a verified ready package or suitable existing unpacker is available", "Plan all known required modules for the selected operation together, without unrelated format modules", "Investigate safe operation continuation and avoid needless application restart where possible"]
   },
   "save_as_and_navigation": {
     "status": "queued",
