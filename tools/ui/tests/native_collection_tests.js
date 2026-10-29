@@ -50,7 +50,7 @@ if (!runtimeArg || !genreArg || !importArg || !viewsArg) {
   process.exit(2);
 }
 const runtime = fs.realpathSync(runtimeArg);
-const focusedViews = viewsMode !== null || process.argv.includes('--download-scenarios-only');
+const focusedViews = viewsMode !== null || process.argv.includes('--download-scenarios-only') || onlineOnly || archiveOnly || plainOnly || reviewsOnly;
 const tests = [genreArg, importArg, viewsArg].map((p,i) => i<2 && p==='-' && focusedViews ? null : fs.realpathSync(p));
 const names = ["GenreRegistryTest.exe", "MetabibImportTest.exe", viewsMode==='reader-story' ? "StoryReaderTest.exe" : "CollectionViewsTest.exe"];
 function machine(file) {
@@ -71,7 +71,7 @@ if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error
 let post530Fixtures;
 const modes = ["sqlite-mapping", "reader-open-choice", "reader-host-session", "reader-session-context", "reader-cache-settings", "reader-packages", "reader-components", "minimal-first-install", "post530", "update-mounts", "reader-spread", "optional-components", "feedback529", "view-sessions", "startup-deferred", "startup-deferred-publisher", "startup-deferred-fallback", "startup-deferred-close", "reader-resource-idle", "post525-update", "update-repair", "reader-cache-performance", "compact-book-views", "release23-filters", "metadata-book-columns", "author-display-setting", "export-results-audit", "search-query-modes", "legacy-import-preview", "inp-streaming", "inp-streaming-memory", "reader-notes-proposals", "update-keyboard-accessibility", "update-source-failures", "reader-conversion-audit", "settings-workflow-audit", "catalog-audit", "export-preparation", "feedback22", "feedback21", "metadata-archive-codecs", "feedback20-main", "update-form-notifier", "book-preview-layout", "metadata-fill-layout", "metadata-fill-ui", "collection-metadata-sync", "metabib-size","reader-pipeline-cache","conversion-menu","publisher-metadata-index","main-toolbar-states", "main-publisher-index-cache", "feedback19-main","catalog-sources-workflow","search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
 modes.push('reader-small-fb2', 'reader-session-process');
-modes.push('duplicate-source');
+modes.push('duplicate-source', 'review-formatting');
 modes.push('ibk-components');
 modes.push('ibk-download-live');
 modes.push('component-mirrors', 'reader-portable');
@@ -206,6 +206,7 @@ const requiredViews = {
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
   "review-http": ["PASS HTTP reviews decode UTF-8"],
+  "review-formatting": ["PASS review formatting separates reviewers paragraphs", "PASS review formatting handles missing div separators", "PASS long review lists preserve all reviewer", "PASS native review memo wraps scrolls preserves cached text", "PASS book page without reviews remains empty"],
 };
 // Each independent layout suite retains its full DPI sequence and the same
 // 90-second deadline. The default runner requires all three; none is optional.
@@ -828,7 +829,7 @@ async function runOnline(executable, mode) {
   const absolute = path.resolve(folder), expectedRoot = path.resolve(os.tmpdir()) + path.sep;
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   const requests = [];
-  const expected = mode === 'review-http' ? ['/b/1/', '/b/2/', '/b/3/', '/b/4/'] : mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
+  const expected = mode === 'review-http' ? ['/b/1/', '/b/2/', '/b/3/', '/b/5/', '/b/4/'] : mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
   const server = http.createServer((req, res) => {
     requests.push(`${req.method} ${req.url}`);
     if(mode==='download-scenarios') {
@@ -852,7 +853,7 @@ async function runOnline(executable, mode) {
     if (req.method !== "GET" || !expected.includes(req.url)) { res.writeHead(404); res.end(); return; }
     if (mode === 'review-http') {
       if (req.url === '/b/2/') { res.writeHead(503); res.end('unavailable'); return; }
-      const text = req.url === '/b/3/' ? '<h1>Access denied</h1>' : '<h2>Р С’Р Р…Р Р…Р С•РЎвЂљР В°РЎвЂ Р С‘РЎРЏ</h2><p>Р В РЎС“РЎРѓРЎРѓР С”Р В°РЎРЏ Р В°Р Р…Р Р…Р С•РЎвЂљР В°РЎвЂ Р С‘РЎРЏ</p><form></form><a href="/polka/show/1">Р В§Р С‘РЎвЂљР В°РЎвЂљР ВµР В»РЎРЉ</a><br><p>Р С›РЎвЂЎР ВµР Р…РЎРЉ РЎвЂ¦Р С•РЎР‚Р С•РЎв‚¬Р В°РЎРЏ Р С”Р Р…Р С‘Р С–Р В°</p><div></div><div id="newann"></div>';
+      const text = req.url === '/b/3/' ? '<h1>Access denied</h1>' : req.url === '/b/5/' ? '<h2>Отзывы</h2><div id="newann"></div>' : '<h2>Аннотация</h2><p>Русская аннотация</p><form></form><a href="/polka/show/1">Читатель</a><br><p>Очень <strong>хорошая</strong> книга</p><p>Второй абзац.</p><div></div><a href="/polka/show/2">Другой читатель</a><br><p>Отдельный отзыв.</p><div></div><div id="newann"></div>';
       const reply = () => { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(text); };
       if (req.url === '/b/4/') {
         fs.writeFileSync(path.join(folder, 'review-request-started.marker'), 'request active');

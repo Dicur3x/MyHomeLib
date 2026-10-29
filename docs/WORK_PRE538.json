@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 23 completed items after diagnostics and external reader work; pending release/version and remaining UI work retained.",
+    "verification": "52 blocks, 24 completed items after diagnostics, external reader and review formatting work; pending release/version and remaining UI work retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: external reader visibility, first-use routing, install/rollback, stable reading filenames and warm cache verified on x86/x64; unreleased."
+    "last_check": "30 October 2026: review formatting and network/cached-text lifecycle verified on x86/x64; unreleased."
   },
   "order": [
     "archive_opening",
@@ -271,10 +271,31 @@
   },
   "new_user_feedback_20261029": {
     "review_formatting": {
-      "priority": "after_current_save_checks",
-      "status": "queued",
+      "priority": "completed_after_external_reader_checks",
+      "status": "verified_in_source_not_released",
       "book": "Возвращение — Роман Злотников",
-      "observed": "User screenshots show saved Flibusta reviews flattened into one continuous paragraph, with reviewer names, separate reviews and paragraph boundaries difficult to distinguish. Preserve paragraph/review separation when parsing and displaying, and check existing cached text. No implementation claimed yet."
+      "observed": "User screenshots show saved Flibusta reviews flattened into one continuous paragraph, with reviewer names, separate reviews and paragraph boundaries difficult to distinguish. Preserve paragraph/review separation when parsing and displaying, and check existing cached text.",
+      "implementation": [
+        "Separate review HTML-to-text conversion from release-note Markdown; preserve reviewer headings, paragraph gaps and explicit HTML breaks",
+        "Accept case/attribute/BR variants and bound each review by its next reviewer and service/footer delimiters; retain Librusec support",
+        "Keep UTF-8/entities and annotation paragraphs; do not reinterpret or rewrite already saved plain text",
+        "Existing downloaded reviews whose boundaries were already lost require explicit re-download; automatic inference of reviewer boundaries would risk altering personal text"
+      ],
+      "verification": {
+        "artifact": "tools/ui/tests/Out/pre538-review-formatting-20261030-r5.json",
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "scenarios": [
+          "review-formatting",
+          "book-information",
+          "review-http"
+        ],
+        "checks": "120-review list; exact paragraph/break/header fixtures; missing separators and headerless paragraphs; real TMemo wrapping/scrolling, unchanged cached text and actual edit tracking; HTTP UTF-8 with two reviews, HTTP 503 and blocked/empty responses preserve saved reviews; close during active HTTP request",
+        "cleanup": "No new native profiles remain",
+        "limitation": "Verified against deterministic HTML/HTTP fixtures reproducing the parser defect. No live-page reproduction of the exact user book claimed."
+      }
     },
     "update_confirmation": "Tester reports automatic update from pre5.33 succeeded. This confirms that case only; do not treat it as proof of all update paths.",
     "epub_zip_explanation": "Explicit FB2/FB2 in ZIP choices verified in source on x86/x64; no general ZIP checkbox or EPUB.ZIP output. Not yet released.",
@@ -686,7 +707,6 @@
     }
   },
   "next_steps_order": [
-    "Fix Flibusta reviews formatting",
     "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",
     "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",

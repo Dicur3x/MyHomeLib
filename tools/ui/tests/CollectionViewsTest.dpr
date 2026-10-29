@@ -2107,6 +2107,8 @@ begin
   TFile.WriteAllText(TPath.Combine(Folder, WEBP_READER_CACHE_FOLDER + '\copy.fb2'), 'converted copy');
 end;
 
+{$I ReviewFormattingTests.inc}
+
 procedure TestReviewHTTP;
 var Details: TfrmBookDetails; URL: string; Started: UInt64;
   procedure WaitDownload;
@@ -2125,8 +2127,9 @@ begin
     Details.Review := 'Сохранённый отзыв';
     Require(not Details.ReviewChanged, 'Showing saved reviews counts as an edit');
     Details.AllowOnlineReview(URL + '1/'); Details.Download; WaitDownload;
-    Require((Pos('Читатель:', Details.Review) > 0) and (Pos('хорошая', Details.Review) > 0),
-      'HTTP UTF-8 review text corrupted');
+    Require((Pos('Читатель:'+sLineBreak+'Очень хорошая книга'+sLineBreak+sLineBreak+'Второй абзац.', Details.Review) > 0) and
+      (Pos(sLineBreak+sLineBreak+'Другой читатель:'+sLineBreak+'Отдельный отзыв.',Details.Review)>0),
+      'HTTP UTF-8 reviews lost paragraphs or reviewer boundaries');
     Details.Review := 'Не терять этот отзыв'; Details.ReviewChanged := False;
     Details.AllowOnlineReview(URL + '2/'); Details.Download; WaitDownload;
     Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
@@ -2136,6 +2139,9 @@ begin
     Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
       not Details.ReviewChanged and (Pos('Не удалось', Details.ReviewStatus.Caption) = 1),
       'Blocked page replaced saved reviews');
+    Details.AllowOnlineReview(URL + '5/'); Details.Download; WaitDownload;
+    Require((Details.Review.Trim='Не терять этот отзыв') and not Details.ReviewChanged and
+      (Pos('нет отзывов',Details.ReviewStatus.Caption)>0),'Empty review page replaced saved reviews');
   finally Details.Free; end;
   Details := TfrmBookDetails.Create(nil);
   Details.AllowOnlineReview(URL + '4/'); Details.Download;
@@ -6027,6 +6033,7 @@ begin
         frmMain.Show;
         Application.Run;
       end
+      else if ParamStr(1) = 'review-formatting' then TestReviewFormatting
       else if ParamStr(1) = 'review-http' then
         TestReviewHTTP
       else if ParamStr(1) = 'book-information' then
