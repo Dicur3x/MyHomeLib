@@ -5,7 +5,7 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLib задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Read back all 51 native blocks and stable IDs: 17 checked/struck through, new confirmed 3.x beta/release numbering task unchecked, all unrelated content preserved.",
+    "verification": "Read back renamed HomeLib Page: 52 native blocks, 18 verified checked/struck-through items. Version numbering and branding pending; unrelated content preserved. Current native preparation/metadata item moved to completed.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
   },
   "order": [
@@ -526,13 +526,17 @@
       "compatibility": "Retain compatibility with old installations, data paths, updater identities and already installed modules; changing branding must not invalidate manifests or lose user data."
     },
     "telegram_reporter": {
-      "status": "user_requested_separate_task_after_current_started_verification",
+      "status": "separate_user_requested_task_created",
       "project_name": "ReportBridge",
       "requested_path": "C:/Users/cloud/IdeaProjects/ReportBridge",
       "development_model": "gpt-6.1-terra",
       "reasoning_effort": "xhigh",
       "scope": "Reusable multi-provider AI bug-report intake tool; Telegram first, Codex integration/current-chat feasibility, other AI via API key/configurable endpoint, clarification conversations, durable deduplicated queue, fixes/status feedback. Separate repo shareable with colleague and GitHub publication authorized. Telegram group creation/setup authorized; protect credentials and do not disclose private existing history or book data.",
-      "sequencing": "Finish current FLibrary source/metadata bug fix and x86/x64 verification, then create the explicitly requested separate task. Do not silently migrate HomeLib development or change this goal."
+      "sequencing": "Finish current FLibrary source/metadata bug fix and x86/x64 verification, then create the explicitly requested separate task. Do not silently migrate HomeLib development or change this goal.",
+      "thread_id": "01a187f3-b988-7ec3-beee-505516618d9b",
+      "host_id": "local",
+      "folder_created": "C:/Users/cloud/IdeaProjects/ReportBridge",
+      "handoff": "Created after source/metadata fix passed both architectures and external-reader-names regressions. Development model gpt-6.1-terra, xhigh; first-party HomeLib working tree explicitly excluded from bot edits."
     }
   },
   "github_maintenance_20261029": {
