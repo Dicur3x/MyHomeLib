@@ -140,9 +140,11 @@
   "save_as_and_navigation": {
     "status": "in_progress",
     "remaining": [
+      "Source FB2 compatibility in conversion/estimation: broken internal links and br; investigate exact image-ID case",
+      "Batch estimation list with per-book reasons and totals that distinguish unknown sizes",
+      "Repeated atomic source-copy/ZIP save path failures and non-repeating batch errors",
       "Overwrite checkbox with safe publication and source protection",
-      "Never wrap EPUB in redundant EPUB.ZIP",
-      "Finish mixed-format save and estimates feedback"
+      "Export/estimation cache lifecycle and opt-in extended diagnostic report"
     ],
     "reader_internal_links": {
       "status": "verified_in_source_not_released",
@@ -178,7 +180,7 @@
         "Real-book testing caught and fixed native insertion-position hit testing at the right half of a glyph."
       ],
       "cleanup": "Every new native profile and Python-managed selected-book extraction/conversion directory removed after successes and failures; no real book is bundled in source or fixtures.",
-      "limits": "These are source/test builds; desktop executables, final Reader/application package integration and publication remain pending. Generated chapter outline from NCX-only metadata is a separate remaining check."
+      "limits": "Verified source/native tests only. Declared NCX/nav outline subsequently completed under reader_declared_outline. Final Reader/application build/package integration and publication still pending."
     },
     "reader_declared_outline": {
       "status": "verified_in_source_not_released",
@@ -290,7 +292,7 @@
       "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
     },
     "fb2_estimation_compatibility": {
-      "status": "queued_after_distribution_layout",
+      "status": "investigating_actual_sources",
       "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
       "cases": [
         {
@@ -319,7 +321,20 @@
         "Preserve book text and images when possible; distinguish recoverable warnings from missing content",
         "Test estimates and actual export through same preparation path, no silent broken target substitution",
         "Verify corrected real cases and malformed/broken cases before claiming success"
-      ]
+      ],
+      "evidence": {
+        "readonly_catalogue": "C:/Users/cloud/Desktop/MyHomeLib/Data/flibusta_all_local_2026-10-02.hlc2",
+        "reproduced": [
+          "LibID562221 Час трутня:12 note links #n_1..#n_12 have no source IDs",
+          "LibID792655 Здесь, на знакомых тротуарах...: FB2-namespace br inside p",
+          "LibID755727 Назад в СССР Лесник2: missing #302252",
+          "LibID875779 Маг Тени13: missing #269229, #botbybase_bot?startgroup=1, #557875"
+        ],
+        "not_reproduced": "Image-ID error: inspected three local Ярлинги variants (G533994/H677625/F557950), no duplicate/empty binary IDs. G533994 conversion succeeds. Do not claim this case fixed.",
+        "sources_unchanged": true,
+        "cleanup": "G sample extraction and generated EPUB confined to auto-cleaned TemporaryDirectory under existing G:/HomeLibRu-build-cache; H/F selected member read into memory with existing 7-Zip after Python zipfile correctly rejected unsupported compression. No downloads or source writes.",
+        "implementation": "No converter relaxation committed yet; decide explicit warnings/preserve visible text for source-broken links, valid line-break conversion; keep ambiguous/corrupt image errors identifiable."
+      }
     },
     "export_cache_cleanup": {
       "status": "queued_with_export_compatibility",
@@ -329,6 +344,39 @@
         "Classify reusable book cache vs operation-only estimation/export temp files",
         "Check cleanup on success, per-book failure, cancellation and program exit with clear-cache setting",
         "Respect active readers and legitimate reusable cache policy; do not delete source books or real user cache during investigation"
+      ]
+    },
+    "reader_word_lookup": {
+      "status": "queued_after_export_fixes",
+      "request": "Two independent selected-word/text actions: dictionary lookup (research installed GoldenDict integration) and Google search as additional option, not alternative. User asks lightweight integration; no unsolicited dictionary installation."
+    },
+    "estimate_failure_visibility": {
+      "status": "queued_with_export_compatibility",
+      "observed": "Batch screenshot: 22 books without estimates; only one shared error shown, EPUB structure p cannot be represented in FB2 without content loss. Tester cannot identify affected books. Preserve actual input and inspect cause before relaxing checks.",
+      "requirements": [
+        "Display all books without estimates and per-book reason clearly, not only tooltip or first error",
+        "Differentiate failed estimation from actual failed save",
+        "Provide useful per-book report for batch diagnosis"
+      ]
+    },
+    "export_atomic_path_failure": {
+      "status": "queued_after_fb2_compatibility",
+      "book": "Ученики Ворона-02-Гробницы пяти магов.fb2",
+      "observed": "Repeated export failures creating same-directory .fb2.zip.homelib-new-{GUID}: system cannot find path. Source books exist according to tester. Exact cause unproven.",
+      "requirements": [
+        "Reproduce nested author/series mask and long paths in native source-copy/ZIP operations",
+        "Check parent creation, invalid template characters, path/component lengths and atomic staging; preserve originals and existing output",
+        "Batch per-book errors in final report and avoid repeated continuation popups for every failed book"
+      ]
+    },
+    "diagnostic_logging_toggle": {
+      "status": "queued_with_export_diagnostics",
+      "request": "Opt-in diagnostic logging across operations so users can provide one report instead of screenshots",
+      "requirements": [
+        "Inspect and reuse existing diagnostics rather than duplicate logging",
+        "Include operation/book ID/title, source and output formats, exact path, stage/module versions, complete exceptions and per-book outcome",
+        "Never log book content, credentials or secret request headers; bound size and retention; easy report location/export in UI",
+        "Test log enabled/disabled, batch failure and cleanup behavior"
       ]
     }
   },
@@ -352,5 +400,14 @@
       ],
       "verification": "Default-branch README fetched after update and exactly matches submitted content; remote commit merged into audit branch without publishing unready code"
     }
-  }
+  },
+  "next_steps_order": [
+    "Finish FB2/EPUB export compatibility with actual affected books",
+    "Fix atomic output paths, batch failure reporting and overwrite option",
+    "Finish per-book estimation failure visibility; verify BookCache cleanup and add opt-in extended diagnostics",
+    "Fix Flibusta reviews formatting",
+    "Research lightweight selected-text dictionary integration plus separate Google action",
+    "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
+    "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
+  ]
 }
