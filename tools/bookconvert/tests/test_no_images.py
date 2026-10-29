@@ -100,10 +100,12 @@ class NoImages(unittest.TestCase):
                 def choose():
                     try:
                         until = time.monotonic()+20
-                        while not options.exists():
-                            if time.monotonic()>until: raise AssertionError('No text-only choice')
-                            time.sleep(.01)
-                        value = json.loads(options.read_text('utf-8'))
+                        while True:
+                            try:
+                                value = json.loads(options.read_text('utf-8')); break
+                            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+                                if time.monotonic()>until: raise AssertionError('No readable text-only choice')
+                                time.sleep(.01)
                         self.assertGreater(value['sizes']['none'],0)
                         estimates.append(value['sizes']['none'])
                         choice.write_text('none',encoding='utf-8')

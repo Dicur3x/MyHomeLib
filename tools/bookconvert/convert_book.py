@@ -156,7 +156,7 @@ def append_text(node, text):
         node.text = (node.text or '') + text
 
 
-def normalize_fb2(book, preserved_bodies=()):
+def normalize_fb2(book, preserved_bodies=(), warnings=None):
     """Split flow at line breaks; FB2 sections cannot mix children and prose."""
     inline = {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code', 'image'}
     paragraphs = {'p', 'subtitle', 'v', 'text-author'}
@@ -243,6 +243,29 @@ def normalize_fb2(book, preserved_bodies=()):
             node[:] = [part for child in node for part in (list(flatten(child)) if tag(child) == 'section' else [child])]
     for body in children(book, 'body'):
         if body not in preserved_bodies: fix(body)
+    # FB2 has block anchors, but no id attribute on links, named styles or
+    # inline images. Keep such source/EPUB anchors at the enclosing paragraph
+    # (or section) and redirect links there without splitting styled prose.
+    aliases = {}
+    inline_names = {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code'}
+    def anchors(node, block=None, inline=False):
+        name = tag(node)
+        if name == 'section' or name in paragraphs: block = node
+        if node.get('id') and (name in inline_names or name == 'image' and inline):
+            old = node.attrib.pop('id')
+            if block is None: raise ConversionError('Не удалось сохранить метку внутри абзаца FB2: ' + old)
+            if not block.get('id'): block.set('id', old)
+            aliases[old] = block.get('id')
+        for child in node:
+            anchors(child, block, inline or name in paragraphs or name in inline_names or name in {'td', 'th'})
+    for body in children(book, 'body'): anchors(body)
+    if aliases:
+        for link in book.iter('{' + FB + '}a'):
+            href = link.get('{' + XL + '}href', '')
+            if href.startswith('#') and href[1:] in aliases:
+                link.set('{' + XL + '}href', '#' + aliases[href[1:]])
+        if warnings is not None:
+            warnings.add('FB2 не поддерживает метки перехода внутри текста абзаца. Такие переходы ведут к содержащему их абзацу; текст и его оформление сохранены.')
 
 
 def fb2_output_issues(book):
@@ -267,8 +290,12 @@ def fb2_output_issues(book):
             identities.add(value)
     link_styles = {id(n) for link in book.iter('{' + FB + '}a') for n in link.iter('{' + FB + '}style')}
     for body in children(book, 'body'):
+        parents = {child: parent for parent in body.iter() for child in parent}
         for node in body.iter():
             name = tag(node)
+            if node.get('id') and (name in inline - {'image'} or name == 'image' and
+                    tag(parents[node]) in inline | {'p', 'subtitle', 'v', 'text-author', 'td', 'th'}):
+                yield ('inline-id', name, node.get('id')), 'В результате FB2 недопустимая метка внутри абзаца: ' + node.get('id')
             if node.tag != '{' + FB + '}' + name or name not in rules and name not in {'image', 'empty-line', 'date'}:
                 yield ('element', node.tag), 'Нельзя сохранить элемент в FB2: ' + name
             allowed = rules.get(name, set())
@@ -472,8 +499,9 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
                 if identity in ids:
                     raise ConversionError('В FB2 повторяется идентификатор: ' + identity)
                 ids[identity] = filename
-    image_files, saved_image_ids = {}, {}
-    used_ids = set(ids) | {n.get('id') for n in children(book, 'binary') if n.get('id')}
+    image_files, saved_image_ids, image_aliases = {}, {}, {}
+    used_ids = {n.get('id') for n in book.iter() if n.get('id')}
+    text_ids = {n.get('id') for n in book.iter() if tag(n) != 'binary' and n.get('id')}
     for index, binary in enumerate(children(book, 'binary')):
         identity = binary.get('id', '')
         try:
@@ -481,22 +509,68 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
         except ValueError as error:
             raise ConversionError('Повреждено изображение FB2: ' + identity) from error
         mime, extension = fb2_image_type(data, binary.get('content-type', 'application/octet-stream'))
-        if identity in ids:
-            raise ConversionError('В FB2 изображение и текст используют один идентификатор: ' + identity)
+        original_identity = identity
+        previous = image_files.get(image_aliases.get(identity, identity)) if identity else None
+        if previous:
+            if resources[previous] == (data, mime):
+                warnings.add('Одинаковые изображения с повторяющимся идентификатором FB2 сохранены одним ресурсом EPUB. Все ссылки на него сохранены.')
+                continue
+            warnings.add('В исходной FB2 разные изображения имеют одинаковый идентификатор. Все варианты сохранены с разными именами. Неоднозначные ссылки показывают первый вариант из исходного файла.')
+        if previous or identity in text_ids:
+            identity = 'image-resource-' + str(index + 1)
+            while identity in used_ids: identity += '-copy'
+            used_ids.add(identity)
+            binary.set('id', identity)
+            if not previous:
+                warnings.add('Идентификатор изображения FB2 совпадает с меткой в тексте. Изображение получило отдельное имя; ссылки на изображение и метка текста сохранены.')
         if not identity:
             identity = 'unnamed-image-' + str(index + 1)
             while identity in used_ids: identity += '-copy'
             used_ids.add(identity)
             warnings.add('В исходной FB2 есть изображение без идентификатора. Его данные сохранены в EPUB с новым именем; отсутствующие ссылки на него не создавались.')
-        if identity in image_files:
-            if resources[image_files[identity]] == (data, mime):
-                warnings.add('Одинаковые изображения с повторяющимся идентификатором FB2 сохранены одним ресурсом EPUB. Все ссылки на него сохранены.')
-                continue
-            raise ConversionError('В FB2 разные изображения используют один идентификатор: ' + identity)
         filename = f'images/image-{index + 1}{extension}'
         resources[filename] = (data, mime)
         image_files[identity] = filename
         saved_image_ids[filename] = identity
+        if original_identity: image_aliases.setdefault(original_identity, identity)
+    # A picture reference and a textual anchor are different namespaces in a
+    # malformed source. Rename only picture resources/references; text links
+    # must still reach their original text or image-element anchors.
+    for picture in book.iter('{' + FB + '}image'):
+        href = picture.get('{' + XL + '}href', '')
+        if href.startswith('#') and href[1:] in image_aliases:
+            picture.set('{' + XL + '}href', '#' + image_aliases[href[1:]])
+    for stylesheet in children(book, 'stylesheet'):
+        if stylesheet.text:
+            def renamed_css(match):
+                reference = match[1].strip().strip('\'"')
+                if reference.startswith('#') and reference[1:] in image_aliases:
+                    return match[0].replace(reference, '#' + image_aliases[reference[1:]], 1)
+                return match[0]
+            stylesheet.text = re.sub(r'url\s*\(\s*([^)]*)\)', renamed_css, stylesheet.text, flags=re.I)
+    for source_title in book.iter('{' + FB + '}title'):
+        if not ((source_title.text and source_title.text.strip()) or
+                any((n.tail and n.tail.strip()) or tag(n) not in {'p', 'empty-line'} for n in source_title)):
+            continue
+        parts, paragraph = [], None
+        if source_title.text:
+            paragraph = element(FB, 'p', source_title.text); parts.append(paragraph)
+        for child in source_title:
+            tail = child.tail; child.tail = None
+            if tag(child) in {'p', 'empty-line'}:
+                parts.append(child); paragraph = None
+            elif tag(child) in {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code', 'image'}:
+                if paragraph is None: paragraph = element(FB, 'p'); parts.append(paragraph)
+                paragraph.append(child)
+            else:
+                raise ConversionError('В заголовке FB2 нельзя перенести элемент: ' + tag(child))
+            if tail:
+                if paragraph is None:
+                    if tail.strip(): paragraph = element(FB, 'p', tail); parts.append(paragraph)
+                    else: child.tail = tail
+                else: append_text(paragraph, tail)
+        source_title.text = None; source_title[:] = parts
+        warnings.add('Текст заголовка исходной FB2 вне абзаца перенесён в абзац заголовка без потери текста.')
     headings = []
     missing_links = []
     generated_ids = set(ids)
@@ -1103,7 +1177,7 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
                 if item.get('media-type', '').startswith('image/') and archive.resolve(package_path, item.get('href', ''))[0] is not None:
                     image(package_path, item.get('href', ''))
         book.extend(binaries)
-        normalize_fb2(book, preserved_bodies)
+        normalize_fb2(book, preserved_bodies, warnings)
         # FB2 styleLinkType deliberately has no attributes, unlike the same
         # style element outside a link (namedStyleType).
         for link in book.iter('{' + FB + '}a'):

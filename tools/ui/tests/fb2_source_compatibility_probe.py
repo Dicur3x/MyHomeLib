@@ -92,6 +92,8 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--node', type=Path, required=True)
     parser.add_argument('--conversion-fixtures', type=Path, required=True)
+    parser.add_argument('--extra-source-zip', type=Path)
+    parser.add_argument('--extra-source-sha256')
     args = parser.parse_args()
     if args.report.exists(): raise ValueError('Never overwrite a previous report')
     api = load('source_compat_api', ROOT/'tools/bookconvert/convert_book.py')
@@ -105,13 +107,26 @@ def main():
         run([sys.executable, '-B', '-X', 'utf8', ROOT/'scripts/package-format-components.py',
              packages, '--version', '2.7.0.1106', '--component', 'BookProcessing', '--component', 'ImageProcessing'])
         sources = temporary/'sources'; sources.mkdir()
-        source_data = {}
+        source_data = {}; selected_cases = list(CASES)
         for identity, archive_name, expected in CASES:
             with zipfile.ZipFile(args.source_root/archive_name) as archive:
                 data = archive.read(identity+'.fb2')
             assert digest(data)==expected, 'Real source changed: '+identity
             source = sources/(identity+'.fb2'); source.write_bytes(data)
             source_data[identity] = data
+        if args.extra_source_zip:
+            original_zip = args.extra_source_zip.read_bytes()
+            if not args.extra_source_sha256 or digest(original_zip)!=args.extra_source_sha256:
+                raise ValueError('The exact tester ZIP must match its expected SHA-256')
+            with zipfile.ZipFile(args.extra_source_zip) as archive:
+                entries = archive.infolist()
+                if len(entries)!=1 or entries[0].file_size>api.MAX_FILE or not entries[0].filename.lower().endswith('.fb2'):
+                    raise ValueError('Expected one bounded FB2 in the tester ZIP')
+                data = archive.read(entries[0])
+            identity = 'tester-exact'; source_data[identity] = data
+            (sources/(identity+'.fb2')).write_bytes(data)
+            selected_cases.append((identity, None, digest(data)))
+            report['tester_zip_sha256'] = digest(original_zip)
         for platform in ('Win32', 'Win64'):
             print('Testing packaged '+platform+' real sources, estimates and native exports', flush=True)
             runtime = temporary/platform; runtime.mkdir(); (runtime/'native-regression.marker').touch()
@@ -119,7 +134,7 @@ def main():
             packaged = runtime/'tools/bookconvert/convert_book.py'
             assert packaged.read_bytes()==converter_bytes
             cases = []
-            for identity, _, expected in CASES:
+            for identity, _, expected in selected_cases:
                 source = sources/(identity+'.fb2'); data = source_data[identity]
                 output, back, unchanged = (runtime/(identity+suffix) for suffix in ('.epub', '-back.fb2', '-unchanged.fb2'))
                 reply = json.loads(run(cli(runtime, source, output)))
@@ -137,7 +152,7 @@ def main():
                 item = {'id':identity, 'sha256':expected, 'epub_size':output.stat().st_size,
                     'roundtrip_fb2_size':back.stat().st_size, 'warnings':reply['warnings'],
                     'text_and_images_preserved':True, 'unchanged_copy_identical':True}
-                if identity in ('562221', '792655'):
+                if identity in ('562221', '792655', 'tester-exact'):
                     item['estimates'] = {}
                     for extension in ('fb2', 'epub'):
                         item['estimates'][extension] = estimate(runtime, source, runtime/(identity+'-estimate.'+extension))
@@ -159,6 +174,8 @@ def main():
             report['platforms'][platform] = {'cases':cases, 'native_export_passed':True,
                 'native_passes':[line for line in native.splitlines() if 'PASS ' in line]}
             print('PASS '+platform+' native export regression with current packaged module', flush=True)
+        if args.extra_source_zip:
+            assert args.extra_source_zip.read_bytes()==original_zip, 'Tester ZIP changed'
     report['temporary_payloads_removed'] = not temporary.exists()
     assert report['temporary_payloads_removed']
     with args.report.open('x', encoding='utf-8') as stream:

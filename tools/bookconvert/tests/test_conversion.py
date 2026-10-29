@@ -1,5 +1,6 @@
 """Structure and data preservation tests; optional independent XSD/EPUBCheck."""
 from pathlib import Path
+from collections import Counter
 import base64, hashlib, importlib.util, json, os, struct, subprocess, sys, tempfile, unittest, zipfile, zlib
 import xml.etree.ElementTree as ET
 from unittest import mock
@@ -102,8 +103,9 @@ class ConversionTests(unittest.TestCase):
         back = ET.parse(result).getroot()
         self.assertEqual(c.plain(back).count('Visible label end after'), 2)
         self.assertTrue(any(n.get('{'+c.XL+'}href')=='#note' for n in back.iter('{'+c.FB+'}a')))
-        self.assertTrue(any(n.get('id')=='broken-anchor' for n in back.iter()))
-        self.assertTrue(any(n.get('{'+c.XL+'}href')=='#broken-anchor' for n in back.iter('{'+c.FB+'}a')))
+        label_link=next(n for n in back.iter('{'+c.FB+'}a') if c.plain(n)=='To preserved label')
+        self.assertEqual(label_link.get('{'+c.XL+'}href'),'#para')
+        self.assertTrue(any(n.get('id')=='para' for n in back.iter('{'+c.FB+'}p')))
         self.assertEqual(digest(source), before)
     def test_nonstandard_fb2_breaks_keep_text_formatting_and_targets(self):
         book = ET.parse(self.source).getroot()
@@ -165,17 +167,53 @@ class ConversionTests(unittest.TestCase):
         c.validate_fb2_output(back); self.validate_fb2(result)
         self.assertEqual(len(c.children(back, 'binary')), 3)
         self.assertEqual(digest(source), before)
-    def test_ambiguous_or_corrupt_source_images_are_not_silently_replaced(self):
-        for kind in ('conflict', 'body-id', 'corrupt'):
+    def test_conflicting_source_images_keep_all_bytes_and_text_anchor_identities(self):
+        for kind in ('conflict', 'body-id'):
             book = ET.parse(self.source).getroot(); binary = c.children(book, 'binary')[0]
             if kind=='conflict':
                 other = ET.fromstring(ET.tostring(binary)); other.text = base64.b64encode(PNG+b'other').decode(); book.append(other)
-            elif kind=='body-id': binary.set('id', 'one')
-            else: binary.text = 'not base64!'
+            else:
+                picture = next(c.first(book,'body').iter('{'+c.FB+'}image')); picture.set('id', 'cover')
+                paragraph = c.first(c.first(c.first(book,'body'),'section'),'section')[0]
+                paragraph.append(c.element(c.FB,'a','Text anchor link',**{'{'+c.XL+'}href':'#cover'}))
+                c.first(book,'stylesheet').text += '\n.picture {background-image:url("#cover");}'
             source = self.root/(kind+'.fb2'); source.write_bytes(c.serialized(book)); before = digest(source)
-            output = self.root/(kind+'.epub')
-            with self.assertRaises(c.ConversionError): c.convert_book(source, output)
-            self.assertFalse(output.exists()); self.assertEqual(digest(source), before)
+            output, restored = self.root/(kind+'.epub'), self.root/(kind+'-back.fb2')
+            report = c.convert_book(source, output); self.assertTrue(report['warnings'])
+            with zipfile.ZipFile(output) as archive:
+                values = [archive.read(n) for n in archive.namelist() if n.startswith('OEBPS/images/')]
+                self.assertEqual(Counter(values), Counter(base64.b64decode(c.plain(n)) for n in c.children(book,'binary')))
+            c.convert_book(output,restored); self.validate_fb2(restored)
+            result = ET.parse(restored).getroot(); c.validate_fb2_output(result)
+            self.assertEqual(Counter(base64.b64decode(c.plain(n)) for n in c.children(result,'binary')),
+                             Counter(base64.b64decode(c.plain(n)) for n in c.children(book,'binary')))
+            identities = [n.get('id') for n in result.iter() if n.get('id')]
+            self.assertEqual(len(identities),len(set(identities)))
+            if kind=='body-id':
+                self.assertIn('cover',identities)
+                self.assertTrue(any(n.get('{'+c.XL+'}href')=='#cover' for n in result.iter('{'+c.FB+'}a')))
+                for n in result.iter('{'+c.FB+'}image'): self.assertNotEqual(n.get('{'+c.XL+'}href'),'#cover')
+            else:
+                self.assertTrue(any('первый вариант' in n for n in report['warnings']))
+            self.assertEqual(digest(source),before)
+    def test_corrupt_source_images_fail_without_output(self):
+        book=ET.parse(self.source).getroot(); c.children(book,'binary')[0].text='not base64!'
+        source=self.root/'corrupt.fb2';source.write_bytes(c.serialized(book));before=digest(source)
+        output=self.root/'corrupt.epub'
+        with self.assertRaises(c.ConversionError):c.convert_book(source,output)
+        self.assertFalse(output.exists());self.assertEqual(digest(source),before)
+    def test_source_title_mixed_text_gets_paragraphs_without_losing_inline_content(self):
+        book=ET.parse(self.source).getroot(); title=next(book.iter('{'+c.FB+'}title'))
+        title.text='Before '; emphasis=c.element(c.FB,'emphasis','Italic');emphasis.tail=' between '
+        title.insert(0,emphasis);title[-1].tail=' trailing text'
+        expected=c.plain(title);source=self.root/'mixed-title.fb2';source.write_bytes(c.serialized(book));before=digest(source)
+        epub,restored=self.root/'mixed-title.epub',self.root/'mixed-title-back.fb2'
+        report=c.convert_book(source,epub);self.assertTrue(any('Текст заголовка' in n for n in report['warnings']))
+        c.convert_book(epub,restored);self.validate_fb2(restored)
+        result=ET.parse(restored).getroot();c.validate_fb2_output(result)
+        actual=next(result.iter('{'+c.FB+'}title'));self.assertEqual(c.plain(actual),expected)
+        self.assertTrue(any(c.plain(n)=='Italic' for n in actual.iter('{'+c.FB+'}emphasis')))
+        self.assertEqual(digest(source),before)
     def validate_epub(self, path):
         checker, java = os.environ.get('HOMELIB_TEST_EPUBCHECK'), os.environ.get('HOMELIB_TEST_JAVA')
         if checker and java:

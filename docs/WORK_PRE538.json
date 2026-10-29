@@ -5,7 +5,7 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLib Ru задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Read back after atomic updates: same 50 blocks and IDs, unrelated text preserved; 16 checked/struck-through items. Four save/publication items moved to completed; current direction is exact user FB2 557950 and duplicate-cover preparation.",
+    "verification": "Read back 50 same native blocks and IDs; 17 checked/struck-through items. Exact sample conversion/estimates now checked after x86/x64 tests; independent duplicate-cover origin task remains unchecked; unrelated content preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
   },
   "order": [
@@ -300,7 +300,7 @@
       "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
     },
     "fb2_estimation_compatibility": {
-      "status": "verified_in_source_not_released_image_id_report_still_unreproduced",
+      "status": "verified_exact_sample_and_other_sources_not_released_origin_investigation_pending",
       "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
       "cases": [
         {
@@ -338,7 +338,7 @@
           "LibID755727 Назад в СССР Лесник2: missing #302252",
           "LibID875779 Маг Тени13: missing #269229, #botbybase_bot?startgroup=1, #557875"
         ],
-        "not_reproduced": "Previous local Ярлинги variants differed from the tester's exported copy. A new exact user sample is now available; case remains to be fixed and verified.",
+        "not_reproduced": "The exact tester sample now reproduces the ID conflicts, duplicate distinct covers and bare title text. Their historical origin is not yet proven; native preparation/metadata-write origin check remains open.",
         "exact_user_sample": {
           "path": "C:/Users/cloud/Downloads/Telegram Desktop/557950 Ярлинги поневоле.fb2.zip",
           "zip_sha256": "6a0b0bd29532057113f5727184238b62ecf53729a0fcc77a2df45f715d1e707c",
@@ -346,25 +346,38 @@
           "fb2_sha256": "7f208d96ee8ba77472e9b0b68686869e3e8dfe05415e52d2b7f97e4a468f0dcb",
           "bytes": 1259649,
           "defects": [
-            "img2.jpg and img3.jpg IDs collide between an inline image and binary resource",
+            "img2.jpg and img3.jpg IDs collide between block image elements and binary resources; dotted IDs themselves are legal XML IDs when unique",
             "Two different cover.jpg binaries: 90301 bytes image/jpg SHA2d580dffccec534847795b49ad9d12303c54e559004656a233067fb40b8b94b2 and 21576 bytes image/jpeg SHA8a0501bc22bdf8860de6ae437cf827b95a4457e1dd312372fd6d49b3b3d23fe5",
             "One title contains 16 characters directly outside a paragraph"
           ],
-          "next": "After atomic save fixes inspect source restoration/metadata writer for duplicate cover creation, then preserve all image variants and readable title in compatible export and verify estimate/save x86/x64. Do not silently discard conflicting image data.",
+          "next": "Run an isolated native preparation and metadata rewrite check for the corresponding compressed source before excluding our pipeline as the duplicate-cover origin. Do not change the real collection.",
           "source_unchanged": true
         },
         "sources_unchanged": true,
         "cleanup": "G sample extraction and generated EPUB confined to auto-cleaned TemporaryDirectory under existing G:/HomeLibRu-build-cache; H/F selected member read into memory with existing 7-Zip after Python zipfile correctly rejected unsupported compression. No downloads or source writes.",
-        "implementation": "FB2 br becomes an actual XHTML line break; roundtrip normalizes affected body into valid FB2 paragraphs and preserves break anchors. Missing local text-link targets preserve visible formatted labels without false hyperlinks/noterefs and report count/examples; valid notes remain links. Identical duplicate binaries reuse bytes; unnamed resources preserved with generated identity; conflicting/corrupt images remain failures. Same-format FB2 retains source markup defects with a warning and cannot introduce additional counted structural defects; unchanged copies remain exact bytes.",
+        "implementation": "FB2 br and missing text targets are handled as previously verified. Conflicting binary IDs now preserve every distinct resource with generated unique IDs; ambiguous references use the first source variant and report this explicitly. Binary/text-anchor collisions rename pictures only. Bare FB2 title flow is wrapped in paragraphs without losing inline formatting. Invalid inline anchor IDs move to their containing paragraph and textual references follow that paragraph, with a warning. Same-format unchanged copies remain exact bytes and keep inherited markup issues with a warning; corrupt image base64 remains an error.",
         "tests": [
           "255 converter tests passed after initial changes",
           "Actual G sources 562221/792655/755727/875779/533994 converted to EPUB and back: all normalized visible body text and all image resource bytes preserved; sources unchanged",
           "Fresh independent BookProcessing/ImageProcessing packages x86/x64: actual five sources, exact same-format copies, roundtrip validity, FB2 and EPUB estimates for broken-link and br cases, cancellation without published output, balanced image export and native builtin-export scenario all passed",
           "Additional regression exposed unnamed style and anchor preservation inside broken source links; fixed, all 47 conversion tests passed in both production Python 3.13 runtimes (Win32 and Win64)",
-          "Final adjustment repackaged and repeated: five real sources, estimates/cancellation/balanced processing, exact original copies and native builtin-export passed both architectures; report pins final converter SHA256"
+          "Final adjustment repackaged and repeated: five real sources, estimates/cancellation/balanced processing, exact original copies and native builtin-export passed both architectures; report pins final converter SHA256",
+          "257 converter tests passed on the final source; 49 conversion tests separately passed in each production Python runtime x86/x64",
+          "Pinned independent author XSD: 49 generated-conversion tests passed. Exact sample roundtrip removes all source title/ID errors; the sole remaining strict-schema error is preexisting sf_litrpg absent from that external genre enumeration, deliberately preserved",
+          "Fresh final BookProcessing/ImageProcessing packages 2.7.0.1106 both architectures: six read-only real sources including exact tester ZIP, same-format exact copies, text/all resource-byte multiset preservation through EPUB and back, actual estimates/cancellation/balanced export and native builtin-export passed"
         ],
-        "report": "tools/ui/tests/Out/pre538-fb2-compatibility-20261029-r2.json (final converter bytes, both architectures)",
-        "cleanup_current": "Packaged real-source probe reports temporary_payloads_removed=true; read-only directory inventory finds no HomeLibRu-fb2-* leftovers under existing G:/HomeLibRu-build-cache."
+        "report": "tools/ui/tests/Out/pre538-fb2-compatibility-20261029-r4.json",
+        "cleanup_current": "Both final real-source and independent-XSD probes report owned temporary payloads removed. Original tester ZIP was rechecked byte-for-byte unchanged.",
+        "independent_schema_report": "tools/ui/tests/Out/pre538-fb2-schema-20261029-r2.json",
+        "converter_sha256": "67ee7f5e46e99780e06924db5573eb02917cf95489c8f51557ec4eafdf143e0f",
+        "schema_limit": {
+          "schema_repository": "https://github.com/gribuser/fb2",
+          "schema_commit": "4d3740e319039911c30d291abb0c8b26ec99703b",
+          "strict_whole_exact_document_valid": false,
+          "retained_genre": "sf_litrpg",
+          "original_reported_title_and_id_errors_removed": true
+        },
+        "test_harness_repair": "Full-suite stress exposed a transient Windows PermissionError while the test thread read the already atomically published options file. Added bounded retry only to that test consumer; production option and choice publishers were already atomic. Final full suite passed."
       }
     },
     "export_cache_cleanup": {
@@ -453,6 +466,13 @@
         "Never log book content, credentials or secret request headers; bound size and retention; easy report location/export in UI",
         "Test log enabled/disabled, batch failure and cleanup behavior"
       ]
+    },
+    "genre_dictionary_clarification": {
+      "scope": "Clarification, not a new global refactor. No claim that all dictionaries are complete or need no updates.",
+      "source": "Ordinary FB2 codes come from book/catalogue; shipped localized Installer/GenreLists files supply display names/tree. Metabib may also supply named genres through EnsureGenre; merging reuses/registers actual source genres. No automatic Internet replacement.",
+      "verified_example": "sf_litrpg exists at line 54 in all four FB2 localized dictionaries; book metadata is retained in EPUB roundtrip. The external author XSD is a separate test-only resource, not a shipped replacement dictionary.",
+      "dictionary_history": "Current files entered repository in f0c71689 on 2026-08-11; that date is not evidence of full freshness.",
+      "decision": "No broad book/genre rewrite is justified by this one case. Any later dictionary update should follow missing/incorrect actual catalogue-code evidence."
     }
   },
   "github_maintenance_20261029": {
@@ -478,7 +498,6 @@
   },
   "next_steps_order": [
     "Finish FB2/EPUB export compatibility with actual affected books",
-    "Fix atomic output paths, batch failure reporting and overwrite option",
     "Finish per-book estimation failure visibility; verify BookCache cleanup and add opt-in extended diagnostics",
     "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
