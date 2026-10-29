@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+from collections import Counter
 import hashlib
 import importlib.util
 from html.entities import name2codepoint
@@ -182,6 +183,9 @@ def normalize_fb2(book, preserved_bodies=()):
             for child in parent:
                 if tag(child) == 'empty-line':
                     if not flush(): result.append(element(FB, 'empty-line'))
+                    # FB2 empty-line has no anchor attribute. Put the source
+                    # break's target on the following paragraph instead.
+                    if child.get('id'): current.set('id', child.get('id'))
                 elif tag(child) not in inline:
                     flush(); clone = copy.deepcopy(child); clone.tail = None; result.append(clone)
                 elif tag(child) == 'image': append(child)
@@ -241,12 +245,8 @@ def normalize_fb2(book, preserved_bodies=()):
         if body not in preserved_bodies: fix(body)
 
 
-def validate_fb2_output(book):
-    """Reject broken generated structure before naming it as a user's result.
-
-    This small runtime guard is deliberately dependency-free. The regression
-    suite additionally validates output against the complete official XSD.
-    """
+def fb2_output_issues(book):
+    """Describe structural defects without modifying the document."""
     inline = {'strong', 'emphasis', 'style', 'a', 'strikethrough', 'sub', 'sup', 'code', 'image'}
     prose = {'p', 'poem', 'subtitle', 'cite', 'empty-line', 'table', 'image'}
     rules = {'body': {'title', 'epigraph', 'image', 'section'},
@@ -262,30 +262,44 @@ def validate_fb2_output(book):
     for node in book.iter():
         value = node.get('id')
         if value:
-            if value in identities: raise ConversionError('В результате повторяется идентификатор FB2: ' + value)
+            if value in identities:
+                yield ('duplicate-id', value), 'В результате повторяется идентификатор FB2: ' + value
             identities.add(value)
     link_styles = {id(n) for link in book.iter('{' + FB + '}a') for n in link.iter('{' + FB + '}style')}
     for body in children(book, 'body'):
         for node in body.iter():
             name = tag(node)
             if node.tag != '{' + FB + '}' + name or name not in rules and name not in {'image', 'empty-line', 'date'}:
-                raise ConversionError('Нельзя сохранить элемент в FB2: ' + name)
+                yield ('element', node.tag), 'Нельзя сохранить элемент в FB2: ' + name
             allowed = rules.get(name, set())
-            if any(tag(child) not in allowed for child in node):
-                raise ConversionError('Структуру EPUB нельзя представить в FB2 без потери содержимого: ' + name)
+            for child in node:
+                if tag(child) not in allowed:
+                    yield ('child', name, child.tag), 'Недопустимый вложенный элемент FB2: ' + tag(child) + ' внутри ' + name
             if name not in inline | {'p', 'subtitle', 'v', 'text-author', 'td', 'th', 'date'}:
                 if node.text and node.text.strip() or any(child.tail and child.tail.strip() for child in node):
-                    raise ConversionError('В результате FB2 остался текст вне абзаца: ' + name)
+                    yield ('flow-text', name), 'В результате FB2 остался текст вне абзаца: ' + name
             if name == 'section':
                 parts = list(node)
                 while parts and tag(parts[0]) in {'title', 'epigraph', 'image', 'annotation'}: parts.pop(0)
                 if any(tag(n) == 'section' for n in parts) and any(tag(n) != 'section' for n in parts):
-                    raise ConversionError('В результате FB2 смешаны главы и абзацы.')
-            if name == 'style' and id(node) not in link_styles and not node.get('name'): raise ConversionError('В результате FB2 у стиля отсутствует имя.')
+                    yield ('mixed-section',), 'В результате FB2 смешаны главы и абзацы.'
+            if name == 'style' and id(node) not in link_styles and not node.get('name'):
+                yield ('unnamed-style',), 'В результате FB2 у стиля отсутствует имя.'
             if name in {'a', 'image'}:
                 href = node.get('{' + XL + '}href', '')
                 if href.startswith('#') and href[1:] not in identities:
-                    raise ConversionError('В результате FB2 отсутствует цель ссылки: ' + href)
+                    yield ('missing-target', name, href), 'В результате FB2 отсутствует цель ссылки: ' + href
+
+
+def validate_fb2_output(book, inherited_issues=None):
+    """Generated books must be valid. An FB2 image-only edit may retain source
+    defects, but cannot introduce extra occurrences or other kinds of defect.
+    The complete XSD is additionally exercised by the regression suite.
+    """
+    remaining = Counter(inherited_issues or {})
+    for key, message in fb2_output_issues(book):
+        if remaining[key]: remaining[key] -= 1
+        else: raise ConversionError(message)
 
 
 class EpubArchive:
@@ -458,20 +472,33 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
                 if identity in ids:
                     raise ConversionError('В FB2 повторяется идентификатор: ' + identity)
                 ids[identity] = filename
-    image_files = {}
+    image_files, saved_image_ids = {}, {}
+    used_ids = set(ids) | {n.get('id') for n in children(book, 'binary') if n.get('id')}
     for index, binary in enumerate(children(book, 'binary')):
         identity = binary.get('id', '')
-        if not identity or identity in image_files:
-            raise ConversionError('Некорректный идентификатор изображения FB2.')
         try:
             data = base64.b64decode(re.sub(r'\s+', '', plain(binary)), validate=True)
         except ValueError as error:
             raise ConversionError('Повреждено изображение FB2: ' + identity) from error
         mime, extension = fb2_image_type(data, binary.get('content-type', 'application/octet-stream'))
+        if identity in ids:
+            raise ConversionError('В FB2 изображение и текст используют один идентификатор: ' + identity)
+        if not identity:
+            identity = 'unnamed-image-' + str(index + 1)
+            while identity in used_ids: identity += '-copy'
+            used_ids.add(identity)
+            warnings.add('В исходной FB2 есть изображение без идентификатора. Его данные сохранены в EPUB с новым именем; отсутствующие ссылки на него не создавались.')
+        if identity in image_files:
+            if resources[image_files[identity]] == (data, mime):
+                warnings.add('Одинаковые изображения с повторяющимся идентификатором FB2 сохранены одним ресурсом EPUB. Все ссылки на него сохранены.')
+                continue
+            raise ConversionError('В FB2 разные изображения используют один идентификатор: ' + identity)
         filename = f'images/image-{index + 1}{extension}'
         resources[filename] = (data, mime)
         image_files[identity] = filename
+        saved_image_ids[filename] = identity
     headings = []
+    missing_links = []
     generated_ids = set(ids)
     mapping = {'section': 'section', 'p': 'p', 'subtitle': 'h3', 'poem': 'div',
                'stanza': 'div', 'v': 'p', 'cite': 'blockquote', 'epigraph': 'blockquote',
@@ -489,6 +516,16 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
                 raise ConversionError('Не найдено изображение FB2: ' + identity)
             result = element(XH, 'img', src=image_files[identity], alt=node.get('alt', ''))
             result.set('data-fb2-image-id', identity)
+        elif name == 'br':
+            if len(node) or (node.text and node.text.strip()):
+                raise ConversionError('Элемент br в FB2 содержит вложенный текст или элементы.')
+            warnings.add('Элемент br в исходной FB2 перенесён как перевод строки.')
+            result = element(XH, 'br')
+            result.set('data-fb2', 'empty-line')
+            if node.get('id'):
+                result.set('id', node.get('id'))
+                result.set('data-fb2-attributes', json.dumps({'id': node.get('id')}))
+            return result
         elif name == 'empty-line':
             result = element(XH, 'p'); result.append(element(XH, 'br'))
         elif name == 'title':
@@ -515,10 +552,19 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
             href = node.get('{' + XL + '}href', '')
             if href.startswith('#'):
                 if href[1:] not in ids:
-                    raise ConversionError('Не найдена цель ссылки FB2: ' + href)
-                href = ids[href[1:]] + href
-            result.set('href', href)
-            if node.get('type') == 'note':
+                    missing_links.append(href)
+                    # Keep the complete visible label, but do not emit a false
+                    # EPUB hyperlink/noteref or guess an external URL.
+                    result.tag = '{' + XH + '}span'
+                    result.set('data-fb2', 'style')
+                    label_attributes = {'name': 'source-link-without-target'}
+                    if node.get('id'): label_attributes['id'] = node.get('id')
+                    result.set('data-fb2-attributes', json.dumps(label_attributes))
+                    result.set('data-homelib-source-href', href)
+                    if node.get('type') == 'note': result.set('style', 'vertical-align:super;font-size:smaller')
+                else: href = ids[href[1:]] + href
+            if tag(result) == 'a': result.set('href', href)
+            if tag(result) == 'a' and node.get('type') == 'note':
                 result.set('{' + EP + '}type', 'noteref')
         for key in ('colspan', 'rowspan'):
             if node.get(key):
@@ -530,6 +576,16 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
                 mapped = convert(child, filename, depth + (name == 'body' or name == 'section'), navigation_depth + has_section_title)
                 mapped.tail = child.tail
                 result.append(mapped)
+        if result.get('data-homelib-source-href') is not None:
+            # A style inside an FB2 link legitimately has no name. Once its
+            # broken outer link becomes a plain label, give that style a name
+            # so later export back to FB2 remains valid and keeps its content.
+            for child in result.iter():
+                if child.get('data-fb2') == 'style':
+                    attributes = json.loads(child.get('data-fb2-attributes', '{}'))
+                    if not attributes.get('name'):
+                        attributes['name'] = 'source-link-style'
+                        child.set('data-fb2-attributes', json.dumps(attributes))
         if name == 'section':
             if has_section_title:
                 identity = result.get('id')
@@ -550,8 +606,13 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
         head.append(element(XH, 'link', rel='stylesheet', href='book.css', type='text/css'))
         html.append(head)
         html_body = element(XH, 'body'); html_body.append(convert(body, filename))
+        if any(tag(n) == 'br' for n in body.iter()):
+            html_body[0].set('data-homelib-fb2-normalize', '1')
         html.append(html_body)
         resources[filename] = (serialized(html), 'application/xhtml+xml')
+    if missing_links:
+        examples = ', '.join(dict.fromkeys(link[:120] for link in missing_links[:3]))
+        warnings.add(f'В исходной FB2 отсутствуют цели ссылок: {len(missing_links)} ({examples}). Надписи ссылок сохранены без перехода; отсутствующий текст сносок не восстановлен.')
     css = ('body{line-height:1.35}p{margin:.45em 0;text-indent:1.3em}'
            'h1,h2,h3,h4,h5,h6{text-align:center;text-indent:0}'
            'img{max-width:100%;height:auto}.fb2-v{text-indent:0;margin:.1em 0;white-space:pre-wrap}'
@@ -608,7 +669,7 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
     from datetime import datetime, timezone
     metadata.append(element(OP, 'meta', datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), property='dcterms:modified'))
     metadata.append(element(OP, 'meta', base64.b64encode(serialized(description)).decode(), property='mhl:fb2-description'))
-    metadata.append(element(OP, 'meta', json.dumps({image_files[n.get('id')]: n.get('id') for n in children(book, 'binary')}, ensure_ascii=False), property='mhl:fb2-images'))
+    metadata.append(element(OP, 'meta', json.dumps(saved_image_ids, ensure_ascii=False), property='mhl:fb2-images'))
     metadata.append(element(OP, 'meta', json.dumps([base64.b64encode(serialized(n)).decode() for n in children(book, 'stylesheet')]), property='mhl:fb2-stylesheets'))
     for author in children(title_info, 'author'):
         name = ' '.join(plain(n) for n in author if tag(n) in {'first-name', 'middle-name', 'last-name', 'nickname'})
@@ -1014,7 +1075,8 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             original_body = next((n for n in source_body if n.get('data-fb2') == 'body'), None)
             if original_body is not None:
                 converted_bodies = convert(original_body, path)
-                book.extend(converted_bodies); preserved_bodies.update(converted_bodies)
+                book.extend(converted_bodies)
+                if original_body.get('data-homelib-fb2-normalize') != '1': preserved_bodies.update(converted_bodies)
                 continue
             body = first(book, 'body')
             if body is None: body = element(FB, 'body'); book.append(body)
@@ -1310,7 +1372,16 @@ def convert_book(source, destination, **metadata):
     destination.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix='.homelib-convert-', suffix='.tmp', dir=destination.parent)
     os.close(handle); temporary = Path(temporary_name); warnings = set(); text_only_source = None
+    inherited_fb2_issues = Counter()
     try:
+        if same_format and extension == '.fb2':
+            source_book = xml(source.read_bytes(), limit)
+            if source_book.tag != '{'+FB+'}FictionBook' or first(source_book, 'body') is None:
+                raise ConversionError('В исходном FB2 отсутствует читаемая книга.')
+            inherited_fb2_issues = Counter(key for key, _ in fb2_output_issues(source_book))
+            if inherited_fb2_issues:
+                warnings.add('В исходной FB2 есть ошибки разметки. Исходное оформление сохранено; выполнены только выбранные изменения изображений. Новые ошибки структуры не допускаются.')
+            del source_book
         if image_quality == 'none' and extension in {'.fb2','.epub'}:
             spec = importlib.util.spec_from_file_location('homelib_image_quality', Path(__file__).with_name('image_quality.py'))
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
@@ -1322,13 +1393,7 @@ def convert_book(source, destination, **metadata):
             source = prepared
             if removed: warnings.add('Книга сохранена без изображений и обложки. Исходная книга сохранена.')
         if same_format:
-            if extension=='.fb2':
-                book=xml(source.read_bytes(),limit)
-                if book.tag!='{'+FB+'}FictionBook' or first(book,'body') is None:
-                    raise ConversionError('В исходном FB2 отсутствует читаемая книга.')
-                validate_fb2_output(book)
-                del book
-            else:
+            if extension=='.epub':
                 with zipfile.ZipFile(source) as archive:
                     entries=archive.infolist()
                     if len(entries)>MAX_ENTRIES or sum(e.file_size for e in entries)>MAX_TOTAL or any(e.file_size>MAX_FILE for e in entries):
@@ -1391,7 +1456,7 @@ def convert_book(source, destination, **metadata):
                         parser(archive.read(name))
             finally:
                 archive.close()
-        else: validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL))
+        else: validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
         else: os.link(temporary, destination); temporary.unlink()

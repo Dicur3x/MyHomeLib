@@ -292,7 +292,7 @@
       "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
     },
     "fb2_estimation_compatibility": {
-      "status": "investigating_actual_sources",
+      "status": "source_fixes_verified_additional_native_package_rerun_pending",
       "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
       "cases": [
         {
@@ -333,7 +333,15 @@
         "not_reproduced": "Image-ID error: inspected three local Ярлинги variants (G533994/H677625/F557950), no duplicate/empty binary IDs. G533994 conversion succeeds. Do not claim this case fixed.",
         "sources_unchanged": true,
         "cleanup": "G sample extraction and generated EPUB confined to auto-cleaned TemporaryDirectory under existing G:/HomeLibRu-build-cache; H/F selected member read into memory with existing 7-Zip after Python zipfile correctly rejected unsupported compression. No downloads or source writes.",
-        "implementation": "No converter relaxation committed yet; decide explicit warnings/preserve visible text for source-broken links, valid line-break conversion; keep ambiguous/corrupt image errors identifiable."
+        "implementation": "FB2 br becomes an actual XHTML line break; roundtrip normalizes affected body into valid FB2 paragraphs and preserves break anchors. Missing local text-link targets preserve visible formatted labels without false hyperlinks/noterefs and report count/examples; valid notes remain links. Identical duplicate binaries reuse bytes; unnamed resources preserved with generated identity; conflicting/corrupt images remain failures. Same-format FB2 retains source markup defects with a warning and cannot introduce additional counted structural defects; unchanged copies remain exact bytes.",
+        "tests": [
+          "255 converter tests passed after initial changes",
+          "Actual G sources 562221/792655/755727/875779/533994 converted to EPUB and back: all normalized visible body text and all image resource bytes preserved; sources unchanged",
+          "Fresh independent BookProcessing/ImageProcessing packages x86/x64: actual five sources, exact same-format copies, roundtrip validity, FB2 and EPUB estimates for broken-link and br cases, cancellation without published output, balanced image export and native builtin-export scenario all passed",
+          "Additional regression exposed unnamed style and anchor preservation inside broken source links; fixed, all 47 conversion tests passed. Repeat packaged x86/x64 check for this final adjustment before marking direction complete."
+        ],
+        "report": "tools/ui/tests/Out/pre538-fb2-compatibility-20261029-r1.json (initial packaged revision before additional styled-link regression fix)",
+        "cleanup_current": "Packaged real-source probe reports temporary_payloads_removed=true; read-only directory inventory finds no HomeLibRu-fb2-* leftovers under existing G:/HomeLibRu-build-cache."
       }
     },
     "export_cache_cleanup": {
@@ -348,7 +356,28 @@
     },
     "reader_word_lookup": {
       "status": "queued_after_export_fixes",
-      "request": "Two independent selected-word/text actions: dictionary lookup (research installed GoldenDict integration) and Google search as additional option, not alternative. User asks lightweight integration; no unsolicited dictionary installation."
+      "request": "Two independent selected-word/text actions: dictionary lookup (research installed GoldenDict integration) and Google search as additional option, not alternative. User asks lightweight integration; no unsolicited dictionary installation.",
+      "standard_selection": "Double-click a word must select the whole word; dragging must continue to select a fragment. Verify alongside link navigation and selected-text actions on x86/x64."
+    },
+    "external_reader_visibility": {
+      "status": "queued_after_export_fixes",
+      "requirements": [
+        "AlReader and SumatraPDF remain visible even when absent, directly below HomeLib Ru in the updater",
+        "Read in external application context action offers to download a suitable missing external reader",
+        "Keep per-format modules optional and hidden until needed; external reader visibility is an intentional separate rule"
+      ]
+    },
+    "reader_visual_redesign": {
+      "status": "queued_after_export_fixes",
+      "request": "User finds current volume mode sparse and crooked, including skewed top page edge, and toolbar/buttons unfinished. Compare actual AlReader appearance, improve page geometry/material/depth and coherent top controls; visually verify themes, window sizes and DPI before claiming completion."
+    },
+    "catalogue_book_preview_layout": {
+      "status": "queued_with_visual_improvements",
+      "request": "Book information preview is too short by default and hides the description. Place expandable illustration thumbnails to the right of basic metadata, description below. Illustrations must not grow panel height. Automatically provide useful description height, with bounded growth/scrolling for long annotations so book list remains usable. Verify no-cover, no-description, narrow/wide windows and DPI."
+    },
+    "search_filter_compact_layout": {
+      "status": "queued_with_visual_improvements",
+      "request": "Tester missed no-duplicates-by-series because search filters do not fit on screen. Make frequent settings visible, group/collapse advanced settings, and ensure reliable scrolling and complete keyboard access on small screens/high DPI. Do not change book identity or remove valid series associations to hide repeated rows."
     },
     "estimate_failure_visibility": {
       "status": "queued_with_export_compatibility",
@@ -405,8 +434,12 @@
     "Finish FB2/EPUB export compatibility with actual affected books",
     "Fix atomic output paths, batch failure reporting and overwrite option",
     "Finish per-book estimation failure visibility; verify BookCache cleanup and add opt-in extended diagnostics",
+    "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
-    "Research lightweight selected-text dictionary integration plus separate Google action",
+    "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",
+    "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
+    "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
+    "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ]

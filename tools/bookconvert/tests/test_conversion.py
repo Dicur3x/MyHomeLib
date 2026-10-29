@@ -74,6 +74,108 @@ class ConversionTests(unittest.TestCase):
             from lxml import etree
             validator = etree.XMLSchema(etree.parse(schema))
             self.assertTrue(validator.validate(etree.parse(str(path))), str(validator.error_log))
+    def test_broken_source_fb2_links_keep_labels_and_valid_notes_still_work(self):
+        source = self.root/'broken-links.fb2'
+        book = ET.parse(self.source).getroot()
+        paragraph = next(n for n in book.iter('{'+c.FB+'}p') if n.get('id') == 'para')
+        for target, note in [('#absent-note', True), ('#botbybase_bot?startgroup=1', False)]:
+            link = c.element(c.FB, 'a', 'Visible ', **{'{'+c.XL+'}href':target})
+            if note:
+                link.set('type', 'note'); link.set('id', 'broken-anchor')
+            style = c.element(c.FB, 'style'); style.append(c.element(c.FB, 'strong', 'label')); link.append(style)
+            link[-1].tail = ' end'
+            paragraph.append(link); link.tail = ' after '
+        paragraph.append(c.element(c.FB, 'a', 'To preserved label', **{'{'+c.XL+'}href':'#broken-anchor'}))
+        source.write_bytes(c.serialized(book)); before = digest(source)
+        epub, result = self.root/'broken-links.epub', self.root/'links-back.fb2'
+        report = c.convert_book(source, epub)
+        self.assertTrue(any('отсутствуют цели ссылок: 2' in n for n in report['warnings']))
+        with zipfile.ZipFile(epub) as archive:
+            body = c.xml(archive.read('OEBPS/body-1.xhtml'))
+            self.assertEqual(c.plain(body).count('Visible label end after'), 2)
+            broken = [n for n in body.iter() if n.get('data-homelib-source-href')]
+            self.assertEqual(len(broken), 2)
+            self.assertTrue(all(c.tag(n)=='span' and not n.get('href') and not n.get('{'+c.EP+'}type') for n in broken))
+            valid = next(n for n in body.iter() if n.get('href')=='body-2.xhtml#note')
+            self.assertEqual(valid.get('{'+c.EP+'}type'), 'noteref')
+        c.convert_book(epub, result); c.validate_fb2_output(ET.parse(result).getroot()); self.validate_fb2(result)
+        back = ET.parse(result).getroot()
+        self.assertEqual(c.plain(back).count('Visible label end after'), 2)
+        self.assertTrue(any(n.get('{'+c.XL+'}href')=='#note' for n in back.iter('{'+c.FB+'}a')))
+        self.assertTrue(any(n.get('id')=='broken-anchor' for n in back.iter()))
+        self.assertTrue(any(n.get('{'+c.XL+'}href')=='#broken-anchor' for n in back.iter('{'+c.FB+'}a')))
+        self.assertEqual(digest(source), before)
+    def test_nonstandard_fb2_breaks_keep_text_formatting_and_targets(self):
+        book = ET.parse(self.source).getroot()
+        paragraph = c.element(c.FB, 'p', 'Before ')
+        bold = c.element(c.FB, 'strong', 'Bold before'); paragraph.append(bold)
+        line = c.element(c.FB, 'br', id='line-break'); bold.append(line); line.tail = 'Bold after'
+        paragraph.append(c.element(c.FB, 'br')); paragraph[-1].tail = 'After'
+        paragraph.append(c.element(c.FB, 'a', 'Break target', **{'{'+c.XL+'}href':'#line-break'}))
+        c.first(c.first(book, 'body'), 'section').append(paragraph)
+        source = self.root/'breaks.fb2'; source.write_bytes(c.serialized(book)); before = digest(source)
+        epub, result = self.root/'breaks.epub', self.root/'breaks-back.fb2'
+        report = c.convert_book(source, epub)
+        self.assertTrue(any('br' in n for n in report['warnings']))
+        with zipfile.ZipFile(epub) as archive:
+            body = c.xml(archive.read('OEBPS/body-1.xhtml'))
+            self.assertEqual(len(list(body.iter('{'+c.XH+'}br'))), 2)
+            self.assertIn('Before Bold beforeBold afterAfterBreak target', c.plain(body))
+        c.convert_book(epub, result); back = ET.parse(result).getroot()
+        c.validate_fb2_output(back); self.validate_fb2(result)
+        self.assertEqual(sum(c.plain(n).count('Bold before') + c.plain(n).count('Bold after') for n in back.iter('{'+c.FB+'}strong')), 2)
+        self.assertTrue(any(n.get('id')=='line-break' for n in back.iter()))
+        self.assertTrue(any(n.get('{'+c.XL+'}href')=='#line-break' for n in back.iter('{'+c.FB+'}a')))
+        self.assertEqual(digest(source), before)
+    def test_same_fb2_retains_source_defects_but_generated_defects_fail(self):
+        book = ET.parse(self.source).getroot()
+        paragraph = next(n for n in book.iter('{'+c.FB+'}p') if n.get('id') == 'para')
+        paragraph.append(c.element(c.FB, 'p', 'Nested original paragraph'))
+        source = self.root/'source-layout.fb2'; source.write_bytes(c.serialized(book)); before = digest(source)
+        output = self.root/'unchanged-layout.fb2'
+        report = c.convert_book(source, output)
+        self.assertEqual(output.read_bytes(), source.read_bytes())
+        self.assertTrue(any('исходной FB2 есть ошибки разметки' in n for n in report['warnings']))
+        stripped = self.root/'layout-without-images.fb2'
+        c.convert_book(source, stripped, image_quality='none')
+        stripped_book = ET.parse(stripped).getroot()
+        self.assertIn('Nested original paragraph', c.plain(stripped_book))
+        self.assertFalse(list(stripped_book.iter('{'+c.FB+'}image')))
+        with self.assertRaises(c.ConversionError): c.validate_fb2_output(book)
+        baseline = c.Counter(key for key, _ in c.fb2_output_issues(book))
+        c.validate_fb2_output(book, baseline)
+        paragraph.append(c.element(c.FB, 'p', 'New broken paragraph'))
+        with self.assertRaises(c.ConversionError): c.validate_fb2_output(book, baseline)
+        self.assertEqual(digest(source), before)
+    def test_unambiguous_duplicate_and_unnamed_binary_resources_are_preserved(self):
+        book = ET.parse(self.source).getroot()
+        original = c.children(book, 'binary')[0]
+        duplicate = ET.fromstring(ET.tostring(original)); book.append(duplicate)
+        unnamed = ET.fromstring(ET.tostring(original)); unnamed.attrib.pop('id'); book.append(unnamed)
+        source = self.root/'image-identities.fb2'; source.write_bytes(c.serialized(book)); before = digest(source)
+        epub, result = self.root/'image-identities.epub', self.root/'image-identities-back.fb2'
+        report = c.convert_book(source, epub)
+        self.assertTrue(any('повторяющимся идентификатором' in n for n in report['warnings']))
+        self.assertTrue(any('без идентификатора' in n for n in report['warnings']))
+        with zipfile.ZipFile(epub) as archive:
+            images = [name for name in archive.namelist() if name.startswith('OEBPS/images/')]
+            self.assertEqual(len(images), 3)
+            self.assertTrue(all(archive.read(name)==PNG for name in images))
+        c.convert_book(epub, result); back = ET.parse(result).getroot()
+        c.validate_fb2_output(back); self.validate_fb2(result)
+        self.assertEqual(len(c.children(back, 'binary')), 3)
+        self.assertEqual(digest(source), before)
+    def test_ambiguous_or_corrupt_source_images_are_not_silently_replaced(self):
+        for kind in ('conflict', 'body-id', 'corrupt'):
+            book = ET.parse(self.source).getroot(); binary = c.children(book, 'binary')[0]
+            if kind=='conflict':
+                other = ET.fromstring(ET.tostring(binary)); other.text = base64.b64encode(PNG+b'other').decode(); book.append(other)
+            elif kind=='body-id': binary.set('id', 'one')
+            else: binary.text = 'not base64!'
+            source = self.root/(kind+'.fb2'); source.write_bytes(c.serialized(book)); before = digest(source)
+            output = self.root/(kind+'.epub')
+            with self.assertRaises(c.ConversionError): c.convert_book(source, output)
+            self.assertFalse(output.exists()); self.assertEqual(digest(source), before)
     def validate_epub(self, path):
         checker, java = os.environ.get('HOMELIB_TEST_EPUBCHECK'), os.environ.get('HOMELIB_TEST_JAVA')
         if checker and java:
