@@ -5575,6 +5575,7 @@ end;
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I ReaderSpreadTests.inc}
+{$I ReaderLinkFeedbackTests.inc}
 {$I UpdateMountTests.inc}
 {$I CompactBookViewsTests.inc}
 {$I CollectionMetadataSyncTests.inc}
@@ -5990,6 +5991,7 @@ begin
         TestLooseArchiveReading
       else if ParamStr(1) = 'reader-compatibility' then
         TestReaderCompatibility
+      else if ParamStr(1)='reader-link-feedback' then TestReaderLinkFeedback
       else if (ParamStr(1) = 'builtin-reader') or (ParamStr(1)='reader-resource-idle') then
         TestBuiltinReaderIntegration(One)
       else if ParamStr(1) = 'main-preview' then

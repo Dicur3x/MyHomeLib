@@ -138,14 +138,50 @@
     }
   },
   "save_as_and_navigation": {
-    "status": "queued",
+    "status": "in_progress",
     "remaining": [
       "Overwrite checkbox with safe publication and source protection",
       "Never wrap EPUB in redundant EPUB.ZIP",
       "Finish mixed-format save and estimates feedback",
-      "Preserve and verify clickable internal links and chapter navigation on reported The Wizard EPUB to FB2",
-      "Make success notes distinguish adaptations from export errors"
-    ]
+      "Make success notes distinguish adaptations from export errors",
+      "Check EPUB NCX/nav chapter-outline transfer where publisher chapter headings are ordinary paragraphs; explicit internal text links are now verified separately."
+    ],
+    "reader_internal_links": {
+      "status": "verified_in_source_not_released",
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "reader-link-feedback",
+        "reader-spread"
+      ],
+      "changes": [
+        "Retain bounded local anchor and normal link ranges in native FB2 and EPUB documents, scoped by EPUB chapter path",
+        "Ordinary FB2 links are no longer displayed as superscript footnotes; actual note references retain their bottom-of-page behavior",
+        "Single click on painted link text navigates, pointer indicates a valid local target, dragging still selects text and disabling selection does not disable links",
+        "Use both sides of the nearest native insertion point for accurate glyph hit testing; margins, broken targets and external URLs do not navigate",
+        "Preserve Unicode fragments, literal plus in EPUB paths, ordinary link styles and source bytes"
+      ],
+      "real_book": {
+        "LibID": "549311",
+        "title": "Marilyn Foxworthy: The Wizard",
+        "archive": "G:/fb2.Flibusta.Net/f.usr-547062-550755.zip",
+        "member": "549311.epub",
+        "source_bytes": 287018,
+        "converted_original_quality_fb2_bytes": 761548,
+        "internal_links": 36,
+        "verification": "All36 targets resolve in original EPUB and converted FB2; actual chapter click, selection dragging, selection-disabled clicking, single/double pages passed on both architectures. Synthetic tests also force the link onto the right page."
+      },
+      "regression": "Reader spread scenarios passed on both platforms: FB2/PDF/CBZ/TIFF/DjVu, TXT/RTF/EPUB, pair/sliding navigation, right-page selection, footnotes, bookmark/state, themes, separate fullscreen/interface hiding and resource budgets. The x64 spread run preceded only the final insertion-point hit-test refinement, which the final real-link run exercised.",
+      "test_repairs": [
+        "Reopened DPR from disk after the wrapper correctly rejected an old executable missing the new scenario.",
+        "Removed a repeated FindText call which selected the next matching chapter heading instead of the contents link.",
+        "Real-book testing caught and fixed native insertion-position hit testing at the right half of a glyph."
+      ],
+      "cleanup": "Every new native profile and Python-managed selected-book extraction/conversion directory removed after successes and failures; no real book is bundled in source or fixtures.",
+      "limits": "These are source/test builds; desktop executables, final Reader/application package integration and publication remain pending. Generated chapter outline from NCX-only metadata is a separate remaining check."
+    }
   },
   "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release."
 }

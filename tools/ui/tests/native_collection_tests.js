@@ -83,8 +83,10 @@ modes.push('component-prompt-feedback');
 modes.push('djvu-first-use-feedback');
 modes.push('component-batch-feedback');
 modes.push('save-dependency-feedback');
+modes.push('reader-link-feedback');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  'reader-link-feedback': ['PASS FB2 EPUB internal chapter links navigate by click preserve footnotes and dragging selection in single and double pages'],
   'save-dependency-feedback': ['PASS one book reports known missing processing image and format modules together with content detection cancellation and unchanged copies'],
   'component-batch-feedback': ['PASS explicit operation batches only its known missing modules, validates both real packages and uses one restart'],
   'djvu-first-use-feedback': ['PASS DjVu first use downloads its ready verified package without another 7-Zip install'],

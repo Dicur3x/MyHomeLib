@@ -79,6 +79,7 @@ type
     FAnnotationMenuNotes: TArray<TReaderAnnotation>;
     FAnnotationLoadError: string;
     FAnnotationClick: Integer;
+    FTextLinkClick: Integer;
     FAnnotationMouseDown: TPoint;
     FBookmarkPositions: TArray<Integer>;
     FPageHasBookmark, FBookmarkClick: Boolean;
@@ -183,6 +184,7 @@ type
     procedure ResetInspection;
     procedure LoadPresentation;
     function TextCharacterAt(X,Y: Integer): Integer;
+    function TextLinkTargetAt(X,Y: Integer): Integer;
     procedure UpdateTextSelection(X,Y: Integer);
     procedure PaintSelection(Canvas: TCanvas; const Boxes: TArray<TRect>);
     procedure PreparePageSelection;
@@ -604,6 +606,7 @@ begin
   begin
     FReader.FAnnotationMouseDown:=Point(X,Y);
     FReader.FAnnotationClick:=FReader.AnnotationAtPoint(X,Y);
+    FReader.FTextLinkClick:=FReader.TextLinkTargetAt(X,Y);
     FReader.FBookmarkClick:=FReader.FPageHasBookmark and PtInRect(FReader.BookmarkMarkerBounds,Point(X,Y));
     if FReader.FBookmarkClick then begin MouseCapture:=True; Exit; end;
   end;
@@ -661,6 +664,12 @@ begin
       FReader.AnnotationClick(X,Y);
     if FReader.FBookmarkClick and (Abs(X-FReader.FAnnotationMouseDown.X)<=3) and
       (Abs(Y-FReader.FAnnotationMouseDown.Y)<=3) then FReader.BookmarkClick(nil);
+    if (FReader.FTextLinkClick>=0) and (FReader.FAnnotationClick<0) and not FReader.FBookmarkClick and
+      not (ssCtrl in Shift) and (Abs(X-FReader.FAnnotationMouseDown.X)<=3) and
+      (Abs(Y-FReader.FAnnotationMouseDown.Y)<=3) and
+      (FReader.TextLinkTargetAt(X,Y)=FReader.FTextLinkClick) then
+      FReader.NavigateTo(FReader.FTextLinkClick);
+    FReader.FTextLinkClick:=-1;
     FReader.FAnnotationClick:=-1; FReader.FBookmarkClick:=False;
   end;
 end;
@@ -2127,7 +2136,7 @@ begin
       if (FInitialsMode=rimNone) or ((Range.Kind=rbParagraphInitial) and (FInitialsMode<>rimParagraph)) then Continue;
       Color:=TitleColor;
     end
-    else if Range.Kind=rbFootnote then
+    else if Range.Kind in [rbFootnote,rbLink] then
       if FNight then Color:=RGB(132,180,242) else Color:=RGB(34,94,164)
     else if Range.Kind in [rbEpigraph,rbCite,rbAuthor] then
       if FNight then Color:=RGB(178,193,184) else Color:=RGB(65,94,82);
@@ -2409,6 +2418,27 @@ begin
     if Assigned(FSecondPageSelection) then Result:=FSecondPageSelection.CharacterAt(X,Y);
   end
   else Result:=FPageSelection.CharacterAt(X,Y);
+end;
+
+function TfrmBuiltinReader.TextLinkTargetAt(X,Y: Integer): Integer;
+var Index, Candidate, Target: Integer;
+begin
+  Result:=-1;
+  if not FReady or not Assigned(FDocument) or Assigned(FPDF) or FInspect then Exit;
+  if not FDocument.HasLinks then Exit;
+  Index:=TextCharacterAt(X,Y);
+  if Index<0 then Exit;
+  // RichEdit returns the nearest character even in a margin or a blank line.
+  // Its nearest insertion position may be after the glyph under the pointer.
+  // Check both sides, but require the point to be on actual painted link text.
+  for var Offset in [0,1] do
+  begin
+    if Index<Offset then Continue;
+    Candidate:=ReaderCharacterStart(FRichEdit,Index-Offset);
+    if not FDocument.LinkTargetAt(Candidate,Target) then Continue;
+    for var Box in TextSelectionRectangles(Candidate,Candidate+1) do
+      if PtInRect(Box,Point(X,Y)) then Exit(Target);
+  end;
 end;
 
 procedure TfrmBuiltinReader.UpdateTextSelection(X,Y: Integer);
@@ -3545,6 +3575,15 @@ begin
     Hint:=Hint+sLineBreak+'Щёлкните, чтобы открыть заметку целиком.';
   end;
   if FPageHasBookmark and PtInRect(BookmarkMarkerBounds,Point(X,Y)) then Hint:='На этой странице есть закладка. Щёлкните, чтобы открыть меню закладок.';
+  if not Assigned(FPDF) then
+  begin
+    if TextLinkTargetAt(X,Y)>=0 then
+    begin
+      FSurface.Cursor:=crHandPoint;
+      if Hint='' then Hint:='Перейти по ссылке в книге. Текст ссылки можно выделить перетаскиванием.';
+    end
+    else if FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
+  end;
   if FSurface.Hint<>Hint then begin Application.CancelHint; FSurface.Hint:=Hint; end;
 end;
 

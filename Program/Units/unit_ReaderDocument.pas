@@ -17,7 +17,7 @@ type
     Monochrome: Boolean;
   end;
 
-  TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize);
+  TReaderBlockKind = (rbTitle, rbSubtitle, rbEpigraph, rbPoem, rbCite, rbAuthor, rbCode, rbFootnote, rbInitial, rbParagraphInitial, rbRelativeSize, rbLink);
   TReaderStyledRange = record
     Start, Count, ScalePercent: Integer;
     Kind: TReaderBlockKind;
@@ -28,6 +28,11 @@ type
     Target, LabelText: string;
   end;
 
+  TReaderTextLink = record
+    Start, Count: Integer;
+    Target: string;
+  end;
+
   TReaderDocument = class
   private
     FBody, FText: TStringBuilder;
@@ -36,6 +41,8 @@ type
     FStyles: TList<TReaderStyledRange>;
     FNoteLinks: TList<TReaderFootnoteLink>;
     FNoteBodies: TDictionary<string,string>;
+    FLinks: TList<TReaderTextLink>;
+    FAnchors: TDictionary<string,Integer>;
     FImages, FSkippedImages: Integer;
     FPictures: TList<TReaderPicture>;
     procedure AddText(const Value: string; PreserveWhitespace: Boolean = False);
@@ -55,6 +62,9 @@ type
     function Chapters: TArray<TReaderChapter>;
     function Styles: TArray<TReaderStyledRange>;
     function FootnoteCount: Integer;
+    function Links: TArray<TReaderTextLink>;
+    function HasLinks: Boolean;
+    function LinkTargetAt(Position: Integer; out Target: Integer): Boolean;
     function FootnotesForRange(Start, Finish: Integer; MaxCharacters: Integer = 32768): string;
     property ImageCount: Integer read FImages;
     property SkippedImages: Integer read FSkippedImages;
@@ -295,11 +305,12 @@ begin
   FPictures:=TList<TReaderPicture>.Create;
   FChapters:=TList<TReaderChapter>.Create; FStyles:=TList<TReaderStyledRange>.Create;
   FNoteLinks:=TList<TReaderFootnoteLink>.Create; FNoteBodies:=TDictionary<string,string>.Create; Warnings:=TStringList.Create;
+  FLinks:=TList<TReaderTextLink>.Create; FAnchors:=TDictionary<string,Integer>.Create;
 end;
 
 destructor TReaderDocument.Destroy;
 begin
-  FNoteBodies.Free; FNoteLinks.Free; FStyles.Free; FPictures.Free; Warnings.Free; FChapters.Free; FText.Free; FBody.Free; inherited;
+  FAnchors.Free; FLinks.Free; FNoteBodies.Free; FNoteLinks.Free; FStyles.Free; FPictures.Free; Warnings.Free; FChapters.Free; FText.Free; FBody.Free; inherited;
 end;
 
 procedure TReaderDocument.AddText(const Value: string; PreserveWhitespace: Boolean);
@@ -404,6 +415,26 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         else Parts.Add(Segment);
       Result:=StringReplace(Trim(Parts.Text),sLineBreak,'/',[rfReplaceAll]);
     finally Parts.Free; end;
+  end;
+  function LocalLinkTarget(const Href: string): string;
+  var At: Integer; Part, Fragment: string;
+  begin
+    Result:='';
+    if Href='' then Exit;
+    if E='.fb2' then
+    begin
+      if Href.StartsWith('#') then
+        Result:=TNetEncoding.URL.Decode(Href.Substring(1).Replace('+','%2B'));
+      Exit;
+    end;
+    if E<>'.epub' then Exit;
+    if Href.Contains(':') or Href.StartsWith('//') then Exit;
+    At:=Pos('#',Href); Part:=Href; Fragment:='';
+    if At>0 then
+    begin Part:=Copy(Href,1,At-1); Fragment:=TNetEncoding.URL.Decode(Copy(Href,At+1,MaxInt).Replace('+','%2B')); end;
+    At:=Pos('?',Part); if At>0 then Part:=Copy(Part,1,At-1);
+    if Part='' then Part:=CurrentPath else Part:=ZipPath(CurrentPath,Part);
+    Result:=Part+'#'+Fragment;
   end;
   procedure ReadZip(const Path: string; out Bytes: TBytes);
   var Index: Integer;
@@ -519,7 +550,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     end;
   end;
   procedure Walk(const N: IXMLDOMNode; Depth: Integer; InsideTitle: Boolean = False; StyledContainer: Boolean = False; InheritedFontPercent: Integer = 100);
-  var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle: string; Link: TReaderFootnoteLink;
+  var J, Spaces, StyleIndex, NoteStart, InitialStart, HeadingLevel, FontPercent, FontStyleIndex, LinkStart: Integer; Name, Ref, Binary, Style, NoteTarget, CSSStyle, LinkTarget, Anchor: string; Link: TReaderFootnoteLink; TextLink: TReaderTextLink;
     StyleNode, StyleValue, Ancestor, Previous: IXMLDOMNode; Bytes: TBytes;
     IsParagraph, IsTitle, IsBlock, ChapterInitial, InferredHeading: Boolean; Range: TReaderStyledRange;
   begin
@@ -534,11 +565,24 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         SameText(Attribute(N.parentNode,'space'),'preserve'));
       Exit;
     end;
-    Name:=LocalName(N); NoteStart:=-1; InitialStart:=-1; ChapterInitial:=False; NoteTarget:='';
+    Name:=LocalName(N); NoteStart:=-1; InitialStart:=-1; ChapterInitial:=False; NoteTarget:=''; LinkStart:=-1;
+    if (Name='script') or ((Name='style') and (E<>'.fb2')) or (Name='binary') or (Name='description') or
+      (Name='ppr') or (Name='rpr') or (Name='del') or (Name='instrtext') then Exit;
+    Anchor:=Attribute(N,'id');
+    if (Anchor='') and (Name='a') then Anchor:=Attribute(N,'name');
+    if E='.epub' then
+    begin
+      if Name='body' then FAnchors.TryAdd(CurrentPath+'#',FText.Length);
+      if Anchor<>'' then Anchor:=CurrentPath+'#'+Anchor;
+    end
+    else if E<>'.fb2' then Anchor:='';
+    if (Anchor<>'') and (Length(Anchor)<=4096) and (FAnchors.Count<100000) then
+      FAnchors.TryAdd(Anchor,FText.Length);
     if (Name='a') and (FNoteLinks.Count<10000) then
     begin
       Ref:=Attribute(N,'href');
-      if (E='.fb2') and Ref.StartsWith('#') then NoteTarget:=Ref.Substring(1)
+      if (E='.fb2') and Ref.StartsWith('#') and
+        (SameText(Attribute(N,'type'),'note') or FNoteBodies.ContainsKey(LocalLinkTarget(Ref))) then NoteTarget:=LocalLinkTarget(Ref)
       else if (E='.epub') and (Pos('#',Ref)>0) and
         (LowerCase(Attribute(N,'type')+' '+Attribute(N,'role')).Contains('noteref')) then
       begin
@@ -554,8 +598,12 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
       end;
       if NoteTarget<>'' then begin NoteStart:=FText.Length; FBody.Append('{\super\ul '); end;
     end;
-    if (Name='script') or ((Name='style') and (E<>'.fb2')) or (Name='binary') or (Name='description') or
-      (Name='ppr') or (Name='rpr') or (Name='del') or (Name='instrtext') then Exit;
+    if (Name='a') and (NoteStart<0) and (FLinks.Count<100000) then
+    begin
+      try LinkTarget:=LocalLinkTarget(Attribute(N,'href')); except LinkTarget:=''; end;
+      if (LinkTarget<>'') and (Length(LinkTarget)<=4096) then
+      begin LinkStart:=FText.Length; FBody.Append('{\ul '); end;
+    end;
     IsParagraph:=(Name='p') or (Name='v') or (Name='li') or (Name='tr') or
       (Name='subtitle') or (Name='text-author');
     IsTitle:=(Name='title') or (Name='h') or ((Length(Name)=2) and (Name[1]='h') and CharInSet(Name[2],['1'..'6']));
@@ -706,6 +754,14 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
         FNoteLinks.Add(Link); Range.Start:=Link.Start; Range.Count:=Link.Count; Range.Kind:=rbFootnote; FStyles.Add(Range);
       end;
     end;
+    if LinkStart>=0 then
+    begin
+      FBody.Append('}'); TextLink.Start:=LinkStart; TextLink.Count:=FText.Length-LinkStart; TextLink.Target:=LinkTarget;
+      if TextLink.Count>0 then
+      begin
+        FLinks.Add(TextLink); Range.Start:=TextLink.Start; Range.Count:=TextLink.Count; Range.Kind:=rbLink; FStyles.Add(Range);
+      end;
+    end;
     if StyleIndex>=0 then
     begin Range:=FStyles[StyleIndex]; Range.Count:=FText.Length-Range.Start; FStyles[StyleIndex]:=Range; end;
     if (Name='epigraph') or (Name='cite') or (Name='blockquote') then
@@ -786,7 +842,7 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
   end;
 
 begin
-  FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
+  FPlainRTF:=''; FPictures.Clear; FBody.Clear; FText.Clear; FChapters.Clear; FStyles.Clear; FNoteLinks.Clear; FNoteBodies.Clear; FLinks.Clear; FAnchors.Clear; Warnings.Clear; FImages:=0; FSkippedImages:=0;
   UnpackedBytes:=0; NoteCharacters:=0; PendingInitial:=True; Check; E:=LowerCase(ExtractFileExt(FileName)); FormatName:=E.TrimLeft(['.']);
   Title:=ExtractFileName(FileName); Language:=''; Zip:=nil;
   CSS:=TReaderCSS.Create; CSSCache:=TDictionary<string,string>.Create;
@@ -944,6 +1000,22 @@ begin
     end;
     if FText.Length=0 then raise Exception.Create('В документе нет текста для чтения.');
   finally CSSCache.Free; CSS.Free; NoteFiles.Free; Resources.Free; Zip.Free; Paths.Free; Binaries.Free; end;
+end;
+
+function TReaderDocument.Links: TArray<TReaderTextLink>;
+begin Result:=FLinks.ToArray; end;
+
+function TReaderDocument.HasLinks: Boolean;
+begin Result:=FLinks.Count>0; end;
+
+function TReaderDocument.LinkTargetAt(Position: Integer; out Target: Integer): Boolean;
+begin
+  Target:=-1; Result:=False;
+  for var Link in FLinks do
+  begin
+    if Link.Start>Position then Break;
+    if (Position<Link.Start+Link.Count) and FAnchors.TryGetValue(Link.Target,Target) then Exit(True);
+  end;
 end;
 
 function TReaderDocument.FootnoteCount: Integer;
