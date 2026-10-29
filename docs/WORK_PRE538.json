@@ -229,6 +229,29 @@
       "cleanup": "All newly created native profiles under the existing G:/HomeLibRu-build-cache removed by the native wrapper after success and failure. Read-only inventory shows none left.",
       "approval_rejection": "A combined command to create a fresh G:/HomeLibRu-export-feedback-<GUID> parent, run tests and remove it if empty was rejected before execution: blocked by policy. No such parent was created and its cleanup was not retried. Tests subsequently used an already existing G:/HomeLibRu-build-cache parent without deleting or changing that parent.",
       "limits": "Source/native test builds only; production executables and release packaging pending."
+    },
+    "fb2_zip_choice": {
+      "status": "verified_in_source_not_released",
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "changes": [
+        "Remove general ZIP checkbox; expose FB2 in ZIP in the format selector",
+        "Keep EPUB as .epub, including legacy saved EPUB.ZIP plans; never wrap retained PDF/DjVu/DOC",
+        "Mixed keep-EPUB preference packages only FB2 targets; estimates, preview and restored selection use the same per-target policy"
+      ],
+      "verification": [
+        "minimum-save and unified-send passed on both architectures",
+        "save-planning passed on both architectures, including real FB2/EPUB/PDF/DjVu/scan-PDF/scan-DjVu outputs, all-FB2-ZIP, retained EPUB, estimates, cancellation and explicit ZIP option restored after continuation",
+        "Unchanged source hashes, native ZIP without converter/7-Zip, original format preservation and light/dark 96/144/192 DPI layout"
+      ],
+      "observations": [
+        "Win32 test compilation needed a string cast for the TCaption helper; fixed before final builds",
+        "One repeated x64 planning run reached the 40-second DjVu text extraction timeout during size estimation after all save cases passed; a fresh sequential full run passed without code changes. Cause not established; do not claim a DjVu performance fix"
+      ],
+      "cleanup": "New isolated native profiles removed by wrapper after both successful and failed runs; no package downloads or modification of real collection",
+      "limits": "Final application/Reader builds, package integration and publication pending"
     }
   },
   "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release.",
@@ -243,6 +266,33 @@
       "observed": "User screenshots show saved Flibusta reviews flattened into one continuous paragraph, with reviewer names, separate reviews and paragraph boundaries difficult to distinguish. Preserve paragraph/review separation when parsing and displaying, and check existing cached text. No implementation claimed yet."
     },
     "update_confirmation": "Tester reports automatic update from pre5.33 succeeded. This confirms that case only; do not treat it as proof of all update paths.",
-    "epub_zip_explanation": "EPUB is already a ZIP container. Keep pending requirement to skip redundant EPUB.ZIP even when ZIP is enabled for a mixed batch; ZIP remains useful primarily for FB2/plain text. No implementation claimed yet."
+    "epub_zip_explanation": "Explicit FB2/FB2 in ZIP choices verified in source on x86/x64; no general ZIP checkbox or EPUB.ZIP output. Not yet released.",
+    "package_layout": {
+      "status": "next_in_sequence",
+      "requested": "Audit every shipped file; remove unnecessary files, group genre resources and necessary update metadata outside the root; explain their purpose",
+      "initial_evidence": "Source currently reads root COMPONENTS.json for update history, root HomeLibRu.update.json as package verification manifest, and genre filenames through Settings. Simply deleting these without consumer/package changes is unsafe.",
+      "required_verification": "Clean minimal x86/x64 packages, all genre languages, compatibility with old genre paths, catalogue and Reader/component update validation; no user data moved or deleted"
+    }
+  },
+  "github_maintenance_20261029": {
+    "status": "completed",
+    "deleted_draft": {
+      "id": 426947258,
+      "tag": "2.7.0_pre5.36",
+      "scope": "Draft release and its assets only; no tag deletion requested or performed",
+      "verification": "Authenticated paginated release list contains no remaining draft"
+    },
+    "readme": {
+      "branch": "master",
+      "commit": "281825a8054c27e310263dc07f125268d4665b3e",
+      "blob": "e8a8b8bdf887717c42412a0ee92fc17e60e5cf04",
+      "changes": [
+        "Current pre5.37 / 2.7.0.1105, latest-download links for x86/x64 and correct SHA256SUMS.txt",
+        "Current validation document checked at published tag",
+        "Minimal catalogue package and optional Reader/modules/external readers described accurately",
+        "Save As menu caption and portable-by-default instructions corrected; portability confirmed in published pre5.37 settings source"
+      ],
+      "verification": "Default-branch README fetched after update and exactly matches submitted content; remote commit merged into audit branch without publishing unready code"
+    }
   }
 }

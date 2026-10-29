@@ -76,10 +76,12 @@ begin
         Require(TEdit(Dialog.FindComponent('SaveNameTemplate')).Text=Initial.FileNameTemplate,'Restored filename mask was lost');
         Require(TCheckBox(Dialog.FindComponent('SaveSubfolders')).Checked and
           (TEdit(Dialog.FindComponent('SaveFolderTemplate')).Text=Initial.FolderTemplate),'Restored subfolders were lost');
-        Require(TCheckBox(Dialog.FindComponent('SendZIP')).Checked and (Images.ItemIndex=2),'Restored ZIP or image choice was lost');
+        Require(not Assigned(Dialog.FindComponent('SendZIP')) and (Images.ItemIndex=2),'Obsolete ZIP checkbox returned or restored image choice was lost');
         Require((TComboBox(Dialog.FindComponent('SaveScanLayout')).ItemIndex=1) and
           (TEdit(Dialog.FindComponent('SaveScanExceptions')).Text='1,9-10'),'Restored scan layout or exclusions were lost');
-        if Initial.KeepFB2EPUB then
+        if Initial.Mode=emFB2Zip then
+          Require(string(Formats.Text).Contains('FB2 в ZIP'),'Restored explicit FB2 ZIP choice was lost')
+        else if Initial.KeepFB2EPUB then
           Require((Pos('FB2',Formats.Text)>0) and (Pos('EPUB',Formats.Text)>0),'Restored mixed source policy was lost')
         else Require(Formats.Text='Преобразовать в EPUB','Restored EPUB conversion policy was lost');
         Require(string(TLabel(Dialog.FindComponent('SaveNamePreview')).Caption).Contains(Initial.Folder),
@@ -94,9 +96,14 @@ begin
       Formats.ItemIndex:=0;
       if FormatIndex in [1,2] then
       begin
-        var Index:=Formats.Items.IndexOf('Преобразовать в FB2');
+        var Caption:='Преобразовать в FB2'; if FormatIndex=2 then Caption:=Caption+' в ZIP';
+        var Index:=Formats.Items.IndexOf(Caption);
         if Index>=0 then Formats.ItemIndex:=Index
-        else Require(Formats.Items[0]='Оставить FB2','Missing FB2 save policy');
+        else
+        begin
+          Caption:='Оставить FB2'; if FormatIndex=2 then Caption:=Caption+' в ZIP';
+          Index:=Formats.Items.IndexOf(Caption); Require(Index>=0,'Missing FB2 save policy'); Formats.ItemIndex:=Index;
+        end;
       end
       else if FormatIndex=3 then
       begin
@@ -105,7 +112,7 @@ begin
         else Require(Formats.Items[0]='Оставить EPUB','Missing EPUB save policy');
       end;
       Formats.OnChange(Formats);
-      var ZIPControl:=TCheckBox(Dialog.FindComponent('SendZIP')); ZIPControl.Checked:=FormatIndex=2;
+      Require(not Assigned(Dialog.FindComponent('SendZIP')),'ZIP packaging must be an explicit FB2 format choice');
       Images.ItemIndex:=ImageIndex; Images.OnChange(Images);
       Require(Images.Enabled,'Mixed FB2/EPUB image processing is unexpectedly disabled');
       Require(Assigned(Dialog.FindComponent('SaveNameTemplate')) and Assigned(Dialog.FindComponent('SaveNamePreview')),

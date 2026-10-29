@@ -251,6 +251,12 @@ begin
       [FileBook(Settings.AppPath+'estimate-source.fb2'),FileBook(Settings.AppPath+'estimate-source.pdf')],@Probe.Initial),
       'Cancelled restored options started a save');
     Require((Probe.Dialogs=1) and (Probe.Failure=''),'Restored save options did not appear');
+    Probe.Initial.Mode:=emFB2Zip; Probe.Initial.KeepSourceFormat:=True; Probe.Initial.KeepFB2EPUB:=False;
+    Probe.Initial.ZipEachBook:=False; Probe.Dialogs:=0; Probe.Deadline:=GetTickCount64+10000;
+    Require(not ChooseBookSendOptions(1,'C:\wrong-fallback',emFB2,Options,True,
+      [FileBook(Settings.AppPath+'estimate-source.fb2')],@Probe.Initial),
+      'Cancelling the restored explicit FB2 ZIP choice started a save');
+    Require((Probe.Dialogs=1) and (Probe.Failure=''),'Restored FB2 ZIP choice did not appear');
   finally Probe.Timer.Free; Probe.Free; end;
   Writeln('PASS restored Save As dialog keeps mixed policy image quality ZIP masks path and scan exclusions');
 end;
@@ -329,7 +335,7 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
       Require(Results[I].State=besSucceeded,Name+': '+Results[I].ErrorText+Probe.Messages.Text);
       Expected:=BookSaveTargetExtension(Books[I].FileExt,Mode,Keep,Prefer);
       Target:=Results[I].OutputFile;
-      if Zipped then
+      if BookSaveZipsTarget(Expected,Mode,Zipped) then
       begin
         Archive:=TZipFile.Create;
         try
@@ -375,13 +381,15 @@ begin
   try
     Run('original',emFB2,True,False,False);
     Run('all-fb2',emFB2,False,False,False);
-    Run('all-epub-zip',emEpub,False,False,True);
+    Run('all-fb2-zip',emFB2Zip,False,False,False);
+    Run('all-epub-legacy-zip-ignored',emEpub,False,False,True);
     Run('keep-fb2-epub-other-fb2',emFB2,False,True,False);
+    Run('keep-epub-other-fb2-zip',emFB2Zip,False,True,False);
     Run('keep-fb2-epub-other-epub',emEpub,False,True,False);
   finally
     Application.OnModalBegin:=Probe.SavedModal; Probe.Timer.Free; Probe.Messages.Free; Probe.Free;
   end;
-  Choice:=BookSaveChoices(['.fb2','.epub','.pdf','.djvu'])[2];
+  Choice:=BookSaveChoices(['.fb2','.epub','.pdf','.djvu'])[3];
   Thread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
   try
     Revision:=-1; Complete:=False; Deadline:=GetTickCount64+120000; Thread.Start;

@@ -10,16 +10,18 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
   var Choices: TArray<TBookSaveChoice>;
   begin
     Choices:=BookSaveChoices(['.fb2','.FB2']);
-    Require((Length(Choices)=2) and Choices[0].KeepOriginal and
-      (Choices[1].Mode=emEpub),'FB2 choices repeat conversion to FB2');
+    Require((Length(Choices)=3) and Choices[0].KeepOriginal and Choices[1].KeepOriginal and
+      (Choices[1].Mode=emFB2Zip) and (Choices[2].Mode=emEpub),'FB2 choices lost native ZIP or repeat conversion to FB2');
     Choices:=BookSaveChoices(['epub']);
-    Require((Length(Choices)=2) and Choices[0].KeepOriginal and
-      (Choices[1].Mode=emFB2),'EPUB choices repeat conversion to EPUB');
+    Require((Length(Choices)=3) and Choices[0].KeepOriginal and
+      (Choices[1].Mode=emFB2) and (Choices[2].Mode=emFB2Zip),'EPUB choices repeat conversion to EPUB or lost FB2 ZIP');
     Choices:=BookSaveChoices(['.pdf','.djvu','.doc']);
-    Require((Length(Choices)=3) and Choices[0].KeepOriginal,'Non-FB2/EPUB sources lost original copying');
+    Require((Length(Choices)=4) and Choices[0].KeepOriginal,'Non-FB2/EPUB sources lost original copying');
     Choices:=BookSaveChoices(['.fb2','.epub','.pdf','.djvu']);
-    Require((Length(Choices)=5) and Choices[3].KeepFB2EPUB and Choices[4].KeepFB2EPUB,
+    Require((Length(Choices)=7) and Choices[4].KeepFB2EPUB and Choices[5].KeepFB2EPUB and Choices[6].KeepFB2EPUB,
       'Mixed set has no preference that keeps existing FB2 and EPUB');
+    Require(BookSaveZipsTarget('.fb2',emFB2Zip) and not BookSaveZipsTarget('.epub',emFB2Zip,True) and
+      not BookSaveZipsTarget('.pdf',emFB2,True),'ZIP packaging is not restricted to FB2');
     Require(BookSaveTargetExtension('.pdf',emFB2,True,False)='.pdf','Keep original converts PDF');
     Require(BookSaveTargetExtension('.epub',emFB2,False,True)='.epub','FB2 preference converts retained EPUB');
     Require(BookSaveTargetExtension('.pdf',emFB2,False,True)='.fb2','FB2 preference does not convert PDF');
@@ -68,7 +70,7 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
         Require(SameFileName(ExtractFileDir(Output),ExpectedFolder),'Author/series folders ignore their mask or missing metadata');
       end
       else Require(SameFileName(ExtractFileDir(Output),Options.Folder),'Flat save unexpectedly created author folders');
-      if Zipped then
+      if BookSaveZipsTarget(ExtractFileExt(Sources[I]),Mode,Zipped) then
       begin
         Require(SameText(ExtractFileExt(Output),'.zip'),'Mixed ZIP copy is not a ZIP');
         Archive:=TZipFile.Create;
@@ -135,7 +137,7 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
       begin
         Require(Results[I].State=besSucceeded,'Archived original copy failed');
         Expected:=Extensions[I];
-        if Zipped then
+        if BookSaveZipsTarget(Expected,Options.Mode,Zipped) then
         begin
           ZIP:=TZipFile.Create;
           try
@@ -242,8 +244,8 @@ begin
     Save(FB2,'fb2-keep-original',emFB2,True,'original',False);
     Save(EPUB,'epub-keep-original',emFB2,True,'original',False);
     Save(FB2,'fb2-native-zip',emFB2Zip,False,'original',False,True);
-    Save(EPUB,'epub-native-zip',emEpubZip,False,'original',False,True);
-    Save(EPUB,'epub-keep-native-zip',emFB2Zip,True,'original',False,True);
+    Save(EPUB,'epub-legacy-zip-ignored',emEpubZip,False,'original',False);
+    Save(EPUB,'epub-keep-zip-ignored',emFB2Zip,True,'original',False);
     Save(FB2,'fb2-to-epub-offer',emEpub,False,'original',True);
     Save(FB2,'fb2-images-offer',emFB2,False,'economy',True);
     Mixed('five-original-formats',[EPUB,FB2,PDF,DjVu,DOC,FB2],False,False,emFB2);

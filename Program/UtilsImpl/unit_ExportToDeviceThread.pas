@@ -334,7 +334,7 @@ begin
       begin
         if SourceExtension='.epub' then
         begin
-          if FExportMode in [emFB2Zip,emEpubZip] then FExportMode:=emEpubZip else FExportMode:=emEpub;
+          FExportMode:=emEpub;
         end
         else if SourceExtension='.fb2' then
         begin
@@ -365,7 +365,7 @@ begin
     if not FCurrentKeepSource or ProcessSourceImages then
       FreeAndNil(FFileOprecord.Stream);
     FNativeZipCopy:=FCurrentKeepSource and not ProcessSourceImages and
-      (FZipEachBook or (FRequestedExportMode in [emFB2Zip,emEpubZip]));
+      BookSaveZipsTarget(SourceExtension,FRequestedExportMode,FZipEachBook);
     if FCurrentKeepSource and (FImageQuality<>'original') and not ProcessSourceImages then
       FLastWarnings:='Для '+UpperCase(SourceExtension.TrimLeft(['.']))+
         ' сохранён исходный файл; настройка изображений применяется только к FB2 и EPUB.';
@@ -379,9 +379,7 @@ begin
         (not FCurrentKeepSource and ((FExportMode = emEpub) and
         IsBasicConversionSource(SourceExtension) and
         (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0))));
-    if FConvertBasic and FZipEachBook then
-      if FExportMode=emEpub then FExportMode:=emEpubZip
-      else if FExportMode=emFB2 then FExportMode:=emFB2Zip;
+    if FConvertBasic and FZipEachBook and (FExportMode=emFB2) then FExportMode:=emFB2Zip;
     if FExplicitFormat and not FExtractOnly and not FConvertBasic then
     begin
       var FormatName := 'FB2';
@@ -1171,6 +1169,9 @@ var
   CompletedCount: Integer;
   FirstError, ResultLabel, Summary: string;
 begin
+  // EPUB is already a ZIP container. Old saved plans may still request its
+  // former wrapper mode; preserve EPUB itself rather than making .epub.zip.
+  if FExportMode=emEpubZip then FExportMode:=emEpub;
   FRequestedExportMode:=FExportMode; FRequestedExplicitFormat:=FExplicitFormat;
   IsShowDialog := True;
   FailedCount := 0;

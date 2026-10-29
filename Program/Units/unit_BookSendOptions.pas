@@ -22,7 +22,7 @@ type
     FShellItem: IShellItem;
     FDestination, FNameMask, FFolderMask, FExcept: TEdit;
     FFormat, FImages, FScans: TComboBox;
-    FZip, FSubfolders: TCheckBox;
+    FSubfolders: TCheckBox;
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FPreview, FStatus: TLabel;
@@ -120,8 +120,6 @@ begin
   Button:=TButton.Create(Self); Button.Parent:=FContent; Button.Name:='BrowseDestination';
   Button.Caption:='Выбрать…'; Button.OnClick:=Browse;
   FFormatLabel:=LabelControl('FormatLabel','Формат книг:'); FFormat:=Combo('SendFormat');
-  FZip:=TCheckBox.Create(Self); FZip.Parent:=FContent; FZip.Name:='SendZIP';
-  FZip.Caption:='Каждую книгу упаковать в отдельный ZIP'; FZip.OnClick:=Changed;
   FImagesLabel:=LabelControl('ImagesLabel','Изображения:'); FImages:=Combo('SendImages');
   for var Text in QualityCaptions do FImages.Items.Add(Text);
   FImages.ItemIndex:=0;
@@ -219,7 +217,7 @@ begin
   Layout:=0;
   if Item.Options.ScanPages and FScans.Enabled then
     case FScans.ItemIndex of 1: Layout:=2; 2: Layout:=1; end;
-  if FZip.Checked then Result:=Item.Options.ZipOutputBytes[Layout,Quality]
+  if BookSaveZipsTarget(Item.TargetExtension,Choice.Mode) then Result:=Item.Options.ZipOutputBytes[Layout,Quality]
   else Result:=Item.Options.OutputBytes[Layout,Quality];
 end;
 
@@ -265,7 +263,7 @@ begin
       Folder:=TPath.Combine(Folder,BookSaveRelativeFolder(Templater.ParseString(Book,TpPath)));
     end;
     Ext:=BookSaveTargetExtension(BookSaveKnownExtension(Book),Choice.Mode,Choice.KeepOriginal,Choice.KeepFB2EPUB);
-    if FZip.Checked then Ext:=Ext+'.zip';
+    if BookSaveZipsTarget(Ext,Choice.Mode) then Ext:=Ext+'.zip';
     if FileName='' then FPreview.Caption:='Для первой книги маска даёт пустое имя. Добавьте %t или %id.'
     else FPreview.Caption:='Пример: '+TPath.Combine(Folder,FileName+Ext)+sLineBreak+
       'При совпадении имени добавится номер.';
@@ -300,7 +298,8 @@ procedure TBookSendOptionsForm.ListData(Sender: TObject; Item: TListItem);
 begin
   if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
   var Entry:=FItems[Item.Index]; Item.Caption:=FBooks[Item.Index].Title; Item.SubItems.Clear;
-  var Ext:=UpperCase(Entry.TargetExtension.TrimLeft(['.'])); if FZip.Checked then Ext:=Ext+' в ZIP';
+  var Ext:=UpperCase(Entry.TargetExtension.TrimLeft(['.']));
+  if BookSaveZipsTarget(Entry.TargetExtension,Choice.Mode) then Ext:=Ext+' в ZIP';
   Item.SubItems.Add(Ext);
   var Bytes:=EstimateBytes(Entry,Max(0,FImages.ItemIndex));
   if Bytes>0 then Item.SubItems.Add('≈ '+SizeText(Bytes))
@@ -390,7 +389,7 @@ begin
       Text(FIntro);
       FDestination.SetBounds(Margin,Y,W-S(130),RowHeight);
       TControl(FindComponent('BrowseDestination')).SetBounds(Margin+W-S(120),Y,S(120),RowHeight); Inc(Y,RowHeight+S(16));
-      Text(FFormatLabel); Place(FFormat,RowHeight); Place(FZip,S(24));
+      Text(FFormatLabel); Place(FFormat,RowHeight);
       Text(FImagesLabel); FImages.SetBounds(Margin,Y,W-S(160),RowHeight);
       FCalculate.SetBounds(Margin+W-S(150),Y,S(150),RowHeight); Inc(Y,RowHeight+Gap);
       Text(FSummary); Text(FStatus);
@@ -468,11 +467,13 @@ begin
       Dialog.FNameMask.Text:=InitialOptions.FileNameTemplate;
       Dialog.FSubfolders.Checked:=InitialOptions.FolderTemplate<>'';
       if Dialog.FSubfolders.Checked then Dialog.FFolderMask.Text:=InitialOptions.FolderTemplate;
-      Dialog.FZip.Checked:=InitialOptions.ZipEachBook;
+      var InitialMode:=InitialOptions.Mode;
+      if InitialMode=emEpubZip then InitialMode:=emEpub
+      else if InitialOptions.ZipEachBook and (InitialMode=emFB2) then InitialMode:=emFB2Zip;
       for var I:=0 to High(Dialog.FChoices) do
         if (Dialog.FChoices[I].KeepOriginal=InitialOptions.KeepSourceFormat) and
           (Dialog.FChoices[I].KeepFB2EPUB=InitialOptions.KeepFB2EPUB) and
-          (InitialOptions.KeepSourceFormat or (Dialog.FChoices[I].Mode=InitialOptions.Mode)) then
+          (Dialog.FChoices[I].Mode=InitialMode) then
         begin Dialog.FFormat.ItemIndex:=I; Break; end;
       var Parts:=InitialOptions.ImageQuality.Split(['|']);
       if Length(Parts)>0 then for var I:=0 to High(Qualities) do
@@ -491,7 +492,7 @@ begin
     Options.UseMTP:=IsShellPath(Options.Folder); Selected:=Dialog.Choice;
     Options.KeepSourceFormat:=Selected.KeepOriginal; Options.KeepFB2EPUB:=Selected.KeepFB2EPUB;
     Options.ExplicitFormat:=not Selected.KeepOriginal; Options.ScriptIndex:=-1;
-    Options.Mode:=Selected.Mode; Options.ZipEachBook:=Dialog.FZip.Checked;
+    Options.Mode:=Selected.Mode; Options.ZipEachBook:=False;
     Options.FileNameTemplate:=Dialog.FNameMask.Text;
     if Dialog.FSubfolders.Checked then Options.FolderTemplate:=Dialog.FFolderMask.Text;
     if Answer=mrRetry then

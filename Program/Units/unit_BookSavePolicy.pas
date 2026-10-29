@@ -14,6 +14,8 @@ type
 function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
 function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMode;
   KeepOriginal, KeepFB2EPUB: Boolean): string;
+function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;
+  LegacyZipEachBook: Boolean = False): Boolean;
 function BookSaveKeepsSource(const SourceExtension: string;
   KeepOriginal, KeepFB2EPUB: Boolean): Boolean;
 function BookSaveKnownExtension(const Book: TBookRecord): string;
@@ -149,16 +151,31 @@ begin
     AllFB2:=AllFB2 and (Ext='.fb2'); AllEPUB:=AllEPUB and (Ext='.epub');
     if (Ext='.fb2') or (Ext='.epub') then HasFB2EPUB:=True else HasOther:=True;
   end;
-  if AllFB2 then Add('Оставить FB2',emFB2,True,False)
+  if AllFB2 then
+  begin
+    Add('Оставить FB2',emFB2,True,False);
+    Add('Оставить FB2 в ZIP',emFB2Zip,True,False);
+  end
   else if AllEPUB then Add('Оставить EPUB',emEpub,True,False)
   else Add('Оставить исходный формат каждой книги',emFB2,True,False);
-  if not AllFB2 then Add('Преобразовать в FB2',emFB2,False,False);
+  if not AllFB2 then
+  begin
+    Add('Преобразовать в FB2',emFB2,False,False);
+    Add('Преобразовать в FB2 в ZIP',emFB2Zip,False,False);
+  end;
   if not AllEPUB then Add('Преобразовать в EPUB',emEpub,False,False);
   if HasFB2EPUB and HasOther then
   begin
     Add('Оставить FB2 и EPUB; остальные — в FB2',emFB2,False,True);
+    Add('Оставить EPUB; остальные — в FB2 в ZIP',emFB2Zip,False,True);
     Add('Оставить FB2 и EPUB; остальные — в EPUB',emEpub,False,True);
   end;
+end;
+
+function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;
+  LegacyZipEachBook: Boolean): Boolean;
+begin
+  Result:=(NormalExtension(TargetExtension)='.fb2') and ((Mode=emFB2Zip) or LegacyZipEachBook);
 end;
 
 end.
