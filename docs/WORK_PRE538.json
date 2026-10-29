@@ -292,7 +292,7 @@
       "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
     },
     "fb2_estimation_compatibility": {
-      "status": "source_fixes_verified_additional_native_package_rerun_pending",
+      "status": "verified_in_source_not_released_image_id_report_still_unreproduced",
       "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
       "cases": [
         {
@@ -338,9 +338,10 @@
           "255 converter tests passed after initial changes",
           "Actual G sources 562221/792655/755727/875779/533994 converted to EPUB and back: all normalized visible body text and all image resource bytes preserved; sources unchanged",
           "Fresh independent BookProcessing/ImageProcessing packages x86/x64: actual five sources, exact same-format copies, roundtrip validity, FB2 and EPUB estimates for broken-link and br cases, cancellation without published output, balanced image export and native builtin-export scenario all passed",
-          "Additional regression exposed unnamed style and anchor preservation inside broken source links; fixed, all 47 conversion tests passed. Repeat packaged x86/x64 check for this final adjustment before marking direction complete."
+          "Additional regression exposed unnamed style and anchor preservation inside broken source links; fixed, all 47 conversion tests passed in both production Python 3.13 runtimes (Win32 and Win64)",
+          "Final adjustment repackaged and repeated: five real sources, estimates/cancellation/balanced processing, exact original copies and native builtin-export passed both architectures; report pins final converter SHA256"
         ],
-        "report": "tools/ui/tests/Out/pre538-fb2-compatibility-20261029-r1.json (initial packaged revision before additional styled-link regression fix)",
+        "report": "tools/ui/tests/Out/pre538-fb2-compatibility-20261029-r2.json (final converter bytes, both architectures)",
         "cleanup_current": "Packaged real-source probe reports temporary_payloads_removed=true; read-only directory inventory finds no HomeLibRu-fb2-* leftovers under existing G:/HomeLibRu-build-cache."
       }
     },
