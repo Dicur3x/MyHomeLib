@@ -6,7 +6,8 @@
     "title": "HomeLib задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
     "verification": "Read back renamed HomeLib Page: 52 native blocks, 18 verified checked/struck-through items. Version numbering and branding pending; unrelated content preserved. Current native preparation/metadata item moved to completed.",
-    "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
+    "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
+    "last_check": "Read back HomeLib Page after guarded completion update: 52 native blocks, 19 checked/struck-through completed items. Complete estimate failure list moved into completed items. Cache/diagnostics and public branding/version migration remain queued; unrelated content preserved."
   },
   "order": [
     "archive_opening",
@@ -446,13 +447,30 @@
       "request": "Tester missed no-duplicates-by-series because search filters do not fit on screen. Make frequent settings visible, group/collapse advanced settings, and ensure reliable scrolling and complete keyboard access on small screens/high DPI. Do not change book identity or remove valid series associations to hide repeated rows."
     },
     "estimate_failure_visibility": {
-      "status": "queued_with_export_compatibility",
+      "status": "implemented_and_verified_native_x86_x64_pending_final_release_binaries",
       "observed": "Batch screenshot: 22 books without estimates; only one shared error shown, EPUB structure p cannot be represented in FB2 without content loss. Tester cannot identify affected books. Preserve actual input and inspect cause before relaxing checks.",
       "requirements": [
         "Display all books without estimates and per-book reason clearly, not only tooltip or first error",
         "Differentiate failed estimation from actual failed save",
         "Provide useful per-book report for batch diagnosis"
-      ]
+      ],
+      "implementation": "Save As has an explicit per-book result/reason column and a resizable themed full estimate report. Every selected title, source identity, all four mode sizes, full reason and required module IDs survive the report. Known copy sizes are retained when other processing fails. Report is readable without hovering, copyable and atomically saved as UTF-8. Its intro distinguishes estimation from saved output; changing target format discards stale results.",
+      "verification": {
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "scenarios": [
+          "estimate-failure-visibility",
+          "export-path-feedback",
+          "save-planning"
+        ],
+        "regression": "22 actual missing-source failures; full multiline long reasons, required modules, partial known ZIP size, atomic no-overwrite/replacement; restored options and real mixed FB2/EPUB/PDF/DjVu/text and scan conversions; light/dark 96/144/192 DPI; light/dark report windows additionally inspected manually using Computer Use on x86. Clipboard contents were not changed by automation.",
+        "report": "tools/ui/tests/Out/pre538-estimate-visibility-20261029-r1.json",
+        "cleanup": "Fresh owned native profiles and format packages removed under G:/HomeLibRu-build-cache; audit verified no new native directories remain.",
+        "test_repairs": "The real mixed-format fixture now explicitly keeps both files when different source formats share a basename. Default Ask is tested separately. Timeout cancellation no longer forces an active progress form through its user-facing abort-confirmation dialog. Two earlier visual-review attempts expired while waiting; the completed visual review and final unattended runs passed."
+      },
+      "remaining": "Final production catalogue/Reader builds and package integration remain pending. This is not an end-to-end release claim."
     },
     "export_atomic_path_failure": {
       "status": "implemented_and_verified_native_x86_x64_pending_final_release_binaries",
@@ -474,7 +492,7 @@
         "Export journal light/dark at 96/144/192 DPI, cancellation and exception cleanup passed; Shell/MTP branch tested through a filesystem Shell surrogate, no physical MTP hardware claim"
       ],
       "test_repair": "First run exposed that the batch log still used only the shared source filename despite earlier title assignment. Report labels now include title plus collection/record identity. Unicode test repetition changed from ambiguous ANSI StringOfChar overload to string.Create.",
-      "pending": "Final catalogue/reader production EXEs and release packaging gates remain. The exact original tester failure cause is not proven; reproduced long-path/unchecked-parent failures and per-book Shell exceptions are fixed. Next direction is the exact user-supplied 557950 FB2 and duplicate-cover preparation.",
+      "pending": "Final catalogue/reader production EXEs and release packaging gates remain. Exact original tester path failure is not proven; reproduced path/parent and per-book Shell failures are fixed. Exact supplied FB2 and native preparation directions are now verified separately.",
       "cleanup": "Final validation used a new owned TemporaryDirectory under G:/HomeLibRu-build-cache; report confirms payload removal. Read-only inventory afterwards found no HomeLibRu-native-* or HomeLibRu-output-validation-* directories.",
       "reports": [
         "tools/ui/tests/Out/pre538-book-output-20261029-r1.json",
@@ -561,7 +579,7 @@
     }
   },
   "next_steps_order": [
-    "Finish per-book estimation failure visibility; verify BookCache cleanup and add opt-in extended diagnostics",
+    "Verify BookCache cleanup after estimation/export/failure/cancellation/exit, then add opt-in extended diagnostics",
     "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
     "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",

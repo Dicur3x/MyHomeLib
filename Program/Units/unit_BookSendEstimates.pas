@@ -158,8 +158,9 @@ begin
   Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil; Warnings:=nil;
   try
     try
-      if Book.FileName='' then raise Exception.Create('Книга недоступна: исходный файл не определён.');
       Item.SourceExtension:=BookSaveKnownExtension(Book);
+      Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);
+      if Book.FileName='' then raise Exception.Create('Книга недоступна: исходный файл не определён.');
       if Book.GetBookFormat in [bfFb2Archive,bfRawArchive] then
         Pin:=OpenArchivedBookSaveSource(Book,Item.SourceExtension);
       Item.TargetExtension:=BookSaveTargetExtension(Item.SourceExtension,FPlan.Mode,FPlan.KeepOriginal,FPlan.KeepFB2EPUB);

@@ -59,7 +59,9 @@ begin
     Failure:='Unified send timed out'; Timer.Enabled:=False;
     if Assigned(Worker) then Worker.Cancel;
     for var I:=Screen.FormCount-1 downto 0 do
-      if Screen.Forms[I].Visible and (Screen.Forms[I]<>frmMain) then Screen.Forms[I].ModalResult:=mrCancel;
+      if Screen.Forms[I].Visible and (Screen.Forms[I]<>frmMain) and
+        not (Screen.Forms[I] is TExportToDeviceProgressForm) then
+        Screen.Forms[I].ModalResult:=mrCancel;
     Exit;
   end;
   for var I:=Screen.FormCount-1 downto 0 do

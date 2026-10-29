@@ -327,6 +327,9 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
     ForceDirectories(Options.Folder); Options.Mode:=Mode; Options.KeepSourceFormat:=Keep;
     Options.KeepFB2EPUB:=Prefer; Options.ExplicitFormat:=not Keep;
     Options.ImageQuality:='original'; Options.ZipEachBook:=Zipped;
+    // Distinct source formats deliberately share a basename in this fixture.
+    // Name-collision prompting is exercised separately by export-path-feedback.
+    Options.NameCollision:=bncKeepBoth;
     Probe.Deadline:=GetTickCount64+120000; Probe.Messages.Clear; Probe.Worker:=nil;
     Probe.Timer.Enabled:=True;
     try Results:=SaveFileBooks(Books,Options,Required);

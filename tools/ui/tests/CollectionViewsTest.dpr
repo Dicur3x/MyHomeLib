@@ -34,6 +34,7 @@ uses
   unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
   unit_BookConversionRequirements in '..\..\..\Program\Units\unit_BookConversionRequirements.pas',
   unit_BookSendOptions in '..\..\..\Program\Units\unit_BookSendOptions.pas',
+  unit_BookEstimateReport in '..\..\..\Program\Units\unit_BookEstimateReport.pas',
   unit_BookSavePolicy in '..\..\..\Program\Units\unit_BookSavePolicy.pas',
   unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup, unit_BookOutput, unit_BookCollisionDialog,
   unit_FileBooks in '..\..\..\Program\Units\unit_FileBooks.pas',
@@ -5629,6 +5630,7 @@ end;
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
 {$I FLibrarySourcePreparationTests.inc}
+{$I EstimateFailureVisibilityTests.inc}
 {$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
@@ -6058,6 +6060,7 @@ begin
         TestMainLiveLocateInput(One, OneID); TestFavoriteAuthorAffordances(One, OneID); TestLoadedListThemeMetrics;
       end
       else if ParamStr(1) = 'flibrary-quality' then TestFLibraryQualityExport(One)
+      else if ParamStr(1) = 'estimate-failure-visibility' then TestEstimateFailureVisibility
       else if ParamStr(1) = 'duplicate-source' then
       begin
         TestBookDuplicateSourcePreference;

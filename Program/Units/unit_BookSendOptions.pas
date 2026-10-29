@@ -27,7 +27,7 @@ type
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
-    FCalculate, FSend: TButton;
+    FCalculate, FSend, FReport: TButton;
     FList: TListView;
     FTimer: TTimer;
     FBooks: TArray<TBookRecord>;
@@ -36,7 +36,7 @@ type
     FEstimate: TBookSendEstimateThread;
     FRevision: Integer;
     FRequiredComponent: string;
-    FClosing, FReflowing, FInitializing: Boolean;
+    FClosing, FReflowing, FInitializing, FHasEstimateAttempt: Boolean;
     procedure Browse(Sender: TObject);
     procedure Changed(Sender: TObject);
     procedure Send(Sender: TObject);
@@ -46,6 +46,7 @@ type
     procedure Reflow(Sender: TObject);
     procedure ListData(Sender: TObject; Item: TListItem);
     procedure ListInfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
+    procedure ShowEstimateReport(Sender: TObject);
     procedure UpdateSummary;
     procedure UpdatePreview;
     procedure SetBooks(const Books: TArray<TBookRecord>);
@@ -67,7 +68,7 @@ implementation
 
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
-  unit_Templater, unit_BookConversion;
+  unit_Templater, unit_BookConversion, unit_BookEstimateReport;
 
 const
   Qualities: array[0..3] of string = ('original','balanced','economy','none');
@@ -128,10 +129,13 @@ begin
   FCalculate.Caption:='Оценить размер'; FCalculate.OnClick:=Calculate;
   FSummary:=LabelControl('SaveSizeSummary','');
   FStatus:=LabelControl('SaveEstimateStatus','Для конвертации и сжатия размер оценивается по кнопке.');
+  FReport:=TButton.Create(Self); FReport.Parent:=FContent; FReport.Name:='ShowSaveEstimateReport';
+  FReport.Caption:='Результаты оценки…'; FReport.Visible:=False; FReport.OnClick:=ShowEstimateReport;
   FList:=TListView.Create(Self); FList.Parent:=FContent; FList.Name:='SaveBookSizes';
   FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True;
   FList.OwnerData:=True; FList.OnData:=ListData; FList.ShowHint:=True; FList.OnInfoTip:=ListInfoTip;
   FList.Columns.Add.Caption:='Книга'; FList.Columns.Add.Caption:='Формат копии'; FList.Columns.Add.Caption:='Размер';
+  FList.Columns.Add.Caption:='Оценка / причина'; FList.OnDblClick:=ShowEstimateReport;
   FScanLabel:=LabelControl('ScanLabel','Сканы разворотов при преобразовании в FB2/EPUB:');
   FScans:=Combo('SaveScanLayout'); FScans.Items.Add('Не разделять — оставить как есть');
   FScans.Items.Add('Автоматически по сгибу или свободному промежутку');
@@ -247,6 +251,7 @@ begin
     if Large>0 then Text:=Text+Format(' · крупнее 20 МБ: %d',[Large]);
   end;
   FSummary.Caption:=Text;
+  FReport.Visible:=FHasEstimateAttempt;
   FList.Invalidate;
 end;
 
@@ -289,7 +294,11 @@ var CanProcess, Opaque: Boolean;
 begin
   if FInitializing then Exit;
   if Sender=FFormat then
-  begin FItems:=KnownBookSaveEstimates(FBooks,Choice); FRequiredComponent:=''; FCalculate.Caption:='Оценить размер'; end;
+  begin
+    FItems:=KnownBookSaveEstimates(FBooks,Choice); FRequiredComponent:='';
+    FCalculate.Caption:='Оценить размер'; FHasEstimateAttempt:=False;
+    FStatus.Caption:='Для конвертации и сжатия размер оценивается по кнопке.';
+  end;
   CanProcess:=Length(FBooks)=0; Opaque:=False;
   for var Item in FItems do
     if (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') then CanProcess:=True else Opaque:=True;
@@ -319,12 +328,24 @@ begin
   if Bytes>0 then Item.SubItems.Add('≈ '+SizeText(Bytes))
   else if Entry.ErrorText<>'' then Item.SubItems.Add('Нет оценки')
   else Item.SubItems.Add('Не рассчитано');
+  Item.SubItems.Add(BookEstimateResultText(Entry,Bytes).Replace(#13,' ').Replace(#10,' '));
 end;
 
 procedure TBookSendOptionsForm.ListInfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
 begin
   if (Item.Index>=0) and (Item.Index<Length(FItems)) then
     InfoTip:=FBooks[Item.Index].Title+sLineBreak+FItems[Item.Index].ErrorText;
+end;
+
+procedure TBookSendOptionsForm.ShowEstimateReport(Sender: TObject);
+var Dialog: TBookEstimateReportForm; Layout: Integer;
+begin
+  if not FHasEstimateAttempt then Exit;
+  Layout:=0;
+  if FScans.Enabled then case FScans.ItemIndex of 1: Layout:=2; 2: Layout:=1; end;
+  Dialog:=TBookEstimateReportForm.CreateReport(Self,
+    BookEstimateReport(FBooks,FItems,Choice,FImages.ItemIndex,Layout,FStatus.Caption));
+  try Dialog.ShowModal; finally Dialog.Free; end;
 end;
 
 procedure TBookSendOptionsForm.Calculate(Sender: TObject);
@@ -334,9 +355,10 @@ begin
   begin FEstimate.Terminate; FStatus.Caption:='Останавливаем оценку…'; Exit; end;
   if Length(FBooks)=0 then begin FStatus.Caption:='Список книг для оценки не передан.'; Exit; end;
   FRevision:=-1; FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath);
+  FHasEstimateAttempt:=True;
   FFormat.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
   FStatus.Caption:='Оценка по образцам изображений. Для длинных сканов потребуется время…';
-  FTimer.Enabled:=True; FEstimate.Start;
+  FTimer.Enabled:=True; FEstimate.Start; UpdateSummary; Reflow(nil);
 end;
 
 procedure TBookSendOptionsForm.Tick(Sender: TObject);
@@ -351,14 +373,14 @@ begin
   else if Status.StartsWith('Оценка остановлена') then FStatus.Caption:=Status
   else
   begin
-    var Errors:=0; var FirstError:=''; var Limited:=False;
+    var Errors:=0; var Limited:=False;
     for var Item in FItems do
     begin
-      if Item.ErrorText<>'' then begin Inc(Errors); if FirstError='' then FirstError:=Item.ErrorText; end;
+      if Item.ErrorText<>'' then Inc(Errors);
       if (FRequiredComponent='') and (Item.RequiredComponent<>'') then FRequiredComponent:=Item.RequiredComponent;
       Limited:=Limited or Item.Options.FirstSamples;
     end;
-    if Errors>0 then FStatus.Caption:=Format('Не удалось оценить %d книг: %s',[Errors,FirstError])
+    if Errors>0 then FStatus.Caption:=Format('Ошибки оценки: %d из %d книг. Причины указаны в таблице и в результатах оценки.',[Errors,Length(FBooks)])
     else if Limited then FStatus.Caption:='Размер ориентировочный: для длинных сканов проверены первые страницы. Результат может отличаться.'
     else FStatus.Caption:='Оценка по образцам готова. Итоговый размер может немного отличаться.';
   end;
@@ -407,11 +429,14 @@ begin
       Text(FImagesLabel); FImages.SetBounds(Margin,Y,W-S(160),RowHeight);
       FCalculate.SetBounds(Margin+W-S(150),Y,S(150),RowHeight); Inc(Y,RowHeight+Gap);
       Text(FSummary); Text(FStatus);
-      FList.Visible:=Length(FBooks)>1;
+      if FReport.Visible then
+      begin FReport.SetBounds(Margin,Y,Min(W,S(260)),RowHeight); Inc(Y,RowHeight+Gap); end;
+      FList.Visible:=(Length(FBooks)>1) or (FHasEstimateAttempt and (Length(FBooks)>0));
       if FList.Visible then
       begin
-        Place(FList,S(140)); FList.Columns[0].Width:=Max(S(120),W-S(290));
-        FList.Columns[1].Width:=S(140); FList.Columns[2].Width:=S(120);
+        Place(FList,S(Min(170,34+24*Min(Length(FBooks),6)))); FList.Columns[0].Width:=Max(S(150),W div 3);
+        FList.Columns[1].Width:=S(110); FList.Columns[2].Width:=S(100);
+        FList.Columns[3].Width:=Max(S(220),W-FList.Columns[0].Width-S(240));
       end;
       Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
       Text(FNote); Inc(Y,S(6)); Text(FMaskLabel); Place(FNameMask,RowHeight);
