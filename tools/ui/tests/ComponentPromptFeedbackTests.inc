@@ -80,3 +80,92 @@ begin
   finally SetMHLTheme(SavedDark); Timer.Free; Probe.Free; Host.Free; end;
   Writeln('PASS reader formats help names native handlers and external updates with scrollable light dark 96 144 192 DPI dialog');
 end;
+
+procedure TestDjvuFirstUseFeedback;
+var Dialog:TReaderModuleForm; Prompt:TForm; Started:UInt64;
+  Size,ExpectedSize,Adapter,Archive,Hash,Job,Target:string;
+  Server:TRepairServer; Worker:TRepairWorker; Info:TProgramRelease;
+  procedure CheckExistingExtractor;
+  var Root,App,Global:string; Variables,Saved:TArray<string>;
+  begin
+    Root:=Settings.AppPath+'extractor-discovery'; App:=Root+'\portable'; Global:=Root+'\system64\7-Zip\';
+    ForceDirectories(App+'\tools\7zip'); ForceDirectories(Global);
+    TFile.WriteAllText(App+'\tools\7zip\7z.exe','Owned incomplete executable marker; never run');
+    TFile.WriteAllText(Global+'7z.exe','Owned executable marker; never run');
+    TFile.WriteAllText(Global+'7z.dll','Owned library marker; never loaded');
+    Variables:=TArray<string>.Create('ProgramFiles','ProgramFiles(x86)','ProgramW6432','PATH');
+    SetLength(Saved,Length(Variables));
+    for var I:=0 to High(Variables) do Saved[I]:=GetEnvironmentVariable(Variables[I]);
+    try
+      SetEnvironmentVariable('ProgramFiles',PChar(Root+'\empty32'));
+      SetEnvironmentVariable('ProgramFiles(x86)',PChar(Root+'\empty32'));
+      SetEnvironmentVariable('ProgramW6432',PChar(Root+'\system64')); SetEnvironmentVariable('PATH','');
+      Require(SameFileName(FindFullSevenZip(App),Global+'7z.exe'),'Incomplete portable extractor hides full Windows installation');
+      Require(SameFileName(FindExternalTool('7z.exe','7zip'),Global+'7z.exe'),'Ordinary archive lookup misses 64-bit Windows 7-Zip');
+      TFile.WriteAllText(App+'\tools\7zip\7zz.exe','Owned standalone marker; never run');
+      var Actual:=FindFullSevenZip(App);
+      Require(SameFileName(Actual,App+'\tools\7zip\7zz.exe'),'Portable standalone extractor loses precedence: '+Actual);
+    finally
+      for var I:=0 to High(Variables) do SetEnvironmentVariable(PChar(Variables[I]),PChar(Saved[I]));
+    end;
+  end;
+begin
+  RequireIsolatedRegression;
+  CheckExistingExtractor;
+  Adapter:=GetEnvironmentVariable('HLRU_DJVU_READY_ADAPTER');
+  Require(FileExists(Adapter),'Specify the pinned DjVu adapter ZIP');
+  ExpectedSize:=Format('Нужно скачать: %.1f КБ',[(128+TFile.GetSize(Adapter))/1024]);
+  Require(ComponentNeedsRepair(Settings.AppPath,'7-Zip'),'First-use fixture unexpectedly includes a private 7-Zip');
+  Dialog:=TReaderModuleForm.Create(nil); Dialog.RequestedID:='DjVuLibre';
+  try
+    Dialog.RequestComponent('DjVuLibre','Для выбранной книги требуется чтение DjVu.',True);
+    Started:=GetTickCount64;
+    repeat
+      Application.ProcessMessages; CheckSynchronize(2); Sleep(5);
+      Prompt:=TForm(Dialog.FindComponent('OptionalComponentPrompt'));
+      Size:=''; if Assigned(Prompt) then Size:=TLabel(Prompt.FindComponent('ComponentPromptBytes')).Caption;
+    until (Size=ExpectedSize) or (GetTickCount64-Started>5000);
+    Require(Assigned(Prompt) and (Size=ExpectedSize),'DjVu first use did not find its ready package: '+Size);
+    Require(string(TLabel(Prompt.FindComponent('ComponentPromptTitle')).Caption).Contains('DjVuLibre'),
+      'DjVu first use diverted to a 7-Zip install');
+    Require(string(TMemo(Prompt.FindComponent('ComponentPromptReason')).Text).Contains('Дополнительная установка 7-Zip не требуется'),
+      'DjVu ready package source or extraction explanation absent');
+    Require((Dialog.Requests.Count=2) and (Dialog.DownloadID=''),'DjVu queried unrelated modules or started itself');
+    try TButton(Prompt.FindComponent('ComponentPromptDownload')).Click;
+    except on E:Exception do if E.Message<>'OWN_READER_DOWNLOAD_OBSERVED' then raise; end;
+    Require(Dialog.DownloadID='DjVuLibre','DjVu prompt downloaded a different component');
+  finally Dialog.Free; end;
+  Archive:=GetEnvironmentVariable('HLRU_DJVU_READY_PACKAGE');
+  Require((Archive<>'') and FileExists(Archive),'Specify the owned ready DjVu package for native install validation');
+  Hash:=UpdateSHA256(Archive); Job:=Settings.AppPath+'djvu-ready-job'; Target:=Settings.AppPath+'djvu-ready-target';
+  ForceDirectories(Target); TFile.Copy(ParamStr(0),Target+'\HomeLibRu.exe');
+  Info:=Default(TProgramRelease); Info.ComponentID:='DjVuLibre'; Info.ComponentVersion:='3.5.29';
+  Info.Tag:=ALREADER_FIXED_TAG; Info.SHA256:=Hash; Info.Size:=TFile.GetSize(Archive);
+  Info.DownloadURL:='https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/'+ExtractFileName(Archive);
+  Server:=TRepairServer.Create; Worker:=nil;
+  try
+    Server.URLs.Add(Info.DownloadURL); Server.Files.Add(Archive);
+    Server.URLs.Add('https://github.com/Dicur3x/MyHomeLib/releases/download/'+ALREADER_FIXED_TAG+'/HomeLibRu-DjVu-adapter-1.zip');
+    Server.Files.Add(Adapter);
+    Worker:=TRepairWorker.Create(0,Info,Job,Server); Worker.RuntimePath:=Target;
+    Worker.Start; Started:=GetTickCount64;
+    while not Worker.Finished do
+    begin
+      Application.ProcessMessages; CheckSynchronize(2); Sleep(5);
+      Require(GetTickCount64-Started<30000,'Ready DjVu preparation timed out');
+    end;
+    Worker.WaitFor;
+    Require(Worker.Successful,'Ready DjVu download and adapter verification failed: '+Worker.ErrorText);
+    Require((Server.Requests=2) and (Server.Failure=''),'Ready DjVu requested unrelated components');
+  finally
+    if Assigned(Worker) then begin Worker.Terminate; Worker.WaitFor; Worker.Free; end;
+    Server.Free;
+  end;
+  InstallProgramUpdate(Job,Target);
+  Require(not ComponentNeedsRepair(Target,'DjVuLibre'),'Ready DjVu package did not install completely');
+  Require(not FileExists(Target+'\tools\7zip\7z.exe'),'Ready DjVu install added unrelated 7-Zip');
+  Require(FileExists(Target+'\tools\djvu\djvulibre-3.5.29.tar.gz') and
+    FileExists(Target+'\tools\djvu\COPYING.txt'),'Ready DjVu lost corresponding source or license');
+  Require(UpdateSHA256(Archive)=Hash,'DjVu validation changed the input archive');
+  Writeln('PASS DjVu first use downloads its ready verified package without another 7-Zip install');
+end;

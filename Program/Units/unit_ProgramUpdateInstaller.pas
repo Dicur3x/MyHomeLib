@@ -1210,7 +1210,7 @@ begin
     end
     else
     begin
-      Tools:=TPath.Combine(RuntimePath,'tools/7zip/7z.exe');
+      Tools:=FindFullSevenZip(RuntimePath);
       if (ID='7-Zip') and (SecondaryArchive<>'') then
       begin
         AssertUpdatePath(SecondaryArchive);

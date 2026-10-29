@@ -5853,6 +5853,7 @@ begin
       else if ParamStr(1) = 'reader-components' then TestReaderComponents
       else if ParamStr(1) = 'archive-open-feedback' then TestArchiveOpenFeedback
       else if ParamStr(1) = 'component-prompt-feedback' then TestComponentPromptFeedback
+      else if ParamStr(1) = 'djvu-first-use-feedback' then TestDjvuFirstUseFeedback
       else if ParamStr(1) = 'reader-cache-settings' then TestStandaloneReaderCacheSettings
       else if ParamStr(1) = 'reader-session-context' then TestReaderSessionContext
       else if ParamStr(1) = 'reader-session-process' then TestReaderSessionProcess

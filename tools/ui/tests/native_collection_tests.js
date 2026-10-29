@@ -80,8 +80,10 @@ if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'format-compo
 modes.push('webp-live');
 modes.push('archive-open-feedback');
 modes.push('component-prompt-feedback');
+modes.push('djvu-first-use-feedback');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  'djvu-first-use-feedback': ['PASS DjVu first use downloads its ready verified package without another 7-Zip install'],
   'component-prompt-feedback': ['PASS component prompts show purpose once preserve context and agree on small download sizes', 'PASS reader formats help names native handlers and external updates with scrollable light dark 96 144 192 DPI dialog'],
   'archive-open-feedback': ['PASS archive picker prefers main document keeps companion text and double click confirms reading and conversion', 'PASS CBZ literal bracket Unicode duplicate base names natural order and all page pixels'],
   'format-components': ['PASS independent format base converts FB2 to EPUB without Kindle Office XPS', 'PASS independent format component prepare verify install BookProcessing', 'PASS independent format component prepare verify install ImageProcessing', 'PASS independent format component prepare verify install Kindle', 'PASS independent format component prepare verify install LegacyBooks', 'PASS independent format component prepare verify install LegacyOffice', 'PASS independent format component prepare verify install XPS'],

@@ -60,6 +60,7 @@ type
     FReleases: TComponentReleases;
     FLimit: Int64;
     FOnlyIDs: TArray<string>;
+    FPreferReadyDjvu: Boolean;
     procedure ReceiveData(const Sender: TObject; AContentLength, AReadCount: Int64;
       var AAbort: Boolean);
   protected
@@ -76,6 +77,7 @@ type
     property ErrorText: string read FError;
     property Releases: TComponentReleases read FReleases;
     property OnlyIDs: TArray<string> read FOnlyIDs write FOnlyIDs;
+    property PreferReadyDjvu: Boolean read FPreferReadyDjvu write FPreferReadyDjvu;
   end;
 
 function IsOptionalComponent(const ID: string): Boolean;
@@ -1027,6 +1029,17 @@ begin
           begin
             if UPDATE_COMPONENTS[I].ID='DjVuLibre' then
             begin
+              if FPreferReadyDjvu then
+              begin
+                var ReadyPackage:TProgramRelease;
+                if not FetchMirrorRelease('DjVuLibre','',ReadyPackage) then
+                  raise Exception.Create('Не найден проверенный готовый ZIP библиотеки DjVuLibre. Повторите проверку.');
+                FReleases[I]:=ReadyPackage;
+                FReleases[I].ComponentWarning:='Готовый пакет DjVuLibre с зеркала HomeLib Ru на GitHub. '+
+                  'Дополнительная установка 7-Zip не требуется; лицензии и исходники включены.';
+              end
+              else
+              begin
               Changes:=FetchText('https://sourceforge.net/projects/djvu/files/DjVuLibre_Windows/');
               WindowsFiles:=Changes;
               if not ParseRasterComponent(Changes,ComponentIDs[I],FReleases[I]) then
@@ -1044,6 +1057,7 @@ begin
               FReleases[I].OfficialComponent:=True; FReleases[I].CheckOnly:=False; GetSize(FReleases[I]);
               Changes:=FetchText('https://sourceforge.net/p/djvu/djvulibre-git/ci/master/tree/NEWS?format=raw');
               ParseDjVuHistory(Changes,WindowsFiles,FReleases[I]);
+              end;
             end
             else
             begin

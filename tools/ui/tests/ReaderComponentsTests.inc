@@ -38,7 +38,8 @@ function TReaderModuleForm.CreateComponentWorker(Window: HWND): TComponentUpdate
 var Probe: TReaderModuleWorker;
 begin
   Probe:=TReaderModuleWorker.Create(Window,CreateHTTPClientGlobal,PROGRAM_RELEASES_API,'');
-  Probe.Requests:=Requests; Probe.ComponentID:=RequestedID; Result:=Probe;
+  Probe.Requests:=Requests; Probe.ComponentID:=RequestedID;
+  Probe.PreferReadyDjvu:=RequestedID='DjVuLibre'; Result:=Probe;
 end;
 function TReaderModuleForm.CreateDownloadWorker(Window: HWND; const Info: TProgramRelease; const Job: string): TProgramDownloadThread;
 begin DownloadID:=Info.ComponentID; raise Exception.Create('OWN_READER_DOWNLOAD_OBSERVED'); end;

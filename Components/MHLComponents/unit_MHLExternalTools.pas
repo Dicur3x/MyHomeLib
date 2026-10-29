@@ -23,6 +23,8 @@ type
   end;
 
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
+// Full 7-Zip supports the author installers as well as ordinary 7z books.
+function FindFullSevenZip(const AppPath: string): string;
 function QuoteCommandLineArgument(const Value: string): string;
 procedure RunExternalToolToStream(const ToolPath: string;
   const Arguments: array of string; const Output: TStream;
@@ -97,7 +99,7 @@ function FindExternalTool(const ToolName, ToolSubFolder: string): string;
 var
   AppFolder: string;
   Candidate: string;
-  ProgramFilesFolder: string;
+  ProgramFilesFolder, VariableName: string;
 begin
   AppFolder := ExtractFilePath(ParamStr(0));
 
@@ -110,21 +112,14 @@ begin
   if FileExists(Candidate) then
     Exit(Candidate);
 
-  // Development machines commonly have 7-Zip installed but not added to
-  // PATH.  Release archives still carry their private runtime under tools.
+  // Reuse an existing Windows installation even when it is absent from PATH.
+  // ProgramW6432 also finds 64-bit 7-Zip from the 32-bit application.
   if SameText(ToolSubFolder, '7zip') then
   begin
-    ProgramFilesFolder := GetEnvironmentVariable('ProgramFiles');
-    if ProgramFilesFolder <> '' then
+    for VariableName in TArray<string>.Create('ProgramFiles','ProgramFiles(x86)','ProgramW6432') do
     begin
-      Candidate := TPath.Combine(ProgramFilesFolder,
-        TPath.Combine('7-Zip', ToolName));
-      if FileExists(Candidate) then
-        Exit(Candidate);
-    end;
-    ProgramFilesFolder := GetEnvironmentVariable('ProgramFiles(x86)');
-    if ProgramFilesFolder <> '' then
-    begin
+      ProgramFilesFolder:=GetEnvironmentVariable(VariableName);
+      if ProgramFilesFolder='' then Continue;
       Candidate := TPath.Combine(ProgramFilesFolder,
         TPath.Combine('7-Zip', ToolName));
       if FileExists(Candidate) then
@@ -133,6 +128,29 @@ begin
   end;
 
   Result := FindOnPath(ToolName);
+end;
+
+function FindFullSevenZip(const AppPath: string): string;
+var Folder, ToolFolder, Candidate: string;
+begin
+  Result:='';
+  for Folder in TArray<string>.Create(
+    TPath.Combine(AppPath,'tools\7zip'),AppPath,
+    GetEnvironmentVariable('ProgramFiles'),GetEnvironmentVariable('ProgramFiles(x86)'),GetEnvironmentVariable('ProgramW6432')) do
+  begin
+    if Folder='' then Continue;
+    ToolFolder:=Folder;
+    if (Folder=GetEnvironmentVariable('ProgramFiles')) or
+      (Folder=GetEnvironmentVariable('ProgramFiles(x86)')) or
+      (Folder=GetEnvironmentVariable('ProgramW6432')) then ToolFolder:=TPath.Combine(Folder,'7-Zip');
+    Candidate:=TPath.Combine(ToolFolder,'7zz.exe');
+    if FileExists(Candidate) then Exit(Candidate);
+    Candidate:=TPath.Combine(ToolFolder,'7z.exe');
+    if FileExists(Candidate) and FileExists(TPath.Combine(ToolFolder,'7z.dll')) then Exit(Candidate);
+  end;
+  Candidate:=FindOnPath('7zz.exe'); if Candidate<>'' then Exit(Candidate);
+  Candidate:=FindOnPath('7z.exe');
+  if (Candidate<>'') and FileExists(TPath.Combine(ExtractFilePath(Candidate),'7z.dll')) then Result:=Candidate;
 end;
 
 procedure RunExternalToolToStream(const ToolPath: string;

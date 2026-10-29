@@ -161,7 +161,8 @@ implementation
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.RegularExpressions, System.Math,
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
-  unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation;
+  unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
+  unit_MHLExternalTools;
 
 function ComponentDownloadSize(Bytes: Int64): string;
 begin
@@ -1171,6 +1172,8 @@ end;
 function TfrmProgramUpdate.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
 begin
   Result := TComponentUpdateThread.Create(Window, CreateHTTPClientGlobal, PROGRAM_RELEASES_API, FCache);
+  Result.PreferReadyDjvu:=(FRequestedComponent='DjVuLibre') and
+    ComponentNeedsRepair(Settings.AppPath,'DjVuLibre') and (FindFullSevenZip(Settings.AppPath)='');
 end;
 
 function TfrmProgramUpdate.CreateDownloadWorker(Window: HWND; const ReleaseInfo: TProgramRelease;
@@ -1299,11 +1302,6 @@ begin
   for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
   if (Index<0) or not ComponentAllowed(Index) or not IsOptionalComponent(ID) then Exit;
   if Compact then CreateCompactPrompt else UseFullWindow;
-  if (ID='DjVuLibre') and ComponentNeedsRepair(Settings.AppPath,'7-Zip') then
-  begin
-    RequestComponent('7-Zip','Для распаковки библиотеки DjVuLibre сначала нужен 7-Zip. После его установки снова откройте книгу DjVu.',Compact);
-    Exit;
-  end;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
   FRequestedComponent:=ID; Purpose:=ComponentPurpose(ID); FRequestReason:=Trim(Reason);
   // Callers may already supply the purpose, or include it in a decoder error.

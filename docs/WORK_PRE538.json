@@ -1,12 +1,27 @@
 {
   "status": "in_progress",
-  "order": ["archive_opening", "component_installation", "save_as_and_navigation", "remaining_goal"],
+  "order": [
+    "archive_opening",
+    "component_installation",
+    "save_as_and_navigation",
+    "remaining_goal"
+  ],
   "archive_opening": {
     "status": "verified_in_source_not_released",
-    "changes": ["Prefer a root book to a nested companion TXT without hiding selectable files", "Confirm archive member on double click", "Keep exact comic entry indices through natural page sorting; brackets are literal names"],
+    "changes": [
+      "Prefer a root book to a nested companion TXT without hiding selectable files",
+      "Confirm archive member on double click",
+      "Keep exact comic entry indices through natural page sorting; brackets are literal names"
+    ],
     "verification": {
-      "platforms": ["Win32", "Win64"],
-      "scenarios": ["archive-open-feedback", "loose-archive"],
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "archive-open-feedback",
+        "loose-archive"
+      ],
       "real_book": "LibID 812817: Tokyo Mew Mew vol.1, all 159 image pages decoded and rendered",
       "source_policy": "Original collection read only; extracted member and synthetic fixtures confined to isolated test profile",
       "cleanup": "Native wrapper removed the newly generated test profiles on success and failure",
@@ -15,13 +30,60 @@
   },
   "component_installation": {
     "status": "in_progress",
-    "verified": ["Compact prompts contain the purpose once even when passed again by the caller or in a multiline operation reason", "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter", "Reader Settings has scrollable formats help naming native handlers and update ownership", "BookProcessing and ImageProcessing purposes describe their actual roles and separate format modules"],
-    "verification": {"platforms": ["Win32", "Win64"], "scenarios": ["component-prompt-feedback", "reader-components"], "help_layout": "light/dark at 96/144/192 DPI; active reading view supplies its own palette", "cleanup": "New isolated native test profiles removed by the wrapper"},
-    "remaining": ["Avoid asking for private 7-Zip before installing DjVu when a verified ready package or suitable existing unpacker is available", "Plan all known required modules for the selected operation together, without unrelated format modules", "Investigate safe operation continuation and avoid needless application restart where possible"]
+    "verified": [
+      "Compact prompts contain the purpose once even when passed again by the caller or in a multiline operation reason",
+      "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter",
+      "Reader Settings has scrollable formats help naming native handlers and update ownership",
+      "BookProcessing and ImageProcessing purposes describe their actual roles and separate format modules",
+      "DjVu first use reuses a complete existing 7-Zip or requests the verified ready mirror ZIP instead of redirecting to a separate 7-Zip installation"
+    ],
+    "verification": {
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "component-prompt-feedback",
+        "reader-components"
+      ],
+      "help_layout": "light/dark at 96/144/192 DPI; active reading view supplies its own palette",
+      "cleanup": "New isolated native test profiles removed by the wrapper"
+    },
+    "remaining": [
+      "Plan all known required modules for the selected operation together, without unrelated format modules",
+      "Investigate safe operation continuation and avoid needless application restart where possible"
+    ],
+    "djvu_first_use": {
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "djvu-first-use-feedback",
+        "reader-components"
+      ],
+      "checks": [
+        "Ignore incomplete private extractor; find installed 64-bit 7-Zip from either host architecture",
+        "Real ready DjVu ZIP and pinned bridge use the production download, validation and installation path with loopback transport",
+        "Only requested module and necessary bridge; licenses and matching source retained; input archives unchanged"
+      ],
+      "source_archives": {
+        "Win32": "a5b2c4e6f3ff202dc83d92f868364d6762c6ee79e5d0873fa521db3474115fc7",
+        "Win64": "e7f70ad3def0b90ce8ddba354456b55fcda519ea15b82a084fb1a0f4ec93c61e"
+      },
+      "limitation": "Native tests compile the production units; final application/Reader builds and release validation remain pending. Normal author-package metadata path remains unchanged; full vendor-installer regression is reserved for release verification.",
+      "cleanup": "Native profiles removed by wrapper. Automatic approval review rejected deletion of owned Out/pre538-djvu-first-use-20261029-r1 (8955749 bytes including marker), blocked by policy. Do not retry via another path or parent."
+    }
   },
   "save_as_and_navigation": {
     "status": "queued",
-    "remaining": ["Overwrite checkbox with safe publication and source protection", "Never wrap EPUB in redundant EPUB.ZIP", "Finish mixed-format save and estimates feedback", "Preserve and verify clickable internal links and chapter navigation on reported The Wizard EPUB to FB2", "Make success notes distinguish adaptations from export errors"]
+    "remaining": [
+      "Overwrite checkbox with safe publication and source protection",
+      "Never wrap EPUB in redundant EPUB.ZIP",
+      "Finish mixed-format save and estimates feedback",
+      "Preserve and verify clickable internal links and chapter navigation on reported The Wizard EPUB to FB2",
+      "Make success notes distinguish adaptations from export errors"
+    ]
   },
   "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release."
 }
