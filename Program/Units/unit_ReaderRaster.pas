@@ -19,6 +19,7 @@ type
   private
     FArchive: TMHLZip;
     FNames: TArray<string>;
+    FArchiveEntries: TArray<Integer>;
     FFileName: string;
     FPageCache: TDictionary<Integer,TReaderRasterPage>;
     FCacheLock: TObject;
@@ -92,7 +93,7 @@ begin
 end;
 
 constructor TReaderRaster.Create(const FileName: string; RenderEdge: Integer);
-var Names: TList<string>; I: Integer; Name, E: string; Factory: IWICImagingFactory;
+var Names: TList<Integer>; I: Integer; Name, E: string; Factory: IWICImagingFactory;
   Decoder: IWICBitmapDecoder; Frames: Cardinal;
 begin
   inherited CreateEmpty; FFileName:=TPath.GetFullPath(FileName); FVisiblePage:=-1;
@@ -120,15 +121,19 @@ begin
     FArchive:=TMHLZip.Create(FFileName,True,False,
       function: Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end,
       E<>'.cbz');
-    Names:=TList<string>.Create;
+    Names:=TList<Integer>.Create;
     try
       for I:=0 to FArchive.FileCount-1 do
       begin
         Name:=FArchive.FileNames[I];
         if ImageExtension(ExtractFileExt(Name)) and not Name.StartsWith('__MACOSX/',True) and
-          not ExtractFileName(Name).StartsWith('._') then Names.Add(Name);
+          not ExtractFileName(Name).StartsWith('._') then Names.Add(I);
       end;
-      Names.Sort(TComparer<string>.Construct(PageCompare)); FNames:=Names.ToArray;
+      Names.Sort(TComparer<Integer>.Construct(
+        function(const A,B: Integer): Integer
+        begin Result:=PageCompare(FArchive.FileNames[A],FArchive.FileNames[B]); end));
+      FArchiveEntries:=Names.ToArray; SetLength(FNames,Length(FArchiveEntries));
+      for I:=0 to High(FArchiveEntries) do FNames[I]:=FArchive.FileNames[FArchiveEntries[I]];
     finally Names.Free; end;
     FPageCount:=Length(FNames);
     if FPageCount=0 then raise Exception.Create('В комиксе не найдены изображения страниц.');
@@ -249,9 +254,12 @@ begin
     begin
       if Assigned(FArchive) then
       begin
-        if not FArchive.Find(FNames[Index]) then raise Exception.Create('Страница комикса отсутствует.');
-        if (FArchive.LastSize<0) or (FArchive.LastSize>32*1024*1024) then raise Exception.Create('Изображение комикса превышает 32 МБ.');
-        Stream:=TMemoryStream.Create; FArchive.ExtractToStream(FNames[Index],Stream);
+        // A real member name may contain mask syntax such as [Fansub].
+        // Keep the enumerated entry index through natural page sorting rather
+        // than interpreting its literal filename as a wildcard search.
+        var Entry:=FArchiveEntries[Index];
+        if (FArchive.FileSizes[Entry]<0) or (FArchive.FileSizes[Entry]>32*1024*1024) then raise Exception.Create('Изображение комикса превышает 32 МБ.');
+        Stream:=TMemoryStream.Create; FArchive.ExtractToStream(Entry,Stream);
       end else Stream:=TFileStream.Create(FFileName,fmOpenRead or fmShareDenyNone);
       Stream.Position:=0; Converted:=ConvertWebPStreamToPNG(Stream);
       if Assigned(Converted) then Adapter:=TStreamAdapter.Create(Converted,soReference)

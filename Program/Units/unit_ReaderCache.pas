@@ -43,7 +43,21 @@ uses
   Winapi.Windows, unit_ReaderFormats, unit_ReaderKindle, unit_ReaderOffice, unit_ReaderLegacy, unit_Settings, unit_Consts, unit_FLibraryCompat, unit_MHLExternalTools,
   unit_MHLArchiveHelpers, unit_WebPCompat, unit_BookMetadataCache, unit_BookCache, dm_user, unit_ProgramUpdates, unit_BookConversion, unit_ComponentUpdates, unit_Diagnostics;
 
-type TReaderThreadAccess = class(TThread);
+type
+  TReaderThreadAccess = class(TThread);
+  TReaderArchiveList = class(TListBox)
+  protected
+    procedure DblClick; override;
+  end;
+
+procedure TReaderArchiveList.DblClick;
+var Dialog: TCustomForm;
+begin
+  inherited;
+  if (ItemIndex<0) or (ItemIndex>=Items.Count) then Exit;
+  Dialog:=GetParentForm(Self);
+  if Assigned(Dialog) then Dialog.ModalResult:=mrOk;
+end;
 
 function IsReaderArchive(const FileName: string): Boolean;
 var Ext: string;
@@ -560,6 +574,7 @@ end;
 function PrepareLooseArchive(const Book: TBookRecord; const Source: string; const ConvertImages: Boolean; const OnStage: TProc<string>; ConversionOnly: Boolean; const TargetExtension: string): string;
 var Archive: TMHLZip; Candidates, Nested, Unknown: TList<Integer>; I, Entry, ImagePages: Integer;
   Member, Extension, Folder, Stamp, StampFile, Temporary: string;
+  Preferred, PreferredScore, Score: Integer;
   Dialog: TForm; Names: TListBox; OpenButton, CancelButton: TButton; LabelControl: TLabel;
   Extracted: TFileStream; Converted: TStream; Writer: TBookCacheWrite; RequestingThread: TThread;
   OnlyImages: Boolean;
@@ -636,7 +651,20 @@ begin
     if (Candidates.Count=0) and ConversionOnly then
       raise ENotSupportedException.Create('В архиве нет книг поддерживаемых форматов для этого преобразования.');
     if Candidates.Count = 0 then raise Exception.Create('В архиве не найдены книги подходящего для чтения формата.');
-    Entry := Candidates[0];
+    // Keep companion text files selectable, but initially highlight a book
+    // document rather than an alphabetically earlier example in a subfolder.
+    Preferred:=0; PreferredScore:=MaxInt;
+    for I:=0 to Candidates.Count-1 do
+    begin
+      Member:=Archive.FileNames[Candidates[I]].Replace('\','/');
+      Extension:=LowerCase(ExtractFileExt(Member));
+      Score:=0;
+      if Pos('/',Member)>0 then Inc(Score,2);
+      if Pos('|'+Extension+'|','|.txt|.htm|.html|.xhtml|.md|')>0 then Inc(Score);
+      if SameText(Member,(Book.FileName+Book.FileExt).Replace('\','/')) then Score:=-2;
+      if Score<PreferredScore then begin Preferred:=I; PreferredScore:=Score; end;
+    end;
+    Entry := Candidates[Preferred];
     if Candidates.Count > 1 then
     begin
       Entry := -1;
@@ -654,9 +682,9 @@ begin
         LabelControl := TLabel.Create(Dialog); LabelControl.Parent := Dialog;
         LabelControl.SetBounds(12, 12, 590, 24); LabelControl.Caption := 'В архиве несколько книг. Выберите файл для чтения:';
         if ConversionOnly then LabelControl.Caption:='Выберите текстовую книгу для конвертации:';
-        Names := TListBox.Create(Dialog); Names.Parent := Dialog;
+        Names := TReaderArchiveList.Create(Dialog); Names.Parent := Dialog;
         Names.SetBounds(12, 40, 596, 266); Names.Anchors := [akLeft, akTop, akRight, akBottom];
-        for var CandidateIndex in Candidates do Names.Items.Add(Archive.FileNames[CandidateIndex]); Names.ItemIndex := 0;
+        for var CandidateIndex in Candidates do Names.Items.Add(Archive.FileNames[CandidateIndex]); Names.ItemIndex := Preferred;
         OpenButton := TButton.Create(Dialog); OpenButton.Parent := Dialog;
         OpenButton.SetBounds(380, 318, 110, 30); OpenButton.Anchors := [akRight, akBottom];
         OpenButton.Caption := 'Открыть'; OpenButton.Default := True; OpenButton.ModalResult := mrOk;

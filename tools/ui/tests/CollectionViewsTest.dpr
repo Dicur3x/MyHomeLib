@@ -23,7 +23,7 @@ uses
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,
-  unit_ReaderPalette, unit_ReaderLaunch, unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats, unit_ReaderLegacy, unit_ReaderSession, unit_ReaderSessionRunner,
+  unit_ReaderPalette, unit_ReaderRaster, unit_ReaderPDF, unit_ReaderLaunch, unit_ReaderDOC, unit_ReaderOffice, unit_ReaderKindle, unit_ReaderFormats, unit_ReaderLegacy, unit_ReaderSession, unit_ReaderSessionRunner,
   unit_MetadataSyncTypes, unit_CollectionMetadataSync, frm_BookMetadataFill, unit_NCWParams,
   unit_FB2PublisherMetadataReader, unit_PublisherSeriesSource, unit_SevenZipMetadata, unit_PackageBookMetadata, unit_ReaderAnnotations, unit_ReaderNoteBooks,
   unit_Downloader, unit_DownloadBooksThread, unit_DownloadManagerThread, unit_DownloadView, unit_treeController,
@@ -5598,6 +5598,7 @@ end;
 {$I UpdateProposalsTests.inc}
 {$I OptionalComponentsTests.inc}
 {$I ReaderComponentsTests.inc}
+{$I ArchiveOpenFeedbackTests.inc}
 {$I ReaderCacheSettingsTests.inc}
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
@@ -5849,6 +5850,7 @@ begin
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents
+      else if ParamStr(1) = 'archive-open-feedback' then TestArchiveOpenFeedback
       else if ParamStr(1) = 'reader-cache-settings' then TestStandaloneReaderCacheSettings
       else if ParamStr(1) = 'reader-session-context' then TestReaderSessionContext
       else if ParamStr(1) = 'reader-session-process' then TestReaderSessionProcess
