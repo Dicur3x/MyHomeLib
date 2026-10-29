@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Read back renamed HomeLib Page: 52 native blocks, 18 verified checked/struck-through items. Version numbering and branding pending; unrelated content preserved. Current native preparation/metadata item moved to completed.",
+    "verification": "Page read back after diagnostics: 52 blocks, 21 checked items; completed cache and diagnostic items recorded, full remaining scope retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "Page title and naming task updated to the user-confirmed HomeLibre / HomeLibre Reader, next release 3.0 beta 1. Native branding/history checks now passed; final package/version migration remains pending."
+    "last_check": "29 October 2026: opt-in detailed diagnostics and cache scenarios verified on x86/x64; next external AlReader/SumatraPDF visibility and first-use installation. Production 3.0 beta 1 remains unreleased."
   },
   "order": [
     "archive_opening",
@@ -516,14 +516,38 @@
       }
     },
     "diagnostic_logging_toggle": {
-      "status": "next_in_sequence_existing_daily_logger_reviewed_no_duplicate_logger_planned",
+      "status": "verified_in_source_not_released",
       "request": "Opt-in diagnostic logging across operations so users can provide one report instead of screenshots",
       "requirements": [
         "Inspect and reuse existing diagnostics rather than duplicate logging",
         "Include operation/book ID/title, source and output formats, exact path, stage/module versions, complete exceptions and per-book outcome",
         "Never log book content, credentials or secret request headers; bound size and retention; easy report location/export in UI",
         "Test log enabled/disabled, batch failure and cleanup behavior"
-      ]
+      ],
+      "implementation": [
+        "Reuse seven-day daily JSON logger; detailed traces are off by default and persist through the real settings save",
+        "Actual estimate/export/reader-preparation/conversion stages and per-book outcomes; full local paths only when opted in; credentials/URLs filtered; no book body passed",
+        "Journal checkbox and ZIP report include locally installed component versions without network requests; existing 2 MiB/day bound retained"
+      ],
+      "verification": {
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "artifact": "tools/ui/tests/Out/pre538-export-cache-lifecycle-20261029-r8.json",
+        "modes": {
+          "export-cache-lifecycle": "10 PASS per architecture",
+          "persistent-cache": "6 PASS per architecture",
+          "diagnostics-cache-age": "9 PASS per architecture"
+        },
+        "source_hashes_match": true,
+        "ui": "Native journal toggle visible, persists and toggles at 96/144/192 DPI",
+        "cleanup": "Owned package context removed; no new native profiles remain",
+        "limitations": [
+          "Final production catalogue and standalone Reader builds still pending",
+          "Separate legacy external-reader friendly-path/history regression remains queued; not counted as passed here"
+        ]
+      }
     },
     "genre_dictionary_clarification": {
       "scope": "Clarification, not a new global refactor. No claim that all dictionaries are complete or need no updates.",
@@ -621,7 +645,6 @@
     }
   },
   "next_steps_order": [
-    "Add opt-in extended diagnostics using the existing bounded daily logger; cache cleanup scenarios are verified on x86/x64",
     "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
     "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",

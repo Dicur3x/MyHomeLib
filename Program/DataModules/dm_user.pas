@@ -67,7 +67,7 @@ implementation
 uses
   SysUtils,
   IOUtils,
-  unit_SystemDatabase_SQLite;
+  unit_SystemDatabase_SQLite, unit_Diagnostics, unit_ComponentUpdates;
 
 function Settings: TMHLSettings; inline;
 begin
@@ -109,8 +109,27 @@ end;
 procedure TDMUser.Init;
 var
   SysDBFileName: string;
+  ComponentRoot: string;
 begin
   FSettings.LoadSettings;
+  ComponentRoot:=FSettings.AppPath;
+  ConfigureDiagnosticSettings(FSettings.SettingsFileName,
+    function: string
+    var Lines: TStringList; Version: string;
+    begin
+      Lines:=TStringList.Create;
+      try
+        for var Component in UPDATE_COMPONENTS do
+        begin
+          try
+            Version:=ComponentInstalledVersion(ComponentRoot,Component.ID);
+            if Version='' then Version:='не установлен';
+          except Version:='версию не удалось определить'; end;
+          Lines.Add(Component.ID+': '+Version);
+        end;
+        Result:=Lines.Text;
+      finally Lines.Free; end;
+    end);
   TDirectory.CreateDirectory(FSettings.TempDir);
   TDirectory.CreateDirectory(FSettings.DataDir);
 

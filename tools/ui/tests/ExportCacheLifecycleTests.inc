@@ -28,7 +28,8 @@ end;
 
 procedure TestExportCacheLifecycle;
 var
-  Root, WorkRoot, GoodXML, BadXML: string;
+  Root, WorkRoot, GoodXML, BadXML, OriginalTemp, OriginalTmp, Messages: string;
+  OriginalDetailed: Boolean;
   Books: TArray<TBookRecord>;
   Plan: TBookSaveChoice;
   Capture: TBBEExportCapture;
@@ -134,12 +135,28 @@ begin
     ExportCacheSourceHashes[I]:=UpdateSHA256(ExportCacheSourceFiles[I]);
   Plan:=Default(TBookSaveChoice); Plan.Mode:=emEpub;
   Capture:=TBBEExportCapture.Create;
+  OriginalTemp:=GetEnvironmentVariable('TEMP'); OriginalTmp:=GetEnvironmentVariable('TMP');
+  OriginalDetailed:=DetailedDiagnosticLogging;
   try
+    var DiagnosticRoot:=TPath.Combine(Root,'diagnostic-temp'); ForceDirectories(DiagnosticRoot);
+    SetEnvironmentVariable('TEMP',PChar(DiagnosticRoot)); SetEnvironmentVariable('TMP',PChar(DiagnosticRoot));
+    Require(SameFileName(DiagnosticLogDirectory,TPath.Combine(DiagnosticRoot,'HomeLibRu-Logs')),
+      'Lifecycle diagnostics escaped their isolated temporary root');
+    SetDetailedDiagnosticLogging(False);
+    LogDiagnosticTrace('disabled-probe','disabled-only-marker');
     var Items:=Estimate(Books[0],False);
     Require((Length(Items)=1) and Items[0].Completed and (Items[0].ErrorText='') and
       (Items[0].Options.OutputBytes[0,0]>0),'Archived source estimate failed');
     Require(ExportCacheManagedFiles>0,'Archived source did not exercise the persistent book cache');
     Writeln('PASS real archived-book estimate removes work immediately and retains reusable cached sources until exit');
+    if FileExists(DiagnosticLogFile) then
+      Require(not TFile.ReadAllText(DiagnosticLogFile,TEncoding.UTF8).Contains('disabled-only-marker'),
+        'Disabled detailed logging wrote a trace');
+    SetDetailedDiagnosticLogging(True,True); Settings.SaveSettings;
+    ConfigureDiagnosticSettings(Settings.SettingsFileName);
+    Require(DetailedDiagnosticLogging,'Detailed logging preference was lost after settings save and reload');
+    LogDiagnosticTrace('privacy-probe','Путь: '+ExportCacheSourceFiles[0]+sLineBreak+
+      'https://example.invalid/?token=never-record-url'+sLineBreak+'api_key=never-record-key');
     Items:=Estimate(Books[1],False);
     Require((Length(Items)=1) and (Items[0].ErrorText<>''),'Corrupt image did not exercise estimate failure cleanup');
     Writeln('PASS failed archived-book estimate removes all operation work and preserves original archives');
@@ -155,5 +172,60 @@ begin
     Require(Length(TDirectory.GetFiles(TPath.Combine(Root,'cancelled-export'),'*',TSearchOption.soAllDirectories))=0,
       'Cancelled export published an output');
     Writeln('PASS successful failed and cancelled real exports remove operation work and preserve source files');
-  finally Capture.Free; end;
+    Messages:='';
+    for var Line in TFile.ReadAllLines(DiagnosticLogFile,TEncoding.UTF8) do
+    begin
+      var Value:=TJSONObject.ParseJSONValue(Line);
+      try
+        Require(Value is TJSONObject,'Detailed lifecycle journal has malformed JSON');
+        Messages:=Messages+Value.GetValue<string>('operation')+': '+Value.GetValue<string>('message')+sLineBreak;
+      finally Value.Free; end;
+    end;
+    Require(Messages.Contains('save-estimate-result') and Messages.Contains('book-export-result') and
+      Messages.Contains('ошибка') and Messages.Contains('отменено') and
+      Messages.Contains(ExportCacheSourceFiles[0]) and Messages.Contains('Cache 1'),
+      'Detailed log omitted a failed/cancelled book, its source path or outcome');
+    Require(not Messages.Contains('never-record-key') and not Messages.Contains('never-record-url') and
+      not Messages.Contains('Полный текст для проверки временных файлов') and not Messages.Contains('<FictionBook'),
+      'Detailed log recorded credentials or book body content');
+    var Report:=TPath.Combine(Root,'lifecycle-diagnostics.zip'); SaveDiagnosticReport(Report);
+    var ReportZip:=TZipFile.Create;
+    try
+      ReportZip.Open(Report,zmRead);
+      Require((ReportZip.IndexOf('HomeLibRu-components.txt')>=0) and
+        (ReportZip.IndexOf(ExtractFileName(DiagnosticLogFile))>=0),'Diagnostic ZIP omitted component versions or operation results');
+      var VersionBytes: TBytes; ReportZip.Read('HomeLibRu-components.txt',VersionBytes);
+      var Versions:=TEncoding.UTF8.GetString(VersionBytes);
+      Require(Versions.Contains('BookProcessing: 2.7.0.1106'),'Diagnostic ZIP did not record the installed independent module version');
+    finally ReportZip.Free; end;
+    Writeln('PASS opt-in detailed diagnostics persist capture real failed cancelled exports with exact paths redact credentials exclude book contents and report local component versions');
+    for var PPI in [96,144,192] do
+    begin
+      var Before:=DetailedDiagnosticLogging;
+      var DesiredPPI:=PPI;
+      TThread.ForceQueue(nil,
+        procedure
+        begin
+          var Dialog:=Screen.ActiveForm;
+          Require(Assigned(Dialog) and (Dialog.Caption='Журнал ошибок'),'Detailed journal did not open');
+          Dialog.ScaleForPPI(DesiredPPI);
+          var Box:=TCheckBox(Dialog.FindComponent('DiagnosticsDetailed'));
+          Require(Assigned(Box) and (Box.Checked=Before) and
+            (Box.Left>=0) and (Box.Left+Box.Width<=Dialog.ClientWidth),'Journal option is missing or clipped at scaled DPI');
+          // VCL Click dispatches the event; changing Checked models the
+          // state transition which the native checkbox performs beforehand.
+          Box.Checked:=not Before;
+          Require(DetailedDiagnosticLogging<>Before,'Journal checkbox did not change the detailed preference');
+          Dialog.ModalResult:=mrClose;
+        end);
+      ShowDiagnostics(frmMain);
+      Require(DetailedDiagnosticLogging<>Before,'Detailed preference was lost when the journal closed');
+    end;
+    Require(not DetailedDiagnosticLogging,'Final journal switch did not return to default brief logging');
+    Writeln('PASS native diagnostic journal option remains visible persists and toggles correctly at 96 144 192 DPI');
+  finally
+    SetDetailedDiagnosticLogging(OriginalDetailed);
+    SetEnvironmentVariable('TEMP',PChar(OriginalTemp)); SetEnvironmentVariable('TMP',PChar(OriginalTmp));
+    Capture.Free;
+  end;
 end;

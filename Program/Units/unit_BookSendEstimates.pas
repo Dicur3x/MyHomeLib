@@ -114,10 +114,12 @@ destructor TBookSendEstimateThread.Destroy;
 begin Terminate; WaitFor; FLock.Free; inherited; end;
 
 procedure TBookSendEstimateThread.Stage(const Text: string);
+var Changed: Boolean;
 begin
   if Terminated then Abort;
   FLock.Enter;
-  try FStage:=Text; Inc(FRevision); finally FLock.Leave; end;
+  try Changed:=FStage<>Text; FStage:=Text; Inc(FRevision); finally FLock.Leave; end;
+  if Changed then LogDiagnosticTrace('save-estimate-stage',Text);
 end;
 
 function TBookSendEstimateThread.Poll(var Revision: Integer; out Items: TBookSaveEstimateItems;
@@ -156,6 +158,12 @@ var Prepared, Work, Candidate, Token: string; Pin: TStream; Warnings: TStringLis
   end;
 begin
   Item:=Default(TBookSaveEstimateItem); Prepared:=''; Work:=''; Pin:=nil; Warnings:=nil;
+  if DetailedDiagnosticLogging then
+    LogDiagnosticTrace('save-estimate-start',Format('Книга: %s'+sLineBreak+
+      'Коллекция: %d; запись: %d; ID источника: %s'+sLineBreak+
+      'Папка коллекции: %s'+sLineBreak+'Папка / архив: %s'+sLineBreak+'Файл / элемент архива: %s',
+      [Book.Title,Book.BookKey.DatabaseID,Book.BookKey.BookID,Book.LibID,
+       Book.CollectionRoot,Book.Folder,Book.FileName+Book.FileExt]),Book.FileExt);
   try
     try
       Item.SourceExtension:=BookSaveKnownExtension(Book);
@@ -249,6 +257,16 @@ begin
     end;
   end;
   Item.Completed:=not Terminated;
+  if DetailedDiagnosticLogging then
+  begin
+    var Outcome: string;
+    if Terminated then Outcome:='отменено' else if Item.ErrorText<>'' then Outcome:='ошибка' else Outcome:='готово';
+    LogDiagnosticTrace('save-estimate-result',Format('Книга: %s; коллекция: %d; запись: %d'+sLineBreak+
+      'Форматы: %s → %s'+sLineBreak+'Результат: %s'+sLineBreak+
+      'Нужные компоненты: %s'+sLineBreak+'Причина: %s',
+      [Book.Title,Book.BookKey.DatabaseID,Book.BookKey.BookID,Item.SourceExtension,Item.TargetExtension,
+       Outcome,String.Join(', ',Item.RequiredComponents),Item.ErrorText]),Item.SourceExtension);
+  end;
   Result:=Item;
 end;
 

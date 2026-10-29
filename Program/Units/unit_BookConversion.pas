@@ -35,7 +35,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
   Source: TStream; const IsCanceled: TFunc<Boolean>; OverwriteExisting: Boolean;
@@ -176,7 +176,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
   const OverwriteExisting: Boolean; const ProtectedSourceFile: string);
-var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary: string;
+var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
@@ -246,6 +246,10 @@ begin
         'Для выбранной обработки изображений нужно обновить общую обработку FB2/EPUB.');
   end;
   Work:=TPath.Combine(TPath.GetFullPath(TempRoot),'homelib-convert-'+TGUID.NewGuid.ToString);
+  LastDiagnosticStage:='';
+  LogDiagnosticTrace('conversion-start','Книга: '+Title+sLineBreak+'Исходный файл: '+SourceFile+sLineBreak+
+    'Форматы: '+Extension+' → '+TargetExtension+sLineBreak+'Файл назначения: '+TargetFile+sLineBreak+
+    'Изображения: '+ImageQuality,Extension);
   ForceDirectories(Work);
   InputName:=TPath.Combine(Work,'source'+Extension);
   OutputName:=TPath.Combine(Work,'result'+TargetExtension);
@@ -282,6 +286,11 @@ begin
         if not (Value is TJSONObject) or not Value.TryGetValue<Integer>('sequence',Sequence) or
           (Sequence<=LastSequence) or not Value.TryGetValue<string>('stage',Stage) or
           not Value.TryGetValue<Integer>('completed',Completed) or not Value.TryGetValue<Integer>('total',Total) then Exit;
+        if LastDiagnosticStage<>Stage then
+        begin
+          LastDiagnosticStage:=Stage;
+          LogDiagnosticTrace('conversion-stage',Title+sLineBreak+Stage,Extension);
+        end;
         if (Stage='scan-estimates') and (Total>0) and (Total<=9) and (Completed>0) and (Completed<=Total) then
         begin
           Advanced:=True; StreamingScans:=True; Percent:=Completed*5 div Total;

@@ -1238,7 +1238,15 @@ begin
 
         FResults[i].State := besFailed;
         FResults[i].ErrorText := 'Обработка книги прервана до получения результата.';
+        LogDiagnosticTrace('book-export-start',Format('Книга %d из %d; коллекция: %d; запись: %d',
+          [i+1,totalBooks,FBookIdList[i].BookKey.DatabaseID,FBookIdList[i].BookKey.BookID]));
         Res := PrepareFile(FBookIdList[i].BookKey, @FBookIdList[i]);
+        if DetailedDiagnosticLogging then
+          LogDiagnosticTrace('book-export-prepare',BookLabel+sLineBreak+
+            'Исходный / подготовленный файл: '+FFileOprecord.SourceFile+sLineBreak+
+            'Файл назначения: '+FFileOprecord.TargetFile+sLineBreak+
+            'Форматы: '+FFileOprecord.SourceExtension+' → '+ExtractFileExt(FFileOprecord.TargetFile)+sLineBreak+
+            'Изображения: '+FImageQuality,FFileOprecord.SourceExtension);
         if Res then
         begin
           // Scripts must receive the extracted or restored book, rather than
@@ -1306,6 +1314,21 @@ begin
         else if Canceled or Terminated then FResults[i].State := besCanceled
         else FResults[i].State := besFailed;
         FResults[i].ErrorText := FLastError;
+        if DetailedDiagnosticLogging then
+        begin
+          var Outcome: string;
+          case FResults[i].State of
+            besPrepared: Outcome:='подготовлено';
+            besSucceeded: Outcome:='сохранено';
+            besFailed: Outcome:='ошибка';
+            besCanceled: Outcome:='отменено';
+          else Outcome:='ожидает обработки'; end;
+          LogDiagnosticTrace('book-export-result',BookLabel+sLineBreak+
+            'Состояние: '+Outcome+sLineBreak+
+            'Файл назначения: '+FResults[i].OutputFile+sLineBreak+
+            'Нужный компонент: '+FRequiredComponent+sLineBreak+
+            'Причина: '+FLastError+sLineBreak+'Примечания: '+FLastWarnings,FFileOprecord.SourceExtension);
+        end;
 
         if FFileOprecord.Stream <> nil then
           FreeAndNil(FFileOprecord.Stream);
@@ -1333,6 +1356,7 @@ begin
 
         if not Res then
         begin
+          LogDiagnosticMessage('book-export-failed',BookLabel+sLineBreak+FLastError);
           Inc(FailedCount);
           if FirstError = '' then
             FirstError := BookLabel + CR + FLastError;

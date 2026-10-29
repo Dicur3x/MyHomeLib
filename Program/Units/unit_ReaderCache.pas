@@ -919,6 +919,10 @@ begin
     procedure
     begin
       try
+        if DetailedDiagnosticLogging then
+          LogDiagnosticTrace('reader-prepare-start',Format('Книга: %s; коллекция: %d; запись: %d'+sLineBreak+
+            'Исходный файл: %s',[Snapshot.Title,Snapshot.BookKey.DatabaseID,Snapshot.BookKey.BookID,
+            Snapshot.GetBookFileName]),Snapshot.FileExt);
         FResult := PrepareReaderFile(Snapshot,PreserveImages,
           procedure(Stage: string)
           begin
@@ -926,11 +930,24 @@ begin
             FLock.Enter;
             try FStage := Stage; finally FLock.Leave; end;
           end,OpenArchive,ConvertKindle,ConvertOffice);
+        LogDiagnosticTrace('reader-prepare-ready',Snapshot.Title+sLineBreak+FResult,Snapshot.FileExt);
       except
-        on E: EAbort do FResult := '';
-        on E: EMHLComponentRequired do begin FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs); FError:=E.Message; end;
-        on E: EReaderComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
-        on E: Exception do begin LogDiagnosticError('reader-prepare',E,ExtractFileExt(Snapshot.GetBookFileName)); FError := E.Message; end;
+        on E: EAbort do begin FResult := ''; LogDiagnosticTrace('reader-prepare-cancel',Snapshot.Title,Snapshot.FileExt); end;
+        on E: EMHLComponentRequired do
+        begin
+          FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs); FError:=E.Message;
+          LogDiagnosticTrace('reader-module-required',Snapshot.Title+sLineBreak+String.Join(', ',FRequiredComponents)+sLineBreak+FError,Snapshot.FileExt);
+        end;
+        on E: EReaderComponentRequired do
+        begin
+          FRequiredComponent:=E.ComponentID; FError:=E.Message;
+          LogDiagnosticTrace('reader-module-required',Snapshot.Title+sLineBreak+FRequiredComponent+sLineBreak+FError,Snapshot.FileExt);
+        end;
+        on E: Exception do
+        begin
+          LogDiagnosticError('reader-prepare',E,Snapshot.FileExt); FError := E.Message;
+          LogDiagnosticTrace('reader-prepare-failed',Snapshot.Title+sLineBreak+FError,Snapshot.FileExt);
+        end;
       end;
     end);
   FWorker.FreeOnTerminate := False;

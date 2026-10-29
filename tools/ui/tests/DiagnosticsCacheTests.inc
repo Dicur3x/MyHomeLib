@@ -208,7 +208,8 @@ begin
     Zip:=TZipFile.Create;
     try
       Zip.Open(Report,zmRead);
-      Require((Zip.FileCount=3) and (Zip.IndexOf('HomeLibRu-info.txt')>=0),'Report omitted retained logs or included foreign files');
+      Require((Zip.FileCount=4) and (Zip.IndexOf('HomeLibRu-info.txt')>=0) and
+        (Zip.IndexOf('HomeLibRu-components.txt')>=0),'Report omitted retained logs or module versions, or included foreign files');
     finally Zip.Free; end;
     Text:=''; try SaveDiagnosticReport(Report); except on E: EWriteError do Text:=E.Message; end;
     Require(Text<>'','Existing diagnostic report overwritten');

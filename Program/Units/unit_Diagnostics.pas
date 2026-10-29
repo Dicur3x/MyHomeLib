@@ -8,9 +8,13 @@ uses System.SysUtils, System.Classes;
 function DiagnosticLogDirectory: string;
 function DiagnosticLogFile: string;
 function SanitizeDiagnosticText(const Value: string): string;
+procedure ConfigureDiagnosticSettings(const FileName: string; const ComponentVersions: TFunc<string> = nil);
+function DetailedDiagnosticLogging: Boolean;
+procedure SetDetailedDiagnosticLogging(Enabled: Boolean; Persist: Boolean = False);
 procedure InitializeDiagnostics;
 procedure PruneDiagnosticLogs;
 procedure LogDiagnosticMessage(const Operation, Message: string);
+procedure LogDiagnosticTrace(const Operation, Message: string; const FormatName: string = '');
 procedure LogDiagnosticError(const Operation: string; Error: Exception; const FormatName: string = '');
 procedure SaveDiagnosticReport(const FileName: string; AllowOverwrite: Boolean = False);
 procedure ShowDiagnostics(Owner: TComponent);
@@ -19,7 +23,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ShellAPI, System.IOUtils, System.DateUtils,
   System.JSON, System.Zip, System.RegularExpressions, Vcl.Forms, Vcl.StdCtrls,
-  Vcl.Controls, Vcl.Dialogs, Vcl.AppEvnts;
+  Vcl.Controls, Vcl.Dialogs, Vcl.AppEvnts, System.IniFiles, unit_AtomicIniFile;
 
 const MAX_DAILY_LOG = 2 * 1024 * 1024;
   LOG_DAYS = 7;
@@ -30,6 +34,7 @@ type
   end;
   TDiagnosticForm = class(TForm)
   private
+    procedure DetailedClick(Sender: TObject);
     procedure SaveClick(Sender: TObject);
     procedure FolderClick(Sender: TObject);
   public
@@ -38,6 +43,47 @@ type
 
 var LogGuard: TObject; Started: Boolean; LastPrunedDay: TDateTime; CachedVersion: string;
   Events: TDiagnosticEvents;
+  DetailedEnabled: Boolean;
+  DiagnosticSettingsFile: string;
+  GetDiagnosticComponentVersions: TFunc<string>;
+
+procedure ConfigureDiagnosticSettings(const FileName: string; const ComponentVersions: TFunc<string>);
+var Ini: TMemIniFile;
+begin
+  System.TMonitor.Enter(LogGuard);
+  try
+    DiagnosticSettingsFile:=FileName; DetailedEnabled:=False;
+    if Assigned(ComponentVersions) then GetDiagnosticComponentVersions:=ComponentVersions;
+    try
+      Ini:=TMemIniFile.Create(FileName,TEncoding.UTF8);
+      try DetailedEnabled:=Ini.ReadBool('System','DetailedDiagnostics',False); finally Ini.Free; end;
+    except // An optional diagnostic preference must never prevent startup.
+    end;
+  finally System.TMonitor.Exit(LogGuard); end;
+end;
+
+function DetailedDiagnosticLogging: Boolean;
+begin
+  System.TMonitor.Enter(LogGuard);
+  try Result:=DetailedEnabled; finally System.TMonitor.Exit(LogGuard); end;
+end;
+
+procedure SetDetailedDiagnosticLogging(Enabled: Boolean; Persist: Boolean);
+var Ini: TMemIniFile;
+begin
+  System.TMonitor.Enter(LogGuard);
+  try
+    if Persist then
+    begin
+      if DiagnosticSettingsFile='' then raise EWriteError.Create('Профиль журнала ещё не загружен.');
+      Ini:=TMemIniFile.Create(DiagnosticSettingsFile,TEncoding.UTF8);
+      try
+        Ini.WriteBool('System','DetailedDiagnostics',Enabled); SaveMemIniFileAtomically(Ini);
+      finally Ini.Free; end;
+    end;
+    DetailedEnabled:=Enabled;
+  finally System.TMonitor.Exit(LogGuard); end;
+end;
 
 function DiagnosticLogDirectory: string;
 begin Result:=TPath.Combine(TPath.GetTempPath,'HomeLibRu-Logs'); end;
@@ -92,13 +138,20 @@ begin
   finally System.TMonitor.Exit(LogGuard); end;
 end;
 
-function SanitizeDiagnosticText(const Value: string): string;
+function DiagnosticText(const Value: string; IncludePaths: Boolean): string;
 begin
-  Result:=Copy(Value,1,4096);
+  if IncludePaths then Result:=Copy(Value,1,16384) else Result:=Copy(Value,1,4096);
   Result:=TRegEx.Replace(Result,'(?i)\b(?:https?|ftp)://[^\s<>"'']+','[URL]');
-  Result:=TRegEx.Replace(Result,'(?i)(?:\b(?:password|passwd|pwd|token|secret|cookie|authorization)|пароль)\s*[:=][^\r\n]*','[секретные параметры скрыты]');
-  Result:=TRegEx.Replace(Result,'(?i)(?:\b[a-z]:[\\/]|\\\\)[^\r\n\t"<>|]+','[путь]');
+  Result:=TRegEx.Replace(Result,'(?i)(?:\b(?:password|passwd|pwd|token|secret|cookie|authorization|api[_-]?key|access[_-]?key|client[_-]?secret)|пароль)\s*[:=][^\r\n]*','[секретные параметры скрыты]');
+  if not IncludePaths then
+    Result:=TRegEx.Replace(Result,'(?i)(?:\b[a-z]:[\\/]|\\\\)[^\r\n\t"<>|]+','[путь]');
+  if Length(Result)<Length(Value) then
+    if (IncludePaths and (Length(Value)>16384)) or (not IncludePaths and (Length(Value)>4096)) then
+      Result:=Result+sLineBreak+'[сообщение сокращено]';
 end;
+
+function SanitizeDiagnosticText(const Value: string): string;
+begin Result:=DiagnosticText(Value,False); end;
 
 function ProgramVersion: string;
 var Bytes: TBytes; Dummy, Size, Count: DWORD; Info: PVSFixedFileInfo;
@@ -119,6 +172,7 @@ var Row: TJSONObject; Bytes: TBytes; Handle: THandle; Written: DWORD; Size: Int6
 begin
   System.TMonitor.Enter(LogGuard);
   try
+    if (Level='trace') and not DetailedEnabled then Exit;
     try
       if LastPrunedDay<>Trunc(Now) then PruneDiagnosticLogs;
       if not SafeDirectory then Exit;
@@ -135,7 +189,7 @@ begin
           {$IFDEF WIN64} Row.AddPair('architecture','x64'); {$ELSE} Row.AddPair('architecture','x86'); {$ENDIF}
           Row.AddPair('pid',TJSONNumber.Create(GetCurrentProcessId));
           Row.AddPair('exception',Copy(Kind,1,80)); Row.AddPair('format',Copy(FormatName,1,24));
-          Row.AddPair('message',SanitizeDiagnosticText(Message));
+          Row.AddPair('message',DiagnosticText(Message,DetailedEnabled));
           Bytes:=TEncoding.UTF8.GetBytes(Row.ToJSON+sLineBreak);
         finally Row.Free; end;
         if Size+Length(Bytes)<=MAX_DAILY_LOG then WriteFile(Handle,Bytes[0],Length(Bytes),Written,nil);
@@ -146,6 +200,11 @@ end;
 
 procedure LogDiagnosticMessage(const Operation, Message: string);
 begin WriteDiagnostic('error',Operation,'',Message,''); end;
+
+procedure LogDiagnosticTrace(const Operation, Message: string; const FormatName: string);
+begin
+  if DetailedDiagnosticLogging then WriteDiagnostic('trace',Operation,'',Message,FormatName);
+end;
 
 procedure LogDiagnosticError(const Operation: string; Error: Exception; const FormatName: string);
 begin
@@ -175,6 +234,14 @@ begin
     Info:=TStringStream.Create('HomeLibre '+ProgramVersion+sLineBreak+TOSVersion.ToString+sLineBreak+
       {$IFDEF WIN64}'x64'+{$ELSE}'x86'+{$ENDIF}sLineBreak+'Logs: last 7 days; 2 MiB maximum per day.'+sLineBreak,TEncoding.UTF8);
     try Zip.Add(Info,'HomeLibRu-info.txt'); finally Info.Free; end;
+    if Assigned(GetDiagnosticComponentVersions) then
+    begin
+      var Versions: string;
+      try Versions:=GetDiagnosticComponentVersions();
+      except on E: Exception do Versions:='Не удалось прочитать версии компонентов: '+SanitizeDiagnosticText(E.Message); end;
+      Info:=TStringStream.Create(Versions,TEncoding.UTF8);
+      try Zip.Add(Info,'HomeLibRu-components.txt'); finally Info.Free; end;
+    end;
     if SafeDirectory and (FindFirst(TPath.Combine(DiagnosticLogDirectory,'HomeLibRu-*.log'),faAnyFile,Search)=0) then
     try
       repeat
@@ -196,7 +263,7 @@ begin
 end;
 
 constructor TDiagnosticForm.Create(AOwner: TComponent);
-var Text: TLabel; Memo: TMemo; Button: TButton; Input: TFileStream; Bytes: TBytes; Count: Integer;
+var Text: TLabel; Memo: TMemo; Button: TButton; Input: TFileStream; Bytes: TBytes; Count: Integer; Detailed: TCheckBox;
 begin
   inherited CreateNew(AOwner); Caption:='Журнал ошибок'; Position:=poOwnerFormCenter;
   Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=680; ClientHeight:=420;
@@ -204,7 +271,13 @@ begin
   Text:=TLabel.Create(Self); Text.Parent:=Self; Text.SetBounds(12,12,656,54);
   Text.AutoSize:=False; Text.WordWrap:=True; Text.Anchors:=[akLeft,akTop,akRight];
   Text.Caption:='Журналы хранятся во временной папке Windows 7 дней. В них записываются версия программы, действие и сообщение об ошибке. Сохраните ZIP-отчёт, чтобы приложить его к сообщению об ошибке.';
-  Memo:=TMemo.Create(Self); Memo.Parent:=Self; Memo.SetBounds(12,74,656,290);
+  Detailed:=TCheckBox.Create(Self); Detailed.Name:='DiagnosticsDetailed'; Detailed.Parent:=Self;
+  Detailed.SetBounds(12,74,656,25); Detailed.Anchors:=[akLeft,akTop,akRight];
+  Detailed.Caption:='Подробный журнал операций — с названиями книг и путями к файлам';
+  Detailed.Checked:=DetailedDiagnosticLogging; Detailed.OnClick:=DetailedClick;
+  Detailed.Hint:='Включите перед повторением ошибки, затем сохраните отчёт. Текст книг в журнал не записывается.';
+  Detailed.ShowHint:=True;
+  Memo:=TMemo.Create(Self); Memo.Parent:=Self; Memo.SetBounds(12,108,656,256);
   Memo.ReadOnly:=True; Memo.ScrollBars:=ssBoth; Memo.WordWrap:=False; Memo.Anchors:=[akLeft,akTop,akRight,akBottom];
   try if FileExists(DiagnosticLogFile) then
     begin
@@ -226,13 +299,26 @@ begin
   ScaleForPPI(Screen.PixelsPerInch);
 end;
 
+procedure TDiagnosticForm.DetailedClick(Sender: TObject);
+var Box: TCheckBox;
+begin
+  Box:=TCheckBox(Sender);
+  try SetDetailedDiagnosticLogging(Box.Checked,True);
+  except
+    Box.OnClick:=nil;
+    try Box.Checked:=DetailedDiagnosticLogging; finally Box.OnClick:=DetailedClick; end;
+    raise;
+  end;
+  if Box.Checked then LogDiagnosticTrace('diagnostics','Подробный журнал операций включён.');
+end;
+
 procedure TDiagnosticForm.SaveClick(Sender: TObject);
 var Dialog: TSaveDialog;
 begin
   Dialog:=TSaveDialog.Create(Self);
   try
     Dialog.Title:='Сохранить журнал для отправки'; Dialog.DefaultExt:='zip';
-    Dialog.Filter:='ZIP-отчёт (*.zip)|*.zip'; Dialog.Options:=[ofOverwritePrompt,ofPathMustExist,ofEnableSizing];
+    Dialog.Filter:='ZIP-отчёт (*.zip)|*.zip'; Dialog.Options:=[ofOverwritePrompt,ofPathMustExist,ofEnableSizing,ofNoChangeDir];
     Dialog.FileName:='HomeLibRu-diagnostics-'+FormatDateTime('yyyymmdd',Now)+'.zip';
     if Dialog.Execute then SaveDiagnosticReport(Dialog.FileName,True);
   finally Dialog.Free; end;
