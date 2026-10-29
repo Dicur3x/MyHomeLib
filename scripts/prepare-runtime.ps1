@@ -287,11 +287,11 @@ $requiredRuntimeFiles = @(
     (Join-Path $outputDirectory 'NOTICE'),
     (Join-Path $outputDirectory 'Icons\MHLIcons.dll'),
     (Join-Path $outputDirectory 'Help\index.html'),
-    (Join-Path $outputDirectory 'HomeLibRuUpdater.exe'),
-    (Join-Path $outputDirectory 'tools\fonts\manifest.json')
+    (Join-Path $outputDirectory 'HomeLibRuUpdater.exe')
 )
 if (-not $CoreOnly) {
     $requiredRuntimeFiles += @(
+    (Join-Path $outputDirectory 'tools\fonts\manifest.json'),
     $zstdDestination,
     (Join-Path $outputDirectory 'MHLMcpServer.exe'),
     (Join-Path $outputDirectory 'tools\doc\HomeLibDoc.exe'),

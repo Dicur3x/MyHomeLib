@@ -268,10 +268,68 @@
     "update_confirmation": "Tester reports automatic update from pre5.33 succeeded. This confirms that case only; do not treat it as proof of all update paths.",
     "epub_zip_explanation": "Explicit FB2/FB2 in ZIP choices verified in source on x86/x64; no general ZIP checkbox or EPUB.ZIP output. Not yet released.",
     "package_layout": {
-      "status": "next_in_sequence",
+      "status": "verified_in_source_final_binary_integration_pending",
       "requested": "Audit every shipped file; remove unnecessary files, group genre resources and necessary update metadata outside the root; explain their purpose",
       "initial_evidence": "Source currently reads root COMPONENTS.json for update history, root HomeLibRu.update.json as package verification manifest, and genre filenames through Settings. Simply deleting these without consumer/package changes is unsafe.",
-      "required_verification": "Clean minimal x86/x64 packages, all genre languages, compatibility with old genre paths, catalogue and Reader/component update validation; no user data moved or deleted"
+      "required_verification": "Clean minimal x86/x64 packages, all genre languages, compatibility with old genre paths, catalogue and Reader/component update validation; no user data moved or deleted",
+      "changes": [
+        "Eight unchanged genre lists in tools/genres; component metadata in tools/updates/COMPONENTS.json; local changes in Help/CHANGES.txt",
+        "Remove Reader font metadata from minimal catalogue; explicit six-file root allowlist and optional-payload exclusion in packager/probe",
+        "Settings and update window resolve new paths with legacy root fallback; installer sources aligned; four portable help translations corrected and distribution file purposes documented"
+      ],
+      "compatibility": "Root HomeLibRu.update.json is intentionally retained in transport ZIP for old clients; installer excludes it from installed manifest files. Grouped resources use tools/ and Help/ paths already allowed by older installers. No real installation resources or profiles deleted.",
+      "verification": [
+        "GUI full Build of production units in CollectionViewsTest Win32/Win64",
+        "distribution-layout passed both: legacy fallback then clean grouped resources without root copies, ru/en/uk/bg and missing-locale fallback, new collection genre import and exact bytes, metadata paths and update path protection",
+        "Actual minimal ZIP generated both platforms: 240 manifest files, six root files, eight source-identical genre files, source-identical components feed, no font/Reader/optional modules; CRC/hash/architecture/identity checks passed",
+        "update-repair through actual freshly packaged ZIP passed both: download, validation, matching helper, changed-helper/hash rejection, missing helper recovery and saved private files, two themes and three DPI settings",
+        "check_help:55 topics passed; check_glst:6 translated lists passed; PowerShell package scripts parsed"
+      ],
+      "test_repair": "New early-bootstrap distribution-layout test passed natively but wrapper initially demanded the unrelated main-menu marker. Explicit early-scenario expected markers added and both architectures passed.",
+      "cleanup": "Both package probes report temporary_payloads_removed=true. Read-only inventory under existing G:/HomeLibRu-build-cache finds no new native/probe/package staging directories.",
+      "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
+    },
+    "fb2_estimation_compatibility": {
+      "status": "queued_after_distribution_layout",
+      "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
+      "cases": [
+        {
+          "title": "Час трутня",
+          "message": "Не найдена цель ссылки FB2: #n_1"
+        },
+        {
+          "title": "Здесь, на знакомых тротуарах...",
+          "message": "Неизвестный элемент FB2: br"
+        },
+        {
+          "title": "Ярлинги поневоле",
+          "message": "Некорректный идентификатор изображения FB2"
+        },
+        {
+          "title": "Назад в СССР: Лесник. Книга 2",
+          "message": "Не найдена цель ссылки FB2: #302252"
+        },
+        {
+          "title": "Попаданец. Маг Тени. Книга 13",
+          "message": "Не найдена цель ссылки FB2: fragment resembling Telegram bot startgroup parameter; inspect exact source before interpreting"
+        }
+      ],
+      "requirements": [
+        "Find exact read-only originals in collection; classify malformed source vs unsupported compatible markup",
+        "Preserve book text and images when possible; distinguish recoverable warnings from missing content",
+        "Test estimates and actual export through same preparation path, no silent broken target substitution",
+        "Verify corrected real cases and malformed/broken cases before claiming success"
+      ]
+    },
+    "export_cache_cleanup": {
+      "status": "queued_with_export_compatibility",
+      "reported_path": "Data/BookCache",
+      "observed": "Tester says files remained after size estimation/export despite clear-on-every-exit checked; screenshot shows catalogue cache settings and local BookCache path. Exact lifecycle and whether program exited need to be established from code and isolated reproduction.",
+      "requirements": [
+        "Classify reusable book cache vs operation-only estimation/export temp files",
+        "Check cleanup on success, per-book failure, cancellation and program exit with clear-cache setting",
+        "Respect active readers and legitimate reusable cache policy; do not delete source books or real user cache during investigation"
+      ]
     }
   },
   "github_maintenance_20261029": {

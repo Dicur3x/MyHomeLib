@@ -61,7 +61,9 @@ type
     sfExportErrorLog,
     sfCollectionsStore,
     sfPresets,
-    sfUpdateLog
+    sfUpdateLog,
+    sfComponentHistory,
+    sfProgramChanges
   );
 
   TSplitters = array of Integer;
@@ -240,6 +242,7 @@ type
 
     function GetSystemFileName(fileType: TMHLSystemFile): string;
     function LocalisedSystemFile(const BaseName: string): string;
+    function DistributionFile(const RelativeName, LegacyName: string): string;
     function LocalisedHelpIndex: string;
 
     function GetDataPath: string;
@@ -1385,19 +1388,26 @@ begin
   FDeviceDir := SafeGetDirName(Value);
 end;
 
+function TMHLSettings.DistributionFile(const RelativeName, LegacyName: string): string;
+begin
+  Result := AppPath + RelativeName;
+  if not FileExists(Result) and FileExists(AppPath + LegacyName) then
+    Result := AppPath + LegacyName;
+end;
+
 function TMHLSettings.LocalisedSystemFile(const BaseName: string): string;
 var
   Candidate: string;
 begin
-  Result := AppPath + BaseName;
+  Result := DistributionFile(GENRELIST_DIR_NAME + BaseName, BaseName);
 
   if FLocale = '' then
     Exit;
 
-  Candidate := AppPath
-    + ChangeFileExt(BaseName, '')
+  Candidate := ChangeFileExt(BaseName, '')
     + '_' + FLocale
     + ExtractFileExt(BaseName);
+  Candidate := DistributionFile(GENRELIST_DIR_NAME + Candidate, Candidate);
 
   if FileExists(Candidate) then
     Result := Candidate;
@@ -1436,6 +1446,8 @@ begin
     sfCollectionsStore: Result := WorkPath + COLLECTIONS_FILENAME;
     sfPresets: Result := WorkPath + PRESETS_FILENAME;
     sfUpdateLog: Result := WorkPath + UPDATE_LOGFILE;
+    sfComponentHistory: Result := DistributionFile('tools\updates\COMPONENTS.json', 'COMPONENTS.json');
+    sfProgramChanges: Result := DistributionFile('Help\CHANGES.txt', 'CHANGES.txt');
   else
     Assert(False);
   end;

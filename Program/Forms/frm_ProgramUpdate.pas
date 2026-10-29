@@ -248,7 +248,7 @@ begin
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать строку'; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать список'; Entry.Tag:=1; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать сведения об ошибке'; Entry.Tag:=2; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
-  HistoryFile := Settings.AppPath + 'COMPONENTS.json';
+  HistoryFile := Settings.SystemFileName[sfComponentHistory];
   try
     if FileExists(HistoryFile) then
       ParseComponentFeed(TFile.ReadAllText(HistoryFile, TEncoding.UTF8), PROGRAM_RELEASE_VERSION, '[]', FComponents, False);
@@ -296,8 +296,8 @@ begin
     HistoryFile := ReadUpdateHistory(IncludeTrailingPathDelimiter(FCache) + 'notes.txt');
     if HistoryFile.Trim <> '' then
       DisplayNotes(Copy(HistoryFile, 1, 324000))
-    else if FileExists(Settings.AppPath + 'CHANGES.txt') then
-      DisplayNotes(Copy(TFile.ReadAllText(Settings.AppPath + 'CHANGES.txt', TEncoding.UTF8), 1, 324000))
+    else if FileExists(Settings.SystemFileName[sfProgramChanges]) then
+      DisplayNotes(Copy(TFile.ReadAllText(Settings.SystemFileName[sfProgramChanges], TEncoding.UTF8), 1, 324000))
     else DisplayNotes('');
   except end;
   LoadViewPreferences;

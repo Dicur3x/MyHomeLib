@@ -5626,6 +5626,7 @@ end;
 {$I UnifiedBookSendTests.inc}
 {$I MinimumBookSaveTests.inc}
 {$I BookSavePlanningTests.inc}
+{$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
 {$I IBKComponentTests.inc}
@@ -5676,6 +5677,7 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
       if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;

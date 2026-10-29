@@ -45,8 +45,10 @@ try {
     }
     & (Join-Path $PSScriptRoot 'check-release-identity.ps1') -RuntimeDirectory $payloadDirectory `
         -Release $release -Version '2.7.0.1105' -Platform $Platform
+    $genreDestination = Join-Path $payloadDirectory 'tools\genres'
+    [IO.Directory]::CreateDirectory($genreDestination) | Out-Null
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
-        Copy-Item -LiteralPath $genre.FullName -Destination $payloadDirectory
+        Copy-Item -LiteralPath $genre.FullName -Destination $genreDestination
     }
     $history = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'docs\releases') -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
         Sort-Object { [int]($_.BaseName.Split('.')[-1]) } -Descending |
@@ -61,16 +63,18 @@ try {
             # Markdown display titles may include a build number instead.
             [regex]::Replace($entryNotes, '\A# HomeLib Ru[^\r\n]*', ('# HomeLib Ru ' + $entryTag))
         })
-    [IO.File]::WriteAllText((Join-Path $payloadDirectory 'CHANGES.txt'),
-        ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $payloadDirectory 'COMPONENTS.json')
     foreach ($directory in @('Help', 'Icons')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
     }
+    [IO.File]::WriteAllText((Join-Path $payloadDirectory 'Help\CHANGES.txt'),
+        ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
+    $updateMetadata = Join-Path $payloadDirectory 'tools\updates'
+    [IO.Directory]::CreateDirectory($updateMetadata) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $updateMetadata 'COMPONENTS.json')
     $toolsDestination = Join-Path $payloadDirectory 'tools'
     [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
-    # Only fonts metadata is needed by the minimal catalogue. Native format
-    # adapters are downloaded with their optional DOC/DjVu libraries.
+    # Genre/update metadata is shared catalogue data. Fonts belong to the
+    # optional Reader package; native format adapters arrive with their modules.
     if ($Full) {
         foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
             if ($directory.Name -notin @('fonts', 'bookconvert')) {
@@ -96,20 +100,22 @@ try {
             Copy-Item -LiteralPath (Join-Path $runtimeDirectory "$legacyNative/$name") -Destination $target
         }
     }
-    $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
-    $fontDestination = Join-Path $toolsDestination 'fonts'
-    $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($font in $fontManifest.files) {
-        if ($Full -and ($font.path -match '^(ptserif|ptsans)/' -or
-            $font.path -match '^noto/(NotoSerif|NotoSans)-(Regular|Bold|Italic|BoldItalic)\.ttf$' -or
-            $font.path -match '(OFL|LICENSE).*\.(txt|md)$')) {
-            $target = Join-Path $fontDestination $font.path
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-            Copy-Item -LiteralPath (Join-Path $fontSource $font.path) -Destination $target
+    if ($Full) {
+        $fontSource = Join-Path $runtimeDirectory 'tools\fonts'
+        $fontDestination = Join-Path $toolsDestination 'fonts'
+        $fontManifest = Get-Content -LiteralPath (Join-Path $fontSource 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($font in $fontManifest.files) {
+            if ($Full -and ($font.path -match '^(ptserif|ptsans)/' -or
+                $font.path -match '^noto/(NotoSerif|NotoSans)-(Regular|Bold|Italic|BoldItalic)\.ttf$' -or
+                $font.path -match '(OFL|LICENSE).*\.(txt|md)$')) {
+                $target = Join-Path $fontDestination $font.path
+                [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
+                Copy-Item -LiteralPath (Join-Path $fontSource $font.path) -Destination $target
+            }
         }
+        [IO.Directory]::CreateDirectory($fontDestination) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
     }
-    [IO.Directory]::CreateDirectory($fontDestination) | Out-Null
-    Copy-Item -LiteralPath (Join-Path $fontSource 'manifest.json') -Destination $fontDestination
     # Readers can save reading history alongside their executables. Ship only
     # their distribution files, never a recursively copied working profile.
     $readerFiles = @{
@@ -145,6 +151,8 @@ try {
     })
     $manifest = [ordered]@{ format = 1; release = $release; platform = $Platform;
         distribution = $(if ($Full) { 'full' } else { 'minimal' }); files = $manifestFiles }
+    # Keep this transport manifest at the legacy ZIP root: older clients read
+    # it before running the new updater. It is not an installed payload file.
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'HomeLibRu.update.json'),
         ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 
@@ -158,10 +166,16 @@ try {
     try {
         if (-not $Full) {
             foreach ($entry in $archive.Entries) {
-                if (($entry.FullName.StartsWith('tools/') -and $entry.FullName -ne 'tools/fonts/manifest.json') -or
+                $coreResource = $entry.FullName -eq 'tools/updates/COMPONENTS.json' -or
+                    $entry.FullName -cmatch '^tools/genres/genres_(fb2|nonfb2)(_(bg|en|uk))?\.glst$'
+                if (($entry.FullName.StartsWith('tools/') -and -not $coreResource) -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or
                     $entry.FullName -in @('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll')) {
                     throw "Optional payload leaked into minimal catalogue archive: $($entry.FullName)"
+                }
+                if (-not $entry.FullName.Contains('/') -and $entry.FullName -notin @(
+                    'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE', 'HomeLibRu.update.json')) {
+                    throw "Unexpected file in minimal catalogue root: $($entry.FullName)"
                 }
             }
         }

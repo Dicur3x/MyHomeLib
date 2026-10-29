@@ -63,7 +63,7 @@ Source: {#LibFolder + 'sqlite3.dll'}; DestDir: {app}; Flags: replacesameversion
 
 Source: {#SourceFolder + 'MHLMcpServer.exe'}; DestDir: {app}; Flags: replacesameversion
 Source: {#SourceFolder + 'HomeLibRuUpdater.exe'}; DestDir: {app}; Flags: replacesameversion
-Source: Components.json; DestDir: {app}; DestName: COMPONENTS.json; Flags: replacesameversion
+Source: Components.json; DestDir: {app}\tools\updates; DestName: COMPONENTS.json; Flags: replacesameversion
 
 Source: {#SourceFolder + 'Icons\MHLIcons.dll'}; DestDir: {app}\Icons; Flags: replacesameversion
 
@@ -83,14 +83,14 @@ Source: Common\converters\fb2lrf\*; DestDir: {app}\converters\fb2lrf\; Flags: sk
 Source: Common\converters\fb2pdf\*; DestDir: {app}\converters\fb2pdf\; Flags: skipifsourcedoesntexist
 Source: Common\converters\fb2epub\*; DestDir: {app}\converters\fb2epub\; Flags: skipifsourcedoesntexist
 Source: Common\converters\fb2mobi\*; DestDir: {app}\converters\fb2mobi\; Flags: skipifsourcedoesntexist
-Source: Common\genres_nonfb2.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_fb2.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_fb2_uk.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_nonfb2_uk.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_fb2_en.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_nonfb2_en.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_fb2_bg.glst; DestDir: {app}; Flags: replacesameversion
-Source: Common\genres_nonfb2_bg.glst; DestDir: {app}; Flags: replacesameversion
+Source: Common\genres_nonfb2.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_fb2.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_fb2_uk.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_nonfb2_uk.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_fb2_en.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_nonfb2_en.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_fb2_bg.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
+Source: Common\genres_nonfb2_bg.glst; DestDir: {app}\tools\genres; Flags: replacesameversion
 Source: Common\collections.ini; DestDir: {userappdata}\MyHomeLib; Flags: onlyifdoesntexist
 Source: Common\Help\*; DestDir: {app}\Help; Flags: recursesubdirs
 Source: Common\HomeLibRu.url; DestDir: {app}; Flags: replacesameversion

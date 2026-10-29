@@ -77,6 +77,7 @@ const
   SYSTEM_DATABASE_FILENAME = 'user.dbs2';
   GENRES_FB2_FILENAME = 'genres_fb2' + GENRELIST_EXTENSION;
   GENRES_NONFB2_FILENAME = 'genres_nonfb2'  + GENRELIST_EXTENSION;
+  GENRELIST_DIR_NAME = 'tools\genres\';
   SERVER_ERRORLOG_FILENAME = 'server_error.html';
   IMPORT_ERRORLOG_FILENAME = 'import_errors.log';
   // Ukrainian help sits directly in Help\; a translation goes in Help\<locale>\.
