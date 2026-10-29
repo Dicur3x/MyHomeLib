@@ -16,10 +16,14 @@ uses
 type
   EMHLExternalToolError = class(Exception);
   EMHLComponentRequired = class(EMHLExternalToolError)
-  private FComponentID: string;
+  private
+    FComponentID: string;
+    FComponentIDs: TArray<string>;
   public
-    constructor Create(const ID, Reason: string);
+    constructor Create(const ID, Reason: string); overload;
+    constructor Create(const IDs: TArray<string>; const Reason: string); overload;
     property ComponentID: string read FComponentID;
+    property ComponentIDs: TArray<string> read FComponentIDs;
   end;
 
 function FindExternalTool(const ToolName, ToolSubFolder: string): string;
@@ -41,7 +45,13 @@ uses
   System.IOUtils;
 
 constructor EMHLComponentRequired.Create(const ID, Reason: string);
-begin inherited Create(Reason); FComponentID:=ID; end;
+begin inherited Create(Reason); FComponentID:=ID; FComponentIDs:=TArray<string>.Create(ID); end;
+
+constructor EMHLComponentRequired.Create(const IDs: TArray<string>; const Reason: string);
+begin
+  inherited Create(Reason); FComponentIDs:=Copy(IDs);
+  if Length(IDs)>0 then FComponentID:=IDs[0];
+end;
 
 function QuoteCommandLineArgument(const Value: string): string;
 var

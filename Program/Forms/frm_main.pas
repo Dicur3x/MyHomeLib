@@ -6023,6 +6023,7 @@ var
   SendOptions: TBookSendOptions;
   SaveBooks: TArray<TBookRecord>;
   ImageQuality, Required: string;
+  RequiredIDs: TArray<string>;
   UnifiedSave: Boolean;
   UseMTP: Boolean;
   DeviceShellItem: IShellItem;
@@ -6187,7 +6188,8 @@ begin
       unit_ExportToDevice.ExportToDevice(AFolder, BookIDList, ExportMode, False,
         Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
         procedure(ID: string) begin Required:=ID; end, ImageQuality,
-        KeepSourceFormat, KeepFB2EPUB, ZipEachBook);
+        KeepSourceFormat, KeepFB2EPUB, ZipEachBook,
+        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;
@@ -6208,7 +6210,10 @@ begin
       SetLength(Remaining,Count);
       if Count>0 then StoreBookSaveContinuation(Settings.SettingsFileName,Required,SendOptions,Remaining);
     end;
-    RequestOptionalComponent(Required);
+    if Length(RequiredIDs)>0 then
+    begin EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponents(RequiredIDs,
+      'Для сохранения выбранных книг нужны дополнительные компоненты.',True); end
+    else RequestOptionalComponent(Required);
   end;
 end;
 

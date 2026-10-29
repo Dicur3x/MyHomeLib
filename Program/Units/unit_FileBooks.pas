@@ -7,9 +7,14 @@ uses System.Classes, System.SysUtils, unit_Globals, unit_BookSendOptions,
 
 function FileBook(const FileName: string): TBookRecord;
 function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
-  out RequiredComponent: string): TBookExportResults;
+  out RequiredComponent: string): TBookExportResults; overload;
 function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
-  out RequiredComponent: string): TBookExportResults;
+  out RequiredComponent: string): TBookExportResults; overload;
+
+function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
+  out RequiredComponents: TArray<string>): TBookExportResults; overload;
+function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
+  out RequiredComponents: TArray<string>): TBookExportResults; overload;
 
 implementation
 
@@ -42,10 +47,22 @@ begin Result:=SaveFileBooks([Book],Options,RequiredComponent); end;
 
 function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
   out RequiredComponent: string): TBookExportResults;
+var IDs:TArray<string>;
+begin
+  Result:=SaveFileBooks(Books,Options,IDs); RequiredComponent:='';
+  if Length(IDs)>0 then RequiredComponent:=IDs[0];
+end;
+
+function SaveFileBook(const Book: TBookRecord; const Options: TBookSendOptions;
+  out RequiredComponents: TArray<string>): TBookExportResults;
+begin Result:=SaveFileBooks([Book],Options,RequiredComponents); end;
+
+function SaveFileBooks(const Books: TArray<TBookRecord>; const Options: TBookSendOptions;
+  out RequiredComponents: TArray<string>): TBookExportResults;
 var Worker: TExportToDeviceThread; Progress: TExportToDeviceProgressForm;
   Marshalled: IStream;
 begin
-  RequiredComponent:='';
+  RequiredComponents:=nil;
   Worker:=TExportToDeviceThread.Create;
   try
     Worker.StandaloneBooks:=Books;
@@ -67,7 +84,9 @@ begin
       Progress.Caption:='Сохранить книгу как'; Progress.WorkerThread:=Worker;
       Progress.ShowModal;
     finally Progress.Free; end;
-    RequiredComponent:=Worker.RequiredComponent;
+    RequiredComponents:=Copy(Worker.RequiredComponents);
+    if (Length(RequiredComponents)=0) and (Worker.RequiredComponent<>'') then
+      RequiredComponents:=TArray<string>.Create(Worker.RequiredComponent);
     Result:=Worker.Results;
     if Assigned(Worker.FatalException) then
       raise Exception.Create('Сохранение остановлено: '+Exception(Worker.FatalException).Message);

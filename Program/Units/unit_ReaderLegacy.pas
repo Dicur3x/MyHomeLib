@@ -13,7 +13,7 @@ function PrepareLegacyReaderFile(const SourceFile, OriginalSource: string;
 implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
-  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, dm_user;
+  unit_BookCache, unit_BookConversion, unit_ReaderFormats, unit_MHLArchiveHelpers, unit_MHLExternalTools, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
 
 function PrepareB1ReaderFile(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>; const IsCanceled: TFunc<Boolean>): string;
@@ -114,6 +114,9 @@ begin
     finally Archive.Free; end;
     if not HasTIFF then Exit;
   end;
+  var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,Extension,False,Canceled);
+  if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
+    'Для подготовки этой книги нужны компоненты: '+String.Join(', ',Missing)+'.');
   if not ModularBookProcessingAvailable(Settings.AppPath) then
     raise EMHLComponentRequired.Create('BookProcessing','Для этой книги нужна общая обработка книг; декодер формата устанавливается отдельно.');
   Input:=OpenCachedBookFile(SourceFile);

@@ -32,6 +32,7 @@ uses
   unit_BookConversion in '..\..\..\Program\Units\unit_BookConversion.pas', unit_UserData,
   unit_Diagnostics in '..\..\..\Program\Units\unit_Diagnostics.pas',
   unit_ExportImageQuality in '..\..\..\Program\Units\unit_ExportImageQuality.pas',
+  unit_BookConversionRequirements in '..\..\..\Program\Units\unit_BookConversionRequirements.pas',
   unit_BookSendOptions in '..\..\..\Program\Units\unit_BookSendOptions.pas',
   unit_BookSavePolicy in '..\..\..\Program\Units\unit_BookSavePolicy.pas',
   unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup,
@@ -5601,6 +5602,7 @@ end;
 {$I ArchiveOpenFeedbackTests.inc}
 {$I ComponentPromptFeedbackTests.inc}
 {$I ComponentBatchFeedbackTests.inc}
+{$I SaveDependencyFeedbackTests.inc}
 {$I ReaderCacheSettingsTests.inc}
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
@@ -5853,6 +5855,7 @@ begin
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents
       else if ParamStr(1) = 'archive-open-feedback' then TestArchiveOpenFeedback
+      else if ParamStr(1) = 'save-dependency-feedback' then TestSaveDependencyFeedback
       else if ParamStr(1) = 'component-batch-feedback' then TestComponentBatchFeedback
       else if ParamStr(1) = 'component-prompt-feedback' then TestComponentPromptFeedback
       else if ParamStr(1) = 'djvu-first-use-feedback' then TestDjvuFirstUseFeedback

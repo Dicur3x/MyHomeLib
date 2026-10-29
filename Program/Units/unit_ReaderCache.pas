@@ -13,7 +13,7 @@ procedure PrepareExternalReaderFileInBackground(Owner: TComponent; const Book: T
   const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean = False);
 function PrepareReaderFile(const Book: TBookRecord; const PreserveImages: Boolean = False; const OnStage: TProc<string> = nil; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False): string;
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive: Boolean = False; ConvertKindle: Boolean = False; ConvertOffice: Boolean = False; const OnMissingComponent: TProc<string> = nil; const OnMissingComponents: TProc<TArray<string>> = nil);
 // False is an intermediate source for explicit text-only export; never a reading copy.
 function PrepareConversionSource(const Book: TBookRecord; const OnStage: TProc<string> = nil;
   const TargetExtension: string = ''; RestoreOriginalImages: Boolean = True): string;
@@ -896,22 +896,24 @@ type
     FLock: TCriticalSection;
     FStage, FResult, FError, FRequiredComponent: string;
     FOnMissingComponent: TProc<string>;
+    FRequiredComponents: TArray<string>;
+    FOnMissingComponents: TProc<TArray<string>>;
     FReady: TProc<string>;
     procedure Tick(Sender: TObject);
   public
     constructor CreateTask(Owner: TComponent; const Book: TBookRecord;
-      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
+      PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
     constructor CreateExternalTask(Owner: TComponent; const Book: TBookRecord;
       const PreparedFile, LibraryNamespace: string; const OnReady: TProc<string>; ForceCopy: Boolean);
     destructor Destroy; override;
   end;
 
 constructor TReaderPreparation.CreateTask(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
 var Snapshot: TBookRecord;
 begin
   inherited Create(Owner);
-  Snapshot := Book; FReady := OnReady; FOnMissingComponent:=OnMissingComponent; FLock := TCriticalSection.Create;
+  Snapshot := Book; FReady := OnReady; FOnMissingComponent:=OnMissingComponent; FOnMissingComponents:=OnMissingComponents; FLock := TCriticalSection.Create;
   FStage := 'Подготовка книги для чтения…'; FStatus := TMHLOperationStatus.Create(FStage);
   FWorker := TThread.CreateAnonymousThread(
     procedure
@@ -926,7 +928,7 @@ begin
           end,OpenArchive,ConvertKindle,ConvertOffice);
       except
         on E: EAbort do FResult := '';
-        on E: EMHLComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
+        on E: EMHLComponentRequired do begin FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs); FError:=E.Message; end;
         on E: EReaderComponentRequired do begin FRequiredComponent:=E.ComponentID; FError:=E.Message; end;
         on E: Exception do begin LogDiagnosticError('reader-prepare',E,ExtractFileExt(Snapshot.GetBookFileName)); FError := E.Message; end;
       end;
@@ -968,7 +970,7 @@ end;
 
 destructor TReaderPreparation.Destroy;
 begin
-  FReady := nil; FTimer.Free; FTimer := nil;
+  FReady := nil; FOnMissingComponent:=nil; FOnMissingComponents:=nil; FTimer.Free; FTimer := nil;
   if Assigned(FWorker) then
   begin
     FWorker.Terminate;
@@ -982,6 +984,7 @@ end;
 
 procedure TReaderPreparation.Tick(Sender: TObject);
 var Stage, ErrorText, Required: string; Ready, Missing: TProc<string>; WorkFile: string;
+  MissingMany:TProc<TArray<string>>; RequiredIDs:TArray<string>;
 begin
   FLock.Enter;
   try Stage := FStage; finally FLock.Leave; end;
@@ -990,9 +993,15 @@ begin
   FTimer.Enabled := False;
   Ready := FReady; FReady := nil; WorkFile := FResult; ErrorText := FError;
   Required:=FRequiredComponent; Missing:=FOnMissingComponent; FOnMissingComponent:=nil;
+  RequiredIDs:=Copy(FRequiredComponents); MissingMany:=FOnMissingComponents; FOnMissingComponents:=nil;
   // The callback can run a modal reader or destroy its owner. Release the
   // worker and hint first so neither can survive reading or be freed twice.
   Free;
+  if (Required<>'') and Assigned(MissingMany) and not Application.Terminated then
+  begin
+    if Length(RequiredIDs)=0 then RequiredIDs:=TArray<string>.Create(Required);
+    MissingMany(RequiredIDs); Exit;
+  end;
   if (Required<>'') and Assigned(Missing) and not Application.Terminated then begin Missing(Required); Exit; end;
   if ErrorText <> '' then raise Exception.Create(ErrorText);
   if (WorkFile <> '') and Assigned(Ready) and not Application.Terminated then
@@ -1001,9 +1010,11 @@ begin
       // Comic/inner archives may first need a decoder while constructing the
       // reader, after preparation has already released its background worker.
       on E: EMHLComponentRequired do
-        if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
+        if Assigned(MissingMany) and not Application.Terminated then MissingMany(E.ComponentIDs)
+        else if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
       on E: EReaderComponentRequired do
-        if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
+        if Assigned(MissingMany) and not Application.Terminated then MissingMany(TArray<string>.Create(E.ComponentID))
+        else if Assigned(Missing) and not Application.Terminated then Missing(E.ComponentID) else raise;
     end;
 end;
 
@@ -1022,12 +1033,12 @@ begin
 end;
 
 procedure PrepareReaderFileInBackground(Owner: TComponent; const Book: TBookRecord;
-  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>);
+  PreserveImages: Boolean; const OnReady: TProc<string>; OpenArchive, ConvertKindle, ConvertOffice: Boolean; const OnMissingComponent: TProc<string>; const OnMissingComponents: TProc<TArray<string>>);
 var Component: TComponent;
 begin
   // A double click while preparing must not start duplicate decompression.
   for Component in Owner do if Component is TReaderPreparation then Exit;
-  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice,OnMissingComponent);
+  TReaderPreparation.CreateTask(Owner,Book,PreserveImages,OnReady,OpenArchive,ConvertKindle,ConvertOffice,OnMissingComponent,OnMissingComponents);
 end;
 
 end.

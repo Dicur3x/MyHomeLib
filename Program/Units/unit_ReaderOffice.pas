@@ -14,7 +14,7 @@ implementation
 
 uses System.Classes, System.IOUtils, System.Hash, System.Zip, Winapi.Windows,
   unit_BookCache, unit_MHLExternalTools, unit_Settings, unit_ReaderDOC,
-  unit_BookConversion, unit_FormatComponents, dm_user;
+  unit_BookConversion, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
 
 function IsOfficeReaderFormat(const Extension: string): Boolean;
 begin
@@ -68,6 +68,9 @@ begin
   Result:=SourceFile; if not IsOfficeReaderFormat(ExtractFileExt(SourceFile)) then Exit;
   if IsDirectDOCFormat(ExtractFileExt(SourceFile)) then Exit(PrepareDirectDOC(SourceFile,OriginalSource,OnStage,IsCanceled));
   CheckCanceled;
+  var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,ExtractFileExt(SourceFile),False,IsCanceled);
+  if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
+    'Для подготовки документа нужны компоненты: '+String.Join(', ',Missing)+'.');
   if FindReaderOffice='' then raise EMHLComponentRequired.Create('BookProcessing','Для подготовки этого документа нужна общая обработка книг.');
   if not OfficeReaderAvailable(ExtractFileExt(SourceFile)) then
   begin

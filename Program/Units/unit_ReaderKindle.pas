@@ -7,7 +7,7 @@ function PrepareKindleReflow(const SourceFile, OriginalSource: string;
 
 implementation
 uses System.Classes, System.IOUtils, System.Hash, Winapi.Windows,
-  unit_BookCache, unit_MHLExternalTools, unit_BookConversion, unit_FormatComponents, dm_user;
+  unit_BookCache, unit_MHLExternalTools, unit_BookConversion, unit_FormatComponents, unit_BookConversionRequirements, dm_user;
 
 function PrepareKindleReflow(const SourceFile, OriginalSource: string;
   const OnStage: TProc<string>): string;
@@ -30,6 +30,10 @@ begin
     Input.Position := Offset; SetLength(Header,40); Input.ReadBuffer(Header[0],40);
     if TEncoding.ASCII.GetString(Header,16,4) <> 'MOBI' then Exit;
     Version := BigEndian(36);
+    var Missing:=MissingBookConversionComponents(Settings.AppPath,SourceFile,ExtractFileExt(SourceFile),False,
+      function:Boolean begin Result:=(GetCurrentThreadID<>MainThreadID) and TThread.CheckTerminated; end);
+    if Length(Missing)>0 then raise EMHLComponentRequired.Create(Missing,
+      'Для подготовки Kindle-книги нужны компоненты: '+String.Join(', ',Missing)+'.');
     Tool := FindBookProcessingPython(Settings.AppPath);
     Script := Settings.AppPath+'tools\kindle\convert_kf8.py';
     if Tool='' then

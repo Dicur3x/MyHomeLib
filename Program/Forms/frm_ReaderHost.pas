@@ -43,6 +43,7 @@ type
     procedure Prepare(const FileName: string);
     procedure Display(const FileName: string);
     procedure MissingComponent(const ID: string);
+    procedure MissingComponents(const IDs: TArray<string>);
     procedure RememberFile(const FileName: string);
     procedure SaveRecent;
     procedure HostCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -295,7 +296,7 @@ begin
 end;
 
 procedure TfrmReaderHost.SaveClick(Sender: TObject);
-var Options: TBookSendOptions; Results: TBookExportResults; Required: string;
+var Options: TBookSendOptions; Results: TBookExportResults; Required: TArray<string>;
 begin
   if FPreparing or (FCurrentFile='') or (FExportBook.FileName='') then Exit;
   try
@@ -311,11 +312,11 @@ begin
       Exit;
     end;
     Results:=SaveFileBook(FExportBook,Options,Required);
-    if Required<>'' then
+    if Length(Required)>0 then
     begin
-      StoreBookSaveContinuation(Settings.SettingsFileName,Required,Options,nil,FCurrentFile);
+      StoreBookSaveContinuation(Settings.SettingsFileName,Required[0],Options,nil,FCurrentFile);
       EnsureUpdates;
-      FUpdates.RequestComponent(Required,'Для выбранного сохранения нужен дополнительный модуль. '+
+      FUpdates.RequestComponents(Required,'Для выбранного сохранения нужен дополнительный модуль. '+
         'После установки и перезапуска вернёмся к этим параметрам сохранения.',True);
     end
     else if (Length(Results)>0) and (Results[0].State=besSucceeded) then
@@ -385,14 +386,22 @@ begin
 end;
 
 procedure TfrmReaderHost.MissingComponent(const ID: string);
-var Title: string;
+begin MissingComponents(TArray<string>.Create(ID)); end;
+
+procedure TfrmReaderHost.MissingComponents(const IDs: TArray<string>);
+var Title, Titles: string;
 begin
-  Title:=ID;
-  for var Component in UPDATE_COMPONENTS do if Component.ID=ID then Title:=Component.Title;
-  FPendingComponent:=ID; FStatus.Caption:='Для этой книги нужен компонент «'+Title+'».';
-  FSessionReply.RequiredComponent:=ID; SendSessionState('component_required');
-  EnsureUpdates;
-  FUpdates.RequestComponent(ID,FStatus.Caption,True);
+  if Length(IDs)=0 then Exit;
+  Titles:='';
+  for var ID in IDs do
+  begin
+    Title:=ID;
+    for var Component in UPDATE_COMPONENTS do if Component.ID=ID then Title:=Component.Title;
+    if Titles<>'' then Titles:=Titles+', '; Titles:=Titles+Title;
+  end;
+  FPendingComponent:=IDs[0]; FStatus.Caption:='Для этой книги нужны компоненты: '+Titles+'.';
+  FSessionReply.RequiredComponent:=IDs[0]; SendSessionState('component_required');
+  EnsureUpdates; FUpdates.RequestComponents(IDs,FStatus.Caption,True);
 end;
 
 procedure TfrmReaderHost.Tick(Sender: TObject);
@@ -433,7 +442,7 @@ begin
               if Prepared<>'' then Display(Prepared) else FinishSession('closed');
             end,
             False,True,True,
-            procedure(ID: string) begin FPreparing:=False; MissingComponent(ID); end);
+            nil,procedure(IDs:TArray<string>) begin FPreparing:=False; MissingComponents(IDs); end);
         except
           on E: Exception do
           begin
@@ -442,7 +451,7 @@ begin
           end;
         end;
       end,False,False,False,
-      procedure(ID: string) begin FPreparing:=False; MissingComponent(ID); end);
+      nil,procedure(IDs:TArray<string>) begin FPreparing:=False; MissingComponents(IDs); end);
   except
     on E: Exception do
     begin

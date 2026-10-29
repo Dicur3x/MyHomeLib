@@ -29,14 +29,15 @@
     }
   },
   "component_installation": {
-    "status": "in_progress",
+    "status": "verified_in_source_final_integration_pending",
     "verified": [
       "Compact prompts contain the purpose once even when passed again by the caller or in a multiline operation reason",
       "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter",
       "Reader Settings has scrollable formats help naming native handlers and update ownership",
       "BookProcessing and ImageProcessing purposes describe their actual roles and separate format modules",
       "DjVu first use reuses a complete existing 7-Zip or requests the verified ready mirror ZIP instead of redirecting to a separate 7-Zip installation",
-      "An estimate that has already discovered several missing module IDs retains the complete distinct list and requests it together from catalogue or standalone Reader"
+      "An estimate that has already discovered several missing module IDs retains the complete distinct list and requests it together from catalogue or standalone Reader",
+      "One resolved book reports its justified processing, format and image dependencies together; source-content detection precedes decoder selection"
     ],
     "verification": {
       "platforms": [
@@ -51,8 +52,7 @@
       "cleanup": "New isolated native test profiles removed by the wrapper"
     },
     "remaining": [
-      "Discover all justified dependencies for one selected operation before its first download, without installing speculative format modules",
-      "Investigate safe operation continuation and avoid needless application restart where possible"
+      "Final catalogue and standalone Reader build/package integration remains pending; dependencies hidden inside an unavailable decoder can only be discovered after that decoder is installed."
     ],
     "djvu_first_use": {
       "platforms": [
@@ -103,6 +103,37 @@
         "Restored UTF-8 BOM after a test caught damaged new UI text",
         "Qualified System.TMonitor in a test to avoid the VCL screen monitor type",
         "Unavailable-source test checks the bounded public error; internal transport exception details intentionally remain separate"
+      ]
+    },
+    "operation_preflight": {
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "save-dependency-feedback",
+        "component-batch-feedback",
+        "component-prompt-feedback",
+        "reader-components"
+      ],
+      "checks": [
+        "Use native MSXML SAX references to identify used FB2 raster images, including namespaced UTF-16; ignore comments, CDATA, foreign namespace elements and unreferenced binaries",
+        "Use archive inventory for packaged image presence, bounded FB2 reference indexing, cancellation and no image decoding during dependency inspection",
+        "Detect actual content despite misleading FB2, EPUB and PDF suffixes; map justified PDF, DjVu, Kindle and legacy decoder requirements",
+        "Preserve full distinct dependency arrays through estimates, catalogue and standalone exports, and asynchronous Reader preparation",
+        "Include an outdated SAVE_OPTIONS_API core repair in the same request as image processing",
+        "Unchanged FB2/EPUB copies remain byte-identical without a converter; removing illustrations does not request image processing",
+        "Reject picture-free scanned-page conversion before downloading components, with an explanation that text recognition is required",
+        "Real independent core and image packages still use one verified installation transaction; absent unrelated optional formats stay absent"
+      ],
+      "limits": [
+        "PDF image transformation is not guessed before a missing PDF decoder can inspect the document. Archive inventory can include unused image entries.",
+        "The current installation retains one safe restart transaction. Review found the existing live-install path deliberately limited to an unloaded Zstandard DLL; broadening it and retrying operations while modal owners or external workers may be alive requires separate lifecycle work. Existing save continuations retain parameters for review after restart.",
+        "Tests compile production units; final release executables and packages have not yet been rebuilt or published."
+      ],
+      "cleanup": "Native wrapper removed every newly created isolated test profile. Existing package fixtures reused read only; no additional archive downloads created.",
+      "test_repairs": [
+        "Corrected the declaring unit import for ComponentNeedsRepair after a compile failure; all final tests then passed."
       ]
     }
   },

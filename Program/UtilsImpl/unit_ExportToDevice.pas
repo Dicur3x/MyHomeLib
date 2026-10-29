@@ -35,7 +35,8 @@ procedure ExportToDevice(
   const ImageQuality: string = 'ask';
   const KeepSourceFormat: Boolean = False;
   const KeepFB2EPUB: Boolean = False;
-  const ZipEachBook: Boolean = False
+  const ZipEachBook: Boolean = False;
+  const OnMissingComponents: TProc<TArray<string>> = nil
   ); overload;
 
 procedure ExportToDevice(
@@ -52,7 +53,8 @@ procedure ExportToDevice(
   const ImageQuality: string = 'ask';
   const KeepSourceFormat: Boolean = False;
   const KeepFB2EPUB: Boolean = False;
-  const ZipEachBook: Boolean = False
+  const ZipEachBook: Boolean = False;
+  const OnMissingComponents: TProc<TArray<string>> = nil
   ); overload;
 
 procedure DownloadBooks(const IdList: TBookIdList);
@@ -92,13 +94,14 @@ procedure ExportToDevice(
   const ImageQuality: string;
   const KeepSourceFormat: Boolean;
   const KeepFB2EPUB: Boolean;
-  const ZipEachBook: Boolean
+  const ZipEachBook: Boolean;
+  const OnMissingComponents: TProc<TArray<string>>
   );
 var Ignored: TBookExportResults;
 begin
   ExportToDevice(DeviceDir, IdList, Mode, ExtractOnly, ProcessedFiles, Ignored,
     ADeviceShellItem, AUseMTP, ExplicitFormat, OnMissingComponent, ImageQuality,
-    KeepSourceFormat, KeepFB2EPUB, ZipEachBook);
+    KeepSourceFormat, KeepFB2EPUB, ZipEachBook, OnMissingComponents);
 end;
 
 procedure ExportToDevice(
@@ -115,13 +118,15 @@ procedure ExportToDevice(
   const ImageQuality: string;
   const KeepSourceFormat: Boolean;
   const KeepFB2EPUB: Boolean;
-  const ZipEachBook: Boolean
+  const ZipEachBook: Boolean;
+  const OnMissingComponents: TProc<TArray<string>>
   );
 var
   worker: TExportToDeviceThread;
   frmProgress: TExportToDeviceProgressForm;
   MarshalStream: IStream;
   ConverterPath, Required: string;
+  RequiredIDs: TArray<string>;
 begin
   ProcessedFiles := ''; Required:='';
   Results := PendingBookExportResults(IdList);
@@ -175,6 +180,7 @@ begin
       frmProgress.Free;
     end;
     ProcessedFiles := worker.ProcessedFiles; Required:=worker.RequiredComponent;
+    RequiredIDs:=Copy(worker.RequiredComponents);
     if Assigned(worker.FatalException) then
     begin
       if worker.FatalException is Exception then
@@ -186,7 +192,12 @@ begin
       Results := worker.Results;
     finally worker.Free; end;
   end;
-  if (Required<>'') and Assigned(OnMissingComponent) then OnMissingComponent(Required);
+  if (Required<>'') and Assigned(OnMissingComponents) then
+  begin
+    if Length(RequiredIDs)=0 then RequiredIDs:=TArray<string>.Create(Required);
+    OnMissingComponents(RequiredIDs);
+  end
+  else if (Required<>'') and Assigned(OnMissingComponent) then OnMissingComponent(Required);
 end;
 
 procedure DownloadBooks(const IdList: TBookIdList);

@@ -8,6 +8,7 @@ uses System.Classes, System.SysUtils, System.SyncObjs, unit_Globals,
 type
   TBookSaveEstimateItem = record
     SourceExtension, TargetExtension, ErrorText, RequiredComponent: string;
+    RequiredComponents: TArray<string>;
     Options: TBookImageQualityOptions;
     Completed, ImagesUnchanged: Boolean;
   end;
@@ -34,12 +35,14 @@ type
       out Status: string; out Complete: Boolean): Boolean;
   end;
 
+function BookSaveMissingComponents(const Items: TBookSaveEstimateItems): TArray<string>;
+
 function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
   const Plan: TBookSaveChoice): TBookSaveEstimateItems;
 
 implementation
 
-uses System.IOUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
+uses System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
   unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics;
 
 type
@@ -59,6 +62,18 @@ function TSizeCounter.Seek(const Offset: Int64; Origin: TSeekOrigin): Int64;
 begin
   if (Offset<>0) or (Origin<>soCurrent) then raise EStreamError.Create('Счётчик размера не поддерживает перемещение.');
   Result:=FCount;
+end;
+
+function BookSaveMissingComponents(const Items: TBookSaveEstimateItems): TArray<string>;
+begin
+  Result:=nil;
+  for var Item in Items do
+  begin
+    var IDs:=Item.RequiredComponents;
+    if (Length(IDs)=0) and (Item.RequiredComponent<>'') then IDs:=TArray<string>.Create(Item.RequiredComponent);
+    for var ID in IDs do
+      if (ID<>'') and (IndexText(ID,Result)<0) then Result:=Result+TArray<string>.Create(ID);
+  end;
 end;
 
 function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
@@ -212,7 +227,7 @@ begin
       end;
     except
       on E: EAbort do if not Terminated then Item.ErrorText:='Оценка книги отменена.';
-      on E: EMHLComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.ErrorText:=E.Message; end;
+      on E: EMHLComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.RequiredComponents:=Copy(E.ComponentIDs); Item.ErrorText:=E.Message; end;
       on E: EReaderComponentRequired do begin Item.RequiredComponent:=E.ComponentID; Item.ErrorText:=E.Message; end;
       on E: Exception do
       begin Item.ErrorText:=E.Message; LogDiagnosticError('save-size-estimate',E,Item.SourceExtension); end;

@@ -350,7 +350,9 @@ begin
     else FStatus.Caption:='Оценка по образцам готова. Итоговый размер может немного отличаться.';
   end;
   FreeAndNil(FEstimate); FFormat.Enabled:=True; FSend.Enabled:=True; FCalculate.Caption:='Оценить размер';
-  if FRequiredComponent<>'' then FCalculate.Caption:='Установить модуль…';
+  if FRequiredComponent<>'' then
+    if Length(BookSaveMissingComponents(FItems))>1 then FCalculate.Caption:='Установить модули…'
+    else FCalculate.Caption:='Установить модуль…';
   if FClosing then ModalResult:=mrCancel else Changed(FImages);
 end;
 
@@ -495,10 +497,7 @@ begin
     if Answer=mrRetry then
     begin
       Options.RequiredComponent:=Dialog.FRequiredComponent;
-      for var Item in Dialog.FItems do
-        if (Item.RequiredComponent<>'') and
-          (System.StrUtils.IndexText(Item.RequiredComponent,Options.RequiredComponents)<0) then
-          Options.RequiredComponents:=Options.RequiredComponents+TArray<string>.Create(Item.RequiredComponent);
+      Options.RequiredComponents:=BookSaveMissingComponents(Dialog.FItems);
     end;
     Options.ImageQuality:='original';
     if Dialog.FImages.Enabled then Options.ImageQuality:=Qualities[Dialog.FImages.ItemIndex];

@@ -74,6 +74,7 @@ type
     FMarshalStream: IStream;
     FDeviceShellItem: IShellItem;
     FLastError, FRequiredComponent: string;
+    FRequiredComponents: TArray<string>;
     FConverterExitCode: Cardinal;
     FCurrentBookIndex: Integer;
     FShowImageQualityChoice: Boolean;
@@ -118,6 +119,7 @@ type
     property MarshalStream: IStream write FMarshalStream;
     property ProcessedFiles: string read FProcessedFiles;
     property RequiredComponent: string read FRequiredComponent;
+    property RequiredComponents: TArray<string> read FRequiredComponents;
     property ExportMode: TExportMode read FExportMode write FExportMode;
     property ExtractOnly: boolean write FExtractOnly;
     property ExplicitFormat: Boolean read FExplicitFormat write FExplicitFormat;
@@ -344,10 +346,15 @@ begin
           raise Exception.Create('Изменение изображений с сохранением формата '+UpperCase(SourceExtension)+
             ' пока недоступно. Выберите «Как есть» для отправки как есть или явно выберите FB2/EPUB.');
       end;
-      var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
-      if Required<>'' then raise EMHLComponentRequired.Create(Required,
-        'Для преобразования книги из '+UpperCase(SourceExtension.TrimLeft(['.']))+
-        ' сначала нужен модуль чтения. '+ComponentPurpose(Required));
+      // FB2/EPUB processing resolves its complete known dependencies after
+      // its unchanged-copy fast path. Do not stop on one decoder here.
+      if not (FExportMode in [emFB2,emFB2Zip,emEpub,emEpubZip]) then
+      begin
+        var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
+        if Required<>'' then raise EMHLComponentRequired.Create(Required,
+          'Для преобразования книги из '+UpperCase(SourceExtension.TrimLeft(['.']))+
+          ' сначала нужен модуль чтения. '+ComponentPurpose(Required));
+      end;
     end;
     if FCurrentKeepSource and not ProcessSourceImages then
       FExportMode:=emFB2; // The unchanged-copy branch does not convert.
@@ -502,7 +509,7 @@ begin
     end;
     Result := True;
   except
-    on E: EMHLComponentRequired do begin Canceled:=True; FRequiredComponent:=E.ComponentID; FLastError:=E.Message; end;
+    on E: EMHLComponentRequired do begin Canceled:=True; FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs); FLastError:=E.Message; end;
     on E: EAbort do begin Canceled:=True; FLastError:=E.Message; end;
     on E: Exception do
       FLastError := Format('PrepareFile exception: %s', [E.Message]);
@@ -772,7 +779,7 @@ begin
     except
       on E: EMHLComponentRequired do
       begin
-        Result:=False; Canceled:=True; FRequiredComponent:=E.ComponentID;
+        Result:=False; Canceled:=True; FRequiredComponent:=E.ComponentID; FRequiredComponents:=Copy(E.ComponentIDs);
         FLastError:=E.Message;
       end;
       on E: EAbort do

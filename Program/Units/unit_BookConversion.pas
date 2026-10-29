@@ -33,7 +33,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
   Source: TStream; const IsCanceled: TFunc<Boolean>): Boolean;
@@ -198,6 +198,31 @@ begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
   end;
+  if not ForReading and (QualityProfile='none') then
+  begin
+    Actual:=Extension;
+    if FileExists(SourceFile) then
+    begin
+      var Detected:=DetectReaderExtension(SourceFile);
+      if Detected<>'' then Actual:=Detected;
+    end;
+    if Pos('|'+Actual.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|tif|tiff|cbz|cbr|cb7|jpg|jpeg|png|gif|bmp|webp|xps|oxps|')>0 then
+      raise Exception.Create('Этот формат преобразуется как сканы: изображения содержат сами страницы. '+
+        'Для режима без изображений сначала нужно распознать текст.');
+  end;
+  var Missing:=MissingBookConversionComponents(AppPath,SourceFile,Extension,
+    not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep')),IsCanceled);
+  if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
+  begin
+    var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
+    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
+      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
+      if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
+        Missing:=TArray<string>.Create('BookProcessing')+Missing;
+  end;
+  if Length(Missing)>0 then
+    raise EMHLComponentRequired.Create(Missing,'Для выбранной книги нужны дополнительные компоненты: '+
+      String.Join(', ',Missing)+'.');
   Tool:=FindBookProcessingPython(AppPath);
   Script:=TPath.Combine(AppPath,'tools\bookconvert\convert_book.py');
   if not ModularBookProcessingAvailable(AppPath) then
