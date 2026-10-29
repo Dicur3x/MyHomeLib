@@ -7,7 +7,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses
-  frm_MCPSetup,
+  frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
   unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents,
   unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
@@ -5628,6 +5628,7 @@ end;
 {$I BookSavePlanningTests.inc}
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
+{$I FLibrarySourcePreparationTests.inc}
 {$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
@@ -5680,6 +5681,7 @@ begin
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
       if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
+      if ParamStr(1)='flibrary-source-preparation' then begin TestFLibrarySourcePreparation; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
       if ParamStr(1) = 'query-batch' then begin TestSQLiteQueryBatch; Halt(0); end;
       if ParamStr(1) = 'display-labels' then begin BenchmarkDisplayLabels; Halt(0); end;

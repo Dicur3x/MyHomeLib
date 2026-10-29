@@ -3,9 +3,9 @@
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
-    "title": "HomeLib Ru задачи после pre5.37",
+    "title": "HomeLib задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Read back 50 same native blocks and IDs; 17 checked/struck-through items. Exact sample conversion/estimates now checked after x86/x64 tests; independent duplicate-cover origin task remains unchecked; unrelated content preserved.",
+    "verification": "Read back all 51 native blocks and stable IDs: 17 checked/struck through, new confirmed 3.x beta/release numbering task unchecked, all unrelated content preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
   },
   "order": [
@@ -300,7 +300,7 @@
       "limits": "Packaging probes used existing 2.7.0.1105/pre5.37 main/updater executables to validate layout/transport, while native tests compiled new production settings/update code. Final main/Reader executables and next-release packages must still be rebuilt and integrated; not published."
     },
     "fb2_estimation_compatibility": {
-      "status": "verified_exact_sample_and_other_sources_not_released_origin_investigation_pending",
+      "status": "verified_exact_sample_and_native_preparation_not_released",
       "source": "User tester screenshots during batch export size estimation to EPUB on pre5.37",
       "cases": [
         {
@@ -350,7 +350,7 @@
             "Two different cover.jpg binaries: 90301 bytes image/jpg SHA2d580dffccec534847795b49ad9d12303c54e559004656a233067fb40b8b94b2 and 21576 bytes image/jpeg SHA8a0501bc22bdf8860de6ae437cf827b95a4457e1dd312372fd6d49b3b3d23fe5",
             "One title contains 16 characters directly outside a paragraph"
           ],
-          "next": "Run an isolated native preparation and metadata rewrite check for the corresponding compressed source before excluding our pipeline as the duplicate-cover origin. Do not change the real collection.",
+          "next": "Exact sample conversion and estimates are verified; current preparation/metadata-write direction is closed with the above limits. Continue queued estimation-failure visibility, cache cleanup and opt-in diagnostics.",
           "source_unchanged": true
         },
         "sources_unchanged": true,
@@ -377,7 +377,37 @@
           "retained_genre": "sf_litrpg",
           "original_reported_title_and_id_errors_removed": true
         },
-        "test_harness_repair": "Full-suite stress exposed a transient Windows PermissionError while the test thread read the already atomically published options file. Added bounded retry only to that test consumer; production option and choice publishers were already atomic. Final full suite passed."
+        "test_harness_repair": "Full-suite stress exposed a transient Windows PermissionError while the test thread read the already atomically published options file. Added bounded retry only to that test consumer; production option and choice publishers were already atomic. Final full suite passed.",
+        "native_preparation_failure": {
+          "scenario": "flibrary-source-preparation",
+          "platform": "Win32",
+          "passed_before_failure": [
+            "Actual source restoration: one cover and two illustrations, readable body unchanged",
+            "Repeated restoration adds no binary or second cover"
+          ],
+          "reproduced_bug": "WriteFb2InfoToStream saves XML to a stream left at the end after LoadFromStream; subsequent parse fails with Invalid xml declaration.",
+          "fix_in_progress": "Serialize into a private memory stream, then replace from offset zero and truncate old tail. Add repeated long/short-title metadata regression before accepting the fix.",
+          "resolved": "Corrected after the failing regression; long/short title and source/image/body preservation passed both architectures."
+        },
+        "native_preparation_verification": {
+          "status": "passed_both_architectures_not_released",
+          "report": "tools/ui/tests/Out/pre538-flibrary-source-preparation-20261029-r2.json",
+          "source_fb2_sha256": "efc28dc668f1d9971833a501baba6480e5a0775996652f6f921e6798118b3019",
+          "checks": [
+            "Exact selected source extracted read only; one cover and two illustrations restored; body text and source stream position preserved",
+            "Second restoration returns no change and creates no duplicate image binary",
+            "Native metadata write with long title followed by short title creates one parseable XML with exact updated title and unchanged image byte hashes/body",
+            "external-reader-names full previous native scenario passed Win32 and Win64: actual private-copy rewrite, original body/style/additional series/history/settings, friendly naming and cache behavior preserved"
+          ],
+          "fix": "unit_WriteFb2Info.WriteFb2InfoToStream serializes into a private memory stream, rewinds target, replaces complete content, truncates old tail, returns position zero. A failed DOM serialization cannot destroy the borrowed input.",
+          "limitations": "Reproduced a current XML-append bug, but the historical origin of the tester file with two distinct JPEG cover.jpg binaries is not proven. This probe does not claim to reproduce that exact historical production path.",
+          "source_canonical_sha256": "e4f09d3c857b380628ac7b5600fa1b6da5f18f58bf4ba299951e89b8a98bea5e",
+          "native_exe_sha256": {
+            "Win32": "cecfdc8997211f9410eb15800eea65664a6dbc126b104a880dbc6b76156cf7ba",
+            "Win64": "b260c30f9feb899ec9768945c642bb00a80ba661de0d332b92eaeed3b65a9714"
+          },
+          "cleanup": true
+        }
       }
     },
     "export_cache_cleanup": {
@@ -473,6 +503,36 @@
       "verified_example": "sf_litrpg exists at line 54 in all four FB2 localized dictionaries; book metadata is retained in EPUB roundtrip. The external author XSD is a separate test-only resource, not a shipped replacement dictionary.",
       "dictionary_history": "Current files entered repository in f0c71689 on 2026-08-11; that date is not evidence of full freshness.",
       "decision": "No broad book/genre rewrite is justified by this one case. Any later dictionary update should follow missing/incorrect actual catalogue-code evidence."
+    },
+    "version_numbering": {
+      "status": "queued_for_final_release_migration",
+      "requested": "Move to normal 3.x series; same understandable version labels for application and first-party components instead of mixed pre5.37 / 2.7.0.1105 builds. Retain prerelease stage while bugs remain.",
+      "proposed_next_public_version": "3.0 beta 1",
+      "subsequent": "3.0 beta 2, beta 3 etc; stable 3.0 release; bug fixes 3.0.1, 3.0.2; features 3.1",
+      "third_party": "Keep upstream library versions unchanged.",
+      "gates": [
+        "Old pre5.x application and Reader update to new-series artifacts using actual downloaded archive/manifest validation",
+        "First-party component version display consistent in catalogue and standalone Reader",
+        "No loss of identity, architecture, integrity or compatibility checks during version parser migration"
+      ],
+      "sequencing": "Finish current source-preparation verification first; perform version migration before final packaging and publish, never bump labels without tested binaries.",
+      "confirmed_next_public_version": "3.0 beta 1",
+      "confirmation": "User explicitly clarified and approved three numeric parts after stable release; no further version-format question needed."
+    },
+    "product_name": {
+      "status": "queued_with_version_migration",
+      "confirmed_public_name": "HomeLib",
+      "requested": "Remove Ru from the product name in UI and release-facing branding.",
+      "compatibility": "Retain compatibility with old installations, data paths, updater identities and already installed modules; changing branding must not invalidate manifests or lose user data."
+    },
+    "telegram_reporter": {
+      "status": "user_requested_separate_task_after_current_started_verification",
+      "project_name": "ReportBridge",
+      "requested_path": "C:/Users/cloud/IdeaProjects/ReportBridge",
+      "development_model": "gpt-6.1-terra",
+      "reasoning_effort": "xhigh",
+      "scope": "Reusable multi-provider AI bug-report intake tool; Telegram first, Codex integration/current-chat feasibility, other AI via API key/configurable endpoint, clarification conversations, durable deduplicated queue, fixes/status feedback. Separate repo shareable with colleague and GitHub publication authorized. Telegram group creation/setup authorized; protect credentials and do not disclose private existing history or book data.",
+      "sequencing": "Finish current FLibrary source/metadata bug fix and x86/x64 verification, then create the explicitly requested separate task. Do not silently migrate HomeLib development or change this goal."
     }
   },
   "github_maintenance_20261029": {
@@ -497,7 +557,6 @@
     }
   },
   "next_steps_order": [
-    "Finish FB2/EPUB export compatibility with actual affected books",
     "Finish per-book estimation failure visibility; verify BookCache cleanup and add opt-in extended diagnostics",
     "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
@@ -505,6 +564,7 @@
     "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
+    "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ]

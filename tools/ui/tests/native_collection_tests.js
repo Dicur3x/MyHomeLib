@@ -86,8 +86,10 @@ modes.push('save-dependency-feedback');
 modes.push('reader-link-feedback');
 modes.push('distribution-layout');
 modes.push('export-path-feedback');
+modes.push('flibrary-source-preparation');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
+  'flibrary-source-preparation': ['PASS actual FLibrary source restores one cover and two illustrations with unchanged borrowed bytes', 'PASS repeated FLibrary restoration does not create another cover or illustration', 'PASS repeated native FB2 metadata rewrite preserves every restored image and readable body'],
   'export-path-feedback': ['PASS export long Unicode filenames complete deep directories native ZIP exact bytes collisions and same-format copies', 'PASS atomic output race and cancellation preserve existing files sources and caller stream position', 'PASS explicit overwrite replaces only saved copies and rejects original identities including hard links', 'PASS Shell copy keeps numbered duplicates by default and replaces saved copies only when requested', 'PASS batch export failures retain every book reason use one final summary and preserve existing paths', 'PASS restored Save As dialog keeps mixed policy image quality ZIP masks path and scan exclusions', 'PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count', 'PASS default ask per-file choices batch apply-to-all cancellation source content and Shell collisions at 96 and 192 DPI', 'PASS protected source Shell collision reports one failed book continues the batch and preserves original bytes'],
   'distribution-layout': ['PASS distribution layout resolves grouped and legacy resources all genre languages and update metadata without root copies'],
   'reader-link-feedback': ['PASS FB2 EPUB internal chapter links navigate by click preserve footnotes and dragging selection in single and double pages'],
@@ -215,6 +217,7 @@ function filterCaptionPasses(subcase) {
     `PASS annotation caption complete theme=${dark}`];
 }
 function requiredPasses(executable, mode) {
+  if (mode==='flibrary-source-preparation') return requiredViews[mode];
   if (mode==='distribution-layout') return requiredViews[mode];
   if (mode==='webp-live') return ['PASS live WebP update check'];
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
@@ -341,6 +344,14 @@ function run(executable, mode, subcase = "") {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable, mode);
+    if (mode==='flibrary-source-preparation') {
+      const arg=process.argv.find(a=>a.startsWith('--flibrary-source-fixtures='));
+      if(!arg) throw Error('Read-only FLibrary source fixtures are required');
+      const source=fs.realpathSync(arg.slice('--flibrary-source-fixtures='.length));
+      if(!fs.existsSync(path.join(source,'557950.fb2'))) throw Error('Missing exact source fixture');
+      fs.cpSync(source,path.join(folder,'flibrary-source-fixtures'),{recursive:true});
+      fs.cpSync(path.join(runtime,'tools/jpeg-xl'),path.join(folder,'tools/jpeg-xl'),{recursive:true});
+    }
     if (['reader-small-fb2','reader-main-filter'].includes(mode)) {
       fs.copyFileSync(executable,path.join(folder,'HomeLibReader.exe'));
       for (const [source,name] of [

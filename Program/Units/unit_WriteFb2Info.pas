@@ -111,7 +111,18 @@ begin
         end;
       end;
     end;
-    XML.SaveToStream(Stream);
+    // Loading XML leaves the borrowed stream at its end. Serialize completely
+    // before replacing it, otherwise a second declaration is appended or an
+    // old longer document tail survives a shorter metadata update.
+    var Updated:=TMemoryStream.Create;
+    try
+      XML.SaveToStream(Updated);
+      Updated.Position:=0;
+      Stream.Position:=0;
+      Stream.CopyFrom(Updated,Updated.Size);
+      Stream.Size:=Stream.Position;
+      Stream.Position:=0;
+    finally Updated.Free; end;
     Result := True;
   except
 
