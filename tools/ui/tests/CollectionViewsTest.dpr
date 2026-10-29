@@ -1028,7 +1028,8 @@ procedure HandleReaderProbe;
 var
   Root, FileName: string;
 begin
-  if (ParamCount <> 1) or not SameText(ExtractFileExt(ParamStr(1)), '.fb2') then Exit;
+  if (ParamCount <> 1) or not (SameText(ExtractFileExt(ParamStr(1)), '.fb2') or
+    SameText(ExtractFileExt(ParamStr(1)), '.pdf')) then Exit;
   Root := IncludeTrailingPathDelimiter(ExpandFileName(ExtractFilePath(ParamStr(0))));
   FileName := ExpandFileName(ParamStr(1));
   Require(SameText(Copy(FileName, 1, Length(Root)), Root) and FileExists(FileName),
@@ -1493,6 +1494,20 @@ begin
     'Changed source reused stale reader bytes');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'Reader policy changes wrote to the source');
   Writeln('PASS stable reader cache survives reimport and refreshes changed sources');
+  Settings.Readers.Add('.pdf',ParamStr(0));
+  var SavedRewrite:=Settings.OverwriteFB2Info; Settings.OverwriteFB2Info:=True;
+  try
+    var PDFPayload:=TEncoding.ASCII.GetBytes('%PDF-1.4'+sLineBreak+'Private external reader format-detection probe.');
+    TFile.WriteAllBytes(Original,PDFPayload);
+    var PDFHash:=THashSHA2.GetHashStringFromFile(Original);
+    Captured:=ReadSelected;
+    Require(SameText(ExtractFileExt(Captured),'.pdf') and
+      (THashSHA2.GetHashStringFromFile(Captured)=PDFHash) and
+      (THashSHA2.GetHashStringFromFile(Original)=PDFHash),
+      'External PDF with a false FB2 filename was rewritten as metadata or changed');
+    Writeln('PASS external opening detects PDF under FB2 name without rewriting metadata or changing source');
+  finally Settings.OverwriteFB2Info:=SavedRewrite; end;
+  WriteSource(WithWebP); ReadSelected; // Restore the FB2 state expected by cleanup callers.
   Writeln('PASS plain FB2 reader preserves ordinary paths, converts WebP, separates policy cache and leaves source unchanged');
 end;
 

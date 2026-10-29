@@ -6603,7 +6603,8 @@ begin
           MissingComponent:=MissingExternalReaderComponent(Settings.AppPath,ConfiguredPath);
           if MissingComponent<>'' then begin RequestOptionalComponent(MissingComponent); Exit; end;
         end;
-        RewriteFB2:=not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat=bfFb2);
+        RewriteFB2:=not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat=bfFb2) and
+          SameText(ExtractFileExt(WorkFile),'.fb2');
         if ChosenBuiltin then
           OpenCatalogueReader(ReaderBook,Snapshot,ReaderNamespace,RequirePersonalProgress)
         else if ExternalPath<>'' then

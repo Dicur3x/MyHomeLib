@@ -467,6 +467,21 @@
         "checks": "Actual four-component package install/hash/version verification, injected-failure rollback, unchanged private files, opt-in notifications with no unused transports; native light/dark first-use at 96/144/192 DPI; stable external filename/history and source-change content detection; fresh GUI builds on both architectures",
         "cleanup": "Owned package context removed; no new native profiles remain",
         "limitation": "Final production catalogue/Reader packages and live first-use release integration are still pending."
+      },
+      "false_extension_pdf_regression": {
+        "status": "verified_in_source_not_released",
+        "fix": "Guard FB2 metadata rewriting by actual prepared extension, not solely catalogue metadata",
+        "artifact": "tools/ui/tests/Out/pre538-false-fb2-pdf-20261030-r1.json",
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "scenarios": [
+          "reader-compatibility",
+          "read-folder-cleanup",
+          "temp-exit-cleanup"
+        ],
+        "checks": "PDF bytes under a false FB2 filename open as PDF with metadata rewriting enabled; source/output hashes equal. FB2 state restored and native manual/exit cleanup still pass. No new native profiles remain."
       }
     },
     "reader_visual_redesign": {
