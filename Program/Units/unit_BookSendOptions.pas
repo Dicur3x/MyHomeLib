@@ -12,6 +12,7 @@ type
     UseMTP, ExplicitFormat, KeepSourceFormat, KeepFB2EPUB, ZipEachBook: Boolean;
     Mode: TExportMode;
     ImageQuality, FileNameTemplate, FolderTemplate, RequiredComponent: string;
+    RequiredComponents: TArray<string>;
     ScriptIndex: Integer;
   end;
   PBookSendOptions = ^TBookSendOptions;
@@ -63,7 +64,7 @@ function ChooseBookSendOptions(BookCount: Integer; const InitialFolder: string;
 
 implementation
 
-uses System.SysUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.ActiveX,
+uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
   unit_Templater, unit_BookConversion;
 
@@ -491,7 +492,14 @@ begin
     Options.Mode:=Selected.Mode; Options.ZipEachBook:=Dialog.FZip.Checked;
     Options.FileNameTemplate:=Dialog.FNameMask.Text;
     if Dialog.FSubfolders.Checked then Options.FolderTemplate:=Dialog.FFolderMask.Text;
-    if Answer=mrRetry then Options.RequiredComponent:=Dialog.FRequiredComponent;
+    if Answer=mrRetry then
+    begin
+      Options.RequiredComponent:=Dialog.FRequiredComponent;
+      for var Item in Dialog.FItems do
+        if (Item.RequiredComponent<>'') and
+          (System.StrUtils.IndexText(Item.RequiredComponent,Options.RequiredComponents)<0) then
+          Options.RequiredComponents:=Options.RequiredComponents+TArray<string>.Create(Item.RequiredComponent);
+    end;
     Options.ImageQuality:='original';
     if Dialog.FImages.Enabled then Options.ImageQuality:=Qualities[Dialog.FImages.ItemIndex];
     if Dialog.FScans.Enabled and (Dialog.FScans.ItemIndex>0) and (Dialog.FImages.ItemIndex<>3) then

@@ -39,6 +39,7 @@ type
     FNotifyOptional: TCheckBox;
     FChangingNotification: Boolean;
     FRequestedComponent, FRequestReason: string;
+    FRequestedComponents: TArray<string>;
     FRequestedCheckPending: Boolean;
     FReaderOnly: Boolean;
     FOperationComponent: string;
@@ -48,6 +49,8 @@ type
     FCompactProgress: TProgressBar;
     FCompactPrimary, FCompactLater: TButton;
     FRowIDs: TArray<Integer>;
+    function RequestedReleases: TArray<TProgramRelease>;
+    procedure ShowRequestedComponents;
     procedure CreateCompactPrompt;
     procedure SyncCompactPrompt;
     procedure CompactLater(Sender: TObject);
@@ -138,6 +141,7 @@ type
     procedure CheckComponents(Automatic: Boolean);
     procedure UseReaderComponents;
     procedure RequestComponent(const ID, Reason: string; Compact: Boolean = False);
+    procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True);
     function InstallComponentForOperation(const ID, Reason: string): Boolean;
     procedure UseFullWindow;
     function StartCheckCycle(Automatic: Boolean): Boolean;
@@ -528,7 +532,7 @@ end;
 procedure TfrmProgramUpdate.HistoryComponentSelected(Sender: TObject);
 begin
   if FRefreshingComponents or (FHistorySelector.ItemIndex<0) then Exit;
-  FRequestedComponent:=''; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
   SelectRow(FRowIDs[FHistorySelector.ItemIndex]); ComponentSelected(nil);
 end;
 
@@ -693,7 +697,7 @@ begin
   // request, regardless of whether the optional reader itself is installed.
   if FReaderOnly or IsOptionalComponent(UPDATE_COMPONENTS[Value-1].ID) then
     Result:=(InstalledVersion(UPDATE_COMPONENTS[Value-1].ID)<>'') or
-      (FRequestedComponent=UPDATE_COMPONENTS[Value-1].ID);
+      (IndexText(UPDATE_COMPONENTS[Value-1].ID,FRequestedComponents)>=0);
 end;
 
 function TfrmProgramUpdate.ViewIndex(Value: Integer): Integer;
@@ -823,7 +827,7 @@ begin
   end;
   if (Item.Index<0) or (Item.Index>High(FRowIDs)) then Exit;
   if FSelectedRow=FRowIDs[Item.Index] then Exit;
-  FRequestedComponent:=''; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
   FSelectedRow:=FRowIDs[Item.Index]; ComponentSelected(nil);
 end;
 
@@ -888,6 +892,7 @@ var I: Integer; Version: string;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted, ChangesStarted: UInt64;{$ENDIF}
 begin
   if Assigned(FThread) or FReady then Exit;
+  if Length(FRequestedComponents)>1 then begin ShowRequestedComponents; Exit; end;
   {$IFDEF MHL_RELEASE_PERFORMANCE}ProfileStarted:=GetTickCount64;{$ENDIF}
   Inc(FSelectionDepth); BeginUIUpdate;
   try
@@ -1067,7 +1072,7 @@ begin
   Result := False;
   if FCheckingCycle or Assigned(FThread) or Assigned(FComponentThread) then Exit;
   if FReady then begin if not Automatic then Present; Exit; end;
-  FRequestedComponent:=''; FRequestReason:='';
+  FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
   RefreshInstalledComponents;
   FCycleAutomatic := Automatic; FCheckingCycle := True; FAppPending := True; FComponentsPending := True;
   FApplicationRelease := Default(TProgramRelease);
@@ -1145,7 +1150,7 @@ end;
 procedure TfrmProgramUpdate.ComponentCheckClick(Sender: TObject);
 begin
   if Assigned(FThread) or FReady or FCheckingCycle then Exit;
-  if Sender<>nil then begin FRequestedComponent:=''; FRequestReason:=''; end;
+  if Sender<>nil then begin FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:=''; end;
   if FRequestedComponent<>'' then begin FComponentExplicit:=True; CheckComponents(False); Exit; end;
   if Assigned(FCheck) then FCheck(Self)
   else begin FComponentExplicit:=True; CheckComponents(False); end;
@@ -1172,7 +1177,7 @@ end;
 function TfrmProgramUpdate.CreateComponentWorker(Window: HWND): TComponentUpdateThread;
 begin
   Result := TComponentUpdateThread.Create(Window, CreateHTTPClientGlobal, PROGRAM_RELEASES_API, FCache);
-  Result.PreferReadyDjvu:=(FRequestedComponent='DjVuLibre') and
+  Result.PreferReadyDjvu:=(IndexText('DjVuLibre',FRequestedComponents)>=0) and
     ComponentNeedsRepair(Settings.AppPath,'DjVuLibre') and (FindFullSevenZip(Settings.AppPath)='');
 end;
 
@@ -1291,25 +1296,78 @@ begin
   LayoutWindow;
 end;
 
-procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
-var Index: Integer; Purpose: string;
+function TfrmProgramUpdate.RequestedReleases: TArray<TProgramRelease>;
 begin
-  // Old saved operations may still name the former all-format bundle. New
-  // clients must never turn that into a fresh monolithic download.
-  if ID='BookConverter' then
-  begin RequestComponent('BookProcessing',Reason,Compact); Exit; end;
-  Index:=-1;
-  for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do if UPDATE_COMPONENTS[I].ID=ID then Index:=I;
-  if (Index<0) or not ComponentAllowed(Index) or not IsOptionalComponent(ID) then Exit;
+  Result:=nil;
+  for var ID in FRequestedComponents do
+    for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      if UPDATE_COMPONENTS[I].ID=ID then
+      begin
+        if FComponentWaiting[I] or (FComponents[I].ComponentError<>'') or
+          (FComponents[I].DownloadURL='') or FComponents[I].CheckOnly or
+          (FComponents[I].Size<=0) then Exit(nil);
+        Result:=Result+TArray<TProgramRelease>.Create(FComponents[I]);
+        Break;
+      end;
+end;
+
+procedure TfrmProgramUpdate.ShowRequestedComponents;
+var Releases: TArray<TProgramRelease>; Total: Int64; Text: string;
+begin
+  FVersion.Caption:=Format('Компоненты для выбранной операции: %d',[Length(FRequestedComponents)]);
+  Text:=''; Total:=0;
+  for var ID in FRequestedComponents do
+    for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      if UPDATE_COMPONENTS[I].ID=ID then
+      begin
+        if Text<>'' then Text:=Text+sLineBreak;
+        Text:=Text+UPDATE_COMPONENTS[I].Title+' — ';
+        if FComponentWaiting[I] then Text:=Text+'проверяется…'
+        else if FComponents[I].ComponentError<>'' then Text:=Text+FComponents[I].ComponentError
+        else if FComponents[I].DownloadURL='' then Text:=Text+'пакет пока недоступен'
+        else Text:=Text+ComponentDownloadSize(FComponents[I].Size);
+        Inc(Total,FComponents[I].Size); Break;
+      end;
+  Releases:=RequestedReleases; FNeedsCheck:=Length(Releases)<>Length(FRequestedComponents);
+  FRelease:=Default(TProgramRelease); FBytes.Caption:='';
+  FPrimary.Caption:='Повторить проверку'; FPrimary.Enabled:=not Assigned(FComponentThread);
+  if not FNeedsCheck then
+  begin
+    FRelease:=Releases[0]; FBytes.Caption:='Нужно скачать: '+ComponentDownloadSize(Total);
+    FPrimary.Caption:='Скачать компоненты'; FPrimary.Enabled:=True;
+    Text:=Text+sLineBreak+sLineBreak+'Компоненты установятся вместе. Потребуется один перезапуск; параметры сохранения останутся.';
+  end;
+  FStatus.Caption:=FRequestReason+sLineBreak+sLineBreak+Text;
+  LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.RequestComponent(const ID, Reason: string; Compact: Boolean);
+begin RequestComponents(TArray<string>.Create(ID),Reason,Compact); end;
+
+procedure TfrmProgramUpdate.RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean);
+var Index: Integer; Purpose, ID: string; Requested: TArray<string>;
+begin
+  Requested:=nil; Index:=-1;
+  for var Value in IDs do
+  begin
+    ID:=Value; if ID='BookConverter' then ID:='BookProcessing';
+    for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      if (UPDATE_COMPONENTS[I].ID=ID) and ComponentAllowed(I) and IsOptionalComponent(ID) and
+        (IndexText(ID,Requested)<0) then
+      begin Requested:=Requested+TArray<string>.Create(ID); if Index<0 then Index:=I; Break; end;
+  end;
+  if Length(Requested)=0 then Exit;
   if Compact then CreateCompactPrompt else UseFullWindow;
   if Assigned(FThread) or FReady then begin Present; Exit; end;
-  FRequestedComponent:=ID; Purpose:=ComponentPurpose(ID); FRequestReason:=Trim(Reason);
-  // Callers may already supply the purpose, or include it in a decoder error.
-  // Compare normalized line endings and keep their operation-specific context.
-  if (Purpose<>'') and not FRequestReason.Replace(#13,'').Contains(Purpose.Replace(#13,'')) then
+  FRequestedComponents:=Requested; FRequestedComponent:=Requested[0]; FRequestReason:=Trim(Reason);
+  for ID in Requested do
   begin
-    if FRequestReason<>'' then FRequestReason:=Purpose+sLineBreak+FRequestReason
-    else FRequestReason:=Purpose;
+    Purpose:=ComponentPurpose(ID);
+    if (Purpose<>'') and not FRequestReason.Replace(#13,'').Contains(Purpose.Replace(#13,'')) then
+    begin
+      if FRequestReason<>'' then FRequestReason:=FRequestReason+sLineBreak+Purpose
+      else FRequestReason:=Purpose;
+    end;
   end;
   UpdateComponentList;
   if FCheckingCycle or Assigned(FComponentThread) then
@@ -1330,7 +1388,7 @@ begin
   FComponentAutomatic := Automatic; FComponentError := ''; FComponentErrorDetails:='';
   EnsureMessageWindow;
   FComponentThread := CreateComponentWorker(FMessageWindow);
-  if FRequestedComponent<>'' then FComponentThread.OnlyIDs:=TArray<string>.Create(FRequestedComponent)
+  if FRequestedComponent<>'' then FComponentThread.OnlyIDs:=Copy(FRequestedComponents)
   else
   begin
     IDs:=nil;
@@ -1365,7 +1423,7 @@ begin
   BeginUIUpdate;
   try
     UpdateComponentList;
-    if FSelectedRow=I+1 then ComponentSelected(nil);
+    if (FSelectedRow=I+1) or (Length(FRequestedComponents)>1) then ComponentSelected(nil);
   finally EndUIUpdate; end;
 end;
 
@@ -1570,7 +1628,8 @@ begin
   if (FRepairComponents<>'') and (FRepairComponents<>PreviousRepair) and
     (FApplicationRelease.Tag='') then
   begin FNeedsCheck:=True; ComponentCheckClick(nil); Exit; end;
-  if (FSelectedRow>0) and IsOptionalComponent(UPDATE_COMPONENTS[FSelectedRow-1].ID) and
+  if Length(FRequestedComponents)>1 then FQueue:=RequestedReleases
+  else if (FSelectedRow>0) and IsOptionalComponent(UPDATE_COMPONENTS[FSelectedRow-1].ID) and
     (FRelease.ComponentID=UPDATE_COMPONENTS[FSelectedRow-1].ID) then
     FQueue:=TArray<TProgramRelease>.Create(FRelease)
   else FQueue := AvailableUpdates;

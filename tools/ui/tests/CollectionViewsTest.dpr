@@ -5600,6 +5600,7 @@ end;
 {$I ReaderComponentsTests.inc}
 {$I ArchiveOpenFeedbackTests.inc}
 {$I ComponentPromptFeedbackTests.inc}
+{$I ComponentBatchFeedbackTests.inc}
 {$I ReaderCacheSettingsTests.inc}
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
@@ -5852,6 +5853,7 @@ begin
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents
       else if ParamStr(1) = 'archive-open-feedback' then TestArchiveOpenFeedback
+      else if ParamStr(1) = 'component-batch-feedback' then TestComponentBatchFeedback
       else if ParamStr(1) = 'component-prompt-feedback' then TestComponentPromptFeedback
       else if ParamStr(1) = 'djvu-first-use-feedback' then TestDjvuFirstUseFeedback
       else if ParamStr(1) = 'reader-cache-settings' then TestStandaloneReaderCacheSettings

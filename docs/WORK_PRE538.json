@@ -35,7 +35,8 @@
       "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter",
       "Reader Settings has scrollable formats help naming native handlers and update ownership",
       "BookProcessing and ImageProcessing purposes describe their actual roles and separate format modules",
-      "DjVu first use reuses a complete existing 7-Zip or requests the verified ready mirror ZIP instead of redirecting to a separate 7-Zip installation"
+      "DjVu first use reuses a complete existing 7-Zip or requests the verified ready mirror ZIP instead of redirecting to a separate 7-Zip installation",
+      "An estimate that has already discovered several missing module IDs retains the complete distinct list and requests it together from catalogue or standalone Reader"
     ],
     "verification": {
       "platforms": [
@@ -50,7 +51,7 @@
       "cleanup": "New isolated native test profiles removed by the wrapper"
     },
     "remaining": [
-      "Plan all known required modules for the selected operation together, without unrelated format modules",
+      "Discover all justified dependencies for one selected operation before its first download, without installing speculative format modules",
       "Investigate safe operation continuation and avoid needless application restart where possible"
     ],
     "djvu_first_use": {
@@ -73,6 +74,36 @@
       },
       "limitation": "Native tests compile the production units; final application/Reader builds and release validation remain pending. Normal author-package metadata path remains unchanged; full vendor-installer regression is reserved for release verification.",
       "cleanup": "Native profiles removed by wrapper. Automatic approval review rejected deletion of owned Out/pre538-djvu-first-use-20261029-r1 (8955749 bytes including marker), blocked by policy. Do not retry via another path or parent."
+    },
+    "known_module_batch": {
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "scenarios": [
+        "component-batch-feedback",
+        "component-prompt-feedback",
+        "reader-components",
+        "djvu-first-use-feedback"
+      ],
+      "checks": [
+        "Check only explicitly requested distinct module IDs",
+        "Show separate package sizes and one total before download",
+        "Cancel without downloading; do not download a partial set when one requested package cannot be checked",
+        "Download actual independently packaged BookProcessing and ImageProcessing through the production worker with loopback transport, verify and combine their manifests, install both in one transaction and expose one restart action",
+        "No Kindle, Office, XPS, DOC, DjVu or PDF modules in the resulting test install; preserve private marker and original ZIP hashes"
+      ],
+      "cleanup": "Wrapper removed newly created isolated native profiles after each run. Existing source package fixtures were reused read only; no new download archives created.",
+      "limits": [
+        "The batch contains only dependencies already discovered for the operation, not speculative format modules. Discovering all dependencies of one book before the first missing decoder is still pending.",
+        "In-process installation remains restricted to the existing Zstandard operation; other components retain a safe restart transaction.",
+        "Final catalogue/Reader release executables and packaged release are not yet built or published."
+      ],
+      "test_repairs": [
+        "Restored UTF-8 BOM after a test caught damaged new UI text",
+        "Qualified System.TMonitor in a test to avoid the VCL screen monitor type",
+        "Unavailable-source test checks the bounded public error; internal transport exception details intentionally remain separate"
+      ]
     }
   },
   "save_as_and_navigation": {

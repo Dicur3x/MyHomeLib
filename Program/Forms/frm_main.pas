@@ -6115,7 +6115,8 @@ begin
         begin Remaining[Count]:=Entry; Inc(Count); end;
         SetLength(Remaining,Count);
         if Count>0 then StoreBookSaveContinuation(Settings.SettingsFileName,SendOptions.RequiredComponent,SendOptions,Remaining);
-        RequestOptionalComponent(SendOptions.RequiredComponent);
+        EnsureProgramUpdateForm; FProgramUpdateForm.RequestComponents(SendOptions.RequiredComponents,
+          'Для оценки выбранных книг нужны дополнительные компоненты. После установки вернёмся к сохранению.',True);
       end;
       Exit;
     end;

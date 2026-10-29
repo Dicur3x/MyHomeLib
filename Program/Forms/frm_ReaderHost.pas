@@ -305,7 +305,7 @@ begin
       if Options.RequiredComponent<>'' then
       begin
         StoreBookSaveContinuation(Settings.SettingsFileName,Options.RequiredComponent,Options,nil,FCurrentFile);
-        EnsureUpdates; FUpdates.RequestComponent(Options.RequiredComponent,
+        EnsureUpdates; FUpdates.RequestComponents(Options.RequiredComponents,
           'Для оценки размера нужен дополнительный модуль. После установки вернёмся к сохранению книги.',True);
       end;
       Exit;
