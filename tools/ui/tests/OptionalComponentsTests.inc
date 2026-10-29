@@ -227,10 +227,13 @@ begin
     Notify:=Dialog.FindComponent('NotifyOptionalComponent') as TCheckBox;
     View:=Dialog.FindComponent('UpdateComponents') as TListView;
     Require(Assigned(View.Selected),'Requested component row is not selected');
-    Require(Dialog.Visible and (View.Selected.Index=6) and not Notify.Checked and
-      string(Status.Caption).Contains('МБ') and string(Status.Caption).Contains('DocSharp') and
+    Require(Dialog.Visible and View.Selected.Caption.Contains('DocSharp') and not Notify.Checked and
+      (string(Status.Caption).Contains(' КБ') or string(Status.Caption).Contains(' МБ') or
+       string(Status.Caption).Contains(' Б.')) and string(Status.Caption).Contains('DocSharp') and
       (Primary.Caption='Скачать компонент') and (Dialog.DownloadID=''),
-      'First-use dialog omitted the component/size/choice or started downloading without a click');
+      Format('First-use dialog state: visible=%s selected=%s notify=%s status=%s primary=%s download=%s',
+        [BoolToStr(Dialog.Visible,True),View.Selected.Caption,BoolToStr(Notify.Checked,True),
+         string(Status.Caption),Primary.Caption,Dialog.DownloadID]));
     Notes:=Dialog.FindComponent('UpdateNotes') as TUpdateNotesView;
     if not Assigned(Notes) then for var Component in Dialog do if Component is TUpdateNotesView then Notes:=TUpdateNotesView(Component);
     Require(Assigned(Notes),'Optional dialog notes control absent');

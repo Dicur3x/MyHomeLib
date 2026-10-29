@@ -177,6 +177,11 @@ begin
   Reimported:=Book; Reimported.BookKey.BookID:=987654;
   Require((PrepareExternalReaderFile(Reimported,Source,'')=Named) and
     (ReaderHistoryName(Reimported,'')=HistoryName),'Reimported BookID changed external or internal reading identity'); Unchanged;
+  Reimported.Title:='Исправленное название каталога'; Reimported.Authors:=nil;
+  TAuthorsHelper.Add(Reimported.Authors,'Исправленный','Автор','');
+  Require((PrepareExternalReaderFile(Reimported,Source,'')=Named) and
+    (ReaderHistoryName(Reimported,'')=HistoryName),
+    'Catalogue title/author edit broke an external filename or reading identity'); Unchanged;
   Writeln('PASS external title-first Unicode name, source provenance, locked-source warm hit and stable reimport/history');
 
   OtherSource:=TPath.Combine(Root,'0018.txt'); TFile.WriteAllText(OtherSource,'Different source B, never A.',TEncoding.UTF8); Protect(OtherSource);
@@ -235,13 +240,14 @@ begin
     'Harmless Windows original path-case variation rejected/altered prepared content'); Unchanged;
   Writeln('PASS actual prepared extension, wrong-origin rejection, real file-ID casing proof and unchanged readable original/history paths');
 
-  Other:=Book; Other.Title:='..\CON: .pending- * / ? '+#0+'ё 😀'+StringOfChar('Ж',500); Other.Authors:=nil;
+  Other:=Book; Other.BookKey.DatabaseID:=900100; Other.Title:='..\CON: .pending- * / ? '+#0+'ё 😀'+StringOfChar('Ж',500); Other.Authors:=nil;
   OtherNamed:=PrepareExternalReaderFile(Other,Source,''); CheckName(OtherNamed,'.txt');
   Require(THashSHA2.GetHashStringFromFile(OtherNamed)=THashSHA2.GetHashStringFromFile(Source),'Long/malformed title changed payload'); Unchanged;
   var BoundaryLimit:=Min(140,MAX_PATH-1-Length(IncludeTrailingPathDelimiter(CacheRoot))-Length('homelib-')-
     Length(' []')-12-Length('.txt')-Length('.source')-
     Length('.pending-4294967295-4294967295-{00000000-0000-0000-0000-000000000000}'));
   Require(BoundaryLimit>8,'Native Unicode boundary cache path has insufficient room');
+  Other.BookKey.DatabaseID:=900101;
   Other.Title:=StringOfChar('А',BoundaryLimit-1)+'😀'+StringOfChar('Б',200); Other.Authors:=nil;
   OtherNamed:=PrepareExternalReaderFile(Other,Source,''); CheckName(OtherNamed,'.txt'); Unchanged;
   Writeln('PASS invalid control/device/path title and exact surrogate truncation boundary remain bounded, safe and intact');
@@ -308,5 +314,23 @@ begin
   CancelReaderPreparations(Owner); Owner.Free; Application.ProcessMessages;
   Require(not Finished,'Cancelled external preparation still launched its reader callback'); Unchanged;
   Writeln('PASS external friendly alias uses cancellable background lifecycle and never launches after owner cancellation');
+  // A warm compatibility hit may avoid source reads, but a changed source
+  // with a misleading .fb2 extension must invalidate it and be detected anew.
+  var ChangedSource:=TPath.Combine(Root,'changed-format.fb2');
+  TFile.WriteAllText(ChangedSource,'<FictionBook><body><section><p>WebP source.</p></section></body>'+
+    '<binary id="cover" content-type="image/webp">UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D</binary></FictionBook>',TEncoding.UTF8);
+  Other:=Book; Other.FileName:='changed-format'; Other.FileExt:='.fb2'; Other.LibID:='changed-format';
+  var ConvertBefore:=Settings.ConvertWebPToPNG; Settings.ConvertWebPToPNG:=True;
+  try
+    var CachedFB2:=PrepareReaderFile(Other);
+    Require(not SameFileName(CachedFB2,ChangedSource) and TFile.ReadAllText(CachedFB2,TEncoding.UTF8).Contains('image/png'),
+      'Changed-format fixture did not first create a real compatibility cache');
+    TFile.WriteAllText(ChangedSource,'%PDF-1.4'+sLineBreak+'Changed source payload with a misleading FB2 filename.',TEncoding.ASCII); Protect(ChangedSource);
+    var DetectedPDF:=PrepareReaderFile(Other);
+    Require(SameText(ExtractFileExt(DetectedPDF),'.pdf') and
+      (THashSHA2.GetHashStringFromFile(DetectedPDF)=THashSHA2.GetHashStringFromFile(ChangedSource)),
+      'Warm FB2 cache bypassed content detection after the physical source changed'); Unchanged;
+  finally Settings.ConvertWebPToPNG:=ConvertBefore; end;
+  Writeln('PASS external reader compatibility cache invalidates changed misleading source and detects the actual PDF bytes');
   Writeln('PASS external-reader filename policy preserves original/canonical bytes, profiles, reader history and notes'); Flush(Output);
 end;

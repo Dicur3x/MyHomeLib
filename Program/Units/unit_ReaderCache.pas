@@ -513,6 +513,24 @@ begin
     if NameLimit<8 then raise EArgumentException.Create('Папка кэша слишком длинная для имени книги. Выберите более короткий путь в настройках кэша.');
     Candidate:=ExistingBookCacheFile(TPath.Combine(Folder,'homelib-'+ReaderDisplayPart(DisplayName,NameLimit)+
       ' ['+Copy(Identity,1,SuffixLength)+']'+Extension));
+    // External readers commonly key their progress by the filename. Reuse a
+    // prior owned alias of this exact physical/preparation identity after a
+    // catalogue title/author edit; keep the readable name chosen on first use.
+    if not FileExists(Candidate) and DirectoryExists(Folder) then
+      for var Prior in TDirectory.GetFiles(Folder,'homelib-*') do
+      begin
+        // IOUtils masks treat square brackets as character sets. The stored
+        // hash suffix must be compared literally, never used as a mask.
+        if not ExtractFileName(Prior).EndsWith(' ['+Copy(Identity,1,SuffixLength)+']'+Extension,True) then Continue;
+        var Attributes:=GetFileAttributes(PChar(Prior));
+        if (Attributes=INVALID_FILE_ATTRIBUTES) or
+          (Attributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY)<>0) then Continue;
+        try
+          if TFile.ReadAllText(Prior+'.source',TEncoding.UTF8).StartsWith(Prefix) then
+          begin Candidate:=Prior; Break; end;
+        except // Missing, foreign or locked metadata is never evidence of ownership.
+        end;
+      end;
     // A rewrite copy can never overwrite the original or its prepared input,
     // even if a user-supplied source happens to have our generated filename.
     if ReaderSameSourcePath(Candidate,Original) or ReaderSameSourcePath(Candidate,Result) then Continue;
@@ -752,7 +770,10 @@ begin
   Corrected:=ResolveArchivedBook(Book);
   if (Corrected.FileName<>Book.FileName) or (Corrected.FileExt<>Book.FileExt) then
     Exit(PrepareReaderFileCore(Corrected,PreserveImages,OnStage,OpenArchive,ConversionOnly,TargetExtension,RestoreOriginalImages));
-  if not OpenArchive and (Format in [bfRaw,bfFb2]) then
+  // An already validated FB2 compatibility copy is checked below before
+  // reopening source bytes. Raw/unconverted sources still need detection here.
+  if not OpenArchive and (Format in [bfRaw,bfFb2]) and
+    not ((Format=bfFb2) and ConvertImages) then
   begin
     Actual:=DetectReaderExtension(Source);
     if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
@@ -790,6 +811,19 @@ begin
     except
       // An incomplete stamp is a cache miss, never a reason to use stale bytes.
     end;
+
+  // A cache miss must still inspect content, including falsely named FB2.
+  // The source stamp above invalidates this hit on source/dependency changes.
+  if not OpenArchive and (Format=bfFb2) and ConvertImages then
+  begin
+    Actual:=DetectReaderExtension(Source);
+    if (Actual<>'') and not SameText(Actual,ExtractFileExt(Source)) then
+    begin
+      Source:=PrepareDetectedReaderFile(Source,Book.GetBookFileName);
+      if IsReaderContainer(Source) then Exit(PrepareLooseArchive(Book,Source,ConvertImages,OnStage,ConversionOnly,TargetExtension));
+      Exit(Source);
+    end;
+  end;
 
   if Assigned(OnStage) then
     if Format in [bfFb2Archive,bfRawArchive,bfFbd] then OnStage('Распаковка книги из архива…')

@@ -4,6 +4,7 @@ interface
 
 uses System.Classes, System.SysUtils, unit_Globals;
 
+function MissingExternalReaderComponent(const AppRoot, ReaderPath: string): string;
 function FindArchiveManager: string;
 procedure OpenInArchiveManager(const FileName: string);
 procedure ShowBookLocation(Owner: TComponent; const Book: TBookRecord);
@@ -16,6 +17,23 @@ implementation
 uses System.IOUtils, System.IniFiles, System.Win.Registry,
   Winapi.Windows, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Clipbrd,
   unit_ReaderFormats, unit_ReaderOffice, unit_Settings, unit_Readers, unit_Helpers, unit_ReaderCache, unit_ComponentUpdates, unit_MHLTheme, dm_user;
+
+function MissingExternalReaderComponent(const AppRoot, ReaderPath: string): string;
+var FullPath, Root: string;
+begin
+  Result:='';
+  if Trim(ReaderPath)='' then Exit; // Preserve the Windows file association.
+  try
+    Root:=IncludeTrailingPathDelimiter(TPath.GetFullPath(AppRoot));
+    if TPath.IsPathRooted(ReaderPath) then FullPath:=TPath.GetFullPath(ReaderPath)
+    else FullPath:=TPath.GetFullPath(TPath.Combine(Root,ReaderPath));
+    if FileExists(FullPath) then Exit;
+    if SameFileName(FullPath,Root+'Readers\AlReader\AlReader2.exe') or
+      SameFileName(FullPath,Root+'AlReader\AlReader2.exe') then Result:='AlReader'
+    else if SameFileName(FullPath,Root+'Readers\SumatraPDF\SumatraPDF.exe') then Result:='SumatraPDF';
+    // A missing custom executable must not be replaced by another application.
+  except Result:=''; end;
+end;
 
 function FindArchiveManager: string;
 const Roots: array[0..1] of HKEY = (HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE);

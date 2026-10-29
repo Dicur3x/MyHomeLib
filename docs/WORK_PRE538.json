@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Page read back after diagnostics: 52 blocks, 21 checked items; completed cache and diagnostic items recorded, full remaining scope retained.",
+    "verification": "52 blocks, 23 completed items after diagnostics and external reader work; pending release/version and remaining UI work retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "29 October 2026: opt-in detailed diagnostics and cache scenarios verified on x86/x64; next external AlReader/SumatraPDF visibility and first-use installation. Production 3.0 beta 1 remains unreleased."
+    "last_check": "30 October 2026: external reader visibility, first-use routing, install/rollback, stable reading filenames and warm cache verified on x86/x64; unreleased."
   },
   "order": [
     "archive_opening",
@@ -437,12 +437,37 @@
       "standard_selection": "Double-click a word must select the whole word; dragging must continue to select a fragment. Verify alongside link navigation and selected-text actions on x86/x64."
     },
     "external_reader_visibility": {
-      "status": "queued_after_export_fixes",
+      "status": "verified_in_source_not_released",
       "requirements": [
         "AlReader and SumatraPDF remain visible even when absent, directly below HomeLib Ru in the updater",
         "Read in external application context action offers to download a suitable missing external reader",
         "Keep per-format modules optional and hidden until needed; external reader visibility is an intentional separate rule"
-      ]
+      ],
+      "implementation": [
+        "Always list absent AlReader and SumatraPDF directly below HomeLibre in the catalogue updater; stable logical component IDs retained",
+        "Absent format modules stay hidden; standalone Reader excludes catalogue/external application entries",
+        "External reading recognizes absent bundled/legacy AlReader or bundled Sumatra paths and requests only that component; existing/custom executables and Windows associations are retained",
+        "Automatic opening follows the configured global choice before preparation; explicit chooser remains intact",
+        "Existing owned friendly copies retain their filename after title/author edits; warmed FB2 compatibility cache avoids reopening original bytes and invalidates on changed sources"
+      ],
+      "verification": {
+        "artifact": "tools/ui/tests/Out/pre538-external-readers-20261030-r10.json",
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "scenarios": [
+          "reader-components",
+          "external-reader-names",
+          "reader-compatibility",
+          "temp-exit-cleanup",
+          "optional-components",
+          "reader-open-choice"
+        ],
+        "checks": "Actual four-component package install/hash/version verification, injected-failure rollback, unchanged private files, opt-in notifications with no unused transports; native light/dark first-use at 96/144/192 DPI; stable external filename/history and source-change content detection; fresh GUI builds on both architectures",
+        "cleanup": "Owned package context removed; no new native profiles remain",
+        "limitation": "Final production catalogue/Reader packages and live first-use release integration are still pending."
+      }
     },
     "reader_visual_redesign": {
       "status": "queued_after_export_fixes",
@@ -613,9 +638,10 @@
       "handoff": "Created after source/metadata fix passed both architectures and external-reader-names regressions. Development model gpt-6.1-terra, xhigh; first-party HomeLib working tree explicitly excluded from bot edits."
     },
     "export_cache_related_external_reader_check": {
-      "status": "queued_with_external_readers",
+      "status": "verified_in_source_not_released",
       "failure": "temp-exit-cleanup legacy TestReaderCompatibility expects a webp-png filename; PrepareExternalReaderFile now provides a readable copy at BookCache root. Reconcile the test and verify history/path stability after metadata changes before release.",
-      "evidence": "tools/ui/tests/Out/pre538-export-cache-lifecycle-20261029-r3.json"
+      "evidence": "tools/ui/tests/Out/pre538-external-readers-20261030-r10.json",
+      "resolution": "Replace obsolete webp-png location assertion with original-source provenance; repair real filename/history instability after metadata edits and extra automatic preparation that reopened locked originals."
     },
     "cleanup_review_rejection_20261029": {
       "path": "G:\\HomeLibRu-build-cache\\homelibre-cache-lifecycle-vhl_qvpm",
@@ -645,7 +671,6 @@
     }
   },
   "next_steps_order": [
-    "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
     "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",
     "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",

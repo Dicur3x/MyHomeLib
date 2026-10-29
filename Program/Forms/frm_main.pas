@@ -6533,6 +6533,11 @@ begin
 
   Assert(BookRecord.nodeType = ntBookInfo);
 
+  // Automatic opening already has a global reader choice. Preparing a second
+  // unconverted copy just to rediscover it defeats warm-cache hits.
+  if ChooseReader and not ForceChoice then
+  begin UseBuiltin:=Settings.UseBuiltinReaderByDefault; ChooseReader:=False; end;
+
   Snapshot := BookRecord; RequirePersonalProgress := (ActiveView = FavoritesView) and not FromNotes;
   KindleReader := Settings.Readers.Find(BookRecord.FileExt);
   PrepareKindle := KeepKindlePreparation or UseBuiltin or ChooseReader or (Assigned(KindleReader) and
@@ -6543,9 +6548,6 @@ begin
   ReaderBook := ResolveReaderBook(ReaderCollection, BookRecord);
   BookFileName := ReaderBook.GetBookFileName;
   BookFormat := ReaderBook.GetBookFormat;
-
-  if ChooseReader and not ForceChoice and Settings.UseBuiltinReaderByDefault then
-  begin UseBuiltin:=True; ChooseReader:=False; end;
 
   // Download remote FB2 before reading its bytes for reader compatibility.
   if (BookFormat in [bfFb2, bfFb2Archive]) and
@@ -6572,7 +6574,8 @@ begin
 
   PrepareReaderFileInBackground(Self, ReaderBook, UseBuiltin or ChooseReader,
     procedure(WorkFile: string)
-    var ChosenBuiltin, RewriteFB2: Boolean; ExternalPath: string;
+    var ChosenBuiltin, RewriteFB2: Boolean; ExternalPath, MissingComponent, ConfiguredPath: string;
+      ExternalReader: TReaderDesc;
     begin
       try
         if WorkFile = '' then Exit;
@@ -6588,6 +6591,17 @@ begin
           // Apply the external reader's WebP compatibility policy afterwards.
           ReadPreparedBook(Snapshot,False,False,False,ExternalPath,PrepareKindle);
           Exit;
+        end;
+        if not ChosenBuiltin then
+        begin
+          ConfiguredPath:=ExternalPath;
+          if ConfiguredPath='' then
+          begin
+            ExternalReader:=Settings.Readers.Find(ExtractFileExt(WorkFile));
+            if Assigned(ExternalReader) then ConfiguredPath:=ExternalReader.Path;
+          end;
+          MissingComponent:=MissingExternalReaderComponent(Settings.AppPath,ConfiguredPath);
+          if MissingComponent<>'' then begin RequestOptionalComponent(MissingComponent); Exit; end;
         end;
         RewriteFB2:=not ChosenBuiltin and Settings.OverwriteFB2Info and (BookFormat=bfFb2);
         if ChosenBuiltin then

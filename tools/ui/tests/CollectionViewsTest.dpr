@@ -1427,12 +1427,14 @@ var
     Settings.UseBuiltinReaderByDefault:=False;
     try
       if FileExists(Probe) then TFile.Delete(Probe);
+      Writeln('TRACE compatibility before read action'); Flush(Output);
       frmMain.ReadBookExecute(nil);
       Started := GetTickCount64;
       while not FileExists(Probe) and (GetTickCount64 - Started < 10000) do
       begin Application.ProcessMessages; CheckSynchronize(0); Sleep(20); end;
       Require(FileExists(Probe), 'The isolated reader probe did not receive a book');
       Result := TFile.ReadAllText(Probe, TEncoding.UTF8);
+      Writeln('TRACE compatibility reader received ',Result); Flush(Output);
     finally Settings.UseBuiltinReaderByDefault:=PreviousBuiltin; end;
   end;
 
@@ -1461,13 +1463,14 @@ begin
   WriteSource(WithWebP);
   Converted := ReadSelected;
   Require(not SameFileName(Converted, Original) and
-    (Pos('webp-png', LowerCase(Converted)) > 0), 'A WebP book was not read from its converted cache');
+    SameFileName(BookCacheSource(Converted),Original), 'A WebP reader copy lost its original-source provenance');
   Captured := TFile.ReadAllText(Converted, TEncoding.UTF8);
   Require((Pos('image/png', Captured) > 0) and (Pos('iVBOR', Captured) > 0),
     'The reader received no converted PNG');
   Require(TFile.ReadAllText(Original, TEncoding.UTF8) = WithWebP, 'The WebP source book changed');
   Require(SameFileName(PrepareReaderFile(Book^, True), Original), 'Built-in reader received a converted plain FB2');
   Require(Settings.ConvertWebPToPNG, 'Built-in reader changed export compatibility setting');
+  Writeln('TRACE compatibility acquiring exclusive original lock'); Flush(Output);
   Locked := TFileStream.Create(Original, fmOpenRead or fmShareExclusive);
   try
     Require(SameFileName(ReadSelected, Converted), 'Cache hit reopened the locked source');

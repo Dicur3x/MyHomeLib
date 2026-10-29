@@ -691,6 +691,9 @@ function TfrmProgramUpdate.RowVisible(Value: Integer): Boolean;
 begin
   if Value=0 then Exit(not FReaderOnly);
   if not ComponentAllowed(Value-1) then Exit(False);
+  // External readers are user-selectable applications, not hidden decoders.
+  if not FReaderOnly and ((UPDATE_COMPONENTS[Value-1].ID='AlReader') or
+    (UPDATE_COMPONENTS[Value-1].ID='SumatraPDF')) then Exit(True);
   if FReaderOnly and (UPDATE_COMPONENTS[Value-1].ID='HomeLibReader') then Exit(True);
   Result:=True;
   // Format modules appear after installation or an explicit first-use
@@ -741,7 +744,15 @@ begin
     // Keep row objects alive while their native selection notification is
     // being handled. Refreshing versions must not recreate the selected item.
     Rows:=nil;
-    for I:=0 to Length(UPDATE_COMPONENTS) do if RowVisible(I) then Rows:=Rows+[I];
+    if RowVisible(0) then Rows:=Rows+[0];
+    // Logical IDs stay unchanged; only catalogue presentation order changes.
+    if not FReaderOnly then
+      for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+        if (UPDATE_COMPONENTS[I].ID='AlReader') or (UPDATE_COMPONENTS[I].ID='SumatraPDF') then
+          if RowVisible(I+1) then Rows:=Rows+[I+1];
+    for I:=1 to Length(UPDATE_COMPONENTS) do
+      if RowVisible(I) and (FReaderOnly or
+        ((UPDATE_COMPONENTS[I-1].ID<>'AlReader') and (UPDATE_COMPONENTS[I-1].ID<>'SumatraPDF'))) then Rows:=Rows+[I];
     Changed:=Length(Rows)<>Length(FRowIDs);
     if not Changed then for I:=0 to High(Rows) do if Rows[I]<>FRowIDs[I] then Changed:=True;
     if Changed then

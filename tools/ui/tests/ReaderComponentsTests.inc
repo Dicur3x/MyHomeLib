@@ -44,7 +44,7 @@ end;
 function TReaderModuleForm.CreateDownloadWorker(Window: HWND; const Info: TProgramRelease; const Job: string): TProgramDownloadThread;
 begin DownloadID:=Info.ComponentID; raise Exception.Create('OWN_READER_DOWNLOAD_OBSERVED'); end;
 
-// An FB2 catalogue must not check or display any absent optional module.
+// An FB2 catalogue offers external applications but hides absent format modules.
 // Already installed modules still serve catalogue conversion and stay visible.
 procedure TestCatalogueMissingReaderModules;
 var Dialog: TReaderModuleForm; View: TListView; Folder, Held: string;
@@ -79,10 +79,14 @@ begin
       View:=Dialog.FindComponent('UpdateComponents') as TListView;
       Require(Assigned(View),'Catalogue component list is absent');
       for var Component in UPDATE_COMPONENTS do
-        if IsOptionalComponent(Component.ID) then
+        if IsOptionalComponent(Component.ID) and (Component.ID<>'AlReader') and (Component.ID<>'SumatraPDF') then
           Require(not ContainsID(Component.ID),
             'FB2 catalogue displays an absent optional component: '+Component.ID);
-      Require(View.Items.Count=2,'FB2 baseline must contain only HomeLibre and SQLite');
+      Require((View.Items.Count=4) and View.Items[0].Caption.Contains('HomeLibre') and
+        View.Items[1].Caption.Contains('AlReader') and View.Items[2].Caption.Contains('SumatraPDF'),
+        'Catalogue must offer AlReader and Sumatra immediately below HomeLibre');
+      for var Row in TArray<TListItem>.Create(View.Items[1],View.Items[2]) do
+        Require(Row.SubItems[0]='не установлен','Absent external reader falsely appears installed');
       Require(ContainsID('SQLite'),'Catalogue lost its mandatory database component');
       Dialog.RequestedID:='PDFium';
       Dialog.RequestComponent('PDFium','Owned catalogue conversion needs PDF support.');
@@ -95,7 +99,7 @@ begin
       Require(Assigned(RequiredRow) and RequiredRow.Selected and
         (RequiredRow.SubItems[1]='999.0') and ContainsID('SQLite'),
         'Explicit catalogue conversion request did not reveal its module');
-      Require((View.Items.Count=3) and (Dialog.Requests.Count=2),
+      Require((View.Items.Count=5) and (Dialog.Requests.Count=2),
         'Catalogue first use revealed or checked unrelated hidden modules');
     finally Dialog.Free; end;
     // A reader installed for native FB2/EPUB must not expose unrelated DOC
@@ -111,7 +115,7 @@ begin
       Dialog:=TReaderModuleForm.CreateForCatalogue(nil);
       try
         View:=Dialog.FindComponent('UpdateComponents') as TListView;
-        Require(ContainsID('HomeLibReader') and (View.Items.Count=3),
+        Require(ContainsID('HomeLibReader') and (View.Items.Count=5),
           'Installing native FB2 reader exposed unrelated optional modules');
       finally Dialog.Free; end;
     finally
@@ -135,7 +139,7 @@ begin
       Require(not ContainsID('DjVuLibre'),'Restoring DOC revealed an unrelated absent module');
     finally Dialog.Free; end;
   end;
-  Writeln('PASS catalogue FB2 baseline hides every absent optional component and keeps installed conversion modules');
+  Writeln('PASS catalogue FB2 baseline offers external readers first hides absent format modules and keeps installed conversion modules');
 end;
 
 procedure TestReaderComponents;
@@ -145,6 +149,14 @@ var Dialog: TReaderModuleForm; View: TListView; Primary: TButton; History: TComb
 begin
   RequireIsolatedRegression;
   TestCatalogueMissingReaderModules;
+  for var Pair in ['Readers\AlReader\AlReader2.exe=AlReader','AlReader\AlReader2.exe=AlReader',
+    'Readers\SumatraPDF\SumatraPDF.exe=SumatraPDF'] do
+    Require(MissingExternalReaderComponent(Settings.AppPath,Pair.Split(['='])[0])=Pair.Split(['='])[1],
+      'Missing bundled external reader lost its first-use installation: '+Pair);
+  Require((MissingExternalReaderComponent(Settings.AppPath,'')='') and
+    (MissingExternalReaderComponent(Settings.AppPath,'Custom\AlReader2.exe')='') and
+    (MissingExternalReaderComponent(Settings.AppPath,ParamStr(0))=''),
+    'External install request replaced an existing custom reader or Windows association');
   // The lightweight native adapters must survive a standalone core install,
   // while optional third-party engines cannot leak into that package.
   for var Name in TArray<string>.Create(
