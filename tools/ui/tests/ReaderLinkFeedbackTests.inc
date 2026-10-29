@@ -12,6 +12,59 @@ var Files:TArray<string>; Labels:TArray<string>; Text, Prefix, Source, EPUB, Lab
     begin Application.ProcessMessages; CheckSynchronize(2); Sleep(5); Require(GetTickCount64-Started<15000,'Reader link loading timed out'); end;
     Require(Reader.Ready,'Reader link fixture failed: '+Reader.ReaderStatus.Caption);
   end;
+  procedure CheckDeclaredOutline;
+  var Path, Navigation, ManifestText, SpineText, Hash:string; D:TReaderDocument;
+  begin
+    for var Variant:=0 to 2 do
+    begin
+      Path:=Settings.AppPath+'outline-'+IntToStr(Variant)+'.epub';
+      if Variant=1 then
+      begin
+        ManifestText:='<item id="toc" href="nav.xhtml" properties="nav"/>'; SpineText:='';
+        Navigation:='<html xmlns:epub="http://www.idpf.org/2007/ops"><body>'+
+          '<nav epub:type="landmarks"><ol><li><a href="one.xhtml">WRONG_LANDMARK</a></li></ol></nav>'+
+          '<nav epub:type="toc"><ol><li><a href="one.xhtml">FirstDeclared</a><ol>'+
+          '<li><a href="one.xhtml#sub">SubDeclared</a></li></ol></li>'+
+          '<li><a href="part+two.xhtml#%D1%91%D0%B6">SecondDeclared</a></li>'+
+          '<li><a href="part+two.xhtml#%D1%91%D0%B6">DuplicateTarget</a></li>'+
+          '<li><a href="https://example.invalid/book">External</a></li></ol></nav></body></html>';
+      end
+      else
+      begin
+        ManifestText:='<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'; SpineText:=' toc="toc"';
+        Navigation:='<ncx><navMap><navPoint><navLabel><text>FirstDeclared</text></navLabel><content src="one.xhtml"/>'+
+          '<navPoint><navLabel><text>SubDeclared</text></navLabel><content src="one.xhtml#sub"/></navPoint></navPoint>'+
+          '<navPoint><navLabel><text>SecondDeclared</text></navLabel><content src="part+two.xhtml#%D1%91%D0%B6"/></navPoint></navMap></ncx>';
+        if Variant=2 then Navigation:='<ncx><broken>';
+      end;
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Path,zmWrite); AddZip('mimetype','application/epub+zip');
+        AddZip('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>');
+        AddZip('OPS/book.opf','<package><manifest><item id="one" href="one.xhtml"/><item id="two" href="part+two.xhtml"/>'+
+          ManifestText+'</manifest><spine'+SpineText+'><itemref idref="one"/><itemref idref="two"/></spine></package>');
+        AddZip('OPS/one.xhtml','<html><body><h1>VisibleHeading</h1><p>FirstProse</p><p id="sub">SubProse</p></body></html>');
+        AddZip('OPS/part+two.xhtml','<html><body><p id="ёж">LastProse</p></body></html>');
+        if Variant=1 then AddZip('OPS/nav.xhtml',Navigation) else AddZip('OPS/toc.ncx',Navigation);
+      finally Zip.Free; end;
+      Hash:=UpdateSHA256(Path); D:=TReaderDocument.Create;
+      try
+        D.Load(Path); var Chapters:=D.Chapters;
+        if Variant=2 then
+          Require((Length(Chapters)=1) and (Chapters[0].Title='VisibleHeading') and (D.Warnings.Count>0),'Broken optional outline prevented fallback to visible headings')
+        else
+        begin
+          Require(Length(Chapters)=3,'Declared EPUB navigation contains missing, duplicate or unrelated chapters');
+          Require((Chapters[0].Title='FirstDeclared') and (Chapters[1].Title='SubDeclared') and (Chapters[2].Title='SecondDeclared'),'Publisher chapter labels were not retained');
+          Require((Chapters[1].Depth=1) and (Chapters[2].Depth=0),'Declared EPUB chapter nesting changed');
+          Require((Chapters[0].Position<Chapters[1].Position) and (Chapters[1].Position<Chapters[2].Position),'Declared EPUB chapters are not in reading order');
+          Require(Copy(D.PlainText,Chapters[2].Position+1,Length('LastProse'))='LastProse','Unicode and plus-path outline target points at the wrong paragraph');
+        end;
+        Require(UpdateSHA256(Path)=Hash,'Outline reading changed the EPUB source');
+      finally D.Free; end;
+    end;
+    Writeln('PASS EPUB NCX/nav outlines retain labels depth and literal targets with malformed-navigation fallback');
+  end;
 begin
   RequireIsolatedRegression;
   Source:=Settings.AppPath+'link-feedback.fb2'; EPUB:=Settings.AppPath+'link-feedback.epub';
@@ -36,6 +89,7 @@ begin
     AddZip('OPS/part+two.xhtml','<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="ёж">CHAPTER_DESTINATION</h1>'+
       '<p>Destination text survives.</p><p><a href="one.xhtml">BACK_TO_START</a></p></body></html>');
   finally Zip.Free; end;
+  CheckDeclaredOutline;
   Files:=[Source,EPUB]; Labels:=['OPEN_CHAPTER','OPEN_CHAPTER'];
   for var Name in ['HLRU_WIZARD_EPUB','HLRU_WIZARD_FB2'] do
   begin
@@ -66,6 +120,9 @@ begin
       else
       begin
         Require((Length(Links)>=35) and (Resolved=Length(Links)),'Actual Wizard contents has unresolved links');
+        var Chapters:=Doc.Chapters;
+        Require(Length(Chapters)=37,'Actual Wizard publisher outline has missing chapters');
+        Require(Chapters[High(Chapters)].Title='Other Series by The Author','Actual Wizard afterword or author sections lost from chapter outline');
         LabelText:='Chapter 1 Walking and Wondering';
         At:=Pos(LabelText,Doc.PlainText)-1; Require(At>=0,'Actual Wizard chapter link label missing');
       end;

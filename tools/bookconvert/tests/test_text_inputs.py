@@ -273,10 +273,13 @@ class TextInputs(unittest.TestCase):
             self.assertEqual(result.returncode,0,(result.stdout+result.stderr).decode(errors='replace'))
     def test_invalid_encrypted_kindle_publishes_nothing(self):
         import struct
+        tools = Path(os.environ.get('HOMELIB_TEST_TOOLS', Path(__file__).resolve().parents[3]/'Program/Out/Bin64/tools'))
+        if not (tools/'kindle/convert_kf8.py').is_file() or not (tools/'kindle/lib/kindleunpack.py').is_file():
+            self.skipTest('optional Kindle decoder required to inspect malformed Palm records')
         data=bytearray(126); data[60:68]=b'BOOKMOBI'; data[78:82]=struct.pack('>I',86)
         data[102:106]=b'MOBI'; data[98:100]=b'\x00\x01'
         source=self.root/'protected.azw'; source.write_bytes(data); output=self.root/'protected.fb2'
-        with self.assertRaises(c.ConversionError) as error: c.convert_book(source,output)
+        with self.assertRaises(c.ConversionError) as error: c.convert_book(source,output,tools_root=tools)
         self.assertIn('Invalid Palm record table',str(error.exception)); self.assertEqual(source.read_bytes(),data)
         self.assertFalse(output.exists()); self.assertFalse(list(self.root.glob('.homelib-convert-*')))
 

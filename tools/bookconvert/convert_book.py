@@ -325,6 +325,96 @@ class EpubArchive:
         self.archive.close()
 
 
+def epub_outline_headings(archive, items, paths, spine, documents, warnings):
+    """Recognize existing title paragraphs from declared EPUB navigation only.
+
+    Do not guess headings from prose or change the source tag: paragraph CSS
+    and all original anchors still apply. A whole-document TOC label can also
+    name a section whose source starts directly with prose.
+    """
+    def read_navigation(identity, is_nav):
+        path = paths.get(identity)
+        if not path: return []
+        root = xhtml(archive.read(path)) if is_nav else xml(archive.read(path))
+        entries = []
+        def add(reference, label, depth):
+            if not reference or not label or len(label) > 4096: return
+            if len(entries) >= MAX_ENTRIES:
+                raise ConversionError('Слишком много пунктов оглавления EPUB.')
+            target, fragment = archive.resolve(path, reference)
+            if target in documents: entries.append((target, fragment, label, min(depth, 6)))
+        def nav_list(node, depth):
+            for item in children(node, 'li'):
+                link = first(item, 'a')
+                if link is not None: add(link.get('href'), plain(link), depth)
+                nested = first(item, 'ol')
+                if nested is not None: nav_list(nested, depth + 1)
+        def ncx_list(node, depth):
+            for point in children(node, 'navPoint'):
+                label, content = first(point, 'navLabel'), first(point, 'content')
+                if content is not None: add(content.get('src'), plain(label), depth)
+                ncx_list(point, depth + 1)
+        if is_nav:
+            toc = next((n for n in root.iter() if tag(n) == 'nav' and
+                        ('toc' in n.get('{' + EP + '}type', '').split() or n.get('role') == 'doc-toc')), None)
+            listing = first(toc, 'ol') if toc is not None else None
+            if listing is not None: nav_list(listing, 1)
+        else:
+            listing = first(root, 'navMap')
+            if listing is not None: ncx_list(listing, 1)
+        return entries
+
+    candidates = [(key, True) for key, item in items.items() if 'nav' in item.get('properties', '').split()]
+    ncx = spine.get('toc')
+    if ncx in items and items[ncx].get('media-type') == 'application/x-dtbncx+xml':
+        candidates.append((ncx, False))
+    entries = []
+    for identity, is_nav in candidates:
+        try:
+            entries = read_navigation(identity, is_nav)
+        except (ConversionError, ValueError):
+            warnings.add('Оглавление EPUB повреждено или недоступно. Текст книги и заголовки из текста сохранены.')
+        if entries: break
+    if not entries: return {}, {}
+
+    containers = {'body', 'div', 'section', 'article', 'header'}
+    inlines = {'a', 'span', 'b', 'strong', 'i', 'em', 'small', 'sup', 'sub'}
+    headings, section_titles, indexes = {}, {}, {}
+    def title_paragraph(node):
+        if tag(node) == 'p' or re.fullmatch('h[1-6]', tag(node)): return node
+        if tag(node) not in containers or (node.text or '').strip(): return None
+        for child in node:
+            found = title_paragraph(child)
+            if found is not None and plain(found): return found
+            # Only empty spacing/anchor blocks may precede the actual title.
+            if plain(child) or any(tag(n) in {'img', 'svg', 'table', 'audio', 'video'} for n in child.iter()): return None
+            if (child.tail or '').strip(): return None
+        return None
+    for path, fragment, label, depth in entries:
+        body = documents[path]
+        if any(n.get('data-fb2') == 'body' for n in body): continue
+        if path not in indexes:
+            indexes[path] = ({n.get('id'): n for n in body.iter() if n.get('id')},
+                             {child: parent for parent in body.iter() for child in parent})
+        anchors, parents = indexes[path]
+        target = anchors.get(fragment) if fragment else body
+        if target is None: continue
+        while target is not body and tag(target) in inlines: target = parents[target]
+        candidate = title_paragraph(target)
+        # A publisher may name an introduction or afterword only in the TOC.
+        # At a whole-document boundary this label is a real section title,
+        # not a reason to mislabel the first prose paragraph as a heading.
+        if target is body and (candidate is None or
+                tag(candidate) == 'p' and ' '.join(plain(candidate).split()) != ' '.join(label.split())):
+            section_titles.setdefault(path, label)
+            continue
+        if candidate is None or tag(candidate) != 'p': continue
+        if ' '.join(plain(candidate).split()) != ' '.join(label.split()): continue
+        if any(tag(n) in {'img', 'svg', 'table'} for n in candidate.iter()): continue
+        headings.setdefault(candidate, depth)
+    return headings, section_titles
+
+
 def fb2_image_type(data, declared):
     # Real-world FB2 files use aliases and sometimes a wrong MIME declaration.
     # Keep the original image bytes; EPUB requires canonical media types.
@@ -545,7 +635,7 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
         for filename, (data, mime) in resources.items(): archive.writestr('OEBPS/' + filename, data)
 
 
-def epub_to_fb2(source, output, warnings):
+def epub_to_fb2(source, output, warnings, *, use_navigation=True):
     archive = EpubArchive(source)
     try:
         if 'META-INF/encryption.xml' in archive.names:
@@ -605,6 +695,7 @@ def epub_to_fb2(source, output, warnings):
                 if tag(link) == 'a' and link.get('href'):
                     target, _ = archive.resolve(path, link.get('href'))
                     if target in text_resources: load_document(target)
+        outline_headings, outline_titles = epub_outline_headings(archive, items, paths, spine, documents_by_path, warnings) if use_navigation else ({}, {})
         aliases = {}
         def base_identity(path, fragment=''):
             return 'id_' + hashlib.sha256((path + '#' + fragment).encode('utf-8')).hexdigest()[:24]
@@ -753,8 +844,8 @@ def epub_to_fb2(source, output, warnings):
             if node.text and node.text.strip():
                 paragraph = element(FB, 'p', node.text); current.append(paragraph)
             for child in node:
-                if re.fullmatch('h[1-6]', tag(child)):
-                    level = int(tag(child)[1])
+                if child in outline_headings or re.fullmatch('h[1-6]', tag(child)):
+                    level = outline_headings[child] if child in outline_headings else int(tag(child)[1])
                     while len(stack) > 1 and stack[-1][0] >= level: stack.pop()
                     section = element(FB, 'section'); section.extend(convert(child, path)); stack[-1][1].append(section)
                     stack.append((level, section)); current = section; paragraph = None
@@ -853,12 +944,13 @@ def epub_to_fb2(source, output, warnings):
                 return [element(FB, 'image', **attributes)]
             if name == 'br':
                 return [element(FB, 'empty-line')]
-            if name in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
+            if node in outline_headings or name in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
                 result = element(FB, 'title'); paragraph = element(FB, 'p'); result.append(paragraph)
                 paragraph.text = node.text
                 for child in node:
                     for mapped in convert(child, path): paragraph.append(mapped)
                     append_text(paragraph, child.tail)
+                if node in outline_headings: styled(node, paragraph)
             elif mapped_name:
                 result = element(FB, mapped_name)
                 if mapped_name in {'section', 'cite'}: flow(node, result, path)
@@ -927,6 +1019,8 @@ def epub_to_fb2(source, output, warnings):
             body = first(book, 'body')
             if body is None: body = element(FB, 'body'); book.append(body)
             root = element(FB, 'section', id=identity(path)); body.append(root)
+            if path in outline_titles:
+                title = element(FB, 'title'); title.append(element(FB, 'p', outline_titles[path])); root.append(title)
             flow(source_body, root, path)
             if (path, '') in notes: root.set('data-homelib-note', '1')
         detached_notes = []
@@ -968,7 +1062,9 @@ def text_to_book(source, output, warnings, target_extension, **metadata):
         with tempfile.TemporaryDirectory(prefix='homelib-text-',dir=output.parent) as directory:
             intermediate = Path(directory) / 'reading.epub'
             module.to_epub(source, intermediate, warnings, api, **metadata)
-            epub_to_fb2(intermediate, output, warnings)
+            # This is our own intermediate: its nav is generated from h1-h6
+            # or a metadata-only fallback title, not extra publisher headings.
+            epub_to_fb2(intermediate, output, warnings, use_navigation=False)
 
 
 def kindle_epub(source, output):

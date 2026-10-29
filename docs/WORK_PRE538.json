@@ -95,7 +95,7 @@
       ],
       "cleanup": "Wrapper removed newly created isolated native profiles after each run. Existing source package fixtures were reused read only; no new download archives created.",
       "limits": [
-        "The batch contains only dependencies already discovered for the operation, not speculative format modules. Discovering all dependencies of one book before the first missing decoder is still pending.",
+        "The batch contains justified known dependencies only; dependencies hidden inside a decoder that is not yet available can be found after that decoder is installed. See verified operation_preflight.",
         "In-process installation remains restricted to the existing Zstandard operation; other components retain a safe restart transaction.",
         "Final catalogue/Reader release executables and packaged release are not yet built or published."
       ],
@@ -143,8 +143,7 @@
       "Overwrite checkbox with safe publication and source protection",
       "Never wrap EPUB in redundant EPUB.ZIP",
       "Finish mixed-format save and estimates feedback",
-      "Make success notes distinguish adaptations from export errors",
-      "Check EPUB NCX/nav chapter-outline transfer where publisher chapter headings are ordinary paragraphs; explicit internal text links are now verified separately."
+      "Make success notes distinguish adaptations from export errors"
     ],
     "reader_internal_links": {
       "status": "verified_in_source_not_released",
@@ -181,7 +180,38 @@
       ],
       "cleanup": "Every new native profile and Python-managed selected-book extraction/conversion directory removed after successes and failures; no real book is bundled in source or fixtures.",
       "limits": "These are source/test builds; desktop executables, final Reader/application package integration and publication remain pending. Generated chapter outline from NCX-only metadata is a separate remaining check."
+    },
+    "reader_declared_outline": {
+      "status": "verified_in_source_not_released",
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "changes": [
+        "Native EPUB reader uses declared EPUB3 toc navigation or EPUB2 NCX labels, nesting and already-loaded local anchors; headings need not use h1-h6",
+        "EPUB to FB2 promotes only matching existing title paragraphs, retaining source tags for CSS, inline formatting, IDs and links",
+        "At whole-document boundaries a declared title can label an introduction or afterword whose source starts with prose; prose is never replaced",
+        "Keep existing headings without duplicate labels; malformed optional navigation falls back to text headings and produces a bounded note",
+        "Own text-format intermediate EPUB bypasses publisher-outline promotion so its metadata-only fallback title is not inserted into RTF or other source prose"
+      ],
+      "verification": {
+        "native_scenario": "reader-link-feedback on both architectures, including synthetic NCX/nav, nested labels, literal plus and encoded Unicode paths, external and duplicate targets, malformed-navigation fallback",
+        "real_book": "LibID 549311 Marilyn Foxworthy: The Wizard, original EPUB and new original-quality FB2; 37 chapter entries including afterword/author sections and all 36 internal link targets, click and drag selection in single/double pages on both architectures",
+        "source_epub_bytes": 287018,
+        "converted_fb2_bytes": 764205,
+        "python_suite": "All 250 converter tests passed; includes 42 conversion-structure tests and 20 text-input tests",
+        "source_policy": "Original collection and archive read only; real book extraction/conversion only inside auto-cleaned TemporaryDirectory"
+      },
+      "test_repairs": [
+        "Expanded regression run caught insertion of the metadata-only fallback title into RTF prose; restricted publisher-outline promotion to actual input EPUB before the final full pass",
+        "Existing malformed-Kindle test incorrectly assumed the optional decoder lived in the minimal source tools directory; now uses the established HOMELIB_TEST_TOOLS or audited Bin64 fixture like the native legacy tests. The actual malformed-record assertion passed, not skipped."
+      ],
+      "cleanup": "Native wrapper removed new isolated profiles; Python-managed real-book extraction and all new conversion test directories cleaned after both passing and failing runs. No new downloaded source or package archives.",
+      "limits": "Production units compiled in native tests. Final catalogue/Reader executable builds, package integration and release remain pending; this change is not published."
     }
   },
-  "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release."
+  "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release.",
+  "user_clarifications": {
+    "reader_controls": "Latest user instruction: F11 and a small separate control enter full screen; hiding interface is an independent control that preserves window size."
+  }
 }

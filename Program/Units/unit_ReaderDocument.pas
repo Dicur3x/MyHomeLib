@@ -77,7 +77,7 @@ implementation
 
 uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
-  System.Character, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
+  System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
 
 const
   MAX_DOCUMENT_BYTES = 64 * 1024 * 1024;
@@ -445,6 +445,103 @@ var Document: IXMLDOMDocument3; Root, Node, Manifest, Spine, Item: IXMLDOMNode;
     Inc(UnpackedBytes,Zip.FileInfo[Index].UncompressedSize);
     if UnpackedBytes>256*1024*1024 then raise Exception.Create('EPUB слишком велик для встроенной читалки.');
     Zip.Read(Index,Bytes);
+  end;
+  procedure LoadEpubOutline;
+  var Entries:TList<TReaderChapter>; Seen:TDictionary<string,Boolean>;
+    SavedPath, Resource, NcxID:string; Navigation:IXMLDOMDocument3; Bytes:TBytes; J:Integer;
+    Entry, TocNode:IXMLDOMNode;
+    function DirectChild(const N:IXMLDOMNode; const Name:string):IXMLDOMNode;
+    var K:Integer;
+    begin
+      Result:=nil; if N=nil then Exit;
+      for K:=0 to N.childNodes.length-1 do
+        if LocalName(N.childNodes.item[K])=Name then Exit(N.childNodes.item[K]);
+    end;
+    procedure AddEntry(const LabelText, Href:string; Depth:Integer);
+    var Target:string; Position:Integer; C:TReaderChapter;
+    begin
+      Check; if (Href='') or (LabelText='') or (Length(LabelText)>4096) then Exit;
+      if Entries.Count>=20000 then raise Exception.Create('Слишком много пунктов оглавления EPUB.');
+      Target:=LocalLinkTarget(Href);
+      if (Target='') or Seen.ContainsKey(Target) or not FAnchors.TryGetValue(Target,Position) then Exit;
+      C.Title:=Trim(TRegEx.Replace(LabelText,'\s+',' ')); if C.Title='' then Exit;
+      C.Position:=Position; C.Depth:=EnsureRange(Depth,0,15);
+      Entries.Add(C); Seen.Add(Target,True);
+    end;
+    procedure ReadList(const N:IXMLDOMNode; NCX:Boolean; Depth:Integer);
+    var K:Integer; Child, LabelNode, LinkNode, Nested:IXMLDOMNode;
+    begin
+      Check; if (N=nil) or (Depth>128) then Exit;
+      for K:=0 to N.childNodes.length-1 do
+      begin
+        Child:=N.childNodes.item[K];
+        if NCX then
+        begin
+          if LocalName(Child)<>'navpoint' then Continue;
+          LabelNode:=DirectChild(Child,'navlabel'); LinkNode:=DirectChild(Child,'content');
+          if (LabelNode<>nil) and (LinkNode<>nil) then AddEntry(LabelNode.text,Attribute(LinkNode,'src'),Depth);
+          ReadList(Child,True,Depth+1);
+        end
+        else
+        begin
+          if LocalName(Child)<>'li' then Continue;
+          LinkNode:=DirectChild(Child,'a');
+          if LinkNode<>nil then AddEntry(LinkNode.text,Attribute(LinkNode,'href'),Depth);
+          Nested:=DirectChild(Child,'ol'); if Nested<>nil then ReadList(Nested,False,Depth+1);
+        end;
+      end;
+    end;
+    function FindToc(const N:IXMLDOMNode; Depth:Integer=0):IXMLDOMNode;
+    var K:Integer;
+    begin
+      Check; Result:=nil; if (N=nil) or (Depth>128) then Exit;
+      if (LocalName(N)='nav') and
+        (TRegEx.IsMatch(Attribute(N,'type'),'(^|\s)toc(\s|$)') or (Attribute(N,'role')='doc-toc')) then Exit(N);
+      for K:=0 to N.childNodes.length-1 do
+      begin Result:=FindToc(N.childNodes.item[K],Depth+1); if Result<>nil then Exit; end;
+    end;
+    procedure ReadNavigation(const Href:string; NCX:Boolean);
+    begin
+      Entries.Clear; Seen.Clear;
+      try
+        CurrentPath:=ZipPath(PackagePath,Href); ReadZip(CurrentPath,Bytes); Navigation:=XMLDocument(Bytes);
+        if NCX then TocNode:=DirectChild(Navigation.documentElement,'navmap')
+        else TocNode:=DirectChild(FindToc(Navigation.documentElement),'ol');
+        ReadList(TocNode,NCX,0);
+      except
+        on Error:EAbort do raise;
+        on Error:EMHLComponentRequired do raise;
+        on Error:Exception do
+        begin
+          Entries.Clear;
+          if Warnings.Count<20 then Warnings.Add('Оглавление EPUB: '+Error.Message+' Заголовки из текста сохранены.');
+        end;
+      end;
+    end;
+  begin
+    SavedPath:=CurrentPath; Entries:=TList<TReaderChapter>.Create; Seen:=TDictionary<string,Boolean>.Create;
+    try
+      // Publisher navigation is authoritative, including chapters without h1-h6.
+      // Resolve only anchors already encountered in the actual reading spine.
+      for J:=0 to Manifest.childNodes.length-1 do
+      begin
+        Entry:=Manifest.childNodes.item[J];
+        if (LocalName(Entry)<>'item') or not TRegEx.IsMatch(Attribute(Entry,'properties'),'(^|\s)nav(\s|$)') then Continue;
+        ReadNavigation(Attribute(Entry,'href'),False); if Entries.Count>0 then Break;
+      end;
+      if Entries.Count=0 then
+      begin
+        NcxID:=Attribute(Spine,'toc');
+        if (NcxID<>'') and Paths.TryGetValue(NcxID,Resource) then ReadNavigation(Resource,True);
+      end;
+      if Entries.Count>0 then
+      begin
+        Entries.Sort(TComparer<TReaderChapter>.Construct(
+          function(const Left,Right:TReaderChapter):Integer
+          begin Result:=CompareValue(Left.Position,Right.Position); end));
+        FChapters.Clear; FChapters.AddRange(Entries);
+      end;
+    finally CurrentPath:=SavedPath; Seen.Free; Entries.Free; end;
   end;
   procedure LoadCSS(const N: IXMLDOMNode; Depth: Integer = 0);
   var J, Index: Integer; Name, Path, Text: string; Bytes: TBytes;
@@ -951,6 +1048,7 @@ begin
             on Error: Exception do if Warnings.Count<20 then Warnings.Add('Сноска: '+Error.Message);
           end;
         end;
+      LoadEpubOutline;
     end
     else
     begin

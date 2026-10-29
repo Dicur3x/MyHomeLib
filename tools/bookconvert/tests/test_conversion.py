@@ -147,6 +147,89 @@ class ConversionTests(unittest.TestCase):
         ids={n.get('id') for n in book.iter() if n.get('id')}
         for link in book.iter('{'+c.FB+'}a'): self.assertIn(link.get('{'+c.XL+'}href','')[1:],ids)
         notes=[n for n in c.children(book,'body') if n.get('name')=='notes']; self.assertEqual(len(notes),1); self.assertIn('Текст сноски',c.plain(notes[0]))
+    def with_navigation(self, source, navigation, *, epub3=False):
+        with zipfile.ZipFile(source) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        package = c.xml(files['OPS/package.opf'])
+        manifest = c.first(package, 'manifest')
+        name = 'nav.xhtml' if epub3 else 'toc.ncx'
+        item = c.element(c.OP, 'item', id='navigation', href=name,
+                         **{'media-type': 'application/xhtml+xml' if epub3 else 'application/x-dtbncx+xml'})
+        if epub3: item.set('properties', 'nav')
+        else: c.first(package, 'spine').set('toc', 'navigation')
+        manifest.append(item)
+        files['OPS/package.opf'] = c.serialized(package)
+        files['OPS/'+name] = navigation
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items(): archive.writestr(name, data)
+        return source
+
+    def test_ncx_title_paragraphs_keep_hierarchy_styles_text_and_links(self):
+        source = self.generic('''<div id="start"><p> </p><p class="bold">Chapter 1 <span>Walking</span></p>
+          <p>FirstProse <a href="#detail">details</a>.</p>
+          <p id="detail"><span>Subchapter</span></p><p>SecondProse</p>
+          <h2 id="existing">ExistingHeading</h2><p>LastProse</p>
+          <p id="different">OrdinaryParagraph</p><p><a href="#start">return</a></p></div>''',
+          '<p>EndOfBook</p>', 'p.bold{font-weight:bold}')
+        ncx = '''<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
+          <navPoint><navLabel><text>Chapter 1 Walking</text></navLabel><content src="chapter.xhtml#start"/>
+            <navPoint><navLabel><text>Subchapter</text></navLabel><content src="chapter.xhtml#detail"/></navPoint>
+          </navPoint><navPoint><navLabel><text>DifferentLabel</text></navLabel><content src="chapter.xhtml#different"/></navPoint>
+          <navPoint><navLabel><text>ExistingHeading</text></navLabel><content src="chapter.xhtml#existing"/></navPoint>
+          </navMap></ncx>'''
+        self.with_navigation(source, ncx); before = digest(source); output = self.root/'ncx.fb2'
+        c.convert_book(source, output); self.validate_fb2(output)
+        book = ET.parse(output).getroot(); body = c.first(book, 'body')
+        titles = list(body.iter('{'+c.FB+'}title'))
+        self.assertEqual([c.plain(n) for n in titles], ['Chapter 1 Walking', 'Subchapter', 'ExistingHeading'])
+        self.assertTrue(list(titles[0].iter('{'+c.FB+'}strong')))
+        chapter = next(n for n in body.iter('{'+c.FB+'}section') if c.first(n,'title') is titles[0])
+        subchapter = next(n for n in body.iter('{'+c.FB+'}section') if c.first(n,'title') is titles[1])
+        self.assertIn(subchapter, list(chapter))
+        for value in ['FirstProse', 'SecondProse', 'LastProse', 'OrdinaryParagraph', 'EndOfBook']:
+            self.assertEqual(c.plain(body).count(value), 1)
+        self.assertNotIn('DifferentLabel', c.plain(body))
+        ids = {n.get('id') for n in body.iter() if n.get('id')}
+        for link in body.iter('{'+c.FB+'}a'): self.assertIn(link.get('{'+c.XL+'}href')[1:], ids)
+        self.assertEqual(digest(source), before)
+
+    def test_epub3_toc_promotes_only_matching_local_existing_title(self):
+        source = self.generic('''<p><a id="глава+1"/>Название <span>главы</span></p><p>UnchangedProse</p>
+          <p id="other">NotTheLabel</p><p id="pic"><img src="image.png"/>PictureParagraph</p>''', '<p>End</p>')
+        nav = f'''<html xmlns="{c.XH}" xmlns:epub="{c.EP}"><head><title>TOC</title></head><body>
+          <nav epub:type="landmarks"><ol><li><a href="chapter.xhtml#other">NotTheLabel</a></li></ol></nav>
+          <nav epub:type="toc"><ol><li><a href="chapter.xhtml#%D0%B3%D0%BB%D0%B0%D0%B2%D0%B0+1">Название   главы</a></li>
+            <li><a href="chapter.xhtml#other">DifferentLabel</a></li>
+            <li><a href="chapter.xhtml#pic">PictureParagraph</a></li>
+            <li><a href="https://example.invalid/chapter">RemoteHeading</a></li></ol></nav></body></html>'''
+        self.with_navigation(source, nav, epub3=True); output = self.root/'nav.fb2'
+        c.convert_book(source, output); self.validate_fb2(output)
+        book = ET.parse(output).getroot(); body = c.first(book, 'body')
+        self.assertEqual([c.plain(n) for n in body.iter('{'+c.FB+'}title')], ['Название главы'])
+        self.assertEqual(c.plain(body).count('UnchangedProse'), 1)
+        self.assertEqual(base64.b64decode(c.plain(c.children(book,'binary')[0])), PNG)
+
+    def test_broken_optional_ncx_does_not_prevent_readable_text_conversion(self):
+        for navigation in ['<ncx><broken>', '<!DOCTYPE ncx [<!ENTITY title "unsafe">]><ncx/>']:
+            source = self.with_navigation(self.generic('<h1>RealHeading</h1><p>ReadableText</p>', '<p>End</p>'), navigation)
+            output = self.root/'broken-nav.fb2'
+            report = c.convert_book(source, output); self.validate_fb2(output)
+            body = c.first(ET.parse(output).getroot(), 'body')
+            self.assertEqual([c.plain(n) for n in body.iter('{'+c.FB+'}title')], ['RealHeading'])
+            self.assertIn('ReadableText', c.plain(body))
+            self.assertTrue(any('Оглавление EPUB' in warning for warning in report['warnings']))
+            output.unlink()
+
+    def test_ncx_labels_at_document_boundaries_do_not_replace_prose(self):
+        source = self.generic('<p id="intro">IntroductoryProse</p>', '<h1>ExistingAfterword</h1><p>FinalProse</p>')
+        ncx = '''<ncx><navMap><navPoint><navLabel><text>Introduction</text></navLabel><content src="chapter.xhtml"/></navPoint>
+          <navPoint><navLabel><text>DifferentAfterwordLabel</text></navLabel><content src="notes.xhtml"/></navPoint></navMap></ncx>'''
+        self.with_navigation(source, ncx); output = self.root/'document-titles.fb2'
+        c.convert_book(source, output); self.validate_fb2(output)
+        body = c.first(ET.parse(output).getroot(), 'body')
+        self.assertEqual([c.plain(n) for n in body.iter('{'+c.FB+'}title')], ['Introduction', 'ExistingAfterword'])
+        self.assertEqual(c.plain(body).count('IntroductoryProse'), 1)
+        self.assertEqual(c.plain(body).count('FinalProse'), 1)
     def test_generic_lists_tables_breaks_css_and_images(self):
         epub=self.generic('<div><h1>Глава</h1><p class="bold">Первая<br/>Вторая <em>третья<br/>четвёртая</em></p><ol><li>Один</li><li>Два</li></ol><table><tbody><tr><th>Колонка</th><td>Значение</td></tr></tbody></table><p><img src="image.png" alt="Картинка"/></p></div>', '<p>Завершение</p>', '.bold{font-weight:bold}')
         fb2=self.root/'styles.fb2'; c.convert_book(epub,fb2); self.validate_fb2(fb2)
