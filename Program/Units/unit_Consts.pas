@@ -93,7 +93,7 @@ const
   COLUMNS_STORE_FILENAME = 'columns2.ini';
   DOWNLOADS_STORE_FILENAME = 'downloads.sav';
   DOWNLOAD_ERRORLOG_FILENAME = 'download_errors.log';
-  EXPORT_ERRORLOG_FILENAME = 'export_errors.log';
+  EXPORT_ERRORLOG_FILENAME = 'export_report.log'; // Includes successful conversion notes as well as failures.
   COLLECTIONS_FILENAME = 'collections.ini';
   PRESETS_FILENAME = 'presets.cxml2';
   COLLECTIONINFO_FILENAME = 'collection.info';

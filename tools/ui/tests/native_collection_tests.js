@@ -412,7 +412,7 @@ function run(executable, mode, subcase = "") {
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
     }
     if (mode==='reader-story') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
-    if (['unified-send','save-planning'].includes(mode)) {
+    if (['unified-send','save-planning','builtin-export'].includes(mode)) {
       const packages=process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES;
       if(!packages || !process.env.HLRU_PYTHON) throw Error('Save checks require the actual independent format packages and HLRU_PYTHON');
       const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_format_runtime_fixture.py'),packages,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing'],{encoding:'utf8',windowsHide:true,timeout:120000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
@@ -550,7 +550,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
         fs.copyFileSync(source,path.join(destination,name));
       }
       fs.cpSync(path.join(runtime,'tools/kindle'),path.join(folder,'tools/kindle'),{recursive:true});
-      fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
+      if (mode !== 'builtin-export') fs.cpSync(path.join(runtime,'tools/bookconvert'),path.join(folder,'tools/bookconvert'),{recursive:true});
       for (const name of ['pdfium','djvu','7zip']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
     }
     if (mode === 'conversion-menu' && subcase !== 'layout') {

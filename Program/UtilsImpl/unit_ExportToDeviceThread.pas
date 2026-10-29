@@ -163,8 +163,12 @@ resourcestring
   rstrRememberChoise = 'Запомнить выбор?';
   rstrExportErrors = 'Во время экспорта возникли ошибки: не удалось экспортировать файлов — %d из %d.' + CR +
     'Подробности записаны в файл: %s';
-  rstrExportWarnings = 'Экспорт завершён. Для некоторых элементов оформления есть примечания.' + CR +
-    'Исходные книги сохранены. Подробности: %s';
+  rstrExportWarnings = 'Копии сохранены: %d из %d. Ошибок сохранения нет.' + CR +
+    'При преобразовании изменилось оформление. Книг с примечаниями: %d.' + CR +
+    'Подробности: %s';
+  rstrPreparedWarnings = 'Файлы подготовлены: %d из %d. Ошибок подготовки нет.' + CR +
+    'При преобразовании изменилось оформление. Книг с примечаниями: %d.' + CR +
+    'Подробности: %s';
   rstrBasicFormatUnsupported = 'Экспорт в %s поддерживает FB2, FB3, EPUB, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT и Kindle без DRM. ' +
     'Книга «%s» имеет формат %s; её исходный файл сохранён.';
 
@@ -1164,7 +1168,8 @@ var
   LogFileName: string;
   FailedCount: Integer;
   WarningCount: Integer;
-  FirstError: string;
+  CompletedCount: Integer;
+  FirstError, ResultLabel, Summary: string;
 begin
   FRequestedExportMode:=FExportMode; FRequestedExplicitFormat:=FExplicitFormat;
   IsShowDialog := True;
@@ -1249,8 +1254,15 @@ begin
         if FLastWarnings <> '' then
         begin
           Inc(WarningCount);
-          ErrorLog.Add(Format('%s  |  %s  |  Примечания к конвертации:',
-            [DateTimeToStr(Now), FFileOprecord.FileName]));
+          if Res then
+          begin
+            if FExtractOnly then ResultLabel:='Подготовлено с примечаниями'
+            else ResultLabel:='Сохранено с примечаниями';
+          end
+          else ResultLabel:='Примечания к незавершённой операции';
+          ErrorLog.Add(Format('%s  |  [%s]  |  %s',
+            [DateTimeToStr(Now), ResultLabel, FFileOprecord.FileName]));
+          if Res then ErrorLog.Add('Файл: '+FResults[i].OutputFile);
           ErrorLog.Add(FLastWarnings);
           Teletype(FFileOprecord.FileName + CR + FLastWarnings, tsWarning);
         end;
@@ -1265,7 +1277,7 @@ begin
           Inc(FailedCount);
           if FirstError = '' then
             FirstError := FFileOprecord.FileName + CR + FLastError;
-          ErrorLog.Add(Format('%s  >>  %s  |  %s', [DateTimeToStr(Now), FFileOprecord.FileName, FLastError]));
+          ErrorLog.Add(Format('%s  |  [Ошибка сохранения]  |  %s  |  %s', [DateTimeToStr(Now), FFileOprecord.FileName, FLastError]));
           RemoveEmptyTargetFolders;
 
           if i < totalBooks - 1 then
@@ -1296,8 +1308,14 @@ begin
       if FailedCount > 0 then
         ShowMessage(Format(rstrExportErrors, [FailedCount, totalBooks, LogFileName]) +
           CR + CR + FirstError, MB_ICONWARNING or MB_OK)
-      else if not Canceled then
-        ShowMessage(Format(rstrExportWarnings, [LogFileName]), MB_ICONINFORMATION or MB_OK);
+      else if not Canceled and not Terminated then
+      begin
+        CompletedCount:=0;
+        for var Item in FResults do
+          if Item.State in [besSucceeded,besPrepared] then Inc(CompletedCount);
+        if FExtractOnly then Summary:=rstrPreparedWarnings else Summary:=rstrExportWarnings;
+        ShowMessage(Format(Summary, [CompletedCount,totalBooks,WarningCount,LogFileName]), MB_ICONINFORMATION or MB_OK);
+      end;
     end;
   finally
     FreeAndNil(FFileOprecord.Stream);

@@ -142,8 +142,7 @@
     "remaining": [
       "Overwrite checkbox with safe publication and source protection",
       "Never wrap EPUB in redundant EPUB.ZIP",
-      "Finish mixed-format save and estimates feedback",
-      "Make success notes distinguish adaptations from export errors"
+      "Finish mixed-format save and estimates feedback"
     ],
     "reader_internal_links": {
       "status": "verified_in_source_not_released",
@@ -208,10 +207,42 @@
       ],
       "cleanup": "Native wrapper removed new isolated profiles; Python-managed real-book extraction and all new conversion test directories cleaned after both passing and failing runs. No new downloaded source or package archives.",
       "limits": "Production units compiled in native tests. Final catalogue/Reader executable builds, package integration and release remain pending; this change is not published."
+    },
+    "export_report": {
+      "status": "verified_in_source_not_released",
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "changes": [
+        "Success summary states actual saved count and no save errors; preparation-only operations use preparation wording",
+        "Conversion notes use export_report.log and identify saved/prepared result and output path; actual failures carry a separate failure label",
+        "Old export_errors.log is left untouched; cancellation or termination does not show a full-success notes summary"
+      ],
+      "verification": [
+        "builtin-export passed on both architectures with real separately packaged BookProcessing and ImageProcessing fixtures",
+        "Actual FB2/EPUB conversion in both directions for direct and ZIP members; unchanged-copy byte hashes, numbered collisions, invalid PDF rejection and missing book IDs",
+        "Cancellation preserves sources and personal reader data; saved report retains every note and correct output path",
+        "Filesystem Shell export fixture and bounded conversion journal at light/dark 96/144/192 DPI; no physical MTP hardware claim"
+      ],
+      "fixture_repair": "Old builtin-export setup copied an obsolete nonmodular runtime and failed before producing output. It now stages the same verified independent component packages used by other save tests; package fixtures were not modified.",
+      "cleanup": "All newly created native profiles under the existing G:/HomeLibRu-build-cache removed by the native wrapper after success and failure. Read-only inventory shows none left.",
+      "approval_rejection": "A combined command to create a fresh G:/HomeLibRu-export-feedback-<GUID> parent, run tests and remove it if empty was rejected before execution: blocked by policy. No such parent was created and its cleanup was not retried. Tests subsequently used an already existing G:/HomeLibRu-build-cache parent without deleting or changing that parent.",
+      "limits": "Source/native test builds only; production executables and release packaging pending."
     }
   },
   "remaining_goal": "The active goal and previously accumulated tasks remain open, including collection compression and SQL-dump work. Do not equate this verified archive fix with completion of the goal or a published release.",
   "user_clarifications": {
     "reader_controls": "Latest user instruction: F11 and a small separate control enter full screen; hiding interface is an independent control that preserves window size."
+  },
+  "new_user_feedback_20261029": {
+    "review_formatting": {
+      "priority": "after_current_save_checks",
+      "status": "queued",
+      "book": "Возвращение — Роман Злотников",
+      "observed": "User screenshots show saved Flibusta reviews flattened into one continuous paragraph, with reviewer names, separate reviews and paragraph boundaries difficult to distinguish. Preserve paragraph/review separation when parsing and displaying, and check existing cached text. No implementation claimed yet."
+    },
+    "update_confirmation": "Tester reports automatic update from pre5.33 succeeded. This confirms that case only; do not treat it as proof of all update paths.",
+    "epub_zip_explanation": "EPUB is already a ZIP container. Keep pending requirement to skip redundant EPUB.ZIP even when ZIP is enabled for a mixed batch; ZIP remains useful primarily for FB2/plain text. No implementation claimed yet."
   }
 }

@@ -692,9 +692,15 @@ begin
     BBERequireReadableBook(TPath.Combine(Target, 'WarningEPUB.fb2'), TPath.Combine(FixtureRoot, 'warning.epub'), False);
     Require((Capture.Warnings.Count > 0) and (Capture.Messages.Count = 1),
       'Conversion warnings were lost or presented once per warning');
+    Require(Capture.Messages.Text.Contains('Копии сохранены: 1 из 1. Ошибок сохранения нет.'),
+      'Successful conversion notes are not clearly distinguished from an export failure');
+    Require(ExtractFileName(Settings.SystemFileName[sfExportErrorLog])='export_report.log',
+      'Successful conversion notes still use a file named export_errors');
     Require(FileExists(Settings.SystemFileName[sfExportErrorLog]), 'Export warning report was not saved');
     var Report := TFile.ReadAllText(Settings.SystemFileName[sfExportErrorLog], TEncoding.UTF8);
     Require(Report.Contains('WarningEPUB'), 'Saved export report lacks its book context');
+    Require(Report.Contains('[Сохранено с примечаниями]') and Report.Contains(TPath.Combine(Target,'WarningEPUB.fb2')),
+      'Conversion report does not identify the successfully saved output');
     var WarningLines := TStringList.Create;
     try
       WarningLines.Text := Capture.Warnings.Text;
