@@ -1,5 +1,13 @@
 {
   "status": "in_progress",
+  "visible_checklist": {
+    "page_id": "page_95776d35a2908191992f76e733b1532e",
+    "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
+    "title": "HomeLib Ru задачи после pre5.37",
+    "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
+    "verification": "Private Page created, read back: exact requested text, 50 native blocks, 12 checked items and 30 pending items. No instruction blocks. Open-in-Codex requested; UI returned queued.",
+    "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
+  },
   "order": [
     "archive_opening",
     "component_installation",
@@ -330,7 +338,21 @@
           "LibID755727 Назад в СССР Лесник2: missing #302252",
           "LibID875779 Маг Тени13: missing #269229, #botbybase_bot?startgroup=1, #557875"
         ],
-        "not_reproduced": "Image-ID error: inspected three local Ярлинги variants (G533994/H677625/F557950), no duplicate/empty binary IDs. G533994 conversion succeeds. Do not claim this case fixed.",
+        "not_reproduced": "Previous local Ярлинги variants differed from the tester's exported copy. A new exact user sample is now available; case remains to be fixed and verified.",
+        "exact_user_sample": {
+          "path": "C:/Users/cloud/Downloads/Telegram Desktop/557950 Ярлинги поневоле.fb2.zip",
+          "zip_sha256": "6a0b0bd29532057113f5727184238b62ecf53729a0fcc77a2df45f715d1e707c",
+          "member": "Ilin_Zazerkalnyy-kvest_1_Yarlingi-ponevole.557950.fb2",
+          "fb2_sha256": "7f208d96ee8ba77472e9b0b68686869e3e8dfe05415e52d2b7f97e4a468f0dcb",
+          "bytes": 1259649,
+          "defects": [
+            "img2.jpg and img3.jpg IDs collide between an inline image and binary resource",
+            "Two different cover.jpg binaries: 90301 bytes image/jpg SHA2d580dffccec534847795b49ad9d12303c54e559004656a233067fb40b8b94b2 and 21576 bytes image/jpeg SHA8a0501bc22bdf8860de6ae437cf827b95a4457e1dd312372fd6d49b3b3d23fe5",
+            "One title contains 16 characters directly outside a paragraph"
+          ],
+          "next": "After atomic save fixes inspect source restoration/metadata writer for duplicate cover creation, then preserve all image variants and readable title in compatible export and verify estimate/save x86/x64. Do not silently discard conflicting image data.",
+          "source_unchanged": true
+        },
         "sources_unchanged": true,
         "cleanup": "G sample extraction and generated EPUB confined to auto-cleaned TemporaryDirectory under existing G:/HomeLibRu-build-cache; H/F selected member read into memory with existing 7-Zip after Python zipfile correctly rejected unsupported compression. No downloads or source writes.",
         "implementation": "FB2 br becomes an actual XHTML line break; roundtrip normalizes affected body into valid FB2 paragraphs and preserves break anchors. Missing local text-link targets preserve visible formatted labels without false hyperlinks/noterefs and report count/examples; valid notes remain links. Identical duplicate binaries reuse bytes; unnamed resources preserved with generated identity; conflicting/corrupt images remain failures. Same-format FB2 retains source markup defects with a warning and cannot introduce additional counted structural defects; unchanged copies remain exact bytes.",
@@ -390,14 +412,25 @@
       ]
     },
     "export_atomic_path_failure": {
-      "status": "queued_after_fb2_compatibility",
+      "status": "implemented_and_native_x86_verified_x64_pending_latest_collision_ui_revision_pending",
       "book": "Ученики Ворона-02-Гробницы пяти магов.fb2",
       "observed": "Repeated export failures creating same-directory .fb2.zip.homelib-new-{GUID}: system cannot find path. Source books exist according to tester. Exact cause unproven.",
       "requirements": [
         "Reproduce nested author/series mask and long paths in native source-copy/ZIP operations",
         "Check parent creation, invalid template characters, path/component lengths and atomic staging; preserve originals and existing output",
-        "Batch per-book errors in final report and avoid repeated continuation popups for every failed book"
-      ]
+        "Batch per-book errors in final report and avoid repeated continuation popups for every failed book",
+        "Latest user clarification supersedes the overwrite-copies checkbox: use clear existing-file action Ask / Replace file / Keep both with number, default Ask, batch apply-to-all decision. This means the output filename, not image recompression."
+      ],
+      "implementation": "New unit_BookOutput uses short adjacent reserved staging names, extended Windows paths, bounds only generated filename components without breaking surrogate pairs, never truncates complete directories. Export and conversion publication share the helper. Batch errors use one final summary and per-book title/identity/reason. Opt-in replacement implementation protects originals by real file identity; settings, continuation and catalogue/standalone/Shell paths wired, but the just-added checkbox needs replacement by the clarified three-way action before shipping.",
+      "verification": [
+        "GUI Build x86 succeeded with production units",
+        "export-path-feedback x86 passed: >260-character Unicode paths and deep directories, native ZIP exact bytes, default numbered collisions, same-format copies, race protection, cancellation and restored stream position",
+        "x86 explicit replacement passed, original path and hard-link source identity protected; Shell surrogate default numbering and explicit replacement passed",
+        "x86 batch failure uses one summary and retains all three failed titles/reasons; restored options and restart continuation including FB2.zip/overwrite passed"
+      ],
+      "test_repair": "First run exposed that the batch log still used only the shared source filename despite earlier title assignment. Report labels now include title plus collection/record identity. Unicode test repetition changed from ambiguous ANSI StringOfChar overload to string.Create.",
+      "pending": "Clarified collision selector and actual collision dialog/apply-to-all behavior; rebuild and verify x86/x64 after that revision; verify actual converted-file replacement with independent modules and broader export regression. Exact original tester path failure cause is not proven; reproduced long-path and ignored-parent-error classes are fixed.",
+      "cleanup": "Read-only inventory under G:/HomeLibRu-build-cache found no HomeLibRu-native-* leftovers after the x86 native wrapper completed."
     },
     "diagnostic_logging_toggle": {
       "status": "queued_with_export_diagnostics",
