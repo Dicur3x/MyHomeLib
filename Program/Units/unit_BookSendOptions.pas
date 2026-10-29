@@ -3,13 +3,14 @@
 interface
 
 uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls,
-  ShlObj, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates;
+  ShlObj, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookOutput;
 
 type
   TBookSendOptions = record
     Folder: string;
     ShellItem: IShellItem;
     UseMTP, ExplicitFormat, KeepSourceFormat, KeepFB2EPUB, ZipEachBook: Boolean;
+    NameCollision: TBookNameCollision;
     Mode: TExportMode;
     ImageQuality, FileNameTemplate, FolderTemplate, RequiredComponent: string;
     RequiredComponents: TArray<string>;
@@ -21,11 +22,11 @@ type
   private
     FShellItem: IShellItem;
     FDestination, FNameMask, FFolderMask, FExcept: TEdit;
-    FFormat, FImages, FScans: TComboBox;
+    FFormat, FImages, FScans, FCollision: TComboBox;
     FSubfolders: TCheckBox;
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
-      FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FPreview, FStatus: TLabel;
+      FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
     FCalculate, FSend: TButton;
     FList: TListView;
     FTimer: TTimer;
@@ -152,6 +153,11 @@ begin
   FFolderMask.OnChange:=Changed;
   FFolderHelp:=LabelControl('FolderMaskHelp','Без галочки все книги сохранятся в выбранную папку. Примеры подпапок: %f — по автору; %f\%s — автор и серия.');
   FPreview:=LabelControl('SaveNamePreview','');
+  FCollisionLabel:=LabelControl('NameCollisionLabel','Если файл с таким именем уже существует:');
+  FCollision:=Combo('SaveNameCollision');
+  FCollision.Items.Add('Спросить'); FCollision.Items.Add('Заменить файл');
+  FCollision.Items.Add('Сохранить оба — добавить номер');
+  FCollision.ItemIndex:=Ord(Settings.SaveAsNameCollision);
   FSend:=TButton.Create(Self); FSend.Parent:=Footer; FSend.Name:='SendBooks'; FSend.Caption:='Сохранить';
   FSend.SetBounds(510,13,120,30); FSend.Anchors:=[akTop,akRight]; FSend.Default:=True; FSend.OnClick:=Send;
   Button:=TButton.Create(Self); Button.Parent:=Footer; Button.Name:='CancelSending'; Button.Caption:='Отмена';
@@ -264,9 +270,17 @@ begin
     end;
     Ext:=BookSaveTargetExtension(BookSaveKnownExtension(Book),Choice.Mode,Choice.KeepOriginal,Choice.KeepFB2EPUB);
     if BookSaveZipsTarget(Ext,Choice.Mode) then Ext:=Ext+'.zip';
+    FileName:=BookOutputName(FileName,Ext,Book.BookKey.BookID);
     if FileName='' then FPreview.Caption:='Для первой книги маска даёт пустое имя. Добавьте %t или %id.'
-    else FPreview.Caption:='Пример: '+TPath.Combine(Folder,FileName+Ext)+sLineBreak+
-      'При совпадении имени добавится номер.';
+    else
+    begin
+      FPreview.Caption:='Пример: '+TPath.Combine(Folder,FileName+Ext)+sLineBreak;
+      case TBookNameCollision(FCollision.ItemIndex) of
+        bncAsk: FPreview.Caption:=FPreview.Caption+'При совпадении имени программа предложит заменить файл или сохранить оба.';
+        bncReplace: FPreview.Caption:=FPreview.Caption+'Файл заменится только после успешного сохранения нового. Исходная книга не перезаписывается.';
+        bncKeepBoth: FPreview.Caption:=FPreview.Caption+'При совпадении имени добавится номер, например «Название (1).fb2».';
+      end;
+    end;
   finally Templater.Free; end;
 end;
 
@@ -402,7 +416,7 @@ begin
       Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
       Text(FNote); Inc(Y,S(6)); Text(FMaskLabel); Place(FNameMask,RowHeight);
       Text(FMaskHelp); Place(FSubfolders,S(24)); Place(FFolderMask,RowHeight);
-      Text(FFolderHelp); Text(FPreview);
+      Text(FFolderHelp); Text(FCollisionLabel); Place(FCollision,RowHeight); Text(FPreview);
       FContent.VertScrollBar.Range:=Y+S(12);
     end;
   finally FContent.VertScrollBar.Position:=SavedScroll; FReflowing:=False; end;
@@ -465,6 +479,7 @@ begin
       try
       Dialog.FDestination.Text:=InitialOptions.Folder;
       Dialog.FNameMask.Text:=InitialOptions.FileNameTemplate;
+      Dialog.FCollision.ItemIndex:=Ord(InitialOptions.NameCollision);
       Dialog.FSubfolders.Checked:=InitialOptions.FolderTemplate<>'';
       if Dialog.FSubfolders.Checked then Dialog.FFolderMask.Text:=InitialOptions.FolderTemplate;
       var InitialMode:=InitialOptions.Mode;
@@ -493,6 +508,7 @@ begin
     Options.KeepSourceFormat:=Selected.KeepOriginal; Options.KeepFB2EPUB:=Selected.KeepFB2EPUB;
     Options.ExplicitFormat:=not Selected.KeepOriginal; Options.ScriptIndex:=-1;
     Options.Mode:=Selected.Mode; Options.ZipEachBook:=False;
+    Options.NameCollision:=TBookNameCollision(Dialog.FCollision.ItemIndex);
     Options.FileNameTemplate:=Dialog.FNameMask.Text;
     if Dialog.FSubfolders.Checked then Options.FolderTemplate:=Dialog.FFolderMask.Text;
     if Answer=mrRetry then
@@ -510,6 +526,7 @@ begin
     end;
     Settings.SyncExportDir:=Options.Folder; Settings.FileNameTemplate:=Options.FileNameTemplate;
     Settings.SaveAsUseSubfolders:=Dialog.FSubfolders.Checked;
+    Settings.SaveAsNameCollision:=Options.NameCollision;
     Settings.SaveAsFolderTemplate:=Dialog.FFolderMask.Text;
     Settings.SaveSettings;
     Result:=Answer=mrOk;

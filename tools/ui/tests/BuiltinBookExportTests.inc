@@ -429,7 +429,7 @@ var
 
   procedure RunExport(BookID: Integer; Mode: TExportMode; ExplicitMode: Boolean;
     const Folder: string; UseShell: Boolean = False; CancelDuring: Boolean = False;
-    CancelBefore: Boolean = False);
+    CancelBefore: Boolean = False; ReplaceExisting: Boolean = False);
   var
     Worker: TExportToDeviceThread;
     Keys: TBookIdList;
@@ -445,6 +445,7 @@ var
       Worker.BookIdList := Keys; Worker.DeviceDir := Folder;
       Worker.ExportMode := Mode; Worker.ExplicitFormat := ExplicitMode;
       Worker.ExtractOnly := False; Worker.UseMTP := UseShell;
+      if ReplaceExisting then Worker.NameCollision:=bncReplace;
       Worker.OnShowMessage := Capture.Message; Worker.OnTeletype := Capture.Warning;
       if UseShell then
       begin
@@ -647,6 +648,19 @@ begin
     BBERequireReadableBook(TPath.Combine(Target, 'DirectFB2 (2).epub'), TPath.Combine(FixtureRoot, 'source.fb2'));
     RequireSourcesAndData;
     Writeln('PASS native same-format exports retain exact bytes and repeated exports reserve numbered names without replacement');
+
+    Target:=OutputFolder('replace-fb2-epub');
+    TFile.WriteAllText(TPath.Combine(Target,'DirectFB2.epub'),'old saved file',TEncoding.UTF8);
+    RunExport(DirectFB2,emEpub,True,Target,False,False,False,True);
+    BBERequireReadableBook(TPath.Combine(Target,'DirectFB2.epub'),TPath.Combine(FixtureRoot,'source.fb2'));
+    Require(Length(TDirectory.GetFiles(Target))=1,'Explicit EPUB replacement made a numbered sibling');
+    Target:=OutputFolder('replace-epub-fb2');
+    TFile.WriteAllText(TPath.Combine(Target,'DirectEPUB.fb2'),'old saved file',TEncoding.UTF8);
+    RunExport(DirectEpub,emFB2,True,Target,False,False,False,True);
+    BBERequireReadableBook(TPath.Combine(Target,'DirectEPUB.fb2'),TPath.Combine(FixtureRoot,'source.epub'));
+    Require(Length(TDirectory.GetFiles(Target))=1,'Explicit FB2 replacement made a numbered sibling');
+    RequireSourcesAndData;
+    Writeln('PASS converted FB2 and EPUB replace only selected existing output after complete conversion');
 
     for var Mode in TArray<TExportMode>.Create(emFB2, emEpub) do
     begin

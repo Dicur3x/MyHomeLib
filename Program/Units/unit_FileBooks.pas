@@ -70,6 +70,7 @@ begin
     Worker.ExplicitFormat:=Options.ExplicitFormat; Worker.ExtractOnly:=False;
     Worker.KeepSourceFormat:=Options.KeepSourceFormat;
     Worker.KeepFB2EPUB:=Options.KeepFB2EPUB; Worker.ZipEachBook:=Options.ZipEachBook;
+    Worker.NameCollision:=Options.NameCollision;
     if Options.FileNameTemplate<>'' then Worker.FileNameTemplate:=Options.FileNameTemplate;
     Worker.FolderTemplate:=Options.FolderTemplate;
     Worker.ImageQuality:=Options.ImageQuality; Worker.ShowImageQualityChoice:=True;

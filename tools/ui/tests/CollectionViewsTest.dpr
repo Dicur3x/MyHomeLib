@@ -35,7 +35,7 @@ uses
   unit_BookConversionRequirements in '..\..\..\Program\Units\unit_BookConversionRequirements.pas',
   unit_BookSendOptions in '..\..\..\Program\Units\unit_BookSendOptions.pas',
   unit_BookSavePolicy in '..\..\..\Program\Units\unit_BookSavePolicy.pas',
-  unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup,
+  unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup, unit_BookOutput, unit_BookCollisionDialog,
   unit_FileBooks in '..\..\..\Program\Units\unit_FileBooks.pas',
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
@@ -5626,6 +5626,8 @@ end;
 {$I UnifiedBookSendTests.inc}
 {$I MinimumBookSaveTests.inc}
 {$I BookSavePlanningTests.inc}
+{$I BookNameCollisionTests.inc}
+{$I ExportPathFeedbackTests.inc}
 {$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
@@ -5877,6 +5879,7 @@ begin
         TestOctoberElevenUI
       else if ParamStr(1) = 'builtin-export' then
         TestBuiltinBookExport(One)
+      else if ParamStr(1) = 'export-path-feedback' then TestExportPathFeedback
       else if ParamStr(1) = 'search-presets' then
         TestSearchPresetSafety
       else if ParamStr(1) = 'search-preset-transfer' then

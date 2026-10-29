@@ -17,7 +17,7 @@ uses
   unit_Scripts,
   unit_Readers,
   unit_Globals,
-  unit_Lib_Updates;
+  unit_Lib_Updates, unit_BookOutput;
 
 const
   // Стандартные значения настроек. Используются также в качестве запасных значений при
@@ -119,6 +119,7 @@ type
     FFolderTemplate: string;
     FSaveAsFolderTemplate: string;
     FSaveAsUseSubfolders: Boolean;
+    FSaveAsNameCollision: TBookNameCollision;
     FFileNameTemplate: string;
     FExportMode: TExportMode;
     FRemoveSquareBrackets: Boolean;
@@ -331,6 +332,7 @@ type
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
     property SaveAsFolderTemplate: string read FSaveAsFolderTemplate write FSaveAsFolderTemplate;
     property SaveAsUseSubfolders: Boolean read FSaveAsUseSubfolders write FSaveAsUseSubfolders;
+    property SaveAsNameCollision: TBookNameCollision read FSaveAsNameCollision write FSaveAsNameCollision;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
 
     property BookHeaderTemplate: string read FFBDBookHeaderTemplate write FFBDBookHeaderTemplate;
@@ -731,6 +733,9 @@ begin
     FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
     FSaveAsFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FFolderTemplate);
     FSaveAsUseSubfolders := iniFile.ReadBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FFolderTemplate<>'');
+    FSaveAsNameCollision := TBookNameCollision(EnsureRange(
+      iniFile.ReadInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(bncAsk)),
+      Ord(Low(TBookNameCollision)), Ord(High(TBookNameCollision))));
     FFileNameTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FileNameTemplate', DEF_FILE_NAME_TEMPLATE);
     FRemoveSquareBrackets := iniFile.ReadBool(SYSTEM_SECTION, 'RemoveSquareBrackets', DEF_REMOVE_SQUARE_BRACKETS);
 
@@ -912,6 +917,7 @@ begin
     iniFile.WriteString(SYSTEM_SECTION, 'FolderTemplate', FFolderTemplate);
     iniFile.WriteString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FSaveAsFolderTemplate);
     iniFile.WriteBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FSaveAsUseSubfolders);
+    iniFile.WriteInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(FSaveAsNameCollision));
     iniFile.WriteString(SYSTEM_SECTION, 'FileNameTemplate', FFileNameTemplate);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ExpFormat', Ord(FExportMode));
     iniFile.WriteBool(SYSTEM_SECTION, 'RemoveSquareBrackets', FRemoveSquareBrackets);

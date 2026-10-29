@@ -1235,7 +1235,7 @@ uses
   unit_Utils,
   ShlObj,
   unit_ExportToDevice,
-  unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan, unit_BookSendOptions,
+  unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan, unit_BookSendOptions, unit_BookOutput,
   unit_Helpers,
   unit_Errors,
   unit_Logger,
@@ -6020,6 +6020,7 @@ var
   Tree: TBookTree;
   ExportMode: TExportMode;
   ExplicitFormat, ExternalScript, KeepSourceFormat, KeepFB2EPUB, ZipEachBook: Boolean;
+  NameCollision: TBookNameCollision;
   SendOptions: TBookSendOptions;
   SaveBooks: TArray<TBookRecord>;
   ImageQuality, Required: string;
@@ -6073,7 +6074,7 @@ begin
   UnifiedSave:=(ScriptID=0) or (ScriptID=795) or (ScriptID=799);
   Required:='';
   ExplicitFormat := (ScriptID = 850) or (ScriptID = 854);
-  ImageQuality:='ask'; KeepSourceFormat:=False; KeepFB2EPUB:=False; ZipEachBook:=False;
+  ImageQuality:='ask'; KeepSourceFormat:=False; KeepFB2EPUB:=False; ZipEachBook:=False; NameCollision:=bncKeepBoth;
 
   ExportMode := ResolveBookExportMode(ScriptID, Settings.ExportMode,
     isFB2Collection(FCollection.CollectionCode) or Settings.AllowMixed);
@@ -6125,6 +6126,7 @@ begin
     UseMTP:=SendOptions.UseMTP; ExplicitFormat:=SendOptions.ExplicitFormat;
     KeepSourceFormat:=SendOptions.KeepSourceFormat;
     KeepFB2EPUB:=SendOptions.KeepFB2EPUB; ZipEachBook:=SendOptions.ZipEachBook;
+    NameCollision:=SendOptions.NameCollision;
     ExportMode:=SendOptions.Mode; ImageQuality:=SendOptions.ImageQuality;
     if (ScriptID=795) and not UseMTP then Settings.SyncExportDir:=AFolder;
     FLastDeviceDir:=AFolder; ScriptID:=SendOptions.ScriptIndex;
@@ -6189,7 +6191,7 @@ begin
         Files, Results, DeviceShellItem, UseMTP, ExplicitFormat,
         procedure(ID: string) begin Required:=ID; end, ImageQuality,
         KeepSourceFormat, KeepFB2EPUB, ZipEachBook,
-        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end);
+        procedure(IDs:TArray<string>) begin RequiredIDs:=IDs; if Length(IDs)>0 then Required:=IDs[0]; end,NameCollision);
       StatusMessage := Format('Экспортировано книг: %d из %d. Остальные отметки сохранены.',
         [SuccessfulBookExportCount(Results), Length(BookIDList)]);
     end;

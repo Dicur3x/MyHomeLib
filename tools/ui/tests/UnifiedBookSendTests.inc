@@ -72,6 +72,8 @@ begin
       var Images:=TComboBox(Dialog.FindComponent('SendImages'));
       if VerifyInitial then
       begin
+        Require(TComboBox(Dialog.FindComponent('SaveNameCollision')).ItemIndex=Ord(Initial.NameCollision),
+          'Restored overwrite choice was lost');
         Require(TEdit(Dialog.FindComponent('SendDestination')).Text=Initial.Folder,'Restored save destination was replaced');
         Require(TEdit(Dialog.FindComponent('SaveNameTemplate')).Text=Initial.FileNameTemplate,'Restored filename mask was lost');
         Require(TCheckBox(Dialog.FindComponent('SaveSubfolders')).Checked and
@@ -90,6 +92,9 @@ begin
       end;
       Require(Assigned(Formats) and Assigned(Images),'Unified send controls are missing');
       Require(Images.Items.Count=4,'Save As must have exactly four image modes');
+      var Collision:=TComboBox(Dialog.FindComponent('SaveNameCollision'));
+      Require(Assigned(Collision) and (Collision.Items.Count=3) and
+        not Assigned(Dialog.FindComponent('SaveOverwriteExisting')),'Save As still has an unclear overwrite checkbox');
       for var Caption in Formats.Items do
         Require(not Caption.StartsWith('TXT') and not Caption.Contains('внешний конвертер') and
           not Caption.StartsWith('Сценарий:'),'Legacy formats/scripts leaked into the Save As selector');

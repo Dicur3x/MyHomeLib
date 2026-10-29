@@ -27,7 +27,7 @@ implementation
 
 uses System.Classes, System.IOUtils, System.JSON, System.DateUtils,
   Winapi.Windows, unit_AtomicIniFile, unit_ComponentUpdates, unit_Templater,
-  unit_BookConversion, unit_Helpers, unit_BookSavePolicy;
+  unit_BookConversion, unit_Helpers, unit_BookSavePolicy, unit_BookOutput;
 
 const MAX_PLAN_BYTES = 64*1024*1024;
   MAX_LINE_CHARS = 16384;
@@ -106,7 +106,8 @@ end;
 procedure CheckOptions(const Options: TBookSendOptions);
 var Templater: TTemplater; Parts: TArray<string>;
 begin
-  if not (Options.Mode in [emFB2,emEpub]) or
+  if not (Options.Mode in [emFB2,emFB2Zip,emEpub]) or
+    not (Options.NameCollision in [bncAsk,bncReplace,bncKeepBoth]) or
     (Options.KeepSourceFormat and Options.KeepFB2EPUB) or
     (Options.Folder='') or (Length(Options.Folder)>4096) or
     (not IsShellPath(Options.Folder) and not TPath.IsPathRooted(Options.Folder)) then
@@ -166,6 +167,7 @@ begin
       Root.AddPair('source_stamp',Stamp); Root.AddPair('folder',Options.Folder);
       Root.AddPair('mode',TJSONNumber.Create(Ord(Options.Mode))); Root.AddPair('keep',TJSONBool.Create(Options.KeepSourceFormat));
       Root.AddPair('keep_readable',TJSONBool.Create(Options.KeepFB2EPUB)); Root.AddPair('zip',TJSONBool.Create(Options.ZipEachBook));
+      Root.AddPair('name_collision',TJSONNumber.Create(Ord(Options.NameCollision)));
       Root.AddPair('images',Options.ImageQuality); Root.AddPair('mask',Options.FileNameTemplate);
       Root.AddPair('subfolders',Options.FolderTemplate);
       WriteLine(Root);
@@ -245,6 +247,10 @@ begin
         Value.Options.Mode:=TExportMode(Number(Root,'mode',Ord(Low(TExportMode)),Ord(High(TExportMode))));
         Value.Options.KeepSourceFormat:=Flag(Root,'keep'); Value.Options.KeepFB2EPUB:=Flag(Root,'keep_readable');
         Value.Options.ZipEachBook:=Flag(Root,'zip'); Value.Options.ImageQuality:=Text(Root,'images',1024);
+        if Root.GetValue('name_collision')<>nil then
+          Value.Options.NameCollision:=TBookNameCollision(Number(Root,'name_collision',Ord(bncAsk),Ord(bncKeepBoth)))
+        else if (Root.GetValue('overwrite')<>nil) and Flag(Root,'overwrite') then
+          Value.Options.NameCollision:=bncReplace;
         Value.Options.FileNameTemplate:=Text(Root,'mask',2048); Value.Options.ScriptIndex:=-1;
         Value.Options.FolderTemplate:=Text(Root,'subfolders',2048,True);
         Value.Options.ExplicitFormat:=not Value.Options.KeepSourceFormat;

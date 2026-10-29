@@ -28,7 +28,7 @@ uses
   Graphics,
   Generics.Collections,
   ShlObj,
-  unit_Consts;
+  unit_Consts, unit_BookOutput;
 
 type
   TIniStringList = class(TStringList)
@@ -73,7 +73,9 @@ function GetFileName(key: TMHLFileName; out FileName: string): Boolean;
 function GetFolderName(Handle: Integer; const Caption: string; var strFolder: string): Boolean;
 function GetFolderShellItem(Handle: HWND; const Caption: string; var strFolder: string; out ShellItem: IShellItem;
   FilesystemOnly: Boolean = False): Boolean;
-function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string): Boolean;
+function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string;
+  OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
+  const OnCollision: TBookCollisionResolver = nil): Boolean;
 function ResolveOrCreateShellSubfolder(const Root: IShellItem; const RelPath: string): IShellItem;
 function IsShellPath(const Path: string): Boolean;
 
@@ -461,24 +463,54 @@ begin
   end;
 end;
 
-function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string): Boolean;
+function ShellCopyFile(const SourceFile: string; const DestFolder: IShellItem; const DestName: string;
+  OverwriteExisting: Boolean; const ProtectedSourceFile: string;
+  const OnCollision: TBookCollisionResolver): Boolean;
 var
   FileOp: IFileOperation;
-  SrcItem: IShellItem;
+  SrcItem, Existing: IShellItem;
+  Flags: DWORD; Aborted: BOOL; FolderName: PWideChar; ProtectedSource: string;
 begin
   Result := False;
   if not Assigned(DestFolder) then
     Exit;
 
+  // Relative Shell names work for filesystem folders and portable devices.
+  // Keep the decision in Save As, rather than showing an unrelated Shell UI.
+  if Assigned(OnCollision) and
+    Succeeded(SHCreateItemFromRelativeName(DestFolder,PChar(DestName),nil,IShellItem,Existing)) then
+  begin
+    FolderName:=nil; var DisplayPath:=DestName;
+    if Succeeded(DestFolder.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING,FolderName)) then
+    try DisplayPath:=IncludeTrailingPathDelimiter(string(FolderName))+DestName;
+    finally CoTaskMemFree(FolderName); end;
+    if not OnCollision(DisplayPath,OverwriteExisting) then Exit;
+  end;
+
+  if OverwriteExisting then
+  begin
+    FolderName:=nil;
+    if Succeeded(DestFolder.GetDisplayName(SIGDN_FILESYSPATH,FolderName)) then
+    try
+      ProtectedSource:=ProtectedSourceFile; if ProtectedSource='' then ProtectedSource:=SourceFile;
+      if SameBookOutputFile(TPath.Combine(string(FolderName),DestName),ProtectedSource) then
+        raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
+    finally CoTaskMemFree(FolderName); end;
+  end;
+
   if Succeeded(CoCreateInstance(CLSID_FileOperation, nil, CLSCTX_INPROC_SERVER, IFileOperation, FileOp)) then
   begin
-    // FOF_RENAMEONCOLLISION avoids silent overwrite-failures on MTP when a file
-    // with the same name already exists in the target folder (#65).
-    FileOp.SetOperationFlags(FOF_NOCONFIRMATION or FOF_NOERRORUI or FOF_SILENT or FOF_RENAMEONCOLLISION);
+    Flags:=FOF_NOCONFIRMATION or FOF_NOERRORUI or FOF_SILENT;
+    if not OverwriteExisting then Flags:=Flags or FOF_RENAMEONCOLLISION;
+    FileOp.SetOperationFlags(Flags);
     if Succeeded(SHCreateItemFromParsingName(PChar(SourceFile), nil, IShellItem, SrcItem)) then
     begin
       if Succeeded(FileOp.CopyItem(SrcItem, DestFolder, PChar(DestName), nil)) then
-        Result := Succeeded(FileOp.PerformOperations);
+      begin
+        Aborted:=True;
+        Result:=Succeeded(FileOp.PerformOperations) and
+          Succeeded(FileOp.GetAnyOperationsAborted(Aborted)) and not Aborted;
+      end;
     end;
   end;
 end;

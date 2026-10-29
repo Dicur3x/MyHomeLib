@@ -23,13 +23,14 @@ uses
   Dialogs,
   unit_Templater,
   unit_Interfaces,
-  unit_BookExportResults;
+  unit_BookExportResults, unit_BookOutput;
 
 type
   TExportToDeviceThread = class(TWorker)
   private type
     TFileOprecord = record
       SourceFile: string;
+      OriginalSourceFile: string;
       SourceExtension: string;
       BookTitle, BookAuthor, BookLanguage: string;
       TargetFile: string;
@@ -63,7 +64,9 @@ type
     FExtractOnly: boolean;
     FExplicitFormat: Boolean;
     FKeepSourceFormat: Boolean;
-    FKeepFB2EPUB, FZipEachBook, FCurrentKeepSource, FNativeZipCopy: Boolean;
+    FKeepFB2EPUB, FZipEachBook, FCurrentKeepSource, FNativeZipCopy, FOverwriteExisting: Boolean;
+    FNameCollision: TBookNameCollision;
+    FOnNameCollision: TBookCollisionPrompt;
     FRequestedExportMode: TExportMode;
     FRequestedExplicitFormat: Boolean;
     FConvertBasic: Boolean;
@@ -97,6 +100,7 @@ type
     procedure SetBookIdList(const Value: TBookIdList);
     procedure SetStandaloneBooks(const Value: TArray<TBookRecord>);
     function GetResults: TBookExportResults;
+    function ResolveNameCollision(const FileName: string; out ReplaceFile: Boolean): Boolean;
 
   strict private
     function PrepareFile(const BookKey: TBookKey; Expected: PBookIdStruct = nil): Boolean;
@@ -127,6 +131,8 @@ type
     property KeepSourceFormat: Boolean read FKeepSourceFormat write FKeepSourceFormat;
     property KeepFB2EPUB: Boolean read FKeepFB2EPUB write FKeepFB2EPUB;
     property ZipEachBook: Boolean read FZipEachBook write FZipEachBook;
+    property NameCollision: TBookNameCollision read FNameCollision write FNameCollision;
+    property OnNameCollision: TBookCollisionPrompt read FOnNameCollision write FOnNameCollision;
     property ImageQuality: string read FImageQuality write FImageQuality;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
@@ -150,7 +156,7 @@ uses
   unit_MHLArchiveHelpers,
   unit_WriteFb2Info,
   unit_BookConversion, unit_BookCache, unit_ReaderCache, unit_MHLExternalTools, unit_ComponentUpdates, System.Variants, unit_Diagnostics,
-  unit_ExportImageQuality, unit_BookSavePolicy, unit_ReaderFormats;
+  unit_ExportImageQuality, unit_BookSavePolicy, unit_ReaderFormats, unit_BookCollisionDialog;
 
 resourcestring
   rstrCheckTemplateValidity = 'Проверьте правильность шаблона';
@@ -220,6 +226,8 @@ var
   FSettings: TMHLSettings;
 begin
   inherited Create;
+  // Legacy callers keep numbered siblings; Save As supplies its own policy.
+  FNameCollision:=bncKeepBoth;
   FSettings := Settings;
   FAppPath := FSettings.AppPath;
   FTempPath := FSettings.TempPath;
@@ -256,6 +264,33 @@ function TExportToDeviceThread.GetResults: TBookExportResults;
 begin
   // Callers read the snapshot after the modal form has joined its worker.
   Result := Copy(FResults);
+end;
+
+function TExportToDeviceThread.ResolveNameCollision(const FileName: string;
+  out ReplaceFile: Boolean): Boolean;
+var Accepted, ReplaceAnswer, ApplyAll: Boolean;
+begin
+  Result:=False; ReplaceFile:=False;
+  if Canceled or Terminated then Exit;
+  case FNameCollision of
+    bncReplace: ReplaceFile:=True;
+    bncAsk:
+      begin
+        Accepted:=False; ReplaceAnswer:=False; ApplyAll:=False;
+        Synchronize(procedure
+          begin
+            if Canceled or Terminated then Exit;
+            if Assigned(FOnNameCollision) then
+              Accepted:=FOnNameCollision(FileName,ReplaceAnswer,ApplyAll)
+            else Accepted:=ChooseBookNameCollision(FileName,ReplaceAnswer,ApplyAll);
+          end);
+        if not Accepted then begin Canceled:=True; Exit; end;
+        ReplaceFile:=ReplaceAnswer;
+        if ApplyAll then
+          if ReplaceFile then FNameCollision:=bncReplace else FNameCollision:=bncKeepBoth;
+      end;
+  end;
+  Result:=not Canceled and not Terminated;
 end;
 
 function TExportToDeviceThread.PrepareFile(const BookKey: TBookKey; Expected: PBookIdStruct): Boolean;
@@ -297,6 +332,10 @@ begin
       Collection := FSystemData.GetCollection(BookKey.DatabaseID);
       Collection.GetBookRecord(BookKey, R, False);
     end;
+    FFileOprecord.FileName:=R.Title;
+    FFileOprecord.BookTitle:=R.Title;
+    FFileOprecord.OriginalSourceFile:=R.GetBookFileName;
+    if FFileOprecord.FileName='' then FFileOprecord.FileName:=R.FileName+R.FileExt;
     if (Length(FStandaloneBooks)=0) and Assigned(Expected) and Expected^.HasExpectedIdentity and
       not ReaderBookMatchesExpectedIdentity(Expected^.ExpectedLibID, Expected^.ExpectedPhysicalIdentity,
         R, VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY))) then
@@ -397,15 +436,14 @@ begin
         FTargetFolder := BookSaveRelativeFolder(FTemplater.ParseString(R, TpPath))
       else
       begin
-        Dialogs.ShowMessage(rstrCheckTemplateValidity);
-        Exit;
+        raise Exception.Create(rstrCheckTemplateValidity);
       end;
 
       if FTargetFolder <> '' then
         FTargetFolder := IncludeTrailingPathDelimiter(Trim(FTargetFolder));
 
-      if not FUseMTP then
-        CreateFolders(DeviceDir, FTargetFolder);
+      if not FUseMTP and not ForceDirectories(BookOutputPath(TPath.Combine(DeviceDir,FTargetFolder))) then
+        raise EInOutError.Create('Не удалось создать папку сохранения: '+TPath.Combine(DeviceDir,FTargetFolder));
     end;
 
     FFileOprecord.TargetFolder := FTargetFolder;
@@ -414,27 +452,28 @@ begin
       FTargetFileName := FTemplater.ParseString(R, TpFile)
     else
     begin
-      Dialogs.ShowMessage(rstrCheckTemplateValidity);
-      Exit;
+      raise Exception.Create(rstrCheckTemplateValidity);
     end;
-
-    FTargetFullFilePath := Trim(TPath.Combine(FTargetFolder, FTargetFileName));
-    FTargetFullFilePath := TPath.Combine(FDeviceDir, FTargetFullFilePath);
 
     NameExtension:=R.FileExt;
     if FCurrentKeepSource and (SourceExtension<>'') then NameExtension:=SourceExtension;
-    if Length(FTargetFullFilePath) < MaxPathLength then
-      FTargetFullFilePath := FTargetFullFilePath + NameExtension
-    else
-      FTargetFullFilePath  := Format('%s.%d%s',[copy(FTargetFullFilePath, 1, MaxPathLength), R.BookKey.BookID, NameExtension]);
+    var EffectiveExtension:=ExtractFileName(ActualOutputFile('book'+NameExtension)).Substring(4);
+    FTargetFileName:=BookOutputName(Trim(FTargetFileName),EffectiveExtension,R.BookKey.BookID);
+    FTargetFullFilePath:=TPath.Combine(FDeviceDir,TPath.Combine(FTargetFolder,FTargetFileName+NameExtension));
 
     if not FUseMTP then
     begin
       var ActualOutputPath: string;
       ActualOutputPath := ActualOutputFile(FTargetFullFilePath);
 
-      if FileExists(ActualOutputPath) then
+      FOverwriteExisting:=False;
+      if BookOutputExists(ActualOutputPath) then
       begin
+        if not ResolveNameCollision(ActualOutputPath,FOverwriteExisting) then Exit;
+        if FOverwriteExisting and SameBookOutputFile(ActualOutputPath,FFileOprecord.OriginalSourceFile) then
+          raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
+        if not FOverwriteExisting then
+        begin
         var BaseName := ChangeFileExt(FTargetFullFilePath, '');
         var Ext := ExtractFileExt(FTargetFullFilePath);
         var Counter := 1;
@@ -442,7 +481,8 @@ begin
           FTargetFullFilePath := Format('%s (%d)%s', [BaseName, Counter, Ext]);
           ActualOutputPath := ActualOutputFile(FTargetFullFilePath);
           Inc(Counter);
-        until not FileExists(ActualOutputPath);
+        until not BookOutputExists(ActualOutputPath);
+        end;
       end;
     end;
 
@@ -471,7 +511,7 @@ begin
     begin
       if not FileExists(FFileOprecord.SourceFile) then
       begin
-        ShowMessage(rstrArchiveNotFound, MB_ICONERROR or MB_OK);
+        FLastError:='Не найден исходный файл книги: '+FFileOprecord.SourceFile;
         Exit;
       end;
 
@@ -743,7 +783,7 @@ begin
               if ApplyToAll then FImageQuality:=Selected;
             end);
           Result:=Selected;
-        end);
+        end,FOverwriteExisting,FFileOprecord.OriginalSourceFile);
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in [emFB2,emEpub]) then
@@ -758,15 +798,15 @@ begin
           if FExportMode in [emFB2Zip,emEpubZip] then
           begin
             var OutputPath:=ActualOutputFile(FFileOprecord.TargetFile);
-            var ArchivePath:=OutputPath+'.homelib-new-'+TGUID.NewGuid.ToString;
+            var ArchivePath:=CreateBookOutputStage(OutputPath);
             try
               var Archive:=TMHLZip.Create(ArchivePath,False);
               try
                 var MemberExtension:='.fb2'; if FExportMode=emEpubZip then MemberExtension:='.epub';
                 Archive.AddFromStream(ChangeFileExt(ExtractFileName(FFileOprecord.TargetFile),MemberExtension),FFileOprecord.Stream);
               finally Archive.Free; end;
-              if not MoveFile(PChar(ArchivePath),PChar(OutputPath)) then RaiseLastOSError;
-            finally if FileExists(ArchivePath) then SysUtils.DeleteFile(ArchivePath); end;
+              PublishBookOutput(ArchivePath,OutputPath,FOverwriteExisting,FFileOprecord.OriginalSourceFile);
+            finally DeleteBookOutputStage(ArchivePath); end;
           end
           else if FExportMode=emTxt then
             unit_globals.ConvertToTxt(FFileOprecord.TargetFile,FTXTEncoding,FFileOprecord.Stream)
@@ -776,7 +816,7 @@ begin
           FFileOprecord.SourceFile:=OriginalSource; FFileOprecord.TempFile:=OriginalTemp;
         end;
       end;
-      if Result and not FileExists(ActualOutputFile(FFileOprecord.TargetFile)) then
+      if Result and not BookOutputExists(ActualOutputFile(FFileOprecord.TargetFile)) then
         raise EInOutError.Create('Конвертер не создал итоговый файл книги.');
     except
       on E: EMHLComponentRequired do
@@ -841,7 +881,7 @@ begin
         Reader:=TCancelableExportStream.Create(Input,
           function: Boolean begin Result:=Canceled or Terminated; end);
         Published:=ActualOutputFile(FFileOprecord.TargetFile);
-        Partial:=Published+'.homelib-new-'+TGUID.NewGuid.ToString;
+        Partial:=CreateBookOutputStage(Published);
         if FNativeZipCopy then
         begin
           Archive:=TMHLZip.Create(Partial,False);
@@ -864,7 +904,7 @@ begin
         if Canceled or Terminated then Abort;
         // Atomic publication never replaces an existing user's file, even if
         // another process creates it after our collision check.
-        if not MoveFile(PChar(Partial),PChar(Published)) then RaiseLastOSError;
+        PublishBookOutput(Partial,Published,FOverwriteExisting,FFileOprecord.OriginalSourceFile);
         Partial:=''; Result:=True;
       finally Reader.Free; Reader:=nil; Input.Position:=SavedPosition; end;
     except
@@ -873,7 +913,7 @@ begin
     end;
   finally
     if Owned then Input.Free;
-    if Partial<>'' then SysUtils.DeleteFile(Partial);
+    DeleteBookOutputStage(Partial);
   end;
 end;
 
@@ -993,7 +1033,7 @@ begin
       else
       begin
         TempFile := ActualOutputFile(FFileOprecord.TargetFile);
-        Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile));
+        Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
           FLastError := Format('Не удалось отправить книгу на устройство: %s',
             [ExtractFileName(TempFile)]);
@@ -1009,7 +1049,7 @@ begin
     begin
       TempFile:=ActualOutputFile(FFileOprecord.TargetFile);
       if Canceled or Terminated then Result:=False
-      else Result:=ShellCopyFile(TempFile,MTPTargetFolder,ExtractFileName(TempFile));
+      else Result:=ShellCopyFile(TempFile,MTPTargetFolder,ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
       if not Result then FLastError:='Не удалось сохранить исходную книгу на устройство.';
     end;
     Exit;
@@ -1043,7 +1083,7 @@ begin
         Exit;
       end;
 
-      Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile));
+      Result := ShellCopyFile(TempFile, MTPTargetFolder, ExtractFileName(TempFile),FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
       if not Result then
         FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
           [TempFile, FFileOprecord.TargetFolder, ExtractFileName(TempFile)]);
@@ -1064,7 +1104,7 @@ begin
           Exit;
         end;
 
-        Result := ShellCopyFile(FFileOprecord.TempFile, MTPTargetFolder, FFileOprecord.FileName);
+        Result := ShellCopyFile(FFileOprecord.TempFile, MTPTargetFolder, FFileOprecord.FileName,FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
           FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
             [FFileOprecord.TempFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
@@ -1074,7 +1114,7 @@ begin
       end
       else
       begin
-        Result := ShellCopyFile(FFileOprecord.SourceFile, MTPTargetFolder, FFileOprecord.FileName);
+        Result := ShellCopyFile(FFileOprecord.SourceFile, MTPTargetFolder, FFileOprecord.FileName,FOverwriteExisting,FFileOprecord.OriginalSourceFile,ResolveNameCollision);
         if not Result then
           FLastError := Format('ShellCopyFile failed: %s -> %s\%s',
             [FFileOprecord.SourceFile, FFileOprecord.TargetFolder, FFileOprecord.FileName]);
@@ -1161,19 +1201,27 @@ var
   i: Integer;
   totalBooks: Integer;
   Res: Boolean;
-  IsShowDialog: BOOL;
   ErrorLog: TStringList;
   LogFileName: string;
   FailedCount: Integer;
   WarningCount: Integer;
   CompletedCount: Integer;
   FirstError, ResultLabel, Summary: string;
+  function BookLabel: string;
+  begin
+    Result:=FFileOprecord.BookTitle;
+    if Result='' then Result:=FFileOprecord.FileName
+    else if (FFileOprecord.FileName<>'') and not SameText(Result,FFileOprecord.FileName) then
+      Result:=Result+' ['+FFileOprecord.FileName+']';
+    if (FCurrentBookIndex>=0) and (FCurrentBookIndex<Length(FBookIdList)) then
+      Result:=Result+Format(' (коллекция %d, запись %d)',
+        [FBookIdList[FCurrentBookIndex].BookKey.DatabaseID,FBookIdList[FCurrentBookIndex].BookKey.BookID]);
+  end;
 begin
   // EPUB is already a ZIP container. Old saved plans may still request its
   // former wrapper mode; preserve EPUB itself rather than making .epub.zip.
   if FExportMode=emEpubZip then FExportMode:=emEpub;
   FRequestedExportMode:=FExportMode; FRequestedExplicitFormat:=FExplicitFormat;
-  IsShowDialog := True;
   FailedCount := 0;
   WarningCount := 0;
   FirstError := '';
@@ -1225,7 +1273,17 @@ begin
 
           if Res then
           begin
-            if not FExtractOnly Then Res := SendFileToDevice;
+            try
+              if not FExtractOnly Then Res := SendFileToDevice;
+            except
+              on E: EMHLComponentRequired do
+              begin
+                Res:=False; Canceled:=True; FRequiredComponent:=E.ComponentID;
+                FRequiredComponents:=Copy(E.ComponentIDs); FLastError:=E.Message;
+              end;
+              on E: EAbort do begin Res:=False; Canceled:=True; FLastError:='Сохранение отменено.'; end;
+              on E: Exception do begin Res:=False; FLastError:=E.Message; end;
+            end;
           end;
         end;
 
@@ -1262,10 +1320,10 @@ begin
           end
           else ResultLabel:='Примечания к незавершённой операции';
           ErrorLog.Add(Format('%s  |  [%s]  |  %s',
-            [DateTimeToStr(Now), ResultLabel, FFileOprecord.FileName]));
+            [DateTimeToStr(Now), ResultLabel, BookLabel]));
           if Res then ErrorLog.Add('Файл: '+FResults[i].OutputFile);
           ErrorLog.Add(FLastWarnings);
-          Teletype(FFileOprecord.FileName + CR + FLastWarnings, tsWarning);
+          Teletype(BookLabel + CR + FLastWarnings, tsWarning);
         end;
         if Canceled then
         begin
@@ -1277,19 +1335,10 @@ begin
         begin
           Inc(FailedCount);
           if FirstError = '' then
-            FirstError := FFileOprecord.FileName + CR + FLastError;
-          ErrorLog.Add(Format('%s  |  [Ошибка сохранения]  |  %s  |  %s', [DateTimeToStr(Now), FFileOprecord.FileName, FLastError]));
+            FirstError := BookLabel + CR + FLastError;
+          ErrorLog.Add(Format('%s  |  [Ошибка сохранения]  |  %s  |  %s', [DateTimeToStr(Now), BookLabel, FLastError]));
+          Teletype(BookLabel+CR+FLastError,tsError);
           RemoveEmptyTargetFolders;
-
-          if i < totalBooks - 1 then
-          begin
-            if IsShowDialog then
-            begin
-              Canceled := (ShowMessage(Format(rstrExportFileFailed, [FFileOprecord.FileName, FLastError]), MB_ICONQUESTION or MB_YESNO) = IDNO);
-              if ShowMessage(rstrRememberChoise, MB_ICONQUESTION or MB_YESNO) = IDYES then
-                IsShowDialog := False;
-            end;
-          end;
         end;
 
         FProgressEngine.AddProgress;

@@ -19,7 +19,8 @@ type
   TBookImageQualityChooser = reference to function(const Options: TBookImageQualityOptions): string;
 
 // Source streams remain owned by the caller. Output is published only after a
-// complete conversion; an existing output file is never replaced.
+// complete conversion; replacing a saved copy requires explicit consent and
+// never permits replacing the source book, including another hard-link name.
 function IsBasicConversionSource(const Extension: string): Boolean;
 function IsValidScanPageExclusions(const Value: string): Boolean;
 function TryReadBookImageQualityOptions(const FileName: string; out Options: TBookImageQualityOptions): Boolean;
@@ -29,14 +30,16 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const IsCanceled: TFunc<Boolean> = nil; const Title: string = '';
   const Author: string = ''; const Language: string = ''; const ForReading: Boolean = False;
   const OnProgress: TBookConversionProgress = nil;
-  const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil);
+  const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
+  const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '');
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
-  Source: TStream; const IsCanceled: TFunc<Boolean>): Boolean;
+  Source: TStream; const IsCanceled: TFunc<Boolean>; OverwriteExisting: Boolean;
+  const ProtectedSourceFile: string): Boolean;
 var Input: TStream; Writer: TFileStream; SavedPosition: Int64;
   Temporary: string; Buffer: TBytes; Count: Integer;
 begin
@@ -48,8 +51,9 @@ begin
   Input:=Source;
   if not Assigned(Input) then Input:=TFileStream.Create(SourceFile,fmOpenRead or fmShareDenyWrite);
   SavedPosition:=Input.Position;
-  Temporary:=TargetFile+'.homelib-new-'+TGUID.NewGuid.ToString;
+  Temporary:='';
   try
+    Temporary:=CreateBookOutputStage(TargetFile);
     Input.Position:=0; SetLength(Buffer,256*1024);
     Writer:=TFileStream.Create(Temporary,fmCreate);
     try
@@ -62,11 +66,11 @@ begin
       if not FlushFileBuffers(Writer.Handle) then RaiseLastOSError;
     finally Writer.Free; end;
     if Assigned(IsCanceled) and IsCanceled() then Abort;
-    if not MoveFile(PChar(Temporary),PChar(TargetFile)) then RaiseLastOSError;
+    PublishBookOutput(Temporary,TargetFile,OverwriteExisting,ProtectedSourceFile);
     Temporary:=''; Result:=True;
   finally
     if Assigned(Source) then Input.Position:=SavedPosition else Input.Free;
-    if Temporary<>'' then System.SysUtils.DeleteFile(Temporary);
+    DeleteBookOutputStage(Temporary);
   end;
 end;
 
@@ -170,7 +174,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   TargetFile: string; Source: TStream; Warnings: TStrings;
   const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean;
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
-  const ChooseImageQuality: TBookImageQualityChooser);
+  const ChooseImageQuality: TBookImageQualityChooser;
+  const OverwriteExisting: Boolean; const ProtectedSourceFile: string);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -190,10 +195,14 @@ begin
   if not IsValidScanPageExclusions(ScanExclude) then raise Exception.Create('Некорректные номера сканов.');
   if not ((TargetExtension='.fb2') or (TargetExtension='.epub')) then
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
-  if FileExists(TargetFile) then raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
+  if BookOutputExists(TargetFile) and not OverwriteExisting then
+    raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
+  var ProtectedSource:=ProtectedSourceFile; if ProtectedSource='' then ProtectedSource:=SourceFile;
+  if OverwriteExisting and (SameBookOutputFile(TargetFile,SourceFile) or SameBookOutputFile(TargetFile,ProtectedSource)) then
+    raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
   if Assigned(Warnings) then Warnings.Clear;
   if not ForReading and (QualityProfile='original') and (ScanLayout='keep') and
-    CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled) then
+    CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource) then
   begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
     Exit;
@@ -500,18 +509,17 @@ begin
         end;
       finally Report.Free; end;
     end;
-    ForceDirectories(ExtractFilePath(TPath.GetFullPath(TargetFile)));
-    TargetTemporary:=TargetFile+'.homelib-new-'+TGUID.NewGuid.ToString;
-    TFile.Copy(OutputName,TargetTemporary,False);
+    TargetTemporary:=CreateBookOutputStage(TargetFile);
+    TFile.Copy(OutputName,TargetTemporary,True);
     with TFileStream.Create(TargetTemporary,fmOpenReadWrite or fmShareDenyWrite) do
       try if not FlushFileBuffers(Handle) then RaiseLastOSError; finally Free; end;
     Check;
-    if not MoveFile(PChar(TargetTemporary),PChar(TargetFile)) then RaiseLastOSError;
+    PublishBookOutput(TargetTemporary,TargetFile,OverwriteExisting,ProtectedSource);
     TargetTemporary:='';
     if Assigned(OnProgress) then OnProgress(100,CompletedPages,PageTotal,'complete');
   finally
     Check:=nil; ReadProgress:=nil;
-    if (TargetTemporary<>'') and FileExists(TargetTemporary) then TFile.Delete(TargetTemporary);
+    DeleteBookOutputStage(TargetTemporary);
     Log.Free;
     if Work.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(TempRoot)),True) and
       DirectoryExists(Work) and (GetFileAttributes(PChar(Work)) and FILE_ATTRIBUTE_REPARSE_POINT=0) then

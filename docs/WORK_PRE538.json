@@ -5,7 +5,7 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLib Ru задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "Private Page created, read back: exact requested text, 50 native blocks, 12 checked items and 30 pending items. No instruction blocks. Open-in-Codex requested; UI returned queued.",
+    "verification": "Read back after atomic updates: same 50 blocks and IDs, unrelated text preserved; 16 checked/struck-through items. Four save/publication items moved to completed; current direction is exact user FB2 557950 and duplicate-cover preparation.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof."
   },
   "order": [
@@ -412,7 +412,7 @@
       ]
     },
     "export_atomic_path_failure": {
-      "status": "implemented_and_native_x86_verified_x64_pending_latest_collision_ui_revision_pending",
+      "status": "implemented_and_verified_native_x86_x64_pending_final_release_binaries",
       "book": "Ученики Ворона-02-Гробницы пяти магов.fb2",
       "observed": "Repeated export failures creating same-directory .fb2.zip.homelib-new-{GUID}: system cannot find path. Source books exist according to tester. Exact cause unproven.",
       "requirements": [
@@ -421,16 +421,28 @@
         "Batch per-book errors in final report and avoid repeated continuation popups for every failed book",
         "Latest user clarification supersedes the overwrite-copies checkbox: use clear existing-file action Ask / Replace file / Keep both with number, default Ask, batch apply-to-all decision. This means the output filename, not image recompression."
       ],
-      "implementation": "New unit_BookOutput uses short adjacent reserved staging names, extended Windows paths, bounds only generated filename components without breaking surrogate pairs, never truncates complete directories. Export and conversion publication share the helper. Batch errors use one final summary and per-book title/identity/reason. Opt-in replacement implementation protects originals by real file identity; settings, continuation and catalogue/standalone/Shell paths wired, but the just-added checkbox needs replacement by the clarified three-way action before shipping.",
+      "implementation": "Shared unit_BookOutput publishes complete copies through short adjacent reserved stages, supports extended Unicode paths, bounds generated filename components without breaking surrogate pairs, and protects originals by real file identity. Save As now has Ask (default) / Replace file / Keep both with number. A compact themed collision dialog offers replace, keep both, cancel and apply-to-all for the current batch. Selected policy persists through settings and restart plans. Catalogue, standalone and Shell exports use it. Per-book save exceptions use one final summary and complete title/identity/reason report; a protected-source Shell collision no longer aborts later books.",
       "verification": [
-        "GUI Build x86 succeeded with production units",
-        "export-path-feedback x86 passed: >260-character Unicode paths and deep directories, native ZIP exact bytes, default numbered collisions, same-format copies, race protection, cancellation and restored stream position",
-        "x86 explicit replacement passed, original path and hard-link source identity protected; Shell surrogate default numbering and explicit replacement passed",
-        "x86 batch failure uses one summary and retains all three failed titles/reasons; restored options and restart continuation including FB2.zip/overwrite passed"
+        "Delphi Community Edition GUI Release builds succeeded for Win32 and Win64 with final source",
+        "export-path-feedback passed on both architectures: 12 PASS entries per run, including long Unicode/deep paths, exact native ZIP bytes, cancellation, racing target protection, original/hard-link protection, ordinary/Shell replacement, one batch report with every title and restart continuation",
+        "Actual existing-file dialog tested at 96 and 192 DPI: default Ask, keep-both default action, different per-file decisions, apply-to-all keep/replace, cancel without processing remaining books, complete output path",
+        "New protected-source Shell test: original bytes unchanged, first book reports failure, next book still saves, one final message",
+        "builtin-export passed on both architectures with freshly rebuilt independent BookProcessing/ImageProcessing 2.7.0.1106 modules: 24 PASS entries per architecture, including actual FB2-to-EPUB and EPUB-to-FB2 replacement only after full conversion; sources, images, notes, chapters and user data preserved",
+        "Export journal light/dark at 96/144/192 DPI, cancellation and exception cleanup passed; Shell/MTP branch tested through a filesystem Shell surrogate, no physical MTP hardware claim"
       ],
       "test_repair": "First run exposed that the batch log still used only the shared source filename despite earlier title assignment. Report labels now include title plus collection/record identity. Unicode test repetition changed from ambiguous ANSI StringOfChar overload to string.Create.",
-      "pending": "Clarified collision selector and actual collision dialog/apply-to-all behavior; rebuild and verify x86/x64 after that revision; verify actual converted-file replacement with independent modules and broader export regression. Exact original tester path failure cause is not proven; reproduced long-path and ignored-parent-error classes are fixed.",
-      "cleanup": "Read-only inventory under G:/HomeLibRu-build-cache found no HomeLibRu-native-* leftovers after the x86 native wrapper completed."
+      "pending": "Final catalogue/reader production EXEs and release packaging gates remain. The exact original tester failure cause is not proven; reproduced long-path/unchecked-parent failures and per-book Shell exceptions are fixed. Next direction is the exact user-supplied 557950 FB2 and duplicate-cover preparation.",
+      "cleanup": "Final validation used a new owned TemporaryDirectory under G:/HomeLibRu-build-cache; report confirms payload removal. Read-only inventory afterwards found no HomeLibRu-native-* or HomeLibRu-output-validation-* directories.",
+      "reports": [
+        "tools/ui/tests/Out/pre538-book-output-20261029-r1.json",
+        "tools/ui/tests/Out/pre538-book-output-20261029-r2.json"
+      ],
+      "eol_only_after_build": {
+        "file": "Program/UtilsImpl/unit_ExportToDeviceThread.pas",
+        "compiled_raw_sha256": "3f56cd86babbad3765fa33c41fa1c737803bb5ebb5f3e1d33cc104af013e59d9",
+        "formatted_raw_sha256": "c4243715fe173981dcc6384a8c01096736fd610ba4594904c36af89e737a1bab",
+        "identical_canonical_text_sha256": "7d3a375d4064cec4f230a0fb1f2dd3d554d1c3461c1533122935bcaea4fac828"
+      }
     },
     "diagnostic_logging_toggle": {
       "status": "queued_with_export_diagnostics",

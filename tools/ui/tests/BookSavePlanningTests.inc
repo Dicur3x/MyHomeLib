@@ -5,6 +5,7 @@ begin
   Options:=Default(TBookSendOptions); Options.Folder:=ExtractFilePath(ParamStr(2))+'saved';
   Options.Mode:=emEpub; Options.KeepFB2EPUB:=ParamStr(4)<>'host'; Options.ExplicitFormat:=True;
   Options.ZipEachBook:=True; Options.FileNameTemplate:='[%s - ][%n - ]%t';
+  Options.NameCollision:=bncReplace;
   Options.FolderTemplate:='%f\[%s]'; Options.ImageQuality:='economy|auto|except=1,9-10';
   if ParamStr(3)='' then
   begin
@@ -94,6 +95,7 @@ begin
     Driver.Probe.Initial:=Default(TBookSendOptions);
     Driver.Probe.Initial.Mode:=emEpub; Driver.Probe.Initial.ExplicitFormat:=True;
     Driver.Probe.Initial.ZipEachBook:=True;
+    Driver.Probe.Initial.NameCollision:=bncReplace;
     Driver.Probe.Initial.Folder:=ExtractFilePath(Settings.SettingsFileName)+'saved';
     Driver.Probe.Initial.FileNameTemplate:='[%s - ][%n - ]%t';
     Driver.Probe.Initial.FolderTemplate:='%f\[%s]';
@@ -142,7 +144,7 @@ var Name, Source, Token: string; Plan: TBookSaveContinuation; Options: TBookSend
 begin
   Name:=Settings.AppPath+'save-plan-test.ini';
   Options:=Default(TBookSendOptions); Options.Folder:=Settings.AppPath+'saved';
-  Options.Mode:=emFB2; Options.FileNameTemplate:='%t'; Options.ImageQuality:='original';
+  Options.Mode:=emFB2Zip; Options.FileNameTemplate:='%t'; Options.ImageQuality:='original';
   SetLength(Books,1); Books[0].BookKey:=CreateBookKey(7,1); Books[0].HasExpectedIdentity:=True;
   Books[0].ExpectedLibID:='original-7';
   StoreBookSaveContinuation(Name,'BookConverter',Options,Books);
@@ -156,7 +158,7 @@ begin
   Require((Length(Plan.Books)=2) and (Plan.Books[1].ExpectedLibID='lib-Ё-1') and
     (Plan.Books[1].BookKey.BookID=102) and Plan.Books[1].HasExpectedIdentity,
     'Save restart lost the remaining books or their identities');
-  Require(Plan.Options.KeepFB2EPUB and Plan.Options.ZipEachBook and
+  Require(Plan.Options.KeepFB2EPUB and Plan.Options.ZipEachBook and (Plan.Options.NameCollision=bncReplace) and
     (Plan.Options.Mode=emEpub) and (Plan.Options.FolderTemplate='%f\[%s]') and
     (Plan.Options.ImageQuality='economy|auto|except=1,9-10'),'Save restart lost source policy, ZIP, folders or image layout');
   Require(not TakeBookSaveContinuation(Name,Plan),'Save restart can be consumed twice');
@@ -242,6 +244,7 @@ begin
   try
     Probe.Initial:=Default(TBookSendOptions); Probe.Initial.Mode:=emEpub;
     Probe.Initial.KeepFB2EPUB:=True; Probe.Initial.ZipEachBook:=True;
+    Probe.Initial.NameCollision:=bncReplace;
     Probe.Initial.Folder:=Settings.AppPath+'restored destination ё';
     Probe.Initial.FileNameTemplate:='[%n - ]%t'; Probe.Initial.FolderTemplate:='%f\[%s]';
     Probe.Initial.ImageQuality:='economy|auto|except=1,9-10';
