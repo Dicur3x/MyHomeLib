@@ -71,3 +71,21 @@ reported as new performance improvements.
 
 All generated test profiles used owned directories. Real collections were not
 changed. Previously denied cleanup locations were not retried.
+
+## Publication and cleanup outcome
+
+Published pre5.37 with exactly the two verified catalogue archives and SHA256SUMS.
+GitHub asset sizes/digests match all 18 new component archives. The published
+feed SHA-256 is bdbcf8b3789c73b44340b1a7db3a65e5860fbf02ffc7cdf342bb6e42429a1a6c.
+Native release parsing selected pre5.37 and the correct architecture-specific
+archive on both architectures. Six superseded component archives were removed
+from GitHub, and permanent-release Reader download links now point to 1105.
+
+Automatic approval review rejected cleanup of the owned Reader installation
+fixture (52,483,693 bytes) and 16 duplicate component-package ZIPs
+(37,829,028 bytes), with the reason `blocked by policy`. These remain in
+Out/pre537-final-20261029-r1/reader-install-fixture and the packages subdirectories
+of post536-format-components-20261028-r1, post536-optional-mcp-20261028-r1 and
+post536-optional-zstd-20261028-r1. No alternate deletion was attempted against
+those paths after rejection. The separate actual-Reader smoke runtime and
+normal native/probe temporary profiles were successfully removed.
