@@ -5631,6 +5631,7 @@ end;
 {$I ExportPathFeedbackTests.inc}
 {$I FLibrarySourcePreparationTests.inc}
 {$I EstimateFailureVisibilityTests.inc}
+{$I ExportCacheLifecycleTests.inc}
 {$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
@@ -6061,6 +6062,7 @@ begin
       end
       else if ParamStr(1) = 'flibrary-quality' then TestFLibraryQualityExport(One)
       else if ParamStr(1) = 'estimate-failure-visibility' then TestEstimateFailureVisibility
+      else if ParamStr(1) = 'export-cache-lifecycle' then TestExportCacheLifecycle
       else if ParamStr(1) = 'duplicate-source' then
       begin
         TestBookDuplicateSourcePreference;
@@ -6164,6 +6166,7 @@ begin
         (ParamStr(1) = 'queue-load-truncated') or (ParamStr(1) = 'queue-load-zero') then
         CheckQueuePersistenceAfterClose;
       if ParamStr(1) = 'temp-exit-cleanup' then CheckExitReaderCleanup;
+      if ParamStr(1) = 'export-cache-lifecycle' then CheckExportCacheLifecycleAfterClose;
       One := nil;
       Two := nil;
       Online := nil;

@@ -412,13 +412,23 @@
       }
     },
     "export_cache_cleanup": {
-      "status": "queued_with_export_compatibility",
+      "status": "verified_real_estimate_export_and_main_exit_x86_x64_no_production_change_needed",
       "reported_path": "Data/BookCache",
       "observed": "Tester says files remained after size estimation/export despite clear-on-every-exit checked; screenshot shows catalogue cache settings and local BookCache path. Exact lifecycle and whether program exited need to be established from code and isolated reproduction.",
       "requirements": [
         "Classify reusable book cache vs operation-only estimation/export temp files",
         "Check cleanup on success, per-book failure, cancellation and program exit with clear-cache setting",
         "Respect active readers and legitimate reusable cache policy; do not delete source books or real user cache during investigation"
+      ],
+      "evidence": "tools/ui/tests/Out/pre538-export-cache-lifecycle-20261029-r4.json",
+      "findings": [
+        "Real archived FB2 to EPUB size estimate and export success/error plus in-flight estimate cancellation and pre-start export cancellation remove owned operation directories and atomic stages.",
+        "Reusable prepared-source BookCache remains while the application is running; actual frmMain destruction with ClearBookCacheOnExit=True removes managed payloads and sidecars. Original raw files and ZIP archives remain byte-identical.",
+        "Existing persistent-cache checks pass on x86/x64: active streams/deferred removal, LRU/age policy, background directory migration and preservation of unrelated custom reading files.",
+        "Read-only desktop observation found the catalogue and five Reader windows still running; no claim was made that the tester exit leak had been reproduced."
+      ],
+      "limitations": [
+        "Related older temp-exit-cleanup check fails at a legacy external-reader path assertion before exit; recorded in r3 and queued with external-reader friendly naming/history checks. It is not counted as a passing check."
       ]
     },
     "reader_word_lookup": {
@@ -506,7 +516,7 @@
       }
     },
     "diagnostic_logging_toggle": {
-      "status": "queued_with_export_diagnostics",
+      "status": "next_in_sequence_existing_daily_logger_reviewed_no_duplicate_logger_planned",
       "request": "Opt-in diagnostic logging across operations so users can provide one report instead of screenshots",
       "requirements": [
         "Inspect and reuse existing diagnostics rather than duplicate logging",
@@ -577,6 +587,16 @@
       "host_id": "local",
       "folder_created": "C:/Users/cloud/IdeaProjects/ReportBridge",
       "handoff": "Created after source/metadata fix passed both architectures and external-reader-names regressions. Development model gpt-6.1-terra, xhigh; first-party HomeLib working tree explicitly excluded from bot edits."
+    },
+    "export_cache_related_external_reader_check": {
+      "status": "queued_with_external_readers",
+      "failure": "temp-exit-cleanup legacy TestReaderCompatibility expects a webp-png filename; PrepareExternalReaderFile now provides a readable copy at BookCache root. Reconcile the test and verify history/path stability after metadata changes before release.",
+      "evidence": "tools/ui/tests/Out/pre538-export-cache-lifecycle-20261029-r3.json"
+    },
+    "cleanup_review_rejection_20261029": {
+      "path": "G:\\HomeLibRu-build-cache\\homelibre-cache-lifecycle-vhl_qvpm",
+      "reason": "blocked by policy",
+      "action": "Deletion of the interrupted r2 verification package directory was rejected before execution; no retry or alternate deletion attempted. User notified. Later r3/r4 package and native profile directories removed by their normal owned lifecycle."
     }
   },
   "github_maintenance_20261029": {
@@ -601,7 +621,7 @@
     }
   },
   "next_steps_order": [
-    "Verify BookCache cleanup after estimation/export/failure/cancellation/exit, then add opt-in extended diagnostics",
+    "Add opt-in extended diagnostics using the existing bounded daily logger; cache cleanup scenarios are verified on x86/x64",
     "Restore always-visible optional AlReader/SumatraPDF and first-use external-reader installation",
     "Fix Flibusta reviews formatting",
     "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",
