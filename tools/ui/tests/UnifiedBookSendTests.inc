@@ -88,8 +88,10 @@ begin
         else if Initial.KeepFB2EPUB then
           Require((Pos('FB2',Formats.Text)>0) and (Pos('EPUB',Formats.Text)>0),'Restored mixed source policy was lost')
         else Require(Formats.Text='Преобразовать в EPUB','Restored EPUB conversion policy was lost');
-        Require(string(TLabel(Dialog.FindComponent('SaveNamePreview')).Caption).Contains(Initial.Folder),
-          'Save example omits the actual destination path');
+        var Preview:=TLabel(Dialog.FindComponent('SaveNamePreview'));
+        Require(string(Preview.Hint).Contains(Initial.Folder) and
+          string(Preview.Caption).StartsWith('Сохранить как'),
+          'Save example omits its generated filename or full destination hint');
         Dialog.ModalResult:=mrCancel; Exit;
       end;
       Require(Assigned(Formats) and Assigned(Images),'Unified send controls are missing');
@@ -186,6 +188,43 @@ begin
       SetMHLTheme(Dark); Dialog:=TBookSendOptionsForm.Create(Application);
       try
         Dialog.ScaleForPPI(PPI); Dialog.Show; Application.ProcessMessages;
+        var Destination:=TEdit(Dialog.FindComponent('SendDestination'));
+        var Mask:=TEdit(Dialog.FindComponent('SaveNameTemplate'));
+        var Subfolders:=TCheckBox(Dialog.FindComponent('SaveSubfolders'));
+        var FolderMask:=TEdit(Dialog.FindComponent('SaveFolderTemplate'));
+        var MaskHelp:=TLabel(Dialog.FindComponent('NameMaskHelp'));
+        var FolderHelp:=TLabel(Dialog.FindComponent('FolderMaskHelp'));
+        var HelpToggle:=TButton(Dialog.FindComponent('ToggleSaveMaskHelp'));
+        var Collision:=TComboBox(Dialog.FindComponent('SaveNameCollision'));
+        Require(not Destination.ReadOnly,'Save destination still looks editable but rejects typed paths');
+        Require(not MaskHelp.Visible and not FolderHelp.Visible,'Save As starts with expanded mask instructions');
+        Subfolders.Checked:=True; Subfolders.OnClick(Subfolders);
+        var PreservedFolderMask:=FolderMask.Text; var ExpandedTop:=Collision.Top;
+        Require(FolderMask.Visible and FolderMask.Enabled,'Enabled subfolders have no editable mask');
+        Subfolders.Checked:=False; Subfolders.OnClick(Subfolders);
+        Require(not FolderMask.Visible and not FolderHelp.Visible and not FolderMask.Enabled and
+          (Collision.Top<ExpandedTop),'Disabling subfolders leaves an empty disabled row');
+        Require(FolderMask.Text=PreservedFolderMask,'Hiding subfolders discarded the saved mask');
+        HelpToggle.Click; Require(MaskHelp.Visible and not FolderHelp.Visible,'Mask help cannot be opened independently');
+        Inspect(Dialog); HelpToggle.Click;
+        Require(not MaskHelp.Visible,'Mask help cannot be collapsed');
+        Subfolders.Checked:=True; Subfolders.OnClick(Subfolders);
+        Require(FolderMask.Visible and (FolderMask.Text=PreservedFolderMask),'Re-enabling subfolders loses its mask');
+        var PreviewFormats:=TComboBox(Dialog.FindComponent('SendFormat'));
+        var EpubIndex:=PreviewFormats.Items.IndexOf('Преобразовать в EPUB');
+        Require(EpubIndex>=0,'Layout fixture has no EPUB preview choice');
+        PreviewFormats.ItemIndex:=EpubIndex; PreviewFormats.OnChange(PreviewFormats);
+        Destination.Text:=Settings.TempPath+'выбранная папка'; Mask.Text:='копия %t';
+        var Preview:=TLabel(Dialog.FindComponent('SaveNamePreview'));
+        Require(string(Preview.Caption).Contains('копия Название книги.epub') and
+          string(Preview.Hint).Contains(Destination.Text),'Changing the filename mask/path does not update the actual EPUB name');
+        for var IncompletePath in ['C:','\Books','bad<path','"quoted"'] do
+        begin
+          Destination.Text:=IncompletePath;
+          Require(string(Preview.Caption).EndsWith('.epub') and
+            string(Preview.Hint).Contains('полный путь'),'Typing an incomplete/invalid folder breaks the filename preview');
+        end;
+        Destination.Text:=Settings.TempPath+'выбранная папка';
         for var FormatIndex:=0 to TComboBox(Dialog.FindComponent('SendFormat')).Items.Count-1 do for var ImageIndex:=0 to 3 do
         begin
           var Formats:=TComboBox(Dialog.FindComponent('SendFormat')); Formats.ItemIndex:=FormatIndex; Formats.OnChange(Formats);

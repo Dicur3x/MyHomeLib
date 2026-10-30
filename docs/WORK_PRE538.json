@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "57 blocks, 37 completed items, sequence 31 read back; final component-feed preparation/native acceptance added after the verified pre5.37 Reader install UI, original pre5.33/pre5.34 helper proof, rename and both final external-reader windows. Unrelated blocks/order/metadata preserved. Earlier unknown edit outcome was reconciled by a fresh same-stream read showing no applied operations before rebuilding a guarded atomic edit; no blind replay or duplicate row.",
+    "verification": "58 blocks, 37 completed items, sequence 32 read back. New compact Save As request added unchecked; status now scopes previous package proofs to the previous candidate and explicitly requires rebuild after new UI source changes. Existing completed work, remaining scope, order/title/metadata preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: sequence 31; final merged feed reconciled with exact tested component archives and current GitHub metadata, accepted by both native parsers; bad asset digest/stale cached feed rejected. Original pre5.33/pre5.34/pre5.37 helper and pre5.37 Main programme/Reader UI proof retained. New test runtimes removed; denied pre5.33 source-archive deletion remains incomplete and will not be retried. Network/download, remaining module/package checks and publication stay open."
+    "last_check": "30 October 2026: sequence 32. User needs the desktop for gaming: no Computer Use or GUI builds until their completion message. Owned Save As Main stopped before saving; runtime removed and report classified INTERRUPTED, not a product failure. Compact dialog source/native test coverage prepared; rebuild, visual review, resumed mixed Save As, final package/network tests and publication pending. Earlier candidate/feed proofs retained historically; denied archive cleanup remains incomplete and will not be retried."
   },
   "order": [
     "archive_opening",
@@ -1018,12 +1018,33 @@
     }
   },
   "next_steps_order": [
-    "Finish packaged operation checks, then publish verified components/feed and programme release with network/download verification. Final component feed and all 16 new archives are reconciled; native x86/x64 parsers accept exact versions/URLs and reject bad digest metadata. Original pre5.33/pre5.34/pre5.37 helpers and pre5.37 Main programme/Reader install UIs passed. Network/download and remaining independent-format upgrade coverage are not yet established; preserve strict version, architecture, manifest and SHA-256 checks",
+    "While user plays: code only, no Computer Use/GUI builds. Review compact Save As changes. After explicit desktop availability, build/test Main and Reader x86/x64 and the affected native tests, visually inspect light/dark at 96/144/192 DPI, repackage changed binaries and resume exact packaged mixed Save As checks before publication. Earlier component-feed/legacy receiver proofs apply to the previous candidate; do not publish stale pre-compact Main/Reader ZIPs",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
+  "compact_save_review_20261030": {
+    "status": "source_and_native_checks_prepared_not_compiled_or_visually_verified",
+    "request": "Compact the Save As dialog, collapse inactive folder masks, remove repetitive explanations and show the actual generated filename/extension immediately",
+    "source_changes": [
+      "Smaller default height, tighter rows, four-row batch table; selected total before calculation and all four quality totals after explicit estimation",
+      "Subfolder mask disappears when unchecked; toggling preserves its text; mask instructions expand only on request",
+      "Live Save As filename/extension and relative subfolders directly below the filename mask, with batch example position and full destination in the hint",
+      "Editable destination with explicit Shell namespace handling, stale Shell item reset, incomplete-path-safe preview and rejection of drive-relative/root-relative save destinations",
+      "Short contextual notes, inline collision choice, scan exceptions only when splitting; known error reasons stay visible and complete reports remain available",
+      "Preview reuses the resolved first-item target format instead of reopening a source book on every mask/path keystroke"
+    ],
+    "pending_native_checks": "UnifiedBookSendTests.inc now covers folder collapse/retention, help expansion, editable destination, live EPUB filename/full hint and incomplete typed paths, alongside existing theme/DPI, mixed formats, collision, cancellation and Shell-surrogate regressions. These changed tests have NOT yet been compiled/run.",
+    "packaged_gui_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-packaged-save-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-packaged-save-Win32-20261030-r2.json"
+    ],
+    "packaged_gui_scope": "Initial r1 stopped during private fixture setup because SQLite trigger compilation required MHL_UPPER even with triggers disabled; registered the fixture-only UDFs and cleanup passed. r2 displayed all four FB2/EPUB/PDF/DjVu rows and known original sizes in actual candidate Main, but no export completed. On user's gaming request, verified exact owned PID 128544/path, stopped only that Main, reaped wrapper session 34702 (exit 1), removed private runtime and classified report INTERRUPTED. No component installation or conversion took place; no product failure established.",
+    "harness": "packaged_save_smoke.py prepares an owned catalogue, verifies unchanged source/output hashes, and after the first normal GUI phase installs only BookProcessing, ImageProcessing, PDFium and DjVuLibre from hashed archives through native installer units. Its conversion oracle checks final text and referenced image resources. The reusable EPUB fixture now stores mimetype uncompressed. Python syntax checked; completed packaged scenario is still pending.",
+    "desktop_constraint": "User will explicitly report when gaming is finished. Continue backend work only; do not resume Computer Use or Delphi GUI builds before that.",
+    "release_gate": "Main and Reader source changed after previous verified candidate. Rebuild affected executables/native tests and create newly verified core/Reader packages before publication; previous archive hashes do not prove the new compact UI. Unchanged format/MCP packages may be reused by verified hashes."
+  },
   "release_integration_20261030": {
-    "status": "legacy_receivers_reader_frontend_and_final_component_feed_verified_not_published",
+    "status": "previous_candidate_verified_rebuild_required_after_compact_save_feedback_not_published",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",

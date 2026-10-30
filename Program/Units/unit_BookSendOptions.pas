@@ -27,7 +27,7 @@ type
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
-    FCalculate, FSend, FReport: TButton;
+    FCalculate, FSend, FReport, FMaskHelpToggle: TButton;
     FList: TListView;
     FTimer: TTimer;
     FBooks: TArray<TBookRecord>;
@@ -36,8 +36,10 @@ type
     FEstimate: TBookSendEstimateThread;
     FRevision: Integer;
     FRequiredComponent: string;
-    FClosing, FReflowing, FInitializing, FHasEstimateAttempt: Boolean;
+    FClosing, FReflowing, FInitializing, FHasEstimateAttempt, FShowMaskHelp: Boolean;
     procedure Browse(Sender: TObject);
+    procedure DestinationChanged(Sender: TObject);
+    procedure ToggleMaskHelp(Sender: TObject);
     procedure Changed(Sender: TObject);
     procedure Send(Sender: TObject);
     procedure Calculate(Sender: TObject);
@@ -50,6 +52,7 @@ type
     procedure UpdateSummary;
     procedure UpdatePreview;
     procedure SetBooks(const Books: TArray<TBookRecord>);
+    function ShellDestination: Boolean;
     function Choice: TBookSaveChoice;
     function EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
     function HasScanConversion: Boolean;
@@ -93,6 +96,26 @@ begin
   else Result:=FormatFloat('0.0',Bytes/1024)+' КБ';
 end;
 
+function IsBookSaveDestination(const Folder: string): Boolean;
+begin
+  Result:=False;
+  if Trim(Folder)='' then Exit;
+  if not TPath.HasValidPathChars(Folder,False) then Exit;
+  if not TPath.IsPathRooted(Folder) then Exit;
+  // Reject drive-relative C: and root-relative \Books, which otherwise resolve
+  // against a process-specific current directory rather than the chosen folder.
+  Result:=Length(TPath.GetPathRoot(Folder))>2;
+end;
+
+function TBookSendOptionsForm.ShellDestination: Boolean;
+begin
+  // A typed relative path is not a device. The legacy IsShellPath helper is
+  // intentionally broad for picker results, so use explicit parsing names here.
+  Result:=FDestination.Text.StartsWith('::{') or FDestination.Text.StartsWith('shell:',True);
+  if not Result and FDestination.Text.StartsWith('\\?\') then
+    Result:=IsShellPath(FDestination.Text);
+end;
+
 constructor TBookSendOptionsForm.Create(AOwner: TComponent);
 var Footer: TPanel; Button: TButton;
   function LabelControl(const Name, Text: string): TLabel;
@@ -110,15 +133,16 @@ begin
   inherited CreateNew(AOwner); FInitializing:=True;
   Name:='BookSendOptions'; Caption:='Сохранить как';
   Position:=poMainFormCenter; BorderStyle:=bsSizeable;
-  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=780; ClientHeight:=680;
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=780; ClientHeight:=620;
   Constraints.MinWidth:=640+Width-ClientWidth; Constraints.MinHeight:=430+Height-ClientHeight;
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom;
   Footer.BevelOuter:=bvNone; Footer.Height:=56;
   FContent:=TSaveScrollBox.Create(Self); FContent.Parent:=Self; FContent.Align:=alClient;
   FContent.BorderStyle:=bsNone; FContent.HorzScrollBar.Visible:=False;
-  FIntro:=LabelControl('SaveIntro','Куда сохранить: папка компьютера, облачной синхронизации или подключённой читалки.');
+  FIntro:=LabelControl('SaveIntro','Папка для сохранения:');
   FDestination:=TEdit.Create(Self); FDestination.Parent:=FContent; FDestination.Name:='SendDestination';
-  FDestination.ReadOnly:=True; FDestination.ShowHint:=True;
+  FDestination.ShowHint:=True; FDestination.TextHint:='Введите путь или выберите папку';
+  FDestination.OnChange:=DestinationChanged;
   Button:=TButton.Create(Self); Button.Parent:=FContent; Button.Name:='BrowseDestination';
   Button.Caption:='Выбрать…'; Button.OnClick:=Browse;
   FFormatLabel:=LabelControl('FormatLabel','Формат книг:'); FFormat:=Combo('SendFormat');
@@ -128,7 +152,7 @@ begin
   FCalculate:=TButton.Create(Self); FCalculate.Parent:=FContent; FCalculate.Name:='EstimateSaveSize';
   FCalculate.Caption:='Оценить размер'; FCalculate.OnClick:=Calculate;
   FSummary:=LabelControl('SaveSizeSummary','');
-  FStatus:=LabelControl('SaveEstimateStatus','Для конвертации и сжатия размер оценивается по кнопке.');
+  FStatus:=LabelControl('SaveEstimateStatus','');
   FReport:=TButton.Create(Self); FReport.Parent:=FContent; FReport.Name:='ShowSaveEstimateReport';
   FReport.Caption:='Результаты оценки…'; FReport.Visible:=False; FReport.OnClick:=ShowEstimateReport;
   FList:=TListView.Create(Self); FList.Parent:=FContent; FList.Name:='SaveBookSizes';
@@ -136,7 +160,7 @@ begin
   FList.OwnerData:=True; FList.OnData:=ListData; FList.ShowHint:=True; FList.OnInfoTip:=ListInfoTip;
   FList.Columns.Add.Caption:='Книга'; FList.Columns.Add.Caption:='Формат копии'; FList.Columns.Add.Caption:='Размер';
   FList.Columns.Add.Caption:='Оценка / причина'; FList.OnDblClick:=ShowEstimateReport;
-  FScanLabel:=LabelControl('ScanLabel','Сканы разворотов при преобразовании в FB2/EPUB:');
+  FScanLabel:=LabelControl('ScanLabel','Разделение сканов-разворотов:');
   FScans:=Combo('SaveScanLayout'); FScans.Items.Add('Не разделять — оставить как есть');
   FScans.Items.Add('Автоматически по сгибу или свободному промежутку');
   FScans.Items.Add('По центру горизонтального скана'); FScans.ItemIndex:=0;
@@ -145,19 +169,25 @@ begin
   FExcept.MaxLength:=256; FExcept.OnChange:=Changed;
   FNote:=LabelControl('SaveImagesNote','');
   FMaskLabel:=LabelControl('NameMaskLabel','Маска имени файла:');
+  FMaskLabel.Layout:=tlCenter;
   FNameMask:=TEdit.Create(Self); FNameMask.Parent:=FContent; FNameMask.Name:='SaveNameTemplate';
   FNameMask.Text:=Settings.FileNameTemplate; if FNameMask.Text='' then FNameMask.Text:='%t';
   FNameMask.OnChange:=Changed;
-  FMaskHelp:=LabelControl('NameMaskHelp','%t — название; %f — автор; %s — серия; %n — номер. Например, [%n — ]%t: номер пропускается, если его нет. Расширение добавится автоматически.');
+  FMaskHelp:=LabelControl('NameMaskHelp','%t — название; %f — автор; %s — серия; %n — номер. [%n — ]%t пропускает отсутствующий номер. Расширение добавится автоматически.');
+  FMaskHelpToggle:=TButton.Create(Self); FMaskHelpToggle.Parent:=FContent;
+  FMaskHelpToggle.Name:='ToggleSaveMaskHelp'; FMaskHelpToggle.Caption:='О маске ▾';
+  FMaskHelpToggle.Hint:='Показать параметры маски имени и подпапок'; FMaskHelpToggle.ShowHint:=True;
+  FMaskHelpToggle.OnClick:=ToggleMaskHelp;
   FSubfolders:=TCheckBox.Create(Self); FSubfolders.Parent:=FContent; FSubfolders.Name:='SaveSubfolders';
   FSubfolders.Caption:='Создавать подпапки по маске'; FSubfolders.Checked:=Settings.SaveAsUseSubfolders;
   FSubfolders.OnClick:=Changed;
   FFolderMask:=TEdit.Create(Self); FFolderMask.Parent:=FContent; FFolderMask.Name:='SaveFolderTemplate';
   FFolderMask.Text:=Settings.SaveAsFolderTemplate; if FFolderMask.Text='' then FFolderMask.Text:='%f';
   FFolderMask.OnChange:=Changed;
-  FFolderHelp:=LabelControl('FolderMaskHelp','Без галочки все книги сохранятся в выбранную папку. Примеры подпапок: %f — по автору; %f\%s — автор и серия.');
+  FFolderHelp:=LabelControl('FolderMaskHelp','Подпапки: %f — автор; %f\%s — автор и серия. Без галочки книги сохраняются в выбранную папку.');
   FPreview:=LabelControl('SaveNamePreview','');
-  FCollisionLabel:=LabelControl('NameCollisionLabel','Если файл с таким именем уже существует:');
+  FPreview.Font.Style:=[fsBold]; FPreview.ShowHint:=True;
+  FCollisionLabel:=LabelControl('NameCollisionLabel','Если файл уже есть:'); FCollisionLabel.Layout:=tlCenter;
   FCollision:=Combo('SaveNameCollision');
   FCollision.Items.Add('Спросить'); FCollision.Items.Add('Заменить файл');
   FCollision.Items.Add('Сохранить оба — добавить номер');
@@ -211,7 +241,24 @@ var Folder: string; Item: IShellItem;
 begin
   Folder:=FDestination.Text;
   if not GetFolderShellItem(Handle,'Куда сохранить книги',Folder,Item) then Exit;
-  FShellItem:=Item; FDestination.Text:=Folder; FDestination.Hint:=Folder; Changed(FDestination);
+  FDestination.Text:=Folder; FShellItem:=Item; FDestination.Hint:=Folder; Changed(FDestination);
+end;
+
+procedure TBookSendOptionsForm.DestinationChanged(Sender: TObject);
+begin
+  // A manually edited path must not retain the Shell item of a previously
+  // selected device. Send resolves a new device path after validation.
+  FDestination.Hint:=FDestination.Text;
+  if FInitializing then Exit;
+  FShellItem:=nil; UpdatePreview; Reflow(nil);
+end;
+
+procedure TBookSendOptionsForm.ToggleMaskHelp(Sender: TObject);
+begin
+  FShowMaskHelp:=not FShowMaskHelp;
+  if FShowMaskHelp then FMaskHelpToggle.Caption:='О маске ▴'
+  else FMaskHelpToggle.Caption:='О маске ▾';
+  Changed(Sender);
 end;
 
 function TBookSendOptionsForm.HasScanConversion: Boolean;
@@ -232,9 +279,9 @@ begin
 end;
 
 procedure TBookSendOptionsForm.UpdateSummary;
-var Text: string; Total: Int64; Unknown, Large: Integer;
+var Text, Selected: string; Total: Int64; Unknown, Large: Integer;
 begin
-  Text:='';
+  Text:=''; Selected:='';
   for var Q:=0 to 3 do
   begin
     Total:=0; Unknown:=0; Large:=0;
@@ -243,21 +290,28 @@ begin
       var Bytes:=EstimateBytes(Item,Q);
       if Bytes>0 then begin Inc(Total,Bytes); if Bytes>20*1024*1024 then Inc(Large); end else Inc(Unknown);
     end;
-    if Q>0 then Text:=Text+sLineBreak;
+    var Start:=Length(Text)+1;
+    if Q>0 then begin Text:=Text+sLineBreak; Start:=Length(Text)+1; end;
     Text:=Text+QualityCaptions[Q]+': ';
     if Length(FItems)=0 then Text:=Text+'нет оценки'
     else if Unknown=Length(FItems) then Text:=Text+'не рассчитано'
     else begin Text:=Text+'≈ '+SizeText(Total); if Unknown>0 then Text:=Text+Format(' + ещё %d без оценки',[Unknown]); end;
     if Large>0 then Text:=Text+Format(' · крупнее 20 МБ: %d',[Large]);
+    if Q=Max(0,FImages.ItemIndex) then Selected:=Copy(Text,Start,MaxInt);
   end;
-  FSummary.Caption:=Text;
+  // All four estimates remain available after the explicit calculation. Before
+  // that, do not fill the dialog with three unavailable alternative totals.
+  FSummary.Hint:=Text; FSummary.ShowHint:=True;
+  if FHasEstimateAttempt then FSummary.Caption:=Text else FSummary.Caption:=Selected;
+  FStatus.Visible:=Trim(FStatus.Caption)<>'';
   FReport.Visible:=FHasEstimateAttempt;
   FList.Invalidate;
 end;
 
 procedure TBookSendOptionsForm.UpdatePreview;
-var Templater: TTemplater; Book: TBookRecord; Ext, FileName, Folder: string;
+var Templater: TTemplater; Book: TBookRecord; Ext, FileName, RelativeFolder, RelativeName, Prefix: string;
 begin
+  FPreview.Hint:='';
   Templater:=TTemplater.Create;
   try
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
@@ -265,26 +319,31 @@ begin
     Book:=Default(TBookRecord); Book.Title:='Название книги';
     if Length(FBooks)>0 then Book:=FBooks[0];
     FileName:=Trim(Templater.ParseString(Book,TpFile));
-    Folder:=FDestination.Text;
+    RelativeFolder:='';
     if FSubfolders.Checked then
     begin
       if (Trim(FFolderMask.Text)='') or not IsValidBookSaveFolderTemplate(FFolderMask.Text) or
         (Templater.SetTemplate(FFolderMask.Text,TpPath)<>ErFine) then
       begin FPreview.Caption:='Проверьте маску подпапок.'; Exit; end;
-      Folder:=TPath.Combine(Folder,BookSaveRelativeFolder(Templater.ParseString(Book,TpPath)));
+      RelativeFolder:=BookSaveRelativeFolder(Templater.ParseString(Book,TpPath));
     end;
-    Ext:=BookSaveTargetExtension(BookSaveKnownExtension(Book),Choice.Mode,Choice.KeepOriginal,Choice.KeepFB2EPUB);
+    // Typing a path/mask reuses the resolved snapshot rather than opening the
+    // first source book again on every keystroke (possibly on a network share).
+    Ext:='';
+    if Length(FItems)>0 then Ext:=FItems[0].TargetExtension;
+    if Ext='' then Ext:=BookSaveTargetExtension(Book.FileExt,Choice.Mode,Choice.KeepOriginal,Choice.KeepFB2EPUB);
     if BookSaveZipsTarget(Ext,Choice.Mode) then Ext:=Ext+'.zip';
     FileName:=BookOutputName(FileName,Ext,Book.BookKey.BookID);
     if FileName='' then FPreview.Caption:='Для первой книги маска даёт пустое имя. Добавьте %t или %id.'
     else
     begin
-      FPreview.Caption:='Пример: '+TPath.Combine(Folder,FileName+Ext)+sLineBreak;
-      case TBookNameCollision(FCollision.ItemIndex) of
-        bncAsk: FPreview.Caption:=FPreview.Caption+'При совпадении имени программа предложит заменить файл или сохранить оба.';
-        bncReplace: FPreview.Caption:=FPreview.Caption+'Файл заменится только после успешного сохранения нового. Исходная книга не перезаписывается.';
-        bncKeepBoth: FPreview.Caption:=FPreview.Caption+'При совпадении имени добавится номер, например «Название (1).fb2».';
-      end;
+      Prefix:='Сохранить как: ';
+      if Length(FBooks)>1 then Prefix:=Format('Сохранить как (1 из %d): ',[Length(FBooks)]);
+      RelativeName:=TPath.Combine(RelativeFolder,FileName+Ext);
+      FPreview.Caption:=Prefix+RelativeName;
+      if ShellDestination or IsBookSaveDestination(FDestination.Text) then
+        FPreview.Hint:=IncludeTrailingPathDelimiter(FDestination.Text)+RelativeName
+      else FPreview.Hint:='Выберите папку или введите полный путь к ней.';
     end;
   finally Templater.Free; end;
 end;
@@ -297,7 +356,7 @@ begin
   begin
     FItems:=KnownBookSaveEstimates(FBooks,Choice); FRequiredComponent:='';
     FCalculate.Caption:='Оценить размер'; FHasEstimateAttempt:=False;
-    FStatus.Caption:='Для конвертации и сжатия размер оценивается по кнопке.';
+    FStatus.Caption:='';
   end;
   CanProcess:=Length(FBooks)=0; Opaque:=False;
   for var Item in FItems do
@@ -306,14 +365,19 @@ begin
   if not CanProcess then FImages.ItemIndex:=0;
   FScans.Enabled:=HasScanConversion;
   FScanLabel.Visible:=FScans.Enabled; FScans.Visible:=FScans.Enabled;
-  FExceptLabel.Visible:=FScans.Enabled; FExcept.Visible:=FScans.Enabled;
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
-  FNote.Caption:='Параметры меняют только сохраняемые копии. Исходные книги в коллекции сохраняются.';
-  if Opaque then FNote.Caption:=FNote.Caption+' Настройка изображений действует на FB2/EPUB; остальные исходные форматы копируются как есть.';
-  if FImages.ItemIndex=3 then FNote.Caption:=FNote.Caption+' На месте картинок будет пометка «Изображение не включено в эту копию». Для страниц-сканов этот режим недоступен.';
-  if FExcept.Enabled and (Trim(FExcept.Text)<>'') then FNote.Caption:=FNote.Caption+' При исключениях сканов оценка размера особенно приблизительная.';
-  FNote.Caption:=FNote.Caption+' Отметка 20 МБ — подсказка для крупных файлов, а не ограничение формата. Для уменьшения размера выберите другой режим изображений.';
+  FExceptLabel.Visible:=FExcept.Enabled; FExcept.Visible:=FExcept.Enabled;
+  FNote.Caption:='Сохраняются копии. Исходные книги не меняются.';
+  if Opaque and (FImages.ItemIndex>0) then
+    FNote.Caption:=FNote.Caption+' Изображения изменятся только в FB2/EPUB.';
+  if FImages.ItemIndex=3 then FNote.Caption:=FNote.Caption+' Вместо иллюстраций — подпись. Для сканов режим недоступен.';
+  var Large:=0;
+  for var Item in FItems do if EstimateBytes(Item,Max(0,FImages.ItemIndex))>20*1024*1024 then Inc(Large);
+  if Large>0 then FNote.Caption:=FNote.Caption+' Крупные файлы можно уменьшить выбором другого режима изображений.';
   FFolderMask.Enabled:=FSubfolders.Checked;
+  FFolderMask.Visible:=FSubfolders.Checked;
+  FMaskHelp.Visible:=FShowMaskHelp;
+  FFolderHelp.Visible:=FShowMaskHelp and FSubfolders.Checked;
   UpdateSummary; UpdatePreview; Reflow(nil);
 end;
 
@@ -353,7 +417,8 @@ begin
   if FRequiredComponent<>'' then begin ModalResult:=mrRetry; Exit; end;
   if Assigned(FEstimate) then
   begin FEstimate.Terminate; FStatus.Caption:='Останавливаем оценку…'; Exit; end;
-  if Length(FBooks)=0 then begin FStatus.Caption:='Список книг для оценки не передан.'; Exit; end;
+  if Length(FBooks)=0 then
+  begin FStatus.Caption:='Список книг для оценки не передан.'; FStatus.Visible:=True; Reflow(nil); Exit; end;
   FRevision:=-1; FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath);
   FHasEstimateAttempt:=True;
   FFormat.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
@@ -398,7 +463,7 @@ begin
 end;
 
 procedure TBookSendOptionsForm.Reflow(Sender: TObject);
-var Y, W, Margin, Gap, SavedScroll, RowHeight: Integer;
+var Y, W, Margin, Gap, SavedScroll, RowHeight: Integer; ShowReasons: Boolean;
   function S(Value: Integer): Integer;
   begin Result:=MulDiv(Value,PixelsPerInch,96); end;
   procedure Place(Control: TControl; Height: Integer);
@@ -418,7 +483,9 @@ begin
   if FInitializing or FReflowing or not Assigned(FContent) or not Assigned(FPreview) then Exit;
   FReflowing:=True; SavedScroll:=FContent.VertScrollBar.Position;
   try
-    FContent.VertScrollBar.Position:=0; Margin:=S(20); Gap:=S(8); RowHeight:=S(28);
+    ShowReasons:=FHasEstimateAttempt;
+    for var Item in FItems do if Item.ErrorText<>'' then ShowReasons:=True;
+    FContent.VertScrollBar.Position:=0; Margin:=S(20); Gap:=S(6); RowHeight:=S(28);
     for var Pass:=1 to 2 do
     begin
       Y:=S(16); W:=Max(S(300),FContent.ClientWidth-2*Margin);
@@ -434,14 +501,23 @@ begin
       FList.Visible:=(Length(FBooks)>1) or (FHasEstimateAttempt and (Length(FBooks)>0));
       if FList.Visible then
       begin
-        Place(FList,S(Min(170,34+24*Min(Length(FBooks),6)))); FList.Columns[0].Width:=Max(S(150),W div 3);
+        Place(FList,S(28+20*Min(Length(FBooks),4)));
         FList.Columns[1].Width:=S(110); FList.Columns[2].Width:=S(100);
-        FList.Columns[3].Width:=Max(S(220),W-FList.Columns[0].Width-S(240));
+        if ShowReasons then
+        begin
+          FList.Columns[0].Width:=Max(S(150),W div 3);
+          FList.Columns[3].Width:=Max(S(190),W-FList.Columns[0].Width-S(230));
+        end
+        else begin FList.Columns[0].Width:=Max(S(150),W-S(220)); FList.Columns[3].Width:=0; end;
       end;
       Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
-      Text(FNote); Inc(Y,S(6)); Text(FMaskLabel); Place(FNameMask,RowHeight);
-      Text(FMaskHelp); Place(FSubfolders,S(24)); Place(FFolderMask,RowHeight);
-      Text(FFolderHelp); Text(FCollisionLabel); Place(FCollision,RowHeight); Text(FPreview);
+      Text(FNote); Inc(Y,S(4));
+      FMaskLabel.SetBounds(Margin,Y,W-S(120),RowHeight);
+      FMaskHelpToggle.SetBounds(Margin+W-S(110),Y,S(110),RowHeight); Inc(Y,RowHeight+S(4));
+      Place(FNameMask,RowHeight); Text(FPreview); Text(FMaskHelp);
+      Place(FSubfolders,S(24)); Place(FFolderMask,RowHeight); Text(FFolderHelp);
+      FCollisionLabel.SetBounds(Margin,Y,S(150),RowHeight);
+      FCollision.SetBounds(Margin+S(158),Y,W-S(158),RowHeight); Inc(Y,RowHeight+Gap);
       FContent.VertScrollBar.Range:=Y+S(12);
     end;
   finally FContent.VertScrollBar.Position:=SavedScroll; FReflowing:=False; end;
@@ -452,13 +528,13 @@ var Templater: TTemplater;
 begin
   if Assigned(FEstimate) then Exit;
   if Trim(FDestination.Text)='' then begin Browse(nil); if Trim(FDestination.Text)='' then Exit; end;
-  if IsShellPath(FDestination.Text) then
+  if ShellDestination then
   begin
     if not Assigned(FShellItem) and Failed(SHCreateItemFromParsingName(PChar(FDestination.Text),nil,IShellItem,FShellItem)) then
     begin MessageDlg('Устройство недоступно. Подключите его и выберите папку снова.',mtInformation,[mbOK],0); Exit; end;
   end
-  else if not TPath.IsPathRooted(FDestination.Text) then
-  begin MessageDlg('Выберите папку, в которую нужно сохранить книги.',mtInformation,[mbOK],0); Exit; end;
+  else if not IsBookSaveDestination(FDestination.Text) then
+  begin MessageDlg('Укажите полный путь к папке или нажмите «Выбрать…».',mtInformation,[mbOK],0); FDestination.SetFocus; Exit; end;
   Templater:=TTemplater.Create;
   try
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
@@ -503,6 +579,7 @@ begin
       Dialog.FInitializing:=True;
       try
       Dialog.FDestination.Text:=InitialOptions.Folder;
+      Dialog.FShellItem:=InitialOptions.ShellItem;
       Dialog.FNameMask.Text:=InitialOptions.FileNameTemplate;
       Dialog.FCollision.ItemIndex:=Ord(InitialOptions.NameCollision);
       Dialog.FSubfolders.Checked:=InitialOptions.FolderTemplate<>'';
@@ -529,7 +606,7 @@ begin
     var Answer:=Dialog.ShowModal;
     if not (Answer in [mrOk,mrRetry]) then Exit;
     Options.Folder:=Dialog.FDestination.Text; Options.ShellItem:=Dialog.FShellItem;
-    Options.UseMTP:=IsShellPath(Options.Folder); Selected:=Dialog.Choice;
+    Options.UseMTP:=Dialog.ShellDestination; Selected:=Dialog.Choice;
     Options.KeepSourceFormat:=Selected.KeepOriginal; Options.KeepFB2EPUB:=Selected.KeepFB2EPUB;
     Options.ExplicitFormat:=not Selected.KeepOriginal; Options.ScriptIndex:=-1;
     Options.Mode:=Selected.Mode; Options.ZipEachBook:=False;

@@ -33,7 +33,7 @@ def prepare(profile, runtime):
         '<binary id="illustration" content-type="image/png">' + base64.b64encode(png).decode() +
         '</binary></FictionBook>', encoding='utf-8')
     with zipfile.ZipFile(target / 'source.epub', 'w', zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
         archive.writestr('META-INF/container.xml', '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
         archive.writestr('book.opf', '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">mixed</dc:identifier><dc:title>Mixed source</dc:title><dc:language>en</dc:language></metadata><manifest><item id="body" href="body.xhtml" media-type="application/xhtml+xml"/><item id="image" href="image.png" media-type="image/png"/></manifest><spine><itemref idref="body"/></spine></package>')
         archive.writestr('body.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Mixed</title></head><body><p>' + text + '</p><p><img src="image.png" alt="Illustration"/></p></body></html>')
