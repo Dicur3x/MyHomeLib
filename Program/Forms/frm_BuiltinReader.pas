@@ -60,6 +60,8 @@ type
   private
     FSurface: TReaderSurface;
     FTop, FButtons, FBottom, FSearchPanel: TPanel;
+    FToolbarItems: TList<TControl>;
+    FArrangingToolbar: Boolean;
     FStatus, FChapterPath: TLabel;
     FSearch: TEdit;
     FThemes: TComboBox;
@@ -203,6 +205,7 @@ type
     procedure RenderPDFPages;
     function PDFViewRectangles(Page: Integer; const Rectangles: TArray<TRectF>): TArray<TRect>;
     procedure PaintPage(Canvas: TCanvas);
+    procedure ArrangeToolbar(Sender: TObject);
     procedure PaintPageDecoration(Canvas: TCanvas);
     procedure ResizePage(Sender: TObject);
     procedure ScheduleResize(Sender: TObject);
@@ -295,11 +298,14 @@ type
   protected
     function OpenLookupTarget(const Target, Parameters, WorkingDirectory: string): Boolean; virtual;
     procedure WMReaderFontsReady(var Message: TMessage); message WM_READER_FONTS_READY;
+    procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+    procedure DoAfterMonitorDpiChanged(OldDPI, NewDPI: Integer); override;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
     procedure WMAppTheme(var Message: TMessage); message WM_APP + $42;
     procedure WMWindowPosChanged(var Message: TWMWindowPosChanged); message WM_WINDOWPOSCHANGED;
   public
+    procedure ScaleForPPI(NewPPI: Integer); override;
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure OpenBook(const FileName, BookTitle, Identity, SettingsFile, PDFLibrary: string;
@@ -1098,26 +1104,29 @@ begin
   FGlobalPages:=TList<Integer>.Create; FMeasureBitmap:=TBitmap.Create; FMeasureBitmap.SetSize(1,1);
   FZoom:=100; FPrefetchedForPage:=-1; FPages:=TList<Integer>.Create; FPages.Add(0);
   FBitmap:=TBitmap.Create; FBitmap.PixelFormat:=pf32bit;
+  FToolbarItems:=TList<TControl>.Create;
   FTop:=TPanel.Create(Self); FTop.Parent:=Self; FTop.Align:=alTop; FTop.Height:=92; FTop.BevelOuter:=bvNone;
   FTop.Name:='ReaderToolbar'; FTop.Caption:='';
   FButtons:=TPanel.Create(Self); FButtons.Parent:=FTop; FButtons.Align:=alTop; FButtons.Height:=38; FButtons.BevelOuter:=bvNone;
   MakeButton('‹',PreviousClick,30); MakeButton('›',NextClick,30);
   MakeButton('−',SmallerClick,30); MakeButton('+',BiggerClick,30);
-  FThemes:=TReaderPaletteCombo.Create(Self); FThemes.Parent:=FButtons; FThemes.Align:=alLeft;
+  FThemes:=TReaderPaletteCombo.Create(Self); FThemes.Parent:=FButtons; FThemes.Tag:=108; FToolbarItems.Add(FThemes);
   FThemes.Name:='ReaderThemeSelector';
-  FThemes.Left:=MaxInt; FThemes.Width:=90; FThemes.Style:=csDropDownList;
+  FThemes.Width:=108; FThemes.Style:=csDropDownList;
   FThemes.Style:=csOwnerDrawFixed;
   FThemes.Items.Text:='Светлая'+#13+'Бумага'+#13+'Сепия'+#13+'Серая'+#13+'Тёмная'+#13+'Ночь';
   FThemes.ItemIndex:=0; FThemes.OnChange:=ThemeClick; FThemes.ShowHint:=True;
   FThemes.Hint:='Цветовая тема; для PDF тёмные темы включают инверсию страниц';
-  FFitButton:=TReaderPaletteButton.Create(Self); FFitButton.Parent:=FButtons; FFitButton.Align:=alLeft;
+  FFitButton:=TReaderPaletteButton.Create(Self); FFitButton.Parent:=FButtons; FFitButton.Tag:=80; FToolbarItems.Add(FFitButton);
+  TReaderPaletteButton(FFitButton).Toolbar:=True; FFitButton.Name:='ReaderFitPage';
   FFitButton.Left:=MaxInt; FFitButton.Width:=72; FFitButton.Caption:='Вписать';
   FFitButton.OnClick:=FitPageClick; FFitButton.Visible:=False;
+  FFitButton.Hint:='Вписать страницу в окно'; FFitButton.ShowHint:=True;
   MakeButton('🔖︎',BookmarkSaveClick,34);
   MakeButton('✎',NotesClick,34);
   MakeButton('Закладки и заметки',NotesManageClick,154);
   MakeButton('Вид',StyleClick,50);
-  MakeButton('Поиск',SearchClick,50);
+  MakeButton('Поиск',SearchClick,92);
   FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
   FChapterPath.Parent:=FTop; FChapterPath.Align:=alBottom; FChapterPath.AutoSize:=False;
   FChapterPath.Height:=22; FChapterPath.Margins.SetBounds(12,0,12,0); FChapterPath.AlignWithMargins:=True;
@@ -1127,15 +1136,20 @@ begin
   ContentsRow:=TPanel.Create(Self); ContentsRow.Parent:=FTop; ContentsRow.Align:=alClient; ContentsRow.BevelOuter:=bvNone;
   Button:=TReaderPaletteButton.Create(Self); Button.Parent:=ContentsRow; Button.Align:=alRight;
   Button.Name:='ReaderHideInterface'; Button.Width:=132; Button.Caption:='Скрыть интерфейс';
+  TReaderPaletteButton(Button).Toolbar:=True;
   Button.OnClick:=InterfaceClick; Button.TabStop:=False;
   Button.Hint:='Скрыть меню и панели, сохранив размер окна'; Button.ShowHint:=True;
   FFullScreenButton:=TReaderPaletteButton.Create(Self); FFullScreenButton.Parent:=ContentsRow;
   FFullScreenButton.Align:=alRight; FFullScreenButton.Name:='ReaderFullScreen';
-  FFullScreenButton.Width:=36; FFullScreenButton.Caption:='⛶';
+  FFullScreenButton.Width:=36; FFullScreenButton.Caption:='На весь экран';
+  TReaderPaletteButton(FFullScreenButton).Toolbar:=True;
+  TReaderPaletteButton(FFullScreenButton).Icon:=rciFullScreen; TReaderPaletteButton(FFullScreenButton).IconOnly:=True;
   FFullScreenButton.OnClick:=FullScreenClick; FFullScreenButton.TabStop:=False;
   FFullScreenButton.Hint:='На весь экран / В окне (F11)'; FFullScreenButton.ShowHint:=True;
   FContentsButton:=TReaderPaletteButton.Create(Self); FContentsButton.Parent:=ContentsRow; FContentsButton.Align:=alLeft;
-  FContentsButton.Width:=36; FContentsButton.Caption:='☰'; FContentsButton.Hint:='Оглавление (Ctrl+T)';
+  FContentsButton.Name:='ReaderContents'; FContentsButton.Width:=36; FContentsButton.Caption:='Оглавление';
+  TReaderPaletteButton(FContentsButton).Toolbar:=True;
+  TReaderPaletteButton(FContentsButton).Icon:=rciContents; TReaderPaletteButton(FContentsButton).IconOnly:=True; FContentsButton.Hint:='Оглавление (Ctrl+T)';
   FContentsButton.ShowHint:=True; FContentsButton.Enabled:=False; FContentsButton.OnClick:=ContentsClick;
   FChapters:=TReaderChapterSelector.Create(Self); FChapters.Name:='ReaderChapterSelector';
   TReaderChapterSelector(FChapters).OpenContents:=ContentsClick; FChapters.Parent:=ContentsRow; FChapters.Align:=alClient; FChapters.DropDownCount:=20;
@@ -1258,21 +1272,64 @@ begin
   FInterfaceReturn.Visible:=False; FInterfaceReturn.OnClick:=InterfaceClick;
   FInterfaceReturn.Hint:='Вернуть меню и панели читалки'; FInterfaceReturn.ShowHint:=True;
   OnKeyDown:=KeyReader; OnResize:=ScheduleResize; OnClose:=CloseReader;
+  FButtons.OnResize:=ArrangeToolbar; ArrangeToolbar(nil);
   RefreshWindowTheme;
 end;
 
 procedure TfrmBuiltinReader.MakeButton(const Caption: string; Action: TNotifyEvent; Width: Integer);
 var Button: TButton;
 begin
-  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=FButtons; Button.Align:=alLeft;
-  Button.Left:=MaxInt; Button.Width:=Width; Button.Caption:=Caption; Button.OnClick:=Action;
+  Button:=TReaderPaletteButton.Create(Self); Button.Parent:=FButtons;
+  Button.Tag:=Width; FToolbarItems.Add(Button); TReaderPaletteButton(Button).Toolbar:=True;
+  Button.Width:=Width; Button.Caption:=Caption; Button.OnClick:=Action;
   Button.TabStop:=False;
+  if Caption='‹' then begin Button.Name:='ReaderPrevious'; Button.Hint:='Предыдущая страница (←)'; TReaderPaletteButton(Button).Icon:=rciPrevious; end;
+  if Caption='›' then begin Button.Name:='ReaderNext'; Button.Hint:='Следующая страница (→)'; TReaderPaletteButton(Button).Icon:=rciNext; end;
+  if Caption='−' then begin Button.Name:='ReaderSmaller'; Button.Hint:='Уменьшить текст / масштаб'; TReaderPaletteButton(Button).Icon:=rciSmaller; end;
+  if Caption='+' then begin Button.Name:='ReaderLarger'; Button.Hint:='Увеличить текст / масштаб'; TReaderPaletteButton(Button).Icon:=rciLarger; end;
+  if Caption='Поиск' then begin Button.Name:='ReaderSearch'; TReaderPaletteButton(Button).Icon:=rciSearch; end;
+  if Caption='Вид' then begin Button.Name:='ReaderAppearance'; Button.Hint:='Шрифт, страницы и оформление книги'; end;
   if Caption='Ночь' then begin Button.Hint:='Ночной фон текста / инверсия страниц PDF'; Button.ShowHint:=True; end;
-  if Caption='✎' then begin Button.Name:='ReaderAddNote'; Button.Hint:='Добавить заметку с выделенной цитатой (Ctrl+M)'; Button.ShowHint:=True; end;
+  if Caption='✎' then begin TReaderPaletteButton(Button).Icon:=rciNote; Button.Name:='ReaderAddNote'; Button.Hint:='Добавить заметку с выделенной цитатой (Ctrl+M)'; Button.ShowHint:=True; end;
   if Caption='🔖︎' then
-  begin Button.Name:='ReaderAddBookmark'; Button.Font.Name:='Segoe UI Symbol'; Button.Font.Size:=13;
+  begin TReaderPaletteButton(Button).Icon:=rciBookmark; Button.Name:='ReaderAddBookmark'; Button.Font.Name:='Segoe UI Symbol'; Button.Font.Size:=13;
     Button.Hint:='Добавить закладку (Ctrl+B)'; Button.ShowHint:=True; end;
   if Caption='Закладки и заметки' then Button.Name:='ReaderSavedItems';
+  TReaderPaletteButton(Button).IconOnly:=(Caption<>'Поиск') and (TReaderPaletteButton(Button).Icon<>rciNone);
+  Button.ShowHint:=True; if Button.Hint='' then Button.Hint:=Caption;
+end;
+
+procedure TfrmBuiltinReader.ArrangeToolbar(Sender: TObject);
+var X,Y,W,H,Gap,Padding,RowHeight,Extra,PreviousHeight,DPI: Integer;
+begin
+  if FArrangingToolbar or not Assigned(FToolbarItems) or not Assigned(FButtons) or not Assigned(FChapterPath) then Exit;
+  FArrangingToolbar:=True; PreviousHeight:=FTop.Height;
+  // CurrentPPI reports the physical monitor even during explicit VCL scaling.
+  // Match the controls/font scale, as the note editor does for its layout.
+  DPI:=Font.PixelsPerInch;
+  try
+    Gap:=Max(1,MulDiv(4,DPI,96)); Padding:=MulDiv(8,DPI,96);
+    RowHeight:=MulDiv(34,DPI,96); X:=Padding; Y:=Gap;
+    FButtons.DisableAlign;
+    try
+      for var Item in FToolbarItems do
+      begin
+        if not Item.Visible then Continue;
+        W:=MulDiv(Integer(Item.Tag),DPI,96); Extra:=0;
+        if (Item.Name='ReaderSmaller') or (Item=FThemes) or (Item.Name='ReaderAddBookmark') or
+          (Item.Name='ReaderAppearance') then Extra:=Padding;
+        if (X>Padding) and (X+Extra+W>ClientWidth-Padding) then
+        begin X:=Padding; Inc(Y,RowHeight+Gap); Extra:=0; end;
+        Inc(X,Extra); H:=RowHeight;
+        if Item=FThemes then H:=FThemes.Height;
+        Item.SetBounds(X,Y+(RowHeight-H) div 2,W,H); Inc(X,W+Gap);
+      end;
+      FButtons.Height:=Y+RowHeight+Gap;
+      FTop.Height:=FButtons.Height+MulDiv(34,DPI,96)+FChapterPath.Height;
+    finally FButtons.EnableAlign; end;
+  finally FArrangingToolbar:=False; end;
+  if (FTop.Height<>PreviousHeight) and Assigned(FResizeTimer) and FReady then
+    FResizeTimer.Enabled:=True;
 end;
 
 procedure TfrmBuiltinReader.MissingReaderFont(const Family: string);
@@ -1312,6 +1369,26 @@ end;
 procedure TfrmBuiltinReader.DismissFontsClick(Sender: TObject);
 begin FFontOfferDeclined:=True; FFontOffer.Visible:=False; end;
 
+procedure TfrmBuiltinReader.AlignControls(AControl: TControl; var Rect: TRect);
+begin
+  // Reserve wrapped rows before the form positions the reading surface.
+  // Resizing a child bar after that alignment leaves the old surface top.
+  ArrangeToolbar(nil); inherited;
+end;
+
+procedure TfrmBuiltinReader.ScaleForPPI(NewPPI: Integer);
+var WasArranging: Boolean;
+begin
+  WasArranging:=FArrangingToolbar; FArrangingToolbar:=True;
+  try inherited ScaleForPPI(NewPPI); finally FArrangingToolbar:=WasArranging; end;
+  if not WasArranging then begin ArrangeToolbar(nil); Realign; end;
+end;
+
+procedure TfrmBuiltinReader.DoAfterMonitorDpiChanged(OldDPI, NewDPI: Integer);
+begin
+  ArrangeToolbar(nil); Realign; inherited;
+end;
+
 procedure TfrmBuiltinReader.CreateWnd;
 begin
   inherited; FFontWindowCookie:=RegisterReaderFontWindow(Handle);
@@ -1346,7 +1423,7 @@ begin
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
   FreeAndNil(FMissingFonts);
-  FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSecondPageSelection); FreeAndNil(FSelectionTint); FreeAndNil(FBookSkin);
+  FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSecondPageSelection); FreeAndNil(FSelectionTint); FreeAndNil(FBookSkin); FreeAndNil(FToolbarItems);
   FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
 
@@ -1844,7 +1921,7 @@ begin
   finally Spread.Free; end;
   FLoadFinished:=True; FSpreadLoading:=False;
   FPan:=Point(Max(0,(FSurface.ClientWidth-Width) div 2),Max(0,(FSurface.ClientHeight-Height) div 2));
-  FFitButton.Visible:=True;
+  if not FFitButton.Visible then begin FFitButton.Visible:=True; ArrangeToolbar(nil); end;
   if FPDFPageHasText and FSelectionEnabled then FSurface.Cursor:=crIBeam else FSurface.Cursor:=crDefault;
   if Count=1 then FStatus.Caption:=Format('%s · Страница %d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPDF.PageCount,FZoom])
   else FStatus.Caption:=Format('%s · Страницы %d–%d из %d · Масштаб %d%%',[FPDF.DisplayName,FPage+1,FPage+Count,FPDF.PageCount,FZoom]);
@@ -2238,6 +2315,7 @@ procedure TfrmBuiltinReader.ResizePage(Sender: TObject);
 begin FResizeTimer.Enabled:=False; ResetInspection; InvalidateLayout; end;
 procedure TfrmBuiltinReader.ScheduleResize(Sender: TObject);
 begin
+  ArrangeToolbar(nil);
   if Assigned(FResizeTimer) then
   begin
     FResizeTimer.Enabled:=False;

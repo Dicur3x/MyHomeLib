@@ -1,11 +1,12 @@
 """Isolated reader checks. The optional real-formats case reads selected archives only."""
-import argparse, pathlib, tempfile, shutil, hashlib, subprocess, zipfile, base64, os, json
+import argparse, pathlib, tempfile, shutil, hashlib, subprocess, zipfile, base64, os, json, time
 
 p = argparse.ArgumentParser()
 p.add_argument('runtime', type=pathlib.Path)
 p.add_argument('exe', type=pathlib.Path)
 p.add_argument('pdfium', type=pathlib.Path)
 p.add_argument('--review-output', type=pathlib.Path, help='Copy book appearance review images out of the private test profile')
+p.add_argument('--toolbar-preview', action='store_true', help='Keep the isolated native toolbar preview open until its window is closed')
 p.add_argument('--keep', action='store_true')
 p.add_argument('--epub-fixtures',type=pathlib.Path,help='Five read-only selected real EPUB fixtures')
 p.add_argument('--formatting-book',type=pathlib.Path,help='Optional read-only real FB2 fixture for formatting checks')
@@ -17,7 +18,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -38,7 +39,7 @@ try:
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
-        if a.case in ('word-selection','reader-lookup','book-appearance') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
+        if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
             for file in files:
@@ -63,6 +64,9 @@ try:
         if a.illustrated_book:
             assert a.illustrated_book.is_file() and a.illustrated_book.stat().st_size < 64*1024*1024
             shutil.copy2(a.illustrated_book,root/'illustrated-selection-real.fb2')
+    if a.toolbar_preview:
+        assert a.case=='reader-toolbar'
+        (root/'reader-toolbar-preview.flag').write_text('isolated native visual review',encoding='utf-8')
     if a.case=='reader-note-ui':
         (root/'contents-progress.fb2').write_text('<FictionBook><body><section><title><p>Заметки</p></title><p>Текст книги для заметки.</p></section></body></FictionBook>',encoding='utf-8')
     if a.case=='footnotes':
@@ -275,7 +279,7 @@ try:
     data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
     data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
     (root/'search.pdf').write_bytes(data)
-    if a.case in ('word-selection','reader-lookup','book-appearance'):
+    if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar'):
         objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
         for n in range(2):
             objects.extend([f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 7 0 R >> >> /Contents {4+n*2} 0 R >>',
@@ -317,11 +321,11 @@ try:
         z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
         z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
         z.writestr('OPS/main.xhtml','<html><body>'+hierarchy+'</body></html>')
-    if a.case in ('word-selection','reader-lookup','book-appearance'):
+    if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar'):
         word_paragraph='Привет café 😀 отдельное слово.'
         (root/'words.txt').write_text(('\n'+word_paragraph)*120,encoding='utf-8')
         word_body=''.join('<p>'+word_paragraph+'</p>' for _ in range(120))
-        if a.case=='book-appearance':
+        if a.case in ('book-appearance','reader-toolbar'):
             word_body='<title><p>Навстречу новым берегам</p></title>'+''.join(
                 '<p>Привет, незнакомый мир. Утренний свет проникал сквозь высокие окна библиотеки и ложился на раскрытые книги. '
                 'За окном шумели деревья, а здесь каждая страница обещала новую историю. '
@@ -385,13 +389,15 @@ try:
         assert 'PASS double-click respects selection switch margins ordinary dragging and unchanged sources' in r.stdout
         for name in ('words.fb2','words.epub','words.txt','words.pdf'):
             assert 'PASS double-click selects exact visible Unicode word and copies it in both layouts and themes: '+name in r.stdout
-    if a.case=='book-appearance':
-        assert 'PASS book front edges remain straight' in r.stdout
-        assert r.stdout.count('PASS ') >= 6, r.stdout
+    if a.case in ('book-appearance','reader-toolbar'):
+        if a.case=='book-appearance': assert 'PASS book front edges remain straight' in r.stdout
+        elif a.toolbar_preview: assert 'PASS interactive toolbar preview' in r.stdout
+        else: assert 'PASS words.pdf all toolbar commands fit' in r.stdout
+        assert r.stdout.count('PASS ') >= (2 if a.toolbar_preview else 7 if a.case=='book-appearance' else 5), r.stdout
         if a.review_output:
             a.review_output.mkdir(parents=True, exist_ok=True)
             from PIL import Image
-            for picture in root.glob('book-appearance-*.bmp'):
+            for picture in root.glob(('book-appearance-' if a.case=='book-appearance' else 'reader-toolbar-')+'*.bmp'):
                 with Image.open(picture) as image:
                     image.save(a.review_output/(picture.stem+'.png'))
     if a.case=='reader-lookup':
@@ -452,4 +458,13 @@ try:
     print('PASS isolated reader sources unchanged; no OPDS or personal database used',flush=True)
 finally:
     if a.keep: print('RETAINED',root,flush=True)
-    else: shutil.rmtree(root)
+    else:
+        # Windows can briefly retain an image section after process exit. Retry
+        # only this run's newly created, guarded private profile; never old runs.
+        for attempt in range(5):
+            try:
+                shutil.rmtree(root)
+                break
+            except PermissionError:
+                if attempt == 4: raise
+                time.sleep(0.25 * (attempt + 1))

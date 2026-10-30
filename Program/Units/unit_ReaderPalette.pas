@@ -6,17 +6,26 @@ uses Winapi.Windows, Winapi.Messages, System.Classes, System.Types, Vcl.Controls
   Vcl.StdCtrls, Vcl.Forms, Vcl.Graphics, Vcl.ExtCtrls;
 
 type
+  TReaderCommandIcon = (rciNone, rciPrevious, rciNext, rciSmaller,
+    rciLarger, rciBookmark, rciNote, rciContents, rciFullScreen, rciSearch);
   // Native button behaviour/accessibility, with colours scoped to this reader.
   TReaderPaletteButton = class(TButton)
   private
     FHot: Boolean;
+    FToolbar, FIconOnly: Boolean;
+    FIcon: TReaderCommandIcon;
+    procedure PaintIcon(Canvas: TCanvas; const R: TRect);
     procedure DrawItem(var Message: TWMDrawItem); message CN_DRAWITEM;
     procedure MouseEnter(var Message: TMessage); message CM_MOUSEENTER;
     procedure MouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
     procedure SetButtonStyle(ADefault: Boolean); override;
-  public constructor Create(AOwner: TComponent); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    property Toolbar: Boolean read FToolbar write FToolbar;
+    property IconOnly: Boolean read FIconOnly write FIconOnly;
+    property Icon: TReaderCommandIcon read FIcon write FIcon;
   end;
   TReaderPaletteCombo = class(TComboBox)
   protected
@@ -91,8 +100,46 @@ begin inherited; FHot:=True; Invalidate; end;
 procedure TReaderPaletteButton.MouseLeave(var Message: TMessage);
 begin inherited; FHot:=False; Invalidate; end;
 
+procedure TReaderPaletteButton.PaintIcon(Canvas: TCanvas; const R: TRect);
+var X,Y,S: Integer; A: TRect;
+  procedure Stroke(X1,Y1,X2,Y2: Integer);
+  begin Canvas.MoveTo(X+MulDiv(X1,S,8),Y+MulDiv(Y1,S,8));
+    Canvas.LineTo(X+MulDiv(X2,S,8),Y+MulDiv(Y2,S,8)); end;
+begin
+  X:=(R.Left+R.Right) div 2; Y:=(R.Top+R.Bottom) div 2;
+  S:=Max(6,MulDiv(8,Font.PixelsPerInch,96));
+  Canvas.Pen.Color:=Canvas.Font.Color; Canvas.Pen.Width:=Max(1,MulDiv(1,Font.PixelsPerInch,96));
+  Canvas.Brush.Style:=bsClear;
+  case FIcon of
+    rciPrevious: begin Stroke(3,-6,-3,0); Stroke(-3,0,3,6); end;
+    rciNext: begin Stroke(-3,-6,3,0); Stroke(3,0,-3,6); end;
+    rciSmaller,rciLarger:
+      begin
+        A:=R; Canvas.Font.Name:='Segoe UI'; Canvas.Font.Style:=[fsBold];
+        if FIcon=rciSmaller then DrawText(Canvas.Handle,'A−',2,A,DT_CENTER or DT_VCENTER or DT_SINGLELINE)
+        else DrawText(Canvas.Handle,'A+',2,A,DT_CENTER or DT_VCENTER or DT_SINGLELINE);
+      end;
+    rciBookmark:
+      Canvas.Polyline([Point(X-S div 2,Y-S),Point(X+S div 2,Y-S),
+        Point(X+S div 2,Y+S),Point(X,Y+S div 2),Point(X-S div 2,Y+S),Point(X-S div 2,Y-S)]);
+    rciNote:
+      begin Stroke(-6,6,-4,1); Stroke(-4,1,4,-7); Stroke(4,-7,7,-4);
+        Stroke(7,-4,-1,4); Stroke(-1,4,-6,6); Stroke(-4,1,-1,4); end;
+    rciContents:
+      for var Row:=-1 to 1 do begin Stroke(-7,Row*5,-5,Row*5); Stroke(-2,Row*5,7,Row*5); end;
+    rciFullScreen:
+      begin
+        Stroke(-7,-3,-7,-7); Stroke(-7,-7,-3,-7); Stroke(3,-7,7,-7); Stroke(7,-7,7,-3);
+        Stroke(7,3,7,7); Stroke(7,7,3,7); Stroke(-3,7,-7,7); Stroke(-7,7,-7,3);
+      end;
+    rciSearch:
+      begin Canvas.Ellipse(X-S,Y-S,X+S div 2,Y+S div 2); Stroke(2,2,7,7); end;
+  end;
+  Canvas.Pen.Width:=1; Canvas.Font.Assign(Font);
+end;
+
 procedure TReaderPaletteButton.DrawItem(var Message: TWMDrawItem);
-var Canvas: TCanvas; R, TextRect: TRect; Selected: Boolean; Ink: TColor;
+var Canvas: TCanvas; R, TextRect, IconRect: TRect; Selected: Boolean; Ink: TColor;
 begin
   Canvas:=TCanvas.Create;
   try
@@ -102,11 +149,24 @@ begin
     if Selected then Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,30)
     else if FHot then Canvas.Brush.Color:=ReaderBlendColor(Color,Font.Color,16);
     Canvas.FillRect(R); Canvas.Pen.Color:=ReaderBlendColor(Color,Font.Color,70);
+    if FToolbar and not (FHot or Selected) then Canvas.Pen.Color:=Canvas.Brush.Color;
     InflateRect(R,-2,-2); Canvas.RoundRect(R,5,5); Canvas.Font.Assign(Font);
     Ink:=Font.Color; if not Enabled then Ink:=ReaderBlendColor(Color,Ink,110);
     Canvas.Font.Color:=Ink; Canvas.Brush.Style:=bsClear; TextRect:=R;
     InflateRect(TextRect,-2,-1); if Selected then OffsetRect(TextRect,1,1);
-    DrawText(Canvas.Handle,PChar(Caption),Length(Caption),TextRect,
+    if FToolbar and (FIcon<>rciNone) then
+    begin
+      IconRect:=TextRect;
+      if not FIconOnly then IconRect.Right:=IconRect.Left+MulDiv(24,Font.PixelsPerInch,96);
+      PaintIcon(Canvas,IconRect); Canvas.Font.Color:=Ink;
+      if not FIconOnly then
+      begin
+        TextRect.Left:=IconRect.Right+MulDiv(3,Font.PixelsPerInch,96);
+        DrawText(Canvas.Handle,PChar(Caption),Length(Caption),TextRect,
+          DT_SINGLELINE or DT_LEFT or DT_VCENTER or DT_END_ELLIPSIS);
+      end;
+    end
+    else DrawText(Canvas.Handle,PChar(Caption),Length(Caption),TextRect,
       DT_SINGLELINE or DT_CENTER or DT_VCENTER or DT_END_ELLIPSIS);
     if (Message.DrawItemStruct.itemState and ODS_FOCUS<>0) and
       (Message.DrawItemStruct.itemState and $0100 {ODS_NOFOCUSRECT}=0) then

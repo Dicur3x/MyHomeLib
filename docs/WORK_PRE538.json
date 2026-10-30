@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 26 completed items after verified selected-text dictionary and Google/Yandex integration; release/version and remaining UI work retained.",
+    "verification": "52 blocks, 28 completed items after verified selected-text lookup, book material and reader toolbar; release/version and remaining UI work retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: dictionary/Google/Yandex and related word-selection, palette, notes and clickable footnote checks passed on fresh x86/x64 binaries; unreleased."
+    "last_check": "30 October 2026: volume pages, reader toolbar and related word-selection, lookup, footnotes, palettes, navigation and notes passed on fresh x86/x64 binaries; unreleased."
   },
   "order": [
     "archive_opening",
@@ -611,7 +611,7 @@
       }
     },
     "reader_visual_redesign": {
-      "status": "book_material_verified_in_source_toolbar_queued_not_released",
+      "status": "book_material_and_toolbar_verified_in_source_not_released",
       "request": "User finds current volume mode sparse and crooked, including skewed top page edge, and toolbar/buttons unfinished. Compare actual AlReader appearance, improve page geometry/material/depth and coherent top controls; visually verify themes, window sizes and DPI before claiming completion.",
       "book_material": {
         "changes": [
@@ -645,7 +645,53 @@
           "PDF"
         ],
         "review_images": "tools/ui/tests/Out/pre538-book-material-20261030-r2/{Win32,Win64}/book-appearance-*.png",
-        "remaining": "Toolbar redesign, full application/release builds and packaging remain pending."
+        "remaining": "Full application/release builds and packaging remain pending."
+      },
+      "toolbar": {
+        "changes": [
+          "Flat themed command buttons with consistent vector icons and accessible captions/hints; existing dialog button appearance retained",
+          "Measured logical-DPI layout wraps commands without hiding actions; reserve wrapped toolbar height before arranging the reading surface",
+          "Hide-interface remains independent from full-screen button and F11; navigation, selection, notes and saved position retained"
+        ],
+        "validation": [
+          {
+            "platform": "Win32",
+            "proof": "tools/ui/tests/Out/pre538-reader-toolbar-20261030-r4-Win32.json",
+            "scenarios": [
+              "reader-toolbar",
+              "book-appearance",
+              "word-selection",
+              "reader-lookup",
+              "footnotes",
+              "reader-colors",
+              "same-position-navigation",
+              "feedback19-reader",
+              "reader-note-ui"
+            ],
+            "pass_markers": 52,
+            "binary_sha256": "b358c36bab970628afa4740b5be853f2b6b61541961aa78474e3cde6ea73bc34"
+          },
+          {
+            "platform": "Win64",
+            "proof": "tools/ui/tests/Out/pre538-reader-toolbar-20261030-r4-Win64.json",
+            "scenarios": [
+              "reader-toolbar",
+              "book-appearance",
+              "word-selection",
+              "reader-lookup",
+              "footnotes",
+              "reader-colors",
+              "same-position-navigation",
+              "feedback19-reader",
+              "reader-note-ui"
+            ],
+            "pass_markers": 52,
+            "binary_sha256": "cb76cad0b9aeb394437d4731053a635b64f3e73f6afbeafaac89cfc816359468"
+          }
+        ],
+        "live_visual_review": "Computer Use inspected the actual x64 preview at 1200 px in paper/dark palettes and at 640 px in paper; independent native geometry/caption checks cover x86/x64, 640/820/1280 widths and 96/144/192 DPI.",
+        "cleanup": "Final r4 verification generated no remaining private reader profiles. Two older verification profiles could not be deleted after Windows image-section retention: automatic approval review rejected cleanup; do not retry. Wrapper now waits briefly on PermissionError only for the newly created current-run profile.",
+        "remaining": "Final catalogue/standalone Reader rebuilds, packages, minimal install/update and release checks pending."
       }
     },
     "catalogue_book_preview_layout": {
@@ -822,6 +868,14 @@
       "path": "G:\\HomeLibRu-build-cache\\homelibre-cache-lifecycle-vhl_qvpm",
       "reason": "blocked by policy",
       "action": "Deletion of the interrupted r2 verification package directory was rejected before execution; no retry or alternate deletion attempted. User notified. Later r3/r4 package and native profile directories removed by their normal owned lifecycle."
+    },
+    "cleanup_review_rejection_20261030": {
+      "paths": [
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-gucen6n2",
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-lva_o0zv"
+      ],
+      "reason": "blocked by policy",
+      "action": "Owned old native test profile cleanup rejected before execution. User notified. No alternate deletion/retry attempted. New r4 profiles cleaned through their normal lifecycle."
     }
   },
   "github_maintenance_20261029": {
@@ -846,7 +900,6 @@
     }
   },
   "next_steps_order": [
-    "Redesign Reader top controls with theme/size/DPI visual checks; volume book material is verified on x86/x64 in the working branch",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
     "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
