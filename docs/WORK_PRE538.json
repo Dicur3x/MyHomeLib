@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 29 completed items after the verified adaptive catalogue preview; release/version and compact filters retained.",
+    "verification": "52 blocks, 30 completed items after verified compact search filters; final 3.x version/update and release gates retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: adaptive catalogue preview and related footer, gallery and async loading passed on fresh x86/x64 binaries; Page sequence 21 read back. Unreleased."
+    "last_check": "30 October 2026: compact search and six related native modes passed fresh x86/x64 binaries, 43 PASS lines each; Page sequence 23 read back. Unreleased."
   },
   "order": [
     "archive_opening",
@@ -733,8 +733,41 @@
       }
     },
     "search_filter_compact_layout": {
-      "status": "queued_with_visual_improvements",
-      "request": "Tester missed no-duplicates-by-series because search filters do not fit on screen. Make frequent settings visible, group/collapse advanced settings, and ensure reliable scrolling and complete keyboard access on small screens/high DPI. Do not change book identity or remove valid series associations to hide repeated rows."
+      "status": "verified_in_source_not_released",
+      "request": "Tester missed no-duplicates-by-series because search filters do not fit on screen. Make frequent settings visible, group/collapse advanced settings, and ensure reliable scrolling and complete keyboard access on small screens/high DPI. Do not change book identity or remove valid series associations to hide repeated rows.",
+      "implementation": [
+        "Author, title, series, genre, no-repeat-by-series and notes at the top; optional metadata under a persistent More fields expander with count and hint for active hidden criteria",
+        "Location and hide-deleted filters precede File; categories, remaining fields and actions accessible with Tab/Space and normal wheel scrolling",
+        "Apply/Clear pinned outside the scroll area; font-aware compact rows and explicit native group realignment prevent category overlap and wrong scrolling range",
+        "Saved presets reveal filled advanced fields; hiding fields preserves query semantics; focus stays on Author on fresh Search startup without resetting ordinary focus/scroll"
+      ],
+      "verification": {
+        "date": "2026-10-30",
+        "reports": [
+          "tools/ui/tests/Out/pre538-compact-search-20261030-r2-Win32.json",
+          "tools/ui/tests/Out/pre538-compact-search-20261030-r2-Win64.json"
+        ],
+        "modes": [
+          "compact-search-filters",
+          "search-startup-layout",
+          "publisher-search",
+          "search-presets",
+          "search-query-modes",
+          "favorite-ui",
+          "compact-book-views"
+        ],
+        "pass_lines_per_architecture": 43,
+        "matrix": "24 compact-search cases per architecture: both themes, 96/144/192 DPI, 800/1150 widths and 600/800 heights",
+        "regressions": "Actual search matching and nonmatching advanced conditions, persisted expansion states, keyboard and mouse wheel, startup visibility/focus, publishers/translators/city/year/ISBN, presets, literal query modes, favorites and compact views; isolated collection bytes unchanged",
+        "live_ui": "Win32 actual 1000x760 Main: light and dark, expanded/collapsed fields, scrolling over input, pinned actions. Visual run exit 0, temporary profile HomeLibRu-native-PEsEug removed. Higher DPI/narrower cases verified by native assertions, not claimed as manual screenshots.",
+        "source_hashes_match_both_reports": true,
+        "binary_sha256": {
+          "Win32": "461d329f73259a2e02398521a722e2024a5ed343ca0c9a6d65913c890617b99a",
+          "Win64": "19d98ac7ebb5a4244f4f25ed9f7879c245f4a5902544a9a215bc99c59a10f03f"
+        },
+        "cleanup": "All newly created native verification profiles removed by owned runner lifecycle; no attempts against earlier rejected paths. Small proof logs retained, no large distribution payloads created.",
+        "timing": "Functional/layout checks only; no idle-machine performance claim."
+      }
     },
     "estimate_failure_visibility": {
       "status": "implemented_and_verified_native_x86_x64_pending_final_release_binaries",
@@ -934,7 +967,6 @@
     }
   },
   "next_steps_order": [
-    "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
     "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"

@@ -141,6 +141,7 @@ type
     FBookSRCollapsed: Boolean;
     FFileSRCollapsed: Boolean;
     FOtherSRCollapsed: Boolean;
+    FSearchMoreExpanded: Boolean;
     FEditToolBarVisible: Boolean;
 
     FProxyServer: string;
@@ -421,6 +422,7 @@ type
     property BookSRCollapsed: Boolean read FBookSRCollapsed write FBookSRCollapsed;
     property FileSRCollapsed: Boolean read FFileSRCollapsed write FFileSRCollapsed;
     property OtherSRCollapsed: Boolean read FOtherSRCollapsed write FOtherSRCollapsed;
+    property SearchMoreExpanded: Boolean read FSearchMoreExpanded write FSearchMoreExpanded;
     property ForceConvertToFBD: Boolean read FForceConvertToFBD write FForceConvertToFBD;
     property OverwriteFB2Info: Boolean read FOverwriteFB2Info write FOverwriteFB2Info;
     property IgnoreAbsentArchives: Boolean read FIgnoreAbsentArchives write FIgnoreAbsentArchives;
@@ -772,6 +774,7 @@ begin
     FBookSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'BookSR', False);
     FFileSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'FileSR', False);
     FOtherSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'OtherSR', False);
+    FSearchMoreExpanded := iniFile.ReadBool(INTERFACE_SECTION, 'SearchMoreExpanded', False);
     FEditToolBarVisible := iniFile.ReadBool(INTERFACE_SECTION, 'ShowEditToolBar', False);
     FDarkTheme := iniFile.ReadBool(INTERFACE_SECTION, 'DarkTheme', False);
     FWindowsDarkThemeOfferDismissed := iniFile.ReadBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', False);
@@ -942,6 +945,7 @@ begin
     iniFile.WriteBool(INTERFACE_SECTION, 'BookSR', FBookSRCollapsed);
     iniFile.WriteBool(INTERFACE_SECTION, 'FileSR', FFileSRCollapsed);
     iniFile.WriteBool(INTERFACE_SECTION, 'OtherSR', FOtherSRCollapsed);
+    iniFile.WriteBool(INTERFACE_SECTION, 'SearchMoreExpanded', FSearchMoreExpanded);
     iniFile.WriteBool(INTERFACE_SECTION, 'ShowEditToolBar', FEditToolBarVisible);
     iniFile.WriteBool(INTERFACE_SECTION, 'DarkTheme', FDarkTheme);
     iniFile.WriteBool(INTERFACE_SECTION, 'WindowsDarkThemeOfferDismissed', FWindowsDarkThemeOfferDismissed);

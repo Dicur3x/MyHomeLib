@@ -1003,6 +1003,9 @@ type
     FPublisherSearchLabel: TLabel;
     FTranslatorSearchEdit, FCitySearchEdit, FPubYearSearchEdit, FISBNSearchEdit: TMHLButtonedEdit;
     FUpdatingSearchLayout: Boolean;
+    FSearchMoreButton: TButton;
+    FSearchWheelRemainder: Integer;
+    FSearchAdvancedControls: TArray<TControl>;
     FNotesOnlySearchCheck: TCheckBox;
     FReaderNotesAction: TAction;
 
@@ -1082,6 +1085,11 @@ type
     procedure OpenReaderNote(const Note: TReaderAnnotation);
     procedure RefreshNotesSearch;
     procedure UpdateSearchBookLayout;
+    procedure ShowAdvancedSearchFields(Value: Boolean);
+    procedure SearchMoreClick(Sender: TObject);
+    procedure SearchFiltersMouseWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+    procedure SearchAdvancedChange(Sender: TObject);
     procedure SearchBookExpanded(Sender: TObject);
 
     function AuthorBookFilter: TFilterValue;
@@ -1836,6 +1844,10 @@ begin
   pgControlChange(nil);
 
   SetColors;
+  // Headers remain keyboard-accessible, but a fresh Search window starts in
+  // Author. Ordinary view refreshes never reset deliberate focus or scrolling.
+  if not Visible and (pgControl.ActivePage=tsSearch) and not ctpBook.Collapsed then
+    ActiveControl:=edFFullName;
 end;
 
 procedure TfrmMain.DoApplyFilter(Sender: TObject);
@@ -3915,9 +3927,7 @@ end;
 procedure TfrmMain.CreatePublisherSearchField;
 var
   Body: TWinControl;
-  Ordered: TArray<TControl>;
   Control: TControl;
-  Position: Integer;
   TranslatorsLabel, CityLabel, YearLabel, ISBNLabel: TLabel;
   procedure AddField(const Name, Caption, Hint: string; out Edit: TMHLButtonedEdit; out LabelControl: TLabel);
   begin
@@ -3947,30 +3957,31 @@ begin
     FNotesOnlySearchCheck.Height:=cbCollapseMultiSeriesResults.Height;
     FNotesOnlySearchCheck.AlignWithMargins:=True; FNotesOnlySearchCheck.Margins.Assign(cbCollapseMultiSeriesResults.Margins);
     FNotesOnlySearchCheck.Align:=alTop;
-    Ordered:=TArray<TControl>.Create(Label5,edFFullName,Label24,edFTitle,
-      cbCollapseMultiSeriesResults,FNotesOnlySearchCheck,Label6,edFSeries,FPublisherSearchLabel,FPublisherSearchEdit,
-      TranslatorsLabel,FTranslatorSearchEdit,CityLabel,FCitySearchEdit,YearLabel,FPubYearSearchEdit,
-      ISBNLabel,FISBNSearchEdit,Label26,edFGenre,Label3,edFKeyWords,Label7,edFAnnotation);
-    Position:=Body.Padding.Top;
-    for Control in Ordered do
-    begin
-      Control.Top:=Position; Inc(Position,Control.Height);
-      if Control.AlignWithMargins then Inc(Position,Control.Margins.Top+Control.Margins.Bottom);
-    end;
-    FPublisherSearchEdit.TabOrder:=edFSeries.TabOrder+1;
-    FTranslatorSearchEdit.TabOrder:=FPublisherSearchEdit.TabOrder+1;
-    FCitySearchEdit.TabOrder:=FTranslatorSearchEdit.TabOrder+1;
-    FPubYearSearchEdit.TabOrder:=FCitySearchEdit.TabOrder+1;
-    FISBNSearchEdit.TabOrder:=FPubYearSearchEdit.TabOrder+1;
-    edFGenre.TabOrder:=FISBNSearchEdit.TabOrder+1;
-    edFKeyWords.TabOrder:=edFGenre.TabOrder+1; edFAnnotation.TabOrder:=edFKeyWords.TabOrder+1;
   finally Body.EnableAlign; end;
-  ctpBook.OnExpand:=SearchBookExpanded; UpdateSearchBookLayout;
+  FSearchMoreButton:=TButton.Create(Self); FSearchMoreButton.Parent:=Body;
+  FSearchMoreButton.Name:='SearchMoreFiltersButton'; FSearchMoreButton.OnClick:=SearchMoreClick;
+  FSearchMoreButton.ShowHint:=True;
+  FSearchAdvancedControls:=TArray<TControl>.Create(FPublisherSearchLabel,FPublisherSearchEdit,
+    TranslatorsLabel,FTranslatorSearchEdit,CityLabel,FCitySearchEdit,YearLabel,FPubYearSearchEdit,
+    ISBNLabel,FISBNSearchEdit,Label3,edFKeyWords,Label7,edFAnnotation);
+  for Control in FSearchAdvancedControls do
+    if Control is TMHLButtonedEdit then TMHLButtonedEdit(Control).OnChange:=SearchAdvancedChange;
+  edFFullName.TabOrder:=0; edFTitle.TabOrder:=1;
+  cbCollapseMultiSeriesResults.TabOrder:=2; FNotesOnlySearchCheck.TabOrder:=3;
+  edFSeries.TabOrder:=4; edFGenre.TabOrder:=5; FSearchMoreButton.TabOrder:=6;
+  FPublisherSearchEdit.TabOrder:=7; FTranslatorSearchEdit.TabOrder:=8; FCitySearchEdit.TabOrder:=9;
+  FPubYearSearchEdit.TabOrder:=10; FISBNSearchEdit.TabOrder:=11; edFKeyWords.TabOrder:=12;
+  edFAnnotation.TabOrder:=13;
+  ctpBook.OnExpand:=SearchBookExpanded; ctpOther.OnExpand:=SearchBookExpanded;
+  ctpFile.OnExpand:=SearchBookExpanded;
+  ShowAdvancedSearchFields(Settings.SearchMoreExpanded);
 end;
 
 procedure TfrmMain.CreateSearchPanelAdapter;
 begin
   FSearchMode := TSearchQueryModeControl.CreateFor(Self, pnSearchView);
+  SearchParams.OnMouseWheel:=SearchFiltersMouseWheel;
+  SearchParams.OnResize:=SearchBookExpanded;
   // Keep fresh keyboard input in Author; the mode remains in the Tab sequence.
   SearchParams.TabOrder := 0;
   FSearchMode.TabOrder := 1;
@@ -4000,33 +4011,160 @@ begin
   FSearchFields.CollapseSeries := cbCollapseMultiSeriesResults;
 end;
 
-procedure TfrmMain.UpdateSearchBookLayout;
-var
-  Body: TWinControl;
-  Control: TControl;
-  NeededHeight: Integer;
+procedure TfrmMain.SearchAdvancedChange(Sender: TObject);
+var Count: Integer; Names: string;
 begin
-  if FUpdatingSearchLayout or not Assigned(FPublisherSearchEdit) or
-    not Assigned(ctpBook) or ctpBook.Collapsed then Exit;
-  FUpdatingSearchLayout := True;
-  try
-    Body := edFAnnotation.Parent;
-    ctpBook.Realign;
-    Body.Realign;
-    NeededHeight := Body.Padding.Top + Body.Padding.Bottom +
-      Max(0, ctpBook.Height - Body.ClientHeight);
-    for var I := 0 to Body.ControlCount - 1 do
+  if (csDestroying in ComponentState) or not Assigned(FSearchMoreButton) then Exit;
+  Count:=0; Names:='';
+  for var I:=0 to (Length(FSearchAdvancedControls) div 2)-1 do
+    if Trim(TMHLButtonedEdit(FSearchAdvancedControls[2*I+1]).Text)<>'' then
     begin
-      Control := Body.Controls[I];
-      if Control.Visible and (Control.Align = alTop) then
-      begin
-        Inc(NeededHeight, Control.Height);
-        if Control.AlignWithMargins then
-          Inc(NeededHeight, Control.Margins.Top + Control.Margins.Bottom);
-      end;
+      Inc(Count);
+      if Names<>'' then Names:=Names+', ';
+      Names:=Names+TLabel(FSearchAdvancedControls[2*I]).Caption;
     end;
-    if ctpBook.Height <> NeededHeight then ctpBook.Height := NeededHeight;
-  finally FUpdatingSearchLayout := False; end;
+  FSearchMoreButton.Caption:='Ещё параметры';
+  if Count>0 then FSearchMoreButton.Caption:=FSearchMoreButton.Caption+' ('+Count.ToString+')';
+  if Settings.SearchMoreExpanded then FSearchMoreButton.Caption:=FSearchMoreButton.Caption+' ▾'
+  else FSearchMoreButton.Caption:=FSearchMoreButton.Caption+' ▸';
+  FSearchMoreButton.Hint:='Издательство, переводчики, город, год издания, ISBN, ключевые слова и аннотация.';
+  if Count>0 then FSearchMoreButton.Hint:=FSearchMoreButton.Hint+sLineBreak+'Заполнены: '+Names+
+    '. Скрытие полей сохраняет условия. Поиск запускается кнопкой «Применить».';
+end;
+
+procedure TfrmMain.ShowAdvancedSearchFields(Value: Boolean);
+begin
+  Settings.SearchMoreExpanded:=Value;
+  for var Control in FSearchAdvancedControls do Control.Visible:=Value;
+  SearchAdvancedChange(nil);
+  UpdateSearchBookLayout;
+end;
+
+procedure TfrmMain.SearchMoreClick(Sender: TObject);
+begin
+  ShowAdvancedSearchFields(not Settings.SearchMoreExpanded);
+end;
+
+procedure TfrmMain.SearchFiltersMouseWheel(Sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+var Steps: Integer;
+begin
+  if (ssCtrl in Shift) or (SearchParams.VertScrollBar.Range<=SearchParams.ClientHeight) then Exit;
+  Inc(FSearchWheelRemainder,WheelDelta);
+  Steps:=FSearchWheelRemainder div WHEEL_DELTA;
+  FSearchWheelRemainder:=FSearchWheelRemainder mod WHEEL_DELTA;
+  SearchParams.VertScrollBar.Position:=SearchParams.VertScrollBar.Position-
+    Steps*MulDiv(36,Max(1,edFTitle.Font.PixelsPerInch),96);
+  Handled:=True;
+end;
+
+procedure TfrmMain.UpdateSearchBookLayout;
+var PPI, Pad, Gap, Y, W, LabelW: Integer; Body: TWinControl;
+  function TextSize(LabelControl: TLabel): TSize;
+  begin
+    Canvas.Font.Assign(LabelControl.Font);
+    Result:=Canvas.TextExtent(LabelControl.Caption);
+  end;
+  procedure Place(Control: TControl; Left, Top, Width, Height: Integer);
+  begin
+    Control.Align:=alNone; Control.AlignWithMargins:=False;
+    Control.SetBounds(Left,Top,Max(0,Width),Max(0,Height));
+  end;
+  procedure Field(LabelControl: TLabel; EditControl: TWinControl; Compact: Boolean);
+  var Size: TSize; RowH: Integer;
+  begin
+    Size:=TextSize(LabelControl);
+    LabelControl.AutoSize:=False; LabelControl.Alignment:=taLeftJustify;
+    LabelControl.FocusControl:=EditControl;
+    RowH:=Max(EditControl.Height,Size.cy+Gap);
+    if Compact and (W-LabelW-Gap>=MulDiv(85,PPI,96)) then
+    begin
+      Place(LabelControl,Pad,Y+(RowH-Size.cy) div 2,LabelW,Size.cy);
+      Place(EditControl,Pad+LabelW+Gap,Y,W-LabelW-Gap,RowH);
+    end
+    else
+    begin
+      Place(LabelControl,Pad,Y,W,Size.cy); Inc(Y,Size.cy+Gap);
+      Place(EditControl,Pad,Y,W,RowH);
+    end;
+    Inc(Y,RowH+Gap);
+  end;
+  procedure Check(Control: TCheckBox);
+  var RowH: Integer;
+  begin
+    Canvas.Font.Assign(Control.Font);
+    RowH:=Max(MulDiv(20,PPI,96),Canvas.TextHeight('Wg')+Gap);
+    Place(Control,Pad,Y,W,RowH); Inc(Y,RowH+Gap);
+  end;
+  procedure StartCategory(Category: TCategoryPanel; ABody: TWinControl);
+  begin
+    Body:=ABody; Body.DisableAlign;
+    Pad:=MulDiv(5,PPI,96); Gap:=MulDiv(4,PPI,96);
+    Y:=Body.Padding.Top+Gap; W:=Max(1,Body.ClientWidth-2*Pad);
+  end;
+  procedure FinishCategory(Category: TCategoryPanel);
+  var NeededHeight: Integer;
+  begin
+    try
+      NeededHeight:=Y+Body.Padding.Bottom+Max(0,Category.Height-Body.ClientHeight);
+      if Category.Height<>NeededHeight then Category.Height:=NeededHeight;
+    finally Body.EnableAlign; end;
+  end;
+begin
+  if (csDestroying in ComponentState) or FUpdatingSearchLayout or
+    not Assigned(FSearchMoreButton) then Exit;
+  FUpdatingSearchLayout:=True;
+  try
+    PPI:=Max(1,edFTitle.Font.PixelsPerInch);
+    // A scrollbar can change the content width after the first realignment.
+    // Settle that native width before returning to the caller.
+    for var Pass:=1 to 2 do
+    begin
+    SearchParams.DisableAlign;
+    try
+      if not ctpBook.Collapsed then
+      begin
+        StartCategory(ctpBook,edFTitle.Parent);
+        LabelW:=0;
+        for var L in TArray<TLabel>.Create(Label5,Label24,Label6,Label26) do
+          LabelW:=Max(LabelW,TextSize(L).cx);
+        Field(Label5,edFFullName,True); Field(Label24,edFTitle,True);
+        Check(cbCollapseMultiSeriesResults); Check(FNotesOnlySearchCheck);
+        Field(Label6,edFSeries,True); Field(Label26,edFGenre,True);
+        Place(FSearchMoreButton,Pad,Y,W,Max(MulDiv(28,PPI,96),edFTitle.Height+Gap));
+        Inc(Y,FSearchMoreButton.Height+Gap);
+        if Settings.SearchMoreExpanded then
+          for var I:=0 to (Length(FSearchAdvancedControls) div 2)-1 do
+            Field(TLabel(FSearchAdvancedControls[2*I]),
+              TWinControl(FSearchAdvancedControls[2*I+1]),False);
+        FinishCategory(ctpBook);
+      end;
+      if not ctpOther.Collapsed then
+      begin
+        StartCategory(ctpOther,cbDate.Parent);
+        Field(Label4,cbDownloaded,False); Check(cbDeleted); Check(cbReaded);
+        LabelW:=Max(TextSize(Label30).cx,Max(TextSize(Label2).cx,TextSize(Label8).cx));
+        Field(Label30,cbDate,True); Field(Label2,cbLang,True); Field(Label8,cbLibRate,True);
+        FinishCategory(ctpOther);
+      end;
+      if not ctpFile.Collapsed then
+      begin
+        StartCategory(ctpFile,edFFile.Parent);
+        LabelW:=Max(TextSize(Label27).cx,Max(TextSize(Label28).cx,TextSize(Label29).cx));
+        Field(Label27,edFFile,True); Field(Label28,edFFolder,True); Field(Label29,edFExt,True);
+        FinishCategory(ctpFile);
+      end;
+    finally SearchParams.EnableAlign; end;
+    SearchParams.Realign;
+    end;
+    // Keep Apply and Clear outside the scrolling fields at every scale.
+    Gap:=MulDiv(6,PPI,96); Pad:=MulDiv(3,PPI,96);
+    Y:=Max(MulDiv(28,PPI,96),btnApplyFilter.Height);
+    pnSearchControl.Height:=Y+2*Pad;
+    W:=Max(1,(pnSearchControl.ClientWidth-Gap) div 2);
+    btnApplyFilter.SetBounds(0,Pad,W,Y);
+    btnClearFilterEdits.SetBounds(W+Gap,Pad,Max(1,pnSearchControl.ClientWidth-W-Gap),Y);
+  finally FUpdatingSearchLayout:=False; end;
 end;
 
 procedure TfrmMain.SearchBookExpanded(Sender: TObject);
@@ -4042,8 +4180,9 @@ begin
   // Follow the visual order when VCL selects the first Search control.
   // The inherited reverse tab order focused Date and scrolled Author offscreen.
   ctpBook.TabOrder := 0;
-  ctpFile.TabOrder := 1;
-  ctpOther.TabOrder := 2;
+  ctpOther.TabOrder := 1;
+  ctpFile.TabOrder := 2;
+  ctpBook.TabStop:=True; ctpOther.TabStop:=True; ctpFile.TabStop:=True;
 
   FSelectionState := False;
   FAutoCheck := False;
@@ -11395,7 +11534,12 @@ begin
   if preset.TryGetValue(SF_LANG, Value) then
     cbLang.ItemIndex := EnsureRange(StrToIntDef(Value, -1), -1, cbLang.Items.Count - 1);
   if preset.TryGetValue(SF_READED, Value) then cbReaded.Checked := StrToBoolDef(Value, False);
-
+  // Selecting a saved condition should reveal its extra metadata fields.
+  for var I:=0 to (Length(FSearchAdvancedControls) div 2)-1 do
+    if Trim(TMHLButtonedEdit(FSearchAdvancedControls[2*I+1]).Text)<>'' then
+    begin
+      ctpBook.Collapsed:=False; ShowAdvancedSearchFields(True); Break;
+    end;
 end;
 
 procedure TfrmMain.btnStartDownloadClick(Sender: TObject);

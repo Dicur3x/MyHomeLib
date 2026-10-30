@@ -117,7 +117,7 @@ end;
 procedure TestSearchStartupLayout;
 var Viewport, ParentClient, Intersection, LabelBounds, InputBounds, HeaderBounds: TRect;
   Parent, InitialFocus: TWinControl; InitialPPI, UserScroll, TabSteps: Integer;
-  QueryMode: TSearchQueryModeControl;
+  QueryMode: TSearchQueryModeControl; MoreButton: TButton; OpenedMore: Boolean;
 
   function FullyInside(const Bounds, Container: TRect): Boolean;
   begin
@@ -161,8 +161,8 @@ begin
   Require(FullyInside(HeaderBounds,Viewport),'Fresh Search book-category header is clipped at initial top');
   Require(frmMain.Label5.Visible and FullyInside(LabelBounds,Viewport),'Fresh Search Author label is clipped at initial top');
   Require(frmMain.edFFullName.Visible and FullyInside(InputBounds,Viewport),'Fresh Search Author input is clipped at initial top');
-  Require((frmMain.ctpBook.TabOrder=0) and (frmMain.ctpFile.TabOrder=1) and
-    (frmMain.ctpOther.TabOrder=2),'Search keyboard order differs from its visible category order');
+  Require((frmMain.ctpBook.TabOrder=0) and (frmMain.ctpOther.TabOrder=1) and
+    (frmMain.ctpFile.TabOrder=2),'Search keyboard order differs from its visible category order');
   Require(frmMain.ActiveControl=frmMain.edFFullName,'Fresh Search did not naturally focus its first Author input');
   Writeln('PASS search startup first category header, Author label and input are fully visible without scaling or scrolling'); Flush(Output);
 
@@ -191,13 +191,26 @@ begin
     frmMain.SearchParams.VertScrollBar.Position:=0;
   end;
 
+  // The compact default may now fit. Deliberately expand extra fields to
+  // retain a real overflow/focus oracle without making the startup fixture taller.
+  MoreButton:=frmMain.FindComponent('SearchMoreFiltersButton') as TButton;
+  OpenedMore:=not Settings.SearchMoreExpanded;
+  Writeln('TRACE startup more before state=',Ord(Settings.SearchMoreExpanded),' visible=',Ord(frmMain.edFAnnotation.Visible),
+    ' bookh=',frmMain.ctpBook.Height,' range=',frmMain.SearchParams.VertScrollBar.Range);
+  if OpenedMore then MoreButton.Click;
+  Writeln('TRACE startup more after state=',Ord(Settings.SearchMoreExpanded),' visible=',Ord(frmMain.edFAnnotation.Visible),
+    ' bookh=',frmMain.ctpBook.Height,' range=',frmMain.SearchParams.VertScrollBar.Range);
   // Only AFTER the unmodified startup oracle, emulate deliberate lower-field
   // focus and scrolling. The ordinary view refresh must not force either back.
   InitialFocus:=frmMain.ActiveControl;
   try
     Require(frmMain.cbDate.CanFocus,'The lower Search Date field cannot receive deliberate user focus');
     frmMain.ActiveControl:=frmMain.cbDate; Application.ProcessMessages;
+    Writeln('TRACE startup date focus scroll=',frmMain.SearchParams.VertScrollBar.Position,
+      ' range=',frmMain.SearchParams.VertScrollBar.Range,' client=',frmMain.SearchParams.ClientHeight);
     frmMain.SearchParams.VertScrollBar.Position:=23; Application.ProcessMessages;
+    Writeln('TRACE startup set scroll=',frmMain.SearchParams.VertScrollBar.Position,
+      ' range=',frmMain.SearchParams.VertScrollBar.Range,' client=',frmMain.SearchParams.ClientHeight);
     UserScroll:=frmMain.SearchParams.VertScrollBar.Position;
     Require(UserScroll>0,'Search has no scrollable range for the manual-position oracle');
     frmMain.pgControlChange(nil); Application.ProcessMessages;
@@ -210,5 +223,6 @@ begin
   finally
     frmMain.ActiveControl:=InitialFocus; Application.ProcessMessages;
     frmMain.SearchParams.VertScrollBar.Position:=0;
+    if OpenedMore then MoreButton.Click;
   end;
 end;

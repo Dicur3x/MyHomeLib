@@ -5593,6 +5593,7 @@ end;
 {$I DownloadQueueSerializationTests.inc}
 {$I QueuePersistenceTests.inc}
 {$I SearchStartupLayoutTests.inc}
+{$I CompactSearchFilterTests.inc}
 {$I CatalogSourcesWorkflowTests.inc}
 {$I MainLiveInputFavoriteTests.inc}
 {$I UpdateFormNotifierTests.inc}
@@ -5965,6 +5966,7 @@ begin
       else if ParamStr(1) = 'feedback21' then TestFeedback21
       else if ParamStr(1) = 'feedback20-main' then
         TestFeedback20(One,Two,OneID,TwoID)
+      else if ParamStr(1) = 'compact-search-filters' then TestCompactSearchFilters
       else if ParamStr(1) = 'publisher-search' then
         TestPublisherSearch(One, OneID)
       else if ParamStr(1) = 'publisher-columns' then

@@ -2466,7 +2466,7 @@
           HeaderFont.Style = []
           TabOrder = 0
           object ctpOther: TCategoryPanel
-            Top = 514
+            Top = 337
             Caption = #1056#1072#1079#1085#1086#1077
             TabOrder = 0
             ExplicitWidth = 185
@@ -2616,7 +2616,7 @@
             end
           end
           object ctpFile: TCategoryPanel
-            Top = 337
+            Top = 514
             Height = 177
             Caption = #1060#1072#1081#1083
             TabOrder = 1

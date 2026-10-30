@@ -78,15 +78,14 @@ var
   var Body: TWinControl;
   begin
     Body := frmMain.edFAnnotation.Parent;
-    Require((frmMain.Label7.Align = alTop) and (frmMain.edFAnnotation.Align = alTop),
-      'Annotation caption and edit are not in the aligned reading order');
+    Require(frmMain.Label7.Visible and frmMain.edFAnnotation.Visible,
+      'Expanded extra search fields lost the annotation label/input');
     Require((frmMain.Label7.Top + frmMain.Label7.Height <= frmMain.edFAnnotation.Top) and
-      (frmMain.edFAnnotation.Top + frmMain.edFAnnotation.Height +
-       frmMain.edFAnnotation.Margins.Bottom <= Body.ClientHeight - Body.Padding.Bottom),
+      (frmMain.edFAnnotation.Top + frmMain.edFAnnotation.Height <= Body.ClientHeight - Body.Padding.Bottom),
       'Annotation is covered, clipped or outside its expanded panel at ' + IntToStr(frmMain.CurrentPPI));
-    Require((frmMain.edFSeries.Top + frmMain.edFSeries.Height < Edit.Top) and
-      (Edit.Top + Edit.Height < frmMain.edFGenre.Top),
-      'Publisher field is out of the intended series/publisher/genre reading order');
+    Require((frmMain.edFSeries.BoundsRect.Bottom<=frmMain.edFGenre.Top) and
+      (frmMain.edFGenre.BoundsRect.Bottom<Edit.Top),
+      'Extra publisher field moved ahead of the compact common search fields');
   end;
 
 begin
@@ -185,6 +184,8 @@ begin
   Writeln('PASS publisher header toggle preserves each saved column layout');
 
   OriginalPPI := frmMain.CurrentPPI;
+  if not Settings.SearchMoreExpanded then
+    TButton(frmMain.FindComponent('SearchMoreFiltersButton')).Click;
   frmMain.ctpBook.Collapsed := False;
   for I in [96, 144, 192] do
   begin
