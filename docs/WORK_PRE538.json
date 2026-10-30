@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "53 blocks, 32 completed items, sequence 27 read back; added verified existing Ctrl+O/standalone portability item without changing unrelated blocks or metadata.",
+    "verification": "54 blocks, 33 completed items, sequence 28 read back; added the completed prepared-package pre5.37 install/restart proof, reconciled the remaining update scope and corroborated external-reader visibility without changing unrelated blocks, order or metadata.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: sequence 27; Ctrl+O and four standalone portable/explicit-profile cases verified from final Reader archives. Old published upgrades, network/restart, other final release checks and publication stay open."
+    "last_check": "30 October 2026: sequence 28; original published pre5.37 Main and helper passed prepared-package installation/restart on x86/x64 with 240 managed files and synthetic personal data preserved. The new x64 updater visibly lists uninstalled AlReader/SumatraPDF. Network/download, earlier receivers, independent Reader/module upgrades and remaining final release checks/publication stay open."
   },
   "order": [
     "archive_opening",
@@ -1018,12 +1018,12 @@
     }
   },
   "next_steps_order": [
-    "Verify actual updates with old published receivers and independent Reader/module upgrades using exact prepared archives; reconcile final feed metadata and preserve strict version, architecture, manifest and SHA-256 checks",
+    "Continue independent Reader/module upgrade checks and final feed reconciliation; pre5.37 Main install/restart and its original helper have passed on x86/x64 with exact prepared archives. Network/download and earlier published receivers are not yet covered; preserve strict version, architecture, manifest and SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
   "release_integration_20261030": {
-    "status": "eight_production_executables_local_install_and_main_reader_gui_verified_not_published",
+    "status": "published_pre537_install_restart_verified_both_architectures_final_checks_pending_not_published",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1033,7 +1033,7 @@
     ],
     "reader_report": "tools/ui/tests/Out/homelibre-3beta1-reader-packages-20261030-r2.json",
     "reader_producer_fix": "Versioned Reader asset names now match the bootstrap feed; reject mismatched current Reader/updater numeric versions before writing output; generated descriptors include archive names and current UTC date.",
-    "reader_compatibility_limit": "Reader retains libzstd.dll required by old component installers; catalogue minimum excludes it and optional format payloads. Catalogue/Reader integration passed; standalone portability now also passed; old published update and network/restart checks remain pending.",
+    "reader_compatibility_limit": "Reader retains libzstd.dll required by old component installers; catalogue minimum excludes it and optional format payloads. Catalogue/Reader integration, standalone portability and actual pre5.37 Main install/restart passed. Reader/module upgrade, earlier published receivers and network/download checks remain pending.",
     "release_notes": "docs/releases/RELEASE_NOTES_3.0.0_pre1.1.md",
     "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks. New successful x86/x64 GUI profiles and all native component-install profiles removed normally. The initial x64 observer-timeout profile left locked Reader data during cleanup; after Reader closed, automatic review rejected deletion of G:/HomeLibRu-build-cache/HomeLibRu-native-reader-main-qovpkoez before execution with blocked by policy. User notified; this path and its enclosing parent must not be retried.",
     "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report.",
@@ -1063,6 +1063,21 @@
     "gui_observations": "Computer Use visually confirmed HomeLibre/3.0 beta 1 catalogue identity, Unicode word selection by double click, hidden controls without changing normal-window size, top-strip restore, and independent F11 full-screen enter/leave on both architectures. x64 also preserved hidden controls through a full-screen round trip. No performance timing claim.",
     "harness_corrections": "Native repair output includes a PASS footer (initial wrapper-only assertion corrected). GUI fixture now uses fresh native fixture EXEs and the exact catalogue archive without extra runtime DLLs/root metadata; the legacy fixture-only root genre import is removed before launch. Initial x64 manual UI phase hit its 600s observer deadline, not a proved application failure. Retry used explicit 1800s, passed normal exits and cleanup. Harness now closes only Reader children at its exact private path before cleanup and preserves failure reports.",
     "reader_portability_report": "tools/ui/tests/Out/homelibre-3beta1-reader-portable-state-20261030-r1.json",
-    "reader_portability_scope": "Four ordinary actual Reader EXE cases from exact independently hashed ZIPs: Win32/Win64, portable by default with no marker and explicit profile, zipped Unicode FB2. Settings/history/cache under the correct profile; mock previous AppData and source unchanged; explicit mode preserved the default profile; all cases closed normally and 33,673,639-byte owned runtime removed."
+    "reader_portability_scope": "Four ordinary actual Reader EXE cases from exact independently hashed ZIPs: Win32/Win64, portable by default with no marker and explicit profile, zipped Unicode FB2. Settings/history/cache under the correct profile; mock previous AppData and source unchanged; explicit mode preserved the default profile; all cases closed normally and 33,673,639-byte owned runtime removed.",
+    "published_update_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-published37-helper-Win32-20261030-r2.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published37-helper-Win64-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published37-frontend-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published37-frontend-Win64-20261030-r1.json"
+    ],
+    "published_update_scope": "Exact cached pre5.37 archives independently matched current public GitHub asset SHA-256 metadata. Both original published helpers installed the prepared 3.0.0_pre1.1 archive and restarted the production Main. Both original published Main EXEs also restored the prepared ready package, validated the new helper, wrote the real old PID/application/tag/digest request, exited normally and restarted the production 3.0.0.1 catalogue. All four runs verified 240 managed file hashes, all seven Books rows/columns and synthetic personal-file/settings sentinels. New runtimes were removed. No network/download worker, full user collection, independent Reader/module upgrade or earlier receiver proof is claimed.",
+    "published_update_gui": "Computer Use confirmed the new HomeLibre/3.0 beta 1 identity and normal exit after both old-Main upgrades. On Win64 the user pressed the ready Install/restart button after Computer Use could not target the old modeless update window even after re-selection/reset. The new Win64 production updater then visibly listed uninstalled AlReader and SumatraPDF directly under HomeLibre; no external reader was installed. This corroborates the existing native tests and resolves the user's screenshot of the old pre5.37 list.",
+    "published_update_harness_corrections": "The initial fixture-only run failed its native temporary-folder-name guard before installation; the target was renamed to the required HomeLibRu-native prefix. A helper x86 run passed all update/preservation assertions but its SQLite read connection initially delayed Windows cleanup. The connection now closes explicitly in finally; after that process exited, a checked removal of its exact owned root succeeded and the report records cleanup recovery. The x64 helper and both Main-UI runs cleaned normally. These are test-harness corrections, not reproduced product failures.",
+    "published_archive_sha256": {
+      "pre537_Win32": "dec494fc800e130850a4ceb820662f9fcab93de580fad65df9546b34a71a5231",
+      "pre537_Win64": "ee2739035d410cd8bbf334972e61e2a97ddc45d22a07bb73e749d073103d786f",
+      "beta1_Win32": "7abb4c1f97cdbaa9beb685a0dfdb4259d922cb0f42ba215481adce92d76139f6",
+      "beta1_Win64": "10da3cc5f2f64e7d767eb45420f7bec04dcf5087a99e0465013027f3799cd956"
+    }
   }
 }
