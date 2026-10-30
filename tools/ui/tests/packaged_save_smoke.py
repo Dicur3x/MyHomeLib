@@ -1,7 +1,7 @@
 """Drive ordinary packaged Main Save As with Computer Use and owned books.
 
 Stage one starts with the exact minimal catalogue and no optional modules.
-After a normal exit, verify byte-exact copies, install only four verified local
+After a normal exit, verify byte-exact copies, install only five verified local
 components through native installer units, then reopen for mixed conversion.
 No user catalogue or download/restart success is inferred from this check.
 """
@@ -20,6 +20,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 import zipfile
+from doc_save_conversion_probe import read_doc_sample, verify_output
 
 ROOT = Path(__file__).resolve().parents[3]
 TAG = 'optional-alreader-2.5.1009.25'
@@ -49,6 +50,7 @@ def main():
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--timeout', type=int, default=1800)
+    parser.add_argument('--doc-inventory', type=Path, default=ROOT / 'tools/ui/tests/Out/pre533-format-inventory.json')
     args = parser.parse_args()
     stage = args.stage.resolve()
     assert not args.report.exists()
@@ -61,7 +63,8 @@ def main():
     # contains the dialog from before the latest source review.
     save_source = ROOT / 'Program/Units/unit_BookSendOptions.pas'
     for binary, dependencies in ((runtime / 'HomeLibRu.exe', (save_source,)),
-                                 (fixture, (save_source, ROOT / 'tools/ui/tests/UnifiedBookSendTests.inc'))):
+                                 (fixture, (save_source, ROOT / 'tools/ui/tests/UnifiedBookSendTests.inc',
+                                            ROOT / 'tools/ui/tests/BookSavePlanningTests.inc'))):
         for dependency in dependencies:
             assert binary.stat().st_mtime_ns >= dependency.stat().st_mtime_ns, (
                 f'Rebuild {binary} after the Save As changes in {dependency}')
@@ -69,9 +72,10 @@ def main():
         assert hashlib.sha256(archive.read('HomeLibRu.exe')).hexdigest() == sha(runtime / 'HomeLibRu.exe'), (
             'Repackage the current Main build before the interactive Save As check')
     assets = {item['name']: item for item in json.loads((stage / 'publication-r1/assets.json').read_bytes())}
+    doc_payload, doc_descriptor = read_doc_sample(args.doc_inventory)
     report = dict(status='FAIL', platform=platform, published=False,
                   scope='Ordinary packaged candidate Main GUI, synthetic real-format documents, exact minimal ZIP/local modules; no HTTP or restart claim',
-                  catalogue_sha256=sha(catalogue), phases=[], temporary_profile_removed=False)
+                  catalogue_sha256=sha(catalogue), real_doc_source=doc_descriptor, phases=[], temporary_profile_removed=False)
     app = None
     temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-save-')
     outer = Path(temporary.name).resolve()
@@ -100,9 +104,10 @@ def main():
         spec = importlib.util.spec_from_file_location('save_fixtures', Path(__file__).with_name('prepare_save_mixed_fixtures.py'))
         fixtures = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fixtures)
-        fixtures.prepare(target, runtime)
+        fixtures.prepare(target, runtime, doc_payload)
         inputs = target / 'mixed-save-inputs'
-        sources = [inputs / ('source' + extension) for extension in ('.fb2', '.epub', '.pdf', '.djvu')]
+        sources = [inputs / ('source' + extension) for extension in ('.fb2', '.epub', '.pdf', '.djvu', '.doc')]
+        doc_reference = json.loads((inputs / 'doc-reference.json').read_bytes())
         report['source_sha256'] = {path.suffix: sha(path) for path in sources}
         connection = sqlite3.connect(target / 'Data/one.hlc2')
         try:
@@ -135,7 +140,7 @@ def main():
         originals = outer / 'originals'
         converted = outer / 'converted'
         originals.mkdir(); converted.mkdir()
-        forbidden = ['bookconvert','images','kindle','office','xps','pdfium','djvu','7zip']
+        forbidden = ['bookconvert','images','kindle','office','xps','pdfium','djvu','doc','7zip']
         assert all(not (target / 'tools' / name).exists() for name in forbidden)
 
         def launch(phase, destination):
@@ -145,7 +150,7 @@ def main():
             report['active_phase']=phase
             report['own_main_pid']=app.pid
             print(json.dumps(dict(phase=phase,pid=app.pid,target=str(target),destination=str(destination),
-                                  instructions='Use Computer Use; save all four books, inspect, and close Main normally'),ensure_ascii=False),flush=True)
+                                  instructions='Use Computer Use; save all five books, inspect, and close Main normally'),ensure_ascii=False),flush=True)
             assert app.wait(timeout=args.timeout) == 0, phase
             phase_file = outer / (phase + '-observed.json')
             assert phase_file.is_file(), 'Record observed GUI checks before normal exit'
@@ -154,7 +159,7 @@ def main():
 
         launch('minimal-original', originals)
         output = [p for p in originals.rglob('*') if p.is_file()]
-        assert len(output)==4, [str(p) for p in output]
+        assert len(output)==len(sources), [str(p) for p in output]
         assert {p.suffix:sha(p) for p in output}==report['source_sha256'], 'Original copies changed bytes'
         assert all(not (target/'tools'/name).exists() for name in forbidden)
         report['unchanged_copy_without_optional_modules']=True
@@ -163,7 +168,8 @@ def main():
             name=f'HomeLibRu-{component}-3.0.0.1-{platform}.zip'
             component_sources.append((component,stage/'formats'/name,'3.0.0.1'))
         for component,version,cache in [('PDFium','157.0.8086.0','pre534-final-reader-modules-20261027'),
-                                       ('DjVuLibre','3.5.29','component-mirrors-pre534-20261027')]:
+                                       ('DjVuLibre','3.5.29','component-mirrors-pre534-20261027'),
+                                       ('DocSharp','0.21.0.0','component-mirrors-pre534-20261027')]:
             name=f'HomeLibRu-{component}-{version}-{platform}.zip'
             component_sources.append((component,ROOT/'tools/ui/tests/Out'/cache/name,version))
         report['installed_components']=[]
@@ -182,7 +188,7 @@ def main():
         assert not (target/'HomeLibReader.exe').exists()
         launch('mixed-conversion', converted)
         output = [p for p in converted.rglob('*') if p.is_file()]
-        assert len(output)==4 and all(p.suffix=='.epub' for p in output), [str(p) for p in output]
+        assert len(output)==len(sources) and all(p.suffix=='.epub' for p in output), [str(p) for p in output]
         report['converted_outputs']=[]
         for path in output:
             with zipfile.ZipFile(path) as archive:
@@ -194,6 +200,8 @@ def main():
                     assert 'First readable paragraph' in text and 'Last paragraph preserves the final sentence.' in text
                 elif 'DJVU' in path.stem:
                     assert 'knowledge' in text.casefold()
+                elif 'DOC' in path.stem:
+                    verify_output(path, doc_reference['paragraphs'], doc_reference['images'])
                 else:
                     assert 'Full text, final sentence. Ё, Україна, 中文.' in text
                 image_references=0
@@ -206,7 +214,7 @@ def main():
                         asset=posixpath.normpath(posixpath.join(posixpath.dirname(name),unquote(href.split('#')[0])))
                         assert asset in archive.namelist() and archive.getinfo(asset).file_size>0,href
                         image_references+=1
-                if 'DJVU' not in path.stem:
+                if 'DJVU' not in path.stem and ('DOC' not in path.stem or doc_reference['images']):
                     assert image_references>0,'Source illustration disappeared'
             report['converted_outputs'].append(dict(file=path.name,size=path.stat().st_size,sha256=sha(path),
                                                     expected_text_preserved=True,image_references=image_references))

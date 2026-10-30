@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "58 blocks, 37 completed items, sequence 33 read back. Compact Save As remains unchecked pending rebuild/GUI proof; source now supports a selected-row filename example without changing the saved batch. Existing completed work, remaining scope, order/title/metadata preserved.",
+    "verification": "59 blocks, 38 completed items, sequence 34 read back. Added narrowly scoped real-DOC conversion proof on both architectures. Compact Save As remains unchecked pending rebuild/GUI proof; source supports a selected-row filename example without changing the saved batch. Existing completed work, remaining scope, order/title/metadata preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: sequence 33. User needs the desktop for gaming: no Computer Use or GUI builds until their completion message. Source/tests now cover choosing a batch-row preview while preserving all selected books. New smoke freshness guard rejects stale Main/fixture inputs before creating profiles or launching GUI. Rebuild/visual review, resumed mixed Save As, final package/network tests and publication pending. Earlier candidate proofs retained; interrupted runtime removed; denied cleanup not retried."
+    "last_check": "30 October 2026: sequence 34. User explicitly finished gaming; Computer Use resumed and Delphi selected. Real DOC conversions passed with only exact BookProcessing and DocSharp payloads on Win32/Win64, 16 decoded body paragraphs retained, private profiles removed. Mixed fixture/GUI scenario now includes real DOC but awaits native rebuild and execution. Compact Save As rebuild/visual review, package/network tests and publication pending. Earlier candidate proofs retained; denied cleanup not retried."
   },
   "order": [
     "archive_opening",
@@ -1018,10 +1018,24 @@
     }
   },
   "next_steps_order": [
-    "While user plays: code only, no Computer Use/GUI builds. Review compact Save As changes. After explicit desktop availability, build/test Main and Reader x86/x64 and the affected native tests, visually inspect light/dark at 96/144/192 DPI, repackage changed binaries and resume exact packaged mixed Save As checks before publication. Earlier component-feed/legacy receiver proofs apply to the previous candidate; do not publish stale pre-compact Main/Reader ZIPs",
+    "User finished gaming 30 October; Computer Use is permitted again. Build/test Main and Reader x86/x64 and the affected native tests, visually inspect light/dark at 96/144/192 DPI, repackage changed binaries and resume exact packaged mixed Save As with FB2/EPUB/PDF/DjVu/real DOC before publication. Earlier component-feed/legacy receiver proofs apply to the previous candidate; do not publish stale pre-compact Main/Reader ZIPs",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
+  "real_doc_save_probe_20261030": {
+    "status": "headless_native_conversion_passed_both_architectures_mixed_GUI_pending",
+    "source": "Read-only ZIP member G:\\fb2.Flibusta.Net\\f.usr-851190-854359.zip / 852311.doc; cached inventory record 812349 is historical, not a claim about the current UI row identity",
+    "source_bytes": 12288,
+    "source_sha256": "c6e9f80fb7fcab418bd418ece33675ec3de9cabfa89cb7bab42320e5d37ef10b",
+    "reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-real-doc-save-Win32-20261030-r3.json",
+      "tools/ui/tests/Out/homelibre-3beta1-real-doc-save-Win64-20261030-r1.json"
+    ],
+    "verification": "Exact staged BookProcessing and cached public DocSharp archive hashes/payload manifests verified; no Kindle, LegacyOffice, Images, PDFium, DjVu, XPS or 7-Zip folders. Existing native ConvertBasicBook produced FB2 and EPUB, preserving all 16 nonempty DOCX body paragraphs in order. Source member hash and archive size/mtime unchanged. DOCX reference uses the same DocSharp decoder; this is a pipeline-preservation oracle, not independent decoder validation. Text-only sample has zero images; no illustrated-DOC claim. No GUI, network, install or restart claim.",
+    "harness_repairs": "First Win32 attempt ran native helper outside its owned runtime, so executable-relative DocSharp lookup correctly rejected it; copied unchanged helper into the owned app. Second attempt set TEMP below guarded source paths, so native test containment guard rejected it; child TEMP now owned profile root and conversion work is its child. Both failed profiles were removed; these were harness setup failures, not product fixes.",
+    "prepared_followup": "prepare_save_mixed_fixtures optionally adds real DOC plus private DOCX/paragraph reference. Native mixed seven-book matrix can exercise all format policies with full DOC paragraph checks. Packaged Main smoke now requires FB2/EPUB/PDF/DjVu/DOC and installs only the five necessary modules between phases. These expanded mixed tests are source-only, not yet run.",
+    "cleanup": "All four newly created DOC probe profiles removed; no book text or document payload committed. Only small diagnostic reports remain. Earlier denied cleanup paths untouched."
+  },
   "compact_save_review_20261030": {
     "status": "source_and_native_checks_prepared_not_compiled_or_visually_verified",
     "request": "Compact the Save As dialog, collapse inactive folder masks, remove repetitive explanations and show the actual generated filename/extension immediately",
@@ -1040,7 +1054,7 @@
     ],
     "packaged_gui_scope": "Initial r1 stopped during private fixture setup because SQLite trigger compilation required MHL_UPPER even with triggers disabled; registered the fixture-only UDFs and cleanup passed. r2 displayed all four FB2/EPUB/PDF/DjVu rows and known original sizes in actual candidate Main, but no export completed. On user's gaming request, verified exact owned PID 128544/path, stopped only that Main, reaped wrapper session 34702 (exit 1), removed private runtime and classified report INTERRUPTED. No component installation or conversion took place; no product failure established.",
     "harness": "packaged_save_smoke.py prepares an owned catalogue, verifies unchanged source/output hashes, and after the first normal GUI phase installs only BookProcessing, ImageProcessing, PDFium and DjVuLibre from hashed archives through native installer units. Its conversion oracle checks final text and referenced images. EPUB fixture mimetype is stored. New preflight rejects Main/fixture executables older than changed Save As sources and a stage ZIP differing from the current Main build. Executed stale Win32 and Win64 negative cases: Rebuild failure before any profile/report/GUI launch; prefix-root set unchanged. Python syntax/release-source/whitespace checks passed. Completed packaged GUI scenario pending.",
-    "desktop_constraint": "User will explicitly report when gaming is finished. Continue backend work only; do not resume Computer Use or Delphi GUI builds before that.",
+    "desktop_constraint": "User explicitly finished gaming on 30 October; resumed Computer Use after refreshing the returned Delphi window. Do not stop unrelated VMs, video encoding or user apps.",
     "release_gate": "Main and Reader source changed after previous verified candidate. Rebuild affected executables/native tests and create newly verified core/Reader packages before publication; previous archive hashes do not prove the new compact UI. Unchanged format/MCP packages may be reused by verified hashes."
   },
   "release_integration_20261030": {

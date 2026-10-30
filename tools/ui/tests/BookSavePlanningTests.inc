@@ -320,6 +320,8 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
   Options: TBookSendOptions; Results: TBookExportResults; Probe: TUnifiedSendProbe;
   Choice: TBookSaveChoice; Thread: TBookSendEstimateThread; Items: TBookSaveEstimateItems;
   Revision: Integer; Complete: Boolean; Deadline: UInt64;
+  function WithoutSpace(const Value: string): string;
+  begin Result:=Value.Replace(' ','').Replace(#9,'').Replace(#13,'').Replace(#10,'').Replace(#$00A0,''); end;
   procedure Run(const Name: string; Mode: TExportMode; Keep, Prefer, Zipped: Boolean);
   var Expected, Target: string; Document: TReaderDocument; Archive: TZipFile; Bytes: TBytes;
   begin
@@ -366,19 +368,35 @@ var Root, Required, Status: string; Books: TArray<TBookRecord>; Hashes: TArray<s
             Name+': Unicode text was lost');
           // The guide's OCR page contains text only. It must remain readable;
           // the independent scan variant below must retain the entire image.
-          if I=3 then Require(Document.PlainText.Contains('knowledge'),Name+': DjVu OCR text was lost')
+          if I=6 then
+          begin
+            var Reference:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Root,'doc-reference.json'),TEncoding.UTF8)) as TJSONObject;
+            try
+              var Paragraphs:=Reference.GetValue<TJSONArray>('paragraphs');
+              Require(Paragraphs.Count>0,'Real DOC has no decoded body reference');
+              var Actual:=WithoutSpace(Document.PlainText); var Offset:=1;
+              for var Paragraph in Paragraphs do
+              begin
+                var Needle:=WithoutSpace(Paragraph.Value); var Found:=Pos(Needle,Actual,Offset);
+                Require(Found>0,Name+': real DOC paragraph missing or out of order'); Offset:=Found+Length(Needle);
+              end;
+              Require(Document.ImageCount>=Reference.GetValue<Integer>('images'),Name+': DOC image was lost');
+            finally Reference.Free; end;
+          end
+          else if I=3 then Require(Document.PlainText.Contains('knowledge'),Name+': DjVu OCR text was lost')
           else Require(Document.ImageCount>0,Name+' '+Books[I].FileExt+': source illustration/page was lost');
         finally Document.Free; end;
       end;
       Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],Name+': changed source book');
     end;
-    Writeln('PASS real mixed save ',Name,' FB2 EPUB PDF DjVu scan-PDF scan-DjVu'); Flush(Output);
+    Writeln('PASS real mixed save ',Name,' book_count=',Length(Books)); Flush(Output);
   end;
 begin
   Root:=Settings.AppPath+'mixed-save-inputs';
   Require(DirectoryExists(Root),'Real mixed conversion fixtures were not prepared');
-  SetLength(Books,6); SetLength(Hashes,6);
   var Names:TArray<string>:=TArray<string>.Create('source.fb2','source.epub','source.pdf','source.djvu','scan.pdf','scan.djvu');
+  if FileExists(TPath.Combine(Root,'source.doc')) then Names:=Names+TArray<string>.Create('source.doc');
+  SetLength(Books,Length(Names)); SetLength(Hashes,Length(Names));
   for var I:=0 to High(Books) do
   begin Books[I]:=FileBook(TPath.Combine(Root,Names[I])); Hashes[I]:=UpdateSHA256(Books[I].GetBookFileName); end;
   Probe:=TUnifiedSendProbe.Create; Probe.Messages:=TStringList.Create;

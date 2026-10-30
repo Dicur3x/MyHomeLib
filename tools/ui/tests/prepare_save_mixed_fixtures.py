@@ -3,15 +3,16 @@ from pathlib import Path
 import base64
 import importlib.util
 import io
+import json
 import shutil
 import subprocess
-import sys
 import tarfile
 import zipfile
+import xml.etree.ElementTree as ET
 from PIL import Image, ImageDraw
 
 
-def prepare(profile, runtime):
+def prepare(profile, runtime, doc_payload=None):
     if not (profile / 'native-regression.marker').is_file():
         raise ValueError('Owned native test profile required')
     target = profile / 'mixed-save-inputs'
@@ -62,7 +63,37 @@ def prepare(profile, runtime):
             raise ValueError('Scan DjVu fixture generation failed: ' + result.stderr.decode(errors='replace'))
     finally:
         source.unlink(missing_ok=True)
+    if doc_payload is not None:
+        if not doc_payload.startswith(bytes.fromhex('D0CF11E0A1B11AE1')):
+            raise ValueError('A real binary Word source is required')
+        doc, reference = target / 'source.doc', target / 'doc-reference.docx'
+        doc.write_bytes(doc_payload)
+        result = subprocess.run([str(runtime / 'tools/doc/HomeLibDoc.exe'), str(doc), str(reference)],
+            capture_output=True, timeout=40, creationflags=0x08000000)
+        if result.returncode:
+            raise ValueError('DOC reference preparation failed: ' + result.stderr.decode(errors='replace'))
+        ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+        with zipfile.ZipFile(reference) as archive:
+            document = ET.fromstring(archive.read('word/document.xml'))
+            paragraphs = [''.join(node.text or '' for node in paragraph.iter(ns + 't'))
+                          for paragraph in document.findall('.//' + ns + 'body//' + ns + 'p')]
+            paragraphs = [text for text in paragraphs if text.strip()]
+            images = sum(name.startswith('word/media/') and not name.endswith('/') for name in archive.namelist())
+        if not paragraphs:
+            raise ValueError('DOC reference body is empty')
+        (target / 'doc-reference.json').write_text(json.dumps(dict(paragraphs=paragraphs,images=images),
+            ensure_ascii=False), encoding='utf-8')
 
 
 if __name__ == '__main__':
-    prepare(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('profile',type=Path)
+    parser.add_argument('runtime',type=Path)
+    parser.add_argument('--doc-inventory',type=Path)
+    args = parser.parse_args()
+    doc_payload = None
+    if args.doc_inventory:
+        from doc_save_conversion_probe import read_doc_sample
+        doc_payload, _ = read_doc_sample(args.doc_inventory)
+    prepare(args.profile.resolve(),args.runtime.resolve(),doc_payload)
