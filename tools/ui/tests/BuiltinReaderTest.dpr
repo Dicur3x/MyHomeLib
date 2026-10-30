@@ -5,9 +5,9 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses NativeRegressionGuard, System.SysUtils, System.Classes, System.IOUtils,
-  System.JSON, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
+  System.JSON, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.NetEncoding, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.Themes, Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
-  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme;
+  unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderLookup, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme, unit_MHLExternalTools;
 
 type
   TReaderRegressionExceptionHandler = class
@@ -1408,22 +1408,37 @@ end;
 
   function NoteDialogButton(Form: TForm; const Caption: string): TButton;
   begin
+    // The reader toolbar now labels this action "Bookmarks and notes".
+    // Keep older note scenarios anchored to its stable component identity.
+    if (Form is TfrmBuiltinReader) and (Caption='Заметки') then
+    begin
+      Result:=Form.FindComponent('ReaderSavedItems') as TButton;
+      Require(Assigned(Result),'Stable ReaderSavedItems button missing'); Exit;
+    end;
     Result:=nil;
     for var C in Form do if (C is TButton) and (TButton(C).Caption=Caption) then Exit(TButton(C));
     Require(False,'Note dialog button missing: '+Caption);
   end;
   procedure CheckNoteDialogButtons(Form: TForm; Width,Height: Integer);
+  var Checked: Integer;
   begin
     for var DPI in TArray<Integer>.Create(96,120,144,192) do
     begin
       Form.ScaleForPPI(DPI); Form.ClientWidth:=MulDiv(Width,DPI,96); Form.ClientHeight:=MulDiv(Height,DPI,96);
       Application.ProcessMessages;
-      for var C in Form do if C is TButton then
+      Checked:=0;
+      // Conflict-recovery controls are laid out only when their panel opens.
+      // Hidden controls do not describe the visible dialog's clipping.
+      for var C in Form do if (C is TButton) and TButton(C).Showing then
       begin
+        Inc(Checked);
         var B:=TButton(C);
         Require((B.Left>=0) and (B.Top>=0) and (B.Left+B.Width<=B.Parent.ClientWidth) and
-          (B.Top+B.Height<=B.Parent.ClientHeight),'Note/export dialog button clipped at '+IntToStr(DPI));
+          (B.Top+B.Height<=B.Parent.ClientHeight),Format(
+          'Note/export dialog button clipped at %d: %s / %s [%d,%d %dx%d] parent %dx%d',
+          [DPI,Form.Caption,B.Caption,B.Left,B.Top,B.Width,B.Height,B.Parent.ClientWidth,B.Parent.ClientHeight]));
       end;
+      Require(Checked>0,'No visible note/export dialog actions');
     end;
     Form.ScaleForPPI(96); Form.ClientWidth:=Width; Form.ClientHeight:=Height;
   end;
@@ -1538,6 +1553,7 @@ begin
 end;
 
 {$I ReaderWordSelectionTests.inc}
+{$I ReaderLookupTests.inc}
 
 procedure AuditRealTextSelection;
 var Reader: TfrmBuiltinReader; Painted: TBitmap; Surface: TWinControl;
@@ -2263,6 +2279,13 @@ var Doc: TReaderDocument; Form: TfrmBuiltinReader; Name, BeforeHash, Identity: s
   Chapters: TComboBox; Encoded: UTF8String; RTFBytes: TBytes;
   Cycle, UserInitial, FormsInitial: Integer; RegressionExceptions: TReaderRegressionExceptionHandler;
 begin
+  if (ParamCount=1) and ParamStr(1).StartsWith('goldendict:///') then
+  begin
+    // Publish the receipt only after its writer has closed the file.
+    TFile.WriteAllText(ExtractFilePath(ParamStr(0))+'received.tmp','1'+#10+ParamStr(1),TEncoding.UTF8);
+    TFile.Move(ExtractFilePath(ParamStr(0))+'received.tmp',ExtractFilePath(ParamStr(0))+'received.txt');
+    Halt(0);
+  end;
   RequireIsolatedRegression;
   CoInitialize(nil);
   try
@@ -2280,6 +2303,7 @@ begin
       else if ParamStr(1)='real-epub' then AuditRealEPUB
       else if ParamStr(1)='doc-reader' then AuditDirectDOC
       else if ParamStr(1)='word-selection' then AuditWordSelection
+      else if ParamStr(1)='reader-lookup' then AuditReaderLookup
       else if ParamStr(1)='text-selection' then AuditRealTextSelection
       else if ParamStr(1)='illustrated-selection' then AuditIllustratedTextSelection
       else if ParamStr(1)='selection-geometry' then begin AuditFailedReaderCleanup; AuditSelectionGeometry; end

@@ -16,7 +16,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -37,7 +37,7 @@ try:
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
-        if a.case=='word-selection' and arch_dir not in ('tools/fonts','tools/pdfium'): continue
+        if a.case in ('word-selection','reader-lookup') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
             for file in files:
@@ -274,7 +274,7 @@ try:
     data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
     data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
     (root/'search.pdf').write_bytes(data)
-    if a.case=='word-selection':
+    if a.case in ('word-selection','reader-lookup'):
         objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
         for n in range(2):
             objects.extend([f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 7 0 R >> >> /Contents {4+n*2} 0 R >>',
@@ -316,7 +316,7 @@ try:
         z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
         z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
         z.writestr('OPS/main.xhtml','<html><body>'+hierarchy+'</body></html>')
-    if a.case=='word-selection':
+    if a.case in ('word-selection','reader-lookup'):
         word_paragraph='Привет café 😀 отдельное слово.'
         (root/'words.txt').write_text(('\n'+word_paragraph)*120,encoding='utf-8')
         word_body=''.join('<p>'+word_paragraph+'</p>' for _ in range(120))
@@ -379,6 +379,9 @@ try:
         assert 'PASS double-click respects selection switch margins ordinary dragging and unchanged sources' in r.stdout
         for name in ('words.fb2','words.epub','words.txt','words.pdf'):
             assert 'PASS double-click selects exact visible Unicode word and copies it in both layouts and themes: '+name in r.stdout
+    if a.case=='reader-lookup':
+        for marker in ('PASS lookup keeps Unicode', 'PASS context lookup has separate dictionary', 'PASS configured dictionary survives reopening'):
+            assert marker in r.stdout, 'Stale binary omitted lookup checks'
     if a.case=='text-selection':
         assert 'PASS real FB2 EPUB TXT and emoji quotes' in r.stdout, 'Stale binary omitted actual selection checks'
     if a.case=='illustrated-selection':

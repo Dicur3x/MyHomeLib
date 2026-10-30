@@ -90,8 +90,12 @@ begin
         var Manager:=Screen.ActiveForm; Require(string(Manager.Caption).StartsWith('Закладки и заметки'),'Notes manager absent');
         var Add:=NoteDialogButton(Manager,'Добавить заметку…');
         TThread.ForceQueue(nil,procedure begin FillFeedback19Note(Quote,'Вторая мысль из окна заметок.'); end); Add.OnClick(Add);
-        Require(Assigned(Manager.FindComponent('ExportBookNotes')) and
-          TMenuItem(Manager.FindComponent('ExportAllNotes')).Caption.StartsWith('Экспорт заметок всех книг'),'Export scopes are ambiguous');
+        var BookExport:=Manager.FindComponent('ExportBookNotes') as TMenuItem;
+        var AllExport:=Manager.FindComponent('ExportAllNotes') as TMenuItem;
+        Require(Assigned(BookExport) and Assigned(AllExport) and
+          (BookExport.Tag=0) and (AllExport.Tag=1) and
+          BookExport.Caption.Contains('выбранной книги') and AllExport.Caption.Contains('всех книг'),
+          'Selected-book/all-books export actions must have distinct scopes');
         Manager.ModalResult:=mrCancel;
       end);
     NoteDialogButton(Reader,'Заметки').OnClick(nil);

@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 25 completed items after verified word selection; pending dictionary/Google, release/version and remaining UI work retained.",
+    "verification": "52 blocks, 26 completed items after verified selected-text dictionary and Google/Yandex integration; release/version and remaining UI work retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: exact visible double-click selection and related geometry/PDF/cache/link regressions passed x86/x64; unreleased."
+    "last_check": "30 October 2026: dictionary/Google/Yandex and related word-selection, palette, notes and clickable footnote checks passed on fresh x86/x64 binaries; unreleased."
   },
   "order": [
     "archive_opening",
@@ -453,7 +453,7 @@
       ]
     },
     "reader_word_lookup": {
-      "status": "word_selection_verified_lookup_queued",
+      "status": "verified_in_source_not_released",
       "request": "Two independent selected-word/text actions: dictionary lookup (research installed GoldenDict integration) and Google search as additional option, not alternative. User asks lightweight integration; no unsolicited dictionary installation.",
       "standard_selection": "Double-click a word must select the whole word; dragging must continue to select a fragment. Verify alongside link navigation and selected-text actions on x86/x64.",
       "word_selection": {
@@ -485,6 +485,80 @@
         "limitations": [
           "Scanned PDFs without a text layer have no words to select; their existing image inspection remains available",
           "Dictionary lookup and separate Google action remain queued; final production binaries and distributions not yet rebuilt"
+        ]
+      },
+      "web_search_clarification": "User 30 October: one Search in Internet submenu with two explicit choices, Google and Yandex; dictionary remains a separate action.",
+      "research": {
+        "GoldenDict": "https://github.com/goldendict/goldendict/blob/master/main.cc",
+        "GoldenDict-ng": "https://github.com/xiaoyifang/goldendict-ng/blob/staged/src/main.cc",
+        "documentation": "https://github.com/xiaoyifang/goldendict-ng/blob/staged/website/docs/cli.md",
+        "findings": "Both accept a percent-encoded goldendict:/// URI as a positional argument; no third-party code or DLL is embedded. Installed dictionary application discovery and explicit executable choice are separate from Google/Yandex browser search."
+      },
+      "browser_clarification": "User confirmed on 30 October: web-search submenu must open the query in the normal browser, where login or search-engine checks work as usual. Production uses ShellExecute on the encoded HTTPS URL; it does not fetch search results internally.",
+      "test_diagnostics": [
+        "tools/ui/tests/Out/pre538-reader-lookup-notes-diagnostic-20261030-r1.json",
+        "tools/ui/tests/Out/pre538-reader-lookup-regressions-20261030-r5.json"
+      ],
+      "lookup": {
+        "implementation": [
+          "Selected-text context command: Поиск в интернете -> Google / Яндекс; encoded HTTPS query opens through the Windows default browser",
+          "Separate dictionary action using installed GoldenDict / GoldenDict-ng; explicit executable choice and existing Reader INI persistence",
+          "No new DLL, runtime or automatic search requests; disabled on empty or overlong selections"
+        ],
+        "verification": {
+          "proof": "tools/ui/tests/Out/pre538-reader-lookup-regressions-20261030-r6.json",
+          "architectures": [
+            "Win32",
+            "Win64"
+          ],
+          "cases": {
+            "Win64": {
+              "reader-lookup": 5,
+              "word-selection": 7,
+              "reader-colors": 3,
+              "feedback19-reader": 11,
+              "reader-note-ui": 5,
+              "footnotes": 4
+            },
+            "Win32": {
+              "reader-lookup": 5,
+              "word-selection": 7,
+              "reader-colors": 3,
+              "feedback19-reader": 11,
+              "reader-note-ui": 5,
+              "footnotes": 4
+            }
+          },
+          "source_sha256": {
+            "Program/Forms/frm_BuiltinReader.pas": "71c73b2fc8bea4b48354c97ad641f393ddde9275cf62d968aae1517b8ce6f83a",
+            "Program/Units/unit_ReaderLookup.pas": "ed091729e1e75f02e7defddee7fa3446530f6d485bcb366c196f693ef4da0932",
+            "tools/ui/tests/BuiltinReaderTest.dpr": "ef16da1ff320d191f9c582d3e2d57ab4bab3a3ded5da4a38fb6d12542ba4ad68",
+            "tools/ui/tests/ReaderLookupTests.inc": "7fb2801afe290b656f2ea58924ee320a20ac20335fb7e324a9528d2b544581a0",
+            "tools/ui/tests/ReaderFeedback19Tests.inc": "7788e8d45c3852fe7a7226d95996af3fe99216a4f54dbd4850e095228d918d1f",
+            "tools/ui/tests/builtin_reader_tests.py": "1b467ea80966695cfa52c3c3a925909a0789d33328992f15a409ca1e1c6c031b"
+          },
+          "binary_sha256": {
+            "Win64": "2398b5aabf7e5bcb184b57ae61773cd787ad29d4fde44566aea19dc3cb43fada",
+            "Win32": "3ef399c596187783baa9c3c6281014482c60bc6efda1c478ab6123f82dfc9afe"
+          },
+          "checks": [
+            "Unicode and punctuation URL round-trip, empty and overlong selections, option-like dictionary words",
+            "Actual text/PDF context actions and separate Google/Yandex children, light/night themes",
+            "Explicit path with Cyrillic/spaces/brackets and persistence after reopening",
+            "Actual Windows subprocess receives exactly one encoded dictionary URI argument",
+            "Word selection, palette selector, annotation editing/ranges, visible note-dialog actions at 96/120/144/192 DPI and footnote links",
+            "Read-only source hashes and no new private test profiles remaining"
+          ]
+        },
+        "test_maintenance": [
+          "Old toolbar label now resolves the stable ReaderSavedItems identity",
+          "Export-scope test verifies selected-book/all-books actions after bookmark wording expansion",
+          "Clipping checks require visible actions; hidden recovery panels receive layout only when shown",
+          "Subprocess receipt published atomically after closing the writer"
+        ],
+        "limits": [
+          "No installed GoldenDict dictionary dataset was queried; documented argument compatibility and actual Windows transport were verified",
+          "Live Google/Yandex result pages and anti-bot challenges were not exercised; dispatch uses the normal browser"
         ]
       }
     },
@@ -738,7 +812,6 @@
     }
   },
   "next_steps_order": [
-    "Add lightweight selected-text dictionary integration and separate Google action after verified word double-click selection",
     "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",

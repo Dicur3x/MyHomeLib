@@ -84,6 +84,8 @@ type
     FBookmarkPositions: TArray<Integer>;
     FPageHasBookmark, FBookmarkClick: Boolean;
     FCopyItem, FCopyPageItem, FCopyAllItem, FCopyViewItem: TMenuItem;
+    FDictionaryItem, FWebLookupItem, FGoogleItem, FYandexItem: TMenuItem;
+    FDictionaryExecutable: string;
     FSearchCase, FSearchWord, FSearchAll: TCheckBox;
     FTheme: Integer;
     FHighlightColor: TColor;
@@ -215,6 +217,10 @@ type
     procedure CopyViewClick(Sender: TObject);
     function HeadingColor(Subtitle: Boolean = False): TColor;
     procedure CopyMenuPopup(Sender: TObject);
+    procedure DictionaryLookupClick(Sender: TObject);
+    procedure WebLookupClick(Sender: TObject);
+    procedure ConfigureDictionaryClick(Sender: TObject);
+    function ChooseDictionaryExecutable: Boolean;
     function PDFCharacterAt(X,Y: Integer): Integer;
     procedure SelectPDFCharacter(Index: Integer);
     procedure SmallerClick(Sender: TObject);
@@ -286,6 +292,7 @@ type
     function CurrentPosition: Integer;
     procedure NavigateTo(Position: Integer);
   protected
+    function OpenLookupTarget(const Target, Parameters, WorkingDirectory: string): Boolean; virtual;
     procedure WMReaderFontsReady(var Message: TMessage); message WM_READER_FONTS_READY;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
@@ -467,8 +474,8 @@ function EditAndSaveReaderNote(Owner: TCustomForm; Store: TReaderAnnotations;
 
 implementation
 
-uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette;
+uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette;
 
 type
   TReaderChapterSelector = class(TReaderPaletteCombo)
@@ -1189,6 +1196,22 @@ begin
   FCopyAllItem.ShortCut:=ShortCut(Ord('C'),[ssCtrl,ssShift]); FCopyAllItem.OnClick:=CopyAllClick; FCopyMenu.Items.Add(FCopyAllItem);
   FCopyViewItem:=TMenuItem.Create(FCopyMenu); FCopyViewItem.Caption:='Текст страницы…';
   FCopyViewItem.OnClick:=CopyViewClick; FCopyViewItem.Visible:=False; FCopyMenu.Items.Add(FCopyViewItem); FSurface.PopupMenu:=FCopyMenu;
+  MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='-'; FCopyMenu.Items.Add(MenuItem);
+  FDictionaryItem:=TMenuItem.Create(Self); FDictionaryItem.Name:='ReaderDictionaryLookup';
+  FDictionaryItem.Caption:='Найти в словаре'; FDictionaryItem.OnClick:=DictionaryLookupClick;
+  FCopyMenu.Items.Add(FDictionaryItem);
+  FWebLookupItem:=TMenuItem.Create(Self); FWebLookupItem.Name:='ReaderWebLookup';
+  FWebLookupItem.Caption:='Поиск в интернете'; FCopyMenu.Items.Add(FWebLookupItem);
+  FGoogleItem:=TMenuItem.Create(Self); FGoogleItem.Name:='ReaderGoogleLookup';
+  FGoogleItem.Caption:='Google'; FGoogleItem.Tag:=Ord(rltGoogle); FGoogleItem.OnClick:=WebLookupClick;
+  FWebLookupItem.Add(FGoogleItem);
+  FYandexItem:=TMenuItem.Create(Self); FYandexItem.Name:='ReaderYandexLookup';
+  FYandexItem.Caption:='Яндекс'; FYandexItem.Tag:=Ord(rltYandex); FYandexItem.OnClick:=WebLookupClick;
+  FWebLookupItem.Add(FYandexItem);
+  MenuItem:=TMenuItem.Create(Self); MenuItem.Name:='ReaderDictionarySettings';
+  MenuItem.Caption:='Выбрать словарь (GoldenDict)…'; MenuItem.OnClick:=ConfigureDictionaryClick;
+  FCopyMenu.Items.Add(MenuItem);
+  MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='-'; FCopyMenu.Items.Add(MenuItem);
   MenuItem:=TMenuItem.Create(FCopyMenu); MenuItem.Caption:='Добавить заметку…';
   MenuItem.OnClick:=NotesClick; FCopyMenu.Items.Add(MenuItem);
   // Start with page keys ready; the contents selector keeps its own keys after a click.
@@ -2598,9 +2621,61 @@ end;
 procedure TfrmBuiltinReader.CopyMenuPopup(Sender: TObject);
 begin
   FCopyItem.Visible:=True; FCopyItem.Enabled:=SelectedText<>'';
+  FDictionaryItem.Enabled:=ReaderLookupText(SelectedText)<>'';
+  FWebLookupItem.Enabled:=FDictionaryItem.Enabled;
+  FGoogleItem.Enabled:=FWebLookupItem.Enabled; FYandexItem.Enabled:=FWebLookupItem.Enabled;
+  FDictionaryItem.Hint:='Выделите слово или короткую фразу — до 512 знаков.';
+  FWebLookupItem.Hint:=FDictionaryItem.Hint;
   FCopyPageItem.Enabled:=PageText<>'';
   FCopyAllItem.Visible:=not Assigned(FPDF); FCopyAllItem.Enabled:=FReady and (FLength>0);
   FCopyViewItem.Enabled:=FCopyPageItem.Enabled;
+end;
+
+function TfrmBuiltinReader.OpenLookupTarget(const Target, Parameters, WorkingDirectory: string): Boolean;
+begin
+  Result:=NativeInt(ShellExecute(Handle,'open',PChar(Target),PChar(Parameters),PChar(WorkingDirectory),SW_SHOWNORMAL))>32;
+  if not Result then FStatus.Caption:='Не удалось открыть программу или браузер. Проверьте настройки.';
+end;
+
+function TfrmBuiltinReader.ChooseDictionaryExecutable: Boolean;
+var Dialog: TFileOpenDialog;
+begin
+  Result:=False; Dialog:=TFileOpenDialog.Create(Self);
+  try
+    Dialog.Title:='Выберите программу GoldenDict или GoldenDict-ng';
+    Dialog.Options:=Dialog.Options+[fdoFileMustExist,fdoPathMustExist];
+    with Dialog.FileTypes.Add do begin DisplayName:='Программа словаря'; FileMask:='*.exe'; end;
+    Dialog.FileName:=FDictionaryExecutable;
+    if not Dialog.Execute(Handle) then Exit;
+    if not FileExists(Dialog.FileName) then Exit;
+    FDictionaryExecutable:=TPath.GetFullPath(Dialog.FileName); SaveSettings; Result:=True;
+  finally Dialog.Free; end;
+end;
+
+procedure TfrmBuiltinReader.ConfigureDictionaryClick(Sender: TObject);
+begin
+  if ChooseDictionaryExecutable then FStatus.Caption:='Словарь выбран: '+ExtractFileName(FDictionaryExecutable);
+end;
+
+procedure TfrmBuiltinReader.DictionaryLookupClick(Sender: TObject);
+var App, URL: string;
+begin
+  URL:=ReaderLookupURL(SelectedText,rltDictionary); if URL='' then Exit;
+  App:=FindReaderDictionary(FDictionaryExecutable);
+  if App='' then
+  begin
+    if not ChooseDictionaryExecutable then Exit;
+    App:=FDictionaryExecutable;
+  end;
+  OpenLookupTarget(App,QuoteCommandLineArgument(URL),ExtractFileDir(App));
+end;
+
+procedure TfrmBuiltinReader.WebLookupClick(Sender: TObject);
+var URL: string;
+begin
+  if (Sender<>FGoogleItem) and (Sender<>FYandexItem) then Exit;
+  URL:=ReaderLookupURL(SelectedText,TReaderLookupTarget(TMenuItem(Sender).Tag));
+  if URL<>'' then OpenLookupTarget(URL,'','');
 end;
 
 procedure TfrmBuiltinReader.CopyReaderText(const Text, SuccessStatus: string);
@@ -4602,6 +4677,7 @@ begin
     begin
       FFontSize:=EnsureRange(Ini.ReadInteger('Reader','FontSize',14),8,48);
       FFontName:=AvailableReaderFont(Ini.ReadString('Reader','FontName','PT Serif'));
+      FDictionaryExecutable:=Ini.ReadString('Reader','DictionaryExecutable','');
       FLinePercent:=EnsureRange(Ini.ReadInteger('Reader','LinePercent',110),100,180);
       FMargin:=EnsureRange(Ini.ReadInteger('Reader','Margin',32),12,80);
       FPageLayout:=TReaderPageLayout(EnsureRange(Ini.ReadInteger('Reader','PageLayout',0),0,2));
@@ -4668,6 +4744,7 @@ begin
     Ini.WriteInteger('Reader','Left',Bounds.Left); Ini.WriteInteger('Reader','Top',Bounds.Top);
     Ini.WriteInteger('Reader','Width',Bounds.Width); Ini.WriteInteger('Reader','Height',Bounds.Height);
     Ini.WriteInteger('Reader','FontSize',FFontSize);
+    Ini.WriteString('Reader','DictionaryExecutable',FDictionaryExecutable);
     Ini.WriteBool('Reader','BookFormatting',FBookFormatting);
     Ini.WriteBool('Reader','ShowFootnotes',FShowFootnotes); Ini.WriteBool('Reader','NumberChapters',FNumberChapters);
     Ini.WriteBool('Reader','DecorativeInitials',FDecorativeInitials);
