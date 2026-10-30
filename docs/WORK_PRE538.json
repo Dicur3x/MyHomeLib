@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 30 completed items; 3.x native/source verification added but release/actual-upgrade checkbox remains open.",
+    "verification": "52 blocks, 31 completed items; actual catalogue/Reader/updater builds verified; install/upgrade and publication remain open.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: version direction passed 32 native checks on each x86/x64, six source-gate cases and nine release-history cases; Page sequence 24 read back, only intended two blocks changed. Production builds and actual pre5.x upgrade still pending. Unreleased."
+    "last_check": "30 October 2026: Page sequence 25 read back with identical structure and unrelated content. Six production Release builds and PE identities verified, minimal catalogue archives verified on both architectures, independent Reader archive names and digests match the bootstrap feed. Actual installation/old upgrades pending. Unreleased."
   },
   "order": [
     "archive_opening",
@@ -147,13 +147,10 @@
     }
   },
   "save_as_and_navigation": {
-    "status": "in_progress",
+    "status": "source_and_native_directions_verified_final_packaged_integration_pending",
     "remaining": [
-      "Source FB2 compatibility in conversion/estimation: broken internal links and br; investigate exact image-ID case",
-      "Batch estimation list with per-book reasons and totals that distinguish unknown sizes",
-      "Repeated atomic source-copy/ZIP save path failures and non-repeating batch errors",
-      "Overwrite checkbox with safe publication and source protection",
-      "Export/estimation cache lifecycle and opt-in extended diagnostic report"
+      "Final mixed-format operations and cancellation against rebuilt production executables in minimal packaged installs, including real requested-component download/restart continuation",
+      "Actual old-release/Reader/module update validation, final integration and publication"
     ],
     "reader_internal_links": {
       "status": "verified_in_source_not_released",
@@ -870,7 +867,7 @@
       "decision": "No broad book/genre rewrite is justified by this one case. Any later dictionary update should follow missing/incorrect actual catalogue-code evidence."
     },
     "version_numbering": {
-      "status": "source_and_native_x86_x64_verified_pending_production_executables_and_actual_upgrade",
+      "status": "production_executables_and_packages_verified_pending_actual_install_and_upgrade",
       "requested": "Move to normal 3.x series; same understandable version labels for application and first-party components instead of mixed pre5.37 / 2.7.0.1105 builds. Retain prerelease stage while bugs remain.",
       "proposed_next_public_version": "3.0 beta 1",
       "subsequent": "3.0 beta 2, beta 3 etc; stable 3.0 release; bug fixes 3.0.1, 3.0.2; features 3.1",
@@ -909,7 +906,7 @@
             ]
           },
           "later_packaging_verification": "tools/ui/tests/Out/homelibre-3beta1-release-history-20261030-r1.json",
-          "production_executables_and_old_update_pending": true
+          "production_scope_note": "Native Pascal units remain as tested. Subsequent main DPR/DPROJ registration of six existing units was required for actual production integration; all six production Main/Reader/Updater Release builds succeeded through Delphi CE and their current PE identities were checked separately."
         },
         "source_identity_gate": "tools/ui/tests/Out/homelibre-3beta1-source-gate-20261030-r1.json",
         "source_identity_cases": 6,
@@ -917,9 +914,15 @@
         "release_history": "tools/ui/tests/Out/homelibre-3beta1-release-history-20261030-r1.json",
         "release_history_cases": 9,
         "test_fixture_repairs": "Existing native updater tests looked up fixed row indices before installed native report rows were shown; changed to actual component identities after Show. Default fixture includes Zstandard (10 rows); synthetic future notifier tag moved above 3.x. Exact version/date/history/failure/window-teardown assertions retained.",
-        "temporary_data": "Both fresh native verification runs removed all their new private profiles. Source-gate and history fixtures removed. Previously denied cleanup locations were not retried."
+        "temporary_data": "Both fresh native verification runs removed all their new private profiles. Source-gate and history fixtures removed. Previously denied cleanup locations were not retried.",
+        "production_builds": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
+        "minimal_archives": [
+          "tools/ui/tests/Out/homelibre-3beta1-minimal-Win32-20261030-r1.json",
+          "tools/ui/tests/Out/homelibre-3beta1-minimal-Win64-20261030-r1.json"
+        ],
+        "reader_archives": "tools/ui/tests/Out/homelibre-3beta1-reader-packages-20261030-r2.json"
       },
-      "remaining": "Build actual Main/Reader/Updater/MCP x86/x64 3.x executables through the licensed IDE, verify PE resources and minimal packages, check real updates from published pre5.x plus independent Reader/modules, then publish. Source labels and native test executable passes do not establish actual production upgrade success."
+      "remaining": "Build/version-check the optional MCP component, prepare independent format modules, then check actual minimal installs and updates from published pre5.x plus standalone Reader/modules, final regression/performance and publication. The six Main/Reader/Updater EXEs and core/Reader packages have been built; package checks are not application-install or upgrade proof."
     },
     "product_name": {
       "status": "source_branding_and_native_ui_verified_x86_x64_pending_final_3x_release",
@@ -976,10 +979,11 @@
     "cleanup_review_rejection_20261030": {
       "paths": [
         "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-gucen6n2",
-        "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-lva_o0zv"
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-lva_o0zv",
+        "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader"
       ],
       "reason": "blocked by policy",
-      "action": "Owned old native test profile cleanup rejected before execution. User notified. No alternate deletion/retry attempted. New r4 profiles cleaned through their normal lifecycle."
+      "action": "Old native profile and superseded Reader-stage cleanup rejected before execution. User notified. No alternate deletion, retry or enclosing-parent deletion attempted. Newly created native/package-test profiles were removed through their normal lifecycle."
     }
   },
   "github_maintenance_20261029": {
@@ -1004,8 +1008,24 @@
     }
   },
   "next_steps_order": [
-    "Build and validate actual 3.0 beta 1 production EXEs and minimal packages; verify actual pre5.x application/Reader/module upgrade without weakening manifest, version, architecture or SHA-256 checks",
+    "Finish versioned optional MCP/independent format packages and actual minimal installation plus pre5.x/Reader/module upgrades; preserve strict manifest, version, architecture and SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
-  ]
+  ],
+  "release_integration_20261030": {
+    "status": "six_production_executables_and_core_reader_packages_verified_not_published",
+    "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
+    "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
+    "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
+    "catalogue_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-minimal-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-minimal-Win64-20261030-r1.json"
+    ],
+    "reader_report": "tools/ui/tests/Out/homelibre-3beta1-reader-packages-20261030-r2.json",
+    "reader_producer_fix": "Versioned Reader asset names now match the bootstrap feed; reject mismatched current Reader/updater numeric versions before writing output; generated descriptors include archive names and current UTC date.",
+    "reader_compatibility_limit": "Reader payload retains libzstd.dll required by old Reader component installers. The minimal catalogue archive has no Zstandard DLL or optional reader/format modules. Actual standalone install and old update checks remain pending.",
+    "release_notes": "docs/releases/RELEASE_NOTES_3.0.0_pre1.1.md",
+    "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks.",
+    "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report."
+  }
 }

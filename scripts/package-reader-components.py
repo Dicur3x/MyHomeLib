@@ -5,6 +5,7 @@ also passes the application's strict component installer. No user profile,
 cache, test fixture or compiled Python cache belongs in a component package.
 """
 import argparse
+from datetime import datetime, timezone
 import ctypes
 import hashlib
 import json
@@ -89,6 +90,9 @@ def package(repo, platform, component, tag, converter_version, output):
         # Native format adapters are optional, just like their author libraries.
 
         version = file_version(reader)
+        identity = json.loads((repo / "Installer/Release.json").read_text(encoding="utf-8-sig"))
+        if version != identity["version"] or file_version(runtime / "HomeLibRuUpdater.exe") != version:
+            raise ValueError("Rebuild Reader and updater with the current release version before packaging")
         for name in ("HomeLibReader.exe", "HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll"):
             binary_platform(payload[name], platform)
         notes = "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
@@ -132,7 +136,9 @@ def package(repo, platform, component, tag, converter_version, output):
                                                for name, value in sorted(payload.items())]}
     payload["HomeLibRu.update.json"] = json_bytes(manifest)
     output.mkdir(parents=True, exist_ok=True)
-    destination = output / f"HomeLibRu-{component}-{platform}.zip"
+    filename = (f"HomeLibRu-{component}-{version}-{platform}.zip" if component == "HomeLibReader"
+                else f"HomeLibRu-{component}-{platform}.zip")
+    destination = output / filename
     with destination.open("xb") as stream, zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for name, value in sorted(payload.items()):
             info = zipfile.ZipInfo(name, (2026, 10, 25, 0, 0, 0))
@@ -142,8 +148,8 @@ def package(repo, platform, component, tag, converter_version, output):
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip() is not None:
             raise ValueError("Component ZIP failed CRC verification")
-    return {"id": component, "platform": platform, "version": version,
-            "history": [{"version": version, "date": "2026-10-28", "notes": notes}]}, {
+    return {"id": component, "platform": platform, "version": version, "archive": destination.name,
+            "history": [{"version": version, "date": datetime.now(timezone.utc).date().isoformat(), "notes": notes}]}, {
             "component": component, "platform": platform, "version": version, "archive": str(destination),
             "size": destination.stat().st_size, "sha256": digest(destination.read_bytes()), "files": len(manifest["files"])}
 

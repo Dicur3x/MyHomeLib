@@ -77,6 +77,12 @@
         <DCCReference Include="Units\unit_BookSavePolicy.pas"/>
         <DCCReference Include="Units\unit_BookSendEstimates.pas"/>
         <DCCReference Include="Units\unit_BookSaveContinuation.pas"/>
+        <DCCReference Include="Units\unit_BookOutput.pas"/>
+        <DCCReference Include="Units\unit_BookCollisionDialog.pas"/>
+        <DCCReference Include="Units\unit_BookConversionRequirements.pas"/>
+        <DCCReference Include="Units\unit_BookEstimateReport.pas"/>
+        <DCCReference Include="Units\unit_ReaderBookSkin.pas"/>
+        <DCCReference Include="Units\unit_ReaderLookup.pas"/>
         <DCCReference Include="Units\unit_ReaderAdapters.pas"/>
         <DCCReference Include="Units\unit_AuthorFavorites.pas"/>
         <DCCReference Include="Units\unit_AuthorFavoriteRefresh.pas"/>
