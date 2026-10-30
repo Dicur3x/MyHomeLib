@@ -259,14 +259,15 @@ var
        Panel.Font.Size, Viewport.VertScrollBar.Position]);
     if Panel.Gallery.Visible then
     begin
-      GalleryButton:=TButton(Panel.Gallery.FindComponent('GalleryToggle'));
+      GalleryButton:=Panel.GalleryButton;
       Require(Assigned(GalleryButton),Context+': gallery action missing');
       Bitmap.Canvas.Font.Assign(GalleryButton.Font);
       Require((GalleryButton.Font.PixelsPerInch=Panel.Font.PixelsPerInch) and
         (GalleryButton.Height>=MulDiv(28,DPI,96)) and
         (GalleryButton.Height>=Bitmap.Canvas.TextHeight('Wg')+MulDiv(8,DPI,96)) and
-        (GalleryButton.Width>=Min(Panel.Gallery.ClientWidth,MulDiv(220,DPI,96))) and
-        (GalleryButton.BoundsRect.Bottom<=Panel.Gallery.ClientHeight),
+        (GalleryButton.Width>=Min(Content.ClientWidth div 2,MulDiv(220,DPI,96))) and
+        (GalleryButton.Parent=Content) and
+        (GalleryButton.BoundsRect.Bottom<=Content.ClientHeight),
         Context+': gallery button retained monitor dimensions or clipped its scaled caption');
     end;
     Require(Button.Visible and Button.Enabled and IsWindowVisible(Button.Handle),

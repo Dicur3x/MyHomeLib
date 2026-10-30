@@ -83,6 +83,10 @@ type
     FAnnotation: TMemo;
     FFb2Info: TListView;
     FGallery: TBookGallery;
+    FGalleryToggle: TButton;
+    FPreferredHeight: Integer;
+    FContentSizePending: Boolean;
+    FOnContentSizeChanged: TNotifyEvent;
     FDetailsButton: TButton;
     FPreviewStatus, FReadingSupport: TLabel;
 
@@ -99,10 +103,11 @@ type
     FRedrawWindow: HWND;
     FRedrawMemoWindow: HWND;
     FLinkMetrics: array[0..3] of TInfoLinkMetrics;
-    FTextMetrics: array[0..8] of TInfoTextMetrics;
+    FTextMetrics: array[0..9] of TInfoTextMetrics;
     FLayoutProfile: TInfoPanelLayoutProfileEvent;
     FPendingTexts: TDictionary<TControl, string>;
 
+    procedure GalleryToggleClick(Sender: TObject);
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
 
@@ -176,6 +181,9 @@ type
     procedure EndUpdate;
     procedure Clear;
     property Gallery: TBookGallery read FGallery;
+    property GalleryButton: TButton read FGalleryToggle;
+    property PreferredHeight: Integer read FPreferredHeight;
+    property OnContentSizeChanged: TNotifyEvent read FOnContentSizeChanged write FOnContentSizeChanged;
     property DetailsButton: TButton read FDetailsButton;
 
   published
@@ -536,7 +544,13 @@ begin
 
   FGallery := TBookGallery.Create(Self);
   FGallery.Parent := FInfoPanel;
+  FGallery.InlinePreview:=True;
   FGallery.OnLayout := InfoPanelResize;
+  FGalleryToggle:=TButton.Create(Self); FGalleryToggle.Parent:=FInfoPanel;
+  FGalleryToggle.Name:='BookGalleryToggle'; FGalleryToggle.Caption:='Иллюстрации ▸';
+  FGalleryToggle.OnClick:=GalleryToggleClick; FGalleryToggle.Visible:=False;
+  FGalleryToggle.Hint:='Показать миниатюры; щёлкните по изображению, чтобы открыть его крупно';
+  FGalleryToggle.ShowHint:=True;
 
   FReadingSupport:=TLabel.Create(FInfoPanel); FReadingSupport.Parent:=FInfoPanel;
   FReadingSupport.AutoSize:=False; FReadingSupport.WordWrap:=True; FReadingSupport.ShowAccelChar:=False;
@@ -715,7 +729,9 @@ end;
 
 procedure TInfoPanel.SetBookAnnotationText(const Value: string);
 begin
+  FContentSizePending:=True;
   SetInfoText(FAnnotation,Value); FAnnotation.Visible:=not FInfoPriority;
+  LayoutControls;
 end;
 
 procedure TInfoPanel.SetReadingSupport(const Value: string);
@@ -760,6 +776,11 @@ procedure TInfoPanel.CreateWnd;
 begin
   inherited;
   LayoutControls;
+end;
+
+procedure TInfoPanel.GalleryToggleClick(Sender: TObject);
+begin
+  FGallery.Expanded:=not FGallery.Expanded;
 end;
 
 procedure TInfoPanel.InfoPanelResize(Sender: TObject);
@@ -847,7 +868,7 @@ end;
 procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
-  LayoutPPI, FooterH, FooterW, Padding: Integer;
+  LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, ButtonH, DesiredDetailH: Integer;
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
@@ -967,21 +988,28 @@ begin
         LblW := Max(LblW, MeasureInfoText(5,FPublisherSerieLabel.Caption,FPublisherSerieLabel.Font).cx + Gap);
       LblW := Min(LblW, W);
 
+      // Reserve a stable metadata column before expanding thumbnails.
+      MetaW:=W;
+      if FGallery.Visible and (W>=MulDiv(600,LayoutPPI,96)) then
+        MetaW:=Min(MulDiv(420,LayoutPPI,96),(W-Gap) div 2);
+      FGalleryToggle.Visible:=FGallery.Visible;
+      if FGallery.Expanded then FGalleryToggle.Caption:=FGallery.Title+' ▾'
+      else FGalleryToggle.Caption:=FGallery.Title+' ▸';
       ProfileLayout(ipsLinkBounds, True);
       try
       Y := 0;
-      FTitle.SetBounds(0, Y, W, RowH);
+      FTitle.SetBounds(0, Y, MetaW, RowH);
       Inc(Y, RowH);
-      LinkH := LinkHeight(FAuthors, W, LinkW);
+      LinkH := LinkHeight(FAuthors, MetaW, LinkW);
       FAuthors.SetBounds(0, Y, LinkW, LinkH);
       Inc(Y, LinkH);
-      LinkH := LinkHeight(FSeries, W - LblW, LinkW);
+      LinkH := LinkHeight(FSeries, Max(0,MetaW - LblW), LinkW);
       FSerieLabel.SetBounds(0, Y, LblW, RowH);
       FSeries.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH);
       if FPublisherSeriesLinks.Visible then
       begin
-        LinkH := LinkHeight(FPublisherSeriesLinks, W - LblW, LinkW);
+        LinkH := LinkHeight(FPublisherSeriesLinks, Max(0,MetaW - LblW), LinkW);
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
         FPublisherSeriesLinks.SetBounds(LblW, Y, LinkW, LinkH);
         Inc(Y, LinkH);
@@ -989,12 +1017,12 @@ begin
       else if FPublisherSeries.Visible then
       begin
         LinkH := Max(RowH, MeasureInfoText(6,FPublisherSeries.Caption,FPublisherSeries.Font,
-          Max(1,W-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
+          Max(1,MetaW-LblW)).cy + MulDiv(RowSpacing, LayoutPPI, 96));
         FPublisherSerieLabel.SetBounds(0, Y, LblW, RowH);
-        FPublisherSeries.SetBounds(LblW, Y, W - LblW, LinkH);
+        FPublisherSeries.SetBounds(LblW, Y, Max(0,MetaW - LblW), LinkH);
         Inc(Y, LinkH);
       end;
-      LinkH := LinkHeight(FGenres, W - LblW, LinkW);
+      LinkH := LinkHeight(FGenres, Max(0,MetaW - LblW), LinkW);
       FGenreLabel.SetBounds(0, Y, LblW, RowH);
       FGenres.SetBounds(LblW, Y, LinkW, LinkH);
       Inc(Y, LinkH + Gap);
@@ -1003,25 +1031,48 @@ begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(146,180,153) else Canvas.Font.Color:=$0063482E;
         UseMeasuredFont(FReadingSupport);
-        LinkH:=Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,W)).cy); FReadingSupport.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+        LinkH:=Max(RowH,MeasureInfoText(7,FReadingSupport.Caption,FReadingSupport.Font,Max(1,MetaW)).cy); FReadingSupport.SetBounds(0,Y,MetaW,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FPreviewStatus.Visible then
       begin
         Canvas.Font.Assign(FInfoPanel.Font);
         if MHLThemeDark then Canvas.Font.Color:=RGB(150,152,156) else Canvas.Font.Color:=clGrayText;
         UseMeasuredFont(FPreviewStatus);
-        LinkH:=Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,W)).cy);
-        FPreviewStatus.SetBounds(0,Y,W,LinkH); Inc(Y,LinkH+Gap);
+        LinkH:=Max(RowH,MeasureInfoText(8,FPreviewStatus.Caption,FPreviewStatus.Font,Max(1,MetaW)).cy);
+        FPreviewStatus.SetBounds(0,Y,MetaW,LinkH); Inc(Y,LinkH+Gap);
       end;
       if FGallery.Visible then
       begin
-        FGallery.SetBounds(0, Y, W, FGallery.Height);
-        Inc(Y, FGallery.Height + Gap);
+        ButtonH:=Max(MulDiv(28,LayoutPPI,96),
+          MeasureInfoText(0,'Wg',FGalleryToggle.Font).cy+MulDiv(12,LayoutPPI,96));
+        FGalleryToggle.SetBounds(0,Y,Min(MetaW,MulDiv(220,LayoutPPI,96)),ButtonH);
+        Inc(Y,ButtonH+Gap);
       end;
+      BaseY:=Y;
+      if FGallery.Visible and (MetaW<W) then
+        FGallery.SetBounds(MetaW+Gap,0,W-MetaW-Gap,Max(0,Y-Gap))
+      else if FGallery.Visible and FGallery.Expanded then
+      begin
+        // Narrow windows keep a bounded strip in the existing scroll viewport.
+        // Expansion is excluded from automatic outer panel sizing.
+        FGallery.SetBounds(0,Y,W,MulDiv(120,LayoutPPI,96));
+        Inc(Y,FGallery.Height+Gap);
+      end
+      else FGallery.SetBounds(0,0,0,0);
       finally ProfileLayout(ipsLinkBounds, False); end;
       ProfileLayout(ipsDetailBounds, True);
       try
       // Even a very short panel must not leave the old annotation over the links.
+      DesiredDetailH:=0;
+      if FAnnotation.Visible or FFb2Info.Visible then
+      begin
+        DesiredDetailH:=MulDiv(80,LayoutPPI,96);
+        if FAnnotation.Visible and (InfoText(FAnnotation)<>'') then
+          DesiredDetailH:=EnsureRange(MeasureInfoText(9,Copy(InfoText(FAnnotation),1,16384),
+            FAnnotation.Font,Max(1,W)).cy+Gap,DesiredDetailH,MulDiv(180,LayoutPPI,96));
+      end;
+      FPreferredHeight:=FInfoViewport.Margins.Top+BaseY+DesiredDetailH+
+        FInfoViewport.Margins.Bottom;
       DetailH := Max(0, H - Y);
       if (DetailH < MulDiv(80, LayoutPPI, 96)) and
         (FAnnotation.Visible or FFb2Info.Visible) then
@@ -1054,6 +1105,8 @@ begin
     FUpdatingLayout := False;
     ProfileLayout(ipsLayout, False);
   end;
+  if FContentSizePending and Assigned(FOnContentSizeChanged) then
+  begin FContentSizePending:=False; FOnContentSizeChanged(Self); end;
 end;
 
 procedure TInfoPanel.ChangeScale(M, D: Integer; isDpiChange: Boolean);
@@ -1107,6 +1160,7 @@ procedure TInfoPanel.SetBookInfo(
   const Genres: string
 );
 begin
+  FContentSizePending:=True;
   FInfoViewport.VertScrollBar.Position := 0;
   SetInfoText(FTitle, BookTitle);
   SetInfoText(FAuthors, Autors);
@@ -1378,6 +1432,7 @@ begin
   SetInfoText(FAnnotation, '');
   if FFb2Info.Items.Count > 0 then FFb2Info.Items.Clear;
   FCover.Picture.Assign(nil);
+  FContentSizePending:=False;
   SetPublisherSeries('');
 end;
 

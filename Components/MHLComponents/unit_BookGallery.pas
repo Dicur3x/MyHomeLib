@@ -42,8 +42,9 @@ type
     FSource: TFunc<TStream>;
     FExtension, FBookIdentity, FTitle: string;
     FPreviewSettingsFile: string;
-    FExpanded, FLoaded: Boolean;
+    FExpanded, FLoaded, FInlinePreview: Boolean;
     FOnLayout: TNotifyEvent;
+    procedure SetInlinePreview(Value: Boolean);
     procedure ToggleClick(Sender: TObject);
     procedure WorkerFinished(Sender: TObject);
     procedure ThumbnailClick(Sender: TObject);
@@ -66,6 +67,7 @@ type
     procedure SetExpanded(Value: Boolean);
     procedure OpenImage(Index: Integer);
     property Expanded: Boolean read FExpanded write SetExpanded;
+    property InlinePreview: Boolean read FInlinePreview write SetInlinePreview;
     property ImageCount: Integer read GetImageCount;
     property Loading: Boolean read GetLoading;
     property PreviewSettingsFile: string read FPreviewSettingsFile write FPreviewSettingsFile;
@@ -419,29 +421,38 @@ begin
   UpdateLayout;
 end;
 
+procedure TBookGallery.SetInlinePreview(Value: Boolean);
+begin
+  if FInlinePreview=Value then Exit;
+  FInlinePreview:=Value; FToggle.Visible:=not Value; UpdateLayout;
+end;
+
 procedure TBookGallery.UpdateLayout;
 var I, HeaderH, StripH, ThumbW, Gap, LayoutPPI: Integer;
 begin
-  if not Assigned(FToggle) or not Assigned(Parent) then Exit;
+  if not Assigned(FToggle) or not Assigned(Parent) or
+    not Assigned(GetParentForm(Self)) then Exit;
   // Embedded controls can retain monitor CurrentPPI during a parent scaling
   // pass. Measure the completed native button font, as the book panel does.
   LayoutPPI := Max(1,FToggle.Font.PixelsPerInch);
   Canvas.Font.Assign(FToggle.Font);
   HeaderH := Max(MulDiv(28, LayoutPPI, 96),Canvas.TextHeight('Wg')+MulDiv(12,LayoutPPI,96));
   StripH := MulDiv(172, LayoutPPI, 96);
+  if FInlinePreview then begin HeaderH:=0; StripH:=Max(0,ClientHeight); end;
   ThumbW := MulDiv(120, LayoutPPI, 96);
   Gap := MulDiv(10, LayoutPPI, 96);
   FToggle.SetBounds(0, 0, Min(Width, MulDiv(220, LayoutPPI, 96)), HeaderH);
   if FExpanded then
   begin
-    if (FImages.Count = 0) and not Loading then StripH := MulDiv(65, LayoutPPI, 96);
-    FStrip.SetBounds(0, HeaderH + Gap, Width, StripH);
+    if not FInlinePreview and (FImages.Count = 0) and not Loading then StripH := MulDiv(65, LayoutPPI, 96);
+    if FInlinePreview then FStrip.SetBounds(0,0,Width,StripH)
+    else FStrip.SetBounds(0, HeaderH + Gap, Width, StripH);
     for I := 0 to FImages.Count - 1 do
       FImages[I].SetBounds(I * (ThumbW + Gap), 0, ThumbW, StripH - MulDiv(24, LayoutPPI, 96));
     FStatus.SetBounds(FImages.Count * (ThumbW + Gap), 0, Max(MulDiv(180,LayoutPPI,96), Width - Gap), StripH - Gap);
-    Height := HeaderH + Gap + StripH;
+    if not FInlinePreview then Height := HeaderH + Gap + StripH;
   end
-  else Height := HeaderH;
+  else if not FInlinePreview then Height := HeaderH;
   if Assigned(FOnLayout) then FOnLayout(Self);
 end;
 

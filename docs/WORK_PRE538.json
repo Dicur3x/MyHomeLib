@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 28 completed items after verified selected-text lookup, book material and reader toolbar; release/version and remaining UI work retained.",
+    "verification": "52 blocks, 29 completed items after the verified adaptive catalogue preview; release/version and compact filters retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: volume pages, reader toolbar and related word-selection, lookup, footnotes, palettes, navigation and notes passed on fresh x86/x64 binaries; unreleased."
+    "last_check": "30 October 2026: adaptive catalogue preview and related footer, gallery and async loading passed on fresh x86/x64 binaries; Page sequence 21 read back. Unreleased."
   },
   "order": [
     "archive_opening",
@@ -695,8 +695,42 @@
       }
     },
     "catalogue_book_preview_layout": {
-      "status": "queued_with_visual_improvements",
-      "request": "Book information preview is too short by default and hides the description. Place expandable illustration thumbnails to the right of basic metadata, description below. Illustrations must not grow panel height. Automatically provide useful description height, with bounded growth/scrolling for long annotations so book list remains usable. Verify no-cover, no-description, narrow/wide windows and DPI."
+      "status": "verified_in_source_not_released",
+      "request": "Book information preview is too short by default and hides the description. Place expandable illustration thumbnails to the right of basic metadata, description below. Illustrations must not grow panel height. Automatically provide useful description height, with bounded growth/scrolling for long annotations so book list remains usable. Verify no-cover, no-description, narrow/wide windows and DPI.",
+      "changes": [
+        "Automatically fit a useful description area after book metadata/annotation updates, cap at half of the view and retain the existing minimum three book rows.",
+        "Place lazy thumbnail strip to the right of a reserved metadata column in wide views; expansion does not move the description or grow the panel.",
+        "Use a bounded thumbnail strip inside the existing scroll viewport on narrow views; retain manual splitter control, fixed information footer and complete scrollable description.",
+        "Keep default standalone gallery layout; guard native font/handle measurement until the gallery belongs to a form."
+      ],
+      "verification": {
+        "platforms": [
+          "Win32",
+          "Win64"
+        ],
+        "reports": [
+          "tools/ui/tests/Out/pre538-adaptive-preview-20261030-r2-Win32.json",
+          "tools/ui/tests/Out/pre538-adaptive-preview-20261030-r2-Win64.json"
+        ],
+        "modes": [
+          "book-preview-adaptive",
+          "book-preview-layout",
+          "compact-book-views",
+          "book-gallery",
+          "book-preview"
+        ],
+        "pass_markers_per_architecture": 81,
+        "adaptive_layouts_per_architecture": 72,
+        "coverage": "All six actual Main views, light/dark, 96/144/192 DPI, widths 800/1280; fixed-footer regression also checks cover/no-cover, short/long/empty content, wheel, native footer clicks and repeated splitter resizing. Gallery/async cases verify lazy decoding, original pixels/source hashes, navigation, latest-selection results and teardown.",
+        "binary_sha256": {
+          "Win32": "82141d3efee122db6d94ee48aa53439336d220fa75f304e0239daf45868e4045",
+          "Win64": "06187b3d17bbacfee75cda6b235f51597ebb42acdd9b441b63b69eca1f613abf"
+        },
+        "source_integrity": "Both architecture reports have identical source hashes that match the final seven production/test source files.",
+        "visual_review": "Computer Use inspected the live x86/x64 1280-wide light preview and collapsed/expanded thumbnails, retaining description position and height. Other theme/width/DPI combinations are verified by native assertions, not claimed as manual screenshots. Short-lived preview windows expired during further manual checks; no failed native scenario resulted.",
+        "test_fixture_repairs": "Cancel unrelated async real-selection previews before supplying synthetic metadata. Compare short-description content demand independently of the native theme frame settling by one pixel. Fixed constructor parent-form guard and restored the original gallery UTF-8 BOM after detecting corrupted Russian caption in the standalone test.",
+        "cleanup": "Both native reports show no new private profiles remaining. All three additional uniquely owned visual-run profiles were removed by the existing runner; earlier auto-review-denied paths were untouched."
+      }
     },
     "search_filter_compact_layout": {
       "status": "queued_with_visual_improvements",
@@ -900,7 +934,6 @@
     }
   },
   "next_steps_order": [
-    "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
     "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",

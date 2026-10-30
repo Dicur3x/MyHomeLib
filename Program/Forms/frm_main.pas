@@ -1097,6 +1097,7 @@ type
     procedure FillAllBooksTree;
     function CheckLibUpdates(Auto: Boolean): Boolean;
     procedure SetInfoPanelHeight(Height: Integer);
+    procedure InfoPanelContentChanged(Sender: TObject);
     procedure BookViewResize(Sender: TObject);
     procedure BatchInfoPanels(Beginning: Boolean);
     procedure SetInfoPanelVisible(State: Boolean);
@@ -1958,6 +1959,12 @@ begin
   FPublisher.IndexButton.OnClick := IndexPublisherSeries;
   FPublisher.Language.OnChange := cbLangSelectAChange;
   FPublisher.Info.OnResize := InfoPanelResize;
+  FPublisher.Info.OnContentSizeChanged:=InfoPanelContentChanged;
+  ipnlAuthors.OnContentSizeChanged:=InfoPanelContentChanged;
+  ipnlSeries.OnContentSizeChanged:=InfoPanelContentChanged;
+  ipnlGenres.OnContentSizeChanged:=InfoPanelContentChanged;
+  ipnlSearch.OnContentSizeChanged:=InfoPanelContentChanged;
+  ipnlFavorites.OnContentSizeChanged:=InfoPanelContentChanged;
   FPublisher.Info.OnAuthorLinkClicked := AuthorLinkClicked;
   FPublisher.Info.OnSeriesLinkClicked := SeriesLinkClicked;
   FPublisher.Info.OnGenreLinkClicked := GenreLinkClicked;
@@ -6926,6 +6933,19 @@ begin
   if (csDestroying in ComponentState) or FUpdatingSearchLayout or
     (WindowState=wsMinimized) or not Assigned(FPublisher) then Exit;
   SetInfoPanelHeight(ipnlAuthors.Height);
+end;
+
+procedure TfrmMain.InfoPanelContentChanged(Sender: TObject);
+var Info: TInfoPanel; Desired: Integer;
+begin
+  if FInSetInfoPanelHeight or (csDestroying in ComponentState) or
+    (WindowState=wsMinimized) or not Settings.ShowInfoPanel then Exit;
+  Info:=Sender as TInfoPanel;
+  if not Info.Showing or not Assigned(Info.Parent) then Exit;
+  // Automatic fitting leaves at least half of the view for the book list.
+  // Manual splitter movement keeps its independent height behavior.
+  Desired:=Max(Info.Constraints.MinHeight,Min(Info.PreferredHeight,Info.Parent.ClientHeight div 2));
+  SetInfoPanelHeight(Desired);
 end;
 
 procedure TfrmMain.SetInfoPanelHeight(Height: Integer);
