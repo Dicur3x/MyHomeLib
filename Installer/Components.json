@@ -148,15 +148,15 @@
     {
       "id": "HomeLibReader",
       "platform": "Win32",
-      "version": "2.7.0.1105",
+      "version": "3.0.0.1",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "date": "2026-10-28",
           "notes": "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
         }
       ],
-      "archive": "HomeLibRu-HomeLibReader-2.7.0.1105-Win32.zip"
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.1-Win32.zip"
     },
     {
       "id": "PDFium",
@@ -192,15 +192,15 @@
     {
       "id": "HomeLibReader",
       "platform": "Win64",
-      "version": "2.7.0.1105",
+      "version": "3.0.0.1",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "date": "2026-10-28",
           "notes": "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
         }
       ],
-      "archive": "HomeLibRu-HomeLibReader-2.7.0.1105-Win64.zip"
+      "archive": "HomeLibRu-HomeLibReader-3.0.0.1-Win64.zip"
     },
     {
       "id": "PDFium",
@@ -236,11 +236,11 @@
     {
       "id": "BookProcessing",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-BookProcessing-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu."
         }
       ]
@@ -248,11 +248,11 @@
     {
       "id": "ImageProcessing",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-ImageProcessing-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
         }
       ]
@@ -260,11 +260,11 @@
     {
       "id": "Kindle",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-Kindle-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-Kindle-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
         }
       ]
@@ -272,11 +272,11 @@
     {
       "id": "LegacyBooks",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-LegacyBooks-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
         }
       ]
@@ -284,11 +284,11 @@
     {
       "id": "LegacyOffice",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-LegacyOffice-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-LegacyOffice-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
         }
       ]
@@ -296,11 +296,11 @@
     {
       "id": "XPS",
       "platform": "Win32",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-XPS-2.7.0.1105-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-XPS-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
         }
       ]
@@ -308,11 +308,11 @@
     {
       "id": "BookProcessing",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-BookProcessing-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-BookProcessing-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu."
         }
       ]
@@ -320,11 +320,11 @@
     {
       "id": "ImageProcessing",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-ImageProcessing-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-ImageProcessing-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS."
         }
       ]
@@ -332,11 +332,11 @@
     {
       "id": "Kindle",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-Kindle-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-Kindle-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости."
         }
       ]
@@ -344,11 +344,11 @@
     {
       "id": "LegacyBooks",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-LegacyBooks-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-LegacyBooks-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket."
         }
       ]
@@ -356,11 +356,11 @@
     {
       "id": "LegacyOffice",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-LegacyOffice-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-LegacyOffice-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows."
         }
       ]
@@ -368,11 +368,11 @@
     {
       "id": "XPS",
       "platform": "Win64",
-      "version": "2.7.0.1105",
-      "archive": "HomeLibRu-XPS-2.7.0.1105-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-XPS-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "2.7.0.1105",
+          "version": "3.0.0.1",
           "notes": "Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен."
         }
       ]
@@ -380,11 +380,11 @@
     {
       "id": "MHLMcpServer",
       "platform": "Win32",
-      "version": "1.0.0.0",
-      "archive": "HomeLibRu-MHLMcpServer-1.0.0.0-Win32.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-MHLMcpServer-3.0.0.1-Win32.zip",
       "history": [
         {
-          "version": "1.0.0.0",
+          "version": "3.0.0.1",
           "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
         }
       ]
@@ -392,11 +392,11 @@
     {
       "id": "MHLMcpServer",
       "platform": "Win64",
-      "version": "1.0.0.0",
-      "archive": "HomeLibRu-MHLMcpServer-1.0.0.0-Win64.zip",
+      "version": "3.0.0.1",
+      "archive": "HomeLibRu-MHLMcpServer-3.0.0.1-Win64.zip",
       "history": [
         {
-          "version": "1.0.0.0",
+          "version": "3.0.0.1",
           "notes": "Отдельный модуль подключения AI-ассистента к коллекциям. Устанавливается только по запросу."
         }
       ]

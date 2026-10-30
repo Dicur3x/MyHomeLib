@@ -5641,6 +5641,7 @@ end;
 {$I MetadataBookColumnsTests.inc}
 {$I RefactorAuditTests.inc}
 {$I Post525UpdateTests.inc}
+{$I VersionMigrationTests.inc}
 {$I StartupDeferredTests.inc}
 {$I BookViewSessionTests.inc}
 {$I FirstBookListTests.inc}
@@ -5904,6 +5905,7 @@ begin
       else if ParamStr(1) = 'save-host-resume' then TestReaderSaveHostResume
       else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow
+      else if ParamStr(1) = 'version-migration' then TestVersionMigration
       else if ParamStr(1) = 'post525-update' then
         TestPost525UpdateDetails
       else if ParamStr(1) = 'oct11-ui' then

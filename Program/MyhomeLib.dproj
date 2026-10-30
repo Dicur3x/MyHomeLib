@@ -468,15 +468,15 @@
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <VerInfo_PreRelease>true</VerInfo_PreRelease>
         <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;Bde;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
-        <VerInfo_Build>1105</VerInfo_Build>
-        <VerInfo_MajorVer>2</VerInfo_MajorVer>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_Build>1</VerInfo_Build>
+        <VerInfo_MajorVer>3</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Release>0</VerInfo_Release>
         <VerInfo_Locale>1049</VerInfo_Locale>
         <VerInfo_Private>true</VerInfo_Private>
         <VerInfo_Special>true</VerInfo_Special>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;SpecialBuild=;PrivateBuild=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;SpecialBuild=;PrivateBuild=</VerInfo_Keys>
         <DCC_Optimize>false</DCC_Optimize>
         <DCC_Inlining>off</DCC_Inlining>
         <DCC_DebugDCUs>true</DCC_DebugDCUs>
@@ -488,7 +488,7 @@
         <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
-        <VerInfo_Build>1105</VerInfo_Build>
+        <VerInfo_Build>1</VerInfo_Build>
         <DCC_ExeOutput>Out\Bin\</DCC_ExeOutput>
         <DCC_DcuOutput>Out\Units\</DCC_DcuOutput>
         <DCC_UnitSearchPath>..\Components\MHLComponents;..\Components\MHLComponents\Units;..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
@@ -497,7 +497,7 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>None</Manifest_File>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
     </PropertyGroup>
@@ -506,13 +506,13 @@
         <DCC_ResourcePath>$(MSBuildProjectDirectory)\..\Components\MHLComponents;$(MSBuildProjectDirectory)\..\Components\MHLComponents\Units;..\Components\MHLComponents\Units;$(DCC_ResourcePath)</DCC_ResourcePath>
         <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;System.Win;Xml;Xml.Win;Data;Data.Win;Datasnap;Datasnap.Win;Web;Web.Win;Soap;Soap.Win;Winapi;Bde</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>None</Manifest_File>
-        <VerInfo_MajorVer>2</VerInfo_MajorVer>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_MajorVer>3</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1105</VerInfo_Build>
+        <VerInfo_Build>1</VerInfo_Build>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
@@ -541,8 +541,8 @@
         <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
         <DCC_DependencyCheckOutputName>Out\Bin\HomeLibRu.exe</DCC_DependencyCheckOutputName>
         <Manifest_File>None</Manifest_File>
-        <VerInfo_Build>1105</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Build>1</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_Private>false</VerInfo_Private>
         <VerInfo_Special>false</VerInfo_Special>
@@ -550,15 +550,15 @@
         <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_AutoIncVersion>false</VerInfo_AutoIncVersion>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <DCC_DependencyCheckOutputName>Out\Bin64\HomeLibRu.exe</DCC_DependencyCheckOutputName>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1105</VerInfo_Build>
+        <VerInfo_Build>1</VerInfo_Build>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>None</Manifest_File>
         <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
@@ -566,7 +566,7 @@
         <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
         <UWP_DelphiLogo44>Resources\Images\splashScreen9.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>Resources\Images\splashScreen9.png</UWP_DelphiLogo150>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_AutoIncVersion>false</VerInfo_AutoIncVersion>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
     </PropertyGroup>
@@ -592,8 +592,8 @@
         <DCC_DcuOutput>Out\Units</DCC_DcuOutput>
         <DCC_ExeOutput>Out\Bin</DCC_ExeOutput>
         <Manifest_File>None</Manifest_File>
-        <VerInfo_Build>1105</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Build>1</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <BT_BuildType>Debug</BT_BuildType>
         <BRCC_EnableMultiByte>true</BRCC_EnableMultiByte>
@@ -604,12 +604,12 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <DCC_ExeOutput>Out\Bin64</DCC_ExeOutput>
         <DCC_DcuOutput>Out\Units64</DCC_DcuOutput>
-        <VerInfo_MajorVer>2</VerInfo_MajorVer>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_MajorVer>3</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1105</VerInfo_Build>
+        <VerInfo_Build>1</VerInfo_Build>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=2.7.0.1105;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre;FileVersion=3.0.0.1;InternalName=HomeLibRu;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=HomeLibRu.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;Comments=;ProgramID=com.embarcadero.MyhomeLib</VerInfo_Keys>
         <Manifest_File>None</Manifest_File>
     </PropertyGroup>
     <Import Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')" Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
@@ -653,13 +653,13 @@
                 <VersionInfoKeys>
                     <VersionInfoKeys Name="CompanyName"/>
                     <VersionInfoKeys Name="FileDescription">HomeLibre</VersionInfoKeys>
-                    <VersionInfoKeys Name="FileVersion">2.7.0.1105</VersionInfoKeys>
+                    <VersionInfoKeys Name="FileVersion">3.0.0.1</VersionInfoKeys>
                     <VersionInfoKeys Name="InternalName">HomeLibRu</VersionInfoKeys>
                     <VersionInfoKeys Name="LegalCopyright">Copyright (c) 2008-2026 Oleksiy Penkov</VersionInfoKeys>
                     <VersionInfoKeys Name="LegalTrademarks"/>
                     <VersionInfoKeys Name="OriginalFilename">HomeLibRu.exe</VersionInfoKeys>
                     <VersionInfoKeys Name="ProductName">HomeLibre</VersionInfoKeys>
-                    <VersionInfoKeys Name="ProductVersion">2.7.0_pre5.37</VersionInfoKeys>
+                    <VersionInfoKeys Name="ProductVersion">3.0.0_pre1.1</VersionInfoKeys>
                     <VersionInfoKeys Name="Comments"/>
                     <VersionInfoKeys Name="SpecialBuild"/>
                     <VersionInfoKeys Name="PrivateBuild"/>

@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 30 completed items after verified compact search filters; final 3.x version/update and release gates retained.",
+    "verification": "52 blocks, 30 completed items; 3.x native/source verification added but release/actual-upgrade checkbox remains open.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: compact search and six related native modes passed fresh x86/x64 binaries, 43 PASS lines each; Page sequence 23 read back. Unreleased."
+    "last_check": "30 October 2026: version direction passed 32 native checks on each x86/x64, six source-gate cases and nine release-history cases; Page sequence 24 read back, only intended two blocks changed. Production builds and actual pre5.x upgrade still pending. Unreleased."
   },
   "order": [
     "archive_opening",
@@ -870,7 +870,7 @@
       "decision": "No broad book/genre rewrite is justified by this one case. Any later dictionary update should follow missing/incorrect actual catalogue-code evidence."
     },
     "version_numbering": {
-      "status": "queued_for_final_release_migration",
+      "status": "source_and_native_x86_x64_verified_pending_production_executables_and_actual_upgrade",
       "requested": "Move to normal 3.x series; same understandable version labels for application and first-party components instead of mixed pre5.37 / 2.7.0.1105 builds. Retain prerelease stage while bugs remain.",
       "proposed_next_public_version": "3.0 beta 1",
       "subsequent": "3.0 beta 2, beta 3 etc; stable 3.0 release; bug fixes 3.0.1, 3.0.2; features 3.1",
@@ -882,7 +882,44 @@
       ],
       "sequencing": "Public HomeLibre branding is applied and native UI/history verified. Keep the numeric/public 3.x migration and actual old-release upgrade gate before final publication; do not claim new-version EXEs from source labels alone.",
       "confirmed_next_public_version": "3.0 beta 1",
-      "confirmation": "User explicitly clarified and approved three numeric parts after stable release; no further version-format question needed."
+      "confirmation": "User explicitly clarified and approved three numeric parts after stable release; no further version-format question needed.",
+      "implementation": {
+        "identity": "Installer/Release.json",
+        "public": "3.0 beta 1",
+        "transport": "3.0.0_pre1.1",
+        "windows_numeric": "3.0.0.1",
+        "ordering": "First-party fourth numeric part 1..65534 denotes beta N; 65535 final. The existing release-tag grammar and numeric component ordering are retained. Stable patch labels are 3.0.1, 3.0.2; feature 3.1 release.",
+        "scope": "Current-version captions, updater rows and proposals, catalogue footer, About resources; first-party component display shared by catalogue and standalone Reader; all four first-party project source version resources, feed metadata and packaging identity. Upstream component versions, legacy IDs, EXE names and transport integrity checks retained.",
+        "history": "Current plus previous beta/release/patch and legacy history sorted by numeric release order; future notes excluded; mismatched or missing current headings rejected."
+      },
+      "verification": {
+        "native": {
+          "native_reports": {
+            "Win32": "tools\\ui\\tests\\Out\\homelibre-3beta1-version-20261030-r7-Win32.json",
+            "Win64": "tools\\ui\\tests\\Out\\homelibre-3beta1-version-20261030-r7-Win64.json"
+          },
+          "native_pass_count_per_arch": 32,
+          "compiled_sources_unchanged": true,
+          "later_packaging_only_changes": {
+            "Win32": [
+              "scripts/package-release.ps1"
+            ],
+            "Win64": [
+              "scripts/package-release.ps1"
+            ]
+          },
+          "later_packaging_verification": "tools/ui/tests/Out/homelibre-3beta1-release-history-20261030-r1.json",
+          "production_executables_and_old_update_pending": true
+        },
+        "source_identity_gate": "tools/ui/tests/Out/homelibre-3beta1-source-gate-20261030-r1.json",
+        "source_identity_cases": 6,
+        "source_identity_detail": "Consistent source passes; stale main numeric resources, stale updater ProductVersion, stale Reader FileVersion, wrong display name and stale own component feed rejected. Upstream and legacy component feed entries unchanged. Private fixtures removed.",
+        "release_history": "tools/ui/tests/Out/homelibre-3beta1-release-history-20261030-r1.json",
+        "release_history_cases": 9,
+        "test_fixture_repairs": "Existing native updater tests looked up fixed row indices before installed native report rows were shown; changed to actual component identities after Show. Default fixture includes Zstandard (10 rows); synthetic future notifier tag moved above 3.x. Exact version/date/history/failure/window-teardown assertions retained.",
+        "temporary_data": "Both fresh native verification runs removed all their new private profiles. Source-gate and history fixtures removed. Previously denied cleanup locations were not retried."
+      },
+      "remaining": "Build actual Main/Reader/Updater/MCP x86/x64 3.x executables through the licensed IDE, verify PE resources and minimal packages, check real updates from published pre5.x plus independent Reader/modules, then publish. Source labels and native test executable passes do not establish actual production upgrade success."
     },
     "product_name": {
       "status": "source_branding_and_native_ui_verified_x86_x64_pending_final_3x_release",
@@ -967,7 +1004,7 @@
     }
   },
   "next_steps_order": [
-    "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
+    "Build and validate actual 3.0 beta 1 production EXEs and minimal packages; verify actual pre5.x application/Reader/module upgrade without weakening manifest, version, architecture or SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ]

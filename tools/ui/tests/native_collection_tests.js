@@ -80,6 +80,7 @@ if (process.env.HOMELIB_MCP_COMPONENT_PACKAGES || viewsMode === 'optional-mcp') 
 if (process.env.HOMELIB_ZSTD_COMPONENT_PACKAGES || viewsMode === 'optional-zstd') modes.push('optional-zstd');
 if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'format-components') modes.push('format-components');
 modes.push('webp-live');
+modes.push('version-migration');
 modes.push('archive-open-feedback');
 modes.push('component-prompt-feedback');
 modes.push('djvu-first-use-feedback');
@@ -93,7 +94,7 @@ modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
-  "compact-search-filters": ["PASS compact search common filters and pinned actions fit small windows cases=24",
+  "version-migration": ["PASS 3.x display labels preserve legacy transport grammar and beta final patch ordering", "PASS first-party components share beta labels while numeric ordering and upstream versions remain intact", "PASS new-series feed retains exact download tags digests and legacy history", "PASS actual updater table current caption and catalogue status use unified public version in both themes"],"compact-search-filters": ["PASS compact search common filters and pinned actions fit small windows cases=24",
     "PASS collapsed extra conditions remain applied and visible by count without changing query semantics",
     "PASS compact search reaches extra fields and collapsed headers by Tab Space and wheel",
     "PASS extra-field expansion persists and compact search leaves catalogue bytes unchanged"],

@@ -60,7 +60,8 @@ uses
   SysUtils,
   unit_Helpers,
   unit_Consts,
-  unit_Localization;
+  unit_Localization,
+  unit_ProgramUpdates;
 
 resourcestring
   rstrAppVersionInfo   = 'Версия: %s';
@@ -77,9 +78,9 @@ end;
 procedure TfrmAbout.FormCreate(Sender: TObject);
 begin
   {$IFDEF  WIN64}
-     versionInfoLabel.Caption := Format(rstrAppVersionInfo64, [unit_MHLHelpers.GetFileVersion(Application.ExeName)]);
+     versionInfoLabel.Caption := Format(rstrAppVersionInfo64, [ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION)]);
   {$ELSE}
-    versionInfoLabel.Caption := Format(rstrAppVersionInfo, [unit_MHLHelpers.GetFileVersion(Application.ExeName)]);
+    versionInfoLabel.Caption := Format(rstrAppVersionInfo, [ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION)]);
   {$ENDIF}
 end;
 

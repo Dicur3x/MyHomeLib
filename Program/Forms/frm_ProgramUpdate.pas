@@ -220,7 +220,7 @@ begin
   FVersion := TLabel.Create(Self); FVersion.Parent := Self;
   FVersion.AutoSize:=False; FVersion.EllipsisPosition:=epEndEllipsis; FVersion.ShowHint:=True;
   FVersion.SetBounds(20, 16, 700, 20); FVersion.Font.Style := [fsBold];
-  FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION;
+  FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
   FStatus := TLabel.Create(Self); FStatus.Parent := Self; FStatus.Name := 'UpdateStatus';
   FTabs:=TTabControl.Create(Self); FTabs.Parent:=Self; FTabs.Name:='UpdateTabs';
   FTabs.Tabs.Add('Обновления'); FTabs.Tabs.Add('Список изменений'); FTabs.TabIndex:=0;
@@ -596,7 +596,7 @@ begin
   if FRecovery or Assigned(FThread) or FReady then
   begin Present; Exit; end;
   if ReleaseInfo.ComponentID = '' then
-  begin SelectRow(0); FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION; end;
+  begin SelectRow(0); FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION); end;
   FReady := False; FNeedsCheck := False; FRecovery := False; DiscardJob; FRelease := ReleaseInfo;
   UpdateReleasePage;
   FLater.Caption := 'Позже'; FLater.Enabled := True;
@@ -610,7 +610,7 @@ begin
   if FRelease.CheckOnly then
   begin
     FPrimary.Caption:='Проверить у автора';
-    FStatus.Caption:='У автора доступна версия '+FRelease.ComponentVersion+'. Официальный Windows-архив пока не удалось подтвердить.';
+    FStatus.Caption:='У автора доступна версия '+ComponentDisplayVersion(FRelease.ComponentID,FRelease.ComponentVersion)+'. Официальный Windows-архив пока не удалось подтвердить.';
   end;
   // A cached row selection updates its summary once in ComponentSelected.
   if FSelectionDepth=0 then UpdateSummary;
@@ -624,8 +624,8 @@ end;
 function TfrmProgramUpdate.ReleaseTitle: string;
 begin
   if FRelease.ComponentID = 'batch' then Exit('компонентов HomeLibre');
-  if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLibre ' + FRelease.Tag, FRelease.PublishedAt)
-  else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + FRelease.ComponentVersion, FRelease.PublishedAt);
+  if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLibre ' + ReleaseDisplayVersion(FRelease.Tag), FRelease.PublishedAt)
+  else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + ComponentDisplayVersion(FRelease.ComponentID,FRelease.ComponentVersion), FRelease.PublishedAt);
 end;
 
 procedure TfrmProgramUpdate.NotificationChanged(Sender: TObject);
@@ -774,7 +774,7 @@ begin
     else if FApplicationFailed then State:='Не удалось проверить';
     if FAppPending then State:='Проверяется…';
     if Available='' then Available:='—';
-    Row(0,'HomeLibre',PROGRAM_RELEASE_VERSION,Available,State);
+    Row(0,'HomeLibre',ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION),ReleaseDisplayVersion(Available),State);
     for I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
     begin
       Version := InstalledVersion(UPDATE_COMPONENTS[I].ID);
@@ -911,7 +911,7 @@ begin
   if I < 0 then
   begin
     FPage.Caption := 'Открыть GitHub';
-    FVersion.Caption := 'Текущая версия: ' + PROGRAM_RELEASE_VERSION;
+    FVersion.Caption := 'Текущая версия: ' + ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
     if FApplicationRelease.Tag <> '' then SetRelease(FApplicationRelease)
     else
     begin

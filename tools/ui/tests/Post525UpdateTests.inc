@@ -104,6 +104,18 @@ const News = 'NEW IN VERSION 3.5.30'#10'------------------------'#10'- source on
 var Info, Untouched: TProgramRelease; Components: TComponentReleases;
   Popup: TfrmProgramUpdate; Notes: TUpdateNotesView; Selector: TListView;
   Count, Comparison: Integer; Dark: Boolean;
+  function ComponentRow(const ID: string): TListItem;
+  begin
+    Result:=nil;
+    for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      if UPDATE_COMPONENTS[I].ID=ID then
+        for var Item in Selector.Items do
+          if Item.Caption=ComponentTitle(I) then Exit(Item);
+    for var Item in Selector.Items do
+      Trace('post525 row '+Item.Caption+' version='+Item.SubItems.CommaText);
+    Trace('post525 expected '+ComponentTitle(0));
+    Require(False,'Missing actual updater row: '+ID);
+  end;
   procedure Display(const ID, Version, Expected: string);
   begin Require(ComponentDisplayVersion(ID,Version)=Expected,ID+' display '+Version); end;
 begin
@@ -142,6 +154,7 @@ begin
     begin
       SetMHLTheme(Theme); Popup:=CreateTestProgramUpdate;
       try
+        Popup.Show; Application.ProcessMessages;
         Notes:=nil; Selector:=nil;
         for var Index:=0 to Popup.ControlCount-1 do
         begin
@@ -149,13 +162,14 @@ begin
           if Popup.Controls[Index] is TListView then Selector:=TListView(Popup.Controls[Index]);
         end;
         Require(Assigned(Notes) and Assigned(Selector),'Updater controls absent');
-        Require(Selector.Items[1].SubItems[0]='3.54.1','SQLite table still has file-version zeros');
-        Require(Selector.Items[3].SubItems[0]='3.6.1','Sumatra table still has file-version zeros');
-        Require(Selector.Items[5].SubItems[0]='26.05','7-Zip table lost leading zero');
+        Require(ComponentRow('SQLite').SubItems[0]='3.54.1','SQLite table still has file-version zeros');
+        Require(ComponentRow('SumatraPDF').SubItems[0]='3.6.1','Sumatra table still has file-version zeros');
+        Require(ComponentRow('7-Zip').SubItems[0]='26.05','7-Zip table lost leading zero');
         Components:=Default(TComponentReleases); Components[3]:=Info;
         Popup.ComponentsReceived(Components,True,'');
-        Selector.Items[4].Selected:=True; Selector.ItemFocused:=Selector.Items[4];
-        Selector.OnSelectItem(Selector,Selector.Items[4],True);
+        var DjvuRow:=ComponentRow('DjVuLibre');
+        DjvuRow.Selected:=True; Selector.ItemFocused:=DjvuRow;
+        Selector.OnSelectItem(Selector,DjvuRow,True);
         for var DPI in [96,144,192] do
         begin
           Popup.ScaleForPPI(DPI);

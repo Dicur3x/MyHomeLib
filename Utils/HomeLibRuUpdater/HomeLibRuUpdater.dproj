@@ -6,13 +6,14 @@
         <FrameworkType>VCL</FrameworkType>
         <AppType>Application</AppType>
         <Manifest_File>HomeLibRuUpdater.manifest</Manifest_File>
+        <VerInfo_PreRelease>true</VerInfo_PreRelease>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1049</VerInfo_Locale>
-        <VerInfo_MajorVer>2</VerInfo_MajorVer>
-        <VerInfo_MinorVer>7</VerInfo_MinorVer>
+        <VerInfo_MajorVer>3</VerInfo_MajorVer>
+        <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>1105</VerInfo_Build>
-        <VerInfo_Keys>FileDescription=HomeLibre update helper;ProductName=HomeLibre;ProductVersion=2.7.0_pre5.37;FileVersion=2.7.0.1105;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
+        <VerInfo_Build>1</VerInfo_Build>
+        <VerInfo_Keys>FileDescription=HomeLibre update helper;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.1;FileVersion=3.0.0.1;InternalName=HomeLibRuUpdater;OriginalFilename=HomeLibRuUpdater.exe</VerInfo_Keys>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>

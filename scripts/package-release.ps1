@@ -11,7 +11,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$release = '2.7.0_pre5.37'
+$releaseIdentity = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\Release.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$release = $releaseIdentity.release
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
 $archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
@@ -44,25 +45,15 @@ try {
         [System.IO.File]::AppendAllText((Join-Path $payloadDirectory 'NOTICE'), "`n`nZstandard`n" + $zstdLicence)
     }
     & (Join-Path $PSScriptRoot 'check-release-identity.ps1') -RuntimeDirectory $payloadDirectory `
-        -Release $release -Version '2.7.0.1105' -Platform $Platform
+        -Release $release -Version $releaseIdentity.version -Platform $Platform
     $genreDestination = Join-Path $payloadDirectory 'tools\genres'
     [IO.Directory]::CreateDirectory($genreDestination) | Out-Null
     foreach ($genre in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'Installer\GenreLists') -Filter '*.glst' -File) {
         Copy-Item -LiteralPath $genre.FullName -Destination $genreDestination
     }
-    $history = @(Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'docs\releases') -Filter 'RELEASE_NOTES_2.7.0_pre5.*.md' -File |
-        Sort-Object { [int]($_.BaseName.Split('.')[-1]) } -Descending |
-        Select-Object -First 8 | ForEach-Object {
-            $entryTag = $_.BaseName.Substring('RELEASE_NOTES_'.Length)
-            $entryNotes = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
-            if ($entryTag -notmatch '^2\.7\.0_pre5\.[0-9]+$' -or
-                $entryNotes -notmatch '\A# HomeLib Ru[^\r\n]*') {
-                throw "Unsupported local release-history heading: $($_.Name)"
-            }
-            # The native history viewer recognises complete release tags.
-            # Markdown display titles may include a build number instead.
-            [regex]::Replace($entryNotes, '\A# HomeLib Ru[^\r\n]*', ('# HomeLib Ru ' + $entryTag))
-        })
+    $history = @(& (Join-Path $PSScriptRoot 'read-release-history.ps1') `
+        -NotesDirectory (Join-Path $repositoryRoot 'docs/releases') `
+        -CurrentTag $release -CurrentDisplay $releaseIdentity.display_version)
     foreach ($directory in @('Help', 'Icons')) {
         Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
     }

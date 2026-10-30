@@ -662,6 +662,17 @@ begin
   // Presentation only; validation and comparisons retain the fixed-file version.
   if not CompareComponentVersions(Version,Version,Comparison) then Exit;
   Parts:=Version.Split(['.']); Count:=Length(Parts);
+  if (ID='HomeLibReader') or (ID='BookConverter') or (ID='BookProcessing') or
+    (ID='ImageProcessing') or (ID='Kindle') or (ID='LegacyBooks') or
+    (ID='LegacyOffice') or (ID='XPS') or (ID='MHLMcpServer') then
+  begin
+    if (Count<>4) or (StrToInt(Parts[0])<3) or (StrToInt(Parts[3])=0) then Exit;
+    // In the 3.x series revision 1..65534 is beta N; 65535 is final.
+    // Finals sort after their betas even in older numeric component clients.
+    Result:=Parts[0]+'.'+Parts[1]+'.'+Parts[2];
+    if StrToInt(Parts[3])<>65535 then Result:=Result+'_pre1.'+Parts[3];
+    Result:=ReleaseDisplayVersion(Result); Exit;
+  end;
   if ID='7-Zip' then
   begin
     for var I:=2 to Count-1 do if StrToInt(Parts[I])<>0 then Exit;

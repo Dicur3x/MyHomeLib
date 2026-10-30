@@ -10,11 +10,12 @@
     <Platform Condition="'$(Platform)'==''">Win64</Platform>
     <TargetedPlatforms>3</TargetedPlatforms>
     <AppType>Application</AppType><FrameworkType>VCL</FrameworkType>
-    <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+    <VerInfo_PreRelease>true</VerInfo_PreRelease>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     <VerInfo_Locale>1049</VerInfo_Locale>
-    <VerInfo_MajorVer>2</VerInfo_MajorVer><VerInfo_MinorVer>7</VerInfo_MinorVer>
-    <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>1105</VerInfo_Build>
-    <VerInfo_Keys>FileDescription=HomeLibre Reader;ProductName=HomeLibre Reader;ProductVersion=2.7.0_pre5.37;FileVersion=2.7.0.1105;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
+    <VerInfo_MajorVer>3</VerInfo_MajorVer><VerInfo_MinorVer>0</VerInfo_MinorVer>
+    <VerInfo_Release>0</VerInfo_Release><VerInfo_Build>1</VerInfo_Build>
+    <VerInfo_Keys>FileDescription=HomeLibre Reader;ProductName=HomeLibre Reader;ProductVersion=3.0.0_pre1.1;FileVersion=3.0.0.1;InternalName=HomeLibReader;OriginalFilename=HomeLibReader.exe</VerInfo_Keys>
     <DCC_UnitSearchPath>..\..\Program\Units;..\..\Program\Forms;..\..\Program\Forms\Editors;..\..\Program\DataModules;..\..\Program\ImportImpl;..\..\Program\UtilsImpl;..\..\Program\DwnldImpl;..\..\Program\DAO;..\..\Program\DAO\SQLite;..\..\Program\DAO\SQLite\Lib;..\..\Program\Wizards\NewCollection;..\..\Program\Wizards\Base;..\..\Components\MHLComponents;..\..\Components\MHLComponents\Units;..\..\Components\VirtualTreeView\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     <DCC_ResourcePath>..\..\Components\MHLComponents;$(DCC_ResourcePath)</DCC_ResourcePath>
     <DCC_IncludePath>..\..\Components\MHLComponents;$(DCC_IncludePath)</DCC_IncludePath>

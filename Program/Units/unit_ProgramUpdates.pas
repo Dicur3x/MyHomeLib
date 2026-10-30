@@ -9,7 +9,8 @@ const
   WM_PROGRAM_UPDATE_CHECKED = WM_APP + $0501;
   WM_PROGRAM_UPDATE_DOWNLOADED = WM_APP + $0502;
   WM_PROGRAM_UPDATE_PROGRESS = WM_APP + $0503;
-  PROGRAM_RELEASE_VERSION = '2.7.0_pre5.37';
+  PROGRAM_RELEASE_VERSION = '3.0.0_pre1.1';
+  PROGRAM_FILE_VERSION = '3.0.0.1';
   PROGRAM_RELEASES_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases?per_page=100';
 
 type
@@ -80,6 +81,7 @@ type
   end;
 
 function CompareReleaseTags(const Left, Right: string; out Comparison: Integer): Boolean;
+function ReleaseDisplayVersion(const Tag: string): string;
 function ReleaseNotesHeading(const Version, PublishedAt: string): string;
 function ParseProgramReleases(const JSON: string; out ReleaseInfo: TProgramRelease): Boolean;
 function ProgramUpdateDue(LastCheck, CurrentUTC: TDateTime; IntervalMinutes: Integer): Boolean;
@@ -138,10 +140,25 @@ begin
     end;
 end;
 
+function ReleaseDisplayVersion(const Tag: string): string;
+var Numbers: TReleaseNumbers;
+begin
+  Result:=Tag;
+  if not ParseTag(Tag,Numbers) or (Numbers[0]<3) then Exit;
+  // Keep the transport tag readable by existing clients. Presentation never
+  // changes the tag used for downloads, integrity checks or ordering.
+  if (Numbers[3]<>MaxInt) and ((Numbers[3]<>1) or
+    (Numbers[4]<1) or (Numbers[4]>=65535)) then Exit;
+  Result:=Format('%d.%d',[Numbers[0],Numbers[1]]);
+  if Numbers[2]<>0 then Result:=Result+'.'+Numbers[2].ToString;
+  if Numbers[3]=1 then Result:=Result+' beta '+Numbers[4].ToString
+  else if Numbers[2]=0 then Result:=Result+' release';
+end;
+
 function ReleaseNotesHeading(const Version, PublishedAt: string): string;
 var Match: TMatch; Year, Month, Day: Integer; Date: TDateTime;
 begin
-  Result := Version;
+  Result := ReleaseDisplayVersion(Version);
   Match := TRegEx.Match(PublishedAt.Trim, '^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:T.*)?$');
   if Match.Success and TryStrToInt(Match.Groups[1].Value, Year) and
      TryStrToInt(Match.Groups[2].Value, Month) and

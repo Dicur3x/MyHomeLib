@@ -209,8 +209,10 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Сначала соберите $Platform Release: не найден '$exePath'."
 }
 
+& (Join-Path $PSScriptRoot 'check-release-source.ps1')
+$releaseIdentity = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer\Release.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $exeInfo = Get-Item -LiteralPath $exePath
-& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion '2.7.0.1105'
+& (Join-Path $PSScriptRoot 'check-executable.ps1') -Path $exePath -Platform $Platform -ExpectedVersion $releaseIdentity.version
 $updateSource = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Program\Units\unit_ProgramUpdates.pas') -Raw -Encoding UTF8
 if ($updateSource -notmatch "PROGRAM_RELEASE_VERSION\s*=\s*'([^']+)'") {
     throw 'Не найдена версия для проверки релизов приложения.'
@@ -219,8 +221,9 @@ if ($exeInfo.VersionInfo.ProductVersion -ne $Matches[1]) {
     throw 'Версия проверки релизов не совпадает с ProductVersion собранного EXE.'
 }
 $expectedRelease = $Matches[1]
+if ($expectedRelease -cne $releaseIdentity.release) { throw 'Release metadata disagrees with the native update tag.' }
 & (Join-Path $PSScriptRoot 'check-release-identity.ps1') -RuntimeDirectory $outputDirectory `
-    -Release $expectedRelease -Version '2.7.0.1105' -Platform $Platform
+    -Release $expectedRelease -Version $releaseIdentity.version -Platform $Platform
 if ($exeInfo.Length -eq 0) {
     throw "EXE имеет нулевой размер и не является успешной сборкой: $exePath"
 }

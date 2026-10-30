@@ -4235,7 +4235,7 @@ begin
   ShowStatusProgress := False;
   StatusProgress := 0;
 
-  spInfo.Caption := unit_MHLHelpers.GetFileVersion(Application.ExeName);
+  spInfo.Caption := ReleaseDisplayVersion(PROGRAM_RELEASE_VERSION);
 end;
 
 procedure TfrmMain.UpdateSplashScreen(const AStatus: string);

@@ -278,6 +278,16 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
   SavedLocalAppData, OwnedLocalAppData: string; HadLocalAppData, Restored: Boolean;
   OldEnvLength: DWORD; EmptyEnvValue: WideChar;
 
+  function ComponentRow(const ID: string): TListItem;
+  begin
+    Result:=nil;
+    for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
+      if UPDATE_COMPONENTS[I].ID=ID then
+        for var Item in View.Items do
+          if Item.Caption=ComponentTitle(I) then Exit(Item);
+    Require(False,'Missing actual notifier component row: '+ID);
+  end;
+
   function ReadCards: string;
   var Database: TSQLiteDatabase; Query: TSQLiteQuery; TableName, Value: string; I: Integer;
   begin
@@ -372,7 +382,7 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
     for var I:=0 to Min(Server.TransportTrace.Count-1,31) do Writeln('TRACE updater transport ',I,' ',Server.TransportTrace[I]);
     if View.Items.Count>6 then
     begin
-      View.Selected:=View.Items[6];
+      View.Selected:=ComponentRow('DocSharp');
       Writeln('TRACE updater selected Doc status=',Copy(string(Status.Caption),1,700));
     end;
     Flush(Output);
@@ -409,7 +419,7 @@ var Dialog: TUFNForm; Server: TUFNServer; Probe: TUFNProbe;
   procedure StartDownload;
   var Hash: THashSHA2;
   begin
-    ReleaseInfo:=Default(TProgramRelease); ReleaseInfo.Tag:='2.7.0_pre5.999';
+    ReleaseInfo:=Default(TProgramRelease); ReleaseInfo.Tag:='3.0.0_pre1.999';
     ReleaseInfo.Size:=Length(Server.Payload); ReleaseInfo.DownloadURL:=Server.URL+'download';
     // Deliberately invalid ZIP bytes produce a real verification failure after
     // download progress. Existing package UI tests cover verified-ready install.
@@ -440,8 +450,8 @@ begin
     Dialog.CheckComponents(False); Require(not CheckButton.Enabled,'Actual component worker did not start');
     Attach; PumpUntilRequested; Dialog.RecreateActualWindow;
     Server.Released.SetEvent; PumpCheck; TraceComponentResult;
-    Require((View.Items.Count=9) and (View.Items[6].SubItems[1]='0.99.0') and
-      (View.Items[6].SubItems[2]<>'Не удалось проверить'),
+    Require((View.Items.Count=10) and (ComponentRow('DocSharp').SubItems[1]='0.99.0') and
+      (ComponentRow('DocSharp').SubItems[2]<>'Не удалось проверить'),
       'Actual successful DocSharp metadata check did not reach its form');
     Writeln('PASS updater component check actual success survives form HWND recreation with owned loopback transport'); Flush(Output);
     CloseForm;
@@ -451,7 +461,7 @@ begin
     Server.Released.SetEvent; PumpCheck;
     for var I in CheckedComponentIndices do
       if (I<8) and (UPDATE_COMPONENTS[I].ID<>'AlReader') then
-      Require(View.Items[I+1].SubItems[2]='Не удалось проверить','Unavailable author response falsely marked its component checked');
+      Require(ComponentRow(UPDATE_COMPONENTS[I].ID).SubItems[2]='Не удалось проверить','Unavailable author response falsely marked its component checked');
     Writeln('PASS updater component check actual failures release checking state after form HWND recreation'); Flush(Output);
     CloseForm;
 
