@@ -12,10 +12,11 @@ function ReaderPictureCount(Edit: TRichEdit): Integer;
 function ReaderTextLength(Edit: TRichEdit): Integer;
 function ReaderTextRange(Edit: TRichEdit; Start, Count: Integer): string;
 function ReaderCharacterStart(Edit: TRichEdit; Position: Integer): Integer;
+function ReaderWordRange(Edit: TRichEdit; Position: Integer; out Start, Count: Integer): Boolean;
 
 implementation
 
-uses Winapi.ActiveX, Winapi.RichEdit, System.SysUtils, System.Math;
+uses Winapi.ActiveX, Winapi.RichEdit, System.SysUtils, System.Math, System.Character;
 
 type
   // Prefix and method order follow the Windows SDK richole.h interface.
@@ -210,6 +211,25 @@ begin
   Info.Text:=PWideChar(Result);
   Copied:=SendMessage(Edit.Handle,EM_GETTEXTRANGE,0,LPARAM(@Info));
   SetLength(Result,Max(0,Min(Copied,Count)));
+end;
+
+function ReaderWordRange(Edit: TRichEdit; Position: Integer; out Start, Count: Integer): Boolean;
+var Finish, Length: Integer; Value: string;
+begin
+  Result:=False; Start:=0; Count:=0; Length:=ReaderTextLength(Edit);
+  if (Position<0) or (Position>=Length) then Exit;
+  Position:=ReaderCharacterStart(Edit,Position); Value:=ReaderTextRange(Edit,Position,1);
+  if (Value='') or TCharacter.IsWhiteSpace(Value[1]) or (Value[1]=#$FFFC) then Exit;
+  // Use the same native word boundaries as standard RichEdit keyboard editing.
+  Start:=SendMessage(Edit.Handle,EM_FINDWORDBREAK,WB_MOVEWORDLEFT,Position+1);
+  Finish:=SendMessage(Edit.Handle,EM_FINDWORDBREAK,WB_RIGHTBREAK,Position);
+  if Finish<=Position then Finish:=SendMessage(Edit.Handle,EM_FINDWORDBREAK,WB_MOVEWORDRIGHT,Position);
+  Start:=ReaderCharacterStart(Edit,EnsureRange(Start,0,Position)); Finish:=EnsureRange(Finish,Position+1,Length);
+  if ReaderCharacterStart(Edit,Finish)<Finish then Inc(Finish);
+  Value:=ReaderTextRange(Edit,Start,Finish-Start);
+  while (Value<>'') and TCharacter.IsWhiteSpace(Value[1]) do begin Inc(Start); Delete(Value,1,1); end;
+  while (Value<>'') and TCharacter.IsWhiteSpace(Value[System.Length(Value)]) do SetLength(Value,System.Length(Value)-1);
+  Count:=System.Length(Value); Result:=Count>0;
 end;
 
 end.

@@ -186,6 +186,7 @@ type
     function TextCharacterAt(X,Y: Integer): Integer;
     function TextLinkTargetAt(X,Y: Integer): Integer;
     procedure UpdateTextSelection(X,Y: Integer);
+    procedure SelectWordAt(X,Y: Integer);
     procedure PaintSelection(Canvas: TCanvas; const Boxes: TArray<TRect>);
     procedure PreparePageSelection;
     function TextSelectionRectangles(Start, Finish: Integer): TArray<TRect>;
@@ -602,6 +603,14 @@ end;
 procedure TReaderSurface.MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer);
 begin
   inherited; SetFocus;
+  if Assigned(FReader) and FReader.FReady and FReader.FSelectionEnabled and
+    (Button=mbLeft) and (ssDouble in Shift) and not (ssCtrl in Shift) and
+    (not Assigned(FReader.FPDF) or FReader.FPDFPageHasText) then
+  begin
+    FReader.FTextSelecting:=False; FReader.FPDFSelecting:=False; MouseCapture:=False;
+    FReader.FAnnotationClick:=-1; FReader.FTextLinkClick:=-1; FReader.FBookmarkClick:=False;
+    FReader.SelectWordAt(X,Y); Exit;
+  end;
   if Assigned(FReader) and (Button=mbLeft) then
   begin
     FReader.FAnnotationMouseDown:=Point(X,Y);
@@ -1757,7 +1766,9 @@ var Views: TArray<TReaderPDFPageView>; Raster, Spread: TBitmap;
         Min(Raster.Width,Round(R.Right*Raster.Width/Size.X)+2),Min(Raster.Height,Round((Size.Y-R.Top)*Raster.Height/Size.Y)+2));
       for var Y:=Box.Top to Box.Bottom-1 do
       begin
-        Pixel:=Raster.ScanLine[Raster.Height-1-Y]; Inc(Pixel,Box.Left);
+        // PDF rasters are top-down DIBs. ScanLine already follows their
+        // stored row order; reversing Y mirrors the highlight vertically.
+        Pixel:=Raster.ScanLine[Y]; Inc(Pixel,Box.Left);
         for var X:=Box.Left to Box.Right-1 do
         begin
           Pixel.rgbRed:=(Integer(Pixel.rgbRed)*2+GetRValue(Color)) div 3;
@@ -2439,6 +2450,38 @@ begin
     for var Box in TextSelectionRectangles(Candidate,Candidate+1) do
       if PtInRect(Box,Point(X,Y)) then Exit(Target);
   end;
+end;
+
+procedure TfrmBuiltinReader.SelectWordAt(X,Y: Integer);
+var Index, Candidate, Next, Start, Count: Integer;
+begin
+  if not FReady or not FSelectionEnabled then Exit;
+  if Assigned(FPDF) then
+  begin
+    FPDFSelectionAnchor:=-1; FPDFSelectionEnd:=-1; FPDFSelectionRects:=nil;
+    Index:=PDFCharacterAt(X,Y);
+    if (Index>=0) and FPDF.TextWordRange(FPDFSelectionPage,Index,Start,Count) then
+    begin FPDFSelectionAnchor:=Start; SelectPDFCharacter(Start+Count-1); end;
+    FSurface.Invalidate; Exit;
+  end;
+  FTextSelectionStart:=-1; FTextSelectionEnd:=-1; FTextSelectionRects:=nil;
+  Index:=TextCharacterAt(X,Y); if Index<0 then begin FSurface.Invalidate; Exit; end;
+  // Hit testing returns a nearest caret even in a margin. Only select when
+  // the pointer is on painted text, checking both sides of that caret.
+  for var Offset in [0,1] do
+  begin
+    if Index<Offset then Continue;
+    Candidate:=ReaderCharacterStart(FRichEdit,Index-Offset); if Candidate>=FNext then Continue;
+    Next:=ReaderCharacterStart(FRichEdit,Candidate+1); if Next<=Candidate then Next:=Candidate+2;
+    for var Box in TextSelectionRectangles(Candidate,Next) do
+      if PtInRect(Box,Point(X,Y)) then
+      begin
+        if ReaderWordRange(FRichEdit,Candidate,Start,Count) then
+          SelectText(Max(CurrentPosition,Start),Min(FNext,Start+Count)-Max(CurrentPosition,Start));
+        FSurface.Invalidate; Exit;
+      end;
+  end;
+  FSurface.Invalidate;
 end;
 
 procedure TfrmBuiltinReader.UpdateTextSelection(X,Y: Integer);

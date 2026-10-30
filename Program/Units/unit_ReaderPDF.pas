@@ -60,6 +60,7 @@ type
     function PageHasText(Page: Integer): Boolean;
     function TextCharacterAt(Page: Integer; X, Y, ToleranceX, ToleranceY: Double): Integer;
     function TextRange(Page, Start, Count: Integer): string;
+    function TextWordRange(Page, Index: Integer; out Start, Count: Integer): Boolean;
     function TextRectangles(Page, Start, Count: Integer): TArray<TRectF>;
     function FindOnPage(Page: Integer; const Query: string; Start: Integer;
       out Match: TPDFMatch; MatchCase: Boolean = False; WholeWord: Boolean = False;
@@ -72,7 +73,7 @@ type
 
 implementation
 
-uses System.Math, System.Generics.Collections, unit_MHLExternalTools;
+uses System.Math, System.Generics.Collections, System.Character, unit_MHLExternalTools;
 
 type
   // The pinned bblanchon non-V8/non-XFA runtime exports the C ABI on Win32.
@@ -268,6 +269,35 @@ begin
   SetLength(Result,Count*2+1);
   Copied:=GetText(Text,Start,Count,PWideChar(Result));
   if Copied<=0 then Result:='' else SetLength(Result,Copied-1);
+end;
+
+function TReaderPDF.TextWordRange(Page, Index: Integer; out Start, Count: Integer): Boolean;
+var Text: Pointer; Available, Finish: Integer; Value: string;
+  function IsWordCharacter(Position: Integer): Boolean;
+  var S: string; C: UCS4Char;
+  begin
+    S:=TextRange(Page,Position,1); if S='' then Exit(False);
+    C:=Ord(S[1]);
+    if (Length(S)>1) and TCharacter.IsHighSurrogate(S[1]) and TCharacter.IsLowSurrogate(S[2]) then
+      C:=TCharacter.ConvertToUtf32(S,1);
+    Result:=TCharacter.IsLetterOrDigit(C) or
+      (TCharacter.GetUnicodeCategory(C) in [TUnicodeCategory.ucNonSpacingMark,
+        TUnicodeCategory.ucCombiningMark,TUnicodeCategory.ucEnclosingMark,
+        TUnicodeCategory.ucConnectPunctuation]);
+  end;
+begin
+  Result:=False; Start:=0; Count:=0; Text:=SelectionPage(Page); if Text=nil then Exit;
+  Available:=CountChars(Text); if (Index<0) or (Index>=Available) then Exit;
+  Value:=TextRange(Page,Index,1); if (Value='') or TCharacter.IsWhiteSpace(Value[1]) then Exit;
+  Start:=Index; Finish:=Index+1;
+  // PDF positions count PDFium characters, not UTF-16 code units. Query each
+  // character rather than assuming those two offsets are interchangeable.
+  if IsWordCharacter(Index) then
+  begin
+    while (Start>0) and (Index-Start<4096) and IsWordCharacter(Start-1) do Dec(Start);
+    while (Finish<Available) and (Finish-Index<4096) and IsWordCharacter(Finish) do Inc(Finish);
+  end;
+  Count:=Finish-Start; Result:=Count>0;
 end;
 
 function TReaderPDF.TextRectangles(Page, Start, Count: Integer): TArray<TRectF>;

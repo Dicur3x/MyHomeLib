@@ -16,7 +16,7 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -37,6 +37,7 @@ try:
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
+        if a.case=='word-selection' and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
             for file in files:
@@ -273,6 +274,19 @@ try:
     data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
     data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
     (root/'search.pdf').write_bytes(data)
+    if a.case=='word-selection':
+        objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>']
+        for n in range(2):
+            objects.extend([f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 7 0 R >> >> /Contents {4+n*2} 0 R >>',
+                            f'<< /Length {len(content)} >>\nstream\n'+content.decode()+'endstream'])
+        objects.append('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+        data=b'%PDF-1.4\n'; offsets=[0]
+        for i,obj in enumerate(objects,1):
+            offsets.append(len(data)); data+=f'{i} 0 obj\n{obj}\nendobj\n'.encode()
+        start=len(data); data+=f'xref\n0 {len(objects)+1}\n0000000000 65535 f \n'.encode()
+        data+=b''.join(f'{v:010} 00000 n \n'.encode() for v in offsets[1:])
+        data+=f'trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
+        (root/'words.pdf').write_bytes(data)
     (root/'broken.fb2').write_text('<FictionBook><body><p>broken</body>',encoding='utf-8')
     (root/'internal-dtd.fb2').write_text('<!DOCTYPE FictionBook [<!ENTITY value "external">]><FictionBook><body><p>&value;</p></body></FictionBook>',encoding='utf-8')
     (root/'empty.txt').write_bytes(b'\xef\xbb\xbf')
@@ -302,6 +316,15 @@ try:
         z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
         z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
         z.writestr('OPS/main.xhtml','<html><body>'+hierarchy+'</body></html>')
+    if a.case=='word-selection':
+        word_paragraph='Привет café 😀 отдельное слово.'
+        (root/'words.txt').write_text(('\n'+word_paragraph)*120,encoding='utf-8')
+        word_body=''.join('<p>'+word_paragraph+'</p>' for _ in range(120))
+        (root/'words.fb2').write_text('<FictionBook><body><section>'+word_body+'</section></body></FictionBook>',encoding='utf-8')
+        with zipfile.ZipFile(root/'words.epub','w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+            z.writestr('OPS/book.opf','<package><manifest><item id="main" href="main.xhtml"/></manifest><spine><itemref idref="main"/></spine></package>')
+            z.writestr('OPS/main.xhtml','<html><body>'+word_body+'</body></html>')
     if a.case=='text-selection':
         assert a.selection_fixtures and a.selection_fixtures.is_dir()
         for source,target in [('reader-dome.fb2','selection-real.fb2'),('reader-quixote.epub','selection-real.epub'),('reader-story.txt','selection-real.txt')]:
@@ -352,6 +375,10 @@ try:
     if a.case in ('reader-additions','oct11-reader'):
         assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
         assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'
+    if a.case=='word-selection':
+        assert 'PASS double-click respects selection switch margins ordinary dragging and unchanged sources' in r.stdout
+        for name in ('words.fb2','words.epub','words.txt','words.pdf'):
+            assert 'PASS double-click selects exact visible Unicode word and copies it in both layouts and themes: '+name in r.stdout
     if a.case=='text-selection':
         assert 'PASS real FB2 EPUB TXT and emoji quotes' in r.stdout, 'Stale binary omitted actual selection checks'
     if a.case=='illustrated-selection':

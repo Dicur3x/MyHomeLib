@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 24 completed items after diagnostics, external reader and review formatting work; pending release/version and remaining UI work retained.",
+    "verification": "52 blocks, 25 completed items after verified word selection; pending dictionary/Google, release/version and remaining UI work retained.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: review formatting and network/cached-text lifecycle verified on x86/x64; unreleased."
+    "last_check": "30 October 2026: exact visible double-click selection and related geometry/PDF/cache/link regressions passed x86/x64; unreleased."
   },
   "order": [
     "archive_opening",
@@ -453,9 +453,40 @@
       ]
     },
     "reader_word_lookup": {
-      "status": "queued_after_export_fixes",
+      "status": "word_selection_verified_lookup_queued",
       "request": "Two independent selected-word/text actions: dictionary lookup (research installed GoldenDict integration) and Google search as additional option, not alternative. User asks lightweight integration; no unsolicited dictionary installation.",
-      "standard_selection": "Double-click a word must select the whole word; dragging must continue to select a fragment. Verify alongside link navigation and selected-text actions on x86/x64."
+      "standard_selection": "Double-click a word must select the whole word; dragging must continue to select a fragment. Verify alongside link navigation and selected-text actions on x86/x64.",
+      "word_selection": {
+        "status": "verified_in_source_not_released",
+        "implementation": [
+          "Use native RichEdit word breaks for text, preserving surrogate pairs; require a painted glyph hit so margins do not select nearest hidden text",
+          "Use existing PDFium character APIs and Unicode word categories for PDF text layers, without a new runtime dependency",
+          "Reset pending drag/link/note click state on double click; retain ordinary dragging, disabled selection and image-only PDF inspection",
+          "Fix vertically mirrored PDF search highlights: PDF raster DIBs are top-down; do not reverse their ScanLine row order"
+        ],
+        "verification": {
+          "platforms": [
+            "Win32",
+            "Win64"
+          ],
+          "word_report": "tools/ui/tests/Out/pre538-word-selection-20261030-r6.json",
+          "regression_report": "tools/ui/tests/Out/pre538-word-selection-regressions-20261030-r1.json",
+          "scenarios": [
+            "Actual mouse down/up/double-click/up at painted highlighted words in FB2/EPUB/TXT and two-page text-layer PDF",
+            "Single/double page layouts, light/dark themes and right-page hits",
+            "Cyrillic, accented Latin and supplementary Unicode in text; exact clipboard copy, ordinary dragging, blank margins and selection switch",
+            "selection-geometry: 4 PASS per architecture",
+            "pdf-current-page-search: 3 PASS per architecture, including highlight placement pixel check",
+            "feedback16-reader: 4 PASS per architecture including ordinary selection and cached PDF raster isolation",
+            "footnotes: 4 PASS per architecture including native clickable note navigation"
+          ],
+          "cleanup": "Both runners report no new native profiles left; original fixture hashes unchanged."
+        },
+        "limitations": [
+          "Scanned PDFs without a text layer have no words to select; their existing image inspection remains available",
+          "Dictionary lookup and separate Google action remain queued; final production binaries and distributions not yet rebuilt"
+        ]
+      }
     },
     "external_reader_visibility": {
       "status": "verified_in_source_not_released",
@@ -707,7 +738,7 @@
     }
   },
   "next_steps_order": [
-    "Fix word double-click selection, then lightweight selected-text dictionary integration plus separate Google action",
+    "Add lightweight selected-text dictionary integration and separate Google action after verified word double-click selection",
     "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",

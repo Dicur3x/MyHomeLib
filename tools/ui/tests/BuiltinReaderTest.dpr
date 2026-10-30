@@ -1537,6 +1537,8 @@ begin
   Writeln('PASS bundled DOC reads exact Unicode body without Office, caches, searches, pages, cancels and preserves originals');
 end;
 
+{$I ReaderWordSelectionTests.inc}
+
 procedure AuditRealTextSelection;
 var Reader: TfrmBuiltinReader; Painted: TBitmap; Surface: TWinControl;
   FileName, BeforeHash, Text, Query: string; Left, Right, Top, Bottom, X,Y, Start, Finish: Integer; Key: Word;
@@ -2277,6 +2279,7 @@ begin
       else if ParamStr(1)='large-book' then AuditLargeBook
       else if ParamStr(1)='real-epub' then AuditRealEPUB
       else if ParamStr(1)='doc-reader' then AuditDirectDOC
+      else if ParamStr(1)='word-selection' then AuditWordSelection
       else if ParamStr(1)='text-selection' then AuditRealTextSelection
       else if ParamStr(1)='illustrated-selection' then AuditIllustratedTextSelection
       else if ParamStr(1)='selection-geometry' then begin AuditFailedReaderCleanup; AuditSelectionGeometry; end
