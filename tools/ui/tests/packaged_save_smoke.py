@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--timeout', type=int, default=1800)
     parser.add_argument('--doc-inventory', type=Path, default=ROOT / 'tools/ui/tests/Out/pre533-format-inventory.json')
+    parser.add_argument('--catalogue-dir', type=Path,
+                        help='Exact fresh core archive directory; component fixtures still come from stage')
     args = parser.parse_args()
     stage = args.stage.resolve()
     assert not args.report.exists()
@@ -58,7 +60,7 @@ def main():
     fixture = ROOT / 'tools/ui/tests/Out' / platform / 'CollectionViewsTest.exe'
     native = ROOT / 'Program/Tests/Out' / platform / 'ProgramUpdateInstallerTest.exe'
     runtime = ROOT / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64')
-    catalogue = stage / 'catalogue' / ('HomeLibRu.zip' if platform == 'Win32' else 'HomeLibRu_x64.zip')
+    catalogue = (args.catalogue_dir or stage / 'catalogue') / ('HomeLibRu.zip' if platform == 'Win32' else 'HomeLibRu_x64.zip')
     # Fail before launching anything when the interactive candidate still
     # contains the dialog from before the latest source review.
     save_source = ROOT / 'Program/Units/unit_BookSendOptions.pas'

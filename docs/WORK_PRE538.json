@@ -7,8 +7,8 @@
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
     "verification": "59 blocks, 38 completed items, sequence 35 read back; block IDs/order/title preserved. Native compact Save As and the seven-input/seven-policy mixed save matrix passed on both architectures. Compact task remains unchecked until ordinary packaged UI proof.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026: sequence 35. Fresh Delphi CE GUI-built x86/x64 CollectionViewsTest passed unified-send in two themes/three DPI settings, and save-planning with seven inputs including the actual USR DOC. All 16 decoded DOC paragraphs preserved. New temporary native profiles removed. Main/Reader rebuild, final packaged UI/network checks and publication remain. Denied cleanup not retried.",
-    "last_verified_sequence": 35
+    "last_check": "31 October 2026, sequence 36: native compact/mixed matrix passed both; fresh Main/Reader builds and minimal core archives; ordinary Win32 five-format original copies byte-exact with modules absent. User requested larger list/wheel fix and three design alternatives. Mockups prepared; user choice and native wheel repair remain. New private GUI runtime removed; conversion phase deliberately interrupted for design review, not a product failure. All final candidate publication checks remain.",
+    "last_verified_sequence": 36
   },
   "order": [
     "archive_opening",
@@ -1058,10 +1058,23 @@
     "desktop_constraint": "User explicitly finished gaming on 30 October; resumed Computer Use after refreshing the returned Delphi window. Do not stop unrelated VMs, video encoding or user apps.",
     "release_gate": "Main and Reader source changed after previous verified candidate. Rebuild affected executables/native tests and create newly verified core/Reader packages before publication; previous archive hashes do not prove the new compact UI. Unchanged format/MCP packages may be reused by verified hashes.",
     "native_report": "tools/ui/tests/Out/homelibre-3beta1-compact-native-20261031-r1.json",
-    "compile_correction": "The first new Win64 compile found that TEdit.Text is TCaption: direct StartsWith string-helper calls did not compile. Added explicit string() casts for the three ShellDestination helper calls, then compiled both architectures successfully through Delphi CE GUI."
+    "compile_correction": "The first new Win64 compile found that TEdit.Text is TCaption: direct StartsWith string-helper calls did not compile. Added explicit string() casts for the three ShellDestination helper calls, then compiled both architectures successfully through Delphi CE GUI.",
+    "fresh_packages": {
+      "core": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/catalogue-r2",
+      "reader": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader-r3",
+      "core_sha256": {
+        "Win32": "70da7a6b68bd065c2b5c91f4d915e28f1b2b55306ea0b0ffa3ff424c4908f548",
+        "Win64": "be29f1b7b3cf284c5866c93635761fad59db73eac2263c16aebefa3bfe448bf7"
+      },
+      "reader_sha256": {
+        "Win32": "1d966f028d0d41aab3d7f2be4f0c15d8437868082f1db52db5a1fd90ab37595c",
+        "Win64": "2212f37639e16a82c0a6ee8bc0d9629a5317600cb923a3a447fb0fe5cff326a0"
+      },
+      "proof": "Main and Reader actual Release Ctrl+F9 GUI builds observed both architectures; core package-only probes passed both. Reader packaging verified current identities. No new packaged Reader GUI/upgrade/network/publication proof yet."
+    }
   },
   "release_integration_20261030": {
-    "status": "previous_candidate_verified_rebuild_required_after_compact_save_feedback_not_published",
+    "status": "fresh_main_reader_rebuilt_unpublished_pending_design_choice_final_gui_and_updated_publication_plan",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1145,12 +1158,23 @@
       "pre537_Win64": "ee2739035d410cd8bbf334972e61e2a97ddc45d22a07bb73e749d073103d786f",
       "beta1_Win32": "7abb4c1f97cdbaa9beb685a0dfdb4259d922cb0f42ba215481adce92d76139f6",
       "beta1_Win64": "10da3cc5f2f64e7d767eb45420f7bec04dcf5087a99e0465013027f3799cd956"
-    }
+    },
+    "publication_plan_caveat": "publication-r1 targets previous reader-r2 hashes. Regenerate and native-parse the plan with reader-r3 (or later chosen-design builds) and current core archives before any upload. No GitHub writes performed."
   },
   "compact_save_native_verification_20261031": {
     "report": "tools/ui/tests/Out/homelibre-3beta1-compact-native-20261031-r1.json",
     "status": "PASS native only",
     "packaged_gui": "pending",
     "core_reader_rebuild": "next"
+  },
+  "compact_save_design_feedback_20261031": {
+    "status": "prepare alternative mockups before changing production layout",
+    "request": "Book list feels too short/narrow; mouse wheel over list did not scroll for the user. Recommend a clearer compact design and show alternative chat mockups for choice.",
+    "gui_evidence": "Fresh packaged Win32 Main saved all five FB2/EPUB/PDF/DjVu/DOC sources byte-exact without optional modules; folder entry assisted by user because Computer Use focused the disabled owner during typing. Compact window, collapsed subfolder mask, filename preview and third context-menu position observed. Conversion phase deliberately not run after design request; native conversion checks already passed both architectures.",
+    "report": "tools/ui/tests/Out/homelibre-3beta1-packaged-save-Win32-20261031-r1.json",
+    "cleanup": "Both private GUI phases exited normally; harness removed its new private profile. Original-case hashes and installed-component receipts retained in the small report.",
+    "mockups": "C:/Users/cloud/.codex/visualizations/2026/10/15/01a14155-dfd4-78c0-8e32-29c79841740d/homelibre-save-designs.html",
+    "mockup_checks": "Three variants inspected as rendered images; local headless prototype checks passed at widths 760/360/320: no horizontal overflow, wheel under pointer, filename updates, size prototype, folder-field collapse and tabs. Values are illustrative, no real size estimate or native wheel repair is claimed.",
+    "next": "Await user design choice before product layout changes; native wheel defect still needs reproduction/repair. Resume ordinary packaged mixed conversion and final x86/x64 checks afterward."
   }
 }
