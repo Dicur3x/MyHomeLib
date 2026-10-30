@@ -5,7 +5,7 @@ interface
 uses Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, System.Types,
   System.Generics.Collections, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
   Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Graphics, Vcl.Menus, unit_MHLOperationStatus, unit_ReaderDocument, unit_ReaderPDF,
-  unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
+  unit_ReaderBookSkin, unit_ReaderRaster, unit_ReaderPDFAsync, unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFontFallback, unit_ReaderAnnotations, unit_ReaderPageSelection;
 
 type
   TReaderInitialsMode = (rimNone, rimChapter, rimParagraph);
@@ -119,6 +119,7 @@ type
     FTextSelectionStart, FTextSelectionEnd: Integer;
     FTextSelectionRects: TArray<TRect>;
     FSelectionTint: TBitmap;
+    FBookSkin: TReaderBookSkin;
     FFormattingHost: TForm;
     FOleCallback: IInterface;
     FBitmap: TBitmap;
@@ -1231,6 +1232,7 @@ begin
   FRichEdit.WordWrap:=False;
   FOleCallback:=AttachReaderPictures(FRichEdit);
   FPageSelection:=TReaderPageSelection.Create(Self,FFormattingHost);
+  FBookSkin:=TReaderBookSkin.Create;
   FSelectionTint:=TBitmap.Create; FSelectionTint.PixelFormat:=pf32bit; FSelectionTint.SetSize(1,1);
   FResizeTimer:=TTimer.Create(Self); FResizeTimer.Enabled:=False; FResizeTimer.Interval:=140; FResizeTimer.OnTimer:=ResizePage;
   FPageTimer:=TTimer.Create(Self); FPageTimer.Enabled:=False; FPageTimer.Interval:=30; FPageTimer.OnTimer:=PageLoaded;
@@ -1344,7 +1346,7 @@ begin
   FSearchTimer.Enabled:=False;
   if Assigned(FLoader) then begin FLoader.OnTerminate:=nil; FLoader.Terminate; FLoader.WaitFor; FreeAndNil(FLoader); end;
   FreeAndNil(FMissingFonts);
-  FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSecondPageSelection); FreeAndNil(FSelectionTint);
+  FSurface.FReader:=nil; FreeAndNil(FAnnotationIndex); FreeAndNil(FPageSelection); FreeAndNil(FSecondPageSelection); FreeAndNil(FSelectionTint); FreeAndNil(FBookSkin);
   FPDF.Free; FDocument.Free; FBitmap.Free; FPages.Free; FHighlighted.Free; FStyledIntervals.Free; FChapterOutline.Free; FChapterSourceTitles.Free; FChapterDepths.Free; FGlobalPages.Free; FMeasureBitmap.Free; inherited;
 end;
 
@@ -1934,121 +1936,16 @@ begin
 end;
 
 procedure TfrmBuiltinReader.PaintPageDecoration(Canvas: TCanvas);
-var Pages: array[0..1] of TRect; Book, Bounds: TRect;
-  Count, Width, Inset, MaximumDepth, Shadow, SavedDC, Middle, Curve, Opacity: Integer;
-  LeftDepth, RightDepth: Integer; Progress: Double;
-  Blend: TBlendFunction; Reflow: Boolean; Desk, Cover, PaperEdge: TColor;
+var Pages: TArray<TRect>; Count, Width, Inset, Middle: Integer; Reflow: Boolean;
   function Px(Value: Integer): Integer;
   begin Result:=Max(1,MulDiv(Value,CurrentPPI,96)); end;
-  procedure Tint(const Area: TRect; Alpha: Integer; Light: Boolean = False);
-  var Clip: TRect;
-  begin
-    if not IntersectRect(Clip,Area,FSurface.ClientRect) or (Alpha<=0) then Exit;
-    if Light then FSelectionTint.Canvas.Brush.Color:=clWhite else FSelectionTint.Canvas.Brush.Color:=clBlack;
-    FSelectionTint.Canvas.FillRect(Rect(0,0,1,1));
-    Blend.SourceConstantAlpha:=Byte(EnsureRange(Alpha,0,255));
-    Winapi.Windows.AlphaBlend(Canvas.Handle,Clip.Left,Clip.Top,Clip.Width,Clip.Height,
-      FSelectionTint.Canvas.Handle,0,0,1,1,Blend);
-  end;
-  procedure LeafBlock(Index, Depth, Direction: Integer);
-  var Top, Bottom, Line: array[0..8] of TPoint;
-    Shape: array[0..17] of TPoint;
-    Face: array[0..3] of TPoint; R: TRect;
-    Bend, VerticalDepth, Layers, X, Y, Outside: Integer; Ratio, Sag: Double;
-    function Shifted(const P: TPoint; Fraction, Layer: Double; Extra: Integer = 0): TPoint;
-    var Horizontal, Vertical: Double;
-    begin
-      if Count=1 then
-      begin
-        Horizontal:=-LeftDepth*(1-Fraction)+RightDepth*Fraction;
-        Vertical:=(Max(1,Min(Px(10),LeftDepth*2 div 3+1))*(1-Fraction)+
-          Max(1,Min(Px(10),RightDepth*2 div 3+1))*Fraction);
-        Horizontal:=Horizontal+Extra*(2*Fraction-1);
-      end
-      else begin Horizontal:=Direction*(Depth+Extra); Vertical:=VerticalDepth; end;
-      Result:=Point(P.X+Round(Horizontal*Layer),P.Y+Round((Vertical+Extra)*Layer));
-    end;
-  begin
-    R:=Pages[Index]; Bend:=0;
-    if Reflow then Bend:=Px(6);
-    VerticalDepth:=Max(1,Min(Px(10),Depth*2 div 3+1));
-    for var J:=0 to 8 do
-    begin
-      Ratio:=J/8;
-      // The paper rises away from the binding and falls into its fold.
-      // Only the existing blank margins are shaped; content is never warped.
-      if Count=2 then
-        if Index=0 then Sag:=Sqr(Ratio) else Sag:=Sqr(1-Ratio)
-      else Sag:=Sqr(1-Ratio);
-      X:=R.Left+Round(R.Width*Ratio);
-      Top[J]:=Point(X,R.Top+Round(Bend*Sag));
-      Bottom[J]:=Point(X,R.Bottom+Round(Bend*Sag));
-    end;
-    if Reflow and ((Count=2) or (Direction<0)) then
-    begin
-      Canvas.Pen.Style:=psClear; Canvas.Brush.Color:=Desk;
-      Shape[0]:=Point(R.Left,0); Shape[1]:=Point(R.Right,0);
-      for var J:=0 to 8 do Shape[J+2]:=Top[8-J];
-      Canvas.Polygon(Slice(Shape,11));
-      Shape[0]:=Point(R.Left,FSurface.Height); Shape[1]:=Point(R.Right,FSurface.Height);
-      for var J:=0 to 8 do Shape[J+2]:=Bottom[8-J];
-      Canvas.Polygon(Slice(Shape,11));
-    end;
-    // A single-page block is a continuous wedge: it must not be painted
-    // twice with two intersecting bottom edges.
-    if (Count=2) or (Direction<0) then
-    begin
-      for var J:=0 to 8 do
-      begin
-        Shape[J]:=Bottom[J]; Shape[17-J]:=Shifted(Bottom[J],J/8,1,Px(3));
-      end;
-      Canvas.Pen.Style:=psSolid; Canvas.Pen.Color:=Cover; Canvas.Brush.Color:=Cover;
-      Canvas.Polygon(Shape);
-      Canvas.Brush.Color:=PaperEdge; Canvas.Pen.Color:=PaperEdge;
-      for var J:=0 to 8 do Shape[17-J]:=Shifted(Bottom[J],J/8,1);
-      Canvas.Polygon(Shape);
-      Layers:=VerticalDepth;
-      if Count=1 then Layers:=Max(1,Min(Px(10),Max(LeftDepth,RightDepth)*2 div 3+1));
-      for var Layer:=Layers downto 1 do
-      begin
-        for var J:=0 to 8 do Line[J]:=Shifted(Bottom[J],J/8,Layer/Layers);
-        Canvas.Pen.Color:=ReaderBlendColor(PaperEdge,Cover,IfThen(Layer mod 2=0,56,20));
-        Canvas.Polyline(Line);
-      end;
-    end;
-    Canvas.Pen.Style:=psSolid; Canvas.Pen.Color:=Cover; Canvas.Brush.Color:=Cover;
-    Outside:=R.Left; if Direction>0 then Outside:=R.Right;
-    Face[0]:=Point(Outside,R.Top+Px(2)); Face[1]:=Point(Outside,R.Bottom);
-    Face[2]:=Point(Outside+Direction*(Depth+Px(2)),R.Bottom+VerticalDepth+Px(3));
-    Face[3]:=Point(Outside+Direction*(Depth+Px(2)),R.Top+VerticalDepth+Px(2));
-    Canvas.Polygon(Face);
-    Canvas.Brush.Color:=PaperEdge; Canvas.Pen.Color:=PaperEdge;
-    Face[2]:=Point(Outside+Direction*Depth,R.Bottom+VerticalDepth);
-    Face[3]:=Point(Outside+Direction*Depth,R.Top+VerticalDepth+Px(2));
-    Canvas.Polygon(Face);
-    for var Layer:=1 to Depth do
-    begin
-      X:=Outside+Direction*Layer; Y:=MulDiv(VerticalDepth,Layer,Max(1,Depth));
-      Canvas.Pen.Color:=ReaderBlendColor(PaperEdge,Cover,IfThen(Layer mod 3=0,52,12));
-      Canvas.MoveTo(X,R.Top+Y+Px(2)); Canvas.LineTo(X,R.Bottom+Y);
-    end;
-    Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,clWhite,IfThen(FNight,13,25));
-    Canvas.Polyline(Top);
-    Canvas.Pen.Color:=ReaderBlendColor(ThemeBackground,Cover,40); Canvas.Polyline(Bottom);
-  end;
 begin
   if (FPageAppearance<>rpaBook) or FBitmap.Empty then Exit;
-  // Paint after the finished raster. Text selection, images, pagination and
-  // cached source pixels keep their original coordinates in both appearances.
-  Blend.BlendOp:=AC_SRC_OVER; Blend.BlendFlags:=0; Blend.AlphaFormat:=0;
-  Reflow:=not Assigned(FPDF); Shadow:=Px(5); Width:=TextPageWidth;
+  Reflow:=not Assigned(FPDF); Width:=TextPageWidth;
   if Reflow then Count:=TextPageCount else Count:=Min(2,Length(FPDFPageViews));
   if Count=0 then Exit;
+  SetLength(Pages,Count);
   Inset:=Max(Px(3),Min(Px(22),MulDiv(FMargin,CurrentPPI,96)-Px(6)));
-  MaximumDepth:=Min(Px(16),Max(Px(2),Inset-Shadow));
-  Progress:=EnsureRange(ReadingProgress,0.0,1.0);
-  LeftDepth:=Max(Px(1),Round(MaximumDepth*Progress));
-  RightDepth:=Max(Px(1),MaximumDepth-LeftDepth);
   Middle:=(FSurface.Width-1) div 2;
   for var I:=0 to Count-1 do
     if Reflow then
@@ -2061,66 +1958,8 @@ begin
     end
     else
     begin Pages[I]:=FPDFPageViews[I].Bounds; OffsetRect(Pages[I],FPan.X,FPan.Y); end;
-  Book:=Pages[0]; if Count=2 then UnionRect(Book,Book,Pages[1]);
-  Desk:=ReaderBlendColor(ThemeBackground,clBlack,IfThen(FNight,82,100));
-  Cover:=ReaderBlendColor(ThemeBackground,RGB(38,33,27),IfThen(FNight,70,180));
-  PaperEdge:=ReaderBlendColor(ThemeBackground,ThemeText,IfThen(FNight,32,46));
-  SavedDC:=SaveDC(Canvas.Handle);
-  try
-    IntersectClipRect(Canvas.Handle,0,0,FSurface.Width,FSurface.Height);
-    if Reflow then
-    begin
-      Canvas.Brush.Color:=Desk;
-      Canvas.FillRect(Rect(0,0,FSurface.Width,Book.Top));
-      Canvas.FillRect(Rect(0,Book.Bottom+Px(6),FSurface.Width,FSurface.Height));
-      Canvas.FillRect(Rect(0,Book.Top,Book.Left,FSurface.Height));
-      Canvas.FillRect(Rect(Book.Right,Book.Top,FSurface.Width,FSurface.Height));
-    end;
-    for var N:=Shadow downto 1 do
-    begin
-      Tint(Rect(Book.Left-LeftDepth+N,Book.Bottom+Px(10)+N-1,
-        Book.Right+RightDepth+N,Book.Bottom+Px(10)+N),(Shadow-N+1)*6);
-      Tint(Rect(Book.Right+RightDepth+N-1,Book.Top+Px(8),
-        Book.Right+RightDepth+N,Book.Bottom+Px(12)),(Shadow-N+1)*5);
-    end;
-    LeafBlock(0,LeftDepth,-1);
-    if Count=2 then LeafBlock(1,RightDepth,1)
-    else LeafBlock(0,RightDepth,1);
-    Curve:=Max(Px(12),Min(Px(48),TextPageGap div 2+MulDiv(Max(4,FMargin-8),CurrentPPI,96)));
-    if Count=2 then
-    begin
-      Middle:=(Pages[0].Right+Pages[1].Left) div 2;
-      if not Reflow then
-      begin
-        Canvas.Brush.Color:=Cover;
-        Canvas.FillRect(Rect(Pages[0].Right,Book.Top+Px(3),Pages[1].Left,Book.Bottom+Px(8)));
-      end;
-      for var N:=0 to Curve-1 do
-      begin
-        Opacity:=Round(145*Sqr(1-N/Curve));
-        Tint(Rect(Middle-N-1,Book.Top+Px(6),Middle-N,Book.Bottom+Px(6)),Opacity);
-        Tint(Rect(Middle+N,Book.Top+Px(6),Middle+N+1,Book.Bottom+Px(6)),Opacity);
-      end;
-      Tint(Rect(Middle-1,Book.Top+Px(6),Middle+1,Book.Bottom+Px(8)),95);
-    end
-    else
-    begin
-      // A visible binding remains in one-page mode as well.
-      for var N:=0 to Curve-1 do
-        Tint(Rect(Book.Left+N,Book.Top+Px(6),Book.Left+N+1,Book.Bottom),
-          Round(100*Sqr(1-N/Curve)));
-    end;
-    for var Side:=0 to 1 do
-    begin
-      if Side=0 then Bounds:=Pages[0] else Bounds:=Pages[Count-1];
-      for var N:=0 to Px(16)-1 do
-      begin
-        Opacity:=Round(22*Sqr(1-N/Px(16)));
-        if Side=0 then Tint(Rect(Bounds.Left+N,Bounds.Top+Px(5),Bounds.Left+N+1,Bounds.Bottom),Opacity)
-        else Tint(Rect(Bounds.Right-N-1,Bounds.Top+Px(5),Bounds.Right-N,Bounds.Bottom),Opacity);
-      end;
-    end;
-  finally RestoreDC(Canvas.Handle,SavedDC); end;
+  FBookSkin.Paint(Canvas,FSurface.ClientRect,Pages,ThemeBackground,FNight,
+    Reflow,CurrentPPI,ReadingProgress);
 end;
 
 procedure TfrmBuiltinReader.PaintPage(Canvas: TCanvas);

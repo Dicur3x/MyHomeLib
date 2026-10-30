@@ -611,8 +611,42 @@
       }
     },
     "reader_visual_redesign": {
-      "status": "queued_after_export_fixes",
-      "request": "User finds current volume mode sparse and crooked, including skewed top page edge, and toolbar/buttons unfinished. Compare actual AlReader appearance, improve page geometry/material/depth and coherent top controls; visually verify themes, window sizes and DPI before claiming completion."
+      "status": "book_material_verified_in_source_toolbar_queued_not_released",
+      "request": "User finds current volume mode sparse and crooked, including skewed top page edge, and toolbar/buttons unfinished. Compare actual AlReader appearance, improve page geometry/material/depth and coherent top controls; visually verify themes, window sizes and DPI before claiming completion.",
+      "book_material": {
+        "changes": [
+          "Straight front page edges; broad soft fold and reflected page light; independent original canvas skin",
+          "Cover and exposed page blocks follow reading progress without an opaque bar below the thinner half",
+          "Reusable 256-pixel gradient strip; no source-raster scaling, pagination or selection-coordinate changes"
+        ],
+        "reference": "Inspected existing AlReader book_new1.m2.bmp skin. No third-party artwork copied into our distribution; no live AlReader interaction claimed.",
+        "validation": [
+          {
+            "platform": "Win32",
+            "proof": "tools/ui/tests/Out/pre538-book-material-20261030-r2-Win32.json",
+            "pass_markers": 30,
+            "binary_sha256": "8a97b0e4440215d995d19353879d9b7bdd28d5ec4873718ed75a5ab91e4924fc"
+          },
+          {
+            "platform": "Win64",
+            "proof": "tools/ui/tests/Out/pre538-book-material-20261030-r2-Win64.json",
+            "pass_markers": 30,
+            "binary_sha256": "264724ed2b986d1b989a260031d7e1cd7ed5a9394ba16de04b9ea12ee53cf8e5"
+          }
+        ],
+        "geometry_dpi": [
+          96,
+          144,
+          192
+        ],
+        "themes": 6,
+        "formats": [
+          "FB2",
+          "PDF"
+        ],
+        "review_images": "tools/ui/tests/Out/pre538-book-material-20261030-r2/{Win32,Win64}/book-appearance-*.png",
+        "remaining": "Toolbar redesign, full application/release builds and packaging remain pending."
+      }
     },
     "catalogue_book_preview_layout": {
       "status": "queued_with_visual_improvements",
@@ -812,7 +846,7 @@
     }
   },
   "next_steps_order": [
-    "Improve Reader volume-mode geometry and appearance using actual AlReader comparison, and redesign top controls with theme/size/DPI visual checks",
+    "Redesign Reader top controls with theme/size/DPI visual checks; volume book material is verified on x86/x64 in the working branch",
     "Improve catalogue bottom preview: bounded automatic description height and expandable thumbnails to the right of metadata without increasing panel height",
     "Make search filters usable on small screens/high DPI, keeping common filters visible and all remaining settings accessible",
     "Unify public 3.x prerelease labels for app and first-party modules; preserve upstream versions and verify actual pre5.x upgrade migration",
