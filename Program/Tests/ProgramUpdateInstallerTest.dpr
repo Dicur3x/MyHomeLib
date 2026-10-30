@@ -252,7 +252,8 @@ begin
     else if Mode = '--components' then
     begin
       if not ParseComponentFeed(TFile.ReadAllText(ParamStr(2)), ParamStr(3),
-        TFile.ReadAllText(ParamStr(4)), Components) then raise Exception.Create('component feed');
+        TFile.ReadAllText(ParamStr(4)), Components, True, ParamStr(6)='--partial') then
+        raise Exception.Create('component feed');
       Params := TJSONArray.Create;
       try
         for I := 0 to High(Components) do
