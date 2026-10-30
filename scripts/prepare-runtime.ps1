@@ -133,12 +133,15 @@ function Assert-HomeLibBrand {
         [string]$Path,
 
         [Parameter(Mandatory = $true)]
-        [string]$InternalName
+        [string]$InternalName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProductName
     )
 
     $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
     $expected = @{
-        ProductName = 'HomeLib Ru'
+        ProductName = $ProductName
         InternalName = $InternalName
         OriginalFilename = [System.IO.Path]::GetFileName($Path)
         LegalCopyright = 'Copyright (c) 2008-2026 Oleksiy Penkov'
@@ -151,7 +154,7 @@ function Assert-HomeLibBrand {
     if (-not [string]::IsNullOrWhiteSpace($info.LegalTrademarks)) {
         throw "Unexpected LegalTrademarks in '$Path': '$($info.LegalTrademarks)'."
     }
-    Write-Host "[OK] HomeLib Ru product metadata: $Path"
+    Write-Host "[OK] $ProductName product metadata: $Path"
 }
 
 function Write-FileHash {
@@ -328,11 +331,11 @@ foreach ($requiredFile in $requiredRuntimeFiles) {
 
 Assert-Architecture -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -Expected $Platform
 Assert-Architecture -Path (Join-Path $outputDirectory 'HomeLibRuUpdater.exe') -Expected $Platform
-Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons'
+Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'Icons\MHLIcons.dll') -InternalName 'MHLIcons' -ProductName 'HomeLib Ru'
 if (-not $CoreOnly) {
     Assert-Architecture -Path $zstdDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -Expected $Platform
-    Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer'
+    Assert-HomeLibBrand -Path (Join-Path $outputDirectory 'MHLMcpServer.exe') -InternalName 'MHLMcpServer' -ProductName 'HomeLibre'
     Assert-Architecture -Path $sevenZipDestination -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.exe') -Expected $Platform
     Assert-Architecture -Path (Join-Path $outputDirectory 'tools\7zip\7z.dll') -Expected $Platform

@@ -43,10 +43,13 @@ def main():
     parser.add_argument('--packages', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--catalogue-archive', type=Path)
+    parser.add_argument('--fixture', type=Path)
+    parser.add_argument('--timeout', type=float, default=600,
+                        help='Maximum seconds for each Computer Use phase')
     args = parser.parse_args()
     platform = 'Win64' if args.architecture == 'x64' else 'Win32'
     runtime = ROOT / 'Program/Out' / ('Bin64' if platform == 'Win64' else 'Bin')
-    fixture = OUT / platform / 'Performance/CollectionViewsTest.exe'
+    fixture = args.fixture or OUT / platform / 'CollectionViewsTest.exe'
     report = args.report.resolve()
     assert not report.exists(), report
     package_info = next(x for x in json.loads((args.packages / 'reader-component-report.json').read_text())
@@ -64,15 +67,21 @@ def main():
     assert folder.parent == Path(tempfile.gettempdir()).resolve()
     environment = dict(os.environ, LOCALAPPDATA=str(folder / 'LocalAppData'))
     try:
-        for file in runtime.iterdir():
-            if file.is_file() and (file.suffix.lower() in ('.dll', '.glst') or file.name == 'HomeLibRu.exe'):
-                shutil.copyfile(file, folder / file.name)
-        shutil.copytree(runtime / 'Icons', folder / 'Icons')
-        shutil.copyfile(fixture, folder / 'CollectionViewsTest.exe')
         if args.catalogue_archive:
             with zipfile.ZipFile(args.catalogue_archive) as archive:
+                assert archive.testzip() is None
+                for name in archive.namelist():
+                    assert not name.startswith(('/', '\\')) and '\\' not in name and ':' not in name
+                    assert '..' not in Path(name).parts, name
                 archive.extractall(folder)
             assert digest(folder / 'HomeLibRu.exe') == digest(runtime / 'HomeLibRu.exe')
+            info['catalogue_archive_sha256'] = digest(args.catalogue_archive)
+        else:
+            for file in runtime.iterdir():
+                if file.is_file() and (file.suffix.lower() in ('.dll', '.glst') or file.name == 'HomeLibRu.exe'):
+                    shutil.copyfile(file, folder / file.name)
+            shutil.copytree(runtime / 'Icons', folder / 'Icons')
+        shutil.copyfile(fixture, folder / 'CollectionViewsTest.exe')
         for name in ('uselocaldata', 'uselocaltemp'):
             (folder / name).write_text('')
         (folder / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1', encoding='utf8')
@@ -81,14 +90,26 @@ def main():
                        '[INTERFACE]\nLocale=ru\nWindowsDarkThemeOfferDismissed=1\n'
                        '[BEHAVIOR]\nCoverPanel=0\nShowCover=0\nShowAnnotation=0\nAutoLoadReview=0\n'
                        'IgnoreAbsentArchives=1\nUseBuiltinReaderByDefault=1\n', encoding='utf8')
-        setup = subprocess.run([str(folder / 'CollectionViewsTest.exe'), 'publisher-selection'],
-                               cwd=folder, env=environment, capture_output=True, timeout=60,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
+        # The reusable catalogue fixture still imports a root genre file. Its
+        # one-off input must not change the packaged application's layout.
+        fixture_genres = folder / 'genres_fb2.glst'
+        genre_shim = not fixture_genres.exists()
+        if genre_shim:
+            shutil.copyfile(folder / 'tools/genres/genres_fb2.glst', fixture_genres)
+        try:
+            setup = subprocess.run([str(folder / 'CollectionViewsTest.exe'), 'publisher-selection'],
+                                   cwd=folder, env=environment, capture_output=True, timeout=60,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+        finally:
+            if genre_shim:
+                fixture_genres.unlink()
+        info['fixture_genre_shim_removed'] = genre_shim and not fixture_genres.exists()
         assert setup.returncode == 0, setup.stdout[-3000:]
         options = read_ini(ini)
         options['BEHAVIOR']['UseBuiltinReaderByDefault'] = '1'
         save_ini(ini, options)
-        shutil.copyfile(ROOT / 'Installer/Components.json', folder / 'COMPONENTS.json')
+        if not args.catalogue_archive:
+            shutil.copyfile(ROOT / 'Installer/Components.json', folder / 'COMPONENTS.json')
         source = folder / 'Alpha ru.fb2'
         body = ''.join('<p>Проверка отдельной читалки. Абзац ' + str(i) +
                        '. Книга открывается из каталога, позиция возвращается в карточку.</p>' for i in range(500))
@@ -128,7 +149,7 @@ def main():
         started = time.monotonic()
         saved = None
         request_path = None
-        while app.poll() is None and time.monotonic() - started < 600:
+        while app.poll() is None and time.monotonic() - started < args.timeout:
             for path in folder.rglob('request.json'):
                 if path.parent.name.startswith('HomeLibReader-session-'):
                     value = json.loads(path.read_text('utf-8-sig'))
@@ -162,7 +183,7 @@ def main():
                               request=str(request_path))), flush=True)
         started = time.monotonic()
         displaying = False
-        while app.poll() is None and time.monotonic() - started < 600:
+        while app.poll() is None and time.monotonic() - started < args.timeout:
             response = request_path.with_name('response.json')
             if response.exists():
                 try:
@@ -183,6 +204,9 @@ def main():
         assert progress > 0, progress
         info.update(status='PASS', resumed_book_progress=progress, source_preserved=True,
                     completed_session_removed=True, pending_key_consumed=True)
+    except BaseException as error:
+        info.update(status='FAIL', error=repr(error))
+        raise
     finally:
         # Only the exact processes and directory created by this invocation.
         for process in processes:
@@ -191,7 +215,24 @@ def main():
                 process.wait(timeout=15)
         assert folder.resolve().parent == Path(tempfile.gettempdir()).resolve()
         assert folder.name.startswith('HomeLibRu-native-reader-main-')
-        temp.cleanup()
+        # Reader may still be open when Main times out. Never select another
+        # installation: this path belongs to this invocation's private root.
+        cleanup_environment = dict(environment, HOMELIBRE_TEST_READER=str(folder / 'HomeLibReader.exe'))
+        try:
+            stopped = subprocess.run(['powershell', '-NoProfile', '-Command',
+                "$ErrorActionPreference='Stop'; "
+                "$ownedReaders=@(Get-Process HomeLibReader -ErrorAction SilentlyContinue | "
+                "Where-Object {$_.Path -eq $env:HOMELIBRE_TEST_READER}); "
+                "foreach($ownedReader in $ownedReaders){"
+                "Stop-Process -InputObject $ownedReader -Force -ErrorAction Stop; "
+                "if(-not $ownedReader.WaitForExit(15000)){throw 'Owned reader did not exit'}}"],
+                env=cleanup_environment, capture_output=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW)
+            assert stopped.returncode == 0, stopped.stderr.decode(errors='replace')
+            temp.cleanup()
+        finally:
+            info['own_profile_removed'] = not folder.exists()
+            report.write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
     assert not folder.exists()
     info['own_profile_removed'] = True
     report.write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf8')

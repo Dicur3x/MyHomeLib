@@ -17,6 +17,9 @@ def package(output, platform):
     binary = executable.read_bytes()
     helper.binary_platform(binary, platform)
     version = helper.file_version(executable)
+    identity = json.loads((REPO/'Installer/Release.json').read_text(encoding='utf-8-sig'))
+    if version != identity['version']:
+        raise ValueError('Rebuild MCP with the current release version before packaging')
     payload = {'MHLMcpServer.exe': binary, 'MHLMcpServer-LICENSE.txt': (REPO/'LICENSE').read_bytes(),
                'MHLMcpServer-README.txt': (
                    'MCP-сервер HomeLibre\n\n'

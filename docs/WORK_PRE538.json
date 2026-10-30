@@ -1,13 +1,13 @@
-{
+﻿{
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "52 blocks, 31 completed items; actual catalogue/Reader/updater builds verified; install/upgrade and publication remain open.",
+    "verification": "52 blocks, 31 completed items; Page sequence 26 read back. Eight production EXEs, native package preparation, 16 independent local module installs, exact-archive catalogue/Reader GUI integration verified. Old published receiver, network/restart, remaining final checks and publication stay open.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: Page sequence 25 read back with identical structure and unrelated content. Six production Release builds and PE identities verified, minimal catalogue archives verified on both architectures, independent Reader archive names and digests match the bootstrap feed. Actual installation/old upgrades pending. Unreleased."
+    "last_check": "30 October 2026: sequence 26; all three intended replacements and every unrelated block, order and metadata verified unchanged. No open item prematurely completed; unpublished."
   },
   "order": [
     "archive_opening",
@@ -980,10 +980,15 @@
       "paths": [
         "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-gucen6n2",
         "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-lva_o0zv",
-        "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader"
+        "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader",
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-reader-main-qovpkoez"
       ],
       "reason": "blocked by policy",
       "action": "Old native profile and superseded Reader-stage cleanup rejected before execution. User notified. No alternate deletion, retry or enclosing-parent deletion attempted. Newly created native/package-test profiles were removed through their normal lifecycle."
+    },
+    "base_reader_formats_explanation": {
+      "status": "explained_from_current_source",
+      "scope": "DOCX/ODT use our ZIP/XML document parser; CBZ reuses archive/image display, simple texts use own handlers. These update with Reader, not separately downloaded office/Kindle packages. Third-party PDF/DjVu/legacy DOC/Kindle adapters remain on demand. User asked for clarification, no new request to split every built-in parser."
     }
   },
   "github_maintenance_20261029": {
@@ -1008,12 +1013,12 @@
     }
   },
   "next_steps_order": [
-    "Build/version-check optional MCP, then actual minimal installation and pre5.x/Reader/module upgrades using exact prepared release archives; preserve strict manifest, version, architecture and SHA-256 checks",
+    "Verify actual updates with old published receivers and independent Reader/module upgrades using exact prepared archives; reconcile final feed metadata and preserve strict version, architecture, manifest and SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
   "release_integration_20261030": {
-    "status": "six_production_executables_and_core_reader_packages_verified_not_published",
+    "status": "eight_production_executables_local_install_and_main_reader_gui_verified_not_published",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1023,11 +1028,34 @@
     ],
     "reader_report": "tools/ui/tests/Out/homelibre-3beta1-reader-packages-20261030-r2.json",
     "reader_producer_fix": "Versioned Reader asset names now match the bootstrap feed; reject mismatched current Reader/updater numeric versions before writing output; generated descriptors include archive names and current UTC date.",
-    "reader_compatibility_limit": "Reader payload retains libzstd.dll required by old Reader component installers. The minimal catalogue archive has no Zstandard DLL or optional reader/format modules. Actual standalone install and old update checks remain pending.",
+    "reader_compatibility_limit": "Reader retains libzstd.dll required by old component installers; catalogue minimum excludes it and optional format payloads. Catalogue/Reader integration passed; final standalone portability and old published update checks remain pending.",
     "release_notes": "docs/releases/RELEASE_NOTES_3.0.0_pre1.1.md",
-    "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks.",
+    "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks. New successful x86/x64 GUI profiles and all native component-install profiles removed normally. The initial x64 observer-timeout profile left locked Reader data during cleanup; after Reader closed, automatic review rejected deletion of G:/HomeLibRu-build-cache/HomeLibRu-native-reader-main-qovpkoez before execution with blocked by policy. User notified; this path and its enclosing parent must not be retried.",
     "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report.",
     "format_report": "tools/ui/tests/Out/homelibre-3beta1-format-packages-20261030-r1.json",
-    "format_packages": "Twelve independently packaged x86/x64 format components at 3.0.0.1; complete manifest/file/asset SHA-256, CRC, disjoint ownership and bootstrap archive names checked. Source-native runtime preflight passed. BookProcessing contains no Kindle, Office, XPS, images, legacy codec, PDF or DjVu payloads. Actual component installation/operation remains pending."
+    "format_packages": "Twelve independently packaged x86/x64 format components at 3.0.0.1; complete manifest/file/asset SHA-256, CRC, disjoint ownership and bootstrap archive names checked. Source-native runtime preflight passed. BookProcessing contains no Kindle, Office, XPS, images, legacy codec, PDF or DjVu payloads. Actual local component installation now passed for both architectures; final packaged conversion/format operation checks remain pending.",
+    "mcp_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-mcp-build-smoke-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-mcp-resource-identities-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-mcp-packages-20261030-r1.json"
+    ],
+    "mcp_verification": "Both Release MCP EXEs built with licensed Delphi CE GUI, correct HomeLibre resources, numeric 3.0.0.1, PE architecture and source-matched package hashes. Synthetic Unicode FB2 extraction and 43 cache-selftest checks per architecture passed without a user database. The package producer rejects a stale MCP version before creating output. prepare-runtime now distinguishes unchanged HomeLib Ru icon metadata from current HomeLibre MCP metadata. Full MCP service/real-database operation is not claimed.",
+    "native_prepare_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-native-prepare-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-native-prepare-Win64-20261030-r1.json"
+    ],
+    "native_prepare_scope": "Fresh licensed-GUI-built ProgramUpdateInstallerTest executables prepared each exact catalogue ZIP and validated its staged new updater; no actual old published receiver or GUI restart claim.",
+    "component_install_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-component-install-Win32-20261030-r2.json",
+      "tools/ui/tests/Out/homelibre-3beta1-component-install-Win64-20261030-r2.json"
+    ],
+    "component_install_scope": "Each of HomeLibReader, BookProcessing, ImageProcessing, Kindle, LegacyBooks, LegacyOffice, XPS and MHLMcpServer prepared and installed by the actual native installer units on both architectures. All 16 transactions installed, repair checks returned 0/PASS, synthetic personal-data sentinel unchanged. Common BookProcessing/Images did not create unrelated format-module folders. No network/download/restart or old-receiver proof.",
+    "reader_catalogue_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-reader-catalogue-x86-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-reader-catalogue-x64-20261030-r2.json"
+    ],
+    "reader_catalogue_scope": "Exact catalogue ZIPs and independently hashed Reader payloads, ordinary production GUI, own tiny catalogue. Missing-reader offer/cancel, session creation, verified payload installation between runs, direct resumed book opening without a file picker, page turn, normal Reader/Main exit. Returned catalogue progress 4% x86 and 1% x64; source preserved, pending session/key consumed and new successful profiles removed. This does not exercise download or restart helper.",
+    "gui_observations": "Computer Use visually confirmed HomeLibre/3.0 beta 1 catalogue identity, Unicode word selection by double click, hidden controls without changing normal-window size, top-strip restore, and independent F11 full-screen enter/leave on both architectures. x64 also preserved hidden controls through a full-screen round trip. No performance timing claim.",
+    "harness_corrections": "Native repair output includes a PASS footer (initial wrapper-only assertion corrected). GUI fixture now uses fresh native fixture EXEs and the exact catalogue archive without extra runtime DLLs/root metadata; the legacy fixture-only root genre import is removed before launch. Initial x64 manual UI phase hit its 600s observer deadline, not a proved application failure. Retry used explicit 1800s, passed normal exits and cleanup. Harness now closes only Reader children at its exact private path before cleanup and preserves failure reports."
   }
 }
