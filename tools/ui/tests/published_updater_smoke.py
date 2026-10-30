@@ -71,6 +71,7 @@ def main():
     parser.add_argument('native', type=Path)
     parser.add_argument('fixture', type=Path)
     parser.add_argument('--old-sha256', required=True)
+    parser.add_argument('--old-tag', default='2.7.0_pre5.37')
     parser.add_argument('--new-sha256', required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--baseline-component', type=Path,
@@ -98,10 +99,10 @@ def main():
     report = dict(status='RUNNING', scope=__doc__, old_archive_sha256=args.old_sha256,
                   new_archive_sha256=args.new_sha256, published=False)
     if args.frontend:
-        report['scope'] = ('Original published Main restores an owned prepared package, validates its helper, '
+        report['scope'] = ('Original published Main restores an owned prepared package, selects its expected helper, '
             'writes the restart request and launches installation through its normal UI. '
             'The network/download frontend is not exercised.')
-    temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-old37-')
+    temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-published-')
     root = Path(temporary.name).resolve()
     target = root / 'HomeLibRu-native-target'
     cache = root
@@ -128,7 +129,7 @@ def main():
         target.mkdir()
         extract(args.old_archive, target)
         old_main = version(target / 'HomeLibRu.exe')
-        assert old_main['product'] == '2.7.0_pre5.37', old_main
+        assert old_main['product'] == args.old_tag, old_main
         report['old_main_version'] = old_main
         old_main_hash = sha(target / 'HomeLibRu.exe')
         old_helper = (target / 'HomeLibRuUpdater.exe').read_bytes()
@@ -191,6 +192,9 @@ def main():
         protected.write_text('Personal data must survive the old updater ё', encoding='utf-8')
         protected_hash = sha(protected)
         before_books = books(target / 'Data/one.hlc2')
+        # Frozen pre5.37 InstallationHelperSource uses the installed helper for
+        # components, but the new package's helper for a catalogue update.
+        report['installed_helper_source_sha256'] = sha(target / 'HomeLibRuUpdater.exe')
         archive = root / 'release.zip'
         shutil.copyfile(args.new_archive, archive)
         if component:
@@ -227,7 +231,8 @@ def main():
             assert request['pid'] == old_pid and request['application'] == 'HomeLibRu.exe'
             assert request['tag'] == manifest['release'] and request['sha256'] == args.new_sha256
             assert Path(request['target']).resolve() == target
-            expected_helper = next(x['sha256'] for x in manifest['files'] if x['path'] == 'HomeLibRuUpdater.exe')
+            expected_helper = report['installed_helper_source_sha256'] if component else next(
+                x['sha256'] for x in manifest['files'] if x['path'] == 'HomeLibRuUpdater.exe')
             assert report.get('launched_helper_sha256') == expected_helper
             report.update(published_main_exit=0, original_frontend_request_verified=True)
             deadline = time.monotonic() + 180
@@ -287,7 +292,7 @@ def main():
                 process.kill()
                 process.wait(timeout=15)
             assert root.parent == Path(tempfile.gettempdir()).resolve()
-            assert root.name.startswith('HomeLibRu-update-test-old37-')
+            assert root.name.startswith('HomeLibRu-update-test-published-')
             temporary.cleanup()
         finally:
             report['temporary_payloads_removed'] = not root.exists()

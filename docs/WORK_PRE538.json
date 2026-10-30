@@ -5,9 +5,9 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "55 blocks, 34 completed items, sequence 29 read back; added independently verified Reader/BookProcessing upgrades to the completed prepared-package pre5.37 install/restart proof, reconciled the remaining update scope and corroborated external-reader visibility without changing unrelated blocks, order or metadata.",
+    "verification": "56 blocks, 36 completed items, sequence 30 read back; reconciled pre5.37 Reader install-UI and original pre5.33/pre5.34 helper proof, checked the verified rename, corroborated both final external-reader windows and recorded incomplete denied baseline cleanup. Unrelated blocks/order/metadata preserved. An unknown initial edit outcome was reconciled by a fresh same-stream read showing no applied operations before rebuilding a guarded atomic edit; no blind replay or duplicate row.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "30 October 2026: sequence 29; original published pre5.37 Main/helper passed prepared-package program installation/restart, and its old helper independently upgraded published Reader/BookProcessing on x86/x64, preserving catalogue and synthetic personal data. The new x64 updater visibly lists uninstalled AlReader/SumatraPDF. All eight new owned update-test runtimes removed. Network/download, earlier receivers, component frontend, remaining module upgrades and final release checks/publication stay open."
+    "last_check": "30 October 2026: sequence 30; original pre5.33/pre5.34/pre5.37 helpers accept exact prepared programme archives on x86/x64, and pre5.37 Main installs both programme and Reader through its own UI. Independent Reader/BookProcessing upgrades and both final external-reader windows verified. Current successful/aborted test runtimes removed, but automatic review rejected deletion of the two downloaded pre5.33 source archives (62,264,666 bytes including metadata); user notified and paths will not be retried. Network/download, final feed reconciliation, remaining module/package checks and publication stay open."
   },
   "order": [
     "archive_opening",
@@ -1018,12 +1018,12 @@
     }
   },
   "next_steps_order": [
-    "Finish older-receiver/component-frontend coverage and reconcile final release/component feeds. pre5.37 Main install/restart plus independent Reader and BookProcessing upgrades through its original helper passed on x86/x64 with exact prepared archives. Network/download, earlier published receivers and upgrades of the remaining modules are not yet covered; preserve strict version, architecture, manifest and SHA-256 checks",
+    "Reconcile final release/component feeds and finish packaged operation checks. Original pre5.33/pre5.34/pre5.37 helpers accept the exact prepared programme archives on x86/x64; pre5.37 Main programme/Reader install UIs and independent Reader/BookProcessing upgrades also passed. Network/download and remaining independent-format upgrade coverage are not yet established; preserve strict version, architecture, manifest and SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
   "release_integration_20261030": {
-    "status": "published_pre537_program_reader_processing_upgrades_verified_both_architectures_not_published",
+    "status": "legacy_receivers_and_reader_frontend_verified_both_architectures_not_published",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1033,7 +1033,7 @@
     ],
     "reader_report": "tools/ui/tests/Out/homelibre-3beta1-reader-packages-20261030-r2.json",
     "reader_producer_fix": "Versioned Reader asset names now match the bootstrap feed; reject mismatched current Reader/updater numeric versions before writing output; generated descriptors include archive names and current UTC date.",
-    "reader_compatibility_limit": "Reader retains libzstd.dll required by old component installers; catalogue minimum excludes it and optional format payloads. Catalogue/Reader integration, standalone portability, actual pre5.37 Main install/restart and independent Reader/BookProcessing upgrades through the original old helper passed. Other module upgrades, component frontend, earlier receivers and network/download checks remain pending.",
+    "reader_compatibility_limit": "Reader retains libzstd.dll required by old component installers; catalogue minimum excludes it and optional format payloads. Catalogue/Reader integration, standalone portability, pre5.37 programme/Reader install UIs, independent Reader/BookProcessing upgrades and original pre5.33/pre5.34/pre5.37 helper acceptance passed on x86/x64. Network/download and remaining format-module upgrade coverage are not claimed.",
     "release_notes": "docs/releases/RELEASE_NOTES_3.0.0_pre1.1.md",
     "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks. New successful x86/x64 GUI profiles and all native component-install profiles removed normally. The initial x64 observer-timeout profile left locked Reader data during cleanup; after Reader closed, automatic review rejected deletion of G:/HomeLibRu-build-cache/HomeLibRu-native-reader-main-qovpkoez before execution with blocked by policy. User notified; this path and its enclosing parent must not be retried.",
     "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report.",
@@ -1080,7 +1080,26 @@
       "tools/ui/tests/Out/homelibre-3beta1-published37-processing-upgrade-Win64-20261030-r1.json"
     ],
     "published_component_upgrade_scope": "Exact cached published Reader and BookProcessing 2.7.0.1105 ZIPs independently matched fresh GitHub public asset digests. Current native installer established each previous module in a private pre5.37 catalogue. Its unchanged original published helper then installed the prepared 3.0.0.1 module and restarted the original catalogue, which closed normally. Reader verified seven payload hashes per architecture; BookProcessing verified 150 Win32 and 151 Win64 hashes. Both module repair checks returned 0/PASS. Catalogue EXE bytes, all seven Books rows/columns, personal-file/settings and two synthetic Reader-profile files remained unchanged. BookProcessing did not add Kindle, Office, XPS, PDF, DjVu, ImageProcessing or legacy decoder paths. All four owned runtimes removed; cached source archives reused without downloads or deletion. This is old-helper installation/restart proof, not the old Main component-download/launch frontend, a complete real Reader-history database test, or proof for all other module upgrades.",
+    "published_reader_frontend_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-published37-reader-frontend-Win32-20261030-r2.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published37-reader-frontend-Win64-20261030-r1.json"
+    ],
+    "published_reader_frontend_scope": "Both original pre5.37 Main EXEs restored the owned prepared Reader 3.0.0.1 update over published 2.7.0.1105, selected their actual installed old helper, wrote verified PID/application/tag/digest requests, exited normally and restarted. Seven new payload hashes and module repair checks passed, original catalogue EXE/Books/settings and synthetic Reader-profile sentinels preserved; both runtimes removed. Computer Use performed the install clicks without user assistance after maximizing the main window and using the observed update controls. Initial Win32 r1 was deliberately stopped before installation when frozen source inspection exposed a wrong harness expectation: component updates use the installed helper, whereas catalogue updates use the new staged helper. The harness now checks the actual frozen contract; that discarded run cleaned normally and is not a product-failure report. No network/download-worker claim.",
+    "older_published_helper_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-published33-helper-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published33-helper-Win64-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published34-helper-Win32-20261030-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-published34-helper-Win64-20261030-r1.json"
+    ],
+    "older_published_helper_scope": "Exact public pre5.33 and pre5.34 archive digests independently checked against fresh GitHub asset metadata. Their unchanged original helpers each validated/installed the exact prepared 3.0.0_pre1.1 candidate and restarted real HomeLibre; all four GUI targets closed normally. Each verified all 240 managed hashes, seven synthetic Books rows/columns and personal-file/settings sentinels. All four working runtimes removed. Fresh frozen pre5.33/pre5.34 sources also accept the new numeric-major tag grammar and existing minimal package path/manifest contract. These are original-helper install/restart tests, not their Main download/launch UI or HTTP-worker coverage.",
+    "external_reader_final_gui": "New production x86 and x64 update windows both visibly list uninstalled AlReader and SumatraPDF immediately below HomeLibre. The x86 observation followed an original pre5.33-helper upgrade and retained already installed optional modules from that old package; no new external reader or format module was installed from the component window.",
+    "pre533_baseline_cleanup_report": "tools/ui/tests/Out/homelibre-3beta1-pre533-baseline-cleanup-20261030-r1.json",
+    "pre533_baseline_cleanup_limit": "Task cache had no matching pre5.33 archives; downloaded the two exact public assets once into G:/HomeLibRu-build-cache/HomeLibre-pre533-baseline-20261030-r1 and verified both sizes/SHA-256. After all checks, automatic review rejected the guarded non-recursive deletion before execution with blocked by policy and no detailed reason. User notified. A read-only follow-up confirms four retained owned files totalling 62,264,666 bytes (two ZIPs plus download metadata/marker). Do not retry these files, this folder or an enclosing parent by another route; cleanup is incomplete. Other new working test runtimes were removed normally.",
     "published_archive_sha256": {
+      "pre533_Win32": "7760b3ba80b74a180039dca000b8d120f1d5f7008b0e56db492712ae84888db7",
+      "pre533_Win64": "308168e83d10ebd493fecac0126fd87a3dfd646792b09f3c66559ef57f0ddef0",
+      "pre534_Win32": "69bd908a276f68978fc311d3977afbf63652dd2cfd4bb1143838ad820339a528",
+      "pre534_Win64": "bbaa83d035ece7c0392f84eb4362c49335c0ed858dc8d6f724d625226af21165",
       "pre537_Win32": "dec494fc800e130850a4ceb820662f9fcab93de580fad65df9546b34a71a5231",
       "pre537_Win64": "ee2739035d410cd8bbf334972e61e2a97ddc45d22a07bb73e749d073103d786f",
       "beta1_Win32": "7abb4c1f97cdbaa9beb685a0dfdb4259d922cb0f42ba215481adce92d76139f6",
