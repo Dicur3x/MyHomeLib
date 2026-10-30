@@ -6,6 +6,8 @@ unchanged published Main restores an owned ready package and requests installati
 through its normal UI, including its original PID and restart arguments. Neither
 mode exercises the old network/download worker. Inspect and normally close the
 production catalogue with Computer Use before the preservation checks finish.
+Use --baseline-component to establish a previous published module first and
+verify an independent upgrade without replacing the catalogue executable.
 """
 import argparse
 import configparser
@@ -71,6 +73,9 @@ def main():
     parser.add_argument('--old-sha256', required=True)
     parser.add_argument('--new-sha256', required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--baseline-component', type=Path,
+                        help='Previous exact published component ZIP, required for a component upgrade')
+    parser.add_argument('--baseline-component-sha256')
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--frontend', action='store_true',
                         help='Use the published Main ready-package install/restart UI instead of its old helper')
@@ -78,6 +83,18 @@ def main():
     assert sha(args.old_archive) == args.old_sha256
     assert sha(args.new_archive) == args.new_sha256
     assert not args.report.exists()
+    with zipfile.ZipFile(args.new_archive) as package:
+        manifest = json.loads(package.read('HomeLibRu.update.json'))
+    component = manifest.get('component', '')
+    assert bool(component) == bool(args.baseline_component)
+    if component:
+        assert args.baseline_component_sha256
+        assert sha(args.baseline_component) == args.baseline_component_sha256
+        with zipfile.ZipFile(args.baseline_component) as package:
+            baseline_manifest = json.loads(package.read('HomeLibRu.update.json'))
+        assert baseline_manifest['component'] == component
+        assert baseline_manifest['platform'] == manifest['platform']
+        assert tuple(map(int, baseline_manifest['version'].split('.'))) < tuple(map(int, manifest['version'].split('.')))
     report = dict(status='RUNNING', scope=__doc__, old_archive_sha256=args.old_sha256,
                   new_archive_sha256=args.new_sha256, published=False)
     if args.frontend:
@@ -99,12 +116,21 @@ def main():
                        HOMELIBRE_TEST_MAIN=str(target / 'HomeLibRu.exe'),
                        HOMELIBRE_TEST_HELPER=str(helper))
     process = None
+
+    def run_native(*parameters):
+        result = subprocess.run([str(args.native.resolve()), *map(str, parameters)], cwd=root,
+            env=environment, capture_output=True, text=True, encoding='utf-8-sig', timeout=180,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return result.stdout.strip()
+
     try:
         target.mkdir()
         extract(args.old_archive, target)
         old_main = version(target / 'HomeLibRu.exe')
         assert old_main['product'] == '2.7.0_pre5.37', old_main
         report['old_main_version'] = old_main
+        old_main_hash = sha(target / 'HomeLibRu.exe')
         old_helper = (target / 'HomeLibRuUpdater.exe').read_bytes()
         report['old_helper_sha256'] = hashlib.sha256(old_helper).hexdigest()
         report['old_helper_version'] = version(target / 'HomeLibRuUpdater.exe')
@@ -130,26 +156,55 @@ def main():
         finally:
             if shim:
                 genres.unlink()
+        profile_hashes = {}
+        unrelated_paths = ()
+        if component:
+            previous = root / 'previous-component.zip'
+            shutil.copyfile(args.baseline_component, previous)
+            previous_job = root / 'HomeLibRu-update-baseline'
+            run_native('--prepare-component', previous, args.baseline_component_sha256,
+                baseline_manifest['release'], previous_job, component, baseline_manifest['version'])
+            run_native('--install', previous_job, target)
+            assert run_native('--component-needs-repair', target, component).splitlines() == ['0', 'PASS']
+            if component == 'BookProcessing':
+                unrelated_paths = ('tools/kindle', 'tools/office', 'tools/xps', 'tools/pdfium',
+                    'tools/djvu', 'tools/images', 'tools/bookconvert/legacy_helper.py',
+                    'tools/bookconvert/kindle_input.py', 'tools/bookconvert/vendor/calibre_legacy')
+                assert all(not (target / name).exists() for name in unrelated_paths)
+            report.update(component=component, component_version=manifest['version'],
+                previous_component_version=baseline_manifest['version'],
+                previous_component_archive_sha256=args.baseline_component_sha256)
+            profile = target / 'Data/ReaderProfile'
+            profile.mkdir(parents=True, exist_ok=True)
+            reader_ini = profile / 'HomeLibReader.ini'
+            reader_ini.write_text('[PrivateUpgradeProbe]\nValue=Preserve reading settings ё\n', encoding='utf-8')
+            reader_database = profile / 'reader-user.dbs2'
+            connection = sqlite3.connect(reader_database)
+            try:
+                connection.execute('CREATE TABLE PrivateUpgradeProbe (Value TEXT)')
+                connection.execute('INSERT INTO PrivateUpgradeProbe VALUES (?)', ('Preserve reading data ё',))
+                connection.commit()
+            finally:
+                connection.close()
+            profile_hashes = {str(p.relative_to(target)): sha(p) for p in (reader_ini, reader_database)}
         protected = target / 'Data/protected-update-probe.txt'
         protected.write_text('Personal data must survive the old updater ё', encoding='utf-8')
         protected_hash = sha(protected)
         before_books = books(target / 'Data/one.hlc2')
         archive = root / 'release.zip'
         shutil.copyfile(args.new_archive, archive)
-        with zipfile.ZipFile(archive) as package:
-            manifest = json.loads(package.read('HomeLibRu.update.json'))
-        native = subprocess.run([str(args.native.resolve()), '--prepare', str(archive),
-            args.new_sha256, manifest['release'], str(job)], cwd=root, env=environment,
-            capture_output=True, text=True, encoding='utf-8', timeout=180,
-            creationflags=subprocess.CREATE_NO_WINDOW)
-        assert native.returncode == 0, native.stdout + native.stderr
+        if component:
+            run_native('--prepare-component', archive, args.new_sha256, manifest['release'],
+                job, component, manifest['version'])
+        else:
+            run_native('--prepare', archive, args.new_sha256, manifest['release'], job)
         shutil.copyfile(archive, job / 'release.zip')
         report.update(platform=manifest['platform'], tag=manifest['release'], root=str(root))
         if args.frontend:
             ready = dict(job=str(job), tag=manifest['release'], sha256=args.new_sha256,
                 url='https://github.com/Dicur3x/MyHomeLib/releases/tag/' + manifest['release'],
                 notes='Проверка готового обновления HomeLibre на отдельной копии.',
-                component='', version='', size=archive.stat().st_size)
+                component=component, version=manifest.get('version', ''), size=archive.stat().st_size)
             (cache / 'ready.json').write_text(json.dumps(ready, ensure_ascii=False), encoding='utf-8')
             process = subprocess.Popen([str(target / 'HomeLibRu.exe')], cwd=target,
                 env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -209,6 +264,16 @@ def main():
         options = configparser.ConfigParser(interpolation=None, strict=False)
         options.read_string(ini.read_text('utf-8-sig'))
         assert options['UpdateProbe']['ProtectedValue'] == 'Preserve personal settings ё'
+        if component:
+            assert sha(target / 'HomeLibRu.exe') == old_main_hash
+            assert all(sha(target / name) == digest for name, digest in profile_hashes.items())
+            assert all(not (target / name).exists() for name in unrelated_paths)
+            response = run_native('--component-needs-repair', target, component)
+            assert response.splitlines() == ['0', 'PASS'], response
+            report.update(catalogue_executable_preserved=True, reader_profile_sentinels_preserved=True,
+                component_repair_needed=False)
+            if unrelated_paths:
+                report['unrelated_modules_absent'] = list(unrelated_paths)
         report.update(status='PASS', managed_files_verified=len(manifest['files']),
             catalogue_books_preserved=len(before_books['rows']), personal_sentinel_preserved=True,
             personal_settings_preserved=True, new_main_version=version(target / 'HomeLibRu.exe'))
