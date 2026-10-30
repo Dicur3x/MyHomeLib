@@ -1008,7 +1008,7 @@
     }
   },
   "next_steps_order": [
-    "Finish versioned optional MCP/independent format packages and actual minimal installation plus pre5.x/Reader/module upgrades; preserve strict manifest, version, architecture and SHA-256 checks",
+    "Build/version-check optional MCP, then actual minimal installation and pre5.x/Reader/module upgrades using exact prepared release archives; preserve strict manifest, version, architecture and SHA-256 checks",
     "Final rebuilt catalogue/Reader/updater and independent modules: minimal x86/x64 install/update/regression checks, performance checks under suitable load, publish fix and clean owned temps",
     "After fix release resume deferred collection compression/incremental INPX, SQL-dump work, maximal economy and independent grayscale option"
   ],
@@ -1026,6 +1026,8 @@
     "reader_compatibility_limit": "Reader payload retains libzstd.dll required by old Reader component installers. The minimal catalogue archive has no Zstandard DLL or optional reader/format modules. Actual standalone install and old update checks remain pending.",
     "release_notes": "docs/releases/RELEASE_NOTES_3.0.0_pre1.1.md",
     "cleanup": "Package verifier removed its new disposable core-stage payloads. Automatic review rejected deletion of the obsolete reader prototype stage G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader before execution: blocked by policy. User notified; no retry or parent deletion allowed. Current reader-r2 release candidates are retained for final checks.",
-    "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report."
+    "reader_packaging_regression": "scripts/test-reader-component-publication.py: five passing tests, including versioned names/transport for both architectures and rejection of stale Reader or updater before output creation; fixture headers isolate packaging contracts, real PE and source-feed checks are in the independent Reader package report.",
+    "format_report": "tools/ui/tests/Out/homelibre-3beta1-format-packages-20261030-r1.json",
+    "format_packages": "Twelve independently packaged x86/x64 format components at 3.0.0.1; complete manifest/file/asset SHA-256, CRC, disjoint ownership and bootstrap archive names checked. Source-native runtime preflight passed. BookProcessing contains no Kindle, Office, XPS, images, legacy codec, PDF or DjVu payloads. Actual component installation/operation remains pending."
   }
 }
