@@ -112,8 +112,8 @@ function TBookSendOptionsForm.ShellDestination: Boolean;
 begin
   // A typed relative path is not a device. The legacy IsShellPath helper is
   // intentionally broad for picker results, so use explicit parsing names here.
-  Result:=FDestination.Text.StartsWith('::{') or FDestination.Text.StartsWith('shell:',True);
-  if not Result and FDestination.Text.StartsWith('\\?\') then
+  Result:=string(FDestination.Text).StartsWith('::{') or string(FDestination.Text).StartsWith('shell:',True);
+  if not Result and string(FDestination.Text).StartsWith('\\?\') then
     Result:=IsShellPath(FDestination.Text);
 end;
 

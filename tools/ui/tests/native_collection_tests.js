@@ -28,6 +28,7 @@ const amberArchiveArg = process.argv.find(arg => arg.startsWith("--amber-archive
 const previewBookArg = process.argv.find(arg => arg.startsWith("--preview-book="));
 const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixtures="));
 const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
+const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 const catalogueLabelArg=process.argv.find(a=>a.startsWith('--catalogue-label='));
 const catalogueLabel=catalogueLabelArg ? catalogueLabelArg.slice('--catalogue-label='.length) : '';
@@ -239,7 +240,7 @@ function requiredPasses(executable, mode) {
   if (mode==='save-module-restart') return ['PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
   if (mode==='reader-story') return ['PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene','PASS native SM false suffix, real controls, conditional branch, Unicode input, FB2 EPUB route export, verified resume, existing target and cancellation cleanup'];
   if (mode==='save-host-resume') return ['PASS actual reader host consumes restarted Save As once, restores options over visible book, cancels without output and preserves source'];
-  if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub FB2 EPUB PDF DjVu scan-PDF scan-DjVu','PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
+  if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub book_count='+(saveDocInventoryArg?7:6),'PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
   if (mode==='minimum-save') return ['PASS minimum save byte-exact FB2 EPUB and native ZIP without converter or 7-Zip; real changes report one missing-module request'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
@@ -452,7 +453,8 @@ function run(executable, mode, subcase = "") {
     }
     if (['save-planning'].includes(mode)) {
       for (const name of ['pdfium','djvu']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
-      const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',[path.join(__dirname,'prepare_save_mixed_fixtures.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:45000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      const docArgs=saveDocInventoryArg?['--doc-inventory',fs.realpathSync(saveDocInventoryArg.slice('--save-doc-inventory='.length))]:[];
+      const made=cp.spawnSync(process.env.HLRU_PYTHON||'python',[path.join(__dirname,'prepare_save_mixed_fixtures.py'),folder,runtime,...docArgs],{windowsHide:true,encoding:'utf8',timeout:90000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
       if(made.status!==0) throw new Error('Cannot prepare real mixed Save As documents: '+made.stdout+made.stderr);
     }
     if (mode === 'feedback529' || mode === 'flibrary-quality') {
