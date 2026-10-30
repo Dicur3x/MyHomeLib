@@ -57,9 +57,20 @@ def main():
     native = ROOT / 'Program/Tests/Out' / platform / 'ProgramUpdateInstallerTest.exe'
     runtime = ROOT / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64')
     catalogue = stage / 'catalogue' / ('HomeLibRu.zip' if platform == 'Win32' else 'HomeLibRu_x64.zip')
+    # Fail before launching anything when the interactive candidate still
+    # contains the dialog from before the latest source review.
+    save_source = ROOT / 'Program/Units/unit_BookSendOptions.pas'
+    for binary, dependencies in ((runtime / 'HomeLibRu.exe', (save_source,)),
+                                 (fixture, (save_source, ROOT / 'tools/ui/tests/UnifiedBookSendTests.inc'))):
+        for dependency in dependencies:
+            assert binary.stat().st_mtime_ns >= dependency.stat().st_mtime_ns, (
+                f'Rebuild {binary} after the Save As changes in {dependency}')
+    with zipfile.ZipFile(catalogue) as archive:
+        assert hashlib.sha256(archive.read('HomeLibRu.exe')).hexdigest() == sha(runtime / 'HomeLibRu.exe'), (
+            'Repackage the current Main build before the interactive Save As check')
     assets = {item['name']: item for item in json.loads((stage / 'publication-r1/assets.json').read_bytes())}
     report = dict(status='FAIL', platform=platform, published=False,
-                  scope='Ordinary final Main GUI, synthetic real-format documents, exact minimal ZIP/local modules; no HTTP or restart claim',
+                  scope='Ordinary packaged candidate Main GUI, synthetic real-format documents, exact minimal ZIP/local modules; no HTTP or restart claim',
                   catalogue_sha256=sha(catalogue), phases=[], temporary_profile_removed=False)
     app = None
     temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-save-')

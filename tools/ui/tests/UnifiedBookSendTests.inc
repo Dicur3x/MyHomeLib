@@ -129,6 +129,27 @@ begin
       TEdit(Dialog.FindComponent('SendDestination')).Text:=Destination;
       TCheckBox(Dialog.FindComponent('SaveSubfolders')).Checked:=FolderMask<>'';
       if FolderMask<>'' then TEdit(Dialog.FindComponent('SaveFolderTemplate')).Text:=FolderMask;
+      var Files:=TListView(Dialog.FindComponent('SaveBookSizes'));
+      var Preview:=TLabel(Dialog.FindComponent('SaveNamePreview'));
+      if Files.Items.Count>1 then
+      begin
+        Require(not Files.HideSelection,'Editing a save mask hides the book used for its preview');
+        for var Index in TArray<Integer>.Create(Files.Items.Count-1,0) do
+        begin
+          var Entry:=Files.Items[Index]; Files.Selected:=Entry; Files.OnData(Files,Entry);
+          var Position:=Format('(%d из %d): ',[Index+1,Files.Items.Count]);
+          var Suffix:='.'+LowerCase(Entry.SubItems[0]).Replace(' в zip','.zip');
+          Require(string(Preview.Caption).Contains(Position) and string(Preview.Caption).EndsWith(Suffix),
+            'Selected mixed book does not preview its own position and target extension');
+          var Mask:=TEdit(Dialog.FindComponent('SaveNameTemplate')); var SavedMask:=Mask.Text;
+          try
+            Mask.Text:='проба-'+SavedMask;
+            Require(string(Preview.Caption).Contains(Position) and string(Preview.Caption).Contains('проба-') and
+              string(Preview.Caption).EndsWith(Suffix),'Editing a mask reverts the preview to another selected book');
+          finally Mask.Text:=SavedMask; end;
+          Require(string(Preview.Hint).Contains(Destination),'Selected-book preview lost the destination path');
+        end;
+      end;
       if CancelOptions then Dialog.ModalResult:=mrCancel
       else TButton(Dialog.FindComponent('SendBooks')).Perform(BM_CLICK,0,0);
       Exit;

@@ -34,7 +34,7 @@ type
     FChoices: TArray<TBookSaveChoice>;
     FItems: TBookSaveEstimateItems;
     FEstimate: TBookSendEstimateThread;
-    FRevision: Integer;
+    FRevision, FPreviewIndex: Integer;
     FRequiredComponent: string;
     FClosing, FReflowing, FInitializing, FHasEstimateAttempt, FShowMaskHelp: Boolean;
     procedure Browse(Sender: TObject);
@@ -48,6 +48,7 @@ type
     procedure Reflow(Sender: TObject);
     procedure ListData(Sender: TObject; Item: TListItem);
     procedure ListInfoTip(Sender: TObject; Item: TListItem; var InfoTip: string);
+    procedure SelectPreviewBook(Sender: TObject; Item: TListItem; Selected: Boolean);
     procedure ShowEstimateReport(Sender: TObject);
     procedure UpdateSummary;
     procedure UpdatePreview;
@@ -156,8 +157,9 @@ begin
   FReport:=TButton.Create(Self); FReport.Parent:=FContent; FReport.Name:='ShowSaveEstimateReport';
   FReport.Caption:='Результаты оценки…'; FReport.Visible:=False; FReport.OnClick:=ShowEstimateReport;
   FList:=TListView.Create(Self); FList.Parent:=FContent; FList.Name:='SaveBookSizes';
-  FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True;
+  FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True; FList.HideSelection:=False;
   FList.OwnerData:=True; FList.OnData:=ListData; FList.ShowHint:=True; FList.OnInfoTip:=ListInfoTip;
+  FList.OnSelectItem:=SelectPreviewBook;
   FList.Columns.Add.Caption:='Книга'; FList.Columns.Add.Caption:='Формат копии'; FList.Columns.Add.Caption:='Размер';
   FList.Columns.Add.Caption:='Оценка / причина'; FList.OnDblClick:=ShowEstimateReport;
   FScanLabel:=LabelControl('ScanLabel','Разделение сканов-разворотов:');
@@ -220,7 +222,7 @@ end;
 procedure TBookSendOptionsForm.SetBooks(const Books: TArray<TBookRecord>);
 var Extensions: TArray<string>;
 begin
-  FBooks:=Copy(Books); SetLength(Extensions,Length(Books));
+  FBooks:=Copy(Books); FPreviewIndex:=0; SetLength(Extensions,Length(Books));
   for var I:=0 to High(Books) do
     try Extensions[I]:=BookSaveKnownExtension(Books[I]); except Extensions[I]:=LowerCase(Books[I].FileExt); end;
   FChoices:=BookSaveChoices(Extensions); FFormat.Items.BeginUpdate;
@@ -317,7 +319,7 @@ begin
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
     begin FPreview.Caption:='Проверьте маску имени: неизвестный параметр или непарные скобки.'; Exit; end;
     Book:=Default(TBookRecord); Book.Title:='Название книги';
-    if Length(FBooks)>0 then Book:=FBooks[0];
+    if Length(FBooks)>0 then Book:=FBooks[FPreviewIndex];
     FileName:=Trim(Templater.ParseString(Book,TpFile));
     RelativeFolder:='';
     if FSubfolders.Checked then
@@ -328,17 +330,17 @@ begin
       RelativeFolder:=BookSaveRelativeFolder(Templater.ParseString(Book,TpPath));
     end;
     // Typing a path/mask reuses the resolved snapshot rather than opening the
-    // first source book again on every keystroke (possibly on a network share).
+    // source book again on every keystroke (possibly on a network share).
     Ext:='';
-    if Length(FItems)>0 then Ext:=FItems[0].TargetExtension;
+    if FPreviewIndex<Length(FItems) then Ext:=FItems[FPreviewIndex].TargetExtension;
     if Ext='' then Ext:=BookSaveTargetExtension(Book.FileExt,Choice.Mode,Choice.KeepOriginal,Choice.KeepFB2EPUB);
     if BookSaveZipsTarget(Ext,Choice.Mode) then Ext:=Ext+'.zip';
     FileName:=BookOutputName(FileName,Ext,Book.BookKey.BookID);
-    if FileName='' then FPreview.Caption:='Для первой книги маска даёт пустое имя. Добавьте %t или %id.'
+    if FileName='' then FPreview.Caption:='Маска даёт пустое имя для этой книги. Добавьте %t или %id.'
     else
     begin
       Prefix:='Сохранить как: ';
-      if Length(FBooks)>1 then Prefix:=Format('Сохранить как (1 из %d): ',[Length(FBooks)]);
+      if Length(FBooks)>1 then Prefix:=Format('Сохранить как (%d из %d): ',[FPreviewIndex+1,Length(FBooks)]);
       RelativeName:=TPath.Combine(RelativeFolder,FileName+Ext);
       FPreview.Caption:=Prefix+RelativeName;
       if ShellDestination or IsBookSaveDestination(FDestination.Text) then
@@ -371,6 +373,8 @@ begin
   if Opaque and (FImages.ItemIndex>0) then
     FNote.Caption:=FNote.Caption+' Изображения изменятся только в FB2/EPUB.';
   if FImages.ItemIndex=3 then FNote.Caption:=FNote.Caption+' Вместо иллюстраций — подпись. Для сканов режим недоступен.';
+  if FExcept.Enabled and (Trim(FExcept.Text)<>'') then
+    FNote.Caption:=FNote.Caption+' Оценка размера не учитывает исключения разворотов.';
   var Large:=0;
   for var Item in FItems do if EstimateBytes(Item,Max(0,FImages.ItemIndex))>20*1024*1024 then Inc(Large);
   if Large>0 then FNote.Caption:=FNote.Caption+' Крупные файлы можно уменьшить выбором другого режима изображений.';
@@ -399,6 +403,13 @@ procedure TBookSendOptionsForm.ListInfoTip(Sender: TObject; Item: TListItem; var
 begin
   if (Item.Index>=0) and (Item.Index<Length(FItems)) then
     InfoTip:=FBooks[Item.Index].Title+sLineBreak+FItems[Item.Index].ErrorText;
+end;
+
+procedure TBookSendOptionsForm.SelectPreviewBook(Sender: TObject; Item: TListItem; Selected: Boolean);
+begin
+  if FInitializing or not Selected or not Assigned(Item) then Exit;
+  if (Item.Index<0) or (Item.Index>=Length(FBooks)) then Exit;
+  FPreviewIndex:=Item.Index; UpdatePreview; Reflow(nil);
 end;
 
 procedure TBookSendOptionsForm.ShowEstimateReport(Sender: TObject);
