@@ -1308,7 +1308,7 @@
       "tools/ui/tests/Out/homelibre-three-views-published37-reader-Win64-20261031-r1.json"
     ],
     "fresh_published_helper_scope": "Six actual original pre5.37-helper installs/restarts using exact current core-r3, Reader-r4 and repaired DjVu archives, both architectures. Each protected seven Books rows/columns, personal settings/data; independent component cases also preserved old Main EXE and two synthetic Reader profile sentinels. Core verified 240 files each, Reader seven and DjVu nineteen. Same-version DjVu repair explicitly began with repair-needed=1 and ended at 0; no version inflation. All six restarted Main windows inspected and closed normally without user help; all working profiles removed. Current public pre5.37 metadata independently reconfirmed cached core sizes/SHA-256 before runs. This is unchanged original helper proof, not a new old-Main download/frontend test; earlier dated frontend tests remain separate.",
-    "publication_plan_caveat": "Frozen local preflight plan remains an historical observed-state input. Actual authenticated CLI mutations, asset IDs/digests and sixteen targeted removals recorded in publication-transaction-20261031-r1.json. Current public source tag and beta release exist; connector itself remains GET-only. Main default-branch push and final README readback tracked separately.",
+    "publication_plan_caveat": "Historical local preflight plans retain their original observed-state checks. Actual authenticated CLI publication is complete: branch/tag pushed, beta published, eighteen component ZIPs/feed replaced, sixteen obsolete owned archives removed, permanent descriptions/current Reader links refreshed, default master fast-forwarded and README/public validation read back. Public download/native preparation reports are explicitly scoped; the full goal remains active.",
     "public_verification_reports": [
       "tools/ui/tests/Out/homelibre-three-views-public-components-20261031-r2.json",
       "tools/ui/tests/Out/homelibre-three-views-public-core-20261031-r1.json"
@@ -1344,6 +1344,10 @@
       "tools/ui/tests/Out/homelibre-three-views-public-core-20261031-r1.json"
     ],
     "obsolete_owned_component_archives_removed": 16,
-    "full_goal_complete": false
-  }
+    "full_goal_complete": false,
+    "default_branch_verified": true,
+    "readme_verified_current": true,
+    "final_publication_report": "tools/ui/tests/Out/homelibre-beta-publication-final-20261031-r1.json"
+  },
+  "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time; current publication state is current_release and fresh_three_layout_release_20261031. Unreleased/pending wording inside older snapshots is not the current release status."
 }
