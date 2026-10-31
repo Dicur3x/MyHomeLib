@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls,
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls, Vcl.Menus,
   ShlObj, unit_Globals, unit_BookSavePolicy, unit_BookSendEstimates, unit_BookOutput;
 
 type
@@ -28,6 +28,11 @@ type
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
     FCalculate, FSend, FReport, FMaskHelpToggle: TButton;
+    FView, FNamesToggle: TButton;
+    FViewMenu: TPopupMenu;
+    FTabs: TTabControl;
+    FLayout: Integer;
+    FNamesExpanded: Boolean;
     FList: TListView;
     FTimer: TTimer;
     FBooks: TArray<TBookRecord>;
@@ -40,6 +45,10 @@ type
     procedure Browse(Sender: TObject);
     procedure DestinationChanged(Sender: TObject);
     procedure ToggleMaskHelp(Sender: TObject);
+    procedure ShowViewMenu(Sender: TObject);
+    procedure ChangeView(Sender: TObject);
+    procedure ToggleNames(Sender: TObject);
+    procedure ChangeTab(Sender: TObject);
     procedure Changed(Sender: TObject);
     procedure Send(Sender: TObject);
     procedure Calculate(Sender: TObject);
@@ -70,13 +79,14 @@ function ChooseBookSendOptions(BookCount: Integer; const InitialFolder: string;
 
 implementation
 
-uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
+uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
   unit_Templater, unit_BookConversion, unit_BookEstimateReport;
 
 const
   Qualities: array[0..3] of string = ('original','balanced','economy','none');
   QualityCaptions: array[0..3] of string = ('Как есть','Сбалансированный','Экономный','Без изображений');
+  SaveLayoutCaptions: array[0..2] of string = ('Список и настройки','Большой список','Два раздела');
 
 type
   TSaveBookListView = class(TListView)
@@ -164,12 +174,15 @@ begin
   inherited CreateNew(AOwner); FInitializing:=True;
   Name:='BookSendOptions'; Caption:='Сохранить как';
   Position:=poMainFormCenter; BorderStyle:=bsSizeable;
-  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=780; ClientHeight:=620;
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=780; ClientHeight:=560;
+  FLayout:=EnsureRange(Settings.SaveAsLayout,0,2);
   Constraints.MinWidth:=640+Width-ClientWidth; Constraints.MinHeight:=430+Height-ClientHeight;
   Footer:=TPanel.Create(Self); Footer.Parent:=Self; Footer.Align:=alBottom;
   Footer.BevelOuter:=bvNone; Footer.Height:=56;
   FContent:=TSaveScrollBox.Create(Self); FContent.Parent:=Self; FContent.Align:=alClient;
   FContent.BorderStyle:=bsNone; FContent.HorzScrollBar.Visible:=False;
+  FTabs:=TTabControl.Create(Self); FTabs.Parent:=FContent; FTabs.Name:='SaveSections';
+  FTabs.Tabs.Add('Книги'); FTabs.Tabs.Add('Параметры'); FTabs.TabIndex:=0; FTabs.OnChange:=ChangeTab;
   FIntro:=LabelControl('SaveIntro','Папка для сохранения:');
   FDestination:=TEdit.Create(Self); FDestination.Parent:=FContent; FDestination.Name:='SendDestination';
   FDestination.ShowHint:=True; FDestination.TextHint:='Введите путь или выберите папку';
@@ -224,6 +237,18 @@ begin
   FCollision.Items.Add('Спросить'); FCollision.Items.Add('Заменить файл');
   FCollision.Items.Add('Сохранить оба — добавить номер');
   FCollision.ItemIndex:=Ord(Settings.SaveAsNameCollision);
+  FNamesToggle:=TButton.Create(Self); FNamesToggle.Parent:=FContent;
+  FNamesToggle.Name:='ToggleSaveNaming'; FNamesToggle.Caption:='Имена и папки ▾'; FNamesToggle.OnClick:=ToggleNames;
+  FView:=TButton.Create(Self); FView.Parent:=Footer; FView.Name:='SaveView'; FView.Caption:='Вид ▾';
+  FView.SetBounds(20,13,70,30); FView.OnClick:=ShowViewMenu;
+  FView.Hint:='Расположение элементов окна'; FView.ShowHint:=True;
+  FViewMenu:=TPopupMenu.Create(Self); FViewMenu.Name:='SaveViewMenu'; FViewMenu.AutoHotkeys:=maManual;
+  for var I:=0 to High(SaveLayoutCaptions) do
+  begin
+    var Item:=TMenuItem.Create(Self); Item.Name:='SaveLayout'+IntToStr(I); Item.Tag:=I;
+    Item.Caption:=SaveLayoutCaptions[I]; Item.RadioItem:=True; Item.GroupIndex:=1;
+    Item.Checked:=I=FLayout; Item.OnClick:=ChangeView; FViewMenu.Items.Add(Item);
+  end;
   FSend:=TButton.Create(Self); FSend.Parent:=Footer; FSend.Name:='SendBooks'; FSend.Caption:='Сохранить';
   FSend.SetBounds(510,13,120,30); FSend.Anchors:=[akTop,akRight]; FSend.Default:=True; FSend.OnClick:=Send;
   Button:=TButton.Create(Self); Button.Parent:=Footer; Button.Name:='CancelSending'; Button.Caption:='Отмена';
@@ -291,6 +316,34 @@ begin
   if FShowMaskHelp then FMaskHelpToggle.Caption:='О маске ▴'
   else FMaskHelpToggle.Caption:='О маске ▾';
   Changed(Sender);
+end;
+
+procedure TBookSendOptionsForm.ShowViewMenu(Sender: TObject);
+begin
+  var Point:=FView.ClientToScreen(System.Types.Point(0,FView.Height));
+  FViewMenu.Popup(Point.X,Point.Y);
+end;
+
+procedure TBookSendOptionsForm.ChangeView(Sender: TObject);
+begin
+  if not (Sender is TMenuItem) then Exit;
+  FLayout:=EnsureRange(TMenuItem(Sender).Tag,0,2);
+  for var Item in FViewMenu.Items do Item.Checked:=Item.Tag=FLayout;
+  Settings.SaveAsLayout:=FLayout; Settings.SaveSettings;
+  Reflow(nil);
+end;
+
+procedure TBookSendOptionsForm.ToggleNames(Sender: TObject);
+begin
+  FNamesExpanded:=not FNamesExpanded;
+  if FNamesExpanded then FNamesToggle.Caption:='Имена и папки ▴'
+  else FNamesToggle.Caption:='Имена и папки ▾';
+  Reflow(nil);
+end;
+
+procedure TBookSendOptionsForm.ChangeTab(Sender: TObject);
+begin
+  Reflow(nil);
 end;
 
 function TBookSendOptionsForm.HasScanConversion: Boolean;
@@ -504,13 +557,15 @@ begin
 end;
 
 procedure TBookSendOptionsForm.Reflow(Sender: TObject);
-var Y, W, Margin, Gap, SavedScroll, RowHeight: Integer; ShowReasons: Boolean;
+var X, Y, W, TotalWidth, StartY, LeftBottom, RightX, RightWidth,
+  Margin, Gap, SavedScroll, RowHeight: Integer;
+  ShowReasons, ShowSettings, ShowResults, ShowNames, Columns: Boolean;
   function S(Value: Integer): Integer;
   begin Result:=MulDiv(Value,PixelsPerInch,96); end;
   procedure Place(Control: TControl; Height: Integer);
   begin
     if not Control.Visible then Exit;
-    Control.SetBounds(Margin,Y,W,Height); Inc(Y,Height+Gap);
+    Control.SetBounds(X,Y,W,Height); Inc(Y,Height+Gap);
   end;
   procedure Text(Control: TLabel);
   var Bounds: TRect;
@@ -520,45 +575,123 @@ var Y, W, Margin, Gap, SavedScroll, RowHeight: Integer; ShowReasons: Boolean;
     DrawText(Canvas.Handle,PChar(Control.Caption),Length(Control.Caption),Bounds,DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
     Place(Control,Max(S(18),Bounds.Height+S(2)));
   end;
+  procedure Dropdown(Control: TComboBox);
+  var FullWidth: Integer;
+  begin
+    Canvas.Font.Assign(Control.Font); FullWidth:=Control.Width;
+    for var Caption in Control.Items do FullWidth:=Max(FullWidth,Canvas.TextWidth(Caption)+S(36));
+    Control.Perform(CB_SETDROPPEDWIDTH,Min(FullWidth,Monitor.WorkareaRect.Width-S(24)),0);
+    if Control.ItemIndex>=0 then Control.Hint:=Control.Items[Control.ItemIndex];
+    Control.ShowHint:=True;
+  end;
+  procedure Names;
+  begin
+    if FNamesToggle.Visible then
+    begin FNamesToggle.SetBounds(X,Y,Min(W,S(180)),S(26)); Inc(Y,S(26)+Gap); end;
+    if ShowNames then
+    begin
+      FMaskLabel.SetBounds(X,Y,W-S(100),RowHeight);
+      FMaskHelpToggle.SetBounds(X+W-S(96),Y,S(96),RowHeight); Inc(Y,RowHeight+S(4));
+      Place(FNameMask,RowHeight); Text(FMaskHelp);
+      Place(FSubfolders,S(24)); Place(FFolderMask,RowHeight); Text(FFolderHelp);
+      Text(FCollisionLabel); Place(FCollision,RowHeight);
+      Dropdown(FCollision);
+    end;
+    Text(FPreview);
+  end;
+  procedure Results(Height: Integer);
+  begin
+    Text(FSummary); Text(FStatus);
+    if FReport.Visible then Place(FReport,RowHeight);
+    if FList.Visible then
+    begin
+      Place(FList,Max(S(72),Height-Y));
+      FList.Columns[1].Width:=S(76); FList.Columns[2].Width:=S(86);
+      if ShowReasons then
+      begin
+        FList.Columns[0].Width:=Max(S(140),W div 3);
+        FList.Columns[3].Width:=Max(S(170),W-FList.Columns[0].Width-S(186));
+      end
+      else begin FList.Columns[0].Width:=Max(S(140),W-S(186)); FList.Columns[3].Width:=0; end;
+    end;
+  end;
 begin
   if FInitializing or FReflowing or not Assigned(FContent) or not Assigned(FPreview) then Exit;
   FReflowing:=True; SavedScroll:=FContent.VertScrollBar.Position;
   try
     ShowReasons:=FHasEstimateAttempt;
     for var Item in FItems do if Item.ErrorText<>'' then ShowReasons:=True;
-    FContent.VertScrollBar.Position:=0; Margin:=S(20); Gap:=S(6); RowHeight:=S(28);
+    FContent.VertScrollBar.Position:=0; Margin:=S(20); Gap:=S(7); RowHeight:=S(28);
     for var Pass:=1 to 2 do
     begin
-      Y:=S(16); W:=Max(S(300),FContent.ClientWidth-2*Margin);
+      X:=Margin; Y:=S(16); TotalWidth:=Max(S(300),FContent.ClientWidth-2*Margin); W:=TotalWidth;
       Text(FIntro);
       FDestination.SetBounds(Margin,Y,W-S(130),RowHeight);
       TControl(FindComponent('BrowseDestination')).SetBounds(Margin+W-S(120),Y,S(120),RowHeight); Inc(Y,RowHeight+S(16));
-      Text(FFormatLabel); Place(FFormat,RowHeight);
-      Text(FImagesLabel); FImages.SetBounds(Margin,Y,W-S(160),RowHeight);
-      FCalculate.SetBounds(Margin+W-S(150),Y,S(150),RowHeight); Inc(Y,RowHeight+Gap);
-      Text(FSummary); Text(FStatus);
-      if FReport.Visible then
-      begin FReport.SetBounds(Margin,Y,Min(W,S(260)),RowHeight); Inc(Y,RowHeight+Gap); end;
-      FList.Visible:=(Length(FBooks)>1) or (FHasEstimateAttempt and (Length(FBooks)>0));
-      if FList.Visible then
+      FTabs.Visible:=FLayout=2;
+      if FTabs.Visible then Place(FTabs,S(32));
+      ShowSettings:=(FLayout<>2) or (FTabs.TabIndex=1);
+      ShowResults:=(FLayout<>2) or (FTabs.TabIndex=0);
+      ShowNames:=ShowSettings and (FNamesExpanded or (FLayout=2));
+      Columns:=(FLayout=1) and (TotalWidth>=S(560));
+      FFormatLabel.Visible:=ShowSettings; FFormat.Visible:=ShowSettings;
+      FImagesLabel.Visible:=ShowSettings; FImages.Visible:=ShowSettings;
+      FNamesToggle.Visible:=ShowSettings and (FLayout<>2);
+      FMaskLabel.Visible:=ShowNames; FMaskHelpToggle.Visible:=ShowNames; FNameMask.Visible:=ShowNames;
+      FSubfolders.Visible:=ShowNames;
+      FFolderMask.Visible:=ShowNames and FSubfolders.Checked;
+      FMaskHelp.Visible:=ShowNames and FShowMaskHelp;
+      FFolderHelp.Visible:=ShowNames and FShowMaskHelp and FSubfolders.Checked;
+      FCollisionLabel.Visible:=ShowNames; FCollision.Visible:=ShowNames;
+      FNote.Visible:=ShowSettings;
+      FScanLabel.Visible:=ShowSettings and FScans.Enabled; FScans.Visible:=FScanLabel.Visible;
+      FExceptLabel.Visible:=FScanLabel.Visible and FExcept.Enabled; FExcept.Visible:=FExceptLabel.Visible;
+      FSummary.Visible:=ShowResults; FStatus.Visible:=Trim(FStatus.Caption)<>'';
+      FReport.Visible:=FHasEstimateAttempt;
+      FList.Visible:=ShowResults and (Length(FBooks)>0);
+      FCalculate.Visible:=True; FPreview.Visible:=True;
+      StartY:=Y; RightX:=0; RightWidth:=0;
+      if Columns then
       begin
-        Place(FList,S(28+20*Min(Length(FBooks),4)));
-        FList.Columns[1].Width:=S(110); FList.Columns[2].Width:=S(100);
-        if ShowReasons then
-        begin
-          FList.Columns[0].Width:=Max(S(150),W div 3);
-          FList.Columns[3].Width:=Max(S(190),W-FList.Columns[0].Width-S(230));
-        end
-        else begin FList.Columns[0].Width:=Max(S(150),W-S(220)); FList.Columns[3].Width:=0; end;
+        W:=Max(S(260),(TotalWidth-S(18))*42 div 100);
+        RightX:=X+W+S(18); RightWidth:=TotalWidth-W-S(18);
       end;
-      Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
-      Text(FNote); Inc(Y,S(4));
-      FMaskLabel.SetBounds(Margin,Y,W-S(120),RowHeight);
-      FMaskHelpToggle.SetBounds(Margin+W-S(110),Y,S(110),RowHeight); Inc(Y,RowHeight+S(4));
-      Place(FNameMask,RowHeight); Text(FPreview); Text(FMaskHelp);
-      Place(FSubfolders,S(24)); Place(FFolderMask,RowHeight); Text(FFolderHelp);
-      FCollisionLabel.SetBounds(Margin,Y,S(150),RowHeight);
-      FCollision.SetBounds(Margin+S(158),Y,W-S(158),RowHeight); Inc(Y,RowHeight+Gap);
+      if ShowSettings then
+      begin
+        Text(FFormatLabel); Place(FFormat,RowHeight);
+        Text(FImagesLabel);
+        if Columns then Place(FImages,RowHeight)
+        else
+        begin
+          FImages.SetBounds(X,Y,W-S(160),RowHeight);
+          FCalculate.SetBounds(X+W-S(150),Y,S(150),RowHeight); Inc(Y,RowHeight+Gap);
+        end;
+        Dropdown(FFormat); Dropdown(FImages); Dropdown(FScans);
+        Text(FScanLabel); Place(FScans,RowHeight); Text(FExceptLabel); Place(FExcept,RowHeight);
+        if Columns or not ShowResults then
+        begin Names; Text(FNote); end;
+      end;
+      if Columns then
+      begin
+        LeftBottom:=Y; X:=RightX; W:=RightWidth; Y:=StartY;
+        Place(FCalculate,RowHeight);
+        // The result area shares the sidebar's bottom, including expanded
+        // naming fields. Resizing can give it still more useful height.
+        Results(Max(LeftBottom,FContent.ClientHeight-S(24)));
+        Y:=Max(Y,LeftBottom);
+      end
+      else if ShowResults then
+      begin
+        if not ShowSettings then Place(FCalculate,RowHeight);
+        if FLayout=2 then Results(Max(Y+S(240),FContent.ClientHeight-S(70)))
+        else Results(Y+S(72+26*Min(Length(FBooks),6))+FSummary.Height+FStatus.Height);
+        if ShowSettings then begin Names; Text(FNote); end else Text(FPreview);
+      end;
+      if not ShowResults then
+      begin
+        Text(FStatus); if FReport.Visible then Place(FReport,RowHeight);
+        Dropdown(FCollision);
+      end;
       FContent.VertScrollBar.Range:=Y+S(12);
     end;
   finally FContent.VertScrollBar.Position:=SavedScroll; FReflowing:=False; end;
@@ -566,6 +699,13 @@ end;
 
 procedure TBookSendOptionsForm.Send(Sender: TObject);
 var Templater: TTemplater;
+  procedure FocusOption(Control: TWinControl; Naming: Boolean);
+  begin
+    if FLayout=2 then FTabs.TabIndex:=1;
+    if Naming then
+    begin FNamesExpanded:=True; FNamesToggle.Caption:='Имена и папки ▴'; end;
+    Reflow(nil); Control.SetFocus;
+  end;
 begin
   if Assigned(FEstimate) then Exit;
   if Trim(FDestination.Text)='' then begin Browse(nil); if Trim(FDestination.Text)='' then Exit; end;
@@ -579,16 +719,16 @@ begin
   Templater:=TTemplater.Create;
   try
     if (Trim(FNameMask.Text)='') or (Templater.SetTemplate(FNameMask.Text,TpFile)<>ErFine) then
-    begin MessageDlg('Проверьте маску имени файла.',mtInformation,[mbOK],0); FNameMask.SetFocus; Exit; end;
+    begin MessageDlg('Проверьте маску имени файла.',mtInformation,[mbOK],0); FocusOption(FNameMask,True); Exit; end;
     if FSubfolders.Checked and ((Trim(FFolderMask.Text)='') or
       not IsValidBookSaveFolderTemplate(FFolderMask.Text)) then
-    begin MessageDlg('Проверьте маску подпапок.',mtInformation,[mbOK],0); FFolderMask.SetFocus; Exit; end;
+    begin MessageDlg('Проверьте маску подпапок.',mtInformation,[mbOK],0); FocusOption(FFolderMask,True); Exit; end;
     for var Book in FBooks do
       if (Book.FileName<>'') and (Trim(Templater.ParseString(Book,TpFile))='') then
       begin MessageDlg('Маска даёт пустое имя для книги «'+Book.Title+'». Добавьте %t или %id.',mtInformation,[mbOK],0); Exit; end;
   finally Templater.Free; end;
   if FExcept.Enabled and not IsValidScanPageExclusions(FExcept.Text) then
-  begin MessageDlg('Укажите номера сканов, например 1, 98-100.',mtInformation,[mbOK],0); FExcept.SetFocus; Exit; end;
+  begin MessageDlg('Укажите номера сканов, например 1, 98-100.',mtInformation,[mbOK],0); FocusOption(FExcept,False); Exit; end;
   ModalResult:=mrOk;
 end;
 

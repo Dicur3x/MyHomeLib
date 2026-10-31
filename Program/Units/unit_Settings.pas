@@ -119,6 +119,7 @@ type
     FFolderTemplate: string;
     FSaveAsFolderTemplate: string;
     FSaveAsUseSubfolders: Boolean;
+    FSaveAsLayout: Integer;
     FSaveAsNameCollision: TBookNameCollision;
     FFileNameTemplate: string;
     FExportMode: TExportMode;
@@ -333,6 +334,7 @@ type
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
     property SaveAsFolderTemplate: string read FSaveAsFolderTemplate write FSaveAsFolderTemplate;
     property SaveAsUseSubfolders: Boolean read FSaveAsUseSubfolders write FSaveAsUseSubfolders;
+    property SaveAsLayout: Integer read FSaveAsLayout write FSaveAsLayout;
     property SaveAsNameCollision: TBookNameCollision read FSaveAsNameCollision write FSaveAsNameCollision;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
 
@@ -735,6 +737,7 @@ begin
     FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
     FSaveAsFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FFolderTemplate);
     FSaveAsUseSubfolders := iniFile.ReadBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FFolderTemplate<>'');
+    FSaveAsLayout := EnsureRange(iniFile.ReadInteger(SYSTEM_SECTION, 'SaveAsLayout', 1), 0, 2);
     FSaveAsNameCollision := TBookNameCollision(EnsureRange(
       iniFile.ReadInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(bncAsk)),
       Ord(Low(TBookNameCollision)), Ord(High(TBookNameCollision))));
@@ -920,6 +923,7 @@ begin
     iniFile.WriteString(SYSTEM_SECTION, 'FolderTemplate', FFolderTemplate);
     iniFile.WriteString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FSaveAsFolderTemplate);
     iniFile.WriteBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FSaveAsUseSubfolders);
+    iniFile.WriteInteger(SYSTEM_SECTION, 'SaveAsLayout', EnsureRange(FSaveAsLayout, 0, 2));
     iniFile.WriteInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(FSaveAsNameCollision));
     iniFile.WriteString(SYSTEM_SECTION, 'FileNameTemplate', FFileNameTemplate);
     iniFile.WriteInteger(SYSTEM_SECTION, 'ExpFormat', Ord(FExportMode));

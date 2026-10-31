@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "60 blocks, 38 checked, sequence 39 read back; IDs/order/title and untouched hashes preserved against the fresh sequence-37 snapshot. Design decision is pending implementation, not checked.",
+    "verification": "60 blocks, 38 checked, sequence 40 read back; IDs/order/title and untouched hashes preserved against the fresh sequence-39 snapshot. Compact Save As remains unchecked until ordinary app visual/package proof.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026, sequence 39: all three layouts agreed, large list default and small View menu. Prototype loader fallback fixed and checked. Native wheel fix passed Win32/Win64; layout implementation is next. User requested autonomous work without questions.",
-    "last_verified_sequence": 39
+    "last_check": "31 October 2026, sequence 40: three chosen native layouts and hover wheel passed full unified-send on both architectures. Default large list, small persistent View menu, growth with naming and profile retention verified. Fresh ordinary Main/Reader builds/packages and final GUI/publication gates remain.",
+    "last_verified_sequence": 40
   },
   "order": [
     "archive_opening",
@@ -1074,7 +1074,7 @@
     }
   },
   "release_integration_20261030": {
-    "status": "fresh_main_reader_rebuilt_unpublished_pending_design_choice_final_gui_and_updated_publication_plan",
+    "status": "new native Save As layouts verified; fresh production rebuild/packages and ordinary GUI proof required",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1159,7 +1159,7 @@
       "beta1_Win32": "7abb4c1f97cdbaa9beb685a0dfdb4259d922cb0f42ba215481adce92d76139f6",
       "beta1_Win64": "10da3cc5f2f64e7d767eb45420f7bec04dcf5087a99e0465013027f3799cd956"
     },
-    "publication_plan_caveat": "publication-r1 targets previous reader-r2 hashes. Regenerate and native-parse the plan with reader-r3 (or later chosen-design builds) and current core archives before any upload. No GitHub writes performed."
+    "publication_plan_caveat": "Existing stage catalogue-r2/reader-r3 archives predate wheel and three-layout source changes. Rebuild both actual Main and Reader, use new output directories and regenerate current publication feed/plan before upload. No current source code or packages published."
   },
   "compact_save_native_verification_20261031": {
     "report": "tools/ui/tests/Out/homelibre-3beta1-compact-native-20261031-r1.json",
@@ -1168,14 +1168,14 @@
     "core_reader_rebuild": "next"
   },
   "compact_save_design_feedback_20261031": {
-    "status": "design choice accepted; prototype repaired; native wheel repair under verification",
+    "status": "agreed native views and wheel repair implemented; native Win32/Win64 passed; ordinary packaged visual review pending",
     "request": "Book list feels too short/narrow; mouse wheel over list did not scroll for the user. Recommend a clearer compact design and show alternative chat mockups for choice.",
     "gui_evidence": "Fresh packaged Win32 Main saved all five FB2/EPUB/PDF/DjVu/DOC sources byte-exact without optional modules; folder entry assisted by user because Computer Use focused the disabled owner during typing. Compact window, collapsed subfolder mask, filename preview and third context-menu position observed. Conversion phase deliberately not run after design request; native conversion checks already passed both architectures.",
     "report": "tools/ui/tests/Out/homelibre-3beta1-packaged-save-Win32-20261031-r1.json",
     "cleanup": "Both private GUI phases exited normally; harness removed its new private profile. Original-case hashes and installed-component receipts retained in the small report.",
     "mockups": "C:/Users/cloud/.codex/visualizations/2026/10/15/01a14155-dfd4-78c0-8e32-29c79841740d/homelibre-save-designs.html",
     "mockup_checks": "Three variants inspected as rendered images; local headless prototype checks passed at widths 760/360/320: no horizontal overflow, wheel under pointer, filename updates, size prototype, folder-field collapse and tabs. Values are illustrative, no real size estimate or native wheel repair is claimed.",
-    "next": "Implement the three agreed native layouts, default large list and persisted small View menu; list grows with naming. Preserve all parameters/estimates and repeat relevant x86/x64 checks before rebuilding ordinary Main/Reader packages and publishing.",
+    "next": "Rebuild actual Main and Reader x86/x64, create new minimal candidate packages, visually verify layouts and complete ordinary mixed save/first-use/upgrade/publication gates. No further user choice or manual help needed.",
     "decision": {
       "default": "Большой список",
       "switcher_caption": "Вид",
@@ -1213,5 +1213,34 @@
         "bytes": 21778944
       }
     }
+  },
+  "save_as_three_layouts_20261031": {
+    "status": "verified in native Win32/Win64 test application; ordinary Main/Reader visual review and new packages pending",
+    "default": "Большой список",
+    "switcher": "Small footer button Вид with three radio menu choices, persisted as SYSTEM/SaveAsLayout (default 1).",
+    "layouts": [
+      "Список и настройки: full-width list, collapsible naming",
+      "Большой список: options/sidebar on the left, result list fills matching height on the right",
+      "Два раздела: separate native Книги and Параметры tabs"
+    ],
+    "preservation": "Same live controls, book snapshot and estimate thread across all layouts; no reset/reload on view changes. Hidden invalid name/folder/scan fields are revealed before focusing validation errors.",
+    "tests_added": "Native layout geometry across 3 views × 2 themes × 3 DPI; actual selected-book batch view switching checks input/target/estimate retention, profile persistence, growth of large list and restored choice. Wheel regression retained.",
+    "verification": "Both fresh Delphi CE GUI full Release builds passed unified-send. Per architecture: 18 geometry states (3 views x 2 themes x 3 DPI), 6 hover/direct/fractional wheel/focus/outer-scroll checks and actual selected-book view switching. Input values, known size/target snapshots, book count, profile-persisted layout, reopened choice and growing large-list height checked. Existing source copy/FB2/EPUB/FB2 ZIP/image presets/cancellation/selection/Shell scenarios passed. No claim that visual appearance, active heavy-estimation switching or validation focus was exercised in ordinary packaged apps.",
+    "reports": [
+      "tools/ui/tests/Out/homelibre-save-three-views-Win32-20261031-r2.log",
+      "tools/ui/tests/Out/homelibre-save-three-views-Win64-20261031-r1.log"
+    ],
+    "test_repair": "Initial retained-row assertion held a transient owner-data TListItem across redraw. The test now reacquires row zero for each snapshot; all assertions remain and diagnostics were added. Corrected test passed both architectures.",
+    "executables": {
+      "Win32": {
+        "sha256": "75e0ddc7b696228ad29acd072d548e6a95daa5b4694723637e26562cea7df5f1",
+        "bytes": 14866432
+      },
+      "Win64": {
+        "sha256": "1a4696d326f7b43cb8a96d0f668021f3bccedecc4450816d4a18d8d7a5570963",
+        "bytes": 21793792
+      }
+    },
+    "cleanup": "Three new layout-test profiles were removed by the runner finally blocks (first Win32 check, final Win32 and Win64). Two task-owned intermediate mockup files were removed; canonical HTML, small QA scripts/reports and three mockup images retained. No previously denied cleanup paths retried."
   }
 }

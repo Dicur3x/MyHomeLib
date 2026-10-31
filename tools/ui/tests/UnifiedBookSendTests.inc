@@ -4,7 +4,7 @@ type
     Timer: TTimer;
     FormatIndex, ImageIndex, Dialogs, QualityDialogs: Integer;
     CancelOptions, CancelQuality, ShellSurrogate: Boolean;
-    VerifyInitial: Boolean;
+    VerifyInitial, ViewsVerified: Boolean;
     Initial: TBookSendOptions;
     Destination, Failure, FolderMask: string;
     Deadline: UInt64;
@@ -52,6 +52,78 @@ begin Results:=Worker.Results; if Assigned(SavedClose) then SavedClose; end;
 function TUnifiedSendProbe.Message(const Text: string; Flags: Longint): Integer;
 begin Messages.Add(Text); if (Flags and $F)=MB_YESNO then Result:=IDYES else Result:=IDOK; end;
 
+procedure CheckUnifiedSaveViews(Dialog: TBookSendOptionsForm);
+var SavedLayout, FormatIndex, ImageIndex, Count, SavedTab, SavedHeight: Integer;
+  MaskText, FolderText, DestinationText, RowBefore: string; Folders: Boolean;
+  function Snapshot(List: TListView): string;
+  begin
+    // Owner-data list items are reused while the view redraws. Acquire the
+    // requested row afresh rather than retaining its transient TListItem.
+    var Item:=List.Items[0]; List.OnData(List,Item);
+    Result:=Item.Caption+'|'+Item.SubItems.Text;
+  end;
+begin
+  var Formats:=TComboBox(Dialog.FindComponent('SendFormat'));
+  var Images:=TComboBox(Dialog.FindComponent('SendImages'));
+  var Mask:=TEdit(Dialog.FindComponent('SaveNameTemplate'));
+  var FolderMask:=TEdit(Dialog.FindComponent('SaveFolderTemplate'));
+  var Subfolders:=TCheckBox(Dialog.FindComponent('SaveSubfolders'));
+  var Destination:=TEdit(Dialog.FindComponent('SendDestination'));
+  var Files:=TListView(Dialog.FindComponent('SaveBookSizes'));
+  var Names:=TButton(Dialog.FindComponent('ToggleSaveNaming'));
+  var Tabs:=TTabControl(Dialog.FindComponent('SaveSections'));
+  SavedLayout:=Settings.SaveAsLayout; SavedHeight:=Dialog.ClientHeight;
+  FormatIndex:=Formats.ItemIndex; ImageIndex:=Images.ItemIndex; Count:=Files.Items.Count;
+  MaskText:=Mask.Text; FolderText:=FolderMask.Text; Folders:=Subfolders.Checked;
+  DestinationText:=Destination.Text; SavedTab:=Tabs.TabIndex;
+  RowBefore:=Snapshot(Files);
+  try
+    for var Mode:=0 to 2 do
+    begin
+      TMenuItem(Dialog.FindComponent('SaveLayout'+IntToStr(Mode))).Click;
+      Require((Settings.SaveAsLayout=Mode) and
+        TMenuItem(Dialog.FindComponent('SaveLayout'+IntToStr(Mode))).Checked,'Save As view selection was not remembered');
+      var Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+      try Require(Ini.ReadInteger('SYSTEM','SaveAsLayout',-1)=Mode,'Save As view was not persisted to its profile');
+      finally Ini.Free; end;
+      Require((Formats.ItemIndex=FormatIndex) and (Images.ItemIndex=ImageIndex) and
+        (Mask.Text=MaskText) and (FolderMask.Text=FolderText) and (Subfolders.Checked=Folders) and
+        (Destination.Text=DestinationText) and (Files.Items.Count=Count),'Switching layouts changes save parameters or books');
+      var RowAfter:=Snapshot(Files);
+      if RowAfter<>RowBefore then
+      begin Writeln('TRACE save view=',Mode,' before=',RowBefore,' after=',RowAfter); Flush(Output); end;
+      Require(RowBefore=RowAfter,'Switching layouts discards size/target snapshots');
+      Require(Files.Visible and ((Mode<>2) or (Tabs.Visible and not Formats.Visible)),
+        'Book view is missing or settings overlap its tab');
+      if Mode=2 then
+      begin
+        Tabs.TabIndex:=1; Tabs.OnChange(Tabs);
+        Require(Formats.Visible and Mask.Visible and not Files.Visible,'Settings tab does not reveal options separately');
+        Tabs.TabIndex:=0; Tabs.OnChange(Tabs);
+        Require(Files.Visible and not Mask.Visible,'Returning to books leaves naming controls over the list');
+      end;
+    end;
+    TMenuItem(Dialog.FindComponent('SaveLayout1')).Click;
+    Dialog.ClientHeight:=MulDiv(430,Dialog.PixelsPerInch,96);
+    if string(Names.Caption).EndsWith('▴') then Names.Click;
+    var ClosedHeight:=Files.Height;
+    Names.Click; Subfolders.Checked:=True; Subfolders.OnClick(Subfolders);
+    Require(Files.Height>ClosedHeight,'Large result list does not grow with expanded names/folders');
+    Require(Files.Top+Files.Height>=FolderMask.Top+FolderMask.Height,
+      'Expanded naming controls extend below the matching result area');
+    Names.Click;
+    Require(not Mask.Visible and not FolderMask.Visible,'Collapsed naming leaves a disabled empty area');
+    var Again:=TBookSendOptionsForm.Create(Application);
+    try Require(TMenuItem(Again.FindComponent('SaveLayout1')).Checked,'New Save As dialog forgot its chosen view');
+    finally Again.Free; end;
+    Writeln('PASS unified save three views retain parameters estimates and books; large list grows; choice restored'); Flush(Output);
+  finally
+    Dialog.ClientHeight:=SavedHeight; Tabs.TabIndex:=SavedTab;
+    Subfolders.Checked:=Folders; Subfolders.OnClick(Subfolders);
+    TMenuItem(Dialog.FindComponent('SaveLayout'+IntToStr(SavedLayout))).Click;
+  end;
+end;
+
 procedure TUnifiedSendProbe.Tick(Sender: TObject);
 begin
   if GetTickCount64>Deadline then
@@ -95,6 +167,8 @@ begin
         Dialog.ModalResult:=mrCancel; Exit;
       end;
       Require(Assigned(Formats) and Assigned(Images),'Unified send controls are missing');
+      if not ViewsVerified and (TListView(Dialog.FindComponent('SaveBookSizes')).Items.Count>1) then
+      begin CheckUnifiedSaveViews(TBookSendOptionsForm(Dialog)); ViewsVerified:=True; end;
       Require(Images.Items.Count=4,'Save As must have exactly four image modes');
       var Collision:=TComboBox(Dialog.FindComponent('SaveNameCollision'));
       Require(Assigned(Collision) and (Collision.Items.Count=3) and
@@ -172,7 +246,7 @@ begin
 end;
 
 procedure TestUnifiedSendLayout;
-var Dialog: TBookSendOptionsForm; SavedDark: Boolean;
+var Dialog: TBookSendOptionsForm; SavedDark: Boolean; SavedLayout: Integer;
   procedure Inspect(Parent: TWinControl);
   var Bounds: TRect;
   begin
@@ -195,17 +269,19 @@ var Dialog: TBookSendOptionsForm; SavedDark: Boolean;
       if Control is TComboBox then
       begin
         var Combo:=TComboBox(Control); Dialog.Canvas.Font.Assign(Combo.Font);
-        for var Caption in Combo.Items do Require(Dialog.Canvas.TextWidth(Caption)+MulDiv(32,Dialog.PixelsPerInch,96)<=Combo.Width,
+        for var Caption in Combo.Items do Require(Dialog.Canvas.TextWidth(Caption)+MulDiv(32,Dialog.PixelsPerInch,96)<=
+          Max(Combo.Width,Integer(Combo.Perform(CB_GETDROPPEDWIDTH,0,0))),
           'Unified save format/image option is clipped: '+Caption);
       end;
       if Control is TWinControl then Inspect(TWinControl(Control));
     end;
   end;
 begin
-  SavedDark:=MHLThemeDark;
+  SavedDark:=MHLThemeDark; SavedLayout:=Settings.SaveAsLayout; Settings.SaveAsLayout:=0;
   try
-    for var Dark in [False,True] do for var PPI in [96,144,192] do
+    for var Dark in [False,True] do for var PPI in [96,144,192] do for var Layout in [0,1,2] do
     begin
+      Settings.SaveAsLayout:=Layout;
       SetMHLTheme(Dark); Dialog:=TBookSendOptionsForm.Create(Application);
       try
         Dialog.ScaleForPPI(PPI); Dialog.Show; Application.ProcessMessages;
@@ -217,6 +293,11 @@ begin
         var FolderHelp:=TLabel(Dialog.FindComponent('FolderMaskHelp'));
         var HelpToggle:=TButton(Dialog.FindComponent('ToggleSaveMaskHelp'));
         var Collision:=TComboBox(Dialog.FindComponent('SaveNameCollision'));
+        if Layout=2 then
+        begin
+          var Tabs:=TTabControl(Dialog.FindComponent('SaveSections')); Tabs.TabIndex:=1; Tabs.OnChange(Tabs);
+        end
+        else TButton(Dialog.FindComponent('ToggleSaveNaming')).Click;
         Require(not Destination.ReadOnly,'Save destination still looks editable but rejects typed paths');
         Require(not MaskHelp.Visible and not FolderHelp.Visible,'Save As starts with expanded mask instructions');
         Subfolders.Checked:=True; Subfolders.OnClick(Subfolders);
@@ -254,10 +335,10 @@ begin
         end;
         Dialog.ClientWidth:=Dialog.ClientWidth+MulDiv(80,PPI,96);
         Dialog.ClientHeight:=Dialog.ClientHeight+MulDiv(80,PPI,96); Inspect(Dialog);
-        Writeln('PASS unified save layout dark=',Ord(Dark),' ppi=',PPI); Flush(Output);
+        Writeln('PASS unified save layout dark=',Ord(Dark),' ppi=',PPI,' view=',Layout); Flush(Output);
       finally Dialog.Free; end;
     end;
-  finally SetMHLTheme(SavedDark); end;
+  finally Settings.SaveAsLayout:=SavedLayout; SetMHLTheme(SavedDark); end;
 end;
 
 procedure TestUnifiedSendWheel;
@@ -278,6 +359,7 @@ begin
         Books.OnData:=nil; Books.Items.Count:=80; Books.Visible:=True;
         Books.SetBounds(MulDiv(20,PPI,96),MulDiv(220,PPI,96),
           Content.ClientWidth-MulDiv(40,PPI,96),MulDiv(108,PPI,96));
+        Content.VertScrollBar.Range:=Content.ClientHeight+MulDiv(600,PPI,96);
         Destination.SetFocus; Application.ProcessMessages;
         var FocusBefore:=GetFocus; var ScrollBefore:=Content.VertScrollBar.Position;
         var AtList:=Books.ClientToScreen(Point(Books.ClientWidth div 2,Books.ClientHeight div 2));
