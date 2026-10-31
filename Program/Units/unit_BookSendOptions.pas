@@ -70,7 +70,7 @@ function ChooseBookSendOptions(BookCount: Integer; const InitialFolder: string;
 
 implementation
 
-uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.ActiveX,
+uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
   unit_Templater, unit_BookConversion, unit_BookEstimateReport;
 
@@ -79,12 +79,42 @@ const
   QualityCaptions: array[0..3] of string = ('Как есть','Сбалансированный','Экономный','Без изображений');
 
 type
+  TSaveBookListView = class(TListView)
+  private
+    procedure WMMouseWheel(var Message: TWMMouseWheel); message WM_MOUSEWHEEL;
+  end;
+
   TSaveScrollBox = class(TScrollBox)
+  private
+    FForwardingWheel: Boolean;
+  protected
     function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
   end;
 
-function TSaveScrollBox.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+procedure TSaveBookListView.WMMouseWheel(var Message: TWMMouseWheel);
 begin
+  // Let the native list retain fractional deltas and the system's line/page
+  // preference. VCL otherwise bubbles the event to the surrounding scrollbox.
+  DefaultHandler(Message);
+end;
+
+function TSaveScrollBox.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+var Target: TControl; Keys: Word;
+begin
+  if FForwardingWheel then Exit(True);
+  Target:=ControlAtPos(ScreenToClient(MousePos),False,True);
+  if Target is TSaveBookListView then
+  begin
+    Keys:=0;
+    if ssShift in Shift then Keys:=Keys or MK_SHIFT;
+    if ssCtrl in Shift then Keys:=Keys or MK_CONTROL;
+    FForwardingWheel:=True;
+    try
+      TSaveBookListView(Target).Perform(WM_MOUSEWHEEL,
+        MakeWParam(Keys,Word(WheelDelta)),MakeLParam(MousePos.X,MousePos.Y));
+    finally FForwardingWheel:=False; end;
+    Exit(True);
+  end;
   if VertScrollBar.Range>ClientHeight then
   begin VertScrollBar.Position:=VertScrollBar.Position-WheelDelta div WHEEL_DELTA*MulDiv(48,CurrentPPI,96); Result:=True; end
   else Result:=inherited;
@@ -156,7 +186,7 @@ begin
   FStatus:=LabelControl('SaveEstimateStatus','');
   FReport:=TButton.Create(Self); FReport.Parent:=FContent; FReport.Name:='ShowSaveEstimateReport';
   FReport.Caption:='Результаты оценки…'; FReport.Visible:=False; FReport.OnClick:=ShowEstimateReport;
-  FList:=TListView.Create(Self); FList.Parent:=FContent; FList.Name:='SaveBookSizes';
+  FList:=TSaveBookListView.Create(Self); FList.Parent:=FContent; FList.Name:='SaveBookSizes';
   FList.ViewStyle:=vsReport; FList.ReadOnly:=True; FList.RowSelect:=True; FList.HideSelection:=False;
   FList.OwnerData:=True; FList.OnData:=ListData; FList.ShowHint:=True; FList.OnInfoTip:=ListInfoTip;
   FList.OnSelectItem:=SelectPreviewBook;

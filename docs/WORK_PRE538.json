@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "59 blocks, 38 completed items, sequence 35 read back; block IDs/order/title preserved. Native compact Save As and the seven-input/seven-policy mixed save matrix passed on both architectures. Compact task remains unchecked until ordinary packaged UI proof.",
+    "verification": "60 blocks, 38 checked, sequence 39 read back; IDs/order/title and untouched hashes preserved against the fresh sequence-37 snapshot. Design decision is pending implementation, not checked.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026, sequence 36: native compact/mixed matrix passed both; fresh Main/Reader builds and minimal core archives; ordinary Win32 five-format original copies byte-exact with modules absent. User requested larger list/wheel fix and three design alternatives. Mockups prepared; user choice and native wheel repair remain. New private GUI runtime removed; conversion phase deliberately interrupted for design review, not a product failure. All final candidate publication checks remain.",
-    "last_verified_sequence": 36
+    "last_check": "31 October 2026, sequence 39: all three layouts agreed, large list default and small View menu. Prototype loader fallback fixed and checked. Native wheel fix passed Win32/Win64; layout implementation is next. User requested autonomous work without questions.",
+    "last_verified_sequence": 39
   },
   "order": [
     "archive_opening",
@@ -1168,13 +1168,50 @@
     "core_reader_rebuild": "next"
   },
   "compact_save_design_feedback_20261031": {
-    "status": "prepare alternative mockups before changing production layout",
+    "status": "design choice accepted; prototype repaired; native wheel repair under verification",
     "request": "Book list feels too short/narrow; mouse wheel over list did not scroll for the user. Recommend a clearer compact design and show alternative chat mockups for choice.",
     "gui_evidence": "Fresh packaged Win32 Main saved all five FB2/EPUB/PDF/DjVu/DOC sources byte-exact without optional modules; folder entry assisted by user because Computer Use focused the disabled owner during typing. Compact window, collapsed subfolder mask, filename preview and third context-menu position observed. Conversion phase deliberately not run after design request; native conversion checks already passed both architectures.",
     "report": "tools/ui/tests/Out/homelibre-3beta1-packaged-save-Win32-20261031-r1.json",
     "cleanup": "Both private GUI phases exited normally; harness removed its new private profile. Original-case hashes and installed-component receipts retained in the small report.",
     "mockups": "C:/Users/cloud/.codex/visualizations/2026/10/15/01a14155-dfd4-78c0-8e32-29c79841740d/homelibre-save-designs.html",
     "mockup_checks": "Three variants inspected as rendered images; local headless prototype checks passed at widths 760/360/320: no horizontal overflow, wheel under pointer, filename updates, size prototype, folder-field collapse and tabs. Values are illustrative, no real size estimate or native wheel repair is claimed.",
-    "next": "Await user design choice before product layout changes; native wheel defect still needs reproduction/repair. Resume ordinary packaged mixed conversion and final x86/x64 checks afterward."
+    "next": "Implement the three agreed native layouts, default large list and persisted small View menu; list grows with naming. Preserve all parameters/estimates and repeat relevant x86/x64 checks before rebuilding ordinary Main/Reader packages and publishing.",
+    "decision": {
+      "default": "Большой список",
+      "switcher_caption": "Вид",
+      "layouts": [
+        "Список и настройки",
+        "Большой список",
+        "Два раздела"
+      ],
+      "persist_choice": true,
+      "right_list_grows_with_naming_panel": true,
+      "preserve_inputs_and_estimates_on_switch": true,
+      "manual_help": "User went to sleep; continue autonomously without asking for actions."
+    },
+    "mockup_loader_repair": "All three complete surfaces and all 24 illustrative rows now exist in literal markup; optional script/bridge failures cannot leave an empty view. Host state and design-control initialization are guarded. No network dependencies added.",
+    "mockup_loader_checks": "PASS: static rendering with JavaScript disabled, throwing optional host bridge/design helper, actual sandboxed wrapper carousel with three CDN requests deliberately unavailable; normal interactions and responsive 760/360/320 checks pass. Large list grows with expanded naming/folders. This proves the preview wrapper, not the remote Codex client loader."
+  },
+  "save_list_wheel_20261031": {
+    "status": "verified Win32 and Win64 in native test application; not packaged or released",
+    "baseline": "Fresh Win64 native regression failed on original product code: wheel over list while path edit focused does not scroll the list. tools/ui/tests/Out/homelibre-save-wheel-baseline-Win64-20261031-r1.log",
+    "fix": "Route hover wheel to the native report-list window without focusing it; native list retains system preference and fractional deltas. Direct list wheel bypasses VCL bubbling; guarded forwarding avoids parent recursion. Outer settings keep their existing wheel behavior.",
+    "verification": "Both fresh Delphi CE GUI Release builds passed the full unified-send scenario. Both themes and 96/144/192 DPI: hover/direct/fractional wheel scrolls books, focus and outer scroll are preserved; wheel outside the list still scrolls settings. Windows system_lines=3; no global setting changed. Baseline failed on original code. All four new runner profiles (baseline, first unsuccessful forwarding check, final Win64 and Win32) were cleaned by their wrapper finally blocks.",
+    "report": "tools/ui/tests/Out/homelibre-save-wheel-Win64-20261031-r2.log",
+    "release_gate": "Current Main/Reader archives predate the native wheel repair and upcoming layouts. Rebuild and validate affected final archives before any publication.",
+    "reports": [
+      "tools/ui/tests/Out/homelibre-save-wheel-Win64-20261031-r2.log",
+      "tools/ui/tests/Out/homelibre-save-wheel-Win32-20261031-r1.log"
+    ],
+    "executables": {
+      "Win32": {
+        "sha256": "13078adaebbc2f17092a25e87102cc8cf86dcc4250a36ccbef08255655bec040",
+        "bytes": 14855680
+      },
+      "Win64": {
+        "sha256": "791f2cc10c948cf8c8402b78b58d8cb345ccb19d355d5df95fc88c39dfef1db4",
+        "bytes": 21778944
+      }
+    }
   }
 }

@@ -260,6 +260,62 @@ begin
   finally SetMHLTheme(SavedDark); end;
 end;
 
+procedure TestUnifiedSendWheel;
+var Dialog: TBookSendOptionsForm; SavedDark: Boolean;
+begin
+  SavedDark:=MHLThemeDark;
+  try
+    for var Dark in [False,True] do for var PPI in [96,144,192] do
+    begin
+      SetMHLTheme(Dark); Dialog:=TBookSendOptionsForm.Create(Application);
+      try
+        Dialog.ScaleForPPI(PPI); Dialog.ClientHeight:=MulDiv(430,PPI,96);
+        Dialog.Show; Application.ProcessMessages;
+        var Destination:=TEdit(Dialog.FindComponent('SendDestination'));
+        var Books:=TListView(Dialog.FindComponent('SaveBookSizes'));
+        var Content:=TScrollBox(Books.Parent);
+        // The wheel must target the hovered list without moving keyboard focus.
+        Books.OnData:=nil; Books.Items.Count:=80; Books.Visible:=True;
+        Books.SetBounds(MulDiv(20,PPI,96),MulDiv(220,PPI,96),
+          Content.ClientWidth-MulDiv(40,PPI,96),MulDiv(108,PPI,96));
+        Destination.SetFocus; Application.ProcessMessages;
+        var FocusBefore:=GetFocus; var ScrollBefore:=Content.VertScrollBar.Position;
+        var AtList:=Books.ClientToScreen(Point(Books.ClientWidth div 2,Books.ClientHeight div 2));
+        var WheelLines: UINT;
+        Require(SystemParametersInfo(SPI_GETWHEELSCROLLLINES,0,@WheelLines,0),
+          'Cannot read the system wheel preference');
+        for var I:=1 to 4 do Destination.Perform(WM_MOUSEWHEEL,
+          MakeWParam(0,Word(-WHEEL_DELTA)),MakeLParam(AtList.X,AtList.Y));
+        Require((WheelLines=0) or (ListView_GetTopIndex(Books.Handle)>0),
+          'Wheel over Save As books does not scroll the list while a text field has focus');
+        Require((Content.VertScrollBar.Position=ScrollBefore) and (GetFocus=FocusBefore),
+          'Wheel over books moves the outer form or steals keyboard focus');
+        Books.Items[0].MakeVisible(False);
+        Destination.Perform(WM_MOUSEWHEEL,MakeWParam(0,Word(-WHEEL_DELTA div 2)),
+          MakeLParam(AtList.X,AtList.Y));
+        Destination.Perform(WM_MOUSEWHEEL,MakeWParam(0,Word(-WHEEL_DELTA div 2)),
+          MakeLParam(AtList.X,AtList.Y));
+        Require((WheelLines=0) or (ListView_GetTopIndex(Books.Handle)>0),
+          'High-resolution wheel deltas are discarded over the book list');
+        Books.Items[0].MakeVisible(False);
+        Books.Perform(WM_MOUSEWHEEL,MakeWParam(0,Word(-WHEEL_DELTA)),
+          MakeLParam(AtList.X,AtList.Y));
+        Require((WheelLines=0) or (ListView_GetTopIndex(Books.Handle)>0),
+          'A wheel delivered directly to the book list is swallowed by its parent');
+        Require((Content.VertScrollBar.Position=ScrollBefore) and (GetFocus=FocusBefore),
+          'Direct book-list wheel moves the outer form or keyboard focus');
+        var OutsideList:=Destination.ClientToScreen(Point(2,2));
+        Destination.Perform(WM_MOUSEWHEEL,MakeWParam(0,Word(-WHEEL_DELTA)),
+          MakeLParam(OutsideList.X,OutsideList.Y));
+        Require(Content.VertScrollBar.Position>ScrollBefore,
+          'Wheel outside the list no longer scrolls the Save As settings');
+        Writeln('PASS unified save wheel dark=',Ord(Dark),' ppi=',PPI,
+          ' system_lines=',WheelLines,' hover/direct/fractional/focus/outer-scroll'); Flush(Output);
+      finally Dialog.Free; end;
+    end;
+  finally SetMHLTheme(SavedDark); end;
+end;
+
 procedure TestUnifiedTXT(const Root: string);
 const Body='<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Не включать описание</book-title></title-info></description>'+
   '<body><section><title><p>Глава</p></title><p>До <strong>жирного</strong> &amp; после.</p><p>Второй</p></section></body>'+
@@ -480,7 +536,7 @@ var Root, SourceFB2, SourceEPUB, ImageFile, XML, SavedFolder, SavedFile, SavedDe
   end;
 
 begin
-  RequireIsolatedRegression; TestUnifiedSendLayout; PreviousCID:=Settings.ActiveCollection;
+  RequireIsolatedRegression; TestUnifiedSendLayout; TestUnifiedSendWheel; PreviousCID:=Settings.ActiveCollection;
   SavedDevice:=Settings.DeviceDir; SavedSync:=Settings.SyncExportDir; SavedFolder:=Settings.FolderTemplate; SavedFile:=Settings.FileNameTemplate;
   SavedSelected:=Settings.SelectedIsChecked; SavedRewrite:=Settings.OverwriteFB2Info;
   SavedPrompt:=Settings.PromptDevicePath; SavedMode:=Settings.ExportMode; SavedEncoding:=Settings.TXTEncoding; SavedScript:=Settings.DefaultScript; ScriptCount:=Settings.Scripts.Count;
