@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 56,
+    "verified_sequence": 57,
     "verified_blocks": 68,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1935,16 +1935,38 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-10-31T20:45:22.659674+00:00",
+  "updated_utc": "2026-10-31T21:04:35.402073+00:00",
   "telegram_followup_20261031": {
-    "status": "queued_unread",
+    "status": "messages_read_source_downloaded_reproduction_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
-    "group": "Home libre",
+    "group": "HomeLibre",
     "items": [
       "Book fails in our Reader while Sumatra opens it; exact file, format and version not yet read",
       "Additional details about review-loading timeout 12002"
     ],
     "messages_authorized": false,
-    "page_task_block": "e9a23c93-8828-4c5f-ae2d-9043b68f554c"
+    "page_task_block": "e9a23c93-8828-4c5f-ae2d-9043b68f554c",
+    "messages_sent": false,
+    "book": {
+      "reported_reader": "HomeLibReader 3.0.0_pre1.1",
+      "reported_behavior": "Does not open in Reader; SumatraPDF opens normally, according to tester",
+      "downloaded_source": "C:/Users/cloud/Downloads/Telegram Desktop/Инженер Петра Великого.zip",
+      "archive_size": 20204568,
+      "archive_sha256": "61c2a211ac15c272cd84bb4e3eb9b88f84ed380b47299dee124c534cff525cce",
+      "entry": "Инженер Петра Великого-Инженер Петра Великого.fb2",
+      "fb2_size": 34182888,
+      "xml_syntax": "well-formed by ElementTree; not schema validation",
+      "jpeg_binaries": 340,
+      "cause": "not yet established; source reviewed and book not yet launched",
+      "investigation_pointer": "unit_ReaderDocument.pas TReaderDocument.RTF builds DIB pictures and rejects a complete RTF buffer above 256 MiB. Check actual runtime and picture dimensions; do not treat as a proven cause."
+    },
+    "reviews": {
+      "reported_error": 12002,
+      "reported_host": "flibusta.is",
+      "reported_retry_outcome": "Later manual retry loaded both comments and description",
+      "tester_suggestion": "Bounded retry after 5-7 seconds without information",
+      "user_request": "Clearer error explaining that a website response could not be obtained",
+      "root_cause_confirmed": false
+    }
   }
 }
