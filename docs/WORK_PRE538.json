@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "60 blocks, 38 checked, sequence 40 read back; IDs/order/title and untouched hashes preserved against the fresh sequence-39 snapshot. Compact Save As remains unchecked until ordinary app visual/package proof.",
+    "verification": "60 blocks, 38 checked, sequence 42 read back; exact three updates and all untouched hashes/order/title preserved against sequence 41. Active final gates remain unchecked.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026, sequence 40: three chosen native layouts and hover wheel passed full unified-send on both architectures. Default large list, small persistent View menu, growth with naming and profile retention verified. Fresh ordinary Main/Reader builds/packages and final GUI/publication gates remain.",
-    "last_verified_sequence": 40
+    "last_check": "31 October 2026: fresh core/Reader builds; ordinary unchanged copies and resumed five-format EPUB conversion passed x86/x64. Incomplete DjVu mirror found and repaired; nine native module installs per architecture and fresh catalogue update-preparation gates passed. Local publication-r3 prepared; Reader GUI, remaining upgrade/download and actual publication gates remain.",
+    "last_verified_sequence": 42
   },
   "order": [
     "archive_opening",
@@ -1074,7 +1074,7 @@
     }
   },
   "release_integration_20261030": {
-    "status": "new native Save As layouts verified; fresh production rebuild/packages and ordinary GUI proof required",
+    "status": "ordinary source copies and resumed mixed EPUB conversion passed both architectures; exact native installation and preparation passed; publication pending",
     "build_method": "Licensed Delphi CE GUI, Release, both x86/x64; no command-line compiler",
     "integration_fix": "Registered six existing tracked helper units in the main DPR/DPROJ after the real full production build caught a missing unit; both full main builds subsequently succeeded.",
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-production-builds-20261030-r1.json",
@@ -1159,7 +1159,7 @@
       "beta1_Win32": "7abb4c1f97cdbaa9beb685a0dfdb4259d922cb0f42ba215481adce92d76139f6",
       "beta1_Win64": "10da3cc5f2f64e7d767eb45420f7bec04dcf5087a99e0465013027f3799cd956"
     },
-    "publication_plan_caveat": "Existing stage catalogue-r2/reader-r3 archives predate wheel and three-layout source changes. Rebuild both actual Main and Reader, use new output directories and regenerate current publication feed/plan before upload. No current source code or packages published."
+    "publication_plan_caveat": "Current candidates catalogue-r3, reader-r4, djvu-mirror-r2 and publication-r3 are verified in fresh reports under fresh_three_layout_release_20261031. Earlier candidate reports remain historical; do not upload old reader-r2/reader-r3 or publication-r1/r2 plans. Current source and assets are not published."
   },
   "compact_save_native_verification_20261031": {
     "report": "tools/ui/tests/Out/homelibre-3beta1-compact-native-20261031-r1.json",
@@ -1215,7 +1215,7 @@
     }
   },
   "save_as_three_layouts_20261031": {
-    "status": "verified in native Win32/Win64 test application; ordinary Main/Reader visual review and new packages pending",
+    "status": "native three-layout suite plus fresh ordinary Main source-copy and resumed five-format EPUB conversion verified x86/x64; ordinary fresh Reader UI and final publication gates pending",
     "default": "Большой список",
     "switcher": "Small footer button Вид with three radio menu choices, persisted as SYSTEM/SaveAsLayout (default 1).",
     "layouts": [
@@ -1241,6 +1241,61 @@
         "bytes": 21793792
       }
     },
-    "cleanup": "Three new layout-test profiles were removed by the runner finally blocks (first Win32 check, final Win32 and Win64). Two task-owned intermediate mockup files were removed; canonical HTML, small QA scripts/reports and three mockup images retained. No previously denied cleanup paths retried."
+    "cleanup": "Three new layout-test profiles were removed by the runner finally blocks (first Win32 check, final Win32 and Win64). Two task-owned intermediate mockup files were removed; canonical HTML, small QA scripts/reports and three mockup images retained. No previously denied cleanup paths retried.",
+    "ordinary_gui_report_limits": "Previous failed/skipped automation reports preserved. Fresh resumed-operation tests now PASS on both ordinary Main architectures and consume their private plans; manual combo selection and HTTP/actual installer restart are not claimed. The first resumed test exposed the real incomplete DjVu mirror before repair; a separate harness SQLite-connection cleanup bug was corrected without relabeling its FAIL report."
+  },
+  "fresh_three_layout_release_20261031": {
+    "status": "ordinary source copies and resumed mixed EPUB conversion passed both architectures; exact native installation and preparation passed; publication pending",
+    "published": false,
+    "production_report": "tools/ui/tests/Out/homelibre-3beta1-three-views-production-20261031-r1.json",
+    "builds": "Four full ordinary Release builds through licensed Delphi CE GUI: Main Win32/Win64 and Reader Win32/Win64. Numeric version 3.0.0.1, display 3.0 beta 1, current source mtimes and exact package EXE bytes checked.",
+    "catalogue_directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/catalogue-r3",
+    "reader_directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/reader-r4",
+    "minimum_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-minimal-Win32-20261031-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-minimal-Win64-20261031-r1.json"
+    ],
+    "ordinary_source_copies": "Five FB2/EPUB/PDF/DjVu/actual USR DOC source copies byte-exact on both ordinary packaged Main architectures; no optional modules. Destination was prefilled in own fixture profile, not entered through GUI. Win64 also visually hid the disabled folder mask, changed the live path to flat and persisted SaveAsUseSubfolders=0.",
+    "ordinary_gui_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-packaged-save-Win32-20261031-r1.json",
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-packaged-save-Win32-20261031-r2.json",
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-packaged-save-Win64-20261031-r1.json"
+    ],
+    "reader_exception": "Reader still contains real libzstd.dll required by previous installer mandatory-file contract. Catalogue minimum has no such module. No claim that Reader is Zstandard-free.",
+    "publication_directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/publication-r3",
+    "publication_report": "tools/ui/tests/Out/homelibre-three-views-djvu-publication-20261031-r1.json",
+    "publication_verified": "Eighteen replacement archives, including two repaired same-version DjVu mirrors, and sixteen preserved component entries; both native parsers accept 17 exact entries each. Invalid digest, stale cached feed and stale Reader with the same version rejected before output. Feed SHA-256 ea1feed41dd7c3650d03c23826376e78776fdfd4d7368f84bbb2d91cfdd7c00f. Plan explicitly separates same-name DjVu asset replacement before upload from obsolete owned assets after verified publication. No remote mutations.",
+    "cleanup": "Five previous/successful new GUI profiles removed, plus all new install/feed/native preparation payloads. First resumed x86 probe initially retained a SQLite connection in the harness, corrected with explicit closing; after normal process exit, guarded cleanup of G:/HomeLibRu-build-cache/HomeLibRu-update-test-save-2hqaozck was rejected by automatic approval before execution (blocked by policy). User notified. Do not retry this path or enclosing parent through another route. Failed report and owned residual data remain; later two conversion runs clean normally. No previously denied cleanup paths retried.",
+    "remaining": [
+      "fresh ordinary Reader GUI review",
+      "remaining exact package upgrade/download gates",
+      "fresh remote revalidation and publication"
+    ],
+    "resumed_gui_reports": [
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-resumed-save-Win32-20261031-r2.json",
+      "tools/ui/tests/Out/homelibre-3beta1-three-views-resumed-save-Win64-20261031-r1.json"
+    ],
+    "resumed_gui_scope": "Ordinary packaged Main EXEs with owned five-format FB2/EPUB/PDF/DjVu/actual USR DOC selection and a synthetic completed-install continuation. GUI restored EPUB, destination, image mode, live output names and selection; actual Save clicks produced five EPUB files each. Independent ZIP/XML/body text/resource checks passed; all 16 DOC reference paragraphs retained, source hashes unchanged, continuation consumed, no Kindle/Office/XPS/7-Zip/Reader installation. GUI reported 5/5, no save errors, expected layout/OCR notices for three books. Both successful new profiles removed. No manual combo-choice, HTTP/module download or actual installer-restart claim.",
+    "native_install_reports": [
+      "tools/ui/tests/Out/homelibre-three-views-component-install-Win32-20261031-r1.json",
+      "tools/ui/tests/Out/homelibre-three-views-component-install-Win64-20261031-r1.json"
+    ],
+    "native_install_scope": "Nine exact components per architecture, including fresh Reader-r4 and repaired DjVu mirror. Native prepare/install journals and repair-needed=0 checked; synthetic personal data unchanged; no unrelated modules added by common processing/images. All private install payloads removed.",
+    "native_update_prepare_reports": [
+      "tools/ui/tests/Out/homelibre-three-views-native-prepare-Win32-20261031-r1.json",
+      "tools/ui/tests/Out/homelibre-three-views-native-prepare-Win64-20261031-r1.json"
+    ],
+    "native_update_prepare_scope": "Exact current catalogue-r3 ZIPs accepted by native production preparation and staged helper-launch gate on both architectures. Console-only; no GUI restart/download/old-receiver claim.",
+    "djvu_mirror_repair": {
+      "reproduction_report": "tools/ui/tests/Out/homelibre-3beta1-three-views-resumed-save-Win32-20261031-r1.json",
+      "cause": "Published 3.5.29 mirror omitted mandatory tools/djvu/HomeLibDjvu.exe. Native installer accepted original tools but repair-needed returned 1; ordinary export saved three books then requested DjVu again. Package generator now includes the pinned helper and five paired GPL source/license files.",
+      "directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/djvu-mirror-r2",
+      "archives": {
+        "Win32": "9bb09288d1959377408654a9e9c60fa683005bf136e7c052389b83d619e8a529",
+        "Win64": "211379f43da40a5cea8e451eaa14fdbc6371f0bb8f72c6559946633434c6e941"
+      },
+      "source_pairing": "Actual source paired with the already pinned 32-bit helper is retained. Current repository only differs by the known HomeLib Ru to HomeLibre context/README rename; all code/protocol differences are still rejected.",
+      "verification": "Both exact mirrors install with 19 managed files and repair-needed=0; ordinary mixed conversion now completes five of five without a repeated DjVu prompt on x86/x64. Upstream DjVu version remains 3.5.29. No duplicate public assets uploaded."
+    }
   }
 }

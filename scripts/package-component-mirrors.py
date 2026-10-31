@@ -11,6 +11,7 @@ from pathlib import Path
 import zipfile
 
 TAG = 'optional-alreader-2.5.1009.25'
+ROOT = Path(__file__).resolve().parents[1]
 PREFIX = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + TAG + '/'
 COMPONENTS = ('SQLite', 'SumatraPDF', 'DjVuLibre', '7-Zip', 'DocSharp', 'JPEG XL')
 ORIGINS = {
@@ -51,7 +52,8 @@ def select(runtime, component, version_reader, platform):
             'b2xtranslator-BSD-3-Clause.txt', 'HomeLibDoc-MIT.txt'])
     if component == 'DjVuLibre':
         prefix = 'tools/djvu/'
-        descriptor = json.loads((runtime / prefix / 'RUNTIME.json').read_bytes())['djvu']
+        runtime_descriptor = json.loads((runtime / prefix / 'RUNTIME.json').read_bytes())
+        descriptor = runtime_descriptor['djvu']
         version = descriptor['version']
         payload = files(prefix, [
             'ddjvu.exe', 'djvused.exe', 'libdjvulibre.dll', 'libjpeg.dll', 'libtiff.dll',
@@ -60,6 +62,25 @@ def select(runtime, component, version_reader, platform):
         for name, digest in dict(descriptor['files'], **descriptor['distribution']).items():
             if sha(payload[prefix + name]) != digest:
                 raise ValueError('DjVu source/runtime descriptor mismatch: ' + name)
+        bridge = runtime_descriptor['viewer_helper']
+        payload.update(files(prefix, ['HomeLibDjvu.exe']))
+        if bridge['architecture'] != 'Win32' or sha(payload[prefix+'HomeLibDjvu.exe']) != bridge['sha256']:
+            raise ValueError('DjVu reader bridge differs from the pinned build')
+        # The native reader requires this bridge, and GPL distribution also
+        # requires its matching source beside the original DjVuLibre source.
+        for name, source in {
+                'HomeLibDjvu.dpr':'Utils/HomeLibDjvu/HomeLibDjvu.dpr',
+                'HomeLibDjvu.dproj':'Utils/HomeLibDjvu/HomeLibDjvu.dproj',
+                'unit_DjvuProtocol.pas':'Program/Units/unit_DjvuProtocol.pas',
+                'LICENSE':'Utils/HomeLibDjvu/LICENSE',
+                'README.md':'Utils/HomeLibDjvu/README.md'}.items():
+            member = prefix+'HomeLibDjvu-source/'+name
+            payload[member] = (runtime/member).read_bytes()
+            # This pinned bridge predates the product rename. Keep the actual
+            # source paired with that binary; only the known branding-only
+            # difference is accepted, never a decoder/protocol code change.
+            if payload[member].replace(b'HomeLib Ru',b'HomeLibre') != (ROOT/source).read_bytes().replace(b'HomeLib Ru',b'HomeLibre'):
+                raise ValueError('DjVu bridge source copy is stale: '+name)
         return version, payload
     prefix = 'tools/jpeg-xl/'
     decoder = (runtime / prefix / 'djxl.exe').read_bytes()
@@ -78,6 +99,8 @@ def select(runtime, component, version_reader, platform):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--component', choices=COMPONENTS, action='append',
+                        help='Build only selected mirrors, preserving unrelated cached archives')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     output = args.output.resolve()
@@ -88,7 +111,7 @@ def main():
     feed, assets, report = [], [], []
     for platform in ('Win32', 'Win64'):
         runtime = repo / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64')
-        for component in COMPONENTS:
+        for component in args.component or COMPONENTS:
             version, payload = select(runtime, component, helper.file_version, platform)
             name = 'HomeLibRu-' + component.replace(' ', '') + '-' + version + '-' + platform + '.zip'
             manifest = {'format': 1, 'release': TAG, 'component': component, 'version': version,

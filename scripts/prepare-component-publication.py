@@ -46,6 +46,10 @@ def main():
     parser.add_argument('stage', type=Path)
     parser.add_argument('--base-feed', type=Path, required=True)
     parser.add_argument('--release-metadata', type=Path, required=True)
+    parser.add_argument('--reader-packages', type=Path, required=True,
+                        help='Explicit directory of current Reader ZIPs; never infer a numbered build directory')
+    parser.add_argument('--djvu-packages', type=Path, required=True,
+                        help='Repaired mirror with the required reader bridge and matching source')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     stage, output = args.stage.resolve(), args.output.resolve()
@@ -61,17 +65,22 @@ def main():
     baseline = entries(json.loads(base_bytes))
     bootstrap = entries(json.loads((ROOT / 'Installer/Components.json').read_bytes()))
     identity = json.loads((ROOT / 'Installer/Release.json').read_bytes())
-    expected = {(component, platform) for component in OWNED for platform in ('Win32', 'Win64')}
+    expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
     replacement, uploads, checked = {}, [], []
     new_names = set()
-    for directory in ('reader-r2', 'formats', 'mcp'):
-        for key, entry in entries(json.loads((stage / directory / 'HomeLibRu.components.json').read_bytes())).items():
+    directories = (args.reader_packages.resolve(), stage / 'formats', stage / 'mcp', args.djvu_packages.resolve())
+    for directory in directories:
+        for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
-            assert entry['version'] == identity['version']
+            assert entry['version'] == (bootstrap[key]['version'] if key[0]=='DjVuLibre' else identity['version'])
             assert all(entry[field] == bootstrap[key][field] for field in ('id', 'platform', 'version', 'archive'))
-            path = stage / directory / entry['archive']
+            path = directory / entry['archive']
             data = path.read_bytes()
-            assert entry['archive'] not in new_names and entry['archive'] not in old_assets
+            assert entry['archive'] not in new_names
+            if entry['archive'] in old_assets:
+                assert key[0]=='DjVuLibre' and entry['archive']==baseline[key]['archive'], 'Unexpected existing asset replacement'
+            else:
+                assert key[0] in OWNED
             new_names.add(entry['archive'])
             with zipfile.ZipFile(path) as archive:
                 names = archive.namelist()
@@ -89,6 +98,16 @@ def main():
                     assert '..' not in Path(name).parts
                     payload = archive.read(name)
                     assert len(payload) == item['size'] and digest(payload) == item['sha256'], name
+                if key[0] == 'HomeLibReader':
+                    current = ROOT / 'Utils/HomeLibReader/Out' / key[1] / 'HomeLibReader.exe'
+                    for source in (ROOT / 'Program/Units/unit_BookSendOptions.pas',
+                                   ROOT / 'Program/Units/unit_Settings.pas',
+                                   ROOT / 'Program/Forms/frm_ReaderHost.pas',
+                                   ROOT / 'Program/Forms/frm_BuiltinReader.pas'):
+                        assert current.stat().st_mtime_ns >= source.stat().st_mtime_ns, (
+                            'Rebuild current Reader after source changes: ' + str(source))
+                    assert archive.read('HomeLibReader.exe') == current.read_bytes(), (
+                        'Reader archive does not match current executable: ' + str(path))
             replacement[key] = entry
             asset = dict(name=entry['archive'], size=len(data), digest='sha256:' + digest(data),
                          browser_download_url=PREFIX + entry['archive'])
@@ -105,12 +124,13 @@ def main():
         asset = old_assets[entry['archive']]
         assert asset['browser_download_url'] == PREFIX + entry['archive']
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
-    obsolete = [old_assets[baseline[key]['archive']] for key in sorted(expected)]
+    replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
+    obsolete = [old_assets[baseline[key]['archive']] for key in sorted(expected) if key[0] in OWNED]
     obsolete_names = {asset['name'] for asset in obsolete}
-    assert len(obsolete_names) == len(expected)
+    assert len(obsolete_names) == len(OWNED)*2
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
-                       if name not in obsolete_names | {'HomeLibRu.components.json'}]
+                       if name not in obsolete_names | {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
     new_assets = [{key: item[key] for key in ('name', 'size', 'digest', 'browser_download_url')} for item in uploads]
     feed_asset = dict(name='HomeLibRu.components.json', size=len(feed), digest='sha256:' + digest(feed),
                       browser_download_url=PREFIX + 'HomeLibRu.components.json')
@@ -121,12 +141,15 @@ def main():
                 release_id=metadata['id'], release_tag=TAG, observed_updated_at=metadata['updated_at'],
                 observed_feed_sha256=digest(base_bytes), replacement_feed_sha256=digest(feed),
                 upload_before_feed=uploads, replace_feed_last=feed_asset,
+                replace_existing_assets_before_upload=replacing_existing,
                 obsolete_assets_after_verified_publication=obsolete,
                 retained_non_owned_entries=len(unchanged), preserved_external_assets=len(retained_assets))
     report = dict(status='PASS', published=False, components=checked,
                   merged_entries=len(merged), unchanged_entries_preserved=len(unchanged),
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
+    report['reader_archives_match_current_executables'] = True
+    report['reader_packages_directory'] = str(args.reader_packages.resolve())
     output.mkdir(parents=True, exist_ok=False)
     files = {'HomeLibRu.components.json': feed, 'assets.json': encoded(publication['assets']),
              'local-mirror-release.json': encoded(publication),
@@ -134,7 +157,7 @@ def main():
     for name, value in files.items():
         with (output / name).open('xb') as stream:
             stream.write(value)
-    print('PASS component publication plan: 16 new archives; unchanged entries preserved; not published')
+    print(f'PASS component publication plan: {len(uploads)} archives; unchanged entries preserved; not published')
 
 
 if __name__ == '__main__':

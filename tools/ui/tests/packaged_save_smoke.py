@@ -7,6 +7,8 @@ No user catalogue or download/restart success is inferred from this check.
 """
 import argparse
 import configparser
+from contextlib import closing
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
@@ -17,6 +19,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import uuid
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 import zipfile
@@ -50,10 +53,21 @@ def main():
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--timeout', type=int, default=1800)
+    parser.add_argument('--prefill-destinations', action='store_true',
+                        help='Seed only the owned profile destination before each launch; GUI folder entry is not claimed')
+    parser.add_argument('--originals-only', action='store_true',
+                        help='Check only ordinary GUI byte-exact source copies without installing modules or claiming conversion')
+    parser.add_argument('--resumed-conversion-only', action='store_true',
+                        help='Seed an owned post-install continuation, then save through the ordinary restored GUI; no manual combo-choice claim')
+    parser.add_argument('--publication-dir', type=Path,
+                        help='Exact verified component publication directory')
+    parser.add_argument('--djvu-packages', type=Path,
+                        help='Exact repaired DjVu mirror directory for conversion')
     parser.add_argument('--doc-inventory', type=Path, default=ROOT / 'tools/ui/tests/Out/pre533-format-inventory.json')
     parser.add_argument('--catalogue-dir', type=Path,
                         help='Exact fresh core archive directory; component fixtures still come from stage')
     args = parser.parse_args()
+    assert not (args.originals_only and args.resumed_conversion_only)
     stage = args.stage.resolve()
     assert not args.report.exists()
     platform = args.platform
@@ -73,11 +87,16 @@ def main():
     with zipfile.ZipFile(catalogue) as archive:
         assert hashlib.sha256(archive.read('HomeLibRu.exe')).hexdigest() == sha(runtime / 'HomeLibRu.exe'), (
             'Repackage the current Main build before the interactive Save As check')
-    assets = {item['name']: item for item in json.loads((stage / 'publication-r1/assets.json').read_bytes())}
+    assets = {item['name']: item for item in json.loads(((args.publication_dir or stage / 'publication-r1') / 'assets.json').read_bytes())}
     doc_payload, doc_descriptor = read_doc_sample(args.doc_inventory)
     report = dict(status='FAIL', platform=platform, published=False,
                   scope='Ordinary packaged candidate Main GUI, synthetic real-format documents, exact minimal ZIP/local modules; no HTTP or restart claim',
                   catalogue_sha256=sha(catalogue), real_doc_source=doc_descriptor, phases=[], temporary_profile_removed=False)
+    report['destinations_prefilled_in_owned_profile'] = args.prefill_destinations
+    report['originals_only'] = args.originals_only
+    report['resumed_conversion_only'] = args.resumed_conversion_only
+    if args.originals_only:
+        report['scope'] = 'Ordinary packaged Main GUI source copies only; no GUI conversion, download or restart claim'
     app = None
     temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-save-')
     outer = Path(temporary.name).resolve()
@@ -147,6 +166,17 @@ def main():
 
         def launch(phase, destination):
             nonlocal app
+            if args.prefill_destinations:
+                # This is fixture configuration, not UI automation. The actual
+                # Save As command, choices and Save button remain graphical.
+                saved = configparser.ConfigParser(interpolation=None, strict=False)
+                saved.optionxform = str
+                saved.read_string(ini.read_text('utf-8-sig'))
+                if not saved.has_section('PATH'):
+                    saved.add_section('PATH')
+                saved['PATH']['SyncExport'] = str(destination)
+                with ini.open('w', encoding='utf-8') as stream:
+                    saved.write(stream, space_around_delimiters=False)
             app = subprocess.Popen([str(target / 'HomeLibRu.exe')], cwd=target, env=environment,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             report['active_phase']=phase
@@ -159,18 +189,24 @@ def main():
             report['phases'].append(json.loads(phase_file.read_bytes()))
             assert all(sha(path)==report['source_sha256'][path.suffix] for path in sources)
 
-        launch('minimal-original', originals)
-        output = [p for p in originals.rglob('*') if p.is_file()]
-        assert len(output)==len(sources), [str(p) for p in output]
-        assert {p.suffix:sha(p) for p in output}==report['source_sha256'], 'Original copies changed bytes'
-        assert all(not (target/'tools'/name).exists() for name in forbidden)
-        report['unchanged_copy_without_optional_modules']=True
+        if not args.resumed_conversion_only:
+            launch('minimal-original', originals)
+            output = [p for p in originals.rglob('*') if p.is_file()]
+            assert len(output)==len(sources), [str(p) for p in output]
+            assert {p.suffix:sha(p) for p in output}==report['source_sha256'], 'Original copies changed bytes'
+            assert all(not (target/'tools'/name).exists() for name in forbidden)
+            report['unchanged_copy_without_optional_modules']=True
+        if args.originals_only:
+            report.update(status='PASS',source_books_preserved=True,mixed_conversion_verified=False)
+            print('PASS packaged source copies only: '+platform+'; five byte-exact copies; no optional modules',flush=True)
+            return
         component_sources = []
         for component in ('BookProcessing','ImageProcessing'):
             name=f'HomeLibRu-{component}-3.0.0.1-{platform}.zip'
             component_sources.append((component,stage/'formats'/name,'3.0.0.1'))
+        assert args.djvu_packages, 'Provide the current complete DjVu mirror before conversion'
+        component_sources.append(('DjVuLibre', args.djvu_packages.resolve()/f'HomeLibRu-DjVuLibre-3.5.29-{platform}.zip','3.5.29'))
         for component,version,cache in [('PDFium','157.0.8086.0','pre534-final-reader-modules-20261027'),
-                                       ('DjVuLibre','3.5.29','component-mirrors-pre534-20261027'),
                                        ('DocSharp','0.21.0.0','component-mirrors-pre534-20261027')]:
             name=f'HomeLibRu-{component}-{version}-{platform}.zip'
             component_sources.append((component,ROOT/'tools/ui/tests/Out'/cache/name,version))
@@ -185,10 +221,37 @@ def main():
                 result=subprocess.run([str(native),*map(str,parameters)],cwd=outer,env=environment,
                     capture_output=True,encoding='utf-8-sig',timeout=120,creationflags=subprocess.CREATE_NO_WINDOW)
                 assert result.returncode==0,(parameters,result.stdout,result.stderr)
+            ready=subprocess.run([str(native),'--component-needs-repair',str(target),component],cwd=outer,env=environment,
+                capture_output=True,encoding='utf-8-sig',timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
+            assert ready.returncode==0 and ready.stdout.strip().splitlines()==['0','PASS'], (component,ready.stdout,ready.stderr)
             report['installed_components'].append(dict(id=component,version=version,archive_sha256=sha(source)))
         assert all(not (target/'tools'/name).exists() for name in ('kindle','office','xps','7zip'))
         assert not (target/'HomeLibReader.exe').exists()
+        if args.resumed_conversion_only:
+            # A synthetic completed module-install request, confined to our
+            # profile. Production validates identities, consumes the ready
+            # token and reopens Save As for review; it never auto-saves.
+            token = '{' + str(uuid.uuid4()).upper() + '}'
+            header = dict(schema=1,token=token,component='BookProcessing',
+                created=datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+                owner=1,owner_stamp='0:0',count=len(sources),source='',source_stamp='',
+                folder=str(converted),mode=4,keep=False,keep_readable=False,zip=False,
+                name_collision=0,images='original',mask='%t',subfolders='')
+            with closing(sqlite3.connect(target/'Data/one.hlc2')) as books:
+                rows = [dict(collection=1,book=book_id,libid=libid or '',physical=str(source))
+                        for (book_id,libid),source in zip(
+                            books.execute('SELECT BookID,LibID FROM Books WHERE IsDeleted=0 ORDER BY BookID'),sources)]
+            assert len(rows)==len(sources)
+            pending = Path(str(ini)+'.pending-save.jsonl')
+            with pending.open('x',encoding='utf-8') as stream:
+                for row in (header,*rows):
+                    stream.write(json.dumps(row,ensure_ascii=False)+'\n')
+            Path(str(pending)+'.ready').write_text(token,encoding='utf-8')
+            report['scope']='Ordinary packaged Main resumed mixed-conversion GUI with synthetic post-install plan; exact local modules; no manual format-choice, download or real installer restart claim'
         launch('mixed-conversion', converted)
+        if args.resumed_conversion_only:
+            assert not pending.exists() and not Path(str(pending)+'.ready').exists(), 'Continuation was not consumed'
+            report['resumed_plan_consumed']=True
         output = [p for p in converted.rglob('*') if p.is_file()]
         assert len(output)==len(sources) and all(p.suffix=='.epub' for p in output), [str(p) for p in output]
         report['converted_outputs']=[]
@@ -221,7 +284,7 @@ def main():
             report['converted_outputs'].append(dict(file=path.name,size=path.stat().st_size,sha256=sha(path),
                                                     expected_text_preserved=True,image_references=image_references))
         assert sha(target/'HomeLibRu.exe')==report['main_sha256']
-        report.update(status='PASS',source_books_preserved=True)
+        report.update(status='PASS',source_books_preserved=True,mixed_conversion_verified=True)
     except BaseException as error:
         report['error']=repr(error)
         raise

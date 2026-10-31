@@ -33,9 +33,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage', type=Path)
     parser.add_argument('--report', required=True, type=Path)
+    parser.add_argument('--publication-dir', type=Path,
+                        help='Exact newly reconciled publication directory')
+    parser.add_argument('--reader-packages', type=Path, required=True)
+    parser.add_argument('--djvu-packages', type=Path, required=True)
+    parser.add_argument('--base-feed', type=Path, required=True)
+    parser.add_argument('--release-metadata', type=Path, required=True)
     args = parser.parse_args()
     stage = args.stage.resolve()
-    publication = stage / 'publication-r1'
+    publication = args.publication_dir.resolve() if args.publication_dir else stage / 'publication-r1'
     source = ROOT / 'Program/Units/unit_ComponentUpdates.pas'
     component_ids = re.findall(r"\(ID:'([^']+)'", source.read_text(encoding='utf-8-sig'))
     assert len(component_ids) == len(set(component_ids)) == 20
@@ -85,11 +91,22 @@ def main():
             negative = runtime / 'stale-feed-output'
             result = run([sys.executable, '-B', '-X', 'utf8', ROOT / 'scripts/prepare-component-publication.py',
                 stage, '--base-feed', ROOT / 'tools/ui/tests/Out/pre537-final-20261029-r1/remote/HomeLibRu.components.json',
-                '--release-metadata', stage / 'publication-inputs-r1/remote-components-release.json',
+                '--reader-packages', args.reader_packages.resolve(),
+                '--djvu-packages', args.djvu_packages.resolve(),
+                '--release-metadata', args.release_metadata.resolve(),
                 '--output', negative])
             assert result.returncode != 0 and 'Public feed size is stale' in result.stderr
             assert not negative.exists(), 'Stale feed created publication output'
             report['stale_cached_feed_rejected_before_output'] = True
+            stale_reader_output = runtime / 'stale-reader-output'
+            result = run([sys.executable, '-B', '-X', 'utf8', ROOT / 'scripts/prepare-component-publication.py',
+                stage, '--base-feed', args.base_feed.resolve(),
+                '--release-metadata', args.release_metadata.resolve(),
+                '--reader-packages', stage / 'reader-r2', '--djvu-packages', args.djvu_packages.resolve(),
+                '--output', stale_reader_output])
+            assert result.returncode != 0 and 'Reader archive does not match current executable' in result.stderr
+            assert not stale_reader_output.exists(), 'Stale Reader created publication output'
+            report['stale_reader_archives_rejected_before_output'] = True
         report.update(status='PASS', temporary_payloads_removed=True,
                       package_verification=json.loads((publication / 'verification-report.json').read_bytes()),
                       publication_plan=str(publication / 'publication-plan.json'))

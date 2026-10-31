@@ -25,7 +25,11 @@ def main():
     parser.add_argument('native', type=Path)
     parser.add_argument('--platform', choices=('Win32', 'Win64'), required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--catalogue-dir', type=Path, required=True)
+    parser.add_argument('--reader-packages', type=Path, required=True)
+    parser.add_argument('--djvu-packages', type=Path, required=True)
     args = parser.parse_args()
+    assert not args.report.exists(), 'Preserve previous verification reports'
     stage, native = args.stage.resolve(), args.native.resolve()
     binary = native.read_bytes()
     machine = struct.unpack_from('<H', binary, struct.unpack_from('<I', binary, 0x3c)[0] + 4)[0]
@@ -39,7 +43,7 @@ def main():
             target = root / 'target'
             target.mkdir()
             environment = dict(os.environ, LOCALAPPDATA=str(root / 'LocalAppData'))
-            catalogue = stage / 'catalogue' / ('HomeLibRu.zip' if args.platform == 'Win32' else 'HomeLibRu_x64.zip')
+            catalogue = args.catalogue_dir.resolve() / ('HomeLibRu.zip' if args.platform == 'Win32' else 'HomeLibRu_x64.zip')
             with zipfile.ZipFile(catalogue) as archive:
                 assert archive.testzip() is None
                 for name in archive.namelist():
@@ -52,13 +56,13 @@ def main():
             sentinel.write_bytes('Private preserved fixture ё'.encode('utf-8'))
             sentinel_hash = sha(sentinel)
             fixtures = []
-            for directory in ('reader-r2', 'formats', 'mcp'):
-                entries = json.loads((stage / directory / 'HomeLibRu.components.json').read_bytes())['components']
+            for directory in (args.reader_packages.resolve(), stage / 'formats', stage / 'mcp', args.djvu_packages.resolve()):
+                entries = json.loads((directory / 'HomeLibRu.components.json').read_bytes())['components']
                 fixtures.extend((directory, entry) for entry in entries if entry['platform'] == args.platform)
             assert {entry['id'] for _, entry in fixtures} == {
                 'HomeLibReader', 'MHLMcpServer', 'BookProcessing', 'ImageProcessing',
-                'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS'}
-            assert len(fixtures) == 8
+                'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS', 'DjVuLibre'}
+            assert len(fixtures) == 9
 
             def run(*parameters):
                 result = subprocess.run([str(native), *map(str, parameters)], cwd=root,
@@ -69,7 +73,7 @@ def main():
 
             for directory, entry in fixtures:
                 component = entry['id']
-                source = stage / directory / entry['archive']
+                source = directory / entry['archive']
                 archive = root / entry['archive']
                 assert archive.parent == root
                 shutil.copyfile(source, archive)
@@ -100,7 +104,7 @@ def main():
         raise
     finally:
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print('PASS native component install:', args.platform, '8 independent modules; private payloads removed')
+    print('PASS native component install:', args.platform, f'{len(report["components"])} independent modules; private payloads removed')
 
 
 if __name__ == '__main__':
