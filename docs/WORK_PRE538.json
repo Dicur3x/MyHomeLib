@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "60 blocks, 39 checked, sequence 43 read back; three guarded replacements, exact requested text and every untouched hash/order/title preserved. Compact Save As checked after native three-view and ordinary Main/Reader checks; minimum/publication remain open.",
+    "verification": "60 blocks, 41 checked, sequence 44 read back; seven guarded replacements; exact changed text, untouched hashes/order/title preserved. Publication and unified version tasks checked; strict Reader minimum and integral first-use component installation remain open.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026: current standalone Readers and exact old-helper core/Reader/DjVu installations passed x86/x64; six upgrade runtimes and new standalone runtime removed. Public download/publication and strict Reader minimum remain open.",
-    "last_verified_sequence": 43
+    "last_check": "31 October 2026: HomeLibre 3.0 beta 1 published. Production core download/preparation passed against real GitHub on both architectures; eighteen public component ZIPs downloaded over Python HTTPS and prepared natively. All new HTTP runtimes removed. Full goal active.",
+    "last_verified_sequence": 44
   },
   "order": [
     "archive_opening",
@@ -17,7 +17,7 @@
     "remaining_goal"
   ],
   "archive_opening": {
-    "status": "verified_in_source_not_released",
+    "status": "published_in_3.0_beta_1",
     "changes": [
       "Prefer a root book to a nested companion TXT without hiding selectable files",
       "Confirm archive member on double click",
@@ -39,7 +39,7 @@
     }
   },
   "component_installation": {
-    "status": "verified_in_source_final_integration_pending",
+    "status": "published_in_3.0_beta_1; integral first-use public operation continuation remains open",
     "verified": [
       "Compact prompts contain the purpose once even when passed again by the caller or in a multiline operation reason",
       "Small packages use bytes/KB consistently in the explanation and size label; progress shares the formatter",
@@ -148,7 +148,7 @@
     }
   },
   "save_as_and_navigation": {
-    "status": "source_and_native_directions_verified_final_packaged_integration_pending",
+    "status": "published_in_3.0_beta_1; fresh native and ordinary packaged checks recorded below",
     "remaining": [
       "Final mixed-format operations and cancellation against rebuilt production executables in minimal packaged installs, including real requested-component download/restart continuation",
       "Actual old-release/Reader/module update validation, final integration and publication"
@@ -1245,8 +1245,8 @@
     "ordinary_gui_report_limits": "Previous failed/skipped automation reports preserved. Fresh resumed-operation tests now PASS on both ordinary Main architectures and consume their private plans; manual combo selection and HTTP/actual installer restart are not claimed. The first resumed test exposed the real incomplete DjVu mirror before repair; a separate harness SQLite-connection cleanup bug was corrected without relabeling its FAIL report."
   },
   "fresh_three_layout_release_20261031": {
-    "status": "fresh ordinary Main/Reader GUI, mixed conversion, native installs and actual old-helper upgrades verified x86/x64; remote publication/download verification pending",
-    "published": false,
+    "status": "published beta; public core download worker and component HTTPS/native preparation verified x86/x64; full goal still active",
+    "published": true,
     "production_report": "tools/ui/tests/Out/homelibre-3beta1-three-views-production-20261031-r1.json",
     "builds": "Four full ordinary Release builds through licensed Delphi CE GUI: Main Win32/Win64 and Reader Win32/Win64. Numeric version 3.0.0.1, display 3.0 beta 1, current source mtimes and exact package EXE bytes checked.",
     "catalogue_directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/catalogue-r3",
@@ -1264,12 +1264,12 @@
     "reader_exception": "Reader still contains real libzstd.dll required by previous installer mandatory-file contract. Catalogue minimum has no such module. No claim that Reader is Zstandard-free.",
     "publication_directory": "G:/HomeLibRu-build-cache/HomeLibre-3beta1-release-20261030-r1/publication-r3",
     "publication_report": "tools/ui/tests/Out/homelibre-three-views-djvu-publication-20261031-r1.json",
-    "publication_verified": "Eighteen replacement archives, including two repaired same-version DjVu mirrors, and sixteen preserved component entries; both native parsers accept 17 exact entries each. Invalid digest, stale cached feed and stale Reader with the same version rejected before output. Feed SHA-256 ea1feed41dd7c3650d03c23826376e78776fdfd4d7368f84bbb2d91cfdd7c00f. Plan explicitly separates same-name DjVu asset replacement before upload from obsolete owned assets after verified publication. No remote mutations.",
-    "cleanup": "Five previous/successful new GUI profiles removed, plus all new install/feed/native preparation payloads. First resumed x86 probe initially retained a SQLite connection in the harness, corrected with explicit closing; after normal process exit, guarded cleanup of G:/HomeLibRu-build-cache/HomeLibRu-update-test-save-2hqaozck was rejected by automatic approval before execution (blocked by policy). User notified. Do not retry this path or enclosing parent through another route. Failed report and owned residual data remain; later two conversion runs clean normally. No previously denied cleanup paths retried. Current standalone Reader GUI runtime and all six new original-helper core/Reader/DjVu upgrade profiles were removed successfully; no old denied path retried.",
+    "publication_verified": "All eighteen public component ZIPs match tested SHA-256 and pass native preparation; real public feed accepted by both parsers. Core beta appears in actual GitHub release API and both production download threads fetch and prepare their exact public core ZIPs. Components use Python HTTPS in this probe, not integral graphical first-use download/restart. Sixteen obsolete owned component assets removed after public verification; original source/license/external assets retained.",
+    "cleanup": "Five previous/successful new GUI profiles removed, plus all new install/feed/native preparation payloads. First resumed x86 probe initially retained a SQLite connection in the harness, corrected with explicit closing; after normal process exit, guarded cleanup of G:/HomeLibRu-build-cache/HomeLibRu-update-test-save-2hqaozck was rejected by automatic approval before execution (blocked by policy). User notified. Do not retry this path or enclosing parent through another route. Failed report and owned residual data remain; later two conversion runs clean normally. No previously denied cleanup paths retried. Current standalone Reader GUI runtime and all six new original-helper core/Reader/DjVu upgrade profiles were removed successfully; no old denied path retried. New public component/core download roots removed after checks. Initial public-probe failure was test input shape (whole release object instead of required assets array), corrected without production changes; failed report retained and its owned temporary root is absent.",
     "remaining": [
-      "fresh remote revalidation and publication",
-      "real public download/install verification after component uploads",
-      "strict standalone Reader minimum still retains Zstandard for old installer compatibility; remains an explicit open limit"
+      "strict standalone Reader minimum still retains real Zstandard for old installer compatibility",
+      "integral first-use public component download/restart/operation continuation",
+      "remaining checked-list items, suitable-load performance, collection compression/INPX updates/SQL and maximum economy/grayscale"
     ],
     "resumed_gui_reports": [
       "tools/ui/tests/Out/homelibre-3beta1-three-views-resumed-save-Win32-20261031-r2.json",
@@ -1308,6 +1308,42 @@
       "tools/ui/tests/Out/homelibre-three-views-published37-reader-Win64-20261031-r1.json"
     ],
     "fresh_published_helper_scope": "Six actual original pre5.37-helper installs/restarts using exact current core-r3, Reader-r4 and repaired DjVu archives, both architectures. Each protected seven Books rows/columns, personal settings/data; independent component cases also preserved old Main EXE and two synthetic Reader profile sentinels. Core verified 240 files each, Reader seven and DjVu nineteen. Same-version DjVu repair explicitly began with repair-needed=1 and ended at 0; no version inflation. All six restarted Main windows inspected and closed normally without user help; all working profiles removed. Current public pre5.37 metadata independently reconfirmed cached core sizes/SHA-256 before runs. This is unchanged original helper proof, not a new old-Main download/frontend test; earlier dated frontend tests remain separate.",
-    "publication_plan_caveat": "GitHub connector is GET-only for releases; authenticated existing gh CLI read confirmed Dicur3x. No upload, remote deletion, tag, release creation or push performed. Exact source/public metadata must be revalidated at mutation time; optional feed replacement includes the two same-name repaired DjVu archives and obsolete owned archives without duplicate accumulation."
+    "publication_plan_caveat": "Frozen local preflight plan remains an historical observed-state input. Actual authenticated CLI mutations, asset IDs/digests and sixteen targeted removals recorded in publication-transaction-20261031-r1.json. Current public source tag and beta release exist; connector itself remains GET-only. Main default-branch push and final README readback tracked separately.",
+    "public_verification_reports": [
+      "tools/ui/tests/Out/homelibre-three-views-public-components-20261031-r2.json",
+      "tools/ui/tests/Out/homelibre-three-views-public-core-20261031-r1.json"
+    ]
+  },
+  "current_release": {
+    "display": "HomeLibre 3.0 beta 1",
+    "tag": "3.0.0_pre1.1",
+    "source_commit": "b9b72122c98d15217e8b0e91c5d74dbc970718e1",
+    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1",
+    "published": true,
+    "catalogue_assets": [
+      {
+        "name": "HomeLibRu.zip",
+        "sha256": "sha256:44e410917e0a8eea7be8b9ef86c0daeff056ddf78e17dbe3f9f63b7246ea28c0",
+        "size": 7291868
+      },
+      {
+        "name": "HomeLibRu_x64.zip",
+        "sha256": "sha256:b40372fae02bdc008477e1ee3193e8a7e5510256999a2deb3774a2dfb5987160",
+        "size": 9155265
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "sha256": "sha256:83be2c261bc3c2686d0a468c14b8a295dc651febc9cd88179a47f979cdc33286",
+        "size": 166
+      }
+    ],
+    "component_release": "https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25",
+    "component_feed_sha256": "ea1feed41dd7c3650d03c23826376e78776fdfd4d7368f84bbb2d91cfdd7c00f",
+    "public_verification_reports": [
+      "tools/ui/tests/Out/homelibre-three-views-public-components-20261031-r2.json",
+      "tools/ui/tests/Out/homelibre-three-views-public-core-20261031-r1.json"
+    ],
+    "obsolete_owned_component_archives_removed": 16,
+    "full_goal_complete": false
   }
 }
