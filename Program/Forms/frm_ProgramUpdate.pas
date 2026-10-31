@@ -176,10 +176,41 @@ begin
 end;
 
 type
+  TOperationComponentPrompt = class(TForm)
+  private
+    FStandaloneReader: Boolean;
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+  public
+    constructor CreatePrompt(AOwner: TComponent; StandaloneReader: Boolean);
+  end;
+
   TUpdateComponentsView = class(TListView)
   protected
     procedure WndProc(var Message: TMessage); override;
   end;
+
+constructor TOperationComponentPrompt.CreatePrompt(AOwner: TComponent; StandaloneReader: Boolean);
+begin
+  FStandaloneReader:=StandaloneReader;
+  inherited CreateNew(AOwner);
+  if FStandaloneReader then
+  begin
+    PopupMode:=pmNone;
+  end;
+end;
+
+procedure TOperationComponentPrompt.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  // Direct book opening keeps the Reader launcher hidden. Its required-module
+  // prompt must remain an independent, discoverable taskbar window.
+  if FStandaloneReader then
+  begin
+    Params.WndParent:=0;
+    Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  end;
+end;
 
 procedure TUpdateComponentsView.WndProc(var Message: TMessage);
 var Locked, BlockInput: Boolean;
@@ -1202,7 +1233,8 @@ procedure TfrmProgramUpdate.CreateCompactPrompt;
 begin
   if Assigned(FCompactForm) then Exit;
   Hide;
-  FCompactForm:=TForm.CreateNew(Self); FCompactForm.Name:='OptionalComponentPrompt';
+  FCompactForm:=TOperationComponentPrompt.CreatePrompt(Self,FReaderOnly);
+  FCompactForm.Name:='OptionalComponentPrompt';
   FCompactForm.Caption:='Установка компонента'; FCompactForm.Position:=poMainFormCenter;
   FCompactForm.Font.Name:='Segoe UI'; FCompactForm.Font.Size:=9;
   FCompactForm.ClientWidth:=560; FCompactForm.ClientHeight:=306;

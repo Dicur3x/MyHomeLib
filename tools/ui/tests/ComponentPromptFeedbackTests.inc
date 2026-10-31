@@ -66,6 +66,20 @@ begin
       finally Dialog.Free; end;
     end;
   Writeln('PASS component prompts show purpose once preserve context and agree on small download sizes');
+  Dialog:=TReaderModuleForm.Create(nil); Dialog.RequestedID:='BookProcessing';
+  try
+    Dialog.UseReaderComponents;
+    Dialog.RequestComponent('BookProcessing','Directly opened book needs a module.',True);
+    Application.ProcessMessages;
+    Prompt:=TForm(Dialog.FindComponent('OptionalComponentPrompt'));
+    Require(Assigned(Prompt) and Prompt.Visible and IsWindowVisible(Prompt.Handle),
+      'Standalone Reader component prompt is hidden');
+    Require((GetWindow(Prompt.Handle,GW_OWNER)=0) and
+      ((GetWindowLongPtr(Prompt.Handle,GWL_EXSTYLE) and WS_EX_APPWINDOW)<>0),
+      'Standalone Reader prompt is owned by the hidden launcher');
+    TButton(Prompt.FindComponent('ComponentPromptCancel')).Click;
+  finally Dialog.Free; end;
+  Writeln('PASS standalone Reader module prompt has its own visible taskbar window');
   Host:=TfrmReaderHost.Create(nil); Probe:=TReaderFormatsHelpProbe.Create; Timer:=TTimer.Create(nil);
   SavedDark:=MHLThemeDark;
   try

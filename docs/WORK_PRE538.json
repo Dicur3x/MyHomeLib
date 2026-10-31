@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "60 blocks, 41 checked, sequence 44 read back; seven guarded replacements; exact changed text, untouched hashes/order/title preserved. Publication and unified version tasks checked; strict Reader minimum and integral first-use component installation remain open.",
+    "verification": "61 blocks, 42 checked, sequence 45 read back; three guarded replacements and one checked source-fix insertion. All changed text, exact block order, title and untouched hashes preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026: HomeLibre 3.0 beta 1 published. Production core download/preparation passed against real GitHub on both architectures; eighteen public component ZIPs downloaded over Python HTTPS and prepared natively. All new HTTP runtimes removed. Full goal active.",
-    "last_verified_sequence": 44
+    "last_check": "31 October 2026: real standalone first-use PDFium download/install/restart/original PDF opening and page turns passed x86/x64 on development EXEs. Twenty-six module files each match; unrelated modules absent and prior files preserved. New own GUI/native profiles removed. Window fix remains unpublished; full goal active.",
+    "last_verified_sequence": 45
   },
   "order": [
     "archive_opening",
@@ -1349,5 +1349,48 @@
     "readme_verified_current": true,
     "final_publication_report": "tools/ui/tests/Out/homelibre-beta-publication-final-20261031-r1.json"
   },
-  "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time; current publication state is current_release and fresh_three_layout_release_20261031. Unreleased/pending wording inside older snapshots is not the current release status."
+  "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time; current publication state is current_release and fresh_three_layout_release_20261031. Unreleased/pending wording inside older snapshots is not the current release status.",
+  "reader_first_use_20261031": {
+    "status": "real standalone PDF first-use passed Win32 and Win64 after owned-window fix; source not yet released",
+    "published": false,
+    "source": "Program/Forms/frm_ProgramUpdate.pas",
+    "source_sha256": "7b70b5df6542c66a7db01759dfd904bb3124733f7f59e0df473946f93b323cb4",
+    "change": "Standalone Reader compact component prompt gets an unowned taskbar window; it is not attached to the intentionally hidden launcher. Applies through the common Reader component prompt path.",
+    "gui_report": "tools\\ui\\tests\\Out\\homelibre-reader-first-use-pdf-20261031-r2.json",
+    "gui_scope": "Actual Reader development EXEs over verified published Reader ZIPs. Real public PDFium download, preparation, GUI installation, helper restart, original PDF auto-open, page turns and normal exit on x86/x64. Not a claim about the unchanged beta 1 Reader EXE or newly published final archives.",
+    "native_report": "tools\\ui\\tests\\Out\\homelibre-first-use-prompt-native-20261031-r1.json",
+    "platforms": [
+      {
+        "platform": "Win32",
+        "reader_exe_sha256": "9c5f3055750a9828c72bf10f2e62a78ec26665c23f35f3e7b3a8c45bba4af4d1",
+        "only_pdfium_downloaded": true,
+        "transaction_installed": true,
+        "installed_payload_hashes_verified": 26,
+        "preexisting_payload_preserved": true,
+        "source_preserved": true,
+        "unrelated_modules_absent": true,
+        "pdfium_sha256": "095f17644e3dc324ac7800d5f1bbdc38bcfabd1f52045617d8050901ae9544b3"
+      },
+      {
+        "platform": "Win64",
+        "reader_exe_sha256": "28958d4e190aa834cef849bc5c2246887fc66dd83c9669d256c3f31d366013ac",
+        "only_pdfium_downloaded": true,
+        "transaction_installed": true,
+        "installed_payload_hashes_verified": 26,
+        "preexisting_payload_preserved": true,
+        "source_preserved": true,
+        "unrelated_modules_absent": true,
+        "pdfium_sha256": "1f2aee4286b8cf0413ab4562b7121aa454f9cfd9afd6ca8609bcef80927b3f80"
+      }
+    ],
+    "initial_baseline_report": "tools/ui/tests/Out/homelibre-reader-first-use-pdf-20261031-r1.json",
+    "baseline_scope": "Published Reader kept running and fetched real mirror metadata/feed, but sky list_windows/list_apps could not expose its prompt while IDE capture worked. Owned test process was explicitly ended and incomplete case cleaned; not called an installation pass or a universal claim that the user sees no window.",
+    "build_scope": "Reader and CollectionViewsTest Release Win32/Win64 built in Community Edition GUI; initial development compile typo corrected before successful builds. Published beta 1 archives remain unchanged.",
+    "cleanup": "Both own first-use roots removed, including downloaded packages/payloads/profiles; successful new native fixtures cleaned by the guarded native runner. No previously denied path retried.",
+    "remaining": [
+      "real multi-module download/restart with Save As continuation",
+      "fresh final versioned archive builds and publication of this fix",
+      "strict standalone Reader minimum, then remaining goal checklist"
+    ]
+  }
 }
