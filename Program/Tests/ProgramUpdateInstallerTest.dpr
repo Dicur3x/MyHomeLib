@@ -57,6 +57,7 @@ var Mode, Job, Target, Archive, Digest, Tag: string; Files: TUpdateFiles;
   Comparison: Integer; Info: TProgramRelease; Thread: TProgramDownloadThread;
   Window: HWND; HTTP: THTTPClient; Msg: TMsg; Params: TJSONArray; I: Integer;
   Lock: TFileStream; Components: TComponentReleases;
+  LibraryHandle: HMODULE; LibraryDeadline: UInt64;
   ComponentThread: TComponentUpdateThread;
   Jobs: TArray<string>;
   Detail: TJSONObject; URLList: TJSONArray; FixtureWorker: TComponentCheckFixtureWorker;
@@ -119,6 +120,19 @@ begin
         TFile.WriteAllText(ParamStr(2) + '.locked', 'ready');
         Sleep(5000);
       finally Lock.Free; end;
+      Halt(0);
+    end;
+    if Mode = '--holdlibrary' then
+    begin
+      Guard(ParamStr(2));
+      LibraryHandle:=LoadLibraryEx(PChar(ParamStr(2)),0,LOAD_WITH_ALTERED_SEARCH_PATH);
+      if LibraryHandle=0 then RaiseLastOSError;
+      try
+        TFile.WriteAllText(ParamStr(2)+'.locked','ready');
+        LibraryDeadline:=GetTickCount64+30000;
+        while not FileExists(ParamStr(2)+'.release') and
+          (GetTickCount64<LibraryDeadline) do Sleep(25);
+      finally FreeLibrary(LibraryHandle); end;
       Halt(0);
     end;
     if Mode = '--metadata' then

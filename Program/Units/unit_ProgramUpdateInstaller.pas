@@ -14,7 +14,7 @@ type
   TUpdateFile = record
     Name, SHA256: string;
     Size: Int64;
-    KeepExisting, Skip: Boolean;
+    KeepExisting, Skip, Unchanged: Boolean;
   end;
   TUpdateFiles = TArray<TUpdateFile>;
   TUpdateProgress = reference to procedure(const Text: string; Position, Total: Integer);
@@ -1420,6 +1420,17 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
+  function MatchesInstalled(const FileName: string; const Item: TUpdateFile): Boolean;
+  begin
+    Result:=False;
+    try
+      Result:=FileExists(FileName) and (TFile.GetSize(FileName)=Item.Size) and
+        SameText(UpdateSHA256(FileName),Item.SHA256);
+    except
+      // A sharing/access failure still goes through the ordinary write
+      // preflight. Only positively verified identical bytes may be skipped.
+    end;
+  end;
 begin
   AssertUpdatePath(Target); AssertUpdatePath(Job);
   if not FileExists(ChildPath(Target,'HomeLibRu.exe')) and not FileExists(ChildPath(Target,'HomeLibReader.exe')) then
@@ -1462,12 +1473,15 @@ begin
     if SameText(Files[I].Name, 'HomeLibRu.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') then
     begin Info := Files[High(Files)]; Files[High(Files)] := Files[I]; Files[I] := Info; Break; end;
   // Preflight every destination and back up every original before changing any.
-  for Info in Files do
+  for I:=0 to High(Files) do
   begin
+    Info:=Files[I];
     Source := ChildPath(Job, 'payload/' + Info.Name); Destination := ChildPath(Target, Info.Name);
     if not FileExists(Source) or not SameText(UpdateSHA256(Source), Info.SHA256) then
       raise Exception.Create('Подготовленное обновление повреждено: ' + Info.Name);
     if Info.Skip or (Info.KeepExisting and FileExists(Destination)) then Continue;
+    if MatchesInstalled(Destination,Info) then
+    begin Files[I].Unchanged:=True; Continue; end;
     ForceDirectories(ExtractFileDir(Destination));
     if FileExists(Destination) then
     begin
@@ -1494,6 +1508,12 @@ begin
       begin
         Destination := ChildPath(Target, Info.Name); Existed := FileExists(Destination);
         if Info.Skip or (Info.KeepExisting and Existed) then Continue;
+        if Info.Unchanged then
+        begin
+          if not MatchesInstalled(Destination,Info) then
+            raise Exception.Create('Файл изменился после проверки обновления: '+Info.Name);
+          Continue;
+        end;
         if Assigned(Progress) then Progress('Обновление HomeLibre', Applied, Length(Files));
         Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
         Entry.AddPair('existed', TJSONBool.Create(Existed)); List.AddElement(Entry);

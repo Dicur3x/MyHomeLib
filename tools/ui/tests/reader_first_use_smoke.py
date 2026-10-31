@@ -46,11 +46,12 @@ def own(state):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('launch', 'inspect', 'record-download', 'record-open', 'check', 'abort-unavailable-window', 'cleanup'))
+    parser.add_argument('action', choices=('launch', 'inspect', 'record-download', 'record-open', 'check', 'record-cancel', 'abort-unavailable-window', 'cleanup'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'))
     parser.add_argument('--package', type=Path)
     parser.add_argument('--candidate-exe', type=Path, help='Explicit development EXE override; not a published-archive claim')
+    parser.add_argument('--session-launch', action='store_true', help='Use an owned catalogue-session request instead of --open')
     args = parser.parse_args()
     state = json.loads(args.state.read_bytes()) if args.state.exists() else None
     if state is None:
@@ -95,12 +96,27 @@ def main():
         before = {str(file.relative_to(app)): sha(file) for file in app.rglob('*') if file.is_file()}
         environment = dict(os.environ, APPDATA=str(root / 'Roaming'), LOCALAPPDATA=str(root / 'Local'),
                            TEMP=str(root), TMP=str(root))
-        process = subprocess.Popen([str(app / 'HomeLibReader.exe'), '--open=' + state['source']],
+        launch_argument = '--open=' + state['source']
+        session_file = None
+        if args.session_launch:
+            identity = uuid.uuid4().hex
+            session_file = root / ('HomeLibReader-session-' + identity) / 'request.json'
+            session_file.parent.mkdir()
+            source = Path(state['source'])
+            session_file.write_text(json.dumps(dict(format=1, kind='HomeLibReader-session', id=identity,
+                source=str(source), identity='owned-reader-cancel:' + args.platform,
+                settings=str(app / 'HomeLibReader.ini'), personal_progress=False,
+                book=dict(collection_id=1, book_id=1, root=str(root) + os.sep, folder='',
+                    file=source.stem, extension=source.suffix, inside=0, size=source.stat().st_size,
+                    lib_id='1', title='Проверка отмены открытия', language='ru')), ensure_ascii=False), encoding='utf-8')
+            launch_argument = '--session=' + str(session_file)
+        process = subprocess.Popen([str(app / 'HomeLibReader.exe'), launch_argument],
             cwd=app, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         state['runs'].append(dict(platform=args.platform, app=str(app), original_pid=process.pid,
             package_sha256=sha(args.package), before=before, checked=False,
-            candidate_exe=str(candidate) if candidate else None, reader_exe_sha256=sha(app / 'HomeLibReader.exe')))
+            candidate_exe=str(candidate) if candidate else None, reader_exe_sha256=sha(app / 'HomeLibReader.exe'),
+            session_file=str(session_file) if session_file else None))
         state['stage'] = 'waiting-for-real-GUI-installation'
     elif args.action == 'inspect':
         print(json.dumps({'active': active, 'runtime_files': [str(file.relative_to(root))
@@ -164,6 +180,23 @@ def main():
                    installed_payload_hashes_verified=len(run['prepared_manifest']['files']),
                    preexisting_payload_preserved=True, pdfium_sha256=sha(app / 'tools/pdfium/pdfium.dll'))
         state['stage'] = 'runtime-verified-GUI-observation-recorded-separately'
+    elif args.action == 'record-cancel':
+        assert not active, 'Cancel left a Reader/updater process running'
+        run = state['runs'][-1]
+        app = Path(run['app'])
+        assert sha(Path(state['source'])) == state['source_sha256']
+        assert not (app / 'tools/pdfium').exists(), 'Cancel installed PDFium'
+        if run.get('session_file'):
+            reply = json.loads(Path(run['session_file']).with_name('response.json').read_bytes())
+            assert reply['state'] == 'closed', reply
+            run['session_terminal_state'] = reply['state']
+        for name, digest in run['before'].items():
+            if name != 'HomeLibReader.ini':
+                assert sha(app / name) == digest, name
+        run.update(checked=True, cancelled=True, process_exited=True,
+                   source_preserved=True, preexisting_payload_preserved=True,
+                   no_module_installed=True)
+        state['stage'] = 'cancel-verified'
     elif args.action == 'abort-unavailable-window':
         # End only this verified owned fixture process after UI inventory failed.
         # This deliberately records an incomplete GUI test, not a product failure.

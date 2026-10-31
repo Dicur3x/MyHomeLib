@@ -39,6 +39,7 @@ type
     procedure CacheSettingsClick(Sender: TObject);
     procedure EnsureUpdates;
     procedure RestartForUpdate(Sender: TObject);
+    procedure ComponentCancelled(Sender: TObject);
     procedure Tick(Sender: TObject);
     procedure Prepare(const FileName: string);
     procedure Display(const FileName: string);
@@ -352,6 +353,20 @@ begin
   if Assigned(FUpdates) then Exit;
   FUpdates:=TfrmProgramUpdate.Create(Self);
   FUpdates.UseReaderComponents; FUpdates.OnRestart:=RestartForUpdate;
+  FUpdates.OnComponentCancelled:=ComponentCancelled;
+end;
+
+procedure TfrmReaderHost.ComponentCancelled(Sender: TObject);
+begin
+  if FPendingComponent='' then Exit;
+  FPendingComponent:=''; FinishSession('closed');
+  if FDirectLaunch then
+  begin
+    // The file/session launcher is hidden while the component prompt is open.
+    // Defer destruction until the prompt's cancellation handler has returned.
+    FExitRequested:=True; PostMessage(Handle,WM_CLOSE,0,0);
+  end
+  else begin FStatus.Caption:='Открытие книги отменено.'; Show; end;
 end;
 
 procedure TfrmReaderHost.RestartForUpdate(Sender: TObject);

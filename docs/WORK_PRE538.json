@@ -2,13 +2,11 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
-    "title": "HomeLibre задачи после pre5.37",
-    "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "62 blocks, 42 checked, sequence 46 read back; four guarded replacements and one open estimate-investigation task inserted. Exact changes, original block order, title and untouched hashes preserved.",
-    "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026: real public two-module first-use from standalone Save As passed x86/x64: one download queue/install/restart, restored Unicode destination/mask and EPUB/balanced settings, actual EPUB saved with text/image/reference intact, all 154/155 module files checked, no unrelated decoders, originals preserved. Owned fixture removed. Estimate-only economy/balanced size inversion recorded as open next task; window fix remains unpublished and full goal active.",
-    "last_verified_sequence": 46
+    "verified_sequence": 49,
+    "verified_blocks": 66,
+    "verified_checked": 42,
+    "all_preexisting_untouched_blocks_preserved": true,
+    "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
   },
   "order": [
     "archive_opening",
@@ -1478,5 +1476,139 @@
       "Economy larger than balanced is currently an observed estimate; actual economy output needs comparison."
     ],
     "full_goal_complete": false
+  },
+  "update_critical_20261031": {
+    "status": "in_progress",
+    "reported_target": "pre5.37 desktop installation updating to 3.0 beta 1",
+    "evidence": {
+      "installed_sqlite_equals_payload_sha256": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea",
+      "desktop_reader_version": "2.7.0.1105",
+      "background_reader_processes": 5,
+      "visible_desktop_reader_windows_observed": 0,
+      "response_states": [
+        "opening",
+        "component_required",
+        "component_required",
+        "component_required",
+        "component_required"
+      ],
+      "user_desktop_files_and_processes_unchanged": true
+    },
+    "verified_installer_change": {
+      "description": "skip positively hash-verified identical installed files and revalidate before applying; leave changed locked files protected",
+      "reports": [
+        {
+          "platform": "Win32",
+          "report": "tools/ui/tests/Out/homelibre-update-loaded-dll-Win32-20261031-r2.json",
+          "report_sha256": "5218dcd142f8fed9c89950b7f8baaec2d9338c87bdcfdcb11ed4220780ac69f9",
+          "tester_sha256": "a578c58f058d407abe71dfbfad4f7e32b694d3fe8d9f98e7813e01acb05d33c4",
+          "scenarios": [
+            "same loaded DLL unchanged",
+            "different loaded DLL rejected before installation",
+            "rollback preserves loaded DLL and personal files"
+          ],
+          "temporary_root_removed": true
+        },
+        {
+          "platform": "Win64",
+          "report": "tools/ui/tests/Out/homelibre-update-loaded-dll-Win64-20261031-r1.json",
+          "report_sha256": "92807a626b1b2a7a6332dff3f3fca1b3afeb228ca4be2ae70473fd743370eda4",
+          "tester_sha256": "df543c0a97139b254a318ca199bc08f250a995d03690a7cd4ad5f202d41b4617",
+          "scenarios": [
+            "same loaded DLL unchanged",
+            "different loaded DLL rejected before installation",
+            "rollback preserves loaded DLL and personal files"
+          ],
+          "temporary_root_removed": true
+        }
+      ]
+    },
+    "pending": [
+      "build and verify truthful persistent helper failure diagnostics",
+      "implement coordinated close and restore of related windows with their reading state",
+      "test old-version upgrade and new final packages on x86 and x64 before publishing"
+    ],
+    "new_user_requirement": "Clicking Update must preserve state, close related instances of the same installation, and restore open windows after installation.",
+    "new_review_feedback": {
+      "book": "Ратманов Денис — Несущий свет",
+      "error": "12002 timeout",
+      "queued": [
+        "investigate request timeout and retry while preserving previous reviews",
+        "evaluate bottom info panel and additional attributed sources"
+      ]
+    },
+    "cleanup": {
+      "successful_native_test_roots_removed": true,
+      "blocked_do_not_retry": [
+        "G:/HomeLibRu-build-cache/HomeLibRu-update-test-loaded-dll-zaj95ec0"
+      ],
+      "blocked_reason": "automatic exec approval review: blocked by policy"
+    },
+    "updated_utc": "2026-10-31T10:56:23.268363+00:00",
+    "verified_reader_cancel": {
+      "status": "PASS",
+      "reports": [
+        {
+          "mode": "direct-file",
+          "report": "tools/ui/tests/Out/homelibre-reader-cancel-first-use-20261031-r1.json",
+          "report_sha256": "1b44e5b882c49208a19322814bc76d004a7643418acda6d772e3a7cf768b3c12",
+          "reader_exe_sha256": {
+            "Win64": "06b7a850eec501b68f284016107594fde3398f3d8631cc8a11ce83be76ed93f5",
+            "Win32": "201a09db82a5e32d173416822396bf6389cb40c1cc51f337ca78255895df94cf"
+          },
+          "temporary_profile_removed": true
+        },
+        {
+          "mode": "catalogue-session",
+          "report": "tools/ui/tests/Out/homelibre-reader-cancel-session-20261031-r1.json",
+          "report_sha256": "bbdcfc0fc8af9ed161a9f723a695eef3ab3bcaf75037da6b0008af4aace50326",
+          "reader_exe_sha256": {
+            "Win64": "06b7a850eec501b68f284016107594fde3398f3d8631cc8a11ce83be76ed93f5",
+            "Win32": "201a09db82a5e32d173416822396bf6389cb40c1cc51f337ca78255895df94cf"
+          },
+          "temporary_profile_removed": true
+        }
+      ],
+      "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
+    }
+  },
+  "image_container_profiles_20261031": {
+    "status": "baseline_reproduced_fix_pending",
+    "report": "tools/ui/tests/Out/homelibre-image-container-profiles-20261031-r1.json",
+    "both_platforms_identical": true,
+    "bytes": {
+      "FB2": {
+        "balanced": 46345,
+        "economy": 41442
+      },
+      "FB2.ZIP": {
+        "balanced": 3640,
+        "economy": 6661
+      },
+      "EPUB": {
+        "balanced": 4997,
+        "economy": 9095
+      }
+    },
+    "temporary_profile_removed": true,
+    "next": "container-aware candidate selection after urgent update fixes"
+  },
+  "optional_module_removal_request_20261031": {
+    "status": "queued_after_current_updater_critical",
+    "manual_removal": true,
+    "automatic_deletion": false,
+    "monthly_single_prompt_for_all_unused_optional_modules": true,
+    "unused_period": "one month",
+    "show_reclaimable_size": true,
+    "after_decline": "offer again in one month",
+    "dont_show_again": "disable further cleanup reminders",
+    "preserve": [
+      "dependencies",
+      "user files",
+      "settings"
+    ],
+    "reinstall": "offer the required module again when opening or converting a matching book",
+    "usage_tracking": "actual reading/conversion, not update checks",
+    "visible_checklist_block_id": "9d0c9608-d78a-4053-8947-932b9e26f229"
   }
 }

@@ -76,7 +76,7 @@ type
     FRelease: TProgramRelease;
     FJob, FCache: string;
     FReady, FPendingInstall, FNeedsCheck, FRecovery: Boolean;
-    FRestart, FCheck: TNotifyEvent;
+    FRestart, FCheck, FComponentCancelled: TNotifyEvent;
     procedure NotificationChanged(Sender: TObject);
     function MayNotifyComponent(Index: Integer): Boolean;
     procedure AppThemeChanged(var Message: TMessage); message WM_MHL_APP_THEME;
@@ -154,6 +154,7 @@ type
     property PendingInstall: Boolean read FPendingInstall;
     property OnCheck: TNotifyEvent read FCheck write FCheck;
     property OnRestart: TNotifyEvent read FRestart write FRestart;
+    property OnComponentCancelled: TNotifyEvent read FComponentCancelled write FComponentCancelled;
   end;
 
 {$IFDEF MHL_RELEASE_PERFORMANCE}
@@ -1728,6 +1729,8 @@ begin
     FStatus.Caption := 'Отмена загрузки…';
   end
   else Hide;
+  if FReaderOnly and (FRequestedComponent<>'') and Assigned(FComponentCancelled) then
+    FComponentCancelled(Self);
 end;
 
 procedure TfrmProgramUpdate.UpdateReleasePage;
