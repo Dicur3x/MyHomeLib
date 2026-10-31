@@ -10,7 +10,9 @@ uses System.SysUtils, System.Classes, System.IOUtils, System.JSON,
   unit_ReaderFontDownloads in '..\Units\unit_ReaderFontDownloads.pas',
   unit_BookConversion in '..\Units\unit_BookConversion.pas',
   unit_UpdateAuthenticity in '..\Units\unit_UpdateAuthenticity.pas',
-  unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas';
+  unit_ProgramUpdateInstaller in '..\Units\unit_ProgramUpdateInstaller.pas',
+  unit_ReaderRestartState in '..\Units\unit_ReaderRestartState.pas',
+  unit_UpdateRelatedInstances in '..\Units\unit_UpdateRelatedInstances.pas';
 
 procedure Guard(const Path: string);
 var Temp, Full: string;
@@ -23,6 +25,7 @@ begin
 end;
 
 {$I ComponentCheckFixture.inc}
+{$I RelatedInstanceFixture.inc}
 
 procedure InstallWithLateLock(const Job, Target, Name: string; HoldMS: Integer);
 var Released: TThread; Held: THandle; Started: Boolean; LockFile: string;
@@ -66,6 +69,9 @@ begin
   SetTextCodePage(Output,CP_UTF8); SetTextCodePage(ErrOutput,CP_UTF8);
   try
     Mode := ParamStr(1);
+    if Mode='--related-fixture' then begin RunRelatedInstanceFixture; Halt(0); end;
+    if Mode='--related-cycle' then
+    begin RunRelatedInstanceCycle(ParamStr(2),ParamStr(3),StrToInt(ParamStr(4))); Halt(0); end;
     if Mode = 'program-update-download' then
     begin
       Guard(ExtractFilePath(ParamStr(0)));

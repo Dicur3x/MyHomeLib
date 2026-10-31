@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 52,
+    "verified_sequence": 53,
     "verified_blocks": 67,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1581,7 +1581,7 @@
       "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
     },
     "related_instances_prototype": {
-      "status": "native synthetic windows passed; real Reader current-book snapshot and final helper integration pending",
+      "status": "Five native fixture cases per architecture and scoped actual GUI helper/Reader replacement passed; archive member, Reader-initiated update and final beta2 packages pending",
       "reports": {
         "Win32": {
           "report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r2.json",
@@ -1608,12 +1608,114 @@
         "missing source rejects before close"
       ],
       "not_proven": [
-        "real Reader book opened or changed through File menu",
-        "selected member of an archive remains selected",
-        "actual packaged helper end-to-end install/recovery"
+        "Actual selected archive member restoration",
+        "Reader-initiated component/update continuation with outbound session and on-exit cache cleanup",
+        "Final beta2 catalogue/component packages and old-release upgrade chain",
+        "Native File Open dialog input through Computer Use remains unavailable; x86 used File > Recent books instead"
       ],
       "initial_incomplete_probe": "First x86 run passed two cases but failed a missing-input fixture liveness assertion. No production change was made before complete passing rerun; cause not established. Failed fixture root subsequently removed after proving all peers exited and its EXE hashes matched the tester.",
-      "first_report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r1.json"
+      "first_report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r1.json",
+      "current_book_reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-update-current-book-Win32-20261031-r3.json",
+          "sha256": "111832fad13fba38791e73d4bf5f1846e769a30142510d1c6f4bf184bee53b9f",
+          "status": "PASS",
+          "temporary_root_removed": true,
+          "tester_sha256": "2195635315eb271dd877389ad4cc884bc050babe8e370f60edf19416eb7667ff",
+          "cases": 5
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-update-current-book-Win64-20261031-r3.json",
+          "sha256": "866a6f2da6a48ffa4f461c9fe2a2386e56ea03463aede8bb6fafe15bdd038f47",
+          "status": "PASS",
+          "temporary_root_removed": true,
+          "tester_sha256": "9ad61eed10e4568a5ce517caa0b8d0216e5f5a719646c90b979aa5ee1ea37dae",
+          "cases": 5
+        }
+      },
+      "fixture_observer_race": {
+        "baseline_report": "tools/ui/tests/Out/homelibre-fixture-observer-race-baseline-20261031-r1.json",
+        "baseline_report_sha256": "3ce567ce7829398fd3ee3b06b5d4f20f2e6bcc5bc1100b425c4a63512ad2dbd2",
+        "finding": "Exclusive native state-file replacement and Python reads could contend. Fixture protocol 2 publishes complete state atomically, skips a transient sharing/access conflict and observer reads retry. A deliberate live-state read lock is covered by final native reports.",
+        "initial_missing_input_failure": "Exact original cause was not logged; the observer race was reproduced independently. Earlier incomplete results remain incomplete."
+      },
+      "incomplete_probes_preserved": [
+        {
+          "report": "tools/ui/tests/Out/homelibre-update-current-book-Win32-20261031-r2.json",
+          "sha256": "c00435f9df4f06f009736ecbb72f7c72bd3ead299b3e22693a50c6c8de935b21",
+          "status": "INCOMPLETE",
+          "temporary_root_removed": true,
+          "tester_sha256": "2195635315eb271dd877389ad4cc884bc050babe8e370f60edf19416eb7667ff",
+          "cases": 4
+        },
+        {
+          "report": "tools/ui/tests/Out/homelibre-update-current-book-Win64-20261031-r1.json",
+          "sha256": "b61860fbe365f8e488b6ba4f4aabdb290a5f77e91d5ae52a66d74eece4517639",
+          "status": "INCOMPLETE",
+          "temporary_root_removed": true,
+          "tester_sha256": "c5039bf935125f920cf013db302ca5d41a73bd8910fc7e483613d13fbf22e99f",
+          "cases": 3
+        },
+        {
+          "report": "tools/ui/tests/Out/homelibre-update-current-book-Win64-20261031-r2.json",
+          "sha256": "23a68de79394cf08b9cdcf863b97d9ae1e9c8b18054b2040299b36ba5c4595d2",
+          "status": "INCOMPLETE",
+          "temporary_root_removed": true,
+          "tester_sha256": "c08dec4cbf6222ff1ca53b15402d6d4d0d9320ed301edc06bf3316bbd9d951c3",
+          "cases": 0
+        }
+      ],
+      "actual_reader_helper_reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-real-reader-update-Win32-20261031-r1.json",
+          "sha256": "5951fe92d8b2820cfebff401826dd67ae47ca7e9784a1c60ebe1a469231b3b56",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "e67d9b331b2effb661c09302b4b7cc2fcceb27dcaf581e58f0f72b6dd78d3a56",
+          "helper_sha256": "3d1432f4be0b3a1e1f092b510967c7b5ac15f64f2d33704ac535da0db3f98abe",
+          "verified_scope": [
+            "Actual x86 GUI updater replaced the running Reader EXE after normal coordinated close",
+            "Both actual Readers restored",
+            "Related Reader resumed the newly selected book instead of the original CLI book",
+            "Current-book position restored to 3% and the same paragraphs 5..11",
+            "Source book hashes unchanged"
+          ],
+          "not_verified": [
+            "Native file-dialog selection",
+            "Selected archive member roundtrip",
+            "Update initiated from Reader UI",
+            "Final beta2 release package"
+          ]
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-real-reader-update-Win64-20261031-r1.json",
+          "sha256": "2c827c4a9c6588f5df476f5d0739bd207197756ee5200da175a571b8dde59c34",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "755717daa40a8336630591a29027bf227770ae5d717ff200a9c88c74cc1fd1e4",
+          "helper_sha256": "beadcd34277fe8fd6500f3d3ff5b8d6f0dfc850caf24effc1a260fb15265cf43",
+          "verified_scope": [
+            "Real x64 Reader EXE replaced by the actual GUI updater helper",
+            "Both actual Reader windows restored, correct book titles",
+            "Initiator position restored to the same 3% and paragraphs 5..11",
+            "Open File dialog in related Reader closed normally by production coordination",
+            "Source books SHA256 preserved",
+            "Owned fixture removed after normal Reader shutdown"
+          ],
+          "not_verified": [
+            "Changing a book through the native file dialog",
+            "Selected archive member roundtrip",
+            "Initiating update from inside the Reader UI",
+            "Final beta2 release package"
+          ]
+        }
+      },
+      "gui_com_lifetime_fix": {
+        "baseline": "Actual x64 GUI helper raised an access violation before peer close or file mutations; the native console tester did not expose it.",
+        "fix": "Scope WMI OleVariant/interface work in a nested procedure so compiler-generated COM temporaries finalize before the final CoUninitialize. Explicit VarClear of named locals alone is insufficient.",
+        "verification": "Actual GUI helpers rebuilt for x86/x64; real Reader EXE replacement and two restored windows passed on both.",
+        "reader_changed_book": "x86 File > Recent books selected a book different from original CLI; it and its 3% position/paragraphs were restored. x64 covered the unchanged initial book and initiator position."
+      }
     }
   },
   "image_container_profiles_20261031": {
@@ -1721,5 +1823,5 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-10-31T13:27:26.240750+00:00"
+  "updated_utc": "2026-10-31T16:28:19.132634+00:00"
 }

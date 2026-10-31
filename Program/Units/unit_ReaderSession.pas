@@ -8,7 +8,8 @@ type
   // The reader receives a resolved locator, never a connection to a catalogue.
   // HistoryIdentity is exactly the identity used by the existing reader.
   TReaderSessionRequest = record
-    ID, RequestFile, SourceFile, HistoryIdentity, SettingsFile: string;
+    ID, RequestFile, SourceFile, HistoryIdentity, SettingsFile, OriginalSource,
+      OriginalMember: string;
     Book: TBookRecord;
     RequirePersonalProgress: Boolean;
   end;
@@ -22,14 +23,15 @@ type
   TReaderSessionLease = class
   private
     FLock: TObject;
-    FRequest, FSource: TFileStream;
+    FRequest, FSource, FOriginalSource: TFileStream;
   public
     constructor Create(const Request: TReaderSessionRequest);
     destructor Destroy; override;
   end;
 
 function CreateReaderSession(const Directory: string; const Book: TBookRecord;
-  const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean = False): TReaderSessionRequest;
+  const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean = False;
+  const OriginalSource: string = ''; const OriginalMember: string = ''): TReaderSessionRequest;
 function LoadReaderSession(const RequestFile: string): TReaderSessionRequest;
 procedure WriteReaderSessionReply(const Request: TReaderSessionRequest;
   const Reply: TReaderSessionReply);
@@ -109,6 +111,8 @@ begin
   Result.AddPair('format',TJSONNumber.Create(1));
   Result.AddPair('kind','HomeLibReader-session'); Result.AddPair('id',Request.ID);
   Result.AddPair('source',Request.SourceFile); Result.AddPair('identity',Request.HistoryIdentity);
+  if Request.OriginalSource<>'' then Result.AddPair('original_source',Request.OriginalSource);
+  if Request.OriginalMember<>'' then Result.AddPair('original_member',Request.OriginalMember);
   Result.AddPair('settings',Request.SettingsFile);
   Result.AddPair('personal_progress',TJSONBool.Create(Request.RequirePersonalProgress));
   Locator:=TJSONObject.Create; Result.AddPair('book',Locator);
@@ -134,6 +138,9 @@ begin
     if not TRegEx.IsMatch(Result.ID,'\A[0-9a-f]{32}\z') then
       raise Exception.Create('Некорректный номер сеанса чтения.');
     Result.SourceFile:=AbsoluteFile(Text(Root,'source',32767));
+    Result.OriginalSource:=Text(Root,'original_source',32767,False);
+    if Result.OriginalSource<>'' then Result.OriginalSource:=AbsoluteFile(Result.OriginalSource);
+    Result.OriginalMember:=Text(Root,'original_member',32767,False);
     Result.SettingsFile:=AbsoluteFile(Text(Root,'settings',32767));
     if not ExtractFileName(Result.SettingsFile).EndsWith('reader.ini',True) then
       raise Exception.Create('Некорректный файл настроек читалки.');
@@ -166,7 +173,8 @@ begin
 end;
 
 function CreateReaderSession(const Directory: string; const Book: TBookRecord;
-  const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean): TReaderSessionRequest;
+  const HistoryIdentity, SettingsFile: string; RequirePersonalProgress: Boolean;
+  const OriginalSource, OriginalMember: string): TReaderSessionRequest;
 var Folder: string; Value: TJSONObject;
 begin
   Result:=Default(TReaderSessionRequest);
@@ -174,6 +182,8 @@ begin
   Result.Book:=Book; Result.SourceFile:=AbsoluteFile(Book.GetBookFileName);
   Result.RequirePersonalProgress:=RequirePersonalProgress;
   Result.HistoryIdentity:=HistoryIdentity; Result.SettingsFile:=AbsoluteFile(SettingsFile);
+  if OriginalSource<>'' then Result.OriginalSource:=AbsoluteFile(OriginalSource);
+  Result.OriginalMember:=OriginalMember;
   Folder:=TPath.Combine(AbsoluteFile(Directory),'HomeLibReader-session-'+Result.ID);
   if DirectoryExists(Folder) then raise Exception.Create('Папка сеанса чтения уже существует.');
   ForceDirectories(Folder); Result.RequestFile:=TPath.Combine(Folder,'request.json');
@@ -267,9 +277,11 @@ begin
   // Keep an extracted input or source archive alive while the catalogue exits.
   // It remains readable, but cannot be overwritten/deleted during this view.
   FSource:=TFileStream.Create(Request.SourceFile,fmOpenRead or fmShareDenyWrite);
+  if (Request.OriginalSource<>'') and not SameFileName(Request.OriginalSource,Request.SourceFile) then
+    FOriginalSource:=TFileStream.Create(Request.OriginalSource,fmOpenRead or fmShareDenyWrite);
 end;
 
 destructor TReaderSessionLease.Destroy;
-begin FSource.Free; FRequest.Free; FLock.Free; inherited; end;
+begin FOriginalSource.Free; FSource.Free; FRequest.Free; FLock.Free; inherited; end;
 
 end.

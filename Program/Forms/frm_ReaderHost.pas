@@ -19,6 +19,8 @@ type
     FPreparing, FDisplaying, FExitRequested: Boolean;
     FNextSession: string;
     FSession: TReaderSessionRequest;
+    FRestartRequest: TReaderSessionRequest;
+    FRestartLease: TReaderSessionLease;
     FSessionReply: TReaderSessionReply;
     FSessionLease: TReaderSessionLease;
     FRestarting, FDirectLaunch: Boolean;
@@ -47,6 +49,8 @@ type
     procedure MissingComponents(const IDs: TArray<string>);
     procedure RememberFile(const FileName: string);
     procedure SaveRecent;
+    procedure SaveRestartState(const Identity, SettingsFile, OriginalMember: string);
+    procedure ClearRestartState;
     procedure HostCloseQuery(Sender: TObject; var CanClose: Boolean);
   protected
     procedure CreateParams(var Params: TCreateParams); override;
@@ -67,7 +71,8 @@ uses System.IOUtils, System.IniFiles, System.Math, Vcl.Dialogs,
   unit_ReaderCache, unit_ReaderDocument, unit_ReaderFormats, unit_BookCache,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
-  frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette;
+  frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette,
+  unit_ReaderRestartState;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
@@ -137,8 +142,17 @@ destructor TfrmReaderHost.Destroy;
 begin
   if Assigned(FTimer) then FTimer.Enabled:=False;
   CancelReaderPreparations(Self);
+  if not FRestarting then ClearRestartState;
   if FRestarting then FreeAndNil(FSessionLease) else FinishSession('closed');
+  // Hold the selected payload and its origin through cache-on-exit cleanup.
+  // The helper starts after this process exits and acquires its own leases.
   FinishBookCacheSession;
+  if FRestarting then
+  begin
+    RemoveReaderRestart(ExtractFileDir(Settings.SettingsFileName));
+    FreeAndNil(FRestartLease);
+    CleanupReaderRestartSession(ExtractFileDir(Settings.SettingsFileName),FSession.RequestFile);
+  end;
   FUpdates.Free; FUpdates:=nil;
   if Assigned(FRecent) then begin SaveRecent; FRecent.Free; end;
   inherited;
@@ -258,6 +272,7 @@ begin
     SendSessionState('failed',FSessionReply.ErrorText)
   else SendSessionState(State);
   FreeAndNil(FSessionLease);
+  CleanupReaderRestartSession(ExtractFileDir(Settings.SettingsFileName),FSession.RequestFile);
   FSession:=Default(TReaderSessionRequest); FSessionReply:=Default(TReaderSessionReply);
 end;
 
@@ -375,7 +390,8 @@ begin
   Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
   try
     Ini.DeleteKey('ReaderSession','PendingFile'); Ini.DeleteKey('ReaderSession','PendingSession');
-    if FSession.ID<>'' then Ini.WriteString('ReaderSession','PendingSession',FSession.RequestFile)
+    if FRestartRequest.ID<>'' then Ini.WriteString('ReaderSession','PendingSession',FRestartRequest.RequestFile)
+    else if FSession.ID<>'' then Ini.WriteString('ReaderSession','PendingSession',FSession.RequestFile)
     else Ini.WriteString('ReaderSession','PendingFile',FCurrentFile);
     SaveMemIniFileAtomically(Ini);
     if not FUpdates.LaunchInstallation then
@@ -439,6 +455,7 @@ begin
     if (FSession.ID<>'') and ReaderSessionSourceMatches(FSession,FileName) then FBook:=FSession.Book
     else FBook:=FileBook(FileName);
     FCurrentFile:=FileName;
+    if FSession.OriginalSource<>'' then FCurrentFile:=FSession.OriginalSource;
     if FBook.Title='' then FBook.Title:=ExtractFileName(FileName);
     FExportBook:=Default(TBookRecord);
     FPreparing:=True; FStatus.Caption:='Открытие книги…';
@@ -495,7 +512,9 @@ begin
     if SameText(ExtractFileExt(FileName),'.sm') then
     begin
       Container:=''; if SameText(ExtractFileExt(FCurrentFile),'.zip') then Container:=FCurrentFile;
-      Member:=''; if (Container<>'') and (FSession.ID<>'') then Member:=FBook.FileName+FBook.FileExt;
+      Member:='';
+      if FSession.OriginalSource<>'' then Member:=FSession.OriginalMember
+      else if (Container<>'') and (FSession.ID<>'') then Member:=FBook.FileName+FBook.FileExt;
       FView:=TStandaloneStoryReader.CreateStory(Self,Settings.AppPath,FileName,FBook.Title,Identity,
         SettingsFile,Settings.AppPath+'tools\pdfium\pdfium.dll',Container,Member,ExtractFileDir(FCurrentFile));
     end
@@ -513,6 +532,7 @@ begin
     end;
     TForm(FView).PopupMode:=pmNone; TForm(FView).PopupParent:=nil;
     FView.Caption:='HomeLibre Reader — '+FBook.Title;
+    SaveRestartState(Identity,SettingsFile,Member);
     InstallMenu(TForm(FView));
     SendSessionState('displaying');
     // The book is the visible application while reading. Keeping the empty
@@ -535,7 +555,9 @@ begin
     end;
    end;
   finally
-    FreeAndNil(FView); ExportInput.Free; ViewInput.Free; FDisplaying:=False;
+    FreeAndNil(FView);
+    if not FRestarting then ClearRestartState;
+    ExportInput.Free; ViewInput.Free; FDisplaying:=False;
     if FExitRequested then Close
     else if WasVisible and not FDirectLaunch then Show;
   end;
@@ -545,6 +567,32 @@ begin
     FinishSession('closed');
     if FDirectLaunch and (FNextFile='') and (FNextSession='') then Close;
   end;
+end;
+
+procedure TfrmReaderHost.SaveRestartState(const Identity, SettingsFile, OriginalMember: string);
+var Book: TBookRecord; Profile: string;
+begin
+  ClearRestartState; Profile:=ExtractFileDir(Settings.SettingsFileName);
+  try
+    Book:=FExportBook; Book.BookKey:=FBook.BookKey; Book.LibID:=FBook.LibID;
+    Book.Title:=FBook.Title; Book.Lang:=FBook.Lang;
+    FRestartRequest:=CreateReaderSession(ReaderRestartDirectory(Profile),Book,
+      Identity,SettingsFile,FSession.RequirePersonalProgress,FCurrentFile,OriginalMember);
+    FRestartLease:=TReaderSessionLease.Create(FRestartRequest);
+    PublishReaderRestart(Profile,FRestartRequest.RequestFile);
+  except
+    on E: Exception do
+    begin ClearRestartState; LogDiagnosticError('reader-restart-snapshot',E); end;
+  end;
+end;
+
+procedure TfrmReaderHost.ClearRestartState;
+var Profile: string;
+begin
+  Profile:=ExtractFileDir(Settings.SettingsFileName);
+  RemoveReaderRestart(Profile); FreeAndNil(FRestartLease);
+  CleanupReaderRestartSession(Profile,FRestartRequest.RequestFile);
+  FRestartRequest:=Default(TReaderSessionRequest);
 end;
 
 procedure TfrmReaderHost.RememberFile(const FileName: string);
