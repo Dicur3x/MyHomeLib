@@ -574,7 +574,7 @@ begin
         'Legacy or unsafe component page fallback is missing for '+Info.ID);
       if (Info.ID='AlReader') or (Info.ID='WebP') then
         RestorePage(Info.URL,Info.URL,'Постоянные компоненты HomeLibre')
-      else if (Info.ID='HomeLibReader') or (Info.ID='BookConverter') then
+      else if Info.URL=ReleasesPage then
         RestorePage(Info.URL,Info.URL,'Выпуски HomeLibre')
       else if Info.ID='IBK' then
         RestorePage(Info.URL,Info.URL,'Источник исходного пакета ICE Reader')
@@ -595,6 +595,8 @@ begin
       (THashSHA2.GetHashStringFromFile(ParamStr(0))=AppHash) and
       (THashSHA2.GetHashStringFromFile(Settings.AppPath+'sqlite3.dll')=SQLiteHash),
       'Restoring a component page changed staged or installed bytes');
+    Require(Cases=Length(UPDATE_COMPONENTS)+11,
+      'Restored page fixture omitted a registered source or legacy-invalid URL fallback');
     Writeln('PASS restored component-only batch page uses saved canonical sources for all components and safe legacy-invalid URL fallbacks without network or installation cases=',Cases);
     Flush(Output);
   finally

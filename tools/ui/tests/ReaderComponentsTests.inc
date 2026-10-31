@@ -142,12 +142,162 @@ begin
   Writeln('PASS catalogue FB2 baseline offers external readers first hides absent format modules and keeps installed conversion modules');
 end;
 
+// Reopen an absent optional module from a cached download without a network
+// check. This fixture verifies metadata/UI only; its payload is never installed.
+procedure TestReaderCachedComponentRows;
+const Version='9999.1.0';
+var CacheRoot, Cache, Job, ReadyFile, SavedLocal, Folder, Held, Digest: string;
+  HeldFolders: TStringList; Dialog: TReaderModuleForm; View: TListView;
+  Cases, BeforeRows: Integer; Row: TListItem;
+  procedure WriteReady(const ReadyComponent: string; const IDs: array of string;
+    MainApplication: Boolean; const PackageVersion: string = Version);
+  var Manifest, Entry, Ready: TJSONObject; Files, Bundle: TJSONArray; Zip: TZipFile;
+    Archive, Name: string;
+    procedure Payload(const Name: string);
+    var FileName: string; Value: TJSONObject;
+    begin
+      FileName:=TPath.Combine(Job,'payload\'+Name.Replace('/','\')); ForceDirectories(ExtractFileDir(FileName));
+      TFile.WriteAllText(FileName,'Owned metadata-only cached component: '+Name,TEncoding.UTF8);
+      Value:=TJSONObject.Create; Value.AddPair('path',Name);
+      Value.AddPair('size',TJSONNumber.Create(TFile.GetSize(FileName)));
+      Value.AddPair('sha256',UpdateSHA256(FileName)); Files.AddElement(Value);
+    end;
+  begin
+    Inc(Cases); Job:=TPath.Combine(Cache,'HomeLibRu-update-cached-row-'+IntToStr(Cases));
+    ForceDirectories(Job); Archive:=TPath.Combine(Job,'release.zip'); Manifest:=TJSONObject.Create;
+    try
+      Manifest.AddPair('format',TJSONNumber.Create(1)); Manifest.AddPair('release',PackageVersion);
+      Manifest.AddPair('platform',ProgramUpdatePlatform);
+      if not MainApplication then
+      begin
+        Manifest.AddPair('component',ReadyComponent);
+        if ReadyComponent<>'batch' then Manifest.AddPair('version',PackageVersion);
+      end;
+      Files:=TJSONArray.Create; Manifest.AddPair('files',Files);
+      if (ReadyComponent='batch') then
+      begin
+        Bundle:=TJSONArray.Create; Manifest.AddPair('bundle',Bundle);
+        for var ID in IDs do
+        begin
+          Entry:=TJSONObject.Create; Entry.AddPair('component',ID); Entry.AddPair('version',PackageVersion);
+          Bundle.AddElement(Entry);
+        end;
+      end;
+      if MainApplication then begin Payload('HomeLibRu.exe'); Payload('LICENSE'); Payload('NOTICE'); end;
+      for var ID in IDs do
+        if ID='ImageProcessing' then
+          for Name in ['COMPONENT.json','HomeLibImages.exe','RUNTIME.json','HomeLibImages-MIT.txt'] do Payload('tools/images/'+Name)
+        else if ID='PDFium' then
+          for Name in ['pdfium.dll','HomeLibPDF.exe','RUNTIME.json','WORKER_RUNTIME.json','LICENSE','HomeLibPDF-LICENSE.txt'] do Payload('tools/pdfium/'+Name)
+        else Payload(ComponentFileName(ID));
+      TFile.WriteAllText(TPath.Combine(Job,'manifest.json'),Manifest.ToJSON,TEncoding.UTF8);
+      Zip:=TZipFile.Create;
+      try
+        Zip.Open(Archive,zmWrite); Zip.Add(TPath.Combine(Job,'manifest.json'),UPDATE_MANIFEST);
+        for var Value in Files do
+        begin Name:=TJSONObject(Value).GetValue<string>('path'); Zip.Add(TPath.Combine(Job,'payload\'+Name.Replace('/','\')),Name); end;
+        Zip.Close;
+      finally Zip.Free; end;
+    finally Manifest.Free; end;
+    Ready:=TJSONObject.Create;
+    try
+      Ready.AddPair('job',Job); Ready.AddPair('tag',PackageVersion); Ready.AddPair('sha256',UpdateSHA256(Archive));
+      Ready.AddPair('component',ReadyComponent); Ready.AddPair('version',PackageVersion);
+      Ready.AddPair('size',TJSONNumber.Create(TFile.GetSize(Archive)));
+      TFile.WriteAllText(ReadyFile,Ready.ToJSON,TEncoding.UTF8);
+    finally Ready.Free; end;
+  end;
+  function FindRow(const ID: string): TListItem;
+  begin
+    Result:=nil;
+    for var Item in View.Items do if Item.Caption.EndsWith(' · '+ID) then Exit(Item);
+  end;
+  procedure RejectForReader(CompletedJournal: Boolean = False);
+  var ArchiveDigest: string;
+  begin
+    if CompletedJournal then TFile.WriteAllText(TPath.Combine(Job,'journal.json'),'{"state":"installed"}',TEncoding.UTF8);
+    ArchiveDigest:=UpdateSHA256(TPath.Combine(Job,'release.zip'));
+    Digest:=UpdateSHA256(ReadyFile); Dialog:=TReaderModuleForm.Create(nil);
+    try
+      Require(not Dialog.RestoreReady,'Reader accepted a cached catalogue-only update');
+      Require((Dialog.Requests.Count=0) and (UpdateSHA256(ReadyFile)=Digest),
+        'Reader altered or fetched an incompatible cached update');
+      Require(UpdateSHA256(TPath.Combine(Job,'release.zip'))=ArchiveDigest,
+        'Reader pruned another host''s cached payload before checking compatibility');
+    finally Dialog.Free; end;
+  end;
+begin
+  RequireIsolatedRegression; Cases:=0; HeldFolders:=TStringList.Create;
+  SavedLocal:=GetEnvironmentVariable('LOCALAPPDATA');
+  CacheRoot:=TPath.GetFullPath(TPath.Combine(Settings.AppPath,'cached-rows-'+TGUID.NewGuid.ToString));
+  Require(CacheRoot.StartsWith(IncludeTrailingPathDelimiter(TPath.GetFullPath(Settings.AppPath)),True),
+    'Cached row fixture escaped its owned runtime');
+  ForceDirectories(CacheRoot);
+  try
+    for var Name in ['images','pdfium'] do
+    begin
+      Folder:=Settings.AppPath+'tools/'+Name; Held:=Folder+'-held-cached-row';
+      Require(not DirectoryExists(Held),'Cached row fixture hold directory already exists');
+      if DirectoryExists(Folder) then begin TDirectory.Move(Folder,Held); HeldFolders.Add(Folder); end;
+    end;
+    if not SetEnvironmentVariableW('LOCALAPPDATA',PChar(CacheRoot)) then RaiseLastOSError;
+    Cache:=ProgramUpdateCache(Settings.AppPath); ForceDirectories(Cache); ReadyFile:=TPath.Combine(Cache,'ready.json');
+    WriteReady('ImageProcessing',['ImageProcessing'],False);
+    Dialog:=TReaderModuleForm.Create(nil);
+    try
+      View:=Dialog.FindComponent('UpdateComponents') as TListView; BeforeRows:=View.Items.Count;
+      Require(not Assigned(FindRow('ImageProcessing')),'Absent image module was visible before restoring its download');
+      Dialog.CheckComponents(False); Row:=FindRow('ImageProcessing');
+      Require(Assigned(Row) and Row.Selected and (Row.SubItems[0]='не установлен') and
+        (Row.SubItems[1]=Version) and (Row.SubItems[2]='Готово к установке'),
+        'Cached absent module lost its selected ready row, version or status');
+      Require((View.Items.Count=BeforeRows+1) and (Dialog.Requests.Count=0),
+        'Cached module checked the network or exposed unrelated decoders');
+      var Friendly:=False;
+      for var Control in Dialog do if (Control is TLabel) and
+        (TLabel(Control).Caption='Обработка изображений · ImageProcessing: не установлен') then Friendly:=True;
+      Require(Friendly,'Cached module header lost its readable title or absent version');
+    finally Dialog.Free; end;
+    WriteReady('batch',['ImageProcessing','PDFium'],False);
+    Dialog:=TReaderModuleForm.Create(nil);
+    try
+      View:=Dialog.FindComponent('UpdateComponents') as TListView; BeforeRows:=View.Items.Count;
+      Dialog.CheckComponents(False);
+      for var ID in ['ImageProcessing','PDFium'] do
+      begin
+        Row:=FindRow(ID);
+        Require(Assigned(Row) and (Row.SubItems[1]=Version) and (Row.SubItems[2]='Готово к установке'),
+          'Cached module batch lost a ready row: '+ID);
+      end;
+      Require((View.Items.Count=BeforeRows+2) and (Dialog.Requests.Count=0),
+        'Cached batch fetched metadata or exposed unrelated modules');
+    finally Dialog.Free; end;
+    WriteReady('SQLite',['SQLite'],False); RejectForReader;
+    WriteReady('',[],True); RejectForReader;
+    WriteReady('batch',['ImageProcessing','PDFium'],True); RejectForReader;
+    WriteReady('batch',['ImageProcessing','SQLite'],False); RejectForReader;
+    WriteReady('SQLite',['SQLite'],False,'1.0'); RejectForReader;
+    WriteReady('SQLite',['SQLite'],False); RejectForReader(True);
+    WriteReady('',[],True); RejectForReader(True);
+    WriteReady('batch',['ImageProcessing','PDFium'],True); RejectForReader(True);
+    WriteReady('batch',['ImageProcessing','SQLite'],False); RejectForReader(True);
+    Writeln('PASS Reader cached single/batch module rows, readable title, no network and nine incompatible-cache guards');
+  finally
+    SetEnvironmentVariableW('LOCALAPPDATA',PChar(SavedLocal));
+    for var Original in HeldFolders do
+      if DirectoryExists(Original+'-held-cached-row') then TDirectory.Move(Original+'-held-cached-row',Original);
+    HeldFolders.Free;
+    if DirectoryExists(CacheRoot) then TDirectory.Delete(CacheRoot,True);
+  end;
+end;
+
 procedure TestReaderComponents;
 var Dialog: TReaderModuleForm; View: TListView; Primary: TButton; History: TComboBox;
   EmptyRoot, LegacyFile: string; Started: UInt64; PDFRow: TListItem; Missing: string;
   PreparationOwner: TComponent;
 begin
   RequireIsolatedRegression;
+  TestReaderCachedComponentRows;
   TestCatalogueMissingReaderModules;
   for var Pair in ['Readers\AlReader\AlReader2.exe=AlReader','AlReader\AlReader2.exe=AlReader',
     'Readers\SumatraPDF\SumatraPDF.exe=SumatraPDF'] do

@@ -65,6 +65,7 @@ type
     FComponentNotified: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
     FApplicationRelease: TProgramRelease;
     FInstalledVersions: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of string;
+    FReadyVersions: TArray<string>;
     FRepairComponents: string;
     FApplicationStatus, FApplicationHistory: string;
     FApplicationVerified, FApplicationFailed: Boolean;
@@ -612,6 +613,7 @@ end;
 
 procedure TfrmProgramUpdate.DiscardJob;
 begin
+  FReadyVersions:=nil;
   if FJob = '' then Exit;
   try CleanProgramUpdate(FJob); except end;
   FJob := '';
@@ -654,10 +656,16 @@ begin
 end;
 
 function TfrmProgramUpdate.ReleaseTitle: string;
+var Index: Integer; Title: string;
 begin
   if FRelease.ComponentID = 'batch' then Exit('компонентов HomeLibre');
   if FRelease.ComponentID = '' then Result := ReleaseNotesHeading('HomeLibre ' + ReleaseDisplayVersion(FRelease.Tag), FRelease.PublishedAt)
-  else Result := ReleaseNotesHeading(FRelease.ComponentID + ' ' + ComponentDisplayVersion(FRelease.ComponentID,FRelease.ComponentVersion), FRelease.PublishedAt);
+  else
+  begin
+    Title:=FRelease.ComponentID; Index:=IndexText(FRelease.ComponentID,ComponentIDs);
+    if Index>=0 then Title:=ComponentTitle(Index);
+    Result:=ReleaseNotesHeading(Title+' '+ComponentDisplayVersion(FRelease.ComponentID,FRelease.ComponentVersion),FRelease.PublishedAt);
+  end;
 end;
 
 procedure TfrmProgramUpdate.NotificationChanged(Sender: TObject);
@@ -732,7 +740,8 @@ begin
   // request, regardless of whether the optional reader itself is installed.
   if FReaderOnly or IsOptionalComponent(UPDATE_COMPONENTS[Value-1].ID) then
     Result:=(InstalledVersion(UPDATE_COMPONENTS[Value-1].ID)<>'') or
-      (IndexText(UPDATE_COMPONENTS[Value-1].ID,FRequestedComponents)>=0);
+      (IndexText(UPDATE_COMPONENTS[Value-1].ID,FRequestedComponents)>=0) or
+      (FReady and (Value<=Length(FReadyVersions)) and (FReadyVersions[Value-1]<>''));
 end;
 
 function TfrmProgramUpdate.ViewIndex(Value: Integer): Integer;
@@ -832,6 +841,8 @@ begin
       end;
       if FComponentWaiting[I] then
         State:='Проверяется…';
+      if FReady and (I<Length(FReadyVersions)) and (FReadyVersions[I]<>'') then
+      begin Available:=FReadyVersions[I]; State:='Готово к установке'; end;
       Row(I+1,ComponentTitle(I),ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Version),
         ComponentDisplayVersion(UPDATE_COMPONENTS[I].ID,Available),State);
     end;
@@ -968,7 +979,7 @@ begin
     begin
       FPrimary.Caption:='Скачать компонент';
       FStatus.Caption:=Format('Для установки «%s» нужно скачать %s.',
-        [UPDATE_COMPONENTS[I].Title,ComponentDownloadSize(FComponents[I].Size)]);
+        [ComponentTitle(I),ComponentDownloadSize(FComponents[I].Size)]);
       if FRequestedComponent=UPDATE_COMPONENTS[I].ID then
         FStatus.Caption:=FRequestReason+sLineBreak+FStatus.Caption+sLineBreak+
           IfThen(FOperationComponent<>'','После установки продолжится выбранная операция.',
@@ -1855,11 +1866,22 @@ begin
 end;
 
 function TfrmProgramUpdate.RestoreReady: Boolean;
-var Root, Journal: TJSONValue; FileName, Job, Tag, Digest, State, Notes, Component, Version, SavedURL: string; Comparison, I: Integer;
+var Root, Journal, Prepared: TJSONValue;
+  FileName, Job, Tag, Digest, State, Notes, Component, Version, SavedURL, PreparedComponent: string;
+  Comparison, I: Integer; Bundle: TJSONArray; ReadyVersions: TArray<string>;
+  procedure RememberReadyComponent(const ID, ReadyVersion: string);
+  var Index, VersionComparison: Integer;
+  begin
+    Index:=IndexText(ID,ComponentIDs);
+    if (Index<0) or not ComponentAllowed(Index) or
+      not CompareComponentVersions(ReadyVersion,ReadyVersion,VersionComparison) then
+      raise Exception.Create('Подготовленный компонент не подходит этому приложению.');
+    ReadyVersions[Index]:=ReadyVersion;
+  end;
 begin
   Result := False; FileName := IncludeTrailingPathDelimiter(FCache) + 'ready.json';
   if not FileExists(FileName) then Exit;
-  Root := nil; Journal := nil;
+  Root := nil; Journal := nil; Prepared:=nil;
   try
   try
     Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(FileName, TEncoding.UTF8));
@@ -1871,6 +1893,23 @@ begin
        not TJSONObject(Root).TryGetValue<string>('sha256', Digest) or not IsUpdateSHA256(Digest) then Exit;
     Component := ''; TJSONObject(Root).TryGetValue<string>('component', Component);
     Version := ''; TJSONObject(Root).TryGetValue<string>('version', Version);
+    // Catalogue and Reader can share an installation and download cache.
+    if FReaderOnly and (Component='') then Exit;
+    AssertUpdatePath(Job);
+    SetLength(ReadyVersions,Length(UPDATE_COMPONENTS));
+    if Component='batch' then
+    begin
+      Prepared:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Job,'manifest.json'),TEncoding.UTF8));
+      if not (Prepared is TJSONObject) then Exit;
+      PreparedComponent:=''; TJSONObject(Prepared).TryGetValue<string>('component',PreparedComponent);
+      if FReaderOnly and (PreparedComponent<>'batch') then Exit;
+      if not TJSONObject(Prepared).TryGetValue<TJSONArray>('bundle',Bundle) then Exit;
+      for var Part in Bundle do
+        RememberReadyComponent(TJSONObject(Part).GetValue<string>('component'),
+          TJSONObject(Part).GetValue<string>('version'));
+    end
+    else if Component<>'' then RememberReadyComponent(Component,Version);
+    // Reject another host's package before pruning an old or completed job.
     if Component = 'batch' then
     begin
       if not TRegEx.IsMatch(Tag, '^[A-Za-z0-9._-]{1,80}$') then Exit;
@@ -1889,7 +1928,6 @@ begin
       if InstalledVersion(Component) = '' then Comparison := 1
       else if not CompareComponentVersions(Version, InstalledVersion(Component), Comparison) then Exit;
     end;
-    AssertUpdatePath(Job);
     if (Component = '') and (Comparison <= 0) and PreparedComponentsNewer(Job, Settings.AppPath) then
       Comparison := 1;
     // Preserve interrupted transactions and offer to restore them explicitly.
@@ -1907,15 +1945,14 @@ begin
        not SameText(UpdateSHA256(IncludeTrailingPathDelimiter(Job) + 'release.zip'), Digest)) then Exit;
     FJob := Job; FRelease.Tag := Tag; FRelease.SHA256 := Digest;
     FRelease.ComponentID := Component; FRelease.ComponentVersion := Version;
-    SelectRow(0);
-    for I := 0 to High(CheckedComponentIndices) do
-      if Component = ComponentIDs[CheckedComponentIndices[I]] then SelectRow(CheckedComponentIndices[I] + 1);
     if Component = 'batch' then FVersion.Caption := 'Обновления компонентов HomeLibre'
     else if Component <> '' then
     begin
       FPage.Caption := 'Сайт автора';
-      FVersion.Caption := 'Текущая версия ' + Component + ': ' +
-        ComponentDisplayVersion(Component,InstalledVersion(Component));
+      I:=IndexText(Component,ComponentIDs);
+      FVersion.Caption:=ComponentTitle(I)+': '+
+        IfThen(InstalledVersion(Component)='','не установлен',
+          ComponentDisplayVersion(Component,InstalledVersion(Component)));
     end;
     FComponentCheck.Enabled:=False;
     TJSONObject(Root).TryGetValue<Int64>('size', FRelease.Size);
@@ -1924,7 +1961,9 @@ begin
     SavedURL := ''; TJSONObject(Root).TryGetValue<string>('url', SavedURL);
     FRelease.URL := UpdateReleasePageURL(Component, Tag, SavedURL);
     UpdateReleasePage;
-    FReady := True; FNeedsCheck := False; FProgress.Position := 100;
+    FReadyVersions:=ReadyVersions; FReady := True; FNeedsCheck := False; FProgress.Position := 100;
+    UpdateComponentList; SelectRow(0);
+    I:=IndexText(Component,ComponentIDs); if I>=0 then SelectRow(I+1);
     if TJSONObject(Root).TryGetValue<string>('notes', Notes) then DisplayNotes(Notes);
     FStatus.Caption := 'Обновление ' + ReleaseTitle + ' готово к установке.' + sLineBreak +
       'Можно установить сейчас или продолжить работу.';
@@ -1937,7 +1976,7 @@ begin
   except
     // Automatic startup remains quiet if a cached download was removed.
   end;
-  finally Journal.Free; Root.Free; end;
+  finally Prepared.Free; Journal.Free; Root.Free; end;
   LayoutWindow;
 end;
 

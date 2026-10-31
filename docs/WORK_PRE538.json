@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 57,
+    "verified_sequence": 58,
     "verified_blocks": 68,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1483,7 +1483,7 @@
     "full_goal_complete": false
   },
   "update_critical_20261031": {
-    "status": "Core coordinated update, cached Reader component continuation and cache pinning verified on real Readers x86/x64; final release gates pending",
+    "status": "Cached ready module UI and host-cache safety plus latest related-window regressions pass on x86/x64; real Reader cycles previously verified; final beta2 binaries/packages/upgrade gates pending",
     "reported_target": "pre5.37 desktop installation updating to 3.0 beta 1",
     "evidence": {
       "installed_sqlite_equals_payload_sha256": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea",
@@ -1529,9 +1529,7 @@
       ]
     },
     "pending": [
-      "Run affected native regressions after final related-window changes",
-      "Polish cached uninstalled module row/title without exposing unrelated components",
-      "Build and verify exact beta2 packages and published-version upgrade chain before publishing"
+      "Build the Reader and catalogue with the validated updater form, verify exact minimum beta2 packages and upgrade chains from published versions before publishing"
     ],
     "new_user_requirement": "Clicking Update must preserve state, close related instances of the same installation, and restore open windows after installation.",
     "new_review_feedback": {
@@ -1581,7 +1579,7 @@
       "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
     },
     "related_instances_prototype": {
-      "status": "Actual Reader UI installs a pinned ImageProcessing package, closes/restores two real books, retains selected archive member at 3% and executes cache-on-exit cleanup on x86/x64; final beta2 packages and last-source native regressions pending",
+      "status": "Earlier real Reader UI component installs verified on x86/x64; latest controller five-case regressions now repeated on both architectures; final beta2 packages pending",
       "reports": {
         "Win32": {
           "report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r2.json",
@@ -1608,9 +1606,7 @@
         "missing source rejects before close"
       ],
       "not_proven": [
-        "Native five-case fixture regressions after the latest startup/placement policy changes",
         "Final beta2 catalogue/component packages and old-release upgrade chain",
-        "Postponed component still needs its own visible list row and friendly title",
         "Native File Open dialog input through Computer Use remains unavailable; earlier x86 used File > Recent books instead",
         "Maximized/minimized/fullscreen real Reader window mode preservation not established by these ordinary-window checks"
       ],
@@ -1827,7 +1823,58 @@
           "tools/ui/tests/Out/homelibre-reader-ui-component-Win64-20261031-r1.json"
         ],
         "scope": "Prepared validated pinned module; no live download or final beta2 package claim"
+      },
+      "last_source_regression_20261101": {
+        "status": "PASS",
+        "reports": {
+          "Win32": {
+            "report": "tools/ui/tests/Out/homelibre-related-final-Win32-20261101-r1.json",
+            "sha256": "64b815e32e5ac7034b747b5d61d98f957c5f74a46a5cb19e18e8f83e2c65af59",
+            "tester_sha256": "7e3bfcfd01b6a6543ede854710b551cd166a223f672c9e01631075b4b2a79eb5",
+            "cases": 5,
+            "temporary_root_removed": true
+          },
+          "Win64": {
+            "report": "tools/ui/tests/Out/homelibre-related-final-Win64-20261101-r1.json",
+            "sha256": "a9915c335a67fb2d312f7635d7e247b7ef8ec3ce2ec07d4be4c3e3213b34b8d6",
+            "tester_sha256": "1ebe40d3c8ca5e4459794fb8dcd6505237f0cfc847b2c9a360ed18af356651b5",
+            "cases": 5,
+            "temporary_root_removed": true
+          }
+        },
+        "scope": "Production controller exercised through owned synthetic windows, all five existing scenarios; complements earlier real Reader UI proof, not final release package proof"
       }
+    },
+    "cached_component_ui_20261101": {
+      "status": "PASS_FOR_RECORDED_SCOPE",
+      "report": "tools/ui/tests/Out/homelibre-cached-ready-validation-20261101-r1.json",
+      "sha256": "d0c4d9ade0a8911b76a0b4f0be16958447151bb40ff1ce30ffaff4cd6016a8b5",
+      "platforms": [
+        "Win32",
+        "Win64"
+      ],
+      "changes": [
+        "Cached absent modules remain visible, selected and ready with their version, purpose and component identity",
+        "No new network check for cached single or batch packages",
+        "Reject incompatible shared cache before pruning an old or completed job",
+        "Install offer preserves the external reader name alongside its purpose"
+      ],
+      "scopes": [
+        "Production VCL updater: cached single and batch module rows, installed/available version, friendly identity, selected ready action, no network fetch",
+        "Nine incompatible Reader cache cases, including an older SQLite package and completed journals: ready metadata and payload unchanged",
+        "All 20 registered component source links and 11 legacy/invalid URL fallbacks; native ready-row lock and colours in both themes at 96/144/192 DPI and 90/100/130 percent text zoom",
+        "Controlled source failures, independent partial success, explicit diagnostic copy, retry recovery and quiet automatic errors"
+      ],
+      "limitations": [
+        "Metadata-only prepared packages are never installed or executed by these cases",
+        "Controlled source checks use loopback HTTP, not public servers",
+        "Not final beta2 archives or a published-version upgrade test"
+      ],
+      "test_repairs": [
+        "Normalised filesystem separators in the owned payload fixture",
+        "Expanded old source-link expectations from 12 to all 20 registered components (31 cases including 11 URL fallbacks)"
+      ],
+      "resolved_regression": "Retained SumatraPDF identity in the missing-component install offer; source retry now passes unchanged identity assertions"
     }
   },
   "image_container_profiles_20261031": {
@@ -1935,14 +1982,14 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-10-31T21:04:35.402073+00:00",
+  "updated_utc": "2026-10-31T22:51:38.615493+00:00",
   "telegram_followup_20261031": {
     "status": "messages_read_source_downloaded_reproduction_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
     "group": "HomeLibre",
     "items": [
-      "Book fails in our Reader while Sumatra opens it; exact file, format and version not yet read",
-      "Additional details about review-loading timeout 12002"
+      "Exact book downloaded and syntax inspected; actual Reader reproduction and fix remain pending",
+      "Review timeout 12002 on flibusta.is; tester reports later retry worked; root cause and bounded retry remain pending"
     ],
     "messages_authorized": false,
     "page_task_block": "e9a23c93-8828-4c5f-ae2d-9043b68f554c",
