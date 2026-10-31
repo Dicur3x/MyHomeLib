@@ -18,15 +18,15 @@ HomeLibre — программа для Windows, которая помогает
 
 ## Скачать и запустить
 
-Текущий опубликованный выпуск — **[pre5.37 / 2.7.0.1105](https://github.com/Dicur3x/MyHomeLib/releases/latest)**.
-[Изменения](https://github.com/Dicur3x/MyHomeLib/releases/latest) · [История выпусков](https://github.com/Dicur3x/MyHomeLib/releases) ·
-[Проверки и ограничения](https://github.com/Dicur3x/MyHomeLib/blob/2.7.0_pre5.37/docs/RELEASE_VALIDATION_2.7.0_pre5.37.md).
+Текущий тестовый выпуск — **[HomeLibre 3.0 beta 1](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1)**.
+[Изменения](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1) · [История выпусков](https://github.com/Dicur3x/MyHomeLib/releases) ·
+[Проверки и ограничения](docs/RELEASE_VALIDATION_3.0.0_pre1.1.md).
 
 | Архив | Для какой системы |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/latest/download/HomeLibRu_x64.zip) | 64-разрядная Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/latest/download/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/latest/download/SHA256SUMS.txt) | Контрольные суммы архивов |
+| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu_x64.zip) | 64-разрядная Windows |
+| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/SHA256SUMS.txt) | Контрольные суммы архивов |
 
 Требуется **Windows 10 или новее**. Книги скачиваются отдельно и в поставку
 не входят. Минимальный архив содержит каталогизатор. **HomeLibre Reader** и
