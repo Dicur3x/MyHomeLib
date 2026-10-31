@@ -11,7 +11,7 @@ type
     PID, RestartPID: Cardinal;
     ProcessHandle, RestartHandle: THandle;
     Executable, CommandLine, WindowClass, SessionFile: string;
-    HasWindow, HasPlacement, CloseRequested, Restarted, PlacementRestored: Boolean;
+    HasWindow, HasPlacement, WindowWasVisible, CloseRequested, Restarted, PlacementRestored: Boolean;
     Placement: TWindowPlacement;
     SourceLease, RequestLease, OriginalSourceLease: TFileStream;
     destructor Destroy; override;
@@ -62,7 +62,7 @@ type
 
 function RelatedWindow(Window: HWND; Data: LPARAM): BOOL; stdcall;
 var Context: PWindowContext; PID: Cardinal; Name: array[0..255] of Char;
-  ClassName: string; ReaderWindow, VisibleApp: Boolean;
+  ClassName: string; ReaderWindow, BookWindow, VisibleApp: Boolean;
 begin
   Result:=True; Context:=PWindowContext(Data);
   GetWindowThreadProcessId(Window,@PID);
@@ -79,24 +79,31 @@ begin
   // the reader form's close/save lifecycle.
   if SameText(ClassName,'TApplication') then Exit;
   ReaderWindow:=ContainsText(ClassName,'Reader');
+  BookWindow:=SameText(ClassName,'TStandaloneBookReader') or
+    SameText(ClassName,'TStandaloneStoryReader');
   VisibleApp:=IsWindowVisible(Window) and (GetWindowTextLength(Window)>0) and
     ((GetWindow(Window,GW_OWNER)=0) or ReaderWindow or
       ((GetWindowLongPtr(Window,GWL_EXSTYLE) and WS_EX_APPWINDOW)<>0));
   case Context.Action of
     waCapture:
-      if VisibleApp and (not Context.Instance.HasWindow or ReaderWindow) then
+      if (VisibleApp or (BookWindow and (GetWindowTextLength(Window)>0))) and
+        (not Context.Instance.HasWindow or ReaderWindow) then
       begin
         Context.Instance.HasWindow:=True; Context.Instance.WindowClass:=ClassName;
+        Context.Instance.WindowWasVisible:=IsWindowVisible(Window);
         Context.Instance.Placement.length:=SizeOf(TWindowPlacement);
         Context.Instance.HasPlacement:=GetWindowPlacement(Window,Context.Instance.Placement);
       end;
     waClose:
-      if IsWindowVisible(Window) or SameText(ClassName,'TfrmReaderHost') then
+      if IsWindowVisible(Window) or BookWindow or SameText(ClassName,'TfrmReaderHost') then
         PostMessage(Window,WM_CLOSE,0,0);
     waRestore:
       if SameText(ClassName,Context.Instance.WindowClass) then
       begin
-        if Context.Instance.HasPlacement then
+        // The Reader restores its own bounds from the settings saved on close.
+        // Do not change native visibility while its modal book is initializing.
+        if BookWindow then Context.Restored:=True
+        else if Context.Instance.HasPlacement then
           Context.Restored:=SetWindowPlacement(Window,Context.Instance.Placement)
         else Context.Restored:=True;
         Result:=False;
@@ -292,6 +299,9 @@ begin
     Item.AddPair('restart_pid',TJSONNumber.Create(Instance.RestartPID));
     Item.AddPair('source_pinned',TJSONBool.Create(Assigned(Instance.SourceLease)));
     Item.AddPair('window_class',Instance.WindowClass);
+    Item.AddPair('original_window_visible',TJSONBool.Create(Instance.WindowWasVisible));
+    if Instance.HasPlacement then
+      Item.AddPair('original_show_command',TJSONNumber.Create(Instance.Placement.showCmd));
     Item.AddPair('placement_restored',TJSONBool.Create(Instance.PlacementRestored));
   end;
 end;
@@ -354,8 +364,9 @@ begin
       (WaitForSingleObject(Instance.ProcessHandle,0)<>WAIT_OBJECT_0) then Continue;
     Command:=Instance.CommandLine; UniqueString(Command);
     Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
-    Startup.dwFlags:=STARTF_USESHOWWINDOW; Startup.wShowWindow:=SW_SHOWNORMAL;
-    if Instance.HasPlacement then Startup.wShowWindow:=Instance.Placement.showCmd;
+    // Let VCL decide which startup window to show. STARTF_USESHOWWINDOW can
+    // apply to its hidden application window before the actual book exists.
+    // The catalogue receives its placement below; books use their saved settings.
     if not CreateProcess(PChar(Instance.Executable),PChar(Command),nil,nil,False,
       CREATE_NO_WINDOW,nil,PChar(FTarget),Startup,Process) then RaiseLastOSError;
     CloseHandle(Process.hThread); Instance.RestartHandle:=Process.hProcess;

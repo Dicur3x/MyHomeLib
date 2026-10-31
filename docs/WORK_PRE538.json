@@ -2,8 +2,8 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 55,
-    "verified_blocks": 67,
+    "verified_sequence": 56,
+    "verified_blocks": 68,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
@@ -1483,7 +1483,7 @@
     "full_goal_complete": false
   },
   "update_critical_20261031": {
-    "status": "in_progress",
+    "status": "Core coordinated update, cached Reader component continuation and cache pinning verified on real Readers x86/x64; final release gates pending",
     "reported_target": "pre5.37 desktop installation updating to 3.0 beta 1",
     "evidence": {
       "installed_sqlite_equals_payload_sha256": "4b59d3cded9dc1608544160f3b4b10ac974c6ac0d6ffc23064e5f4c8dbd05aea",
@@ -1529,9 +1529,9 @@
       ]
     },
     "pending": [
-      "build and verify truthful persistent helper failure diagnostics",
-      "implement coordinated close and restore of related windows with their reading state",
-      "test old-version upgrade and new final packages on x86 and x64 before publishing"
+      "Run affected native regressions after final related-window changes",
+      "Polish cached uninstalled module row/title without exposing unrelated components",
+      "Build and verify exact beta2 packages and published-version upgrade chain before publishing"
     ],
     "new_user_requirement": "Clicking Update must preserve state, close related instances of the same installation, and restore open windows after installation.",
     "new_review_feedback": {
@@ -1553,7 +1553,7 @@
       ],
       "blocked_reason": "automatic exec approval review: blocked by policy"
     },
-    "updated_utc": "2026-10-31T10:56:23.268363+00:00",
+    "updated_utc": "2026-10-31T20:45:22.659674+00:00",
     "verified_reader_cancel": {
       "status": "PASS",
       "reports": [
@@ -1581,7 +1581,7 @@
       "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
     },
     "related_instances_prototype": {
-      "status": "Five native cases and actual GUI helper/Reader replacement plus selected loose-archive and catalogue-protocol archive-member saved-copy roundtrips passed on x86/x64; Reader-initiated update and final beta2 packages pending",
+      "status": "Actual Reader UI installs a pinned ImageProcessing package, closes/restores two real books, retains selected archive member at 3% and executes cache-on-exit cleanup on x86/x64; final beta2 packages and last-source native regressions pending",
       "reports": {
         "Win32": {
           "report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r2.json",
@@ -1608,9 +1608,11 @@
         "missing source rejects before close"
       ],
       "not_proven": [
-        "Reader-initiated component/update continuation with outbound session and on-exit cache cleanup",
+        "Native five-case fixture regressions after the latest startup/placement policy changes",
         "Final beta2 catalogue/component packages and old-release upgrade chain",
-        "Native File Open dialog input through Computer Use remains unavailable; x86 used File > Recent books instead"
+        "Postponed component still needs its own visible list row and friendly title",
+        "Native File Open dialog input through Computer Use remains unavailable; earlier x86 used File > Recent books instead",
+        "Maximized/minimized/fullscreen real Reader window mode preservation not established by these ordinary-window checks"
       ],
       "initial_incomplete_probe": "First x86 run passed two cases but failed a missing-input fixture liveness assertion. No production change was made before complete passing rerun; cause not established. Failed fixture root subsequently removed after proving all peers exited and its EXE hashes matched the tester.",
       "first_report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r1.json",
@@ -1770,6 +1772,61 @@
           "selected_member_sha256": "6991849ff8837683487d105ba1a149b0e2713e9d3d0a569d140a6155e0f144b3",
           "saved_copy_bytes": 34842
         }
+      },
+      "actual_reader_initiated_component_reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-reader-ui-component-Win32-20261031-r2.json",
+          "sha256": "dac0f4f05265117214deb86dd2989543b2d0ca9a8ac9f7b8af0fa71a2d21c8a2",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "bea88ca41f2703cbae1a2c7b2a05ee86be9834eebbb2e52a8f4fc4f3c7524ba1",
+          "helper_sha256": "05c11192592cedeaab52a0896956acc76de2ee0c83a5d2ee854e31347fbf6222",
+          "only_requested_module_installed": true,
+          "on_exit_cache_cleanup_observed": true,
+          "actual_gui_observations": {
+            "peer_before": "Original book, 0%, font 14, paragraphs 0-4",
+            "ready": "Cached image module ready immediately, no network check",
+            "caller_before": "Second archive member, 3%, font 14, paragraphs 5-11",
+            "caller_after": "Second archive member, 3%, font 14, paragraphs 5-11",
+            "peer_after": "Original book, 0%, font 14, paragraphs 0-4",
+            "both_windows": "Both remained targetable across repeated observations and closed normally"
+          },
+          "limitations": [
+            "Prepared pinned package rather than live download",
+            "Not the final beta2 package"
+          ]
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-reader-ui-component-Win64-20261031-r2.json",
+          "sha256": "83f409d9b69f5146fc69908d5de5e7cfd0c6a6d7829513d595df3aeb5aa48606",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "8b7dbdbcecdc46479a1371a876098cc3511025409736a9277913beb4f873ee53",
+          "helper_sha256": "8ab53d06abb8f91eadc5d7b46cde3151dbf3dbbba0e4bccd5ee1a24fbc3390b1",
+          "only_requested_module_installed": true,
+          "on_exit_cache_cleanup_observed": true,
+          "actual_gui_observations": {
+            "ready": "Cached ImageProcessing ready immediately; no network check started",
+            "caller_before": "Second archive member, 3%, paragraphs 5-11, font 14",
+            "caller_after": "Second archive member, 3%, paragraphs 5-11, font 14",
+            "peer_after": "Original book remains visible and closes normally; at 100%, font 13. Pre-update peer viewport was not captured, so matching peer progress is not proven.",
+            "both_windows": "Both remained in Computer Use inventory across multiple observations; both closed normally"
+          },
+          "limitations": [
+            "Prepared pinned package rather than live download",
+            "Peer pre-update viewport not captured; no claim that its 100% viewport/font matched the initial view",
+            "Not the final beta2 package"
+          ]
+        }
+      },
+      "reader_own_window_restore": {
+        "finding": "Native external window placement left a real modal book hidden even after startup flags were removed; use saved Reader bounds instead. Existing hidden book windows now receive ordinary WM_CLOSE and are restored as books, not discarded as launchers.",
+        "verification": "Clean real UI component-install cycles on x86/x64 show both books remain visible; x86 peer viewport compared before/after, x64 peer pre-update viewport not captured.",
+        "recovery_and_baseline_reports": [
+          "tools/ui/tests/Out/homelibre-reader-ui-component-Win32-20261031-r1.json",
+          "tools/ui/tests/Out/homelibre-reader-ui-component-Win64-20261031-r1.json"
+        ],
+        "scope": "Prepared validated pinned module; no live download or final beta2 package claim"
       }
     }
   },
@@ -1878,5 +1935,16 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-10-31T16:28:19.132634+00:00"
+  "updated_utc": "2026-10-31T20:45:22.659674+00:00",
+  "telegram_followup_20261031": {
+    "status": "queued_unread",
+    "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
+    "group": "Home libre",
+    "items": [
+      "Book fails in our Reader while Sumatra opens it; exact file, format and version not yet read",
+      "Additional details about review-loading timeout 12002"
+    ],
+    "messages_authorized": false,
+    "page_task_block": "e9a23c93-8828-4c5f-ae2d-9043b68f554c"
+  }
 }

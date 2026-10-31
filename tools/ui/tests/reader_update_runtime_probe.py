@@ -23,6 +23,10 @@ PACKAGE_HASH = {
     'Win32': '18a44806373e49c3cd40fd16713c4ed8df4d9b7aed540322e8a35b83ac71ea87',
     'Win64': '6dfafddfc3eeb38da8271ba8de1d9589c61288e89d71a47c9f71ebbf74ad9ea0',
 }
+IMAGE_PACKAGE_HASH = {
+    'Win32': '4aabdd2166566629e20ba0ec5c2e6a8712606974114bcc6c4a49dfb349d37bc2',
+    'Win64': '42246164f0fc12c99b24453ce11ade64619595c1b9f61c39b56444683d1776c5',
+}
 
 
 def sha(path):
@@ -44,13 +48,14 @@ def processes(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'launch', 'inspect', 'record-selection', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
+    parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'inspect', 'record-selection', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--platform', choices=PACKAGE_HASH)
     parser.add_argument('--label', choices=('peer', 'caller'))
     parser.add_argument('--seed-recent', action='store_true', help='Seed own public recent-file settings for a File-menu change test')
     parser.add_argument('--seed-save-folder', action='store_true', help='Seed the own output folder through ordinary public settings')
     parser.add_argument('--archive-session', action='store_true', help='Use a catalogue locator for the second archive member')
+    parser.add_argument('--cache-sentinel', action='store_true', help='Prove on-exit cache cleanup using an unleased owned cache entry')
     args = parser.parse_args()
     state = json.loads(args.state.read_bytes()) if args.state.exists() else None
     if state is None:
@@ -67,7 +72,8 @@ def main():
     env = {**os.environ, 'TEMP': str(root), 'TMP': str(root), 'LOCALAPPDATA': str(root / 'Local'),
            'APPDATA': str(root / 'Roaming')}
     platform = state['platform']
-    app, job = root / 'installation', root / state.get('job_name', 'HomeLibRu-update-' + state['token'])
+    app = root / 'installation'
+    job = Path(state['job_path']) if state.get('job_path') else root / state.get('job_name', 'HomeLibRu-update-' + state['token'])
     if args.action == 'prepare':
         assert not state['launches'] and not processes(root)
         package = PACKAGES / f'HomeLibRu-HomeLibReader-3.0.0.1-{platform}.zip'
@@ -115,10 +121,44 @@ def main():
         state.update(archive=str(archive_path), archive_sha256=sha(archive_path), release=manifest['release'],
                      reader_sha256=sha(reader), helper_sha256=sha(helper), running_exe_sha256=sha(app / reader.name),
                      source_hashes={str(p.relative_to(root)): sha(p) for p in (root / 'books').iterdir()})
+    elif args.action == 'seed-image-update':
+        assert not state['launches'] and not processes(root)
+        source = PACKAGES.parent / 'formats' / f'HomeLibRu-ImageProcessing-3.0.0.1-{platform}.zip'
+        assert sha(source) == IMAGE_PACKAGE_HASH[platform]
+        archive_path = root / 'image-component.zip'
+        shutil.copyfile(source, archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read('HomeLibRu.update.json'))
+        assert manifest['component'] == 'ImageProcessing' and manifest['platform'] == platform
+        identity = hashlib.sha256((str(app) + '\\').lower().encode('utf-8')).hexdigest()[:20]
+        cache = root / 'Local/HomeLibRu/Updates' / identity
+        job = cache / ('HomeLibRu-update-' + state['token'])
+        cache.mkdir(parents=True)
+        tester = REPO / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
+        result = subprocess.run([str(tester), '--prepare-component', str(archive_path), sha(archive_path),
+            manifest['release'], str(job), manifest['component'], manifest['version']],
+            env=env, capture_output=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+        assert result.returncode == 0, (result.stdout + result.stderr).decode('utf-8', errors='replace')
+        shutil.copyfile(archive_path, job / 'release.zip')
+        dump(cache / 'ready.json', dict(job=str(job), tag=manifest['release'], sha256=sha(archive_path),
+            url='https://github.com/Dicur3x/MyHomeLib/releases/tag/' + manifest['release'],
+            notes='Проверка отложенной установки модуля изображений в отдельной читалке.',
+            component=manifest['component'], version=manifest['version'], size=archive_path.stat().st_size))
+        state.update(job_path=str(job), archive=str(archive_path), archive_sha256=sha(archive_path),
+            component_manifest=manifest, ready_file=str(cache / 'ready.json'))
+    elif args.action == 'refresh-reader':
+        assert state.get('baseline_ready_not_restored') and not processes(root)
+        assert not (job / 'request.json').exists() and not (app / 'tools/images').exists()
+        state['baseline_launches'] = state['launches']
+        state['baseline_reader_sha256'] = state['running_exe_sha256']
+        state['launches'] = []
+        reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
+        shutil.copyfile(reader, app / reader.name)
+        state.update(reader_sha256=sha(reader), running_exe_sha256=sha(reader))
     elif args.action == 'launch':
         assert args.label and not any(x['label'] == args.label for x in state['launches'])
         profile = app / 'Data' / args.label
-        profile.mkdir(parents=True)
+        profile.mkdir(parents=True, exist_ok=True)
         if args.seed_recent:
             (profile / 'HomeLibReader.ini').write_text('[ReaderRecent]\nFile0=' + str(root / 'books/Текущая книга.fb2') + '\nFile1=' + str(root / 'books/Сборник.zip') + '\n', encoding='utf-8-sig')
         if args.seed_save_folder:
@@ -126,13 +166,13 @@ def main():
             output.mkdir(exist_ok=True)
             ini = profile / 'HomeLibReader.ini'
             text = ini.read_text(encoding='utf-8-sig') if ini.exists() else ''
-            ini.write_text(text + '\n[PATH]\nSyncExport=' + str(output) + '\n[SYSTEM]\nSaveAsUseSubfolders=0\nFileNameTemplate=%t\n', encoding='utf-8-sig')
+            ini.write_text(text + '\n[PATH]\nSyncExport=' + str(output) + '\n[SYSTEM]\nClearBookCacheOnExit=1\nSaveAsUseSubfolders=0\nFileNameTemplate=%t\n', encoding='utf-8-sig')
         source = root / 'books' / ('Первоначальная книга.fb2' if args.label == 'peer' else 'Книга инициатора.fb2')
         command = [str(app / 'HomeLibReader.exe'), '--profile=' + str(profile), '--open=' + str(source)]
         if args.archive_session:
             source = root / 'books/Сборник.zip'
             session = root / 'catalogue-session/request.json'
-            session.parent.mkdir()
+            session.parent.mkdir(exist_ok=True)
             with zipfile.ZipFile(source) as archive:
                 size = archive.getinfo('02 Вторая.fb2').file_size
             dump(session, dict(format=1, kind='HomeLibReader-session', id=uuid.uuid4().hex,
@@ -154,15 +194,31 @@ def main():
                                  original_source=request.get('original_source'), identity=request['identity']))
         print(json.dumps(dict(active=processes(root), receipts=receipts), ensure_ascii=False))
     elif args.action == 'record-selection':
-        peer, = [x for x in state['launches'] if x['label'] == 'peer']
+        label = args.label or 'peer'
+        peer, = [x for x in state['launches'] if x['label'] == label]
         receipt, = list((Path(peer['profile']) / 'Data/ReaderInstances').glob('*.json'))
         request = json.loads(Path(json.loads(receipt.read_bytes())['request']).read_bytes())
         with zipfile.ZipFile(root / 'books/Сборник.zip') as archive:
             digest = hashlib.sha256(archive.read('02 Вторая.fb2')).hexdigest()
         assert sha(Path(request['source'])) == digest, 'The actual second member must be open'
         assert request['original_source'] == str(root / 'books/Сборник.zip')
-        state['selected_archive_member'] = dict(source=request['source'], sha256=digest,
+        state['selected_archive_member'] = dict(label=label, source=request['source'], sha256=digest,
             original_source=request['original_source'], identity=request['identity'])
+        if args.cache_sentinel:
+            source = Path(request['source']).resolve(strict=True)
+            assert source.is_relative_to(root) and source.parent.name == 'BookCache'
+            sentinel = source.parent / ('homelib-owned-cache-sentinel-' + state['token'] + '.fb2')
+            sentinel.write_bytes(b'Owned cache cleanup sentinel; no reader holds this file.')
+            state['cache_sentinel'] = str(sentinel)
+    elif args.action == 'record-ui-install':
+        caller, = [x for x in state['launches'] if x['label'] == 'caller']
+        request = json.loads((job / 'request.json').read_bytes())
+        assert request['pid'] == caller['original_pid'] and request['application'] == 'HomeLibReader.exe'
+        assert request['target'] == str(app) and request['sha256'] == state['archive_sha256']
+        assert request['commandLine'] == subprocess.list2cmdline(caller['command'])
+        state['frontend_request'] = request
+        helpers = [p for p in processes(root) if Path(p['ExecutablePath']) == job / 'HomeLibRuUpdater.exe']
+        state['helper_pid'] = helpers[0]['ProcessId'] if helpers else None
     elif args.action == 'install':
         caller, = [x for x in state['launches'] if x['label'] == 'caller']
         assert caller['original_pid'] not in {p['ProcessId'] for p in processes(root)}, 'Close own caller normally through Computer Use first'
@@ -178,15 +234,25 @@ def main():
         active = processes(root)
         assert state['helper_pid'] not in {p['ProcessId'] for p in active}, 'Update still running'
         assert json.loads((job / 'journal.json').read_text(encoding='utf-8-sig'))['state'] == 'installed'
-        assert sha(app / 'HomeLibReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
+        if manifest := state.get('component_manifest'):
+            assert sha(app / 'HomeLibReader.exe') == state['running_exe_sha256']
+            for entry in manifest['files']:
+                assert sha(app / entry['path']) == entry['sha256']
+            assert {p.name for p in (app / 'tools').iterdir() if p.is_dir()} == {'fonts', 'images'}
+            state['only_requested_module_installed'] = True
+        else:
+            assert sha(app / 'HomeLibReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
         assert sha(app / 'HomeLibRuUpdater.exe') == state['helper_sha256']
         assert len(active) == len(state['launches']) and not ({x['original_pid'] for x in state['launches']} & {p['ProcessId'] for p in active})
         related = json.loads((job / 'restart-instances.json').read_text(encoding='utf-8-sig'))
         assert related['phase'] == 'restored', related
+        if state.get('cache_sentinel'):
+            assert not Path(state['cache_sentinel']).exists(), 'On-exit cleanup did not remove the unleased cache entry'
+            state['on_exit_cache_cleanup_observed'] = True
         for path, digest in state['source_hashes'].items():
             assert sha(root / path) == digest
         if selected := state.get('selected_archive_member'):
-            peer, = [x for x in state['launches'] if x['label'] == 'peer']
+            peer, = [x for x in state['launches'] if x['label'] == selected.get('label', 'peer')]
             receipt, = list((Path(peer['profile']) / 'Data/ReaderInstances').glob('*.json'))
             request = json.loads(Path(json.loads(receipt.read_bytes())['request']).read_bytes())
             assert sha(Path(request['source'])) == selected['sha256']

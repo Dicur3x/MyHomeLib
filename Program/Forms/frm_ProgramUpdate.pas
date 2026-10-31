@@ -1428,6 +1428,10 @@ procedure TfrmProgramUpdate.CheckComponents(Automatic: Boolean);
 var IDs: TArray<string>;
 begin
   if Assigned(FComponentThread) then Exit;
+  // A postponed, verified download is ready for installation, not another
+  // network check. Explicit format requests keep their own dependency list.
+  if not FReady and (FRequestedComponent='') and (FOperationComponent='') then RestoreReady;
+  if FReady then begin if not Automatic then Present; Exit; end;
   if not FCheckingCycle then RefreshInstalledComponents;
   FComponentAutomatic := Automatic; FComponentError := ''; FComponentErrorDetails:='';
   EnsureMessageWindow;
