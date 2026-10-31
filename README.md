@@ -22,11 +22,15 @@ HomeLibre — программа для Windows, которая помогает
 [Изменения](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1) · [История выпусков](https://github.com/Dicur3x/MyHomeLib/releases) ·
 [Проверки и ограничения](docs/RELEASE_VALIDATION_3.0.0_pre1.1.md).
 
-| Архив | Для какой системы |
+| Скачать HomeLibre | Для какой системы |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu_x64.zip) | 64-разрядная Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
+| [HomeLibre — 64 бит](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu_x64.zip) | 64-разрядная Windows |
+| [HomeLibre — 32 бит](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu.zip) | 32-разрядная Windows; также работает на 64-разрядной |
 | [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/SHA256SUMS.txt) | Контрольные суммы архивов |
+
+Архивы beta 1 пока имеют прежние имена `HomeLibRu.zip` и `HomeLibRu_x64.zip`:
+они нужны для автообновления старых установок. Переход на имена HomeLibre
+готовится без дублирования архивов. Имя запускаемого файла — `HomeLibRu.exe`.
 
 Требуется **Windows 10 или новее**. Книги скачиваются отдельно и в поставку
 не входят. Минимальный архив содержит каталогизатор. **HomeLibre Reader** и

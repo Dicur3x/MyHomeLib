@@ -173,8 +173,9 @@ var
   Obj: TJSONObject;
   Assets: TJSONArray;
   Draft, HasArchive: Boolean;
-  Tag, Name, DownloadURL, Digest, ExpectedName: string;
-  Comparison: Integer;
+  Tag, Name, DownloadURL, Digest, ExpectedName, LegacyName: string;
+  Comparison, AssetRank, SelectedRank: Integer;
+  AssetSize: Int64;
   Candidate: TProgramRelease;
   Releases: TList<TProgramRelease>;
   NewNotes, History: string;
@@ -199,6 +200,7 @@ begin
       if not Obj.TryGetValue<TJSONArray>('assets', Assets) then
         Continue;
       HasArchive := False;
+      SelectedRank := 0;
       Candidate := Default(TProgramRelease);
       Candidate.Tag := Tag;
       if Obj.TryGetValue<string>('published_at', Candidate.PublishedAt) then
@@ -208,26 +210,34 @@ begin
       if Candidate.Notes.Trim = '' then
         Candidate.Notes := 'Автор не опубликовал описание изменений этого выпуска.';
 {$IFDEF WIN64}
-      ExpectedName := 'HomeLibRu_x64.zip';
+      ExpectedName := 'HomeLibre_x64.zip';
+      LegacyName := 'HomeLibRu_x64.zip';
 {$ELSE}
-      ExpectedName := 'HomeLibRu.zip';
+      ExpectedName := 'HomeLibre.zip';
+      LegacyName := 'HomeLibRu.zip';
 {$ENDIF}
       for Asset in Assets do
         if (Asset is TJSONObject) and
            TJSONObject(Asset).TryGetValue<string>('name', Name) and
-           ((Name = 'HomeLibRu.zip') or (Name = 'HomeLibRu_x64.zip')) then
+           ((Name = 'HomeLibre.zip') or (Name = 'HomeLibre_x64.zip') or
+            (Name = 'HomeLibRu.zip') or (Name = 'HomeLibRu_x64.zip')) then
         begin
           HasArchive := True;
-          if (Name = ExpectedName) and
+          AssetRank := 0;
+          if Name = LegacyName then AssetRank := 1;
+          if Name = ExpectedName then AssetRank := 2;
+          if (AssetRank > SelectedRank) and
              TJSONObject(Asset).TryGetValue<string>('browser_download_url', DownloadURL) and
-             (DownloadURL = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + Tag + '/' + ExpectedName) and
+             (DownloadURL = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + Tag + '/' + Name) and
              TJSONObject(Asset).TryGetValue<string>('digest', Digest) and Digest.StartsWith('sha256:') and
              IsUpdateSHA256(Copy(Digest, 8, MaxInt)) and
-             TJSONObject(Asset).TryGetValue<Int64>('size', Candidate.Size) and
-             (Candidate.Size > 0) and (Candidate.Size <= UPDATE_MAX_ARCHIVE) then
+             TJSONObject(Asset).TryGetValue<Int64>('size', AssetSize) and
+             (AssetSize > 0) and (AssetSize <= UPDATE_MAX_ARCHIVE) then
           begin
             Candidate.DownloadURL := DownloadURL;
             Candidate.SHA256 := Copy(Digest, 8, MaxInt);
+            Candidate.Size := AssetSize;
+            SelectedRank := AssetRank;
           end;
         end;
       if not HasArchive then

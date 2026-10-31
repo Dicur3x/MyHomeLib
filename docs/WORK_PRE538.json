@@ -2,8 +2,8 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 50,
-    "verified_blocks": 66,
+    "verified_sequence": 52,
+    "verified_blocks": 67,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
@@ -1540,7 +1540,11 @@
       "queued": [
         "investigate request timeout and retry while preserving previous reviews",
         "evaluate bottom info panel and additional attributed sources"
-      ]
+      ],
+      "reported_version": "3.0 beta 1",
+      "automatic_upgrade_succeeded": true,
+      "source": "tester forum reply supplied by user, 2026-10-31",
+      "status": "queued; not yet reproduced against the real server"
     },
     "cleanup": {
       "successful_native_test_roots_removed": true,
@@ -1575,6 +1579,41 @@
         }
       ],
       "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
+    },
+    "related_instances_prototype": {
+      "status": "native synthetic windows passed; real Reader current-book snapshot and final helper integration pending",
+      "reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r2.json",
+          "sha256": "033d174e812e88a7fbe9f0f57020120fb77fb87627370c66d5b0680d6763268b",
+          "tester_sha256": "1c7dc5c7ea04cdaf4a3f3240a93b7eb9863a15b8cbf17204befbe6ef8209dd75",
+          "temporary_root_removed": true,
+          "cases": 3
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-update-related-Win64-20261031-r1.json",
+          "sha256": "76a36c3d546dee2cb5571001add9092486de17f6c24ddb38cc735ed9da68779a",
+          "tester_sha256": "81c8a4b38b78396e2f53ca30c61ce363c7528e85d47d42b96c72e8c8b42a91ab",
+          "temporary_root_removed": true,
+          "cases": 3
+        }
+      },
+      "verified": [
+        "exact installation process isolation",
+        "normal close saves fixture page and geometry",
+        "both visible Reader fixtures and catalogue reopen once",
+        "hidden launcher closes without reopening",
+        "request/source leases prevent cache deletion by closing catalogue",
+        "refusing window is never killed; already closed peers recover",
+        "missing source rejects before close"
+      ],
+      "not_proven": [
+        "real Reader book opened or changed through File menu",
+        "selected member of an archive remains selected",
+        "actual packaged helper end-to-end install/recovery"
+      ],
+      "initial_incomplete_probe": "First x86 run passed two cases but failed a missing-input fixture liveness assertion. No production change was made before complete passing rerun; cause not established. Failed fixture root subsequently removed after proving all peers exited and its EXE hashes matched the tester.",
+      "first_report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r1.json"
     }
   },
   "image_container_profiles_20261031": {
@@ -1634,5 +1673,53 @@
       694487139
     ],
     "assets_and_checksums_unchanged": true
-  }
+  },
+  "release_archive_names_20261031": {
+    "status": "parser_verified_both_architectures; future package publication pending",
+    "beta2": "legacy archive names bridge older installed updaters; parser accepts both brands",
+    "beta3_onwards": "HomeLibre.zip and HomeLibre_x64.zip, without duplicate archives",
+    "keep_technical_executable_names_and_profiles": true,
+    "producer_rule": "legacy names below numeric version 3.0.0.3; HomeLibre thereafter",
+    "producer_syntax": "PowerShell parser passed; future-version packages not built",
+    "parser_reports": {
+      "Win32": {
+        "report": "tools/ui/tests/Out/homelibre-update-archive-names-Win32-20261031-r1.json",
+        "sha256": "bf0761bcd8ae00e0d47d3b1c1d8cb2e44f19b44020ff9d6b95885beec9808b9c",
+        "tester_sha256": "1c7dc5c7ea04cdaf4a3f3240a93b7eb9863a15b8cbf17204befbe6ef8209dd75",
+        "temporary_root_removed": true,
+        "cases": 11
+      },
+      "Win64": {
+        "report": "tools/ui/tests/Out/homelibre-update-archive-names-Win64-20261031-r1.json",
+        "sha256": "0573afe413fbbd973eccee9e4827abc94b2e505cb7af579514f270c15d086c95",
+        "tester_sha256": "81c8a4b38b78396e2f53ca30c61ce363c7528e85d47d42b96c72e8c8b42a91ab",
+        "temporary_root_removed": true,
+        "cases": 11
+      }
+    },
+    "readme_default_branch_verified": {
+      "README.md": {
+        "sha": "c747d7455591d8945473b149112fb876c287fbff",
+        "url": "https://github.com/Dicur3x/MyHomeLib/blob/master/README.md",
+        "commit_sha": "6e38fd2bafa8a6b053458239b86dc41f207fa09e"
+      },
+      "README.en.md": {
+        "sha": "10da32a774c85dc8b1fb1c7eed413fb48293758a",
+        "url": "https://github.com/Dicur3x/MyHomeLib/blob/master/README.en.md",
+        "commit_sha": "84b0460c8754f5ad7638af791a21f70b79b0ee6d"
+      },
+      "README.uk.md": {
+        "sha": "6f863d86b740a00460e22d65c52ae4708b4062ef",
+        "url": "https://github.com/Dicur3x/MyHomeLib/blob/master/README.uk.md",
+        "commit_sha": "47f4b256b19468ec4715bd7c68f69a0ea21fb251"
+      },
+      "README.bg.md": {
+        "sha": "4647cc5d66cf5c999e45f4558668f012b8d34f3f",
+        "url": "https://github.com/Dicur3x/MyHomeLib/blob/master/README.bg.md",
+        "commit_sha": "1d57e987a8dc75d78ee260886453c0f7b6de42cd"
+      }
+    },
+    "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
+  },
+  "updated_utc": "2026-10-31T13:27:26.240750+00:00"
 }

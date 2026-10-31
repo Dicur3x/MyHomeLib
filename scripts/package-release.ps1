@@ -15,7 +15,10 @@ $releaseIdentity = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installe
 $release = $releaseIdentity.release
 $outputSubdirectory = if ($Platform -eq 'Win32') { 'Program\Out\Bin' } else { 'Program\Out\Bin64' }
 $runtimeDirectory = Join-Path $repositoryRoot $outputSubdirectory
-$archiveName = if ($Platform -eq 'Win32') { 'HomeLibRu.zip' } else { 'HomeLibRu_x64.zip' }
+# Beta 2 is the bridge for clients which only recognise HomeLibRu*.zip.
+# Its updated parser accepts HomeLibre*.zip, used from beta 3 onwards.
+$archiveBrand = if ([version]$releaseIdentity.version -lt [version]'3.0.0.3') { 'HomeLibRu' } else { 'HomeLibre' }
+$archiveName = if ($Platform -eq 'Win32') { "$archiveBrand.zip" } else { "${archiveBrand}_x64.zip" }
 if ($Full) { $archiveName = $archiveName.Replace('.zip', '_full.zip') }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot "Installer\Out\$release"

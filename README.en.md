@@ -1,8 +1,8 @@
-# HomeLib Ru
+# HomeLibre
 
 [Русский](README.md) · [Українська](README.uk.md) · **English** · [Български](README.bg.md)
 
-HomeLib Ru is a Windows application for organising, finding and reading ebooks.
+HomeLibre is a Windows application for organising, finding and reading ebooks.
 It catalogues your own files and works with online library catalogues based on
 the LibRusEc engine, including Flibusta.
 
@@ -15,19 +15,24 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current published release is **pre5.33 / 2.7.0.1101**.
-[Release notes](docs/releases/RELEASE_NOTES_2.7.0_pre5.33.md) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_2.7.0_pre5.33.md) (in Russian).
+The current public beta is **[HomeLibre 3.0 beta 1](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1)**.
+[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.1) · [Release history](docs/releases/README.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.1.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibRu_x64.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibRu.zip](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/2.7.0_pre5.33/SHA256.txt) | Archive checksums |
+| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu_x64.zip) | 64-bit Windows |
+| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.1/SHA256SUMS.txt) | Archive checksums |
+
+Beta 1 retains the archive filenames `HomeLibRu.zip` and `HomeLibRu_x64.zip`
+so older installations can update automatically. A transition to HomeLibre
+filenames is being prepared without duplicate archives. The executable remains `HomeLibRu.exe`.
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
-The core reader and its required runtime are included. External readers and
-additional decoders are offered when needed. You do not need to install Delphi,
+The minimal archive contains the cataloguer. HomeLibre Reader and the modules
+required by a particular book are offered for download when needed. The reader
+is also available separately in the [components release](https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25). You do not need to install Delphi,
 Python or a separate SQLite library.
 
 1. Extract the entire archive to a folder you can write to.
@@ -85,14 +90,14 @@ Python or a separate SQLite library.
 
 ### Reading
 
-The built-in reader is enabled by default. It opens FB2, FB3, EPUB, TXT, RTF,
+**HomeLibre Reader** is installed on demand. It opens FB2, FB3, EPUB, TXT, RTF,
 HTML/MHTML, Markdown, DOC/DOT/DOCX, ODT, PDF, DjVu, CBZ/CBR/CB7 comics and images.
 DOC/DOT use DocSharp, installed on demand, to produce a cached DOCX, without LibreOffice.
 DOCX and ODT are read directly from XML. Unencrypted MOBI/AZW/AZW3/PRC support
 is limited to KF8 (format version 8); older variants may need an external reader.
 PPT/PPTX/ODP presentations, XLS/XLSX/ODS spreadsheets, their templates and WPS/WPD
 are adapted into a cached EPUB with text, tables and images. No installed office
-suite is required. WPS/WPD need 64-bit Windows in either HomeLib Ru build.
+suite is required. WPS/WPD need 64-bit Windows in either HomeLibre build.
 
 - Light and dark themes; adjustable fonts, text width, colours and appearance.
 - A tree table of contents, in-book search, footnotes, bookmarks and saved reading position.
@@ -112,7 +117,7 @@ suite is required. WPS/WPD need 64-bit Windows in either HomeLib Ru build.
 Choose an external reader from a book's context menu and configure it per file
 type. Existing reader assignments are preserved.
 
-The built-in reader is enabled by default: complex EPUB/CSS layouts may differ
+Complex EPUB/CSS layouts may differ
 from the original. Protected books are not decrypted; scans do not receive OCR.
 [Reader settings](Program/Help/en/set_readers.html).
 
@@ -146,7 +151,7 @@ from the original. Protected books are not decrypted; scans do not receive OCR.
 
 ### Compact FLibrary and LightLib collections
 
-HomeLib Ru supports ordinary INPX/ZIP collections and their compact variants:
+HomeLibre supports ordinary INPX/ZIP collections and their compact variants:
 
 | Collection | Supported features |
 | --- | --- |
@@ -176,20 +181,18 @@ The application displays changes, prepares the files and restarts.
 SQLite, SumatraPDF, DjVuLibre, 7-Zip and DocSharp are checked using
 their authors' official resources. If a compatible release cannot be confirmed,
 the window reports this. AlReader is available from one permanent verified archive.
-Component archives are not duplicated with each HomeLib Ru release.
+Component archives are not duplicated with each HomeLibre release.
 
 Before migrating from MyHomeLib or updating manually, close the application
 and back up your profile and `.hlc2` collection files. Extract the new ZIP to
 a separate folder so an old `MyHomeLib.exe` is not left beside the new application.
 
-| Mode | Settings and data location |
-| --- | --- |
-| Normal | `%APPDATA%\MyHomeLib`; collection files may be in folders you chose |
-| Portable | Beside the EXE, when an empty extensionless `uselocaldata` file is present or the same launch parameter is used |
+Archive installations are **portable by default**: settings stay beside the EXE,
+and personal data is in `Data`. No `uselocaldata` marker is required. Collection
+files and books may be kept in separately chosen folders.
 
-When migrating a portable installation, transfer your own `uselocaldata`,
-`myhomelib2.ini`, `Data` and `presets.cxml2`, then check book and collection paths.
-An INI beside the EXE alone does not enable portable mode.
+When moving the application, retain its entire folder, including `myhomelib2.ini`,
+`Data` and `presets.cxml2`, then check book and collection paths.
 
 Release archives contain no personal databases, books, notes or history.
 When rolling back the application, retain your current personal data; do not
@@ -223,10 +226,10 @@ The [Russian README](README.md) is the primary reference for current details.
 
 Original project: **Олексій Пеньков (Oleksiy Penkov)**.
 Programming: Oleksiy Penkov, Nikolay Rymanov, eg.
-Development of HomeLib Ru: **Dicur3x**.
+Development of HomeLibre: **Dicur3x**.
 Testing: eg, Evgeniy_V, albert, AlbanSpy, kaznelson, Olega.
 
-HomeLib Ru source code is licensed under [MIT](LICENSE), © 2008–2026 Oleksiy Penkov.
+HomeLibre source code is licensed under [MIT](LICENSE), © 2008–2026 Oleksiy Penkov.
 The licence covers the code, not the project's name; naming rules and bundled
 component licences are described in [NOTICE](NOTICE).
 Report bugs and suggestions through [Issues](https://github.com/Dicur3x/MyHomeLib/issues).
