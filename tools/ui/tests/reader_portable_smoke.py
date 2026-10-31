@@ -1,5 +1,6 @@
 """Stage/validate actual reader EXEs; open/close the windows with Computer Use."""
 import argparse
+import configparser
 import ctypes
 import hashlib
 import json
@@ -80,7 +81,7 @@ def load_or_create():
     return state
 
 
-def launch(state, arch, mode, packed, package=None):
+def launch(state, arch, mode, packed, package=None, save_copy=False):
     root = owned(state)
     if any(alive(run['pid']) for run in state['runs']):
         raise ValueError('Close the previous test reader normally before the next case')
@@ -114,6 +115,24 @@ def launch(state, arch, mode, packed, package=None):
     if (app / 'uselocaldata').exists():
         raise ValueError('Actual smoke must not depend on the portable marker')
     profile = app if mode == 'default' else root / (arch + '-explicit')
+    destination = None
+    if save_copy:
+        assert not packed, 'This source-copy check requires a direct FB2 input'
+        profile.mkdir(parents=True, exist_ok=True)
+        destination = root / ('saved-' + arch + '-' + mode)
+        destination.mkdir(exist_ok=False)
+        settings = configparser.ConfigParser(interpolation=None, strict=False)
+        settings.optionxform = str
+        ini = profile / 'HomeLibReader.ini'
+        if ini.exists():
+            settings.read_string(ini.read_text('utf-8-sig'))
+        for section in ('SYSTEM', 'PATH'):
+            if not settings.has_section(section):
+                settings.add_section(section)
+        settings['SYSTEM'].update(CheckUpdates='0', FileNameTemplate='Copy - %t', SaveAsUseSubfolders='0')
+        settings['PATH']['SyncExport'] = str(destination)
+        with ini.open('w', encoding='utf-8') as stream:
+            settings.write(stream, space_around_delimiters=False)
     source = Path(state['source'])
     if packed:
         archive = source.with_suffix('.zip')
@@ -131,6 +150,8 @@ def launch(state, arch, mode, packed, package=None):
                                creationflags=subprocess.CREATE_NO_WINDOW)
     record = dict(arch=arch, mode=mode, pid=process.pid, app=str(app), profile=str(profile),
                   exe_sha256=sha(app / 'HomeLibReader.exe'), checked=False, packed=packed)
+    if save_copy:
+        record.update(save_copy_destination=str(destination), destination_prefilled_in_owned_profile=True)
     if mode == 'explicit':
         record['local_before'] = local_before
     state['runs'].append(record)
@@ -157,6 +178,13 @@ def check(state):
         raise ValueError('Original AppData history/notes or source book changed')
     if run['mode'] == 'explicit' and snapshot(Path(run['app']) / 'Data') != run['local_before']:
         raise ValueError('Explicit profile changed the default portable profile')
+    if run.get('save_copy_destination'):
+        files = list(Path(run['save_copy_destination']).rglob('*'))
+        files = [p for p in files if p.is_file()]
+        assert len(files)==1 and files[0].suffix=='.fb2' and sha(files[0])==state['source_sha256'], 'Expected one unchanged FB2 copy'
+        assert all(not (Path(run['app'])/'tools'/name).exists() for name in ('bookconvert','images','kindle','office','xps','pdfium','djvu','doc'))
+        run.update(unchanged_fb2_copy_verified=True, optional_format_modules_absent=True,
+                   copy_name=files[0].name, copy_sha256=sha(files[0]))
     run['checked'] = True
     save(state)
     run['cache_created'] = cache_created
@@ -186,12 +214,13 @@ if __name__ == '__main__':
     parser.add_argument('--packed', action='store_true')
     parser.add_argument('--state', type=Path)
     parser.add_argument('--archive', type=Path)
+    parser.add_argument('--save-copy', action='store_true', help='Prefill own folder, require one real GUI-created unchanged FB2 copy')
     options = parser.parse_args()
     if options.state:
         STATE = options.state.resolve()
     state = load_or_create()
     if options.action == 'launch':
-        launch(state, options.arch, options.mode, options.packed, options.archive)
+        launch(state, options.arch, options.mode, options.packed, options.archive, options.save_copy)
     elif options.action == 'check':
         check(state)
     else:

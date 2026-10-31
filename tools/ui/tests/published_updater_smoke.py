@@ -77,6 +77,8 @@ def main():
     parser.add_argument('--baseline-component', type=Path,
                         help='Previous exact published component ZIP, required for a component upgrade')
     parser.add_argument('--baseline-component-sha256')
+    parser.add_argument('--repair-same-version', action='store_true',
+                        help='Require the incomplete DjVu mirror to need repair, then test its same-version replacement')
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--frontend', action='store_true',
                         help='Use the published Main ready-package install/restart UI instead of its old helper')
@@ -95,7 +97,13 @@ def main():
             baseline_manifest = json.loads(package.read('HomeLibRu.update.json'))
         assert baseline_manifest['component'] == component
         assert baseline_manifest['platform'] == manifest['platform']
-        assert tuple(map(int, baseline_manifest['version'].split('.'))) < tuple(map(int, manifest['version'].split('.')))
+        if args.repair_same_version:
+            assert component=='DjVuLibre' and baseline_manifest['version']==manifest['version']
+            assert args.baseline_component_sha256!=args.new_sha256
+        else:
+            assert tuple(map(int, baseline_manifest['version'].split('.'))) < tuple(map(int, manifest['version'].split('.')))
+    else:
+        assert not args.repair_same_version
     report = dict(status='RUNNING', scope=__doc__, old_archive_sha256=args.old_sha256,
                   new_archive_sha256=args.new_sha256, published=False)
     if args.frontend:
@@ -166,7 +174,9 @@ def main():
             run_native('--prepare-component', previous, args.baseline_component_sha256,
                 baseline_manifest['release'], previous_job, component, baseline_manifest['version'])
             run_native('--install', previous_job, target)
-            assert run_native('--component-needs-repair', target, component).splitlines() == ['0', 'PASS']
+            previous_repair = run_native('--component-needs-repair', target, component).splitlines()
+            assert previous_repair == [('1' if args.repair_same_version else '0'), 'PASS']
+            report['previous_component_needed_repair'] = args.repair_same_version
             if component == 'BookProcessing':
                 unrelated_paths = ('tools/kindle', 'tools/office', 'tools/xps', 'tools/pdfium',
                     'tools/djvu', 'tools/images', 'tools/bookconvert/legacy_helper.py',
