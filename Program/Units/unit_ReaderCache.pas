@@ -45,10 +45,26 @@ uses
 
 type
   TReaderThreadAccess = class(TThread);
+  TArchiveBookChoiceForm = class(TForm)
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+  end;
   TReaderArchiveList = class(TListBox)
   protected
     procedure DblClick; override;
   end;
+
+procedure TArchiveBookChoiceForm.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  // Standalone reading hides the launcher while preparing a book. The
+  // chooser must remain an application window that can be switched to.
+  if not Assigned(Application.MainForm) or not Application.MainForm.Visible then
+  begin
+    Params.WndParent:=0;
+    Params.ExStyle:=(Params.ExStyle or WS_EX_APPWINDOW) and not WS_EX_TOOLWINDOW;
+  end;
+end;
 
 procedure TReaderArchiveList.DblClick;
 var Dialog: TCustomForm;
@@ -690,8 +706,10 @@ begin
       procedure
       begin
       if Application.Terminated or TReaderThreadAccess(RequestingThread).Terminated then Exit;
-      Dialog := TForm.CreateNew(nil);
+      Dialog := TArchiveBookChoiceForm.CreateNew(nil);
       try
+        if not Assigned(Application.MainForm) or not Application.MainForm.Visible then
+        begin Dialog.PopupMode:=pmNone; Dialog.PopupParent:=nil; end;
         Dialog.Caption := 'Какую книгу открыть?';
         if ConversionOnly then Dialog.Caption:='Какую книгу конвертировать?'; Dialog.Position := poMainFormCenter;
         Dialog.ClientWidth := 620; Dialog.ClientHeight := 360;

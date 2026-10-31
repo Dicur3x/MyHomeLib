@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 53,
+    "verified_sequence": 55,
     "verified_blocks": 67,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1581,7 +1581,7 @@
       "behaviour": "hidden direct launcher closes after component cancellation; catalogue sessions send terminal closed; no modules installed; input and existing payload unchanged"
     },
     "related_instances_prototype": {
-      "status": "Five native fixture cases per architecture and scoped actual GUI helper/Reader replacement passed; archive member, Reader-initiated update and final beta2 packages pending",
+      "status": "Five native cases and actual GUI helper/Reader replacement plus selected loose-archive and catalogue-protocol archive-member saved-copy roundtrips passed on x86/x64; Reader-initiated update and final beta2 packages pending",
       "reports": {
         "Win32": {
           "report": "tools/ui/tests/Out/homelibre-update-related-Win32-20261031-r2.json",
@@ -1608,7 +1608,6 @@
         "missing source rejects before close"
       ],
       "not_proven": [
-        "Actual selected archive member restoration",
         "Reader-initiated component/update continuation with outbound session and on-exit cache cleanup",
         "Final beta2 catalogue/component packages and old-release upgrade chain",
         "Native File Open dialog input through Computer Use remains unavailable; x86 used File > Recent books instead"
@@ -1715,6 +1714,62 @@
         "fix": "Scope WMI OleVariant/interface work in a nested procedure so compiler-generated COM temporaries finalize before the final CoUninitialize. Explicit VarClear of named locals alone is insufficient.",
         "verification": "Actual GUI helpers rebuilt for x86/x64; real Reader EXE replacement and two restored windows passed on both.",
         "reader_changed_book": "x86 File > Recent books selected a book different from original CLI; it and its 3% position/paragraphs were restored. x64 covered the unchanged initial book and initiator position."
+      },
+      "actual_archive_reader_reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-reader-archive-update-Win32-20261031-r2.json",
+          "sha256": "a1e8972b9027618ff5ad6824d8e792d65d00a661f27b08d7a65c7394e3d22a5a",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "f7d9e6a0120c8e78c313f96377b1ed76fc992578c35d3f17fa35c238cb81c959",
+          "helper_sha256": "3d1432f4be0b3a1e1f092b510967c7b5ac15f64f2d33704ac535da0db3f98abe",
+          "selected_member_sha256": "6991849ff8837683487d105ba1a149b0e2713e9d3d0a569d140a6155e0f144b3",
+          "saved_copy_bytes": 34842
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-reader-archive-update-Win64-20261031-r2.json",
+          "sha256": "566f739c5b88d5f7508f969768e6f6f5ac3a867b4d847d05ecabed7e36105fb3",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "7254f44fa79e4db73b8896824d80b9f0b789468dcd0ffc736715985174fc198e",
+          "helper_sha256": "beadcd34277fe8fd6500f3d3ff5b8d6f0dfc850caf24effc1a260fb15265cf43",
+          "selected_member_sha256": "6991849ff8837683487d105ba1a149b0e2713e9d3d0a569d140a6155e0f144b3",
+          "saved_copy_bytes": 34842
+        }
+      },
+      "archive_chooser_fix": {
+        "cause": "Standalone hidden launcher owned the chooser, so it was not independently targetable/switchable",
+        "change": "Use an application window without hidden owner only while no visible main form exists; preserve catalogue modal ownership",
+        "verification": "Both actual x86/x64 choosers targetable; double-click second member, update, same 3% and paragraphs; saved copy SHA256 matches selected entry; source hashes unchanged",
+        "incomplete_baseline": {
+          "report": "tools/ui/tests/Out/homelibre-reader-archive-update-Win64-20261031-r1.json",
+          "sha256": "0629b4749c23cd571efeb868118f471745560098abbe8497fff3ac527f3ee0b1",
+          "status": "INCOMPLETE",
+          "temporary_root_removed": true,
+          "cleanup": "Normal close via production updater coordination, final caller Alt+F4; no forced process termination"
+        }
+      },
+      "actual_catalogue_archive_reader_reports": {
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-reader-catalogue-archive-Win32-20261031-r1.json",
+          "sha256": "9afdb28fc7fbe8fa80bb9e431a24640123ff4e55e346474adca44fb79fb24e5b",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "f7d9e6a0120c8e78c313f96377b1ed76fc992578c35d3f17fa35c238cb81c959",
+          "helper_sha256": "3d1432f4be0b3a1e1f092b510967c7b5ac15f64f2d33704ac535da0db3f98abe",
+          "selected_member_sha256": "6991849ff8837683487d105ba1a149b0e2713e9d3d0a569d140a6155e0f144b3",
+          "saved_copy_bytes": 34842
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-reader-catalogue-archive-Win64-20261031-r1.json",
+          "sha256": "53a0650585e51e9ddf1af7d001ca06916e1fa54f09d6ce254bdddd3de60266ce",
+          "status": "PASS_FOR_RECORDED_SCOPE",
+          "temporary_root_removed": true,
+          "reader_sha256": "7254f44fa79e4db73b8896824d80b9f0b789468dcd0ffc736715985174fc198e",
+          "helper_sha256": "beadcd34277fe8fd6500f3d3ff5b8d6f0dfc850caf24effc1a260fb15265cf43",
+          "selected_member_sha256": "6991849ff8837683487d105ba1a149b0e2713e9d3d0a569d140a6155e0f144b3",
+          "saved_copy_bytes": 34842
+        }
       }
     }
   },
