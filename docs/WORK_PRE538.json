@@ -5,10 +5,10 @@
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
     "title": "HomeLibre задачи после pre5.37",
     "purpose": "User-visible live checklist since pre5.37; keep completed items checked and struck through only after evidence, append new feedback, preserve the full remaining scope.",
-    "verification": "61 blocks, 42 checked, sequence 45 read back; three guarded replacements and one checked source-fix insertion. All changed text, exact block order, title and untouched hashes preserved.",
+    "verification": "62 blocks, 42 checked, sequence 46 read back; four guarded replacements and one open estimate-investigation task inserted. Exact changes, original block order, title and untouched hashes preserved.",
     "maintenance": "Update this Page after each completed direction or new feedback. Read current Page and Pages edit-requests skill before guarded edits; do not replace unrelated/user edits or treat checkbox state alone as proof.",
-    "last_check": "31 October 2026: real standalone first-use PDFium download/install/restart/original PDF opening and page turns passed x86/x64 on development EXEs. Twenty-six module files each match; unrelated modules absent and prior files preserved. New own GUI/native profiles removed. Window fix remains unpublished; full goal active.",
-    "last_verified_sequence": 45
+    "last_check": "31 October 2026: real public two-module first-use from standalone Save As passed x86/x64: one download queue/install/restart, restored Unicode destination/mask and EPUB/balanced settings, actual EPUB saved with text/image/reference intact, all 154/155 module files checked, no unrelated decoders, originals preserved. Owned fixture removed. Estimate-only economy/balanced size inversion recorded as open next task; window fix remains unpublished and full goal active.",
+    "last_verified_sequence": 46
   },
   "order": [
     "archive_opening",
@@ -1388,9 +1388,95 @@
     "build_scope": "Reader and CollectionViewsTest Release Win32/Win64 built in Community Edition GUI; initial development compile typo corrected before successful builds. Published beta 1 archives remain unchanged.",
     "cleanup": "Both own first-use roots removed, including downloaded packages/payloads/profiles; successful new native fixtures cleaned by the guarded native runner. No previously denied path retried.",
     "remaining": [
-      "real multi-module download/restart with Save As continuation",
-      "fresh final versioned archive builds and publication of this fix",
+      "compare actual economy/balanced EPUB output for new observed estimate case, then fix demonstrated cause",
+      "fresh final versioned archive builds and publication of window fix",
       "strict standalone Reader minimum, then remaining goal checklist"
-    ]
+    ],
+    "save_as_follow_up_report": "tools/ui/tests/Out/homelibre-reader-save-first-use-20261031-r1.json"
+  },
+  "reader_save_first_use_20261031": {
+    "status": "PASS actual public two-module download, installation, restart and resumed EPUB save on Win32/Win64",
+    "published": false,
+    "scope": "Actual development Reader EXE over verified beta 1 package; real GUI Save As, actual public two-module download, installer, successor Reader and EPUB export on both architectures. No unpublished EXE claim about existing public beta 1 archives.",
+    "source_commit_before_verification": "bfb2cbbd0d61b348d5334d08976b06115d1ea32f",
+    "harness": "tools/ui/tests/reader_save_first_use_smoke.py",
+    "report": "tools/ui/tests/Out/homelibre-reader-save-first-use-20261031-r1.json",
+    "report_sha256": "6ebd9a5529c897f079fbb226877e34d7c392cdc9e51b6acc5a4a34fb891569ad",
+    "platforms": [
+      {
+        "platform": "Win32",
+        "reader_exe_sha256": "9c5f3055750a9828c72bf10f2e62a78ec26665c23f35f3e7b3a8c45bba4af4d1",
+        "original_pid": 8512,
+        "restarted_pid": 127316,
+        "only_required_two_modules_downloaded": true,
+        "installed_before_second_click": false,
+        "installed_payload_hashes_verified": 154,
+        "transaction_installed": true,
+        "output_epub_bytes": 5183,
+        "output_epub_sha256": "f4d68bf98cd742f000e9b4fcc803d73bde5e4bbdcefaae30e5162835e6cc730f",
+        "output_image_dimensions": [
+          1200,
+          900
+        ],
+        "output_image_bytes": 34032,
+        "output_image_references_verified": 1,
+        "output_text_and_image_verified": true,
+        "continuation_consumed": true,
+        "native_repairs_needed": false,
+        "source_preserved": true,
+        "unrelated_modules_absent": true,
+        "preexisting_payload_preserved": true
+      },
+      {
+        "platform": "Win64",
+        "reader_exe_sha256": "28958d4e190aa834cef849bc5c2246887fc66dd83c9669d256c3f31d366013ac",
+        "original_pid": 131708,
+        "restarted_pid": 25672,
+        "only_required_two_modules_downloaded": true,
+        "installed_before_second_click": false,
+        "installed_payload_hashes_verified": 155,
+        "transaction_installed": true,
+        "output_epub_bytes": 5184,
+        "output_epub_sha256": "e075af72140e7bb2a314292c461d40b21b338bed8f99eaeece8291775c0a1ca6",
+        "output_image_dimensions": [
+          1200,
+          900
+        ],
+        "output_image_bytes": 34032,
+        "output_image_references_verified": 1,
+        "output_text_and_image_verified": true,
+        "continuation_consumed": true,
+        "native_repairs_needed": false,
+        "source_preserved": true,
+        "unrelated_modules_absent": true,
+        "preexisting_payload_preserved": true
+      }
+    ],
+    "gui": {
+      "both_architectures": [
+        "FB2 opened normally in a clean owned profile without processing/image modules",
+        "Format EPUB and balanced images set through observed Computer Use combo/text values; persisted plan verified, not inferred from stale preview",
+        "One compact request named exactly BookProcessing and ImageProcessing with per-module and total download size",
+        "Ordinary download button, progress 100%, no installed payload before install button",
+        "Ordinary install/restart button; successor process restored folder, EPUB, balanced mode and filename mask",
+        "One estimate operation displayed four results and explicit progress/stop",
+        "Four displayed estimates: original approximately 1.3 MB; balanced approximately 5.1 KB; economy approximately 9.1 KB; none approximately 2.9 KB",
+        "Ordinary Save button exported EPUB; final dialog reported one copy and zero save failures",
+        "Final confirmation and Reader closed normally with Computer Use"
+      ]
+    },
+    "module_scope": "Only BookProcessing and ImageProcessing installed. Kindle, Office, XPS, PDFium, DjVu and DocSharp absent; every installed module file hash checked and both production repair probes returned 0/PASS.",
+    "cleanup": "Owned new G: fixture root, both applications, downloaded payloads and profiles removed after normal GUI exit and successful checks. Previously denied paths untouched.",
+    "next": {
+      "status": "OPEN",
+      "issue": "Economy estimate exceeds balanced estimate for deterministic opaque 1200x900 PNG gradient on both architectures",
+      "scope": "Observed rounded GUI estimates only; real economy output must be compared before fixing. Balanced actual EPUB verified: 5183/5184 bytes."
+    },
+    "limits": [
+      "Development Reader EXEs, not new versioned release archives; existing public beta 1 archives unchanged.",
+      "One deterministic illustrated FB2 source and balanced EPUB output; this is not a new all-formats or all-output-profiles claim.",
+      "Economy larger than balanced is currently an observed estimate; actual economy output needs comparison."
+    ],
+    "full_goal_complete": false
   }
 }
