@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 49,
+    "verified_sequence": 50,
     "verified_blocks": 66,
     "verified_checked": 42,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1345,7 +1345,12 @@
     "full_goal_complete": false,
     "default_branch_verified": true,
     "readme_verified_current": true,
-    "final_publication_report": "tools/ui/tests/Out/homelibre-beta-publication-final-20261031-r1.json"
+    "final_publication_report": "tools/ui/tests/Out/homelibre-beta-publication-final-20261031-r1.json",
+    "github_draft": false,
+    "github_prerelease": false,
+    "github_latest": true,
+    "public_visibility_reverified_utc": "2026-10-31T11:39:12.339832+00:00",
+    "publication_assets_unchanged": true
   },
   "historical_snapshot_note": "Dated earlier sections preserve verification scope at that time; current publication state is current_release and fresh_three_layout_release_20261031. Unreleased/pending wording inside older snapshots is not the current release status.",
   "reader_first_use_20261031": {
@@ -1610,5 +1615,24 @@
     "reinstall": "offer the required module again when opening or converting a matching book",
     "usage_tracking": "actual reading/conversion, not update checks",
     "visible_checklist_block_id": "9d0c9608-d78a-4053-8947-932b9e26f229"
+  },
+  "release_policy_20261031": {
+    "requested_by_user": true,
+    "sequence": "3.0 beta 1, 3.0 beta 2, 3.0 beta 3, ...",
+    "github": {
+      "draft": false,
+      "prerelease": false,
+      "latest": true
+    },
+    "retain_beta_in_title": true,
+    "stable_3_0_release_requires_explicit_user_instruction": true,
+    "latest_route_verified": "https://api.github.com/repos/Dicur3x/MyHomeLib/releases/latest",
+    "verified_tag": "3.0.0_pre1.1",
+    "verified_existing_asset_ids": [
+      694487136,
+      694487137,
+      694487139
+    ],
+    "assets_and_checksums_unchanged": true
   }
 }
