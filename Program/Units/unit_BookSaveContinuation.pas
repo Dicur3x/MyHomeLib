@@ -106,7 +106,7 @@ end;
 procedure CheckOptions(const Options: TBookSendOptions);
 var Templater: TTemplater; Parts: TArray<string>;
 begin
-  if not (Options.Mode in [emFB2,emFB2Zip,emEpub]) or
+  if not (Options.Mode in [emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3]) or
     not (Options.NameCollision in [bncAsk,bncReplace,bncKeepBoth]) or
     (Options.KeepSourceFormat and Options.KeepFB2EPUB) or
     (Options.Folder='') or (Length(Options.Folder)>4096) or

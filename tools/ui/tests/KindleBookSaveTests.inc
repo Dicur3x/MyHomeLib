@@ -148,6 +148,7 @@ begin
     Require(not DirectoryExists(Settings.AppPath+'tools/pdfium') and
       not DirectoryExists(Settings.AppPath+'tools/djvu'),'Basic text scenario includes unused raster readers');
   Root:=Settings.AppPath+'kindle-save-fixtures';
+  TestBookSaveContinuation;
   Books:=[FileBook(TPath.Combine(Root,'source.fb2')),FileBook(TPath.Combine(Root,'source.epub'))];
   SetLength(Hashes,Length(Books));
   for var I:=0 to High(Books) do Hashes[I]:=UpdateSHA256(Books[I].GetBookFileName);

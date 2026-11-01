@@ -2696,6 +2696,11 @@
       "kindle_install_proof": {
         "path": "tools/ui/tests/Out/homelibre-kindle-install-20261101-r1.json",
         "sha256": "e6811ec7990946157309af8d0e63fedb6aa9c51fac3d4bc45e77dcc5e6890599"
+      },
+      "latest_r5_regression": {
+        "status": "PASS Win32 and Win64 after real RTF fixes; complete installer/mixed text/raster/image/size/source-copy matrix and independent 16-output readback per architecture",
+        "path": "tools/ui/tests/Out/homelibre-kindle-regression-20261101-r5.json",
+        "sha256": "3a359fe5ac5647847f66f49e53121506a3ee3fc3630de97de0a6939256b31273"
       }
     },
     "remaining": [
@@ -2714,7 +2719,7 @@
         "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH"
       ]
     },
-    "next_check": "Remaining real collection formats sequentially; rerun native suite once for the R5 XHTML/metadata changes; full GUI module restart/resume and final candidate builds remain.",
+    "next_check": "Remaining real LIT/LRF/PDB/RGO/IBK/Kindle/SM inputs sequentially; Win64 Office/CHM matrix; full GUI module download/restart/review; final Main/Reader/Updater builds.",
     "real_collection_rtf": {
       "status": "PASS Win32 and Win64",
       "records": [
@@ -2739,6 +2744,13 @@
           "sha256": "7e979d01fca03707f38dfdf515f7078d0eb734fef3d5935fe202be550f4f1f19"
         }
       }
+    },
+    "real_collection_progress": "Win32: two DOCX, two DOC, two ODT and two CHM pass to both MOBI/AZW3 with independent text checks. CHM needs 7-Zip as expected; fixture corrected. RTF separately passed both architectures. Other rare formats and Win64 matrix pending.",
+    "closed_continuation_finding": {
+      "fix": "CheckOptions now admits the supported TXT/MOBI/AZW3 targets alongside FB2/EPUB",
+      "status": "PASS actual producer/successor boundary Win32 and Win64; full GUI download/restart/review remains pending",
+      "report": "tools/ui/tests/Out/homelibre-kindle-continuation-20261101-r1.json",
+      "sha256": "73d94262800c17dcbd85c4f0a5c7b6b800e86594e8dcd79f3d26210d183fd991"
     }
   }
 }

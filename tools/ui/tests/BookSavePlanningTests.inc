@@ -1,5 +1,5 @@
 ﻿procedure WriteBookSavePlanChild;
-var Options: TBookSendOptions; Books: TBookIdList;
+var Options: TBookSendOptions; Books: TBookIdList; ComponentID, SourceFile: string; RequestedMode: Integer;
 begin
  try
   Options:=Default(TBookSendOptions); Options.Folder:=ExtractFilePath(ParamStr(2))+'saved';
@@ -7,7 +7,17 @@ begin
   Options.ZipEachBook:=True; Options.FileNameTemplate:='[%s - ][%n - ]%t';
   Options.NameCollision:=bncReplace;
   Options.FolderTemplate:='%f\[%s]'; Options.ImageQuality:='economy|auto|except=1,9-10';
-  if ParamStr(3)='' then
+  ComponentID:='BookConverter'; SourceFile:=ParamStr(3);
+  if SourceFile.StartsWith('--target=') then
+  begin
+    Require(TryStrToInt(SourceFile.Substring(9),RequestedMode) and
+      ((RequestedMode=Ord(emTxt)) or (RequestedMode=Ord(emMobi)) or (RequestedMode=Ord(emAZW3))),
+      'Unexpected new save-plan target');
+    SourceFile:='';
+    Options.Mode:=TExportMode(RequestedMode); Options.KeepFB2EPUB:=False; Options.ZipEachBook:=False;
+    if Options.Mode=emTxt then ComponentID:='BookProcessing' else ComponentID:='KindleExport';
+  end;
+  if SourceFile='' then
   begin
     SetLength(Books,2);
     for var I:=0 to High(Books) do
@@ -16,8 +26,8 @@ begin
       Books[I].ExpectedLibID:='lib-Ё-'+IntToStr(I); Books[I].ExpectedPhysicalIdentity:='archive|member-'+IntToStr(I);
     end;
   end;
-  StoreBookSaveContinuation(ParamStr(2),'BookConverter',Options,Books,ParamStr(3));
-  ArmBookSaveContinuation(ParamStr(2),'BookConverter');
+  StoreBookSaveContinuation(ParamStr(2),ComponentID,Options,Books,SourceFile);
+  ArmBookSaveContinuation(ParamStr(2),ComponentID);
  except
    on E: Exception do
    begin TFile.WriteAllText(ParamStr(2)+'.producer-error.txt',E.ClassName+': '+E.Message,TEncoding.UTF8); raise; end;
@@ -121,12 +131,17 @@ procedure TestBookSaveContinuation;
 var Name, Source, Token: string; Plan: TBookSaveContinuation; Options: TBookSendOptions;
   Books: TBookIdList; Startup: TStartupInfo; Process: TProcessInformation; Command: string;
   Code: Cardinal;
-  procedure Child(const SourceFile: string = '');
+  procedure Child(const SourceFile: string = ''; Mode: TExportMode = emEpub);
   begin
     Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
     Process:=Default(TProcessInformation);
     Command:='"'+ParamStr(0)+'" save-plan-producer "'+Name+'"';
-    if SourceFile<>'' then Command:=Command+' "'+SourceFile+'"';
+    if Mode<>emEpub then
+    begin
+      Require(SourceFile='','New target fixture expects catalogue rows');
+      Command:=Command+' --target='+IntToStr(Ord(Mode));
+    end
+    else if SourceFile<>'' then Command:=Command+' "'+SourceFile+'"';
     UniqueString(Command);
     Require(CreateProcess(PChar(ParamStr(0)),PChar(Command),nil,nil,False,CREATE_NO_WINDOW,nil,
       PChar(Settings.AppPath),Startup,Process),'Cannot start save-plan producer');
@@ -166,6 +181,22 @@ begin
   Require(FileExists(BookSaveContinuationFile(Name)),'Old dialog removed a newer save plan');
   ClearBookSaveContinuation(Name,Token);
   Require(not FileExists(BookSaveContinuationFile(Name)),'Completed save plan was retained');
+  for var Mode in [emTxt,emMobi,emAZW3] do
+  begin
+    Child('',Mode);
+    Require(TakeBookSaveContinuation(Name,Plan),'New export target lost its save continuation');
+    Require((Plan.Options.Mode=Mode) and not Plan.Options.KeepFB2EPUB and not Plan.Options.ZipEachBook and
+      (Length(Plan.Books)=2) and (Plan.Books[1].ExpectedLibID='lib-Ё-1') and
+      (Plan.Options.FileNameTemplate='[%s - ][%n - ]%t') and
+      (Plan.Options.ImageQuality='economy|auto|except=1,9-10'),
+      'New-target continuation lost format, source identities, masks or image controls');
+    if Mode=emTxt then Require(Plan.RequiredComponent='BookProcessing','TXT continuation requested unrelated module')
+    else Require(Plan.RequiredComponent='KindleExport','Kindle continuation lost the required writer');
+    Token:=Plan.Token;
+    Require(not TakeBookSaveContinuation(Name,Plan),'New-target save continuation was consumed twice');
+    ClearBookSaveContinuation(Name,Token);
+  end;
+  Writeln('PASS TXT MOBI AZW3 continuation crosses real producer successor boundary with exact options and required module');
   Source:=Settings.AppPath+'plan-source.fb2'; TFile.WriteAllText(Source,'source',TEncoding.UTF8);
   Child(Source); TFile.AppendAllText(Source,' changed',TEncoding.UTF8);
   var Failed:=False;

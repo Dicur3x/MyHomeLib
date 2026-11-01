@@ -163,9 +163,14 @@ def prepare(args):
         print('Unavailable:', json.dumps(extracted['unavailable'], ensure_ascii=False), flush=True)
         load('packaged_runtime_fixture', REPO / 'tools/ui/tests/prepare_format_runtime_fixture.py').prepare(
             args.packages.resolve(), root, args.platform, ['BookProcessing', 'KindleExport'])
-        # All these decoders are deliberately exercised by this matrix, and
-        # remain confined to the fixture. This is not a distribution payload.
-        for name in ['kindle', 'doc', 'office', 'images', 'xps', 'pdfium', 'djvu', 'jpeg-xl', 'webp']:
+        # KindleUnpack independently checks every result. Other helpers are
+        # private input/illustration dependencies, not distribution payloads.
+        helpers = ['kindle', 'images', 'jpeg-xl', 'webp']
+        if '.doc' in selected:
+            helpers.append('doc')
+        if '.chm' in selected:
+            helpers.append('7zip')
+        for name in helpers:
             source = runtime / 'tools' / name
             if source.is_dir():
                 shutil.copytree(source, root / 'tools' / name,
