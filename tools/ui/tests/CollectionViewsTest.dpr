@@ -5699,6 +5699,7 @@ end;
 {$I UnifiedBookSendTests.inc}
 {$I MinimumBookSaveTests.inc}
 {$I BookSavePlanningTests.inc}
+{$I KindleBookSaveTests.inc}
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
 {$I FLibrarySourcePreparationTests.inc}
@@ -6101,6 +6102,7 @@ begin
       else if ParamStr(1) = 'first-book-list-large' then
         TestFirstBookList(True)
       else if ParamStr(1) = 'minimum-save' then TestMinimumBookSaving
+      else if ParamStr(1) = 'kindle-save' then TestKindleBookSaving
       else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
       else if ParamStr(1) = 'reader-portable' then TestReaderPortableStartup
       else if ParamStr(1) = 'save-module-restart' then TestSaveModuleRestart

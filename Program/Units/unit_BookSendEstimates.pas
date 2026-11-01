@@ -19,6 +19,7 @@ type
     FBooks: TArray<TBookRecord>;
     FPlan: TBookSaveChoice;
     FAppPath, FTempRoot, FStage: string;
+    FTXTEncoding: TTXTEncoding;
     FItems: TBookSaveEstimateItems;
     FLock: TCriticalSection;
     FRevision: Integer;
@@ -43,7 +44,8 @@ function KnownBookSaveEstimates(const Books: TArray<TBookRecord>;
 implementation
 
 uses System.IOUtils, System.StrUtils, System.ZLib, unit_ReaderCache, unit_BookCache,
-  unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics;
+  unit_ComponentUpdates, unit_MHLExternalTools, unit_ReaderFormats, unit_Diagnostics, unit_Settings, dm_user,
+  unit_BookConversionRequirements;
 
 type
   TSizeCounter = class(TStream)
@@ -87,7 +89,9 @@ begin
       Result[I].SourceExtension:=BookSaveKnownExtension(Books[I]);
       Result[I].TargetExtension:=BookSaveTargetExtension(Result[I].SourceExtension,Plan.Mode,
         Plan.KeepOriginal,Plan.KeepFB2EPUB);
-      Result[I].ImagesUnchanged:=not ((Result[I].TargetExtension='.fb2') or (Result[I].TargetExtension='.epub'));
+      Result[I].ImagesUnchanged:=not ((Result[I].TargetExtension='.fb2') or (Result[I].TargetExtension='.epub') or
+        (((Result[I].TargetExtension='.mobi') or (Result[I].TargetExtension='.azw3')) and
+          not BookSaveKeepsSource(Result[I].SourceExtension,Plan.KeepOriginal,Plan.KeepFB2EPUB)));
       if (Books[I].FileName<>'') and SameText(Result[I].SourceExtension,Result[I].TargetExtension) and
         not (Books[I].GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) and FileExists(Books[I].GetBookFileName) then
       begin
@@ -106,6 +110,7 @@ constructor TBookSendEstimateThread.Create(const Books: TArray<TBookRecord>;
 begin
   inherited Create(True); FreeOnTerminate:=False;
   FBooks:=Copy(Books); FPlan:=Plan; FAppPath:=AppPath; FTempRoot:=TPath.GetFullPath(TempRoot);
+  FTXTEncoding:=Settings.TXTEncoding;
   FLock:=TCriticalSection.Create; FItems:=KnownBookSaveEstimates(Books,Plan);
   FRevision:=1; FStage:='Оценка размера…';
 end;
@@ -137,6 +142,8 @@ begin
 end;
 
 function TBookSendEstimateThread.Estimate(const Book: TBookRecord): TBookSaveEstimateItem;
+const Profiles: array[0..3] of string = ('original','balanced','economy','none');
+  Layouts: array[0..2] of string = ('keep','split','auto');
 var Prepared, Work, Candidate, Token: string; Pin: TStream; Warnings: TStringList;
   Captured: Boolean; Item: TBookSaveEstimateItem;
   function PackedBytes(Input: TStream): Int64;
@@ -201,6 +208,53 @@ begin
         ForceDirectories(Work); TFile.WriteAllText(TPath.Combine(Work,'owned-save-estimate.marker'),Token,TEncoding.UTF8);
         Candidate:=TPath.Combine(Work,'estimate'+Item.TargetExtension); Captured:=False;
         Warnings:=TStringList.Create;
+        if (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3') then
+        begin
+          // Count actual Kindle files, never present EPUB sample sizes as
+          // MOBI/AZW3 estimates. The explicit estimate operation is cancellable.
+          var Missing:=MissingBookConversionComponents(FAppPath,Prepared,Item.SourceExtension,True,
+            function: Boolean begin Result:=Terminated; end,Item.TargetExtension);
+          if Length(Missing)>0 then
+            raise EMHLComponentRequired.Create(Missing,'Для оценки выбранной книги нужны дополнительные компоненты.');
+          var LayoutCount:=1;
+          Item.Options.ScanPages:=BookSaveIsScanSource(Item.SourceExtension);
+          if Item.Options.ScanPages then LayoutCount:=3;
+          Item.Options.TargetFormat:=Item.TargetExtension;
+          for var L:=0 to LayoutCount-1 do for var Q:=0 to 3 do
+          begin
+            if Item.Options.ScanPages and (Q=3) then Continue;
+            if (L>0) and (Q=3) then Continue;
+            Stage(Format('Оценка %s · %s · %s',[UpperCase(Item.TargetExtension.TrimLeft(['.'])),Profiles[Q],Layouts[L]]));
+            Candidate:=TPath.Combine(Work,Format('estimate-%d-%d%s',[L,Q,Item.TargetExtension]));
+            var ProfileName:=Profiles[Q];
+            var Quality:=ProfileName; if L>0 then Quality:=Quality+'|'+Layouts[L];
+            ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,Candidate,Pin,Warnings,
+              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,
+              procedure(Percent, Completed, Total: Integer; const Text: string)
+              begin Stage(Format('Оценка Kindle · %s · %d%%',[ProfileName,Percent])); end,Quality);
+            Item.Options.OutputBytes[L,Q]:=TFile.GetSize(Candidate);
+            TFile.Delete(Candidate);
+          end;
+          Captured:=True;
+        end
+        else if Item.TargetExtension='.txt' then
+        begin
+          Item.ImagesUnchanged:=True;
+          var TextSource:=Pin;
+          if not SameText(Item.SourceExtension,'.fb2') then
+          begin
+            var TextFB2:=TPath.Combine(Work,'text-source.fb2');
+            ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,TextFB2,Pin,Warnings,
+              function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,nil,'none');
+            TextSource:=TFileStream.Create(TextFB2,fmOpenRead or fmShareDenyWrite);
+          end;
+          try
+            if Terminated then Abort;
+            ConvertToTxt(Candidate,FTXTEncoding,TextSource);
+            if Terminated then Abort;
+          finally if TextSource<>Pin then TextSource.Free; end;
+        end
+        else
         try
           ConvertBasicBook(FAppPath,FTempRoot,Prepared,Item.SourceExtension,Candidate,Pin,Warnings,
             function: Boolean begin Result:=Terminated; end,Book.Title,'',Book.Lang,False,

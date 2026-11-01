@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-01T09:30:05.783026+00:00",
+  "updated_utc": "2026-11-01T10:14:55.478446+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -2585,5 +2585,113 @@
       "Reader retains libzstd.dll for previous installer mandatory-file compatibility.",
       "Compression, SQL dump import, further UI work and review timeout retry remain separate queued work."
     ]
+  },
+  "beta2_publication_20261101": {
+    "status": "published and live production download/native preparation verified x86/x64",
+    "url": "https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.2",
+    "release_id": 430488372,
+    "latest": true,
+    "draft": false,
+    "prerelease": false,
+    "proofs": [
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-component-publication-remote-20261101-r1.json",
+        "sha256": "3454ebdd610a237e4f44a64e3864f2a4b1be66f03727565e82cc5a848c5e1eb8",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-release-publication-20261101-r1.json",
+        "sha256": "b113dbcc8b91deb7fbbde596be7c6c91deed1510e48e06c3752b7c6cbc0538cb",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-public-download-20261101-r2.json",
+        "sha256": "9fb373f28fae54f171f31e250521d39dc1601f798bec3f3f2801b41770f6322a",
+        "status": "PASS"
+      }
+    ],
+    "own_optional_archives_uploaded": 16,
+    "old_own_archives_removed": 16,
+    "identical_djvu_archives_retained": 2,
+    "cleanup_blocked": {
+      "result": "automatic review rejected; no deletion executed; do not retry",
+      "reason": "blocked by policy",
+      "root": "G:/HomeLibRu-build-cache/HomeLibre-beta2-release-20261101-r1",
+      "directories": [
+        "catalogue-r2",
+        "catalogue-r3",
+        "catalogue-r4",
+        "reader-r2",
+        "publication-r1",
+        "publication-inputs-r1"
+      ]
+    },
+    "harness_correction": "Initial live public-core probe used the default TEMP and was correctly rejected by its isolation guard; fresh corrected r2 set TEMP to the owned G drive cache and passed. Initial root was automatically removed."
+  },
+  "post_beta2_feedback_20261101": {
+    "reader_large_book": "Tester: Беги за мёртвым кроликом, FB2 approximately 40 MB, image-memory message in beta 1. Generic deferred-image fix is in beta 2; this exact book has not yet been verified.",
+    "save_formats": "Original-format save is preserved for each format. Current list offers FB2/FB2.ZIP/EPUB. After discussing Kindles, the user explicitly requested restoring working MOBI and TXT conversion, then also authorized AZW3 for newer Kindles. Verify optional Kindle output backends, install only when selected, and test output and missing-component handling on x86/x64. Reconcile the legacy device format setting with Save As. No other output format is newly authorized by this discussion.",
+    "diagnostics": "Existing catalogue Help → Журнал ошибок offers report ZIP and log folder. Adding the same Help entry to standalone Reader, copyable actual folder and FAQ instructions; these changes are after beta2 publication.",
+    "authors": "Design queued on visible Page: independent personal author rating and reversible hiding. Code analysis: online deletion removes downloaded file; offline deletion removes catalogue/system records, may optionally delete source files. Re-import has no persistent author exclusion. Review whole-archive deletion paths before extending bulk deletion.",
+    "reader_icon": "User screenshot confirms generic executable/window/taskbar icon remains. Queued after current export task; not fixed yet.",
+    "diagnostics_cleanup": {
+      "root": "G:/HomeLibRu-build-cache/HomeLibRu-diagnostics-GUI-jzcx0728",
+      "status": "automatic review rejected deletion; no deletion executed; do not retry",
+      "reason": "blocked by policy",
+      "report": "tools/ui/tests/Out/homelibre-reader-diagnostics-menu-20261101-r1.json"
+    }
+  },
+  "kindle_export_20261101": {
+    "status": "production Python module and native integration prepared; full application checks still in progress",
+    "backend": {
+      "name": "Kindling",
+      "version": "0.46.0",
+      "commit": "3b91b1ea21f892779be09149f21fe4053b1b3569",
+      "licence": "MIT",
+      "build_run": "https://github.com/Dicur3x/MyHomeLib/actions/runs/41304966492",
+      "upstream_library_tests_per_architecture": 1042,
+      "architectures": [
+        "Win32",
+        "Win64"
+      ],
+      "static_crt": true,
+      "source_patch": "scripts/kindling-windows-epub-paths.patch"
+    },
+    "roundtrip": {
+      "path": "tools/ui/tests/Out/kindle-output-roundtrip-20261101-r9.json",
+      "sha256": "b688d5845a4faf9ab54fada77cb4288f02c0895d79d7dd62c16feabaa40c21b1"
+    },
+    "verified_roundtrip_scope": "Production Python API: owned illustrated FB2 to dual MOBI7/KF8; existing EPUB to AZW3/KF8. Both native writers independently unpacked back to EPUB and FB2: Cyrillic/English text, illustration, bold/italic, notes and navigation checked. Originals unchanged; generated temporary root removed. No physical Kindle or app GUI success claim. Extra r9 checks: independently decoded legacy MOBI7 half retains Cyrillic/English text and notes; exact original PNG bytes retained in MOBI7, KF8 and AZW3 on both architectures.",
+    "python_tests": {
+      "conversion_tests": 50,
+      "writer_boundary_tests": 6,
+      "independent_modular_payload_tests": 3,
+      "status": "PASS"
+    },
+    "implementation": [
+      "Separate KindleExport registry, protected installer payload and packaging, excluded from BookProcessing",
+      "MOBI and AZW3 targets in shared converter and Save As; existing format stays copyable without same-format menu duplication",
+      "Actual Kindle output bytes counted per image profile instead of using EPUB estimates",
+      "TXT native FB2 extraction and atomic publication, captured encoding and exact size estimate",
+      "Legacy device settings mapped explicitly to FB2, FB2.ZIP, EPUB, TXT, MOBI and AZW3, preserving old saved enum ordinals"
+    ],
+    "candidate_packages_root": "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r3",
+    "native_checks": {
+      "Win64_build": "PASS after adding dm_user import and closing stale IDE source buffer",
+      "Win64_TXT": "PASS no optional module, Unicode, actual extension, replacement, unchanged source and exact estimate",
+      "minimum_save_suite": "PASS Win32 and Win64. Original and mixed copies, native FB2 ZIP, wrong extensions, TXT Unicode/size/replacement/source protection, and missing MOBI/AZW3 module offers. Actual native Kindle output test follows.",
+      "kindle_save": "PASS Win32 and Win64: actual SaveFileBooks mixed FB2/EPUB to TXT/MOBI/AZW3, all four Kindle image profiles, Palm headers, per-book output sizes versus estimates, original hashes and byte-exact existing Kindle copies without converter/writer directories. Unrelated Office/PDF/DjVu/Kindle input modules absent.",
+      "retained_debug_profile": "G:/HomeLibRu-build-cache/HomeLibRu-native-i5zRqC",
+      "kindle_save_proof": {
+        "path": "tools/ui/tests/Out/homelibre-kindle-save-20261101-r1.json",
+        "sha256": "eca047ec7928f162325a471db4ef54f8c5597f7b345a04101f9e9477dd3a69d2"
+      }
+    },
+    "remaining": [
+      "Native real mixed PDF/DjVu/office inputs and independent output content checks",
+      "Cancellation/collision and module installation/resume UI",
+      "Final candidate Main/Reader builds, updated optional package publication, beta release validation"
+    ],
+    "fixed_native_finding": "Kindling KDP R4.2.1 publishing rule incorrectly blocks personal coverless/no-image books. Full preflight still runs first; only that sole rule on an actually undeclared cover permits a retry. Other findings abort; HTML self-check and EPUB/Palm validation stay enabled. Diagnostics now include stdout validation details as well as stderr."
   }
 }

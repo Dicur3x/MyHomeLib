@@ -133,7 +133,7 @@ class ModularComponents(unittest.TestCase):
         for platform in ('Win32','Win64'):
             owned={}
             for component in packages.COMPONENTS:
-                payload,_=packages.payload_for(platform,component)
+                payload,_=packages.payload_for(platform,component,os.environ.get('HOMELIB_KINDLE_EXPORT_RUNTIMES'))
                 self.assertFalse(set(payload)&set(owned),component)
                 owned.update({name:component for name in payload})
 

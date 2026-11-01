@@ -158,11 +158,10 @@ object frmSettings: TfrmSettings
             Items.Strings = (
               '.fb2'
               '.fb2.zip'
-              '.lrf '
-              '.txt'
               '.epub'
-              '.pdf'
-              '.mobi')
+              '.txt'
+              '.mobi'
+              '.azw3')
           end
         end
         object pnNameFormat: TPanel

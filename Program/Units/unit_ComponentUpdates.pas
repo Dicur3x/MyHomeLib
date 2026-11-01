@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..19] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..20] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -42,7 +42,8 @@ const
     (ID:'Kindle'; Title:'Чтение MOBI/AZW/KF8'; URL:'https://github.com/kevinhendricks/KindleUnpack'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'LegacyBooks'; Title:'Кодеки старых книжных форматов'; URL:'https://github.com/kovidgoyal/calibre'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'LegacyOffice'; Title:'Чтение WPS/WPD'; URL:'https://sourceforge.net/projects/libwps/'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'XPS'; Title:'Чтение XPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False));
+    (ID:'XPS'; Title:'Чтение XPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'KindleExport'; Title:'Сохранение MOBI и AZW3'; URL:'https://github.com/ciscoriordan/kindling'; CheckKind:ccPublished; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
@@ -213,6 +214,11 @@ begin
     'оценка размера сохраняемой копии;'+sLineBreak+'подготовка и разделение сканированных разворотов.'+sLineBreak+
     'Модули чтения PDF, DjVu и XPS устанавливаются отдельно, только для соответствующей книги.');
   if ID='Kindle' then Exit('KindleUnpack — чтение и подготовка MOBI/AZW/KF8.');
+  if ID='KindleExport' then Exit('Kindling — сохранение книг для Kindle:'+sLineBreak+
+    'MOBI — совместимая книга MOBI7/KF8 для старых устройств;'+sLineBreak+
+    'AZW3 — книга KF8.'+sLineBreak+
+    'Исходная книга сначала подготавливается в EPUB. Нужный модуль чтения устанавливается отдельно; '+
+    'для обычного чтения FB2/EPUB запись Kindle не нужна.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
   if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');
   if ID='XPS' then Exit('HomeLibXps — чтение страниц документов XPS.');
@@ -664,7 +670,7 @@ begin
   Parts:=Version.Split(['.']); Count:=Length(Parts);
   if (ID='HomeLibReader') or (ID='BookConverter') or (ID='BookProcessing') or
     (ID='ImageProcessing') or (ID='Kindle') or (ID='LegacyBooks') or
-    (ID='LegacyOffice') or (ID='XPS') or (ID='MHLMcpServer') then
+    (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or (ID='MHLMcpServer') then
   begin
     if (Count<>4) or (StrToInt(Parts[0])<3) or (StrToInt(Parts[3])=0) then Exit;
     // In the 3.x series revision 1..65534 is beta N; 65535 is final.

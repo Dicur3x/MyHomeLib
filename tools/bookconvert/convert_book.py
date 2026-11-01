@@ -1203,7 +1203,30 @@ def text_to_book(source, output, warnings, target_extension, **metadata):
             epub_to_fb2(intermediate, output, warnings, use_navigation=False)
 
 
-def kindle_epub(source, output):
+def kindle_xhtml(data):
+    """Restore only standard namespaces omitted from a KF8 HTML skeleton."""
+    try:
+        return xhtml(data), False
+    except ConversionError as error:
+        if 'unbound prefix' not in str(error):
+            raise
+        # KindleUnpack supplies UTF-8 XHTML. Keep unknown prefixes and other
+        # malformed XML as errors rather than guessing their meaning.
+        root = re.search(rb'''<(?:html:)?html\b(?:[^<>"']|"[^"]*"|'[^']*')*>''', data)
+        if root is None:
+            raise
+        declarations = []
+        for prefix, uri in ((b'html', b'http://www.w3.org/1999/xhtml'),
+                            (b'epub', b'http://www.idpf.org/2007/ops')):
+            if prefix + b':' in data and not re.search(rb'\bxmlns:' + prefix + rb'\s*=', root.group()):
+                declarations.append(b' xmlns:' + prefix + b'="' + uri + b'"')
+        if not declarations:
+            raise
+        repaired = data[:root.end()-1] + b''.join(declarations) + data[root.end()-1:]
+        return xhtml(repaired), True
+
+
+def kindle_epub(source, output, warnings=None):
     """Keep KindleUnpack resources, repair its known EPUB 3 packaging omissions."""
     archive = EpubArchive(source)
     try:
@@ -1216,7 +1239,9 @@ def kindle_epub(source, output):
         for item in first(package, 'manifest'):
             if item.get('media-type') != 'application/xhtml+xml': continue
             part = archive.resolve(package_path, item.get('href', ''))[0]
-            document = xhtml(archive.read(part)); dirty = False
+            document, dirty = kindle_xhtml(archive.read(part))
+            if dirty and warnings is not None:
+                warnings.add('В разметке Kindle восстановлены стандартные пространства имён XHTML/EPUB.')
             for node in document.iter():
                 if 'cid' in node.attrib: node.attrib.pop('cid'); dirty = True
             if any(n.tag == '{http://www.w3.org/2000/svg}svg' for n in document.iter()):
@@ -1263,8 +1288,11 @@ def kindle_to_book(source, output, warnings, target_extension, **metadata):
         for warning in result.get('warnings',[]):warnings.add(str(warning))
         if not path.is_relative_to(work) or not path.is_file(): raise ConversionError('Некорректный результат KindleUnpack.')
         if result['format'] == 'epub':
-            if target_extension == '.fb2': epub_to_fb2(path, output, warnings)
-            else: kindle_epub(path, output)
+            if target_extension == '.fb2':
+                normalized = root / 'normalized.epub'
+                kindle_epub(path, normalized, warnings)
+                epub_to_fb2(normalized, output, warnings)
+            else: kindle_epub(path, output, warnings)
         elif result['format'] == 'html':
             metadata['resource_root'] = str(path.parent)
             text_to_book(path, output, warnings, target_extension, **metadata)
@@ -1412,6 +1440,17 @@ def convert_book(source, destination, **metadata):
     if source.stat().st_size > MAX_TOTAL:
         raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if target_extension in {'.mobi', '.azw3'}:
+        script = Path(__file__).with_name('kindle_output.py')
+        if not script.is_file():
+            raise ComponentRequired('KindleExport',
+                'Для сохранения в MOBI и AZW3 нужен модуль записи Kindle — Kindling.')
+        spec = importlib.util.spec_from_file_location('homelibre_kindle_output', script)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+        options = dict(metadata, image_quality=image_quality, image_options=image_options, image_choice=image_choice,
+                       scan_layout=scan_layout, scan_exclude=scan_exclude)
+        return module.convert(api, source, destination, options)
     if image_quality == 'none' and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
         raise ConversionError('Этот формат преобразуется как сканы: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
     image_export = None

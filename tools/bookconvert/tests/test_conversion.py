@@ -25,6 +25,23 @@ def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def shape(node, include_tail=False): return (node.tag, sorted(node.attrib.items()), node.text, node.tail if include_tail else None, [shape(n,True) for n in node])
 
 class ConversionTests(unittest.TestCase):
+    def test_kindle_skeleton_namespaces_preserve_text_and_note_semantics(self):
+        raw = ('<html:html><html:body><html:p>Ёжик <html:a epub:type="noteref" href="#note">1</html:a>'
+               '</html:p></html:body></html:html>').encode('utf-8')
+        document, changed = c.kindle_xhtml(raw)
+        self.assertTrue(changed)
+        self.assertEqual(document.tag, '{http://www.w3.org/1999/xhtml}html')
+        link = next(n for n in document.iter() if c.tag(n) == 'a')
+        self.assertEqual(link.get('{http://www.idpf.org/2007/ops}type'), 'noteref')
+        self.assertIn('Ёжик', ''.join(document.itertext()))
+        valid = c.serialized(document)
+        self.assertFalse(c.kindle_xhtml(valid)[1])
+        for invalid in (b'<html><body><unknown:element/></body></html>',
+                        b'<html><body><p>broken</body></html>',
+                        b'<!DOCTYPE html [<!ENTITY unsafe SYSTEM "file:///never-read">]><html><body>&unsafe;</body></html>'):
+            with self.assertRaises(c.ConversionError):
+                c.kindle_xhtml(invalid)
+
     def test_fb2_jpeg_aliases_and_mislabeled_images_keep_bytes(self):
         jpeg = base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwC/RRRXwx9uf//Z')
         cases = [('image/jpg', jpeg, 'image/jpeg', '.jpg'),

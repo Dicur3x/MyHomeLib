@@ -203,7 +203,8 @@ begin
     begin
       var Before:=DetailedDiagnosticLogging;
       var DesiredPPI:=PPI;
-      TThread.ForceQueue(nil,
+      var ToggleJournal: TThreadProcedure;
+      ToggleJournal:=
         procedure
         begin
           var Dialog:=Screen.ActiveForm;
@@ -217,7 +218,8 @@ begin
           Box.Checked:=not Before;
           Require(DetailedDiagnosticLogging<>Before,'Journal checkbox did not change the detailed preference');
           Dialog.ModalResult:=mrClose;
-        end);
+        end;
+      TThread.ForceQueue(nil,ToggleJournal);
       ShowDiagnostics(frmMain);
       Require(DetailedDiagnosticLogging<>Before,'Detailed preference was lost when the journal closed');
     end;

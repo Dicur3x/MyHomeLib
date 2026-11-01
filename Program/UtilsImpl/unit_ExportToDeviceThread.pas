@@ -354,9 +354,10 @@ begin
     if FCurrentKeepSource then FExplicitFormat:=False;
     ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
       ((SourceExtension='.fb2') or (SourceExtension='.epub'));
-    if (FExplicitFormat or ProcessSourceImages) and not FExtractOnly then
+    if (FExplicitFormat or ProcessSourceImages or
+      (not FCurrentKeepSource and (FExportMode in [emMobi,emAZW3]))) and not FExtractOnly then
     begin
-      var TargetExtension:='.fb2'; if FExportMode in [emEpub,emEpubZip] then TargetExtension:='.epub';
+      var TargetExtension:=BookSaveTargetExtension(SourceExtension,FExportMode,False,False);
       if FCurrentKeepSource then TargetExtension:='';
       PreparedSource:=PrepareConversionSource(R,
         procedure(Stage: string) begin if Canceled or Terminated then Abort; SetComment(Stage); end,TargetExtension,
@@ -391,7 +392,7 @@ begin
       end;
       // FB2/EPUB processing resolves its complete known dependencies after
       // its unchanged-copy fast path. Do not stop on one decoder here.
-      if not (FExportMode in [emFB2,emFB2Zip,emEpub,emEpubZip]) then
+      if not (FExportMode in [emFB2,emFB2Zip,emEpub,emEpubZip,emTxt,emMobi,emAZW3]) then
       begin
         var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
         if Required<>'' then raise EMHLComponentRequired.Create(Required,
@@ -415,6 +416,7 @@ begin
     FFileOprecord.BookLanguage:=R.Lang;
     FConvertBasic := not FExtractOnly and
       (FExplicitFormat or ProcessSourceImages or
+        (not FCurrentKeepSource and (FExportMode in [emMobi,emAZW3])) or
         (not FCurrentKeepSource and ((FExportMode = emEpub) and
         IsBasicConversionSource(SourceExtension) and
         (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0))));
@@ -708,6 +710,7 @@ begin
       emLrf: Result:=ChangeFileExt(FileName,'.lrf');
       emPDF: Result:=ChangeFileExt(FileName,'.pdf');
       emMobi: Result:=ChangeFileExt(FileName,'.mobi');
+      emAZW3: Result:=ChangeFileExt(FileName,'.azw3');
     end;
     Exit;
   end;
@@ -720,6 +723,7 @@ begin
     emLrf: Result := ChangeFileExt(FileName, '.lrf');
     emPDF: Result := ChangeFileExt(FileName, '.pdf');
     emMobi: Result := ChangeFileExt(FileName, '.mobi');
+    emAZW3: Result := ChangeFileExt(FileName, '.azw3');
     emTxt: Result := ChangeFileExt(FileName, '.txt');
   end;
 end;
@@ -737,8 +741,15 @@ begin
   begin
     Quality:=FImageQuality; if Quality='' then Quality:='ask';
   end;
+  if FExportMode=emTxt then
+  begin
+    // FB2 text extraction is built in. Other formats prepare a text-only FB2,
+    // so TXT never downloads image codecs just to discard the illustrations.
+    if SameText(FFileOprecord.SourceExtension,'.fb2') then Quality:='original'
+    else Quality:='none';
+  end;
   ConversionTarget:=ActualOutputFile(FFileOprecord.TargetFile);
-  if not (FExportMode in [emFB2,emEpub]) then
+  if not (FExportMode in [emFB2,emEpub,emMobi,emAZW3]) then
   begin
     if FFileOprecord.ConversionTempFolder='' then
     begin
@@ -769,6 +780,7 @@ begin
           else if (Stage='image-estimates') or (Stage='scan-estimates') then SetComment('Оценка размера книги для выбора изображений…')
           else if (Stage='optimizing-images') or (Stage='scan-images') then SetComment('Сжатие изображений для экспорта…')
           else if Stage='finalizing' then SetComment(Format('Сборка книги (%d%%)…',[Percent]))
+          else if Stage='kindle-writing' then SetComment('Запись книги для Kindle…')
           else if Stage='complete' then SetComment('Запись книги…')
           else SetComment('Подготовка к конвертации…');
         end,Quality,
@@ -786,7 +798,7 @@ begin
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile);
       FLastWarnings := Warnings.Text;
       Result := True;
-      if not (FExportMode in [emFB2,emEpub]) then
+      if not (FExportMode in [emFB2,emEpub,emMobi,emAZW3]) then
       begin
         if Canceled or Terminated then Abort;
         OriginalStream:=FFileOprecord.Stream; OriginalSource:=FFileOprecord.SourceFile;
@@ -809,7 +821,15 @@ begin
             finally DeleteBookOutputStage(ArchivePath); end;
           end
           else if FExportMode=emTxt then
-            unit_globals.ConvertToTxt(FFileOprecord.TargetFile,FTXTEncoding,FFileOprecord.Stream)
+          begin
+            var TextFile:=TPath.Combine(FFileOprecord.ConversionTempFolder,'prepared.txt');
+            unit_globals.ConvertToTxt(TextFile,FTXTEncoding,FFileOprecord.Stream);
+            FreeAndNil(FFileOprecord.Stream);
+            FFileOprecord.Stream:=TFileStream.Create(TextFile,fmOpenRead or fmShareDenyWrite);
+            // Use the same cancellable, atomic collision handling as copying
+            // other formats; the low-level TXT writer never replaces a file.
+            Result:=SaveUnchangedFile;
+          end
           else Result:=CallExternalConverter;
         finally
           FFileOprecord.Stream.Free; FFileOprecord.Stream:=OriginalStream;

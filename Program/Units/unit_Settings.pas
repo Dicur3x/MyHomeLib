@@ -752,6 +752,7 @@ begin
       4: FExportMode := emEpub;
       5: FExportMode := emPDF;
       6: FExportMode := emMobi;
+      8: FExportMode := emAZW3;
     end;
 
     case iniFile.ReadInteger(SYSTEM_SECTION, 'TXTEncoding', DEF_TXT_ENCODING) of

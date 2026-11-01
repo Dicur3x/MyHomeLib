@@ -10,16 +10,28 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
   var Choices: TArray<TBookSaveChoice>;
   begin
     Choices:=BookSaveChoices(['.fb2','.FB2']);
-    Require((Length(Choices)=3) and Choices[0].KeepOriginal and Choices[1].KeepOriginal and
+    Require((Length(Choices)=6) and Choices[0].KeepOriginal and Choices[1].KeepOriginal and
       (Choices[1].Mode=emFB2Zip) and (Choices[2].Mode=emEpub),'FB2 choices lost native ZIP or repeat conversion to FB2');
     Choices:=BookSaveChoices(['epub']);
-    Require((Length(Choices)=3) and Choices[0].KeepOriginal and
+    Require((Length(Choices)=6) and Choices[0].KeepOriginal and
       (Choices[1].Mode=emFB2) and (Choices[2].Mode=emFB2Zip),'EPUB choices repeat conversion to EPUB or lost FB2 ZIP');
     Choices:=BookSaveChoices(['.pdf','.djvu','.doc']);
-    Require((Length(Choices)=4) and Choices[0].KeepOriginal,'Non-FB2/EPUB sources lost original copying');
+    Require((Length(Choices)=7) and Choices[0].KeepOriginal,'Non-FB2/EPUB sources lost original copying');
     Choices:=BookSaveChoices(['.fb2','.epub','.pdf','.djvu']);
-    Require((Length(Choices)=7) and Choices[4].KeepFB2EPUB and Choices[5].KeepFB2EPUB and Choices[6].KeepFB2EPUB,
+    Require((Length(Choices)=10) and Choices[4].KeepFB2EPUB and Choices[5].KeepFB2EPUB and Choices[6].KeepFB2EPUB,
       'Mixed set has no preference that keeps existing FB2 and EPUB');
+    Require((Choices[7].Mode=emTxt) and not Choices[7].KeepOriginal,'Mixed set cannot export plain text');
+    Choices:=BookSaveChoices(['.txt','.TXT']);
+    Require(Choices[0].KeepOriginal and (Choices[0].Mode=emTxt),'TXT source lost original copying');
+    for var I:=1 to High(Choices) do Require(Choices[I].Mode<>emTxt,'TXT source repeats conversion to TXT');
+    Choices:=BookSaveChoices(['.mobi','.MOBI']);
+    Require(Choices[0].KeepOriginal and (Choices[0].Mode=emMobi),'MOBI source lost unchanged copying');
+    for var I:=1 to High(Choices) do Require(Choices[I].Mode<>emMobi,'MOBI source repeats conversion to MOBI');
+    Choices:=BookSaveChoices(['.azw3']);
+    Require(Choices[0].KeepOriginal and (Choices[0].Mode=emAZW3),'AZW3 source lost unchanged copying');
+    for var I:=1 to High(Choices) do Require(Choices[I].Mode<>emAZW3,'AZW3 source repeats conversion to AZW3');
+    Require((BookSaveTargetExtension('.pdf',emMobi,False,False)='.mobi') and
+      (BookSaveTargetExtension('.djvu',emAZW3,False,False)='.azw3'),'Kindle output extension is incorrect');
     Require(BookSaveZipsTarget('.fb2',emFB2Zip) and not BookSaveZipsTarget('.epub',emFB2Zip,True) and
       not BookSaveZipsTarget('.pdf',emFB2,True),'ZIP packaging is not restricted to FB2');
     Require(BookSaveTargetExtension('.pdf',emFB2,True,False)='.pdf','Keep original converts PDF');
@@ -47,6 +59,9 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
     end;
     Options:=Default(TBookSendOptions); Options.Folder:=TPath.Combine(Root,Name);
     ForceDirectories(Options.Folder); Options.FileNameTemplate:='%t';
+    // Repeated input books intentionally test numbered copies. The default
+    // Ask policy is exercised by the separate interactive collision tests.
+    Options.NameCollision:=bncKeepBoth;
     Options.ImageQuality:='original'; Options.Mode:=Mode;
     Options.KeepSourceFormat:=not Prefer; Options.KeepFB2EPUB:=Prefer;
     Options.ExplicitFormat:=Prefer; Options.ZipEachBook:=Zipped;
@@ -98,6 +113,49 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
     Input:=TStringStream.Create(Text,TEncoding.UTF8);
     try ZIP.Add(Input,Name); finally Input.Free; end;
   end;
+  procedure PlainText;
+  var Before: string; SavedEncoding: TTXTEncoding; Worker: TBookSendEstimateThread;
+    Revision: Integer; Complete: Boolean; Status: string; Items: TBookSaveEstimateItems;
+    Deadline: UInt64; Choice: TBookSaveChoice;
+  begin
+    Before:=UpdateSHA256(FB2); SavedEncoding:=Settings.TXTEncoding;
+    Settings.TXTEncoding:=enUTF8;
+    try
+      Options:=Default(TBookSendOptions); Options.Folder:=TPath.Combine(Root,'plain-text');
+      Options.Mode:=emTxt; Options.ExplicitFormat:=True; Options.FileNameTemplate:='%t';
+      Options.ImageQuality:='original'; Options.NameCollision:=bncReplace;
+      for var Attempt:=0 to 1 do
+      begin
+        if Attempt=1 then TFile.WriteAllText(Results[0].OutputFile,'old saved copy',TEncoding.UTF8);
+        Probe.Deadline:=GetTickCount64+30000; Probe.Messages.Clear; Probe.Worker:=nil;
+        Probe.Timer.Enabled:=True;
+        try Results:=SaveFileBooks([FileBook(FB2)],Options,Required);
+        finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
+        Require((Required='') and (Probe.Messages.Count=0) and (SuccessfulBookExportCount(Results)=1),
+          'Built-in FB2 to TXT requested a component or failed: '+Required+Probe.Messages.Text);
+        Require(SameText(ExtractFileExt(Results[0].OutputFile),'.txt') and
+          TFile.ReadAllText(Results[0].OutputFile,TEncoding.UTF8).Contains('Полный текст. Ё, Україна, 中文.'),
+          'TXT result lost its actual extension or Unicode text');
+      end;
+      Choice:=Default(TBookSaveChoice);
+      for var Item in BookSaveChoices(['.fb2']) do if Item.Mode=emTxt then Choice:=Item;
+      Require(Choice.Mode=emTxt,'TXT save choice is unavailable');
+      Worker:=TBookSendEstimateThread.Create([FileBook(FB2)],Choice,Settings.AppPath,Settings.TempPath);
+      try
+        Revision:=-1; Complete:=False; Deadline:=GetTickCount64+30000; Worker.Start;
+        repeat
+          Worker.Poll(Revision,Items,Status,Complete);
+          if GetTickCount64>Deadline then begin Worker.Terminate; raise Exception.Create('TXT estimate timed out'); end;
+          if not Complete then Sleep(10);
+        until Complete;
+        Require((Length(Items)=1) and (Items[0].ErrorText='') and
+          (Items[0].Options.OutputBytes[0,0]=TFile.GetSize(Results[0].OutputFile)),
+          'TXT estimate differs from the exported Unicode copy or requested a module');
+      finally Worker.Free; end;
+      Require(UpdateSHA256(FB2)=Before,'TXT save changed its original book');
+      Writeln('PASS minimum FB2 to TXT without modules, exact size, Unicode and saved-copy replacement'); Flush(Output);
+    finally Settings.TXTEncoding:=SavedEncoding; end;
+  end;
   procedure ArchivedMislabels;
   var Books: TArray<TBookRecord>; Archive, Before, Expected: string;
     Sources, Extensions: TArray<string>; Bytes: TBytes; Input: TFileStream;
@@ -124,6 +182,7 @@ var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
     for var Zipped in [False,True] do
     begin
       Options:=Default(TBookSendOptions); Options.Folder:=TPath.Combine(Root,'archived-'+BoolToStr(Zipped,True));
+      Options.NameCollision:=bncKeepBoth; // Two EPUB members intentionally share their book title.
       ForceDirectories(Options.Folder); Options.Mode:=emFB2; Options.KeepSourceFormat:=True;
       Options.ImageQuality:='original'; Options.ZipEachBook:=Zipped;
       Probe.Deadline:=GetTickCount64+30000; Probe.Messages.Clear; Probe.Worker:=nil;
@@ -239,6 +298,7 @@ begin
   try
     Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
     Probe.SavedModal:=Application.OnModalBegin; Application.OnModalBegin:=Probe.ModalBegin;
+    PlainText;
     Save(FB2,'fb2-explicit-original',emFB2,False,'original',False);
     Save(EPUB,'epub-explicit-original',emEpub,False,'original',False);
     Save(FB2,'fb2-keep-original',emFB2,True,'original',False);
@@ -248,6 +308,8 @@ begin
     Save(EPUB,'epub-keep-zip-ignored',emFB2Zip,True,'original',False);
     Save(FB2,'fb2-to-epub-offer',emEpub,False,'original',True);
     Save(FB2,'fb2-images-offer',emFB2,False,'economy',True);
+    Save(FB2,'fb2-to-mobi-offer',emMobi,False,'original',True);
+    Save(EPUB,'epub-to-azw3-offer',emAZW3,False,'original',True);
     Mixed('five-original-formats',[EPUB,FB2,PDF,DjVu,DOC,FB2],False,False,emFB2);
     Mixed('five-native-zip-formats',[EPUB,FB2,PDF,DjVu,DOC,EPUB],True,False,emFB2);
     Mixed('keep-readable-prefer-fb2',[EPUB,FB2,EPUB],False,True,emFB2);

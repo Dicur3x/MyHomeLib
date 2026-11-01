@@ -11,6 +11,9 @@ type
     KeepOriginal, KeepFB2EPUB: Boolean;
   end;
 
+const BOOK_SAVE_DEVICE_MODES: array[0..5] of TExportMode =
+  (emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3);
+
 function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
 function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMode;
   KeepOriginal, KeepFB2EPUB: Boolean): string;
@@ -129,12 +132,13 @@ begin
     emLrf: Result:='.lrf';
     emPDF: Result:='.pdf';
     emMobi: Result:='.mobi';
+    emAZW3: Result:='.azw3';
   else Result:='.fb2';
   end;
 end;
 
 function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
-var AllFB2, AllEPUB, HasFB2EPUB, HasOther: Boolean;
+var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
   begin
@@ -144,11 +148,14 @@ var AllFB2, AllEPUB, HasFB2EPUB, HasOther: Boolean;
   end;
 begin
   Result:=nil; AllFB2:=Length(Extensions)>0; AllEPUB:=AllFB2;
+  AllTXT:=AllFB2; AllMOBI:=AllFB2; AllAZW3:=AllFB2;
   HasFB2EPUB:=False; HasOther:=False;
   for var Extension in Extensions do
   begin
     var Ext:=NormalExtension(Extension);
     AllFB2:=AllFB2 and (Ext='.fb2'); AllEPUB:=AllEPUB and (Ext='.epub');
+    AllTXT:=AllTXT and (Ext='.txt');
+    AllMOBI:=AllMOBI and (Ext='.mobi'); AllAZW3:=AllAZW3 and (Ext='.azw3');
     if (Ext='.fb2') or (Ext='.epub') then HasFB2EPUB:=True else HasOther:=True;
   end;
   if AllFB2 then
@@ -157,6 +164,9 @@ begin
     Add('Оставить FB2 в ZIP',emFB2Zip,True,False);
   end
   else if AllEPUB then Add('Оставить EPUB',emEpub,True,False)
+  else if AllTXT then Add('Оставить TXT',emTxt,True,False)
+  else if AllMOBI then Add('Оставить MOBI',emMobi,True,False)
+  else if AllAZW3 then Add('Оставить AZW3',emAZW3,True,False)
   else Add('Оставить исходный формат каждой книги',emFB2,True,False);
   if not AllFB2 then
   begin
@@ -170,6 +180,9 @@ begin
     Add('Оставить EPUB; остальные — в FB2 в ZIP',emFB2Zip,False,True);
     Add('Оставить FB2 и EPUB; остальные — в EPUB',emEpub,False,True);
   end;
+  if not AllTXT then Add('Преобразовать в TXT — только текст',emTxt,False,False);
+  if not AllMOBI then Add('Преобразовать в MOBI — для старых Kindle',emMobi,False,False);
+  if not AllAZW3 then Add('Преобразовать в AZW3 — для Kindle с KF8',emAZW3,False,False);
 end;
 
 function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;

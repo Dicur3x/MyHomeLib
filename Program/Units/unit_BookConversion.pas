@@ -180,7 +180,8 @@ var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetT
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
   Extension, TargetExtension, Actual: string; Check, ReadProgress: TProc;
-  Paged, Finalizing, ImageProcessing, StreamingScans: Boolean; LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages: Integer;
+  Paged, Finalizing, ImageProcessing, StreamingScans, KindleWriting: Boolean;
+  LastSequence, CompletedPages, PageTotal, LastPercent, RenderedPages, KindleCompleted: Integer;
   Header: TBytes; MaximumInput: Int64;
   ImageOptionsName, ImageChoiceName: string; ImageChoiceHandled: Boolean;
   EstimateCompleted, OptimizedCompleted: Integer;
@@ -193,7 +194,8 @@ begin
   if (Length(QualityParts)>1) and ((QualityParts[1]='split') or (QualityParts[1]='auto')) then ScanLayout:=QualityParts[1];
   if (Length(QualityParts)>2) and QualityParts[2].StartsWith('except=') then ScanExclude:=QualityParts[2].Substring(7);
   if not IsValidScanPageExclusions(ScanExclude) then raise Exception.Create('Некорректные номера сканов.');
-  if not ((TargetExtension='.fb2') or (TargetExtension='.epub')) then
+  if not ((TargetExtension='.fb2') or (TargetExtension='.epub') or
+    (TargetExtension='.mobi') or (TargetExtension='.azw3')) then
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
   if BookOutputExists(TargetFile) and not OverwriteExisting then
     raise Exception.Create('Файл результата уже существует. Выберите другое имя.');
@@ -220,7 +222,16 @@ begin
         'Для режима без изображений сначала нужно распознать текст.');
   end;
   var Missing:=MissingBookConversionComponents(AppPath,SourceFile,Extension,
-    not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep')),IsCanceled);
+    not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep')),
+    IsCanceled,TargetExtension);
+  if (TargetExtension='.mobi') or (TargetExtension='.azw3') then
+  begin
+    var Capability:=TPath.Combine(AppPath,'tools/bookconvert/KINDLE_OUTPUT_API.txt');
+    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
+      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
+      if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
+        Missing:=TArray<string>.Create('BookProcessing')+Missing;
+  end;
   if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
@@ -262,6 +273,7 @@ begin
   StreamingScans:=False;
   TargetTemporary:=''; Log:=TStringStream.Create('',TEncoding.UTF8);
   Started:=GetTickCount64; LastAdvance:=Started; LastPoll:=0;
+  KindleWriting:=False; KindleCompleted:=0;
   Paged:=False; Finalizing:=False; LastSequence:=0; CompletedPages:=0; PageTotal:=0; LastPercent:=0; RenderedPages:=0;
   ReadProgress:=procedure
   var Value: TJSONValue; Sequence, Completed, Total, Percent: Integer; Stage: string; Advanced: Boolean;
@@ -291,7 +303,13 @@ begin
           LastDiagnosticStage:=Stage;
           LogDiagnosticTrace('conversion-stage',Title+sLineBreak+Stage,Extension);
         end;
-        if (Stage='scan-estimates') and (Total>0) and (Total<=9) and (Completed>0) and (Completed<=Total) then
+        if (Stage='kindle-writing') and ((TargetExtension='.mobi') or (TargetExtension='.azw3')) and
+          (Total=1) and (Completed>=0) and (Completed<=1) then
+        begin
+          Advanced:=not KindleWriting or (Completed>KindleCompleted);
+          KindleWriting:=True; KindleCompleted:=Completed; Percent:=98+Completed;
+        end
+        else if (Stage='scan-estimates') and (Total>0) and (Total<=9) and (Completed>0) and (Completed<=Total) then
         begin
           Advanced:=True; StreamingScans:=True; Percent:=Completed*5 div Total;
         end
@@ -384,7 +402,12 @@ begin
           ImageChoiceHandled:=True;
         end;
       end;
-      if Paged or ImageProcessing then
+      if KindleWriting then
+      begin
+        if GetTickCount64-LastAdvance>310000 then
+          raise Exception.Create('Модуль записи Kindle не завершил работу за пять минут. Исходная книга сохранена.');
+      end
+      else if Paged or ImageProcessing then
       begin
         if GetTickCount64-LastAdvance>180000 then
           raise Exception.Create('Конвертация не продвигается более трёх минут. Исходная книга сохранена; неполный результат не записан.');

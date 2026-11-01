@@ -7,7 +7,8 @@ uses System.SysUtils;
 // Inspect the already resolved book, never an unselected archive member.
 // Unknown dependencies are left to the real decoder rather than guessed.
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
-  InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil): TArray<string>;
+  InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
+  const TargetExtension: string = ''): TArray<string>;
 
 implementation
 
@@ -182,7 +183,8 @@ begin
 end;
 
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
-  InspectImages: Boolean; const IsCanceled: TFunc<Boolean>): TArray<string>;
+  InspectImages: Boolean; const IsCanceled: TFunc<Boolean>;
+  const TargetExtension: string): TArray<string>;
 var Ext, Actual: string; Images: Boolean;
   procedure Need(const ID: string);
   begin
@@ -204,6 +206,7 @@ begin
   else if IndexText(Ext,['.xps','.oxps'])>=0 then Need('XPS')
   else if Ext='.ibk' then Need('IBK')
   else if IndexText(Ext,['.chm','.cbr','.cb7'])>=0 then Need('7-Zip');
+  if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then Need('KindleExport');
   if InspectImages and ComponentNeedsRepair(AppPath,'ImageProcessing') then
   begin
     Images:=IndexText(Ext,['.djvu','.djv','.dju','.djm','.djvm','.cbz','.cbr','.cb7',

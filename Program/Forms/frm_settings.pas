@@ -312,7 +312,7 @@ uses
   unit_Helpers,
   frm_create_mask,
   unit_Templater,
-  unit_Localization, Vcl.FileCtrl;
+  unit_Localization, Vcl.FileCtrl, unit_BookSavePolicy;
 
 type
   TCachePageControlAccess = class(TPageControl);
@@ -739,7 +739,9 @@ begin
 
   edReadDir.Text := Settings.ReadDir;
 
-  rgDeviceFormat.ItemIndex := Ord(Settings.ExportMode);
+  rgDeviceFormat.ItemIndex:=0;
+  for i:=Low(BOOK_SAVE_DEVICE_MODES) to High(BOOK_SAVE_DEVICE_MODES) do
+    if BOOK_SAVE_DEVICE_MODES[i]=Settings.ExportMode then rgDeviceFormat.ItemIndex:=i;
   edFolderTemplate.Text := Settings.FolderTemplate;
   edFileNameTemplate.Text := Settings.FileNameTemplate;
   cbSquareFilter.Checked := Settings.RemoveSquarebrackets;
@@ -878,15 +880,9 @@ begin
 
   Settings.ReadDir := edReadDir.Text;
 
-  case rgDeviceFormat.ItemIndex of
-    0: Settings.ExportMode := emFB2;
-    1: Settings.ExportMode := emFB2Zip;
-    2: Settings.ExportMode := emLrf;
-    3: Settings.ExportMode := emTxt;
-    4: Settings.ExportMode := emEpub;
-    5: Settings.ExportMode := emPDF;
-    6: Settings.ExportMode := emMobi;
-  end;
+  if (rgDeviceFormat.ItemIndex>=Low(BOOK_SAVE_DEVICE_MODES)) and
+    (rgDeviceFormat.ItemIndex<=High(BOOK_SAVE_DEVICE_MODES)) then
+    Settings.ExportMode:=BOOK_SAVE_DEVICE_MODES[rgDeviceFormat.ItemIndex];
 
   Settings.FolderTemplate := edFolderTemplate.Text;
   Settings.FileNameTemplate := edFileNameTemplate.Text;

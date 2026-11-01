@@ -14,11 +14,12 @@ REPO = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('reader_packages', REPO/'scripts/package-reader-components.py')
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
-COMPONENTS = ('BookProcessing', 'ImageProcessing', 'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS')
+COMPONENTS = ('BookProcessing', 'ImageProcessing', 'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS', 'KindleExport')
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
     'ImageProcessing': 'tools/images/COMPONENT.json',
     'Kindle': 'tools/kindle/COMPONENT.json',
+    'KindleExport': 'tools/kindle-export/COMPONENT.json',
     'LegacyBooks': 'tools/bookconvert/vendor/calibre_legacy/COMPONENT.json',
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
@@ -27,6 +28,7 @@ NOTES = {
     'BookProcessing': 'Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu.',
     'ImageProcessing': 'Сжатие иллюстраций и сканированных страниц. Без чтения документов XPS.',
     'Kindle': 'Чтение MOBI/AZW/KF8 через KindleUnpack. Общая среда обработки устанавливается отдельно при необходимости.',
+    'KindleExport': 'Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов.',
     'LegacyBooks': 'Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket.',
     'LegacyOffice': 'Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows.',
     'XPS': 'Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен.',
@@ -47,12 +49,12 @@ def tree(root, destination, exclude=()):
     return result
 
 
-def payload_for(platform, component):
+def payload_for(platform, component, kindle_export_root=None):
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
     if component == 'BookProcessing':
         payload = tree(runtime/'kindle/python', 'tools/python')
         payload.update(tree(REPO/'tools/bookconvert', 'tools/bookconvert',
-                            ('vendor/calibre_legacy', 'kindle_input.py', 'legacy_helper.py', 'COMPONENT.json')))
+                            ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py', 'COMPONENT.json')))
         payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
         required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
                     'tools/bookconvert/MODULAR_API.txt', 'tools/python/python313.dll',
@@ -72,6 +74,19 @@ def payload_for(platform, component):
         payload['tools/bookconvert/kindle_input.py'] = (REPO/'tools/bookconvert/kindle_input.py').read_bytes()
         required = ['tools/kindle/convert_kf8.py', 'tools/kindle/lib/kindleunpack.py', 'tools/kindle/COPYING.txt',
                     'tools/bookconvert/kindle_input.py']
+    elif component == 'KindleExport':
+        source = (Path(kindle_export_root)/('KindleExport-'+platform) if kindle_export_root
+                  else runtime/'kindle-export')
+        payload = tree(source, 'tools/kindle-export', ('COMPONENT.json',))
+        payload['tools/bookconvert/kindle_output.py'] = (REPO/'tools/bookconvert/kindle_output.py').read_bytes()
+        required = ['tools/kindle-export/kindling-cli.exe', 'tools/kindle-export/RUNTIME.json',
+                    'tools/kindle-export/Kindling-LICENSE.txt', 'tools/bookconvert/kindle_output.py']
+        helper.binary_platform(payload[required[0]], platform)
+        descriptor = json.loads(payload[required[1]].decode('utf-8-sig'))
+        if (descriptor['platform'] != platform or descriptor['commit'] != '3b91b1ea21f892779be09149f21fe4053b1b3569'
+                or descriptor['sha256'] != helper.digest(payload[required[0]])
+                or '+crt-static' not in descriptor['rustflags']):
+            raise ValueError('Kindle writer must be built from the verified pinned source for this architecture')
     elif component == 'LegacyBooks':
         payload = tree(runtime/'bookconvert/vendor/calibre_legacy', 'tools/bookconvert/vendor/calibre_legacy', ('COMPONENT.json',))
         payload['tools/bookconvert/legacy_helper.py'] = (REPO/'tools/bookconvert/legacy_helper.py').read_bytes()
@@ -96,8 +111,8 @@ def payload_for(platform, component):
     return payload, required
 
 
-def package(output, platform, component, version):
-    payload, required = payload_for(platform, component)
+def package(output, platform, component, version, kindle_export_root=None):
+    payload, required = payload_for(platform, component, kindle_export_root)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -128,13 +143,14 @@ if __name__ == '__main__':
     parser.add_argument('--version', required=True)
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
     parser.add_argument('--component', choices=COMPONENTS, action='append')
+    parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
     entries=[]; assets=[]
     for platform in options.platform or ('Win32','Win64'):
         for component in options.component or COMPONENTS:
-            entry, asset=package(options.output.resolve(), platform, component, options.version)
+            entry, asset=package(options.output.resolve(), platform, component, options.version, options.kindle_export_root)
             entries.append(entry); assets.append(asset)
     with (options.output/'format-components.json').open('xb') as stream:
         stream.write(helper.json_bytes(dict(format=1, components=entries)))

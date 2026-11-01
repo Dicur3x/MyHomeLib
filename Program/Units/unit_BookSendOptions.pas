@@ -350,7 +350,9 @@ function TBookSendOptionsForm.HasScanConversion: Boolean;
 begin
   Result:=False;
   for var Item in FItems do
-    if BookSaveIsScanSource(Item.SourceExtension) and not SameText(Item.SourceExtension,Item.TargetExtension) then Exit(True);
+    if BookSaveIsScanSource(Item.SourceExtension) and not SameText(Item.SourceExtension,Item.TargetExtension) and
+      ((Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
+       (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3')) then Exit(True);
 end;
 
 function TBookSendOptionsForm.EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
@@ -445,7 +447,10 @@ begin
   end;
   CanProcess:=Length(FBooks)=0; Opaque:=False;
   for var Item in FItems do
-    if (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') then CanProcess:=True else Opaque:=True;
+    if (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
+      (((Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3')) and
+        not BookSaveKeepsSource(Item.SourceExtension,Choice.KeepOriginal,Choice.KeepFB2EPUB)) then
+      CanProcess:=True else Opaque:=True;
   FImages.Enabled:=CanProcess;
   if not CanProcess then FImages.ItemIndex:=0;
   FScans.Enabled:=HasScanConversion;
@@ -453,8 +458,10 @@ begin
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
   FExceptLabel.Visible:=FExcept.Enabled; FExcept.Visible:=FExcept.Enabled;
   FNote.Caption:='Сохраняются копии. Исходные книги не меняются.';
+  if (Choice.Mode=emTxt) and not Choice.KeepOriginal then
+    FNote.Caption:=FNote.Caption+' TXT сохраняет текст без иллюстраций и оформления.';
   if Opaque and (FImages.ItemIndex>0) then
-    FNote.Caption:=FNote.Caption+' Изображения изменятся только в FB2/EPUB.';
+    FNote.Caption:=FNote.Caption+' Исходные форматы без преобразования сохранят свои изображения.';
   if FImages.ItemIndex=3 then FNote.Caption:=FNote.Caption+' Вместо иллюстраций — подпись. Для сканов режим недоступен.';
   if FExcept.Enabled and (Trim(FExcept.Text)<>'') then
     FNote.Caption:=FNote.Caption+' Оценка размера не учитывает исключения разворотов.';
@@ -750,6 +757,16 @@ begin
       Dialog.Position:=poOwnerFormCenter;
     end;
     Dialog.SetBooks(Books); Dialog.Caption:=Format('Сохранить как · книг: %d',[BookCount]);
+    // Honour the user's existing text/Kindle device preference. Restored operations
+    // still take precedence, and the ordinary default remains source copying.
+    if not Assigned(InitialOptions) and (DefaultMode in [emTxt,emMobi,emAZW3]) then
+      for var I:=0 to High(Dialog.FChoices) do
+        if Dialog.FChoices[I].Mode=DefaultMode then
+        begin
+          Dialog.FFormat.ItemIndex:=I;
+          Dialog.FItems:=KnownBookSaveEstimates(Dialog.FBooks,Dialog.Choice);
+          Break;
+        end;
     var Folder:=Settings.SyncExportDir; if Folder='' then Folder:=InitialFolder;
     Dialog.FDestination.Text:=Folder; Dialog.FDestination.Hint:=Folder;
     if Assigned(InitialOptions) then

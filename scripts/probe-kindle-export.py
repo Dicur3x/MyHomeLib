@@ -6,10 +6,12 @@ reader. It does not claim a test on a physical Kindle or on the app's GUI.
 import argparse
 import base64
 import hashlib
+import html
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import sys
@@ -33,6 +35,16 @@ def png():
             + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
 
 
+def canonical_kindle_input(source, destination, api):
+    # Kindling strips namespace declarations from its KF8 skeleton. Prefixed
+    # XHTML must therefore use an equivalent default namespace before building.
+    # Keep every other member byte-exact, including images and stylesheets.
+    spec = importlib.util.spec_from_file_location('kindle_probe_output', REPO / 'tools/bookconvert/kindle_output.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.canonical_input(api, source, destination)
+
+
 def probe(artifacts, report_path, temp_root):
     spec = importlib.util.spec_from_file_location('kindle_probe_conversion', REPO / 'tools/bookconvert/convert_book.py')
     conversion = importlib.util.module_from_spec(spec)
@@ -50,8 +62,11 @@ def probe(artifacts, report_path, temp_root):
 <body name="notes"><section id="note"><title><p>1</p></title><p>Проверочная сноска.</p></section></body>
 <binary id="cover" content-type="image/png">''' + base64.b64encode(png()).decode('ascii') + '</binary></FictionBook>', encoding='utf-8')
             before = digest(source)
+            original_epub = root / 'original.epub'
+            conversion.convert_book(source, original_epub)
+            original_epub_hash = digest(original_epub)
             epub = root / 'prepared.epub'
-            conversion.convert_book(source, epub)
+            canonical_kindle_input(original_epub, epub, conversion)
             epub_hash = digest(epub)
             for platform in ('Win32', 'Win64'):
                 component = artifacts / ('KindleExport-' + platform)
@@ -60,19 +75,20 @@ def probe(artifacts, report_path, temp_root):
                 assert runtime['commit'] == '3b91b1ea21f892779be09149f21fe4053b1b3569', runtime
                 assert runtime['platform'] == platform and runtime['sha256'] == digest(writer), runtime
                 assert '+crt-static' in runtime['rustflags'], runtime
+                output_tools = root / platform / 'tools'
+                installed_writer = output_tools / 'kindle-export/kindling-cli.exe'
+                installed_writer.parent.mkdir(parents=True)
+                shutil.copyfile(writer, installed_writer)
                 for extension, expected in (('mobi', 6), ('azw3', 8)):
                     output = root / (platform + '.' + extension)
-                    command = [str(writer), 'build', str(epub), '-o', str(output),
-                               '--no-embed-source', '--creator-tag']
-                    if extension == 'mobi':
-                        command.append('--legacy-mobi')
-                    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8',
-                                            errors='replace', timeout=180,
-                                            creationflags=0x08000000 if os.name == 'nt' else 0)
-                    case = dict(platform=platform, format=extension, writer_sha256=digest(writer),
-                                returncode=result.returncode, stdout=result.stdout[-6000:], stderr=result.stderr[-6000:])
+                    case = dict(platform=platform, format=extension, writer_sha256=digest(writer))
                     report['cases'].append(case)
-                    assert result.returncode == 0 and output.is_file(), case
+                    # Exercise the production API, not a test-only adaptation.
+                    # MOBI starts from FB2; AZW3 reuses an existing EPUB.
+                    result = conversion.convert_book(source if extension == 'mobi' else original_epub,
+                                                     output, tools_root=str(output_tools))
+                    case['production_conversion'] = result
+                    assert output.is_file(), case
                     data = output.read_bytes()
                     assert data[60:68] == b'BOOKMOBI'
                     count = int.from_bytes(data[76:78], 'big')
@@ -84,6 +100,28 @@ def probe(artifacts, report_path, temp_root):
                         assert any(data[offset:offset+8] == b'BOUNDARY' for offset in offsets), 'No KF8 half in legacy dual MOBI'
                     restored = root / (platform + '-' + extension + '.epub')
                     tools = REPO / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64') / 'tools'
+                    decoded = root / (platform + '-' + extension + '-decoded.json')
+                    unpacked = root / (platform + '-' + extension + '-unpacked')
+                    decode = subprocess.run([sys.executable, '-I', '-B', '-X', 'utf8',
+                        str(REPO / 'tools/bookconvert/kindle_input.py'), str(output), str(decoded),
+                        str(unpacked), str(root / 'unused-native-library.dll'), str(tools / 'kindle')],
+                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60,
+                        creationflags=0x08000000 if os.name == 'nt' else 0)
+                    case['independent_decode'] = dict(returncode=decode.returncode,
+                        stdout=decode.stdout[-1500:], stderr=decode.stderr[-1500:])
+                    assert decode.returncode == 0, case
+                    if extension == 'mobi':
+                        legacy = unpacked / 'mobi7/book.html'
+                        legacy_text = html.unescape(legacy.read_text(encoding='utf-8'))
+                        for expected_text in ('Ёжик читает книгу.', 'English text.', 'Проверочная сноска.', 'Последний абзац'):
+                            assert expected_text in legacy_text, ('MOBI7', expected_text)
+                        assert any(path.read_bytes() == png() for path in (unpacked / 'mobi7').rglob('*.png')), 'MOBI7 illustration changed'
+                        case['independent_legacy_mobi7_text_notes_original_image'] = True
+                    raw = json.loads(decoded.read_text(encoding='utf-8'))
+                    if raw['format'] == 'epub':
+                        with zipfile.ZipFile(raw['path']) as archive:
+                            case['decoded_xhtml_prefixes'] = {name: archive.read(name).decode('utf-8')[:600]
+                                for name in archive.namelist() if name.lower().endswith(('.xhtml', '.html', '.htm'))}
                     conversion.convert_book(output, restored, tools_root=str(tools))
                     with zipfile.ZipFile(restored) as archive:
                         assert archive.testzip() is None
@@ -93,11 +131,28 @@ def probe(artifacts, report_path, temp_root):
                                               'English text.', 'Проверочная сноска.', 'Последний абзац'):
                             assert expected_text in text, (extension, expected_text)
                         assert any(name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')) for name in archive.namelist())
-                        assert '<strong' in text or '<b' in text
-                        assert '<em' in text or '<i' in text
+                        assert any(archive.read(name) == png() for name in archive.namelist()
+                                   if name.lower().endswith('.png')), 'Original illustration bytes were not preserved'
+                        case['original_png_bytes_preserved'] = True
+                        documents = [conversion.xhtml(archive.read(name)) for name in archive.namelist()
+                            if name.lower().endswith(('.xhtml', '.html', '.htm'))]
+                        tags = {conversion.tag(node) for document in documents for node in document.iter()}
+                        assert tags.intersection({'strong', 'b'}), 'Lost bold text semantics'
+                        assert tags.intersection({'em', 'i'}), 'Lost italic text semantics'
+                        navigation = '\n'.join(archive.read(name).decode('utf-8') for name in archive.namelist()
+                            if name.lower().endswith(('nav.xhtml', 'toc.ncx')))
+                        assert 'Первая глава' in navigation and 'Вторая глава' in navigation, 'Lost hierarchical book navigation'
                     case.update(bytes=len(data), sha256=digest(output), mobi_header_version=version,
                                 independent_text_images_notes_roundtrip=True)
-            assert digest(source) == before and digest(epub) == epub_hash, 'Source changed'
+                    fb2 = root / (platform + '-' + extension + '.fb2')
+                    conversion.convert_book(output, fb2, tools_root=str(tools))
+                    document = conversion.xml(fb2.read_bytes())
+                    text = ''.join(document.itertext())
+                    assert 'Ёжик читает книгу.' in text and 'Проверочная сноска.' in text
+                    assert any(conversion.tag(node) == 'binary' for node in document.iter())
+                    case['fb2_roundtrip_text_notes_images'] = True
+            assert (digest(source) == before and digest(epub) == epub_hash
+                    and digest(original_epub) == original_epub_hash), 'Source changed'
             report.update(status='PASS', original_source_preserved=True, intermediate_epub_preserved=True)
         report['temporary_root_removed'] = not root.exists()
     except Exception as error:
