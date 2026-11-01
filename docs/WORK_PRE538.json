@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-01T03:53:38.263499+00:00",
+  "updated_utc": "2026-11-01T05:58:02.188373+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -2183,5 +2183,248 @@
       "user_request": "Clearer error explaining that a website response could not be obtained",
       "root_cause_confirmed": false
     }
+  },
+  "beta2_preparation_20261101": {
+    "status": "PROGRESS; final GUI installation gate remains open; not published",
+    "display": "3.0 beta 2",
+    "tag": "3.0.0_pre1.2",
+    "numeric": "3.0.0.2",
+    "previous_turn": "Progress: committed and pushed 6516a455 after native and production x86/x64 illustrated-book checks. Overall goal remains active.",
+    "source_identity_gate": "scripts/check-release-source.ps1 PASS across four projects, native constants and first-party component descriptors",
+    "history_gate": "nine release notes parsed; newest heading HomeLibre 3.0 beta 2",
+    "stale_binary_gate": {
+      "Win32": "PASS old binaries refused",
+      "Win64": "PASS old binaries refused"
+    },
+    "ordinary_builds": {
+      "catalogue_Win32": {
+        "component": "catalogue",
+        "platform": "Win32",
+        "path": "Program\\Out\\Bin\\HomeLibRu.exe",
+        "bytes": 11121152,
+        "sha256": "a86ed7a0d420637f3cca9ed226c3b9afd78deb1e2db822dd8c239364f6f0c79d",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "updater_Win32": {
+        "component": "updater",
+        "platform": "Win32",
+        "path": "Program\\Out\\Bin\\HomeLibRuUpdater.exe",
+        "bytes": 1991680,
+        "sha256": "05aa98838d0c408bc4da13846e60687864a9f57ed7e75af540cef7eb387c81e1",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "Reader_Win32": {
+        "component": "Reader",
+        "platform": "Win32",
+        "path": "Utils\\HomeLibReader\\Out\\Win32\\HomeLibReader.exe",
+        "bytes": 7840256,
+        "sha256": "a798d28f90d0a3d2abf944c791f9152d427f3ac2011352c96c96e095e010f3f4",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "MCP_Win32": {
+        "component": "MCP",
+        "platform": "Win32",
+        "path": "Program\\Out\\Bin\\MHLMcpServer.exe",
+        "bytes": 6243328,
+        "sha256": "249ac571159100f2213e9bd9a276d98ad9c8326f01bebf7f71e72f103b50d27f",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "catalogue_Win64": {
+        "component": "catalogue",
+        "platform": "Win64",
+        "path": "Program\\Out\\Bin64\\HomeLibRu.exe",
+        "bytes": 17066496,
+        "sha256": "b1b92aa14bcc016895258bf2cd713c70275b72a2290620506d3d7241f98f870c",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "updater_Win64": {
+        "component": "updater",
+        "platform": "Win64",
+        "path": "Program\\Out\\Bin64\\HomeLibRuUpdater.exe",
+        "bytes": 2956288,
+        "sha256": "7318aaf42d51281f6708e431c9961de4e0e9d318140ed1337f7ed1d16da88e32",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "Reader_Win64": {
+        "component": "Reader",
+        "platform": "Win64",
+        "path": "Utils\\HomeLibReader\\Out\\Win64\\HomeLibReader.exe",
+        "bytes": 12048896,
+        "sha256": "05efa9870527fa3a47d8301c50971a6173271919e6218239b9ff8156d923ff6b",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      },
+      "MCP_Win64": {
+        "component": "MCP",
+        "platform": "Win64",
+        "path": "Program\\Out\\Bin64\\MHLMcpServer.exe",
+        "bytes": 9628672,
+        "sha256": "e78c573b3c1aeb0f661821a6270b36a57451078f8948ac6b3b2164ba2ccf6a50",
+        "identity": {
+          "file": "3.0.0.2",
+          "product": "3.0.0_pre1.2"
+        },
+        "build_method": "Licensed Delphi Community Edition GUI Release full build"
+      }
+    },
+    "next": [
+      "Resolve why the update command did not present a window in the isolated beta1 and beta2 frontend attempts, then verify actual install requests through Computer Use",
+      "Verify final exact-package related-Reader restart and selected book state",
+      "Publish only after remaining installation GUI gates pass; verify remote assets and remove obsolete first-party duplicates after the new feed is verified"
+    ],
+    "GUI_recovery": "After file-name input targeted the file-dialog search box and child accessibility elements were unavailable, closed IDE normally (No to own stale project settings), verified disk source identity, and opened main project through supported GUI application launch with project path. No command-line compilation.",
+    "verification_report": {
+      "file": "tools\\ui\\tests\\Out\\homelibre-beta2-preparation-20261101-r1.json",
+      "sha256": "fe79560b35b0166fe45e2a2144c0fd504ee53e96dd4cd9803b6abab3f61eafd2",
+      "gates_passed": 9,
+      "incomplete_GUI_attempts": [
+        {
+          "file": "tools\\ui\\tests\\Out\\homelibre-beta2-published-beta1-frontend-Win64-20261101-r1.json",
+          "sha256": "46ebb84f781cd0f8043caddacff50f738dd302cc0d49d140217a2063178d262a",
+          "result": "NOT PASSED",
+          "reason": "Menu selected through Computer Use, but update window/request did not appear; test catalogue closed normally; cause not established",
+          "temporary_payloads_removed": true
+        },
+        {
+          "file": "tools\\ui\\tests\\Out\\homelibre-beta2-ready-reader-frontend-Win64-20261101-r1.json",
+          "sha256": "06d288dbb2270820085cd4a1acb26fe76fd916fdb86f0e262994008ea8ef73fb",
+          "result": "NOT PASSED",
+          "reason": "Menu selected through Computer Use, but update window/request did not appear; test catalogue closed normally; cause not established",
+          "temporary_payloads_removed": true
+        }
+      ]
+    },
+    "catalogue_packages": [
+      {
+        "platform": "Win32",
+        "temporary_payloads_removed": true,
+        "archive_bytes": 7327796,
+        "manifest_files": 240,
+        "release_executable_identities": {
+          "HomeLibRu.exe": {
+            "file": "3.0.0.2",
+            "product": "3.0.0_pre1.2"
+          },
+          "HomeLibRuUpdater.exe": {
+            "file": "3.0.0.2",
+            "product": "3.0.0_pre1.2"
+          }
+        },
+        "all_member_hashes_verified": true,
+        "optional_payloads_absent": [
+          "Readers/",
+          "converters/",
+          "tools/bookconvert/",
+          "tools/kindle/",
+          "tools/office/",
+          "tools/xps/",
+          "tools/pdfium/",
+          "tools/7zip/",
+          "tools/webp/",
+          "tools/jpeg-xl/",
+          "tools/doc/",
+          "tools/djvu/",
+          "HomeLibReader.exe",
+          "MHLMcpServer.exe",
+          "HomeLibRu.url",
+          "libzstd.dll"
+        ],
+        "catalogue_only_payload_verified": true,
+        "native_format_adapters_absent": true,
+        "native_architectures_verified": true,
+        "genre_resources_grouped_and_verified": true,
+        "root_files_verified": true,
+        "archive_sha256": "77906558577fb0874414d766f18ff70c627eb7be73535c363dfbc07cc5002b14",
+        "scenario": "package-only",
+        "published": false,
+        "application_smoke_tested": false
+      },
+      {
+        "platform": "Win64",
+        "temporary_payloads_removed": true,
+        "archive_bytes": 9202913,
+        "manifest_files": 240,
+        "release_executable_identities": {
+          "HomeLibRu.exe": {
+            "file": "3.0.0.2",
+            "product": "3.0.0_pre1.2"
+          },
+          "HomeLibRuUpdater.exe": {
+            "file": "3.0.0.2",
+            "product": "3.0.0_pre1.2"
+          }
+        },
+        "all_member_hashes_verified": true,
+        "optional_payloads_absent": [
+          "Readers/",
+          "converters/",
+          "tools/bookconvert/",
+          "tools/kindle/",
+          "tools/office/",
+          "tools/xps/",
+          "tools/pdfium/",
+          "tools/7zip/",
+          "tools/webp/",
+          "tools/jpeg-xl/",
+          "tools/doc/",
+          "tools/djvu/",
+          "HomeLibReader.exe",
+          "MHLMcpServer.exe",
+          "HomeLibRu.url",
+          "libzstd.dll"
+        ],
+        "catalogue_only_payload_verified": true,
+        "native_format_adapters_absent": true,
+        "native_architectures_verified": true,
+        "genre_resources_grouped_and_verified": true,
+        "root_files_verified": true,
+        "archive_sha256": "3a623e88b043a4254ee672d22dee8b8d820dee2e057c4400ddc04e3b488cdf61",
+        "scenario": "package-only",
+        "published": false,
+        "application_smoke_tested": false
+      }
+    ],
+    "component_plan": {
+      "file": "G:\\HomeLibRu-build-cache\\HomeLibre-beta2-release-20261101-r1\\publication-r1\\publication-plan.json",
+      "sha256": "b3c0da40f143c82eb2863f1e1f9a181ef1afbbd65e8154be952a8f31dfd9774d",
+      "remote_feed_observed_sha256": "ea1feed41dd7c3650d03c23826376e78776fdfd4d7368f84bbb2d91cfdd7c00f",
+      "native_parsers": "PASS x86/x64, 17 entries per architecture and invalid digest rejection",
+      "published": false
+    },
+    "scope_limits": [
+      "No network download or old frontend installation success claimed by the published-helper checks",
+      "Candidate beta2 used as the source Main in ready-reader frontend attempt, despite generic harness wording about a published Main",
+      "Exact final package related-Reader update GUI gate remains pending; earlier production/native code proofs remain in the journal",
+      "Standalone Reader retains libzstd.dll for previous component installer mandatory-file compatibility",
+      "Catalogue filenames remain legacy-compatible for this beta; no publication or duplicate asset upload performed"
+    ],
+    "test_harness_correction": "Component feed negative Reader test now mutates a current-version owned ZIP and updates its manifest consistently, so stale build rejection no longer depends on a missing reader-r2 stage from a previous release."
   }
 }

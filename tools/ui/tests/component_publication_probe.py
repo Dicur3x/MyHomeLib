@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 TAG = 'optional-alreader-2.5.1009.25'
@@ -98,11 +99,37 @@ def main():
             assert result.returncode != 0 and 'Public feed size is stale' in result.stderr
             assert not negative.exists(), 'Stale feed created publication output'
             report['stale_cached_feed_rejected_before_output'] = True
+            # Keep the current release identity and a self-consistent manifest,
+            # but replace the Reader bytes. This checks the source/build gate
+            # without depending on a previous numbered staging directory.
+            stale_readers = runtime / 'stale-reader-packages'
+            stale_readers.mkdir()
+            reader_feed_bytes = (args.reader_packages / 'HomeLibRu.components.json').read_bytes()
+            (stale_readers / 'HomeLibRu.components.json').write_bytes(reader_feed_bytes)
+            reader_entries = json.loads(reader_feed_bytes)['components']
+            for index, entry in enumerate(reader_entries):
+                source_archive = args.reader_packages / entry['archive']
+                destination = stale_readers / entry['archive']
+                if index:
+                    destination.write_bytes(source_archive.read_bytes())
+                    continue
+                with zipfile.ZipFile(source_archive) as archive:
+                    payload = {name: archive.read(name) for name in archive.namelist()}
+                binary = bytearray(payload['HomeLibReader.exe'])
+                binary[-1] ^= 1
+                payload['HomeLibReader.exe'] = bytes(binary)
+                manifest = json.loads(payload['HomeLibRu.update.json'])
+                executable = next(item for item in manifest['files'] if item['path'] == 'HomeLibReader.exe')
+                executable['sha256'] = hashlib.sha256(binary).hexdigest()
+                payload['HomeLibRu.update.json'] = json.dumps(manifest).encode('utf-8')
+                with zipfile.ZipFile(destination, 'x', zipfile.ZIP_DEFLATED) as archive:
+                    for name, data in payload.items():
+                        archive.writestr(name, data)
             stale_reader_output = runtime / 'stale-reader-output'
             result = run([sys.executable, '-B', '-X', 'utf8', ROOT / 'scripts/prepare-component-publication.py',
                 stage, '--base-feed', args.base_feed.resolve(),
                 '--release-metadata', args.release_metadata.resolve(),
-                '--reader-packages', stage / 'reader-r2', '--djvu-packages', args.djvu_packages.resolve(),
+                '--reader-packages', stale_readers, '--djvu-packages', args.djvu_packages.resolve(),
                 '--output', stale_reader_output])
             assert result.returncode != 0 and 'Reader archive does not match current executable' in result.stderr
             assert not stale_reader_output.exists(), 'Stale Reader created publication output'
