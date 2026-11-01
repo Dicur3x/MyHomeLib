@@ -344,6 +344,51 @@ end;
 
 {$I UpdateComponentTableTests.inc}
 
+procedure TestUpdateManualReopen;
+var Cycle: TfrmProgramUpdate; Current: TProgramRelease; Components: TComponentReleases;
+  Bounds, Working, Intersection: TRect;
+
+  procedure RequireNativeVisibility;
+  begin
+    Application.ProcessMessages;
+    Require(IsWindowVisible(Cycle.Handle),'Update window property is visible but its native window is hidden');
+    Require(GetWindowRect(Cycle.Handle,Bounds),'Cannot read update window bounds');
+    Working:=Screen.MonitorFromWindow(Cycle.Handle).WorkareaRect;
+    Require(IntersectRect(Intersection,Bounds,Working) and (Intersection.Width>100) and
+      (Intersection.Height>100),'Update window is outside the working screen');
+  end;
+begin
+  Cycle:=CreateTestProgramUpdate;
+  try
+    Current:=Default(TProgramRelease); Current.Tag:=PROGRAM_RELEASE_VERSION;
+    Components:=Default(TComponentReleases);
+    Require(Cycle.StartCheckCycle(True),'Background check did not start');
+    Require(not Cycle.Visible,'Background check unexpectedly opened its window');
+    Require(not Cycle.StartCheckCycle(False),'Manual reopening started a duplicate check');
+    Require(Cycle.Visible,'Manual request during a background check did not show updates');
+    RequireNativeVisibility;
+    Cycle.Hide;
+    Require(not Cycle.StartCheckCycle(True),'Repeated background request started a duplicate check');
+    Require(not Cycle.Visible,'Repeated background request opened a hidden window');
+    Cycle.ApplicationChecked(Current,True,'');
+    Cycle.ComponentsReceived(Components,True,'');
+    Writeln('PASS manual update request presents an existing background cycle without duplicate checks');
+    Require(Cycle.StartCheckCycle(False),'Finished cycle prevented a fresh manual check');
+    Require(Cycle.Visible,'Fresh manual check did not open updates');
+    Cycle.Hide;
+    Require(not Cycle.StartCheckCycle(False),'Reopening a manual check started another cycle');
+    Require(Cycle.Visible,'Hidden in-progress manual check was not reopened');
+    Cycle.Hide;
+    Cycle.ShowFullWindow;
+    Require(Cycle.Visible,'Explicit update command did not present its current window');
+    RequireNativeVisibility;
+    Cycle.ApplicationChecked(Current,True,'');
+    Cycle.ComponentsReceived(Components,True,'');
+    Writeln('PASS hidden in-progress manual update window reopens without losing its cycle');
+    Writeln('PASS manual update window has a visible native window inside the working screen');
+  finally Cycle.Free; end;
+end;
+
 procedure TestProgramUpdateUI;
 var Popup: TfrmProgramUpdate; Configuration: TfrmSettings; ReleaseInfo, Parsed: TProgramRelease;
   ComponentID, SQLiteArch, SavedOptional: string; NotesView: TUpdateNotesView;
@@ -6132,6 +6177,8 @@ begin
       else if ParamStr(1) = 'release23-ready-visual' then TestUpdateReadyReleasePages
       else if ParamStr(1) = 'program-update-ui' then
         TestProgramUpdateUI
+      else if ParamStr(1) = 'update-manual-reopen' then
+        TestUpdateManualReopen
       else if ParamStr(1) = 'program-update-download' then
         TestProgramUpdateDownload
       else if ParamStr(1) = 'online-download' then

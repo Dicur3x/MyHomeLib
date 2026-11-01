@@ -3439,9 +3439,11 @@ end;
 procedure TfrmMain.EnsureProgramUpdateForm;
 begin
   if Assigned(FProgramUpdateForm) then Exit;
+  LogDiagnosticTrace('program-update-window','creating');
   FProgramUpdateForm := TfrmProgramUpdate.Create(Self);
   FProgramUpdateForm.OnRestart := RestartForProgramUpdate;
   FProgramUpdateForm.OnCheck := CheckUpdatesExecute;
+  LogDiagnosticTrace('program-update-window','created');
 end;
 
 procedure TfrmMain.RequestOptionalComponent(const ID: string);
@@ -3475,11 +3477,17 @@ end;
 
 procedure TfrmMain.CheckUpdatesExecute(Sender: TObject);
 begin
-  if Assigned(Sender) then FAutoCheck := False;
+  LogDiagnosticTrace('program-update-request',Format('manual=%s; check-active=%s',
+    [BoolToStr(Assigned(Sender),True),BoolToStr(Assigned(FProgramUpdateThread),True)]));
+  EnsureProgramUpdateForm;
+  if Assigned(Sender) then
+  begin
+    FAutoCheck := False;
+    FProgramUpdateForm.ShowFullWindow;
+    LogDiagnosticTrace('program-update-window','presented');
+  end;
   if Assigned(FProgramUpdateThread) then
     Exit;
-  EnsureProgramUpdateForm;
-  if Assigned(Sender) then FProgramUpdateForm.UseFullWindow;
   if not FProgramUpdateForm.StartCheckCycle(FAutoCheck) then Exit;
   FProgramUpdateForm.CheckComponents(FAutoCheck);
   Settings.ProgramUpdateLastCheckUTC := TTimeZone.Local.ToUniversalTime(Now);

@@ -82,7 +82,10 @@ def main():
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--frontend', action='store_true',
                         help='Use the published Main ready-package install/restart UI instead of its old helper')
+    parser.add_argument('--candidate-client', action='store_true',
+                        help='Identify the GUI receiver as an unpublished local candidate; requires --frontend')
     args = parser.parse_args()
+    assert not args.candidate_client or args.frontend
     assert sha(args.old_archive) == args.old_sha256
     assert sha(args.new_archive) == args.new_sha256
     assert not args.report.exists()
@@ -107,7 +110,9 @@ def main():
     report = dict(status='RUNNING', scope=__doc__, old_archive_sha256=args.old_sha256,
                   new_archive_sha256=args.new_sha256, published=False)
     if args.frontend:
-        report['scope'] = ('Original published Main restores an owned prepared package, selects its expected helper, '
+        report['client_provenance'] = 'local candidate' if args.candidate_client else 'published release'
+        client = 'Local candidate Main' if args.candidate_client else 'Original published Main'
+        report['scope'] = (client + ' restores an owned prepared package, selects its expected helper, '
             'writes the restart request and launches installation through its normal UI. '
             'The network/download frontend is not exercised.')
     temporary = tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-published-')
@@ -148,6 +153,7 @@ def main():
         (target / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1')
         ini = target / 'myhomelib2.ini'
         ini.write_text('[SYSTEM]\nCheckUpdates=0\nCheckLibrusecUpdates=0\nProgramCheckMinutes=0\n'
+            + ('DetailedDiagnostics=1\n' if args.candidate_client else '') +
             '[INTERFACE]\nLocale=ru\nWindowsDarkThemeOfferDismissed=1\n'
             '[BEHAVIOR]\nCoverPanel=0\nShowCover=0\nShowAnnotation=0\nAutoLoadReview=0\nIgnoreAbsentArchives=1\n'
             '[UpdateProbe]\nProtectedValue=Preserve personal settings ё\n', encoding='utf-8')
@@ -220,8 +226,12 @@ def main():
                 notes='Проверка готового обновления HomeLibre на отдельной копии.',
                 component=component, version=manifest.get('version', ''), size=archive.stat().st_size)
             (cache / 'ready.json').write_text(json.dumps(ready, ensure_ascii=False), encoding='utf-8')
+            startup = subprocess.STARTUPINFO()
+            startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startup.wShowWindow = 1  # Win32 SW_SHOWNORMAL; subprocess only exposes SW_HIDE.
+            report['frontend_startup_show'] = 'SW_SHOWNORMAL'
             process = subprocess.Popen([str(target / 'HomeLibRu.exe')], cwd=target,
-                env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
             old_pid, request = process.pid, None
             report['published_main_pid'] = old_pid
             print(json.dumps(dict(report, stage='inspect-published-main-ready')), flush=True)

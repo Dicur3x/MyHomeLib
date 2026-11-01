@@ -145,6 +145,7 @@ type
     procedure RequestComponents(const IDs: TArray<string>; const Reason: string; Compact: Boolean = True);
     function InstallComponentForOperation(const ID, Reason: string): Boolean;
     procedure UseFullWindow;
+    procedure ShowFullWindow;
     function StartCheckCycle(Automatic: Boolean): Boolean;
     procedure ApplicationChecked(const ReleaseInfo: TProgramRelease; Successful: Boolean; const Error: string);
     procedure ComponentsReceived(const Releases: TComponentReleases; Successful: Boolean; const Error: string);
@@ -168,7 +169,7 @@ uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.Regul
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
-  unit_MHLExternalTools;
+  unit_MHLExternalTools, unit_Diagnostics;
 
 function ComponentDownloadSize(Bytes: Int64): string;
 begin
@@ -243,6 +244,7 @@ constructor TfrmProgramUpdate.Create(AOwner: TComponent);
 var HistoryFile: string; Menu: TPopupMenu; Entry: TMenuItem;
 begin
   inherited CreateNew(AOwner);
+  LogDiagnosticTrace('program-update-window','initializing controls');
   Caption := 'Обновление HomeLibre'; BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMinimize, biMaximize];
   Position := poMainFormCenter; ClientWidth := 960; ClientHeight := 760;
@@ -293,6 +295,7 @@ begin
   FNotifyOptional.Name:='NotifyOptionalComponent';
   FNotifyOptional.Caption:='Сообщать об обновлениях этого компонента'; FNotifyOptional.OnClick:=NotificationChanged;
   RefreshInstalledComponents; UpdateComponentList; SelectRow(0);
+  LogDiagnosticTrace('program-update-window','installed components loaded');
   FStatus.SetBounds(20, 88, 700, 60); FStatus.AutoSize := False; FStatus.WordWrap := True;
   FNotes := TUpdateNotesView.Create(Self); FNotes.Parent := Self;
   FNotes.SetBounds(20, 155, 700, 238);
@@ -311,6 +314,7 @@ begin
   FCache := ProgramUpdateCache(Settings.AppPath);
   LoadComponentHistory(FCache, FComponents);
   UpdateComponentList;
+  LogDiagnosticTrace('program-update-window','component history loaded');
   FZoomOut := TButton.Create(Self); FZoomOut.Parent := Self;
   FZoomOut.Caption := 'A−'; FZoomOut.Tag := -10; FZoomOut.OnClick := ZoomClick;
   FZoomOut.Hint := 'Уменьшить текст (Ctrl + колёсико)'; FZoomOut.ShowHint := True;
@@ -339,6 +343,7 @@ begin
   FComponentsView.StyleElements:=FComponentsView.StyleElements-[seFont,seClient];
   if MHLThemeDark then FComponentsView.Color:=RGB(30,31,34) else FComponentsView.Color:=clWindow;
   LayoutWindow;
+  LogDiagnosticTrace('program-update-window','initialized');
 end;
 
 destructor TfrmProgramUpdate.Destroy;
@@ -1124,7 +1129,11 @@ function TfrmProgramUpdate.StartCheckCycle(Automatic: Boolean): Boolean;
 var I: Integer;
 begin
   Result := False;
-  if FCheckingCycle or Assigned(FThread) or Assigned(FComponentThread) then Exit;
+  if FCheckingCycle or Assigned(FThread) or Assigned(FComponentThread) then
+  begin
+    if not Automatic then ShowFullWindow;
+    Exit;
+  end;
   if FReady then begin if not Automatic then Present; Exit; end;
   FRequestedComponent:=''; FRequestedComponents:=nil; FRequestReason:='';
   RefreshInstalledComponents;
@@ -1349,6 +1358,16 @@ begin
   FCompactStatus:=nil; FCompactHeader:=nil; FCompactBytes:=nil;
   FCompactProgress:=nil; FCompactPrimary:=nil; FCompactLater:=nil;
   LayoutWindow;
+end;
+
+procedure TfrmProgramUpdate.ShowFullWindow;
+begin
+  UseFullWindow;
+  Present;
+  LogDiagnosticTrace('program-update-window',Format(
+    'present requested; visible=%s; native-visible=%s; selection-depth=%d; update-depth=%d',
+    [BoolToStr(Visible,True),BoolToStr(HandleAllocated and IsWindowVisible(Handle),True),
+    FSelectionDepth,FUIUpdateCount]));
 end;
 
 function TfrmProgramUpdate.RequestedReleases: TArray<TProgramRelease>;

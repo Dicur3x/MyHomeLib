@@ -2,7 +2,8 @@
 
 The helper's ordinary --job interface exercises production update coordination.
 No window input or forced process termination is implemented by this harness.
-Development binaries retain their current version: these are not release packages.
+Without --reader-package this uses development binaries. An explicit package
+and SHA-256 test the exact release ZIP without repacking or changing its version.
 """
 import argparse
 import hashlib
@@ -51,12 +52,16 @@ def main():
     parser.add_argument('action', choices=('prepare', 'seed-image-update', 'refresh-reader', 'launch', 'inspect', 'record-selection', 'record-ui-install', 'install', 'check', 'check-saved-copy', 'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--platform', choices=PACKAGE_HASH)
+    parser.add_argument('--reader-package', type=Path)
+    parser.add_argument('--reader-sha256')
     parser.add_argument('--label', choices=('peer', 'caller'))
     parser.add_argument('--seed-recent', action='store_true', help='Seed own public recent-file settings for a File-menu change test')
     parser.add_argument('--seed-save-folder', action='store_true', help='Seed the own output folder through ordinary public settings')
     parser.add_argument('--archive-session', action='store_true', help='Use a catalogue locator for the second archive member')
     parser.add_argument('--cache-sentinel', action='store_true', help='Prove on-exit cache cleanup using an unleased owned cache entry')
     args = parser.parse_args()
+    assert bool(args.reader_package) == bool(args.reader_sha256)
+    assert not args.reader_package or args.action == 'prepare'
     state = json.loads(args.state.read_bytes()) if args.state.exists() else None
     if state is None:
         assert args.action == 'prepare' and args.platform
@@ -76,8 +81,8 @@ def main():
     job = Path(state['job_path']) if state.get('job_path') else root / state.get('job_name', 'HomeLibRu-update-' + state['token'])
     if args.action == 'prepare':
         assert not state['launches'] and not processes(root)
-        package = PACKAGES / f'HomeLibRu-HomeLibReader-3.0.0.1-{platform}.zip'
-        assert sha(package) == PACKAGE_HASH[platform]
+        package = args.reader_package or PACKAGES / f'HomeLibRu-HomeLibReader-3.0.0.1-{platform}.zip'
+        assert sha(package) == (args.reader_sha256 or PACKAGE_HASH[platform])
         candidate = root / 'candidate'
         with zipfile.ZipFile(package) as archive:
             for name in archive.namelist():
@@ -85,6 +90,9 @@ def main():
             archive.extractall(candidate)
         reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
         helper = REPO / ('Program/Out/Bin64' if platform == 'Win64' else 'Program/Out/Bin') / 'HomeLibRuUpdater.exe'
+        if args.reader_package:
+            assert sha(candidate / reader.name) == sha(reader)
+            assert sha(candidate / helper.name) == sha(helper)
         shutil.copyfile(reader, candidate / reader.name)
         shutil.copyfile(helper, candidate / helper.name)
         manifest_path = candidate / 'HomeLibRu.update.json'
@@ -94,10 +102,13 @@ def main():
             entry.update(size=file.stat().st_size, sha256=sha(file))
         dump(manifest_path, manifest)
         archive_path = root / 'candidate.zip'
-        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
-            for file in sorted(candidate.rglob('*')):
-                if file.is_file():
-                    archive.write(file, file.relative_to(candidate).as_posix())
+        if args.reader_package:
+            shutil.copyfile(package, archive_path)
+        else:
+            with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for file in sorted(candidate.rglob('*')):
+                    if file.is_file():
+                        archive.write(file, file.relative_to(candidate).as_posix())
         if not app.exists():
             shutil.copytree(candidate, app)
             with (app / 'HomeLibReader.exe').open('ab') as file:
@@ -119,6 +130,7 @@ def main():
         shutil.copyfile(archive_path, job / 'release.zip')
         shutil.copyfile(helper, job / helper.name)
         state.update(archive=str(archive_path), archive_sha256=sha(archive_path), release=manifest['release'],
+                     exact_release_package=bool(args.reader_package),
                      reader_sha256=sha(reader), helper_sha256=sha(helper), running_exe_sha256=sha(app / reader.name),
                      source_hashes={str(p.relative_to(root)): sha(p) for p in (root / 'books').iterdir()})
     elif args.action == 'seed-image-update':
@@ -281,6 +293,9 @@ def main():
         assert not any(p.is_symlink() or p.is_junction() for p in root.rglob('*'))
         shutil.rmtree(root)
         state['temporary_root_removed'] = not root.exists()
+        if args.action == 'cleanup':
+            assert state['temporary_root_removed']
+            state['status'] = 'PASS'
     dump(args.state, state)
     print(json.dumps({k: state.get(k) for k in ('root', 'platform', 'helper_pid', 'helper_installation_checked', 'temporary_root_removed')}, ensure_ascii=False))
 

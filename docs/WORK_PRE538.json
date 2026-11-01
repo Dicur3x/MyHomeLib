@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-01T05:58:02.188373+00:00",
+  "updated_utc": "2026-11-01T09:30:05.783026+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -2426,5 +2426,164 @@
       "Catalogue filenames remain legacy-compatible for this beta; no publication or duplicate asset upload performed"
     ],
     "test_harness_correction": "Component feed negative Reader test now mutates a current-version owned ZIP and updates its manifest consistently, so stale build rejection no longer depends on a missing reader-r2 stage from a previous release."
+  },
+  "manual_update_window_20261101": {
+    "status": "PASS native visible HWND and manual reopen x86/x64; production frontend UI action remains unverified",
+    "cause": "Main returned before presenting the updater when its check thread existed. The updater also returned without presenting an existing checking cycle.",
+    "change": "Manual requests present the full window before busy guards. Automatic checks stay hidden and manual requests do not duplicate workers. Detailed diagnostics record a manual request and active-thread state.",
+    "proofs": [
+      {
+        "path": "tools/ui/tests/Out/homelibre-update-manual-baseline-Win64-20261101-r2.json",
+        "sha256": "f5e7fe95238e85cb69b76273a7574fd8cc1fba3c8372a3ecbdba4045f59c5be5"
+      },
+      {
+        "path": "tools/ui/tests/Out/homelibre-update-manual-fixed-Win64-20261101-r1.json",
+        "sha256": "28e1464a83871b3eb3d48b7f97ccb16dc19353cebe5f2b077d7af2d4976bf93c"
+      },
+      {
+        "path": "tools/ui/tests/Out/homelibre-update-adjacent-fixed-Win64-20261101-r1.json",
+        "sha256": "9d8419fe0c15303f7d0c056a75da4046c6e7925082227208ddff507aeef6b496"
+      },
+      {
+        "path": "tools/ui/tests/Out/homelibre-update-fixed-Win32-20261101-r1.json",
+        "sha256": "b479c7789681bd277b2ecb4c17976766a6bbb5a471ece7999ba86f6443adb66f"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-update-native-visible-Win32-20261101-r1.json",
+        "sha256": "a27d2d2a3cb2708f7a833f447749b766a94edcc537075678495975b8c49431e1"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-update-native-visible-Win64-20261101-r1.json",
+        "sha256": "1e8771aca29f5c768e6352b0ddf4f3dc998916c92e9c059f8d7050fc1e0c2384"
+      }
+    ],
+    "native_scope": [
+      "Background-to-manual and hidden manual window reopen",
+      "No duplicate cycles and quiet repeated automatic requests",
+      "Cached component rows and controlled source failure/retry checks on both architectures"
+    ],
+    "release_candidate": "Rebuilding affected Main and Reader; catalogue-r2 packages verified minimal and passed native prepare/helper gates on both architectures",
+    "not_claimed": [
+      "Previous unpublished candidate frontend attempts did not complete installation; their generic published-client report wording is qualified here",
+      "No exact original published Main network/download frontend success",
+      "No new publication"
+    ],
+    "next": "Publish verified beta2 archives; keep frontend limitation explicit.",
+    "exact_candidate_frontend_attempts": [
+      {
+        "path": "tools/ui/tests/Out/homelibre-beta2-ready-reader-frontend-Win64-20261101-r3.json",
+        "sha256": "931a51711c331ab84ba68ee69035931b6d07d27d9ffd0550f4161467c559a613",
+        "status": "FAIL",
+        "error": "AssertionError('Install the ready update from the old Main UI')",
+        "temporary_payloads_removed": true
+      },
+      {
+        "path": "tools/ui/tests/Out/homelibre-beta2-ready-reader-frontend-Win64-20261101-r4.json",
+        "sha256": "ebd126a0788fb61f74472609e75bffac97caa747639af2876aceafc210485bf1",
+        "status": "FAIL",
+        "error": "AssertionError('Old Main closed without requesting installation')",
+        "temporary_payloads_removed": true
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-ready-reader-frontend-Win64-20261101-r5.json",
+        "sha256": "b19d0d110294e78446cdfac7af0b2f54805373fbbf87e40b11a86fcd59d50dba",
+        "status": "FAIL",
+        "error": "AttributeError(\"module 'subprocess' has no attribute 'SW_SHOWNORMAL'\")",
+        "temporary_payloads_removed": true
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-ready-reader-frontend-Win64-20261101-r6.json",
+        "sha256": "38c742dfcdeb5f6999f1e651df498a6297342521bddaa16ec8fe2d7edba2ab8a",
+        "status": "FAIL",
+        "error": "AssertionError('Old Main closed without requesting installation')",
+        "temporary_payloads_removed": true
+      }
+    ],
+    "diagnostic_observation": "Production Main manual command reaches ShowFullWindow, which reports visible=True, native-visible=True, selection-depth=0, update-depth=0. Computer Use does not expose the separate nonmodal updater surface; no new product defect is inferred."
+  },
+  "beta2_final_release_gates_20261101": {
+    "status": "PASS scoped release gates; production download frontend not exercised",
+    "published": false,
+    "created_utc": "2026-11-01T09:30:05.783026+00:00",
+    "release": "3.0.0_pre1.2",
+    "version": "3.0.0.2",
+    "archives": [
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta2-release-20261101-r1\\catalogue-r5\\HomeLibRu.zip",
+        "sha256": "cea2f8522523aa5c3c028024e0251dad992622632b303047b6922b0bed980c96",
+        "bytes": 7328960
+      },
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta2-release-20261101-r1\\catalogue-r5\\HomeLibRu_x64.zip",
+        "sha256": "7a632eff74ffda95f3491622203cb6c42cf6971fd7871b6fbf985a01ba87f9b9",
+        "bytes": 9203479
+      },
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta2-release-20261101-r1\\reader-r3\\HomeLibRu-HomeLibReader-3.0.0.2-Win32.zip",
+        "sha256": "99ffb4a36d98941a85d86dac9c3a534b6a6003c3e4852294b18b87977201a0ce",
+        "bytes": 5628071
+      },
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta2-release-20261101-r1\\reader-r3\\HomeLibRu-HomeLibReader-3.0.0.2-Win64.zip",
+        "sha256": "b720a3e4faee790af83bf1c7c112b49414d58f58a9026730ed655fe40fc4a9f6",
+        "bytes": 7004987
+      }
+    ],
+    "checks": [
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-native-prepare-Win32-20261101-r5.json",
+        "sha256": "1085822a1fc59af11cfd7d292dd74ece054a1510ec937a502ce6381c5bc4ad55",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-native-prepare-Win64-20261101-r5.json",
+        "sha256": "f160f12ef47edff59c75b0ff5ac71d067bb3fd1cfb482c4baa907e81e7317774",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-minimum-Win32-20261101-r5.json",
+        "sha256": "cb42fd8b953fac4a9be50cc6c47d5613e2aea42292631616a971fb84719cc0dc",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-minimum-Win64-20261101-r5.json",
+        "sha256": "342a808fcd76eb3622572c0d49bebfa4973e74a6542b97ac2fc5ed3bd1243883",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-component-install-Win32-20261101-r3.json",
+        "sha256": "3eb6fc7e9767d3470be8c3b874ca46d9f84ab80ef3720a10390334289b1ebec8",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-component-install-Win64-20261101-r3.json",
+        "sha256": "513af6cb5b75eb4276235a82697b72dee7cb22592db4e4108b1d5e7621463015",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-component-publication-20261101-r3.json",
+        "sha256": "ce5d29243733e876523579fb92485317a746137333ebaae4fef8ccccfa0b1ac5",
+        "status": "PASS"
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-reader-exact-runtime-Win32-20261101-r1.json",
+        "sha256": "70d5731bda052ccc3cce33b63265b9831fb3b17cfbb755d493dad0b07b171e68",
+        "status": "PASS",
+        "scope": "Exact beta2 Reader ZIP and production helper coordinated two real Reader windows; harmless overlay on the running EXE forced replacement. Helper --job after ordinary caller close, not a GUI update-button or previous-release-to-beta2 test."
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\homelibre-beta2-reader-exact-runtime-Win64-20261101-r1.json",
+        "sha256": "6be9700218c3e2499192e74a552ad0072d28485222af575a16d422f4fe57f909",
+        "status": "PASS",
+        "scope": "Exact Reader release ZIP and production helper coordination of two running Readers with a forced EXE replacement; helper launched through its --job interface after the caller was closed normally, not through the unavailable updater window."
+      }
+    ],
+    "reader_rebuild_scope": "Reader-r3 differs from exact GUI-tested reader-r2 only by updater diagnostic trace additions; final r3 ZIPs passed exact native installation and component feed checks. Font/reflow code and coordinated restart logic are unchanged.",
+    "scope_limits": [
+      "Ready-package GUI installation button was not reachable with Computer Use. Native HWND visibility assertions pass both architectures; actual production trace reports native-visible=True and zero suppression counters. No additional product failure inferred.",
+      "No original published Main HTTP/download frontend success claim.",
+      "Reader retains libzstd.dll for previous installer mandatory-file compatibility.",
+      "Compression, SQL dump import, further UI work and review timeout retry remain separate queued work."
+    ]
   }
 }

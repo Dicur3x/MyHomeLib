@@ -1,9 +1,15 @@
-# История выпусков HomeLib Ru
+# История выпусков HomeLibre
 
 Последние выпуски перечислены первыми. Имена исторических файлов сохранены; ссылки ведут на полные заметки соответствующего выпуска.
 
 [О программе](../../README.md) · [Сборка и проверки](../../BUILDING.md)
 
+- [HomeLibre 3.0 beta 2](RELEASE_NOTES_3.0.0_pre1.2.md)
+- [HomeLibre 3.0 beta 1](RELEASE_NOTES_3.0.0_pre1.1.md)
+- [HomeLib Ru pre5.37](RELEASE_NOTES_2.7.0_pre5.37.md)
+- [HomeLib Ru pre5.36](RELEASE_NOTES_2.7.0_pre5.36.md)
+- [HomeLib Ru pre5.35](RELEASE_NOTES_2.7.0_pre5.35.md)
+- [HomeLib Ru pre5.34](RELEASE_NOTES_2.7.0_pre5.34.md)
 - [HomeLib Ru pre5.33 — 2.7.0.1101](RELEASE_NOTES_2.7.0_pre5.33.md)
 - [HomeLib Ru pre5.32 — 2.7.0.1100](RELEASE_NOTES_2.7.0_pre5.32.md)
 - [HomeLib Ru pre5.31 — 2.7.0.1099](RELEASE_NOTES_2.7.0_pre5.31.md)
