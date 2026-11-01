@@ -1,0 +1,49 @@
+name: Build optional Kindle writer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Win32
+            target: i686-pc-windows-msvc
+          - platform: Win64
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: ciscoriordan/kindling
+          ref: 3b91b1ea21f892779be09149f21fe4053b1b3569
+          path: upstream-kindling
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build the pinned writer and collect licence notices
+        run: >-
+          python scripts/build-kindle-export.py
+          --source upstream-kindling
+          --output KindleExport-${{ matrix.platform }}
+          --platform ${{ matrix.platform }}
+      - name: Run upstream library tests
+        working-directory: upstream-kindling
+        run: cargo test --release --locked --lib --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: KindleExport-${{ matrix.platform }}
+          path: KindleExport-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 7
