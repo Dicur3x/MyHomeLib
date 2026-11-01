@@ -72,6 +72,26 @@ class KindleOutputTests(unittest.TestCase):
             self.assertFalse(any(n.get('property', '').startswith('mhl:fb2-') for n in metadata.iter()))
         self.assert_clean()
 
+    def test_rtf_empty_paragraphs_keep_valid_xhtml_and_single_line_breaks(self):
+        source = self.root / 'empty-paragraphs.rtf'
+        source.write_bytes(br'{\rtf1\ansi First\par\par Last\line Final}')
+        source_hash = hashlib.sha256(source.read_bytes()).digest()
+        prepared, adapted = self.root / 'prepared.epub', self.root / 'adapted.epub'
+        c.convert_book(source, prepared)
+        k.canonical_input(c, prepared, adapted)
+        with zipfile.ZipFile(prepared) as before, zipfile.ZipFile(adapted) as after:
+            document = 'OEBPS/book.xhtml'
+            original = c.xhtml(before.read(document))
+            actual = c.xhtml(after.read(document))
+            self.assertEqual(list(original.itertext()), list(actual.itertext()))
+            self.assertEqual([c.tag(n) for n in original.iter()], [c.tag(n) for n in actual.iter()])
+            self.assertIn(b'<p></p>', after.read(document))
+            self.assertNotIn(b'<p />', after.read(document))
+            self.assertNotIn(b'</br>', after.read(document))
+            self.assertEqual(sum(c.tag(n) == 'br' for n in actual.iter()), 1)
+        self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), source_hash)
+        self.assert_clean()
+
     def test_missing_writer_requests_only_the_kindle_output_component(self):
         with self.assertRaises(c.ComponentRequired) as caught:
             c.convert_book(self.source, self.root / 'out.mobi', tools_root=self.root / 'tools')

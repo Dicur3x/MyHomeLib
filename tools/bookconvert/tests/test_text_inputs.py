@@ -271,6 +271,34 @@ class TextInputs(unittest.TestCase):
         if checker and java:
             result=subprocess.run([java,'-jar',checker,str(output)],capture_output=True,timeout=30,creationflags=0x08000000)
             self.assertEqual(result.returncode,0,(result.stdout+result.stderr).decode(errors='replace'))
+    def test_kindle_unpack_binary_info_comment_does_not_damage_real_metadata(self):
+        source = self.root / 'source.txt'
+        source.write_text('Текст книги с корректными метаданными.', encoding='utf-8')
+        initial = self.root / 'initial.epub'
+        c.convert_book(source, initial)
+        with zipfile.ZipFile(initial) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        package_path = 'OEBPS/package.opf'
+        original = files[package_path]
+        comment = b'\n<!-- BEGIN INFORMATION ONLY \n<meta name="Container_Id" content="t\x00\x80\xff"/>\nEND INFORMATION ONLY -->'
+        for index, damaged in enumerate([original + comment, original + b'\x00',
+                original + comment.replace(b'BEGIN INFORMATION ONLY', b'CUSTOM DEBUG COMMENT')]):
+            incoming, output = self.root / f'unpacked-{index}.epub', self.root / f'repaired-{index}.epub'
+            with zipfile.ZipFile(incoming, 'w') as archive:
+                for name, data in files.items():
+                    archive.writestr(name, damaged if name == package_path else data)
+            if index:
+                with self.assertRaises(c.ConversionError):
+                    c.kindle_epub(incoming, output)
+                self.assertFalse(output.exists())
+                continue
+            c.kindle_epub(incoming, output)
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(list(c.xml(original).itertext()), list(c.xml(archive.read(package_path)).itertext()))
+                for name, data in files.items():
+                    if name != package_path:
+                        self.assertEqual(archive.read(name), data)
+
     def test_invalid_encrypted_kindle_publishes_nothing(self):
         import struct
         tools = Path(os.environ.get('HOMELIB_TEST_TOOLS', Path(__file__).resolve().parents[3]/'Program/Out/Bin64/tools'))

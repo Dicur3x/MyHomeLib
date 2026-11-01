@@ -55,7 +55,14 @@ def canonical_input(api, source, destination):
                         for name in list(node.attrib):
                             if name == 'data-fb2' or name.startswith('data-fb2-'):
                                 del node.attrib[name]
-                    data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+                    # XHTML permits <p/>, but Kindling's HTML-oriented checks
+                    # treat it as an unclosed paragraph. Pair non-void tags;
+                    # keep void elements self-closing so <br></br> cannot turn
+                    # into two line breaks in an HTML reader.
+                    data = ET.tostring(root, encoding='utf-8', xml_declaration=True,
+                                       short_empty_elements=False)
+                    data = re.sub(rb'(<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b[^<>]*?)></\2>',
+                                  rb'\1 />', data)
                 elif member.filename in packages:
                     root = packages[member.filename]
                     for metadata in root.iter():

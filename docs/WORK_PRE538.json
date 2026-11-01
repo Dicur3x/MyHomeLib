@@ -2664,9 +2664,10 @@
     "verified_roundtrip_scope": "Production Python API: owned illustrated FB2 to dual MOBI7/KF8; existing EPUB to AZW3/KF8. Both native writers independently unpacked back to EPUB and FB2: Cyrillic/English text, illustration, bold/italic, notes and navigation checked. Originals unchanged; generated temporary root removed. No physical Kindle or app GUI success claim. Extra r9 checks: independently decoded legacy MOBI7 half retains Cyrillic/English text and notes; exact original PNG bytes retained in MOBI7, KF8 and AZW3 on both architectures.",
     "python_tests": {
       "conversion_tests": 50,
-      "writer_boundary_tests": 6,
+      "writer_boundary_tests": 7,
       "independent_modular_payload_tests": 3,
-      "status": "PASS"
+      "status": "PASS",
+      "text_input_tests": 21
     },
     "implementation": [
       "Separate KindleExport registry, protected installer payload and packaging, excluded from BookProcessing",
@@ -2675,7 +2676,7 @@
       "TXT native FB2 extraction and atomic publication, captured encoding and exact size estimate",
       "Legacy device settings mapped explicitly to FB2, FB2.ZIP, EPUB, TXT, MOBI and AZW3, preserving old saved enum ordinals"
     ],
-    "candidate_packages_root": "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r3",
+    "candidate_packages_root": "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r5",
     "native_checks": {
       "Win64_build": "PASS after adding dm_user import and closing stale IDE source buffer",
       "Win64_TXT": "PASS no optional module, Unicode, actual extension, replacement, unchanged source and exact estimate",
@@ -2713,6 +2714,31 @@
         "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH"
       ]
     },
-    "next_check": "Actual collection Office/rare examples, cancellation/collision and full GUI component download/restart/resume before final Main/Reader/release validation."
+    "next_check": "Remaining real collection formats sequentially; rerun native suite once for the R5 XHTML/metadata changes; full GUI module restart/resume and final candidate builds remain.",
+    "real_collection_rtf": {
+      "status": "PASS Win32 and Win64",
+      "records": [
+        807675,
+        807684
+      ],
+      "checks": [
+        "Actual packaged architecture Python and native writer; both original RTF samples to MOBI and AZW3",
+        "Independent KindleUnpack readback compares every reference text paragraph; originals unchanged; private roots removed"
+      ],
+      "fixes": [
+        "Pair non-void XHTML elements in private writer input; retain void elements as self-closing. Kindling falsely reports nested paragraphs for valid XML <p/>.",
+        "Remove only the complete generated KindleUnpack INFORMATION ONLY comment containing binary EXTH Container_Id; all real OPF XML remains strict. Invalid controls outside that comment still fail."
+      ],
+      "reports": {
+        "Win32": {
+          "path": "tools/ui/tests/Out/kindle-collection-rtf-Win32-20261101-r5.json",
+          "sha256": "8981617301d51893224f7bbf1ecba5a72c367b2640a2014732a03ae3f7688942"
+        },
+        "Win64": {
+          "path": "tools/ui/tests/Out/kindle-collection-rtf-Win64-20261101-r5.json",
+          "sha256": "7e979d01fca03707f38dfdf515f7078d0eb734fef3d5935fe202be550f4f1f19"
+        }
+      }
+    }
   }
 }

@@ -1234,7 +1234,14 @@ def kindle_epub(source, output, warnings=None):
         roots = [n for n in container.iter() if tag(n) == 'rootfile']
         if len(roots) != 1: raise ConversionError('В результате KindleUnpack нет однозначного описания EPUB.')
         package_path = archive.resolve('container.xml', roots[0].get('full-path', ''))[0]
-        package = xml(archive.read(package_path))
+        package_data = archive.read(package_path)
+        # KindleUnpack writes binary EXTH Container_Id values inside this
+        # generated, explicitly informational XML comment. NUL/invalid UTF-8
+        # there must not invalidate the real OPF metadata or the book. Remove
+        # only that complete known comment; all actual XML stays strict.
+        package_data = re.sub(rb'<!-- BEGIN INFORMATION ONLY .*?END INFORMATION ONLY -->',
+                              b'', package_data, flags=re.DOTALL)
+        package = xml(package_data)
         changed = {}
         for item in first(package, 'manifest'):
             if item.get('media-type') != 'application/xhtml+xml': continue
