@@ -33,6 +33,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Build the pinned writer and collect licence notices
+        id: writer
         run: >-
           python scripts/build-kindle-export.py
           --source upstream-kindling
@@ -42,6 +43,7 @@ jobs:
         working-directory: upstream-kindling
         run: cargo test --release --locked --lib --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
+        if: always() && steps.writer.outcome == 'success'
         with:
           name: KindleExport-${{ matrix.platform }}
           path: KindleExport-${{ matrix.platform }}

@@ -29,6 +29,9 @@ def build(source, output, platform):
         raise ValueError('Kindling source does not match the pinned release commit')
     if checked('git', 'status', '--porcelain', cwd=source):
         raise ValueError('Refusing a modified upstream source checkout')
+    patch = Path(__file__).with_name('kindling-windows-epub-paths.patch')
+    subprocess.run(['git', 'apply', '--check', str(patch)], cwd=source, check=True)
+    subprocess.run(['git', 'apply', str(patch)], cwd=source, check=True)
     target, machine = TARGETS[platform]
     # Do not silently merge an old compiler output or overwrite a component.
     output.mkdir(parents=True, exist_ok=False)
@@ -45,6 +48,7 @@ def build(source, output, platform):
         raise ValueError('Unexpected Kindle writer version: ' + reported)
     shutil.copyfile(binary, output / 'kindling-cli.exe')
     shutil.copyfile(source / 'LICENSE', output / 'Kindling-LICENSE.txt')
+    shutil.copyfile(patch, output / patch.name)
     metadata = json.loads(checked('cargo', 'metadata', '--locked', '--format-version',
                                   '1', '--filter-platform', target, cwd=source))
     notices, packages = output / 'ThirdPartyLicenses', []
@@ -73,6 +77,7 @@ def build(source, output, platform):
                    platform=platform, target=target,
                    rustc=checked('rustc', '--version', cwd=source),
                    rustflags=os.environ.get('RUSTFLAGS', ''),
+                   source_patches={patch.name: hashlib.sha256(patch.read_bytes()).hexdigest()},
                    sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
                    formats=['mobi-dual-mobi7-kf8', 'azw3-kf8'])
     (output / 'RUNTIME.json').write_text(

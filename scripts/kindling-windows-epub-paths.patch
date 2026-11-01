@@ -1,0 +1,13 @@
+diff --git a/src/checks/cross_refs.rs b/src/checks/cross_refs.rs
+--- a/src/checks/cross_refs.rs
++++ b/src/checks/cross_refs.rs
+@@ -481,5 +481,8 @@
+     let mut out: Vec<String> = Vec::new();
+-    for comp in combined.to_string_lossy().split('/') {
++    // EPUB references use URI separators, including when Path::join inserts
++    // a native Windows separator between the base directory and the href.
++    let combined = combined.to_string_lossy().replace('\\', "/");
++    for comp in combined.split('/') {
+         if comp.is_empty() || comp == "." {
+             continue;
+         }
