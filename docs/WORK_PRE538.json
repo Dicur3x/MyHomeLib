@@ -2676,7 +2676,7 @@
       "TXT native FB2 extraction and atomic publication, captured encoding and exact size estimate",
       "Legacy device settings mapped explicitly to FB2, FB2.ZIP, EPUB, TXT, MOBI and AZW3, preserving old saved enum ordinals"
     ],
-    "candidate_packages_root": "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r5",
+    "candidate_packages_root": "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261102-r2",
     "native_checks": {
       "Win64_build": "PASS after adding dm_user import and closing stale IDE source buffer",
       "Win64_TXT": "PASS no optional module, Unicode, actual extension, replacement, unchanged source and exact estimate",
@@ -2745,12 +2745,34 @@
         }
       }
     },
-    "real_collection_progress": "Win32: two DOCX, two DOC, two ODT and two CHM pass to both MOBI/AZW3 with independent text checks. CHM needs 7-Zip as expected; fixture corrected. RTF separately passed both architectures. Other rare formats and Win64 matrix pending.",
+    "real_collection_progress": "26 real Office/CHM/LIT/LRF/PDB/RGO/IBK/Kindle collection samples to MOBI and AZW3; SM exports a two-action test route only, not the entire game. Every source paragraph and every local output image link checked; original source hashes unchanged. SM warns about unavailable original illustration resources.",
     "closed_continuation_finding": {
       "fix": "CheckOptions now admits the supported TXT/MOBI/AZW3 targets alongside FB2/EPUB",
       "status": "PASS actual producer/successor boundary Win32 and Win64; full GUI download/restart/review remains pending",
       "report": "tools/ui/tests/Out/homelibre-kindle-continuation-20261101-r1.json",
       "sha256": "73d94262800c17dcbd85c4f0a5c7b6b800e86594e8dcd79f3d26210d183fd991"
+    },
+    "real_collection_and_native_final_20261102": {
+      "status": "PASS x86 and x64 in stated scope",
+      "report": {
+        "path": "tools/ui/tests/Out/homelibre-kindle-final-matrix-20261102-r1.json",
+        "sha256": "713474f0424bc8a2283ef22051f5091ceb2fe82febd6619705657578cece54c6"
+      },
+      "runtime_ci": {
+        "url": "https://github.com/Dicur3x/MyHomeLib/actions/runs/41350505871",
+        "source_commit": "4468edd4",
+        "upstream_tests_each_arch": 1044,
+        "status": "PASS"
+      },
+      "limitations": [
+        "No physical Kindle test",
+        "Actual compact multi-module download/external updater/restart/restored review still pending",
+        "Reader and catalogue release binaries and final archives still pending"
+      ],
+      "fixes": [
+        "Kindling keeps foreign XML namespace bindings and rewrites SVG image hrefs to actual image records.",
+        "Private input drops only 1..3 alignment zeros after an existing JPEG EOI or a structurally complete GIF trailer; no pixel recompression or guessed missing trailer."
+      ]
     }
   }
 }

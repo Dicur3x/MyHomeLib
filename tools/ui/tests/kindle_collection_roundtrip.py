@@ -99,13 +99,40 @@ def run_cases(root, report):
             raise ValueError('Extracted input differs from its recorded bytes')
         row = {'id': entry['id'], 'recorded_extension': entry['extension'], 'source_sha256': entry['sha256']}
         result['rows'].append(row)
-        output = None
+        output = reference = None
         try:
             row['detected_extension'] = api.detect_input(source)
             work = root / ('case-' + str(entry['id']))
             work.mkdir()
             reference = work / 'reference.epub'
-            info = api.convert_book(source, reference, tools_root=root / 'tools', image_quality='original')
+            conversion_source = source
+            if row['detected_extension'] == '.sm':
+                # A game must never silently turn into a pretend complete book.
+                # Exercise the real route exporter in a fresh test-only session.
+                try:
+                    api.convert_book(source, reference, tools_root=root / 'tools', image_quality='original')
+                except api.ConversionError as error:
+                    if 'Сохранить пройденную ветку' not in str(error):
+                        raise
+                else:
+                    raise ValueError('Interactive input lost its explicit route-export guard')
+                if reference.exists():
+                    raise ValueError('Rejected interactive conversion published an output')
+                sys.path.insert(0, str(root / 'tools/bookconvert'))
+                import sm_reader
+                conversion_source = work / 'selected-test-route.epub'
+                with sm_reader.ReaderSession(sm_reader.Story.parse(source.read_bytes()), now=1, seed=1) as reader:
+                    actions = 0
+                    for step in range(2):
+                        choices = reader.choices()
+                        if not choices:
+                            break
+                        reader.choose(choices[0]['id'], now=step + 2)
+                        actions += 1
+                    route_warnings = sm_reader.write_document(reader, source, conversion_source, transcript=True)
+                row['interactive_scope'] = {'selected_test_actions': actions, 'whole_game_exported': False,
+                                            'direct_conversion_guard': 'PASS', 'warnings': route_warnings}
+            info = api.convert_book(conversion_source, reference, tools_root=root / 'tools', image_quality='original')
             paragraphs, text, image_count = epub_content(api, reference)
             if not text and not image_count:
                 raise ValueError('Input decoder produced no readable content')
@@ -113,7 +140,7 @@ def run_cases(root, report):
             row['outputs'] = []
             for extension in ('.mobi', '.azw3'):
                 output = work / ('output' + extension)
-                converted = api.convert_book(source, output, tools_root=root / 'tools', image_quality='original')
+                converted = api.convert_book(conversion_source, output, tools_root=root / 'tools', image_quality='original')
                 decoded = work / ('decoded-' + extension[1:] + '.epub')
                 api.convert_book(output, decoded, tools_root=root / 'tools', image_quality='original')
                 _, actual_text, actual_images = epub_content(api, decoded, check_image_links=True)
@@ -134,6 +161,13 @@ def run_cases(root, report):
         except Exception as error:
             row['status'] = 'FAIL'
             row['error'] = str(error)
+            if isinstance(reference, Path) and reference.is_file():
+                with zipfile.ZipFile(reference) as archive:
+                    row['diagnostic_image_records'] = [
+                        {'name': name, 'bytes': len(data), 'header': data[:8].hex(), 'tail': data[-12:].hex()}
+                        for name in [name for name in archive.namelist()
+                                     if name.lower().endswith(('.gif', '.jpg', '.jpeg'))][:20]
+                        for data in [archive.read(name)]]
             # Keep a bounded structural clue, not the private book/runtime.
             # The unpacker's output may fail before the normal reader can
             # parse its OPF, so inspect that independently on failure only.

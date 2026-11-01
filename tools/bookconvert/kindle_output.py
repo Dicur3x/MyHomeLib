@@ -26,6 +26,43 @@ def jpeg_without_record_padding(data):
     return data
 
 
+def gif_without_record_padding(data):
+    """Trim alignment only after a structurally complete GIF trailer."""
+    if not data.startswith((b'GIF87a', b'GIF89a')) or len(data) < 14 or len(data) % 4:
+        return data
+    end = len(data.rstrip(b'\0'))
+    if not 1 <= len(data) - end <= 3 or data[end - 1] != 0x3b:
+        return data
+    position = 13 + (3 * (2 ** ((data[10] & 7) + 1)) if data[10] & 0x80 else 0)
+    try:
+        while position < end:
+            marker = data[position]
+            position += 1
+            if marker == 0x3b:
+                return data[:end] if position == end else data
+            if marker == 0x2c:
+                if position + 9 >= end:
+                    return data
+                packed = data[position + 8]
+                position += 9 + (3 * (2 ** ((packed & 7) + 1)) if packed & 0x80 else 0)
+                position += 1  # LZW minimum code size, before image sub-blocks.
+            elif marker == 0x21:
+                position += 1  # Extension label, before extension sub-blocks.
+            else:
+                return data
+            while position < end:
+                size = data[position]
+                position += 1
+                if not size:
+                    break
+                position += size
+            else:
+                return data
+    except IndexError:
+        pass
+    return data
+
+
 def local_foreign_namespaces(root, xhtml_uri):
     """Keep actual QName bindings when the writer replaces the HTML root."""
     xml_uri = 'http://www.w3.org/XML/1998/namespace'
@@ -77,7 +114,7 @@ def canonical_input(api, source, destination):
     namespaces = ET._namespace_map.copy()
     try:
         container = api.xml(archive.read('META-INF/container.xml'))
-        documents, packages, jpegs = set(), {}, set()
+        documents, packages, record_images = set(), {}, {}
         cover_declared = False
         for rootfile in (node for node in container.iter() if api.tag(node) == 'rootfile'):
             name = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
@@ -92,8 +129,8 @@ def canonical_input(api, source, destination):
                     if document not in archive.names:
                         raise api.ConversionError('В EPUB отсутствует глава книги.')
                     documents.add(document)
-                elif api.tag(item) == 'item' and item.get('media-type') in {'image/jpeg', 'image/jpg'}:
-                    jpegs.add(archive.resolve(name, item.get('href', ''))[0])
+                elif api.tag(item) == 'item' and item.get('media-type') in {'image/jpeg', 'image/jpg', 'image/gif'}:
+                    record_images[archive.resolve(name, item.get('href', ''))[0]] = item.get('media-type')
         if not packages or not documents:
             raise api.ConversionError('В EPUB отсутствует текст книги.')
         ET.register_namespace('', api.XH)
@@ -118,11 +155,12 @@ def canonical_input(api, source, destination):
                                        short_empty_elements=False)
                     data = re.sub(rb'(<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b[^<>]*?)></\2>',
                                   rb'\1 />', data)
-                elif member.filename in jpegs:
+                elif member.filename in record_images:
                     # Kindle records may carry alignment bytes after a valid
                     # EOI. Keep the encoded image exactly; do not re-compress,
                     # invent an EOI for truncated data or drop arbitrary tails.
-                    data = jpeg_without_record_padding(data)
+                    clean = gif_without_record_padding if record_images[member.filename] == 'image/gif' else jpeg_without_record_padding
+                    data = clean(data)
                 elif member.filename in packages:
                     root = packages[member.filename]
                     for metadata in root.iter():

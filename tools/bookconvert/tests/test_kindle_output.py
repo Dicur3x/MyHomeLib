@@ -128,6 +128,18 @@ class KindleOutputTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(source.read_bytes()).digest(), source_hash)
         self.assert_clean()
 
+    def test_gif_record_padding_requires_a_complete_block_stream(self):
+        image = bytes.fromhex('47494638396101000100800000000000ffffff2c00000000010001000002024401003b')
+        for length in range(1, 5):
+            comment = b'\x21\xfe' + bytes([length]) + b'x' * length + b'\0'
+            complete = image[:19] + comment + image[19:]
+            padding = b'\0' * (-len(complete) % 4)
+            self.assertEqual(k.gif_without_record_padding(complete + padding), complete)
+        for broken in (image[:-1], image + b'X', b'GIF89a' + b'\0' * 10,
+                       image[:29] + b'\x02\x07\x3b\0\0\0'):
+            aligned = broken + b'\0' * (-len(broken) % 4)
+            self.assertEqual(k.gif_without_record_padding(aligned), aligned)
+
     def test_missing_writer_requests_only_the_kindle_output_component(self):
         with self.assertRaises(c.ComponentRequired) as caught:
             c.convert_book(self.source, self.root / 'out.mobi', tools_root=self.root / 'tools')
