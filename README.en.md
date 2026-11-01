@@ -25,7 +25,7 @@ The current public beta is **[HomeLibre 3.0 beta 2](https://github.com/Dicur3x/M
 | [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.2/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
 | [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.2/SHA256SUMS.txt) | Archive checksums |
 
-Beta 1 retains the archive filenames `HomeLibRu.zip` and `HomeLibRu_x64.zip`
+Beta 2 retains the archive filenames `HomeLibRu.zip` and `HomeLibRu_x64.zip`
 so older installations can update automatically. A transition to HomeLibre
 filenames is being prepared without duplicate archives. The executable remains `HomeLibRu.exe`.
 
