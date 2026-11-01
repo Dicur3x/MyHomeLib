@@ -1,0 +1,129 @@
+diff --git a/src/mobi.rs b/src/mobi.rs
+--- a/src/mobi.rs
++++ b/src/mobi.rs
+@@ -3984,25 +3984,19 @@
+     out
+ }
+-
++
+-/// Clean book HTML for non-dictionary content.
+-///
+-/// Minimal cleanup: drops any prefixed `xmlns:foo="..."` attributes
+-/// (epub:/opf:/dc: etc) that EPUB spine files pick up from their
+-/// authoring toolchain. The default `xmlns="http://www.w3.org/1999/xhtml"`
+-/// and the `<?xml version="1.0" ?>` declaration are BOTH preserved —
+-/// kindlegen's KF8 rawml keeps them and real Kindle hardware rejects
+-/// content without the XHTML namespace on `<html>` ("Unable to Open
+-/// Item", the v0.2.0..v0.10.0 Vader Down failure mode).
+-fn clean_book_html(html: &str) -> String {
+-    let mut result = html.to_string();
+-
+-    // Remove prefixed xmlns:* attributes (epub: / opf: / dc: / etc).
+-    let xmlns = Regex::new(r#"\s+xmlns:\w+="[^"]*""#).unwrap();
+-    result = xmlns.replace_all(&result, "").to_string();
+-
+-    result.trim().to_string()
+-}
+-
++/// Clean book HTML without dropping XML namespace bindings.
++/// SVG, MathML and EPUB note attributes depend on their prefixed declarations.
++fn clean_book_html(html: &str) -> String {
++    html.trim().to_string()
++}
++
++#[cfg(test)]
++#[test]
++fn book_cleanup_keeps_svg_and_note_namespace_bindings() {
++    let input = r#" <html xmlns="http://www.w3.org/1999/xhtml" xmlns:svg="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:epub="http://www.idpf.org/2007/ops"><body><svg:svg><svg:image xlink:href="cover.jpg"/></svg:svg><a epub:type="noteref" href="#note">1</a></body></html> "#;
++    assert_eq!(clean_book_html(input), input.trim());
++}
++
+ /// Rewrite image `src="..."` attributes to `recindex="NNNNN"` in the text content.
+ ///
+ /// The src paths in HTML files may be relative to the HTML file's own location
+diff --git a/src/kf8.rs b/src/kf8.rs
+--- a/src/kf8.rs
++++ b/src/kf8.rs
+@@ -951,33 +951,36 @@
+     // Always use image/jpg - Kindle firmware requires this for kindle:embed.
+     let mime_suffix = "jpg";
+-
++
+-    // Rewrite image src to kindle:embed format.
+-    let src_re = Regex::new(r#"(?i)\bsrc\s*=\s*"([^"]*)""#).unwrap();
+-    result = src_re
+-        .replace_all(&result, |caps: &regex::Captures| {
+-            let src_path = caps.get(1).unwrap().as_str();
+-            if let Some(&recindex) = path_to_recindex.get(src_path) {
+-                format!(
+-                    "src=\"kindle:embed:{}?mime=image/{}\"",
+-                    encode_base32_4char(recindex),
+-                    mime_suffix
+-                )
+-            } else if let Some(fname) = src_path.rsplit('/').next() {
+-                if let Some(&recindex) = path_to_recindex.get(fname) {
+-                    format!(
+-                        "src=\"kindle:embed:{}?mime=image/{}\"",
+-                        encode_base32_4char(recindex),
+-                        mime_suffix
+-                    )
+-                } else {
+-                    caps.get(0).unwrap().as_str().to_string()
+-                }
+-            } else {
+-                caps.get(0).unwrap().as_str().to_string()
+-            }
+-        })
+-        .to_string();
+-
++    // Rewrite image src and SVG (xlink:)href to Kindle image records.
++    let src_re = Regex::new(r#"(?i)\b(src|href)\s*=\s*"([^"]*)""#).unwrap();
++    result = src_re
++        .replace_all(&result, |caps: &regex::Captures| {
++            let attribute = caps.get(1).unwrap().as_str();
++            let src_path = caps.get(2).unwrap().as_str();
++            if let Some(&recindex) = path_to_recindex.get(src_path) {
++                format!(
++                    "{}=\"kindle:embed:{}?mime=image/{}\"",
++                    attribute,
++                    encode_base32_4char(recindex),
++                    mime_suffix
++                )
++            } else if let Some(fname) = src_path.rsplit('/').next() {
++                if let Some(&recindex) = path_to_recindex.get(fname) {
++                    format!(
++                        "{}=\"kindle:embed:{}?mime=image/{}\"",
++                        attribute,
++                        encode_base32_4char(recindex),
++                        mime_suffix
++                    )
++                } else {
++                    caps.get(0).unwrap().as_str().to_string()
++                }
++            } else {
++                caps.get(0).unwrap().as_str().to_string()
++            }
++        })
++        .to_string();
++
+     // Rewrite `<link href="*.css">` references that point at a stylesheet
+     // we actually extracted into the CSS flow to `kindle:flow:0001`. CSS
+     // files we didn't extract (and non-CSS links like page-template.xpgt)
+@@ -3351,3 +3354,17 @@
+         );
+     }
+ }
++
++#[cfg(test)]
++#[test]
++fn svg_image_hrefs_embed_without_changing_navigation() {
++    use std::collections::{HashMap, HashSet};
++    let html = r#"<html><body><svg:svg><svg:image xlink:href="../Images/pic.jpg"/><svg:image href="../Images/pic.jpg"/></svg:svg><a href="next.xhtml#chapter">Next</a></body></html>"#;
++    let mut aid = 0;
++    let images = HashMap::from([("pic.jpg".to_string(), 7usize)]);
++    let result = process_kf8_part(html, &mut aid, &images, &HashSet::new(), false);
++    let image = format!("kindle:embed:{}?mime=image/jpg", encode_base32_4char(7));
++    assert!(result.contains(&format!("xlink:href=\"{}\"", image)));
++    assert!(result.contains(&format!("href=\"{}\"", image)));
++    assert!(result.contains("href=\"next.xhtml#chapter\""));
++}

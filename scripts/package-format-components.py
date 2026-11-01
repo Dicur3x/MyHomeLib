@@ -87,6 +87,15 @@ def payload_for(platform, component, kindle_export_root=None):
                 or descriptor['sha256'] != helper.digest(payload[required[0]])
                 or '+crt-static' not in descriptor['rustflags']):
             raise ValueError('Kindle writer must be built from the verified pinned source for this architecture')
+        patches = ('kindling-windows-epub-paths.patch', 'kindling-svg-compat.patch')
+        if set(descriptor.get('source_patches', {})) != set(patches):
+            raise ValueError('Kindle writer is missing the verified source compatibility fixes')
+        for name in patches:
+            compiled = payload.get('tools/kindle-export/' + name, b'')
+            expected = (REPO / 'scripts' / name).read_bytes()
+            if (descriptor['source_patches'][name] != helper.digest(compiled)
+                    or compiled.replace(b'\r\n', b'\n') != expected.replace(b'\r\n', b'\n')):
+                raise ValueError('Kindle writer compatibility fix differs from the reviewed source: ' + name)
     elif component == 'LegacyBooks':
         payload = tree(runtime/'bookconvert/vendor/calibre_legacy', 'tools/bookconvert/vendor/calibre_legacy', ('COMPONENT.json',))
         payload['tools/bookconvert/legacy_helper.py'] = (REPO/'tools/bookconvert/legacy_helper.py').read_bytes()
