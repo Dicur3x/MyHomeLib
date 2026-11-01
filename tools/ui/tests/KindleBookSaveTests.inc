@@ -1,4 +1,28 @@
-﻿procedure TestKindleBookSaving;
+﻿type
+  TKindleSavePreferenceProbe = class
+    Timer: TTimer;
+    Expected, Failure: string;
+    Checked: Boolean;
+    Deadline: UInt64;
+    procedure Tick(Sender: TObject);
+  end;
+
+procedure TKindleSavePreferenceProbe.Tick(Sender: TObject);
+begin
+  Require(GetTickCount64<Deadline,'Device format preference dialog did not appear');
+  for var I:=Screen.FormCount-1 downto 0 do
+    if (Screen.Forms[I] is TBookSendOptionsForm) and Screen.Forms[I].Visible then
+    begin
+      Timer.Enabled:=False; Checked:=True;
+      try
+        Require(string(TComboBox(Screen.Forms[I].FindComponent('SendFormat')).Text).Contains(Expected),
+          'Save As ignored the configured device format: '+Expected);
+      except on E:Exception do Failure:=E.Message; end;
+      Screen.Forms[I].ModalResult:=mrCancel; Exit;
+    end;
+end;
+
+procedure TestKindleBookSaving;
 const Profiles: array[0..3] of string = ('original','balanced','economy','none');
 var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<TBookRecord>;
   Hashes: TArray<string>; Options: TBookSendOptions; Results: TBookExportResults;
@@ -6,12 +30,13 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
   Items: TBookSaveEstimateItems; Revision: Integer; Complete: Boolean; Deadline: UInt64;
   SavedShowMain: Boolean; Copies: TArray<TBookRecord>; CopyHashes: TArray<string>;
   ActualSizes: array[0..1,0..3] of Int64;
-  procedure Run(Mode: TExportMode; const Quality, Name: string; Keep: Boolean = False);
+  procedure Run(Mode: TExportMode; const Quality, Name: string; Keep: Boolean = False;
+    Collision: TBookNameCollision = bncKeepBoth);
   begin
     Options:=Default(TBookSendOptions); Options.Folder:=TPath.Combine(Root,Name);
     ForceDirectories(Options.Folder); Options.Mode:=Mode; Options.KeepSourceFormat:=Keep;
     Options.ExplicitFormat:=not Keep; Options.ImageQuality:=Quality;
-    Options.NameCollision:=bncKeepBoth; Options.FileNameTemplate:='%t';
+    Options.NameCollision:=Collision; Options.FileNameTemplate:='%t';
     Probe.Deadline:=GetTickCount64+120000; Probe.Messages.Clear; Probe.Worker:=nil;
     Probe.Timer.Enabled:=True;
     try Results:=SaveFileBooks(Books,Options,Required);
@@ -38,6 +63,52 @@ var Root, Required, Status: string; SavedEncoding: TTXTEncoding; Books: TArray<T
     Offset:=BigEndian(78); Version:=BigEndian(Offset+36);
     Require(((Mode=emMobi) and (Version=6)) or ((Mode=emAZW3) and (Version=8)),
       'Kindle output has the wrong MOBI7/KF8 identity');
+  end;
+  procedure PreferenceCases;
+  var ChoiceProbe: TKindleSavePreferenceProbe; SavedMode: TExportMode; Cancelled: TBookSendOptions;
+  begin
+    SavedMode:=Settings.ExportMode; ChoiceProbe:=TKindleSavePreferenceProbe.Create;
+    ChoiceProbe.Timer:=TTimer.Create(nil); ChoiceProbe.Timer.Enabled:=False;
+    ChoiceProbe.Timer.Interval:=50; ChoiceProbe.Timer.OnTimer:=ChoiceProbe.Tick;
+    try
+      for var Mode in [emTxt,emMobi,emAZW3] do
+      begin
+        Settings.ExportMode:=Mode;
+        case Mode of
+          emTxt: ChoiceProbe.Expected:='TXT'; emMobi: ChoiceProbe.Expected:='MOBI';
+          emAZW3: ChoiceProbe.Expected:='AZW3';
+        end;
+        ChoiceProbe.Checked:=False; ChoiceProbe.Failure:='';
+        ChoiceProbe.Deadline:=GetTickCount64+10000; ChoiceProbe.Timer.Enabled:=True;
+        Require(not ChooseBookSendOptions(Length(Books),Root,Settings.ExportMode,Cancelled,False,Books),
+          'Device preference review saved without approval');
+        Require(ChoiceProbe.Checked and (ChoiceProbe.Failure=''),ChoiceProbe.Failure);
+      end;
+      Writeln('PASS TXT MOBI AZW3 device format preferences preselect the actual mixed Save As dialog; cancellation creates no file'); Flush(Output);
+    finally Settings.ExportMode:=SavedMode; ChoiceProbe.Timer.Free; ChoiceProbe.Free; end;
+  end;
+  procedure CollisionCases;
+  var PreviousBooks: TArray<TBookRecord>; First, Kept, Before: string;
+  begin
+    PreviousBooks:=Books; Books:=[Books[0]];
+    try
+      for var Mode in [emMobi,emAZW3] do
+      begin
+        var Name:='collision-'+IntToStr(Ord(Mode));
+        Run(Mode,'original',Name); First:=Results[0].OutputFile;
+        TFile.WriteAllText(First,'Previous owned saved copy',TEncoding.UTF8);
+        Before:=UpdateSHA256(First);
+        Run(Mode,'original',Name); Kept:=Results[0].OutputFile;
+        Require(not SameFileName(First,Kept) and (UpdateSHA256(First)=Before),
+          'Keep both replaced an existing Kindle file');
+        CheckKindle(Kept,Mode);
+        Run(Mode,'original',Name,False,bncReplace);
+        Require(SameFileName(Results[0].OutputFile,First) and (UpdateSHA256(First)<>Before),
+          'Explicit replace silently renamed a Kindle file');
+        CheckKindle(First,Mode); CheckKindle(Kept,Mode);
+      end;
+      Writeln('PASS native MOBI AZW3 keep-both preserves old bytes and explicit replace keeps the chosen filename'); Flush(Output);
+    finally Books:=PreviousBooks; end;
   end;
   procedure InstallerCases;
   var Target, Folder, ID, Version, Archive, Job, First, BeforeHash: string;
@@ -154,12 +225,13 @@ begin
   for var I:=0 to High(Books) do Hashes[I]:=UpdateSHA256(Books[I].GetBookFileName);
   InstallerCases;
   Probe:=TUnifiedSendProbe.Create; Probe.Messages:=TStringList.Create;
-  Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
+  Probe.Timer:=TTimer.Create(nil); Probe.Timer.Enabled:=False; Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
   Probe.SavedModal:=Application.OnModalBegin; Application.OnModalBegin:=Probe.ModalBegin;
   SavedShowMain:=Application.ShowMainForm; Application.ShowMainForm:=False;
   SavedEncoding:=Settings.TXTEncoding;
   try
     Settings.TXTEncoding:=enUTF8;
+    PreferenceCases;
     Run(emTxt,'original','text');
     for var I:=0 to High(Results) do
     begin
@@ -209,6 +281,7 @@ begin
     end;
     for var I:=0 to High(Books) do
       Require(UpdateSHA256(Books[I].GetBookFileName)=Hashes[I],'Kindle saving changed an original book');
+    CollisionCases;
     RasterCases;
     Require(RenameFile(Settings.AppPath+'tools/kindle-export',Settings.AppPath+'tools/kindle-export-off'),
       'Cannot hide isolated Kindle writer for copy-only check');

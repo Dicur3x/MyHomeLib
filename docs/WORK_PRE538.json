@@ -2710,16 +2710,18 @@
     ],
     "fixed_native_finding": "Kindling KDP R4.2.1 publishing rule incorrectly blocks personal coverless/no-image books. Full preflight still runs first; only that sole rule on an actually undeclared cover permits a retry. Other findings abort; HTML self-check and EPUB/Palm validation stay enabled. Diagnostics now include stdout validation details as well as stderr.",
     "cleanup_review_blocked": {
-      "action": "Remove three obsolete candidate/debug folders and later one independently checked 85.5 MB native debug fixture; every attempt rejected before execution",
+      "action": "Remove obsolete owned candidates and native debug fixtures. Latest r7 flat candidate had exact root, marker, filename allowlist and no-reparse guards; rejected before execution.",
       "result": "CreateProcess rejected by automatic review: blocked by policy. No deletion ran; do not retry by another tool or parent delete.",
       "paths": [
         "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r1",
         "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r2",
         "G:/HomeLibRu-build-cache/HomeLibRu-native-i5zRqC",
-        "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH"
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH",
+        "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r7",
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-aZ95K6"
       ]
     },
-    "next_check": "Remaining real LIT/LRF/PDB/RGO/IBK/Kindle/SM inputs sequentially; Win64 Office/CHM matrix; full GUI module download/restart/review; final Main/Reader/Updater builds.",
+    "next_check": "Kindle export development checks complete; rebuild and verify final shipping packages before publication. Proceed sequentially to the requested Reader icon.",
     "real_collection_rtf": {
       "status": "PASS Win32 and Win64",
       "records": [
@@ -2773,6 +2775,29 @@
         "Kindling keeps foreign XML namespace bindings and rewrites SVG image hrefs to actual image records.",
         "Private input drops only 1..3 alignment zeros after an existing JPEG EOI or a structurally complete GIF trailer; no pixel recompression or guessed missing trailer."
       ]
+    },
+    "full_restart_fixture_finding_20261102": {
+      "status": "FAIL fixture; not a production bypass",
+      "cause": "Fake reader arguments were treated as the input by normal reader restart pinning. Added a real --open input and a one-attempt marker. Corrected full cycle now passes on both x86 and x64; retained failed-fixture cleanup denial still applies.",
+      "failed_root": "G:/HomeLibRu-build-cache/HomeLibRu-native-aZ95K6",
+      "retained_bytes": 1479303110,
+      "processes": "Stopped 26 verified processes only under that owned fresh fixture; no other apps touched.",
+      "cleanup": "Exact-root/ownership/no-reparse/no-live-process deletion was rejected before execution: blocked by policy. Do not retry via another method.",
+      "proof": "tools/ui/tests/Out/kindle-module-restart-fixture-failure-20261102-r1.json"
+    },
+    "filename_migration_pending": "Keep current technical EXE names HomeLibRu.exe/HomeLibReader.exe and profile paths for compatibility, as agreed in the checklist. Beta 3 downloads use HomeLibre archive names already understood by beta 2. A rename of the actual EXEs would require all filename consumers to change together and is not part of this archive-name transition.",
+    "actual_two_component_restart_20261102": {
+      "status": "PASS Win32 and Win64",
+      "report": "tools/ui/tests/Out/kindle-module-restart-final-20261102-r1.json",
+      "sha256": "30cc23758ab96b73072ba5d09d4612236056e78b13630c892080a6b4f1c5c340",
+      "verified": "Actual compact two-package download, native archive and hash checks, external updater, process restart, restored MOBI/original images/destination/name and folder masks, cancel without output, once-only continuation and unchanged source. No unrelated modules installed."
+    },
+    "ui_language_20261102": "User observed the English first-use reason supplied by the new native test. Translated it and the reference-review title to Russian. Production reader/catalogue first-use reasons and component descriptions are already Russian; format/library names remain their actual names.",
+    "final_save_review_20261102": {
+      "status": "PASS both architectures",
+      "report": "tools\\ui\\tests\\Out\\kindle-final-save-review-20261102-r2.json",
+      "sha256": "00360552eadf9a3de2ae9fdb2d7fca5f6ead190464c53e79f43ff592bd21de25",
+      "scope": "Device preferences, actual name collisions, independent output decode, complete two-package installation/restart/restore/cancel, Russian UI reason; fresh fixtures cleaned."
     }
   }
 }

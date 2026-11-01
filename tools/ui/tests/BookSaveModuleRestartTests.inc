@@ -1,5 +1,6 @@
 ﻿// Real compact download, prepared files, external installer and a successor
 // process. Only the network transport is redirected to owned loopback data.
+procedure RunKindleSaveModuleRestartChild; forward;
 type
   TSaveModuleExceptionHandler = class
     Report: string;
@@ -81,6 +82,7 @@ var Head: TUpdateProposalServer; Server: TRepairServer; Dialog: TSaveModuleUpdat
     end;
   end;
 begin
+  if ParamStr(2)='kindle' then begin RunKindleSaveModuleRestartChild; Exit; end;
   // This early child entry precedes the shared DMUser/Settings bootstrap.
   Report:=ExtractFilePath(ParamStr(0))+'save-module-result.txt';
   Source:=ExtractFilePath(ParamStr(0))+'module-source.pdf'; SourceHash:=UpdateSHA256(Source);
@@ -206,6 +208,9 @@ begin
     'C:\HomeLibRu.exe','HomeLibReader.exe ',''] do
     Require(not IsProgramUpdateApplicationName(Invalid),'Updater accepted an unrelated executable name');
   Child:=ParamStr(2);
+  // Exercise the current shipping filename; the HomeLibre EXE migration is
+  // separately queued and must cover every updater/reader filename consumer.
+  if Child='kindle' then Child:='HomeLibReader.exe';
   if Child='legacy-request' then Child:='HomeLibRu.exe';
   if Child='' then Child:='HomeLibReader.exe';
   Require(IsProgramUpdateApplicationName(Child),'Unexpected real updater regression application');
@@ -214,8 +219,14 @@ begin
   TFile.Copy(ParamStr(0),Child,False);
   Startup:=Default(TStartupInfo); Startup.cb:=SizeOf(Startup);
   Command:='"'+Child+'" save-module-restart-child';
+  if ParamStr(2)='kindle' then Command:=Command+' kindle';
   if ParamStr(2)='legacy-request' then
   begin Command:=Command+' legacy-request'; Writeln('TRACE pre5.33 request omits application'); end;
+  // The real reader restart protection pins its --open input. Test mode
+  // arguments are not a book filename; retain a genuine existing input too.
+  if SameText(ExtractFileName(Child),'HomeLibReader.exe') then
+    if ParamStr(2)='kindle' then Command:=Command+' "--open='+Settings.AppPath+'module-source.fb2"'
+    else Command:=Command+' "--open='+Settings.AppPath+'module-source.pdf"';
   UniqueString(Command);
   Require(CreateProcess(PChar(Child),PChar(Command),nil,nil,False,CREATE_NO_WINDOW,nil,
     PChar(Settings.AppPath),Startup,Process),'Cannot start real module restart regression');

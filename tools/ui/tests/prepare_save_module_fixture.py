@@ -61,5 +61,46 @@ def prepare(runtime, profile, old):
     print('PASS real published converter 1102 and independent processing 1105 staged:', platform)
 
 
+def prepare_kindle(runtime, profile):
+    if not (profile / 'native-regression.marker').is_file():
+        raise ValueError('Owned native profile required')
+    platform = 'Win64' if runtime.name == 'Bin64' else 'Win32'
+    packages = Path(os.environ['HOMELIB_FORMAT_COMPONENT_PACKAGES']).resolve(strict=True)
+    feed = json.loads((packages / 'format-components.json').read_text(encoding='utf-8'))
+    assets = json.loads((packages / 'format-component-assets.json').read_text(encoding='utf-8'))
+    selected = [entry for entry in feed['components']
+                if entry['platform'] == platform and entry['id'] in {'BookProcessing', 'KindleExport'}]
+    if len(selected) != 2 or len({entry['id'] for entry in selected}) != 2:
+        raise ValueError('Two distinct actual Kindle packages are required')
+    versions = {entry['version'] for entry in selected}
+    if len(versions) != 1:
+        raise ValueError('Kindle first-use fixture needs matching candidate versions')
+    target = profile / 'save-module-fixture'
+    target.mkdir()
+    entries = []
+    for entry in selected:
+        name = entry['archive']
+        if Path(name).name != name:
+            raise ValueError('Unexpected component archive name')
+        source = packages / name
+        asset = next(item for item in assets if item['name'] == name)
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if asset['digest'] != 'sha256:' + digest or source.stat().st_size != asset['size']:
+            raise ValueError('Kindle component differs from tested asset metadata')
+        shutil.copyfile(source, target / name)
+        entries.append(dict(id=entry['id'], name=name, sha256=digest,
+                            size=asset['size'], url=asset['browser_download_url']))
+    (target / 'fixture.json').write_text(json.dumps(dict(version=versions.pop(), components=entries)), encoding='utf-8')
+    (profile / 'module-source.fb2').write_text('''<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info>
+<genre>prose</genre><author><first-name>Тест</first-name><last-name>Автор</last-name></author>
+<book-title>Возврат к сохранению</book-title><lang>ru</lang></title-info></description>
+<body><section><title><p>Глава</p></title><p>Исходная книга не должна измениться при установке модулей.</p></section></body></FictionBook>''', encoding='utf-8')
+    print('PASS two real independent Kindle packages staged without installing:', platform)
+
+
 if __name__ == '__main__':
-    prepare(*(Path(p).resolve() for p in sys.argv[1:]))
+    if len(sys.argv) == 4 and sys.argv[3] == 'kindle':
+        prepare_kindle(*(Path(p).resolve() for p in sys.argv[1:3]))
+    else:
+        prepare(*(Path(p).resolve() for p in sys.argv[1:]))

@@ -215,7 +215,7 @@ begin
     'Модули чтения PDF, DjVu и XPS устанавливаются отдельно, только для соответствующей книги.');
   if ID='Kindle' then Exit('KindleUnpack — чтение и подготовка MOBI/AZW/KF8.');
   if ID='KindleExport' then Exit('Kindling — сохранение книг для Kindle:'+sLineBreak+
-    'MOBI — совместимая книга MOBI7/KF8 для старых устройств;'+sLineBreak+
+    'MOBI — книга MOBI7 для старых устройств Kindle;'+sLineBreak+
     'AZW3 — книга KF8.'+sLineBreak+
     'Исходная книга сначала подготавливается в EPUB. Нужный модуль чтения устанавливается отдельно; '+
     'для обычного чтения FB2/EPUB запись Kindle не нужна.');

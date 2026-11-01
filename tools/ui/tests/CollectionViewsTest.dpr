@@ -5708,6 +5708,7 @@ end;
 {$I DistributionLayoutTests.inc}
 {$I ReaderPortableStartupTests.inc}
 {$I BookSaveModuleRestartTests.inc}
+{$I KindleModuleRestartTests.inc}
 {$I IBKComponentTests.inc}
 {$I ComponentMirrorTests.inc}
 {$I PublishedComponentTests.inc}

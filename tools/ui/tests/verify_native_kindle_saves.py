@@ -32,8 +32,9 @@ def verify(profile, runtime, root):
     picture = next(base64.b64decode(node.text) for node in document.iter() if api.tag(node) == 'binary')
     count = 0
     for mode, extension in ((6, '.mobi'), (8, '.azw3')):
-        for quality in ('original', 'none', 'raster'):
-            folder = inputs / (f'raster-{mode}-original' if quality == 'raster' else f'{mode}-{quality}')
+        for quality in ('original', 'none', 'raster', 'collision'):
+            folder = inputs / (f'raster-{mode}-original' if quality == 'raster' else
+                               f'collision-{mode}' if quality == 'collision' else f'{mode}-{quality}')
             if not folder.exists():
                 if quality == 'raster':
                     continue

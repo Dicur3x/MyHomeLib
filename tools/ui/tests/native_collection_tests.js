@@ -239,12 +239,16 @@ function requiredPasses(executable, mode) {
   if (mode==='reader-portable') return ['PASS portable catalogue and standalone reader default without marker explicit profile Unicode books sessions and unchanged existing data'];
   if (mode==='book-output-reset') return ['PASS diagnostic out reset preserves every established field and retained nested arrays','RESETBENCH trial=6','PASS diagnostic managed out record reset comparison completed'];
   if (mode==='display-labels') return ['PASS book display labels preserve established Unicode whitespace initials nicknames empty single multiple authors genres cases=2058','iterations=2000000 trials=7','before_cycles=','LABELBENCH phase=2 trial=6','PASS diagnostic display labels same-process alternating comparison preserves all values'];
-  if (mode==='save-module-restart') return ['PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
+  if (mode==='save-module-restart') return [process.argv.includes('--save-kindle-restart')
+    ? 'PASS compact two-component Kindle download actual installer restart restored MOBI review cancel and unchanged source'
+    : 'PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
   if (mode==='reader-story') return ['PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene','PASS native SM false suffix, real controls, conditional branch, Unicode input, FB2 EPUB route export, verified resume, existing target and cancellation cleanup'];
   if (mode==='save-host-resume') return ['PASS actual reader host consumes restarted Save As once, restores options over visible book, cancels without output and preserves source'];
   if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub book_count='+(saveDocInventoryArg?7:6),'PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
   if (mode==='minimum-save') return ['PASS minimum save byte-exact FB2 EPUB and native ZIP without converter or 7-Zip; real changes report one missing-module request'];
-  if (mode==='kindle-save') return ['PASS native Kindle Save As real output estimates image modes and unchanged originals'];
+  if (mode==='kindle-save') return ['PASS native Kindle Save As real output estimates image modes and unchanged originals',
+    'PASS TXT MOBI AZW3 device format preferences preselect the actual mixed Save As dialog; cancellation creates no file',
+    'PASS native MOBI AZW3 keep-both preserves old bytes and explicit replace keeps the chosen filename'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return ['ACTUAL startup ui_fixture=1','PASS streamed alphabet theme=1 ppi=192','PASS tree text and headers fit theme=1 ppi=192','PASS streamed alphabets preserve exact letters order geometry and real author series filter actions','PASS actual catalogue startup phase profile completed','TRACE catalogue orderly cleanup complete'];
@@ -441,9 +445,10 @@ function run(executable, mode, subcase = "") {
     }
     if (mode==='save-module-restart') {
       const old=process.argv.find(a=>a.startsWith('--save-old-converter='));
-      if(!old) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
+      const kindle=process.argv.includes('--save-kindle-restart');
+      if(!old&&!kindle) throw Error('save-module-restart requires --save-old-converter=verified-old-archive');
       const python=process.env.HLRU_PYTHON; if(!python) throw Error('HLRU_PYTHON is required to prepare the private candidate');
-      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
+      const prep=cp.spawnSync(python,['-B','-X','utf8',path.join(__dirname,'prepare_save_module_fixture.py'),runtime,folder,kindle?'kindle':path.resolve(old.slice('--save-old-converter='.length))],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:120000});
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
     }
@@ -834,6 +839,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
 // No subcase marker is optional: all fourteen are required by the default suite.
 function runView(mode) {
   if (mode==='save-module-restart') {
+    if(process.argv.includes('--save-kindle-restart')) return run(tests[2],mode,'kindle');
     for (const application of ['HomeLibReader.exe','HOMELIBREADER.EXE','homelibru.exe','legacy-request']) run(tests[2],mode,application);
     return;
   }
