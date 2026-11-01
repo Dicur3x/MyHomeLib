@@ -5,10 +5,13 @@ interface
 uses Winapi.Windows, System.Classes, Vcl.ComCtrls;
 
 procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
+procedure ReaderReplaceRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
 procedure ReaderSaveRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
 
 function AttachReaderPictures(Edit: TRichEdit; AllowMetafileSnapshots: Boolean = False): IInterface;
 function ReaderPictureCount(Edit: TRichEdit): Integer;
+function ReaderPicturePositions(Edit: TRichEdit): TArray<Integer>;
+function ReaderResizePicture(Edit: TRichEdit; Index, WidthTwips, HeightTwips: Integer): Boolean;
 function ReaderTextLength(Edit: TRichEdit): Integer;
 function ReaderTextRange(Edit: TRichEdit; Start, Count: Integer): string;
 function ReaderCharacterStart(Edit: TRichEdit; Position: Integer): Integer;
@@ -16,14 +19,27 @@ function ReaderWordRange(Edit: TRichEdit; Position: Integer; out Start, Count: I
 
 implementation
 
-uses Winapi.ActiveX, Winapi.RichEdit, System.SysUtils, System.Math, System.Character;
+uses Winapi.ActiveX, Winapi.RichEdit, Winapi.Messages, System.SysUtils, System.Math, System.Character;
 
 type
+  // Windows SDK richole.h REOBJECT, with native pointer alignment. No
+  // interfaces are requested from GetObject; only character positions.
+  TReaderOleObjectInfo = record
+    Size: DWORD;
+    Position: Longint;
+    ClassID: TGUID;
+    OleObject, Storage, ClientSite: Pointer;
+    Width, Height: Longint;
+    Aspect, Flags, User: DWORD;
+  end;
+
   // Prefix and method order follow the Windows SDK richole.h interface.
   IReaderOleObjects = interface(IUnknown)
     ['{00020D00-0000-0000-C000-000000000046}']
     function GetClientSite(out Site: IOleClientSite): HResult; stdcall;
     function GetObjectCount: Integer; stdcall;
+    function GetLinkCount: Integer; stdcall;
+    function GetObject(Index: Longint; var Info: TReaderOleObjectInfo; Flags: DWORD): HResult; stdcall;
   end;
 
   IReaderOleCallback = interface(IUnknown)
@@ -133,6 +149,37 @@ begin
   if Info.Error<>0 then raise EStreamError.Create('Не удалось загрузить текст и изображения книги.');
 end;
 
+procedure ReaderReplaceRTFRange(Edit: TRichEdit; Stream: TStream; Start, Count: Integer);
+var Info: TReaderStreamInfo; Saved, Selected: TCharRange; Paragraph: TParaFormat2;
+  Characters: TCharFormat2; PreviousLength, AfterLength: Integer;
+begin
+  PreviousLength:=ReaderTextLength(Edit);
+  SendMessage(Edit.Handle,EM_EXGETSEL,0,LPARAM(@Saved));
+  try
+    Selected.cpMin:=Start; Selected.cpMax:=Start+Count;
+    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selected));
+    FillChar(Paragraph,SizeOf(Paragraph),0); Paragraph.cbSize:=SizeOf(Paragraph);
+    SendMessage(Edit.Handle,EM_GETPARAFORMAT,0,LPARAM(@Paragraph));
+    FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
+    SendMessage(Edit.Handle,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+    FillChar(Info,SizeOf(Info),0); Info.Cookie:=NativeUInt(Stream); Info.Callback:=ReaderStreamRead;
+    SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF or SFF_SELECTION,LPARAM(@Info));
+    if Info.Error<>0 then raise EStreamError.Create('Не удалось показать изображение страницы.');
+    AfterLength:=ReaderTextLength(Edit);
+    if AfterLength<>PreviousLength then
+      raise EStreamError.CreateFmt('Вставка изображения изменила длину текста: позиция %d, до %d, после %d.',
+        [Start,PreviousLength,AfterLength]);
+    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Selected));
+    SendMessage(Edit.Handle,EM_SETPARAFORMAT,0,LPARAM(@Paragraph));
+    SendMessage(Edit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+  finally
+    // This edit is a private read-only layout buffer. Undo must not retain
+    // decoded pictures after they are replaced on leaving the page.
+    SendMessage(Edit.Handle,EM_EMPTYUNDOBUFFER,0,0);
+    SendMessage(Edit.Handle,EM_EXSETSEL,0,LPARAM(@Saved));
+  end;
+end;
+
 function ReaderStreamWrite(Cookie: NativeUInt; Buffer: Pointer; Count: Longint; var Copied: Longint): DWORD; stdcall;
 var Stream: TStream;
 begin
@@ -183,6 +230,55 @@ begin
   Info.Flags:=GTL_NUMCHARS or GTL_PRECISE; Info.CodePage:=1200;
   Result:=SendMessage(Edit.Handle,EM_GETTEXTLENGTHEX,WPARAM(@Info),0);
   if Result<0 then raise Exception.Create('Не удалось получить длину текста книги.');
+end;
+
+function ReaderPicturePositions(Edit: TRichEdit): TArray<Integer>;
+var Objects: IReaderOleObjects; Info: TReaderOleObjectInfo; Count, I: Integer;
+begin
+  Objects:=nil;
+  if (SendMessage(Edit.Handle,EM_GETOLEINTERFACE,0,LPARAM(@Objects))=0) or
+    (Objects=nil) then Exit(nil);
+  Count:=Objects.GetObjectCount;
+  if (Count<0) or (Count>262144) then raise EStreamError.Create('Слишком много изображений книги.');
+  SetLength(Result,Count);
+  for I:=0 to Count-1 do
+  begin
+    FillChar(Info,SizeOf(Info),0); Info.Size:=SizeOf(Info);
+    if Failed(Objects.GetObject(I,Info,0)) or (Info.Position<0) then
+      raise EStreamError.Create('Не удалось определить положение изображения.');
+    Result[I]:=Info.Position;
+    if (I>0) and (Result[I]<=Result[I-1]) then
+      raise EStreamError.Create('Нарушен порядок изображений книги.');
+  end;
+end;
+
+function ReaderResizePicture(Edit: TRichEdit; Index, WidthTwips, HeightTwips: Integer): Boolean;
+var Objects: IReaderOleObjects; Info: TReaderOleObjectInfo; Picture: IOleObject;
+  Extent: TPoint; Status: HResult;
+begin
+  Result:=False; Objects:=nil;
+  if (SendMessage(Edit.Handle,EM_GETOLEINTERFACE,0,LPARAM(@Objects))=0) or
+    (Objects=nil) then Exit;
+  FillChar(Info,SizeOf(Info),0); Info.Size:=SizeOf(Info);
+  // REO_GETOBJ_POLEOBJ returns one owned interface reference. Transfer it
+  // into the managed local; never activate or run an embedded object.
+  if Failed(Objects.GetObject(Index,Info,1)) then Exit;
+  Pointer(Picture):=Info.OleObject;
+  if Picture=nil then Exit;
+  Extent.X:=Max(1,MulDiv(WidthTwips,2540,1440));
+  Extent.Y:=Max(1,MulDiv(HeightTwips,2540,1440));
+  try
+    if (Info.Width=Extent.X) and (Info.Height=Extent.Y) then Exit(True);
+{$IFDEF WIN64}
+    Status:=Picture.SetExtent(DVASPECT_CONTENT,@Extent);
+{$ELSE}
+    Status:=Picture.SetExtent(DVASPECT_CONTENT,Extent);
+{$ENDIF}
+    if Failed(Status) then Exit;
+    FillChar(Info,SizeOf(Info),0); Info.Size:=SizeOf(Info);
+    Result:=Succeeded(Objects.GetObject(Index,Info,0)) and
+      (Info.Width=Extent.X) and (Info.Height=Extent.Y);
+  finally Picture:=nil; end;
 end;
 
 function ReaderCharacterStart(Edit: TRichEdit; Position: Integer): Integer;

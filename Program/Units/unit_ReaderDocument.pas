@@ -2,7 +2,7 @@
 
 interface
 
-uses System.SysUtils, System.Classes, System.Generics.Collections;
+uses System.SysUtils, System.Classes, System.Types, System.Generics.Collections;
 
 type
   TReaderChapter = record
@@ -49,14 +49,17 @@ type
     procedure Paragraph;
     procedure Chapter(const Value: string; Depth: Integer = 0);
     procedure Picture(const Bytes: TBytes);
+    function PictureHeader(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
   public
     Title, FormatName, Language: string;
     Warnings: TStringList;
     constructor Create;
     destructor Destroy; override;
     procedure Load(const FileName: string; const Canceled: TFunc<Boolean> = nil);
-    function RTF(MaxPictureWidth: Integer = 500; MaxPictureHeight: Integer = 500): UTF8String;
-    // After native loading, retain RTF only when images require resize reflow.
+    function RTF(MaxPictureWidth: Integer = 500; MaxPictureHeight: Integer = 500; LayoutOnly: Boolean = False): UTF8String;
+    function PictureRTF(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean = False): UTF8String;
+    function PictureExtent(Index, MaxWidth, MaxHeight: Integer): TPoint;
+    // Native text owns the layout; compressed picture bytes support reflow.
     procedure ReleaseUnusedBuffers;
     function PlainText: string;
     function Chapters: TArray<TReaderChapter>;
@@ -75,7 +78,7 @@ function ReaderSupportsReflow(const FileName: string): Boolean;
 
 implementation
 
-uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math, System.Types,
+uses Winapi.Windows, Winapi.ActiveX, System.IOUtils, System.Math,
   System.RegularExpressions, System.StrUtils, System.NetEncoding, System.Zip, System.Variants,
   System.Character, System.Generics.Defaults, System.Win.ComObj, Winapi.MSXML, Vcl.Graphics, Vcl.Imaging.jpeg, unit_ImageBounds, unit_FB2Utils, unit_ReaderMIME, unit_ReaderFormats, unit_ReaderCSS, unit_MHLExternalTools;
 
@@ -1154,61 +1157,53 @@ begin
   finally Seen.Free; end;
 end;
 
-function TReaderDocument.RTF(MaxPictureWidth, MaxPictureHeight: Integer): UTF8String;
-var Body: string; Match: TMatch; Item: TReaderPicture; Headers: TList<UTF8String>;
-  At, Start, I, Y, Pitch, DIBSize, GoalW, GoalH, Index: Integer;
-  Total: Int64; Scale: Double; Header: UTF8String;
+function ReaderPictureBinarySize(const Item: TReaderPicture; LayoutOnly: Boolean): Integer;
+begin
+  if LayoutOnly then Exit(SizeOf(TBitmapInfoHeader)+4);
+  if Item.Monochrome then Result:=SizeOf(TBitmapInfoHeader)+8+((Item.Width+31) div 32)*4*Item.Height
+  else Result:=SizeOf(TBitmapInfoHeader)+((Item.Width*3+3) div 4)*4*Item.Height;
+end;
+
+function TReaderDocument.PictureExtent(Index, MaxWidth, MaxHeight: Integer): TPoint;
+var Item: TReaderPicture; Scale: Double;
+begin
+  Item:=FPictures[Index];
+  Scale:=Min(1.0,Min(Max(16,MaxWidth)/Item.Width,Max(16,MaxHeight)/Item.Height));
+  Result:=Point(Max(1,Round(Item.Width*15*Scale)),Max(1,Round(Item.Height*15*Scale)));
+end;
+
+function TReaderDocument.PictureHeader(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
+var Item: TReaderPicture; Extent: TPoint; W,H: Integer;
+begin
+  Item:=FPictures[Index]; W:=Item.Width; H:=Item.Height;
+  Extent:=PictureExtent(Index,MaxWidth,MaxHeight);
+  if LayoutOnly then begin W:=1; H:=1; end;
+  Result:=UTF8String('{\pict\dibitmap0\picw'+IntToStr(W)+'\pich'+IntToStr(H)+
+    '\picwgoal'+IntToStr(Extent.X)+'\pichgoal'+IntToStr(Extent.Y)+
+    '\bin'+IntToStr(ReaderPictureBinarySize(Item,LayoutOnly))+' ');
+end;
+
+function TReaderDocument.PictureRTF(Index, MaxWidth, MaxHeight: Integer; LayoutOnly: Boolean): UTF8String;
+var Item: TReaderPicture; Header: UTF8String; At, Pitch, Y: Integer;
   Stream: TStream; Graphic: TGraphic; Bitmap: TBitmap; Info: TBitmapInfoHeader;
-  MonoColors: array[0..1] of TRGBQuad;
-  procedure AppendASCII(const Value: string);
-  var K: Integer;
-  begin
-    for K:=1 to Length(Value) do
-    begin Assert(Ord(Value[K])<=127); Result[At]:=AnsiChar(Value[K]); Inc(At); end;
-  end;
+  MonoColors: array[0..1] of TRGBQuad; WhitePixel: Cardinal;
   procedure AppendBytes(const Buffer; Count: Integer);
   begin if Count>0 then begin Move(Buffer,Result[At],Count); Inc(At,Count); end; end;
 begin
-  if FPlainRTF<>'' then Exit(FPlainRTF);
-  if FImages=0 then
+  Item:=FPictures[Index]; Header:=PictureHeader(Index,MaxWidth,MaxHeight,LayoutOnly);
+  SetLength(Result,Length(Header)+ReaderPictureBinarySize(Item,LayoutOnly)+1);
+  At:=1; AppendBytes(Header[1],Length(Header));
+  if LayoutOnly then
   begin
-    SetLength(Result,Length(READER_RTF_HEADER)+FBody.Length+1);
-    At:=1; AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER));
-    for I:=0 to FBody.Length-1 do
-    begin Assert(Ord(FBody.Chars[I])<=127); Result[At]:=AnsiChar(FBody.Chars[I]); Inc(At); end;
-    Result[At]:='}'; Exit;
-  end;
-  Body:=FBody.ToString; Headers:=TList<UTF8String>.Create;
-  try
-    Total:=Length(READER_RTF_HEADER)+Length(Body)+1;
-    for Match in TRegEx.Matches(Body,'\{\\mhlimage (\d+)\}') do
-    begin
-      Item:=FPictures[StrToInt(Match.Groups[1].Value)];
-      if Item.Monochrome then
-      begin
-        Pitch:=((Item.Width+31) div 32)*4;
-        DIBSize:=SizeOf(Info)+SizeOf(MonoColors)+Pitch*Item.Height;
-      end
-      else
-      begin
-        Pitch:=((Item.Width*3+3) div 4)*4;
-        DIBSize:=SizeOf(Info)+Pitch*Item.Height;
-      end;
-      Scale:=Min(1.0,Min(Max(16,MaxPictureWidth)/Item.Width,Max(16,MaxPictureHeight)/Item.Height));
-      GoalW:=Max(1,Round(Item.Width*15*Scale)); GoalH:=Max(1,Round(Item.Height*15*Scale));
-      Header:=UTF8String('{\pict\dibitmap0\picw'+IntToStr(Item.Width)+'\pich'+IntToStr(Item.Height)+
-        '\picwgoal'+IntToStr(GoalW)+'\pichgoal'+IntToStr(GoalH)+'\bin'+IntToStr(DIBSize)+' ');
-      Headers.Add(Header); Inc(Total,Length(Header)+DIBSize+1-Match.Length);
-    end;
-    // One bounded byte buffer; no full-book hex strings or Unicode bitmap copies.
-    if Total>256*1024*1024 then raise Exception.Create('Изображения книги требуют слишком много памяти для читалки.');
-    SetLength(Result,Integer(Total)); At:=1;
-    AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER)); Start:=1; Index:=0;
-    for Match in TRegEx.Matches(Body,'\{\\mhlimage (\d+)\}') do
-    begin
-      AppendASCII(Copy(Body,Start,Match.Index-Start));
-      Header:=Headers[Index]; Inc(Index); AppendBytes(Header[1],Length(Header));
-      Item:=FPictures[StrToInt(Match.Groups[1].Value)];
+    // Keep each object's exact display extent, without decoding its source.
+    // The real picture replaces this one-pixel object only while visible.
+    FillChar(Info,SizeOf(Info),0); Info.biSize:=SizeOf(Info);
+    Info.biWidth:=1; Info.biHeight:=1; Info.biPlanes:=1; Info.biBitCount:=24;
+    Info.biSizeImage:=4; WhitePixel:=$00FFFFFF;
+    AppendBytes(Info,SizeOf(Info)); AppendBytes(WhitePixel,4);
+  end
+  else
+  begin
       Stream:=TBytesStream.Create(Item.Bytes); Graphic:=nil; Bitmap:=TBitmap.Create;
       try
         Graphic:=CreateGraphicFromStream(Stream);
@@ -1245,18 +1240,57 @@ begin
         if Item.Monochrome then AppendBytes(MonoColors,SizeOf(MonoColors));
         for Y:=Item.Height-1 downto 0 do AppendBytes(Bitmap.ScanLine[Y]^,Pitch);
       finally Bitmap.Free; Graphic.Free; Stream.Free; end;
-      AppendASCII('}'); Start:=Match.Index+Match.Length;
-    end;
-    AppendASCII(Copy(Body,Start,MaxInt)); AppendASCII('}');
-    Assert(At=Length(Result)+1,'Reader binary RTF length differs');
-  finally Headers.Free; end;
+  end;
+  Result[At]:='}'; Inc(At);
+  Assert(At=Length(Result)+1,'Reader picture RTF length differs');
+end;
+
+function TReaderDocument.RTF(MaxPictureWidth, MaxPictureHeight: Integer; LayoutOnly: Boolean): UTF8String;
+var Body: string; Match: TMatch; Item: TReaderPicture; Header, Fragment: UTF8String;
+  At, Start, I, Index: Integer; Total: Int64;
+  procedure AppendASCII(const Value: string);
+  var K: Integer;
+  begin
+    for K:=1 to Length(Value) do
+    begin Assert(Ord(Value[K])<=127); Result[At]:=AnsiChar(Value[K]); Inc(At); end;
+  end;
+  procedure AppendBytes(const Buffer; Count: Integer);
+  begin if Count>0 then begin Move(Buffer,Result[At],Count); Inc(At,Count); end; end;
+begin
+  if FPlainRTF<>'' then Exit(FPlainRTF);
+  if FImages=0 then
+  begin
+    SetLength(Result,Length(READER_RTF_HEADER)+FBody.Length+1);
+    At:=1; AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER));
+    for I:=0 to FBody.Length-1 do
+    begin Assert(Ord(FBody.Chars[I])<=127); Result[At]:=AnsiChar(FBody.Chars[I]); Inc(At); end;
+    Result[At]:='}'; Exit;
+  end;
+  Body:=FBody.ToString; Total:=Length(READER_RTF_HEADER)+Length(Body)+1;
+  for Match in TRegEx.Matches(Body,'\{\\mhlimage (\d+)\}') do
+  begin
+    Index:=StrToInt(Match.Groups[1].Value); Item:=FPictures[Index];
+    Header:=PictureHeader(Index,MaxPictureWidth,MaxPictureHeight,LayoutOnly);
+    Inc(Total,Length(Header)+ReaderPictureBinarySize(Item,LayoutOnly)+1-Match.Length);
+  end;
+  if Total>256*1024*1024 then raise Exception.Create('Изображения книги требуют слишком много памяти для читалки.');
+  SetLength(Result,Integer(Total)); At:=1;
+  AppendBytes(READER_RTF_HEADER[1],Length(READER_RTF_HEADER)); Start:=1;
+  for Match in TRegEx.Matches(Body,'\{\\mhlimage (\d+)\}') do
+  begin
+    AppendASCII(Copy(Body,Start,Match.Index-Start));
+    Fragment:=PictureRTF(StrToInt(Match.Groups[1].Value),MaxPictureWidth,MaxPictureHeight,LayoutOnly);
+    AppendBytes(Fragment[1],Length(Fragment)); Start:=Match.Index+Match.Length;
+  end;
+  AppendASCII(Copy(Body,Start,MaxInt)); AppendASCII('}');
+  Assert(At=Length(Result)+1,'Reader binary RTF length differs');
 end;
 
 procedure TReaderDocument.ReleaseUnusedBuffers;
 begin
   FPlainRTF:='';
   FreeAndNil(FText); FText:=TStringBuilder.Create;
-  if FImages=0 then begin FreeAndNil(FBody); FBody:=TStringBuilder.Create; end;
+  FreeAndNil(FBody); FBody:=TStringBuilder.Create;
 end;
 
 function TReaderDocument.PlainText: string;

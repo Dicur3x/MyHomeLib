@@ -18,7 +18,8 @@ p.add_argument('--timeout', type=int, default=600)
 p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive directory for cases using selected real books')
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
-p.add_argument('--case', choices=('export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--jpeg-book',type=pathlib.Path,help='Read-only FB2 or single-FB2 ZIP for compressed-picture regression')
+p.add_argument('--case', choices=('jpeg-rtf','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -33,12 +34,13 @@ assert root.parent == pathlib.Path(tempfile.gettempdir()).resolve()
 assert root.name.startswith('HomeLibRu-native-reader-')
 try:
     shutil.copy2(exe, root/exe.name)
-    shutil.copy2(pdfium, root/'pdfium.dll')
+    if a.case!='jpeg-rtf': shutil.copy2(pdfium, root/'pdfium.dll')
     for name in ('sqlite3.dll','libzstd.dll'):
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
+        if a.case=='jpeg-rtf': continue
         if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
@@ -51,6 +53,34 @@ try:
     for marker in ('uselocaldata','uselocaltemp'): (root/marker).write_text('')
     (root/'native-regression.marker').write_text('HomeLib Ru isolated native regression v1',encoding='utf-8')
     (root/'myhomelib2.ini').write_text('[SYSTEM]\nCheckUpdates=0\n[OPDS]\nEnabled=0\n',encoding='utf-8')
+    if a.case=='jpeg-rtf':
+        from PIL import Image, ImageDraw
+        import io
+        picture=Image.new('RGB',(640,640),(20,140,50))
+        ImageDraw.Draw(picture).rectangle((150,150,490,490),fill=(200,30,40))
+        encoded=io.BytesIO();picture.save(encoded,format='JPEG',quality=85)
+        body='<p>Before ❤️ after and words with spaces.</p>'+''.join('<p>JPEG paragraph '+str(i)+'</p><image l:href="#j"/>' for i in range(240))
+        (root/'jpeg-repeated.fb2').write_text('<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section>'+body+'</section></body><binary id="j" content-type="image/jpeg">'+base64.b64encode(encoded.getvalue()).decode()+'</binary></FictionBook>',encoding='utf-8')
+        png=Image.new('RGBA',(640,640),(0,0,0,0))
+        drawing=ImageDraw.Draw(png); drawing.rectangle((40,40,600,600),fill=(20,140,50,255))
+        drawing.rectangle((180,180,460,460),fill=(200,30,40,255))
+        png_bytes=io.BytesIO();png.save(png_bytes,format='PNG')
+        with zipfile.ZipFile(root/'png-repeated.epub','w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('META-INF/container.xml','<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+            z.writestr('OPS/book.opf','<package><metadata><title>PNG pictures</title></metadata><manifest><item id="book" href="book.xhtml"/><item id="pic" href="pic.png"/></manifest><spine><itemref idref="book"/></spine></package>')
+            z.writestr('OPS/book.xhtml','<html><body>'+''.join('<p>JPEG paragraph '+str(i)+'</p><img src="pic.png"/>' for i in range(240))+'</body></html>')
+            z.writestr('OPS/pic.png',png_bytes.getvalue())
+        if a.jpeg_book:
+            source=a.jpeg_book.resolve(strict=True); original=hashlib.sha256(source.read_bytes()).hexdigest()
+            if source.suffix.lower()=='.zip':
+                with zipfile.ZipFile(source) as z:
+                    members=[info for info in z.infolist() if info.filename.lower().endswith('.fb2')]
+                    assert len(members)==1 and members[0].file_size<64*1024*1024
+                    (root/'jpeg-real.fb2').write_bytes(z.read(members[0]))
+            else:
+                assert source.suffix.lower()=='.fb2' and source.stat().st_size<64*1024*1024
+                shutil.copyfile(source,root/'jpeg-real.fb2')
+            assert hashlib.sha256(source.read_bytes()).hexdigest()==original
     if a.case=='optional-fonts':
         os.environ['LOCALAPPDATA']=str(root/'isolated-profile')
         cache=root/'isolated-profile/HomeLibRu/Fonts/noto';cache.mkdir(parents=True)
@@ -372,6 +402,24 @@ try:
         raise
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
+    if a.case=='jpeg-rtf':
+        assert r.stdout.count('PASS bounded picture reflow and font resize without whole-book import:')==(3 if a.jpeg_book else 2), 'Stale binary omitted illustrated interaction regressions'
+        from PIL import Image
+        assert 'PASS bounded compressed JPEG books preserve all native pictures' in r.stdout
+        if a.jpeg_book:
+            assert 'source bytes cases=3' in r.stdout
+            assert hashlib.sha256(a.jpeg_book.resolve(strict=True).read_bytes()).hexdigest()==original
+        for kind in ('jpeg','png'):
+            for theme in (0,4):
+                with Image.open(root/(kind+'-render-'+str(theme)+'.bmp')) as picture:
+                    colours=picture.convert('RGB').getcolors(picture.width*picture.height)
+                    green=sum(n for n,(red,g,b) in colours if g>100 and red<80 and b<100)
+                    red=sum(n for n,(red,g,b) in colours if red>140 and g<90 and b<100)
+                    assert green>500 and red>500,('Native image pixels missing',kind,theme,green,red)
+                    if a.review_output:
+                        a.review_output.mkdir(parents=True,exist_ok=True)
+                        picture.save(a.review_output/(kind+'-render-'+str(theme)+'.png'))
+        print('PASS JPEG and alpha-PNG colours rendered from FB2 and EPUB in light and dark themes',flush=True)
     if a.case=='optional-fonts':
         assert 'PASS optional fonts require explicit download' in r.stdout,'Stale binary omitted optional-font gates'
     if a.case=='feedback16-reader':

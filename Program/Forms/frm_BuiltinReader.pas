@@ -126,6 +126,9 @@ type
     FOleCallback: IInterface;
     FBitmap: TBitmap;
     FDocument: TReaderDocument;
+    FLoadedPictures: TArray<Integer>;
+    FPicturePositions: TArray<Integer>;
+    FPresentationLoads: Integer;
     FRequiredComponent: string;
     FStyleRanges: TArray<TReaderStyledRange>;
     FPDF: TReaderPDF;
@@ -188,6 +191,8 @@ type
     procedure PageLoaded(Sender: TObject);
     procedure ResetInspection;
     procedure LoadPresentation;
+    procedure ResizePicturePresentation;
+    procedure PrepareVisiblePictures(Start, Finish: Integer);
     function TextCharacterAt(X,Y: Integer): Integer;
     function TextLinkTargetAt(X,Y: Integer): Integer;
     procedure UpdateTextSelection(X,Y: Integer);
@@ -373,6 +378,8 @@ type
     procedure GoToBookmark(Index: Integer);
     function BookText: string;
     function PictureCount: Integer;
+    function DecodedPictureCount: Integer;
+    property PresentationLoads: Integer read FPresentationLoads;
     function PageRasterSize: TPoint;
     function PageBackground: TColor;
     property Ready: Boolean read FReady;
@@ -482,7 +489,7 @@ function EditAndSaveReaderNote(Owner: TCustomForm; Store: TReaderAnnotations;
 implementation
 
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
-  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette;
+  System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics;
 
 type
   TReaderChapterSelector = class(TReaderPaletteCombo)
@@ -1128,6 +1135,7 @@ begin
   MakeButton('Вид',StyleClick,50);
   MakeButton('Поиск',SearchClick,92);
   FChapterPath:=TLabel.Create(Self); FChapterPath.Name:='ReaderChapterPath';
+  FChapterPath.Caption:='';
   FChapterPath.Parent:=FTop; FChapterPath.Align:=alBottom; FChapterPath.AutoSize:=False;
   FChapterPath.Height:=22; FChapterPath.Margins.SetBounds(12,0,12,0); FChapterPath.AlignWithMargins:=True;
   FChapterPath.Layout:=tlCenter; FChapterPath.EllipsisPosition:=epEndEllipsis;
@@ -1475,7 +1483,10 @@ begin
     ModalResult:=mrCancel; Close; Exit;
   end;
   if FLoader.Error<>'' then
-  begin FStatus.Caption:=FLoader.Error; FSurface.Invalidate; Exit; end;
+  begin
+    LogDiagnosticMessage('reader-open',FLoader.Error);
+    FStatus.Caption:=FLoader.Error; FSurface.Invalidate; Exit;
+  end;
   try
   if Assigned(FLoader.Pages) then
   begin
@@ -1496,7 +1507,10 @@ begin
   FReady:=True; ReloadAnnotations; InvalidateLayout; RestoreSettings; RenderPage;
   except
     on E: Exception do
-    begin FReady:=False; FStatus.Caption:='Не удалось открыть книгу: '+E.Message; FSurface.Invalidate; end;
+    begin
+      LogDiagnosticError('reader-presentation',E,LowerCase(ExtractFileExt(FFileName)));
+      FReady:=False; FStatus.Caption:='Не удалось открыть книгу: '+E.Message; FSurface.Invalidate;
+    end;
   end;
 end;
 
@@ -1627,13 +1641,81 @@ begin
   FImageWidth:=Max(16,TextAreaWidth-16);
   FImageHeight:=IllustrationHeight;
   FTypographyDirty:=True;
-  Stream:=TReaderRTFStream.Create(FDocument.RTF(FImageWidth,FImageHeight));
+  SetLength(FLoadedPictures,0);
+  Stream:=TReaderRTFStream.Create(FDocument.RTF(FImageWidth,FImageHeight,True));
   try
     // Showing or scaling the form can recreate the native edit handle.
     // Bind picture storage to the current handle before every RTF stream.
     FOleCallback:=AttachReaderPictures(FRichEdit);
     ReaderLoadRTF(FRichEdit,Stream);
   finally Stream.Free; end;
+  FPicturePositions:=ReaderPicturePositions(FRichEdit);
+  if Length(FPicturePositions)<>FDocument.ImageCount then
+    raise EStreamError.Create('Не все изображения книги загружены в разметку.');
+  Inc(FPresentationLoads);
+end;
+
+procedure TfrmBuiltinReader.ResizePicturePresentation;
+var Width, Height, Index: Integer; Extent: TPoint; Stream: TReaderRTFStream;
+  Present: TList<Integer>;
+begin
+  Width:=Max(16,TextAreaWidth-16); Height:=IllustrationHeight;
+  if (FImageWidth=Width) and (FImageHeight=Height) then Exit;
+  Present:=TList<Integer>.Create;
+  try
+    Present.AddRange(FLoadedPictures);
+    FRichEdit.Lines.BeginUpdate;
+    try
+      for Index:=0 to High(FPicturePositions) do
+      begin
+        Extent:=FDocument.PictureExtent(Index,Width,Height);
+        if ReaderResizePicture(FRichEdit,Index,Extent.X,Extent.Y) then Continue;
+        // A static picture that refuses SetExtent is replaced locally.
+        // Never parse the complete novel again just to resize its pictures.
+        Stream:=TReaderRTFStream.Create(UTF8String('{\rtf1\ansi ')+
+          FDocument.PictureRTF(Index,Width,Height,True)+UTF8String('}'));
+        try ReaderReplaceRTFRange(FRichEdit,Stream,FPicturePositions[Index],1);
+        finally Stream.Free; end;
+        Present.Remove(Index);
+      end;
+      FImageWidth:=Width; FImageHeight:=Height;
+    finally FRichEdit.Lines.EndUpdate; end;
+  finally FLoadedPictures:=Present.ToArray; Present.Free; end;
+end;
+
+procedure TfrmBuiltinReader.PrepareVisiblePictures(Start, Finish: Integer);
+var Wanted: TArray<Integer>; Present, Visible: TList<Integer>; Index: Integer;
+  procedure ReplacePicture(Index: Integer; LayoutOnly: Boolean);
+  var Stream: TReaderRTFStream;
+  begin
+    Stream:=TReaderRTFStream.Create(UTF8String('{\rtf1\ansi ')+
+      FDocument.PictureRTF(Index,FImageWidth,FImageHeight,LayoutOnly)+UTF8String('}'));
+    try ReaderReplaceRTFRange(FRichEdit,Stream,FPicturePositions[Index],1);
+    finally Stream.Free; end;
+  end;
+begin
+  if not Assigned(FDocument) or (FDocument.ImageCount=0) then Exit;
+  Visible:=TList<Integer>.Create;
+  try
+    for Index:=0 to Length(FPicturePositions)-1 do
+    begin
+      if FPicturePositions[Index]>=Finish then Break;
+      if FPicturePositions[Index]>=Start then Visible.Add(Index);
+    end;
+    Wanted:=Visible.ToArray;
+  finally Visible.Free; end;
+  Present:=TList<Integer>.Create;
+  try
+    Present.AddRange(FLoadedPictures);
+    for Index in FLoadedPictures do
+      if TArray.IndexOf<Integer>(Wanted,Index)<0 then
+      begin ReplacePicture(Index,True); Present.Remove(Index); end;
+    for Index in Wanted do
+      if not Present.Contains(Index) then
+      begin ReplacePicture(Index,False); Present.Add(Index); end;
+  finally
+    FLoadedPictures:=Present.ToArray; Present.Free;
+  end;
 end;
 
 function TfrmBuiltinReader.CurrentPosition: Integer;
@@ -1647,6 +1729,9 @@ begin Result:=ReaderTextRange(FRichEdit,0,FLength); end;
 
 function TfrmBuiltinReader.PictureCount: Integer;
 begin Result:=ReaderPictureCount(FRichEdit); end;
+
+function TfrmBuiltinReader.DecodedPictureCount: Integer;
+begin Result:=Length(FLoadedPictures); end;
 
 function TfrmBuiltinReader.PageRasterSize: TPoint;
 begin Result:=Point(FBitmap.Width,FBitmap.Height); end;
@@ -1987,6 +2072,7 @@ begin
     FBitmap.Canvas.Brush.Color:=ThemeBackground;
     FBitmap.Canvas.FillRect(Rect(0,0,FBitmap.Width,FBitmap.Height));
     if FSearchQuery<>'' then HighlightTextPage;
+    PrepareVisiblePictures(CurrentPosition,FNext);
     FNext:=FormatText(CurrentPosition,FNext,True);
     if TextPageCount=2 then
     begin
@@ -2116,11 +2202,13 @@ begin
     SendMessage(FRichEdit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
     SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
   end;
-  FRichEdit.SelLength:=0;
+  Selection.cpMin:=0; Selection.cpMax:=0;
+  SendMessage(FRichEdit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
 end;
 
 procedure TfrmBuiltinReader.EnsureBookStyles(Start, Finish: Integer);
 var Interval: TPoint; I, First, Last, Previous: Integer; Language: string;
+  Selection: TCharRange; Characters: TCharFormat2; Para: TParaFormat2;
 begin
   if Finish<=Start then Exit;
   First:=Max(0,Start); Last:=Min(FLength,Finish);
@@ -2135,6 +2223,17 @@ begin
   if First>=Last then Exit;
   // A page formats a small UTF-16 interval instead of every paragraph of a
   // long novel. Existing neighbouring intervals merge into one cache entry.
+  Selection.cpMin:=First; Selection.cpMax:=Last;
+  SendMessage(FRichEdit.Handle,EM_EXSETSEL,0,LPARAM(@Selection));
+  FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
+  Characters.dwMask:=CFM_SIZE or CFM_FACE or CFM_COLOR or CFM_BACKCOLOR;
+  Characters.dwEffects:=CFE_AUTOBACKCOLOR; Characters.yHeight:=FFontSize*20;
+  StrPLCopy(PChar(@Characters.szFaceName[0]),FFontName,LF_FACESIZE-1);
+  Characters.crTextColor:=ThemeText;
+  SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_SELECTION,LPARAM(@Characters));
+  FillChar(Para,SizeOf(Para),0); Para.cbSize:=SizeOf(Para);
+  Para.dwMask:=$00000100; Para.bLineSpacingRule:=5; Para.dyLineSpacing:=FLinePercent div 5;
+  SendMessage(FRichEdit.Handle,EM_SETPARAFORMAT,0,LPARAM(@Para));
   ApplyBookStyles(False,First,Last);
   Language:=''; if Assigned(FDocument) then Language:=FDocument.Language;
   ApplyReaderFallbackFonts(FRichEdit,ReaderTextRange(FRichEdit,First,Last-First),FFontName,Language,First,
@@ -2197,7 +2296,7 @@ begin
 end;
 
 procedure TfrmBuiltinReader.InvalidateLayout;
-var Position: Integer; Para: TParaFormat2; Characters: TCharFormat2;
+var Position: Integer;
 begin
   if not FReady then Exit;
   FResizeTimer.Enabled:=False; Position:=CurrentPosition; ResetPagination;
@@ -2205,26 +2304,11 @@ begin
   begin
     if Assigned(FDocument) and (FDocument.ImageCount>0) and
       ((FImageWidth<>Max(16,TextAreaWidth-16)) or
-       (FImageHeight<>IllustrationHeight)) then LoadPresentation;
+       (FImageHeight<>IllustrationHeight)) then ResizePicturePresentation;
     if FTypographyDirty then
     begin
-    FRichEdit.Lines.BeginUpdate;
-    try
-    FRichEdit.SelectAll;
-    // Apply face/size/color together, preserving bold and italic source runs.
-    FillChar(Characters,SizeOf(Characters),0); Characters.cbSize:=SizeOf(Characters);
-    Characters.dwMask:=CFM_SIZE or CFM_FACE or CFM_COLOR or CFM_BACKCOLOR;
-    Characters.dwEffects:=CFE_AUTOBACKCOLOR; Characters.yHeight:=FFontSize*20;
-    StrPLCopy(PChar(@Characters.szFaceName[0]),FFontName,LF_FACESIZE-1);
-    Characters.crTextColor:=ThemeText;
-    SendMessage(FRichEdit.Handle,EM_SETCHARFORMAT,SCF_ALL,LPARAM(@Characters));
-    FillChar(Para,SizeOf(Para),0); Para.cbSize:=SizeOf(Para);
-    Para.dwMask:=$00000100; Para.bLineSpacingRule:=5; Para.dyLineSpacing:=FLinePercent div 5;
-    SendMessage(FRichEdit.Handle,EM_SETPARAFORMAT,0,LPARAM(@Para));
     FStyledIntervals.Clear; FHighlighted.Clear;
     FRichEdit.Color:=ThemeBackground;
-    FRichEdit.SelLength:=0;
-    finally FRichEdit.Lines.EndUpdate; end;
     FTypographyDirty:=False;
     end;
     FPages.Clear; FPages.Add(Position); FPage:=0;

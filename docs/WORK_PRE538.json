@@ -1982,13 +1982,13 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-10-31T22:51:38.615493+00:00",
+  "updated_utc": "2026-11-01T03:53:38.263499+00:00",
   "telegram_followup_20261031": {
-    "status": "messages_read_source_downloaded_reproduction_pending",
+    "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
     "group": "HomeLibre",
     "items": [
-      "Exact book downloaded and syntax inspected; actual Reader reproduction and fix remain pending",
+      "Exact ZIP opens in final production Reader x86/x64; bounded decoded images, Hide/Show and font size change verified. Fix not published.",
       "Review timeout 12002 on flibusta.is; tester reports later retry worked; root cause and bounded retry remain pending"
     ],
     "messages_authorized": false,
@@ -2004,8 +2004,176 @@
       "fb2_size": 34182888,
       "xml_syntax": "well-formed by ElementTree; not schema validation",
       "jpeg_binaries": 340,
-      "cause": "not yet established; source reviewed and book not yet launched",
-      "investigation_pointer": "unit_ReaderDocument.pas TReaderDocument.RTF builds DIB pictures and rejects a complete RTF buffer above 256 MiB. Check actual runtime and picture dimensions; do not treat as a proven cause."
+      "cause": "Confirmed actual GUI rejects complete DIB RTF above 256 MiB. JPEG payload 16,102,292 bytes, bounded DIB presentation 415,506,472 bytes; all source JPEGs already within existing 1024-pixel display bound.",
+      "investigation_pointer": "Direct JPEG native RTF import was rejected after picture-loss tests; the implementation keeps compressed source bytes and only hydrates native DIBs for the current page/spread.",
+      "actual_reproduction": {
+        "report": "tools/ui/tests/Out/homelibre-telegram-engineer-Win64-20261101-r1.json",
+        "sha256": "01765541307d6e6edbb83bddfe9d8102c4bb8e0a59415f1d81a21ef67d27b274",
+        "status": "REPRODUCED_FIX_PENDING",
+        "owned_temporary_root_removed": true,
+        "source_unchanged": true
+      },
+      "current_fix": "Deferred picture presentation: exact-size one-pixel layout objects retain all image positions. Only currently viewed images decode into native DIBs; leaving-page DIBs and private undo references are released. Native object anchors and a text-length guard preserve positions. No source rewriting, JPEG recompression or new optional module.",
+      "experiments_20261101": [
+        {
+          "name": "compressed JPEG native binary RTF, original raster-only callback",
+          "status": "FAIL: native picture count missing; source unchanged; private test root removed"
+        },
+        {
+          "name": "compressed JPEG with existing passive-metafile snapshot callback",
+          "status": "FAIL: native picture count missing; source unchanged; private test root removed"
+        }
+      ],
+      "quality_requirement_20261101": "All reading formats: use original compressed sources where supported, decode at required viewing detail and keep decoded state bounded. Preserve text and original illustrations; no silent export-quality recompression. Do not claim superiority to Sumatra without comparison.",
+      "page_checkpoint": {
+        "sequence": 61,
+        "block_id": "e9a23c93-8828-4c5f-ae2d-9043b68f554c",
+        "hash": "d381f1762572b2b71289aee42b61f684e2ee0fa710abb70cb9ace22fef86bb40",
+        "checked": true,
+        "other_blocks_unchanged": true
+      },
+      "source_image_structure": {
+        "binary_count": 340,
+        "total_image_references": 340,
+        "body_image_references": 338,
+        "reader_presentation_images": 339,
+        "explanation": "Existing reader presents first metadata cover plus all 338 body image references. Two references exist in cover metadata; no new claim that both cover images are separately shown."
+      },
+      "native_progress_20261101": {
+        "Win64_initial_two_cases": "PASS r3: repeated JPEG FB2 plus real book, colours and source hash guards",
+        "Win64_extended_three_cases": "PASS r5 for earlier helper: repeated JPEG FB2, alpha-PNG EPUB and real book, 10 spread seeks each; latest native-anchor/length-guard changes not yet validated",
+        "important_build_caveat": "r5 compiled an earlier IDE-cached unit and is historical only. Source tabs closed and latest guard strings verified in final r9 Win64 and r1 Win32 builds.",
+        "earlier_r4_failure": "Real-book comparison differed at four optional spaces before colour heart emoji. Independent native import in r7 showed the same quirk before deferred hydration. Attempted RTF workaround was reverted. Test-only tolerance normalizes this sequence; exact native text must remain unchanged after navigation. Latest Win32 r2 semantic full match true; Win64 r11 uses this existing-import tolerance.",
+        "Win32": {
+          "report": "tools/ui/tests/Out/homelibre-deferred-pictures-Win32-20261101-r2.log",
+          "sha256": "5d17c3df76ddbc977cba03f008cced132a0f29c00d98e09f45bd19a7fbeb8ecc",
+          "tester_sha256": "bcee41000b65633b7a5e496a262ab12ba2ed6b52e91548fdd2b14cf64e45bb8d",
+          "reported_book_interaction_ms": [
+            318,
+            373,
+            397,
+            462
+          ],
+          "timing_scope": "Includes 300 ms of ordinary deferred-resize event-loop pumping; these are current-load regression observations, not a Sumatra comparison or final idle benchmark.",
+          "temporary_roots_removed": true,
+          "cases": 3,
+          "status": "PASS final source: three illustrated inputs, paging and four interaction checks each; all native objects and exact imported text preserved",
+          "memory_scope": "Test process includes independent parse/import before Reader; not a production footprint or idle cross-reader benchmark."
+        },
+        "actual_minimal_reader_GUI": {
+          "status": "PASS exact ZIP in final production Reader x86 and x64",
+          "report": "tools/ui/tests/Out/homelibre-deferred-picture-GUI-20261101-r1.json",
+          "sha256": "6a67126e1a88f50e637a6a30adee66915937febac418f5cc51e1e7d09cf1927d",
+          "source_unchanged": true,
+          "owned_fixture_removed": false,
+          "cleanup_reason": "Automatic approval review rejected guarded Remove-Item for this exact owned root as blocked by policy. No deletion executed; do not retry another method or delete parent."
+        },
+        "Win64": {
+          "report": "tools/ui/tests/Out/homelibre-deferred-pictures-Win64-20261101-r11.log",
+          "sha256": "be09ab274da670196e0306d66cc20ece8921a6eb55ea7abed68e4d275ed731e4",
+          "tester_sha256": "3252b29956d3b858969ffd4e2e87d982617de3a8474e82ec837c692bb5936476",
+          "reported_book_interaction_ms": [
+            325,
+            372,
+            407,
+            421
+          ],
+          "timing_scope": "Includes 300 ms of ordinary deferred-resize event-loop pumping; these are current-load regression observations, not a Sumatra comparison or final idle benchmark.",
+          "temporary_roots_removed": true,
+          "cases": 3,
+          "status": "PASS final source: three illustrated inputs, paging and four interaction checks each; all native objects and exact imported text preserved",
+          "memory_scope": "Test process includes independent parse/import before Reader; not a production footprint or idle cross-reader benchmark."
+        },
+        "latest_reflow_change": "PASS latest source: Win32 r2 and Win64 r11, after releasing obsolete complete RTF builder. Twelve interactions per architecture plus all image/text/source guards; ten additional geometry/spacing/footnote/appearance/word-selection runs passed.",
+        "latest_validation_report": "tools/ui/tests/Out/homelibre-reader-reflow-validation-20261101-r1.json"
+      },
+      "current_fix_scope": "Shared TReaderDocument image path, demonstrated with FB2/JPEG and EPUB/PNG. PDF/DjVu and other raster backends retain their existing page-based decode path. Existing per-image display bounds are unchanged; no assertion that every supported format has newly been retested.",
+      "view_change_hang_20261101": {
+        "reported": "User reports Not Responding for 15-20 seconds after Hide/Show interface and after changing font size in the exact book. The earlier memory-only fix is not considered complete.",
+        "cause_in_code": [
+          "InvalidateLayout called LoadPresentation and reparsed the entire text whenever illustration viewport dimensions changed.",
+          "Typography invalidation applied face/size/colour and paragraph spacing across the complete book."
+        ],
+        "status": "PASS final native and production Reader EXEs, x86 and x64; not published",
+        "test": "Four interaction checks per illustrated source: hide, show, larger type, smaller type; pump deferred resize, require no full import, unchanged text/pictures and bounded interaction time.",
+        "validation_report": "tools/ui/tests/Out/homelibre-reader-reflow-validation-20261101-r1.json",
+        "validation_report_sha256": "7d59dbe268ea5a562732aecaf39d5900867de7e3e2dd8a360d5a7c9d4222eebf",
+        "timings": {
+          "Win32": {
+            "report": "tools/ui/tests/Out/homelibre-deferred-pictures-Win32-20261101-r2.log",
+            "sha256": "5d17c3df76ddbc977cba03f008cced132a0f29c00d98e09f45bd19a7fbeb8ecc",
+            "tester_sha256": "bcee41000b65633b7a5e496a262ab12ba2ed6b52e91548fdd2b14cf64e45bb8d",
+            "reported_book_interaction_ms": [
+              318,
+              373,
+              397,
+              462
+            ],
+            "timing_scope": "Includes 300 ms of ordinary deferred-resize event-loop pumping; these are current-load regression observations, not a Sumatra comparison or final idle benchmark.",
+            "temporary_roots_removed": true,
+            "cases": 3
+          },
+          "Win64": {
+            "report": "tools/ui/tests/Out/homelibre-deferred-pictures-Win64-20261101-r11.log",
+            "sha256": "be09ab274da670196e0306d66cc20ece8921a6eb55ea7abed68e4d275ed731e4",
+            "tester_sha256": "3252b29956d3b858969ffd4e2e87d982617de3a8474e82ec837c692bb5936476",
+            "reported_book_interaction_ms": [
+              325,
+              372,
+              407,
+              421
+            ],
+            "timing_scope": "Includes 300 ms of ordinary deferred-resize event-loop pumping; these are current-load regression observations, not a Sumatra comparison or final idle benchmark.",
+            "temporary_roots_removed": true,
+            "cases": 3
+          }
+        },
+        "changes_verified": [
+          "Resize static picture extents in place, with bounded single-object replacement fallback; keep text and native positions.",
+          "Apply base typography and semantic styles only to lazily formatted page intervals.",
+          "Avoid VCL selection setter that obtains whole-document length."
+        ],
+        "production_readers": {
+          "Win32": {
+            "reader_sha256": "92904f033eaba51eba7013196d81fb5263322d9dbf7f89aeb11ac5ebb99f8e6f",
+            "observations": [
+              "Exact ZIP opened, metadata cover and body cover rendered, then prose page opened.",
+              "Hide and Show interface worked without changing normal window bounds; no Not Responding observed.",
+              "A+ visibly changed size 14 to 15; A- restored 14; following page opened.",
+              "Alt+F4 closed the window normally; the owned process is gone."
+            ],
+            "memory_snapshot": {
+              "scope": "One snapshot on visible text page, not peak or a cross-reader benchmark.",
+              "working_set_bytes": 106192896,
+              "private_bytes": 77987840,
+              "responding": true
+            }
+          },
+          "Win64": {
+            "reader_sha256": "8296ac3bfa65635e0543727bb085030c2cf8380600d0a1e2a3082a4956c958ea",
+            "observations": [
+              "Exact ZIP restored to chapter 9 at 35%.",
+              "Hide and Show interface worked with unchanged normal window bounds; no Not Responding was observed.",
+              "A+ visibly changed type 14 to 15, A- restored 14, following page opened.",
+              "Normal Alt+F4 closure was observed; owned process is gone."
+            ],
+            "memory_snapshot": {
+              "private_bytes": 78499840,
+              "working_set_bytes": 114204672,
+              "responding": true,
+              "scope": "One snapshot on the visible text page; not peak and not a cross-reader benchmark."
+            }
+          }
+        }
+      },
+      "cleanup_20261101": {
+        "native_owned_profiles": "removed by test runners, aggregate report verifies roots absent",
+        "production_GUI_fixture": "G:\\HomeLibRu-build-cache\\HomeLibRu-picture-GUI-7ah3d20l",
+        "remaining_owned_bytes": 53936355,
+        "removed": false,
+        "reason": "Automatic approval review rejected guarded Remove-Item for this exact owned root as blocked by policy. No deletion executed; do not retry another method or delete parent.",
+        "source_archive_preserved": true
+      }
     },
     "reviews": {
       "reported_error": 12002,
