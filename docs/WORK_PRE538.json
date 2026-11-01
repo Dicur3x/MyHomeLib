@@ -2685,13 +2685,34 @@
       "kindle_save_proof": {
         "path": "tools/ui/tests/Out/homelibre-kindle-save-20261101-r1.json",
         "sha256": "eca047ec7928f162325a471db4ef54f8c5597f7b345a04101f9e9477dd3a69d2"
+      },
+      "kindle_raster": "PASS Win32 and Win64: native PDF/DjVu text and scan-only sources to MOBI/AZW3, three image profiles, scan layouts/estimates and signature-over-extension; independent decoding of 16 outputs per architecture.",
+      "kindle_raster_proof": {
+        "path": "tools/ui/tests/Out/homelibre-kindle-raster-save-20261101-r1.json",
+        "sha256": "5014af71ad6df9b0ca1a68b9c3282309686599f931eea15010b702cfd924413a"
+      },
+      "kindle_install": "PASS Win32 and Win64: actual BookProcessing/KindleExport archives, exact aggregate requirements, all file hashes, fault rollback, personal data preservation and no unrelated payloads.",
+      "kindle_install_proof": {
+        "path": "tools/ui/tests/Out/homelibre-kindle-install-20261101-r1.json",
+        "sha256": "e6811ec7990946157309af8d0e63fedb6aa9c51fac3d4bc45e77dcc5e6890599"
       }
     },
     "remaining": [
-      "Native real mixed PDF/DjVu/office inputs and independent output content checks",
+      "Real collection office/rare samples and final content checks; native PDF/DjVu matrix completed",
       "Cancellation/collision and module installation/resume UI",
       "Final candidate Main/Reader builds, updated optional package publication, beta release validation"
     ],
-    "fixed_native_finding": "Kindling KDP R4.2.1 publishing rule incorrectly blocks personal coverless/no-image books. Full preflight still runs first; only that sole rule on an actually undeclared cover permits a retry. Other findings abort; HTML self-check and EPUB/Palm validation stay enabled. Diagnostics now include stdout validation details as well as stderr."
+    "fixed_native_finding": "Kindling KDP R4.2.1 publishing rule incorrectly blocks personal coverless/no-image books. Full preflight still runs first; only that sole rule on an actually undeclared cover permits a retry. Other findings abort; HTML self-check and EPUB/Palm validation stay enabled. Diagnostics now include stdout validation details as well as stderr.",
+    "cleanup_review_blocked": {
+      "action": "Remove three obsolete candidate/debug folders and later one independently checked 85.5 MB native debug fixture; every attempt rejected before execution",
+      "result": "CreateProcess rejected by automatic review: blocked by policy. No deletion ran; do not retry by another tool or parent delete.",
+      "paths": [
+        "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r1",
+        "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r2",
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-i5zRqC",
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH"
+      ]
+    },
+    "next_check": "Actual collection Office/rare examples, cancellation/collision and full GUI component download/restart/resume before final Main/Reader/release validation."
   }
 }

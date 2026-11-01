@@ -455,8 +455,21 @@ function run(executable, mode, subcase = "") {
       if(staged.status!==0) throw Error('Independent format fixture failed: '+staged.stdout+staged.stderr);
     }
     if (mode==='kindle-save') {
+      const packageRoot=path.resolve(process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES);
+      const packageFeed=JSON.parse(fs.readFileSync(path.join(packageRoot,'HomeLibRu.components.json'),'utf8'));
+      const packageTarget=path.join(folder,'kindle-save-packages'); fs.mkdirSync(packageTarget);
+      fs.copyFileSync(path.join(packageRoot,'HomeLibRu.components.json'),path.join(packageTarget,'HomeLibRu.components.json'));
+      for(const entry of packageFeed.components.filter(e=>['BookProcessing','KindleExport'].includes(e.id)&&e.platform===(architecture===0x8664?'Win64':'Win32'))) {
+        if(path.basename(entry.archive)!==entry.archive)throw Error('Unsafe Kindle fixture archive name');
+        fs.copyFileSync(path.join(packageRoot,entry.archive),path.join(packageTarget,entry.archive));
+      }
       const made=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_kindle_save_fixtures.py'),folder],{windowsHide:true,encoding:'utf8',timeout:90000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
       if(made.status!==0) throw Error('Cannot prepare owned Kindle sources: '+made.stdout+made.stderr);
+      if(process.env.HOMELIB_TEST_KINDLE_RASTER==='1') {
+        for(const name of ['pdfium','djvu']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
+        const scans=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_save_mixed_fixtures.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:90000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+        if(scans.status!==0) throw Error('Cannot prepare owned raster Kindle sources: '+scans.stdout+scans.stderr);
+      }
     }
     if (['save-planning'].includes(mode)) {
       for (const name of ['pdfium','djvu']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true});
@@ -710,6 +723,11 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
+    if(mode==='kindle-save') {
+      const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_kindle_saves.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:180000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      if(checked.status!==0) throw Error('Independent native Kindle verification failed: '+checked.stdout+checked.stderr);
+      process.stdout.write(checked.stdout);
+    }
     if (mode === 'optional-mcp') {
       const hash = filename => require('node:crypto').createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
       const protectedFiles = [];
