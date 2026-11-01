@@ -1,6 +1,7 @@
 """Optional writer boundaries and preservation; real native round-trip is separate."""
 import hashlib
 import importlib.util
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -71,6 +72,41 @@ class KindleOutputTests(unittest.TestCase):
                 self.assertIn(text, list(metadata.itertext()))
             self.assertFalse(any(n.get('property', '').startswith('mhl:fb2-') for n in metadata.iter()))
         self.assert_clean()
+
+    def test_svg_math_and_note_namespaces_survive_replaced_html_root(self):
+        source, output = self.root / 'foreign.epub', self.root / 'canonical.epub'
+        with zipfile.ZipFile(self.source) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        files['OPS/chapter.xml'] = files['OPS/chapter.xml'].replace(b'</html:body>',
+            b'<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:image xmlns:l="http://www.w3.org/1999/xlink" l:href="image.png"/></s:svg>'
+            b'<m:math xmlns:m="http://www.w3.org/1998/Math/MathML"><m:mi>x</m:mi></m:math></html:body>')
+        with zipfile.ZipFile(source, 'w') as archive:
+            for name, data in files.items():
+                archive.writestr(name, data)
+        k.canonical_input(c, source, output)
+        with zipfile.ZipFile(output) as archive:
+            data = archive.read('OPS/chapter.xml')
+            expected = c.xhtml(data)
+            opening = re.search(rb'<html\b[^>]*>', data)
+            self.assertIsNotNone(opening)
+            replaced = re.sub(rb' xmlns:[\w-]+="[^"]*"', b'', opening[0])
+            actual = c.xhtml(data[:opening.start()] + replaced + data[opening.end():])
+            self.assertEqual([(n.tag, dict(n.attrib)) for n in actual.iter()],
+                             [(n.tag, dict(n.attrib)) for n in expected.iter()])
+            self.assertEqual(list(actual.itertext()), list(expected.itertext()))
+            self.assertEqual(archive.read('OPS/image.png'), self.image)
+        self.assert_clean()
+
+    def test_jpeg_record_padding_preserves_codestream_and_unknown_tails(self):
+        for length in (1, 2, 3):
+            image = b'\xff\xd8\xff' + b'x' * (7 - length) + b'\xff\xd9'
+            padded = image + b'\0' * length
+            self.assertEqual(len(padded) % 4, 0)
+            self.assertEqual(k.jpeg_without_record_padding(padded), image)
+            self.assertEqual(k.jpeg_without_record_padding(image), image)
+        for data in (b'\xff\xd8\xffbroken!!!', b'not-jpeg\xff\xd9\0\0',
+                     b'\xff\xd8\xffphoto!\xff\xd9X', b'\xff\xd8\xffabc\xff\xd9\0\0\0\0'):
+            self.assertEqual(k.jpeg_without_record_padding(data), data)
 
     def test_rtf_empty_paragraphs_keep_valid_xhtml_and_single_line_breaks(self):
         source = self.root / 'empty-paragraphs.rtf'

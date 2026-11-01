@@ -14,6 +14,58 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
+def jpeg_without_record_padding(data):
+    """Drop only 1..3 zero bytes from four-byte-aligned Kindle JPEG records."""
+    if not data.startswith(b'\xff\xd8\xff') or len(data) % 4:
+        return data
+    end = data.rfind(b'\xff\xd9')
+    if end >= 3:
+        padding = data[end + 2:]
+        if 1 <= len(padding) <= 3 and not padding.strip(b'\0'):
+            return data[:end + 2]
+    return data
+
+
+def local_foreign_namespaces(root, xhtml_uri):
+    """Keep actual QName bindings when the writer replaces the HTML root."""
+    xml_uri = 'http://www.w3.org/XML/1998/namespace'
+
+    def namespaces(node):
+        return {name[1:].split('}', 1)[0] for name in [node.tag, *node.attrib]
+                if isinstance(name, str) and name.startswith('{')
+                and name[1:].split('}', 1)[0] not in {xhtml_uri, xml_uri}}
+
+    uris = set()
+    for node in root.iter():
+        uris.update(namespaces(node))
+    if not uris:
+        return
+    preferred = {'http://www.w3.org/2000/svg': 'svg',
+                 'http://www.w3.org/1999/xlink': 'xlink',
+                 'http://www.w3.org/1998/Math/MathML': 'math',
+                 'http://www.idpf.org/2007/ops': 'epub'}
+    prefixes, used = {}, {'', 'xml', 'xmlns'}
+    for uri in sorted(uris):
+        prefix = preferred.get(uri, 'hlns' + str(len(prefixes)))
+        while prefix in used:
+            prefix += '_'
+        used.add(prefix)
+        ET.register_namespace(prefix, uri)
+        prefixes[uri] = prefix
+
+    def visit(node, inherited):
+        scope = inherited | namespaces(node)
+        for uri in scope - inherited:
+            node.set('xmlns:' + prefixes[uri], uri)
+        for child in node:
+            visit(child, scope)
+
+    # Root declarations alone are lost by the writer. Start the scope again
+    # on each retained subtree; QName URIs come from parsed XML, not guesses.
+    for child in root:
+        visit(child, set())
+
+
 def canonical_input(api, source, destination):
     """Adapt a private copy, keeping images, CSS and standard book metadata.
 
@@ -25,7 +77,7 @@ def canonical_input(api, source, destination):
     namespaces = ET._namespace_map.copy()
     try:
         container = api.xml(archive.read('META-INF/container.xml'))
-        documents, packages = set(), {}
+        documents, packages, jpegs = set(), {}, set()
         cover_declared = False
         for rootfile in (node for node in container.iter() if api.tag(node) == 'rootfile'):
             name = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
@@ -40,6 +92,8 @@ def canonical_input(api, source, destination):
                     if document not in archive.names:
                         raise api.ConversionError('В EPUB отсутствует глава книги.')
                     documents.add(document)
+                elif api.tag(item) == 'item' and item.get('media-type') in {'image/jpeg', 'image/jpg'}:
+                    jpegs.add(archive.resolve(name, item.get('href', ''))[0])
         if not packages or not documents:
             raise api.ConversionError('В EPUB отсутствует текст книги.')
         ET.register_namespace('', api.XH)
@@ -55,6 +109,7 @@ def canonical_input(api, source, destination):
                         for name in list(node.attrib):
                             if name == 'data-fb2' or name.startswith('data-fb2-'):
                                 del node.attrib[name]
+                    local_foreign_namespaces(root, api.XH)
                     # XHTML permits <p/>, but Kindling's HTML-oriented checks
                     # treat it as an unclosed paragraph. Pair non-void tags;
                     # keep void elements self-closing so <br></br> cannot turn
@@ -63,6 +118,11 @@ def canonical_input(api, source, destination):
                                        short_empty_elements=False)
                     data = re.sub(rb'(<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b[^<>]*?)></\2>',
                                   rb'\1 />', data)
+                elif member.filename in jpegs:
+                    # Kindle records may carry alignment bytes after a valid
+                    # EOI. Keep the encoded image exactly; do not re-compress,
+                    # invent an EOI for truncated data or drop arbitrary tails.
+                    data = jpeg_without_record_padding(data)
                 elif member.filename in packages:
                     root = packages[member.filename]
                     for metadata in root.iter():

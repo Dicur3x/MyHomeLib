@@ -34,7 +34,7 @@ diff --git a/src/mobi.rs b/src/mobi.rs
 +#[cfg(test)]
 +#[test]
 +fn book_cleanup_keeps_svg_and_note_namespace_bindings() {
-+    let input = r#" <html xmlns="http://www.w3.org/1999/xhtml" xmlns:svg="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:epub="http://www.idpf.org/2007/ops"><body><svg:svg><svg:image xlink:href="cover.jpg"/></svg:svg><a epub:type="noteref" href="#note">1</a></body></html> "#;
++    let input = r##" <html xmlns="http://www.w3.org/1999/xhtml" xmlns:svg="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:epub="http://www.idpf.org/2007/ops"><body><svg:svg><svg:image xlink:href="cover.jpg"/></svg:svg><a epub:type="noteref" href="#note">1</a></body></html> "##;
 +    assert_eq!(clean_book_html(input), input.trim());
 +}
 +

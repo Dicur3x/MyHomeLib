@@ -10,11 +10,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import posixpath
 import shutil
 import subprocess
 import sys
 import tempfile
 import unicodedata
+from urllib.parse import unquote, urlsplit
 import zipfile
 
 REPO = Path(__file__).resolve().parents[3]
@@ -37,15 +39,30 @@ def normalized(value):
     return ''.join(unicodedata.normalize('NFKC', value).replace('\xad', '').split())
 
 
-def epub_content(api, path):
+def epub_content(api, path, *, check_image_links=False):
     paragraphs, text, images = [], [], set()
     with zipfile.ZipFile(path) as archive:
+        members = set(archive.namelist())
         for name in archive.namelist():
             if name.lower().endswith(('.png', '.jpeg', '.jpg', '.gif', '.bmp')):
                 images.add(hashlib.sha256(archive.read(name)).hexdigest())
             if not name.lower().endswith(('.xhtml', '.html', '.htm')):
                 continue
             document = api.xhtml(archive.read(name))
+            if check_image_links:
+                for node in document.iter():
+                    attribute = 'src' if api.tag(node) == 'img' else 'href' if api.tag(node) == 'image' else None
+                    if not attribute:
+                        continue
+                    reference = node.get(attribute) or node.get('{http://www.w3.org/1999/xlink}' + attribute)
+                    if not reference:
+                        continue
+                    parts = urlsplit(reference)
+                    if parts.scheme or parts.netloc:
+                        continue
+                    target = posixpath.normpath(posixpath.join(posixpath.dirname(name), unquote(parts.path))) if parts.path else name
+                    if target not in members:
+                        raise ValueError(f'Broken image link in {name}: {reference}')
             if any(api.tag(n) == 'nav' for n in document.iter()):
                 continue
             for node in document.iter():
@@ -99,7 +116,7 @@ def run_cases(root, report):
                 converted = api.convert_book(source, output, tools_root=root / 'tools', image_quality='original')
                 decoded = work / ('decoded-' + extension[1:] + '.epub')
                 api.convert_book(output, decoded, tools_root=root / 'tools', image_quality='original')
-                _, actual_text, actual_images = epub_content(api, decoded)
+                _, actual_text, actual_images = epub_content(api, decoded, check_image_links=True)
                 missing = [p for p in paragraphs if p not in actual_text]
                 if missing:
                     raise ValueError(f'{extension}: {len(missing)} source paragraphs missing; first hash='
@@ -134,7 +151,16 @@ def run_cases(root, report):
                             for name in archive.namelist():
                                 if name.endswith('.opf'):
                                     row['diagnostic_opf'] = archive.read(name).decode('utf-8', errors='replace')[:12000]
-                                    break
+                                elif name.lower().endswith(('.xhtml', '.html', '.htm')):
+                                    raw = archive.read(name)
+                                    try:
+                                        api.xhtml(raw)
+                                    except Exception as xml_error:
+                                        import re
+                                        diagnostics = row.setdefault('diagnostic_html', [])
+                                        if len(diagnostics) < 3:
+                                            diagnostics.append({'name': name, 'error': str(xml_error),
+                                                'tags': re.findall(r'<[^>]+>', raw.decode('utf-8', errors='replace'))[:30]})
             result['status'] = 'FAIL; stopped at first unresolved case'
             save()
             raise
@@ -182,6 +208,16 @@ def prepare(args):
                     and source.suffix != '.pyc' and source.name != 'COMPONENT.json'):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+        if '.ibk' in selected:
+            if not args.ibk_data:
+                raise ValueError('IBK matrix requires the verified original format-data file via --ibk-data')
+            parameters = json.loads((root / 'tools/bookconvert/ibk_parameters.json').read_text(encoding='utf-8'))
+            if (args.ibk_data.stat().st_size != parameters['runtime_key_bytes']
+                    or digest(args.ibk_data) != parameters['runtime_key_sha256']):
+                raise ValueError('IBK format-data identity mismatch')
+            destination = root / 'tools/ibk/Rus.key'
+            destination.parent.mkdir()
+            shutil.copyfile(args.ibk_data, destination)
         python = root / 'tools/python/python.exe'
         completed = subprocess.run([str(python), '-I', '-B', '-X', 'utf8', str(Path(__file__).resolve()),
                                     '--run', str(root), '--report', str(args.report.resolve())],
@@ -205,6 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('--platform', choices=['Win32', 'Win64'])
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--formats', help='Bound this run to comma-separated formats, e.g. .rtf')
+    parser.add_argument('--ibk-data', type=Path, help='Pinned original ICE Russian format data; never executed')
     options = parser.parse_args()
     if options.run:
         run_cases(options.run.resolve(), options.report.resolve())
