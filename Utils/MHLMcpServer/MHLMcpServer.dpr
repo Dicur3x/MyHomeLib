@@ -16,6 +16,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.JSON,
+  unit_ComponentUsage,
   dm_user in '..\..\Program\DataModules\dm_user.pas' {DMUser: TDataModule},
   unit_MCP_Transport in 'unit_MCP_Transport.pas',
   unit_MCP_Protocol in 'unit_MCP_Protocol.pas',
@@ -335,6 +336,8 @@ begin
   try
     RegisterLibraryTools(Server);
     RegisterTextTools(Server);
+    ConfigureComponentUsage(ExtractFilePath(ParamStr(0)));
+    RecordComponentUse('MHLMcpServer');
     Server.Run;
   finally
     Server.Free;

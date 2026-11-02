@@ -256,7 +256,6 @@ begin
           PChar(ExtractFilePath(ToolPath)), StartInfo, ProcessInfo) then
           RaiseLastOSError;
 
-        RecordComponentToolUse(ToolPath);
         CloseHandle(PipeWrite);
         PipeWrite := 0;
         ProcessFinished := False;
@@ -267,6 +266,7 @@ begin
             if not AssignProcessToJobObject(Job,ProcessInfo.hProcess) then RaiseLastOSError;
             if ResumeThread(ProcessInfo.hThread) = DWORD(-1) then RaiseLastOSError;
           end;
+          RecordComponentToolUse(ToolPath,Arguments);
           Output.Position := 0;
           Output.Size := 0;
           while True do

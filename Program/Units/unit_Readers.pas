@@ -65,7 +65,7 @@ uses
   IOUtils,
   unit_Errors,
   unit_Globals,
-  unit_Helpers;
+  unit_Helpers, unit_ComponentUsage;
 
 
 procedure TReaderDesc.AssignTo(Dest: TPersistent);
@@ -170,6 +170,7 @@ begin
     else
       raise Exception.Create(SysErrorMessage(AHInst) + ': ' + FileName);
   end;
+  if ReaderPath<>'' then RecordComponentToolUse(ReaderPath);
 end;
 
 procedure TReaders.SetReader(Index: Integer; const Value: TReaderDesc);

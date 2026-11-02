@@ -36,7 +36,17 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics;
+uses Winapi.Windows, System.IOUtils, System.JSON, unit_MHLExternalTools, unit_ReaderDOC, unit_ReaderFormats, unit_FormatComponents, unit_BookConversionRequirements, unit_BookOutput, unit_Diagnostics, unit_ComponentUsage;
+
+procedure RecordReportedTools(Report: TJSONValue);
+var Tools: TJSONValue;
+begin
+  if not (Report is TJSONObject) then Exit;
+  Tools:=TJSONObject(Report).GetValue('used_tools');
+  if not (Tools is TJSONArray) or (TJSONArray(Tools).Count>32) then Exit;
+  for var Value in TJSONArray(Tools) do
+    if Value is TJSONString then RecordComponentToolUse(Value.Value);
+end;
 
 function CopyUnchangedBook(const SourceFile, SourceExtension, TargetFile: string;
   Source: TStream; const IsCanceled: TFunc<Boolean>; OverwriteExisting: Boolean;
@@ -523,6 +533,7 @@ begin
           begin
             Report:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ReportName,TEncoding.UTF8));
             try
+              RecordReportedTools(Report);
               if (Report is TJSONObject) and (TJSONObject(Report).GetValue('required_component')<>nil) then
               begin
                 var Required:=TJSONObject(Report).GetValue('required_component').Value;
@@ -541,14 +552,16 @@ begin
       end;
     Check;
     if not FileExists(OutputName) then raise Exception.Create('Конвертер не создал книгу.');
-    if Assigned(Warnings) and FileExists(ReportName) then
+    RecordBookConversionUse(Extension,TargetExtension);
+    if FileExists(ReportName) then
     begin
       Report:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ReportName,TEncoding.UTF8));
       try
+        RecordReportedTools(Report);
         if Report is TJSONObject then
         begin
           ArrayValue:=TJSONObject(Report).GetValue('warnings');
-          if ArrayValue is TJSONArray then
+          if Assigned(Warnings) and (ArrayValue is TJSONArray) then
             for I:=0 to TJSONArray(ArrayValue).Count-1 do Warnings.Add(TJSONArray(ArrayValue).Items[I].Value);
         end;
       finally Report.Free; end;

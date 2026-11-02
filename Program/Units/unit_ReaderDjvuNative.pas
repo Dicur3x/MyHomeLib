@@ -29,7 +29,7 @@ function NativeDjvuAvailable: Boolean;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools;
+uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools, unit_ComponentUsage;
 
 function NativeDjvuAvailable: Boolean;
 begin Result:=FindExternalTool('HomeLibDjvu.exe','djvu')<>''; end;
@@ -139,6 +139,7 @@ begin
   Send(Request,Text); Receive(Response);
   if (Response.Count<=0) or (Response.Count>100000) then raise Exception.Create('Некорректное число страниц DjVu.');
   FPageCount:=Response.Count;
+  RecordComponentUse('DjVuLibre');
   except Stop; raise; end;
 end;
 

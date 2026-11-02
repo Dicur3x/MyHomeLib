@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "manual_manager_and_usage_ledger_verified_x86_x64_continuing_monthly_integration",
+    "status": "actual_use_hooks_targeted_checks_passed_x86_x64_continuing_monthly_integration",
     "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2952,16 +2952,17 @@
     ],
     "observations": [
       "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
-      "Installed-file receipts, guarded removal/rollback, legacy manifest adoption, manual manager and usage ledger now passed native x86/x64 scenarios; all six catalogue/Reader/updater binaries build. Full actual-use hooks, ordinary monthly offer and legacy archive-less inventory recovery remain pending.",
+      "Receipts, guarded removal, manual manager and clock/concurrency ledger passed x86/x64. Actual-use hooks now cover direct codecs, prepared-book caches, managed external readers, Python helper/codec reports and MCP startup; targeted native checks and conversion regressions pass. Ordinary monthly prompt and final all-format/legacy/package integration remain pending.",
       "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
       "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Complete actual decoder/use coverage and wire monthly offer into normal operation",
+      "Verify actual-use tracking with final/old processing packages and real format cases, including old reports without used_tools",
+      "Wire monthly offer into normal catalogue and standalone Reader operation",
       "Resolve old package inventories without saved archives",
-      "Inspect actual management UI through normal updater entry point, including inventory download/cancel and valid existing ownership refresh",
-      "Final packaged operation/restart checks before beta 3 publication"
+      "Inspect normal updater manager entry, inventory download/cancel and refreshed ownership",
+      "Rebuild latest production executables and complete packaged operation/restart checks before beta 3"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
@@ -3080,5 +3081,32 @@
       "Real verified base/image package install/remove/reinstall/conversion still passes"
     ],
     "production_builds": "Rebuild with completed module integration before publication"
+  },
+  "queued_forum_converter_comment_20261102": {
+    "status": "queued_after_current_module_maintenance_task",
+    "source_image": "C:/Users/cloud/AppData/Local/Temp/codex-clipboard-8b7c2566-e28c-46f6-a27c-299de6cc0900.png",
+    "request": "Review forum comment about historical format-specific conversion bridges and newer formats only after the current module-maintenance task; do not switch work now."
+  },
+  "module_actual_use_hooks_20261102": {
+    "status": "PASS_TARGETED_NATIVE_X86_X64_AND_PYTHON",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-actual-use-final-20261102-r1.json",
+    "sha256": "853daaa7705b20757dadb65540bda6777ae7973cbf4cd9b0917119ea77155771",
+    "behavior": [
+      "Install/discovery/version/help do not renew actual-use time",
+      "Actual plain FB2 conversion records its runtime without marking unused image/Kindle modules",
+      "Repeated image-use events avoid metadata filesystem access within one minute",
+      "Existing monthly-clock, postpone, suppression, reinstall, concurrency and corrupt-state cases still pass",
+      "Real verified base/image packages remove independently, reinstall and convert without altering source",
+      "Python observes actual child execution and DLL load, excludes paths outside component tools, and leaves plain conversion free of unrelated tool claims"
+    ],
+    "remaining": [
+      "Every reader/format hook has not yet been exercised against a real book with final packages",
+      "Compatibility of monthly offers with old processing modules lacking used_tools requires verification/fallback",
+      "Normal updater management entry/download/cancel flow and monthly scheduler are not complete",
+      "Latest catalogue/Reader/updater production binaries and release packages have not been rebuilt in this checkpoint",
+      "MCP builds passed; actual RPC startup usage smoke remains pending"
+    ],
+    "cleanup": "Native wrappers removed their newly created isolated test profiles; necessary module packages, binaries and proof logs retained; previously denied cleanup scopes untouched",
+    "page_sequence": 89
   }
 }

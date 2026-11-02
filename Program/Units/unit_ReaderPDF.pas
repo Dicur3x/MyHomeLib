@@ -73,7 +73,7 @@ type
 
 implementation
 
-uses System.Math, System.Generics.Collections, System.Character, unit_MHLExternalTools;
+uses System.Math, System.Generics.Collections, System.Character, unit_MHLExternalTools, unit_ComponentUsage;
 
 type
   // The pinned bblanchon non-V8/non-XFA runtime exports the C ABI on Win32.
@@ -219,6 +219,7 @@ begin
   if FDocument=nil then raise Exception.Create('Не удалось открыть PDF. Файл повреждён или защищён паролем.');
   FPageCount:=GetPageCount(FDocument);
   if FPageCount<=0 then raise Exception.Create('В PDF нет страниц.');
+  RecordComponentUse('PDFium');
 end;
 
 destructor TReaderPDF.Destroy;

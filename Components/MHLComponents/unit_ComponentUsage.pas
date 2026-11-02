@@ -6,7 +6,8 @@ uses System.SysUtils;
 
 procedure ConfigureComponentUsage(const AppPath: string);
 procedure RecordComponentUse(const ID: string; NowUTC: TDateTime = 0);
-procedure RecordComponentToolUse(const ToolPath: string);
+procedure RecordComponentToolUse(const ToolPath: string); overload;
+procedure RecordComponentToolUse(const ToolPath: string; const Arguments: array of string); overload;
 function ComponentLastUse(const AppPath, ID: string): TDateTime;
 procedure ObserveInstalledComponents(const AppPath: string; const IDs: TArray<string>; NowUTC: TDateTime = 0);
 procedure RecordComponentInstallation(const AppPath, ID: string; NowUTC: TDateTime = 0);
@@ -17,10 +18,11 @@ function ComponentCleanupSuppressed(const AppPath: string): Boolean;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.DateUtils,
+uses System.Classes, System.IOUtils, System.JSON, System.Hash, System.DateUtils, System.Generics.Collections,
   System.SyncObjs, Winapi.Windows;
 
 var UsageRoot: string; UsageLock: TCriticalSection;
+  LastUseAttempts: TDictionary<string,UInt64>;
 
 function Clock(Value: TDateTime): TDateTime;
 begin if Value=0 then Result:=TTimeZone.Local.ToUniversalTime(Now) else Result:=Value; end;
@@ -115,12 +117,25 @@ begin
 end;
 
 procedure RecordComponentUse(const ID: string; NowUTC: TDateTime);
-var AppPath, Name: string; Mutex: TMutex; Root, Row: TJSONObject; Time: TDateTime;
+var AppPath, Name, Key: string; Mutex: TMutex; Root, Row: TJSONObject; Time: TDateTime;
+  Tick, Previous: UInt64;
 begin
-  UsageLock.Acquire; try AppPath:=UsageRoot; finally UsageLock.Release; end;
-  if (AppPath='') or (ID='') or (ID.Length>64) then Exit;
   // Usage metadata must never make a read/conversion fail.
   try
+    UsageLock.Acquire;
+    try
+      AppPath:=UsageRoot;
+      if (AppPath='') or (ID='') or (ID.Length>64) then Exit;
+      if NowUTC=0 then
+      begin
+        // An illustrated book can decode thousands of images. Even reading
+        // the ledger and taking a cross-process lock for each would slow it.
+        Tick:=GetTickCount64; Key:=LowerCase(AppPath)+'|'+LowerCase(ID);
+        if LastUseAttempts.TryGetValue(Key,Previous) and (Tick-Previous<60000) then Exit;
+        if LastUseAttempts.Count>=256 then LastUseAttempts.Clear;
+        LastUseAttempts.AddOrSetValue(Key,Tick);
+      end;
+    finally UsageLock.Release; end;
     Name:=StateFile(AppPath); Mutex:=StateMutex(AppPath);
     try
       if not (Mutex.WaitFor(250) in [wrSignaled,wrAbandoned]) then Exit;
@@ -143,13 +158,24 @@ begin
   UsageLock.Acquire; try AppPath:=UsageRoot; finally UsageLock.Release; end;
   if (AppPath='') or not TPath.GetFullPath(ToolPath).StartsWith(AppPath+PathDelim,True) then Exit;
   Relative:=Copy(TPath.GetFullPath(ToolPath),Length(AppPath)+2,MaxInt).Replace('\','/');
+  if SameText(Relative,'libzstd.dll') then begin RecordComponentUse('Zstandard'); Exit; end;
+  if SameText(Relative,'MHLMcpServer.exe') then begin RecordComponentUse('MHLMcpServer'); Exit; end;
   for var Pair in TArray<string>.Create('tools/python/|BookProcessing','tools/images/|ImageProcessing',
     'tools/kindle-export/|KindleExport','tools/kindle/python/|BookConverter','tools/office/|LegacyOffice',
     'tools/xps/|XPS','tools/pdfium/|PDFium','tools/djvu/|DjVuLibre','tools/doc/|DocSharp',
-    'tools/jpeg-xl/|JPEG XL','tools/7zip/|7-Zip','Readers/AlReader/|AlReader','Readers/SumatraPDF/|SumatraPDF') do
+    'tools/jpeg-xl/|JPEG XL','tools/7zip/|7-Zip','tools/webp/|WebP','tools/ibk/|IBK',
+    'Readers/AlReader/|AlReader','Readers/SumatraPDF/|SumatraPDF') do
     if Relative.StartsWith(Pair.Split(['|'])[0],True) then
     begin RecordComponentUse(Pair.Split(['|'])[1]); Exit; end;
  except end;
+end;
+
+procedure RecordComponentToolUse(const ToolPath: string; const Arguments: array of string);
+begin
+  for var Argument in Arguments do
+    if SameText(Argument,'--version') or SameText(Argument,'-version') or
+      SameText(Argument,'--help') or SameText(Argument,'-h') or (Argument='-V') then Exit;
+  RecordComponentToolUse(ToolPath);
 end;
 
 function ComponentLastUse(const AppPath, ID: string): TDateTime;
@@ -247,6 +273,8 @@ begin Root:=ReadState(StateFile(AppPath)); try Result:=Root.GetValue<Boolean>('s
 
 initialization
   UsageLock:=TCriticalSection.Create;
+  LastUseAttempts:=TDictionary<string,UInt64>.Create;
 finalization
+  LastUseAttempts.Free;
   UsageLock.Free;
 end.

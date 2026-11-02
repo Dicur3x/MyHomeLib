@@ -48,7 +48,7 @@ begin
     if FileExists(Result) and FileExists(StampFile) then
       try
         if TFile.ReadAllText(StampFile,TEncoding.UTF8)=Stamp then
-        begin RegisterBookCacheFile(Result,OriginalSource); Exit; end;
+        begin RegisterBookCacheFile(Result,OriginalSource); RecordBookConversionUse('.b1'); Exit; end;
       except end;
     if Assigned(OnStage) then OnStage('Извлечение книги из архива B1…');
     ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(OriginalSource);
@@ -154,7 +154,10 @@ begin
     if FileExists(Result) and FileExists(StampFile) then
       try
         if TFile.ReadAllText(StampFile,TEncoding.UTF8)=Stamp then
-        begin RegisterBookCacheFile(Result,OriginalSource); if Assigned(OnStage) then OnStage('Открытие книги из кэша…'); Exit; end;
+        begin
+          RegisterBookCacheFile(Result,OriginalSource); RecordBookConversionUse(Extension);
+          if Assigned(OnStage) then OnStage('Открытие книги из кэша…'); Exit;
+        end;
       except end;
     if Assigned(OnStage) then OnStage('Подготовка текста, оглавления и иллюстраций книги…');
     ForceDirectories(ExtractFileDir(Result)); Writer:=TBookCacheWrite.Create(OriginalSource);

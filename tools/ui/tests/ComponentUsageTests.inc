@@ -3,6 +3,31 @@ var Folder: string; Time: TDateTime; IDs, Unused: TArray<string>; Rejected: Bool
 begin
   RequireIsolatedRegression; Folder:=Settings.AppPath+'usage-clock-fixture'; ForceDirectories(Folder);
   Time:=EncodeDate(2026,1,1); IDs:=TArray<string>.Create('DjVuLibre','WebP');
+  var Launches:=Folder+'\launches'; ForceDirectories(Launches); ConfigureComponentUsage(Launches);
+  try
+    RecordComponentToolUse(Launches+'\tools\python\python.exe',['--version']);
+    RecordComponentToolUse(Launches+'\Readers\AlReader\AlReader2.exe',['--help']);
+    Require((ComponentLastUse(Launches,'BookProcessing')=0) and
+      (ComponentLastUse(Launches,'AlReader')=0),'Version/help check was recorded as reading');
+    RecordComponentToolUse(Launches+'\tools\python\python.exe',['-I','convert_book.py']);
+    RecordComponentToolUse(Launches+'\tools\webp\libwebp.dll');
+    RecordComponentToolUse(Launches+'\libzstd.dll');
+    RecordComponentToolUse(Launches+'\Readers\SumatraPDF\SumatraPDF.exe');
+    Require((ComponentLastUse(Launches,'BookProcessing')>0) and (ComponentLastUse(Launches,'WebP')>0) and
+      (ComponentLastUse(Launches,'Zstandard')>0) and (ComponentLastUse(Launches,'SumatraPDF')>0),
+      'Actual helper/codec/external reader use missing');
+    var Ledger:=Launches+'\tools\component-state\usage.json';
+    var SavedLedger:=TFile.ReadAllBytes(Ledger); TFile.Delete(Ledger);
+    try
+      for var I:=1 to 1000 do RecordComponentUse('WebP');
+      Require(not FileExists(Ledger),'Repeated image decoding reopened/rebuilt usage metadata for every image');
+    finally TFile.WriteAllBytes(Ledger,SavedLedger); end;
+    RecordComponentToolUse(Folder+'\outside\tools\office\HomeLibOffice.exe');
+    Require(ComponentLastUse(Launches,'LegacyOffice')=0,'Another installation contaminated usage');
+    RecordBookConversionUse('.lrf','.azw3');
+    Require((ComponentLastUse(Launches,'LegacyBooks')>0) and (ComponentLastUse(Launches,'KindleExport')>0) and
+      (ComponentLastUse(Launches,'PDFium')=0),'Preparation recorded unrelated decoders or missed the Kindle writer');
+  finally ConfigureComponentUsage(Settings.AppPath); end;
   ObserveInstalledComponents(Folder,IDs,Time); ConfigureComponentUsage(Folder);
   try
     Require(ComponentLastUse(Folder,'DjVuLibre')=0,'Discovery was counted as actual use');

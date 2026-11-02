@@ -6773,6 +6773,7 @@ begin
                 raise Exception.Create('Не удалось обновить сведения FB2 в копии для читалки. Оригинал книги не изменён.');
               if SimpleShellExecute(Handle,ExternalPath,NamedFile)<=32 then
                 raise Exception.Create('Не удалось открыть читалку: '+ExternalPath);
+              RecordComponentToolUse(ExternalPath);
             end,RewriteFB2)
         else
           PrepareExternalReaderFileInBackground(Self,ReaderBook,WorkFile,ReaderNamespace,

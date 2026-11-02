@@ -29,7 +29,7 @@ uses
   System.SyncObjs,
   Vcl.Graphics,
   Vcl.Imaging.pngimage,
-  unit_MHLExternalTools;
+  unit_MHLExternalTools, unit_ComponentUsage;
 
 type
   TWebPGetInfo = function(Data: Pointer; DataSize: NativeUInt;
@@ -154,6 +154,7 @@ begin
     DecoderLock.Release;
   end;
   Bitmap := TBitmap.Create;
+  RecordComponentUse('WebP');
   PNG := TPngImage.Create;
   Stream := TMemoryStream.Create;
   try

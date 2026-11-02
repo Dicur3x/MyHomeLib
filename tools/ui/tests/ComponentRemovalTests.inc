@@ -79,12 +79,21 @@ var Target, Source, Hash, Manifest: string; Plan: TComponentRemovalPlan; Failed:
     try
       Require(Assigned(FeedRoot) and FeedRoot.TryGetValue<TJSONArray>('components',Entries),'Invalid actual removal package feed');
       Target:=Fixture('actual-packages'); Install('BookProcessing'); Install('ImageProcessing');
+      ConfigureComponentUsage(Target);
+      Require(ComponentLastUse(Target,'BookProcessing')=0,'Installing a module counted as converting a book');
+      var VersionLog:=TStringStream.Create('',TEncoding.UTF8);
+      try RunExternalToolToStream(FindBookProcessingPython(Target),['--version'],VersionLog);
+      finally VersionLog.Free; end;
+      Require(ComponentLastUse(Target,'BookProcessing')=0,'Actual Python version check counted as conversion');
       Book:=Target+'\source.fb2'; OutputBook:=Target+'\before.epub';
       TFile.WriteAllText(Book,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">'+
         '<description><title-info><genre>prose</genre><book-title>Removal test</book-title><lang>en</lang></title-info></description>'+
         '<body><section><p>Readable original removal-test text.</p></section></body></FictionBook>',TEncoding.UTF8);
       var Original:=UpdateSHA256(Book);
       ConvertBasicBook(Target,Settings.TempDir,Book,'.fb2',OutputBook,nil,nil); Require(FileExists(OutputBook),'Actual conversion before removal failed');
+      Require((ComponentLastUse(Target,'BookProcessing')>0) and
+        (ComponentLastUse(Target,'ImageProcessing')=0) and (ComponentLastUse(Target,'Kindle')=0),
+        'Actual FB2 conversion missed its runtime or renewed unrelated modules');
       Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('ImageProcessing'));
       Require(Plan.CanRemove and (ExecuteComponentRemovalPlan(Plan)=''),'Real image module removal failed');
       Require(ComponentNeedsRepair(Target,'ImageProcessing') and not ComponentNeedsRepair(Target,'BookProcessing'),'Removing images damaged base converter');
@@ -97,7 +106,7 @@ var Target, Source, Hash, Manifest: string; Plan: TComponentRemovalPlan; Failed:
       Require(FileExists(OutputBook) and (UpdateSHA256(Book)=Original),'Actual reinstall failed conversion or changed original book'); RequirePrivate;
       Require((Length(InstalledComponentFiles(Target,'BookProcessing'))>0) and
         (Length(InstalledComponentFiles(Target,'ImageProcessing'))>0),'Actual reinstall did not restore file ownership');
-    finally FeedRoot.Free; end;
+    finally ConfigureComponentUsage(Settings.AppPath); FeedRoot.Free; end;
     Writeln('PASS real verified base and image packages remove independently, reinstall with receipts and convert FB2 to EPUB before and after removal');
   end;
 begin

@@ -9,12 +9,14 @@ uses System.SysUtils;
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
   const TargetExtension: string = ''): TArray<string>;
+procedure RecordBookConversionUse(const ResolvedExtension: string; const TargetExtension: string = '');
 
 implementation
 
 uses System.Classes, System.StrUtils, System.Generics.Collections, System.Variants,
   System.Win.ComObj, Winapi.Windows, Winapi.ActiveX, Winapi.MSXML,
-  unit_ProgramUpdateInstaller, unit_FormatComponents, unit_MHLArchiveHelpers, unit_ReaderFormats;
+  unit_ProgramUpdateInstaller, unit_FormatComponents, unit_MHLArchiveHelpers, unit_ReaderFormats,
+  unit_ComponentUsage;
 
 type
   TFB2ImageProbe = class(TInterfacedObject, ISAXContentHandler)
@@ -182,6 +184,30 @@ begin
   finally Archive.Free; end;
 end;
 
+function SourceComponent(const Ext: string): string;
+begin
+  Result:='';
+  if Ext='.pdf' then Result:='PDFium'
+  else if IndexText(Ext,['.djvu','.djv','.dju','.djm','.djvm'])>=0 then Result:='DjVuLibre'
+  else if IndexText(Ext,['.doc','.dot','.ppt','.pps','.pot','.xls','.xlt'])>=0 then Result:='DocSharp'
+  else if IndexText(Ext,['.mobi','.azw','.azw3','.prc'])>=0 then Result:='Kindle'
+  else if IndexText(Ext,['.lit','.lrf'])>=0 then Result:='LegacyBooks'
+  else if IndexText(Ext,['.wps','.wpd'])>=0 then Result:='LegacyOffice'
+  else if IndexText(Ext,['.xps','.oxps'])>=0 then Result:='XPS'
+  else if Ext='.ibk' then Result:='IBK'
+  else if IndexText(Ext,['.chm','.cbr','.cb7'])>=0 then Result:='7-Zip';
+end;
+
+procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension: string);
+begin
+  // Called only after preparation, conversion, or opening its verified cache.
+  // Availability checks above must never renew the unused-module interval.
+  RecordComponentUse('BookProcessing');
+  var ID:=SourceComponent('.'+LowerCase(ResolvedExtension.TrimLeft(['.'])));
+  if ID<>'' then RecordComponentUse(ID);
+  if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then RecordComponentUse('KindleExport');
+end;
+
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean>;
   const TargetExtension: string): TArray<string>;
@@ -197,15 +223,7 @@ begin
   if FileExists(SourceFile) then
   begin Actual:=DetectReaderExtension(SourceFile); if Actual<>'' then Ext:=Actual; end;
   if not ModularBookProcessingAvailable(AppPath) then Result:=TArray<string>.Create('BookProcessing');
-  if Ext='.pdf' then Need('PDFium')
-  else if IndexText(Ext,['.djvu','.djv','.dju','.djm','.djvm'])>=0 then Need('DjVuLibre')
-  else if IndexText(Ext,['.doc','.dot','.ppt','.pps','.pot','.xls','.xlt'])>=0 then Need('DocSharp')
-  else if IndexText(Ext,['.mobi','.azw','.azw3','.prc'])>=0 then Need('Kindle')
-  else if IndexText(Ext,['.lit','.lrf'])>=0 then Need('LegacyBooks')
-  else if IndexText(Ext,['.wps','.wpd'])>=0 then Need('LegacyOffice')
-  else if IndexText(Ext,['.xps','.oxps'])>=0 then Need('XPS')
-  else if Ext='.ibk' then Need('IBK')
-  else if IndexText(Ext,['.chm','.cbr','.cb7'])>=0 then Need('7-Zip');
+  Need(SourceComponent(Ext));
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then Need('KindleExport');
   if InspectImages and ComponentNeedsRepair(AppPath,'ImageProcessing') then
   begin

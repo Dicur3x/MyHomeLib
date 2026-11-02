@@ -29,7 +29,7 @@ function PDFWorkerAvailable: Boolean;
 
 implementation
 
-uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools;
+uses System.Classes, System.IOUtils, System.Math, unit_MHLExternalTools, unit_ComponentUsage;
 
 function PDFWorkerAvailable: Boolean;
 begin Result:=FindExternalTool('HomeLibPDF.exe','pdfium')<>''; end;
@@ -139,6 +139,7 @@ begin
   Send(Request,Text); Receive(Response);
   if (Response.Count<=0) or (Response.Count>100000) then raise Exception.Create('Некорректное число страниц PDF.');
   FPageCount:=Response.Count;
+  RecordComponentUse('PDFium');
   except Stop; raise; end;
 end;
 

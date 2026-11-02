@@ -50,7 +50,7 @@ type
 implementation
 
 uses
-  IOUtils;
+  IOUtils, unit_ComponentUsage;
 
 resourcestring
   rstrZstdDllMissing = 'Не найдена библиотека %s. Импорт каталогов metabib недоступен.';
@@ -139,6 +139,7 @@ begin
   SetLength(FInBuf, ZSTD_DStreamInSize);
   SetLength(FOutBuf, ZSTD_DStreamOutSize);
   FLastRet := 1; // внутри кадра, пока не доказано обратное
+  RecordComponentUse('Zstandard');
 end;
 
 destructor TZstdDecompressionStream.Destroy;

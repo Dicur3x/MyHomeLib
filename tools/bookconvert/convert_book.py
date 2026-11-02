@@ -72,6 +72,34 @@ def image_processor_path(tools_root):
     return current if current.is_file() else root/'xps/HomeLibXps.exe'
 
 
+def observe_component_tools(tools_root):
+    """Bounded actual helper/codec use for one short-lived CLI process."""
+    used_tools = set()
+    root = Path(tools_root).resolve()
+    def observe_tool(event, arguments):
+        if event not in {'subprocess.Popen', 'ctypes.dlopen'} or not arguments or len(used_tools) >= 32:
+            return
+        try:
+            executable = arguments[0]
+            if not executable and event == 'subprocess.Popen':
+                # On Windows Popen normally leaves lpApplicationName empty;
+                # the executable is argv[0] of its generated command line.
+                command = arguments[1]
+                if isinstance(command, (list, tuple)):
+                    executable = command[0]
+                else:
+                    command = command.lstrip()
+                    executable = command[1:command.index('"', 1)] if command.startswith('"') else command.split(None, 1)[0]
+            path = Path(executable).resolve()
+            path.relative_to(root)
+            if path.suffix.lower() in {'.exe', '.dll'}:
+                used_tools.add(str(path))
+        except (OSError, TypeError, ValueError, RuntimeError, IndexError):
+            pass  # Optional bookkeeping must never prevent decoding a book.
+    sys.addaudithook(observe_tool)
+    return used_tools
+
+
 def tag(node):
     return node.tag.rsplit('}', 1)[-1] if isinstance(node.tag, str) else ''
 
@@ -1660,17 +1688,22 @@ def main():
             # created by the user or another operation during conversion.
             with report.open('x', encoding='utf-8') as stream:
                 stream.write(text); stream.flush(); os.fsync(stream.fileno())
+    # Observe only this CLI operation. Helpers and ctypes codecs run inside
+    # Python too, so the parent cannot infer their use from the Python process.
+    # No paths outside this installation, URLs or book names enter this report.
+    used_tools = observe_component_tools(options.tools_root or Path(__file__).resolve().parent.parent)
     try:
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
                               image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container)
+        result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)
         return 0
     except (ConversionError, OSError, UnicodeError, LookupError, zipfile.BadZipFile, RecursionError, ValueError) as error:
-        details = {'error': str(error)}
+        details = {'error': str(error), 'used_tools': sorted(used_tools)}
         if isinstance(error, ComponentRequired): details['required_component'] = error.component
         text = json.dumps(details, ensure_ascii=False)
         try: publish_report(text)

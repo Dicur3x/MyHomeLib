@@ -47,7 +47,9 @@ begin
     StampFile := Result+'.source';
     if FileExists(Result) and FileExists(StampFile) then
       try if TFile.ReadAllText(StampFile,TEncoding.UTF8) = ResultStamp then
-      begin RegisterBookCacheFile(Result,OriginalSource); Exit; end; except end;
+      begin
+        RegisterBookCacheFile(Result,OriginalSource); RecordBookConversionUse('.mobi'); Exit;
+      end; except end;
     if Assigned(OnStage) then OnStage('Подготовка книги Kindle для чтения…');
     Writer := TBookCacheWrite.Create(OriginalSource); Log := TStringStream.Create('',TEncoding.UTF8);
     Work := TPath.Combine(Settings.TempDir,'homelib-kindle-'+TGUID.NewGuid.ToString);
@@ -66,6 +68,7 @@ begin
             raise Exception.Create('Подготовка книги Kindle превысила допустимое время.');
         end);
       if not FileExists(Temporary) then raise Exception.Create('Не удалось подготовить EPUB из книги Kindle.');
+      RecordBookConversionUse('.mobi');
       TFile.WriteAllText(TemporaryStamp,ResultStamp,TEncoding.UTF8);
       Writer.Publish(Temporary,Result,TemporaryStamp);
     finally
