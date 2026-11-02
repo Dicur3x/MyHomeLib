@@ -2961,7 +2961,6 @@
       "Complete actual decoder/use coverage and wire monthly offer into normal operation",
       "Resolve old package inventories without saved archives",
       "Inspect actual management UI through normal updater entry point, including inventory download/cancel and valid existing ownership refresh",
-      "Preserve prior installed-file ownership when refreshing an already valid inventory; adoption currently writes the verified package inventory",
       "Final packaged operation/restart checks before beta 3 publication"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
@@ -3066,9 +3065,20 @@
       "Complete actual decoder/use coverage and wire monthly offer into normal operation",
       "Resolve old package inventories without saved archives",
       "Inspect actual management UI through normal updater entry point, including inventory download/cancel and valid existing ownership refresh",
-      "Preserve prior installed-file ownership when refreshing an already valid inventory; adoption currently writes the verified package inventory",
       "Final packaged operation/restart checks before beta 3 publication"
     ],
     "cleanup": "Native wrapper removed only its newly created isolated fixture profiles; necessary package fixtures and binaries retained for continuing verification"
+  },
+  "module_inventory_refresh_20261102": {
+    "status": "PASS_NATIVE_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-inventory-refresh-20261102-r1.json",
+    "sha256": "7523fb5446b91012bc658be658000c72039e6352b0322e35ab6816c8013d5d14",
+    "coverage": [
+      "Known entries omitted by a matching rechecked package remain recorded without duplicate paths",
+      "Original hash of modified auxiliary remains; removal preserves changed and unknown files",
+      "Unreadable old receipt is preserved; adoption fails without replacing it",
+      "Real verified base/image package install/remove/reinstall/conversion still passes"
+    ],
+    "production_builds": "Rebuild with completed module integration before publication"
   }
 }

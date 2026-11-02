@@ -715,8 +715,19 @@ begin
 end;
 
 procedure AdoptComponentFileInventory(const AppPath, ID, ManifestFile: string);
-var Files: TUpdateFiles; Root, Receipt, Entry: TJSONObject; Entries: TJSONArray;
+var Files, Previous: TUpdateFiles; Root, Receipt, Entry: TJSONObject; Entries: TJSONArray;
+  Names: TDictionary<string,Boolean>;
   Primary, Version: string; Comparison: Integer; Found: Boolean;
+  procedure AddFile(const Info: TUpdateFile);
+  begin
+    if Names.ContainsKey(LowerCase(Info.Name)) then Exit;
+    if not SafeComponentFile(ID,Info.Name) then
+      raise Exception.Create('Прежний список файлов содержит путь вне модуля. Список сохранён без изменений.');
+    if Entries.Count>=4000 then raise Exception.Create('Слишком много файлов в учёте компонента.');
+    Names.Add(LowerCase(Info.Name),True);
+    Entry:=TJSONObject.Create; Entry.AddPair('path',Info.Name); Entry.AddPair('size',TJSONNumber.Create(Info.Size));
+    Entry.AddPair('sha256',Info.SHA256); Entries.AddElement(Entry);
+  end;
 begin
   Files:=ComponentFilesFromManifest(ManifestFile,ID); Found:=False;
   Primary:=ChildPath(AppPath,ComponentFileName(ID));
@@ -731,20 +742,24 @@ begin
     if Version='' then Version:=InstalledComponentVersion(AppPath,ID);
   finally Root.Free; end;
   if not CompareComponentVersions(Version,Version,Comparison) then raise Exception.Create('Не удалось определить версию модуля.');
-  Receipt:=TJSONObject.Create;
+  // Refreshing an inventory must not forget files owned by an earlier package.
+  // Keep their original hashes so changed auxiliary files remain protected.
+  // An unreadable prior receipt is preserved rather than silently discarded.
+  Previous:=InstalledComponentFiles(AppPath,ID);
+  Receipt:=TJSONObject.Create; Names:=TDictionary<string,Boolean>.Create;
   try
     Receipt.AddPair('format',TJSONNumber.Create(1)); Receipt.AddPair('component',ID);
     Receipt.AddPair('version',Version); Receipt.AddPair('platform',ProgramUpdatePlatform);
     Receipt.AddPair('recordedUtc',DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True));
     Entries:=TJSONArray.Create; Receipt.AddPair('files',Entries);
-    for var Info in Files do
-    begin
-      Entry:=TJSONObject.Create; Entry.AddPair('path',Info.Name); Entry.AddPair('size',TJSONNumber.Create(Info.Size));
-      Entry.AddPair('sha256',Info.SHA256); Entries.AddElement(Entry);
-    end;
-    ManifestFiles(Receipt); Primary:=ChildPath(AppPath,ComponentReceiptName(ID));
+    for var Info in Files do AddFile(Info);
+    for var Info in Previous do AddFile(Info);
+    ManifestFiles(Receipt);
+    if TEncoding.UTF8.GetByteCount(Receipt.ToJSON)>1024*1024 then
+      raise Exception.Create('Слишком большой список файлов компонента. Прежний список сохранён.');
+    Primary:=ChildPath(AppPath,ComponentReceiptName(ID));
     ForceDirectories(ExtractFileDir(Primary)); WriteJSON(Primary,Receipt);
-  finally Receipt.Free; end;
+  finally Names.Free; Receipt.Free; end;
 end;
 
 // Receipts are generated from already verified package manifests, not from a

@@ -146,6 +146,31 @@ begin
   AdoptComponentFileInventory(Target,'7-Zip',Manifest);
   Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('7-Zip'));
   Require(Plan.CanRemove and (ExecuteComponentRemovalPlan(Plan)=''),'Verified old inventory did not become reusable without reinstall'); RequirePrivate;
+  Target:=Fixture('refresh-owned'); Runtime('7-Zip',ZipNames);
+  Manifest:=Runtime('7-Zip',TArray<string>.Create('tools/7zip/7z.exe','tools/7zip/7z.dll','tools/7zip/License.txt'),False);
+  Source:=CheckedUpdateChildPath(Target,'tools/7zip/7za.exe');
+  var OwnedHash:=UpdateSHA256(Source);
+  TFile.WriteAllText(Source,'modified owned auxiliary must retain its original identity');
+  TFile.WriteAllText(CheckedUpdateChildPath(Target,'tools/7zip/private.txt'),'unknown private file');
+  AdoptComponentFileInventory(Target,'7-Zip',Manifest);
+  var Kept:=False; var NamesSeen:=TDictionary<string,Boolean>.Create;
+  try
+    for var FileInfo in InstalledComponentFiles(Target,'7-Zip') do
+    begin
+      Require(not NamesSeen.ContainsKey(LowerCase(FileInfo.Name)),'Inventory refresh duplicated an entry');
+      NamesSeen.Add(LowerCase(FileInfo.Name),True);
+      if FileInfo.Name='tools/7zip/7za.exe' then Kept:=FileInfo.SHA256=OwnedHash;
+    end;
+    Require(Kept and not NamesSeen.ContainsKey('tools/7zip/private.txt'),'Inventory refresh forgot old ownership or claimed unknown files');
+  finally NamesSeen.Free; end;
+  Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('7-Zip'));
+  Require(Plan.CanRemove and (Disposition('tools/7zip/7za.exe')=crKeepChanged),'Refresh accepted modified owned file as pristine');
+  ExecuteComponentRemovalPlan(Plan);
+  Require(FileExists(Source) and FileExists(CheckedUpdateChildPath(Target,'tools/7zip/private.txt')),'Refresh/removal lost changed or private files'); RequirePrivate;
+  Target:=Fixture('refresh-corrupt'); var Corrupt:=Runtime('7-Zip',ZipNames);
+  Manifest:=Runtime('7-Zip',ZipNames,False); TFile.WriteAllText(Corrupt,'preserve unreadable old inventory'); Failed:=False;
+  try AdoptComponentFileInventory(Target,'7-Zip',Manifest); except on E: Exception do Failed:=True; end;
+  Require(Failed and (TFile.ReadAllText(Corrupt)='preserve unreadable old inventory'),'Unreadable prior ownership was silently overwritten'); RequirePrivate;
   Target:=Fixture('settings'); Runtime('AlReader',TArray<string>.Create('Readers/AlReader/AlReader2.exe','Readers/AlReader/$savevtut.ini','Readers/AlReader/readme.txt'));
   Source:=CheckedUpdateChildPath(Target,'Readers/AlReader/$savevtut.ini'); TFile.WriteAllText(Source,'private reader settings');
   Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('AlReader'));
