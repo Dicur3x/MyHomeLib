@@ -10,7 +10,8 @@ procedure RecordComponentToolUse(const ToolPath: string); overload;
 procedure RecordComponentToolUse(const ToolPath: string; const Arguments: array of string); overload;
 function ComponentLastUse(const AppPath, ID: string): TDateTime;
 procedure ObserveInstalledComponents(const AppPath: string; const IDs: TArray<string>; NowUTC: TDateTime = 0);
-procedure RecordComponentInstallation(const AppPath, ID: string; NowUTC: TDateTime = 0);
+procedure RecordComponentInstallation(const AppPath, ID: string; NowUTC: TDateTime = 0;
+  NewInstallation: Boolean = False);
 function ReserveUnusedComponentOffer(const AppPath: string; const IDs: TArray<string>;
   out Unused: TArray<string>; NowUTC: TDateTime = 0): Boolean;
 procedure SetComponentCleanupSuppressed(const AppPath: string; Suppressed: Boolean);
@@ -248,7 +249,8 @@ begin
   finally Mutex.Free; end;
 end;
 
-procedure RecordComponentInstallation(const AppPath, ID: string; NowUTC: TDateTime);
+procedure RecordComponentInstallation(const AppPath, ID: string; NowUTC: TDateTime;
+  NewInstallation: Boolean);
 var Mutex: TMutex; Root, Row: TJSONObject;
 begin
   if ID='SQLite' then Exit;
@@ -260,7 +262,11 @@ begin
         Root:=ReadState(StateFile(AppPath));
         try
           Row:=ModuleRow(Root,ID,Clock(NowUTC));
-          SetText(Row,'firstSeenUtc',DateToISO8601(Clock(NowUTC),True)); SaveState(StateFile(AppPath),Root);
+          // Updating an existing module is not use and does not restart its
+          // observation period. A module installed again after removal gets
+          // a fresh grace period, even if its old usage row still exists.
+          if NewInstallation then SetText(Row,'firstSeenUtc',DateToISO8601(Clock(NowUTC),True));
+          SaveState(StateFile(AppPath),Root);
         finally Root.Free; end;
       finally Mutex.Release; end;
     finally Mutex.Free; end;

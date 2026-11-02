@@ -226,7 +226,7 @@ const requiredViews = {
   "component-inventory-ui": ["PASS ordinary catalogue and Reader updater Modules entries", ...['decline','success','queued-cancel','inflight-cancel','bad-digest','prestart-failure'].map(mode=>`PASS actual inventory download UI ${mode} preserves runtime private data and cleans owned work`)],
   "component-monthly-lifecycle": ["PASS real catalogue idle scheduler presents monthly offer", "PASS real reader monthly lifecycle reader-close", "PASS real reader monthly lifecycle host-close-first", "PASS real reader monthly lifecycle book-close-first"],
   "component-removal": ["PASS component removal plans preserve core shared settings modified and unknown files"],
-  "component-receipts": ["PASS installed component receipts commit and roll back with runtime files", "PASS real verified processing and image package bundle retains separate installed-file receipts"],
+  "component-receipts": ["PASS installed component receipts commit and roll back with runtime files", "PASS real verified processing and image package bundle retains separate installed-file receipts", "PASS component installer preserves observation on updates and failures while fresh reinstallation renews grace"],
   "review-deadline": ["PASS continuous slow HTTP response stops at 30-second total deadline"],
   "review-formatting": ["PASS review formatting separates reviewers paragraphs", "PASS review formatting handles missing div separators", "PASS long review lists preserve all reviewer", "PASS native review memo wraps scrolls preserves cached text", "PASS book page without reviews remains empty"],
 };

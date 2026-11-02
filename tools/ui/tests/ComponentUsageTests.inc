@@ -32,15 +32,17 @@ begin
   try
     Require(ComponentLastUse(Folder,'DjVuLibre')=0,'Discovery was counted as actual use');
     Require(not ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+29),'Old installation was offered before one month of observation');
+    RecordComponentInstallation(Folder,'WebP',Time+29);
+    Require(ComponentLastUse(Folder,'WebP')=0,'Module update was counted as actual use');
     RecordComponentUse('DjVuLibre',Time+29);
     Require(ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+30) and (Length(Unused)=1) and
-      (Unused[0]='WebP'),'First offer ignored real recent use');
+      (Unused[0]='WebP'),'Module update reset observation or first offer ignored real recent use');
     Require(not ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+30),'Two instances could reserve the same monthly offer');
     Require(not ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+40),'Declined offer repeated within a month');
     Require(ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+62) and (Length(Unused)=2),'Deferred combined monthly offer did not return');
     SetComponentCleanupSuppressed(Folder,True);
     Require(ComponentCleanupSuppressed(Folder) and not ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+110),'Permanent suppression ignored');
-    SetComponentCleanupSuppressed(Folder,False); RecordComponentInstallation(Folder,'WebP',Time+110);
+    SetComponentCleanupSuppressed(Folder,False); RecordComponentInstallation(Folder,'WebP',Time+110,True);
     Require(ReserveUnusedComponentOffer(Folder,IDs,Unused,Time+110) and (Length(Unused)=1) and
       (Unused[0]='DjVuLibre'),'Fresh reinstallation was immediately offered for deletion');
     ObserveInstalledComponents(Folder,IDs,Time+200);
@@ -62,7 +64,7 @@ begin
     finally A.Free; B.Free; end;
     Require(Abs(ComponentLastUse(Folder,'WebP')-(Time+432))<1/86400,'Trailing path separator split the usage write lock');
     var State:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Folder+'\tools\component-state\usage.json',TEncoding.UTF8));
-    try Require(State.GetValue<string>('modules.DjVuLibre.firstSeenUtc')=DateToISO8601(Time+432,True),'Concurrent install age was lost');
+    try Require(State.GetValue<string>('modules.DjVuLibre.firstSeenUtc')=DateToISO8601(Time,True),'Concurrent updates reset the observation start');
     finally State.Free; end;
     var Name:=Folder+'\tools\component-state\usage.json';
     TFile.WriteAllText(Name,'preserved corrupt metadata',TEncoding.UTF8);

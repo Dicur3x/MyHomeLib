@@ -1594,6 +1594,7 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
+  PreviouslyInstalled: TArray<Boolean>;
   function SourceFor(const Value: TUpdateFile): string;
   begin
     if Value.GeneratedReceipt then Result:=ChildPath(Job,'receipt-payload/'+Value.Name)
@@ -1623,6 +1624,9 @@ begin
     RollbackProgramUpdate(Job, Target);
     raise Exception.Create('Предыдущее обновление восстановлено. Проверьте обновления ещё раз.');
   end;
+  SetLength(PreviouslyInstalled,Length(ComponentNames));
+  for I:=Low(ComponentNames) to High(ComponentNames) do
+    PreviouslyInstalled[I]:=FileExists(ChildPath(Target,ComponentFileName(ComponentNames[I])));
   Manifest := ReadJSON(ChildPath(Job, 'manifest.json'));
   try
     if Assigned(Manifest.GetValue('bundle')) then
@@ -1717,8 +1721,9 @@ begin
       Journal.RemovePair('state').Free; Journal.AddPair('state', 'installed');
       WriteJSON(ChildPath(Job, 'journal.json'), Journal);
       for Info in Files do if Info.GeneratedReceipt then
-        for ComponentID in ComponentNames do if SameText(Info.Name,ComponentReceiptName(ComponentID)) then
-          RecordComponentInstallation(Target,ComponentID);
+        for I:=Low(ComponentNames) to High(ComponentNames) do
+          if SameText(Info.Name,ComponentReceiptName(ComponentNames[I])) then
+            RecordComponentInstallation(Target,ComponentNames[I],0,not PreviouslyInstalled[I]);
     except
       RollbackProgramUpdate(Job, Target);
       raise;

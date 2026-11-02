@@ -1,5 +1,12 @@
 ﻿procedure TestComponentReceipts;
 var Target, Job, ReceiptPath, Before, Name: string; Files: TUpdateFiles; Rejected: Boolean;
+  function ObservationDate: TDateTime;
+  var State: TJSONValue;
+  begin
+    State:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Target+'\tools\component-state\usage.json',TEncoding.UTF8));
+    try Result:=ISO8601ToDate(State.GetValue<string>('modules.7-Zip.firstSeenUtc'),True);
+    finally State.Free; end;
+  end;
   procedure RealBundle;
   var Folder, Feed, Metadata, ID, Version, BundleJob: string; Root: TJSONValue;
     Entries: TJSONArray; Jobs: TArray<string>; Release: TProgramRelease; Count: Integer;
@@ -77,15 +84,20 @@ begin
   TFile.WriteAllText(TPath.Combine(Target,'HomeLibRu.exe'),'OWNED NONEXECUTABLE APP MARKER');
   ForceDirectories(TPath.Combine(Target,'Data')); TFile.WriteAllText(TPath.Combine(Target,'Data/user.ini'),'personal settings');
   ReceiptPath:=TPath.Combine(Target,ComponentReceiptName('7-Zip'));
+  var OldObservation:=EncodeDate(2026,1,1);
+  ObserveInstalledComponents(Target,TArray<string>.Create('7-Zip'),OldObservation);
   Job:=MakeJob('1.0.0.1',True);
   try
     Rejected:=False;
     try InstallProgramUpdate(Job,Target,nil,5); except on E: Exception do Rejected:=E.Message='Имитированная ошибка установки'; end;
     Require(Rejected and not FileExists(ReceiptPath) and not FileExists(TPath.Combine(Target,'tools/7zip/7z.exe')),
       'Failed first installation left an ownership receipt or runtime');
+    Require(ObservationDate=OldObservation,'Failed installation restarted module observation');
   finally CleanProgramUpdate(Job); end;
   Job:=MakeJob('1.0.0.1',True);
   try InstallProgramUpdate(Job,Target); finally CleanProgramUpdate(Job); end;
+  Require(ObservationDate>OldObservation,'First installation did not renew an old removed module grace period');
+  RecordComponentInstallation(Target,'7-Zip',OldObservation,True);
   Files:=InstalledComponentFiles(Target,'7-Zip');
   Require(Length(Files)=4,'Installed-file receipt did not survive job cleanup');
   for var Info in Files do
@@ -97,15 +109,22 @@ begin
     Rejected:=False;
     try InstallProgramUpdate(Job,Target,nil,4); except on E: Exception do Rejected:=E.Message='Имитированная ошибка установки'; end;
     Require(Rejected and (UpdateSHA256(ReceiptPath)=Before),'Failed update did not roll back the ownership receipt');
+    Require(ObservationDate=OldObservation,'Failed update restarted observation');
     for var Info in Files do Require(UpdateSHA256(TPath.Combine(Target,Info.Name))=Info.SHA256,'Failed update changed runtime bytes');
   finally CleanProgramUpdate(Job); end;
   Name:=TPath.Combine(Target,'tools/7zip/user-notes.txt'); TFile.WriteAllText(Name,'not owned by package');
   Job:=MakeJob('1.0.0.2',False);
   try InstallProgramUpdate(Job,Target); finally CleanProgramUpdate(Job); end;
+  Require(ObservationDate=OldObservation,'Updating an installed module restarted observation');
   Require((Length(InstalledComponentFiles(Target,'7-Zip'))=4) and HasMember('tools/7zip/7za.exe') and
     not HasMember('tools/7zip/user-notes.txt'),'Receipt lost earlier owned files or claimed a private file');
   Require((TFile.ReadAllText(Name)='not owned by package') and
     (TFile.ReadAllText(TPath.Combine(Target,'Data/user.ini'))='personal settings'),'Receipt installation changed user files');
+  TFile.Delete(TPath.Combine(Target,'tools/7zip/7z.exe'));
+  Job:=MakeJob('1.0.0.2',False);
+  try InstallProgramUpdate(Job,Target); finally CleanProgramUpdate(Job); end;
+  Require(ObservationDate>OldObservation,'Reinstalling a missing module did not start a fresh observation period');
+  Writeln('PASS component installer preserves observation on updates and failures while fresh reinstallation renews grace');
   var SavedReceipt:=TFile.ReadAllText(ReceiptPath,TEncoding.UTF8);
   try
     TFile.WriteAllText(ReceiptPath,SavedReceipt.Replace('"7-Zip"','"SQLite"'),TEncoding.UTF8); Rejected:=False;

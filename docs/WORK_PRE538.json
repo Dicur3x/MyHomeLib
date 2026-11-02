@@ -3168,5 +3168,23 @@
     ],
     "cleanup": "Isolated native runner removed its fixture profiles. Build helper removed generated Win32 sibling. Build failure and passing logs retained as evidence; no working modules removed. Protected existing IDE unchanged.",
     "page_sequence": 92
+  },
+  "module_update_clock_20261102": {
+    "status": "PASS_MODULE_UPDATE_CLOCK_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-update-clock-final-20261102-r1.json",
+    "sha256": "ebfce3e6fd14a74dd8905b9edcb2dec1626e9aaff09a85d97e98afa82e0ed547",
+    "verified": [
+      "User clarification: observation starts with first beta-3 launch for all already installed modules; no per-module update required",
+      "Present-module update preserves original firstSeenUtc and does not renew actual use",
+      "Actual installer captures presence before file replacement; new installation of an absent module starts grace, failed transaction leaves clock unchanged",
+      "Six native scenarios passed: ledger/monthly threshold and concurrency, real installation/rollback/base-image bundle, manager themes/DPI/cancellation/monthly offer, each on x86 and x64"
+    ],
+    "remaining": [
+      "Saved ZIP picker and cancellation",
+      "Final real-format actual-use matrix",
+      "Production catalogue/Reader/updater builds and minimal packaged replacement/restart before release"
+    ],
+    "cleanup": "Owned fixture profiles removed by native wrappers; generated build clone removed by IDE helper; evidence and reusable binaries retained; working installation untouched.",
+    "page_sequence": 93
   }
 }
