@@ -52,6 +52,11 @@ type
   end;
 
 function InstalledOptionalComponents(const AppPath: string; ReaderOnly: Boolean): TArray<string>;
+procedure ObserveInstalledOptionalComponents(const AppPath: string; ReaderOnly: Boolean;
+  NowUTC: TDateTime = 0);
+function ComponentCleanupWindowReady(Form: TCustomForm; Busy: Boolean): Boolean;
+function OfferUnusedComponents(Owner: TCustomForm; const AppPath: string; ReaderOnly: Boolean;
+  NowUTC: TDateTime = 0; const ApplyPalette: TProc<TCustomForm> = nil): Boolean;
 
 implementation
 
@@ -63,10 +68,48 @@ function InstalledOptionalComponents(const AppPath: string; ReaderOnly: Boolean)
 begin
   Result:=nil;
   for var Component in UPDATE_COMPONENTS do
-    if IsOptionalComponent(Component.ID) and not (ReaderOnly and (Component.ID='HomeLibReader')) and
+    if IsOptionalComponent(Component.ID) and not (ReaderOnly and
+      (IndexText(Component.ID,['HomeLibReader','AlReader','SumatraPDF','MHLMcpServer','Zstandard'])>=0)) and
       (FileExists(CheckedUpdateChildPath(AppPath,ComponentFileName(Component.ID))) or
        FileExists(CheckedUpdateChildPath(AppPath,ComponentReceiptName(Component.ID)))) then
       Result:=Result+TArray<string>.Create(Component.ID);
+end;
+
+procedure ObserveInstalledOptionalComponents(const AppPath: string; ReaderOnly: Boolean;
+  NowUTC: TDateTime);
+begin
+  try
+    var IDs:=InstalledOptionalComponents(AppPath,ReaderOnly);
+    if Length(IDs)>0 then ObserveInstalledComponents(AppPath,IDs,NowUTC);
+  except on E: Exception do LogDiagnosticError('module-usage-discovery',E); end;
+end;
+
+function ComponentCleanupWindowReady(Form: TCustomForm; Busy: Boolean): Boolean;
+var Input: TLastInputInfo;
+begin
+  Result:=False;
+  if Busy or not Assigned(Form) or Application.Terminated or not Application.Active or
+    (Application.ModalLevel<>0) or not Form.Visible or (Form.WindowState=wsMinimized) or
+    (Screen.ActiveCustomForm<>Form) or (GetSystemMetrics(SM_SHUTTINGDOWN)<>0) then Exit;
+  Input.cbSize:=SizeOf(Input);
+  if GetLastInputInfo(Input) then
+    Result:=(UInt64(GetTickCount)+$100000000-Input.dwTime) mod $100000000>=30000;
+end;
+
+function OfferUnusedComponents(Owner: TCustomForm; const AppPath: string; ReaderOnly: Boolean;
+  NowUTC: TDateTime; const ApplyPalette: TProc<TCustomForm>): Boolean;
+var Unused: TArray<string>; Dialog: TfrmComponentMaintenance;
+begin
+  Result:=False;
+  try
+    if not ReserveUnusedComponentOffer(AppPath,InstalledOptionalComponents(AppPath,ReaderOnly),Unused,NowUTC) then Exit;
+    Dialog:=TfrmComponentMaintenance.CreateManager(Owner,AppPath,ReaderOnly,True,Unused,
+      Default(TComponentReleases),nil);
+    try
+      if Assigned(ApplyPalette) then ApplyPalette(Dialog);
+      Dialog.ShowModal; Result:=True;
+    finally Dialog.Free; end;
+  except on E: Exception do LogDiagnosticError('module-cleanup-offer',E); end;
 end;
 
 function ModuleSize(Size: Int64): string;
@@ -104,7 +147,7 @@ begin
   FRemove.Caption:='Удалить выбранные'; FRemove.OnClick:=RemoveClick; FRemove.Enabled:=False;
   FResolve:=TButton.Create(Self); FResolve.Parent:=Self; FResolve.Name:='MaintenanceInventory';
   FResolve.Caption:='Проверить состав…'; FResolve.OnClick:=ResolveClick;
-  FClose:=TButton.Create(Self); FClose.Parent:=Self; FClose.Caption:='Закрыть';
+  FClose:=TButton.Create(Self); FClose.Parent:=Self; FClose.Name:='MaintenanceClose'; FClose.Caption:='Закрыть';
   if Monthly then FClose.Caption:='Не сейчас'; FClose.Cancel:=True; FClose.OnClick:=CloseClick;
   FTimer:=TTimer.Create(Self); FTimer.Interval:=150; FTimer.OnTimer:=Tick;
   OnCloseQuery:=CloseQueryHandler; FillRows(Initial); LayoutControls; ApplyMHLControlTheme(Self);

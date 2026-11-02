@@ -2,8 +2,8 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 88,
-    "verified_blocks": 81,
+    "verified_sequence": 90,
+    "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
@@ -2941,8 +2941,8 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "actual_use_hooks_targeted_checks_passed_x86_x64_continuing_monthly_integration",
-    "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
+    "status": "monthly_offer_and_existing_installation_clock_targeted_checks_passed_x86_x64_continuing_ordinary_lifecycle_verification",
+    "scope": "Manual removal and one combined monthly offer; observation starts at first beta-3 application launch for all already installed modules, independently of module installation/update; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
       "Program/Units/unit_ProgramUpdateInstaller.pas:SafeComponentFile",
@@ -2952,15 +2952,14 @@
     ],
     "observations": [
       "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
-      "Receipts, guarded removal, manual manager and clock/concurrency ledger passed x86/x64. Actual-use hooks now cover direct codecs, prepared-book caches, managed external readers, Python helper/codec reports and MCP startup; targeted native checks and conversion regressions pass. Ordinary monthly prompt and final all-format/legacy/package integration remain pending.",
+      "Receipts, guarded removal, manual manager and usage hooks passed targeted x86/x64 checks. A combined monthly offer is wired into normal callers; its actual modal UI, existing-module discovery, age preservation, postponement and permanent suppression passed x86/x64. Final ordinary caller lifecycle and package/format checks remain pending.",
       "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
       "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Verify actual-use tracking with final/old processing packages and real format cases, including old reports without used_tools",
-      "Wire monthly offer into normal catalogue and standalone Reader operation",
-      "Resolve old package inventories without saved archives",
+      "Verify normal catalogue idle and standalone Reader close lifecycle, including updater-driven closing",
+      "Verify actual-use tracking with final packages and real format cases",
       "Inspect normal updater manager entry, inventory download/cancel and refreshed ownership",
       "Rebuild latest production executables and complete packaged operation/restart checks before beta 3"
     ],
@@ -3108,5 +3107,31 @@
     ],
     "cleanup": "Native wrappers removed their newly created isolated test profiles; necessary module packages, binaries and proof logs retained; previously denied cleanup scopes untouched",
     "page_sequence": 89
+  },
+  "module_monthly_offer_20261102": {
+    "status": "PASS_TARGETED_NATIVE_X86_X64",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-monthly-offer-final-20261102-r1.json",
+    "sha256": "37a30b1d3d6383ed66c6180c61cc55b608af5b5b6eb4f70d77efb650af85619b",
+    "user_clarification": "Feature starts with application 3.0 beta 3 for all modules already present; users need not download a newer module to start observation. Earlier usage history is not reconstructed. Do not expand acceptance with a separate old-processing-report compatibility project.",
+    "verified": [
+      "Discovery of existing primary files, including a module without an installation receipt; no installer or download is invoked",
+      "Repeated discovery at day 29 preserves the original observation date; no offer before day 30",
+      "One actual dialog contains both unused modules, with nothing checked and deletion disabled until selected",
+      "Declining leaves both modules intact; a repeat is deferred by one calendar month",
+      "Permanent suppression disables subsequent offers",
+      "Busy owner rejects automatic presentation; existing manual preview/cancel/removal, preserved personal data, and light/dark 96/144/192 DPI regressions pass"
+    ],
+    "source_reviewed": [
+      "Catalogue and Reader initialize observation immediately after removal recovery at startup",
+      "Catalogue reuses its scheduler and waits for active idle state without pending startup/preparation/update/modal operation",
+      "Reader may offer after user closes its active book; host-close, queued WM_CLOSE, restarting and shutdown guards avoid an offer during updater closure"
+    ],
+    "remaining": [
+      "Real main scheduler idle presentation and actual standalone Reader book-close lifecycle",
+      "Updater-driven related-instance closing with the new monthly offer enabled",
+      "Final production executable builds and minimal release package install/restart and actual-use matrix across real formats"
+    ],
+    "cleanup": "Native runner returned success and removed its newly created isolated profiles; no working user installation was uninstalled. Build helper removed its temporary cloned project. Necessary build/test evidence is retained.",
+    "page_sequence": 90
   }
 }

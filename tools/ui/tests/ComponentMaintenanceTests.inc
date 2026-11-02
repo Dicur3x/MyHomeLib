@@ -9,6 +9,50 @@ var Target: string; Available: TComponentReleases; Dialog: TfrmComponentMaintena
     until Dialog.PlanReady or (GetTickCount64-Started>15000);
     Require(Dialog.PlanReady,'Maintenance plan did not finish without blocking the UI');
   end;
+  procedure MonthlyOffers;
+  var Time: TDateTime; Seen: Boolean;
+    procedure CloseOffer(Suppress: Boolean);
+    begin
+      Seen:=False;
+      TThread.ForceQueue(nil,procedure
+        var Offer: TCustomForm; Items: TListView;
+        begin
+          Offer:=nil;
+          for var I:=0 to Screen.FormCount-1 do
+            if Screen.Forms[I].Name='ComponentMaintenance' then Offer:=Screen.Forms[I];
+          Require(Assigned(Offer),'Scheduled monthly module dialog did not open');
+          Items:=TListView(Offer.FindComponent('MaintenanceModules'));
+          Require(Items.Items.Count=2,'Monthly offer did not combine two unused modules into one window');
+          for var Item in Items.Items do Require(not Item.Checked,
+            'Monthly offer selected deletion automatically');
+          Require(not TButton(Offer.FindComponent('MaintenanceRemove')).Enabled,
+            'Monthly offer enabled deletion without an explicit choice');
+          TCheckBox(Offer.FindComponent('MaintenanceOffers')).Checked:=Suppress;
+          Seen:=True; TButton(Offer.FindComponent('MaintenanceClose')).Click;
+        end);
+    end;
+  begin
+    Time:=EncodeDate(2026,1,1);
+    var WebP:=CheckedUpdateChildPath(Target,ComponentFileName('WebP'));
+    ForceDirectories(ExtractFileDir(WebP)); TFile.WriteAllText(WebP,'OWNED NONEXECUTABLE WEBP MARKER');
+    // Both files already exist before the first beta-3 launch; WebP has no
+    // installation receipt. Discovery must start its clock without a download.
+    ObserveInstalledOptionalComponents(Target,False,Time);
+    ObserveInstalledOptionalComponents(Target,False,Time+29);
+    Require(not OfferUnusedComponents(frmMain,Target,False,Time+29),
+      'An existing module was offered before a month since first observation');
+    Require(not ComponentCleanupWindowReady(frmMain,True),'Busy application allowed an automatic cleanup window');
+    CloseOffer(False);
+    Require(OfferUnusedComponents(frmMain,Target,False,Time+30) and Seen,'Monthly offer not shown after one month');
+    Require(FileExists(Target+'\tools\7zip\7z.exe') and FileExists(WebP),'Declining the monthly offer deleted a module');
+    Require(not OfferUnusedComponents(frmMain,Target,False,Time+40),'Declined monthly offer repeated too early');
+    CloseOffer(True);
+    Require(OfferUnusedComponents(frmMain,Target,False,Time+62) and Seen,'Monthly postponement did not return');
+    Require(ComponentCleanupSuppressed(Target) and not OfferUnusedComponents(frmMain,Target,False,Time+100),
+      'Do not offer again failed to suppress future monthly dialogs');
+    TFile.Delete(WebP);
+    Writeln('PASS existing installed modules observed without update combined monthly dialog postponement suppression and no automatic deletion');
+  end;
 begin
   RequireIsolatedRegression; Target:=Settings.AppPath+'maintenance-dialog-fixture';
   ForceDirectories(Target+'\tools\7zip'); ForceDirectories(Target+'\Data');
@@ -51,6 +95,7 @@ begin
       Require(FileExists(Target+'\tools\7zip\7z.exe'),'Closing a maintenance preview deleted a module');
     finally Dialog.Free; end;
   end;
+  MonthlyOffers;
   Dialog:=TfrmComponentMaintenance.CreateManager(frmMain,Target,False,False,TArray<string>.Create('7-Zip'),Available,nil);
   try
     Dialog.Show; WaitPlan; RemoveButton:=TButton(Dialog.FindComponent('MaintenanceRemove'));

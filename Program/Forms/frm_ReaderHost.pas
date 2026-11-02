@@ -24,6 +24,9 @@ type
     FSessionReply: TReaderSessionReply;
     FSessionLease: TReaderSessionLease;
     FRestarting, FDirectLaunch: Boolean;
+    FNextCleanupCheck: UInt64;
+    FReaderClosedActive, FExitViaMenu, FHostCloseRequested: Boolean;
+    FPreviousViewClose: TCloseEvent;
     FSaveContinuation: TBookSaveContinuation;
     FResumingSave: Boolean;
     procedure ResumeBookSave(var Message: TMessage); message WM_RESUME_BOOK_SAVE;
@@ -44,6 +47,8 @@ type
     procedure RestartForUpdate(Sender: TObject);
     procedure ComponentCancelled(Sender: TObject);
     procedure Tick(Sender: TObject);
+    procedure BookViewClosing(Sender: TObject; var Action: TCloseAction);
+    procedure CheckModuleCleanup(AfterReading: Boolean = False);
     procedure Prepare(const FileName: string);
     procedure Display(const FileName: string);
     procedure MissingComponent(const ID: string);
@@ -73,7 +78,7 @@ uses System.IOUtils, System.IniFiles, System.Math, Vcl.Dialogs,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
   frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette,
-  unit_ReaderRestartState, unit_ComponentUsage, unit_ComponentRemoval;
+  unit_ReaderRestartState, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
@@ -106,6 +111,7 @@ begin
   ConfigureComponentUsage(Settings.AppPath);
   try for var MessageText in RecoverComponentRemovals(Settings.AppPath) do LogDiagnosticMessage('module-recovery',MessageText);
   except on E: Exception do LogDiagnosticError('module-recovery',E); end;
+  ObserveInstalledOptionalComponents(Settings.AppPath,True);
   Name:='ReaderHost'; Caption:='HomeLibre Reader'; Position:=poScreenCenter;
   Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Font.Name:='Segoe UI'; Font.Size:=10; ClientWidth:=720; ClientHeight:=430;
@@ -377,7 +383,7 @@ end;
 
 procedure TfrmReaderHost.ExitClick(Sender: TObject);
 begin
-  FExitRequested:=True;
+  FExitRequested:=True; FExitViaMenu:=True;
   if Assigned(FView) then begin FView.ModalResult:=mrCancel; FView.Close; end else Close;
 end;
 
@@ -453,6 +459,33 @@ begin
   EnsureUpdates; FUpdates.RequestComponents(IDs,FStatus.Caption,True);
 end;
 
+procedure TfrmReaderHost.BookViewClosing(Sender: TObject; var Action: TCloseAction);
+var PID: DWORD;
+begin
+  PID:=0; GetWindowThreadProcessId(GetForegroundWindow,PID);
+  if Assigned(FPreviousViewClose) then FPreviousViewClose(Sender,Action);
+  FReaderClosedActive:=(Action<>caNone) and (PID=GetCurrentProcessId);
+end;
+
+procedure TfrmReaderHost.CheckModuleCleanup(AfterReading: Boolean);
+var Pending: TMsg;
+begin
+  if FRestarting or Application.Terminated or (GetSystemMetrics(SM_SHUTTINGDOWN)<>0) or
+    FHostCloseRequested or (FExitRequested and not FExitViaMenu) or (FPendingComponent<>'') or
+    (FNextFile<>'') or (FNextSession<>'') or (GetTickCount64<FNextCleanupCheck) then Exit;
+  // The updater closes both the hidden host and its book. Do not open a new
+  // modal window between those requests or delay releasing decoder files.
+  if PeekMessage(Pending,Handle,WM_CLOSE,WM_CLOSE,PM_NOREMOVE) then Exit;
+  if AfterReading then
+  begin if not FReaderClosedActive or not Assigned(FView) then Exit; end
+  else if not ComponentCleanupWindowReady(Self,FPreparing or FDisplaying or FResumingSave) then Exit;
+  FNextCleanupCheck:=GetTickCount64+24*60*60*UInt64(1000);
+  if AfterReading then
+    OfferUnusedComponents(FView,Settings.AppPath,True,0,procedure(Dialog: TCustomForm)
+      begin if FView is TfrmBuiltinReader then TfrmBuiltinReader(FView).ApplyWindowPalette(Dialog); end)
+  else OfferUnusedComponents(Self,Settings.AppPath,True);
+end;
+
 procedure TfrmReaderHost.Tick(Sender: TObject);
 var FileName: string;
 begin
@@ -463,7 +496,7 @@ begin
   if FPendingComponent<>'' then Exit;
   if FNextSession<>'' then
   begin FileName:=FNextSession; FNextSession:=''; BeginSession(FileName); Exit; end;
-  if FNextFile='' then Exit;
+  if FNextFile='' then begin CheckModuleCleanup; Exit; end;
   FileName:=FNextFile; FNextFile:=''; FinishSession('closed'); Prepare(FileName);
 end;
 
@@ -558,12 +591,15 @@ begin
     // launcher as its taskbar owner gives Alt+Tab/preview the wrong window.
     Hide;
     if FSaveContinuation.Token<>'' then PostMessage(Handle,WM_RESUME_BOOK_SAVE,0,0);
+    FReaderClosedActive:=False; FPreviousViewClose:=TForm(FView).OnClose;
+    TForm(FView).OnClose:=BookViewClosing;
     FView.ShowModal;
     if FView is TfrmBuiltinReader then
     begin
       Required:=TfrmBuiltinReader(FView).RequiredComponent;
       FSessionReply.RequestedNote:=TfrmBuiltinReader(FView).RequestedNote;
     end;
+    if Required='' then CheckModuleCleanup(True);
   except
     on E: EReaderComponentRequired do Required:=E.ComponentID;
     on E: EMHLComponentRequired do Required:=E.ComponentID;
@@ -637,6 +673,7 @@ end;
 procedure TfrmReaderHost.HostCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
   CanClose:=not FDisplaying;
+  if not CanClose then FHostCloseRequested:=True;
   if CanClose then CancelReaderPreparations(Self);
 end;
 

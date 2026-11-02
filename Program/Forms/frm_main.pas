@@ -941,6 +941,7 @@ type
     FBookActionVersion: UInt64;
     FBookActionCached, FBookActionAvailable: Boolean;
     FProgramUpdateTimer: TTimer;
+    FNextCleanupCheck: UInt64;
     procedure EnsureProgramUpdateForm;
     procedure RequestOptionalComponent(const ID: string);
     procedure MCPSetupExecute(Sender: TObject);
@@ -1259,7 +1260,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -3547,7 +3548,16 @@ end;
 
 procedure TfrmMain.ProgramUpdateSchedule(Sender: TObject);
 begin
-  if FStartupLoading then Exit;
+  if FStartupLoading or FFormBusy then Exit;
+  if (GetTickCount64>=FNextCleanupCheck) and not Assigned(FProgramUpdateThread) and
+    not ReaderPreparationsPending(Self) and
+    (not Assigned(FProgramUpdateForm) or not FProgramUpdateForm.Visible) and
+    ComponentCleanupWindowReady(Self,False) then
+  begin
+    FNextCleanupCheck:=GetTickCount64+24*60*60*UInt64(1000); FFormBusy:=True;
+    try OfferUnusedComponents(Self,Settings.AppPath,False);
+    finally FFormBusy:=False; end;
+  end;
   if Settings.CheckUpdate and not Assigned(FProgramUpdateThread) and
      ProgramUpdateDue(Settings.ProgramUpdateLastCheckUTC, TTimeZone.Local.ToUniversalTime(Now),
        Settings.ProgramUpdateMinutes) then
@@ -4691,6 +4701,7 @@ begin
   ConfigureComponentUsage(Settings.AppPath);
   try for var MessageText in RecoverComponentRemovals(Settings.AppPath) do LogDiagnosticMessage('module-recovery',MessageText);
   except on E: Exception do LogDiagnosticError('module-recovery',E); end;
+  ObserveInstalledOptionalComponents(Settings.AppPath,False);
   {$IFDEF MHL_SQL_PROFILE}ProfileStarted := SQLiteProfileClock;{$ENDIF}
   FStartupLoading := DeferInitialCollection;
   OnShortCut := FormShortCut;
