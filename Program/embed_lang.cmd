@@ -8,19 +8,21 @@ pushd "%~dp0" || exit /b 1
 ::
 :: Usage: embed_lang.cmd <BDS-directory>
 ::
-:: lang.res MUST exist when the compiler runs, so every path through this
-:: script ends with a valid one. A clone with no catalogs, or a machine with
-:: no Node, produces an empty resource and a Russian-only exe -- never a
-:: build failure.
+:: The interface theme is required even without translation catalogs or Node.
+:: Never report success with an empty resource: that would fail on theme change.
 :: ============================================================================
 
 :: %%~f normalises the path, so a trailing backslash on $(BDS) collapses the
 :: doubled separator instead of producing an invalid path. Comparing against
 :: "\" in an IF would be the obvious fix and is a parser trap in batch.
 for %%i in ("%~1\bin\brcc32.exe") do set "BRCC=%%~fi"
+for %%i in ("%~1\bin64\cgrc.exe") do set "HLRU_CGRC=%%~fi"
 
-set "RC=%~dp0lang.rc"
-set "RES=%~dp0lang.res"
+:: Old brcc32 can silently emit an empty resource when a worktree's full path
+:: contains a dotted directory such as .codex. Prefer the IDE's modern resource
+:: compiler. Relative names also keep resource paths local after pushd.
+set "RC=lang.rc"
+set "RES=lang.res"
 
 :: msbuild does not necessarily inherit a PATH containing node, so fall back
 :: to the default installation directory before giving up on it.
@@ -40,10 +42,19 @@ if not exist "%RC%" echo // No catalogs present.> "%RC%"
 :: Keep an existing catalog list, but repair old empty resource stubs too.
 findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLSTYLE "Resources\\Themes\\HomeLibRuDark.vsf">> "%RC%"
 
-"%BRCC%" -fo"%RES%" "%RC%"
+if exist "%HLRU_CGRC%" (
+    "%HLRU_CGRC%" -c65001 -=resinator.exe "%RC%" -fo"%RES%"
+) else (
+    "%BRCC%" -fo"%RES%" "%RC%"
+)
 if errorlevel 1 (
-    echo ERROR: brcc32 failed on "%RC%".
+    echo ERROR: resource compilation failed on "%RC%".
     exit /b 1
 )
 
+if not exist "%RES%" exit /b 1
+for %%s in ("%RES%") do if %%~zs LEQ 32 (
+    echo ERROR: required interface resources are empty.
+    exit /b 1
+)
 exit /b 0
