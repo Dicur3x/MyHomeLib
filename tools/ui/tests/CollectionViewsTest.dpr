@@ -5672,6 +5672,7 @@ end;
 {$I ComponentRemovalTests.inc}
 {$I ComponentUsageTests.inc}
 {$I ComponentMaintenanceTests.inc}
+{$I ComponentMonthlyLifecycleTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5896,6 +5897,7 @@ begin
       else if ParamStr(1) = 'component-removal' then TestComponentRemoval
       else if ParamStr(1) = 'component-usage' then TestComponentUsage
       else if ParamStr(1) = 'component-maintenance' then TestComponentMaintenance
+      else if ParamStr(1) = 'component-monthly-lifecycle' then TestComponentMonthlyLifecycle
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents

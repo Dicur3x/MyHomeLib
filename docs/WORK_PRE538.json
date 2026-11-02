@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 90,
+    "verified_sequence": 91,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "monthly_offer_and_existing_installation_clock_targeted_checks_passed_x86_x64_continuing_ordinary_lifecycle_verification",
+    "status": "monthly_clock_and_normal_native_callers_verified_x86_x64_continuing_updater_package_checks",
     "scope": "Manual removal and one combined monthly offer; observation starts at first beta-3 application launch for all already installed modules, independently of module installation/update; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2952,16 +2952,15 @@
     ],
     "observations": [
       "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
-      "Receipts, guarded removal, manual manager and usage hooks passed targeted x86/x64 checks. A combined monthly offer is wired into normal callers; its actual modal UI, existing-module discovery, age preservation, postponement and permanent suppression passed x86/x64. Final ordinary caller lifecycle and package/format checks remain pending.",
+      "Receipts, guarded removal, manual manager, usage hooks and already-installed module observation passed targeted x86/x64 checks. Actual catalogue idle timer and production ReaderHost book-close paths passed x86/x64; both updater WM_CLOSE orders avoid the modal and preserve session progress and source/module hashes. Normal updater inventory and final package/format checks remain pending.",
       "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
       "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Verify normal catalogue idle and standalone Reader close lifecycle, including updater-driven closing",
-      "Verify actual-use tracking with final packages and real format cases",
-      "Inspect normal updater manager entry, inventory download/cancel and refreshed ownership",
-      "Rebuild latest production executables and complete packaged operation/restart checks before beta 3"
+      "Normal updater manager entry and inventory download/cancel lifecycle",
+      "Actual-use matrix with final processing packages and real formats",
+      "Rebuilt catalogue/Reader/updater executables and minimal package installation, related-process closure, replacement and restart"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
@@ -3133,5 +3132,24 @@
     ],
     "cleanup": "Native runner returned success and removed its newly created isolated profiles; no working user installation was uninstalled. Build helper removed its temporary cloned project. Necessary build/test evidence is retained.",
     "page_sequence": 90
+  },
+  "module_monthly_lifecycle_20261102": {
+    "status": "PASS_NATIVE_PRODUCTION_CALLERS_X86_X64",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-monthly-lifecycle-final-20261102-r1.json",
+    "sha256": "8173d5d7df3107ff9dfd203f066b38a3b86b220743be86885e48835eeee8b476",
+    "verified": [
+      "Catalogue scheduler presents the actual monthly dialog after foreground idle without a direct test call to OfferUnusedComponents",
+      "Actual visible book is paged before closing; user close presents the monthly offer",
+      "Both host-first and book-first WM_CLOSE sequences skip the cleanup modal and do not consume the future monthly offer",
+      "Original book and installed module bytes remain identical; every Reader session closes with saved progress"
+    ],
+    "scope": "Real catalogue timer callback and production ReaderHost class in an isolated native harness; this is not final packaged executable replacement/restart verification.",
+    "remaining": [
+      "Normal updater manager entry and inventory download/cancel lifecycle",
+      "Actual-use matrix with final processing packages and real formats",
+      "Rebuilt catalogue/Reader/updater executables and minimal package installation, related-process closure, replacement and restart"
+    ],
+    "cleanup": "Native wrapper removed its own newly created isolated profiles after successful and failed runs. IDE helper removed its generated platform clone; evidence and reusable binaries retained. Protected existing IDE process was not closed or saved.",
+    "page_sequence": 91
   }
 }
