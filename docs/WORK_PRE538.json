@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 82,
+    "verified_sequence": 85,
     "verified_blocks": 81,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "implementation_analysis_in_progress",
+    "status": "receipt_foundation_verified_continuing_removal_design",
     "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2952,7 +2952,7 @@
     ],
     "observations": [
       "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
-      "Installer retains a transaction manifest/journal in its update job, but InstallProgramUpdate does not write a persistent per-component installed-file receipt",
+      "Persistent per-component installed-file receipts are now written by the installer; native first-install/upgrade/rollback and real package-bundle fixtures passed on x86/x64. Uninstall, legacy adoption and usage tracking are still pending.",
       "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
       "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
       "Format descriptors verify required identities but are not a complete installed-file inventory"
@@ -2988,5 +2988,39 @@
       "Explain or remove legacy path-prompt controls for flows where they do not apply",
       "Verify settings changes, remembered values, disabled subfolders and old INI migration on x86/x64"
     ]
+  },
+  "component_receipt_foundation_20261102": {
+    "status": "verified_x86_x64_native_and_updater_builds",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-receipts-final-20261102-r1.json",
+    "sha256": "ec694d553653641a774b6ce7a08acf3636924687dd745ffdacaa06995c487e6f",
+    "behavior": [
+      "tools/component-state/<component>.json records explicit verified manifest files, size and SHA256; incoming package cannot supply this reserved namespace",
+      "Receipts use the same backup, installation journal and rollback as the component runtime",
+      "For existing bundle schema, component receipts filter the explicit parent inventory by component permissions; no directory scan or enumeration of allowlist paths",
+      "Earlier known owned entries omitted by a new package remain recorded; unknown local files are not claimed",
+      "No installed module was removed from the working desktop installation"
+    ],
+    "remaining": [
+      "Safe removal and dependency/shared-file plan",
+      "Preserve user configuration such as AlReader $savevtut.ini even if originally supplied",
+      "Adopt existing installed modules without treating broad path permissions as ownership",
+      "Actual-use recording, manual UI and one combined monthly offer",
+      "Full catalogue/Reader builds and release integration gates"
+    ]
+  },
+  "shared_archive_entry_deletion_20261102": {
+    "status": "queued_after_active_module_maintenance",
+    "scope": "Explicit member deletion preserving other books; avoid requiring a second 25 GB archive for ordinary ZIP",
+    "evidence": [
+      "Installed Delphi 13 System.Zip.TZipFile.Delete moves existing compressed bytes through bounded buffers and updates entry offsets",
+      "In-place ZIP compaction can avoid a second full archive but can still rewrite almost the entire tail",
+      "Solid 7z block repacking has different constraints; do not generalize ZIP behavior"
+    ],
+    "acceptance": [
+      "Interruption-safe recovery and post-operation verification before changing real archives",
+      "Group selected removals per archive",
+      "Show space/time implications and account for shared images and external collection updates"
+    ],
+    "current_behavior": "Existing shared archives are preserved whole; member deletion has not been implemented"
   }
 }

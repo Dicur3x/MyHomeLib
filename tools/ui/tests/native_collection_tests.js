@@ -74,6 +74,7 @@ const modes = ["book-deletion", "sqlite-mapping", "reader-open-choice", "reader-
 modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'compact-search-filters');
 modes.push('update-manual-reopen');
 modes.push('duplicate-source', 'review-formatting');
+if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'component-receipts') modes.push('component-receipts');
 modes.push('ibk-components');
 modes.push('ibk-download-live');
 modes.push('component-mirrors', 'reader-portable');
@@ -216,6 +217,7 @@ const requiredViews = {
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
   "review-http": ["PASS HTTP reviews decode UTF-8"],
+  "component-receipts": ["PASS installed component receipts commit and roll back with runtime files", "PASS real verified processing and image package bundle retains separate installed-file receipts"],
   "review-deadline": ["PASS continuous slow HTTP response stops at 30-second total deadline"],
   "review-formatting": ["PASS review formatting separates reviewers paragraphs", "PASS review formatting handles missing div separators", "PASS long review lists preserve all reviewer", "PASS native review memo wraps scrolls preserves cached text", "PASS book page without reviews remains empty"],
 };

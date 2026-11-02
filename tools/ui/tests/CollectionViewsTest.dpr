@@ -5668,6 +5668,7 @@ end;
 {$I MCPModuleTests.inc}
 {$I ZstdModuleTests.inc}
 {$I FormatComponentTests.inc}
+{$I ComponentReceiptTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5888,6 +5889,7 @@ begin
       else if ParamStr(1) = 'optional-mcp' then TestOptionalMCPModule
       else if ParamStr(1) = 'optional-zstd' then TestOptionalZstdModule
       else if ParamStr(1) = 'format-components' then TestFormatComponents
+      else if ParamStr(1) = 'component-receipts' then TestComponentReceipts
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents

@@ -9,12 +9,13 @@ uses System.SysUtils, System.Classes, System.JSON;
 const
   UPDATE_MANIFEST = 'HomeLibRu.update.json';
   UPDATE_MAX_ARCHIVE = 256 * 1024 * 1024;
+  COMPONENT_RECEIPT_FOLDER = 'tools/component-state/';
 
 type
   TUpdateFile = record
     Name, SHA256: string;
     Size: Int64;
-    KeepExisting, Skip, Unchanged: Boolean;
+    KeepExisting, Skip, Unchanged, GeneratedReceipt: Boolean;
   end;
   TUpdateFiles = TArray<TUpdateFile>;
   TUpdateProgress = reference to procedure(const Text: string; Position, Total: Integer);
@@ -33,6 +34,8 @@ function CompareComponentVersions(const Left, Right: string; out Comparison: Int
 function ComponentFileName(const ID: string): string;
 function InstalledComponentVersion(const AppPath, ID: string): string;
 function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
+function ComponentReceiptName(const ID: string): string;
+function InstalledComponentFiles(const AppPath, ID: string): TUpdateFiles;
 function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
 procedure InstallProgramUpdate(const Job, Target: string;
@@ -54,7 +57,7 @@ function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.Hash, System.Zip,
+uses System.IOUtils, System.Hash, System.Zip, System.DateUtils,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
   unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents;
 
@@ -622,6 +625,8 @@ begin
       if not (Value is TJSONObject) or
          not TJSONObject(Value).TryGetValue<string>('path', FileInfo.Name) or
          not SafeUpdateName(FileInfo.Name) or
+         FileInfo.Name.StartsWith(COMPONENT_RECEIPT_FOLDER,True) or
+         SameText(FileInfo.Name,'tools/component-state') or
          not Allowed or
          ((Component <> '') and (Component <> 'batch') and not SafeComponentFile(Component, FileInfo.Name)) or
          not TJSONObject(Value).TryGetValue<string>('sha256', FileInfo.SHA256) or
@@ -649,6 +654,93 @@ begin
     if Assigned(Bundle) then for Part in Bundle do
       RequireComponentMembers(TJSONObject(Part).GetValue<string>('component'),TJSONObject(Part).GetValue<string>('version'));
   finally IDs.Free; Names.Free; end;
+end;
+
+function ComponentReceiptName(const ID: string): string;
+begin
+  if ComponentFileName(ID)='' then raise Exception.Create('Неизвестный компонент: '+ID);
+  Result:=COMPONENT_RECEIPT_FOLDER+StringReplace(LowerCase(ID),' ','-',[rfReplaceAll])+'.json';
+end;
+
+function InstalledComponentFiles(const AppPath, ID: string): TUpdateFiles;
+var Root: TJSONObject; Name, Platform: string;
+begin
+  Result:=nil; Name:=ChildPath(AppPath,ComponentReceiptName(ID));
+  if not FileExists(Name) then Exit;
+  if TFile.GetSize(Name)>1024*1024 then raise Exception.Create('Повреждён список файлов компонента '+ID+'.');
+  Root:=ReadJSON(Name);
+  try
+    Platform:=Root.GetValue<string>('platform','');
+    if (Root.GetValue<Integer>('format',0)<>1) or
+      (Root.GetValue<string>('component','')<>ID) or
+      ((Platform<>ProgramUpdatePlatform) and (Platform<>'AnyWindows')) or
+      Assigned(Root.GetValue('bundle')) then
+      raise Exception.Create('Список установленных файлов относится к другому компоненту.');
+    Result:=ManifestFiles(Root);
+  finally Root.Free; end;
+end;
+
+// Receipts are generated from already verified package manifests, not from a
+// directory scan. They participate in the same backup/journal as runtime files.
+function AppendComponentReceipts(const Job, Target: string; Manifest: TJSONObject;
+  const Files: TUpdateFiles): TUpdateFiles;
+var Bundle: TJSONArray;
+  procedure AddPart(Part: TJSONObject);
+  var ID, Primary, Name, ReceiptPath: string; Receipt, Entry: TJSONObject;
+    Entries: TJSONArray; PartFiles, Previous: TUpdateFiles; Info: TUpdateFile;
+    Names: TDictionary<string,Boolean>; Found, Skipped: Boolean;
+    procedure AddFile(const Value: TUpdateFile);
+    begin
+      if Names.ContainsKey(LowerCase(Value.Name)) then Exit;
+      if Entries.Count>=4000 then raise Exception.Create('Слишком много файлов в учёте компонента.');
+      Names.Add(LowerCase(Value.Name),True); Entry:=TJSONObject.Create;
+      Entry.AddPair('path',Value.Name); Entry.AddPair('sha256',Value.SHA256);
+      Entry.AddPair('size',TJSONNumber.Create(Value.Size)); Entries.AddElement(Entry);
+    end;
+  begin
+    ID:=Part.GetValue<string>('component','');
+    if (ID='') or (ID='batch') then Exit;
+    Primary:=ComponentFileName(ID); Found:=False; Skipped:=False;
+    for Info in Files do if SameText(Info.Name,Primary) then
+    begin Found:=True; Skipped:=Info.Skip; Break; end;
+    // A full update can preserve a newer installed module. Its receipt must
+    // remain untouched, too; otherwise it would claim the older package files.
+    if not Found or Skipped then Exit;
+    // Bundle parts contain identity metadata, while their actual files live in
+    // the parent manifest. Use only its explicit, already verified inventory;
+    // an allowlist is a filter here, never a filesystem deletion inventory.
+    PartFiles:=nil;
+    for Info in Files do if SafeComponentFile(ID,Info.Name) then
+    begin SetLength(PartFiles,Length(PartFiles)+1); PartFiles[High(PartFiles)]:=Info; end;
+    Previous:=nil;
+    try Previous:=InstalledComponentFiles(Target,ID); except Previous:=nil; end;
+    Receipt:=TJSONObject.Create; Names:=TDictionary<string,Boolean>.Create;
+    try
+      Receipt.AddPair('format',TJSONNumber.Create(1)); Receipt.AddPair('component',ID);
+      Receipt.AddPair('version',Part.GetValue<string>('version'));
+      Receipt.AddPair('platform',ProgramUpdatePlatform);
+      Receipt.AddPair('recordedUtc',DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True));
+      Entries:=TJSONArray.Create; Receipt.AddPair('files',Entries);
+      for Info in PartFiles do AddFile(Info);
+      // Retain earlier owned files omitted by a later package. Their original
+      // hashes let removal preserve any file modified since installation.
+      for Info in Previous do AddFile(Info);
+      Name:=ComponentReceiptName(ID);
+      ReceiptPath:=ChildPath(Job,'receipt-payload/'+Name);
+      ForceDirectories(ExtractFileDir(ReceiptPath)); WriteJSON(ReceiptPath,Receipt);
+      if TFile.GetSize(ReceiptPath)>1024*1024 then
+        raise Exception.Create('Слишком большой список файлов компонента.');
+      Info:=Default(TUpdateFile); Info.Name:=Name;
+      Info.Size:=TFile.GetSize(ReceiptPath); Info.SHA256:=UpdateSHA256(ReceiptPath);
+      Info.GeneratedReceipt:=True;
+      SetLength(Result,Length(Result)+1); Result[High(Result)]:=Info;
+    finally Names.Free; Receipt.Free; end;
+  end;
+begin
+  Result:=Copy(Files);
+  if Manifest.TryGetValue<TJSONArray>('bundle',Bundle) then
+    for var Part in Bundle do AddPart(TJSONObject(Part))
+  else AddPart(Manifest);
 end;
 
 procedure VerifyManagedAnyCPU(const FileName: string);
@@ -1420,6 +1512,11 @@ var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;
   ComponentID, ComponentPath, Folder: string;
+  function SourceFor(const Value: TUpdateFile): string;
+  begin
+    if Value.GeneratedReceipt then Result:=ChildPath(Job,'receipt-payload/'+Value.Name)
+    else Result:=ChildPath(Job,'payload/'+Value.Name);
+  end;
   function MatchesInstalled(const FileName: string; const Item: TUpdateFile): Boolean;
   begin
     Result:=False;
@@ -1449,7 +1546,6 @@ begin
     if Assigned(Manifest.GetValue('bundle')) then
       VerifyPreparedProgramUpdate(Job, Manifest.GetValue<string>('release'), ProgramUpdatePlatform);
     Files := ManifestFiles(Manifest);
-  finally Manifest.Free; end;
   // A full application archive can bundle an older component than the user
   // has already installed independently. Preserve that whole component.
   for ComponentID in ComponentNames do
@@ -1468,6 +1564,8 @@ begin
         Break;
       end;
   end;
+    Files:=AppendComponentReceipts(Job,Target,Manifest,Files);
+  finally Manifest.Free; end;
   // Update the main EXE last. The earlier EXE remains available during copying.
   for I := 0 to High(Files) do
     if SameText(Files[I].Name, 'HomeLibRu.exe') or SameText(Files[I].Name, 'HomeLibReader.exe') then
@@ -1476,7 +1574,7 @@ begin
   for I:=0 to High(Files) do
   begin
     Info:=Files[I];
-    Source := ChildPath(Job, 'payload/' + Info.Name); Destination := ChildPath(Target, Info.Name);
+    Source := SourceFor(Info); Destination := ChildPath(Target, Info.Name);
     if not FileExists(Source) or not SameText(UpdateSHA256(Source), Info.SHA256) then
       raise Exception.Create('Подготовленное обновление повреждено: ' + Info.Name);
     if Info.Skip or (Info.KeepExisting and FileExists(Destination)) then Continue;
@@ -1518,7 +1616,7 @@ begin
         Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
         Entry.AddPair('existed', TJSONBool.Create(Existed)); List.AddElement(Entry);
         WriteJSON(ChildPath(Job, 'journal.json'), Journal);
-        Source := ChildPath(Job, 'payload/' + Info.Name); Temporary := Destination + '.homelibru-new';
+        Source := SourceFor(Info); Temporary := Destination + '.homelibru-new';
         if not CopyFile(PChar(Source), PChar(Temporary), True) then
         begin
           I := GetLastError;
