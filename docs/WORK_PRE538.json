@@ -2718,7 +2718,8 @@
         "G:/HomeLibRu-build-cache/HomeLibRu-native-i5zRqC",
         "G:/HomeLibRu-build-cache/HomeLibRu-native-YQmDIH",
         "G:/HomeLibRu-build-cache/HomeLibre-KindleSave-3.0.0.3-20261101-r7",
-        "G:/HomeLibRu-build-cache/HomeLibRu-native-aZ95K6"
+        "G:/HomeLibRu-build-cache/HomeLibRu-native-aZ95K6",
+        "G:/HomeLibRu-build-cache/HomeLibre-ReaderIconTools-20261102-r1"
       ]
     },
     "next_check": "Kindle export development checks complete; rebuild and verify final shipping packages before publication. Proceed sequentially to the requested Reader icon.",
@@ -2799,5 +2800,15 @@
       "sha256": "00360552eadf9a3de2ae9fdb2d7fca5f6ead190464c53e79f43ff592bd21de25",
       "scope": "Device preferences, actual name collisions, independent output decode, complete two-package installation/restart/restore/cancel, Russian UI reason; fresh fixtures cleaned."
     }
+  },
+  "reader_icon_20261102": {
+    "status": "PASS Reader and catalogue resources Win32/Win64; ordinary Reader windows verified on both arches",
+    "artwork": "Original SVG in catalogue palette; separate small artwork, nine sizes 16..256; generated native ICO and named RES; no extra runtime download",
+    "runtime_report": "tools/ui/tests/Out/reader-icon-smoke-state-20261102-r1.json",
+    "source_and_old_profile_unchanged": true,
+    "new_fixture_removed_bytes": 34004481,
+    "cleanup": "Owned actual-reader fixture removed. Empty icon-tool marker folder was denied before execution: blocked by policy. No alternate deletion attempted; no package was downloaded there.",
+    "report": "tools\\ui\\tests\\Out\\reader-icon-final-20261102-r1.json",
+    "report_sha256": "57df4817ae90111c3660df4d1d493b8727f30270032b36e2fac52b3fcaa3c533"
   }
 }

@@ -488,6 +488,8 @@ function EditAndSaveReaderNote(Owner: TCustomForm; Store: TReaderAnnotations;
 
 implementation
 
+{$R '..\Resources\reader-icon.res'}
+
 uses Winapi.ActiveX, Winapi.RichEdit, Winapi.CommDlg, Winapi.CommCtrl, Winapi.ShellAPI, System.Math, System.DateUtils, System.IOUtils, System.RegularExpressions,
   System.IniFiles, System.Hash, System.NetEncoding, Vcl.Dialogs, Vcl.Clipbrd, unit_ReaderRichEdit, unit_ReaderLookup, unit_MHLTheme, unit_AtomicIniFile, Vcl.Themes, unit_MHLExternalTools, unit_ReaderPalette, unit_Diagnostics;
 
@@ -1098,6 +1100,7 @@ begin
   if AOwner is TCustomForm then
   begin PopupMode:=pmExplicit; PopupParent:=TCustomForm(AOwner); end;
   Caption:='HomeLibre — Читалка';
+  Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Position:=poScreenCenter; SetBounds(0,0,820,680); FRestoredBounds:=BoundsRect;
   Constraints.MinWidth:=640; Constraints.MinHeight:=360;
   Font.Name:='Segoe UI'; Font.Size:=9; KeyPreview:=True; DoubleBuffered:=True;

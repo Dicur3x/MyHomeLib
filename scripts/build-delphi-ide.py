@@ -17,7 +17,7 @@ import subprocess
 import time
 
 
-def build(project, platform, binary, logs, ide, required_text=(), visible=False):
+def build(project, platform, binary, logs, ide, required_text=(), visible=False, timeout=180):
     project, binary, logs, ide = [Path(p).resolve() for p in (project, binary, logs, ide)]
     if project.suffix != '.dproj' or not ide.is_file():
         raise ValueError('A Delphi project and installed IDE are required')
@@ -41,7 +41,7 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False)
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 5 if visible else 0
         completed = subprocess.run([str(ide), '-ns', '-b', '-o' + str(log), str(clone or project)],
-                                   startupinfo=startup, timeout=180)
+                                   startupinfo=startup, timeout=timeout)
         if completed.returncode or not log.is_file():
             raise RuntimeError(f'IDE build failed ({completed.returncode}); log: {log}')
         text = log.read_text(encoding='utf-8', errors='replace')
@@ -82,5 +82,6 @@ if __name__ == '__main__':
     parser.add_argument('--ide', type=Path, default=Path(r'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\bds.exe'))
     parser.add_argument('--require-text', action='append', default=[])
     parser.add_argument('--visible', action='store_true', help='Show IDE for interactive compiler-failure inspection')
+    parser.add_argument('--timeout', type=int, default=180, help='Build timeout in seconds; use a longer bound for the full application under load')
     args = parser.parse_args()
-    build(args.project, args.platform, args.binary, args.logs, args.ide, args.require_text, args.visible)
+    build(args.project, args.platform, args.binary, args.logs, args.ide, args.require_text, args.visible, args.timeout)

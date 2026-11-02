@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- HomeLibre Reader: the catalogue palette, an open book and a bookmark. -->
+  <defs>
+    <linearGradient id="cover" x2="0" y2="1"><stop stop-color="#4a82c8"/><stop offset="1" stop-color="#28568e"/></linearGradient>
+    <linearGradient id="paper" x2="0" y2="1"><stop stop-color="#fffdf5"/><stop offset="1" stop-color="#e9e4d4"/></linearGradient>
+  </defs>
+  <path d="M18 49 Q72 25 128 52 Q184 25 238 49 L238 214 Q180 195 128 220 Q76 195 18 214Z" fill="#122c4d" opacity=".16"/>
+  <path d="M12 43 Q72 21 128 47 Q184 21 244 43 L244 207 Q184 187 128 214 Q72 187 12 207Z" fill="url(#cover)" stroke="#173753" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M23 37 Q79 19 128 43 Q177 19 233 37 L233 190 Q177 173 128 198 Q79 173 23 190Z" fill="url(#paper)" stroke="#173753" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M128 44V197" stroke="#b9b5a8" stroke-width="5"/>
+  <path d="M181 30 L181 101 L195 91 L209 101 L209 31Z" fill="#ed713f" stroke="#b74f26" stroke-width="3" stroke-linejoin="round"/>
+  <g stroke="#889aaa" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M43 75 Q73 70 105 82 M43 101 Q73 96 105 108 M43 127 Q73 122 105 134 M43 153 Q73 148 105 160"/>
+    <path d="M151 120 Q177 110 211 116 M151 146 Q177 136 211 142 M151 172 Q177 162 211 168"/>
+  </g>
+</svg>

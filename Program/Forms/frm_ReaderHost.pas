@@ -103,6 +103,7 @@ var Intro: TLabel; OpenButton: TButton; Ini: TMemIniFile; Value: string;
 begin
   inherited CreateNew(AOwner);
   Name:='ReaderHost'; Caption:='HomeLibre Reader'; Position:=poScreenCenter;
+  Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Font.Name:='Segoe UI'; Font.Size:=10; ClientWidth:=720; ClientHeight:=430;
   Constraints.MinWidth:=520; Constraints.MinHeight:=350;
   OnCloseQuery:=HostCloseQuery;

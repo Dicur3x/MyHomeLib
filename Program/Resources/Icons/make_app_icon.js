@@ -176,7 +176,7 @@ function makeRes(type, name, data, memFlags) {
 
 /* RT_GROUP_ICON is the ICONDIR with each entry's 4-byte file offset replaced
    by the 2-byte resource id of the matching RT_ICON. */
-function groupIcon(images) {
+function groupIcon(images, firstResourceId = 1) {
   const b = Buffer.alloc(6 + images.length * 14);
   b.writeUInt16LE(0, 0);
   b.writeUInt16LE(1, 2);
@@ -190,7 +190,7 @@ function groupIcon(images) {
     b.writeUInt16LE(1, e + 4);
     b.writeUInt16LE(32, e + 6);
     b.writeUInt32LE(img.data.length, e + 8);
-    b.writeUInt16LE(i + 1, e + 12); // RT_ICON resource id
+    b.writeUInt16LE(firstResourceId + i, e + 12); // RT_ICON resource id
   });
   return b;
 }
@@ -243,7 +243,11 @@ function patchDfmIcon(dfmPath, image) {
 
 /* ------------------------------------------------------------------------- */
 
-(async () => {
+// Reader artwork uses the same proven ICO encoding without rewriting the
+// catalogue's icon, installer or form resources during an import.
+module.exports = { bmpEntry, buildIco, makeRes, groupIcon };
+
+if (require.main === module) (async () => {
   const images = [];
   for (const [size, src, asPng] of PLAN) {
     // Rasterise from the SVG at the target size rather than downscaling a big

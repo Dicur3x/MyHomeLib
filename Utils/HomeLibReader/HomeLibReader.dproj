@@ -10,6 +10,7 @@
     <Platform Condition="'$(Platform)'==''">Win64</Platform>
     <TargetedPlatforms>3</TargetedPlatforms>
     <AppType>Application</AppType><FrameworkType>VCL</FrameworkType>
+    <Icon_MainIcon>..\..\Program\Resources\reader.ico</Icon_MainIcon>
     <VerInfo_PreRelease>true</VerInfo_PreRelease>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     <VerInfo_Locale>1049</VerInfo_Locale>

@@ -15,6 +15,7 @@ begin
   Startup:=ResolveReaderStartup(ParamStr(0),Arguments);
   ConfigureMHLHostProfile(Startup.Profile,'HomeLibReader.ini','reader-user.dbs2');
   Application.Initialize; Application.MainFormOnTaskbar:=True;
+  Application.Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Application.Title:='HomeLibre Reader';
   OleCheck(CoInitializeEx(nil,COINIT_APARTMENTTHREADED));
   try

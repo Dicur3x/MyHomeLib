@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Pixel-size cut: fewer marks and a stronger book silhouette. -->
+  <path d="M1 6 Q8 3 16 7 Q24 3 31 6 V27 Q23 24 16 28 Q9 24 1 27Z" fill="#3775b8" stroke="#173753" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M3 4 Q9 2 16 6 Q23 2 29 4 V23 Q22 21 16 25 Q10 21 3 23Z" fill="#fffaf0" stroke="#173753" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M16 6V24" stroke="#aaa99f" stroke-width="1"/>
+  <path d="M22 3V13L24 11L26 13V3Z" fill="#ed713f"/>
+  <path d="M6 10L12 12M6 15L12 17M20 17L26 16M20 21L26 20" stroke="#889aaa" stroke-width="1.5" stroke-linecap="round"/>
+</svg>
