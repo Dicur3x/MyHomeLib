@@ -26,6 +26,7 @@ class ScanExport:
         self.book, self.context = book, context
         spec = importlib.util.spec_from_file_location('homelib_scan_quality', Path(__file__).with_name('image_quality.py'))
         self.codec = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.codec)
+        self.storage = self.codec.image_storage(context['target'],context.get('container'))
         self.pending = []; self.done = 0; self.total = 0; self.chosen = False
         self.unsplit = set()
         self.profile = context['profile']; self.layout = context.get('layout', 'keep')
@@ -40,7 +41,7 @@ class ScanExport:
         section.append(self.book.el('h2', 'Страница '+str(number)))
         self.pending.append((data, section, number)); self.total = max(self.total, total or number)
         # The first sample and each later batch fit within a small memory budget.
-        maximum = 9 if not self.chosen else 12
+        maximum = 9 if not self.chosen or (self.storage != 'raw' and self.profile in ('balanced','economy')) else 12
         if len(self.pending) >= maximum or sum(len(item[0]) for item in self.pending) >= 32*1024*1024:
             self.flush()
 
@@ -50,7 +51,7 @@ class ScanExport:
             self.chosen = True; return None
         if not self.context.get('options') or not self.context.get('choice'):
             self.book.fail('Не указан канал выбора качества.')
-        kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,'keep')
+        kept = self.codec.run(self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,'keep',self.storage)
         # The decoder has validated these PNGs. Portrait/square pages cannot
         # split in either mode, and PNG has no JPEG EXIF orientation here.
         # Reuse their exact results rather than encoding every profile thrice.
@@ -60,7 +61,7 @@ class ScanExport:
         estimates = {'keep': kept}
         for layout in ('split','auto'):
             estimates[layout] = kept if unchanged else self.codec.run(
-                self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,layout)
+                self.book.c,self.tool,pictures,directory,'estimate',self.book.progress,layout,self.storage)
         total = len(pictures) if complete else max(len(pictures),self.total)
         target = self.context['target']
         def size(pages):
@@ -110,7 +111,7 @@ class ScanExport:
                     indices=[i for i,(_,_,number) in enumerate(self.pending) if ('keep' if number in self.excluded else self.layout)==layout]
                     if not indices: continue
                     result=self.codec.run(self.book.c,self.tool,[self.pending[i][0] for i in indices],directory,
-                                          self.profile,lambda *_: None,layout)
+                                          self.profile,lambda *_: None,layout,self.storage)
                     self.unsplit.update(self.pending[indices[i]][2] for i in result['_unsplit'])
                     for i,pages in zip(indices,result[self.profile]): encoded[i]=pages
             for (_data,section,number),pages in zip(self.pending,encoded):

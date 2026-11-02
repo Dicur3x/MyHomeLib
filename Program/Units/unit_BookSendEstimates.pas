@@ -271,7 +271,7 @@ begin
               // The chooser runs on this worker. Returning cancel terminates
               // the sample conversion, without creating the full output.
               Result:='';
-            end);
+            end,False,'',FPlan.Mode=emFB2Zip);
         except on E: EAbort do if not Captured then raise; end;
         if not Captured then
         begin

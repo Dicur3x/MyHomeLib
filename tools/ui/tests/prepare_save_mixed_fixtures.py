@@ -33,6 +33,13 @@ def prepare(profile, runtime, doc_payload=None):
         '<body><section><p>' + text + '</p><image l:href="#illustration"/></section></body>'
         '<binary id="illustration" content-type="image/png">' + base64.b64encode(png).decode() +
         '</binary></FictionBook>', encoding='utf-8')
+    # This source reverses the raw PNG/JPEG ranking after deflate. The actual
+    # native Save As path must choose for its final container, not a raw FB2.
+    from reader_save_first_use_smoke import image_fixture
+    (target / 'container-profile.fb2').write_text(
+        (target / 'source.fb2').read_text(encoding='utf-8').replace(
+            base64.b64encode(png).decode(), base64.b64encode(image_fixture()).decode()),
+        encoding='utf-8')
     with zipfile.ZipFile(target / 'source.epub', 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
         archive.writestr('META-INF/container.xml', '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')

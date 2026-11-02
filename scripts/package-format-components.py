@@ -57,7 +57,7 @@ def payload_for(platform, component, kindle_export_root=None):
                             ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py', 'COMPONENT.json')))
         payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
         required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
-                    'tools/bookconvert/MODULAR_API.txt', 'tools/python/python313.dll',
+                    'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
                     'tools/python/python313.zip', 'tools/python/python313._pth']
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':

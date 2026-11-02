@@ -31,7 +31,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const Author: string = ''; const Language: string = ''; const ForReading: Boolean = False;
   const OnProgress: TBookConversionProgress = nil;
   const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
-  const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '');
+  const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
+  const PackedOutput: Boolean = False);
 
 implementation
 
@@ -175,7 +176,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean;
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
-  const OverwriteExisting: Boolean; const ProtectedSourceFile: string);
+  const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -235,6 +236,14 @@ begin
   if not ForReading and ((QualityProfile<>'original') or (ScanLayout<>'keep')) then
   begin
     var Capability:=TPath.Combine(AppPath,'tools\bookconvert\SAVE_OPTIONS_API.txt');
+    if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
+      (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
+      if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
+        Missing:=TArray<string>.Create('BookProcessing')+Missing;
+  end;
+  if not ForReading and ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
+  begin
+    var Capability:=TPath.Combine(AppPath,'tools/bookconvert/IMAGE_CONTAINER_API.txt');
     if not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
       (Trim(TFile.ReadAllText(Capability,TEncoding.UTF8))<>'1') then
       if (Length(Missing)=0) or (Missing[0]<>'BookProcessing') then
@@ -492,6 +501,9 @@ begin
         if not ForReading then
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
+          if PackedOutput and (TargetExtension='.fb2') and
+            ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
+            Arguments:=Arguments+TArray<string>.Create('--image-container','fb2-zip');
           if ScanExclude<>'' then Arguments:=Arguments+TArray<string>.Create('--scan-exclude',ScanExclude);
           if QualityProfile='ask' then Arguments:=Arguments+TArray<string>.Create(
             '--image-options',ImageOptionsName,'--image-choice',ImageChoiceName);

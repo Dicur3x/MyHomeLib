@@ -1432,6 +1432,7 @@ def detect_input(source):
 
 def convert_book(source, destination, **metadata):
     image_quality = metadata.pop('image_quality', 'original')
+    image_container = metadata.pop('image_container', None)
     image_options = metadata.pop('image_options', None)
     image_choice = metadata.pop('image_choice', None)
     scan_layout = metadata.pop('scan_layout', 'keep')
@@ -1447,6 +1448,8 @@ def convert_book(source, destination, **metadata):
     if source.stat().st_size > MAX_TOTAL:
         raise ConversionError('Книга превышает предел конвертации (256 МБ).')
     extension, target_extension = detect_input(source), destination.suffix.lower()
+    if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
+        raise ConversionError('Неверный контейнер обработки изображений.')
     if target_extension in {'.mobi', '.azw3'}:
         script = Path(__file__).with_name('kindle_output.py')
         if not script.is_file():
@@ -1465,7 +1468,7 @@ def convert_book(source, destination, **metadata):
     # export, including the original-quality choice. Reading has its own path.
     scanned_document = extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm'}
     if not metadata.get('reading') and (image_quality!='original' or scan_layout!='keep' or scanned_document) and extension in {'.pdf','.djvu','.djv','.dju','.djm','.djvm','.tif','.tiff','.cbz','.cbr','.cb7','.jpg','.jpeg','.png','.gif','.bmp','.webp','.xps'}:
-        image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,
+        image_export={'profile':image_quality,'layout':scan_layout,'exclude':scan_exclude,'target':target_extension,'container':image_container,
                       'options':image_options,'choice':image_choice,'handled':False}
         metadata['image_export']=image_export
     large_images = extension in {'.tif','.tiff','.cbz','.cbr','.cb7'} or (extension=='.fb2' and metadata.get('reading'))
@@ -1527,7 +1530,7 @@ def convert_book(source, destination, **metadata):
             spec=importlib.util.spec_from_file_location('homelib_b1',Path(__file__).with_name('b1_input.py'))
             module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             api=type('ConversionAPI',(),{name:value for name,value in globals().items() if not name.startswith('__')})
-            options=dict(metadata,image_quality=image_quality,image_options=image_options,image_choice=image_choice,
+            options=dict(metadata,image_quality=image_quality,image_options=image_options,image_choice=image_choice,image_container=image_container,
                          scan_layout=scan_layout,scan_exclude=scan_exclude)
             module.convert(api,source,temporary,target_extension,warnings,options)
         elif cr3_input:
@@ -1550,7 +1553,7 @@ def convert_book(source, destination, **metadata):
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
-                         metadata.get('progress') or (lambda *_: None), image_options, image_choice, warnings)
+                         metadata.get('progress') or (lambda *_: None), image_options, image_choice, warnings,image_container)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             archive = EpubArchive(temporary)
@@ -1617,6 +1620,7 @@ def main():
     parser.add_argument('--resource-root')
     parser.add_argument('--tools-root')
     parser.add_argument('--image-quality', choices=['original','high','balanced','economy','none','ask'], default='original')
+    parser.add_argument('--image-container', choices=['raw','fb2-zip'], help='Internal final image container; EPUB is inferred by default')
     parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
     parser.add_argument('--scan-exclude', default='')
     parser.add_argument('--image-options', help='Internal image size estimate channel')
@@ -1660,7 +1664,7 @@ def main():
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
-                              image_options=options.image_options, image_choice=options.image_choice)
+                              image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)
         print(text)

@@ -795,7 +795,8 @@ begin
               if ApplyToAll then FImageQuality:=Selected;
             end);
           Result:=Selected;
-        end,FOverwriteExisting,FFileOprecord.OriginalSourceFile);
+        end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
+        (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')));
       FLastWarnings := Warnings.Text;
       Result := True;
       if not (FExportMode in [emFB2,emEpub,emMobi,emAZW3]) then

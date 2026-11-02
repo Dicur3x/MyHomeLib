@@ -466,6 +466,8 @@ begin
   finally Thread.Free; end;
 end;
 
+{$I ImageContainerSaveTests.inc}
+
 procedure TestBookSavePlanning;
 var PreviousMask: string; PreviousSubfolders: Boolean; Reloaded: TMHLSettings;
 begin
@@ -478,6 +480,7 @@ begin
   TestRestoredSaveOptions;
   TestCompactSavePrompt;
   TestRealMixedBookSaving;
+  TestImageContainerBookSaving;
   PreviousMask:=Settings.SaveAsFolderTemplate; PreviousSubfolders:=Settings.SaveAsUseSubfolders;
   try
     Settings.SaveAsFolderTemplate:='%f\[%s]'; Settings.SaveAsUseSubfolders:=False; Settings.SaveSettings;

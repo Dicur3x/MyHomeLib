@@ -244,7 +244,7 @@ function requiredPasses(executable, mode) {
     : 'PASS compact legacy converter to independent processing download actual installer restart restored review cancel and unchanged source'];
   if (mode==='reader-story') return ['PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene','PASS native SM false suffix, real controls, conditional branch, Unicode input, FB2 EPUB route export, verified resume, existing target and cancellation cleanup'];
   if (mode==='save-host-resume') return ['PASS actual reader host consumes restarted Save As once, restores options over visible book, cancels without output and preserves source'];
-  if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub book_count='+(saveDocInventoryArg?7:6),'PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source'];
+  if (mode==='save-planning') return ['PASS real mixed save keep-fb2-epub-other-epub book_count='+(saveDocInventoryArg?7:6),'PASS real illustrated and scan size estimates include all image modes and ZIP without source changes','PASS save continuation exact Unicode options remaining identities one consumer live owner stale source unrelated update and bounded count','PASS save estimate known bytes four modes native ZIP unavailable module cancellation and unchanged source','PASS native packed image profiles estimates content integrity and single core capability repair'];
   if (mode==='minimum-save') return ['PASS minimum save byte-exact FB2 EPUB and native ZIP without converter or 7-Zip; real changes report one missing-module request'];
   if (mode==='kindle-save') return ['PASS native Kindle Save As real output estimates image modes and unchanged originals',
     'PASS TXT MOBI AZW3 device format preferences preselect the actual mixed Save As dialog; cancellation creates no file',
@@ -731,6 +731,11 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     if(mode==='kindle-save') {
       const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_kindle_saves.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:180000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
       if(checked.status!==0) throw Error('Independent native Kindle verification failed: '+checked.stdout+checked.stderr);
+      process.stdout.write(checked.stdout);
+    }
+    if(mode==='save-planning') {
+      const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_image_containers.py'),folder],{windowsHide:true,encoding:'utf8',timeout:30000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+      if(checked.status!==0) throw Error('Independent native container verification failed: '+checked.stdout+checked.stderr);
       process.stdout.write(checked.stdout);
     }
     if (mode === 'optional-mcp') {

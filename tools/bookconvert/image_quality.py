@@ -83,6 +83,11 @@ def readable_text(api, root, fb2):
     return False
 
 
+def fb2_encoding(data):
+    declaration = re.match(br'\s*<\?xml[^>]*encoding=[\'\"]([^\'\"]+)',data.lstrip(b'\xef\xbb\xbf'))
+    return declaration[1].decode('ascii') if declaration else 'utf-8'
+
+
 def strip_fb2(api, root):
     references = {n.get('{'+api.XL+'}href', '').lstrip('#')
                   for n in root.iter() if api.tag(n) == 'image'}
@@ -127,8 +132,7 @@ def without_images(api, book, destination, target_extension):
         count = strip_fb2(api, root)
         if count and not has_text:
             raise NoTextContent('В книге нет отдельного текста: изображения содержат сами страницы. Для режима без изображений сначала нужно распознать текст.')
-        declaration = re.match(br'\s*<\?xml[^>]*encoding=[\'\"]([^\'\"]+)',original.lstrip(b'\xef\xbb\xbf'))
-        encoding = declaration[1].decode('ascii') if declaration else 'utf-8'
+        encoding = fb2_encoding(original)
         # Keep legacy Cyrillic encodings: deleting a small cover should not
         # double the text payload just because UTF-8 uses two bytes per letter.
         destination.write_bytes(api.ET.tostring(root,encoding=encoding,xml_declaration=True))
@@ -239,13 +243,53 @@ def mime(data):
     return None
 
 
-def run(api, tool, pictures, directory, profile, progress, layout=None):
+def image_storage(target_extension, container=None):
+    if container == 'fb2-zip':
+        if target_extension != '.fb2': raise ValueError('ZIP-контекст допустим только для FB2.')
+        return container
+    if container not in (None, 'raw'): raise ValueError('Неизвестный контейнер изображений.')
+    return container or ('epub' if target_extension == '.epub' else 'raw')
+
+
+def select_container_profiles(result, profile, storage, layout=False):
+    """Reuse clearer candidates when they cost less in the actual container."""
+    if storage == 'raw': return result
+    if storage not in ('epub', 'fb2-zip'): raise ValueError('Неизвестный контейнер изображений.')
+    order = SCAN_PROFILES if layout else PROFILES
+    chosen, costs = {}, {}
+    def cost(data):
+        key = id(data)
+        if key not in costs:
+            costs[key] = deflated_size(base64.b64encode(data) if storage == 'fb2-zip' else data)
+        return costs[key]
+    for at, name in enumerate(order):
+        if name not in result: continue
+        predecessors = [result[p] for p in order[:at+1] if p in result]
+        if layout:
+            chosen[name] = [[min((source[i][half] for source in predecessors), key=cost)
+                             for half in range(len(pages))] for i,pages in enumerate(result[name])]
+        else:
+            chosen[name] = [min((source[i] for source in predecessors), key=cost)
+                            for i in range(len(result[name]))]
+    # min() keeps the earlier, clearer profile when compressed costs tie.
+    if profile != 'estimate': chosen = {profile: chosen[profile]}
+    if '_unsplit' in result: chosen['_unsplit'] = result['_unsplit']
+    return chosen
+
+
+def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw'):
+    native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
+    # Existing helpers already encode predecessors before economy, so asking
+    # for their results does not decode the input again. Their estimate API
+    # accepts at most nine images; all callers keep their batches within it.
+    if native_profile == 'estimate' and len(pictures) > 9:
+        raise api.ConversionError('Слишком большая порция оценки изображений.')
     source, output, log = directory/'images.zip', directory/'encoded.zip', directory/'codec.log'
     source.unlink(missing_ok=True); output.unlink(missing_ok=True)
     with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_STORED) as archive:
         for index, data in enumerate(pictures): archive.writestr(f'{index:05d}', data)
     with log.open('wb') as stream:
-        arguments = [str(tool), '--scan-images' if layout else '--export-images', str(source), str(output), profile]
+        arguments = [str(tool), '--scan-images' if layout else '--export-images', str(source), str(output), native_profile]
         if layout: arguments.append(layout)
         process = subprocess.Popen(arguments,
                                    stdout=stream, stderr=subprocess.STDOUT,
@@ -268,7 +312,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None):
     if process.returncode or not output.is_file():
         detail = '\n'.join(s for s in log.read_bytes()[-1800:].decode('utf-8', errors='replace').splitlines() if not s.startswith('IMAGE '))
         raise api.ConversionError('Не удалось подготовить изображения для экспорта. '+detail)
-    profiles = (SCAN_PROFILES if layout else PROFILES) if profile == 'estimate' else (profile,)
+    profiles = (SCAN_PROFILES if layout else PROFILES) if native_profile == 'estimate' else (profile,)
     with zipfile.ZipFile(output) as archive:
         if layout:
             allowed = {f'{p}/{i:05d}-{half}' for p in profiles for i in range(len(pictures)) for half in (0,1)}
@@ -296,7 +340,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None):
                                   if line.startswith('SCAN_UNSPLIT ')]
             if any(not 0 <= index < len(pictures) for index in result['_unsplit']):
                 raise api.ConversionError('Некорректный отчёт границ сканов.')
-            return result
+            return select_container_profiles(result,profile,storage,True)
         expected = {f'{p}/{i:05d}' for p in profiles for i in range(len(pictures))}
         if set(archive.namelist()) != expected or len(archive.infolist()) != len(expected):
             raise api.ConversionError('Неполный результат сжатия изображений.')
@@ -306,13 +350,26 @@ def run(api, tool, pictures, directory, profile, progress, layout=None):
             for i, original in enumerate(pictures):
                 entry = archive.getinfo(f'{p}/{i:05d}')
                 if not 0 < entry.file_size <= len(original): raise api.ConversionError('Некорректный размер сжатого изображения.')
-                data = archive.read(entry)
+                if p == 'high' and entry.file_size == len(original):
+                    # Reuse an exact source candidate without keeping another
+                    # nine originals in a 32-bit process. Older compatible
+                    # helpers may produce a different high profile; retain it.
+                    with archive.open(entry) as stream:
+                        position = 0; identical = True
+                        while True:
+                            block = stream.read(256*1024)
+                            if not block: break
+                            identical = identical and block == original[position:position+len(block)]
+                            position += len(block)
+                    data = original if identical and position == len(original) else archive.read(entry)
+                else: data = archive.read(entry)
                 if not mime(data): raise api.ConversionError('Некорректное сжатое изображение.')
                 result[p].append(data)
-    return result
+    return select_container_profiles(result,profile,storage)
 
 
-def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None):
+def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None):
+    storage = image_storage(target_extension,container)
     if profile == 'original': return
     if profile not in (*PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
     if profile == 'none':
@@ -327,7 +384,10 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
     pictures, identities = [], []
     root = None
     if target_extension == '.fb2':
-        root = api.xml(book.read_bytes(), api.MAX_TOTAL)
+        original_bytes = book.read_bytes()
+        encoding = fb2_encoding(original_bytes)
+        root = api.xml(original_bytes, api.MAX_TOTAL)
+        del original_bytes
         for node in root:
             if api.tag(node) != 'binary': continue
             data = base64.b64decode(''.join((node.text or '').split()), validate=True)
@@ -336,7 +396,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         # formatting whitespace as text that will survive image re-encoding.
         texts = [node.text for node in identities]
         for node in identities: node.text = None
-        stripped = api.serialized(root)
+        stripped = api.ET.tostring(root,encoding=encoding,xml_declaration=True)
         overhead = len(stripped)
         zip_overhead = deflated_size(stripped)
         for node,text in zip(identities,texts): node.text = text
@@ -374,7 +434,7 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             count = min(9, len(ordered))
             sample_indices = sorted({ordered[round(i*(len(ordered)-1)/max(1,count-1))] for i in range(count)})
             samples = ({p:[pictures[i] for i in sample_indices] for p in PROFILES} if small else
-                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate', progress))
+                       run(api, tool, [pictures[i] for i in sample_indices], directory, 'estimate', progress, storage=storage))
             # Stratify by source resource size, rather than multiplying one cover
             # by the page count. EPUB compression and FB2 base64 have different costs.
             weights = [0]*len(sample_indices)
@@ -427,15 +487,16 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
             for index, data in zip(sample_indices, samples[profile]): encoded[index] = data
         remaining = [i for i,data in enumerate(encoded) if data is None]
         # Batches bound additional memory and disk usage even for a long scan.
-        for at in range(0,len(remaining),12):
-            indices = remaining[at:at+12]
-            result = run(api, tool, [pictures[i] for i in indices], directory, profile, lambda *_: None)[profile]
+        for at in range(0,len(remaining),9):
+            indices = remaining[at:at+9]
+            result = run(api, tool, [pictures[i] for i in indices], directory, profile, lambda *_: None,storage=storage)[profile]
             for index,data in zip(indices,result): encoded[index] = data
             progress('optimizing-images', min(len(pictures), at+len(indices)+len(sample_indices)), len(pictures))
+        if all(original == changed for original,changed in zip(pictures,encoded)): return
         if target_extension == '.fb2':
             for node,data in zip(identities,encoded):
                 node.text = base64.b64encode(data).decode('ascii'); node.set('content-type', mime(data))
-            book.write_bytes(api.serialized(root))
+            book.write_bytes(api.ET.tostring(root,encoding=encoding,xml_declaration=True))
         else:
             replacements = dict(zip(identities,encoded)); rewritten = directory/'book.epub'
             with zipfile.ZipFile(book) as source, zipfile.ZipFile(rewritten,'w',compression=zipfile.ZIP_DEFLATED) as output:
