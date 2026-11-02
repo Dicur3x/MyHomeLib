@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-02T04:35:59.656808+00:00",
+  "updated_utc": "2026-11-02T06:35:13.498375+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -2632,7 +2632,7 @@
     "reader_large_book": "Tester: Беги за мёртвым кроликом, FB2 approximately 40 MB, image-memory message in beta 1. Generic deferred-image fix is in beta 2; this exact book has not yet been verified.",
     "save_formats": "Original-format save is preserved for each format. Current list offers FB2/FB2.ZIP/EPUB. After discussing Kindles, the user explicitly requested restoring working MOBI and TXT conversion, then also authorized AZW3 for newer Kindles. Verify optional Kindle output backends, install only when selected, and test output and missing-component handling on x86/x64. Reconcile the legacy device format setting with Save As. No other output format is newly authorized by this discussion.",
     "diagnostics": "Implemented Reader Help → Журнал ошибок menu, copyable actual folder, themed resizeable window and FAQ. Native real production menu/ZIP/current-log checks passed in four contexts on Win32/Win64, 96/144/192 DPI. Both full Reader builds passed. Actual Reader x64 menu and light dialog visually verified. System ZIP save picker was not exposed to Computer Use; no claim of that GUI interaction. Not published yet.",
-    "authors": "Design queued on visible Page: independent personal author rating and reversible hiding. Code analysis: online deletion removes downloaded file; offline deletion removes catalogue/system records, may optionally delete source files. Re-import has no persistent author exclusion. Review whole-archive deletion paths before extending bulk deletion.",
+    "authors": "Independent personal author rating/hiding design remains queued. Existing delete commands now preserve whole ZIP/7z, confirm collection/unique-book count, revalidate source identity, commit database deletion before files and report failures. Native x86/x64 checks passed; see book_deletion_safety_20261102. Existing Groups/Favorites restriction and new author/series shortcut commands remain pending.",
     "reader_icon": "User screenshot confirms generic executable/window/taskbar icon remains. Queued after current export task; not fixed yet.",
     "diagnostics_cleanup": {
       "root": "G:/HomeLibRu-build-cache/HomeLibRu-diagnostics-GUI-jzcx0728",
@@ -2861,5 +2861,32 @@
       "actual_reader_fixture_removed": false,
       "cleanup_rejection": "blocked by policy; no deletion retry"
     }
+  },
+  "book_deletion_safety_20261102": {
+    "status": "PASS implementation and native tests Win32/Win64; release packaging not performed",
+    "report": "tools\\ui\\tests\\Out\\book-deletion-final-20261102-r1.json",
+    "report_sha256": "35d4ec8c350c29dcdab33032e2a9c309bb8221dd2634237615991d4dd2f294d5",
+    "native_scenarios_per_arch": 24,
+    "confirmation_batches_per_arch": 23,
+    "scope": "Existing book/file delete commands; protects whole archives, source identity, database failures and selected/unselected neighbours; five book-list views. General availability/new author-series commands unchanged.",
+    "limitations": [
+      "Native tests inspect the actual MessageDlg call using its VCL message-form renderer; OS TaskDialog visual appearance is not asserted",
+      "FBD classification path is checked for archive retention; shared ZIP and 7z checks compare unchanged bytes",
+      "Opaque PDF/DjVu/DOC cases verify filename/path deletion only, not content reading",
+      "Availability in collection types and the existing Groups/Favorites restriction are unchanged; new author/series shortcut commands remain pending",
+      "Full EXEs are development builds; final beta 3 versions and archives are separate release gates"
+    ],
+    "cleanup": {
+      "native_final_scenarios": "owned runtimes automatically removed by native harness",
+      "earlier_timed_out_fixture_roots_present": {
+        "HomeLibRu-native-dZXMhR": false,
+        "HomeLibRu-native-H4Mlay": false,
+        "HomeLibRu-native-szGBlA": false
+      },
+      "reference_fixture_retained_for_validation": "tools\\ui\\tests\\Out\\delete-7z-reference",
+      "reference_fixture_bytes": 272,
+      "old_denied_scopes": "not retried"
+    },
+    "next_direction": "Finish bounded asynchronous review retry for reported Flibusta 12002 while preserving cached reviews"
   }
 }

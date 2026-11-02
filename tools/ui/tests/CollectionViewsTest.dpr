@@ -5679,6 +5679,7 @@ end;
 {$I ReaderCacheSettingsTests.inc}
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
+{$I BookDeletionSafetyTests.inc}
 {$I ReaderOpenChoiceTests.inc}
 {$I SQLiteMappingTests.inc}
 {$I ReaderSessionProcessTests.inc}
@@ -5949,6 +5950,7 @@ begin
       else if ParamStr(1) = 'sqlite-mapping' then TestSQLiteMapping
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
+      else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
       else if ParamStr(1) = 'save-host-resume' then TestReaderSaveHostResume
       else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow

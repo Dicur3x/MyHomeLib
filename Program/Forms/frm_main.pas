@@ -789,6 +789,7 @@ type
     procedure ShowOPDS(Sender: TObject);
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
+    procedure RemoveSelectedBooks(const OnlyFiles: Boolean);
 
 
 
@@ -8032,89 +8033,126 @@ begin
   Clipboard.AsText := Trim(R);
 end;
 
-procedure TfrmMain.DeleteBookExecute(Sender: TObject);
-var
-  Tree: TBookTree;
-  Node, OldNode: PVirtualNode;
-  Data: PBookRecord;
-  BookFileName: string;
-  SavedCursor: TCursor;
-  Msg: string;
-  BookKey: TBookKey;
+function IsArchiveBookSource(const Book: TBookRecord): Boolean;
 begin
-  Assert(Assigned(FCollection));
-  if ActiveView = FavoritesView then
+  // GetBookFileName returns the whole ZIP/7z, not its selected member.
+  // This also protects private FBD archives and legacy ZIP -> 7z fallback.
+  Result := IsArchiveExt(Book.GetBookFileName);
+end;
+
+function RemoveIndividualBookSource(const Book: TBookRecord): Boolean;
+var FileName: string; Attributes, Error: Cardinal;
+begin
+  Result := False;
+  FileName := Book.GetBookFileName;
+  Attributes := GetFileAttributes(PChar(FileName));
+  if Attributes = INVALID_FILE_ATTRIBUTES then
   begin
-    MHLShowWarning(rstrChangeCollectionToRemoveABook);
-    Exit;
+    Error := GetLastError;
+    if (Error = ERROR_FILE_NOT_FOUND) or (Error = ERROR_PATH_NOT_FOUND) then Exit(True);
+    RaiseLastOSError(Error);
   end;
+  if IsArchiveExt(FileName) then Exit;
+  if Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+    raise EInOutError.Create('Путь книги указывает на папку. Папка не удалена.');
+  if not System.SysUtils.DeleteFile(FileName) then RaiseLastOSError;
+  Result := True;
+end;
 
-  if IsOnline then Msg :=  rstrRemoveSelectedBooksOnLine
-    else if Settings.DeleteFiles then Msg := rstrRemoveSelectedBooksFiles
-    else Msg := rstrRemoveSelectedBooks;
-
-  if MessageDlg(Msg, mtConfirmation, [mbYes, mbNo], 0) = mrNo then
-    Exit;
-
-  GetActiveTree(Tree);
-
-  SavedCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
+procedure TfrmMain.RemoveSelectedBooks(const OnlyFiles: Boolean);
+var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
+  Books: TList<TBookRecord>; Seen: TDictionary<UInt64, Byte>;
+  Book, Current: TBookRecord; CollectionID, ArchiveCount, Failures: Integer;
+  Key: UInt64; RemoveRecords, RemoveFiles, Wanted, Changed, AttemptedRecords: Boolean;
+  SavedCursor: TCursor; Msg, CollectionName: string;
+begin
+  if not Assigned(FCollection) or FFormBusy then Exit;
+  if ActiveView = FavoritesView then
+  begin MHLShowWarning(rstrChangeCollectionToRemoveABook); Exit; end;
+  GetActiveTree(Tree); if not Assigned(Tree) then Exit;
+  CollectionID := FCollection.CollectionID;
+  RemoveRecords := not IsOnline and not OnlyFiles;
+  RemoveFiles := IsOnline or OnlyFiles or (Settings.DeleteFiles and (not IsFB2 or IsPrivate));
+  Books := TList<TBookRecord>.Create; Seen := TDictionary<UInt64, Byte>.Create;
   try
-    Node := Tree.GetFirst;
+    ArchiveCount := 0; Node := Tree.GetFirst;
     while Assigned(Node) do
     begin
       Data := Tree.GetNodeData(Node);
-      Assert(Assigned(Data));
-
-      if (Data.nodeType = ntBookInfo) and (IsSelectedBookNode(Node, Data)) then
+      Wanted := Assigned(Data) and (Data^.nodeType = ntBookInfo) and
+        (Data^.BookKey.DatabaseID = CollectionID) and not Tree.IsEffectivelyFiltered[Node];
+      if Wanted then
+        if OnlyFiles then Wanted := (Node^.CheckState = csCheckedNormal) or (Node = Tree.FocusedNode)
+        else Wanted := IsSelectedBookNode(Node, Data);
+      if Wanted then
       begin
-        BookKey := Data^.BookKey;
-        BookFileName := Data^.GetBookFileName;
-
-        if IsOnline then
+        Key := (UInt64(Cardinal(Data^.BookKey.DatabaseID)) shl 32) or Cardinal(Data^.BookKey.BookID);
+        if not Seen.ContainsKey(Key) then
         begin
-          if (bpIsLocal in Data^.BookProps) and DeleteFile(BookFileName) then
-          begin
-            FCollection.SetLocal(Data^.BookKey, False);
-            SetBookLocalStatus(Data^.BookKey, False);
-          end;
-          Node := Tree.GetNext(Node);
-        end
-        else
-        begin
-          OldNode := Node;
-          Node := Tree.GetNext(Node);
-          Tree.DeleteNode(OldNode);
-          ClearLabels(Tree.Tag, False);
+          Seen.Add(Key, 0); Books.Add(Data^);
+          if IsArchiveBookSource(Data^) then Inc(ArchiveCount);
+        end;
+      end;
+      Node := Tree.GetNext(Node);
+    end;
+    if Books.Count = 0 then Exit;
+    CollectionName := FSystemData.GetCollectionInfo(CollectionID).DisplayName;
+    Msg := Format('Коллекция: %s'+sLineBreak+'Выбрано книг: %d'+sLineBreak+sLineBreak,
+      [CollectionName, Books.Count]);
+    if RemoveRecords then
+      if RemoveFiles then Msg := Msg + 'Удалить записи из каталога и отдельные файлы этих книг?'
+      else Msg := Msg + 'Удалить записи из каталога? Файлы книг останутся на диске.'
+    else Msg := Msg + 'Удалить отдельные загруженные файлы? Записи в каталоге сохранятся.';
+    if RemoveFiles and (ArchiveCount > 0) then
+      Msg := Msg + sLineBreak+sLineBreak+Format('Книг в архивах: %d. ZIP и 7z не удаляются и не изменяются: в них могут находиться другие книги.', [ArchiveCount]);
+    if MessageDlg(Msg, mtConfirmation, [mbYes, mbNo], 0, mbNo) <> mrYes then Exit;
+    if not Assigned(FCollection) or (FCollection.CollectionID <> CollectionID) then
+    begin MHLShowWarning('Коллекция изменилась. Повторите выбор книг.'); Exit; end;
 
-          if Settings.DeleteFiles then
+    SavedCursor := Screen.Cursor; Screen.Cursor := crHourGlass; FFormBusy := True;
+    Failures := 0; Changed := False; AttemptedRecords := False;
+    try
+      for Book in Books do
+        try
+          FCollection.GetBookRecord(Book.BookKey, Current, False);
+          if not Current.BookKey.IsSameAs(Book.BookKey) or
+            (Current.LibID <> Book.LibID) or
+            (ReaderBookPhysicalIdentity(Current) <> ReaderBookPhysicalIdentity(Book)) then
+            raise EInvalidOperation.Create('Книга в каталоге изменилась. Повторите её выбор.');
+          if RemoveRecords then
           begin
-            if not IsFB2 then
-              DeleteFile(BookFileName)
-            else if IsFB2 and IsPrivate then
-              DeleteFile(BookFileName);
+            // Let DeleteBook commit its own collection transaction before
+            // touching the source. A rejected database write keeps the file.
+            AttemptedRecords := True; FCollection.DeleteBook(Book.BookKey); Changed := True;
           end;
-
-          FCollection.BeginBulkOperation;
-          try
-            FCollection.DeleteBook(BookKey);
-            FCollection.EndBulkOperation(True);
-          except
-            FCollection.EndBulkOperation(False);
+          if RemoveFiles and (RemoveRecords or OnlyFiles or (bpIsLocal in Current.BookProps)) then
+            if RemoveIndividualBookSource(Current) then
+              if not RemoveRecords then
+              begin FCollection.SetLocal(Book.BookKey, False); Changed := True; end;
+        except
+          on E: Exception do
+          begin
+            Inc(Failures);
+            LogDiagnosticMessage('book-delete-context', Format('Коллекция: %d; ID книги: %d.',
+              [Book.BookKey.DatabaseID, Book.BookKey.BookID]));
+            LogDiagnosticError('book-delete', E, Book.GetFileType);
           end;
         end;
-      end
-      else
-        Node := Tree.GetNext(Node);
+    finally
+      FFormBusy := False; Screen.Cursor := SavedCursor;
+      if Changed or AttemptedRecords then
+      begin
+        if RemoveRecords then FStaleSelectors := FStaleSelectors + [AuthorsView, SeriesView];
+        RefreshBookMetadataViews(CollectionID);
+      end;
     end;
-    FPublisherListLoaded := False;
-    Exclude(FLoadedBookViews, PublisherSeriesView);
-    if ActiveView = PublisherSeriesView then EnsureActiveBookViewLoaded;
-  finally
-    Screen.Cursor := SavedCursor;
-  end;
+    if Failures > 0 then MHLShowWarning(Format('Не удалось полностью обработать книг: %d.'+
+      sLineBreak+'Подробности: «Помощь → Журнал ошибок…».', [Failures]));
+  finally Seen.Free; Books.Free; end;
 end;
+
+procedure TfrmMain.DeleteBookExecute(Sender: TObject);
+begin RemoveSelectedBooks(False); end;
 
 procedure TfrmMain.DeleteCollectionExecute(Sender: TObject);
 var
@@ -8146,43 +8184,7 @@ begin
 end;
 
 procedure TfrmMain.miDeleteFilesClick(Sender: TObject);
-var
-  DatabaseID: Integer;
-  FilePath: string;
-begin
-  Assert(Assigned(FCollection));
-  DatabaseID := FCollection.CollectionID;
-
-  ProcessNodes(
-    procedure (Tree: TBookTree; Node: PVirtualNode)
-    var
-      Data: PBookRecord;
-    begin
-      Data := Tree.GetNodeData(Node);
-      if Assigned(Data) and (Data^.nodeType = ntBookInfo) and (Data^.BookKey.DatabaseID = DatabaseID) then
-      begin
-        FilePath := Data^.GetBookFileName;
-        try
-          if TFile.Exists(FilePath) then
-            TFile.Delete(FilePath);
-        except
-        end;
-
-        if (bpIsLocal in Data^.BookProps) then
-          FCollection.SetLocal(Data^.BookKey, False);
-
-        UpdateNodes(
-          Data^.BookKey,
-          procedure(BookData: PBookRecord)
-          begin
-            Assert(Assigned(BookData));
-            Exclude(BookData^.BookProps, bpIsLocal);
-          end
-        );
-      end;
-    end
-  );
-end;
+begin RemoveSelectedBooks(True); end;
 
 
 
