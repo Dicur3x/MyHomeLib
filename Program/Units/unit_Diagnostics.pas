@@ -17,13 +17,14 @@ procedure LogDiagnosticMessage(const Operation, Message: string);
 procedure LogDiagnosticTrace(const Operation, Message: string; const FormatName: string = '');
 procedure LogDiagnosticError(const Operation: string; Error: Exception; const FormatName: string = '');
 procedure SaveDiagnosticReport(const FileName: string; AllowOverwrite: Boolean = False);
-procedure ShowDiagnostics(Owner: TComponent);
+procedure ShowDiagnostics(Owner: TComponent; const ConfigureForm: TProc<TComponent> = nil);
 
 implementation
 
 uses Winapi.Windows, Winapi.ShellAPI, System.IOUtils, System.DateUtils,
   System.JSON, System.Zip, System.RegularExpressions, Vcl.Forms, Vcl.StdCtrls,
-  Vcl.Controls, Vcl.Dialogs, Vcl.AppEvnts, System.IniFiles, unit_AtomicIniFile;
+  Vcl.Controls, Vcl.Dialogs, Vcl.AppEvnts, System.IniFiles, unit_AtomicIniFile,
+  unit_MHLTheme, unit_ReaderPalette;
 
 const MAX_DAILY_LOG = 2 * 1024 * 1024;
   LOG_DAYS = 7;
@@ -264,20 +265,25 @@ end;
 
 constructor TDiagnosticForm.Create(AOwner: TComponent);
 var Text: TLabel; Memo: TMemo; Button: TButton; Input: TFileStream; Bytes: TBytes; Count: Integer; Detailed: TCheckBox;
+  Folder: TEdit;
 begin
-  inherited CreateNew(AOwner); Caption:='Журнал ошибок'; Position:=poOwnerFormCenter;
+  inherited CreateNew(AOwner); Name:='DiagnosticsDialog'; Caption:='Журнал ошибок'; Position:=poOwnerFormCenter;
   Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=680; ClientHeight:=420;
   Constraints.MinWidth:=640; Constraints.MinHeight:=320;
-  Text:=TLabel.Create(Self); Text.Parent:=Self; Text.SetBounds(12,12,656,54);
+  Text:=TLabel.Create(Self); Text.Name:='DiagnosticsInstructions'; Text.Parent:=Self; Text.SetBounds(12,12,656,54);
   Text.AutoSize:=False; Text.WordWrap:=True; Text.Anchors:=[akLeft,akTop,akRight];
   Text.Caption:='Журналы хранятся во временной папке Windows 7 дней. В них записываются версия программы, действие и сообщение об ошибке. Сохраните ZIP-отчёт, чтобы приложить его к сообщению об ошибке.';
-  Detailed:=TCheckBox.Create(Self); Detailed.Name:='DiagnosticsDetailed'; Detailed.Parent:=Self;
-  Detailed.SetBounds(12,74,656,25); Detailed.Anchors:=[akLeft,akTop,akRight];
+  Text:=TLabel.Create(Self); Text.Parent:=Self; Text.SetBounds(12,77,50,20); Text.Caption:='Папка:';
+  Folder:=TEdit.Create(Self); Folder.Name:='DiagnosticsFolder'; Folder.Parent:=Self;
+  Folder.SetBounds(66,72,602,23); Folder.Anchors:=[akLeft,akTop,akRight];
+  Folder.ReadOnly:=True; Folder.Text:=DiagnosticLogDirectory;
+  Detailed:=TReaderPaletteCheckBox.Create(Self); Detailed.Name:='DiagnosticsDetailed'; Detailed.Parent:=Self;
+  Detailed.SetBounds(12,106,656,25); Detailed.Anchors:=[akLeft,akTop,akRight];
   Detailed.Caption:='Подробный журнал операций — с названиями книг и путями к файлам';
   Detailed.Checked:=DetailedDiagnosticLogging; Detailed.OnClick:=DetailedClick;
   Detailed.Hint:='Включите перед повторением ошибки, затем сохраните отчёт. Текст книг в журнал не записывается.';
   Detailed.ShowHint:=True;
-  Memo:=TMemo.Create(Self); Memo.Parent:=Self; Memo.SetBounds(12,108,656,256);
+  Memo:=TMemo.Create(Self); Memo.Name:='DiagnosticsText'; Memo.Parent:=Self; Memo.SetBounds(12,140,656,224);
   Memo.ReadOnly:=True; Memo.ScrollBars:=ssBoth; Memo.WordWrap:=False; Memo.Anchors:=[akLeft,akTop,akRight,akBottom];
   try if FileExists(DiagnosticLogFile) then
     begin
@@ -290,13 +296,14 @@ begin
     end
     else Memo.Text:='Сегодня ошибок ещё не записано.';
   except Memo.Text:='Не удалось прочитать журнал. Проверьте доступ к временной папке.'; end;
-  Button:=TButton.Create(Self); Button.Parent:=Self; Button.SetBounds(12,378,225,30);
+  Button:=TReaderPaletteButton.Create(Self); Button.Name:='DiagnosticsSave'; Button.Parent:=Self; Button.SetBounds(12,378,225,30);
   Button.Caption:='Сохранить отчёт для отправки…'; Button.OnClick:=SaveClick; Button.Anchors:=[akLeft,akBottom];
-  Button:=TButton.Create(Self); Button.Parent:=Self; Button.SetBounds(248,378,225,30);
+  Button:=TReaderPaletteButton.Create(Self); Button.Name:='DiagnosticsOpenFolder'; Button.Parent:=Self; Button.SetBounds(248,378,225,30);
   Button.Caption:='Открыть папку журналов'; Button.OnClick:=FolderClick; Button.Anchors:=[akLeft,akBottom];
-  Button:=TButton.Create(Self); Button.Parent:=Self; Button.SetBounds(568,378,100,30);
+  Button:=TReaderPaletteButton.Create(Self); Button.Name:='DiagnosticsClose'; Button.Parent:=Self; Button.SetBounds(568,378,100,30);
   Button.Caption:='Закрыть'; Button.ModalResult:=mrClose; Button.Cancel:=True; Button.Anchors:=[akRight,akBottom];
   ScaleForPPI(Screen.PixelsPerInch);
+  ApplyMHLControlTheme(Self);
 end;
 
 procedure TDiagnosticForm.DetailedClick(Sender: TObject);
@@ -320,7 +327,7 @@ begin
     Dialog.Title:='Сохранить журнал для отправки'; Dialog.DefaultExt:='zip';
     Dialog.Filter:='ZIP-отчёт (*.zip)|*.zip'; Dialog.Options:=[ofOverwritePrompt,ofPathMustExist,ofEnableSizing,ofNoChangeDir];
     Dialog.FileName:='HomeLibRu-diagnostics-'+FormatDateTime('yyyymmdd',Now)+'.zip';
-    if Dialog.Execute then SaveDiagnosticReport(Dialog.FileName,True);
+    if Dialog.Execute(Handle) then SaveDiagnosticReport(Dialog.FileName,True);
   finally Dialog.Free; end;
 end;
 
@@ -329,9 +336,18 @@ begin
   if SafeDirectory then ShellExecute(Handle,'open',PChar(DiagnosticLogDirectory),nil,nil,SW_SHOWNORMAL);
 end;
 
-procedure ShowDiagnostics(Owner: TComponent);
+procedure ShowDiagnostics(Owner: TComponent; const ConfigureForm: TProc<TComponent>);
 var Dialog: TDiagnosticForm;
-begin Dialog:=TDiagnosticForm.Create(Owner); try Dialog.ShowModal; finally Dialog.Free; end; end;
+begin
+  Dialog:=TDiagnosticForm.Create(Owner);
+  try
+    if Owner is TCustomForm then
+    begin Dialog.PopupMode:=pmExplicit; Dialog.PopupParent:=TCustomForm(Owner); end;
+    if Assigned(ConfigureForm) then
+    begin Dialog.HandleNeeded; ConfigureForm(Dialog); end;
+    Dialog.ShowModal;
+  finally Dialog.Free; end;
+end;
 
 initialization
   LogGuard:=TObject.Create;

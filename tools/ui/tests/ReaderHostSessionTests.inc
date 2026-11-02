@@ -1,4 +1,6 @@
-﻿type
+﻿{$I ReaderDiagnosticsTests.inc}
+
+type
   TReaderHostSessionDriver = class
     Host: TfrmReaderHost;
     Request: TReaderSessionRequest;
@@ -38,6 +40,8 @@ begin
     try Probe:=TFileStream.Create(Request.SourceFile,fmOpenWrite or fmShareDenyNone); Probe.Free;
     except on E: Exception do Blocked:=True; end;
     Require(Blocked,'Catalogue reader host did not keep the original archive protected');
+    CheckReaderDiagnosticsMenu(View);
+    View.SetTheme(1); CheckReaderDiagnosticsMenu(View); View.SetTheme(4);
     View.SetTheme(4); View.NextPage; View.AddBookmark('Передача из каталога');
     SavedPosition:=View.TextPosition; Require(SavedPosition>1200,'Reader did not turn the selected book');
     Completed:=True;
@@ -49,6 +53,7 @@ procedure TestReaderHostSession;
 var Book: TBookRecord; Request: TReaderSessionRequest; Reply: TReaderSessionReply;
   Driver: TReaderHostSessionDriver; Host: TfrmReaderHost; Archive: TZipFile;
   Ini: TMemIniFile; Content, SettingsFile, SourceHash, NotesFile, NotesHash, HistoryKey: string;
+  OldTemp, OldTmp, DiagnosticRoot: string; OldDark: Boolean;
   Note: TReaderAnnotation; Notes: TReaderAnnotations; Watch: TStopwatch; Probe: TStream;
 begin
   RequireIsolatedRegression;
@@ -86,8 +91,14 @@ begin
   try Notes.Put(Note); finally Notes.Free; end;
   NotesFile:=TPath.Combine(ExtractFileDir(SettingsFile),'reader-notes.json');
   NotesHash:=THashSHA2.GetHashStringFromFile(NotesFile);
+  OldTemp:=GetEnvironmentVariable('TEMP'); OldTmp:=GetEnvironmentVariable('TMP'); OldDark:=MHLThemeDark;
+  DiagnosticRoot:=Settings.AppPath+'reader-diagnostic-temp'; ForceDirectories(DiagnosticRoot);
+  SetEnvironmentVariable('TEMP',PChar(DiagnosticRoot)); SetEnvironmentVariable('TMP',PChar(DiagnosticRoot));
+  LogDiagnosticMessage('reader-diagnostics-fixture','Owned reader-diagnostics-fixture');
   Host:=TfrmReaderHost.Create(nil); Driver:=TReaderHostSessionDriver.Create;
   try
+    CheckReaderDiagnosticsMenu(Host);
+    SetMHLTheme(not OldDark); CheckReaderDiagnosticsMenu(Host); SetMHLTheme(OldDark);
     Driver.Host:=Host; Driver.Request:=Request; Driver.Started:=GetTickCount64;
     Driver.Timer:=TTimer.Create(nil); Driver.Timer.Interval:=100; Driver.Timer.OnTimer:=Driver.Tick;
     Host.OpenInitialSession(Request.RequestFile); Host.Show; Watch:=TStopwatch.StartNew;
@@ -109,5 +120,8 @@ begin
     Require(THashSHA2.GetHashStringFromFile(Book.GetBookFileName)=SourceHash,'Catalogue reader host changed the source archive');
     Probe:=TFileStream.Create(Request.SourceFile,fmOpenReadWrite or fmShareDenyNone); Probe.Free;
     Writeln('PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection');
-  finally Driver.Timer.Free; Driver.Free; Host.Free; end;
+  finally
+    Driver.Timer.Free; Driver.Free; Host.Free; SetMHLTheme(OldDark);
+    SetEnvironmentVariable('TEMP',PChar(OldTemp)); SetEnvironmentVariable('TMP',PChar(OldTmp));
+  end;
 end;

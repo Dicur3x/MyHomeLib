@@ -38,6 +38,7 @@ type
     procedure ExitClick(Sender: TObject);
     procedure ComponentsClick(Sender: TObject);
     procedure FormatsClick(Sender: TObject);
+    procedure DiagnosticsClick(Sender: TObject);
     procedure CacheSettingsClick(Sender: TObject);
     procedure EnsureUpdates;
     procedure RestartForUpdate(Sender: TObject);
@@ -169,7 +170,7 @@ begin
 end;
 
 procedure TfrmReaderHost.InstallMenu(Form: TForm);
-var Menu: TMainMenu; FileMenu, Item, RecentMenu, SettingsMenu: TMenuItem;
+var Menu: TMainMenu; FileMenu, Item, RecentMenu, SettingsMenu, HelpMenu: TMenuItem;
   procedure Add(const Text: string; Shortcut: TShortCut; Action: TNotifyEvent);
   begin
     Item:=TMenuItem.Create(Menu); Item.Caption:=Text; Item.ShortCut:=Shortcut;
@@ -194,8 +195,21 @@ begin
   Item:=TMenuItem.Create(Menu); Item.Name:='ReaderFormatsHelp'; Item.Caption:='Форматы чтения…'; Item.OnClick:=FormatsClick;
   SettingsMenu.Add(Item);
   Item:=TMenuItem.Create(Menu); Item.Caption:='Компоненты…'; Item.OnClick:=ComponentsClick;
-  Menu.Items.Add(Item); Form.Menu:=Menu;
+  Menu.Items.Add(Item);
+  HelpMenu:=TMenuItem.Create(Menu); HelpMenu.Caption:='Помощь'; Menu.Items.Add(HelpMenu);
+  Item:=TMenuItem.Create(Menu); Item.Name:='ReaderDiagnostics'; Item.Caption:='Журнал ошибок…';
+  Item.OnClick:=DiagnosticsClick; HelpMenu.Add(Item);
+  Form.Menu:=Menu;
   if Form is TfrmBuiltinReader then TfrmBuiltinReader(Form).RefreshWindowTheme;
+end;
+
+procedure TfrmReaderHost.DiagnosticsClick(Sender: TObject);
+begin
+  if FView is TfrmBuiltinReader then
+    ShowDiagnostics(FView,procedure(Dialog: TComponent)
+      begin TfrmBuiltinReader(FView).ApplyWindowPalette(TCustomForm(Dialog)); end)
+  else if Assigned(FView) then ShowDiagnostics(FView)
+  else ShowDiagnostics(Self);
 end;
 
 procedure TfrmReaderHost.FormatsClick(Sender: TObject);
