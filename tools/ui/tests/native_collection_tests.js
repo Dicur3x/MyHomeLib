@@ -75,6 +75,7 @@ modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive'
 modes.push('update-manual-reopen');
 modes.push('duplicate-source', 'review-formatting');
 modes.push('component-removal','component-usage','component-maintenance');
+modes.push('component-inventory-ui');
 // Interactive foreground/idle lifecycle check, opt in through its explicit mode.
 if (viewsMode==='component-monthly-lifecycle') modes.push('component-monthly-lifecycle');
 if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'component-receipts') modes.push('component-receipts');
@@ -222,6 +223,7 @@ const requiredViews = {
   "review-http": ["PASS HTTP reviews decode UTF-8"],
   "component-usage": ["PASS component actual-use records monthly combined offer"],
   "component-maintenance": ["PASS module manager actual asynchronous preview cancel remove retained personal data"],
+  "component-inventory-ui": ["PASS ordinary catalogue and Reader updater Modules entries", ...['decline','success','queued-cancel','inflight-cancel','bad-digest','prestart-failure'].map(mode=>`PASS actual inventory download UI ${mode} preserves runtime private data and cleans owned work`)],
   "component-monthly-lifecycle": ["PASS real catalogue idle scheduler presents monthly offer", "PASS real reader monthly lifecycle reader-close", "PASS real reader monthly lifecycle host-close-first", "PASS real reader monthly lifecycle book-close-first"],
   "component-removal": ["PASS component removal plans preserve core shared settings modified and unknown files"],
   "component-receipts": ["PASS installed component receipts commit and roll back with runtime files", "PASS real verified processing and image package bundle retains separate installed-file receipts"],

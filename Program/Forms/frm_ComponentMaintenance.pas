@@ -41,6 +41,7 @@ type
     function IsCancelled: Boolean;
     procedure SaveOfferChoice;
   protected
+    function ConfirmInventoryDownload(Size: Int64): Boolean; virtual;
     procedure Resize; override;
     procedure ChangeScale(M,D: Integer; isDpiChange: Boolean); override;
   public
@@ -264,6 +265,12 @@ begin
   FWorker.FreeOnTerminate:=False; FWorker.Start;
 end;
 
+function TfrmComponentMaintenance.ConfirmInventoryDownload(Size: Int64): Boolean;
+begin
+  Result:=MHLShowInfo('Для проверки состава нужно скачать архив установленного модуля: '+ModuleSize(Size)+'.'+sLineBreak+
+    'Архив будет использован только для списка файлов. Переустановка не требуется.'+sLineBreak+'Скачать?',mbYesNo)=mrYes;
+end;
+
 procedure TfrmComponentMaintenance.ResolveClick(Sender: TObject);
 var IDs: TArray<string>; Info: TProgramRelease; ID, Installed: string; Dialog: TOpenDialog;
   Archive, Tag, Version: string;
@@ -277,12 +284,25 @@ begin
   if Assigned(FFactory) and (Info.ComponentID=ID) and (Info.ComponentVersion=Installed) and (Installed<>'') and
     (Info.Size>0) and (Info.DownloadURL<>'') then
   begin
-    if MHLShowInfo('Для проверки состава нужно скачать архив установленного модуля: '+ModuleSize(Info.Size)+'.'+sLineBreak+
-      'Архив будет использован только для списка файлов. Переустановка не требуется.'+sLineBreak+'Скачать?',mbYesNo)<>mrYes then Exit;
-    FError:=''; FDownloads:=FFactory(Info,FJob); FDownloads.RuntimePath:=FAppPath;
-    FSummary.Caption:='Загрузка и проверка списка файлов…'; FProgress.Visible:=True; FResolve.Enabled:=False;
-    FRemove.Enabled:=False; FList.Enabled:=False;
-    FDownloads.Start; Exit;
+    if not ConfirmInventoryDownload(Info.Size) then Exit;
+    try
+      FError:=''; FDownloads:=FFactory(Info,FJob); FDownloads.RuntimePath:=FAppPath;
+      FSummary.Caption:='Загрузка и проверка списка файлов…'; FProgress.Visible:=True; FResolve.Enabled:=False;
+      FRemove.Enabled:=False; FList.Enabled:=False;
+      FDownloads.Start;
+    except on E: Exception do
+      begin
+        // TThread.Destroy resumes and joins a cancelled Create(True) worker.
+        // Waiting explicitly before Start would leave the dialog stuck forever.
+        if Assigned(FDownloads) then begin FDownloads.Terminate; FreeAndNil(FDownloads); end;
+        FError:=E.Message; LogDiagnosticError('module-inventory-download',E);
+        FProgress.Visible:=False; FList.Enabled:=True;
+        FResolve.Enabled:=Length(CheckedIDs)=1;
+        FRemove.Enabled:=FPlanReady and FPlan.CanRemove;
+        FSummary.Caption:='Не удалось начать проверку состава'; FDetails.Text:=FError;
+      end;
+    end;
+    Exit;
   end;
   Dialog:=TOpenDialog.Create(Self);
   try
@@ -318,7 +338,7 @@ begin
   begin
     if WaitForSingleObject(FDownloads.Handle,0)<>WAIT_OBJECT_0 then Exit;
     FDownloads.WaitFor;
-    if FDownloads.Successful then
+    if not FClosing and FDownloads.Successful then
     begin
       try
         AdoptComponentFileInventory(FAppPath,FDownloads.ReleaseInfo.ComponentID,TPath.Combine(FJob,'manifest.json'));

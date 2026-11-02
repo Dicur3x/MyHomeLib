@@ -3151,5 +3151,22 @@
     ],
     "cleanup": "Native wrapper removed its own newly created isolated profiles after successful and failed runs. IDE helper removed its generated platform clone; evidence and reusable binaries retained. Protected existing IDE process was not closed or saved.",
     "page_sequence": 91
+  },
+  "module_inventory_ui_20261102": {
+    "status": "PASS_NATIVE_UPDATER_INVENTORY_UI_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-inventory-ui-final-20261102-r1.json",
+    "sha256": "a6fbc6e21fb13edbe89443055962186790de615b08283f96ebcca7c1f7081325",
+    "verified": [
+      "Actual ordinary updater Modules entry in catalogue and Reader scope",
+      "Real loopback HTTP worker with verified WebP ZIP; explicit consent, successful inventory only, queued and in-flight cancellation, bad hash and pre-start UI failure",
+      "Runtime DLL and personal data unchanged; cancelled acquisition never commits new ownership receipt; created/freed workers balanced; owned staging directories cleaned"
+    ],
+    "remaining": [
+      "Saved ZIP picker and cancellation",
+      "Preserve observation date during module updates as clarified by user",
+      "Real-format usage matrix and final production builds/package replacement/restart"
+    ],
+    "cleanup": "Isolated native runner removed its fixture profiles. Build helper removed generated Win32 sibling. Build failure and passing logs retained as evidence; no working modules removed. Protected existing IDE unchanged.",
+    "page_sequence": 92
   }
 }
