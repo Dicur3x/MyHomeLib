@@ -2810,5 +2810,13 @@
     "cleanup": "Owned actual-reader fixture removed. Empty icon-tool marker folder was denied before execution: blocked by policy. No alternate deletion attempted; no package was downloaded there.",
     "report": "tools\\ui\\tests\\Out\\reader-icon-final-20261102-r1.json",
     "report_sha256": "57df4817ae90111c3660df4d1d493b8727f30270032b36e2fac52b3fcaa3c533"
+  },
+  "image_container_fix_plan_20261102": {
+    "status": "NEXT sequential task; no fix claimed yet",
+    "baseline_report": "tools/ui/tests/Out/homelibre-image-container-profiles-20261031-r1.json",
+    "established_cause": "HomeLibXps.cs ExportImages already decodes once and generates higher-quality predecessors for economy, but chooses monotonic candidates using raw byte length only; Python image_quality.run receives only the requested result. ZIP can reverse the ranking. Existing native estimate mode returns all candidates, supported by old ImageProcessing helpers, limited to 9 images per request. No helper rewrite/new external decoder is necessary.",
+    "planned_selection": "Choose among original/high, balanced and economy candidates allowed by the selected quality, using raw bytes for raw FB2/Kindle, raw-deflate image bytes for EPUB, deflated base64 image bytes for FB2.ZIP. Keep higher quality on equal cost. Reuse the same selection for actual output and estimates. Preserve scan page counts/geometry and metadata; do not recompress originals for reading.",
+    "planned_wiring": "New explicit Python image-container raw/fb2-zip context (EPUB inferred normally); Kindle intermediate EPUB explicitly uses raw context. Native ConvertBasicBook gets final optional PackedOutput boolean from export worker and save-estimate choice, so FB2.ZIP is distinguished from its FB2 intermediate. Add separate IMAGE_CONTAINER_API.txt marker to BookProcessing and request that component on first compressed export if old, without breaking MODULAR_API=1/SAVE_OPTIONS_API=1 backwards compatibility. ImageProcessing need not change.",
+    "tests": "Extend owned real profile probe to compare a separately optimized FB2.ZIP candidate (old baseline zip remains a zip of old raw FB2), actual packaged runtimes x86/x64, byte-identical originals, output images/text and estimates. Add direct selector tests for reversed raw/ZIP ranking. Existing probe root c5vbz700 was already removed; stage a fresh root only. No previously denied cleanup path retried."
   }
 }

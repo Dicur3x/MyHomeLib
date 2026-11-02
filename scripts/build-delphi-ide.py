@@ -65,7 +65,9 @@ def build(project, platform, binary, logs, ide, required_text=(), visible=False,
     finally:
         if clone:
             # This unpredictable prefix was created only by this invocation.
-            for path in project.parent.glob(clone.stem + '.*'):
+            generated = [*project.parent.glob(clone.stem + '.*'),
+                         clone.with_name(clone.stem + 'Resource.rc')]
+            for path in generated:
                 if path.is_file() and not path.is_symlink():
                     path.unlink()
     report = log.with_suffix('.json')
