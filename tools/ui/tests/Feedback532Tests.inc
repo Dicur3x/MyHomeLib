@@ -170,6 +170,44 @@ begin
   Writeln('PASS special container and project signatures ignore misleading filenames');Flush(Output);
 end;
 
+procedure TestWorksCompoundDetection;
+var Data, Encoded: TBytes; FileName, Magic: string; IsMini: Boolean; At, Start, Size: Integer;
+  procedure Put32(Offset: Integer; Value: Cardinal);
+  begin for var I:=0 to 3 do Data[Offset+I]:=Byte(Value shr (I*8));end;
+  procedure Entry(Offset: Integer; const Name: string; Kind: Byte; Sector, Bytes: Cardinal);
+  begin
+    Encoded:=TEncoding.Unicode.GetBytes(Name+#0);Move(Encoded[0],Data[Offset],Length(Encoded));
+    Data[Offset+64]:=Length(Encoded);Data[Offset+66]:=Kind;
+    Put32(Offset+116,Sector);Put32(Offset+120,Bytes);
+  end;
+begin
+  for IsMini in [False,True] do
+    for Magic in ['CHNKWKS','CHNKINK'] do
+    begin
+      SetLength(Data,11*512);FillChar(Data[0],Length(Data),0);
+      Data[0]:=$D0;Data[1]:=$CF;Data[2]:=$11;Data[3]:=$E0;Data[4]:=$A1;Data[5]:=$B1;Data[6]:=$1A;Data[7]:=$E1;
+      Data[26]:=3;Data[28]:=$FE;Data[29]:=$FF;Data[30]:=9;Data[32]:=6;
+      Put32(44,1);Put32(48,0);Put32(56,4096);Put32(68,$FFFFFFFE);
+      for var I:=0 to 108 do Put32(76+I*4,$FFFFFFFF);
+      Put32(76,1);Put32(1024,$FFFFFFFE);Put32(1024+2*4,3);Put32(1024+3*4,$FFFFFFFE);
+      Entry(512,'Root Entry',5,2,2048);
+      if IsMini then begin Start:=9;Size:=64;At:=2048+64;end
+      else begin Start:=2;Size:=4096;At:=1536;end;
+      Entry(640,'CONTENTS',2,Start,Size);Encoded:=TEncoding.ASCII.GetBytes(Magic);
+      Move(Encoded[0],Data[At],Length(Encoded));
+      FileName:=Settings.AppPath+'works-'+BoolToStr(IsMini,True)+'-'+Magic+'.pdf';TFile.WriteAllBytes(FileName,Data);
+      Require(DetectReaderExtension(FileName)='.wps','Works stream signature was not detected through a misleading extension');
+      Data[At]:=Ord('?');TFile.WriteAllBytes(FileName,Data);
+      Require(DetectReaderExtension(FileName)='','Generic CONTENTS stream was incorrectly treated as Works');
+      if IsMini then
+      begin
+        Data[At]:=Ord('C');Put32(640+116,16);Put32(1024+2*4,2);TFile.WriteAllBytes(FileName,Data);
+        Require(DetectReaderExtension(FileName)='','Cyclic Works mini stream was not bounded');
+      end;
+    end;
+  Writeln('PASS Works signatures in regular and mini streams ignore misleading extensions and reject unrelated or cyclic data');Flush(Output);
+end;
+
 procedure TestCompoundContentDetection;
 const SectorBytes=512;DirectorySector=256;FATSector=257;
 var Data, NameBytes: TBytes; FileName: string; DirectoryOffset, FATOffset: Integer;
@@ -191,6 +229,7 @@ begin
   Data[DirectoryOffset+66]:=0;Put32(FATOffset+(DirectorySector mod 128)*4,DirectorySector);
   FileName:=Settings.AppPath+'compound-cycle.unknown';TFile.WriteAllBytes(FileName,Data);
   Require(DetectReaderExtension(FileName)='','Cyclic compound directory was not bounded');
+  TestWorksCompoundDetection;
   Writeln('PASS compound format detection follows a bounded far directory and rejects a cyclic directory');Flush(Output);
 end;
 

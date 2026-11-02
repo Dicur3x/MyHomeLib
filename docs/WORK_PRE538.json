@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 91,
+    "verified_sequence": 95,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-02T06:35:13.498375+00:00",
+  "updated_utc": "2026-11-02T20:22:33.751141+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -3203,5 +3203,33 @@
     ],
     "cleanup": "Native wrapper removed newly created isolated profiles; IDE helper removed temporary project clone; evidence and reusable binaries retained. Working user modules and protected existing IDE untouched.",
     "page_sequence": 94
+  },
+  "module_real_format_backend_20261102": {
+    "status": "PASS_BACKEND_ONLY_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-use-backend-final-20261102-r1.json",
+    "sha256": "ffea3ba6c00bfd69b36882f62d0090c97bf7ac8d7c9363471a9e224e85ff4966",
+    "verified": [
+      "15 real formats, reading preparation to EPUB and conversion to FB2, for both x86 and x64: 60 operations",
+      "Both real WPS examples read and convert after correcting bounded content-based CFB detection",
+      "External-tool report identifies actual helpers; ordinary FB2/EPUB/DOCX claim no unrelated tool",
+      "31 focused Python and modular-runtime tests passed"
+    ],
+    "scope": "Actual packaged Python and format tools on real library books. Native Reader windows, native usage ledger and new Pascal builds are not exercised by this proof.",
+    "native_works_tests": "PREPARED_NOT_BUILT_DURING_USER_GAME",
+    "remaining": [
+      "Native actual-use ledger on real books, including image restoration paths",
+      "IDE build and native Works signature tests on x86/x64 after user finishes gaming",
+      "Production minimal-package file replacement and restart lifecycle before release"
+    ],
+    "cleanup": {
+      "all_matrix_payloads_removed": true,
+      "original_sources_unchanged": true,
+      "obsolete_package_directory_retained_after_policy_rejection": "G:\\HomeLibRu-build-cache\\HomeLibre-UsageModules-3.0.0.3-20261102-r1",
+      "retained_bytes": 31651147,
+      "rejection_reason": "blocked by policy; no more specific reason supplied",
+      "do_not_retry_denied_target": true,
+      "current_packages_and_evidence_retained": true
+    },
+    "page_sequence": 95
   }
 }

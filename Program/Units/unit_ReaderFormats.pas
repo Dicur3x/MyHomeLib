@@ -48,7 +48,7 @@ end;
 function DetectCompoundOffice(const FileName: string; const Header: TBytes): string;
 var Input: TFileStream; SectorBytes, Entries, Count, DirectorySector, DIFSector,
   Next, NameBytes, FATIndex, FATEntry: Cardinal; Data, FATData: TBytes;
-  FAT, Visited: TList<Cardinal>; Name: string;
+  FAT, Visited: TList<Cardinal>; Name: string; RootSector: Cardinal; RootBytes: UInt64;
   function U32(const Bytes: TBytes; Offset: Integer): Cardinal;
   begin
     Result:=Cardinal(Bytes[Offset]) or Cardinal(Bytes[Offset+1]) shl 8 or
@@ -60,6 +60,41 @@ var Input: TFileStream; SectorBytes, Entries, Count, DirectorySector, DIFSector,
     Result:=nil;Offset:=(UInt64(Index)+1)*SectorBytes;
     if (Index>=$FFFFFFFA) or (Offset+SectorBytes>UInt64(Input.Size)) then Exit;
     Input.Position:=Offset;SetLength(Result,SectorBytes);Input.ReadBuffer(Result[0],SectorBytes);
+  end;
+  function NextSector(Index: Cardinal): Cardinal;
+  var Page, Entry: Cardinal; Bytes: TBytes;
+  begin
+    Result:=$FFFFFFFE;Page:=Index div Entries;Entry:=Index mod Entries;
+    if Page>=Cardinal(FAT.Count) then Exit;
+    Bytes:=Sector(FAT[Integer(Page)]);if Length(Bytes)=0 then Exit;
+    Result:=U32(Bytes,Entry*4);
+  end;
+  function IsWorksContents(const Directory: TBytes; At: Integer): Boolean;
+  var StreamBytes, Offset, Steps: UInt64; Index: Cardinal; Bytes: TBytes;
+    Seen: TList<Cardinal>; Magic: string;
+  begin
+    Result:=False;StreamBytes:=UInt64(U32(Directory,At+120)) or UInt64(U32(Directory,At+124)) shl 32;
+    if StreamBytes<7 then Exit;
+    Index:=U32(Directory,At+116);Offset:=0;
+    if StreamBytes<4096 then
+    begin
+      if (RootSector>=$FFFFFFFA) or (Header[32]<>6) or (Header[33]<>0) or (U32(Header,56)<>4096) then Exit;
+      Offset:=UInt64(Index)*64;Index:=RootSector;if Offset+7>RootBytes then Exit;
+      Steps:=Offset div SectorBytes;Offset:=Offset mod SectorBytes;if Steps>=256 then Exit;
+      Seen:=TList<Cardinal>.Create;
+      try
+        for var Step:=1 to Integer(Steps) do
+        begin
+          if Seen.Contains(Index) then Exit;
+          Seen.Add(Index);Index:=NextSector(Index);
+        end;
+        if Seen.Contains(Index) then Exit;
+      finally Seen.Free;end;
+    end;
+    Bytes:=Sector(Index);if Offset+7>UInt64(Length(Bytes)) then Exit;
+    // Signatures used by libwps for Works 2000 and Works 7/8.
+    Magic:=TEncoding.ASCII.GetString(Bytes,Integer(Offset),7);
+    Result:=(Magic='CHNKINK') or (Magic='CHNKWKS');
   end;
 begin
   Result:='';if Length(Header)<512 then Exit;
@@ -81,15 +116,19 @@ begin
       begin Next:=U32(Data,I*4);if (Next<$FFFFFFFA) and (Cardinal(FAT.Count)<Count) then FAT.Add(Next);end;
       DIFSector:=U32(Data,SectorBytes-4);
     end;
-    Visited.Clear;DirectorySector:=U32(Header,48);
+    Visited.Clear;DirectorySector:=U32(Header,48);RootSector:=$FFFFFFFE;RootBytes:=0;
     // Directory streams can be far beyond the bounded file prefix. Follow
-    // only their FAT chain; ordinary document content is never scanned.
+    // only their FAT chain and the small Works header, never document bodies.
     while (DirectorySector<$FFFFFFFA) and (Visited.Count<256) do
     begin
       if Visited.Contains(DirectorySector) then Exit;Visited.Add(DirectorySector);
       Data:=Sector(DirectorySector);if Length(Data)=0 then Exit;
       for var I:=0 to Integer(SectorBytes div 128)-1 do
       begin
+        if (Visited.Count=1) and (I=0) and (Data[66]=5) then
+        begin
+          RootSector:=U32(Data,116);RootBytes:=UInt64(U32(Data,120)) or UInt64(U32(Data,124)) shl 32;
+        end;
         NameBytes:=Data[I*128+64]+Cardinal(Data[I*128+65])*256;
         if (Data[I*128+66]=2) and (NameBytes>=2) and (NameBytes<=64) and (NameBytes mod 2=0) then
         begin
@@ -97,6 +136,7 @@ begin
           if SameText(Name,'WordDocument') then Exit('.doc');
           if SameText(Name,'PowerPoint Document') then Exit('.ppt');
           if SameText(Name,'Workbook') or SameText(Name,'Book') then Exit('.xls');
+          if SameText(Name,'CONTENTS') and IsWorksContents(Data,I*128) then Exit('.wps');
         end;
       end;
       FATIndex:=DirectorySector div Entries;FATEntry:=DirectorySector mod Entries;

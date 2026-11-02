@@ -185,6 +185,32 @@ class TextInputs(unittest.TestCase):
         with self.assertRaises(c.ConversionError):c.convert_book(source,output)
         self.assertFalse(output.exists())
 
+    def test_works_compound_detection_uses_stream_signature_including_mini_stream(self):
+        def works(magic, mini=False, cycle=False, stream_name='CONTENTS'):
+            data=bytearray(11*512);data[:8]=bytes.fromhex('d0cf11e0a1b11ae1')
+            data[28:34]=b'\xfe\xff\x09\0\x06\0'
+            def put(at,value):struct.pack_into('<I',data,at,value)
+            put(44,1);put(48,0);put(56,4096);put(68,0xfffffffe)
+            for at in range(76,512,4):put(at,0xffffffff)
+            put(76,1);put(1024,0xfffffffe)
+            put(1024+2*4,2 if cycle else 3);put(1024+3*4,0xfffffffe)
+            for at,name,kind,start,size in [(512,'Root Entry',5,2,2048),
+                                           (640,stream_name,2,16 if cycle else 9 if mini else 2,64 if mini else 4096)]:
+                encoded=(name+'\0').encode('utf-16-le');data[at:at+len(encoded)]=encoded
+                struct.pack_into('<H',data,at+64,len(encoded));data[at+66]=kind
+                put(at+116,start);struct.pack_into('<Q',data,at+120,size)
+            offset=2048+64 if mini else 1536;data[offset:offset+7]=magic
+            return data
+        for mini in [False,True]:
+            for magic in [b'CHNKWKS',b'CHNKINK']:
+                with self.subTest(mini=mini,magic=magic):
+                    source=self.root/'works-wrong.pdf';source.write_bytes(works(magic,mini))
+                    self.assertEqual(c.detect_input(source),'.wps')
+        for data in [works(b'UNKNOWN'),works(b'CHNKWKS',True,True),
+                     works(b'CHNKWKS',stream_name='Unrelated')]:
+            source=self.root/'unknown.wps';source.write_bytes(data)
+            self.assertEqual(c.detect_input(source),'.ole')
+
     def test_wrong_extension_is_content_driven_for_text_html_and_docx(self):
         original=self.root/'fixture.docx';docx(original)
         inputs=[('docx',original.read_bytes(),'.docx','Точная сноска'),

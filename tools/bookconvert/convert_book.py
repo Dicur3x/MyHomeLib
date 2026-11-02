@@ -1336,7 +1336,7 @@ def kindle_to_book(source, output, warnings, target_extension, **metadata):
 
 
 def detect_compound_office(source, header):
-    """Inspect only the bounded CFB directory chain, including far directories."""
+    """Inspect bounded CFB directories and the seven-byte Works stream header."""
     import struct
     if len(header) < 512 or header[28:30] != b'\xfe\xff' or header[30:32] not in (b'\x09\0', b'\x0c\0'):
         return '.ole'
@@ -1358,18 +1358,45 @@ def detect_compound_office(source, header):
             if not data: return '.ole'
             fat.extend(u32(data, at) for at in range(0, sector_size - 4, 4) if u32(data, at) < 0xfffffffa)
             fat = fat[:count]; difat = u32(data, sector_size - 4)
+        def next_sector(index):
+            page, offset = divmod(index, entries)
+            if page >= len(fat): return 0xfffffffe
+            data = sector(fat[page])
+            return u32(data, offset * 4) if data else 0xfffffffe
+        root_stream = None
+        def works_contents(data, at):
+            length = int.from_bytes(data[at+120:at+128], 'little')
+            if length < 7: return False
+            index, offset = u32(data, at+116), 0
+            if length < 4096:
+                if root_stream is None or header[32:34] != b'\x06\0' or u32(header, 56) != 4096: return False
+                offset = index * 64; index, root_length = root_stream
+                if offset + 7 > root_length: return False
+                steps, offset = divmod(offset, sector_size)
+                if steps >= 256: return False
+                seen = set()
+                for _ in range(steps):
+                    if index in seen: return False
+                    seen.add(index); index = next_sector(index)
+                if index in seen: return False
+            prefix = sector(index)[offset:offset+7]
+            # libwps WPSHeader identifies Works 2000 and Works 7/8 this way.
+            return prefix in (b'CHNKINK', b'CHNKWKS')
         visited.clear()
         while directory < 0xfffffffa and len(visited) < 256:
             if directory in visited: return '.ole'
             visited.add(directory); data = sector(directory)
             if not data: return '.ole'
             for at in range(0, sector_size, 128):
+                if len(visited) == 1 and at == 0 and data[66] == 5:
+                    root_stream = (u32(data, 116), int.from_bytes(data[120:128], 'little'))
                 length = int.from_bytes(data[at+64:at+66], 'little')
                 if data[at+66] == 2 and 2 <= length <= 64 and length % 2 == 0:
                     try: name = data[at:at+length-2].decode('utf-16-le').casefold()
                     except UnicodeError: return '.ole'
                     match = {'worddocument': '.doc', 'powerpoint document': '.ppt', 'workbook': '.xls', 'book': '.xls'}.get(name)
                     if match: return match
+                    if name == 'contents' and works_contents(data, at): return '.wps'
             index, offset = divmod(directory, entries)
             if index >= len(fat): return '.ole'
             data = sector(fat[index])
