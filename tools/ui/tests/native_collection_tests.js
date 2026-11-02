@@ -427,7 +427,26 @@ function run(executable, mode, subcase = "") {
       const inventory=process.argv.find(a=>a.startsWith('--catalogue-inventory='));
       const python=process.argv.find(a=>a.startsWith('--catalogue-python='));
       if(!inventory||!python)throw Error('Catalogue audit requires explicit inventory JSON and Python runtime');
-      for(const name of ['webp','jpeg-xl','pdfium','djvu','7zip','kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+      const usage=process.env.HOMELIB_TEST_FORMAT_USAGE==='1';
+      for(const name of (usage?['webp','jpeg-xl','pdfium','djvu','7zip']:['webp','jpeg-xl','pdfium','djvu','7zip','kindle','bookconvert','xps'])) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+      if(usage) {
+        if(!process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES)throw Error('Usage check needs current independent format packages');
+        const staged=cp.spawnSync(python.slice('--catalogue-python='.length),['-B',path.join(__dirname,'prepare_format_runtime_fixture.py'),process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS'],{windowsHide:true,encoding:'utf8',timeout:120000});
+        if(staged.status!==0)throw Error('Usage runtime preparation failed: '+staged.stdout+staged.stderr);
+        const parameters=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../bookconvert/ibk_parameters.json'),'utf8'));
+        const key=path.resolve(__dirname,'Out/ibk-data-only-pre534/ibk/Rus.key');const data=fs.readFileSync(key);
+        if(data.length!==parameters.runtime_key_bytes||require('node:crypto').createHash('sha256').update(data).digest('hex')!==parameters.runtime_key_sha256)throw Error('IBK usage fixture identity mismatch');
+        fs.mkdirSync(path.join(folder,'tools/ibk'));fs.writeFileSync(path.join(folder,'tools/ibk/Rus.key'),data,{flag:'wx'});
+        // Native availability preserves the author's licence and unchanged
+        // original archive in addition to the public format-data table.
+        for(const [relative,target,hash] of [
+          ['ibk-active-wiv48xt_/app/License.txt','License.txt','6ae2062ebba781d1f9539150bf1bfbdbdad0111b8e49c867a9adc3c1ddf2a448'],
+          ['ibk-active-wiv48xt_/component-sources/original.zip','ICEBookReader-original.zip','d2b2c4edfb3c6383627fa98c0f81fd46e7703f617d6c85e6a0efd14c777f0c3d']]) {
+          const bytes=fs.readFileSync(path.join(__dirname,'Out',relative));
+          if(require('node:crypto').createHash('sha256').update(bytes).digest('hex')!==hash)throw Error('IBK licence/archive fixture identity mismatch');
+          fs.writeFileSync(path.join(folder,'tools/ibk',target),bytes,{flag:'wx'});
+        }
+      }
       const select=process.argv.find(a=>a.startsWith('--catalogue-select='));
       cp.execFileSync(python.slice('--catalogue-python='.length),[path.resolve(__dirname,'../../diagnostics/prepare_catalogue_examples.py'),inventory.slice('--catalogue-inventory='.length),folder,...(select?[select.slice('--catalogue-select='.length)]:[])],{stdio:'pipe',windowsHide:true});
       if(mode==='ibk-components') {
@@ -797,6 +816,8 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     if (mode==='ibk-components' || (mode==='catalogue-formats' && process.argv.includes('--catalogue-expect-success'))) {
       const rows=JSON.parse(fs.readFileSync(path.join(folder,'catalogue-format-results.json'),'utf8').replace(/^\uFEFF/,''));
       if(!rows.length || rows.some(r=>r.read!=='ok'||r['.fb2']!=='ok'||r['.epub']!=='ok')) throw Error('A selected supported catalogue book failed reading or conversion; inspect its per-book report');
+      if(process.env.HOMELIB_TEST_FORMAT_USAGE==='1' &&
+        (rows.length!==1||rows.some(r=>!['usage_read','usage_fb2','usage_epub'].every(key=>Array.isArray(r[key])))))throw Error('Native actual-format usage checks were not executed');
     }
     const expectedPasses = mode === 'conversion-menu' && subcase === 'layout'
       ? ['PASS conversion menu accepts legacy and unknown suffixes', 'PASS conversion menu offers new text containers', 'PASS conversion menu layout retains sync copying']

@@ -332,13 +332,46 @@ var Root: TJSONValue; Items, Results: TJSONArray; Item: TJSONValue; Row: TJSONOb
   Book, ConvertedBook: TBookRecord; Reader: TfrmBuiltinReader; Document: TReaderDocument;
   Started: UInt64; Warnings: TStringList; Timer: TTimer; Chooser: T532ArchiveChooser;
   Count: Integer;
-  LastProgress, Updates, TotalPages: Integer; CancelConversion, WasCanceled: Boolean;
+  LastProgress, Updates, TotalPages: Integer; CancelConversion, WasCanceled, IdentityCopy: Boolean;
   ProgressRows: TJSONArray;
+  TrackUsage: Boolean; ExpectedModule: string; UsageModules: TArray<string>;
+  procedure CheckUsage(const Stage: string; Converted: Boolean);
+  var Used: TJSONArray; Last: TDateTime;
+  begin
+    if not TrackUsage then Exit;
+    Used:=TJSONArray.Create; Row.AddPair('usage_'+Stage,Used);
+    for var ID in UsageModules do
+    begin
+      Last:=ComponentLastUse(Settings.AppPath,ID);
+      if Last>0 then Used.Add(ID);
+      if (ID<>'BookProcessing') and (ID<>ExpectedModule) then
+        Require(Last=0,'Unrelated module was recorded during '+Stage+': '+ID);
+    end;
+    if ExpectedModule<>'' then
+      Require(ComponentLastUse(Settings.AppPath,ExpectedModule)>0,'Actual module use was omitted during '+Stage+': '+ExpectedModule);
+    if Converted then Require(ComponentLastUse(Settings.AppPath,'BookProcessing')>0,'Converter use was not recorded');
+  end;
 begin
   RequireIsolatedRegression;
-  TestContentDrivenBookNames;
-  TestConverterInputValidation;
-  TestMonochromeReaderPictures;
+  TrackUsage:=GetEnvironmentVariable('HOMELIB_TEST_FORMAT_USAGE')='1';
+  if TrackUsage then
+  begin
+    TestCompoundContentDetection;
+    UsageModules:=TArray<string>.Create('BookProcessing','ImageProcessing','Kindle','LegacyBooks',
+      'LegacyOffice','XPS','PDFium','DjVuLibre','DocSharp','IBK','7-Zip','JPEG XL','WebP',
+      'KindleExport','BookConverter','Zstandard','MHLMcpServer','AlReader','SumatraPDF');
+    ConfigureComponentUsage(Settings.AppPath);
+    // Startup legitimately observes installed files. That creates a ledger but
+    // must not mark any module as used before a book operation.
+    for var ID in UsageModules do
+      Require(ComponentLastUse(Settings.AppPath,ID)=0,'Startup observation was incorrectly recorded as use: '+ID);
+  end
+  else
+  begin
+    TestContentDrivenBookNames;
+    TestConverterInputValidation;
+    TestMonochromeReaderPictures;
+  end;
   Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Settings.AppPath+'catalogue-examples/examples.json',TEncoding.UTF8));
   Results:=TJSONArray.Create; Warnings:=TStringList.Create; Count:=0;
   Timer:=TTimer.Create(nil); Chooser:=T532ArchiveChooser.Create;
@@ -346,6 +379,7 @@ begin
     Timer.Interval:=80; Timer.OnTimer:=Chooser.Tick; Timer.Enabled:=True;
     Items:=Root.GetValue<TJSONArray>('examples');
     Require(Items.Count>0,'The catalogue audit must contain at least one real book');
+    if TrackUsage then Require(Items.Count=1,'Usage checks require one real book per process to preserve write throttling');
     for Item in Items do
     begin
       Members:=TArray<string>.Create('');
@@ -357,6 +391,16 @@ begin
       Inc(Count); Row:=TJSONObject.Create; Results.AddElement(Row);
       if Member<>'' then Row.AddPair('archive_member',Member);
       Extension:=Item.GetValue<string>('extension'); Row.AddPair('extension',Extension);
+      ExpectedModule:='';
+      if Extension='.pdf' then ExpectedModule:='PDFium'
+      else if Extension='.djvu' then ExpectedModule:='DjVuLibre'
+      else if Extension='.doc' then ExpectedModule:='DocSharp'
+      else if Extension='.chm' then ExpectedModule:='7-Zip'
+      else if (Extension='.lit') or (Extension='.lrf') then ExpectedModule:='LegacyBooks'
+      else if Extension='.mobi' then ExpectedModule:='Kindle'
+      else if Extension='.wps' then ExpectedModule:='LegacyOffice'
+      else if Extension='.xps' then ExpectedModule:='XPS'
+      else if Extension='.ibk' then ExpectedModule:='IBK';
       Row.AddPair('id',TJSONNumber.Create(Item.GetValue<Integer>('id')));
       FileName:=TPath.Combine(Settings.AppPath,'catalogue-examples\'+Item.GetValue<string>('name'));
       Hash:=UpdateSHA256(FileName); Require(SameText(Hash,Item.GetValue<string>('sha256')),'Audit example changed before reading');
@@ -405,6 +449,7 @@ begin
             Row.AddPair('read','ok'); Row.AddPair('read_length',TJSONNumber.Create(Reader.TextLength));
             Row.AddPair('pictures',TJSONNumber.Create(Reader.PictureCount));
           finally Reader.Free; end;
+          CheckUsage('read',False);
         end;
       except on E: Exception do begin Row.AddPair('read','error'); Row.AddPair('read_error',E.Message); end; end;
       Row.AddPair('read_ms',TJSONNumber.Create(GetTickCount64-Started));
@@ -413,6 +458,7 @@ begin
         Started:=GetTickCount64; OutputName:=Settings.AppPath+'catalogue-result-'+IntToStr(Count)+Target;
         try
           Source:=PrepareConversionSource(Book,nil,Target);
+          IdentityCopy:=SameText(ExtractFileExt(Source),Target);
           Require(Chooser.SelectionError='',Chooser.SelectionError);
           if Member<>'' then
             Require(UpdateSHA256(Source)=UpdateSHA256(OriginalPrepared),'Bundle export selected an HTML preview or a different EPUB');
@@ -451,7 +497,9 @@ begin
                   Writeln('PROFILE conversion ',Target,' progress=',Percent,' page=',Completed,'/',Total,' stage=',Stage); Flush(Output);
                 end;
               end);
-            Require((LastProgress=100) and (Updates>=2),'Conversion did not finish its progress lifecycle');
+            Require((LastProgress=100) and (Updates>=1+Ord(not IdentityCopy)),'Conversion did not finish its progress lifecycle');
+            Row.AddPair(Target+'_identity_copy',TJSONBool.Create(IdentityCopy));
+            if IdentityCopy then Require(UpdateSHA256(Source)=UpdateSHA256(OutputName),'Unchanged book copy lost source bytes');
             Row.AddPair(Target+'_progress_updates',TJSONNumber.Create(Updates));
             Row.AddPair(Target+'_pages',TJSONNumber.Create(TotalPages));
             Document:=TReaderDocument.Create;
@@ -469,6 +517,7 @@ begin
               Row.AddPair(Target+'_pictures',TJSONNumber.Create(Document.ImageCount));
             finally Document.Free; end;
             Row.AddPair(Target+'_warnings',Warnings.Text);
+            CheckUsage(Target.TrimLeft(['.']),not IdentityCopy);
           end;
         except on E: Exception do begin Row.AddPair(Target,'error'); Row.AddPair(Target+'_error',E.Message); end; end;
         Row.AddPair(Target+'_ms',TJSONNumber.Create(GetTickCount64-Started));

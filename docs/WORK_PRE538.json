@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 95,
+    "verified_sequence": 96,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-02T20:22:33.751141+00:00",
+  "updated_utc": "2026-11-02T21:23:13.016071+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -3231,5 +3231,38 @@
       "current_packages_and_evidence_retained": true
     },
     "page_sequence": 95
+  },
+  "module_real_format_native_20261103": {
+    "status": "PASS_NATIVE_REAL_BOOK_USAGE_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-use-native-final-20261103-r1.json",
+    "sha256": "710e4b70a711ba9074540037de20aba32fbb0746787d97e7efd383d06f1ede86",
+    "verified": [
+      "Both native x86/x64 binaries compiled through licensed IDE; content-based Works regular/mini streams and malformed chains passed",
+      "16 real books (15 formats, both WPS); native reading, FB2/EPUB conversion, readback and native usage ledger: 96 operations",
+      "Fresh startup observation never claims actual use; ordinary unchanged FB2 copies byte-for-byte without recording converter use",
+      "Required source modules recorded, unrelated module timestamps remain absent; original source examples preserved"
+    ],
+    "test_fixture_corrections": [
+      "Accept the intentional single completion event for a byte-identical FB2/EPUB copy",
+      "Native IBK fixture includes the pinned licence and unchanged author archive, as required by native availability checks"
+    ],
+    "remaining": [
+      "Actual image-restoration/compression usage integration",
+      "Fresh production catalogue, standalone Reader and updater builds",
+      "Minimal-package installation/replacement/restart lifecycle before release"
+    ],
+    "cleanup": "Native wrapper removed every freshly created fixture; only proof records and reusable binaries/packages retained. Earlier rejected package-directory removal was not retried.",
+    "incidental_ide_popup": {
+      "application": "bds.exe",
+      "pid": 160544,
+      "message": "Runtime error 216 at 508391CA",
+      "phase": "Private IDE instance closing after successful Win64 compile",
+      "dismissed": true,
+      "build_receipt_status": "PASS",
+      "protected_existing_ide_pid": 134880,
+      "protected_existing_ide_modified": false,
+      "repeat_win32_build_closed_normally": true
+    },
+    "page_sequence": 96
   }
 }
