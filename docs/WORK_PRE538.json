@@ -2939,5 +2939,31 @@
       "lower_panel_and_attributed_sources_pending_block": "1bf85d7f-e1f0-459b-a891-c5be01a7809a",
       "all_other_block_hashes_preserved": true
     }
+  },
+  "optional_module_removal_20261102": {
+    "status": "implementation_analysis_in_progress",
+    "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
+    "observed_sources": [
+      "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
+      "Program/Units/unit_ProgramUpdateInstaller.pas:SafeComponentFile",
+      "Program/Units/unit_FormatComponents.pas",
+      "Program/Units/unit_ComponentUpdates.pas:IsOptionalComponent",
+      "Program/Forms/frm_ProgramUpdate.pas"
+    ],
+    "observations": [
+      "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
+      "Installer retains a transaction manifest/journal in its update job, but InstallProgramUpdate does not write a persistent per-component installed-file receipt",
+      "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
+      "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
+      "Format descriptors verify required identities but are not a complete installed-file inventory"
+    ],
+    "next_steps": [
+      "Design durable installed-file ownership receipts and a guarded removal plan, including existing installations",
+      "Preserve unknown files, modified user data, application profiles and required shared files; handle dependency selection and busy-file rollback",
+      "Record actual use at read/conversion execution boundaries, independently of update/inventory checks",
+      "Add manual removal UI and a combined optional 30-day offer with cancel/suppress persistence",
+      "Verify removal, cancellation, locks, modified/shared files, reinstall and monthly timing in isolated x86/x64 native fixtures"
+    ],
+    "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   }
 }
