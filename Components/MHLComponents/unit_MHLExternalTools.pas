@@ -42,7 +42,7 @@ implementation
 
 uses
   Winapi.Windows,
-  System.IOUtils;
+  System.IOUtils, unit_ComponentUsage;
 
 constructor EMHLComponentRequired.Create(const ID, Reason: string);
 begin inherited Create(Reason); FComponentID:=ID; FComponentIDs:=TArray<string>.Create(ID); end;
@@ -256,6 +256,7 @@ begin
           PChar(ExtractFilePath(ToolPath)), StartInfo, ProcessInfo) then
           RaiseLastOSError;
 
+        RecordComponentToolUse(ToolPath);
         CloseHandle(PipeWrite);
         PipeWrite := 0;
         ProcessFinished := False;

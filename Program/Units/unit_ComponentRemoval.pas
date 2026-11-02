@@ -25,9 +25,10 @@ type
 // The plan is a snapshot. The executor must rebuild and compare it before
 // changing files, since another instance may have installed a shared module.
 function BuildComponentRemovalPlan(const AppPath: string; const IDs: TArray<string>;
-  const ManifestSources: TArray<string> = nil): TComponentRemovalPlan;
+  const ManifestSources: TArray<string> = nil; const IsCanceled: TFunc<Boolean> = nil): TComponentRemovalPlan;
 function ComponentRemovalCoreFile(const Name: string): Boolean;
-function ExecuteComponentRemovalPlan(const Plan: TComponentRemovalPlan; FailAfter: Integer = -1): string;
+function ExecuteComponentRemovalPlan(const Plan: TComponentRemovalPlan; FailAfter: Integer = -1;
+  const IsCanceled: TFunc<Boolean> = nil): string;
 function RecoverComponentRemovals(const AppPath: string): TArray<string>;
 
 implementation
@@ -46,7 +47,7 @@ begin
 end;
 
 function BuildComponentRemovalPlan(const AppPath: string; const IDs: TArray<string>;
-  const ManifestSources: TArray<string>): TComponentRemovalPlan;
+  const ManifestSources: TArray<string>; const IsCanceled: TFunc<Boolean>): TComponentRemovalPlan;
 var Requested: TDictionary<string,Boolean>; Names: TDictionary<string,Integer>; Retained: TDictionary<string,string>;
   Item: TComponentRemovalFile; Files: TUpdateFiles; PathName, Source, ID, ErrorText: string;
   Fingerprint: TStringBuilder;
@@ -106,6 +107,7 @@ begin
       Retained.AddOrSetValue(Component.ID,Title(Component.ID));
     for ID in Result.IDs do
     begin
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
       Files:=nil; ErrorText:='';
       try Files:=InstalledComponentFiles(AppPath,ID);
       except on E: Exception do ErrorText:=E.Message; end;
@@ -123,6 +125,7 @@ begin
       end;
       for var Info in Files do
       begin
+        if Assigned(IsCanceled) and IsCanceled() then Abort;
         Item:=Default(TComponentRemovalFile); Item.ComponentID:=ID; Item.FileInfo:=Info;
         PathName:=CheckedUpdateChildPath(AppPath,Info.Name);
         if ComponentRemovalCoreFile(Info.Name) then
@@ -309,12 +312,13 @@ begin
   end;
 end;
 
-function ExecuteComponentRemovalPlan(const Plan: TComponentRemovalPlan; FailAfter: Integer): string;
+function ExecuteComponentRemovalPlan(const Plan: TComponentRemovalPlan; FailAfter: Integer;
+  const IsCanceled: TFunc<Boolean>): string;
 var Fresh: TComponentRemovalPlan; Job, Source, Destination: string; Root, Entry: TJSONObject;
   Files, IDs: TJSONArray; Applied: Integer; Handle: THandle; Completed: Boolean;
 begin
   Result:='';
-  Fresh:=BuildComponentRemovalPlan(Plan.AppPath,Plan.IDs,Plan.ManifestSources);
+  Fresh:=BuildComponentRemovalPlan(Plan.AppPath,Plan.IDs,Plan.ManifestSources,IsCanceled);
   if not Fresh.CanRemove or (Fresh.Fingerprint<>Plan.Fingerprint) then
     raise Exception.Create('Состав файлов изменился. Проверьте список удаления ещё раз.');
   for var Item in Fresh.Files do if Item.Disposition=crRemove then
@@ -340,6 +344,7 @@ begin
     try
       for var Item in Fresh.Files do if Item.Disposition=crRemove then
       begin
+        if Assigned(IsCanceled) and IsCanceled() then Abort;
         Source:=CheckedUpdateChildPath(Plan.AppPath,Item.FileInfo.Name);
         if (TFile.GetSize(Source)<>Item.FileInfo.Size) or not SameText(UpdateSHA256(Source),Item.FileInfo.SHA256) then
           raise Exception.Create('Файл изменился во время удаления: '+Item.FileInfo.Name);
@@ -348,6 +353,7 @@ begin
         Inc(Applied);
         if (FailAfter>=0) and (Applied>=FailAfter) then raise Exception.Create('Имитированная ошибка удаления');
       end;
+      if Assigned(IsCanceled) and IsCanceled() then Abort;
       Root.RemovePair('state').Free; Root.AddPair('state','removed'); WriteRemovalState(Job,Root); Completed:=True;
     except
       RollbackRemoval(Job,Plan.AppPath,Root);

@@ -108,6 +108,12 @@ begin
   try ExecuteComponentRemovalPlan(Plan,2); except on E: Exception do Failed:=E.Message='Имитированная ошибка удаления'; end;
   Require(Failed and (UpdateSHA256(Source)=Hash) and FileExists(CheckedUpdateChildPath(Target,ComponentReceiptName('7-Zip'))),'Failed removal did not restore module and receipt');
   Require(Length(RecoverComponentRemovals(Target))=0,'Rollback left an unrecoverable transaction'); RequirePrivate;
+  Failed:=False;
+  try ExecuteComponentRemovalPlan(Plan,-1,function: Boolean
+    begin Result:=not FileExists(Source); end);
+  except on E: EAbort do Failed:=True; end;
+  Require(Failed and (UpdateSHA256(Source)=Hash) and
+    (Length(RecoverComponentRemovals(Target))=0),'Cancellation after a move did not restore the complete module'); RequirePrivate;
   var Locked:=TFileStream.Create(Source,fmOpenRead or fmShareDenyWrite);
   try
     Failed:=False; try ExecuteComponentRemovalPlan(Plan); except on E: Exception do Failed:=E.Message.Contains('Файл занят'); end;
@@ -130,6 +136,16 @@ begin
   Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('7-Zip')); Require(not Plan.CanRemove,'Unknown legacy inventory silently inferred from a folder');
   Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('7-Zip'),TArray<string>.Create(Manifest));
   Require(Plan.CanRemove and (ExecuteComponentRemovalPlan(Plan)=''),'Exact legacy manifest requires reinstall or cannot remove'); RequirePrivate;
+  Target:=Fixture('adopted-legacy'); Manifest:=Runtime('7-Zip',ZipNames,False);
+  Source:=CheckedUpdateChildPath(Target,'tools/7zip/7z.exe'); Hash:=UpdateSHA256(Source);
+  TFile.WriteAllText(Source,'changed primary must not acquire an unrelated inventory'); Failed:=False;
+  try AdoptComponentFileInventory(Target,'7-Zip',Manifest); except on E: Exception do Failed:=True; end;
+  Require(Failed and not FileExists(CheckedUpdateChildPath(Target,ComponentReceiptName('7-Zip'))),'Unrelated archive acquired removal ownership');
+  TFile.WriteAllText(Source,'OWNED NONEXECUTABLE MODULE FIXTURE tools/7zip/7z.exe');
+  Require(UpdateSHA256(Source)=Hash,'Adoption fixture restoration differs');
+  AdoptComponentFileInventory(Target,'7-Zip',Manifest);
+  Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('7-Zip'));
+  Require(Plan.CanRemove and (ExecuteComponentRemovalPlan(Plan)=''),'Verified old inventory did not become reusable without reinstall'); RequirePrivate;
   Target:=Fixture('settings'); Runtime('AlReader',TArray<string>.Create('Readers/AlReader/AlReader2.exe','Readers/AlReader/$savevtut.ini','Readers/AlReader/readme.txt'));
   Source:=CheckedUpdateChildPath(Target,'Readers/AlReader/$savevtut.ini'); TFile.WriteAllText(Source,'private reader settings');
   Plan:=BuildComponentRemovalPlan(Target,TArray<string>.Create('AlReader'));

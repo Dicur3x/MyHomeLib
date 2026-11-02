@@ -35,7 +35,7 @@ type
     FHistorySelector: TComboBox;
     FSelectedRow: Integer;
     FRefreshingComponents: Boolean;
-    FComponentCheck: TButton;
+    FComponentCheck, FManageComponents: TButton;
     FNotifyOptional: TCheckBox;
     FChangingNotification: Boolean;
     FRequestedComponent, FRequestReason: string;
@@ -49,6 +49,7 @@ type
     FCompactProgress: TProgressBar;
     FCompactPrimary, FCompactLater: TButton;
     FRowIDs: TArray<Integer>;
+    procedure ManageComponentsClick(Sender: TObject);
     function RequestedReleases: TArray<TProgramRelease>;
     procedure ShowRequestedComponents;
     procedure CreateCompactPrompt;
@@ -169,7 +170,7 @@ uses System.SysUtils, System.StrUtils, System.IOUtils, System.JSON, System.Regul
   System.Types, Winapi.ShellAPI,
   Vcl.Graphics, Vcl.Menus, Vcl.Clipbrd, dm_user, unit_Settings, unit_Globals,
   unit_ProgramUpdateInstaller, unit_MHLHttpClient, unit_UpdateTextCache, unit_BookSaveContinuation,
-  unit_MHLExternalTools, unit_Diagnostics;
+  unit_MHLExternalTools, unit_Diagnostics, frm_ComponentMaintenance;
 
 function ComponentDownloadSize(Bytes: Int64): string;
 begin
@@ -283,6 +284,7 @@ begin
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать строку'; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать список'; Entry.Tag:=1; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
   Entry:=TMenuItem.Create(Menu); Entry.Caption:='Копировать сведения об ошибке'; Entry.Tag:=2; Entry.OnClick:=CopyComponents; Menu.Items.Add(Entry);
+  Entry:=TMenuItem.Create(Menu); Entry.Caption:='Удалить модуль…'; Entry.Tag:=3; Entry.OnClick:=ManageComponentsClick; Menu.Items.Add(Entry);
   HistoryFile := Settings.SystemFileName[sfComponentHistory];
   try
     if FileExists(HistoryFile) then
@@ -291,6 +293,8 @@ begin
   FComponentCheck := TButton.Create(Self); FComponentCheck.Parent := Self; FComponentCheck.Name:='UpdateCheckComponents';
   FComponentCheck.SetBounds(500, 47, 220, 27); FComponentCheck.Caption := 'Проверить всё';
   FComponentCheck.OnClick := ComponentCheckClick;
+  FManageComponents:=TButton.Create(Self); FManageComponents.Parent:=Self; FManageComponents.Name:='ManageOptionalComponents';
+  FManageComponents.Caption:='Модули…'; FManageComponents.OnClick:=ManageComponentsClick;
   FNotifyOptional:=TCheckBox.Create(Self); FNotifyOptional.Parent:=Self;
   FNotifyOptional.Name:='NotifyOptionalComponent';
   FNotifyOptional.Caption:='Сообщать об обновлениях этого компонента'; FNotifyOptional.OnClick:=NotificationChanged;
@@ -484,7 +488,9 @@ begin
     FZoomOut.SetBounds(ClientWidth-Margin-S(150),S(8),S(40),TopHeight);
     FZoomReset.SetBounds(ClientWidth-Margin-S(105),S(8),S(60),TopHeight);
     FZoomIn.SetBounds(ClientWidth-Margin-S(40),S(8),S(40),TopHeight);
-    FComponentCheck.SetBounds(ClientWidth-Margin-S(220),TabsTop,S(220),ButtonHeight);
+    FComponentCheck.SetBounds(ClientWidth-Margin-S(220),TabsTop,S(130),ButtonHeight);
+    FManageComponents.SetBounds(ClientWidth-Margin-S(82),TabsTop,S(82),ButtonHeight);
+    FManageComponents.Enabled:=not Assigned(FThread) and not FReady and not Assigned(FComponentThread) and not FCheckingCycle;
     FTabs.SetBounds(Margin,TabsTop,Width-S(220)-Gap,ButtonHeight);
     FComponentsView.Visible:=FTabs.TabIndex=0;
     FHistorySelector.Visible:=FTabs.TabIndex=1;
@@ -902,6 +908,25 @@ begin
     if Entry.Tag=2 then
       Entry.Enabled:=(FSelectedRow>0) and
         ((FComponents[FSelectedRow-1].ComponentError<>'') or (FComponentError<>''));
+  for var Entry in FComponentsView.PopupMenu.Items do if Entry.Tag=3 then
+    Entry.Enabled:=FManageComponents.Enabled and (FSelectedRow>0) and
+      IsOptionalComponent(UPDATE_COMPONENTS[FSelectedRow-1].ID) and
+      FileExists(CheckedUpdateChildPath(Settings.AppPath,ComponentFileName(UPDATE_COMPONENTS[FSelectedRow-1].ID)));
+end;
+
+procedure TfrmProgramUpdate.ManageComponentsClick(Sender: TObject);
+var Dialog: TfrmComponentMaintenance; Initial: TArray<string>;
+begin
+  if not FManageComponents.Enabled then Exit;
+  Initial:=nil;
+  if (Sender is TMenuItem) and (FSelectedRow>0) then
+    Initial:=TArray<string>.Create(UPDATE_COMPONENTS[FSelectedRow-1].ID);
+  Dialog:=TfrmComponentMaintenance.CreateManager(Self,Settings.AppPath,FReaderOnly,False,Initial,FComponents,
+    function(const Info: TProgramRelease; const Job: string): TProgramDownloadThread
+    begin Result:=CreateDownloadWorker(0,Info,Job); end);
+  try Dialog.ShowModal;
+  finally Dialog.Free; end;
+  RefreshInstalledComponents; UpdateComponentList; ComponentSelected(nil);
 end;
 
 procedure TfrmProgramUpdate.CopyComponents(Sender: TObject);

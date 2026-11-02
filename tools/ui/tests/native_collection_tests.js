@@ -74,7 +74,7 @@ const modes = ["book-deletion", "sqlite-mapping", "reader-open-choice", "reader-
 modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'compact-search-filters');
 modes.push('update-manual-reopen');
 modes.push('duplicate-source', 'review-formatting');
-modes.push('component-removal');
+modes.push('component-removal','component-usage','component-maintenance');
 if (process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES || viewsMode === 'component-receipts') modes.push('component-receipts');
 modes.push('ibk-components');
 modes.push('ibk-download-live');
@@ -218,6 +218,8 @@ const requiredViews = {
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
   "review-http": ["PASS HTTP reviews decode UTF-8"],
+  "component-usage": ["PASS component actual-use records monthly combined offer"],
+  "component-maintenance": ["PASS module manager actual asynchronous preview cancel remove retained personal data"],
   "component-removal": ["PASS component removal plans preserve core shared settings modified and unknown files"],
   "component-receipts": ["PASS installed component receipts commit and roll back with runtime files", "PASS real verified processing and image package bundle retains separate installed-file receipts"],
   "review-deadline": ["PASS continuous slow HTTP response stops at 30-second total deadline"],

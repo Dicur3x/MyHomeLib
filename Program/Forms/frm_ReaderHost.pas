@@ -73,7 +73,7 @@ uses System.IOUtils, System.IniFiles, System.Math, Vcl.Dialogs,
   unit_BookSendOptions, unit_BookExportResults, unit_ComponentUpdates,
   unit_ProgramUpdateInstaller, unit_Diagnostics, unit_MHLTheme, unit_MHLExternalTools, dm_user,
   frm_BuiltinReader, frm_StoryReader, frm_ReaderCacheSettings, unit_ReaderPalette,
-  unit_ReaderRestartState;
+  unit_ReaderRestartState, unit_ComponentUsage, unit_ComponentRemoval;
 
 type
   TStandaloneBookReader = class(TfrmBuiltinReader)
@@ -103,6 +103,9 @@ constructor TfrmReaderHost.Create(AOwner: TComponent);
 var Intro: TLabel; OpenButton: TButton; Ini: TMemIniFile; Value: string;
 begin
   inherited CreateNew(AOwner);
+  ConfigureComponentUsage(Settings.AppPath);
+  try for var MessageText in RecoverComponentRemovals(Settings.AppPath) do LogDiagnosticMessage('module-recovery',MessageText);
+  except on E: Exception do LogDiagnosticError('module-recovery',E); end;
   Name:='ReaderHost'; Caption:='HomeLibre Reader'; Position:=poScreenCenter;
   Icon.LoadFromResourceName(HInstance,'ZZ_HOME_LIBRE_READER_ICON');
   Font.Name:='Segoe UI'; Font.Size:=10; ClientWidth:=720; ClientHeight:=430;
@@ -549,6 +552,7 @@ begin
     FView.Caption:='HomeLibre Reader — '+FBook.Title;
     SaveRestartState(Identity,SettingsFile,Member);
     InstallMenu(TForm(FView));
+    RecordComponentUse('HomeLibReader');
     SendSessionState('displaying');
     // The book is the visible application while reading. Keeping the empty
     // launcher as its taskbar owner gives Alt+Tab/preview the wrong window.

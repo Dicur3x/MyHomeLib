@@ -1259,7 +1259,7 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4688,6 +4688,9 @@ var
   end;
   {$ENDIF}
 begin
+  ConfigureComponentUsage(Settings.AppPath);
+  try for var MessageText in RecoverComponentRemovals(Settings.AppPath) do LogDiagnosticMessage('module-recovery',MessageText);
+  except on E: Exception do LogDiagnosticError('module-recovery',E); end;
   {$IFDEF MHL_SQL_PROFILE}ProfileStarted := SQLiteProfileClock;{$ENDIF}
   FStartupLoading := DeferInitialCollection;
   OnShortCut := FormShortCut;

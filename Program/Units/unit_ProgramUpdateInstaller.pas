@@ -37,6 +37,7 @@ function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
 function ComponentReceiptName(const ID: string): string;
 function InstalledComponentFiles(const AppPath, ID: string): TUpdateFiles;
 function ComponentFilesFromManifest(const ManifestFile, ID: string): TUpdateFiles;
+procedure AdoptComponentFileInventory(const AppPath, ID, ManifestFile: string);
 function CheckedUpdateChildPath(const Root, Name: string): string;
 function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
@@ -61,7 +62,7 @@ implementation
 
 uses System.IOUtils, System.Hash, System.Zip, System.DateUtils,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
-  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents;
+  unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents, unit_ComponentUsage;
 
 function IsProgramUpdateApplicationName(const Value: string): Boolean;
 begin
@@ -711,6 +712,39 @@ begin
     for var Info in Result do if SameText(Info.Name,ComponentFileName(ID)) then Includes:=True;
     if not Includes then Result:=nil;
   finally Root.Free; end;
+end;
+
+procedure AdoptComponentFileInventory(const AppPath, ID, ManifestFile: string);
+var Files: TUpdateFiles; Root, Receipt, Entry: TJSONObject; Entries: TJSONArray;
+  Primary, Version: string; Comparison: Integer; Found: Boolean;
+begin
+  Files:=ComponentFilesFromManifest(ManifestFile,ID); Found:=False;
+  Primary:=ChildPath(AppPath,ComponentFileName(ID));
+  for var Info in Files do if SameText(Info.Name,ComponentFileName(ID)) then
+    Found:=FileExists(Primary) and (TFile.GetSize(Primary)=Info.Size) and SameText(UpdateSHA256(Primary),Info.SHA256);
+  if not Found then raise Exception.Create('Архив не соответствует установленному файлу модуля. Нужна та же версия.');
+  Root:=ReadJSON(ManifestFile);
+  try
+    Version:=Root.GetValue<string>('version','');
+    if Root.GetValue('bundle') is TJSONArray then for var Part in TJSONArray(Root.GetValue('bundle')) do
+      if Part.GetValue<string>('component','')=ID then Version:=Part.GetValue<string>('version','');
+    if Version='' then Version:=InstalledComponentVersion(AppPath,ID);
+  finally Root.Free; end;
+  if not CompareComponentVersions(Version,Version,Comparison) then raise Exception.Create('Не удалось определить версию модуля.');
+  Receipt:=TJSONObject.Create;
+  try
+    Receipt.AddPair('format',TJSONNumber.Create(1)); Receipt.AddPair('component',ID);
+    Receipt.AddPair('version',Version); Receipt.AddPair('platform',ProgramUpdatePlatform);
+    Receipt.AddPair('recordedUtc',DateToISO8601(TTimeZone.Local.ToUniversalTime(Now),True));
+    Entries:=TJSONArray.Create; Receipt.AddPair('files',Entries);
+    for var Info in Files do
+    begin
+      Entry:=TJSONObject.Create; Entry.AddPair('path',Info.Name); Entry.AddPair('size',TJSONNumber.Create(Info.Size));
+      Entry.AddPair('sha256',Info.SHA256); Entries.AddElement(Entry);
+    end;
+    ManifestFiles(Receipt); Primary:=ChildPath(AppPath,ComponentReceiptName(ID));
+    ForceDirectories(ExtractFileDir(Primary)); WriteJSON(Primary,Receipt);
+  finally Receipt.Free; end;
 end;
 
 // Receipts are generated from already verified package manifests, not from a
@@ -1667,6 +1701,9 @@ begin
       end;
       Journal.RemovePair('state').Free; Journal.AddPair('state', 'installed');
       WriteJSON(ChildPath(Job, 'journal.json'), Journal);
+      for Info in Files do if Info.GeneratedReceipt then
+        for ComponentID in ComponentNames do if SameText(Info.Name,ComponentReceiptName(ComponentID)) then
+          RecordComponentInstallation(Target,ComponentID);
     except
       RollbackProgramUpdate(Job, Target);
       raise;

@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 86,
+    "verified_sequence": 88,
     "verified_blocks": 81,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "removal_backend_verified_continuing_user_interface_and_use_tracking",
+    "status": "manual_manager_and_usage_ledger_verified_x86_x64_continuing_monthly_integration",
     "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2952,17 +2952,17 @@
     ],
     "observations": [
       "No existing module uninstaller or last-use registry found in Program/Utils Pascal sources",
-      "Persistent per-component installed-file receipts are now written by the installer; native first-install/upgrade/rollback and real package-bundle fixtures passed on x86/x64. Uninstall, legacy adoption and usage tracking are still pending.",
+      "Installed-file receipts, guarded removal/rollback, legacy manifest adoption, manual manager and usage ledger now passed native x86/x64 scenarios; all six catalogue/Reader/updater binaries build. Full actual-use hooks, ordinary monthly offer and legacy archive-less inventory recovery remain pending.",
       "Installation path allowlists are not safe deletion inventories: some allow arbitrary descendants of a runtime directory",
       "Reader installation manifests may include shared SQLite, updater, NOTICE and Zstandard files; removing Reader must not remove catalogue/shared required files",
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Connect manual management UI and startup transaction recovery in catalogue and standalone Reader",
-      "Resolve verified inventory for legacy installations without a receipt/saved manifest, using package metadata without forced reinstall",
-      "Record actual read/conversion/tool usage independently of update checks",
-      "Add combined monthly offer, explicit selection, postpone and permanent suppression",
-      "Verify actual UI removal/cancel/reinstall, timing, theme/DPI and final distribution binaries on x86/x64"
+      "Complete actual decoder/use coverage and wire monthly offer into normal operation",
+      "Resolve old package inventories without saved archives",
+      "Inspect actual management UI through normal updater entry point, including inventory download/cancel and valid existing ownership refresh",
+      "Preserve prior installed-file ownership when refreshing an already valid inventory; adoption currently writes the verified package inventory",
+      "Final packaged operation/restart checks before beta 3 publication"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
@@ -3049,5 +3049,26 @@
       "Deletion transaction is tested on isolated fixtures only; working desktop modules unchanged",
       "No general claim about power-loss filesystem guarantees beyond journal-before-move and tested partial-transaction replay"
     ]
+  },
+  "module_manager_and_usage_ledger_20261102": {
+    "status": "PASS_NATIVE_X86_X64_AND_FULL_BUILDS",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-maintenance-final-20261102-r1.json",
+    "sha256": "86af2a56352cc0a3594e3385b8175efa2661bfbcd16e89902dd6ad9195fceb19",
+    "behavior": [
+      "Management available from updater button/context menu; selected optional modules only",
+      "Background preview/removal and cancellation with core/shared/settings/private data retained",
+      "Legacy matching inventory adopted without reinstall; nonmatching primary rejected",
+      "Usage ledger records tool/Reader/install activity separately from update checks; UTC thresholds and combined monthly reservation tested",
+      "Physical folder identity serializes updater and Reader ledger writes across trailing separators and aliases",
+      "No production monthly prompt wired yet; no automatic deletion"
+    ],
+    "remaining": [
+      "Complete actual decoder/use coverage and wire monthly offer into normal operation",
+      "Resolve old package inventories without saved archives",
+      "Inspect actual management UI through normal updater entry point, including inventory download/cancel and valid existing ownership refresh",
+      "Preserve prior installed-file ownership when refreshing an already valid inventory; adoption currently writes the verified package inventory",
+      "Final packaged operation/restart checks before beta 3 publication"
+    ],
+    "cleanup": "Native wrapper removed only its newly created isolated fixture profiles; necessary package fixtures and binaries retained for continuing verification"
   }
 }
