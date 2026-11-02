@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 96,
+    "verified_sequence": 97,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-02T21:23:13.016071+00:00",
+  "updated_utc": "2026-11-02T22:06:21.720039+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -3264,5 +3264,26 @@
       "repeat_win32_build_closed_normally": true
     },
     "page_sequence": 96
+  },
+  "module_image_use_native_20261103": {
+    "status": "PASS_NATIVE_IMAGE_MODULE_USAGE_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-image-use-final-20261103-r1.json",
+    "sha256": "5c0654f59cdb62af7e0a7e9413bdec6f8d32a8a7d57c35293b207461828fa8d8",
+    "verified": [
+      "WebP and JPEG XL native actual-use hooks, preserved transparent and opaque pixels, invalidation of stale black-image cache",
+      "Actual compression of an illustration above 128 KiB records ImageProcessing; result retains text and one displayed image",
+      "Unrelated PDF/DjVu/Office/Kindle/legacy/IBK modules remain unused",
+      "Original input books preserved; explicit text-only FLibrary export works with JPEG XL temporarily unavailable"
+    ],
+    "scope": "Actual WebP DLL decoding, JPEG XL FLibrary restoration with alpha/pixel/cache checks, native image-helper compression of an illustration above the small-image shortcut, FB2/EPUB original/text-only readback and source preservation.",
+    "test_fixture_corrections": [
+      "Tiny restored illustrations correctly skip compression; a deterministic large illustration is used for actual helper coverage",
+      "Compression fixture carries the required FB2 description metadata"
+    ],
+    "remaining": [
+      "Fresh production catalogue/Reader/updater builds and packaged replacement/restart lifecycle before release"
+    ],
+    "cleanup": "Every new native fixture removed by the isolated wrapper; original inputs and retained cached runtime sources preserved.",
+    "page_sequence": 97
   }
 }

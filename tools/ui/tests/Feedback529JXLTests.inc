@@ -53,11 +53,61 @@ end;
 {$I FLibraryTextOnlyTests.inc}
 
 procedure TestFLibraryQualityExport(const Collection: IBookCollection);
+const WebPSample='UklGRi4AAABXRUJQVlA4TCIAAAAvAUAAEBcwFEKChO7/vY6HgKDouuUC7A1KAgRAUUIi+h8D';
 var Book: TBookRecord; Root, Prepared, Target, OriginalImageHash, ContainerHash,
   PreparedHash, ImageHash: string; Images: Integer; Warnings: TStringList;
   Stream: TStream; Zip: TZipFile; Bytes: TBytes; Document: TReaderDocument;
+  TrackUsage: Boolean; Usage: TJSONObject;
+  procedure CompressLargeIllustration;
+  var Bitmap: TBitmap; PNG: TPngImage; Encoded: TMemoryStream; Row: PByteArray;
+    Seed: Cardinal; InputName, OutputName, SourceHash: string; Image: TBytes;
+  begin
+    Bitmap:=TBitmap.Create; PNG:=TPngImage.Create; Encoded:=TMemoryStream.Create;
+    try
+      Bitmap.PixelFormat:=pf24bit; Bitmap.SetSize(1200,900); Seed:=41;
+      for var Y:=0 to Bitmap.Height-1 do
+      begin
+        Row:=Bitmap.ScanLine[Y];
+        for var X:=0 to Bitmap.Width*3-1 do
+        begin
+          Seed:=Cardinal((UInt64(Seed)*1664525+1013904223) and $FFFFFFFF);
+          Row^[X]:=Byte(Seed shr 24);
+        end;
+      end;
+      PNG.Assign(Bitmap); PNG.SaveToStream(Encoded); SetLength(Image,Encoded.Size);
+      Encoded.Position:=0; Encoded.ReadBuffer(Image[0],Length(Image));
+    finally Encoded.Free; PNG.Free; Bitmap.Free; end;
+    Require(Length(Image)>128*1024,'Compression fixture did not exceed the small-image shortcut');
+    InputName:=Root+'\compression-source.fb2'; OutputName:=Root+'\compression-result.epub';
+    TFile.WriteAllText(InputName,'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">'+
+      '<description><title-info><genre>nonf_publicism</genre><author><first-name>Native</first-name><last-name>Test</last-name></author>'+
+      '<book-title>Compression test</book-title><lang>en</lang></title-info><document-info><author><nickname>Native test</nickname></author>'+
+      '<date>2026-11-03</date><id>native-compression-test</id><version>1.0</version></document-info></description>'+
+      '<body><section><p>Complete compression test text.</p><image l:href="#large"/></section></body>'+
+      '<binary id="large" content-type="image/png">'+TNetEncoding.Base64.EncodeBytesToString(Image)+'</binary></FictionBook>',TEncoding.UTF8);
+    SourceHash:=UpdateSHA256(InputName);
+    ConvertBasicBook(Settings.AppPath,Settings.TempPath,InputName,'.fb2',OutputName,nil,nil,nil,'','','',False,nil,'economy');
+    Require(ComponentLastUse(Settings.AppPath,'ImageProcessing')>0,'Actual compression helper use was not recorded');
+    Require(UpdateSHA256(InputName)=SourceHash,'Image compression changed its source book');
+    Document:=TReaderDocument.Create;
+    try
+      Document.Load(OutputName);
+      Require((Document.ImageCount=1) and Document.PlainText.Contains('Complete compression test text.'),'Compressed book lost text or its illustration');
+    finally Document.Free;end;
+  end;
 begin
+  TrackUsage:=GetEnvironmentVariable('HOMELIB_TEST_IMAGE_USAGE')='1';
+  if TrackUsage then
+  begin
+    ConfigureComponentUsage(Settings.AppPath);
+    for var ID in ['JPEG XL','WebP','ImageProcessing','BookProcessing'] do
+      Require(ComponentLastUse(Settings.AppPath,ID)=0,'Image usage fixture already has actual-use records: '+ID);
+    Bytes:=ConvertWebPToPNG(TNetEncoding.Base64.DecodeStringToBytes(WebPSample));
+    Require((Length(Bytes)>8) and (Bytes[0]=$89) and (ComponentLastUse(Settings.AppPath,'WebP')>0),
+      'Actual WebP decoding did not renew its module use');
+  end;
   TestFeedback529JXL(Collection);
+  if TrackUsage then Require(ComponentLastUse(Settings.AppPath,'JPEG XL')>0,'Actual FLibrary restoration did not record JPEG XL');
   Root:=Settings.AppPath+'feedback529-jxl';
   Book:=Default(TBookRecord); Book.Folder:=Root+'\alpha.7z';
   Book.FileName:='1'; Book.FileExt:='.fb2'; Book.LibID:='quality-flibrary';
@@ -117,5 +167,21 @@ begin
       'FLibrary image-quality export changed its source');
   finally Warnings.Free; end;
   TestFLibraryExplicitTextOnlyExport(Book,Prepared);
+  if TrackUsage then
+  begin
+    CompressLargeIllustration;
+    Usage:=TJSONObject.Create;
+    try
+      for var ID in ['WebP','JPEG XL','ImageProcessing','BookProcessing'] do
+      begin
+        Require(ComponentLastUse(Settings.AppPath,ID)>0,'Actual image operation omitted module use: '+ID);
+        Usage.AddPair(ID,TJSONBool.Create(True));
+      end;
+      for var ID in ['PDFium','DjVuLibre','DocSharp','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','BookConverter','IBK'] do
+        Require(ComponentLastUse(Settings.AppPath,ID)=0,'Image processing recorded an unrelated format module: '+ID);
+      TFile.WriteAllText(Settings.AppPath+'image-component-usage.json',Usage.ToJSON,TEncoding.UTF8);
+    finally Usage.Free;end;
+    Writeln('PASS actual WebP JPEG XL and image-quality module use preserves source alpha and excludes unrelated format modules');Flush(Output);
+  end;
   Writeln('PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text');
 end;

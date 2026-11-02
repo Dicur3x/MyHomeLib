@@ -519,7 +519,11 @@ function run(executable, mode, subcase = "") {
       fs.copyFileSync(path.join(runtime,'tools/jpeg-xl/djxl.exe'),path.join(folder,'tools/jpeg-xl/djxl.exe'));
       fs.copyFileSync(path.join(runtime,'tools/7zip/7za.exe'),path.join(folder,'tools/7zip/7za.exe'));
       fs.copyFileSync(path.join(__dirname,'fixtures/transparent-ink.jxl'),path.join(folder,'transparent-ink.jxl'));
-      if(mode==='flibrary-quality') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+      if(mode==='flibrary-quality' && process.env.HOMELIB_TEST_IMAGE_USAGE==='1') {
+        if(!process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES||!process.env.HLRU_PYTHON)throw Error('Image use check requires current processing/image packages');
+        const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B',path.join(__dirname,'prepare_format_runtime_fixture.py'),process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing'],{windowsHide:true,encoding:'utf8',timeout:120000});
+        if(staged.status!==0)throw Error('Image use fixture failed: '+staged.stdout+staged.stderr);
+      } else if(mode==='flibrary-quality') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
     }
     if (/update/.test(mode) || mode === 'optional-components' || mode === 'minimal-first-install' || mode === 'post530') {
       // Complete distribution-only component inventory; no reader profiles.
@@ -760,6 +764,12 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
+    if(mode==='flibrary-quality'&&process.env.HOMELIB_TEST_IMAGE_USAGE==='1') {
+      if(!output.includes('PASS actual WebP JPEG XL and image-quality module use'))throw Error('Image actual-use assertions did not execute');
+      const source=path.join(folder,'image-component-usage.json');const used=JSON.parse(fs.readFileSync(source,'utf8').replace(/^\uFEFF/,''));
+      if(!['WebP','JPEG XL','ImageProcessing','BookProcessing'].every(id=>used[id]===true))throw Error('Actual image use report is incomplete');
+      fs.copyFileSync(source,path.join(__dirname,'Out','image-component-usage-'+(architecture===0x8664?'Win64':'Win32')+'.json'));
+    }
     if(mode==='kindle-save') {
       const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_kindle_saves.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:180000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
       if(checked.status!==0) throw Error('Independent native Kindle verification failed: '+checked.stdout+checked.stderr);
