@@ -216,6 +216,7 @@ const requiredViews = {
   "online-download": ["PASS online main reader downloads ZIP", "PASS online main queue downloads ZIP", "PASS online main queue restarts for another remote book"],
   "online-plain": ["PASS plain online FB2 is downloaded before compatibility conversion"],
   "review-http": ["PASS HTTP reviews decode UTF-8"],
+  "review-deadline": ["PASS continuous slow HTTP response stops at 30-second total deadline"],
   "review-formatting": ["PASS review formatting separates reviewers paragraphs", "PASS review formatting handles missing div separators", "PASS long review lists preserve all reviewer", "PASS native review memo wraps scrolls preserves cached text", "PASS book page without reviews remains empty"],
 };
 // Each independent layout suite retains its full DPI sequence and the same
@@ -877,7 +878,9 @@ async function runOnline(executable, mode) {
   const absolute = path.resolve(folder), expectedRoot = path.resolve(os.tmpdir()) + path.sep;
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   const requests = [];
-  const expected = mode === 'review-http' ? ['/b/1/', '/b/2/', '/b/3/', '/b/5/', '/b/4/'] : mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
+  const expected = mode === 'review-deadline' ? ['/b/13/'] : mode === 'review-http' ?
+    ['1','2','2','3','5','6','6','7','7','7','8','9','10','11','12','4','4'].map(id=>`/b/${id}/`) :
+    mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
   const server = http.createServer((req, res) => {
     requests.push(`${req.method} ${req.url}`);
     if(mode==='download-scenarios') {
@@ -899,10 +902,26 @@ async function runOnline(executable, mode) {
     }
 
     if (req.method !== "GET" || !expected.includes(req.url)) { res.writeHead(404); res.end(); return; }
-    if (mode === 'review-http') {
+    if (mode === 'review-http' || mode === 'review-deadline') {
+      const count=requests.filter(r=>r===`GET ${req.url}`).length;
       if (req.url === '/b/2/') { res.writeHead(503); res.end('unavailable'); return; }
+      if(req.url==='/b/8/' || req.url==='/b/10/') {
+        res.writeHead(503,req.url==='/b/10/'?{'Retry-After':'120'}:{}); res.end('Unavailable'); return;
+      }
+      if(req.url==='/b/9/') {res.writeHead(403);res.end('Forbidden');return;}
+      if((req.url==='/b/6/' && count===1) || (req.url==='/b/7/' && count<=2)) {
+        // No headers: exercise the actual WinHTTP 12002 timeout, not a fake error.
+        return;
+      }
+      if(req.url==='/b/12/') {res.writeHead(200);res.end('<h2>Отзывы</h2>'+'x'.repeat(4*1024*1024));return;}
+      if(req.url==='/b/13/') {
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'}); res.write('<h2>Отзывы</h2>');
+        const drip=setInterval(()=>res.write(' '.repeat(1024)),200);
+        res.once('close',()=>clearInterval(drip)); return;
+      }
+      if(req.url==='/b/11/') {res.writeHead(200);res.end('<h2>Аннотация</h2><p>Только новая аннотация</p><form></form>');return;}
       const text = req.url === '/b/3/' ? '<h1>Access denied</h1>' : req.url === '/b/5/' ? '<h2>Отзывы</h2><div id="newann"></div>' : '<h2>Аннотация</h2><p>Русская аннотация</p><form></form><a href="/polka/show/1">Читатель</a><br><p>Очень <strong>хорошая</strong> книга</p><p>Второй абзац.</p><div></div><a href="/polka/show/2">Другой читатель</a><br><p>Отдельный отзыв.</p><div></div><div id="newann"></div>';
-      const reply = () => { res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(text); };
+      const reply = () => { if(!res.destroyed) {res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(text);} };
       if (req.url === '/b/4/') {
         fs.writeFileSync(path.join(folder, 'review-request-started.marker'), 'request active');
         setTimeout(reply, 1000);
@@ -923,7 +942,7 @@ async function runOnline(executable, mode) {
     const output = await new Promise((resolve, reject) => {
       const child = cp.spawn(exe, [mode, String(port)], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
       let text = "", timedOut = false;
-      const timer = setTimeout(() => { timedOut = true; child.kill(); }, 60000);
+      const timer = setTimeout(() => { timedOut = true; child.kill(); }, mode.startsWith('review-')?90000:60000);
       const collect = data => { text += data.toString("utf8"); if (text.length > 2 * 1024 * 1024) child.kill(); };
       child.stdout.on("data", collect); child.stderr.on("data", collect);
       child.once("error", error => { clearTimeout(timer); reject(error); });
@@ -943,6 +962,7 @@ async function runOnline(executable, mode) {
     if (JSON.stringify(requests) !== JSON.stringify(expectedRequests)) throw new Error(`Unexpected online requests: ${JSON.stringify(requests)}`);
     console.log(`PASS exact loopback requests for main ${mode}; repeated reads use the downloaded book`);
   } finally {
+    if(mode.startsWith('review-')) console.log('TRACE review loopback requests: '+JSON.stringify(requests));
     server.closeAllConnections();
     if (server.listening) await new Promise(resolve => server.close(resolve));
     if (absolute.startsWith(expectedRoot) && path.basename(absolute).startsWith("HomeLibRu-native-")) fs.rmSync(absolute, { recursive: true, force: true });
@@ -990,7 +1010,10 @@ try {
   }
   if (!plainOnly && !reviewsOnly) await runOnline(tests[2], "online-download");
   if (!archiveOnly && !reviewsOnly) await runOnline(tests[2], "online-plain");
-  if (reviewsOnly || (!plainOnly && !archiveOnly && !onlineOnly)) await runOnline(tests[2], 'review-http');
+  if (reviewsOnly || (!plainOnly && !archiveOnly && !onlineOnly)) {
+    await runOnline(tests[2], 'review-http');
+    await runOnline(tests[2], 'review-deadline');
+  }
   console.log(`PASS all native collection regressions (${architecture === 0x8664 ? "x64" : "x86"}); only temporary fixtures used`);
 } catch (error) {
   console.error(`FAIL ${error.stack || error}`);

@@ -2154,55 +2154,7 @@ end;
 
 {$I ReviewFormattingTests.inc}
 
-procedure TestReviewHTTP;
-var Details: TfrmBookDetails; URL: string; Started: UInt64;
-  procedure WaitDownload;
-  begin
-    Started := GetTickCount64;
-    while Assigned(Details.Downloading) do
-    begin
-      Application.ProcessMessages; CheckSynchronize(10);
-      Require(GetTickCount64 - Started < 20000, 'Review request hung');
-    end;
-  end;
-begin
-  URL := 'http://127.0.0.1:' + ParamStr(2) + '/b/';
-  Details := TfrmBookDetails.Create(nil);
-  try
-    Details.Review := 'Сохранённый отзыв';
-    Require(not Details.ReviewChanged, 'Showing saved reviews counts as an edit');
-    Details.AllowOnlineReview(URL + '1/'); Details.Download; WaitDownload;
-    Require((Pos('Читатель:'+sLineBreak+'Очень хорошая книга'+sLineBreak+sLineBreak+'Второй абзац.', Details.Review) > 0) and
-      (Pos(sLineBreak+sLineBreak+'Другой читатель:'+sLineBreak+'Отдельный отзыв.',Details.Review)>0),
-      'HTTP UTF-8 reviews lost paragraphs or reviewer boundaries');
-    Details.Review := 'Не терять этот отзыв'; Details.ReviewChanged := False;
-    Details.AllowOnlineReview(URL + '2/'); Details.Download; WaitDownload;
-    Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
-      not Details.ReviewChanged and (Pos('HTTP 503', Details.ReviewStatus.Caption) > 0),
-      'HTTP failure cleared saved reviews or was hidden');
-    Details.AllowOnlineReview(URL + '3/'); Details.Download; WaitDownload;
-    Require((Pos('Не терять этот отзыв', Details.Review) > 0) and
-      not Details.ReviewChanged and (Pos('Не удалось', Details.ReviewStatus.Caption) = 1),
-      'Blocked page replaced saved reviews');
-    Details.AllowOnlineReview(URL + '5/'); Details.Download; WaitDownload;
-    Require((Details.Review.Trim='Не терять этот отзыв') and not Details.ReviewChanged and
-      (Pos('нет отзывов',Details.ReviewStatus.Caption)>0),'Empty review page replaced saved reviews');
-  finally Details.Free; end;
-  Details := TfrmBookDetails.Create(nil);
-  Details.AllowOnlineReview(URL + '4/'); Details.Download;
-  Started := GetTickCount64;
-  while not FileExists(Settings.AppPath + 'review-request-started.marker') do
-  begin
-    Application.ProcessMessages; CheckSynchronize(10);
-    Require(GetTickCount64 - Started < 5000, 'Closing test did not start HTTP request');
-  end;
-  Started := GetTickCount64; Details.Free;
-  Require(GetTickCount64 - Started < 200, 'Closing reviews waits for network');
-  Started := GetTickCount64;
-  while GetTickCount64 - Started < 1800 do
-  begin Application.ProcessMessages; CheckSynchronize(10); end;
-  Writeln('PASS HTTP reviews decode UTF-8, preserve saved text on failures and close safely during an active request');
-end;
+{$I ReviewHTTPTests.inc}
 
 procedure TestBookInformation;
 var BookData: PBookRecord; OldLocal: Boolean; Details: TfrmBookDetails; Information: TAuthorInformation;
@@ -6090,6 +6042,7 @@ begin
       else if ParamStr(1) = 'review-formatting' then TestReviewFormatting
       else if ParamStr(1) = 'review-http' then
         TestReviewHTTP
+      else if ParamStr(1) = 'review-deadline' then TestReviewDeadline
       else if ParamStr(1) = 'book-information' then
         TestBookInformation
       else if ParamStr(1) = 'book-gallery' then

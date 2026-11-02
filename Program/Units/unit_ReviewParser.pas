@@ -6,18 +6,32 @@ interface
 uses
   Classes,
   StrUtils,
+  System.SyncObjs,
   System.Net.HttpClient;
 
 type
   TReviewParser = class
   strict private
     FHTTPClient: THTTPClient;
+    FRequest: IHTTPRequest;
+    FRequestLock: TObject;
+    FCancel: TEvent;
+    FStarted: UInt64;
+    FPhase, FExpired: Integer;
 
     function GetPage(const url: string): string;
+    function GetCancelled: Boolean;
+    function GetPhase: Integer;
+    procedure ReceiveData(const Sender: TObject; ContentLength, ReadCount: Int64; var Abort: Boolean);
 
   public
     constructor Create;
     destructor Destroy; override;
+    procedure Cancel;
+    procedure CheckDeadline;
+    property Cancelled: Boolean read GetCancelled;
+    property Expired: Integer read FExpired;
+    property Phase: Integer read GetPhase;
 
     procedure Parse(const url: string; targetList, targetlistA: TStringList);
     procedure ParsePage(const PageText, URL: string; targetList, targetlistA: TStringList);
@@ -28,9 +42,9 @@ function IsLibraryReviewURL(const URL: string): Boolean;
 implementation
 
 uses
-  SysUtils, System.Math,
+  SysUtils, System.Math, Winapi.Windows, System.Net.URLClient,
   unit_Globals,
-  unit_MHLHttpClient, System.RegularExpressions, System.NetEncoding;
+  unit_MHLHttpClient, System.RegularExpressions, System.NetEncoding, unit_Diagnostics;
 
 function IsLibraryReviewURL(const URL: string): Boolean;
 begin
@@ -53,20 +67,59 @@ end;
 constructor TReviewParser.Create;
 begin
   inherited Create;
+  FRequestLock := TObject.Create;
+  FCancel := TEvent.Create(nil, True, False, '');
+  FStarted := GetTickCount64;
   FHTTPClient := CreateHTTPClientGlobal;
   FHTTPClient.ConnectionTimeout := 5000;
-  FHTTPClient.ResponseTimeout := 15000;
+  FHTTPClient.ResponseTimeout := 7000;
+  FHTTPClient.OnReceiveData := ReceiveData;
 end;
 
 destructor TReviewParser.Destroy;
 begin
   FreeAndNil(FHTTPClient);
+  FCancel.Free;
+  FRequestLock.Free;
   inherited Destroy;
+end;
+
+function TReviewParser.GetCancelled: Boolean;
+begin
+  Result := FCancel.WaitFor(0) = wrSignaled;
+end;
+
+function TReviewParser.GetPhase: Integer;
+begin
+  Result := TInterlocked.CompareExchange(FPhase, 0, 0);
+end;
+
+procedure TReviewParser.Cancel;
+var Request: IHTTPRequest;
+begin
+  FCancel.SetEvent;
+  TMonitor.Enter(FRequestLock);
+  try Request := FRequest; finally TMonitor.Exit(FRequestLock); end;
+  // Keep a local interface reference: completion can release the active request.
+  if Assigned(Request) then Request.Cancel;
+end;
+
+procedure TReviewParser.CheckDeadline;
+begin
+  if not Cancelled and (GetTickCount64 - FStarted >= 30000) then
+  begin TInterlocked.Exchange(FExpired, 1); Cancel; end;
+end;
+
+procedure TReviewParser.ReceiveData(const Sender: TObject; ContentLength, ReadCount: Int64; var Abort: Boolean);
+begin
+  CheckDeadline;
+  Abort := Cancelled;
 end;
 
 procedure TReviewParser.Parse(const url: string; targetList, targetlistA: TStringList);
 begin
   ParsePage(GetPage(URL), URL, targetList, targetlistA);
+  if Cancelled then begin targetList.Clear; targetlistA.Clear; end;
 end;
 
 // Reviews are ordinary text, not release-note Markdown. Keep HTML block/break
@@ -148,17 +201,64 @@ end;
 
 function TReviewParser.GetPage(const url: string): string;
 var Stream: TReviewPageStream; Response: IHTTPResponse; Bytes: TBytes;
+  Request: IHTTPRequest; Attempt: Integer; Retryable, TimedOut: Boolean; Failure: string;
 begin
   if not IsLibraryReviewURL(URL) then
     raise Exception.Create('Для книги нет корректного адреса отзывов.');
   Stream := TReviewPageStream.Create;
   try
-    Response := FHTTPClient.Get(URL, Stream);
-    if Response.StatusCode <> 200 then
-      raise Exception.CreateFmt('Сайт ответил HTTP %d.', [Response.StatusCode]);
-    SetLength(Bytes, Stream.Size); Stream.Position := 0;
-    if Length(Bytes) > 0 then Stream.ReadBuffer(Bytes[0], Length(Bytes));
-    Result := TEncoding.UTF8.GetString(Bytes);
+    for Attempt := 1 to 2 do
+    begin
+      CheckDeadline;
+      if Cancelled then Abort;
+      TInterlocked.Exchange(FPhase, Attempt);
+      if Attempt = 1 then FHTTPClient.ResponseTimeout := 7000
+      else FHTTPClient.ResponseTimeout := 15000;
+      Stream.Clear; Retryable := False;
+      try
+        Request := FHTTPClient.GetRequest('GET', URL);
+        TMonitor.Enter(FRequestLock);
+        try FRequest := Request; finally TMonitor.Exit(FRequestLock); end;
+        try
+          if Cancelled then Abort;
+          Response := FHTTPClient.Execute(Request, Stream);
+        finally
+          TMonitor.Enter(FRequestLock);
+          try FRequest := nil; finally TMonitor.Exit(FRequestLock); end;
+        end;
+        CheckDeadline;
+        if Cancelled then Abort;
+        if Response.StatusCode <> 200 then
+        begin
+          // Respect a server-requested backoff; never retry access/login errors.
+          Retryable := MatchText(IntToStr(Response.StatusCode), ['408', '500', '502', '503', '504']) and
+            (Response.HeaderValue['Retry-After'] = '');
+          raise Exception.CreateFmt('Сайт ответил HTTP %d.', [Response.StatusCode]);
+        end;
+        SetLength(Bytes, Stream.Size); Stream.Position := 0;
+        if Length(Bytes) > 0 then Stream.ReadBuffer(Bytes[0], Length(Bytes));
+        Exit(TEncoding.UTF8.GetString(Bytes));
+      except
+        on E: Exception do
+        begin
+          if Cancelled then Abort;
+          LogDiagnosticError('reviews-http', E);
+          TimedOut := Pos('(12002)', E.Message) > 0;
+          Retryable := Retryable or
+            (((E is ENetHTTPClientException) or (E is ENetHTTPRequestException)) and
+            (TimedOut or (Pos('(12029)', E.Message) > 0) or
+             (Pos('(12030)', E.Message) > 0) or (Pos('(12031)', E.Message) > 0)));
+          Failure := E.Message;
+          if (E is ENetHTTPClientException) or (E is ENetHTTPRequestException) then
+            Failure := 'Ошибка соединения с сайтом. Подробности записаны в журнал ошибок.';
+          if TimedOut then Failure := 'Сайт не ответил вовремя. Попробуйте позже.';
+          if not Retryable or (Attempt = 2) then raise Exception.Create(Failure);
+        end;
+      end;
+      TInterlocked.Exchange(FPhase, 3);
+      // One retry only, with an interruptible pause. No access to form controls.
+      if FCancel.WaitFor(1000) = wrSignaled then Abort;
+    end;
   finally Stream.Free; end;
 end;
 

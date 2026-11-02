@@ -40,7 +40,7 @@ uses
   ComCtrls,
   unit_Globals,
   Menus,
-  ActnList, System.Actions, frm_AuthorInformation;
+  ActnList, System.Actions, frm_AuthorInformation, unit_ReviewParser;
 
 type
   TReviewDownloadThread = class;
@@ -82,11 +82,13 @@ type
     FReviewChanged: Boolean;
     FWorker: TReviewDownloadThread;
     FReviewStatus: TLabel;
+    FReviewTimer: TTimer;
     FAuthorTab: TTabSheet;
     FAuthorInformation: TAuthorInformationPanel;
     FReviewReadOnly, FAnnotationReadOnly: Boolean;
     FInfoNotify, FFileNotify: TWndMethod;
     procedure FinishDownload(Sender: TObject);
+    procedure ReviewProgress(Sender: TObject);
     procedure PageChanged(Sender: TObject);
     procedure InfoNotify(var Message: TMessage);
     procedure FileNotify(var Message: TMessage);
@@ -119,6 +121,7 @@ type
   TReviewDownloadThread = class(TThread)
   private
     FUrl: string;
+    FParser: TReviewParser;
   protected
     procedure Execute; override;
   public
@@ -126,6 +129,8 @@ type
     ErrorText: string;
     constructor Create(const URL: string);
     destructor Destroy; override;
+    procedure Cancel;
+    property Parser: TReviewParser read FParser;
   end;
 
 procedure DownloadReview(Form: TfrmBookDetails; const URL: string);
@@ -139,7 +144,6 @@ uses
   Clipbrd,
   FictionBook_21,
   unit_Helpers,
-  unit_ReviewParser,
   StrUtils,
   unit_MHLHelpers,
   unit_FB2Utils,
@@ -169,6 +173,8 @@ begin
   FReviewStatus.WordWrap := True; FReviewStatus.Height := 38;
   FReviewStatus.AlignWithMargins := True; FReviewStatus.Margins.Left := 8;
   FReviewStatus.Caption := 'Сохранённые отзывы. Загрузка с сайта выполняется по кнопке.';
+  FReviewTimer := TTimer.Create(Self); FReviewTimer.Enabled := False;
+  FReviewTimer.Interval := 200; FReviewTimer.OnTimer := ReviewProgress;
   tsReview.Caption := 'Отзывы';
   lvFileInfo.ShowColumnHeaders := False;
   lvInfo.ShowColumnHeaders := False;
@@ -216,12 +222,13 @@ end;
 
 destructor TfrmBookDetails.Destroy;
 begin
+  if Assigned(FReviewTimer) then FReviewTimer.Enabled := False;
   if Assigned(FInfoNotify) then tsInfo.WindowProc := FInfoNotify;
   if Assigned(FFileNotify) then tsFileInfo.WindowProc := FFileNotify;
   // The worker owns its lists and HTTP client; it never retains the form.
   // Detaching the callback makes closing during a request immediate and safe.
   if Assigned(FWorker) then
-  begin FWorker.OnTerminate := nil; FWorker.Terminate; FWorker := nil; end;
+  begin FWorker.Cancel; FWorker.OnTerminate := nil; FWorker := nil; end;
   inherited;
 end;
 
@@ -237,30 +244,51 @@ end;
 procedure TfrmBookDetails.Download;
 begin
   if Assigned(FWorker) or not IsLibraryReviewURL(FUrl) then Exit;
-  btnLoadReview.Enabled := False; btnClearReview.Enabled := False;
+  btnLoadReview.Caption := 'Отменить'; btnClearReview.Enabled := False;
   FReviewReadOnly := mmReview.ReadOnly; FAnnotationReadOnly := mmoAnnotation.ReadOnly;
   mmReview.ReadOnly := True; mmoAnnotation.ReadOnly := True;
   FReviewStatus.Caption := 'Загрузка отзывов с сайта коллекции...';
   FWorker := TReviewDownloadThread.Create(FUrl);
+  FReviewTimer.Enabled := True;
   FWorker.OnTerminate := FinishDownload; FWorker.Start;
+end;
+
+procedure TfrmBookDetails.ReviewProgress(Sender: TObject);
+begin
+  if not Assigned(FWorker) then Exit;
+  FWorker.Parser.CheckDeadline;
+  if FWorker.Parser.Cancelled then Exit;
+  case FWorker.Parser.Phase of
+    2: FReviewStatus.Caption := 'Повторный запрос к сайту (2 из 2). Сохранённый текст пока не меняется.';
+    3: FReviewStatus.Caption := 'Сайт временно не ответил. Через секунду повторим запрос один раз.';
+  end;
 end;
 
 procedure TfrmBookDetails.FinishDownload(Sender: TObject);
 var Worker: TReviewDownloadThread;
 begin
+  FReviewTimer.Enabled := False;
   Worker := FWorker; FWorker := nil;
-  if Worker.ErrorText <> '' then
-    FReviewStatus.Caption := 'Не удалось загрузить отзывы: ' + Worker.ErrorText
+  if Worker.Parser.Cancelled then
+  begin
+    if Worker.Parser.Expired <> 0 then
+      FReviewStatus.Caption := 'Сайт не ответил вовремя. Сохранённый текст оставлен. Попробуйте позже.'
+    else FReviewStatus.Caption := 'Загрузка отменена. Сохранённый текст оставлен.';
+  end
+  else if Worker.ErrorText <> '' then
+    FReviewStatus.Caption := 'Не удалось загрузить отзывы: ' + Worker.ErrorText + ' Сохранённый текст оставлен.'
   else
   begin
     if Worker.Review.Count > 0 then mmReview.Lines := Worker.Review;
-    if Worker.Annotation.Count > 0 then mmoAnnotation.Lines := Worker.Annotation;
+    if (Worker.Annotation.Count > 0) and (mmoAnnotation.Lines.Text <> Worker.Annotation.Text) then
+    begin mmoAnnotation.Lines := Worker.Annotation; FReviewChanged := True; end;
     if Worker.Review.Count = 0 then
       FReviewStatus.Caption := 'На странице книги нет отзывов. Сохранённый текст оставлен.'
     else FReviewStatus.Caption := 'Отзывы загружены с сайта коллекции.';
   end;
   mmReview.ReadOnly := FReviewReadOnly; mmoAnnotation.ReadOnly := FAnnotationReadOnly;
   btnLoadReview.Enabled := True; btnClearReview.Enabled := True;
+  btnLoadReview.Caption := 'Повторить';
 end;
 
 function TfrmBookDetails.DrawInfoGroup(var Message: TMessage; List: TListView): Boolean;
@@ -345,7 +373,13 @@ end;
 
 procedure TfrmBookDetails.btnLoadReviewClick(Sender: TObject);
 begin
-  Download;
+  if Assigned(FWorker) then
+  begin
+    FWorker.Cancel;
+    btnLoadReview.Enabled := False;
+    FReviewStatus.Caption := 'Отмена запроса... Сохранённый текст не меняется.';
+  end
+  else Download;
 end;
 
 procedure TfrmBookDetails.SetAnnotation(const Value: string);
@@ -526,20 +560,25 @@ end;
 constructor TReviewDownloadThread.Create(const URL: string);
 begin
   inherited Create(True); FreeOnTerminate := True; FUrl := URL;
+  FParser := TReviewParser.Create;
   Review := TStringList.Create; Annotation := TStringList.Create;
 end;
 
 destructor TReviewDownloadThread.Destroy;
 begin
-  Review.Free; Annotation.Free; inherited;
+  FParser.Free; Review.Free; Annotation.Free; inherited;
+end;
+
+procedure TReviewDownloadThread.Cancel;
+begin
+  Terminate;
+  FParser.Cancel;
 end;
 
 procedure TReviewDownloadThread.Execute;
-var Parser: TReviewParser;
 begin
   try
-    Parser := TReviewParser.Create;
-    try Parser.Parse(FUrl, Review, Annotation); finally Parser.Free; end;
+    FParser.Parse(FUrl, Review, Annotation);
   except on E: Exception do ErrorText := E.Message; end;
 end;
 

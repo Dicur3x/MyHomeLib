@@ -2,9 +2,9 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 58,
-    "verified_blocks": 68,
-    "verified_checked": 42,
+    "verified_sequence": 82,
+    "verified_blocks": 81,
+    "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
   },
@@ -2888,5 +2888,56 @@
       "old_denied_scopes": "not retried"
     },
     "next_direction": "Finish bounded asynchronous review retry for reported Flibusta 12002 while preserving cached reviews"
+  },
+  "review_http_retry_20261102": {
+    "status": "native_and_complete_release_builds_passed_x86_x64",
+    "proof": "tools\\ui\\tests\\Out\\review-http-final-20261102-r1.json",
+    "proof_sha256": "542600ab59c975160d919efd0e916d20299c202a51df75344a41256d5852b210",
+    "policy": {
+      "maximum_application_attempts": 2,
+      "retry_delay_ms": 1000,
+      "connection_timeout_ms": 5000,
+      "response_timeout_ms": [
+        7000,
+        15000
+      ],
+      "total_network_deadline_ms": 30000,
+      "response_cap_bytes": 4194304,
+      "retry_after_respected": true,
+      "automatic_retries_for_access_or_invalid_page": false
+    },
+    "verification": [
+      "UTF-8 reviewer/paragraph boundaries",
+      "Real WinHTTP timeout with successful retry",
+      "Permanent timeout with cached review and annotation preserved; manual retry succeeds",
+      "HTTP 503 limited to two requests",
+      "HTTP 403 and Retry-After response not retried",
+      "Blocked and empty pages preserve saved text",
+      "Annotation-only success is marked dirty for persistence",
+      "Oversize response rejected without replacing saved content",
+      "Cancel during retry pause prevents second request",
+      "Active cancellation and form destruction each return in less than 200 ms",
+      "UI timer continues during actual network timeout",
+      "Continuous response stops at total deadline; cancelled/partial text never published",
+      "Existing review formatting and memo scrolling/dirty-state regressions pass"
+    ],
+    "limitations": [
+      "Original Flibusta server failure for the reported book was not reproduced; local transport scenarios do not establish its root cause",
+      "Lower information-panel reviews and additional attributed sources remain separate pending work",
+      "Development EXEs are not beta 3 release packages"
+    ],
+    "initial_failures": [
+      "Native fixture DeleteFile needed explicit System.SysUtils qualification; subsequent compiler errors were cascading",
+      "Initial HTTP fixture used a 28-second guard shorter than the 30-second production total deadline; corrected to 35 seconds and exact request counts retained",
+      "Two IDE attempts timed out before a capturable result; Computer Use capture recovered after runtime reset",
+      "First complete Win64 build reported resource output AccessDenied; no read-only flag or persistent write-open failure found; ordinary retry passed without permission or source changes"
+    ],
+    "cleanup": "Native wrapper removed all newly owned loopback/formatting profiles in finally, including failed runs; validation logs and build reports retained; old policy-denied scopes not retried",
+    "checklist": {
+      "sequence": 82,
+      "transport_checked_block": "0dab809d-ce69-4c33-b7e9-ea31006deda4",
+      "lower_panel_and_attributed_sources_pending_block": "1bf85d7f-e1f0-459b-a891-c5be01a7809a",
+      "all_other_block_hashes_preserved": true
+    }
   }
 }
