@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 85,
+    "verified_sequence": 86,
     "verified_blocks": 81,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "receipt_foundation_verified_continuing_removal_design",
+    "status": "removal_backend_verified_continuing_user_interface_and_use_tracking",
     "scope": "Manual removal and one combined monthly unused-module offer in catalogue and standalone Reader; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2958,11 +2958,11 @@
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Design durable installed-file ownership receipts and a guarded removal plan, including existing installations",
-      "Preserve unknown files, modified user data, application profiles and required shared files; handle dependency selection and busy-file rollback",
-      "Record actual use at read/conversion execution boundaries, independently of update/inventory checks",
-      "Add manual removal UI and a combined optional 30-day offer with cancel/suppress persistence",
-      "Verify removal, cancellation, locks, modified/shared files, reinstall and monthly timing in isolated x86/x64 native fixtures"
+      "Connect manual management UI and startup transaction recovery in catalogue and standalone Reader",
+      "Resolve verified inventory for legacy installations without a receipt/saved manifest, using package metadata without forced reinstall",
+      "Record actual read/conversion/tool usage independently of update checks",
+      "Add combined monthly offer, explicit selection, postpone and permanent suppression",
+      "Verify actual UI removal/cancel/reinstall, timing, theme/DPI and final distribution binaries on x86/x64"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
@@ -3022,5 +3022,32 @@
       "Show space/time implications and account for shared images and external collection updates"
     ],
     "current_behavior": "Existing shared archives are preserved whole; member deletion has not been implemented"
+  },
+  "component_removal_backend_20261102": {
+    "status": "verified_native_x86_x64",
+    "proof": "C:\\Users\\cloud\\HomeLibRu-audit\\tools\\ui\\tests\\Out\\component-removal-final-20261102-r1.json",
+    "sha256": "e318907334c851cd6bf0d871cde9e7221825df3a5dce48a36d518558d4130a5f",
+    "scope": "Component-removal backend; management UI, actual-use tracking and monthly offers not implemented yet",
+    "coverage": [
+      "Plan uses explicit receipts or validated saved/verified package manifests; never a directory scan as ownership",
+      "Core SQLite/updater/app and retained shared files protected",
+      "AlReader settings preserved despite modifications",
+      "Unknown files and changed auxiliaries preserved",
+      "Changed primary blocks stale plan before any removal",
+      "Busy file aborts before moves; injected move failure rolls back runtime and receipt",
+      "Legacy exact manifest allows removal without reinstall; unknown inventory blocks deletion",
+      "Two selected owners with different historical shared-file hashes remove the currently owned runtime while preserving core",
+      "Interrupted removal restores quarantined file; a new conflicting file is not overwritten",
+      "Tampered journal cannot nominate Data/notes.json",
+      "Real independently verified BookProcessing and ImageProcessing packages install, remove independently, reinstall with ownership and convert FB2 to EPUB before/after; original book unchanged"
+    ],
+    "remaining": [
+      "No controls wired into catalogue/Reader yet",
+      "No automatic startup recovery hook yet; recovery API tested directly",
+      "No actual-use history or monthly offer yet",
+      "Legacy installs missing both receipt and saved manifest still need verified package inventory resolution",
+      "Deletion transaction is tested on isolated fixtures only; working desktop modules unchanged",
+      "No general claim about power-loss filesystem guarantees beyond journal-before-move and tested partial-transaction replay"
+    ]
   }
 }

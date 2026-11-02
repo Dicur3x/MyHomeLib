@@ -36,6 +36,8 @@ function InstalledComponentVersion(const AppPath, ID: string): string;
 function ComponentNeedsRepair(const AppPath, ID: string): Boolean;
 function ComponentReceiptName(const ID: string): string;
 function InstalledComponentFiles(const AppPath, ID: string): TUpdateFiles;
+function ComponentFilesFromManifest(const ManifestFile, ID: string): TUpdateFiles;
+function CheckedUpdateChildPath(const Root, Name: string): string;
 function PreparedProgramUpdateHelper(const Job, Tag, Platform, ExpectedSHA256: string): string;
 function SafeComponentFile(const ID, Name: string): Boolean;
 procedure InstallProgramUpdate(const Job, Target: string;
@@ -486,6 +488,9 @@ begin
   AssertUpdatePathBelow(Result,Root);
 end;
 
+function CheckedUpdateChildPath(const Root, Name: string): string;
+begin Result:=ChildPath(Root,Name); end;
+
 function RetryUpdateFileOperation(const Operation: TFunc<Boolean>): Boolean;
 var Error: DWORD; Deadline: UInt64;
 begin
@@ -677,6 +682,34 @@ begin
       Assigned(Root.GetValue('bundle')) then
       raise Exception.Create('Список установленных файлов относится к другому компоненту.');
     Result:=ManifestFiles(Root);
+  finally Root.Free; end;
+end;
+
+function ComponentFilesFromManifest(const ManifestFile, ID: string): TUpdateFiles;
+var Root: TJSONObject; Files: TUpdateFiles; Component, Platform: string; Includes: Boolean;
+begin
+  Result:=nil;
+  if ComponentFileName(ID)='' then raise Exception.Create('Неизвестный компонент: '+ID);
+  if not FileExists(ManifestFile) then Exit;
+  AssertUpdatePath(ManifestFile);
+  if TFile.GetSize(ManifestFile)>1024*1024 then raise Exception.Create('Слишком большой список файлов установки.');
+  Root:=ReadJSON(ManifestFile);
+  try
+    Component:=Root.GetValue<string>('component',''); Platform:=Root.GetValue<string>('platform','');
+    if (Root.GetValue<Integer>('format',0)<>1) or
+      ((Platform<>ProgramUpdatePlatform) and (Platform<>'AnyWindows')) then
+      raise Exception.Create('Список файлов не подходит этой установке.');
+    Includes:=(Component='') or (Component=ID);
+    if (Component='batch') or (Component='') then
+      if Root.GetValue('bundle') is TJSONArray then
+        for var Part in TJSONArray(Root.GetValue('bundle')) do
+          if Part.GetValue<string>('component','')=ID then Includes:=True;
+    Files:=ManifestFiles(Root);
+    if Includes then for var Info in Files do if SafeComponentFile(ID,Info.Name) then
+    begin SetLength(Result,Length(Result)+1); Result[High(Result)]:=Info; end;
+    Includes:=False;
+    for var Info in Result do if SameText(Info.Name,ComponentFileName(ID)) then Includes:=True;
+    if not Includes then Result:=nil;
   finally Root.Free; end;
 end;
 

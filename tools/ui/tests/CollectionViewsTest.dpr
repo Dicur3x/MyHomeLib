@@ -8,7 +8,7 @@
 
 uses
   frm_MCPSetup, Xml.XMLDoc, Xml.XMLIntf,
-  unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents,
+  unit_CatalogComponents, unit_MetabibReader, unit_FormatComponents, unit_ComponentRemoval,
   unit_StartupCatalog, unit_FLibraryCompat, NativeRegressionGuard, System.SysUtils, System.StrUtils, System.Classes, System.Types, System.IOUtils, System.IniFiles, System.JSON, System.Net.HttpClient, System.Net.URLClient, System.Generics.Collections, System.Variants, Winapi.Windows, Winapi.Messages, Winapi.CommCtrl, Winapi.RichEdit, Winapi.ActiveX, Winapi.ShlObj,
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
@@ -5669,6 +5669,7 @@ end;
 {$I ZstdModuleTests.inc}
 {$I FormatComponentTests.inc}
 {$I ComponentReceiptTests.inc}
+{$I ComponentRemovalTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5890,6 +5891,7 @@ begin
       else if ParamStr(1) = 'optional-zstd' then TestOptionalZstdModule
       else if ParamStr(1) = 'format-components' then TestFormatComponents
       else if ParamStr(1) = 'component-receipts' then TestComponentReceipts
+      else if ParamStr(1) = 'component-removal' then TestComponentRemoval
       else if ParamStr(1) = 'paged-export-progress' then TestPagedExportProgress
       else if ParamStr(1) = 'download-scenarios' then TestDownloadScenarios(SystemDB,StrToIntDef(ParamStr(2),0))
       else if ParamStr(1) = 'reader-components' then TestReaderComponents
