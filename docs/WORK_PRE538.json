@@ -2965,5 +2965,28 @@
       "Verify removal, cancellation, locks, modified/shared files, reinstall and monthly timing in isolated x86/x64 native fixtures"
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
+  },
+  "legacy_export_settings_sync_20261102": {
+    "status": "confirmed_gap_queued_after_active_module_maintenance",
+    "request": "Clarify and synchronize the legacy Folders/Device settings with unified Save As; no inactive or contradictory settings",
+    "observations": [
+      "FileNameTemplate is shared: settings load/save and new Save As use the same property",
+      "DeviceDir supplies InitialFolder, but remembered SyncExportDir takes precedence in ChooseBookSendOptions",
+      "Legacy folder-mask editor writes FolderTemplate; Save As reads/writes separate SaveAsFolderTemplate and SaveAsUseSubfolders; old mask is only an initial migration fallback",
+      "ChooseBookSendOptions currently honors the global DefaultMode explicitly for TXT/MOBI/AZW3 only; global FB2/EPUB choices need consistent policy handling",
+      "PromptDevicePath remains used in the old alternate export branch; unified Save As always presents its dialog"
+    ],
+    "sources": [
+      "Program/Forms/frm_settings.pas:LoadSetting and SaveSettings",
+      "Program/Units/unit_BookSendOptions.pas:constructor and ChooseBookSendOptions",
+      "Program/Forms/frm_main.pas:ExportToDevice execution branch",
+      "Program/Units/unit_Settings.pas:SaveAsFolderTemplate migration"
+    ],
+    "acceptance": [
+      "Use one clear source for destination, filename and folder masks across settings and Save As",
+      "Make every selectable default format affect the next ordinary operation while preserving explicit restored-operation options",
+      "Explain or remove legacy path-prompt controls for flows where they do not apply",
+      "Verify settings changes, remembered values, disabled subfolders and old INI migration on x86/x64"
+    ]
   }
 }
