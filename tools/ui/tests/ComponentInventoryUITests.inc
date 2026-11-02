@@ -1,15 +1,21 @@
-type
+﻿type
   TInventoryDialog = class(TfrmComponentMaintenance)
   public
     Consent: Boolean;
     Confirmations: Integer;
     ConfirmedSize: Int64;
+    SelectedArchive: string;
+    ArchiveSelections: Integer;
   protected
     function ConfirmInventoryDownload(Size: Int64): Boolean; override;
+    function ChooseInventoryArchive(out Archive: string): Boolean; override;
   end;
 
 function TInventoryDialog.ConfirmInventoryDownload(Size: Int64): Boolean;
 begin Inc(Confirmations); ConfirmedSize:=Size; Result:=Consent; end;
+
+function TInventoryDialog.ChooseInventoryArchive(out Archive: string): Boolean;
+begin Inc(ArchiveSelections); Archive:=SelectedArchive; Result:=Archive<>''; end;
 
 procedure TestComponentInventoryUI;
 var Server: TUFNServer; Dialog: TInventoryDialog; Available: TComponentReleases;
@@ -56,7 +62,9 @@ var Server: TUFNServer; Dialog: TInventoryDialog; Available: TComponentReleases;
     Archive:=Settings.AppPath+'inventory-ui-'+Mode+'.zip'; Zip:=TZipFile.Create; Root:=TJSONObject.Create;
     try
       Root.AddPair('format',TJSONNumber.Create(1)); Root.AddPair('release',ALREADER_FIXED_TAG);
-      Root.AddPair('platform',ProgramUpdatePlatform); Root.AddPair('component','WebP'); Root.AddPair('version','1.6.0');
+      Root.AddPair('platform',ProgramUpdatePlatform);
+      if Mode='local-bad-manifest' then Root.AddPair('component','SQLite') else Root.AddPair('component','WebP');
+      Root.AddPair('version','1.6.0');
       Files:=TJSONArray.Create; Root.AddPair('files',Files); Zip.Open(Archive,zmWrite);
       for Name in ['libwebp.dll','RUNTIME.json','COPYING.txt','PATENTS.txt','AUTHORS.txt'] do
       begin
@@ -84,7 +92,7 @@ var Server: TUFNServer; Dialog: TInventoryDialog; Available: TComponentReleases;
         Inc(FactoryCalls); Job:=Destination;
         LastWorker:=TUFNDownloadWorker.Create(0,ReleaseInfo,Destination,Server); Result:=LastWorker;
       end);
-    Dialog.Show; WaitPlan; Dialog.Consent:=True;
+    Dialog.Show; WaitPlan; Dialog.Consent:=True; Dialog.SelectedArchive:=Archive;
     Resolve:=TButton(Dialog.FindComponent('MaintenanceInventory'));
     Require(Resolve.Enabled and not TButton(Dialog.FindComponent('MaintenanceRemove')).Enabled,
       'Unknown existing inventory was removable before verification');
@@ -126,12 +134,14 @@ begin
   Writeln('PASS ordinary catalogue and Reader updater Modules entries open the actual scoped manager without preselected deletion');
   Server:=TUFNServer.Create; Dialog:=nil;
   try
-    for var Mode in ['decline','success','queued-cancel','inflight-cancel','bad-digest','prestart-failure'] do
+    for var Mode in ['decline','success','queued-cancel','inflight-cancel','bad-digest','prestart-failure',
+      'local-decline','local-success','local-cancel','local-bad-manifest'] do
     begin
       PrepareCase(Mode);
       if Mode='bad-digest' then
         for var I:=Low(UPDATE_COMPONENTS) to High(UPDATE_COMPONENTS) do
           if UPDATE_COMPONENTS[I].ID='WebP' then Available[I].SHA256:=StringOfChar('0',64);
+      if Mode.StartsWith('local-') then Available:=Default(TComponentReleases);
       CreateDialog;
       try
         if Mode='decline' then
@@ -152,6 +162,31 @@ begin
               (Pos('OWN_UPDATER_PRESTART_UI_FAILURE',TMemo(Dialog.FindComponent('MaintenanceDetails')).Text)>0),
               'Pre-start inventory failure did not recover usable controls and a readable cause');
           finally Resolve.WindowProc:=Probe.Original; Probe.Free; end;
+        end
+        else if Mode.StartsWith('local-') then
+        begin
+          if Mode='local-decline' then Dialog.SelectedArchive:='';
+          Resolve.Click;
+          Require((Dialog.ArchiveSelections=1) and (Dialog.Confirmations=0) and (FactoryCalls=0) and
+            (Server.Requests=BeforeRequests),'Saved inventory archive requested an unrelated download');
+          if Mode='local-cancel' then begin Dialog.Close; WaitClosed; end
+          else if Mode<>'local-decline' then
+          begin
+            var Started:=GetTickCount64;
+            repeat Application.ProcessMessages; CheckSynchronize(5); Sleep(5);
+            until FileExists(Receipt) or (Pos('Архив относится к другому модулю',TMemo(Dialog.FindComponent('MaintenanceDetails')).Text)>0) or
+              (GetTickCount64-Started>20000);
+            if Mode='local-success' then
+            begin
+              WaitPlan; Require(FileExists(Receipt) and TButton(Dialog.FindComponent('MaintenanceRemove')).Enabled,
+                'Matching saved archive did not produce a verified removal inventory');
+              Require(Length(InstalledComponentFiles(Target,'WebP'))=5,'Saved archive inventory owns unrelated files');
+            end
+            else Require(not FileExists(Receipt) and
+              (Pos('Архив относится к другому модулю',TMemo(Dialog.FindComponent('MaintenanceDetails')).Text)>0),
+              'Saved archive for another module was accepted or its cause hidden: '+
+                TMemo(Dialog.FindComponent('MaintenanceDetails')).Text);
+          end;
         end
         else
         begin
@@ -187,12 +222,17 @@ begin
           end;
           Require(Server.Requests=BeforeRequests+1,'Inventory acquired an extra or unrelated package');
         end;
-        if Mode<>'success' then Require(not FileExists(Receipt),'Cancelled or invalid inventory changed installed ownership');
+        if (Mode<>'success') and (Mode<>'local-success') then
+          Require(not FileExists(Receipt),'Cancelled or invalid inventory changed installed ownership');
         RequirePrivate; Dialog.Close;
       finally
         Server.Released.SetEvent; Dialog.Free; Dialog:=nil;
       end;
       if FactoryCalls>0 then Require(not DirectoryExists(Job),'Closed inventory dialog left its downloaded staging folder');
+      if DirectoryExists(Target+'\tools\component-state') then
+        Require(Length(TDirectory.GetDirectories(Target+'\tools\component-state','HomeLibRu-update-inventory-*'))=0,
+          'Saved inventory archive left its owned staging directory');
+      Require(FileExists(Archive) and (UpdateSHA256(Archive)=Info.SHA256),'Inventory acquisition changed its source ZIP');
       Require((Server.Failure='') and (Server.CreatedWorkers- BeforeCreated=Server.FreedWorkers-BeforeFreed),
         'Inventory lifecycle left a real worker or an unexpected HTTP route');
       Writeln('PASS actual inventory download UI '+Mode+' preserves runtime private data and cleans owned work');

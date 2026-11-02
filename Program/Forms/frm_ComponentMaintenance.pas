@@ -22,7 +22,7 @@ type
     FTimer: TTimer;
     FPlan, FResult: TComponentRemovalPlan;
     FWorker: TThread;
-    FError, FLeftover, FJob: string;
+    FError, FLeftover, FJob, FInventoryID: string;
     FDownloads: TProgramDownloadThread;
     FAvailable: TComponentReleases;
     FFactory: TInventoryDownloadFactory;
@@ -42,6 +42,7 @@ type
     procedure SaveOfferChoice;
   protected
     function ConfirmInventoryDownload(Size: Int64): Boolean; virtual;
+    function ChooseInventoryArchive(out Archive: string): Boolean; virtual;
     procedure Resize; override;
     procedure ChangeScale(M,D: Integer; isDpiChange: Boolean); override;
   public
@@ -271,8 +272,19 @@ begin
     'Архив будет использован только для списка файлов. Переустановка не требуется.'+sLineBreak+'Скачать?',mbYesNo)=mrYes;
 end;
 
+function TfrmComponentMaintenance.ChooseInventoryArchive(out Archive: string): Boolean;
+var Dialog: TOpenDialog;
+begin
+  Archive:=''; Dialog:=TOpenDialog.Create(Self);
+  try
+    Dialog.Title:='Выберите сохранённый архив модуля HomeLibre'; Dialog.Filter:='Архив модуля HomeLibre (*.zip)|*.zip';
+    Dialog.Options:=[ofFileMustExist,ofEnableSizing]; Result:=Dialog.Execute;
+    if Result then Archive:=Dialog.FileName;
+  finally Dialog.Free; end;
+end;
+
 procedure TfrmComponentMaintenance.ResolveClick(Sender: TObject);
-var IDs: TArray<string>; Info: TProgramRelease; ID, Installed: string; Dialog: TOpenDialog;
+var IDs: TArray<string>; Info: TProgramRelease; ID, Installed: string;
   Archive, Tag, Version: string;
 begin
   if Assigned(FWorker) or Assigned(FDownloads) then Exit;
@@ -304,11 +316,8 @@ begin
     end;
     Exit;
   end;
-  Dialog:=TOpenDialog.Create(Self);
-  try
-    Dialog.Title:='Выберите сохранённый архив модуля HomeLibre'; Dialog.Filter:='Архив модуля HomeLibre (*.zip)|*.zip';
-    Dialog.Options:=[ofFileMustExist,ofEnableSizing]; if not Dialog.Execute then Exit; Archive:=Dialog.FileName;
-  finally Dialog.Free; end;
+  if not ChooseInventoryArchive(Archive) then Exit;
+  FInventoryID:=ID;
   FError:=''; FCancelled:=False; FAction:=2; FProgress.Visible:=True;
   FRemove.Enabled:=False; FResolve.Enabled:=False; FList.Enabled:=False; InterlockedExchange(FStop,0);
   FWorker:=TThread.CreateAnonymousThread(procedure
@@ -326,7 +335,6 @@ begin
           Tag:=Root.GetValue<string>('release'); Version:=Root.GetValue<string>('version');
         finally Root.Free; Zip.Free; end;
         PrepareProgramUpdate(Archive,UpdateSHA256(Archive),Tag,ProgramUpdatePlatform,FJob,True,ID,Version);
-        AdoptComponentFileInventory(FAppPath,ID,TPath.Combine(FJob,'manifest.json'));
       except on E: EAbort do FCancelled:=True; on E: Exception do FError:=E.Message; end;
     end);
   FWorker.FreeOnTerminate:=False; FWorker.Start;
@@ -359,6 +367,10 @@ begin
   begin
     if WaitForSingleObject(FWorker.Handle,0)<>WAIT_OBJECT_0 then Exit;
     FWorker.WaitFor; FreeAndNil(FWorker); FProgress.Visible:=False; FList.Enabled:=True;
+    if (FAction=2) and FClosing then FCancelled:=True;
+    if (FAction=2) and not FCancelled and (FError='') then
+    try AdoptComponentFileInventory(FAppPath,FInventoryID,TPath.Combine(FJob,'manifest.json'));
+    except on E: Exception do FError:=E.Message; end;
     if FError<>'' then
     begin FPlanReady:=True; FPlan:=Default(TComponentRemovalPlan); FSummary.Caption:='Операция не выполнена'; FDetails.Text:=FError; end
     else if FAction=1 then

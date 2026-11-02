@@ -3186,5 +3186,22 @@
     ],
     "cleanup": "Owned fixture profiles removed by native wrappers; generated build clone removed by IDE helper; evidence and reusable binaries retained; working installation untouched.",
     "page_sequence": 93
+  },
+  "module_inventory_saved_archive_20261102": {
+    "status": "PASS_SAVED_AND_DOWNLOADED_INVENTORY_X86_X64",
+    "proof": "C:\\Users\\cloud\\.codex\\worktrees\\homelib-complete-audit\\MyHomeLib\\tools\\ui\\tests\\Out\\component-inventory-local-final-20261102-r1.json",
+    "sha256": "71c79257ae7344a37999d5ae42d506e66aa844bb16b65d35758c074b842d99be",
+    "verified": [
+      "Saved ZIP processing commits inventory only after UI completion; cancellation gates adoption",
+      "Matching archive succeeds, another component is rejected, file-choice decline has no effects",
+      "Source ZIP and installed/personal bytes unchanged, staging removed; network cases still pass; 10 cases per architecture"
+    ],
+    "scope": "Native production forms/file/ZIP/HTTP operations, with consent and file-choice return overridden. OS file-picker itself was not driven.",
+    "remaining": [
+      "Real-format actual-use matrix with final processing packages",
+      "Production builds and minimal package installation, related-instance closure, replacement/restart"
+    ],
+    "cleanup": "Native wrapper removed newly created isolated profiles; IDE helper removed temporary project clone; evidence and reusable binaries retained. Working user modules and protected existing IDE untouched.",
+    "page_sequence": 94
   }
 }
