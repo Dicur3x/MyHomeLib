@@ -52,7 +52,10 @@ def main():
                 '-OutputDirectory', str(folder/'archives')], cwd=ROOT, capture_output=True, text=True, timeout=240)
             if packaged.returncode:
                 raise RuntimeError(packaged.stdout + packaged.stderr)
-            archive = folder/'archives'/('HomeLibRu.zip' if options.platform == 'Win32' else 'HomeLibRu_x64.zip')
+            suffix = '_x64' if options.platform == 'Win64' else ''
+            candidates = [folder/'archives'/(brand + suffix + '.zip')
+                          for brand in ('HomeLibre', 'HomeLibRu')]
+            archive, = [path for path in candidates if path.is_file()]
         with zipfile.ZipFile(archive) as package:
             assert package.testzip() is None
             names = set(package.namelist())

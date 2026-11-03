@@ -61,6 +61,8 @@ def main():
                         help='Seed an owned post-install continuation, then save through the ordinary restored GUI; no manual combo-choice claim')
     parser.add_argument('--publication-dir', type=Path,
                         help='Exact verified component publication directory')
+    parser.add_argument('--format-packages', type=Path,
+                        help='Verified independent format archives; identities read from their feed')
     parser.add_argument('--djvu-packages', type=Path,
                         help='Exact repaired DjVu mirror directory for conversion')
     parser.add_argument('--doc-inventory', type=Path, default=ROOT / 'tools/ui/tests/Out/pre533-format-inventory.json')
@@ -74,7 +76,10 @@ def main():
     fixture = ROOT / 'tools/ui/tests/Out' / platform / 'CollectionViewsTest.exe'
     native = ROOT / 'Program/Tests/Out' / platform / 'ProgramUpdateInstallerTest.exe'
     runtime = ROOT / 'Program/Out' / ('Bin' if platform == 'Win32' else 'Bin64')
-    catalogue = (args.catalogue_dir or stage / 'catalogue') / ('HomeLibRu.zip' if platform == 'Win32' else 'HomeLibRu_x64.zip')
+    suffix = '_x64' if platform == 'Win64' else ''
+    candidates = [(args.catalogue_dir or stage / 'catalogue') / (brand + suffix + '.zip')
+                  for brand in ('HomeLibre', 'HomeLibRu')]
+    catalogue, = [path for path in candidates if path.is_file()]
     # Fail before launching anything when the interactive candidate still
     # contains the dialog from before the latest source review.
     save_source = ROOT / 'Program/Units/unit_BookSendOptions.pas'
@@ -182,7 +187,8 @@ def main():
             report['active_phase']=phase
             report['own_main_pid']=app.pid
             print(json.dumps(dict(phase=phase,pid=app.pid,target=str(target),destination=str(destination),
-                                  instructions='Use Computer Use; save all five books, inspect, and close Main normally'),ensure_ascii=False),flush=True)
+                                  observations_file=str(outer / (phase + '-observed.json')),
+                                  instructions='Use Computer Use; save all five books, record observations in the named JSON, then close Main normally'),ensure_ascii=False),flush=True)
             assert app.wait(timeout=args.timeout) == 0, phase
             phase_file = outer / (phase + '-observed.json')
             assert phase_file.is_file(), 'Record observed GUI checks before normal exit'
@@ -201,9 +207,11 @@ def main():
             print('PASS packaged source copies only: '+platform+'; five byte-exact copies; no optional modules',flush=True)
             return
         component_sources = []
+        format_directory = (args.format_packages or stage / 'formats').resolve()
+        format_entries = json.loads((format_directory / 'HomeLibRu.components.json').read_bytes())['components']
         for component in ('BookProcessing','ImageProcessing'):
-            name=f'HomeLibRu-{component}-3.0.0.1-{platform}.zip'
-            component_sources.append((component,stage/'formats'/name,'3.0.0.1'))
+            entry, = [item for item in format_entries if item['id'] == component and item['platform'] == platform]
+            component_sources.append((component, format_directory / entry['archive'], entry['version']))
         assert args.djvu_packages, 'Provide the current complete DjVu mirror before conversion'
         component_sources.append(('DjVuLibre', args.djvu_packages.resolve()/f'HomeLibRu-DjVuLibre-3.5.29-{platform}.zip','3.5.29'))
         for component,version,cache in [('PDFium','157.0.8086.0','pre534-final-reader-modules-20261027'),

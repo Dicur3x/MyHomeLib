@@ -1982,7 +1982,7 @@
     },
     "visible_checklist_block_id": "4034a76c-062d-4653-aab4-3a324754103f"
   },
-  "updated_utc": "2026-11-02T22:06:21.720039+00:00",
+  "updated_utc": "2026-11-03T13:16:34.839180+00:00",
   "telegram_followup_20261031": {
     "status": "book_memory_and_view_change_fix_verified_native_and_production_both_architectures; reviews_timeout_pending",
     "order": "After finishing the current update-coordination task/checkpoint, read the requested messages; do not interrupt the ongoing check",
@@ -3371,7 +3371,8 @@
     "remaining": [
       "Continue queued legacy export settings/forum analysis, then remaining release/goal checklist. Candidate is not released."
     ],
-    "visible_checklist_hash": "ba07ff8247244ff617ff47f2a6a03cc1e48c16d0c9069656c7bd8cd651c8261c"
+    "visible_checklist_hash": "ba07ff8247244ff617ff47f2a6a03cc1e48c16d0c9069656c7bd8cd651c8261c",
+    "historical_notice": "Earlier candidates built before final settings/Unicode/font metadata fixes. Superseded for shipping by final_artifact_gates_20261103; do not publish old Main/Reader archives."
   },
   "module_reader_coordination_20261103": {
     "status": "PASS",
@@ -3501,14 +3502,14 @@
     "not_done": "No vendor patch/reinstallation applied; the intermittent GetIt failure remains open."
   },
   "rtf_unicode_binding_20261103": {
-    "status": "native_fix_verified_Win32_Win64_final_production_package_retest_pending",
+    "status": "native_and_exact_production_Reader_archives_verified_x86_x64",
     "cause": "Controlled native import with initial charset DEFAULT_CHARSET or RUSSIAN_CHARSET loses 54 characters next to narrow NBSP/smileys when IMF_AUTOFONT is enabled. Charset ANSI/SYMBOL does not reproduce. Disabling only IMF_AUTOFONT during stream import preserves the supplied Unicode text.",
     "fix": "ReaderLoadRTF disables automatic font binding for EM_STREAMIN and restores that flag in finally while retaining other language options. Explicit fallback-font rendering remains enabled afterwards.",
     "before_proof": "tools/ui/tests/Out/reader-unicode-font-charsets-Win64-20261103-r1.json",
     "after_proof": "tools/ui/tests/Out/reader-unicode-font-charsets-Win64-20261103-r2.json",
     "native_checks": "24 RTF/font-charset variants passed x64, language options restored. Real FB2 plus JPEG/transparent-PNG fixtures pass with DEFAULT_CHARSET forced. Dropped prior test normalization of spaces before colour hearts; strict spaces now pass too. Injected failed RTF read reports an error and restores language options. Four reading fonts x21 scripts pass native glyph/emphasis/RTL/copy checks.",
     "x86": "r22 licensed build and native illustrated-source exact-text, glyph and word/drag-selection checks passed.",
-    "pending": "Final production EXEs and exact release archive retest. Not published.",
+    "pending": "Not published; broader final release gates still open.",
     "x64": "r21 licensed build and same native illustrated-source exact-text, glyph and word/drag-selection checks passed.",
     "emoji_regression": "The import guard exposed the old fallback mapping of supplementary pictographs to Noto Sans Symbols2, which lacks emoji coverage. Script fallback now selects Segoe UI Emoji for U+1F300..U+1FAFF; native mouse double-click/drag and exact copying pass for FB2/EPUB/TXT/PDF in single/double layouts and both themes on both architectures.",
     "rejected_alternative": "Setting/restoring only the native default charset still lost source characters in charset 0 and 204, and broke native drag selection. Candidate r20 fully replaced by the original import guard and explicit emoji fallback.",
@@ -3534,7 +3535,8 @@
         "publish": false
       },
       "other_new_native_test_profiles": "Ordinary wrapper runs automatically removed their own fresh profiles successfully."
-    }
+    },
+    "final_package_proof": "tools/ui/tests/Out/beta3-final-reader-illustrated-20261103-r1.json"
   },
   "conversion_preservation_research_20261103": {
     "status": "documentation_and_existing_code_review_complete_new_writers_not_integrated_or_quality_validated",
@@ -3598,10 +3600,11 @@
       "Check estimates, batch selection, cancel, optional component requests and original-source hashes on x86/x64."
     ],
     "page": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
-    "priority": "User confirmed: preservation of book content and design takes priority over reducing module count. Pick a better engine for a route when evidence supports it; keep modules optional and downloaded on demand."
+    "priority": "User confirmed: preservation of book content and design takes priority over reducing module count. Pick a better engine for a route when evidence supports it; keep modules optional and downloaded on demand.",
+    "priority_confirmed_by_user": "Preservation of book content and formatting takes priority over reducing module count. Use the better source/target engine; download it only when required."
   },
   "reader_font_metadata_20261103": {
-    "status": "native_fix_verified_Win32_Win64_final_production_rebuild_pending",
+    "status": "native_and_exact_production_Reader_archives_verified_x86_x64",
     "cause": "Sizes/downloads depended entirely on a sidecar metadata file. Its absence produced 0 KB and a failed download. Current release packaging already includes the file; a minimal executable-only probe exposed the missing-sidecar failure.",
     "fix": "Embed the same 35,558-byte pinned metadata as RCDATA (no font binaries), use it only as a trusted fallback for the default sidecar, retain the strict explicit alternate-manifest contract, return unknown rather than zero for absent families, deduplicate shared CJK download sizes, label the full-family size as an upper bound, and retain OFL files with new font downloads.",
     "Win64_build": {
@@ -3609,7 +3612,7 @@
       "receipt": "G:/HomeLibRu-build-cache/HomeLibre-font-metadata-build-20261103-r4/BuiltinReaderTest-Win64-51bc4720509b.json"
     },
     "build_recovery": "r1/r2 timed out with an error modal. r3 observed the actual two-error compilation result through Computer Use and successfully dismissed its cropped child dialog without user assistance. Installed Delphi SHA2 API has Update(TBytes) and HashAsString, not GetHashString(TBytes); corrected that call. r4 completed normally. No licensing changes or vendor fault fix claimed.",
-    "publication": "Not published; final production package checks remain pending.",
+    "publication": "Not published; final Reader GUI shows up to 646 KB on the real reported book; no automatic font download.",
     "proof": {
       "path": "tools/ui/tests/Out/reader-font-metadata-final-20261103-r1.json",
       "sha256": "2f7f284d6bd1222fd7867e40a91d7c381f0d33a39c0a45501820821f3e576dfd"
@@ -3625,6 +3628,59 @@
       "Basic and already available language fonts do not prompt; Later suppresses repeated prompts in the current book.",
       "Win32 and Win64; owned test profiles only."
     ],
-    "cleanup": "Both fresh native test profiles removed by their own wrapper; no retry of previously denied cleanup scopes."
+    "cleanup": "Both fresh native test profiles removed by their own wrapper; no retry of previously denied cleanup scopes.",
+    "final_package_proof": "tools/ui/tests/Out/beta3-final-reader-illustrated-20261103-r1.json"
+  },
+  "final_artifact_gates_20261103": {
+    "status": "PASS scoped final production/package/Reader/SaveAs gates; update/restart gates still pending",
+    "published": false,
+    "proof": {
+      "path": "tools\\ui\\tests\\Out\\beta3-final-artifact-gates-20261103-r1.json",
+      "sha256": "80bf89c6120d3011923d453f9a7f9e76f7d91af4fd9423a89190a1f6fd6c3828"
+    },
+    "builds": 8,
+    "minimal_core_archives": [
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r1\\catalogue\\HomeLibre.zip",
+        "sha256": "791e4913d17d444d6df532375194f02d956d3c8dcca0fa1bb622b1f1f7366846",
+        "bytes": 7431165
+      },
+      {
+        "path": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r1\\catalogue\\HomeLibre_x64.zip",
+        "sha256": "0e6696f97cd5d9af1d847c54ca187e1696e6a24458bc71a2bf706eebe867df72",
+        "bytes": 9324523
+      }
+    ],
+    "reader_packages": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r1\\reader",
+    "components": {
+      "reuse_proof": "tools/ui/tests/Out/beta3-final-format-reuse-20261103-r1.json",
+      "reused_current_archives": 14,
+      "exact_native_installs_per_architecture": 10,
+      "current_public_feed_sha256": "04b2ffae3e44db73d3eba3785fa2c6f7495f80c1b48fe4a7e6d9675f7f67e68b",
+      "publication_plan": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r1\\publication-r2\\publication-plan.json",
+      "new_uploads": 18,
+      "existing_identical_DjVu_archives_preserved": 2,
+      "merged_entries": 36,
+      "native_versions_and_urls_checked_per_architecture": 18
+    },
+    "remaining": [
+      "No publication or Desktop deployment this run.",
+      "Exact final catalogue upgrade/coordinated Reader replacement/restart still pending; earlier pre-Unicode package checks are historical.",
+      "x86 ordinary dropdown/estimate/save and byte-exact copies passed; x64 original copies passed in the retained timeout run, final mixed conversion passed the restored-operation GUI with a synthetic completed local component plan. No HTTP/download/restart inferred.",
+      "No precise speed measurement under background workload.",
+      "A new illustrated-Reader fixture cleanup was rejected by automatic review; that scope remains untouched.",
+      "Standalone Reader still includes real Zstandard for compatibility with previous installers; transition remains open."
+    ],
+    "cleanup": {
+      "new_save_profiles_removed": true,
+      "component_install_profiles_removed": true,
+      "illustrated_reader_profile": {
+        "root": "G:/HomeLibRu-build-cache/HomeLibre-final-reader-qx4sou10",
+        "status": "automatic_review_rejected",
+        "reason": "blocked by policy",
+        "no_retry": true
+      }
+    },
+    "visible_page_sequence": 111
   }
 }

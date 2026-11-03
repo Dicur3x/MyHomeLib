@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TAG = 'optional-alreader-2.5.1009.25'
 PREFIX = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + TAG + '/'
 OWNED = {'HomeLibReader', 'BookProcessing', 'ImageProcessing', 'Kindle',
-         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer'}
+         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport'}
 
 
 def digest(data):
@@ -48,6 +48,10 @@ def main():
     parser.add_argument('--release-metadata', type=Path, required=True)
     parser.add_argument('--reader-packages', type=Path, required=True,
                         help='Explicit directory of current Reader ZIPs; never infer a numbered build directory')
+    parser.add_argument('--format-packages', type=Path,
+                        help='Verified unchanged format archives, without copying them into stage')
+    parser.add_argument('--kindle-packages', type=Path,
+                        help='Separate verified KindleExport archives, unless included with formats')
     parser.add_argument('--djvu-packages', type=Path, required=True,
                         help='Repaired mirror with the required reader bridge and matching source')
     parser.add_argument('--output', type=Path, required=True)
@@ -68,7 +72,10 @@ def main():
     expected = {(component, platform) for component in OWNED | {'DjVuLibre'} for platform in ('Win32', 'Win64')}
     replacement, uploads, checked = {}, [], []
     new_names = set()
-    directories = (args.reader_packages.resolve(), stage / 'formats', stage / 'mcp', args.djvu_packages.resolve())
+    directories = [args.reader_packages.resolve(), (args.format_packages or stage / 'formats').resolve(),
+                   stage / 'mcp', args.djvu_packages.resolve()]
+    if args.kindle_packages:
+        directories.append(args.kindle_packages.resolve())
     for directory in directories:
         for key, entry in entries(json.loads((directory / 'HomeLibRu.components.json').read_bytes())).items():
             assert key in expected and key not in replacement, 'Unexpected/duplicate replacement'
@@ -111,12 +118,22 @@ def main():
             replacement[key] = entry
             asset = dict(name=entry['archive'], size=len(data), digest='sha256:' + digest(data),
                          browser_download_url=PREFIX + entry['archive'])
-            uploads.append(dict(path=str(path), **asset))
+            # Existing identical mirrors need no deletion/re-upload. Preserve
+            # their asset IDs and already working download URLs.
+            previous = old_assets.get(entry['archive'])
+            if previous is None or any(previous[field] != asset[field] for field in ('size', 'digest')):
+                uploads.append(dict(path=str(path), **asset))
             checked.append(dict(component=key[0], platform=key[1], version=entry['version'],
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
-    assert set(baseline) == set(bootstrap), 'Public/bootstrap component sets differ'
-    merged = {key: replacement.get(key, entry) for key, entry in baseline.items()}
+    assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
+    # beta 3 introduces one independent writer. Both architectures must be
+    # present and fully validated above; unrelated additions remain an error.
+    added = set(bootstrap) - set(baseline)
+    assert added in (set(), {('KindleExport', 'Win32'), ('KindleExport', 'Win64')}), (
+        'Unexpected new components: ' + str(added))
+    assert added <= set(replacement)
+    merged = {**baseline, **replacement}
     unchanged = set(baseline) - expected
     for key in unchanged:
         assert merged[key] == baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
@@ -125,9 +142,10 @@ def main():
         assert asset['browser_download_url'] == PREFIX + entry['archive']
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
-    obsolete = [old_assets[baseline[key]['archive']] for key in sorted(expected) if key[0] in OWNED]
+    previous_owned = {key for key in baseline if key[0] in OWNED}
+    obsolete = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
     obsolete_names = {asset['name'] for asset in obsolete}
-    assert len(obsolete_names) == len(OWNED)*2
+    assert len(obsolete_names) == len(previous_owned)
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
                        if name not in obsolete_names | {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
@@ -146,6 +164,7 @@ def main():
                 retained_non_owned_entries=len(unchanged), preserved_external_assets=len(retained_assets))
     report = dict(status='PASS', published=False, components=checked,
                   merged_entries=len(merged), unchanged_entries_preserved=len(unchanged),
+                  identical_existing_archives_retained=len(checked)-len(uploads),
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
     report['reader_archives_match_current_executables'] = True
