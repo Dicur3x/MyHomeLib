@@ -26,15 +26,23 @@ def check_core(args, repo, cache, get):
             root = Path(temporary)
             releases = json.loads(subprocess.check_output(['gh', 'api',
                 'repos/Dicur3x/MyHomeLib/releases?per_page=100'], encoding='utf-8'))
-            current = next(value for value in releases if value['tag_name'] == '3.0.0_pre1.1')
-            assert not current['draft'] and current['prerelease']
+            tag = args.core_tag or '3.0.0_pre1.1'
+            current = next(value for value in releases if value['tag_name'] == tag)
+            assert not current['draft']
+            assert current['prerelease'] == (args.core_prerelease or not args.core_tag)
+            catalogue = args.catalogue_dir or args.stage / 'catalogue-r3'
+            packages = {}
+            for platform, suffix in (('Win32', ''), ('Win64', '_x64')):
+                package, = [p for brand in ('HomeLibre', 'HomeLibRu')
+                            if (p := catalogue / f'{brand}{suffix}.zip').is_file()]
+                packages[platform] = package
             assets = {value['name']: value for value in current['assets']}
-            assert set(assets) == {'HomeLibRu.zip', 'HomeLibRu_x64.zip', 'SHA256SUMS.txt'}
+            assert set(assets) == {'SHA256SUMS.txt'} | {p.name for p in packages.values()}
             api_file = root / 'releases.json'
             api_file.write_text(json.dumps(releases), encoding='utf-8')
             checksums = get(assets['SHA256SUMS.txt']['browser_download_url'])
-            assert checksums == (args.stage / 'catalogue-r3/SHA256SUMS.txt').read_bytes()
-            for platform, filename in (('Win32', 'HomeLibRu.zip'), ('Win64', 'HomeLibRu_x64.zip')):
+            assert checksums == (args.checksums or catalogue / 'SHA256SUMS.txt').read_bytes()
+            for platform, package in packages.items():
                 native = repo / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
 
                 def run(*parameters):
@@ -46,9 +54,9 @@ def check_core(args, repo, cache, get):
 
                 parsed = run('--parse', api_file)
                 values = json.loads(parsed.removesuffix('PASS').strip())
-                asset = assets[filename]
-                digest = hashlib.sha256((args.stage / 'catalogue-r3' / filename).read_bytes()).hexdigest()
-                assert values[:4] == ['3.0.0_pre1.1', asset['browser_download_url'], digest, asset['size']]
+                asset = assets[package.name]
+                digest = hashlib.sha256(package.read_bytes()).hexdigest()
+                assert values[:4] == [tag, asset['browser_download_url'], digest, asset['size']]
                 job = root / platform
                 result = run('--download', values[1], values[3], values[2], values[0], job)
                 downloaded = job / 'release.zip'
@@ -72,11 +80,14 @@ def main():
     parser.add_argument('stage', type=Path)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--core', action='store_true', help='Check published core with production download threads')
+    parser.add_argument('--core-tag', help='Expected public catalogue release tag')
+    parser.add_argument('--core-prerelease', action='store_true', help='Expect a GitHub prerelease')
+    parser.add_argument('--catalogue-dir', type=Path, help='Local catalogue archives and checksums for --core')
+    parser.add_argument('--checksums', type=Path, help='Local checksum file if stored separately from the archives')
+    parser.add_argument('--plan', type=Path, help='Local component publication plan')
     args = parser.parse_args()
     assert not args.report.exists(), 'Preserve previous verification reports'
     stage = args.stage.resolve()
-    publication = stage / 'publication-r3'
-    plan = json.loads((publication / 'publication-plan.json').read_bytes())
     repo = Path(__file__).resolve().parents[3]
     cache = Path('G:/HomeLibRu-build-cache').resolve(strict=True)
     os.environ.update(TEMP=str(cache), TMP=str(cache))
@@ -98,6 +109,7 @@ def main():
         check_core(args, repo, cache, get)
         return
 
+    plan = json.loads((args.plan or stage / 'publication-r3/publication-plan.json').read_bytes())
     try:
         with tempfile.TemporaryDirectory(prefix='HomeLibRu-update-test-public-release-', dir=cache) as temporary:
             root = Path(temporary)
@@ -115,7 +127,7 @@ def main():
             entries = {entry['archive']: entry for entry in json.loads(feed_bytes)['components']}
             component_ids = re.findall(r"\(ID:'([^']+)'", (repo /
                 'Program/Units/unit_ComponentUpdates.pas').read_text(encoding='utf-8-sig'))
-            assert len(component_ids) == len(set(component_ids)) == 20
+            assert component_ids and len(component_ids) == len(set(component_ids))
 
             def run(platform, *parameters):
                 native = repo / f'Program/Tests/Out/{platform}/ProgramUpdateInstallerTest.exe'
@@ -132,11 +144,11 @@ def main():
                 parsed = {component: (values[index * 3], values[index * 3 + 1])
                           for index, component in enumerate(component_ids)}
                 expected = [entry for entry in entries.values() if entry['platform'] == platform]
-                assert len(expected) == 17
+                assert expected and len(expected) == len({entry['id'] for entry in expected})
                 prefix = f"https://github.com/Dicur3x/MyHomeLib/releases/download/{plan['release_tag']}/"
                 for entry in expected:
                     assert parsed[entry['id']] == (entry['version'], prefix + entry['archive'])
-                report['parsers'][platform] = dict(components=17, native_parse_passed=True)
+                report['parsers'][platform] = dict(components=len(expected), native_parse_passed=True)
 
             for item in plan['upload_before_feed']:
                 asset = assets[item['name']]
@@ -153,7 +165,7 @@ def main():
                 report['archives'].append(dict(name=item['name'], asset_id=asset['id'],
                     size=len(data), sha256=digest(data), native_prepare=result))
                 print('PASS', item['name'], flush=True)
-            assert len(report['archives']) == 18
+            assert len(report['archives']) == len(plan['upload_before_feed'])
         report.update(status='PASS', temporary_downloads_removed=not root.exists())
     except BaseException as error:
         report['error'] = repr(error)

@@ -3850,7 +3850,7 @@
     "computer_use": false,
     "builds_or_applications_started": false,
     "candidate_validation": "docs/RELEASE_VALIDATION_3.0.0_pre1.3.md",
-    "validation_sha256": "eed5582723749e88aedefba61164281f16c29217c82d58a4bb097e5586632c48",
+    "validation_sha256": "70f0f5cf8befbc951490213bc0ff4be5212730fa769af9a3b5f5580091e517b1",
     "readme_stage": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\release-docs-r1",
     "readme_manifest_sha256": "cd9783f64cb52f39047d33b6abbefc021f283884f7ad0b207a860fca74433127",
     "readme_count": 4,
@@ -3909,5 +3909,32 @@
     "goal_complete": false,
     "published": false,
     "resolved": true
+  },
+  "current_catalogue_upgrade_20261103": {
+    "native_update": {
+      "path": "tools/ui/tests/Out/beta3-final-native-upgrade-20261103-r2.json",
+      "sha256": "29a2e9127d5519c5837aab5b0eba7588f3043eb66e9e6693b72f9ea1f7acdbd6",
+      "status": "PASS"
+    },
+    "gui_x86": {
+      "path": "tools/ui/tests/Out/beta3-final-upgrade-Win32-20261103-r2.json",
+      "sha256": "6be12498c5ff307046193f9d41b65cceae09b278164093d524efc28a911cb4f3",
+      "status": "FAIL"
+    },
+    "published_download": {
+      "path": "tools/ui/tests/Out/beta2-live-core-download-20261103-r1.json",
+      "sha256": "a5dc9f21430904dc15f5116ea3246bd0a77a9f9f000212fba7048849f06d3c7d",
+      "status": "PASS"
+    },
+    "current_package_scope": "Exact beta 2 and current beta 3 ZIPs. Native preparation and installation on Win32 and Win64. Verified all 240 managed files, seven catalogue entries and three unchanged personal files on each architecture.",
+    "gui_limit": "x86 ready-package frontend reached its wait timeout without an installation request. The owned test process and directory were removed.",
+    "public_download_scope": "Current production release parser and download thread downloaded and prepared both public beta 2 archives, matching sizes and SHA-256.",
+    "updated_probe": "public_release_download_probe.py supports explicit release tag, archive directory, separate checksums and component publication plan.",
+    "pending": [
+      "Graphical launch of installation and reopening windows with the current candidate archives",
+      "Public beta 3 files and required module download with Save As continuation"
+    ],
+    "temporary_payloads_removed": true,
+    "published": false
   }
 }
