@@ -3341,5 +3341,13 @@
     "harness_note": "WMI process enumeration returned cancellation HRESULT 0x80041032, including three bounded read retries. Harness now uses Get-Process PID/executable identity, with a timeout and exact owned-root filter; restart argv still comes from verified request/state. No permissions or system settings changed.",
     "remaining": "Current module-maintenance direction verified. Continue queued legacy Device/Save As settings and forum/history response; full goal and publication remain open.",
     "visible_checklist_hash": "ef5e58a479a924eb16926c847860e1c3e41fc986ff9e199b141ff67605ee4ea6"
+  },
+  "module_candidate_cleanup_20261103": {
+    "status": "blocked_by_automatic_review_no_retry",
+    "targets": [
+      "G:\\HomeLibRu-build-cache\\HomeLibre-UsageModules-3.0.0.3-20261102-r1",
+      "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-modules-20261103-r1\\reader"
+    ],
+    "reason": "Both scoped Remove-Item cleanup calls were rejected as blocked by policy; no detailed reason returned. Do not retry these scopes through another method. Final reader-r2 and current usage-module r2 candidates retained for release."
   }
 }
