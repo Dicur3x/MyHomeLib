@@ -16,23 +16,14 @@ import tempfile
 import uuid
 import zipfile
 
+from reader_update_runtime_probe import processes
+
 REPO = Path(__file__).resolve().parents[3]
 OWNER = 'HomeLibre actual Reader first-use PDF v1'
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def processes(root):
-    query = "Get-CimInstance Win32_Process -Filter \"Name='HomeLibReader.exe' OR Name='HomeLibRuUpdater.exe'\" | Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress"
-    output = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', query],
-        encoding='utf-8-sig', creationflags=subprocess.CREATE_NO_WINDOW)
-    entries = json.loads(output) if output.strip() else []
-    if isinstance(entries, dict):
-        entries = [entries]
-    return [entry for entry in entries if entry.get('ExecutablePath') and
-            Path(entry['ExecutablePath']).is_relative_to(root)]
 
 
 def own(state):

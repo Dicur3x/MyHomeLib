@@ -64,10 +64,12 @@ def stage_package(package, app, platform):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('launch', 'inspect', 'record-download', 'record-restart', 'check', 'cleanup'))
+    parser.add_argument('action', choices=('launch', 'inspect', 'record-download', 'record-restart', 'check',
+                                          'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'))
     parser.add_argument('--package', type=Path)
+    parser.add_argument('--expected-module-version', help='Require this version of both downloaded modules')
     parser.add_argument('--candidate-exe', type=Path, required=False,
                         help='Development override, explicitly recorded; not a published-archive claim')
     args = parser.parse_args()
@@ -116,7 +118,8 @@ def main():
             creationflags=subprocess.CREATE_NO_WINDOW)
         state['runs'].append(dict(platform=args.platform, app=str(app), original_pid=process.pid,
             package_sha256=sha(args.package), reader_exe_sha256=sha(app / 'HomeLibReader.exe'),
-            candidate_exe=str(candidate) if candidate else None, before=before, checked=False))
+            candidate_exe=str(candidate) if candidate else None, before=before, checked=False,
+            expected_module_version=args.expected_module_version))
         state['stage'] = 'waiting-for-real-Save-As-GUI'
     elif args.action == 'inspect':
         print(json.dumps(dict(active=active, runtime_files=[str(file.relative_to(root)) for file in root.rglob('*')
@@ -137,6 +140,9 @@ def main():
         ready, job, manifest = candidates[0]
         assert ready['component'] == manifest['component'] == 'batch'
         assert {part['component'] for part in manifest['bundle']} == COMPONENTS
+        if expected_version := run.get('expected_module_version'):
+            actual_versions = {part['version'] for part in manifest['bundle']}
+            assert actual_versions == {expected_version}, (expected_version, actual_versions)
         assert sha(job / 'release.zip') == ready['sha256']
         assert all(not (app / 'tools' / folder).exists() for folder in ('bookconvert', 'images'))
         plan = json.loads((app / 'HomeLibReader.ini.pending-save.jsonl').read_text(encoding='utf-8-sig').splitlines()[0])
@@ -210,11 +216,18 @@ def main():
             output_epub_sha256=sha(output), output_epub_bytes=output.stat().st_size,
             output_text_and_image_verified=True, continuation_consumed=True, native_repairs_needed=False)
         state['stage'] = 'actual-two-module-Save-As-verified'
-    elif args.action == 'cleanup':
-        assert not active and len(state['runs']) == 2 and all(run['checked'] for run in state['runs'])
+    elif args.action in ('cleanup', 'cleanup-incomplete'):
+        assert not active
+        if args.action == 'cleanup':
+            assert len(state['runs']) == 2 and all(run['checked'] for run in state['runs'])
+        else:
+            assert state['runs'] and any(not run['checked'] for run in state['runs'])
+            assert sha(Path(state['source'])) == state['source_sha256']
         assert owned(state) == root
+        assert not any(p.is_symlink() or p.is_junction() for p in root.rglob('*'))
         shutil.rmtree(root)
-        state.update(temporary_profile_removed=not root.exists(), stage='cleaned')
+        state.update(temporary_profile_removed=not root.exists(),
+                     stage='cleaned' if args.action == 'cleanup' else 'incomplete-run-cleaned')
     args.state.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(dict(stage=state['stage'], root=state['root'], runs=[{k: v for k, v in run.items()
         if k not in ('before', 'prepared_manifest', 'downloaded_ready', 'continuation_before_install')} for run in state['runs']]), ensure_ascii=False))

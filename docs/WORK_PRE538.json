@@ -3850,7 +3850,7 @@
     "computer_use": false,
     "builds_or_applications_started": false,
     "candidate_validation": "docs/RELEASE_VALIDATION_3.0.0_pre1.3.md",
-    "validation_sha256": "9f394fb95b6825fe76788217644b5a7c60f495764b146a5bf908419616dfec70",
+    "validation_sha256": "cca2dc42916b416ef76a222791c5cd572273e09ebccdfd716c074c5e6cd66c39",
     "readme_stage": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\release-docs-r1",
     "readme_manifest_sha256": "cd9783f64cb52f39047d33b6abbefc021f283884f7ad0b207a860fca74433127",
     "readme_count": 4,
@@ -4085,5 +4085,49 @@
       "repeated_deletion": false
     },
     "visible_page_sequence": 118
+  },
+  "minimal_reader_restart_and_save_20261104": {
+    "status": "Current exact Reader restart passed on Win32 and Win64. First-use save partially verified on Win32.",
+    "reader_restart": [
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-restart-Win32-20261104-r1.json",
+        "sha256": "31d3ad97a1fb79c88254998892f4a241bbe2b875b026b0308aaab9200f701809",
+        "status": "PASS",
+        "temporary_payloads_removed": true
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-restart-Win64-20261104-r1.json",
+        "sha256": "4dd889c9e7b7df33d7ae2248c5f0e65661db57a2d9bb8a06f8fad1badb86dc76",
+        "status": "PASS",
+        "temporary_payloads_removed": true
+      }
+    ],
+    "restart_scope": "Production updater --job after normal caller close. The untouched candidate ZIP replaced a private EXE with a harmless overlay. Both windows and visible paragraphs 5 through 11 at 3 percent restored, selected second archive member and original source hashes preserved, unleased cache sentinel cleaned.",
+    "catalogue_gui": {
+      "path": "tools/ui/tests/Out/reader-minimal-core-GUI-Win32-20261104-r1.json",
+      "sha256": "b947cafca72bb61db58fd1dca533b5c3525dd2a66e91efd073183f5267f66713",
+      "status": "FAIL",
+      "temporary_payloads_removed": true
+    },
+    "catalogue_gui_scope": "Published x86 beta 2 opened with its real test catalogue. Help update command did not lead to a recorded install request before timeout. Native installation proof for these ZIPs remains valid.",
+    "save": {
+      "path": "tools/ui/tests/Out/reader-minimal-save-first-use-20261104-r1.json",
+      "sha256": "ad49ef0e46a8edb88c658b1048780054584e4878da78f3c0f4f78d02136c70ba",
+      "status": "PARTIAL",
+      "temporary_payloads_removed": true
+    },
+    "save_scope": "Candidate x86 downloaded both public beta 2 components, installed them and restored EPUB, balanced images, destination and mask. BookProcessing 3.0.0.2 lacked IMAGE_CONTAINER_API.txt and the save requested an update. Locally installed exact 3.0.0.3 modules saved verified EPUB after manual selection. Text, PNG and original hash verified.",
+    "limitations": [
+      "No beta 3 module download or automatic continuation with beta 3 modules proved.",
+      "Cancelling the second module offer left an unarmed plan file in the isolated profile. The complete temporary profile was removed.",
+      "Process enumeration failed once through WMI. The smoke runner now shares the existing path-scoped process query."
+    ],
+    "remaining": [
+      "Publish verified module archives and update permanent feed first.",
+      "Repeat first-use save with expected downloaded version 3.0.0.3 for both modules and architectures.",
+      "Finish current catalogue GUI and release verification."
+    ],
+    "published": false,
+    "visible_page_sequence": 119
   }
 }
