@@ -42,19 +42,25 @@ if not exist "%RC%" echo // No catalogs present.> "%RC%"
 :: Keep an existing catalog list, but repair old empty resource stubs too.
 findstr /L /C:"MHL_DARK_STYLE VCLSTYLE" "%RC%" >nul || echo MHL_DARK_STYLE VCLSTYLE "Resources\\Themes\\HomeLibRuDark.vsf">> "%RC%"
 
+:: Both resources must use the same compiler. BRCC32 can silently drop the
+:: manifest under dotted worktree paths, just as it can drop the dark theme.
+call :CompileResource "%RC%" "%RES%" || exit /b 1
+call :CompileResource "HomeLibRuManifest.rc" "HomeLibRuManifest.res" || exit /b 1
+exit /b 0
+
+:CompileResource
 if exist "%HLRU_CGRC%" (
-    "%HLRU_CGRC%" -c65001 -=resinator.exe "%RC%" -fo"%RES%"
+    "%HLRU_CGRC%" -c65001 -=resinator.exe "%~1" -fo"%~2"
 ) else (
-    "%BRCC%" -fo"%RES%" "%RC%"
+    "%BRCC%" -fo"%~2" "%~1"
 )
 if errorlevel 1 (
-    echo ERROR: resource compilation failed on "%RC%".
+    echo ERROR: resource compilation failed on "%~1".
     exit /b 1
 )
-
-if not exist "%RES%" exit /b 1
-for %%s in ("%RES%") do if %%~zs LEQ 32 (
-    echo ERROR: required interface resources are empty.
+if not exist "%~2" exit /b 1
+for %%s in ("%~2") do if %%~zs LEQ 32 (
+    echo ERROR: required resource "%~2" is empty.
     exit /b 1
 )
 exit /b 0

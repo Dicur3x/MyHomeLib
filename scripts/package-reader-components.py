@@ -12,6 +12,7 @@ import json
 import pathlib
 import re
 import struct
+import xml.etree.ElementTree as ET
 import zipfile
 
 COMPONENT_RELEASE_TAG = "optional-alreader-2.5.1009.25"
@@ -60,11 +61,51 @@ def file_version(path):
     return ".".join(map(str, (fixed[2] >> 16, fixed[2] & 65535, fixed[3] >> 16, fixed[3] & 65535)))
 
 
+def verify_reader_manifest(path):
+    library = ctypes.WinDLL("kernel32", use_last_error=True)
+    library.LoadLibraryExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint]
+    library.LoadLibraryExW.restype = ctypes.c_void_p
+    library.FindResourceW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    library.FindResourceW.restype = ctypes.c_void_p
+    library.SizeofResource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    library.SizeofResource.restype = ctypes.c_uint
+    library.LoadResource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    library.LoadResource.restype = ctypes.c_void_p
+    library.LockResource.argtypes = [ctypes.c_void_p]
+    library.LockResource.restype = ctypes.c_void_p
+    library.FreeLibrary.argtypes = [ctypes.c_void_p]
+    # Read the executable as data; do not run any code from the image.
+    module = library.LoadLibraryExW(str(path), None, 2)
+    if not module:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        resource = library.FindResourceW(module, ctypes.c_void_p(1), ctypes.c_void_p(24))
+        size = library.SizeofResource(module, resource) if resource else 0
+        loaded = library.LoadResource(module, resource) if size else None
+        data = library.LockResource(loaded) if loaded else None
+        if not data or not 0 < size <= 1024 * 1024:
+            raise ValueError("Reader application manifest is absent or invalid: " + str(path))
+        manifest = ET.fromstring(ctypes.string_at(data, size))
+    finally:
+        library.FreeLibrary(module)
+    ns = {"a": "urn:schemas-microsoft-com:asm.v1", "a3": "urn:schemas-microsoft-com:asm.v3",
+          "dpi": "http://schemas.microsoft.com/SMI/2016/WindowsSettings"}
+    controls = manifest.find("a:dependency/a:dependentAssembly/a:assemblyIdentity[@name='Microsoft.Windows.Common-Controls']", ns)
+    dpi = manifest.find("a3:application/a3:windowsSettings/dpi:dpiAwareness", ns)
+    level = manifest.find("a3:trustInfo/a3:security/a3:requestedPrivileges/a3:requestedExecutionLevel", ns)
+    if (controls is None or controls.get("version") != "6.0.0.0"
+            or controls.get("publicKeyToken") != "6595b64144ccf1df"
+            or dpi is None or (dpi.text or "").strip() != "PerMonitorV2"
+            or level is None or level.get("level") != "asInvoker"):
+        raise ValueError("Reader manifest must enable common controls 6, PerMonitorV2 and asInvoker")
+
+
 def package(repo, platform, component, tag, converter_version, output):
     publication_tag(tag)
     runtime = repo / "Program/Out" / ("Bin" if platform == "Win32" else "Bin64")
     if component == "HomeLibReader":
         reader = repo / f"Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe"
+        verify_reader_manifest(reader)
         payload = {"HomeLibReader.exe": reader.read_bytes(),
                    "HomeLibReader-LICENSE.txt": (repo / "LICENSE").read_bytes()}
         # Do not ship the marker inside the shared component ZIP: installing

@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 97,
+    "verified_sequence": 98,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -3285,5 +3285,54 @@
     ],
     "cleanup": "Every new native fixture removed by the isolated wrapper; original inputs and retained cached runtime sources preserved.",
     "page_sequence": 97
+  },
+  "module_production_packages_20261103": {
+    "status": "production_executables_and_minimal_packages_verified_main_upgrade_passed_reader_coordination_pending",
+    "release": "3.0 beta 3",
+    "published": false,
+    "proof": {
+      "path": "tools\\ui\\tests\\Out\\module-production-build-package-gates-20261103-r1.json",
+      "sha256": "e8b94e1a96c4283a46e867963f0f9e5ee00dec62ab9414411038cd129f31f361"
+    },
+    "main_update_proofs": [
+      {
+        "path": "tools\\ui\\tests\\Out\\module-beta2-upgrade-Win32-20261103-r2.json",
+        "sha256": "02016133ece9321baf1b282f516770872a89cd012af874929e6b2985bd4ec421",
+        "books_preserved": 7,
+        "personal_settings_preserved": true
+      },
+      {
+        "path": "tools\\ui\\tests\\Out\\module-beta2-upgrade-Win64-20261103-r1.json",
+        "sha256": "19937c73b4c286b8e9c1ff7d672ae3d8a01722fe097165c98d76bc376ffb9091",
+        "books_preserved": 7,
+        "personal_settings_preserved": true
+      }
+    ],
+    "source_checks": [
+      "18 own component entries match exact package filenames, versions and current history; KindleExport included",
+      "Eight production binary PE identities match 3.0.0.3 / 3.0.0_pre1.3",
+      "Core archives have HomeLibre names, complete payload hashes, no Reader/MCP/optional formats or user data; native prepare and helper gate pass x86/x64",
+      "Ten exact component installs each architecture start first-seen without marking use; same-version reinstall preserves previous first-seen/last-use clocks; personal sentinel and private cleanup verified"
+    ],
+    "resource_build_fix": "Old BRCC emitted a 32-byte empty manifest resource under the dotted worktree. Manifest now compiles alongside the required theme through the existing modern resource compiler; duplicate BRCC project item removed. Main/Reader contain the real Windows manifest. Reader packager rejects both actual older missing-manifest binaries.",
+    "gui_scope": "Current native validator prepared exact new ZIPs; unchanged published beta2 helper installed and restarted actual Main x86/x64. Both Main windows inspected and normally closed through Computer Use. No original network/download frontend claim. Separate first x86 attempt timed out after the module-manager child was detected in accessibility but remained inaccessible to CU; raw FAIL preserved and automatic private cleanup verified. Do not infer a product defect or complete visual-manager validation from that attempt.",
+    "sdk_issue": {
+      "component": "Delphi 13 CE GetIt helper",
+      "application": "bds.exe",
+      "module": "getithelper370.dll",
+      "module_version": "37.0.60542.8024",
+      "exception": "c0000005",
+      "offset": "000091ca",
+      "observed_dialog": "Runtime error 216 at 508391CA",
+      "private_build_pid": 41704,
+      "fixed": false,
+      "action": "Closed error dialog. -np trial did not execute AutoBuild; closed own empty IDE and reverted the trial. No new private IDE process remains. No licensing/security/SDK DLL changes."
+    },
+    "remaining": [
+      "Exact standalone Reader package: actual coordinated close/replacement/restart with selected books and positions x86/x64",
+      "Finish the module-maintenance checklist direction before queued legacy export settings/forum analysis",
+      "Later publication plan, final notes and remaining full goal tasks; candidate is not released"
+    ],
+    "visible_checklist_hash": "ba07ff8247244ff617ff47f2a6a03cc1e48c16d0c9069656c7bd8cd651c8261c"
   }
 }

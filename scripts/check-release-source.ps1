@@ -51,12 +51,19 @@ foreach ($project in @('Program/MyhomeLib.dproj', 'Utils/HomeLibReader/HomeLibRe
     }
 }
 $feed = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Installer/Components.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS')
+$own = @('HomeLibReader','MHLMcpServer','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport')
 foreach ($component in $own) {
     foreach ($platform in @('Win32','Win64')) {
         $rows = @($feed.components | Where-Object { $_.id -ceq $component -and $_.platform -ceq $platform })
         if ($rows.Count -ne 1 -or $rows[0].version -cne $identity.version) {
             throw "First-party package version disagrees: $component / $platform"
+        }
+        $expectedArchive = "HomeLibRu-$component-$($identity.version)-$platform.zip"
+        if ($rows[0].archive -cne $expectedArchive) {
+            throw "First-party archive identity disagrees: $component / $platform"
+        }
+        if (-not @($rows[0].history | Where-Object { $_.version -ceq $identity.version }).Count) {
+            throw "First-party package history lacks the current version: $component / $platform"
         }
     }
 }
