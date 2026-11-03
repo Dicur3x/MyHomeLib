@@ -331,7 +331,7 @@ begin
     if (ID='HomeLibReader') and
       (not CompareComponentVersions(Version,'2.7.0.1105',Comparison) or (Comparison<0)) then Exit;
     if ID='HomeLibReader' then Names:=TArray<string>.Create('HomeLibReader.exe','HomeLibRuUpdater.exe',
-      'HomeLibReader-LICENSE.txt','sqlite3.dll','libzstd.dll','NOTICE')
+      'HomeLibReader-LICENSE.txt','sqlite3.dll','NOTICE')
     else if ID='MHLMcpServer' then Names:=TArray<string>.Create('MHLMcpServer.exe')
     else if ID='Zstandard' then
     begin
@@ -550,7 +550,7 @@ var ArrayValue: TJSONArray; Value: TJSONValue; I: Integer;
     if ID='MHLMcpServer' then
       for var Name in ['MHLMcpServer-LICENSE.txt','MHLMcpServer-README.txt'] do RequireMember(Name);
     if ID='HomeLibReader' then
-      for var Name in ['HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','sqlite3.dll','libzstd.dll','NOTICE'] do
+      for var Name in ['HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','sqlite3.dll','NOTICE'] do
         RequireMember(Name);
     if ID='PDFium' then
       for var Name in ['pdfium.dll','HomeLibPDF.exe','RUNTIME.json','WORKER_RUNTIME.json','LICENSE','HomeLibPDF-LICENSE.txt'] do
@@ -957,8 +957,13 @@ begin
     end
     else VerifyUpdateExecutable(ChildPath(Stage, ComponentFileName(Component)), Version, Architecture, True);
     if Component='HomeLibReader' then
-      for var Name in ['HomeLibRuUpdater.exe','sqlite3.dll','libzstd.dll'] do
+    begin
+      for var Name in ['HomeLibRuUpdater.exe','sqlite3.dll'] do
         VerifyUpdateExecutable(ChildPath(Stage,Name),'',Architecture,True);
+      // Old Reader archives still include Zstandard. Validate it when present.
+      if FileExists(ChildPath(Stage,'libzstd.dll')) then
+        VerifyUpdateExecutable(ChildPath(Stage,'libzstd.dll'),'',Architecture,True);
+    end;
     if Component='DocSharp' then
     begin
       for var Name in ['DocSharp.Binary.Doc.dll','DocSharp.Binary.Common.dll','DocSharp.Binary.Ppt.dll','DocSharp.Binary.Xls.dll','HomeLibDoc.exe'] do

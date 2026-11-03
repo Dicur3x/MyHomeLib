@@ -119,13 +119,8 @@ def package(repo, platform, component, tag, converter_version, output):
             "Существующие данные автоматически между папками не переносятся.\n"
             "Декодеры дополнительных форматов устанавливаются только при необходимости.\n"
         ).encode("utf-8")
-        for name in ("HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll", "NOTICE"):
+        for name in ("HomeLibRuUpdater.exe", "sqlite3.dll", "NOTICE"):
             payload[name] = (runtime / name).read_bytes()
-        # Legacy component clients require libzstd.dll in Reader bundles. Keep
-        # that compatibility until the separate minimal-Reader feed transition,
-        # and reproduce the official BSD licence alongside the binary.
-        payload["NOTICE"] += b"\n\nZstandard\n" + (repo / "Program/Resources/zstd/LICENSE").read_bytes()
-        # NOTICE is already accepted by older component installers.
         payload["NOTICE"] += b"\n\n" + reader_note
         payload["tools/fonts/manifest.json"] = (runtime / "tools/fonts/manifest.json").read_bytes()
         # Native format adapters are optional, just like their author libraries.
@@ -134,7 +129,7 @@ def package(repo, platform, component, tag, converter_version, output):
         identity = json.loads((repo / "Installer/Release.json").read_text(encoding="utf-8-sig"))
         if version != identity["version"] or file_version(runtime / "HomeLibRuUpdater.exe") != version:
             raise ValueError("Rebuild Reader and updater with the current release version before packaging")
-        for name in ("HomeLibReader.exe", "HomeLibRuUpdater.exe", "sqlite3.dll", "libzstd.dll"):
+        for name in ("HomeLibReader.exe", "HomeLibRuUpdater.exe", "sqlite3.dll"):
             binary_platform(payload[name], platform)
         notes = "Автономная читалка. FB2, EPUB и текст доступны сразу; дополнительные модули предлагаются при открытии книги."
     elif component == "PDFium":

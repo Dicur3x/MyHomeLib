@@ -106,6 +106,7 @@ def main():
                     payload = archive.read(name)
                     assert len(payload) == item['size'] and digest(payload) == item['sha256'], name
                 if key[0] == 'HomeLibReader':
+                    assert 'libzstd.dll' not in payload_names, 'Reader package must not bundle Zstandard'
                     current = ROOT / 'Utils/HomeLibReader/Out' / key[1] / 'HomeLibReader.exe'
                     for source in (ROOT / 'Program/Units/unit_BookSendOptions.pas',
                                    ROOT / 'Program/Units/unit_Settings.pas',
@@ -134,18 +135,29 @@ def main():
         'Unexpected new components: ' + str(added))
     assert added <= set(replacement)
     merged = {**baseline, **replacement}
+    reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}
+    # Older clients keep their verified legacy archive. New clients choose the
+    # nested minimal archive using the same component ID and release metadata.
+    for key in reader_keys:
+        legacy = baseline[key]
+        assert legacy['archive'] != replacement[key]['archive']
+        merged[key] = {**legacy, 'minimal_reader': replacement[key]}
     unchanged = set(baseline) - expected
-    for key in unchanged:
-        assert merged[key] == baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
-        entry = merged[key]
+    for key in unchanged | reader_keys:
+        if key in unchanged:
+            assert merged[key] == baseline[key] == bootstrap[key], 'Unchanged component metadata drift: ' + str(key)
+        entry = baseline[key]
         asset = old_assets[entry['archive']]
         assert asset['browser_download_url'] == PREFIX + entry['archive']
         assert asset['size'] > 0 and re.fullmatch(r'sha256:[0-9a-f]{64}', asset['digest'])
     replacing_existing = [old_assets[item['name']] for item in uploads if item['name'] in old_assets]
-    previous_owned = {key for key in baseline if key[0] in OWNED}
+    previous_owned = {key for key in baseline if key[0] in OWNED and key not in reader_keys}
     obsolete = [old_assets[baseline[key]['archive']] for key in sorted(previous_owned)]
+    obsolete.extend(old_assets[baseline[key]['minimal_reader']['archive']]
+                    for key in sorted(reader_keys) if 'minimal_reader' in baseline[key])
     obsolete_names = {asset['name'] for asset in obsolete}
-    assert len(obsolete_names) == len(previous_owned)
+    assert len(obsolete_names) == len(obsolete)
+    assert not obsolete_names.intersection(baseline[key]['archive'] for key in reader_keys)
     feed = encoded(dict(format=1, components=list(merged.values())))
     retained_assets = [asset for name, asset in old_assets.items()
                        if name not in obsolete_names | {asset['name'] for asset in replacing_existing} | {'HomeLibRu.components.json'}]
@@ -168,6 +180,7 @@ def main():
                   public_feed_size_and_sha256_verified=True, bootstrap_identities_verified=True,
                   exact_manifest_and_payloads_verified=True, feed_sha256=digest(feed))
     report['reader_archives_match_current_executables'] = True
+    report['legacy_reader_archives_retained'] = [baseline[key]['archive'] for key in sorted(reader_keys)]
     report['reader_packages_directory'] = str(args.reader_packages.resolve())
     output.mkdir(parents=True, exist_ok=False)
     files = {'HomeLibRu.components.json': feed, 'assets.json': encoded(publication['assets']),

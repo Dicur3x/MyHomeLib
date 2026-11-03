@@ -26,13 +26,12 @@ class PublicationContract(unittest.TestCase):
         header[64:68] = b'PE\0\0'
         struct.pack_into('<H', header, 68, 0x14c if platform == 'Win32' else 0x8664)
         (reader / 'HomeLibReader.exe').write_bytes(header)
-        for name in ('HomeLibRuUpdater.exe', 'sqlite3.dll', 'libzstd.dll'):
+        for name in ('HomeLibRuUpdater.exe', 'sqlite3.dll'):
             (runtime / name).write_bytes(header)
         for path, data in {
                 repo / 'LICENSE': b'fixture licence',
                 runtime / 'NOTICE': b'fixture notices',
                 runtime / 'tools/fonts/manifest.json': b'{}',
-                repo / 'Program/Resources/zstd/LICENSE': b'fixture zstd licence',
                 repo / 'Installer/Release.json': b'{"version":"3.0.0.1"}'}.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -55,7 +54,8 @@ class PublicationContract(unittest.TestCase):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory(prefix='HomeLibre-reader-package-') as folder:
                 root = Path(folder)
                 repo = self.reader_fixture(root, platform)
-                with patch.object(packages, 'file_version', return_value='3.0.0.1'):
+                with patch.object(packages, 'file_version', return_value='3.0.0.1'), \
+                        patch.object(packages, 'verify_reader_manifest'):
                     entry, report = packages.package(repo, platform, 'HomeLibReader',
                         packages.COMPONENT_RELEASE_TAG, 'unused', root / 'output')
                 expected = f'HomeLibRu-HomeLibReader-3.0.0.1-{platform}.zip'
@@ -66,6 +66,7 @@ class PublicationContract(unittest.TestCase):
                     self.assertEqual(manifest['version'], entry['version'])
                     self.assertEqual(manifest['platform'], platform)
                     self.assertEqual(manifest['release'], packages.COMPONENT_RELEASE_TAG)
+                    self.assertNotIn('libzstd.dll', archive.namelist())
                     self.assertFalse(any(name.startswith(('tools/bookconvert/', 'tools/kindle/',
                         'tools/office/', 'tools/xps/')) for name in archive.namelist()))
 
@@ -79,7 +80,8 @@ class PublicationContract(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='HomeLibre-reader-package-') as folder:
             root = Path(folder)
             repo = self.reader_fixture(root, 'Win32')
-            with patch.object(packages, 'file_version', side_effect=versions):
+            with patch.object(packages, 'file_version', side_effect=versions), \
+                    patch.object(packages, 'verify_reader_manifest'):
                 with self.assertRaisesRegex(ValueError, 'Rebuild Reader and updater'):
                     packages.package(repo, 'Win32', 'HomeLibReader',
                         packages.COMPONENT_RELEASE_TAG, 'unused', root / 'output')

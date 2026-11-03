@@ -124,7 +124,11 @@ def main():
             feed.write_bytes(feed_bytes)
             remote = root / 'release.json'
             remote.write_text(json.dumps(metadata['assets']), encoding='utf-8')
-            entries = {entry['archive']: entry for entry in json.loads(feed_bytes)['components']}
+            entries = {}
+            for entry in json.loads(feed_bytes)['components']:
+                if entry['id'] == 'HomeLibReader':
+                    entry = entry.get('minimal_reader', entry)
+                entries[entry['archive']] = entry
             component_ids = re.findall(r"\(ID:'([^']+)'", (repo /
                 'Program/Units/unit_ComponentUpdates.pas').read_text(encoding='utf-8-sig'))
             assert component_ids and len(component_ids) == len(set(component_ids))

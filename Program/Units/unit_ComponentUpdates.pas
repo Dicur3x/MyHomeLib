@@ -777,7 +777,8 @@ end;
 function ParseComponentFeed(const JSON, ReleaseTag, AssetsJSON: string;
   out Releases: TComponentReleases; RequireAssets, AllowPartial: Boolean): Boolean;
 var Root, AssetsRoot: TJSONValue; Items, History, Assets: TJSONArray;
-  Value, Entry, Asset: TJSONValue; Obj: TJSONObject; ID, Version, Platform, Notes, Name, URL, Digest, Date: string;
+  Value, Entry, Asset, MinimalReader: TJSONValue; Obj: TJSONObject;
+  ID, Version, MinimalVersion, Platform, Notes, Name, URL, Digest, Date: string;
   Format, I, Comparison: Integer; Info: TProgramRelease;
   Found: array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of Boolean;
 begin
@@ -796,8 +797,22 @@ begin
       Obj := TJSONObject(Value);
       if not Obj.TryGetValue<string>('platform', Platform) then Exit;
       if Platform <> ProgramUpdatePlatform then Continue;
-      if not Obj.TryGetValue<string>('id', ID) or not Obj.TryGetValue<string>('version', Version) or
-         not CompareComponentVersions(Version, Version, Comparison) or
+      if not Obj.TryGetValue<string>('id', ID) or not Obj.TryGetValue<string>('version', Version) then Exit;
+      if ID = 'HomeLibReader' then
+      begin
+        // Released clients use the outer entry, which still includes Zstandard.
+        MinimalReader := Obj.GetValue('minimal_reader');
+        if Assigned(MinimalReader) then
+        begin
+          if not (MinimalReader is TJSONObject) then Exit;
+          Obj := TJSONObject(MinimalReader);
+          if (Obj.GetValue<string>('id', '') <> ID) or (Obj.GetValue<string>('platform', '') <> Platform) or
+            not Obj.TryGetValue<string>('version', MinimalVersion) or
+            not CompareComponentVersions(MinimalVersion, Version, Comparison) or (Comparison < 0) then Exit;
+          Version := MinimalVersion;
+        end;
+      end;
+      if not CompareComponentVersions(Version, Version, Comparison) or
          not Obj.TryGetValue<TJSONArray>('history', History) or
          (History.Count < 1) or (History.Count > 100) then Exit;
       I := 0; while (I <= High(ComponentIDs)) and (ComponentIDs[I] <> ID) do Inc(I);
