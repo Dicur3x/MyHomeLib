@@ -3760,7 +3760,7 @@
     "published": false
   },
   "save_cancellation_20261103": {
-    "status": "Native PASS x86/x64; production rebuild/packages pending",
+    "status": "Native cancellation and cleanup PASS x86/x64; four production EXEs rebuilt, four fresh archives verified and locally installed",
     "proof": "tools\\ui\\tests\\Out\\beta3-native-save-cancellation-20261103-r1.json",
     "sha256": "a426e25a4acadd109a5484b3ae10850ece32db2d5dc53bcbd5ff089914c112bb",
     "gui_partial": "tools/ui/tests/Out/beta3-final-save-cancellation-20261103-r1.json",
@@ -3772,9 +3772,25 @@
       "Updated old native fixture to use current independent modules and compare diagnostics to the installed descriptor instead of hard-coded 2.7.0.1106."
     ],
     "remaining": [
-      "Rebuild Main and Reader x86/x64 and replace previous final candidate packages.",
-      "Affected exact-package verification and final publication remain open; previous exact-package proofs apply to the prior package hashes only."
+      "New packaged graphical cancellation and affected update/restart checks before publication.",
+      "Public optional-component download/install continuation and final GitHub publication remain open.",
+      "Prior update/mixed-save proofs retain their original pre-cancellation hashes; do not describe them as verification of these rebuilt archives."
     ],
-    "published": false
+    "published": false,
+    "production_artifacts": {
+      "proof": "tools/ui/tests/Out/beta3-cancel-final-artifacts-20261103-r1.json",
+      "sha256": "68ebef4dc396b3a810c48be22a6e47e611951cb8e3fbf9ca57bb483f890890b2",
+      "package_root": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2",
+      "source_commit": "d547b08de1a4675164ec1906a140fb65a3db5c8c",
+      "reader_sha256": {
+        "Win64": "9364d2e789caaabd406eecc6e74b80633f5b2e62125abacc2a4e231dbcc699b4",
+        "Win32": "1c77629865d523c80c115cd9a46753cbbca53319d64c07f98f9fd9d544dbe39b"
+      },
+      "main_sha256": {
+        "Win64": "3115ad48b9637da23c94d5049ab0691d2d5c68eb89eaac73342ad17587b973bd",
+        "Win32": "11cff016be78955b23dec909db8b2f7ace1f50628ff47e2ebe7cac6081cc77fe"
+      }
+    },
+    "visible_page_sequence": 114
   }
 }
