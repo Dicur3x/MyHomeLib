@@ -2,8 +2,8 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 103,
-    "verified_blocks": 83,
+    "verified_sequence": 104,
+    "verified_blocks": 84,
     "verified_checked": 57,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
@@ -3393,7 +3393,7 @@
     "reason": "Both scoped Remove-Item cleanup calls were rejected as blocked by policy; no detailed reason returned. Do not retry these scopes through another method. Final reader-r2 and current usage-module r2 candidates retained for release."
   },
   "reader_rabbit_20261103": {
-    "status": "both_candidate_architectures_open_and_interactions_passed_final_rebuild_retest_pending",
+    "status": "fresh_native_x86_x64_passed_prior_intermittent_unicode_difference_unresolved_final_packages_pending",
     "catalogue_book_id": 699159,
     "source_lib_id": "883585",
     "source_bytes": 46888835,
@@ -3438,6 +3438,66 @@
       "reason": "blocked by policy",
       "root": "G:\\HomeLibRu-build-cache\\HomeLibre-rabbit-reader-omw0ovc1",
       "no_retry": true
+    },
+    "native_audit_20261103": {
+      "status": "current_scoped_runs_pass_prior_difference_not_explained",
+      "architectures": [
+        "Win32",
+        "Win64"
+      ],
+      "fixtures": [
+        "240 repeated JPEG FB2",
+        "240 alpha PNG EPUB",
+        "real 883585 FB2, 369 pictures"
+      ],
+      "current_results": "Whole native text matches after the documented manual-break and existing colour-emoji-padding representation mapping; all picture objects retained; sampled rendering, font changes, panel changes and ten spread positions passed; source hashes unchanged.",
+      "layout_rtf_sha256": "95ed74aed5be7479e01834c32c8a38ec92ae10fc615319eac4a188ac65bf043c",
+      "prior_failures": "Earlier x64 runs lost 54 preceding UTF-16 characters next to 45 narrow NBSP and 9 smileys through both text-retrieval APIs. Same retained RTF imports exactly in six subsequent isolated probe variants and the later full native runs. Cause remains unresolved; no production Unicode fix claimed.",
+      "failed_experiment": "Global uc0/space-terminated RTF did not fix the synthetic regression; fully reverted. unit_ReaderDocument.pas remains identical to HEAD.",
+      "scope": "Native test builds, not final rebuilt production archives. Not every illustration was visually compared. Timing observations are not unloaded-system benchmarks.",
+      "reports": [
+        {
+          "path": "tools\\ui\\tests\\Out\\reader-unicode-probe-Win64-20261103-r1.txt",
+          "sha256": "181fad84c07e5730fa7e137e37dd96913c3e4da0822e1de636ed92758d2d7c79"
+        },
+        {
+          "path": "tools\\ui\\tests\\Out\\reader-rabbit-native-Win64-20261103-r8.txt",
+          "sha256": "a2412ff12b0f9b4ba0143c8cb9ff25ab1c439d12a3919f8a175ec7eb3968527b"
+        },
+        {
+          "path": "tools\\ui\\tests\\Out\\reader-rabbit-native-Win64-20261103-r9.txt",
+          "sha256": "60bcca88e5d16299d325e6d8ff69b3873d4d2a8bdcde453c789823635e3e0e9e"
+        },
+        {
+          "path": "tools\\ui\\tests\\Out\\reader-rabbit-native-Win32-20261103-r1.txt",
+          "sha256": "3c0dea6eb2b68b7a3a1a260621bd44bc745ba8fc6d8fd0240b4b1ab918576cf7"
+        }
+      ]
     }
+  },
+  "rad_studio_recovery_20261103": {
+    "status": "old_modal_instance_closed_vendor_fault_not_claimed_fixed",
+    "event_local_time": "2026-11-03 08:21:09",
+    "process": "bds.exe",
+    "module": "getithelper370.dll",
+    "module_version": "37.0.60542.8024",
+    "exception": "0xc0000005",
+    "offset": "0x91ca",
+    "old_process_id": 134880,
+    "close": "User cleared five Reload notices. Project Save As failed inside xmlrtl370.bpl. Copied the visible editor through a separate Notepad++ document, validated the saved text, copied the additional IDE recovery include, then closed old IDE normally without saving over repository files. No bds.exe remains after closure.",
+    "editor_backup": {
+      "path": "G:\\HomeLibRu-build-cache\\HomeLibre-IDE-recovery-20261103\\CollectionViewsTestEditorBuffer.txt",
+      "bytes": 369600,
+      "lines": 6428,
+      "sha256": "15b08f39607733774592b48af7c231efa79edc160ef14fced1e2704715448938"
+    },
+    "original_project_and_dpr_hashes_unchanged": true,
+    "successful_subsequent_builds": [
+      "r12 Win64",
+      "r13 Win64",
+      "r14 Win32"
+    ],
+    "diagnostic_build_failures": "r8/r10 had compiler-error modal waits; r9/r11 diagnostic source compile failures were inspected and corrected. These are not successful builds or evidence of a GetIt fix.",
+    "not_done": "No vendor patch/reinstallation applied; the intermittent GetIt failure remains open."
   }
 }

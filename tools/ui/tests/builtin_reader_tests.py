@@ -59,7 +59,7 @@ try:
         picture=Image.new('RGB',(640,640),(20,140,50))
         ImageDraw.Draw(picture).rectangle((150,150,490,490),fill=(200,30,40))
         encoded=io.BytesIO();picture.save(encoded,format='JPEG',quality=85)
-        body='<p>Before ❤️ after and words with spaces.</p>'+''.join('<p>JPEG paragraph '+str(i)+'</p><image l:href="#j"/>' for i in range(240))
+        body='<p>Before ❤️ after and words with spaces. Manual break A\u2028Manual break B. Narrow A\u202fB е\u202fВ »\u202fend.</p>'+''.join('<p>JPEG paragraph '+str(i)+'</p><image l:href="#j"/>' for i in range(240))
         (root/'jpeg-repeated.fb2').write_text('<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section>'+body+'</section></body><binary id="j" content-type="image/jpeg">'+base64.b64encode(encoded.getvalue()).decode()+'</binary></FictionBook>',encoding='utf-8')
         png=Image.new('RGBA',(640,640),(0,0,0,0))
         drawing=ImageDraw.Draw(png); drawing.rectangle((40,40,600,600),fill=(20,140,50,255))

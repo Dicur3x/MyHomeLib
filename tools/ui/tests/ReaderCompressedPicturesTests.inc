@@ -6,7 +6,76 @@ begin
   // Independent native import also absorbs optional ASCII padding before
   // this colour-emoji sequence. Do not mistake that existing importer
   // behaviour for text deleted by deferred picture replacement.
-  Result:=Value.TrimEnd([#13,#10]).Replace(' '+#$2764+#$FE0F,#$2764+#$FE0F);
+  // RichEdit exposes U+2028 as the one-character manual-break code U+000B.
+  // Normalize only that native representation; do not collapse whitespace.
+  Result:=Value.TrimEnd([#13,#10]).Replace(#$2028,#11).Replace(' '+#$2764+#$FE0F,#$2764+#$FE0F);
+end;
+
+function NativeUnicodeVariant(const Value: string; GroupSpecial: Boolean): string;
+var B: TStringBuilder; M: TMatch; Start: Integer; Pattern: string;
+begin
+  Pattern:='(?<!\\)\\u(-?\d+)\?';
+  if GroupSpecial then Pattern:='(?<!\\)\\u(8239|9785|9786)\?';
+  B:=TStringBuilder.Create(Length(Value)); Start:=1;
+  try
+    for M in TRegEx.Matches(Value,Pattern) do
+    begin
+      B.Append(Copy(Value,Start,M.Index-Start));
+      if GroupSpecial then B.Append('{\uc0');
+      B.Append('\u').Append(M.Groups[1].Value).Append(' ');
+      if GroupSpecial then B.Append('}');
+      Start:=M.Index+M.Length;
+    end;
+    B.Append(Copy(Value,Start,MaxInt)); Result:=B.ToString;
+  finally B.Free; end;
+end;
+
+// Diagnostic variants import the identical retained RTF, not a rebuilt book.
+procedure AuditNativeUnicodeImport;
+var Latin: TEncoding; Bytes, RoundTrip: TBytes; Original, Data, Expected, Actual, LabelText: string;
+  Host: TForm; Edit: TRichEdit; Ole: IInterface; Stream: TBytesStream; Mode, At: Integer;
+begin
+  RequireIsolatedRegression;
+  Latin:=TEncoding.GetEncoding(28591);
+  try
+    Bytes:=TFile.ReadAllBytes('picture-mismatch.rtf'); Original:=Latin.GetString(Bytes);
+    RoundTrip:=Latin.GetBytes(Original);
+    Require((Length(Bytes)=Length(RoundTrip)) and CompareMem(@Bytes[0],@RoundTrip[0],Length(Bytes)),
+      'Diagnostic byte mapping changed the retained RTF');
+    Expected:=ComparableNativePictureText(TFile.ReadAllText('picture-expected.txt',TEncoding.UTF8));
+    for Mode:=0 to 5 do
+    begin
+      Data:=Original; LabelText:='original';
+      case Mode of
+        1: begin
+          LabelText:='no-ansi-fallback';
+          Data:=NativeUnicodeVariant(Data,False);
+          Data:=Data.Replace('\uc1','\uc0');
+        end;
+        2: begin
+          LabelText:='isolated-special-unicode';
+          Data:=NativeUnicodeVariant(Data,True);
+        end;
+        3: begin LabelText:='explicit-cyrillic-charset';
+          Data:=Data.Replace('{\f0 Georgia;}','{\f0\fnil\fcharset204 Georgia;}'); end;
+        4: begin LabelText:='neutral-language'; Data:=Data.Replace('\uc1\f0','\uc1\lang1024\f0'); end;
+        5: LabelText:='auto-font-disabled';
+      end;
+      Host:=TForm.CreateNew(nil); Edit:=TRichEdit.Create(Host);
+      try
+        Edit.Parent:=Host; Edit.Visible:=False; Ole:=AttachReaderPictures(Edit);
+        if Mode=5 then SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,
+          SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0) and not IMF_AUTOFONT);
+        Stream:=TBytesStream.Create(Latin.GetBytes(Data));
+        try ReaderLoadRTF(Edit,Stream); finally Stream.Free; end;
+        Actual:=ComparableNativePictureText(ReaderTextRange(Edit,0,ReaderTextLength(Edit))).Replace(#$FFFC,' ');
+        At:=1;
+        while (At<=Length(Expected)) and (At<=Length(Actual)) and (Expected[At]=Actual[At]) do Inc(At);
+        Writeln('UNICODE_PROBE ',LabelText,' exact=',Actual=Expected,' expected=',Length(Expected),
+          ' actual=',Length(Actual),' first_difference=',At,' pictures=',ReaderPictureCount(Edit)); Flush(Output);
+      finally Ole:=nil; Host.Free; end;
+    end;
+  finally Latin.Free; end;
 end;
 
 procedure AuditCompressedJPEGPictures;
@@ -40,11 +109,46 @@ begin
           ReferenceStream:=TMemoryStream.Create;
           try
             ReferenceStream.WriteBuffer(Encoded[1],Length(Encoded)); ReferenceStream.Position:=0;
+            Writeln('OBSERVED native import fingerprint ',Name,' rtf_sha256=',THashSHA2.GetHashString(ReferenceStream),
+              ' default_font=',Reference.Font.Name,' charset=',Reference.Font.Charset,
+              ' language_options=',SendMessage(Reference.Handle,EM_GETLANGOPTIONS,0,0)); Flush(Output);
+            ReferenceStream.Position:=0;
             ReaderLoadRTF(Reference,ReferenceStream);
           finally ReferenceStream.Free; end;
           ReferenceText:=ReaderTextRange(Reference,0,ReaderTextLength(Reference));
           Writeln('OBSERVED independent native import ',Name,' chars=',Length(ReferenceText),
             ' semantic_match=',ReferenceText.TrimEnd([#13,#10])=Text.TrimEnd([#13,#10])); Flush(Output);
+          if ComparableNativePictureText(ReferenceText)<>ComparableNativePictureText(Text) then
+          begin
+            var Expected:=ComparableNativePictureText(Text);
+            var Imported:=ComparableNativePictureText(ReferenceText);
+            var At:=1;
+            while (At<=Length(Expected)) and (At<=Length(Imported)) and (Expected[At]=Imported[At]) do Inc(At);
+            var WindowText: string;
+            var WindowLength:=SendMessage(Reference.Handle,WM_GETTEXTLENGTH,0,0);
+            SetLength(WindowText,WindowLength+1);
+            var WindowCopied:=SendMessage(Reference.Handle,WM_GETTEXT,WindowLength+1,LPARAM(PChar(WindowText)));
+            SetLength(WindowText,WindowCopied);
+            WindowText:=WindowText.Replace(#13#10,#13).Replace(#$FFFC,' ');
+            Writeln('OBSERVED WM_GETTEXT ',Name,' chars=',Length(WindowText),
+              ' expected_match=',ComparableNativePictureText(WindowText)=Expected,
+              ' unicode_window=',IsWindowUnicode(Reference.Handle));
+            var DebugRTF:=TMemoryStream.Create;
+            try
+              DebugRTF.WriteBuffer(Encoded[1],Length(Encoded));
+              DebugRTF.SaveToFile('picture-mismatch.rtf');
+            finally DebugRTF.Free; end;
+            TFile.WriteAllText('picture-expected.txt',Expected,TEncoding.UTF8);
+            TFile.WriteAllText('picture-imported.txt',Imported,TEncoding.UTF8);
+            TFile.WriteAllText('picture-window.txt',WindowText,TEncoding.UTF8);
+            Writeln('OBSERVED independent mismatch ',Name,' expected_chars=',Length(Expected),
+              ' imported_chars=',Length(Imported),' at=',At); Flush(Output);
+            Writeln('OBSERVED expected context: ',Copy(Expected,Max(1,At-32),72));
+            Writeln('OBSERVED imported context: ',Copy(Imported,Max(1,At-32),72));
+            if At<=Length(Expected) then Writeln('OBSERVED expected code=',Ord(Expected[At]));
+            if At<=Length(Imported) then Writeln('OBSERVED imported code=',Ord(Imported[At]));
+            Flush(Output);
+          end;
           Require(ComparableNativePictureText(ReferenceText)=ComparableNativePictureText(Text),
             'Independent native import lost source content beyond known colour-emoji padding');
         finally ReferenceOle:=nil; ReferenceHost.Free; end;
@@ -71,6 +175,14 @@ begin
           if Position<=Length(Text) then Writeln('OBSERVED source code=',Ord(Text[Position])); Flush(Output);
         end;
         Require(ComparableNativePictureText(Actual)=ComparableNativePictureText(Text),'JPEG import changed source text');
+        // Native import may consume the known emoji-padding space above.
+        // Select the picture by the native OLE position, rather than seeking
+        // a source-text offset that may now point just after the picture.
+        var PicturePositions:=ReaderPicturePositions(Buffer);
+        Require(Length(PicturePositions)=Images,'Native picture position inventory is incomplete');
+        Writeln('OBSERVED picture seek coordinates ',Name,' source_first=',FirstPicture,
+          ' native_first=',PicturePositions[0]); Flush(Output);
+        FirstPicture:=PicturePositions[0];
         Text:=Actual;
         Loads:=Reader.PresentationLoads;
         Reader.SeekProgress(0.5); Application.ProcessMessages;
@@ -90,7 +202,7 @@ begin
             ' elapsed_ms=',Watch.ElapsedMilliseconds,' imports=',Reader.PresentationLoads); Flush(Output);
           Require(Watch.ElapsedMilliseconds<5000,'Reader view change blocks for more than five seconds');
           Require(Reader.PresentationLoads=Loads,'Reader view change reparsed the entire book');
-          Require(Reader.Ready and (Reader.PageText<>''),'View change lost the readable page');
+          Require(Reader.Ready and ((Reader.PageText<>'') or (Reader.DecodedPictureCount>0)),'View change lost the readable page');
           Require(ReaderPictureCount(Buffer)=Images,'View change lost picture objects');
           if Action=2 then Require(Reader.ReaderFontSize=FontSize+1,'Font size did not increase');
           if Action=3 then Require(Reader.ReaderFontSize=FontSize-1,'Font size did not decrease');
@@ -100,7 +212,7 @@ begin
         Position:=Reader.TextPosition; Reader.NextPage; Application.ProcessMessages;
         Require(Reader.TextPosition>Position,'JPEG page cannot be turned');
         Reader.SeekProgress(0.9); Application.ProcessMessages;
-        Require(Reader.Ready and (Reader.PageText<>''),'Late illustrated pages are unavailable');
+        Require(Reader.Ready and ((Reader.PageText<>'') or (Reader.DecodedPictureCount>0)),'Late illustrated pages are unavailable');
         Require(Reader.DecodedPictureCount<32,'Paging retained off-page illustrations');
         Require(Reader.BookText.TrimEnd([#13,#10])=Text.TrimEnd([#13,#10]),'Picture replacement moved source text positions');
         if Name<>'jpeg-real.fb2' then
@@ -109,6 +221,14 @@ begin
           for var Theme in TArray<Integer>.Create(0,4) do
           begin
             Reader.SetTheme(Theme); Reader.GoToPosition(FirstPicture); Application.ProcessMessages;
+            // Palette/toolbar changes may still have an ordinary resize
+            // message pending. Wait for the requested picture, then inspect
+            // actual pixels below; a permanently blank page still fails.
+            var PictureWatch:=TStopwatch.StartNew;
+            while (Reader.DecodedPictureCount=0) and (PictureWatch.ElapsedMilliseconds<1000) do
+            begin Application.ProcessMessages; CheckSynchronize(5); Sleep(5); end;
+            Writeln('OBSERVED picture target ',Name,' theme=',Theme,' target=',FirstPicture,
+              ' current=',Reader.TextPosition,' decoded=',Reader.DecodedPictureCount,' page_chars=',Length(Reader.PageText)); Flush(Output);
             Require(Reader.DecodedPictureCount>0,'The requested illustrated page has no decoded picture');
             Painted:=TBitmap.Create;
             try
@@ -125,7 +245,7 @@ begin
         for var Step:=0 to 9 do
         begin
           Reader.SeekProgress(Step/10.0); Application.ProcessMessages;
-          Require(Reader.Ready and (Reader.PageText<>''),'Illustrated spread is unavailable');
+          Require(Reader.Ready and ((Reader.PageText<>'') or (Reader.DecodedPictureCount>0)),'Illustrated spread is unavailable');
           Require((Reader.DecodedPictureCount<32) and (ReaderPictureCount(Buffer)=Images),
             'Spread navigation retained off-page rasters or lost objects');
         end;

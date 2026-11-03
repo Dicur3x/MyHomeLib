@@ -5,7 +5,7 @@
 {$R '..\..\..\Program\lang.res'}
 
 uses NativeRegressionGuard, Winapi.PsAPI, System.SysUtils, System.Classes, System.IOUtils,
-  System.JSON, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.NetEncoding, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
+  System.JSON, System.RegularExpressions, System.Win.ComObj, System.Variants, System.Diagnostics, System.Character, System.Math, System.StrUtils, System.Hash, System.IniFiles, System.SyncObjs, System.NetEncoding, System.Zip, System.Generics.Collections, Winapi.Windows, Winapi.Messages, Winapi.ActiveX, Winapi.RichEdit,
   Vcl.Themes, Vcl.ExtCtrls, Vcl.Menus, Vcl.ComCtrls, Vcl.Clipbrd, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics, System.Types, unit_ReaderDocument, unit_ReaderPDF, unit_ReaderCSS, unit_ReaderAnnotations, frm_BuiltinReader,
   unit_ReaderFonts, unit_ReaderFontDownloads, unit_ReaderFormats, unit_ReaderRaster, unit_ReaderDOC, unit_ReaderPageSelection, unit_ReaderRichEdit, unit_ReaderLookup, unit_ReaderBookSkin, unit_ReaderPalette, unit_ReaderOffice, unit_Globals, unit_ReaderCache, unit_BookCache, dm_user, unit_MHLTheme, unit_MHLExternalTools;
 
@@ -2310,6 +2310,7 @@ begin
       else if ParamStr(1)='book-appearance' then AuditReaderBookSkin
       else if ParamStr(1)='reader-toolbar' then AuditReaderToolbar
       else if ParamStr(1)='jpeg-rtf' then AuditCompressedJPEGPictures
+      else if ParamStr(1)='unicode-rtf-probe' then AuditNativeUnicodeImport
       else if ParamStr(1)='text-selection' then AuditRealTextSelection
       else if ParamStr(1)='illustrated-selection' then AuditIllustratedTextSelection
       else if ParamStr(1)='selection-geometry' then begin AuditFailedReaderCleanup; AuditSelectionGeometry; end
