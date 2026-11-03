@@ -140,12 +140,24 @@ begin
 end;
 
 procedure ReaderLoadRTF(Edit: TRichEdit; Stream: TStream);
-var Info: TReaderStreamInfo;
+var Info: TReaderStreamInfo; LanguageOptions, CurrentOptions: LRESULT;
 begin
   FillChar(Info,SizeOf(Info),0); Info.Cookie:=NativeUInt(Stream); Info.Callback:=ReaderStreamRead;
-  // VCL string loading may guess a text encoding from raster bytes. Stream
-  // binary RTF straight to RichEdit without any Unicode/ANSI conversion.
-  SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF,LPARAM(@Info));
+  // RichEdit's automatic font binding can consume the preceding character
+  // when Unicode RTF changes scripts (e.g. narrow NBSP and smileys), depending
+  // on the initial font charset. Import the supplied text without that rewrite.
+  // Restore only this flag, retaining other language options set by RichEdit.
+  LanguageOptions:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0);
+  SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,LanguageOptions and not IMF_AUTOFONT);
+  try
+    // VCL string loading may guess a text encoding from raster bytes. Stream
+    // binary RTF straight to RichEdit without any Unicode/ANSI conversion.
+    SendMessage(Edit.Handle,EM_STREAMIN,SF_RTF,LPARAM(@Info));
+  finally
+    CurrentOptions:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0);
+    SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,
+      (CurrentOptions and not IMF_AUTOFONT) or (LanguageOptions and IMF_AUTOFONT));
+  end;
   if Info.Error<>0 then raise EStreamError.Create('Не удалось загрузить текст и изображения книги.');
 end;
 

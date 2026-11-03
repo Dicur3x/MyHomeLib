@@ -67,6 +67,21 @@ begin
             if Layout=rplDouble then
               Require(ClickX>Surface.Width div 2,'Double-click did not exercise the right text page');
             DoubleClick(ClickX,ClickY);
+            if Reader.SelectedText<>Query then
+            begin
+              var Buffer:=ReaderFormattingBuffer(Reader);
+              var Known:=PosEx(Query,Reader.BookText,Max(1,Reader.TextPosition+1))-1;
+              var WordStart, WordCount: Integer;
+              var WordOK:=ReaderWordRange(Buffer,Known,WordStart,WordCount);
+              Writeln('TRACE word mismatch layout=',Ord(Layout),' theme=',Theme,
+                ' query_utf16_first=',IntToHex(Ord(Query[1]),4),' click=',ClickX,',',ClickY,
+                ' known=',Known,' character_start=',ReaderCharacterStart(Buffer,Known),
+                ' slice1_len=',Length(ReaderTextRange(Buffer,Known,1)),
+                ' slice2_len=',Length(ReaderTextRange(Buffer,Known,2)),
+                ' direct_word=',WordOK,' start=',WordStart,' count=',WordCount,
+                ' page_start=',Reader.TextPosition); Flush(Output);
+              Painted.SaveToFile('word-selection-failed.bmp');
+            end;
             Require(Reader.SelectedText=Query,'Double-click did not select visible word: '+FileName+
               ' expected=['+Query+'] got=['+Reader.SelectedText+']');
             Key:=Ord('C'); Reader.OnKeyDown(Reader,Key,[ssCtrl]);
@@ -76,7 +91,8 @@ begin
               SendMessage(Surface.Handle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(Left-1,ClickY));
               SendMessage(Surface.Handle,WM_MOUSEMOVE,MK_LBUTTON,MakeLParam(Right+1,ClickY));
               SendMessage(Surface.Handle,WM_LBUTTONUP,0,MakeLParam(Right+1,ClickY));
-              Require(Reader.SelectedText=Query,'Double-click change broke ordinary mouse drag selection');
+              Require(Reader.SelectedText=Query,'Double-click change broke ordinary mouse drag selection: '+FileName+
+                ' layout='+IntToStr(Ord(Layout))+' theme='+IntToStr(Theme)+' query=['+Query+'] got=['+Reader.SelectedText+']');
               DoubleClick(0,Surface.Height-1);
               Require(Reader.SelectedText='','Double-click in a blank margin selected hidden/nearest text');
             end;

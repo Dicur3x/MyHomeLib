@@ -3123,7 +3123,7 @@
       "path": "tools/ui/tests/Out/save-help-modernization-20261103-r1.json",
       "sha256": "f1e269d2b73780ce70065bb08b7bc940d7aea8583d92d2a435b7649def804b9f"
     },
-    "forum_reply_draft": "Спасибо за уточнение. Проверил старую реализацию: конвертация FB2 в MOBI действительно была через внешнюю программу, я раньше неточно написал. В готовящейся beta 3 сохранение и преобразование собраны в «Сохранить как»: исходный формат, FB2/FB2.ZIP, EPUB, TXT, MOBI и AZW3. Старые EXE-переходники для нового сохранения не используются; нужные модули устанавливаются отдельно. fb2cng тоже посмотрел: KFX/AZW8 у него действительно есть, но в HomeLibre их пока не добавлял. AZW3 новым форматом называть было неправильно."
+    "forum_reply_draft": "Да, согласен. В готовящейся beta 3 как раз переделал эту часть: подготовка книги отделена от записи нужного формата. При конвертации в MOBI/AZW3 сначала готовится EPUB, затем работает отдельный модуль, который докачивается по необходимости. Авторам конвертеров специальные мостики под HomeLibre писать не нужно — интеграция делается со стороны HomeLibre. MOBI и AZW3 оставляю для совместимости. Посмотрел fb2cng: поддержка KFX/AZW8 у него есть, но в HomeLibre эти форматы пока не добавлены. Это отдельная доработка; сейчас заканчиваю исправления и проверки."
   },
   "module_actual_use_hooks_20261102": {
     "status": "PASS_TARGETED_NATIVE_X86_X64_AND_PYTHON",
@@ -3440,7 +3440,7 @@
       "no_retry": true
     },
     "native_audit_20261103": {
-      "status": "current_scoped_runs_pass_prior_difference_not_explained",
+      "status": "historical_runs_superseded_by_rtf_unicode_binding_20261103",
       "architectures": [
         "Win32",
         "Win64"
@@ -3450,9 +3450,9 @@
         "240 alpha PNG EPUB",
         "real 883585 FB2, 369 pictures"
       ],
-      "current_results": "Whole native text matches after the documented manual-break and existing colour-emoji-padding representation mapping; all picture objects retained; sampled rendering, font changes, panel changes and ten spread positions passed; source hashes unchanged.",
+      "current_results": "Earlier runs without a controlled initial charset were insufficient. Cause has now been reproduced and fixed; see rtf_unicode_binding_20261103 for strict text-space, font, interaction and both-architecture evidence.",
       "layout_rtf_sha256": "95ed74aed5be7479e01834c32c8a38ec92ae10fc615319eac4a188ac65bf043c",
-      "prior_failures": "Earlier x64 runs lost 54 preceding UTF-16 characters next to 45 narrow NBSP and 9 smileys through both text-retrieval APIs. Same retained RTF imports exactly in six subsequent isolated probe variants and the later full native runs. Cause remains unresolved; no production Unicode fix claimed.",
+      "prior_failures": "54 preceding UTF-16 characters were lost by RichEdit automatic font binding at DEFAULT/RUSSIAN initial charsets. The controlled charset matrix reproduces this and verifies the import guard.",
       "failed_experiment": "Global uc0/space-terminated RTF did not fix the synthetic regression; fully reverted. unit_ReaderDocument.pas remains identical to HEAD.",
       "scope": "Native test builds, not final rebuilt production archives. Not every illustration was visually compared. Timing observations are not unloaded-system benchmarks.",
       "reports": [
@@ -3499,5 +3499,104 @@
     ],
     "diagnostic_build_failures": "r8/r10 had compiler-error modal waits; r9/r11 diagnostic source compile failures were inspected and corrected. These are not successful builds or evidence of a GetIt fix.",
     "not_done": "No vendor patch/reinstallation applied; the intermittent GetIt failure remains open."
+  },
+  "rtf_unicode_binding_20261103": {
+    "status": "native_fix_verified_Win32_Win64_final_production_package_retest_pending",
+    "cause": "Controlled native import with initial charset DEFAULT_CHARSET or RUSSIAN_CHARSET loses 54 characters next to narrow NBSP/smileys when IMF_AUTOFONT is enabled. Charset ANSI/SYMBOL does not reproduce. Disabling only IMF_AUTOFONT during stream import preserves the supplied Unicode text.",
+    "fix": "ReaderLoadRTF disables automatic font binding for EM_STREAMIN and restores that flag in finally while retaining other language options. Explicit fallback-font rendering remains enabled afterwards.",
+    "before_proof": "tools/ui/tests/Out/reader-unicode-font-charsets-Win64-20261103-r1.json",
+    "after_proof": "tools/ui/tests/Out/reader-unicode-font-charsets-Win64-20261103-r2.json",
+    "native_checks": "24 RTF/font-charset variants passed x64, language options restored. Real FB2 plus JPEG/transparent-PNG fixtures pass with DEFAULT_CHARSET forced. Dropped prior test normalization of spaces before colour hearts; strict spaces now pass too. Injected failed RTF read reports an error and restores language options. Four reading fonts x21 scripts pass native glyph/emphasis/RTL/copy checks.",
+    "x86": "r22 licensed build and native illustrated-source exact-text, glyph and word/drag-selection checks passed.",
+    "pending": "Final production EXEs and exact release archive retest. Not published.",
+    "x64": "r21 licensed build and same native illustrated-source exact-text, glyph and word/drag-selection checks passed.",
+    "emoji_regression": "The import guard exposed the old fallback mapping of supplementary pictographs to Noto Sans Symbols2, which lacks emoji coverage. Script fallback now selects Segoe UI Emoji for U+1F300..U+1FAFF; native mouse double-click/drag and exact copying pass for FB2/EPUB/TXT/PDF in single/double layouts and both themes on both architectures.",
+    "rejected_alternative": "Setting/restoring only the native default charset still lost source characters in charset 0 and 204, and broke native drag selection. Candidate r20 fully replaced by the original import guard and explicit emoji fallback.",
+    "proof": {
+      "path": "tools/ui/tests/Out/reader-unicode-fidelity-final-20261103-r1.json",
+      "sha256": "c4fccd5d505df9d46bf50e2ad7ad4d7e15cb8d249e351e611945b3fd0acba5ec"
+    },
+    "cleanup": {
+      "status": "automatic_review_rejected_no_deletion_performed",
+      "reason": "blocked by policy",
+      "bytes_remaining": 418831114,
+      "no_retry": true,
+      "roots": [
+        "G:\\HomeLibRu-build-cache\\HomeLibRu-native-reader-ayx71onh",
+        "G:\\HomeLibRu-build-cache\\HomeLibre-unicode-selection-control-20261103-r1",
+        "G:\\HomeLibRu-build-cache\\HomeLibRu-native-reader-lg_jw7xv",
+        "G:\\HomeLibRu-build-cache\\HomeLibRu-native-reader-yuftiyyk"
+      ],
+      "compressed_private_evidence": {
+        "path": "tools/ui/tests/Out/reader-unicode-input-evidence-20261103-r1.zip",
+        "bytes": 750327,
+        "sha256": "76b5d657acc2c44e823bceee3a49e4c81771e786a7bcdd5368043d11fa416ef4",
+        "publish": false
+      },
+      "other_new_native_test_profiles": "Ordinary wrapper runs automatically removed their own fresh profiles successfully."
+    }
+  },
+  "conversion_preservation_research_20261103": {
+    "status": "documentation_and_existing_code_review_complete_new_writers_not_integrated_or_quality_validated",
+    "user_requirements": [
+      "Prefer a direct source-to-target route preserving rich content; never route an existing EPUB through FB2 just to use fb2cng.",
+      "Preserve the original book; intentional image reduction only when selected.",
+      "Keep compact primary format choices and optional extra formats; modules on demand only.",
+      "Review KEPUB, EPUB2/3, KFX/AZW8, PDF and Markdown after current reader fixes."
+    ],
+    "current_code": {
+      "TXT": "Native unit_globals.ConvertToTxt writes text from FB2; EPUB/other inputs first use the existing preparation path. Text output intentionally omits visual styling.",
+      "EPUB": "tools/bookconvert/convert_book.py fb2_to_epub builds an OPF 3.0 package with nav.xhtml. Existing same-format EPUB copying does not rebuild it.",
+      "MOBI_AZW3": "tools/bookconvert/kindle_output.py prepares an EPUB (existing EPUB has no FB2 round trip), adapts a private copy and calls the optional Kindling writer."
+    },
+    "candidate_routes": [
+      {
+        "route": "FB2 to EPUB2/EPUB3/KEPUB/KFX/PDF/TXT/Markdown",
+        "candidate": "fb2cng",
+        "evidence": "https://github.com/rupor-github/fb2cng/blob/master/docs/guide.md",
+        "limit": "FB2 input; not a universal decoder. Do not feed rich EPUB through a lossy FB2 intermediate."
+      },
+      {
+        "route": "EPUB to MOBI/AZW3",
+        "candidate": "Existing Kindling module",
+        "evidence": "https://github.com/ciscoriordan/kindling/blob/3b91b1ea21f892779be09149f21fe4053b1b3569/README.md",
+        "limit": "Supports images/fonts/navigation/fixed-layout cases; target restrictions still apply. Source CSS and embedded-font behavior must be checked, not inferred from text preservation."
+      },
+      {
+        "route": "EPUB to KEPUB",
+        "candidate": "kepubify",
+        "evidence": "https://pgaskin.net/kepubify/docs/",
+        "limit": "Direct EPUB route and author-supplied Windows 32/64 binaries; not integrated. Verify resources/styles and Kobo semantics before accepting."
+      },
+      {
+        "route": "EPUB to KFX",
+        "candidate": "kfxgen direct-Python path; compare kfx_converter and KFX Output",
+        "evidence": [
+          "https://github.com/jloutsch/kfxgen",
+          "https://github.com/hwanjongyu/kfx_converter",
+          "https://www.mobileread.com/forums/showthread.php?t=272407"
+        ],
+        "limit": "Do not confuse an upstream conversion/text-retention claim with visual fidelity. kfxgen direct script is in research, requirements/Windows x86 support and full CSS/table/SVG/font fidelity remain unverified. KFX Output requires Kindle Previewer."
+      },
+      {
+        "route": "EPUB2/EPUB3 rewriting",
+        "candidate": "Kindling has epub2/epub3 commands",
+        "evidence": "https://github.com/ciscoriordan/kindling/blob/3b91b1ea21f892779be09149f21fe4053b1b3569/README.md#epub-export",
+        "limit": "Exporter flattens spine names and can remove links to non-spine documents; do not pick it blindly for rich EPUB preservation."
+      },
+      {
+        "route": "Rich EPUB/Office to PDF and other exports",
+        "candidate": "Compare format-native exporters and calibre ebook-convert; no engine selected yet",
+        "evidence": "https://manual.calibre-ebook.com/conversion.html",
+        "limit": "Calibre normalizes input via XHTML and transformations. PDF pagination, fonts, tables, vector content and Windows x86 availability need evaluation; no claim of lossless layout."
+      }
+    ],
+    "acceptance": [
+      "Compare complete text and order, TOC and hyperlinks including notes/backlinks.",
+      "Compare CSS and embedded fonts; inspect complex tables, SVG/math and fixed layouts, not just word counts.",
+      "Hash unchanged resources where the target supports them; inspect actual illustrations and transparency.",
+      "Check estimates, batch selection, cancel, optional component requests and original-source hashes on x86/x64."
+    ],
+    "page": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
   }
 }

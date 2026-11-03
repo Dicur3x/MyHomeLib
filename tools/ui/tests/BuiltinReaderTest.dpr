@@ -2301,6 +2301,7 @@ begin
       else if ParamStr(1)='feedback19-reader' then begin AuditReaderAnnotationRangesAndExports; AuditReaderFeedback19; end
       else if ParamStr(1)='reader-colors' then AuditReaderColorBox
       else if ParamStr(1)='optional-fonts' then AuditOptionalFonts
+      else if ParamStr(1)='multilingual-fonts' then AuditMultilingualFonts
       else if ParamStr(1)='footnotes' then AuditFootnotes
       else if ParamStr(1)='large-book' then AuditLargeBook
       else if ParamStr(1)='real-epub' then AuditRealEPUB

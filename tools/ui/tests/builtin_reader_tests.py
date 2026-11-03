@@ -19,7 +19,7 @@ p.add_argument('--books-root', type=pathlib.Path, help='Read-only archive direct
 p.add_argument('--headers-json', type=pathlib.Path, help='Selected format header inventory for real-formats')
 p.add_argument('--raster-catalog', type=pathlib.Path, help='Selected DjVu/comic/TIFF archive inventory')
 p.add_argument('--jpeg-book',type=pathlib.Path,help='Read-only FB2 or single-FB2 ZIP for compressed-picture regression')
-p.add_argument('--case', choices=('jpeg-rtf','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
+p.add_argument('--case', choices=('jpeg-rtf','multilingual-fonts','export-picker-preview','feedback19-reader','optional-fonts','selection-contrast','word-selection','reader-lookup','book-appearance','reader-toolbar','text-selection','illustrated-selection','selection-geometry','doc-reader','feedback16-reader','reader-note-ui','reader-additions','real-epub','large-book','reader-colors','loading-navigation','loading-preferences','same-position-navigation','precision-wheel','document-spacing','pdf-current-page-search','oct10-reader','oct11-reader','unspaced-history','footnotes','real-formats','raster-reader','release-pagination'))
 a = p.parse_args()
 if a.case in ('real-formats', 'raster-reader', 'release-pagination'):
     if a.books_root is None or not a.books_root.is_dir():
@@ -34,13 +34,14 @@ assert root.parent == pathlib.Path(tempfile.gettempdir()).resolve()
 assert root.name.startswith('HomeLibRu-native-reader-')
 try:
     shutil.copy2(exe, root/exe.name)
-    if a.case!='jpeg-rtf': shutil.copy2(pdfium, root/'pdfium.dll')
+    if a.case not in ('jpeg-rtf','multilingual-fonts'): shutil.copy2(pdfium, root/'pdfium.dll')
     for name in ('sqlite3.dll','libzstd.dll'):
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
         if a.case=='jpeg-rtf': continue
+        if a.case=='multilingual-fonts' and arch_dir!='tools/fonts': continue
         if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
@@ -403,6 +404,7 @@ try:
     print(r.stdout,flush=True)
     assert r.returncode==0 and 'PASS experimental built-in reader native regressions' in r.stdout
     if a.case=='jpeg-rtf':
+        assert 'PASS failed RTF input restores native language options' in r.stdout
         assert r.stdout.count('PASS bounded picture reflow and font resize without whole-book import:')==(3 if a.jpeg_book else 2), 'Stale binary omitted illustrated interaction regressions'
         from PIL import Image
         assert 'PASS bounded compressed JPEG books preserve all native pictures' in r.stdout
@@ -433,6 +435,8 @@ try:
     if a.case in ('reader-additions','oct11-reader'):
         assert 'PASS Unicode notes durable atomic backup' in r.stdout, 'Stale binary did not run new notes/navigation regression'
         assert 'PASS chapter header mouse arrow and F4' in r.stdout, 'Stale binary omitted unified contents control'
+    if a.case=='multilingual-fonts':
+        assert 'PASS four bundled reading choices, 21 language samples, native glyphs' in r.stdout
     if a.case=='word-selection':
         assert 'PASS double-click respects selection switch margins ordinary dragging and unchanged sources' in r.stdout
         for name in ('words.fb2','words.epub','words.txt','words.pdf'):

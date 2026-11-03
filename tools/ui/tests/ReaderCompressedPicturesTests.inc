@@ -1,14 +1,40 @@
 // A whole-book DIB presentation exceeded the 256 MiB bound even though the
 // JPEG sources were small. Exercise the actual native picture importer too:
 // a compact RTF that silently drops pictures would not fix the book.
+type
+  TFailingReaderRTFStream = class(TMemoryStream)
+    function Read(var Buffer; Count: Longint): Longint; override;
+  end;
+
+function TFailingReaderRTFStream.Read(var Buffer; Count: Longint): Longint;
+begin
+  raise EReadError.Create('Deliberate isolated RTF input failure');
+end;
+
+procedure AuditRTFImportFailure;
+var Host: TForm; Edit: TRichEdit; Stream: TFailingReaderRTFStream;
+  OptionsBefore: LRESULT; Failed: Boolean;
+begin
+  RequireIsolatedRegression;
+  Host:=TForm.CreateNew(nil); Edit:=TRichEdit.Create(Host);
+  Stream:=TFailingReaderRTFStream.Create;
+  try
+    Edit.Parent:=Host; Edit.Visible:=False; Edit.Font.Charset:=DEFAULT_CHARSET;
+    OptionsBefore:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0); Failed:=False;
+    try ReaderLoadRTF(Edit,Stream); except on E: EStreamError do Failed:=True; end;
+    Require(Failed,'Failed RTF input was accepted');
+    Require(SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0)=OptionsBefore,
+      'Failed RTF import did not restore language options');
+    Writeln('PASS failed RTF input restores native language options'); Flush(Output);
+  finally Stream.Free; Host.Free; end;
+end;
+
 function ComparableNativePictureText(const Value: string): string;
 begin
-  // Independent native import also absorbs optional ASCII padding before
-  // this colour-emoji sequence. Do not mistake that existing importer
-  // behaviour for text deleted by deferred picture replacement.
   // RichEdit exposes U+2028 as the one-character manual-break code U+000B.
-  // Normalize only that native representation; do not collapse whitespace.
-  Result:=Value.TrimEnd([#13,#10]).Replace(#$2028,#11).Replace(' '+#$2764+#$FE0F,#$2764+#$FE0F);
+  // Normalize only that native representation and the final paragraph end.
+  // Spaces before colour emoji are source text too: never discard them here.
+  Result:=Value.TrimEnd([#13,#10]).Replace(#$2028,#11);
 end;
 
 function NativeUnicodeVariant(const Value: string; GroupSpecial: Boolean): string;
@@ -33,9 +59,11 @@ end;
 // Diagnostic variants import the identical retained RTF, not a rebuilt book.
 procedure AuditNativeUnicodeImport;
 var Latin: TEncoding; Bytes, RoundTrip: TBytes; Original, Data, Expected, Actual, LabelText: string;
-  Host: TForm; Edit: TRichEdit; Ole: IInterface; Stream: TBytesStream; Mode, At: Integer;
+  Host: TForm; Edit: TRichEdit; Ole: IInterface; Stream: TBytesStream; Mode, At, Charset: Integer; OptionsBefore: LRESULT;
 begin
   RequireIsolatedRegression;
+  Charset:=StrToIntDef(GetEnvironmentVariable('MHL_NATIVE_PROBE_CHARSET'),-1);
+  Require((Charset>=-1) and (Charset<=255),'Invalid diagnostic charset');
   Latin:=TEncoding.GetEncoding(28591);
   try
     Bytes:=TFile.ReadAllBytes('picture-mismatch.rtf'); Original:=Latin.GetString(Bytes);
@@ -63,16 +91,23 @@ begin
       end;
       Host:=TForm.CreateNew(nil); Edit:=TRichEdit.Create(Host);
       try
-        Edit.Parent:=Host; Edit.Visible:=False; Ole:=AttachReaderPictures(Edit);
+        Edit.Parent:=Host; Edit.Visible:=False;
+        if Charset>=0 then Edit.Font.Charset:=Byte(Charset);
+        Ole:=AttachReaderPictures(Edit);
         if Mode=5 then SendMessage(Edit.Handle,EM_SETLANGOPTIONS,0,
           SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0) and not IMF_AUTOFONT);
         Stream:=TBytesStream.Create(Latin.GetBytes(Data));
+        OptionsBefore:=SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0);
         try ReaderLoadRTF(Edit,Stream); finally Stream.Free; end;
+        Require(SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0)=OptionsBefore,
+          'RTF import changed the native language options');
         Actual:=ComparableNativePictureText(ReaderTextRange(Edit,0,ReaderTextLength(Edit))).Replace(#$FFFC,' ');
         At:=1;
         while (At<=Length(Expected)) and (At<=Length(Actual)) and (Expected[At]=Actual[At]) do Inc(At);
         Writeln('UNICODE_PROBE ',LabelText,' exact=',Actual=Expected,' expected=',Length(Expected),
-          ' actual=',Length(Actual),' first_difference=',At,' pictures=',ReaderPictureCount(Edit)); Flush(Output);
+          ' actual=',Length(Actual),' first_difference=',At,' pictures=',ReaderPictureCount(Edit),
+          ' charset=',Edit.Font.Charset,' language_options=',SendMessage(Edit.Handle,EM_GETLANGOPTIONS,0,0)); Flush(Output);
+        Require(Actual=Expected,'Unicode native import lost source text: '+LabelText);
       finally Ole:=nil; Host.Free; end;
     end;
   finally Latin.Free; end;
@@ -85,7 +120,7 @@ var Doc: TReaderDocument; Reader: TfrmBuiltinReader; Encoded: UTF8String;
   Watch: TStopwatch; UntilTick: UInt64;
   ReferenceHost: TForm; Reference: TRichEdit; ReferenceOle: IInterface; ReferenceStream: TMemoryStream;
 begin
-  RequireIsolatedRegression; Cases:=0;
+  RequireIsolatedRegression; Cases:=0; AuditRTFImportFailure;
   Application.CreateForm(TDMUser,DMUser); DMUser.Init;
   try
     for Name in TArray<string>.Create('jpeg-repeated.fb2','png-repeated.epub','jpeg-real.fb2') do
@@ -105,6 +140,7 @@ begin
         ReferenceHost:=TForm.CreateNew(nil); Reference:=TRichEdit.Create(ReferenceHost);
         try
           Reference.Parent:=ReferenceHost; Reference.Visible:=False;
+          Reference.Font.Charset:=DEFAULT_CHARSET;
           ReferenceOle:=AttachReaderPictures(Reference);
           ReferenceStream:=TMemoryStream.Create;
           try
@@ -113,7 +149,10 @@ begin
               ' default_font=',Reference.Font.Name,' charset=',Reference.Font.Charset,
               ' language_options=',SendMessage(Reference.Handle,EM_GETLANGOPTIONS,0,0)); Flush(Output);
             ReferenceStream.Position:=0;
+            var OptionsBefore:=SendMessage(Reference.Handle,EM_GETLANGOPTIONS,0,0);
             ReaderLoadRTF(Reference,ReferenceStream);
+            Require(SendMessage(Reference.Handle,EM_GETLANGOPTIONS,0,0)=OptionsBefore,
+              'Illustrated import changed the native language options');
           finally ReferenceStream.Free; end;
           ReferenceText:=ReaderTextRange(Reference,0,ReaderTextLength(Reference));
           Writeln('OBSERVED independent native import ',Name,' chars=',Length(ReferenceText),
@@ -150,13 +189,14 @@ begin
             Flush(Output);
           end;
           Require(ComparableNativePictureText(ReferenceText)=ComparableNativePictureText(Text),
-            'Independent native import lost source content beyond known colour-emoji padding');
+            'Independent native import changed source text');
         finally ReferenceOle:=nil; ReferenceHost.Free; end;
         Encoded:='';
       finally Doc.Free; end;
       Reader:=TfrmBuiltinReader.Create(nil);
       try
-        Reader.Show; Reader.OpenBook(Name,'JPEG stress',Name,'jpeg-reader.ini','pdfium.dll'); WaitReady(Reader);
+        Reader.Show; Buffer:=ReaderFormattingBuffer(Reader); Buffer.Font.Charset:=DEFAULT_CHARSET;
+        Reader.OpenBook(Name,'JPEG stress',Name,'jpeg-reader.ini','pdfium.dll'); WaitReady(Reader);
         Buffer:=ReaderFormattingBuffer(Reader);
         FillChar(Memory,SizeOf(Memory),0); Memory.cb:=SizeOf(Memory);
         Require(GetProcessMemoryInfo(GetCurrentProcess,@Memory,SizeOf(Memory)),'Cannot observe native reader memory');

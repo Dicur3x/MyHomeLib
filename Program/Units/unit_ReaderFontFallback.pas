@@ -67,7 +67,9 @@ begin
     $3400..$4DBF,$4E00..$9FFF,$A960..$A97F,$AC00..$D7FF,$F900..$FAFF,
     $FF00..$FFEF,$20000..$3134F:
       begin if Sans then Exit('Noto Sans CJK '+CJK) else Exit('Noto Serif CJK '+CJK); end;
-    $2190..$2BFF,$1D000..$1D24F,$1F000..$1FFFF: Exit('Noto Sans Symbols2');
+    // Symbols2 does not cover the emoji repertoire; Windows supplies it.
+    $1F300..$1FAFF: Exit('Segoe UI Emoji');
+    $2190..$2BFF,$1D000..$1D24F,$1F000..$1F2FF,$1FB00..$1FFFF: Exit('Noto Sans Symbols2');
   end;
   if Sans then Prefix:='Noto Sans' else Prefix:='Noto Serif';
   if Script<>'' then Result:=Prefix+' '+Script else Result:=Prefix;
