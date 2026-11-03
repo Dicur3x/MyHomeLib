@@ -39,9 +39,15 @@ def dump(path, value):
 
 
 def processes(root):
-    query = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); Get-CimInstance Win32_Process -Filter \"Name='HomeLibReader.exe' OR Name='HomeLibRuUpdater.exe'\" | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
+    # Only executable identity and PID are needed. Avoid the WMI provider,
+    # which can cancel enumeration during repeated process exit/restart.
+    # Restart arguments are checked separately against the helper's request.
+    query = ("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
+             "@(Get-Process HomeLibReader,HomeLibRuUpdater -ErrorAction SilentlyContinue | "
+             "ForEach-Object {[pscustomobject]@{ProcessId=$_.Id;ExecutablePath=$_.Path}}) | ConvertTo-Json -Compress")
     raw = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', query],
-                                 encoding='utf-8-sig', creationflags=subprocess.CREATE_NO_WINDOW)
+        encoding='utf-8-sig', stderr=subprocess.STDOUT, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW)
     entries = json.loads(raw) if raw.strip() else []
     entries = [entries] if isinstance(entries, dict) else entries
     return [p for p in entries if p.get('ExecutablePath') and Path(p['ExecutablePath']).is_relative_to(root)]

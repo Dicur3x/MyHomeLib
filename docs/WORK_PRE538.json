@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 98,
+    "verified_sequence": 99,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2941,7 +2941,7 @@
     }
   },
   "optional_module_removal_20261102": {
-    "status": "monthly_clock_and_normal_native_callers_verified_x86_x64_continuing_updater_package_checks",
+    "status": "verified_x86_x64_including_real_format_usage_and_actual_exact_package_restart",
     "scope": "Manual removal and one combined monthly offer; observation starts at first beta-3 application launch for all already installed modules, independently of module installation/update; no automatic deletion",
     "observed_sources": [
       "Program/Units/unit_ProgramUpdateInstaller.pas:InstallProgramUpdate",
@@ -2958,9 +2958,7 @@
       "Format descriptors verify required identities but are not a complete installed-file inventory"
     ],
     "next_steps": [
-      "Normal updater manager entry and inventory download/cancel lifecycle",
-      "Actual-use matrix with final processing packages and real formats",
-      "Rebuilt catalogue/Reader/updater executables and minimal package installation, related-process closure, replacement and restart"
+      "Module-maintenance direction complete; continue the next queued task sequentially, without treating this as full goal completion or publication."
     ],
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
@@ -3287,7 +3285,7 @@
     "page_sequence": 97
   },
   "module_production_packages_20261103": {
-    "status": "production_executables_and_minimal_packages_verified_main_upgrade_passed_reader_coordination_pending",
+    "status": "production_packages_main_upgrade_and_actual_reader_coordination_verified",
     "release": "3.0 beta 3",
     "published": false,
     "proof": {
@@ -3329,10 +3327,19 @@
       "action": "Closed error dialog. -np trial did not execute AutoBuild; closed own empty IDE and reverted the trial. No new private IDE process remains. No licensing/security/SDK DLL changes."
     },
     "remaining": [
-      "Exact standalone Reader package: actual coordinated close/replacement/restart with selected books and positions x86/x64",
-      "Finish the module-maintenance checklist direction before queued legacy export settings/forum analysis",
-      "Later publication plan, final notes and remaining full goal tasks; candidate is not released"
+      "Continue queued legacy export settings/forum analysis, then remaining release/goal checklist. Candidate is not released."
     ],
     "visible_checklist_hash": "ba07ff8247244ff617ff47f2a6a03cc1e48c16d0c9069656c7bd8cd651c8261c"
+  },
+  "module_reader_coordination_20261103": {
+    "status": "PASS",
+    "proof": {
+      "path": "tools\\ui\\tests\\Out\\module-reader-coordination-final-20261103-r1.json",
+      "sha256": "b46d3220ca3525a40574332dc4c70bf2f61cf93d3d53cd11e6953c4e935bccac"
+    },
+    "scope": "Exact beta3 Reader ZIPs, ordinary --job production helper after normal caller close, forced EXE replacement by harmless overlay, coordinated peer close/restart. Both real windows showed the correct books at 3% after restart and were closed normally through Computer Use. Not a GUI update-button, HTTP download, previous-published-Reader upgrade or live-user-data test.",
+    "harness_note": "WMI process enumeration returned cancellation HRESULT 0x80041032, including three bounded read retries. Harness now uses Get-Process PID/executable identity, with a timeout and exact owned-root filter; restart argv still comes from verified request/state. No permissions or system settings changed.",
+    "remaining": "Current module-maintenance direction verified. Continue queued legacy Device/Save As settings and forum/history response; full goal and publication remain open.",
+    "visible_checklist_hash": "ef5e58a479a924eb16926c847860e1c3e41fc986ff9e199b141ff67605ee4ea6"
   }
 }
