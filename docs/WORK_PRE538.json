@@ -3850,7 +3850,7 @@
     "computer_use": false,
     "builds_or_applications_started": false,
     "candidate_validation": "docs/RELEASE_VALIDATION_3.0.0_pre1.3.md",
-    "validation_sha256": "70f0f5cf8befbc951490213bc0ff4be5212730fa769af9a3b5f5580091e517b1",
+    "validation_sha256": "9f394fb95b6825fe76788217644b5a7c60f495764b146a5bf908419616dfec70",
     "readme_stage": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\release-docs-r1",
     "readme_manifest_sha256": "cd9783f64cb52f39047d33b6abbefc021f283884f7ad0b207a860fca74433127",
     "readme_count": 4,
@@ -3884,7 +3884,8 @@
     "implemented": false,
     "minimum_reader_requirement_complete": false,
     "computer_use": false,
-    "heavy_test_or_build": false
+    "heavy_test_or_build": false,
+    "superseded_by": "minimal_reader_distribution_20261104"
   },
   "awaiting_desktop_for_final_gui_20261103": {
     "condition": "Historical: user prohibited Computer Use during gaming, then explicitly resumed it.",
@@ -3936,5 +3937,153 @@
     ],
     "temporary_payloads_removed": true,
     "published": false
+  },
+  "minimal_reader_distribution_20261104": {
+    "status": "Minimal Reader and compatible feed verified locally on Win32 and Win64",
+    "source_commit": "84860d51e7744f48044dfb64f331f73f1a33b56e",
+    "candidate_root": "G:\\HomeLibRu-build-cache\\HomeLibre-reader-minimal-20261104-r1",
+    "published": false,
+    "build_receipts": [
+      {
+        "kind": "native",
+        "platform": "Win32",
+        "binary_sha256": "819885db8b81761ec038237f0dd8164c4aee69f096f474a1c5238d93e556f23e",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/native-Win32/ProgramUpdateInstallerTest-Win32-d8e583655582.json",
+          "sha256": "ba7aef6268f60c828c63ee96b27af3154cf57b38d95b3c69690d76f651ed9294"
+        }
+      },
+      {
+        "kind": "native",
+        "platform": "Win64",
+        "binary_sha256": "de54b990e52b1c258b9a92b11aefcebf3a31468bf7158d6f8f220c27242ca779",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/native-Win64/ProgramUpdateInstallerTest-Win64-70b2fd1b5fe8.json",
+          "sha256": "5f032b839a3fb6123922eb2232f0ffdef461b46baaab54d99a45b29dbad0acc9"
+        }
+      },
+      {
+        "kind": "updater",
+        "platform": "Win32",
+        "binary_sha256": "2780e213fbd9b21c4b8c6488a8bd1b03210fee603a899ce09af9c8b923680074",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/updater-Win32/HomeLibRuUpdater-Win32-d045ce333f85.json",
+          "sha256": "2ef7b92f2ae1aa9d3aef1620ec1692636f2a76933f589037af961035e2bcb94f"
+        }
+      },
+      {
+        "kind": "updater",
+        "platform": "Win64",
+        "binary_sha256": "88c4d23a5879e1d1cef7109fe06bb30094d534c3620af2d421e11c2ad8e70d67",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/updater-Win64/HomeLibRuUpdater-Win64-0c667430dffe.json",
+          "sha256": "2828ac2cd121c4da7202f16e7389a1e939eafa995ef27dfacb4855a58b52cc9b"
+        }
+      },
+      {
+        "kind": "catalogue",
+        "platform": "Win32",
+        "binary_sha256": "67c2ea6344339f8bb4e3cb78c55a7c5a1ab283703e6329151aebedc939d12d85",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/catalogue-Win32/MyhomeLib-Win32-f7fce680818e.json",
+          "sha256": "4f6c2b4d8255d3ff6412a8fb22599345a646851943993fc799c57992b8de35cb"
+        }
+      },
+      {
+        "kind": "catalogue",
+        "platform": "Win64",
+        "binary_sha256": "c3b59aac4d18ef41e2c622775a653d366405e9204724668a82a0905d89219a52",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/catalogue-Win64/MyhomeLib-Win64-604eeb189303.json",
+          "sha256": "dcb2517058ae06603d0fc715dd2a020b8199a72d3123ab85bd76c91f018d3e3a"
+        }
+      },
+      {
+        "kind": "reader",
+        "platform": "Win32",
+        "binary_sha256": "5c106113af3a8e6ce3c2a4dd96717d265edb301f661615952a94283ffdafb388",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/reader-Win32/HomeLibReader-Win32-d9a6cf30446d.json",
+          "sha256": "892f569cc1a2b26815cbd85a92349c55df9f100a2f0cc82db0d8d79792f74b6e"
+        }
+      },
+      {
+        "kind": "reader",
+        "platform": "Win64",
+        "binary_sha256": "60413c0d70b26de5394eb59fde3654300459463eee715159072ce688b22eed0d",
+        "receipt": {
+          "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/reader-Win64/HomeLibReader-Win64-a360089897ed.json",
+          "sha256": "ef063213034f378f766808e3099bc5f2ca3b4f788b3b992e7bffefcf368bf6a9"
+        }
+      }
+    ],
+    "verified_reports": [
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-feed-native-20261104-r1.json",
+        "sha256": "43648326e50867f9dd5220be776b1bcf8cc1ba5ba8a03d74aaf894062cf8506a"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-exact-compatibility-20261104-r1.json",
+        "sha256": "b7699965c2ccdde960f800f66b76ff008d272684f4f8898f5c431f44f24906b5"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-core-upgrade-20261104-r2.json",
+        "sha256": "6e4d31a3fdab3539e3ad4ec46cb7618b6bf1b044562d3e671f250612d94fa476"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-core-Win32-20261104-r1.json",
+        "sha256": "8044c5c2525a1de606fe9c8eaf2dd207a9e9ecb89dee97f9d5219f83b734481e"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-local-install-Win32-20261104-r1.json",
+        "sha256": "106541321fc23e7d7e8465206ff1926627039294c30aa6cdf4e765f88e82ece5"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-core-Win64-20261104-r1.json",
+        "sha256": "3603cb1512bbb95656031a11d0bc8a1e1b208976bd1484aff4dd340c7202640a"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-minimal-local-install-Win64-20261104-r1.json",
+        "sha256": "7211d4c0c70e6e90617b934387c78d4533f2f10a3e7c1f8877d2fb79695e50e4"
+      }
+    ],
+    "checksum_file": {
+      "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/SHA256SUMS.txt",
+      "sha256": "e086f91534d65a8bcc42609f17f9c95e1ac8478929db7705e6462b6834d632f8"
+    },
+    "component_plan": {
+      "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/publication/publication-plan.json",
+      "sha256": "e5acd1747b11b5f54b66eeac9dd0fa653bd839fbb055d639f0a09a1428569981"
+    },
+    "feed": {
+      "path": "G:/HomeLibRu-build-cache/HomeLibre-reader-minimal-20261104-r1/publication/HomeLibRu.components.json",
+      "sha256": "b12b4a50dad0b3d7568a5bb6855c35e6e0f47aef8e7cc97740cf45185bd823a8"
+    },
+    "legacy_reader_retained": [
+      "HomeLibRu-HomeLibReader-3.0.0.2-Win32.zip",
+      "HomeLibRu-HomeLibReader-3.0.0.2-Win64.zip"
+    ],
+    "completed": [
+      "Reader packages contain six managed files plus their manifest. No libzstd.dll or optional format decoder.",
+      "The outer Reader entry remains unchanged for previous clients. The nested minimal_reader entry selects the current asset on new clients.",
+      "Both native validators accepted the actual previous package. Current validators accepted the actual new package. Previous validators rejected the new package because it omitted libzstd.dll.",
+      "Both new core packages installed over exact published beta 2 with 240 managed files checked and seven unchanged catalogue rows per architecture.",
+      "Native installation and reinstall of ten independent components passed for both rebuilt catalogue packages."
+    ],
+    "remaining": [
+      "Check graphical startup and coordinated restart of these exact current archives.",
+      "Verify first-use module download and Save As continuation with public candidate components, then finish release publication."
+    ],
+    "failed_setup_cleanup": {
+      "report": {
+        "path": "tools/ui/tests/Out/reader-minimal-core-upgrade-20261104-r1.json",
+        "sha256": "a3830591f2dbb971d7c18cc47994a06bcbd9db8128010fdcd0bc03bba6410817"
+      },
+      "root": "G:\\HomeLibRu-build-cache\\HomeLibRu-update-test-minimal-upgrade-zaj6yyk5",
+      "bytes": 31257909,
+      "reason": "Initial fixture failed its isolation guard. Windows reported a sharing violation during cleanup. A later cleanup command was rejected by automatic review with blocked by policy.",
+      "repeated_deletion": false
+    },
+    "visible_page_sequence": 118
   }
 }
