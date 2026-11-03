@@ -2,8 +2,8 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 102,
-    "verified_blocks": 82,
+    "verified_sequence": 103,
+    "verified_blocks": 83,
     "verified_checked": 57,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
@@ -3391,5 +3391,53 @@
       "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-modules-20261103-r1\\reader"
     ],
     "reason": "Both scoped Remove-Item cleanup calls were rejected as blocked by policy; no detailed reason returned. Do not retry these scopes through another method. Final reader-r2 and current usage-module r2 candidates retained for release."
+  },
+  "reader_rabbit_20261103": {
+    "status": "both_candidate_architectures_open_and_interactions_passed_final_rebuild_retest_pending",
+    "catalogue_book_id": 699159,
+    "source_lib_id": "883585",
+    "source_bytes": 46888835,
+    "source_sha256": "c8524dc3f86488f2385915fce6db9501dedff100ee104f4fdb577e5bbe4dfd58",
+    "source_images": 369,
+    "source_mime_counts": {
+      "image/jpeg": 271,
+      "image/png": 98
+    },
+    "production_gui": {
+      "Win32": "PASS open/cover/opening text/font14->15->14/hide/show/Ctrl+End",
+      "Win64": "PASS same actions"
+    },
+    "memory_observation": {
+      "Win32": {
+        "Id": 149544,
+        "Responding": true,
+        "WorkingSet64": 112205824,
+        "PrivateMemorySize64": 82989056,
+        "PeakWorkingSet64": 448593920
+      },
+      "Win64": {
+        "Id": 158040,
+        "Responding": true,
+        "WorkingSet64": 119816192,
+        "PrivateMemorySize64": 83963904,
+        "PeakWorkingSet64": 458903552
+      }
+    },
+    "scope_limitations": [
+      "Collection copy identified by title, library ID and SHA; tester did not supply a checksum for comparison.",
+      "These are production candidate binaries built before final shared-settings synchronization. Final rebuilt package retest and complete native picture/text-object audit are still pending.",
+      "No precise speed benchmark while other workloads may be active."
+    ],
+    "additional_bug": "Minimal Reader offers optional fonts with displayed size 0 KB. Investigate next after the reported-book audit.",
+    "proof": {
+      "path": "tools/ui/tests/Out/reader-rabbit-20261103-r1.json",
+      "sha256": "7e0fe18e483ccd7bce7687f8ef8667126a3db11e7016ae1e446d9dcff432c865"
+    },
+    "cleanup": {
+      "status": "automatic_review_rejected",
+      "reason": "blocked by policy",
+      "root": "G:\\HomeLibRu-build-cache\\HomeLibre-rabbit-reader-omw0ovc1",
+      "no_retry": true
+    }
   }
 }
