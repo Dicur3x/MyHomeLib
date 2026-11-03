@@ -675,7 +675,7 @@ end;
 
 procedure AuditOptionalFonts;
 var Reader: TfrmBuiltinReader; Offer: TPanel; Download, Later: TButton; LabelText: TLabel;
-  Watch: TStopwatch; Position: Integer; Source, Cache: string;
+  Watch: TStopwatch; Position: Integer; Source, Cache, Manifest, SavedManifest: string; ExpectedBytes: Int64;
   procedure FindOffer;
   begin
     Offer:=Reader.FindComponent('ReaderLanguageFonts') as TPanel;
@@ -691,7 +691,22 @@ var Reader: TfrmBuiltinReader; Offer: TPanel; Download, Later: TButton; LabelTex
     Require(Assigned(Download) and Assigned(Later) and Assigned(LabelText),'Font offer buttons or explanation are missing');
   end;
 begin
+  RequireIsolatedRegression;
   Cache:=ReaderFontCachePath;
+  Manifest:=ExtractFilePath(ParamStr(0))+'tools\fonts\manifest.json'; SavedManifest:=Manifest+'.test-backup';
+  ExpectedBytes:=ReaderFontDownloadBytes('Noto Serif Bengali');
+  Require(ExpectedBytes=526885,'Font download estimate must include both published styles and OFL');
+  Require(ReaderFontDownloadBytes('Noto Missing Test Family')<0,'Unknown font must not have a zero-byte download');
+  Require(FileExists(Manifest) and not FileExists(SavedManifest),'Expected isolated manifest fixture');
+  TFile.Move(Manifest,SavedManifest);
+  try
+    Require(ReaderFontDownloadBytes('Noto Serif Bengali')=ExpectedBytes,'Missing sidecar lost embedded font metadata');
+    TFile.WriteAllText(Manifest,'{"files":[]}',TEncoding.UTF8);
+    Require(ReaderFontDownloadBytes('Noto Serif Bengali')=ExpectedBytes,'Changed sidecar replaced the trusted font metadata');
+    Require(not DownloadReaderFontFamily('Noto Serif Bengali',Manifest+'.missing',Cache),
+      'An explicit invalid manifest must not request a font download');
+    TFile.Delete(Manifest);
+    Writeln('PASS embedded font metadata survives missing/changed sidecar; unknown family is not zero bytes'); Flush(Output);
   Require(not ReaderFontFamilyCached('Noto Serif Bengali'),'Test needs an incomplete isolated font cache');
   Reader:=TfrmBuiltinReader.Create(nil);
   try
@@ -720,6 +735,7 @@ begin
     Reader.SetTypography('PT Serif',110,32); Application.ProcessMessages;
     Require(Offer.Visible and (Pos('бенгальского',LabelText.Caption)>0) and ((Pos('КБ',LabelText.Caption)>0) or (Pos('МБ',LabelText.Caption)>0)),
       'Missing-script offer has no language, size or visible controls: '+LabelText.Caption);
+    Require(Download.Enabled and (Pos('0 КБ',LabelText.Caption)=0), 'Offer has an empty/disabled download size');
     for var I:=1 to 10 do begin Reader.NextPage; Application.ProcessMessages; end;
     Require(not ReaderFontFamilyCached('Noto Serif Bengali'),'Painting downloaded fonts without consent');
     Require(Length(TDirectory.GetFiles(Cache,'*.ttf',TSearchOption.soAllDirectories))=1,'Reading or page turns downloaded font files');
@@ -740,12 +756,19 @@ begin
     begin Sleep(10); Application.ProcessMessages; CheckSynchronize(1); end;
     Require(not Offer.Visible,'Explicit font download did not complete: '+LabelText.Caption);
     Require(ReaderFontFamilyCached('Noto Serif Bengali'),'Complete verified family was not cached');
+    Require(FileExists(TPath.Combine(Cache,'noto/OFL.txt')) and
+      TFile.ReadAllText(TPath.Combine(Cache,'noto/OFL.txt'),TEncoding.UTF8).Contains('SIL OPEN FONT LICENSE'),
+      'Downloaded fonts did not retain the published licence');
     Require(Reader.TextPosition=Position,'Font completion changed the reading position');
     Require(Reader.AllBookText=Source,'Font completion changed book text');
     Require(Screen.Fonts.IndexOf('Noto Serif Bengali')>=0,'Downloaded font was not privately registered');
     Reader.Close;
   finally Reader.Free; end;
   Writeln('PASS optional fonts require explicit download, skip basic languages, retain position and text, retry after Later and cache a complete family');
+  finally
+    if FileExists(Manifest) then TFile.Delete(Manifest);
+    TFile.Move(SavedManifest,Manifest);
+  end;
 end;
 
 procedure AuditUnspacedHistory;

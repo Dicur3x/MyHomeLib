@@ -1,0 +1,3 @@
+// Pinned download metadata only; no optional font binaries.
+// Rebuild in this folder: brcc32 "-foReaderFonts.res" "ReaderFonts.rc"
+HOMELIBRE_READER_FONT_MANIFEST RCDATA "..\..\Installer\ReaderFonts\manifest.json"

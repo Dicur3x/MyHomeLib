@@ -34,14 +34,14 @@ assert root.parent == pathlib.Path(tempfile.gettempdir()).resolve()
 assert root.name.startswith('HomeLibRu-native-reader-')
 try:
     shutil.copy2(exe, root/exe.name)
-    if a.case not in ('jpeg-rtf','multilingual-fonts'): shutil.copy2(pdfium, root/'pdfium.dll')
+    if a.case not in ('jpeg-rtf','multilingual-fonts','optional-fonts'): shutil.copy2(pdfium, root/'pdfium.dll')
     for name in ('sqlite3.dll','libzstd.dll'):
         if (runtime/name).exists(): shutil.copy2(runtime/name, root/name)
     for file in runtime.glob('genres*.glst'):shutil.copy2(file,root/file.name)
     shutil.copy2(pathlib.Path(__file__).resolve().parents[3]/'Installer/Components.json',root/'COMPONENTS.json')
     for arch_dir in ('tools/webp','tools/7zip','tools/djvu','tools/fonts','tools/pdfium','tools/doc'):
         if a.case=='jpeg-rtf': continue
-        if a.case=='multilingual-fonts' and arch_dir!='tools/fonts': continue
+        if a.case in ('multilingual-fonts','optional-fonts') and arch_dir!='tools/fonts': continue
         if a.case in ('word-selection','reader-lookup','book-appearance','reader-toolbar') and arch_dir not in ('tools/fonts','tools/pdfium'): continue
         if arch_dir=='tools/fonts' and a.case=='optional-fonts':
             files=json.loads((runtime/arch_dir/'manifest.json').read_text(encoding='utf-8-sig'))['files']
@@ -423,6 +423,7 @@ try:
                         picture.save(a.review_output/(kind+'-render-'+str(theme)+'.png'))
         print('PASS JPEG and alpha-PNG colours rendered from FB2 and EPUB in light and dark themes',flush=True)
     if a.case=='optional-fonts':
+        assert 'PASS embedded font metadata survives missing/changed sidecar' in r.stdout
         assert 'PASS optional fonts require explicit download' in r.stdout,'Stale binary omitted optional-font gates'
     if a.case=='feedback16-reader':
         assert 'PASS direct FB2 mouse selection' in r.stdout and 'PASS PDF raster cache isolation' in r.stdout and (not a.feedback_pdf or 'PASS async PDF responsive UI' in r.stdout), 'Stale binary omitted feedback16 regressions'

@@ -20,6 +20,8 @@ function DownloadReaderFontFamily(const Family, ManifestPath, CachePath: string;
 
 implementation
 
+{$R ..\Resources\ReaderFonts.res}
+
 uses System.Classes, System.IOUtils, System.JSON, System.Hash,
   System.Net.HttpClient, System.SyncObjs, System.Generics.Collections;
 
@@ -76,18 +78,62 @@ begin
   Result:='этого языка';
 end;
 
-function ReaderFontDownloadBytes(const Family: string): Int64;
-var Root: TJSONValue; Items: TJSONArray; Item: TJSONValue; Path, Prefix, Name: string; Size: Int64;
+function DefaultReaderFontManifestPath: string;
+begin Result:=ExtractFilePath(ParamStr(0))+'tools\fonts\manifest.json'; end;
+
+function ReadReaderFontManifest(const Path: string): TJSONValue;
+var Data: TBytes; Resource: TResourceStream;
+  function Trusted: Boolean;
+  var Hash: THashSHA2;
+  begin
+    if (Length(Data)<1) or (Length(Data)>131072) then Exit(False);
+    Hash:=THashSHA2.Create; Hash.Update(Data);
+    Result:=Hash.HashAsString=FONT_MANIFEST_SHA256;
+  end;
 begin
-  Result:=0; Path:=ExtractFilePath(ParamStr(0))+'tools\fonts\manifest.json'; Prefix:=ReaderFontPrefix(Family);
-  if (Prefix='') or not FileExists(Path) or (TFile.GetSize(Path)>131072) or
-    (THashSHA2.GetHashStringFromFile(Path)<>FONT_MANIFEST_SHA256) then Exit;
-  Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Path,TEncoding.UTF8));
+  Result:=nil;
+  try
+    if FileExists(Path) and (TFile.GetSize(Path)<=131072) then Data:=TFile.ReadAllBytes(Path);
+  except Data:=nil; end;
+  if not Trusted then
+  begin
+    // The minimal Reader carries only these small pinned download records,
+    // not the optional fonts. A missing/changed sidecar must not break them.
+    // Explicit alternate manifests keep their existing strict-file contract.
+    if not SameFileName(ExpandFileName(Path),DefaultReaderFontManifestPath) then Exit;
+    Data:=nil;
+    if FindResource(HInstance,'HOMELIBRE_READER_FONT_MANIFEST',RT_RCDATA)=0 then Exit;
+    Resource:=TResourceStream.Create(HInstance,'HOMELIBRE_READER_FONT_MANIFEST',RT_RCDATA);
+    try
+      if (Resource.Size<1) or (Resource.Size>131072) then Exit;
+      SetLength(Data,Resource.Size); Resource.ReadBuffer(Data[0],Length(Data));
+    finally Resource.Free; end;
+  end;
+  if not Trusted then Exit;
+  Result:=TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Data));
+end;
+
+function ReaderFontLicensePath(const Prefix: string): string;
+begin
+  if Prefix.StartsWith('noto/') then Exit('noto/OFL.txt');
+  if Prefix.StartsWith('noto-cjk/NotoSans') then Exit('noto-cjk/Sans-OFL.txt');
+  if Prefix.StartsWith('noto-cjk/NotoSerif') then Exit('noto-cjk/Serif-OFL.txt');
+  Result:='';
+end;
+
+function ReaderFontDownloadBytes(const Family: string): Int64;
+var Root: TJSONValue; Items: TJSONArray; Item: TJSONValue; Prefix, Name, License: string; Size, Total: Int64; Found: Boolean;
+begin
+  Result:=-1; Prefix:=ReaderFontPrefix(Family); if Prefix='' then Exit;
+  Root:=ReadReaderFontManifest(DefaultReaderFontManifestPath); Total:=0; Found:=False; License:=ReaderFontLicensePath(Prefix);
   try
     if (Root is TJSONObject) and TJSONObject(Root).TryGetValue<TJSONArray>('files',Items) then
       for Item in Items do
-        if (Item is TJSONObject) and TJSONObject(Item).TryGetValue<string>('path',Name) and Name.StartsWith(Prefix) and
-          TJSONObject(Item).TryGetValue<Int64>('size',Size) and (Size>0) then Result:=Result+Size;
+        if (Item is TJSONObject) and TJSONObject(Item).TryGetValue<string>('path',Name) and
+          (Name.StartsWith(Prefix) or (Name=License)) and
+          TJSONObject(Item).TryGetValue<Int64>('size',Size) and (Size>0) then
+        begin Total:=Total+Size; Found:=Found or Name.StartsWith(Prefix); end;
+    if Found and (Total>0) then Result:=Total;
   finally Root.Free; end;
 end;
 
@@ -109,15 +155,13 @@ function DownloadReaderFontFamily(const Family, ManifestPath, CachePath: string;
   const Canceled: TFunc<Boolean>): Boolean;
 var Root: TJSONValue; Files: TJSONArray; Value: TJSONValue;
   HTTP: THTTPClient; Transfer: TFontTransfer; Stream: TFileStream; Response: IHTTPResponse;
-  Prefix, Name, URL, Hash, Destination, Temporary: string; Size: Int64; Found: Integer;
+  Prefix, License, Name, URL, Hash, Destination, Temporary: string; Size: Int64; Found: Integer;
   procedure CheckCanceled;
   begin if Assigned(Canceled) and Canceled() then Abort; end;
 begin
   Result:=False; Found:=0; Prefix:=ReaderFontPrefix(Family); if Prefix='' then Exit;
   CheckCanceled;
-  if (not FileExists(ManifestPath)) or (TFile.GetSize(ManifestPath)>131072) or
-    (THashSHA2.GetHashStringFromFile(ManifestPath)<>FONT_MANIFEST_SHA256) then Exit;
-  Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ManifestPath,TEncoding.UTF8));
+  Root:=ReadReaderFontManifest(ManifestPath); License:=ReaderFontLicensePath(Prefix);
   HTTP:=THTTPClient.Create; Transfer:=TFontTransfer.Create; Transfer.Canceled:=Canceled;
   try
     HTTP.UserAgent:='HomeLibre'; HTTP.ConnectionTimeout:=4000; HTTP.ResponseTimeout:=6000;
@@ -126,8 +170,8 @@ begin
     for Value in Files do
     begin
       if not (Value is TJSONObject) or not TJSONObject(Value).TryGetValue<string>('path',Name) or
-        not Name.StartsWith(Prefix) then Continue;
-      Inc(Found);
+        not (Name.StartsWith(Prefix) or (Name=License)) then Continue;
+      if Name.StartsWith(Prefix) then Inc(Found);
       if not TJSONObject(Value).TryGetValue<string>('source',URL) or
         not TJSONObject(Value).TryGetValue<string>('sha256',Hash) or
         not TJSONObject(Value).TryGetValue<Int64>('size',Size) or (Size<1) or (Size>32*1024*1024) then Exit;

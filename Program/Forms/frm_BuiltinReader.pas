@@ -1351,27 +1351,37 @@ begin
 end;
 
 procedure TfrmBuiltinReader.WMReaderFontOffer(var Message: TMessage);
-var Languages: TStringList; Bytes: Int64; Size: string;
+var Languages, Prefixes: TStringList; Bytes, FamilyBytes: Int64; Size, Prefix: string; Known: Boolean;
 begin
   Message.Result:=0;
   if FClosing or FFontOfferDeclined or (Cardinal(Message.WParam)<>FFontWindowCookie) then Exit;
-  Languages:=TStringList.Create; Bytes:=0;
+  Languages:=TStringList.Create; Prefixes:=TStringList.Create; Bytes:=0; Known:=True;
   try
     for var Family in FMissingFonts do
     begin
       var Name:=ReaderFontLanguage(Family); if Languages.IndexOf(Name)<0 then Languages.Add(Name);
-      Bytes:=Bytes+ReaderFontDownloadBytes(Family);
+      // Chinese, Japanese and Korean families share the same CJK collection.
+      Prefix:=ReaderFontPrefix(Family); if Prefixes.IndexOf(Prefix)>=0 then Continue;
+      Prefixes.Add(Prefix); FamilyBytes:=ReaderFontDownloadBytes(Family);
+      if FamilyBytes<=0 then Known:=False else Inc(Bytes,FamilyBytes);
     end;
-    if Bytes>=1048576 then Size:=Format('%.1f МБ',[Bytes/1048576]) else Size:=Format('%d КБ',[(Bytes+1023) div 1024]);
-    FFontOfferText.Caption:='Скачать шрифты для '+Languages.CommaText+' текста ('+Size+')? '+
-      'Они сохранятся для следующих книг. Сейчас используется доступный шрифт Windows.';
-  finally Languages.Free; end;
+    FFontDownload.Enabled:=Known and (Bytes>0);
+    if FFontDownload.Enabled then
+    begin
+      if Bytes>=1048576 then Size:=Format('%.1f МБ',[Bytes/1048576]) else Size:=Format('%d КБ',[(Bytes+1023) div 1024]);
+      FFontOfferText.Caption:='Скачать шрифты для '+Languages.CommaText+' текста (до '+Size+')? '+
+        'Они сохранятся для следующих книг. Сейчас используется доступный шрифт Windows.';
+    end
+    else FFontOfferText.Caption:='Не удалось получить сведения о дополнительных шрифтах. '+
+      'Можно продолжать читать с доступным шрифтом Windows.';
+  finally Prefixes.Free; Languages.Free; end;
   FFontOffer.Color:=ThemeBackground; FFontOfferText.Font.Color:=ThemeText;
   FFontOffer.Visible:=(FMissingFonts.Count>0) and not FInterfaceHidden;
 end;
 
 procedure TfrmBuiltinReader.DownloadFontsClick(Sender: TObject);
 begin
+  if not FFontDownload.Enabled then Exit;
   FFontsDownloading:=True;
   for var Family in FMissingFonts do RequestReaderFont(Family);
   FFontOfferText.Caption:='Шрифты загружаются. Можно продолжать читать.';

@@ -3597,6 +3597,34 @@
       "Hash unchanged resources where the target supports them; inspect actual illustrations and transparency.",
       "Check estimates, batch selection, cancel, optional component requests and original-source hashes on x86/x64."
     ],
-    "page": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
+    "page": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e",
+    "priority": "User confirmed: preservation of book content and design takes priority over reducing module count. Pick a better engine for a route when evidence supports it; keep modules optional and downloaded on demand."
+  },
+  "reader_font_metadata_20261103": {
+    "status": "native_fix_verified_Win32_Win64_final_production_rebuild_pending",
+    "cause": "Sizes/downloads depended entirely on a sidecar metadata file. Its absence produced 0 KB and a failed download. Current release packaging already includes the file; a minimal executable-only probe exposed the missing-sidecar failure.",
+    "fix": "Embed the same 35,558-byte pinned metadata as RCDATA (no font binaries), use it only as a trusted fallback for the default sidecar, retain the strict explicit alternate-manifest contract, return unknown rather than zero for absent families, deduplicate shared CJK download sizes, label the full-family size as an upper bound, and retain OFL files with new font downloads.",
+    "Win64_build": {
+      "sha256": "eccd6afea968804ee00d28fc4bd42ed75bd40c4671f2f716a7b585776beec1e6",
+      "receipt": "G:/HomeLibRu-build-cache/HomeLibre-font-metadata-build-20261103-r4/BuiltinReaderTest-Win64-51bc4720509b.json"
+    },
+    "build_recovery": "r1/r2 timed out with an error modal. r3 observed the actual two-error compilation result through Computer Use and successfully dismissed its cropped child dialog without user assistance. Installed Delphi SHA2 API has Update(TBytes) and HashAsString, not GetHashString(TBytes); corrected that call. r4 completed normally. No licensing changes or vendor fault fix claimed.",
+    "publication": "Not published; final production package checks remain pending.",
+    "proof": {
+      "path": "tools/ui/tests/Out/reader-font-metadata-final-20261103-r1.json",
+      "sha256": "2f7f284d6bd1222fd7867e40a91d7c381f0d33a39c0a45501820821f3e576dfd"
+    },
+    "Win32_build": {
+      "sha256": "ab4b18f0c18df9d7ca4ea9e8a067def8a18ffc79ab337afc7daefb5bbf3a4b6e",
+      "receipt": "G:/HomeLibRu-build-cache/HomeLibre-font-metadata-build-20261103-r5/BuiltinReaderTest-Win32-711a7b2c09c1.json"
+    },
+    "native_checks_completed": [
+      "Missing and changed default sidecars use compiled trusted metadata.",
+      "Unknown family returns unavailable; an explicit invalid alternate manifest cannot download.",
+      "Real Bengali download requires explicit consent, retains licence, source text, reading position and private font registration.",
+      "Basic and already available language fonts do not prompt; Later suppresses repeated prompts in the current book.",
+      "Win32 and Win64; owned test profiles only."
+    ],
+    "cleanup": "Both fresh native test profiles removed by their own wrapper; no retry of previously denied cleanup scopes."
   }
 }
