@@ -3682,5 +3682,81 @@
       }
     },
     "visible_page_sequence": 111
+  },
+  "final_update_gates_20261103": {
+    "status": "PASS scoped exact-final catalogue and coordinated Reader update/restart checks on Win32/Win64",
+    "proof": "tools\\ui\\tests\\Out\\beta3-final-update-gates-20261103-r1.json",
+    "sha256": "f8eb51e785e1d15d60a8bada643b888739a5ff59901d53e2dc176811622eb959",
+    "published": false,
+    "checks": [
+      {
+        "kind": "upgrade",
+        "platform": "Win32",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-upgrade-Win32-20261103-r1.json",
+        "sha256": "cbc2fdcf82ce9b091d52727020826add476ec9e82dda427c0ba572210f25f9e7",
+        "scope": "Original published Main restores an owned prepared package, selects its expected helper, writes the restart request and launches installation through its normal UI. The network/download frontend is not exercised.",
+        "temporary_root_removed": true
+      },
+      {
+        "kind": "upgrade",
+        "platform": "Win64",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-upgrade-Win64-20261103-r1.json",
+        "sha256": "6d897be7b55dd7b0db096e4de19b61066043f9f9d9b2eefd4ded1d1c3aeaa388",
+        "scope": "Original published Main restores an owned prepared package, selects its expected helper, writes the restart request and launches installation through its normal UI. The network/download frontend is not exercised.",
+        "temporary_root_removed": true
+      },
+      {
+        "kind": "reader-update",
+        "platform": "Win32",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-reader-update-Win32-20261103-r1.json",
+        "sha256": "9a488fa5ca4dbf5c505696c3040fde09bc260d2bd31304981caf1901739647af",
+        "scope": "Exact final beta3 Reader archive; production helper --job after normal caller close, forced EXE replacement by harmless private overlay, peer coordinated close/restart, selected archive member, positions and unleased cache sentinel. Not an HTTP/download frontend or previous-published-Reader upgrade.",
+        "temporary_root_removed": true
+      },
+      {
+        "kind": "reader-update",
+        "platform": "Win64",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-reader-update-Win64-20261103-r1.json",
+        "sha256": "67628202f1d4c5fb38f7cb2c2fa58f56744c14df2422c2b99ebcffbe4776d3de",
+        "scope": "Exact final beta3 Reader archive; production helper --job after normal caller close, forced EXE replacement by harmless private overlay, peer coordinated close/restart, selected archive member, positions and unleased cache sentinel. Not an HTTP/download frontend or previous-published-Reader upgrade.",
+        "temporary_root_removed": true
+      }
+    ],
+    "limits": [
+      "Catalogue used the published beta 2 ordinary installation button with a locally prepared exact final archive; its original HTTP/preparation frontend was not retested.",
+      "Reader coordinated replacement used the production helper --job after normal caller close, with an appended harmless overlay forcing EXE replacement; it is not an earlier-published-Reader or HTTP/frontend upgrade claim.",
+      "Both Reader instances retained their selected book, 3 percent position and exact visible paragraphs. Test source bytes were unchanged; all four new profiles removed."
+    ]
+  },
+  "final_save_copy_interactions_20261103": {
+    "status": "PASS exact final minimal catalogue archives through ordinary Main GUI x86/x64",
+    "checks": [
+      {
+        "platform": "Win32",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-copy-interactions-Win32-20261103-r1.json",
+        "sha256": "8ec61dad4fe69dabe082b5c89f40bb67c3a3f6f0e625e010e4883519fa0c04c5",
+        "copies_checked": 10,
+        "temporary_profile_removed": true
+      },
+      {
+        "platform": "Win64",
+        "proof": "tools\\ui\\tests\\Out\\beta3-final-copy-interactions-Win64-20261103-r1.json",
+        "sha256": "57bb2f8e87cdc749671ca9c469a5a7d34ac176db83340fffbe7e4d37d1143bfa",
+        "copies_checked": 10,
+        "temporary_profile_removed": true
+      }
+    ],
+    "completed": [
+      "Save As Cancel retained all five checked books and created no files.",
+      "Five mixed FB2/EPUB/PDF/DjVu/DOC source copies saved without installing any optional module.",
+      "Collision Cancel retained all five marks and did not alter the five existing destination copies.",
+      "Keep both with Apply to all asked once and added exactly five byte-identical copies.",
+      "Next operation asked again with Apply to all unchecked.",
+      "Replace with Apply to all restored deliberately different old destination copies without adding more files.",
+      "Final ten output hashes matched two exact copies per source; source hashes remained unchanged.",
+      "Both temporary profiles removed after normal Main exit."
+    ],
+    "scope": "Synthetic mixed real-format documents in isolated owned profiles; no conversion, heavy-estimation cancellation, HTTP or component installation claimed by these two runs. Destination seeded only in the owned settings; all Save As and collision decisions made through Computer Use.",
+    "published": false
   }
 }

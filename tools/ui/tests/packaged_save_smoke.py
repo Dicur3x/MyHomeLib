@@ -6,6 +6,7 @@ components through native installer units, then reopen for mixed conversion.
 No user catalogue or download/restart success is inferred from this check.
 """
 import argparse
+from collections import Counter
 import configparser
 from contextlib import closing
 from datetime import datetime, timezone
@@ -57,6 +58,8 @@ def main():
                         help='Seed only the owned profile destination before each launch; GUI folder entry is not claimed')
     parser.add_argument('--originals-only', action='store_true',
                         help='Check only ordinary GUI byte-exact source copies without installing modules or claiming conversion')
+    parser.add_argument('--copy-interactions', action='store_true',
+                        help='With originals-only, verify GUI cancel/keep-both/replace for five mixed source copies')
     parser.add_argument('--resumed-conversion-only', action='store_true',
                         help='Seed an owned post-install continuation, then save through the ordinary restored GUI; no manual combo-choice claim')
     parser.add_argument('--publication-dir', type=Path,
@@ -70,6 +73,7 @@ def main():
                         help='Exact fresh core archive directory; component fixtures still come from stage')
     args = parser.parse_args()
     assert not (args.originals_only and args.resumed_conversion_only)
+    assert not args.copy_interactions or args.originals_only
     stage = args.stage.resolve()
     assert not args.report.exists()
     platform = args.platform
@@ -198,13 +202,22 @@ def main():
         if not args.resumed_conversion_only:
             launch('minimal-original', originals)
             output = [p for p in originals.rglob('*') if p.is_file()]
-            assert len(output)==len(sources), [str(p) for p in output]
-            assert {p.suffix:sha(p) for p in output}==report['source_sha256'], 'Original copies changed bytes'
+            copies = 2 if args.copy_interactions else 1
+            assert len(output)==len(sources)*copies, [str(p) for p in output]
+            assert Counter((p.suffix,sha(p)) for p in output)==Counter(
+                (p.suffix,report['source_sha256'][p.suffix]) for p in sources for _ in range(copies)
+            ), 'Original copies changed bytes or a duplicate contains the wrong book'
+            if args.copy_interactions:
+                observed = report['phases'][-1]
+                assert all(observed.get(name) for name in (
+                    'dialog_cancel_kept_selection_and_no_output', 'collision_cancel_preserved_outputs',
+                    'keep_both_applied_to_all', 'replace_applied_to_all'))
+                report['copy_interactions_verified'] = True
             assert all(not (target/'tools'/name).exists() for name in forbidden)
             report['unchanged_copy_without_optional_modules']=True
         if args.originals_only:
             report.update(status='PASS',source_books_preserved=True,mixed_conversion_verified=False)
-            print('PASS packaged source copies only: '+platform+'; five byte-exact copies; no optional modules',flush=True)
+            print(f'PASS packaged source copies only: {platform}; {len(output)} byte-exact copies; no optional modules',flush=True)
             return
         component_sources = []
         format_directory = (args.format_packages or stage / 'formats').resolve()
