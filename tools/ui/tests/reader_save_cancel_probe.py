@@ -5,15 +5,19 @@ the native production installer before launch; no network/restart is claimed.
 The large source is read in place and its hash must remain unchanged.
 """
 import argparse
+import base64
 import configparser
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import os
+import random
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import psutil
 
@@ -24,11 +28,51 @@ REPO = Path(__file__).resolve().parents[3]
 OWNER = 'HomeLibre exact Reader Save As cancellation v1'
 EVENT_ORDER = ('baseline', 'estimate-active', 'estimate-stopped', 'estimate-close-active',
                'estimate-closed', 'export-active', 'export-cancelled')
+EXPORT_ORDER = ('baseline', 'export-active', 'export-cancelled')
 
 
 def sha(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def scan_fixture(root):
+    """Readable high-resolution scans; real encoding work, with no test sleeps."""
+    from PIL import Image, ImageDraw, ImageFont
+    source = root/'cancel-scans.fb2'
+    font = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 46)
+    binaries = []
+    with source.open('wb') as stream:
+        stream.write(b'<?xml version="1.0" encoding="utf-8"?>'
+            b'<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" '
+            b'xmlns:l="http://www.w3.org/1999/xlink"><description><title-info>'
+            b'<genre>nonf_publicism</genre><author><first-name>Test</first-name>'
+            b'<last-name>Fixture</last-name></author><book-title>Cancellation scans</book-title>'
+            b'<lang>en</lang></title-info></description><body><section>'
+            b'<title><p>Cancellation scans</p></title>')
+        for number in range(24):
+            rng = random.Random(20261103 + number)
+            texture = Image.frombytes('L', (500, 750), bytes(rng.randrange(242, 256) for _ in range(500*750)))
+            # Stay within the shipped image processor's 16 Mi-pixel guard.
+            page = texture.resize((3200, 4800), Image.Resampling.NEAREST)
+            drawing = ImageDraw.Draw(page)
+            for line in range(46):
+                drawing.text((160, 160+line*96),
+                    f'Page {number+1}, line {line+1}. Readable scan for Save As cancellation.', font=font, fill=15)
+            encoded = io.BytesIO()
+            page.save(encoded, format='PNG', compress_level=6)
+            data = encoded.getvalue()
+            assert 128*1024 < len(data) < 2*1024*1024, len(data)
+            binaries.append(data)
+            stream.write(f'<p>Scan page {number+1}</p><image l:href="#scan{number}"/>'.encode('ascii'))
+            page.close(); texture.close()
+        stream.write(b'</section></body>')
+        for number, data in enumerate(binaries):
+            stream.write(f'<binary id="scan{number}" content-type="image/png">'.encode('ascii'))
+            stream.write(base64.b64encode(data)); stream.write(b'</binary>')
+        stream.write(b'</FictionBook>')
+    assert source.stat().st_size < 64*1024*1024
+    return source
 
 
 def active(root):
@@ -70,15 +114,16 @@ def snapshot(root):
 
 def record_event(state, run, current, event, actor):
     assert state.get('workflow_version') == 2, 'Use a fresh fixture for observed active/cancel pairs'
+    order = EXPORT_ORDER if state.get('export_only') else EVENT_ORDER
     previous = [item['event'] for item in run['events']]
-    assert len(previous) < len(EVENT_ORDER) and event == EVENT_ORDER[len(previous)], (
+    assert len(previous) < len(order) and event == order[len(previous)], (
         'Observe the active operation before recording its cancellation', previous, event)
     reader = dict(ProcessId=run['pid'], ExecutablePath=str(Path(run['app'])/'HomeLibReader.exe'))
     assert reader in current['processes'], current
     running = event.endswith('-active')
     if running:
         workers = [row for row in current['processes'] if row['ProcessId'] != run['pid']
-                   and Path(row['ExecutablePath']).name.lower() in ('python.exe', 'pythonw.exe')]
+                   and Path(row['ExecutablePath']).name.lower() in ('python.exe', 'pythonw.exe', 'homelibimages.exe')]
         assert workers and current['scratch'], 'No live converter and operation work were observed'
     else:
         assert current['processes'] == [reader], current
@@ -98,26 +143,43 @@ def record_event(state, run, current, event, actor):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'launch', 'retry-export', 'inspect', 'record', 'check', 'cleanup', 'cleanup-incomplete'))
+    parser.add_argument('action', choices=('prepare', 'launch', 'retry-export', 'inspect', 'record', 'watch-active', 'check', 'cleanup', 'cleanup-incomplete'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--platform', choices=('Win32', 'Win64'))
     parser.add_argument('--source', type=Path)
+    parser.add_argument('--scan-fixture', action='store_true', help='Generate owned high-resolution scanned pages for observable cancellation')
+    parser.add_argument('--export-only', action='store_true', help='Prepare a focused check of cancellation while saving')
     parser.add_argument('--export-source', type=Path, help='Owned large-picture fixture for confirmed active conversion cancellation')
     parser.add_argument('--reader-packages', type=Path)
     parser.add_argument('--format-packages', type=Path)
     parser.add_argument('--event', choices=EVENT_ORDER)
     parser.add_argument('--actor', choices=('computer-use','user'), default='computer-use')
+    parser.add_argument('--watch-timeout', type=float, default=45)
     args = parser.parse_args()
     if args.action == 'prepare':
-        assert not args.state.exists() and args.source and args.reader_packages and args.format_packages
-        source = args.source.resolve(strict=True)
-        assert source.is_file() and source.suffix.lower() == '.fb2'
-        root = Path(tempfile.mkdtemp(prefix='HomeLibRu-update-test-save-cancel-', dir=CACHE))
+        assert not args.state.exists() and bool(args.source) != args.scan_fixture and args.reader_packages and args.format_packages
+        reader_packages = args.reader_packages.resolve(strict=True)
+        format_packages = args.format_packages.resolve(strict=True)
+        source = None if args.scan_fixture else args.source.resolve(strict=True)
+        if source is not None:
+            assert source.is_file() and source.suffix.lower() == '.fb2'
+        cache_root = CACHE.resolve(strict=True)
+        root = Path(tempfile.mkdtemp(prefix='HomeLibRu-update-test-save-cancel-', dir=cache_root))
+        if args.scan_fixture:
+            try:
+                source = scan_fixture(root)
+            except Exception:
+                assert root.resolve(strict=True).parent == cache_root and not root.is_junction()
+                (root/'cancel-scans.fb2').unlink(missing_ok=True)
+                root.rmdir()
+                raise
         state = dict(status='INCOMPLETE', workflow_version=2, root=str(root), token=uuid.uuid4().hex,
+                     export_only=args.export_only,
                      source=str(source), source_sha256=sha(source), source_bytes=source.stat().st_size,
-                     reader_packages=str(args.reader_packages.resolve(strict=True)),
-                     format_packages=str(args.format_packages.resolve(strict=True)), runs=[],
-                     scope='Exact packaged Reader GUI cancellation with locally preinstalled two required modules; no download or restart claim')
+                     reader_packages=str(reader_packages), format_packages=str(format_packages), runs=[],
+                     scope=('Exact packaged Reader GUI cancellation while saving' if args.export_only else
+                            'Exact packaged Reader GUI cancellation while estimating and saving')+
+                           ' with locally preinstalled two required modules; no download or restart claim')
         (root/'owned-test.marker').write_text(json.dumps(dict(owner=OWNER, token=state['token'])), encoding='utf-8')
     else:
         state = json.loads(args.state.read_bytes())
@@ -141,6 +203,7 @@ def main():
             for command in (('--prepare-component',archive,sha(archive),'optional-alreader-2.5.1009.25',job,component,entry['version']),
                             ('--install',job,app)):
                 result = subprocess.run([str(native),*map(str,command)],cwd=root,capture_output=True,
+                                        env=dict(os.environ,TEMP=str(CACHE),TMP=str(CACHE)),
                                         timeout=120,creationflags=subprocess.CREATE_NO_WINDOW)
                 assert result.returncode == 0, (command,result.stdout,result.stderr)
             manifest = json.loads((job/'manifest.json').read_bytes())
@@ -190,7 +253,23 @@ def main():
                                    env=environment,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
         run.update(pid=process.pid,output=str(output))
-    elif args.action in ('inspect','record'):
+    elif args.action in ('inspect','record','watch-active'):
+        if args.action == 'watch-active':
+            run = state['runs'][-1]
+            order = EXPORT_ORDER if state.get('export_only') else EVENT_ORDER
+            assert args.event and args.event.endswith('-active')
+            assert args.event == order[len(run['events'])]
+            assert 0 < args.watch_timeout <= 120
+            deadline = time.monotonic() + args.watch_timeout
+            while True:
+                current = snapshot(root)
+                workers = [row for row in current['processes'] if row['ProcessId'] != run['pid']
+                           and Path(row['ExecutablePath']).name.lower() in ('python.exe','pythonw.exe','homelibimages.exe')]
+                if workers and current['scratch']:
+                    record_event(state, run, current, args.event, 'read-only-process-observer')
+                    break
+                assert time.monotonic() < deadline, 'No active operation observed before the bounded watch ended'
+                time.sleep(0.08)
         current = snapshot(root)
         if args.action == 'record':
             run = state['runs'][-1]
@@ -200,7 +279,8 @@ def main():
     elif args.action == 'check':
         assert not active(root),'Close only this test Reader normally first'
         run = state['runs'][-1]
-        assert [event['event'] for event in run['events']] == list(EVENT_ORDER)
+        order = EXPORT_ORDER if state.get('export_only') else EVENT_ORDER
+        assert [event['event'] for event in run['events']] == list(order)
         assert not list(Path(run.get('output',str(Path(run['app'])/'saved'))).iterdir())
         for previous in run.get('completed_before_cancel_attempts',[]):
             assert sha(Path(previous['output'])) == previous['sha256']

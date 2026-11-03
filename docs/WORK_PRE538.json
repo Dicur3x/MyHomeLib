@@ -3791,7 +3791,36 @@
         "Win32": "11cff016be78955b23dec909db8b2f7ace1f50628ff47e2ebe7cac6081cc77fe"
       }
     },
-    "visible_page_sequence": 114
+    "visible_page_sequence": 114,
+    "current_package_gui": {
+      "reports": [
+        {
+          "path": "tools/ui/tests/Out/beta3-cancel-final-GUI-20261103-r3.json",
+          "sha256": "b630ea20d604fa9a984516d531d4168813ea01e9b70b771a4c9a887ad6cd4cbf",
+          "status": "PARTIAL",
+          "temporary_profile_removed": true
+        },
+        {
+          "path": "tools/ui/tests/Out/beta3-cancel-final-GUI-scans-20261103-r1.json",
+          "sha256": "b83cee30af32cc5dbb223157a39c49dd7b85592ad99e9b16051a2b3455409c67",
+          "status": "PARTIAL",
+          "temporary_profile_removed": true
+        },
+        {
+          "path": "tools/ui/tests/Out/beta3-cancel-final-GUI-scans-20261103-r2.json",
+          "sha256": "b2ca76f7fcecb4672fa67863dbf739910707d86ef090b8beb0feccc2454eaaf8",
+          "status": "PARTIAL",
+          "temporary_profile_removed": true
+        }
+      ],
+      "verified": "Current x86 Reader user Stop: stop message, no output, unchanged source, no converter or scratch.",
+      "completed_copy": "24 supported 3200x4800 images saved with balanced mode, 27235084 bytes, before attempted cancellation.",
+      "limit": "4000x6000 test image exceeds the 16777216-pixel processor guard; estimate declined with a misleading XPS label.",
+      "pending": "No GUI export cancellation pass on either architecture in these partial runs. Native x86/x64 passes remain valid.",
+      "test_environment": "Fresh owned profiles, local module install, no live download or restart claim.",
+      "published": false,
+      "visible_page_sequence": 117
+    }
   },
   "game_backend_preparation_20261103": {
     "status": "Prepared; real GUI checks deferred by user gaming instruction",
@@ -3821,7 +3850,7 @@
     "computer_use": false,
     "builds_or_applications_started": false,
     "candidate_validation": "docs/RELEASE_VALIDATION_3.0.0_pre1.3.md",
-    "validation_sha256": "419b180a690d05a6c701b818090de326c5cfe75aef8eacb0696028d1a4a9f1cb",
+    "validation_sha256": "eed5582723749e88aedefba61164281f16c29217c82d58a4bb097e5586632c48",
     "readme_stage": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\release-docs-r1",
     "readme_manifest_sha256": "cd9783f64cb52f39047d33b6abbefc021f283884f7ad0b207a860fca74433127",
     "readme_count": 4,
@@ -3858,7 +3887,7 @@
     "heavy_test_or_build": false
   },
   "awaiting_desktop_for_final_gui_20261103": {
-    "condition": "User explicitly prohibited Computer Use until their next message after gaming. The prohibition has not been revoked.",
+    "condition": "Historical: user prohibited Computer Use during gaming, then explicitly resumed it.",
     "consecutive_goal_turns": 3,
     "previous_progress_commits": [
       "b5b1e059",
@@ -3878,6 +3907,7 @@
     "sequencing": "Finish the current release/check direction before beginning deferred compression/SQL/new-writer work.",
     "resume": "After user says the computer is available, resume Computer Use on fresh owned test profiles with r2 archives. Do not rebuild unchanged products or repeat completed backend research.",
     "goal_complete": false,
-    "published": false
+    "published": false,
+    "resolved": true
   }
 }
