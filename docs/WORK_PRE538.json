@@ -3815,5 +3815,30 @@
       "Complete needed update/restart and real optional-module download/continuation, then publish."
     ],
     "published": false
+  },
+  "release_documentation_preparation_20261103": {
+    "status": "Prepared locally, public README and release unchanged",
+    "computer_use": false,
+    "builds_or_applications_started": false,
+    "candidate_validation": "docs/RELEASE_VALIDATION_3.0.0_pre1.3.md",
+    "validation_sha256": "419b180a690d05a6c701b818090de326c5cfe75aef8eacb0696028d1a4a9f1cb",
+    "readme_stage": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\release-docs-r1",
+    "readme_manifest_sha256": "cd9783f64cb52f39047d33b6abbefc021f283884f7ad0b207a860fca74433127",
+    "readme_count": 4,
+    "source_readmes_unchanged": true,
+    "apply_condition": "After verified beta 3 publication, require each source README still matches source_sha256 before applying its prepared counterpart. If any changed, reconcile rather than overwrite.",
+    "prepared_changes": [
+      "New HomeLibre.zip/HomeLibre_x64.zip links and beta 3 display/tag in all four languages.",
+      "Save As, original mixed-format copies, FB2/ZIP/EPUB/TXT/MOBI/AZW3, direct EPUB-to-Kindle and on-demand modules documented.",
+      "Removed stale translated claims rejecting PDF/DjVu scans and old conversion submenu; described image-page preservation and conversion reports."
+    ],
+    "checksum_file": "G:\\HomeLibRu-build-cache\\HomeLibre-beta3-final-packages-20261103-r2\\SHA256SUMS.txt",
+    "checksum_sha256": "fcc5e840be390eb8efcfe585fcf30ffc0f8f8d2f05d7e8cff798ca66e0440b57",
+    "remaining": [
+      "Actual new-package GUI cancellation, needed update/restart and real module download/continuation.",
+      "Public release verification, then apply staged README files and finish validation document."
+    ],
+    "published": false,
+    "visible_page_sequence": 116
   }
 }
