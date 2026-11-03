@@ -196,7 +196,15 @@ begin
         (ReportZip.IndexOf(ExtractFileName(DiagnosticLogFile))>=0),'Diagnostic ZIP omitted component versions or operation results');
       var VersionBytes: TBytes; ReportZip.Read('HomeLibRu-components.txt',VersionBytes);
       var Versions:=TEncoding.UTF8.GetString(VersionBytes);
-      Require(Versions.Contains('BookProcessing: 2.7.0.1106'),'Diagnostic ZIP did not record the installed independent module version');
+      var Descriptor:=TJSONObject.ParseJSONValue(TFile.ReadAllText(
+        TPath.Combine(Settings.AppPath,'tools\bookconvert\MODULAR_RUNTIME.json'),TEncoding.UTF8));
+      try
+        Require((Descriptor is TJSONObject) and (Descriptor.GetValue<string>('component')='BookProcessing'),
+          'Cache lifecycle fixture lacks the independent processing descriptor');
+        var ExpectedVersion:=Descriptor.GetValue<string>('version');
+        Require((ExpectedVersion<>'') and Versions.Contains('BookProcessing: '+ExpectedVersion),
+          'Diagnostic ZIP did not record the installed independent module version');
+      finally Descriptor.Free; end;
     finally ReportZip.Free; end;
     Writeln('PASS opt-in detailed diagnostics persist capture real failed cancelled exports with exact paths redact credentials exclude book contents and report local component versions');
     for var PPI in [96,144,192] do

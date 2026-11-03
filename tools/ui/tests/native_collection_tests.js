@@ -131,7 +131,7 @@ const requiredViews = {
   'duplicate-source': ['PASS duplicate source preference: bulk choice', 'PASS duplicate preview: scoped identity', 'PASS duplicate apply: preferred ID', 'PASS duplicate large preview: 100000 rows'],
   'reader-session-process': ['PASS independent reader process returns progress across restart rejects foreign and missing replies survives catalogue close and removes only session files'],
   "reader-small-fb2": ["PASS actual Main small unchanged FB2 opens and pages through explicit builtin and default reader actions without repeated preparation"],
-  "paged-export-progress": ["PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=0", "PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=1"],
+  "paged-export-progress": ["PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=0", "PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=1", "PASS paged export actual cancellation without a second prompt action=1", "PASS paged export actual cancellation without a second prompt action=2"],
   "minimal-first-install": ["PASS minimal first install verifies actual archive, excludes optional binaries and installs 7-Zip DocSharp DjVuLibre with preserved private files"],
   "reader-session-context": ["PASS reader session preserves selected archive member history settings progress notes and source leases while rejecting invalid replies"],
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
@@ -423,7 +423,7 @@ function run(executable, mode, subcase = "") {
         path.resolve(__dirname,'../../bookconvert/tests'),folder],{stdio:'pipe',windowsHide:true,timeout:15000});
     }
     if (mode === 'paged-export-progress') {
-      for(const name of ['pdfium','kindle','bookconvert']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
+      fs.cpSync(path.join(runtime,'tools/pdfium'),path.join(folder,'tools/pdfium'),{recursive:true});
       const generator=path.resolve(__dirname,'../../bookconvert/tests');
       cp.execFileSync(path.join(runtime,'tools/kindle/python/python.exe'),['-I','-B','-c', 'import sys,pathlib;sys.path.insert(0,sys.argv[1]);from test_legacy_fixed import pdf_fixture;pathlib.Path(sys.argv[2]).write_bytes(pdf_fixture(pages=12))',generator,path.join(folder,'paged-export.pdf')],{stdio:'pipe',windowsHide:true});
     }
@@ -489,7 +489,7 @@ function run(executable, mode, subcase = "") {
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
     }
     if (mode==='reader-story') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
-    if (['unified-send','save-planning','kindle-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age'].includes(mode)) {
+    if (['unified-send','save-planning','kindle-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age','paged-export-progress'].includes(mode)) {
       const packages=process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES;
       if(!packages || !process.env.HLRU_PYTHON) throw Error('Save checks require the actual independent format packages and HLRU_PYTHON');
       const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_format_runtime_fixture.py'),packages,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing',...(mode==='kindle-save'?['KindleExport']:[]),...(mode==='diagnostics-cache-age'?['XPS']:[])],{encoding:'utf8',windowsHide:true,timeout:120000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});

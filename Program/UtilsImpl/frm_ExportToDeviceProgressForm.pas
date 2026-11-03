@@ -27,6 +27,7 @@ type
   protected
     procedure DoCreate; override;
     procedure StartWorker; override;
+    procedure SetComment(const Comment: string); override;
     procedure ShowTeletype(const Msg: string; Severity: TTeletypeSeverity); override;
   public
     destructor Destroy; override;
@@ -97,13 +98,27 @@ end;
 procedure TExportToDeviceProgressForm.CheckExportClose(Sender: TObject;
   var CanClose: Boolean);
 begin
-  if not Assigned(WorkerThread) then CanClose := True
-  else FormCloseQuery(Sender, CanClose);
+  CanClose := True;
+  if Assigned(WorkerThread) then CanClose := WorkerThread.Finished;
+  if not CanClose then CancelExport(Sender);
 end;
 
 procedure TExportToDeviceProgressForm.CancelExport(Sender: TObject);
 begin
-  if Assigned(WorkerThread) then btnCancelClick(Sender);
+  if not Assigned(WorkerThread) then Exit;
+  if WorkerThread.Finished then begin ModalResult := mrOk; Exit; end;
+  // Saving copies does not change source books. Stop immediately rather than
+  // opening a second modal question while the worker keeps processing.
+  WorkerThread.Cancel;
+  btnCancel.Enabled := False;
+  txtComment.Caption := 'Останавливаем сохранение. Уже записанные копии останутся.';
+end;
+
+procedure TExportToDeviceProgressForm.SetComment(const Comment: string);
+begin
+  if Assigned(WorkerThread) and WorkerThread.Canceled then
+    inherited SetComment('Останавливаем сохранение. Уже записанные копии останутся.')
+  else inherited SetComment(Comment);
 end;
 
 procedure TExportToDeviceProgressForm.CopyConversionLog(Sender: TObject);

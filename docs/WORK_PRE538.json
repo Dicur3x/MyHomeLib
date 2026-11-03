@@ -3758,5 +3758,23 @@
     ],
     "scope": "Synthetic mixed real-format documents in isolated owned profiles; no conversion, heavy-estimation cancellation, HTTP or component installation claimed by these two runs. Destination seeded only in the owned settings; all Save As and collision decisions made through Computer Use.",
     "published": false
+  },
+  "save_cancellation_20261103": {
+    "status": "Native PASS x86/x64; production rebuild/packages pending",
+    "proof": "tools\\ui\\tests\\Out\\beta3-native-save-cancellation-20261103-r1.json",
+    "sha256": "a426e25a4acadd109a5484b3ae10850ece32db2d5dc53bcbd5ff089914c112bb",
+    "gui_partial": "tools/ui/tests/Out/beta3-final-save-cancellation-20261103-r1.json",
+    "completed": [
+      "User stop-estimation case confirmed, no source change/worker/scratch/output; own GUI fixture removed.",
+      "Export Cancel and close now request cancellation immediately instead of a second modal question. Stop message remains until worker completion; imports untouched.",
+      "Actual native PDF-to-FB2 success, button cancellation and window close verified on both architectures; no partial output and source hashes preserved.",
+      "Native real archived estimate/export success/failure/cancel lifecycle and diagnostic report passed on both architectures; new temporary profiles removed.",
+      "Updated old native fixture to use current independent modules and compare diagnostics to the installed descriptor instead of hard-coded 2.7.0.1106."
+    ],
+    "remaining": [
+      "Rebuild Main and Reader x86/x64 and replace previous final candidate packages.",
+      "Affected exact-package verification and final publication remain open; previous exact-package proofs apply to the prior package hashes only."
+    ],
+    "published": false
   }
 }

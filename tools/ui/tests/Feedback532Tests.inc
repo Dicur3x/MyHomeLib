@@ -564,8 +564,9 @@ end;
 type
   T532ExportProgressForm = class(TExportToDeviceProgressForm)
   public
-    SeenPage, CancelOnPage, CanceledOnPage: Boolean;
+    SeenPage, CancelOnPage, CancelByClose, CanceledOnPage: Boolean;
     ProgressComments: TStringList;
+    CancellationPrompts: Integer;
     procedure SetComment(const Comment: string); override;
     function ShowMessage(const Text: string; Flags: Longint = MB_OK): Integer; override;
   end;
@@ -578,19 +579,30 @@ begin
     SeenPage:=True; ProgressComments.Add(Comment);
     Canvas.Font.Assign(txtComment.Font);
     Require(Canvas.TextWidth(Comment)<=txtComment.Width,'Actual conversion page/percent caption is clipped');
-    Require(btnCancel.Enabled,'Cancel is disabled during page conversion');
+    Require(btnCancel.Enabled<>CanceledOnPage,'Cancel availability disagrees with the cancellation request');
     if CancelOnPage and not Comment.Contains('стр. 0/') and not CanceledOnPage then
-    begin CanceledOnPage:=True; WorkerThread.Cancel; end;
+    begin
+      CanceledOnPage:=True;
+      if CancelByClose then Close else btnCancel.Click;
+      Require(WorkerThread.Canceled and not btnCancel.Enabled,
+        'Actual Cancel or close action did not immediately request worker cancellation');
+      Require(Visible and (txtComment.Caption='Останавливаем сохранение. Уже записанные копии останутся.'),
+        'Progress closed before the canceled worker finished or lost its stop message');
+    end;
   end;
 end;
 
 function T532ExportProgressForm.ShowMessage(const Text: string; Flags: Longint): Integer;
-begin Result:=IDOK; end;
+begin
+  if (Flags and MB_TYPEMASK)=MB_OKCANCEL then Inc(CancellationPrompts);
+  Result:=IDOK;
+end;
 
 procedure TestPagedExportProgress;
 var Root, Destination, Source, SourceHash, SavedFolder, SavedFile: string;
   CID, BID: Integer; Collection: IBookCollection; Book: TBookRecord; List: TBookIdList;
   Worker: TExportToDeviceThread; Form: T532ExportProgressForm;
+  CancelCase: Boolean;
 begin
   RequireIsolatedRegression;
   Root:=IncludeTrailingPathDelimiter(Settings.AppPath+'paged-export'); ForceDirectories(Root);
@@ -606,15 +618,17 @@ begin
   SavedFolder:=Settings.FolderTemplate; SavedFile:=Settings.FileNameTemplate;
   Settings.FolderTemplate:=''; Settings.FileNameTemplate:='%t';
   try
-    for var CancelCase in TArray<Boolean>.Create(False,True) do
+    for var CancelAction:=0 to 2 do
     begin
-      Destination:=Root+'output-'+BoolToStr(CancelCase,True); ForceDirectories(Destination);
+      CancelCase:=CancelAction>0;
+      Destination:=Root+'output-'+IntToStr(CancelAction); ForceDirectories(Destination);
       Worker:=TExportToDeviceThread.Create; Form:=T532ExportProgressForm.Create(nil);
       Form.ProgressComments:=TStringList.Create;
       try
-        Form.CancelOnPage:=CancelCase; Worker.BookIdList:=List;
+        Form.CancelOnPage:=CancelCase; Form.CancelByClose:=CancelAction=2; Worker.BookIdList:=List;
         Worker.DeviceDir:=Destination; Worker.ExportMode:=emFB2; Worker.ExplicitFormat:=True;
         Form.WorkerThread:=Worker; Form.ShowModal; Worker.WaitFor;
+        Require(Form.CancellationPrompts=0,'Saving copies opened a second cancellation confirmation');
         Require(Form.SeenPage and (Form.ProgressComments.Count>0),'Actual export UI did not display page counts and percent');
         if CancelCase then
           Require(Form.CanceledOnPage and (Worker.Results[0].State=besCanceled) and
@@ -622,9 +636,12 @@ begin
         else
           Require((Worker.Results[0].State=besSucceeded) and FileExists(Worker.Results[0].OutputFile),
             'Actual page export did not publish its complete result');
-        Writeln('PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=',Ord(CancelCase)); Flush(Output);
+        Writeln('PASS paged export actual progress caption, bar, cancel enabled and source preservation cancel=',Ord(CancelCase));
+        if CancelCase then Writeln('PASS paged export actual cancellation without a second prompt action=',CancelAction);
+        Flush(Output);
       finally Form.ProgressComments.Free; Form.Free; Worker.Free; end;
     end;
-    Require(UpdateSHA256(Source)=SourceHash,'Page export changed its source fixture');
+    Require((UpdateSHA256(Source)=SourceHash) and (UpdateSHA256(Root+'book.pdf')=SourceHash),
+      'Page export changed its source fixture');
   finally Settings.FolderTemplate:=SavedFolder; Settings.FileNameTemplate:=SavedFile; end;
 end;
