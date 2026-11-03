@@ -10,10 +10,10 @@ const HELP = path.join(ROOT, 'Program', 'Help');
 const TOPICS = path.join(__dirname, 'topics.json');
 
 const TITLE_SUFFIX = {
-  ru: 'Справка HomeLib Ru',
-  uk: 'Довідка HomeLib Ru',
-  en: 'HomeLib Ru Help',
-  bg: 'Помощ за HomeLib Ru',
+  ru: 'Справка HomeLibre',
+  uk: 'Довідка HomeLibre',
+  en: 'HomeLibre Help',
+  bg: 'Помощ за HomeLibre',
 };
 
 function fail(message) {

@@ -90,7 +90,7 @@
 <main id="content">
 <h1>Scripts</h1>
 <!-- BODY:BEGIN -->
-<p>A script here is not a script for logging in to an online library but an external program (or batch file) that HomeLibre launches immediately after books have been sent to a device, with parameters ready to be substituted. It is a way of adding "destinations" or actions of your own to the ordinary <span class="ui">Send to device</span> command (see <a href="export_device.html">Sending books to a device</a>) — so that the same click also starts a device sync program, copies the files to a second place as well, or simply opens the result folder.</p>
+<p>A script is an external program or command configured to run from HomeLibre. It can be a standalone tool, such as an INPX generator, or an action after saving books. The latter can receive the saved filenames and destination folder.</p>
 
 <h2>The list of scripts</h2>
 <p>The <span class="ui">Scripts</span> section of the settings dialog (see <a href="settings.html">Program settings</a>) has a table with the columns <span class="ui">Title</span>, <span class="ui">Path</span> and <span class="ui">Options</span>, and three buttons below it:</p>
@@ -100,7 +100,7 @@
 <dt>Delete</dt>
 <dd>Removes the selected script from the list.</dd>
 </dl>
-<p>The <span class="ui">Default:</span> drop-down list says which of the scripts (or "Standard", meaning none at all) runs when you press the <span class="ui">Send to device</span> button on the toolbar itself without opening its list; for more about that button see <a href="toolbar.html">Toolbar</a>.</p>
+<p>Run scripts explicitly from the actions list or the Tools menu. The main saving button opens Save as. The former default-script choice does not apply to the new dialog and is no longer displayed.</p>
 
 <h2>Standalone tools without book export</h2>
 <p>Enable <span class="ui">Run without book export</span> in the script editor. The command appears under <span class="ui">Tools → External tools</span> and on a separate toolbar button, visible when at least one tool is configured. No book or export destination is required. Arguments are passed exactly as configured; the working directory is the program's folder. Existing scripts retain their export mode.</p>
@@ -109,11 +109,13 @@
 <h2>When scripts run</h2>
 <p>There are three equivalent ways to run the script you want:</p>
 <ul>
-<li>the arrow beside the <span class="ui">Send to device</span> button on the toolbar — it drops down the list of every configured script;</li>
+<li>the arrow beside the <span class="ui">Save as…</span> button on the toolbar — it drops down the list of every configured script;</li>
 <li>the <span class="ui">Run script</span> submenu of the Tools menu (see <a href="menu_tools.html">Tools menu</a>);</li>
 <li>the <span class="ui">Run script</span> item in the context menu of the book list (see <a href="context_menus.html">Context menus</a>).</li>
 </ul>
 <p>In all three cases HomeLibre first performs an ordinary send of the checked books — copying and, if needed, converting them into the folder and format, and under the name templates, configured in <a href="set_device.html">Devices and export</a> — and only then launches the program from the <span class="ui">Path</span> column with the parameters from the <span class="ui">Options</span> column substituted.</p>
+
+<p>The ask-for-folder preference in <a href="set_device.html">Devices and export</a> applies to every action after export, including the second and later entries. A standalone tool needs neither selected books nor an export destination.</p>
 
 <h2>Substitutions in the parameters</h2>
 <p>The <span class="ui">Parameters</span> field accepts the following markers (they are substituted only into the parameter string handed to the program; the file on disk is not changed):</p>

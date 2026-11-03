@@ -1420,14 +1420,14 @@ object frmSettings: TfrmSettings
         Left = 0
         Top = 318
         Width = 447
-        Height = 69
+        Height = 34
         Align = alBottom
         BevelOuter = bvNone
         ShowCaption = False
         TabOrder = 1
         DesignSize = (
           447
-          69)
+          34)
         object Label13: TLabel
           Left = 3
           Top = 44
@@ -1435,6 +1435,7 @@ object frmSettings: TfrmSettings
           Height = 13
           Caption = #1055#1086' '#1091#1084#1086#1083#1095#1072#1085#1080#1102':'
           FocusControl = cbDefaultAction
+          Visible = False
         end
         object btnAddScript: TButton
           Left = 3
@@ -1471,6 +1472,8 @@ object frmSettings: TfrmSettings
           Style = csDropDownList
           Anchors = [akLeft, akTop, akRight]
           TabOrder = 3
+          TabStop = False
+          Visible = False
         end
       end
       object lvScripts: TListView

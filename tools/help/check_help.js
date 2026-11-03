@@ -64,7 +64,7 @@ for (const t of topics) {
     fail(`${t.file}: missing BODY markers`);
 
   // The index page already carries the complete help title.
-  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Справка HomeLib Ru`;
+  const expectedTitleText = t.file === 'index.html' ? t.title : `${t.title} — Справка HomeLibre`;
   const expectedTitle = `<title>${expectedTitleText}</title>`;
   if (!html.includes(expectedTitle)) fail(`${t.file}: <title> should be ${expectedTitle}`);
 
@@ -89,7 +89,7 @@ const LOCALE_DIRS = fs.existsSync(HELP)
       .sort()
   : [];
 
-const TITLE_SUFFIX = { uk: 'Довідка HomeLib Ru', en: 'HomeLib Ru Help', bg: 'Помощ за HomeLib Ru' };
+const TITLE_SUFFIX = { uk: 'Довідка HomeLibre', en: 'HomeLibre Help', bg: 'Помощ за HomeLibre' };
 
 for (const loc of LOCALE_DIRS) {
   const dir = path.join(HELP, loc);

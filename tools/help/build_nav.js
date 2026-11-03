@@ -9,7 +9,7 @@ const spec = JSON.parse(fs.readFileSync(path.join(__dirname, 'topics.json'), 'ut
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function navFor(current) {
-  const out = ['<p class="nav-title"><a href="index.html">Справка HomeLib Ru</a></p>'];
+  const out = ['<p class="nav-title"><a href="index.html">Справка HomeLibre</a></p>'];
   for (const section of spec.sections) {
     out.push(`<p class="nav-section">${esc(section.title)}</p>`);
     out.push('<ul>');
@@ -25,7 +25,7 @@ function navFor(current) {
 
 function pageTitle(title, file) {
   // The index page already carries the complete help title.
-  return file === 'index.html' ? title : `${title} — Справка HomeLib Ru`;
+  return file === 'index.html' ? title : `${title} — Справка HomeLibre`;
 }
 
 function template(title, file) {

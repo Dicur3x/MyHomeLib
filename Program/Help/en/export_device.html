@@ -90,22 +90,19 @@
 <main id="content">
 <h1>Sending books to a device</h1>
 <!-- BODY:BEGIN -->
-<p>The <span class="ui">Send to device</span> command (from the Book menu, or <kbd>Ctrl</kbd>+<kbd>D</kbd> in the book list context menu; see <a href="menu_book.html">Book menu</a> and <a href="context_menus.html">Context menus</a>) copies the checked books into the device folder, converting them to the required format if necessary. The device itself and the format are configured beforehand in <a href="set_device.html">Devices and export</a>.</p>
-
-<h2>Where the books are written</h2>
-<p>The destination folder is either the one already configured as the default or, if the settings ask for the path every time, one you pick in a dialog immediately before the send; the choices there can include MTP devices (a phone or a reader connected as a portable device rather than as a drive). If any of the checked books belong to an online collection and have not been downloaded yet, HomeLibre downloads them first — exactly as it does when you open them for reading; see <a href="reading.html">Reading books</a>.</p>
-
-<h2>Conversion</h2>
-<p>HomeLibre handles the FB2, FB2.ZIP and TXT formats on its own. LRF, EPUB, PDF and MOBI need separate converters, which ship alongside the program in the <code>converters\…</code> subfolders (not every build includes them); if the converter you need is not on disk, HomeLibre checks for that up front, before any copying starts, and reports the missing converter instead of silently writing nothing.</p>
-
-<h2>File and folder names</h2>
-<p>The file name and the subfolder inside the device folder are built from templates with substitutions such as <code>%f</code> (author), <code>%t</code> (title), <code>%s</code> (series), <code>%n</code> (number in the series) and <code>%g</code> (genre) — the percent sign goes in front only, with no closing "%". This is the same template mechanism used to sort files during import (see <a href="import_fb2.html">Importing FB2 books</a>). Part of a template can be enclosed in square brackets — only one macro is allowed inside the brackets, and the whole fragment appears in the file name only if that macro's value is not empty (for example, the default file template <code>[%n - ]%t</code> puts the number and a "-" separator in front of the title only when the book has a number in its series; otherwise the title alone remains). The templates themselves are edited in <a href="set_device.html">Devices and export</a>, where you will also find the full list of substitutions. If a file of the same name already exists on the device, HomeLibre does not overwrite it but appends "(1)", "(2)" and so on to the name.</p>
-
-<h2>What the progress window shows</h2>
-<p>While the copying runs you see a counter reading "Files written: N of M". If some file could not be processed, you are asked whether to carry on with the remaining files, and whether to remember that answer for the rest of the current send (so you are not asked again on every subsequent failure).</p>
-
-<h2>The error log</h2>
-<p>If there were errors during the send, a separate message after the operation gives their number and the path to the log file (<code>export_errors.log</code> in the program's working folder); new errors are appended to the existing file rather than replacing it.</p>
+<p><span class="ui">Save as…</span> in the Book menu and the book-list context menu saves one or more selected books to a folder. The shortcut is <kbd>Ctrl</kbd>+<kbd>D</kbd>. Choose a local folder, a cloud-sync folder or a folder on a connected reader.</p>
+<h2>Book format</h2>
+<p>Keep each book's original format or convert to FB2, FB2.ZIP, EPUB, TXT, MOBI or AZW3. For one book the original-format option names its format. The list does not repeat a conversion to the same format. Mixed selections offer rules to keep every original, convert to the chosen format, or keep existing FB2/EPUB books and convert the others.</p>
+<p>FB2.ZIP contains an FB2 file in a ZIP archive. EPUB is already an archive and is not wrapped in another ZIP. Creating a standard FB2.ZIP does not require 7-Zip. PDF, DjVu, DOC and other formats can be copied in their original format; this dialog does not create new PDF or LRF files.</p>
+<h2>Images and size</h2>
+<p>The four choices are As is, Balanced, Economy and No images. Image changes while keeping the original format are supported for FB2 and EPUB; other original formats are copied unchanged. Scanned pages remain images rather than OCR text. Spread options keep scans intact, split them automatically or split at the centre.</p>
+<p>A known original-copy size appears immediately. Estimate size prepares selected books with progress and cancellation. The list shows each result or its failure reason, with totals for every image mode above it. Unknown sizes are not counted as zero. The 20 MB mark is a hint for large results, not a format limit.</p>
+<h2>Names and folders</h2>
+<p>The last destination, default format and name templates are shared with <a href="set_device.html">Devices and export</a> settings. Expand Names and folders to edit the filename template; Save as immediately previews the result including its extension. For example, <code>[%n - ]%t</code> adds a series number only when present. Disable subfolders to save everything in one folder; its template remains stored. For existing names choose to ask, keep both or replace the existing file.</p>
+<h2>Components and results</h2>
+<p>An unchanged copy needs no conversion module. If preparation, conversion or image processing needs optional components, HomeLibre offers the required downloads and their sizes, then restores the operation after installation. MOBI/AZW3 writing uses a separate Kindle module, absent from the minimal package.</p>
+<p>Books in compressed collections may need reconstruction of their standard file and images. The resulting FB2 size can therefore differ from its catalogue entry. Saving does not change books in the collection.</p>
+<p>The result reports saved books and individual failures. Details are appended to <code>export_errors.log</code> in the program's working folder; the result message shows its path. An <a href="set_scripts.html">external script</a> is started through its own menu command.</p>
 <!-- BODY:END -->
 </main>
 </body>

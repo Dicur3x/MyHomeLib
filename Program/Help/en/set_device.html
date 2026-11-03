@@ -90,17 +90,13 @@
 <main id="content">
 <h1>Devices and export</h1>
 <!-- BODY:BEGIN -->
-<p>The <span class="ui">Folders/Devices</span> section of the settings dialog (see <a href="settings.html">Program settings</a>) prepares everything the <span class="ui">Send to device</span> command later relies on — the destination folder itself, the conversion format and the name templates; for more about the sending process see <a href="export_device.html">Sending books to a device</a>.</p>
-
-<h2>The folder on the device</h2>
-<p>The <span class="ui">Folder on the device</span> field (with the <span class="ui">Select</span> button beside it) sets the default destination folder. The <span class="ui">Ask for the path every time</span> checkbox disables the field and the button and, instead of using the stored folder, opens a folder picker before every send (the choices there can include MTP devices — a phone or a reader connected as a portable device).</p>
-
-<h2>Device output format</h2>
-<p>The <span class="ui">Device output format</span> drop-down list sets the conversion format used by the ordinary <span class="ui">Send to device</span> command: <code>.fb2</code>, <code>.fb2.zip</code>, <code>.lrf</code>, <code>.txt</code>, <code>.epub</code>, <code>.pdf</code> or <code>.mobi</code> (<code>.fb2</code> by default). This is only the default format: the program also has separate menu items and buttons for sending in one specific format, which override this choice for that one send — see <a href="menu_book.html">Book menu</a> and <a href="toolbar.html">Toolbar</a>.</p>
-
-<h2>Name format</h2>
-<p>Two fields — <span class="ui">Folder:</span> and <span class="ui">File:</span> — hold the templates that build the subfolder inside the device folder and the file name respectively; the fields only display the current template (they are not meant to be edited in place), and the <span class="ui">Change</span> buttons beside them open the template editor. The default values (right after installation) are <code>%fc\%s</code> for the folder, that is "Author\Series" (note <code>%fc</code>, not the book's first author — see the <code>%fc</code> substitution below), and <code>[%n - ]%t</code> for the file (the number followed by a "-" separator before the title, but only if the book has a number in its series; otherwise the title alone).</p>
-
+<p>Folders/Devices contains shared defaults for <a href="export_device.html">Save as…</a>: destination, original or output format and name templates. Accepting changes in Save as also updates these preferences.</p>
+<h2>Destination folder</h2>
+<p>The saved destination is offered next time and can be changed in the saving dialog. The ask-for-path option applies to external actions after export: each such action opens the folder picker. It neither disables the shared folder field nor replaces Save as.</p>
+<h2>Default format</h2>
+<p>Choose to keep the original format or select FB2, FB2.ZIP, EPUB, TXT, MOBI or AZW3. This is the initial selection in a new Save as dialog; you can change it for the current books. Resuming an interrupted operation restores its accepted choices. Legacy LRF/PDF output is no longer offered; original LRF/PDF files can still be copied.</p>
+<h2>Name templates</h2>
+<p>The file template builds the filename. A separate checkbox controls whether the folder template creates subfolders. Disable it to save all books in one folder; the template remains stored. For example, <code>%f\%s</code> creates author and series folders; <code>[%n - ]%t</code> prefixes the title with the series number only when present. The extension is added automatically. Save as exposes the same preferences and previews the resulting name.</p>
 <h3>The template editor</h3>
 <p>The same editor ("Build template") also opens for the file sorting templates (<a href="set_filesort.html">File sorting</a>) and for the book title template (<a href="set_other.html">Behavior</a>). It has two tabs:</p>
 <ul>

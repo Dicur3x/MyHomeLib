@@ -2,9 +2,9 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 101,
+    "verified_sequence": 102,
     "verified_blocks": 82,
-    "verified_checked": 55,
+    "verified_checked": 57,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
   },
@@ -3098,9 +3098,32 @@
     "production_builds": "Rebuild with completed module integration before publication"
   },
   "queued_forum_converter_comment_20261102": {
-    "status": "queued_after_current_module_maintenance_task",
+    "status": "history_review_and_draft_complete_help_updated_final_native_ui_pending",
     "source_image": "C:/Users/cloud/AppData/Local/Temp/codex-clipboard-8b7c2566-e28c-46f6-a27c-299de6cc0900.png",
-    "request": "Review forum comment about historical format-specific conversion bridges and newer formats only after the current module-maintenance task; do not switch work now."
+    "request": "Review forum comment about historical format-specific conversion bridges and newer formats only after the current module-maintenance task; do not switch work now.",
+    "historical_source_commit": "97983bdbd70ca5e798952ee8930e4852d0a2737e",
+    "findings": [
+      "2019 device export dispatched FB2 copy/ZIP/TXT and fb2Lrf/fb2EPUB/fb2PDF/fb2Mobi routes.",
+      "FB2 collection or AllowMixed selected requested conversion; other collections defaulted to copy (emFB2). External scripts could perform their own actions.",
+      "Do not claim universal old multi-format conversion or disappearance of every old executable."
+    ],
+    "current_upstream_review": {
+      "legacy": "https://github.com/rupor-github/fb2converter",
+      "current": "https://github.com/rupor-github/fb2cng",
+      "current_readme_blob": "dd021ea8b0a2be75be25786dd1b2b12ec1a4d4ab",
+      "finding": "The successor documents FB2 input and EPUB2/3, KEPUB/KEPUB3, KFX/AZW8, PDF, TXT and Markdown outputs. It is not currently integrated; no KFX/AZW8 or device-wide compatibility claim is made for HomeLibre."
+    },
+    "help_update": "Export, device defaults and explicit script help updated in all four languages; masks retained. Unused default-script selector hidden in the settings resource; old saved value retained for compatibility. Help builder/checker branding aligned with HomeLibre.",
+    "validation": {
+      "help_checker": "PASS 55 topics across Russian, English, Ukrainian and Bulgarian; existing strict structural/link/title checks retained",
+      "macro_reference": "Existing editor explanation and all substitution tables unchanged in all four languages",
+      "native_ui": "The prior settings/script synchronization native matrix passed both architectures. Hiding the unused default-script selector still needs the final native build/UI check; no current claim of runtime verification for this DFM edit."
+    },
+    "proof": {
+      "path": "tools/ui/tests/Out/save-help-modernization-20261103-r1.json",
+      "sha256": "f1e269d2b73780ce70065bb08b7bc940d7aea8583d92d2a435b7649def804b9f"
+    },
+    "forum_reply_draft": "Спасибо за уточнение. Проверил старую реализацию: конвертация FB2 в MOBI действительно была через внешнюю программу, я раньше неточно написал. В готовящейся beta 3 сохранение и преобразование собраны в «Сохранить как»: исходный формат, FB2/FB2.ZIP, EPUB, TXT, MOBI и AZW3. Старые EXE-переходники для нового сохранения не используются; нужные модули устанавливаются отдельно. fb2cng тоже посмотрел: KFX/AZW8 у него действительно есть, но в HomeLibre их пока не добавлял. AZW3 новым форматом называть было неправильно."
   },
   "module_actual_use_hooks_20261102": {
     "status": "PASS_TARGETED_NATIVE_X86_X64_AND_PYTHON",
