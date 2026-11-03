@@ -341,7 +341,7 @@ begin
   if FPreparing or (FCurrentFile='') or (FExportBook.FileName='') then Exit;
   try
     var Initial: PBookSendOptions:=nil; if FResumingSave then Initial:=@FSaveContinuation.Options;
-    if not ChooseBookSendOptions(1,Settings.SyncExportDir,emEpub,Options,False,[FExportBook],Initial) then
+    if not ChooseBookSendOptions(1,Settings.SyncExportDir,Settings.ExportMode,Options,False,[FExportBook],Initial) then
     begin
       if Options.RequiredComponent<>'' then
       begin

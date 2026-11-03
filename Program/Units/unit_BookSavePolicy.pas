@@ -17,6 +17,8 @@ const BOOK_SAVE_DEVICE_MODES: array[0..5] of TExportMode =
 function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
 function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMode;
   KeepOriginal, KeepFB2EPUB: Boolean): string;
+function BookSaveDefaultChoiceIndex(const Choices: TArray<TBookSaveChoice>;
+  Mode: TExportMode; KeepOriginal: Boolean): Integer;
 function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;
   LegacyZipEachBook: Boolean = False): Boolean;
 function BookSaveKeepsSource(const SourceExtension: string;
@@ -135,6 +137,21 @@ begin
     emAZW3: Result:='.azw3';
   else Result:='.fb2';
   end;
+end;
+
+function BookSaveDefaultChoiceIndex(const Choices: TArray<TBookSaveChoice>;
+  Mode: TExportMode; KeepOriginal: Boolean): Integer;
+begin
+  Result:=0;
+  if KeepOriginal then Exit;
+  // A mixed selection starts with "keep every source" whose placeholder mode
+  // is FB2. Prefer the actual conversion, not that unrelated first choice.
+  for var I:=0 to High(Choices) do
+    if (Choices[I].Mode=Mode) and not Choices[I].KeepOriginal and
+      not Choices[I].KeepFB2EPUB then Exit(I);
+  // Homogeneous source selections intentionally omit same-format conversion.
+  for var I:=0 to High(Choices) do
+    if (Choices[I].Mode=Mode) and not Choices[I].KeepFB2EPUB then Exit(I);
 end;
 
 function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;

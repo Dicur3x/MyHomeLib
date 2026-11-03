@@ -136,6 +136,7 @@ type
     btnFileNameTemplate: TButton;
     edFolderTemplate: TEdit;
     edFileNameTemplate: TEdit;
+    cbSaveAsSubfolders: TCheckBox;
     pnOtherOpt: TPanel;
     Label5: TLabel;
     cbSquareFilter: TCheckBox;
@@ -239,6 +240,7 @@ type
     procedure EditTextTemplate(Sender: TObject);
     procedure cbEnableFileSortClick(Sender: TObject);
     procedure cbPromptPathClick(Sender: TObject);
+    procedure SaveAsFoldersClick(Sender: TObject);
     procedure edTimeOutChange(Sender: TObject);
     procedure CheckNumValue(Sender: TObject);
     procedure rbUseProxyForUpdateClick(Sender: TObject);
@@ -740,9 +742,12 @@ begin
   edReadDir.Text := Settings.ReadDir;
 
   rgDeviceFormat.ItemIndex:=0;
-  for i:=Low(BOOK_SAVE_DEVICE_MODES) to High(BOOK_SAVE_DEVICE_MODES) do
-    if BOOK_SAVE_DEVICE_MODES[i]=Settings.ExportMode then rgDeviceFormat.ItemIndex:=i;
-  edFolderTemplate.Text := Settings.FolderTemplate;
+  if not Settings.SaveAsKeepSourceFormat then
+    for i:=Low(BOOK_SAVE_DEVICE_MODES) to High(BOOK_SAVE_DEVICE_MODES) do
+      if BOOK_SAVE_DEVICE_MODES[i]=Settings.ExportMode then rgDeviceFormat.ItemIndex:=i+1;
+  edFolderTemplate.Text := Settings.SaveAsFolderTemplate;
+  cbSaveAsSubfolders.Checked:=Settings.SaveAsUseSubfolders;
+  SaveAsFoldersClick(nil);
   edFileNameTemplate.Text := Settings.FileNameTemplate;
   cbSquareFilter.Checked := Settings.RemoveSquarebrackets;
   cbTXTEncoding.ItemIndex := Ord(Settings.TXTEncoding);
@@ -880,11 +885,15 @@ begin
 
   Settings.ReadDir := edReadDir.Text;
 
-  if (rgDeviceFormat.ItemIndex>=Low(BOOK_SAVE_DEVICE_MODES)) and
-    (rgDeviceFormat.ItemIndex<=High(BOOK_SAVE_DEVICE_MODES)) then
-    Settings.ExportMode:=BOOK_SAVE_DEVICE_MODES[rgDeviceFormat.ItemIndex];
+  Settings.SaveAsKeepSourceFormat:=rgDeviceFormat.ItemIndex=0;
+  if (rgDeviceFormat.ItemIndex>0) and
+    (rgDeviceFormat.ItemIndex<=Length(BOOK_SAVE_DEVICE_MODES)) then
+    Settings.ExportMode:=BOOK_SAVE_DEVICE_MODES[rgDeviceFormat.ItemIndex-1];
 
-  Settings.FolderTemplate := edFolderTemplate.Text;
+  Settings.SaveAsFolderTemplate:=edFolderTemplate.Text;
+  Settings.SaveAsUseSubfolders:=cbSaveAsSubfolders.Checked;
+  if cbSaveAsSubfolders.Checked then Settings.FolderTemplate:=edFolderTemplate.Text
+  else Settings.FolderTemplate:='';
   Settings.FileNameTemplate := edFileNameTemplate.Text;
 
   case cbTXTEncoding.ItemIndex of
@@ -1310,8 +1319,10 @@ begin
   edDeviceDir.Text := DEF_DEVICE_DIR;
   edReadDir.Text := DEF_READ_DIR;
 
-  rgDeviceFormat.ItemIndex := DEF_EXPORT_FORMAT;
+  rgDeviceFormat.ItemIndex := 0;
   edFolderTemplate.Text := DEF_FOLDER_TEMPLATE;
+  cbSaveAsSubfolders.Checked:=DEF_FOLDER_TEMPLATE<>'';
+  SaveAsFoldersClick(nil);
   edFileNameTemplate.Text := DEF_FILE_NAME_TEMPLATE;
   cbSquareFilter.Checked := DEF_REMOVE_SQUARE_BRACKETS;
   cbTXTEncoding.ItemIndex := DEF_TXT_ENCODING;
@@ -1369,8 +1380,16 @@ end;
 
 procedure TfrmSettings.cbPromptPathClick(Sender: TObject);
 begin
-  edDeviceDir.Enabled := not cbPromptPath.Checked;
-  btnDeviceDir.Enabled := not cbPromptPath.Checked;
+  // Save As always shows its destination. This legacy preference controls
+  // only the additional folder picker before an external export tool.
+  edDeviceDir.Enabled:=True;
+  btnDeviceDir.Enabled:=True;
+end;
+
+procedure TfrmSettings.SaveAsFoldersClick(Sender: TObject);
+begin
+  edFolderTemplate.Enabled:=cbSaveAsSubfolders.Checked;
+  btnFolderTemplate.Enabled:=cbSaveAsSubfolders.Checked;
 end;
 
 procedure TfrmSettings.cbUseIESettingsClick(Sender: TObject);

@@ -101,7 +101,6 @@ type
 
     FDeviceDir: string;
     FGroupExportDir: string;
-    FSyncExportDir: string;
 
     FActiveCollection: Integer;
     FRestoreBookViews: TRestoreBookViews;
@@ -119,6 +118,7 @@ type
     FFolderTemplate: string;
     FSaveAsFolderTemplate: string;
     FSaveAsUseSubfolders: Boolean;
+    FSaveAsKeepSourceFormat: Boolean;
     FSaveAsLayout: Integer;
     FSaveAsNameCollision: TBookNameCollision;
     FFileNameTemplate: string;
@@ -319,7 +319,8 @@ type
     property DeviceDir: string read FDeviceDir write SetDeviceDir;
     property DevicePath: string read GetDevicePath;
     property GroupExportDir: string read FGroupExportDir write FGroupExportDir;
-    property SyncExportDir: string read FSyncExportDir write FSyncExportDir;
+    // Compatibility name for the same remembered destination.
+    property SyncExportDir: string read FDeviceDir write SetDeviceDir;
 
     property ReadDir: string read FReadDir write SetReadDir;
     property ReadPath: string read GetReadPath;
@@ -334,6 +335,7 @@ type
     property FolderTemplate: string read FFolderTemplate write FFolderTemplate;
     property SaveAsFolderTemplate: string read FSaveAsFolderTemplate write FSaveAsFolderTemplate;
     property SaveAsUseSubfolders: Boolean read FSaveAsUseSubfolders write FSaveAsUseSubfolders;
+    property SaveAsKeepSourceFormat: Boolean read FSaveAsKeepSourceFormat write FSaveAsKeepSourceFormat;
     property SaveAsLayout: Integer read FSaveAsLayout write FSaveAsLayout;
     property SaveAsNameCollision: TBookNameCollision read FSaveAsNameCollision write FSaveAsNameCollision;
     property FileNameTemplate: string read FFileNameTemplate write FFileNameTemplate;
@@ -710,7 +712,10 @@ begin
     ReadDir := iniFile.ReadString(PATH_SECTION, 'Read', DEF_READ_DIR);
     UpdateDir := iniFile.ReadString(PATH_SECTION, 'Update', '');
     FGroupExportDir := iniFile.ReadString(PATH_SECTION, 'GroupExport', '');
-    FSyncExportDir := iniFile.ReadString(PATH_SECTION, 'SyncExport', '');
+    // The unified dialog remembered a newer destination under SyncExport.
+    // Migrate it once, then write both compatibility keys from one value.
+    var SavedDestination:=iniFile.ReadString(PATH_SECTION, 'SyncExport', '');
+    if SavedDestination<>'' then DeviceDir:=SavedDestination;
 
     FActiveCollection := iniFile.ReadInteger(SYSTEM_SECTION, 'ActiveCollection', 1);
     case iniFile.ReadInteger(INTERFACE_SECTION, 'RestoreBookViews', 1) of
@@ -737,6 +742,8 @@ begin
     FFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'FolderTemplate', DEF_FOLDER_TEMPLATE);
     FSaveAsFolderTemplate := iniFile.ReadString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FFolderTemplate);
     FSaveAsUseSubfolders := iniFile.ReadBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FFolderTemplate<>'');
+    if FSaveAsUseSubfolders then FFolderTemplate:=FSaveAsFolderTemplate
+    else FFolderTemplate:='';
     FSaveAsLayout := EnsureRange(iniFile.ReadInteger(SYSTEM_SECTION, 'SaveAsLayout', 1), 0, 2);
     FSaveAsNameCollision := TBookNameCollision(EnsureRange(
       iniFile.ReadInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(bncAsk)),
@@ -753,7 +760,12 @@ begin
       5: FExportMode := emPDF;
       6: FExportMode := emMobi;
       8: FExportMode := emAZW3;
+    else FExportMode:=emFB2;
     end;
+    // Preserve the old unified dialog's initial choice on upgrade. Explicit
+    // defaults selected in Settings now apply to every supported target.
+    FSaveAsKeepSourceFormat:=iniFile.ReadBool(SYSTEM_SECTION,
+      'SaveAsKeepSourceFormat',not (FExportMode in [emTxt,emMobi,emAZW3]));
 
     case iniFile.ReadInteger(SYSTEM_SECTION, 'TXTEncoding', DEF_TXT_ENCODING) of
       0: FTXTEncoding := enUTF8;
@@ -905,7 +917,7 @@ begin
     iniFile.WriteString(PATH_SECTION, 'Read', FReadDir);
     iniFile.WriteString(PATH_SECTION, 'Update', FUpdateDir);
     iniFile.WriteString(PATH_SECTION, 'GroupExport', FGroupExportDir);
-    iniFile.WriteString(PATH_SECTION, 'SyncExport', FSyncExportDir);
+    iniFile.WriteString(PATH_SECTION, 'SyncExport', FDeviceDir);
 
     iniFile.WriteInteger(SYSTEM_SECTION, 'ActiveCollection', FActiveCollection);
     iniFile.WriteInteger(INTERFACE_SECTION, 'RestoreBookViews', Ord(FRestoreBookViews));
@@ -924,6 +936,7 @@ begin
     iniFile.WriteString(SYSTEM_SECTION, 'FolderTemplate', FFolderTemplate);
     iniFile.WriteString(SYSTEM_SECTION, 'SaveAsFolderTemplate', FSaveAsFolderTemplate);
     iniFile.WriteBool(SYSTEM_SECTION, 'SaveAsUseSubfolders', FSaveAsUseSubfolders);
+    iniFile.WriteBool(SYSTEM_SECTION, 'SaveAsKeepSourceFormat', FSaveAsKeepSourceFormat);
     iniFile.WriteInteger(SYSTEM_SECTION, 'SaveAsLayout', EnsureRange(FSaveAsLayout, 0, 2));
     iniFile.WriteInteger(SYSTEM_SECTION, 'SaveAsNameCollision', Ord(FSaveAsNameCollision));
     iniFile.WriteString(SYSTEM_SECTION, 'FileNameTemplate', FFileNameTemplate);
@@ -1400,7 +1413,11 @@ end;
 
 procedure TMHLSettings.SetDeviceDir(const Value: string);
 begin
-  FDeviceDir := SafeGetDirName(Value);
+  // Preserve device parsing names as returned by the Shell picker. They are
+  // not ordinary filesystem paths and must survive a settings round trip.
+  if Value.StartsWith('::{') or Value.StartsWith('shell:',True) or
+    Value.StartsWith('\\?\') then FDeviceDir:=Value
+  else FDeviceDir := SafeGetDirName(Value);
 end;
 
 function TMHLSettings.DistributionFile(const RelativeName, LegacyName: string): string;

@@ -16,7 +16,7 @@ begin
     end;
 end;
 
-procedure TestMainExportPreparation(Interactive: Boolean);
+procedure TestMainExportPreparation(Interactive: Boolean; ScriptsOnly: Boolean = False);
 var
   Node: PVirtualNode;
   Row: PBookRecord;
@@ -28,6 +28,7 @@ var
   ScriptIndex, SavedModalLevel: Integer;
   FailureObserved: Boolean;
   CheckedKeys: TArray<Integer>;
+  Tags: TArray<Integer>;
 
   procedure MarkAndSnapshot;
   begin
@@ -93,7 +94,14 @@ begin
       // Cancellation must stop before any worker can read or write a book.
       // Checking marks alone could also pass after an unrelated export error.
       Application.OnModalBegin := Probe.ModalBegin;
-      for var Tag in TArray<Integer>.Create(795,799,850) do
+      Tags:=TArray<Integer>.Create(795,799,850);
+      if ScriptsOnly then
+      begin
+        Settings.Scripts.Add('Owned first path prompt','%COPY%','');
+        Settings.Scripts.Add('Owned second path prompt','%COPY%','');
+        Tags:=TArray<Integer>.Create(901+ScriptIndex,902+ScriptIndex);
+      end;
+      for var Tag in Tags do
       begin
         Settings.PromptDevicePath := True;
         Item.Tag := Tag;
@@ -104,11 +112,13 @@ begin
         RequireMarks;
         Require(Settings.FolderTemplate = 'Сохранённый шаблон ё\%a',
           'Cancel changed the saved export folder template');
-        Require((Settings.SyncExportDir=SavedSync) and (Settings.DeviceDir=ChosenDevice),
+        Require((Settings.SyncExportDir=ChosenDevice) and (Settings.DeviceDir=ChosenDevice),
           'Canceled sync picker changed a remembered destination');
-        Writeln('PASS Main export destination cancel preserves marked books tag=', Tag);
+        if ScriptsOnly then Writeln('PASS script destination cancel preserves marked books tag=',Tag)
+        else Writeln('PASS Main export destination cancel preserves marked books tag=', Tag);
         Flush(Output);
       end;
+      if ScriptsOnly then Writeln('PASS script export path preference requests both script destinations without starting workers');
     end
     else
     begin

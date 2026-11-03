@@ -2,7 +2,7 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 99,
+    "verified_sequence": 101,
     "verified_blocks": 82,
     "verified_checked": 55,
     "all_preexisting_untouched_blocks_preserved": true,
@@ -2963,7 +2963,7 @@
     "user_data_policy": "No components have been removed from the working installation; all deletion verification will use owned isolated fixtures"
   },
   "legacy_export_settings_sync_20261102": {
-    "status": "confirmed_gap_queued_after_active_module_maintenance",
+    "status": "verified_native_x86_x64",
     "request": "Clarify and synchronize the legacy Folders/Device settings with unified Save As; no inactive or contradictory settings",
     "observations": [
       "FileNameTemplate is shared: settings load/save and new Save As use the same property",
@@ -2983,7 +2983,26 @@
       "Make every selectable default format affect the next ordinary operation while preserving explicit restored-operation options",
       "Explain or remove legacy path-prompt controls for flows where they do not apply",
       "Verify settings changes, remembered values, disabled subfolders and old INI migration on x86/x64"
-    ]
+    ],
+    "implementation": [
+      "One backing value for DeviceDir/SyncExportDir; migrate the previously preferred SyncExport value and write both compatibility INI keys consistently. Preserve Shell device parsing names.",
+      "Settings and Save As share the remembered folder mask and subfolder toggle; keep the disabled mask for later reuse and expose only its active value to the legacy worker. Main restores the accepted policy after an export instead of the pre-dialog policy.",
+      "Explicit original-format preference plus six supported defaults; preserve the previous source-copy default for existing FB2/EPUB profiles and existing TXT/MOBI/AZW3 preference on migration. Selected FB2/EPUB defaults now affect the initial dialog, with no redundant same-format conversion choice.",
+      "Restored-operation options take precedence over normal defaults. Reader uses its configured default rather than a hard-coded EPUB argument.",
+      "The additional destination picker now applies to every non-standalone script when enabled; the control explicitly refers to external tools and leaves the ordinary Save As destination editable."
+    ],
+    "limitations": [
+      "The licensed IDE compilers emitted Success and fresh PE files, but their AutoBuild processes timed out on shutdown. Build receipts explicitly retain this distinction; the Delphi shutdown problem is not fixed.",
+      "Device parsing-name persistence is covered, not a physical MTP-device test.",
+      "Existing beta3 candidate packages predate these source changes and must not be published as the final result."
+    ],
+    "proof": {
+      "path": "tools\\ui\\tests\\Out\\save-settings-final-20261103-r1.json",
+      "sha256": "a31190b33295e78cb39028a97fbaf1e86b404063d35a8928d8c2decfeaab2b80"
+    },
+    "remaining": "Direction complete. Rebuild/retest final production packages after remaining queued fixes; next ordered item is the rupor123 historical-converter comment and forum reply.",
+    "visible_checklist_hash": "58ea3409496614bd2e32ee4395c57276b2092c2be37250a43a27ca5dad8c5817",
+    "visible_checklist_scope": "Completed synchronization is crossed out; the broader checklist remains open for final exact production-package regression."
   },
   "component_receipt_foundation_20261102": {
     "status": "verified_x86_x64_native_and_updater_builds",

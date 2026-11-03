@@ -757,16 +757,12 @@ begin
       Dialog.Position:=poOwnerFormCenter;
     end;
     Dialog.SetBooks(Books); Dialog.Caption:=Format('Сохранить как · книг: %d',[BookCount]);
-    // Honour the user's existing text/Kindle device preference. Restored operations
-    // still take precedence, and the ordinary default remains source copying.
-    if not Assigned(InitialOptions) and (DefaultMode in [emTxt,emMobi,emAZW3]) then
-      for var I:=0 to High(Dialog.FChoices) do
-        if Dialog.FChoices[I].Mode=DefaultMode then
-        begin
-          Dialog.FFormat.ItemIndex:=I;
-          Dialog.FItems:=KnownBookSaveEstimates(Dialog.FBooks,Dialog.Choice);
-          Break;
-        end;
+    if not Assigned(InitialOptions) then
+    begin
+      Dialog.FFormat.ItemIndex:=BookSaveDefaultChoiceIndex(Dialog.FChoices,
+        DefaultMode,Settings.SaveAsKeepSourceFormat);
+      Dialog.FItems:=KnownBookSaveEstimates(Dialog.FBooks,Dialog.Choice);
+    end;
     var Folder:=Settings.SyncExportDir; if Folder='' then Folder:=InitialFolder;
     Dialog.FDestination.Text:=Folder; Dialog.FDestination.Hint:=Folder;
     if Assigned(InitialOptions) then
@@ -828,6 +824,7 @@ begin
     Settings.SaveAsUseSubfolders:=Dialog.FSubfolders.Checked;
     Settings.SaveAsNameCollision:=Options.NameCollision;
     Settings.SaveAsFolderTemplate:=Dialog.FFolderMask.Text;
+    Settings.FolderTemplate:=Options.FolderTemplate;
     Settings.SaveSettings;
     Result:=Answer=mrOk;
   finally Dialog.Free; end;

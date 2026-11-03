@@ -6250,8 +6250,6 @@ begin
 
   if UnifiedSave then
   begin
-    if ScriptID=795 then AFolder:=Settings.SyncExportDir
-    else if FLastDeviceDir<>'' then AFolder:=FLastDeviceDir;
     SetLength(SaveBooks,Length(BookIDList));
     for var I:=0 to High(BookIDList) do
     begin
@@ -6291,6 +6289,9 @@ begin
       end;
       Exit;
     end;
+    // The accepted dialog updates the shared preferences; restore this new
+    // folder policy after the worker, not the value from before the dialog.
+    SaveFolderTemplate:=Settings.FolderTemplate;
     AFolder:=SendOptions.Folder; DeviceShellItem:=SendOptions.ShellItem;
     UseMTP:=SendOptions.UseMTP; ExplicitFormat:=SendOptions.ExplicitFormat;
     KeepSourceFormat:=SendOptions.KeepSourceFormat;
@@ -6306,7 +6307,7 @@ begin
   begin
     Dec(ScriptID, 901);
 
-    if (ScriptID < 1) and (Settings.PromptDevicePath) then
+    if Settings.PromptDevicePath then
     begin
       if FLastDeviceDir = '' then
         FLastDeviceDir := Settings.DeviceDir;

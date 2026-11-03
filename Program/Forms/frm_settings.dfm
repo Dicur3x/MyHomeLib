@@ -45,7 +45,7 @@ object frmSettings: TfrmSettings
           Width = 435
           Height = 13
           Align = alTop
-          Caption = #1059#1089#1090#1088#1086#1081#1089#1090#1074#1086
+          Caption = #1057#1086#1093#1088#1072#1085#1077#1085#1080#1077#32#1082#1085#1080#1075
           Font.Charset = DEFAULT_CHARSET
           Font.Color = clWindowText
           Font.Height = -11
@@ -75,7 +75,7 @@ object frmSettings: TfrmSettings
             Height = 13
             Margins.Left = 9
             Align = alTop
-            Caption = #1055#1072#1087#1082#1072' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1077
+            Caption = #1055#1072#1087#1082#1072#32#1089#1086#1093#1088#1072#1085#1077#1085#1080#1103
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
@@ -102,7 +102,7 @@ object frmSettings: TfrmSettings
             Height = 20
             Margins.Left = 15
             Align = alTop
-            Caption = #1057#1087#1088#1072#1096#1080#1074#1072#1090#1100' '#1087#1091#1090#1100' '#1082#1072#1078#1076#1099#1081' '#1088#1072#1079
+            Caption = #1042#1099#1073#1080#1088#1072#1090#1100#32#1087#1072#1087#1082#1091#32#1087#1077#1088#1077#1076#32#1074#1085#1077#1096#1085#1080#1084#32#1080#1085#1089#1090#1088#1091#1084#1077#1085#1090#1086#1084
             TabOrder = 0
             WordWrap = True
             OnClick = cbPromptPathClick
@@ -135,7 +135,7 @@ object frmSettings: TfrmSettings
             Margins.Left = 9
             Margins.Top = 9
             Align = alTop
-            Caption = #1060#1086#1088#1084#1072#1090' '#1079#1072#1087#1080#1089#1080' '#1085#1072' '#1091#1089#1090#1088#1086#1081#1089#1090#1074#1086
+            Caption = #1060#1086#1088#1084#1072#1090#32#1074#32#171#1057#1086#1093#1088#1072#1085#1080#1090#1100#32#1082#1072#1082#187
             Font.Charset = DEFAULT_CHARSET
             Font.Color = clWindowText
             Font.Height = -11
@@ -155,20 +155,23 @@ object frmSettings: TfrmSettings
             Align = alTop
             Style = csDropDownList
             TabOrder = 0
+            Hint = #1053#1072#1095#1072#1083#1100#1085#1099#1081#32#1074#1099#1073#1086#1088#32#1074#32#171#1057#1086#1093#1088#1072#1085#1080#1090#1100#32#1082#1072#1082#187#46#32#1042#32#1089#1072#1084#1086#1084#32#1086#1082#1085#1077#32#1077#1075#1086#32#1084#1086#1078#1085#1086#32#1080#1079#1084#1077#1085#1080#1090#1100#32#1076#1083#1103#32#1086#1076#1085#1086#1081#32#1086#1087#1077#1088#1072#1094#1080#1080#46
+            ShowHint = True
             Items.Strings = (
-              '.fb2'
-              '.fb2.zip'
-              '.epub'
-              '.txt'
-              '.mobi'
-              '.azw3')
+              #1054#1089#1090#1072#1074#1083#1103#1090#1100#32#1080#1089#1093#1086#1076#1085#1099#1081#32#1092#1086#1088#1084#1072#1090
+              #70#66#50
+              #70#66#50#32#1074#32#90#73#80
+              #69#80#85#66
+              #84#88#84#32#8212#32#1090#1086#1083#1100#1082#1086#32#1090#1077#1082#1089#1090
+              #77#79#66#73#32#8212#32#1076#1083#1103#32#1089#1090#1072#1088#1099#1093#32#75#105#110#100#108#101
+              #65#90#87#51#32#8212#32#1076#1083#1103#32#75#105#110#100#108#101#32#1089#32#75#70#56)
           end
         end
         object pnNameFormat: TPanel
           Left = 0
           Top = 142
           Width = 441
-          Height = 78
+          Height = 104
           Align = alTop
           AutoSize = True
           BevelOuter = bvNone
@@ -176,7 +179,7 @@ object frmSettings: TfrmSettings
           TabOrder = 2
           DesignSize = (
             441
-            78)
+            104)
           object Label18: TLabel
             AlignWithMargins = True
             Left = 9
@@ -195,9 +198,19 @@ object frmSettings: TfrmSettings
             ParentFont = False
             ExplicitWidth = 76
           end
+          object cbSaveAsSubfolders: TCheckBox
+            Left = 15
+            Top = 28
+            Width = 411
+            Height = 20
+            Anchors = [akLeft, akTop, akRight]
+            Caption = #1057#1086#1079#1076#1072#1074#1072#1090#1100#32#1087#1086#1076#1087#1072#1087#1082#1080#32#1087#1086#32#1084#1072#1089#1082#1077
+            TabOrder = 0
+            OnClick = SaveAsFoldersClick
+          end
           object Label19: TLabel
             Left = 15
-            Top = 31
+            Top = 57
             Width = 38
             Height = 13
             Alignment = taRightJustify
@@ -205,7 +218,7 @@ object frmSettings: TfrmSettings
           end
           object Label20: TLabel
             Left = 15
-            Top = 58
+            Top = 84
             Width = 33
             Height = 13
             Alignment = taRightJustify
@@ -213,42 +226,42 @@ object frmSettings: TfrmSettings
           end
           object btnFolderTemplate: TButton
             Left = 351
-            Top = 26
+            Top = 52
             Width = 75
             Height = 25
             Anchors = [akTop, akRight]
             Caption = #1048#1079#1084#1077#1085#1080#1090#1100
-            TabOrder = 1
+            TabOrder = 2
             OnClick = EditFolderTemplate
           end
           object btnFileNameTemplate: TButton
             Left = 351
-            Top = 53
+            Top = 79
             Width = 75
             Height = 25
             Anchors = [akTop, akRight]
             Caption = #1048#1079#1084#1077#1085#1080#1090#1100
-            TabOrder = 3
+            TabOrder = 4
             OnClick = EditFileNameTemplate
           end
           object edFolderTemplate: TEdit
             Left = 59
-            Top = 28
+            Top = 54
             Width = 286
             Height = 21
             Anchors = [akLeft, akTop, akRight]
             ReadOnly = True
-            TabOrder = 0
+            TabOrder = 1
             Text = '%f\%s'
           end
           object edFileNameTemplate: TEdit
             Left = 59
-            Top = 55
+            Top = 81
             Width = 286
             Height = 21
             Anchors = [akLeft, akTop, akRight]
             ReadOnly = True
-            TabOrder = 2
+            TabOrder = 3
             Text = '%n%t'
           end
         end

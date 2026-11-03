@@ -5652,6 +5652,7 @@ end;
 {$I UnifiedBookSendTests.inc}
 {$I MinimumBookSaveTests.inc}
 {$I BookSavePlanningTests.inc}
+{$I SaveSettingsSyncTests.inc}
 {$I KindleBookSaveTests.inc}
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
@@ -5971,6 +5972,8 @@ begin
       else if ParamStr(1) = 'reader-conversion-audit' then
         TestReaderConversionAudit(Settings.AppPath + 'reader-conversion-audit', Settings.AppPath)
       else if ParamStr(1) = 'settings-workflow-audit' then TestSettingsWorkflowAudit
+      else if ParamStr(1) = 'save-settings-sync' then TestSaveSettingsSync
+      else if ParamStr(1) = 'script-export-paths' then TestMainExportPreparation(True,True)
       else if ParamStr(1) = 'catalog-audit' then TestCatalogAudit(One, Two, OneID, TwoID)
       else if ParamStr(1) = 'export-preparation' then TestMainExportPreparation(False)
       else if ParamStr(1) = 'legacy-import-interactive' then TestMainLegacyImportWorkflow(One, OneID)
