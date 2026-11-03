@@ -3840,5 +3840,44 @@
     ],
     "published": false,
     "visible_page_sequence": 116
+  },
+  "strict_reader_minimum_contract_audit_20261103": {
+    "status": "Confirmed source constraint; no production edits or library removal",
+    "current_source": "Program/Units/unit_ProgramUpdateInstaller.pas",
+    "legacy_source": "3.0.0_pre1.2:Program/Units/unit_ProgramUpdateInstaller.pas",
+    "required_sites": [
+      "ComponentNeedsRepair requires libzstd.dll among Reader files.",
+      "ManifestFiles.RequireComponentMembers rejects Reader manifests without libzstd.dll.",
+      "PrepareProgramUpdate verifies libzstd.dll PE identity unconditionally for Reader."
+    ],
+    "reader_need": "Current component purpose states Zstandard is for .jsonl.zst Metabib catalogues, not ordinary INPX or book reading.",
+    "publication_constraint": "Existing beta 2 clients and current clients use HomeLibRu.components.json. A minimal-Reader transition must update the client contract and preserve legacy installation compatibility; deleting the DLL from the archive alone is insufficient.",
+    "implemented": false,
+    "minimum_reader_requirement_complete": false,
+    "computer_use": false,
+    "heavy_test_or_build": false
+  },
+  "awaiting_desktop_for_final_gui_20261103": {
+    "condition": "User explicitly prohibited Computer Use until their next message after gaming. The prohibition has not been revoked.",
+    "consecutive_goal_turns": 3,
+    "previous_progress_commits": [
+      "b5b1e059",
+      "6fa7b15d"
+    ],
+    "current_progress": "Read-only comparison of released beta 2 and current installer confirms all three mandatory Zstandard checks; recorded the compatibility constraint without changing the built candidate.",
+    "ready": [
+      "Native cancellation/cleanup checks and production builds x86/x64 are complete.",
+      "New r2 packages, local installation and planned-feed parsing are verified.",
+      "Stronger GUI observation harness, guarded four-language README updates, checksums and candidate validation document are prepared."
+    ],
+    "blocked_next_steps": [
+      "Actual packaged graphical cancellation on x86/x64.",
+      "Affected new-package update/restart checks.",
+      "Real optional-component download/install continuation and subsequent public release verification."
+    ],
+    "sequencing": "Finish the current release/check direction before beginning deferred compression/SQL/new-writer work.",
+    "resume": "After user says the computer is available, resume Computer Use on fresh owned test profiles with r2 archives. Do not rebuild unchanged products or repeat completed backend research.",
+    "goal_complete": false,
+    "published": false
   }
 }
