@@ -3792,5 +3792,28 @@
       }
     },
     "visible_page_sequence": 114
+  },
+  "game_backend_preparation_20261103": {
+    "status": "Prepared; real GUI checks deferred by user gaming instruction",
+    "computer_use": false,
+    "heavy_builds_or_measurements": false,
+    "production_changes": false,
+    "prepared": [
+      "Graphical cancellation harness now requires fresh live converter and operation scratch evidence before stop/close events; absence of output alone can no longer pass.",
+      "Failed retry evidence retained; every retry requires its own active-worker observation.",
+      "Progress-file replacement during read is treated as transient observation, never worker completion or a restart trigger."
+    ],
+    "verification": [
+      "Python syntax compile and CLI argument parsing only; strengthened GUI sequence is not yet run.",
+      "Fresh GitHub release metadata matches every cached asset ID, name, size, digest and URL; planned feed remains based on the current observed public state."
+    ],
+    "remote_proof": "tools\\ui\\tests\\Out\\beta3-publication-remote-revalidation-20261103-r1.json",
+    "remote_proof_sha256": "667fd1301d494f87e4abb3df56b9ca20ee8e74ff2914424da95c81198ccd081d",
+    "remaining": [
+      "Wait for user permission to resume Computer Use.",
+      "Run strengthened actual packaged Reader cancellation flow Win32/Win64 with current r2 archives, no test source or module bundle substitutions.",
+      "Complete needed update/restart and real optional-module download/continuation, then publish."
+    ],
+    "published": false
   }
 }

@@ -6,6 +6,7 @@ The large source is read in place and its hash must remain unchanged.
 """
 import argparse
 import configparser
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -21,6 +22,8 @@ from reader_save_first_use_smoke import stage_package
 CACHE = Path('G:/HomeLibRu-build-cache')
 REPO = Path(__file__).resolve().parents[3]
 OWNER = 'HomeLibre exact Reader Save As cancellation v1'
+EVENT_ORDER = ('baseline', 'estimate-active', 'estimate-stopped', 'estimate-close-active',
+               'estimate-closed', 'export-active', 'export-cancelled')
 
 
 def sha(path):
@@ -52,7 +55,45 @@ def snapshot(root):
     scratch = [str(p.relative_to(root)) for p in root.rglob('*')
                if p.is_dir() and p.name.startswith(('homelib-convert-', 'homelib-save-estimate-'))]
     stages = [str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and '.homelib-new-' in p.name]
-    return dict(processes=active(root), scratch=scratch, atomic_stages=stages)
+    progress = []
+    for directory in scratch:
+        file = root/directory/'progress.json'
+        try:
+            if file.is_file() and file.stat().st_size <= 8192:
+                progress.append(dict(file=str(file.relative_to(root)), value=json.loads(file.read_bytes())))
+        except (OSError, ValueError):
+            # A producer can be replacing its progress file. This does not
+            # establish worker completion and must not restart the operation.
+            pass
+    return dict(processes=active(root), scratch=scratch, atomic_stages=stages, progress=progress)
+
+
+def record_event(state, run, current, event, actor):
+    assert state.get('workflow_version') == 2, 'Use a fresh fixture for observed active/cancel pairs'
+    previous = [item['event'] for item in run['events']]
+    assert len(previous) < len(EVENT_ORDER) and event == EVENT_ORDER[len(previous)], (
+        'Observe the active operation before recording its cancellation', previous, event)
+    reader = dict(ProcessId=run['pid'], ExecutablePath=str(Path(run['app'])/'HomeLibReader.exe'))
+    assert reader in current['processes'], current
+    running = event.endswith('-active')
+    if running:
+        workers = [row for row in current['processes'] if row['ProcessId'] != run['pid']
+                   and Path(row['ExecutablePath']).name.lower() in ('python.exe', 'pythonw.exe')]
+        assert workers and current['scratch'], 'No live converter and operation work were observed'
+    else:
+        assert current['processes'] == [reader], current
+        assert not current['scratch'] and not current['atomic_stages'], current
+    assert not list(Path(run.get('output', str(Path(run['app'])/'saved'))).iterdir()), 'An output was published'
+    assert sha(Path(state['source'])) == state['source_sha256']
+    if run.get('export_source'):
+        assert sha(Path(run['export_source']['path'])) == run['export_source']['sha256']
+    observation = dict(event=event, actor=actor, observed_at_utc=datetime.now(timezone.utc).isoformat(),
+                       reader_pid=run['pid'], source_unchanged=True, no_output=True)
+    if running:
+        observation.update(active_workers=workers, scratch=current['scratch'], progress=current['progress'])
+    else:
+        observation['no_worker_or_scratch'] = True
+    run['events'].append(observation)
 
 
 def main():
@@ -64,7 +105,7 @@ def main():
     parser.add_argument('--export-source', type=Path, help='Owned large-picture fixture for confirmed active conversion cancellation')
     parser.add_argument('--reader-packages', type=Path)
     parser.add_argument('--format-packages', type=Path)
-    parser.add_argument('--event', choices=('baseline', 'estimate-stopped', 'estimate-closed', 'export-cancelled'))
+    parser.add_argument('--event', choices=EVENT_ORDER)
     parser.add_argument('--actor', choices=('computer-use','user'), default='computer-use')
     args = parser.parse_args()
     if args.action == 'prepare':
@@ -72,7 +113,7 @@ def main():
         source = args.source.resolve(strict=True)
         assert source.is_file() and source.suffix.lower() == '.fb2'
         root = Path(tempfile.mkdtemp(prefix='HomeLibRu-update-test-save-cancel-', dir=CACHE))
-        state = dict(status='INCOMPLETE', root=str(root), token=uuid.uuid4().hex,
+        state = dict(status='INCOMPLETE', workflow_version=2, root=str(root), token=uuid.uuid4().hex,
                      source=str(source), source_sha256=sha(source), source_bytes=source.stat().st_size,
                      reader_packages=str(args.reader_packages.resolve(strict=True)),
                      format_packages=str(args.format_packages.resolve(strict=True)), runs=[],
@@ -127,7 +168,11 @@ def main():
         assert len(files) == 1 and files[0].suffix.lower() == '.fb2'
         run.setdefault('completed_before_cancel_attempts',[]).append(
             dict(output=str(files[0]),sha256=sha(files[0]),bytes=files[0].stat().st_size,
-                 reason='Original root-window input did not confirm worker cancellation; completed output is not a cancellation PASS'))
+                 reason='Output completed before confirmed cancellation; not a cancellation PASS',
+                 observed_export_activity=[event for event in run['events'] if event['event']=='export-active']))
+        # Preserve failed-attempt evidence above; the next attempt must prove
+        # its own live worker before it may be recorded as canceled.
+        run['events'] = [event for event in run['events'] if event['event'] != 'export-active']
         app = Path(run['app'])
         output = app/('retry-cancel-'+str(len(run['completed_before_cancel_attempts'])))
         output.mkdir()
@@ -149,19 +194,13 @@ def main():
         current = snapshot(root)
         if args.action == 'record':
             run = state['runs'][-1]
-            assert args.event and args.event not in [event['event'] for event in run['events']]
-            assert current['processes'] == [dict(ProcessId=run['pid'],ExecutablePath=str(Path(run['app'])/'HomeLibReader.exe'))],current
-            assert not current['scratch'] and not current['atomic_stages'],current
-            assert not list(Path(run.get('output',str(Path(run['app'])/'saved'))).iterdir()),'Cancellation published an output'
-            assert sha(Path(state['source'])) == state['source_sha256']
-            if run.get('export_source'):
-                assert sha(Path(run['export_source']['path'])) == run['export_source']['sha256']
-            run['events'].append(dict(event=args.event,actor=args.actor,source_unchanged=True,no_output=True,no_worker_or_scratch=True))
+            assert args.event
+            record_event(state, run, current, args.event, args.actor)
         print(json.dumps(current,ensure_ascii=False))
     elif args.action == 'check':
         assert not active(root),'Close only this test Reader normally first'
         run = state['runs'][-1]
-        assert {event['event'] for event in run['events']} == {'baseline','estimate-stopped','estimate-closed','export-cancelled'}
+        assert [event['event'] for event in run['events']] == list(EVENT_ORDER)
         assert not list(Path(run.get('output',str(Path(run['app'])/'saved'))).iterdir())
         for previous in run.get('completed_before_cancel_attempts',[]):
             assert sha(Path(previous['output'])) == previous['sha256']
@@ -178,7 +217,9 @@ def main():
             assert {r['platform'] for r in state['runs']} == {'Win32','Win64'} and all(r['checked'] for r in state['runs'])
         else:
             assert state['status'] == 'INCOMPLETE'
-            state['incomplete_reason'] = 'Save cancellation was not confirmed through the active progress/confirmation dialog; completed copies are not cancellation success. Win64 remains untested in this fixture.'
+            state['incomplete_reason'] = 'The complete active/cancel GUI sequence is unverified; completed copies are not cancellation success.'
+            state['unchecked_platforms'] = [arch for arch in ('Win32', 'Win64')
+                                            if not any(run['platform']==arch and run['checked'] for run in state['runs'])]
             state['retained_output_evidence'] = [dict(path=str(p.relative_to(root)),bytes=p.stat().st_size,sha256=sha(p))
                 for p in root.rglob('cancel-*.fb2') if p.is_file()]
             for run in state['runs']:
