@@ -85,6 +85,8 @@ def main():
     parser.add_argument('--catalogue-dir', type=Path, help='Local catalogue archives and checksums for --core')
     parser.add_argument('--checksums', type=Path, help='Local checksum file if stored separately from the archives')
     parser.add_argument('--plan', type=Path, help='Local component publication plan')
+    parser.add_argument('--staged-feed', type=Path,
+                        help='Verify public ZIPs against the local feed before switching the public feed')
     args = parser.parse_args()
     assert not args.report.exists(), 'Preserve previous verification reports'
     stage = args.stage.resolve()
@@ -116,10 +118,17 @@ def main():
             metadata = json.loads(subprocess.check_output(['gh', 'api',
                 f"repos/Dicur3x/MyHomeLib/releases/{plan['release_id']}"], encoding='utf-8'))
             assets = {entry['name']: entry for entry in metadata['assets']}
-            feed_bytes = get(assets['HomeLibRu.components.json']['browser_download_url'])
-            assert digest(feed_bytes) == plan['replacement_feed_sha256'], 'Public feed bytes differ'
-            report['public_feed_sha256'] = digest(feed_bytes)
-            report['feed_asset_id'] = assets['HomeLibRu.components.json']['id']
+            active_feed = assets['HomeLibRu.components.json']
+            if args.staged_feed:
+                assert active_feed['digest'] == 'sha256:' + plan['observed_feed_sha256'], 'Active feed changed'
+                feed_bytes = args.staged_feed.read_bytes()
+                report['scope'] = 'Local candidate feed with actual public asset metadata, downloads and native preparation.'
+                report['candidate_feed_sha256'] = digest(feed_bytes)
+            else:
+                feed_bytes = get(active_feed['browser_download_url'])
+                report['public_feed_sha256'] = digest(feed_bytes)
+            assert digest(feed_bytes) == plan['replacement_feed_sha256'], 'Verified feed bytes differ from plan'
+            report['feed_asset_id'] = active_feed['id']
             feed = root / 'HomeLibRu.components.json'
             feed.write_bytes(feed_bytes)
             remote = root / 'release.json'

@@ -4129,5 +4129,33 @@
     ],
     "published": false,
     "visible_page_sequence": 119
+  },
+  "beta3_public_components_20261104": {
+    "status": "18 new component archives published and verified. Public first-use Save As passed on x86 and x64.",
+    "release_id": 419821258,
+    "feed_asset_id": 707475828,
+    "feed_sha256": "b12b4a50dad0b3d7568a5bb6855c35e6e0f47aef8e7cc97740cf45185bd823a8",
+    "previous_feed_backup_asset_id": 697918603,
+    "legacy_reader_assets_preserved": true,
+    "reports": [
+      {
+        "path": "tools/ui/tests/Out/beta3-staged-public-components-20261104-r1.json",
+        "sha256": "6e0f6e26634c56b19a8309bbc1ac784d1c1bc7f9bc388c6c11fe245de259cd36"
+      },
+      {
+        "path": "tools/ui/tests/Out/beta3-public-component-feed-20261104-r1.json",
+        "sha256": "549a497f8d73d73aef4b56c0e0212fe9f88bd7ca2806ffb05b02e1f391b22c36"
+      },
+      {
+        "path": "tools/ui/tests/Out/reader-beta3-public-save-first-use-20261104-r1.json",
+        "sha256": "bd47003d13c1ccfdf1f4b84870f7f05729299c6d609232d223ff45cf6607e930"
+      }
+    ],
+    "save_scope": "Exact clean Reader packages downloaded only BookProcessing and ImageProcessing 3.0.0.3 from the live feed, installed after confirmation and reopened Save As with the requested format, image mode, destination and mask. Resulting EPUBs contain both chapters and the 1200 by 900 illustration. Original source and preexisting payload hashes matched. Temporary installations were removed.",
+    "remaining": [
+      "Finish the exact catalogue UI upgrade check and publish the main release.",
+      "Review obsolete component archives after the main release is verified."
+    ],
+    "main_release_published": false
   }
 }
