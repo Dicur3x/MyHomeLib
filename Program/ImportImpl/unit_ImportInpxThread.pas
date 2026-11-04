@@ -76,6 +76,8 @@ type
     procedure ParseData(const input: string; const OnlineCollection: Boolean;
       var R: TBookRecord; Params: TStringList);
     procedure Import(const INPXFileName: string; CheckFiles: Boolean; BookCollection: IBookCollection);
+    function StoreImportedBook(const Book: TBookRecord; CheckFiles: Boolean;
+      const Collection: IBookCollection; Cache: TImportCache): Integer; virtual;
   end;
 
   TImportInpxThread = class(TImportInpxThreadBase)
@@ -587,9 +589,7 @@ begin
               end
               else
               begin
-                InsertedBookID := BookCollection.InsertBook(
-                  R, CheckFiles, False, Cache
-                );
+                InsertedBookID := StoreImportedBook(R, CheckFiles, BookCollection, Cache);
                 if InsertedBookID <> 0 then
                 begin
                   ImportedBooks.Add(BookIdentity, InsertedBookID);
@@ -692,6 +692,12 @@ begin
     FreeAndNil(Params);
     BookCollection.FinishBatchUpdate;
   end;
+end;
+
+function TImportInpxThreadBase.StoreImportedBook(const Book: TBookRecord; CheckFiles: Boolean;
+  const Collection: IBookCollection; Cache: TImportCache): Integer;
+begin
+  Result := Collection.InsertBook(Book, CheckFiles, False, Cache);
 end;
 
 constructor TImportInpxThread.Create(const CollectionID: Integer; const INPXFileName: string; GenresType: TGenresType);

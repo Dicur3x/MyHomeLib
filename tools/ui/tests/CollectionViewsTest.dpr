@@ -48,7 +48,8 @@ uses
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
   unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
-  frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas';
+  frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas',
+  unit_CollectionPackingInpx in '..\..\..\Program\Units\unit_CollectionPackingInpx.pas';
 
 type
   TRegressionExceptionHandler = class

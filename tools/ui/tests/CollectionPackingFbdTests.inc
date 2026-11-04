@@ -1,4 +1,5 @@
 ﻿{$I CollectionPackingUnavailableTests.inc}
+{$I CollectionPackingInpxTests.inc}
 
 procedure TestPackingFbd;
 const
@@ -107,4 +108,5 @@ begin
   end;
   Writeln('PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals');
   TestPackingUnavailable;
+  TestPackingInpx;
 end;

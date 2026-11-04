@@ -7,6 +7,7 @@ uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, u
 
 type
   TCollectionPackingProgress = reference to procedure(const Stage: string; Current, Total: Int64);
+  TCollectionPackingCatalogEdit = reference to procedure(const CatalogFile, PersonalFile: string);
   TCollectionPackingOptions = record
     CatalogFile, PersonalFile, SourceRoot, OutputRoot, Dataset, DisplayName: string;
     SourceID: Integer;
@@ -52,7 +53,7 @@ type
     constructor Create(const Options: TCollectionPackingOptions);
     destructor Destroy; override;
     procedure Prepare(const Canceled: TSnapshotCanceled = nil;
-      const Progress: TCollectionPackingProgress = nil);
+      const Progress: TCollectionPackingProgress = nil; const EditCatalog: TCollectionPackingCatalogEdit = nil);
     procedure Pack;
     procedure ApplyPrepared;
     procedure ClearNotifications;
@@ -287,7 +288,7 @@ begin
 end;
 
 procedure TCollectionPackingSnapshot.Prepare(const Canceled: TSnapshotCanceled;
-  const Progress: TCollectionPackingProgress);
+  const Progress: TCollectionPackingProgress; const EditCatalog: TCollectionPackingCatalogEdit);
 var Marker: TJSONObject;
 begin
   if FWork<>'' then raise Exception.Create('План сжатия уже создан.');
@@ -306,6 +307,8 @@ begin
   Report('Подготавливаем рабочие снимки',0,0);
   CopySnapshot(FOptions.CatalogFile,FCatalogFile,'Сохраняем снимок каталога');
   CopySnapshot(FOptions.PersonalFile,FPersonalFile,'Сохраняем личные данные');
+  CheckCanceled;
+  if Assigned(EditCatalog) then EditCatalog(FCatalogFile,FPersonalFile);
   BuildPlan;
   FStatus.WorkingBytes:=TFile.GetSize(FCatalogFile)+TFile.GetSize(FPersonalFile)+TFile.GetSize(FPlanFile);
   FStatus.FreeBytes:=CollectionDiskFree(FOptions.OutputRoot);
@@ -342,7 +345,22 @@ var Catalog, Personal: TSQLiteDatabase;
     Container:=Book.GetBookContainer;
     BookFormat:=Book.GetBookFormat(Container); Fbd:=BookFormat=bfFbd;
     Source:=TPath.GetFullPath(Book.GetBookFileName(Container));
-    Result:=SameFileName(CurrentFile,Source) or PackingSourceExists(Source);
+    if not SameFileName(CurrentFile,Source) and not PackingSourceExists(Source) then Exit(False);
+    Member:='';
+    if BookFormat in [bfFb2Archive,bfRawArchive,bfFbd] then
+    begin
+      if not SameFileName(CurrentFile,Source) then
+      begin
+        FreeAndNil(CurrentArchive); CurrentFile:='';
+        CurrentArchive:=TMHLZip.Create(Source,True); CurrentFile:=Source;
+      end;
+      try
+        Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
+      except
+        on E:EArchiveBookEntryNotFound do Exit(False);
+      end;
+    end;
+    Result:=True;
   end;
   procedure ReadRows(DB: TSQLiteDatabase; const SQL: string; TargetKind: Integer);
   begin
@@ -408,16 +426,6 @@ var Catalog, Personal: TSQLiteDatabase;
           end
           else
           begin
-            Member:='';
-            if BookFormat in [bfFb2Archive,bfRawArchive,bfFbd] then
-            begin
-              if not SameFileName(CurrentFile,Source) then
-              begin
-                FreeAndNil(CurrentArchive); CurrentFile:='';
-                CurrentArchive:=TMHLZip.Create(Source,True); CurrentFile:=Source;
-              end;
-              Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
-            end;
             OriginalName:=Book.FileName; OriginalInside:=Book.InsideNo;
             if Fbd then Locator:='fbd:'+IntToStr(Book.InsideNo)+':'+Member
             else Locator:='member:'+Member;

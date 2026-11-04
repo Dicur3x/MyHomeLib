@@ -4261,5 +4261,15 @@
       "cleanup": "Native and package probes removed their fixtures. Automatic review blocked recursive removal of the separate manual GUI fixture at G:/HomeLibRu-build-cache/HomeLibRu-native-kBFMAX. The test application exited and the fixture contains 75239840 bytes."
     },
     "next": "Connect selected INPX updates to preparation of a separate packed generation. Test a real mixed library sample, optional first-use component installation and handling of a missing entry inside an otherwise present archive."
+  },
+  "collection_packing_inpx_20261104": {
+    "status": "Native selected INPX update passed on x86 and x64. Catalogue menu integration and release pending.",
+    "implementation": "Apply a selected local INPX to isolated catalogue and personal-data snapshots before planning the next packed generation. Match existing records only by unique library ID, format and original filename. A named entry missing in a readable update archive does not resolve by INP line number. Keep the last packed locator when an existing book is absent from the update files.",
+    "checks": {
+      "Win32": "Delphi Release build. Native packing-fbd and inp-streaming passed.",
+      "Win64": "Delphi Release build. Native packing-fbd and inp-streaming passed.",
+      "scope": "Synthetic ZIP and INPX. Verified new and changed bytes, original archive retention, stable BookID and personal data, a missing named member and an unchanged original catalogue. Full-size and mixed-provenance collections remain unverified."
+    },
+    "next": "Wire the update to the catalogue menu, keep ordinary destructive updates away from packed copies and verify real collection samples."
   }
 }

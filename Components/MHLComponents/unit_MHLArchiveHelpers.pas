@@ -26,6 +26,8 @@ uses
   System.Generics.Collections;
 type
 
+  EArchiveBookEntryNotFound = class(EZipException);
+
   TStreamSource = record
     Name: string;
     Stream: TStream;
@@ -486,7 +488,7 @@ begin
     Method := FZip.FileInfos[LegacyIndex].CompressionMethod;
     if (Method=0) or (Method=8) then Result := LegacyIndex;
   end;
-  if Result<0 then raise EZipException.CreateFmt('Archive entry "%s" was not found',[AFileName]);
+  if Result<0 then raise EArchiveBookEntryNotFound.CreateFmt('Archive entry "%s" was not found',[AFileName]);
 end;
 
 function TMHLZip.ResolveBookName(const AFileName: string; const LegacyIndex: Integer): string;
