@@ -4475,5 +4475,31 @@
     "first_use": "The native catalogue test started from each exact archive. It tested independent 7-Zip, DocSharp and DjVuLibre installs, including corrupt DocSharp adapter rejection and cancellation. Both pinned DOC and DjVu adapter ZIPs were downloaded from the public GitHub release and matched the embedded digests. Vendor packages used local controlled test fixtures.",
     "remaining": "A public beta 4 download, the full update and restart from beta 3, and reopening or resuming the operation after the new writer downloads still require end-to-end validation. This stage did not publish or modify any public assets.",
     "cleanup": "Both final test folders and the interrupted Reader smoke stage were removed. The first smoke timer expired before exit and its partial cleanup invalidated the synthetic previous-profile check, so it was rerun successfully with the cleanup waiting for both readers to exit."
+  },
+  "beta4_published_upgrade_20261105": {
+    "status": "Six real GUI upgrade cases passed from published beta 3 on Win32 and Win64. Catalogue, standalone Reader and BookProcessing updated separately.",
+    "baseline_sources": {
+      "catalogue": "https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.3",
+      "reader_and_book_processing": "https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25"
+    },
+    "candidate_sha256": {
+      "catalogue": {
+        "Win32": "a9a8c8e104ae6a49f23aebe288af37eff5035a48b3937a68924dcee1a5e457c2",
+        "Win64": "d41851bf21efd763cadb9c8bfe4f5043db473760cd69169a2c0e94fb54eb2372"
+      },
+      "reader": {
+        "Win32": "5d455df32651d3bf18cdd7b6a225c0d0431ba3291d2bff5f0989eef2f0fdfa1a",
+        "Win64": "06f33321ba47bd6e256c02fd4019e870951428783300ebffb3ca6f6daf67d944"
+      },
+      "book_processing": {
+        "Win32": "8dda1603431c3a50d3295fd05d0a76b40a603d79ad0779c52bb64725730c81d7",
+        "Win64": "af69699e9e93274f66732844b2a6b8710dbaa9a4b0bb5e18dc2af4f1553bb94f"
+      }
+    },
+    "catalogue": "Downloaded both unchanged beta 3 archive baselines and matched GitHub API sizes and SHA-256. Their real updater windows installed the ready local beta 4 ZIPs and started new processes. The same test catalogue was visible. All 241 managed files per architecture, seven complete Books rows, private settings and an owned personal file were verified.",
+    "reader": "Downloaded and hashed the exact minimal published beta 3 Reader archives. The real Reader Components window launched its own published helper, verified against its installed digest, and replaced all six managed files with beta 4. Both windows restarted with new PIDs at the same 3 percent and paragraphs 5 through 11, one using the actual second FB2 inside a ZIP. Source hashes matched and the unleased test cache entry was cleaned.",
+    "book_processing": "Downloaded the exact published 3.0.0.3 BookProcessing archives. The published beta 3 catalogue used its own original helper to update only BookProcessing to 3.0.0.4, and restarted with its original executable hash. Verified all 154/155 module files, no repair needed, personal settings, seven Books rows and two Reader-profile sentinels. Kindle, Office, XPS, PDF, DjVu, image and legacy decoder paths stayed absent.",
+    "scope": "All cases used already-prepared unpublished beta 4 payloads. A fresh catalogue repack has its own exact SHA-256, recorded above. The public discovery/download of beta 4 and resuming Save As after on-demand installation of its new writers remain final release checks. No public release or feed was changed.",
+    "cleanup": "All six private installations, candidate archives, and downloaded baseline packages created by this stage were removed."
   }
 }

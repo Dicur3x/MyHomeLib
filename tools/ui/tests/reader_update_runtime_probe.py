@@ -4,6 +4,8 @@ The helper's ordinary --job interface exercises production update coordination.
 No window input or forced process termination is implemented by this harness.
 Without --reader-package this uses development binaries. An explicit package
 and SHA-256 test the exact release ZIP without repacking or changing its version.
+With --baseline-reader-package, the published Reader launches the prepared
+update from its Components window and uses its own installed helper.
 """
 import argparse
 import hashlib
@@ -38,6 +40,21 @@ def dump(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
+def extract_reader(package, destination, platform):
+    with zipfile.ZipFile(package) as archive:
+        manifest = json.loads(archive.read('HomeLibRu.update.json'))
+        assert manifest['component'] == 'HomeLibReader' and manifest['platform'] == platform
+        paths = {item['path'] for item in manifest['files']} | {'HomeLibRu.update.json'}
+        assert len(paths) == len(archive.namelist()) and paths == set(archive.namelist())
+        for name in paths:
+            assert not name.startswith('/') and ':' not in name and '\\' not in name and '..' not in name.split('/')
+        archive.extractall(destination)
+    for item in manifest['files']:
+        file = destination / item['path']
+        assert file.stat().st_size == item['size'] and sha(file) == item['sha256']
+    return manifest
+
+
 def processes(root):
     # Only executable identity and PID are needed. Avoid the WMI provider,
     # which can cancel enumeration during repeated process exit/restart.
@@ -60,6 +77,9 @@ def main():
     parser.add_argument('--platform', choices=PACKAGE_HASH)
     parser.add_argument('--reader-package', type=Path)
     parser.add_argument('--reader-sha256')
+    parser.add_argument('--baseline-reader-package', type=Path,
+                        help='Use an unchanged published Reader and seed its normal ready-update window')
+    parser.add_argument('--baseline-reader-sha256')
     parser.add_argument('--label', choices=('peer', 'caller'))
     parser.add_argument('--seed-recent', action='store_true', help='Seed own public recent-file settings for a File-menu change test')
     parser.add_argument('--seed-save-folder', action='store_true', help='Seed the own output folder through ordinary public settings')
@@ -68,6 +88,8 @@ def main():
     args = parser.parse_args()
     assert bool(args.reader_package) == bool(args.reader_sha256)
     assert not args.reader_package or args.action == 'prepare'
+    assert bool(args.baseline_reader_package) == bool(args.baseline_reader_sha256)
+    assert not args.baseline_reader_package or args.reader_package
     state = json.loads(args.state.read_bytes()) if args.state.exists() else None
     if state is None:
         assert args.action == 'prepare' and args.platform
@@ -90,10 +112,7 @@ def main():
         package = args.reader_package or PACKAGES / f'HomeLibRu-HomeLibReader-3.0.0.1-{platform}.zip'
         assert sha(package) == (args.reader_sha256 or PACKAGE_HASH[platform])
         candidate = root / 'candidate'
-        with zipfile.ZipFile(package) as archive:
-            for name in archive.namelist():
-                assert not name.startswith('/') and ':' not in name and '..' not in name.replace('\\', '/').split('/')
-            archive.extractall(candidate)
+        manifest = extract_reader(package, candidate, platform)
         reader = REPO / f'Utils/HomeLibReader/Out/{platform}/HomeLibReader.exe'
         helper = REPO / ('Program/Out/Bin64' if platform == 'Win64' else 'Program/Out/Bin') / 'HomeLibRuUpdater.exe'
         if args.reader_package:
@@ -102,7 +121,6 @@ def main():
         shutil.copyfile(reader, candidate / reader.name)
         shutil.copyfile(helper, candidate / helper.name)
         manifest_path = candidate / 'HomeLibRu.update.json'
-        manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
         for entry in manifest['files']:
             file = candidate / entry['path']
             entry.update(size=file.stat().st_size, sha256=sha(file))
@@ -115,7 +133,19 @@ def main():
                 for file in sorted(candidate.rglob('*')):
                     if file.is_file():
                         archive.write(file, file.relative_to(candidate).as_posix())
-        if not app.exists():
+        if args.baseline_reader_package:
+            assert not app.exists()
+            assert sha(args.baseline_reader_package) == args.baseline_reader_sha256
+            baseline = extract_reader(args.baseline_reader_package, app, platform)
+            assert tuple(map(int, baseline['version'].split('.'))) < tuple(map(int, manifest['version'].split('.')))
+            identity = hashlib.sha256((str(app) + '\\').lower().encode('utf-8')).hexdigest()[:20]
+            cache = root / 'Local/HomeLibRu/Updates' / identity
+            job = cache / job.name
+            cache.mkdir(parents=True, exist_ok=True)
+            state.update(baseline_reader_version=baseline['version'],
+                         baseline_reader_archive_sha256=args.baseline_reader_sha256,
+                         baseline_helper_sha256=sha(app / helper.name), job_path=str(job))
+        elif not app.exists():
             shutil.copytree(candidate, app)
             with (app / 'HomeLibReader.exe').open('ab') as file:
                 file.write(b'\nOwned running development EXE overlay to require replacement\n')
@@ -134,7 +164,13 @@ def main():
                                 env=env, capture_output=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
         assert result.returncode == 0, (result.stdout + result.stderr).decode('utf-8', errors='replace')
         shutil.copyfile(archive_path, job / 'release.zip')
-        shutil.copyfile(helper, job / helper.name)
+        if args.baseline_reader_package:
+            dump(cache / 'ready.json', dict(job=str(job), tag=manifest['release'], sha256=sha(archive_path),
+                url='https://github.com/Dicur3x/MyHomeLib/releases/tag/' + manifest['release'],
+                notes='Проверка обновления на отдельной копии читалки.', component='HomeLibReader',
+                version=manifest['version'], size=archive_path.stat().st_size))
+        else:
+            shutil.copyfile(helper, job / helper.name)
         state.update(archive=str(archive_path), archive_sha256=sha(archive_path), release=manifest['release'],
                      exact_release_package=bool(args.reader_package),
                      reader_sha256=sha(reader), helper_sha256=sha(helper), running_exe_sha256=sha(app / reader.name),
@@ -233,7 +269,10 @@ def main():
         request = json.loads((job / 'request.json').read_bytes())
         assert request['pid'] == caller['original_pid'] and request['application'] == 'HomeLibReader.exe'
         assert request['target'] == str(app) and request['sha256'] == state['archive_sha256']
+        assert request['tag'] == state['release'] and request['args'] == caller['command'][1:]
         assert request['commandLine'] == subprocess.list2cmdline(caller['command'])
+        if baseline_helper := state.get('baseline_helper_sha256'):
+            assert sha(job / 'HomeLibRuUpdater.exe') == baseline_helper
         state['frontend_request'] = request
         helpers = [p for p in processes(root) if Path(p['ExecutablePath']) == job / 'HomeLibRuUpdater.exe']
         state['helper_pid'] = helpers[0]['ProcessId'] if helpers else None
@@ -260,6 +299,12 @@ def main():
             state['only_requested_module_installed'] = True
         else:
             assert sha(app / 'HomeLibReader.exe') == state['reader_sha256'] != state['running_exe_sha256']
+            if state.get('baseline_reader_version'):
+                assert state.get('frontend_request'), 'Published Reader must request its own update'
+                with zipfile.ZipFile(state['archive']) as archive:
+                    manifest = json.loads(archive.read('HomeLibRu.update.json'))
+                for entry in manifest['files']:
+                    assert sha(app / entry['path']) == entry['sha256']
         assert sha(app / 'HomeLibRuUpdater.exe') == state['helper_sha256']
         assert len(active) == len(state['launches']) and not ({x['original_pid'] for x in state['launches']} & {p['ProcessId'] for p in active})
         related = json.loads((job / 'restart-instances.json').read_text(encoding='utf-8-sig'))
