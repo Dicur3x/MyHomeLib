@@ -4427,5 +4427,23 @@
     "evidence": "Integrated conversion from a staging tools tree passed on actual x86 and x64 Python workers using the same installed 64-bit Edge. A rich owned EPUB produced five pages with title and author, two outline entries, table text and working footnote destinations. A controlled external image request did not reach its second server and the book script did not run. In each architecture the second operation canceled after the browser process started, produced no output and left no working directory. The source hash matched. Focused unit tests covered missing-component reporting and exact HTTP resource allowlists on both worker architectures. The complete Python suite then passed with architecture-matched native codecs and the verified KindleExport runtimes on both architectures: 281 tests each, one external-writers test skipped per run. The first full run used the default x64 codec directory for both architectures and did not provide the separately staged Kindle writer; those invocation errors were corrected.",
     "remaining": "Build independently installable packages with matching upstream licences and corresponding source directions, verify native planning and Save As/estimate/continuation and an actual 32-bit browser, and compare additional real EPUB layouts. Existing unrelated format options and the published feed were not changed.",
     "cleanup": "Successful probe stages were removed automatically. One failed probe folder (14,990,590 bytes) remains on G: because the automated review rejected explicit deletion as blocked by policy. No retry was attempted."
+  },
+  "beta4_epub_pdf_distribution_20261104": {
+    "status": "Direct EPUB to PDF is exposed under additional Save As formats and passed the local native workflow on x86 and x64.",
+    "routing": "FB2 to PDF requests only FB2Export; EPUB to PDF requests only EpubPdfExport once BookProcessing is installed. A mixed FB2/EPUB selection uses its source-specific writer per book. PDF reading via PDFium is a separate operation. Successful advanced conversion now records use of its writer for optional module maintenance.",
+    "package": "Architecture-tagged EpubPdfExport archives are reproducible and independent of BookProcessing. They contain the unmodified pinned Vivliostyle Core build, two pure-Python wheels, the worker, licences, source directions and a manifest. All seven payload files are individually checked. The native installer originally treated the main Python script as a PE file. It now checks the script-only component via its platform descriptor and hashes.",
+    "exact_packages": {
+      "Win32": {
+        "bytes": 743223,
+        "sha256": "0ebc6392874e98f91c8b82d1b5d382c6c6358aa6e143419a711e1c9030887306"
+      },
+      "Win64": {
+        "bytes": 743222,
+        "sha256": "457a6e4b64105bc7b3c9e09c015abff68a2a728ecedb7ee318e8519e3b31e113"
+      }
+    },
+    "proof": "Fresh Delphi Release test builds on both architectures parsed the local component feed, verified and installed the exact optional archive, preserved the existing application and did not add PDFium. The actual Save As dialog offered PDF in additional formats. Mixed FB2 and EPUB estimated four image choices and saved both as PDF, handled collisions, preserved source hashes and retained the existing KEPUB path. Exact packaged Python isolated mode also converted the separate rich EPUB fixture. A distinct 32-bit Chrome Headless Shell 157.0.8103.38 PE rendered five pages with the expected chapters, table, author and footnote links; the Chromium test archive was used only with the owned fixture and was not packaged.",
+    "remaining": "Public component download, application restart and continuation from the PDF selection remain part of final distribution checks. The local proof used the native installation routines and test dialog, not production executables or a public feed. Larger real EPUB layout sampling and physical Kindle/Kobo fidelity checks remain separate. No GitHub assets or releases were changed.",
+    "cleanup": "All new package, browser and test profile folders in this pass were cleaned by their wrappers."
   }
 }

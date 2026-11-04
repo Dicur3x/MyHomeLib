@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TAG = 'optional-alreader-2.5.1009.25'
 PREFIX = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + TAG + '/'
 OWNED = {'HomeLibReader', 'BookProcessing', 'ImageProcessing', 'Kindle',
-         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport', 'FB2Export', 'KoboExport'}
+         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport'}
 
 
 def digest(data):
@@ -130,7 +130,7 @@ def main():
     assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
     # A newly introduced writer needs both validated architectures.
     added = set(bootstrap) - set(baseline)
-    writer_ids = {'KindleExport', 'FB2Export', 'KoboExport'}
+    writer_ids = {'KindleExport', 'FB2Export', 'KoboExport', 'EpubPdfExport'}
     assert {component for component, _ in added} <= writer_ids, 'Unexpected new components: ' + str(added)
     for component in {component for component, _ in added}:
         assert {(component, 'Win32'), (component, 'Win64')} <= added, 'Incomplete new writer: ' + component

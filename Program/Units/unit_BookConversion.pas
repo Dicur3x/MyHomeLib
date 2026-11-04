@@ -561,7 +561,7 @@ begin
       end;
     Check;
     if not FileExists(OutputName) then raise Exception.Create('Конвертер не создал книгу.');
-    RecordBookConversionUse(Extension,TargetExtension);
+    RecordBookConversionUse(Extension,TargetExtension,OutputProfile);
     if FileExists(ReportName) then
     begin
       Report:=TJSONObject.ParseJSONValue(TFile.ReadAllText(ReportName,TEncoding.UTF8));

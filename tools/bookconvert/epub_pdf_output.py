@@ -343,7 +343,8 @@ def convert(api, prepared, output, module_root, check, browser=None):
             raise api.ConversionError('Не удалось завершить вёрстку EPUB за четыре минуты.')
 
     # Isolate optional dependencies from other book-format components.
-    sys.path.insert(0, str(module_root / 'runtime'))
+    runtime = module_root / 'runtime'
+    sys.path[:0] = [str(runtime / name) for name in ('pypdf.whl', 'websocket_client.whl')]
     try:
         import websocket
         from pypdf import PdfReader, PdfWriter
@@ -351,7 +352,7 @@ def convert(api, prepared, output, module_root, check, browser=None):
     except ImportError as error:
         raise api.ComponentRequired('EpubPdfExport', 'Установите модуль вёрстки EPUB в PDF.') from error
     finally:
-        sys.path.pop(0)
+        del sys.path[:2]
 
     try:
         with closing(api.EpubArchive(prepared)) as archive:

@@ -26,6 +26,7 @@ begin
           Require(not Extras.Checked and not string(Formats.Items.Text).Contains('KEPUB'),
             'Additional formats appeared in the ordinary list');
           Extras.Perform(BM_CLICK,0,0);
+          Require(string(Formats.Items.Text).Contains(' PDF'),'Mixed FB2 and EPUB have no PDF choice');
           var Index:=-1;
           for var J:=0 to Formats.Items.Count-1 do
             if string(Formats.Items[J]).Contains('KEPUB') then begin Index:=J; Break; end;
@@ -48,6 +49,35 @@ var Root, Status: string; Books: TArray<TBookRecord>; Options, Unused: TBookSend
   Choice: TBookSaveChoice; Estimates: TBookSaveEstimateItems; EstimateThread: TBookSendEstimateThread;
   Probe: TUnifiedSendProbe; Review: TAdvancedSaveDialogProbe; Revision: Integer;
   Deadline: UInt64; Complete: Boolean;
+  procedure InstallEpubPdf;
+  const ID = 'EpubPdfExport';
+  var Packages, Metadata, Feed, Archive, Job: string; Info: TProgramRelease;
+  begin
+    Require(IsOptionalComponent(ID) and not ComponentNotificationEnabled(ID,''),
+      'EPUB PDF is not optional');
+    var Missing:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,
+      '.epub',False,nil,'.pdf','pdf');
+    Require(String.Join(',',Missing)=ID,'Installed EPUB prerequisites requested an unrelated module');
+    Packages:=GetEnvironmentVariable('HOMELIB_FORMAT_COMPONENT_PACKAGES');
+    Metadata:=TFile.ReadAllText(TPath.Combine(Packages,'local-mirror-release.json'),TEncoding.UTF8);
+    Feed:=TFile.ReadAllText(TPath.Combine(Packages,COMPONENT_FEED_NAME),TEncoding.UTF8);
+    Require(ParseComponentMirror(Metadata,Feed,ID,'',Info),'EPUB PDF entry rejected by the native feed parser');
+    Archive:=TPath.Combine(Packages,ComponentVersionedArchiveName(ID,Info.ComponentVersion,ProgramUpdatePlatform));
+    Job:=TPath.Combine(Settings.AppPath,'HomeLibRu-update-epub-pdf');
+    var MainFile:=TPath.Combine(Settings.AppPath,'HomeLibRu.exe');
+    if not FileExists(MainFile) then TFile.Copy(ParamStr(0),MainFile);
+    var MainHash:=UpdateSHA256(MainFile);
+    try
+      PrepareProgramUpdate(Archive,Info.SHA256,Info.Tag,ProgramUpdatePlatform,Job,True,ID,Info.ComponentVersion);
+      VerifyPreparedProgramUpdate(Job,Info.Tag,ProgramUpdatePlatform);
+      InstallProgramUpdate(Job,Settings.AppPath);
+      Require((InstalledComponentVersion(Settings.AppPath,ID)=Info.ComponentVersion) and
+        not ComponentNeedsRepair(Settings.AppPath,ID),'Installed EPUB PDF package failed identity verification');
+      Require((UpdateSHA256(MainFile)=MainHash) and
+        not DirectoryExists(TPath.Combine(Settings.AppPath,'tools/pdfium')),
+        'EPUB PDF installation changed the application or installed the PDF reader');
+    finally CleanProgramUpdate(Job); end;
+  end;
   procedure CheckContinuation;
   var Name, Command: string; Startup: TStartupInfo; Process: TProcessInformation;
     Code: Cardinal; Plan: TBookSaveContinuation;
@@ -82,7 +112,12 @@ begin
   Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 requests an unrelated Kobo module');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.kepub.epub','kepub');
   Require(String.Join(',',Required)='BookProcessing,KoboExport','EPUB requests an unrelated FB2 writer');
+  Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.pdf','pdf');
+  Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 to PDF must use only fb2cng');
+  Required:=MissingBookConversionComponents(EmptyRuntime,Books[1].GetBookFileName,'.epub',False,nil,'.pdf','pdf');
+  Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   CheckContinuation;
+  InstallEpubPdf;
 
   Options:=Default(TBookSendOptions); Options.Mode:=emKepub; Options.ExplicitFormat:=True;
   Options.FileNameTemplate:='%t'; Options.ImageQuality:='original'; Options.NameCollision:=bncKeepBoth;
@@ -100,41 +135,57 @@ begin
     end;
   finally Review.Timer.Free; Review.Free; end;
 
-  Choice:=Default(TBookSaveChoice); Choice.Mode:=emKepub;
-  EstimateThread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
-  try
-    Revision:=-1; Complete:=False; Deadline:=GetTickCount64+180000; EstimateThread.Start;
-    repeat
-      Application.ProcessMessages; EstimateThread.Poll(Revision,Estimates,Status,Complete);
-      Require(GetTickCount64<Deadline,'Advanced estimate timed out: '+Status);
-      if not Complete then Sleep(10);
-    until Complete;
-    Require(Length(Estimates)=2,'Advanced estimate lost a book');
-    for var Item in Estimates do
-    begin
-      Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
-      for var Quality:=0 to 3 do Require(Item.Options.OutputBytes[0,Quality]>0,'Advanced estimate missed an image choice');
-    end;
-  finally EstimateThread.Free; end;
+  for var Mode in [emKepub,emAdvancedPDF] do
+  begin
+    var Extension:=BookSaveTargetExtension('.epub',Mode,False,False);
+    Options.Mode:=Mode;
+    Options.Folder:=Root+'copies'+Extension;
+    Choice:=Default(TBookSaveChoice); Choice.Mode:=Mode;
+    EstimateThread:=TBookSendEstimateThread.Create(Books,Choice,Settings.AppPath,Settings.TempPath);
+    try
+      Revision:=-1; Complete:=False; Deadline:=GetTickCount64+180000; EstimateThread.Start;
+      repeat
+        Application.ProcessMessages; EstimateThread.Poll(Revision,Estimates,Status,Complete);
+        Require(GetTickCount64<Deadline,'Advanced estimate timed out: '+Status);
+        if not Complete then Sleep(10);
+      until Complete;
+      Require(Length(Estimates)=2,'Advanced estimate lost a book');
+      for var Item in Estimates do
+      begin
+        Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
+        for var Quality:=0 to 3 do Require(Item.Options.OutputBytes[0,Quality]>0,'Advanced estimate missed an image choice');
+      end;
+    finally EstimateThread.Free; end;
 
-  Probe:=TUnifiedSendProbe.Create;
-  Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.Enabled:=False;
-  Probe.Timer.OnTimer:=Probe.Tick; Probe.Messages:=TStringList.Create;
-  try
-    Probe.Deadline:=GetTickCount64+120000; Probe.Timer.Enabled:=True;
-    Results:=SaveFileBooks(Books,Options,Required);
-    Require((Length(Required)=0) and (Probe.Failure='') and (Length(Results)=2),
-      'Advanced save did not finish: '+Probe.Failure+String.Join(', ',Required));
-    Require(SuccessfulBookExportCount(Results)=2,Results[0].ErrorText+' '+Results[1].ErrorText);
-    Require(not SameFileName(Results[0].OutputFile,Results[1].OutputFile),'Collision lost one KEPUB file');
-    for var I:=0 to High(Results) do
-    begin
-      Require(Results[I].OutputFile.EndsWith('.kepub.epub',True),'Collision or save lost the compound extension');
-      var Size:=TFile.GetSize(Results[I].OutputFile);
-      Require(Abs(Size-Estimates[I].Options.OutputBytes[0,0])<=512,'Estimate did not measure the written format');
-      Require(UpdateSHA256(Books[I].GetBookFileName)=SourceHashes[I],'Advanced save modified a source');
-    end;
-    Require(Length(TDirectory.GetFiles(Options.Folder))=2,'Advanced export left extra files');
-  finally Probe.Timer.Free; Probe.Messages.Free; Probe.Free; end;
-  Writeln('PASS advanced save compact choices restored review mixed Kobo estimates output collisions and source hashes'); Flush(Output);
+    Probe:=TUnifiedSendProbe.Create;
+    Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.Enabled:=False;
+    Probe.Timer.OnTimer:=Probe.Tick; Probe.Messages:=TStringList.Create;
+    try
+      Probe.Deadline:=GetTickCount64+120000; Probe.Timer.Enabled:=True;
+      Results:=SaveFileBooks(Books,Options,Required);
+      Require((Length(Required)=0) and (Probe.Failure='') and (Length(Results)=2),
+        'Advanced save did not finish: '+Probe.Failure+String.Join(', ',Required));
+      Require(SuccessfulBookExportCount(Results)=2,Results[0].ErrorText+' '+Results[1].ErrorText);
+      Require(not SameFileName(Results[0].OutputFile,Results[1].OutputFile),'Collision lost one advanced output');
+      for var I:=0 to High(Results) do
+      begin
+        Require(Results[I].OutputFile.EndsWith(Extension,True),'Collision or save lost the expected extension');
+        var Size:=TFile.GetSize(Results[I].OutputFile);
+        Require(Abs(Size-Estimates[I].Options.OutputBytes[0,0])<=512,'Estimate did not measure the written format');
+        Require(UpdateSHA256(Books[I].GetBookFileName)=SourceHashes[I],'Advanced save modified a source');
+        if Mode=emAdvancedPDF then
+        begin
+          var FileStream:=TFileStream.Create(Results[I].OutputFile,fmOpenRead or fmShareDenyWrite);
+          try
+            var Signature: AnsiString;
+            SetLength(Signature,5);
+            FileStream.ReadBuffer(Signature[1],Length(Signature));
+            Require(Signature='%PDF-','Advanced output has no PDF signature');
+          finally FileStream.Free; end;
+        end;
+      end;
+      Require(Length(TDirectory.GetFiles(Options.Folder))=2,'Advanced export left extra files');
+    finally Probe.Timer.Free; Probe.Messages.Free; Probe.Free; end;
+  end;
+  Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'); Flush(Output);
 end;

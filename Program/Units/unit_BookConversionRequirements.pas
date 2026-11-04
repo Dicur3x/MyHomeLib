@@ -10,7 +10,8 @@ function MissingBookConversionComponents(const AppPath, SourceFile, Extension: s
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
   const TargetExtension: string = ''; const OutputProfile: string = ''): TArray<string>;
 function AdvancedBookOutputExtension(const Profile: string): string;
-procedure RecordBookConversionUse(const ResolvedExtension: string; const TargetExtension: string = '');
+procedure RecordBookConversionUse(const ResolvedExtension: string;
+  const TargetExtension: string = ''; const OutputProfile: string = '');
 
 implementation
 
@@ -199,12 +200,27 @@ begin
   else if IndexText(Ext,['.chm','.cbr','.cb7'])>=0 then Result:='7-Zip';
 end;
 
-procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension: string);
+function AdvancedWriterComponent(const Ext, Profile: string): string;
+begin
+  Result:='';
+  if AdvancedBookOutputExtension(Profile)='' then Exit;
+  if Ext='.fb2' then Exit('FB2Export');
+  if Ext='.epub' then
+  begin
+    if Profile='kepub' then Exit('KoboExport');
+    if Profile='pdf' then Exit('EpubPdfExport');
+  end;
+end;
+
+procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension, OutputProfile: string);
 begin
   // Called only after preparation, conversion, or opening its verified cache.
   // Availability checks above must never renew the unused-module interval.
   RecordComponentUse('BookProcessing');
-  var ID:=SourceComponent('.'+LowerCase(ResolvedExtension.TrimLeft(['.'])));
+  var Ext:='.'+LowerCase(ResolvedExtension.TrimLeft(['.']));
+  var ID:=SourceComponent(Ext);
+  if ID<>'' then RecordComponentUse(ID);
+  ID:=AdvancedWriterComponent(Ext,OutputProfile);
   if ID<>'' then RecordComponentUse(ID);
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then RecordComponentUse('KindleExport');
 end;
@@ -225,7 +241,7 @@ end;
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean>;
   const TargetExtension, OutputProfile: string): TArray<string>;
-var Ext, Actual: string; Images: Boolean;
+var Ext, Actual, Writer: string; Images: Boolean;
   procedure Need(const ID: string);
   begin
     if (ID<>'') and (IndexText(ID,Result)<0) and ComponentNeedsRepair(AppPath,ID) then
@@ -236,7 +252,8 @@ begin
   Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
   if FileExists(SourceFile) then
   begin Actual:=DetectReaderExtension(SourceFile); if Actual<>'' then Ext:=Actual; end;
-  if (OutputProfile<>'') and (Ext<>'.fb2') and not ((Ext='.epub') and (OutputProfile='kepub')) then
+  Writer:=AdvancedWriterComponent(Ext,OutputProfile);
+  if (OutputProfile<>'') and (Writer='') then
     raise Exception.Create('Выбранный формат недоступен для исходного файла '+UpperCase(Ext.TrimLeft(['.']))+'.');
   if not ModularBookProcessingAvailable(AppPath) then Result:=TArray<string>.Create('BookProcessing');
   if OutputProfile<>'' then
@@ -245,8 +262,7 @@ begin
     if (Length(Result)=0) and (not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
       (Trim(TFile.ReadAllText(Capability,TEncoding.ASCII))<>'1')) then
       Result:=TArray<string>.Create('BookProcessing');
-    if Ext='.fb2' then Need('FB2Export')
-    else if (Ext='.epub') and (OutputProfile='kepub') then Need('KoboExport');
+    Need(Writer);
   end;
   Need(SourceComponent(Ext));
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then Need('KindleExport');

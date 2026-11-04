@@ -245,11 +245,11 @@ begin
       Add('Преобразовать в EPUB 3 через fb2cng',emEpub3,False,False);
     end;
     Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
+    Add('Преобразовать в PDF',emAdvancedPDF,False,False);
     if AllFB2 then
     begin
       Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
       Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
-      Add('Преобразовать в PDF',emAdvancedPDF,False,False);
       Add('Преобразовать в Markdown',emMarkdown,False,False);
     end;
   end;

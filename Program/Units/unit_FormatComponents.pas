@@ -21,7 +21,7 @@ function IsFormatComponent(const ID: string): Boolean;
 begin
   Result:=(ID='BookProcessing') or (ID='ImageProcessing') or (ID='Kindle') or
     (ID='LegacyBooks') or (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or
-    (ID='FB2Export') or (ID='KoboExport');
+    (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport');
 end;
 
 function FormatComponentFile(const ID: string): string;
@@ -33,6 +33,7 @@ begin
   if ID='KindleExport' then Result:='tools/kindle-export/kindling-cli.exe';
   if ID='FB2Export' then Result:='tools/fb2-export/fbc.exe';
   if ID='KoboExport' then Result:='tools/kobo-export/kepubify.exe';
+  if ID='EpubPdfExport' then Result:='tools/epub-pdf/epub_pdf_output.py';
   if ID='LegacyBooks' then Result:='tools/bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll';
   if ID='LegacyOffice' then Result:='tools/office/wps2html.exe';
   if ID='XPS' then Result:='tools/xps/HomeLibXps.exe';
@@ -47,6 +48,7 @@ begin
   if ID='KindleExport' then Result:='tools/kindle-export/COMPONENT.json';
   if ID='FB2Export' then Result:='tools/fb2-export/COMPONENT.json';
   if ID='KoboExport' then Result:='tools/kobo-export/COMPONENT.json';
+  if ID='EpubPdfExport' then Result:='tools/epub-pdf/COMPONENT.json';
   if ID='LegacyBooks' then Result:='tools/bookconvert/vendor/calibre_legacy/COMPONENT.json';
   if ID='LegacyOffice' then Result:='tools/office/COMPONENT.json';
   if ID='XPS' then Result:='tools/xps/COMPONENT.json';
@@ -70,6 +72,10 @@ begin
     var Prefix:=Copy(Writer,1,LastDelimiter('/',Writer));
     Result:=TArray<string>.Create(Writer,Prefix+'LICENSE.txt',Prefix+'SOURCE.txt');
   end;
+  if ID='EpubPdfExport' then Result:=TArray<string>.Create(FormatComponentFile(ID),
+    'tools/epub-pdf/viewer/vivliostyle.js','tools/epub-pdf/runtime/pypdf.whl',
+    'tools/epub-pdf/runtime/websocket_client.whl','tools/epub-pdf/LICENSE.txt',
+    'tools/epub-pdf/fast-diff-LICENSE.txt','tools/epub-pdf/SOURCE.txt');
   if ID='LegacyBooks' then Result:=TArray<string>.Create(FormatComponentFile(ID),'tools/bookconvert/legacy_helper.py');
   if ID='LegacyOffice' then Result:=TArray<string>.Create('tools/office/wps2html.exe',
     'tools/office/wpd2html.exe','tools/office/RUNTIME.json','tools/office/NOTICE.txt');
@@ -84,7 +90,7 @@ begin
     (Name.StartsWith('tools/bookconvert/') and
       not Name.StartsWith('tools/bookconvert/vendor/calibre_legacy/') and
       (Name<>'tools/bookconvert/kindle_input.py') and (Name<>'tools/bookconvert/kindle_output.py') and
-      (Name<>'tools/bookconvert/legacy_helper.py') and
+      (Name<>'tools/bookconvert/legacy_helper.py') and (Name<>'tools/bookconvert/epub_pdf_output.py') and
       (Name<>'tools/bookconvert/COMPONENT.json')));
   if ID='ImageProcessing' then Exit((Name='tools/images/HomeLibImages.exe') or
     (Name='tools/images/RUNTIME.json') or (Name='tools/images/HomeLibImages-MIT.txt') or
@@ -92,7 +98,7 @@ begin
   if ID='Kindle' then Exit((Name='tools/bookconvert/kindle_input.py') or
     (Name.StartsWith('tools/kindle/') and not Name.StartsWith('tools/kindle/python/')));
   if ID='KindleExport' then Exit((Name='tools/bookconvert/kindle_output.py') or Name.StartsWith('tools/kindle-export/'));
-  if (ID='FB2Export') or (ID='KoboExport') then
+  if (ID='FB2Export') or (ID='KoboExport') or (ID='EpubPdfExport') then
   begin
     if Name=FormatComponentDescriptor(ID) then Exit(True);
     for var Required in FormatComponentRequiredFiles(ID) do

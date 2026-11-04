@@ -932,7 +932,8 @@ begin
     if IsFormatComponent(Component) then
     begin
       if Component='LegacyOffice' then Architecture:='Win64';
-      if Component<>'Kindle' then
+      // Script-only modules are verified by the platform descriptor and its file hashes.
+      if (Component<>'Kindle') and (Component<>'EpubPdfExport') then
         VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Версия или контрольная сумма модуля '+Component+' не совпадает с описанием пакета.');
@@ -1602,7 +1603,7 @@ end;
 
 procedure InstallProgramUpdate(const Job, Target: string;
   const Progress: TUpdateProgress; FailAfter: Integer);
-const ComponentNames: array[0..22] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport');
+const ComponentNames: array[0..23] of string = ('SQLite', 'AlReader', 'SumatraPDF','DjVuLibre','7-Zip','DocSharp','JPEG XL','WebP','HomeLibReader','PDFium','BookConverter','IBK','MHLMcpServer','Zstandard','BookProcessing','ImageProcessing','Kindle','LegacyBooks','LegacyOffice','XPS','KindleExport','FB2Export','KoboExport','EpubPdfExport');
 var Manifest, Journal, Entry: TJSONObject; Files: TUpdateFiles; List: TJSONArray;
   Info: TUpdateFile; Source, Destination, Backup, Temporary, State: string;
   Handle: THandle; Existed: Boolean; I, J, Applied, Comparison: Integer;

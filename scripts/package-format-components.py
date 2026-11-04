@@ -6,8 +6,10 @@ image operation. Every payload retains its own licences.
 """
 import argparse
 import importlib.util
+import io
 import json
 from pathlib import Path
+import tarfile
 import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
@@ -29,6 +31,7 @@ WRITERS = {
         'Win64': ('kepubify-windows-64bit.exe', 'f3dee3ece063329661fef474262fe403812335bf1676eab35b672565bf195738'),
     },
 }
+ADVANCED_WRITERS = (*WRITERS, 'EpubPdfExport')
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
     'ImageProcessing': 'tools/images/COMPONENT.json',
@@ -37,6 +40,7 @@ DESCRIPTORS = {
     'LegacyBooks': 'tools/bookconvert/vendor/calibre_legacy/COMPONENT.json',
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
+    'EpubPdfExport': 'tools/epub-pdf/COMPONENT.json',
     **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
 }
 NOTES = {
@@ -49,6 +53,7 @@ NOTES = {
     'XPS': 'Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен.',
     'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
+    'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome.',
 }
 
 
@@ -96,7 +101,50 @@ def advanced_writer_payload(platform, component, source):
     return payload, list(payload)
 
 
+def epub_pdf_payload(source):
+    if source is None:
+        raise ValueError('The verified upstream EPUB PDF files are required for EpubPdfExport')
+
+    def verified(name, sha256):
+        data = (source / name).read_bytes()
+        if helper.digest(data) != sha256:
+            raise ValueError('Upstream EPUB PDF file differs from reviewed source: ' + name)
+        return data
+
+    core = verified('core-2.45.2.tgz', '114d4fb8deb5bdafc2aeb2baa983e38c869ff7103ae4f4c4e1550726dd99df58')
+    diff = verified('fast-diff-1.3.0.tgz', '77f602d83366f68f4dfb5dd9ba636933dc0047502da4d48d914d1d361c517d4a')
+    with tarfile.open(fileobj=io.BytesIO(core), mode='r:gz') as archive:
+        script = archive.extractfile('package/lib/vivliostyle.js').read()
+    with tarfile.open(fileobj=io.BytesIO(diff), mode='r:gz') as archive:
+        diff_license = archive.extractfile('package/LICENSE').read()
+    files = {
+        'epub_pdf_output.py': (REPO/'tools/bookconvert/epub_pdf_output.py').read_bytes(),
+        'viewer/vivliostyle.js': script,
+        'LICENSE.txt': verified('Vivliostyle-LICENSE.txt', '57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6'),
+        'fast-diff-LICENSE.txt': diff_license,
+        'runtime/pypdf.whl': verified('pypdf-6.21.4-py3-none-any.whl',
+            '33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c'),
+        'runtime/websocket_client.whl': verified('websocket_client-1.9.2-py3-none-any.whl',
+            'e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce'),
+        'SOURCE.txt': (
+            'Vivliostyle Core 2.45.2 (AGPL-3.0). Unmodified JavaScript from:\n'
+            'https://registry.npmjs.org/@vivliostyle/core/-/core-2.45.2.tgz\n'
+            'Corresponding source and build files for this version:\n'
+            'https://github.com/vivliostyle/vivliostyle.js/archive/refs/tags/v2.45.2.zip\n'
+            'Bundled fast-diff source (Apache-2.0): https://registry.npmjs.org/fast-diff/-/fast-diff-1.3.0.tgz\n'
+            'Python wheels are unmodified and contain their own licences. Upstream source distributions:\n'
+            'https://pypi.org/project/pypdf/6.21.4/#files\n'
+            'https://pypi.org/project/websocket-client/1.9.2/#files\n'
+            'The print host and worker source are included in epub_pdf_output.py.\n'
+            'The browser is supplied by the local Windows installation.\n').encode('ascii'),
+    }
+    payload = {'tools/epub-pdf/' + name: data for name, data in files.items()}
+    return payload, list(payload)
+
+
 def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None):
+    if component == 'EpubPdfExport':
+        return epub_pdf_payload(advanced_export_root)
     if component in WRITERS:
         return advanced_writer_payload(platform, component, advanced_export_root)
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
@@ -202,14 +250,14 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--version', required=True)
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
-    parser.add_argument('--component', choices=COMPONENTS + tuple(WRITERS), action='append')
+    parser.add_argument('--component', choices=COMPONENTS + ADVANCED_WRITERS, action='append')
     parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
-    parser.add_argument('--advanced-export-root', type=Path, help='Pinned fb2cng and kepubify release files and licenses')
+    parser.add_argument('--advanced-export-root', type=Path, help='Pinned upstream files and licenses for optional writers')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
     entries=[]; assets=[]
-    components = options.component or COMPONENTS + (tuple(WRITERS) if options.advanced_export_root else ())
+    components = options.component or COMPONENTS + (ADVANCED_WRITERS if options.advanced_export_root else ())
     for platform in options.platform or ('Win32','Win64'):
         for component in components:
             entry, asset=package(options.output.resolve(), platform, component, options.version,

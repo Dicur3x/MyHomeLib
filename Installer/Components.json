@@ -568,6 +568,30 @@
           "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
         }
       ]
+    },
+    {
+      "id": "EpubPdfExport",
+      "platform": "Win32",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.4-Win32.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome."
+        }
+      ]
+    },
+    {
+      "id": "EpubPdfExport",
+      "platform": "Win64",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-EpubPdfExport-3.0.0.4-Win64.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome."
+        }
+      ]
     }
   ]
 }
