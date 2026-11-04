@@ -47,7 +47,8 @@ uses
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
   frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
-  unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas';
+  unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas',
+  frm_CollectionPackingProgress in '..\..\..\Program\Forms\frm_CollectionPackingProgress.pas';
 
 type
   TRegressionExceptionHandler = class

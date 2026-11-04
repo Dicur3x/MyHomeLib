@@ -1,9 +1,34 @@
 ﻿type
+  TPackingReviewProbe = class
+    Dialog: TfrmCollectionPackingProgress;
+    OutputRoot: string;
+    Cancel, SawEstimate: Boolean;
+    procedure Tick(Sender: TObject);
+  end;
+
   TPackingDownloadFixture = class
     ResponseFile: string;
     Requests: Integer;
     procedure Command(Context: TIdContext; Request: TIdHTTPRequestInfo; Response: TIdHTTPResponseInfo);
   end;
+
+procedure TPackingReviewProbe.Tick(Sender: TObject);
+var StartButton: TButton; Status: TCollectionPackingStatus;
+begin
+  StartButton:=TButton(Dialog.FindComponent('btnContinuePacking'));
+  if SawEstimate or not StartButton.Visible then Exit;
+  Status:=Dialog.ReadStatus;
+  Require((Status.BooksTotal=1) and (Status.Unavailable=2) and
+    (Status.PlannedInputBytes>0) and (Status.WorkingBytes>0) and (Status.FreeBytes>0),
+    'Packing review did not receive its space and availability figures');
+  Require((Pos('Без файла: 2',TLabel(Dialog.FindComponent('lblPackingCounts')).Caption)>0) and
+    (Pos('Свободно',TLabel(Dialog.FindComponent('lblPackingTime')).Caption)>0) and
+    not DirectoryExists(TPath.Combine(OutputRoot,'archives')),
+    'Packing review hides a figure or started writing archives before approval');
+  SawEstimate:=True;
+  if Cancel then TButton(Dialog.FindComponent('btnCancelPacking')).Click
+  else StartButton.Click;
+end;
 
 procedure TPackingDownloadFixture.Command(Context: TIdContext; Request: TIdHTTPRequestInfo;
   Response: TIdHTTPResponseInfo);
@@ -30,6 +55,27 @@ var
   Server: TIdHTTPServer;
   Fixture: TPackingDownloadFixture;
   Downloader: TDownloader;
+
+  function ReviewPacking(Cancel: Boolean): TCollectionPackingSnapshot;
+  var Dialog: TfrmCollectionPackingProgress; Probe: TPackingReviewProbe; Timer: TTimer;
+  begin
+    Result:=nil;
+    Dialog:=TfrmCollectionPackingProgress.Create(nil);
+    Probe:=TPackingReviewProbe.Create; Timer:=TTimer.Create(nil);
+    try
+      Probe.Dialog:=Dialog; Probe.OutputRoot:=Options.OutputRoot; Probe.Cancel:=Cancel;
+      Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
+      try
+        Result:=Dialog.Execute(Options,True);
+      except
+        on E:EAbort do if not Cancel then raise;
+      end;
+      Require(Probe.SawEstimate and (Assigned(Result)<>Cancel),
+        'The packing review did not honor the chosen action');
+    finally
+      Timer.Free; Probe.Free; Dialog.Free;
+    end;
+  end;
 
   function MakeCopy(ExpectedPacked, ExpectedMissing, ExpectedReused: Integer): Integer;
   var Snapshot: TCollectionPackingSnapshot;
@@ -153,7 +199,17 @@ begin
 
     Options.OutputRoot:=Settings.AppPath+'packing-mixed-copy';
     Options.DisplayName:='Packed online catalogue';
-    CopyID:=MakeCopy(1,2,0);
+    ReviewPacking(True);
+    Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) and
+      (Length(TDirectory.GetDirectories(Options.OutputRoot,'.job-*'))=0),
+      'Canceling the estimate left a collection or disposable snapshot');
+    var Prepared:=ReviewPacking(False);
+    try
+      Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName),
+        'Progress registered a copy before final confirmation');
+      CopyID:=Prepared.RegisterNew(SystemDB);
+    finally Prepared.Free; end;
+    Writeln('PASS packing estimate review, cancellation, continuation and separate registration');
     CopyCollection:=SystemDB.GetCollection(CopyID);
     RequirePacked(LocalID);
     CopyCollection.GetBookRecord(CreateBookKey(MissingID,CopyID),Book,True);

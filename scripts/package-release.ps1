@@ -66,12 +66,14 @@ try {
     [IO.Directory]::CreateDirectory($updateMetadata) | Out-Null
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'Installer\Components.json') -Destination (Join-Path $updateMetadata 'COMPONENTS.json')
     $toolsDestination = Join-Path $payloadDirectory 'tools'
-    [IO.Directory]::CreateDirectory($toolsDestination) | Out-Null
+    $packingDestination = Join-Path $toolsDestination 'collectionpack'
+    [IO.Directory]::CreateDirectory($packingDestination) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'tools\collectionpack\pack_collection.py') -Destination $packingDestination
     # Genre/update metadata is shared catalogue data. Fonts belong to the
     # optional Reader package; native format adapters arrive with their modules.
     if ($Full) {
         foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $runtimeDirectory 'tools') -Directory) {
-            if ($directory.Name -notin @('fonts', 'bookconvert')) {
+            if ($directory.Name -notin @('fonts', 'bookconvert', 'collectionpack')) {
                 Copy-Item -LiteralPath $directory.FullName -Destination $toolsDestination -Recurse
             }
         }
@@ -160,7 +162,7 @@ try {
     try {
         if (-not $Full) {
             foreach ($entry in $archive.Entries) {
-                $coreResource = $entry.FullName -eq 'tools/updates/COMPONENTS.json' -or
+                $coreResource = $entry.FullName -in @('tools/updates/COMPONENTS.json', 'tools/collectionpack/pack_collection.py') -or
                     $entry.FullName -cmatch '^tools/genres/genres_(fb2|nonfb2)(_(bg|en|uk))?\.glst$'
                 if (($entry.FullName.StartsWith('tools/') -and -not $coreResource) -or
                     $entry.FullName.StartsWith('Readers/') -or $entry.FullName.StartsWith('converters/') -or

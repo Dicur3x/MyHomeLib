@@ -64,7 +64,7 @@ def main():
                 'tools/7zip/', 'tools/webp/', 'tools/jpeg-xl/', 'tools/doc/', 'tools/djvu/')
             genre_names = {'genres_' + kind + suffix + '.glst'
                            for kind in ('fb2', 'nonfb2') for suffix in ('', '_bg', '_en', '_uk')}
-            core_tools = {'tools/updates/COMPONENTS.json'} | {'tools/genres/' + name for name in genre_names}
+            core_tools = {'tools/updates/COMPONENTS.json', 'tools/collectionpack/pack_collection.py'} | {'tools/genres/' + name for name in genre_names}
             forbidden = [name for name in names if name in ('HomeLibReader.exe', 'MHLMcpServer.exe', 'HomeLibRu.url', 'libzstd.dll') or
                 name.startswith(forbidden_prefixes) or (name.startswith('tools/') and name not in core_tools)]
             assert not forbidden, forbidden
@@ -83,6 +83,7 @@ def main():
             for name in genre_names:
                 assert package.read('tools/genres/' + name) == (ROOT/'Installer/GenreLists'/name).read_bytes(), name
             assert package.read('tools/updates/COMPONENTS.json') == (ROOT/'Installer/Components.json').read_bytes()
+            assert package.read('tools/collectionpack/pack_collection.py') == (ROOT/'tools/collectionpack/pack_collection.py').read_bytes()
             expected_machine = 0x14c if options.platform == 'Win32' else 0x8664
             for name in ['HomeLibRu.exe','HomeLibRuUpdater.exe']:
                 assert machine(package.read(name)) == expected_machine

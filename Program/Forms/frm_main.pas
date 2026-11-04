@@ -915,6 +915,7 @@ type
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
+    procedure PackCurrentCollection(Sender: TObject);
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -1260,7 +1261,8 @@ uses
   frm_EditGroup,
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools,
-  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance;
+  unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
+  unit_CollectionPacking, frm_CollectionPackingProgress, unit_FormatComponents;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -4401,6 +4403,88 @@ begin
   end;
 end;
 
+procedure TfrmMain.PackCurrentCollection(Sender: TObject);
+var Options: TCollectionPackingOptions; Required: TArray<string>;
+  FolderPicker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
+  Snapshot: TCollectionPackingSnapshot; Status: TCollectionPackingStatus;
+  BaseName, Summary: string; NewID, Suffix: Integer;
+begin
+  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  if CheckActiveDownloads then
+  begin
+    MessageDlg('Дождитесь завершения скачивания книг и снова откройте сжатие коллекции.',mtInformation,[mbOK],0);
+    Exit;
+  end;
+
+  Options:=Default(TCollectionPackingOptions);
+  Options.Script:=TPath.Combine(Settings.AppPath,'tools/collectionpack/pack_collection.py');
+  if not FileExists(Options.Script) then
+  begin
+    MessageDlg('Файл упаковки отсутствует. Восстановите файлы HomeLibre из архива программы.',mtError,[mbOK],0);
+    Exit;
+  end;
+  Options.Python:=FindBookProcessingPython(Settings.AppPath);
+  if Options.Python='' then Required:=Required+['BookProcessing'];
+  Options.SevenZip:=FindFullSevenZip(Settings.AppPath);
+  if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
+  if Options.SevenZip='' then Required:=Required+['7-Zip'];
+  if Length(Required)>0 then
+  begin
+    EnsureProgramUpdateForm;
+    FProgramUpdateForm.RequestComponents(Required,
+      'Для упаковки коллекции нужны перечисленные компоненты. После установки снова откройте «Сжать коллекцию».',True);
+    Exit;
+  end;
+
+  FFormBusy:=True; NewID:=INVALID_COLLECTION_ID;
+  try
+    try
+      FolderPicker:=TFileOpenDialog.Create(Self);
+      try
+        FolderPicker.Title:='Выберите пустую папку или папку ранее начатой сжатой копии';
+        FolderPicker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
+        if not FolderPicker.Execute(Handle) then Exit;
+        Options.OutputRoot:=FolderPicker.FileName;
+      finally FolderPicker.Free; end;
+      Options.CatalogFile:=FCollection.GetProperty(PROP_DATAFILE);
+      Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
+      Options.SourceRoot:=FCollection.CollectionRoot;
+      Options.SourceID:=FCollection.CollectionID;
+      BaseName:=FCollection.CollectionDisplayName+' (сжатая копия)';
+      Options.DisplayName:=BaseName; Suffix:=1;
+      while FSystemData.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) do
+      begin
+        Inc(Suffix);
+        Options.DisplayName:=BaseName+' '+IntToStr(Suffix);
+      end;
+      Progress:=TfrmCollectionPackingProgress.Create(Self);
+      try Snapshot:=Progress.Execute(Options,True);
+      finally Progress.Free; end;
+      try
+        Status:=Snapshot.Status;
+        Summary:=Format('Записей с файлами: %d. Без файла: %d.'+sLineBreak+
+          'Архивы и файлы: %s → %s.'+sLineBreak+
+          'Повторно использовано архивов и файлов: %d.'+sLineBreak+sLineBreak+
+          'Добавить и открыть отдельную коллекцию «%s»?',
+          [Status.BooksDone,Status.Unavailable,PackingSize(Status.InputBytes),
+           PackingSize(Status.OutputBytes),Status.Reused,Options.DisplayName]);
+        if MessageDlg(Summary,mtConfirmation,[mbYes,mbNo],0)=mrYes then
+          NewID:=Snapshot.RegisterNew(FSystemData);
+      finally Snapshot.Free; end;
+    except
+      on E:EAbort do Exit;
+      on E:Exception do
+        MessageDlg('Сжатую копию не удалось открыть.'+sLineBreak+E.Message,mtError,[mbOK],0);
+    end;
+  finally FFormBusy:=False; end;
+  if NewID>0 then
+  begin
+    Settings.ActiveCollection:=NewID;
+    NotifyFavoriteCatalogChanged(TArray<Integer>.Create(NewID));
+    InitCollection;
+  end;
+end;
+
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
   Required: string;
@@ -4814,6 +4898,9 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
+  FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
+  FilterMenu.Caption:='Сжать коллекцию…';
+  FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(5,FilterMenu);
 
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';

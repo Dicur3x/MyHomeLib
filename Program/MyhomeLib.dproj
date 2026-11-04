@@ -105,6 +105,7 @@
         <DCCReference Include="Units\unit_BookViewSessions.pas"/>
         <DCCReference Include="Units\unit_CatalogSources.pas"/>
         <DCCReference Include="Units\unit_CollectionSpace.pas"/>
+        <DCCReference Include="Units\unit_CollectionPacking.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>
         <DCCReference Include="Units\unit_CollectionBackup.pas"/>
         <DCCReference Include="Units\unit_BookDuplicates.pas"/>
@@ -116,6 +117,7 @@
         <DCCReference Include="Forms\frm_BookMetadataFill.pas"/>
         <DCCReference Include="Forms\frm_AuthorInformation.pas"/>
         <DCCReference Include="Forms\frm_CatalogSources.pas"/>
+        <DCCReference Include="Forms\frm_CollectionPackingProgress.pas"/>
         <DCCReference Include="Forms\frm_CollectionBackup.pas"/>
         <DCCReference Include="Forms\frm_BookDuplicates.pas"/>
         <DCCReference Include="Forms\frm_AuthorFavorites.pas"/>

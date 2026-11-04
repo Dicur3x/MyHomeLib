@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "backend_and_initial_native_clone_verified_x86_x64_product_integration_pending",
+  "status": "native_catalogue_command_integrated_release_pending",
   "entrypoint": "pack_collection.py --job <job.json> [--cancel <cancel-file>]",
   "job": {
     "version": 1,

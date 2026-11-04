@@ -18,6 +18,7 @@ type
     Stage, StageKey, SourceName: string;
     Current, Total, SourcesDone, SourcesTotal, BooksDone, BooksTotal: Int64;
     InputBytes, OutputBytes, Reused, Unavailable, ElapsedMS, PackingMS: Int64;
+    PlannedInputBytes, WorkingBytes, FreeBytes: Int64;
   end;
 
   // Owns disposable snapshots only. Packing never writes the source catalogue,
@@ -68,7 +69,7 @@ type
 implementation
 
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
-  System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers,
+  System.Generics.Collections, SQLite3, unit_MHLArchiveHelpers, unit_CollectionSpace,
   unit_MHLExternalTools;
 
 const
@@ -305,7 +306,11 @@ begin
   Report('Подготавливаем рабочие снимки',0,0);
   CopySnapshot(FOptions.CatalogFile,FCatalogFile,'Сохраняем снимок каталога');
   CopySnapshot(FOptions.PersonalFile,FPersonalFile,'Сохраняем личные данные');
-  BuildPlan; FReady:=True;
+  BuildPlan;
+  FStatus.WorkingBytes:=TFile.GetSize(FCatalogFile)+TFile.GetSize(FPersonalFile)+TFile.GetSize(FPlanFile);
+  FStatus.FreeBytes:=CollectionDiskFree(FOptions.OutputRoot);
+  FStatus.BooksTotal:=FCount;
+  FReady:=True;
 end;
 
 function PackingSourceExists(const FileName: string): Boolean;
@@ -482,6 +487,25 @@ begin
       if FCount=0 then raise Exception.Create('В коллекции не найдено локальных файлов для сжатия.');
       FPlan.Commit;
     except if FPlan.InTransaction then FPlan.Rollback; raise; end;
+    Query:=FPlan.NewQuery('SELECT DISTINCT source FROM books ORDER BY source');
+    try
+      Query.Open;
+      while not Query.Eof do
+      begin
+        CheckCanceled;
+        Source:=Query.FieldAsString(0);
+        Inc(FStatus.PlannedInputBytes,TFile.GetSize(Source));
+        if MatchText(ExtractFileExt(Source),['.zip','.7z']) then
+          for var Kind in ['covers','images'] do
+            for var Suffix in ['.zip','.7z'] do
+            begin
+              Payload:=TPath.Combine(TPath.Combine(ExtractFileDir(Source),Kind),
+                ChangeFileExt(ExtractFileName(Source),Suffix));
+              if FileExists(Payload) then Inc(FStatus.PlannedInputBytes,TFile.GetSize(Payload));
+            end;
+        Query.Next;
+      end;
+    finally Query.Free; end;
     Report('Расположение книг проверено',Done,Total);
   finally
     PreviousDeferred.Free; Deferred.Free; Origin.Free; Retained.Free; Target.Free;

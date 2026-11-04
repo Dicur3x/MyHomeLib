@@ -4246,5 +4246,20 @@
       "temporary_profiles_removed": true
     },
     "next": "Connect packing to the catalogue UI, show the unavailable count before registration, and exercise selected INPX updates on a mixed collection. A missing member inside an otherwise present archive is still a locator error."
+  },
+  "collection_packing_ui_20261104": {
+    "status": "Collection menu, destination picker, preparation review, cancellable progress and separate registration are integrated. Release pending.",
+    "implementation": "Minimal catalogue ZIPs carry the first-party script. Existing Python and 7-Zip are used when available. The on-demand component prompt opens from the collection command. The estimate shows new source bytes, working catalogue bytes, remaining free space and unavailable records before packing is authorized.",
+    "checks": {
+      "Win32": "Delphi Release test and main builds, native packing-fbd PASS including the real progress form review, cancel, continue and registration. Minimal package contents, manifest and architecture passed.",
+      "Win64": "Same native and package checks. Also clicked the production menu in an isolated GUI instance, selected the folder, reviewed the estimate, packed, confirmed and verified the new active collection.",
+      "gui_archive_sha256": "abbf5ccdeb967725f39aac30fed542ba7d798517233c7177edea20f4c06660af",
+      "minimal_archive_sha256": {
+        "Win32": "14ae260b4f09e79fcc390e51b523def169467ee522c9b8804249294cb2986530",
+        "Win64": "e59d281c154d4b9421d824de40498dc56d82900014bc442c226645e8aa6b513f"
+      },
+      "cleanup": "Native and package probes removed their fixtures. Automatic review blocked recursive removal of the separate manual GUI fixture at G:/HomeLibRu-build-cache/HomeLibRu-native-kBFMAX. The test application exited and the fixture contains 75239840 bytes."
+    },
+    "next": "Connect selected INPX updates to preparation of a separate packed generation. Test a real mixed library sample, optional first-use component installation and handling of a missing entry inside an otherwise present archive."
   }
 }
