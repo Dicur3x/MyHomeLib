@@ -4173,5 +4173,28 @@
     "scope": "Original published Main restored the locally prepared exact package, received the normal Install and restart click, selected the new package helper, exited and relaunched beta 3. Per architecture 240 installed files, seven catalogue entries, protected data and private INI settings were checked. GUI observed before and after normal exit. No HTTP download was needed in these runs.",
     "fixture_notes": "When the updater was outside the captured Main window it did not appear in the window list, although the diagnostic log showed its HWND was visible. Maximizing Main through the GUI and reopening the update window enabled capture and selection of the actual updater surface. An exploratory deferred-ready test, which introduced the ready marker after startup, left the install button disabled after opening a fresh check cycle. The passing runs restored the package from a ready marker already present at startup.",
     "temporary_payloads_removed": true
+  },
+  "beta3_public_release_20261104": {
+    "status": "Published as Latest, with two minimal catalogue ZIPs and SHA256SUMS.txt.",
+    "release_id": 433413664,
+    "tag": "3.0.0_pre1.3",
+    "source_commit": "84860d51e7744f48044dfb64f331f73f1a33b56e",
+    "published_at_utc": "2026-11-04T01:40:33Z",
+    "assets": {
+      "HomeLibre.zip": 707805804,
+      "HomeLibre_x64.zip": 707805803,
+      "SHA256SUMS.txt": 707805805
+    },
+    "network_report": {
+      "path": "tools/ui/tests/Out/beta3-public-catalogue-20261104-r1.json",
+      "sha256": "8e278284ab100e1d8a3aadbab24144e4ca49dde0d12200ace7cb96d0dc4d4b9b",
+      "status": "PASS",
+      "temporary_downloads_removed": true
+    },
+    "scope": "Native production parsing, HTTP download and preparation from the public release on both architectures. The separate GUI checks installed the same bytes from prepared local jobs.",
+    "remaining": [
+      "Review obsolete assets in the permanent components release without disrupting legacy clients.",
+      "Continue the broader collection packing and import work."
+    ]
   }
 }

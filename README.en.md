@@ -15,19 +15,19 @@ originally created by **Олексій Пеньков (Oleksiy Penkov)**.
 
 ## Download and run
 
-The current public beta is **[HomeLibre 3.0 beta 2](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.2)**.
-[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.2) · [Release history](docs/releases/README.md) ·
-[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.2.md) (in Russian).
+The current public beta is **[HomeLibre 3.0 beta 3](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.3)**.
+[Release notes](https://github.com/Dicur3x/MyHomeLib/releases/tag/3.0.0_pre1.3) · [Release history](docs/releases/README.md) ·
+[Validation and limitations](docs/RELEASE_VALIDATION_3.0.0_pre1.3.md) (in Russian).
 
 | Archive | System |
 | --- | --- |
-| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.2/HomeLibRu_x64.zip) | 64-bit Windows |
-| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.2/HomeLibRu.zip) | 32-bit Windows; also runs on 64-bit Windows |
-| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.2/SHA256SUMS.txt) | Archive checksums |
+| [HomeLibre — 64-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.3/HomeLibre_x64.zip) | 64-bit Windows |
+| [HomeLibre — 32-bit](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.3/HomeLibre.zip) | 32-bit Windows; also runs on 64-bit Windows |
+| [SHA256SUMS.txt](https://github.com/Dicur3x/MyHomeLib/releases/download/3.0.0_pre1.3/SHA256SUMS.txt) | Archive checksums |
 
-Beta 2 retains the archive filenames `HomeLibRu.zip` and `HomeLibRu_x64.zip`
-so older installations can update automatically. A transition to HomeLibre
-filenames is being prepared without duplicate archives. The executable remains `HomeLibRu.exe`.
+The archives are named `HomeLibre.zip` and `HomeLibre_x64.zip`. The beta 2
+updater supports these names. The executable remains `HomeLibRu.exe` for
+compatibility with existing installations.
 
 Requires **Windows 10 or later**. Books are obtained separately and are not bundled.
 The minimal archive contains the cataloguer. HomeLibre Reader and the modules
@@ -123,17 +123,21 @@ from the original. Protected books are not decrypted; scans do not receive OCR.
 
 ### Export and sharing
 
-- **FB2 ↔ EPUB**, plus FB3, TXT, HTML, Markdown, RTF, DOC/DOCX, ODT, supported
-  Office/OpenDocument presentations and spreadsheets, WPS/WPD, unencrypted Kindle,
-  MHTML, CHM, PalmDoc/zTXT, TCR and Write → FB2 or EPUB, including supported books
-  in archives. PDF/DjVu need readable text; scans without text are rejected.
-  Right-click a book and open its **Convert / save…** submenu, then choose FB2
-  or EPUB. These commands do not need custom scripts.
-  Originals stay unchanged and existing output files are not replaced. Input: up to 64 MB;
-  CSS may be simplified, and unrepresentable structures are rejected with an explanation.
+- **Save as…** saves one or several books in their original formats or converts
+  them to FB2, FB2 in ZIP, EPUB, TXT, MOBI or AZW3. For a mixed selection, keep
+  each book’s format or choose a common output format. A book already in the
+  chosen format does not need another conversion.
+- MOBI and AZW3 use a separate Kindle writer module, offered when needed.
+  Source EPUB files are converted without an intermediate FB2. Handlers for
+  other input formats are downloaded separately when required.
+- PDF/DjVu text is preserved when a usable text layer exists; remaining pages
+  are saved as images. OCR is not included. Output-size estimates and image
+  options are available where supported by the output format. Complex CSS
+  layouts may be simplified; conversion notes are included in the report.
+- Originals stay unchanged. If a name already exists, replace the file, keep
+  both or cancel. The destination and filename/subfolder templates are shared
+  with Folder/Device settings. Custom export scripts remain separate commands.
   [Conversion limitations](tools/bookconvert/README.md) (in Russian).
-- Save books or send them to a device using filename and folder templates,
-  external converters and custom scripts.
 - Export a catalogue to INPX, a book list to HTML, or personal information to a separate file.
 - Export one group or all groups to metabib, including books from several
   collections. The portable folder contains `catalog.jsonl` and book archives;
