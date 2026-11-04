@@ -6,12 +6,14 @@ uses System.SysUtils, System.Classes, System.JSON, Winapi.Windows, SQLiteWrap, u
   unit_Globals, unit_CollectionBackup;
 
 type
+  TPackingImageProfile = (pipOriginal, pipBalanced, pipEconomy);
   TCollectionPackingProgress = reference to procedure(const Stage: string; Current, Total: Int64);
   TCollectionPackingCatalogEdit = reference to procedure(const CatalogFile, PersonalFile: string);
   TCollectionPackingOptions = record
     CatalogFile, PersonalFile, SourceRoot, OutputRoot, Dataset, DisplayName: string;
     SourceID: Integer;
     Python, Script, SevenZip: string;
+    ImageProfile: TPackingImageProfile;
     VerifySources, VerifyOutputs: Boolean;
   end;
 
@@ -20,6 +22,7 @@ type
     Current, Total, SourcesDone, SourcesTotal, BooksDone, BooksTotal: Int64;
     InputBytes, OutputBytes, Reused, Unavailable, ElapsedMS, PackingMS: Int64;
     PlannedInputBytes, WorkingBytes, FreeBytes: Int64;
+    ImageBooksOptimized, ImageBooksSkipped: Int64;
   end;
 
   // Owns disposable snapshots only. Packing never writes the source catalogue,
@@ -68,6 +71,9 @@ type
   end;
 
 function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
+function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
+  const Dataset: string = ''): Boolean;
+function PackingImageProfileCaption(Profile: TPackingImageProfile): string;
 
 implementation
 
@@ -77,6 +83,8 @@ uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
 
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
+  PACKING_MARKER = 'HomeLibRu-compressed.json';
+  PACKING_PROFILES: array[TPackingImageProfile] of string = ('original','balanced','economy');
   PACKING_JOB_KIND = 'HomeLibRu collection packing snapshots';
   DEFERRED_COLUMNS = '(kind INTEGER NOT NULL,book_id INTEGER NOT NULL,source_key TEXT NOT NULL,'+
     'folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,'+
@@ -99,6 +107,46 @@ begin SQLite3_Result_Int(pCtx,1); end;
 
 constructor TPackingOutput.Create(Owner: TCollectionPackingSnapshot);
 begin inherited Create; FOwner:=Owner; end;
+
+function PackingEngine(Profile: TPackingImageProfile): string;
+begin
+  if Profile=pipOriginal then Result:='reversible-ppmd' else Result:='illustrations-ppmd';
+end;
+
+function PackingImageProfileCaption(Profile: TPackingImageProfile): string;
+begin
+  case Profile of
+    pipBalanced: Result:='Сбалансированное сжатие иллюстраций';
+    pipEconomy: Result:='Экономное сжатие иллюстраций';
+    else Result:='Обратимая упаковка';
+  end;
+end;
+
+function TryReadPackingImageProfile(const Folder: string; out Profile: TPackingImageProfile;
+  const Dataset: string): Boolean;
+var Marker, Images, Engine: string; Value: TJSONValue;
+begin
+  Profile:=pipOriginal;
+  Marker:=TPath.Combine(Folder,PACKING_MARKER);
+  if not FileExists(Marker) then Exit(False);
+  if (GetFileAttributes(PChar(Marker)) and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
+    (TFile.GetSize(Marker)>4096) then
+    raise Exception.Create('Некорректный файл описания сжатой коллекции.');
+  Value:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Marker,TEncoding.UTF8));
+  try
+    if not (Value is TJSONObject) or (Value.GetValue<Integer>('version',0)<>1) or
+      (Value.GetValue<string>('dataset','')='') then
+      raise Exception.Create('Некорректный файл описания сжатой коллекции.');
+    if (Dataset<>'') and (Value.GetValue<string>('dataset','')<>Dataset) then
+      raise Exception.Create('В этой папке находится другая коллекция.');
+    Images:=Value.GetValue<string>('images','original');
+    Engine:=Value.GetValue<string>('engine','');
+    for var Candidate:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
+      if (Images=PACKING_PROFILES[Candidate]) and (Engine=PackingEngine(Candidate)) then
+      begin Profile:=Candidate; Exit(True); end;
+    raise Exception.Create('Неизвестный профиль сжатой коллекции.');
+  finally Value.Free; end;
+end;
 
 function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
 var Catalog: TSQLiteDatabase;
@@ -258,32 +306,25 @@ begin
 end;
 
 procedure TCollectionPackingSnapshot.InitializeOutput;
-var Marker, Temporary: string; Value: TJSONValue; Obj: TJSONObject;
+var Marker, Temporary: string; ExistingProfile: TPackingImageProfile; Obj: TJSONObject;
 begin
-  Marker:=TPath.Combine(FOptions.OutputRoot,'HomeLibRu-compressed.json');
+  Marker:=TPath.Combine(FOptions.OutputRoot,PACKING_MARKER);
   if not FileExists(Marker) and DirectoryExists(FOptions.OutputRoot) then
     for var Name in TDirectory.GetFileSystemEntries(FOptions.OutputRoot) do
       if not SameText(ExtractFileName(Name),PACKING_LEASE) then
         raise Exception.Create('Для новой сжатой копии нужна пустая папка.');
   AcquireOutputLease;
-  if FileExists(Marker) then
+  if TryReadPackingImageProfile(FOptions.OutputRoot,ExistingProfile,FOptions.Dataset) then
   begin
-    if (GetFileAttributes(PChar(Marker)) and FILE_ATTRIBUTE_REPARSE_POINT<>0) or
-      (TFile.GetSize(Marker)>4096) then
-      raise Exception.Create('Некорректный файл описания сжатой коллекции.');
-    Value:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Marker,TEncoding.UTF8));
-    try
-      if not (Value is TJSONObject) or (Value.GetValue<Integer>('version',0)<>1) or
-        (Value.GetValue<string>('dataset','')<>FOptions.Dataset) or
-        (Value.GetValue<string>('engine','')<>'reversible-ppmd') then
-        raise Exception.Create('В этой папке другая коллекция или другие настройки сжатия.');
-    finally Value.Free; end;
+    if ExistingProfile<>FOptions.ImageProfile then
+      raise Exception.Create('Для этой папки выбран другой профиль сжатия. Повторно выберите папку.');
     Exit;
   end;
   Obj:=TJSONObject.Create;
   try
     Obj.AddPair('version',TJSONNumber.Create(1)); Obj.AddPair('dataset',FOptions.Dataset);
-    Obj.AddPair('engine','reversible-ppmd');
+    Obj.AddPair('engine',PackingEngine(FOptions.ImageProfile));
+    Obj.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
     Temporary:=Marker+'.'+TGUID.NewGuid.ToString+'.partial';
     TFile.WriteAllText(Temporary,Obj.ToJSON,TEncoding.UTF8);
     try if not MoveFile(PChar(Temporary),PChar(Marker)) then RaiseLastOSError;
@@ -565,6 +606,8 @@ begin
     FStatus.InputBytes:=Obj.GetValue<Int64>('input_bytes',FStatus.InputBytes);
     FStatus.OutputBytes:=Obj.GetValue<Int64>('output_bytes',FStatus.OutputBytes);
     FStatus.Reused:=Obj.GetValue<Int64>('reused',FStatus.Reused);
+    FStatus.ImageBooksOptimized:=Obj.GetValue<Int64>('image_books_optimized',FStatus.ImageBooksOptimized);
+    FStatus.ImageBooksSkipped:=Obj.GetValue<Int64>('image_books_skipped',FStatus.ImageBooksSkipped);
     FStatus.ElapsedMS:=GetTickCount64-FStarted;
     FStatus.PackingMS:=Round(Obj.GetValue<Double>('elapsed_seconds',0)*1000);
     if Assigned(FProgress) then FProgress(Message,Current,Total);
@@ -593,7 +636,8 @@ begin
   Job:=TJSONObject.Create;
   try
     Job.AddPair('version',TJSONNumber.Create(1)); Job.AddPair('dataset',FOptions.Dataset);
-    Job.AddPair('engine','reversible-ppmd'); Job.AddPair('images','original');
+    Job.AddPair('engine',PackingEngine(FOptions.ImageProfile));
+    Job.AddPair('images',PACKING_PROFILES[FOptions.ImageProfile]);
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));
     Job.AddPair('verify_outputs',TJSONBool.Create(FOptions.VerifyOutputs));
@@ -644,7 +688,8 @@ begin
     if Total<>FCount then raise Exception.Create('Не все книги получили новое расположение.');
     Catalog.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibPackingState(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)');
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['dataset',FOptions.Dataset]);
-    Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['engine','reversible-ppmd']);
+    Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['engine',PackingEngine(FOptions.ImageProfile)]);
+    Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['images',PACKING_PROFILES[FOptions.ImageProfile]]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['generation',FPrepared]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['source_catalog',FOptions.CatalogFile]);
     Catalog.ExecSQL('INSERT OR REPLACE INTO HomeLibPackingState VALUES(?,?)',['source_root',FOptions.SourceRoot]);

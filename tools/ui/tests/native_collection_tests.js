@@ -30,6 +30,7 @@ const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixt
 const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
 const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
 const packingInventoryArg = process.argv.find(arg => arg.startsWith('--packing-inventory='));
+const packingImagesArg = process.argv.find(arg => arg.startsWith('--packing-images='));
 const packingMenuReaderArg = process.argv.find(arg => arg.startsWith('--packing-menu-reader='));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 if (packingMenuReaderArg && (viewsMode !== 'packing-fbd' || !packingInventoryArg))
@@ -430,6 +431,17 @@ function run(executable, mode, subcase = "") {
         path.join(folder, 'tools/collectionpack/pack_collection.py'));
       fs.copyFileSync(path.resolve(__dirname, '../../../Installer/GenreLists/genres_fb2.glst'),
         path.join(folder, 'genres_fb2.glst'));
+      if (packingImagesArg) {
+        const images = path.join(runtime, 'tools/images');
+        if (machine(path.join(images, 'HomeLibImages.exe')) !== architecture)
+          throw Error('Packing image test requires matching HomeLibImages.exe.');
+        fs.cpSync(images, path.join(folder, 'tools/images'), {recursive:true});
+        fs.mkdirSync(path.join(folder, 'tools/bookconvert'), {recursive:true});
+        for (const name of ['convert_book.py', 'image_quality.py'])
+          fs.copyFileSync(path.resolve(__dirname, '../../bookconvert', name), path.join(folder, 'tools/bookconvert', name));
+        fs.copyFileSync(fs.realpathSync(packingImagesArg.slice('--packing-images='.length)),
+          path.join(folder, 'packing-inpx-illustration.fb2'));
+      }
       if (packingInventoryArg) {
         const inventory=fs.realpathSync(packingInventoryArg.slice('--packing-inventory='.length));
         const made=cp.spawnSync(path.join(python,'python.exe'), ['-I','-B','-X','utf8',
@@ -825,6 +837,9 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
     process.stdout.write(`${path.basename(exe)}${mode ? ` (${mode})` : ""}:\n${output}`);
     if (result.error) throw result.error;
     if (result.status !== 0 || !/^PASS\b/m.test(output) || /^FAIL\b/m.test(output)) throw new Error(`Native test failed: ${path.basename(exe)} ${mode || "default"}, exit ${result.status}`);
+    if (mode === 'packing-fbd' && packingImagesArg &&
+        !output.includes('PASS native packed INPX reuses the profile and opens the optimized FB2'))
+      throw Error('Native INPX illustration checks did not execute.');
     if(mode==='flibrary-quality'&&process.env.HOMELIB_TEST_IMAGE_USAGE==='1') {
       if(!output.includes('PASS actual WebP JPEG XL and image-quality module use'))throw Error('Image actual-use assertions did not execute');
       const source=path.join(folder,'image-component-usage.json');const used=JSON.parse(fs.readFileSync(source,'utf8').replace(/^\uFEFF/,''));

@@ -4,6 +4,8 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   LegacyUpdate: TManualUpdateThread;
   SourceID, PackedID, UpdatedID, ChangedID, RetainedID, NewID, MissingID: Integer;
   Root, UpdateRoot, IndexFile, BeforeCatalog, BeforeHash, BeforePackedPath: string;
+  ImageFixture: string;
+  Profile: TPackingImageProfile;
   Archive: TZipFile;
 
   procedure AddZipText(const Name, Value: string);
@@ -11,10 +13,10 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     Archive.Add(TEncoding.UTF8.GetBytes(Value),Name);
   end;
 
-  function Row(const Title, FileName, LibID: string): string;
+  function Row(const Title, FileName, LibID: string; const Ext: string = 'txt'): string;
   begin
     Result:='Автор,Тест:'#4'prose_contemporary:'#4+Title+#4'Цикл из INPX'#4'1'#4+
-      FileName+#4'123'#4+LibID+#4'0'#4'txt'#4'2026-11-04'#4'ru';
+      FileName+#4'123'#4+LibID+#4'0'#4+Ext+#4'2026-11-04'#4'ru';
   end;
 
   function AddInput(const Title, Name, LibID, Value: string): Integer;
@@ -64,6 +66,7 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
 begin
   Root:=Settings.AppPath+'packing-inpx-source';
   UpdateRoot:=Settings.AppPath+'packing-inpx-input';
+  ImageFixture:=Settings.AppPath+'packing-inpx-illustration.fb2';
   ForceDirectories(Root); ForceDirectories(UpdateRoot);
   SourceID:=SystemDB.CreateCollection('INPX packing source',Root,'packing-inpx-source.hlc2',
     CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
@@ -83,6 +86,7 @@ begin
   Options.Python:=Settings.AppPath+'tools\kindle\python\python.exe';
   Options.SevenZip:=Settings.AppPath+'tools\7zip\7za.exe';
   Options.Script:=Settings.AppPath+'tools\collectionpack\pack_collection.py';
+  if FileExists(ImageFixture) then Options.ImageProfile:=pipEconomy;
   Snapshot:=TCollectionPackingSnapshot.Create(Options);
   try
     Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared;
@@ -97,7 +101,8 @@ begin
   try
     Archive.Open(TPath.Combine(UpdateRoot,'books.zip'),zmWrite);
     AddZipText('unrelated.txt','Unrelated first member');
-    AddZipText('new.txt','New bytes from INPX');
+    if FileExists(ImageFixture) then Archive.Add(TFile.ReadAllBytes(ImageFixture),'new.fb2')
+    else AddZipText('new.txt','New bytes from INPX');
     AddZipText('changed.txt','Changed bytes from INPX');
   finally Archive.Free; end;
   IndexFile:=TPath.Combine(UpdateRoot,'selected.inpx');
@@ -105,14 +110,21 @@ begin
   try
     Archive.Open(IndexFile,zmWrite);
     AddZipText('structure.info','AUTHOR;GENRE;TITLE;SERIES;SERNO;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG');
-    AddZipText('books.inp',Row('Changed title','changed','10001')+sLineBreak+
-      Row('New title','new','10003')+sLineBreak+Row('Absent member','missing','10004')+sLineBreak);
+    if FileExists(ImageFixture) then
+      AddZipText('books.inp',Row('Changed title','changed','10001')+sLineBreak+
+        Row('New title','new','10003','fb2')+sLineBreak+Row('Absent member','missing','10004')+sLineBreak)
+    else
+      AddZipText('books.inp',Row('Changed title','changed','10001')+sLineBreak+
+        Row('New title','new','10003')+sLineBreak+Row('Absent member','missing','10004')+sLineBreak);
     AddZipText('absent.inp',Row('Untouched title','untouched','10002')+sLineBreak);
     AddZipText('version.info','20261104');
   finally Archive.Free; end;
 
   Options.CatalogFile:=BeforeCatalog; Options.SourceID:=PackedID;
   Options.SourceRoot:=Options.OutputRoot; Options.DisplayName:='Packed after INPX';
+  Require(TryReadPackingImageProfile(Options.OutputRoot,Profile) and (Profile=Options.ImageProfile),
+    'The destination did not retain the selected profile');
+  Options.ImageProfile:=Profile;
   Require(IsPackedCollectionCatalog(BeforeCatalog) and
     not IsPackedCollectionCatalog(Source.GetProperty(PROP_DATAFILE)), 'Packed catalogue marker recognition failed');
   LegacyUpdate:=TManualUpdateThread.Create(PackedID,IndexFile,True,gtFb2);
@@ -130,6 +142,9 @@ begin
       'INPX preparation did not distinguish an absent archive member');
     Require((Snapshot.Status.SourcesDone=2) and (Snapshot.Status.Reused=1),
       'INPX preparation reprocessed an unchanged source');
+    if FileExists(ImageFixture) then
+      Require((Snapshot.Status.ImageBooksOptimized=1) and (Snapshot.Status.ImageBooksSkipped=0),
+        'The retained image profile did not optimize the new INPX book');
     Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName),
       'An INPX update was registered before publication');
     UpdatedID:=Snapshot.RegisterNew(SystemDB);
@@ -148,7 +163,18 @@ begin
   Updated.GetBookRecord(CreateBookKey(RetainedID,UpdatedID),Book,True);
   Require(SameFileName(Book.GetBookFileName,BeforePackedPath),'INPX changed the untouched archive locator');
   NewID:=Updated.ResolveBookID('10003',0);
-  Require((NewID>0) and (ReadText(Updated,NewID)='New bytes from INPX'),'New INPX book was not packed');
+  Require(NewID>0,'New INPX book was not registered');
+  if FileExists(ImageFixture) then
+  begin
+    Updated.GetBookRecord(CreateBookKey(NewID,UpdatedID),Book,True);
+    var Stream:=Book.GetBookStream(True,False);
+    try
+      Require((Book.FileExt='.fb2') and Assigned(Stream) and (Stream.Size>0) and
+        (Stream.Size<TFile.GetSize(ImageFixture)),'Native catalogue could not open the optimized FB2');
+    finally Stream.Free; end;
+    Writeln('PASS native packed INPX reuses the profile and opens the optimized FB2');
+  end
+  else Require(ReadText(Updated,NewID)='New bytes from INPX','New INPX book was not packed');
   MissingID:=Updated.ResolveBookID('10004',0);
   Require(MissingID>0,'An unavailable INPX book disappeared from the catalogue');
   Updated.GetBookRecord(CreateBookKey(MissingID,UpdatedID),Book,True);

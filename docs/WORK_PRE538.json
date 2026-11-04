@@ -4320,5 +4320,12 @@
     "verification": "32 Python worker integration tests on each of Win32 and Win64 with the packaged Python, 7-Zip and native image helper. Both quality profiles shrank a synthetic illustrated FB2 and EPUB, retained chapter and CSS, preserved PDF/DjVu and declined a broken EPUB without discarding it.",
     "real_samples": "On both architectures the 369 embedded images in FB2 883585 retained their IDs and the original body text matched. Economy changed the FB2 payload from 46888835 to 30117829 bytes. EPUB 549311 stayed at 287018 bytes with all 47 entries. Original file hashes matched. On x86, cancel during the native encoder left no prepared generation and cleaned staging; the same job then completed.",
     "cleanup": "All isolated image-test work folders on G: were removed by the wrappers and checked afterwards."
+  },
+  "collection_packing_illustrations_native_20261104": {
+    "status": "Native selection, continuation and INPX integration implemented. Final distribution and the interactive profile chooser still need review.",
+    "selection": "A new destination defaults to reversible packing. Balanced and economy warn about lower FB2/EPUB illustration quality. The program offers missing components in one compact prompt. Resumed and INPX operations show the saved folder profile before packing. A second marker read under the destination lease prevents another profile being used.",
+    "proof": "Fresh Delphi Win32 and Win64 CollectionViewsTest builds passed packing-fbd with the real illustrated FB2 883585 added through INPX. The native estimate dialog canceled and continued. The economy profile persisted, one prior archive was reused, the new FB2 opened from the native catalogue and was smaller, personal data and the old catalogue were preserved, and regular full import refused the packed catalogue.",
+    "fixture": "The FB2 came from the original collection through a read-only stream. The INPX and ZIP grouping were test fixtures. These tests drive the native estimate window and final catalogue APIs; they do not automate the new production profile picker or a live component download.",
+    "cleanup": "The wrapper removed isolated profiles, the temporary source FB2 and build logs on G:."
   }
 }

@@ -17,6 +17,7 @@ type
     FThread: TThread;
     FLock: TObject;
     FStatus: TCollectionPackingStatus;
+    FImageProfile: TPackingImageProfile;
     FSnapshot: TCollectionPackingSnapshot;
     FCancel, FReviewPending: Integer;
     FReviewEvent: TEvent;
@@ -205,7 +206,7 @@ begin
   if (TInterlocked.CompareExchange(FReviewPending,0,0)<>0) and
     (TInterlocked.CompareExchange(FCancel,0,0)=0) then
   begin
-    FStage.Caption:='Папка проверена. Можно начать упаковку.';
+    FStage.Caption:='Папка проверена. '+PackingImageProfileCaption(FImageProfile)+'.';
     FCounts.Caption:=Format('Записей с файлами: %d · Без файла: %d',[Status.BooksTotal,Status.Unavailable]);
     FSize.Caption:='Новые исходные файлы: '+PackingSize(Status.PlannedInputBytes)+
       ' · Рабочая копия каталога: '+PackingSize(Status.WorkingBytes);
@@ -223,6 +224,7 @@ var Worker: TCollectionPackingInpxWorker;
 begin
   if FStarted<>0 then raise Exception.Create('Для новой операции откройте новое окно сжатия.');
   FStarted:=GetTickCount64;
+  FImageProfile:=Options.ImageProfile;
   Worker:=nil;
   if Inpx<>'' then
   begin

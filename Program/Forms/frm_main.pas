@@ -4412,6 +4412,41 @@ begin
   PackCollection(False);
 end;
 
+function ChoosePackingImageProfile(Owner: TForm; out Profile: TPackingImageProfile): Boolean;
+const ChoiceBase = 100;
+var Dialog: TTaskDialog; Button: TTaskDialogButtonItem;
+begin
+  Result:=False;
+  Profile:=pipOriginal;
+  Dialog:=TTaskDialog.Create(Owner);
+  try
+    Dialog.Caption:='Сжатие коллекции';
+    Dialog.Title:='Как упаковать копию коллекции?';
+    Dialog.Text:='Исходные книги останутся в своих папках. Сжатие иллюстраций может снизить их качество '+
+      'в копиях FB2 и EPUB. PDF, DjVu и другие форматы сохранят исходное содержимое.';
+    Dialog.Flags:=[tfUseCommandLinks,tfAllowDialogCancellation];
+    Dialog.CommonButtons:=[tcbCancel];
+    for var Choice:=Low(TPackingImageProfile) to High(TPackingImageProfile) do
+    begin
+      Button:=TTaskDialogButtonItem(Dialog.Buttons.Add);
+      Button.Caption:=PackingImageProfileCaption(Choice);
+      Button.ModalResult:=ChoiceBase+Ord(Choice);
+      Button.Default:=Choice=pipOriginal;
+      case Choice of
+        pipOriginal: Button.CommandLinkHint:='Сохранить содержимое книг и качество изображений.';
+        pipBalanced: Button.CommandLinkHint:='Уменьшить размер крупных иллюстраций с умеренным сжатием.';
+        pipEconomy: Button.CommandLinkHint:='Сжать иллюстрации сильнее. Размер и детализация могут уменьшиться.';
+      end;
+    end;
+    if Dialog.Execute(Owner.Handle) and
+      InRange(Dialog.ModalResult,ChoiceBase,ChoiceBase+Ord(High(TPackingImageProfile))) then
+    begin
+      Profile:=TPackingImageProfile(Dialog.ModalResult-ChoiceBase);
+      Result:=True;
+    end;
+  finally Dialog.Free; end;
+end;
+
 procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean);
 var Options: TCollectionPackingOptions; Required: TArray<string>;
   Picker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
@@ -4434,19 +4469,6 @@ begin
     MessageDlg('Файл упаковки отсутствует. Восстановите файлы HomeLibre из архива программы.',mtError,[mbOK],0);
     Exit;
   end;
-  Options.Python:=FindBookProcessingPython(Settings.AppPath);
-  if Options.Python='' then Required:=Required+['BookProcessing'];
-  Options.SevenZip:=FindFullSevenZip(Settings.AppPath);
-  if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
-  if Options.SevenZip='' then Required:=Required+['7-Zip'];
-  if Length(Required)>0 then
-  begin
-    EnsureProgramUpdateForm;
-    FProgramUpdateForm.RequestComponents(Required,
-      'Для упаковки коллекции нужны перечисленные компоненты. После установки снова выберите «'+Command+'».',True);
-    Exit;
-  end;
-
   FFormBusy:=True; NewID:=INVALID_COLLECTION_ID;
   try
     try
@@ -4481,6 +4503,28 @@ begin
         if UpdateFromInpx then UpdateRoot:=Picker.FileName
         else Options.OutputRoot:=Picker.FileName;
       finally Picker.Free; end;
+      if not TryReadPackingImageProfile(Options.OutputRoot,Options.ImageProfile) then
+      begin
+        if UpdateFromInpx then raise Exception.Create('В папке коллекции отсутствует описание сжатой копии.');
+        if not ChoosePackingImageProfile(Self,Options.ImageProfile) then Exit;
+      end;
+      Options.Python:=FindBookProcessingPython(Settings.AppPath);
+      if (Options.Python='') or ((Options.ImageProfile<>pipOriginal) and
+        (not ModularBookProcessingAvailable(Settings.AppPath) or
+         not FileExists(TPath.Combine(Settings.AppPath,'tools/bookconvert/image_quality.py')))) then
+        Required:=Required+['BookProcessing'];
+      Options.SevenZip:=FindFullSevenZip(Settings.AppPath);
+      if Options.SevenZip='' then Options.SevenZip:=FindExternalTool('7za.exe','7zip');
+      if Options.SevenZip='' then Required:=Required+['7-Zip'];
+      if (Options.ImageProfile<>pipOriginal) and ComponentNeedsRepair(Settings.AppPath,'ImageProcessing') then
+        Required:=Required+['ImageProcessing'];
+      if Length(Required)>0 then
+      begin
+        EnsureProgramUpdateForm;
+        FProgramUpdateForm.RequestComponents(Required,
+          PackingImageProfileCaption(Options.ImageProfile)+'. После установки снова выберите «'+Command+'».',True);
+        Exit;
+      end;
       UpdatePositions;
       Options.DisplayName:=BaseName; Suffix:=1;
       while FSystemData.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) do
@@ -4493,12 +4537,22 @@ begin
       finally Progress.Free; end;
       try
         Status:=Snapshot.Status;
-        Summary:=Format('Записей с файлами: %d. Без файла: %d.'+sLineBreak+
+        Summary:=PackingImageProfileCaption(Options.ImageProfile)+'.'+sLineBreak+
+          Format('Записей с файлами: %d. Без файла: %d.'+sLineBreak+
           'Архивы и файлы: %s → %s.'+sLineBreak+
-          'Повторно использовано архивов и файлов: %d.'+sLineBreak+sLineBreak+
-          'Добавить и открыть отдельную коллекцию «%s»?',
+          'Повторно использовано архивов и файлов: %d.',
           [Status.BooksDone,Status.Unavailable,PackingSize(Status.InputBytes),
-           PackingSize(Status.OutputBytes),Status.Reused,Options.DisplayName]);
+           PackingSize(Status.OutputBytes),Status.Reused]);
+        RecordComponentUse('BookProcessing');
+        if Options.ImageProfile<>pipOriginal then
+        begin
+          RecordComponentUse('ImageProcessing');
+          Summary:=Summary+sLineBreak+Format('Книг со сжатыми иллюстрациями: %d.',[Status.ImageBooksOptimized]);
+          if Status.ImageBooksSkipped>0 then
+            Summary:=Summary+sLineBreak+Format('Не удалось обработать иллюстрации в %d книгах. В копии сохранены исходные файлы.',
+              [Status.ImageBooksSkipped]);
+        end;
+        Summary:=Summary+sLineBreak+sLineBreak+'Добавить и открыть отдельную коллекцию «'+Options.DisplayName+'»?';
         if MessageDlg(Summary,mtConfirmation,[mbYes,mbNo],0)=mrYes then
           NewID:=Snapshot.RegisterNew(FSystemData);
       finally Snapshot.Free; end;
