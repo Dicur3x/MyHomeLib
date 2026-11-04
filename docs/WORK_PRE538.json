@@ -4305,5 +4305,12 @@
     "fixture_notes": "Two interactive runs reached time limits before finishing. An earlier completed UI run exposed a test assertion comparing a Cyrillic literal from an include without BOM. The final verifier compares the stable prefix, exact data version and book bytes.",
     "scope": "Production x64 catalogue and packaged Reader. Native mixed packing and export were previously verified on both x86 and x64.",
     "cleanup": "All four fresh interactive profiles and temporary build logs for the GUI proof were automatically removed."
+  },
+  "beta3_release_notes_repair_20261104": {
+    "status": "Public beta 3 release description repaired. The updater fix is in source for the next build.",
+    "cause": "The release Markdown repeated its own version heading. The updater split it into two cards and expanded the empty dated one.",
+    "published_fix": "Removed the redundant first heading from GitHub release 3.0.0_pre1.3. Verified that the public release list returns the corrected body even with the prior ETag and that the tag, release state, and asset digests are unchanged.",
+    "regression": "Win32 and Win64 native updater view tests verify the dated card renders the current notes, an actually empty prior release still shows its placeholder, and other versions remain distinct.",
+    "cleanup": "Release edit and build wrappers removed their temporary directories; native updater test profiles were removed."
   }
 }

@@ -140,6 +140,11 @@ begin
   Result := TRegEx.IsMatch(Text, '^(?:(?:HomeLibre|HomeLib(?: Ru)?) |SQLite |SumatraPDF |DjVuLibre |v)?[0-9]+\.[0-9]+(?:\.[0-9]+)*(?:_pre[0-9]+(?:\.[0-9]+)*| beta [1-9][0-9]*| release)?(?: — [0-9]{2}\.[0-9]{2}\.[0-9]{4})?$');
 end;
 
+function ReleaseHeadingIdentity(const Text: string): string;
+begin
+  Result := TRegEx.Replace(Text, '^(?:HomeLibre|HomeLib(?: Ru)?) | — [0-9]{2}\.[0-9]{2}\.[0-9]{4}$', '');
+end;
+
 function RTFText(const Text: string): string;
 var C: Char; Builder: TStringBuilder; Code: Integer;
 begin
@@ -593,6 +598,10 @@ begin
       Text := TRegEx.Replace(Line.Trim, '^#{1,6}\s+', '');
       if IsReleaseHeading(Text) then
       begin
+        // The feed already supplies a dated heading. A release may repeat
+        // its own title as the first Markdown heading of the description.
+        if (Text <> Line.Trim) and (Title <> '') and (Body.Trim = '') and
+          SameText(ReleaseHeadingIdentity(Title), ReleaseHeadingIdentity(Text)) then Continue;
         if Title <> '' then SaveSection;
         Title := Text;
       end

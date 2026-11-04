@@ -2642,6 +2642,18 @@ begin
     Info.History := '3.54.0'+#10+'Проверяемый текст другого компонента';
     Popup.SetCurrent(Info); RequireForeground(View.PrimaryNotes);
     Writeln('PASS update notes retain visible dark/light foreground, content, selection, emphasis, zoom and component switching');
+    View.Load('3.0 beta 3 — 04.11.2026'+#10+#10+'# HomeLibre 3.0 beta 3'+#10+#10+
+      '## Читалка'+#10+'- Восстановленный текст beta 3'+#10+#10+
+      '3.0 beta 2 — 03.11.2026'+#10+#10+'3.0 beta 1 — 02.11.2026'+#10+'Текст beta 1');
+    Require((View.SectionCount=3) and (Pos('04.11.2026',View.SectionHeader(0).Caption)>0) and
+      (Pos('Восстановленный текст beta 3',View.PrimaryNotes.Text)>0),
+      'Duplicate Markdown release title split the newest update notes');
+    View.SetExpanded(1,True);
+    View.SetExpanded(2,True);
+    Require((Pos('Автор не опубликовал описание',View.SectionNotes(1).Text)>0) and
+      (Pos('Текст beta 1',View.SectionNotes(2).Text)>0),
+      'Consecutive different releases must retain separate sections');
+    Writeln('PASS update notes retain the dated heading when the Markdown title repeats it');
     Flush(Output);
   finally Popup.Free; SetMHLTheme(SavedDark); end;
 end;
