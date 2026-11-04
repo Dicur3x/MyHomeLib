@@ -32,7 +32,7 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const OnProgress: TBookConversionProgress = nil;
   const ImageQuality: string = 'original'; const ChooseImageQuality: TBookImageQualityChooser = nil;
   const OverwriteExisting: Boolean = False; const ProtectedSourceFile: string = '';
-  const PackedOutput: Boolean = False);
+  const PackedOutput: Boolean = False; const OutputProfile: string = '');
 
 implementation
 
@@ -186,7 +186,8 @@ procedure ConvertBasicBook(const AppPath, TempRoot, SourceFile, SourceExtension,
   const IsCanceled: TFunc<Boolean>; const Title, Author, Language: string; const ForReading: Boolean;
   const OnProgress: TBookConversionProgress; const ImageQuality: string;
   const ChooseImageQuality: TBookImageQualityChooser;
-  const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean);
+  const OverwriteExisting: Boolean; const ProtectedSourceFile: string; const PackedOutput: Boolean;
+  const OutputProfile: string);
 var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetTemporary, LastDiagnosticStage: string;
   Input, Writer: TStream; SavedPosition: Int64; Log: TStringStream;
   Started, DOCStarted, LastAdvance, LastPoll: UInt64; Report: TJSONValue; ArrayValue: TJSONValue; I: Integer;
@@ -200,12 +201,18 @@ var Work, InputName, OutputName, ReportName, ProgressName, Tool, Script, TargetT
 
 begin
   Extension:=LowerCase(SourceExtension); TargetExtension:=LowerCase(ExtractFileExt(TargetFile));
+  if OutputProfile<>'' then
+  begin
+    TargetExtension:=AdvancedBookOutputExtension(OutputProfile);
+    if ForReading or PackedOutput or (TargetExtension='') or not TargetFile.EndsWith(TargetExtension,True) then
+      raise Exception.Create('Имя файла не соответствует выбранному формату.');
+  end;
   var QualityParts:=ImageQuality.Split(['|']);
   QualityProfile:=QualityParts[0]; ScanLayout:='keep'; ScanExclude:='';
   if (Length(QualityParts)>1) and ((QualityParts[1]='split') or (QualityParts[1]='auto')) then ScanLayout:=QualityParts[1];
   if (Length(QualityParts)>2) and QualityParts[2].StartsWith('except=') then ScanExclude:=QualityParts[2].Substring(7);
   if not IsValidScanPageExclusions(ScanExclude) then raise Exception.Create('Некорректные номера сканов.');
-  if not ((TargetExtension='.fb2') or (TargetExtension='.epub') or
+  if (OutputProfile='') and not ((TargetExtension='.fb2') or (TargetExtension='.epub') or
     (TargetExtension='.mobi') or (TargetExtension='.azw3')) then
     raise Exception.Create('Этот формат пока не поддерживается конвертером FB2/EPUB.');
   if BookOutputExists(TargetFile) and not OverwriteExisting then
@@ -214,7 +221,7 @@ begin
   if OverwriteExisting and (SameBookOutputFile(TargetFile,SourceFile) or SameBookOutputFile(TargetFile,ProtectedSource)) then
     raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
   if Assigned(Warnings) then Warnings.Clear;
-  if not ForReading and (QualityProfile='original') and (ScanLayout='keep') and
+  if (OutputProfile='') and not ForReading and (QualityProfile='original') and (ScanLayout='keep') and
     CopyUnchangedBook(SourceFile,Extension,TargetFile,Source,IsCanceled,OverwriteExisting,ProtectedSource) then
   begin
     if Assigned(OnProgress) then OnProgress(100,0,0,'complete');
@@ -234,7 +241,7 @@ begin
   end;
   var Missing:=MissingBookConversionComponents(AppPath,SourceFile,Extension,
     not ForReading and (QualityProfile<>'none') and ((QualityProfile<>'original') or (ScanLayout<>'keep')),
-    IsCanceled,TargetExtension);
+    IsCanceled,TargetExtension,OutputProfile);
   if (TargetExtension='.mobi') or (TargetExtension='.azw3') then
   begin
     var Capability:=TPath.Combine(AppPath,'tools/bookconvert/KINDLE_OUTPUT_API.txt');
@@ -322,7 +329,8 @@ begin
           LastDiagnosticStage:=Stage;
           LogDiagnosticTrace('conversion-stage',Title+sLineBreak+Stage,Extension);
         end;
-        if (Stage='kindle-writing') and ((TargetExtension='.mobi') or (TargetExtension='.azw3')) and
+        if (((Stage='kindle-writing') and ((TargetExtension='.mobi') or (TargetExtension='.azw3'))) or
+            ((Stage='advanced-writing') and (OutputProfile<>''))) and
           (Total=1) and (Completed>=0) and (Completed<=1) then
         begin
           Advanced:=not KindleWriting or (Completed>KindleCompleted);
@@ -424,7 +432,7 @@ begin
       if KindleWriting then
       begin
         if GetTickCount64-LastAdvance>310000 then
-          raise Exception.Create('Модуль записи Kindle не завершил работу за пять минут. Исходная книга сохранена.');
+          raise Exception.Create('Модуль сохранения не завершил работу за пять минут. Исходная книга сохранена.');
       end
       else if Paged or ImageProcessing then
       begin
@@ -511,6 +519,7 @@ begin
         if not ForReading then
         begin
           Arguments:=Arguments+TArray<string>.Create('--image-quality',QualityProfile,'--scan-layout',ScanLayout);
+          if OutputProfile<>'' then Arguments:=Arguments+TArray<string>.Create('--output-profile',OutputProfile);
           if PackedOutput and (TargetExtension='.fb2') and
             ((QualityProfile='balanced') or (QualityProfile='economy') or (QualityProfile='ask')) then
             Arguments:=Arguments+TArray<string>.Create('--image-container','fb2-zip');

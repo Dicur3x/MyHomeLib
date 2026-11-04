@@ -163,6 +163,7 @@ begin
   if SameText(Relative,'MHLMcpServer.exe') then begin RecordComponentUse('MHLMcpServer'); Exit; end;
   for var Pair in TArray<string>.Create('tools/python/|BookProcessing','tools/images/|ImageProcessing',
     'tools/kindle-export/|KindleExport','tools/kindle/python/|BookConverter','tools/office/|LegacyOffice',
+    'tools/fb2-export/|FB2Export','tools/kobo-export/|KoboExport',
     'tools/xps/|XPS','tools/pdfium/|PDFium','tools/djvu/|DjVuLibre','tools/doc/|DocSharp',
     'tools/jpeg-xl/|JPEG XL','tools/7zip/|7-Zip','tools/webp/|WebP','tools/ibk/|IBK',
     'Readers/AlReader/|AlReader','Readers/SumatraPDF/|SumatraPDF') do

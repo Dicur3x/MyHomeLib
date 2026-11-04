@@ -1485,7 +1485,36 @@ def detect_input(source):
     return source.suffix.lower()
 
 
+def validate_epub_output(path):
+    archive = EpubArchive(path)
+    try:
+        if archive.archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
+        # EPUB 2 chapters may be named .xml. Their manifest media type,
+        # rather than the suffix alone, identifies legacy XHTML/DTD entities.
+        container = xml(archive.read('META-INF/container.xml'))
+        versions, xhtml_parts = set(), set()
+        for rootfile in (n for n in container.iter() if tag(n) == 'rootfile'):
+            package_path = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
+            package = xml(archive.read(package_path))
+            versions.add(package.get('version', '').split('.')[0])
+            manifest = first(package, 'manifest')
+            if manifest is None: raise ConversionError('В EPUB отсутствует каталог ресурсов.')
+            for item in manifest:
+                if item.get('media-type') == 'application/xhtml+xml':
+                    path = archive.resolve(package_path, item.get('href', ''))[0]
+                    if path not in archive.names: raise ConversionError('В EPUB отсутствует глава книги.')
+                    xhtml_parts.add(path)
+        for name in archive.names:
+            if name in xhtml_parts or name.lower().endswith(('.xhtml', '.opf', '.ncx', '.xml')):
+                parser = xhtml if name in xhtml_parts or name.lower().endswith('.xhtml') else xml
+                parser(archive.read(name))
+        return versions
+    finally:
+        archive.close()
+
+
 def convert_book(source, destination, **metadata):
+    output_profile = metadata.pop('output_profile', None)
     image_quality = metadata.pop('image_quality', 'original')
     image_container = metadata.pop('image_container', None)
     cancel_check = metadata.pop('cancel_check', None)
@@ -1506,6 +1535,18 @@ def convert_book(source, destination, **metadata):
     extension, target_extension = detect_input(source), destination.suffix.lower()
     if image_container not in (None,'raw','fb2-zip') or (image_container == 'fb2-zip' and target_extension != '.fb2'):
         raise ConversionError('Неверный контейнер обработки изображений.')
+    if output_profile:
+        if metadata.get('reading') or image_container == 'fb2-zip':
+            raise ConversionError('Дополнительный формат недоступен для этой операции.')
+        script = Path(__file__).with_name('advanced_output.py')
+        spec = importlib.util.spec_from_file_location('homelibre_advanced_output', script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
+        options = dict(metadata, image_quality=image_quality, image_container=image_container,
+                       cancel_check=cancel_check, image_options=image_options, image_choice=image_choice,
+                       scan_layout=scan_layout, scan_exclude=scan_exclude)
+        return module.convert(api, source, destination, extension, output_profile, options)
     if target_extension in {'.mobi', '.azw3'}:
         script = Path(__file__).with_name('kindle_output.py')
         if not script.is_file():
@@ -1613,29 +1654,7 @@ def convert_book(source, destination, **metadata):
                          warnings, image_container, check=cancel_check)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
-            archive = EpubArchive(temporary)
-            try:
-                if archive.archive.testzip() is not None: raise ConversionError('Ошибка записи EPUB.')
-                # EPUB 2 chapters may be named .xml. Their manifest media type,
-                # rather than the suffix alone, identifies legacy XHTML/DTD entities.
-                container = xml(archive.read('META-INF/container.xml'))
-                xhtml_parts = set()
-                for rootfile in (n for n in container.iter() if tag(n) == 'rootfile'):
-                    package_path = archive.resolve('container.xml', rootfile.get('full-path', ''))[0]
-                    package = xml(archive.read(package_path))
-                    manifest = first(package, 'manifest')
-                    if manifest is None: raise ConversionError('В EPUB отсутствует каталог ресурсов.')
-                    for item in manifest:
-                        if item.get('media-type') == 'application/xhtml+xml':
-                            path = archive.resolve(package_path, item.get('href', ''))[0]
-                            if path not in archive.names: raise ConversionError('В EPUB отсутствует глава книги.')
-                            xhtml_parts.add(path)
-                for name in archive.names:
-                    if name in xhtml_parts or name.lower().endswith(('.xhtml', '.opf', '.ncx', '.xml')):
-                        parser = xhtml if name in xhtml_parts or name.lower().endswith('.xhtml') else xml
-                        parser(archive.read(name))
-            finally:
-                archive.close()
+            validate_epub_output(temporary)
         else: validate_fb2_output(xml(temporary.read_bytes(),MAX_TOTAL), inherited_fb2_issues)
         with temporary.open('r+b') as stream: stream.flush(); os.fsync(stream.fileno())
         if os.name == 'nt': os.rename(temporary, destination)  # Windows never replaces an existing name.
@@ -1676,6 +1695,7 @@ def main():
     parser.add_argument('--title', default=''); parser.add_argument('--author', default=''); parser.add_argument('--language', default='')
     parser.add_argument('--resource-root')
     parser.add_argument('--tools-root')
+    parser.add_argument('--output-profile', choices=['epub2','epub3','kepub','kfx','azw8','pdf','md'])
     parser.add_argument('--image-quality', choices=['original','high','balanced','economy','none','ask'], default='original')
     parser.add_argument('--image-container', choices=['raw','fb2-zip'], help='Internal final image container; EPUB is inferred by default')
     parser.add_argument('--scan-layout', choices=['keep','split','auto'], default='keep')
@@ -1725,7 +1745,8 @@ def main():
         result = convert_book(options.source, options.destination, title=options.title, author=options.author,
                               language=options.language, resource_root=options.resource_root, tools_root=options.tools_root,
                               reading=options.reading, progress=progress, image_quality=options.image_quality, scan_layout=options.scan_layout, scan_exclude=options.scan_exclude,
-                              image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container)
+                              image_options=options.image_options, image_choice=options.image_choice,image_container=options.image_container,
+                              output_profile=options.output_profile)
         result['used_tools'] = sorted(used_tools)
         text = json.dumps(result, ensure_ascii=False)
         publish_report(text)

@@ -163,7 +163,8 @@ begin
     end;
     if Selected('BookProcessing') then
       for var Other in Retained do if (Other.Key='Kindle') or (Other.Key='LegacyBooks') or
-        (Other.Key='LegacyOffice') or (Other.Key='KindleExport') then
+        (Other.Key='LegacyOffice') or (Other.Key='KindleExport') or
+        (Other.Key='FB2Export') or (Other.Key='KoboExport') then
         Result.Warnings:=Result.Warnings+TArray<string>.Create(
           'При следующем использовании «'+Other.Value+'» программа может снова предложить модуль подготовки книг.');
     Fingerprint.Append(Result.AppPath);

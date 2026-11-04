@@ -8,13 +8,14 @@ uses System.SysUtils;
 // Unknown dependencies are left to the real decoder rather than guessed.
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean> = nil;
-  const TargetExtension: string = ''): TArray<string>;
+  const TargetExtension: string = ''; const OutputProfile: string = ''): TArray<string>;
+function AdvancedBookOutputExtension(const Profile: string): string;
 procedure RecordBookConversionUse(const ResolvedExtension: string; const TargetExtension: string = '');
 
 implementation
 
 uses System.Classes, System.StrUtils, System.Generics.Collections, System.Variants,
-  System.Win.ComObj, Winapi.Windows, Winapi.ActiveX, Winapi.MSXML,
+  System.Win.ComObj, System.IOUtils, Winapi.Windows, Winapi.ActiveX, Winapi.MSXML,
   unit_ProgramUpdateInstaller, unit_FormatComponents, unit_MHLArchiveHelpers, unit_ReaderFormats,
   unit_ComponentUsage;
 
@@ -208,9 +209,22 @@ begin
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then RecordComponentUse('KindleExport');
 end;
 
+function AdvancedBookOutputExtension(const Profile: string): string;
+begin
+  case IndexText(Profile,['epub2','epub3','kepub','kfx','azw8','pdf','md']) of
+    0,1: Result:='.epub';
+    2: Result:='.kepub.epub';
+    3: Result:='.kfx';
+    4: Result:='.azw8';
+    5: Result:='.pdf';
+    6: Result:='.md';
+  else Result:='';
+  end;
+end;
+
 function MissingBookConversionComponents(const AppPath, SourceFile, Extension: string;
   InspectImages: Boolean; const IsCanceled: TFunc<Boolean>;
-  const TargetExtension: string): TArray<string>;
+  const TargetExtension, OutputProfile: string): TArray<string>;
 var Ext, Actual: string; Images: Boolean;
   procedure Need(const ID: string);
   begin
@@ -223,6 +237,15 @@ begin
   if FileExists(SourceFile) then
   begin Actual:=DetectReaderExtension(SourceFile); if Actual<>'' then Ext:=Actual; end;
   if not ModularBookProcessingAvailable(AppPath) then Result:=TArray<string>.Create('BookProcessing');
+  if OutputProfile<>'' then
+  begin
+    var Capability:=TPath.Combine(AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
+    if (Length(Result)=0) and (not FileExists(Capability) or (TFile.GetSize(Capability)>16) or
+      (Trim(TFile.ReadAllText(Capability,TEncoding.ASCII))<>'1')) then
+      Result:=TArray<string>.Create('BookProcessing');
+    if Ext='.fb2' then Need('FB2Export')
+    else if (Ext='.epub') and (OutputProfile='kepub') then Need('KoboExport');
+  end;
   Need(SourceComponent(Ext));
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then Need('KindleExport');
   if InspectImages and ComponentNeedsRepair(AppPath,'ImageProcessing') then

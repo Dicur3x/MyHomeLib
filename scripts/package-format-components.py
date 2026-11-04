@@ -15,6 +15,20 @@ spec = importlib.util.spec_from_file_location('reader_packages', REPO/'scripts/p
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 COMPONENTS = ('BookProcessing', 'ImageProcessing', 'Kindle', 'LegacyBooks', 'LegacyOffice', 'XPS', 'KindleExport')
+WRITERS = {
+    'FB2Export': {
+        'directory': 'fb2-export', 'exe': 'fbc.exe', 'repo': 'rupor-github/fb2cng', 'tag': 'v1.9.5',
+        'license': '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986',
+        'Win32': ('fbc-windows-386.zip', '5abb920a096ddd285f2db86b7f3d6f533b8d144ff041346d2d9c2354863bd3ea'),
+        'Win64': ('fbc-windows-amd64.zip', 'c4e76822e7ab5b8c699fc6f9644d2c75022c03abf886ac3e270f4705b2d6f589'),
+    },
+    'KoboExport': {
+        'directory': 'kobo-export', 'exe': 'kepubify.exe', 'repo': 'pgaskin/kepubify', 'tag': 'v4.0.4',
+        'license': 'c37a2c194f63b0d175965205b756f76153194409408cf2c97174b6d48a0455bd',
+        'Win32': ('kepubify-windows-32bit.exe', '5aa6be67f468e50e1b552a2eb1d1ac1afc375d1e7cb359e344f2e71d2dacdefb'),
+        'Win64': ('kepubify-windows-64bit.exe', 'f3dee3ece063329661fef474262fe403812335bf1676eab35b672565bf195738'),
+    },
+}
 DESCRIPTORS = {
     'BookProcessing': 'tools/bookconvert/MODULAR_RUNTIME.json',
     'ImageProcessing': 'tools/images/COMPONENT.json',
@@ -23,6 +37,7 @@ DESCRIPTORS = {
     'LegacyBooks': 'tools/bookconvert/vendor/calibre_legacy/COMPONENT.json',
     'LegacyOffice': 'tools/office/COMPONENT.json',
     'XPS': 'tools/xps/COMPONENT.json',
+    **{component: 'tools/' + writer['directory'] + '/COMPONENT.json' for component, writer in WRITERS.items()},
 }
 NOTES = {
     'BookProcessing': 'Общая обработка FB2/EPUB и текстов. Без декодеров Kindle, старых Office, XPS, PDF и DjVu.',
@@ -32,6 +47,8 @@ NOTES = {
     'LegacyBooks': 'Дополнительные кодеки старых LIT/LRF и отдельных вариантов Mobipocket.',
     'LegacyOffice': 'Чтение WPS/WPD через libwps/libwpd. Для этих инструментов требуется 64-разрядная Windows.',
     'XPS': 'Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен.',
+    'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
+    'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
 }
 
 
@@ -49,7 +66,39 @@ def tree(root, destination, exclude=()):
     return result
 
 
-def payload_for(platform, component, kindle_export_root=None):
+def advanced_writer_payload(platform, component, source):
+    if source is None:
+        raise ValueError('The verified upstream writer files are required for ' + component)
+    writer = WRITERS[component]
+    asset_name, asset_hash = writer[platform]
+    asset = source / asset_name
+    license_bytes = (source / (component + '-LICENSE.txt')).read_bytes()
+    if helper.digest(asset.read_bytes()) != asset_hash or helper.digest(license_bytes) != writer['license']:
+        raise ValueError('Upstream asset or licence differs from the reviewed ' + component + ' release')
+    if asset.suffix == '.zip':
+        with zipfile.ZipFile(asset) as archive:
+            # The upstream archive also contains a separate connector.
+            binary = archive.read(writer['exe'])
+    else:
+        binary = asset.read_bytes()
+    helper.binary_platform(binary, platform)
+    upstream = 'https://github.com/' + writer['repo']
+    prefix = 'tools/' + writer['directory'] + '/'
+    payload = {
+        prefix + writer['exe']: binary,
+        prefix + 'LICENSE.txt': license_bytes,
+        prefix + 'SOURCE.txt': (
+            'Unmodified executable from ' + upstream + '/releases/tag/' + writer['tag'] + '\n'
+            'Source code and build files for this version: ' + upstream + '/tree/' + writer['tag'] + '\n'
+            'Source archive: ' + upstream + '/archive/refs/tags/' + writer['tag'] + '.zip\n'
+            'Upstream asset: ' + asset_name + '\nSHA-256: ' + asset_hash + '\n').encode('ascii'),
+    }
+    return payload, list(payload)
+
+
+def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None):
+    if component in WRITERS:
+        return advanced_writer_payload(platform, component, advanced_export_root)
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'
     if component == 'BookProcessing':
         payload = tree(runtime/'kindle/python', 'tools/python')
@@ -58,7 +107,8 @@ def payload_for(platform, component, kindle_export_root=None):
         payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
         required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
                     'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
-                    'tools/python/python313.zip', 'tools/python/python313._pth']
+                    'tools/python/python313.zip', 'tools/python/python313._pth',
+                    'tools/bookconvert/ADVANCED_EXPORT_API.txt', 'tools/bookconvert/advanced_output.py']
         helper.binary_platform(payload['tools/python/python.exe'], platform)
     elif component == 'ImageProcessing':
         payload = tree(runtime/'images', 'tools/images', ('COMPONENT.json',))
@@ -120,8 +170,8 @@ def payload_for(platform, component, kindle_export_root=None):
     return payload, required
 
 
-def package(output, platform, component, version, kindle_export_root=None):
-    payload, required = payload_for(platform, component, kindle_export_root)
+def package(output, platform, component, version, kindle_export_root=None, advanced_export_root=None):
+    payload, required = payload_for(platform, component, kindle_export_root, advanced_export_root)
     descriptor = dict(format=1, component=component, platform=platform, version=version,
                       required=required, identities={name:helper.digest(payload[name]) for name in required})
     payload[DESCRIPTORS[component]] = helper.json_bytes(descriptor)
@@ -151,15 +201,18 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--version', required=True)
     parser.add_argument('--platform', choices=('Win32','Win64'), action='append')
-    parser.add_argument('--component', choices=COMPONENTS, action='append')
+    parser.add_argument('--component', choices=COMPONENTS + tuple(WRITERS), action='append')
     parser.add_argument('--kindle-export-root', type=Path, help='Verified CI artifacts containing KindleExport-Win32/Win64')
+    parser.add_argument('--advanced-export-root', type=Path, help='Pinned fb2cng and kepubify release files and licenses')
     options=parser.parse_args()
     import re
     if not re.fullmatch(r'\d+\.\d+(?:\.\d+){0,2}', options.version): parser.error('Invalid component version')
     entries=[]; assets=[]
+    components = options.component or COMPONENTS + (tuple(WRITERS) if options.advanced_export_root else ())
     for platform in options.platform or ('Win32','Win64'):
-        for component in options.component or COMPONENTS:
-            entry, asset=package(options.output.resolve(), platform, component, options.version, options.kindle_export_root)
+        for component in components:
+            entry, asset=package(options.output.resolve(), platform, component, options.version,
+                                 options.kindle_export_root, options.advanced_export_root)
             entries.append(entry); assets.append(asset)
     with (options.output/'format-components.json').open('xb') as stream:
         stream.write(helper.json_bytes(dict(format=1, components=entries)))

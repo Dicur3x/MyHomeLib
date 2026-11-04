@@ -22,7 +22,7 @@ const
   ALREADER_FIXED_SIZE = 4739366;
   COMPONENT_FEED_NAME = 'HomeLibRu.components.json';
   COMPONENT_MIRROR_API = 'https://api.github.com/repos/Dicur3x/MyHomeLib/releases/tags/' + ALREADER_FIXED_TAG;
-  UPDATE_COMPONENTS: array[0..20] of TUpdateComponent = (
+  UPDATE_COMPONENTS: array[0..22] of TUpdateComponent = (
     (ID:'SQLite'; Title:'База коллекций'; URL:'https://www.sqlite.org/changes.html'; CheckKind:ccSQLite; CheckOnly:False),
     (ID:'AlReader'; Title:'Внешняя читалка'; URL:'https://github.com/Dicur3x/MyHomeLib/releases/tag/optional-alreader-2.5.1009.25'; CheckKind:ccBundled; CheckOnly:False),
     (ID:'SumatraPDF'; Title:'Внешняя читалка PDF и DjVu'; URL:'https://www.sumatrapdfreader.org/docs/Version-history'; CheckKind:ccSumatra; CheckOnly:False),
@@ -43,7 +43,9 @@ const
     (ID:'LegacyBooks'; Title:'Кодеки старых книжных форматов'; URL:'https://github.com/kovidgoyal/calibre'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'LegacyOffice'; Title:'Чтение WPS/WPD'; URL:'https://sourceforge.net/projects/libwps/'; CheckKind:ccPublished; CheckOnly:False),
     (ID:'XPS'; Title:'Чтение XPS'; URL:'https://github.com/Dicur3x/MyHomeLib/releases'; CheckKind:ccPublished; CheckOnly:False),
-    (ID:'KindleExport'; Title:'Сохранение MOBI и AZW3'; URL:'https://github.com/ciscoriordan/kindling'; CheckKind:ccPublished; CheckOnly:False));
+    (ID:'KindleExport'; Title:'Сохранение MOBI и AZW3'; URL:'https://github.com/ciscoriordan/kindling'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'FB2Export'; Title:'Дополнительные форматы из FB2'; URL:'https://github.com/rupor-github/fb2cng'; CheckKind:ccPublished; CheckOnly:False),
+    (ID:'KoboExport'; Title:'Сохранение EPUB для Kobo'; URL:'https://github.com/pgaskin/kepubify'; CheckKind:ccPublished; CheckOnly:False));
 
 type
   TComponentReleases = array[Low(UPDATE_COMPONENTS)..High(UPDATE_COMPONENTS)] of TProgramRelease;
