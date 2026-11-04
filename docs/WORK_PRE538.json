@@ -4402,5 +4402,22 @@
     "release_source": "Added independent FB2Export and KoboExport entries for both architectures. The release identity check passed. No production archive or public feed changed.",
     "remaining": "Test live module download and restart on exact minimal catalogue and Reader packages. Complete the direct rich EPUB conversion investigation for PDF and KFX/AZW8 and the physical-device fidelity checks. An actual MTP device was not used.",
     "cleanup": "Every new test stage from this pass was removed by its wrapper, including two failed compiler attempts. The two older protected stages were left alone."
+  },
+  "beta4_direct_epub_probe_20261104": {
+    "status": "Direct rich EPUB to PDF prototype verified. No new EPUB routes are enabled in the app. Direct rich EPUB to KFX/AZW8 candidate rejected on fidelity grounds.",
+    "epub_to_pdf": {
+      "engine": "Tested the official static Vivliostyle Viewer 2.45.2 on the original EPUB package OPF, with Chromium PDF printing. No intermediate FB2 and no Node runtime. The full CLI has a native canvas dependency without a Windows x86 artifact.",
+      "source": "https://github.com/vivliostyle/vivliostyle.js",
+      "package": "https://registry.npmjs.org/@vivliostyle/viewer/-/viewer-2.45.2.tgz",
+      "package_sha512_base64": "tpfReL2R4H81WMszL8gj6/sE5pNAOnKf8egCBKrIrvl0mX0YI7xWCCeP1zrZhaPKtlntLz47uZ2DlTuKdLcq6w==",
+      "fidelity": "An owned five-page sample rendered the cover and PNG, SVG, styled Cyrillic text, both chapters, the embedded-font resource and a table. Visually checked all five pages. Verified both outline destinations (pages 2 and 4), the footnote link (page 5), its backlink (page 2), embedded font entries and extractable text. Chromium wrote the title but omitted the author. An incremental pypdf 6.21.4 metadata update inserted the OPF creator and preserved the original PDF bytes, page count, destinations and structure tree.",
+      "isolation": "Fresh browser profile and loopback server. A second server on a different port received zero requests after an EPUB image referenced it. The browser explicitly blocked that request, and a script embedded in the book did not run. Both existing x86 and x64 worker Pythons drove the same installed x64 Chrome 156.0.8078.81. This does not validate an x86 browser, production process isolation, cancellation or download.",
+      "next": "Keep the route out of the user interface until a separate optional package has a supported Chromium runtime on both architectures, AGPL corresponding-source distribution, a bounded cancelable worker, security checks for untrusted EPUB resources, and real Save As tests. Compare a real EPUB with more CSS/SVG and layouts as well as the fixture."
+    },
+    "epub_to_kfx_azw8": {
+      "source": "https://github.com/hwanjongyu/kfx_converter/blob/bd33eccd6b44f6cac32131faea478e77aad2afb4/src/packager/resources.rs#L69",
+      "decision": "Do not integrate this candidate. The fallback marks raw SVG bytes as JPEG, the EPUB CSS resolver has no font-family mapping, and the table representation is plain cell strings. These are source findings, without a compiled binary or a Kindle test. Existing direct EPUB to MOBI/AZW3 through Kindling and FB2 to KFX/AZW8 through fb2cng remain separate."
+    },
+    "cleanup": "Every new probe used a scoped temporary directory on G: and an isolated browser profile. Successful x86 and x64 probes verified removal and unchanged source bytes. No older protected path or public release was changed."
   }
 }
