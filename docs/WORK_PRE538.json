@@ -4342,5 +4342,12 @@
     "proof": "Fresh native installer builds prepared and combined the actual BookProcessing and ImageProcessing ZIPs with paths up to 297 characters. Installation matched every SHA-256. An injected failure restored the previous long file and removed new files. Both installation and cleanup rejected real long junctions and preserved the outside sentinel.",
     "integration": "Fresh Win32 and Win64 native view tests passed the ordinary volume mount, nested mount and junction protections, and the exact long temporary directory pattern that had failed during the two-package download and installation. The mount test now restores all old fixture files before requesting failure after the fourth replacement, since identical files are intentionally skipped.",
     "cleanup": "The new test roots and native build logs under the owned G: cache were automatically removed. No Windows global setting or unrelated folder was changed."
+  },
+  "features_after_beta4": {
+    "status": "Queued after the beta 4 release.",
+    "collection_compression": "Compare the actual archive-to-archive savings of reversible packing, optional fb2cut-style JPEG XL for FB2 illustrations, and lighter alternatives. Inspect the format inventory of usr and use format-aware handling for scans and other documents. Add maximum economy with optional grayscale while retaining legibility of small text, formulas and captions. Keep a separate packed collection and reuse compatible payloads when processing new or changed files from a selected INPX update.",
+    "save_formats": "Expand the available output formats and prefer direct conversion paths when intermediate FB2 would lose styling or structure.",
+    "sql_dumps": "Investigate catalog import and incremental updates from SQL dumps after the current release. Use the MultiLib reference archive for analysis.",
+    "validation": "Exercise the supported release paths on x86 and x64 and remove temporary test data."
   }
 }

@@ -136,6 +136,7 @@
         <DCCReference Include="Units\unit_UpdateTextCache.pas"/>
         <DCCReference Include="Units\unit_ComponentUpdates.pas"/>
         <DCCReference Include="Units\unit_UpdateAuthenticity.pas"/>
+        <DCCReference Include="Units\unit_ProgramUpdatePaths.pas"/>
         <DCCReference Include="Units\unit_ProgramUpdateInstaller.pas"/>
         <DCCReference Include="Units\unit_ComponentRemoval.pas"/>
         <DCCReference Include="Units\unit_IBKRuntime.pas"/>
