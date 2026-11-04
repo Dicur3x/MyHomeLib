@@ -4335,5 +4335,12 @@
     "follow_up": "Removed the generic promise of saving options from the shared batch installer message. The packing request already states how to resume. No module was installed in this GUI test. The native Win32 batch test with two real packages passed on an ordinary staging path after the message change. Published module installation and restart were previously exercised in separate Save As checks. The final release archives and the production x86 chooser still need verification.",
     "release_gate": "A separate Win32 batch test reproduced extraction failure when the internal BookProcessing payload path reached 273 characters. The same build and archives passed on a shorter staging root. Fix the installer path handling and verify extraction, transaction, rollback and junction rejection on Win32 and Win64 before publishing.",
     "cleanup": "The staging wrappers removed the isolated GUI and batch profiles and build logs. One GUI attempt timed out in the Windows picker; a new run completed normally."
+  },
+  "updater_long_paths_20261104": {
+    "status": "Installer fix verified on Win32 and Win64. Final distribution and restart through published beta archives are pending.",
+    "fix": "Canonical DOS/UNC paths still determine boundaries and journal identity. Use extended Windows paths for file IO and attribute checks when needed, including component verification, staging, temporary replacement, rollback and cleanup. The Windows configuration and release manifest requirements were not changed.",
+    "proof": "Fresh native installer builds prepared and combined the actual BookProcessing and ImageProcessing ZIPs with paths up to 297 characters. Installation matched every SHA-256. An injected failure restored the previous long file and removed new files. Both installation and cleanup rejected real long junctions and preserved the outside sentinel.",
+    "integration": "Fresh Win32 and Win64 native view tests passed the ordinary volume mount, nested mount and junction protections, and the exact long temporary directory pattern that had failed during the two-package download and installation. The mount test now restores all old fixture files before requesting failure after the fourth replacement, since identical files are intentionally skipped.",
+    "cleanup": "The new test roots and native build logs under the owned G: cache were automatically removed. No Windows global setting or unrelated folder was changed."
   }
 }

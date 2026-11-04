@@ -2,7 +2,7 @@
 // letters or mount-manager entries are changed; every link is detached first.
 procedure TestUpdateMountedVolume;
 var Volume: array[0..63] of Char; Mount, AliasRoot, Target, TargetAlias, Job, JobAlias,
-  Archive, Outside, HelpName, Nested, Link: string; Root: TJSONObject; Items: TJSONArray;
+  Archive, Outside, HelpName, InstalledHelp, Nested, Link: string; Root: TJSONObject; Items: TJSONArray;
   Zip: TZipFile; Rejected: Boolean;
   procedure Attach(const Path, Substitute: string);
   var Handle: THandle; Bytes, Text: TBytes; Returned: DWORD;
@@ -59,6 +59,7 @@ begin
   TFile.WriteAllText(Target+'\HomeLibRu.exe','old application',TEncoding.UTF8); TFile.WriteAllText(Target+'\LICENSE','old license',TEncoding.UTF8);
   AliasRoot:=Mount+'\'+Copy(Settings.AppPath,4,MaxInt); TargetAlias:=AliasRoot+'mount-target'; JobAlias:=AliasRoot+'HomeLibRu-update-mounted';
   HelpName:='Help/'+StringReplace(Copy(Outside,4,MaxInt),'\','/',[rfReplaceAll]);
+  InstalledHelp:=CheckedUpdateChildPath(Target,HelpName);
   Archive:=Settings.AppPath+'mount-release.zip'; Root:=TJSONObject.Create; Zip:=TZipFile.Create;
   try
     Root.AddPair('format',TJSONNumber.Create(1)).AddPair('release','mount-test').AddPair('platform',ProgramUpdatePlatform);
@@ -76,12 +77,15 @@ begin
     CleanProgramUpdate(JobAlias);
     TFile.WriteAllText(Target+'\HomeLibRu.exe','old application',TEncoding.UTF8);
     TFile.WriteAllText(Target+'\LICENSE','old license',TEncoding.UTF8);
+    TFile.WriteAllText(Target+'\NOTICE','old notice',TEncoding.UTF8);
+    TFile.WriteAllText(InstalledHelp,'old help',TEncoding.UTF8);
     PrepareProgramUpdate(Archive,UpdateSHA256(Archive),'mount-test',ProgramUpdatePlatform,JobAlias,False);
     Rejected:=False;
     try InstallProgramUpdate(JobAlias,TargetAlias,nil,4);
     except on E: Exception do Rejected:=E.Message.Contains('Имитированная ошибка'); end;
     Require(Rejected,'Mounted-volume rollback fixture did not reach the final replacement');
     Require(TFile.ReadAllText(Target+'\HomeLibRu.exe',TEncoding.UTF8)='old application','Mounted-volume rollback did not restore the application');
+    Require(TFile.ReadAllText(InstalledHelp,TEncoding.UTF8)='old help','Mounted-volume rollback did not restore the nested file');
     CleanProgramUpdate(JobAlias); Require(not DirectoryExists(Job),'Mounted-volume job did not clean up');
     Writeln('PASS real volume-GUID mount accepts update preparation, install, rollback and cleanup while preserving profile data');
     PrepareProgramUpdate(Archive,UpdateSHA256(Archive),'mount-test',ProgramUpdatePlatform,JobAlias,False);

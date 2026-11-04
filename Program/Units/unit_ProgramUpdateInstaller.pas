@@ -60,7 +60,7 @@ function PreparedIncludesComponent(const Job, Component: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.Hash, System.Zip, System.DateUtils,
+uses System.IOUtils, System.Hash, System.Zip, System.DateUtils, unit_ProgramUpdatePaths,
   System.Generics.Collections, Winapi.Windows, System.RegularExpressions, unit_UpdateAuthenticity, unit_MHLExternalTools,
   unit_IBKRuntime, unit_ReaderAdapters, unit_ZstdRuntime, unit_FormatComponents, unit_ComponentUsage;
 
@@ -383,7 +383,7 @@ end;
 function UpdateSHA256(const FileName: string): string;
 var Stream: TFileStream;
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  Stream := TFileStream.Create(UpdateIOPath(FileName), fmOpenRead or fmShareDenyWrite);
   try Result := THashSHA2.GetHashString(Stream); finally Stream.Free; end;
 end;
 
@@ -439,13 +439,13 @@ var Data: TWin32FindData; Find: THandle; Volume: array[0..63] of Char; ID: TGUID
   Name: string;
 begin
   Result:=False;
-  Find:=FindFirstFile(PChar(Path),Data);
+  Find:=FindFirstFile(PChar(UpdateIOPath(Path)),Data);
   if Find=INVALID_HANDLE_VALUE then Exit;
   try
     if (Data.dwFileAttributes and FILE_ATTRIBUTE_DIRECTORY=0) or
       (Data.dwReserved0<>$A0000003) then Exit; // IO_REPARSE_TAG_MOUNT_POINT
   finally Winapi.Windows.FindClose(Find); end;
-  if not GetVolumeNameForVolumeMountPoint(PChar(IncludeTrailingPathDelimiter(Path)),Volume,Length(Volume)) then Exit;
+  if not GetVolumeNameForVolumeMountPoint(PChar(UpdateIOPath(IncludeTrailingPathDelimiter(Path))),Volume,Length(Volume)) then Exit;
   Name:=Volume;
   if (Length(Name)<>49) or not Name.StartsWith('\\?\Volume{',True) or not Name.EndsWith('}\') then Exit;
   try ID:=StringToGUID(Copy(Name,11,38)); Result:=True;
@@ -453,15 +453,22 @@ begin
 end;
 
 procedure AssertUpdatePathBelow(const Path, Boundary: string);
-var Current, Parent, Root: string; Attributes: DWORD; BelowRoot: Boolean;
+var Current, Parent, Root: string; Attributes, Error: DWORD; BelowRoot: Boolean;
 begin
-  Current:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Path));
-  Root:=ExcludeTrailingPathDelimiter(TPath.GetFullPath(Boundary));
+  Current:=ExcludeTrailingPathDelimiter(UpdateFullPath(Path));
+  Root:=ExcludeTrailingPathDelimiter(UpdateFullPath(Boundary));
   if Length(Current)<=3 then
     raise Exception.Create('Нельзя обновлять корневую папку диска.');
   repeat
-    Attributes:=GetFileAttributes(PChar(Current));
-    if (Attributes<>INVALID_FILE_ATTRIBUTES) and (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
+    if Current.StartsWith('\\') and SameText(Current,ExtractFileDrive(Current)) then Break;
+    Attributes:=GetFileAttributes(PChar(UpdateIOPath(Current)));
+    if Attributes=INVALID_FILE_ATTRIBUTES then
+    begin
+      Error:=GetLastError;
+      if not (Error in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND]) then
+        raise EInOutError.Create('Не удалось проверить путь обновления: '+Current+sLineBreak+SysErrorMessage(Error));
+    end
+    else if Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0 then
     begin
       BelowRoot:=Current.StartsWith(IncludeTrailingPathDelimiter(Root),True);
       // A real volume mounted above the installation is a normal disk path.
@@ -482,11 +489,12 @@ begin AssertUpdatePathBelow(Path,Path); end;
 function ChildPath(const Root, Name: string): string;
 var Prefix: string;
 begin
-  Prefix:=IncludeTrailingPathDelimiter(TPath.GetFullPath(Root));
-  Result:=TPath.GetFullPath(Prefix+StringReplace(Name,'/',PathDelim,[rfReplaceAll]));
+  Prefix:=IncludeTrailingPathDelimiter(UpdateFullPath(Root));
+  Result:=UpdateFullPath(Prefix+StringReplace(Name,'/',PathDelim,[rfReplaceAll]));
   if not Result.StartsWith(Prefix,True) then
     raise Exception.Create('Недопустимый путь в обновлении: '+Name);
   AssertUpdatePathBelow(Result,Root);
+  Result:=UpdateIOPath(Result);
 end;
 
 function CheckedUpdateChildPath(const Root, Name: string): string;
@@ -512,7 +520,7 @@ end;
 procedure WriteJSON(const FileName: string; Value: TJSONObject);
 var Temp: string;
 begin
-  Temp := FileName + '.new';
+  Temp := UpdateIOPath(FileName + '.new');
   TFile.WriteAllText(Temp, Value.ToJSON, TEncoding.UTF8);
   if not RetryUpdateFileOperation(function: Boolean
     begin Result:=MoveFileEx(PChar(Temp),PChar(FileName),MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH); end) then
@@ -994,7 +1002,7 @@ var Manifest, Child, Entry, Part: TJSONObject; Bundle, List: TJSONArray;
 begin
   if (Length(Jobs) < 2) or (Length(Jobs) > 9) or DirectoryExists(Job) then
     raise Exception.Create('Некорректный набор подготовленных обновлений.');
-  AssertUpdatePath(Job); ForceDirectories(Job); Stage := ChildPath(Job, 'payload');
+  AssertUpdatePath(Job); ForceDirectories(UpdateIOPath(Job)); Stage := ChildPath(Job, 'payload');
   Manifest := TJSONObject.Create; Files := TDictionary<string, TUpdateFile>.Create;
   Bundle := TJSONArray.Create; List := TJSONArray.Create; Zip := TZipFile.Create;
   Manifest.AddPair('format', TJSONNumber.Create(1)); Manifest.AddPair('release', Tag);
@@ -1439,14 +1447,14 @@ var Zip: TZipFile; Root: TJSONObject; Bytes: TBytes; Names: TDictionary<string, 
   I, Index, Format: Integer; Name, Stage, Value, Component: string; Info: TUpdateFile;
 begin
   AssertUpdatePath(Job); AssertUpdatePath(Archive);
-  if not IsUpdateSHA256(SHA256) or (TFile.GetSize(Archive) > UPDATE_MAX_ARCHIVE) or
+  if not IsUpdateSHA256(SHA256) or (TFile.GetSize(UpdateIOPath(Archive)) > UPDATE_MAX_ARCHIVE) or
      not SameText(UpdateSHA256(Archive), SHA256) then
     raise Exception.Create('Архив обновления повреждён: контрольная сумма не совпадает.');
   Stage := ChildPath(Job, 'payload');
   if DirectoryExists(Stage) then raise Exception.Create('Обновление уже подготовлено в этой папке.');
   Zip := TZipFile.Create; Names := TDictionary<string, Integer>.Create; Root := nil;
   try
-    Zip.Open(Archive, zmRead);
+    Zip.Open(UpdateIOPath(Archive), zmRead);
     if Zip.FileCount > 4001 then raise Exception.Create('Слишком много файлов в архиве обновления.');
     for I := 0 to Zip.FileCount - 1 do
     begin
@@ -1564,7 +1572,7 @@ begin
   Journal := ReadJSON(ChildPath(Job, 'journal.json'));
   try
     if not Journal.TryGetValue<string>('target', OriginalTarget) or
-       not SameText(TPath.GetFullPath(Target), OriginalTarget) or
+       not SameText(UpdateFullPath(Target), OriginalTarget) or
        not Journal.TryGetValue<TJSONArray>('files', Files) then
       raise Exception.Create('Не удалось прочитать резервную копию обновления.');
     if Journal.TryGetValue<string>('state', State) and (State = 'installed') then Exit;
@@ -1682,13 +1690,13 @@ begin
       Backup := ChildPath(Job, 'backup/' + Info.Name); ForceDirectories(ExtractFileDir(Backup));
       if not CopyFile(PChar(Destination), PChar(Backup), False) then RaiseLastOSError;
     end;
-    Temporary := Destination + '.homelibru-new'; AssertUpdatePath(Temporary);
+    Temporary := ChildPath(Target, Info.Name + '.homelibru-new');
     Handle := CreateFile(PChar(Temporary), GENERIC_WRITE, 0, nil, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
     if Handle = INVALID_HANDLE_VALUE then RaiseLastOSError;
     CloseHandle(Handle); DeleteFile(PChar(Temporary));
   end;
   Journal := TJSONObject.Create; List := TJSONArray.Create;
-  Journal.AddPair('target', TPath.GetFullPath(Target)); Journal.AddPair('state', 'installing');
+  Journal.AddPair('target', UpdateFullPath(Target)); Journal.AddPair('state', 'installing');
   Journal.AddPair('files', List); Applied := 0;
   try
     WriteJSON(ChildPath(Job, 'journal.json'), Journal);
@@ -1707,7 +1715,7 @@ begin
         Entry := TJSONObject.Create; Entry.AddPair('path', Info.Name);
         Entry.AddPair('existed', TJSONBool.Create(Existed)); List.AddElement(Entry);
         WriteJSON(ChildPath(Job, 'journal.json'), Journal);
-        Source := SourceFor(Info); Temporary := Destination + '.homelibru-new';
+        Source := SourceFor(Info); Temporary := ChildPath(Target, Info.Name + '.homelibru-new');
         if not CopyFile(PChar(Source), PChar(Temporary), True) then
         begin
           I := GetLastError;
@@ -1742,17 +1750,17 @@ var Root, Current: string;
   var Item: string;
   begin
     AssertUpdatePathBelow(Directory,ExtractFileDir(Root));
-    for Item in TDirectory.GetFiles(Directory) do
-    begin AssertUpdatePathBelow(Item,ExtractFileDir(Root)); if not DeleteFile(PChar(Item)) then RaiseLastOSError; end;
-    for Item in TDirectory.GetDirectories(Directory) do RemoveOwnedDirectory(Item);
-    if not RemoveDir(Directory) then RaiseLastOSError;
+    for Item in TDirectory.GetFiles(UpdateIOPath(Directory)) do
+    begin AssertUpdatePathBelow(Item,ExtractFileDir(Root)); if not DeleteFile(PChar(UpdateIOPath(Item))) then RaiseLastOSError; end;
+    for Item in TDirectory.GetDirectories(UpdateIOPath(Directory)) do RemoveOwnedDirectory(Item);
+    if not RemoveDir(UpdateIOPath(Directory)) then RaiseLastOSError;
   end;
 begin
-  Root := TPath.GetFullPath(Job); Current := ExtractFileName(Root);
+  Root := UpdateFullPath(Job); Current := ExtractFileName(Root);
   if not Current.StartsWith('HomeLibRu-update-') then
     raise Exception.Create('Отказ очистки посторонней папки обновления.');
   AssertUpdatePath(Root);
-  if DirectoryExists(Root) then RemoveOwnedDirectory(Root);
+  if DirectoryExists(UpdateIOPath(Root)) then RemoveOwnedDirectory(Root);
 end;
 
 end.

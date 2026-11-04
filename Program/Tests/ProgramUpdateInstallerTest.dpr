@@ -322,6 +322,10 @@ begin
     begin
       Guard(ParamStr(2)); Guard(ParamStr(3)); RollbackProgramUpdate(ParamStr(2), ParamStr(3));
     end
+    else if Mode = '--clean' then
+    begin
+      Guard(ParamStr(2)); CleanProgramUpdate(ParamStr(2));
+    end
     else if (Mode = '--download') or (Mode = '--download-doc') then
     begin
       Job := ParamStr(6); Guard(Job);

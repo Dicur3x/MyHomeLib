@@ -15,7 +15,7 @@ function ModularBookProcessingAvailable(const AppPath: string): Boolean;
 
 implementation
 
-uses System.IOUtils, System.JSON, System.Hash, System.RegularExpressions;
+uses System.IOUtils, System.JSON, System.Hash, System.RegularExpressions, unit_ProgramUpdatePaths;
 
 function IsFormatComponent(const ID: string): Boolean;
 begin
@@ -89,13 +89,13 @@ begin
 end;
 
 function FormatComponentVersion(const AppPath, ID: string): string;
-var Metadata, Name, Hash, Version, Platform: string; Root, Identity: TJSONValue; Identities: TJSONObject;
+var Metadata, Name, FileName, Hash, Version, Platform: string; Root, Identity: TJSONValue; Identities: TJSONObject;
 begin
   Result:=''; if not IsFormatComponent(ID) then Exit;
   Root:=nil;
   try
     try
-      Metadata:=TPath.Combine(AppPath,FormatComponentDescriptor(ID));
+      Metadata:=UpdateIOPath(TPath.Combine(AppPath,FormatComponentDescriptor(ID)));
       if not FileExists(Metadata) or (TFile.GetSize(Metadata)>65536) then Exit;
       Root:=TJSONObject.ParseJSONValue(TFile.ReadAllText(Metadata,TEncoding.UTF8));
       {$IFDEF WIN64}Platform:='Win64';{$ELSE}Platform:='Win32';{$ENDIF}
@@ -111,9 +111,10 @@ begin
         Identity:=Identities.GetValue(Name);
         if not (Identity is TJSONString) then Exit;
         Hash:=Identity.Value;
+        FileName:=UpdateIOPath(TPath.Combine(AppPath,Name));
         if not TRegEx.IsMatch(Hash,'^[0-9a-fA-F]{64}$') or
-          not FileExists(TPath.Combine(AppPath,Name)) or
-          not SameText(THashSHA2.GetHashStringFromFile(TPath.Combine(AppPath,Name)),Hash) then Exit;
+          not FileExists(FileName) or
+          not SameText(THashSHA2.GetHashStringFromFile(FileName),Hash) then Exit;
       end;
       Result:=Version;
     except Result:=''; end;
