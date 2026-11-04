@@ -4344,17 +4344,46 @@
     "cleanup": "The new test roots and native build logs under the owned G: cache were automatically removed. No Windows global setting or unrelated folder was changed."
   },
   "beta4_feature_queue": {
-    "status": "Publication held until the large items are complete. Start with collection compression, then finish Save As formats, then SQL dump import. Final release verification follows in that order.",
+    "status": "Publication held. Follow the eleven items supplied by the user, starting with export. Existing completed evidence stays linked and candidate checks are repeated only where affected by new code or packages.",
     "current_baseline": "Delphi Release built the catalogue, Reader, updater and MCP server for both Win32 and Win64. The production catalogue now explicitly links the new updater path unit. The archives from this source are not the final release candidate.",
-    "collection_compression": "Benchmark actual archive-to-archive savings. Offer separate illustrations with optional JPEG XL and a maximum economy profile with optional grayscale. Inspect usr by format and handle PDF, DjVu and other scans with their own format-aware paths and a legibility check for text, formulas and captions. Preserve earlier catalogues. Reuse compatible payloads when updating new or changed books from INPX.",
+    "collection_compression": "Keep the current separate-copy and selected INPX update implementation in the candidate. Resume deeper compression, optional JPEG XL, maximum economy and format-specific usr handling after beta 4.",
     "save_formats": "Expand output formats and prefer direct conversion paths when an intermediate FB2 would lose styling or structure.",
-    "sql_dumps": "Verify SQL-dump catalogue import and updates using the MultiLib reference. Add a safe import path without running SQL from the dump.",
-    "validation": "Exercise the final release paths on x86 and x64, including update from beta 3 and isolated minimal installations. Remove temporary test data."
+    "sql_dumps": "Defer SQL-dump catalogue import and updates until after beta 4. The user supplied MultiLib as a reference.",
+    "validation": "Exercise the final release paths on x86 and x64, including update from beta 3 and isolated minimal installations. Remove temporary test data.",
+    "release_order": [
+      "Additional Save As formats",
+      "Minimal packages and on-demand modules",
+      "Upgrade and restart paths",
+      "Review panel and additional review sources",
+      "Finish and verify archive naming",
+      "Final Save As checks",
+      "Themes, compact windows and DPI",
+      "Startup and list performance",
+      "Time-box intermittent RAD Studio diagnosis",
+      "Author rating and reversible hiding",
+      "Safe deletion across tabs and inside shared archives"
+    ]
   },
   "deep_compression_research_20261104": {
     "status": "Started compatibility and sample selection for compression.",
     "upstream": "Pinned books-tools 683f8d9dadf70f27f57a267bdf714bc7f0a83cd8. The README describes FB2 side archives and JPEG XL; the source additionally registers EPUB and writes its image mapping. HomeLibre already restores both kinds of FLibrary side archives. LightLib's public download page describes Cleaner as archive copying and cleanup and does not specify a codec.",
     "sample_inventory": "The saved read-only inventory of the combined local catalogue lists 141 declared extensions, including 71774 live EPUB, 45923 PDF, 25024 DjVu and 14784 ZIP records. These are catalogue declarations, not a count of validated file formats; archives and mislabeled records need content checks before treatment.",
     "measurement": "Measure the sum of book archive and all companion archives against original archive bytes. Raw FB2 size by itself does not measure the storage benefit. Confirm native reading, export, image references and incremental reuse for each candidate profile before offering it."
+  },
+  "beta4_export_engines_20261104": {
+    "status": "External writer checks passed on Windows x86 and x64. HomeLibre menu, integration and publishing remain open.",
+    "fb2cng": {
+      "release": "https://github.com/rupor-github/fb2cng/releases/tag/v1.9.5",
+      "architecture_and_provenance": "Official Windows 386 and amd64 packages matched the release asset SHA-256; PE architectures and reported executable version matched.",
+      "tested": "One owned illustrated FB2 with Cyrillic text and metadata, two chapters, a linked footnote and a table. CLI produced EPUB2, EPUB3, KEPUB, KEPUB3, KFX, AZW8, PDF, Markdown and TXT on each architecture. EPUB variants passed ZIP and package checks, retained text, metadata, table, footnote text, image and NCX or nav. KEPUB also has Kobo spans. TXT and Markdown retain the checked text, Markdown retains a table row and a local link. PDF has PDF 1.4 header, EOF, outlines, embedded-font entry and image entry. KFX/AZW8 have a CONT container signature. Source hash stayed unchanged.",
+      "integration": "Upstream ZIP also contains an unrelated mhl-connector.exe. Use fbc.exe only and an isolated working directory because it creates fbc.log. --output-file accepts an exact filename; output profile must be distinct from its extension to distinguish EPUB 2/3 and handle .kepub.epub. Keep native TXT and direct Kindling MOBI/AZW3 paths."
+    },
+    "kepubify": {
+      "release": "https://github.com/pgaskin/kepubify/releases/tag/v4.0.4",
+      "tested": "Official Windows x86 and x64 PE binaries converted a rich EPUB directly. Both outputs retained CSS, a TTF, SVG and PNG bytes exactly. Chapter links and IDs, table, footnote, and all package members survived. The generated EPUB contains Kobo spans and the source hash stayed unchanged.",
+      "sha256_x86": "5aa6be67f468e50e1b552a2eb1d1ac1afc375d1e7cb359e344f2e71d2dacdefb",
+      "sha256_x64": "f3dee3ece063329661fef474262fe403812335bf1676eab35b672565bf195738"
+    },
+    "limits": "This was an external CLI sample, not a HomeLibre test. No independent rendering check on a Kobo or Kindle device, no visual PDF comparison, and no evidence yet for a sufficiently faithful direct EPUB-to-PDF or EPUB-to-KFX/AZW8 route. No physical devices or release were changed."
   }
 }
