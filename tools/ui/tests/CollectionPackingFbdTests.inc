@@ -1,5 +1,6 @@
 ﻿{$I CollectionPackingUnavailableTests.inc}
 {$I CollectionPackingInpxTests.inc}
+{$I CollectionPackingRealTests.inc}
 
 procedure TestPackingFbd;
 const
@@ -109,4 +110,5 @@ begin
   Writeln('PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals');
   TestPackingUnavailable;
   TestPackingInpx;
+  if DirectoryExists(Settings.AppPath+'packing-real-input') then TestPackingReal;
 end;

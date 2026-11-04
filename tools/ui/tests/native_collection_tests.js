@@ -29,6 +29,7 @@ const previewBookArg = process.argv.find(arg => arg.startsWith("--preview-book="
 const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixtures="));
 const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
 const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
+const packingInventoryArg = process.argv.find(arg => arg.startsWith('--packing-inventory='));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
 const catalogueLabelArg=process.argv.find(a=>a.startsWith('--catalogue-label='));
 const catalogueLabel=catalogueLabelArg ? catalogueLabelArg.slice('--catalogue-label='.length) : '';
@@ -298,7 +299,8 @@ function requiredPasses(executable, mode) {
   if (mode === "search-startup-layout") return ["PASS header menu keeps column IDs", ...requiredViews[mode], "TRACE main cleanup complete"];
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
-  if (mode === "packing-fbd") return ["PASS original FBD container", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues"];
+  if (mode === "packing-fbd") return ["PASS original FBD container", "PASS packing estimate review", "PASS unavailable books remain in the catalogue", "PASS selected INPX adds and replaces exact books", "PASS selected INPX estimate cancels and continues",
+    ...(packingInventoryArg ? ["PASS real mixed packed books survive two INPX updates and export with exact original bytes"] : [])];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
   if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields", "PASS current catalogs reopen without schema/data writes", "PASS metadata delta matches full writes", "PASS metadata delta preserves exact personal review prefix"];
   if (mode === "query-batch") return ["PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback"];
@@ -396,6 +398,13 @@ function run(executable, mode, subcase = "") {
         path.join(folder, 'tools/collectionpack/pack_collection.py'));
       fs.copyFileSync(path.resolve(__dirname, '../../../Installer/GenreLists/genres_fb2.glst'),
         path.join(folder, 'genres_fb2.glst'));
+      if (packingInventoryArg) {
+        const inventory=fs.realpathSync(packingInventoryArg.slice('--packing-inventory='.length));
+        const made=cp.spawnSync(path.join(python,'python.exe'), ['-I','-B','-X','utf8',
+          path.join(__dirname,'prepare_packing_real_fixtures.py'),folder,inventory],
+          {windowsHide:true,encoding:'utf8',timeout:60000});
+        if (made.status!==0) throw Error('Cannot stage original books: '+made.stdout+made.stderr);
+      }
     }
     if (mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') fs.writeFileSync(path.join(folder,'preview-adaptive-visual.flag'),'isolated visual review');
     if(mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')

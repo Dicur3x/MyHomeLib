@@ -4285,5 +4285,15 @@
       }
     },
     "next": "Exercise the full menu route with real mixed formats, verify no loss across repeated INPX updates, and keep the packed library usable before a release."
+  },
+  "collection_packing_real_mixed_20261104": {
+    "status": "Real mixed archive members passed two consecutive selected INPX updates on x86 and x64. Release pending.",
+    "checks": [
+      "Six initial books from the local catalogue (FB2, EPUB, PDF, DjVu, DOC and RTF). Two successive INPX deltas each replace one file and add one (DOCX and CHM). Actual file bytes originate from read-only library ZIP members.",
+      "Delphi Release native tests on Win32 and Win64. Initial native import, original packing, two updates through the real progress window, native stream hashes for all three generations and a native original-format batch export of all eight final books.",
+      "Stable EPUB and PDF IDs, exact SHA-256 hashes, preserved earlier catalogues, correct versions and at least two then three reused archive payloads. No copied book or archive committed."
+    ],
+    "limits": "The INPX and ZIP grouping are test fixtures. No end-to-end click through the production file/folder pickers, rendering in a reading window or full-library compression timing in this run.",
+    "cleanup": "Both isolated profiles and the temporary build log directory created by this run were removed by their wrappers. Previously protected folders were untouched."
   }
 }
