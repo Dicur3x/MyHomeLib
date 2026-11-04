@@ -42,11 +42,11 @@
         <VerInfo_MajorVer>3</VerInfo_MajorVer>
         <VerInfo_MinorVer>0</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
-        <VerInfo_Build>3</VerInfo_Build>
+        <VerInfo_Build>4</VerInfo_Build>
         <VerInfo_PreRelease>true</VerInfo_PreRelease>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre MCP Server;FileVersion=3.0.0.3;InternalName=MHLMcpServer;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLMcpServer.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.3;Comments=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=HomeLibre MCP Server;FileVersion=3.0.0.4;InternalName=MHLMcpServer;LegalCopyright=Copyright (c) 2008-2026 Oleksiy Penkov;LegalTrademarks=;OriginalFilename=MHLMcpServer.exe;ProductName=HomeLibre;ProductVersion=3.0.0_pre1.4;Comments=</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_ExeOutput>..\..\Program\OUT\BIN</DCC_ExeOutput>
