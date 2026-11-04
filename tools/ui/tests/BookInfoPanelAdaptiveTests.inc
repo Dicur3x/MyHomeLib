@@ -162,3 +162,69 @@ begin
     Images.Free; Png.Free; Bitmap.Free;
   end;
 end;
+
+procedure TestSavedReviewPreview(const Collection: IBookCollection; BookID: Integer);
+const SavedText = 'Сохранённый отзыв — проверка ё.';
+var Panel: TInfoPanel; Tree: TBookTree; Button: TButton; Review: TMemo;
+  Viewport: TScrollBox; Key: TBookKey; Data: PBookRecord; DPI: Integer; Dark: Boolean;
+  OtherNode: PVirtualNode;
+begin
+  RequireIsolatedRegression;
+  Key := CreateBookKey(BookID, Collection.CollectionID);
+  Collection.SetReview(Key, SavedText);
+  if not Settings.ShowInfoPanel then frmMain.ShowBookInfoPanelExecute(nil);
+  frmMain.WindowState := wsNormal;
+  frmMain.Show;
+  frmMain.pgControl.ActivePage := frmMain.tsByAuthor;
+  frmMain.pgControlChange(nil);
+  Panel := frmMain.ipnlAuthors;
+  Tree := frmMain.tvBooksA;
+  Data := Tree.GetNodeData(Tree.FocusedNode);
+  Require(Assigned(Data) and Data^.BookKey.IsSameAs(Key),
+    'Saved review fixture must select the expected book');
+  frmMain.tvBooksTreeChange(Tree, Tree.FocusedNode);
+  Button := Panel.FindComponent('BookReviewsToggle') as TButton;
+  Review := Panel.FindComponent('BookSavedReviews') as TMemo;
+  Viewport := InfoFooterViewport(Panel);
+  Require(Button.Visible and not Review.Visible and not Review.HandleAllocated,
+    'Saved reviews must open on demand');
+  for Dark in TArray<Boolean>.Create(False, True) do
+  begin
+    SetMHLTheme(Dark);
+    for DPI in TArray<Integer>.Create(96, 144, 192) do
+    begin
+      frmMain.ScaleForPPI(DPI);
+      frmMain.SetBounds(0, 0, MulDiv(800, DPI, 96), MulDiv(640, DPI, 96));
+      Button.Click;
+      Require(Panel.ReviewsVisible and Review.ReadOnly and not Viewport.Visible and
+        (Pos(SavedText, Review.Text)>0) and (Pos('источник не записан', Review.Text)>0),
+        'Review preview did not read the selected book or preserve provenance');
+      Require((Review.Height>0) and (Review.BoundsRect.Bottom<=Button.Top) and
+        (Panel.DetailsButton.BoundsRect.Right<Button.Left) and (Button.BoundsRect.Right<=Panel.ClientWidth),
+        'Review text or footer overlaps at scaled small-window bounds');
+      Panel.SetBookAnnotationText('Аннотация обновилась в фоне.');
+      Require(not Viewport.Visible and (Pos(SavedText, Review.Text)>0),
+        'Asynchronous annotation overwrote the review view');
+      Button.Click;
+      Require(Viewport.Visible and not Panel.ReviewsVisible, 'Returning from reviews lost metadata');
+    end;
+  end;
+  Button.Click;
+  OtherNode := Tree.GetFirst;
+  while Assigned(OtherNode) do
+  begin
+    Data := Tree.GetNodeData(OtherNode);
+    if Assigned(Data) and (Data^.NodeType=ntBookInfo) and not Data^.BookKey.IsSameAs(Key) then Break;
+    OtherNode := Tree.GetNext(OtherNode);
+  end;
+  Require(Assigned(OtherNode), 'The review fixture needs a second book');
+  Tree.FocusedNode := OtherNode;
+  frmMain.tvBooksTreeChange(Tree, OtherNode);
+  Require(not Panel.ReviewsVisible and Button.Visible and Viewport.Visible and (Review.Text=''),
+    'Selection change left the previous book review visible or cached');
+  Button.Click;
+  Require((Pos('Сохранённых отзывов нет', Review.Text)>0) and (Pos(SavedText, Review.Text)=0),
+    'An empty second book displayed the first book review');
+  Require(Collection.GetReview(Key)=SavedText, 'Read-only review preview changed stored text');
+  Writeln('PASS saved review preview reads the selected catalogue record in both themes at 96/144/192 DPI');
+end;

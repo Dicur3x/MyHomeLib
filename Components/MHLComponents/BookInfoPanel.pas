@@ -48,6 +48,7 @@ type
     ipsDetailBounds, ipsPassAlign, ipsRestoreRedraw);
   TInfoPanelLayoutProfileEvent = procedure(Sender: TObject;
     Stage: TInfoPanelLayoutStage; Starting: Boolean) of object;
+  TLoadSavedBookReview = reference to function: string;
 
   TInfoLinkMetrics = record
     Valid, Dark, VisualStyle: Boolean;
@@ -88,6 +89,9 @@ type
     FContentSizePending: Boolean;
     FOnContentSizeChanged: TNotifyEvent;
     FDetailsButton: TButton;
+    FReviewsButton: TButton;
+    FReviews: TMemo;
+    FLoadSavedReview: TLoadSavedBookReview;
     FPreviewStatus, FReadingSupport: TLabel;
 
     FOnAuthorLinkClicked: TSysLinkEvent;
@@ -108,6 +112,8 @@ type
     FPendingTexts: TDictionary<TControl, string>;
 
     procedure GalleryToggleClick(Sender: TObject);
+    procedure ReviewsToggleClick(Sender: TObject);
+    function GetReviewsVisible: Boolean;
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
 
@@ -169,6 +175,8 @@ type
 
 
     procedure SetBookAnnotationText(const Value: string);
+    procedure ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview);
+    procedure SetSavedReview(const Value: string);
     procedure SetPreviewStatus(const Value: string);
     procedure SetReadingSupport(const Value: string);
     function PreviewStatusText: string;
@@ -185,6 +193,7 @@ type
     property PreferredHeight: Integer read FPreferredHeight;
     property OnContentSizeChanged: TNotifyEvent read FOnContentSizeChanged write FOnContentSizeChanged;
     property DetailsButton: TButton read FDetailsButton;
+    property ReviewsVisible: Boolean read GetReviewsVisible;
 
   published
     property ShowCover: Boolean read GetShowCover write SetShowCover default True;
@@ -255,6 +264,7 @@ const
   CoverGap = 12;
   RowSpacing = 5;
   AnnotationGap = 8;
+  ReviewsButtonWidth = 104;
   LabelColumn = 70;   // width of the "Серия:"/"Жанр(ы):" caption column
 
 function GetCoverWidth(Height: Integer): Integer;
@@ -605,6 +615,20 @@ begin
   FDetailsButton.Caption := 'Информация о книге';
   FDetailsButton.Visible := False;
 
+  FReviewsButton := TInfoDetailsButton.Create(Self);
+  FReviewsButton.Visible := False;
+  FReviewsButton.Parent := Self;
+  FReviewsButton.Name := 'BookReviewsToggle';
+  FReviewsButton.Caption := 'Отзывы';
+  FReviewsButton.OnClick := ReviewsToggleClick;
+  FReviews := TInfoPreviewMemo.Create(Self);
+  FReviews.Visible := False;
+  FReviews.Parent := Self;
+  FReviews.Name := 'BookSavedReviews';
+  FReviews.BorderStyle := bsNone;
+  FReviews.ParentColor := True;
+  FReviews.ReadOnly := True;
+  FReviews.ScrollBars := ssVertical;
 
   if csDesigning in ComponentState then
   begin
@@ -734,6 +758,47 @@ begin
   LayoutControls;
 end;
 
+procedure TInfoPanel.ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview);
+begin
+  FLoadSavedReview := LoadSavedReview;
+  FReviewsButton.Visible := Assigned(FLoadSavedReview);
+end;
+
+function TInfoPanel.GetReviewsVisible: Boolean;
+begin
+  Result := FReviews.Visible;
+end;
+
+procedure TInfoPanel.SetSavedReview(const Value: string);
+begin
+  if not ReviewsVisible then Exit;
+  if Trim(Value) = '' then
+    FReviews.Text := 'Сохранённых отзывов нет.' + sLineBreak +
+      'Загрузить отзывы можно в окне «Информация о книге».'
+  else
+    FReviews.Text := 'Сохранённые отзывы · источник не записан' +
+      sLineBreak + sLineBreak + Value;
+  FReviews.SelLength := 0;
+  FReviews.SelStart := 0;
+end;
+
+procedure TInfoPanel.ReviewsToggleClick(Sender: TObject);
+begin
+  if not Assigned(FLoadSavedReview) then Exit;
+  BeginUpdate;
+  try
+    FReviews.Visible := not FReviews.Visible;
+    FInfoViewport.Visible := not FReviews.Visible;
+    if FReviews.Visible then
+    begin
+      FReviewsButton.Caption := 'Сведения';
+      SetSavedReview(FLoadSavedReview());
+    end
+    else
+      FReviewsButton.Caption := 'Отзывы';
+  finally EndUpdate; end;
+end;
+
 procedure TInfoPanel.SetReadingSupport(const Value: string);
 begin SetInfoText(FReadingSupport,Value); FReadingSupport.Visible:=Value<>''; LayoutControls; end;
 
@@ -841,6 +906,8 @@ begin
       MeasureInfoText(0,'Wg',FDetailsButton.Font).cy + MulDiv(12, LayoutPPI, 96));
     FooterW := Max(MulDiv(180, LayoutPPI, 96),
       MeasureInfoText(1,FDetailsButton.Caption,FDetailsButton.Font).cx + MulDiv(24, LayoutPPI, 96));
+    if Assigned(FReviewsButton) and FReviewsButton.Visible then
+      Inc(FooterW, MulDiv(ReviewsButtonWidth, LayoutPPI, 96) + Gap);
     Inc(ViewportBottom, FooterH + Gap);
   end
   else
@@ -868,7 +935,8 @@ end;
 procedure TInfoPanel.LayoutControls;
 var
   RowH, LinkH, LinkW, Gap, LblW, W, H, Y, DetailH, Pass: Integer;
-  LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, ButtonH, DesiredDetailH: Integer;
+  LayoutPPI, FooterH, FooterW, Padding, MetaW, BaseY, ButtonH, DesiredDetailH,
+    ReviewW, ButtonY: Integer;
   function LinkHeight(Link: TMHLLinkLabel; AvailableWidth: Integer; out LinkWidth: Integer): Integer;
   var
     IdealSize: TSize;
@@ -954,9 +1022,21 @@ begin
     LayoutPPI := Max(1, Font.PixelsPerInch);
     Padding := MulDiv(PanelPadding, LayoutPPI, 96);
     if FDetailsButton.Visible then
-      FDetailsButton.SetBounds(FInfoViewport.Left,
-        Max(0, ClientHeight - Padding - FooterH),
-        Min(FInfoViewport.Width, FooterW), FooterH);
+    begin
+      FooterW := Min(FInfoViewport.Width, FooterW);
+      ButtonY := Max(0, ClientHeight - Padding - FooterH);
+      if Assigned(FReviewsButton) and FReviewsButton.Visible then
+      begin
+        Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
+        ReviewW := Min(MulDiv(ReviewsButtonWidth, LayoutPPI, 96), FooterW div 3);
+        Gap := Min(Gap, FooterW - ReviewW);
+        Dec(FooterW, ReviewW + Gap);
+        FReviewsButton.SetBounds(FInfoViewport.Left + FooterW + Gap, ButtonY, ReviewW, FooterH);
+      end;
+      FDetailsButton.SetBounds(FInfoViewport.Left, ButtonY, FooterW, FooterH);
+    end;
+    if Assigned(FReviews) and FReviews.Visible then
+      FReviews.BoundsRect := FInfoViewport.BoundsRect;
     finally ProfileLayout(ipsFooter, False); end;
 
     for Pass := 1 to 3 do
@@ -1402,7 +1482,9 @@ begin
           end;
         finally ProfileLayout(ipsRestoreAlign, False); end;
         ProfileLayout(ipsFlushVisibility, True);
-        try TInfoDetailsButton(FDetailsButton).FlushVisibility;
+        try
+          TInfoDetailsButton(FDetailsButton).FlushVisibility;
+          TInfoDetailsButton(FReviewsButton).FlushVisibility;
         finally ProfileLayout(ipsFlushVisibility, False); end;
       end;
     finally Dec(FUpdateCount); end;
@@ -1424,6 +1506,14 @@ begin
   SetPreviewStatus(''); SetReadingSupport('');
   FGallery.Clear;
   FDetailsButton.Visible := False;
+  ConfigureReviews(nil);
+  if FReviews.Visible then
+  begin
+    FReviews.Visible := False;
+    FReviewsButton.Caption := 'Отзывы';
+    FInfoViewport.Visible := True;
+  end;
+  if FReviews.HandleAllocated then SetInfoText(FReviews, '');
   FInfoViewport.VertScrollBar.Position := 0;
   SetInfoText(FTitle, '');
   SetInfoText(FAuthors, '');

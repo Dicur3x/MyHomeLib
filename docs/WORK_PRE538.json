@@ -4501,5 +4501,27 @@
     "book_processing": "Downloaded the exact published 3.0.0.3 BookProcessing archives. The published beta 3 catalogue used its own original helper to update only BookProcessing to 3.0.0.4, and restarted with its original executable hash. Verified all 154/155 module files, no repair needed, personal settings, seven Books rows and two Reader-profile sentinels. Kindle, Office, XPS, PDF, DjVu, image and legacy decoder paths stayed absent.",
     "scope": "All cases used already-prepared unpublished beta 4 payloads. A fresh catalogue repack has its own exact SHA-256, recorded above. The public discovery/download of beta 4 and resuming Save As after on-demand installation of its new writers remain final release checks. No public release or feed was changed.",
     "cleanup": "All six private installations, candidate archives, and downloaded baseline packages created by this stage were removed."
+  },
+  "beta4_lower_review_panel_20261105": {
+    "status": "Saved review preview implemented and verified in actual Main VCL forms on x86 and x64. Additional-source feasibility verified separately against the public FantLab service.",
+    "interaction": "The Reviews button switches the lower book information pane to read-only saved text. It uses the existing identity-checked catalogue or personal-card lookup on click. Returning restores the metadata and annotation. Changing book clears the visible and cached old review. Book Information opens its Reviews tab when the preview is active and reflects a successful edit in the preview. Legacy text has no source field, so its heading says the source was not recorded.",
+    "verification": "Both freshly compiled Delphi Release test executables passed the selected record, empty next book, preserved review, read-only view, concurrent annotation update and small layout checks in light/dark at 96/144/192 DPI. Existing review formatting and adaptive layout passed on both architectures, 72 adaptive cases each. Early compile error and fixture selection failures were corrected. The x86 adaptive suite hit its 90-second test budget before the last cases and passed with the existing 180-second group timeout. All temporary build/test directories were removed.",
+    "fantlab_live_proof": {
+      "search": "Title-only search for Несущий свет returned 22 matches. Title plus Ратманов returned work 2105617. The work endpoint identified Жатва душ 2. Несущий свет with authors Данияр Сугралинов and Денис Ратманов. The works endpoint returned zero reviews. This does not diagnose the original Flibusta request timeout.",
+      "reviews": "Four pages of Hyperion returned 60 distinct reviews in date order. Every ID matched the corresponding HTML review anchor on the same date-sorted page. One contained spoiler markup. Use a canonical work link as the stable fallback if new reviews move the page.",
+      "implementation_decision": "Ask before sending title/author and show candidates with title, full authors and year. A missing coauthor or series prefix is a reason to show the candidate rather than silently select it. Store source, work ID, response ID, author and date separately from legacy editable text. Render plain text and handle spoiler markup. Each review needs an active attributed link. Load only a bounded number per user request and keep previous results when a source times out.",
+      "sources": [
+        "https://github.com/FantLab/FantLab-API/blob/master/Docs/search.md",
+        "https://github.com/FantLab/FantLab-API/blob/master/Docs/responses.md",
+        "https://fantlab.ru/reglament"
+      ]
+    },
+    "remaining": "FantLab is evaluated only. No new online provider is integrated in this change, and nothing was published."
+  },
+  "beta4_epub_pdf_browser_independence_20261105": {
+    "status": "Release condition added after the user raised compatibility without installed Edge or Chrome.",
+    "current": "Vivliostyle Core uses a private Chromium session for the web layout surface and Page.printToPDF. The worker currently discovers only installed full Microsoft Edge or Google Chrome. Without them it raises a conversion error even if EpubPdfExport is present.",
+    "next": "Evaluate WebView2 Runtime as an independent renderer. Prefer an existing Runtime and offer the official standalone dependency only when needed. Test x86 and x64, a genuinely browser-free configuration, output fidelity for CSS, fonts, SVG, tables, outline, links and metadata, plus blocking external requests and cancellation. Keep the no-browser requirement open until an end-to-end route works. Do not claim the current browser-dependent worker meets it.",
+    "documentation": "https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution"
   }
 }

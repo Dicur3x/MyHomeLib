@@ -873,6 +873,8 @@ type
     procedure ProcessNodes(ProcessProc: TNodeProcessProc);
 
     // Обновления не должны менять положение ноды в дереве.
+    function ReadSavedBookReview(const Saved: TBookRecord; const BookCollection: IBookCollection;
+      PersonalOnly: Boolean): TBookRecord;
     procedure UpdateNodes(const BookKey: TBookKey; UpdateProc: TNodeUpdateProc);
 
     procedure SetBookLocalStatus(const BookKey: TBookKey; IsLocal: Boolean);
@@ -5997,7 +5999,8 @@ var
   BookCollection: IBookCollection;
   BookSeries: TBookSeries;
   SeriesLinks: string;
-  GalleryBook: TBookRecord;
+  GalleryBook, ReviewBook: TBookRecord;
+  ReviewPersonalOnly: Boolean;
 
 begin
   if FInvisible or (FBookInfoUpdateCount > 0) then Exit;
@@ -6086,6 +6089,18 @@ begin
     InfoPanel.SetReadingSupport(ReaderAvailability(Data^.FileExt));
     InfoPanel.DetailsButton.OnClick := ShowBookInfo;
     InfoPanel.DetailsButton.Visible := True;
+    ReviewBook := Data^;
+    ReviewPersonalOnly := (Tree = tvBooksF) or (ReviewBook.BookKey.BookID <= 0);
+    InfoPanel.ConfigureReviews(
+      function: string
+      var ReviewCollection: IBookCollection;
+        StoredReview: TBookRecord;
+      begin
+        ReviewCollection := nil;
+        try ReviewCollection := FSystemData.GetCollection(ReviewBook.BookKey.DatabaseID); except end;
+        StoredReview := ReadSavedBookReview(ReviewBook, ReviewCollection, ReviewPersonalOnly);
+        Result := StoredReview.Review;
+      end);
     if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
     begin
       GalleryBook := Data^;
@@ -10560,6 +10575,35 @@ begin
   InitCollection;
 end;
 
+function TfrmMain.ReadSavedBookReview(const Saved: TBookRecord;
+  const BookCollection: IBookCollection; PersonalOnly: Boolean): TBookRecord;
+var Stored: TBookRecord; Namespace: string;
+begin
+  Result := Saved;
+  // A reused positive catalogue key must not supply the text for a personal card.
+  if PersonalOnly then
+  begin
+    if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then Result := Stored;
+    Exit;
+  end;
+  try
+    Stored := Default(TBookRecord);
+    Namespace := '';
+    if Assigned(BookCollection) then
+    begin
+      BookCollection.GetBookRecord(Saved.BookKey, Stored, True);
+      Namespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY));
+    end;
+    if (Stored.NodeType = ntBookInfo) and Stored.BookKey.IsSameAs(Saved.BookKey) and
+      ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), Stored, Namespace) then
+      Result.Review := Stored.Review
+    else if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
+      Result.Review := Stored.Review;
+  except
+    // Keep the list's saved text if the collection becomes unavailable.
+  end;
+end;
+
 procedure TfrmMain.ShowBookInfo(Sender: TObject);
 var
   Tree: TBookTree;
@@ -10580,6 +10624,7 @@ var
   DraftPath, DraftText, Namespace: string;
   DraftHandle: THandle; DraftStream: THandleStream; DraftBytes: TBytes;
   GroupNode: PVirtualNode; GroupData: PBookRecord; Modal: Integer;
+  PreviewPanel: TInfoPanel;
 begin
   Assert(Assigned(FCollection));
   GetActiveTree(Tree);
@@ -10590,6 +10635,9 @@ begin
     Exit;
 
   Saved := Data^; PersonalOnly := (Tree = tvBooksF) or (Saved.BookKey.BookID <= 0);
+  PreviewPanel := nil;
+  if (Sender is TButton) and (TButton(Sender).Parent is TInfoPanel) then
+    PreviewPanel := TInfoPanel(TButton(Sender).Parent);
   BookCollection := nil;
   try BookCollection := FSystemData.GetCollection(Saved.BookKey.DatabaseID); except end;
   FFormBusy := True;
@@ -10640,33 +10688,16 @@ begin
         frmBookDetails.AllowOnlineReview(URL);
       end;
 
-      if PersonalOnly then
+      if PersonalOnly or (bpHasReview in Saved.BookProps) then
       begin
-        // Read the proved system snapshot or the already displayed saved A;
-        // never load a review from the reused positive catalogue key B.
-        if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
-        begin frmBookDetails.Review := Stored.Review; frmBookDetails.Annotation := Stored.Annotation; end
-        else begin frmBookDetails.Review := Saved.Review; frmBookDetails.Annotation := Saved.Annotation; end;
-      end
-      else if bpHasReview in Saved.BookProps then
-      begin
-        // Ordinary list rows may omit memo text. Load it only from a proved
-        // current snapshot, otherwise keep the saved personal/cached A.
-        Stored := Default(TBookRecord);
-        try
-          if Assigned(BookCollection) then BookCollection.GetBookRecord(Saved.BookKey, Stored, True);
-          Namespace := ''; if Assigned(BookCollection) then
-            Namespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY));
-          if Stored.BookKey.IsSameAs(Saved.BookKey) and
-            ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), Stored, Namespace) then
-            frmBookDetails.Review := Stored.Review
-          else if ReaderTryGetPersonalBook(FSystemData, BookCollection, Saved, Stored) then
-            frmBookDetails.Review := Stored.Review
-          else frmBookDetails.Review := Saved.Review;
-        except on E: Exception do frmBookDetails.Review := Saved.Review; end;
+        Stored := ReadSavedBookReview(Saved, BookCollection, PersonalOnly);
+        frmBookDetails.Review := Stored.Review;
+        if PersonalOnly then frmBookDetails.Annotation := Stored.Annotation;
       end
       else if IsOnline and ReviewEditable and Settings.AutoLoadReview then
         DownloadReview(frmBookDetails, URL);
+      if Assigned(PreviewPanel) and PreviewPanel.ReviewsVisible then
+        frmBookDetails.pcBookInfo.ActivePage := frmBookDetails.tsReview;
 
       Namespace := ''; if Assigned(BookCollection) then
         try Namespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY)); except end;
@@ -10713,6 +10744,7 @@ begin
             end;
             StatusMessage := 'Отзыв сохранён в личной карточке. Каталог книги не обновлён.';
           end;
+          if Assigned(PreviewPanel) then PreviewPanel.SetSavedReview(strReview);
           Exit;
         end;
         // Publish a fresh, durable draft without replacing an existing file.
