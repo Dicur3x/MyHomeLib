@@ -84,8 +84,10 @@ def main():
                         help='Use the published Main ready-package install/restart UI instead of its old helper')
     parser.add_argument('--candidate-client', action='store_true',
                         help='Identify the GUI receiver as an unpublished local candidate; requires --frontend')
+    parser.add_argument('--trace-frontend', action='store_true',
+                        help='Include update-window diagnostics from the isolated client')
     args = parser.parse_args()
-    assert not args.candidate_client or args.frontend
+    assert not (args.candidate_client or args.trace_frontend) or args.frontend
     assert sha(args.old_archive) == args.old_sha256
     assert sha(args.new_archive) == args.new_sha256
     assert not args.report.exists()
@@ -126,9 +128,14 @@ def main():
         cache = root / 'LocalAppData/HomeLibRu/Updates' / identity
     job = cache / 'HomeLibRu-update-job'
     helper = job / 'HomeLibRuUpdater.exe'
+    local_temp = root / 'Temp'
     environment = dict(os.environ, LOCALAPPDATA=str(root / 'LocalAppData'),
                        HOMELIBRE_TEST_MAIN=str(target / 'HomeLibRu.exe'),
                        HOMELIBRE_TEST_HELPER=str(helper))
+    frontend_environment = environment
+    if args.trace_frontend:
+        local_temp.mkdir()
+        frontend_environment = dict(environment, TEMP=str(local_temp), TMP=str(local_temp))
     process = None
 
     def run_native(*parameters):
@@ -153,7 +160,7 @@ def main():
         (target / 'native-regression.marker').write_text('HomeLib Ru isolated native regression v1')
         ini = target / 'myhomelib2.ini'
         ini.write_text('[SYSTEM]\nCheckUpdates=0\nCheckLibrusecUpdates=0\nProgramCheckMinutes=0\n'
-            + ('DetailedDiagnostics=1\n' if args.candidate_client else '') +
+            + ('DetailedDiagnostics=1\n' if args.candidate_client or args.trace_frontend else '') +
             '[INTERFACE]\nLocale=ru\nWindowsDarkThemeOfferDismissed=1\n'
             '[BEHAVIOR]\nCoverPanel=0\nShowCover=0\nShowAnnotation=0\nAutoLoadReview=0\nIgnoreAbsentArchives=1\n'
             '[UpdateProbe]\nProtectedValue=Preserve personal settings ё\n', encoding='utf-8')
@@ -231,7 +238,8 @@ def main():
             startup.wShowWindow = 1  # Win32 SW_SHOWNORMAL; subprocess only exposes SW_HIDE.
             report['frontend_startup_show'] = 'SW_SHOWNORMAL'
             process = subprocess.Popen([str(target / 'HomeLibRu.exe')], cwd=target,
-                env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
+                env=frontend_environment,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup)
             old_pid, request = process.pid, None
             report['published_main_pid'] = old_pid
             print(json.dumps(dict(report, stage='inspect-published-main-ready')), flush=True)
@@ -311,6 +319,18 @@ def main():
             if process and process.poll() is None:
                 process.kill()
                 process.wait(timeout=15)
+            if args.trace_frontend and 'published_main_pid' in report:
+                traces = []
+                try:
+                    for log in sorted((local_temp / 'HomeLibRu-Logs').glob('HomeLibRu-*.log')):
+                        for line in log.read_text(encoding='utf-8-sig').splitlines():
+                            row = json.loads(line)
+                            if row.get('pid') == report['published_main_pid'] and row.get(
+                                    'operation', '').startswith('program-update'):
+                                traces.append(row)
+                except (OSError, ValueError) as error:
+                    report['frontend_trace_error'] = str(error)
+                report['frontend_trace'] = traces
             assert root.parent == Path(tempfile.gettempdir()).resolve()
             assert root.name.startswith('HomeLibRu-update-test-published-')
             temporary.cleanup()

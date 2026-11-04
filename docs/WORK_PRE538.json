@@ -4157,5 +4157,21 @@
       "Review obsolete component archives after the main release is verified."
     ],
     "main_release_published": false
+  },
+  "beta3_catalogue_frontend_20261104": {
+    "status": "PASS exact beta 3 catalogue ZIPs installed through the published beta 2 application on x86 and x64.",
+    "reports": [
+      {
+        "path": "tools/ui/tests/Out/beta3-catalogue-front-end-Win32-20261104-r5.json",
+        "sha256": "ca869e74153beb35052b70b6df72ed2a02d0e204e5352f524b27cf8c0435420b"
+      },
+      {
+        "path": "tools/ui/tests/Out/beta3-catalogue-front-end-Win64-20261104-r5.json",
+        "sha256": "54eccb290d62a9f787062138905aa1685fa24d648b726efd8e7c564dc9bdb450"
+      }
+    ],
+    "scope": "Original published Main restored the locally prepared exact package, received the normal Install and restart click, selected the new package helper, exited and relaunched beta 3. Per architecture 240 installed files, seven catalogue entries, protected data and private INI settings were checked. GUI observed before and after normal exit. No HTTP download was needed in these runs.",
+    "fixture_notes": "When the updater was outside the captured Main window it did not appear in the window list, although the diagnostic log showed its HWND was visible. Maximizing Main through the GUI and reopening the update window enabled capture and selection of the actual updater surface. An exploratory deferred-ready test, which introduced the ready marker after startup, left the install button disabled after opening a fresh check cycle. The passing runs restored the package from a ready marker already present at startup.",
+    "temporary_payloads_removed": true
   }
 }
