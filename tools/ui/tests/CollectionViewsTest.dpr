@@ -46,7 +46,8 @@ uses
   frm_ProgramUpdate, frm_settings, frm_ReaderCacheSettings, frm_ReaderHost, unit_ProgramUpdates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_UpdateAuthenticity, unit_IBKRuntime,
   frm_ImportProgressFormEx, unit_IndexPublisherSeriesThread, unit_ImportInpxThread, frm_NewCollectionWizard,
   frame_NCWCollectionNameAndLocation, frame_NCWCollectionFileTypes,
-  frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex;
+  frame_NCWFinish, frame_WizardPageBase, frm_ConverToFBD, unit_FileMutex,
+  unit_CollectionPacking in '..\..\..\Program\Units\unit_CollectionPacking.pas';
 
 type
   TRegressionExceptionHandler = class
@@ -5675,6 +5676,7 @@ end;
 {$I ComponentMaintenanceTests.inc}
 {$I ComponentMonthlyLifecycleTests.inc}
 {$I ComponentInventoryUITests.inc}
+{$I CollectionPackingFbdTests.inc}
 
 var
   One, Two, Online: IBookCollection;
@@ -5725,6 +5727,7 @@ begin
       if ParamStr(1) = 'book-output-reset' then begin BenchmarkBookOutputReset; Halt(0); end;
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
+      if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
       if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
       if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; TestSchemaReopenSafety; TestMetadataDeltaSafety; Halt(0); end;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;

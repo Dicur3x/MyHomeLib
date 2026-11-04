@@ -101,7 +101,7 @@ modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
 modes.push('script-export-paths');
-if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   'script-export-paths': ['PASS script export path preference requests both script destinations without starting workers'],
   'save-settings-sync': ['PASS save settings migration preserves legacy choices', 'PASS save settings actual form applies seven defaults', 'PASS save settings defaults reach single and mixed Save As', 'PASS save settings restored operation retains explicit format', 'PASS save settings accepted Save As path and masks survive reopen', 'PASS save settings original mixed copy preserves exact bytes', 'PASS save settings device parsing names survive shared destination persistence'],
@@ -298,6 +298,7 @@ function requiredPasses(executable, mode) {
   if (mode === "search-startup-layout") return ["PASS header menu keeps column IDs", ...requiredViews[mode], "TRACE main cleanup complete"];
   if (mode === "series-stream") return ["PASS sequential series stream matches ordinary lookup"];
   if (mode === "fbd-editor-save") return ["PASS FBD editor preserves unsaved metadata"];
+  if (mode === "packing-fbd") return ["PASS original FBD container"];
   if (mode === "update-theme") return ["PASS update notes retain visible dark/light foreground"];
   if (mode === "bulk-writes") return ["PASS bulk writes preserve Unicode fields", "PASS current catalogs reopen without schema/data writes", "PASS metadata delta matches full writes", "PASS metadata delta preserves exact personal review prefix"];
   if (mode === "query-batch") return ["PASS bounded statement reuse, cleared parameters, concurrent queries, schema changes and rollback"];
@@ -382,6 +383,20 @@ function run(executable, mode, subcase = "") {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable, mode);
+    if (mode === 'packing-fbd') {
+      const sevenZip = path.join(runtime, 'tools/7zip/7za.exe');
+      const python = path.join(runtime, 'tools/kindle/python');
+      if (machine(sevenZip) !== architecture || machine(path.join(python, 'python.exe')) !== architecture)
+        throw Error('Packing test requires matching 7-Zip and Python executables.');
+      fs.mkdirSync(path.join(folder, 'tools/collectionpack'), {recursive:true});
+      fs.mkdirSync(path.join(folder, 'tools/7zip'), {recursive:true});
+      fs.copyFileSync(sevenZip, path.join(folder, 'tools/7zip/7za.exe'));
+      fs.cpSync(python, path.join(folder, 'tools/kindle/python'), {recursive:true});
+      fs.copyFileSync(path.resolve(__dirname, '../../collectionpack/pack_collection.py'),
+        path.join(folder, 'tools/collectionpack/pack_collection.py'));
+      fs.copyFileSync(path.resolve(__dirname, '../../../Installer/GenreLists/genres_fb2.glst'),
+        path.join(folder, 'genres_fb2.glst'));
+    }
     if (mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') fs.writeFileSync(path.join(folder,'preview-adaptive-visual.flag'),'isolated visual review');
     if(mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')
       fs.writeFileSync(path.join(folder,'search-compact-visual.flag'),'1');

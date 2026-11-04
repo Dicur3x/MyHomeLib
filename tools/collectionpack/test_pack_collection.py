@@ -119,6 +119,45 @@ class PackingTests(unittest.TestCase):
             Packer(self.job).execute()
         self.assertEqual(set(self.output.glob('generations/*/prepared.json')), generations)
 
+    def test_fbd_and_regular_rows_can_share_one_unchanged_container(self):
+        book = b'%PDF-1.0\nSource document'
+        metadata = '<FictionBook><description>Описание ё</description></FictionBook>'.encode()
+        source = self.archive('Пара.zip', {'chapter.pdf': book, 'chapter.fbd': metadata})
+        original_hash = sha(source)
+        self.add(1, source, 'chapter.pdf')
+        self.add(2, source, 'chapter.pdf')
+        with database(self.plan) as db:
+            db.execute('ALTER TABLE books ADD COLUMN fbd INTEGER NOT NULL DEFAULT 0')
+            db.execute('UPDATE books SET filename=?,locator=?,fbd=1 WHERE book_id=1',
+                       (source.name, 'fbd:0:chapter.pdf'))
+        result = Packer(self.job).execute()
+        self.assertEqual((result.sources, result.books, result.opaque_sources), (1, 2, 1))
+        with database(self.output / 'generations' / result.generation / 'locations.sqlite') as db:
+            rows = db.execute('SELECT * FROM locations ORDER BY book_id').fetchall()
+        self.assertEqual(rows[0][2:], (source.name, '.pdf', 0))
+        self.assertTrue(rows[0][1].endswith(os.sep))
+        payload = rows[0][1] + rows[0][2]
+        self.assertEqual(rows[1][1], payload)
+        self.assertEqual(sha(self.output / payload), original_hash)
+        with zipfile.ZipFile(self.output / payload) as archive:
+            self.assertEqual(archive.read('chapter.fbd'), metadata)
+            self.assertEqual(archive.read('chapter.pdf'), book)
+        with database(self.plan) as db:
+            db.execute('DELETE FROM books')
+            db.execute('CREATE TABLE retained(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,'
+                       'ext TEXT NOT NULL,inside_no INTEGER NOT NULL,payload TEXT NOT NULL)')
+            db.executemany('INSERT INTO retained VALUES(?,?,?,?,?,?)', [(*row, payload) for row in rows])
+        source.unlink()
+        retained = Packer(self.job).execute()
+        self.assertEqual((retained.sources, retained.books, retained.reused), (1, 2, 1))
+        self.assertEqual(retained.output_bytes, result.output_bytes)
+        with database(self.output / 'generations' / retained.generation / 'locations.sqlite') as db:
+            self.assertEqual(db.execute('SELECT * FROM locations ORDER BY book_id').fetchall(), rows)
+        with database(self.plan) as db:
+            db.execute('UPDATE retained SET folder=? WHERE book_id=1', (payload,))
+        with self.assertRaisesRegex(PackingError, 'Расположение книги не совпадает'):
+            Packer(self.job).execute()
+
     def test_retained_unknown_member_and_overlapping_plan_ids_are_rejected(self):
         source = self.source / 'book.txt'; source.write_bytes(b'Book ' * 5000); self.add(1, source, '')
         old = Packer(self.job).execute(); self.retain(old, [1])

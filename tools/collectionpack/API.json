@@ -17,24 +17,25 @@
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "INSERT INTO metadata VALUES('api','1')",
     "INSERT INTO metadata VALUES('dataset',<same dataset as job>)",
-    "CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT NOT NULL,member TEXT NOT NULL,locator TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL)",
+    "CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT NOT NULL,member TEXT NOT NULL,locator TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,fbd INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX source_books ON books(source)"
   ],
   "plan_contract": {
-    "retained": "Optional retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER). IDs must not overlap books. Reuse an already registered immutable payload without opening originals: its journal membership, every output artifact and companion image are checked first. Include every preserved target in the final location count.",
+    "retained": "Optional retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER,payload TEXT). The payload column is the relative physical archive path and should be indexed. Without the column, older plans use folder as the physical archive path. IDs must not overlap books. Reuse an already registered immutable payload without opening originals: its journal membership, every output artifact and companion image are checked first. Include every preserved target in the final location count.",
     "book_id": "Unique native plan-row ID, never a library LIBID. For ordinary rows it may equal the catalogue BookID. Native producer must retain a target map when including alternate CatalogBookCopies or personal-card locations; those targets need separate plan IDs. Original catalogue BookIDs must remain unchanged in the clone.",
     "source": "Canonical absolute physical archive or loose-file path. Resolve ZIP-to-7z fallback in the producer.",
     "member": "Actual exact archive entry, or empty for a loose file. Native producer must reuse TMHLZip.ResolveBookName, including its existing safe legacy-index contract. Do not guess an unrelated member.",
     "locator": "Stable physical member identity within this source, independent of BookID and INPX row order.",
     "filename": "Original TBookRecord.FileName; retained only when copying an opaque original container.",
     "ext": "Original declared extension including the dot. No format conversion occurs.",
-    "inside_no": "Original legacy archive index; retained only when copying an opaque original container."
+    "inside_no": "Original legacy archive index; retained only when copying an opaque original container.",
+    "fbd": "Optional FBD-container locator flag, 0 if absent. A 1 keeps the whole original ZIP and its descriptor. The returned folder is the relative package directory including its trailing separator, and filename is the ZIP basename. Ordinary locators sharing the same physical ZIP keep the full ZIP path in folder."
   },
   "output_contract": {
     "progress": "UTF-8 JSON lines: source, books, compressing, verifying, prepared, canceled or error. Events carry sources_done/sources_total, books_done/books_total (plan locations), input_bytes/output_bytes for completed sources, reused and elapsed_seconds. current/total describe the current stage only; absence means indeterminate. Long operations send a heartbeat at least once per second while their bounded cancellation check runs. Fast member updates are throttled to 150ms, preserving first/final updates. UI ETA is explicitly approximate and is shown only after at least two completed sources and five seconds.",
     "prepared": "generations/<generation>/prepared.json plus locations.sqlite; this is not a registered collection.",
     "locations_schema": "locations(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER)",
-    "folder": "Relative to output. A normal packed file points to a ZIP; existing FLibrary containers retain their archive extension and side archives.",
+    "folder": "Relative to output. An ordinary locator points to a ZIP or 7z; an FBD locator points to the directory containing the named original ZIP. Existing FLibrary containers retain their archive extension and side archives.",
     "native_publication_required": [
       "Create consistent catalogue and personal-data snapshots without changing the source collection.",
       "Remap every planned BookID in those snapshots using the returned locations. Preserve titles, authors, every series, source identities, groups, personal cards and reading state.",

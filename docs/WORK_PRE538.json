@@ -4224,5 +4224,16 @@
       "Connect verified packing to the catalogue UI with space estimation, progress and safe registration. Exercise exact mixed collections and later INPX changes through this entry point.",
       "Test user-selected image profiles independently with real FB2 and EPUB files before enabling them for a collection."
     ]
+  },
+  "collection_packing_fbd_20261104": {
+    "status": "Native FBD container and regular archive locators verified on x86 and x64.",
+    "implementation": "Copy the ZIP containing a book and its FBD descriptor byte for byte. Store one physical copy when FBD and regular catalogue records refer to the same archive. Keep the distinct catalogue locators during remapping and when reusing a previous packed generation.",
+    "checks": {
+      "Win32": "Delphi Release build, native packing-fbd and fbd-editor-save PASS, 29 packer tests passed with x86 Python 3.13.16 and 7-Zip 26.05",
+      "Win64": "Delphi Release build, native packing-fbd and fbd-editor-save PASS, 29 packer tests passed with x64 Python 3.13.16 and 7-Zip 26.05",
+      "scope": "Isolated synthetic ZIP, two native catalogue locators, exact book and FBD streams, original ZIP hash, one physical payload and reuse after removing access to the original fixture.",
+      "temporary_profiles_removed": true
+    },
+    "next": "Handle catalogue rows without a local payload, then connect the verified packer to the catalogue interface and test changes from INPX."
   }
 }

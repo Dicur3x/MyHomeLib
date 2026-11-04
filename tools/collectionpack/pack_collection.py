@@ -95,6 +95,11 @@ def checked_relative(root, name):
     return target
 
 
+def book_location(archive, item):
+    folder = str(Path(archive).parent) + os.sep if item.get('fbd') else archive
+    return folder, item['filename'], item['ext'], item['inside_no']
+
+
 def copy_exact(source, target, check):
     digest = hashlib.sha256()
     with Path(source).open('rb') as reader, Path(target).open('xb') as writer:
@@ -281,8 +286,8 @@ class Packer:
                     return False
         return True
 
-    def retain_payloads(self, plan, mapping):
-        for (folder,) in plan.execute('SELECT DISTINCT folder FROM retained ORDER BY folder'):
+    def retain_payloads(self, plan, mapping, payload_column):
+        for (folder,) in plan.execute(f'SELECT DISTINCT {payload_column} FROM retained ORDER BY {payload_column}'):
             self.check()
             checked_relative(self.root, folder)
             row = self.db.execute('SELECT members,artifacts,input_bytes,opaque FROM payloads WHERE folder=?', (folder,)).fetchone()
@@ -291,12 +296,12 @@ class Packer:
             artifacts = json.loads(row[1])
             if not self.artifacts_valid(artifacts):
                 raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' + folder)
-            members = {(item['filename'], item['ext'], item['inside_no']) for item in json.loads(row[0]).values()}
+            members = {book_location(folder, item) for item in json.loads(row[0]).values()}
             count = 0
             with mapping:
-                for book in plan.execute('SELECT book_id,folder,filename,ext,inside_no FROM retained WHERE folder=? ORDER BY book_id', (folder,)):
+                for book in plan.execute(f'SELECT book_id,folder,filename,ext,inside_no FROM retained WHERE {payload_column}=? ORDER BY book_id', (folder,)):
                     self.check()
-                    if (book[2], book[3], book[4]) not in members:
+                    if tuple(book)[1:] not in members:
                         raise PackingError('Расположение книги не совпадает с готовым архивом: ' + folder)
                     mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)', tuple(book))
                     count += 1
@@ -429,7 +434,16 @@ class Packer:
             publish = checked_relative(self.root, str(relative))
         package = stage / 'package'; package.mkdir()
         input_bytes = source.stat().st_size + sum(p.stat().st_size for _, p in companions)
-        preserve_container = bool(companions)
+        fbd_rows = [row for row in rows if row['fbd']]
+        if fbd_rows:
+            if source.suffix.lower() != '.zip' or not zipfile.is_zipfile(source):
+                raise PackingError('В плане сжатия неверно указан архив книги с описанием FBD.')
+            with zipfile.ZipFile(source) as directory:
+                entries = set(directory.namelist())
+                for row in fbd_rows:
+                    if not row['member'] or row['member'] not in entries:
+                        raise PackingError('Книга с описанием FBD отсутствует в архиве: ' + row['member'])
+        preserve_container = bool(companions) or bool(fbd_rows)
         if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
             with zipfile.ZipFile(source) as directory:
                 preserve_container = any(entry.file_size > MAX_BOOK for entry in directory.infolist() if not entry.is_dir())
@@ -442,7 +456,10 @@ class Packer:
                 destination = package / name; destination.parent.mkdir(exist_ok=True)
                 copied_hashes[destination] = copy_exact(file, destination, self.check)
             for row in rows:
-                mappings[row['locator']] = dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no'])
+                item = dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no'])
+                if row['fbd']:
+                    item.update(filename=source.name, fbd=True)
+                mappings[row['locator']] = item
         else:
             files = stage / 'books'; files.mkdir()
             text_names, stored_names = [], []
@@ -579,13 +596,16 @@ class Packer:
                 dataset = plan.execute('SELECT value FROM metadata WHERE key=\'dataset\'').fetchone()
                 if dataset is None or dataset[0] != self.dataset:
                     raise PackingError('План относится к другой исходной коллекции.')
+                fbd_column = '' if any(row[1] == 'fbd' for row in plan.execute('PRAGMA table_info(books)')) else ',0 AS fbd'
+                retained_columns = {row[1] for row in plan.execute('PRAGMA table_info(retained)')}
+                retained = bool(retained_columns)
+                payload_column = 'payload' if 'payload' in retained_columns else 'folder'
                 generation = self.root / 'generations' / self.result.generation
                 generation.mkdir(parents=True)
                 mapping = sqlite3.connect(generation / 'locations.sqlite')
                 try:
                     mapping.execute('CREATE TABLE locations(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL)')
-                    retained = plan.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='retained'").fetchone()[0] != 0
-                    retained_sources = plan.execute('SELECT count(DISTINCT folder) FROM retained').fetchone()[0] if retained else 0
+                    retained_sources = plan.execute(f'SELECT count(DISTINCT {payload_column}) FROM retained').fetchone()[0] if retained else 0
                     retained_books = plan.execute('SELECT count(*) FROM retained').fetchone()[0] if retained else 0
                     if retained and plan.execute('SELECT 1 FROM books JOIN retained USING(book_id) LIMIT 1').fetchone():
                         raise PackingError('Одна запись книги одновременно включена в новую и готовую часть.')
@@ -596,12 +616,13 @@ class Packer:
                                          books_total=plan.execute('SELECT count(*) FROM books').fetchone()[0]+retained_books,
                                          input_bytes=0, output_bytes=0, reused=0)
                     if retained:
-                        self.retain_payloads(plan, mapping)
+                        self.retain_payloads(plan, mapping, payload_column)
                     source_rows = plan.execute('SELECT DISTINCT source FROM books ORDER BY source')
                     for number, (name,) in enumerate(source_rows):
                         self.check()
                         source = Path(name).absolute()
-                        rows = plan.execute('SELECT * FROM books WHERE source=? ORDER BY book_id', (name,)).fetchmany(MAX_SOURCE_BOOKS + 1)
+                        rows = plan.execute(f'SELECT *{fbd_column} FROM books WHERE source=? ORDER BY book_id',
+                                            (name,)).fetchmany(MAX_SOURCE_BOOKS + 1)
                         if len(rows) > MAX_SOURCE_BOOKS:
                             raise PackingError('В одном исходном архиве больше 100 000 записей. Эта операция не была опубликована; исходные файлы сохранены.')
                         if not rows:
@@ -613,7 +634,8 @@ class Packer:
                         packed = self.cached(identity, stamp, source, companions)
                         # New catalogue rows may reference more members from an
                         # otherwise unchanged source. Reuse requires all locators.
-                        if packed is not None and all(row['locator'] in packed[1] for row in rows):
+                        if packed is not None and all(row['locator'] in packed[1] and
+                                bool(packed[1][row['locator']].get('fbd')) == bool(row['fbd']) for row in rows):
                             self.result.reused += 1
                         else:
                             with self.working_stage() as stage:
@@ -623,7 +645,7 @@ class Packer:
                             for row in rows:
                                 item = members[row['locator']]
                                 mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)',
-                                                (row['book_id'], folder, item['filename'], item['ext'], item['inside_no']))
+                                                (row['book_id'], *book_location(folder, item)))
                         self.result.sources += 1; self.result.books += len(rows)
                         self.result.input_bytes += input_bytes
                         self.result.output_bytes += sum(a['size'] for a in artifacts)
