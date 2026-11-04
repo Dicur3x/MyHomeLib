@@ -1,14 +1,18 @@
+from contextlib import closing
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import urlopen
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import advanced_output
 import convert_book as conversion
+import epub_pdf_output
 
 
 FB2 = '''<?xml version="1.0" encoding="utf-8"?>
@@ -40,7 +44,8 @@ class AdvancedOutputTest(unittest.TestCase):
     def test_only_selected_writer_is_requested(self):
         epub = self.work / 'source.epub'
         conversion.convert_book(self.source, epub)
-        for source, profile, component in [(self.source, 'epub2', 'FB2Export'), (epub, 'kepub', 'KoboExport')]:
+        for source, profile, component in [(self.source, 'epub2', 'FB2Export'), (epub, 'kepub', 'KoboExport'),
+                                           (epub, 'pdf', 'EpubPdfExport')]:
             output = self.work / ('book' + advanced_output.OUTPUT_SUFFIXES[profile])
             with self.assertRaises(conversion.ComponentRequired) as failure:
                 conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
@@ -58,6 +63,29 @@ class AdvancedOutputTest(unittest.TestCase):
         with self.assertRaises(conversion.ConversionError):
             conversion.convert_book(self.source, output, output_profile='kfx', tools_root=self.tools)
         self.assertEqual(output.read_bytes(), b'keep this file')
+
+    def test_epub_pdf_server_only_serves_known_resources_with_private_prefix(self):
+        epub = self.work / 'source.epub'
+        conversion.convert_book(self.source, epub)
+        viewer = self.work / 'viewer'
+        viewer.mkdir()
+        (viewer / 'vivliostyle.js').write_bytes(b'module.exports = {};')
+        (viewer / 'private.txt').write_bytes(b'must not be served')
+        with closing(conversion.EpubArchive(epub)) as archive:
+            with epub_pdf_output.local_book(archive, viewer) as (origin, prefix):
+                with urlopen(origin + prefix + 'viewer/host.js', timeout=2) as response:
+                    self.assertIn(b'allowScripts: false', response.read())
+                    self.assertIn('script-src ' + origin + prefix + 'viewer/',
+                                  response.headers['Content-Security-Policy'])
+                with urlopen(origin + prefix + 'book/META-INF/container.xml', timeout=2) as response:
+                    self.assertIn("script-src 'none'", response.headers['Content-Security-Policy'])
+                    self.assertEqual(response.read(), archive.read('META-INF/container.xml'))
+                for path in ('/viewer/host.js', prefix + 'viewer/private.txt',
+                             prefix + 'book/%2e%2e/viewer/host.js'):
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(origin + path, timeout=2)
+                    self.assertEqual(error.exception.code, 404)
+                    error.exception.close()
 
     @unittest.skipUnless(os.environ.get('HOMELIBRE_ADVANCED_WRITERS'), 'needs pinned installed writers')
     def test_real_writers_preserve_content_and_use_separate_modules(self):

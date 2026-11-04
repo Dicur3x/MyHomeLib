@@ -1,5 +1,6 @@
 """Optional FB2 and EPUB export writers. All tool input and output are private."""
 
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -79,17 +80,22 @@ def convert(api, source, destination, source_extension, profile, options):
     suffix = OUTPUT_SUFFIXES.get(profile)
     if suffix is None or not destination.name.lower().endswith(suffix):
         raise api.ConversionError('Имя файла не соответствует выбранному формату.')
-    if source_extension != '.fb2' and not (source_extension == '.epub' and profile == 'kepub'):
-        raise api.ConversionError('Этот вариант сохранения доступен для FB2. Для EPUB доступен прямой экспорт в KEPUB.')
+    if source_extension != '.fb2' and not (source_extension == '.epub' and profile in ('kepub', 'pdf')):
+        raise api.ConversionError('Этот вариант сохранения доступен для FB2. Для EPUB доступен прямой экспорт в KEPUB и PDF.')
     quality = options['image_quality']
     if quality == 'ask':
         raise api.ConversionError('Перед сохранением выберите режим изображений.')
     if quality == 'none' and profile in ('kfx', 'azw8'):
         raise api.ConversionError('Для KFX и AZW8 нужна обложка. Выберите режим с изображениями.')
     tools = Path(options.get('tools_root') or Path(__file__).resolve().parent.parent).resolve()
-    direct_kobo = source_extension == '.epub'
-    component, relative, name = ('KoboExport', 'kobo-export/kepubify.exe', 'kepubify') if direct_kobo else (
-        'FB2Export', 'fb2-export/fbc.exe', 'fb2cng')
+    direct_pdf = source_extension == '.epub' and profile == 'pdf'
+    direct_kobo = source_extension == '.epub' and profile == 'kepub'
+    if direct_pdf:
+        component, relative, name = 'EpubPdfExport', 'epub-pdf/epub_pdf_output.py', 'вёрстки EPUB в PDF'
+    elif direct_kobo:
+        component, relative, name = 'KoboExport', 'kobo-export/kepubify.exe', 'kepubify'
+    else:
+        component, relative, name = 'FB2Export', 'fb2-export/fbc.exe', 'fb2cng'
     writer = tools / relative
     if not writer.is_file():
         raise api.ComponentRequired(component, 'Для выбранного формата сохранения нужен модуль ' + name + '.')
@@ -103,8 +109,15 @@ def convert(api, source, destination, source_extension, profile, options):
         output = work / ('book' + suffix)
         preparation = api.convert_book(source, prepared, **options)
         warnings = set(preparation.get('warnings', ()))
-        if direct_kobo:
+        progress('advanced-writing', 0, 1)
+        if direct_pdf:
+            spec = importlib.util.spec_from_file_location('homelibre_epub_pdf', writer)
+            engine = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(engine)
+            engine.convert(api, prepared, output, writer.parent, check)
+        elif direct_kobo:
             command = [str(writer), '--no-add-dummy-titlepage', '--output', str(output), str(prepared)]
+            run_writer(api, command, work, check)
         else:
             canonical_fb2(api, prepared)
             command = [str(writer)]
@@ -117,8 +130,7 @@ def convert(api, source, destination, source_extension, profile, options):
             if quality == 'none' and profile in ('epub2', 'epub3', 'kepub', 'pdf'):
                 command.append('--no-cover')
             command.append(str(prepared))
-        progress('advanced-writing', 0, 1)
-        run_writer(api, command, work, check)
+            run_writer(api, command, work, check)
         validate_output(api, output, profile)
         if check is not None:
             check()

@@ -103,7 +103,8 @@ def payload_for(platform, component, kindle_export_root=None, advanced_export_ro
     if component == 'BookProcessing':
         payload = tree(runtime/'kindle/python', 'tools/python')
         payload.update(tree(REPO/'tools/bookconvert', 'tools/bookconvert',
-                            ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py', 'COMPONENT.json')))
+                            ('vendor/calibre_legacy', 'kindle_input.py', 'kindle_output.py', 'legacy_helper.py',
+                             'epub_pdf_output.py', 'COMPONENT.json')))
         payload['tools/bookconvert/MODULAR_API.txt'] = b'1\n'
         required = ['tools/python/python.exe', 'tools/bookconvert/convert_book.py',
                     'tools/bookconvert/MODULAR_API.txt', 'tools/bookconvert/IMAGE_CONTAINER_API.txt', 'tools/python/python313.dll',
