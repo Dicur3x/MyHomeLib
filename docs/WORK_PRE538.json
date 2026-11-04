@@ -4295,5 +4295,15 @@
     ],
     "limits": "The INPX and ZIP grouping are test fixtures. No end-to-end click through the production file/folder pickers, rendering in a reading window or full-library compression timing in this run.",
     "cleanup": "Both isolated profiles and the temporary build log directory created by this run were removed by their wrappers. Previously protected folders were untouched."
+  },
+  "collection_packing_real_menu_20261104": {
+    "status": "Full production menu flow passed on x64 with an isolated real mixed book sample.",
+    "checks": [
+      "Selected the real Windows INPX and folder dialogs, reviewed the estimate, processed seven records and confirmed a separate active collection with two reused archives.",
+      "HomeLibre Reader opened and rendered the newly imported DOCX directly from the updated catalogue. After normal exit, the native verifier checked the saved active collection and data version, the new DOCX row, preservation of the earlier catalogue and exact updated PDF bytes."
+    ],
+    "fixture_notes": "Two interactive runs reached time limits before finishing. An earlier completed UI run exposed a test assertion comparing a Cyrillic literal from an include without BOM. The final verifier compares the stable prefix, exact data version and book bytes.",
+    "scope": "Production x64 catalogue and packaged Reader. Native mixed packing and export were previously verified on both x86 and x64.",
+    "cleanup": "All four fresh interactive profiles and temporary build logs for the GUI proof were automatically removed."
   }
 }

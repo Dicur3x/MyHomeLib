@@ -1,4 +1,4 @@
-procedure TestPackingReal;
+procedure TestPackingReal(MenuFixture: Boolean = False);
 var Root, PackedRoot: string; Options: TCollectionPackingOptions;
   Source, Copy1, Copy2, Copy3: IBookCollection;
   LegacyImport: TManualUpdateThread;
@@ -103,6 +103,15 @@ begin
     Snapshot.Prepare; Snapshot.Pack; Snapshot.ApplyPrepared;
     Copy1:=SystemDB.GetCollection(Snapshot.RegisterNew(SystemDB));
   finally Snapshot.Free; end;
+  if MenuFixture then
+  begin
+    Settings.ActiveCollection:=Copy1.CollectionID;
+    Settings.ActivePage:=PAGE_AUTHORS;
+    Settings.RestoreBookViews:=rbvAutomatic;
+    Settings.SaveSettings;
+    Writeln('PASS production menu fixture starts with the original packed catalogue');
+    Exit;
+  end;
   Copy2:=UpdateCopy(Copy1,1);
   Copy3:=UpdateCopy(Copy2,2);
   VerifyCopy(Copy1,0,False);
@@ -113,4 +122,30 @@ begin
   Require(Copy1.ResolveBookID('103',0)=Copy3.ResolveBookID('103',0),
     'A second real update changed the stable PDF book number');
   Writeln('PASS real mixed packed books survive two INPX updates and export with exact original bytes');
+end;
+
+procedure VerifyPackingMenu;
+var Info: TCollectionInfo; Collection: IBookCollection; Book: TBookRecord;
+  Expected: TJSONObject; Stream: TStream; BookID: Integer;
+begin
+  Info:=SystemDB.GetCollectionInfo(Settings.ActiveCollection);
+  Writeln('TRACE saved catalogue id=',Info.ID,' version=',Info.DataVersion,' title=',Info.DisplayName);
+  Require(Info.DisplayName.StartsWith('Real mixed packed copy (') and
+    (Info.DataVersion=20261102),'Production menu did not open the new packed catalogue');
+  Collection:=SystemDB.GetCollection(Info.ID);
+  BookID:=Collection.ResolveBookID('103',0);
+  Require(BookID>0,'Production menu lost the updated PDF');
+  Collection.GetBookRecord(CreateBookKey(BookID,Info.ID),Book,True);
+  Expected:=TJSONObject.ParseJSONValue(TFile.ReadAllText(TPath.Combine(Settings.AppPath,'packing-real-input/1/expected.json'))) as TJSONObject;
+  try
+    Stream:=Book.GetBookStream(True,False);
+    try
+      Require(Assigned(Stream) and SameText(THashSHA2.GetHashString(Stream),
+        Expected.GetValue<TJSONObject>('103').GetValue<string>('sha256')),
+        'Production menu did not publish the updated PDF bytes');
+    finally Stream.Free; end;
+  finally Expected.Free; end;
+  Require(SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,'Real mixed packed copy') and
+    (Collection.ResolveBookID('107',0)>0),'Production menu lost the old catalogue or the new DOCX');
+  Writeln('PASS production menu published the expected real INPX update separately');
 end;

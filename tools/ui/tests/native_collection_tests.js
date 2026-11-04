@@ -30,7 +30,10 @@ const readerFixturesArg = process.argv.find(arg => arg.startsWith("--reader-fixt
 const conversionFixturesArg = process.argv.find(arg => arg.startsWith("--conversion-fixtures="));
 const saveDocInventoryArg = process.argv.find(arg => arg.startsWith('--save-doc-inventory='));
 const packingInventoryArg = process.argv.find(arg => arg.startsWith('--packing-inventory='));
+const packingMenuReaderArg = process.argv.find(arg => arg.startsWith('--packing-menu-reader='));
 const viewsMode = viewsModeArg ? viewsModeArg.slice("--views-mode=".length) : null;
+if (packingMenuReaderArg && (viewsMode !== 'packing-fbd' || !packingInventoryArg))
+  throw Error('The packing menu review requires a real packing inventory and the packing-fbd scenario.');
 const catalogueLabelArg=process.argv.find(a=>a.startsWith('--catalogue-label='));
 const catalogueLabel=catalogueLabelArg ? catalogueLabelArg.slice('--catalogue-label='.length) : '';
 if(catalogueLabel && !/^[a-z0-9-]{1,40}$/.test(catalogueLabel))throw Error('Invalid catalogue audit label');
@@ -376,6 +379,35 @@ function requireNoCatalogueJournal(source) {
       throw Error('Catalogue has a nonempty journal; no raw snapshot is safe');
   }
 }
+function runPackingMenu(folder, executable) {
+  const main=path.join(folder,'HomeLibRu.exe');
+  const source=path.join(runtime,'HomeLibRu.exe');
+  const readerArchive=fs.realpathSync(packingMenuReaderArg.slice('--packing-menu-reader='.length));
+  const packageFolder=path.join(folder,'reader-package');
+  const python=path.join(folder,'tools/kindle/python/python.exe');
+  if (machine(source)!==architecture) throw Error('Packing Main architecture differs from fixture');
+  fs.copyFileSync(source,main);
+  const options={cwd:folder,env:{...process.env,LOCALAPPDATA:path.join(folder,'LocalAppData')},
+    windowsHide:true,encoding:'utf8',timeout:60000};
+  const reader=cp.spawnSync(python,['-I','-B','-m','zipfile','-e',readerArchive,packageFolder],options);
+  if (reader.status!==0) throw Error('Reader fixture extraction failed: '+reader.stderr);
+  if (machine(path.join(packageFolder,'HomeLibReader.exe'))!==architecture)
+    throw Error('Packing Reader architecture differs from fixture');
+  for (const name of ['HomeLibReader.exe','HomeLibReader-LICENSE.txt','HomeLibRuUpdater.exe','NOTICE'])
+    fs.copyFileSync(path.join(packageFolder,name),path.join(folder,name));
+  function runFixture(mode, marker) {
+    const result=cp.spawnSync(executable,[mode],options);
+    const output=(result.stdout||'')+(result.stderr||'');
+    process.stdout.write(output);
+    if (result.status!==0 || !output.includes(marker)) throw Error('Packing menu fixture failed: '+mode);
+  }
+  runFixture('packing-menu-fixture','PASS production menu fixture starts');
+  console.log('GUI_INPX',path.join(folder,'packing-real-input','1','index.inpx'));
+  const result=cp.spawnSync(main,[],{...options,windowsHide:false,timeout:3600000});
+  if (result.status!==0) throw Error('Production packing menu session failed: '+(result.error||result.status));
+  runFixture('packing-menu-verify','PASS production menu published');
+}
+
 function run(executable, mode, subcase = "") {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "HomeLibRu-native-"));
   const absolute = path.resolve(folder);
@@ -782,6 +814,7 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       fs.symlinkSync(target, path.join(reading, "webp-png"), "junction");
     }
     const exe = path.join(folder, path.basename(executable));
+    if (mode==='packing-fbd' && packingMenuReaderArg) { runPackingMenu(folder,exe); return; }
     const result = cp.spawnSync(exe, mode ? [mode,...(subcase ? [subcase] : []),...(mode === "audit-new" ? [auditCaseArg ? auditCaseArg.slice(13) : "filters", ...(amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice(16))] : [])] : []),...(toolProbe ? ["probe"] : []),...((visualCache || visualUI || visualUpdate || visualRecords) ? ["visual"] : []),...(mode === "feedback14" && amberArchiveArg ? [fs.realpathSync(amberArchiveArg.slice("--amber-archive=".length))] : [])] : [], { cwd: folder, env: {...process.env, LOCALAPPDATA: path.join(folder, "LocalAppData")}, encoding: "utf8", timeout: mode==='script-export-paths' ? 900000 : visualEstimates || ((mode==='book-preview-adaptive' && process.env.HOMELIB_TEST_PREVIEW_VISUAL==='1') || (mode==='compact-search-filters' && process.env.HOMELIB_TEST_SEARCH_VISUAL==='1')) ? 900000 : mode==='save-module-restart' || mode==='unified-send' || mode==='save-planning' || mode==='kindle-save' ? 900000 : mode==='catalogue-performance' || mode==='first-book-list-large' || mode==='image-quality-dialog' ? 900000 : mode==='catalogue-formats' ? 3600000 : mode==='conversion-menu' ? 300000 : !!process.env.HLRU_FEEDBACK529_VISUAL && mode === "feedback529" ? 300000 : mode === "post525-update" ? (visualUI ? 900000 : 180000) : mode === "filter-captions" && ["annotation-light", "annotation-dark"].includes(subcase) ? 240000 : mode === "large-inpx" ? 900000 : ["component-monthly-lifecycle", "reader-spread", "view-sessions", "builtin-reader", "reader-resource-idle", "update-repair", "compact-book-views", "book-preview-layout", "metadata-book-columns", "reader-notes-proposals", "update-keyboard-accessibility", "main-toolbar-states", "favorite-ui"].includes(mode) ? 180000 : mode === 'native-folder-picker' || mode === 'cancel-interactive' || mode === 'export-cancel-interactive' || mode === 'legacy-import-interactive' || proposalVisualModes.includes(mode) || visualUI || visualUpdate || visualRecords ? 900000 : visualCache ? 180000 : 90000, windowsHide: mode !== 'script-export-paths' && !process.env.HLRU_FEEDBACK529_VISUAL && mode !== 'update-keyboard-accessibility' && !mode.startsWith("first-run") && mode !== 'cancel-interactive' && mode !== 'export-cancel-interactive' && mode !== 'legacy-import-interactive' && !proposalVisualModes.includes(mode) && !visualCache && !visualUI && !visualRecords && !visualEstimates, maxBuffer: 2 * 1024 * 1024 });
     const output = (result.stdout || "") + (result.stderr || "");
     if (mode === "favorite-ui") {

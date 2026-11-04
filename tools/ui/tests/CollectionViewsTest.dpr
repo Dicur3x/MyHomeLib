@@ -5730,6 +5730,8 @@ begin
       if ParamStr(1) = 'update-theme' then begin TestUpdateNotesTheme; Halt(0); end;
       if ParamStr(1) = 'fbd-editor-save' then begin TestFBDEditorSave; Halt(0); end;
       if ParamStr(1) = 'packing-fbd' then begin TestPackingFbd; Halt(0); end;
+      if ParamStr(1) = 'packing-menu-fixture' then begin TestPackingReal(True); Halt(0); end;
+      if ParamStr(1) = 'packing-menu-verify' then begin VerifyPackingMenu; Halt(0); end;
       if ParamStr(1) = 'series-stream' then begin TestSeriesReadStream; Halt(0); end;
       if ParamStr(1) = 'bulk-writes' then begin TestBulkWriteSafety; TestSchemaReopenSafety; TestMetadataDeltaSafety; Halt(0); end;
       if ParamStr(1) = 'large-inpx' then begin BenchmarkLargeINPX; Halt(0); end;
