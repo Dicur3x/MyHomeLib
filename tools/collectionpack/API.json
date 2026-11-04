@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "status": "backend_and_initial_native_clone_verified_x86_x64_product_integration_pending",
+  "entrypoint": "pack_collection.py --job <job.json> [--cancel <cancel-file>]",
+  "job": {
+    "version": 1,
+    "dataset": "stable source catalogue identity; unchanged across ordinary INPX updates",
+    "engine": "reversible-ppmd",
+    "images": "original",
+    "plan": "absolute path to an immutable native SQLite plan",
+    "output": "absolute path to an empty folder or this dataset's existing compressed copy",
+    "seven_zip": "absolute path to the installed, verified 7-Zip executable",
+    "verify_sources": false,
+    "verify_outputs": false
+  },
+  "plan_schema": [
+    "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
+    "INSERT INTO metadata VALUES('api','1')",
+    "INSERT INTO metadata VALUES('dataset',<same dataset as job>)",
+    "CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT NOT NULL,member TEXT NOT NULL,locator TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL)",
+    "CREATE INDEX source_books ON books(source)"
+  ],
+  "plan_contract": {
+    "retained": "Optional retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER). IDs must not overlap books. Reuse an already registered immutable payload without opening originals: its journal membership, every output artifact and companion image are checked first. Include every preserved target in the final location count.",
+    "book_id": "Unique native plan-row ID, never a library LIBID. For ordinary rows it may equal the catalogue BookID. Native producer must retain a target map when including alternate CatalogBookCopies or personal-card locations; those targets need separate plan IDs. Original catalogue BookIDs must remain unchanged in the clone.",
+    "source": "Canonical absolute physical archive or loose-file path. Resolve ZIP-to-7z fallback in the producer.",
+    "member": "Actual exact archive entry, or empty for a loose file. Native producer must reuse TMHLZip.ResolveBookName, including its existing safe legacy-index contract. Do not guess an unrelated member.",
+    "locator": "Stable physical member identity within this source, independent of BookID and INPX row order.",
+    "filename": "Original TBookRecord.FileName; retained only when copying an opaque original container.",
+    "ext": "Original declared extension including the dot. No format conversion occurs.",
+    "inside_no": "Original legacy archive index; retained only when copying an opaque original container."
+  },
+  "output_contract": {
+    "progress": "UTF-8 JSON lines: source, books, compressing, verifying, prepared, canceled or error. Events carry sources_done/sources_total, books_done/books_total (plan locations), input_bytes/output_bytes for completed sources, reused and elapsed_seconds. current/total describe the current stage only; absence means indeterminate. Long operations send a heartbeat at least once per second while their bounded cancellation check runs. Fast member updates are throttled to 150ms, preserving first/final updates. UI ETA is explicitly approximate and is shown only after at least two completed sources and five seconds.",
+    "prepared": "generations/<generation>/prepared.json plus locations.sqlite; this is not a registered collection.",
+    "locations_schema": "locations(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER)",
+    "folder": "Relative to output. A normal packed file points to a ZIP; existing FLibrary containers retain their archive extension and side archives.",
+    "native_publication_required": [
+      "Create consistent catalogue and personal-data snapshots without changing the source collection.",
+      "Remap every planned BookID in those snapshots using the returned locations. Preserve titles, authors, every series, source identities, groups, personal cards and reading state.",
+      "Include and remap alternate physical CatalogBookCopies and personal-card locations; do not leave their file pointers attached to the original library while claiming an independent copy.",
+      "Validate counts, the native database integrity, and actual book streams before registering the separate collection.",
+      "Use the final registered catalogue as the publication authority only after native validation and personal-data registration succeed atomically. Never expose a partial result.",
+      "Keep old referenced archive generations intact. Do not automatically delete source books or an older usable catalogue."
+    ],
+    "sizes": "input_bytes and output_bytes describe book/container payloads; catalogue, journal and scratch space must be displayed separately by the native UI. No guarantee of a compression ratio.",
+    "cache": "New ZIPs are extracted once and every member is checked against the source SHA-256 before the payload is committed. Unchanged containers and companion files are compared byte for byte by SHA-256. On reuse, ordinary source checks use size and modification time; output checks also verify SHA-256 if modification time changed. Full verification of reused payloads reads every byte and must be an explicit slower option. Immutable payloads journal retains membership and artifact proofs for all completed package generations independently of the replaceable latest-source cache, including prepared but unapplied runs."
+  },
+  "limits": {
+    "decoded_archive_member_bytes": 536870912,
+    "large_loose_and_zip_originals": "Loose originals stream in bounded chunks. A ZIP with oversized members is copied intact instead of being decoded and repacked.",
+    "records_in_one_source": 100000,
+    "per_external_operation_seconds": 3600,
+    "on_limit": "Abort without publishing a collection; retain completed archives for resumption. Native acceptance against the real library is still required."
+  },
+  "pending_engines": [
+    "FLibrary-compatible separated images and JPEG XL via verified upstream tools",
+    "WebP image compression using upstream codecs; original LightLib Cleaner integration only if its callable interface and redistribution terms can be verified"
+  ],
+  "exit_codes": {
+    "0": "Payloads prepared; native catalogue remapping and registration still required",
+    "1": "Error; no collection published",
+    "2": "No sources processed",
+    "3": "Canceled; completed sources remain resumable"
+  }
+}

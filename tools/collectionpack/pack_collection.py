@@ -1,0 +1,681 @@
+"""Incremental, source-preserving collection packing (optional HomeLib module).
+
+The application supplies an immutable SQLite plan, never a live user database.
+This first backend is lossless: PPMd for text, stored entries for precompressed
+books, and byte-exact copies of existing FLibrary containers and side archives.
+7-Zip is the upstream compressor. No book decoder or image codec is invented.
+"""
+from __future__ import annotations
+
+import argparse
+from contextlib import closing, contextmanager
+from dataclasses import asdict, dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import subprocess
+import tempfile
+import time
+import uuid
+import zipfile
+import zlib
+
+API_VERSION = 1
+MAX_BOOK = 512 * 1024 * 1024
+MAX_SOURCE_BOOKS = 100000
+BLOCK = 256 * 1024
+ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
+TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
+
+
+class PackingError(ValueError):
+    pass
+
+
+class Canceled(PackingError):
+    pass
+
+
+@dataclass
+class Result:
+    sources: int = 0
+    reused: int = 0
+    books: int = 0
+    input_bytes: int = 0
+    output_bytes: int = 0
+    opaque_sources: int = 0
+    generation: str = ''
+
+
+def canonical(path):
+    return os.path.normcase(os.path.realpath(path))
+
+
+def digest_file(path, check=lambda: None):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        while chunk := stream.read(BLOCK):
+            check()
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def book_signature(path, check):
+    digest, crc, size = hashlib.sha256(), 0, 0
+    with Path(path).open('rb') as stream:
+        while chunk := stream.read(BLOCK):
+            check(); digest.update(chunk); crc = zlib.crc32(chunk, crc); size += len(chunk)
+    return dict(source_sha256=digest.hexdigest(), source_crc32=crc, source_size=size)
+
+
+def atomic_json(path, value):
+    path = Path(path)
+    partial = path.with_name(path.name + '.' + uuid.uuid4().hex + '.partial')
+    try:
+        with partial.open('x', encoding='utf-8') as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(partial, path)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def checked_relative(root, name):
+    value = Path(name)
+    if value.is_absolute() or value.drive or not name or any(p in ('..', '') for p in value.parts):
+        raise PackingError('Недопустимый путь в журнале сжатия.')
+    target = Path(root) / value
+    if os.path.commonpath([canonical(root), canonical(target)]) != canonical(root):
+        raise PackingError('Путь выходит за папку сжатой копии.')
+    return target
+
+
+def copy_exact(source, target, check):
+    digest = hashlib.sha256()
+    with Path(source).open('rb') as reader, Path(target).open('xb') as writer:
+        while chunk := reader.read(BLOCK):
+            check()
+            digest.update(chunk)
+            writer.write(chunk)
+        writer.flush()
+        os.fsync(writer.fileno())
+    return digest.hexdigest()
+
+
+def reserve_space(directory, bytes_needed):
+    if shutil.disk_usage(directory).free < bytes_needed + 16 * 1024 * 1024:
+        raise PackingError('Недостаточно свободного места в выбранной папке для текущего архива. Исходники сохранены; готовые архивы доступны для продолжения.')
+
+
+class SevenZip:
+    def __init__(self, executable, check):
+        self.executable = Path(executable).absolute()
+        if not self.executable.is_file():
+            raise PackingError('Для упаковки нужен компонент 7-Zip.')
+        self.check = check
+
+    def run(self, arguments, cwd=None, output=None):
+        self.check()
+        # File-backed output is bounded and avoids pipe deadlock. Temporary
+        # data lives on the selected destination drive, never in the C: cache.
+        with tempfile.TemporaryFile(dir=cwd) as log:
+            process = subprocess.Popen(
+                [str(self.executable), *arguments], cwd=cwd,
+                stdout=output if output is not None else log, stderr=log,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            )
+            started = time.monotonic()
+            try:
+                while process.poll() is None:
+                    self.check()
+                    if time.monotonic() - started > 3600:
+                        raise PackingError('Обработка одного архива превысила час.')
+                    if os.fstat(log.fileno()).st_size > 4 * 1024 * 1024:
+                        raise PackingError('Слишком большой отчёт архиватора.')
+                    if output is not None and os.fstat(output.fileno()).st_size > MAX_BOOK:
+                        raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
+                    time.sleep(.05)
+                if process.returncode:
+                    log.seek(0)
+                    detail = log.read(3000).decode('utf-8', 'replace')
+                    raise PackingError('Архиватор не смог обработать книгу: ' + detail)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+        self.check()
+
+    def extract(self, archive, member, target, work):
+        with target.open('xb') as output:
+            self.run(['x', '-so', '-spd', '-y', str(archive), member], cwd=work, output=output)
+        if target.stat().st_size > MAX_BOOK:
+            raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
+        if target.stat().st_size == 0:
+            raise PackingError('Книга не найдена в архиве или пуста: ' + member)
+
+    def pack(self, stage, target, text_names, stored_names):
+        for names, method in ((text_names, 'PPMd'), (stored_names, 'Copy')):
+            if not names:
+                continue
+            listing = stage / 'entries.txt'
+            listing.write_text('\n'.join(names) + '\n', encoding='utf-8')
+            # Independent ZIP members preserve random access; no solid blocks.
+            # Upstream ZIP PPMd defaults keep the decoder's memory modest.
+            options = [] if method == 'PPMd' else ['-mx=0']
+            self.run(['a', '-tzip', '-mm=' + method, '-mmt=2', '-scsUTF-8', '-y',
+                      *options, str(target), '@' + str(listing)], cwd=stage)
+
+
+class Packer:
+    def __init__(self, job, notify=lambda value: None, canceled=lambda: False):
+        if job.get('version') != API_VERSION or job.get('engine') != 'reversible-ppmd':
+            raise PackingError('Неизвестная версия или режим сжатия коллекции.')
+        if job.get('images', 'original') != 'original':
+            raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
+        self.job, self.notify, self.canceled = job, notify, canceled
+        self.root = Path(job['output']).absolute()
+        self.plan = Path(job['plan']).absolute()
+        self.dataset = job['dataset']
+        if not isinstance(self.dataset, str) or not self.dataset or len(self.dataset) > 200:
+            raise PackingError('Не задана исходная коллекция.')
+        self.result = Result(generation=uuid.uuid4().hex)
+        self.db = None
+        self.started = time.monotonic()
+        self.last_sent = 0.0
+        self.last_event = None
+        self.progress = {}
+        self.seven = SevenZip(job['seven_zip'], self.check)
+
+    def check(self):
+        if self.canceled():
+            raise Canceled('Сжатие отменено. Готовые архивы можно использовать при продолжении.')
+        # Long archive operations and streaming copies still report activity.
+        # The UI must not guess a percentage while 7-Zip is compressing.
+        now = time.monotonic()
+        if self.last_event is not None and now - self.last_sent >= 1.0:
+            self.last_sent = now
+            self.notify(dict(self.last_event, elapsed_seconds=now - self.started))
+
+    def event(self, stage, **values):
+        now = time.monotonic()
+        previous = self.last_event
+        self.last_event = dict(self.progress, stage=stage, **values,
+                               elapsed_seconds=now - self.started)
+        # Fast extraction can produce thousands of members per second. Keep
+        # first/final updates and stage changes; do not flood the native pipe.
+        if (stage == 'books' and previous is not None and previous['stage'] == stage
+                and values.get('current', 0) < values.get('total', 0)
+                and now - self.last_sent < .15):
+            return
+        self.last_sent = now
+        self.notify(self.last_event.copy())
+
+    def open(self):
+        self.check()
+        if self.root.exists() and not self.root.is_dir():
+            raise PackingError('Путь сжатой копии не является папкой.')
+        self.root.mkdir(parents=True, exist_ok=True)
+        marker = self.root / 'HomeLibRu-compressed.json'
+        if marker.exists():
+            previous = json.loads(marker.read_text(encoding='utf-8-sig'))
+            if (previous.get('dataset'), previous.get('engine'), previous.get('version')) != (
+                    self.dataset, self.job['engine'], API_VERSION):
+                raise PackingError('В этой папке другая коллекция или другие настройки сжатия. Выберите новую папку.')
+        else:
+            if any(self.root.iterdir()):
+                raise PackingError('Для новой сжатой копии нужна пустая папка.')
+            atomic_json(marker, dict(version=API_VERSION, dataset=self.dataset, engine=self.job['engine']))
+    def open_journal(self):
+        self.db = sqlite3.connect(self.root / 'packing.sqlite')
+        self.db.execute('PRAGMA journal_mode=WAL')
+        self.db.execute('PRAGMA synchronous=FULL')
+        self.db.executescript('''
+            CREATE TABLE IF NOT EXISTS sources(
+                id TEXT PRIMARY KEY, stamp TEXT NOT NULL, folder TEXT NOT NULL,
+                members TEXT NOT NULL, artifacts TEXT NOT NULL, input_bytes INTEGER NOT NULL,
+                opaque INTEGER NOT NULL,source_hashes TEXT NOT NULL DEFAULT '[]');
+            CREATE TABLE IF NOT EXISTS runs(
+                id TEXT PRIMARY KEY, started TEXT NOT NULL, finished INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS stages(path TEXT PRIMARY KEY,dataset TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS payloads(
+                package TEXT PRIMARY KEY,folder TEXT NOT NULL UNIQUE,source_id TEXT NOT NULL,stamp TEXT NOT NULL,
+                members TEXT NOT NULL,artifacts TEXT NOT NULL,input_bytes INTEGER NOT NULL,
+                opaque INTEGER NOT NULL,source_hashes TEXT NOT NULL);
+        ''')
+        if 'source_hashes' not in {row[1] for row in self.db.execute('PRAGMA table_info(sources)')}:
+            self.db.execute("ALTER TABLE sources ADD COLUMN source_hashes TEXT NOT NULL DEFAULT '[]'")
+        # The latest source cache is replaceable; the immutable payload ledger
+        # is not. An old registered catalogue may still reference an earlier
+        # payload after a newer run was prepared but never applied.
+        for row in self.db.execute('SELECT id,stamp,folder,members,artifacts,input_bytes,opaque,source_hashes FROM sources'):
+            self.remember_payload(*row)
+        self.db.execute('INSERT INTO runs(id,started) VALUES(?,datetime(\'now\'))', (self.result.generation,))
+        self.db.commit()
+
+    def remember_payload(self, identity, stamp, folder, members, artifacts, input_bytes, opaque, source_hashes):
+        file = checked_relative(self.root, folder)
+        package = str(file.parent.relative_to(self.root))
+        if Path(package).parts[:1] != ('archives',) or len(Path(package).parts) != 3:
+            raise PackingError('Некорректный пакет в журнале сжатия.')
+        values = (folder, identity, stamp, members, artifacts, input_bytes, opaque, source_hashes)
+        old = self.db.execute('SELECT folder,source_id,stamp,members,artifacts,input_bytes,opaque,source_hashes FROM payloads WHERE package=?', (package,)).fetchone()
+        if old is not None and old != values:
+            raise PackingError('Неизменяемый пакет в журнале сжатия был заменён.')
+        self.db.execute('INSERT OR IGNORE INTO payloads VALUES(?,?,?,?,?,?,?,?,?)', (package, *values))
+
+    def artifacts_valid(self, artifacts):
+        if not artifacts:
+            return False
+        for item in artifacts:
+            self.check()
+            file = checked_relative(self.root, item['path'])
+            if not file.is_file() or file.stat().st_size != item['size']:
+                return False
+            if self.job.get('verify_outputs', False) or file.stat().st_mtime_ns != item.get('mtime_ns'):
+                if digest_file(file, self.check) != item['sha256']:
+                    return False
+        return True
+
+    def retain_payloads(self, plan, mapping):
+        for (folder,) in plan.execute('SELECT DISTINCT folder FROM retained ORDER BY folder'):
+            self.check()
+            checked_relative(self.root, folder)
+            row = self.db.execute('SELECT members,artifacts,input_bytes,opaque FROM payloads WHERE folder=?', (folder,)).fetchone()
+            if row is None:
+                raise PackingError('Готовый архив не найден в журнале сжатия: ' + folder)
+            artifacts = json.loads(row[1])
+            if not self.artifacts_valid(artifacts):
+                raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' + folder)
+            members = {(item['filename'], item['ext'], item['inside_no']) for item in json.loads(row[0]).values()}
+            count = 0
+            with mapping:
+                for book in plan.execute('SELECT book_id,folder,filename,ext,inside_no FROM retained WHERE folder=? ORDER BY book_id', (folder,)):
+                    self.check()
+                    if (book[2], book[3], book[4]) not in members:
+                        raise PackingError('Расположение книги не совпадает с готовым архивом: ' + folder)
+                    mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)', tuple(book))
+                    count += 1
+            self.result.sources += 1; self.result.reused += 1; self.result.books += count
+            self.result.input_bytes += row[2]
+            self.result.output_bytes += sum(item['size'] for item in artifacts)
+            self.result.opaque_sources += int(row[3])
+            self.update_progress()
+            self.event('retained', current=self.result.sources, total=self.progress['sources_total'], source=Path(folder).name)
+
+    def update_progress(self):
+        self.progress.update(sources_done=self.result.sources, books_done=self.result.books,
+                             input_bytes=self.result.input_bytes, output_bytes=self.result.output_bytes,
+                             reused=self.result.reused)
+
+    def clear_interrupted_stages(self):
+        for name, dataset in self.db.execute('SELECT path,dataset FROM stages').fetchall():
+            self.check()
+            stage = checked_relative(self.root, name)
+            if stage.parent != self.root or not stage.name.startswith('.packing-') or dataset != self.dataset:
+                raise PackingError('Некорректная запись временной папки в журнале.')
+            if stage.exists():
+                if stage.is_symlink() or canonical(stage.parent) != canonical(self.root):
+                    raise PackingError('Временная папка заменена ссылкой.')
+                marker = stage / 'HomeLibRu-stage.json'
+                if not marker.is_file() or json.loads(marker.read_text(encoding='utf-8')).get('dataset') != self.dataset:
+                    raise PackingError('Нельзя подтвердить принадлежность временной папки.')
+                shutil.rmtree(stage)
+            with self.db:
+                self.db.execute('DELETE FROM stages WHERE path=?', (name,))
+        for (identity,) in self.db.execute('SELECT id FROM runs WHERE finished=0 AND id<>?', (self.result.generation,)).fetchall():
+            if len(identity) != 32 or any(c not in '0123456789abcdef' for c in identity):
+                raise PackingError('Некорректная запись незавершённой операции.')
+            generation = checked_relative(self.root, str(Path('generations') / identity))
+            if generation.exists() and not (generation / 'prepared.json').is_file():
+                if generation.is_symlink():
+                    raise PackingError('Незавершённая операция заменена ссылкой.')
+                entries = list(generation.iterdir())
+                if any(entry.name not in ('locations.sqlite', 'locations.sqlite-journal') or
+                       not entry.is_file() or entry.is_symlink() for entry in entries):
+                    raise PackingError('В незавершённой операции появились посторонние файлы.')
+                for entry in entries: entry.unlink()
+                generation.rmdir()
+            with self.db:
+                self.db.execute('UPDATE runs SET finished=-1 WHERE id=?', (identity,))
+
+    @contextmanager
+    def working_stage(self):
+        with tempfile.TemporaryDirectory(prefix='.packing-', dir=self.root) as directory:
+            stage = Path(directory)
+            atomic_json(stage / 'HomeLibRu-stage.json', dict(dataset=self.dataset))
+            with self.db:
+                self.db.execute('INSERT INTO stages VALUES(?,?)', (stage.name, self.dataset))
+            # The TemporaryDirectory context closes before we remove its
+            # registry row, so hard process termination remains recoverable.
+            yield stage
+        with self.db:
+            self.db.execute('DELETE FROM stages WHERE path=?', (stage.name,))
+
+    @contextmanager
+    def lock(self):
+        # The operating-system lock is released on a crash; a marker alone is
+        # not sufficient because an interrupted process must be resumable.
+        stream = (self.root / 'packing.lock').open('a+b')
+        try:
+            stream.seek(0)
+            if os.fstat(stream.fileno()).st_size == 0:
+                stream.write(b'1'); stream.flush()
+            stream.seek(0)
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                raise PackingError('Эта сжатая копия уже обрабатывается другим процессом.') from error
+            yield
+        finally:
+            stream.close()
+
+    def source_artifacts(self, source):
+        # Existing FLibrary books may depend on sibling covers/images. They
+        # remain an opaque, byte-exact unit, including their original names.
+        companions = []
+        if source.suffix.lower() in ('.zip', '.7z'):
+            for kind in ('covers', 'images'):
+                for suffix in ('.zip', '.7z'):
+                    candidate = source.parent / kind / (source.stem + suffix)
+                    if candidate.is_file():
+                        companions.append((kind + '/' + source.stem + suffix, candidate))
+        return companions
+
+    def stamp(self, source, companions):
+        values = []
+        for file in (source, *(file for _, file in companions)):
+            self.check()
+            if not file.is_file() or canonical(file).startswith(canonical(self.root) + os.sep):
+                raise PackingError('Исходная книга отсутствует или находится внутри сжатой копии: ' + str(file))
+            stat = file.stat()
+            values.append([canonical(file), stat.st_size, stat.st_mtime_ns])
+        return hashlib.sha256(json.dumps(values).encode()).hexdigest()
+
+    def cached(self, identity, stamp, source, companions):
+        row = self.db.execute('SELECT folder,members,artifacts,input_bytes,opaque,source_hashes FROM sources WHERE id=? AND stamp=?',
+                              (identity, stamp)).fetchone()
+        if row is None:
+            return None
+        if self.job.get('verify_sources', False):
+            expected = json.loads(row[5])
+            actual = [digest_file(file, self.check) for file in (source, *(p for _, p in companions))]
+            if expected != actual:
+                return None
+        artifacts = json.loads(row[2])
+        if not self.artifacts_valid(artifacts):
+            return None
+        return row[0], json.loads(row[1]), artifacts, row[3], row[4]
+
+    def process(self, source, rows, stage, identity, stamp, companions):
+        artifacts, mappings, copied_hashes = [], {}, {}
+        # Generation files are immutable. A changed source cannot replace an
+        # archive referenced by the previously published catalogue.
+        relative = Path('archives') / identity[:20] / stamp[:20]
+        publish = checked_relative(self.root, str(relative))
+        if publish.exists() or self.db.execute('SELECT 1 FROM payloads WHERE package=?', (str(relative),)).fetchone():
+            # A crash after publishing files but before committing the journal
+            # leaves an unreferenced immutable generation. Do not overwrite it.
+            relative = relative.with_name(relative.name + '-' + uuid.uuid4().hex[:8])
+            publish = checked_relative(self.root, str(relative))
+        package = stage / 'package'; package.mkdir()
+        input_bytes = source.stat().st_size + sum(p.stat().st_size for _, p in companions)
+        preserve_container = bool(companions)
+        if not preserve_container and any(row['member'] for row in rows) and zipfile.is_zipfile(source):
+            with zipfile.ZipFile(source) as directory:
+                preserve_container = any(entry.file_size > MAX_BOOK for entry in directory.infolist() if not entry.is_dir())
+        if preserve_container:
+            reserve_space(stage, input_bytes)
+            destination = package / source.name
+            copied_hashes[destination] = copy_exact(source, destination, self.check)
+            folder = str(relative / source.name)
+            for name, file in companions:
+                destination = package / name; destination.parent.mkdir(exist_ok=True)
+                copied_hashes[destination] = copy_exact(file, destination, self.check)
+            for row in rows:
+                mappings[row['locator']] = dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no'])
+        else:
+            files = stage / 'books'; files.mkdir()
+            text_names, stored_names = [], []
+            original = None
+            try:
+                if zipfile.is_zipfile(source):
+                    original = zipfile.ZipFile(source)
+                entries, folded = {}, {}
+                if original:
+                    for entry in original.infolist():
+                        if entry.is_dir():
+                            continue
+                        if entry.filename in entries:
+                            raise PackingError('Повторяется точное имя файла внутри архива: ' + entry.filename)
+                        entries[entry.filename] = entry
+                        folded.setdefault(entry.filename.casefold(), []).append(entry)
+                for index, row in enumerate(rows):
+                    self.check()
+                    locator, member = row['locator'], row['member']
+                    if locator in mappings:
+                        continue
+                    extension = row['ext'].lower()
+                    if not extension.startswith('.') or len(extension) > 16 or not extension[1:].isalnum():
+                        raise PackingError('Неизвестное расширение файла: ' + extension)
+                    name = hashlib.sha256(locator.encode('utf-8')).hexdigest()[:32] + extension
+                    target = files / name
+                    if not member:
+                        # A loose original is copied in bounded chunks; its
+                        # size is not a decoder/memory limit.
+                        reserve_space(stage, source.stat().st_size)
+                        copy_exact(source, target, self.check)
+                    elif original is not None:
+                        entry = entries.get(member)
+                        if entry is None:
+                            candidates = folded.get(member.casefold(), [])
+                            if len(candidates) > 1:
+                                raise PackingError('Неоднозначное имя книги в архиве: ' + member)
+                            entry = candidates[0] if candidates else None
+                        if entry is None:
+                            raise PackingError('Книга отсутствует в архиве: ' + member)
+                        if entry.file_size > MAX_BOOK:
+                            raise PackingError('Одна книга превышает допустимый размер 512 МБ.')
+                        reserve_space(stage, entry.file_size)
+                        try:
+                            with original.open(entry) as reader, target.open('xb') as writer:
+                                while chunk := reader.read(BLOCK):
+                                    self.check(); writer.write(chunk)
+                        except NotImplementedError:
+                            target.unlink(missing_ok=True)
+                            self.seven.extract(source, entry.filename, target, stage)
+                    else:
+                        self.seven.extract(source, member, target, stage)
+                    mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1,
+                                             **book_signature(target, self.check))
+                    (text_names if extension in TEXT_SUFFIXES else stored_names).append(name)
+                    self.event('books', source=source.name, current=index + 1, total=len(rows))
+                if not mappings:
+                    raise PackingError('В исходном архиве нет выбранных книг.')
+                self.event('compressing', source=source.name, books=len(mappings))
+                reserve_space(stage, sum(p.stat().st_size for p in files.iterdir()))
+                archive = package / 'books.zip'
+                self.seven.pack(files, archive, text_names, stored_names)
+                with zipfile.ZipFile(archive) as verification:
+                    if set(verification.namelist()) != set(text_names + stored_names):
+                        raise PackingError('Не совпадает список книг в созданном архиве.')
+                    for item in mappings.values():
+                        info = verification.getinfo(item['filename'] + item['ext'])
+                        if (info.CRC, info.file_size) != (item['source_crc32'], item['source_size']):
+                            raise PackingError('Содержимое книги в созданном архиве отличается от исходного.')
+                folder = str(relative / 'books.zip')
+                # Already compressed sources must not grow merely because
+                # the new member names or ZIP headers have different lengths.
+                if source.suffix.lower() in ARCHIVE_SUFFIXES and archive.stat().st_size >= source.stat().st_size:
+                    archive.unlink()
+                    destination = package / source.name
+                    copied_hashes[destination] = copy_exact(source, destination, self.check)
+                    folder = str(relative / source.name)
+                    preserve_container = True
+                    mappings = {row['locator']: dict(filename=row['filename'], ext=row['ext'], inside_no=row['inside_no']) for row in rows}
+                else:
+                    self.event('verifying', source=source.name)
+                    # Reclaim the original extraction space before decoding the
+                    # result. Only these generated names were given to 7-Zip.
+                    for name in text_names + stored_names:
+                        self.check()
+                        (files / name).unlink()
+                    reserve_space(stage, sum(item['source_size'] for item in mappings.values()))
+                    self.seven.run(['x', '-y', '-bb0', '-o' + str(files), '--', str(archive)], cwd=stage)
+                    for item in mappings.values():
+                        decoded = files / (item['filename'] + item['ext'])
+                        if not decoded.is_file() or digest_file(decoded, self.check) != item['source_sha256']:
+                            raise PackingError('Содержимое книги в созданном архиве отличается от исходного.')
+            finally:
+                if original is not None:
+                    original.close()
+        self.check()
+        self.event('verifying', source=source.name)
+        for file in package.rglob('*'):
+            if file.is_file():
+                sha256 = digest_file(file, self.check)
+                if copied_hashes and copied_hashes.get(file) != sha256:
+                    raise PackingError('Побайтовая копия архива или иллюстраций не совпала с исходником: ' + file.name)
+                artifacts.append(dict(path=str(relative / file.relative_to(package)), size=file.stat().st_size,
+                                      mtime_ns=file.stat().st_mtime_ns, sha256=sha256))
+        source_hashes = [digest_file(file, self.check) for file in (source, *(p for _, p in companions))]
+        if copied_hashes and (list(copied_hashes.values()) != source_hashes or len(copied_hashes) != len(artifacts)):
+            raise PackingError('Побайтовая копия архива или иллюстраций не совпала с исходником: ' + str(source))
+        if self.stamp(source, companions) != stamp:
+            raise PackingError('Исходный архив изменился во время сжатия: ' + str(source))
+        packed = folder, mappings, artifacts, input_bytes, preserve_container
+        # Write-ahead recovery: a crash before the rename leaves an invalid
+        # cache row (repack); a crash after it leaves a fully reusable row.
+        # No published archive can become an untracked orphan in between.
+        with self.db:
+            self.remember_payload(identity, stamp, folder, json.dumps(mappings), json.dumps(artifacts),
+                                  input_bytes, int(preserve_container), json.dumps(source_hashes))
+            self.db.execute('INSERT OR REPLACE INTO sources VALUES(?,?,?,?,?,?,?,?)',
+                            (identity, stamp, folder, json.dumps(mappings), json.dumps(artifacts),
+                             input_bytes, int(preserve_container), json.dumps(source_hashes)))
+        publish.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(package, publish)
+        return packed
+
+    def execute(self):
+        generation, prepared = None, False
+        try:
+            self.open()
+            with self.lock(), closing(sqlite3.connect(self.plan.as_uri() + '?mode=ro', uri=True)) as plan:
+                self.open_journal()
+                self.clear_interrupted_stages()
+                plan.row_factory = sqlite3.Row
+                if plan.execute('SELECT value FROM metadata WHERE key=\'api\'').fetchone()[0] != str(API_VERSION):
+                    raise PackingError('Неизвестный план сжатия.')
+                dataset = plan.execute('SELECT value FROM metadata WHERE key=\'dataset\'').fetchone()
+                if dataset is None or dataset[0] != self.dataset:
+                    raise PackingError('План относится к другой исходной коллекции.')
+                generation = self.root / 'generations' / self.result.generation
+                generation.mkdir(parents=True)
+                mapping = sqlite3.connect(generation / 'locations.sqlite')
+                try:
+                    mapping.execute('CREATE TABLE locations(book_id INTEGER PRIMARY KEY,folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL)')
+                    retained = plan.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='retained'").fetchone()[0] != 0
+                    retained_sources = plan.execute('SELECT count(DISTINCT folder) FROM retained').fetchone()[0] if retained else 0
+                    retained_books = plan.execute('SELECT count(*) FROM retained').fetchone()[0] if retained else 0
+                    if retained and plan.execute('SELECT 1 FROM books JOIN retained USING(book_id) LIMIT 1').fetchone():
+                        raise PackingError('Одна запись книги одновременно включена в новую и готовую часть.')
+                    total = plan.execute('SELECT count(DISTINCT source) FROM books').fetchone()[0] + retained_sources
+                    if total == 0:
+                        raise PackingError('В плане сжатия нет книг.')
+                    self.progress = dict(sources_done=0, sources_total=total, books_done=0,
+                                         books_total=plan.execute('SELECT count(*) FROM books').fetchone()[0]+retained_books,
+                                         input_bytes=0, output_bytes=0, reused=0)
+                    if retained:
+                        self.retain_payloads(plan, mapping)
+                    source_rows = plan.execute('SELECT DISTINCT source FROM books ORDER BY source')
+                    for number, (name,) in enumerate(source_rows):
+                        self.check()
+                        source = Path(name).absolute()
+                        rows = plan.execute('SELECT * FROM books WHERE source=? ORDER BY book_id', (name,)).fetchmany(MAX_SOURCE_BOOKS + 1)
+                        if len(rows) > MAX_SOURCE_BOOKS:
+                            raise PackingError('В одном исходном архиве больше 100 000 записей. Эта операция не была опубликована; исходные файлы сохранены.')
+                        if not rows:
+                            continue
+                        companions = self.source_artifacts(source)
+                        identity = hashlib.sha256(canonical(source).encode('utf-8')).hexdigest()
+                        stamp = self.stamp(source, companions)
+                        self.event('source', current=number+retained_sources, total=total, source=source.name)
+                        packed = self.cached(identity, stamp, source, companions)
+                        # New catalogue rows may reference more members from an
+                        # otherwise unchanged source. Reuse requires all locators.
+                        if packed is not None and all(row['locator'] in packed[1] for row in rows):
+                            self.result.reused += 1
+                        else:
+                            with self.working_stage() as stage:
+                                packed = self.process(source, rows, stage, identity, stamp, companions)
+                        folder, members, artifacts, input_bytes, opaque = packed
+                        with mapping:
+                            for row in rows:
+                                item = members[row['locator']]
+                                mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)',
+                                                (row['book_id'], folder, item['filename'], item['ext'], item['inside_no']))
+                        self.result.sources += 1; self.result.books += len(rows)
+                        self.result.input_bytes += input_bytes
+                        self.result.output_bytes += sum(a['size'] for a in artifacts)
+                        self.result.opaque_sources += int(opaque)
+                        self.update_progress()
+                        self.event('source', current=number+retained_sources+1, total=total, source=source.name, **asdict(self.result))
+                    self.check()
+                    count = mapping.execute('SELECT count(*) FROM locations').fetchone()[0]
+                    if count != self.progress['books_total']:
+                        raise PackingError('Не все книги получили новое расположение. Сжатая копия не опубликована.')
+                finally:
+                    mapping.close()
+                # The app still has to remap and validate a cloned catalogue.
+                # This prepared pointer must never be interpreted as a usable
+                # registered collection until that final native step succeeds.
+                atomic_json(generation / 'prepared.json', dict(version=API_VERSION, dataset=self.dataset,
+                            locations='locations.sqlite', **asdict(self.result)))
+                prepared = True
+                with self.db:
+                    self.db.execute('UPDATE runs SET finished=1 WHERE id=?', (self.result.generation,))
+                self.event('prepared', **asdict(self.result))
+                return self.result
+        finally:
+            if self.db is not None:
+                self.db.close()
+            if generation is not None and not prepared:
+                # Only this run's private, unregistered locator database.
+                # A previous usable generation is never changed or deleted.
+                if generation.parent == self.root / 'generations' and generation.name == self.result.generation:
+                    for name in ('locations.sqlite', 'locations.sqlite-journal'):
+                        (generation / name).unlink(missing_ok=True)
+                    if not any(generation.iterdir()):
+                        generation.rmdir()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--job', type=Path, required=True)
+    parser.add_argument('--cancel', type=Path)
+    options = parser.parse_args()
+    try:
+        job = json.loads(options.job.read_text(encoding='utf-8-sig'))
+        result = Packer(job, lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
+                        lambda: bool(options.cancel and options.cancel.exists())).execute()
+        return 0 if result.sources else 2
+    except Canceled as error:
+        print(json.dumps(dict(stage='canceled', error=str(error)), ensure_ascii=False), flush=True)
+        return 3
+    except (PackingError, OSError, sqlite3.Error, zipfile.BadZipFile, KeyError, TypeError, json.JSONDecodeError) as error:
+        print(json.dumps(dict(stage='error', error=str(error)), ensure_ascii=False), flush=True)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

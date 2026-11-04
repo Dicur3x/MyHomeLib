@@ -4196,5 +4196,33 @@
       "Review obsolete assets in the permanent components release without disrupting legacy clients.",
       "Continue the broader collection packing and import work."
     ]
+  },
+  "collection_packing_byte_verification_20261104": {
+    "status": "Reversible packing backend verified on x86 and x64. Catalogue integration and image profiles remain in development.",
+    "implementation": [
+      "New ZIPs are decompressed once and compared with the planned source SHA-256 for every book. The pre-compression scratch files are released before this pass.",
+      "Copied existing containers and external image archives are compared with the original SHA-256, including checks for changes while copying.",
+      "A ZIP with changed content and the same length and CRC is rejected. An altered image companion is also rejected. Both failures leave the source untouched and no prepared generation."
+    ],
+    "checks": {
+      "Win32": "28 passed with Python 3.13.16 x86 and 7-Zip 26.05 x86",
+      "Win64": "28 passed with Python 3.13.16 x64 and 7-Zip 26.05 x64",
+      "temporary_profiles_removed": true,
+      "backend_sha256": "ef5a2f2a79ef6f8568f1aabdc7e1b0157e70b19ca2a82d17dbeb92e1ca1d2ce8",
+      "test_sha256": "01a779aa73d4701a5543b73ecdce6a57af201f391db63783fae452e8192e66db",
+      "scope": "Synthetic mixed formats, prior immutable generations, cancellation, recovery and tamper cases. No installed catalogue or production performance check."
+    },
+    "upstream": {
+      "fb2cut": "MIT. Separates covers and other images into archive companions, provides resize, grayscale and JPEG XL quality controls, and can use a non-solid external archiver. Source at 683f8d9 also has an EPUB parser with an external image index. Its parser/rewriter is a separate image-processing candidate, not the reversible-copy engine.",
+      "fb2cut_source": "https://github.com/heimdallr/books-tools/tree/683f8d9dadf70f27f57a267bdf714bc7f0a83cd8/src/home/tool/fb2cut",
+      "flibrary_shared_sources": "https://github.com/heimdallr/books-fnd/tree/ad9e6817ba8216115d409cbde67eee552e073898",
+      "lightlib": "The author offers Cleaner for copying and cleaning archives. Its supported automation interface, image options and redistribution license were not established from the official download page.",
+      "lightlib_source": "https://lightlib.azurewebsites.net/Load"
+    },
+    "next": [
+      "Preserve native FBD containers and their paired metadata when remapping paths. Check catalogue rows without local payloads without erasing metadata.",
+      "Connect verified packing to the catalogue UI with space estimation, progress and safe registration. Exercise exact mixed collections and later INPX changes through this entry point.",
+      "Test user-selected image profiles independently with real FB2 and EPUB files before enabling them for a collection."
+    ]
   }
 }
