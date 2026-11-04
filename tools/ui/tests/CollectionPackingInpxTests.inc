@@ -1,7 +1,7 @@
 ﻿procedure TestPackingInpx;
 var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
   Options: TCollectionPackingOptions; Snapshot: TCollectionPackingSnapshot;
-  Worker: TCollectionPackingInpxWorker;
+  LegacyUpdate: TManualUpdateThread;
   SourceID, PackedID, UpdatedID, ChangedID, RetainedID, NewID, MissingID: Integer;
   Root, UpdateRoot, IndexFile, BeforeCatalog, BeforeHash, BeforePackedPath: string;
   Archive: TZipFile;
@@ -24,6 +24,29 @@ var Source, PackedSource, Updated: IBookCollection; Book, Card: TBookRecord;
     Book.FileName:=Name; Book.FileExt:='.txt'; Book.LibID:=LibID;
     Source.UpdateBook(Book);
     TFile.WriteAllBytes(TPath.Combine(Root,Name+'.txt'),TEncoding.UTF8.GetBytes(Value));
+  end;
+
+  function ReviewUpdate(Cancel: Boolean): TCollectionPackingSnapshot;
+  var Dialog: TfrmCollectionPackingProgress; Probe: TPackingReviewProbe; Timer: TTimer;
+  begin
+    Result:=nil;
+    Dialog:=TfrmCollectionPackingProgress.Create(nil);
+    Probe:=TPackingReviewProbe.Create;
+    Timer:=TTimer.Create(nil);
+    try
+      Probe.Dialog:=Dialog; Probe.Cancel:=Cancel;
+      Probe.ExpectedBooks:=4; Probe.ExpectedUnavailable:=1;
+      Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
+      try
+        Result:=Dialog.Execute(Options,True,IndexFile,UpdateRoot);
+      except
+        on E:EAbort do if not Cancel then raise;
+      end;
+      Require(Probe.SawEstimate and (Assigned(Result)<>Cancel),
+        'INPX estimate did not honor cancellation or continuation');
+    finally
+      Timer.Free; Probe.Free; Dialog.Free;
+    end;
   end;
 
   function ReadText(const Collection: IBookCollection; ID: Integer): string;
@@ -90,21 +113,23 @@ begin
 
   Options.CatalogFile:=BeforeCatalog; Options.SourceID:=PackedID;
   Options.SourceRoot:=Options.OutputRoot; Options.DisplayName:='Packed after INPX';
-  Snapshot:=nil;
-  Worker:=TCollectionPackingInpxWorker.Create(Options,IndexFile,UpdateRoot);
+  Require(IsPackedCollectionCatalog(BeforeCatalog) and
+    not IsPackedCollectionCatalog(Source.GetProperty(PROP_DATAFILE)), 'Packed catalogue marker recognition failed');
+  LegacyUpdate:=TManualUpdateThread.Create(PackedID,IndexFile,True,gtFb2);
   try
-    Worker.Start; Worker.WaitFor;
-    if Worker.FatalException is Exception then raise Exception.Create(Exception(Worker.FatalException).Message);
-    Require(Worker.Success and not Worker.CommittedChanges,'INPX worker published an unfinished collection');
-    Snapshot:=Worker.TakeSnapshot;
-  finally Worker.Free; end;
+    LegacyUpdate.Start; LegacyUpdate.WaitFor;
+    Require(not LegacyUpdate.Success and not LegacyUpdate.CommittedChanges,
+      'Ordinary full import replaced a packed catalogue');
+  finally LegacyUpdate.Free; end;
+  ReviewUpdate(True);
+  Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) and
+    (THashSHA2.GetHashStringFromFile(BeforeCatalog)=BeforeHash),'Canceling the estimate changed the active collection');
+  Snapshot:=ReviewUpdate(False);
   try
     Require((Snapshot.PlannedLocations>=3) and (Snapshot.Status.Unavailable=1),
       'INPX preparation did not distinguish an absent archive member');
-    Snapshot.Pack;
     Require((Snapshot.Status.SourcesDone=2) and (Snapshot.Status.Reused=1),
       'INPX preparation reprocessed an unchanged source');
-    Snapshot.ApplyPrepared;
     Require(not SystemDB.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName),
       'An INPX update was registered before publication');
     UpdatedID:=Snapshot.RegisterNew(SystemDB);
@@ -133,4 +158,5 @@ begin
   Require((THashSHA2.GetHashStringFromFile(BeforeCatalog)=BeforeHash) and
     (ReadText(PackedSource,ChangedID)='Earlier bytes'),'INPX modified a registered previous catalogue or its books');
   Writeln('PASS selected INPX adds and replaces exact books, retains prior archives and IDs, and publishes a separate generation');
+  Writeln('PASS selected INPX estimate cancels and continues, and legacy full import refuses a packed catalogue');
 end;

@@ -7,12 +7,15 @@ uses System.SysUtils, System.Classes, System.Generics.Collections, SQLiteWrap, u
   unit_MHLArchiveHelpers;
 
 type
+  TCollectionPackingReview = reference to procedure(const Status: TCollectionPackingStatus);
+
   TCollectionPackingInpxWorker = class(TImportInpxThreadBase)
   private
     FOptions: TCollectionPackingOptions;
     FInpx, FUpdateRoot: string;
     FSnapshot: TCollectionPackingSnapshot;
     FProgress: TCollectionPackingProgress;
+    FBeforePack: TCollectionPackingReview;
     FLookup: TSQLiteQuery;
     FPersonal: TSQLiteDatabase;
     FArchive: TMHLZip;
@@ -26,8 +29,10 @@ type
       const Collection: IBookCollection; Cache: TImportCache): Integer; override;
   public
     constructor Create(const Options: TCollectionPackingOptions; const Inpx, UpdateRoot: string;
-      const Progress: TCollectionPackingProgress = nil);
+      const Progress: TCollectionPackingProgress = nil;
+      const BeforePack: TCollectionPackingReview = nil);
     destructor Destroy; override;
+    function ReadStatus: TCollectionPackingStatus;
     function TakeSnapshot: TCollectionPackingSnapshot;
   end;
 
@@ -62,10 +67,11 @@ begin
 end;
 
 constructor TCollectionPackingInpxWorker.Create(const Options: TCollectionPackingOptions;
-  const Inpx, UpdateRoot: string; const Progress: TCollectionPackingProgress);
+  const Inpx, UpdateRoot: string; const Progress: TCollectionPackingProgress;
+  const BeforePack: TCollectionPackingReview);
 begin
   inherited Create(MHL_INVALID_ID);
-  FOptions:=Options; FInpx:=Inpx; FProgress:=Progress;
+  FOptions:=Options; FInpx:=Inpx; FProgress:=Progress; FBeforePack:=BeforePack;
   FUpdateRoot:=IncludeTrailingPathDelimiter(TPath.GetFullPath(UpdateRoot));
   FGenresType:=gtFb2;
   FKeepCollectionProps:=True;
@@ -75,6 +81,11 @@ destructor TCollectionPackingInpxWorker.Destroy;
 begin
   inherited;
   FSnapshot.Free;
+end;
+
+function TCollectionPackingInpxWorker.ReadStatus: TCollectionPackingStatus;
+begin
+  Result:=FSnapshot.Status;
 end;
 
 function TCollectionPackingInpxWorker.TakeSnapshot: TCollectionPackingSnapshot;
@@ -87,6 +98,8 @@ end;
 
 procedure TCollectionPackingInpxWorker.WorkFunction;
 begin
+  if not SameText(ExtractFileExt(FInpx),'.inpx') then
+    raise EArgumentException.Create('Выберите файл обновления с расширением .inpx.');
   if not DirectoryExists(FUpdateRoot) then
     raise EDirectoryNotFoundException.Create('Папка файлов обновления недоступна.');
   FSnapshot:=TCollectionPackingSnapshot.Create(FOptions);
@@ -96,6 +109,12 @@ begin
       FProgress,
       procedure(const CatalogFile, PersonalFile: string)
       begin ImportDelta(CatalogFile,PersonalFile); end);
+    if Assigned(FBeforePack) then
+    begin
+      FBeforePack(FSnapshot.Status);
+      FSnapshot.Pack;
+      FSnapshot.ApplyPrepared;
+    end;
     FSnapshot.ClearNotifications;
     FOperationSuccess:=True;
   except

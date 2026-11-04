@@ -109,6 +109,7 @@ uses
   unit_Logger,
   unit_MHLHttpClient,
   unit_MHLArchiveHelpers,
+  unit_CollectionPacking,
   unit_UserData;
 
 resourcestring
@@ -141,6 +142,7 @@ rstrDownloadProgress = 'Загружено: %u%% из %u байт';
    rstrUpdateFileNotFound = 'Файл обновления не найден: %s';
    rstrInvalidUpdateFile = 'Неверный формат файла INPX: %s';
    rstrMbDatasetAlwaysFull = 'Каталог metabib всегда импортируется полностью.';
+   rstrPackedUpdate = 'Сжатую коллекцию можно обновить из INPX через меню «Коллекция → Обновить коллекцию из файла».';
 
 
 procedure RestoreCatalogUserData(const Collection: IBookCollection; Data: TUserData);
@@ -164,6 +166,8 @@ begin
   Result := False;
 
   Collection := FSystemData.GetCollection(ACollectionID);
+  if IsPackedCollectionCatalog(Collection.GetProperty(PROP_DATAFILE)) then
+    raise ENotSupportedException.Create(rstrPackedUpdate);
   Collection.BeginBulkOperation;
   try
     UserDataBackup := TUserData.Create;
@@ -448,6 +452,8 @@ begin
     Teletype(rstrMbDatasetAlwaysFull, tsInfo);
 
     Collection := FSystemData.GetCollection(FCollectionID);
+    if IsPackedCollectionCatalog(Collection.GetProperty(PROP_DATAFILE)) then
+      raise ENotSupportedException.Create(rstrPackedUpdate);
     Collection.BeginBulkOperation;
     try
       UserDataBackup := TUserData.Create;

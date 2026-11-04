@@ -2,7 +2,8 @@
   TPackingReviewProbe = class
     Dialog: TfrmCollectionPackingProgress;
     OutputRoot: string;
-    Cancel, SawEstimate: Boolean;
+    Cancel, SawEstimate, CheckFreshOutput: Boolean;
+    ExpectedBooks, ExpectedUnavailable: Integer;
     procedure Tick(Sender: TObject);
   end;
 
@@ -18,12 +19,13 @@ begin
   StartButton:=TButton(Dialog.FindComponent('btnContinuePacking'));
   if SawEstimate or not StartButton.Visible then Exit;
   Status:=Dialog.ReadStatus;
-  Require((Status.BooksTotal=1) and (Status.Unavailable=2) and
+  Require((Status.BooksTotal=ExpectedBooks) and (Status.Unavailable=ExpectedUnavailable) and
     (Status.PlannedInputBytes>0) and (Status.WorkingBytes>0) and (Status.FreeBytes>0),
-    'Packing review did not receive its space and availability figures');
-  Require((Pos('Без файла: 2',TLabel(Dialog.FindComponent('lblPackingCounts')).Caption)>0) and
+    Format('Packing review figures differ: books %d, unavailable %d, input %d, working %d, free %d',
+      [Status.BooksTotal,Status.Unavailable,Status.PlannedInputBytes,Status.WorkingBytes,Status.FreeBytes]));
+  Require((Pos('Без файла: '+IntToStr(ExpectedUnavailable),TLabel(Dialog.FindComponent('lblPackingCounts')).Caption)>0) and
     (Pos('Свободно',TLabel(Dialog.FindComponent('lblPackingTime')).Caption)>0) and
-    not DirectoryExists(TPath.Combine(OutputRoot,'archives')),
+    (not CheckFreshOutput or not DirectoryExists(TPath.Combine(OutputRoot,'archives'))),
     'Packing review hides a figure or started writing archives before approval');
   SawEstimate:=True;
   if Cancel then TButton(Dialog.FindComponent('btnCancelPacking')).Click
@@ -64,6 +66,7 @@ var
     Probe:=TPackingReviewProbe.Create; Timer:=TTimer.Create(nil);
     try
       Probe.Dialog:=Dialog; Probe.OutputRoot:=Options.OutputRoot; Probe.Cancel:=Cancel;
+      Probe.ExpectedBooks:=1; Probe.ExpectedUnavailable:=2; Probe.CheckFreshOutput:=True;
       Timer.Interval:=20; Timer.OnTimer:=Probe.Tick;
       try
         Result:=Dialog.Execute(Options,True);

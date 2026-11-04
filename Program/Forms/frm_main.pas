@@ -916,6 +916,7 @@ type
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
     procedure PackCurrentCollection(Sender: TObject);
+    procedure PackCollection(UpdateFromInpx: Boolean);
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -3410,8 +3411,11 @@ begin
   while CollectionInfoIterator.Next(CollectionInfo) do
   begin
     for i := 0 to UpdatesInfo.Count - 1 do
-      if UpdatesInfo[i].CheckCodes(CollectionInfo.DisplayName, CollectionInfo.CollectionType, CollectionInfo.ID) then
+      if (UpdatesInfo[i].Code=CollectionInfo.CollectionType) and
+        (UpdatesInfo[i].Name=CollectionInfo.DisplayName) then
       begin
+        if IsPackedCollectionCatalog(CollectionInfo.DBFileName) then Break;
+        UpdatesInfo[i].CheckCodes(CollectionInfo.DisplayName,CollectionInfo.CollectionType,CollectionInfo.ID);
         if UpdatesInfo[i].ExternalVersion > 0 then
           VersionDetails := VersionDetails +
             Format(rstrVersionInfo, [CollectionInfo.DisplayName,
@@ -4404,10 +4408,15 @@ begin
 end;
 
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
+begin
+  PackCollection(False);
+end;
+
+procedure TfrmMain.PackCollection(UpdateFromInpx: Boolean);
 var Options: TCollectionPackingOptions; Required: TArray<string>;
-  FolderPicker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
+  Picker: TFileOpenDialog; Progress: TfrmCollectionPackingProgress;
   Snapshot: TCollectionPackingSnapshot; Status: TCollectionPackingStatus;
-  BaseName, Summary: string; NewID, Suffix: Integer;
+  BaseName, Summary, Inpx, UpdateRoot, Command: string; NewID, Suffix: Integer;
 begin
   if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
   if CheckActiveDownloads then
@@ -4416,6 +4425,8 @@ begin
     Exit;
   end;
 
+  if UpdateFromInpx then Command:='Обновить коллекцию из файла'
+  else Command:='Сжать коллекцию';
   Options:=Default(TCollectionPackingOptions);
   Options.Script:=TPath.Combine(Settings.AppPath,'tools/collectionpack/pack_collection.py');
   if not FileExists(Options.Script) then
@@ -4432,25 +4443,45 @@ begin
   begin
     EnsureProgramUpdateForm;
     FProgramUpdateForm.RequestComponents(Required,
-      'Для упаковки коллекции нужны перечисленные компоненты. После установки снова откройте «Сжать коллекцию».',True);
+      'Для упаковки коллекции нужны перечисленные компоненты. После установки снова выберите «'+Command+'».',True);
     Exit;
   end;
 
   FFormBusy:=True; NewID:=INVALID_COLLECTION_ID;
   try
     try
-      FolderPicker:=TFileOpenDialog.Create(Self);
-      try
-        FolderPicker.Title:='Выберите пустую папку или папку ранее начатой сжатой копии';
-        FolderPicker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
-        if not FolderPicker.Execute(Handle) then Exit;
-        Options.OutputRoot:=FolderPicker.FileName;
-      finally FolderPicker.Free; end;
       Options.CatalogFile:=FCollection.GetProperty(PROP_DATAFILE);
       Options.PersonalFile:=Settings.SystemFileName[sfSystemDB];
       Options.SourceRoot:=FCollection.CollectionRoot;
       Options.SourceID:=FCollection.CollectionID;
-      BaseName:=FCollection.CollectionDisplayName+' (сжатая копия)';
+      if UpdateFromInpx then
+      begin
+        Picker:=TFileOpenDialog.Create(Self);
+        try
+          Picker.Title:='Выберите INPX для обновления сжатой коллекции';
+          Picker.Options:=[fdoForceFileSystem,fdoFileMustExist,fdoPathMustExist];
+          with Picker.FileTypes.Add do begin DisplayName:='Каталог книг (*.inpx)'; FileMask:='*.inpx'; end;
+          if not Picker.Execute(Handle) then Exit;
+          Inpx:=Picker.FileName;
+        finally Picker.Free; end;
+        Options.OutputRoot:=Options.SourceRoot;
+        BaseName:=FCollection.CollectionDisplayName+' (обновление INPX)';
+      end
+      else BaseName:=FCollection.CollectionDisplayName+' (сжатая копия)';
+      Picker:=TFileOpenDialog.Create(Self);
+      try
+        Picker.Options:=[fdoPickFolders,fdoForceFileSystem,fdoPathMustExist];
+        if UpdateFromInpx then
+        begin
+          Picker.Title:='Выберите папку с книгами и архивами обновления';
+          Picker.DefaultFolder:=ExtractFileDir(Inpx);
+        end
+        else Picker.Title:='Выберите пустую папку или папку ранее начатой сжатой копии';
+        if not Picker.Execute(Handle) then Exit;
+        if UpdateFromInpx then UpdateRoot:=Picker.FileName
+        else Options.OutputRoot:=Picker.FileName;
+      finally Picker.Free; end;
+      UpdatePositions;
       Options.DisplayName:=BaseName; Suffix:=1;
       while FSystemData.HasCollectionWithProp(PROP_DISPLAYNAME,Options.DisplayName) do
       begin
@@ -4458,7 +4489,7 @@ begin
         Options.DisplayName:=BaseName+' '+IntToStr(Suffix);
       end;
       Progress:=TfrmCollectionPackingProgress.Create(Self);
-      try Snapshot:=Progress.Execute(Options,True);
+      try Snapshot:=Progress.Execute(Options,True,Inpx,UpdateRoot);
       finally Progress.Free; end;
       try
         Status:=Snapshot.Status;
@@ -10818,7 +10849,20 @@ var
   ActiveCollectionID: Integer;
   Succeeded, CommittedChanges: Boolean;
 begin
-  Assert(Assigned(FCollection));
+  if not Assigned(FCollection) or FFormBusy or FStartupLoading or FBookListLoading then Exit;
+  try
+    if IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
+    begin
+      PackCollection(True);
+      Exit;
+    end;
+  except
+    on E:Exception do
+    begin
+      MessageDlg('Не удалось проверить каталог перед обновлением.'+sLineBreak+E.Message,mtError,[mbOK],0);
+      Exit;
+    end;
+  end;
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
   UpdatePositions;
 

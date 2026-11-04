@@ -67,6 +67,8 @@ type
     property Status: TCollectionPackingStatus read FStatus;
   end;
 
+function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
+
 implementation
 
 uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
@@ -97,6 +99,17 @@ begin SQLite3_Result_Int(pCtx,1); end;
 
 constructor TPackingOutput.Create(Owner: TCollectionPackingSnapshot);
 begin inherited Create; FOwner:=Owner; end;
+
+function IsPackedCollectionCatalog(const CatalogFile: string): Boolean;
+var Catalog: TSQLiteDatabase;
+begin
+  if not FileExists(CatalogFile) then Exit(False);
+  Catalog:=TSQLiteDatabase.CreateReadOnly(CatalogFile);
+  try
+    Result:=Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master '+
+      'WHERE type=''table'' AND name=''HomeLibPackingState''')<>0;
+  finally Catalog.Free; end;
+end;
 
 function TPackingOutput.Read(var Buffer; Count: Longint): Longint;
 begin Result:=0; end;
@@ -308,7 +321,11 @@ begin
   CopySnapshot(FOptions.CatalogFile,FCatalogFile,'Сохраняем снимок каталога');
   CopySnapshot(FOptions.PersonalFile,FPersonalFile,'Сохраняем личные данные');
   CheckCanceled;
-  if Assigned(EditCatalog) then EditCatalog(FCatalogFile,FPersonalFile);
+  if Assigned(EditCatalog) then
+  begin
+    Report('Читаем обновление INPX',0,0);
+    EditCatalog(FCatalogFile,FPersonalFile);
+  end;
   BuildPlan;
   FStatus.WorkingBytes:=TFile.GetSize(FCatalogFile)+TFile.GetSize(FPersonalFile)+TFile.GetSize(FPlanFile);
   FStatus.FreeBytes:=CollectionDiskFree(FOptions.OutputRoot);

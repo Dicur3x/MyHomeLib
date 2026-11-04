@@ -106,6 +106,7 @@
         <DCCReference Include="Units\unit_CatalogSources.pas"/>
         <DCCReference Include="Units\unit_CollectionSpace.pas"/>
         <DCCReference Include="Units\unit_CollectionPacking.pas"/>
+        <DCCReference Include="Units\unit_CollectionPackingInpx.pas"/>
         <DCCReference Include="Units\unit_CollectionMerge.pas"/>
         <DCCReference Include="Units\unit_CollectionBackup.pas"/>
         <DCCReference Include="Units\unit_BookDuplicates.pas"/>

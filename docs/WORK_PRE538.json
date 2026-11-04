@@ -4271,5 +4271,19 @@
       "scope": "Synthetic ZIP and INPX. Verified new and changed bytes, original archive retention, stable BookID and personal data, a missing named member and an unchanged original catalogue. Full-size and mixed-provenance collections remain unverified."
     },
     "next": "Wire the update to the catalogue menu, keep ordinary destructive updates away from packed copies and verify real collection samples."
+  },
+  "collection_packing_inpx_menu_20261104": {
+    "status": "The existing catalogue update command routes packed local catalogues through the selected INPX workflow. Release pending.",
+    "implementation": "Choose the INPX and the folder with its books. Review and cancel or continue in the standard packing window, then confirm registration of a separate generation. The ordinary and Metabib full-import workers refuse packed catalogues. The automatic collection update scan skips packed targets.",
+    "checks": {
+      "Win32": "Delphi Release main and test builds. Native packing-fbd, inp-streaming and catalog-sources-workflow passed.",
+      "Win64": "Delphi Release main and test builds. Native packing-fbd, inp-streaming and catalog-sources-workflow passed.",
+      "scope": "Native packing window and synthetic archive/INPX, cancellation before packing, separate registration, stable book ID, source hash and rejection by the old full update worker. File/folder pickers and real mixed library data still require an end-to-end run.",
+      "main_sha256": {
+        "Win32": "85fa7c74ed27f353866bb5b2e218ae6d5c64e38fb612b9fa2b3008bf2784223d",
+        "Win64": "a7060bd5c746df9714dc942d803bc09325334b1af1bcfd1d3d11a58cdec833b2"
+      }
+    },
+    "next": "Exercise the full menu route with real mixed formats, verify no loss across repeated INPX updates, and keep the packed library usable before a release."
   }
 }

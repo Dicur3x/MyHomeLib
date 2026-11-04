@@ -18,22 +18,24 @@ type
     FLock: TObject;
     FStatus: TCollectionPackingStatus;
     FSnapshot: TCollectionPackingSnapshot;
-    FError: string;
-    FCancel, FDone, FReviewPending: Integer;
+    FCancel, FReviewPending: Integer;
     FReviewEvent: TEvent;
     FStarted: UInt64;
     procedure Poll(Sender: TObject);
     procedure CancelClick(Sender: TObject);
     procedure ContinueClick(Sender: TObject);
     procedure Closing(Sender: TObject; var CanClose: Boolean);
-    procedure ReceiveStatus;
+    function ThreadDone: Boolean;
+    procedure ReceiveStatus(const Status: TCollectionPackingStatus);
+    procedure Review(const Status: TCollectionPackingStatus);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure RenderStatus(const Status: TCollectionPackingStatus);
     procedure RequestCancel;
     function ReadStatus: TCollectionPackingStatus;
-    function Execute(const Options: TCollectionPackingOptions; ReviewEstimate: Boolean = False): TCollectionPackingSnapshot;
+    function Execute(const Options: TCollectionPackingOptions; ReviewEstimate: Boolean = False;
+      const Inpx: string = ''; const UpdateRoot: string = ''): TCollectionPackingSnapshot;
   end;
 
 function PackingRemainingSeconds(const Status: TCollectionPackingStatus): Int64;
@@ -41,7 +43,8 @@ function PackingSize(Bytes: Int64): string;
 
 implementation
 
-uses System.SysUtils, System.Math, Winapi.Windows, Vcl.Controls, Vcl.Graphics, unit_MHLTheme;
+uses System.SysUtils, System.Math, Winapi.Windows, Vcl.Controls, Vcl.Graphics, unit_MHLTheme,
+  unit_CollectionPackingInpx;
 
 function PackingRemainingSeconds(const Status: TCollectionPackingStatus): Int64;
 begin
@@ -119,6 +122,7 @@ end;
 procedure TfrmCollectionPackingProgress.RequestCancel;
 begin
   TInterlocked.Exchange(FCancel,1); FCancelButton.Enabled:=False;
+  if FThread is TCollectionPackingInpxWorker then TCollectionPackingInpxWorker(FThread).Canceled:=True;
   FContinueButton.Visible:=False; FReviewEvent.SetEvent;
   FStage.Caption:='Отменяем сжатие…';
   FNote.Caption:='Дождитесь завершения текущего шага. Готовые архивы сохранятся; при следующем запуске выберите ту же папку, чтобы продолжить.';
@@ -137,14 +141,26 @@ end;
 
 procedure TfrmCollectionPackingProgress.Closing(Sender: TObject; var CanClose: Boolean);
 begin
-  CanClose:=not Assigned(FThread) or (TInterlocked.CompareExchange(FDone,0,0)<>0);
+  CanClose:=ThreadDone;
   if not CanClose then RequestCancel;
 end;
 
-procedure TfrmCollectionPackingProgress.ReceiveStatus;
+function TfrmCollectionPackingProgress.ThreadDone: Boolean;
+begin
+  Result:=not Assigned(FThread) or (WaitForSingleObject(FThread.Handle,0)=WAIT_OBJECT_0);
+end;
+
+procedure TfrmCollectionPackingProgress.ReceiveStatus(const Status: TCollectionPackingStatus);
 begin
   System.TMonitor.Enter(FLock);
-  try FStatus:=FSnapshot.Status; finally System.TMonitor.Exit(FLock); end;
+  try FStatus:=Status; finally System.TMonitor.Exit(FLock); end;
+end;
+
+procedure TfrmCollectionPackingProgress.Review(const Status: TCollectionPackingStatus);
+begin
+  ReceiveStatus(Status);
+  TInterlocked.Exchange(FReviewPending,1);
+  FReviewEvent.WaitFor(INFINITE);
 end;
 
 function TfrmCollectionPackingProgress.ReadStatus: TCollectionPackingStatus;
@@ -190,53 +206,56 @@ begin
     (TInterlocked.CompareExchange(FCancel,0,0)=0) then
   begin
     FStage.Caption:='Папка проверена. Можно начать упаковку.';
-    FCounts.Caption:=Format('Записей к упаковке: %d · Без файла: %d',[Status.BooksTotal,Status.Unavailable]);
+    FCounts.Caption:=Format('Записей с файлами: %d · Без файла: %d',[Status.BooksTotal,Status.Unavailable]);
     FSize.Caption:='Новые исходные файлы: '+PackingSize(Status.PlannedInputBytes)+
       ' · Рабочая копия каталога: '+PackingSize(Status.WorkingBytes);
     if Status.FreeBytes>=0 then FTime.Caption:='Свободно после подготовки: '+PackingSize(Status.FreeBytes);
     FNote.Caption:='Объём исходных файлов даёт ориентир. Итоговый размер зависит от книг и повторного использования архивов. При распаковке потребуется временное место.';
     FContinueButton.Visible:=True;
   end;
-  if TInterlocked.CompareExchange(FDone,0,0)<>0 then
+  if ThreadDone then
   begin FTimer.Enabled:=False; ModalResult:=mrOk; end;
 end;
 
 function TfrmCollectionPackingProgress.Execute(const Options: TCollectionPackingOptions;
-  ReviewEstimate: Boolean): TCollectionPackingSnapshot;
+  ReviewEstimate: Boolean; const Inpx, UpdateRoot: string): TCollectionPackingSnapshot;
+var Worker: TCollectionPackingInpxWorker;
 begin
-  if Assigned(FThread) or Assigned(FSnapshot) then raise Exception.Create('Операция сжатия уже запущена.');
   if FStarted<>0 then raise Exception.Create('Для новой операции откройте новое окно сжатия.');
   FStarted:=GetTickCount64;
-  FThread:=TThread.CreateAnonymousThread(procedure
-    begin
-      try
+  Worker:=nil;
+  if Inpx<>'' then
+  begin
+    Caption:='Обновление сжатой коллекции';
+    Worker:=TCollectionPackingInpxWorker.Create(Options,Inpx,UpdateRoot,
+      procedure(const Stage:string; Current,Total:Int64) begin ReceiveStatus(Worker.ReadStatus); end,
+      procedure(const Status:TCollectionPackingStatus) begin if ReviewEstimate then Review(Status); end);
+    FThread:=Worker;
+  end
+  else
+    FThread:=TThread.CreateAnonymousThread(procedure
+      begin
         FSnapshot:=TCollectionPackingSnapshot.Create(Options);
         FSnapshot.Prepare(function:Boolean begin Result:=TInterlocked.CompareExchange(FCancel,0,0)<>0; end,
-          procedure(const Stage:string; Current,Total:Int64) begin ReceiveStatus; end);
-        if ReviewEstimate then
-        begin
-          ReceiveStatus;
-          TInterlocked.Exchange(FReviewPending,1);
-          FReviewEvent.WaitFor(INFINITE);
-        end;
+          procedure(const Stage:string; Current,Total:Int64) begin ReceiveStatus(FSnapshot.Status); end);
+        if ReviewEstimate then Review(FSnapshot.Status);
         FSnapshot.Pack; FSnapshot.ApplyPrepared;
-      except on E:Exception do FError:=E.Message; end;
-      TInterlocked.Exchange(FDone,1);
-    end);
-  FThread.FreeOnTerminate:=False; FThread.Start; FTimer.Enabled:=True;
-  try ShowModal;
-  finally
-    if TInterlocked.CompareExchange(FDone,0,0)=0 then RequestCancel;
-    FThread.WaitFor; FreeAndNil(FThread); FTimer.Enabled:=False;
-  end;
-  if (FError<>'') or (TInterlocked.CompareExchange(FCancel,0,0)<>0) then
-  begin
-    FreeAndNil(FSnapshot);
+      end);
+  FThread.FreeOnTerminate:=False;
+  try
+    FThread.Start; FTimer.Enabled:=True;
+    try ShowModal;
+    finally
+      if not ThreadDone then RequestCancel;
+      FThread.WaitFor; FTimer.Enabled:=False;
+    end;
     if TInterlocked.CompareExchange(FCancel,0,0)<>0 then
       raise EAbort.Create('Сжатие отменено. Готовые архивы сохранены для продолжения.');
-    raise Exception.Create(FError);
-  end;
-  FSnapshot.ClearNotifications; Result:=FSnapshot; FSnapshot:=nil;
+    if FThread.FatalException is Exception then
+      raise Exception.Create(Exception(FThread.FatalException).Message);
+    if Assigned(Worker) then Exit(Worker.TakeSnapshot);
+    FSnapshot.ClearNotifications; Result:=FSnapshot; FSnapshot:=nil;
+  finally FreeAndNil(FThread); end;
 end;
 
 end.
