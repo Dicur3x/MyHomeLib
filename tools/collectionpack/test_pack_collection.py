@@ -86,6 +86,31 @@ class PackingTests(unittest.TestCase):
             plan.executemany('INSERT OR REPLACE INTO retained VALUES(?,?,?,?,?)', rows)
             plan.executemany('DELETE FROM books WHERE book_id=?', [(identity,) for identity in identities])
 
+    def test_incremental_download_in_copy_requires_opt_in_and_cannot_read_managed_payload_as_source(self):
+        source = self.source / 'original.txt'
+        source.write_bytes(b'Original')
+        self.add(1, source, '')
+        original = Packer(self.job).execute()
+        self.retain(original, [1])
+
+        download = self.output / 'Author' / 'New book.txt'
+        download.parent.mkdir()
+        download.write_bytes(b'Downloaded book')
+        self.add(2, download, '')
+        with self.assertRaises(PackingError):
+            Packer(self.job).execute()
+        self.job['allow_copy_inputs'] = True
+        result = Packer(self.job).execute()
+        self.assertEqual((result.books, result.reused), (2, 1))
+        self.assertEqual(self.packed_book(result, 2), download.read_bytes())
+        self.assertEqual(download.read_bytes(), b'Downloaded book')
+
+        managed = next(self.output.glob('archives/*/*/books.zip'))
+        self.add(2, managed, 'book.txt')
+        with self.assertRaises(PackingError):
+            Packer(self.job).execute()
+        self.assertEqual(self.packed_book(result, 1), b'Original')
+
     def test_retained_registered_generation_survives_newer_unapplied_cache_and_missing_original(self):
         source = self.source / 'book.txt'; source.write_bytes(b'Original edition ' * 4000)
         self.add(1, source, '')

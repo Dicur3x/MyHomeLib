@@ -11,7 +11,8 @@
     "output": "absolute path to an empty folder or this dataset's existing compressed copy",
     "seven_zip": "absolute path to the installed, verified 7-Zip executable",
     "verify_sources": false,
-    "verify_outputs": false
+    "verify_outputs": false,
+    "allow_copy_inputs": false
   },
   "plan_schema": [
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
@@ -23,7 +24,8 @@
   "plan_contract": {
     "retained": "Optional retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER,payload TEXT). The payload column is the relative physical archive path and should be indexed. Without the column, older plans use folder as the physical archive path. IDs must not overlap books. Reuse an already registered immutable payload without opening originals: its journal membership, every output artifact and companion image are checked first. Include every preserved target in the final location count.",
     "book_id": "Unique native plan-row ID, never a library LIBID. For ordinary rows it may equal the catalogue BookID. Native producer must retain a target map when including alternate CatalogBookCopies or personal-card locations; those targets need separate plan IDs. Original catalogue BookIDs must remain unchanged in the clone.",
-    "source": "Canonical absolute physical archive or loose-file path. Resolve ZIP-to-7z fallback in the producer.",
+    "source": "Canonical absolute physical archive or loose-file path. Resolve ZIP-to-7z fallback in the producer. The native caller enables allow_copy_inputs only when repacking into the same copy, to read newly downloaded or imported files. Managed archives, journals, catalogues and temporary areas remain excluded.",
+    "unavailable": "Native only. Catalogue rows whose physical files are absent remain in the clone with their metadata and locators. A separate unavailable count excludes them from payload totals. A later pass looks first in the copy, then under the original root when the deferred locator still matches. File access and archive errors fail preparation.",
     "member": "Actual exact archive entry, or empty for a loose file. Native producer must reuse TMHLZip.ResolveBookName, including its existing safe legacy-index contract. Do not guess an unrelated member.",
     "locator": "Stable physical member identity within this source, independent of BookID and INPX row order.",
     "filename": "Original TBookRecord.FileName; retained only when copying an opaque original container.",

@@ -1,4 +1,6 @@
-﻿procedure TestPackingFbd;
+﻿{$I CollectionPackingUnavailableTests.inc}
+
+procedure TestPackingFbd;
 const
   ArchiveName = 'Пара.zip';
   BookText = 'Исходный текст книги ё.';
@@ -104,4 +106,5 @@ begin
     Require(RenameFile(Original+'.held',Original), 'Cannot restore the owned original fixture');
   end;
   Writeln('PASS original FBD container, both native locator forms, exact book and descriptor, reuse without originals');
+  TestPackingUnavailable;
 end;

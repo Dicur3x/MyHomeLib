@@ -17,7 +17,7 @@ type
   TCollectionPackingStatus = record
     Stage, StageKey, SourceName: string;
     Current, Total, SourcesDone, SourcesTotal, BooksDone, BooksTotal: Int64;
-    InputBytes, OutputBytes, Reused, ElapsedMS, PackingMS: Int64;
+    InputBytes, OutputBytes, Reused, Unavailable, ElapsedMS, PackingMS: Int64;
   end;
 
   // Owns disposable snapshots only. Packing never writes the source catalogue,
@@ -74,6 +74,9 @@ uses System.IOUtils, System.Hash, System.Math, System.StrUtils,
 const
   PACKING_LEASE = 'HomeLibRu-native-packing.lock';
   PACKING_JOB_KIND = 'HomeLibRu collection packing snapshots';
+  DEFERRED_COLUMNS = '(kind INTEGER NOT NULL,book_id INTEGER NOT NULL,source_key TEXT NOT NULL,'+
+    'folder TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,'+
+    'root TEXT NOT NULL,PRIMARY KEY(kind,book_id,source_key))';
 
 type
   TPackingOutput = class(TStream)
@@ -305,11 +308,37 @@ begin
   BuildPlan; FReady:=True;
 end;
 
+function PackingSourceExists(const FileName: string): Boolean;
+var Attributes, Error: Cardinal;
+begin
+  Attributes:=GetFileAttributes(PChar(FileName));
+  if Attributes=INVALID_FILE_ATTRIBUTES then
+  begin
+    Error:=GetLastError;
+    if Error in [ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND] then Exit(False);
+    RaiseLastOSError(Error);
+  end;
+  if (Attributes and FILE_ATTRIBUTE_DIRECTORY)<>0 then
+    raise EInOutError.Create('Вместо файла книги найдена папка: '+FileName);
+  Result:=True;
+end;
+
 procedure TCollectionPackingSnapshot.BuildPlan;
-var Catalog, Personal: TSQLiteDatabase; Query, Insert, Target, Retained, Origin: TSQLiteQuery;
+var Catalog, Personal: TSQLiteDatabase;
+  Query, Insert, Target, Retained, Origin, Deferred, PreviousDeferred: TSQLiteQuery;
   Book: TBookRecord; CurrentArchive: TMHLZip; CurrentFile, Source, Member, Locator, Key, Root: string;
-  OriginalName, Payload: string; OriginalInside, NativeID: Integer; ID, Done, Total: Int64;
-  Keep, Fbd: Boolean; BookFormat: TBookFormat;
+  OriginalName, Payload, Container, DeferredRoot: string;
+  OriginalInside, NativeID: Integer; ID, Done, Total: Int64;
+  Keep, Fbd, Missing: Boolean; BookFormat: TBookFormat;
+  function ResolveSource(const SourceRoot: string): Boolean;
+  begin
+    if Book.FileName='' then Exit(False);
+    Book.CollectionRoot:=IncludeTrailingPathDelimiter(SourceRoot);
+    Container:=Book.GetBookContainer;
+    BookFormat:=Book.GetBookFormat(Container); Fbd:=BookFormat=bfFbd;
+    Source:=TPath.GetFullPath(Book.GetBookFileName(Container));
+    Result:=SameFileName(CurrentFile,Source) or PackingSourceExists(Source);
+  end;
   procedure ReadRows(DB: TSQLiteDatabase; const SQL: string; TargetKind: Integer);
   begin
     Query:=DB.NewQuery(SQL);
@@ -324,9 +353,7 @@ var Catalog, Personal: TSQLiteDatabase; Query, Insert, Target, Retained, Origin:
         if TargetKind=2 then begin Root:=Query.FieldAsString(5); Key:=Query.FieldAsString(6); end;
         if Root='' then Root:=FOptions.SourceRoot;
         Book.CollectionRoot:=IncludeTrailingPathDelimiter(Root);
-        BookFormat:=Book.GetBookFormat;
-        Fbd:=BookFormat=bfFbd;
-        Keep:=False;
+        Keep:=False; Missing:=False;
         if Assigned(Origin) and SameFileName(ExcludeTrailingPathDelimiter(Root),FOptions.OutputRoot) then
         begin
           Origin.Reset; Origin.SetParam(0,Book.Folder); Origin.SetParam(1,Book.FileName); Origin.SetParam(2,Book.FileExt);
@@ -342,6 +369,7 @@ var Catalog, Personal: TSQLiteDatabase; Query, Insert, Target, Retained, Origin:
           OriginalName:=Origin.FieldAsString(2); OriginalInside:=Origin.FieldAsInt(3);
           Retained.Reset; Retained.SetParam(0,ID); Retained.SetParam(1,Book.Folder);
           Retained.SetParam(2,Book.FileName); Retained.SetParam(3,Book.FileExt); Retained.SetParam(4,Book.InsideNo);
+          Fbd:=Book.GetBookFormat=bfFbd;
           Payload:=Book.Folder;
           if Fbd then Payload:=Payload+Book.FileName;
           Retained.SetParam(5,Payload);
@@ -349,31 +377,58 @@ var Catalog, Personal: TSQLiteDatabase; Query, Insert, Target, Retained, Origin:
         end
         else
         begin
-          if BookFormat in [bfFb2Archive,bfRawArchive,bfFbd] then
+          Missing:=not ResolveSource(Root);
+          DeferredRoot:=Root;
+          if Missing and (Book.FileName<>'') and Assigned(PreviousDeferred) then
           begin
-            Source:=TPath.GetFullPath(Book.GetBookFileName);
-            if not SameFileName(CurrentFile,Source) then
+            PreviousDeferred.Reset; PreviousDeferred.SetParam(0,TargetKind);
+            PreviousDeferred.SetParam(1,NativeID); PreviousDeferred.SetParam(2,Key);
+            PreviousDeferred.SetParam(3,Book.Folder); PreviousDeferred.SetParam(4,Book.FileName);
+            PreviousDeferred.SetParam(5,Book.FileExt); PreviousDeferred.SetParam(6,Book.InsideNo);
+            PreviousDeferred.Open;
+            if not PreviousDeferred.Eof then
             begin
-              FreeAndNil(CurrentArchive); CurrentFile:='';
-              CurrentArchive:=TMHLZip.Create(Source,True); CurrentFile:=Source;
+              DeferredRoot:=PreviousDeferred.FieldAsString(0);
+              if not SameFileName(ExcludeTrailingPathDelimiter(Root),ExcludeTrailingPathDelimiter(DeferredRoot)) then
+                Missing:=not ResolveSource(DeferredRoot);
             end;
-            Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
+          end;
+          if Missing then
+          begin
+            Deferred.Reset; Deferred.SetParam(0,TargetKind); Deferred.SetParam(1,NativeID);
+            Deferred.SetParam(2,Key); Deferred.SetParam(3,Book.Folder); Deferred.SetParam(4,Book.FileName);
+            Deferred.SetParam(5,Book.FileExt); Deferred.SetParam(6,Book.InsideNo);
+            Deferred.SetParam(7,DeferredRoot); Deferred.ExecSQL;
+            Inc(FStatus.Unavailable);
           end
-          else begin Source:=TPath.GetFullPath(Book.GetBookFileName); Member:=''; end;
-          if not FileExists(Source) then raise EFileNotFoundException.Create('Не найден исходный файл: '+Source);
-          OriginalName:=Book.FileName; OriginalInside:=Book.InsideNo;
-          if Fbd then Locator:='fbd:'+IntToStr(Book.InsideNo)+':'+Member
-          else Locator:='member:'+Member;
-          Insert.Reset; Insert.SetParam(0,ID);
-          Insert.SetParam(1,Source); Insert.SetParam(2,Member); Insert.SetParam(3,Locator);
-          Insert.SetParam(4,Book.FileName); Insert.SetParam(5,Book.FileExt); Insert.SetParam(6,Book.InsideNo);
-          Insert.SetParam(7,Ord(Fbd));
-          Insert.ExecSQL;
+          else
+          begin
+            Member:='';
+            if BookFormat in [bfFb2Archive,bfRawArchive,bfFbd] then
+            begin
+              if not SameFileName(CurrentFile,Source) then
+              begin
+                FreeAndNil(CurrentArchive); CurrentFile:='';
+                CurrentArchive:=TMHLZip.Create(Source,True); CurrentFile:=Source;
+              end;
+              Member:=CurrentArchive.ResolveBookName(Book.FileName+Book.FileExt,Book.InsideNo);
+            end;
+            OriginalName:=Book.FileName; OriginalInside:=Book.InsideNo;
+            if Fbd then Locator:='fbd:'+IntToStr(Book.InsideNo)+':'+Member
+            else Locator:='member:'+Member;
+            Insert.Reset; Insert.SetParam(0,ID);
+            Insert.SetParam(1,Source); Insert.SetParam(2,Member); Insert.SetParam(3,Locator);
+            Insert.SetParam(4,Book.FileName); Insert.SetParam(5,Book.FileExt); Insert.SetParam(6,Book.InsideNo);
+            Insert.SetParam(7,Ord(Fbd)); Insert.ExecSQL;
+          end;
         end;
-        Target.Reset; Target.SetParam(0,ID); Target.SetParam(1,TargetKind);
-        Target.SetParam(2,NativeID); Target.SetParam(3,Key); Target.SetParam(4,Source);
-        Target.SetParam(5,Member); Target.SetParam(6,OriginalName); Target.SetParam(7,OriginalInside);
-        Target.SetParam(8,Ord(Fbd)); Target.ExecSQL;
+        if not Missing then
+        begin
+          Target.Reset; Target.SetParam(0,ID); Target.SetParam(1,TargetKind);
+          Target.SetParam(2,NativeID); Target.SetParam(3,Key); Target.SetParam(4,Source);
+          Target.SetParam(5,Member); Target.SetParam(6,OriginalName); Target.SetParam(7,OriginalInside);
+          Target.SetParam(8,Ord(Fbd)); Target.ExecSQL;
+        end;
         Inc(Done); if Done mod 256=0 then Report('Проверяем расположение книг',Done,Total);
         Query.Next;
       end;
@@ -381,6 +436,7 @@ var Catalog, Personal: TSQLiteDatabase; Query, Insert, Target, Retained, Origin:
   end;
 begin
   Catalog:=nil; Personal:=nil; CurrentArchive:=nil; Insert:=nil; Target:=nil; Retained:=nil; Origin:=nil;
+  Deferred:=nil; PreviousDeferred:=nil;
   FPlan:=TSQLiteDatabase.Create(FPlanFile);
   try
     FPlan.ExecSQL('CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
@@ -392,6 +448,7 @@ begin
       'ext TEXT NOT NULL,inside_no INTEGER NOT NULL,payload TEXT NOT NULL)');
     FPlan.ExecSQL('CREATE TABLE targets(plan_id INTEGER PRIMARY KEY,kind INTEGER NOT NULL,book_id INTEGER NOT NULL,source_key TEXT NOT NULL,'+
       'source TEXT NOT NULL,member TEXT NOT NULL,filename TEXT NOT NULL,inside_no INTEGER NOT NULL,fbd INTEGER NOT NULL)');
+    FPlan.ExecSQL('CREATE TABLE deferred'+DEFERRED_COLUMNS);
     Catalog:=TSQLiteDatabase.CreateReadOnly(FCatalogFile);
     Personal:=TSQLiteDatabase.CreateReadOnly(FPersonalFile);
     Total:=Catalog.QuerySingleInt('SELECT count(*) FROM Books')+
@@ -403,6 +460,10 @@ begin
       if Catalog.QuerySingleString('SELECT Value FROM HomeLibPackingState WHERE Key=''dataset''')=FOptions.Dataset then
         Origin:=Catalog.NewQuery('SELECT Source,Member,OriginalFileName,OriginalInsideNo FROM HomeLibPackingOrigins '+
           'WHERE Folder=? AND FileName=? AND Ext=?');
+    if Catalog.QuerySingleInt('SELECT count(*) FROM sqlite_master WHERE type=''table'' AND name=''HomeLibPackingDeferred''')<>0 then
+      PreviousDeferred:=Catalog.NewQuery('SELECT root FROM HomeLibPackingDeferred WHERE kind=? AND book_id=? '+
+        'AND source_key=? AND folder=? AND filename=? AND ext=? AND inside_no=?');
+    Deferred:=FPlan.NewQuery('INSERT INTO deferred VALUES(?,?,?,?,?,?,?,?)');
     Insert:=FPlan.NewQuery('INSERT INTO books VALUES(?,?,?,?,?,?,?,?)');
     Retained:=FPlan.NewQuery('INSERT INTO retained VALUES(?,?,?,?,?,?)');
     Target:=FPlan.NewQuery('INSERT INTO targets VALUES(?,?,?,?,?,?,?,?,?)');
@@ -417,11 +478,14 @@ begin
           'WHERE FileName<>'''' AND Ext<>'''' ORDER BY Root,Folder,BookID',2);
       FPlan.ExecSQL('CREATE INDEX source_books ON books(source)');
       FPlan.ExecSQL('CREATE INDEX retained_payload ON retained(payload)');
-      FCount:=Done; FPlan.Commit;
+      FCount:=Done-FStatus.Unavailable;
+      if FCount=0 then raise Exception.Create('В коллекции не найдено локальных файлов для сжатия.');
+      FPlan.Commit;
     except if FPlan.InTransaction then FPlan.Rollback; raise; end;
     Report('Расположение книг проверено',Done,Total);
   finally
-    Origin.Free; Retained.Free; Target.Free; Insert.Free; CurrentArchive.Free; Personal.Free; Catalog.Free;
+    PreviousDeferred.Free; Deferred.Free; Origin.Free; Retained.Free; Target.Free;
+    Insert.Free; CurrentArchive.Free; Personal.Free; Catalog.Free;
     FreeAndNil(FPlan);
   end;
 end;
@@ -484,6 +548,8 @@ begin
     Job.AddPair('plan',FPlanFile); Job.AddPair('output',FOptions.OutputRoot); Job.AddPair('seven_zip',FOptions.SevenZip);
     Job.AddPair('verify_sources',TJSONBool.Create(FOptions.VerifySources));
     Job.AddPair('verify_outputs',TJSONBool.Create(FOptions.VerifyOutputs));
+    Job.AddPair('allow_copy_inputs',TJSONBool.Create(
+      SameFileName(ExcludeTrailingPathDelimiter(FOptions.SourceRoot),FOptions.OutputRoot)));
     JobFile:=TPath.Combine(FWork,'job.json'); TFile.WriteAllText(JobFile,Job.ToJSON,TEncoding.UTF8);
   finally Job.Free; end;
   Output:=TPackingOutput.Create(Self);
@@ -514,11 +580,11 @@ begin
 end;
 
 procedure TCollectionPackingSnapshot.ApplyPrepared;
-var Plan, Locations, Catalog, Personal: TSQLiteDatabase; Q, Target: TSQLiteQuery;
+var Plan, Locations, Catalog, Personal: TSQLiteDatabase; Q, Target, Deferred: TSQLiteQuery;
   Folder, Filename, Ext, SourceKey: string; ID, Total, Done: Int64; Kind, BookID, Inside: Integer;
 begin
   if FApplied or (FPrepared='') then raise Exception.Create('Нет подготовленного результата сжатия.');
-  Plan:=nil; Locations:=nil; Catalog:=nil; Personal:=nil; Q:=nil; Target:=nil;
+  Plan:=nil; Locations:=nil; Catalog:=nil; Personal:=nil; Q:=nil; Target:=nil; Deferred:=nil;
   try
     Plan:=TSQLiteDatabase.CreateReadOnly(FPlanFile);
     Locations:=TSQLiteDatabase.CreateReadOnly(TPath.Combine(FOptions.OutputRoot,'generations\'+FPrepared+'\locations.sqlite'));
@@ -537,6 +603,7 @@ begin
       'Source TEXT NOT NULL,Member TEXT NOT NULL,OriginalFileName TEXT NOT NULL,OriginalInsideNo INTEGER NOT NULL,PRIMARY KEY(Folder,FileName,Ext))');
     Target:=Plan.NewQuery('SELECT kind,book_id,source_key,source,member,filename,inside_no,fbd FROM targets WHERE plan_id=?');
     Q:=Locations.NewQuery('SELECT book_id,folder,filename,ext,inside_no FROM locations ORDER BY book_id');
+    Deferred:=Plan.NewQuery('SELECT kind,book_id,source_key,folder,filename,ext,inside_no,root FROM deferred ORDER BY kind,book_id');
     Catalog.Start; Personal.Start;
     try
       Done:=0; Q.Open;
@@ -556,9 +623,9 @@ begin
         else CheckedOutputFile(Folder);
         Kind:=Target.FieldAsInt(0); BookID:=Target.FieldAsInt(1); SourceKey:=Target.FieldAsString(2);
         case Kind of
-          0: Catalog.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=? WHERE BookID=?',
+          0: Catalog.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?,IsLocal=1 WHERE BookID=?',
                [Folder,Filename,Ext,Inside,BookID]);
-          1: Personal.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=? WHERE BookID=? AND DatabaseID=?',
+          1: Personal.ExecSQL('UPDATE Books SET Folder=?,FileName=?,Ext=?,InsideNo=?,IsLocal=1 WHERE BookID=? AND DatabaseID=?',
                [Folder,Filename,Ext,Inside,BookID,FOptions.SourceID]);
           2: Catalog.ExecSQL('UPDATE CatalogBookCopies SET Root=?,Folder=?,FileName=?,Ext=?,InsideNo=? WHERE SourceKey=?',
                [FOptions.OutputRoot,Folder,Filename,Ext,Inside,SourceKey]);
@@ -567,6 +634,23 @@ begin
           [Folder,Filename,Ext,Target.FieldAsString(3),Target.FieldAsString(4),Target.FieldAsString(5),Target.FieldAsInt(6)]);
         Inc(Done); if Done mod 256=0 then Report('Обновляем отдельный каталог',Done,Total);
         Q.Next;
+      end;
+      Catalog.ExecSQL('CREATE TABLE IF NOT EXISTS HomeLibPackingDeferred'+DEFERRED_COLUMNS);
+      Catalog.ExecSQL('DELETE FROM HomeLibPackingDeferred');
+      Deferred.Open;
+      while not Deferred.Eof do
+      begin
+        CheckCanceled;
+        Kind:=Deferred.FieldAsInt(0); BookID:=Deferred.FieldAsInt(1);
+        case Kind of
+          0: Catalog.ExecSQL('UPDATE Books SET IsLocal=0 WHERE BookID=? AND IsLocal<>0',[BookID]);
+          1: Personal.ExecSQL('UPDATE Books SET IsLocal=0 WHERE BookID=? AND DatabaseID=? AND IsLocal<>0',
+               [BookID,FOptions.SourceID]);
+        end;
+        Catalog.ExecSQL('INSERT INTO HomeLibPackingDeferred VALUES(?,?,?,?,?,?,?,?)',
+          [Kind,BookID,Deferred.FieldAsString(2),Deferred.FieldAsString(3),Deferred.FieldAsString(4),
+           Deferred.FieldAsString(5),Deferred.FieldAsInt(6),Deferred.FieldAsString(7)]);
+        Deferred.Next;
       end;
       CheckCanceled; Catalog.Commit; Personal.Commit;
     except
@@ -578,7 +662,7 @@ begin
       (Personal.QuerySingleString('PRAGMA quick_check')<>'ok') then
       raise Exception.Create('Отдельная копия каталога не прошла проверку.');
     FApplied:=True; Report('Отдельный каталог проверен',Done,Total);
-  finally Target.Free; Q.Free; Personal.Free; Catalog.Free; Locations.Free; Plan.Free; end;
+  finally Deferred.Free; Target.Free; Q.Free; Personal.Free; Catalog.Free; Locations.Free; Plan.Free; end;
 end;
 
 function TCollectionPackingSnapshot.RegisterNew(const SystemData: ISystemData): Integer;

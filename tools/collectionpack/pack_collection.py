@@ -398,12 +398,27 @@ class Packer:
 
     def stamp(self, source, companions):
         values = []
+        root = Path(canonical(self.root))
         for file in (source, *(file for _, file in companions)):
             self.check()
-            if not file.is_file() or canonical(file).startswith(canonical(self.root) + os.sep):
-                raise PackingError('Исходная книга отсутствует или находится внутри сжатой копии: ' + str(file))
+            resolved = Path(canonical(file))
+            for location, base in ((file, self.root), (resolved, root)):
+                if not location.is_relative_to(base):
+                    continue
+                relative = location.relative_to(base)
+                name = relative.parts[0].lower() if relative.parts else ''
+                # New downloads can live beside existing generations when
+                # repacking this catalogue. Managed files must go via retention.
+                if (self.job.get('allow_copy_inputs') is not True or not name or
+                        name in ('archives', 'generations', 'homelibru-compressed.json',
+                                 'homelibru-native-packing.lock', 'packing.lock') or
+                        name.startswith(('.packing-', '.job-', 'packing.sqlite')) or
+                        (name.startswith('collection') and '.hlc2' in name)):
+                    raise PackingError('Исходный файл находится в служебной части сжатой копии: ' + str(file))
+            if not file.is_file():
+                raise PackingError('Исходный файл не найден: ' + str(file))
             stat = file.stat()
-            values.append([canonical(file), stat.st_size, stat.st_mtime_ns])
+            values.append([str(resolved), stat.st_size, stat.st_mtime_ns])
         return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
     def cached(self, identity, stamp, source, companions):

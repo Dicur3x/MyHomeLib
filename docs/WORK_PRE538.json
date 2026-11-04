@@ -4235,5 +4235,16 @@
       "temporary_profiles_removed": true
     },
     "next": "Handle catalogue rows without a local payload, then connect the verified packer to the catalogue interface and test changes from INPX."
+  },
+  "collection_packing_unavailable_20261104": {
+    "status": "Missing physical files and later downloads verified in the native catalogue on x86 and x64.",
+    "implementation": "Keep absent-file rows and their catalogue locators in the copy. Clear stale local flags only in the clone and report unavailable locations separately. Retry a deferred locator against the original root if it still matches and its file is absent from the copy. Reject corrupt archives and plans with no local payloads. A repack of the same copy may read new downloads from its ordinary folders. Managed package paths stay protected.",
+    "checks": {
+      "Win32": "Delphi Release, native packing-fbd PASS including the unavailable and loopback download scenario. 30 packer tests passed with 32-bit Python and 7-Zip.",
+      "Win64": "Delphi Release, native packing-fbd PASS including the unavailable and loopback download scenario. 30 packer tests passed with 64-bit Python and 7-Zip.",
+      "scope": "Three synthetic catalogue rows and a loopback ZIP response. Checked the copied download route, unchanged source catalogue and files, exact reopened book bytes, retained generation reuse, stale local flag, deleted row metadata, all-absent catalogue and corrupt archive rejection.",
+      "temporary_profiles_removed": true
+    },
+    "next": "Connect packing to the catalogue UI, show the unavailable count before registration, and exercise selected INPX updates on a mixed collection. A missing member inside an otherwise present archive is still a locator error."
   }
 }
