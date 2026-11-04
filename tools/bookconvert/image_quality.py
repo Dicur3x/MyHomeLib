@@ -277,7 +277,7 @@ def select_container_profiles(result, profile, storage, layout=False):
     return chosen
 
 
-def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw'):
+def run(api, tool, pictures, directory, profile, progress, layout=None, storage='raw', check=None):
     native_profile = 'estimate' if storage != 'raw' and profile in ('balanced','economy') else profile
     # Existing helpers already encode predecessors before economy, so asking
     # for their results does not decode the input again. Their estimate API
@@ -297,6 +297,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
         started = time.monotonic(); last = 0
         try:
             while process.poll() is None:
+                if check is not None: check()
                 if time.monotonic()-started > 1800: raise api.ConversionError('Сжатие изображений превысило 30 минут.')
                 if log.stat().st_size > 1024*1024: raise api.ConversionError('Слишком большой отчёт сжатия изображений.')
                 lines = [s.split() for s in log.read_text(encoding='utf-8', errors='replace').splitlines() if s.startswith('IMAGE ')]
@@ -368,7 +369,7 @@ def run(api, tool, pictures, directory, profile, progress, layout=None, storage=
     return select_container_profiles(result,profile,storage)
 
 
-def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None):
+def apply(api, book, target_extension, profile, tools_root, progress, options_file=None, choice_file=None, warnings=None, container=None, check=None):
     storage = image_storage(target_extension,container)
     if profile == 'original': return
     if profile not in (*PROFILES, 'ask', 'none'): raise api.ConversionError('Неизвестное качество изображений.')
@@ -488,8 +489,10 @@ def apply(api, book, target_extension, profile, tools_root, progress, options_fi
         remaining = [i for i,data in enumerate(encoded) if data is None]
         # Batches bound additional memory and disk usage even for a long scan.
         for at in range(0,len(remaining),9):
+            if check is not None: check()
             indices = remaining[at:at+9]
-            result = run(api, tool, [pictures[i] for i in indices], directory, profile, lambda *_: None,storage=storage)[profile]
+            result = run(api, tool, [pictures[i] for i in indices], directory, profile,
+                         lambda *_: None, storage=storage, check=check)[profile]
             for index,data in zip(indices,result): encoded[index] = data
             progress('optimizing-images', min(len(pictures), at+len(indices)+len(sample_indices)), len(pictures))
         if all(original == changed for original,changed in zip(pictures,encoded)): return

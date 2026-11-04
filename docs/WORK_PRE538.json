@@ -4312,5 +4312,13 @@
     "published_fix": "Removed the redundant first heading from GitHub release 3.0.0_pre1.3. Verified that the public release list returns the corrected body even with the prior ETag and that the tag, release state, and asset digests are unchanged.",
     "regression": "Win32 and Win64 native updater view tests verify the dated card renders the current notes, an actually empty prior release still shows its placeholder, and other versions remain distinct.",
     "cleanup": "Release edit and build wrappers removed their temporary directories; native updater test profiles were removed."
+  },
+  "collection_packing_illustrations_worker_20261104": {
+    "status": "Worker implemented and tested. Native profile selection and component prompting are pending.",
+    "profiles": "Reversible stays the default. Balanced and economy reuse BookProcessing and HomeLibre Images on staged FB2/EPUB only. Keep the original if an eligible book cannot be processed or a candidate does not shrink. PDF, DjVu and other book formats retain their bytes. FBD and FLibrary companion archives retain their packages.",
+    "resumption": "An immutable folder marker binds the profile. A mixed synthetic run reused five earlier payloads, optimized a new FB2, and rejected switching profiles in the same destination. Valid original and prepared SHA-256 values are distinct in the ledger for changed books.",
+    "verification": "32 Python worker integration tests on each of Win32 and Win64 with the packaged Python, 7-Zip and native image helper. Both quality profiles shrank a synthetic illustrated FB2 and EPUB, retained chapter and CSS, preserved PDF/DjVu and declined a broken EPUB without discarding it.",
+    "real_samples": "On both architectures the 369 embedded images in FB2 883585 retained their IDs and the original body text matched. Economy changed the FB2 payload from 46888835 to 30117829 bytes. EPUB 549311 stayed at 287018 bytes with all 47 entries. Original file hashes matched. On x86, cancel during the native encoder left no prepared generation and cleaned staging; the same job then completed.",
+    "cleanup": "All isolated image-test work folders on G: were removed by the wrappers and checked afterwards."
   }
 }

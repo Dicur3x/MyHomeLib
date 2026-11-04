@@ -1488,6 +1488,7 @@ def detect_input(source):
 def convert_book(source, destination, **metadata):
     image_quality = metadata.pop('image_quality', 'original')
     image_container = metadata.pop('image_container', None)
+    cancel_check = metadata.pop('cancel_check', None)
     image_options = metadata.pop('image_options', None)
     image_choice = metadata.pop('image_choice', None)
     scan_layout = metadata.pop('scan_layout', 'keep')
@@ -1608,7 +1609,8 @@ def convert_book(source, destination, **metadata):
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             api = type('ConversionAPI', (), {name: value for name, value in globals().items() if not name.startswith('__')})
             module.apply(api, temporary, target_extension, image_quality, metadata.get('tools_root'),
-                         metadata.get('progress') or (lambda *_: None), image_options, image_choice, warnings,image_container)
+                         metadata.get('progress') or (lambda *_: None), image_options, image_choice,
+                         warnings, image_container, check=cancel_check)
         # Ensure the generated artifact is readable before publishing its name.
         if destination.suffix.lower() == '.epub':
             archive = EpubArchive(temporary)

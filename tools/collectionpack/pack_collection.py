@@ -1,16 +1,17 @@
 """Incremental, source-preserving collection packing (optional HomeLib module).
 
 The application supplies an immutable SQLite plan, never a live user database.
-This first backend is lossless: PPMd for text, stored entries for precompressed
-books, and byte-exact copies of existing FLibrary containers and side archives.
-7-Zip is the upstream compressor. No book decoder or image codec is invented.
+The default preserves book bytes. Optional illustration profiles use the
+HomeLibre export processor before packaging eligible FB2 and EPUB copies.
 """
 from __future__ import annotations
 
 import argparse
+import binascii
 from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,10 +26,12 @@ import zlib
 
 API_VERSION = 1
 MAX_BOOK = 512 * 1024 * 1024
+MAX_IMAGE_BOOK = 64 * 1024 * 1024
 MAX_SOURCE_BOOKS = 100000
 BLOCK = 256 * 1024
 ARCHIVE_SUFFIXES = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'}
 TEXT_SUFFIXES = {'.fb2', '.txt', '.rtf', '.html', '.htm', '.xml', '.md', '.csv'}
+IMAGE_SUFFIXES = {'.fb2', '.epub'}
 
 
 class PackingError(ValueError):
@@ -47,6 +50,8 @@ class Result:
     input_bytes: int = 0
     output_bytes: int = 0
     opaque_sources: int = 0
+    image_books_optimized: int = 0
+    image_books_skipped: int = 0
     generation: str = ''
 
 
@@ -68,10 +73,10 @@ def book_signature(path, check):
     with Path(path).open('rb') as stream:
         while chunk := stream.read(BLOCK):
             check(); digest.update(chunk); crc = zlib.crc32(chunk, crc); size += len(chunk)
-    return dict(source_sha256=digest.hexdigest(), source_crc32=crc, source_size=size)
+    return dict(payload_sha256=digest.hexdigest(), payload_crc32=crc, payload_size=size)
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, replace=True):
     path = Path(path)
     partial = path.with_name(path.name + '.' + uuid.uuid4().hex + '.partial')
     try:
@@ -80,7 +85,12 @@ def atomic_json(path, value):
             stream.write('\n')
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(partial, path)
+        if replace:
+            os.replace(partial, path)
+        elif os.name == 'nt':
+            os.rename(partial, path)
+        else:
+            os.link(partial, path)
     finally:
         partial.unlink(missing_ok=True)
 
@@ -178,10 +188,14 @@ class SevenZip:
 
 class Packer:
     def __init__(self, job, notify=lambda value: None, canceled=lambda: False):
-        if job.get('version') != API_VERSION or job.get('engine') != 'reversible-ppmd':
+        self.engine = job.get('engine')
+        self.images = job.get('images', 'original')
+        if job.get('version') != API_VERSION or self.engine not in ('reversible-ppmd', 'illustrations-ppmd'):
             raise PackingError('Неизвестная версия или режим сжатия коллекции.')
-        if job.get('images', 'original') != 'original':
+        if self.engine == 'reversible-ppmd' and self.images != 'original':
             raise PackingError('Этот режим сохраняет изображения без изменений. Для изменения качества нужен соответствующий режим сжатия.')
+        if self.engine == 'illustrations-ppmd' and self.images not in ('balanced', 'economy'):
+            raise PackingError('Выберите качество иллюстраций для сжатой копии.')
         self.job, self.notify, self.canceled = job, notify, canceled
         self.root = Path(job['output']).absolute()
         self.plan = Path(job['plan']).absolute()
@@ -195,6 +209,54 @@ class Packer:
         self.last_event = None
         self.progress = {}
         self.seven = SevenZip(job['seven_zip'], self.check)
+        self.converter = None
+        self.tools_root = Path(job.get('tools_root') or Path(__file__).resolve().parents[1]).resolve()
+
+    def load_image_processor(self):
+        script = self.tools_root / 'bookconvert' / 'convert_book.py'
+        if not script.is_file() or not script.with_name('image_quality.py').is_file():
+            raise PackingError('Для сжатия иллюстраций нужен модуль подготовки книг HomeLibre BookProcessing.')
+        spec = importlib.util.spec_from_file_location('homelibre_pack_book_converter', script)
+        converter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(converter)
+        if not converter.image_processor_path(self.tools_root).is_file():
+            raise PackingError('Для сжатия иллюстраций нужен модуль HomeLibre Images.')
+        self.converter = converter
+
+    def optimize_book(self, target, stage):
+        if self.converter is None or target.suffix not in IMAGE_SUFFIXES:
+            return {}
+        size = target.stat().st_size
+        if size > MAX_IMAGE_BOOK:
+            return dict(image_result='skipped')
+        self.check()
+        converter = self.converter
+        candidate = stage / ('image-candidate' + target.suffix)
+        try:
+            if converter.detect_input(target) != target.suffix:
+                return dict(image_result='skipped')
+            reserve_space(stage, 3 * size)
+            converter.convert_book(target, candidate, image_quality=self.images,
+                                   image_container='fb2-zip' if target.suffix == '.fb2' else None,
+                                   tools_root=self.tools_root, cancel_check=self.check)
+            self.check()
+            if candidate.stat().st_size >= size:
+                return {}
+            original_sha256 = digest_file(target, self.check)
+            candidate.replace(target)
+            return dict(image_result='optimized', original_sha256=original_sha256)
+        except converter.ComponentRequired as error:
+            raise PackingError(str(error)) from error
+        except (converter.ConversionError, binascii.Error, zipfile.BadZipFile) as error:
+            return dict(image_result='skipped', image_reason=str(error)[:240])
+        finally:
+            candidate.unlink(missing_ok=True)
+
+    def count_image_result(self, status):
+        if status == 'optimized':
+            self.result.image_books_optimized += 1
+        elif status == 'skipped':
+            self.result.image_books_skipped += 1
 
     def check(self):
         if self.canceled():
@@ -228,13 +290,17 @@ class Packer:
         marker = self.root / 'HomeLibRu-compressed.json'
         if marker.exists():
             previous = json.loads(marker.read_text(encoding='utf-8-sig'))
-            if (previous.get('dataset'), previous.get('engine'), previous.get('version')) != (
-                    self.dataset, self.job['engine'], API_VERSION):
+            if (previous.get('dataset'), previous.get('engine'), previous.get('version'),
+                    previous.get('images', 'original')) != (self.dataset, self.engine, API_VERSION, self.images):
                 raise PackingError('В этой папке другая коллекция или другие настройки сжатия. Выберите новую папку.')
         else:
             if any(self.root.iterdir()):
                 raise PackingError('Для новой сжатой копии нужна пустая папка.')
-            atomic_json(marker, dict(version=API_VERSION, dataset=self.dataset, engine=self.job['engine']))
+            try:
+                atomic_json(marker, dict(version=API_VERSION, dataset=self.dataset, engine=self.engine,
+                                        images=self.images), replace=False)
+            except FileExistsError as error:
+                raise PackingError('Другая операция уже задала настройки для этой папки сжатой копии.') from error
     def open_journal(self):
         self.db = sqlite3.connect(self.root / 'packing.sqlite')
         self.db.execute('PRAGMA journal_mode=WAL')
@@ -296,7 +362,7 @@ class Packer:
             artifacts = json.loads(row[1])
             if not self.artifacts_valid(artifacts):
                 raise PackingError('Ранее созданный архив или его иллюстрации не прошли проверку: ' + folder)
-            members = {book_location(folder, item) for item in json.loads(row[0]).values()}
+            members = {book_location(folder, item): item.get('image_result') for item in json.loads(row[0]).values()}
             count = 0
             with mapping:
                 for book in plan.execute(f'SELECT book_id,folder,filename,ext,inside_no FROM retained WHERE {payload_column}=? ORDER BY book_id', (folder,)):
@@ -304,6 +370,7 @@ class Packer:
                     if tuple(book)[1:] not in members:
                         raise PackingError('Расположение книги не совпадает с готовым архивом: ' + folder)
                     mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)', tuple(book))
+                    self.count_image_result(members[tuple(book)[1:]])
                     count += 1
             self.result.sources += 1; self.result.reused += 1; self.result.books += count
             self.result.input_bytes += row[2]
@@ -527,7 +594,8 @@ class Packer:
                             self.seven.extract(source, entry.filename, target, stage)
                     else:
                         self.seven.extract(source, member, target, stage)
-                    mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1,
+                    image_result = self.optimize_book(target, stage)
+                    mappings[locator] = dict(filename=Path(name).stem, ext=extension, inside_no=-1, **image_result,
                                              **book_signature(target, self.check))
                     (text_names if extension in TEXT_SUFFIXES else stored_names).append(name)
                     self.event('books', source=source.name, current=index + 1, total=len(rows))
@@ -542,8 +610,8 @@ class Packer:
                         raise PackingError('Не совпадает список книг в созданном архиве.')
                     for item in mappings.values():
                         info = verification.getinfo(item['filename'] + item['ext'])
-                        if (info.CRC, info.file_size) != (item['source_crc32'], item['source_size']):
-                            raise PackingError('Содержимое книги в созданном архиве отличается от исходного.')
+                        if (info.CRC, info.file_size) != (item['payload_crc32'], item['payload_size']):
+                            raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
                 folder = str(relative / 'books.zip')
                 # Already compressed sources must not grow merely because
                 # the new member names or ZIP headers have different lengths.
@@ -561,12 +629,12 @@ class Packer:
                     for name in text_names + stored_names:
                         self.check()
                         (files / name).unlink()
-                    reserve_space(stage, sum(item['source_size'] for item in mappings.values()))
+                    reserve_space(stage, sum(item['payload_size'] for item in mappings.values()))
                     self.seven.run(['x', '-y', '-bb0', '-o' + str(files), '--', str(archive)], cwd=stage)
                     for item in mappings.values():
                         decoded = files / (item['filename'] + item['ext'])
-                        if not decoded.is_file() or digest_file(decoded, self.check) != item['source_sha256']:
-                            raise PackingError('Содержимое книги в созданном архиве отличается от исходного.')
+                        if not decoded.is_file() or digest_file(decoded, self.check) != item['payload_sha256']:
+                            raise PackingError('Содержимое книги в созданном архиве отличается от подготовленной копии.')
             finally:
                 if original is not None:
                     original.close()
@@ -601,6 +669,8 @@ class Packer:
     def execute(self):
         generation, prepared = None, False
         try:
+            if self.engine == 'illustrations-ppmd':
+                self.load_image_processor()
             self.open()
             with self.lock(), closing(sqlite3.connect(self.plan.as_uri() + '?mode=ro', uri=True)) as plan:
                 self.open_journal()
@@ -661,6 +731,7 @@ class Packer:
                                 item = members[row['locator']]
                                 mapping.execute('INSERT INTO locations VALUES(?,?,?,?,?)',
                                                 (row['book_id'], *book_location(folder, item)))
+                                self.count_image_result(item.get('image_result'))
                         self.result.sources += 1; self.result.books += len(rows)
                         self.result.input_bytes += input_bytes
                         self.result.output_bytes += sum(a['size'] for a in artifacts)

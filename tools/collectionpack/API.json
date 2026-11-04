@@ -21,6 +21,14 @@
     "CREATE TABLE books(book_id INTEGER PRIMARY KEY,source TEXT NOT NULL,member TEXT NOT NULL,locator TEXT NOT NULL,filename TEXT NOT NULL,ext TEXT NOT NULL,inside_no INTEGER NOT NULL,fbd INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX source_books ON books(source)"
   ],
+  "image_profiles": {
+    "default": "reversible-ppmd with original preserves all selected book bytes. Older markers without images mean original.",
+    "optional": "illustrations-ppmd with balanced or economy applies HomeLibre Images to eligible FB2/EPUB without format conversion. Requires the bookconvert scripts and HomeLibre Images in the installation tools folder. tools_root is optional and overrides that folder for an isolated runtime.",
+    "scope": "PDF, DjVu, DOC and other formats retain their book bytes. FLibrary companions and FBD containers retain the entire original package. FB2/EPUB over 64 MiB, unreadable books or format mismatches preserve their original bytes. An illustration candidate is used only if it shrinks the book; the existing archive-level size safeguard can still keep the original archive.",
+    "continuation": "The destination marker binds dataset, engine and image profile for all later runs. Changing profile requires a new output folder. Resume and INPX updates reuse verified archives while using the stored profile for new or changed sources.",
+    "counters": "image_books_optimized and image_books_skipped count mapped locations for accepted transformed payloads and books individually declined by the processor, including reused locations. Opaque archives are counted separately. An already compact or unillustrated book is not counted as skipped.",
+    "availability": "Python worker contract. The native catalogue dialog currently supplies the reversible profile."
+  },
   "plan_contract": {
     "retained": "Optional retained(book_id INTEGER PRIMARY KEY,folder TEXT,filename TEXT,ext TEXT,inside_no INTEGER,payload TEXT). The payload column is the relative physical archive path and should be indexed. Without the column, older plans use folder as the physical archive path. IDs must not overlap books. Reuse an already registered immutable payload without opening originals: its journal membership, every output artifact and companion image are checked first. Include every preserved target in the final location count.",
     "book_id": "Unique native plan-row ID, never a library LIBID. For ordinary rows it may equal the catalogue BookID. Native producer must retain a target map when including alternate CatalogBookCopies or personal-card locations; those targets need separate plan IDs. Original catalogue BookIDs must remain unchanged in the clone.",
@@ -47,7 +55,7 @@
       "Keep old referenced archive generations intact. Do not automatically delete source books or an older usable catalogue."
     ],
     "sizes": "input_bytes and output_bytes describe book/container payloads; catalogue, journal and scratch space must be displayed separately by the native UI. No guarantee of a compression ratio.",
-    "cache": "New ZIPs are extracted once and every member is checked against the source SHA-256 before the payload is committed. Unchanged containers and companion files are compared byte for byte by SHA-256. On reuse, ordinary source checks use size and modification time; output checks also verify SHA-256 if modification time changed. Full verification of reused payloads reads every byte and must be an explicit slower option. Immutable payloads journal retains membership and artifact proofs for all completed package generations independently of the replaceable latest-source cache, including prepared but unapplied runs."
+    "cache": "New ZIPs are extracted once and every member is checked against the prepared book SHA-256 before the payload is committed. Prepared bytes equal the original in reversible mode. For modified FB2/EPUB, the ledger records both original and prepared digests. Unchanged containers and companion files are compared byte for byte by SHA-256. On reuse, ordinary source checks use size and modification time; output checks also verify SHA-256 if modification time changed. Full verification of reused payloads reads every byte and must be an explicit slower option. Immutable payloads journal retains membership and artifact proofs for all completed package generations independently of the replaceable latest-source cache, including prepared but unapplied runs."
   },
   "limits": {
     "decoded_archive_member_bytes": 536870912,

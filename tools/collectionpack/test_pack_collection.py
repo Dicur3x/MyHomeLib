@@ -1,10 +1,13 @@
 """Real 7-Zip integration; synthetic books only, all inputs remain untouched."""
+import base64
 import hashlib
 from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import random
 import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
@@ -13,10 +16,23 @@ from unittest.mock import patch
 from types import SimpleNamespace
 import zipfile
 import zlib
+from xml.etree import ElementTree
 
 from pack_collection import API_VERSION, Canceled, Packer, PackingError
 
 SEVEN = Path(os.environ.get('HLRU_PACK_7ZIP', '../../Program/Out/Bin64/tools/7zip/7za.exe')).absolute()
+IMAGE_TOOLS = os.environ.get('HLRU_PACK_IMAGE_TOOLS')
+
+
+def image_fixture():
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+
+    width, height = 480, 640
+    rng = random.Random(534)
+    pixels = b''.join(b'\0' + rng.randbytes(width * 3) for _ in range(height))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(pixels)) + chunk(b'IEND', b''))
 
 
 def sha(path):
@@ -196,6 +212,7 @@ class PackingTests(unittest.TestCase):
 
     def test_missing_payload_after_write_ahead_does_not_reuse_its_immutable_path(self):
         source = self.source / 'book.txt'; source.write_bytes(b'Book ' * 5000); self.add(1, source, '')
+        Packer(self.job).open()
         with patch('pack_collection.os.rename', side_effect=OSError('Controlled failure before payload rename')):
             with self.assertRaises(OSError): Packer(self.job).execute()
         with database(self.output / 'packing.sqlite') as db:
@@ -534,6 +551,83 @@ Packer(json.loads(open(sys.argv[2],encoding='utf-8').read()),notify).execute()
         with self.assertRaisesRegex(PackingError, 'качества'):
             Packer(self.job).execute()
         self.assertFalse(self.output.exists())
+
+    def test_missing_image_component_leaves_destination_uncreated(self):
+        self.job.update(engine='illustrations-ppmd', images='balanced', tools_root=str(self.root))
+        with self.assertRaisesRegex(PackingError, 'BookProcessing'):
+            Packer(self.job).execute()
+        self.assertFalse(self.output.exists())
+
+    @unittest.skipUnless(IMAGE_TOOLS, 'Native HomeLibre Images runtime not supplied')
+    def test_illustration_profile_retains_text_and_reuses_optimized_payloads(self):
+        self.job.update(engine='illustrations-ppmd', images='economy', tools_root=IMAGE_TOOLS)
+        picture = image_fixture()
+        fb2 = self.source / 'book.fb2'
+        fb2.write_bytes(b'''<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description><title-info><genre>sf</genre><author><nickname>A</nickname></author><book-title>Title</book-title><lang>en</lang></title-info>
+<document-info><author><nickname>A</nickname></author><date>2026</date><id>fixture</id><version>1.0</version></document-info></description>
+<body><section><p>Keep <emphasis>this text</emphasis>.</p><image l:href="#picture"/></section></body>
+<binary id="picture" content-type="image/png">''' + base64.b64encode(picture) + b'</binary></FictionBook>')
+        epub = self.source / 'book.epub'
+        chapter = b'<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Keep <em>this text</em>.</p><img src="picture.png" alt="Fixture"/></body></html>'
+        style = b'p { line-height: 1.25; }'
+        with zipfile.ZipFile(epub, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+            archive.writestr('META-INF/container.xml',
+                '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>')
+            archive.writestr('book.opf', '''<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+<manifest><item id="ch" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+<item id="pic" href="picture.png" media-type="image/png"/><item id="style" href="book.css" media-type="text/css"/></manifest>
+<spine><itemref idref="ch"/></spine></package>''')
+            archive.writestr('chapter.xhtml', chapter)
+            archive.writestr('book.css', style)
+            archive.writestr('picture.png', picture)
+        pdf, djvu = self.source / 'book.pdf', self.source / 'book.djvu'
+        pdf.write_bytes(b'%PDF-1.4\n' + picture)
+        djvu.write_bytes(b'AT&TFORM' + picture)
+        damaged = self.source / 'broken.epub'
+        damaged.write_bytes(b'PK broken')
+        books = [fb2, epub, pdf, djvu, damaged]
+        original_hashes = [sha(book) for book in books]
+        for identity, book in enumerate(books, 1):
+            self.add(identity, book, '')
+
+        result = Packer(self.job).execute()
+        self.assertEqual((result.image_books_optimized, result.image_books_skipped), (2, 1))
+        fb2_copy = self.packed_book(result, 1)
+        xml = ElementTree.fromstring(fb2_copy)
+        self.assertEqual(''.join(xml.find('.//{*}p').itertext()), 'Keep this text.')
+        self.assertEqual(xml.find('.//{*}image').get('{http://www.w3.org/1999/xlink}href'), '#picture')
+        self.assertEqual(xml.find('.//{*}binary').get('id'), 'picture')
+        self.assertLess(len(base64.b64decode(xml.find('.//{*}binary').text)), len(picture))
+        epub_copy = self.root / 'copy.epub'
+        epub_copy.write_bytes(self.packed_book(result, 2))
+        with zipfile.ZipFile(epub_copy) as archive:
+            self.assertEqual(archive.read('chapter.xhtml'), chapter)
+            self.assertEqual(archive.read('book.css'), style)
+            self.assertLess(len(archive.read('picture.png')), len(picture))
+        self.assertLess(result.output_bytes, result.input_bytes)
+        for identity, book in enumerate(books[2:], 3):
+            self.assertEqual(self.packed_book(result, identity), book.read_bytes())
+        self.assertEqual([sha(book) for book in books], original_hashes)
+
+        balanced_output = self.root / 'balanced'
+        balanced = Packer(dict(self.job, output=str(balanced_output), images='balanced')).execute()
+        self.assertEqual((balanced.image_books_optimized, balanced.image_books_skipped), (2, 1))
+        self.assertEqual(json.loads((balanced_output / 'HomeLibRu-compressed.json').read_text())['images'],
+                         'balanced')
+
+        self.retain(result, range(1, 6))
+        new_book = self.source / 'new.fb2'
+        new_book.write_bytes(fb2.read_bytes().replace(b'Keep ', b'New '))
+        self.add(6, new_book, '')
+        resumed = Packer(self.job).execute()
+        self.assertEqual((resumed.reused, resumed.image_books_optimized, resumed.image_books_skipped), (5, 3, 1))
+        self.assertEqual(self.packed_book(resumed, 1), fb2_copy)
+        self.assertIn(b'New ', self.packed_book(resumed, 6))
+        with self.assertRaisesRegex(PackingError, 'другие настройки'):
+            Packer(dict(self.job, images='balanced')).execute()
 
     def test_large_zip_member_is_preserved_without_decoding_or_size_inflation(self):
         source = self.archive('large.zip', {'1.fb2': b'Large original text ' * 3000})
