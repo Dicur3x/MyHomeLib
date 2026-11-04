@@ -71,8 +71,7 @@ begin
       Text.AppendLine(IntToStr(I+1)+'. '+Books[I].Title);
       Text.AppendLine(Format('BookID: %d; коллекция: %d; ID источника: %s',
         [Books[I].BookKey.BookID,Books[I].BookKey.DatabaseID,Books[I].LibID]));
-      var Target:=UpperCase(Entry.TargetExtension.TrimLeft(['.']));
-      if BookSaveZipsTarget(Entry.TargetExtension,Plan.Mode) then Target:=Target+' в ZIP';
+      var Target:=BookSaveTargetLabel(Entry.TargetExtension,Plan.Mode);
       Text.AppendLine('Формат: '+UpperCase(Entry.SourceExtension.TrimLeft(['.']))+' → '+Target);
       Layout:=0; if Entry.Options.ScanPages then Layout:=EnsureRange(ScanLayout,0,2);
       for var Q:=0 to 3 do
@@ -80,7 +79,8 @@ begin
         var Bytes:=Entry.Options.OutputBytes[Layout,Q];
         if BookSaveZipsTarget(Entry.TargetExtension,Plan.Mode) then Bytes:=Entry.Options.ZipOutputBytes[Layout,Q];
         var Value:='не рассчитано';
-        if Bytes>0 then Value:='≈ '+BookEstimateSizeText(Bytes)
+        if (Q=3) and not BookSaveSupportsNoImages(Plan.Mode) then Value:='для формата нужна обложка'
+        else if Bytes>0 then Value:='≈ '+BookEstimateSizeText(Bytes)
         else if Entry.Completed and (Entry.ErrorText='') and Entry.Options.ScanPages and (Q=3) then
           Value:='недоступно для страниц-сканов';
         if Bytes>20*1024*1024 then Value:=Value+' — крупнее 20 МБ';

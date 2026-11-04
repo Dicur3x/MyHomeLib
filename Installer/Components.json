@@ -520,6 +520,54 @@
           "notes": "Сохранение MOBI7/KF8 и AZW3 через Kindling. Устанавливается только для записи Kindle; без декодеров других форматов."
         }
       ]
+    },
+    {
+      "id": "FB2Export",
+      "platform": "Win32",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-FB2Export-3.0.0.4-Win32.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
+        }
+      ]
+    },
+    {
+      "id": "FB2Export",
+      "platform": "Win64",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-FB2Export-3.0.0.4-Win64.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown."
+        }
+      ]
+    },
+    {
+      "id": "KoboExport",
+      "platform": "Win32",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-KoboExport-3.0.0.4-Win32.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
+        }
+      ]
+    },
+    {
+      "id": "KoboExport",
+      "platform": "Win64",
+      "version": "3.0.0.4",
+      "archive": "HomeLibRu-KoboExport-3.0.0.4-Win64.zip",
+      "history": [
+        {
+          "version": "3.0.0.4",
+          "notes": "kepubify — прямое сохранение EPUB в KEPUB для Kobo."
+        }
+      ]
     }
   ]
 }

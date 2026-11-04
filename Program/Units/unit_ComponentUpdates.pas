@@ -221,6 +221,8 @@ begin
     'AZW3 — книга KF8.'+sLineBreak+
     'Исходная книга сначала подготавливается в EPUB. Нужный модуль чтения устанавливается отдельно; '+
     'для обычного чтения FB2/EPUB запись Kindle не нужна.');
+  if ID='FB2Export' then Exit('fb2cng преобразует FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.');
+  if ID='KoboExport' then Exit('kepubify преобразует EPUB напрямую в KEPUB для читалок Kobo.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
   if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');
   if ID='XPS' then Exit('HomeLibXps — чтение страниц документов XPS.');
@@ -672,7 +674,8 @@ begin
   Parts:=Version.Split(['.']); Count:=Length(Parts);
   if (ID='HomeLibReader') or (ID='BookConverter') or (ID='BookProcessing') or
     (ID='ImageProcessing') or (ID='Kindle') or (ID='LegacyBooks') or
-    (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or (ID='MHLMcpServer') then
+    (ID='LegacyOffice') or (ID='XPS') or (ID='KindleExport') or
+    (ID='FB2Export') or (ID='KoboExport') or (ID='MHLMcpServer') then
   begin
     if (Count<>4) or (StrToInt(Parts[0])<3) or (StrToInt(Parts[3])=0) then Exit;
     // In the 3.x series revision 1..65534 is beta N; 65535 is final.

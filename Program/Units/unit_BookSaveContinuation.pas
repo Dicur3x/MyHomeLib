@@ -106,9 +106,11 @@ end;
 procedure CheckOptions(const Options: TBookSendOptions);
 var Templater: TTemplater; Parts: TArray<string>;
 begin
-  if not (Options.Mode in [emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3]) or
+  if not (Options.Mode in ([emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) or
     not (Options.NameCollision in [bncAsk,bncReplace,bncKeepBoth]) or
     (Options.KeepSourceFormat and Options.KeepFB2EPUB) or
+    ((Options.Mode in BOOK_SAVE_ADVANCED_MODES) and
+      (not Options.ExplicitFormat or Options.KeepSourceFormat or Options.KeepFB2EPUB or Options.ZipEachBook)) or
     (Options.Folder='') or (Length(Options.Folder)>4096) or
     (not IsShellPath(Options.Folder) and not TPath.IsPathRooted(Options.Folder)) then
     raise Exception.Create('Некорректные параметры сохранения книг.');
@@ -122,7 +124,9 @@ begin
     raise Exception.Create('Некорректная маска подпапок в плане сохранения.');
   Parts:=Options.ImageQuality.Split(['|']);
   if (Length(Parts)<1) or (Length(Parts)>3) or
+    ((Options.Mode in BOOK_SAVE_ADVANCED_MODES) and (Length(Parts)<>1)) or
     ((Parts[0]<>'original') and (Parts[0]<>'balanced') and (Parts[0]<>'economy') and (Parts[0]<>'none')) or
+    ((Parts[0]='none') and not BookSaveSupportsNoImages(Options.Mode)) or
     ((Length(Parts)>1) and ((Parts[0]='none') or ((Parts[1]<>'split') and (Parts[1]<>'auto')))) or
     ((Length(Parts)>2) and (not Parts[2].StartsWith('except=') or
       not IsValidScanPageExclusions(Parts[2].Substring(7)))) then

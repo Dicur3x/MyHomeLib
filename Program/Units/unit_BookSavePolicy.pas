@@ -13,8 +13,12 @@ type
 
 const BOOK_SAVE_DEVICE_MODES: array[0..5] of TExportMode =
   (emFB2,emFB2Zip,emEpub,emTxt,emMobi,emAZW3);
+  BOOK_SAVE_ADVANCED_MODES = [emEpub2,emEpub3,emKepub,emKfx,emAzw8,emAdvancedPDF,emMarkdown];
 
-function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
+function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean = False): TArray<TBookSaveChoice>;
+function BookSaveAdvancedProfile(Mode: TExportMode): string;
+function BookSaveSupportsNoImages(Mode: TExportMode): Boolean;
+function BookSaveTargetLabel(const Extension: string; Mode: TExportMode): string;
 function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMode;
   KeepOriginal, KeepFB2EPUB: Boolean): string;
 function BookSaveDefaultChoiceIndex(const Choices: TArray<TBookSaveChoice>;
@@ -33,7 +37,7 @@ function BookSaveRelativeFolder(const Expanded: string): string;
 implementation
 
 uses System.IOUtils, unit_ReaderFormats, unit_Templater, unit_BookMetadataCache,
-  unit_MHLArchiveHelpers;
+  unit_MHLArchiveHelpers, unit_BookConversionRequirements;
 
 function BookSaveFileExtension(const FileName, DeclaredExtension: string): string;
 begin
@@ -123,11 +127,44 @@ begin
     ((NormalExtension(SourceExtension)='.fb2') or (NormalExtension(SourceExtension)='.epub')));
 end;
 
+function BookSaveAdvancedProfile(Mode: TExportMode): string;
+begin
+  case Mode of
+    emEpub2: Result:='epub2';
+    emEpub3: Result:='epub3';
+    emKepub: Result:='kepub';
+    emKfx: Result:='kfx';
+    emAzw8: Result:='azw8';
+    emAdvancedPDF: Result:='pdf';
+    emMarkdown: Result:='md';
+  else Result:='';
+  end;
+end;
+
+function BookSaveSupportsNoImages(Mode: TExportMode): Boolean;
+begin
+  Result:=not (Mode in [emKfx,emAzw8]);
+end;
+
+function BookSaveTargetLabel(const Extension: string; Mode: TExportMode): string;
+begin
+  case Mode of
+    emEpub2: Result:='EPUB 2';
+    emEpub3: Result:='EPUB 3';
+    emKepub: Result:='KEPUB';
+    emMarkdown: Result:='Markdown';
+  else Result:=UpperCase(Extension.TrimLeft(['.']));
+  end;
+  if BookSaveZipsTarget(Extension,Mode) then Result:=Result+' в ZIP';
+end;
+
 function BookSaveTargetExtension(const SourceExtension: string; Mode: TExportMode;
   KeepOriginal, KeepFB2EPUB: Boolean): string;
 begin
   Result:=NormalExtension(SourceExtension);
   if BookSaveKeepsSource(Result,KeepOriginal,KeepFB2EPUB) then Exit;
+  if Mode in BOOK_SAVE_ADVANCED_MODES then
+    Exit(AdvancedBookOutputExtension(BookSaveAdvancedProfile(Mode)));
   case Mode of
     emEpub,emEpubZip: Result:='.epub';
     emTxt: Result:='.txt';
@@ -154,7 +191,7 @@ begin
     if (Choices[I].Mode=Mode) and not Choices[I].KeepFB2EPUB then Exit(I);
 end;
 
-function BookSaveChoices(const Extensions: TArray<string>): TArray<TBookSaveChoice>;
+function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
 var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
@@ -200,6 +237,22 @@ begin
   if not AllTXT then Add('Преобразовать в TXT — только текст',emTxt,False,False);
   if not AllMOBI then Add('Преобразовать в MOBI — для старых Kindle',emMobi,False,False);
   if not AllAZW3 then Add('Преобразовать в AZW3 — для Kindle с KF8',emAZW3,False,False);
+  if ShowAdvanced and HasFB2EPUB and not HasOther then
+  begin
+    if AllFB2 then
+    begin
+      Add('Преобразовать в EPUB 2',emEpub2,False,False);
+      Add('Преобразовать в EPUB 3 через fb2cng',emEpub3,False,False);
+    end;
+    Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
+    if AllFB2 then
+    begin
+      Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
+      Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
+      Add('Преобразовать в PDF',emAdvancedPDF,False,False);
+      Add('Преобразовать в Markdown',emMarkdown,False,False);
+    end;
+  end;
 end;
 
 function BookSaveZipsTarget(const TargetExtension: string; Mode: TExportMode;

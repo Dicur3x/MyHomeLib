@@ -5669,6 +5669,7 @@ end;
 {$I BookSavePlanningTests.inc}
 {$I SaveSettingsSyncTests.inc}
 {$I KindleBookSaveTests.inc}
+{$I AdvancedBookSaveTests.inc}
 {$I BookNameCollisionTests.inc}
 {$I ExportPathFeedbackTests.inc}
 {$I FLibrarySourcePreparationTests.inc}
@@ -6093,6 +6094,7 @@ begin
         TestFirstBookList(True)
       else if ParamStr(1) = 'minimum-save' then TestMinimumBookSaving
       else if ParamStr(1) = 'kindle-save' then TestKindleBookSaving
+      else if ParamStr(1) = 'advanced-save' then TestAdvancedBookSaving
       else if ParamStr(1) = 'save-planning' then TestBookSavePlanning
       else if ParamStr(1) = 'reader-portable' then TestReaderPortableStartup
       else if ParamStr(1) = 'save-module-restart' then TestSaveModuleRestart

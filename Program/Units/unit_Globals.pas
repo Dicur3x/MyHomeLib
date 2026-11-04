@@ -96,7 +96,8 @@ type
 
   TBookIdList = array of TBookIdStruct;
 
-  TExportMode = (emFB2, emFB2Zip, emLrf, emTxt, emEpub, emPDF, emMobi, emEpubZip, emAZW3);
+  TExportMode = (emFB2, emFB2Zip, emLrf, emTxt, emEpub, emPDF, emMobi, emEpubZip, emAZW3,
+    emEpub2, emEpub3, emKepub, emKfx, emAzw8, emAdvancedPDF, emMarkdown);
 
   PAuthorData = ^TAuthorData;
   TAuthorData = record

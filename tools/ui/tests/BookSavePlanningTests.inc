@@ -11,11 +11,15 @@ begin
   if SourceFile.StartsWith('--target=') then
   begin
     Require(TryStrToInt(SourceFile.Substring(9),RequestedMode) and
-      ((RequestedMode=Ord(emTxt)) or (RequestedMode=Ord(emMobi)) or (RequestedMode=Ord(emAZW3))),
+      ((RequestedMode=Ord(emTxt)) or (RequestedMode=Ord(emMobi)) or (RequestedMode=Ord(emAZW3)) or
+        (RequestedMode=Ord(emKepub))),
       'Unexpected new save-plan target');
     SourceFile:='';
     Options.Mode:=TExportMode(RequestedMode); Options.KeepFB2EPUB:=False; Options.ZipEachBook:=False;
-    if Options.Mode=emTxt then ComponentID:='BookProcessing' else ComponentID:='KindleExport';
+    if Options.Mode=emTxt then ComponentID:='BookProcessing'
+    else if Options.Mode=emKepub then
+    begin ComponentID:='KoboExport'; Options.ImageQuality:='economy'; end
+    else ComponentID:='KindleExport';
   end;
   if SourceFile='' then
   begin

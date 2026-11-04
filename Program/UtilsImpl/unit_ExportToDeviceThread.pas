@@ -355,7 +355,7 @@ begin
     ProcessSourceImages:=FCurrentKeepSource and (FImageQuality<>'original') and
       ((SourceExtension='.fb2') or (SourceExtension='.epub'));
     if (FExplicitFormat or ProcessSourceImages or
-      (not FCurrentKeepSource and (FExportMode in [emMobi,emAZW3]))) and not FExtractOnly then
+      (not FCurrentKeepSource and (FExportMode in ([emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)))) and not FExtractOnly then
     begin
       var TargetExtension:=BookSaveTargetExtension(SourceExtension,FExportMode,False,False);
       if FCurrentKeepSource then TargetExtension:='';
@@ -392,7 +392,7 @@ begin
       end;
       // FB2/EPUB processing resolves its complete known dependencies after
       // its unchanged-copy fast path. Do not stop on one decoder here.
-      if not (FExportMode in [emFB2,emFB2Zip,emEpub,emEpubZip,emTxt,emMobi,emAZW3]) then
+      if not (FExportMode in ([emFB2,emFB2Zip,emEpub,emEpubZip,emTxt,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
       begin
         var Required:=RequiredReaderComponent(FAppPath,SourceExtension);
         if Required<>'' then raise EMHLComponentRequired.Create(Required,
@@ -416,7 +416,7 @@ begin
     FFileOprecord.BookLanguage:=R.Lang;
     FConvertBasic := not FExtractOnly and
       (FExplicitFormat or ProcessSourceImages or
-        (not FCurrentKeepSource and (FExportMode in [emMobi,emAZW3])) or
+        (not FCurrentKeepSource and (FExportMode in ([emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES))) or
         (not FCurrentKeepSource and ((FExportMode = emEpub) and
         IsBasicConversionSource(SourceExtension) and
         (Pos('|'+SourceExtension.TrimLeft(['.'])+'|','|pdf|djvu|djv|dju|djm|djvm|')=0))));
@@ -459,6 +459,8 @@ begin
 
     NameExtension:=R.FileExt;
     if FCurrentKeepSource and (SourceExtension<>'') then NameExtension:=SourceExtension;
+    if FConvertBasic and (FExportMode in BOOK_SAVE_ADVANCED_MODES) then
+      NameExtension:=BookSaveTargetExtension(SourceExtension,FExportMode,False,False);
     var EffectiveExtension:=ExtractFileName(ActualOutputFile('book'+NameExtension)).Substring(4);
     FTargetFileName:=BookOutputName(Trim(FTargetFileName),EffectiveExtension,R.BookKey.BookID);
     FTargetFullFilePath:=TPath.Combine(FDeviceDir,TPath.Combine(FTargetFolder,FTargetFileName+NameExtension));
@@ -476,8 +478,9 @@ begin
           raise Exception.Create('Папка и имя результата совпадают с исходной книгой. Выберите другую папку или маску имени.');
         if not FOverwriteExisting then
         begin
-        var BaseName := ChangeFileExt(FTargetFullFilePath, '');
         var Ext := ExtractFileExt(FTargetFullFilePath);
+        if FConvertBasic and (FExportMode in BOOK_SAVE_ADVANCED_MODES) then Ext:=NameExtension;
+        var BaseName := Copy(FTargetFullFilePath,1,Length(FTargetFullFilePath)-Length(Ext));
         var Counter := 1;
         repeat
           FTargetFullFilePath := Format('%s (%d)%s', [BaseName, Counter, Ext]);
@@ -701,6 +704,8 @@ begin
   if FNativeZipCopy then Exit(FileName+ZIP_EXTENSION);
   if FConvertBasic then
   begin
+    // PrepareFile has already attached the full suffix of the selected writer.
+    if FExportMode in BOOK_SAVE_ADVANCED_MODES then Exit;
     case FExportMode of
       emEpub: Result:=ChangeFileExt(FileName,'.epub');
       emFB2: Result:=ChangeFileExt(FileName,'.fb2');
@@ -749,7 +754,7 @@ begin
     else Quality:='none';
   end;
   ConversionTarget:=ActualOutputFile(FFileOprecord.TargetFile);
-  if not (FExportMode in [emFB2,emEpub,emMobi,emAZW3]) then
+  if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
   begin
     if FFileOprecord.ConversionTempFolder='' then
     begin
@@ -781,6 +786,7 @@ begin
           else if (Stage='optimizing-images') or (Stage='scan-images') then SetComment('Сжатие изображений для экспорта…')
           else if Stage='finalizing' then SetComment(Format('Сборка книги (%d%%)…',[Percent]))
           else if Stage='kindle-writing' then SetComment('Запись книги для Kindle…')
+          else if Stage='advanced-writing' then SetComment('Запись книги в выбранном формате…')
           else if Stage='complete' then SetComment('Запись книги…')
           else SetComment('Подготовка к конвертации…');
         end,Quality,
@@ -796,10 +802,11 @@ begin
             end);
           Result:=Selected;
         end,FOverwriteExisting,FFileOprecord.OriginalSourceFile,
-        (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')));
+        (FExportMode=emFB2Zip) or (FZipEachBook and SameText(ExtractFileExt(ConversionTarget),'.fb2')),
+        BookSaveAdvancedProfile(FExportMode));
       FLastWarnings := Warnings.Text;
       Result := True;
-      if not (FExportMode in [emFB2,emEpub,emMobi,emAZW3]) then
+      if not (FExportMode in ([emFB2,emEpub,emMobi,emAZW3]+BOOK_SAVE_ADVANCED_MODES)) then
       begin
         if Canceled or Terminated then Abort;
         OriginalStream:=FFileOprecord.Stream; OriginalSource:=FFileOprecord.SourceFile;

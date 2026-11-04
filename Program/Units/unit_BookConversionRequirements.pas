@@ -236,6 +236,8 @@ begin
   Ext:='.'+LowerCase(Extension.TrimLeft(['.']));
   if FileExists(SourceFile) then
   begin Actual:=DetectReaderExtension(SourceFile); if Actual<>'' then Ext:=Actual; end;
+  if (OutputProfile<>'') and (Ext<>'.fb2') and not ((Ext='.epub') and (OutputProfile='kepub')) then
+    raise Exception.Create('Выбранный формат недоступен для исходного файла '+UpperCase(Ext.TrimLeft(['.']))+'.');
   if not ModularBookProcessingAvailable(AppPath) then Result:=TArray<string>.Create('BookProcessing');
   if OutputProfile<>'' then
   begin

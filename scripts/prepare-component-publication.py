@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TAG = 'optional-alreader-2.5.1009.25'
 PREFIX = 'https://github.com/Dicur3x/MyHomeLib/releases/download/' + TAG + '/'
 OWNED = {'HomeLibReader', 'BookProcessing', 'ImageProcessing', 'Kindle',
-         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport'}
+         'LegacyBooks', 'LegacyOffice', 'XPS', 'MHLMcpServer', 'KindleExport', 'FB2Export', 'KoboExport'}
 
 
 def digest(data):
@@ -128,11 +128,12 @@ def main():
                                 archive_sha256=digest(data), managed_files=len(payload_names)))
     assert set(replacement) == expected
     assert not set(baseline) - set(bootstrap), 'Public components would be dropped'
-    # beta 3 introduces one independent writer. Both architectures must be
-    # present and fully validated above; unrelated additions remain an error.
+    # A newly introduced writer needs both validated architectures.
     added = set(bootstrap) - set(baseline)
-    assert added in (set(), {('KindleExport', 'Win32'), ('KindleExport', 'Win64')}), (
-        'Unexpected new components: ' + str(added))
+    writer_ids = {'KindleExport', 'FB2Export', 'KoboExport'}
+    assert {component for component, _ in added} <= writer_ids, 'Unexpected new components: ' + str(added)
+    for component in {component for component, _ in added}:
+        assert {(component, 'Win32'), (component, 'Win64')} <= added, 'Incomplete new writer: ' + component
     assert added <= set(replacement)
     merged = {**baseline, **replacement}
     reader_keys = {('HomeLibReader', platform) for platform in ('Win32', 'Win64')}

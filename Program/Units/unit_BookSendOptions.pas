@@ -23,7 +23,7 @@ type
     FShellItem: IShellItem;
     FDestination, FNameMask, FFolderMask, FExcept: TEdit;
     FFormat, FImages, FScans, FCollision: TComboBox;
-    FSubfolders: TCheckBox;
+    FSubfolders, FMoreFormats: TCheckBox;
     FContent: TScrollBox;
     FIntro, FFormatLabel, FImagesLabel, FSummary, FNote, FScanLabel,
       FExceptLabel, FMaskLabel, FMaskHelp, FFolderHelp, FCollisionLabel, FPreview, FStatus: TLabel;
@@ -39,7 +39,7 @@ type
     FChoices: TArray<TBookSaveChoice>;
     FItems: TBookSaveEstimateItems;
     FEstimate: TBookSendEstimateThread;
-    FRevision, FPreviewIndex: Integer;
+    FRevision, FPreviewIndex, FPrimaryChoiceCount: Integer;
     FRequiredComponent: string;
     FClosing, FReflowing, FInitializing, FHasEstimateAttempt, FShowMaskHelp: Boolean;
     procedure Browse(Sender: TObject);
@@ -62,6 +62,7 @@ type
     procedure UpdateSummary;
     procedure UpdatePreview;
     procedure SetBooks(const Books: TArray<TBookRecord>);
+    procedure RefreshFormats(Sender: TObject);
     function ShellDestination: Boolean;
     function Choice: TBookSaveChoice;
     function EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
@@ -190,6 +191,8 @@ begin
   Button:=TButton.Create(Self); Button.Parent:=FContent; Button.Name:='BrowseDestination';
   Button.Caption:='Выбрать…'; Button.OnClick:=Browse;
   FFormatLabel:=LabelControl('FormatLabel','Формат книг:'); FFormat:=Combo('SendFormat');
+  FMoreFormats:=TCheckBox.Create(Self); FMoreFormats.Parent:=FContent; FMoreFormats.Name:='SaveMoreFormats';
+  FMoreFormats.Caption:='Ещё форматы'; FMoreFormats.OnClick:=RefreshFormats;
   FImagesLabel:=LabelControl('ImagesLabel','Изображения:'); FImages:=Combo('SendImages');
   for var Text in QualityCaptions do FImages.Items.Add(Text);
   FImages.ItemIndex:=0;
@@ -280,11 +283,34 @@ begin
   FBooks:=Copy(Books); FPreviewIndex:=0; SetLength(Extensions,Length(Books));
   for var I:=0 to High(Books) do
     try Extensions[I]:=BookSaveKnownExtension(Books[I]); except Extensions[I]:=LowerCase(Books[I].FileExt); end;
-  FChoices:=BookSaveChoices(Extensions); FFormat.Items.BeginUpdate;
-  try FFormat.Items.Clear; for var Entry in FChoices do FFormat.Items.Add(Entry.Caption);
-  finally FFormat.Items.EndUpdate; end;
-  FFormat.ItemIndex:=0; FItems:=KnownBookSaveEstimates(FBooks,Choice);
-  FList.Items.Count:=Length(FBooks); Changed(FFormat);
+  FFormat.ItemIndex:=-1;
+  FChoices:=BookSaveChoices(Extensions,True);
+  FPrimaryChoiceCount:=Length(FChoices);
+  for var I:=0 to High(FChoices) do if FChoices[I].Mode in BOOK_SAVE_ADVANCED_MODES then
+  begin FPrimaryChoiceCount:=I; Break; end;
+  FList.Items.Count:=Length(FBooks); RefreshFormats(nil);
+end;
+
+procedure TBookSendOptionsForm.RefreshFormats(Sender: TObject);
+var Previous: TBookSaveChoice; Count, Selected: Integer; WasInitializing: Boolean;
+begin
+  if FInitializing and Assigned(Sender) then Exit;
+  Previous:=Choice; Selected:=0;
+  Count:=FPrimaryChoiceCount;
+  if FMoreFormats.Checked then Count:=Length(FChoices);
+  WasInitializing:=FInitializing; FInitializing:=True;
+  FFormat.Items.BeginUpdate;
+  try
+    FFormat.Items.Clear;
+    for var I:=0 to Count-1 do
+    begin
+      FFormat.Items.Add(FChoices[I].Caption);
+      if (FChoices[I].Mode=Previous.Mode) and (FChoices[I].KeepOriginal=Previous.KeepOriginal) and
+        (FChoices[I].KeepFB2EPUB=Previous.KeepFB2EPUB) and (Previous.Caption<>'') then Selected:=I;
+    end;
+    FFormat.ItemIndex:=Selected;
+  finally FFormat.Items.EndUpdate; FInitializing:=WasInitializing; end;
+  Changed(FFormat);
 end;
 
 function TBookSendOptionsForm.Choice: TBookSaveChoice;
@@ -371,6 +397,7 @@ begin
   Text:=''; Selected:='';
   for var Q:=0 to 3 do
   begin
+    if (Q=3) and not BookSaveSupportsNoImages(Choice.Mode) then Continue;
     Total:=0; Unknown:=0; Large:=0;
     for var Item in FItems do
     begin
@@ -445,9 +472,18 @@ begin
     FCalculate.Caption:='Оценить размер'; FHasEstimateAttempt:=False;
     FStatus.Caption:='';
   end;
+  if BookSaveSupportsNoImages(Choice.Mode) then
+  begin
+    if FImages.Items.Count=3 then FImages.Items.Add(QualityCaptions[3]);
+  end
+  else if FImages.Items.Count=4 then
+  begin
+    if FImages.ItemIndex=3 then FImages.ItemIndex:=0;
+    FImages.Items.Delete(3);
+  end;
   CanProcess:=Length(FBooks)=0; Opaque:=False;
   for var Item in FItems do
-    if (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
+    if (Choice.Mode in BOOK_SAVE_ADVANCED_MODES) or (Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
       (((Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3')) and
         not BookSaveKeepsSource(Item.SourceExtension,Choice.KeepOriginal,Choice.KeepFB2EPUB)) then
       CanProcess:=True else Opaque:=True;
@@ -458,6 +494,8 @@ begin
   FExcept.Enabled:=FScans.Enabled and (FScans.ItemIndex>0);
   FExceptLabel.Visible:=FExcept.Enabled; FExcept.Visible:=FExcept.Enabled;
   FNote.Caption:='Сохраняются копии. Исходные книги не меняются.';
+  if not BookSaveSupportsNoImages(Choice.Mode) then
+    FNote.Caption:=FNote.Caption+' Для KFX и AZW8 нужна обложка.';
   if (Choice.Mode=emTxt) and not Choice.KeepOriginal then
     FNote.Caption:=FNote.Caption+' TXT сохраняет текст без иллюстраций и оформления.';
   if Opaque and (FImages.ItemIndex>0) then
@@ -479,8 +517,7 @@ procedure TBookSendOptionsForm.ListData(Sender: TObject; Item: TListItem);
 begin
   if (Item.Index<0) or (Item.Index>=Length(FItems)) then Exit;
   var Entry:=FItems[Item.Index]; Item.Caption:=FBooks[Item.Index].Title; Item.SubItems.Clear;
-  var Ext:=UpperCase(Entry.TargetExtension.TrimLeft(['.']));
-  if BookSaveZipsTarget(Entry.TargetExtension,Choice.Mode) then Ext:=Ext+' в ZIP';
+  var Ext:=BookSaveTargetLabel(Entry.TargetExtension,Choice.Mode);
   Item.SubItems.Add(Ext);
   var Bytes:=EstimateBytes(Entry,Max(0,FImages.ItemIndex));
   if Bytes>0 then Item.SubItems.Add('≈ '+SizeText(Bytes))
@@ -522,8 +559,9 @@ begin
   begin FStatus.Caption:='Список книг для оценки не передан.'; FStatus.Visible:=True; Reflow(nil); Exit; end;
   FRevision:=-1; FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath);
   FHasEstimateAttempt:=True;
-  FFormat.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
+  FFormat.Enabled:=False; FMoreFormats.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
   FStatus.Caption:='Оценка по образцам изображений. Для длинных сканов потребуется время…';
+  if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then FStatus.Caption:='Проверяем размер в выбранном формате…';
   FTimer.Enabled:=True; FEstimate.Start; UpdateSummary; Reflow(nil);
 end;
 
@@ -548,9 +586,12 @@ begin
     end;
     if Errors>0 then FStatus.Caption:=Format('Ошибки оценки: %d из %d книг. Причины указаны в таблице и в результатах оценки.',[Errors,Length(FBooks)])
     else if Limited then FStatus.Caption:='Размер ориентировочный: для длинных сканов проверены первые страницы. Результат может отличаться.'
+    else if Choice.Mode in BOOK_SAVE_ADVANCED_MODES then
+      FStatus.Caption:='Пробные копии проверены. Итоговый размер может немного отличаться.'
     else FStatus.Caption:='Оценка по образцам готова. Итоговый размер может немного отличаться.';
   end;
-  FreeAndNil(FEstimate); FFormat.Enabled:=True; FSend.Enabled:=True; FCalculate.Caption:='Оценить размер';
+  FreeAndNil(FEstimate); FFormat.Enabled:=True; FMoreFormats.Enabled:=True;
+  FSend.Enabled:=True; FCalculate.Caption:='Оценить размер';
   if FRequiredComponent<>'' then
     if Length(BookSaveMissingComponents(FItems))>1 then FCalculate.Caption:='Установить модули…'
     else FCalculate.Caption:='Установить модуль…';
@@ -642,6 +683,7 @@ begin
       ShowNames:=ShowSettings and (FNamesExpanded or (FLayout=2));
       Columns:=(FLayout=1) and (TotalWidth>=S(560));
       FFormatLabel.Visible:=ShowSettings; FFormat.Visible:=ShowSettings;
+      FMoreFormats.Visible:=ShowSettings and (FPrimaryChoiceCount<Length(FChoices));
       FImagesLabel.Visible:=ShowSettings; FImages.Visible:=ShowSettings;
       FNamesToggle.Visible:=ShowSettings and (FLayout<>2);
       FMaskLabel.Visible:=ShowNames; FMaskHelpToggle.Visible:=ShowNames; FNameMask.Visible:=ShowNames;
@@ -665,7 +707,14 @@ begin
       end;
       if ShowSettings then
       begin
-        Text(FFormatLabel); Place(FFormat,RowHeight);
+        if FMoreFormats.Visible then
+        begin
+          FFormatLabel.SetBounds(X,Y,W-S(122),RowHeight);
+          FFormatLabel.Layout:=tlCenter;
+          FMoreFormats.SetBounds(X+W-S(118),Y,S(118),RowHeight); Inc(Y,RowHeight+Gap);
+        end
+        else Text(FFormatLabel);
+        Place(FFormat,RowHeight);
         Text(FImagesLabel);
         if Columns then Place(FImages,RowHeight)
         else
@@ -781,11 +830,19 @@ begin
       var InitialMode:=InitialOptions.Mode;
       if InitialMode=emEpubZip then InitialMode:=emEpub
       else if InitialOptions.ZipEachBook and (InitialMode=emFB2) then InitialMode:=emFB2Zip;
+      if InitialMode in BOOK_SAVE_ADVANCED_MODES then
+      begin Dialog.FMoreFormats.Checked:=True; Dialog.RefreshFormats(nil); end;
+      var Matched:=False;
       for var I:=0 to High(Dialog.FChoices) do
         if (Dialog.FChoices[I].KeepOriginal=InitialOptions.KeepSourceFormat) and
           (Dialog.FChoices[I].KeepFB2EPUB=InitialOptions.KeepFB2EPUB) and
           (Dialog.FChoices[I].Mode=InitialMode) then
-        begin Dialog.FFormat.ItemIndex:=I; Break; end;
+        begin Dialog.FFormat.ItemIndex:=I; Matched:=True; Break; end;
+      if (InitialMode in BOOK_SAVE_ADVANCED_MODES) and not Matched then
+      begin
+        MessageDlg('Выбранный формат сохранения недоступен для текущего набора книг.',mtInformation,[mbOK],0);
+        Exit;
+      end;
       var Parts:=InitialOptions.ImageQuality.Split(['|']);
       if Length(Parts)>0 then for var I:=0 to High(Qualities) do
         if Parts[0]=Qualities[I] then Dialog.FImages.ItemIndex:=I;
