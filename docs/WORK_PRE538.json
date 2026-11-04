@@ -4523,5 +4523,11 @@
     "current": "Vivliostyle Core uses a private Chromium session for the web layout surface and Page.printToPDF. The worker currently discovers only installed full Microsoft Edge or Google Chrome. Without them it raises a conversion error even if EpubPdfExport is present.",
     "next": "Evaluate WebView2 Runtime as an independent renderer. Prefer an existing Runtime and offer the official standalone dependency only when needed. Test x86 and x64, a genuinely browser-free configuration, output fidelity for CSS, fonts, SVG, tables, outline, links and metadata, plus blocking external requests and cancellation. Keep the no-browser requirement open until an end-to-end route works. Do not claim the current browser-dependent worker meets it.",
     "documentation": "https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution"
+  },
+  "beta4_epub_pdf_webview2_proof_20261105": {
+    "status": "Prototype passed on x86 and x64. Production integration remains open.",
+    "runtime": "Compiled a WinForms WebView2 host for both architectures using SDK 1.0.3967.48 (NuGet SHA-256 c66357ac7f324ec9bcafe5241706a023b4122d8c22300c31de4b0eb220db689e). Both an explicit path and automatic stable Runtime discovery selected msedgewebview2.exe 156.0.4314.58. Host machine has browsers installed. No standalone test on a machine without both browsers or on 32-bit Windows was run.",
+    "output": "The same rich EPUB generated five pages on both architectures. Verified two outline entries, internal footnote links, embedded font, extractable table text, tagged PDF, cancellation with no output and unchanged source. Injected book JavaScript did not run and a separate loopback server saw no requests. Private runtime profiles were deleted after normal exit and cancellation. All fresh proof directories were removed.",
+    "next": "Integrate the standalone Runtime host into EpubPdfExport. Add first-use detection and an explicit prompt for the official Microsoft Runtime if it is missing. Verify the normal Save As operation and run on a clean configuration without full browsers before publishing."
   }
 }
