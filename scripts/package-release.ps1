@@ -57,9 +57,12 @@ try {
     $history = @(& (Join-Path $PSScriptRoot 'read-release-history.ps1') `
         -NotesDirectory (Join-Path $repositoryRoot 'docs/releases') `
         -CurrentTag $release -CurrentDisplay $releaseIdentity.display_version)
-    foreach ($directory in @('Help', 'Icons')) {
-        Copy-Item -LiteralPath (Join-Path $runtimeDirectory $directory) -Destination $payloadDirectory -Recurse
-    }
+    # The runtime preflight has already matched Help to the source tree.
+    Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'Help') -Destination $payloadDirectory -Recurse
+    # Local files next to the icon DLL are not part of the distribution.
+    $iconDestination = Join-Path $payloadDirectory 'Icons'
+    [IO.Directory]::CreateDirectory($iconDestination) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $runtimeDirectory 'Icons\MHLIcons.dll') -Destination $iconDestination
     [IO.File]::WriteAllText((Join-Path $payloadDirectory 'Help\CHANGES.txt'),
         ($history -join "`r`n`r`n"), [Text.UTF8Encoding]::new($false))
     $updateMetadata = Join-Path $payloadDirectory 'tools\updates'

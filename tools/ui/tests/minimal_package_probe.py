@@ -78,8 +78,18 @@ def main():
             for name in ('HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll',
                          'LICENSE', 'NOTICE', 'Help/CHANGES.txt', *core_tools):
                 assert name in names, 'Required catalogue file missing: ' + name
-            assert {name for name in names if '/' not in name} == {
-                'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll', 'LICENSE', 'NOTICE', 'HomeLibRu.update.json'}, 'Unexpected root clutter'
+            root_files = {'HomeLibRu.exe', 'HomeLibRuUpdater.exe', 'sqlite3.dll',
+                          'LICENSE', 'NOTICE', 'HomeLibRu.update.json'}
+            help_root = ROOT/'Program/Help'
+            help_files = {path.relative_to(help_root).as_posix(): path
+                          for locale in ('', 'bg', 'en', 'uk') for path in (help_root/locale).iterdir()
+                          if path.is_file() and (path.suffix == '.html' or path.name == 'help.css')}
+            expected = root_files | core_tools | {'Icons/MHLIcons.dll', 'Help/CHANGES.txt'} | {
+                'Help/' + name for name in help_files}
+            assert names == expected, {'unexpected': sorted(names - expected), 'missing': sorted(expected - names)}
+            for name, path in help_files.items():
+                assert package.read('Help/' + name) == path.read_bytes(), name
+            assert package.read('Icons/MHLIcons.dll') == (runtime/'Icons/MHLIcons.dll').read_bytes()
             for name in genre_names:
                 assert package.read('tools/genres/' + name) == (ROOT/'Installer/GenreLists'/name).read_bytes(), name
             assert package.read('tools/updates/COMPONENTS.json') == (ROOT/'Installer/Components.json').read_bytes()
@@ -99,6 +109,7 @@ def main():
                            'all_member_hashes_verified':True, 'optional_payloads_absent':list(forbidden_prefixes) + ['HomeLibReader.exe','MHLMcpServer.exe','HomeLibRu.url','libzstd.dll'],
                            'catalogue_only_payload_verified':True, 'native_format_adapters_absent':True, 'native_architectures_verified':True,
                            'genre_resources_grouped_and_verified':True, 'root_files_verified':True,
+                           'help_and_icons_verified':True,
                            'archive_sha256':sha(archive.read_bytes()),
                            'scenario':'package-only' if options.package_only else options.scenario,'published':False,
                            'application_smoke_tested':False})

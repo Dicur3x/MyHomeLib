@@ -4445,5 +4445,35 @@
     "proof": "Fresh Delphi Release test builds on both architectures parsed the local component feed, verified and installed the exact optional archive, preserved the existing application and did not add PDFium. The actual Save As dialog offered PDF in additional formats. Mixed FB2 and EPUB estimated four image choices and saved both as PDF, handled collisions, preserved source hashes and retained the existing KEPUB path. Exact packaged Python isolated mode also converted the separate rich EPUB fixture. A distinct 32-bit Chrome Headless Shell 157.0.8103.38 PE rendered five pages with the expected chapters, table, author and footnote links; the Chromium test archive was used only with the owned fixture and was not packaged.",
     "remaining": "Public component download, application restart and continuation from the PDF selection remain part of final distribution checks. The local proof used the native installation routines and test dialog, not production executables or a public feed. Larger real EPUB layout sampling and physical Kindle/Kobo fidelity checks remain separate. No GitHub assets or releases were changed.",
     "cleanup": "All new package, browser and test profile folders in this pass were cleaned by their wrappers."
+  },
+  "beta4_minimal_distribution_20261104": {
+    "status": "Fresh beta 4 minimal archive content, catalogue first-use preparation, and standalone portable Reader smoke verified on x86 and x64.",
+    "catalogue": {
+      "Win32": {
+        "archive": "HomeLibre.zip",
+        "bytes": 7487245,
+        "sha256": "d5bcb63e6af8a21c154f7616b8ffa7e375a9ac1b982f0d8d30b07e31d37e7bca"
+      },
+      "Win64": {
+        "archive": "HomeLibre_x64.zip",
+        "bytes": 9385425,
+        "sha256": "69c7b45a711c8a3720acf99a93d42316cce6f1ff193cca64a52d0ed808cc1232"
+      },
+      "proof": "Each archive had 241 manifest files and one transport manifest. Executable versions and architectures, every file hash and the complete allowed file list passed. A runtime-only Help file triggered the existing preflight mismatch on both architectures. A runtime-only Icons file was excluded by packaging only the icon DLL."
+    },
+    "reader": {
+      "Win32": {
+        "bytes": 5226683,
+        "sha256": "5d455df32651d3bf18cdd7b6a225c0d0431ba3291d2bff5f0989eef2f0fdfa1a"
+      },
+      "Win64": {
+        "bytes": 6631074,
+        "sha256": "06f33321ba47bd6e256c02fd4019e870951428783300ebffb3ca6f6daf67d944"
+      },
+      "proof": "Each archive had six payload files and one transport manifest. Shared SQLite and updater bytes matched the same-architecture catalogue package. The exact Reader EXEs displayed the owned FB2 in clean portable folders, then saved reading history locally on normal exit. The input and fake prior AppData profile stayed unchanged."
+    },
+    "first_use": "The native catalogue test started from each exact archive. It tested independent 7-Zip, DocSharp and DjVuLibre installs, including corrupt DocSharp adapter rejection and cancellation. Both pinned DOC and DjVu adapter ZIPs were downloaded from the public GitHub release and matched the embedded digests. Vendor packages used local controlled test fixtures.",
+    "remaining": "A public beta 4 download, the full update and restart from beta 3, and reopening or resuming the operation after the new writer downloads still require end-to-end validation. This stage did not publish or modify any public assets.",
+    "cleanup": "Both final test folders and the interrupted Reader smoke stage were removed. The first smoke timer expired before exit and its partial cleanup invalidated the synthetic previous-profile check, so it was rerun successfully with the cleanup waiting for both readers to exit."
   }
 }
