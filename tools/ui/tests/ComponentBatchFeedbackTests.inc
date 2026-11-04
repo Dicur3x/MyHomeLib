@@ -77,6 +77,9 @@ begin
     Require((Server.Requests=0) and not Dialog.PendingInstall,'Cancel began downloading or installing an operation batch');
     Dialog.RequestComponents(TArray<string>.Create('BookProcessing','ImageProcessing'),'Повторный явный запрос',True);
     WaitForCaption('Скачать компоненты');
+    Require(string(TMemo(Prompt.FindComponent('ComponentPromptReason')).Text).Contains(
+      'Компоненты установятся вместе. Потребуется один перезапуск.'),
+      'The generic component prompt promised to restore settings for an unrelated operation');
     Primary.Click; WaitForCaption('Установить и перезапустить');
     Require((Server.Requests=2) and (Server.Failure=''),'Batch downloaded extra format modules');
     Ready:=TPath.Combine(ProgramUpdateCache(Settings.AppPath),'ready.json');

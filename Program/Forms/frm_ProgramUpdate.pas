@@ -1434,7 +1434,7 @@ begin
   begin
     FRelease:=Releases[0]; FBytes.Caption:='Нужно скачать: '+ComponentDownloadSize(Total);
     FPrimary.Caption:='Скачать компоненты'; FPrimary.Enabled:=True;
-    Text:=Text+sLineBreak+sLineBreak+'Компоненты установятся вместе. Потребуется один перезапуск; параметры сохранения останутся.';
+    Text:=Text+sLineBreak+sLineBreak+'Компоненты установятся вместе. Потребуется один перезапуск.';
   end;
   FStatus.Caption:=FRequestReason+sLineBreak+sLineBreak+Text;
   LayoutWindow;

@@ -4327,5 +4327,13 @@
     "proof": "Fresh Delphi Win32 and Win64 CollectionViewsTest builds passed packing-fbd with the real illustrated FB2 883585 added through INPX. The native estimate dialog canceled and continued. The economy profile persisted, one prior archive was reused, the new FB2 opened from the native catalogue and was smaller, personal data and the old catalogue were preserved, and regular full import refused the packed catalogue.",
     "fixture": "The FB2 came from the original collection through a read-only stream. The INPX and ZIP grouping were test fixtures. These tests drive the native estimate window and final catalogue APIs; they do not automate the new production profile picker or a live component download.",
     "cleanup": "The wrapper removed isolated profiles, the temporary source FB2 and build logs on G:."
+  },
+  "collection_packing_illustrations_gui_20261104": {
+    "status": "Production x64 profile chooser and first-use offers passed in an isolated minimal catalogue.",
+    "build": "Two hidden Main builds timed out. A visible Delphi session exposed the Community Edition reminder. After dismissing it, the actual x64 Main build completed and contained the linked chooser.",
+    "proof": "Opened Collection → Pack collection from the rebuilt Main, selected an empty destination with the actual Windows picker, inspected all three choices and the quality warning. Return selected reversible packing and offered only BookProcessing (11.8 MB). Economy offered BookProcessing and ImageProcessing (11.0 KB) together. A system 7-Zip was already available. Canceled each offer, exited normally and verified the destination remained empty.",
+    "follow_up": "Removed the generic promise of saving options from the shared batch installer message. The packing request already states how to resume. No module was installed in this GUI test. The native Win32 batch test with two real packages passed on an ordinary staging path after the message change. Published module installation and restart were previously exercised in separate Save As checks. The final release archives and the production x86 chooser still need verification.",
+    "release_gate": "A separate Win32 batch test reproduced extraction failure when the internal BookProcessing payload path reached 273 characters. The same build and archives passed on a shorter staging root. Fix the installer path handling and verify extraction, transaction, rollback and junction rejection on Win32 and Win64 before publishing.",
+    "cleanup": "The staging wrappers removed the isolated GUI and batch profiles and build logs. One GUI attempt timed out in the Windows picker; a new run completed normally."
   }
 }
