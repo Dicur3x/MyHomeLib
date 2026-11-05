@@ -5048,5 +5048,33 @@
     },
     "cleanup": "New owned root homelibre-delete-inventory-check-rzu5_thz removed. Real collection unchanged.",
     "next": "Background grouped task preparation and its source-bound catalogue slices, followed directly by Main progress/recovery/source gate integration."
+  },
+  "beta4_deletion_background_preparation_20261105": {
+    "status": "PASS background preparation plus source/catalogue/acknowledgement pipeline x86/x64; not yet enabled in Main archive commands",
+    "implementation": "Immutable validated source binding enters a suspended low-priority preparation thread. No database connection or UI object crosses into that worker. It groups by physical source file key, reads one archive inventory at a time, selects exact members and FBD pairs, deduplicates requested members and emits per-archive catalogue slices bound to the original catalogue file. Cancel/error never exposes partially prepared tasks. Slice validation covers only selected rows rather than revalidating the full selection once per archive.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-preparation-20261105-r3.log",
+      "Win32_SHA256": "168db83f500734c5f254325b21283690125e6df6008da53a768f791a9e90197f",
+      "Win64_SHA256": "6afe0d92e449c5490e1f2f6185be42f9fcc0432f5fc14d4ab6cb78229a16de4f",
+      "cases": [
+        "Four selected books across three archives, including two distinct hard-link paths to one source",
+        "One exact FBD descriptor/payload pair selected; unrelated source member kept",
+        "Later invalid FBD source rejects all tasks while all archive SHA256 values remain unchanged",
+        "Stop before Start cancels without source writes",
+        "Original captured binding unchanged after per-archive slicing",
+        "Prepared queue removes exact source members, then exact catalogue and personal rows and acknowledges receipts",
+        "Retained payload bytes, a neighbour catalogue row and its personal note survive; owned journal directories are empty after acknowledgement"
+      ]
+    },
+    "attempts": "r1 build succeeded but the harness rejected the unregistered new scenario. Registered the scenario and required pass markers; r2 passed both architectures. Removed redundant full-selection validation from per-archive slices, rebuilt, and r3 passed both architectures.",
+    "cleanup": "New owned preparation-test roots removed, including successful r2/r3 roots. No real collection source changed.",
+    "remaining": [
+      "Main progress and stop UI, active-source gate and closure/restart recovery",
+      "Guarded files-only completion using existing IBookIdentityPersonalWriter with bpfIsLocal; do not create a redundant DAO interface",
+      "Before physical mutation resolve/reject unselected catalogue rows sharing the same physical member, including aliases and other collections",
+      "Last-book outer-container deletion, FLibrary side-image ownership, grouped/all-tab commands and nearest-row/scroll preservation",
+      "Authorized real FLibrary duplicates only after isolated production GUI gates"
+    ],
+    "next": "Wire this prepared pipeline into Main; preserve optional per-operation physical checkbox and do not start filesystem preparation in record-only mode."
   }
 }

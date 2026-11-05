@@ -21,6 +21,7 @@ type
     function ToJSON: string;
     function CommitRecords(const User: ISystemData): Integer;
     function ExpectedBooks: TArray<TBookRecord>;
+    function Slice(const Indices: TArray<Integer>): TBookDeletionBinding;
     property CollectionID: Integer read FCollectionID;
     property RemoveRecords: Boolean read FRemoveRecords;
   end;
@@ -150,6 +151,21 @@ end;
 
 function TBookDeletionBinding.ExpectedBooks:TArray<TBookRecord>;
 begin Result:=Copy(FBooks); end;
+
+function TBookDeletionBinding.Slice(const Indices:TArray<Integer>):TBookDeletionBinding;
+var Selected:TArray<TBookRecord>;
+begin
+  // Validate the resulting slice, not the complete selection for every
+  // archive. Capture/Parse already validated the source snapshot.
+  SetLength(Selected,Length(Indices));
+  for var I:=0 to High(Indices) do
+  begin
+    if (Indices[I]<0) or (Indices[I]>=Length(FBooks)) then
+      raise EArgumentException.Create('Неверная запись книги в плане удаления.');
+    Selected[I]:=FBooks[Indices[I]];
+  end;
+  Result:=Self; Result.FBooks:=Selected; Result.Validate;
+end;
 
 function TBookDeletionBinding.CommitRecords(const User:ISystemData):Integer;
 var Collection:IBookCollection; Writer:IBookIdentityDeletionWriter;
