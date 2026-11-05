@@ -4897,5 +4897,23 @@
       "https://github.com/ip7z/7zip/blob/main/CPP/7zip/IStream.h"
     ],
     "cleanup": "Owned root G:/HomeLibRu-build-cache/homelibre-zip-member-check-nlolwvpv was removed by the scoped harness; no external source files changed."
+  },
+  "beta4_sevenzip_deletion_recovery_20261105": {
+    "status": "PASS isolated in-place archive engine x86/x64; production catalogue integration remains pending",
+    "implementation": "The same bounded compaction/recovery engine now accepts SDK-planned non-solid 7z by file signature. Schema 2 retains the new 32-byte prefix and final metadata, payload chunk hashes and one in-flight block. Payload is verified first, then tail/prefix metadata published and file truncated; recovery replays a partial prefix without requiring the damaged archive to open first. Existing ZIP schema 1 remains supported.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-sevenzip-recovery-20261105-r3.log",
+      "Win32_SHA256": "94345eb1bbf9231da0cfe5218faf8ea6d6bfa7765b73eaab450efdae0f8b8c6f",
+      "Win64_SHA256": "22bae1bc038787e1357504dbee0a8ee3718d5c20dafcd5b6e42566e01096cdce",
+      "cases": [
+        "Actual PPMd and LZMA2 member compaction and recovery at ten phases: pending block, partial/full block, checkpoint, partial/full tail, partial/full prefix, truncate, finished receipt",
+        "Own child process actually terminated during partial payload and prefix writes, then recovered",
+        "Independent upstream 7-Zip tests the recovered archive CRC, exact file inventory and retained uncompressed payload SHA256",
+        "All previous ZIP/ZIP64, killed-worker and responsive grouped-queue checks pass again"
+      ]
+    },
+    "test_corrections": "Earlier r1/r2 reached injected 7z recovery cases but failed their killed-child check because the existing ZIP child still selected its old fixed member / allowed phases. The test child now accepts the exact owned member argument and 7z prefix phase, and writes an owned local diagnostic on unexpected failure. Only r3 is the completed acceptance run.",
+    "cleanup": "Unique root G:/HomeLibRu-build-cache/homelibre-zip-member-check-i865sa66 was removed; no real collection modified.",
+    "remaining": "Main exact-source planning, durable catalogue binding validation and commit/recovery, background UI, active archive gates, 7z queue integration tests, last-book outer removal and FLibrary companions. Partial solid-block re-encoding remains explicitly rejected before mutation; do not claim all solid-7z deletion is supported."
   }
 }

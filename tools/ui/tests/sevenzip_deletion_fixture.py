@@ -57,3 +57,18 @@ def verify(root: Path) -> None:
         if hashlib.sha256(payload).hexdigest() != entries["unselected/keep.fb2"]:
             raise RuntimeError("Independent 7z retained payload differs")
     print("PASS upstream 7-Zip validates planned PPMd LZMA2 inventories CRC and payload hashes")
+    proof = json.loads((root / "sevenzip-recovery-proof.json").read_text(encoding="utf-8-sig"))
+    archive = (root / proof["archive"]).resolve(strict=True)
+    if not archive.is_relative_to(root):
+        raise RuntimeError("Unexpected 7z recovery proof path")
+    call("t", "-sccUTF-8", "--", str(archive))
+    listing = call("l", "-slt", "-sccUTF-8", "--", str(archive)).decode("utf-8").replace("\r", "")
+    listing = listing.partition("----------")[2]
+    files = [line[7:] for line in listing.splitlines() if line.startswith("Path = ") and line.endswith(".fb2")]
+    if sorted(name.replace("\\", "/") for name in files) != sorted(proof["files"]):
+        raise RuntimeError("Independent recovered 7z inventory differs")
+    for name in files:
+        payload = call("x", "-so", "-spd", "-sccUTF-8", "--", str(archive), name)
+        if hashlib.sha256(payload).hexdigest() != entries[name.replace("\\", "/")]:
+            raise RuntimeError("Independent recovered 7z payload differs")
+    print("PASS upstream 7-Zip validates recovered archive inventory CRC and retained payload hashes")

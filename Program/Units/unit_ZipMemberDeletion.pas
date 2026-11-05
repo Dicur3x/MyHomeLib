@@ -15,7 +15,7 @@ type
     FSource: TFileStream;
     FPlan: TJSONObject;
     FArchive, FJob, FPlanHash: string;
-    FMetadata: TBytes;
+    FMetadata, FHeader: TBytes;
     FNext: Integer;
     FPending, FFinished: Boolean;
     function Chunks: TJSONArray;
@@ -24,6 +24,7 @@ type
     procedure CheckPlan;
     procedure SaveCheckpoint;
     procedure VerifyFinished;
+    procedure PrepareSevenZip(const Names:TArray<string>; const Cancelled:TFunc<Boolean>);
     function ChunkHash(Index: Integer): string;
     function ChunkNumber(Index, Field: Integer): Int64;
   public
@@ -49,7 +50,7 @@ implementation
 
 uses Winapi.Windows, System.IOUtils, System.Zip, System.Hash, System.NetEncoding,
   System.Math, System.Generics.Collections, System.Generics.Defaults,
-  unit_AtomicIniFile;
+  unit_AtomicIniFile, unit_SevenZipDeletionPlan;
 
 const
   BlockBytes = 4 * 1024 * 1024;
@@ -233,12 +234,19 @@ var ArrayItem: TJSONValue; Item: TJSONArray; Source, Target, Count, EndSource, E
   Hash: string;
 begin
   CheckIdentity;
-  if (FieldNumber(FPlan,'schema') <> 1) or
+  if not (FieldNumber(FPlan,'schema') in [1,2]) or
     not (FPlan.GetValue('chunks') is TJSONArray) or
     not (FPlan.GetValue('remaining') is TJSONArray) or
     (Chunks.Count > 1048576) then raise EReadError.Create('Неподдерживаемый журнал удаления ZIP.');
   FMetadata := TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'metadata'));
-  if (Length(FMetadata) = 0) or (Length(FMetadata) > MaxMetadataBytes) or
+  FHeader:=nil;
+  if FieldNumber(FPlan,'schema')=2 then
+  begin
+    if TextField(FPlan,'format')<>'7z' then raise EReadError.Create('Неизвестный формат журнала удаления.');
+    FHeader:=TNetEncoding.Base64.DecodeStringToBytes(TextField(FPlan,'header'));
+    if Length(FHeader)<>32 then raise EReadError.Create('Повреждён заголовок плана 7z.');
+  end;
+  if ((Length(FMetadata)=0) and (Length(FHeader)=0)) or (Length(FMetadata) > MaxMetadataBytes) or
     (FieldNumber(FPlan,'originalSize') < FieldNumber(FPlan,'finalSize')) or
     (FieldNumber(FPlan,'metadataOffset') < 0) or
     (FieldNumber(FPlan,'finalSize')-Length(FMetadata) <> FieldNumber(FPlan,'metadataOffset')) then
@@ -264,6 +272,34 @@ begin
   end;
   if EndTarget <> FieldNumber(FPlan,'metadataOffset') then
     raise EReadError.Create('План ZIP оставляет непроверенный участок.');
+end;
+
+procedure TZipMemberDeletion.PrepareSevenZip(const Names:TArray<string>;
+  const Cancelled:TFunc<Boolean>);
+var Layout:TSevenZipDeletionLayout; List,Item:TJSONArray; Untouched:Int64;
+begin
+  Layout:=PlanSevenZipDeletion(FSource,Names,Cancelled);
+  FPlan:=TJSONObject.Create;
+  FPlan.AddPair('schema',TJSONNumber.Create(2)); FPlan.AddPair('format','7z');
+  FPlan.AddPair('archive',FArchive); FPlan.AddPair('fileId',ArchiveKey(FSource.Handle));
+  FPlan.AddPair('originalSize',TJSONNumber.Create(FSource.Size));
+  FPlan.AddPair('finalSize',TJSONNumber.Create(Layout.FinalSize));
+  FPlan.AddPair('metadataOffset',TJSONNumber.Create(Layout.TailOffset));
+  FPlan.AddPair('metadata',TNetEncoding.Base64.EncodeBytesToString(Layout.Tail));
+  FPlan.AddPair('header',TNetEncoding.Base64.EncodeBytesToString(Layout.Header));
+  FPlan.AddPair('chunks',TJSONArray.Create); Untouched:=32;
+  for var Range in Layout.Ranges do
+    if (Range.Source=Range.Target) and (Range.Target=Untouched) then Inc(Untouched,Range.Bytes)
+    else
+    begin
+      Item:=TJSONArray.Create;
+      Item.AddElement(TJSONNumber.Create(Range.Source)); Item.AddElement(TJSONNumber.Create(Range.Target));
+      Item.AddElement(TJSONNumber.Create(Range.Bytes)); Item.Add(Range.SHA256); Chunks.AddElement(Item);
+    end;
+  FPlan.AddPair('untouchedEnd',TJSONNumber.Create(Untouched));
+  List:=TJSONArray.Create; FPlan.AddPair('remaining',List);
+  for var Name in Layout.Remaining do List.Add(Name);
+  CheckPlan;
 end;
 
 constructor TZipMemberDeletion.Prepare(const Archive: string; const Names: TArray<string>;
@@ -300,6 +336,13 @@ begin
   if Length(Names)=0 then raise EArgumentException.Create('Не выбраны файлы внутри ZIP.');
   FArchive := ExpandFileName(Archive);
   FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
+  if FSource.Size>=6 then
+  begin
+    var Signature:=ReadAt(0,6);
+    if (Signature[0]=$37) and (Signature[1]=$7A) and (Signature[2]=$BC) and
+      (Signature[3]=$AF) and (Signature[4]=$27) and (Signature[5]=$1C) then
+    begin PrepareSevenZip(Names,Cancelled); Exit; end;
+  end;
   Zip := TZipFile.Create; Virtual := TZipDirectoryPlanStream.Create(FSource);
   Indices := TDictionary<string,Integer>.Create;
   try
@@ -460,8 +503,18 @@ var Zip: TZipFile; Names: TJSONArray; Actual: TBytes; FileNames: TArray<string>;
 begin
   if FSource.Size<>FieldNumber(FPlan,'finalSize') then raise EReadError.Create('Неверный итоговый размер ZIP.');
   FSource.Position := FieldNumber(FPlan,'metadataOffset');
-  SetLength(Actual,Length(FMetadata)); FSource.ReadBuffer(Actual[0],Length(Actual));
+  SetLength(Actual,Length(FMetadata));
+  if Length(Actual)>0 then FSource.ReadBuffer(Actual[0],Length(Actual));
   if Digest(Actual) <> Digest(FMetadata) then raise EReadError.Create('Каталог ZIP не прошёл проверку записи.');
+  if Length(FHeader)>0 then
+  begin
+    Actual:=ReadAt(0,Length(FHeader));
+    if Digest(Actual)<>Digest(FHeader) then raise EReadError.Create('Заголовок 7z не прошёл проверку записи.');
+    Names:=FPlan.GetValue('remaining') as TJSONArray;
+    SetLength(FileNames,Names.Count);
+    for var I:=0 to Names.Count-1 do FileNames[I]:=Names.Items[I].Value;
+    VerifySevenZipInventory(FSource,FileNames); Exit;
+  end;
   Zip := TZipFile.Create;
   try
     Zip.Open(FSource,zmRead); Names := FPlan.GetValue('remaining') as TJSONArray;
@@ -533,13 +586,20 @@ begin
     Inc(Done,Count); Inc(FNext); FPending := False; SaveCheckpoint; Signal('checkpoint');
     if Assigned(Progress) then Progress('Удаление из архива',Done,BytesToProcess);
   end;
-  if Assigned(Fault) then
+  if Assigned(Fault) and (Length(FMetadata)>0) then
   begin
     FSource.Position := FieldNumber(FPlan,'metadataOffset');
     FSource.WriteBuffer(FMetadata[0],Length(FMetadata) div 2); Flush; Signal('half-metadata');
   end;
   FSource.Position := FieldNumber(FPlan,'metadataOffset');
-  FSource.WriteBuffer(FMetadata[0],Length(FMetadata)); Flush; Signal('metadata');
+  if Length(FMetadata)>0 then FSource.WriteBuffer(FMetadata[0],Length(FMetadata));
+  Flush; Signal('metadata');
+  if Length(FHeader)>0 then
+  begin
+    if Assigned(Fault) then
+    begin FSource.Position:=0; FSource.WriteBuffer(FHeader[0],Length(FHeader) div 2); Flush; Signal('half-prefix'); end;
+    FSource.Position:=0; FSource.WriteBuffer(FHeader[0],Length(FHeader)); Flush; Signal('prefix');
+  end;
   FSource.Size := FieldNumber(FPlan,'finalSize'); Flush; Signal('truncated');
   VerifyFinished; FFinished := True; SaveCheckpoint; Signal('finished');
 end;

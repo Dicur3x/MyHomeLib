@@ -7,7 +7,7 @@ begin
   var Owned:=IncludeTrailingPathDelimiter(ExpandFileName(ExtractFilePath(ParamStr(0))+'zip-member-delete'));
   Require(StartsText(Owned,Archive) and StartsText(Owned,Parent) and StartsText(Owned,Report),
     'ZIP crash child may only access its owned native fixture');
-  Require(MatchText(Stage,['half-written','half-metadata']),'Unexpected ZIP crash stage');
+  Require(MatchText(Stage,['half-written','half-metadata','half-prefix']),'Unexpected ZIP crash stage');
   Fault:=procedure(const At: string; Chunk: Integer)
     begin
       if At=Stage then
@@ -16,8 +16,15 @@ begin
         if not TerminateProcess(GetCurrentProcess,73) then RaiseLastOSError;
       end;
     end;
-  Delete:=TZipMemberDeletion.Prepare(Archive,['каталог/book.fb2']);
-  try Delete.Execute(Parent,nil,Fault); finally Delete.Free; end;
+  var Member:='каталог/book.fb2';
+  if ParamStr(6)<>'' then Member:=ParamStr(6);
+  try
+    Delete:=TZipMemberDeletion.Prepare(Archive,[Member]);
+    try Delete.Execute(Parent,nil,Fault); finally Delete.Free; end;
+  except
+    on E:Exception do
+    begin TFile.WriteAllText(Report+'.error',E.ClassName+': '+E.Message,TEncoding.UTF8); raise; end;
+  end;
   raise Exception.Create('ZIP crash point was not reached');
 end;
 
