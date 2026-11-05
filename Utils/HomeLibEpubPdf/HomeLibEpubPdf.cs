@@ -134,6 +134,7 @@ static class HomeLibEpubPdf
             }
             if (await web.ExecuteScriptAsync("document.querySelectorAll('[data-vivliostyle-page-container]').length") == "0")
                 throw new InvalidDataException("Модуль вёрстки не создал ни одной страницы PDF.");
+            await CollectOutline(web);
             await WritePdf(web, maximum);
         }
         finally
@@ -149,6 +150,26 @@ static class HomeLibEpubPdf
                         engine.WaitForExit(4000);
             }
         }
+    }
+
+    static async Task CollectOutline(CoreWebView2 web)
+    {
+        // Showing the EPUB TOC before printing lets Chromium emit its link destinations.
+        await web.ExecuteScriptAsync("window.coreViewer.showTOC(true)");
+        var timer = Stopwatch.StartNew();
+        while (timer.ElapsedMilliseconds < 3000)
+        {
+            CheckCancellation();
+            var outline = await web.ExecuteScriptAsync("window.printOutline");
+            if (outline != "null")
+            {
+                if (outline.Length <= 4 * 1024 * 1024)
+                    File.WriteAllText("printed-toc.json", outline, new UTF8Encoding(false));
+                return;
+            }
+            await Task.Delay(60);
+        }
+        await web.ExecuteScriptAsync("window.coreViewer.showTOC(false)");
     }
 
     static async Task WritePdf(CoreWebView2 web, long maximum)

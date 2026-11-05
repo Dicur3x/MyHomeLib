@@ -90,8 +90,17 @@ class AdvancedOutputTest(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
     def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):
         tools = Path(os.environ['HOMELIBRE_EPUB_PDF_TOOLS'])
+        generated = self.work / 'generated.epub'
+        conversion.convert_book(self.source, generated)
         epub = self.work / 'source.epub'
-        conversion.convert_book(self.source, epub)
+        # The source TOC must survive even when visible titles use plain paragraphs.
+        with zipfile.ZipFile(generated) as source, zipfile.ZipFile(epub, 'x') as changed:
+            for member in source.infolist():
+                data = source.read(member)
+                if member.filename == 'OEBPS/body-1.xhtml':
+                    self.assertIn(b'<html:h2 ', data)
+                    data = data.replace(b'<html:h2 ', b'<html:p ').replace(b'</html:h2>', b'</html:p>')
+                changed.writestr(member, data)
         original = epub.read_bytes()
         output = self.work / 'book.pdf'
         with patch.dict(os.environ, {
@@ -106,6 +115,8 @@ class AdvancedOutputTest(unittest.TestCase):
         self.assertIn('Test table', text)
         self.assertIn('Note body.', text)
         self.assertEqual(pdf.metadata.title, 'Export fixture')
+        bookmark = next(entry for entry in pdf.outline if entry.title == 'First chapter')
+        self.assertIn('Text before the illustration.', pdf.pages[pdf.get_destination_page_number(bookmark)].extract_text())
         self.assertEqual(output.stat().st_size, result['size'])
         self.assertEqual(epub.read_bytes(), original)
         self.assertFalse((self.work / 'outside-profile').exists())
