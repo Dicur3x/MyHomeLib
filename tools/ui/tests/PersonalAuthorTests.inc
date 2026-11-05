@@ -219,19 +219,104 @@ begin
       'Author preference commands changed the collection');
     Store.SetPersonalRating('Beta','Alex','',5); Store.SetHidden('Beta','Alex','',True);
     Minimum.Items[4].Click; ShowHidden.Click; Unrated.Click;
-    Settings.SaveSettings;
+    Settings.RestoreBookViews:=rbvAutomatic; Settings.SaveSettings;
     var SI: TStartupInfo; var PI: TProcessInformation; var Command: string; var ExitCode: DWORD;
     SI:=Default(TStartupInfo); SI.cb:=SizeOf(SI); PI:=Default(TProcessInformation);
     Command:='"'+ParamStr(0)+'" personal-author-reopen'; UniqueString(Command);
     Require(CreateProcess(nil,PChar(Command),nil,nil,True,CREATE_NO_WINDOW,nil,PChar(Settings.AppPath),SI,PI),
       'Cannot start the personal author restart check');
     try
-      Require(WaitForSingleObject(PI.hProcess,30000)=WAIT_OBJECT_0,'Personal author restart check timed out');
-      Require(GetExitCodeProcess(PI.hProcess,ExitCode) and (ExitCode=0),'Personal author restart check failed');
+      var ChildWait:=WaitForSingleObject(PI.hProcess,30000);
+      if ChildWait<>WAIT_OBJECT_0 then begin TerminateProcess(PI.hProcess,2); WaitForSingleObject(PI.hProcess,5000); end;
+      Require(ChildWait=WAIT_OBJECT_0,'Personal author restart check timed out');
+      Require(GetExitCodeProcess(PI.hProcess,ExitCode),'Cannot read personal author restart status');
+      var Failure:=Settings.AppPath+'personal-author-reopen.error';
+      var Detail:=''; if FileExists(Failure) then Detail:=TFile.ReadAllText(Failure,TEncoding.UTF8);
+      Require(ExitCode=0,'Personal author restart check failed ('+IntToStr(ExitCode)+'): '+Detail);
     finally CloseHandle(PI.hThread); CloseHandle(PI.hProcess); end;
+    var Proof:=Settings.AppPath+'personal-author-reimport.ok';
+    Require(FileExists(Proof) and (StrToIntDef(Trim(TFile.ReadAllText(Proof,TEncoding.UTF8)),0)<>Integer(GetCurrentProcessId)),
+      'The separate-process reimport proof is absent');
+    Writeln('PASS personal author native full INPX reimport preserves rating hiding and matches new local IDs');
     Writeln('PASS personal author context scores hidden coauthors search favorites widening manager absent authors durable edits and DPI');
     Writeln('PASS personal author manager atomic group rating hide restore and clear retain selection');
     Writeln('PASS personal author hiding and reveal update loaded series genres groups and publisher series');
+  finally Store.Free; end;
+end;
+
+procedure TestPersonalAuthorReimport(OriginalID: Integer);
+var ID, FirstBetaID: Integer; IndexFile, IndexHash, ProfileFile: string;
+  Worker: TManualUpdateThread; Store: TAuthorFavorites; Before, After: TAuthorPersonalEntry;
+  ShowHidden: TMenuItem;
+  procedure WriteIndex(Pass: Integer);
+  var Zip: TZipFile; Data, Rows: string;
+    function Row(const Author, Title, LibID: string): string;
+    begin
+      Result:=Author+',Alex:'+#4+'prose_contemporary:'+#4+Title+#4+LibID+#4+'128'+#4+
+        LibID+#4+'0'+#4+'fb2'+#4+'2026-11-05'+#4+'ru'+#13#10;
+    end;
+  begin
+    if Pass=1 then Rows:=Row('Alpha','Index Alpha','9201')+Row('Beta','Index Beta','9202')
+    else Rows:=Row('Beta','Updated Beta','9202')+Row('Beta','New Beta','9203')+Row('Alpha','Updated Alpha','9201');
+    Zip:=TZipFile.Create;
+    try
+      Zip.Open(IndexFile,zmWrite);
+      Data:='AUTHOR;GENRE;TITLE;FILE;SIZE;LIBID;DEL;EXT;DATE;LANG';
+      Zip.Add(TEncoding.UTF8.GetBytes(Data),'structure.info');
+      Zip.Add(TEncoding.UTF8.GetBytes(Rows),'books.inp');
+    finally Zip.Free; end;
+  end;
+  function VisibleCount: Integer;
+  var Node: PVirtualNode; Book: PBookRecord;
+  begin
+    Result:=0; Node:=frmMain.tvBooksSR.GetFirst;
+    while Assigned(Node) do
+    begin
+      Book:=frmMain.tvBooksSR.GetNodeData(Node);
+      if (Book.NodeType=ntBookInfo) and not frmMain.tvBooksSR.IsEffectivelyFiltered[Node] then
+      begin
+        Inc(Result);
+        Require((Length(Book.Authors)=1) and (Book.Authors[0].LastName='Beta'),
+          'Reimported unrated author bypassed the restored filter');
+        if Book.LibID='9202' then
+          if FirstBetaID=0 then FirstBetaID:=Book.BookKey.BookID
+          else Require(FirstBetaID<>Book.BookKey.BookID,'Full reimport did not exercise changed catalogue-local book IDs');
+      end;
+      Node:=frmMain.tvBooksSR.GetNext(Node);
+    end;
+  end;
+begin
+  IndexFile:=Settings.AppPath+'personal-author-reimport.inpx';
+  ProfileFile:=IncludeTrailingPathDelimiter(Settings.DataPath)+AUTHOR_FAVORITES_FILE_NAME;
+  Store:=TAuthorFavorites.Create(ProfileFile);
+  try
+    Before:=Store.PersonalEntry('Beta','Alex',''); FirstBetaID:=0;
+    ID:=SystemDB.CreateCollection('Personal reimport',Settings.AppPath,'personal-reimport.hlc2',
+      CT_EXTERNAL_LOCAL_FB,Settings.SystemFileName[sfGenresFB2]);
+    ChangeCollection(frmMain.miCollSelect.Items[0].Tag);
+    ChangeCollection(OriginalID);
+    ShowHidden:=frmMain.FindComponent('miPersonalAuthorShowHidden') as TMenuItem;
+    for var Pass:=1 to 2 do
+    begin
+      WriteIndex(Pass); IndexHash:=THashSHA2.GetHashStringFromFile(IndexFile);
+      Worker:=TManualUpdateThread.Create(ID,IndexFile,Pass=2,gtFb2);
+      try Worker.Start; Worker.WaitFor;
+        Require(Worker.Success and not Assigned(Worker.FatalException),'Personal author INPX update failed');
+      finally Worker.Free; end;
+      Require(THashSHA2.GetHashStringFromFile(IndexFile)=IndexHash,'INPX update changed the source index');
+      ChangeCollection(ID); ShowPage(PAGE_SEARCH); frmMain.DoClearFilter(False);
+      frmMain.cbDeleted.Checked:=True; frmMain.cbDeleted.OnClick(frmMain.cbDeleted);
+      frmMain.cbCollapseMultiSeriesResults.Checked:=True; frmMain.DoApplyFilter(nil);
+      Require(VisibleCount=Pass,'Personal author rules lost reimported or newly added books');
+      ShowHidden.Click;
+      Require(VisibleCount=0,'Hidden author became visible after INPX reimport');
+      ShowHidden.Click;
+      Store.Reload; After:=Store.PersonalEntry('Beta','Alex','');
+      Require((After.Rating=Before.Rating) and (After.Hidden=Before.Hidden) and
+        (After.UpdatedUTC=Before.UpdatedUTC),'INPX reimport rewrote independent author settings');
+      ChangeCollection(OriginalID);
+    end;
+    TFile.WriteAllText(Settings.AppPath+'personal-author-reimport.ok',IntToStr(GetCurrentProcessId),TEncoding.UTF8);
   finally Store.Free; end;
 end;
 
@@ -261,6 +346,11 @@ begin
       Node:=frmMain.tvBooksSR.GetNext(Node);
     end;
     Require(Count=3,'Restored author policy failed to apply to a fresh search');
+    try TestPersonalAuthorReimport(Settings.ActiveCollection);
+    except on E:Exception do begin
+      TFile.WriteAllText(Settings.AppPath+'personal-author-reopen.error',E.ClassName+': '+E.Message,TEncoding.UTF8);
+      raise;
+    end; end;
     Writeln('PASS personal author preference data and filters survive a fresh Main process'); Flush(Output);
   finally FreeAndNil(frmMain); FreeAndNil(dmImages); FinalizeMHLTheme; end;
 end;

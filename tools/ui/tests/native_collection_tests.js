@@ -277,6 +277,7 @@ function requiredPasses(executable, mode) {
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
   if (mode==='personal-authors') return [
+    'PASS personal author native full INPX reimport preserves rating hiding and matches new local IDs',
     'PASS personal author context scores hidden coauthors search favorites widening manager absent authors durable edits and DPI'
   ];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return [

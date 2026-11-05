@@ -4698,13 +4698,14 @@
   "beta4_forum_feedback_20261105": {
     "status": "Queued for beta 4 after the current author-preference direction, following user screenshots. Not implemented or declared reproduced.",
     "opds_https": "User explicitly requested both modes before beta 4: native HTTPS with certificate/key, and external HTTPS reverse proxy. Support explicit public base URL including path prefix, correct feed/acquisition links and controlled forwarded-header trust. Current server remains HTTP-only, loopback by default with explicit LAN option. Preserve HTTP clients and minimal distribution, test x86/x64. Do not configure user network, Windows certificates or an external server automatically.",
-    "archive_deletion": "Reproduce the report that archive files remain despite Delete files being enabled. Distinguish standalone book archives, shared archives and an individual member. Integrate with existing safe-deletion work; never remove a shared container while other entries refer to it.",
+    "archive_deletion": "Confirmed user behavior on 2026-11-05: preserve the existing Delete files when deleting books setting. Disabled removes catalogue records only. Enabled physically removes the exact selected member(s), preserving all other books; remove the outer archive only when the last book has been removed. Determine remaining contents from actual archive inventory, including books absent from the catalogue, not just catalogue reference counts. Preserve unrelated payloads and shared-image dependencies; update catalogue records only after verified filesystem success. Implement with the existing safe-deletion direction, x86/x64 and interruption/cancel checks. Current code deliberately retains all ZIP/7z, so this behavior is not yet implemented.",
     "information_panel_height": "Reproduce and fix the book information panel height repeatedly returning to its default. Cover manual height, adaptive preview sizing, view changes and restart.",
     "deletion_selection": "After deleting within a sorted result, retain the nearest surviving row and scroll position rather than jumping to the first item; preserve sort and filter state. Cover single/bulk deletion and all relevant tabs.",
     "sources": [
       "https://manual.calibre-ebook.com/server.html",
       "https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Transport_Layer_Security"
-    ]
+    ],
+    "individual_file_deletion_report": "User clarified with the 12:18 forum reply on 2026-11-05: reporter has books repacked into separate files under numbered-update directories, and physical file deletion stopped working despite the enabled setting. Treat this as a separate regression to reproduce first in the deletion direction, not as evidence of the shared-archive retention behavior. Exact per-book container type is not established by the screenshot. Test loose book files and one-book archives, checkbox on/off, collection path resolution and actual filesystem outcomes on x86/x64. Keep the shared-archive member-deletion requirements as an additional independent case."
   },
   "beta4_author_preferences_20261105": {
     "status": "Implemented and verified by eight fresh native Release scenarios on x86/x64. Ordinary Main and final package acceptance remain open.",
@@ -4724,10 +4725,19 @@
     "shutdown_fix": "Expanded modal-theme test exposed a deterministic shutdown crash. Vectored stack and MAP evidence located Vcl.Styles.TStyleEngine notifications during later control-hook finalization after its class state was released. MHL theme teardown must run before RTL class finalization, not only in a unit finalizer. Added FinalizeMHLTheme and called it from ordinary catalogue/Reader application exit and native cleanup. Full scenarios now exit 0 on both architectures. Production entry points still need rebuild/smoke checks. Temporary diagnostics and skip flags removed.",
     "remaining": [
       "Ordinary catalogue and Reader rebuild/smoke after the lifecycle change; final minimal candidate checks.",
-      "Exercise actual INPX reimport with personal author settings and general user-data menu integration.",
+      "Exercise the actual general user-data export/import menu with personal author preferences.",
       "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation."
     ],
     "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched.",
-    "profile_guard": "Read and every write now validate all existing personal records before opening the file for modification. Three real externally corrupted profile variants (identity mismatch, fractional score and binary timestamp) reject stale writes with identical file hashes and preserve the last valid in-memory snapshot. All eight native cases passed again on both architectures; new Win32 SHA256 65970629d3a8ad4ecf0e1b0fd0506339a606400b8c33905b38a5d3a7efcbc01a, Win64 bf2f5e02b53b48ef875e8f7728dd21ec41ef63a1b53a60d29eac48b8777989af. Log tools/ui/tests/Out/beta4-author-preferences-20261105-r14.log. New temporary directories removed."
+    "profile_guard": "Read and every write now validate all existing personal records before opening the file for modification. Three real externally corrupted profile variants (identity mismatch, fractional score and binary timestamp) reject stale writes with identical file hashes and preserve the last valid in-memory snapshot. All eight native cases passed again on both architectures; new Win32 SHA256 65970629d3a8ad4ecf0e1b0fd0506339a606400b8c33905b38a5d3a7efcbc01a, Win64 bf2f5e02b53b48ef875e8f7728dd21ec41ef63a1b53a60d29eac48b8777989af. Log tools/ui/tests/Out/beta4-author-preferences-20261105-r14.log. New temporary directories removed.",
+    "inpx_reimport_proof": {
+      "status": "Fresh child-process native INPX import and full reimport passed on x86/x64.",
+      "verification": "Real TManualUpdateThread imports two authors and two books, then fully rebuilds the catalogue from reordered data with a third book. The same Beta LibID has a different catalogue-local BookID. Only the high-rated Beta books pass the restored threshold; the hidden-author switch excludes and restores them. Rating, hidden state and modification timestamp remain unchanged. The source INPX hash is preserved. Parent verifies child proof PID differs.",
+      "Win32_sha256": "947527bb44a73d864c5789181d467bfacaf8532ae0091893d9a9c30c3a51d8dd",
+      "Win64_sha256": "8af2ab5faed7a772c4025651b4b1b1226bd4ebdd9494b072005aec007041923a",
+      "evidence": "tools/ui/tests/Out/beta4-author-preferences-20261105-r18.log",
+      "test_repairs": "Initial menu snapshot omitted the newly created private fixture; switch through an existing fixture to refresh it. A fresh-process restore-sort prompt then blocked the fixture; the private profile now explicitly uses automatic session restore. The child has bounded timeout cleanup and persists an exception detail before rethrowing. These were test-harness repairs, not user catalogue failures.",
+      "cleanup": "The successful r18 private build and both fixture profiles were removed. The r17 orphan child was identified by exact executable path and stopped. Automatic review rejected cleanup of G:/HomeLibRu-build-cache/homelibre-author-preferences-check-s_25vwt8; this stage remains and deletion was not retried."
+    }
   }
 }
