@@ -162,6 +162,42 @@ begin
     try FilesOnly.CommitRecords(User); except on E:EInvalidOperation do Rejected:=True; end;
     Require(Rejected,'A files-only receipt deleted catalogue rows');
     Writeln('PASS persisted catalogue binding resumes a split batch idempotently while protecting files-only mode sources neighbours and other collections'); Flush(Output);
+
+    var MemberBook:TBookRecord; var Members:TArray<string>;
+    MemberBook.Clear; MemberBook.CollectionRoot:=Root; MemberBook.Folder:='members.zip';
+    MemberBook.FileName:='каталог/Книга ё'; MemberBook.FileExt:='.fb2'; MemberBook.InsideNo:=0;
+    Members:=ExactBookDeletionMembers(MemberBook,['Книга ё.fb2','каталог/Книга ё.fb2','other/Книга ё.fb2']);
+    Require((Length(Members)=1) and (Members[0]='каталог/Книга ё.fb2'),'Deletion guessed a basename instead of the exact Unicode member');
+    MemberBook.FileName:='каталог\Книга ё.fb2';
+    Members:=ExactBookDeletionMembers(MemberBook,['каталог/Книга ё.fb2','other.fb2']);
+    Require((Length(Members)=1) and (Members[0]='каталог/Книга ё.fb2'),'Deletion duplicated the already-present extension or lost slash identity');
+    MemberBook.FileName:='literal[*]?';
+    Members:=ExactBookDeletionMembers(MemberBook,['literal[*]?.fb2','literalX.fb2']);
+    Require((Length(Members)=1) and (Members[0]='literal[*]?.fb2'),'Deletion treated literal member characters as a wildcard');
+    for var BadName in ['missing','Книга ё','КАТАЛОГ/Книга ё',''] do
+    begin
+      MemberBook.FileName:=BadName; MemberBook.InsideNo:=1; Rejected:=False;
+      try ExactBookDeletionMembers(MemberBook,['каталог/Книга ё.fb2','other.fb2']);
+      except on E:EReadError do Rejected:=True; end;
+      Require(Rejected,'Deletion fell back to a basename case-fold or ordinal for '+BadName);
+    end;
+    MemberBook.FileName:='same'; Rejected:=False;
+    try ExactBookDeletionMembers(MemberBook,['same.fb2','x/y.fb2','x\y.fb2']);
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'Deletion accepted ambiguous normalized archive paths');
+    MemberBook.Folder:=''; MemberBook.FileName:='private.zip'; MemberBook.FileExt:='.pdf'; MemberBook.InsideNo:=99;
+    Members:=ExactBookDeletionMembers(MemberBook,['nested/owned.fbd','nested/owned.pdf','unrelated.pdf','shared.jpg']);
+    Require((Length(Members)=2) and (Members[0]='nested/owned.fbd') and (Members[1]='nested/owned.pdf'),
+      'FBD deletion removed an unrelated member or used a stale ordinal');
+    Rejected:=False;
+    try ExactBookDeletionMembers(MemberBook,['one.fbd','one.pdf','two.fbd','two.pdf']);
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'FBD deletion guessed one of several descriptor/payload pairs');
+    Rejected:=False;
+    try ExactBookDeletionMembers(MemberBook,['one.fbd','unrelated.pdf']);
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'FBD deletion paired unrelated filenames');
+    Writeln('PASS exact deletion member selection preserves Unicode full paths literal characters and FBD companions without basename case or ordinal fallback'); Flush(Output);
   finally
     Writer:=nil; Personal.Free; Catalog.Free; Collection:=nil; Other:=nil; User:=nil;
   end;

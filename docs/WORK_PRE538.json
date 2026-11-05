@@ -5011,5 +5011,24 @@
     ],
     "first_attempt": "r1 failed at compilation (missing System.Classes and an untyped inferred pointer). Corrected imports and explicitly typed PBookRecord, rebuilt and passed r2 on both architectures.",
     "remaining": "Physical source planning, production queue/receipt integration in Main, conditional downloaded-state updates for files-only operations and real FLibrary duplicate acceptance remain open."
+  },
+  "beta4_deletion_exact_members_20261105": {
+    "status": "PASS exact archive member selector x86/x64; production Main archive queue remains disconnected",
+    "implementation": "ExactBookDeletionMembers resolves full normalized internal paths without basename, wildcard, case-fold or ordinal fallback. An FBD container must have one matching same-directory/same-stem descriptor and payload for the recorded format. Unrelated members are preserved; duplicate normalized paths or ambiguous/missing pairs fail closed.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-members-20261105-r2.log",
+      "Win32_SHA256": "3bae20d5fe74cd85395a16d5d560ae9ef75949751c725b083a9fff618a541c96",
+      "Win64_SHA256": "3e698fb609940682aa022d04d7c03ef7968850186244c90e36a8ab234badfced",
+      "cases": [
+        "Unicode full paths with repeated basenames",
+        "Backslash/forward-slash equivalence, already-present extension and literal wildcard characters",
+        "Missing path, wrong case, empty name and conflicting normalized entries rejected",
+        "FBD pair selected independently of stale InsideNo; unrelated PDF and shared illustration excluded; multiple/mismatched pairs rejected",
+        "Existing conditional DAO and persisted binding tests still pass"
+      ]
+    },
+    "first_attempt": "r1 fixture accidentally used two literal backslashes where one was intended. Exact path rejection was correct. Fixed the fixture strings; no path-guessing fallback added. r2 passed both architectures.",
+    "cleanup": "New owned test roots removed. No real collection source changed.",
+    "next": "Use this selector with a bounded metadata-only ZIP/7z inventory reader in background task preparation, then integrate the existing queue and conditional catalogue binding with Main progress, recovery and source gating. Use existing IBookIdentityPersonalWriter/bpfIsLocal for guarded files-only source-state updates; avoid adding a redundant DAO interface."
   }
 }
