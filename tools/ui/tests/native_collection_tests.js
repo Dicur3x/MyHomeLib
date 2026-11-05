@@ -76,7 +76,7 @@ for (const exe of tests) if (exe!==null && machine(exe) !== architecture) throw 
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
 let post530Fixtures;
 const modes = ["book-deletion", "sqlite-mapping", "reader-open-choice", "reader-host-session", "reader-session-context", "reader-cache-settings", "reader-packages", "reader-components", "minimal-first-install", "post530", "update-mounts", "reader-spread", "optional-components", "feedback529", "view-sessions", "startup-deferred", "startup-deferred-publisher", "startup-deferred-fallback", "startup-deferred-close", "reader-resource-idle", "post525-update", "update-repair", "reader-cache-performance", "compact-book-views", "release23-filters", "metadata-book-columns", "author-display-setting", "export-results-audit", "search-query-modes", "legacy-import-preview", "inp-streaming", "inp-streaming-memory", "reader-notes-proposals", "update-keyboard-accessibility", "update-source-failures", "reader-conversion-audit", "settings-workflow-audit", "catalog-audit", "export-preparation", "feedback22", "feedback21", "metadata-archive-codecs", "feedback20-main", "update-form-notifier", "book-preview-layout", "metadata-fill-layout", "metadata-fill-ui", "collection-metadata-sync", "metabib-size","reader-pipeline-cache","conversion-menu","publisher-metadata-index","main-toolbar-states", "main-publisher-index-cache", "feedback19-main","catalog-sources-workflow","search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
-modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'book-preview-reviews', 'review-preview-http', 'review-http', 'review-deadline', 'compact-search-filters');
+modes.push('zip-member-deletion','reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'book-preview-reviews', 'review-preview-http', 'review-http', 'review-deadline', 'compact-search-filters');
 modes.push('update-manual-reopen');
 modes.push('duplicate-source', 'review-formatting');
 modes.push('component-removal','component-usage','component-maintenance');
@@ -144,6 +144,7 @@ const requiredViews = {
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
   "reader-open-choice": ["PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work"],
   "reader-host-session": ["PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection", "PASS Reader help diagnostic menu current log copyable folder ZIP owner palette resize and 96/144/192 DPI"],
+  "zip-member-deletion": ["PASS exact ZIP member deletion preserves bytes names comments and bounded workspace", "PASS interrupted ZIP block and metadata writes recover without an archive clone", "PASS ZIP64 offsets above 4 GiB recover with sub-128-KiB journal", "PASS killed own ZIP worker recovers partial payload and metadata writes"],
   "book-deletion": ["PASS deletion confirmations unique books cancel records files shared archives five views online failures identity and protected neighbours", "PASS external local FB2 deletion honours the file setting in five views and Unicode update folders"],
   "reader-cache-settings": ["PASS standalone reader cache settings preserve books notes positions and active files with age size cancel and reload"],
   "reader-packages": ["PASS real reader PDF and conversion packages verify architecture hashes versions and install without catalogue preserving personal files"],
@@ -437,6 +438,13 @@ function run(executable, mode, subcase = "") {
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   try {
     stage(folder, executable, mode);
+    if (mode==='zip-member-deletion') {
+      const prepared=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',
+        path.join(__dirname,'zip_member_deletion_fixture.py'),'prepare',folder],
+        {windowsHide:true,encoding:'utf8',timeout:30000});
+      if(prepared.status!==0) throw Error('Cannot prepare sparse ZIP64 seed: '+prepared.stdout+prepared.stderr);
+      process.stdout.write(prepared.stdout);
+    }
     if (mode === 'packing-fbd') {
       const sevenZip = path.join(runtime, 'tools/7zip/7za.exe');
       const python = path.join(runtime, 'tools/kindle/python');
@@ -872,6 +880,13 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_kindle_saves.py'),folder,runtime],{windowsHide:true,encoding:'utf8',timeout:180000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
       if(checked.status!==0) throw Error('Independent native Kindle verification failed: '+checked.stdout+checked.stderr);
       process.stdout.write(checked.stdout);
+    }
+    if(mode==='zip-member-deletion') {
+      const verified=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',
+        path.join(__dirname,'zip_member_deletion_fixture.py'),'verify',folder],
+        {windowsHide:true,encoding:'utf8',timeout:30000});
+      if(verified.status!==0) throw Error('Independent ZIP deletion verification failed: '+verified.stdout+verified.stderr);
+      process.stdout.write(verified.stdout);
     }
     if(mode==='save-planning') {
       const checked=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'verify_native_image_containers.py'),folder],{windowsHide:true,encoding:'utf8',timeout:30000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});

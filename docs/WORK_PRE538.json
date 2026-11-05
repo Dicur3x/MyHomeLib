@@ -3038,7 +3038,9 @@
     ],
     "current_behavior": "Existing shared archives are preserved whole; member deletion has not been implemented",
     "mandatory_no_full_copy_20261105": "User explicitly forbids making a full backup or working copy of an archive for member deletion, including 10–20 GB archives when the disk cannot hold another copy. Remove exact selected internal paths, not a title guess. Preserve unselected contents and provide interruption recovery without a full archive duplicate. This is a required design constraint, not an optional optimization.",
-    "next_implementation_gate": "The loose-file regression is independently fixed in c7383133. For archives, first build an exact internal-path inventory and verify ambiguity/duplicates/legacy name handling. ZIP payload compaction must use existing compressed bytes and avoid full archive clones. A bounded forward-recovery journal is a candidate: retain the planned central directory and one in-flight copy block, then resume an interrupted confirmed deletion while preserving unselected entries. This is a design candidate, not implemented or accepted. Prove recovery, file identity, ZIP64, metadata and unselected-byte preservation before wiring destructive archive operations into Main. Solid-7z requires a separate verified no-full-copy approach; do not invoke the external update command if it silently creates a whole temporary archive."
+    "next_implementation_gate": "Standalone ZIP engine passed the isolated x86/x64 gate. It is not wired into Main. Next implement captured exact source inventories, background grouped queue, durable catalogue commit/recovery handshake, archive gates, and a separately verified 7z/FLibrary approach without full archive copies.",
+    "background_requirement_20261105": "User requests long archive member deletion in the background so the catalogue stays usable. Show progress and grouped archive queue, gate operations only for the active archive, and stop after safely finishing the current archive while cancelling the remainder. Handle application closure and crash recovery explicitly. Worker filesystem operations must not write catalogue cards through UI-thread-owned database objects; publish verified results to the owning thread with captured identities. Not implemented yet.",
+    "real_collection_authorization_20261105": "After isolated safety acceptance, the user authorizes a real test on the desktop merged collection: physically remove one or several confirmed duplicates from its FLibrary source. First identify exact catalogue/source/archive/member identity and independently verify a retained equivalent copy. Do not choose an ambiguous edition or delete a real source while its archive format/recovery path is unverified. Keep the no-full-archive-copy requirement. Later connect physical file deletion as an explicit optional choice in duplicate-book removal; collection compression integration remains after beta 4. Latest user clarification explicitly permits a batch of several duplicates from the FLibrary copy/source, after isolated verification and with retained equivalent copies."
   },
   "component_removal_backend_20261102": {
     "status": "verified_native_x86_x64",
@@ -4819,5 +4821,36 @@
     },
     "cleanup": "Both new, unique build roots and all their private profiles are absent after their scoped harness cleanup. Earlier denied paths and real user collections were not touched.",
     "remaining": "This proof covers loose files only, not deletion of a book inside a one-book or shared archive. Keep the larger safe-deletion task open for archive inventory, exact member removal, interruption recovery, record/file transaction ordering, group/all-tab commands and nearest-row/scroll retention. Final production EXEs and release packages remain pending."
+  },
+  "radstudio_getit_recurrence_20261105": {
+    "owner": "bds.exe, not HomeLibre or its test executable",
+    "time": "2026-11-05 16:32:40 local",
+    "module": "getithelper370.dll 37.0.60542.8024",
+    "exception": "c0000005, offset 0x91ca",
+    "event_ids": [
+      1000,
+      1001
+    ],
+    "process_id": 111116,
+    "observation": "User saw Runtime error 216 at 78D391CA. Computer Use identified the Error window as owned by bds.exe; the Windows Application log independently confirmed the same GetIt module/offset seen previously. Dismissed the owned error. AutoBuild build.err contained Success and a 17.4-second completed x86 build; the fresh executable then entered its isolated ZIP tests. This does not establish that the intermittent IDE fault is fixed."
+  },
+  "beta4_zip_member_engine_20261105": {
+    "status": "PASS isolated engine x86/x64; production catalogue integration and real collection test remain pending",
+    "implementation": "Moves retained original compressed bytes once in physical order, skips unchanged prefix, keeps final central directory, chunk hashes and one in-flight block in a bounded journal; does not decompress neighbours or create an archive clone. Exact normalized internal paths only; ambiguous slash aliases and replacement file identities rejected.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-zip-member-20261105-r7.log",
+      "Win32_SHA256": "2e680774fb0dd67c4aa01be5ad605e101f67c23170f12b707582ff4b0248773f",
+      "Win64_SHA256": "48922f6c639f7d8eff4a4a4616d10c6ca8fbb7710ca71f50db029ab523aa2693",
+      "cases": [
+        "Multiple exact selected members, same basenames in other folders, case variants, literal wildcard names, Unicode, archive comment and opaque JXL payload preservation",
+        "Cancellation during non-mutating planning and rejection of ambiguous or guessed paths",
+        "Eight injected interruption points across block copies, checkpoint, central-directory publication and truncation",
+        "Actual own child process terminated during partial payload and metadata writes, then recovered",
+        "Sparse ZIP64 seed of 4294967770 logical bytes and 131072 allocated bytes, retained entry above 4 GiB; recovery with journal under 128 KiB",
+        "Independent Python zipfile inventory, CRC and payload SHA verification"
+      ]
+    },
+    "cleanup": "Unique root G:/HomeLibRu-build-cache/homelibre-zip-member-check-19aucfr8 is absent after scoped harness cleanup. Real collections untouched.",
+    "limits": "No claim of 7z support or production deletion, final release acceptance, power-loss recovery or catalogue transaction integration. Existing menu continues preserving shared archives until these integration gates pass."
   }
 }
