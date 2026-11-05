@@ -1,10 +1,8 @@
-"""Render EPUB pages in a private, sandboxed browser session."""
+"""Render EPUB pages with a private WebView2 Runtime profile."""
 
-import base64
 from contextlib import contextmanager, closing
 import http.server
 import io
-import json
 import mimetypes
 import os
 from pathlib import Path
@@ -15,7 +13,6 @@ import sys
 import threading
 import time
 from urllib.parse import quote, unquote, urlencode, urlsplit
-from urllib.request import build_opener, ProxyHandler
 
 
 EPUB_TYPES = {
@@ -50,20 +47,6 @@ window.coreViewer = viewer;
 viewer.addListener('error', ({content}) => { window.bookLoadFailed = String(content.error ?? content.messages); });
 viewer.loadPublication(source.href);
 """
-
-
-def installed_browsers():
-    """Use regular, automatically updated browser installations."""
-    programs = ('Microsoft/Edge/Application/msedge.exe', 'Google/Chrome/Application/chrome.exe')
-    seen = set()
-    for program in programs:
-        for key in ('ProgramW6432', 'ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
-            if key not in os.environ:
-                continue
-            path = Path(os.environ[key]) / program
-            if path not in seen and path.is_file():
-                seen.add(path)
-                yield path
 
 
 @contextmanager
@@ -135,107 +118,6 @@ def local_book(archive, viewer):
         thread.join()
 
 
-class DevTools:
-    def __init__(self, websocket, port, origin, prefix, checkpoint):
-        self.ws = websocket
-        self.port = port
-        self.resource_url = origin + prefix
-        self.blob_url = 'blob:' + origin + '/'
-        self.checkpoint = checkpoint
-        self.sequence = 0
-
-    def connect(self):
-        opener = build_opener(ProxyHandler({}))
-        with opener.open(f'http://127.0.0.1:{self.port}/json/list', timeout=2) as response:
-            pages = json.load(response)
-        page = next(item for item in pages if item['type'] == 'page' and item.get('url') == 'about:blank')
-        socket = urlsplit(page['webSocketDebuggerUrl'])
-        if (socket.scheme, socket.netloc) != ('ws', f'127.0.0.1:{self.port}') or not socket.path.startswith('/devtools/page/'):
-            raise ValueError('Некорректный адрес службы вёрстки PDF.')
-        self.socket = self.ws.create_connection(socket.geturl(), timeout=.25, suppress_origin=True,
-                                                http_no_proxy=['127.0.0.1'])
-
-    def send(self, method, params=None):
-        self.sequence += 1
-        self.socket.send(json.dumps({'id': self.sequence, 'method': method, 'params': params or {}}))
-        return self.sequence
-
-    def call(self, method, params=None):
-        expected = self.send(method, params)
-        while True:
-            self.checkpoint()
-            try:
-                message = json.loads(self.socket.recv())
-            except self.ws.WebSocketTimeoutException:
-                continue
-            if message.get('method') == 'Fetch.requestPaused':
-                request = message['params']
-                url = request['request']['url']
-                reply = {'requestId': request['requestId']}
-                if request['request']['method'] == 'GET' and url.startswith(
-                        (self.resource_url, 'data:', self.blob_url)):
-                    self.send('Fetch.continueRequest', reply)
-                else:
-                    self.send('Fetch.failRequest', dict(reply, errorReason='BlockedByClient'))
-            if message.get('id') == expected:
-                if 'error' in message:
-                    raise ValueError('Браузер не выполнил операцию PDF: ' + method)
-                return message['result']
-
-    def evaluate(self, expression):
-        result = self.call('Runtime.evaluate', dict(expression=expression, returnByValue=True))
-        if 'exceptionDetails' in result:
-            raise ValueError('Модуль вёрстки не смог обработать EPUB.')
-        return result['result'].get('value')
-
-def debugger_endpoint(port_file):
-    try:
-        fields = port_file.read_text(encoding='ascii').splitlines()
-    except (FileNotFoundError, PermissionError):
-        # Chromium briefly opens this file exclusively on Windows.
-        return None
-    if len(fields) == 2 and fields[0].isdecimal() and 0 < int(fields[0]) <= 65535:
-        if fields[1].startswith('/devtools/browser/'):
-            return fields
-    return None
-
-
-def stop_browser(websocket, process, port_file):
-    # A cancellation can arrive before the page WebSocket is connected.
-    # Close the browser through its own endpoint even during this interval.
-    deadline = time.monotonic() + 2
-    while process.poll() is None and time.monotonic() < deadline:
-        endpoint = debugger_endpoint(port_file)
-        if endpoint is None:
-            time.sleep(.05)
-            continue
-        port, path = endpoint
-        try:
-            socket = websocket.create_connection(f'ws://127.0.0.1:{port}{path}', timeout=.25,
-                                                 suppress_origin=True, http_no_proxy=['127.0.0.1'])
-            try:
-                socket.send('{"id":1,"method":"Browser.close"}')
-            finally:
-                socket.shutdown()
-            process.wait(timeout=3)
-            return
-        except (OSError, websocket.WebSocketException, subprocess.TimeoutExpired):
-            break
-    if process.poll() is None:
-        # Stop only this privately launched process tree if DevTools failed.
-        if os.name == 'nt':
-            try:
-                taskkill = Path(os.environ['SystemRoot']) / 'System32' / 'taskkill.exe'
-                subprocess.run([str(taskkill), '/PID', str(process.pid), '/T', '/F'],
-                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               creationflags=subprocess.CREATE_NO_WINDOW, timeout=5, check=False)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-        if process.poll() is None:
-            process.kill()
-        process.wait()
-
-
 def remove_profile(profile, work):
     if not profile.exists():
         return
@@ -258,82 +140,45 @@ def remove_profile(profile, work):
             time.sleep(.05)
 
 
-@contextmanager
-def browser_session(websocket, browser, work, origin, prefix, checkpoint):
+def render_pdf(api, renderer, work, url, allowed, checkpoint):
     profile = work / 'browser-profile'
-    authority = urlsplit(origin).netloc
-    # The local HTTP server rejects proxy requests. An explicit bypass permits
-    # direct access only to that server, including when Windows has a proxy.
-    flags = ['--headless=new', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
-             '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-             '--disable-sync', '--disable-default-apps', '--disable-component-update',
-             '--disable-extensions', '--disable-quic', '--disable-domain-reliability',
-             f'--proxy-server=http://{authority}', f'--proxy-bypass-list=<-loopback>;{authority}',
-             '--user-data-dir=' + str(profile), 'about:blank']
-    env = dict(os.environ, TEMP=str(work), TMP=str(work))
-    process = subprocess.Popen([str(browser), *flags], cwd=work, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
-                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    client = None
-    port_file = profile / 'DevToolsActivePort'
+    cancel = work / 'cancel-epub-pdf'
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith('WEBVIEW2_')}
+    env.update(TEMP=str(work), TMP=str(work))
+    checkpoint()
+    process = subprocess.Popen([str(renderer), url, allowed, str(api.MAX_TOTAL)], cwd=work,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     try:
-        startup_deadline = time.monotonic() + 15
         while True:
             checkpoint()
-            endpoint = debugger_endpoint(port_file)
-            if endpoint is not None:
+            try:
+                _, stderr = process.communicate(timeout=.1)
                 break
-            if process.poll() is not None or time.monotonic() >= startup_deadline:
-                raise ValueError('Не удалось запустить браузер для вёрстки PDF.')
-            time.sleep(.05)
-        checkpoint()
-        client = DevTools(websocket, endpoint[0], origin, prefix, checkpoint)
-        client.connect()
-        yield client
+            except subprocess.TimeoutExpired:
+                continue
     finally:
         try:
-            if client is not None and hasattr(client, 'socket'):
-                client.socket.shutdown()
+            if process.poll() is None:
+                cancel.touch()
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
         finally:
-            stop_browser(websocket, process, port_file)
             remove_profile(profile, work)
+    if process.returncode == 3:
+        raise api.ConversionError('Для сохранения EPUB в PDF нужна среда Microsoft WebView2 Runtime.')
+    if process.returncode:
+        detail = stderr.decode('utf-8', errors='replace').strip()[:500]
+        raise ValueError(detail or 'Модуль вёрстки PDF завершился с ошибкой.')
 
 
-def print_pages(client, url, target, maximum):
-    client.call('Page.enable')
-    client.call('Fetch.enable', {'patterns': [{'urlPattern': '*', 'requestStage': 'Request'}]})
-    if client.call('Page.navigate', {'url': url}).get('errorText'):
-        raise ValueError('Не удалось открыть EPUB для вёрстки.')
-    while client.evaluate("window.coreViewer?.readyState") != 'complete':
-        error = client.evaluate("window.bookLoadFailed")
-        if error:
-            raise ValueError('Модуль вёрстки не смог открыть содержимое EPUB. ' + error[:250])
-        time.sleep(.1)
-    if not client.evaluate("document.querySelectorAll('[data-vivliostyle-page-container]').length"):
-        raise ValueError('Модуль вёрстки не создал ни одной страницы PDF.')
-    printed = client.call('Page.printToPDF', dict(
-        printBackground=True, preferCSSPageSize=True, generateTaggedPDF=True, generateDocumentOutline=True,
-        marginTop=0, marginBottom=0, marginLeft=0, marginRight=0, transferMode='ReturnAsStream'))
-    handle = printed['stream']
-    size = 0
-    with target.open('xb') as stream:
-        while True:
-            chunk = client.call('IO.read', {'handle': handle, 'size': 256 * 1024})
-            data = (base64.b64decode(chunk['data'], validate=True) if chunk.get('base64Encoded')
-                    else chunk['data'].encode('utf-8'))
-            size += len(data)
-            if size > maximum:
-                raise ValueError('Размер PDF превысил предел конвертации.')
-            stream.write(data)
-            if chunk['eof']:
-                break
-    client.call('IO.close', {'handle': handle})
-
-
-def convert(api, prepared, output, module_root, check, browser=None):
-    browser = browser or next(installed_browsers(), None)
-    if browser is None:
-        raise api.ConversionError('Для сохранения EPUB в PDF нужен установленный Microsoft Edge или Google Chrome.')
+def convert(api, prepared, output, module_root, check):
+    renderer = module_root / 'runtime' / 'HomeLibEpubPdf.exe'
+    if not renderer.is_file():
+        raise api.ComponentRequired('EpubPdfExport', 'Установите модуль вёрстки EPUB в PDF.')
     deadline = time.monotonic() + 240
 
     def checkpoint():
@@ -344,15 +189,14 @@ def convert(api, prepared, output, module_root, check, browser=None):
 
     # Isolate optional dependencies from other book-format components.
     runtime = module_root / 'runtime'
-    sys.path[:0] = [str(runtime / name) for name in ('pypdf.whl', 'websocket_client.whl')]
+    sys.path.insert(0, str(runtime / 'pypdf.whl'))
     try:
-        import websocket
         from pypdf import PdfReader, PdfWriter
         from pypdf.errors import PyPdfError
     except ImportError as error:
         raise api.ComponentRequired('EpubPdfExport', 'Установите модуль вёрстки EPUB в PDF.') from error
     finally:
-        del sys.path[:2]
+        del sys.path[0]
 
     try:
         with closing(api.EpubArchive(prepared)) as archive:
@@ -365,9 +209,8 @@ def convert(api, prepared, output, module_root, check, browser=None):
             title = package.findtext('.//{http://purl.org/dc/elements/1.1/}title', '').strip()
             with local_book(archive, module_root / 'viewer') as (origin, prefix):
                 url = origin + prefix + 'viewer/index.html#' + urlencode({'source': '../book/' + quote(rootfile)})
-                with browser_session(websocket, browser, output.parent, origin, prefix, checkpoint) as client:
-                    raw_pdf = output.parent / 'rendered.pdf'
-                    print_pages(client, url, raw_pdf, api.MAX_TOTAL)
+                render_pdf(api, renderer, output.parent, url, origin + prefix, checkpoint)
+                raw_pdf = output.parent / 'rendered.pdf'
 
         checkpoint()
         with raw_pdf.open('rb') as rendered:
@@ -385,5 +228,5 @@ def convert(api, prepared, output, module_root, check, browser=None):
         checkpoint()
     except (api.ConversionError, InterruptedError):
         raise
-    except (OSError, ValueError, StopIteration, PyPdfError, websocket.WebSocketException) as error:
+    except (OSError, ValueError, StopIteration, PyPdfError) as error:
         raise api.ConversionError('Не удалось сохранить EPUB в PDF. ' + str(error)) from error

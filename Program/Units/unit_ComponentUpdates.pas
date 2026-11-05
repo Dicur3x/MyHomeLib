@@ -224,7 +224,7 @@ begin
     'для обычного чтения FB2/EPUB запись Kindle не нужна.');
   if ID='FB2Export' then Exit('fb2cng преобразует FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.');
   if ID='KoboExport' then Exit('kepubify преобразует EPUB напрямую в KEPUB для читалок Kobo.');
-  if ID='EpubPdfExport' then Exit('Vivliostyle преобразует EPUB напрямую в PDF через установленный Microsoft Edge или Google Chrome.');
+  if ID='EpubPdfExport' then Exit('Vivliostyle преобразует EPUB напрямую в PDF. Для вёрстки нужна среда Microsoft WebView2 Runtime.');
   if ID='LegacyBooks' then Exit('Кодеки calibre — чтение LIT/LRF и отдельных старых вариантов Mobipocket.');
   if ID='LegacyOffice' then Exit('libwps/libwpd — чтение WPS/WPD; требуется 64-разрядная Windows.');
   if ID='XPS' then Exit('HomeLibXps — чтение страниц документов XPS.');

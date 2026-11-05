@@ -33,7 +33,7 @@ begin
   if ID='KindleExport' then Result:='tools/kindle-export/kindling-cli.exe';
   if ID='FB2Export' then Result:='tools/fb2-export/fbc.exe';
   if ID='KoboExport' then Result:='tools/kobo-export/kepubify.exe';
-  if ID='EpubPdfExport' then Result:='tools/epub-pdf/epub_pdf_output.py';
+  if ID='EpubPdfExport' then Result:='tools/epub-pdf/runtime/HomeLibEpubPdf.exe';
   if ID='LegacyBooks' then Result:='tools/bookconvert/vendor/calibre_legacy/native/HomeLibLegacy.dll';
   if ID='LegacyOffice' then Result:='tools/office/wps2html.exe';
   if ID='XPS' then Result:='tools/xps/HomeLibXps.exe';
@@ -73,8 +73,11 @@ begin
     Result:=TArray<string>.Create(Writer,Prefix+'LICENSE.txt',Prefix+'SOURCE.txt');
   end;
   if ID='EpubPdfExport' then Result:=TArray<string>.Create(FormatComponentFile(ID),
+    'tools/epub-pdf/epub_pdf_output.py','tools/epub-pdf/runtime/WebView2Loader.dll',
+    'tools/epub-pdf/runtime/Microsoft.Web.WebView2.Core.dll',
+    'tools/epub-pdf/runtime/WebView2-LICENSE.txt','tools/epub-pdf/runtime/WebView2-NOTICE.txt',
     'tools/epub-pdf/viewer/vivliostyle.js','tools/epub-pdf/runtime/pypdf.whl',
-    'tools/epub-pdf/runtime/websocket_client.whl','tools/epub-pdf/LICENSE.txt',
+    'tools/epub-pdf/LICENSE.txt',
     'tools/epub-pdf/fast-diff-LICENSE.txt','tools/epub-pdf/SOURCE.txt');
   if ID='LegacyBooks' then Result:=TArray<string>.Create(FormatComponentFile(ID),'tools/bookconvert/legacy_helper.py');
   if ID='LegacyOffice' then Result:=TArray<string>.Create('tools/office/wps2html.exe',

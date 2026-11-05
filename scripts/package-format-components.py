@@ -8,8 +8,11 @@ import argparse
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import tarfile
+import tempfile
 import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
@@ -53,7 +56,7 @@ NOTES = {
     'XPS': 'Чтение документов XPS. Для обычных FB2/EPUB этот компонент не нужен.',
     'FB2Export': 'fb2cng — сохранение FB2 в EPUB 2, EPUB 3, KEPUB, KFX, AZW8, PDF и Markdown.',
     'KoboExport': 'kepubify — прямое сохранение EPUB в KEPUB для Kobo.',
-    'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF. Нужен установленный Edge или Chrome.',
+    'EpubPdfExport': 'Vivliostyle — прямая вёрстка EPUB в PDF через Microsoft WebView2 Runtime.',
 }
 
 
@@ -101,7 +104,34 @@ def advanced_writer_payload(platform, component, source):
     return payload, list(payload)
 
 
-def epub_pdf_payload(source):
+def webview_renderer(platform, sdk):
+    arch = 'x86' if platform == 'Win32' else 'x64'
+    core = 'Microsoft.Web.WebView2.Core.dll'
+    loader = 'WebView2Loader.dll'
+    with zipfile.ZipFile(io.BytesIO(sdk)) as package:
+        files = {
+            core: package.read('lib/net462/' + core),
+            loader: package.read(f'runtimes/win-{arch}/native/' + loader),
+            'WebView2-LICENSE.txt': package.read('LICENSE.txt'),
+            'WebView2-NOTICE.txt': package.read('NOTICE.txt'),
+        }
+    helper.binary_platform(files[loader], platform)
+    compiler = Path(os.environ['SystemRoot']) / 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
+    source = REPO / 'Utils/HomeLibEpubPdf/HomeLibEpubPdf.cs'
+    with tempfile.TemporaryDirectory(prefix='homelibre-webview2-build-') as folder:
+        build = Path(folder)
+        (build / core).write_bytes(files[core])
+        target = build / 'HomeLibEpubPdf.exe'
+        subprocess.run([str(compiler), '/nologo', '/codepage:65001', '/optimize+', '/target:exe',
+                        '/platform:' + arch, '/out:' + str(target), '/r:' + str(build / core),
+                        '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Web.Extensions.dll',
+                        str(source)], check=True)
+        files[target.name] = target.read_bytes()
+        helper.binary_platform(files[target.name], platform)
+    return {'runtime/' + name: data for name, data in files.items()}
+
+
+def epub_pdf_payload(platform, source):
     if source is None:
         raise ValueError('The verified upstream EPUB PDF files are required for EpubPdfExport')
 
@@ -124,27 +154,28 @@ def epub_pdf_payload(source):
         'fast-diff-LICENSE.txt': diff_license,
         'runtime/pypdf.whl': verified('pypdf-6.21.4-py3-none-any.whl',
             '33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c'),
-        'runtime/websocket_client.whl': verified('websocket_client-1.9.2-py3-none-any.whl',
-            'e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce'),
         'SOURCE.txt': (
             'Vivliostyle Core 2.45.2 (AGPL-3.0). Unmodified JavaScript from:\n'
             'https://registry.npmjs.org/@vivliostyle/core/-/core-2.45.2.tgz\n'
             'Corresponding source and build files for this version:\n'
             'https://github.com/vivliostyle/vivliostyle.js/archive/refs/tags/v2.45.2.zip\n'
             'Bundled fast-diff source (Apache-2.0): https://registry.npmjs.org/fast-diff/-/fast-diff-1.3.0.tgz\n'
-            'Python wheels are unmodified and contain their own licences. Upstream source distributions:\n'
+            'The unmodified Python wheel contains its licence. Upstream source distribution:\n'
             'https://pypi.org/project/pypdf/6.21.4/#files\n'
-            'https://pypi.org/project/websocket-client/1.9.2/#files\n'
-            'The print host and worker source are included in epub_pdf_output.py.\n'
-            'The browser is supplied by the local Windows installation.\n').encode('ascii'),
+            'WebView2 SDK 1.0.3967.48: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3967.48\n'
+            'The required Microsoft WebView2 Runtime is distributed separately by Microsoft.\n'
+            'The print host and worker source are in epub_pdf_output.py and Utils/HomeLibEpubPdf/HomeLibEpubPdf.cs.\n'
+            'Source repository: https://github.com/Dicur3x/MyHomeLib\n').encode('ascii'),
     }
+    files.update(webview_renderer(platform, verified('microsoft.web.webview2.1.0.3967.48.nupkg',
+        'c66357ac7f324ec9bcafe5241706a023b4122d8c22300c31de4b0eb220db689e')))
     payload = {'tools/epub-pdf/' + name: data for name, data in files.items()}
     return payload, list(payload)
 
 
 def payload_for(platform, component, kindle_export_root=None, advanced_export_root=None):
     if component == 'EpubPdfExport':
-        return epub_pdf_payload(advanced_export_root)
+        return epub_pdf_payload(platform, advanced_export_root)
     if component in WRITERS:
         return advanced_writer_payload(platform, component, advanced_export_root)
     runtime = REPO/'Program/Out'/('Bin' if platform == 'Win32' else 'Bin64')/'tools'

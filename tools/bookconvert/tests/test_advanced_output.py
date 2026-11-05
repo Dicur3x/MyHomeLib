@@ -87,6 +87,30 @@ class AdvancedOutputTest(unittest.TestCase):
                     self.assertEqual(error.exception.code, 404)
                     error.exception.close()
 
+    @unittest.skipUnless(os.environ.get('HOMELIBRE_EPUB_PDF_TOOLS'), 'needs the packaged WebView2 writer and Runtime')
+    def test_epub_pdf_preserves_text_and_leaves_no_runtime_profile(self):
+        tools = Path(os.environ['HOMELIBRE_EPUB_PDF_TOOLS'])
+        epub = self.work / 'source.epub'
+        conversion.convert_book(self.source, epub)
+        original = epub.read_bytes()
+        output = self.work / 'book.pdf'
+        with patch.dict(os.environ, {
+            'WEBVIEW2_BROWSER_EXECUTABLE_FOLDER': str(self.work / 'missing-browser'),
+            'WEBVIEW2_USER_DATA_FOLDER': str(self.work / 'outside-profile'),
+        }):
+            result = conversion.convert_book(epub, output, output_profile='pdf', tools_root=tools)
+        from pypdf import PdfReader
+        pdf = PdfReader(output)
+        text = ' '.join(page.extract_text() for page in pdf.pages)
+        self.assertIn('Text before the illustration.', text)
+        self.assertIn('Test table', text)
+        self.assertIn('Note body.', text)
+        self.assertEqual(pdf.metadata.title, 'Export fixture')
+        self.assertEqual(output.stat().st_size, result['size'])
+        self.assertEqual(epub.read_bytes(), original)
+        self.assertFalse((self.work / 'outside-profile').exists())
+        self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
+
     @unittest.skipUnless(os.environ.get('HOMELIBRE_ADVANCED_WRITERS'), 'needs pinned installed writers')
     def test_real_writers_preserve_content_and_use_separate_modules(self):
         tools = Path(os.environ['HOMELIBRE_ADVANCED_WRITERS'])

@@ -932,9 +932,11 @@ begin
     if IsFormatComponent(Component) then
     begin
       if Component='LegacyOffice' then Architecture:='Win64';
-      // Script-only modules are verified by the platform descriptor and its file hashes.
-      if (Component<>'Kindle') and (Component<>'EpubPdfExport') then
+      // Kindle is script-only and verified by its platform descriptor and hashes.
+      if Component<>'Kindle' then
         VerifyUpdateExecutable(ChildPath(Stage,ComponentFileName(Component)),'',Architecture,True);
+      if Component='EpubPdfExport' then
+        VerifyUpdateExecutable(ChildPath(Stage,'tools/epub-pdf/runtime/WebView2Loader.dll'),'',Architecture,True);
       if InstalledComponentVersion(Stage,Component)<>Version then
         raise Exception.Create('Версия или контрольная сумма модуля '+Component+' не совпадает с описанием пакета.');
     end
