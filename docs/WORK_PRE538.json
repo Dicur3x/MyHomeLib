@@ -4722,7 +4722,7 @@
     "status": "Queued for beta 4 after the current author-preference direction, following user screenshots. Not implemented or declared reproduced.",
     "opds_https": "User explicitly requested both modes before beta 4: native HTTPS with certificate/key, and external HTTPS reverse proxy. Support explicit public base URL including path prefix, correct feed/acquisition links and controlled forwarded-header trust. Current server remains HTTP-only, loopback by default with explicit LAN option. Preserve HTTP clients and minimal distribution, test x86/x64. Do not configure user network, Windows certificates or an external server automatically.",
     "archive_deletion": "Confirmed user behavior on 2026-11-05: preserve the existing Delete files when deleting books setting. Disabled removes catalogue records only. Enabled physically removes the exact selected member(s), preserving all other books; remove the outer archive only when the last book has been removed. Determine remaining contents from actual archive inventory, including books absent from the catalogue, not just catalogue reference counts. Preserve unrelated payloads and shared-image dependencies; update catalogue records only after verified filesystem success. Implement with the existing safe-deletion direction, x86/x64 and interruption/cancel checks. Current code deliberately retains all ZIP/7z, so this behavior is not yet implemented.",
-    "information_panel_height": "Reproduce and fix the book information panel height repeatedly returning to its default. Cover manual height, adaptive preview sizing, view changes and restart.",
+    "information_panel_height": "Fixed and verified in native x86/x64 Main. See beta4_preview_height_and_scope_20261106.",
     "deletion_selection": "After deleting within a sorted result, retain the nearest surviving row and scroll position rather than jumping to the first item; preserve sort and filter state. Cover single/bulk deletion and all relevant tabs.",
     "sources": [
       "https://manual.calibre-ebook.com/server.html",
@@ -5176,6 +5176,13 @@
       "Existing catalogue-only, optional-file choice, group preparation, protected references and startup recovery tests pass"
     ],
     "cleanup": "The new owned regression profile and build root were removed. Production binaries remain in the worktree output folders. No real collection or archive changed.",
-    "remaining": "Launch the exact production binaries in isolated profiles. Verify sorted-list anchors, close during deletion, and FLibrary companion images before the authorized real duplicate test. Package and publish only after all beta 4 gates."
+    "remaining": "The exact Win32 EXE opened the isolated external-local fixture, where the ordinary Delete command is hidden. The profile was removed after the run timed out. The test did not reach filesystem deletion and Win64 did not run. Native checks use the command handler directly. Leave any actual deletion in the working collection and further deletion acceptance separate from beta 4 at the user's request."
+  },
+  "beta4_preview_height_and_scope_20261106": {
+    "status": "Manual book-information height and automatic fitting verified in fresh Delphi x86 and x64 Main regression builds. Release archives have not been rebuilt or published.",
+    "implementation": "Only a completed splitter resize captures the preferred height, in 96-DPI units. Changing books and views, small-window clamping and DPI changes retain the preference. View / Advanced restores automatic sizing. The old height key remains the starting height for automatic mode.",
+    "proof": "tools/ui/tests/Out/beta4-preview-height-20261106-r4.log. The actual splitter path, all six views, small-window clamp and recovery, DPI scaling, profile reload and reset passed on both architectures. Existing 72-case adaptive layouts, review previews and native book-deletion tests also passed. Delphi reported Success for x64 before its known GetIt shutdown failure. All new test profiles and build folders were removed.",
+    "scope": "User deferred collection compression, incremental INPX packing, SQL dumps and the new maximum-savings and grayscale image settings. The packing menu and update command require the experimental build define. The default release archives omit the script, and public help and notes describe only enabled features.",
+    "manual_cleanup": "Automatic approval review blocked recursive deletion of the failed isolated fixture G:/HomeLibRu-build-cache/homelibre-production-delete-smoke-2ouehfj8, 30867090 bytes, with blocked by policy. No retry. The separate timed-out fixture was removed by its own runner. No working collection or real archive was changed."
   }
 }

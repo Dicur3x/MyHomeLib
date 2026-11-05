@@ -28,6 +28,7 @@ type
     FBrush: TBrush;
     FControl: TControl;
     FDownPos: TPoint;
+    FStartSize: TSize;
     FLineDC: HDC;
     FLineVisible: Boolean;
     FMinSize: NaturalNumber;
@@ -43,6 +44,7 @@ type
 
     FOnCanResize: TCanResizeEvent;
     FOnMoved: TNotifyEvent;
+    FOnResizeFinished: TNotifyEvent;
 
     procedure AllocateLineDC;
     procedure CalcSplitSize(X, Y: Integer; var NewSize, Split: Integer);
@@ -86,6 +88,7 @@ type
     property Width default 3;
     property OnCanResize: TCanResizeEvent read FOnCanResize write FOnCanResize;
     property OnMoved: TNotifyEvent read FOnMoved write FOnMoved;
+    property OnResizeFinished: TNotifyEvent read FOnResizeFinished write FOnResizeFinished;
   end;
 
 implementation
@@ -335,6 +338,8 @@ begin
     FDownPos := Point(X, Y);
     if Assigned(FControl) then
     begin
+      FStartSize.cx := FControl.Width;
+      FStartSize.cy := FControl.Height;
       if Align in [alLeft, alRight] then
       begin
         FMaxSize := Parent.ClientWidth - FMinSize;
@@ -461,14 +466,18 @@ end;
 
 procedure TMHLSplitter.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: Integer);
+var Resized: Boolean;
 begin
   inherited;
-  if Assigned(FControl) then
+  if (Button = mbLeft) and Assigned(FControl) then
   begin
     if ResizeStyle in [rsLine, rsPattern] then
       DrawLine;
     UpdateControlSize;
+    Resized := Assigned(FControl) and
+      ((FControl.Width <> FStartSize.cx) or (FControl.Height <> FStartSize.cy));
     StopSizing;
+    if Resized and Assigned(FOnResizeFinished) then FOnResizeFinished(Self);
   end;
 end;
 

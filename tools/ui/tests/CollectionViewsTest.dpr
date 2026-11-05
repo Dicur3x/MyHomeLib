@@ -19,7 +19,7 @@ uses
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
   unit_SearchQueryModeControl, unit_LegacyUserDataPreview, frm_LegacyUserDataPreview, unit_InpLineReader,
   frm_ExportToDeviceProgressForm, unit_ReaderDocument, unit_SearchPresets, unit_xmlUtils,
-  MHLButtonedEdit, MHLLinkLabel, unit_Columns,
+  MHLButtonedEdit, MHLLinkLabel, MHLSplitter, unit_Columns,
   unit_SystemDatabase_SQLite,
   unit_WorkerThread, unit_CollectionWorkerThread, unit_libupdateThread, unit_ImportFB2Thread,
   unit_ImportFBDThread, unit_ImportMetabibThread,

@@ -138,6 +138,7 @@ type
     FFormHeight: Integer;
     FExportImageQualityWidth, FExportImageQualityHeight: Integer;
     FInfoPanelHeight: Integer;
+    FManualInfoPanelHeight: Integer;
 
     FBookSRCollapsed: Boolean;
     FFileSRCollapsed: Boolean;
@@ -422,6 +423,7 @@ type
     property FormLeft: Integer read FFormLeft write FFormLeft;
 
     property InfoPanelHeight: Integer read FInfoPanelHeight write FInfoPanelHeight;
+    property ManualInfoPanelHeight: Integer read FManualInfoPanelHeight write FManualInfoPanelHeight;
 
     property BookSRCollapsed: Boolean read FBookSRCollapsed write FBookSRCollapsed;
     property FileSRCollapsed: Boolean read FFileSRCollapsed write FFileSRCollapsed;
@@ -786,6 +788,7 @@ begin
     FFormLeft := iniFile.ReadInteger(INTERFACE_SECTION, 'FormLeft', 0);
 
     FInfoPanelHeight := iniFile.ReadInteger(INTERFACE_SECTION, 'InfoPanelHeight', 250);
+    FManualInfoPanelHeight := iniFile.ReadInteger(INTERFACE_SECTION, 'ManualInfoPanelHeight', 0);
 
     FBookSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'BookSR', False);
     FFileSRCollapsed := iniFile.ReadBool(INTERFACE_SECTION, 'FileSR', False);
@@ -959,6 +962,7 @@ begin
     iniFile.WriteInteger(INTERFACE_SECTION, 'FormLeft', FFormLeft);
 
     iniFile.WriteInteger(INTERFACE_SECTION, 'InfoPanelHeight', FInfoPanelHeight);
+    iniFile.WriteInteger(INTERFACE_SECTION, 'ManualInfoPanelHeight', FManualInfoPanelHeight);
 
     iniFile.WriteBool(INTERFACE_SECTION, 'BookSR', FBookSRCollapsed);
     iniFile.WriteBool(INTERFACE_SECTION, 'FileSR', FFileSRCollapsed);

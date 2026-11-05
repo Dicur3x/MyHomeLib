@@ -927,8 +927,10 @@ type
     procedure ShowBookColumnFilters(Sender: TObject);
     procedure ShowCatalogSources(Sender: TObject);
     procedure RestoreCollectionSnapshot(Sender: TObject);
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
     procedure PackCurrentCollection(Sender: TObject);
     procedure PackCollection(UpdateFromInpx: Boolean);
+{$ENDIF}
     procedure ShowBookDuplicates(Sender: TObject);
     procedure CheckBookDuplicateApply(Sender: TObject);
     procedure ApplyBookColumnFilters(Tree: TBookTree);
@@ -1134,6 +1136,8 @@ type
     function CheckLibUpdates(Auto: Boolean): Boolean;
     procedure SetInfoPanelHeight(Height: Integer);
     procedure InfoPanelContentChanged(Sender: TObject);
+    procedure InfoPanelResizeFinished(Sender: TObject);
+    procedure AutoFitInfoPanel(Sender: TObject);
     procedure BookViewResize(Sender: TObject);
     procedure BatchInfoPanels(Beginning: Boolean);
     procedure SetInfoPanelVisible(State: Boolean);
@@ -1287,7 +1291,10 @@ uses
   unit_SystemDatabase_Abstract,
   unit_MHLArchiveHelpers, unit_MHLExternalTools,
   unit_BookCache, unit_MHLOperationStatus, frm_DeleteCollection, unit_ImportOldUserData, unit_BookColumnFilters, frm_CatalogSources, frm_CollectionBackup, frm_BookDuplicates, unit_ComponentUpdates, unit_ProgramUpdateInstaller, unit_Diagnostics, unit_ComponentUsage, unit_ComponentRemoval, frm_ComponentMaintenance,
-  unit_CollectionPacking, frm_CollectionPackingProgress, unit_FormatComponents;
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
+  frm_CollectionPackingProgress,
+{$ENDIF}
+  unit_CollectionPacking, unit_FormatComponents;
 
 type
   TBookTreeAccess = class(TBookTree);
@@ -1831,7 +1838,9 @@ begin
   tbarAuthorsEng.Visible := Settings.ShowEngBar;
   tbarSeriesEng.Visible := Settings.ShowEngBar;
   StatusBar.Visible := Settings.ShowStatusBar;
-  SetInfoPanelHeight(Settings.InfoPanelHeight);
+  if Settings.ManualInfoPanelHeight > 0 then
+    SetInfoPanelHeight(MulDiv(Settings.ManualInfoPanelHeight, ipnlAuthors.Font.PixelsPerInch, 96))
+  else SetInfoPanelHeight(Settings.InfoPanelHeight);
   SetInfoPanelVisible(Settings.ShowInfoPanel);
   SetShowBookCover(Settings.ShowBookCover);
   SetShowBookAnnotation(Settings.ShowBookAnnotation);
@@ -2006,6 +2015,10 @@ begin
   ipnlGenres.OnContentSizeChanged:=InfoPanelContentChanged;
   ipnlSearch.OnContentSizeChanged:=InfoPanelContentChanged;
   ipnlFavorites.OnContentSizeChanged:=InfoPanelContentChanged;
+  for var Splitter in TArray<TMHLSplitter>.Create(AuthorBookInfoSplitter,
+    SerieBookInfoSplitter, FPublisher.InfoSplitter, GenreBookInfoSplitter,
+    SearchBookInfoSplitter, GroupBookInfoSplitter) do
+    Splitter.OnResizeFinished := InfoPanelResizeFinished;
   FPublisher.Info.OnAuthorLinkClicked := AuthorLinkClicked;
   FPublisher.Info.OnSeriesLinkClicked := SeriesLinkClicked;
   FPublisher.Info.OnGenreLinkClicked := GenreLinkClicked;
@@ -4438,6 +4451,7 @@ begin
   end;
 end;
 
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
 procedure TfrmMain.PackCurrentCollection(Sender: TObject);
 begin
   PackCollection(False);
@@ -4600,6 +4614,8 @@ begin
     InitCollection;
   end;
 end;
+
+{$ENDIF}
 
 procedure TfrmMain.ShowCatalogSources(Sender: TObject);
 var Dialog: TfrmCatalogSources; Changed, MetadataChanged, DuplicatesRequested: Boolean; CollectionID: Integer;
@@ -5014,9 +5030,11 @@ begin
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miRestoreCollectionSnapshot';
   FilterMenu.Caption:='Восстановить из резервной копии…';
   FilterMenu.OnClick:=RestoreCollectionSnapshot; N2.Insert(4,FilterMenu);
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
   FilterMenu:=TMenuItem.Create(Self); FilterMenu.Name:='miPackCollection';
   FilterMenu.Caption:='Сжать коллекцию…';
   FilterMenu.OnClick:=PackCurrentCollection; N2.Insert(5,FilterMenu);
+{$ENDIF}
 
 
   FMetadataFillAction:=TAction.Create(Self); FMetadataFillAction.Name:='acFillBookMetadata';
@@ -5032,6 +5050,11 @@ begin
   miUpdateFromFile.Parent.Insert(miUpdateFromFile.MenuIndex+1,FilterMenu);
 
   CreatePublisherSeriesView;
+  FilterMenu := TMenuItem.Create(Self);
+  FilterMenu.Name := 'miAutoFitInfoPanel';
+  FilterMenu.Caption := 'Подбирать высоту сведений о книге автоматически';
+  FilterMenu.OnClick := AutoFitInfoPanel;
+  miViewExtra.Add(FilterMenu);
   {$IFDEF MHL_SQL_PROFILE}ProfileMark('menus + publisher view');{$ENDIF}
   pnAuthorBooksView.OnResize:=BookViewResize;
   pnSerieBooksView.OnResize:=BookViewResize;
@@ -6406,6 +6429,21 @@ begin
   SetInfoPanelHeight((Sender as TWinControl).Height);
 end;
 
+procedure TfrmMain.InfoPanelResizeFinished(Sender: TObject);
+var Panel: TInfoPanel;
+begin
+  Panel := TInfoPanel(TMHLSplitter(Sender).ResizeControl);
+  Settings.ManualInfoPanelHeight := MulDiv(Panel.Height, 96, Panel.Font.PixelsPerInch);
+end;
+
+procedure TfrmMain.AutoFitInfoPanel(Sender: TObject);
+begin
+  Settings.ManualInfoPanelHeight := 0;
+  for var Panel in TArray<TInfoPanel>.Create(ipnlAuthors, ipnlSeries,
+    FPublisher.Info, ipnlGenres, ipnlSearch, ipnlFavorites) do
+    if Panel.Showing then InfoPanelContentChanged(Panel);
+end;
+
 procedure TfrmMain.AddCurrentToList(const Tree: TBookTree; var BookIDList: TBookIdList);
 var
   Data: PBookRecord;
@@ -7356,14 +7394,17 @@ procedure TfrmMain.BookViewResize(Sender: TObject);
 begin
   if (csDestroying in ComponentState) or FUpdatingSearchLayout or
     (WindowState=wsMinimized) or not Assigned(FPublisher) then Exit;
-  SetInfoPanelHeight(ipnlAuthors.Height);
+  if Settings.ManualInfoPanelHeight > 0 then
+    SetInfoPanelHeight(MulDiv(Settings.ManualInfoPanelHeight, ipnlAuthors.Font.PixelsPerInch, 96))
+  else SetInfoPanelHeight(ipnlAuthors.Height);
 end;
 
 procedure TfrmMain.InfoPanelContentChanged(Sender: TObject);
 var Info: TInfoPanel; Desired: Integer;
 begin
   if FInSetInfoPanelHeight or (csDestroying in ComponentState) or
-    (WindowState=wsMinimized) or not Settings.ShowInfoPanel then Exit;
+    (WindowState=wsMinimized) or not Settings.ShowInfoPanel or
+    (Settings.ManualInfoPanelHeight > 0) then Exit;
   Info:=Sender as TInfoPanel;
   if not Info.Showing or not Assigned(Info.Parent) then Exit;
   // Automatic fitting leaves at least half of the view for the book list.
@@ -11445,7 +11486,11 @@ begin
   try
     if IsPackedCollectionCatalog(FCollection.GetProperty(PROP_DATAFILE)) then
     begin
+{$IFDEF MHL_EXPERIMENTAL_COLLECTION_PACKING}
       PackCollection(True);
+{$ELSE}
+      MHLShowWarning('Обновление сжатой коллекции из INPX пока недоступно.');
+{$ENDIF}
       Exit;
     end;
   except

@@ -1,9 +1,12 @@
-﻿procedure TestAdaptiveBookPreview;
+﻿type TInfoPanelSplitterAccess = class(TMHLSplitter);
+
+procedure TestAdaptiveBookPreview;
 var Infos: TArray<TInfoPanel>; Trees: TArray<TBookTree>; Panel: TInfoPanel;
   OldBounds: TRect; OldPage, DPI, Width, Index, Cases, WideCases, BeforeHeight, BeforePreferred: Integer;
   OldTheme, OldVisible, Dark: Boolean; Annotation: TMemo; Viewport: TScrollBox;
   Content: TWinControl; DescriptionBounds: TRect; Bitmap: TBitmap; Png: TPngImage;
   Source, Hash, XML: string; Images: TMemoryStream; Started: UInt64;
+  OldManualHeight: Integer;
 
   procedure SelectView(I: Integer);
   begin
@@ -59,6 +62,8 @@ begin
     frmMain.tvBooksG,frmMain.tvBooksSR,frmMain.tvBooksF);
   OldBounds:=frmMain.BoundsRect; OldPage:=frmMain.pgControl.ActivePageIndex;
   OldTheme:=MHLThemeDark; OldVisible:=Settings.ShowInfoPanel; Cases:=0; WideCases:=0;
+  OldManualHeight:=Settings.ManualInfoPanelHeight;
+  Settings.ManualInfoPanelHeight:=0;
   Bitmap:=TBitmap.Create; Png:=TPngImage.Create; Images:=TMemoryStream.Create;
   try
     Bitmap.SetSize(120,160); XML:='<FictionBook xmlns:l="http://www.w3.org/1999/xlink"><body><section>';
@@ -145,6 +150,41 @@ begin
     Writeln('PASS expanded illustrations keep panel height and wide description position');
     Require(THashSHA2.GetHashStringFromFile(Source)=Hash,'Gallery layout changed source book bytes');
     Writeln('PASS adaptive preview keeps thumbnail pixels and original source unchanged'); Flush(Output);
+    frmMain.ScaleForPPI(96); frmMain.SetBounds(0,0,1280,900);
+    SelectView(0); Panel:=Infos[0]; Fill(Panel,False);
+    BeforeHeight:=Panel.Height;
+    var Splitter:=TInfoPanelSplitterAccess(frmMain.AuthorBookInfoSplitter);
+    Splitter.MouseDown(mbLeft,[ssLeft],10,1);
+    Splitter.MouseUp(mbLeft,[],10,1);
+    Require(Settings.ManualInfoPanelHeight=0,'Clicking the splitter disabled automatic fitting');
+    Splitter.MouseDown(mbLeft,[ssLeft],10,1);
+    Splitter.MouseMove([ssLeft],10,-89);
+    Splitter.MouseUp(mbLeft,[],10,-89);
+    var ManualHeight:=Settings.ManualInfoPanelHeight;
+    Require((ManualHeight>BeforeHeight) and (ManualHeight=Panel.Height),'Real splitter resize did not capture manual height');
+    for Index:=0 to High(Infos) do
+    begin
+      SelectView(Index); Fill(Infos[Index],Index mod 2=0);
+      Require(Infos[Index].Height=ManualHeight,'Selecting another book or view replaced manual height');
+    end;
+    frmMain.SetBounds(0,0,800,410);
+    Require((Infos[5].Height<ManualHeight) and (Settings.ManualInfoPanelHeight=ManualHeight),
+      'Small window failed to clamp the panel without overwriting its preference');
+    frmMain.SetBounds(0,0,1280,900);
+    Require(Infos[5].Height=ManualHeight,'Restoring window size did not restore manual height');
+    frmMain.SetBounds(0,0,1920,1350); frmMain.ScaleForPPI(144);
+    Require((Settings.ManualInfoPanelHeight=ManualHeight) and
+      (Infos[5].Font.PixelsPerInch=144) and (Infos[5].Height=MulDiv(ManualHeight,144,96)),
+      Format('DPI change did not scale saved height (stored %d, actual %d, DPI %d, original %d)',
+        [Settings.ManualInfoPanelHeight,Infos[5].Height,Infos[5].Font.PixelsPerInch,ManualHeight]));
+    Settings.SaveSettings;
+    Settings.ManualInfoPanelHeight:=0;
+    Settings.LoadSettings;
+    Require(Settings.ManualInfoPanelHeight=ManualHeight,'Manual height was not restored from the profile');
+    TMenuItem(frmMain.FindComponent('miAutoFitInfoPanel')).Click;
+    Require((Settings.ManualInfoPanelHeight=0) and
+      (Infos[5].Height<=Infos[5].Parent.ClientHeight div 2),'Automatic height could not be restored');
+    Writeln('PASS manual preview height survives new books, views, DPI and profile reload'); Flush(Output);
     if FileExists(Settings.AppPath+'preview-adaptive-visual.flag') then
     begin
       SetMHLTheme(False); frmMain.ScaleForPPI(96); frmMain.SetBounds(40,40,1280,900);
@@ -155,6 +195,7 @@ begin
       begin Application.ProcessMessages; CheckSynchronize(5); Sleep(20); end;
     end;
   finally
+    Settings.ManualInfoPanelHeight:=OldManualHeight;
     for Panel in Infos do Panel.Clear;
     SetMHLTheme(OldTheme); frmMain.ScaleForPPI(96); frmMain.BoundsRect:=OldBounds;
     frmMain.pgControl.ActivePageIndex:=OldPage; frmMain.pgControlChange(nil);
