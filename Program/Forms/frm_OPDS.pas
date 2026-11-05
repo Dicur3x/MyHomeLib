@@ -12,7 +12,7 @@ type
     FServer: THomeLibOPDSServer;
     FCollection: TCollectionInfo;
     FCollectionLabel, FStatus: TLabel;
-    FPort, FAddress: TEdit;
+    FPort, FAddress, FPublicBase: TEdit;
     FHosts: TComboBox;
     FLAN: TCheckBox;
     FStart, FStop, FCopy: TButton;
@@ -47,7 +47,7 @@ begin
   BorderStyle := bsDialog;
   Position := poMainFormCenter;
   ClientWidth := 690;
-  ClientHeight := 315;
+  ClientHeight := 372;
   Font.Name := 'Segoe UI';
   Font.Size := 9;
   FServer := THomeLibOPDSServer.Create;
@@ -100,33 +100,41 @@ begin
   TextLabel := TLabel.Create(Self);
   TextLabel.Parent := Self;
   TextLabel.SetBounds(16, 166, 655, 20);
+  TextLabel.Caption := 'Адрес внешнего HTTPS-сервера (необязательно):';
+  FPublicBase := TEdit.Create(Self);
+  FPublicBase.Parent := Self;
+  FPublicBase.SetBounds(16, 188, 655, 26);
+  FPublicBase.TextHint := 'https://books.example.org/library';
+  TextLabel := TLabel.Create(Self);
+  TextLabel.Parent := Self;
+  TextLabel.SetBounds(16, 223, 655, 20);
   TextLabel.Caption := 'Адрес каталога для читалки:';
   FAddress := TEdit.Create(Self);
   FAddress.Parent := Self;
-  FAddress.SetBounds(16, 190, 655, 26);
+  FAddress.SetBounds(16, 247, 655, 26);
   FAddress.ReadOnly := True;
   FStatus := TLabel.Create(Self);
   FStatus.Parent := Self;
-  FStatus.SetBounds(16, 229, 655, 20);
+  FStatus.SetBounds(16, 286, 655, 20);
   FStatus.AutoSize := False;
   FStart := TButton.Create(Self);
   FStart.Parent := Self;
-  FStart.SetBounds(16, 266, 115, 30);
+  FStart.SetBounds(16, 323, 115, 30);
   FStart.Caption := 'Запустить';
   FStart.OnClick := StartClick;
   FStop := TButton.Create(Self);
   FStop.Parent := Self;
-  FStop.SetBounds(140, 266, 115, 30);
+  FStop.SetBounds(140, 323, 115, 30);
   FStop.Caption := 'Остановить';
   FStop.OnClick := StopClick;
   FCopy := TButton.Create(Self);
   FCopy.Parent := Self;
-  FCopy.SetBounds(265, 266, 175, 30);
+  FCopy.SetBounds(265, 323, 175, 30);
   FCopy.Caption := 'Копировать адрес';
   FCopy.OnClick := CopyClick;
   CloseButton := TButton.Create(Self);
   CloseButton.Parent := Self;
-  CloseButton.SetBounds(556, 266, 115, 30);
+  CloseButton.SetBounds(556, 323, 115, 30);
   CloseButton.Caption := 'Скрыть';
   CloseButton.Cancel := True;
   CloseButton.OnClick := HideClick;
@@ -154,6 +162,7 @@ begin
   FPort.Enabled := not FServer.Active;
   FLAN.Enabled := not FServer.Active;
   FHosts.Enabled := FLAN.Checked;
+  FPublicBase.Enabled := not FServer.Active and not FLAN.Checked;
   if FServer.Active then
   begin
     FAddress.Text := FServer.CatalogURL(FHosts.Text);
@@ -169,11 +178,13 @@ end;
 procedure TfrmOPDS.StartClick(Sender: TObject);
 var
   Port: Integer;
+  PublicBase: string;
 begin
   try
     if not TryStrToInt(FPort.Text, Port) then
       raise Exception.Create('Укажите числовой порт от 1024 до 65535.');
-    FServer.Start(FCollection, Port, FLAN.Checked);
+    if FLAN.Checked then PublicBase := '' else PublicBase := FPublicBase.Text;
+    FServer.Start(FCollection, Port, FLAN.Checked, PublicBase);
     RefreshControls;
   except
     on E: Exception do

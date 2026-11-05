@@ -94,7 +94,7 @@ begin
       Body := Client.Get(Server.CatalogURL('127.0.0.1'));
       Require((Client.ResponseCode = 200) and
         (Pos('xmlns="http://www.w3.org/2005/Atom"', Body) > 0) and
-        (Pos('HomeLib Ru', Body) > 0), 'Loopback request to the LAN listener failed');
+        (Pos('HomeLibre', Body) > 0), 'Loopback request to the LAN listener failed');
     finally
       Client.Free;
     end;
@@ -104,6 +104,63 @@ begin
     Server.Stop;
   end;
   Require(not Server.Active, 'LAN smoke listener stayed active after Stop');
+end;
+
+procedure CheckExternalProxy(const Server: THomeLibOPDSServer;
+  const Collection: TCollectionInfo; const Port: Integer);
+const PublicBase = 'https://books.example.org:8443/my-library/opds-proxy';
+var Client: TIdHTTP; Body, PublicURL, LocalURL: string;
+
+  procedure RejectAddress(const Address: string; const AllowLAN: Boolean);
+  begin
+    try
+      Server.Start(Collection, Port, AllowLAN, Address);
+    except
+      on E: EArgumentException do
+      begin
+        Require(not Server.Active, 'Invalid proxy configuration left an active listener');
+        Exit;
+      end;
+    end;
+    raise Exception.Create('Accepted invalid proxy configuration: '+Address);
+  end;
+
+begin
+  for var Address in TArray<string>.Create('http://books.example.org',
+    'https://name@books.example.org', 'https://books.example.org:65536',
+    'https://books.example.org/a/../b', 'https://books.example.org/%2e',
+    'https://books.example.org//other', 'https://books.example.org?q=other',
+    'https://books.example.org#other', 'https://books.example.org/a\b') do
+    RejectAddress(Address, False);
+  RejectAddress(PublicBase, True);
+  Server.Start(Collection, Port, False, PublicBase+'/');
+  try
+    PublicURL := Server.CatalogURL('unused.example.org');
+    Require(PublicURL.StartsWith(PublicBase+'/') and PublicURL.EndsWith('/opds'),
+      'Proxy address lost its configured host, port, prefix or catalogue route');
+    LocalURL := 'http://127.0.0.1:'+Port.ToString+Copy(PublicURL, Length(PublicBase)+1, MaxInt);
+    Client := TIdHTTP.Create(nil);
+    try
+      Client.ConnectTimeout := 3000;
+      Client.ReadTimeout := 3000;
+      Client.Request.CustomHeaders.Values['Forwarded'] := 'proto=http;host=wrong.example.org';
+      Client.Request.CustomHeaders.Values['X-Forwarded-Host'] := 'wrong.example.org';
+      Client.Request.CustomHeaders.Values['X-Forwarded-Prefix'] := '/wrong';
+      Body := Client.Get(LocalURL);
+      Require(Pos('href="'+PublicURL+'/books"',Body)>0,'Proxy navigation URL did not preserve its public prefix');
+      Require(Pos('href="'+PublicURL+'/search.xml"',Body)>0,'Proxy search link did not preserve its public prefix');
+      Body := Client.Get(LocalURL+'/search.xml');
+      Require(Pos('template="'+PublicURL+'/books?q={searchTerms}"',Body)>0,'Proxy search template used the backend address');
+      Body := Client.Get(LocalURL+'/books');
+      Require(Pos('href="'+PublicURL+'/book/',Body)>0,'Proxy acquisition links used the backend address');
+      Require(Pos('href="'+PublicURL+'/books?page=1"',Body)>0,'Proxy pagination lost its public prefix');
+      Require(not Body.Contains('wrong.example.org'),'Forwarded headers overrode the configured URL');
+    finally
+      Client.Free;
+    end;
+  finally
+    Server.Stop;
+  end;
 end;
 
 procedure GuardFixture(const DBFileName, RootFolder: string; const Port: Integer);
@@ -157,6 +214,7 @@ begin
   DB := TSQLiteDatabase.Create(DBFileName);
   try
     DB.AddFunction('MHL_TRIGGERS_ON', 0, TestTriggersOn);
+    DB.AddFunction('MHL_SERIES_TRIGGERS_ON', 0, TestTriggersOn);
     DB.AddFunction('MHL_FULLNAME', 3, TestFullAuthorName);
     DB.AddFunction('MHL_FULLNAME', 4, TestFullAuthorName);
     Require(DB.QuerySingleInt('SELECT count(*) FROM Books') = 6, 'Expected the fresh six-book MCP fixture');
@@ -292,6 +350,7 @@ begin
         try
           CheckOnlineStartRejected(Server, Collection, Port);
           CheckLANLoopback(Server, Collection, Port);
+          CheckExternalProxy(Server, Collection, Port);
           Server.Start(Collection, Port, False);
           Ready := TJSONObject.Create;
           try
@@ -301,6 +360,7 @@ begin
             Ready.AddPair('online_start_rejected', TJSONBool.Create(True));
             Ready.AddPair('online_start_reject_checks', TJSONNumber.Create(2));
             Ready.AddPair('lan_loopback_checked', TJSONBool.Create(True));
+            Ready.AddPair('external_proxy_checked', TJSONBool.Create(True));
             Writeln(Ready.ToJSON);
             Flush(Output);
           finally

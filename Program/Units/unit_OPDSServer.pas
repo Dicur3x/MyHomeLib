@@ -13,7 +13,7 @@ type
   private
     FHTTP: TIdHTTPServer;
     FCollection: TCollectionInfo;
-    FPrefix: string;
+    FPrefix, FExternalBase, FLinkBase: string;
     FPort: Integer;
     FUpdated: string;
     procedure Command(AContext: TIdContext; ARequest: TIdHTTPRequestInfo;
@@ -31,7 +31,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure Start(const Collection: TCollectionInfo; const Port: Integer;
-      const AllowLAN: Boolean);
+      const AllowLAN: Boolean; const ExternalBase: string = '');
     procedure Stop;
     function CatalogURL(const Host: string): string;
     property Active: Boolean read GetActive;
@@ -42,7 +42,7 @@ function OPDSXmlEscape(const Value: string): string;
 implementation
 
 uses
-  System.DateUtils, System.NetEncoding, System.StrUtils,
+  System.DateUtils, System.NetEncoding, System.StrUtils, System.RegularExpressions,
   IdGlobal, unit_Consts, unit_Errors;
 
 const
@@ -132,8 +132,32 @@ begin
   Result := FHTTP.Active;
 end;
 
+function CheckedExternalBase(const Value: string): string;
+var Match: TMatch; Port: Integer; Part: string;
+begin
+  Result := Trim(Value);
+  if Result = '' then Exit;
+  if Length(Result)>1024 then
+    raise EArgumentException.Create('Адрес внешнего сервера слишком длинный.');
+  if Result.EndsWith('/') then SetLength(Result, Length(Result)-1);
+  Match := TRegEx.Match(Result,
+    '\Ahttps://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*(?::([0-9]{1,5}))?((?:/[a-z0-9._~-]+)*)\z',
+    [roIgnoreCase]);
+  if not Match.Success then
+    raise EArgumentException.Create('Укажите адрес HTTPS внешнего сервера, например https://books.example.org/library.');
+  if Match.Groups[1].Value <> '' then
+  begin
+    Port := StrToInt(Match.Groups[1].Value);
+    if (Port < 1) or (Port > 65535) then
+      raise EArgumentException.Create('Порт в адресе внешнего сервера должен быть от 1 до 65535.');
+  end;
+  for Part in Match.Groups[2].Value.Split(['/']) do
+    if (Part = '.') or (Part = '..') then
+      raise EArgumentException.Create('Адрес внешнего сервера должен содержать путь без «.» и «..».');
+end;
+
 procedure THomeLibOPDSServer.Start(const Collection: TCollectionInfo;
-  const Port: Integer; const AllowLAN: Boolean);
+  const Port: Integer; const AllowLAN: Boolean; const ExternalBase: string);
 var
   DB: TSQLiteDatabase;
   Key: TGUID;
@@ -143,6 +167,9 @@ begin
     raise Exception.Create('Каталог для читалки доступен для локальных коллекций. Выберите коллекцию с книгами на диске.');
   if (Port < 1024) or (Port > 65535) then
     raise Exception.Create('Укажите порт от 1024 до 65535.');
+  FExternalBase := CheckedExternalBase(ExternalBase);
+  if AllowLAN and (FExternalBase <> '') then
+    raise EArgumentException.Create('В режиме внешнего HTTPS-сервера HomeLibre принимает подключения только с этого компьютера.');
   if not FileExists(Collection.DBFileName) then
     raise Exception.Create('Файл выбранной коллекции не найден.');
   DB := TSQLiteDatabase.CreateReadOnly(Collection.DBFileName);
@@ -156,6 +183,7 @@ begin
   CreateGUID(Key);
   FPrefix := '/' + LowerCase(StringReplace(StringReplace(
     GUIDToString(Key), '{', '', []), '}', '', [])) + '/opds';
+  FLinkBase := FExternalBase + FPrefix;
   FUpdated := DateToISO8601(Now, False);
   FHTTP.Bindings.Clear;
   with FHTTP.Bindings.Add do
@@ -174,6 +202,7 @@ end;
 
 function THomeLibOPDSServer.CatalogURL(const Host: string): string;
 begin
+  if FExternalBase <> '' then Exit(FLinkBase);
   Result := 'http://' + Host + ':' + IntToStr(FPort) + FPrefix;
 end;
 
@@ -186,17 +215,17 @@ begin
     OPDSXmlEscape(Route) + '</id><title>' + OPDSXmlEscape(Title) +
     '</title><updated>' + FUpdated + '</updated>' +
     '<author><name>HomeLibre</name></author>' +
-    Link('self', FPrefix + Route, Kind) + Link('start', FPrefix, NAV_TYPE) +
-    Link('search', FPrefix + '/search.xml', 'application/opensearchdescription+xml');
+    Link('self', FLinkBase + Route, Kind) + Link('start', FLinkBase, NAV_TYPE) +
+    Link('search', FLinkBase + '/search.xml', 'application/opensearchdescription+xml');
 end;
 
 function THomeLibOPDSServer.RootFeed: string;
 begin
   Result := FeedStart(FCollection.DisplayName, '', NAV_TYPE) +
-    Entry('urn:homelibru:books', 'Все книги', FUpdated, FPrefix + '/books', BOOK_TYPE) +
-    Entry('urn:homelibru:authors', 'Авторы', FUpdated, FPrefix + '/authors', NAV_TYPE) +
-    Entry('urn:homelibru:genres', 'Жанры', FUpdated, FPrefix + '/genres', NAV_TYPE) +
-    Entry('urn:homelibru:series', 'Книжные серии', FUpdated, FPrefix + '/series', NAV_TYPE) +
+    Entry('urn:homelibru:books', 'Все книги', FUpdated, FLinkBase + '/books', BOOK_TYPE) +
+    Entry('urn:homelibru:authors', 'Авторы', FUpdated, FLinkBase + '/authors', NAV_TYPE) +
+    Entry('urn:homelibru:genres', 'Жанры', FUpdated, FLinkBase + '/genres', NAV_TYPE) +
+    Entry('urn:homelibru:series', 'Книжные серии', FUpdated, FLinkBase + '/series', NAV_TYPE) +
     '</feed>';
 end;
 
@@ -239,17 +268,17 @@ begin
     begin
       ID := Q.FieldAsString(0); Name := Q.FieldAsString(1);
       Result := Result + Entry('urn:homelibru:' + Target + ':' + ID,
-        Name, FUpdated, FPrefix + Target + '?id=' +
+        Name, FUpdated, FLinkBase + Target + '?id=' +
         TNetEncoding.URL.EncodeQuery(ID), BOOK_TYPE);
       Inc(Count); Q.Next;
     end;
     if not Q.Eof then
-      Result := Result + Link('next', FPrefix + Route + '?page=' + IntToStr(Page + 1), NAV_TYPE);
+      Result := Result + Link('next', FLinkBase + Route + '?page=' + IntToStr(Page + 1), NAV_TYPE);
   finally
     Q.Free;
   end;
   if Page > 0 then
-    Result := Result + Link('previous', FPrefix + Route + '?page=' + IntToStr(Page - 1), NAV_TYPE);
+    Result := Result + Link('previous', FLinkBase + Route + '?page=' + IntToStr(Page - 1), NAV_TYPE);
   Result := Result + '</feed>';
 end;
 
@@ -318,17 +347,17 @@ begin
         Authors.Next;
       end;
       Result := Result + '<dc:language>' + OPDSXmlEscape(Q.FieldAsString(3)) + '</dc:language>' +
-        Link('http://opds-spec.org/acquisition', FPrefix + '/book/' + ID +
+        Link('http://opds-spec.org/acquisition', FLinkBase + '/book/' + ID +
           DownloadExtension(Q.FieldAsString(2)), Mime) + '</entry>';
       Inc(Count); Q.Next;
     end;
     if not Q.Eof then
-      Result := Result + Link('next', FPrefix + Route + '?' + Params + 'page=' + IntToStr(Page + 1), BOOK_TYPE);
+      Result := Result + Link('next', FLinkBase + Route + '?' + Params + 'page=' + IntToStr(Page + 1), BOOK_TYPE);
   finally
     Authors.Free; Q.Free;
   end;
   if Page > 0 then
-    Result := Result + Link('previous', FPrefix + Route + '?' + Params + 'page=' + IntToStr(Page - 1), BOOK_TYPE);
+    Result := Result + Link('previous', FLinkBase + Route + '?' + Params + 'page=' + IntToStr(Page - 1), BOOK_TYPE);
   Result := Result + '</feed>';
 end;
 

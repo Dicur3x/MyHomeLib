@@ -185,6 +185,8 @@ pdf.extend(b'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+str(xref).encode()
   pass('online collections are rejected with a Russian explanation; inactive and active servers end inactive');
   assert.equal(ready.lan_loopback_checked, true);
   pass('AllowLAN binds an IPv4 wildcard listener; a loopback Atom GET and Stop succeed');
+  assert.equal(ready.external_proxy_checked, true);
+  pass('external HTTPS address is validated; navigation, search and download links retain the configured path and ignore forwarded headers');
   address = new URL(ready.url);
   assert.equal(address.hostname, '127.0.0.1');
   assert.match(address.pathname, /^\/[0-9a-f-]{36}\/opds$/);
