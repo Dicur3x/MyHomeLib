@@ -10,6 +10,14 @@ begin
     Source:=TFileStream.Create(ArchivePath,fmOpenRead or fmShareDenyWrite);
     try
       // Planning is physically incapable of writing this read-only handle.
+      var Observed:=ReadBookDeletionInventory(ArchivePath,ArchiveDeletionSourceIdentity(ArchivePath));
+      var HasOne,HasTwo:Boolean; HasOne:=False; HasTwo:=False;
+      for var Name in Observed do
+      begin
+        HasOne:=HasOne or (Name.Replace('\','/')='selected/one.fb2');
+        HasTwo:=HasTwo or (Name.Replace('\','/')='selected/two.fb2');
+      end;
+      Require(HasOne and HasTwo,'Metadata-only 7z inventory lost exact selected names');
       Layout:=PlanSevenZipDeletion(Source,['selected\one.fb2','selected/two.fb2']);
       Require((Length(Layout.Remaining)>=1) and (Layout.FinalSize<Source.Size) and
         (Length(Layout.Header)=32) and (Length(Layout.Tail)<128*1024),

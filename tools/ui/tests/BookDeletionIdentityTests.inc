@@ -198,6 +198,35 @@ begin
     except on E:EReadError do Rejected:=True; end;
     Require(Rejected,'FBD deletion paired unrelated filenames');
     Writeln('PASS exact deletion member selection preserves Unicode full paths literal characters and FBD companions without basename case or ordinal fallback'); Flush(Output);
+
+    var InventoryPath:=Root+'read-only-inventory.zip';
+    var InventoryZip:=TZipFile.Create;
+    try
+      InventoryZip.Open(InventoryPath,zmWrite); InventoryZip.UTF8Support:=True;
+      for var Name in ['nested/Книга ё.fb2','other/Книга ё.fb2','shared.jpg'] do
+      begin
+        var Contents:=TStringStream.Create('Owned opaque source '+Name,TEncoding.UTF8);
+        try InventoryZip.Add(Contents,Name); finally Contents.Free; end;
+      end;
+    finally InventoryZip.Free; end;
+    var InventoryHash:=THashSHA2.GetHashStringFromFile(InventoryPath);
+    var SourceIdentity:=ArchiveDeletionSourceIdentity(InventoryPath);
+    var Observed:=ReadBookDeletionInventory(InventoryPath,SourceIdentity);
+    Require(Length(Observed)=3,'Metadata-only ZIP inventory lost entries');
+    MemberBook.CollectionRoot:=Root; MemberBook.Folder:='read-only-inventory.zip';
+    MemberBook.FileName:='nested/Книга ё'; MemberBook.FileExt:='.fb2';
+    Members:=ExactBookDeletionMembers(MemberBook,Observed);
+    Require((Length(Members)=1) and (Members[0]='nested/Книга ё.fb2'),'ZIP metadata did not resolve the exact selected member');
+    Rejected:=False;
+    try ReadBookDeletionInventory(InventoryPath,SourceIdentity+'changed');
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'Inventory accepted a changed source fingerprint');
+    Rejected:=False;
+    try ReadBookDeletionInventory(InventoryPath,SourceIdentity,function:Boolean begin Result:=True; end);
+    except on E:EAbort do Rejected:=True; end;
+    Require(Rejected and (THashSHA2.GetHashStringFromFile(InventoryPath)=InventoryHash),
+      'Cancelled metadata inventory modified its source');
+    Writeln('PASS metadata-only ZIP inventory preserves source bytes and checks captured identity and cancellation before selection'); Flush(Output);
   finally
     Writer:=nil; Personal.Free; Catalog.Free; Collection:=nil; Other:=nil; User:=nil;
   end;

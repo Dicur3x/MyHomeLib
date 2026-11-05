@@ -24,6 +24,8 @@ type
 function PlanSevenZipDeletion(Source: TStream; const Remove: TArray<string>;
   const Cancel: TFunc<Boolean> = nil): TSevenZipDeletionLayout;
 procedure VerifySevenZipInventory(Source: TStream; const Names: TArray<string>);
+function ReadSevenZipInventory(Source: TStream;
+  const Cancel: TFunc<Boolean> = nil): TArray<string>;
 
 implementation
 
@@ -279,6 +281,22 @@ begin
     Value:=Unassigned; Check(Archive.GetProperty(I,3,Value),'имя файла');
     Result[I]:=VarToStr(Value); Inc(Characters,Length(Result[I]));
     if (Result[I]='') or (Characters>8*1024*1024) then raise EReadError.Create('Неверный список имён 7z.');
+  end;
+end;
+
+function ReadSevenZipInventory(Source:TStream; const Cancel:TFunc<Boolean>):TArray<string>;
+var Module:HMODULE; Input:ISzIn; Archive:ISzArchive; Value:OleVariant;
+begin
+  Module:=0;
+  try
+    OpenSevenZip(Source,Module,Input,Archive,Cancel);
+    Value:=Unassigned; Check(Archive.GetArchiveProperty(71,Value),'проверка ошибок 7z');
+    if not VarIsEmpty(Value) and (Value<>0) then raise EReadError.Create('7z содержит ошибки заголовка.');
+    Result:=NamesIn(Archive);
+  finally
+    if Assigned(Archive) then Archive.Close;
+    Archive:=nil; Input:=nil;
+    if Module<>0 then FreeLibrary(Module);
   end;
 end;
 

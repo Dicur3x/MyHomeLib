@@ -5030,5 +5030,23 @@
     "first_attempt": "r1 fixture accidentally used two literal backslashes where one was intended. Exact path rejection was correct. Fixed the fixture strings; no path-guessing fallback added. r2 passed both architectures.",
     "cleanup": "New owned test roots removed. No real collection source changed.",
     "next": "Use this selector with a bounded metadata-only ZIP/7z inventory reader in background task preparation, then integrate the existing queue and conditional catalogue binding with Main progress, recovery and source gating. Use existing IBookIdentityPersonalWriter/bpfIsLocal for guarded files-only source-state updates; avoid adding a redundant DAO interface."
+  },
+  "beta4_deletion_inventory_20261105": {
+    "status": "PASS metadata-only ZIP/7z preparation reader x86/x64; Main queue integration remains open",
+    "implementation": "Reads metadata from a read-only source handle, denies concurrent writes, verifies captured physical source fingerprint before and after metadata reading, supports cancellation and bounded inventory size, detects 7z by signature and uses the existing optional 7-Zip SDK. No extraction or source writes.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-inventory-20261105-r1.log",
+      "Win32_SHA256": "6af67fdecc3509bf04f6ac6cc6b7e41c327c51314e6f9c852d739ee65eebdc3e",
+      "Win64_SHA256": "de706c484ecae7aa31bf65763ff6703ba6b68cb247098059841790f21eaebee2",
+      "cases": [
+        "ZIP names feed the exact member selector; Unicode full path retained",
+        "Wrong source fingerprint and cancellation rejected; source SHA256 unchanged",
+        "PPMd/LZMA2 inventories include exact selected names and remain unchanged",
+        "Full previous ZIP64/recovery/grouped queue and independent 7-Zip CRC/payload checks passed",
+        "All conditional catalogue identity, persisted binding and exact member cases passed"
+      ]
+    },
+    "cleanup": "New owned root homelibre-delete-inventory-check-rzu5_thz removed. Real collection unchanged.",
+    "next": "Background grouped task preparation and its source-bound catalogue slices, followed directly by Main progress/recovery/source gate integration."
   }
 }
