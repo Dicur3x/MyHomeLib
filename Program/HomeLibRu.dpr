@@ -314,6 +314,7 @@ begin
   // recreates all VCL handles and exposes the initial light frame at startup.
   Application.CreateForm(TDMUser, DMUser);
   DMUser.Init;
+  LogCatalogueStartupPhase('settings-ready');
   SetMHLTheme(Settings.DarkTheme);
   frmSplash := TfrmSplash.Create(Application);
   try
@@ -326,6 +327,7 @@ begin
 
     TfrmMain.DeferInitialCollection := True;
     Application.CreateForm(TfrmMain, frmMain);
+    LogCatalogueStartupPhase('window-created');
 
     frmSplash.Hide;
   finally

@@ -15,6 +15,7 @@ procedure InitializeDiagnostics;
 procedure PruneDiagnosticLogs;
 procedure LogDiagnosticMessage(const Operation, Message: string);
 procedure LogDiagnosticTrace(const Operation, Message: string; const FormatName: string = '');
+procedure LogCatalogueStartupPhase(const Phase: string);
 procedure LogDiagnosticError(const Operation: string; Error: Exception; const FormatName: string = '');
 procedure SaveDiagnosticReport(const FileName: string; AllowOverwrite: Boolean = False);
 procedure ShowDiagnostics(Owner: TComponent; const ConfigureForm: TProc<TComponent> = nil);
@@ -205,6 +206,19 @@ begin WriteDiagnostic('error',Operation,'',Message,''); end;
 procedure LogDiagnosticTrace(const Operation, Message: string; const FormatName: string);
 begin
   if DetailedDiagnosticLogging then WriteDiagnostic('trace',Operation,'',Message,FormatName);
+end;
+
+procedure LogCatalogueStartupPhase(const Phase: string);
+var Created, Exited, Kernel, User, Current: TFileTime;
+  CreatedTicks, CurrentTicks: UInt64;
+begin
+  if not DetailedDiagnosticLogging then Exit;
+  if not GetProcessTimes(GetCurrentProcess,Created,Exited,Kernel,User) then Exit;
+  GetSystemTimeAsFileTime(Current);
+  CreatedTicks:=(UInt64(Created.dwHighDateTime) shl 32) or Created.dwLowDateTime;
+  CurrentTicks:=(UInt64(Current.dwHighDateTime) shl 32) or Current.dwLowDateTime;
+  if CurrentTicks>=CreatedTicks then
+    LogDiagnosticTrace('catalogue-startup',Phase+' elapsed_ms='+UIntToStr((CurrentTicks-CreatedTicks) div 10000));
 end;
 
 procedure LogDiagnosticError(const Operation: string; Error: Exception; const FormatName: string);

@@ -730,7 +730,7 @@ type
     FResumingSave: Boolean;
     FReadBuiltinAction, FReadExternalAction, FOpenArchiveAction, FLocationAction, FChooseReaderAction: TAction;
     FMetadataFillAction: TAction;
-    FStartupLoading: Boolean;
+    FStartupLoading, FStartupWindowPainted: Boolean;
     FStartupStep: Integer;
     FStartupTimer: TTimer;
     FStartupCatalog: TStartupCatalogLoader;
@@ -739,6 +739,7 @@ type
     FStartupBookRows: TStartupBookRows;
     FStartupMenuEnabled: TArray<Boolean>;
     FStartupMainButtons, FStartupEditButtons: TArray<Boolean>;
+    procedure StartupPaint(var Message: TWMPaint); message WM_PAINT;
     procedure ResumeBookSave(var Message: TMessage); message WM_RESUME_BOOK_SAVE;
     procedure OpenCatalogueReader(const Resolved, Snapshot: TBookRecord;
       const LibraryNamespace: string; RequirePersonal: Boolean);
@@ -747,7 +748,7 @@ type
     procedure SavePendingCatalogueReader(Persist: Boolean);
     procedure ResumePendingCatalogueReader;
     procedure StartupTick(Sender: TObject);
-    procedure FinishInitialLoading;
+    procedure FinishInitialLoading(Failed: Boolean = False);
     procedure UpdateBookToolbarForView;
     function SearchCompletionMessage: string;
     procedure StopInitialLoading;
@@ -5108,6 +5109,16 @@ begin
   FStartupCatalog.Start;
 end;
 
+procedure TfrmMain.StartupPaint(var Message: TWMPaint);
+begin
+  inherited;
+  if not FStartupWindowPainted and DeferInitialCollection and Visible and not IsIconic(Handle) then
+  begin
+    FStartupWindowPainted := True;
+    LogCatalogueStartupPhase('first-window-paint');
+  end;
+end;
+
 procedure TfrmMain.StartInitialCollectionLoad;
   procedure RememberButtons(Bar: TToolBar; out States: TArray<Boolean>);
   begin
@@ -5133,7 +5144,7 @@ begin
   FStartupTimer.OnTimer := StartupTick;
 end;
 
-procedure TfrmMain.FinishInitialLoading;
+procedure TfrmMain.FinishInitialLoading(Failed: Boolean);
   procedure RestoreButtons(Bar: TToolBar; var States: TArray<Boolean>);
   begin
     // Handle recreation while the bar is disabled also disables its commands.
@@ -5167,6 +5178,9 @@ begin
   except
     on E: Exception do begin LogDiagnosticError('save-resume-load',E); MHLShowError(E.Message); end;
   end;
+  if Failed then LogCatalogueStartupPhase('collection-failed')
+  else if Assigned(FCollection) then LogCatalogueStartupPhase('collection-ready')
+  else LogCatalogueStartupPhase('no-collection');
 end;
 
 procedure TfrmMain.StopInitialLoading;
@@ -5231,7 +5245,7 @@ begin
       on E: Exception do
       begin
         StopInitialLoading;
-        FinishInitialLoading;
+        FinishInitialLoading(True);
         StatusMessage := 'Не удалось открыть коллекцию: ' + E.Message;
         MHLShowError(StatusMessage);
       end;

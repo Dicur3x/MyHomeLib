@@ -275,7 +275,16 @@ function requiredPasses(executable, mode) {
   if (mode==='advanced-save') return ['PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
-  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return ['ACTUAL startup ui_fixture=1','PASS streamed alphabet theme=1 ppi=192','PASS tree text and headers fit theme=1 ppi=192','PASS streamed alphabets preserve exact letters order geometry and real author series filter actions','PASS catalogue benchmark applies the visible search fields and verifies both results','PASS actual catalogue startup phase profile completed','TRACE catalogue orderly cleanup complete'];
+  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return [
+    'ACTUAL startup ui_fixture=1',
+    'PASS startup diagnostics distinguish the visible window from collection readiness',
+    'PASS streamed alphabet theme=1 ppi=192',
+    'PASS tree text and headers fit theme=1 ppi=192',
+    'PASS streamed alphabets preserve exact letters order geometry and real author series filter actions',
+    'PASS catalogue benchmark applies the visible search fields and verifies both results',
+    'PASS actual catalogue startup phase profile completed',
+    'TRACE catalogue orderly cleanup complete'
+  ];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup')) return ['PASS actual catalogue startup phase profile completed','PASS actual catalogue uses the distributed deferred startup path','ACTUAL startup icons_load_ms=','ACTUAL startup main_create_ms=','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-sample')) return ['PASS actual catalogue sampled iterator profile completed','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-record-transfer')) return ['TRANSFER copy=1 trial=1','TRANSFER copy=0 trial=8','PASS same-binary full catalogue record ownership transfer comparison preserves all row counts','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];

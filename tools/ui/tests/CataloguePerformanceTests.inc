@@ -79,6 +79,7 @@ begin
   if InterfaceOnly then
   begin
     Writeln('ACTUAL startup ui_fixture=1');
+    SetDetailedDiagnosticLogging(True);
     CID := SystemDB.CreateCollection('Startup interface fixture',Settings.AppPath,
       'startup-ui.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
     Collection := SystemDB.GetCollection(CID);
@@ -131,6 +132,11 @@ begin
   begin SaveSQLiteProfile(Settings.AppPath+'actual-startup-profile.tsv'); StopSQLiteProfile; end;
   if InterfaceOnly then
   begin
+    var StartupLog:=TFile.ReadAllText(DiagnosticLogFile,TEncoding.UTF8);
+    var FirstPaint:=Pos('first-window-paint elapsed_ms=',StartupLog);
+    Require((FirstPaint>0) and (Pos('collection-ready elapsed_ms=',StartupLog)>FirstPaint),
+      'Startup diagnostics did not record the first visible paint before the collection was ready');
+    Writeln('PASS startup diagnostics distinguish the visible window from collection readiness');
     Require(frmMain.pgControl.OwnerDraw and frmMain.pgControl.DoubleBuffered and
       Assigned(frmMain.pgControl.OnDrawTab),'Streamed navigation tabs lost their drawing handler or buffering');
     CheckAlphabet(frmMain.tbarAuthorsRus,ALPHA_FILTER_ALL+ALPHA_FILTER_NON_ALPHA+CYRILLIC_ALPHABET);
