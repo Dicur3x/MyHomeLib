@@ -1,4 +1,33 @@
-﻿procedure TestPersonalAuthorUI(const Collection: IBookCollection);
+﻿type
+  TPersonalCancelBooks = class(TInterfacedObject, IBookIterator)
+  private
+    FIndex: Integer;
+    FBeta, FGamma: TBookAuthors;
+  public
+    constructor Create;
+    function Next(out Book: TBookRecord): Boolean;
+    function RecordCount: Integer;
+  end;
+
+constructor TPersonalCancelBooks.Create;
+begin
+  inherited Create;
+  TAuthorsHelper.Add(FBeta,'Beta','Alex',''); TAuthorsHelper.Add(FGamma,'Gamma','Alex','');
+end;
+
+function TPersonalCancelBooks.RecordCount: Integer;
+begin Result:=500000; end;
+
+function TPersonalCancelBooks.Next(out Book: TBookRecord): Boolean;
+begin
+  Result:=FIndex<RecordCount; if not Result then Exit;
+  Inc(FIndex); Book.Clear; Book.NodeType:=ntBookInfo;
+  Book.BookKey:=CreateBookKey(9000000+FIndex,Settings.ActiveCollection);
+  Book.Title:='Проверка отмены на большом списке'; Book.Lang:='ru'; Book.FileExt:='.fb2';
+  if Odd(FIndex) then Book.Authors:=FBeta else Book.Authors:=FGamma;
+end;
+
+procedure TestPersonalAuthorUI(const Collection: IBookCollection);
 var
   Store: TAuthorFavorites;
   RatingMenu, Minimum, ShowHidden, Unrated, Hide: TMenuItem;
@@ -74,6 +103,92 @@ var
     ShowPage(PAGE_SEARCH); frmMain.DoClearFilter(False);
     frmMain.cbDeleted.Checked:=True; frmMain.cbDeleted.OnClick(frmMain.cbDeleted);
     frmMain.cbCollapseMultiSeriesResults.Checked:=True; frmMain.DoApplyFilter(nil);
+  end;
+  procedure CheckLargeCancel;
+  var Languages: TComboBox; Tree: TBookTree; Canceller: TThread; CancelHandle: HWND;
+    Trees: TArray<TBookTree>; Before: TArray<string>; Focus: PVirtualNode; IniHash: string;
+    OriginalMode: TTreeMode; Reset: TMenuItem; Filters: TBookColumnFilters;
+    Plan: TBookColumnFilterPlan; Rejected: Boolean; SavedPolicy: TPersonalAuthorFilterState;
+    function Snapshot(A: TBookTree): string;
+    var Node: PVirtualNode; Builder: TStringBuilder;
+    begin
+      Builder:=TStringBuilder.Create;
+      try
+        Builder.Append(NativeUInt(A.FocusedNode)).Append(':'); Node:=A.GetFirst;
+        while Assigned(Node) do
+        begin
+          Builder.Append(Node.Index).Append(':').Append(Ord(A.IsFiltered[Node])).Append(':').
+            Append(Ord(A.Selected[Node])).Append(':').Append(Ord(Node.CheckState)).Append(';');
+          Node:=A.GetNext(Node);
+        end;
+        Result:=THashSHA2.GetHashString(Builder.ToString);
+      finally Builder.Free; end;
+    end;
+    procedure RequireUnchanged;
+    begin
+      for var I:=0 to High(Trees) do Require(Snapshot(Trees[I])=Before[I],
+        'Canceled personal filter changed rows, checks, selection or focus in view '+IntToStr(I));
+    end;
+  begin
+    Writeln('TRACE personal large cancellation fixture setup'); Flush(Output);
+    Reset:=TMenuItem(frmMain.FindComponent('miPersonalAuthors')).Items[4]; Reset.Click;
+    if not ShowHidden.Checked then ShowHidden.Click;
+    SelectAuthor('Beta'); RatingMenu.Items[2].Click; Reset.Click;
+    ShowPage(PAGE_SEARCH); Tree:=frmMain.tvBooksSR;
+    OriginalMode:=Settings.TreeModes[PAGE_SEARCH]; Settings.TreeModes[PAGE_SEARCH]:=tmFlat;
+    Languages:=TComboBox.Create(nil);
+    try
+      Languages.Parent:=frmMain; Languages.Visible:=False; Languages.Items.Add('-'); Languages.ItemIndex:=0;
+      frmMain.FillBooksTree(Tree,Languages,TPersonalCancelBooks.Create as IBookIterator,False,False,nil);
+      Require(VisibleBooks(Tree)=500000,'Large cancellation fixture omitted rows');
+      Focus:=Tree.GetFirst; Tree.FocusedNode:=Focus; Tree.Selected[Focus]:=True;
+      Focus.CheckState:=csCheckedNormal; Tree.GetLast.CheckState:=csCheckedNormal;
+      Trees:=TArray<TBookTree>.Create(frmMain.tvBooksA,frmMain.tvBooksS,frmMain.tvBooksG,
+        Tree,frmMain.tvBooksF,PublisherView.Books);
+      SetLength(Before,Length(Trees));
+      for var I:=0 to High(Trees) do Before[I]:=Snapshot(Trees[I]);
+      Filters:=TBookColumnFilters.ForTree(Tree); SavedPolicy:=GetPersonalAuthorFilterState;
+      Plan:=Filters.PrepareApply(False);
+      try
+        Filters.SetValue(COL_TITLE,'=does-not-exist'); Rejected:=False;
+        try Plan.CheckReady; except on E:EInvalidOp do Rejected:=True; end;
+        Require(Rejected,'Prepared filter ignored changed column conditions'); Filters.SetValue(COL_TITLE,'');
+      finally Plan.Free; end;
+      Plan:=Filters.PrepareApply(False);
+      try
+        SetPersonalAuthorFilter(SavedPolicy.Entries,5,False,False); Rejected:=False;
+        try Plan.CheckReady; except on E:EInvalidOp do Rejected:=True; end;
+        Require(Rejected,'Prepared filter ignored a changed personal policy');
+      finally
+        SetPersonalAuthorFilter(SavedPolicy.Entries,SavedPolicy.MinimumRating,SavedPolicy.IncludeUnrated,SavedPolicy.ShowHidden);
+        Plan.Free;
+      end;
+      RequireUnchanged;
+      IniHash:=THashSHA2.GetHashStringFromFile(Settings.SettingsFileName);
+      CancelHandle:=TButton(frmMain.FindComponent('BookListCancel')).Handle;
+      Canceller:=TThread.CreateAnonymousThread(procedure
+        begin
+          Sleep(40);
+          PostMessage(CancelHandle,WM_LBUTTONDOWN,MK_LBUTTON,MakeLParam(4,4));
+          PostMessage(CancelHandle,WM_LBUTTONUP,0,MakeLParam(4,4));
+        end);
+      Canceller.FreeOnTerminate:=False;
+      try Canceller.Start; Minimum.Items[4].Click; finally Canceller.WaitFor; Canceller.Free; end;
+      Require(frmMain.BookListCancelled,'Large personal filtering completed without exercising the cancel path');
+      RequireUnchanged;
+      Require(Minimum.Items[0].Checked and not Minimum.Items[4].Checked and Unrated.Checked,
+        'Cancel retained the new personal filter controls');
+      Require(THashSHA2.GetHashStringFromFile(Settings.SettingsFileName)=IniHash,
+        'Cancel persisted a personal filter that was never applied');
+      Require(GetPersonalAuthorFilterState.MinimumRating=0,'Cancel did not restore the previously applied policy');
+      Minimum.Items[4].Click;
+      Require(not frmMain.BookListCancelled and Minimum.Items[4].Checked and (VisibleBooks(Tree)=250000),
+        'Retry did not apply the author policy to all matching large-list rows');
+      Reset.Click; Require(VisibleBooks(Tree)=500000,'Widening the policy lost canceled or filtered rows');
+      Writeln('PASS personal author cancel preserves six loaded views and settings on 500000 rows; retry and widening succeed');
+    finally
+      Languages.Free; Settings.TreeModes[PAGE_SEARCH]:=OriginalMode; ApplySearch;
+    end;
   end;
 begin
   RequireIsolatedRegression;
@@ -240,6 +355,7 @@ begin
     Proof:=Settings.AppPath+'personal-author-transfer.ok';
     Require(FileExists(Proof) and (StrToIntDef(Trim(TFile.ReadAllText(Proof,TEncoding.UTF8)),0)<>Integer(GetCurrentProcessId)),
       'The separate-process general transfer menu proof is absent');
+    CheckLargeCancel;
     Writeln('PASS personal author general user-data menus export import preserve existing preferences and cancel');
     Writeln('PASS personal author native full INPX reimport preserves rating hiding and matches new local IDs');
     Writeln('PASS personal author context scores hidden coauthors search favorites widening manager absent authors durable edits and DPI');
@@ -340,8 +456,9 @@ var Store: TAuthorFavorites; Data: TUserData; Driver: TSPTDialogDriver;
     finally Rows.Free; end;
   end;
   procedure ReloadMainProfile;
+  var CloseManager: TThreadProcedure;
   begin
-    TThread.ForceQueue(nil,procedure
+    CloseManager:=procedure
       var Manager: TfrmAuthorFavorites;
       begin
         Manager:=nil;
@@ -349,7 +466,8 @@ var Store: TAuthorFavorites; Data: TUserData; Driver: TSPTDialogDriver;
           if Screen.Forms[I] is TfrmAuthorFavorites then Manager:=TfrmAuthorFavorites(Screen.Forms[I]);
         Require(Assigned(Manager),'Author menu reload did not open the manager');
         TButton(Manager.FindComponent('btnCloseFavoriteAuthors')).Click;
-      end);
+      end;
+    TThread.ForceQueue(nil,CloseManager);
     TMenuItem(frmMain.FindComponent('miAllFavoriteAuthors')).Click;
   end;
   procedure FileAction(Menu: TMenuItem; const Title, Path: string; Cancel: Boolean);

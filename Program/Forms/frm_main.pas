@@ -1047,7 +1047,7 @@ type
     procedure CreatePersonalAuthorControls;
     procedure PersonalAuthorClick(Sender: TObject);
     procedure PersonalFilterClick(Sender: TObject);
-    procedure PublishPersonalAuthorPreferences;
+    procedure PublishPersonalAuthorPreferences(const BeforeCommit: TProc = nil; Cancellable: Boolean = False);
     function FavoriteProfileFile: string;
     function FavoriteStore: TAuthorFavorites;
     function FavoriteDescriptor(const Collection: IBookCollection): TAuthorFavoriteCollection;
@@ -9973,47 +9973,87 @@ begin
   finally Authors.Free; end;
 end;
 
-procedure TfrmMain.PublishPersonalAuthorPreferences;
-var Entries: TArray<TAuthorPersonalEntry>; Hidden: Integer; Tree: TBookTree; Visible: Integer;
-  WasActive: Boolean;
+procedure TfrmMain.PublishPersonalAuthorPreferences(const BeforeCommit: TProc; Cancellable: Boolean);
+var Entries: TArray<TAuthorPersonalEntry>; Previous: TPersonalAuthorFilterState;
+  Hidden, Visible: Integer; Tree: TBookTree; WasActive, NeedsFiltering, WasBusy: Boolean;
+  SavedCursor: TCursor; Plans: TObjectList<TBookColumnFilterPlan>;
 begin
-  WasActive:=PersonalAuthorFilterActive;
+  if FBookListLoading then raise EInvalidOp.Create('Дождитесь завершения текущей фильтрации.');
+  Previous:=GetPersonalAuthorFilterState; WasActive:=PersonalAuthorFilterActive;
   if Assigned(FFavoriteStore) then Entries:=FFavoriteStore.PersonalEntries;
-  SetPersonalAuthorFilter(Entries,FPersonalMinimumRating,FPersonalIncludeUnrated,FPersonalShowHidden);
-  Hidden:=0;
-  for var Entry in Entries do if Entry.Hidden then Inc(Hidden);
-  FPersonalMenu.Caption:='Мои авторы';
-  if PersonalAuthorFilterActive then FPersonalMenu.Caption:='Мои авторы • фильтр';
-  FPersonalShowHiddenMenu.Caption:=Format('Показывать скрытых авторов (%d)',[Hidden]);
-  FPersonalShowHiddenMenu.Checked:=FPersonalShowHidden;
-  FPersonalUnratedMenu.Checked:=FPersonalIncludeUnrated;
-  for var I:=0 to FPersonalMinimumMenu.Count-1 do
-    FPersonalMinimumMenu.Items[I].Checked:=FPersonalMinimumMenu.Items[I].Tag=FPersonalMinimumRating;
-  tvAuthors.Invalidate;
-  if not WasActive and not PersonalAuthorFilterActive then Exit;
-  for var View:=Low(TView) to High(TView) do
-    if View in FLoadedBookViews then
-    begin
-      Tree:=nil;
-      case View of
-        AuthorsView: Tree:=tvBooksA;
-        SeriesView: Tree:=tvBooksS;
-        GenresView: Tree:=tvBooksG;
-        SearchView: Tree:=tvBooksSR;
-        FavoritesView: Tree:=tvBooksF;
-        PublisherSeriesView: if Assigned(FPublisher) then Tree:=FPublisher.Books;
-      end;
-      if Assigned(Tree) then
+  Plans:=TObjectList<TBookColumnFilterPlan>.Create(True);
+  SavedCursor:=Screen.Cursor; WasBusy:=FFormBusy; FFormBusy:=True;
+  FBookListLoading:=True; FBookListCancelled:=False; FBookListLastPump:=0;
+  Inc(FBookInfoUpdateCount);
+  try
+    try
+      SetPersonalAuthorFilter(Entries,FPersonalMinimumRating,FPersonalIncludeUnrated,FPersonalShowHidden);
+      NeedsFiltering:=WasActive or PersonalAuthorFilterActive;
+      if NeedsFiltering then
       begin
-        Visible:=TBookColumnFilters.ForTree(Tree).Apply;
+        FBookListCancel.Visible:=Cancellable; FBookListCancel.BringToFront;
+        ShowStatusProgress:=True; StatusProgress:=0;
+        for var View:=Low(TView) to High(TView) do
+          if View in FLoadedBookViews then
+          begin
+            Tree:=nil;
+            case View of
+              AuthorsView: Tree:=tvBooksA;
+              SeriesView: Tree:=tvBooksS;
+              GenresView: Tree:=tvBooksG;
+              SearchView: Tree:=tvBooksSR;
+              FavoritesView: Tree:=tvBooksF;
+              PublisherSeriesView: if Assigned(FPublisher) then Tree:=FPublisher.Books;
+            end;
+            if Assigned(Tree) then
+            begin
+              Plans.Add(TBookColumnFilters.ForTree(Tree).PrepareApply(True,
+                function: Boolean
+                var Requested: Boolean;
+                begin
+                  Requested:=PollBookListCancel;
+                  if not Cancellable then FBookListCancelled:=False;
+                  Result:=Cancellable and Requested;
+                end));
+              StatusProgress:=(Ord(View)+1)*100 div (Ord(High(TView))+1);
+            end;
+          end;
+      end;
+      // Nothing visible or durable changes while a cancellable plan is evaluated.
+      // Validate every view before writing the shared preferences and committing.
+      for var Plan in Plans do Plan.CheckReady;
+      if Assigned(BeforeCommit) then BeforeCommit();
+      for var Plan in Plans do
+      begin
+        Visible:=Plan.Commit; Tree:=Plan.Tree;
         SetBookListTotals(Tree,Visible,TBookColumnFilters.ForTree(Tree).Total);
         ClearFilteredBookFocus(Tree);
-        if View=ActiveView then RefreshBookInfo(Tree);
       end;
+      Hidden:=0; for var Entry in Entries do if Entry.Hidden then Inc(Hidden);
+      FPersonalMenu.Caption:='Мои авторы';
+      if PersonalAuthorFilterActive then FPersonalMenu.Caption:='Мои авторы • фильтр';
+      FPersonalShowHiddenMenu.Caption:=Format('Показывать скрытых авторов (%d)',[Hidden]);
+      FPersonalShowHiddenMenu.Checked:=FPersonalShowHidden;
+      FPersonalUnratedMenu.Checked:=FPersonalIncludeUnrated;
+      for var I:=0 to FPersonalMinimumMenu.Count-1 do
+        FPersonalMinimumMenu.Items[I].Checked:=FPersonalMinimumMenu.Items[I].Tag=FPersonalMinimumRating;
+      tvAuthors.Invalidate;
+    except
+      SetPersonalAuthorFilter(Previous.Entries,Previous.MinimumRating,Previous.IncludeUnrated,Previous.ShowHidden);
+      raise;
     end;
-  Include(FStaleSelectors,AuthorsView);
-  Exclude(FLoadedBookViews,AuthorsView);
-  if Assigned(FCollection) and not FStartupLoading and (ActiveView=AuthorsView) then EnsureActiveBookViewLoaded;
+  finally
+    Plans.Free; Dec(FBookInfoUpdateCount);
+    FBookListCancel.Visible:=False; ShowStatusProgress:=False;
+    FBookListLoading:=False; FFormBusy:=WasBusy; Screen.Cursor:=SavedCursor;
+  end;
+  if not NeedsFiltering then Exit;
+  Include(FStaleSelectors,AuthorsView); Exclude(FLoadedBookViews,AuthorsView);
+  if Assigned(FCollection) and not FStartupLoading then
+  begin
+    if ActiveView=AuthorsView then EnsureActiveBookViewLoaded;
+    RefreshActiveBookInfo;
+  end;
 end;
 
 procedure TfrmMain.PersonalAuthorClick(Sender: TObject);
@@ -10035,27 +10075,41 @@ begin
 end;
 
 procedure TfrmMain.PersonalFilterClick(Sender: TObject);
-var Ini: TMemIniFile; Minimum: Integer; IncludeUnrated, ShowHidden: Boolean;
+var Minimum, PreviousMinimum: Integer; IncludeUnrated, ShowHidden, PreviousUnrated, PreviousHidden: Boolean;
 begin
-  Minimum:=FPersonalMinimumRating; IncludeUnrated:=FPersonalIncludeUnrated;
-  ShowHidden:=FPersonalShowHidden;
+  if FFormBusy or FBookListLoading then Exit;
+  PreviousMinimum:=FPersonalMinimumRating; PreviousUnrated:=FPersonalIncludeUnrated;
+  PreviousHidden:=FPersonalShowHidden;
+  Minimum:=PreviousMinimum; IncludeUnrated:=PreviousUnrated; ShowHidden:=PreviousHidden;
   if Sender=FPersonalShowHiddenMenu then ShowHidden:=not ShowHidden
   else if Sender=FPersonalUnratedMenu then IncludeUnrated:=not IncludeUnrated
   else if TMenuItem(Sender).Tag=-1 then
   begin Minimum:=0; IncludeUnrated:=True; ShowHidden:=False; end
   else Minimum:=TMenuItem(Sender).Tag;
+  FPersonalMinimumRating:=Minimum; FPersonalIncludeUnrated:=IncludeUnrated; FPersonalShowHidden:=ShowHidden;
   try
-    Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
-    try
-      Ini.WriteInteger('AuthorPreferences','MinimumRating',Minimum);
-      Ini.WriteBool('AuthorPreferences','IncludeUnrated',IncludeUnrated);
-      Ini.WriteBool('AuthorPreferences','ShowHidden',ShowHidden);
-      SaveMemIniFileAtomically(Ini);
-    finally Ini.Free; end;
-  except on E: Exception do begin MHLShowError(E.Message); Exit; end; end;
-  FPersonalMinimumRating:=Minimum; FPersonalIncludeUnrated:=IncludeUnrated;
-  FPersonalShowHidden:=ShowHidden;
-  PublishPersonalAuthorPreferences;
+    PublishPersonalAuthorPreferences(
+      procedure
+      var Ini: TMemIniFile;
+      begin
+        Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+        try
+          Ini.WriteInteger('AuthorPreferences','MinimumRating',Minimum);
+          Ini.WriteBool('AuthorPreferences','IncludeUnrated',IncludeUnrated);
+          Ini.WriteBool('AuthorPreferences','ShowHidden',ShowHidden);
+          SaveMemIniFileAtomically(Ini);
+        finally Ini.Free; end;
+      end,True);
+  except
+    on E: Exception do
+    begin
+      FPersonalMinimumRating:=PreviousMinimum; FPersonalIncludeUnrated:=PreviousUnrated;
+      FPersonalShowHidden:=PreviousHidden;
+      if (E is EAbort) and FBookListCancelled then
+        StatusMessage:='Фильтрация отменена; сохранены прежние настройки и результаты'
+      else MHLShowError(E.Message);
+    end;
+  end;
 end;
 
 procedure TfrmMain.CreatePersonalAuthorControls;

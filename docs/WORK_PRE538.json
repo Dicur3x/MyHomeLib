@@ -4708,7 +4708,7 @@
     "individual_file_deletion_report": "User clarified with the 12:18 forum reply on 2026-11-05: reporter has books repacked into separate files under numbered-update directories, and physical file deletion stopped working despite the enabled setting. Treat this as a separate regression to reproduce first in the deletion direction, not as evidence of the shared-archive retention behavior. Exact per-book container type is not established by the screenshot. Test loose book files and one-book archives, checkbox on/off, collection path resolution and actual filesystem outcomes on x86/x64. Keep the shared-archive member-deletion requirements as an additional independent case."
   },
   "beta4_author_preferences_20261105": {
-    "status": "Implemented and verified by eight fresh native Release scenarios on x86/x64. Ordinary Main and final package acceptance remain open.",
+    "status": "Author preference feature implementation and native acceptance completed on x86/x64. Final release ZIP/public update acceptance remains in the shared beta 4 distribution gate.",
     "implementation": "Independent 1-5 personal author rating and reversible hidden flag in the global profile, schema-v1 read-only compatibility and transactional v2 migration, stale-writer field updates and atomic batch edits. My authors manager includes Favorite/Hidden/Rated/All categories, absent authors, exact-name identities, batch edits, score/hidden/favorite columns. Shared cached policy affects Authors, Search, Groups, cycles and publisher series; any hidden coauthor excludes, maximum explicit score determines rating eligibility, with a separate unrated switch. Profile and XML transfer preserve independent favorite membership and personal fields.",
     "native_verification": {
       "Win32_sha256": "2fa08f5611d2f6872cc5f93af72c7d655ade2b633cd6a3bda85a95ac373ea002",
@@ -4724,8 +4724,7 @@
     },
     "shutdown_fix": "Expanded modal-theme test exposed a deterministic shutdown crash. Vectored stack and MAP evidence located Vcl.Styles.TStyleEngine notifications during later control-hook finalization after its class state was released. MHL theme teardown must run before RTL class finalization, not only in a unit finalizer. Added FinalizeMHLTheme and called it from ordinary catalogue/Reader application exit and native cleanup. Full scenarios now exit 0 on both architectures. Production entry points still need rebuild/smoke checks. Temporary diagnostics and skip flags removed.",
     "remaining": [
-      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation.",
-      "Rebuild and validate the final minimal archives after remaining beta 4 features; the ordinary EXE smoke does not cover public download, updates or new writer continuation."
+      "No author-specific functional acceptance remains. Rebuild and verify final production catalogue/Reader archives after the remaining beta 4 changes, including public download, upgrade/restart and new writer continuation. Ordinary lifecycle smoke recorded earlier predates the final filter implementation; it does not certify the eventual beta 4 packages."
     ],
     "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched.",
     "profile_guard": "Read and every write now validate all existing personal records before opening the file for modification. Three real externally corrupted profile variants (identity mismatch, fractional score and binary timestamp) reject stale writes with identical file hashes and preserve the last valid in-memory snapshot. All eight native cases passed again on both architectures; new Win32 SHA256 65970629d3a8ad4ecf0e1b0fd0506339a606400b8c33905b38a5d3a7efcbc01a, Win64 bf2f5e02b53b48ef875e8f7728dd21ec41ef63a1b53a60d29eac48b8777989af. Log tools/ui/tests/Out/beta4-author-preferences-20261105-r14.log. New temporary directories removed.",
@@ -4765,6 +4764,22 @@
       ],
       "harness_repairs": "First attempt lacked a Python sys import. Next attempt expected an explicit catalogue ReaderProfile path despite a direct portable launch and its root HomeLibReader.ini; corrected the oracle. Its SQLite snapshot helper used a connection context manager without explicit close, so exception cleanup hit file locks; now every connection is explicitly closed. The combined UI pass exceeded its manual-operation allowance while x64 author manager was open; x86 cases remain recorded as passed and x64 was repeated separately with an adequate operator budget. Do not count the interrupted x64 pass as successful.",
       "cleanup": "Fresh successful r3/r4 owned profiles were confirmed absent. Automatic approval review rejected explicit cleanup of the earlier partial G:/HomeLibRu-build-cache/homelibre-author-production-smoke-vk9kawdb stage with only blocked by policy, no more specific reason. That directory remains protected; no alternate deletion was attempted. The earlier protected reimport stage remains as already recorded. No user collection or unrelated Reader process was changed."
+    },
+    "cancel_proof": {
+      "status": "Cancellable personal filter options prepare every loaded view before committing display or settings. Verified with 500000 book rows and all six loaded result views on x86/x64.",
+      "implementation": "A prepared column-filter plan owns new matches while the prior row/filter/check/selection/focus state remains untouched. Readiness guards reject changed column conditions, personal/favorite revisions, tree data and intervening applications. Main prepares every loaded view, then saves options and commits; cancellation restores the prior global policy and leaves all views and INI bytes intact. Restricted UI pumping permits paint and Cancel/Esc without reentering actions. Accepted author score/hidden profile edits remain atomic durable writes; the new cancellation flow applies to changing the shared filter options.",
+      "verification": "The real Main minimum-rating menu was canceled during a 500000-row run. Full state signatures matched in Authors, Series, Genres, Search, Groups and publisher series, including checks, selection and focus. Menu state, active minimum and exact settings-file hash stayed unchanged. A retry selected exactly 250000 qualifying rows; reset restored all 500000. Prepared plans also rejected a changed column condition and a changed personal policy without touching rows.",
+      "native_full_regression": "All eight author/favorite scenarios passed after the production change in r22. After the new large fixture, all eight final scenarios passed in r27: personal-authors, column-filters, list-performance and first-book-list on both architectures. Includes grouped/narrowed column filters, Unicode/case/rating/date/size rules, 50000-row list/idle/cancel behavior, stable metadata and language/focus restoration.",
+      "Win32_sha256": "4f8e3d60a110992c2042cfe38ff79d3ba24c51e6e416937662731da52485a12f",
+      "Win64_sha256": "fa6ab0ff98a62b0872bca2822af303e3a342740d7ab242fcb8e31499a279efd2",
+      "evidence": [
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r22.log",
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r25.log",
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r26.log",
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r27.log"
+      ],
+      "test_repairs": "The large fixture initially used the nonexistent tmList enum and needed an explicitly typed queued closure. Its setup then tried to select Beta through an already active threshold; it now resets the threshold and reveals hidden authors before making the explicit test rating. These failures are retained, not counted as passing checks.",
+      "cleanup": "All new r22-r27 compiler and fixture directories were removed by their scoped harnesses after their processes ended. Previously protected directories remain untouched."
     }
   }
 }

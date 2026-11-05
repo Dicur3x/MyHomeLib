@@ -13,6 +13,29 @@ type
     Sensitive: Boolean;
     Selections: TDictionary<string,Byte>;
   end;
+  TBookColumnFilters = class;
+  TBookColumnFilterPlan = class
+  private
+    FFilter: TBookColumnFilters;
+    FTree: TBookTree;
+    FCandidates, FNewVisible: TList<PVirtualNode>;
+    FValues: TArray<TPair<Integer,string>>;
+    FSensitive: TArray<TPair<Integer,Boolean>>;
+    FDataVersion, FApplyRevision, FPersonalRevision, FFavoriteRevision: UInt64;
+    FNodeCount: Cardinal;
+    FSelectBook, FFavoriteOnly, FCommitted: Boolean;
+    constructor Create(Filter: TBookColumnFilters; SelectBook: Boolean; const Cancelled: TFunc<Boolean>);
+  public
+    destructor Destroy; override;
+    procedure CheckReady;
+    function Commit: Integer;
+    property Tree: TBookTree read FTree;
+  end;
+  TPersonalAuthorFilterState = record
+    Entries: TArray<TAuthorPersonalEntry>;
+    MinimumRating: Integer;
+    IncludeUnrated, ShowHidden: Boolean;
+  end;
   TBookColumnFilters = class(TComponent)
   private
     FTree: TBookTree;
@@ -29,7 +52,7 @@ type
     FOptionCache: TObjectDictionary<string,TStringList>;
     FFavoriteAuthorsOnly, FAppliedFavoriteAuthorsOnly: Boolean;
     FFavoriteKeyRevision: UInt64;
-    FPersonalRevision: UInt64;
+    FPersonalRevision, FApplyRevision: UInt64;
     FFavoriteKeys: TDictionary<string, Byte>;
     FFavoriteMatches: TDictionary<string, Boolean>;
     procedure SyncFavoriteKeys;
@@ -57,6 +80,7 @@ type
     procedure SetSelectedValues(Tag: Integer; Names: TStrings);
     procedure GetSelectedValues(Tag: Integer; Names: TStrings);
     property Total: Integer read GetTotal;
+    function PrepareApply(SelectBook: Boolean = True; const Cancelled: TFunc<Boolean> = nil): TBookColumnFilterPlan;
     function Apply(SelectBook: Boolean = True; const Cancelled: TFunc<Boolean> = nil): Integer;
     property Count: Integer read GetCount;
     property FavoriteAuthorsOnly: Boolean read FFavoriteAuthorsOnly write SetFavoriteAuthorsOnly;
@@ -66,6 +90,7 @@ type
 function SetFavoriteAuthorFilterKeys(const Keys: TArray<string>): Boolean;
 procedure SetPersonalAuthorFilter(const Entries: TArray<TAuthorPersonalEntry>;
   MinimumRating: Integer; IncludeUnrated, ShowHidden: Boolean);
+function GetPersonalAuthorFilterState: TPersonalAuthorFilterState;
 function PersonalAuthorFilterActive: Boolean;
 function PersonalAuthorVisible(const Author: TAuthorData): Boolean;
 function PersonalBookVisible(const Authors: TBookAuthors): Boolean;
@@ -102,6 +127,13 @@ begin
   end;
   PersonalMinimumRating:=MinimumRating; PersonalIncludeUnrated:=IncludeUnrated;
   PersonalShowHidden:=ShowHidden; Inc(PersonalRevision);
+end;
+
+function GetPersonalAuthorFilterState: TPersonalAuthorFilterState;
+begin
+  Result.Entries:=PersonalAuthors.Values.ToArray;
+  Result.MinimumRating:=PersonalMinimumRating;
+  Result.IncludeUnrated:=PersonalIncludeUnrated; Result.ShowHidden:=PersonalShowHidden;
 end;
 
 function PersonalAuthorFilterActive: Boolean;
@@ -627,64 +659,103 @@ begin
   Result := True;
 end;
 
-function TBookColumnFilters.Apply(SelectBook: Boolean; const Cancelled: TFunc<Boolean>): Integer;
-var Node, Parent, FirstBook: PVirtualNode; Book: PBookRecord; Match, Narrow: Boolean;
-  Visited, NextVisible: Integer; Candidates, NewVisible: TList<PVirtualNode>;
+constructor TBookColumnFilterPlan.Create(Filter: TBookColumnFilters; SelectBook: Boolean;
+  const Cancelled: TFunc<Boolean>);
+var Node: PVirtualNode; Book: PBookRecord; Visited: Integer;
+begin
+  inherited Create; FFilter:=Filter; FTree:=Filter.FTree; FSelectBook:=SelectBook;
+  FNewVisible:=TList<PVirtualNode>.Create;
+  Filter.EnsureRows(Cancelled); Filter.Compile;
+  if Filter.CanNarrow then FCandidates:=Filter.FVisible else FCandidates:=Filter.FRows;
+  FValues:=Filter.FValues.ToArray; FSensitive:=Filter.FSensitive.ToArray;
+  FFavoriteOnly:=Filter.FFavoriteAuthorsOnly;
+  FDataVersion:=FTree.DataVersion; FNodeCount:=FTree.TotalCount;
+  FApplyRevision:=Filter.FApplyRevision; FPersonalRevision:=PersonalRevision;
+  FFavoriteRevision:=FavoriteAuthorKeysRevision; Visited:=0;
+  // Prepared rows remain private until every affected view is ready.
+  for Node in FCandidates do
+  begin
+    Inc(Visited);
+    if Assigned(Cancelled) and ((Visited and 255)=0) and Cancelled() then Abort;
+    Book:=FTree.GetNodeData(Node);
+    if Filter.Matches(Book^) then FNewVisible.Add(Node);
+  end;
+  if Assigned(Cancelled) and Cancelled() then Abort;
+end;
+
+destructor TBookColumnFilterPlan.Destroy;
+begin FNewVisible.Free; inherited; end;
+
+procedure TBookColumnFilterPlan.CheckReady;
+var Value: string; Sensitive: Boolean;
+begin
+  if FCommitted or (FDataVersion<>FTree.DataVersion) or (FNodeCount<>FTree.TotalCount) or
+    (FApplyRevision<>FFilter.FApplyRevision) or (FPersonalRevision<>PersonalRevision) or
+    (FFavoriteRevision<>FavoriteAuthorKeysRevision) or (FFavoriteOnly<>FFilter.FFavoriteAuthorsOnly) or
+    (Length(FValues)<>FFilter.FValues.Count) or (Length(FSensitive)<>FFilter.FSensitive.Count) then
+    raise EInvalidOp.Create('Список или условия фильтра изменились. Повторите фильтрацию.');
+  for var Pair in FValues do
+    if not FFilter.FValues.TryGetValue(Pair.Key,Value) or (Value<>Pair.Value) then
+      raise EInvalidOp.Create('Условия фильтра изменились. Повторите фильтрацию.');
+  for var Pair in FSensitive do
+    if not FFilter.FSensitive.TryGetValue(Pair.Key,Sensitive) or (Sensitive<>Pair.Value) then
+      raise EInvalidOp.Create('Условия фильтра изменились. Повторите фильтрацию.');
+end;
+
+function TBookColumnFilterPlan.Commit: Integer;
+var Node, Parent, FirstBook: PVirtualNode; Match: Boolean; NextVisible: Integer;
   Pair: TPair<Integer,string>; Sensitive: TPair<Integer,Boolean>;
 begin
-  EnsureRows(Cancelled); Compile; Narrow := CanNarrow;
-  if Narrow then Candidates := FVisible else Candidates := FRows;
-  NewVisible := TList<PVirtualNode>.Create;
-  Visited := 0;
-  try
-    // Evaluate without changing the previous display. A cancellation must not
-    // leave hidden rows, lost checks or half-filtered parent groups behind.
-    for Node in Candidates do
-    begin
-      Inc(Visited);
-      if Assigned(Cancelled) and ((Visited and 255)=0) and Cancelled() then Abort;
-      Book := FTree.GetNodeData(Node); Match := Matches(Book^);
-      if Match then NewVisible.Add(Node);
-    end;
-    if Assigned(Cancelled) and Cancelled() then Abort;
-    FTree.BeginUpdate;
+  CheckReady;
+    FFilter.FTree.BeginUpdate;
     try
-    FHaveResult := False; NextVisible := 0;
-    for Node in FGroups do FTree.IsFiltered[Node] := True;
-    for Node in Candidates do
+    FFilter.FHaveResult := False; NextVisible := 0;
+    for Node in FFilter.FGroups do FFilter.FTree.IsFiltered[Node] := True;
+    for Node in FCandidates do
     begin
-      Match := (NextVisible < NewVisible.Count) and (NewVisible[NextVisible] = Node);
+      Match := (NextVisible < FNewVisible.Count) and (FNewVisible[NextVisible] = Node);
       if Match then Inc(NextVisible);
-      if FTree.IsFiltered[Node] = Match then FTree.IsFiltered[Node] := not Match;
+      if FFilter.FTree.IsFiltered[Node] = Match then FFilter.FTree.IsFiltered[Node] := not Match;
       if Match then
       begin
         Parent := Node.Parent;
-        while Assigned(Parent) and (Parent <> FTree.RootNode) do
+        while Assigned(Parent) and (Parent <> FFilter.FTree.RootNode) do
         begin
-          if FTree.IsFiltered[Parent] then FTree.IsFiltered[Parent] := False;
+          if FFilter.FTree.IsFiltered[Parent] then FFilter.FTree.IsFiltered[Parent] := False;
           Parent := Parent.Parent;
         end;
       end
-      else if FTree.Selected[Node] or (Node.CheckState <> csUncheckedNormal) then
-      begin FTree.Selected[Node] := False; Node.CheckState := csUncheckedNormal; end;
+      else if FFilter.FTree.Selected[Node] or (Node.CheckState <> csUncheckedNormal) then
+      begin FFilter.FTree.Selected[Node] := False; Node.CheckState := csUncheckedNormal; end;
     end;
-    FVisible.Clear; FVisible.AddRange(NewVisible);
-    Result := FVisible.Count;
-    FApplied.Clear; for Pair in FValues do FApplied.Add(Pair.Key,Pair.Value);
-    FAppliedSensitive.Clear;
-    FAppliedFavoriteAuthorsOnly := FFavoriteAuthorsOnly;
-    for Sensitive in FSensitive do FAppliedSensitive.Add(Sensitive.Key,Sensitive.Value);
-    FCaseChanged := False; FHaveResult := True;
-    if SelectBook and (FVisible.IndexOf(FTree.FocusedNode) < 0) then
+    FFilter.FVisible.Clear; FFilter.FVisible.AddRange(FNewVisible);
+    Result := FFilter.FVisible.Count;
+    FFilter.FApplied.Clear; for Pair in FFilter.FValues do FFilter.FApplied.Add(Pair.Key,Pair.Value);
+    FFilter.FAppliedSensitive.Clear;
+    FFilter.FAppliedFavoriteAuthorsOnly := FFilter.FFavoriteAuthorsOnly;
+    for Sensitive in FFilter.FSensitive do FFilter.FAppliedSensitive.Add(Sensitive.Key,Sensitive.Value);
+    FFilter.FCaseChanged := False; FFilter.FHaveResult := True;
+    if FSelectBook and (FFilter.FVisible.IndexOf(FFilter.FTree.FocusedNode) < 0) then
     begin
-      FTree.ClearSelection;
+      FFilter.FTree.ClearSelection;
       FirstBook := nil;
-      if FVisible.Count > 0 then FirstBook := FVisible[0];
-      FTree.FocusedNode := FirstBook;
-      if Assigned(FirstBook) then begin FTree.Selected[FirstBook] := True; FTree.FullyVisible[FirstBook] := True; end;
+      if FFilter.FVisible.Count > 0 then FirstBook := FFilter.FVisible[0];
+      FFilter.FTree.FocusedNode := FirstBook;
+      if Assigned(FirstBook) then begin FFilter.FTree.Selected[FirstBook] := True; FFilter.FTree.FullyVisible[FirstBook] := True; end;
     end;
-    finally FTree.EndUpdate; end;
-  finally NewVisible.Free; end;
+    finally FFilter.FTree.EndUpdate; end;
+  Inc(FFilter.FApplyRevision); FCommitted:=True;
+end;
+
+function TBookColumnFilters.PrepareApply(SelectBook: Boolean;
+  const Cancelled: TFunc<Boolean>): TBookColumnFilterPlan;
+begin Result:=TBookColumnFilterPlan.Create(Self,SelectBook,Cancelled); end;
+
+function TBookColumnFilters.Apply(SelectBook: Boolean; const Cancelled: TFunc<Boolean>): Integer;
+var Plan: TBookColumnFilterPlan;
+begin
+  Plan:=PrepareApply(SelectBook,Cancelled);
+  try Result:=Plan.Commit; finally Plan.Free; end;
 end;
 
 type
