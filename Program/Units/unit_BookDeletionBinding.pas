@@ -6,7 +6,7 @@ uses System.SysUtils, System.Classes, unit_Globals, unit_Interfaces;
 
 type
   // Only source identity is persisted, never annotations or a complete book
-  // snapshot. This receipt is interpreted by the catalogue-owning UI thread.
+  // snapshot. Interpret it only on the thread that owns the database connection.
   TBookDeletionBinding = record
   private
     FCatalogueFile, FCatalogueKey: string;
@@ -20,6 +20,7 @@ type
       RemoveRecords: Boolean): TBookDeletionBinding; static;
     class function Parse(const JSON: string): TBookDeletionBinding; static;
     function ToJSON: string;
+    procedure CheckBeforePhysicalRemoval(const User: ISystemData);
     function CommitRecords(const User: ISystemData): Integer;
     function CommitSourceMissing(const User: ISystemData): Integer;
     function ExpectedBooks: TArray<TBookRecord>;
@@ -182,6 +183,25 @@ begin
   Result:=User.GetCollection(FCollectionID);
 end;
 
+function MatchesDeletionSource(const Current, Expected:TBookRecord):Boolean;
+begin
+  Result:=Current.BookKey.IsSameAs(Expected.BookKey) and (Current.LibID=Expected.LibID) and
+    (Current.InsideNo=Expected.InsideNo) and (ReaderBookPhysicalIdentity(Expected)<>'') and
+    (ReaderBookPhysicalIdentity(Current)=ReaderBookPhysicalIdentity(Expected));
+end;
+
+procedure TBookDeletionBinding.CheckBeforePhysicalRemoval(const User:ISystemData);
+var Writer:IBookIdentityDeletionWriter; Expected:TBookRecord; Match:TBookIdentityPredicate;
+begin
+  if not Supports(OpenCapturedCollection(User),IBookIdentityDeletionWriter,Writer) then
+    raise EInvalidOperation.Create('Коллекция не поддерживает безопасное удаление файлов.');
+  Match:=function(const Current:TBookRecord):Boolean
+    begin Result:=MatchesDeletionSource(Current,Expected); end;
+  for Expected in FBooks do
+    if Writer.DeleteBookIfIdentity(Expected,Match,True)<>bdwReady then
+      raise EReadError.Create('Книга или её личная карточка изменилась. Файл не удалён.');
+end;
+
 function TBookDeletionBinding.CommitRecords(const User:ISystemData):Integer;
 var Collection:IBookCollection; Writer:IBookIdentityDeletionWriter;
   Expected:TBookRecord; Match:TBookIdentityPredicate;
@@ -193,9 +213,7 @@ begin
     raise EInvalidOperation.Create('Коллекция не поддерживает безопасное завершение удаления.');
   Match:=function(const Current:TBookRecord):Boolean
     begin
-      Result:=Current.BookKey.IsSameAs(Expected.BookKey) and (Current.LibID=Expected.LibID) and
-        (Current.InsideNo=Expected.InsideNo) and (ReaderBookPhysicalIdentity(Expected)<>'') and
-        (ReaderBookPhysicalIdentity(Current)=ReaderBookPhysicalIdentity(Expected));
+      Result:=MatchesDeletionSource(Current,Expected);
     end;
   // Check all identities before the first DB mutation. Each actual write
   // checks again in its own transaction and can be replayed after a failure.
@@ -225,9 +243,7 @@ begin
     raise EInvalidOperation.Create('Коллекция не поддерживает безопасное изменение доступности файла.');
   Match:=function(const Current:TBookRecord):Boolean
     begin
-      Result:=Current.BookKey.IsSameAs(Expected.BookKey) and (Current.LibID=Expected.LibID) and
-        (Current.InsideNo=Expected.InsideNo) and (ReaderBookPhysicalIdentity(Expected)<>'') and
-        (ReaderBookPhysicalIdentity(Current)=ReaderBookPhysicalIdentity(Expected));
+      Result:=MatchesDeletionSource(Current,Expected);
     end;
   for Expected in FBooks do
     if not (CheckWriter.DeleteBookIfIdentity(Expected,Match,True) in [bdwReady,bdwMissing]) then

@@ -5127,5 +5127,26 @@
     "attempts": "The combined r1 suite hit its 90-second test guard during 7z recovery. Split the scenarios without dropping assertions. r2 found premature removal of the live operation root between archives; fixed it. The split owner, ZIP/7z engine and preparation cases all passed r3 on both architectures.",
     "cleanup": "All new private build and test directories were removed. No user collection or source archive was changed.",
     "remaining": "Connect the worker to the main command, with progress, stop, restart recovery and unselected-source protection, then verify the real UI on both architectures."
+  },
+  "beta4_deletion_main_command_20261105": {
+    "status": "PASS Main deletion command and startup receipt recovery in native Win32/Win64 view tests; production packaging not yet validated",
+    "implementation": "Catalogue-only removal leaves the selected files untouched. Opt-in physical archive removal runs through a background coordinator with its own system database connection and a modeless progress window. The coordinator verifies selected catalogue bindings, checks that other collections and alternate copy records do not rely on selected members, and updates the catalogue only after the filesystem phase verifies. Stop finishes an active archive and its database commit. Completed journals are removed; a restart resumes a pending bound receipt. Refresh attempts to retain the nearest visible book and scroll anchor.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-main-20261105-r4.log",
+      "Win32_SHA256": "2e71fe758fba127f28c484185b5e970eb4fe8645386111d6cbcd7f0dc3093902",
+      "Win64_SHA256": "9da8644214d287b2d19821befb50bdc7e081c873c63aa18a83e644954f4bb6d6",
+      "cases": [
+        "Five book views; per-operation overrides and cancellation; loose FB2 filenames in Unicode update folders",
+        "Physical shared ZIP and FBD pair; retained neighbour payload, note and unrelated FBD readme",
+        "Reject an archive member shared through a hard link in another registered collection before source or row changes",
+        "New main form completes a verified detached archive receipt, removes only the bound book record and cleans the journal",
+        "Files-only operation keeps online records, ratings and reading progress; unavailable state updated",
+        "Existing conditional identity and grouped preparation cases pass"
+      ]
+    },
+    "attempts": "r1 lacked System.Classes for EReadError. r2 passed shared archive operations but an empty journal root started unnecessary recovery on form creation, briefly suppressing the next command. Skip empty roots and remove owned empty roots. r3 had a Windows/RTL FindClose name collision; qualified the RTL calls. r4 passed both architectures.",
+    "production_attempt": "Separate renamed-project production AutoBuild displayed one failure and timed out while Delphi was closing; no successful production EXE was claimed. Log: tools/ui/tests/Out/beta4-deletion-production-20261105-r1.log. Temporary project and G: build directory are gone.",
+    "remaining": "Build and test exact production EXE; exercise sorted-list anchoring and close during deletion; safely remove truly empty last-book containers, preserve FLibrary companion images, and test real duplicate sources only after those safety checks. Extend group and duplicate commands separately.",
+    "cleanup": "New private test/build folders removed. Real desktop collection and archives unchanged. No release published."
   }
 }

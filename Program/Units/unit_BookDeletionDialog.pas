@@ -2,13 +2,75 @@
 
 interface
 
+uses System.Classes, Vcl.Forms, Vcl.StdCtrls, Vcl.ComCtrls, unit_BookDeletionOperation;
+
+type
+  TBookDeletionProgress = class(TForm)
+  private
+    FStage, FArchive, FDetail: TLabel;
+    FProgress: TProgressBar;
+    FStop: TButton;
+    procedure HideWhenClosed(Sender: TObject; var Action: TCloseAction);
+  public
+    constructor CreateProgress(AOwner: TForm; Stop: TNotifyEvent);
+    procedure UpdateProgress(const State: TBookDeletionOperationStatus);
+  end;
+
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
   RemoveRecords: Boolean; var RemoveFiles: Boolean): Boolean;
 
 implementation
 
-uses System.Classes, System.SysUtils, Vcl.Forms, Vcl.Controls, Vcl.StdCtrls,
-  Vcl.ExtCtrls, unit_MHLTheme;
+uses System.SysUtils, System.Math, Vcl.Controls, Vcl.ExtCtrls, unit_MHLTheme;
+
+constructor TBookDeletionProgress.CreateProgress(AOwner:TForm; Stop:TNotifyEvent);
+  function Line(const Text:string; Y,Height:Integer):TLabel;
+  begin
+    Result:=TLabel.Create(Self); Result.Parent:=Self;
+    Result.AutoSize:=False; Result.WordWrap:=True; Result.ShowAccelChar:=False;
+    Result.Anchors:=[akLeft,akTop,akRight]; Result.SetBounds(16,Y,528,Height);
+    Result.Caption:=Text;
+  end;
+begin
+  inherited CreateNew(AOwner);
+  Name:='BookDeletionProgress'; Caption:='Удаление файлов книг';
+  PopupMode:=pmExplicit; PopupParent:=AOwner; Position:=poOwnerFormCenter;
+  BorderStyle:=bsSizeable; BorderIcons:=[biSystemMenu];
+  Font.Name:='Segoe UI'; Font.Size:=9; ClientWidth:=560; ClientHeight:=194;
+  Constraints.MinWidth:=510; Constraints.MinHeight:=230;
+  FStage:=Line('Подготовка удаления…',14,25);
+  FArchive:=Line('',45,34);
+  FProgress:=TProgressBar.Create(Self); FProgress.Parent:=Self;
+  FProgress.Name:='BookDeletionProgressBar'; FProgress.Max:=1000;
+  FProgress.Anchors:=[akLeft,akTop,akRight]; FProgress.SetBounds(16,86,528,15);
+  FDetail:=Line('Можно продолжать работать с другими книгами.',110,36);
+  FStop:=TButton.Create(Self); FStop.Parent:=Self; FStop.Name:='StopBookDeletion';
+  FStop.Caption:='Остановить'; FStop.Anchors:=[akRight,akBottom];
+  FStop.SetBounds(414,150,130,30); FStop.OnClick:=Stop;
+  OnClose:=HideWhenClosed;
+  ApplyMHLControlTheme(Self);
+end;
+
+procedure TBookDeletionProgress.HideWhenClosed(Sender:TObject; var Action:TCloseAction);
+begin Action:=caHide; end;
+
+procedure TBookDeletionProgress.UpdateProgress(const State:TBookDeletionOperationStatus);
+begin
+  if State.Stage<>'' then FStage.Caption:=State.Stage;
+  FArchive.Caption:=ExtractFileName(State.Archive);
+  if (State.ArchiveIndex>0) and (State.ArchiveCount>0) then
+    FArchive.Caption:=Format('Архив %d из %d · %s',[State.ArchiveIndex,State.ArchiveCount,FArchive.Caption]);
+  if State.Total>0 then
+  begin
+    if FProgress.Style<>pbstNormal then FProgress.Style:=pbstNormal;
+    FProgress.Position:=EnsureRange(Trunc(1000.0*State.Done/State.Total),0,1000);
+  end
+  else if FProgress.Style<>pbstMarquee then FProgress.Style:=pbstMarquee;
+  FStop.Enabled:=not State.Stopping;
+  if State.Stopping then FDetail.Caption:='Останавливаемся. Если архив уже меняется, сначала закончим его.'
+  else FDetail.Caption:=Format('Готово книг: %d. Можно продолжать работать с другими книгами.',
+    [State.CompletedBooks]);
+end;
 
 function ConfirmBookDeletion(const CollectionName: string; BookCount, ArchiveCount: Integer;
   RemoveRecords: Boolean; var RemoveFiles: Boolean): Boolean;
@@ -42,7 +104,7 @@ begin
     else Details.Caption:='Будут удалены загруженные файлы. Записи в каталоге, оценки и заметки сохранятся.';
     if ArchiveCount>0 then
       Details.Caption:=Details.Caption+sLineBreak+sLineBreak+Format(
-        'Книг в архивах: %d. ZIP и 7z не удаляются и не изменяются: в них могут находиться другие книги.',[ArchiveCount]);
+        'Книг в архивах: %d. При удалении файлов программа проверит архивы и уберёт только выбранные книги.',[ArchiveCount]);
     Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
     Footer.Height:=54; Footer.BevelOuter:=bvNone;
     Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='ConfirmBookDeletion';

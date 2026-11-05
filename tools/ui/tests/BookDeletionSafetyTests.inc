@@ -28,7 +28,7 @@ begin
         Require(Text.Contains('Выбрано книг: '+IntToStr(ExpectedCount)), 'Deletion counted repeated series rows as separate books');
         if ExpectedArchives > 0 then
           Require(Text.Contains('Книг в архивах: '+IntToStr(ExpectedArchives)) and
-            Text.Contains('ZIP и 7z не удаляются'), 'Deletion hid its archive-preservation policy');
+            Text.Contains('уберёт только выбранные книги'), 'Deletion hid its archive scope');
         DefaultNo := False;
         for var J := 0 to Form.ComponentCount - 1 do
           if Form.Components[J] is TButton then
@@ -45,7 +45,7 @@ begin
         if Accept and Assigned(BeforeAccept) then begin BeforeAccept(); BeforeAccept := nil; end;
         if Accept then Form.ModalResult := mrYes else Form.ModalResult := mrNo;
       end
-      else if Text.Contains('Не удалось полностью обработать книг:') then
+      else if Text.Contains('Не удалось полностью обработать книг:') or Text.Contains('Не удалось завершить удаление.') then
       begin Inc(Warnings); Form.ModalResult := mrOk; end
       else raise Exception.Create('Unexpected deletion dialog: '+Text);
     except
@@ -143,6 +143,16 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     Trace('delete safety invoking Main action');
     try
       if OnlyFiles then frmMain.miDeleteFilesClick(nil) else frmMain.DeleteBookExecute(nil);
+      if Assigned(frmMain.FindComponent('BookDeletionProgress')) then
+      begin
+        Require(frmMain.Enabled,'Background deletion disabled the main window');
+        var Started:=GetTickCount64;
+        repeat
+          Application.ProcessMessages;
+          if GetTickCount64-Started>20000 then raise Exception.Create('Main archive deletion exceeded guard');
+          Sleep(5);
+        until not Assigned(frmMain.FindComponent('BookDeletionProgress'));
+      end;
     finally Probe.Timer.Enabled := False; end;
     Require(Probe.Failure='',Probe.Failure);
     Require(Probe.Confirmations=1,'Deletion did not ask exactly once per batch');
@@ -161,14 +171,16 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     BeforeArchive := THashSHA2.GetHashStringFromFile(ArchivePath);
   end;
 
-  procedure ProtectedArchive;
+  procedure ProtectedArchive(Removed: Boolean=False);
   var Zip: TZipFile; Bytes: TBytes;
   begin
-    Require(THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeArchive,'Deletion changed or removed the shared archive');
+    if not Removed then
+      Require(THashSHA2.GetHashStringFromFile(ArchivePath)=BeforeArchive,'Record-only deletion changed the shared archive');
     Require(Exists(OtherID) and (Collection.GetReview(CreateBookKey(OtherID,Collection.CollectionID))='Сохранённая заметка — ё'),
       'Deletion damaged another book or its personal note');
     Zip := TZipFile.Create;
     try Zip.Open(ArchivePath,zmRead); Zip.Read('unselected.fb2',Bytes);
+      Require(Zip.FileCount=2-Ord(Removed),'Unexpected files in the shared archive after deletion');
       Require(TEncoding.UTF8.GetString(Bytes)=XML('unselected.fb2'),'Other archive member is no longer readable');
     finally Zip.Free; end;
   end;
@@ -201,10 +213,25 @@ begin
 
     Trace('delete safety records and source files');
     Settings.DeleteFiles := True; Sources('delete-files');
-    WriteZip(Root+'private-book.zip'); PrivateFBD := Insert('private FBD','','private-book.zip','.fb2');
+    var PairZip:=TZipFile.Create;
+    try
+      PairZip.Open(Root+'private-book.zip',zmWrite);
+      for var Entry in ['private-book.fbd','private-book.fb2','readme.txt'] do
+      begin
+        var Bytes:=TBytesStream.Create(TEncoding.UTF8.GetBytes(XML(Entry)));
+        try PairZip.Add(Bytes,Entry); finally Bytes.Free; end;
+      end;
+    finally PairZip.Free; end;
+    PrivateFBD := Insert('private FBD','','private-book.zip','.fb2');
     Rows([RawID,ArchiveID,PrivateFBD]); Execute(True,False,3,2);
     Require(not Exists(RawID) and not Exists(ArchiveID) and not Exists(PrivateFBD) and not FileExists(RawPath) and FileExists(Root+'private-book.zip'),
-      'Deletion failed to distinguish the raw book and private/shared archives'); ProtectedArchive;
+      'Deletion failed to distinguish the raw book and private/shared archives'); ProtectedArchive(True);
+    PairZip:=TZipFile.Create;
+    try
+      PairZip.Open(Root+'private-book.zip',zmRead);
+      Require((PairZip.FileCount=1) and (PairZip.FileNames[0]='readme.txt'),
+        'Only the private FBD descriptor and book may be removed');
+    finally PairZip.Free; end;
 
     // Valid two-member 7z made by 7-Zip and independently tested before
     // embedding. Preservation/fallback checks require no installed decoder.
@@ -216,19 +243,34 @@ begin
     Collection.GetBookRecord(CreateBookKey(LegacyID,PrivateID),Book,False);
     Require(SameFileName(Book.GetBookFileName,Root+'fallback.7z'),'Legacy fixture did not resolve ZIP to existing 7z');
     BeforeRaw := THashSHA2.GetHashStringFromFile(Root+'fallback.7z');
-    Rows([SevenID,LegacyID]); Execute(True,False,2,2);
+    Rows([SevenID,LegacyID]); Probe.OverrideFiles:=True; Probe.DeleteSource:=False;
+    try Execute(True,False,2,2); finally Probe.OverrideFiles:=False; end;
     Require(not Exists(SevenID) and not Exists(LegacyID) and Exists(NeighbourID) and Local(NeighbourID) and
       (THashSHA2.GetHashStringFromFile(Root+'fallback.7z')=BeforeRaw),'Deletion removed a 7z or its legacy ZIP fallback neighbour');
 
     for var Page in [PAGE_AUTHORS,PAGE_SERIES,PAGE_GENRES,PAGE_SEARCH,PAGE_PUBLISHER_SERIES] do
     begin
       Sources('view-'+IntToStr(Page)); Rows([RawID,ArchiveID],Page); Execute(True,True,2,1);
-      Require(Exists(RawID) and Exists(ArchiveID) and not Local(RawID) and Local(ArchiveID) and not FileExists(RawPath),
-        'Files-only deletion lost records or marked an unchanged archive unavailable'); ProtectedArchive;
+      Require(Exists(RawID) and Exists(ArchiveID) and not Local(RawID) and not Local(ArchiveID) and not FileExists(RawPath),
+        'Files-only deletion did not keep records and update availability'); ProtectedArchive(True);
       Sources('records-view-'+IntToStr(Page)); Rows([RawID,ArchiveID],Page); Execute(True,False,2,1);
       Require(not Exists(RawID) and not Exists(ArchiveID) and not FileExists(RawPath),
-        'Record deletion from this view did not commit unique selected books'); ProtectedArchive;
+        'Record deletion from this view did not commit unique selected books'); ProtectedArchive(True);
     end;
+
+    Trace('delete safety references across collections');
+    Sources('shared-reference');
+    Win32Check(CreateHardLink(PChar(Root+'shared-reference-alias.zip'),PChar(ArchivePath),nil));
+    var MainCollection:=Collection;
+    Collection:=SystemDB.GetCollection(ExternalID);
+    try
+      Insert('Book from another collection','shared-reference-alias.zip','chosen','.fb2');
+    finally Collection:=MainCollection; MainCollection:=nil; end;
+    Rows([ArchiveID,RawID]); Execute(True,False,2,1,1);
+    Require(Exists(ArchiveID) and Exists(RawID) and (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw),
+      'A blocked archive batch changed unrelated selected sources or rows');
+    ProtectedArchive;
+    Writeln('PASS Main refuses physical deletion through a shared archive alias in another collection'); Flush(Output);
 
     Trace('delete safety database failure');
     Sources('rejected-write'); FailID := RawID;
@@ -297,6 +339,44 @@ begin
     Require((Count=1) and (frmMain.edFTitle.Text='Unsaved deletion search draft'),'Deletion lost the applied search or overwritten its unsaved draft');
     Require(THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw,'Record-only applied search deletion changed the source'); ProtectedArchive;
 
+    Trace('delete safety complete archive receipt on startup');
+    Sources('recover-command');
+    Collection.GetBookRecord(CreateBookKey(ArchiveID,PrivateID),Book,False);
+    var Binding:=TBookDeletionBinding.Capture(SystemDB.GetCollectionInfo(PrivateID),[Book],True);
+    var Task:TArchiveDeletionTask;
+    Task.Archive:=ArchivePath; Task.Members:=TArray<string>.Create('chosen.fb2');
+    Task.SourceIdentity:=ArchiveDeletionSourceIdentity(ArchivePath); Task.CatalogueBinding:=Binding.ToJSON;
+    var JournalRoot:=TPath.Combine(Settings.DataPath,'BookDeletion');
+    var Interrupted:=TArchiveDeletionQueue.Create([Task],JournalRoot);
+    try
+      Interrupted.Start;
+      var Started:=GetTickCount64;
+      while not Interrupted.Status.Finished do
+      begin
+        if GetTickCount64-Started>15000 then raise Exception.Create('Owned recovery seed timed out');
+        Sleep(5);
+      end;
+      Interrupted.WaitFor;
+      Require((Length(Interrupted.Results)=1) and Interrupted.Results[0].FilesVerified,
+        'Owned recovery seed did not leave a verified archive and pending catalogue receipt');
+      Require(Exists(ArchiveID),'Recovery seed changed catalogue before new Main startup');
+    finally Interrupted.Free; end;
+    FreeAndNil(frmMain); Settings.ActiveCollection:=PrivateID; Settings.ActivePage:=PAGE_SEARCH;
+    Application.CreateForm(TfrmMain,frmMain);
+    var Started:=GetTickCount64;
+    Probe.Accept:=False; Probe.Failure:=''; Probe.Timer.Enabled:=True;
+    try
+      repeat
+        Application.ProcessMessages;
+        if GetTickCount64-Started>20000 then raise Exception.Create('Main did not resume a valid archive journal');
+        Sleep(5);
+      until not Exists(ArchiveID) and not DirectoryExists(JournalRoot)
+        and not Assigned(frmMain.FindComponent('BookDeletionProgress'));
+    finally Probe.Timer.Enabled:=False; end;
+    Require(Probe.Failure='',Probe.Failure);
+    ProtectedArchive(True);
+    Writeln('PASS Main startup completes a bound archive deletion receipt and clears its private journals'); Flush(Output);
+
     Trace('delete safety external local FB2 loose files');
     FreeAndNil(frmMain); Settings.ActiveCollection := ExternalID; Settings.ActivePage := PAGE_SEARCH;
     Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(ExternalID);
@@ -331,13 +411,14 @@ begin
       for var Preference in [False, True] do
       begin
         Settings.DeleteFiles := Preference; Probe.DeleteSource := not Preference;
-        Sources('explicit-'+BoolToStr(Preference,True)); Rows([RawID]);
-        Execute(False,False,1,0);
+        Sources('explicit-'+BoolToStr(Preference,True)); Rows([RawID,ArchiveID]);
+        Execute(False,False,2,1);
         Require(Exists(RawID) and (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw),
           'Cancelling the explicit choice changed a source or catalogue record');
         Require(Settings.DeleteFiles=Preference, 'Cancelling changed the saved file preference');
-        Execute(True,False,1,0);
-        Require(not Exists(RawID), 'Explicit deletion did not remove the selected catalogue entry');
+        Execute(True,False,2,1);
+        Require(not Exists(RawID) and not Exists(ArchiveID), 'Explicit deletion did not remove the selected catalogue entries');
+        ProtectedArchive(Probe.DeleteSource);
         if Probe.DeleteSource then Require(not FileExists(RawPath), 'Explicit physical deletion was ignored')
         else Require(THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw, 'Record-only override changed the source');
         Require(Settings.DeleteFiles=Preference, 'One deletion silently changed the saved file preference');
@@ -350,8 +431,8 @@ begin
     Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(OnlineID);
     Sources('online'); Collection.SetRate(CreateBookKey(RawID,OnlineID),4); Collection.SetProgress(CreateBookKey(RawID,OnlineID),23);
     Rows([RawID,ArchiveID]); Execute(True,False,2,1);
-    Require(Exists(RawID) and Exists(ArchiveID) and not Local(RawID) and Local(ArchiveID) and not FileExists(RawPath),
-      'Online deletion removed catalog records or cleared the retained archive status'); ProtectedArchive;
+    Require(Exists(RawID) and Exists(ArchiveID) and not Local(RawID) and not Local(ArchiveID) and not FileExists(RawPath),
+      'Online deletion removed catalogue records or kept the removed copy available'); ProtectedArchive(True);
     Collection.GetBookRecord(CreateBookKey(RawID,OnlineID),Book,False);
     Require((Book.Rate=4) and (Book.Progress=23),'Online file removal lost personal rating or reading progress');
     RawID := Insert('already absent archive','already-absent.zip','chosen','.fb2');

@@ -77,6 +77,16 @@
         <DCCReference Include="Units\unit_BookSavePolicy.pas"/>
         <DCCReference Include="Units\unit_BookSendEstimates.pas"/>
         <DCCReference Include="Units\unit_BookSaveContinuation.pas"/>
+        <DCCReference Include="Units\unit_SevenZipDeletionPlan.pas"/>
+        <DCCReference Include="Units\unit_ZipMemberDeletion.pas"/>
+        <DCCReference Include="Units\unit_ArchiveDeletionQueue.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionMembers.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionInventory.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionPreparation.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionDialog.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionReferences.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionBinding.pas"/>
+        <DCCReference Include="Units\unit_BookDeletionOperation.pas"/>
         <DCCReference Include="Units\unit_BookOutput.pas"/>
         <DCCReference Include="Units\unit_BookCollisionDialog.pas"/>
         <DCCReference Include="Units\unit_BookConversionRequirements.pas"/>

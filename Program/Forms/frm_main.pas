@@ -48,6 +48,7 @@ uses
   frm_MCPSetup,
   frm_OPDS,
   unit_Interfaces, unit_StartupCatalog, unit_BookViewSessions,
+  unit_BookDeletionOperation, unit_BookDeletionDialog,
   XMLIntf,
   XMLDoc,
   pngimage,
@@ -792,6 +793,11 @@ type
 
     function IsSelectedBookNode(Node: PVirtualNode; Data: PBookRecord): Boolean;
     procedure RemoveSelectedBooks(const OnlyFiles: Boolean);
+    function BookDeletionJournalRoot: string;
+    procedure StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
+    procedure BookDeletionTick(Sender: TObject);
+    procedure StopBookDeletion(Sender: TObject);
+    procedure RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
 
 
 
@@ -958,6 +964,10 @@ type
   private
     FLastNotifiedRelease: string;
     FFormBusy: Boolean;
+    FBookDeletionOperation: TBookDeletionOperation;
+    FBookDeletionProgress: TBookDeletionProgress;
+    FBookDeletionTimer: TTimer;
+    FCloseAfterBookDeletion, FBookDeletionNeedsRecovery: Boolean;
 
     FFileOpMode: (fmFb2Zip, fmFb2);
 
@@ -1249,7 +1259,7 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
-  unit_BookDeletionDialog, unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
+  unit_BookDeletionBinding, unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
   unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
   frm_BuiltinReader, frm_StoryReader, frm_AuthorFavorites,
   dm_user,
@@ -3592,6 +3602,11 @@ end;
 
 procedure TfrmMain.RestartForProgramUpdate(Sender: TObject);
 begin
+  if Assigned(FBookDeletionOperation) then
+  begin
+    MHLShowWarning('Дождитесь завершения удаления книг, затем снова нажмите «Установить и перезапустить».');
+    Exit;
+  end;
   Close;
   if Assigned(FProgramUpdateForm) then FProgramUpdateForm.CancelInstallation;
 end;
@@ -5111,6 +5126,11 @@ begin
   end;
 
   {$IFDEF MHL_SQL_PROFILE}ProfileMark('update schedule');{$ENDIF}
+  // Only a previous archive operation can leave this directory. Detect
+  // recovery without opening archives or journals on the startup UI thread.
+  if HasArchiveDeletionJournals(BookDeletionJournalRoot) then
+    StartBookDeletion(TBookDeletionOperation.Recover(Settings.SystemFileName[sfSystemDB],
+      BookDeletionJournalRoot),False);
 end;
 
 procedure TfrmMain.StartInitialCatalogRead(View: TView);
@@ -5292,6 +5312,12 @@ end;
 
 procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
+  if Assigned(FBookDeletionOperation) then
+  begin
+    CanClose:=False; FCloseAfterBookDeletion:=True;
+    StopBookDeletion(nil);
+    Exit;
+  end;
   CanClose := True;
   if CheckActiveDownloads then
     if MHLShowWarning(rstrUnfinishedDownloads, mbYesNo) = mrYes then
@@ -5337,6 +5363,9 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 var I: Integer; Message: TMsg;
 begin
+  FreeAndNil(FBookDeletionTimer);
+  FreeAndNil(FBookDeletionOperation);
+  FreeAndNil(FBookDeletionProgress);
   CancelReaderSessionRunners(Self);
   if not FPendingReaderSaved then RemoveReaderSessionFiles(FPendingReaderSession);
   StopInitialLoading;
@@ -8280,13 +8309,155 @@ begin
   Clipboard.AsText := Trim(R);
 end;
 
-function IsArchiveBookSource(const Book: TBookRecord): Boolean;
+function TfrmMain.BookDeletionJournalRoot: string;
 begin
-  // GetBookFileName returns the whole ZIP/7z, not its selected member.
-  // This also protects private FBD archives and legacy ZIP -> 7z fallback.
-  // Counting a confirmation must not probe an offline collection drive.
-  var Container := TPath.Combine(Book.CollectionRoot, Book.Folder);
-  Result := IsArchiveExt(Book.GetBookFileName(Container));
+  Result:=TPath.Combine(Settings.DataPath,'BookDeletion');
+end;
+
+procedure TfrmMain.StartBookDeletion(Operation: TBookDeletionOperation; ShowProgress: Boolean);
+begin
+  FBookDeletionOperation:=Operation;
+  try
+    if not Assigned(FBookDeletionTimer) then
+    begin
+      FBookDeletionTimer:=TTimer.Create(Self); FBookDeletionTimer.Enabled:=False;
+      FBookDeletionTimer.Interval:=120; FBookDeletionTimer.OnTimer:=BookDeletionTick;
+    end;
+    if ShowProgress then
+    begin
+      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion);
+      FBookDeletionProgress.Show;
+    end;
+    FBookDeletionOperation.Start;
+    FBookDeletionTimer.Enabled:=True;
+  except
+    FreeAndNil(FBookDeletionProgress);
+    FreeAndNil(FBookDeletionOperation);
+    raise;
+  end;
+end;
+
+procedure TfrmMain.StopBookDeletion(Sender: TObject);
+begin
+  if not Assigned(FBookDeletionOperation) then Exit;
+  FBookDeletionOperation.RequestStop;
+  if Assigned(FBookDeletionProgress) then
+    FBookDeletionProgress.UpdateProgress(FBookDeletionOperation.Status);
+end;
+
+procedure TfrmMain.BookDeletionTick(Sender: TObject);
+begin
+  if not Assigned(FBookDeletionOperation) then Exit;
+  var State:=FBookDeletionOperation.Status;
+  if not State.Finished then
+  begin
+    if not Assigned(FBookDeletionProgress) and (State.ArchiveCount>0) then
+    begin
+      FBookDeletionProgress:=TBookDeletionProgress.CreateProgress(Self,StopBookDeletion);
+      FBookDeletionProgress.Show;
+    end;
+    if Assigned(FBookDeletionProgress) then FBookDeletionProgress.UpdateProgress(State);
+    Exit;
+  end;
+  // Keep the progress form available until a view load that may be pumping
+  // messages finishes. Avoid re-entering its query or resetting its draft.
+  if FStartupLoading or FBookListLoading or FFormBusy then Exit;
+  FBookDeletionTimer.Enabled:=False;
+  FreeAndNil(FBookDeletionOperation);
+  FreeAndNil(FBookDeletionProgress);
+  FBookDeletionNeedsRecovery:=State.PendingJournal<>'';
+  if State.Error<>'' then LogDiagnosticMessage('book-delete',State.Error);
+  if State.CatalogueChanged and not FCloseAfterBookDeletion and Assigned(FCollection) then
+    RefreshAfterBookDeletion(FCollection.CollectionID,True);
+  if FCloseAfterBookDeletion then
+  begin
+    FCloseAfterBookDeletion:=False;
+    if State.Error<>'' then MHLShowWarning(State.Error);
+    PostMessage(Handle,WM_CLOSE,0,0);
+    Exit;
+  end;
+  if State.RequiredComponent<>'' then
+  begin
+    EnsureProgramUpdateForm;
+    FProgramUpdateForm.RequestComponent(State.RequiredComponent,
+      'Этот компонент нужен для удаления книг из выбранного архива. После установки повторите удаление.',True);
+  end
+  else if State.Error<>'' then
+  begin
+    var Detail:=State.Error;
+    if FBookDeletionNeedsRecovery then
+      Detail:=Detail+sLineBreak+'Журнал сохранён. HomeLibre попробует завершить операцию при следующем запуске.';
+    MHLShowWarning('Не удалось завершить удаление.'+sLineBreak+Detail);
+  end
+  else if State.Stopping then StatusMessage:=Format('Удаление остановлено. Обработано книг: %d.',[State.CompletedBooks])
+  else if State.CompletedBooks>0 then StatusMessage:=Format('Обработано книг: %d.',[State.CompletedBooks]);
+end;
+
+procedure TfrmMain.RefreshAfterBookDeletion(const CollectionID: Integer; RemoveRecords: Boolean);
+var Tree: TBookTree; View: TView; Node, FocusNode, TopNode: PVirtualNode;
+  FocusRanks, TopRanks: TDictionary<UInt64,Integer>; FocusRank, TopRank, OffsetX: Integer;
+
+  function RowID(Row: PVirtualNode): UInt64;
+  begin
+    Result:=0;
+    if not Assigned(Row) then Exit;
+    var Data:=PBookRecord(Tree.GetNodeData(Row));
+    if Assigned(Data) and (Data^.nodeType=ntBookInfo) and (Data^.BookKey.BookID>0) then
+      Result:=(UInt64(Cardinal(Data^.BookKey.DatabaseID)) shl 32) or Cardinal(Data^.BookKey.BookID);
+  end;
+
+  procedure Remember(Ranks:TDictionary<UInt64,Integer>; Row:PVirtualNode; Backward:Boolean);
+  begin
+    for var I:=1 to 32 do
+    begin
+      if not Assigned(Row) then Break;
+      var ID:=RowID(Row);
+      if (ID<>0) and not Ranks.ContainsKey(ID) then Ranks.Add(ID,Ranks.Count);
+      if Backward then Row:=Tree.GetPreviousVisible(Row)
+      else Row:=Tree.GetNextVisible(Row);
+    end;
+  end;
+
+begin
+  if not Assigned(FCollection) or (FCollection.CollectionID<>CollectionID) then Exit;
+  if RemoveRecords then FStaleSelectors:=FStaleSelectors+[AuthorsView,SeriesView];
+  View:=ActiveView; GetActiveTree(Tree);
+  if not Assigned(Tree) or (View=DownloadView) then
+  begin RefreshBookMetadataViews(CollectionID); Exit; end;
+  FocusRanks:=TDictionary<UInt64,Integer>.Create;
+  TopRanks:=TDictionary<UInt64,Integer>.Create;
+  try
+    OffsetX:=TBookTreeAccess(Tree).OffsetX;
+    Remember(FocusRanks,Tree.FocusedNode,False);
+    Remember(FocusRanks,Tree.FocusedNode,True);
+    Remember(TopRanks,Tree.TopNode,False);
+    Remember(TopRanks,Tree.TopNode,True);
+    RefreshBookMetadataViews(CollectionID);
+    if not Assigned(FCollection) or (FCollection.CollectionID<>CollectionID) or
+      (View<>ActiveView) or (Tree<>GetViewTree(View)) then Exit;
+    FocusNode:=nil; TopNode:=nil; FocusRank:=MaxInt; TopRank:=MaxInt;
+    if FocusRanks.Count=0 then FocusRank:=0;
+    if TopRanks.Count=0 then TopRank:=0;
+    Node:=Tree.GetFirstVisible;
+    while Assigned(Node) and ((FocusRank<>0) or (TopRank<>0)) do
+    begin
+      var Rank:Integer;
+      var ID:=RowID(Node);
+      if FocusRanks.TryGetValue(ID,Rank) and (Rank<FocusRank) then
+      begin FocusNode:=Node; FocusRank:=Rank; end;
+      if TopRanks.TryGetValue(ID,Rank) and (Rank<TopRank) then
+      begin TopNode:=Node; TopRank:=Rank; end;
+      Node:=Tree.GetNextVisible(Node);
+    end;
+    if Assigned(FocusNode) then
+    begin
+      Tree.ClearSelection;
+      Tree.FocusedNode:=FocusNode; Tree.Selected[FocusNode]:=True;
+    end;
+    if Assigned(TopNode) then Tree.TopNode:=TopNode;
+    if Assigned(FocusNode) then Tree.ScrollIntoView(FocusNode,False);
+    TBookTreeAccess(Tree).OffsetX:=OffsetX;
+  finally TopRanks.Free; FocusRanks.Free; end;
 end;
 
 function RemoveIndividualBookSource(const Book: TBookRecord): Boolean;
@@ -8316,7 +8487,12 @@ var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
   SavedCursor: TCursor; CollectionName: string;
   Writer: IBookIdentityDeletionWriter; Match: TBookIdentityPredicate;
 begin
-  if not Assigned(FCollection) or FFormBusy then Exit;
+  if Assigned(FBookDeletionOperation) then
+  begin
+    if Assigned(FBookDeletionProgress) then FBookDeletionProgress.Show;
+    Exit;
+  end;
+  if not Assigned(FCollection) or FFormBusy or FBookListLoading then Exit;
   if ActiveView = FavoritesView then
   begin MHLShowWarning(rstrChangeCollectionToRemoveABook); Exit; end;
   GetActiveTree(Tree); if not Assigned(Tree) then Exit;
@@ -8351,6 +8527,25 @@ begin
       RemoveRecords, RemoveFiles) then Exit;
     if not Assigned(FCollection) or (FCollection.CollectionID <> CollectionID) then
     begin MHLShowWarning('Коллекция изменилась. Повторите выбор книг.'); Exit; end;
+
+    if RemoveFiles and (ArchiveCount>0) then
+    begin
+      if FBookDeletionNeedsRecovery then
+      begin
+        MHLShowWarning('Осталось незавершённое удаление из архива. Перезапустите HomeLibre, чтобы его завершить.');
+        Exit;
+      end;
+      try
+        var Binding:=TBookDeletionBinding.Capture(FSystemData.GetCollectionInfo(CollectionID),
+          Books.ToArray,RemoveRecords);
+        StartBookDeletion(TBookDeletionOperation.Create(Binding,Settings.SystemFileName[sfSystemDB],
+          BookDeletionJournalRoot),True);
+      except
+        on E:Exception do
+        begin LogDiagnosticError('book-delete-start',E); MHLShowWarning(E.Message); end;
+      end;
+      Exit;
+    end;
 
     SavedCursor := Screen.Cursor; Screen.Cursor := crHourGlass; FFormBusy := True;
     Failures := 0; Changed := False; AttemptedRecords := False;
@@ -8394,11 +8589,7 @@ begin
         end;
     finally
       FFormBusy := False; Screen.Cursor := SavedCursor;
-      if Changed or AttemptedRecords then
-      begin
-        if RemoveRecords then FStaleSelectors := FStaleSelectors + [AuthorsView, SeriesView];
-        RefreshBookMetadataViews(CollectionID);
-      end;
+      if Changed or AttemptedRecords then RefreshAfterBookDeletion(CollectionID,RemoveRecords);
     end;
     if Failures > 0 then MHLShowWarning(Format('Не удалось полностью обработать книг: %d.'+
       sLineBreak+'Подробности: «Помощь → Журнал ошибок…».', [Failures]));
