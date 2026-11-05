@@ -118,4 +118,38 @@ begin
   TFile.WriteAllText(Settings.AppPath+'sevenzip-recovery-proof.json',
     '{"archive":"zip-member-delete/sevenzip-recovery/source.7z","files":["selected/two.fb2","unselected/keep.fb2"]}',TEncoding.UTF8);
   Writeln('PASS in-place PPMd and LZMA2 removal recovers ten interruption phases and killed workers without an archive clone'); Flush(Output);
+
+  var Tasks:TArray<TArchiveDeletionTask>; SetLength(Tasks,2);
+  for var I:=0 to 1 do
+  begin
+    Tasks[I].Archive:=Root+'queued-'+IntToStr(I)+'.7z';
+    TFile.Copy(Seed,Tasks[I].Archive,True);
+    Tasks[I].Members:=TArray<string>.Create('selected/one.fb2','selected/two.fb2');
+    Tasks[I].CatalogueBinding:='owned grouped 7z catalogue intent '+IntToStr(I);
+  end;
+  var Queue:=TArchiveDeletionQueue.Create(Tasks,Journal);
+  try
+    var Work:=Queue.WorkDirectory; Queue.Start; var Started:=GetTickCount64;
+    while not Queue.Status.Finished do
+    begin
+      Application.ProcessMessages; Sleep(1);
+      Require(GetTickCount64-Started<30000,'Owned grouped 7z queue exceeded its guard');
+    end;
+    Queue.WaitFor; var Receipts:=Queue.Results;
+    Require((Length(Receipts)=2) and Receipts[0].FilesVerified and Receipts[1].FilesVerified,
+      'Grouped 7z queue failed to delete multiple members across archives');
+    for var Receipt in Receipts do
+    begin
+      Source:=TFileStream.Create(Receipt.Archive,fmOpenRead or fmShareDenyWrite);
+      try
+        Layout:=PlanSevenZipDeletion(Source,['unselected/keep.fb2']);
+        // Only the final book is now selected; everything remaining is a
+        // directory. Do not mistake directory records for another book.
+        for var Name in Layout.Remaining do Require(not Name.EndsWith('.fb2'),'Selected 7z group left a deleted book');
+      finally Source.Free; end;
+      TArchiveDeletionQueue.Acknowledge(Receipt);
+    end;
+    Require(not DirectoryExists(Work),'Grouped 7z queue retained acknowledged work');
+  finally Queue.Free; end;
+  Writeln('PASS background 7z queue removes multiple exact members from one and different archives'); Flush(Output);
 end;

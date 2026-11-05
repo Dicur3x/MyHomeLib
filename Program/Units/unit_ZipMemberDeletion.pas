@@ -29,7 +29,8 @@ type
     function ChunkNumber(Index, Field: Integer): Int64;
   public
     constructor Prepare(const Archive: string; const Names: TArray<string>;
-      const Progress: TZipDeleteProgress = nil; const Cancelled: TFunc<Boolean> = nil);
+      const Progress: TZipDeleteProgress = nil; const Cancelled: TFunc<Boolean> = nil;
+      const ExpectedSourceIdentity: string = '');
     constructor Recover(const Archive, Job: string);
     destructor Destroy; override;
     procedure Execute(const JournalParent: string; const Progress: TZipDeleteProgress = nil;
@@ -45,6 +46,7 @@ type
 // Adjacent atomic-save names are longer than their short JSON target. Keep
 // journal I/O independent of MAX_PATH even in a deep portable profile.
 function DeletionNativePath(const FileName: string): string;
+function ArchiveDeletionSourceIdentity(const FileName: string): string;
 
 implementation
 
@@ -144,6 +146,23 @@ begin
     raise EReadError.Create('Файловая система не предоставляет устойчивый номер архива.');
   Result := IntToHex(Info.dwVolumeSerialNumber, 8)+':'+
     IntToHex(Info.nFileIndexHigh, 8)+IntToHex(Info.nFileIndexLow, 8);
+end;
+
+function SourceIdentity(Handle:THandle):string;
+var Info:TByHandleFileInformation;
+begin
+  if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+  Result:=ArchiveKey(Handle)+':'+IntToHex(Info.nFileSizeHigh,8)+IntToHex(Info.nFileSizeLow,8)+':'+
+    IntToHex(Info.ftLastWriteTime.dwHighDateTime,8)+IntToHex(Info.ftLastWriteTime.dwLowDateTime,8);
+end;
+
+function ArchiveDeletionSourceIdentity(const FileName:string):string;
+var Handle:THandle;
+begin
+  Handle:=CreateFile(PChar(DeletionNativePath(FileName)),FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+  if Handle=INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try Result:=SourceIdentity(Handle); finally CloseHandle(Handle); end;
 end;
 
 function NormalName(const Name: string): string;
@@ -303,7 +322,8 @@ begin
 end;
 
 constructor TZipMemberDeletion.Prepare(const Archive: string; const Names: TArray<string>;
-  const Progress: TZipDeleteProgress; const Cancelled: TFunc<Boolean>);
+  const Progress: TZipDeleteProgress; const Cancelled: TFunc<Boolean>;
+  const ExpectedSourceIdentity: string);
 var Zip: TZipFile; Virtual: TZipDirectoryPlanStream; Headers, FinalHeaders: TArray<TZipHeader>;
   OriginalNames, FinalNames: TArray<string>; Remove: TArray<Boolean>; Order: TArray<Integer>;
   FinalOffsets: TArray<Int64>; RangeSource, RangeTarget, RangeLength: Int64;
@@ -336,6 +356,8 @@ begin
   if Length(Names)=0 then raise EArgumentException.Create('Не выбраны файлы внутри ZIP.');
   FArchive := ExpandFileName(Archive);
   FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
+  if (ExpectedSourceIdentity<>'') and (ExpectedSourceIdentity<>SourceIdentity(FSource.Handle)) then
+    raise EReadError.Create('Архив изменился после выбора книг. Повторите выбор; файлы не удалены.');
   if FSource.Size>=6 then
   begin
     var Signature:=ReadAt(0,6);

@@ -72,3 +72,10 @@ def verify(root: Path) -> None:
         if hashlib.sha256(payload).hexdigest() != entries[name.replace("\\", "/")]:
             raise RuntimeError("Independent recovered 7z payload differs")
     print("PASS upstream 7-Zip validates recovered archive inventory CRC and retained payload hashes")
+    for index in range(2):
+        archive = root / "zip-member-delete" / "sevenzip-recovery" / f"queued-{index}.7z"
+        call("t", "-sccUTF-8", "--", str(archive))
+        payload = call("x", "-so", "-spd", "-sccUTF-8", "--", str(archive), "unselected/keep.fb2")
+        if hashlib.sha256(payload).hexdigest() != entries["unselected/keep.fb2"]:
+            raise RuntimeError("Independent grouped 7z payload differs")
+    print("PASS upstream 7-Zip validates grouped background deletion payloads")

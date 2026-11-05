@@ -8,6 +8,7 @@ type
   TArchiveDeletionTask = record
     Archive: string;
     Members: TArray<string>;
+    SourceIdentity: string;
     // Captured catalogue identity. Only the owning UI thread may interpret or
     // commit it; the filesystem worker never touches a database connection.
     CatalogueBinding: string;
@@ -64,6 +65,7 @@ begin
   try
     ObjectValue.AddPair('schema',TJSONNumber.Create(1));
     ObjectValue.AddPair('archive',Task.Archive);
+    ObjectValue.AddPair('sourceIdentity',Task.SourceIdentity);
     ObjectValue.AddPair('catalogue',Task.CatalogueBinding);
     Members:=TJSONArray.Create; ObjectValue.AddPair('members',Members);
     for var Member in Task.Members do Members.Add(Member);
@@ -88,10 +90,15 @@ begin
     begin
       FTasks[I]:=Tasks[I]; FTasks[I].Archive:=ExpandFileName(Tasks[I].Archive);
       FTasks[I].Members:=Copy(Tasks[I].Members);
+      var CurrentIdentity:=ArchiveDeletionSourceIdentity(FTasks[I].Archive);
+      if FTasks[I].SourceIdentity='' then
+        FTasks[I].SourceIdentity:=CurrentIdentity;
       if (Length(FTasks[I].Members)=0) or
         (Length(TEncoding.UTF8.GetBytes(FTasks[I].CatalogueBinding))>4*1024*1024) then
         raise EArgumentException.Create('Неверный список книг для удаления из архива.');
-      var Key:=LowerCase(FTasks[I].Archive);
+      // Drive aliases, junctions and hard links can name the same physical
+      // archive twice. They must not create two conflicting recovery jobs.
+      var Key:=Copy(CurrentIdentity,1,25); // volume serial + 64-bit file index
       if Seen.ContainsKey(Key) then
         raise EArgumentException.Create('Книги из одного архива должны обрабатываться вместе.');
       Seen.Add(Key,0);
@@ -160,7 +167,8 @@ begin
         SaveBinding(FTasks[I],Item.WorkDirectory);
         Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
           procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
-          function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end);
+          function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
+          FTasks[I].SourceIdentity);
         // Cancellation is safe before the first write. After that, finish the
         // current archive; never abandon it with half-shifted compressed data.
         if TInterlocked.CompareExchange(FStop,0,0)<>0 then Abort;

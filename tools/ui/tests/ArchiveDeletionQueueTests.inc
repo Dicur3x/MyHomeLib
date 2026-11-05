@@ -73,6 +73,16 @@ begin
   Timer.Interval:=1; Timer.OnTimer:=Probe.Tick;
   try
     Fixture(First); Fixture(Second);
+    var AliasName:=Root+'same-physical-archive.zip';
+    Win32Check(CreateHardLink(PChar(AliasName),PChar(First),nil));
+    try
+      var Aliases:=Copy(Tasks); Aliases[1].Archive:=AliasName;
+      var Rejected:=False;
+      try Queue:=TArchiveDeletionQueue.Create(Aliases,Root+'journals'); Queue.Free;
+      except on E:EArgumentException do Rejected:=True; end;
+      Require(Rejected,'Queue accepted two conflicting tasks for one physical archive');
+    finally TFile.Delete(AliasName); end;
+    Writeln('PASS archive queue rejects physical aliases before creating conflicting jobs'); Flush(Output);
     Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
     try
       OwnedWork:=Queue.WorkDirectory; Queue.Start; WaitForQueue;
@@ -117,6 +127,22 @@ begin
     Require(not DirectoryExists(OwnedWork),'Stopped queue retained an acknowledged archive');
 
     Fixture(First); BeforeFirst:=THashSHA2.GetHashStringFromFile(First);
+    Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
+    try
+      OwnedWork:=Queue.WorkDirectory;
+      TFile.Move(First,Root+'replaced-source.zip'); Fixture(First);
+      BeforeFirst:=THashSHA2.GetHashStringFromFile(First);
+      Queue.Start; WaitForQueue; Receipts:=Queue.Results;
+      Require((Length(Receipts)=1) and not Receipts[0].FilesVerified and
+        (Pos('изменился после выбора',Receipts[0].Error)>0),
+        'Queue did not reject a replaced source after the captured selection');
+      Require((THashSHA2.GetHashStringFromFile(First)=BeforeFirst) and
+        (THashSHA2.GetHashStringFromFile(Second)=BeforeSecond) and not DirectoryExists(OwnedWork),
+        'Stale queue intent modified a replacement archive or left an unstarted journal');
+      TFile.Delete(Root+'replaced-source.zip');
+    finally Queue.Free; end;
+    Writeln('PASS archive queue revalidates captured file identity before any mutation'); Flush(Output);
+
     Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
     OwnedWork:=Queue.WorkDirectory;
     Queue.StopAfterCurrentArchive; Queue.Free;
