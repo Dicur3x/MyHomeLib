@@ -4560,5 +4560,12 @@
     "test_repairs": "The full story test now stages hash-checked BookProcessing and ImageProcessing packages. The reply-lock test waits for its private lock before enabling the consumer timer, so it actually exercises the transient failure instead of racing it. Both story suites passed route export, resume, illustrations and cancellation.",
     "cleanup": "All new reader test profiles and build folders from this stage were removed; earlier protected folders were left alone.",
     "remaining": "Rebuild and smoke-test the final release catalogue and standalone Reader after pending changes. The test matrix used synthetic DPI in-process and did not cover a physical mixed-DPI multi-monitor setup. Startup/list measurements remain a separate next item."
+  },
+  "beta4_catalogue_performance_probe_20261105": {
+    "status": "Native performance harness verified in functional mode on Win32 and Win64. Timing remains open.",
+    "implementation": "Both empty and title searches now use the visible controls and DoApplyFilter in the real form, including Hide Deleted and one row per book. Report output can be isolated without replacing previous results. Fixed the Delphi closure typing in the two component UI tests that share the same test executable.",
+    "verification": "Fresh Delphi Performance PE files: Win32 9f8a7cebd63d62af9ed85e2686712222ce9f2b694c1b97de20ad4533761ea57c and Win64 28a47029a6ef1fe221326b872d8125cbc1b8be300ea99e25c5fccef0d06f738a. The empty search showed both live fixture books. The title search showed just the matching live book and excluded the deleted match. Deferred startup, alphabet actions, and row/header metrics across two themes and three DPI levels passed on both builds. No production speed change was made.",
+    "timing_gate": "XviD4PSP process 20880 accumulated 0.66 and 0.27 CPU seconds in separate five-second samples. No idle encoding queue was confirmed. Full-catalogue comparisons and true time from launching the production EXE to the visible and ready interface were not run. The harness startup timer begins after application initialization and test catalogue registration.",
+    "cleanup": "All owned temporary build, report and test profiles from this stage were removed. Previous report files and previously protected directories were left alone."
   }
 }

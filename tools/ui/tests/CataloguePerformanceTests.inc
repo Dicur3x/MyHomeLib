@@ -7,7 +7,6 @@ var
   CPUStarted, CPUElapsed: UInt64;
   DB: TSQLiteDatabase;
   Collection: IBookCollection;
-  Criteria: TBookSearchCriteria;
   Filter: TFilterValue;
   Factory: TFunc<IBookIterator>;
   Node: PVirtualNode;
@@ -36,6 +35,14 @@ var
   end;
   procedure ClickLetter(Bar: TToolBar; Index: Integer);
   begin Bar.Buttons[Index].OnClick(Bar.Buttons[Index]); end;
+  procedure PrepareSearch(const Title: string);
+  begin
+    frmMain.DoClearFilter(False);
+    frmMain.cbDeleted.Checked := True;
+    frmMain.cbDeleted.OnClick(frmMain.cbDeleted);
+    frmMain.cbCollapseMultiSeriesResults.Checked := True;
+    frmMain.edFTitle.Text := Title;
+  end;
   procedure CheckTreeMetrics(Tree: TCustomVirtualStringTree; HasHeader: Boolean);
   var Height: Integer;
   begin
@@ -76,6 +83,8 @@ begin
       'startup-ui.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
     Collection := SystemDB.GetCollection(CID);
     AddBook(Collection,'Startup UI book','Author','ru','Series','0.1');
+    AddBook(Collection,'Привет startup UI','Author','ru','Series','0.1');
+    AddBook(Collection,'Привет deleted fixture','Author','ru','Series','0.1',True);
     Collection := nil;
   end
   else
@@ -171,6 +180,17 @@ begin
     ClickLetter(frmMain.tbarSeriesEng,0);
     Require(frmMain.tvSeries.RootNodeCount=1,'Streamed Series all action failed');
     Writeln('PASS streamed alphabets preserve exact letters order geometry and real author series filter actions');
+    ShowPage(PAGE_SEARCH);
+    Settings.TreeModes[PAGE_SEARCH] := tmFlat;
+    PrepareSearch('');
+    frmMain.DoApplyFilter(nil);
+    Require(frmMain.tvBooksSR.TotalCount=2,'Empty benchmark search did not exclude the deleted book');
+    PrepareSearch('привет');
+    frmMain.DoApplyFilter(nil);
+    Require((frmMain.tvBooksSR.TotalCount=1) and
+      (PBookRecord(frmMain.tvBooksSR.GetNodeData(frmMain.tvBooksSR.GetFirst)).Title='Привет startup UI'),
+      'Title benchmark action did not apply its visible search field');
+    Writeln('PASS catalogue benchmark applies the visible search fields and verifies both results');
   end;
   if StartupOnly then
   begin Writeln('PASS actual catalogue startup phase profile completed'); Exit; end;
@@ -185,7 +205,6 @@ begin
     Factory := function: IBookIterator
       begin
         case Kind of
-          0,1: Result := Collection.Search(Criteria,False);
           2: Result := Collection.GetBookIterator(bmByAuthor,False,@Filter);
           3: Result := Collection.GetBookIterator(bmBySeries,False,@Filter);
           4: Result := Collection.GetBookIterator(bmByPublisherSeries,False,@Filter);
@@ -193,13 +212,10 @@ begin
       end;
     for Kind := 0 to 4 do
     begin
-      Criteria := Default(TBookSearchCriteria); Criteria.DateIdx := -1;
-      Criteria.Deleted := True; Criteria.CollapseMultiSeriesResults := True;
       Filter := Default(TFilterValue); Expected := -1;
       case Kind of
         0: Expected := DB.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE IsDeleted=0');
-        1: begin Criteria.QueryMode := sqmText; Criteria.Title := 'привет';
-          Expected:=DB.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE IsDeleted=0 AND SearchTitle GLOB ''*ПРИВ[ЕЁ]Т*'''); end;
+        1: Expected := DB.QuerySingleInt('SELECT COUNT(*) FROM Books WHERE IsDeleted=0 AND SearchTitle GLOB ''*ПРИВ[ЕЁ]Т*''');
         2: begin
           Filter.ValueInt := DB.QuerySingleInt('SELECT AuthorID FROM Author_List GROUP BY AuthorID ORDER BY COUNT(*) DESC LIMIT 1');
           Expected := DB.QuerySingleInt('SELECT COUNT(DISTINCT b.BookID) FROM Books b JOIN Author_List l ON l.BookID=b.BookID WHERE b.IsDeleted=0 AND l.AuthorID=?',[Filter.ValueInt]);
@@ -221,11 +237,9 @@ begin
         TfrmMain.CopyBookRecordsForProfile:=RecordTransfer and (Trial in [1,4,6,7]);
         {$ENDIF}
         if ProfileOnly then StartSQLiteProfile(not SampleOnly,SampleOnly);
-        if Kind=0 then
+        if Kind in [0,1] then
         begin
-          frmMain.DoClearFilter(False); frmMain.cbDeleted.Checked := True;
-          frmMain.cbDeleted.OnClick(frmMain.cbDeleted);
-          frmMain.cbCollapseMultiSeriesResults.Checked := True;
+          if Kind=1 then PrepareSearch('привет') else PrepareSearch('');
           CPUStarted := ProcessCPUMilliseconds;
           Started := GetTickCount64; frmMain.DoApplyFilter(nil);
         end

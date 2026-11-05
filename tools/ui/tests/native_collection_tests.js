@@ -275,7 +275,7 @@ function requiredPasses(executable, mode) {
   if (mode==='advanced-save') return ['PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
-  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return ['ACTUAL startup ui_fixture=1','PASS streamed alphabet theme=1 ppi=192','PASS tree text and headers fit theme=1 ppi=192','PASS streamed alphabets preserve exact letters order geometry and real author series filter actions','PASS actual catalogue startup phase profile completed','TRACE catalogue orderly cleanup complete'];
+  if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return ['ACTUAL startup ui_fixture=1','PASS streamed alphabet theme=1 ppi=192','PASS tree text and headers fit theme=1 ppi=192','PASS streamed alphabets preserve exact letters order geometry and real author series filter actions','PASS catalogue benchmark applies the visible search fields and verifies both results','PASS actual catalogue startup phase profile completed','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-startup')) return ['PASS actual catalogue startup phase profile completed','PASS actual catalogue uses the distributed deferred startup path','ACTUAL startup icons_load_ms=','ACTUAL startup main_create_ms=','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-sample')) return ['PASS actual catalogue sampled iterator profile completed','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-record-transfer')) return ['TRANSFER copy=1 trial=1','TRANSFER copy=0 trial=8','PASS same-binary full catalogue record ownership transfer comparison preserves all row counts','TRACE cache-clear symbol RVA','TRACE catalogue orderly cleanup complete'];
@@ -942,9 +942,13 @@ with zipfile.ZipFile(sys.argv[2]+'/reader-spread.epub','w') as z:
       collect(folder);fs.writeFileSync(path.join(__dirname,'Out','pre535-'+(architecture===0x8664?'Win64':'Win32')+'-save-module-debug.json'),JSON.stringify(debug,null,2));
     }
     if(mode==='catalogue-performance') {
+      const reportArg=process.argv.find(arg=>arg.startsWith('--performance-report-dir='));
+      const reportDir=reportArg ? fs.realpathSync(reportArg.slice('--performance-report-dir='.length)) : path.join(__dirname,'Out');
+      const reportPrefix=(process.argv.includes('--catalogue-ui')?'pre534-ui-':'pre534-')+(architecture===0x8664?'Win64':'Win32')+'-';
       for(const name of ['actual-startup-profile.tsv','actual-book-list-profile.tsv']) {
         const file=path.join(folder,name);
-        if(fs.existsSync(file))fs.copyFileSync(file,path.join(__dirname,'Out',(process.argv.includes('--catalogue-ui')?'pre534-ui-':'pre534-')+(architecture===0x8664?'Win64':'Win32')+'-'+name));
+        if(fs.existsSync(file)) fs.copyFileSync(file,path.join(reportDir,reportPrefix+name),
+          reportArg ? fs.constants.COPYFILE_EXCL : 0);
       }
     }
     if(mode==='first-book-list' || mode==='first-book-list-large' || mode.startsWith('startup-deferred')) {

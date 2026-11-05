@@ -12,9 +12,10 @@ var Target: string; Available: TComponentReleases; Dialog: TfrmComponentMaintena
   procedure MonthlyOffers;
   var Time: TDateTime; Seen: Boolean;
     procedure CloseOffer(Suppress: Boolean);
+    var CloseDialog: TThreadProcedure;
     begin
       Seen:=False;
-      TThread.ForceQueue(nil,procedure
+      CloseDialog:=procedure
         var Offer: TCustomForm; Items: TListView;
         begin
           Offer:=nil;
@@ -29,7 +30,8 @@ var Target: string; Available: TComponentReleases; Dialog: TfrmComponentMaintena
             'Monthly offer enabled deletion without an explicit choice');
           TCheckBox(Offer.FindComponent('MaintenanceOffers')).Checked:=Suppress;
           Seen:=True; TButton(Offer.FindComponent('MaintenanceClose')).Click;
-        end);
+        end;
+      TThread.ForceQueue(nil,CloseDialog);
     end;
   begin
     Time:=EncodeDate(2026,1,1);

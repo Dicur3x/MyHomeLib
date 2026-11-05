@@ -105,13 +105,13 @@ var Server: TUFNServer; Dialog: TInventoryDialog; Available: TComponentReleases;
       'Inventory acquisition changed runtime or personal data');
   end;
   procedure CheckUpdaterEntry(ReaderOnly: Boolean);
-  var Update: TfrmProgramUpdate; Seen: Boolean;
+  var Update: TfrmProgramUpdate; Seen: Boolean; CloseDialog: TThreadProcedure;
   begin
     Update:=TfrmProgramUpdate.Create(nil);
     try
       if ReaderOnly then Update.UseReaderComponents;
       Update.Show; Seen:=False;
-      TThread.ForceQueue(nil,procedure
+      CloseDialog:=procedure
         var Manager: TCustomForm; Items: TListView;
         begin
           Manager:=nil;
@@ -123,7 +123,8 @@ var Server: TUFNServer; Dialog: TInventoryDialog; Available: TComponentReleases;
             'Updater manager changed catalogue/Reader component scope');
           for var Item in Items.Items do Require(not Item.Checked,'Opening Modules preselected removal');
           Seen:=True; TButton(Manager.FindComponent('MaintenanceClose')).Click;
-        end);
+        end;
+      TThread.ForceQueue(nil,CloseDialog);
       var Button:=TButton(Update.FindComponent('ManageOptionalComponents'));
       Require(Button.Enabled,'Normal updater Modules entry is disabled at rest'); Button.Click;
       Require(Seen,'Normal updater did not finish the module manager entry'); Update.Close;
