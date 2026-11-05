@@ -3024,7 +3024,7 @@
     ]
   },
   "shared_archive_entry_deletion_20261102": {
-    "status": "queued_after_active_module_maintenance",
+    "status": "active_deletion_direction_after_verified_loose_file_fix",
     "scope": "Explicit member deletion preserving other books; avoid requiring a second 25 GB archive for ordinary ZIP",
     "evidence": [
       "Installed Delphi 13 System.Zip.TZipFile.Delete moves existing compressed bytes through bounded buffers and updates entry offsets",
@@ -3036,7 +3036,9 @@
       "Group selected removals per archive",
       "Show space/time implications and account for shared images and external collection updates"
     ],
-    "current_behavior": "Existing shared archives are preserved whole; member deletion has not been implemented"
+    "current_behavior": "Existing shared archives are preserved whole; member deletion has not been implemented",
+    "mandatory_no_full_copy_20261105": "User explicitly forbids making a full backup or working copy of an archive for member deletion, including 10–20 GB archives when the disk cannot hold another copy. Remove exact selected internal paths, not a title guess. Preserve unselected contents and provide interruption recovery without a full archive duplicate. This is a required design constraint, not an optional optimization.",
+    "next_implementation_gate": "The loose-file regression is independently fixed in c7383133. For archives, first build an exact internal-path inventory and verify ambiguity/duplicates/legacy name handling. ZIP payload compaction must use existing compressed bytes and avoid full archive clones. A bounded forward-recovery journal is a candidate: retain the planned central directory and one in-flight copy block, then resume an interrupted confirmed deletion while preserving unselected entries. This is a design candidate, not implemented or accepted. Prove recovery, file identity, ZIP64, metadata and unselected-byte preservation before wiring destructive archive operations into Main. Solid-7z requires a separate verified no-full-copy approach; do not invoke the external update command if it silently creates a whole temporary archive."
   },
   "component_removal_backend_20261102": {
     "status": "verified_native_x86_x64",
