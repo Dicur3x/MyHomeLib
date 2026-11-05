@@ -91,6 +91,10 @@ type
     FDetailsButton: TButton;
     FReviewsButton: TButton;
     FReviews: TMemo;
+    FReviewDownload: TButton;
+    FReviewStatus: TLabel;
+    FReviewHasText, FReviewDownloading: Boolean;
+    FRequestReview, FCancelReview: TProc;
     FLoadSavedReview: TLoadSavedBookReview;
     FPreviewStatus, FReadingSupport: TLabel;
 
@@ -113,6 +117,7 @@ type
 
     procedure GalleryToggleClick(Sender: TObject);
     procedure ReviewsToggleClick(Sender: TObject);
+    procedure ReviewDownloadClick(Sender: TObject);
     function GetReviewsVisible: Boolean;
     function GetShowCover: boolean;
     procedure SetShowCover(const Value: boolean);
@@ -175,7 +180,9 @@ type
 
 
     procedure SetBookAnnotationText(const Value: string);
-    procedure ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview);
+    procedure ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview;
+      const RequestReview: TProc = nil; const CancelReview: TProc = nil);
+    procedure SetReviewDownloadState(const Status: string; Downloading: Boolean);
     procedure SetSavedReview(const Value: string);
     procedure SetPreviewStatus(const Value: string);
     procedure SetReadingSupport(const Value: string);
@@ -629,6 +636,20 @@ begin
   FReviews.ParentColor := True;
   FReviews.ReadOnly := True;
   FReviews.ScrollBars := ssVertical;
+  FReviewDownload := TButton.Create(Self);
+  FReviewDownload.Visible := False;
+  FReviewDownload.Parent := Self;
+  FReviewDownload.Name := 'BookReviewDownload';
+  FReviewDownload.Caption := 'Загрузить';
+  FReviewDownload.OnClick := ReviewDownloadClick;
+  FReviewStatus := TLabel.Create(Self);
+  FReviewStatus.Visible := False;
+  FReviewStatus.Parent := Self;
+  FReviewStatus.Name := 'BookReviewStatus';
+  FReviewStatus.AutoSize := False;
+  FReviewStatus.Layout := tlCenter;
+  FReviewStatus.EllipsisPosition := epEndEllipsis;
+  FReviewStatus.ShowHint := True;
 
   if csDesigning in ComponentState then
   begin
@@ -654,6 +675,7 @@ end;
 destructor TInfoPanel.Destroy;
 var I: Integer;
 begin
+  ConfigureReviews(nil);
   inherited;
   FPendingTexts.Free;
   for I := Low(FLinkMetrics) to High(FLinkMetrics) do FLinkMetrics[I].Font.Free;
@@ -758,10 +780,32 @@ begin
   LayoutControls;
 end;
 
-procedure TInfoPanel.ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview);
+procedure TInfoPanel.ConfigureReviews(const LoadSavedReview: TLoadSavedBookReview;
+  const RequestReview, CancelReview: TProc);
 begin
+  if Assigned(FCancelReview) then FCancelReview();
   FLoadSavedReview := LoadSavedReview;
+  FRequestReview := RequestReview;
+  FCancelReview := CancelReview;
   FReviewsButton.Visible := Assigned(FLoadSavedReview);
+  FReviewDownload.Enabled := Assigned(FRequestReview);
+  FReviewHasText := False;
+  SetReviewDownloadState('', False);
+end;
+
+procedure TInfoPanel.SetReviewDownloadState(const Status: string; Downloading: Boolean);
+begin
+  FReviewDownloading := Downloading;
+  FReviewStatus.Caption := Status;
+  FReviewStatus.Hint := Status;
+  if Downloading then FReviewDownload.Caption := 'Отменить'
+  else if FReviewHasText then FReviewDownload.Caption := 'Обновить'
+  else FReviewDownload.Caption := 'Загрузить';
+end;
+
+procedure TInfoPanel.ReviewDownloadClick(Sender: TObject);
+begin
+  if Assigned(FRequestReview) then FRequestReview();
 end;
 
 function TInfoPanel.GetReviewsVisible: Boolean;
@@ -771,10 +815,12 @@ end;
 
 procedure TInfoPanel.SetSavedReview(const Value: string);
 begin
+  FReviewHasText := Trim(Value) <> '';
+  SetReviewDownloadState(FReviewStatus.Caption, FReviewDownloading);
   if not ReviewsVisible then Exit;
-  if Trim(Value) = '' then
-    FReviews.Text := 'Сохранённых отзывов нет.' + sLineBreak +
-      'Загрузить отзывы можно в окне «Информация о книге».'
+  if not FReviewHasText then
+    FReviews.Text := 'Сохранённых отзывов нет.'
+  else if StartsText('Источник: http', Value) then FReviews.Text := Value
   else
     FReviews.Text := 'Сохранённые отзывы · источник не записан' +
       sLineBreak + sLineBreak + Value;
@@ -789,6 +835,8 @@ begin
   try
     FReviews.Visible := not FReviews.Visible;
     FInfoViewport.Visible := not FReviews.Visible;
+    FReviewDownload.Visible := FReviews.Visible;
+    FReviewStatus.Visible := FReviews.Visible;
     if FReviews.Visible then
     begin
       FReviewsButton.Caption := 'Сведения';
@@ -1036,7 +1084,17 @@ begin
       FDetailsButton.SetBounds(FInfoViewport.Left, ButtonY, FooterW, FooterH);
     end;
     if Assigned(FReviews) and FReviews.Visible then
-      FReviews.BoundsRect := FInfoViewport.BoundsRect;
+    begin
+      Gap := MulDiv(AnnotationGap, LayoutPPI, 96);
+      ButtonH := Min(FInfoViewport.Height, MulDiv(30, LayoutPPI, 96));
+      ReviewW := Min(FInfoViewport.Width, MulDiv(112, LayoutPPI, 96));
+      FReviewDownload.SetBounds(FInfoViewport.BoundsRect.Right - ReviewW,
+        FInfoViewport.Top, ReviewW, ButtonH);
+      FReviewStatus.SetBounds(FInfoViewport.Left, FInfoViewport.Top,
+        Max(0, FInfoViewport.Width - ReviewW - Gap), ButtonH);
+      FReviews.SetBounds(FInfoViewport.Left, FInfoViewport.Top + ButtonH + Gap,
+        FInfoViewport.Width, Max(0, FInfoViewport.Height - ButtonH - Gap));
+    end;
     finally ProfileLayout(ipsFooter, False); end;
 
     for Pass := 1 to 3 do
@@ -1510,6 +1568,8 @@ begin
   if FReviews.Visible then
   begin
     FReviews.Visible := False;
+    FReviewDownload.Visible := False;
+    FReviewStatus.Visible := False;
     FReviewsButton.Caption := 'Отзывы';
     FInfoViewport.Visible := True;
   end;

@@ -79,7 +79,7 @@ uses
   VirtualTrees.AncestorVCL,
   unit_Localization, unit_BookInfoPreview, System.Generics.Collections,
   unit_AuthorFavorites, unit_AuthorFavoriteRefresh, unit_ReaderAnnotations, unit_ReaderSession,
-  unit_BookSaveContinuation;
+  unit_BookSaveContinuation, unit_BookReviewPreview;
 
 type
   TfrmMain = class(TForm, IDownloadView)
@@ -769,6 +769,7 @@ type
     FPublisherListLoaded: Boolean;
     FBookInfoUpdateCount: Integer;
     FBookPreviews: array[0..6] of TBookInfoPreview;
+    FBookReviews: array[0..6] of TBookReviewPreview;
     FBookListCancel: TButton;
     FBookListLoading, FBookListCancelled: Boolean;
     FBookListLastPump, FCacheMenuUpdated: UInt64;
@@ -876,6 +877,8 @@ type
     // Обновления не должны менять положение ноды в дереве.
     function ReadSavedBookReview(const Saved: TBookRecord; const BookCollection: IBookCollection;
       PersonalOnly: Boolean): TBookRecord;
+    function StorePreviewReview(const Saved: TBookRecord; PersonalOnly: Boolean;
+      const Namespace, URL, Previous, Review: string; out Failure: string): Boolean;
     procedure UpdateNodes(const BookKey: TBookKey; UpdateProc: TNodeUpdateProc);
 
     procedure SetBookLocalStatus(const BookKey: TBookKey; IsLocal: Boolean);
@@ -2300,6 +2303,8 @@ begin
   FBookViewSessionCollection := 0;
   for I:=Low(FBookPreviews) to High(FBookPreviews) do
     if Assigned(FBookPreviews[I]) then FBookPreviews[I].Cancel;
+  for I:=Low(FBookReviews) to High(FBookReviews) do
+    if Assigned(FBookReviews[I]) then FBookReviews[I].Cancel;
   FStaleSelectors := [];
   FBookListCancelled := False;
   if Assigned(FOPDSForm) then FOPDSForm.StopServer;
@@ -5354,6 +5359,7 @@ begin
   FreeAndNil(FFavoriteDirtyCollections);
   FreeAndNil(FFavoriteStore);
   CancelReaderPreparations(Self);
+  for I:=Low(FBookReviews) to High(FBookReviews) do FreeAndNil(FBookReviews[I]);
   for I:=Low(FBookPreviews) to High(FBookPreviews) do FreeAndNil(FBookPreviews[I]);
   FreeAndNil(FOPDSForm);
   FreeAndNil(FProgramUpdateTimer);
@@ -6020,7 +6026,7 @@ var
   StoredBookKey: PBookKey;
   BookCollection: IBookCollection;
   BookSeries: TBookSeries;
-  SeriesLinks: string;
+  SeriesLinks, ReviewURL, ReviewNamespace: string;
   GalleryBook, ReviewBook: TBookRecord;
   ReviewPersonalOnly: Boolean;
 
@@ -6113,7 +6119,18 @@ begin
     InfoPanel.DetailsButton.Visible := True;
     ReviewBook := Data^;
     ReviewPersonalOnly := (Tree = tvBooksF) or (ReviewBook.BookKey.BookID <= 0);
-    InfoPanel.ConfigureReviews(
+    ReviewURL := ''; ReviewNamespace := '';
+    if Assigned(BookCollection) then
+    begin
+      try
+        ReviewNamespace := VarToStr(BookCollection.GetProperty(PROP_SOURCE_LIBRARY));
+        if not isPrivateCollection(BookCollection.CollectionCode) then
+          ReviewURL := BookCollection.GetViewURL(ReviewBook.LibID);
+      except end;
+    end;
+    if not Assigned(FBookReviews[Tree.Tag]) then
+      FBookReviews[Tree.Tag] := TBookReviewPreview.CreateFor(Self, InfoPanel);
+    FBookReviews[Tree.Tag].Configure(ReviewURL,
       function: string
       var ReviewCollection: IBookCollection;
         StoredReview: TBookRecord;
@@ -6122,6 +6139,11 @@ begin
         try ReviewCollection := FSystemData.GetCollection(ReviewBook.BookKey.DatabaseID); except end;
         StoredReview := ReadSavedBookReview(ReviewBook, ReviewCollection, ReviewPersonalOnly);
         Result := StoredReview.Review;
+      end,
+      function(const Previous, Review: string; out Failure: string): Boolean
+      begin
+        Result := StorePreviewReview(ReviewBook, ReviewPersonalOnly, ReviewNamespace,
+          ReviewURL, Previous, Review, Failure);
       end);
     if (bpIsLocal in Data^.BookProps) and CatalogBookAvailable(Data^, False) then
     begin
@@ -10829,6 +10851,50 @@ begin
   except
     // Keep the list's saved text if the collection becomes unavailable.
   end;
+end;
+
+function TfrmMain.StorePreviewReview(const Saved: TBookRecord; PersonalOnly: Boolean;
+  const Namespace, URL, Previous, Review: string; out Failure: string): Boolean;
+var Collection: IBookCollection; Stored, Changed: TBookRecord;
+  Outcome: TReaderPersonalWriteResult; Node: PVirtualNode; Data: PBookRecord;
+begin
+  Result := False;
+  Failure := 'Карточка книги изменилась или недоступна. Сохранённые отзывы оставлены.';
+  if FFormBusy or not Assigned(FCollection) then Exit;
+  try Collection := FSystemData.GetCollection(Saved.BookKey.DatabaseID); except Exit; end;
+  if not Assigned(Collection) or Collection.InBulkOperation or
+    (VarToStr(Collection.GetProperty(PROP_SOURCE_LIBRARY)) <> Namespace) or
+    (Collection.GetViewURL(Saved.LibID) <> URL) then Exit;
+  Stored := ReadSavedBookReview(Saved, Collection, PersonalOnly);
+  if Stored.Review <> Previous then
+  begin Failure := 'Отзывы уже изменены в другом окне. Новая загрузка их не заменила.'; Exit; end;
+  Changed := Saved; Changed.Review := Review;
+  Outcome := TryStoreReaderBookPersonal(Collection, FSystemData, Changed, [bpfReview], PersonalOnly);
+  if Outcome = rpwRejected then Exit;
+  if Outcome = rpwCatalog then
+    UpdateNodes(Saved.BookKey,
+      procedure(BookData: PBookRecord)
+      begin
+        if Assigned(BookData) and ReaderBookMatchesExpectedIdentity(Saved.LibID,
+          ReaderBookPhysicalIdentity(Saved), BookData^, Namespace) then
+        begin BookData^.Review := Review; Include(BookData^.BookProps, bpHasReview); end;
+      end)
+  else
+  begin
+    Node := tvBooksF.GetFirst;
+    while Assigned(Node) do
+    begin
+      Data := tvBooksF.GetNodeData(Node);
+      if Assigned(Data) and Data^.BookKey.IsSameAs(Saved.BookKey) and
+        ReaderBookMatchesExpectedIdentity(Saved.LibID, ReaderBookPhysicalIdentity(Saved), Data^, Namespace) then
+      begin
+        Data^.Review := Review; Include(Data^.BookProps, bpHasReview);
+        tvBooksF.InvalidateNode(Node);
+      end;
+      Node := tvBooksF.GetNext(Node);
+    end;
+  end;
+  Failure := ''; Result := True;
 end;
 
 procedure TfrmMain.ShowBookInfo(Sender: TObject);

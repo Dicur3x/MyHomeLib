@@ -165,7 +165,8 @@ end;
 
 procedure TestSavedReviewPreview(const Collection: IBookCollection; BookID: Integer);
 const SavedText = 'Сохранённый отзыв — проверка ё.';
-var Panel: TInfoPanel; Tree: TBookTree; Button: TButton; Review: TMemo;
+var Panel: TInfoPanel; Tree: TBookTree; Button, Download: TButton; Review: TMemo;
+  Status: TLabel;
   Viewport: TScrollBox; Key: TBookKey; Data: PBookRecord; DPI: Integer; Dark: Boolean;
   OtherNode: PVirtualNode;
 begin
@@ -185,6 +186,8 @@ begin
   frmMain.tvBooksTreeChange(Tree, Tree.FocusedNode);
   Button := Panel.FindComponent('BookReviewsToggle') as TButton;
   Review := Panel.FindComponent('BookSavedReviews') as TMemo;
+  Download := Panel.FindComponent('BookReviewDownload') as TButton;
+  Status := Panel.FindComponent('BookReviewStatus') as TLabel;
   Viewport := InfoFooterViewport(Panel);
   Require(Button.Visible and not Review.Visible and not Review.HandleAllocated,
     'Saved reviews must open on demand');
@@ -202,6 +205,11 @@ begin
       Require((Review.Height>0) and (Review.BoundsRect.Bottom<=Button.Top) and
         (Panel.DetailsButton.BoundsRect.Right<Button.Left) and (Button.BoundsRect.Right<=Panel.ClientWidth),
         'Review text or footer overlaps at scaled small-window bounds');
+      Require(Download.Visible and not Download.Enabled and Status.Visible and
+        (Download.Caption='Обновить') and (Pos('нет адреса',Status.Caption)>0) and
+        (Download.BoundsRect.Bottom<=Review.Top) and (Status.BoundsRect.Right<Download.Left) and
+        (Download.BoundsRect.Right<=Panel.ClientWidth),
+        'Review load controls overlap or offer a request without a valid source');
       Panel.SetBookAnnotationText('Аннотация обновилась в фоне.');
       Require(not Viewport.Visible and (Pos(SavedText, Review.Text)>0),
         'Asynchronous annotation overwrote the review view');

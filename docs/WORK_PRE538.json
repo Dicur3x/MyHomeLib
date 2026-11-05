@@ -4503,8 +4503,8 @@
     "cleanup": "All six private installations, candidate archives, and downloaded baseline packages created by this stage were removed."
   },
   "beta4_lower_review_panel_20261105": {
-    "status": "Saved review preview implemented and verified in actual Main VCL forms on x86 and x64. Additional-source feasibility verified separately against the public FantLab service.",
-    "interaction": "The Reviews button switches the lower book information pane to read-only saved text. It uses the existing identity-checked catalogue or personal-card lookup on click. Returning restores the metadata and annotation. Changing book clears the visible and cached old review. Book Information opens its Reviews tab when the preview is active and reflects a successful edit in the preview. Legacy text has no source field, so its heading says the source was not recorded.",
+    "status": "Completed the lower-panel Reviews workflow and verified it with freshly compiled x86/x64 native Main forms. Final production packages remain part of the shared beta 4 release gate.",
+    "interaction": "One Reviews entry in the metadata footer switches to the review area. Inside it, Load is shown for an empty record and Refresh for existing text; the same action becomes Cancel during the bounded HTTP request. There is no automatic request on opening the pane. Missing or unsupported source addresses disable downloading with an explanation. The read-only review text retains old unrecorded-provenance labeling; new downloaded text stores an explicit source URL. Returning to metadata and reopening uses the saved text.",
     "verification": "Both freshly compiled Delphi Release test executables passed the selected record, empty next book, preserved review, read-only view, concurrent annotation update and small layout checks in light/dark at 96/144/192 DPI. Existing review formatting and adaptive layout passed on both architectures, 72 adaptive cases each. Early compile error and fixture selection failures were corrected. The x86 adaptive suite hit its 90-second test budget before the last cases and passed with the existing 180-second group timeout. All temporary build/test directories were removed.",
     "fantlab_live_proof": {
       "search": "Title-only search for Несущий свет returned 22 matches. Title plus Ратманов returned work 2105617. The work endpoint identified Жатва душ 2. Несущий свет with authors Данияр Сугралинов and Денис Ратманов. The works endpoint returned zero reviews. This does not diagnose the original Flibusta request timeout.",
@@ -4516,7 +4516,25 @@
         "https://fantlab.ru/reglament"
       ]
     },
-    "remaining": "User clarified on 2026-11-05: exactly one Reviews entry button in the lower information panel. Inside the opened review area, expose the existing-style download/load action when reviews are absent and refresh when present. Reuse the bounded cancellable network path and preserve saved results on errors. Do not add separate Reviews/Download/Refresh entry buttons to the lower metadata panel. Finish the current author-preference direction before implementing it. FantLab remains evaluated only, not integrated. Nothing published."
+    "remaining": "No additional review provider was integrated. FantLab remains evaluated only; LiveLib, Chitai-Gorod and other possible data/book sources were discussed at the user request as future ideas, not added to the implementation queue. Final ordinary production builds, exact archives and public update/download acceptance remain in the common beta 4 release gate.",
+    "download_completion": {
+      "implementation": "The per-panel controller reuses TReviewDownloadThread and TReviewParser from Book Information: existing 30-second deadline, one bounded transient retry and responsive cancellation. Changing selected book, clearing a pane, closing a collection or destroying Main cancels and detaches the obsolete worker without waiting for HTTP. Network threads never retain or write a book card directly.",
+      "persistence": "The completion callback captures the book record, personal-card choice, original library namespace and review URL. It reads and writes on the UI thread using existing identity-checked personal-data writers, refuses bulk operations or a changed namespace/URL, and will not overwrite a review edited meanwhile. Only review text is written: downloading reviews does not replace the annotation. New downloaded text is trimmed consistently with the existing review editor.",
+      "native_proof": {
+        "log": "tools/ui/tests/Out/beta4-review-preview-20261105-r4.log",
+        "Win32_SHA256": "535da1636c374a7353c049c5a44221ecd612bf79dfe71793898f003faee6e58d",
+        "Win64_SHA256": "1d6758311207086a0c900dba19f959809de93a11410cf9db077955c6bc0c2bad",
+        "cases": [
+          "book-preview-reviews",
+          "review-preview-http",
+          "review-http",
+          "review-deadline"
+        ]
+      },
+      "assertions": "All four cases passed on both architectures. Actual lower-panel controls loaded and refreshed two UTF-8 reviews with paragraph boundaries and source URL; exact loopback request order was checked. HTTP 503, a blocked page, no reviews, cancellation, selection change, changed source and concurrent editing preserved prior stored results. Cancel returned within 200 ms. The existing Book Information tests also passed timeout/backoff/manual retry, oversize rejection, cancel/close, annotation-only persistence and the real 30-second slow-response deadline. Lower-panel load/status geometry, disabled invalid source, saved text and metadata return passed both themes at 96/144/192 DPI.",
+      "intermediate_attempts": "r1 failed because the new online scenario was absent from the harness allowlist. r2 caught the fixture changing its URL after constructing the cached collection; it now prepares the source before Main opens it. r3 caught a trailing-line-break difference when the fixture updated full metadata; downloaded review text now follows the existing trimmed review convention. These attempts remain recorded as failed, not full acceptance.",
+      "cleanup": "The successful r4 harness confirmed removal of its unique G: build root and all nested private profiles. No previously denied path, actual user catalogue, or desktop Reader process was modified."
+    }
   },
   "beta4_epub_pdf_browser_independence_20261105": {
     "status": "Release condition added after the user raised compatibility without installed Edge or Chrome.",

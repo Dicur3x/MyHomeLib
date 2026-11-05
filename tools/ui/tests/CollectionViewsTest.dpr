@@ -5614,6 +5614,7 @@ end;
 {$I MetadataFillUiTests.inc}
 {$I BookInfoPanelFooterTests.inc}
 {$I BookInfoPanelAdaptiveTests.inc}
+{$I BookReviewPreviewTests.inc}
 {$I ReaderSpreadTests.inc}
 {$I ReaderLinkFeedbackTests.inc}
 {$I UpdateMountTests.inc}
@@ -5827,6 +5828,11 @@ begin
       begin
         ImportedGenre := One.EnsureGenre('popadancy', 'Imported genre', 'Imported category');
         One.SetProperty(PROP_GENRE_FILE, 'genres_fb2_uk.glst');
+      end;
+      if ParamStr(1)='review-preview-http' then
+      begin
+        One.SetProperty(PROP_URL,'http://127.0.0.1:'+ParamStr(2)+'/');
+        One := SystemDB.GetCollection(OneID, True);
       end;
       One.SetProperty(PROP_LAST_AUTHOR_BOOK, LastBook);
       if ParamStr(1) = 'language-isolation' then
@@ -6120,6 +6126,7 @@ begin
       else if ParamStr(1) = 'reader-cache-performance' then TestReaderCachePerformance
       else if ParamStr(1) = 'book-preview-adaptive' then TestAdaptiveBookPreview
       else if ParamStr(1) = 'book-preview-reviews' then TestSavedReviewPreview(One, LastBook)
+      else if ParamStr(1) = 'review-preview-http' then TestReviewPreviewHTTP(One, LastBook)
       else if ParamStr(1) = 'book-preview-layout' then TestInfoPanelFooter
       else if ParamStr(1) = 'update-mounts' then TestUpdateMountedVolume
       else if ParamStr(1) = 'reader-spread' then TestReaderSpread

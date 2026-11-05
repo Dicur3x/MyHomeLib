@@ -76,7 +76,7 @@ for (const exe of tests) if (exe!==null && machine(exe) !== architecture) throw 
 if (machine(path.join(runtime, "sqlite3.dll")) !== architecture) throw new Error("SQLite DLL architecture does not match tests.");
 let post530Fixtures;
 const modes = ["book-deletion", "sqlite-mapping", "reader-open-choice", "reader-host-session", "reader-session-context", "reader-cache-settings", "reader-packages", "reader-components", "minimal-first-install", "post530", "update-mounts", "reader-spread", "optional-components", "feedback529", "view-sessions", "startup-deferred", "startup-deferred-publisher", "startup-deferred-fallback", "startup-deferred-close", "reader-resource-idle", "post525-update", "update-repair", "reader-cache-performance", "compact-book-views", "release23-filters", "metadata-book-columns", "author-display-setting", "export-results-audit", "search-query-modes", "legacy-import-preview", "inp-streaming", "inp-streaming-memory", "reader-notes-proposals", "update-keyboard-accessibility", "update-source-failures", "reader-conversion-audit", "settings-workflow-audit", "catalog-audit", "export-preparation", "feedback22", "feedback21", "metadata-archive-codecs", "feedback20-main", "update-form-notifier", "book-preview-layout", "metadata-fill-layout", "metadata-fill-ui", "collection-metadata-sync", "metabib-size","reader-pipeline-cache","conversion-menu","publisher-metadata-index","main-toolbar-states", "main-publisher-index-cache", "feedback19-main","catalog-sources-workflow","search-startup-layout","queue-serialization","queue-persistence","queue-load-negative","queue-load-truncated","queue-load-zero","search-preset-transfer","external-reader-names","metadata-prefix-bounds","ordinary-book-export-identity","atomic-ini","group-book-identity","reader-copy-identity","favorite-ui","update-outcomes","system-remap","favorite-columns","author-favorites","favorite-dao","publisher-search","publisher-columns","filter-captions","deleted-filter","cache-presets","search-presets","builtin-export","series-stream","fbd-editor-save","update-theme","bulk-writes","query-batch","oct11-ui","merge-scale","audit-new","persistent-cache","feedback14","book-preview","large-inpx","genre-order", "", "language-isolation", "favorites-add", "genre-link", "source-genres", "publisher-selection", "adjacent-series", "publisher-startup", "publisher-links", "publisher-error-log", "reader-compatibility", "builtin-reader", "loose-archive", "book-gallery", "book-information", "column-filters", "list-performance", "collection-merge", "catalog-sources", "read-folder-cleanup", "temp-exit-cleanup", "program-update-ui", "first-run", "first-run-cancel"];
-modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'book-preview-reviews', 'compact-search-filters');
+modes.push('reader-small-fb2', 'reader-session-process', 'book-preview-adaptive', 'book-preview-reviews', 'review-preview-http', 'review-http', 'review-deadline', 'compact-search-filters');
 modes.push('update-manual-reopen');
 modes.push('duplicate-source', 'review-formatting');
 modes.push('component-removal','component-usage','component-maintenance');
@@ -116,6 +116,7 @@ const requiredViews = {
     "PASS extra-field expansion persists and compact search leaves catalogue bytes unchanged"],
   'book-preview-adaptive': ['PASS adaptive preview uses actual Main bounded automatic height in all six views', 'PASS expanded illustrations keep panel height and wide description position', 'PASS adaptive preview keeps thumbnail pixels and original source unchanged'],
   'book-preview-reviews': ['PASS saved review preview reads the selected catalogue record in both themes at 96/144/192 DPI'],
+  'review-preview-http': ['PASS lower review panel loads refreshes and preserves previous text on empty or failed responses', 'PASS lower review panel cancels and ignores obsolete book source and concurrent edits'],
   'export-cache-lifecycle': ['PASS real archived-book estimate removes work immediately and retains reusable cached sources until exit', 'PASS failed archived-book estimate removes all operation work and preserves original archives', 'PASS in-flight estimate cancellation removes operation work and preserves original archives', 'PASS successful failed and cancelled real exports remove operation work and preserve source files', 'PASS real main-form exit clears archived-book estimate and export caches while preserving every original', 'PASS opt-in detailed diagnostics persist capture real failed cancelled exports with exact paths redact credentials exclude book contents and report local component versions', 'PASS native diagnostic journal option remains visible persists and toggles correctly at 96 144 192 DPI'],
   'estimate-failure-visibility': ['PASS complete estimate report preserves every failed book full reason identity required modules partial known sizes and atomic UTF8 save', 'PASS real batch estimate shows all 22 failures without hovering opens full report resets changed format and remains usable light dark 96 144 192 DPI'],
   'flibrary-source-preparation': ['PASS actual FLibrary source restores one cover and two illustrations with unchanged borrowed bytes', 'PASS repeated FLibrary restoration does not create another cover or illustration', 'PASS repeated native FB2 metadata rewrite preserves every restored image and readable body'],
@@ -1021,7 +1022,7 @@ async function runOnline(executable, mode) {
   const absolute = path.resolve(folder), expectedRoot = path.resolve(os.tmpdir()) + path.sep;
   if (!absolute.startsWith(expectedRoot) || !path.basename(absolute).startsWith("HomeLibRu-native-")) throw new Error("Unsafe temporary path.");
   const requests = [];
-  const expected = mode === 'review-deadline' ? ['/b/13/'] : mode === 'review-http' ?
+  const expected = mode === 'review-preview-http' ? ['1','1','2','2','3','5','4','4','4','4'].map(id=>`/b/${id}/`) : mode === 'review-deadline' ? ['/b/13/'] : mode === 'review-http' ?
     ['1','2','2','3','5','6','6','7','7','7','8','9','10','11','12','4','4'].map(id=>`/b/${id}/`) :
     mode === "online-plain" ? ["/b/900003/get"] : ["/b/900001/get", "/b/900002/get", "/b/900004/get"];
   const server = http.createServer((req, res) => {
@@ -1045,7 +1046,7 @@ async function runOnline(executable, mode) {
     }
 
     if (req.method !== "GET" || !expected.includes(req.url)) { res.writeHead(404); res.end(); return; }
-    if (mode === 'review-http' || mode === 'review-deadline') {
+    if (mode === 'review-http' || mode === 'review-deadline' || mode === 'review-preview-http') {
       const count=requests.filter(r=>r===`GET ${req.url}`).length;
       if (req.url === '/b/2/') { res.writeHead(503); res.end('unavailable'); return; }
       if(req.url==='/b/8/' || req.url==='/b/10/') {
@@ -1114,6 +1115,7 @@ async function runOnline(executable, mode) {
 (async () => {
 try {
   if (process.argv.includes('--download-scenarios-only')) { await runOnline(tests[2],'download-scenarios'); return; }
+  if (['review-preview-http','review-http','review-deadline'].includes(viewsMode)) { await runOnline(tests[2], viewsMode); return; }
   if (viewsMode !== null) {
     if (viewsMode==='post530') {
       post530Fixtures=fs.mkdtempSync(path.join(os.tmpdir(),'hlru-531-fixtures-'));
