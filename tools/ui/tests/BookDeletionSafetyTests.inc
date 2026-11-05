@@ -6,6 +6,8 @@
     ExpectedCount, ExpectedArchives: Integer;
     Failure, LastConfirmation: string;
     BeforeAccept: TProc;
+    OverrideFiles: Boolean;
+    DeleteSource: Boolean;
     procedure Tick(Sender: TObject);
   end;
 
@@ -15,7 +17,8 @@ begin
   for var I := Screen.FormCount - 1 downto 0 do
   begin
     Form := Screen.Forms[I];
-    if not Form.Visible or (Form.ClassName <> 'TMessageForm') then Continue;
+    if not Form.Visible or not ((Form.ClassName = 'TMessageForm') or
+      (Form.Name = 'BookDeletionConfirmation')) then Continue;
     Text := GBIComponentText(Form);
     try
       if Text.Contains('Выбрано книг:') then
@@ -32,6 +35,13 @@ begin
             if TButton(Form.Components[J]).Default then
               DefaultNo := TButton(Form.Components[J]).ModalResult = mrNo;
         Require(DefaultNo, 'Destructive confirmation must default to No');
+        var Files := Form.FindComponent('DeleteBookSourceFiles');
+        Require(Files is TCheckBox, 'Deletion omitted its explicit physical-file choice');
+        if OverrideFiles then
+        begin
+          Require(TCheckBox(Files).Enabled, 'Record deletion did not allow changing the file choice');
+          TCheckBox(Files).Checked := DeleteSource;
+        end;
         if Accept and Assigned(BeforeAccept) then begin BeforeAccept(); BeforeAccept := nil; end;
         if Accept then Form.ModalResult := mrYes else Form.ModalResult := mrNo;
       end
@@ -314,6 +324,26 @@ begin
         Require(THashSHA2.GetHashStringFromFile(UnselectedPath)=NeighbourHash,'Loose file deletion changed an unselected neighbouring file');
       end;
     Writeln('PASS external local FB2 deletion honours the file setting in five views and Unicode update folders'); Flush(Output);
+
+    Trace('delete safety per-operation physical file choice');
+    Probe.OverrideFiles := True;
+    try
+      for var Preference in [False, True] do
+      begin
+        Settings.DeleteFiles := Preference; Probe.DeleteSource := not Preference;
+        Sources('explicit-'+BoolToStr(Preference,True)); Rows([RawID]);
+        Execute(False,False,1,0);
+        Require(Exists(RawID) and (THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw),
+          'Cancelling the explicit choice changed a source or catalogue record');
+        Require(Settings.DeleteFiles=Preference, 'Cancelling changed the saved file preference');
+        Execute(True,False,1,0);
+        Require(not Exists(RawID), 'Explicit deletion did not remove the selected catalogue entry');
+        if Probe.DeleteSource then Require(not FileExists(RawPath), 'Explicit physical deletion was ignored')
+        else Require(THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw, 'Record-only override changed the source');
+        Require(Settings.DeleteFiles=Preference, 'One deletion silently changed the saved file preference');
+      end;
+    finally Probe.OverrideFiles := False; end;
+    Writeln('PASS per-operation checkbox overrides either preference and cancellation preserves files and settings'); Flush(Output);
 
     Trace('delete safety online catalog');
     FreeAndNil(frmMain); Settings.ActiveCollection := OnlineID; Settings.ActivePage := PAGE_SEARCH;

@@ -4954,5 +4954,22 @@
     "fixture_correction": "The saved system card stores an absolute folder while the catalogue can store a relative one. Initial fixture comparisons of raw Folder strings rejected the same book. The acceptance predicate now compares the established exact physical identity plus key, LibID and index; production capability remains caller-supplied and requires this positive identity predicate.",
     "cleanup": "Owned root G:/HomeLibRu-build-cache/homelibre-delete-identity-check-t2a82s18 is absent after scoped cleanup. Real collection files unchanged.",
     "remaining": "Build and validate persisted catalogue bindings and exact archive-member inventories, wire the conditional writer and queue into Main, per-operation optional physical checkbox, recovery replay, busy archive behavior, closure, last-book container handling, FLibrary side images and authorized real duplicates."
+  },
+  "beta4_deletion_confirmation_20261105": {
+    "status": "PASS explicit per-operation physical-file checkbox in Main; archive queue integration remains open",
+    "behavior": "Confirmation uses Delete files preference as its initial choice. A local catalogue deletion can override it in either direction without changing the saved preference. Cancel preserves source files and rows. Online/files-only action retains its explicit files-only meaning. Counting archives for this dialog uses metadata only, not mounted-source probes. Main catalogue removal now calls IBookIdentityDeletionWriter with key, exact LibID, InsideNo and nonempty ReaderBookPhysicalIdentity.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-confirmation-20261105-r2.log",
+      "Win32_SHA256": "2ab9e9516d762a5723867d5ac596e7ba7a6b8b3b94bca43afa5d473e960406f9",
+      "Win64_SHA256": "d1e486be3355c4c0131f628bd3bd89fc171dad4b8674326c94b658d88048e904",
+      "cases": [
+        "Whole native book-deletion and conditional-identity suites x86/x64",
+        "Checkbox overrides either saved preference; cancellation leaves source and rows intact; per-operation choice does not rewrite preference",
+        "Archive neighbours remain preserved until the tested background engine is integrated"
+      ]
+    },
+    "first_attempt": "r1 failed because the newly created Delphi unit lacked its UTF-8 BOM, so the native confirmation text did not match. Corrected encoding and rebuilt both architectures; r2 passed.",
+    "cleanup": "Owned roots homelibre-delete-confirmation-check-4f7zohkh and homelibre-delete-confirmation-check-ke6d3rsu are absent. Real collection unchanged.",
+    "remaining": "Durable exact-member bindings and recovery, production background queue and busy-source gate, last-book archive handling and real FLibrary duplicate acceptance."
   }
 }

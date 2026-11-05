@@ -1249,7 +1249,7 @@ uses
   unit_TreeUtils,
   unit_MHL_strings,
   unit_Settings,
-  unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
+  unit_BookDeletionDialog, unit_MHLTheme, unit_Readers, unit_ReaderCache, unit_ReaderSessionRunner, unit_ReaderFormats, unit_ReaderOffice, unit_ReaderLaunch, unit_BookMetadataCache,
   unit_ReaderDocument, unit_ReaderNoteBooks, unit_BookConversion,
   frm_BuiltinReader, frm_StoryReader, frm_AuthorFavorites,
   dm_user,
@@ -8284,7 +8284,9 @@ function IsArchiveBookSource(const Book: TBookRecord): Boolean;
 begin
   // GetBookFileName returns the whole ZIP/7z, not its selected member.
   // This also protects private FBD archives and legacy ZIP -> 7z fallback.
-  Result := IsArchiveExt(Book.GetBookFileName);
+  // Counting a confirmation must not probe an offline collection drive.
+  var Container := TPath.Combine(Book.CollectionRoot, Book.Folder);
+  Result := IsArchiveExt(Book.GetBookFileName(Container));
 end;
 
 function RemoveIndividualBookSource(const Book: TBookRecord): Boolean;
@@ -8311,7 +8313,8 @@ var Tree: TBookTree; Node: PVirtualNode; Data: PBookRecord;
   Books: TList<TBookRecord>; Seen: TDictionary<UInt64, Byte>;
   Book, Current: TBookRecord; CollectionID, ArchiveCount, Failures: Integer;
   Key: UInt64; RemoveRecords, RemoveFiles, Wanted, Changed, AttemptedRecords: Boolean;
-  SavedCursor: TCursor; Msg, CollectionName: string;
+  SavedCursor: TCursor; CollectionName: string;
+  Writer: IBookIdentityDeletionWriter; Match: TBookIdentityPredicate;
 begin
   if not Assigned(FCollection) or FFormBusy then Exit;
   if ActiveView = FavoritesView then
@@ -8344,15 +8347,8 @@ begin
     end;
     if Books.Count = 0 then Exit;
     CollectionName := FSystemData.GetCollectionInfo(CollectionID).DisplayName;
-    Msg := Format('Коллекция: %s'+sLineBreak+'Выбрано книг: %d'+sLineBreak+sLineBreak,
-      [CollectionName, Books.Count]);
-    if RemoveRecords then
-      if RemoveFiles then Msg := Msg + 'Удалить записи из каталога и отдельные файлы этих книг?'
-      else Msg := Msg + 'Удалить записи из каталога? Файлы книг останутся на диске.'
-    else Msg := Msg + 'Удалить отдельные загруженные файлы? Записи в каталоге сохранятся.';
-    if RemoveFiles and (ArchiveCount > 0) then
-      Msg := Msg + sLineBreak+sLineBreak+Format('Книг в архивах: %d. ZIP и 7z не удаляются и не изменяются: в них могут находиться другие книги.', [ArchiveCount]);
-    if MessageDlg(Msg, mtConfirmation, [mbYes, mbNo], 0, mbNo) <> mrYes then Exit;
+    if not ConfirmBookDeletion(CollectionName, Books.Count, ArchiveCount,
+      RemoveRecords, RemoveFiles) then Exit;
     if not Assigned(FCollection) or (FCollection.CollectionID <> CollectionID) then
     begin MHLShowWarning('Коллекция изменилась. Повторите выбор книг.'); Exit; end;
 
@@ -8368,9 +8364,20 @@ begin
             raise EInvalidOperation.Create('Книга в каталоге изменилась. Повторите её выбор.');
           if RemoveRecords then
           begin
-            // Let DeleteBook commit its own collection transaction before
-            // touching the source. A rejected database write keeps the file.
-            AttemptedRecords := True; FCollection.DeleteBook(Book.BookKey); Changed := True;
+            if not Supports(FCollection, IBookIdentityDeletionWriter, Writer) then
+              raise EInvalidOperation.Create('Эта коллекция не поддерживает безопасное удаление записей.');
+            Match := function(const Value: TBookRecord): Boolean
+              begin
+                Result := Value.BookKey.IsSameAs(Book.BookKey) and (Value.LibID = Book.LibID) and
+                  (Value.InsideNo = Book.InsideNo) and (ReaderBookPhysicalIdentity(Book) <> '') and
+                  (ReaderBookPhysicalIdentity(Value) = ReaderBookPhysicalIdentity(Book));
+              end;
+            AttemptedRecords := True;
+            case Writer.DeleteBookIfIdentity(Book, Match) of
+              bdwDeleted: Changed := True;
+              bdwMissing: Continue;
+              else raise EInvalidOperation.Create('Книга или её личная карточка изменились. Повторите выбор.');
+            end;
           end;
           if RemoveFiles and (RemoveRecords or OnlyFiles or (bpIsLocal in Current.BookProps)) then
             if RemoveIndividualBookSource(Current) then
