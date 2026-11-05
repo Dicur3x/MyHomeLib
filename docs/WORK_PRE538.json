@@ -4724,8 +4724,8 @@
     },
     "shutdown_fix": "Expanded modal-theme test exposed a deterministic shutdown crash. Vectored stack and MAP evidence located Vcl.Styles.TStyleEngine notifications during later control-hook finalization after its class state was released. MHL theme teardown must run before RTL class finalization, not only in a unit finalizer. Added FinalizeMHLTheme and called it from ordinary catalogue/Reader application exit and native cleanup. Full scenarios now exit 0 on both architectures. Production entry points still need rebuild/smoke checks. Temporary diagnostics and skip flags removed.",
     "remaining": [
-      "Ordinary catalogue and Reader rebuild/smoke after the lifecycle change; final minimal candidate checks.",
-      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation."
+      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation.",
+      "Rebuild and validate the final minimal archives after remaining beta 4 features; the ordinary EXE smoke does not cover public download, updates or new writer continuation."
     ],
     "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched.",
     "profile_guard": "Read and every write now validate all existing personal records before opening the file for modification. Three real externally corrupted profile variants (identity mismatch, fractional score and binary timestamp) reject stale writes with identical file hashes and preserve the last valid in-memory snapshot. All eight native cases passed again on both architectures; new Win32 SHA256 65970629d3a8ad4ecf0e1b0fd0506339a606400b8c33905b38a5d3a7efcbc01a, Win64 bf2f5e02b53b48ef875e8f7728dd21ec41ef63a1b53a60d29eac48b8777989af. Log tools/ui/tests/Out/beta4-author-preferences-20261105-r14.log. New temporary directories removed.",
@@ -4749,6 +4749,22 @@
       ],
       "scope": "The existing general user-data menu defaults to preserving existing author preferences; separate author-specific transfer supports replace/preserve decisions already checked in backend tests. The first cancellation oracle compared the whole SQLite file while legitimate favorite-baseline discovery was active; changed it to compare only every favorite key and personal rating/hidden/timestamp rather than unrelated binding cache bytes.",
       "cleanup": "All new successful and failed general-transfer build/test stages removed; earlier protected directories were not touched."
+    },
+    "ordinary_production_smoke": {
+      "status": "Fresh ordinary Release catalogue and standalone Reader entry points started and closed normally on both architectures.",
+      "builds": {
+        "Win32_catalogue": "3e3b7bd0dfd37113ca2150479996c205a1b568c076db16c6615deed48aeead44",
+        "Win32_reader": "436d2bdf3f2ce70953d3f62e7408221c7d924ab9a24289ba9cbbb8e8a35f548c",
+        "Win64_catalogue": "739dc72ec0565adb1c2e3885f742f350c82d00152a63418cabd2b8d2a4c8821e",
+        "Win64_reader": "57126fc3630d46ef42536c16691361a98582940f4210ffd0bb72b9586d99aeb4"
+      },
+      "verification": "All four normal processes exited 0 through Alt+F4. Dark catalogue displayed the owned Alpha book; the actual x64 My authors menu and manager opened. Standalone Reader displayed the owned Unicode FB2; light-to-dark palette changes were observed on x86 and x64. Book rows and source FB2 hashes remained identical. The fixture generator was an older pinned native test EXE, used only to create a fresh tiny profile; acceptance targets were the four new ordinary production EXEs. This is not final ZIP, public update or full catalogue performance acceptance.",
+      "reports": [
+        "tools/ui/tests/Out/beta4-author-production-smoke-0cdbbac02b0a.json",
+        "tools/ui/tests/Out/beta4-author-production-smoke-963a0305add7.json"
+      ],
+      "harness_repairs": "First attempt lacked a Python sys import. Next attempt expected an explicit catalogue ReaderProfile path despite a direct portable launch and its root HomeLibReader.ini; corrected the oracle. Its SQLite snapshot helper used a connection context manager without explicit close, so exception cleanup hit file locks; now every connection is explicitly closed. The combined UI pass exceeded its manual-operation allowance while x64 author manager was open; x86 cases remain recorded as passed and x64 was repeated separately with an adequate operator budget. Do not count the interrupted x64 pass as successful.",
+      "cleanup": "Fresh successful r3/r4 owned profiles were confirmed absent. Automatic approval review rejected explicit cleanup of the earlier partial G:/HomeLibRu-build-cache/homelibre-author-production-smoke-vk9kawdb stage with only blocked by policy, no more specific reason. That directory remains protected; no alternate deletion was attempted. The earlier protected reimport stage remains as already recorded. No user collection or unrelated Reader process was changed."
     }
   }
 }
