@@ -76,6 +76,27 @@ begin
     var AliasName:=Root+'same-physical-archive.zip';
     Win32Check(CreateHardLink(PChar(AliasName),PChar(First),nil));
     try
+      var GuardHash:=THashSHA2.GetHashStringFromFile(First);
+      var Lease:=AcquireArchiveChange(First);
+      try
+        Require(IsArchiveChanging(First) and IsArchiveChanging(AliasName) and not IsArchiveChanging(Second),
+          'Archive guard did not follow physical aliases or blocked a different source');
+        var Blocked:=False; var Reader:TMHLZip:=nil;
+        try Reader:=TMHLZip.Create(AliasName,True);
+        except on E:EMHLArchiveInUse do Blocked:=True; end;
+        Reader.Free; Require(Blocked,'Reader opened an archive while its change guard was active');
+        Reader:=TMHLZip.Create(Second,True);
+        try Require(Reader.FileCount=3,'A different archive became unreadable during a source change');
+        finally Reader.Free; end;
+        Blocked:=False; var Duplicate:IInterface;
+        try Duplicate:=AcquireArchiveChange(AliasName);
+        except on E:EMHLArchiveInUse do Blocked:=True; end;
+        Require(Blocked and not Assigned(Duplicate) and IsArchiveChanging(First),
+          'A rejected duplicate writer released the first writer guard');
+      finally Lease:=nil; end;
+      Require(not IsArchiveChanging(First) and not IsArchiveChanging(AliasName) and
+        (THashSHA2.GetHashStringFromFile(First)=GuardHash),'Archive guard leaked or changed source bytes');
+      Writeln('PASS archive change guard follows physical aliases and blocks current source readers without blocking other archives'); Flush(Output);
       var Aliases:=Copy(Tasks); Aliases[1].Archive:=AliasName;
       var Rejected:=False;
       try Queue:=TArchiveDeletionQueue.Create(Aliases,Root+'journals'); Queue.Free;

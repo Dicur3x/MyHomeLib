@@ -163,6 +163,29 @@ begin
     Require(Rejected,'A files-only receipt deleted catalogue rows');
     Writeln('PASS persisted catalogue binding resumes a split batch idempotently while protecting files-only mode sources neighbours and other collections'); Flush(Output);
 
+    Current:=Saved; Current.LibID:='files-only:one'; Current.FileName:='source';
+    var LocalID:=Collection.InsertBook(Current,False,False);
+    Collection.GetBookRecord(CreateBookKey(LocalID,CID),Current,True);
+    User.AddBookToGroup(Current.BookKey,FAVORITES_GROUP_ID,Current);
+    Collection.SetRate(Current.BookKey,4); Collection.SetProgress(Current.BookKey,53);
+    Collection.SetReview(Current.BookKey,'Keep files-only note — ё'); Collection.SetLocal(Current.BookKey,True);
+    var LocalBinding:=TBookDeletionBinding.Capture(User.GetCollectionInfo(CID),[Current],False);
+    Personal.ExecSQL('UPDATE Books SET LibID=? WHERE BookID=? AND DatabaseID=?',['files-only:foreign',LocalID,CID]);
+    Rejected:=False;
+    try LocalBinding.CommitSourceMissing(User); except on E:EReadError do Rejected:=True; end;
+    Collection.GetBookRecord(CreateBookKey(LocalID,CID),Current,True);
+    Require(Rejected and (bpIsLocal in Current.BookProps),'Changed personal identity still cleared catalogue availability');
+    Personal.ExecSQL('UPDATE Books SET LibID=? WHERE BookID=? AND DatabaseID=?',['files-only:one',LocalID,CID]);
+    Require(LocalBinding.CommitSourceMissing(User)=1,'Files-only receipt did not clear source availability');
+    LocalBinding.CommitSourceMissing(User);
+    Collection.GetBookRecord(CreateBookKey(LocalID,CID),Current,True);
+    Require(not (bpIsLocal in Current.BookProps) and (Current.Rate=4) and (Current.Progress=53) and
+      (Collection.GetReview(Current.BookKey)='Keep files-only note — ё'),'Files-only completion removed records or changed personal data');
+    Require((Personal.QuerySingleInt('SELECT IsLocal FROM Books WHERE BookID=? AND DatabaseID=?',[LocalID,CID])=0) and
+      (Personal.QuerySingleInt('SELECT count(*) FROM BookGroups WHERE BookID=? AND DatabaseID=?',[LocalID,CID])=1) and
+      (THashSHA2.GetHashStringFromFile(SourceFile)=SourceHash),'Files-only completion lost a saved card group link or physical source');
+    Writeln('PASS files-only receipt clears only matching source availability and preserves records ratings progress notes groups and source bytes'); Flush(Output);
+
     var MemberBook:TBookRecord; var Members:TArray<string>;
     MemberBook.Clear; MemberBook.CollectionRoot:=Root; MemberBook.Folder:='members.zip';
     MemberBook.FileName:='каталог/Книга ё'; MemberBook.FileExt:='.fb2'; MemberBook.InsideNo:=0;

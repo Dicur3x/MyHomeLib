@@ -14,12 +14,14 @@ type
     FRemoveRecords: Boolean;
     FBooks: TArray<TBookRecord>;
     procedure Validate;
+    function OpenCapturedCollection(const User: ISystemData): IBookCollection;
   public
     class function Capture(const Info: TCollectionInfo; const Books: TArray<TBookRecord>;
       RemoveRecords: Boolean): TBookDeletionBinding; static;
     class function Parse(const JSON: string): TBookDeletionBinding; static;
     function ToJSON: string;
     function CommitRecords(const User: ISystemData): Integer;
+    function CommitSourceMissing(const User: ISystemData): Integer;
     function ExpectedBooks: TArray<TBookRecord>;
     function Slice(const Indices: TArray<Integer>): TBookDeletionBinding;
     property CollectionID: Integer read FCollectionID;
@@ -167,12 +169,9 @@ begin
   Result:=Self; Result.FBooks:=Selected; Result.Validate;
 end;
 
-function TBookDeletionBinding.CommitRecords(const User:ISystemData):Integer;
-var Collection:IBookCollection; Writer:IBookIdentityDeletionWriter;
-  Expected:TBookRecord; Match:TBookIdentityPredicate;
+function TBookDeletionBinding.OpenCapturedCollection(const User:ISystemData):IBookCollection;
 begin
-  Validate; Result:=0;
-  if not FRemoveRecords then raise EInvalidOperation.Create('Этот журнал сохраняет записи в коллекции.');
+  Validate;
   if not Assigned(User) then raise EInvalidOperation.Create('База коллекций не открыта.');
   var Info:=User.GetCollectionInfo(FCollectionID);
   if (Info.ID<>FCollectionID) or not SameFileName(ExpandFileName(Info.DBFileName),FCatalogueFile) or
@@ -180,7 +179,16 @@ begin
     raise EReadError.Create('Коллекция была заменена. Записи из другой коллекции не удалены.');
   // Do not GetCollection before proving that its existing file is the one
   // captured by the confirmed operation: opening a missing path may create DB.
-  Collection:=User.GetCollection(FCollectionID);
+  Result:=User.GetCollection(FCollectionID);
+end;
+
+function TBookDeletionBinding.CommitRecords(const User:ISystemData):Integer;
+var Collection:IBookCollection; Writer:IBookIdentityDeletionWriter;
+  Expected:TBookRecord; Match:TBookIdentityPredicate;
+begin
+  Result:=0;
+  if not FRemoveRecords then raise EInvalidOperation.Create('Этот журнал сохраняет записи в коллекции.');
+  Collection:=OpenCapturedCollection(User);
   if not Supports(Collection,IBookIdentityDeletionWriter,Writer) then
     raise EInvalidOperation.Create('Коллекция не поддерживает безопасное завершение удаления.');
   Match:=function(const Current:TBookRecord):Boolean
@@ -200,6 +208,43 @@ begin
       bdwMissing: ;
       else raise EReadError.Create('Не удалось завершить удаление записи. Журнал сохранён для продолжения.');
     end;
+end;
+
+function TBookDeletionBinding.CommitSourceMissing(const User:ISystemData):Integer;
+var Collection:IBookCollection; CheckWriter:IBookIdentityDeletionWriter;
+  Writer,PersonalWriter:IBookIdentityPersonalWriter;
+  Expected,Changed:TBookRecord; Match:TBookIdentityPredicate;
+  State:TBookIdentityWriteResult;
+begin
+  Result:=0;
+  if FRemoveRecords then raise EInvalidOperation.Create('Этот журнал предназначен для удаления записей.');
+  Collection:=OpenCapturedCollection(User);
+  if not Supports(Collection,IBookIdentityDeletionWriter,CheckWriter) or
+    not Supports(Collection,IBookIdentityPersonalWriter,Writer) or
+    not Supports(User,IBookIdentityPersonalWriter,PersonalWriter) then
+    raise EInvalidOperation.Create('Коллекция не поддерживает безопасное изменение доступности файла.');
+  Match:=function(const Current:TBookRecord):Boolean
+    begin
+      Result:=Current.BookKey.IsSameAs(Expected.BookKey) and (Current.LibID=Expected.LibID) and
+        (Current.InsideNo=Expected.InsideNo) and (ReaderBookPhysicalIdentity(Expected)<>'') and
+        (ReaderBookPhysicalIdentity(Current)=ReaderBookPhysicalIdentity(Expected));
+    end;
+  for Expected in FBooks do
+    if not (CheckWriter.DeleteBookIfIdentity(Expected,Match,True) in [bdwReady,bdwMissing]) then
+      raise EReadError.Create('Книга или её личная карточка изменилась. Журнал удаления сохранён.');
+  for Expected in FBooks do
+  begin
+    Changed:=Expected; Exclude(Changed.BookProps,bpIsLocal);
+    State:=Writer.TrySetIdentityPersonal(Changed,[bpfIsLocal],Match);
+    // A catalogue row can have been removed while this confirmed operation
+    // was running. Only a still-matching saved card may be updated then.
+    if State=biwNoCard then State:=PersonalWriter.TrySetIdentityPersonal(Changed,[bpfIsLocal],Match);
+    case State of
+      biwSaved: Inc(Result);
+      biwNoCard: ;
+      else raise EReadError.Create('Не удалось обновить доступность файла. Записи и журнал сохранены.');
+    end;
+  end;
 end;
 
 end.

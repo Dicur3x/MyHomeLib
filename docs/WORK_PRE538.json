@@ -5076,5 +5076,44 @@
       "Authorized real FLibrary duplicates only after isolated production GUI gates"
     ],
     "next": "Wire this prepared pipeline into Main; preserve optional per-operation physical checkbox and do not start filesystem preparation in record-only mode."
+  },
+  "beta4_deletion_source_guard_20261105": {
+    "status": "PASS physical-source writer guard x86/x64; Main progress/recovery integration remains open",
+    "implementation": "Scoped in-process lease keyed by volume/file ID, shared by archive readers and the filesystem queue. Handles aliases and mount paths, rejects a duplicate writer without releasing the first lease, leaves unrelated archives readable, and performs no extra source-attribute probe when no changes are active. Existing OS file sharing still protects other processes.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-source-guard-20261105-r1.log",
+      "Win32_SHA256": "dd7bdfe4e0a0a36b0410f9697986a64e7f4fdc57f66652aaa232cfa7a0740d70",
+      "Win64_SHA256": "2eda54d166d5d838404bf3d3090b63550d1a8cc057b3c8b5caaeb8ac6457892f"
+    },
+    "cases": [
+      "Actual TMHLZip reader rejects a guarded alias while another archive remains readable",
+      "Duplicate writer rejected without dropping original lease; scope releases and source bytes remain unchanged",
+      "Full ZIP/ZIP64/7z interruption/queued deletion and independent integrity suites passed",
+      "Grouped preparation/filesystem/catalogue pipeline still passes"
+    ],
+    "additional_verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-source-state-20261105-r1.log",
+      "Win32_SHA256": "e579f875f4e47fe6b05e09e490af93d0251a502358215856884e14e115e35285",
+      "Win64_SHA256": "b1aed5ccaac4533f30ed12e5cebdd0def18a0e3851f6f93889c0d97519ac6711"
+    },
+    "exclusive_access": "Native Win32/Win64 tests additionally held the source read/write with fmShareExclusive. The attribute-only identity probe still identified an alias and the actual reader showed the guarded-source exception; another archive remained readable.",
+    "primary_api_reference": "https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew",
+    "cleanup": "New owned source-guard and source-state test roots removed. Real collection unchanged."
+  },
+  "beta4_deletion_files_only_state_20261105": {
+    "status": "PASS conditional files-only catalogue completion x86/x64; not yet connected to Main archive actions",
+    "implementation": "TBookDeletionBinding.CommitSourceMissing uses the existing IBookIdentityPersonalWriter/bpfIsLocal capability after preflighting exact catalogue and personal identities. It clears availability only; no record deletion and no unrelated personal-field replacement. Reuses a captured-file validation helper shared with CommitRecords.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-source-state-20261105-r1.log",
+      "Win32_SHA256": "e579f875f4e47fe6b05e09e490af93d0251a502358215856884e14e115e35285",
+      "Win64_SHA256": "b1aed5ccaac4533f30ed12e5cebdd0def18a0e3851f6f93889c0d97519ac6711"
+    },
+    "cases": [
+      "Changed personal identity prevents clearing catalogue availability",
+      "Availability cleared in matching catalogue and personal rows",
+      "Repeated completion is harmless; catalogue row, rating, progress, review and group link retained",
+      "Original physical file SHA256 unchanged by database completion"
+    ],
+    "remaining": "Production owner-thread completion in bounded chunks and asynchronous filesystem acknowledgement, then Main progress/stop/close/recovery/source gates."
   }
 }

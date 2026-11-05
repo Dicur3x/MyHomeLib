@@ -127,7 +127,7 @@ const
 implementation
 
 uses
-  StrUtils, System.Math,
+  StrUtils, System.Math, unit_MHLArchiveBusy,
   unit_MHLExternalTools;
 
 procedure TMHLZip.EnsureSevenZipTool;
@@ -861,6 +861,7 @@ constructor TMHLZip.Create(const AFileName: string; RO: Boolean;
 begin
   Inherited Create;
   FIsCanceled := IsCanceled;
+  CheckArchiveReadable(AFileName);
 
   FZip := nil;
   FArchiveFileName := AFileName;

@@ -61,7 +61,7 @@ type
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.JSON, System.SyncObjs, System.Hash,
-  System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile;
+  System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile, unit_MHLArchiveBusy;
 
 procedure SaveBinding(const Task: TArchiveDeletionTask; const Directory: string);
 var ObjectValue: TJSONObject; Members: TJSONArray; Stream: TStringStream;
@@ -233,7 +233,7 @@ begin
 end;
 
 procedure TArchiveDeletionQueue.Execute;
-var Deletion: TZipMemberDeletion; Item: TArchiveDeletionResult;
+var Deletion: TZipMemberDeletion; Item: TArchiveDeletionResult; Lease:IInterface;
 begin
   try
     for var I:=0 to High(FTasks) do
@@ -247,13 +247,14 @@ begin
         Item.WorkDirectory:=ExtractFileDir(Item.JournalDirectory);
       end
       else Item.WorkDirectory:=TPath.Combine(FRoot,Format('archive-%.6d',[I]));
-      Deletion:=nil;
+      Deletion:=nil; Lease:=nil;
       TMonitor.Enter(FLock);
       try
         FStatus.ArchiveIndex:=I+1; FStatus.Archive:=Item.Archive;
         FStatus.Stage:='Проверка архива'; FStatus.Done:=0; FStatus.Total:=0;
       finally TMonitor.Exit(FLock); end;
       try
+        Lease:=AcquireArchiveChange(Item.Archive);
         if FRecoveryJobs[I]<>'' then
         begin
           var Receipt:=ReadReceipt(Item.WorkDirectory);
@@ -286,7 +287,7 @@ begin
         on E:Exception do Item.Error:=E.Message;
       end;
       if Assigned(Deletion) then Item.JournalDirectory:=Deletion.JobDirectory;
-      Deletion.Free;
+      Deletion.Free; Lease:=nil;
       if (Item.JournalDirectory='') and DirectoryExists(DeletionNativePath(Item.WorkDirectory)) then
       begin
         // Planning cannot mutate the source. Its small binding is disposable

@@ -9,7 +9,7 @@ function ReadBookDeletionInventory(const Archive, ExpectedSourceIdentity: string
 
 implementation
 
-uses System.Classes, System.Zip, unit_ZipMemberDeletion, unit_SevenZipDeletionPlan;
+uses System.Classes, System.Zip, unit_ZipMemberDeletion, unit_SevenZipDeletionPlan, unit_MHLArchiveBusy;
 
 function ReadBookDeletionInventory(const Archive,ExpectedSourceIdentity:string;
   const Cancel:TFunc<Boolean>):TArray<string>;
@@ -23,7 +23,7 @@ var Source:TFileStream; Zip:TZipFile; Signature:array[0..5] of Byte;
       raise EReadError.Create('Архив изменился после выбора книг. Удаление не начато.');
   end;
 begin
-  Result:=nil; Check;
+  Result:=nil; CheckArchiveReadable(Archive); Check;
   // No unpacking and no write access. Keep the inventory stable while the
   // decoder reads metadata, then check the captured source once more.
   Source:=TFileStream.Create(DeletionNativePath(Archive),fmOpenRead or fmShareDenyWrite);

@@ -66,6 +66,23 @@ begin
   Win32Check(CreateHardLink(PChar(AliasName),PChar(A),nil));
   BeforeA:=THashSHA2.GetHashStringFromFile(A); BeforeB:=THashSHA2.GetHashStringFromFile(B);
   BeforeFBD:=THashSHA2.GetHashStringFromFile(FBD);
+  var Lease:=AcquireArchiveChange(A);
+  try
+    var Locked:=TFileStream.Create(A,fmOpenReadWrite or fmShareExclusive);
+    try
+      Require(IsArchiveChanging(AliasName),'Archive guard could not identify a physical alias under exclusive access');
+      var Blocked:=False; var Reader:TMHLZip:=nil;
+      try Reader:=TMHLZip.Create(AliasName,True);
+      except on E:EMHLArchiveInUse do Blocked:=True; end;
+      Reader.Free; Require(Blocked,'Reader did not report a guarded exclusively held source');
+      Reader:=TMHLZip.Create(B,True);
+      try Require(Reader.FileCount=2,'Exclusive source guard blocked a different archive');
+      finally Reader.Free; end;
+    finally Locked.Free; end;
+  finally Lease:=nil; end;
+  Require(not IsArchiveChanging(A) and (THashSHA2.GetHashStringFromFile(A)=BeforeA),
+    'Exclusive guard test leaked its lease or changed the source');
+  Writeln('PASS active archive guard identifies physical aliases under exclusive source access while other archives remain readable'); Flush(Output);
   TSystemData_SQLite.CreateSystemTables(UserFile); User:=TSystemData_SQLite.Create(UserFile);
   try
     CID:=User.CreateCollection('Owned preparation',Root,Root+'catalog.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
