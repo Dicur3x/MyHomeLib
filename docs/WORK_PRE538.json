@@ -4875,5 +4875,27 @@
     ],
     "cleanup": "Unique root G:/HomeLibRu-build-cache/homelibre-zip-member-check-gozj7uen is absent; failed isolated roots were removed by the same scoped outer harness. No real collection changed.",
     "remaining": "Production exact catalogue locator inventory, recovery binding validation/replay, per-archive operation gate, catalogue transaction handshake, Main background progress and closure handling, last-book outer archive removal, 7z/FLibrary handling and authorized real-collection checks. No claim of completed application integration."
+  },
+  "beta4_sevenzip_deletion_plan_20261105": {
+    "status": "PASS non-mutating planner x86/x64; archive write/recovery and catalogue integration not yet implemented for 7z",
+    "implementation": "Uses the existing optional 7z.dll public IOutArchive interface with unchanged-data/unchanged-properties callbacks and a bounded virtual output. It records borrowed original compressed ranges plus the small final metadata; it never writes its read-only source handle or creates a full archive clone. A partial solid-block re-encode request fails before mutation.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-sevenzip-plan-20261105-r2.log",
+      "Win32_SHA256": "fe26d50ea53db58f9aa8e4c60d8e00a0794dbce5ed3a41b638b80a60bcf88066",
+      "Win64_SHA256": "2dab71a925121a84bbcdbd7ed6c42c27ff293a9767bc040a36f7f60338d10d0a",
+      "cases": [
+        "Real 7-Zip-created non-solid PPMd and LZMA2 fixture plans delete two exact members and preserve the neighbour compressed block hash",
+        "Materialized tiny test results pass independent upstream 7-Zip inventory, CRC testing and uncompressed payload SHA256",
+        "Partial solid deletion rejected before source mutation; all original archive hashes unchanged",
+        "All earlier ZIP/ZIP64 actual process-kill recovery and background queue checks rerun successfully"
+      ]
+    },
+    "real_collection_read_only": "The desktop source F:/fb2.flibusta.lib.rus.ec.7z/f.fb2-263214-266671.7z was only listed with installed 7-Zip 26.05: 291691769 bytes, PPMd, non-solid, 2482 distinct single-file blocks. Candidate names 265560.fb2 and 266313.fb2 resolved by exact path. This is not a duplicate-content verification or permission to bypass safety gates; no real source was modified.",
+    "upstream_contracts": [
+      "https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/IArchive.h",
+      "https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/7z/7zUpdate.cpp",
+      "https://github.com/ip7z/7zip/blob/main/CPP/7zip/IStream.h"
+    ],
+    "cleanup": "Owned root G:/HomeLibRu-build-cache/homelibre-zip-member-check-nlolwvpv was removed by the scoped harness; no external source files changed."
   }
 }

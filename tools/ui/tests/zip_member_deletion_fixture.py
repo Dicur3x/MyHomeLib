@@ -83,6 +83,8 @@ def prepare(root: Path) -> None:
         if len(book.infolist()) != 2 or book.read(kept.decode("utf-8")) != payload:
             raise RuntimeError("Independent ZIP64 seed check failed")
     print(f"PASS sparse ZIP64 seed: logical={target.stat().st_size}, allocated={allocated}")
+    import sevenzip_deletion_fixture
+    sevenzip_deletion_fixture.prepare(root)
 
 
 def verify(root: Path) -> None:
@@ -102,6 +104,8 @@ def verify(root: Path) -> None:
             if book.testzip() is not None:
                 raise RuntimeError("Independent ZIP CRC check failed")
     print("PASS independent Python ZIP and ZIP64 inventories CRC and payload hashes")
+    import sevenzip_deletion_fixture
+    sevenzip_deletion_fixture.verify(root)
 
 
 if __name__ == "__main__":
