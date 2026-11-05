@@ -41,6 +41,10 @@ type
     property Finished: Boolean read FFinished;
   end;
 
+// Adjacent atomic-save names are longer than their short JSON target. Keep
+// journal I/O independent of MAX_PATH even in a deep portable profile.
+function DeletionNativePath(const FileName: string): string;
+
 implementation
 
 uses Winapi.Windows, System.IOUtils, System.Zip, System.Hash, System.NetEncoding,
@@ -77,6 +81,14 @@ type
     function Seek(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
   end;
 
+function DeletionNativePath(const FileName: string): string;
+begin
+  Result:=ExpandFileName(FileName);
+  if Result.StartsWith('\\?\') then Exit;
+  if Result.StartsWith('\\') then Result:='\\?\UNC\'+Result.Substring(2)
+  else Result:='\\?\'+Result;
+end;
+
 function Number(Value: TJSONValue): Int64;
 begin
   if not (Value is TJSONNumber) or not TryStrToInt64(Value.Value, Result) then
@@ -102,7 +114,7 @@ procedure SaveBytes(const Bytes: TBytes; const Name: string);
 var Stream: TBytesStream;
 begin
   Stream := TBytesStream.Create(Bytes);
-  try SaveStreamAtomically(Stream, Name); finally Stream.Free; end;
+  try SaveStreamAtomically(Stream, DeletionNativePath(Name)); finally Stream.Free; end;
 end;
 
 procedure SaveObject(Obj: TJSONObject; const Name: string);
@@ -111,7 +123,7 @@ begin SaveBytes(TEncoding.UTF8.GetBytes(Obj.ToJSON), Name); end;
 function LoadObject(const Name: string): TJSONObject;
 var Stream: TFileStream; Data: TBytes; Value: TJSONValue;
 begin
-  Stream := TFileStream.Create(Name, fmOpenRead or fmShareDenyWrite);
+  Stream := TFileStream.Create(DeletionNativePath(Name), fmOpenRead or fmShareDenyWrite);
   try
     if (Stream.Size <= 0) or (Stream.Size > MaxPlanBytes) then
       raise EReadError.Create('Неверный размер журнала удаления ZIP.');
@@ -287,7 +299,7 @@ begin
   inherited Create;
   if Length(Names)=0 then raise EArgumentException.Create('Не выбраны файлы внутри ZIP.');
   FArchive := ExpandFileName(Archive);
-  FSource := TFileStream.Create(FArchive,fmOpenReadWrite or fmShareExclusive);
+  FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
   Zip := TZipFile.Create; Virtual := TZipDirectoryPlanStream.Create(FSource);
   Indices := TDictionary<string,Integer>.Create;
   try
@@ -400,7 +412,7 @@ begin
   FArchive := ExpandFileName(Archive); FJob := ExpandFileName(Job);
   FPlan := LoadObject(TPath.Combine(FJob,PlanName));
   Bytes := TEncoding.UTF8.GetBytes(FPlan.ToJSON); FPlanHash := Digest(Bytes);
-  FSource := TFileStream.Create(FArchive,fmOpenReadWrite or fmShareExclusive);
+  FSource := TFileStream.Create(DeletionNativePath(FArchive),fmOpenReadWrite or fmShareExclusive);
   CheckPlan;
   State := LoadObject(TPath.Combine(FJob,CheckpointName));
   try
@@ -472,12 +484,12 @@ begin
   CheckPlan;
   if FJob='' then
   begin
-    ForceDirectories(JournalParent);
-    if not GetDiskFreeSpaceEx(PChar(ExpandFileName(JournalParent)),FreeSpace,Capacity,@TotalFree) then RaiseLastOSError;
+    ForceDirectories(DeletionNativePath(JournalParent));
+    if not GetDiskFreeSpaceEx(PChar(DeletionNativePath(JournalParent)),FreeSpace,Capacity,@TotalFree) then RaiseLastOSError;
     if FreeSpace<UInt64(JournalBytes) then
       raise EWriteError.Create('Недостаточно места для небольшого журнала удаления ZIP. Архив не изменён.');
     FJob := TPath.Combine(ExpandFileName(JournalParent),'zip-delete-'+TGUID.NewGuid.ToString);
-    if not CreateDirectory(PChar(FJob),nil) then RaiseLastOSError;
+    if not CreateDirectory(PChar(DeletionNativePath(FJob)),nil) then RaiseLastOSError;
     Bytes := TEncoding.UTF8.GetBytes(FPlan.ToJSON);
     if Length(Bytes)>MaxPlanBytes then raise EWriteError.Create('Слишком большой журнал ZIP.');
     FPlanHash := Digest(Bytes); SaveBytes(Bytes,TPath.Combine(FJob,PlanName)); SaveCheckpoint;
@@ -497,7 +509,7 @@ begin
     Target := ChunkNumber(FNext,1); Count := Integer(ChunkNumber(FNext,2));
     if FPending then
     begin
-      Pending := TFileStream.Create(TPath.Combine(FJob,PendingName),fmOpenRead or fmShareDenyWrite);
+      Pending := TFileStream.Create(DeletionNativePath(TPath.Combine(FJob,PendingName)),fmOpenRead or fmShareDenyWrite);
       try
         if Pending.Size<>Count then raise EReadError.Create('Неверный размер ожидающего блока ZIP.');
         SetLength(Bytes,Count); Pending.ReadBuffer(Bytes[0],Count);
@@ -537,14 +549,14 @@ var Path: string;
 begin
   if not FFinished or (FJob='') then raise EInvalidOperation.Create('Удаление ZIP ещё не завершено.');
   CheckIdentity; VerifyFinished;
-  if Digest(TFile.ReadAllBytes(TPath.Combine(FJob,PlanName)))<>FPlanHash then
+  if Digest(TFile.ReadAllBytes(DeletionNativePath(TPath.Combine(FJob,PlanName))))<>FPlanHash then
     raise EReadError.Create('Журнал ZIP изменён и сохранён для проверки.');
   for var Name in [PendingName,CheckpointName,PlanName] do
   begin
-    Path := TPath.Combine(FJob,Name);
+    Path := DeletionNativePath(TPath.Combine(FJob,Name));
     if FileExists(Path) and not System.SysUtils.DeleteFile(Path) then RaiseLastOSError;
   end;
-  if not RemoveDirectory(PChar(FJob)) then RaiseLastOSError;
+  if not RemoveDirectory(PChar(DeletionNativePath(FJob))) then RaiseLastOSError;
   FJob := '';
 end;
 

@@ -13,7 +13,7 @@ uses
   Vcl.Forms, Vcl.Dialogs, Vcl.Themes, Vcl.Styles, Vcl.Clipbrd, Vcl.CheckLst, Vcl.Graphics, Vcl.Menus, Vcl.ComCtrls, Vcl.ExtCtrls, Vcl.Controls, Vcl.StdCtrls, Vcl.ActnList,
   VirtualTrees, VirtualTrees.Types, VirtualTrees.BaseTree, BookTreeView, BookInfoPanel, unit_MHLTheme, unit_BookGallery, unit_UpdateNotes, unit_UpdateTextCache,
   System.SyncObjs, System.Zip, System.Hash, System.NetEncoding, System.Diagnostics, System.Math, System.DateUtils, Vcl.Imaging.pngimage,
-  unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
+  unit_ArchiveDeletionQueue, unit_ZipMemberDeletion, unit_ImageBounds, unit_BookCache, unit_MHLOperationStatus, unit_Globals, unit_Consts, unit_Interfaces, unit_Localization, unit_TreeUtils, unit_Settings, unit_ReaderCache, unit_BookMetadataCache, unit_FB2Utils, unit_MHLGenerics, FictionBook_21, unit_BookColumnFilters, unit_BookInfoPreview, unit_CollectionMerge, unit_BookDuplicates, frm_BookDuplicates, frm_CollectionBackup, unit_CollectionBackup, unit_SeriesAliases, unit_CatalogSources, frm_CatalogSources, unit_CollectionSpace, unit_Database_SQLite, SQLiteWrap, SQLite3, SQLiteProfile,
   unit_MHLHttpClient, unit_MHLExternalTools, unit_MHLArchiveHelpers, unit_WebPCompat, unit_ExportToDeviceThread, unit_AuthorInfo, unit_Helpers,
   unit_Scripts, frm_edit_script, Vcl.ToolWin, unit_ImportOldUserData,
   unit_Events, unit_BookExportResults, unit_BookExportSelection, unit_BookExportPlan,
@@ -5649,6 +5649,7 @@ end;
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
 {$I BookDeletionSafetyTests.inc}
+{$I ArchiveDeletionQueueTests.inc}
 {$I ZipMemberDeletionTests.inc}
 {$I ReaderOpenChoiceTests.inc}
 {$I SQLiteMappingTests.inc}
@@ -5947,7 +5948,7 @@ begin
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
-      else if ParamStr(1) = 'zip-member-deletion' then TestZipMemberDeletion
+      else if ParamStr(1) = 'zip-member-deletion' then begin TestZipMemberDeletion; TestArchiveDeletionQueue; end
       else if ParamStr(1) = 'save-host-resume' then TestReaderSaveHostResume
       else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation
       else if ParamStr(1) = 'optional-components' then TestOptionalComponentWorkflow

@@ -3040,7 +3040,7 @@
     "mandatory_no_full_copy_20261105": "User explicitly forbids making a full backup or working copy of an archive for member deletion, including 10–20 GB archives when the disk cannot hold another copy. Remove exact selected internal paths, not a title guess. Preserve unselected contents and provide interruption recovery without a full archive duplicate. This is a required design constraint, not an optional optimization.",
     "next_implementation_gate": "Standalone ZIP engine passed the isolated x86/x64 gate. It is not wired into Main. Next implement captured exact source inventories, background grouped queue, durable catalogue commit/recovery handshake, archive gates, and a separately verified 7z/FLibrary approach without full archive copies.",
     "background_requirement_20261105": "User requests long archive member deletion in the background so the catalogue stays usable. Show progress and grouped archive queue, gate operations only for the active archive, and stop after safely finishing the current archive while cancelling the remainder. Handle application closure and crash recovery explicitly. Worker filesystem operations must not write catalogue cards through UI-thread-owned database objects; publish verified results to the owning thread with captured identities. Not implemented yet.",
-    "real_collection_authorization_20261105": "After isolated safety acceptance, the user authorizes a real test on the desktop merged collection: physically remove one or several confirmed duplicates from its FLibrary source. First identify exact catalogue/source/archive/member identity and independently verify a retained equivalent copy. Do not choose an ambiguous edition or delete a real source while its archive format/recovery path is unverified. Keep the no-full-archive-copy requirement. Later connect physical file deletion as an explicit optional choice in duplicate-book removal; collection compression integration remains after beta 4. Latest user clarification explicitly permits a batch of several duplicates from the FLibrary copy/source, after isolated verification and with retained equivalent copies."
+    "real_collection_authorization_20261105": "After isolated safety acceptance, the user authorizes a real test on the desktop merged collection: physically remove one or several confirmed duplicates from its FLibrary source. First identify exact catalogue/source/archive/member identity and independently verify a retained equivalent copy. Do not choose an ambiguous edition or delete a real source while its archive format/recovery path is unverified. Keep the no-full-archive-copy requirement. Later connect physical file deletion as an explicit optional choice in duplicate-book removal; collection compression integration remains after beta 4. Latest user clarification explicitly permits a batch of several duplicates from the FLibrary copy/source, after isolated verification and with retained equivalent copies. The latest clarification explicitly includes several FLibrary duplicate members within one archive and batches spanning different archives; verify retained equivalent books independently before any real source mutation."
   },
   "component_removal_backend_20261102": {
     "status": "verified_native_x86_x64",
@@ -4852,5 +4852,28 @@
     },
     "cleanup": "Unique root G:/HomeLibRu-build-cache/homelibre-zip-member-check-19aucfr8 is absent after scoped harness cleanup. Real collections untouched.",
     "limits": "No claim of 7z support or production deletion, final release acceptance, power-loss recovery or catalogue transaction integration. Existing menu continues preserving shared archives until these integration gates pass."
+  },
+  "beta4_archive_deletion_queue_20261105": {
+    "status": "PASS isolated queue x86/x64; not yet connected to the production deletion command",
+    "scope": "Groups exact selected members into one task per ZIP, processes archives in a filesystem-only background thread, publishes locked bounded progress and durable catalogue-binding receipts; no UI-thread-owned database connections are used by the worker. Stop before mutation is non-destructive; after mutation stop completes the active archive before skipping all queued archives.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-archive-queue-20261105-r4.log",
+      "Win32_SHA256": "3fab3deb5df1896beb97fe343ef32da283901a23701bbd48661d70494b7d4b33",
+      "Win64_SHA256": "ae13447141a046291dfc428dcc71805d9ef2c2f4a1bff7eb24af89c9ba2af957",
+      "cases": [
+        "Three selected books across two archives; two members in the same archive handled together; all retained payload hashes intact",
+        "Actual VCL UI timers continue while filesystem work runs in the worker",
+        "Durable bindings and finished journals survive worker destruction until simulated catalogue acknowledgment",
+        "Stop observed during actual payload writes completes current archive and preserves next archive SHA exactly",
+        "Destroying a never-started queue and a failed exact-member plan preserve sources and remove only their empty/known work",
+        "Previous ZIP/ZIP64 and actual killed-worker recovery tests rerun successfully with independent Python validation"
+      ]
+    },
+    "bugs_found_and_fixed": [
+      "Adjacent atomic journal temporary filenames exceeded MAX_PATH in a deep portable profile; journal I/O now uses native extended paths without changing the general atomic-save helper",
+      "TThread may skip Execute when a suspended thread is destroyed; its empty owned queue root is now removed after joining"
+    ],
+    "cleanup": "Unique root G:/HomeLibRu-build-cache/homelibre-zip-member-check-gozj7uen is absent; failed isolated roots were removed by the same scoped outer harness. No real collection changed.",
+    "remaining": "Production exact catalogue locator inventory, recovery binding validation/replay, per-archive operation gate, catalogue transaction handshake, Main background progress and closure handling, last-book outer archive removal, 7z/FLibrary handling and authorized real-collection checks. No claim of completed application integration."
   }
 }
