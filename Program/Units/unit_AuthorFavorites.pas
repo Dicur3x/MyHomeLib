@@ -479,6 +479,7 @@ begin
 end;
 
 function ReadEntries(Database: TAFDatabase): TArray<TAuthorFavoriteEntry>; forward;
+function ReadPersonalEntries(Database: TAFDatabase): TArray<TAuthorPersonalEntry>; forward;
 
 function OpenWriteProfile(const FileName: string; out Lock: TFileMutex): TAFDatabase;
 var ReadOnly: TAFDatabase;
@@ -489,7 +490,11 @@ begin
     CheckSafeFile(FileName,True,True);
     if not FileExists(FileName) then CreateProfile(FileName);
     ReadOnly:=OpenReadProfile(FileName);
-    try ReadEntries(ReadOnly); finally ReadOnly.Free; end;
+    try
+      ReadOnly.Execute('BEGIN');
+      ReadEntries(ReadOnly); ReadPersonalEntries(ReadOnly);
+      ReadOnly.Execute('COMMIT');
+    finally ReadOnly.Free; end;
     CheckSafeFile(FileName,False,True);
     Result:=TAFDatabase.Create(FileName,False,False);
     ValidateProfile(Result);
@@ -529,6 +534,40 @@ begin
   finally List.Free; end;
 end;
 
+function ReadPersonalEntries(Database: TAFDatabase): TArray<TAuthorPersonalEntry>;
+var Query: TAFQuery; List: TList<TAuthorPersonalEntry>; Personal: TAuthorPersonalEntry;
+begin
+  Result:=nil;
+  if Database.Number('PRAGMA user_version')=1 then Exit;
+  List:=TList<TAuthorPersonalEntry>.Create;
+  try
+    Query:=TAFQuery.Create(Database,
+      'SELECT AuthorKey,LastName,FirstName,MiddleName,COALESCE(Rating,0),Hidden,UpdatedUTC,'+
+      'typeof(Rating),typeof(Hidden),typeof(UpdatedUTC) FROM PersonalAuthors',[]);
+    try
+      while Query.Next do
+      begin
+        Personal:=Default(TAuthorPersonalEntry);
+        Personal.Author.Key:=Query.Text(0); Personal.Author.LastName:=Query.Text(1);
+        Personal.Author.FirstName:=Query.Text(2); Personal.Author.MiddleName:=Query.Text(3);
+        if (List.Count>=AF_MAX_FAVORITES) or (Personal.Author.Key='') or
+          (Personal.Author.Key<>AuthorFavoriteKey(Personal.Author.LastName,Personal.Author.FirstName,Personal.Author.MiddleName)) or
+          (Query.Number(4)<0) or (Query.Number(4)>5) or
+          ((Query.Number(5)<>0) and (Query.Number(5)<>1)) or
+          ((Query.Text(7)<>'null') and (Query.Text(7)<>'integer')) or
+          (Query.Text(8)<>'integer') or (Query.Text(9)<>'text') then
+          raise EAuthorFavorites.Create('Некорректные личные настройки автора. Файл сохранён без изменений.');
+        Personal.Rating:=Query.Number(4); Personal.Hidden:=Query.Number(5)<>0;
+        Personal.UpdatedUTC:=Query.Text(6);
+        if Length(Personal.UpdatedUTC)>64 then
+          raise EAuthorFavorites.Create('Некорректная дата настроек автора. Файл сохранён без изменений.');
+        List.Add(Personal);
+      end;
+    finally Query.Free; end;
+    Result:=List.ToArray;
+  finally List.Free; end;
+end;
+
 constructor TAuthorFavorites.Create(const ProfileFile: string);
 begin
   inherited Create;
@@ -552,7 +591,7 @@ var Database: TAFDatabase; Query: TAFQuery; Entry: TAuthorFavoriteEntry;
   NewBindings: TDictionary<Integer,TArray<Integer>>; NewStates: TDictionary<string,TAuthorFavoriteState>;
   NewCounts: TDictionary<Integer,Integer>; BindList: TList<Integer>; Value: TAuthorFavoriteState;
   NewRevisions: TDictionary<Integer,string>;
-  NewPersonal: TDictionary<string,TAuthorPersonalEntry>; Personal: TAuthorPersonalEntry;
+  NewPersonal: TDictionary<string,TAuthorPersonalEntry>;
   CID, LastCID, Count: Integer;
 begin
   NewKeys:=TDictionary<string,Boolean>.Create;
@@ -569,28 +608,8 @@ begin
       try
         Database.Execute('BEGIN');
         NewEntries:=ReadEntries(Database);
-        if Database.Number('PRAGMA user_version')=2 then
-        begin
-          Query:=TAFQuery.Create(Database,
-            'SELECT AuthorKey,LastName,FirstName,MiddleName,COALESCE(Rating,0),Hidden,UpdatedUTC FROM PersonalAuthors',[]);
-          try
-            while Query.Next do
-            begin
-              Personal:=Default(TAuthorPersonalEntry);
-              Personal.Author.Key:=Query.Text(0); Personal.Author.LastName:=Query.Text(1);
-              Personal.Author.FirstName:=Query.Text(2); Personal.Author.MiddleName:=Query.Text(3);
-              if (NewPersonal.Count>=AF_MAX_FAVORITES) or (Personal.Author.Key='') or
-                (Personal.Author.Key<>AuthorFavoriteKey(Personal.Author.LastName,Personal.Author.FirstName,Personal.Author.MiddleName)) or
-                (Query.Number(4)<0) or (Query.Number(4)>5) or
-                ((Query.Number(5)<>0) and (Query.Number(5)<>1)) then
-                raise EAuthorFavorites.Create('Некорректные личные настройки автора.');
-              Personal.Rating:=Query.Number(4); Personal.Hidden:=Query.Number(5)<>0;
-              Personal.UpdatedUTC:=Query.Text(6);
-              if Length(Personal.UpdatedUTC)>64 then raise EAuthorFavorites.Create('Некорректная дата настроек автора.');
-              NewPersonal.Add(Personal.Author.Key,Personal);
-            end;
-          finally Query.Free; end;
-        end;
+        for var Personal in ReadPersonalEntries(Database) do
+          NewPersonal.Add(Personal.Author.Key,Personal);
         for Entry in NewEntries do NewKeys.Add(Entry.Key,True);
         Query:=TAFQuery.Create(Database,'SELECT CID,AuthorKey,Baseline,BookCount,NewCount FROM CollectionAuthorState',[]);
         try

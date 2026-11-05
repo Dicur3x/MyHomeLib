@@ -4725,9 +4725,9 @@
     "remaining": [
       "Ordinary catalogue and Reader rebuild/smoke after the lifecycle change; final minimal candidate checks.",
       "Exercise actual INPX reimport with personal author settings and general user-data menu integration.",
-      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation.",
-      "Validate existing personal rows before any write if a previously loaded profile was externally corrupted."
+      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation."
     ],
-    "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched."
+    "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched.",
+    "profile_guard": "Read and every write now validate all existing personal records before opening the file for modification. Three real externally corrupted profile variants (identity mismatch, fractional score and binary timestamp) reject stale writes with identical file hashes and preserve the last valid in-memory snapshot. All eight native cases passed again on both architectures; new Win32 SHA256 65970629d3a8ad4ecf0e1b0fd0506339a606400b8c33905b38a5d3a7efcbc01a, Win64 bf2f5e02b53b48ef875e8f7728dd21ec41ef63a1b53a60d29eac48b8777989af. Log tools/ui/tests/Out/beta4-author-preferences-20261105-r14.log. New temporary directories removed."
   }
 }

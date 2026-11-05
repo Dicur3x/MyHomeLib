@@ -512,6 +512,27 @@ begin
     finally SQLite3_Close(Raw); end;
     Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash) and
       Store.PersonalEntry('Первый','','').Hidden,'Busy batch changed personal settings');
+    for var Corruption in TArray<string>.Create('LastName=''Чужое имя''','Rating=2.5','UpdatedUTC=zeroblob(2)') do
+    begin
+      Raw:=AFROpenRaw(Legacy);
+      try AFRRawExecute(Raw,'UPDATE PersonalAuthors SET '+Corruption+' WHERE AuthorKey='''+
+        AuthorFavoriteKey('Первый','','')+''''); finally SQLite3_Close(Raw); end;
+      BeforeHash:=THashSHA2.GetHashStringFromFile(Legacy); Rejected:=False;
+      try Store.Reload; except on E:EAuthorFavorites do Rejected:=True; end;
+      Require(Rejected and (Store.PersonalEntry('Первый','','').Rating=3) and
+        Store.PersonalEntry('Первый','','').Hidden,'Invalid profile replaced the last valid personal snapshot');
+      Rejected:=False;
+      try Store.SetPersonalRating('Второй','','',5);
+      except on E:EAuthorFavorites do Rejected:=True; end;
+      Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash) and
+        (Store.PersonalEntry('Второй','','').Rating=3),'Stale personal writer changed an externally damaged profile');
+      Raw:=AFROpenRaw(Legacy);
+      try AFRRawExecute(Raw,'UPDATE PersonalAuthors SET LastName=''Первый'',Rating=3,Hidden=1,'+
+        'UpdatedUTC=''2026-11-05T00:00:00Z'' WHERE AuthorKey='''+AuthorFavoriteKey('Первый','','')+'''');
+      finally SQLite3_Close(Raw); end;
+      Store.Reload;
+    end;
+    Writeln('PASS personal author corrupted identity numeric type and timestamp reject stale writes and preserve valid snapshot');
     Store.SetHiddenAuthors(Batch,False); Store.SetPersonalRatings(Batch,0);
     Require(Length(Store.PersonalEntries)=0,'Batch resets left personal rows');
     Writeln('PASS personal author batch edits preserve stale fields reject invalid and busy writes atomically');
