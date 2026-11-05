@@ -106,7 +106,7 @@ modes.push('estimate-failure-visibility');
 modes.push('export-cache-lifecycle');
 modes.push('save-settings-sync');
 modes.push('script-export-paths');
-if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
+if (viewsMode !== null && !modes.includes(viewsMode) && !proposalVisualModes.includes(viewsMode) && !['reader-story','save-host-resume','save-module-restart','save-planning','kindle-save','advanced-save','minimum-save','unified-send','diagnostics-cache-age','paged-export-progress','image-components','catalogue-formats','catalogue-performance','personal-authors','book-output-reset','display-labels','flibrary-quality','first-book-list','first-book-list-large','image-quality-dialog','refactor-audit','native-folder-picker','cancel-interactive','export-cancel-interactive','legacy-import-interactive','reader-filter','reader-main-filter','reader-chapters','packing-fbd'].includes(viewsMode)) throw new Error(`Unknown view scenario: ${viewsMode}`);
 const requiredViews = {
   'script-export-paths': ['PASS script export path preference requests both script destinations without starting workers'],
   'save-settings-sync': ['PASS save settings migration preserves legacy choices', 'PASS save settings actual form applies seven defaults', 'PASS save settings defaults reach single and mixed Save As', 'PASS save settings restored operation retains explicit format', 'PASS save settings accepted Save As path and masks survive reopen', 'PASS save settings original mixed copy preserves exact bytes', 'PASS save settings device parsing names survive shared destination persistence'],
@@ -153,7 +153,8 @@ const requiredViews = {
   "deleted-filter": ["PASS fresh search and tree-mode changes never load the whole catalog", "PASS search and group count/rows hide six deleted books", "PASS deletion toggle uses only the applied snapshot", "PASS legacy presets inherit the shared mode after reopen"],
   "cache-presets": ["PASS cache folder presets"],
   "publisher-search": ["PASS publisher queries preserve Unicode case", "PASS publisher input waits for Apply", "PASS publisher presets preserve typed expressions", "PASS expanded annotation remains visible"],
-  "author-favorites": ["PASS favorite authors baseline", "PASS favorite authors persistence", "PASS favorite authors isolated durable profile"],
+  "author-favorites": ["PASS favorite authors baseline", "PASS favorite authors persistence", "PASS favorite authors isolated durable profile",
+    "PASS personal author v1 migration stale writers refresh independence portable roundtrip import decisions and independent resets"],
   "ordinary-book-export-identity": ["PASS ordinary Main export identity matching", "PASS ordinary Main export identity replaced-before-worker"],
   "search-startup-layout": ["PASS search startup naturally focuses Author and keeps query mode reachable and escapable by Tab steps=", "PASS search startup first category header, Author label and input are fully visible without scaling or scrolling", "PASS search startup fix preserves deliberate Date focus and scrolling during ordinary view refresh"],
   "queue-serialization": ["PASS queue serializer legacy odd", "PASS queue serializer restores versioned identity", "PASS queue serializer malformed/future identity", "PASS queue serializer rejects truncation"],
@@ -275,6 +276,9 @@ function requiredPasses(executable, mode) {
   if (mode==='advanced-save') return ['PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
   if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
+  if (mode==='personal-authors') return [
+    'PASS personal author context scores hidden coauthors search favorites widening manager absent authors durable edits and DPI'
+  ];
   if (mode==='catalogue-performance' && process.argv.includes('--catalogue-ui')) return [
     'ACTUAL startup ui_fixture=1',
     'PASS startup diagnostics distinguish the visible window from collection readiness',

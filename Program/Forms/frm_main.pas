@@ -1038,8 +1038,16 @@ type
     FFavoriteOriginalGetText: TVSTGetTextEvent;
     FFavoriteOriginalBeforeCellPaint: TVTBeforeCellPaintEvent;
     FFavoriteOriginalAfterCellPaint: TVTAfterCellPaintEvent;
+    FPersonalMenu, FPersonalMinimumMenu, FPersonalUnratedMenu, FPersonalShowHiddenMenu: TMenuItem;
+    FPersonalRatingMenu, FPersonalHideMenu: TMenuItem;
+    FPersonalMinimumRating: Integer;
+    FPersonalIncludeUnrated, FPersonalShowHidden: Boolean;
     FOnlyNewFavoriteBooks: Boolean;
 
+    procedure CreatePersonalAuthorControls;
+    procedure PersonalAuthorClick(Sender: TObject);
+    procedure PersonalFilterClick(Sender: TObject);
+    procedure PublishPersonalAuthorPreferences;
     function FavoriteProfileFile: string;
     function FavoriteStore: TAuthorFavorites;
     function FavoriteDescriptor(const Collection: IBookCollection): TAuthorFavoriteCollection;
@@ -9884,15 +9892,15 @@ begin
 end;
 
 procedure TfrmMain.FavoriteTransferClick(Sender: TObject);
-var FileName: string; Data: TUserData;
+var FileName: string; Data: TUserData; ReplacePersonal: Boolean; Reply: Integer;
 begin
   if TMenuItem(Sender).Tag=0 then
   begin
     if not GetFileName(fnSaveUserData,FileName) then Exit;
     Data:=TUserData.Create;
-    try Data.FavoriteAuthors:=FavoriteStore.Entries; Data.Save(FileName);
+    try Data.FavoriteAuthors:=FavoriteStore.Entries; Data.PersonalAuthors:=FavoriteStore.PersonalEntries; Data.Save(FileName);
     finally Data.Free; end;
-    StatusMessage:='Любимые авторы экспортированы: '+FileName;
+    StatusMessage:='Личные настройки авторов экспортированы: '+FileName;
   end
   else
   begin
@@ -9900,14 +9908,23 @@ begin
     Data:=TUserData.Create;
     try
       Data.Load(FileName);
-      if Length(Data.FavoriteAuthors)=0 then
-      begin MHLShowInfo('В этом файле нет любимых авторов. Старые экспорты не включали этот список.'); Exit; end;
-      StopFavoriteRefresh(True); FavoriteStore.ImportFavorites(Data.FavoriteAuthors);
+      if (Length(Data.FavoriteAuthors)=0) and (Length(Data.PersonalAuthors)=0) then
+      begin MHLShowInfo('В этом файле нет личных настроек авторов.'); Exit; end;
+      ReplacePersonal:=False;
+      if Length(Data.PersonalAuthors)>0 then
+      begin
+        Reply:=MessageDlg('Заменять имеющиеся личные оценки и скрытие авторов данными из файла?'+#13#10+
+          '«Нет» сохранит ваши настройки и добавит только новых авторов.',mtConfirmation,[mbYes,mbNo,mbCancel],0,mbNo);
+        if Reply=mrCancel then Exit;
+        ReplacePersonal:=Reply=mrYes;
+      end;
+      StopFavoriteRefresh(True); FavoriteStore.ImportFavorites(Data.FavoriteAuthors,Data.PersonalAuthors,ReplacePersonal);
+      PublishPersonalAuthorPreferences;
       PublishFavoriteFilterKeys; FOnlyNewFavoriteBooks:=False;
       Include(FStaleSelectors,AuthorsView); Exclude(FLoadedBookViews,AuthorsView);
       CheckFavoriteCollection; EnsureActiveBookViewLoaded;
       tvAuthors.Invalidate; UpdateFavoriteControls;
-      StatusMessage:='Любимые авторы импортированы. Имеющийся список сохранён.';
+      StatusMessage:='Личные настройки авторов импортированы.';
     finally Data.Free; end;
   end;
 end;
@@ -9924,27 +9941,162 @@ begin
     Form.ShowModal;
     Changed:=Form.Changed;
   finally Form.Free; end;
-  if Changed then FavoriteMembershipChanged
+  if Changed then
+  begin PublishPersonalAuthorPreferences; FavoriteMembershipChanged; end
   else begin CheckFavoriteCollection; UpdateFavoriteControls; end;
 end;
 
 function TfrmMain.AuthorSelectorIterator: IAuthorIterator;
 var View: IAuthorFavoriteCollectionView; IDs: TArray<Integer>;
+  Authors: TList<TAuthorData>; Author: TAuthorData;
 begin
   if not Assigned(FFavoriteListCheck) or not FFavoriteListCheck.Checked then
   begin
     if Assigned(FStartupData) and Assigned(FStartupData.Authors) then
-    begin
-      Result := FStartupData.Authors; FStartupData.Authors := nil; Exit;
-    end;
-    Exit(FCollection.GetAuthorIterator(amFullFilter));
+    begin Result := FStartupData.Authors; FStartupData.Authors := nil; end
+    else Result:=FCollection.GetAuthorIterator(amFullFilter);
   end;
-  if not Supports(FCollection, IAuthorFavoriteCollectionView, View) then
-    raise EAuthorFavorites.Create('Любимые авторы недоступны для этого типа каталога.');
-  FFavoriteDescriptor := FavoriteDescriptor(FCollection);
-  if FavoriteBindingsReady(FFavoriteDescriptor) then IDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID)
-  else QueueFavoriteRefresh(FFavoriteDescriptor);
-  Result := View.GetFavoriteAuthorIterator(IDs);
+  if Assigned(FFavoriteListCheck) and FFavoriteListCheck.Checked then
+  begin
+    if not Supports(FCollection, IAuthorFavoriteCollectionView, View) then
+      raise EAuthorFavorites.Create('Любимые авторы недоступны для этого типа каталога.');
+    FFavoriteDescriptor := FavoriteDescriptor(FCollection);
+    if FavoriteBindingsReady(FFavoriteDescriptor) then IDs := FavoriteStore.BoundAuthorIDs(FCollection.CollectionID)
+    else QueueFavoriteRefresh(FFavoriteDescriptor);
+    Result := View.GetFavoriteAuthorIterator(IDs);
+  end;
+  if not PersonalAuthorFilterActive then Exit;
+  Authors:=TList<TAuthorData>.Create;
+  try
+    while Result.Next(Author) do if PersonalAuthorVisible(Author) then Authors.Add(Author);
+    Result:=TRecordArrayIterator<TAuthorData>.Create(Authors.ToArray);
+  finally Authors.Free; end;
+end;
+
+procedure TfrmMain.PublishPersonalAuthorPreferences;
+var Entries: TArray<TAuthorPersonalEntry>; Hidden: Integer; Tree: TBookTree; Visible: Integer;
+  WasActive: Boolean;
+begin
+  WasActive:=PersonalAuthorFilterActive;
+  if Assigned(FFavoriteStore) then Entries:=FFavoriteStore.PersonalEntries;
+  SetPersonalAuthorFilter(Entries,FPersonalMinimumRating,FPersonalIncludeUnrated,FPersonalShowHidden);
+  Hidden:=0;
+  for var Entry in Entries do if Entry.Hidden then Inc(Hidden);
+  FPersonalMenu.Caption:='Мои авторы';
+  if PersonalAuthorFilterActive then FPersonalMenu.Caption:='Мои авторы • фильтр';
+  FPersonalShowHiddenMenu.Caption:=Format('Показывать скрытых авторов (%d)',[Hidden]);
+  FPersonalShowHiddenMenu.Checked:=FPersonalShowHidden;
+  FPersonalUnratedMenu.Checked:=FPersonalIncludeUnrated;
+  for var I:=0 to FPersonalMinimumMenu.Count-1 do
+    FPersonalMinimumMenu.Items[I].Checked:=FPersonalMinimumMenu.Items[I].Tag=FPersonalMinimumRating;
+  tvAuthors.Invalidate;
+  if not WasActive and not PersonalAuthorFilterActive then Exit;
+  for var View:=Low(TView) to High(TView) do
+    if View in FLoadedBookViews then
+    begin
+      Tree:=nil;
+      case View of
+        AuthorsView: Tree:=tvBooksA;
+        SeriesView: Tree:=tvBooksS;
+        GenresView: Tree:=tvBooksG;
+        SearchView: Tree:=tvBooksSR;
+        FavoritesView: Tree:=tvBooksF;
+        PublisherSeriesView: if Assigned(FPublisher) then Tree:=FPublisher.Books;
+      end;
+      if Assigned(Tree) then
+      begin
+        Visible:=TBookColumnFilters.ForTree(Tree).Apply;
+        SetBookListTotals(Tree,Visible,TBookColumnFilters.ForTree(Tree).Total);
+        ClearFilteredBookFocus(Tree);
+        if View=ActiveView then RefreshBookInfo(Tree);
+      end;
+    end;
+  Include(FStaleSelectors,AuthorsView);
+  Exclude(FLoadedBookViews,AuthorsView);
+  if Assigned(FCollection) and not FStartupLoading and (ActiveView=AuthorsView) then EnsureActiveBookViewLoaded;
+end;
+
+procedure TfrmMain.PersonalAuthorClick(Sender: TObject);
+var Author: TAuthorData; Key: string; Entry: TAuthorPersonalEntry;
+begin
+  if (ActiveView<>AuthorsView) or not SelectedFavoriteAuthor(Author,Key) then Exit;
+  try
+    StopFavoriteRefresh(True);
+    if Sender=FPersonalHideMenu then
+    begin
+      Entry:=FavoriteStore.PersonalEntry(Author.LastName,Author.FirstName,Author.MiddleName);
+      FavoriteStore.SetHidden(Author.LastName,Author.FirstName,Author.MiddleName,not Entry.Hidden);
+    end
+    else FavoriteStore.SetPersonalRating(Author.LastName,Author.FirstName,Author.MiddleName,TMenuItem(Sender).Tag);
+    PublishPersonalAuthorPreferences;
+    CheckFavoriteCollection;
+    UpdateFavoriteControls;
+  except on E: Exception do MHLShowError(E.Message); end;
+end;
+
+procedure TfrmMain.PersonalFilterClick(Sender: TObject);
+var Ini: TMemIniFile; Minimum: Integer; IncludeUnrated, ShowHidden: Boolean;
+begin
+  Minimum:=FPersonalMinimumRating; IncludeUnrated:=FPersonalIncludeUnrated;
+  ShowHidden:=FPersonalShowHidden;
+  if Sender=FPersonalShowHiddenMenu then ShowHidden:=not ShowHidden
+  else if Sender=FPersonalUnratedMenu then IncludeUnrated:=not IncludeUnrated
+  else if TMenuItem(Sender).Tag=-1 then
+  begin Minimum:=0; IncludeUnrated:=True; ShowHidden:=False; end
+  else Minimum:=TMenuItem(Sender).Tag;
+  try
+    Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+    try
+      Ini.WriteInteger('AuthorPreferences','MinimumRating',Minimum);
+      Ini.WriteBool('AuthorPreferences','IncludeUnrated',IncludeUnrated);
+      Ini.WriteBool('AuthorPreferences','ShowHidden',ShowHidden);
+      SaveMemIniFileAtomically(Ini);
+    finally Ini.Free; end;
+  except on E: Exception do begin MHLShowError(E.Message); Exit; end; end;
+  FPersonalMinimumRating:=Minimum; FPersonalIncludeUnrated:=IncludeUnrated;
+  FPersonalShowHidden:=ShowHidden;
+  PublishPersonalAuthorPreferences;
+end;
+
+procedure TfrmMain.CreatePersonalAuthorControls;
+var Item: TMenuItem; Ini: TMemIniFile;
+begin
+  FPersonalMenu:=TMenuItem.Create(Self); FPersonalMenu.Name:='miPersonalAuthors';
+  FPersonalMenu.Caption:='Мои авторы'; MainMenu.Items.Add(FPersonalMenu);
+  Item:=TMenuItem.Create(Self); Item.Caption:='Список и настройки…'; Item.OnClick:=FavoriteManageClick;
+  FPersonalMenu.Add(Item);
+  FPersonalMinimumMenu:=TMenuItem.Create(Self); FPersonalMinimumMenu.Caption:='Оценка автора не ниже';
+  FPersonalMinimumMenu.Name:='miPersonalAuthorMinimum'; FPersonalMenu.Add(FPersonalMinimumMenu);
+  FPersonalRatingMenu:=TMenuItem.Create(Self); FPersonalRatingMenu.Name:='miPersonalAuthorRating';
+  FPersonalRatingMenu.Caption:='Моя оценка автора'; pmAuthor.Items.Add(FPersonalRatingMenu);
+  for var I:=0 to 5 do
+  begin
+    Item:=TMenuItem.Create(Self); Item.Tag:=I; Item.RadioItem:=True;
+    if I=0 then Item.Caption:='Любая оценка' else Item.Caption:=IntToStr(I);
+    Item.OnClick:=PersonalFilterClick; FPersonalMinimumMenu.Add(Item);
+    Item:=TMenuItem.Create(Self); Item.Tag:=I; Item.RadioItem:=True;
+    if I=0 then Item.Caption:='Снять оценку' else Item.Caption:=IntToStr(I);
+    Item.OnClick:=PersonalAuthorClick; FPersonalRatingMenu.Add(Item);
+  end;
+  FPersonalUnratedMenu:=TMenuItem.Create(Self); FPersonalUnratedMenu.Name:='miPersonalAuthorUnrated';
+  FPersonalUnratedMenu.Caption:='Показывать авторов без оценки'; FPersonalUnratedMenu.OnClick:=PersonalFilterClick;
+  FPersonalMenu.Add(FPersonalUnratedMenu);
+  FPersonalShowHiddenMenu:=TMenuItem.Create(Self); FPersonalShowHiddenMenu.Name:='miPersonalAuthorShowHidden';
+  FPersonalShowHiddenMenu.OnClick:=PersonalFilterClick; FPersonalMenu.Add(FPersonalShowHiddenMenu);
+  Item:=TMenuItem.Create(Self); Item.Tag:=-1; Item.Caption:='Сбросить личные фильтры авторов';
+  Item.OnClick:=PersonalFilterClick; FPersonalMenu.Add(Item);
+  FPersonalHideMenu:=TMenuItem.Create(Self); FPersonalHideMenu.Name:='miPersonalAuthorHidden';
+  FPersonalHideMenu.Caption:='Скрыть автора'; FPersonalHideMenu.OnClick:=PersonalAuthorClick; pmAuthor.Items.Add(FPersonalHideMenu);
+  Ini:=TMemIniFile.Create(Settings.SettingsFileName,TEncoding.UTF8);
+  try
+    FPersonalMinimumRating:=EnsureRange(Ini.ReadInteger('AuthorPreferences','MinimumRating',0),0,5);
+    FPersonalIncludeUnrated:=Ini.ReadBool('AuthorPreferences','IncludeUnrated',True);
+    FPersonalShowHidden:=Ini.ReadBool('AuthorPreferences','ShowHidden',False);
+  finally Ini.Free; end;
+  try
+    if FileExists(FavoriteProfileFile) then FavoriteStore;
+    PublishPersonalAuthorPreferences;
+  except on E: Exception do LogDiagnosticError('author-preferences-load',E); end;
 end;
 
 procedure TfrmMain.FillCurrentAuthorBooks;
@@ -9980,7 +10132,7 @@ end;
 
 procedure TfrmMain.FavoriteAuthorGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Column: TColumnIndex; TextType: TVSTTextType; var CellText: string);
-var Data: PAuthorData; Count: Integer;
+var Data: PAuthorData; Count: Integer; Personal: TAuthorPersonalEntry;
 begin
   if Assigned(FFavoriteOriginalGetText) then FFavoriteOriginalGetText(Sender, Node, Column, TextType, CellText);
   Data := Sender.GetNodeData(Node);
@@ -9994,6 +10146,12 @@ begin
     Count := FFavoriteStore.NewCount(Settings.ActiveCollection,
       AuthorFavoriteKey(Data^.LastName, Data^.FirstName, Data^.MiddleName));
     if Count > 0 then CellText := CellText + '  +' + IntToStr(Count);
+  end;
+  if Assigned(Data) then
+  begin
+    Personal:=FFavoriteStore.PersonalEntry(Data^.LastName,Data^.FirstName,Data^.MiddleName);
+    if Personal.Rating>0 then CellText:=CellText+'  ★'+IntToStr(Personal.Rating);
+    if Personal.Hidden then CellText:=CellText+'  [скрыт]';
   end;
   except
     // Keep the ordinary author text usable when source metadata cannot form
@@ -10076,7 +10234,7 @@ begin
   begin
     Tag := Tree.Header.Columns[I].Tag;
     if (Filters.Value(Tag) <> '') or ((Tag = COL_AUTHOR) and
-      (Filters.FavoriteAuthorsOnly or ((Tree = tvBooksSR) and
+      (Filters.FavoriteAuthorsOnly or PersonalAuthorFilterActive or ((Tree = tvBooksSR) and
         Assigned(FSearchFavoriteCheck) and FSearchFavoriteCheck.Checked))) then
       ActiveTags := ActiveTags + [Tag];
   end;
@@ -10159,7 +10317,7 @@ begin
 
   FFavoriteMenu := TPopupMenu.Create(Self); FFavoriteMenu.Name := 'pmFavoriteAuthors';
   Item:=TMenuItem.Create(Self); Item.Name:='miAllFavoriteAuthors';
-  Item.Caption:='Все любимые авторы…'; Item.OnClick:=FavoriteManageClick;
+  Item.Caption:='Мои авторы…'; Item.OnClick:=FavoriteManageClick;
   FFavoriteMenu.Items.Add(Item);
   for var I := 0 to 3 do
   begin
@@ -10176,7 +10334,7 @@ begin
   for var I:=0 to 1 do
   begin
     Item:=TMenuItem.Create(Self); Item.Tag:=I;
-    if I=0 then Item.Caption:='Экспорт любимых авторов…' else Item.Caption:='Импорт любимых авторов…';
+    if I=0 then Item.Caption:='Экспорт моих авторов…' else Item.Caption:='Импорт моих авторов…';
     Item.OnClick:=FavoriteTransferClick; FFavoriteMenu.Items.Add(Item);
   end;
   Item := TMenuItem.Create(Self); Item.Name := 'miFavoriteSelectedAuthor';
@@ -10196,6 +10354,7 @@ begin
   FFavoriteOriginalAfterCellPaint := tvAuthors.OnAfterCellPaint;
   tvAuthors.OnBeforeCellPaint := FavoriteAuthorBeforeCellPaint;
   tvAuthors.OnAfterCellPaint := FavoriteAuthorAfterCellPaint;
+  CreatePersonalAuthorControls;
   UpdateFavoriteControls;
 end;
 
@@ -10809,11 +10968,24 @@ begin
 end;
 
 procedure TfrmMain.pmAuthorPopup(Sender: TObject);
+var Author: TAuthorData; Key: string; Personal: TAuthorPersonalEntry;
 begin
   UpdateFavoriteControls;
   FFavoriteContextMenu.Visible := ActiveView = AuthorsView;
   FFavoriteContextMenu.Enabled := FFavoriteToggleMenu.Enabled;
   FFavoriteContextMenu.Caption := FFavoriteToggleMenu.Caption;
+  FPersonalRatingMenu.Visible:=ActiveView=AuthorsView;
+  FPersonalHideMenu.Visible:=FPersonalRatingMenu.Visible;
+  FPersonalRatingMenu.Enabled:=SelectedFavoriteAuthor(Author,Key);
+  FPersonalHideMenu.Enabled:=FPersonalRatingMenu.Enabled;
+  if FPersonalRatingMenu.Enabled then
+  begin
+    Personal:=FavoriteStore.PersonalEntry(Author.LastName,Author.FirstName,Author.MiddleName);
+    for var I:=0 to FPersonalRatingMenu.Count-1 do
+      FPersonalRatingMenu.Items[I].Checked:=FPersonalRatingMenu.Items[I].Tag=Personal.Rating;
+    if Personal.Hidden then FPersonalHideMenu.Caption:='Показывать автора'
+    else FPersonalHideMenu.Caption:='Скрыть автора';
+  end;
   miAddToSearch.Visible := not (ActiveView in [GenresView, PublisherSeriesView]);
 end;
 
@@ -11097,6 +11269,7 @@ begin
   try
     FCollection.ExportUserData(Data);
     Data.FavoriteAuthors:=FavoriteStore.Entries;
+    Data.PersonalAuthors:=FavoriteStore.PersonalEntries;
     Data.Save(FileName);
   finally
     Data.Free;
@@ -11148,7 +11321,7 @@ begin
       Button.Left := -Button.Width; Button.Align := alRight;
       Button.Margins.Right := 8; Button.AlignWithMargins := True; Button.OnClick := ResetColumnFiltersClick;
     end;
-    if (Filters.Count > 0) and not Button.Visible then
+    if (Filters.Count > Ord(PersonalAuthorFilterActive)) and not Button.Visible then
     begin
       // Insert before the complete right-aligned language/total group. Using
       // TotalLabel.Left puts the action between the language label and combo.
@@ -11158,10 +11331,12 @@ begin
         Button.Visible := True;
       finally Button.Parent.EnableAlign; end;
     end
-    else Button.Visible := Filters.Count > 0;
+    else Button.Visible := Filters.Count > Ord(PersonalAuthorFilterActive);
   end;
 
-  if TBookColumnFilters.ForTree(Tree).Count > 0 then
+  if PersonalAuthorFilterActive then
+    Text := Format('(%d из %d · мои авторы)', [VisibleCount, TotalCount])
+  else if TBookColumnFilters.ForTree(Tree).Count > 0 then
     Text := Format('(%d из %d · фильтр)', [VisibleCount, TotalCount])
   else Text := Format('(%d)', [TotalCount]);
   case Tree.Tag of
@@ -11677,10 +11852,11 @@ begin
 
     CreateGroupsMenu;
 
-    if Length(UserDataSource.FavoriteAuthors)>0 then
+    if (Length(UserDataSource.FavoriteAuthors)>0) or (Length(UserDataSource.PersonalAuthors)>0) then
     begin
       StopFavoriteRefresh(True);
-      FavoriteStore.ImportFavorites(UserDataSource.FavoriteAuthors);
+      FavoriteStore.ImportFavorites(UserDataSource.FavoriteAuthors,UserDataSource.PersonalAuthors,False);
+      PublishPersonalAuthorPreferences;
       PublishFavoriteFilterKeys;
       FOnlyNewFavoriteBooks:=False;
       Include(FStaleSelectors,AuthorsView);

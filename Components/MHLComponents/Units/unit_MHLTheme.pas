@@ -15,6 +15,8 @@ function MHLThemeLink: TColor;
 procedure SetMHLControlFontColor(Control: TControl; Color: TColor);
 procedure ApplyMHLControlTheme(Control: TControl);
 procedure SetMHLTheme(Dark: Boolean);
+// Call after the application loop, before Delphi finalizes VCL class state.
+procedure FinalizeMHLTheme;
 
 implementation
 
@@ -502,7 +504,16 @@ begin
   end;
 end;
 
+procedure FinalizeMHLTheme;
+begin
+  FreeAndNil(ThemeFocusDispatcher);
+  // Detach the engine while its class state is still alive. VCL controls
+  // unregister their style hooks during later unit finalization; otherwise
+  // they can notify an engine whose class destructor already freed its lists.
+  TStyleManager.EngineClass:=nil;
+end;
+
 initialization
 finalization
-  FreeAndNil(ThemeFocusDispatcher);
+  FinalizeMHLTheme;
 end.

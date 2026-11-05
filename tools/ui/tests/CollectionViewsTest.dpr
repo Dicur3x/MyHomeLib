@@ -5662,6 +5662,7 @@ end;
 {$I DisplayLabelBenchmark.inc}
 {$I BookOutputResetBenchmark.inc}
 {$I CataloguePerformanceTests.inc}
+{$I PersonalAuthorTests.inc}
 {$I Feedback531Tests.inc}
 {$I Feedback532Tests.inc}
 {$I DiagnosticsCacheTests.inc}
@@ -5735,6 +5736,7 @@ begin
       Trace('isolated user module');
       Application.CreateForm(TDMUser, DMUser);
       DMUser.Init;
+      if ParamStr(1)='personal-author-reopen' then begin TestPersonalAuthorReopen; Halt(0); end;
       if ParamStr(1)='distribution-layout' then begin TestDistributionLayout; Flush(Output); Halt(0); end;
       if ParamStr(1)='flibrary-source-preparation' then begin TestFLibrarySourcePreparation; Flush(Output); Halt(0); end;
       if ParamStr(1) = 'view-session-reopen' then begin ViewSessionChild; Halt(0); end;
@@ -6011,11 +6013,13 @@ begin
       else if ParamStr(1) = 'publisher-columns' then
         TestPublisherColumnFilters
       else if ParamStr(1) = 'author-favorites' then
-        TestAuthorFavorites
+      begin TestAuthorFavorites; TestAuthorPersonalPreferences; end
       else if ParamStr(1) = 'favorite-dao' then
         TestAuthorFavoriteDAO(One)
       else if ParamStr(1) = 'favorite-columns' then
         TestFavoriteAuthorColumnFilters
+      else if ParamStr(1) = 'personal-authors' then
+        TestPersonalAuthorUI(One)
       else if ParamStr(1) = 'system-remap' then
         TestSystemBookRemapSafety
       else if ParamStr(1) = 'update-outcomes' then
@@ -6241,11 +6245,14 @@ begin
         CheckQueuePersistenceAfterClose;
       if ParamStr(1) = 'temp-exit-cleanup' then CheckExitReaderCleanup;
       if ParamStr(1) = 'export-cache-lifecycle' then CheckExportCacheLifecycleAfterClose;
+      Trace('cleanup collections');
       One := nil;
       Two := nil;
       Online := nil;
+      Trace('cleanup images');
       dmImages.Free;
       dmImages := nil;
+      Trace('cleanup user');
       DMUser.Free;
       DMUser := nil;
     finally
@@ -6253,6 +6260,7 @@ begin
       frmSplash := nil;
     end;
     Application.OnException := nil;
+    FinalizeMHLTheme;
     ExceptionHandler.Free;
   except
     on E: Exception do

@@ -3,7 +3,7 @@
 interface
 
 uses System.Classes, System.SysUtils, System.Generics.Collections,
-  VirtualTrees, BookTreeView, unit_Globals, unit_Consts;
+  VirtualTrees, BookTreeView, unit_Globals, unit_Consts, unit_AuthorFavorites;
 
 type
   TColumnFilterCondition = record
@@ -29,6 +29,7 @@ type
     FOptionCache: TObjectDictionary<string,TStringList>;
     FFavoriteAuthorsOnly, FAppliedFavoriteAuthorsOnly: Boolean;
     FFavoriteKeyRevision: UInt64;
+    FPersonalRevision: UInt64;
     FFavoriteKeys: TDictionary<string, Byte>;
     FFavoriteMatches: TDictionary<string, Boolean>;
     procedure SyncFavoriteKeys;
@@ -63,6 +64,11 @@ type
 
 // The main form supplies its cached set; filtering never opens a database.
 function SetFavoriteAuthorFilterKeys(const Keys: TArray<string>): Boolean;
+procedure SetPersonalAuthorFilter(const Entries: TArray<TAuthorPersonalEntry>;
+  MinimumRating: Integer; IncludeUnrated, ShowHidden: Boolean);
+function PersonalAuthorFilterActive: Boolean;
+function PersonalAuthorVisible(const Author: TAuthorData): Boolean;
+function PersonalBookVisible(const Authors: TBookAuthors): Boolean;
 function EditBookColumnFilters(Tree: TBookTree): Boolean;
 function EditBookColumnFilter(Tree: TBookTree; Tag: Integer): Boolean;
 
@@ -72,11 +78,74 @@ implementation
 
 uses System.StrUtils, System.DateUtils, System.Math, Winapi.Windows, Vcl.Forms,
   Vcl.Controls, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ComCtrls, unit_MHLHelpers,
-  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types, unit_MHLTheme,
-  unit_AuthorFavorites;
+  System.Types, Vcl.CheckLst, System.JSON, VirtualTrees.Types, unit_MHLTheme;
 
 var FavoriteAuthorKeys: TArray<string>;
     FavoriteAuthorKeysRevision: UInt64 = 1;
+    PersonalAuthors: TDictionary<string,TAuthorPersonalEntry>;
+    PersonalAuthorCache: TDictionary<string,TAuthorPersonalEntry>;
+    PersonalRevision: UInt64 = 1;
+    PersonalMinimumRating: Integer;
+    PersonalIncludeUnrated: Boolean = True;
+    PersonalShowHidden, PersonalHaveHidden: Boolean;
+
+procedure SetPersonalAuthorFilter(const Entries: TArray<TAuthorPersonalEntry>;
+  MinimumRating: Integer; IncludeUnrated, ShowHidden: Boolean);
+begin
+  if (MinimumRating<0) or (MinimumRating>5) then
+    raise EArgumentOutOfRangeException.Create('Некорректная минимальная оценка автора.');
+  PersonalAuthors.Clear; PersonalAuthorCache.Clear; PersonalHaveHidden:=False;
+  for var Entry in Entries do
+  begin
+    PersonalAuthors.AddOrSetValue(Entry.Author.Key,Entry);
+    PersonalHaveHidden:=PersonalHaveHidden or Entry.Hidden;
+  end;
+  PersonalMinimumRating:=MinimumRating; PersonalIncludeUnrated:=IncludeUnrated;
+  PersonalShowHidden:=ShowHidden; Inc(PersonalRevision);
+end;
+
+function PersonalAuthorFilterActive: Boolean;
+begin Result:=(PersonalMinimumRating>0) or (PersonalHaveHidden and not PersonalShowHidden); end;
+
+function PersonalValue(const Author: TAuthorData): TAuthorPersonalEntry;
+var Raw: string;
+begin
+  Raw:=IntToStr(Length(Author.LastName))+':'+Author.LastName+
+    IntToStr(Length(Author.FirstName))+':'+Author.FirstName+
+    IntToStr(Length(Author.MiddleName))+':'+Author.MiddleName;
+  if PersonalAuthorCache.TryGetValue(Raw,Result) then Exit;
+  try
+    if not PersonalAuthors.TryGetValue(AuthorFavoriteKey(Author.LastName,Author.FirstName,Author.MiddleName),Result) then
+      Result:=Default(TAuthorPersonalEntry);
+  except on E: EAuthorFavorites do Result:=Default(TAuthorPersonalEntry); end;
+  if PersonalAuthorCache.Count>=8192 then PersonalAuthorCache.Clear;
+  PersonalAuthorCache.Add(Raw,Result);
+end;
+
+function PersonalAuthorVisible(const Author: TAuthorData): Boolean;
+var Entry: TAuthorPersonalEntry;
+begin
+  if not PersonalAuthorFilterActive then Exit(True);
+  Entry:=PersonalValue(Author);
+  Result:=(PersonalShowHidden or not Entry.Hidden) and
+    ((PersonalMinimumRating=0) or (Entry.Rating>=PersonalMinimumRating) or
+      ((Entry.Rating=0) and PersonalIncludeUnrated));
+end;
+
+function PersonalBookVisible(const Authors: TBookAuthors): Boolean;
+var Entry: TAuthorPersonalEntry; Rating: Integer;
+begin
+  if not PersonalAuthorFilterActive then Exit(True);
+  Rating:=0;
+  for var Author in Authors do
+  begin
+    Entry:=PersonalValue(Author);
+    if Entry.Hidden and not PersonalShowHidden then Exit(False);
+    if Entry.Rating>Rating then Rating:=Entry.Rating;
+  end;
+  Result:=(PersonalMinimumRating=0) or (Rating>=PersonalMinimumRating) or
+    ((Rating=0) and PersonalIncludeUnrated);
+end;
 
 function SetFavoriteAuthorFilterKeys(const Keys: TArray<string>): Boolean;
 var NewKeys: TDictionary<string,Byte>; Key: string; Same: Boolean;
@@ -216,7 +285,8 @@ end;
 
 function TBookColumnFilters.GetCount: Integer;
 begin
-  Result := FValues.Count + Ord(FFavoriteAuthorsOnly);
+  Result := FValues.Count + Ord(FFavoriteAuthorsOnly) +
+    Ord((FTree.Tag<>PAGE_DOWNLOAD) and PersonalAuthorFilterActive);
 end;
 
 procedure TBookColumnFilters.Clear;
@@ -307,6 +377,11 @@ procedure TBookColumnFilters.EnsureRows(const Cancelled: TFunc<Boolean>);
 var Node: PVirtualNode; Book: PBookRecord; Visited: Integer;
 begin
   SyncFavoriteKeys;
+  if FPersonalRevision<>PersonalRevision then
+  begin
+    FPersonalRevision:=PersonalRevision;
+    FHaveResult:=False; FOptionCache.Clear;
+  end;
   if (FRevision = FTree.DataVersion) and (FNodeCount = FTree.TotalCount) then Exit;
   FOptionCache.Clear;
   FRows.Clear; FGroups.Clear; FVisible.Clear; FApplied.Clear; FAppliedSensitive.Clear; FHaveResult := False;
@@ -483,6 +558,7 @@ var C: TColumnFilterCondition; Genre: TGenreData; Series: TBookSeriesData; Autho
     Result := C.Selections.ContainsKey(Key);
   end;
 begin
+  if (FTree.Tag<>PAGE_DOWNLOAD) and not PersonalBookVisible(Book.Authors) then Exit(False);
   if FFavoriteAuthorsOnly and not MatchesFavoriteAuthors(Book) then Exit(False);
   for C in FConditions do
   begin
@@ -1384,4 +1460,10 @@ begin
   Result := EditColumnWithFilters(Tree,Tag,nil);
 end;
 
+initialization
+  PersonalAuthors:=TDictionary<string,TAuthorPersonalEntry>.Create;
+  PersonalAuthorCache:=TDictionary<string,TAuthorPersonalEntry>.Create;
+finalization
+  PersonalAuthorCache.Free;
+  PersonalAuthors.Free;
 end.

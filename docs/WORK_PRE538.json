@@ -2,9 +2,9 @@
   "status": "in_progress",
   "visible_checklist": {
     "page_id": "page_95776d35a2908191992f76e733b1532e",
-    "verified_sequence": 104,
-    "verified_blocks": 84,
-    "verified_checked": 57,
+    "verified_sequence": 123,
+    "verified_blocks": 88,
+    "verified_checked": 62,
     "all_preexisting_untouched_blocks_preserved": true,
     "url": "https://chatgpt.com/space/page_95776d35a2908191992f76e733b1532e"
   },
@@ -4516,7 +4516,7 @@
         "https://fantlab.ru/reglament"
       ]
     },
-    "remaining": "FantLab is evaluated only. No new online provider is integrated in this change, and nothing was published."
+    "remaining": "User clarified on 2026-11-05: exactly one Reviews entry button in the lower information panel. Inside the opened review area, expose the existing-style download/load action when reviews are absent and refresh when present. Reuse the bounded cancellable network path and preserve saved results on errors. Do not add separate Reviews/Download/Refresh entry buttons to the lower metadata panel. Finish the current author-preference direction before implementing it. FantLab remains evaluated only, not integrated. Nothing published."
   },
   "beta4_epub_pdf_browser_independence_20261105": {
     "status": "Release condition added after the user raised compatibility without installed Edge or Chrome.",
@@ -4694,5 +4694,40 @@
       "The real Main entry points, manager and filter fit light/dark and 96/144/192 DPI on x86/x64. Empty preferences preserve the measured startup/list fast path."
     ],
     "evidence_scope": "Design and source inspection only. The acceptance cases above describe required checks and have not been run as new production-feature tests."
+  },
+  "beta4_forum_feedback_20261105": {
+    "status": "Queued for beta 4 after the current author-preference direction, following user screenshots. Not implemented or declared reproduced.",
+    "opds_https": "User explicitly requested both modes before beta 4: native HTTPS with certificate/key, and external HTTPS reverse proxy. Support explicit public base URL including path prefix, correct feed/acquisition links and controlled forwarded-header trust. Current server remains HTTP-only, loopback by default with explicit LAN option. Preserve HTTP clients and minimal distribution, test x86/x64. Do not configure user network, Windows certificates or an external server automatically.",
+    "archive_deletion": "Reproduce the report that archive files remain despite Delete files being enabled. Distinguish standalone book archives, shared archives and an individual member. Integrate with existing safe-deletion work; never remove a shared container while other entries refer to it.",
+    "information_panel_height": "Reproduce and fix the book information panel height repeatedly returning to its default. Cover manual height, adaptive preview sizing, view changes and restart.",
+    "deletion_selection": "After deleting within a sorted result, retain the nearest surviving row and scroll position rather than jumping to the first item; preserve sort and filter state. Cover single/bulk deletion and all relevant tabs.",
+    "sources": [
+      "https://manual.calibre-ebook.com/server.html",
+      "https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Transport_Layer_Security"
+    ]
+  },
+  "beta4_author_preferences_20261105": {
+    "status": "Implemented and verified by eight fresh native Release scenarios on x86/x64. Ordinary Main and final package acceptance remain open.",
+    "implementation": "Independent 1-5 personal author rating and reversible hidden flag in the global profile, schema-v1 read-only compatibility and transactional v2 migration, stale-writer field updates and atomic batch edits. My authors manager includes Favorite/Hidden/Rated/All categories, absent authors, exact-name identities, batch edits, score/hidden/favorite columns. Shared cached policy affects Authors, Search, Groups, cycles and publisher series; any hidden coauthor excludes, maximum explicit score determines rating eligibility, with a separate unrated switch. Profile and XML transfer preserve independent favorite membership and personal fields.",
+    "native_verification": {
+      "Win32_sha256": "2fa08f5611d2f6872cc5f93af72c7d655ade2b633cd6a3bda85a95ac373ea002",
+      "Win64_sha256": "d2144dad06c87c29074433fa3c1982111478afa20e48eba9ebf666961f9acf60",
+      "cases": [
+        "personal-authors",
+        "favorite-columns",
+        "favorite-ui",
+        "author-favorites"
+      ],
+      "checks": "Schema migration and unchanged read-only v1 bytes; stale writers, independent resets, invalid/busy batch rejection, favourite baseline preservation, compressed user-data XML round-trip and preserve/replace decisions. Actual author context menu, absent author manager, atomic group edits and retained selection, hidden sole/coauthors, thresholds and unrated/authorless rules, all six loaded catalogue result views and widened results. Manager geometry at 96/144/192 DPI in light/dark, plus new Main child-process restart assertions. Collection hash unchanged before the separate restart exercise. Existing favorite UI, column, lookup/cancel/lock/integrity regressions passed.",
+      "evidence": "tools/ui/tests/Out/beta4-author-preferences-20261105-r13.log"
+    },
+    "shutdown_fix": "Expanded modal-theme test exposed a deterministic shutdown crash. Vectored stack and MAP evidence located Vcl.Styles.TStyleEngine notifications during later control-hook finalization after its class state was released. MHL theme teardown must run before RTL class finalization, not only in a unit finalizer. Added FinalizeMHLTheme and called it from ordinary catalogue/Reader application exit and native cleanup. Full scenarios now exit 0 on both architectures. Production entry points still need rebuild/smoke checks. Temporary diagnostics and skip flags removed.",
+    "remaining": [
+      "Ordinary catalogue and Reader rebuild/smoke after the lifecycle change; final minimal candidate checks.",
+      "Exercise actual INPX reimport with personal author settings and general user-data menu integration.",
+      "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation.",
+      "Validate existing personal rows before any write if a previously loaded profile was externally corrupted."
+    ],
+    "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched."
   }
 }

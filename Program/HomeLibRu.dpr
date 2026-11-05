@@ -297,6 +297,7 @@ begin
   Application.Initialize;
   InitializeDiagnostics;
   try
+   try
 
   // Must run before any form is constructed, so that every resourcestring and
   // every DFM property is read through the hook. ResolveMHLPaths is used
@@ -339,5 +340,8 @@ begin
   Application.Run;
   except
     on E: Exception do begin LogDiagnosticError('startup-or-main-loop',E); raise; end;
+   end;
+  finally
+    FinalizeMHLTheme;
   end;
 end.

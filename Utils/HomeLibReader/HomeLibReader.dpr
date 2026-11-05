@@ -29,5 +29,7 @@ begin
   except
     on E: Exception do begin LogDiagnosticError('reader-startup-or-main-loop',E); raise; end;
    end;
-  finally CoUninitialize; end;
+  finally
+    try FinalizeMHLTheme; finally CoUninitialize; end;
+  end;
 end.

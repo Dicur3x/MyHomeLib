@@ -20,6 +20,13 @@ type
     function DisplayName: string;
   end;
 
+  TAuthorPersonalEntry = record
+    Author: TAuthorFavoriteEntry;
+    Rating: Integer; // Zero means no personal rating.
+    Hidden: Boolean;
+    UpdatedUTC: string;
+  end;
+
   TAuthorFavoriteCollection = record
     ID: Integer;
     DatabaseFile, RootFolder, LibraryNamespace, Revision: string;
@@ -42,21 +49,31 @@ type
     FStates: TDictionary<string, TAuthorFavoriteState>;
     FNewCounts: TDictionary<Integer, Integer>;
     FRevisions: TDictionary<Integer, string>;
+    FPersonal: TDictionary<string, TAuthorPersonalEntry>;
     FOperationCanceled: TAuthorFavoritesCanceled;
     function CancelRequested: Boolean;
     procedure CheckCanceled;
+    procedure UpdatePersonal(const Authors: TArray<TAuthorFavoriteEntry>;
+      Value: Integer; RatingField: Boolean);
   public
     constructor Create(const ProfileFile: string);
     destructor Destroy; override;
     procedure Reload;
     procedure SetFavorite(const LastName, FirstName, MiddleName: string; Enabled: Boolean);
     function RemoveFavorites(const AuthorKeys: TArray<string>): Boolean;
-    procedure ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>);
+    procedure ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>;
+      const Personal: TArray<TAuthorPersonalEntry> = nil; ReplacePersonal: Boolean = False);
     function IsFavorite(const LastName, FirstName, MiddleName: string): Boolean; overload;
     function IsFavorite(const Author: TAuthorData): Boolean; overload;
     function MatchesAuthors(const Authors: TBookAuthors): Boolean;
     function Entries: TArray<TAuthorFavoriteEntry>;
     function Keys: TArray<string>;
+    function PersonalEntries: TArray<TAuthorPersonalEntry>;
+    function PersonalEntry(const LastName, FirstName, MiddleName: string): TAuthorPersonalEntry;
+    procedure SetPersonalRating(const LastName, FirstName, MiddleName: string; Rating: Integer);
+    procedure SetHidden(const LastName, FirstName, MiddleName: string; Hidden: Boolean);
+    procedure SetPersonalRatings(const Authors: TArray<TAuthorFavoriteEntry>; Rating: Integer);
+    procedure SetHiddenAuthors(const Authors: TArray<TAuthorFavoriteEntry>; Hidden: Boolean);
     function BoundAuthorIDs(CollectionID: Integer): TArray<Integer>;
     function State(CollectionID: Integer; const AuthorKey: string): TAuthorFavoriteState;
     function NewCount(CollectionID: Integer; const AuthorKey: string = ''): Integer;
@@ -83,7 +100,7 @@ uses
 
 const
   AF_APPLICATION_ID = $484D4146; // HMAF, private file, never an existing user DB.
-  AF_SCHEMA_VERSION = 1;
+  AF_SCHEMA_VERSION = 2;
   AF_MAX_FAVORITES = 4096;
   AF_MAX_BINDINGS = 1048576;
   AF_MAX_REFRESH_ROWS = 10000000;
@@ -104,6 +121,11 @@ const
     'CREATE TABLE SeenBooks(CID INTEGER NOT NULL, AuthorKey TEXT NOT NULL, BookKey TEXT NOT NULL, PRIMARY KEY(CID,AuthorKey,BookKey), '
       +'FOREIGN KEY(CID,AuthorKey) REFERENCES CollectionAuthorState(CID,AuthorKey) ON DELETE CASCADE) WITHOUT ROWID'
   );
+
+  AF_PERSONAL_SCHEMA = 'CREATE TABLE PersonalAuthors(AuthorKey TEXT PRIMARY KEY NOT NULL, '
+    +'LastName TEXT NOT NULL, FirstName TEXT NOT NULL, MiddleName TEXT NOT NULL, '
+    +'Rating INTEGER CHECK(Rating BETWEEN 1 AND 5), Hidden INTEGER NOT NULL DEFAULT 0 CHECK(Hidden IN (0,1)), '
+    +'UpdatedUTC TEXT NOT NULL) WITHOUT ROWID';
 
   AF_AUTHOR_LOOKUP = 'SELECT AuthorID,LastName,FirstName,MiddleName FROM Authors '
     + 'INDEXED BY IXAuthors_FullName WHERE LastName=? AND FirstName IS ? AND MiddleName IS ?';
@@ -391,20 +413,24 @@ begin
 end;
 
 procedure ValidateProfile(Database: TAFDatabase);
-var Query: TAFQuery; Schema: string;
+var Query: TAFQuery; Schema: string; Version: Integer;
 begin
+  Version:=Database.Number('PRAGMA user_version');
   if (Database.Number('PRAGMA application_id')<>AF_APPLICATION_ID) or
-    (Database.Number('PRAGMA user_version')<>AF_SCHEMA_VERSION) then
+    not (Version in [1,AF_SCHEMA_VERSION]) then
     raise EAuthorFavorites.Create('Неизвестная версия файла любимых авторов. Он сохранён без изменений.');
   if Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type IN (''trigger'',''view'')')<>0 then
     raise EAuthorFavorites.Create('Некорректная схема любимых авторов. Файл сохранён без изменений.');
-  if Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name NOT GLOB ''sqlite_*''')<>6 then
+  if Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND name NOT GLOB ''sqlite_*''')<>6+Ord(Version=2) then
     raise EAuthorFavorites.Create('Некорректная схема любимых авторов. Файл сохранён без изменений.');
   // This private version has exactly these keys/FKs/cascades. Missing constraints
   // are rejected read-only, rather than accepting a partial or unrelated schema.
   for Schema in AF_TABLE_SCHEMA do
     if Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND sql=? COLLATE BINARY',[Schema])<>1 then
       raise EAuthorFavorites.Create('Некорректная схема любимых авторов. Файл сохранён без изменений.');
+  if (Version=2) and
+    (Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type=''table'' AND sql=? COLLATE BINARY',[AF_PERSONAL_SCHEMA])<>1) then
+    raise EAuthorFavorites.Create('Некорректная схема личных настроек авторов. Файл сохранён без изменений.');
   if Database.Number('SELECT COUNT(*) FROM sqlite_master WHERE type=''index'' AND name IN (''IXAFCurrent_CID_BookKey'',''IXAFCurrent_CID_BookID'')')<>2 then
     raise EAuthorFavorites.Create('Некорректные индексы любимых авторов. Файл сохранён без изменений.');
   // Preparing verifies every required column without scanning book membership.
@@ -431,6 +457,7 @@ begin
       Database.Execute('PRAGMA application_id='+IntToStr(AF_APPLICATION_ID));
       Database.Execute('PRAGMA user_version='+IntToStr(AF_SCHEMA_VERSION));
       for Schema in AF_TABLE_SCHEMA do Database.Execute(Schema);
+      Database.Execute(AF_PERSONAL_SCHEMA);
       Database.Execute('CREATE INDEX IXAFCurrent_CID_BookKey ON CurrentBooks(CID,BookKey)');
       Database.Execute('CREATE INDEX IXAFCurrent_CID_BookID ON CurrentBooks(CID,BookID)');
       Database.Execute('COMMIT'); ValidateProfile(Database);
@@ -466,6 +493,16 @@ begin
     CheckSafeFile(FileName,False,True);
     Result:=TAFDatabase.Create(FileName,False,False);
     ValidateProfile(Result);
+    if Result.Number('PRAGMA user_version')=1 then
+    begin
+      Result.Execute('BEGIN IMMEDIATE');
+      try
+        Result.Execute(AF_PERSONAL_SCHEMA);
+        Result.Execute('PRAGMA user_version='+IntToStr(AF_SCHEMA_VERSION));
+        ValidateProfile(Result);
+        Result.Execute('COMMIT');
+      except Result.Rollback; raise; end;
+    end;
   except
     Result.Free; FreeAndNil(Lock); raise;
   end;
@@ -502,11 +539,12 @@ begin
   FStates:=TDictionary<string,TAuthorFavoriteState>.Create;
   FNewCounts:=TDictionary<Integer,Integer>.Create;
   FRevisions:=TDictionary<Integer,string>.Create;
+  FPersonal:=TDictionary<string,TAuthorPersonalEntry>.Create;
   Reload;
 end;
 
 destructor TAuthorFavorites.Destroy;
-begin FRevisions.Free; FNewCounts.Free; FStates.Free; FBindings.Free; FKeys.Free; inherited; end;
+begin FPersonal.Free; FRevisions.Free; FNewCounts.Free; FStates.Free; FBindings.Free; FKeys.Free; inherited; end;
 
 procedure TAuthorFavorites.Reload;
 var Database: TAFDatabase; Query: TAFQuery; Entry: TAuthorFavoriteEntry;
@@ -514,6 +552,7 @@ var Database: TAFDatabase; Query: TAFQuery; Entry: TAuthorFavoriteEntry;
   NewBindings: TDictionary<Integer,TArray<Integer>>; NewStates: TDictionary<string,TAuthorFavoriteState>;
   NewCounts: TDictionary<Integer,Integer>; BindList: TList<Integer>; Value: TAuthorFavoriteState;
   NewRevisions: TDictionary<Integer,string>;
+  NewPersonal: TDictionary<string,TAuthorPersonalEntry>; Personal: TAuthorPersonalEntry;
   CID, LastCID, Count: Integer;
 begin
   NewKeys:=TDictionary<string,Boolean>.Create;
@@ -521,6 +560,7 @@ begin
   NewStates:=TDictionary<string,TAuthorFavoriteState>.Create;
   NewCounts:=TDictionary<Integer,Integer>.Create;
   NewRevisions:=TDictionary<Integer,string>.Create; NewEntries:=nil;
+  NewPersonal:=TDictionary<string,TAuthorPersonalEntry>.Create;
   try
     CheckSafeFile(FFileName,True,True);
     if FileExists(FFileName) then
@@ -529,6 +569,28 @@ begin
       try
         Database.Execute('BEGIN');
         NewEntries:=ReadEntries(Database);
+        if Database.Number('PRAGMA user_version')=2 then
+        begin
+          Query:=TAFQuery.Create(Database,
+            'SELECT AuthorKey,LastName,FirstName,MiddleName,COALESCE(Rating,0),Hidden,UpdatedUTC FROM PersonalAuthors',[]);
+          try
+            while Query.Next do
+            begin
+              Personal:=Default(TAuthorPersonalEntry);
+              Personal.Author.Key:=Query.Text(0); Personal.Author.LastName:=Query.Text(1);
+              Personal.Author.FirstName:=Query.Text(2); Personal.Author.MiddleName:=Query.Text(3);
+              if (NewPersonal.Count>=AF_MAX_FAVORITES) or (Personal.Author.Key='') or
+                (Personal.Author.Key<>AuthorFavoriteKey(Personal.Author.LastName,Personal.Author.FirstName,Personal.Author.MiddleName)) or
+                (Query.Number(4)<0) or (Query.Number(4)>5) or
+                ((Query.Number(5)<>0) and (Query.Number(5)<>1)) then
+                raise EAuthorFavorites.Create('Некорректные личные настройки автора.');
+              Personal.Rating:=Query.Number(4); Personal.Hidden:=Query.Number(5)<>0;
+              Personal.UpdatedUTC:=Query.Text(6);
+              if Length(Personal.UpdatedUTC)>64 then raise EAuthorFavorites.Create('Некорректная дата настроек автора.');
+              NewPersonal.Add(Personal.Author.Key,Personal);
+            end;
+          finally Query.Free; end;
+        end;
         for Entry in NewEntries do NewKeys.Add(Entry.Key,True);
         Query:=TAFQuery.Create(Database,'SELECT CID,AuthorKey,Baseline,BookCount,NewCount FROM CollectionAuthorState',[]);
         try
@@ -588,7 +650,8 @@ begin
     FStates.Free; FStates:=NewStates; NewStates:=nil;
     FNewCounts.Free; FNewCounts:=NewCounts; NewCounts:=nil;
     FRevisions.Free; FRevisions:=NewRevisions; NewRevisions:=nil;
-  finally NewRevisions.Free; NewCounts.Free; NewStates.Free; NewBindings.Free; NewKeys.Free; end;
+    FPersonal.Free; FPersonal:=NewPersonal; NewPersonal:=nil;
+  finally NewPersonal.Free; NewRevisions.Free; NewCounts.Free; NewStates.Free; NewBindings.Free; NewKeys.Free; end;
 end;
 
 procedure UpdateCounts(Database: TAFDatabase; CID: Integer);
@@ -665,14 +728,20 @@ begin
   Reload;
 end;
 
-procedure TAuthorFavorites.ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>);
-var Database: TAFDatabase; Lock: TFileMutex; Entry: TAuthorFavoriteEntry; Key: string;
+procedure TAuthorFavorites.ImportFavorites(const Authors: TArray<TAuthorFavoriteEntry>;
+  const Personal: TArray<TAuthorPersonalEntry>; ReplacePersonal: Boolean);
+var Database: TAFDatabase; Lock: TFileMutex; Entry: TAuthorFavoriteEntry; Key, SQL: string;
 begin
-  if Length(Authors)=0 then Exit;
-  if Length(Authors)>AF_MAX_FAVORITES then raise EAuthorFavorites.Create('В файле слишком много любимых авторов.');
+  if (Length(Authors)=0) and (Length(Personal)=0) then Exit;
+  if (Length(Authors)>AF_MAX_FAVORITES) or (Length(Personal)>AF_MAX_FAVORITES) then
+    raise EAuthorFavorites.Create('В файле слишком много личных настроек авторов.');
   // Validate the whole portable list before starting its transaction. Local
   // author/collection IDs and seen-book baselines belong to this installation.
   for Entry in Authors do AuthorFavoriteKey(Entry.LastName,Entry.FirstName,Entry.MiddleName);
+  for var Value in Personal do
+    if (AuthorFavoriteKey(Value.Author.LastName,Value.Author.FirstName,Value.Author.MiddleName)='') or
+      (Value.Rating<0) or (Value.Rating>5) then
+      raise EAuthorFavorites.Create('Некорректные личные настройки автора в файле.');
   Database:=OpenWriteProfile(FFileName,Lock);
   try
     Database.Execute('BEGIN IMMEDIATE');
@@ -684,7 +753,19 @@ begin
         Database.Execute('INSERT OR IGNORE INTO FavoriteAuthors VALUES(?,?,?,?,?)',
           [Key,Trim(Entry.LastName),Trim(Entry.FirstName),Trim(Entry.MiddleName),UTCStamp]);
       end;
-      if Database.Number('SELECT COUNT(*) FROM FavoriteAuthors')>AF_MAX_FAVORITES then
+      SQL:='INSERT INTO PersonalAuthors VALUES(?,?,?,?,NULLIF(?,0),?,?) ON CONFLICT(AuthorKey) DO ';
+      if ReplacePersonal then
+        SQL:=SQL+'UPDATE SET Rating=excluded.Rating,Hidden=excluded.Hidden,UpdatedUTC=excluded.UpdatedUTC'
+      else SQL:=SQL+'NOTHING';
+      for var Value in Personal do
+      begin
+        Key:=AuthorFavoriteKey(Value.Author.LastName,Value.Author.FirstName,Value.Author.MiddleName);
+        Database.Execute(SQL,[Key,Trim(Value.Author.LastName),Trim(Value.Author.FirstName),
+          Trim(Value.Author.MiddleName),Value.Rating,Value.Hidden,UTCStamp]);
+      end;
+      Database.Execute('DELETE FROM PersonalAuthors WHERE Rating IS NULL AND Hidden=0');
+      if (Database.Number('SELECT COUNT(*) FROM FavoriteAuthors')>AF_MAX_FAVORITES) or
+        (Database.Number('SELECT COUNT(*) FROM PersonalAuthors')>AF_MAX_FAVORITES) then
         raise EAuthorFavorites.Create('Достигнут предел списка любимых авторов.');
       Database.Execute('COMMIT');
     except Database.Rollback; raise; end;
@@ -706,6 +787,78 @@ function TAuthorFavorites.Entries: TArray<TAuthorFavoriteEntry>;
 begin Result:=Copy(FEntries); end;
 function TAuthorFavorites.Keys: TArray<string>;
 begin Result:=FKeys.Keys.ToArray; end;
+function TAuthorFavorites.PersonalEntries: TArray<TAuthorPersonalEntry>;
+begin Result:=FPersonal.Values.ToArray; end;
+function TAuthorFavorites.PersonalEntry(const LastName, FirstName, MiddleName: string): TAuthorPersonalEntry;
+begin
+  if not FPersonal.TryGetValue(AuthorFavoriteKey(LastName,FirstName,MiddleName),Result) then
+    Result:=Default(TAuthorPersonalEntry);
+end;
+
+procedure TAuthorFavorites.UpdatePersonal(const Authors: TArray<TAuthorFavoriteEntry>;
+  Value: Integer; RatingField: Boolean);
+var Database: TAFDatabase; Lock: TFileMutex; Key, Stamp: string;
+  Keys: TArray<string>;
+begin
+  if Length(Authors)=0 then Exit;
+  if Length(Authors)>AF_MAX_FAVORITES then
+    raise EAuthorFavorites.Create('Слишком много выбранных авторов.');
+  SetLength(Keys,Length(Authors));
+  for var I:=0 to High(Authors) do
+  begin
+    Keys[I]:=AuthorFavoriteKey(Authors[I].LastName,Authors[I].FirstName,Authors[I].MiddleName);
+    if Keys[I]='' then raise EAuthorFavorites.Create('Сначала выберите автора.');
+  end;
+  if (Value=0) and not FileExists(FFileName) then Exit;
+  Database:=OpenWriteProfile(FFileName,Lock);
+  try
+    Database.Execute('BEGIN IMMEDIATE');
+    try
+      Stamp:=UTCStamp;
+      for var I:=0 to High(Authors) do
+      begin
+        Key:=Keys[I];
+        Database.Execute('INSERT OR IGNORE INTO PersonalAuthors(AuthorKey,LastName,FirstName,MiddleName,UpdatedUTC) VALUES(?,?,?,?,?)',
+          [Key,Trim(Authors[I].LastName),Trim(Authors[I].FirstName),Trim(Authors[I].MiddleName),Stamp]);
+        if RatingField then
+          Database.Execute('UPDATE PersonalAuthors SET Rating=NULLIF(?,0),UpdatedUTC=? WHERE AuthorKey=?',[Value,Stamp,Key])
+        else
+          Database.Execute('UPDATE PersonalAuthors SET Hidden=?,UpdatedUTC=? WHERE AuthorKey=?',[Value,Stamp,Key]);
+        Database.Execute('DELETE FROM PersonalAuthors WHERE AuthorKey=? AND Rating IS NULL AND Hidden=0',[Key]);
+      end;
+      if Database.Number('SELECT COUNT(*) FROM PersonalAuthors')>AF_MAX_FAVORITES then
+        raise EAuthorFavorites.Create('Достигнут предел списка личных настроек авторов.');
+      Database.Execute('COMMIT');
+    except Database.Rollback; raise; end;
+  finally Database.Free; Lock.Free; end;
+  Reload;
+end;
+
+procedure TAuthorFavorites.SetPersonalRating(const LastName, FirstName, MiddleName: string; Rating: Integer);
+var Author: TAuthorFavoriteEntry;
+begin
+  Author:=Default(TAuthorFavoriteEntry);
+  Author.LastName:=LastName; Author.FirstName:=FirstName; Author.MiddleName:=MiddleName;
+  SetPersonalRatings([Author],Rating);
+end;
+
+procedure TAuthorFavorites.SetHidden(const LastName, FirstName, MiddleName: string; Hidden: Boolean);
+var Author: TAuthorFavoriteEntry;
+begin
+  Author:=Default(TAuthorFavoriteEntry);
+  Author.LastName:=LastName; Author.FirstName:=FirstName; Author.MiddleName:=MiddleName;
+  SetHiddenAuthors([Author],Hidden);
+end;
+
+procedure TAuthorFavorites.SetPersonalRatings(const Authors: TArray<TAuthorFavoriteEntry>; Rating: Integer);
+begin
+  if (Rating<0) or (Rating>5) then raise EAuthorFavorites.Create('Оценка автора должна быть от 1 до 5. Ноль снимает оценку.');
+  UpdatePersonal(Authors,Rating,True);
+end;
+
+procedure TAuthorFavorites.SetHiddenAuthors(const Authors: TArray<TAuthorFavoriteEntry>; Hidden: Boolean);
+begin UpdatePersonal(Authors,Ord(Hidden),False); end;
+
 function TAuthorFavorites.BoundAuthorIDs(CollectionID: Integer): TArray<Integer>;
 begin if not FBindings.TryGetValue(CollectionID,Result) then Result:=nil else Result:=Copy(Result); end;
 function TAuthorFavorites.State(CollectionID: Integer; const AuthorKey: string): TAuthorFavoriteState;

@@ -419,3 +419,102 @@ begin
     Writeln('PASS favorite authors isolated durable profile, stale-instance safety, nonblocking SQLite/mutex locks, readonly/unknown/corrupt guards, protected data hashes and integrity');
   finally Other.Free; Store.Free; end;
 end;
+
+procedure TestAuthorPersonalPreferences;
+var Profile, Legacy, Catalogue, BeforeHash, UserFile: string;
+  Store, Other: TAuthorFavorites; Collection: TAuthorFavoriteCollection;
+  Raw: TSQLite3DB; DB: TSQLiteDatabase; Count: Integer;
+  Data, Loaded: TUserData; Entries: TArray<TAuthorPersonalEntry>; Rejected: Boolean;
+begin
+  RequireIsolatedRegression;
+  Profile:=Settings.AppPath+'personal-author-store.sqlite';
+  Legacy:=Settings.AppPath+'personal-author-v1.sqlite';
+  Catalogue:=Settings.AppPath+'personal-author-catalogue.sqlite';
+  AFRCreateCatalogue(Catalogue);
+  Store:=TAuthorFavorites.Create(Profile); Other:=nil;
+  try
+    Store.SetFavorite('Кинг','Стивен','',True);
+    Collection:=Default(TAuthorFavoriteCollection); Collection.ID:=31;
+    Collection.DatabaseFile:=Catalogue; Collection.RootFolder:=Settings.AppPath;
+    Collection.Revision:='personal-source-v1';
+    Store.RefreshCollection(Collection);
+    Count:=Store.State(31,AuthorFavoriteKey('Кинг','Стивен','')).BookCount;
+    Require(Count>0,'Personal author fixture did not create favorite membership');
+    TFile.Copy(Profile,Legacy,False); Raw:=AFROpenRaw(Legacy);
+    try AFRRawExecute(Raw,'DROP TABLE PersonalAuthors'); AFRRawExecute(Raw,'PRAGMA user_version=1');
+    finally SQLite3_Close(Raw); end;
+    BeforeHash:=THashSHA2.GetHashStringFromFile(Legacy);
+    Store.Free; Store:=nil; Store:=TAuthorFavorites.Create(Legacy);
+    Require((THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash) and (Length(Store.PersonalEntries)=0),
+      'Reading a v1 favorite profile unexpectedly changed its bytes');
+    Other:=TAuthorFavorites.Create(Legacy);
+    Store.SetPersonalRating('Кинг','Стивен','',4);
+    Other.SetHidden('Кинг','Стивен','',True);
+    Store.Reload;
+    var Entry:=Store.PersonalEntry('Кинг','Стивен','');
+    Require((Entry.Rating=4) and Entry.Hidden and Store.IsFavorite('Кинг','Стивен',''),
+      'Stale author writer replaced another personal field or favorite membership');
+    Require(Store.State(31,Entry.Author.Key).BookCount=Count,'Profile upgrade changed favorite book membership');
+    Other.RefreshCollection(Collection); Store.Reload;
+    Entry:=Store.PersonalEntry('Кинг','Стивен','');
+    Require((Entry.Rating=4) and Entry.Hidden,'Favorite refresh overwrote personal settings');
+    BeforeHash:=THashSHA2.GetHashStringFromFile(Legacy); Rejected:=False;
+    try Store.SetPersonalRating('Кинг','Стивен','',6);
+    except on E:EAuthorFavorites do Rejected:=True; end;
+    Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash),'Invalid rating changed the profile');
+    DB:=TSQLiteDatabase.CreateReadOnly(Legacy);
+    try
+      Require(DB.QuerySingleInt('PRAGMA user_version')=2,'Author preferences did not upgrade schema');
+      Require(DB.QuerySingleString('PRAGMA integrity_check')='ok','Author profile integrity failed after migration');
+      Require(DB.QuerySingleInt('SELECT COUNT(*) FROM pragma_foreign_key_check')=0,'Author migration damaged favorite references');
+    finally DB.Free; end;
+    Data:=TUserData.Create; Loaded:=TUserData.Create;
+    try
+      Data.FavoriteAuthors:=Store.Entries; Data.PersonalAuthors:=Store.PersonalEntries;
+      UserFile:=Settings.AppPath+'personal-authors-roundtrip.xml.zip'; Data.Save(UserFile); Loaded.Load(UserFile);
+      Require((Length(Loaded.PersonalAuthors)=1) and Loaded.PersonalAuthors[0].Hidden and
+        (Loaded.PersonalAuthors[0].Rating=4),'Portable author settings lost rating or visibility');
+      Store.SetPersonalRating('Кинг','Стивен','',2);
+      Store.ImportFavorites(Loaded.FavoriteAuthors,Loaded.PersonalAuthors,False);
+      Require(Store.PersonalEntry('Кинг','Стивен','').Rating=2,'Import overwrote existing settings despite preserve choice');
+      Store.ImportFavorites(Loaded.FavoriteAuthors,Loaded.PersonalAuthors,True);
+      Require(Store.PersonalEntry('Кинг','Стивен','').Rating=4,'Explicit import replacement was ignored');
+      Entries:=Loaded.PersonalAuthors; Entries[0].Rating:=9;
+      BeforeHash:=THashSHA2.GetHashStringFromFile(Legacy); Rejected:=False;
+      try Store.ImportFavorites(Loaded.FavoriteAuthors,Entries,True);
+      except on E:EAuthorFavorites do Rejected:=True; end;
+      Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash),'Invalid import partly changed author data');
+    finally Loaded.Free; Data.Free; end;
+    Store.SetFavorite('Кинг','Стивен','',False);
+    Require(Store.PersonalEntry('Кинг','Стивен','').Hidden,'Removing favorite membership erased hidden state');
+    Store.SetHidden('Кинг','Стивен','',False);
+    Require(Store.PersonalEntry('Кинг','Стивен','').Rating=4,'Unhiding erased personal rating');
+    Store.SetPersonalRating('Кинг','Стивен','',0);
+    Require(Length(Store.PersonalEntries)=0,'Clearing the last personal setting left a meaningless row');
+    var Batch: TArray<TAuthorFavoriteEntry>;
+    SetLength(Batch,2); Batch[0].LastName:='Первый'; Batch[1].LastName:='Второй';
+    Store.SetPersonalRatings(Batch,3); Other.SetHiddenAuthors(Batch,True); Store.Reload;
+    Require((Store.PersonalEntry('Первый','','').Rating=3) and Store.PersonalEntry('Первый','','').Hidden and
+      (Store.PersonalEntry('Второй','','').Rating=3) and Store.PersonalEntry('Второй','','').Hidden,
+      'Batch personal edits lost independent fields from a stale instance');
+    BeforeHash:=THashSHA2.GetHashStringFromFile(Legacy);
+    Batch[1].LastName:=''; Rejected:=False;
+    try Store.SetPersonalRatings(Batch,5);
+    except on E:EAuthorFavorites do Rejected:=True; end;
+    Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash) and
+      (Store.PersonalEntry('Первый','','').Rating=3),'Invalid batch partly changed personal settings');
+    Batch[1].LastName:='Второй'; Raw:=AFROpenRaw(Legacy);
+    try
+      AFRRawExecute(Raw,'BEGIN IMMEDIATE'); Rejected:=False;
+      try Store.SetHiddenAuthors(Batch,False);
+      except on E:EAuthorFavoritesBusy do Rejected:=True; end;
+      AFRRawExecute(Raw,'ROLLBACK');
+    finally SQLite3_Close(Raw); end;
+    Require(Rejected and (THashSHA2.GetHashStringFromFile(Legacy)=BeforeHash) and
+      Store.PersonalEntry('Первый','','').Hidden,'Busy batch changed personal settings');
+    Store.SetHiddenAuthors(Batch,False); Store.SetPersonalRatings(Batch,0);
+    Require(Length(Store.PersonalEntries)=0,'Batch resets left personal rows');
+    Writeln('PASS personal author batch edits preserve stale fields reject invalid and busy writes atomically');
+    Writeln('PASS personal author v1 migration stale writers refresh independence portable roundtrip import decisions and independent resets');
+  finally Other.Free; Store.Free; end;
+end;

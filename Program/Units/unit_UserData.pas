@@ -126,6 +126,7 @@ type
     FExtras: TBookExtras;
     FGroups: TBookGroups;
     FFavoriteAuthors: TArray<TAuthorFavoriteEntry>;
+    FPersonalAuthors: TArray<TAuthorPersonalEntry>;
 
   public
     constructor Create;
@@ -137,6 +138,7 @@ type
     property Extras: TBookExtras read FExtras;
     property Groups: TBookGroups read FGroups;
     property FavoriteAuthors: TArray<TAuthorFavoriteEntry> read FFavoriteAuthors write FFavoriteAuthors;
+    property PersonalAuthors: TArray<TAuthorPersonalEntry> read FPersonalAuthors write FPersonalAuthors;
   end;
 
   TOnImportUserDataEvent = procedure(const UserDataSource: TUserData) of object;
@@ -471,6 +473,7 @@ var
   xmlRoot: IXMLDOMNode;
   Nodes: IXMLDOMNodeList; Node, Attribute: IXMLDOMNode;
   Authors: TList<TAuthorFavoriteEntry>; Entry: TAuthorFavoriteEntry;
+  Personal: TList<TAuthorPersonalEntry>; Value: TAuthorPersonalEntry; Rating: Integer; Hidden: string;
   function NamePart(const Name: string): string;
   begin
     Attribute:=Node.attributes.getNamedItem(Name);
@@ -478,6 +481,7 @@ var
   end;
 begin
   FFavoriteAuthors:=nil;
+  FPersonalAuthors:=nil;
   xmlDoc := TMSXMLHelper.LoadFromZFile(FileName);
   xmlRoot := xmlDoc.selectSingleNode(ELEMENT_USERDATA);
 
@@ -499,6 +503,25 @@ begin
       end;
       FFavoriteAuthors:=Authors.ToArray;
     finally Authors.Free; end;
+    Personal:=TList<TAuthorPersonalEntry>.Create;
+    try
+      Nodes:=xmlRoot.selectNodes('PersonalAuthors/Author'); Node:=Nodes.nextNode;
+      while Assigned(Node) do
+      begin
+        if Personal.Count>=4096 then raise Exception.Create('В файле слишком много личных настроек авторов.');
+        Value:=Default(TAuthorPersonalEntry);
+        Value.Author.LastName:=NamePart('last'); Value.Author.FirstName:=NamePart('first');
+        Value.Author.MiddleName:=NamePart('middle');
+        Value.Author.Key:=AuthorFavoriteKey(Value.Author.LastName,Value.Author.FirstName,Value.Author.MiddleName);
+        Hidden:=NamePart('hidden');
+        if (Value.Author.Key='') or not TryStrToInt(NamePart('rating'),Rating) or (Rating<0) or (Rating>5) or
+          ((Hidden<>'0') and (Hidden<>'1')) then
+          raise Exception.Create('В файле некорректные личные настройки автора.');
+        Value.Rating:=Rating; Value.Hidden:=Hidden='1'; Personal.Add(Value);
+        Node:=Nodes.nextNode;
+      end;
+      FPersonalAuthors:=Personal.ToArray;
+    finally Personal.Free; end;
   end;
 end;
 
@@ -522,6 +545,18 @@ begin
       Author:=xmlDoc.createElement('Author');
       Author.setAttribute('last',Entry.LastName); Author.setAttribute('first',Entry.FirstName);
       Author.setAttribute('middle',Entry.MiddleName); Authors.appendChild(Author);
+    end;
+    xmlRoot.appendChild(Authors);
+  end;
+  if Length(FPersonalAuthors)>0 then
+  begin
+    Authors:=xmlDoc.createElement('PersonalAuthors');
+    for var Personal in FPersonalAuthors do
+    begin
+      Author:=xmlDoc.createElement('Author');
+      Author.setAttribute('last',Personal.Author.LastName); Author.setAttribute('first',Personal.Author.FirstName);
+      Author.setAttribute('middle',Personal.Author.MiddleName); Author.setAttribute('rating',IntToStr(Personal.Rating));
+      Author.setAttribute('hidden',IntToStr(Ord(Personal.Hidden))); Authors.appendChild(Author);
     end;
     xmlRoot.appendChild(Authors);
   end;
