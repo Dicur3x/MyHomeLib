@@ -68,13 +68,13 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
     '<description><title-info><book-title>'+Title+'</book-title><lang>ru</lang></title-info></description>'+
     '<body><section><p>Книга для проверки удаления — ё.</p></section></body></FictionBook>'; end;
 
-  procedure WriteZip(const Name: string);
+  procedure WriteZip(const Name: string; const Entries: array of string);
   var Zip: TZipFile; Stream: TBytesStream;
   begin
     Zip := TZipFile.Create;
     try
       Zip.Open(Name,zmWrite);
-      for var Entry in ['chosen.fb2','unselected.fb2'] do
+      for var Entry in Entries do
       begin
         Stream := TBytesStream.Create(TEncoding.UTF8.GetBytes(XML(Entry)));
         try Zip.Add(Stream,Entry); finally Stream.Free; end;
@@ -162,7 +162,7 @@ var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, Fail
   procedure Sources(const Tag: string);
   begin
     RawPath := Root+Tag+'.fb2'; ArchivePath := Root+Tag+'.zip';
-    TFile.WriteAllText(RawPath,XML(Tag),TEncoding.UTF8); WriteZip(ArchivePath);
+    TFile.WriteAllText(RawPath,XML(Tag),TEncoding.UTF8); WriteZip(ArchivePath,['chosen.fb2','unselected.fb2']);
     RawID := Insert(Tag+' raw','',Tag,'.fb2');
     ArchiveID := Insert(Tag+' archived',Tag+'.zip','chosen','.fb2');
     OtherID := Insert(Tag+' unselected',Tag+'.zip','unselected','.fb2');
@@ -247,6 +247,35 @@ begin
     try Execute(True,False,2,2); finally Probe.OverrideFiles:=False; end;
     Require(not Exists(SevenID) and not Exists(LegacyID) and Exists(NeighbourID) and Local(NeighbourID) and
       (THashSHA2.GetHashStringFromFile(Root+'fallback.7z')=BeforeRaw),'Deletion removed a 7z or its legacy ZIP fallback neighbour');
+
+    Trace('delete safety remove empty containers');
+    ArchivePath:=Root+'last-book.zip';
+    WriteZip(ArchivePath,['only.fb2']);
+    ArchiveID:=Insert('last ZIP book','last-book.zip','only','.fb2');
+    Rows([ArchiveID]); Execute(True,False,1,1);
+    Require(not Exists(ArchiveID) and not FileExists(ArchivePath),
+      'The last book and its empty ZIP must both disappear');
+
+    SevenID:=Insert('last 7z selected book','fallback.7z','chosen','.fb2');
+    Rows([SevenID,NeighbourID]); Execute(True,False,2,2);
+    Require(not Exists(SevenID) and not Exists(NeighbourID) and not FileExists(Root+'fallback.7z'),
+      'The final 7z books and their empty container must all disappear');
+
+    ArchivePath:=Root+'linked-last-book.zip';
+    WriteZip(ArchivePath,['only.fb2']);
+    var LinkPath:=Root+'linked-last-book-alias.zip';
+    Win32Check(CreateHardLink(PChar(LinkPath),PChar(ArchivePath),nil));
+    ArchiveID:=Insert('linked last ZIP book','linked-last-book.zip','only','.fb2');
+    Rows([ArchiveID]); Execute(True,False,1,1);
+    Require(not Exists(ArchiveID) and FileExists(ArchivePath) and FileExists(LinkPath),
+      'Removing a last book must preserve the names of hard-linked archives');
+    PairZip:=TZipFile.Create;
+    try
+      PairZip.Open(LinkPath,zmRead);
+      Require(PairZip.FileCount=0,'The linked archive must be valid and empty');
+    finally PairZip.Free; end;
+    Writeln('PASS Main removes verified empty ZIP and 7z containers and keeps hard-linked paths and companion files');
+    Flush(Output);
 
     for var Page in [PAGE_AUTHORS,PAGE_SERIES,PAGE_GENRES,PAGE_SEARCH,PAGE_PUBLISHER_SERIES] do
     begin

@@ -7,7 +7,7 @@ uses System.Classes, System.SysUtils, unit_Interfaces, unit_Globals,
 
 type
   TBookDeletionOperationStatus = record
-    Stage, Archive, Error, RequiredComponent, PendingJournal: string;
+    Stage, Archive, Error, RequiredComponent, PendingJournal, CleanupWarning: string;
     Done, Total: Int64;
     ArchiveIndex, ArchiveCount, CompletedBooks: Integer;
     Stopping, Finished, CatalogueChanged: Boolean;
@@ -151,7 +151,15 @@ begin
   if Assigned(Queue.FatalException) then
     raise EInvalidOperation.Create(Exception(Queue.FatalException).Message);
   for var Receipt in Queue.Results do
-    if not Receipt.Acknowledged then
+    if Receipt.Acknowledged then
+    begin
+      if Receipt.CleanupWarning = '' then Continue;
+      TMonitor.Enter(FLock);
+      try
+        if FState.CleanupWarning = '' then FState.CleanupWarning := Receipt.CleanupWarning;
+      finally TMonitor.Exit(FLock); end;
+    end
+    else
     begin
       if Receipt.JournalDirectory<>'' then
       begin

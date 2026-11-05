@@ -16,7 +16,7 @@ type
 
   TArchiveDeletionResult = record
     Index: Integer;
-    Archive, CatalogueBinding, WorkDirectory, JournalDirectory, Error: string;
+    Archive, CatalogueBinding, WorkDirectory, JournalDirectory, Error, CleanupWarning: string;
     FilesVerified, Cancelled: Boolean;
     WaitsForCatalogue, CatalogueCommitted, Acknowledged: Boolean;
   end;
@@ -379,6 +379,14 @@ begin
               // A live new queue has not created its later task directories
               // yet. Its operation root must survive until the loop finishes.
               CleanupReceiptDirectories(Item,FRoot=''); Item.Acknowledged:=True;
+              // Unlink only after the catalogue commit and journal cleanup.
+              // If interrupted here, an empty container can remain safely.
+              try
+                Deletion.RemoveEmptyArchive;
+              except
+                on E:Exception do
+                  Item.CleanupWarning:='Не удалось убрать пустой архив '+Item.Archive+sLineBreak+E.Message;
+              end;
             end;
           except on E:Exception do Item.Error:=E.Message; end;
           TMonitor.Enter(FLock);

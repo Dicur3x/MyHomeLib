@@ -8367,6 +8367,7 @@ begin
   FreeAndNil(FBookDeletionProgress);
   FBookDeletionNeedsRecovery:=State.PendingJournal<>'';
   if State.Error<>'' then LogDiagnosticMessage('book-delete',State.Error);
+  if State.CleanupWarning<>'' then LogDiagnosticMessage('book-delete-cleanup',State.CleanupWarning);
   if State.CatalogueChanged and not FCloseAfterBookDeletion and Assigned(FCollection) then
     RefreshAfterBookDeletion(FCollection.CollectionID,True);
   if FCloseAfterBookDeletion then
@@ -8389,6 +8390,7 @@ begin
       Detail:=Detail+sLineBreak+'Журнал сохранён. HomeLibre попробует завершить операцию при следующем запуске.';
     MHLShowWarning('Не удалось завершить удаление.'+sLineBreak+Detail);
   end
+  else if State.CleanupWarning<>'' then MHLShowWarning(State.CleanupWarning)
   else if State.Stopping then StatusMessage:=Format('Удаление остановлено. Обработано книг: %d.',[State.CompletedBooks])
   else if State.CompletedBooks>0 then StatusMessage:=Format('Обработано книг: %d.',[State.CompletedBooks]);
 end;

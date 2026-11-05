@@ -104,7 +104,7 @@ begin
     else Details.Caption:='Будут удалены загруженные файлы. Записи в каталоге, оценки и заметки сохранятся.';
     if ArchiveCount>0 then
       Details.Caption:=Details.Caption+sLineBreak+sLineBreak+Format(
-        'Книг в архивах: %d. При удалении файлов программа проверит архивы и уберёт только выбранные книги.',[ArchiveCount]);
+        'Книг в архивах: %d. При удалении файлов программа уберёт только выбранные книги. Пустой архив тоже может быть удалён.',[ArchiveCount]);
     Footer:=TPanel.Create(Dialog); Footer.Parent:=Dialog; Footer.Align:=alBottom;
     Footer.Height:=54; Footer.BevelOuter:=bvNone;
     Button:=TButton.Create(Dialog); Button.Parent:=Footer; Button.Name:='ConfirmBookDeletion';

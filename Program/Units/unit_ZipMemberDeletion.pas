@@ -38,6 +38,7 @@ type
       const Fault: TZipDeleteFault = nil);
     // The caller acknowledges only after its catalogue changes are durable.
     procedure Acknowledge;
+    procedure RemoveEmptyArchive;
     // Bind the catalogue receipt before the first destructive write. The
     // persisted plan/checkpoint then protects this association on recovery.
     procedure BindContext(const SHA256: string);
@@ -66,6 +67,12 @@ const
   PlanName = 'plan.json';
   CheckpointName = 'checkpoint.json';
   PendingName = 'pending.bin';
+  DeleteAccess = $00010000;
+  FileDispositionInfoClass = 4;
+
+function SetArchiveFileInformation(Handle: THandle; InformationClass: Integer;
+  Information: Pointer; Size: DWORD): BOOL; stdcall;
+  external kernel32 name 'SetFileInformationByHandle';
 
 type
   // System.Zip serializes the final central directory against a virtual
@@ -663,6 +670,52 @@ begin
   end;
   if not RemoveDirectory(PChar(DeletionNativePath(FJob))) then RaiseLastOSError;
   FJob := '';
+end;
+
+procedure TZipMemberDeletion.RemoveEmptyArchive;
+var Handle: THandle; Info: TByHandleFileInformation; Key: string;
+  Expected, Actual: TBytes; ReadCount: DWORD; Disposition: Byte;
+begin
+  if not FFinished or (FJob <> '') or not Assigned(FSource) then
+    raise EInvalidOperation.Create('Сначала завершите обновление каталога и журнала удаления.');
+  // No entries, including companion files and directories, may remain.
+  // An executable or other prefix outside the ZIP entries also stays intact.
+  if ((FPlan.GetValue('remaining') as TJSONArray).Count <> 0) or
+    (FieldNumber(FPlan,'metadataOffset') <> Length(FHeader)) then Exit;
+
+  CheckIdentity;
+  VerifyFinished;
+  if not GetFileInformationByHandle(FSource.Handle,Info) then RaiseLastOSError;
+  if Info.nNumberOfLinks <> 1 then Exit;
+  Key := ArchiveKey(FSource.Handle);
+  Expected := ReadAt(0,Length(FHeader)+Length(FMetadata));
+
+  // The writer handle has no DELETE access. Reopen exclusively and verify
+  // both the physical file and the complete empty container before unlinking.
+  FreeAndNil(FSource);
+  Handle := CreateFile(PChar(DeletionNativePath(FArchive)),GENERIC_READ or DeleteAccess,
+    0,nil,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,0);
+  if Handle = INVALID_HANDLE_VALUE then RaiseLastOSError;
+  try
+    if not GetFileInformationByHandle(Handle,Info) then RaiseLastOSError;
+    if (Info.nNumberOfLinks <> 1) or
+      ((Info.dwFileAttributes and (FILE_ATTRIBUTE_REPARSE_POINT or FILE_ATTRIBUTE_DIRECTORY)) <> 0) or
+      (ArchiveKey(Handle) <> Key) or (Info.nFileSizeHigh <> 0) or
+      (Info.nFileSizeLow <> DWORD(Length(Expected))) then
+      raise EReadError.Create('Путь или файл архива изменился после удаления книг.');
+
+    SetLength(Actual,Length(Expected));
+    if not ReadFile(Handle,Actual[0],DWORD(Length(Actual)),ReadCount,nil) then RaiseLastOSError;
+    if (ReadCount <> DWORD(Length(Actual))) or
+      not CompareMem(@Actual[0],@Expected[0],Length(Expected)) then
+      raise EReadError.Create('Содержимое архива изменилось после удаления книг.');
+
+    Disposition := 1;
+    if not SetArchiveFileInformation(Handle,FileDispositionInfoClass,@Disposition,SizeOf(Disposition)) then
+      RaiseLastOSError;
+  finally
+    CloseHandle(Handle);
+  end;
 end;
 
 end.

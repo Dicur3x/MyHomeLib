@@ -5154,5 +5154,28 @@
     },
     "remaining": "Launch and test exact production EXEs; exercise sorted-list anchoring and close during deletion; safely remove truly empty last-book containers, preserve FLibrary companion images, and test real duplicate sources only after those safety checks. Extend group and duplicate commands separately.",
     "cleanup": "New private test/build folders removed. Real desktop collection and archives unchanged. No release published."
+  },
+  "beta4_empty_archive_cleanup_20261106": {
+    "status": "PASS Main last-book archive cleanup in native Win32/Win64 tests and fresh production builds",
+    "implementation": "After the catalogue commit and receipt cleanup, remove only a verified ZIP or 7z with no remaining entries and no unrelated prefix. Reopen the file with exclusive DELETE access, recheck volume/file identity and every byte of the empty container, then mark the verified handle for deletion. Preserve a shared hard-linked name, a nonempty archive and all companion entries. A failure at the unlink step reports a cleanup warning without undoing the already committed book deletion. An interruption after acknowledgement can leave a valid empty container.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-empty-20261106-r1.log",
+      "native_Win32_SHA256": "ef71f419601028fe7f0cd8453b594a28e5960fc83cc9ee373c40eabea0c1b159",
+      "native_Win64_SHA256": "ba89a35e3bf966addeacb24cba01f78a3f6fac74283d9da9c67f0d2b9e72443a",
+      "production_Win32_receipt": "tools/ui/tests/Out/beta4-deletion-production-r5/MyhomeLib-Win32-e95bb51e5e88.json",
+      "production_Win32_SHA256": "0e9ce3bb217898c7a6613663b98c4224814a216f704880500d585ba4be16178c",
+      "production_Win64_receipt": "tools/ui/tests/Out/beta4-deletion-production-r5/MyhomeLib-Win64-3b1482203e1e.json",
+      "production_Win64_SHA256": "e80de8002d87dcb4b901b0bde1577dc2be9330db54d08bb014a2ddb0dd99b42c",
+      "release_source_check": "PASS 3.0 beta 4 / 3.0.0_pre1.4 / 3.0.0.4"
+    },
+    "cases": [
+      "Main removes the only book and the empty ZIP",
+      "Main removes the final two books and the empty 7z",
+      "Hard-linked ZIP names survive and both refer to a valid empty archive",
+      "FBD archive with a retained readme stays readable",
+      "Existing catalogue-only, optional-file choice, group preparation, protected references and startup recovery tests pass"
+    ],
+    "cleanup": "The new owned regression profile and build root were removed. Production binaries remain in the worktree output folders. No real collection or archive changed.",
+    "remaining": "Launch the exact production binaries in isolated profiles. Verify sorted-list anchors, close during deletion, and FLibrary companion images before the authorized real duplicate test. Package and publish only after all beta 4 gates."
   }
 }
