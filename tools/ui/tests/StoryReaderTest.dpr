@@ -21,7 +21,7 @@ type TQualityProbe = class
 
   TReplyLockProbe = class
   private
-    FTimer: TTimer; FForm: TfrmStoryReader; FPath: string;
+    FTimer, FReplyTimer: TTimer; FForm: TfrmStoryReader; FPath: string;
     FHandle: THandle; FStarted: UInt64;
     procedure Tick(Sender: TObject);
   public
@@ -34,13 +34,20 @@ constructor TReplyLockProbe.Create(Form: TfrmStoryReader);
 begin
   inherited Create; FForm:=Form; FHandle:=INVALID_HANDLE_VALUE;
   FPath:=TPath.Combine(Form.WorkDirectory,'reply-1.json');
+  for var I:=0 to Form.ComponentCount-1 do
+    if Form.Components[I] is TTimer then FReplyTimer:=TTimer(Form.Components[I]);
+  Require(Assigned(FReplyTimer) and FReplyTimer.Enabled,'Native story has no active reply timer');
   FTimer:=TTimer.Create(nil); FTimer.Interval:=5; FTimer.OnTimer:=Tick;
+  // Let the worker publish the reply, then resume the normal reader timer
+  // once the test holds the file. Two competing timer ticks are nondeterministic.
+  FReplyTimer.Enabled:=False;
 end;
 
 destructor TReplyLockProbe.Destroy;
 begin
   FTimer.Free;
   if FHandle<>INVALID_HANDLE_VALUE then CloseHandle(FHandle);
+  if Assigned(FReplyTimer) then FReplyTimer.Enabled:=True;
   inherited;
 end;
 
@@ -55,7 +62,7 @@ begin
       nil,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
     if FHandle=INVALID_HANDLE_VALUE then Exit;
     Premature:=FForm.Ready;
-    Acquired:=True; FStarted:=GetTickCount64;
+    Acquired:=True; FStarted:=GetTickCount64; FReplyTimer.Enabled:=True;
   end;
   if GetTickCount64-FStarted<700 then
     Premature:=Premature or FForm.Ready
@@ -91,7 +98,7 @@ begin
 end;
 
 procedure CheckStoryInterface(Form: TfrmStoryReader);
-var Reader: TfrmBuiltinReader; Key: Word; Bounds: TRect; Text: string;
+var Reader: TfrmBuiltinReader; Key: Word; Bounds, MonitorBounds, FullBounds: TRect; Text: string;
   OriginalMenu, Menu: TMainMenu; Item: TMenuItem;
 begin
   Reader:=nil;
@@ -120,10 +127,13 @@ begin
         'Story fullscreen did not restore its outer window and answer controls');
       Require(Form.BookText=Text,'Story interface visibility changed the selected scene');
     end;
+    MonitorBounds:=Form.Monitor.BoundsRect;
     TButton(Reader.FindComponent('ReaderFullScreen')).Click; Application.ProcessMessages;
     Require(Reader.FullScreenMode and not Reader.InterfaceHidden and
       (Form.BorderStyle=bsNone) and Form.Choices.Visible and (Form.Menu=Menu),
       'Story separate full screen command hid answers or failed to affect its outer window');
+    Require(GetWindowRect(Form.Handle,FullBounds) and (FullBounds=MonitorBounds),
+      'Story full screen did not fill the monitor');
     TButton(Reader.FindComponent('ReaderHideInterface')).Click; Application.ProcessMessages;
     Require(Reader.FullScreenMode and Reader.InterfaceHidden and not Form.Choices.Showing,
       Format('Story modes 535-v2: full=%s hidden=%s answersShowing=%s',
@@ -135,6 +145,16 @@ begin
     Require((Key=0) and not Reader.FullScreenMode and (Form.BorderStyle=bsSizeable) and
       (Form.BoundsRect=Bounds) and Form.Choices.Visible and (Form.BookText=Text),
       'Story F11 failed to restore its original window and scene');
+    Form.WindowState:=wsMaximized; Application.ProcessMessages;
+    Key:=VK_F11; Form.OnKeyDown(Form,Key,[]); Application.ProcessMessages;
+    Require((Key=0) and Reader.FullScreenMode and GetWindowRect(Form.Handle,FullBounds) and
+      (FullBounds=MonitorBounds),'Story F11 did not fill the monitor from a maximized window');
+    Key:=VK_F11; Form.OnKeyDown(Form,Key,[]); Application.ProcessMessages;
+    Require((Key=0) and not Reader.FullScreenMode and (Form.WindowState=wsMaximized),
+      'Story F11 did not restore the maximized window');
+    Form.WindowState:=wsNormal; Application.ProcessMessages;
+    Require((Form.BoundsRect=Bounds) and Form.Choices.Visible and (Form.BookText=Text),
+      'Leaving story full screen lost the normal window bounds or scene');
   finally Form.Menu:=OriginalMenu; Menu.Free; end;
   Writeln('PASS interactive story independent interface hiding and F11 full screen restore window menu answers and exact scene'); Flush(Output);
 end;

@@ -245,7 +245,8 @@ begin
     FFullScreenPlacement:=Default(TWindowPlacement); FFullScreenPlacement.length:=SizeOf(FFullScreenPlacement);
     if not GetWindowPlacement(Handle,@FFullScreenPlacement) then RaiseLastOSError;
     FFullScreenBorder:=BorderStyle;
-    BorderStyle:=bsNone; WindowState:=wsMaximized;
+    var FullBounds:=Monitor.BoundsRect;
+    WindowState:=wsNormal; BorderStyle:=bsNone; BoundsRect:=FullBounds;
   end
   else
   begin

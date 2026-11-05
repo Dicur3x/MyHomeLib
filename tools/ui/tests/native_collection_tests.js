@@ -558,8 +558,7 @@ function run(executable, mode, subcase = "") {
       if(prep.status!==0) throw Error('Save module fixture preparation failed: '+prep.stdout+prep.stderr);
       fs.copyFileSync(path.join(runtime,'HomeLibRuUpdater.exe'),path.join(folder,'HomeLibRuUpdater.exe'));
     }
-    if (mode==='reader-story') for(const name of ['kindle','bookconvert','xps']) fs.cpSync(path.join(runtime,'tools',name),path.join(folder,'tools',name),{recursive:true,filter:item=>!item.split(path.sep).includes('__pycache__')&&!/\.pyc$/i.test(item)});
-    if (['unified-send','save-planning','kindle-save','advanced-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age','paged-export-progress'].includes(mode)) {
+    if (['unified-send','save-planning','kindle-save','advanced-save','builtin-export','export-cache-lifecycle','diagnostics-cache-age','paged-export-progress','reader-story'].includes(mode)) {
       const packages=process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES;
       if(!packages || !process.env.HLRU_PYTHON) throw Error('Save checks require the actual independent format packages and HLRU_PYTHON');
       const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B','-X','utf8',path.join(__dirname,'prepare_format_runtime_fixture.py'),packages,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing',...(mode==='kindle-save'?['KindleExport']:[]),...(mode==='advanced-save'?['FB2Export','KoboExport']:[]),...(mode==='diagnostics-cache-age'?['XPS']:[])],{encoding:'utf8',windowsHide:true,timeout:120000,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});

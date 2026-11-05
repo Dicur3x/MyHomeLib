@@ -4617,7 +4617,11 @@ begin
     end;
     FFullScreen:=True;
     if not Assigned(FOnFullScreenModeChanged) then
-    begin BorderStyle:=bsNone; WindowState:=wsMaximized; end;
+    begin
+      var FullBounds:=Monitor.BoundsRect;
+      // Windows can keep the maximized work-area rectangle across a style change.
+      WindowState:=wsNormal; BorderStyle:=bsNone; BoundsRect:=FullBounds;
+    end;
     FFullScreenButton.Hint:='Вернуться к обычному окну (F11)';
   end
   else

@@ -1,7 +1,7 @@
 ﻿procedure AuditReaderToolbar;
 const WindowWidths: array[0..2] of Integer = (640,820,1280);
 var Reader: TfrmBuiltinReader; Toolbar, Row: TPanel; Button: TReaderPaletteButton;
-  Bitmap: TBitmap; FileName, Name: string; R, Overlap, InitialBounds: TRect;
+  Bitmap: TBitmap; FileName, Name: string; R, Overlap, InitialBounds, MonitorBounds: TRect;
   Position: Integer; Key: Word; Controls: TList<TControl>;
 begin
   if FileExists('reader-toolbar-preview.flag') then
@@ -82,12 +82,27 @@ begin
           'Hide interface changed window size or entered full screen');
         TButton(Reader.FindComponent('ReaderShowInterface')).Click; Application.ProcessMessages;
         Require(not Reader.InterfaceHidden and (Reader.TextPosition=Position),'Interface restore lost position');
+        MonitorBounds:=Reader.Monitor.BoundsRect;
         TButton(Reader.FindComponent('ReaderFullScreen')).Click; Application.ProcessMessages;
         Require(Reader.FullScreenMode and not Reader.InterfaceHidden,'Full screen unexpectedly hides controls');
+        Require(GetWindowRect(Reader.Handle,R) and (R=MonitorBounds),
+          Format('Full screen does not fill the monitor: window %d,%d,%d,%d monitor %d,%d,%d,%d',
+            [R.Left,R.Top,R.Right,R.Bottom,MonitorBounds.Left,MonitorBounds.Top,
+             MonitorBounds.Right,MonitorBounds.Bottom]));
         Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
         Require(not Reader.FullScreenMode and not Reader.InterfaceHidden and (Reader.BoundsRect=InitialBounds),
           'F11 did not restore the resized window');
+        Reader.WindowState:=wsMaximized; Application.ProcessMessages;
+        Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
+        Require((Key=0) and Reader.FullScreenMode and GetWindowRect(Reader.Handle,R) and (R=MonitorBounds),
+          'F11 did not fill the monitor from a maximized window');
+        Key:=VK_F11; Reader.OnKeyDown(Reader,Key,[]); Application.ProcessMessages;
+        Require((Key=0) and not Reader.FullScreenMode and (Reader.WindowState=wsMaximized),
+          'Leaving full screen did not restore the maximized window');
+        Reader.WindowState:=wsNormal; Application.ProcessMessages;
+        Require(Reader.BoundsRect=InitialBounds,'Leaving full screen lost the normal window position');
         Writeln('PASS '+FileName+' hide/show remains independent from full screen and F11');
+        Writeln('PASS '+FileName+' full screen fills the monitor and restores normal and maximized windows');
       finally Reader.Free; end;
     end;
   finally Bitmap.Free; Controls.Free; end;
