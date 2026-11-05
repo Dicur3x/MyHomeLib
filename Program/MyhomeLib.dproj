@@ -81,6 +81,7 @@
         <DCCReference Include="Units\unit_BookCollisionDialog.pas"/>
         <DCCReference Include="Units\unit_BookConversionRequirements.pas"/>
         <DCCReference Include="Units\unit_BookEstimateReport.pas"/>
+        <DCCReference Include="Units\unit_EpubPdfRuntime.pas"/>
         <DCCReference Include="Units\unit_ReaderBookSkin.pas"/>
         <DCCReference Include="Units\unit_ReaderLookup.pas"/>
         <DCCReference Include="Units\unit_ReaderAdapters.pas"/>

@@ -92,6 +92,7 @@ uses
   unit_BookCollisionDialog in 'Units\unit_BookCollisionDialog.pas',
   unit_BookConversionRequirements in 'Units\unit_BookConversionRequirements.pas',
   unit_BookEstimateReport in 'Units\unit_BookEstimateReport.pas',
+  unit_EpubPdfRuntime in 'Units\unit_EpubPdfRuntime.pas',
   unit_ReaderBookSkin in 'Units\unit_ReaderBookSkin.pas',
   unit_ReaderLookup in 'Units\unit_ReaderLookup.pas',
   unit_ReaderAdapters in 'Units\unit_ReaderAdapters.pas',

@@ -4574,5 +4574,12 @@
     "verification": "Fresh Delphi Performance test builds Win32 3f8ef75cc067c9e4b597c5e2b9aa3f1308b544782e6c7f378b3880f250a1ccaf and Win64 42c899368793d4c9aac434385145387c200b3301b72ba598840d960d15c77a74 verified the first paint precedes successful collection readiness in the detailed log. Both also passed search, startup navigation, themes and row metrics. The exact production Main EXEs were not rebuilt: IDE AutoBuild expired and one visible attempt showed the Community Edition licence reminder. The existing Main EXEs lack the new diagnostic markers.",
     "timing_gate": "XviD4PSP process 20880 used 0.55 CPU seconds in a five-second sample. No quiet full-catalogue timings or performance improvement are claimed. Retain the isolated normal-EXE smoke and real-data performance checks as release gates.",
     "cleanup": "Verified no new startup build, test, or report folders or temporary sibling projects remain."
+  },
+  "beta4_catalogue_executable_startup_20261105": {
+    "status": "Both ordinary catalogue Release executables compiled, launched with an isolated minimal profile, logged the correct startup milestones, and closed normally.",
+    "finding": "The production catalogue project omitted unit_EpubPdfRuntime. Test projects could resolve it through their broad unit search paths, but the real project failed with F2613. Added its explicit source reference in the DPR and DPROJ. Reader already searches Program/Units.",
+    "verification": "Clean Delphi IDE builds after confirming the Community Edition reminder. Win32 HomeLibRu.exe SHA-256 26dec06efda0c1a92bbddbbbcb051cd305d2580b4024e5aeb15880f01fa62311; Win64 6cd772a5aa5d4001c1273af41db53af648b446a50aa34783491f05d8bda71d1a. Staged both with the released minimal beta 3 runtime and new owned catalogues. Read four ordered milestones by PID from each detailed log, then used ordinary window closure and verified process exit 0. Smoke-only elapsed_ms settings/created/paint/ready Win32 93/1124/1302/1784 and Win64 98/1224/1464/1896.",
+    "remaining": "These readings used a small fixture under shared load, not the working 1.8-million-record catalogue. No speed improvement is inferred. XviD4PSP still used CPU in a six-second sample; no transfer or encode child process was observed. Confirm the encoding queue before final large-catalogue timing.",
+    "cleanup": "All new build, staging and diagnostic files from this probe were removed. No changes to the desktop catalogue or published release."
   }
 }
