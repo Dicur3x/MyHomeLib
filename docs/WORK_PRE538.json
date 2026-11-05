@@ -4581,5 +4581,30 @@
     "verification": "Clean Delphi IDE builds after confirming the Community Edition reminder. Win32 HomeLibRu.exe SHA-256 26dec06efda0c1a92bbddbbbcb051cd305d2580b4024e5aeb15880f01fa62311; Win64 6cd772a5aa5d4001c1273af41db53af648b446a50aa34783491f05d8bda71d1a. Staged both with the released minimal beta 3 runtime and new owned catalogues. Read four ordered milestones by PID from each detailed log, then used ordinary window closure and verified process exit 0. Smoke-only elapsed_ms settings/created/paint/ready Win32 93/1124/1302/1784 and Win64 98/1224/1464/1896.",
     "remaining": "These readings used a small fixture under shared load, not the working 1.8-million-record catalogue. No speed improvement is inferred. XviD4PSP still used CPU in a six-second sample; no transfer or encode child process was observed. Confirm the encoding queue before final large-catalogue timing.",
     "cleanup": "All new build, staging and diagnostic files from this probe were removed. No changes to the desktop catalogue or published release."
+  },
+  "beta4_actual_catalogue_performance_20261105": {
+    "status": "Full native performance checks completed on x86 and x64 using the present working catalogue.",
+    "preflight": "The XviD4PSP UI showed COMPLETED 100% and all engine activity zero; its queue was left unchanged and minimized again. No VM or other workload was stopped. Host still has background load. All compiler jobs ended before list measurements.",
+    "verification": "Fresh Delphi Performance builds: x64 a84cf2d185d259412eba85829aa65405a19d5b1fc77c98a1bc666723b7961c4e and x86 f53d6be04bb44713db4ca82499404a9cfbf39fa06dee0c8dc51a2b8c1c6904c2. Three trials for each of five queries. All row counts matched independent SQL, with no blank/group/deleted rows. Source bytes 4333084672 and SHA-256 7bc741c477f75c928618d1e50c0ef68da38ac52a3f6ac765692bee4c9f6bbe34 preserved on both passes.",
+    "median_ms": {
+      "Win64": {
+        "0": 10657,
+        "1": 266,
+        "2": 141,
+        "3": 94,
+        "4": 63
+      },
+      "Win32": {
+        "0": 11531,
+        "1": 515,
+        "2": 203,
+        "3": 140,
+        "4": 78
+      }
+    },
+    "scope": "The title and empty search went through the ordinary Apply controls. Author/series/publisher list tests used the normal tree population method. Native initial window/ready times were 1015/1468 ms x64 and 1094/1609 ms x86, after test DB registration. These are not true process launch times. Copying and verifying the catalogue warms filesystem cache. No current-vs-old speed improvement or cold-launch claim.",
+    "remaining": "Ordinary executable startup with the real catalogue still requires acceptance. Full-list median remains 10.7/11.5 seconds, not three seconds. A separate release catalogue AutoBuild attempt expired without a build log; no stale EXE was run as current.",
+    "report": "tools/ui/tests/Out/beta4-catalogue-performance-e0131e4512ef.json",
+    "cleanup": "Both owned catalogue snapshots, test profiles, compiler outputs and temporary project files were removed."
   }
 }
