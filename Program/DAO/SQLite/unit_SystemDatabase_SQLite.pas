@@ -32,7 +32,7 @@ uses
   unit_Consts;
 
 type
-  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
+  TSystemData_SQLite = class(TSystemData, ISystemData, ISystemBookPresence, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IMetadataCollectionRootGuard, IAtomicLegacyUserDataImporter, ISnapshotCollectionRestorer)
   strict private
   type
     TBookIteratorImpl = class(TInterfacedObject, IBookIterator)
@@ -130,6 +130,9 @@ type
 
     procedure GetBookRecord(const BookKey: TBookKey; var BookRecord: TBookRecord);
     procedure DeleteBook(const BookKey: TBookKey);
+    function DeleteBookIfIdentity(const Expected: TBookRecord;
+      const Matches: TBookIdentityPredicate;
+      CheckOnly: Boolean = False): TBookDeletionWriteResult;
     procedure UpdateBook(const BookRecord: TBookRecord);
 
     procedure SetExtra(const BookKey: TBookKey; extra: TBookExtra);
@@ -986,6 +989,37 @@ begin
     BookRecord.CollectionName := rstrUnknownCollection;
     BookRecord.CollectionRoot := '';
     Assert(False);
+  end;
+end;
+
+
+function TSystemData_SQLite.DeleteBookIfIdentity(const Expected:TBookRecord;
+  const Matches:TBookIdentityPredicate; CheckOnly:Boolean):TBookDeletionWriteResult;
+var Query:TSQLiteQuery; Current:TBookRecord; Started:Boolean;
+begin
+  Result:=bdwBusy; Started:=False;
+  if (Expected.BookKey.BookID<=0) or (Expected.BookKey.DatabaseID<=0) or
+    not Assigned(Matches) or FDatabase.InTransaction then Exit;
+  try
+    FDatabase.Start; Started:=True;
+    Query:=FDatabase.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=? AND DatabaseID=?',
+      [Expected.BookKey.BookID,Expected.BookKey.DatabaseID]);
+    try
+      Query.Open;
+      if Query.Eof then Exit(bdwMissing);
+      Current:=Default(TBookRecord); Current.BookKey:=Expected.BookKey;
+      Current.NodeType:=ntBookInfo; Current.LibID:=Query.FieldAsString(0);
+      Current.Folder:=Query.FieldAsString(1); Current.FileName:=Query.FieldAsString(2);
+      Current.FileExt:=Query.FieldAsString(3); Current.InsideNo:=Query.FieldAsInt(4);
+      Current.CollectionRoot:=GetCollectionInfo(Expected.BookKey.DatabaseID).GetRootPath;
+    finally Query.Free; end;
+    if not Matches(Current) then Exit(bdwChanged);
+    if CheckOnly then Exit(bdwReady);
+    // DeleteBook sees this owning transaction and cannot commit it early.
+    DeleteBook(Expected.BookKey);
+    FDatabase.Commit; Started:=False; Result:=bdwDeleted;
+  finally
+    if Started and FDatabase.InTransaction then FDatabase.Rollback;
   end;
 end;
 

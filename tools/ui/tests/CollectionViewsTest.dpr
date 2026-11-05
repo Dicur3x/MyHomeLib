@@ -5649,6 +5649,7 @@ end;
 {$I ReaderSessionTests.inc}
 {$I ReaderHostSessionTests.inc}
 {$I BookDeletionSafetyTests.inc}
+{$I BookDeletionIdentityTests.inc}
 {$I SevenZipDeletionPlanTests.inc}
 {$I ArchiveDeletionQueueTests.inc}
 {$I ZipMemberDeletionTests.inc}
@@ -5949,6 +5950,7 @@ begin
       else if ParamStr(1) = 'reader-open-choice' then TestReaderOpenChoice
       else if ParamStr(1) = 'reader-host-session' then TestReaderHostSession
       else if ParamStr(1) = 'book-deletion' then TestBookDeletionSafety
+      else if ParamStr(1) = 'book-deletion-identity' then TestBookDeletionIdentity
       else if ParamStr(1) = 'zip-member-deletion' then begin TestZipMemberDeletion; TestArchiveDeletionQueue; TestSevenZipDeletionPlan; TestSevenZipDeletionRecovery; end
       else if ParamStr(1) = 'save-host-resume' then TestReaderSaveHostResume
       else if ParamStr(1) = 'reader-packages' then TestReaderPackageInstallation

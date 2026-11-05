@@ -31,6 +31,17 @@ type
   TBookPersonalField = (bpfRate, bpfProgress, bpfReview, bpfAnnotation, bpfIsLocal);
   TBookPersonalFields = set of TBookPersonalField;
   TBookIdentityWriteResult = (biwUnavailable, biwNoCard, biwMismatch, biwSaved);
+  TBookDeletionWriteResult = (bdwBusy, bdwChanged, bdwMissing, bdwReady, bdwDeleted);
+
+  // Archive receipts can be replayed after interruption. Never delete a row
+  // merely because its old numeric ID has been reused by a later import.
+  // CheckOnly validates without deleting either catalogue or personal data.
+  IBookIdentityDeletionWriter = interface
+    ['{72466A31-9DD1-4F8C-A477-EA982050378B}']
+    function DeleteBookIfIdentity(const Expected: TBookRecord;
+      const Matches: TBookIdentityPredicate;
+      CheckOnly: Boolean = False): TBookDeletionWriteResult;
+  end;
 
   // Update selected personal fields on a proved current row. The other fields,
   // reviews and binary card payload remain untouched.

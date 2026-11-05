@@ -4934,5 +4934,25 @@
     },
     "test_correction": "r1 exposed a fixture expectation error: a newly generated replacement ZIP has its own ZIP timestamps, so it must be compared against its own pre-operation checksum, not the older ZIP checksum. That expectation was corrected before r2/r3; the replacement-source guard itself correctly rejected the changed file.",
     "cleanup": "Owned root G:/HomeLibRu-build-cache/homelibre-zip-member-check-8d35oojt is absent; no real source or user collection was changed."
+  },
+  "beta4_deletion_catalogue_identity_20261105": {
+    "status": "PASS additive catalogue/personal conditional deletion capability x86/x64; not yet connected to Main archive commands",
+    "implementation": "Adds IBookIdentityDeletionWriter to both SQLite stores. It validates a captured book using an identity predicate inside an owning transaction, rejects an uncommitted outer operation, supports read-only preflight and idempotent missing-row replay, checks the personal card before deleting a catalogue row, and commits catalogue and personal phases separately so a retained durable archive receipt can resume after a personal-store failure. Existing unguarded DeleteBook callers were not changed in this step.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-identity-20261105-r4.log",
+      "Win32_SHA256": "2c2e9725f8981951aa4e3e9076f1bf47d1b176f3a86e890ee5fab1fdf3fbb0c8",
+      "Win64_SHA256": "9d69ad200aee77512df62433584a41219fe7dd0bcacb30f8577f2fe55d5a82df",
+      "cases": [
+        "Read-only preflight preserves catalogue/personal rows and group membership",
+        "Reused catalogue ID, changed personal physical identity, foreign collection ID and an active outer transaction are rejected",
+        "Injected catalogue failure rolls back without deleting personal cards or groups",
+        "Injected personal-store failure occurs after the catalogue commit; retry safely finishes the remaining personal commit, then a second retry reports missing without side effects",
+        "Neighbour book and another collection with the same numeric book ID remain present; physical book source SHA256 unchanged",
+        "Full existing book-deletion scenario rerun successfully on x86/x64, including ten loose-file setting cases across five views, archive preservation, cancellation, online files-only behavior and failure aggregation"
+      ]
+    },
+    "fixture_correction": "The saved system card stores an absolute folder while the catalogue can store a relative one. Initial fixture comparisons of raw Folder strings rejected the same book. The acceptance predicate now compares the established exact physical identity plus key, LibID and index; production capability remains caller-supplied and requires this positive identity predicate.",
+    "cleanup": "Owned root G:/HomeLibRu-build-cache/homelibre-delete-identity-check-t2a82s18 is absent after scoped cleanup. Real collection files unchanged.",
+    "remaining": "Build and validate persisted catalogue bindings and exact archive-member inventories, wire the conditional writer and queue into Main, per-operation optional physical checkbox, recovery replay, busy archive behavior, closure, last-book container handling, FLibrary side images and authorized real duplicates."
   }
 }

@@ -29,7 +29,7 @@ uses
   unit_Database_Abstract;
 
 type
-  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
+  TBookCollection_SQLite = class(TBookCollection, IBookCollection, IBookSeriesStreamProvider, IBookMergeMetadataUpdater, IBookMergeMetadataDeltaUpdater, IBookMergeOriginalCopyRecorder, IAuthorFavoriteCollectionView, IBookIdentityDeletionWriter, IBookIdentityProgressWriter, IBookIdentityPersonalWriter, IBookMetadataFillWriter, ICatalogUserDataRestorer)
   strict private type
     TStreamAuthor = record
       Data: TAuthorData;
@@ -251,6 +251,9 @@ type
     procedure UpdateBookMetadataDelta(const Before: TBookRecord; BookRecord: TBookRecord; UpdateUserCard: Boolean = True);
     function SeriesTriggersEnabled: Boolean;
     procedure DeleteBook(const BookKey: TBookKey);
+    function DeleteBookIfIdentity(const Expected: TBookRecord;
+      const Matches: TBookIdentityPredicate;
+      CheckOnly: Boolean = False): TBookDeletionWriteResult;
 
     procedure UpdateAuthor(Author : PAuthorData);
 
@@ -3978,6 +3981,63 @@ begin
   end;
 end;
 
+
+
+function TBookCollection_SQLite.DeleteBookIfIdentity(const Expected:TBookRecord;
+  const Matches:TBookIdentityPredicate; CheckOnly:Boolean):TBookDeletionWriteResult;
+const
+  RemoveOrphanAuthors = 'DELETE FROM Authors WHERE AuthorID IN ('+
+    'SELECT AuthorID FROM Author_List WHERE BookID=?) AND NOT EXISTS ('+
+    'SELECT 1 FROM Author_List other WHERE other.AuthorID=Authors.AuthorID AND other.BookID<>?)';
+var Query:TSQLiteQuery; Current:TBookRecord; Started,Present:Boolean;
+  Personal:IBookIdentityDeletionWriter; State:TBookDeletionWriteResult;
+begin
+  Result:=bdwBusy; Started:=False;
+  if (Expected.BookKey.BookID<=0) or (Expected.BookKey.DatabaseID<>CollectionID) or
+    not Assigned(Matches) or FDatabase.InTransaction then Exit;
+  if not Supports(FSystemData,IBookIdentityDeletionWriter,Personal) then Exit;
+  try
+    FDatabase.Start; Started:=True;
+    Query:=FDatabase.NewQuery('SELECT LibID,Folder,FileName,Ext,InsideNo FROM Books WHERE BookID=?',
+      [Expected.BookKey.BookID]);
+    try
+      Query.Open; Present:=not Query.Eof; Current:=Default(TBookRecord);
+      if Present then
+      begin
+        Current.BookKey:=Expected.BookKey; Current.NodeType:=ntBookInfo;
+        Current.LibID:=Query.FieldAsString(0); Current.Folder:=Query.FieldAsString(1);
+        Current.FileName:=Query.FieldAsString(2); Current.FileExt:=Query.FieldAsString(3);
+        Current.InsideNo:=Query.FieldAsInt(4);
+        Current.CollectionRoot:=FSystemData.GetCollectionInfo(CollectionID).GetRootPath;
+      end;
+    finally Query.Free; end;
+    if Present and not Matches(Current) then Exit(bdwChanged);
+    // Validate a saved personal card before removing any catalogue record.
+    // A missing catalogue row is expected when replaying a receipt whose
+    // catalogue commit succeeded but whose separate personal commit failed.
+    State:=Personal.DeleteBookIfIdentity(Expected,Matches,True);
+    if State in [bdwBusy,bdwChanged] then Exit(State);
+    if CheckOnly then
+    begin
+      if Present or (State=bdwReady) then Exit(bdwReady);
+      Exit(bdwMissing);
+    end;
+    if Present then
+    begin
+      FDatabase.ExecSQL(RemoveOrphanAuthors,[Expected.BookKey.BookID,Expected.BookKey.BookID]);
+      FDatabase.ExecSQL('DELETE FROM Books WHERE BookID=?',[Expected.BookKey.BookID]);
+      if FDatabase.LastChangedRows<>1 then raise EInvalidOperation.Create('Книга изменилась во время удаления.');
+    end;
+    FDatabase.Commit; Started:=False;
+  finally
+    if Started and FDatabase.InTransaction then FDatabase.Rollback;
+  end;
+  // The two stores have independent commits. A durable archive receipt must
+  // stay until BOTH finish; replay rechecks the identity and is idempotent.
+  State:=Personal.DeleteBookIfIdentity(Expected,Matches,False);
+  if State in [bdwBusy,bdwChanged] then Exit(State);
+  if Present or (State=bdwDeleted) then Result:=bdwDeleted else Result:=bdwMissing;
+end;
 
 procedure TBookCollection_SQLite.DeleteBook(const BookKey: TBookKey);
 const
