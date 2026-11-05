@@ -4725,7 +4725,6 @@
     "shutdown_fix": "Expanded modal-theme test exposed a deterministic shutdown crash. Vectored stack and MAP evidence located Vcl.Styles.TStyleEngine notifications during later control-hook finalization after its class state was released. MHL theme teardown must run before RTL class finalization, not only in a unit finalizer. Added FinalizeMHLTheme and called it from ordinary catalogue/Reader application exit and native cleanup. Full scenarios now exit 0 on both architectures. Production entry points still need rebuild/smoke checks. Temporary diagnostics and skip flags removed.",
     "remaining": [
       "Ordinary catalogue and Reader rebuild/smoke after the lifecycle change; final minimal candidate checks.",
-      "Exercise the actual general user-data export/import menu with personal author preferences.",
       "Review cancellation behavior while applying a personal policy to a large loaded result; do not claim transactional multi-view cancellation."
     ],
     "cleanup": "All newly owned compiler and test profiles were removed, including failed attempts. Only compact logs and manager preview PNGs remain. Existing protected directories were not touched.",
@@ -4738,6 +4737,18 @@
       "evidence": "tools/ui/tests/Out/beta4-author-preferences-20261105-r18.log",
       "test_repairs": "Initial menu snapshot omitted the newly created private fixture; switch through an existing fixture to refresh it. A fresh-process restore-sort prompt then blocked the fixture; the private profile now explicitly uses automatic session restore. The child has bounded timeout cleanup and persists an exception detail before rethrowing. These were test-harness repairs, not user catalogue failures.",
       "cleanup": "The successful r18 private build and both fixture profiles were removed. The r17 orphan child was identified by exact executable path and stopped. Automatic review rejected cleanup of G:/HomeLibRu-build-cache/homelibre-author-preferences-check-s_25vwt8; this stage remains and deletion was not retried."
+    },
+    "general_transfer_menu_proof": {
+      "status": "Real Main export/import menu items and actual native file pickers passed on x86/x64.",
+      "verification": "A Unicode mhlud2 file exported personal scores, hidden flags, absent favorite authors and existing book groups. General import restored a removed absent author while preserving the preexisting Beta score/visibility/timestamp and an unrelated local-only author. The portable source hash stayed unchanged. Both file-dialog cancellations preserved the exact semantic author preference snapshot and export cancellation created no output. Child proof PID is independent.",
+      "Win32_sha256": "0e87c0078333a0239b65a41fffb027484fe5c5acd28e8d31365047e2d96d0559",
+      "Win64_sha256": "2a1a8f1846a8bd6e0bcecbca824a7969e4eee502cd9645f5e9ea109572eccdd4",
+      "evidence": [
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r20.log",
+        "tools/ui/tests/Out/beta4-author-preferences-20261105-r21.log"
+      ],
+      "scope": "The existing general user-data menu defaults to preserving existing author preferences; separate author-specific transfer supports replace/preserve decisions already checked in backend tests. The first cancellation oracle compared the whole SQLite file while legitimate favorite-baseline discovery was active; changed it to compare only every favorite key and personal rating/hidden/timestamp rather than unrelated binding cache bytes.",
+      "cleanup": "All new successful and failed general-transfer build/test stages removed; earlier protected directories were not touched."
     }
   }
 }

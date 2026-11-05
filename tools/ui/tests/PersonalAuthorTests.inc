@@ -237,6 +237,10 @@ begin
     var Proof:=Settings.AppPath+'personal-author-reimport.ok';
     Require(FileExists(Proof) and (StrToIntDef(Trim(TFile.ReadAllText(Proof,TEncoding.UTF8)),0)<>Integer(GetCurrentProcessId)),
       'The separate-process reimport proof is absent');
+    Proof:=Settings.AppPath+'personal-author-transfer.ok';
+    Require(FileExists(Proof) and (StrToIntDef(Trim(TFile.ReadAllText(Proof,TEncoding.UTF8)),0)<>Integer(GetCurrentProcessId)),
+      'The separate-process general transfer menu proof is absent');
+    Writeln('PASS personal author general user-data menus export import preserve existing preferences and cancel');
     Writeln('PASS personal author native full INPX reimport preserves rating hiding and matches new local IDs');
     Writeln('PASS personal author context scores hidden coauthors search favorites widening manager absent authors durable edits and DPI');
     Writeln('PASS personal author manager atomic group rating hide restore and clear retain selection');
@@ -320,6 +324,102 @@ begin
   finally Store.Free; end;
 end;
 
+procedure TestPersonalAuthorUserDataMenu;
+var Store: TAuthorFavorites; Data: TUserData; Driver: TSPTDialogDriver;
+  FileName, CancelFile, ExportHash, ProfileHash: string; PreviousDialogs: Boolean;
+  BeforeBeta: TAuthorPersonalEntry;
+  function PreferenceSnapshot: string;
+  var Rows: TStringList;
+  begin
+    Store.Reload; Rows:=TStringList.Create;
+    try
+      for var Entry in Store.Entries do Rows.Add('F:'+Entry.Key);
+      for var Entry in Store.PersonalEntries do Rows.Add('P:'+Entry.Author.Key+':'+
+        IntToStr(Entry.Rating)+':'+BoolToStr(Entry.Hidden,True)+':'+Entry.UpdatedUTC);
+      Rows.Sort; Result:=THashSHA2.GetHashString(Rows.Text);
+    finally Rows.Free; end;
+  end;
+  procedure ReloadMainProfile;
+  begin
+    TThread.ForceQueue(nil,procedure
+      var Manager: TfrmAuthorFavorites;
+      begin
+        Manager:=nil;
+        for var I:=0 to Screen.FormCount-1 do
+          if Screen.Forms[I] is TfrmAuthorFavorites then Manager:=TfrmAuthorFavorites(Screen.Forms[I]);
+        Require(Assigned(Manager),'Author menu reload did not open the manager');
+        TButton(Manager.FindComponent('btnCloseFavoriteAuthors')).Click;
+      end);
+    TMenuItem(frmMain.FindComponent('miAllFavoriteAuthors')).Click;
+  end;
+  procedure FileAction(Menu: TMenuItem; const Title, Path: string; Cancel: Boolean);
+  begin
+    Driver.Title:=Title; Driver.FileName:=Path; Driver.Cancel:=Cancel;
+    Driver.Seen:=False; Driver.Failure:=''; Driver.Timer.Enabled:=True;
+    try Menu.Click; finally Driver.Timer.Enabled:=False; end;
+    Require(Driver.Seen and (Driver.Failure=''),'General user-data file picker did not complete: '+Driver.Failure);
+  end;
+  procedure CheckExport;
+  var FavoriteFound, AbsentFound, BetaFound: Boolean;
+  begin
+    Data.Load(FileName); FavoriteFound:=False; AbsentFound:=False; BetaFound:=False;
+    for var Entry in Data.FavoriteAuthors do
+      if Entry.Key=AuthorFavoriteKey('Перенос','Отсутствующий','Автор') then FavoriteFound:=True;
+    for var Entry in Data.PersonalAuthors do
+    begin
+      if Entry.Author.Key=AuthorFavoriteKey('Перенос','Отсутствующий','Автор') then
+        AbsentFound:=(Entry.Rating=4) and Entry.Hidden;
+      if Entry.Author.Key=AuthorFavoriteKey('Beta','Alex','') then BetaFound:=(Entry.Rating=5) and Entry.Hidden;
+    end;
+    Require(FavoriteFound and AbsentFound and BetaFound and (Data.Groups.Count>0),
+      'General user-data export omitted personal authors, favorites or existing book groups');
+  end;
+begin
+  FileName:=Settings.AppPath+'Личные авторы — перенос.mhlud2';
+  CancelFile:=Settings.AppPath+'Личные авторы — отмена.mhlud2';
+  Store:=TAuthorFavorites.Create(IncludeTrailingPathDelimiter(Settings.DataPath)+AUTHOR_FAVORITES_FILE_NAME);
+  Data:=TUserData.Create; Driver:=TSPTDialogDriver.Create;
+  PreviousDialogs:=Vcl.Dialogs.UseLatestCommonDialogs;
+  try
+    Vcl.Dialogs.UseLatestCommonDialogs:=False;
+    Store.SetFavorite('Перенос','Отсутствующий','Автор',True);
+    Store.SetPersonalRating('Перенос','Отсутствующий','Автор',4);
+    Store.SetHidden('Перенос','Отсутствующий','Автор',True); ReloadMainProfile;
+    ProfileHash:=PreferenceSnapshot;
+    FileAction(frmMain.miExportUserData,'Экспорт пользовательских данных',CancelFile,True);
+    Require(not FileExists(CancelFile) and (PreferenceSnapshot=ProfileHash),
+      'Canceling general export created output or changed personal author settings');
+    FileAction(frmMain.miExportUserData,'Экспорт пользовательских данных',FileName,False);
+    CheckExport; ExportHash:=THashSHA2.GetHashStringFromFile(FileName);
+    Store.SetFavorite('Перенос','Отсутствующий','Автор',False);
+    Store.SetHidden('Перенос','Отсутствующий','Автор',False);
+    Store.SetPersonalRating('Перенос','Отсутствующий','Автор',0);
+    Store.SetPersonalRating('Beta','Alex','',2); Store.SetHidden('Beta','Alex','',False);
+    Store.SetPersonalRating('Только здесь','Автор','',1); ReloadMainProfile;
+    BeforeBeta:=Store.PersonalEntry('Beta','Alex','');
+    ProfileHash:=PreferenceSnapshot;
+    FileAction(frmMain.miImportUserData,'Импорт пользовательских данных',FileName,True);
+    Require(PreferenceSnapshot=ProfileHash,
+      'Canceling general import changed personal author settings');
+    FileAction(frmMain.miImportUserData,'Импорт пользовательских данных',FileName,False);
+    Store.Reload;
+    Require(Store.IsFavorite('Перенос','Отсутствующий','Автор') and
+      (Store.PersonalEntry('Перенос','Отсутствующий','Автор').Rating=4) and
+      Store.PersonalEntry('Перенос','Отсутствующий','Автор').Hidden,
+      'General import failed to restore an absent favorite, rating and hidden flag');
+    Require((Store.PersonalEntry('Beta','Alex','').Rating=2) and
+      not Store.PersonalEntry('Beta','Alex','').Hidden and
+      (Store.PersonalEntry('Beta','Alex','').UpdatedUTC=BeforeBeta.UpdatedUTC) and
+      (Store.PersonalEntry('Только здесь','Автор','').Rating=1),
+      'General import overwrote existing personal author settings');
+    Require(THashSHA2.GetHashStringFromFile(FileName)=ExportHash,'General import modified its portable source');
+    TFile.WriteAllText(Settings.AppPath+'personal-author-transfer.ok',IntToStr(GetCurrentProcessId),TEncoding.UTF8);
+  finally
+    Vcl.Dialogs.UseLatestCommonDialogs:=PreviousDialogs;
+    Driver.Free; Data.Free; Store.Free;
+  end;
+end;
+
 procedure TestPersonalAuthorReopen;
 var Store: TAuthorFavorites; Minimum, ShowHidden, Unrated: TMenuItem; Count: Integer;
   Node: PVirtualNode; Book: PBookRecord;
@@ -346,7 +446,7 @@ begin
       Node:=frmMain.tvBooksSR.GetNext(Node);
     end;
     Require(Count=3,'Restored author policy failed to apply to a fresh search');
-    try TestPersonalAuthorReimport(Settings.ActiveCollection);
+    try TestPersonalAuthorReimport(Settings.ActiveCollection); TestPersonalAuthorUserDataMenu;
     except on E:Exception do begin
       TFile.WriteAllText(Settings.AppPath+'personal-author-reopen.error',E.ClassName+': '+E.Message,TEncoding.UTF8);
       raise;
