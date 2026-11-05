@@ -4606,5 +4606,40 @@
     "remaining": "Ordinary executable startup with the real catalogue still requires acceptance. Full-list median remains 10.7/11.5 seconds, not three seconds. A separate release catalogue AutoBuild attempt expired without a build log; no stale EXE was run as current.",
     "report": "tools/ui/tests/Out/beta4-catalogue-performance-e0131e4512ef.json",
     "cleanup": "Both owned catalogue snapshots, test profiles, compiler outputs and temporary project files were removed."
+  },
+  "beta4_ordinary_exe_real_catalogue_startup_20261105": {
+    "status": "Ordinary Release catalogue EXEs now verified against a copy of the real working catalogue on x86 and x64.",
+    "builds": "Fresh licensed Delphi builds completed after acknowledging each Community Edition reminder. The exact tested EXEs were copied to the development Bin/Bin64 output folders for later packaging. Those are retained build products; disposable compiler workspaces were removed.",
+    "architectures": {
+      "Win64": {
+        "main_sha256": "c80352a70d8b1dafbabfe83cf641e71ee8fdb96a2a3141e7b99e451d3fab27b0",
+        "phases_ms": {
+          "settings-ready": 116,
+          "window-created": 1206,
+          "first-window-paint": 1417,
+          "collection-ready": 1857
+        },
+        "ordinary_close_exit": 0,
+        "original_catalogue_unchanged": true
+      },
+      "Win32": {
+        "main_sha256": "6a552ad1fdafea5de5b0df152ce2a6f1a7f5827f7a2b930226d9e0322876b172",
+        "phases_ms": {
+          "settings-ready": 120,
+          "window-created": 1401,
+          "first-window-paint": 1658,
+          "collection-ready": 2246
+        },
+        "ordinary_close_exit": 0,
+        "original_catalogue_unchanged": true
+      }
+    },
+    "source_bytes": 4333084672,
+    "source_sha256": "7bc741c477f75c928618d1e50c0ef68da38ac52a3f6ac765692bee4c9f6bbe34",
+    "verification": "Four ordered diagnostic milestones occur exactly once for each own Main process. The visible x64 window showed Actual catalogue performance, the restored author and real book list, and Ready. Both windows closed through Alt+F4 with exit 0. After both launches the original catalogue hash still matched.",
+    "scope": "Ordinary Release catalogue startup on a verified copy of the working catalogue. Filesystem cache warmed by source verification. Shared host. No cold-start or old/new speed claim. The same isolated prepared profile was used sequentially with architecture-matched core files. The saved Authors view and selected author were restored. This does not time an initial full-book search.",
+    "report": "tools/ui/tests/Out/beta4-main-actual-startup-baf1f2944433.json",
+    "cleanup": "The owned 4.3 GB catalogue snapshot, both staged runtime profiles, compiler output folders and unique sibling projects were removed. Only the intended development EXEs and compact evidence report remain.",
+    "next": "Continue the ordered beta 4 queue. Large-list timings are recorded separately; current full-list medians remain 10.7 seconds x64 and 11.5 seconds x86. Rebuild and validate final minimal release archives after the remaining features and acceptance checks."
   }
 }
