@@ -4971,5 +4971,45 @@
     "first_attempt": "r1 failed because the newly created Delphi unit lacked its UTF-8 BOM, so the native confirmation text did not match. Corrected encoding and rebuilt both architectures; r2 passed.",
     "cleanup": "Owned roots homelibre-delete-confirmation-check-4f7zohkh and homelibre-delete-confirmation-check-ke6d3rsu are absent. Real collection unchanged.",
     "remaining": "Durable exact-member bindings and recovery, production background queue and busy-source gate, last-book archive handling and real FLibrary duplicate acceptance."
+  },
+  "beta4_deletion_bound_receipts_20261105": {
+    "status": "PASS bound archive receipts and resumed background queue on x86/x64; not yet connected to Main",
+    "implementation": "Before the first destructive write the archive engine plan records SHA256 of binding.json. ReadReceipt and queue recovery verify the association against the checkpoint-protected plan; loading alone does not claim FilesVerified. A recovered worker rechecks moved blocks and the final inventory, then allows a matching catalogue owner acknowledgement. Changed bindings, wrong catalogue acknowledgements and oversized contexts fail before destructive processing/cleanup.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-receipts-20261105-r2.log",
+      "Win32_SHA256": "ee3db75d3667efe44bf4c28abbc35ba1609a80b50cbdbace320be0d01d670d66",
+      "Win64_SHA256": "1c4727f859df3f02f29c9fd6f7503ed8e806d0035c84a342064d52d84d3753ed",
+      "owned_roots_removed": [
+        "G:\\HomeLibRu-build-cache\\homelibre-delete-receipt-check-ggerscae"
+      ]
+    },
+    "cases": [
+      "Queue destroyed and recreated from two persisted finished receipts",
+      "Changed binding bytes and wrong catalogue acknowledgement rejected with original journals retained",
+      "Half-written source resumed by a fresh queue using its original bound context; retained source content verified",
+      "Oversized context refused before opening/mutating source; empty private work removed",
+      "Full ZIP/ZIP64/PPMd/LZMA2 exact-member, fault and killed-worker suite plus independent ZIP/7-Zip inventory/CRC/payload checks passed on both architectures"
+    ],
+    "remaining": "Production receipt discovery, exact selected-member planning, catalogue/source-state coordinator, busy-source and close handling, last-book container and FLibrary side-image ownership gates."
+  },
+  "beta4_deletion_record_bindings_20261105": {
+    "status": "PASS compact persisted catalogue binding and idempotent record commit x86/x64; not yet connected to Main background deletion",
+    "implementation": "TBookDeletionBinding persists exact collection ID, catalogue path/physical file key and source identity fields for each selected row. Full snapshots, annotations and personal review text are excluded. All book/personal identities are preflighted before a batch starts, and each actual row write rechecks identity in its own transaction. Missing-row replay finishes an interrupted personal-store phase without affecting reused IDs or another collection.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-bindings-20261105-r2.log",
+      "Win32_SHA256": "5d295e3e38007e14eba5047a7f1530b3684f3f555f386deddafb3035b6ffc45f",
+      "Win64_SHA256": "9179c2010e1acd2a2dcb26de453e3ba6bf964aba4182b2ac31608b7b272cfab6",
+      "owned_roots_removed": [
+        "G:\\HomeLibRu-build-cache\\homelibre-delete-binding-check-h8b75h37"
+      ]
+    },
+    "cases": [
+      "JSON round-trip and copied outward book array; no unrelated personal text in receipt",
+      "Repeated keys, replaced catalogue file key and changed later book rejected before any earlier row mutation",
+      "Injected personal failure after catalogue commit leaves later book intact; parsed persisted binding completes both and second replay does nothing",
+      "Files-only receipt refuses catalogue removal; neighbour, other collection and physical source SHA256 preserved"
+    ],
+    "first_attempt": "r1 failed at compilation (missing System.Classes and an untyped inferred pointer). Corrected imports and explicitly typed PBookRecord, rebuilt and passed r2 on both architectures.",
+    "remaining": "Physical source planning, production queue/receipt integration in Main, conditional downloaded-state updates for files-only operations and real FLibrary duplicate acceptance remain open."
   }
 }

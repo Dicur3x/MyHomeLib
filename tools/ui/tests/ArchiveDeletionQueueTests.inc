@@ -104,15 +104,59 @@ begin
     finally Queue.Free; end;
     // Model a catalogue failure: keep the results after destroying the worker.
     // Reopen and independently validate their journals before acknowledging.
-    for var Receipt in Receipts do
-    begin
-      var Recovery:=TZipMemberDeletion.Recover(Receipt.Archive,Receipt.JournalDirectory);
-      try Require(Recovery.Finished,'A completed queue receipt is not recoverable');
-      finally Recovery.Free; end;
-      TArchiveDeletionQueue.Acknowledge(Receipt);
-    end;
+    var SavedBinding:=TFile.ReadAllBytes(TPath.Combine(Receipts[0].WorkDirectory,'binding.json'));
+    var RejectedBinding:=False;
+    TFile.WriteAllBytes(TPath.Combine(Receipts[0].WorkDirectory,'binding.json'),
+      TEncoding.UTF8.GetBytes(TEncoding.UTF8.GetString(SavedBinding)+' '));
+    try
+      try TArchiveDeletionQueue.ReadReceipt(Receipts[0].WorkDirectory);
+      except on E:EReadError do RejectedBinding:=E.Message.Contains('Привязка каталога'); end;
+      Require(RejectedBinding,'Changed catalogue receipt was accepted after archive mutation');
+    finally TFile.WriteAllBytes(TPath.Combine(Receipts[0].WorkDirectory,'binding.json'),SavedBinding); end;
+    var WrongReceipt:=Receipts[0]; WrongReceipt.CatalogueBinding:='foreign catalogue';
+    RejectedBinding:=False;
+    try TArchiveDeletionQueue.Acknowledge(WrongReceipt);
+    except on E:EReadError do RejectedBinding:=True; end;
+    Require(RejectedBinding and DirectoryExists(Receipts[0].JournalDirectory),
+      'Foreign catalogue acknowledgement discarded the source recovery journal');
+    Queue:=TArchiveDeletionQueue.Recover([Receipts[0].WorkDirectory,Receipts[1].WorkDirectory]);
+    try
+      Queue.Start; WaitForQueue; Receipts:=Queue.Results;
+      Require((Length(Receipts)=2) and Receipts[0].FilesVerified and Receipts[1].FilesVerified,
+        'A restarted queue did not validate both finished archive receipts');
+      for var Receipt in Receipts do TArchiveDeletionQueue.Acknowledge(Receipt);
+    finally Queue.Free; end;
     Require(not DirectoryExists(OwnedWork),'Completed queue left acknowledged journals');
     Writeln('PASS archive queue batches exact members across archives while UI timers continue and catalogue receipts remain durable'); Flush(Output);
+    Writeln('PASS archive receipts reject changed catalogue bindings and resume after destroying the original worker'); Flush(Output);
+
+    Fixture(First);
+    var InterruptedDirectory:=Root+'interrupted-bound-task'; ForceDirectories(InterruptedDirectory);
+    // Only a tiny owned fixture is used. The production worker writes the
+    // binding before starting its journal; simulate process loss afterwards.
+    TFile.WriteAllBytes(TPath.Combine(InterruptedDirectory,'binding.json'),SavedBinding);
+    var Engine:=TZipMemberDeletion.Prepare(First,Tasks[0].Members);
+    var WasInterrupted:=False;
+    try
+      Engine.BindContext(THashSHA2.GetHashStringFromFile(TPath.Combine(InterruptedDirectory,'binding.json')));
+      try
+        Engine.Execute(InterruptedDirectory,nil,
+          procedure(const Stage:string; Chunk:Integer)
+          begin if Stage='half-written' then raise EAbort.Create('owned receipt interruption'); end);
+      except on E:EAbort do WasInterrupted:=True; end;
+      Require(WasInterrupted and (Engine.JobDirectory<>''),'Bound receipt interruption did not exercise an in-flight write');
+    finally Engine.Free; end;
+    var PendingReceipt:=TArchiveDeletionQueue.ReadReceipt(InterruptedDirectory);
+    Require(not PendingReceipt.FilesVerified,'Loading a receipt falsely claimed that source data had already been reverified');
+    Queue:=TArchiveDeletionQueue.Recover([InterruptedDirectory]);
+    try
+      Queue.Start; WaitForQueue; Receipts:=Queue.Results;
+      Require((Length(Receipts)=1) and Receipts[0].FilesVerified,
+        'Recovered queue did not finish the interrupted source deletion');
+      Verify(First,1); TArchiveDeletionQueue.Acknowledge(Receipts[0]);
+    finally Queue.Free; end;
+    Require(not DirectoryExists(InterruptedDirectory),'Recovered queue left its acknowledged task');
+    Writeln('PASS persisted archive queue resumes a half-written source using its original bound catalogue receipt'); Flush(Output);
 
     Fixture(First); Fixture(Second); BeforeSecond:=THashSHA2.GetHashStringFromFile(Second);
     Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
@@ -161,5 +205,18 @@ begin
         'Failed queue changed sources or retained a non-mutating plan');
     finally Queue.Free; end;
     Writeln('PASS archive queue stop finishes current archive preserves queued sources and rejects missing members without mutation'); Flush(Output);
+    SetLength(Tasks[0].Members,128);
+    for var I:=0 to High(Tasks[0].Members) do
+      Tasks[0].Members[I]:=StringOfChar('a',70000)+IntToStr(I);
+    Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
+    try
+      OwnedWork:=Queue.WorkDirectory; Queue.Start; WaitForQueue; Receipts:=Queue.Results;
+      Require((Length(Receipts)=1) and not Receipts[0].FilesVerified and
+        Receipts[0].Error.Contains('Слишком большой список') and
+        not DirectoryExists(OwnedWork) and (THashSHA2.GetHashStringFromFile(First)=BeforeFirst) and
+        (THashSHA2.GetHashStringFromFile(Second)=BeforeSecond),
+        'Oversized recovery context changed the source or left an unresumable journal');
+    finally Queue.Free; end;
+    Writeln('PASS oversized durable context is rejected before source mutation and its empty work is removed'); Flush(Output);
   finally Timer.Free; Probe.Free; end;
 end;

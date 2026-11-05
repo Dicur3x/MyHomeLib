@@ -25,6 +25,7 @@ type
     procedure SaveCheckpoint;
     procedure VerifyFinished;
     procedure PrepareSevenZip(const Names:TArray<string>; const Cancelled:TFunc<Boolean>);
+    function GetContextHash: string;
     function ChunkHash(Index: Integer): string;
     function ChunkNumber(Index, Field: Integer): Int64;
   public
@@ -37,6 +38,10 @@ type
       const Fault: TZipDeleteFault = nil);
     // The caller acknowledges only after its catalogue changes are durable.
     procedure Acknowledge;
+    // Bind the catalogue receipt before the first destructive write. The
+    // persisted plan/checkpoint then protects this association on recovery.
+    procedure BindContext(const SHA256: string);
+    property ContextHash: string read GetContextHash;
     function BytesToProcess: Int64;
     function JournalBytes: Int64;
     property JobDirectory: string read FJob;
@@ -240,6 +245,24 @@ begin Result := Number((Chunks.Items[Index] as TJSONArray).Items[Field]); end;
 
 function TZipMemberDeletion.ChunkHash(Index: Integer): string;
 begin Result := (Chunks.Items[Index] as TJSONArray).Items[3].Value; end;
+
+function TZipMemberDeletion.GetContextHash: string;
+begin
+  var Value:=FPlan.GetValue('contextHash');
+  if not Assigned(Value) then Exit('');
+  if not (Value is TJSONString) then raise EReadError.Create('Повреждена привязка каталога в журнале удаления.');
+  Result:=Value.Value;
+end;
+
+procedure TZipMemberDeletion.BindContext(const SHA256: string);
+begin
+  if (FJob<>'') or (ContextHash<>'') then
+    raise EInvalidOperation.Create('Привязку каталога нельзя менять после начала удаления.');
+  if Length(SHA256)<>64 then raise EArgumentException.Create('Неверная контрольная сумма привязки каталога.');
+  for var C in SHA256 do if not CharInSet(C,['0'..'9','a'..'f']) then
+    raise EArgumentException.Create('Неверная контрольная сумма привязки каталога.');
+  FPlan.AddPair('contextHash',SHA256);
+end;
 
 procedure TZipMemberDeletion.CheckIdentity;
 begin

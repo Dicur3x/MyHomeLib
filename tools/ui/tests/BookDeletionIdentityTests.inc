@@ -102,6 +102,66 @@ begin
       'Deletion affected another collection with the same numeric book ID');
     Require(THashSHA2.GetHashStringFromFile(SourceFile)=SourceHash,'Database deletion removed or changed the physical book');
     Writeln('PASS conditional deletion rolls back failures and replays split commits without touching physical sources or other collections'); Flush(Output);
+
+    var FirstBound,SecondBound:TBookRecord;
+    Current:=Saved; Current.LibID:='binding:one'; Current.FileName:='source';
+    var BoundOne:=Collection.InsertBook(Current,False,False);
+    Collection.GetBookRecord(CreateBookKey(BoundOne,CID),FirstBound,True);
+    User.AddBookToGroup(FirstBound.BookKey,FAVORITES_GROUP_ID,FirstBound);
+    Current.LibID:='binding:two'; Current.FileName:='second-bound';
+    var BoundTwo:=Collection.InsertBook(Current,False,False);
+    Collection.GetBookRecord(CreateBookKey(BoundTwo,CID),SecondBound,True);
+    User.AddBookToGroup(SecondBound.BookKey,FAVORITES_GROUP_ID,SecondBound);
+    FirstBound.Annotation:='PRIVATE annotation not required by deletion';
+    FirstBound.Review:='PRIVATE review not required by deletion';
+    var Binding:=TBookDeletionBinding.Capture(User.GetCollectionInfo(CID),[FirstBound,SecondBound],True);
+    var Encoded:=Binding.ToJSON;
+    Require(not Encoded.Contains('PRIVATE'),'Deletion receipt persisted unrelated personal text');
+    Binding:=TBookDeletionBinding.Parse(Encoded);
+    var Copies:=Binding.ExpectedBooks;
+    Copies[0].FileName:='mutated outside the binding';
+    Require(Binding.ExpectedBooks[0].FileName=FirstBound.FileName,'ExpectedBooks exposed mutable internal receipt storage');
+    Rejected:=False;
+    try TBookDeletionBinding.Capture(User.GetCollectionInfo(CID),[FirstBound,FirstBound],True);
+    except on E:EReadError do Rejected:=True; end;
+    Require(Rejected,'Catalogue binding accepted repeated book keys');
+    var WrongJSON:=TJSONObject.ParseJSONValue(Encoded) as TJSONObject;
+    try
+      WrongJSON.RemovePair('catalogueKey').Free;
+      WrongJSON.AddPair('catalogueKey','00000000:0000000000000000');
+      var WrongBinding:=TBookDeletionBinding.Parse(WrongJSON.ToJSON);
+      Rejected:=False;
+      try WrongBinding.CommitRecords(User); except on E:EReadError do Rejected:=True; end;
+      Require(Rejected,'Receipt accepted a replaced catalogue file identity');
+    finally WrongJSON.Free; end;
+    Catalog.ExecSQL('UPDATE Books SET LibID=? WHERE BookID=?',['binding:replaced',BoundTwo]);
+    Rejected:=False;
+    try Binding.CommitRecords(User); except on E:EReadError do Rejected:=True; end;
+    Require(Rejected and (Catalog.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID IN (?,?)',[BoundOne,BoundTwo])=2),
+      'Binding preflight removed an earlier book before rejecting a later changed identity');
+    Catalog.ExecSQL('UPDATE Books SET LibID=? WHERE BookID=?',[SecondBound.LibID,BoundTwo]);
+    Writeln('PASS durable catalogue binding round-trips exact identities and rejects reused catalogue files duplicate keys and changed books before mutation'); Flush(Output);
+
+    Personal.ExecSQL('CREATE TRIGGER OwnedBindingReject BEFORE DELETE ON Books WHEN OLD.BookID='+IntToStr(BoundOne)+
+      ' AND OLD.DatabaseID='+IntToStr(CID)+' BEGIN SELECT RAISE(ABORT,''owned binding replay failure''); END');
+    Rejected:=False;
+    try Binding.CommitRecords(User); except on E:Exception do Rejected:=True; end;
+    Require(Rejected and (Catalog.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=?',[BoundOne])=0) and
+      (Catalog.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=?',[BoundTwo])=1) and
+      (Personal.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=? AND DatabaseID=?',[BoundOne,CID])=1),
+      'Binding did not preserve its unfinished personal phase and subsequent book after a failure');
+    Personal.ExecSQL('DROP TRIGGER OwnedBindingReject');
+    Binding:=TBookDeletionBinding.Parse(Encoded);
+    Require(Binding.CommitRecords(User)=2,'Persisted binding did not finish its partial batch after restart');
+    Require(Binding.CommitRecords(User)=0,'Replaying an applied binding deleted unrelated data');
+    Require((Catalog.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=?',[NeighbourID])=1) and
+      (Personal.QuerySingleInt('SELECT count(*) FROM Books WHERE BookID=? AND DatabaseID=?',[OtherID,OtherCID])=1) and
+      (THashSHA2.GetHashStringFromFile(SourceFile)=SourceHash),'Binding replay touched a neighbour another collection or a physical file');
+    var FilesOnly:=TBookDeletionBinding.Capture(User.GetCollectionInfo(CID),[FirstBound],False);
+    Rejected:=False;
+    try FilesOnly.CommitRecords(User); except on E:EInvalidOperation do Rejected:=True; end;
+    Require(Rejected,'A files-only receipt deleted catalogue rows');
+    Writeln('PASS persisted catalogue binding resumes a split batch idempotently while protecting files-only mode sources neighbours and other collections'); Flush(Output);
   finally
     Writer:=nil; Personal.Free; Catalog.Free; Collection:=nil; Other:=nil; User:=nil;
   end;

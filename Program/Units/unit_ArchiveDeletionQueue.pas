@@ -32,6 +32,7 @@ type
   TArchiveDeletionQueue = class(TThread)
   private
     FTasks: TArray<TArchiveDeletionTask>;
+    FRecoveryJobs: TArray<string>;
     FResults: TArray<TArchiveDeletionResult>;
     FLock: TObject;
     FRoot: string;
@@ -43,6 +44,10 @@ type
     procedure Execute; override;
   public
     constructor Create(const Tasks: TArray<TArchiveDeletionTask>; const JournalParent: string);
+    constructor Recover(const TaskDirectories: TArray<string>);
+    // Reads an existing receipt; its context must match the durable engine
+    // plan. This does not finish a pending write or commit catalogue rows.
+    class function ReadReceipt(const TaskDirectory: string): TArchiveDeletionResult; static;
     destructor Destroy; override;
     procedure StopAfterCurrentArchive;
     function Status: TArchiveDeletionStatus;
@@ -55,7 +60,7 @@ type
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.SyncObjs,
+uses Winapi.Windows, System.IOUtils, System.JSON, System.SyncObjs, System.Hash,
   System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile;
 
 procedure SaveBinding(const Task: TArchiveDeletionTask; const Directory: string);
@@ -70,7 +75,12 @@ begin
     Members:=TJSONArray.Create; ObjectValue.AddPair('members',Members);
     for var Member in Task.Members do Members.Add(Member);
     Stream:=TStringStream.Create(ObjectValue.ToJSON,TEncoding.UTF8);
-    try SaveStreamAtomically(Stream,DeletionNativePath(TPath.Combine(Directory,'binding.json')));
+    try
+      // Recovery has the same bound. Refuse before opening the archive if
+      // the durable context would be too large to load after a restart.
+      if Stream.Size>8*1024*1024 then
+        raise EWriteError.Create('Слишком большой список для одного журнала удаления. Выберите меньше книг.');
+      SaveStreamAtomically(Stream,DeletionNativePath(TPath.Combine(Directory,'binding.json')));
     finally Stream.Free; end;
   finally ObjectValue.Free; end;
 end;
@@ -85,7 +95,7 @@ begin
     raise EArgumentException.Create('Не выбраны архивы для удаления книг.');
   Seen:=TDictionary<string,Byte>.Create;
   try
-    SetLength(FTasks,Length(Tasks));
+    SetLength(FTasks,Length(Tasks)); SetLength(FRecoveryJobs,Length(Tasks));
     for var I:=0 to High(Tasks) do
     begin
       FTasks[I]:=Tasks[I]; FTasks[I].Archive:=ExpandFileName(Tasks[I].Archive);
@@ -109,6 +119,82 @@ begin
   if not CreateDirectory(PChar(DeletionNativePath(FRoot)),nil) then RaiseLastOSError;
   FStatus.ArchiveCount:=Length(FTasks);
   SetLength(FResults,Length(FTasks));
+end;
+
+function BindingHash(const Directory:string):string;
+begin Result:=THashSHA2.GetHashStringFromFile(DeletionNativePath(TPath.Combine(Directory,'binding.json'))); end;
+
+class function TArchiveDeletionQueue.ReadReceipt(const TaskDirectory:string):TArchiveDeletionResult;
+var JSON:TJSONValue; ObjectValue:TJSONObject; Stream:TFileStream; Bytes:TBytes;
+  Jobs:TArray<string>; Deletion:TZipMemberDeletion;
+begin
+  Result:=Default(TArchiveDeletionResult);
+  Result.WorkDirectory:=ExpandFileName(TaskDirectory);
+  var Binding:=DeletionNativePath(TPath.Combine(Result.WorkDirectory,'binding.json'));
+  Stream:=TFileStream.Create(Binding,fmOpenRead or fmShareDenyWrite);
+  try
+    if (Stream.Size=0) or (Stream.Size>8*1024*1024) then
+      raise EReadError.Create('Неверный размер журнала привязки каталога.');
+    SetLength(Bytes,Integer(Stream.Size)); Stream.ReadBuffer(Bytes[0],Length(Bytes));
+  finally Stream.Free; end;
+  JSON:=TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(Bytes));
+  try
+    if not (JSON is TJSONObject) then raise EReadError.Create('Повреждён журнал привязки каталога.');
+    ObjectValue:=TJSONObject(JSON);
+    if not (ObjectValue.GetValue('schema') is TJSONNumber) or
+      (ObjectValue.GetValue('schema').Value<>'1') or
+      not (ObjectValue.GetValue('archive') is TJSONString) or
+      not (ObjectValue.GetValue('sourceIdentity') is TJSONString) or
+      not (ObjectValue.GetValue('catalogue') is TJSONString) or
+      not (ObjectValue.GetValue('members') is TJSONArray) then
+      raise EReadError.Create('Неподдерживаемый журнал привязки каталога.');
+    Result.Archive:=ObjectValue.GetValue('archive').Value;
+    Result.CatalogueBinding:=ObjectValue.GetValue('catalogue').Value;
+    if (Result.Archive='') or not SameFileName(Result.Archive,ExpandFileName(Result.Archive)) then
+      raise EReadError.Create('В журнале удаления отсутствует полный путь архива.');
+    Jobs:=TDirectory.GetDirectories(DeletionNativePath(Result.WorkDirectory),'zip-delete-*',TSearchOption.soTopDirectoryOnly);
+    if Length(Jobs)<>1 then raise EReadError.Create('Не найден единственный журнал изменения архива.');
+    Result.JournalDirectory:=ExcludeTrailingPathDelimiter(Jobs[0]);
+    // Keep the public receipt paths in the same conventional spelling as the
+    // queue; only actual I/O needs the native long-path prefix.
+    if Result.JournalDirectory.StartsWith('\\?\UNC\') then
+      Result.JournalDirectory:='\\'+Result.JournalDirectory.Substring(8)
+    else if Result.JournalDirectory.StartsWith('\\?\') then
+      Result.JournalDirectory:=Result.JournalDirectory.Substring(4);
+    var Attributes:=GetFileAttributes(PChar(DeletionNativePath(Result.JournalDirectory)));
+    if (Attributes=INVALID_FILE_ATTRIBUTES) or (Attributes and FILE_ATTRIBUTE_REPARSE_POINT<>0) then
+      raise EReadError.Create('Журнал удаления не должен быть ссылкой на другую папку.');
+    Deletion:=TZipMemberDeletion.Recover(Result.Archive,Result.JournalDirectory);
+    try
+      var State:=THashSHA2.Create; State.Update(Bytes);
+      if (Deletion.ContextHash='') or (Deletion.ContextHash<>State.HashAsString) then
+        raise EReadError.Create('Привязка каталога не совпадает с журналом удаления архива.');
+      // Finished is not FilesVerified: the worker must still check all moved
+      // blocks and the final inventory before catalogue changes are allowed.
+    finally Deletion.Free; end;
+  finally JSON.Free; end;
+end;
+
+constructor TArchiveDeletionQueue.Recover(const TaskDirectories:TArray<string>);
+var Seen:TDictionary<string,Byte>; Receipt:TArchiveDeletionResult;
+begin
+  inherited Create(True); FreeOnTerminate:=False; FLock:=TObject.Create;
+  if (Length(TaskDirectories)=0) or (Length(TaskDirectories)>10000) then
+    raise EArgumentException.Create('Не выбраны журналы для завершения удаления.');
+  SetLength(FTasks,Length(TaskDirectories)); SetLength(FRecoveryJobs,Length(TaskDirectories));
+  SetLength(FResults,Length(TaskDirectories)); FStatus.ArchiveCount:=Length(TaskDirectories);
+  Seen:=TDictionary<string,Byte>.Create;
+  try
+    for var I:=0 to High(TaskDirectories) do
+    begin
+      Receipt:=ReadReceipt(TaskDirectories[I]);
+      var Key:=Copy(ArchiveDeletionSourceIdentity(Receipt.Archive),1,25);
+      if Seen.ContainsKey(Key) then raise EReadError.Create('Для одного архива найдены повторные журналы.');
+      Seen.Add(Key,0);
+      FTasks[I].Archive:=Receipt.Archive; FTasks[I].CatalogueBinding:=Receipt.CatalogueBinding;
+      FRecoveryJobs[I]:=Receipt.JournalDirectory;
+    end;
+  finally Seen.Free; end;
 end;
 
 destructor TArchiveDeletionQueue.Destroy;
@@ -155,7 +241,12 @@ begin
       if TInterlocked.CompareExchange(FStop,0,0)<>0 then Break;
       Item:=Default(TArchiveDeletionResult); Item.Index:=I;
       Item.Archive:=FTasks[I].Archive; Item.CatalogueBinding:=FTasks[I].CatalogueBinding;
-      Item.WorkDirectory:=TPath.Combine(FRoot,Format('archive-%.6d',[I]));
+      if FRecoveryJobs[I]<>'' then
+      begin
+        Item.JournalDirectory:=FRecoveryJobs[I];
+        Item.WorkDirectory:=ExtractFileDir(Item.JournalDirectory);
+      end
+      else Item.WorkDirectory:=TPath.Combine(FRoot,Format('archive-%.6d',[I]));
       Deletion:=nil;
       TMonitor.Enter(FLock);
       try
@@ -163,15 +254,30 @@ begin
         FStatus.Stage:='Проверка архива'; FStatus.Done:=0; FStatus.Total:=0;
       finally TMonitor.Exit(FLock); end;
       try
-        if not CreateDirectory(PChar(DeletionNativePath(Item.WorkDirectory)),nil) then RaiseLastOSError;
-        SaveBinding(FTasks[I],Item.WorkDirectory);
-        Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
-          procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
-          function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
-          FTasks[I].SourceIdentity);
-        // Cancellation is safe before the first write. After that, finish the
-        // current archive; never abandon it with half-shifted compressed data.
-        if TInterlocked.CompareExchange(FStop,0,0)<>0 then Abort;
+        if FRecoveryJobs[I]<>'' then
+        begin
+          var Receipt:=ReadReceipt(Item.WorkDirectory);
+          if (Receipt.Archive<>Item.Archive) or
+            (Receipt.CatalogueBinding<>Item.CatalogueBinding) or
+            not SameFileName(Receipt.JournalDirectory,Item.JournalDirectory) then
+            raise EReadError.Create('Журнал удаления изменился после выбора восстановления.');
+          Deletion:=TZipMemberDeletion.Recover(Item.Archive,Item.JournalDirectory);
+          if Deletion.ContextHash<>BindingHash(Item.WorkDirectory) then
+            raise EReadError.Create('Привязка каталога изменилась перед продолжением удаления.');
+        end
+        else
+        begin
+          if not CreateDirectory(PChar(DeletionNativePath(Item.WorkDirectory)),nil) then RaiseLastOSError;
+          SaveBinding(FTasks[I],Item.WorkDirectory);
+          Deletion:=TZipMemberDeletion.Prepare(Item.Archive,FTasks[I].Members,
+            procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end,
+            function: Boolean begin Result:=TInterlocked.CompareExchange(FStop,0,0)<>0; end,
+            FTasks[I].SourceIdentity);
+          Deletion.BindContext(BindingHash(Item.WorkDirectory));
+          // Cancellation is safe before the first write. After that, finish the
+          // current archive; never abandon it with half-shifted compressed data.
+          if TInterlocked.CompareExchange(FStop,0,0)<>0 then Abort;
+        end;
         Deletion.Execute(Item.WorkDirectory,
           procedure(const Stage: string; Done,Total: Int64) begin Report(Stage,Done,Total); end);
         Item.FilesVerified:=Deletion.Finished;
@@ -211,8 +317,14 @@ begin
     raise EInvalidOperation.Create('Удаление файлов ещё не подтверждено.');
   if not SameFileName(ExtractFileDir(Result.JournalDirectory),Result.WorkDirectory) then
     raise EInvalidOperation.Create('Журнал удаления находится в другой папке.');
+  var Stored:=ReadReceipt(Result.WorkDirectory);
+  if (Stored.Archive<>Result.Archive) or (Stored.CatalogueBinding<>Result.CatalogueBinding) or
+    not SameFileName(Stored.JournalDirectory,Result.JournalDirectory) then
+    raise EReadError.Create('Подтверждение не относится к этому журналу удаления.');
   Deletion:=TZipMemberDeletion.Recover(Result.Archive,Result.JournalDirectory);
   try
+    if Deletion.ContextHash<>BindingHash(Result.WorkDirectory) then
+      raise EReadError.Create('Привязка каталога изменена. Журнал удаления сохранён.');
     if not Deletion.Finished then raise EInvalidOperation.Create('Удаление архива не завершено.');
     Deletion.Acknowledge;
   finally Deletion.Free; end;
