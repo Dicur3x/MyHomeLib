@@ -246,6 +246,7 @@ uses
   frm_info_popup in 'Forms\frm_info_popup.pas' {frmInfoPopup},
   frm_search in 'Forms\frm_search.pas' {frmBookSearch},
   unit_ReviewParser in 'Units\unit_ReviewParser.pas',
+  unit_BookReviewPreview in 'Units\unit_BookReviewPreview.pas',
   unit_WriteFb2Info in 'Units\unit_WriteFb2Info.pas',
   unit_ImportFB2Thread in 'ImportImpl\unit_ImportFB2Thread.pas',
   frm_ConverToFBD in 'Forms\frm_ConverToFBD.pas' {frmConvertToFBD},

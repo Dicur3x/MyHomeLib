@@ -300,6 +300,7 @@
             <Form>frmBookSearch</Form>
         </DCCReference>
         <DCCReference Include="Units\unit_ReviewParser.pas"/>
+        <DCCReference Include="Units\unit_BookReviewPreview.pas"/>
         <DCCReference Include="Units\unit_WriteFb2Info.pas"/>
         <DCCReference Include="ImportImpl\unit_ImportFB2Thread.pas"/>
         <DCCReference Include="Forms\frm_ConverToFBD.pas">

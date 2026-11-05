@@ -5145,8 +5145,14 @@
       ]
     },
     "attempts": "r1 lacked System.Classes for EReadError. r2 passed shared archive operations but an empty journal root started unnecessary recovery on form creation, briefly suppressing the next command. Skip empty roots and remove owned empty roots. r3 had a Windows/RTL FindClose name collision; qualified the RTL calls. r4 passed both architectures.",
-    "production_attempt": "Separate renamed-project production AutoBuild displayed one failure and timed out while Delphi was closing; no successful production EXE was claimed. Log: tools/ui/tests/Out/beta4-deletion-production-20261105-r1.log. Temporary project and G: build directory are gone.",
-    "remaining": "Build and test exact production EXE; exercise sorted-list anchoring and close during deletion; safely remove truly empty last-book containers, preserve FLibrary companion images, and test real duplicate sources only after those safety checks. Extend group and duplicate commands separately.",
+    "production_attempt": "The first two builds stopped in the IDE without a diagnostic. The visible r3 run captured F2613 for unit_BookReviewPreview, a Main dependency present on the test search path but missing from the production project. Added it to HomeLibRu.dpr and MyhomeLib.dproj. Both release builds passed on the original project layout.",
+    "production_verification": {
+      "Win32_receipt": "tools/ui/tests/Out/beta4-deletion-production-r4/MyhomeLib-Win32-9ed080564dd9.json",
+      "Win32_SHA256": "009986fd2ff776bdce5001695aac4d0121f39f49fc7e52843a13b6f04e0ac97d",
+      "Win64_receipt": "tools/ui/tests/Out/beta4-deletion-production-r4/MyhomeLib-Win64-8a8624f5da84.json",
+      "Win64_SHA256": "cbfcd27ef2ccf429aab0fed2380abb651ee136f385d29b0b8a59aa56b6f05275"
+    },
+    "remaining": "Launch and test exact production EXEs; exercise sorted-list anchoring and close during deletion; safely remove truly empty last-book containers, preserve FLibrary companion images, and test real duplicate sources only after those safety checks. Extend group and duplicate commands separately.",
     "cleanup": "New private test/build folders removed. Real desktop collection and archives unchanged. No release published."
   }
 }
