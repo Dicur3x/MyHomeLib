@@ -4799,5 +4799,23 @@
       "test_repairs": "The large fixture initially used the nonexistent tmList enum and needed an explicitly typed queued closure. Its setup then tried to select Beta through an already active threshold; it now resets the threshold and reveals hidden authors before making the explicit test rating. These failures are retained, not counted as passing checks.",
       "cleanup": "All new r22-r27 compiler and fixture directories were removed by their scoped harnesses after their processes ended. Previously protected directories remain untouched."
     }
+  },
+  "beta4_loose_book_deletion_20261105": {
+    "status": "Reproduced the individual-file regression in the original source condition, then fixed and verified on x86/x64. Shared archive member deletion remains pending.",
+    "cause": "RemoveSelectedBooks only honoured DeleteFiles for non-FB2 or private collections. A connected local FB2 collection therefore removed its catalogue record but ignored the enabled file-deletion setting, even for an ordinary standalone file.",
+    "change": "For local record deletion, use the explicit DeleteFiles setting regardless of book format or private/external classification. Preserve online files-only behavior, explicit files-only commands, the confirmation, source revalidation and existing archive protection. Help text in Russian, English, Ukrainian and Bulgarian now matches the loose-file behavior.",
+    "baseline": {
+      "log": "tools/ui/tests/Out/beta4-deletion-source-20261105-r1-baseline.log",
+      "Win32_SHA256": "be7ef306bfac0b6e8a2877fb3810f101b9a948962b9519576f5911e6902a59ec",
+      "result": "The added native test failed specifically because the selected loose source remained after confirmed deletion with the enabled setting."
+    },
+    "fixed": {
+      "log": "tools/ui/tests/Out/beta4-deletion-source-20261105-r2-fixed.log",
+      "Win32_SHA256": "75fc9117ba05ff189ce85b32fa06ae7850f15d672b72f59bf46c7ac13b87368d",
+      "Win64_SHA256": "2a6c6201d0fc4fb896e6c213bf0bcf051c7a0d3202d86f0a5f7a7b4844953834",
+      "result": "Both freshly built native executables passed ten added cases per architecture: checkbox on/off in authors, series, genres, search and publisher-series views. Unicode numbered-update/subauthor paths, actual file absence or byte preservation, unique catalogue deletion and an unselected neighbour were checked. The previous deletion suite also passed cancellation, record-only removal, shared ZIP/7z byte preservation, legacy fallback, database failure, locked files-only deletion, changed identity, applied search and online personal-state preservation."
+    },
+    "cleanup": "Both new, unique build roots and all their private profiles are absent after their scoped harness cleanup. Earlier denied paths and real user collections were not touched.",
+    "remaining": "This proof covers loose files only, not deletion of a book inside a one-book or shared archive. Keep the larger safe-deletion task open for archive inventory, exact member removal, interruption recovery, record/file transaction ordering, group/all-tab commands and nearest-row/scroll retention. Final production EXEs and release packages remain pending."
   }
 }

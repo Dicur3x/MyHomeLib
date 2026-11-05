@@ -46,7 +46,7 @@ begin
 end;
 
 procedure TestBookDeletionSafety;
-var PrivateID, OnlineID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
+var PrivateID, OnlineID, ExternalID, RawID, ArchiveID, OtherID, PrivateFBD, FailID, GoodID,
   SevenID, LegacyID, NeighbourID, Count: Integer;
   Collection: IBookCollection; Probe: TBookDeletionDialogProbe;
   Root, RawPath, ArchivePath, BeforeRaw, BeforeArchive, OldTemp, OldTmp: string;
@@ -169,6 +169,7 @@ begin
   Root := Settings.AppPath+'book-delete-source\'; ForceDirectories(Root);
   PrivateID := SystemDB.CreateCollection('Delete safety private',Root,'delete-private.hlc2',CT_PRIVATE_FB,Settings.AppPath+'genres_fb2.glst');
   OnlineID := SystemDB.CreateCollection('Delete safety online',Root,'delete-online.hlc2',CT_EXTERNAL_ONLINE_FB,Settings.AppPath+'genres_fb2.glst');
+  ExternalID := SystemDB.CreateCollection('Delete safety external FB2',Root,'delete-external.hlc2',CT_EXTERNAL_LOCAL_FB,Settings.AppPath+'genres_fb2.glst');
   SavedDelete := Settings.DeleteFiles; SavedSelection := Settings.SelectedIsChecked;
   SavedDialogs := Vcl.Dialogs.UseLatestCommonDialogs;
   OldTemp := GetEnvironmentVariable('TEMP'); OldTmp := GetEnvironmentVariable('TMP');
@@ -285,6 +286,34 @@ begin
     end;
     Require((Count=1) and (frmMain.edFTitle.Text='Unsaved deletion search draft'),'Deletion lost the applied search or overwritten its unsaved draft');
     Require(THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw,'Record-only applied search deletion changed the source'); ProtectedArchive;
+
+    Trace('delete safety external local FB2 loose files');
+    FreeAndNil(frmMain); Settings.ActiveCollection := ExternalID; Settings.ActivePage := PAGE_SEARCH;
+    Application.CreateForm(TfrmMain,frmMain); Collection := SystemDB.GetCollection(ExternalID);
+    var LooseFolder := 'Обновление 2026-11-05\Автор с пробелом\';
+    ForceDirectories(Root+LooseFolder);
+    var UnselectedPath := Root+LooseFolder+'Соседняя книга.fb2';
+    TFile.WriteAllText(UnselectedPath,XML('Не выбранная книга'),TEncoding.UTF8);
+    var NeighbourHash := THashSHA2.GetHashStringFromFile(UnselectedPath);
+    for var Page in [PAGE_AUTHORS,PAGE_SERIES,PAGE_GENRES,PAGE_SEARCH,PAGE_PUBLISHER_SERIES] do
+      for var DeleteSource in [False,True] do
+      begin
+        Settings.DeleteFiles := DeleteSource;
+        var LooseName := 'Книга ё '+IntToStr(Page)+' '+BoolToStr(DeleteSource,True);
+        RawPath := Root+LooseFolder+LooseName+'.fb2';
+        TFile.WriteAllText(RawPath,XML(LooseName),TEncoding.UTF8);
+        BeforeRaw := THashSHA2.GetHashStringFromFile(RawPath);
+        RawID := Insert(LooseName,LooseFolder,LooseName,'.fb2');
+        Rows([RawID],Page);
+        Execute(True,False,1,0);
+        Require(not Exists(RawID),'External local deletion kept the selected catalogue record');
+        if DeleteSource then
+          Require(not FileExists(RawPath),'Enabled Delete files setting was ignored in an external local FB2 collection')
+        else
+          Require(THashSHA2.GetHashStringFromFile(RawPath)=BeforeRaw,'Disabled Delete files setting still changed the loose source');
+        Require(THashSHA2.GetHashStringFromFile(UnselectedPath)=NeighbourHash,'Loose file deletion changed an unselected neighbouring file');
+      end;
+    Writeln('PASS external local FB2 deletion honours the file setting in five views and Unicode update folders'); Flush(Output);
 
     Trace('delete safety online catalog');
     FreeAndNil(frmMain); Settings.ActiveCollection := OnlineID; Settings.ActivePage := PAGE_SEARCH;

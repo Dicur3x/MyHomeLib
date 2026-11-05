@@ -144,7 +144,7 @@ const requiredViews = {
   "sqlite-mapping": ["PASS SQLite mapped reads beyond 256 MB preserve concurrent snapshots Unicode rollback backup restore and compaction"],
   "reader-open-choice": ["PASS catalogue open-book choice keeps catalogue colours while reading theme stays independent; accept cancel and remembered choice work"],
   "reader-host-session": ["PASS catalogue reader host opens the selected archive member with existing history notes bookmarks progress and source protection", "PASS Reader help diagnostic menu current log copyable folder ZIP owner palette resize and 96/144/192 DPI"],
-  "book-deletion": ["PASS deletion confirmations unique books cancel records files shared archives five views online failures identity and protected neighbours"],
+  "book-deletion": ["PASS deletion confirmations unique books cancel records files shared archives five views online failures identity and protected neighbours", "PASS external local FB2 deletion honours the file setting in five views and Unicode update folders"],
   "reader-cache-settings": ["PASS standalone reader cache settings preserve books notes positions and active files with age size cancel and reload"],
   "reader-packages": ["PASS real reader PDF and conversion packages verify architecture hashes versions and install without catalogue preserving personal files"],
   "reader-components": ["PASS Reader cached single/batch module rows, readable title, no network and nine incompatible-cache guards", "PASS catalogue FB2 baseline offers external readers first hides absent format modules and keeps installed conversion modules", "PASS standalone reader hides catalogue updates and resolves missing format modules with correct independent download"],

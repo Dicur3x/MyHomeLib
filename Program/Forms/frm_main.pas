@@ -8319,7 +8319,7 @@ begin
   GetActiveTree(Tree); if not Assigned(Tree) then Exit;
   CollectionID := FCollection.CollectionID;
   RemoveRecords := not IsOnline and not OnlyFiles;
-  RemoveFiles := IsOnline or OnlyFiles or (Settings.DeleteFiles and (not IsFB2 or IsPrivate));
+  RemoveFiles := IsOnline or OnlyFiles or Settings.DeleteFiles;
   Books := TList<TBookRecord>.Create; Seen := TDictionary<UInt64, Byte>.Create;
   try
     ArchiveCount := 0; Node := Tree.GetFirst;

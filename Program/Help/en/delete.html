@@ -109,7 +109,7 @@
 <p>That depends on the <span class="ui">Delete files when deleting books</span> option in the settings (see <a href="set_other.html">Behavior</a>):</p>
 <ul>
 <li>the option is off — only the catalog record is deleted; the file stays on disk as it is (orphaned), and you can bring it back into the catalog later by importing it again;</li>
-<li>the option is on — for a book in a non-FB2 format the file is always deleted; for a book in FB2 format only if the active collection is private. If the collection was connected from someone else's INPX and uses someone else's files, the file is left alone when the record is deleted, so that files the program does not really own are not touched.</li>
+<li>the option is on — the selected loose book files are deleted, including files in connected local FB2 collections. ZIP and 7z containers are currently retained because they may hold other books.</li>
 </ul>
 
 <p class="note">When the file does get deleted, it is an ordinary Windows deletion that bypasses the recycle bin (the code for moving files to the recycle bin exists but is disabled as "behaving oddly") — such a file can only be brought back with data recovery tools, and the HomeLibre help makes no promises there.</p>
