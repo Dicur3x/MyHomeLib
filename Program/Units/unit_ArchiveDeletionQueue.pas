@@ -2,7 +2,7 @@
 
 interface
 
-uses System.Classes, System.SysUtils;
+uses System.Classes, System.SysUtils, System.SyncObjs;
 
 type
   TArchiveDeletionTask = record
@@ -18,6 +18,7 @@ type
     Index: Integer;
     Archive, CatalogueBinding, WorkDirectory, JournalDirectory, Error: string;
     FilesVerified, Cancelled: Boolean;
+    WaitsForCatalogue, CatalogueCommitted, Acknowledged: Boolean;
   end;
 
   TArchiveDeletionStatus = record
@@ -39,17 +40,26 @@ type
     FStatus: TArchiveDeletionStatus;
     FStop: Integer;
     FPublished: Integer;
+    FWaitForCatalogue: Boolean;
+    FOwnerEvent: TEvent;
+    FCommittedIndex, FRejectedIndex, FAbandonOwner: Integer;
+    function WaitForCatalogue(var Item: TArchiveDeletionResult): Boolean;
     procedure Report(const Stage: string; Done, Total: Int64);
   protected
     procedure Execute; override;
   public
-    constructor Create(const Tasks: TArray<TArchiveDeletionTask>; const JournalParent: string);
-    constructor Recover(const TaskDirectories: TArray<string>);
+    constructor Create(const Tasks: TArray<TArchiveDeletionTask>; const JournalParent: string;
+      WaitForOwner: Boolean = False);
+    constructor Recover(const TaskDirectories: TArray<string>; WaitForOwner: Boolean = False);
     // Reads an existing receipt; its context must match the durable engine
     // plan. This does not finish a pending write or commit catalogue rows.
     class function ReadReceipt(const TaskDirectory: string): TArchiveDeletionResult; static;
     destructor Destroy; override;
     procedure StopAfterCurrentArchive;
+    // Production mode keeps the archive exclusively open until its owning UI
+    // thread confirms its durable database phase. The worker then cleans up.
+    procedure CatalogueCommitted(Index: Integer);
+    procedure CatalogueRejected(Index: Integer);
     function Status: TArchiveDeletionStatus;
     function Results: TArray<TArchiveDeletionResult>;
     // Revalidate the finished archive, then discard only this task's receipt.
@@ -60,7 +70,7 @@ type
 
 implementation
 
-uses Winapi.Windows, System.IOUtils, System.JSON, System.SyncObjs, System.Hash,
+uses Winapi.Windows, System.IOUtils, System.JSON, System.Hash,
   System.Generics.Collections, unit_ZipMemberDeletion, unit_AtomicIniFile, unit_MHLArchiveBusy;
 
 procedure SaveBinding(const Task: TArchiveDeletionTask; const Directory: string);
@@ -86,11 +96,12 @@ begin
 end;
 
 constructor TArchiveDeletionQueue.Create(const Tasks: TArray<TArchiveDeletionTask>;
-  const JournalParent: string);
+  const JournalParent: string; WaitForOwner: Boolean);
 var Seen: TDictionary<string,Byte>;
 begin
   inherited Create(True); FreeOnTerminate:=False;
-  FLock:=TObject.Create;
+  FLock:=TObject.Create; FOwnerEvent:=TEvent.Create(nil,False,False,'');
+  FWaitForCatalogue:=WaitForOwner; FCommittedIndex:=-1; FRejectedIndex:=-1;
   if (Length(Tasks)=0) or (Length(Tasks)>10000) then
     raise EArgumentException.Create('Не выбраны архивы для удаления книг.');
   Seen:=TDictionary<string,Byte>.Create;
@@ -175,10 +186,12 @@ begin
   finally JSON.Free; end;
 end;
 
-constructor TArchiveDeletionQueue.Recover(const TaskDirectories:TArray<string>);
+constructor TArchiveDeletionQueue.Recover(const TaskDirectories:TArray<string>; WaitForOwner:Boolean);
 var Seen:TDictionary<string,Byte>; Receipt:TArchiveDeletionResult;
 begin
   inherited Create(True); FreeOnTerminate:=False; FLock:=TObject.Create;
+  FOwnerEvent:=TEvent.Create(nil,False,False,'');
+  FWaitForCatalogue:=WaitForOwner; FCommittedIndex:=-1; FRejectedIndex:=-1;
   if (Length(TaskDirectories)=0) or (Length(TaskDirectories)>10000) then
     raise EArgumentException.Create('Не выбраны журналы для завершения удаления.');
   SetLength(FTasks,Length(TaskDirectories)); SetLength(FRecoveryJobs,Length(TaskDirectories));
@@ -200,17 +213,67 @@ end;
 destructor TArchiveDeletionQueue.Destroy;
 begin
   StopAfterCurrentArchive;
+  TInterlocked.Exchange(FAbandonOwner,1);
+  if Assigned(FOwnerEvent) then FOwnerEvent.SetEvent;
   // TThread.Destroy resumes a never-started thread before joining it. A
   // stopped suspended queue must therefore perform no filesystem mutation.
   inherited;
   // TThread may skip Execute entirely when destroyed before Start. Remove
   // that empty queue root too, without touching any receipt or source file.
   if FRoot<>'' then RemoveDirectory(PChar(DeletionNativePath(FRoot)));
-  FLock.Free;
+  FOwnerEvent.Free; FLock.Free;
 end;
 
 procedure TArchiveDeletionQueue.StopAfterCurrentArchive;
 begin TInterlocked.Exchange(FStop,1); end;
+
+procedure TArchiveDeletionQueue.CatalogueCommitted(Index:Integer);
+begin
+  TMonitor.Enter(FLock);
+  try
+    if not FWaitForCatalogue or (Index<0) or (Index>=FPublished) or
+      not FResults[Index].FilesVerified or (FResults[Index].Error<>'') then
+      raise EInvalidOperation.Create('Очередь не ожидает подтверждения этой записи.');
+    if FResults[Index].CatalogueCommitted or FResults[Index].Acknowledged then Exit;
+    TInterlocked.Exchange(FCommittedIndex,Index);
+  finally TMonitor.Exit(FLock); end;
+  FOwnerEvent.SetEvent;
+end;
+
+procedure TArchiveDeletionQueue.CatalogueRejected(Index:Integer);
+begin
+  TMonitor.Enter(FLock);
+  try
+    if not FWaitForCatalogue or (Index<0) or (Index>=FPublished) or
+      not FResults[Index].FilesVerified then
+      raise EInvalidOperation.Create('Нет ожидающей операции с каталогом.');
+    if FResults[Index].Acknowledged then Exit;
+    TInterlocked.Exchange(FRejectedIndex,Index);
+  finally TMonitor.Exit(FLock); end;
+  StopAfterCurrentArchive; FOwnerEvent.SetEvent;
+end;
+
+function TArchiveDeletionQueue.WaitForCatalogue(var Item:TArchiveDeletionResult):Boolean;
+begin
+  Result:=False; Report('Обновление записей каталога',0,0);
+  repeat
+    if TInterlocked.CompareExchange(FRejectedIndex,0,0)=Item.Index then Break;
+    if TInterlocked.CompareExchange(FCommittedIndex,0,0)=Item.Index then
+    begin Item.CatalogueCommitted:=True; Exit(True); end;
+    if TInterlocked.CompareExchange(FAbandonOwner,0,0)<>0 then Break;
+    FOwnerEvent.WaitFor(100);
+  until False;
+  Item.Error:='Файлы обработаны. Журнал сохранён для завершения записей каталога.';
+end;
+
+procedure CleanupReceiptDirectories(const Item:TArchiveDeletionResult; RemoveOperationRoot:Boolean=True);
+begin
+  var Binding:=DeletionNativePath(TPath.Combine(Item.WorkDirectory,'binding.json'));
+  if not System.SysUtils.DeleteFile(Binding) then RaiseLastOSError;
+  if not RemoveDirectory(PChar(DeletionNativePath(Item.WorkDirectory))) then RaiseLastOSError;
+  if RemoveOperationRoot then
+    RemoveDirectory(PChar(DeletionNativePath(ExtractFileDir(Item.WorkDirectory))));
+end;
 
 procedure TArchiveDeletionQueue.Report(const Stage: string; Done, Total: Int64);
 begin
@@ -239,7 +302,7 @@ begin
     for var I:=0 to High(FTasks) do
     begin
       if TInterlocked.CompareExchange(FStop,0,0)<>0 then Break;
-      Item:=Default(TArchiveDeletionResult); Item.Index:=I;
+      Item:=Default(TArchiveDeletionResult); Item.Index:=I; Item.WaitsForCatalogue:=FWaitForCatalogue;
       Item.Archive:=FTasks[I].Archive; Item.CatalogueBinding:=FTasks[I].CatalogueBinding;
       if FRecoveryJobs[I]<>'' then
       begin
@@ -287,7 +350,6 @@ begin
         on E:Exception do Item.Error:=E.Message;
       end;
       if Assigned(Deletion) then Item.JournalDirectory:=Deletion.JobDirectory;
-      Deletion.Free; Lease:=nil;
       if (Item.JournalDirectory='') and DirectoryExists(DeletionNativePath(Item.WorkDirectory)) then
       begin
         // Planning cannot mutate the source. Its small binding is disposable
@@ -301,7 +363,29 @@ begin
       TMonitor.Enter(FLock);
       try FResults[FPublished]:=Item; Inc(FPublished);
       finally TMonitor.Exit(FLock); end;
-      if not Item.FilesVerified then Break;
+      try
+        if Item.FilesVerified and FWaitForCatalogue then
+        begin
+          try
+            if WaitForCatalogue(Item) then
+            begin
+              Report('Очистка журнала удаления',0,0);
+              if Deletion.ContextHash<>BindingHash(Item.WorkDirectory) then
+                raise EReadError.Create('Привязка каталога изменена. Журнал удаления сохранён.');
+              // Keep the original exclusive source handle throughout the
+              // owner phase. Acknowledgement stays off the UI thread and
+              // cannot race an external archive update between the phases.
+              Deletion.Acknowledge;
+              // A live new queue has not created its later task directories
+              // yet. Its operation root must survive until the loop finishes.
+              CleanupReceiptDirectories(Item,FRoot=''); Item.Acknowledged:=True;
+            end;
+          except on E:Exception do Item.Error:=E.Message; end;
+          TMonitor.Enter(FLock);
+          try FResults[I]:=Item; finally TMonitor.Exit(FLock); end;
+        end;
+      finally Deletion.Free; Lease:=nil; end;
+      if not Item.FilesVerified or (FWaitForCatalogue and not Item.Acknowledged) then Break;
     end;
   finally
     if FRoot<>'' then RemoveDirectory(PChar(DeletionNativePath(FRoot))); // empty owned queue only
@@ -314,6 +398,8 @@ end;
 class procedure TArchiveDeletionQueue.Acknowledge(const Result: TArchiveDeletionResult);
 var Deletion: TZipMemberDeletion;
 begin
+  if Result.WaitsForCatalogue and not Result.CatalogueCommitted then
+    raise EInvalidOperation.Create('Сначала завершите записи каталога.');
   if not Result.FilesVerified or (Result.JournalDirectory='') then
     raise EInvalidOperation.Create('Удаление файлов ещё не подтверждено.');
   if not SameFileName(ExtractFileDir(Result.JournalDirectory),Result.WorkDirectory) then
@@ -327,13 +413,10 @@ begin
     if Deletion.ContextHash<>BindingHash(Result.WorkDirectory) then
       raise EReadError.Create('Привязка каталога изменена. Журнал удаления сохранён.');
     if not Deletion.Finished then raise EInvalidOperation.Create('Удаление архива не завершено.');
+    Deletion.Execute(Result.WorkDirectory); // reverify moved data after a detached owner phase
     Deletion.Acknowledge;
   finally Deletion.Free; end;
-  var Binding:=DeletionNativePath(TPath.Combine(Result.WorkDirectory,'binding.json'));
-  if not System.SysUtils.DeleteFile(Binding) then RaiseLastOSError;
-  if not RemoveDirectory(PChar(DeletionNativePath(Result.WorkDirectory))) then RaiseLastOSError;
-  // The last acknowledgement removes only an empty operation directory.
-  RemoveDirectory(PChar(DeletionNativePath(ExtractFileDir(Result.WorkDirectory))));
+  CleanupReceiptDirectories(Result);
 end;
 
 end.

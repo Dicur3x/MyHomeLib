@@ -239,5 +239,67 @@ begin
         'Oversized recovery context changed the source or left an unresumable journal');
     finally Queue.Free; end;
     Writeln('PASS oversized durable context is rejected before source mutation and its empty work is removed'); Flush(Output);
+
+    Tasks[0].Members:=TArray<string>.Create('selected/one.fb2','selected/two.fb2');
+    Fixture(First); Fixture(Second); BeforeSecond:=THashSHA2.GetHashStringFromFile(Second);
+    Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals',True);
+    try
+      OwnedWork:=Queue.WorkDirectory; Queue.Start;
+      var Started:=GetTickCount64;
+      repeat
+        Application.ProcessMessages; Receipts:=Queue.Results;
+        if GetTickCount64-Started>15000 then raise Exception.Create('Owner receipt guard expired');
+        if Length(Receipts)=0 then Sleep(1);
+      until Length(Receipts)>0;
+      Require(Receipts[0].FilesVerified and not Queue.Status.Finished and IsArchiveChanging(First) and
+        not IsArchiveChanging(Second),'Owner phase did not keep only its current source protected');
+      var Rejected:=False;
+      try TArchiveDeletionQueue.Acknowledge(Receipts[0]);
+      except on E:EInvalidOperation do Rejected:=True; end;
+      Require(Rejected and DirectoryExists(Receipts[0].JournalDirectory),'A journal was discarded before its owner commit');
+      Queue.StopAfterCurrentArchive;
+      Require(not Queue.Status.Finished,'Stop abandoned an archive awaiting its catalogue phase');
+      Queue.CatalogueCommitted(0); WaitForQueue; Receipts:=Queue.Results;
+      Require((Length(Receipts)=1) and Receipts[0].CatalogueCommitted and Receipts[0].Acknowledged and
+        (THashSHA2.GetHashStringFromFile(Second)=BeforeSecond) and not DirectoryExists(OwnedWork),
+        'Owner completion did not acknowledge current work before stopping queued sources');
+    finally Queue.Free; end;
+    Writeln('PASS owner-coordinated archive queue waits for catalogue commit off the UI thread and stops before queued sources'); Flush(Output);
+
+    for var Abandon in [False,True] do
+    begin
+      Fixture(First); Fixture(Second); BeforeSecond:=THashSHA2.GetHashStringFromFile(Second);
+      Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals',True);
+      try
+        OwnedWork:=Queue.WorkDirectory; Queue.Start;
+        var Started:=GetTickCount64;
+        repeat
+          Application.ProcessMessages; Receipts:=Queue.Results;
+          if GetTickCount64-Started>15000 then raise Exception.Create('Retained owner receipt guard expired');
+          if Length(Receipts)=0 then Sleep(1);
+        until Length(Receipts)>0;
+        Require(Receipts[0].FilesVerified,Receipts[0].Error);
+        if not Abandon then
+        begin Queue.CatalogueRejected(0); WaitForQueue; Receipts:=Queue.Results; end;
+      finally Queue.Free; end;
+      Require(DirectoryExists(Receipts[0].JournalDirectory) and
+        (THashSHA2.GetHashStringFromFile(Second)=BeforeSecond) and not IsArchiveChanging(First),
+        'Rejected/abandoned owner lost its journal changed queued sources or kept a writer guard');
+      Queue:=TArchiveDeletionQueue.Recover([Receipts[0].WorkDirectory],True);
+      try
+        Queue.Start; var Started:=GetTickCount64;
+        repeat
+          Application.ProcessMessages; Receipts:=Queue.Results;
+          if GetTickCount64-Started>15000 then raise Exception.Create('Recovered owner receipt guard expired');
+          if Length(Receipts)=0 then Sleep(1);
+        until Length(Receipts)>0;
+        Require(Receipts[0].FilesVerified,Receipts[0].Error);
+        Queue.CatalogueCommitted(0); WaitForQueue; Receipts:=Queue.Results;
+        Require(Receipts[0].Acknowledged and not DirectoryExists(OwnedWork) and
+          (THashSHA2.GetHashStringFromFile(Second)=BeforeSecond),'Fresh owner did not complete retained work safely');
+        Verify(First,1);
+      finally Queue.Free; end;
+    end;
+    Writeln('PASS rejected or abandoned owner retains recoverable journals and fresh owner completes them safely'); Flush(Output);
   finally Timer.Free; Probe.Free; end;
 end;

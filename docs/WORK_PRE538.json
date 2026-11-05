@@ -5115,5 +5115,17 @@
       "Original physical file SHA256 unchanged by database completion"
     ],
     "remaining": "Production owner-thread completion in bounded chunks and asynchronous filesystem acknowledgement, then Main progress/stop/close/recovery/source gates."
+  },
+  "beta4_deletion_owner_phase_20261105": {
+    "status": "PASS owner-coordinated archive and catalogue completion on x86/x64",
+    "implementation": "The archive worker keeps its exclusive source handle and reader guard through the catalogue commit. Stop completes the current archive and its database phase. A rejected or abandoned commit keeps the bound journal for replay. Acknowledgement and receipt cleanup run off the UI thread.",
+    "verification": {
+      "log": "tools/ui/tests/Out/beta4-deletion-owner-phase-20261105-r3.log",
+      "Win32_SHA256": "afa0714f99724dab6b604a0e86a3b77fd3b3e4c0c8b7d85c872011cc0138e9a7",
+      "Win64_SHA256": "6e6a1da763ce81c5916fa370a35d860daeb759e947f0463265ce91f6bbdeb56c"
+    },
+    "attempts": "The combined r1 suite hit its 90-second test guard during 7z recovery. Split the scenarios without dropping assertions. r2 found premature removal of the live operation root between archives; fixed it. The split owner, ZIP/7z engine and preparation cases all passed r3 on both architectures.",
+    "cleanup": "All new private build and test directories were removed. No user collection or source archive was changed.",
+    "remaining": "Connect the worker to the main command, with progress, stop, restart recovery and unselected-source protection, then verify the real UI on both architectures."
   }
 }

@@ -127,25 +127,32 @@ begin
       VerifySources;
     finally Preparation.Free; end;
     Writeln('PASS background deletion preparation groups hard-link aliases exact members and FBD pairs without source writes or partial tasks'); Flush(Output);
-    Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals');
+    Queue:=TArchiveDeletionQueue.Create(Tasks,Root+'journals',True);
     try
+      var Applied:=0; var Submitted:=0;
       Queue.Start; var Started:=GetTickCount64;
       repeat
         Application.ProcessMessages;
+        Receipts:=Queue.Results;
+        if Submitted<Length(Receipts) then
+        begin
+          Require(Receipts[Submitted].FilesVerified,Receipts[Submitted].Error);
+          Inc(Applied,TBookDeletionBinding.Parse(Receipts[Submitted].CatalogueBinding).CommitRecords(User));
+          Queue.CatalogueCommitted(Receipts[Submitted].Index); Inc(Submitted);
+        end;
         if GetTickCount64-Started>15000 then
         begin Queue.StopAfterCurrentArchive; raise Exception.Create('Owned prepared queue exceeded guard'); end;
         if not Queue.Status.Finished then Sleep(1);
       until Queue.Status.Finished;
       Queue.WaitFor; Receipts:=Queue.Results;
-      Require(Length(Receipts)=3,'Prepared queue did not finish all archives');
-      for var Receipt in Receipts do Require(Receipt.FilesVerified,Receipt.Error);
-      VerifyRetained(A,'other/Книга ё.fb2',2); VerifyRetained(B,'keep.fb2',1); VerifyRetained(FBD,'unrelated.txt',1);
-      var Applied:=0;
       for var Receipt in Receipts do
-      begin
-        Inc(Applied,TBookDeletionBinding.Parse(Receipt.CatalogueBinding).CommitRecords(User));
-        TArchiveDeletionQueue.Acknowledge(Receipt);
-      end;
+        Writeln('TRACE owner receipt index=',Receipt.Index,' verified=',Receipt.FilesVerified,
+          ' committed=',Receipt.CatalogueCommitted,' acknowledged=',Receipt.Acknowledged,' error=',Receipt.Error);
+      Flush(Output);
+      Require(Length(Receipts)=3,'Prepared queue did not finish all archives');
+      for var Receipt in Receipts do
+        Require(Receipt.FilesVerified and Receipt.CatalogueCommitted and Receipt.Acknowledged and (Receipt.Error=''),Receipt.Error);
+      VerifyRetained(A,'other/Книга ё.fb2',2); VerifyRetained(B,'keep.fb2',1); VerifyRetained(FBD,'unrelated.txt',1);
       Require(Applied=4,'Prepared queue did not apply exactly four selected catalogue/personal records');
       var Catalog:=TSQLiteDatabase.CreateReadOnly(User.GetCollectionInfo(CID).DBFileName);
       try Require(Catalog.QuerySingleInt('SELECT count(*) FROM Books')=1,'Prepared queue removed an unselected catalogue record');

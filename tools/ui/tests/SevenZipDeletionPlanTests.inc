@@ -100,6 +100,7 @@ begin
     try Layout:=PlanSevenZipDeletion(Source,['selected/one.fb2']); finally Source.Free; end;
     for Stage in ['pending','half-written','written','checkpoint','half-metadata','metadata','half-prefix','prefix','truncated','finished'] do
     begin
+      Trace('7z fault '+Kind+' '+Stage+' tick='+UIntToStr(GetTickCount64));
       ResetSeed; Interrupted:=False;
       Deletion:=TZipMemberDeletion.Prepare(SourceName,['selected/one.fb2']);
       try
@@ -118,6 +119,7 @@ begin
   end;
   for Stage in ['half-written','half-prefix'] do
   begin
+    Trace('7z child '+Stage+' tick='+UIntToStr(GetTickCount64));
     ResetSeed; KillWorker(Stage);
     Deletion:=TZipMemberDeletion.Recover(SourceName,Job);
     try Deletion.Execute(Journal); Deletion.Acknowledge; finally Deletion.Free; end;
