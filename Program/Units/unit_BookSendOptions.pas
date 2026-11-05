@@ -67,6 +67,7 @@ type
     function Choice: TBookSaveChoice;
     function EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;
     function HasScanConversion: Boolean;
+    function CheckOutputRuntime: Boolean;
   public
     procedure ScaleForPPI(NewPPI: Integer); override;
     constructor Create(AOwner: TComponent); override;
@@ -82,7 +83,7 @@ implementation
 
 uses System.SysUtils, System.StrUtils, System.IOUtils, System.Math, System.Types, Winapi.Windows, Winapi.Messages, Winapi.ActiveX,
   Vcl.Controls, Vcl.Dialogs, Vcl.Graphics, unit_Helpers, unit_MHLTheme, dm_user,
-  unit_Templater, unit_BookConversion, unit_BookEstimateReport;
+  unit_Templater, unit_BookConversion, unit_BookEstimateReport, unit_EpubPdfRuntime;
 
 const
   Qualities: array[0..3] of string = ('original','balanced','economy','none');
@@ -557,6 +558,7 @@ begin
   begin FEstimate.Terminate; FStatus.Caption:='Останавливаем оценку…'; Exit; end;
   if Length(FBooks)=0 then
   begin FStatus.Caption:='Список книг для оценки не передан.'; FStatus.Visible:=True; Reflow(nil); Exit; end;
+  if not CheckOutputRuntime then Exit;
   FRevision:=-1; FEstimate:=TBookSendEstimateThread.Create(FBooks,Choice,Settings.AppPath,Settings.TempPath);
   FHasEstimateAttempt:=True;
   FFormat.Enabled:=False; FMoreFormats.Enabled:=False; FSend.Enabled:=False; FCalculate.Caption:='Остановить';
@@ -753,6 +755,15 @@ begin
   finally FContent.VertScrollBar.Position:=SavedScroll; FReflowing:=False; end;
 end;
 
+function TBookSendOptionsForm.CheckOutputRuntime: Boolean;
+begin
+  if Choice.Mode=emAdvancedPDF then
+    for var Book in FBooks do
+      if SameText(BookSaveKnownExtension(Book),'.epub') then
+        Exit(EnsureEpubPdfRuntime(Self,Settings.TempPath));
+  Result:=True;
+end;
+
 procedure TBookSendOptionsForm.Send(Sender: TObject);
 var Templater: TTemplater;
   procedure FocusOption(Control: TWinControl; Naming: Boolean);
@@ -785,6 +796,7 @@ begin
   finally Templater.Free; end;
   if FExcept.Enabled and not IsValidScanPageExclusions(FExcept.Text) then
   begin MessageDlg('Укажите номера сканов, например 1, 98-100.',mtInformation,[mbOK],0); FocusOption(FExcept,False); Exit; end;
+  if not CheckOutputRuntime then Exit;
   ModalResult:=mrOk;
 end;
 

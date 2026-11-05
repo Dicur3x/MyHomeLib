@@ -1,7 +1,7 @@
 type
   TAdvancedSaveDialogProbe = class
     Timer: TTimer;
-    Checked, Restored: Boolean;
+    Checked, Restored, TestRuntime, WaitingForRuntime, RuntimePromptSeen: Boolean;
     Failure: string;
     Deadline: UInt64;
     procedure Tick(Sender: TObject);
@@ -9,6 +9,21 @@ type
 
 procedure TAdvancedSaveDialogProbe.Tick(Sender: TObject);
 begin
+  if WaitingForRuntime then
+  begin
+    var Prompt:=FindWindow('#32770','Сохранение EPUB в PDF');
+    if (Prompt<>0) and (GetWindowThreadProcessId(Prompt,nil)=GetCurrentThreadId) then
+    begin
+      RuntimePromptSeen:=True; PostMessage(Prompt,WM_COMMAND,IDCANCEL,0);
+    end;
+    if (Prompt=0) and (GetTickCount64>=Deadline) then
+    begin
+      var Active:=GetActiveWindow;
+      if (Active<>0) and (GetWindowThreadProcessId(Active,nil)=GetCurrentThreadId) then
+        PostMessage(Active,WM_CLOSE,0,0);
+    end;
+    Exit;
+  end;
   for var I:=Screen.FormCount-1 downto 0 do
     if (Screen.Forms[I] is TBookSendOptionsForm) and Screen.Forms[I].Visible then
     begin
@@ -19,7 +34,30 @@ begin
         var Extras:=TCheckBox(Dialog.FindComponent('SaveMoreFormats'));
         var Preview:=TLabel(Dialog.FindComponent('SaveNamePreview'));
         Require(Assigned(Extras),'Save As did not create the additional-format control');
-        if Restored then
+        if TestRuntime then
+        begin
+          if not Extras.Checked then Extras.Perform(BM_CLICK,0,0);
+          var Index:=-1;
+          for var J:=0 to Formats.Items.Count-1 do
+            if string(Formats.Items[J]).Contains(' PDF') then begin Index:=J; Break; end;
+          Require(Index>=0,'EPUB has no PDF choice');
+          Formats.ItemIndex:=Index; Formats.OnChange(Formats);
+          var Destination:=TEdit(Dialog.FindComponent('SendDestination'));
+          var SavedPath:=Destination.Text;
+          WaitingForRuntime:=True; Timer.Enabled:=True;
+          try
+            for var Name in ['EstimateSaveSize','SendBooks'] do
+            begin
+              RuntimePromptSeen:=False; Deadline:=GetTickCount64+5000;
+              TButton(Dialog.FindComponent(Name)).Perform(BM_CLICK,0,0);
+              Require(RuntimePromptSeen,'Missing WebView2 did not prompt from '+Name);
+              Require((Dialog.ModalResult=mrNone) and (Formats.ItemIndex=Index) and (Destination.Text=SavedPath),
+                'Declining WebView2 changed the open Save As dialog');
+            end;
+          finally WaitingForRuntime:=False; Timer.Enabled:=False; end;
+          Checked:=True; Dialog.ModalResult:=mrCancel; Exit;
+        end
+        else if Restored then
           Require(Extras.Checked and string(Formats.Text).Contains('KEPUB'),'Review lost the restored writer')
         else
         begin
@@ -49,6 +87,51 @@ var Root, Status: string; Books: TArray<TBookRecord>; Options, Unused: TBookSend
   Choice: TBookSaveChoice; Estimates: TBookSaveEstimateItems; EstimateThread: TBookSendEstimateThread;
   Probe: TUnifiedSendProbe; Review: TAdvancedSaveDialogProbe; Revision: Integer;
   Deadline: UInt64; Complete: Boolean;
+  procedure CheckWebViewPrompt;
+  var RegistryRoot: HKEY; Disposition: DWORD; ID: TGUID; Key, Bootstrapper: string;
+  begin
+    Bootstrapper:=GetEnvironmentVariable('HOMELIB_TEST_WEBVIEW2_BOOTSTRAPPER');
+    if Bootstrapper<>'' then
+    begin
+      VerifyWebView2BootstrapperSignature(Bootstrapper);
+      var Corrupted:=TFile.ReadAllBytes(Bootstrapper);
+      Corrupted[4096]:=Corrupted[4096] xor 1;
+      var Tampered:=TPath.Combine(Root,'invalid-webview2-installer.exe');
+      TFile.WriteAllBytes(Tampered,Corrupted);
+      var Rejected:=False;
+      try VerifyWebView2BootstrapperSignature(Tampered);
+      except on E:Exception do Rejected:=True; end;
+      Require(Rejected,'A modified WebView2 installer was accepted');
+    end;
+    CreateGUID(ID); Key:='Software\HomeLibreNativeWebView2-'+GUIDToString(ID);
+    Require(RegCreateKeyEx(HKEY_CURRENT_USER,PChar(Key),0,nil,REG_OPTION_VOLATILE,KEY_ALL_ACCESS,
+      nil,RegistryRoot,@Disposition)=ERROR_SUCCESS,'Cannot prepare a private registry fixture');
+    try
+      Require(Disposition=REG_CREATED_NEW_KEY,'Registry fixture must be new');
+      Require(RegOverridePredefKey(HKEY_CURRENT_USER,RegistryRoot)=ERROR_SUCCESS,'Cannot isolate user registry');
+      try
+        Require(RegOverridePredefKey(HKEY_LOCAL_MACHINE,RegistryRoot)=ERROR_SUCCESS,'Cannot isolate machine registry');
+        try
+          Require(not WebView2RuntimeInstalled,'Empty registry reported WebView2 installed');
+          Review:=TAdvancedSaveDialogProbe.Create;
+          try
+            Review.TestRuntime:=True; Review.Deadline:=GetTickCount64+5000;
+            Review.Timer:=TTimer.Create(nil); Review.Timer.Interval:=60; Review.Timer.OnTimer:=Review.Tick;
+            Require(not ChooseBookSendOptions(1,Root,emEpub,Unused,False,[Books[1]]),
+              'Declining the prerequisite started a save');
+            Require(Review.Checked and (Review.Failure=''),Review.Failure);
+          finally Review.Timer.Free; Review.Free; end;
+        finally RegOverridePredefKey(HKEY_LOCAL_MACHINE,0); end;
+      finally RegOverridePredefKey(HKEY_CURRENT_USER,0); end;
+    finally
+      RegCloseKey(RegistryRoot);
+      if Disposition=REG_CREATED_NEW_KEY then
+        Require(RegDeleteKey(HKEY_CURRENT_USER,PChar(Key))=ERROR_SUCCESS,'Cannot delete the private registry fixture');
+    end;
+    Require(Length(TDirectory.GetDirectories(Settings.TempPath,'HomeLibre-WebView2-*'))=0,
+      'Declining WebView2 downloaded a bootstrapper');
+    Writeln('PASS missing WebView2 prompt preserves estimate and save settings when declined'); Flush(Output);
+  end;
   procedure InstallEpubPdf;
   const ID = 'EpubPdfExport';
   var Packages, Metadata, Feed, Archive, Job: string; Info: TProgramRelease;
@@ -118,6 +201,7 @@ begin
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   CheckContinuation;
   InstallEpubPdf;
+  CheckWebViewPrompt;
 
   Options:=Default(TBookSendOptions); Options.Mode:=emKepub; Options.ExplicitFormat:=True;
   Options.FileNameTemplate:='%t'; Options.ImageQuality:='original'; Options.NameCollision:=bncKeepBoth;

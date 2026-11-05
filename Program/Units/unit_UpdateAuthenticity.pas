@@ -6,6 +6,7 @@ uses System.SysUtils;
 
 function UpdateSHA3(const FileName: string): string;
 procedure VerifySumatraSignature(const FileName: string);
+procedure VerifyWebView2BootstrapperSignature(const FileName: string);
 
 implementation
 
@@ -79,7 +80,7 @@ function CertFreeCertificateContext(Cert: Pointer): BOOL; stdcall; external 'cry
 function CertCloseStore(Store: THandle; Flags: DWORD): BOOL; stdcall; external 'crypt32.dll';
 function CryptMsgClose(Msg: THandle): BOOL; stdcall; external 'crypt32.dll';
 
-procedure VerifySumatraSignature(const FileName: string);
+procedure VerifyPublisherSignature(const FileName, ProductName, Publisher: string);
 const ActionGUID: TGUID = '{00AAC56B-CD44-11D0-8CC2-00C04FC295EE}';
 var FileInfo: TTrustFile; Data: TTrustData; Action: TGUID; Store, Msg: THandle;
   SignerInfo: TBytes; Size: DWORD; Cert: Pointer; Name: string;
@@ -90,7 +91,7 @@ begin
   Action := ActionGUID;
   try
     if WinVerifyTrust(HWND(-1), Action, @Data) <> 0 then
-      raise Exception.Create('Не удалось подтвердить цифровую подпись SumatraPDF. Обновление не будет установлено.');
+      raise Exception.Create('Не удалось подтвердить цифровую подпись '+ProductName+'. Пакет не будет установлен.');
   finally Data.Action := 2; WinVerifyTrust(HWND(-1), Action, @Data); end;
   Store := 0; Msg := 0; Cert := nil;
   try
@@ -104,13 +105,23 @@ begin
     Size := CertGetNameString(Cert, 4, 0, nil, nil, 0); SetLength(Name, Size);
     if Size > 1 then
     begin CertGetNameString(Cert, 4, 0, nil, PChar(Name), Size); SetLength(Name, Size-1); end;
-    if Name <> 'Krzysztof Kowalczyk' then
-      raise Exception.Create('Издатель SumatraPDF не совпадает с официальным автором.');
+    if Name <> Publisher then
+      raise Exception.Create('Издатель '+ProductName+' не совпадает с официальным издателем.');
   finally
     if Cert <> nil then CertFreeCertificateContext(Cert);
     if Msg <> 0 then CryptMsgClose(Msg);
     if Store <> 0 then CertCloseStore(Store, 0);
   end;
+end;
+
+procedure VerifySumatraSignature(const FileName: string);
+begin
+  VerifyPublisherSignature(FileName,'SumatraPDF','Krzysztof Kowalczyk');
+end;
+
+procedure VerifyWebView2BootstrapperSignature(const FileName: string);
+begin
+  VerifyPublisherSignature(FileName,'установщика WebView2','Microsoft Corporation');
 end;
 
 end.

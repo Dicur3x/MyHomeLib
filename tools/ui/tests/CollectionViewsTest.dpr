@@ -37,6 +37,7 @@ uses
   unit_BookEstimateReport in '..\..\..\Program\Units\unit_BookEstimateReport.pas',
   unit_BookSavePolicy in '..\..\..\Program\Units\unit_BookSavePolicy.pas',
   unit_BookSaveContinuation, unit_BookSendEstimates, unit_ReaderStartup, unit_BookOutput, unit_BookCollisionDialog,
+  unit_EpubPdfRuntime,
   unit_FileBooks in '..\..\..\Program\Units\unit_FileBooks.pas',
   unit_AtomicIniFile in '..\..\..\Program\Units\unit_AtomicIniFile.pas',
   unit_AuthorFavorites in '..\..\..\Program\Units\unit_AuthorFavorites.pas',
