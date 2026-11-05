@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const https = require('node:https');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
@@ -27,6 +28,7 @@ const formatFixtures = new Map([
   [106, { ext: '.bin', mime: 'application/octet-stream', name: 'opds100.bin' }],
 ]);
 let server, serverExit, address, stderr = '', stdout = '', idle;
+let proxy;
 let checks = 0;
 function pass(message) { checks++; console.log(`PASS ${message}`); }
 function sha(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
@@ -105,6 +107,79 @@ function snapshot(folder) {
     } else result[name] = sha(file);
   }
   return result;
+}
+
+async function checkTLSProxy(bookBytes) {
+  const keyPath = path.join(root, 'proxy.key');
+  const certPath = path.join(root, 'proxy.crt');
+  spawnChecked(process.env.HOMELIB_OPDS_TEST_OPENSSL, ['req', '-x509', '-newkey', 'rsa:2048',
+    '-sha256', '-nodes', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost',
+    '-days', '1', '-keyout', keyPath, '-out', certPath]);
+  const cert = fs.readFileSync(certPath);
+  const prefix = '/reader/books';
+  proxy = https.createServer({ key: fs.readFileSync(keyPath), cert, minVersion: 'TLSv1.2' }, (req, res) => {
+    if (!req.url.startsWith(prefix + '/')) { res.writeHead(404).end(); return; }
+    const upstream = http.request({ hostname: '127.0.0.1', port: address.port, method: req.method,
+      path: req.url.slice(prefix.length), agent: false }, reply => {
+      res.writeHead(reply.statusCode, reply.headers);
+      reply.pipe(res);
+    });
+    upstream.on('error', () => res.writeHead(502).end());
+    req.pipe(upstream);
+  });
+  proxy.listen(0, '127.0.0.1');
+  await once(proxy, 'listening');
+  const proxyPort = proxy.address().port;
+  const base = `https://localhost:${proxyPort}${prefix}`;
+  const readAddress = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      server.stdout.off('data', receive);
+      reject(new Error(`No proxy catalogue address: ${stderr}`));
+    }, 10000);
+    function receive() {
+      const line = stdout.split(/\r?\n/).find(value => value.startsWith('{"proxy_url":'));
+      if (!line) return;
+      clearTimeout(timer);
+      server.stdout.off('data', receive);
+      resolve(JSON.parse(line).proxy_url);
+    }
+    server.stdout.on('data', receive);
+  });
+  server.stdin.write(`proxy ${base}\n`);
+  const catalog = await readAddress;
+  assert.ok(catalog.startsWith(base + '/'));
+  const get = (url, method = 'GET') => new Promise((resolve, reject) => {
+    const target = new URL(url);
+    assert.equal(target.origin, `https://localhost:${proxyPort}`);
+    const req = https.request({ hostname: '127.0.0.1', servername: 'localhost', port: proxyPort,
+      path: target.pathname + target.search, method, ca: cert, agent: false }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.once('error', reject);
+      res.once('end', () => resolve({ status: res.statusCode, headers: res.headers,
+        bytes: Buffer.concat(chunks), text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.setTimeout(10000, () => req.destroy(new Error(`TLS proxy timeout: ${url}`)));
+    req.once('error', reject);
+    req.end();
+  });
+  const landing = await get(catalog);
+  assert.equal(landing.status, 200);
+  const search = await get(links(landing.text, 'search')[0].href);
+  assert.equal(search.status, 200);
+  const template = unescapeXML(search.text.match(/template="([^"]+)"/)[1]);
+  const results = await get(template.replace('{searchTerms}', 'OPDS'));
+  assert.equal(results.status, 200);
+  assert.ok(entries(results.text).length);
+  const acquisition = catalog + '/book/1.fb2';
+  const download = await get(acquisition);
+  assert.equal(download.status, 200);
+  assert.deepEqual(download.bytes, bookBytes);
+  const head = await get(acquisition, 'HEAD');
+  assert.equal(head.status, 200);
+  assert.equal(head.headers['content-length'], download.headers['content-length']);
+  assert.equal(head.bytes.length, 0);
+  pass('HTTPS reverse proxy with a trusted test certificate serves navigation, search, byte-exact book and HEAD');
 }
 
 async function main() {
@@ -380,6 +455,8 @@ print('valid Atom/OpenSearch XML')
   assert.deepEqual(snapshot(collectionRoot), before);
   pass('all catalog and book bytes remain unchanged after HTTP requests');
 
+  if (process.env.HOMELIB_OPDS_TEST_OPENSSL) await checkTLSProxy(expectedBook);
+
   idle = net.connect(Number(address.port), address.hostname);
   await once(idle, 'connect');
   const stoppedAt = Date.now();
@@ -401,6 +478,10 @@ print('valid Atom/OpenSearch XML')
 
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   idle?.destroy();
+  if (proxy) {
+    proxy.closeAllConnections();
+    await new Promise(resolve => proxy.close(resolve));
+  }
   if (server && server.exitCode === null) {
     server.kill();
     await serverExit.catch(() => {});

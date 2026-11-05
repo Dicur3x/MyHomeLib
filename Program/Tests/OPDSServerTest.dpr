@@ -367,6 +367,19 @@ begin
             Ready.Free;
           end;
           Readln(StopLine);
+          if StopLine.StartsWith('proxy ') then
+          begin
+            Server.Start(Collection, Port, False, Copy(StopLine, 7, MaxInt));
+            Ready := TJSONObject.Create;
+            try
+              Ready.AddPair('proxy_url', Server.CatalogURL('127.0.0.1'));
+              Writeln(Ready.ToJSON);
+              Flush(Output);
+            finally
+              Ready.Free;
+            end;
+            Readln(StopLine);
+          end;
           Require(StopLine = 'stop', 'Expected stop on standard input');
           Server.Stop;
           Require(not Server.Active, 'OPDS server stayed active after Stop');
