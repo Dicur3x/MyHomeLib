@@ -4641,5 +4641,58 @@
     "report": "tools/ui/tests/Out/beta4-main-actual-startup-baf1f2944433.json",
     "cleanup": "The owned 4.3 GB catalogue snapshot, both staged runtime profiles, compiler output folders and unique sibling projects were removed. Only the intended development EXEs and compact evidence report remain.",
     "next": "Continue the ordered beta 4 queue. Large-list timings are recorded separately; current full-list medians remain 10.7 seconds x64 and 11.5 seconds x86. Rebuild and validate final minimal release archives after the remaining features and acceptance checks."
+  },
+  "beta4_author_preferences_design_20261105": {
+    "status": "Author rating and reversible hiding design completed against the current code. Production implementation remains the next step in this direction.",
+    "user_scope": "Manual personal author rating, a reversible hidden-author rule, a global management list including authors absent from the current collection, and a visible rating filter. These settings belong to the catalogue user profile.",
+    "rules": {
+      "rating": "Integer 1 through 5, or explicitly unrated. Entered by the user. No calculation from book or website ratings.",
+      "hidden": "Separate Boolean from favorite membership and rating. Default false. Applies across catalogue author lists and book views, including Search, Groups and Favorites.",
+      "coauthors_hidden": "Any hidden coauthor hides the book while hidden-author filtering is enabled. An explicit Show hidden authors command reveals those books and identifies the active exception.",
+      "coauthors_rating": "When a minimum author rating is set, use the highest explicitly assigned author rating for the book. If every coauthor is unrated, use the separate Include unrated switch. A below-threshold rated coauthor plus an unrated coauthor does not pass via the unrated switch.",
+      "combined": "Apply hidden-author exclusion before the rating threshold, then the existing search, language, deletion and column conditions. Favorite membership alone does not bypass hiding or the threshold.",
+      "default_filters": "Hide explicitly hidden authors. No minimum rating until the user enables it. Include unrated defaults true when first enabling a threshold. Clear author filters restores these defaults and exposes the remaining hidden-author count.",
+      "scope": "The rule affects catalogue result views. The download task queue continues to expose active operations. Direct opening of an already selected file and existing annotations remains available.",
+      "restoration": "Showing an author again restores eligibility immediately in all loaded catalogue views. Existing books, archive members, notes, ratings and group membership persist through hide/show and repeated imports."
+    },
+    "identity": {
+      "current": "Reuse AuthorFavoriteKey and its exact full-name field boundaries, Unicode case normalization and whitespace trimming. Local AuthorID values are scoped to a collection and are unsuitable as the global preference key.",
+      "changed_names": "Keep differently keyed names visible as separate rows in the global manager, including the tester two Vasilyev forms. Provide explicit selection and reset for an absent or outdated name. Automatic numeric-ID alias merging requires additional verified source metadata.",
+      "safety": "Surface malformed author identity errors and preserve the current snapshot. Ordinary filters continue from the previous valid snapshot."
+    },
+    "storage": {
+      "file": "Reuse Data/author-favorites.sqlite with a separate PersonalAuthors table and a versioned schema migration.",
+      "table": "AuthorKey primary key; LastName, FirstName and MiddleName; nullable Rating constrained to 1..5; Hidden constrained to 0/1; UpdatedUTC. Rows are independent of FavoriteAuthors membership.",
+      "migration": "Validate the exact existing v1 schema read-only first. Acquire the existing file mutex, revalidate, begin an immediate transaction, create the new table and update user_version atomically. Roll back on failure. Preserve all six current favorite and book-tracking tables and their keys.",
+      "concurrency": "Reuse the current per-thread store ownership and file mutex. Reload the UI snapshot after committed edits. A stale worker must reread the latest database before updating its own membership tables.",
+      "portable_export": "Extend the existing user-data XML with additive PersonalAuthors entries. Validate the entire import before writing, preserve absent fields from older exports, and present conflicting explicit settings before replacement.",
+      "runtime": "Publish one in-memory preference snapshot. Cache normalized author matches per full name and invalidate by revision. Disabled rating and empty hidden set take the current fast path without per-book profile I/O."
+    },
+    "ui": {
+      "author_context": "My author rating submenu with 1..5 and Clear rating; Hide author / Show author again; My authors command.",
+      "manager": "Extend the existing global favorite-author manager into My authors with Favorite, Hidden, Rated and All categories. Show full name, personal score, hidden state and favorite state. Keep absent authors manageable and support multi-selection with distinct Restore visibility, Clear rating and Remove from favorites actions.",
+      "filter": "One compact Author preferences control shared by catalogue views. Show the active threshold, unrated choice and hidden-author count. Expose Show hidden and Reset directly. Persist the explicit user choice in catalogue settings.",
+      "feedback": "Show visible and total book counts and a persistent indication when personal author rules hide results. Empty-result text offers Show hidden or Clear author filter.",
+      "selection": "When a new filter removes a selected row, use the existing visible-row selection behavior. Cancellation restores the prior filter snapshot and selection. Reveal/unhide forces a complete reevaluation of cached loaded rows."
+    },
+    "integration_points": [
+      "Program/Units/unit_AuthorFavorites.pas validates an exact v1 six-table schema; a new table needs a real migration.",
+      "Program/Forms/frm_AuthorFavorites.pas already supports global rows outside the current catalogue.",
+      "Program/Forms/frm_main.pas AuthorSelectorIterator handles ordinary and favorite-only selectors, including deferred startup snapshots.",
+      "Program/Units/unit_BookColumnFilters.pas owns shared result filtering and transactional cancellation. Its narrowing cache must be invalidated when the author policy expands results.",
+      "Program/Units/unit_UserData.pas currently exports only favorite author membership; personal ratings and hiding require an additive export extension."
+    ],
+    "acceptance": [
+      "Read a v1 profile, migrate once, reopen and preserve favorite membership, counts and observed books.",
+      "Two writers and a stale favorite refresh preserve each other edits, with explicit busy/cancel behavior.",
+      "A hidden sole author and a hidden coauthor disappear from every catalogue book view. Show hidden and unhide restore both.",
+      "A high-rated author plus a low-rated author passes the threshold. A low-rated author plus an unrated author stays below it. Fully unrated and authorless books follow the explicit unrated switch.",
+      "Two equal surnames with different given names remain independent. Differently represented Vasilyev names can both be edited when absent from the collection.",
+      "Favorite, hidden and rated flags survive independent resets, restart, collection switching, INPX reimport and portable user-data round-trip.",
+      "Unhiding, lowering a threshold, clearing a rating and changing Include unrated reevaluate all loaded rows instead of narrowing an old result.",
+      "Cancel and busy failures retain the previously applied rules and visible result. No source files or group/annotation records are deleted.",
+      "The real Main entry points, manager and filter fit light/dark and 96/144/192 DPI on x86/x64. Empty preferences preserve the measured startup/list fast path."
+    ],
+    "evidence_scope": "Design and source inspection only. The acceptance cases above describe required checks and have not been run as new production-feature tests."
   }
 }
