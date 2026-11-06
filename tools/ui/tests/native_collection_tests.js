@@ -281,7 +281,7 @@ function requiredPasses(executable, mode) {
     'PASS native MOBI AZW3 keep-both preserves old bytes and explicit replace keeps the chosen filename'];
   if (mode==='advanced-save') return ['PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'];
   if (mode==='unified-send') return ['PASS unified save layout dark=1 ppi=192 view=2','PASS unified save wheel dark=1 ppi=192','PASS unified save three views retain parameters estimates and books','PASS unified TXT minified UTF8 CP1251','PASS unified send original TXT stays byte-exact','PASS unified send public command preserves source formats, explicit conversions, image presets, mixed batches, cancellation, marks and Shell delivery'];
-  if (mode==='flibrary-quality') return ['PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
+  if (mode==='flibrary-quality') return ['PASS FLibrary reconstructs exact JPEG bytes','PASS explicit FLibrary text-only export needs no JPEG XL decoder and cannot replace a restored reading copy','PASS FLibrary JPEG XL quality-aware FB2 EPUB exports preserve alpha or remove pictures while retaining the complete text'];
   if (mode==='personal-authors') return [
     'PASS personal author cancel preserves six loaded views and settings on 500000 rows; retry and widening succeed',
     'PASS personal author general user-data menus export import preserve existing preferences and cancel',
@@ -627,6 +627,9 @@ function run(executable, mode, subcase = "") {
       fs.copyFileSync(path.join(runtime,'tools/jpeg-xl/djxl.exe'),path.join(folder,'tools/jpeg-xl/djxl.exe'));
       fs.copyFileSync(path.join(runtime,'tools/7zip/7za.exe'),path.join(folder,'tools/7zip/7za.exe'));
       fs.copyFileSync(path.join(__dirname,'fixtures/transparent-ink.jxl'),path.join(folder,'transparent-ink.jxl'));
+      if (mode==='flibrary-quality')
+        for (const file of ['reconstruct-original.jpg','reconstruct-encoded.jxl'])
+          fs.copyFileSync(path.join(__dirname,'fixtures',file),path.join(folder,file));
       if(mode==='flibrary-quality' && process.env.HOMELIB_TEST_IMAGE_USAGE==='1') {
         if(!process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES||!process.env.HLRU_PYTHON)throw Error('Image use check requires current processing/image packages');
         const staged=cp.spawnSync(process.env.HLRU_PYTHON,['-B',path.join(__dirname,'prepare_format_runtime_fixture.py'),process.env.HOMELIB_FORMAT_COMPONENT_PACKAGES,folder,architecture===0x8664?'Win64':'Win32','BookProcessing','ImageProcessing'],{windowsHide:true,encoding:'utf8',timeout:120000});

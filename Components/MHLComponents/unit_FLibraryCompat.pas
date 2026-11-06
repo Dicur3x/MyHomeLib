@@ -329,11 +329,49 @@ begin
   end;
 end;
 
+function HasJpegReconstruction(const Bytes: TBytes): Boolean;
+var
+  Offset, Header, Remaining: Integer;
+  Size: UInt64;
+
+  function BigEndian(Start, Count: Integer): UInt64;
+  begin
+    Result := 0;
+    for var I := Start to Start + Count - 1 do
+      Result := (Result shl 8) or Bytes[I];
+  end;
+begin
+  Result := False;
+  // The raw JPEG XL codestream has no container boxes. The caller already
+  // checked the signature; a container starts with the 12-byte signature box.
+  if (Length(Bytes) < 12) or (Bytes[0] <> 0) then Exit;
+  Offset := 12;
+  Remaining := Length(Bytes) - Offset;
+  while Remaining >= 8 do
+  begin
+    Header := 8;
+    Size := BigEndian(Offset, 4);
+    if Size = 1 then
+    begin
+      Header := 16;
+      if Remaining < Header then Exit;
+      Size := BigEndian(Offset + 8, 8);
+    end
+    else if Size = 0 then Size := UInt64(Remaining);
+    if (Size < UInt64(Header)) or (Size > UInt64(Remaining)) then Exit;
+    if BigEndian(Offset + 4, 4) = $6A627264 then // jbrd
+      Exit(Size > UInt64(Header));
+    Inc(Offset, Integer(Size));
+    Dec(Remaining, Integer(Size));
+  end;
+end;
+
 function ConvertJpegXL(const Bytes: TBytes): TBytes;
 var
   Decoder: string;
   InputFile: string;
   OutputFile: string;
+  JpegFile: string;
   Sink: TMemoryStream;
 begin
   Decoder := FindExternalTool('djxl.exe', 'jpeg-xl');
@@ -341,15 +379,30 @@ begin
     raise EMHLComponentRequired.Create('JPEG XL',
       'Для иллюстраций этой книги нужен декодер JPEG XL. Его можно скачать в окне обновлений HomeLib Ru.');
 
-  // Numeric FLibrary image IDs do not identify the original image format.
-  // JPEG discards alpha: black ink encoded entirely in alpha becomes a solid
-  // black rectangle. Decode to lossless PNG for FB2, EPUB and cover previews.
+  // Reconstruct the original JPEG bitstream only when the container carries
+  // its recovery data. The general PNG path preserves alpha and also works
+  // with older decoders that do not recognize --reconstruct_jpeg.
   InputFile := NewTemporaryFileName('.jxl');
   OutputFile := NewTemporaryFileName('.png');
+  JpegFile := ChangeFileExt(OutputFile, '.jpg');
   try
     TFile.WriteAllBytes(InputFile, Bytes);
     Sink := TMemoryStream.Create;
     try
+      if HasJpegReconstruction(Bytes) then
+      begin
+        try
+          RunExternalToolToStream(Decoder, [InputFile, JpegFile, '--reconstruct_jpeg'], Sink);
+          if FileExists(JpegFile) then
+          begin
+            Result := TFile.ReadAllBytes(JpegFile);
+            if (Length(Result) >= 3) and (Result[0] = $FF) and (Result[1] = $D8) and
+              (Result[2] = $FF) then Exit;
+          end;
+        except
+          on E: EMHLExternalToolError do ;
+        end;
+      end;
       RunExternalToolToStream(Decoder, [InputFile, OutputFile], Sink);
     finally
       Sink.Free;
@@ -363,6 +416,8 @@ begin
       DeleteFile(InputFile);
     if FileExists(OutputFile) then
       DeleteFile(OutputFile);
+    if FileExists(JpegFile) then
+      DeleteFile(JpegFile);
   end;
 end;
 

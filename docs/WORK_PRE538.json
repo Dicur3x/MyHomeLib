@@ -5220,5 +5220,50 @@
     "logs": "tools/ui/tests/Out/collection-packing-grayscale-20261106-r1.log, collection-packing-grayscale-native-20261106-r1.log, collection-packing-grayscale-readback-20261106-r1.log and collection-packing-grayscale-orientation-20261106-r1.log.",
     "cleanup": "All new temporary profiles, build folders and extracted source copies were removed. Previously policy-blocked release staging was left untouched.",
     "remaining": "Compare JPEG XL and external image companions with the verified copy modes, then verify ordinary minimal packages and the actual component offer and continuation UI. No new archive has been published."
+  },
+  "collection_packing_jxl_20261106": {
+    "status": "JPEG XL comparison completed on real mixed inputs. The native FLibrary reader and save preparation now recover an original JPEG exactly when its JPEG XL container has reconstruction data. Both native architectures passed.",
+    "inputs": "Five unchanged source members from the working collection were copied into an isolated Deflate ZIP: 883585.fb2, 549311.epub, 767016.pdf, 737164.djvu and 852311.doc. One illustrated FB2 supplies most of the bytes. The small PDF, DjVu and DOC exercise preservation rather than representative compression ratios.",
+    "archive_bytes": {
+      "baseline_deflate_zip": 34601187,
+      "reversible": {
+        "Win32": 32778610,
+        "Win64": 32778610
+      },
+      "economy": {
+        "Win32": 19393470,
+        "Win64": 19393470
+      },
+      "maximum_color": {
+        "Win32": 18726667,
+        "Win64": 18726666
+      },
+      "maximum_gray": {
+        "Win32": 7881207,
+        "Win64": 7881274
+      },
+      "separate_unchanged_pictures": {
+        "Win32": 34339044,
+        "Win64": 34339044
+      },
+      "separate_jpeg_xl": {
+        "Win32": 29599605,
+        "Win64": 29599601
+      },
+      "separate_webp": {
+        "Win64": 31268426
+      }
+    },
+    "codec_readback": "Official pinned libjxl 0.12.0 cjxl and djxl static distributions were verified against release asset sizes and SHA-256 hashes. All 272 JPEGs were reconstructed byte for byte on both architectures, and decoded RGBA matched exactly for 98 PNGs. The sidecar totals include the stripped book archive and supplemental image archive. WebP was evaluated on x64 through Pillow/libwebp 1.6.0, retained the original when an image could not shrink, and was verified for decoded RGBA. No original byte or metadata guarantee is inferred for PNG reconstruction or WebP. All five books matched in the reversible packaging run, and PDF, DjVu and DOC matched in every packing run.",
+    "native_change": "Walk top-level JPEG XL boxes within their declared bounds and ask djxl to reconstruct the original JPEG when the container includes jbrd. Accept only output with a JPEG signature. A decoder failure falls back to the existing PNG path, which also preserves alpha for non-JPEG inputs. The checked-in synthetic source/JXL pair exercises actual 7z extraction and a sibling ZIP. FB2 preparation returned the original JPEG binary, EPUB contained the original JPEG at its indexed path and the native reader reopened the text and illustration. The existing alpha, image quality, text-only, unchanged source and component usage cases passed on both architectures with the published BookProcessing and ImageProcessing fixtures.",
+    "logs": "tools/ui/tests/Out/collection-packing-jxl-20261106-r1.log and tools/ui/tests/Out/collection-packing-jxl-native-20261106-r6.log. Final test executable SHA-256: Win32 127719238da2916835a46c1ab1c171a845291acd4d7c15f69b93eadc096ed619, Win64 abd6cd6237bf09fba116b941dade4e307c34e500cbbcfe8da50599354cc8d88f.",
+    "references": [
+      "https://github.com/heimdallr/books-tools/tree/683f8d9dadf70f27f57a267bdf714bc7f0a83cd8#fb2cut",
+      "https://lightlib.azurewebsites.net/Load",
+      "https://github.com/libjxl/libjxl/releases/tag/v0.12.0",
+      "https://github.com/libjxl/libjxl/blob/v0.12.0/tools/djxl_main.cc"
+    ],
+    "cleanup": "New benchmark and native temporary folders and isolated source copies on G: were removed. Source member hashes and archive size/time signatures matched.",
+    "remaining": "The sidecar comparison was a prototype, not an archive HomeLibre currently writes from its packing menu. Integrate and verify JPEG XL writing with the real worker and native reading route, specify the image and book identity guarantees, and test archive accounting, cancellation, incremental INPX and minimum-package component installation before enabling collection packing."
   }
 }

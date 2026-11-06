@@ -8,3 +8,11 @@ but alpha varies from 0 to 255. Pixel (0, 0) is transparent; (187, 0) is opaque.
 The native regression tests those pixels after the actual archive extraction,
 JPEG XL conversion, FB2 reconstruction and reader rendering. Converting this
 input to JPEG discards its alpha and produces the reported black rectangle.
+
+`reconstruct-original.jpg` is a synthetic 32 × 24 RGB pattern. Channel `c`
+at `(x, y)` is `(17*x + 11*y + 71*c) % 256` before JPEG encoding with Pillow
+quality 91. `reconstruct-encoded.jxl` was created by libjxl 0.12.0 `cjxl`
+with `-e 3 --num_threads=1` and carries JPEG reconstruction data.
+
+The native `flibrary-quality` scenario builds FB2 and EPUB fixtures with this
+external JXL image and compares the recovered JPEG with the original bytes.

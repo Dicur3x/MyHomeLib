@@ -50,6 +50,66 @@ begin
   Writeln('PASS feedback529 JPEG XL alpha through actual 7z/side ZIP, native reader pixels and old cache invalidation');
 end;
 
+procedure TestFLibraryJpegReconstruction;
+var Root, Container, Original, Encoded, Prepared, Fb2: string; Book: TBookRecord;
+  Sink: TMemoryStream; Zip: TZipFile; Bytes, OriginalBytes: TBytes; Document: TReaderDocument;
+begin
+  Root:=Settings.AppPath+'feedback529-jpeg'; ForceDirectories(Root+'\images');
+  Original:=Settings.AppPath+'reconstruct-original.jpg';
+  Encoded:=Settings.AppPath+'reconstruct-encoded.jxl';
+  Container:=Root+'\books.7z';
+  TFile.WriteAllText(Root+'\1.fb2','<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" '+
+    'xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><book-title>JPEG round trip</book-title></title-info></description>'+
+    '<body><section><p>Complete JPEG illustration text.</p><image l:href="#1"/></section></body></FictionBook>',TEncoding.UTF8);
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(Root+'\2.epub',zmWrite);
+    Zip.Add(TEncoding.ASCII.GetBytes('application/epub+zip'),'mimetype',zcStored);
+    Zip.Add(TEncoding.UTF8.GetBytes('<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'+
+      '<rootfiles><rootfile full-path="OPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'),'META-INF/container.xml');
+    Zip.Add(TEncoding.UTF8.GetBytes('<package xmlns="http://www.idpf.org/2007/opf" version="2.0">'+
+      '<manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>'+
+      '<item id="picture" href="picture.jpg" media-type="image/jpeg"/></manifest>'+
+      '<spine><itemref idref="chapter"/></spine></package>'),'OPS/book.opf');
+    Zip.Add(TEncoding.UTF8.GetBytes('<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Complete EPUB text.</p>'+
+      '<img src="picture.jpg" alt="Picture"/></body></html>'),'OPS/chapter.xhtml');
+    Zip.Add(TEncoding.UTF8.GetBytes('[{"id":"OPS/picture.jpg","num":0}]'),'FLibraryImageIndex.json');
+    Zip.Close;
+    Zip.Open(Root+'\images\books.zip',zmWrite);
+    Zip.Add(Encoded,'1/1'); Zip.Add(Encoded,'2/0');
+  finally Zip.Free; end;
+  Sink:=TMemoryStream.Create;
+  try RunExternalToolToStream(Settings.AppPath+'tools\7zip\7za.exe',
+    ['a','-t7z','-ms=off',Container,Root+'\1.fb2',Root+'\2.epub'],Sink);
+  finally Sink.Free; end;
+  OriginalBytes:=TFile.ReadAllBytes(Original);
+  Book:=Default(TBookRecord); Book.Folder:=Container; Book.FileName:='1'; Book.FileExt:='.fb2';
+  Book.LibID:='jpeg-reconstruct-fb2';
+  Prepared:=PrepareReaderFile(Book,True);
+  Fb2:=TFile.ReadAllText(Prepared,TEncoding.UTF8);
+  Require(Fb2.Contains('Complete JPEG illustration text.') and
+    Fb2.Contains('content-type="image/jpeg">'+TNetEncoding.Base64.EncodeBytesToString(OriginalBytes)+'</binary>'),
+    'Reading preparation did not reconstruct the exact FB2 JPEG');
+  Prepared:=PrepareConversionSource(Book,nil,'.fb2');
+  Require(TFile.ReadAllText(Prepared,TEncoding.UTF8)=Fb2,'Saving preparation changed the recovered FB2 JPEG');
+  Book.FileName:='2'; Book.FileExt:='.epub'; Book.LibID:='jpeg-reconstruct-epub';
+  Prepared:=PrepareConversionSource(Book,nil,'.epub');
+  Zip:=TZipFile.Create;
+  try
+    Zip.Open(Prepared,zmRead); Zip.Read('OPS/picture.jpg',Bytes);
+    Require((Length(Bytes)>0) and (Length(Bytes)=Length(OriginalBytes)) and
+      CompareMem(@Bytes[0],@OriginalBytes[0],Length(Bytes)),
+      'Restored EPUB JPEG differs from its original bytes');
+  finally Zip.Free; end;
+  Document:=TReaderDocument.Create;
+  try
+    Document.Load(Prepared);
+    Require((Document.ImageCount=1) and Document.PlainText.Contains('Complete EPUB text.'),
+      'The EPUB reader could not display the recovered JPEG and text');
+  finally Document.Free; end;
+  Writeln('PASS FLibrary reconstructs exact JPEG bytes in native FB2 and EPUB reading and export preparation');
+end;
+
 {$I FLibraryTextOnlyTests.inc}
 
 procedure TestFLibraryQualityExport(const Collection: IBookCollection);
@@ -107,6 +167,7 @@ begin
       'Actual WebP decoding did not renew its module use');
   end;
   TestFeedback529JXL(Collection);
+  TestFLibraryJpegReconstruction;
   if TrackUsage then Require(ComponentLastUse(Settings.AppPath,'JPEG XL')>0,'Actual FLibrary restoration did not record JPEG XL');
   Root:=Settings.AppPath+'feedback529-jxl';
   Book:=Default(TBookRecord); Book.Folder:=Root+'\alpha.7z';
