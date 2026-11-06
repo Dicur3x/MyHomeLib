@@ -125,6 +125,7 @@ function BookSaveKeepsSource(const SourceExtension: string;
 begin
   var Ext:=NormalExtension(SourceExtension);
   Result:=KeepOriginal or ((Mode=emAdvancedPDF) and (Ext='.pdf')) or
+    ((Mode=emMarkdown) and ((Ext='.md') or (Ext='.markdown'))) or
     (KeepFB2EPUB and ((Ext='.fb2') or (Ext='.epub')));
 end;
 
@@ -193,7 +194,8 @@ begin
 end;
 
 function BookSaveChoices(const Extensions: TArray<string>; ShowAdvanced: Boolean): TArray<TBookSaveChoice>;
-var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF: Boolean;
+var AllFB2, AllEPUB, AllTXT, AllMOBI, AllAZW3, HasFB2EPUB, HasOther, CanKepub, CanPDF, AllPDF,
+  AllMarkdown, CanMarkdown: Boolean;
   procedure Add(const Caption: string; Mode: TExportMode; KeepOriginal, KeepFB2EPUB: Boolean);
   var Choice: TBookSaveChoice;
   begin
@@ -205,12 +207,15 @@ begin
   Result:=nil; AllFB2:=Length(Extensions)>0; AllEPUB:=AllFB2;
   AllTXT:=AllFB2; AllMOBI:=AllFB2; AllAZW3:=AllFB2;
   HasFB2EPUB:=False; HasOther:=False; CanKepub:=AllFB2; CanPDF:=AllFB2; AllPDF:=AllFB2;
+  CanMarkdown:=AllFB2; AllMarkdown:=AllFB2;
   for var Extension in Extensions do
   begin
     var Ext:=NormalExtension(Extension);
     AllFB2:=AllFB2 and (Ext='.fb2'); AllEPUB:=AllEPUB and (Ext='.epub');
     AllTXT:=AllTXT and (Ext='.txt');
     AllPDF:=AllPDF and (Ext='.pdf');
+    AllMarkdown:=AllMarkdown and ((Ext='.md') or (Ext='.markdown'));
+    CanMarkdown:=CanMarkdown and (AdvancedWriterComponent(Ext,'md')<>'');
     CanKepub:=CanKepub and (AdvancedWriterComponent(Ext,'kepub')<>'');
     CanPDF:=CanPDF and ((Ext='.pdf') or (AdvancedWriterComponent(Ext,'pdf')<>''));
     AllMOBI:=AllMOBI and (Ext='.mobi'); AllAZW3:=AllAZW3 and (Ext='.azw3');
@@ -225,6 +230,7 @@ begin
   else if AllTXT then Add('Оставить TXT',emTxt,True,False)
   else if AllMOBI then Add('Оставить MOBI',emMobi,True,False)
   else if AllAZW3 then Add('Оставить AZW3',emAZW3,True,False)
+  else if AllMarkdown then Add('Оставить Markdown',emFB2,True,False)
   else Add('Оставить исходный формат каждой книги',emFB2,True,False);
   if not AllFB2 then
   begin
@@ -249,8 +255,8 @@ begin
       Add('Преобразовать в EPUB 3 через fb2cng',emEpub3,False,False);
       Add('Преобразовать в KFX — для Kindle',emKfx,False,False);
       Add('Преобразовать в AZW8 — для Kindle',emAzw8,False,False);
-      Add('Преобразовать в Markdown',emMarkdown,False,False);
     end;
+    if CanMarkdown and not AllMarkdown then Add('Преобразовать в Markdown',emMarkdown,False,False);
     if CanKepub then Add('Преобразовать в KEPUB — для Kobo',emKepub,False,False);
     if CanPDF and not AllPDF then Add('Преобразовать в PDF',emAdvancedPDF,False,False);
   end;

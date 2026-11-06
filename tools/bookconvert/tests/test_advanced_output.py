@@ -1,6 +1,8 @@
+from base64 import b64decode, b64encode
 from contextlib import closing
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -32,6 +34,42 @@ FB2 = '''<?xml version="1.0" encoding="utf-8"?>
 PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR6kAAAAASUVORK5CYII='
 
 
+def rich_epub(path):
+    package = f'''<package xmlns="{conversion.OP}" xmlns:dc="{conversion.DC}" version="3.0">
+      <metadata><dc:title>Reader fixture</dc:title><dc:creator>Sample Author</dc:creator></metadata>
+      <manifest>
+        <item id="first" href="one.xhtml" media-type="application/xhtml+xml"/>
+        <item id="second" href="two.xhtml" media-type="application/xhtml+xml"/>
+        <item id="notes" href="appendix/notes.xhtml" media-type="application/xhtml+xml"/>
+        <item id="image" href="pixel.png" media-type="image/png"/>
+        <item id="unsafe" href="unsafe.svg" media-type="image/svg+xml"/>
+      </manifest>
+      <spine><itemref idref="first"/><itemref idref="second"/></spine></package>'''
+    chapters = {
+        'one.xhtml': '''<h2>First chapter</h2>
+          <p><strong>Bold</strong> and <em>italic</em>. &lt;literal&gt; *star* &amp;copy;</p>
+          <p><a href="two.xhtml#next">Go to chapter two</a> <a epub:type="noteref" href="appendix/notes.xhtml#n1">1</a></p>
+          <table><tr><th>Header A</th><th>Header B</th></tr><tr><td>Cell A</td><td>Cell B</td></tr></table>
+          <ol start="3"><li>List item</li></ol><p>---</p>
+          <p><img src="pixel.png" alt="First image"/></p>
+          <p><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><title>Chart</title><rect width="8" height="8" fill="#369"/></svg>After chart.</p>
+          <p><img src="unsafe.svg" alt="Blocked diagram"/><img src="https://example.invalid/a.png" alt="Outside image"/></p>
+          <script>Unsafe source script</script>''',
+        'two.xhtml': '''<h2 id="next">Second chapter</h2>
+          <p><img src="pixel.png" alt="Same image"/> <a href="https://example.invalid/a(b)">Public link</a></p>''',
+        'appendix/notes.xhtml': '''<aside id="n1"><p>Note body with its own image.</p>
+          <p><img src="../pixel.png" alt="Note image"/></p></aside>''',
+    }
+    with zipfile.ZipFile(path, 'x') as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+        archive.writestr('OPS/book.opf', package)
+        for name, body in chapters.items():
+            archive.writestr('OPS/' + name, f'<html xmlns="{conversion.XH}" xmlns:epub="{conversion.EP}"><body>{body}</body></html>')
+        archive.writestr('OPS/pixel.png', b64decode(PNG))
+        archive.writestr('OPS/unsafe.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>bad</script></svg>')
+
+
 class AdvancedOutputTest(unittest.TestCase):
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()
@@ -55,6 +93,81 @@ class AdvancedOutputTest(unittest.TestCase):
                 conversion.convert_book(source, output, output_profile=profile, tools_root=self.tools)
             self.assertEqual(failure.exception.component, component)
             self.assertFalse(output.exists())
+
+    def test_epub_to_markdown_keeps_structure_links_and_local_images(self):
+        epub = self.work / 'independent.epub'
+        rich_epub(epub)
+        original = epub.read_bytes()
+        output = self.work / 'book.md'
+        result = conversion.convert_book(epub, output, output_profile='md', tools_root=self.tools)
+        text = output.read_text(encoding='utf-8')
+        self.assertTrue(text.startswith('# Reader fixture\n\nSample Author\n'))
+        self.assertLess(text.index('## First chapter'), text.index('## Second chapter'))
+        self.assertIn(r'**Bold** and *italic*. \<literal\> \*star\* \&copy;', text)
+        self.assertIn('| Header A | Header B |', text)
+        self.assertIn('| Cell A | Cell B |', text)
+        self.assertIn('3. List item', text)
+        self.assertIn(r'\---', text)
+        link = re.search(r'\[Go to chapter two\]\(#(hl-chapter-[\d-]+)\)', text)
+        self.assertIsNotNone(link)
+        self.assertIn(f'<a id="{link[1]}"></a>\n\n## Second chapter', text)
+        self.assertEqual(text.count('Note body with its own image.'), 1)
+        self.assertIn('[^note-1]: Note body', text)
+        self.assertIn('![Note image][hl-image-1]', text)
+        self.assertIn('![Same image][hl-image-1]', text)
+        self.assertEqual(text.count(PNG), 1)
+        svg = re.search(r'data:image/svg\+xml;base64,([^>]+)', text)
+        self.assertIsNotNone(svg)
+        chart = conversion.xml(b64decode(svg[1]))
+        self.assertEqual(conversion.tag(chart[1]), 'rect')
+        self.assertIn('After chart.', text)
+        self.assertIn('Blocked diagram', text)
+        self.assertIn('Outside image', text)
+        self.assertNotIn('https://example.invalid/a.png', text)
+        self.assertIn('[Public link](https://example.invalid/a%28b%29)', text)
+        self.assertNotIn('Unsafe source script', text)
+        self.assertTrue(any('шрифты' in item for item in result['warnings']))
+        self.assertEqual(result['size'], output.stat().st_size)
+        self.assertEqual(epub.read_bytes(), original)
+        self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
+
+    def test_docx_to_markdown_uses_local_writer_and_image_choice(self):
+        source = self.work / 'document.docx'
+        docx(source)
+        original = source.read_bytes()
+        with zipfile.ZipFile(source) as office:
+            image = b64encode(office.read('word/media/p.png')).decode('ascii')
+        for quality in ('original', 'none'):
+            with self.subTest(quality=quality):
+                output = self.work / (quality + '.md')
+                conversion.convert_book(source, output, output_profile='md', image_quality=quality, tools_root=self.tools)
+                text = output.read_text(encoding='utf-8')
+                for fragment in ('Глава один', '| Ячейка |', '[^note-1]: Точная сноска'):
+                    self.assertIn(fragment, text)
+                self.assertEqual(image in text, quality == 'original')
+                self.assertEqual('data:image/' in text, quality == 'original')
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_markdown_cancel_during_writing_leaves_no_copy(self):
+        source = self.work / 'cancel.epub'
+        rich_epub(source)
+        output = self.work / 'cancel.md'
+        writing = False
+
+        def progress(stage, done, total):
+            nonlocal writing
+            if stage == 'advanced-writing':
+                writing = True
+
+        def check():
+            if writing:
+                raise InterruptedError('cancel')
+
+        with self.assertRaises(InterruptedError):
+            conversion.convert_book(source, output, output_profile='md', tools_root=self.tools,
+                                    progress=progress, cancel_check=check)
+        self.assertFalse(output.exists())
+        self.assertFalse(list(self.work.glob('homelibre-advanced-*')))
 
     def test_unsupported_route_and_existing_output_are_left_alone(self):
         epub = self.work / 'source.epub'

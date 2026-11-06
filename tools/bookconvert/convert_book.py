@@ -803,6 +803,63 @@ def fb2_to_epub(source, output, warnings, maximum=MAX_FILE):
         for filename, (data, mime) in resources.items(): archive.writestr('OEBPS/' + filename, data)
 
 
+def epub_reading_order(archive, warnings, check=None):
+    """Read the spine and the local XHTML documents linked from it."""
+    container = xml(archive.read('META-INF/container.xml'))
+    package_path = next((n.get('full-path') for n in container.iter() if tag(n) == 'rootfile'), '')
+    if not package_path: raise ConversionError('В EPUB отсутствует пакет книги.')
+    package = xml(archive.read(package_path)); metadata = first(package, 'metadata')
+    manifest = first(package, 'manifest'); spine = first(package, 'spine')
+    if metadata is None or manifest is None or spine is None: raise ConversionError('Неполный пакет EPUB.')
+    items = {}
+    for item in manifest:
+        key = item.get('id')
+        if not key: raise ConversionError('В EPUB отсутствует идентификатор ресурса.')
+        if key in items:
+            if serialized(item).strip() != serialized(items[key]).strip():
+                raise ConversionError('Один идентификатор EPUB обозначает разные ресурсы: ' + key)
+            warnings.add('Повторяющиеся одинаковые записи каталога EPUB учтены один раз.')
+        else: items[key] = item
+    paths = {identity: archive.resolve(package_path, item.get('href', ''))[0] for identity, item in items.items()}
+    documents = []
+    documents_by_path = {}
+    def load_document(path):
+        if path in documents_by_path: return
+        if check is not None: check()
+        if path is None: raise ConversionError('Внешняя глава EPUB не скачивается.')
+        document = xhtml(archive.read(path))
+        if document.tag not in {'{' + XH + '}html', 'html'}:
+            raise ConversionError('Глава EPUB не является XHTML.')
+        body = first(document, 'body')
+        if body is None: raise ConversionError('В главе EPUB отсутствует текст.')
+        ids = [n.get('id') for n in body.iter() if n.get('id')]
+        if len(ids) != len(set(ids)): raise ConversionError('В главе EPUB повторяются идентификаторы: ' + path)
+        documents.append((path, body)); documents_by_path[path] = body
+        # Publisher styles may be embedded in each chapter's head too.
+        head = first(document, 'head')
+        if head is not None:
+            embedded_css.extend(''.join(n.itertext()) for n in head.iter() if tag(n) == 'style')
+    embedded_css = []
+    for itemref in spine:
+        identity = itemref.get('idref'); item = items.get(identity)
+        if item is None: raise ConversionError('EPUB ссылается на отсутствующую главу.')
+        if item.get('media-type') != 'application/xhtml+xml':
+            raise ConversionError('Нетекстовая глава EPUB не поддерживается: ' + item.get('media-type', ''))
+        if 'nav' in item.get('properties', '').split(): continue
+        load_document(paths[identity])
+    if not documents: raise ConversionError('В EPUB отсутствуют главы для чтения.')
+    # A valid EPUB may keep referenced notes or appendices outside the spine.
+    # Include only linked local XHTML resources, never download external ones.
+    text_resources = {paths[k] for k, item in items.items()
+                      if item.get('media-type') == 'application/xhtml+xml' and 'nav' not in item.get('properties', '').split()}
+    for path, body in documents:
+        for link in body.iter():
+            if tag(link) == 'a' and link.get('href'):
+                target, _ = archive.resolve(path, link.get('href'))
+                if target in text_resources: load_document(target)
+    return package_path, metadata, manifest, spine, items, paths, documents, embedded_css
+
+
 def epub_to_fb2(source, output, warnings, *, use_navigation=True):
     archive = EpubArchive(source)
     try:
@@ -812,57 +869,8 @@ def epub_to_fb2(source, output, warnings, *, use_navigation=True):
             if any(a not in {'http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC'} for a in algorithms):
                 raise ConversionError('Зашифрованная книга EPUB не поддерживается.')
             warnings.add('Встроенные шрифты EPUB не переносятся в FB2.')
-        container = xml(archive.read('META-INF/container.xml'))
-        package_path = next((n.get('full-path') for n in container.iter() if tag(n) == 'rootfile'), '')
-        if not package_path: raise ConversionError('В EPUB отсутствует пакет книги.')
-        package = xml(archive.read(package_path)); metadata = first(package, 'metadata')
-        manifest = first(package, 'manifest'); spine = first(package, 'spine')
-        if metadata is None or manifest is None or spine is None: raise ConversionError('Неполный пакет EPUB.')
-        items = {}
-        for item in manifest:
-            key = item.get('id')
-            if not key: raise ConversionError('В EPUB отсутствует идентификатор ресурса.')
-            if key in items:
-                if serialized(item).strip() != serialized(items[key]).strip():
-                    raise ConversionError('Один идентификатор EPUB обозначает разные ресурсы: ' + key)
-                warnings.add('Повторяющиеся одинаковые записи каталога EPUB учтены один раз.')
-            else: items[key] = item
-        paths = {identity: archive.resolve(package_path, item.get('href', ''))[0] for identity, item in items.items()}
-        documents = []
-        documents_by_path = {}
-        def load_document(path):
-            if path in documents_by_path: return
-            if path is None: raise ConversionError('Внешняя глава EPUB не скачивается.')
-            document = xhtml(archive.read(path))
-            if document.tag not in {'{' + XH + '}html', 'html'}:
-                raise ConversionError('Глава EPUB не является XHTML.')
-            body = first(document, 'body')
-            if body is None: raise ConversionError('В главе EPUB отсутствует текст.')
-            ids = [n.get('id') for n in body.iter() if n.get('id')]
-            if len(ids) != len(set(ids)): raise ConversionError('В главе EPUB повторяются идентификаторы: ' + path)
-            documents.append((path, body)); documents_by_path[path] = body
-            # Publisher styles may be embedded in each chapter's head too.
-            head = first(document, 'head')
-            if head is not None:
-                embedded_css.extend(''.join(n.itertext()) for n in head.iter() if tag(n) == 'style')
-        embedded_css = []
-        for itemref in spine:
-            identity = itemref.get('idref'); item = items.get(identity)
-            if item is None: raise ConversionError('EPUB ссылается на отсутствующую главу.')
-            if item.get('media-type') != 'application/xhtml+xml':
-                raise ConversionError('Нетекстовая глава EPUB не поддерживается: ' + item.get('media-type', ''))
-            if 'nav' in item.get('properties', '').split(): continue
-            load_document(paths[identity])
-        if not documents: raise ConversionError('В EPUB отсутствуют главы для чтения.')
-        # A valid EPUB may keep referenced notes or appendices outside the spine.
-        # Include only linked local XHTML resources, never download external ones.
-        text_resources = {paths[k] for k, item in items.items()
-                          if item.get('media-type') == 'application/xhtml+xml' and 'nav' not in item.get('properties', '').split()}
-        for path, body in documents:
-            for link in body.iter():
-                if tag(link) == 'a' and link.get('href'):
-                    target, _ = archive.resolve(path, link.get('href'))
-                    if target in text_resources: load_document(target)
+        package_path, metadata, manifest, spine, items, paths, documents, embedded_css = epub_reading_order(archive, warnings)
+        documents_by_path = dict(documents)
         outline_headings, outline_titles = epub_outline_headings(archive, items, paths, spine, documents_by_path, warnings) if use_navigation else ({}, {})
         aliases = {}
         def base_identity(path, fragment=''):

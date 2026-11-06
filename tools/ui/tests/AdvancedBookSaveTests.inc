@@ -65,6 +65,7 @@ begin
             'Additional formats appeared in the ordinary list');
           Extras.Perform(BM_CLICK,0,0);
           Require(string(Formats.Items.Text).Contains(' PDF'),'Mixed FB2 and EPUB have no PDF choice');
+          Require(string(Formats.Items.Text).Contains('Markdown'),'Mixed FB2, EPUB and DOCX have no Markdown choice');
           var Index:=-1;
           for var J:=0 to Formats.Items.Count-1 do
             if string(Formats.Items[J]).Contains('KEPUB') then begin Index:=J; Break; end;
@@ -192,6 +193,11 @@ begin
     Require(not (Item.Mode in BOOK_SAVE_ADVANCED_MODES),'Unsupported source can reach an advanced writer');
   for var Item in BookSaveChoices(['.pdf'],True) do
     Require(Item.Mode<>emAdvancedPDF,'An all-PDF selection offers duplicate output');
+  var MarkdownChoices:=BookSaveChoices(['.md','.markdown'],True);
+  Require(MarkdownChoices[0].KeepOriginal and MarkdownChoices[0].Caption.Contains('Markdown'),
+    'Markdown source copy is not labeled');
+  for var Item in MarkdownChoices do
+    Require(Item.Mode<>emMarkdown,'An all-Markdown selection offers duplicate output');
   var EmptyRuntime:=Root+'without-modules';
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[0].GetBookFileName,'.fb2',False,nil,'.kepub.epub','kepub');
   Require(String.Join(',',Required)='BookProcessing,FB2Export','FB2 requests an unrelated Kobo module');
@@ -203,12 +209,22 @@ begin
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','EPUB to PDF must use only the EPUB writer');
   Required:=MissingBookConversionComponents(EmptyRuntime,Books[2].GetBookFileName,'.docx',False,nil,'.pdf','pdf');
   Require(String.Join(',',Required)='BookProcessing,EpubPdfExport','DOCX requested an unrelated module');
+  for var Index in [0,1,2] do
+  begin
+    Required:=MissingBookConversionComponents(EmptyRuntime,Books[Index].GetBookFileName,Books[Index].FileExt,False,nil,'.md','md');
+    var Expected:='BookProcessing';
+    if Index=0 then Expected:=Expected+',FB2Export';
+    Require(String.Join(',',Required)=Expected,'Markdown requested the wrong modules');
+  end;
   Required:=MissingBookConversionComponents(EmptyRuntime,'','.djvu',False,nil,'.kepub.epub','kepub');
   Require(String.Join(',',Required)='BookProcessing,KoboExport,DjVuLibre','DjVu did not request its source reader and Kobo writer');
   var Capability:=TPath.Combine(Settings.AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
   var CurrentAPI:=TFile.ReadAllBytes(Capability);
-  TFile.WriteAllText(Capability,'1',TEncoding.ASCII);
   try
+    TFile.WriteAllText(Capability,'2',TEncoding.ASCII);
+    Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.md','md');
+    Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for EPUB to Markdown');
+    TFile.WriteAllText(Capability,'1',TEncoding.ASCII);
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[2].GetBookFileName,'.docx',False,nil,'.kepub.epub','kepub');
     Require(String.Join(',',Required)='BookProcessing','An old engine was accepted for DOCX to KEPUB');
     Required:=MissingBookConversionComponents(Settings.AppPath,Books[1].GetBookFileName,'.epub',False,nil,'.kepub.epub','kepub');
@@ -234,8 +250,19 @@ begin
     end;
   finally Review.Timer.Free; Review.Free; end;
 
-  for var Mode in [emKepub,emAdvancedPDF] do
+  var Originals:=Books;
+  var OriginalHashes:=SourceHashes;
+  var MarkdownPath:=Root+'source.markdown';
+  TFile.WriteAllText(MarkdownPath,'# Markdown input'+sLineBreak+'Keep all bytes.',TEncoding.UTF8);
+  for var Mode in [emKepub,emMarkdown,emAdvancedPDF] do
   begin
+    Books:=Originals;
+    SourceHashes:=OriginalHashes;
+    if Mode=emMarkdown then
+    begin
+      Books:=Books+[FileBook(MarkdownPath)];
+      SourceHashes:=SourceHashes+[UpdateSHA256(MarkdownPath)];
+    end;
     if Mode=emAdvancedPDF then
     begin
       var OriginalPDF:=FileBook(Root+'source.pdf');
@@ -255,8 +282,8 @@ begin
         if not Complete then Sleep(10);
       until Complete;
       Require(Length(Estimates)=Length(Books),'Advanced estimate lost a book');
-      if Mode=emAdvancedPDF then
-        Require(Estimates[High(Estimates)].ImagesUnchanged,'Existing PDF was not estimated as an original copy');
+      if Mode in [emAdvancedPDF,emMarkdown] then
+        Require(Estimates[High(Estimates)].ImagesUnchanged,'Existing output format was not estimated as an original copy');
       for var Item in Estimates do
       begin
         Require(Item.Completed and (Item.ErrorText=''),Status+' '+Item.ErrorText);
@@ -275,13 +302,14 @@ begin
       Require((Length(Required)=0) and (Probe.Failure='') and (Length(Results)=Length(Books)),
         'Advanced save did not finish: '+Probe.Failure+String.Join(', ',Required));
       for var Item in Results do Require(Item.State=besSucceeded,Item.ErrorText);
-      if Mode=emAdvancedPDF then
+      if Mode in [emAdvancedPDF,emMarkdown] then
         Require(UpdateSHA256(Results[High(Results)].OutputFile)=SourceHashes[High(SourceHashes)],
-          'Mixed PDF export re-rendered the existing PDF');
+          'Mixed export changed a book in the selected format');
       Require(not SameFileName(Results[0].OutputFile,Results[1].OutputFile),'Collision lost one advanced output');
       for var I:=0 to High(Results) do
       begin
-        Require(Results[I].OutputFile.EndsWith(Extension,True),'Collision or save lost the expected extension');
+        Require(Results[I].OutputFile.EndsWith(BookSaveTargetExtension(Books[I].FileExt,Mode,False,False),True),
+          'Collision or save lost the expected extension');
         var Size:=TFile.GetSize(Results[I].OutputFile);
         Require(Abs(Size-Estimates[I].Options.OutputBytes[0,0])<=512,'Estimate did not measure the written format');
         Require(UpdateSHA256(Books[I].GetBookFileName)=SourceHashes[I],'Advanced save modified a source');
@@ -295,6 +323,12 @@ begin
             Require(Signature='%PDF-','Advanced output has no PDF signature');
           finally FileStream.Free; end;
         end;
+        if (Mode=emMarkdown) and (I<High(Results)) then
+        begin
+          var Markdown:=TFile.ReadAllText(Results[I].OutputFile,TEncoding.UTF8);
+          Require(Markdown.Contains('# ') and Markdown.Contains('data:image/'),
+            'Markdown has no headings or embedded illustration');
+        end;
       end;
       Require(Length(TDirectory.GetFiles(Options.Folder))=Length(Books),'Advanced export left extra files');
     finally
@@ -303,4 +337,5 @@ begin
     end;
   end;
   Writeln('PASS advanced save compact choices restored review mixed Kobo and PDF estimates output collisions and source hashes'); Flush(Output);
+  Writeln('PASS mixed Markdown save estimates modules images and byte-identical source copy'); Flush(Output);
 end;

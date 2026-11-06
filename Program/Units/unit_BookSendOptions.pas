@@ -380,7 +380,7 @@ begin
     if BookSaveIsScanSource(Item.SourceExtension) and not SameText(Item.SourceExtension,Item.TargetExtension) and
       ((Item.TargetExtension='.fb2') or (Item.TargetExtension='.epub') or
        (Item.TargetExtension='.mobi') or (Item.TargetExtension='.azw3') or
-       (Choice.Mode in [emKepub,emAdvancedPDF])) then Exit(True);
+       (Choice.Mode in [emKepub,emAdvancedPDF,emMarkdown])) then Exit(True);
 end;
 
 function TBookSendOptionsForm.EstimateBytes(const Item: TBookSaveEstimateItem; Quality: Integer): Int64;

@@ -346,8 +346,8 @@ begin
       Exit;
     end;
     PreparedSource:=''; SourceExtension:=LowerCase(R.FileExt);
-    if (R.GetBookFormat in [bfFb2Archive,bfRawArchive]) and (FKeepSourceFormat or FKeepFB2EPUB or
-      ((FExportMode=emAdvancedPDF) and (SourceExtension='.pdf'))) then
+    if (R.GetBookFormat in [bfFb2Archive,bfRawArchive]) and
+      (FKeepFB2EPUB or BookSaveKeepsSource(SourceExtension,FExportMode,FKeepSourceFormat,FKeepFB2EPUB)) then
       FFileOprecord.Stream:=OpenArchivedBookSaveSource(R,SourceExtension)
     else if not (R.GetBookFormat in [bfFb2Archive,bfRawArchive,bfFbd]) then
       SourceExtension:=BookSaveFileExtension(R.GetBookFileName,R.FileExt);

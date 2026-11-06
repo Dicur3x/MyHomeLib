@@ -209,6 +209,7 @@ begin
   if not IsBasicConversionSource(Ext) then Exit;
   if Profile='kepub' then Exit('KoboExport');
   if (Profile='pdf') and (Ext<>'.pdf') then Exit('EpubPdfExport');
+  if Profile='md' then Exit('BookProcessing');
 end;
 
 procedure RecordBookConversionUse(const ResolvedExtension, TargetExtension, OutputProfile: string);
@@ -220,7 +221,7 @@ begin
   var ID:=SourceComponent(Ext);
   if ID<>'' then RecordComponentUse(ID);
   ID:=AdvancedWriterComponent(Ext,OutputProfile);
-  if ID<>'' then RecordComponentUse(ID);
+  if (ID<>'') and (ID<>'BookProcessing') then RecordComponentUse(ID);
   if IndexText(TargetExtension,['.mobi','.azw3'])>=0 then RecordComponentUse('KindleExport');
 end;
 
@@ -259,11 +260,13 @@ begin
     var Capability:=TPath.Combine(AppPath,'tools/bookconvert/ADVANCED_EXPORT_API.txt');
     if Length(Result)=0 then
     begin
-      var API:='';
+      var API:=0;
+      var RequiredAPI:=1;
+      if (Ext<>'.fb2') and (Ext<>'.epub') then RequiredAPI:=2;
+      if Writer='BookProcessing' then RequiredAPI:=3;
       if FileExists(Capability) and (TFile.GetSize(Capability)<=16) then
-        API:=Trim(TFile.ReadAllText(Capability,TEncoding.ASCII));
-      if (API<>'2') and ((API<>'1') or ((Ext<>'.fb2') and (Ext<>'.epub'))) then
-        Result:=TArray<string>.Create('BookProcessing');
+        API:=StrToIntDef(Trim(TFile.ReadAllText(Capability,TEncoding.ASCII)),0);
+      if API<RequiredAPI then Result:=TArray<string>.Create('BookProcessing');
     end;
     Need(Writer);
   end;

@@ -5321,5 +5321,19 @@
     "verification": "Two native save-planning runs on final source passed a six-book FB2, EPUB, PDF and DjVu selection, including an image-only PDF and DjVu. Compared exact TXT byte estimates, source hashes, requested component, missing-layer feedback and output filenames. Each architecture also passed 22 fixed-layout and nine no-image worker tests, including partial PDF with an explicit missing-page marker and canceled preparation. Existing native image estimates, ZIP and separate profile checks passed. Proof: tools/ui/tests/Out/text-layer-save-20261106-r2.log.",
     "cleanup": "Both completed runs removed their isolated packages, project clones, test profiles and extracted fixtures.",
     "remaining": "Check compact module download and continuation in the final clean catalog and Reader packages. Expand the other output routes and finish the remaining release gates."
+  },
+  "mixed_markdown_export_20261106": {
+    "status": "Markdown is offered in additional Save As formats for compatible mixed selections. Verified on x86 and x64 in the working branch.",
+    "implementation": "FB2 retains fb2cng. EPUB uses the local BookProcessing writer without an FB2 intermediate. Other compatible inputs use the normal EPUB preparation and request only the necessary source decoder. Existing .md and .markdown files in the batch are copied byte for byte; homogeneous Markdown selections omit duplicate conversion. Advanced Export API 3 applies to the new paths.",
+    "content": "The standalone UTF-8 output retains chapter order, title, author, formatting markers, local links, notes, tables, lists and local images. Embedded raster images are shared by reference. Safe static SVG can be embedded; complex SVG and external images may be reduced to their available text or a placeholder. Markdown does not retain publisher CSS, embedded fonts or page layout, and displaying embedded images depends on the Markdown viewer.",
+    "verification": "Native x86 and x64 Save As recognized the additional choice and the relevant modules, calculated four size estimates per book, and saved FB2, EPUB, DOCX and an existing .markdown together. The existing copy and all inputs matched their hashes. Each architecture passed ten advanced writer tests, including cross-chapter links, an off-spine note, repeated raster images, inline static SVG, no-images mode, cancellation and unchanged EPUB and DOCX sources. A separate broad run passed 285 tests, with three packaged writer cases skipped there and passed in the architecture-specific runs.",
+    "logs": "tools/ui/tests/Out/markdown-export-20261106-r1.log and tools/ui/tests/Out/markdown-module-regression-20261106-r3.log.",
+    "cleanup": "Both native and isolated package-regression runs removed their temporary packages, fixtures and copied tools from G:. An earlier stage from a different route remains subject to the previous cleanup denial.",
+    "remaining": "Verify on-demand update and export continuation with final clean catalog and Reader packages. Expand direct EPUB 2/3 and the compatible Kindle routes before release."
+  },
+  "zip_deletion_forum_report_20261106": {
+    "status": "Queued for focused timing and consistency verification after the current export work.",
+    "reported": "A beta 4 user reported successful file removal but about 20 seconds on the first deletion of 5–20 single-book ZIPs, with apparently faster subsequent attempts. Build 1105 felt faster for deletion. The user also recalled historical catalogue records left after file removal. These are observations, not instrumented timings.",
+    "check": "On owned ZIP fixtures, compare first and repeated runs of 5 and 20 single-book ZIPs. Time archive inventory, cross-reference checks, archive removal and catalogue update separately. Verify that successful physical removal also clears the catalogue entry and preserves adjacent books."
   }
 }
