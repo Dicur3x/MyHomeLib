@@ -399,6 +399,8 @@ begin
 
   MaskElements[14].templ := 'id';
   MaskElements[14].value := R.LibID;
+  if TemplType in [TpFile, TpPath] then
+    MaskElements[14].value := CleanFileName(MaskElements[14].value);
 
   // Collect empty optional blocks once. The former implementation reparsed the
   // complete template after every deletion and left FBlocksMap describing the

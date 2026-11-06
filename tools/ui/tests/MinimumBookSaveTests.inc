@@ -6,6 +6,35 @@ const XML='<?xml version="1.0" encoding="utf-8"?>'+
 var Root, FB2, EPUB, PDF, DjVu, DOC, Required, Member: string; ZIP: TZipFile;
   Probe: TUnifiedSendProbe; Options: TBookSendOptions; Results: TBookExportResults;
   SavedShowMainForm: Boolean;
+  procedure SaveNamesWithLibraryID;
+  var Book: TBookRecord; Templater: TTemplater; Expected, Before: string;
+  begin
+    Book:=FileBook(FB2); Book.Title:='Сталкер'; Book.LibID:='librusec:142938';
+    Before:=UpdateSHA256(FB2);
+    Options:=Default(TBookSendOptions); Options.Folder:=TPath.Combine(Root,'library-id');
+    ForceDirectories(Options.Folder);
+    Options.Mode:=emFB2; Options.KeepSourceFormat:=True; Options.ImageQuality:='original';
+    Options.NameCollision:=bncKeepBoth;
+    Options.FileNameTemplate:='[%n - ]%t-%id'; Options.FolderTemplate:='Источники\%id';
+    Probe.Deadline:=GetTickCount64+30000; Probe.Messages.Clear; Probe.Worker:=nil;
+    Probe.Timer.Enabled:=True;
+    try Results:=SaveFileBooks([Book],Options,Required);
+    finally Probe.Timer.Enabled:=False; Probe.Worker:=nil; end;
+    Require((Required='') and (Probe.Messages.Count=0) and (SuccessfulBookExportCount(Results)=1),
+      'A source-qualified library ID prevented saving the book: '+Probe.Messages.Text);
+    Expected:=TPath.Combine(Options.Folder,'Источники\librusec 142938\Сталкер-librusec 142938.fb2');
+    Require(SameFileName(Results[0].OutputFile,Expected) and (UpdateSHA256(Expected)=Before) and
+      (UpdateSHA256(FB2)=Before),'Library ID mask changed the file bytes or target path');
+    Templater:=TTemplater.Create;
+    try
+      Require((Templater.SetTemplate('%id',TpText)=ErFine) and
+        (Templater.ParseString(Book,TpText)='librusec:142938'), 'Text lost the original library ID');
+      Book.LibID:='root\child:42';
+      Require((Templater.SetTemplate('%ID',TpPath)=ErFine) and
+        (Templater.ParseString(Book,TpPath)='root child 42'), 'Library ID injected a path separator');
+    finally Templater.Free; end;
+    Writeln('PASS source-qualified library ID in file and folder masks');
+  end;
   procedure Policy;
   var Choices: TArray<TBookSaveChoice>;
   begin
@@ -298,6 +327,7 @@ begin
   try
     Probe.Timer:=TTimer.Create(nil); Probe.Timer.Interval:=50; Probe.Timer.OnTimer:=Probe.Tick;
     Probe.SavedModal:=Application.OnModalBegin; Application.OnModalBegin:=Probe.ModalBegin;
+    SaveNamesWithLibraryID;
     PlainText;
     Save(FB2,'fb2-explicit-original',emFB2,False,'original',False);
     Save(EPUB,'epub-explicit-original',emEpub,False,'original',False);
